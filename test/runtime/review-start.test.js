@@ -236,7 +236,22 @@ test('the text form prints the protocol lines after riskSource', async (t) => {
   assert.match(out[at + 1], /^protocol\.seats: seat-a\[/);
   assert.match(out[at + 2], /^protocol\.origins: id=risk /);
   assert.match(out[at + 3], /^protocol\.invariants: INV-1,/);
+  assert.equal(out[at + 4], 'protocol.enforcement: reviewer native=claude,gemini,opencode,copilot,kiro unenforced=codex,pi,antigravity');
   assert.ok(out.some((line) => line.startsWith('depthBasis: ')));
+});
+
+test('the JSON protocol seats the reviewer agent and carries 8 enforcement rows', async (t) => {
+  const r = repo(t);
+  r.lines([r.line()]);
+  const { exitCode, json } = await start(r);
+  assert.equal(exitCode, 0);
+  assert.deepEqual(json.protocol.seats.map((seat) => seat.agent), ['reviewer', 'reviewer']);
+  assert.deepEqual(json.protocol.enforcement.map((row) => `${row.agent}/${row.harness}/${row.status}`), [
+    'reviewer/claude/native', 'reviewer/codex/unenforced', 'reviewer/gemini/native', 'reviewer/opencode/native',
+    'reviewer/pi/unenforced', 'reviewer/copilot/native', 'reviewer/kiro/native', 'reviewer/antigravity/unenforced',
+  ]);
+  assert.equal(json.protocol.enforcement[0].reason, null);
+  assert.match(json.protocol.enforcement[1].reason, /sandbox_mode/);
 });
 
 // ---- IC-005: the seat floor is the shipped gates.json narrowed by the project's gates.override.json ----

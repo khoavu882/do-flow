@@ -1193,8 +1193,10 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   seat lens is in the lens catalogue, `review-deep` is the strictest review preset in `order.review` with at
   least as many seats as every class's `gate-b.minSeats` in `gates.json` (so no other review preset is needed
   to meet a floor), no preset's `rounds.default` exceeds `hardRoundCap`, every invariant carries a non-empty
-  `enforcedBy`, and the shipped file passes `validateProtocols` with no error. Controls on cloned registries:
-  a one-seat `review-deep`, an unknown lens, rounds above the cap, an invariant without `enforcedBy`, a
+  `enforcedBy`, every review-preset seat names an agent whose spec in `core/shared/agent-specs/` declares
+  `access: read-only` (a debate seat may be a write-access agent), and the shipped file passes
+  `validateProtocols` with no error. Controls on cloned registries: a review seat on a write-access or
+  missing agent, a one-seat `review-deep`, an unknown lens, rounds above the cap, an invariant without `enforcedBy`, a
   non-strictest first review preset and a duplicate preset id in the raw text are each named, and the shipped
   registry reports nothing. The check that settings `valuesRef` entries into protocols resolve joins in
   Phase B, when the first such key exists.

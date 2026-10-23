@@ -12,8 +12,8 @@
       "kind": "review",
       "depth": "deep",
       "seats": [
-        { "id": "seat-a", "agent": "quality-guardian", "lenses": ["correctness", "boundaries"], "model": { "tier": "frontier", "family": "different-from-author" } },
-        { "id": "seat-b", "agent": "quality-guardian", "lenses": ["correctness", "test-honesty", "boundaries"], "model": { "tier": "frontier", "family": "any" } }
+        { "id": "seat-a", "agent": "reviewer", "lenses": ["correctness", "boundaries"], "model": { "tier": "frontier", "family": "different-from-author" } },
+        { "id": "seat-b", "agent": "reviewer", "lenses": ["correctness", "test-honesty", "boundaries"], "model": { "tier": "frontier", "family": "any" } }
       ],
       "rounds": { "default": 2, "min": 2 },
       "crossAnswer": true,
@@ -24,7 +24,7 @@
       "kind": "review",
       "depth": "single",
       "seats": [
-        { "id": "seat-a", "agent": "quality-guardian", "lenses": ["correctness", "test-honesty", "boundaries"], "model": { "tier": "frontier", "family": "any" } }
+        { "id": "seat-a", "agent": "reviewer", "lenses": ["correctness", "test-honesty", "boundaries"], "model": { "tier": "frontier", "family": "any" } }
       ],
       "rounds": { "default": 1, "min": 1 },
       "crossAnswer": false,

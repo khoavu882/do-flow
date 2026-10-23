@@ -36,6 +36,17 @@ function gateMinSeats(gatePolicy: any, taskClass: string | null): number {
   return Number.isInteger(floor) && floor > 0 ? floor : 0;
 }
 
+/**
+ * 119 FR-008: one `{ agent, harness, status, reason }` row per read-only seat agent (seat order, each once) x harness
+ * (registry order). `agentAccess` is `{ <agent>: 'read-only'|'write' }`, `readOnlyLimits` the ordered
+ * `[{ harness, status, reason }]` the caller loaded; a caller that passes neither gets no rows.
+ */
+function enforcementRows(seats: any[], agentAccess: any, readOnlyLimits: any): any[] {
+  if (!agentAccess || !Array.isArray(readOnlyLimits)) return [];
+  const agents = [...new Set<string>(seats.map((seat: any) => seat.agent))].filter((agent) => agentAccess[agent] === 'read-only');
+  return agents.flatMap((agent) => readOnlyLimits.map((limit: any) => ({ agent, harness: limit.harness, status: limit.status, reason: limit.reason ?? null })));
+}
+
 /** The review preset id carrying a depth label, or undefined. */
 function idOfDepth(registry: any, depth: string): string | undefined {
   return presetIds(registry, 'review').find((id: string) => registry.presets[id].depth === depth);
@@ -53,7 +64,7 @@ function setBy(settingsView: any, key: string): { value: any; layer: Origin } | 
  * of a review. A setting is never a refusal: a looser preset setting is ignored and listed in `disagreements`.
  * Returns `{ ok: true, protocol }` or `{ ok: false, reason, field }`.
  */
-function resolveProtocol({ kind, taskClass, risk, paths, runPreset, advicePick, settingsView, gatePolicy, registry, riskPolicy }: any):
+function resolveProtocol({ kind, taskClass, risk, paths, runPreset, advicePick, settingsView, gatePolicy, registry, riskPolicy, agentAccess, readOnlyLimits }: any):
   { ok: true; protocol: any } | Refusal {
   const order: string[] = presetIds(registry, kind);
   const disagreements: any[] = [];
@@ -179,7 +190,7 @@ function resolveProtocol({ kind, taskClass, risk, paths, runPreset, advicePick, 
       sameFamily: sameFamilyOrigin, crossFamilyRereview: crossFamilyOrigin,
     },
     disagreements,
-    enforcement: [],
+    enforcement: enforcementRows(seats, agentAccess, readOnlyLimits),
   });
   return { ok: true, protocol };
 }
@@ -205,6 +216,11 @@ function protocolLines(protocol: any): string[] {
     `protocol.seats: ${protocol.seats.map((seat: any) => `${seat.id}[${(protocol.lensesBySeat[seat.id] ?? []).join(',')}]`).join(' ')}`,
     `protocol.origins: ${Object.entries(protocol.origins).map(([field, origin]) => `${field}=${origin}`).join(' ')}`,
     `protocol.invariants: ${protocol.invariants.join(',')}`,
+    ...[...new Set<string>((protocol.enforcement ?? []).map((row: any) => row.agent))].map((agent) => {
+      const rows = protocol.enforcement.filter((row: any) => row.agent === agent);
+      const ids = (status: string) => rows.filter((row: any) => row.status === status).map((row: any) => row.harness).join(',');
+      return `protocol.enforcement: ${agent} native=${ids('native')} unenforced=${ids('unenforced')}`;
+    }),
     ...(protocol.disagreements?.length
       ? [`protocol.disagreements: ${protocol.disagreements.map((d: any) => `field=${d.field} by=${d.by} value=${d.value} reason=${d.reason}`).join('; ')}`]
       : []),

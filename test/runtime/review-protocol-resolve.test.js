@@ -234,3 +234,77 @@ test('a registry with no single-labelled review preset is refused registry-incom
   noDebate.order.debate = ['debate-3'];
   assert.deepEqual(resolve({ kind: 'debate', registry: noDebate }), { ok: false, reason: 'registry-incomplete', field: 'registry' });
 });
+
+// 119 F.1 (IC-003, FR-008): `enforcement` says, per harness, whether the read-only limit of a read-only seat
+// agent is enforced. The expected rows are written out here, never read from the code under test.
+const { loadEnforcementInputs } = require('../../src/runtime/review/start.ts');
+
+const HARNESS_ORDER = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+const UNENFORCED = ['codex', 'pi', 'antigravity'];
+
+test('enforcement: the loaded inputs give 8 reviewer rows, codex, pi and antigravity unenforced', () => {
+  const inputs = loadEnforcementInputs(REGISTRY);
+  assert.equal('error' in inputs, false, JSON.stringify(inputs));
+  assert.equal(inputs.agentAccess.reviewer, 'read-only');
+  assert.equal(inputs.agentAccess['quality-guardian'], undefined, 'only the agents the registry seats are read');
+  const { protocol } = resolve({ taskClass: 'feature', paths: SCOPES.code, ...inputs });
+  assert.ok(protocol.seats.every((seat) => seat.agent === 'reviewer'));
+  assert.deepEqual(protocol.enforcement.map((row) => [row.agent, row.harness]), HARNESS_ORDER.map((id) => ['reviewer', id]));
+  for (const row of protocol.enforcement) {
+    assert.equal(row.status, UNENFORCED.includes(row.harness) ? 'unenforced' : 'native', row.harness);
+    assert.equal(typeof row.reason === 'string' || row.reason === null, true);
+    assert.equal(row.reason !== null, row.status === 'unenforced', `${row.harness}: only an unenforced row explains itself`);
+  }
+  assert.deepEqual(Object.keys(protocol.enforcement[0]), ['agent', 'harness', 'status', 'reason']);
+  const single = resolve({ ...inputs });
+  assert.equal(single.protocol.id, 'review-single');
+  assert.equal(single.protocol.enforcement.length, 8);
+});
+
+test('enforcement: a debate (write-access seat agents) has none; so has a caller that passes no inputs', () => {
+  const inputs = loadEnforcementInputs(REGISTRY);
+  assert.deepEqual(resolve({ kind: 'debate', paths: null, ...inputs }).protocol.enforcement, []);
+  assert.deepEqual(resolve({ taskClass: 'feature' }).protocol.enforcement, []);
+});
+
+test('enforcement: one row per distinct read-only seat agent, in seat order, from the inputs given', () => {
+  const registry = structuredClone(REGISTRY);
+  registry.presets['review-deep'].seats[1].agent = 'second-reader';
+  const agentAccess = { reviewer: 'read-only', 'second-reader': 'read-only' };
+  const readOnlyLimits = [{ harness: 'h1', status: 'native', reason: null }, { harness: 'h2', status: 'unenforced', reason: 'why' }];
+  const { protocol } = resolve({ registry, taskClass: 'feature', agentAccess, readOnlyLimits });
+  assert.deepEqual(protocol.enforcement, [
+    { agent: 'reviewer', harness: 'h1', status: 'native', reason: null },
+    { agent: 'reviewer', harness: 'h2', status: 'unenforced', reason: 'why' },
+    { agent: 'second-reader', harness: 'h1', status: 'native', reason: null },
+    { agent: 'second-reader', harness: 'h2', status: 'unenforced', reason: 'why' },
+  ]);
+  const mixed = resolve({ registry, taskClass: 'feature', agentAccess: { reviewer: 'read-only', 'second-reader': 'write' }, readOnlyLimits });
+  assert.deepEqual([...new Set(mixed.protocol.enforcement.map((row) => row.agent))], ['reviewer']);
+});
+
+test('enforcement: an unreadable harness registry or agent spec is refused, not an empty enforcement', () => {
+  const none = loadEnforcementInputs({ presets: { x: { seats: [{ agent: 'no-such-agent' }] } } });
+  assert.equal(none.error, 'protocols-invalid');
+  assert.match(none.message, /no-such-agent/);
+  const empty = loadEnforcementInputs(REGISTRY, { harnessesFile: path.join(require('node:os').tmpdir(), 'doflow-no-such-harnesses.json') });
+  assert.equal(empty.error, 'protocols-invalid');
+  assert.match(empty.message, /harnesses/);
+});
+
+test('protocolLines: one enforcement line per read-only agent, harness ids grouped by status', () => {
+  const inputs = loadEnforcementInputs(REGISTRY);
+  const { protocol } = resolve({ taskClass: 'feature', ...inputs });
+  const lines = protocolLines(protocol);
+  assert.equal(lines.length, 5);
+  assert.equal(lines[3], 'protocol.invariants: INV-1,INV-2,INV-3,INV-4,INV-5,INV-6,INV-7');
+  assert.equal(lines[4], 'protocol.enforcement: reviewer native=claude,gemini,opencode,copilot,kiro unenforced=codex,pi,antigravity');
+});
+
+test('enforcement is part of the digest', () => {
+  const { protocolDigest } = require('../../src/runtime/review/resolve-protocol.ts');
+  const inputs = loadEnforcementInputs(REGISTRY);
+  const withRows = resolve({ taskClass: 'feature', ...inputs }).protocol;
+  const without = resolve({ taskClass: 'feature' }).protocol;
+  assert.notEqual(protocolDigest(withRows), protocolDigest(without));
+});

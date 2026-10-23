@@ -182,14 +182,53 @@ const PROTOCOL_SETTINGS = ['review.preset', 'review.rounds', 'review.sameFamily'
   'review.extraLenses', 'review.blockerClauses', 'debate.preset'];
 
 /**
+ * 119 FR-008: the two inputs `resolveProtocol` turns into `enforcement`: `agentAccess` (the spec `access` of every
+ * agent the registry seats) and `readOnlyLimits` (each harness's `agentLimits.readOnly`, registry order). A spec or
+ * harness registry that cannot be read, or that lacks a value, is an error for the caller to refuse with.
+ */
+function loadEnforcementInputs(registry: any, { harnessesFile = path.join(REPO_ROOT, 'core', 'registry', 'harnesses.json'), specDir = path.join(REPO_ROOT, 'core', 'shared', 'agent-specs') }: { harnessesFile?: string; specDir?: string } = {}):
+  { agentAccess: Record<string, string>; readOnlyLimits: { harness: string; status: string; reason: string | null }[] } | { error: string; message: string } {
+  const fail = (message: string) => ({ error: 'protocols-invalid', message });
+  const agentAccess: Record<string, string> = {};
+  const agents = new Set<string>();
+  for (const preset of Object.values<any>(registry?.presets ?? {})) for (const seat of preset?.seats ?? []) agents.add(seat.agent);
+  for (const agent of agents) {
+    let text: string;
+    try {
+      if (!/^[a-z][a-z0-9-]*$/.test(agent)) throw new Error('not a plain agent name');
+      text = fs.readFileSync(path.join(specDir, `${agent}.md`), 'utf8');
+    } catch {
+      return fail(`seat agent '${agent}' has no readable spec at core/shared/agent-specs/${agent}.md`);
+    }
+    const access = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1].match(/^access:\s*(\S+)\s*$/m)?.[1];
+    if (access !== 'read-only' && access !== 'write') return fail(`seat agent '${agent}' spec has no access: read-only|write`);
+    agentAccess[agent] = access;
+  }
+  let harnesses: any;
+  try { harnesses = JSON.parse(fs.readFileSync(harnessesFile, 'utf8')).harnesses; } catch {
+    return fail(`the harnesses registry (core/registry/harnesses.json) cannot be read`);
+  }
+  if (!Array.isArray(harnesses) || harnesses.length === 0) return fail('the harnesses registry lists no harness');
+  const readOnlyLimits: { harness: string; status: string; reason: string | null }[] = [];
+  for (const harness of harnesses) {
+    const limit = harness?.agentLimits?.readOnly;
+    if (typeof harness?.id !== 'string' || (limit?.status !== 'native' && limit?.status !== 'unenforced')) {
+      return fail(`harness '${harness?.id}' has no agentLimits.readOnly.status of native or unenforced`);
+    }
+    readOnlyLimits.push({ harness: harness.id, status: limit.status, reason: typeof limit.reason === 'string' ? limit.reason : null });
+  }
+  return { agentAccess, readOnlyLimits };
+}
+
+/**
  * The inputs `resolveProtocol` needs beyond the change facts: the project's settings as the plain `settingsView`
  * the resolver reads (`{ key: { value, layer } }`, 119 L-B8), the gate policy (the shipped gates.json narrowed by the
  * project's `.doflow/gates.override.json`, read as roadmap gate-b reads it, 119 IC-005; null when there is no task class, so
- * no floor) and the protocols registry. A base, override or registry the loaders reject is a refusal carrying the loader's
+ * no floor), the protocols registry and the enforcement inputs (`loadEnforcementInputs`). A base, override or registry the loaders reject is a refusal carrying the loader's
  * reason (and the override file). Shared with the `protocol` verb.
  */
 function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<string, string | undefined> = process.env):
-  { gatePolicy: any; registry: any; settingsView: Record<string, { value: unknown; layer: string }> } | { error: string; message: string } {
+  { gatePolicy: any; registry: any; settingsView: Record<string, { value: unknown; layer: string }>; agentAccess: Record<string, string>; readOnlyLimits: any[] } | { error: string; message: string } {
   const settingsView: Record<string, { value: unknown; layer: string }> = {};
   try {
     const settings = require('../settings/resolve.ts').loadSettings({ projectRoot: path.resolve(cwd), env });
@@ -217,7 +256,9 @@ function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<s
   }
   const protocols = require('./protocols.ts').loadProtocols();
   if (!protocols.ok) return { error: 'protocols-invalid', message: protocols.errors.join('; ') };
-  return { gatePolicy, registry: protocols.registry, settingsView };
+  const enforcement = loadEnforcementInputs(protocols.registry);
+  if ('error' in enforcement) return enforcement;
+  return { gatePolicy, registry: protocols.registry, settingsView, ...enforcement };
 }
 
 /** The decision model's opinion on the decided depth. Never throws: any failure is `unavailable`. */
@@ -397,4 +438,4 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
   }
 }
 
-module.exports = { reviewPrecondition, handleReviewStart, loadProtocolInputs, validSlug };
+module.exports = { reviewPrecondition, handleReviewStart, loadProtocolInputs, loadEnforcementInputs, validSlug };

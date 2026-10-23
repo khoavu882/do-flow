@@ -10,7 +10,8 @@
 //       `review-deep` (the floor is met by that one preset alone; no other review preset is
 //       needed to meet it);
 //   (d) a preset whose `rounds.default` exceeds `hardRoundCap`;
-//   (e) no invariants, or an invariant with an empty `enforcedBy`.
+//   (e) no invariants, or an invariant with an empty `enforcedBy`;
+//   (g) a review preset seat whose agent has no spec with `access: read-only` (a review seat is read-only).
 // Two checks read the shipped file directly: (a) preset ids are unique in the raw text (parsed JSON
 // hides a duplicate key; `loadProtocols` scans the text, so the check does not depend on formatting), and (f) the shipped file passes `validateProtocols` with zero errors.
 //
@@ -38,6 +39,16 @@ function duplicateKeyErrors(text) {
   return loadProtocols({ file }).errors.filter((e) => e.startsWith('duplicate key'));
 }
 
+const SPEC_DIR = path.join(REPO, 'core', 'shared', 'agent-specs');
+
+/** The `access:` frontmatter value of the agent spec named `agent`, or null when there is no such spec or value. */
+function specAccess(agent) {
+  const file = path.join(SPEC_DIR, `${agent}.md`);
+  if (!fs.existsSync(file)) return null;
+  const front = fs.readFileSync(file, 'utf8').match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  return front?.[1].match(/^access:\s*(\S+)\s*$/m)?.[1] ?? null;
+}
+
 function checkProtocols(p, g) {
   const offenders = [];
   const lensIds = new Set((p.lenses ?? []).map((lens) => lens.id));
@@ -49,6 +60,14 @@ function checkProtocols(p, g) {
     }
     if (preset.rounds && preset.rounds.default > p.hardRoundCap) {
       offenders.push(`${id}.rounds.default ${preset.rounds.default} exceeds hardRoundCap ${p.hardRoundCap}`);
+    }
+  }
+
+  // (g) a review seat is read-only (INV-2): its agent names an existing spec whose `access` is `read-only`.
+  for (const id of p.order?.review ?? []) {
+    for (const seat of p.presets?.[id]?.seats ?? []) {
+      const access = specAccess(seat.agent);
+      if (access !== 'read-only') offenders.push(`${id}.${seat.id} seats agent '${seat.agent}' whose spec access is ${access ?? 'missing'}, not read-only`);
     }
   }
 
@@ -89,6 +108,17 @@ test('G66 control: a one-seat review-deep is red against the class floor', () =>
   const bad = clone();
   bad.presets['review-deep'].seats = bad.presets['review-deep'].seats.slice(0, 1);
   assert.ok(checkProtocols(bad, gates).some((o) => /review-deep has 1 seat/.test(o)));
+});
+
+test('G66 control: a review seat on a write-access or missing agent is red', () => {
+  const bad = clone();
+  bad.presets['review-single'].seats[0].agent = 'quality-guardian';
+  assert.ok(checkProtocols(bad, gates).some((o) => /review-single\.seat-a seats agent 'quality-guardian' whose spec access is write/.test(o)));
+  bad.presets['review-single'].seats[0].agent = 'no-such-agent';
+  assert.ok(checkProtocols(bad, gates).some((o) => /whose spec access is missing/.test(o)));
+  const debate = clone();
+  debate.presets['debate-2'].seats[0].agent = 'system-architect';
+  assert.deepEqual(checkProtocols(debate, gates), [], 'a debate seat may be a write-access agent');
 });
 
 test('G66 control: an unknown lens is red', () => {

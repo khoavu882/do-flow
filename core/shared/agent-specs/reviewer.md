@@ -31,8 +31,9 @@ In a second round, answer every finding of the other seat with AGREE, REFUTE wit
 REVISE, and propose merging findings that share a root cause.
 
 ## Synthesis
-The converged result is written by a separate, fresh reviewer dispatch with a synthesis brief, never
-by a seat: one findings record from both rounds, checked against the format the brief names.
+With more than one seat, the converged result is written by a separate, fresh reviewer dispatch with a
+synthesis brief, never by a seat: one findings record from both rounds, checked against the format the
+brief names. A single seat writes its own result.
 
 ## Tests
 Run tests only in a scratch copy of the reviewed head, never in a live checkout; kill every process

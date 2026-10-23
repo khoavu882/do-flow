@@ -55,6 +55,19 @@ test('resolve --kind debate prints debate-2: two rounds, decided by the orchestr
   assert.equal(json.protocol.decider, 'orchestrator');
 });
 
+test('resolve --kind review prints the enforcement line and carries the rows; a debate has none', (t) => {
+  const s = scratch(t);
+  const res = s.cli(['--action', 'resolve', '--kind', 'review']);
+  assert.equal(res.status, 0, res.stderr);
+  assert.match(res.stdout, /^protocol\.enforcement: reviewer native=claude,gemini,opencode,copilot,kiro unenforced=codex,pi,antigravity$/m);
+  const json = JSON.parse(s.cli(['--action', 'resolve', '--kind', 'review', '--json']).stdout);
+  assert.equal(json.protocol.enforcement.length, 8);
+  assert.deepEqual(json.protocol.enforcement.filter((row) => row.status === 'unenforced').map((row) => row.harness), ['codex', 'pi', 'antigravity']);
+  const debate = JSON.parse(s.cli(['--action', 'resolve', '--kind', 'debate', '--json']).stdout);
+  assert.deepEqual(debate.protocol.enforcement, []);
+  assert.doesNotMatch(s.cli(['--action', 'resolve', '--kind', 'debate']).stdout, /protocol\.enforcement/);
+});
+
 test('resolve reads the project settings: a project debate.preset debate-3 prints debate-3 with origin project', (t) => {
   const s = scratch(t);
   fs.writeFileSync(path.join(s.cwd, '.doflow', 'settings.json'), JSON.stringify({ schema: 1, 'debate.preset': 'debate-3' }));
