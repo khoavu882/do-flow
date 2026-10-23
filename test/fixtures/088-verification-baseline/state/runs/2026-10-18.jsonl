@@ -1,0 +1,10 @@
+{"timestamp":"2026-10-18T15:21:22.570Z","verb":"storage","kind":"upkeep","outcome":"ok","duration_ms":1,"run":"f2-loop","lineage":"main","attempt":"1"}
+{"timestamp":"2026-10-18T15:21:22Z","verb":"task-attempt","exit_code":0,"duration_ms":332,"arg_count":9,"run":"f2-loop","lineage":"main","attempt":"1"}
+{"timestamp":"2026-10-18T15:21:22Z","verb":"task-attempt","exit_code":0,"duration_ms":112,"arg_count":13,"run":"f2-loop","lineage":"main","attempt":"1"}
+{"timestamp":"2026-10-18T15:21:23Z","verb":"storage","exit_code":0,"duration_ms":74,"arg_count":2,"run":"f2-loop","lineage":"main","attempt":"1"}
+{"timestamp":"2026-10-18T15:21:30.070Z","verb":"storage","kind":"upkeep","outcome":"ok","duration_ms":0,"run":"f2-loop","lineage":"main","attempt":"1"}
+{"timestamp":"2026-10-18T15:21:29Z","verb":"verify","exit_code":1,"duration_ms":632,"arg_count":6,"run":"f2-loop","lineage":"main","attempt":"1"}
+{"timestamp":"2026-10-18T15:21:41.507Z","verb":"storage","kind":"upkeep","outcome":"ok","duration_ms":0,"run":"f2-loop","lineage":"main","attempt":"1"}
+{"timestamp":"2026-10-18T15:21:40Z","verb":"verify","exit_code":1,"duration_ms":701,"arg_count":6,"run":"f2-loop","lineage":"main","attempt":"1"}
+{"timestamp":"2026-10-18T15:21:45Z","verb":"evidence","exit_code":0,"duration_ms":185,"arg_count":9,"run":"f2-loop","lineage":"main","attempt":"1"}
+{"timestamp":"2026-10-18T15:21:45Z","verb":"task-attempt","exit_code":0,"duration_ms":179,"arg_count":13,"run":"f2-loop","lineage":"main","attempt":"1"}
