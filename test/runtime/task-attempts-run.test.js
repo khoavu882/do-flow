@@ -15,6 +15,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { claim, TaskAttemptError } = require('../../src/runtime/task-attempts.ts');
+const { measureSources, compareSources } = require('../../src/runtime/task-sources.ts');
 const { runKeyFor, createRun, epochRefusal, clearedCancels } = require('../../src/runtime/task-run.ts');
 const { graphDigest, graphTuples, buildGraph } = require('../../src/runtime/task-graph.ts');
 const { parsePlan } = require('../../src/runtime/scaffold/artifacts.ts');
@@ -193,6 +194,27 @@ test('a cancel stamped earlier than a resume is not cleared by the clock; only t
   // Control: the same store with A.2 listed clears both, so the listing is what decides.
   store.runs[p.key.runKey].history[0].cleared.push({ taskId: 'A.2', token: 1 });
   assert.deepEqual(clearedCancels(store).map((c) => `${c.taskId}#${c.token}`).sort(), ['A.1#1', 'A.2#1']);
+});
+
+// ── IC-013: a file absent in the execution worktree reads removed (FU-ev7r3g) ───────────────────
+
+test('a declared file absent in the execution worktree reads absent even when the main copy exists', (t) => {
+  const p = project(t, planText());
+  const exec = tempDir(t, 'doflow-task-sources-exec-');
+  fs.writeFileSync(path.join(p.dir, 'a.js'), 'main\n');
+  fs.writeFileSync(path.join(exec, 'a.js'), 'worktree\n');
+  const before = measureSources({ files: ['a.js'] }, exec, [p.dir]);
+  assert.equal(before.sources[0].kind, 'file');
+  assert.equal(before.execWorktreeMissing, false);
+  fs.rmSync(path.join(exec, 'a.js'));
+  const after = measureSources({ files: ['a.js'] }, exec, [p.dir]);
+  assert.deepEqual(after.sources[0], { file: 'a.js', kind: 'absent', fileHash: null }, 'the main copy is not consulted');
+  assert.deepEqual(compareSources(before, after), { unverifiable: false, files: [{ file: 'a.js', change: 'removed' }] });
+  // Control: with no execution worktree the plan roots still resolve the file.
+  assert.equal(measureSources({ files: ['a.js'] }, null, [p.dir]).sources[0].kind, 'file');
+  // Control: a missing execution worktree keeps measuring the roots and flags the task.
+  const gone = measureSources({ files: ['a.js'] }, path.join(exec, 'gone'), [p.dir]);
+  assert.deepEqual([gone.execWorktreeMissing, gone.sources[0].kind], [true, 'file']);
 });
 
 test('graphTasks is stored at 500 tasks and null with graphTruncated at 501', (t) => {

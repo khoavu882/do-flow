@@ -89,17 +89,19 @@ function measureOne(declared: string, roots: string[]): SourceRecord {
 }
 
 /**
- * IC-013: measures the task's first 64 `files:` entries, each resolved under `execWorktree`, else
- * under the other `roots` (the `loadPlan` roots) in order where it exists. A missing
- * `execWorktree` is reported as `execWorktreeMissing` and the remaining roots are still measured.
+ * IC-013: measures the task's first 64 `files:` entries, each resolved under `execWorktree` alone
+ * when one is given and exists (an entry absent there is `absent`), else under the `roots` (the
+ * `loadPlan` roots) in order where it exists. A missing `execWorktree` is reported as
+ * `execWorktreeMissing` and the roots are still measured.
  */
 function measureSources(task: { files?: string[] | null }, execWorktree: string | null, roots: string[] = []): SourceMeasurement {
   const declared = Array.isArray(task?.files) ? task.files : [];
   const execWorktreeMissing = Boolean(execWorktree) && !exists(execWorktree);
-  const candidates = [...new Set([
-    ...(execWorktree && !execWorktreeMissing ? [path.resolve(execWorktree)] : []),
-    ...roots.map((root) => path.resolve(root)),
-  ])];
+  // An execution worktree that exists is the only place an entry is read: a file absent there is
+  // `absent` (a removal), never the main copy. Without one, or when it is gone, the plan roots serve.
+  const candidates = execWorktree && !execWorktreeMissing
+    ? [path.resolve(execWorktree)]
+    : [...new Set(roots.map((root) => path.resolve(root)))];
   const sources = declared.slice(0, MAX_SOURCES).map((file) => measureOne(file, candidates));
   return {
     sources,

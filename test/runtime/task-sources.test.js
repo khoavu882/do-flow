@@ -96,7 +96,7 @@ test('a file of 1 MiB plus one byte is not read', (t) => {
   assert.deepEqual(m.sources, [{ file: 'big.bin', kind: 'unhashable', fileHash: null, why: 'too-large' }]);
 });
 
-test('entries resolve under the execWorktree first, then the other roots in order', (t) => {
+test('an existing execWorktree is the only root read; the other roots serve when there is none (IC-013, FU-ev7r3g)', (t) => {
   const wt = tempDir(t, 'doflow-sources-');
   const r1 = tempDir(t, 'doflow-sources-');
   const r2 = tempDir(t, 'doflow-sources-');
@@ -104,8 +104,11 @@ test('entries resolve under the execWorktree first, then the other roots in orde
   fs.writeFileSync(path.join(r1, 'both.txt'), 'r1');
   fs.writeFileSync(path.join(r2, 'only2.txt'), 'r2');
   const m = measureSources({ files: ['both.txt', 'only2.txt', 'nowhere.txt'] }, wt, [r1, r2, wt]);
-  assert.deepEqual(m.sources.map((s) => s.fileHash), [sha('wt'), sha('r2'), null]);
-  assert.equal(m.sources[2].kind, 'absent');
+  assert.deepEqual(m.sources.map((s) => s.fileHash), [sha('wt'), null, null], 'a file the worktree lacks is not taken from another root');
+  assert.deepEqual(m.sources.map((s) => s.kind), ['file', 'absent', 'absent']);
+  // Without an execution worktree the roots resolve in order: the first root holding the entry wins.
+  const roots = measureSources({ files: ['both.txt', 'only2.txt', 'nowhere.txt'] }, null, [r1, r2]);
+  assert.deepEqual(roots.sources.map((s) => s.fileHash), [sha('r1'), sha('r2'), null]);
 });
 
 test('more than 64 entries: the first 64 are measured and sourcesTruncated is set', (t) => {
