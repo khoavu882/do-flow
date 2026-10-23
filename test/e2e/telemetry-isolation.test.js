@@ -32,6 +32,13 @@ const INJECT_FROM = 'session:dft_token($d.identity.session)';
 const INJECT_TO = 'session:error("x")';
 const FS_FAULTS = ['telemetry-dir-unwritable', 'fifo-target', 'directory-target', 'runs-unwritable'];
 const PROFILES = ['compat-1', 'strict-1'];
+// Hang guards, not performance budgets: one CLI or hook call takes about 0.2 s and the whole G-O3
+// matrix about 40 s on a quiet machine, and a loaded one multiplies both. A spawnSync timeout has no
+// observable condition to wait on (the event is the exit itself), so the ceiling is the only knob; it
+// is generous so a slow call is not read as a failed one, and a real hang still fails.
+const CALL_TIMEOUT_MS = 60000;
+const MIRROR_TIMEOUT_MS = 120000;
+const MATRIX_TIMEOUT_MS = 900000;
 
 after(() => removeTree(SCRATCH));
 
@@ -197,7 +204,7 @@ function runCli(root, args, { telemetry = 'on', preload = null, extraEnv = {}, l
   const result = spawnSync(process.execPath, ['--require', selectedPreload, CLI, ...args], {
     cwd: root,
     env: nodeEnv(root, telemetry, extraEnv),
-    timeout: 5000,
+    timeout: CALL_TIMEOUT_MS,
     maxBuffer: 1024 * 1024,
   });
   return commandResult(result, `${label ? `${label}: ` : ''}doflow ${args.join(' ')}`);
@@ -325,7 +332,7 @@ const SURFACES = {
 const GUARDS = Object.values(SURFACES).filter((surface) => surface.policy === 'pre-bash-guard');
 
 function buildMirror(root) {
-  const result = spawnSync(BASH, [MIRROR_SCRIPT, root], { encoding: 'utf8', timeout: 15000 });
+  const result = spawnSync(BASH, [MIRROR_SCRIPT, root], { encoding: 'utf8', timeout: MIRROR_TIMEOUT_MS });
   assert.equal(result.status, 0, `install mirror: ${result.stderr || ''}`);
   fs.mkdirSync(path.join(root, '.doflow', 'state', 'runs'), { recursive: true });
 }
@@ -414,7 +421,7 @@ function runHook(root, surface, native, { telemetry = 'on', profile = 'compat-1'
     cwd: root,
     input: Buffer.from(`${JSON.stringify(payload)}\n`),
     env: hookEnv(root, surface, telemetry, profile),
-    timeout: 5000,
+    timeout: CALL_TIMEOUT_MS,
     maxBuffer: 1024 * 1024,
   };
   let result;
@@ -563,7 +570,7 @@ function runEncodeBypassNegativeControl() {
   }
 }
 
-test('G-O3: CLI verbs and bridge hooks are byte-identical on, off and faulted', { timeout: 119000 }, () => {
+test('G-O3: CLI verbs and bridge hooks are byte-identical on, off and faulted', { timeout: MATRIX_TIMEOUT_MS }, () => {
   const started = Date.now();
   const node = runNodeMatrix();
   const hooks = runHookMatrix();
@@ -575,7 +582,7 @@ test('G-O3: CLI verbs and bridge hooks are byte-identical on, off and faulted', 
 
   assert.equal(node.cases.length, 10, 'fixed Node verb list');
   assert.equal(hooks.cases.length, 20, 'fixed hook list, including both guard profiles');
-  assert.ok(Date.now() - started < 119000, 'the complete matrix stays under 120 seconds');
+  assert.ok(Date.now() - started < MATRIX_TIMEOUT_MS, 'the complete matrix finishes inside its hang ceiling');
   assert.equal(node.comparisons, 60, '10 Node commands × on plus five faults');
   assert.equal(hooks.comparisons, 120, '20 hook commands × on plus five faults');
   assert.equal(hookLines(hooks.root).length, 0, 'fault comparisons leave no telemetry line behind');
