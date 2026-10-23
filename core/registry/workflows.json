@@ -99,7 +99,7 @@
         {
           "id": "planning",
           "skill": "do-plan",
-          "agent": "core-implementer",
+          "agent": "delivery-lead",
           "kind": "planning",
           "readinessTemplate": null,
           "optional": false,
@@ -108,7 +108,7 @@
         {
           "id": "implementation",
           "skill": "do-execute-plan",
-          "agent": "core-implementer",
+          "agent": "delivery-lead",
           "kind": "implementation",
           "readinessTemplate": "feature",
           "optional": false,
@@ -126,7 +126,7 @@
         {
           "id": "review",
           "skill": "do-code-review",
-          "agent": "quality-guardian",
+          "agent": "reviewer",
           "kind": "review",
           "readinessTemplate": null,
           "optional": false,
@@ -205,7 +205,7 @@
         {
           "id": "review",
           "skill": "do-code-review",
-          "agent": "quality-guardian",
+          "agent": "reviewer",
           "kind": "review",
           "readinessTemplate": null,
           "optional": true,
@@ -259,7 +259,7 @@
         {
           "id": "review",
           "skill": "do-code-review",
-          "agent": "quality-guardian",
+          "agent": "reviewer",
           "kind": "review",
           "readinessTemplate": null,
           "optional": false,
@@ -286,7 +286,7 @@
         {
           "id": "review",
           "skill": "do-code-review",
-          "agent": "quality-guardian",
+          "agent": "reviewer",
           "kind": "review",
           "readinessTemplate": null,
           "optional": false,
@@ -349,7 +349,7 @@
         {
           "id": "review",
           "skill": "do-code-review",
-          "agent": "quality-guardian",
+          "agent": "reviewer",
           "kind": "review",
           "readinessTemplate": null,
           "optional": true,
@@ -403,7 +403,7 @@
         {
           "id": "review",
           "skill": "do-code-review",
-          "agent": "quality-guardian",
+          "agent": "reviewer",
           "kind": "review",
           "readinessTemplate": null,
           "optional": true,
@@ -421,7 +421,7 @@
         {
           "id": "state-check",
           "skill": "do-git",
-          "agent": "core-implementer",
+          "agent": "delivery-lead",
           "kind": "analysis",
           "readinessTemplate": null,
           "optional": false,
@@ -439,7 +439,7 @@
         {
           "id": "execution",
           "skill": "do-git",
-          "agent": "core-implementer",
+          "agent": "delivery-lead",
           "kind": "operation",
           "readinessTemplate": null,
           "optional": false,

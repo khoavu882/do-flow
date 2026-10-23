@@ -16,7 +16,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
+const { suiteTempDir, removeTree } = require('../helper/tmp');
 const path = require('node:path');
 const { resolveTransform } = require('../../src/adapters/copy-tree.ts');
 const { REPO } = require('./_shared');
@@ -199,7 +199,7 @@ test('G63: the shipped tree has no binding, projection or name-list drift', () =
 
 // Negative controls: each runs on a scratch copy of only the files the guard reads.
 function controlFindings(mutate, options) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'g63-'));
+  const root = suiteTempDir('doflow-g63-');
   try {
     for (const rel of Object.values(FILES)) {
       const dest = path.join(root, rel);
@@ -210,7 +210,7 @@ function controlFindings(mutate, options) {
     const editJson = (rel, fn) => edit(rel, (s) => { const j = JSON.parse(s); fn(j); return `${JSON.stringify(j, null, 2)}\n`; });
     mutate({ root, edit, editJson });
     return check(root, options).join('\n');
-  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  } finally { removeTree(root); }
 }
 
 test('G63 control: an untouched scratch copy is green (controls start clean)', () => {

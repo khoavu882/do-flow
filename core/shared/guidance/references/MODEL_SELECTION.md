@@ -46,9 +46,11 @@ settle, after asking. Seat count: `doflow review --action start`.
 |---|---|---|
 | `system-architect` | `frontier` | Architecture sets system shape: a consequential decision. |
 | `core-implementer` | `standard` | Routine coding against a settled spec. |
-| `quality-guardian` | `standard` | Its testing and evidence work; a review runs at `frontier` per-dispatch (`## Reviews`), not via `byOwner`. |
+| `quality-guardian` | `standard` | Testing and evidence work; review tasks belong to `reviewer`. |
 | `spec-analyst` | `standard` | Requirements analysis and routine research. |
 | `research-writer` | `standard` | Documentation and routine research. |
+| `delivery-lead` | `frontier` | Plans and orchestrates delivery; its records gate merges. |
+| `reviewer` | `frontier` | Review verdicts gate merges (`## Reviews`). |
 
 ## Briefs and inheritance
 

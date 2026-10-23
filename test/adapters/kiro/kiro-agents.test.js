@@ -16,7 +16,7 @@ const { projectAdapterInput } = require('../../../src/adapters/index.ts');
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const SPECS_DIR = path.join(REPO_ROOT, 'core', 'shared', 'agent-specs');
 const DOFLOW_AGENT = path.join(REPO_ROOT, 'core', 'harnesses', 'kiro', 'agents', 'doflow.json');
-const SPEC_NAMES = ['core-implementer', 'quality-guardian', 'research-writer', 'spec-analyst', 'system-architect'];
+const SPEC_NAMES = ['core-implementer', 'delivery-lead', 'quality-guardian', 'research-writer', 'reviewer', 'spec-analyst', 'system-architect'];
 
 const scratch = () => suiteTempDir('doflow-kiro-agents-');
 const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
@@ -111,7 +111,7 @@ test('the registry projects shared agents to JSON and declares the doflow agent 
   assert.equal(own.source, 'core/harnesses/kiro/agents');
 });
 
-test('adapter installs <name>.json for all five specs plus doflow.json, verifies managed, and uninstalls', () => {
+test('adapter installs <name>.json for all seven specs plus doflow.json, verifies managed, and uninstalls', () => {
   const root = scratch(); const adapter = createKiroAdapter();
   const assets = kiroAgentAssets();
   const context = { repoRoot: REPO_ROOT };

@@ -7,15 +7,23 @@
 // description at most 160 characters, all descriptions together at most 1,000, and every spec
 // declares `access` (`read-only` or `write`, IC-002). Raising a cap is a deliberate edit to this
 // file, never a side effect of adding a spec.
+//
+// 118 C.1 design amendment: a spec is standalone, usable in a project without DoFlow, so no spec
+// names a DoFlow runtime verb, state path or record (STANDALONE_TOKENS) outside the one line that
+// lets a workflow's stage brief override the spec (HOOK_LINE). The procedure lives in the skills.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const { agentSpecFiles } = require('./_shared');
+const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
+const { agentSpecFiles, AGENT_SPECS } = require('./_shared');
 
 const MAX_SPECS = 7;
 const MAX_DESCRIPTION = 160;
 const MAX_TOTAL = 1000;
 const ACCESS_VALUES = ['read-only', 'write'];
+const STANDALONE_TOKENS = ['doflow-run', '.doflow/', 'task-attempt', 'readiness', 'orchestrate', 'findings.json'];
+const HOOK_LINE = 'If a workflow hands you a stage brief, its procedure and output format override the defaults here.';
 
 /** Frontmatter values for the keys this guard reads. Quotes are stripped; no YAML dependency. */
 function frontmatterValue(text, key) {
@@ -88,4 +96,31 @@ test('G64: the check bites on an eighth spec, a 161-character description, and a
 
   const missing = base.map((spec, i) => (i === 0 ? { ...spec, access: undefined } : spec));
   assert.match(findings(missing).join('\n'), /access is undefined/);
+});
+
+/** `<spec>:<line>: names '<token>'` for every DoFlow token in a spec under `dir`, case-insensitive,
+ * skipping the hook line. */
+function standaloneFindings(dir) {
+  const out = [];
+  for (const name of fs.readdirSync(dir).filter((n) => n.endsWith('.md')).sort()) {
+    fs.readFileSync(path.join(dir, name), 'utf8').split('\n').forEach((line, i) => {
+      if (line.trim() === HOOK_LINE) return;
+      for (const token of STANDALONE_TOKENS) if (line.toLowerCase().includes(token)) out.push(`${name}:${i + 1}: names '${token}'`);
+    });
+  }
+  return out;
+}
+
+test('G64: no spec names a DoFlow verb, state path or record outside the hook line', () => {
+  assert.deepEqual(standaloneFindings(AGENT_SPECS), []);
+});
+
+test('G64 control: a planted doflow-run in a scratch spec dir is red; the hook line alone is green', (t) => {
+  const dir = tempDir(t, 'doflow-g64-');
+  fs.cpSync(AGENT_SPECS, dir, { recursive: true });
+  assert.deepEqual(standaloneFindings(dir), [], 'controls start from the shipped specs');
+  fs.appendFileSync(path.join(dir, 'reviewer.md'), `${HOOK_LINE}\n`);
+  assert.deepEqual(standaloneFindings(dir), [], 'the hook line is allowed');
+  fs.appendFileSync(path.join(dir, 'reviewer.md'), 'Record the result with doflow-run and check the Readiness file.\n');
+  assert.deepEqual(standaloneFindings(dir).map((f) => f.replace(/:\d+:/, ':')), ["reviewer.md: names 'doflow-run'", "reviewer.md: names 'readiness'"]);
 });
