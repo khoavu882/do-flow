@@ -3,6 +3,7 @@ name: system-architect
 description: "Specialist architect agent for end-to-end system design, API contracts, schema modeling, backend, frontend, and infrastructure architecture"
 model: inherit
 effort: high
+access: read-only
 ---
 
 # system-architect

@@ -3,15 +3,12 @@ name: spec-analyst
 description: "Specialist agent for requirements discovery, user story breakdown, epic decomposition, acceptance criteria definition, and development estimation"
 model: inherit
 effort: medium
+access: read-only
 ---
 
 # spec-analyst
 
 Specialist agent for specification analysis, requirements discovery, and backlog estimation.
-This archetype is not currently dispatched by any skill; it is reserved for a future multi-task
-orchestration pattern in `do-brainstorm`/`do-plan`, should those skills grow a subagent-dispatch
-step the way `do-execute-plan` dispatches to `system-architect`, `core-implementer`, and
-`quality-guardian` today.
 
 ## Capabilities
 - Socratic requirements elicitation (WHY/WHAT over HOW).
