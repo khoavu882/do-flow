@@ -14,7 +14,7 @@ const { createScratch } = require('../helper/scratch-env');
 const store = require('../../src/runtime/lifecycle/event-store.ts');
 const { parseWindow, retentionWindow, selectExpired } = require('../../src/runtime/lifecycle/retention.ts');
 const { loadSettings } = require('../../src/runtime/settings/resolve.ts');
-const { prepareStore, retainLocked, removedLine, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL } = require('../../src/runtime/lifecycle/store-upkeep.ts');
+const { prepareStore, retainLocked, removedLine, STALE_TMP_MS, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL } = require('../../src/runtime/lifecycle/store-upkeep.ts');
 
 const CLI = path.resolve(__dirname, '..', '..', 'bin', 'doflow.js');
 const POSIX = process.platform !== 'win32';
@@ -539,4 +539,56 @@ test('a pass renews the store lock\'s age while it works, so no other verb takes
   const lock = `${store.lockTarget(dir)}.lock`;
   assert.ok(touched.filter((p) => p === lock).length >= 2, JSON.stringify(touched));
   assert.equal(fs.existsSync(lock), false, 'released');
+});
+
+// ── crashed temp files (FU-8g2g9z) ─────────────────────────────────────────────────────────────
+
+/** Leaves the temp files `writeAtomic` abandons when a verb dies before its rename, aged `hoursAgo`. */
+function strandTmp(dir, name, hoursAgo) {
+  const file = path.join(dir, store.LIFECYCLE_REL, name);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '{"v":1,"pending":[]}\n');
+  const when = new Date(Date.now() - hoursAgo * HOUR);
+  fs.utimesSync(file, when, when);
+  return file;
+}
+
+test('retainLocked removes crashed retention and marker temp files older than the stale age and keeps the rest', () => {
+  const dir = project('stale-tmp-locked');
+  writeAll(eventsDir(dir), dismissedFollowup('FU-aaaaaa', Date.now(), 200));
+  const stale = strandTmp(dir, '.retention-4242-abc123.tmp', 30);
+  const staleMarker = strandTmp(dir, '.migrated-4242-abc123.tmp', 30);
+  const fresh = strandTmp(dir, '.retention-4243-def456.tmp', 1);
+  const unrelated = strandTmp(dir, 'notes.tmp', 30);
+  const lookalike = strandTmp(dir, '.retention-x.tmp', 30);
+  const out = retainLocked(dir, { window: { state: 'on', hours: 1, ms: HOUR }, now: new Date() });
+  assert.deepEqual(out, { removed: 2, warning: [] });
+  assert.deepEqual([stale, staleMarker].map((f) => fs.existsSync(f)), [false, false]);
+  assert.deepEqual([fresh, unrelated, lookalike].map((f) => fs.existsSync(f)), [true, true, true]);
+  assert.ok(fs.existsSync(path.join(dir, store.JOURNAL_REL)), 'the live journal is not a temp file');
+});
+
+test('retainLocked takes its stale age from the caller, so the storage setting decides', () => {
+  const dir = project('stale-tmp-age');
+  writeAll(eventsDir(dir), dismissedFollowup('FU-aaaaaa', Date.now(), 200));
+  const tmp = strandTmp(dir, '.retention-4242-abc123.tmp', 3);
+  retainLocked(dir, { window: { state: 'on', hours: 1, ms: HOUR }, now: new Date(), staleTmpMs: 4 * HOUR });
+  assert.equal(fs.existsSync(tmp), true, 'younger than the caller\'s age');
+  writeAll(eventsDir(dir), dismissedFollowup('FU-bbbbbb', Date.now(), 200));
+  retainLocked(dir, { window: { state: 'on', hours: 1, ms: HOUR }, now: new Date(), staleTmpMs: 2 * HOUR });
+  assert.equal(fs.existsSync(tmp), false, 'older than the caller\'s age');
+});
+
+test('a lifecycle verb that runs a retention pass also clears a stale crashed temp file', () => {
+  const dir = project('stale-tmp-verb');
+  writeAll(eventsDir(dir), dismissedFollowup('FU-aaaaaa', Date.now(), 200));
+  const stale = strandTmp(dir, '.retention-4242-abc123.tmp', 30);
+  const fresh = strandTmp(dir, '.migrated-4243-def456.tmp', 1);
+  const out = prepareStore(dir, { env: { DOFLOW_RETENTION_HOURS: '1' } });
+  assert.deepEqual(out.lines, ['retention: removed 2 event files older than 1 h']);
+  assert.deepEqual([stale, fresh].map((f) => fs.existsSync(f)), [false, true]);
+});
+
+test('the default stale age matches the storage registry setting', () => {
+  assert.equal(STALE_TMP_MS, require('../../core/registry/storage.json').settings.staleTmpHours * HOUR);
 });
