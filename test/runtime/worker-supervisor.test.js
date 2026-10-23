@@ -238,43 +238,73 @@ test('a 1-second timeout ends timed-out with the tree gone', POSIX, async (t) =>
   assert.equal(p.attempt().cancel.reason, 'timeout after 1s');
   assert.equal(resultOfRun(run).resultOffered, false);
   // S-1 (DEC-056): the step-6 fields are added to the ended run, and the end stays the canceller's.
-  assert.equal(run.process && run.process.kind, 'exited', JSON.stringify(run.process));
+  assert.equal(run.process && run.process.kind, 'exited', JSON.stringify(run.process ?? null));
   assert.equal(run.output && run.output.stdout.path, `worker-output/${runId}.out.log`);
   assert.ok(run.report, 'report recorded');
   assert.ok(run.readOnly, 'readOnly recorded');
   assert.ok(run.launchObserved, 'launchObserved recorded');
 });
 
-test('a user cancel of a running supervised worker keeps the step-6 fields (S-1, DEC-056)', POSIX, async (t) => {
-  const p = project(t, { run: [{ print: 'working' }, { sleep: 30000 }] });
-  const { runId } = p.seed();
-  const supervised = p.supervise(runId);
-  const until = Date.now() + 60000;
-  while (p.run(runId).phase !== 'running') {
-    assert.ok(Date.now() < until, 'the run reached running');
-    await sleep(20);
-  }
-  p.killAfter(p.run(runId));
-  // A loaded machine can write the canceller's end after the supervisor is done; the delay after the
-  // tree is gone and before step 5 makes that order certain, so the test never depends on the race.
-  const slowEnd = async (options) => {
-    const outcome = await tree.escalate(options);
-    await sleep(400);
-    return outcome;
+/**
+ * `launchWorker` whose child delivers its exit only after `gate()` resolves, so the order of the
+ * supervisor's step 6 and the canceller's step 5 is chosen by the test and not by the machine's load.
+ */
+function holdExit(gate) {
+  return async (options) => {
+    const launched = await launchWorker(options);
+    const child = launched.child;
+    const held = Object.create(child);
+    Object.defineProperty(held, 'exitCode', { value: null });
+    Object.defineProperty(held, 'signalCode', { value: null });
+    held.once = (event, listener) => {
+      if (event !== 'exit') { child.once(event, listener); return held; }
+      child.once('exit', (code, signal) => { gate().then(() => listener(code, signal)); });
+      return held;
+    };
+    return { ...launched, child: held };
   };
-  const answer = await cancelRun({ file: p.store, runId, by: 'main', reason: 'stop', env: p.env, cwd: p.dir, escalate: slowEnd });
-  assert.equal(answer.disposition, 'cancelled');
-  // The supervisor resolves the record as it stood when it was done (IC-014); a user cancel's end is
-  // the canceller's write (step 7 awaits only a timeout's), so the settled record is read from the store.
-  await supervised;
-  const run = p.run(runId);
-  assert.equal(run.phase, 'ended');
-  assert.equal(run.end.state, 'cancelled');
-  assert.equal(run.process && run.process.kind, 'exited', JSON.stringify(run.process));
-  assert.equal(run.output && run.output.stdout.path, `worker-output/${runId}.out.log`);
-  assert.ok(run.report && run.readOnly && run.launchObserved, 'report, readOnly and launchObserved recorded');
-  assert.equal(run.cleanup.status, 'verified');
-});
+}
+
+// The supervisor resolves the record as it stood when it was done (IC-014) and a user cancel's end is
+// the canceller's write (step 7 awaits only a timeout's), so each order below reads the settled record
+// from the store. Which of the two writes comes first depends on load; both orders are pinned here.
+for (const order of ['canceller first', 'supervisor first']) {
+  test(`a user cancel of a running supervised worker keeps the step-6 fields, ${order} (S-1, DEC-056)`, POSIX, async (t) => {
+    const p = project(t, { run: [{ print: 'working' }, { sleep: 30000 }] });
+    const { runId } = p.seed();
+    const endWritten = async () => {
+      const until = Date.now() + 60000;
+      while (p.run(runId).phase !== 'ended' && Date.now() < until) await sleep(10);
+    };
+    let supervisorDone = false;
+    const supervised = p.supervise(runId, order === 'canceller first' ? { launch: holdExit(endWritten) } : {})
+      .finally(() => { supervisorDone = true; });
+    const until = Date.now() + 60000;
+    while (p.run(runId).phase !== 'running') {
+      assert.ok(Date.now() < until, 'the run reached running');
+      await sleep(20);
+    }
+    p.killAfter(p.run(runId));
+    // Supervisor first: the canceller's step 5 waits for the supervisor to be done.
+    const escalate = order === 'supervisor first'
+      ? async (options) => {
+        const outcome = await tree.escalate(options);
+        while (!supervisorDone && Date.now() < until + 60000) await sleep(10);
+        return outcome;
+      }
+      : tree.escalate;
+    const answer = await cancelRun({ file: p.store, runId, by: 'main', reason: 'stop', env: p.env, cwd: p.dir, escalate });
+    assert.equal(answer.disposition, 'cancelled');
+    await supervised;
+    const run = p.run(runId);
+    assert.equal(run.phase, 'ended');
+    assert.equal(run.end.state, 'cancelled');
+    assert.equal(run.process && run.process.kind, 'exited', JSON.stringify(run.process ?? null));
+    assert.equal(run.output && run.output.stdout.path, `worker-output/${runId}.out.log`);
+    assert.ok(run.report && run.readOnly && run.launchObserved, 'report, readOnly and launchObserved recorded');
+    assert.equal(run.cleanup.status, 'verified');
+  });
+}
 
 test('a permission-denied event over 64 KiB still makes the report denied (S-2, DEC-057)', POSIX, async (t) => {
   const denial = { type: 'permission-denied', action: 'write', detail: 'd'.repeat(70000) };
@@ -495,8 +525,8 @@ test('detached through SUPERVISOR_FILE the run ends exited with a success report
   assert.deepEqual(await exited, { code: 0, signal: null }, 'the supervisor exits 0');
   run = p.run(runId);
   assert.equal(run.phase, 'ended', JSON.stringify({ process: run.process, end: run.end }));
-  assert.equal(run.end.state, 'exited', JSON.stringify(run.process));
-  assert.equal(run.process.kind, 'exited', JSON.stringify(run.process));
+  assert.equal(run.end.state, 'exited', JSON.stringify(run.process ?? null));
+  assert.equal(run.process.kind, 'exited', JSON.stringify(run.process ?? null));
   assert.equal(run.report.status, 'success');
   assert.equal(resultOfRun(run).resultOffered, true);
 });

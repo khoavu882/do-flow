@@ -48,7 +48,8 @@
 //   { waitFor: '/abs/path' }                wait until that file exists (polled every 20 ms), so a test
 //                                           releases the worker when it has observed what it needs
 //                                           instead of racing a timer; a relative path exits 97, and a
-//                                           gate still closed after 120 s exits 94 (a hang guard)
+//                                           gate still closed after 120 s (FAKE_HARNESS_GATE_MS) exits 94
+//                                           (a hang guard)
 //   { spawnChild: { newGroup?, ms?, pidFile? } }
 //                                           a sleeping node child (default 30000 ms), detached into
 //                                           its own process group when newGroup; its pid is written
@@ -84,7 +85,7 @@ const PROBE_KINDS = new Set(['runnable', 'hooks', 'guidance', 'login']);
 const ESCAPE_EXIT = 97;
 const NO_TOOL_EXIT = 96;
 const GATE_TIMEOUT_EXIT = 94;
-const GATE_TIMEOUT_MS = 120000;
+const GATE_TIMEOUT_MS = Number(process.env.FAKE_HARNESS_GATE_MS) > 0 ? Number(process.env.FAKE_HARNESS_GATE_MS) : 120000;
 
 /** The invocation kind for an argv (process.argv without node and the script). */
 function kindOf(argv) {

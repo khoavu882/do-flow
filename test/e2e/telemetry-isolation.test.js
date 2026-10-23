@@ -38,6 +38,7 @@ const PROFILES = ['compat-1', 'strict-1'];
 // is generous so a slow call is not read as a failed one, and a real hang still fails.
 const CALL_TIMEOUT_MS = 60000;
 const MIRROR_TIMEOUT_MS = 120000;
+// node:test cannot interrupt this synchronous test, so the matrix ceiling is the assertion at its end.
 const MATRIX_TIMEOUT_MS = 900000;
 
 after(() => removeTree(SCRATCH));
@@ -570,7 +571,7 @@ function runEncodeBypassNegativeControl() {
   }
 }
 
-test('G-O3: CLI verbs and bridge hooks are byte-identical on, off and faulted', { timeout: MATRIX_TIMEOUT_MS }, () => {
+test('G-O3: CLI verbs and bridge hooks are byte-identical on, off and faulted', () => {
   const started = Date.now();
   const node = runNodeMatrix();
   const hooks = runHookMatrix();

@@ -415,24 +415,27 @@ test('IC-001: a step whose outcome is blocked exits 0; the text form prints one 
   assert.equal(lines.length, 1, JSON.stringify(lines));
   assert.equal(lines[0][0], 'out');
   assert.match(lines[0][1], /^started p-[0-9a-f]{12} /);
-  for (const arg of q.sb.verifyArgv) assert.equal(printsElement(lines[0][1], arg), false, `argv element ${JSON.stringify(arg)} is not printed`);
+  for (const arg of q.sb.verifyArgv) assert.equal(argLeaks(lines[0][1], arg), false, `argv element ${JSON.stringify(arg)} is not printed`);
 });
 
 /**
- * Whether `line` prints `arg` as a whole element: bounded by white space or the line's ends. A bare
- * substring test reads the `-e` of a run id such as `p-e0c1...` (1 in 16) as the printed argument `-e`.
+ * Whether `line` holds `arg` anywhere, bare, quoted, in JSON or as `key=value`. The run id is removed
+ * first: a run id such as `p-e0c1...` (1 in 16) would otherwise contain the argv element `-e`.
  */
-function printsElement(line, arg) {
-  return new RegExp(`(^|\\s)${arg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`).test(line);
+function argLeaks(line, arg) {
+  return line.replace(/\bp-[0-9a-f]{12}\b/g, '').includes(arg);
 }
 
-test('FU-wdktxq: the argv check reads whole elements, so a run id that starts with e does not match -e', () => {
+test('FU-wdktxq: a run id that starts with e is not read as the argv element -e, and every leak shape is still caught', () => {
   const line = 'started p-e0123456789a slug s branch b base c concurrency 2 mode sequential verification argc 3 sha256 ab';
-  assert.equal(line.includes('-e'), true, 'the substring check the test used reads the run id as the argument -e');
-  assert.equal(printsElement(line, '-e'), false);
-  assert.equal(printsElement(`${line} -e`, '-e'), true, 'negative control: a printed -e element is still found');
-  assert.equal(printsElement(`${line} /usr/bin/node -e x`, '/usr/bin/node'), true, 'negative control: a printed path element is still found');
-  assert.equal(printsElement('started p-1 process.exitCode = 0;', 'process.exitCode = 0;'), true, 'negative control: an element with spaces is matched whole');
+  assert.equal(line.includes('-e'), true, 'the plain substring check reads the run id as the argument -e');
+  assert.equal(argLeaks(line, '-e'), false);
+  // Negative controls: each shape a printed argv could take is found.
+  assert.equal(argLeaks(`${line} -e`, '-e'), true, 'bare element');
+  assert.equal(argLeaks(`${line} ["/usr/bin/node","-e","x"]`, '-e'), true, 'JSON-printed argv');
+  assert.equal(argLeaks(`${line} 'process.exitCode = 0;'`, 'process.exitCode = 0;'), true, 'quoted element with spaces');
+  assert.equal(argLeaks(`${line} verify=/usr/bin/node`, '/usr/bin/node'), true, 'key=value');
+  assert.equal(argLeaks(`${line} argv:-e`, '-e'), true, 'embedded token');
 });
 
 test('106 IC-005: start stores run.fallback from --fallback and --ladder, else from the dispatch.fallback setting', POSIX, async (t) => {

@@ -108,6 +108,13 @@ test('waitFor holds the worker until its file exists, then runs the next steps; 
   const r = run(relative, 'fake-claude', ['run', 'p']);
   assert.equal(r.status, 97);
   assert.match(r.stderr, /waitFor needs an absolute path/);
+
+  const never = path.join(tempDir(t, 'doflow-fake-gate-'), 'never');
+  const closed = makeDispatchSandbox(t, { scenario: { run: [{ waitFor: never }, { print: 'after' }] } });
+  const hung = run(closed, 'fake-claude', ['run', 'p'], { extra: { FAKE_HARNESS_GATE_MS: '300' } });
+  assert.equal(hung.status, 94, 'a gate that never opens ends the worker with the hang-guard code');
+  assert.equal(hung.stdout, '');
+  assert.match(hung.stderr, /waitFor gate never opened/);
 });
 
 test('edit descriptors: claude has a supported isolatedEdit and every block passes validateWorker', () => {
