@@ -283,6 +283,20 @@ test('C-2: the recorded protocol is checked against its preset (rounds below rou
   assert.deepEqual(validateFindings(oneSeat({ protocol: { ...deep, id: 'review-nope' }, rounds: 1 })).errors, ['protocol']);
 });
 
+test('C-2 closure: a record without protocol is held to a non-auto review.preset; under auto it stays valid (IC-002 optional)', () => {
+  const oneSeat = (extra) => ({ ...record([open()], extra), seats: record([open()]).seats.slice(0, 1) });
+  const deep = { preset: 'review-deep' };
+  assert.deepEqual(validateFindings(record([open()], { rounds: 1 }), deep).errors, ['protocol-missing', 'protocol-rounds']);
+  assert.deepEqual(validateFindings(oneSeat({ rounds: 2 }), deep).errors, ['protocol-missing', 'protocol-seats']);
+  assert.deepEqual(validateFindings(record([open()], { rounds: 2 }), deep).errors, ['protocol-missing'], 'rounds and seats meet the preset; the missing protocol still refuses');
+  assert.deepEqual(validateFindings(record([open()], { rounds: 1 }), { preset: 'review-single' }).errors, ['protocol-missing']);
+  for (const options of [undefined, { preset: 'auto' }]) {
+    assert.deepEqual(validateFindings(record([open()], { rounds: 1 }), options).errors, [], 'auto or unset: unchanged');
+  }
+  const recorded = { protocol: { id: 'review-single', digest: DIGEST }, rounds: 1 };
+  assert.deepEqual(validateFindings(record([open()], recorded), deep).errors, [], 'a recorded protocol is judged by its own preset here; the looser-than-setting rule is gate-b\'s');
+});
+
 test('095b IC-005: depth-unmet:<depth> when the seats are fewer than the policy; advisories are sorted with the rest', () => {
   const one = (extra) => ({ ...record([open()], extra), seats: record([open()]).seats.slice(0, 1) });
   assert.deepEqual(reviewAdvisories(one({ depth: 'deep' })), ['depth-unmet:deep']);

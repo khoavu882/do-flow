@@ -153,8 +153,10 @@ function identityFacts(data: any, sameFamily: Sameness): { errors: string[]; adv
 }
 
 /** Schema checks only. Git ancestry and register-channel backing are separate facts.
- * `sameFamily` (`warn` by default) is the project's `review.sameFamily`: under `refuse` a same-family seat is an error. */
-function validateFindings(json: any, { sameFamily = 'warn' }: { sameFamily?: Sameness } = {}): { ok: boolean; errors: string[] } {
+ * `sameFamily` (`warn` by default) is the project's `review.sameFamily`: under `refuse` a same-family seat is an error.
+ * `preset` (`auto` by default) is the effective `review.preset`: when it is not `auto` a record without `protocol`
+ * is an error (`protocol-missing`) and its rounds and seats are held to that preset (C-2 closure). */
+function validateFindings(json: any, { sameFamily = 'warn', preset = 'auto' }: { sameFamily?: Sameness; preset?: string } = {}): { ok: boolean; errors: string[] } {
   const errors: string[] = [];
   let data = json;
   if (typeof json === 'string' || Buffer.isBuffer(json)) {
@@ -191,11 +193,15 @@ function validateFindings(json: any, { sameFamily = 'warn' }: { sameFamily?: Sam
       seatOf.set(finding.id, seat.id);
     }
   }
-  if (Object.hasOwn(data, 'protocol') && validProtocol(data.protocol) && Array.isArray(data.seats)) {
-    // C-2: the recorded protocol is held to its own preset, not only to its shape.
-    const preset = protocols().presets[data.protocol.id];
-    if (Number.isSafeInteger(data.rounds) && data.rounds >= 1 && data.rounds < preset.rounds.min) errors.push('protocol-rounds');
-    if (data.seats.length < preset.seats.length) errors.push('protocol-seats');
+  // C-2: the record is held to its own preset, not only to its shape; a record that omits `protocol` is held to the
+  // project's non-auto `review.preset` instead (omitting the field must not skip the check).
+  const recorded = Object.hasOwn(data, 'protocol');
+  if (!recorded && preset !== 'auto') errors.push('protocol-missing');
+  const held = recorded ? (validProtocol(data.protocol) ? data.protocol.id : null) : (preset !== 'auto' ? preset : null);
+  if (held && Array.isArray(data.seats) && reviewPresets()?.includes(held)) {
+    const heldPreset = protocols().presets[held];
+    if (Number.isSafeInteger(data.rounds) && data.rounds >= 1 && data.rounds < heldPreset.rounds.min) errors.push('protocol-rounds');
+    if (data.seats.length < heldPreset.seats.length) errors.push('protocol-seats');
   }
   for (const error of identityFacts(data, sameFamily === 'refuse' ? 'refuse' : 'warn').errors) errors.push(error);
   const convergedIds = new Set<string>();

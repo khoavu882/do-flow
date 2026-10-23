@@ -509,9 +509,29 @@ test('C-6: a malformed or invalid project review.sameFamily is an unreadable set
     const { exitCode, body } = check();
     assert.equal(exitCode, 1, text);
     assert.equal(body.valid, false);
-    assert.deepEqual(body.errors, ['same-family-setting-unread'], text);
+    // A malformed file is unreadable for every review.* key, so it also reports the preset (C-2 closure); a bad value only its own key.
+    assert.deepEqual(body.errors, text.endsWith(', }') ? ['same-family-setting-unread', 'review-preset-setting-unread'] : ['same-family-setting-unread'], text);
     assert.ok(!body.advisories.includes('same-family-setting-unread'));
   }
   fs.writeFileSync(path.join(f.project, '.doflow', 'settings.json'), '{ "schema": 1, "review.sameFamily": "warn" }');
   assert.equal(check().exitCode, 0, 'a readable file is fine again');
+});
+
+test('C-2 closure: with a non-auto review.preset a record without protocol is invalid at check; auto or unset keeps it valid', (t) => {
+  const f = createSettingsEnv(t, { prefix: 'doflow-review-check-preset-' });
+  const file = writeRecord(f.project, { ...validRecord(), rounds: 1 });
+  const check = () => {
+    const result = invoke({ ...baseOptions(f.project, file, fakeWriter().writer), env: f.env(), json: true });
+    return { exitCode: result.exitCode, body: parseJsonOutput(result.lines) };
+  };
+  const settings = path.join(f.project, '.doflow', 'settings.json');
+  assert.equal(check().exitCode, 0, 'no settings: valid');
+  fs.writeFileSync(settings, '{ "schema": 1, "review.preset": "auto" }');
+  assert.equal(check().exitCode, 0, 'auto: valid');
+  fs.writeFileSync(settings, '{ "schema": 1, "review.preset": "review-deep" }');
+  const { exitCode, body } = check();
+  assert.equal(exitCode, 1);
+  assert.deepEqual(body.errors, ['protocol-missing', 'protocol-rounds']);
+  fs.writeFileSync(settings, '{ "schema": 1, "review.preset": "review-deep", }');
+  assert.deepEqual(check().body.errors, ['review-preset-setting-unread'], 'a malformed settings file fails closed');
 });

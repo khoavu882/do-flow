@@ -49,6 +49,19 @@ function readSameFamily(load: (options: { projectRoot: string; env: Env }) => an
   }
 }
 
+/** The effective `review.preset` (C-2 closure), read for the checkout the verb runs in. A settings view that cannot
+ * load, or an invalid project or local value (the resolver would fall back to `auto` without a word), is `unread`;
+ * the caller turns `unread` into an error, so a broken setting never relaxes the check. */
+function readPreset(load: (options: { projectRoot: string; env: Env }) => any, cwd: string, env: Env): { value: string; unread: boolean } {
+  try {
+    const resolution = load({ projectRoot: path.resolve(cwd), env }).get('review.preset');
+    if (invalidProjectCandidate(resolution)) return { value: 'auto', unread: true };
+    return { value: typeof resolution.value === 'string' ? resolution.value : 'auto', unread: false };
+  } catch {
+    return { value: 'auto', unread: true };
+  }
+}
+
 // A preset id as protocols.ts validates it (`^[a-z][a-z0-9-]*$`).
 const PRESET_ID = /^[a-z][a-z0-9-]*$/;
 
@@ -129,6 +142,7 @@ function handleReviewCommand({
   const ancestryAdvisories: string[] = [];
   const identityAdvisories: string[] = [];
   let sameFamily: 'warn' | 'refuse' = 'warn';
+  let reviewPreset = 'auto';
   let record: ReviewRecord | null = null;
   if (file === null) {
     errors.push('missing');
@@ -153,7 +167,13 @@ function handleReviewCommand({
         sameFamily = read.value;
         if (read.unread) errors.push('same-family-setting-unread');
       }
-      const validation = validateFindings(raw, { sameFamily });
+      // A record that omits `protocol` is held to the effective `review.preset` (C-2 closure), so it is read for every record.
+      if (peek !== null && typeof peek === 'object') {
+        const read = readPreset(loadSettings, cwd, env);
+        reviewPreset = read.value;
+        if (read.unread) errors.push('review-preset-setting-unread');
+      }
+      const validation = validateFindings(raw, { sameFamily, preset: reviewPreset });
       for (const error of validation.errors) errors.push(error); // a spread overflows the stack at ~200k errors (C-6)
       if (!validation.errors.includes('json')) {
         try { record = JSON.parse(raw); } catch { record = null; }
@@ -179,7 +199,7 @@ function handleReviewCommand({
     }
   }
 
-  const advisories = (record && validateFindings(record, { sameFamily }).ok
+  const advisories = (record && validateFindings(record, { sameFamily, preset: reviewPreset }).ok
     ? reviewAdvisories(record, { sameFamily }).concat(identityAdvisories)
     : []).concat(ancestryAdvisories).sort();
   const valid = errors.length === 0;

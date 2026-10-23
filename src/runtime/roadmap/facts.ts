@@ -436,7 +436,7 @@ function gatherGateFacts(options: any): GateFact[] {
       }
     }
     // The schema validator is deliberately pure and shared by gathering and gate evaluation.
-    add('dispositions', { ancestors, decisions, schemaValid: validateFindings(findings, { sameFamily }).ok }, `${artifactRoot}/review/findings.json#dispositions`, undefined, unreadable);
+    add('dispositions', { ancestors, decisions, schemaValid: validateFindings(findings, { sameFamily, preset }).ok }, `${artifactRoot}/review/findings.json#dispositions`, undefined, unreadable);
   }
   return result;
 }

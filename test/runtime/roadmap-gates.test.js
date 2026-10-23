@@ -283,7 +283,8 @@ const mutations = [
   { name: 'dependency merge integrity', module: 'facts', from: "integrity.offendingRowIds.includes(id) ? 'not-started' : statuses.rowStatus[id]", to: 'statuses.rowStatus[id]', pattern: 'needs use first-parent merge integrity' },
   { name: 'readability changes digest', module: 'facts', from: 'unreadable ? sha256Digest(JSON.stringify({ unreadable, contentDigest })) : contentDigest', to: 'contentDigest', pattern: 'unreadable empty artifacts have a different input digest' },
   { name: 'verification schema', from: 'runs.some((run: any) => run.schema !== 1)', to: 'false', pattern: 'verification ignores dirty, stale-head' },
-  { name: 'sameFamily option', from: "{ sameFamily: get('review-settings')?.sameFamily === 'refuse' ? 'refuse' : 'warn' }", to: '{}', pattern: 'D.3: gate-b findings-valid applies' },
+  { name: 'sameFamily option', from: "sameFamily: get('review-settings')?.sameFamily === 'refuse' ? 'refuse' : 'warn',", to: '', pattern: 'D.3: gate-b findings-valid applies' },
+  { name: 'preset option', from: "preset: reviewPreset(get('review-settings')) })", to: '})', pattern: 'C-2: gate-b findings-valid checks the recorded protocol' },
   { name: 'preset floor', from: "|| protocolLooserThanPreset(findings.protocol, get('review-settings')?.preset)", to: '', pattern: 'C-2: gate-b findings-valid checks the recorded protocol' },
   { name: 'artifact layout precedence', module: 'facts', from: "['intention/requirement.md', 'requirement.md']", to: "['requirement.md', 'intention/requirement.md']", pattern: 'artifact lookup follows' },
 ];
@@ -374,7 +375,12 @@ test('C-2: gate-b findings-valid checks the recorded protocol against its preset
   assert.deepEqual(reasons(single, { sameFamily: 'warn', preset: 'review-single' }), []);
   assert.deepEqual(reasons(single, { sameFamily: 'warn', preset: 'auto' }), [], 'auto resolves from the diff, which gate-b does not read');
   assert.deepEqual(reasons(single, { sameFamily: 'warn' }), [], 'a fact without a preset (older gather) keeps its verdict');
-  assert.deepEqual(reasons(review(), { sameFamily: 'warn', preset: 'review-deep' }), [], 'a record that names no protocol has nothing to compare');
+  // Closure fix (agent-docs/doflow/119-review-protocol/closure-fix-brief.md, item 1): omitting `protocol` must not skip the
+  // check. A non-auto review.preset makes a record without one invalid (it was pinned valid before: the stale side).
+  assert.deepEqual(reasons({ ...review(), rounds: 1 }, { sameFamily: 'warn', preset: 'review-deep' }), ['findings-invalid'], 'project review-deep, no protocol, rounds 1');
+  assert.deepEqual(reasons(review(), { sameFamily: 'warn', preset: 'review-single' }), ['findings-invalid'], 'any non-auto preset needs a protocol');
+  assert.deepEqual(reasons({ ...review(), rounds: 1 }, { sameFamily: 'warn', preset: 'auto' }), [], 'auto: a record without protocol stays valid');
+  assert.deepEqual(reasons(review(), { sameFamily: 'warn' }), [], 'a fact without a preset: a record without protocol stays valid');
 });
 
 test('C20: one verify-record rule serves gate-b and the post-merge check (task, head, clean, schema, flaky)', () => {
