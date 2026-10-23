@@ -133,13 +133,13 @@ function parseArgs(argv: string[]): any {
       }
       case '--action': {
         const val = argv[i + 1];
-        // `review` answers a missing value as usage, exit 2 (095 IC-003); other verbs keep exit 1.
-        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'review' ? 2 : 1); }
+        // `review` and `protocol` answer a missing value as usage, exit 2 (095 IC-003, 119 IC-004); other verbs keep exit 1.
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'review' || o.cmd === 'protocol' ? 2 : 1); }
         o.action = val; o.actionGiven = true; i++; break;
       }
       case '--task-class': {
         const val = argv[i + 1];
-        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'protocol' ? 2 : 1); }
         o.taskClass = val; i++; break;
       }
       case '--task-id': {
@@ -545,6 +545,9 @@ Commands:
   review               Validate a feature's review/findings.json; print errors, advisories and counts (exit 0 valid, 1 invalid, 2 usage):
                        review --action check [--slug <name> | --path <findings.json>] [--json]
                        review --action start [--slug <name>] [--base <ref>] [--json] [--preset <id>]   verify precondition and review protocol; --base must be the review's base (exit 0 ok or not applicable, 1 refused, 2 usage)
+  protocol             Print the review and debate protocol presets, or the one a run would use (read-only, writes nothing):
+                       protocol --action list [--kind review|debate] [--json]
+                       protocol --action resolve --kind review|debate [--task-class <id>] [--risk <level>] [--preset <id>] [--json]   (exit 0 resolved, 1 refused, 2 usage)
   slot                 Named machine-wide queue, one holder at a time (--action run|list|release);
                        slot --action run --name <name> [--label <text>] [--timeout <s>] [--no-wait] -- <command> [args...]
                        slot --action release --name <name> --by <who> --reason <text>
@@ -583,7 +586,7 @@ Options:
       --slug <name>    Scaffold this feature instead of the branch-resolved active one
 
 Runtime verb arguments (accept --flag value or --flag=value):
-      --task-class     classify, workflow, readiness, context-pack, outcome --action record
+      --task-class     classify, workflow, readiness, context-pack, outcome --action record, protocol --action resolve
       --task-id        readiness, evidence, claim, context-pack, retrieval-plan, outcome, verify, advise, retrieve,
                        trace analyze --emit followups (the ledger read for evidence ids)
       --action         claim: list|add|link|retract|supersede · evidence: list|add|supersede
@@ -599,6 +602,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        roadmap: render|status|next|audit (seed: check|apply|amend)
                        slot: run|list|release
                        review: check|start
+                       protocol: list|resolve
       --task, --token, --owner, --mode,
       --result, --evidence-id, --reason     task-attempt (claim: --task --owner --mode manual|sequential|subagent
                                             [--owner-override <reason>] [--epoch <n>=1+] [--reserve-tokens <n>]
@@ -665,7 +669,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --path, --exclude (repeatable)        leak-scan
       --slug | --path                       review --action check (at most one; with neither, the active feature)
       --base <ref>                          review --action start (measure the changed paths from this commit, which must be the review's base; --path is refused)
-      --preset <id>                         review --action start (run this review preset; refused when looser than the decided protocol)
+      --preset <id>                         review --action start, protocol --action resolve (run this preset; refused when looser than the decided protocol)
+      --kind review|debate, --risk <level>  protocol (--kind filters list and selects what resolve decides; --risk is the change's risk level)
       --ids, --as, --evidence, --title,
       --release, --source, --channel        followup (add, list, take, settle, promote)
       --file <path|->, --stdin, --text,
