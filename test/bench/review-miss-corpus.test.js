@@ -132,6 +132,27 @@ test('IC-008: a record with mixed findings yields one case, the skip counts and 
   assert.deepEqual(one.expected, { path: 'src/a.js', startLine: 3, endLine: 5, severity: 'blocker' });
 });
 
+test('C-7: scope drops every path absent at rev (gitignored feature records), expected path stays', () => {
+  const f = fixture();
+  const records = path.join(scratch.dir, `records-c7-${++repoSeq}`);
+  const ghost = 'agent-docs/doflow/001-x/review/findings.json';
+  const converged = [
+    conv('B-1', 'blocker', 'fixed', 'src/a.js:3-5', { fixedIn: f.c3 }),
+    conv('S-9', 'should-fix', 'open', `${ghost}:1`),
+    conv('S-8', 'should-fix', 'open', 'src/new.js:2'),
+  ];
+  writeRecord(records, '001-good-record', record('001', '001-good-record', f.c2, converged));
+  const out = path.join(scratch.dir, `out-c7-${repoSeq}.json`);
+  const cap = capture();
+  assert.equal(runner.main(['corpus', '--records', records, '--out', out], { repoRoot: f.dir, ...cap.io }), 0, cap.err.join('\n'));
+  const c = JSON.parse(fs.readFileSync(out, 'utf8'));
+  assert.equal(c.cases.length, 1);
+  // src/new.js is added by c3 (the fix), so it is absent at rev c2 as well.
+  assert.deepEqual(c.cases[0].scope, ['src/a.js'], 'only paths present at rev remain');
+  assert.equal(c.cases[0].scope.some((p) => p.startsWith('agent-docs/')), false);
+  assert.deepEqual(c.skipped, { 'record-invalid': [], 'not-fixed': 2, severity: 0, locator: 0, 'no-parent': 0, 'path-absent': 0 }, 'dropping a scope path is not a skip');
+});
+
 test('IC-008: the key is the sha8 of {rev, scope, expected}, and split follows the id digest', () => {
   const f = fixture();
   const out = path.join(scratch.dir, 'out-2.json');
@@ -263,6 +284,7 @@ const MUTATIONS = [
   ['a key that does not match its digest', (d) => { d.cases[0].key = 'review-miss/001-b-1@00000000'; }, /digest/],
   ['a rev that is not 40-hex', (d) => { d.cases[0].rev = 'HEAD'; rekey(d.cases[0]); }, /40-hex/],
   ['a rev that does not resolve', (d) => { d.cases[0].rev = 'a'.repeat(40); rekey(d.cases[0]); }, /resolve/],
+  ['a scope path absent at rev', (d) => { d.cases[0].scope = [...d.cases[0].scope, 'src/new.js']; rekey(d.cases[0]); }, /absent/],
   ['an expected.path outside scope', (d) => { d.cases[0].expected.path = 'src/new.js'; rekey(d.cases[0]); }, /scope/],
   ['startLine below 1', (d) => { d.cases[0].expected.startLine = 0; rekey(d.cases[0]); }, /startLine/],
   ['endLine below startLine', (d) => { d.cases[0].expected.endLine = 2; rekey(d.cases[0]); }, /endLine/],

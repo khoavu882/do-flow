@@ -119,6 +119,13 @@ function buildCorpus({ recordsRoot, repoRoot, config = loadConfig(), git = (args
     }
     return parents.get(fixedIn);
   };
+  const present = new Map();
+  /** True when `<rev>:<file>` exists. A scope path absent at rev is a feature record or a file the fix added: it leaks the answer, so it is not handed out. */
+  const presentAt = (rev, file) => {
+    const k = `${rev}:${file}`;
+    if (!present.has(k)) present.set(k, git(['cat-file', '-e', k]) !== null);
+    return present.get(k);
+  };
   const records = findRecords(recordsRoot);
   let valid = 0;
   for (const { label, file } of records) {
@@ -129,7 +136,7 @@ function buildCorpus({ recordsRoot, repoRoot, config = loadConfig(), git = (args
       continue;
     }
     valid += 1;
-    const scope = [...new Set(json.converged.map((f) => parseLocator(f.locator)?.path).filter(Boolean))].sort();
+    const recordScope = [...new Set(json.converged.map((f) => parseLocator(f.locator)?.path).filter(Boolean))].sort();
     const nested = label.split('/').slice(1);
     for (const f of json.converged) {
       if (f.status !== 'fixed') { skipped['not-fixed'] += 1; continue; }
@@ -138,7 +145,8 @@ function buildCorpus({ recordsRoot, repoRoot, config = loadConfig(), git = (args
       if (!at) { skipped.locator += 1; continue; }
       const rev = parentOf(f.fixedIn);
       if (!rev) { skipped['no-parent'] += 1; continue; }
-      if (git(['cat-file', '-e', `${rev}:${at.path}`]) === null) { skipped['path-absent'] += 1; continue; }
+      if (!presentAt(rev, at.path)) { skipped['path-absent'] += 1; continue; }
+      const scope = recordScope.filter((p) => presentAt(rev, p));
       const id = [json.row, ...nested, f.id].map(idPart).join('-');
       const expected = { path: at.path, startLine: at.startLine, endLine: at.endLine, severity: f.severity };
       cases.push({
@@ -187,6 +195,7 @@ function lintCorpus({ corpus, config = loadConfig(), repoRoot, git = (args) => g
     if (!Array.isArray(c.scope) || !c.scope.every((p) => typeof p === 'string')) return bad('scope is not a list of paths');
     if (typeof c.rev !== 'string' || !HEX_HEAD.test(c.rev)) bad('rev is not 40-hex');
     else if (git(['rev-parse', '--verify', '--quiet', `${c.rev}^{commit}`]) === null) bad('rev does not resolve to a commit');
+    else for (const p of c.scope) if (git(['cat-file', '-e', `${c.rev}:${p}`]) === null) bad(`scope path ${p} is absent at rev`);
     if (!c.scope.includes(c.expected.path)) bad(`expected.path ${c.expected.path} is outside scope`);
     const { startLine, endLine, severity } = c.expected;
     if (!Number.isInteger(startLine) || startLine < 1) bad('expected.startLine is below 1');
