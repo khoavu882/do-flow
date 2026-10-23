@@ -14,6 +14,11 @@ const { handleContextPackCommand } = require('../../src/runtime/context-pack.ts'
 const featureResolve = require('../../src/runtime/feature-resolve.ts');
 
 const FIXTURES_DIR = path.resolve(__dirname, '../fixtures/context-pack');
+// Every handleContextPackCommand call passes a temp stateRoot: its default is process.cwd(), and
+// verify's broad tier runs this file with cwd in a live checkout, whose store it then polluted
+// (FU-k9h1df; test/runtime/verify-broad-tier-store-isolation.test.js runs it from a linked worktree).
+// A stubbed resolver's repoRoot is a different temp dir from the state root, so the CX.5 tests still
+// pin that requirement and plan paths resolve from feature.repoRoot, not the state root.
 
 test('mandatory: extracts all fields from present.md fixture', () => {
   const filePath = path.join(FIXTURES_DIR, 'present.md');
@@ -192,7 +197,7 @@ test('mandatory: resolver spawns once during handleContextPackCommand (negative 
   console.log = () => {};
 
   try {
-    handleContextPackCommand({ taskId: 'test-spawn-count-task', json: true });
+    handleContextPackCommand({ taskId: 'test-spawn-count-task', json: true, stateRoot: tempDir(t) });
   } finally {
     console.log = origLog;
     process.exitCode = priorExitCode;
@@ -242,7 +247,7 @@ test('mandatory: reads requirement from resolver paths.requirement supporting le
   const priorExitCode = process.exitCode;
   console.log = (msg) => { output = msg; };
   try {
-    handleContextPackCommand({ taskId: 't-legacy', json: true });
+    handleContextPackCommand({ taskId: 't-legacy', json: true, stateRoot: tempDir(t) });
   } finally {
     console.log = origLog;
     process.exitCode = priorExitCode;
@@ -285,7 +290,7 @@ test('mandatory: absent-artifact reason carries resolver message, not error code
   const priorExitCode = process.exitCode;
   console.log = (msg) => { output = msg; };
   try {
-    handleContextPackCommand({ taskId: 't-no-feat', json: true });
+    handleContextPackCommand({ taskId: 't-no-feat', json: true, stateRoot: tempDir(t) });
   } finally {
     console.log = origLog;
     process.exitCode = priorExitCode;
@@ -390,7 +395,7 @@ test('mandatory: gaps come from parseRequirement result and plan task stories or
   const priorExitCode = process.exitCode;
   console.log = (msg) => { output = msg; };
   try {
-    handleContextPackCommand({ taskId: 'T.1', json: true });
+    handleContextPackCommand({ taskId: 'T.1', json: true, stateRoot: tempDir(t) });
   } finally {
     console.log = origLog;
     process.exitCode = priorExitCode;
