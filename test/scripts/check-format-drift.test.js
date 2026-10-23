@@ -157,6 +157,20 @@ test('snapshots carry no home-directory path, and the diff ignores the redaction
   assert.equal(drift.unifiedDiff(drift.capSnapshot(text), drift.capSnapshot(text.replace('alice', 'bob'))), '');
 });
 
+test('an empty diff is reported as "no visible diff", covering the cap and redacted paths alike', async (t) => {
+  const home = (name) => ['', 'Users', name, ''].join('/');
+  const s = setup(t, page({ main: `<p>Run it from ${home('alice')}repo.</p>` }));
+  await s.check({ update: true });
+  s.site.html = page({ main: `<p>Run it from ${home('bob')}repo.</p>` });
+  const chunks = [];
+  const result = await s.check({ out: (c) => chunks.push(c) });
+  assert.equal(rowOf(result).status, 'DRIFTED');
+  assert.equal(rowOf(result).diff, '');
+  const text = chunks.join('');
+  assert.match(text, /no visible diff: change is beyond the 16384-byte snapshot cap or only in redacted paths/);
+  assert.doesNotMatch(text, /change lies beyond/);
+});
+
 test('--update prunes snapshots of URLs that are no longer watched', async (t) => {
   const s = setup(t, page());
   fs.mkdirSync(s.env.snapshotDir, { recursive: true });

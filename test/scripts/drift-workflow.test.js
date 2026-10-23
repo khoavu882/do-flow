@@ -46,3 +46,13 @@ test('a plain diff keeps a three-backtick fence', { skip: !HAS_JQ && 'jq not ins
   const out = comment(t, [row('https://x.test/a', '--- baseline\n+++ current\n-a\n+b')]);
   assert.match(out, /^```diff$/m);
 });
+
+test('an empty diff is described as no visible diff', { skip: !HAS_JQ && 'jq not installed' }, (t) => {
+  const out = comment(t, [row('https://x.test/a', '')]);
+  assert.match(out, /no visible diff: change is beyond the snapshot cap or only in redacted paths/);
+  assert.doesNotMatch(out, /change lies beyond/);
+});
+
+test('a missing snapshot is described as such', { skip: !HAS_JQ && 'jq not installed' }, (t) => {
+  assert.match(comment(t, [row('https://x.test/a', null)]), /no snapshot to diff against/);
+});

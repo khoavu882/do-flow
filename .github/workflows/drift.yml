@@ -53,7 +53,7 @@ jobs:
             echo ""
             # Each DRIFTED row also carries `diff`, a unified diff of the page's main content
             # against the stored snapshot: null when the baseline has no snapshot for the URL, ""
-            # when the change lies beyond the snapshot's size cap.
+            # when the change is past the snapshot's size cap or only in a redacted home-directory path.
             jq -r '.results[] | select(.status == "DRIFTED")
               | "- `\(.url)`\n  claims: \(.claims | join(", "))"
                 + (if (.diff // "") != "" then
@@ -61,7 +61,7 @@ jobs:
                      ([.diff | scan("`+") | length] | max // 0) as $run
                      | ([range([3, $run + 1] | max)] | map("`") | join("")) as $fence
                      | "\n\n\($fence)diff\n\(.diff)\n\($fence)\n"
-                   elif .diff == "" then "\n  (change lies beyond the stored snapshot; no diff)"
+                   elif .diff == "" then "\n  (no visible diff: change is beyond the snapshot cap or only in redacted paths)"
                    else "\n  (no snapshot to diff against)" end)' drift-report.json
           } > drift-body.md
           # A comment body is capped at 65536 characters; keep the run's comment under it.

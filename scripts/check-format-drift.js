@@ -375,7 +375,7 @@ function renderHuman(report) {
     if (row.status === 'DRIFTED' && row.diff === null) {
       out.push(`${''.padEnd(width)}  -> no snapshot to diff against (refresh with --update)`);
     } else if (row.status === 'DRIFTED' && row.diff === '') {
-      out.push(`${''.padEnd(width)}  -> change lies beyond the ${SNAPSHOT_MAX_BYTES}-byte snapshot`);
+      out.push(`${''.padEnd(width)}  -> no visible diff: change is beyond the ${SNAPSHOT_MAX_BYTES}-byte snapshot cap or only in redacted paths`);
     } else if (row.diff) {
       for (const line of row.diff.split('\n')) out.push(`${''.padEnd(width)}  | ${line}`);
     }
