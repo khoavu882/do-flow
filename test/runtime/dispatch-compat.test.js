@@ -47,7 +47,7 @@ const UNCHANGED_FILES = Object.freeze([
   'src/runtime/worker/process-tree.ts',
   'src/lifecycle/coverage.ts',
   // core/registry/lifecycle.json: 088 E.3 observer wiring moved configSource line windows and rowsDigest with docs/capability-map.md; no longer frozen at 0a474666
-  'test/e2e/worker-adapter.e2e.test.js',
+  // worker-adapter.e2e.test.js: edited by 118 A.2 (its be752d8 orchestration copy predates the `nest` operation); no longer frozen at 0a474666
   // worker-descriptors.test.js: edited by 109 B.2 (G41.4, codex evidence); no longer frozen at 0a474666
 ]);
 /** Plan §1 directories and globs, expanded from the base commit's tree. */
@@ -57,7 +57,8 @@ const UNCHANGED_TREES = Object.freeze([
   // worker-cli, worker-command, worker-parsers tests: moved to the codex-parser and evidence-action truth by 109; no longer frozen at 0a474666
   // worker-launch, worker-secrets tests: moved to the six-variable launch env by 110; no longer frozen at 0a474666
   // worker-supervisor test: its user-cancel case reads the settled record, not the supervisor's snapshot (FU-4jhpjj); no longer frozen at 0a474666
-  { dir: 'test/runtime', match: (name) => /^worker-.*\.test\.js$/.test(name) && !/^worker-(edit-|child-run|eligibility\.|cli\.|command\.|parsers\.|launch\.|secrets\.|supervisor\.)/.test(name) },
+  // worker-compat test: its be752d8 orchestration copy predates the `nest` operation (118 A.2); no longer frozen at 0a474666
+  { dir: 'test/runtime', match: (name) => /^worker-.*\.test\.js$/.test(name) && !/^worker-(edit-|child-run|eligibility\.|cli\.|command\.|parsers\.|launch\.|secrets\.|supervisor\.|compat\.)/.test(name) },
 ]);
 
 const GIT = resolveTool('git');

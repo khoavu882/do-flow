@@ -101,7 +101,7 @@ how a shared asset projects onto it:
 
 | File | Declares |
 |---|---|
-| `core/registry/harnesses.json` | Each target's adapter id, supported scopes, native target files, declared native path facts (`paths`: `{base, segments}` rules resolved through `src/helper/harness-paths.ts`, with adapters owning only justified logic residue), and per-surface capability status with verification evidence. A harness's `capabilities.mcp` may carry `toolName`, a template holding `{server}` and `{tool}` (only `claude` has one: `mcp__{server}__{tool}`); the brief block uses it to show a provider's MCP tool name |
+| `core/registry/harnesses.json` | Each target's adapter id, supported scopes, native target files, declared native path facts (`paths`: `{base, segments}` rules resolved through `src/helper/harness-paths.ts`, with adapters owning only justified logic residue), and per-surface capability status with verification evidence. A harness's `capabilities.mcp` may carry `toolName`, a template holding `{server}` and `{tool}` (only `claude` has one: `mcp__{server}__{tool}`); the brief block uses it to show a provider's MCP tool name. Each harness also carries an `agentLimits.readOnly` block (`native` with the `apply` keys the adapter writes into a `read-only` agent file, or `unenforced` with a reason; G63) and an `orchestration.nest` operation, the sixth after spawn, wait, status, cancel and resume, which records whether a subagent can start a subagent (validated in `src/registry/index.ts`) |
 | `core/registry/assets.json` | Each shared asset's `source` path and per-harness `projection`/`nativeDir` |
 | `core/registry/contracts.json` | Per-harness recognized frontmatter fields and hook events — what `test/guards/fields.test.js` (G1) checks every asset against |
 | `core/registry/lifecycle.json` | Five hook-based lifecycle policies (pre-implementation gate, pre-bash guard, session-context capture, MCP tool guard, stop check), each harness's support status or fallback, and the versioned `coverage` block with evidence-backed enforcement rows |
@@ -250,12 +250,12 @@ registries](#installation-registries) for the same plain-JSON convention. Across
 
 | File | Declares |
 |---|---|
-| `core/registry/workflows.json` | Nine task classes, each an ordered stage list naming skills that already exist, and a `readinessNote` (only `feature` lists any gates, and five classes, `feature`, `bug`, `refactor`, `dependency-change` and `trivial-edit`, have a readiness template in `readiness-templates.json`), plus the `callers` map giving every shipped skill a role (`stage`, `router`, `standalone`) so the classifier can judge whether a class has a stage for the skill asking. There is no default class: an unrecognized proposal is rejected with the valid set rather than coerced into one. It also carries the `promptNudge` object, the rules and message for the once-per-session `/do` suggestion; only the prompt hook and G25 read it, not the workflow engine or the classifier |
+| `core/registry/workflows.json` | Nine task classes, each an ordered stage list naming skills that already exist (every stage also carries a required `agent`, the archetype that works it, validated in `src/runtime/workflow-engine.ts` and bound to a spec by G63), and a `readinessNote` (only `feature` lists any gates, and five classes, `feature`, `bug`, `refactor`, `dependency-change` and `trivial-edit`, have a readiness template in `readiness-templates.json`), plus the `callers` map giving every shipped skill a role (`stage`, `router`, `standalone`) so the classifier can judge whether a class has a stage for the skill asking. There is no default class: an unrecognized proposal is rejected with the valid set rather than coerced into one. It also carries the `promptNudge` object, the rules and message for the once-per-session `/do` suggestion; only the prompt hook and G25 read it, not the workflow engine or the classifier |
 | `core/registry/verification.json` | Nine check tiers and four risk levels; a level selects its required and advisory tiers and sets the recovery-retry bound. Its `reviewDepth` block is the one source of review depth: the seat count of `single` and `deep`, the risk levels that may take `single`, and the light paths (`docs/`, `README.md`, `CHANGELOG.md`); `loadVerificationRegistry` rejects an invalid block, and `review --action start` applies it |
 | `core/registry/readiness-templates.json` | Per-class readiness requirements and the evidence kinds that satisfy each one |
 | `core/registry/capabilities.json` | The capabilities an information need can resolve to, and their providers. Every provider declares `sourceMode` (`live` or `index`) and may carry `mcp: {server, tool}`; the router derives its `mcpTool` from it and the brief block names the MCP tool from it |
 | `core/registry/routes.json` | Information need → capability, with an ordered fallback when the preferred capability has no healthy provider |
-| `core/registry/models.json` | Abstract model roles and their providers (`doflow model-role`), and `dispatchTiers`: the tier names (`tiers`), the `default`, and the tier per agent archetype (`byOwner`) that a generated brief states. G29 holds `tiers` to `MODEL_SELECTION.md` `## Capability tiers`, `byOwner` keys to `core/shared/agent-specs/`, and every `byOwner` value to the `## Archetype dispatch tiers` prescription table in `MODEL_SELECTION.md` |
+| `core/registry/models.json` | Abstract model roles and their providers (`doflow model-role`), and `dispatchTiers`: the tier names (`tiers`), the `default`, and the tier per agent archetype (`byOwner`, seven archetypes; `delivery-lead` and `reviewer` are `frontier`) that a generated brief states. G29 holds `tiers` to `MODEL_SELECTION.md` `## Capability tiers`, `byOwner` keys to `core/shared/agent-specs/`, and every `byOwner` value to the `## Archetype dispatch tiers` prescription table in `MODEL_SELECTION.md` |
 | `core/registry/gates.json` | The roadmap loop's gate policy: per class and gate, whether autopilot may approve (`approve` or `never`), the ordered predicates and the minimum review seats; the protected paths; the loop and merge limits; and the closed `denyReasons` list. Read at develop's committed head by `orchestrate --action decide-gate --policy`, never from a feature branch; a project override can only narrow it. G55 holds its gate ids to `workflows.json` and its reasons to the code |
 | `core/registry/external-tools.json` | External tools DoFlow can detect, install, and probe rather than reimplement |
 | `core/registry/storage.json` | Every store DoFlow writes: its root, location, retention bound, rule kind and writer files, plus the pass budget, throttle and ignore-file text. `src/runtime/storage/` reads it and G26 checks it against the code and `docs/reference.md` |
@@ -785,8 +785,8 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-70 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-63 entries across 59 test files and carries 61 distinct G-numbers.
+72 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+65 entries across 61 test files and carries 63 distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries; G18 labels two files, of which `adapter-force.test.js` is not listed; and G30 labels two
 files, `advice.test.js` and a ratchet test in `module-reachability.test.js` (the G16 file). The collisions are
@@ -1149,6 +1149,23 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   word) or of a `reviewDepth.lightPaths` entry. There is no exclusion for `a single`. Controls: the
   detector flags `single seat when LOW`, `A single seat is enough when risk is LOW.`,
   `Use one seat when LOW.` and `single reviewer for edits to docs/ only`, and passes plain prose.
+- **G63** (`agent-roster.test.js`) — the agent specs under `core/shared/agent-specs/` are the one roster,
+  and everything that names or depends on it is derived from that directory, never from a list in the
+  guard: every workflow stage carries an `agent` that is a spec and every spec is bound by some stage; each
+  harness declares `agentLimits.readOnly` (an `unenforced` limit needs a reason), and
+  `agents.shared.appliesTo` equals the harnesses whose `agents` capability is `supported`; the Codex TOMLs
+  are one per spec, with `sandbox_mode = "read-only"` exactly for a `read-only` spec; each rendered
+  projection (through the shipped copy-tree transforms) carries the harness's `apply` keys for a
+  `read-only` spec and none for a `write` one; and the four name lists (Kiro's role list, `DOFLOW_CHAIN.md`,
+  `docs/setup.md`, the `docs/reference.md` agent table with its mode against `access`) equal the spec set.
+  Each clause re-seeds its fault on a scratch copy of only the files it reads.
+- **G64** (`agent-budget.test.js`) — the roster is a standing context cost, so it is capped: at most 7
+  specs, each `description` at most 160 characters, all together at most 1,000, and every spec declares
+  `access` as `read-only` or `write`. A spec is standalone: none names a DoFlow verb, state path or record
+  (`doflow-run`, `.doflow/`, `task-attempt`, `readiness`, `orchestrate`, `findings.json`) outside the one
+  hook line that lets a stage brief override the spec. Controls: an eighth spec, a 161-character
+  description, a 1,001-character sum and a planted `doflow-run` are red. Raising a cap is a deliberate
+  edit to the guard.
 - **G65** (`adopted-stores.test.js`) — the stores a linked worktree's records are adopted from
   (`core/registry/storage.json` stores with `root: project-state` that name `src/runtime/state-root.ts`
   in `writers`, read through `adoptedStores`) are the stores that source files address through

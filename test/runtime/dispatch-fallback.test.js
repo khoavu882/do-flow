@@ -146,17 +146,18 @@ test('106 IC-004: ask holds with the next rung proposed, off holds with none, au
   assert.deepEqual(auto.selection.fallback, { kind: 'step', from: 'claude', to: 'codex' });
 });
 
-test('106 IC-004 / C-2: frontier, review (quality-guardian), mis-cased and unknown owners hold frontier-no-step in every mode; no dispatchTiers holds', () => {
+test('106 IC-004 / C-2, 118 IC-009: frontier, review (reviewer), mis-cased and unknown owners hold frontier-no-step in every mode; no dispatchTiers holds', () => {
   const all = [cand('claude'), cand('codex')];
   assert.equal(REG.dispatchTiers.byOwner['system-architect'], 'frontier');
-  assert.equal(REG.dispatchTiers.byOwner['quality-guardian'], 'standard', 'held as review work, not by tier');
-  for (const owner of ['system-architect', 'System-Architect', 'quality-guardian', 'QUALITY-GUARDIAN', 'not-an-owner', null, '']) {
+  assert.equal(REG.dispatchTiers.byOwner.reviewer, 'frontier');
+  assert.deepEqual([...loop.REVIEW_OWNERS], ['reviewer'], '118 IC-009: review work belongs to reviewer');
+  for (const owner of ['system-architect', 'System-Architect', 'reviewer', 'REVIEWER', 'delivery-lead', 'not-an-owner', null, '']) {
     for (const mode of ['off', 'ask', 'auto']) {
       const r = select(all, { owner, fallback: fb({ mode, exhausted: ['claude'] }) });
       assert.deepEqual(r.hold, { reason: 'frontier-no-step', from: 'claude', proposed: null }, `${owner} ${mode}`);
     }
   }
-  for (const owner of ['core-implementer', 'Core-Implementer']) {
+  for (const owner of ['core-implementer', 'Core-Implementer', 'quality-guardian', 'QUALITY-GUARDIAN']) {
     assert.equal(select(all, { owner, fallback: fb({ mode: 'auto', exhausted: ['claude'] }) }).harness, 'codex', owner);
   }
   const plain = select(all, { owner: 'core-implementer', registry: { harnesses: [] }, fallback: fb({ mode: 'auto', exhausted: ['claude'] }) });
@@ -172,8 +173,16 @@ test('106 R-1: the task line tier wins over the owner tier; a valid task-line fr
     }
     assert.deepEqual(at('system-architect', 'ultra', mode).hold, { reason: 'frontier-no-step', from: 'claude', proposed: null }, `invalid tier, frontier owner, ${mode}`);
     assert.deepEqual(at('not-an-owner', 'standard', mode).hold, { reason: 'frontier-no-step', from: 'claude', proposed: null }, `unknown owner stays held, ${mode}`);
-    assert.deepEqual(at('quality-guardian', 'light', mode).hold, { reason: 'frontier-no-step', from: 'claude', proposed: null }, `review owner stays held, ${mode}`);
+    for (const tier of [null, 'light', 'standard', 'frontier']) {
+      assert.deepEqual(at('reviewer', tier, mode).hold, { reason: 'frontier-no-step', from: 'claude', proposed: null }, `review owner stays held at tier ${tier}, ${mode}`);
+    }
+    assert.deepEqual(at('quality-guardian', 'frontier', mode).hold, { reason: 'frontier-no-step', from: 'claude', proposed: null }, `a frontier quality-guardian task holds by tier, ${mode}`);
   }
+  assert.equal(at('quality-guardian', 'standard', 'auto').harness, 'codex', '118 IC-009: a standard quality-guardian task steps as testing work');
+  assert.equal(loop.noStepReason(REG, 'reviewer', 'light'), 'review', 'a reviewer task below frontier is held as review work');
+  assert.equal(loop.noStepReason(REG, 'reviewer', null), 'frontier', 'reviewer resolves frontier from byOwner');
+  assert.equal(loop.noStepReason(REG, 'quality-guardian', 'standard'), null);
+  assert.equal(loop.noStepReason(REG, 'quality-guardian', 'frontier'), 'frontier');
   assert.equal(at('core-implementer', 'ultra', 'auto').harness, 'codex', 'an invalid task-line tier is ignored');
   assert.equal(at('system-architect', 'standard', 'auto').harness, 'codex', 'a valid task-line tier wins over the owner tier, as brief-tools resolves it');
 });
@@ -465,8 +474,8 @@ test('106 C-1: a standard task whose quota-ed rung is gemini holds proposing cla
   assert.deepEqual(steps.map((e) => [e.from, e.to]), [['gemini', 'claude']], 'one step event');
 });
 
-test('106 C-2: a quality-guardian (review) task in auto holds frontier-no-step and never launches rung 2', POSIX, async (t) => {
-  const p = await project(t, { plan: planFor('quality-guardian'), fallback: fb({ mode: 'auto', ladder: ['claude', 'gemini'] }) });
+test('106 C-2, 118 IC-009: a reviewer (review) task in auto holds frontier-no-step and never launches rung 2', POSIX, async (t) => {
+  const p = await project(t, { plan: planFor('reviewer', 3, 'standard'), fallback: fb({ mode: 'auto', ladder: ['claude', 'gemini'] }) });
   const r = await p.run();
   assert.equal(r.outcome, 'blocked', JSON.stringify(r.last.actions));
   const hold = p.read().run.fallback.holds['A.1'];

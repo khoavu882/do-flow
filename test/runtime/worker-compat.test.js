@@ -56,6 +56,9 @@ function requireFindings(text, file) {
   return findings;
 }
 
+// 118 IC-004 adds `nest` after be752d8; the copy covers the five operations that existed then.
+function withoutNest(block) { const { nest: _nest, ...rest } = block ?? {}; return block === undefined ? undefined : rest; }
+
 /** Findings where a harness's orchestration block differs from the be752d8 copy (FR-001). */
 function orchestrationFindings(registry, fixture) {
   const findings = [];
@@ -63,7 +66,7 @@ function orchestrationFindings(registry, fixture) {
   for (const id of Object.keys(fixture)) if (!ids.includes(id)) findings.push(`fixture harness '${id}' is not registered`);
   for (const h of registry.harnesses) {
     if (!Object.hasOwn(fixture, h.id)) findings.push(`harness '${h.id}' has no be752d8 orchestration copy`);
-    else if (!isDeepStrictEqual(h.orchestration, fixture[h.id])) findings.push(`harness '${h.id}' orchestration differs from be752d8`);
+    else if (!isDeepStrictEqual(withoutNest(h.orchestration), fixture[h.id])) findings.push(`harness '${h.id}' orchestration differs from be752d8`);
   }
   return findings;
 }

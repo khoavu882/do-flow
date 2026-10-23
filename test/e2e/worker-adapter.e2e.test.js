@@ -206,7 +206,9 @@ test('worker capabilities declared honestly: every value supported, unsupported 
       else assert.ok(typeof entry.reason === 'string' && entry.reason, `${where} gives its reason`);
       assert.match(entry.verifiedOn, /^\d{4}-\d{2}-\d{2}$/, where);
     }
-    assert.deepEqual(harness.orchestration, ORCHESTRATION_AT_BE752D8[harness.id], `${harness.id} orchestration`);
+    // 118 IC-004 adds `nest` after be752d8; the copy covers the five operations that existed then.
+    const { nest: _nest, ...atBe752d8 } = harness.orchestration;
+    assert.deepEqual(atBe752d8, ORCHESTRATION_AT_BE752D8[harness.id], `${harness.id} orchestration`);
   }
 });
 

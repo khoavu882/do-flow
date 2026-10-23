@@ -34,8 +34,19 @@ test('G9: every skill that names a specialist archetype also references MODEL_SE
 test('G9: the archetype match sees the names the skills actually write', () => {
   const archetypes = archetypeNames();
   const read = (skill) => fs.readFileSync(skillFiles().find(({ name }) => name === skill).file, 'utf8');
-  assert.deepEqual(namedIn(read('do-execute-plan'), archetypes).sort(),
-    ['core-implementer', 'quality-guardian', 'system-architect']);
-  assert.ok(namedIn(read('do-code-review'), archetypes).includes('quality-guardian'));
+  assert.deepEqual(namedIn('dispatch to `core-implementer` or `system-architect`', archetypes).sort(),
+    ['core-implementer', 'system-architect']);
+  assert.ok(namedIn(read('do-code-review'), archetypes).includes('reviewer'));
   assert.deepEqual(namedIn('a skill with no specialist dispatch', archetypes), []);
+});
+
+// 118: review is dispatched to `reviewer`; the plan owners are agent specs, so no skill names
+// quality-guardian (every mention in a skill was a dispatch target).
+test('G9: no skill names quality-guardian as a dispatch target', () => {
+  const failures = skillFiles()
+    .filter(({ file }) => /\bquality-guardian\b/.test(fs.readFileSync(file, 'utf8')))
+    .map(({ name }) => name);
+  assert.deepEqual(failures, [], `skills still dispatching to quality-guardian: ${failures.join(', ')}`);
+  const review = skillFiles().find(({ name }) => name === 'do-code-review');
+  assert.match(fs.readFileSync(review.file, 'utf8'), /dispatched whole to the `reviewer` agent/);
 });

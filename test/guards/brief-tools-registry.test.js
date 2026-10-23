@@ -236,6 +236,11 @@ test('G29: dispatchTiers matches MODEL_SELECTION.md and the agent specs', () => 
   const { REVIEW_OWNERS } = require('../../src/runtime/dispatch/loop.ts');
   assert.ok(REVIEW_OWNERS.length > 0);
   assert.deepEqual(reviewOwnerProblems(REVIEW_OWNERS, registry.dispatchTiers.byOwner, agentSpecNames()), []);
+  // 118 IC-008 / IC-009: seven archetypes; the two new ones run at frontier and review work is reviewer's.
+  assert.equal(Object.keys(registry.dispatchTiers.byOwner).length, 7);
+  assert.equal(registry.dispatchTiers.byOwner['delivery-lead'], 'frontier');
+  assert.equal(registry.dispatchTiers.byOwner.reviewer, 'frontier');
+  assert.deepEqual([...REVIEW_OWNERS], ['reviewer']);
 });
 
 test('G29: every harness toolName template holds {server} and {tool}', () => {

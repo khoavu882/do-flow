@@ -70,7 +70,7 @@ function snapshotRun(run: any) {
     taskClass: run.taskClass,
     workflowName: run.workflowName,
     state: run.state,
-    current: current ? { type: current.type, id: current.id, kind: current.kind ?? null, mutatesSource: current.mutatesSource ?? null, readinessTemplate: current.readinessTemplate ?? null } : null,
+    current: current ? { type: current.type, id: current.id, kind: current.kind ?? null, agent: current.agent ?? null, mutatesSource: current.mutatesSource ?? null, readinessTemplate: current.readinessTemplate ?? null } : null,
     awaitingGate: run.state === 'AWAITING_GATE' && current ? { gateId: current.id, name: current.name, prompt: current.prompt } : null,
     progress: { done, total: run.program.length },
     terminalStage: run.terminalStage,
@@ -102,6 +102,7 @@ function compileProgram(workflow: any) {
   for (const stage of workflow.stages || []) {
     nodes.push({
       type: 'stage', id: stage.id, skill: stage.skill, kind: stage.kind,
+      agent: stage.agent,
       mutatesSource: Boolean(stage.mutatesSource),
       readinessTemplate: stage.readinessTemplate ?? null,
       optional: Boolean(stage.optional),

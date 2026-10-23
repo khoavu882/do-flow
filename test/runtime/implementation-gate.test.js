@@ -77,7 +77,7 @@ test('the held set is read from the shipped registry: every class whose workflow
 });
 
 test('the held set follows an injected registry: no class name is written in code', () => {
-  const stage = (id, kind, readinessTemplate) => ({ id, skill: 'do-x', kind, readinessTemplate, optional: false, purpose: 'p' });
+  const stage = (id, kind, readinessTemplate) => ({ id, skill: 'do-x', agent: 'core-implementer', kind, readinessTemplate, optional: false, purpose: 'p' });
   const klass = (stages) => ({ name: 'n', description: 'd', readinessNote: 'r', stages, gates: [] });
   const engine = new WorkflowEngine({
     readinessTemplates: false,

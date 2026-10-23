@@ -169,9 +169,10 @@ function evaluateHarnesses({ harness = null, ladder = null, needs = [], billingC
   });
 }
 
-/** Owners whose work is review: the static-review / security / testing-gate archetype (D-ORCH review
- * decision C-2). Archetype ids from the plan's `owner`, not harness, provider or model ids. */
-const REVIEW_OWNERS = Object.freeze(['quality-guardian']);
+/** Owners whose work is review (D-ORCH review decision C-2; 118 IC-009: the `reviewer` agent, so a
+ * `quality-guardian` testing task may step). Archetype ids from the plan's `owner`, not harness,
+ * provider or model ids. */
+const REVIEW_OWNERS = Object.freeze(['reviewer']);
 
 /**
  * 106 IC-004 / review C-2, R-1: why a task of plan owner `owner` and task-line tier `tier` never

@@ -211,11 +211,13 @@
       "projection": {
         "claude": {
           "renderer": "copy-tree",
-          "capability": "agents"
+          "capability": "agents",
+          "transform": "claude-agents"
         },
         "codex": {
           "renderer": "copy-tree",
-          "capability": "agents"
+          "capability": "agents",
+          "transform": "codex-agents"
         },
         "gemini": {
           "renderer": "copy-tree",
@@ -224,7 +226,8 @@
         },
         "copilot": {
           "renderer": "copilot-agents",
-          "capability": "agents"
+          "capability": "agents",
+          "transform": "copilot-agents"
         },
         "kiro": {
           "renderer": "kiro-agents",
@@ -235,7 +238,8 @@
         "antigravity": {
           "renderer": "copy-tree",
           "capability": "agents",
-          "layout": "dir-per-file:agent.md"
+          "layout": "dir-per-file:agent.md",
+          "transform": "antigravity-agents"
         },
         "opencode": {
           "renderer": "opencode-agents",

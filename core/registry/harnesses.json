@@ -221,6 +221,27 @@
           ],
           "verification": "Complete a subagent, then send it a follow-up through SendMessage and confirm it keeps its history.",
           "verifiedOn": "2026-10-12"
+        },
+        "nest": {
+          "status": "supported",
+          "evidence": [
+            "https://code.claude.com/docs/en/sub-agents → \"By default, a subagent can spawn subagents of its own, up to three layers below the main conversation.\""
+          ],
+          "verification": "Start a subagent that starts a subagent and confirm the inner one runs (three layers below the main conversation by default).",
+          "verifiedOn": "2026-10-23"
+        }
+      },
+      "agentLimits": {
+        "readOnly": {
+          "status": "native",
+          "apply": {
+            "disallowedTools": "Edit, Write, NotebookEdit"
+          },
+          "evidence": [
+            "https://code.claude.com/docs/en/sub-agents"
+          ],
+          "checked": "docs",
+          "verifiedOn": "2026-10-23"
         }
       },
       "worker": {
@@ -623,6 +644,24 @@
           "verifiedOn": "2026-10-12",
           "fallback": "manual",
           "reason": "https://learn.chatgpt.com/docs/agent-configuration/subagents was read on 2026-10-12 and does not state a resume operation; nothing is inferred from another harness or a model name."
+        },
+        "nest": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Re-read https://learn.chatgpt.com/docs/agent-configuration/subagents for whether a subagent can start a subagent.",
+          "verifiedOn": "2026-10-23",
+          "fallback": "sequential",
+          "reason": "vendor docs silent: https://learn.chatgpt.com/docs/agent-configuration/subagents was read on 2026-10-23 and does not state whether a subagent can start a subagent; nothing is inferred from another harness or a model name."
+        }
+      },
+      "agentLimits": {
+        "readOnly": {
+          "status": "unenforced",
+          "reason": "vendor docs say `sandbox_mode` in an agent file does not override the parent session; DoFlow keeps writing it (followup-tracked)",
+          "evidence": [
+            "https://learn.chatgpt.com/docs/agent-configuration/subagents"
+          ],
+          "verifiedOn": "2026-10-23"
         }
       },
       "worker": {
@@ -1029,6 +1068,37 @@
           "verifiedOn": "2026-10-12",
           "fallback": "manual",
           "reason": "https://geminicli.com/docs/core/subagents was read on 2026-10-12 and does not state a resume operation; nothing is inferred from another harness or a model name."
+        },
+        "nest": {
+          "status": "unsupported",
+          "evidence": [
+            "https://geminicli.com/docs/core/subagents → \"subagents cannot call other subagents.\""
+          ],
+          "verification": "Re-read https://geminicli.com/docs/core/subagents for whether the no-nesting rule still holds.",
+          "verifiedOn": "2026-10-23",
+          "fallback": "sequential"
+        }
+      },
+      "agentLimits": {
+        "readOnly": {
+          "status": "native",
+          "apply": {
+            "tools": [
+              "read_file",
+              "read_many_files",
+              "list_directory",
+              "glob",
+              "grep_search",
+              "run_shell_command",
+              "web_fetch",
+              "google_web_search"
+            ]
+          },
+          "evidence": [
+            "https://geminicli.com/docs/core/subagents"
+          ],
+          "checked": "docs",
+          "verifiedOn": "2026-10-23"
         }
       },
       "worker": {
@@ -1281,7 +1351,7 @@
           "evidence": [
             "https://opencode.ai/docs/agents"
           ],
-          "note": "OpenCode supports native agent definitions as Markdown files with frontmatter (description, mode primary|subagent, model, temperature, permission, hidden) discovered at .opencode/agents/ (project) and ~/.config/opencode/agents/ (global); agents are also definable in opencode.json's agent key. DoFlow still projects specialist guidance through instructions; direct projection into these directories is planned and will reuse copy-tree's layout rename.",
+          "note": "OpenCode supports native agent definitions as Markdown files with frontmatter (description, mode primary|subagent, model, temperature, permission, hidden) discovered at .opencode/agents/ (project) and ~/.config/opencode/agents/ (global); agents are also definable in opencode.json's agent key. DoFlow projects each shared agent spec into those directories through the opencode-agents renderer: description, mode subagent, and a permission block (edit and bash set to deny, the keys opencode.ai/docs/permissions documents) for read-only agents; model is omitted because OpenCode has no 'inherit' value, so a subagent uses the model of the primary agent that invoked it.",
           "verification": "Confirm a native agent under .opencode/agents/ or ~/.config/opencode/agents/ is selectable (Tab cycles primary agents; @ mentions invoke subagents)."
         },
         "scripts": {
@@ -1432,6 +1502,31 @@
           "verifiedOn": "2026-10-12",
           "fallback": "manual",
           "reason": "https://opencode.ai/docs/agents was read on 2026-10-12 and does not state a resume operation; nothing is inferred from another harness or a model name."
+        },
+        "nest": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Re-read https://opencode.ai/docs/agents for whether a subagent can start a subagent.",
+          "verifiedOn": "2026-10-23",
+          "fallback": "sequential",
+          "reason": "vendor docs silent: https://opencode.ai/docs/agents was read on 2026-10-23 and does not state whether a subagent can start a subagent; nothing is inferred from another harness or a model name."
+        }
+      },
+      "agentLimits": {
+        "readOnly": {
+          "status": "native",
+          "apply": {
+            "permission": {
+              "edit": "deny",
+              "bash": "deny"
+            }
+          },
+          "evidence": [
+            "https://opencode.ai/docs/agents",
+            "https://opencode.ai/docs/permissions"
+          ],
+          "checked": "docs",
+          "verifiedOn": "2026-10-23"
         }
       },
       "worker": {
@@ -1825,6 +1920,25 @@
           "verifiedOn": "2026-10-12",
           "fallback": "manual",
           "reason": "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md states no resume operation; https://pi.dev/docs/latest/extensions states no subagent operation. Nothing is inferred."
+        },
+        "nest": {
+          "status": "unsupported",
+          "evidence": [
+            "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md → \"Pi ships with powerful defaults but skips features like sub-agents and plan mode.\""
+          ],
+          "verification": "Re-read https://github.com/earendil-works/pi/blob/main/packages/coding-agent/README.md for a core subagent feature.",
+          "verifiedOn": "2026-10-23",
+          "fallback": "sequential"
+        }
+      },
+      "agentLimits": {
+        "readOnly": {
+          "status": "unenforced",
+          "reason": "no agent surface",
+          "evidence": [
+            "https://pi.dev/docs/latest/extensions"
+          ],
+          "verifiedOn": "2026-10-23"
         }
       },
       "worker": {
@@ -2223,6 +2337,32 @@
           "verifiedOn": "2026-10-12",
           "fallback": "manual",
           "reason": "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference offers steering of a running subagent from its session view but states no resume of a finished subagent; nothing is inferred."
+        },
+        "nest": {
+          "status": "supported",
+          "evidence": [
+            "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference → \"Subagents that spawn their own nested subagents appear as an indented tree\" in /tasks."
+          ],
+          "verification": "Start a subagent that starts a subagent and confirm /tasks shows the nested tree; the depth limit is not stated.",
+          "verifiedOn": "2026-10-23"
+        }
+      },
+      "agentLimits": {
+        "readOnly": {
+          "status": "native",
+          "apply": {
+            "tools": [
+              "read",
+              "search",
+              "execute",
+              "web"
+            ]
+          },
+          "evidence": [
+            "https://docs.github.com/en/copilot/reference/custom-agents-configuration"
+          ],
+          "checked": "docs",
+          "verifiedOn": "2026-10-23"
         }
       },
       "worker": {
@@ -2442,7 +2582,7 @@
           "evidence": [
             "https://kiro.dev/docs/custom-agents/configuration-reference/"
           ],
-          "note": "kiro-cli discovers custom agents as .kiro/agents/<name>.json; kiro-cli 2.27.1 `kiro-cli agent list` did not list .md agents. DoFlow renders each shared agent spec to JSON (name, description, prompt, tools, hooks) through the kiro-agents transform and installs a static doflow agent beside them. A pre-existing DoFlow-owned <name>.md is removed on update. DoFlow never changes the user's default agent; run `kiro-cli chat --agent doflow` or opt in with `kiro-cli agent set-default doflow`.",
+          "note": "DoFlow writes custom agents as .kiro/agents/<name>.json. Kiro's configuration reference (read 2026-10-23) also documents Markdown agents; DoFlow does not write them, and `kiro-cli agent list` 2.27.1 did not list .md agents when last tested (not re-tested since). DoFlow renders each shared agent spec to JSON (name, description, prompt, tools, hooks) through the kiro-agents transform and installs a static doflow agent beside them. The read-only `tools` list uses the category tags read, shell and web, which are the Kiro CLI V3 vocabulary (kiro.dev/docs/cli/v3/agent-config/); CLI 2.x named tools such as fs_read and execute_bash, but Kiro's migration table lists read and shell as names a 2.x CLI also accepts, so only web is a V3-only tag and on a 2.x CLI that list may be only partly recognised (web), not wholly unrecognised (INFERENCE from the two documentation pages, not run live). A pre-existing DoFlow-owned <name>.md is removed on update. DoFlow never changes the user's default agent; run `kiro-cli chat --agent doflow` or opt in with `kiro-cli agent set-default doflow`.",
           "verification": "Confirm an installed custom agent under .kiro/agents is discoverable by Kiro."
         },
         "scripts": {
@@ -2559,6 +2699,32 @@
           "verifiedOn": "2026-10-12",
           "fallback": "manual",
           "reason": "https://kiro.dev/docs/custom-agents/subagents/ was read on 2026-10-12 and does not state a resume operation; nothing is inferred from another harness or a model name."
+        },
+        "nest": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Re-read https://kiro.dev/docs/custom-agents/subagents/ for whether a subagent can start a subagent.",
+          "verifiedOn": "2026-10-23",
+          "fallback": "sequential",
+          "reason": "vendor docs silent: https://kiro.dev/docs/custom-agents/subagents/ was read on 2026-10-23 and does not state whether a subagent can start a subagent; nothing is inferred from another harness or a model name."
+        }
+      },
+      "agentLimits": {
+        "readOnly": {
+          "status": "native",
+          "apply": {
+            "tools": [
+              "read",
+              "shell",
+              "web"
+            ]
+          },
+          "evidence": [
+            "https://kiro.dev/docs/custom-agents/configuration-reference/",
+            "https://kiro.dev/docs/cli/v3/agent-config/"
+          ],
+          "checked": "docs",
+          "verifiedOn": "2026-10-23"
         }
       },
       "worker": {
@@ -2965,6 +3131,24 @@
           ],
           "verification": "Message an Idle subagent and confirm it returns to Running.",
           "verifiedOn": "2026-10-12"
+        },
+        "nest": {
+          "status": "supported",
+          "evidence": [
+            "https://antigravity.google/docs/subagents?tab=cli → maximum nesting depth of 10 levels under the primary agent."
+          ],
+          "verification": "Start a subagent that starts a subagent and confirm the inner one runs (documented depth 10).",
+          "verifiedOn": "2026-10-23"
+        }
+      },
+      "agentLimits": {
+        "readOnly": {
+          "status": "unenforced",
+          "reason": "tool names and the empty-default semantics of `tools` are undocumented (followup-tracked)",
+          "evidence": [
+            "https://antigravity.google/docs/subagents?tab=cli"
+          ],
+          "verifiedOn": "2026-10-23"
         }
       },
       "worker": {

@@ -20,7 +20,8 @@ const { REPO_ROOT } = require('../helper/repo-root.ts');
 /** Fields every stage must declare as a non-empty string. `readinessTemplate` and `optional` are
  * checked separately, because for those two an *absent* key is the dangerous case: reading a
  * missing `readinessTemplate` as "ungated" is how a gate disappears without anyone noticing. */
-const STAGE_STRING_FIELDS = ['id', 'skill', 'kind', 'purpose'];
+const STAGE_STRING_FIELDS = ['id', 'skill', 'agent', 'kind', 'purpose'];
+const AGENT_NAME = /^[a-z][a-z0-9-]*$/;
 const GATE_STRING_FIELDS = ['id', 'name', 'afterStage', 'kind', 'trigger', 'prompt'];
 
 const READINESS_REGISTRY_FILE = 'readiness-templates.json';
@@ -230,6 +231,9 @@ class WorkflowEngine {
           if (!isNonEmptyString(stage[field])) {
             problems.push(`${where} must declare a non-empty \`${field}\``);
           }
+        }
+        if (isNonEmptyString(stage.agent) && !AGENT_NAME.test(stage.agent)) {
+          problems.push(`${where} \`agent\` must be a lowercase kebab-case agent name`);
         }
         if (isNonEmptyString(stage.id)) {
           if (stageIds.has(stage.id)) {

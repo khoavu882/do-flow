@@ -4,7 +4,7 @@
 // exhaustive enumeration of the pure `selectMode` over owners x task-line tiers x rung readiness x
 // exhausted rungs x the task's last dispatch x fallback modes x acceptances, on a 3-rung ladder plus
 // one eligible harness outside it. No sandbox, no I/O: the candidate cache is prefilled. The oracle
-// below is written from the decisions, not from loop.ts, and every case is checked against five
+// below is written from the decisions, not from loop.ts, and every case is checked against six
 // invariants:
 //   1. a no-step task (resolved tier frontier, review owner, unknown owner) never runs on another
 //      harness than its quota dispatch's after a quota, in any mode;
@@ -13,7 +13,9 @@
 //   4. a rung change happens only in `auto`, or in off/ask with an accepted rung equal to the chosen
 //      one, and always carries `selection.fallback.kind === 'step'`; no step without a change;
 //   5. with nothing exhausted and no quota, the pre-106 rule (launch shortcut, first eligible, else
-//      sequential).
+//      sequential);
+//   6. (118 IC-009) in auto, a task that may step does step to the first eligible rung on a rung
+//      change, so a quality-guardian task at a light or standard tier is no longer held as review.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -28,7 +30,7 @@ const REGISTRY = { dispatchTiers: TIERS };
 const LADDER = Object.freeze(['C', 'A', 'B']);
 /** Registry order; `D` is always eligible and never on the ladder. */
 const RUNGS = Object.freeze(['A', 'B', 'C']);
-const OWNERS = Object.freeze(['system-architect', 'quality-guardian', 'core-implementer', 'not-an-owner', 'System-Architect']);
+const OWNERS = Object.freeze(['system-architect', 'quality-guardian', 'reviewer', 'Reviewer', 'core-implementer', 'not-an-owner', 'System-Architect']);
 const TASK_TIERS = Object.freeze([null, 'light', 'standard', 'frontier', 'ultra']);
 const MODES = Object.freeze(['off', 'ask', 'auto']);
 const LASTS = Object.freeze([null, ...RUNGS.flatMap((h) => ['quota', 'verification', 'launch'].map((failureClass) => ({ harness: h, failureClass, token: 1 })))]);
@@ -43,10 +45,10 @@ function noStep(owner, tier) {
   const match = Object.keys(TIERS.byOwner).find((name) => name.toLowerCase() === key);
   if (!match) return true;
   if ((valid ? tier : TIERS.byOwner[match]) === 'frontier') return true;
-  return match === 'quality-guardian';
+  return match === 'reviewer';
 }
 
-test('106 property: selectMode keeps the five fallback invariants over the bounded state space', (t) => {
+test('106 property: selectMode keeps the six fallback invariants over the bounded state space', (t) => {
   const started = Date.now();
   const broken = new Map();
   const fail = (rule, example) => {
@@ -84,6 +86,8 @@ test('106 property: selectMode keeps the five fallback invariants over the bound
     // 4
     if (change && ran !== null && !(!noStep(owner, tier) && (mode === 'auto' || acceptedRung === ran) && step && step.kind === 'step')) fail('4 rung change without auto, a matching acceptance or a step', example);
     if (step && !change) fail('4 step without a rung change', example);
+    // 6
+    if (!noStep(owner, tier) && change && mode === 'auto' && firstOk !== null && ran !== firstOk) fail('6 a may-step task did not step in auto', example);
     // 5
     if (!exhausted.length && !afterQuota) {
       const want = lastFailureClass === 'launch' || firstOk === null ? { mode: 'sequential', harness: null } : { mode: 'subagent', harness: firstOk };

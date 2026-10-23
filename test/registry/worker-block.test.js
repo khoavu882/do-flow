@@ -127,7 +127,9 @@ test('worker: every harness orchestration block equals the copy taken at be752d8
   const registry = loadRegistry({ repoRoot: REPO });
   assert.deepEqual(Object.keys(ORCHESTRATION_AT_BE752D8), HARNESSES);
   for (const harness of registry.harnesses) {
-    assert.deepEqual(harness.orchestration, ORCHESTRATION_AT_BE752D8[harness.id], `${harness.id} orchestration`);
+    // 118 IC-004 adds `nest` after be752d8; the copy covers the five operations that existed then.
+    const { nest: _nest, ...atBe752d8 } = harness.orchestration;
+    assert.deepEqual(atBe752d8, ORCHESTRATION_AT_BE752D8[harness.id], `${harness.id} orchestration`);
   }
 });
 
