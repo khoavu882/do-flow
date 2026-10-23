@@ -32,6 +32,7 @@ const CODEX_AGENTS = path.join(REPO, 'core', 'harnesses', 'codex', 'agents');
 const STANDALONE_TOKENS = [
   'doflow-run', '.doflow/', 'task-attempt', 'readiness', 'orchestrate', 'findings.json',
   'doflow-row', 'co-authored-by', 'trailer', 'design.md', 'plan.md', 'requirement.md', 'doflow chain',
+  'agent-docs/',
 ];
 const SKILL_COMMAND = /(?:^|[\s`(])(\/do-[a-z][a-z-]*)/;
 // file -> exact (trimmed) lines allowed to trip a pattern: core-implementer's DoFlow-optional wording.
@@ -81,6 +82,52 @@ function findings(specs) {
   }
   const total = specs.reduce((sum, spec) => sum + spec.description.length, 0);
   if (total > MAX_TOTAL) out.push(`descriptions total ${total} characters, cap ${MAX_TOTAL}`);
+  return out;
+}
+
+/** A scalar that YAML would reject: an unterminated quote, an unbalanced flow collection, or a plain
+ * scalar holding `: `. Empty is valid (a nested mapping follows). */
+function scalarProblem(value) {
+  if (value === '') return null;
+  if (value.startsWith('"')) return /^"(?:[^"\\]|\\.)*"$/.test(value) ? null : 'unterminated or unbalanced double quote';
+  if (value.startsWith("'")) return /^'(?:[^']|'')*'$/.test(value) ? null : 'unterminated or unbalanced single quote';
+  if (/^[[{]/.test(value)) {
+    const close = value[0] === '[' ? ']' : '}';
+    return value.endsWith(close) ? null : 'unterminated flow collection';
+  }
+  return /:(?:\s|$)/.test(value) ? 'plain scalar contains ": "' : null;
+}
+
+/** Strict frontmatter check, no YAML dependency (the repo has no YAML parser: its registries are JSON and
+ * every guard reads frontmatter by regex, which accepts `description: "broken`). Rules: opening and
+ * closing `---`; each line is `key: value` with a valid scalar, or an indented `sub: value` / `- item`
+ * under a key whose own value is empty; `description` is a single-line scalar (no `|` / `>` block
+ * indicator, no continuation). Returns readable problem lines. */
+function frontmatterProblems(text) {
+  const lines = text.split(/\r?\n/);
+  if (lines[0]?.trim() !== '---') return ['no opening frontmatter marker'];
+  const end = lines.findIndex((line, i) => i > 0 && line.trim() === '---');
+  if (end < 0) return ['unterminated frontmatter: no closing marker'];
+  const out = [];
+  let parent = null; // top-level key still open to indented children
+  lines.slice(1, end).forEach((line, i) => {
+    const at = `frontmatter line ${i + 2}`;
+    if (!line.trim()) return;
+    if (/^\s/.test(line)) {
+      if (!parent) out.push(`${at}: indented line is not a key: value mapping line`);
+      else if (parent.value !== '') out.push(`${at}: continuation under '${parent.key}'${parent.key === 'description' ? ' (multi-line description)' : ''}`);
+      else if (parent.key === 'description') out.push(`${at}: multi-line description`);
+      else if (!/^\s+(?:[A-Za-z][A-Za-z0-9_-]*:(?:\s+.*)?|-\s+.*)$/.test(line)) out.push(`${at}: not a key: value line`);
+      return;
+    }
+    const m = line.match(/^([A-Za-z][A-Za-z0-9_-]*):(?:\s+(.*?))?\s*$/);
+    if (!m) { parent = null; out.push(`${at}: not a key: value line`); return; }
+    const [, key, raw = ''] = m;
+    parent = { key, value: raw };
+    const problem = scalarProblem(raw);
+    if (problem) out.push(`${at}: ${key}: ${problem}`);
+    if (key === 'description' && (raw === '' || /^[|>][+-]?\d*$/.test(raw))) out.push(`${at}: multi-line description (block scalar or empty value)`);
+  });
   return out;
 }
 
@@ -135,13 +182,15 @@ function cliVerbs() {
 }
 
 const VERBS = cliVerbs();
-const COMMAND = new RegExp(`\\bdoflow(?:-run)? +(${[...VERBS].sort((a, b) => b.length - a.length).join('|')})(?![\\w-])`, 'g');
+// Case-insensitive, and flags may sit between `doflow` / `doflow-run` and the verb (`doflow --json evidence`).
+// Ceiling accepted: prose such as "DoFlow review of the plan" also trips; reword it in the spec.
+const COMMAND = new RegExp(`\\bdoflow(?:-run)?(?: +--?[\\w-]+(?:=\\S+)?)* +(${[...VERBS].sort((a, b) => b.length - a.length).join('|')})(?![\\w-])`, 'gi');
 
 /** The patterns one line trips, as the matched (lowercased) text. */
 function tripped(line) {
   const lower = line.toLowerCase();
   const out = STANDALONE_TOKENS.filter((token) => lower.includes(token));
-  for (const match of line.matchAll(COMMAND)) out.push(match[0].replace(/ +/, ' '));
+  for (const match of line.matchAll(COMMAND)) out.push(match[0].toLowerCase().replace(/ +/g, ' '));
   const skill = line.match(SKILL_COMMAND);
   if (skill) out.push(skill[1]);
   return out;
@@ -261,4 +310,52 @@ test('G64: the doflow <verb> pattern is derived from the CLI Commands list and t
   for (const verb of ['plan-check', 'dispatch', 'evidence', 'readiness', 'task-attempt', 'context-pack', 'followup', 'roadmap', 'classify', 'workflow', 'verify', 'review', 'orchestrate', 'claim']) {
     assert.ok(verbs.has(verb), `${verb} is a derived verb`);
   }
+});
+
+// R-3: every harness parses the projected frontmatter as YAML, so a broken spec must fail here.
+function specFrontmatterFindings(dir) {
+  return fs.readdirSync(dir).filter((n) => n.endsWith('.md')).sort()
+    .flatMap((name) => frontmatterProblems(fs.readFileSync(path.join(dir, name), 'utf8')).map((p) => `${name}: ${p}`));
+}
+
+test('G64: every shared spec frontmatter is valid YAML with a single-line description', () => {
+  assert.deepEqual(specFrontmatterFindings(AGENT_SPECS), []);
+});
+
+test('G64 control: a broken quote, a continued description, a block scalar and a bad mapping line in a spec are red', (t) => {
+  const { md } = scratchRoster(t);
+  const file = path.join(md, 'reviewer.md');
+  const original = fs.readFileSync(file, 'utf8');
+  assert.deepEqual(specFrontmatterFindings(md), [], 'controls start from the shipped roster');
+  const plant = (from, to) => {
+    assert.ok(original.includes(from), `fixture line present: ${from}`);
+    fs.writeFileSync(file, original.replace(from, to));
+    return specFrontmatterFindings(md).join('\n');
+  };
+  const descLine = original.split('\n')[2];
+  assert.match(descLine, /^description: "/);
+  assert.match(plant(descLine, 'description: "broken'), /reviewer\.md: .*description.*unterminated|unbalanced quote/i);
+  assert.match(plant(descLine, `${descLine}\n  continued on a second line`), /reviewer\.md: .*multi-line description/);
+  assert.match(plant(descLine, `${descLine}\ncontinued without indent`), /reviewer\.md: .*(multi-line description|not a key: value)/);
+  assert.match(plant(descLine, 'description: >\n  folded text'), /reviewer\.md: .*multi-line description/);
+  assert.match(plant('model: inherit', 'model inherit'), /reviewer\.md: .*not a key: value/);
+  assert.match(plant('access: read-only\n---', 'access: read-only'), /reviewer\.md: .*unterminated frontmatter|no closing/i);
+  fs.writeFileSync(file, original);
+  assert.deepEqual(specFrontmatterFindings(md), [], 'restoring the spec clears the findings');
+});
+
+test('G64 control: doflow verbs are caught case-insensitively and past flags, and agent-docs/ paths are rejected', (t) => {
+  const { md, toml } = scratchRoster(t);
+  const file = path.join(md, 'reviewer.md');
+  const original = fs.readFileSync(file, 'utf8');
+  const plant = (line) => { fs.writeFileSync(file, `${original}${line}\n`); return squash(standaloneFindings(md, toml)); };
+  assert.deepEqual(plant('Then run Doflow evidence on the result.'), ["reviewer.md: names 'doflow evidence'"]);
+  assert.deepEqual(plant('Then run doflow --json evidence on the result.'), ["reviewer.md: names 'doflow --json evidence'"]);
+  assert.deepEqual(plant('Then run doflow-run -q --root=x task-attempt on the result.').sort(), [
+    "reviewer.md: names 'doflow-run -q --root=x task-attempt'",
+    "reviewer.md: names 'doflow-run'",
+    "reviewer.md: names 'task-attempt'",
+  ].sort());
+  assert.deepEqual(plant('Write the report under agent-docs/doflow/ for the feature.'), ["reviewer.md: names 'agent-docs/'"]);
+  assert.deepEqual(plant('DoFlow-optional wording, and the DoFlow product name, stay prose.'), []);
 });
