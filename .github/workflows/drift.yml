@@ -56,7 +56,11 @@ jobs:
             # when the change lies beyond the snapshot's size cap.
             jq -r '.results[] | select(.status == "DRIFTED")
               | "- `\(.url)`\n  claims: \(.claims | join(", "))"
-                + (if (.diff // "") != "" then "\n\n````diff\n\(.diff)\n````\n"
+                + (if (.diff // "") != "" then
+                     # A fence one backtick longer than the longest run inside the diff cannot be closed by it.
+                     ([.diff | scan("`+") | length] | max // 0) as $run
+                     | ([range([3, $run + 1] | max)] | map("`") | join("")) as $fence
+                     | "\n\n\($fence)diff\n\(.diff)\n\($fence)\n"
                    elif .diff == "" then "\n  (change lies beyond the stored snapshot; no diff)"
                    else "\n  (no snapshot to diff against)" end)' drift-report.json
           } > drift-body.md
