@@ -64,7 +64,7 @@
     { "id": "INV-3", "statement": "Verify PASS on the reviewed head before any seat", "enforcedBy": "review --action start" },
     { "id": "INV-4", "statement": "The class seat floor can be raised, never lowered", "enforcedBy": "review --action start, gate-b" },
     { "id": "INV-5", "statement": "Findings contract: schema, severities, verdicts, locator plus reproducer, every finding answered", "enforcedBy": "review --action check" },
-    { "id": "INV-6", "statement": "Round 1 is independent", "enforcedBy": "printed protocol (not machine-checkable)" },
-    { "id": "INV-7", "statement": "Fix and gate decisions stay under the person-only and ask-first rules", "enforcedBy": "orchestrate decide-gate" }
+    { "id": "INV-6", "statement": "Round 1 is independent", "enforcedBy": "printed protocol (not machine-checkable)", "kinds": ["review", "debate"] },
+    { "id": "INV-7", "statement": "Fix and gate decisions stay under the person-only and ask-first rules", "enforcedBy": "orchestrate decide-gate", "kinds": ["review", "debate"] }
   ]
 }

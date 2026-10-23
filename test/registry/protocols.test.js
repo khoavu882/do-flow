@@ -88,6 +88,20 @@ test('protocols: a bad invariant id, a duplicate seat id, a bad family and a bad
   refuses((d) => { d.presets.Bad_Id = structuredClone(d.presets['debate-2']); d.order.debate.push('Bad_Id'); }, /id must match/);
 });
 
+test('protocols: invariant kinds is a non-empty list of known kinds without repeats (C-11)', () => {
+  const data = shipped();
+  const kinds = Object.fromEntries(data.invariants.map((inv) => [inv.id, inv.kinds]));
+  assert.deepEqual(kinds['INV-6'], ['review', 'debate']);
+  assert.deepEqual(kinds['INV-7'], ['review', 'debate']);
+  refuses((d) => { d.invariants[0].kinds = []; }, /invariants\[0\]\.kinds must be a non-empty list/);
+  refuses((d) => { d.invariants[0].kinds = 'review'; }, /invariants\[0\]\.kinds must be a non-empty list/);
+  refuses((d) => { d.invariants[0].kinds = ['review', 'plan']; }, /invariants\[0\]\.kinds has unknown kind 'plan'/);
+  refuses((d) => { d.invariants[0].kinds = ['review', 'review']; }, /invariants\[0\]\.kinds lists 'review' more than once/);
+  const ok = shipped();
+  ok.invariants[0].kinds = ['debate'];
+  assert.deepEqual(validateProtocols(ok).errors, []);
+});
+
 test('protocols: unknown keys are refused at every level', () => {
   refuses((d) => { d.extra = 1; }, /registry has unknown key 'extra'/);
   refuses((d) => { d.presets['debate-2'].extra = 1; }, /presets\.debate-2 has unknown key 'extra'/);

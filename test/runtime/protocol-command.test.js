@@ -92,6 +92,14 @@ test('resolve --kind review prints the rule values and each project blocker clau
   assert.doesNotMatch(debate.stdout, /protocol\.rules|protocol\.blocker/);
 });
 
+test('C-11: resolve --kind debate prints only the invariants that apply to a debate, and the origin of a set preset', (t) => {
+  const s = scratch(t);
+  assert.match(s.cli(['--action', 'resolve', '--kind', 'debate']).stdout, /^protocol\.invariants: INV-6,INV-7$/m);
+  assert.match(s.cli(['--action', 'resolve', '--kind', 'review']).stdout, /^protocol\.invariants: INV-1,INV-2,INV-3,INV-4,INV-5,INV-6,INV-7$/m);
+  fs.writeFileSync(path.join(s.cwd, '.doflow', 'settings.json'), JSON.stringify({ schema: 1, 'debate.preset': 'debate-2' }));
+  assert.match(s.cli(['--action', 'resolve', '--kind', 'debate']).stdout, /^protocol\.origins: id=project /m);
+});
+
 test('resolve --kind debate --preset debate-3 prints three rounds and the verifier as synthesizer', (t) => {
   const s = scratch(t);
   const res = s.cli(['--action', 'resolve', '--kind', 'debate', '--preset', 'debate-3', '--json']);

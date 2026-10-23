@@ -61,7 +61,8 @@ function setBy(settingsView: any, key: string): { value: any; layer: Origin } | 
 /**
  * IC-003 step 2, shared with the prepared-run check (119 C-3): the preset setting applied to a `pick`
  * (`{ id, origin }`). `auto`, the default and an unknown id leave the pick; a stricter id is taken with its layer
- * as origin; an equal one changes nothing; a looser one is ignored and returned as `disagreement`. Pure.
+ * as origin; an equal one changes nothing, except that a debate (whose pick is the registry default) then names
+ * the layer that decided it (C-11); a looser one is ignored and returned as `disagreement`. Pure.
  */
 function settingsPick({ kind, pick, settingsView, registry }: { kind: string; pick: { id: string; origin: Origin }; settingsView: any; registry: any }):
   { id: string; origin: Origin; disagreement?: any } {
@@ -70,7 +71,7 @@ function settingsPick({ kind, pick, settingsView, registry }: { kind: string; pi
   if (!preset || typeof preset.value !== 'string' || preset.value === 'auto' || !order.includes(preset.value)) return { ...pick };
   const at = order.indexOf(preset.value);
   const from = order.indexOf(pick.id);
-  if (at < from) return { id: preset.value, origin: preset.layer };
+  if (at < from || (at === from && kind === 'debate')) return { id: preset.value, origin: preset.layer };
   if (at > from) return { ...pick, disagreement: { field: 'id', by: preset.layer, value: preset.value, reason: 'looser' } };
   return { ...pick };
 }
@@ -196,7 +197,7 @@ function resolveProtocol({ kind, taskClass, risk, paths, runPreset, advicePick, 
     sameFamily,
     crossFamilyRereview,
     rereview: 'automatic',
-    invariants: registry.invariants.map((inv: any) => inv.id),
+    invariants: registry.invariants.filter((inv: any) => (inv.kinds ?? ['review']).includes(kind)).map((inv: any) => inv.id),
     origins: {
       id: idOrigin, seats: seatsOrigin, rounds: roundsOrigin, lenses: lensesOrigin, blockerClauses: blockersOrigin,
       sameFamily: sameFamilyOrigin, crossFamilyRereview: crossFamilyOrigin,

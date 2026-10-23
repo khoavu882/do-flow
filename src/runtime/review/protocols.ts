@@ -23,7 +23,7 @@ const PRESET_KEYS = ['kind', 'depth', 'seats', 'rounds', 'crossAnswer', 'synthes
 const SEAT_KEYS = ['id', 'agent', 'lenses', 'model'];
 const MODEL_KEYS = ['tier', 'family'];
 const ROUNDS_KEYS = ['default', 'min'];
-const INVARIANT_KEYS = ['id', 'statement', 'enforcedBy'];
+const INVARIANT_KEYS = ['id', 'statement', 'enforcedBy', 'kinds'];
 
 function isObject(value: any): boolean {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -166,6 +166,15 @@ function validateProtocols(data: any): { ok: boolean; errors: string[] } {
       else seen.add(inv.id);
       if (!isNonEmptyString(inv.statement)) errors.push(`${where}.statement must be a non-empty string`);
       if (!isNonEmptyString(inv.enforcedBy)) errors.push(`${where}.enforcedBy must be a non-empty string`);
+      if (Object.hasOwn(inv, 'kinds')) { // the protocol kinds the invariant applies to; absent = ['review']
+        if (!Array.isArray(inv.kinds) || inv.kinds.length === 0) errors.push(`${where}.kinds must be a non-empty list of ${KINDS.join(', ')}`);
+        else {
+          for (const kind of inv.kinds) if (!KINDS.includes(kind)) errors.push(`${where}.kinds has unknown kind '${kind}'`);
+          for (const kind of new Set(inv.kinds)) {
+            if (inv.kinds.filter((k: any) => k === kind).length > 1) errors.push(`${where}.kinds lists '${kind}' more than once`);
+          }
+        }
+      }
     });
   }
 

@@ -177,6 +177,31 @@ test('debate: debate-2 with 2 rounds, no depth, decider orchestrator; a stricter
   assert.equal(three.protocol.origins.id, 'run');
 });
 
+test('C-11: a debate whose preset a project or user layer set to the default names that layer; a review is unchanged', () => {
+  for (const layer of ['project', 'user']) {
+    const same = resolve({ kind: 'debate', settingsView: { 'debate.preset': { value: 'debate-2', layer } } });
+    assert.equal(same.protocol.id, 'debate-2');
+    assert.equal(same.protocol.origins.id, layer);
+    assert.deepEqual(same.protocol.disagreements, []);
+  }
+  const untouched = resolve({ kind: 'debate', settingsView: { 'debate.preset': { value: 'debate-2', layer: 'default' } } });
+  assert.equal(untouched.protocol.origins.id, 'registry');
+  const auto = resolve({ kind: 'debate', settingsView: { 'debate.preset': { value: 'auto', layer: 'project' } } });
+  assert.equal(auto.protocol.origins.id, 'registry');
+  // review: an equal setting still leaves the risk step as origin
+  const review = resolve({ taskClass: 'bug', settingsView: { 'review.preset': { value: 'review-single', layer: 'project' } } });
+  assert.equal(review.protocol.id, 'review-single');
+  assert.equal(review.protocol.origins.id, 'risk');
+});
+
+test('C-11: a debate lists only the invariants that apply to it; a review keeps INV-1..INV-7', () => {
+  assert.deepEqual(resolve({ kind: 'debate' }).protocol.invariants, ['INV-6', 'INV-7']);
+  assert.deepEqual(resolve({ kind: 'debate', runPreset: 'debate-3' }).protocol.invariants, ['INV-6', 'INV-7']);
+  assert.deepEqual(resolve().protocol.invariants, ['INV-1', 'INV-2', 'INV-3', 'INV-4', 'INV-5', 'INV-6', 'INV-7']);
+  const lines = protocolLines(resolve({ kind: 'debate' }).protocol);
+  assert.ok(lines.includes('protocol.invariants: INV-6,INV-7'), lines.join('\n'));
+});
+
 test('the Resolved shape: the phase A defaults carry origin registry', () => {
   const { protocol } = resolve({ taskClass: 'feature', paths: SCOPES.code });
   assert.deepEqual(Object.keys(protocol), ['id', 'kind', 'depth', 'seats', 'rounds', 'crossAnswer', 'synthesizer', 'decider',
