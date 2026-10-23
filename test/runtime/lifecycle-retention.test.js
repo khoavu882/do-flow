@@ -569,6 +569,21 @@ test('a unit named by an event of an unknown type is kept whole; other units sti
   assert.deepEqual(files([...mine, ...other, known]), ['followup:FU-aaaaaa', 'followup:FU-bbbbbb'], 'a known type naming the id is not an unknown event');
 });
 
+test('an item id used as an object key in an unknown-type event keeps its unit (C-2)', () => {
+  const now = Date.now();
+  const mine = dismissedFollowup('FU-aaaaaa', now, 100);
+  const other = dismissedFollowup('FU-bbbbbb', now, 100);
+  const goal = doneGoal('G-old', now, 100);
+  const options = { now: new Date(now), windowMs: HOUR };
+  const kept = (list) => selectExpired(list, options).units.map((u) => u.items.join());
+  const keyed = ev('followup.bulk-noted', { byId: { 'FU-aaaaaa': { note: 'x' } } }, at(now, 99));
+  assert.deepEqual(kept([...mine, ...other, keyed]), ['followup:FU-bbbbbb'], 'a keyed follow-up id keeps its unit; the unrelated unit expires');
+  const keyedGoal = ev('goal.bulk-noted', { goals: { 'G-old': 1 } }, at(now, 99));
+  assert.deepEqual(kept([...goal, ...other, keyedGoal]), ['followup:FU-bbbbbb'], 'a keyed goal id keeps its unit');
+  const deep = ev('followup.bulk-noted', { rows: [{ by: { 'FU-bbbbbb': true } }] }, at(now, 99));
+  assert.deepEqual(kept([...mine, ...other, deep]), ['followup:FU-aaaaaa'], 'nested keys count at any depth');
+});
+
 test('a goal unit named by an unknown-type event is kept; the files stay on disk through prepareStore', () => {
   const dir = project('unknown-type');
   const now = Date.now();

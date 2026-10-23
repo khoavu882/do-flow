@@ -136,8 +136,8 @@ function unitsOf(events: any[], shouldStop?: () => boolean): any[] | null {
 }
 
 /**
- * Every string value in the data of the events whose type this version's fold does not know (a newer
- * DoFlow wrote them). The fold ignores them, so retention cannot tell what they change; a unit that
+ * Every string value and every object key in the data of the events whose type this version's fold
+ * does not know (a newer DoFlow wrote them). The fold ignores them, so retention cannot tell what they change; a unit that
  * one of them names by id is kept whole rather than deleted from under it. Exact matches only:
  * keeping too little is a lost record, keeping too much only a file that stays.
  * @returns {Set<string>|null} null when `shouldStop` fired
@@ -154,7 +154,10 @@ function unknownTypeStrings(events: any[], shouldStop?: () => boolean): Set<stri
       const value = pending.pop();
       if (typeof value === 'string') found.add(value);
       else if (Array.isArray(value)) pending.push(...value);
-      else if (value && typeof value === 'object') pending.push(...Object.values(value));
+      else if (value && typeof value === 'object') {
+        for (const key of Object.keys(value)) found.add(key);
+        pending.push(...Object.values(value));
+      }
     }
   }
   return found;
