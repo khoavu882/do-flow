@@ -69,6 +69,8 @@ function backupId(op: string, date: Date): string {
 const MANIFEST_FILE = '.manifest.json';
 const OWNER_FILE = '.owner.json';
 const TEMP_PREFIX = '.tmp-';
+/** A backup retention is removing: renamed here first so a half-removed backup is never listed or counted. */
+const REMOVING_PREFIX = '.tmp-del-';
 const STALE_TEMP_MS = 24 * 60 * 60 * 1000;
 const MAX_ID_ATTEMPTS = 1000;
 const RENAME_COLLISION_CODES = new Set(['EEXIST', 'ENOTEMPTY', 'EPERM', 'EACCES']);
@@ -690,7 +692,12 @@ function applyRetention({ backupRoot, keep, protect = [], reserve = 0, dryRun = 
   const protectedCandidates = candidates.filter((c) => protectedIds.has(c.id));
   const ordered = [...protectedCandidates, ...candidates.filter((c) => !protectedIds.has(c.id))];
   const keepCount = keep === 0 ? ordered.length : Math.max(keep - reserve, protectedCandidates.length);
-  const removal = ordered.slice(keepCount).map((c) => c.id);
+  // The protected backup is the run's own, so one newer than it was made by another run that finished
+  // after it; this pass only reaps history older than its own backup.
+  const newestProtected = protectedCandidates[0];
+  const removal = ordered.slice(keepCount)
+    .filter((c) => !newestProtected || compareSortKeys(c, newestProtected) >= 0)
+    .map((c) => c.id);
 
   if (dryRun || keep === 0) {
     if (dryRun) result.wouldRemove = removal;
@@ -699,15 +706,32 @@ function applyRetention({ backupRoot, keep, protect = [], reserve = 0, dryRun = 
   }
 
   result.sweptTemps = sweepStaleTemps(backupRoot, { now, fsImpl });
+  // What an earlier pass renamed aside and died before deleting: already out of every listing, so it
+  // goes at once rather than after the 24 hour temp age. A pass still deleting its own loses nothing.
+  for (const e of entries) {
+    if (!e.isDirectory() || !e.name.startsWith(REMOVING_PREFIX)) continue;
+    try { fsImpl.rmSync(path.join(backupRoot, e.name), { recursive: true, force: true }); } catch { /* the next pass tries again */ }
+  }
   for (const id of removal) {
     const dir = path.join(backupRoot, id);
     // Another run's retention pass may have removed it already.
     if (!fsImpl.existsSync(dir)) continue;
+    // One rename takes the backup out of the listing whole; the deletion then happens out of sight.
+    const aside = path.join(backupRoot, `${REMOVING_PREFIX}${id}-${process.pid}-${crypto.randomBytes(4).toString('hex')}`);
     try {
-      fsImpl.rmSync(dir, { recursive: true, force: true });
+      fsImpl.renameSync(dir, aside);
+    } catch (err: any) {
+      if (err.code !== 'ENOENT') result.failed.push({ id, error: err.message });
+      continue;
+    }
+    try {
+      fsImpl.rmSync(aside, { recursive: true, force: true });
       result.removed.push(id);
     } catch (err: any) {
+      // Not removed: put it back under its id so it is still counted and listed, as when it was
+      // removed in place. If that fails too the aside folder is not listed and the next pass deletes it.
       result.failed.push({ id, error: err.message });
+      try { fsImpl.renameSync(aside, dir); } catch { /* the next pass cleans the aside folder */ }
     }
   }
   result.kept = ordered.filter((c) => fsImpl.existsSync(path.join(backupRoot, c.id))).length;
