@@ -443,6 +443,12 @@ const AGENT_LIMIT_STATUS = new Set(['native', 'unenforced']);
 const AGENT_LIMIT_KEYS = ['readOnly'];
 const AGENT_LIMIT_ENTRY_KEYS = new Set(['status', 'apply', 'evidence', 'checked', 'verifiedOn', 'reason']);
 
+/** True when `value` is a non-blank string that parses as an http: or https: URL. */
+function isHttpUrl(value: string): boolean {
+  if (!value.trim()) return false;
+  try { return ['http:', 'https:'].includes(new URL(value).protocol); } catch { return false; }
+}
+
 /** Validates one harness's `agentLimits` block (118 IC-003): how a `read-only` agent spec is limited
  * on that harness. Declared, never inferred; the adapters read `apply` and nothing else. */
 function validateAgentLimits(value: any, location: string, errors: string[]): void {
@@ -463,6 +469,7 @@ function validateAgentLimits(value: any, location: string, errors: string[]): vo
   if (!AGENT_LIMIT_STATUS.has(entry.status)) { issue(errors, at, 'status must be native or unenforced'); return; }
   const evidenceOk = Array.isArray(entry.evidence) && entry.evidence.every((item: any) => typeof item === 'string');
   if (!evidenceOk) issue(errors, at, 'evidence must be an array of strings');
+  else for (const item of entry.evidence) if (!isHttpUrl(item)) issue(errors, at, `evidence entry ${JSON.stringify(item)} must be an http(s) URL`);
   if (typeof entry.verifiedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(entry.verifiedOn)) issue(errors, at, 'requires verifiedOn as an ISO date (YYYY-MM-DD)');
   if (entry.status === 'native') {
     if (!object(entry.apply) || Object.keys(entry.apply).length === 0) issue(errors, at, 'native requires apply as a non-empty object');

@@ -83,6 +83,25 @@ test('agentLimits: native without evidence is refused', () => {
   assertReports(mutated((entry) => { entry.evidence = [42]; }), /agentLimits readOnly: evidence must be an array of strings/);
 });
 
+test('agentLimits: native evidence entries must be non-blank http(s) URLs (C-6)', () => {
+  for (const bad of ['', ' ', 'not a url', 'ftp://example.com/doc', 'mailto:a@b.c']) {
+    assertReports(mutated((entry) => { entry.evidence = [bad]; }), /agentLimits readOnly: evidence entry .* must be an http\(s\) URL/);
+  }
+  assertReports(mutated((entry) => { entry.evidence = ['https://example.com/ok', 'not a url']; }), /must be an http\(s\) URL/);
+  const ok = mutated((entry) => { entry.evidence = ['https://example.com/docs', 'http://example.org/x']; });
+  assert.equal(ok.ok, true, ok.errors.join('\n'));
+});
+
+test('agentLimits: an unenforced evidence entry that is not a URL is refused', () => {
+  assertReports(mutated((entry) => {
+    entry.status = 'unenforced'; entry.reason = 'undocumented'; entry.evidence = ['not a url']; delete entry.apply;
+  }), /agentLimits readOnly: evidence entry .* must be an http\(s\) URL/);
+  const ok = mutated((entry) => {
+    entry.status = 'unenforced'; entry.reason = 'undocumented'; entry.evidence = ['https://example.com/x']; delete entry.apply;
+  });
+  assert.equal(ok.ok, true, ok.errors.join('\n'));
+});
+
 test('agentLimits: native without checked docs|live or an ISO verifiedOn is refused', () => {
   assertReports(mutated((entry) => { delete entry.checked; }), /agentLimits readOnly: native requires checked as docs or live/);
   assertReports(mutated((entry) => { entry.checked = 'guess'; }), /native requires checked as docs or live/);
