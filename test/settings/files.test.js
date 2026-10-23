@@ -1,7 +1,7 @@
 'use strict';
 
 // 086 C.1 (IC-002, data-model §2, FR-008, NFR-010): reading one settings layer file. A parse failure
-// reports a byte offset only; no byte of the file appears in any result (Node 22.18 and 26 both quote
+// reports a byte offset only; no byte of the file appears in any result (Node 24 and 26 both quote
 // the first bytes of the input in "Unexpected token" messages). Files live under a temp folder; no
 // test reads the real home.
 

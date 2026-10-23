@@ -130,10 +130,17 @@ function checkCaller({ env, cwd, file }: { env: Env; cwd: string; file: string }
 // ── mode selection (IC-022) ──────────────────────────────────────────────────────────────────────
 
 /** DEC-052 / IC-012: static capability gaps plus the run's optional billing cap; nothing runs. */
-function staticGate(worker: any, billingCap?: string): any[] {
+function staticGate(worker: any, billingCap?: string, billing?: any): any[] {
   const gaps: any[] = [];
-  if (billingCap === 'free' && (!worker || worker.billing !== 'free')) {
-    gaps.push({ requirement: 'billing', result: 'failed', reason: `billing:${worker && worker.billing !== undefined ? worker.billing : 'unknown'}` });
+  // `billing` is what evaluateHarnesses judged under the cap: `{ value, source }`, or an invalid
+  // user record (`value: 'record-invalid'`, `recordReason`). Without it the registry value decides.
+  const judged = billing ?? { value: worker && worker.billing !== undefined ? worker.billing : 'unknown' };
+  if (billingCap === 'free' && judged.value !== 'free') {
+    gaps.push({
+      requirement: 'billing', result: 'failed', reason: `billing:${judged.value}`,
+      ...(judged.source ? { source: judged.source } : {}),
+      ...(judged.recordReason !== undefined ? { recordReason: judged.recordReason } : {}),
+    });
   }
   const cli = worker ? worker.cli : null;
   if (!cli || cli.status !== 'supported') {
@@ -161,11 +168,21 @@ function evaluateHarnesses({ harness = null, ladder = null, needs = [], billingC
   const cov = coverage === undefined ? reg.coverage : coverage;
   const entries = readiness.workerDescriptors({ descriptors, registry: reg })
     .filter((e: any) => (!harness || e.harness === harness) && (!Array.isArray(ladder) || ladder.includes(e.harness)));
+  // The user's billing record matters only under the cap, and is read once per pass. Required here,
+  // not at load: the settings modules stay off every path that never runs a capped dispatch.
+  const capped = billingCap === 'free' ? require('../settings/worker-billing.ts') : null;
+  const record = capped ? capped.readWorkerBilling(env, { workerIds: reg.harnesses.map((h: any) => h.id) }) : null;
   return entries.map((entry: any) => {
-    const gaps = staticGate(entry.worker, billingCap);
-    if (gaps.length) return { harness: entry.harness, eligible: false, gaps };
+    const billing = !record ? undefined
+      : record.state === 'invalid' ? { value: 'record-invalid', source: 'user-record', recordReason: record.reason }
+      : capped.effectiveBilling(entry.worker ? entry.worker.billing : undefined, entry.harness, record);
+    const gaps = staticGate(entry.worker, billingCap, billing);
+    // A candidate that cleared the billing gate under the cap names where its `free` came from.
+    const passed = billing && billing.value === 'free'
+      ? { billing: { value: 'free', source: billing.source, ...(billing.asserted !== undefined ? { asserted: billing.asserted } : {}) } } : {};
+    if (gaps.length) return { harness: entry.harness, eligible: false, gaps, ...passed };
     const judged = evaluateImpl({ harness: entry.harness, worker: entry.worker, needs, registry: reg, coverage: cov, env, cwd, root, now, platform });
-    return { harness: entry.harness, eligible: Boolean(judged.eligible), gaps: judged.gaps || [] };
+    return { harness: entry.harness, eligible: Boolean(judged.eligible), gaps: judged.gaps || [], ...passed };
   });
 }
 

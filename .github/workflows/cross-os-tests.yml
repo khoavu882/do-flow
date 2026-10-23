@@ -41,18 +41,12 @@ jobs:
         # `inputs` (and its default) exists only for workflow_call; on pull_request/push it is
         # empty. PRs skip the non-blocking Windows leg; a push to main still runs it.
         os: ${{ fromJSON(inputs.os_matrix || (github.event_name == 'pull_request' && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest","macos-latest","windows-latest"]')) }}
-        node: ["24"]
+        # engines.node is >=24.22.1 and bin/doflow.js refuses anything older, so every leg runs exactly the floor.
+        # A bare "24" resolves to the runner's cached 24.x, which can be older than the floor.
+        node: ["24.22.1"]
         # node --test --test-shard splits the test files across parallel jobs; the slowest leg
         # (one runner running all 357 files) used to set the wall time.
         shard: [1, 2, 3, 4]
-        # package.json declares engines.node ^22.18.0 || >=24.3.0, so its lowest release (22.18.0) is exercised too — otherwise the
-        # supported minimum is only asserted, never tested. One OS is enough for a version sweep;
-        # the OS matrix above already covers the portability axis.
-        include:
-          - { os: ubuntu-latest, node: "22.18.0", shard: 1 }
-          - { os: ubuntu-latest, node: "22.18.0", shard: 2 }
-          - { os: ubuntu-latest, node: "22.18.0", shard: 3 }
-          - { os: ubuntu-latest, node: "22.18.0", shard: 4 }
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -90,7 +84,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
-          node-version: "22"
+          node-version: "24.22.1"
 
       - name: Install dependencies
         run: npm install

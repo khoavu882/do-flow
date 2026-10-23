@@ -515,9 +515,9 @@ test('G11: the bench harness is not wired into the default test command', () => 
   // npm test is pure offline Node in ~14s. Pulling paid model calls into it would make the suite
   // cost money and stop being runnable in CI without credentials.
   const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
-  // Discovery is a quoted glob scoped to test/ that Node itself expands. Node 22.18 and 24 do not
+  // Discovery is a quoted glob scoped to test/ that Node itself expands. Node 24 does not
   // recurse a directory argument (`node --test test/` fails there with "Cannot find module"; only
-  // newer Node accepts it), and an unquoted glob would be expanded by the shell, which differs per
+  // Node 26 accepts it), and an unquoted glob would be expanded by the shell, which differs per
   // platform. A bare `node --test` walks the whole repository and would execute captured
   // *.test.js artifacts under bench/runs/, so every argument must stay under test/.
   assert.deepStrictEqual(
