@@ -322,6 +322,47 @@ test('FU-kerery real shell: a FAIL whose pre-run key read faulted evicts the sto
   assert.deepEqual([after.ran, after.status], [true, 'FAIL'], 'the next MEDIUM run executes');
 });
 
+// FU-kerery (review C-2): the same null-pre-run-key scene for the three other FAIL sites, each of which
+// evicts by the post-run key: a timeout, a spawn error and a spawn throw. Reverting any one site to the
+// pre-run key leaves that mode's stored PASS in place.
+for (const mode of ['timeout', 'error', 'throw']) {
+  test(`FU-kerery real shell: a FAIL by ${mode} whose pre-run key read faulted evicts the stored PASS by the post-run key`, (t) => {
+    if (process.platform === 'win32' || process.getuid?.() === 0) { t.skip('needs POSIX permissions and a non-root user'); return; }
+    const ctx = scene(t);
+    const marker = path.join(tempDir(t, 'doflow-stale-pass-marker-'), 'slow');
+    const index = path.join(ctx.root, '.git', 'index');
+    t.after(() => { try { fs.chmodSync(index, 0o644); } catch { /* fixture gone */ } });
+    // The check repairs the index first (the stub does it for the two modes that never reach the shell),
+    // so the post-run read works; then it times out, or the spawn fails.
+    const command = `chmod 644 "${index}"; if [ -e "${marker}" ]; then exec sleep 5; fi`;
+    const gate = { mode: 'real' };
+    const exec = (cmd, options) => {
+      if (gate.mode === 'throw') { fs.chmodSync(index, 0o644); throw new Error('spawn boom'); }
+      if (gate.mode === 'error') {
+        fs.chmodSync(index, 0o644);
+        return { error: Object.assign(new Error('spawn EACCES'), { code: 'EACCES' }), status: null, stdout: '', stderr: '' };
+      }
+      return spawnSync(cmd, options);
+    };
+    const options = { exec, timeoutMs: 800 };
+    assert.deepEqual([runnerDriver(ctx, command, options).ran, runnerDriver(ctx, command, options).ran], [true, false], 'PASS stored, then reused');
+    const [record] = storedRecords(ctx);
+
+    gate.mode = mode;
+    if (mode === 'timeout') fs.writeFileSync(marker, '');
+    fs.chmodSync(index, 0o000); // git status faults when the check's key is read
+    const runner = newRunner(ctx, { risk: 'HIGH', exec });
+    const result = runner.runCheck('B', command, 800);
+    assert.equal(result.status, 'FAIL');
+    if (mode === 'timeout') assert.equal(result.error, 'TimeoutExpired');
+    assert.equal(runner.metrics.get(result)?.checkKey ?? null, null, 'precondition: the pre-run key was null');
+    assert.equal(fs.existsSync(record), false, `the FAIL by ${mode} evicted the stored PASS by the post-run key`);
+    gate.mode = 'real';
+    if (mode === 'timeout') fs.rmSync(marker);
+    assert.equal(runnerDriver(ctx, command, options).ran, true, 'the next MEDIUM run executes');
+  });
+}
+
 // ── C-3: the out-of-repo target of a clean tracked symlink ───────────────────────────────────────
 
 test('C-3 real shell: changing only the target of a committed symlink to an outside file executes the check', (t) => {
