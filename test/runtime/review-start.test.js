@@ -796,6 +796,16 @@ test('settings: the verb reads the project settings; text form prints protocolDi
   assert.match(text.out.find((line) => line.startsWith('protocol.origins:')), /^protocol\.origins: id=project /);
 });
 
+test('settings: the text form prints the rules line and one protocol.blocker line per project clause (C-5)', async (t) => {
+  const r = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  r.lines([r.line({ risk: 'LOW' })]);
+  put(r.cwd, '.doflow/settings.json', JSON.stringify({ schema: 1, 'review.blockerClauses': ['no new dependency', 'no change to the public CLI'] }));
+  const text = await start(r, { base: r.base, json: false });
+  assert.ok(text.out.includes('protocol.rules: sameFamily=warn crossFamilyRereview=on'), text.out.join('\n'));
+  assert.ok(text.out.includes('protocol.blocker: no new dependency'), text.out.join('\n'));
+  assert.ok(text.out.includes('protocol.blocker: no change to the public CLI'), text.out.join('\n'));
+});
+
 test('settings: a project review.preset review-deep over a single-eligible change is raisedBy setting', async (t) => {
   const r = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'LOW' })]);

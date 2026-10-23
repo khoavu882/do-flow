@@ -67,7 +67,7 @@ test('review.preset review-deep over a light LOW bug is taken with its layer as 
   }
   const equal = resolve({ paths: CODE, settingsView: set('review.preset', 'review-deep', 'local') });
   assert.equal(equal.protocol.origins.id, 'risk', 'an equal settings value never takes the origin');
-  assert.equal(protocolLines(equal.protocol).length, 4, 'no disagreements line when there is none');
+  assert.equal(protocolLines(equal.protocol).length, 5, 'the four base lines and the rules line, no disagreements line when there is none');
 });
 
 test('debate.preset debate-3 on kind debate gives debate-3, three rounds, origin project', () => {

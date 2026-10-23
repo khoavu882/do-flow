@@ -81,6 +81,17 @@ test('resolve reads the project settings: a project debate.preset debate-3 print
   assert.deepEqual(json.protocol.disagreements, []);
 });
 
+test('resolve --kind review prints the rule values and each project blocker clause; a debate prints neither (C-5)', (t) => {
+  const s = scratch(t);
+  fs.writeFileSync(path.join(s.cwd, '.doflow', 'settings.json'), JSON.stringify({ schema: 1, 'review.blockerClauses': ['no new dependency'], 'review.sameFamily': 'refuse' }));
+  const res = s.cli(['--action', 'resolve', '--kind', 'review']);
+  assert.equal(res.status, 0, res.stderr);
+  assert.match(res.stdout, /^protocol\.rules: sameFamily=refuse crossFamilyRereview=on$/m);
+  assert.match(res.stdout, /^protocol\.blocker: no new dependency$/m);
+  const debate = s.cli(['--action', 'resolve', '--kind', 'debate']);
+  assert.doesNotMatch(debate.stdout, /protocol\.rules|protocol\.blocker/);
+});
+
 test('resolve --kind debate --preset debate-3 prints three rounds and the verifier as synthesizer', (t) => {
   const s = scratch(t);
   const res = s.cli(['--action', 'resolve', '--kind', 'debate', '--preset', 'debate-3', '--json']);

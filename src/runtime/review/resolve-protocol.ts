@@ -221,6 +221,12 @@ function protocolLines(protocol: any): string[] {
       const ids = (status: string) => rows.filter((row: any) => row.status === status).map((row: any) => row.harness).join(',');
       return `protocol.enforcement: ${agent} native=${ids('native')} unenforced=${ids('unenforced')}`;
     }),
+    // A review's rule values and the project's blocker clauses, in full (C-5); a debate has none. A control
+    // character in a clause is escaped (\u00XX) so a clause cannot start a forged protocol line.
+    ...(protocol.kind === 'review'
+      ? [`protocol.rules: sameFamily=${protocol.sameFamily} crossFamilyRereview=${protocol.crossFamilyRereview}`,
+        ...protocol.blockerClauses.map((clause: string) => `protocol.blocker: ${clause.replace(/\p{Cc}/gu, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)}`)]
+      : []),
     ...(protocol.disagreements?.length
       ? [`protocol.disagreements: ${protocol.disagreements.map((d: any) => `field=${d.field} by=${d.by} value=${d.value} reason=${d.reason}`).join('; ')}`]
       : []),
