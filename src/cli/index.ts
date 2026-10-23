@@ -340,6 +340,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--verification-input', 'verificationInput'], // verify: manifest JSON file for explicit structuralChecks/requirements (IC-022)
   ['--verification-phase', 'verificationPhase'], // verify: postimplementation (IC-022)
   ['--baseline-ref', 'baselineRef'],             // verify: explicit ancestor commit or ref to measure change against (IC-022)
+  ['--base', 'base'],                  // review --action start: the commit or ref the changed paths are measured from (095b IC-001)
   ['--error', 'errorMessage'],         // recover: the failure text to classify
   ['--agent', 'agent'],                // recover: which agent produced the failure
   ['--task', 'task'],                  // task-attempt: the plan task id, e.g. A.1
@@ -527,6 +528,7 @@ Commands:
   plan-check           Check a plan's task lines the way the task-attempt ledger reads them: plan-check <plan path> [--json]
   review               Validate a feature's review/findings.json; print errors, advisories and counts (exit 0 valid, 1 invalid, 2 usage):
                        review --action check [--slug <name> | --path <findings.json>] [--json]
+                       review --action start [--slug <name>] [--base <ref>] [--json]   verify precondition and review depth (exit 0 ok or not applicable, 1 refused, 2 usage)
   slot                 Named machine-wide queue, one holder at a time (--action run|list|release);
                        slot --action run --name <name> [--label <text>] [--timeout <s>] [--no-wait] -- <command> [args...]
                        slot --action release --name <name> --by <who> --reason <text>
@@ -580,7 +582,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        failure: list|settle|capture
                        roadmap: render|status|next|audit (seed: check|apply|amend)
                        slot: run|list|release
-                       review: check
+                       review: check|start
       --task, --token, --owner, --mode,
       --result, --evidence-id, --reason     task-attempt (claim: --task --owner --mode manual|sequential|subagent
                                             [--owner-override <reason>] [--epoch <n>=1+] [--reserve-tokens <n>]
@@ -646,6 +648,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --off                              advise --action configure
       --path, --exclude (repeatable)        leak-scan
       --slug | --path                       review --action check (at most one; with neither, the active feature)
+      --base <ref>                          review --action start (measure the changed paths from this commit; --path is refused)
       --ids, --as, --evidence, --title,
       --release, --source, --channel        followup (add, list, take, settle, promote)
       --file <path|->, --stdin, --text,

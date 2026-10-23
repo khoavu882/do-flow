@@ -1,0 +1,457 @@
+'use strict';
+
+// Feature 095b B.1 (IC-001, IC-002): `review --action start` and `decideDepth`. Every case runs in a
+// scratch git repository with a scratch HOME; nothing is written to the real record or advice stores.
+
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const { tempDir } = require('../helper/tmp');
+const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+const { loadVerificationRegistry, reviewDepthPolicy } = require('../../src/runtime/verification/registry.ts');
+const { handleReviewCommand } = require('../../src/runtime/review/command.ts');
+const { decideDepth, reviewPrecondition, raiseByAdvice } = require('../../src/runtime/review/start.ts');
+
+const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
+const SLUG = '095b-review-depth';
+const REGISTRY = loadVerificationRegistry({ repoRoot: REPO_ROOT });
+const POLICY = reviewDepthPolicy(REGISTRY);
+const HEX_A = 'a'.repeat(40);
+
+function envFor(dir) {
+  const home = path.join(dir, 'home');
+  fs.mkdirSync(path.join(home, '.config'), { recursive: true });
+  return {
+    PATH: process.env.PATH,
+    HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'),
+    GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1',
+    FORCE_COLOR: '', DOFLOW_TELEMETRY: 'off',
+  };
+}
+
+function git(cwd, env, args) {
+  const res = spawnSync('git', ['-c', 'user.name=T', '-c', 'user.email=t@example.com', '-c', 'commit.gpgsign=false', ...args], { cwd, env, encoding: 'utf8' });
+  assert.equal(res.status, 0, res.stderr);
+  return res.stdout.trim();
+}
+
+function put(root, rel, text) {
+  fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+  fs.writeFileSync(path.join(root, rel), text);
+}
+
+/**
+ * A scratch repository: one base commit, then one commit holding `files`. `.doflow/` is excluded from
+ * git, as a real checkout does, so the run and record files do not make the tree dirty.
+ */
+function repo(t, { taskClass = 'feature', files = { 'src/a.ts': 'export {};\n' }, run = true } = {}) {
+  const dir = tempDir(t, 'doflow-review-start-');
+  const cwd = path.join(dir, 'work');
+  fs.mkdirSync(cwd);
+  const env = envFor(dir);
+  git(cwd, env, ['init', '-q', '-b', 'main']);
+  put(cwd, '.git/info/exclude', '.doflow/\n');
+  put(cwd, 'README.md', 'base\n');
+  git(cwd, env, ['add', '-A']);
+  git(cwd, env, ['commit', '-q', '-m', 'base']);
+  const base = git(cwd, env, ['rev-parse', 'HEAD']);
+  for (const [rel, text] of Object.entries(files)) put(cwd, rel, text);
+  git(cwd, env, ['add', '-A']);
+  git(cwd, env, ['commit', '-q', '-m', 'change', '--allow-empty']);
+  const head = git(cwd, env, ['rev-parse', 'HEAD']);
+  if (run) put(cwd, `.doflow/state/orchestration/${SLUG}.json`, JSON.stringify({ taskId: SLUG, taskClass, state: 'ACTIVE', program: [], history: [] }));
+  const lines = (records) => put(cwd, `.doflow/state/verification/runs/${SLUG}.jsonl`, records.map((r) => `${JSON.stringify(r)}\n`).join(''));
+  const line = (extra = {}) => ({ schema: 1, taskId: SLUG, head, clean: true, verdict: 'PASS', at: '2026-10-23T00:00:00.000Z', reportSha256: 'x', ...extra });
+  const enableAdvice = () => {
+    put(env.XDG_CONFIG_HOME, 'doflow/decision-model.json', JSON.stringify({ schema: 1, enabled: true, provider: 'ollama', endpoint: 'http://127.0.0.1:9', model: 'clef-flash' }));
+  };
+  return { dir, cwd, env, base, head, lines, line, enableAdvice, git: (args) => git(cwd, env, args) };
+}
+
+/** Runs the verb in-process; the verb reports through `process.exitCode`, which is restored here. */
+async function start(r, options = {}) {
+  const out = [];
+  const saved = process.exitCode;
+  const exitCode = await handleReviewCommand({
+    action: 'start', slug: SLUG, json: true, cwd: r.cwd, env: r.env,
+    resolve: () => ({ error: 'no-feature' }), out: (l) => out.push(l), ...options,
+  });
+  process.exitCode = saved;
+  return { exitCode, out, json: options.json === false ? null : JSON.parse(out.join('\n')) };
+}
+
+function tree(root, base = root, out = {}) {
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    if (entry.name === '.git') continue;
+    const full = path.join(root, entry.name);
+    if (entry.isDirectory()) tree(full, base, out);
+    else out[path.relative(base, full)] = fs.readFileSync(full, 'latin1');
+  }
+  return out;
+}
+
+// ---- IC-001: the verb --------------------------------------------------------------------------
+
+test('PASS on a clean HEAD: exit 0, deep, 2 seats, risk from the default for a line without risk', async (t) => {
+  const r = repo(t);
+  r.lines([r.line()]);
+  const { exitCode, json } = await start(r);
+  assert.equal(exitCode, 0);
+  assert.equal(json.schema, 1);
+  assert.equal(json.slug, SLUG);
+  assert.equal(json.taskClass, 'feature');
+  assert.equal(json.applicable, true);
+  assert.equal(json.notApplicable, null);
+  assert.equal(json.head, r.head);
+  assert.equal(json.clean, true);
+  assert.equal(json.ok, true);
+  assert.deepEqual(json.reasons, []);
+  assert.equal(json.depth, 'deep');
+  assert.equal(json.seats, 2);
+  assert.equal(json.risk, REGISTRY.policy.defaultRiskLevel);
+  assert.equal(json.riskSource, 'default');
+  assert.deepEqual(json.advice, { status: 'off', pick: null });
+  assert.deepEqual(Object.keys(json), ['schema', 'slug', 'taskClass', 'applicable', 'notApplicable', 'head', 'clean', 'ok',
+    'reasons', 'depth', 'seats', 'risk', 'riskSource', 'depthBasis', 'advice']);
+});
+
+test('the risk of the last clean matching line is used when valid; an invalid one falls back to the default', async (t) => {
+  const r = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  r.lines([r.line({ risk: 'HIGH' }), r.line({ head: HEX_A, risk: 'LOW' }), r.line({ risk: 'LOW' })]);
+  const low = await start(r, { base: r.base });
+  assert.equal(low.json.risk, 'LOW');
+  assert.equal(low.json.riskSource, 'record');
+  r.lines([r.line({ risk: 'URGENT' })]);
+  const bad = await start(r, { base: r.base });
+  assert.equal(bad.json.risk, REGISTRY.policy.defaultRiskLevel);
+  assert.equal(bad.json.riskSource, 'default');
+});
+
+test('a bug run with docs-only paths at LOW is single with one seat; at MEDIUM it is deep', async (t) => {
+  const r = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n', 'CHANGELOG.md': 'y\n' } });
+  r.lines([r.line({ risk: 'LOW' })]);
+  const low = await start(r, { base: r.base });
+  assert.equal(low.exitCode, 0);
+  assert.equal(low.json.depth, 'single');
+  assert.equal(low.json.seats, 1);
+  assert.deepEqual(low.json.depthBasis, { scope: 'light', files: 2, base: r.base, floor: 0, raisedBy: null });
+  r.lines([r.line({ risk: 'MEDIUM' })]);
+  const medium = await start(r, { base: r.base });
+  assert.equal(medium.json.depth, 'deep');
+  assert.equal(medium.json.seats, 2);
+  assert.equal(medium.json.depthBasis.raisedBy, 'policy');
+});
+
+test('a feature run takes the gate-b floor: docs-only at LOW is deep, raised by gate-floor', async (t) => {
+  const r = repo(t, { taskClass: 'feature', files: { 'docs/a.md': 'x\n' } });
+  r.lines([r.line({ risk: 'LOW' })]);
+  const { json } = await start(r, { base: r.base });
+  assert.equal(json.depth, 'deep');
+  assert.equal(json.seats, 2);
+  assert.deepEqual(json.depthBasis, { scope: 'light', files: 1, base: r.base, floor: 2, raisedBy: 'gate-floor' });
+});
+
+test('a base that does not resolve gives scope unknown and deep', async (t) => {
+  const r = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  r.lines([r.line({ risk: 'LOW' })]);
+  const { exitCode, json } = await start(r, { base: 'no-such-ref' });
+  assert.equal(exitCode, 0);
+  assert.equal(json.depth, 'deep');
+  assert.equal(json.depthBasis.scope, 'unknown');
+  assert.equal(json.depthBasis.base, null);
+});
+
+test('a rename counts both paths: moving a doc into src is code', async (t) => {
+  const r = repo(t, { taskClass: 'bug', files: { 'docs/m.md': 'move me\n' } });
+  const mid = r.head;
+  fs.mkdirSync(path.join(r.cwd, 'src'), { recursive: true });
+  r.git(['mv', 'docs/m.md', 'src/m.md']);
+  r.git(['commit', '-q', '-m', 'move']);
+  const head = r.git(['rev-parse', 'HEAD']);
+  r.lines([r.line({ head, risk: 'LOW' })]);
+  const { json } = await start(r, { base: mid });
+  assert.equal(json.depthBasis.scope, 'code');
+  assert.equal(json.depthBasis.files, 2);
+  assert.equal(json.depth, 'deep');
+});
+
+for (const [name, records, dirty, reasons] of [
+  ['missing', [], false, ['verify-missing']],
+  ['not-pass', [{ verdict: 'FAIL' }], false, ['verify-not-pass']],
+  ['flaky', [{ verdict: 'FAIL' }, { verdict: 'PASS' }], false, ['verify-flaky']],
+  ['dirty', [{}], true, ['tree-dirty']],
+  ['missing and dirty', [], true, ['tree-dirty', 'verify-missing']],
+  ['not-pass and dirty', [{ verdict: 'PASS' }, { verdict: 'FAIL' }], true, ['tree-dirty', 'verify-not-pass']],
+]) {
+  test(`refused: ${name} exits 1 with sorted reasons and no decision`, async (t) => {
+    const r = repo(t);
+    r.lines(records.map((extra) => r.line(extra)));
+    if (dirty) put(r.cwd, 'src/uncommitted.ts', 'x\n');
+    const { exitCode, json } = await start(r);
+    assert.equal(exitCode, 1);
+    assert.equal(json.ok, false);
+    assert.equal(json.applicable, true);
+    assert.deepEqual(json.reasons, reasons);
+    assert.equal(json.depth, null);
+    assert.equal(json.seats, null);
+    assert.equal(json.depthBasis, null);
+    assert.equal(json.clean, !dirty);
+  });
+}
+
+test('the refused text form ends with the next command, and names --base when given', async (t) => {
+  const r = repo(t);
+  const plain = await start(r, { json: false });
+  assert.equal(plain.exitCode, 1);
+  assert.equal(plain.out.at(-1), `doflow verify --action report --task-id ${SLUG}`);
+  const based = await start(r, { json: false, base: r.base });
+  assert.equal(based.out.at(-1), `doflow verify --action report --task-id ${SLUG} --baseline-ref ${r.base}`);
+});
+
+test('an unparseable record line exits 1 with records-unreadable', async (t) => {
+  const r = repo(t);
+  put(r.cwd, `.doflow/state/verification/runs/${SLUG}.jsonl`, `${JSON.stringify(r.line())}\nnot json\n`);
+  const { exitCode, json } = await start(r);
+  assert.equal(exitCode, 1);
+  assert.equal(json.ok, false);
+  assert.equal(json.error, 'records-unreadable');
+});
+
+for (const [name, setup, expected] of [
+  ['class review', { taskClass: 'review' }, 'class-exempt'],
+  ['class documentation', { taskClass: 'documentation' }, 'class-exempt'],
+  ['class research (no review stage)', { taskClass: 'research' }, 'class-exempt'],
+  ['no run', { run: false }, 'no-run'],
+]) {
+  test(`not applicable: ${name} exits 0 with applicable false, even on a dirty tree`, async (t) => {
+    const r = repo(t, setup);
+    put(r.cwd, 'src/uncommitted.ts', 'x\n');
+    const { exitCode, json } = await start(r);
+    assert.equal(exitCode, 0);
+    assert.equal(json.applicable, false);
+    assert.equal(json.notApplicable, expected);
+    assert.equal(json.ok, true);
+    assert.deepEqual(json.reasons, []);
+  });
+}
+
+test('not applicable: no slug (no --slug and no active feature) exits 0 with no-feature', async (t) => {
+  const r = repo(t);
+  const { exitCode, json } = await start(r, { slug: undefined });
+  assert.equal(exitCode, 0);
+  assert.equal(json.applicable, false);
+  assert.equal(json.notApplicable, 'no-feature');
+  assert.equal(json.slug, null);
+});
+
+test('the active feature is the slug when --slug is absent', async (t) => {
+  const r = repo(t);
+  r.lines([r.line()]);
+  const { json } = await start(r, { slug: undefined, resolve: () => ({ featureFolder: '/x', paths: { feature_slug: SLUG } }) });
+  assert.equal(json.slug, SLUG);
+  assert.equal(json.applicable, true);
+});
+
+test('a slug that is not a plain feature name is a usage error, never a path', async (t) => {
+  const r = repo(t);
+  for (const slug of ['../x', 'a/b', '.hidden', '']) {
+    const { exitCode } = await start(r, { slug });
+    assert.equal(exitCode, 2, `slug ${JSON.stringify(slug)}`);
+  }
+});
+
+test('the verb writes nothing: the scratch tree is byte-identical after a run (applicable, refused, exempt)', async (t) => {
+  for (const [setup, records] of [[{}, [{}]], [{}, []], [{ taskClass: 'documentation' }, []]]) {
+    const r = repo(t, setup);
+    r.lines(records.map((extra) => r.line(extra)));
+    const before = tree(r.dir);
+    await start(r);
+    assert.deepEqual(tree(r.dir), before);
+  }
+});
+
+test('--path with start, an unknown action and --base with check exit 2 as usage', async (t) => {
+  const r = repo(t);
+  const withPath = await start(r, { path: 'review/findings.json' });
+  assert.equal(withPath.exitCode, 2);
+  assert.equal(withPath.json.error, 'usage');
+  const unknown = await start(r, { action: 'lint' });
+  assert.equal(unknown.exitCode, 2);
+  assert.equal(unknown.json.error, 'usage');
+  const base = await start(r, { action: 'check', base: 'main' });
+  assert.equal(base.exitCode, 2);
+});
+
+test('through bin/doflow.js with stdin closed: refusal exits 1 and the run never prompts', (t) => {
+  const r = repo(t);
+  const res = spawnSync(process.execPath, [CLI, 'review', '--action', 'start', '--slug', SLUG, '--json'],
+    { cwd: r.cwd, env: { ...r.env, DOFLOW_CLI: CLI }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30000 });
+  assert.equal(res.status, 1, res.stderr);
+  assert.deepEqual(JSON.parse(res.stdout).reasons, ['verify-missing']);
+  r.lines([r.line()]);
+  const ok = spawnSync(process.execPath, [CLI, 'review', '--action', 'start', '--slug', SLUG, '--base', r.base, '--json'],
+    { cwd: r.cwd, env: { ...r.env, DOFLOW_CLI: CLI }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30000 });
+  assert.equal(ok.status, 0, ok.stderr);
+  const json = JSON.parse(ok.stdout);
+  assert.equal(json.depth, 'deep');
+  assert.equal(json.depthBasis.base, r.base);
+  const bad = spawnSync(process.execPath, [CLI, 'review', '--action', 'start', '--path', 'x.json', '--json'],
+    { cwd: r.cwd, env: { ...r.env, DOFLOW_CLI: CLI }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 30000 });
+  assert.equal(bad.status, 2);
+  assert.equal(JSON.parse(bad.stdout).error, 'usage');
+});
+
+// ---- IC-001 step 6: advice raises, never lowers ---------------------------------------------------
+
+function fakeClient(answer) {
+  const calls = [];
+  return { calls, ask: async (request) => { calls.push(request); return answer; } };
+}
+const answered = (pick) => ({ status: 'answered', answers: [{ pick, pickId: null }] });
+
+test('advice: an answer of single over a decided deep leaves deep', async (t) => {
+  const r = repo(t);
+  r.lines([r.line()]);
+  r.enableAdvice();
+  const client = fakeClient(answered('single'));
+  const { json } = await start(r, { adviceClient: client });
+  assert.equal(client.calls.length, 1);
+  assert.equal(client.calls[0].kind, 'review-depth');
+  assert.equal(client.calls[0].staticAnswer, 'deep');
+  assert.equal(json.depth, 'deep');
+  assert.equal(json.depthBasis.raisedBy, 'policy');
+  assert.deepEqual(json.advice, { status: 'answered', pick: 'single' });
+});
+
+test('advice: an answer of deep over a decided single raises it, raisedBy advice, seats from the deep policy', async (t) => {
+  const r = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  r.lines([r.line({ risk: 'LOW' })]);
+  r.enableAdvice();
+  const client = fakeClient(answered('deep'));
+  const { json } = await start(r, { adviceClient: client, base: r.base });
+  assert.equal(client.calls[0].staticAnswer, 'single');
+  assert.equal(json.depth, 'deep');
+  assert.equal(json.seats, 2);
+  assert.equal(json.depthBasis.raisedBy, 'advice');
+  assert.deepEqual(json.advice, { status: 'answered', pick: 'deep' });
+});
+
+test('advice: an unavailable answer, or a client that throws, changes nothing', async (t) => {
+  const r = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  r.lines([r.line({ risk: 'LOW' })]);
+  r.enableAdvice();
+  const unavailable = await start(r, { adviceClient: fakeClient({ status: 'unavailable', reason: 'timeout', answers: [] }), base: r.base });
+  assert.equal(unavailable.json.depth, 'single');
+  assert.deepEqual(unavailable.json.advice, { status: 'unavailable', pick: null });
+  const throwing = await start(r, { adviceClient: { ask: async () => { throw new Error('boom'); } }, base: r.base });
+  assert.equal(throwing.exitCode, 0);
+  assert.equal(throwing.json.depth, 'single');
+  assert.equal(throwing.json.advice.status, 'unavailable');
+});
+
+test('advice: setting off makes no client call', async (t) => {
+  const r = repo(t);
+  r.lines([r.line()]);
+  const client = fakeClient(answered('deep'));
+  const { json } = await start(r, { adviceClient: client });
+  assert.equal(client.calls.length, 0);
+  assert.deepEqual(json.advice, { status: 'off', pick: null });
+});
+
+test('advice: a refused review makes no client call; a not-applicable one still decides its depth', async (t) => {
+  const refused = repo(t);
+  refused.enableAdvice();
+  const client = fakeClient(answered('deep'));
+  const refusal = await start(refused, { adviceClient: client });
+  assert.equal(refusal.exitCode, 1);
+  assert.equal(client.calls.length, 0);
+  const exempt = repo(t, { taskClass: 'documentation' });
+  const { exitCode, json } = await start(exempt);
+  assert.equal(exitCode, 0);
+  assert.equal(json.applicable, false);
+  assert.equal(json.risk, REGISTRY.policy.defaultRiskLevel);
+  assert.equal(json.riskSource, 'default');
+  assert.equal(json.depth, 'deep');
+});
+
+// ---- IC-002: decideDepth and reviewPrecondition (pure) ------------------------------------------
+
+const decide = (risk, paths, floor = 0) => decideDepth({ policy: POLICY, risk, paths, floor });
+
+test('decideDepth: risk x scope x floor table', () => {
+  const rows = [
+    // risk, paths, floor, depth, seats, scope, raisedBy
+    ['LOW', [], 0, 'single', 1, 'light', null],
+    ['LOW', ['docs/a.md', 'README.md', 'CHANGELOG.md'], 0, 'single', 1, 'light', null],
+    ['LOW', ['./docs/a.md'], 0, 'single', 1, 'light', null],
+    ['LOW', ['docs/a.md', 'src/x.ts'], 0, 'deep', 2, 'code', 'policy'],
+    ['LOW', ['docs'], 0, 'deep', 2, 'code', 'policy'],
+    ['LOW', ['readme.md'], 0, 'deep', 2, 'code', 'policy'],
+    ['LOW', ['README.md/x'], 0, 'deep', 2, 'code', 'policy'],
+    ['LOW', ['Docs/a.md'], 0, 'deep', 2, 'code', 'policy'],
+    ['LOW', null, 0, 'deep', 2, 'unknown', 'policy'],
+    ['MEDIUM', ['docs/a.md'], 0, 'deep', 2, 'light', 'policy'],
+    ['MEDIUM', ['src/x.ts'], 0, 'deep', 2, 'code', 'policy'],
+    ['HIGH', ['docs/a.md'], 0, 'deep', 2, 'light', 'policy'],
+    ['CRITICAL', [], 0, 'deep', 2, 'light', 'policy'],
+    ['LOW', ['docs/a.md'], 1, 'single', 1, 'light', null],
+    ['LOW', ['docs/a.md'], 2, 'deep', 2, 'light', 'gate-floor'],
+    ['LOW', ['src/x.ts'], 2, 'deep', 2, 'code', 'policy'],
+    ['LOW', ['docs/a.md'], 3, 'deep', 3, 'light', 'gate-floor'],
+    ['HIGH', ['src/x.ts'], 3, 'deep', 3, 'code', 'gate-floor'],
+    ['URGENT', ['docs/a.md'], 0, 'deep', 2, 'light', 'policy'],
+    [undefined, ['docs/a.md'], 0, 'deep', 2, 'light', 'policy'],
+    [null, [], 0, 'deep', 2, 'light', 'policy'],
+  ];
+  for (const [risk, paths, floor, depth, seats, scope, raisedBy] of rows) {
+    assert.deepEqual(decide(risk, paths, floor), { depth, seats, scope, raisedBy }, JSON.stringify([risk, paths, floor]));
+  }
+});
+
+test('decideDepth: deterministic, and it does not modify its inputs', () => {
+  const paths = ['docs/a.md', 'README.md'];
+  const policy = JSON.parse(JSON.stringify(POLICY));
+  const first = decideDepth({ policy, risk: 'LOW', paths, floor: 0 });
+  const second = decideDepth({ policy, risk: 'LOW', paths, floor: 0 });
+  assert.deepEqual(first, second);
+  assert.deepEqual(policy, POLICY);
+  assert.deepEqual(paths, ['docs/a.md', 'README.md']);
+});
+
+test('FR-004: a HIGH risk is deep for every paths value, and an advice single cannot lower it', () => {
+  for (const paths of [null, [], ['docs/a.md'], ['README.md', 'CHANGELOG.md'], ['src/x.ts']]) {
+    const decided = decide('HIGH', paths);
+    assert.equal(decided.depth, 'deep');
+    assert.deepEqual(raiseByAdvice({ policy: POLICY, decision: decided, pick: 'single', floor: 0 }), decided);
+  }
+});
+
+test('raiseByAdvice: deep over single raises with seats from the deep policy and the floor; other picks change nothing', () => {
+  const single = decide('LOW', ['docs/a.md']);
+  assert.deepEqual(raiseByAdvice({ policy: POLICY, decision: single, pick: 'deep', floor: 0 }),
+    { depth: 'deep', seats: 2, scope: 'light', raisedBy: 'advice' });
+  assert.deepEqual(raiseByAdvice({ policy: POLICY, decision: single, pick: 'deep', floor: 3 }),
+    { depth: 'deep', seats: 3, scope: 'light', raisedBy: 'advice' });
+  for (const pick of ['single', null, undefined, 'bogus']) {
+    assert.deepEqual(raiseByAdvice({ policy: POLICY, decision: single, pick, floor: 0 }), single);
+  }
+});
+
+test('reviewPrecondition: reasons are sorted and unique', () => {
+  const line = (extra = {}) => ({ schema: 1, taskId: SLUG, head: HEX_A, clean: true, verdict: 'PASS', ...extra });
+  const check = (records, clean = true, head = HEX_A) => reviewPrecondition({ records, head, clean, slug: SLUG });
+  assert.deepEqual(check([line()]), []);
+  assert.deepEqual(check([]), ['verify-missing']);
+  assert.deepEqual(check([line()], false), ['tree-dirty']);
+  assert.deepEqual(check([], false), ['tree-dirty', 'verify-missing']);
+  assert.deepEqual(check([line({ verdict: 'FAIL' })]), ['verify-not-pass']);
+  assert.deepEqual(check([line({ verdict: 'FAIL' }), line()]), ['verify-flaky']);
+  assert.deepEqual(check([line({ head: 'b'.repeat(40) })]), ['verify-missing']);
+  assert.deepEqual(check([line({ clean: false })]), ['verify-missing']);
+  assert.deepEqual(check([line()], true, null), ['verify-missing']);
+  const many = check([line({ verdict: 'FAIL' }), line({ verdict: 'PASS' }), line({ verdict: 'FAIL' })], false);
+  assert.deepEqual(many, [...new Set(many)].sort());
+  assert.deepEqual(many, ['tree-dirty', 'verify-flaky', 'verify-not-pass']);
+});

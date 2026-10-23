@@ -9,6 +9,7 @@ const { validateFindings, countFindings, reviewAdvisories } = require('./finding
 const { resolveActiveFeature } = require('../feature-resolve.ts');
 const { TelemetryWriter } = require('../trace/telemetry.ts');
 const { finishRuntime } = require('../cli-result.ts');
+const { handleReviewStart, validSlug } = require('./start.ts');
 
 type ReviewRecord = Record<string, any>;
 type Env = Record<string, string | undefined>;
@@ -53,6 +54,8 @@ function handleReviewCommand({
   action,
   slug,
   path: recordPath,
+  base,
+  adviceClient,
   json = false,
   cwd = process.cwd(),
   env = process.env,
@@ -60,9 +63,18 @@ function handleReviewCommand({
   writer,
   resolve = resolveActiveFeature,
   out = (line: string) => console.log(line),
-}: any = {}): number {
-  if (typeof action !== 'string' || action !== 'check') return usage('action must be check', json, out);
-  if (emptyValue(slug) || emptyValue(recordPath)) return usage('flag values must not be empty', json, out);
+}: any = {}): number | Promise<number> {
+  if (action !== 'check' && action !== 'start') return usage('action must be check or start', json, out);
+  if (emptyValue(slug) || emptyValue(recordPath) || emptyValue(base)) return usage('flag values must not be empty', json, out);
+  if (action === 'start') {
+    // 095b IC-001: the start verb reads no record path, and the slug becomes a file name.
+    if (hasValue(recordPath)) return usage('--path is not valid with --action start', json, out);
+    if ((hasValue(slug) && !validSlug(slug)) || (hasValue(base) && typeof base !== 'string')) {
+      return usage('--slug must be a plain feature name and --base a string', json, out);
+    }
+    return handleReviewStart({ slug: hasValue(slug) ? slug : null, base: hasValue(base) ? base : null, json, cwd, env, resolve, adviceClient, out });
+  }
+  if (hasValue(base)) return usage('--base is valid only with --action start', json, out);
   if (hasValue(slug) && hasValue(recordPath)) return usage('use either --slug or --path, not both', json, out);
   if ((hasValue(slug) && typeof slug !== 'string') || (hasValue(recordPath) && typeof recordPath !== 'string')) {
     return usage('--slug and --path values must be strings', json, out);

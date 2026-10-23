@@ -118,6 +118,19 @@ test('usage exits 2: unknown action, both --slug and --path', (t) => {
   assert.equal(JSON.parse(both.stdout).error, 'usage');
 });
 
+test('095b IC-001: start refuses --path, check refuses --base, and the help names start (all exit 2 or 0, no prompt)', (t) => {
+  const s = scratch(t);
+  s.write('findings.json', record());
+  const startPath = s.cli(['--action', 'start', '--path', 'findings.json', '--json']);
+  assert.equal(startPath.status, 2, startPath.stderr);
+  assert.equal(JSON.parse(startPath.stdout).error, 'usage');
+  const checkBase = s.cli(['--action', 'check', '--path', 'findings.json', '--base', 'main', '--json']);
+  assert.equal(checkBase.status, 2, checkBase.stderr);
+  assert.equal(JSON.parse(checkBase.stdout).error, 'usage');
+  const help = spawnSync(process.execPath, [CLI, '--help'], { cwd: s.cwd, env: s.env, encoding: 'utf8' });
+  assert.match(help.stdout, /review --action start \[--slug <name>\] \[--base <ref>\] \[--json\]/);
+});
+
 test('a preExistingAt that is not an ancestor of reviewedHead exits 1 in a real repository', (t) => {
   const s = scratch(t);
   const commit = (text) => {
