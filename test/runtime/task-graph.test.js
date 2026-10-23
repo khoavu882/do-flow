@@ -37,29 +37,29 @@ test('a well-formed plan builds, with phase order from first appearance and depe
 
 test('duplicate-id alone', () => {
   const built = build(['- [ ] A.1 one', '- [ ] A.1 again', '- [ ] A.1 thrice']);
-  assert.deepEqual(built, { ok: false, problems: [{ kind: 'duplicate-id', ids: ['A.1'] }] });
+  assert.deepEqual(built, { ok: false, problems: [{ kind: 'duplicate-id', ids: ['A.1'] }], warnings: [] });
 });
 
 test('unknown-dependency alone', () => {
   const built = build(['- [ ] A.1 one; depends-on: A.9']);
-  assert.deepEqual(built, { ok: false, problems: [{ kind: 'unknown-dependency', ids: ['A.1', 'A.9'] }] });
+  assert.deepEqual(built, { ok: false, problems: [{ kind: 'unknown-dependency', ids: ['A.1', 'A.9'] }], warnings: [] });
 });
 
 test('a self-dependency is a cycle', () => {
   const built = build(['- [ ] A.1 one; depends-on: A.1']);
-  assert.deepEqual(built, { ok: false, problems: [{ kind: 'cycle', ids: ['A.1'], via: ['A.1->A.1'] }] });
+  assert.deepEqual(built, { ok: false, problems: [{ kind: 'cycle', ids: ['A.1'], via: ['A.1->A.1'] }], warnings: [] });
 });
 
 test('an explicit two-task cycle', () => {
   const built = build(['- [ ] A.1 one; depends-on: A.2', '- [ ] A.2 two; depends-on: A.1']);
-  assert.deepEqual(built, { ok: false, problems: [{ kind: 'cycle', ids: ['A.1', 'A.2'], via: ['A.1->A.2', 'A.2->A.1'] }] });
+  assert.deepEqual(built, { ok: false, problems: [{ kind: 'cycle', ids: ['A.1', 'A.2'], via: ['A.1->A.2', 'A.2->A.1'] }], warnings: [] });
 });
 
 test('a dependency on a later phase cycles through an implicit :phase edge (design debate A-M1)', () => {
   // A.1 waits on B.1 explicitly; B.1 declares nothing, so it waits on every phase-A task. Neither
   // can ever be ready, although every explicit edge on its own is acyclic.
   const built = build(['- [ ] A.1 one; depends-on: B.1', '- [ ] B.1 two']);
-  assert.deepEqual(built, { ok: false, problems: [{ kind: 'cycle', ids: ['A.1', 'B.1'], via: ['A.1->B.1', 'B.1->A.1:phase'] }] });
+  assert.deepEqual(built, { ok: false, problems: [{ kind: 'cycle', ids: ['A.1', 'B.1'], via: ['A.1->B.1', 'B.1->A.1:phase'] }], warnings: [] });
 });
 
 test('a declared dependency replaces the implicit phase edges', () => {
@@ -85,7 +85,7 @@ test('cycle order is deterministic: plan-order roots and successors', () => {
 
 test('bad-dependency only with the header; otherwise a near-miss-dependency warning', () => {
   const line = ['- [ ] A.1 one', '- [ ] A.2 two; depends-on: A.1 (after review)'];
-  assert.deepEqual(build(line, GRAPH), { ok: false, problems: [{ kind: 'bad-dependency', ids: ['A.2'], value: 'A.1 (after review)' }] });
+  assert.deepEqual(build(line, GRAPH), { ok: false, problems: [{ kind: 'bad-dependency', ids: ['A.2'], value: 'A.1 (after review)' }], warnings: [] });
   const legacy = build(line);
   assert.equal(legacy.ok, true);
   assert.deepEqual(legacy.warnings, [{ kind: 'near-miss-dependency', ids: ['A.2'], value: 'A.1 (after review)' }]);
@@ -96,15 +96,15 @@ test('bad-acceptance alone, one problem per failing token', () => {
   assert.deepEqual(built, { ok: false, problems: [
     { kind: 'bad-acceptance', ids: ['A.1'], value: 'FR-1' },
     { kind: 'bad-acceptance', ids: ['A.1'], value: 's-Upper' },
-  ] });
+  ], warnings: [] });
 });
 
 test('bad-budget alone', () => {
-  assert.deepEqual(build(['- [ ] A.1 one — budget: attempts=0']), { ok: false, problems: [{ kind: 'bad-budget', ids: ['A.1'], value: 'attempts=0' }] });
+  assert.deepEqual(build(['- [ ] A.1 one — budget: attempts=0']), { ok: false, problems: [{ kind: 'bad-budget', ids: ['A.1'], value: 'attempts=0' }], warnings: [] });
 });
 
 test('bad-header alone', () => {
-  assert.deepEqual(build(['- [ ] A.1 one'], ['**Task graph:** v2']), { ok: false, problems: [{ kind: 'bad-header', ids: [], value: 'v2' }] });
+  assert.deepEqual(build(['- [ ] A.1 one'], ['**Task graph:** v2']), { ok: false, problems: [{ kind: 'bad-header', ids: [], value: 'v2' }], warnings: [] });
 });
 
 test('every problem kind together is reported in one result', () => {

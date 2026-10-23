@@ -82,3 +82,42 @@ test('a task-attempt claim with the declared owner quality-guardian still succee
   assert.equal(claim.status, 0, claim.stderr || claim.stdout);
   assert.equal(JSON.parse(claim.stdout).disposition, 'claimed');
 });
+
+test('a decorated owner "quality-guardian (Opus)" at tier frontier warns; a decorated reviewer does not', (t) => {
+  const warned = JSON_OF(project(t, plan(['- [ ] A.1 Verify — owner: quality-guardian (Opus); tier: frontier; files: a.js'])));
+  assert.equal(warned.status, 0, warned.stderr);
+  assert.deepEqual(warned.body.warnings, ["review-owner A.1 'quality-guardian'"]);
+  const spaced = JSON_OF(project(t, plan(['- [ ] A.1 Verify — owner: Quality-Guardian  (opus 4);  tier: frontier'])));
+  assert.deepEqual(spaced.body.warnings, ["review-owner A.1 'quality-guardian'"]);
+  const reviewer = JSON_OF(project(t, plan(['- [ ] A.1 Review — owner: reviewer (Opus); tier: frontier'])));
+  assert.equal(reviewer.status, 0, reviewer.stderr);
+  assert.deepEqual(reviewer.body.warnings, []);
+});
+
+test('claim matching stays exact: the declared decorated owner is the owner of record', (t) => {
+  const p = project(t, plan(['- [ ] A.1 Verify — owner: quality-guardian (Opus); tier: frontier; files: a.js']));
+  const started = p.run('task-attempt', ['--action', 'start', '--slug', SLUG, '--by', 'lead', '--json']);
+  assert.equal(started.status, 0, started.stderr || started.stdout);
+  const claimArgs = ['--action', 'claim', '--slug', SLUG, '--task', 'A.1', '--owner', 'quality-guardian', '--mode', 'subagent', '--epoch', '1', '--json'];
+  const mismatch = p.run('task-attempt', claimArgs);
+  assert.notEqual(mismatch.status, 0, mismatch.stdout);
+  assert.match(mismatch.stdout + mismatch.stderr, /owner-mismatch/);
+  const overridden = p.run('task-attempt', [...claimArgs, '--owner-override', 'decorated declaration']);
+  assert.equal(overridden.status, 0, overridden.stderr || overridden.stdout);
+  assert.equal(JSON.parse(overridden.stdout).disposition, 'claimed');
+});
+
+test('a plan with a problem and a review-owner task reports both, in text and in JSON', (t) => {
+  const p = project(t, plan([
+    '- [ ] A.1 Verify — owner: quality-guardian (Opus); tier: frontier; files: a.js',
+    '- [ ] A.2 Build; depends-on: B.9',
+  ]));
+  const json = JSON_OF(p);
+  assert.equal(json.status, 1, json.stderr);
+  assert.equal(json.body.ok, false);
+  assert.deepEqual(json.body.problems.map((x) => x.kind), ['unknown-dependency']);
+  assert.deepEqual(json.body.warnings, ["review-owner A.1 'quality-guardian'"]);
+  const text = p.run('plan-check', [path.relative(p.dir, p.planFile)]); // relative: the text line is capped at 200 chars
+  assert.equal(text.status, 1);
+  assert.match(text.stdout, /unknown-dependency A\.2,B\.9.*; warnings: review-owner A\.1 'quality-guardian'/);
+});

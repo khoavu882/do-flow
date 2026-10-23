@@ -150,7 +150,8 @@ function buildGraph(parsed: any) {
       if (!ACCEPTANCE.some((pattern) => pattern.test(value))) problems.push({ kind: 'bad-acceptance', ids: [task.id], value });
     }
     // IC-010: quality-guardian is the review hold, so a frontier-tier task there is mis-owned.
-    if (typeof task.owner === 'string' && task.owner.toLowerCase() === 'quality-guardian' && task.tier === 'frontier') {
+    // A trailing model note such as 'quality-guardian (Opus)' is stripped for this warning only; claim matching stays exact.
+    if (typeof task.owner === 'string' && task.owner.replace(/\s*\([^()]*\)\s*$/, '').trim().toLowerCase() === 'quality-guardian' && task.tier === 'frontier') {
       warnings.push({ kind: 'review-owner', ids: [task.id], value: 'quality-guardian' });
     }
     if (task.budget && typeof task.budget === 'object' && 'invalid' in task.budget) {
@@ -162,7 +163,7 @@ function buildGraph(parsed: any) {
   const { cycles, order } = searchCycles(ids, outEdges(tasks, byId));
   problems.push(...cycles);
 
-  if (problems.length) return { ok: false, problems };
+  if (problems.length) return { ok: false, problems, warnings };
   return { ok: true, graph: { graphHeader, graphPlan, phases, tasks, order }, warnings };
 }
 
