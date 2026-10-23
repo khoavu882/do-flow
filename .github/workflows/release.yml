@@ -43,7 +43,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 24
       - run: npm run build:package
       - name: Fail if the tarball carries backup or editor artifacts
         run: |
@@ -64,7 +64,7 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 24
       # `--generate-notes` lists merged pull requests; this repo merges locally, so it produced a
       # bare compare link. The tagged version's CHANGELOG.md section supplies the release notes.
       - run: npm run release-notes --silent -- "$GITHUB_REF_NAME" > notes.md
@@ -90,7 +90,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
       # Publish prereleases under a candidate tag until verify-registry passes. Stable releases
       # use the latest channel only when promote moves it after verification.
@@ -116,7 +116,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            node: "22.18.0"
+            node: "24.22.1"
           - os: macos-latest
             node: "24"
     steps:
@@ -164,7 +164,7 @@ jobs:
     steps:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 24
           registry-url: https://registry.npmjs.org
       - name: Promote verified version
         env:

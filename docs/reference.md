@@ -707,7 +707,7 @@ underscore or dash (starting with a letter or digit, no `..`) is refused with ex
 ### Release checklist (beta cut)
 
 1. Preflight: run `node src/release/preflight.ts`.
-2. Rehearse: run `node src/release/rehearse.ts --node "$NODE22"` (resolve floor Node once via `NODE22="$(npx -y -p node@22.18.0 node -p process.execPath)"`).
+2. Rehearse: run `node src/release/rehearse.ts --node "$NODE_FLOOR"` (resolve floor Node once via `NODE_FLOOR="$(npx -y -p node@24.22.1 node -p process.execPath)"`).
 3. Tag and push: create and push the release tag (`git tag v<version>` and `git push origin v<version>`). Tagging and pushing remain the user's explicit action.
 4. Watch the workflow graph: the release workflow runs `preflight` and `test` in parallel, followed by `verify-artifact`, `draft-release`, `publish`, `verify-registry`, `promote`, and `publish-release`.
 5. Verify and record: inspect `npm view @khoavu882/doflow dist-tags` and record the outcome in the cut record below.

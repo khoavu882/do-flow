@@ -8,8 +8,8 @@ const { tempDir } = require('../helper/tmp');
 const { RUNNER_TOOLS, parseArgs, ciEnv, stagePlan, runRehearse } = require('../../src/release/rehearse.ts');
 
 const VERSION = '2.0.0-beta.6';
-const FLOOR = '22.18.0';
-const NODE = '/fake/node22/bin/node';
+const FLOOR = '24.22.1';
+const NODE = '/fake/node24/bin/node';
 const PLANTUML_SIGNATURE = 'not ok 1 - a projector that writes to stderr does not pollute the generated block\n'
   + "      actual: 'before <!-- generated --> old <!-- end generated --> authored after '\n";
 const ORDER = ['clone', 'preflight', 'suite', 'smoke', 'build', 'pack', 'install', 'version', 'install-g', 'verb'];
@@ -38,7 +38,7 @@ function fixture(t, { seed = null, node = NODE, override = () => undefined, keep
     const ok = (stdout = '') => ({ status: 0, stdout, stderr: '' });
     if (command === 'git' && args[0] === '--version') return ok('git version 2\n');
     if (command === 'git' && args[0] === 'show') {
-      return ok(JSON.stringify({ version: VERSION, engines: { node: `^${FLOOR} || >=24.3.0` } }));
+      return ok(JSON.stringify({ version: VERSION, engines: { node: `>=${FLOOR}` } }));
     }
     if (args[0] === '--version' && command === node) return ok(`v${FLOOR}\n`);
     if (command === 'git' && args[0] === 'rev-parse') return ok('a'.repeat(40) + '\n');
@@ -91,13 +91,13 @@ test('ciEnv builds the environment from nothing and keeps every path under scrat
     NODE_OPTIONS: '--require /x.js', NPM_TOKEN: 't', XDG_CONFIG_HOME: '/operator/xdg', TMPDIR: '/var/tmp/x', LANG: 'en_US.UTF-8',
   };
   const scratch = '/scratch/rehearse';
-  const env = ciEnv({ scratch, nodeDir: '/n22/bin', shimDir: `${scratch}/bin`, npmCli: '/npm/bin/npm-cli.js', base });
+  const env = ciEnv({ scratch, nodeDir: '/n24/bin', shimDir: `${scratch}/bin`, npmCli: '/npm/bin/npm-cli.js', base });
   assert.deepEqual(Object.keys(env).sort(), [
     'CI', 'HOME', 'LANG', 'PATH', 'TERM', 'TMPDIR', 'USERPROFILE', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME',
     'XDG_DATA_HOME', 'XDG_STATE_HOME', 'npm_config_audit', 'npm_config_cache', 'npm_config_fund',
     'npm_config_update_notifier', 'npm_execpath',
   ]);
-  assert.equal(env.PATH, '/n22/bin:/scratch/rehearse/bin:/usr/bin:/bin:/usr/sbin:/sbin');
+  assert.equal(env.PATH, '/n24/bin:/scratch/rehearse/bin:/usr/bin:/bin:/usr/sbin:/sbin');
   for (const key of ['HOME', 'USERPROFILE', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'npm_config_cache']) {
     assert.ok(env[key].startsWith(`${scratch}/`), `${key}=${env[key]}`);
   }
@@ -351,8 +351,8 @@ test('env failures exit 3 before any scratch directory exists', (t) => {
     override: (command, args) => (command === NODE && args[0] === '--version' ? { stdout: 'v26.8.1\n' } : undefined),
   });
   assert.equal(wrong.result.exitCode, 3);
-  assert.match(wrong.result.lines.join('\n'), /need Node v22\.18\.0 but .* is v26\.8\.1/);
-  assert.match(wrong.result.lines.join('\n'), /npx -y -p node@22\.18\.0 node -p process\.execPath/);
+  assert.match(wrong.result.lines.join('\n'), /need Node v24\.22\.1 but .* is v26\.8\.1/);
+  assert.match(wrong.result.lines.join('\n'), /npx -y -p node@24\.22\.1 node -p process\.execPath/);
   assert.deepEqual(fs.readdirSync(wrong.scratchRoot), []);
   assert.ok(!wrong.calls.some((c) => c.args[0] === 'clone'));
 
@@ -376,7 +376,7 @@ test('the default floor Node is the invoking one, and a mismatch exits 3 (negati
     override: (command, args) => (args[0] === '--version' && command.endsWith('/node') ? { stdout: 'v26.8.1\n' } : undefined),
   });
   assert.equal(result.exitCode, 3);
-  assert.match(result.lines[0], /^FAIL env: need Node v22\.18\.0 but \/fake\/node26\/bin\/node is v26\.8\.1/);
+  assert.match(result.lines[0], /^FAIL env: need Node v24\.22\.1 but \/fake\/node26\/bin\/node is v26\.8\.1/);
 });
 
 test('--keep keeps the scratch after exit 0, with the npm shim and a linked runner tool', (t) => {

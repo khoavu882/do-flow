@@ -54,7 +54,7 @@ test('each R1-R14 fault mutation reports only its rule', () => {
     ['R8', workflow.replace('--draft --title', '--title')],
     ['R9', workflow.replace('--tag "${channel}-candidate"', '--tag beta')],
     ['R10', workflow.replace('*-*) channel=beta ;;', '*-*) channel=latest ;;')],
-    ['R11', workflow.replace('node: "22.18.0"', 'node: "22.18.1"')],
+    ['R11', workflow.replace('node: "24.22.1"', 'node: "24.22.2"')],
     ['R12', workflow.replace('tags: ["v*"]', 'tags: ["v2.*"]')],
     ['R13', workflow.replace(
       '  verify-registry:\n    needs: [publish]\n    runs-on: ${{ matrix.os }}',

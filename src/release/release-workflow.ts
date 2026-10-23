@@ -458,7 +458,7 @@ function releaseWorkflowFindings(text: string): string[] {
   const verifyRegistry = jobs.get('verify-registry');
   const matrix = verifyRegistry?.text || '';
   const matrixValid = /matrix\s*:/.test(matrix)
-    && /-\s*os:\s*["']?ubuntu-latest["']?\s*\r?\n\s*node:\s*["']?22\.18\.0["']?/.test(matrix)
+    && /-\s*os:\s*["']?ubuntu-latest["']?\s*\r?\n\s*node:\s*["']?24\.22\.1["']?/.test(matrix)
     && /-\s*os:\s*["']?macos-latest["']?\s*\r?\n\s*node:\s*["']?24["']?/.test(matrix);
   const installValid = /\bVER\s*=\s*["']?\$\{GITHUB_REF_NAME#v\}["']?/.test(matrix)
     && /npm\s+install\b[^\r\n]*@khoavu882\/doflow@\$VER\b/.test(matrix);
