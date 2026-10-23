@@ -247,4 +247,4 @@ function handleConfigAction(options: any): number {
   return handleChange({ ...options, fsImpl });
 }
 
-module.exports = { handleConfigAction, buildSchema, LAYERS };
+module.exports = { handleConfigAction, buildSchema, keyEntry, layerFile, layerEntry, LAYERS };

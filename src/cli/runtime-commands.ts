@@ -347,7 +347,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // the process home directory inside the lifecycle view (design R7) and is not an argument.
     case 'inventory': return handleInventoryCommand({ json: o.json, global: o.global, targets: o.targets, repoRoot: REPO_ROOT, projectRoot: path.resolve(o.positional[0] || '.') });
     case 'storage': return handleStorageCommand({ action: o.actionGiven ? o.action : 'report', json: o.json, global: o.global, projectRoot: evidenceRoot(o) });
-    case 'config': return handleConfigCommand({ json: o.json, global: o.global, showOrigin: o.showOrigin, positional: o.positional, layer: o.layer, repoRoot: REPO_ROOT });
+    case 'config': return handleConfigCommand({ json: o.json, global: o.global, showOrigin: o.showOrigin, positional: o.positional, layer: o.layer, preparedRun: o.preparedRun, repoRoot: REPO_ROOT });
     // No REPO_ROOT: the scaffold's repo root is the *caller's* repo, reported by the resolver,
     // because the plan's `files:` paths are relative to it. Passing the DoFlow install here
     // would detect the wrong language and mirror the wrong tree.

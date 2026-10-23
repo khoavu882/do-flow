@@ -147,6 +147,7 @@ For parallel task orchestration, `do-execute-plan` automatically isolates write-
 doflow config set review.rounds 3 --layer project
 doflow config validate review.preset '"review-deep"' --layer project
 doflow config unset review.rounds --layer project
+doflow config validate --prepared-run prepared.json   # check a prepared-run file; writes nothing
 ```
 
 Quote a string value so the shell passes it as JSON. A security-relevant setting (`autopilot.enabled`, `verify.reuse`, `workers.billing`, every `advice.*`) is refused: you write those in the settings file yourself. A value a layer may not set, or a wider value than the layers below for a narrow-only setting, is refused with exit 1 and nothing is written; a usage mistake exits 2.

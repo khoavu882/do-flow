@@ -358,6 +358,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--base', 'base'],                  // review --action start: the commit or ref the changed paths are measured from (095b IC-001)
   ['--preset', 'preset'],              // review --action start: a review preset id to run with, never looser than the decided one (119 IC-005)
   ['--layer', 'layer'],                // config validate|set|unset: user | project | local, checked in handleConfigCommand (119 IC-008)
+  ['--prepared-run', 'preparedRun'],   // config validate: a prepared-run file to check, writes nothing (119 IC-010)
   ['--error', 'errorMessage'],         // recover: the failure text to classify
   ['--agent', 'agent'],                // recover: which agent produced the failure
   ['--task', 'task'],                  // task-attempt: the plan task id, e.g. A.1
@@ -536,6 +537,7 @@ Commands:
                        config [list] [--show-origin] [--json] [-g] [<project path>]   read-only
                        config schema [--json]   every key with its type, values, default, scope and whether config set may write it, the locked invariants and the presets
                        config validate <key> <json-value> [--layer user|project|local] [--json]   check a value, writes nothing
+                       config validate --prepared-run <file> [--json]   check a prepared-run file (task class, settings, presets), one entry per fault, writes nothing
                        config set <key> <json-value> --layer user|project|local [--json]   validate, then write that layer's file; refuses security-relevant and invariant.* keys
                        config unset <key> --layer user|project|local [--json]   remove the key from that layer's file
   scaffold             Emit the reviewable code scaffold the active feature's artifacts imply
@@ -676,6 +678,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --slug | --path                       review --action check (at most one; with neither, the active feature)
       --base <ref>                          review --action start (measure the changed paths from this commit, which must be the review's base; --path is refused)
       --preset <id>                         review --action start, protocol --action resolve (run this preset; refused when looser than the decided protocol)
+      --prepared-run <file>                 config validate (check a prepared-run file instead of one key; exit 2 with a key, value or --layer)
       --layer user|project|local            config validate, set, unset (which settings file; project and local are the current project's .doflow/settings.json and settings.local.json)
       --kind review|debate, --risk <level>  protocol (--kind filters list and selects what resolve decides; --risk is the change's risk level)
       --ids, --as, --evidence, --title,

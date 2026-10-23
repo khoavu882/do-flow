@@ -172,7 +172,7 @@ const CONFIG_OPERANDS: Record<string, number> = { schema: 0, validate: 2, set: 2
 interface ConfigArgs { action: string; project: string | null; key: string | null; valueText: string | null; error: string | null }
 
 /** Splits `config [list] [path] | schema | validate <key> <value> | set <key> <value> | unset <key>` and its flags. */
-function configArguments(positional: any, { layer, global, showOrigin }: any): ConfigArgs {
+function configArguments(positional: any, { layer, global, showOrigin, preparedRun }: any): ConfigArgs {
   const args = Array.isArray(positional) ? [...positional] : [];
   const fail = (error: string): ConfigArgs => ({ action: 'list', project: null, key: null, valueText: null, error });
   let action = 'list';
@@ -184,14 +184,21 @@ function configArguments(positional: any, { layer, global, showOrigin }: any): C
   if (action === 'list') {
     if (args.length > 1) return fail('expected config [list] [project path]');
     if (layer !== undefined) return fail('--layer is only for validate, set and unset');
+    if (preparedRun !== undefined) return fail('--prepared-run is only for config validate');
     return { action, project: args[0] || null, key: null, valueText: null, error: null };
   }
   if (showOrigin) return fail('--show-origin is only for config list');
   if (global) return fail(`-g is not for config ${action}`);
   if (action === 'schema' && layer !== undefined) return fail('--layer is only for validate, set and unset');
+  if (preparedRun !== undefined) {
+    if (action !== 'validate') return fail('--prepared-run is only for config validate');
+    if (args.length) return fail('config validate --prepared-run <file> takes no key or value');
+    if (layer !== undefined) return fail('--layer is not for config validate --prepared-run (its settings are judged at the project layer)');
+    return { action, project: null, key: null, valueText: null, error: null };
+  }
   const want = CONFIG_OPERANDS[action];
   if (args.length !== want) {
-    const usage = { schema: 'config schema', validate: 'config validate <key> <json-value> [--layer user|project|local]',
+    const usage = { schema: 'config schema', validate: 'config validate <key> <json-value> [--layer user|project|local] | config validate --prepared-run <file>',
       set: 'config set <key> <json-value> --layer user|project|local', unset: 'config unset <key> --layer user|project|local' }[action];
     return fail(`expected ${usage}`);
   }
@@ -199,9 +206,9 @@ function configArguments(positional: any, { layer, global, showOrigin }: any): C
   return { action, project: null, key: args[0] ?? null, valueText: args[1] ?? null, error: null };
 }
 
-function handleConfigCommand({ json = false, global = false, showOrigin = false, positional = [], layer,
+function handleConfigCommand({ json = false, global = false, showOrigin = false, positional = [], layer, preparedRun,
   projectRoot, repoRoot = REPO_ROOT, env = process.env, fsImpl = fs }: any = {}): number {
-  const args = configArguments(positional, { layer, global, showOrigin });
+  const args = configArguments(positional, { layer, global, showOrigin, preparedRun });
   if (args.error) return usageError('config', args.error, json);
   const loaded = loadSettingsRegistry({ repoRoot, fsImpl });
   if (!loaded.ok) {
@@ -210,6 +217,12 @@ function handleConfigCommand({ json = false, global = false, showOrigin = false,
       error: 'settings-registry-invalid', detail }, null, 2));
     else console.error(`doflow config: settings registry unavailable: ${detail}`);
     return finishRuntime(2);
+  }
+
+  if (preparedRun !== undefined) {
+    return require('./prepared-run.ts').handlePreparedRun({
+      file: preparedRun, json, registry: loaded.registry, repoRoot, projectRoot: projectRoot || process.cwd(), env, fsImpl,
+    });
   }
 
   if (args.action !== 'list') {
