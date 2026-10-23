@@ -528,7 +528,7 @@ Commands:
   plan-check           Check a plan's task lines the way the task-attempt ledger reads them: plan-check <plan path> [--json]
   review               Validate a feature's review/findings.json; print errors, advisories and counts (exit 0 valid, 1 invalid, 2 usage):
                        review --action check [--slug <name> | --path <findings.json>] [--json]
-                       review --action start [--slug <name>] [--base <ref>] [--json]   verify precondition and review depth (exit 0 ok or not applicable, 1 refused, 2 usage)
+                       review --action start [--slug <name>] [--base <ref>] [--json]   verify precondition and review depth; --base must be the review's base (exit 0 ok or not applicable, 1 refused, 2 usage)
   slot                 Named machine-wide queue, one holder at a time (--action run|list|release);
                        slot --action run --name <name> [--label <text>] [--timeout <s>] [--no-wait] -- <command> [args...]
                        slot --action release --name <name> --by <who> --reason <text>
@@ -648,7 +648,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --off                              advise --action configure
       --path, --exclude (repeatable)        leak-scan
       --slug | --path                       review --action check (at most one; with neither, the active feature)
-      --base <ref>                          review --action start (measure the changed paths from this commit; --path is refused)
+      --base <ref>                          review --action start (measure the changed paths from this commit, which must be the review's base; --path is refused)
       --ids, --as, --evidence, --title,
       --release, --source, --channel        followup (add, list, take, settle, promote)
       --file <path|->, --stdin, --text,

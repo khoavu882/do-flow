@@ -303,6 +303,160 @@ test('through bin/doflow.js with stdin closed: refusal exits 1 and the run never
   assert.equal(JSON.parse(bad.stdout).error, 'usage');
 });
 
+// ---- C-2: an empty changed-path list is an unknown scope ----------------------------------------------
+
+test('C-2 (12b): a source change committed on the integration branch (no --base) is deep, never single', async (t) => {
+  const r = repo(t, { taskClass: 'bug', files: { 'src/a.ts': 'export const a = 1;\n' } });
+  r.git(['branch', '-m', 'develop']);
+  r.lines([r.line({ risk: 'LOW' })]);
+  const { exitCode, json } = await start(r);
+  assert.equal(exitCode, 0);
+  assert.equal(json.depth, 'deep');
+  assert.equal(json.seats, 2);
+  assert.equal(json.depthBasis.scope, 'unknown');
+  assert.equal(json.depthBasis.files, 0);
+});
+
+test('C-2 (12c): a branch already contained in develop (empty diff) is deep, never single', async (t) => {
+  const r = repo(t, { taskClass: 'bug', files: { 'src/a.ts': 'export const a = 1;\n' } });
+  r.git(['branch', 'develop']);
+  r.git(['checkout', '-q', '-b', 'feat/x']);
+  r.lines([r.line({ risk: 'LOW' })]);
+  const { exitCode, json } = await start(r);
+  assert.equal(exitCode, 0);
+  assert.equal(json.depth, 'deep');
+  assert.equal(json.depthBasis.scope, 'unknown');
+});
+
+// ---- C-1: the run is found by slug in both layouts; every uncertain case refuses ----------------------
+
+const FIX = `${SLUG}-fix`;
+const putRun = (r, rel, run) => put(r.cwd, `.doflow/state/orchestration/${rel}`, typeof run === 'string' ? run : JSON.stringify(run));
+const putRecords = (r, id, records) => put(r.cwd, `.doflow/state/verification/runs/${id}.jsonl`, records.map((x) => `${JSON.stringify(x)}\n`).join(''));
+
+test('C-1 (R2-1): a bug run stored as <slug>/<slug>-fix.json with a verify FAIL and a dirty tree refuses', async (t) => {
+  const r = repo(t, { run: false });
+  putRun(r, `${SLUG}/${FIX}.json`, { taskId: FIX, taskClass: 'bug', state: 'ACTIVE' });
+  putRecords(r, FIX, [r.line({ taskId: FIX, verdict: 'FAIL' })]);
+  put(r.cwd, 'src/uncommitted.ts', 'x\n');
+  const { exitCode, json } = await start(r);
+  assert.equal(exitCode, 1);
+  assert.equal(json.ok, false);
+  assert.equal(json.applicable, true);
+  assert.equal(json.taskClass, 'bug');
+  assert.deepEqual(json.reasons, ['tree-dirty', 'verify-not-pass']);
+  assert.equal(json.seats, null);
+  assert.equal(json.depth, null);
+});
+
+test('C-1: the namespaced run is checked against the records of its own task id; a clean PASS there starts the review', async (t) => {
+  const r = repo(t, { run: false, taskClass: 'bug' });
+  putRun(r, `${SLUG}/${FIX}.json`, { taskId: FIX, taskClass: 'bug', state: 'ACTIVE' });
+  putRecords(r, SLUG, [r.line()]);
+  const wrongKey = await start(r);
+  assert.equal(wrongKey.exitCode, 1);
+  assert.deepEqual(wrongKey.json.reasons, ['verify-missing']);
+  putRecords(r, FIX, [r.line({ taskId: FIX })]);
+  const { exitCode, json } = await start(r, { base: r.base });
+  assert.equal(exitCode, 0);
+  assert.equal(json.applicable, true);
+  assert.equal(json.taskClass, 'bug');
+  assert.equal(json.ok, true);
+  assert.equal(json.depth, 'deep');
+  const plain = await start(r, { json: false });
+  assert.equal(plain.exitCode, 0);
+});
+
+test('C-1: the refused text form names the run task id in the next command', async (t) => {
+  const r = repo(t, { run: false });
+  putRun(r, `${SLUG}/${FIX}.json`, { taskId: FIX, taskClass: 'bug', state: 'ACTIVE' });
+  const { exitCode, out } = await start(r, { json: false });
+  assert.equal(exitCode, 1);
+  assert.equal(out.at(-1), `doflow verify --action report --task-id ${FIX}`);
+});
+
+const REFUSE_SETUPS = [
+  ['a truncated run file (case 17)', 'run-unreadable', (r) => putRun(r, `${SLUG}.json`, '{"taskId":"x","taskCla')],
+  ['a run file with no taskClass (case 18)', 'run-unreadable', (r) => putRun(r, `${SLUG}.json`, { taskId: SLUG, state: 'ACTIVE' })],
+  ['a run file whose taskClass is not a string', 'run-unreadable', (r) => putRun(r, `${SLUG}.json`, { taskId: SLUG, taskClass: 7 })],
+  ['a class unknown to the workflows data (case 19, hotfix)', 'class-unknown', (r) => putRun(r, `${SLUG}.json`, { taskId: SLUG, taskClass: 'hotfix' })],
+  ['two runs for the slug under different task ids', 'run-ambiguous', (r) => {
+    putRun(r, `${SLUG}/a-fix.json`, { taskId: 'a-fix', taskClass: 'bug' });
+    putRun(r, `${SLUG}/b-fix.json`, { taskId: 'b-fix', taskClass: 'bug' });
+  }],
+  ['a run with a task id that is not a plain name', 'run-unreadable', (r) => putRun(r, `${SLUG}.json`, { taskId: '../escape', taskClass: 'bug' })],
+];
+for (const [name, error, setup] of REFUSE_SETUPS) {
+  test(`C-1: ${name} exits 1 with ${error} and no seats, even on a dirty tree`, async (t) => {
+    const r = repo(t, { run: false });
+    setup(r);
+    put(r.cwd, 'src/uncommitted.ts', 'x\n');
+    const { exitCode, json, out } = await start(r);
+    assert.equal(exitCode, 1);
+    assert.equal(json.ok, false);
+    assert.equal(json.error, error);
+    assert.equal(typeof json.message, 'string');
+    assert.equal(json.seats, null);
+    assert.equal(json.depth, null);
+    const text = await start(r, { json: false });
+    assert.equal(text.exitCode, 1);
+    assert.match(text.out[0], new RegExp(`^review start: ${error}: `));
+    assert.ok(out.length >= 1);
+  });
+}
+
+test('C-1: a resolver that throws exits 1 with feature-unresolved; one that reports no feature is still not applicable', async (t) => {
+  const r = repo(t);
+  const thrown = await start(r, { slug: undefined, resolve: () => { throw new Error('boom'); } });
+  assert.equal(thrown.exitCode, 1);
+  assert.equal(thrown.json.error, 'feature-unresolved');
+  assert.match(thrown.json.message, /boom/);
+  assert.equal(thrown.json.seats, null);
+  const none = await start(r, { slug: undefined, resolve: () => ({ error: 'no-feature' }) });
+  assert.equal(none.exitCode, 0);
+  assert.equal(none.json.notApplicable, 'no-feature');
+});
+
+test('C-1: a run known to be absent in both layouts stays not applicable (no-run), and another slug\'s namespace is ignored', async (t) => {
+  const r = repo(t, { run: false });
+  putRun(r, 'other-feature/other-fix.json', { taskId: 'other-fix', taskClass: 'bug' });
+  putRun(r, 'unrelated.json', { taskId: 'unrelated', taskClass: 'bug', featureSlug: 'other-feature' });
+  const { exitCode, json } = await start(r);
+  assert.equal(exitCode, 0);
+  assert.equal(json.notApplicable, 'no-run');
+});
+
+// ---- C-5: the two runtime-owned reads are bounded and non-blocking -------------------------------------
+
+function fifoRegression(name, error, place) {
+  test(`C-5: a FIFO at the ${name} exits 1 with ${error} within a bound`, (t) => {
+    const r = repo(t);
+    r.lines([r.line()]);
+    const fifo = place(r);
+    const made = spawnSync('mkfifo', [fifo]);
+    if (made.status !== 0) return t.skip('mkfifo is not available');
+    try {
+      const res = spawnSync(process.execPath, [CLI, 'review', '--action', 'start', '--slug', SLUG, '--json'],
+        { cwd: r.cwd, env: { ...r.env, DOFLOW_CLI: CLI }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20000 });
+      assert.equal(res.signal, null, 'the verb must exit by itself before the timeout');
+      assert.equal(res.status, 1, res.stderr);
+      assert.equal(JSON.parse(res.stdout).error, error);
+    } finally {
+      fs.rmSync(fifo, { force: true });
+    }
+  });
+}
+fifoRegression('verify record file', 'records-unreadable', (r) => {
+  const file = path.join(r.cwd, '.doflow/state/verification/runs', `${SLUG}.jsonl`);
+  fs.rmSync(file);
+  return file;
+});
+fifoRegression('run file', 'run-unreadable', (r) => {
+  const file = path.join(r.cwd, '.doflow/state/orchestration', `${SLUG}.json`);
+  fs.rmSync(file);
+  return file;
+});
+
 // ---- IC-001 step 6: advice raises, never lowers ---------------------------------------------------
 
 function fakeClient(answer) {
@@ -383,7 +537,7 @@ const decide = (risk, paths, floor = 0) => decideDepth({ policy: POLICY, risk, p
 test('decideDepth: risk x scope x floor table', () => {
   const rows = [
     // risk, paths, floor, depth, seats, scope, raisedBy
-    ['LOW', [], 0, 'single', 1, 'light', null],
+    ['LOW', [], 0, 'deep', 2, 'unknown', 'policy'],
     ['LOW', ['docs/a.md', 'README.md', 'CHANGELOG.md'], 0, 'single', 1, 'light', null],
     ['LOW', ['./docs/a.md'], 0, 'single', 1, 'light', null],
     ['LOW', ['docs/a.md', 'src/x.ts'], 0, 'deep', 2, 'code', 'policy'],
@@ -395,7 +549,7 @@ test('decideDepth: risk x scope x floor table', () => {
     ['MEDIUM', ['docs/a.md'], 0, 'deep', 2, 'light', 'policy'],
     ['MEDIUM', ['src/x.ts'], 0, 'deep', 2, 'code', 'policy'],
     ['HIGH', ['docs/a.md'], 0, 'deep', 2, 'light', 'policy'],
-    ['CRITICAL', [], 0, 'deep', 2, 'light', 'policy'],
+    ['CRITICAL', [], 0, 'deep', 2, 'unknown', 'policy'],
     ['LOW', ['docs/a.md'], 1, 'single', 1, 'light', null],
     ['LOW', ['docs/a.md'], 2, 'deep', 2, 'light', 'gate-floor'],
     ['LOW', ['src/x.ts'], 2, 'deep', 2, 'code', 'policy'],
@@ -403,7 +557,7 @@ test('decideDepth: risk x scope x floor table', () => {
     ['HIGH', ['src/x.ts'], 3, 'deep', 3, 'code', 'gate-floor'],
     ['URGENT', ['docs/a.md'], 0, 'deep', 2, 'light', 'policy'],
     [undefined, ['docs/a.md'], 0, 'deep', 2, 'light', 'policy'],
-    [null, [], 0, 'deep', 2, 'light', 'policy'],
+    [null, [], 0, 'deep', 2, 'unknown', 'policy'],
   ];
   for (const [risk, paths, floor, depth, seats, scope, raisedBy] of rows) {
     assert.deepEqual(decide(risk, paths, floor), { depth, seats, scope, raisedBy }, JSON.stringify([risk, paths, floor]));

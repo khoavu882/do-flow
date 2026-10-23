@@ -38,10 +38,11 @@ function lightCovers(lightPaths: string[], file: string): boolean {
 
 /**
  * IC-002: the pure depth rule. `paths` is the changed repository-relative paths, or null when
- * unreadable. A rename is two entries, so it counts both paths. `floor` is the gate-b minimum seat count.
+ * unreadable; an empty list is also an unknown scope (the base resolved to HEAD). A rename is two entries, so it counts both paths. `floor` is the gate-b minimum seat count.
  */
 function decideDepth({ policy, risk, paths, floor }: any): Decision {
-  const scope = !Array.isArray(paths) ? 'unknown'
+  // An empty list is an unknown scope, not "only light paths": the verb does not know what the review covers.
+  const scope = !Array.isArray(paths) || paths.length === 0 ? 'unknown'
     : paths.every((file: string) => lightCovers(policy.lightPaths, file)) ? 'light' : 'code';
   const single = scope === 'light' && typeof risk === 'string' && policy.singleRisks.includes(risk);
   let depth = single ? 'single' : 'deep';
@@ -112,32 +113,85 @@ function changedPaths(cwd: string, env: Env, baseSha: string | null): string[] |
   return diff.status === 0 ? diff.stdout.split('\0').filter(Boolean) : null;
 }
 
-function parseRecordLines(file: string): { records: any[] } | { error: string } {
-  let text = '';
+/** The largest verify record file the verb reads; a bigger one is `records-unreadable`. */
+const MAX_RECORD_BYTES = 8 * 1024 * 1024;
+
+/**
+ * A runtime-owned file's text through a bounded, non-blocking read (the pattern of
+ * implementation-gate.ts `readRunFileText`): `lstat`, then `O_NOFOLLOW|O_NONBLOCK`, `fstat` on the
+ * descriptor and a size cap. `missing` for ENOENT; any non-regular target (link, FIFO, device, folder)
+ * or oversized file is an error, never a blocking read.
+ */
+function readBounded(file: string, maxBytes: number): { text: string } | { missing: true } | { error: string } {
+  const flags = fs.constants;
+  let fd: number | undefined;
   try {
-    text = fs.readFileSync(file, 'utf8');
+    let st = fs.lstatSync(file);
+    if (!st.isFile()) return { error: 'not a regular file' };
+    fd = fs.openSync(file, flags.O_RDONLY | (flags.O_NOFOLLOW || 0) | (flags.O_NONBLOCK || 0));
+    st = fs.fstatSync(fd);
+    if (!st.isFile()) return { error: 'not a regular file' };
+    if (st.size > maxBytes) return { error: `larger than ${maxBytes} bytes` };
+    const buffer = Buffer.alloc(maxBytes + 1);
+    let length = 0;
+    for (let n = -1; n !== 0 && length <= maxBytes; length += n) n = fs.readSync(fd, buffer, length, buffer.length - length, null);
+    return length > maxBytes ? { error: `larger than ${maxBytes} bytes` } : { text: buffer.subarray(0, length).toString('utf8') };
   } catch (error: any) {
-    if (error?.code !== 'ENOENT') return { error: error?.message || String(error) };
+    return error?.code === 'ENOENT' ? { missing: true } : { error: error?.message || String(error) };
+  } finally {
+    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* the read is done */ } }
   }
+}
+
+function parseRecordLines(file: string): { records: any[] } | { error: string } {
+  const read = readBounded(file, MAX_RECORD_BYTES);
+  if ('error' in read) return { error: read.error };
   const records: any[] = [];
-  for (const [index, line] of text.split('\n').entries()) {
+  for (const [index, line] of ('text' in read ? read.text : '').split('\n').entries()) {
     if (!line.trim()) continue;
     try { records.push(JSON.parse(line)); } catch (error: any) { return { error: `line ${index + 1}: ${error.message}` }; }
   }
   return { records };
 }
 
-/** The task class of the slug's orchestration run through the runtime's run locator, or null when there is none. */
-function runTaskClass(cwd: string, slug: string): string | null {
-  const { findRunFile } = require('../implementation-gate.ts');
-  const found = findRunFile({ stateRoot: cwd, taskId: slug, slug });
-  if (found.status !== 'found') return null;
-  try {
-    const run = JSON.parse(fs.readFileSync(found.file, 'utf8'));
-    return typeof run?.taskClass === 'string' && run.taskClass ? run.taskClass : null;
-  } catch {
+type RunLookup = { status: 'none' } | { status: 'found'; taskId: string; taskClass: string }
+  | { status: 'ambiguous' | 'unreadable'; message: string };
+
+/**
+ * The slug's orchestration run in either record layout (flat `<id>.json` whose run names the slug or
+ * whose id is the slug, or `<slug>/<id>.json`), through the runtime's own listing so every read is
+ * bounded. `none` only when no layout holds one; every uncertain case is `ambiguous` or `unreadable`.
+ * The run's own `taskId` keys its verify records; a run that names none falls back to the slug.
+ */
+function lookupRun(stateRoot: string, slug: string): RunLookup {
+  const { orchestrationRuns, selectRunEntries } = require('../implementation-gate.ts');
+  const store = path.join(stateRoot, '.doflow', 'state', 'orchestration');
+  // A FIFO or device at a run path is not listed by the runtime (it lists regular files and links), so it
+  // would read as absent; a non-regular entry that could be this slug's run is unreadable instead.
+  const odd = (dir: string, name: (n: string) => boolean): string | null => {
+    try {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (name(entry.name) && !entry.isFile() && !entry.isSymbolicLink() && !entry.isDirectory()) return path.join(dir, entry.name);
+      }
+    } catch { /* an absent or unreadable folder holds no run here */ }
     return null;
-  }
+  };
+  const strange = odd(store, (n) => n === `${slug}.json`) ?? odd(path.join(store, slug), (n) => n.endsWith('.json'));
+  if (strange) return { status: 'unreadable', message: `${strange} is not a regular file` };
+  const listed = orchestrationRuns({ stateRoot });
+  if (!listed.ok) return { status: 'unreadable', message: `the run records could not be listed (${listed.error})` };
+  const mine = selectRunEntries(listed.entries).filter((entry: any) => {
+    const namespaced = path.relative(path.join(entry.root, '.doflow', 'state', 'orchestration'), entry.file).split(path.sep).length > 1;
+    return entry.slug === slug || (!namespaced && path.basename(entry.file, '.json') === slug);
+  });
+  if (mine.length === 0) return { status: 'none' };
+  if (mine.length > 1) return { status: 'ambiguous', message: `more than one run belongs to ${slug}: ${mine.map((e: any) => e.file).join(', ')}` };
+  const [entry] = mine;
+  if (entry.error) return { status: 'unreadable', message: `${entry.file} is ${entry.error === 'io' ? 'not a readable regular file' : 'not valid JSON'}` };
+  const { taskClass, taskId } = entry.record ?? {};
+  if (typeof taskClass !== 'string' || !taskClass) return { status: 'unreadable', message: `${entry.file} names no taskClass` };
+  if (taskId !== undefined && !validSlug(taskId)) return { status: 'unreadable', message: `${entry.file} has a task id that is not a plain name` };
+  return { status: 'found', taskId: taskId ?? slug, taskClass };
 }
 
 /** The gate-b seat floor of a class from the shipped gates.json, through its loader; 0 when the class has none. */
@@ -213,26 +267,43 @@ async function handleReviewStart({ slug, base, json = false, cwd, env, resolve, 
     const policy = reviewDepthPolicy(registry);
     const defaultRisk: string = registry.policy.defaultRiskLevel;
 
-    let resolvedSlug: string | null = typeof slug === 'string' ? slug : null;
-    if (resolvedSlug === null) {
-      let feature: any;
-      try { feature = resolve({ projectRoot: cwd, slug: null }); } catch { feature = null; }
-      const candidate = feature && !feature.error ? feature.paths?.feature_slug : null;
-      resolvedSlug = validSlug(candidate) ? candidate : null;
-    }
-
     const result: any = {
-      schema: 1, slug: resolvedSlug, taskClass: null, applicable: false, notApplicable: null, head: null, clean: null,
+      schema: 1, slug: null, taskClass: null, applicable: false, notApplicable: null, head: null, clean: null,
       ok: true, reasons: [], depth: null, seats: null, risk: defaultRisk, riskSource: 'default', depthBasis: null,
       advice: { status: 'off', pick: null },
     };
+    // An uncertain applicability is a refusal with a named reason, never a silent not-applicable.
+    const refuse = (error: string, message: string): number => {
+      out(json ? JSON.stringify({ ...result, ok: false, error, message }) : `review start: ${error}: ${message}`);
+      return finishRuntime(1);
+    };
+
+    let resolvedSlug: string | null = typeof slug === 'string' ? slug : null;
+    if (resolvedSlug === null) {
+      let feature: any;
+      try { feature = resolve({ projectRoot: cwd, slug: null }); } catch (error: any) {
+        return refuse('feature-unresolved', `the active feature could not be resolved: ${error?.message || String(error)}`);
+      }
+      const candidate = feature && !feature.error ? feature.paths?.feature_slug : null;
+      resolvedSlug = validSlug(candidate) ? candidate : null;
+    }
+    result.slug = resolvedSlug;
+
     let taskClass: string | null = null;
+    let verifyId: string | null = null;
     if (resolvedSlug === null) result.notApplicable = 'no-feature';
     else {
-      taskClass = runTaskClass(verificationRunsRoot(cwd), resolvedSlug);
-      result.taskClass = taskClass;
-      if (taskClass === null) result.notApplicable = 'no-run';
-      else if (!reviewApplies(new WorkflowEngine({ repoRoot: REPO_ROOT }).classes, taskClass)) result.notApplicable = 'class-exempt';
+      const run = lookupRun(verificationRunsRoot(cwd), resolvedSlug);
+      if (run.status === 'ambiguous') return refuse('run-ambiguous', run.message);
+      if (run.status === 'unreadable') return refuse('run-unreadable', run.message);
+      if (run.status === 'found') {
+        taskClass = run.taskClass;
+        verifyId = run.taskId;
+        result.taskClass = taskClass;
+        const classes = new WorkflowEngine({ repoRoot: REPO_ROOT }).classes;
+        if (!Object.hasOwn(classes ?? {}, taskClass)) return refuse('class-unknown', `task class '${taskClass}' is not in the workflows data`);
+        if (!reviewApplies(classes, taskClass)) result.notApplicable = 'class-exempt';
+      } else result.notApplicable = 'no-run';
     }
     result.applicable = result.notApplicable === null;
 
@@ -241,20 +312,16 @@ async function handleReviewStart({ slug, base, json = false, cwd, env, resolve, 
       const state = readHeadState(cwd, env);
       result.head = state.head;
       result.clean = state.clean;
-      const parsed = parseRecordLines(verificationRunRecordFile(verificationRunsRoot(cwd), resolvedSlug));
-      if ('error' in parsed) {
-        const failure = { ...result, ok: false, error: 'records-unreadable', message: parsed.error };
-        out(json ? JSON.stringify(failure) : `review start: records-unreadable: ${parsed.error}`);
-        return finishRuntime(1);
-      }
-      result.reasons = reviewPrecondition({ records: parsed.records, head: state.head, clean: state.clean, slug: resolvedSlug });
+      const parsed = parseRecordLines(verificationRunRecordFile(verificationRunsRoot(cwd), verifyId as string));
+      if ('error' in parsed) return refuse('records-unreadable', parsed.error);
+      result.reasons = reviewPrecondition({ records: parsed.records, head: state.head, clean: state.clean, slug: verifyId });
       if (result.reasons.length) {
         result.ok = false;
-        nextCommand = `doflow verify --action report --task-id ${resolvedSlug}${typeof base === 'string' ? ` --baseline-ref ${base}` : ''}`;
+        nextCommand = `doflow verify --action report --task-id ${verifyId}${typeof base === 'string' ? ` --baseline-ref ${base}` : ''}`;
         emit(out, json, result, nextCommand);
         return finishRuntime(1);
       }
-      Object.assign(result, riskOfRecords({ records: parsed.records, head: state.head, slug: resolvedSlug, levels: registry.riskLevels, defaultRisk }));
+      Object.assign(result, riskOfRecords({ records: parsed.records, head: state.head, slug: verifyId, levels: registry.riskLevels, defaultRisk }));
     }
 
     let baseSha: string | null = null;
