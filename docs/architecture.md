@@ -1065,11 +1065,12 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   registry, help or nav change, then review the diff.
 - **G62** (`review-depth-source.test.js`) — review depth has one source, the `reviewDepth` block of
   `core/registry/verification.json`: `core/shared/skills/do-code-review/SKILL.md` names
-  `review --action start`, and no file under `core/shared/` states a single-depth rule, meaning the
-  word `single` (not preceded by `a`) within 80 characters of a risk level name or of a
-  `reviewDepth.lightPaths` entry. Controls: the detector flags `single seat when LOW` and
-  `single reviewer for edits to docs/ only` and passes plain prose and `a single tier`; the known
-  ceiling is that `a single seat when LOW` is not caught.
+  `review --action start`, proceeds past it only on exit 0 with `ok:true`, and keeps `risk` only when
+  `riskSource` is `record`; and no file under `core/shared/` states a single-depth rule, meaning the
+  word `single`, or `one seat` / `one reviewer`, within 80 characters of a risk level name (whole
+  word) or of a `reviewDepth.lightPaths` entry. There is no exclusion for `a single`. Controls: the
+  detector flags `single seat when LOW`, `A single seat is enough when risk is LOW.`,
+  `Use one seat when LOW.` and `single reviewer for edits to docs/ only`, and passes plain prose.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

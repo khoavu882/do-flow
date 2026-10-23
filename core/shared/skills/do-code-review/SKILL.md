@@ -71,9 +71,8 @@ State this before producing a single finding, and report against it when the rev
    the table below does not define. A check that could not run is reported as not run.
 4. **The coverage the analyzer actually achieved** — `code_quality_checker.py` reports
    `files_analyzed`, `files_skipped` and a `coverage` of `complete` or `partial`. Report all three.
-   A `partial` coverage means the verdict describes the analysed subset, and saying so is not
-   optional: a score presented as if it covered the whole change is the defect this contract exists
-   to prevent.
+   A `partial` coverage means the verdict describes the analysed subset; a score presented as if it
+   covered the whole change is the defect this contract exists to prevent.
 5. **Process-leak scan** — run
    `doflow leak-scan --path <each reviewed file> --json` over the reviewed set. These are DoFlow's
    own identifiers (`FR-###`, `agent-docs/`, chain artifact names) reaching files that ship to
@@ -88,8 +87,8 @@ State this before producing a single finding, and report against it when the rev
    chain: in other implementing repositories report the surviving count, not the lines; in DoFlow's
    own repository the step has no applicable surface; say so plainly.
 6. **Review start** — first (`$DOFLOW`: Recording, step 1) run `"$DOFLOW" review --action start --json`.
-   Exit 1: stop and report its `reasons`. Else run `seats` seats; keep `depth` and `risk` for step 3.
-   Never decide depth here.
+   Exit 0 with `ok:true`: run `seats` seats; keep `depth`, and `risk` only if `riskSource` is `record`.
+   Any other exit: stop and report it. Never decide depth here.
 
 **Stop when** every file in the reviewed set the contract names has an answer or a stated gap, **and** the last round produced no new file in the reviewed set. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
 

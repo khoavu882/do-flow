@@ -50,7 +50,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 "$DOFLOW" verify --task-id "<task id>" --risk "<LOW|MEDIUM|HIGH|CRITICAL>" --action contract --json
 ```
 
-   Report, before a single tier runs:
+   Report, before any tier runs:
    - the compiled `tiers[]` in the order returned — that list, and nothing else, is what will run;
    - the `riskLevel` it compiled at and the `maxRecoveryIterations` it carries;
    - `detection.absent` — the command roles the runtime could not find in this repo's manifests
