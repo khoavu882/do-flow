@@ -10,6 +10,7 @@ const { resolveActiveFeature } = require('../feature-resolve.ts');
 const { TelemetryWriter } = require('../trace/telemetry.ts');
 const { finishRuntime } = require('../cli-result.ts');
 const { handleReviewStart, validSlug } = require('./start.ts');
+const { crossCheckAuthor } = require('./identity.ts');
 
 type ReviewRecord = Record<string, any>;
 type Env = Record<string, string | undefined>;
@@ -33,6 +34,16 @@ function defaultGit(args: string[], cwd: string, env: Env): { status: number | n
   const gitEnv = { ...env };
   for (const key of GIT_LOCATION_KEYS) delete gitEnv[key];
   return spawnSync('git', ['-C', cwd, ...args], { cwd, env: gitEnv, stdio: 'ignore' });
+}
+
+/** The project's `review.sameFamily` (119 L-C3), read for the checkout the verb runs in. An unloadable settings
+ * view is `warn` plus `unread`, never a crash and never a silent `refuse`. */
+function readSameFamily(load: (options: { projectRoot: string; env: Env }) => any, cwd: string, env: Env): { value: 'warn' | 'refuse'; unread: boolean } {
+  try {
+    return { value: load({ projectRoot: path.resolve(cwd), env }).get('review.sameFamily').value === 'refuse' ? 'refuse' : 'warn', unread: false };
+  } catch {
+    return { value: 'warn', unread: true };
+  }
 }
 
 // A preset id as protocols.ts validates it (`^[a-z][a-z0-9-]*$`).
@@ -64,6 +75,7 @@ function handleReviewCommand({
   cwd = process.cwd(),
   env = process.env,
   git = defaultGit,
+  loadSettings = (options: { projectRoot: string; env: Env }) => require('../settings/resolve.ts').loadSettings(options),
   writer,
   resolve = resolveActiveFeature,
   out = (line: string) => console.log(line),
@@ -112,6 +124,8 @@ function handleReviewCommand({
   const errors: string[] = [];
   const errorDetails = new Map<string, string>();
   const ancestryAdvisories: string[] = [];
+  const identityAdvisories: string[] = [];
+  let sameFamily: 'warn' | 'refuse' = 'warn';
   let record: ReviewRecord | null = null;
   if (file === null) {
     errors.push('missing');
@@ -128,12 +142,21 @@ function handleReviewCommand({
     }
 
     if (errors.length === 0) {
-      const validation = validateFindings(raw);
+      // Settings are read only for a record that declares an author: nothing else depends on them (L-C3).
+      let peek: any = null;
+      try { peek = JSON.parse(raw); } catch { /* validateFindings reports `json` */ }
+      if (peek !== null && typeof peek === 'object' && Object.hasOwn(peek, 'author')) {
+        const read = readSameFamily(loadSettings, cwd, env);
+        sameFamily = read.value;
+        if (read.unread) identityAdvisories.push('same-family-setting-unread');
+      }
+      const validation = validateFindings(raw, { sameFamily });
       for (const error of validation.errors) errors.push(error); // a spread overflows the stack at ~200k errors (C-6)
       if (!validation.errors.includes('json')) {
         try { record = JSON.parse(raw); } catch { record = null; }
       }
       if (validation.ok && record) {
+        if (Object.hasOwn(record, 'author')) identityAdvisories.push(...crossCheckAuthor({ record, cwd, env }));
         for (const finding of record.converged) {
           if (typeof finding.preExistingAt !== 'string') continue;
           let status: number | null | undefined;
@@ -153,8 +176,8 @@ function handleReviewCommand({
     }
   }
 
-  const advisories = (record && validateFindings(record).ok
-    ? reviewAdvisories(record)
+  const advisories = (record && validateFindings(record, { sameFamily }).ok
+    ? reviewAdvisories(record, { sameFamily }).concat(identityAdvisories)
     : []).concat(ancestryAdvisories).sort();
   const valid = errors.length === 0;
   const counts = valid && record ? countFindings(record) : null;

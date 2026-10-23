@@ -22,9 +22,11 @@ const IGNORABLE = /[\p{Default_Ignorable_Code_Point}\p{Cf}]/gu;
 const DASH = /\p{Pd}/gu;
 const PROTOCOL_DIGEST = /^[0-9a-f]{64}$/;
 /** The closed top-level key set (IC-001). */
-const RECORD_KEYS = Object.freeze(['schema', 'row', 'slug', 'reviewedHead', 'depth', 'risk', 'protocol', 'rounds', 'seats', 'converged']);
+const RECORD_KEYS = Object.freeze(['schema', 'row', 'slug', 'reviewedHead', 'depth', 'risk', 'protocol', 'rounds', 'author', 'seats', 'converged']);
 /** The optional convergence keys of a converged finding (IC-001); other finding keys stay open. */
 const FINDING_FIELDS = Object.freeze(['origin', 'preExistingAt', 'escapedFrom', 'verification', 'verifiedBy', 'bugClass', 'sweep', 'acceptedAs']);
+/** `family` of an author or a seat: a lower-case family id; `unknown` means not verifiable (119 IC-002). */
+const FAMILY_ID = /^[a-z][a-z0-9-]*$/;
 const object = (x: any): boolean => x !== null && typeof x === 'object' && !Array.isArray(x);
 const nonempty = (x: any): boolean => typeof x === 'string' && x.trim().length > 0;
 const strings = (x: any): boolean => Array.isArray(x) && x.every(nonempty) && new Set(x).size === x.length;
@@ -97,8 +99,45 @@ function normalizedSeatId(value: string): string {
   return value.normalize('NFKC').replace(IGNORABLE, '').replace(DASH, '-').trim().toUpperCase().toLowerCase();
 }
 
-/** Schema checks only. Git ancestry and register-channel backing are separate facts. */
-function validateFindings(json: any): { ok: boolean; errors: string[] } {
+const identityPart = (key: string, value: any): boolean => key === 'agent' ? nonempty(value)
+  : key === 'session' ? value === null || nonempty(value)
+  : typeof value === 'string' && FAMILY_ID.test(value);
+
+/** `author` is exactly `{ agent, session, family }` (119 IC-002, L-C1). */
+function validAuthor(value: any): boolean {
+  const keys = object(value) ? Object.keys(value) : [];
+  return keys.length === 3 && ['agent', 'session', 'family'].every((key) => keys.includes(key) && identityPart(key, value[key]));
+}
+
+/** A seat's optional `agent`/`session`/`family`: any may be present, each with the author's shape. */
+const validSeatIdentity = (seat: any): boolean =>
+  ['agent', 'session', 'family'].every((key) => !Object.hasOwn(seat, key) || identityPart(key, seat[key]));
+
+type Sameness = 'warn' | 'refuse';
+
+/**
+ * The reviewer-independence facts of a record whose shape is already checked (119 L-C2). Only a record holding
+ * `author` has any: INV-1 `independence:<seat>` always an error; `same-family:<seat>` an error under `refuse`,
+ * an advisory under `warn`; `family-unverified:<seat>` an advisory.
+ */
+function identityFacts(data: any, sameFamily: Sameness): { errors: string[]; advisories: string[] } {
+  const facts = { errors: [] as string[], advisories: [] as string[] };
+  if (!Object.hasOwn(data, 'author') || !validAuthor(data.author) || !Array.isArray(data.seats)) return facts;
+  const { author } = data;
+  for (const seat of data.seats) {
+    if (!object(seat) || !nonempty(seat.id) || !validSeatIdentity(seat)) continue;
+    if (seat.agent === author.agent && seat.session != null && author.session != null && seat.session === author.session) {
+      facts.errors.push(`independence:${seat.id}`);
+    }
+    if (seat.family === undefined || seat.family === 'unknown' || author.family === 'unknown') facts.advisories.push(`family-unverified:${seat.id}`);
+    else if (seat.family === author.family) (sameFamily === 'refuse' ? facts.errors : facts.advisories).push(`same-family:${seat.id}`);
+  }
+  return facts;
+}
+
+/** Schema checks only. Git ancestry and register-channel backing are separate facts.
+ * `sameFamily` (`warn` by default) is the project's `review.sameFamily`: under `refuse` a same-family seat is an error. */
+function validateFindings(json: any, { sameFamily = 'warn' }: { sameFamily?: Sameness } = {}): { ok: boolean; errors: string[] } {
   const errors: string[] = [];
   let data = json;
   if (typeof json === 'string' || Buffer.isBuffer(json)) {
@@ -116,6 +155,7 @@ function validateFindings(json: any): { ok: boolean; errors: string[] } {
   if (Object.hasOwn(data, 'risk') && !(typeof data.risk === 'string' && risks && risks.includes(data.risk))) errors.push('risk');
   if (Object.hasOwn(data, 'protocol') && !validProtocol(data.protocol)) errors.push('protocol');
   if (Object.hasOwn(data, 'rounds') && !(Number.isSafeInteger(data.rounds) && data.rounds >= 1)) errors.push('rounds');
+  if (Object.hasOwn(data, 'author') && !validAuthor(data.author)) errors.push('author');
   const seats = Array.isArray(data.seats) ? data.seats : [];
   const converged = Array.isArray(data.converged) ? data.converged : [];
   if (!Array.isArray(data.seats)) errors.push('seats');
@@ -126,6 +166,7 @@ function validateFindings(json: any): { ok: boolean; errors: string[] } {
   for (const seat of seats) {
     if (!object(seat) || !nonempty(seat.id) || seatIds.has(seat.id) || !Array.isArray(seat.findings)) { errors.push('seat'); continue; }
     seatIds.add(seat.id);
+    if (!validSeatIdentity(seat)) errors.push(`seat-identity:${seat.id}`);
     for (const finding of seat.findings) {
       if (!object(finding) || !nonempty(finding.id) || findingIds.has(finding.id) || !SEVERITIES.includes(finding.severity)
         || !nonempty(finding.locator) || !nonempty(finding.summary)) { errors.push('seat-finding'); continue; }
@@ -133,6 +174,7 @@ function validateFindings(json: any): { ok: boolean; errors: string[] } {
       seatOf.set(finding.id, seat.id);
     }
   }
+  for (const error of identityFacts(data, sameFamily === 'refuse' ? 'refuse' : 'warn').errors) errors.push(error);
   const convergedIds = new Set<string>();
   for (const finding of converged) {
     if (!object(finding) || !nonempty(finding.id) || convergedIds.has(finding.id) || !strings(finding.from)
@@ -203,10 +245,11 @@ function countFindings(json: any): Record<string, string | number | null> | null
 }
 
 /** IC-002's advisories of a valid record, sorted; `[]` for an invalid one (its errors say why). */
-function reviewAdvisories(json: any): string[] {
-  if (!validateFindings(json).ok) return [];
+function reviewAdvisories(json: any, { sameFamily = 'warn' }: { sameFamily?: Sameness } = {}): string[] {
+  const option = { sameFamily: sameFamily === 'refuse' ? 'refuse' : 'warn' } as { sameFamily: Sameness };
+  if (!validateFindings(json, option).ok) return [];
   const data = parsed(json);
-  const advisories: string[] = [];
+  const advisories: string[] = identityFacts(data, option.sameFamily).advisories;
   for (const finding of data.converged) {
     if (finding.severity === 'blocker' && finding.verification !== 'confirmed') advisories.push(`unverified-blocker:${finding.id}`);
     if (Object.hasOwn(finding, 'bugClass') && finding.status === 'open') advisories.push(`bug-class-open:${finding.id}`);

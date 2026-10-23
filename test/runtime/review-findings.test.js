@@ -36,7 +36,7 @@ test('frozen vocabularies, closed key lists and ROUND_CAP', () => {
   assert.deepEqual(findings.ORIGINS, ['introduced', 'pre-existing']);
   assert.deepEqual(findings.VERIFICATIONS, ['confirmed', 'plausible']);
   assert.deepEqual(findings.ACCEPTED_AS, ['intentional', 'not-worth-fixing']);
-  assert.deepEqual(findings.RECORD_KEYS, ['schema', 'row', 'slug', 'reviewedHead', 'depth', 'risk', 'protocol', 'rounds', 'seats', 'converged']);
+  assert.deepEqual(findings.RECORD_KEYS, ['schema', 'row', 'slug', 'reviewedHead', 'depth', 'risk', 'protocol', 'rounds', 'author', 'seats', 'converged']);
   assert.deepEqual(findings.FINDING_FIELDS, ['origin', 'preExistingAt', 'escapedFrom', 'verification', 'verifiedBy', 'bugClass', 'sweep', 'acceptedAs']);
   assert.equal(findings.ROUND_CAP, 3);
 });
