@@ -56,3 +56,18 @@ test('an empty diff is described as no visible diff', { skip: !HAS_JQ && 'jq not
 test('a missing snapshot is described as such', { skip: !HAS_JQ && 'jq not installed' }, (t) => {
   assert.match(comment(t, [row('https://x.test/a', null)]), /no snapshot to diff against/);
 });
+
+test('past the budget, whole rows are dropped and counted, never cut in the middle of a fence', { skip: !HAS_JQ && 'jq not installed' }, (t) => {
+  const diff = ['--- baseline', '+++ current', '@@ -1,1 +1,1 @@', '-\u00e9\u00e9 old line', '+\u00e9\u00e9 new line'].join('\n');
+  const rows = Array.from({ length: 6 }, (_, i) => row(`https://x.test/${i}`, diff));
+  const whole = comment(t, rows);
+  const oneRow = Buffer.byteLength(comment(t, rows.slice(0, 1)));
+  const budget = oneRow * 3 + 10;
+  const out = comment(t, rows, budget);
+  assert.ok(Buffer.byteLength(out) <= budget + 80, 'output stays near the budget');
+  assert.equal(out.split('\n').filter((l) => l === '```diff').length, 3, 'three whole rows kept');
+  assert.equal(out.split('\n').filter((l) => l === '```').length, 3, 'every kept fence is closed');
+  assert.match(out, /\(3 more rows truncated\)\n$/);
+  assert.doesNotMatch(whole, /truncated/, 'a report under the budget is untouched');
+  assert.doesNotMatch(out, /\uFFFD/, 'no UTF-8 character is cut');
+});

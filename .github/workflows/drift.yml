@@ -54,20 +54,24 @@ jobs:
             # Each DRIFTED row also carries `diff`, a unified diff of the page's main content
             # against the stored snapshot: null when the baseline has no snapshot for the URL, ""
             # when the change is past the snapshot's size cap or only in a redacted home-directory path.
-            jq -r '.results[] | select(.status == "DRIFTED")
-              | "- `\(.url)`\n  claims: \(.claims | join(", "))"
+            # A comment body is capped at 65536 characters: rows are added whole until the budget
+            # (bytes, so a safe bound) would be passed, then the rest are counted, not cut.
+            jq -r --argjson budget 60000 'def row:
+                "- `\(.url)`\n  claims: \(.claims | join(", "))"
                 + (if (.diff // "") != "" then
                      # A fence one backtick longer than the longest run inside the diff cannot be closed by it.
                      ([.diff | scan("`+") | length] | max // 0) as $run
                      | ([range([3, $run + 1] | max)] | map("`") | join("")) as $fence
                      | "\n\n\($fence)diff\n\(.diff)\n\($fence)\n"
                    elif .diff == "" then "\n  (no visible diff: change is beyond the snapshot cap or only in redacted paths)"
-                   else "\n  (no snapshot to diff against)" end)' drift-report.json
+                   else "\n  (no snapshot to diff against)" end);
+              [.results[] | select(.status == "DRIFTED") | row] as $rows
+              | reduce $rows[] as $r ({out: [], size: 0, cut: 0};
+                  (($r | utf8bytelength) + 1) as $n
+                  | if .cut > 0 or .size + $n > $budget then .cut += 1
+                    else .out += [$r] | .size += $n end)
+              | (.out | join("\n")), (if .cut > 0 then "(\(.cut) more rows truncated)" else empty end)' drift-report.json
           } > drift-body.md
-          # A comment body is capped at 65536 characters; keep the run's comment under it.
-          if [ "$(wc -c < drift-body.md)" -gt 60000 ]; then
-            { head -c 60000 drift-body.md; printf '\n\n(truncated)\n'; } > drift-body.cut && mv drift-body.cut drift-body.md
-          fi
 
           # Exactly one open tracking issue at a time: create it on first drift, append every
           # later run as a comment. Resolve by refreshing scripts/drift/baseline.json
