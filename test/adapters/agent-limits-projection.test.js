@@ -38,6 +38,14 @@ test('the specs under test carry both access values', () => {
   assert.ok(specs.some((spec) => spec.access === 'write'));
 });
 
+test('review fix C-3: reviewer is the only read-only spec; every other spec, the four analysis roles included, is write', () => {
+  assert.deepEqual(specs.filter((spec) => spec.access === 'read-only').map((spec) => spec.name), ['reviewer']);
+  for (const name of ['spec-analyst', 'system-architect', 'quality-guardian', 'research-writer']) {
+    assert.equal(specs.find((spec) => spec.name === name).access, 'write', name);
+  }
+  assert.ok(specs.every((spec) => ['read-only', 'write'].includes(spec.access)), 'every spec declares a known access');
+});
+
 test('every harness agents.shared applies to projects through a registered transform (no byte-copy path)', () => {
   assert.ok(sharedAgents.appliesTo.length >= 7);
   for (const id of sharedAgents.appliesTo) {
@@ -96,7 +104,7 @@ test('opencode: permission block on read-only specs only, byte-identical to the 
       '---', '', body.replace(/\n*$/, ''), ''].join('\n');
     assert.equal(out, base, `${spec.name}: bytes equal the base renderer's`);
   }
-  assert.ok(specs.filter((spec) => spec.access === 'read-only').length >= 4);
+  assert.ok(specs.some((spec) => spec.access === 'read-only'), 'the read-only branch above ran for at least one spec');
 });
 
 test('kiro: tools list replaces ["*"] on read-only specs only, and access is never emitted', () => {

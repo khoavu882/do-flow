@@ -76,6 +76,11 @@ function carriedKeys(harnessId, rendered, apply) {
   return Object.fromEntries(Object.entries(apply).map(([key, value]) => [key, holds(fm[key], value)]));
 }
 
+/** Every top-level key a projected agent file carries: frontmatter keys, or the JSON object's keys for Kiro. */
+function projectedKeys(harnessId, rendered) {
+  return harnessId === 'kiro' ? Object.keys(JSON.parse(rendered)) : Object.keys(frontmatter(rendered));
+}
+
 /** Backticked kebab names inside the first capture group of `re`, or null when the list is absent. */
 function backticked(text, re) {
   const match = text.match(re);
@@ -145,23 +150,32 @@ function check(root, { render } = {}) {
     }
   }
 
-  // 6: rendered agent files carry the native harnesses' read-only keys exactly when the spec is read-only.
+  // 6: rendered agent files carry the native harnesses' read-only keys exactly when the spec is
+  // read-only. A write spec carries NO key that any harness's `apply` block names (a partial
+  // restriction passes an exact-value match), and Kiro's write default is tools ["*"].
   const renderWith = render || ((harnessId, transformName, stem, text) => (
     resolveTransform(transformName)(`${stem}.md`, Buffer.from(text)).toString('utf8')));
-  for (const h of harnesses) {
-    const limit = h.agentLimits?.readOnly;
-    if (limit?.status !== 'native' || !agentAsset.appliesTo.includes(h.id)) continue;
+  const native = harnesses.filter((h) => h.agentLimits?.readOnly?.status === 'native');
+  const limitKeys = new Set(native.flatMap((h) => Object.keys(h.agentLimits.readOnly.apply)));
+  for (const h of native) {
+    if (!agentAsset.appliesTo.includes(h.id)) continue;
+    const limit = h.agentLimits.readOnly;
     const transformName = agentAsset.projection[h.id]?.transform;
     if (!transformName) { out.push(`${FILES.assets} agents.shared.projection.${h.id}: native read-only limit but no transform to write it`); continue; }
     const keys = Object.keys(limit.apply);
     for (const stem of stems) {
-      const carried = carriedKeys(h.id, renderWith(h.id, transformName, stem, specText[stem]), limit.apply);
+      const rendered = renderWith(h.id, transformName, stem, specText[stem]);
       if (access[stem] === 'read-only') {
+        const carried = carriedKeys(h.id, rendered, limit.apply);
         const lacking = keys.filter((k) => !carried[k]);
         if (lacking.length) out.push(`${h.id} projection of ${stem}: read-only spec lacks ${lacking.join(', ')}`);
       } else if (access[stem] === 'write') {
-        const extra = keys.filter((k) => carried[k]);
+        // Kiro's own `tools` key is the write default ["*"], checked below; every other limit key is forbidden.
+        const extra = projectedKeys(h.id, rendered).filter((k) => limitKeys.has(k) && !(h.id === 'kiro' && k === 'tools'));
         if (extra.length) out.push(`${h.id} projection of ${stem}: write spec carries ${extra.join(', ')}`);
+        if (h.id === 'kiro' && JSON.stringify(JSON.parse(rendered).tools) !== JSON.stringify(['*'])) {
+          out.push(`kiro projection of ${stem}: write spec tools is ${JSON.stringify(JSON.parse(rendered).tools)}, not ["*"]`);
+        }
       }
     }
   }
@@ -260,8 +274,10 @@ test('G63 control: a removed TOML is red', () => {
 });
 
 test('G63 control: a TOML sandbox_mode contradicting access is red, both directions', () => {
-  const dropped = controlFindings(({ edit }) => edit(`${FILES.tomls}/quality-guardian.toml`, (s) => s.replace(/^sandbox_mode.*\n/m, '')));
-  assert.match(dropped, /quality-guardian\.toml: spec is read-only, sandbox_mode is undefined/);
+  const dropped = controlFindings(({ edit }) => edit(`${FILES.tomls}/reviewer.toml`, (s) => s.replace(/^sandbox_mode.*\n/m, '')));
+  assert.match(dropped, /reviewer\.toml: spec is read-only, sandbox_mode is undefined/);
+  const restored = controlFindings(({ edit }) => edit(`${FILES.tomls}/quality-guardian.toml`, (s) => s.replace(/^(name = .*\n)/m, '$1sandbox_mode = "read-only"\n')));
+  assert.match(restored, /quality-guardian\.toml: spec is write, sandbox_mode is "read-only"/);
   const added = controlFindings(({ edit }) => edit(`${FILES.tomls}/core-implementer.toml`, (s) => s.replace(/^(name = .*\n)/m, '$1sandbox_mode = "read-only"\n')));
   assert.match(added, /core-implementer\.toml: spec is write, sandbox_mode is "read-only"/);
 });
@@ -277,11 +293,31 @@ test('G63 control: a projection that drops the read-only keys, or adds them to a
     ? JSON.stringify({ tools: ['*'] })
     : real(t, stem, text).replace(/^(disallowedTools|tools|permission):.*\n(?:[ \t]+.*\n)*/gm, ''));
   const unlimited = controlFindings(() => {}, { render: dropKeys });
-  assert.match(unlimited, /claude projection of quality-guardian: read-only spec lacks disallowedTools/);
-  assert.match(unlimited, /kiro projection of quality-guardian: read-only spec lacks tools/);
-  assert.match(unlimited, /opencode projection of quality-guardian: read-only spec lacks permission/);
+  assert.match(unlimited, /claude projection of reviewer: read-only spec lacks disallowedTools/);
+  assert.match(unlimited, /kiro projection of reviewer: read-only spec lacks tools/);
+  assert.match(unlimited, /opencode projection of reviewer: read-only spec lacks permission/);
   const forceKeys = (h, t, stem, text) => real(t, stem, text.replace(/^access: write$/m, 'access: read-only'));
   assert.match(controlFindings(() => {}, { render: forceKeys }), /projection of core-implementer: write spec carries/);
+});
+
+test('G63 control (C-5): a partial restriction on a write spec, or a Kiro write default other than ["*"], is red', () => {
+  const real = (t, stem, text) => resolveTransform(t)(`${stem}.md`, Buffer.from(text)).toString('utf8');
+  const isWrite = (text) => /^access: write$/m.test(text);
+  const partial = (h, t, stem, text) => {
+    const out = real(t, stem, text);
+    return h === 'claude' && stem === 'quality-guardian' && isWrite(text) ? out.replace(/^---\n/, '---\ndisallowedTools: Write\n') : out;
+  };
+  assert.match(controlFindings(() => {}, { render: partial }), /claude projection of quality-guardian: write spec carries disallowedTools/);
+  const narrowed = (h, t, stem, text) => {
+    const out = real(t, stem, text);
+    return h === 'kiro' && isWrite(text) ? JSON.stringify({ ...JSON.parse(out), tools: ['read'] }) : out;
+  };
+  assert.match(controlFindings(() => {}, { render: narrowed }), /kiro projection of core-implementer: write spec tools is \["read"\], not \["\*"\]/);
+  const foreign = (h, t, stem, text) => {
+    const out = real(t, stem, text);
+    return h === 'gemini' && isWrite(text) ? out.replace(/^---\n/, '---\npermission:\n  edit: deny\n') : out;
+  };
+  assert.match(controlFindings(() => {}, { render: foreign }), /gemini projection of core-implementer: write spec carries permission/);
 });
 
 test('G63 control: a name missing from, or unknown to, any list is red', () => {

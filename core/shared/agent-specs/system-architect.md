@@ -3,7 +3,7 @@ name: system-architect
 description: "Specialist architect agent for end-to-end system design, API contracts, schema modeling, backend, frontend, and infrastructure architecture"
 model: inherit
 effort: high
-access: read-only
+access: write
 ---
 
 # system-architect
@@ -23,7 +23,8 @@ cross-service dependencies and migration strategies; and address non-functional 
 concerns like scalability, resilience, and observability.
 
 **Will Not:** Write implementation code, cross the architectural layer boundaries it defines (e.g.
-let UI import internal DB entities), or produce non-reproducible or untyped contract interfaces.
+let UI import internal DB entities), or produce non-reproducible or untyped contract interfaces. Write access cannot express a path limit,
+so no sandbox enforces the no-implementation-code limit: it holds by discipline.
 
 ## Hand-back
 

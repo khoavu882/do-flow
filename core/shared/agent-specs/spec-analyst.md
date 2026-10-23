@@ -3,7 +3,7 @@ name: spec-analyst
 description: "Specialist agent for requirements discovery, user story breakdown, epic decomposition, acceptance criteria definition, and development estimation"
 model: inherit
 effort: medium
-access: read-only
+access: write
 ---
 
 # spec-analyst

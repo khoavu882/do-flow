@@ -3,7 +3,7 @@ name: research-writer
 description: "Specialist research and technical writing agent for deep web investigation, evidence synthesis, API documentation, and architecture indexes"
 model: inherit
 effort: high
-access: read-only
+access: write
 ---
 
 # research-writer

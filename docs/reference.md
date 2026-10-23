@@ -750,11 +750,11 @@ Specialist agent archetypes provide dedicated perspectives for planning, executi
 
 | Archetype | Responsibilities | Default Mode |
 |---|---|---|
-| `spec-analyst` | Requirements elicitation, user story breakdown, effort estimation | Read-only |
-| `system-architect` | System architecture, boundary design, API contracts, infrastructure | Read-only |
+| `spec-analyst` | Requirements elicitation, user story breakdown, effort estimation | Workspace-write |
+| `system-architect` | System architecture, boundary design, API contracts, infrastructure | Workspace-write |
 | `core-implementer` | Polyglot implementation, clean refactoring, algorithmic speedup | Workspace-write |
-| `quality-guardian` | Automated test suites, security vulnerability auditing, root-cause diagnosis | Read-only |
-| `research-writer` | Multi-hop cited web research, architecture indexing, technical documentation | Read-only |
+| `quality-guardian` | Automated test suites, security vulnerability auditing, root-cause diagnosis | Workspace-write |
+| `research-writer` | Multi-hop cited web research, architecture indexing, technical documentation | Workspace-write |
 | `delivery-lead` | Task planning, worker briefs and dispatch, evidence checks, commits and merges; no product code | Workspace-write |
 | `reviewer` | Review of a change it did not write: evidenced findings, severity, review rounds and synthesis | Read-only |
 
