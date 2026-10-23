@@ -346,6 +346,8 @@ function start(o: any, s: any) {
   const file = storeFileFor(root, slug);
   const seen = readDispatch(file);
   if (seen.run) return refused('dispatch-run-exists', { dispatchRunId: seen.run.dispatchRunId, state: seen.run.state });
+  // The cap names the user's billing record it judges by, so the owner sees what counts as free.
+  const billingRecord = s.billingCap ? billingRecordOf(env, registryOf(o.registry)) : null;
   // Step 6: outside every lock.
   const dispatchRunId = newDispatchRunId();
   let integration: any;
@@ -396,6 +398,19 @@ function start(o: any, s: any) {
     verification: { declared: verify.argv !== null, argc: verify.argvCount, sha256: verify.argvSha256, seconds: verify.timeoutSeconds },
     reserveTokens: s.reserveTokens, attemptSeconds: s.attemptSeconds, workerTimeoutSeconds: s.attemptSeconds + loop.BACKSTOP_SECONDS,
     spawnGrant: s.spawnGrant,
+    ...(billingRecord ? { billingRecord } : {}),
+  };
+}
+
+/** The `start` body's `billingRecord`: the record's state and reason, and one row per recorded worker. */
+function billingRecordOf(env: Env, reg: any) {
+  const { readWorkerBilling } = require('../settings/worker-billing.ts'); // lazy: see loop.ts evaluateHarnesses
+  const record = readWorkerBilling(env, { workerIds: reg.harnesses.map((h: any) => h.id) });
+  return {
+    state: record.state, reason: record.reason,
+    workers: Object.entries(record.workers).map(([harness, w]: [string, any]) => ({
+      harness, billing: w.billing, asserted: w.asserted, ...(w.basis !== undefined ? { basis: w.basis } : {}),
+    })),
   };
 }
 
@@ -531,7 +546,11 @@ function summaryLines(body: any): string[] {
   switch (d) {
     case 'started': {
       const v = body.verification;
-      return [`started ${body.dispatchRunId} slug ${body.slug} branch ${body.integration.branch} base ${body.integration.base}${body.baseDirty ? ' (caller checkout dirty)' : ''} concurrency ${body.concurrency} mode ${body.mode} verification ${v.declared ? `argc ${v.argc} sha256 ${v.sha256}` : 'undeclared'}`];
+      const record = body.billingRecord;
+      const recorded = !record ? [] : record.state === 'invalid'
+        ? [`billing: user record invalid (${record.reason}): no worker counts as free`]
+        : record.workers.map((w: any) => `billing: ${w.harness} ${w.billing} (user record, asserted ${w.asserted})`);
+      return [`started ${body.dispatchRunId} slug ${body.slug} branch ${body.integration.branch} base ${body.integration.base}${body.baseDirty ? ' (caller checkout dirty)' : ''} concurrency ${body.concurrency} mode ${body.mode} verification ${v.declared ? `argc ${v.argc} sha256 ${v.sha256}` : 'undeclared'}`, ...recorded];
     }
     case 'stepped': {
       const extra = body.perform ? ` perform ${body.perform.dispatchId} ${body.perform.task} token ${body.perform.token}` : '';
