@@ -485,7 +485,7 @@
           "evidence": [
             "https://learn.chatgpt.com/docs/build-skills"
           ],
-          "verification": "Confirm Codex discovers the installed skill from .agents/skills (repo scope) or ~/.agents/skills (user scope); Codex never scans .codex/skills."
+          "verification": "Confirm Codex discovers the installed skill from .agents/skills (repo scope) or ~/.agents/skills (user scope); .codex/skills is not a documented Codex skills location."
         },
         "agents": {
           "status": "supported",
@@ -1021,7 +1021,9 @@
         "plugin": {
           "status": "different",
           "evidence": [
-            "https://geminicli.com/docs/extensions/"
+            "https://geminicli.com/docs/extensions/",
+            "https://geminicli.com/docs/extensions/reference",
+            "https://geminicli.com/docs/cli/settings/"
           ],
           "note": "Extensions (gemini-extension.json) now package skills, hooks, sub-agents, and MCP; security.blockGitExtensions/allowedExtensions can gate Git-sourced installs. Context: Google sunset Gemini CLI for consumer tiers on 2026-06-18 — enterprise/paid-API use only; Antigravity CLI (GA 2026-05-19, antigravity.google/docs/gcli-migration) is the successor surface carrying skills/hooks/subagents/plugins.",
           "verification": "Verify extensions through the native host workflow."
@@ -1351,7 +1353,7 @@
           "evidence": [
             "https://opencode.ai/docs/agents"
           ],
-          "note": "OpenCode supports native agent definitions as Markdown files with frontmatter (description, mode primary|subagent, model, temperature, permission, hidden) discovered at .opencode/agents/ (project) and ~/.config/opencode/agents/ (global); agents are also definable in opencode.json's agent key. DoFlow projects each shared agent spec into those directories through the opencode-agents renderer: description, mode subagent, and a permission block (edit and bash set to deny, the keys opencode.ai/docs/permissions documents) for read-only agents; model is omitted because OpenCode has no 'inherit' value, so a subagent uses the model of the primary agent that invoked it.",
+          "note": "OpenCode supports native agent definitions as Markdown files with frontmatter (description, mode primary|subagent|all, model, temperature, permission, hidden) discovered at .opencode/agents/ (project) and ~/.config/opencode/agents/ (global); agents are also definable in opencode.json's agent key. DoFlow projects each shared agent spec into those directories through the opencode-agents renderer: description, mode subagent, and a permission block (edit and bash set to deny, the keys opencode.ai/docs/permissions documents) for read-only agents; model is omitted because OpenCode has no 'inherit' value, so a subagent uses the model of the primary agent that invoked it.",
           "verification": "Confirm a native agent under .opencode/agents/ or ~/.config/opencode/agents/ is selectable (Tab cycles primary agents; @ mentions invoke subagents)."
         },
         "scripts": {
@@ -1801,7 +1803,8 @@
         "hooks": {
           "status": "different",
           "evidence": [
-            "https://pi.dev/docs/latest/extensions"
+            "https://pi.dev/docs/latest/extensions",
+            "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/CHANGELOG.md"
           ],
           "note": "DoFlow installs a ledger-owned extension at user scope or project scope that registers tool_call through pi.on() and invokes the shared lifecycle bridge. Project scope requires project trust.",
           "verification": "Verify the installed extension fingerprint, resolved shared bridge path, bash/jq prerequisites, and the project-trust prerequisite for project scope.",
@@ -1824,7 +1827,7 @@
             },
             "PostCompact": {
               "status": "different",
-              "note": "DoFlow does not project a hook for this event; its separate code extension guards tool_call. Native equivalent: compaction_end."
+              "note": "DoFlow does not project a hook for this event; its separate code extension guards tool_call. Native equivalent: session_compact (extension event; compaction_end is an RPC event)."
             },
             "PreToolUse": {
               "status": "different",
@@ -1867,7 +1870,7 @@
             "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/mcp.md",
             "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/CHANGELOG.md"
           ],
-          "note": "Pi's built-in MCP (Pi 0.99.0 or later) reads stdio and HTTP servers from the mcpServers map of .pi/mcp.json (project, read only after the project is trusted) and ~/.pi/agent/mcp.json (user, or $PI_CODING_AGENT_DIR/mcp.json); a project entry replaces a user entry with the same name, and from Pi 1.0.1 a project entry without command or url overrides only enabled, exposure and toolExposure of that user entry. DoFlow writes stdio entries only. An installed extension that registers /mcp, such as pi-mcp-adapter, replaces the built-in and Pi then does not read mcp.json.",
+          "note": "Pi's built-in MCP (Pi 0.99.0 or later) reads stdio and HTTP servers from the mcpServers map of .pi/mcp.json (project, read only after the project is trusted) and ~/.pi/agent/mcp.json (user, or $PI_CODING_AGENT_DIR/mcp.json); a project entry replaces a user entry with the same name, and from Pi 1.0.1 a project entry without command, url or type overrides only enabled, exposure and toolExposure of that user entry. DoFlow writes stdio entries only. An installed extension that registers /mcp, such as pi-mcp-adapter, replaces the built-in and Pi then does not read mcp.json.",
           "verification": "Confirm the selected MCP servers appear in .pi/mcp.json (project, after trusting the project) or ~/.pi/agent/mcp.json (global) and connect via /mcp in Pi 0.99.0 or later with no extension registering /mcp."
         },
         "plugin": {
@@ -2175,6 +2178,7 @@
           "status": "supported",
           "evidence": [
             "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot",
+            "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers",
             "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-custom-instructions"
           ],
           "verification": "Confirm .github/copilot-instructions.md is loaded by Copilot CLI. A user-level ~/.copilot/copilot-instructions.md (or $COPILOT_HOME/copilot-instructions.md) also exists upstream; DoFlow writes nothing there."
@@ -2192,7 +2196,7 @@
             "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli",
             "https://docs.github.com/en/copilot/reference/custom-agents-configuration"
           ],
-          "note": "The on-disk agent file format is `.agent.md` with YAML frontmatter, confirmed against the custom-agents-configuration reference: a required `description`, optional `name`, `tools`, `model`, `disable-model-invocation`, `user-invocable`, `mcp-servers`, and `metadata` fields, with the Markdown body below the frontmatter as the agent's instructions. The adapter renames each core/shared/agent-specs/<name>.md file to <name>.agent.md via copy-tree's layout mechanism on the way out; unrecognized frontmatter keys pass through untouched, the same posture Claude/Codex/Gemini's agent projections already take.",
+          "note": "The on-disk agent file format is `.agent.md` with YAML frontmatter, confirmed against the custom-agents-configuration reference: a required `description`, optional `name`, `tools`, `model`, `target` (`vscode` or `github-copilot`), `disable-model-invocation`, `user-invocable`, `mcp-servers`, `metadata` and `include-custom-instructions` (follow repository custom instructions when run as a subagent) fields; `infer` is retired in favour of `disable-model-invocation` and `user-invocable`, with the Markdown body below the frontmatter as the agent's instructions. The adapter renames each core/shared/agent-specs/<name>.md file to <name>.agent.md via copy-tree's layout mechanism on the way out; unrecognized frontmatter keys pass through untouched, the same posture Claude/Codex/Gemini's agent projections already take.",
           "verification": "Confirm an installed custom agent under ~/.copilot/agents or .github/agents is discoverable and selectable by Copilot CLI."
         },
         "scripts": {
@@ -2622,14 +2626,15 @@
           "evidence": [
             "https://kiro.dev/docs/hooks/",
             "https://kiro.dev/docs/hooks/actions/",
+            "https://kiro.dev/docs/hooks/types/",
             "https://kiro.dev/docs/permissions/"
           ],
-          "note": "kiro-cli reads hooks from an agent config's `hooks` array (agentSpawn, userPromptSubmit, preToolUse, postToolUse, stop). A preToolUse hook that exits 2 blocks the tool call; any other non-zero exit warns and allows; stop is not blockable on 2.x. DoFlow writes three preToolUse hooks (pre-implementation-gate on `write`, pre-bash-guard on `shell`, mcp-tool-guard on `*`) into every rendered agent, plus agentSpawn (session context) and stop (stop-check) on the doflow agent only. The Kiro front doors translate Kiro tool names, KIRO_SESSION_ID and assistant_response to the canonical payload before running the shared policies. `.kiro/hooks/doflow.json` (flat `{version, hooks: [...]}`, PascalCase triggers) is read by the Kiro IDE and by CLI V3 (for every agent); CLI 2.x does not read it. Kiro CLI V3 also loads standalone `.kiro/hooks/*.json` (workspace) and `~/.kiro/hooks/*.json` (global) for every agent, alongside agent-profile hooks, so doflow.json runs for all agents there, and with `--agent doflow` on V3 the preToolUse checks run twice (accepted, idempotent). V3 payloads carry `session_id`, and V3 built-in tool IDs include `read_file`, `execute_bash`, `execute_pwsh`, `fs_write`, `fs_append`, `str_replace` and `delete_file`; the front doors map the write family to Write and `execute_pwsh` to Bash, and V3 MCP IDs (`mcp_<server>_<tool>`) reach mcp-tool-guard unchanged. doflow.json scopes the MCP guard with the V3 `@mcp` selector. V3 Stop: exit 0 finishes, exit 0 with stdout JSON `{\"decision\":\"block\",\"reason\":\"...\"}` starts another turn, exit 1 also starts another turn, and exit 2 does not block; the stop front door therefore turns the policy's deny into that JSON block when the payload has a session_id and keeps exit 2 with stderr for 2.x, where any non-zero exit only warns. It is not in Kiro v3's untrusted-workspace exclusion list; an untrusted workspace asks before every shell command, and whether that covers hook commands is undocumented. Observed on CLI V3 (kiro-cli 2.27.1 --v3, 2026-10-11): PreToolUse payloads carry session_id, tool_name execute_bash with tool_input.command, fs_write and str_replace with tool_input.path; the Stop payload carries only session_id, hook_event_name and cwd, with no response text or transcript path, so stop-check's unfinished-work scan has nothing to read on V3 and allows the stop.",
-          "verification": "Confirm kiro-cli reads hooks from the agent config JSON `hooks` (installed .kiro/agents/doflow.json and the specialist agents) with the expected trigger names, and that a preToolUse hook blocks only on exit 2 (any other non-zero exit warns and allows). .kiro/hooks/doflow.json is the Kiro IDE surface.",
+          "note": "kiro-cli reads hooks from an agent config's `hooks` array (agentSpawn, userPromptSubmit, preToolUse, postToolUse, stop). In a CLI 2.x agent config a preToolUse hook that exits 2 blocks the tool call and any other non-zero exit warns and allows; kiro.dev/docs/hooks/actions/ says that for its hooks any non-zero exit blocks Pre Tool Use. DoFlow note: CLI 2.x agent-config exit semantics not re-fetched (2026-10-24). Stop is not blockable on 2.x. DoFlow writes three preToolUse hooks (pre-implementation-gate on `write`, pre-bash-guard on `shell`, mcp-tool-guard on `*`) into every rendered agent, plus agentSpawn (session context) and stop (stop-check) on the doflow agent only. The Kiro front doors translate Kiro tool names, KIRO_SESSION_ID and assistant_response to the canonical payload before running the shared policies. `.kiro/hooks/doflow.json` (flat `{version, hooks: [...]}`, PascalCase triggers) is read by the Kiro IDE and by CLI V3 (for every agent); CLI 2.x does not read it. Kiro CLI V3 also loads standalone `.kiro/hooks/*.json` (workspace) and `~/.kiro/hooks/*.json` (global) for every agent, alongside agent-profile hooks, so doflow.json runs for all agents there, and with `--agent doflow` on V3 the preToolUse checks run twice (accepted, idempotent). V3 payloads carry `session_id`, and V3 built-in tool IDs include `read_file`, `execute_bash`, `execute_pwsh`, `fs_write`, `fs_append`, `str_replace` and `delete_file`; the front doors map the write family to Write and `execute_pwsh` to Bash, and V3 MCP IDs (`mcp_<server>_<tool>`) reach mcp-tool-guard unchanged. doflow.json scopes the MCP guard with the V3 `@mcp` selector. V3 Stop: exit 0 finishes, exit 0 with stdout JSON `{\"decision\":\"block\",\"reason\":\"...\"}` starts another turn, exit 1 also starts another turn, and exit 2 does not block; the stop front door therefore turns the policy's deny into that JSON block when the payload has a session_id and keeps exit 2 with stderr for 2.x, where any non-zero exit only warns. It is not in Kiro v3's untrusted-workspace exclusion list; an untrusted workspace asks before every shell command, and whether that covers hook commands is undocumented. Observed on CLI V3 (kiro-cli 2.27.1 --v3, 2026-10-11): PreToolUse payloads carry session_id, tool_name execute_bash with tool_input.command, fs_write and str_replace with tool_input.path; the Stop payload carries only session_id, hook_event_name and cwd, with no response text or transcript path, so stop-check's unfinished-work scan has nothing to read on V3 and allows the stop.",
+          "verification": "Confirm kiro-cli reads hooks from the agent config JSON `hooks` (installed .kiro/agents/doflow.json and the specialist agents) with the expected trigger names, and that, in an agent config on CLI 2.x, a preToolUse hook blocks only on exit 2 (any other non-zero exit warns and allows). .kiro/hooks/doflow.json is the Kiro IDE and CLI V3 surface, where any non-zero exit blocks Pre Tool Use.",
           "events": {
             "UserPromptSubmit": {
               "status": "different",
-              "note": "Kiro documents a native UserPromptSubmit trigger that is blockable via a non-zero exit code and exposes the prompt as the USER_PROMPT environment variable; DoFlow wires no hook to it. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only."
+              "note": "Kiro documents a native UserPromptSubmit trigger that is blockable in the IDE only (CLI Prompt Submit hooks cannot block) and exposes the prompt as the USER_PROMPT environment variable; DoFlow wires no hook to it. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only."
             },
             "SessionStart": {
               "status": "supported"
@@ -2995,16 +3000,17 @@
         "skills": {
           "status": "supported",
           "evidence": [
-            "https://antigravity.google/docs/cli/plugins",
-            "https://antigravity.google/docs/skills"
+            "https://antigravity.google/docs/plugins?tab=cli",
+            "https://antigravity.google/docs/skills",
+            "https://antigravity.google/docs/cli/gcli-migration"
           ],
-          "note": "Antigravity discovers folder-form skills under .agents/skills (project) and ~/.gemini/config/skills (global).",
+          "note": "Antigravity discovers folder-form skills under .agents/skills (project) and ~/.gemini/config/skills (global, App/IDE; the agy CLI documents ~/.gemini/antigravity-cli/skills).",
           "verification": "Confirm the skill is discoverable by agy from .agents/skills."
         },
         "agents": {
           "status": "supported",
           "evidence": [
-            "https://antigravity.google/docs/cli/subagents"
+            "https://antigravity.google/docs/subagents?tab=cli"
           ],
           "note": "Shared agent-spec frontmatter (name, description) is a compatible subset of Antigravity's subagent schema; body becomes the system prompt.",
           "verification": "Confirm invoke_subagent reaches the installed agent definition."
@@ -3012,7 +3018,7 @@
         "scripts": {
           "status": "supported",
           "evidence": [
-            "https://antigravity.google/docs/cli/plugins",
+            "https://antigravity.google/docs/plugins?tab=cli",
             "https://antigravity.google/docs/skills"
           ],
           "note": "Bundled skill scripts travel inside skills/<name>/scripts/. DoFlow projects its runtime seam under .doflow and locator in the configDir bin/ (project and global scopes).",
@@ -3021,21 +3027,21 @@
         "templates": {
           "status": "different",
           "evidence": [
-            "https://antigravity.google/docs/cli/plugins"
+            "https://antigravity.google/docs/plugins?tab=cli"
           ],
           "verification": "Report that template access arrives through skill bundles, not a projected tree."
         },
         "modes": {
           "status": "different",
           "evidence": [
-            "https://antigravity.google/docs/rules-workflows"
+            "https://antigravity.google/docs/rules"
           ],
           "verification": "Report that mode guidance rides the instructions pointer; .agents/rules projection is future work."
         },
         "settings": {
           "status": "unavailable",
           "evidence": [
-            "https://antigravity.google/docs/cli/settings"
+            "https://antigravity.google/docs/settings?tab=cli"
           ],
           "note": "Settings live only at user scope (~/.gemini/antigravity-cli/settings.json); no project settings tier exists.",
           "verification": "Report the capability gap; never write that file."
@@ -3045,9 +3051,13 @@
           "evidence": [
             "https://antigravity.google/docs/hooks/"
           ],
-          "note": "Antigravity documents a full hook surface (2026): hooks.json in the customization directory (.agents/ workspace, ~/.gemini/config/ user), named groups per event, PreToolUse/PostToolUse/PreInvocation/PostInvocation/Stop, and an explicit stdin/stdout contract (PreToolUse returns {decision: allow|deny|ask|force_ask|...}, Stop returns {decision: continue}). Unlike Copilot's, this contract is complete enough to project against without a live-session capture. DoFlow wires its pre-implementation gate and its stop check as native-payload shims; events with no matching DoFlow policy stay unwired.",
+          "note": "Antigravity documents a full hook surface (2026): hooks.json in the customization directory (.agents/ workspace, ~/.gemini/config/ user), named groups per event, SessionStart/PreToolUse/PostToolUse/PreInvocation/PostInvocation/Stop, and an explicit stdin/stdout contract (PreToolUse returns {decision: allow|deny|ask|force_ask|...}, Stop returns {decision: continue}). Unlike Copilot's, this contract is complete enough to project against without a live-session capture. DoFlow wires its pre-implementation gate and its stop check as native-payload shims; events with no matching DoFlow policy stay unwired.",
           "verification": "Report that no Antigravity hook is installed.",
           "events": {
+            "SessionStart": {
+              "status": "different",
+              "note": "Documented (fires once, before the first model invocation); not projected, no current DoFlow policy maps to it."
+            },
             "PreToolUse": {
               "status": "supported",
               "note": "DoFlow projects its pre-implementation gate as a native shim: matcher write_to_file|replace_file_content|multi_replace_file_content, deny decision until the branch-coupled feature's three specifications exist."
@@ -3066,7 +3076,7 @@
             },
             "Stop": {
               "status": "supported",
-              "note": "DoFlow projects its stop check as a native shim: emits the documented {decision:'continue', reason} when the last assistant response in transcriptPath carries unfinished-work markers (the same gate Claude's stop-check enforces via exit 2). transcriptPath is optional and unverified — empty/garbage stdin, missing/unreadable/unrecognized transcripts all fail open, so a broken hook can never trap session end."
+              "note": "DoFlow projects its stop check as a native shim: emits the documented {decision:'continue', reason} when the last assistant response in transcriptPath carries unfinished-work markers (the same gate Claude's stop-check enforces via exit 2). transcriptPath is a documented required common field, but empty/garbage stdin, missing/unreadable/unrecognized transcripts all fail open, so a broken hook can never trap session end."
             },
             "UserPromptSubmit": {
               "status": "unavailable",
@@ -3077,7 +3087,7 @@
         "mcp": {
           "status": "supported",
           "evidence": [
-            "https://antigravity.google/docs/cli/mcp"
+            "https://antigravity.google/docs/mcp?tab=cli"
           ],
           "note": "mcpServers object in .agents/mcp_config.json (workspace) or ~/.gemini/config/mcp_config.json (user). Remote servers project url/httpUrl to serverUrl per current schema.",
           "verification": "Confirm selected MCP servers appear via /mcp in agy."
@@ -3085,7 +3095,7 @@
         "plugin": {
           "status": "different",
           "evidence": [
-            "https://antigravity.google/docs/cli/plugins"
+            "https://antigravity.google/docs/plugins?tab=cli"
           ],
           "note": "Local-path plugin installs only; DoFlow publishes none.",
           "verification": "Report that no plugin is installed."
@@ -3279,7 +3289,7 @@
         "evidence": [
           "https://antigravity.google/docs/skills/",
           "https://antigravity.google/docs/subagents",
-          "https://antigravity.google/docs/cli/mcp"
+          "https://antigravity.google/docs/mcp?tab=cli"
         ],
         "note": "The question was asked across the three dual-scope asset types Antigravity documents (skills, subagents, MCP servers) and the documentation is silent on all three: each page names a workspace location and a global location but never states which wins on a same-name conflict. Resolution mode is likewise unestablished: with no order documented there is nothing for a mode to qualify.",
         "determinedOn": "2026-09-27",

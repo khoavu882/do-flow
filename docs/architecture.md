@@ -1212,6 +1212,23 @@ fingerprinted page is unreachable, and 2 on a usage or configuration error.
 opens a tracking issue, or comments on the open one, and fails that run. It is not a pull-request
 gate. After a change is confirmed intentional, `npm run drift -- --update` refreshes the baseline.
 
+Only a page's main content is fingerprinted, so site-wide chrome (navigation, sidebars, footers)
+cannot drift a page. The extractor takes the first complete `<main>`, else `<article>`, else the
+element with `role="main"`, else the whole page; each report row records the rule it used
+(`extractor`) and the one the baseline was written with (`baselineExtractor`). It is tag-aware, not
+an HTML parser: it counts same-name tags, reads only the first element of each kind, and an
+unterminated or empty block falls through to the next rule, so a `>` inside an attribute value or
+an unclosed element inside the block can mis-slice it. `--update` also writes the normalized text of
+each page beside the hash, one file per URL at `scripts/drift/snapshots/<sha1(url)>.txt`, cut on a
+line boundary to 16 KiB; a DRIFTED row then carries a unified diff against it (`diff` in `--json`,
+indented under the row in the human report). The hash covers the full text, so a change past the
+cap drifts with an empty diff. The baseline keeps its `urls` map of hash strings and adds
+`extractors` (version 2); a version 1 baseline is still read, and its entries are compared on the
+whole page, as they were hashed, until `--update` migrates them.
+A page that is only a client-side redirect ("Redirecting to: ...") reports `STUB` and exits 1, because
+it carries none of the claims it is cited for: point its registry evidence URL at the redirect target.
+A URL that is unreachable during `--update` keeps its previous fingerprint, extractor and snapshot.
+
 ## Contributor guardrails
 
 - Preserve user content outside DoFlow-managed instruction markers.

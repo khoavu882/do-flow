@@ -1,0 +1,1070 @@
+Configuration reference - Custom agents - Features - Docs - Kiro
+Loading image...
+Product
+About Kiro
+Agents
+IDE
+CLI
+Web
+Mobile
+Crew
+Pricing
+Downloads
+For
+Enterprise
+Startups
+Students
+Community
+Overview
+Ambassadors
+Case studies
+Discord
+Events
+Powers
+Shop
+Showcase
+Resources
+Docs
+Blog
+Changelog
+FAQs
+Videos
+Report a bug
+Suggest an idea
+Billing support
+Social
+English
+Site Terms
+License
+Responsible AI Policy
+Legal
+Privacy Policy
+Cookie Preferences
+English
+Loading image...
+Agents
+Apps
+Enterprise
+Pricing
+Docs
+Community
+Resources
+SIGN IN
+DOWNLOADS
+Loading image...
+Get Started
+Installation
+Authentication
+Your first project
+Models
+Overview
+Available models
+Reasoning effort
+AWS GovCloud (US) models
+Features
+How Kiro works
+Local command sandbox
+ACP integrations
+Specs
+Steering
+Hooks
+MCP
+Permissions
+Custom agents
+Built-in agents
+Creating custom agents
+Configuration reference
+Invoking as sub-agents
+Examples
+Troubleshooting
+Workflows
+Agent Skills
+Powers
+Cloud sessions
+Memory
+Compaction
+Kiroignore
+Checkpoints and rewind
+Built-in tools
+Configuration scopes
+IDE 1.x
+What&#x27;s new in 1.0
+Setup & First Run
+Editor
+Chat
+Experimental
+Troubleshooting
+0.x reference
+CLI
+What&#x27;s new in V3
+Setup & First Run
+Terminal UI
+Chat
+Fullscreen mode
+Voice mode
+Headless mode
+ACP
+Auto complete
+Experimental
+2.x reference
+Crew
+Quick start
+Installation
+Running 24/7
+Chat
+Agent Capabilities
+Features
+Interfaces
+Apps
+System & storage
+Configuration
+Security
+Troubleshooting
+Web
+Setup & First Run
+Identity Center
+Connect your repositories
+Working with the agent
+Autonomous mode
+Schedule
+Configuration Sync
+Sandbox
+Mobile - Preview
+Overview
+Commands and Reference
+CLI commands
+Slash commands
+Built-in tools
+Exit codes
+Settings
+Billing
+Overview
+Managing your subscription
+Upgrading your plan
+Downgrading your plan
+Cancelling your plan
+Purchasing add-on credits
+Managing your payments
+Managing usage notifications
+Managing your taxes
+Contacting billing support
+Deleting your account
+Related questions
+Enterprise
+Concepts
+Onboarding quickstart
+Connecting your identity provider
+Deployment options
+Subscribe your team
+Manage subscriptions
+Governance
+Monitor and track
+Settings
+Managed updates
+Billing
+IAM
+Supported regions
+AWS GovCloud (US)
+Privacy and Security
+Overview
+Data protection
+Code references
+Compliance validation
+Infrastructure security
+IAM permissions
+Firewalls, proxies, and data perimeters
+VPC endpoints (AWS PrivateLink)
+Guides
+Overview
+Running Kiro in the cloud
+Language support
+Learn by playing
+Migration
+Migrating from Q Developer
+Migrating from VSCode
+Upgrading from Q CLI
+Docs
+Features
+Custom agents
+Configuration reference
+Copy page
+View as Markdown
+Agent configuration reference
+Copy page
+View as Markdown
+This reference documents the agent configuration format for IDE 1.0 and CLI V3. If you have older agent configs, use the
+/upgrade-agent
+command to migrate them.
+Version comparison
+New in IDE 1.0 / CLI V3:
+Field
+Description
+permissions
+Capability-based access control rules (replaces
+toolsSettings
+)
+excludedTools
+Exclude specific tools even when
+tools
+allows them
+includeMcpJson
+Auto-include workspace MCP servers
+includePowers
+Auto-include IDE-installed powers
+welcomeMessage
+Custom greeting on session start
+resources
+(expanded)
+Now supports
+skill://
+and
+knowledgeBase
+in addition to
+file://
+Markdown format (
+.md
+)
+Frontmatter for config, body for system prompt
+Tags in
+tools
+Short names:
+read
+,
+write
+,
+shell
+,
+web
+,
+@builtin
+,
+*
+CLI 2.x migration fields:
+Field
+CLI V3 handling
+toolsSettings
+/upgrade-agent
+converts supported shell and file rules to
+permissions.rules
+allowedTools
+/upgrade-agent
+converts entries to capability-level allow rules; new profiles use
+permissions
+toolAliases
+Not part of the CLI V3 schema; use full tool selectors
+keyboardShortcut
+Not part of the CLI V3 schema
+Unchanged:
+name
+,
+description
+,
+prompt
+,
+model
+,
+mcpServers
+Inline
+hooks
+have distinct current and legacy shapes; see
+Hooks field
+. For cross-surface automation, use standalone
+Hook files
+.
+Use
+/upgrade-agent
+to migrate supported fields in older configs.
+Field reference
+Every agent configuration file can include the following sections:
+name
+- The name of the agent (optional, derived from filename if not specified).
+description
+- A description of the agent.
+prompt
+- High-level context for the agent.
+mcpServers
+- The MCP servers the agent has access to.
+tools
+- The tools available to the agent.
+toolAliases
+- CLI 2.x legacy tool-name remapping.
+allowedTools
+- CLI 2.x legacy pre-approval entries; migrate them to
+permissions
+.
+permissions
+- Inline capability-based access control rules.
+toolsSettings
+- Per-tool configuration (deprecated for shell/fs rules).
+resources
+- Resources available to the agent.
+hooks
+- Commands run at specific trigger points.
+includeMcpJson
+- Whether to include MCP servers from mcp.json files.
+model
+- The model ID to use for this agent.
+keyboardShortcut
+- CLI 2.x legacy agent-switch shortcut.
+welcomeMessage
+- Message displayed when switching to this agent.
+Name field
+The
+name
+field specifies the name of the agent. This is used for identification and display purposes.
+json
+{
+"name"
+:
+"aws-expert"
+}
+Description field
+The
+description
+field provides a description of what the agent does. This is primarily for human readability and helps users distinguish between different agents.
+json
+{
+"description"
+:
+"An agent specialized for AWS infrastructure tasks"
+}
+Prompt field
+The
+prompt
+field is intended to provide high-level context to the agent, similar to a system prompt. It supports both inline text and file:// URIs to reference external files.
+Inline prompt
+json
+{
+"prompt"
+:
+"You are an expert AWS infrastructure specialist"
+}
+File URI prompt
+You can reference external files using
+file://
+URIs. This allows you to maintain long, complex prompts in separate files for better organization and version control, while keeping your agent configuration clean and readable.
+json
+{
+"prompt"
+:
+"file://./my-agent-prompt.md"
+}
+File URI path resolution
+Relative paths
+: Resolved relative to the agent configuration file&#x27;s directory
+"file://./prompt.md"
+-
+prompt.md
+in the same directory as the agent config
+"file://../shared/prompt.md"
+-
+prompt.md
+in a parent directory
+Absolute paths
+: Used as-is
+"file:///home/<name>/prompts/agent.md"
+- Absolute path to the file
+File URI examples
+json
+{
+"prompt"
+:
+"file://./prompts/aws-expert.md"
+}
+json
+{
+"prompt"
+:
+"file:///Users/<name>/shared-prompts/rust-specialist.md"
+}
+McpServers field
+The
+mcpServers
+field specifies which Model Context Protocol (MCP) servers the agent has access to. Each server is defined with a command and optional arguments.
+json
+{
+"mcpServers"
+:
+{
+"fetch"
+:
+{
+"command"
+:
+"fetch3.1"
+,
+"args"
+:
+[
+]
+}
+,
+"git"
+:
+{
+"command"
+:
+"git-mcp"
+,
+"args"
+:
+[
+]
+,
+"env"
+:
+{
+"GIT_CONFIG_GLOBAL"
+:
+"/dev/null"
+}
+,
+"timeout"
+:
+120000
+}
+}
+}
+Each MCP server configuration can include:
+command
+(required for local servers): The command to execute to start the MCP server
+url
+(for remote servers): The HTTP endpoint, with optional
+headers
+for authenticated endpoints
+args
+(optional): Arguments to pass to the command
+env
+(optional): Environment variables to set for the server. Values support
+${VAR}
+syntax and expand at runtime, keeping secrets out of the config file
+timeout
+(optional): Connection handshake timeout for stdio and HTTP servers in milliseconds (default: 60000)
+requestTimeout
+(optional): Per-call request timeout in milliseconds (default: 120000)
+oauth
+(optional): OAuth configuration for HTTP-based MCP servers
+clientId
+(optional): Pre-registered OAuth client ID used as a fallback when Dynamic Client Registration (DCR) fails. Required for services like Slack, GitHub, and Figma that don&#x27;t support DCR and issue OAuth credentials through manual app registration.
+redirectUri
+(optional): Custom redirect URI for OAuth flow (e.g., "127.0.0.1:7778")
+oauthScopes
+(optional): Array of OAuth scopes to request (e.g.,
+["read", "write"]
+). This is a top-level field on the server entry — a sibling of
+oauth
+, not nested inside it.
+OAuth configuration
+For HTTP-based MCP servers that require OAuth authentication, you can configure OAuth scopes:
+json
+{
+"mcpServers"
+:
+{
+"github"
+:
+{
+"type"
+:
+"http"
+,
+"url"
+:
+"https://api.github.com/mcp"
+,
+"oauth"
+:
+{
+"redirectUri"
+:
+"127.0.0.1:8080"
+}
+,
+"oauthScopes"
+:
+[
+"repo"
+,
+"user"
+]
+}
+}
+}
+If you encounter OAuth scope-related errors, you can configure an empty array to bypass scope requirements within the MCP server configuration:
+json
+{
+"mcpServers"
+:
+{
+"github"
+:
+{
+"type"
+:
+"http"
+,
+"url"
+:
+"https://api.github.com/mcp"
+,
+"oauth"
+:
+{
+"redirectUri"
+:
+"127.0.0.1:8080"
+}
+,
+"oauthScopes"
+:
+[
+]
+}
+}
+}
+For services that require a pre-registered OAuth app, set
+oauth.clientId
+to your app&#x27;s ID:
+json
+{
+"mcpServers"
+:
+{
+"slack"
+:
+{
+"type"
+:
+"http"
+,
+"url"
+:
+"https://mcp.slack.com/mcp"
+,
+"oauth"
+:
+{
+"clientId"
+:
+"your-slack-app-client-id"
+}
+,
+"oauthScopes"
+:
+[
+"search:read"
+,
+"channels:read"
+]
+}
+}
+}
+Tools field
+The
+tools
+field lists all tools that the agent can potentially use. Tools include built-in tools and tools from MCP servers.
+Built-in tools are specified by their name (e.g.,
+read
+,
+shell
+)
+MCP server tools are prefixed with
+@
+followed by the server name (e.g.,
+@git
+)
+To specify a specific tool from an MCP server, use
+@server_name/tool_name
+Use
+*
+as a special wildcard to include all available tools (both built-in and from MCP servers)
+Use
+@builtin
+to include all built-in tools
+Use
+@server_name
+to include all tools from a specific MCP server
+Category tags include
+read
+,
+write
+,
+shell
+,
+web
+, and
+subagent
+. Built-ins such as
+knowledge
+are selected by direct tool ID. Use
+@mcp
+for all MCP tools,
+@builtin
+for all built-in tools, or
+*
+for everything. See
+Built-in tools
+for the authoritative category membership and selector behavior.
+json
+{
+"tools"
+:
+[
+"read"
+,
+"write"
+,
+"shell"
+,
+"@git"
+,
+"@rust-analyzer/check_code"
+]
+}
+To include all available tools, use:
+json
+{
+"tools"
+:
+[
+"*"
+]
+}
+ToolAliases field
+The
+toolAliases
+field is a CLI 2.x legacy field and is not applied by CLI V3. The examples in this section document older profiles; current profiles should use full tool selectors.
+For example, if both
+@github-mcp
+and
+@gitlab-mcp
+servers provide a tool called
+get_issues
+, you would have a naming collision. You can use
+toolAliases
+to disambiguate them:
+json
+{
+"toolAliases"
+:
+{
+"@github-mcp/get_issues"
+:
+"github_issues"
+,
+"@gitlab-mcp/get_issues"
+:
+"gitlab_issues"
+}
+}
+With this configuration, the tools will be available to the agent as
+github_issues
+and
+gitlab_issues
+instead of having a collision on
+get_issues
+.
+You can also use aliases to create shorter or more intuitive names for frequently used tools:
+json
+{
+"toolAliases"
+:
+{
+"@aws-cloud-formation/deploy_stack_with_parameters"
+:
+"deploy_cf"
+,
+"@kubernetes-tools/get_pod_logs_with_namespace"
+:
+"pod_logs"
+}
+}
+The key is the original tool name (including server prefix for MCP tools), and the value is the new name to use.
+AllowedTools field
+The
+allowedTools
+field belongs to CLI 2.x. New CLI V3 profiles use capability-based
+permissions.rules
+. A CLI 2.x JSON profile containing
+allowedTools
+without a
+permissions
+block is skipped by V3 until
+/upgrade-agent
+converts it. The patterns below document the legacy field.
+json
+{
+"allowedTools"
+:
+[
+"read"
+,
+"write"
+,
+"@git/git_status"
+,
+"@server/read_*"
+,
+"@fetch"
+]
+}
+You can allow tools using several patterns:
+Exact matches
+Built-in tools
+:
+"read"
+,
+"shell"
+,
+"knowledge"
+Specific MCP tools
+:
+"@server_name/tool_name"
+(e.g.,
+"@git/git_status"
+)
+All tools from MCP server
+:
+"@server_name"
+(e.g.,
+"@fetch"
+)
+Wildcard patterns
+The
+allowedTools
+field supports glob-style wildcard patterns using
+*
+and
+?
+:
+MCP tool patterns
+Tool prefix
+:
+"@server/read_*"
+- matches
+@server/read_file
+,
+@server/read_config
+Tool suffix
+:
+"@server/*_get"
+- matches
+@server/issue_get
+,
+@server/data_get
+Server pattern
+:
+"@*-mcp/read_*"
+- matches
+@git-mcp/read_file
+,
+@db-mcp/read_data
+Any tool from pattern servers
+:
+"@git-*/*"
+- matches any tool from servers matching
+git-*
+Optionally, you can also prefix native tools with the namespace
+@builtin
+.
+Examples
+json
+{
+"allowedTools"
+:
+[
+"read"
+,
+"knowledge"
+,
+"@server/specific_tool"
+,
+"r*"
+,
+"w*"
+,
+"@builtin"
+,
+"@server/api_*"
+,
+"@server/read_*"
+,
+"@git-server/get_*_info"
+,
+"@*/status"
+,
+"@fetch"
+,
+"@git-*"
+]
+}
+Pattern matching rules
+*
+matches any sequence of characters (including none)
+?
+matches exactly one character
+Exact matches
+take precedence over patterns
+Server-level permissions
+(
+@server_name
+) allow all tools from that server
+Case-sensitive
+matching
+Unlike the
+tools
+field, the
+allowedTools
+field does not support the
+"*"
+wildcard for allowing all tools. To allow tools, you must use specific patterns or server-level permissions.
+Warning
+When you allow write tools (such as
+write
+,
+shell
+, or MCP tools with write access), the agent can modify any file the tools have access to - including all resources under
+~/.kiro
+such as skills, steering files, MCP configurations, and other agent configurations. All installed skills and resources operate with the same permissions as the agent. Review the
+Security best practices
+section before enabling write tools.
+ToolsSettings field
+Warning
+toolsSettings
+is deprecated in CLI V3 and IDE 1.0. Use the
+permissions
+field instead for capability-based access control. See
+Permissions migration
+for the full guide.
+The
+toolsSettings
+field provides per-tool configuration. In older versions, this was used for shell command allow/deny lists and file path restrictions. These use cases are now handled by the
+permissions
+field.
+The field is still supported for tool-specific settings that
+permissions
+does not represent. In CLI V3, include a
+permissions
+block so a profile with
+toolsSettings
+is not classified as unconverted CLI 2.x configuration:
+json
+{
+"permissions"
+:
+{
+"rules"
+:
+[
+]
+}
+,
+"toolsSettings"
+:
+{
+"@git/git_status"
+:
+{
+"git_user"
+:
+"$GIT_USER"
+}
+,
+"subagent"
+:
+{
+"availableAgents"
+:
+[
+"reviewer"
+,
+"tester"
+]
+,
+"trustedAgents"
+:
+[
+"reviewer"
+]
+}
+}
+}
+Permissions field
+The
+permissions
+field provides inline capability-based policy rules embedded in the agent profile. This replaces the older
+toolsSettings
+approach for controlling what tools can do.
+Rules use the same syntax as
+permissions.yaml
+files (see
+Permissions
+) but are scoped to this agent only.
+json
+{
+"permissions"
+:
+{
+"rules"
+:
+[
+{
+"capability"
+:
+"shell"
+,
+"match"
+:
+[
+"npm *"
+,
+"git *"
+]
+,
+"effect"
+:
+"allow"
+}
+,
+{
+"capability"
+:
+"fs_write"
+,
+"match"
+:
+[
+"src/**"
+,
+"tests/**"
+]
+,
+"effect"
+:
+"allow"
+}
+,
+{
+"capability"
+:
+"shell"
+,
+"match"
+:
+[
+"rm -rf *"
+,
+"sudo *"
+]
+,
+"effect"
+:
+"deny"
+}
+]
+}
+}
+Each rule has:
+Field
+Description
+capability
+The capability to control:
+fs_read
+,
+fs_write
+,
+shell
+,
+web_fetch
+,
+web_search
+,
+mcp
+,
+subagent
+,
+skill
+,
+power
+,
+context
+,
+diagnostics
+,
+sandbox_network
+; or the
+all
+,
+builtin
+, and
+filesystem
+meta-capabilities. See
+Permissions
+.
+match
+Glob patterns scoping the rule (file paths for fs, command prefixes for shell, server/tool names for MCP)
+effect
+allow
+(proceed silently),
+ask
+(prompt user), or
+deny
+(block always)
+exclude
+Optional glob patterns that must NOT match
+Agent-scoped permissions support all three effects (
+allow
+,
+ask
+,
+deny
+). The deny-overrides algorithm applies: a
+deny
+in any scope wins regardless of
+allow
+rules elsewhere.
+Resources field
+The
+resources
+field gives an agent access to local resources. Resources can be files, skills, or knowledge bases.
+json
+{
+"resources"
+:
+[
+"file://README.md"
+,
+"file://.kiro/steering/**/*.md"
+,
+"skill://.kiro/skills/**/SKILL.md"
+]
+}
+Resources support different types via URI schemes:
+file://
+- Files loaded directly into context at startup
+skill://
+- Skills with metadata loaded at startup, full content loaded on demand
+Both support:
+Specific paths:
+file://README.md
+or
+skill://my-skill.md
+Glob patterns:
+file://.kiro/**/*.md
+or
+skill://.kiro/skills/**/SKILL.md
+Absolute or relative paths
+File resources
+File resources are loaded directly into the agent&#x27;s context when the agent starts. Use these for content the agent always needs.
+json
+{
+"resources"
+:
+[
+"file://README.md"
+,
+"file://docs/**/*.md"
+]
+}
+Skill resources
+[snapshot truncated]

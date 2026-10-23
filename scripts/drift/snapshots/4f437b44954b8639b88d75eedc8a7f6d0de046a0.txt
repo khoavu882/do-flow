@@ -1,0 +1,763 @@
+On this page
+Hook lifecycle
+How a hook resolves
+Configuration
+Hook locations
+Matcher patterns
+Match MCP tools
+Hook handler fields
+Common fields
+How if patterns match Bash commands
+Command hook fields
+HTTP hook fields
+MCP tool hook fields
+Prompt and agent hook fields
+Reference scripts by path
+Hooks in skills and agents
+Limits on skill hooks
+The /hooks menu
+Disable or remove hooks
+Hook input and output
+Common input fields
+Exit code output
+Exit code 0
+Exit code 2
+Other exit codes
+Timeouts
+Hooks that start a background process
+Block the action when a hook fails
+Failed hooks on Windows without Git Bash
+Exit code 2 behavior per event
+HTTP response handling
+JSON output
+Emit terminal notifications
+Add context for Claude
+Decision control
+Hook events
+SessionStart
+SessionStart input
+SessionStart decision control
+Reload skills that a hook installs
+Persist environment variables
+Setup
+Setup input
+Setup decision control
+InstructionsLoaded
+InstructionsLoaded input
+InstructionsLoaded decision control
+UserPromptSubmit
+UserPromptSubmit input
+UserPromptSubmit decision control
+What a blocked prompt leaves behind
+UserPromptExpansion
+UserPromptExpansion input
+UserPromptExpansion decision control
+MessageDisplay
+MessageDisplay input
+MessageDisplay output
+PreToolUse
+PreToolUse input
+PreToolUse decision control
+Tools that require user interaction
+Defer a tool call for later
+PermissionRequest
+PermissionRequest input
+PermissionRequest decision control
+Permission update entries
+PostToolUse
+PostToolUse input
+PostToolUse decision control
+Annotate a result for the auto mode classifier
+PostToolUseFailure
+PostToolUseFailure input
+PostToolUseFailure decision control
+PostToolBatch
+PostToolBatch input
+PostToolBatch decision control
+PermissionDenied
+PermissionDenied input
+PermissionDenied decision control
+Notification
+Notification input
+SubagentStart
+SubagentStart input
+SubagentStop
+SubagentStop input
+TaskCreated
+TaskCreated input
+TaskCreated decision control
+TaskCompleted
+TaskCompleted input
+TaskCompleted decision control
+Stop
+Stop input
+Stop decision control
+StopFailure
+StopFailure input
+TeammateIdle
+TeammateIdle input
+TeammateIdle decision control
+ConfigChange
+ConfigChange input
+ConfigChange decision control
+CwdChanged
+CwdChanged input
+CwdChanged output
+DirectoryAdded
+DirectoryAdded input
+FileChanged
+FileChanged input
+FileChanged output
+WorktreeCreate
+WorktreeCreate input
+WorktreeCreate output
+WorktreeRemove
+WorktreeRemove input
+PreCompact
+PreCompact input
+PostCompact
+PostCompact input
+PreModelSwitch
+PreModelSwitch input
+PreModelSwitch decision control
+PreModelSwitch timeouts and other exit codes
+PostModelSwitch
+PostModelSwitch input
+PostModelSwitch decision control
+SessionEnd
+SessionEnd input
+Elicitation
+Elicitation input
+Elicitation output
+Other ways to decline an elicitation
+Answer a form request from a script
+ElicitationResult
+ElicitationResult input
+ElicitationResult output
+Prompt-based hooks
+How prompt-based hooks work
+Prompt hook configuration
+Response schema
+Check multiple conditions before stopping
+Agent-based hooks
+How agent hooks work
+Agent hook configuration
+Run hooks in the background
+Configure an async hook
+How async hooks execute
+Run tests after file changes
+Limitations
+Security considerations
+Disclaimer
+Workspace trust
+Security best practices
+Windows PowerShell tool
+Debug hooks
+Reference
+Hooks reference
+Copy page
+Copy page
+Reference for Claude Code hook events, configuration schema, JSON input/output formats, exit codes, async hooks, HTTP hooks, prompt hooks, and MCP tool hooks.
+Copy page
+Copy page
+For a quickstart guide with examples, see
+Automate actions with hooks
+.
+Hooks are user-defined shell commands, HTTP endpoints, MCP tool calls, LLM prompts, or subagents that execute automatically at specific points in Claude Code’s lifecycle. Claude Code fires the same hook events wherever it runs: sessions in the terminal, IDE extensions, the
+Desktop app
+, and
+cloud sessions
+. Use this reference to look up event schemas, configuration options, JSON input/output formats, and advanced features like async hooks, HTTP hooks, and MCP tool hooks.
+A plugin can also register hooks as JavaScript functions that Claude Code calls in its own process, which can draw in the interface as well as act on events. A plugin that does is a
+mod
+, and those function hooks are covered in
+React to events
+rather than here. The hooks on this page keep working alongside mods.
+​
+Hook lifecycle
+Claude Code runs hooks at specific points during a session. When an event fires and a matcher matches, Claude Code passes JSON context about the event to your hook handler. For command hooks, input arrives on stdin. For HTTP hooks, it arrives as the POST request body. Your handler can then inspect the input, take action, and optionally return a decision.
+Events fall into three cadences:
+per session:
+SessionStart
+and
+SessionEnd
+per turn:
+UserPromptSubmit
+,
+Stop
+, and
+StopFailure
+on every tool call inside the agentic loop:
+PreToolUse
+and
+PostToolUse
+, except
+EndConversation
+calls, which skip both
+The table below summarizes when each event fires. The
+Hook events
+section documents the full input schema and decision control options for each one.
+Event
+When it fires
+SessionStart
+When a session begins or resumes
+Setup
+When you start Claude Code with
+--init-only
+, or with
+--init
+or
+--maintenance
+in
+-p
+mode. For one-time preparation in CI or scripts
+UserPromptSubmit
+When a prompt is submitted, before Claude processes it. Also fires on
+turns Claude Code starts on its own
+UserPromptExpansion
+When a user-typed command expands into a prompt, before it reaches Claude. Can block the expansion
+PreToolUse
+Before a tool call executes. Can block it
+PermissionRequest
+When a tool call needs a permission decision
+PermissionDenied
+When auto mode denies a tool call, including denials without a classifier verdict. Use JSON
+hookSpecificOutput.retry: true
+to tell the model it may retry the denied tool call. Claude Code ignores
+retry
+when the classifier produced no verdict
+PostToolUse
+After a tool call succeeds
+PostToolUseFailure
+After a tool call fails
+PostToolBatch
+After a full batch of parallel tool calls resolves, before the next model call
+Notification
+When Claude Code sends a notification
+MessageDisplay
+While assistant message text is displayed
+SubagentStart
+When a subagent is spawned
+SubagentStop
+When a subagent finishes
+TaskCreated
+When a task is being created via
+TaskCreate
+TaskCompleted
+When a task is being marked as completed
+Stop
+When Claude finishes responding
+StopFailure
+When the turn ends due to an API error
+TeammateIdle
+When an
+agent team
+teammate is about to go idle
+InstructionsLoaded
+When a CLAUDE.md or
+.claude/rules/*.md
+file is loaded into context. Fires at session start and when files are lazily loaded during a session
+ConfigChange
+When a configuration file changes during a session
+CwdChanged
+When the working directory changes, for example when Claude executes a
+cd
+command. Useful for reactive environment management with tools like direnv
+DirectoryAdded
+When a working directory is added mid-session via
+/add-dir
+or the SDK
+register_repo_root
+control request
+FileChanged
+When a watched file changes on disk. The
+matcher
+field specifies which filenames to watch
+WorktreeCreate
+When a worktree is being created via
+--worktree
+,
+isolation: "worktree"
+, or for a background session. Replaces default git behavior
+WorktreeRemove
+When a worktree that a
+WorktreeCreate
+hook created is being removed
+PreCompact
+Before context compaction
+PostCompact
+After context compaction completes
+PreModelSwitch
+Before Claude Code applies a model switch that you or a client requested. Can block the switch
+PostModelSwitch
+After the session’s model changes, including changes Claude Code makes on its own, such as restoring the model when you resume a session
+Elicitation
+When an MCP server requests user input during a tool call
+ElicitationResult
+After a user responds to an MCP elicitation, before the response is sent back to the server
+SessionEnd
+When a session terminates
+​
+How a hook resolves
+To see how the event, the matcher, and the handler fit together, consider this
+PreToolUse
+hook that blocks destructive shell commands.
+macOS/Linux
+Windows (PowerShell)
+The
+matcher
+narrows to Bash tool calls and the
+if
+condition narrows further to Bash subcommands matching
+rm *
+, so
+block-rm.sh
+only spawns when both filters match:
+{
+"hooks"
+: {
+"PreToolUse"
+: [
+{
+"matcher"
+:
+"Bash"
+,
+"hooks"
+: [
+{
+"type"
+:
+"command"
+,
+"if"
+:
+"Bash(rm *)"
+,
+"command"
+:
+"${CLAUDE_PROJECT_DIR}/.claude/hooks/block-rm.sh"
+,
+"args"
+: []
+}
+]
+}
+]
+}
+}
+The script reads the JSON input from stdin, extracts the command, and returns a
+permissionDecision
+of
+"deny"
+if it contains
+rm -rf
+. Save it to
+.claude/hooks/block-rm.sh
+in your project and make it executable with
+chmod +x .claude/hooks/block-rm.sh
+so Claude Code can run it:
+#!/bin/bash
+# .claude/hooks/block-rm.sh
+COMMAND
+=
+$(
+jq
+-r
+&#x27;.tool_input.command&#x27;
+)
+if
+echo
+"
+$COMMAND
+"
+|
+grep
+-q
+&#x27;rm -rf&#x27;
+;
+then
+jq
+-n
+&#x27;{
+hookSpecificOutput: {
+hookEventName: "PreToolUse",
+permissionDecision: "deny",
+permissionDecisionReason: "Destructive command blocked by hook"
+}
+}&#x27;
+else
+exit
+0
+# no decision; normal permission flow applies
+fi
+This script, like the other Bash examples on this page that parse JSON input, uses
+jq
+, so install
+jq
+and make sure it is on your
+PATH
+before trying them.
+The matcher
+Bash|PowerShell
+covers the
+PowerShell tool
+as well as Bash. A single
+if
+rule matches only one tool’s calls, so each tool gets its own handler: the first narrows to Bash subcommands matching
+rm *
+, the second to PowerShell commands matching
+Remove-Item *
+. Both run the same script through
+powershell.exe
+:
+{
+"hooks"
+: {
+"PreToolUse"
+: [
+{
+"matcher"
+:
+"Bash|PowerShell"
+,
+"hooks"
+: [
+{
+"type"
+:
+"command"
+,
+"if"
+:
+"Bash(rm *)"
+,
+"command"
+:
+"powershell.exe"
+,
+"args"
+: [
+"-NoProfile"
+,
+"-ExecutionPolicy"
+,
+"Bypass"
+,
+"-File"
+,
+"${CLAUDE_PROJECT_DIR}/.claude/hooks/block-rm.ps1"
+]
+},
+{
+"type"
+:
+"command"
+,
+"if"
+:
+"PowerShell(Remove-Item *)"
+,
+"command"
+:
+"powershell.exe"
+,
+"args"
+: [
+"-NoProfile"
+,
+"-ExecutionPolicy"
+,
+"Bypass"
+,
+"-File"
+,
+"${CLAUDE_PROJECT_DIR}/.claude/hooks/block-rm.ps1"
+]
+}
+]
+}
+]
+}
+}
+The
+-NoProfile
+flag skips loading your PowerShell profile so the hook starts fast, and
+-ExecutionPolicy Bypass
+lets PowerShell run the local script file.
+The script reads the JSON input from stdin, extracts the command, and returns a
+permissionDecision
+of
+"deny"
+if it contains
+rm -rf
+or
+Remove-Item
+followed by
+-Recurse
+. Save it to
+.claude/hooks/block-rm.ps1
+in your project:
+# .claude/hooks/block-rm.ps1
+$callInput
+=
+[
+Console
+]::
+In
+.ReadToEnd()
+|
+ConvertFrom-Json
+$command
+=
+$callInput
+.tool_input.command
+if
+(
+$command
+-match
+&#x27;rm -rf|Remove-Item.*-Recurse&#x27;
+) {
+@
+{
+hookSpecificOutput
+=
+@
+{
+hookEventName
+=
+"PreToolUse"
+permissionDecision
+=
+"deny"
+permissionDecisionReason
+=
+"Destructive command blocked by hook"
+}
+}
+|
+ConvertTo-Json
+}
+else
+{
+exit
+0
+# no decision; normal permission flow applies
+}
+Now suppose Claude Code decides to run
+Bash "rm -rf /tmp/build"
+against the macOS/Linux config. Here’s what happens:
+1
+Event fires
+The
+PreToolUse
+event fires. Claude Code sends the tool input as JSON on stdin to the hook:
+{
+"tool_name"
+:
+"Bash"
+,
+"tool_input"
+: {
+"command"
+:
+"rm -rf /tmp/build"
+},
+...
+}
+2
+Matcher checks
+The matcher
+"Bash"
+matches the tool name, so this hook group activates. If you omit the matcher or use
+"*"
+, the group activates on every occurrence of the event.
+3
+If condition checks
+The
+if
+condition
+"Bash(rm *)"
+matches because
+rm -rf /tmp/build
+is a subcommand matching
+rm *
+, so this handler spawns. If the command had been
+npm test
+, the
+if
+check would fail and
+block-rm.sh
+would never run, avoiding the process spawn overhead. The
+if
+field is optional; without it, every handler in the matched group runs.
+4
+Hook handler runs
+The script inspects the full command and finds
+rm -rf
+, so it prints a decision to stdout:
+{
+"hookSpecificOutput"
+: {
+"hookEventName"
+:
+"PreToolUse"
+,
+"permissionDecision"
+:
+"deny"
+,
+"permissionDecisionReason"
+:
+"Destructive command blocked by hook"
+}
+}
+If the command had been a safer
+rm
+variant like
+rm file.txt
+, the script would hit
+exit 0
+instead. Exit code 0 with no output means the hook has no decision to report, so the tool call continues through the normal
+permission flow
+. The hook can deny the call, but staying silent doesn’t approve it.
+5
+Claude Code acts on the result
+Claude Code reads the JSON decision, blocks the tool call, and shows Claude the reason.
+The
+Configuration
+section below documents the full schema, and each
+hook event
+section documents what input your command receives and what output it can return.
+​
+Configuration
+Hooks are defined in JSON settings files. The configuration has three levels of nesting:
+Choose a
+hook event
+to respond to, like
+PreToolUse
+or
+Stop
+Add a
+matcher group
+to filter when it fires, like “only for the Bash tool”
+Define one or more
+hook handlers
+to run when matched
+See
+How a hook resolves
+above for a complete walkthrough with an annotated example.
+This page uses specific terms for each level:
+hook event
+for the lifecycle point,
+matcher group
+for the filter, and
+hook handler
+for the shell command, HTTP endpoint, MCP tool, prompt, or agent that runs. “Hook” on its own refers to the general feature.
+​
+Hook locations
+Where you define a hook determines its scope:
+Location
+Scope
+Shareable
+~/.claude/settings.json
+All your projects
+No, local to your machine
+.claude/settings.json
+Single project
+Yes, can be committed to the repo
+.claude/settings.local.json
+Single project
+No, gitignored when Claude Code saves a setting to it
+Managed policy settings
+Organization-wide
+Yes, admin-controlled
+Plugin
+hooks/hooks.json
+When plugin is enabled
+Yes, bundled with the plugin
+Skill
+frontmatter
+The rest of the session once the skill is invoked. See
+Hooks in skills and agents
+Yes, defined in the skill file
+Subagent
+frontmatter
+While that subagent is running
+Yes, defined in the subagent file
+Cloud sessions
+don’t read your local
+~/.claude/settings.json
+. In a
+self-hosted environment
+, Claude Code also runs the hooks the operator seeded from the runner host’s
+~/.claude/
+, and it runs the hooks in the runner image’s managed settings file when that file is among the
+managed sources Claude Code applies
+, which by default means only when neither server-managed settings nor an MDM-delivered Claude Code policy supplies the managed tier. See
+what carries over from your setup
+for which settings files and plugins, and so which hooks, reach a cloud session.
+For details on settings file resolution, see
+settings
+.
+Hooks from settings files, managed policy settings, and plugins also run inside
+subagents
+. When a subagent calls a tool, tool events such as
+PreToolUse
+and
+PostToolUse
+fire the same configured hooks as in the main conversation, and the input carries the
+agent_id
+and
+agent_type
+common input fields
+that identify the subagent.
+Administrators can use
+allowManagedHooksOnly
+in
+managed settings
+to restrict which hooks run:
+Your user, project, local, and plugin hooks are blocked. Hooks from plugins force-enabled in managed settings
+enabledPlugins
+are exempt
+Claude Code also narrows your
+statusLine
+,
+fileSuggestion
+, and
+subagentStatusLine
+settings to managed settings
+Claude Code also disables plugins with a
+command
+source
+, including plugins force-enabled in managed settings
+enabledPlugins
+, unless
+disableCommandPluginSources
+is explicitly set to
+false
+.
+command
+sources require Claude Code v2.1.229 or later
+Claude Code also blocks marketplace
+headersHelper
+commands
+unless
+disableCommandPluginSources
+is explicitly set to
+false
+, except for a marketplace that managed settings themselves declare
+See
+what runs under
+allowManagedHooksOnly
+.
+Hook entries merge across settings levels rather than replacing each other: user, project, and local settings add their own hooks without removing managed ones, and the
+disableAllHooks
+setting can’t disable managed hooks from outside managed settings.
+The
+HTTP hook allowlists
+apply to hooks from every source, including managed policy settings:
+allowedHttpHookUrls
+: when defined at any settings level, Claude Code runs an HTTP hook handler only if its URL matches the merged allowlist
+httpHookAllowedEnvVars
+[snapshot truncated]

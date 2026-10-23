@@ -28,7 +28,7 @@ jobs:
       - name: Check upstream format drift (read-only)
         id: drift
         shell: bash
-        # npm run drift exits: 0 clean · 1 DRIFTED · 3 previously-fingerprinted page unreachable ·
+        # npm run drift exits: 0 clean · 1 DRIFTED or STUB (a redirect-only page) · 3 previously-fingerprinted page unreachable ·
         # 2 config error. Only 1 opens the tracking issue; 3 is visible in the log but must not
         # spam issues; neither may fail the job outright — upstream flakiness is not our regression.
         run: |
@@ -49,10 +49,30 @@ jobs:
           title="Upstream format drift detected"
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           {
-            echo "**Drifted claims** from [$GITHUB_SHA]($run_url):"
+            echo "**Drifted or stub claims** from [$GITHUB_SHA]($run_url):"
             echo ""
-            jq -r '.results[] | select(.status == "DRIFTED")
-              | "- `\(.url)`\n  claims: \(.claims | join(", "))"' drift-report.json
+            # A STUB row is a watched page that is only a redirect (its note names the target).
+            # Each DRIFTED row carries `diff`, a unified diff of the page's main content
+            # against the stored snapshot: null when the baseline has no snapshot for the URL, ""
+            # when the change is past the snapshot's size cap or only in a redacted home-directory path.
+            # A comment body is capped at 65536 characters: rows are added whole until the budget
+            # (bytes, so a safe bound) would be passed, then the rest are counted, not cut.
+            jq -r --argjson budget 60000 'def row:
+                "- `\(.url)`\n  claims: \(.claims | join(", "))"
+                + (if .status == "STUB" then "\n  (\(.note // "redirect stub"))"
+                   elif (.diff // "") != "" then
+                     # A fence one backtick longer than the longest run inside the diff cannot be closed by it.
+                     ([.diff | scan("`+") | length] | max // 0) as $run
+                     | ([range([3, $run + 1] | max)] | map("`") | join("")) as $fence
+                     | "\n\n\($fence)diff\n\(.diff)\n\($fence)\n"
+                   elif .diff == "" then "\n  (no visible diff: change is beyond the snapshot cap or only in redacted paths)"
+                   else "\n  (no snapshot to diff against)" end);
+              [.results[] | select(.status == "DRIFTED" or .status == "STUB") | row] as $rows
+              | reduce $rows[] as $r ({out: [], size: 0, cut: 0};
+                  (($r | utf8bytelength) + 1) as $n
+                  | if .cut > 0 or .size + $n > $budget then .cut += 1
+                    else .out += [$r] | .size += $n end)
+              | (.out | join("\n")), (if .cut > 0 then "(\(.cut) more rows truncated)" else empty end)' drift-report.json
           } > drift-body.md
 
           # Exactly one open tracking issue at a time: create it on first drift, append every

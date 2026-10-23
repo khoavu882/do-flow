@@ -1,0 +1,639 @@
+In this article
+GitHub Copilot CLI configuration directory
+Find information about the
+~/.copilot
+directory, where Copilot CLI stores configuration, session data, and customizations.
+Copy markdown
+In this article
+Directory overview
+User-editable files
+Automatically managed files
+Changing the location of the configuration directory
+What you can safely delete
+Configuration file settings
+MDM managed settings
+Managed MCP server allow/deny list
+Further reading
+Copilot CLI stores its configuration, session history, logs, and customizations in a single directory on your machine. By default, this directory is
+~/.copilot
+(that is,
+$HOME/.copilot
+).
+This article describes the contents of this directory and how you can use them.
+Directory overview
+The
+~/.copilot
+directory contains the following top-level items.
+Path
+Type
+Description
+agents/
+Directory
+Personal custom agent definitions
+config.json
+File
+Automatically managed application state (authentication, installed plugins, and other internal data)
+copilot-instructions.md
+File
+Personal custom instructions (applied to all sessions)
+extensions/
+Directory
+Personal extensions loaded by the CLI
+hooks/
+Directory
+User-level hook scripts
+ide/
+Directory
+IDE integration state
+installed-plugins/
+Directory
+Installed plugin files
+instructions/
+Directory
+Additional personal
+*.instructions.md
+files
+logs/
+Directory
+Session log files
+lsp-config.json
+File
+User-level LSP server definitions
+mcp-config.json
+File
+User-level MCP server definitions
+mcp-oauth-config/
+Directory
+MCP OAuth token and registration fallback storage
+mcp-secrets/
+Directory
+Local fallback storage and index for MCP secret placeholders
+permissions-config.json
+File
+Saved tool and directory permissions per project
+plugin-data/
+Directory
+Persistent data for installed plugins
+providers.json
+File
+User-level bring-your-own-key (BYOK) provider and model registry
+session-state/
+Directory
+Session history and workspace data
+command-history-state/
+Directory
+Command history data
+session-store.db
+File
+SQLite database for cross-session data
+settings.json
+File
+Your personal configuration settings
+skills/
+Directory
+Personal custom skill definitions
+Note
+Not all of these items appear immediately. Some are created on demand the first time you use a particular feature—for example,
+installed-plugins/
+appears only after you install your first plugin.
+User-editable files
+The following files are designed to be edited by you directly, or managed through CLI commands.
+settings.json
+This is the primary configuration file for Copilot CLI. Within a session, you can use the interactive
+/settings
+command to change specific values, or run
+/settings KEY VALUE
+to set a single value. See
+Changing settings with the /settings command
+. Alternatively, you can edit the
+settings.json
+file directly in a text editor. The file supports JSON with comments (JSONC).
+By default, this file is located in the
+~/.copilot
+directory, which is the user-level configuration directory. It contains global user-level defaults for all repositories. You can change the location of this directory by setting the
+COPILOT_HOME
+environment variable to a different path.
+Note
+User-editable settings are stored in
+settings.json
+. These settings were originally stored in
+config.json
+. Any user settings in
+config.json
+are ignored. That file is used to store internal state, such as installed plugins and trusted folders.
+If
+settings.json
+fails to read, parse, or validate, Copilot CLI ignores the invalid values and shows a startup warning on the timeline directing you to the
+Problems
+tab of the
+/settings
+command. Open that tab to see the specific error, then fix the reported issue to restore the affected settings.
+If
+settings.json
+contains a top-level key that isn&#x27;t a recognized setting (for example, a typo), Copilot CLI lists it in the
+Problems
+tab of the
+/settings
+command instead of on the timeline or in stderr. The tab&#x27;s label shows a count (for example,
+Problems (2)
+) when any configuration scope has an issue.
+$schema
+is tolerated and never reported.
+If
+~/.copilot/settings.json
+is a symlink—for example, to sync settings through a dotfiles repository—writes from the
+/settings
+command follow the symlink and update its target instead of replacing the symlink with a regular file.
+For the full list of settings and how they interact with repository-level configuration, see
+Configuration file settings
+later in this article.
+Tip
+Run
+copilot help config
+in your terminal for a quick reference.
+Use
+copilot config
+from your shell, outside a session, to read or change settings non-interactively—the scripting counterpart to the
+/settings
+slash command. Add
+--repo
+or
+--local
+to target
+.github/copilot/settings.json
+or
+.github/copilot/settings.local.json
+instead of your user settings file; only
+repo-overridable keys
+can be written there. See
+GitHub Copilot CLI command reference
+for the full command reference.
+copilot-instructions.md
+Personal custom instructions that apply to all your sessions, regardless of which project you&#x27;re working in. This file works the same way as a repository-level
+copilot-instructions.md
+but applies globally.
+For more information, see
+Adding repository custom instructions for GitHub Copilot
+.
+instructions/
+Store additional personal instruction files here as
+*.instructions.md
+files. These are loaded alongside
+copilot-instructions.md
+and apply to all your sessions. You can organize instructions by topic—for example,
+~/.copilot/instructions/code-style.instructions.md
+.
+mcp-config.json
+Defines MCP (Model Context Protocol) servers available at the user level. These servers are available in all your sessions, regardless of which project directory you&#x27;re in. Project-level MCP configurations (in
+.mcp.json
+or
+.github/mcp.json
+) take precedence over user-level definitions when server names conflict.
+For more information, see
+Adding MCP servers for GitHub Copilot CLI
+.
+lsp-config.json
+Defines Language Server Protocol (LSP) servers available at the user level. These servers provide language intelligence (diagnostics, completions, etc.) to the agent. Manage this file using the
+/lsp
+slash command, or edit it directly.
+For more information, see
+Adding LSP servers for GitHub Copilot CLI
+.
+providers.json
+Defines a registry of bring-your-own-key (BYOK) providers and models, as a JSON object with
+providers
+and
+models
+keys. When this file declares any provider or model, it takes precedence over the legacy
+COPILOT_PROVIDER_*
+environment variables.
+By default, this file is located at
+~/.copilot/providers.json
+. Override its location with the
+COPILOT_PROVIDERS_CONFIG
+environment variable.
+agents/
+Store personal custom agent definitions here as
+.agent.md
+files. Agents placed in this directory are available in all your sessions. If a personal agent and a project-level agent have the same ID—for example, if both top-level files are named
+reviewer.agent.md
+—the personal agent takes precedence. The optional
+name
+frontmatter field does not control deduplication, so agents with the same
+name
+but different IDs both load.
+For more information, see
+Creating and using custom agents for GitHub Copilot CLI
+.
+skills/
+Store personal custom skill definitions here. Each skill lives in a subdirectory containing a
+SKILL.md
+file—for example,
+~/.copilot/skills/my-skill/SKILL.md
+. Personal skills are available in all your sessions. Project-level skills take precedence over personal skills if they share the same name.
+For more information, see
+Adding agent skills for GitHub Copilot CLI
+.
+hooks/
+Store user-level hook scripts here. These hooks apply to all your sessions. You can also define hooks inline in your user configuration file (
+~/.copilot/settings.json
+) using the
+hooks
+key. Repository-level hooks (in
+.github/hooks/
+) are loaded alongside user-level hooks.
+For more information, see
+Using hooks with GitHub Copilot CLI
+.
+extensions/
+Store user-level extension files here. Extensions in this directory are available across sessions.
+You can create files in this directory manually, or scaffold an extension and then edit the generated file.
+Automatically managed files
+The following items are managed by the CLI. You generally should not edit them manually.
+config.json
+Stores internal application state that is managed automatically by the CLI, including authentication data, installed plugin metadata, and other runtime information. You should not normally need to edit this file.
+Note
+Earlier versions of Copilot CLI stored both user settings and application state in
+config.json
+. User-editable settings are now located in
+settings.json
+. Settings left in
+config.json
+are ignored. This file only holds internal state such as installed plugins and trusted folders.
+permissions-config.json
+Stores your saved tool and directory permission decisions, organized by project location. When you approve a tool or grant access to a directory for the current location, the CLI records the decision here so you aren&#x27;t prompted again in the same repository or directory.
+Note
+If you want to reset permissions for a project, you can delete the relevant entry from this file. However, editing the file while a session is running may cause unexpected behavior. The CLI automatically removes entries whose location path no longer exists on disk.
+File location
+Copilot CLI resolves the file from the configuration directory.
+Priority
+Source
+File used
+1
+--config-dir=DIRECTORY
+DIRECTORY/
+permissions-config.json
+2
+COPILOT_HOME
+$COPILOT_HOME/
+permissions-config.json
+3
+Default
+~/
+.copilot/
+permissions-config.json
+The CLI uses only the first applicable configuration directory in this order. It doesn&#x27;t also load
+permissions-config.json
+from the lower-priority locations.
+The
+--config-dir
+option is a legacy option. Prefer
+COPILOT_HOME
+when you need to change the configuration directory.
+On Windows, the default file is typically:
+C:\Users\YOUR-USER\.copilot\permissions-config.json
+Older builds used an extensionless file named
+permissions-config
+. If
+permissions-config.json
+doesn&#x27;t exist but the extensionless file does, the CLI still honors the legacy file. Use
+permissions-config.json
+for new edits.
+Previous XDG-based configuration locations are migrated to
+~/.copilot
+at startup when
+COPILOT_HOME
+isn&#x27;t set.
+Location keys
+The top-level
+locations
+object is keyed by an absolute path.
+For a Git repository, use the Git root used for permission scoping.
+Linked worktrees resolve to the main repository root, so they share permissions with the main worktree.
+Submodules use their own working directory.
+For a directory that isn&#x27;t in a Git repository, use the normalized current working directory.
+The key must match the location where Copilot CLI is running. If the key doesn&#x27;t match, the saved approvals won&#x27;t apply.
+The CLI loads the matching location&#x27;s approvals when a session starts and when the active working directory changes.
+Schema
+The file must contain a JSON object.
+Field
+Type
+Required
+Default
+Allowed values
+Description
+locations
+Object
+No
+{}
+Absolute path keys
+Map of location keys to saved approvals.
+locations.<key>
+Object
+No
+{}
+Any absolute location key
+Saved approvals for one repository or directory.
+locations.<key>.tool_approvals
+Array
+No
+[]
+Approval objects
+Tools approved for this location.
+locations.<key>.allowed_directories
+Array of strings
+No
+[]
+Absolute directory paths
+Extra directories that the path gate can access for this location. Each directory must exist when the CLI applies the configuration.
+locations.<key>.tool_approvals[].kind
+String
+Yes
+None
+commands
+,
+read
+,
+write
+,
+mcp
+,
+mcp-sampling
+,
+memory
+,
+custom-tool
+,
+extension-management
+,
+extension-permission-access
+Selects the approval type.
+command
+Identifiers
+Array of strings
+Yes, for
+commands
+None
+Command identifiers
+Shell command identifiers to approve.
+serverName
+String
+Yes, for
+mcp
+and
+mcp-sampling
+None
+MCP server name
+MCP server to approve.
+toolName
+String or
+null
+Yes, for
+mcp
+None
+MCP tool name, or
+null
+MCP tool to approve. Use
+null
+to approve every tool on the server.
+toolName
+String
+Yes, for
+custom-tool
+None
+Custom tool name
+Custom tool to approve by exact name.
+operation
+String
+No, for
+extension-management
+Omitted
+Extension operation name
+Extension-management operation to approve. Omit this field to approve all extension-management operations.
+extensionName
+String
+Yes, for
+extension-permission-access
+None
+Extension name
+Extension whose access to permission-gated capabilities is approved.
+permissions-config.json
+doesn&#x27;t support deny rules, "ask" rules, default modes, URL rules, tool filtering, or repository-local shared policy. For those behaviors, use command-line options such as
+--deny-tool
+,
+--available-tools
+,
+--excluded-tools
+,
+--allow-url
+, and
+--deny-url
+. Saved URL rules are stored in
+settings.json
+, not in
+permissions-config.json
+.
+Unknown fields aren&#x27;t part of the schema. The CLI may ignore them, and later writes may remove them.
+Approval kinds
+Each item in
+tool_approvals
+must be one of the following objects.
+kind
+Required fields
+Optional fields
+Meaning
+commands
+command
+Identifiers
+None
+Approves matching shell command identifiers.
+read
+None
+None
+Approves read tool requests. Interactive CLI sessions already approve reads automatically, so this is usually unnecessary.
+write
+None
+None
+Approves file creation and modification tool requests. A path prompt can still apply for paths outside the allowed directories.
+mcp
+serverName
+,
+toolName
+None
+Approves one MCP tool, or every tool on the server when
+toolName
+is
+null
+.
+mcp-sampling
+serverName
+None
+Approves MCP sampling requests for one server.
+memory
+None
+None
+Approves memory write and vote requests.
+custom-tool
+toolName
+None
+Approves a custom tool by exact name.
+extension-management
+None
+operation
+Approves extension management. If
+operation
+is omitted, all extension-management operations match.
+extension-permission-access
+extensionName
+None
+Approves an extension&#x27;s access to permission-gated capabilities.
+For MCP approvals,
+serverName
+must match the configured MCP server name exactly. Use the raw server name from your MCP configuration, not a sanitized tool-name prefix.
+Shell command matching
+permissions-config.json
+doesn&#x27;t support regular expressions or general glob patterns. String values are matched literally, except that a trailing
+:*
+in a shell
+commandIdentifiers
+value matches the text before
+:*
+, either by itself or followed by a space and more text. A plain
+*
+has no special meaning, so
+git*
+doesn&#x27;t match
+git status
+.
+Pattern
+Matches
+Doesn&#x27;t match
+git status
+git status
+git status --short
+git:*
+git
+,
+git status
+,
+git push
+gitea
+gh pr:*
+gh pr
+,
+gh pr view
+,
+gh pr create
+gh repo view
+Directory matching
+allowed_directories
+entries allow Copilot CLI to access paths inside those directories without a separate path prompt. They don&#x27;t approve the tool operation itself. For example, editing a file in an allowed directory can still require a
+write
+approval.
+Each
+allowed_directories
+entry must be an absolute, non-empty, accessible directory. The CLI resolves symlinks before comparing paths, blocks UNC network paths unless they are extended-length local paths, compares paths case-insensitively on Windows, and compares paths case-sensitively on other platforms. If an entry can&#x27;t be applied, the CLI logs a warning and skips that entry.
+Examples
+Allow all Git subcommands and access an extra local directory:
+JSON
+{
+"locations": {
+"C:\\src\\my-repo": {
+"tool_approvals": [
+{
+"kind": "commands",
+"commandIdentifiers": ["git:*"]
+}
+],
+"allowed_directories": ["C:\\src\\shared-docs"]
+}
+}
+}
+{
+"locations"
+:
+{
+"C:\\src\\my-repo"
+:
+{
+"tool_approvals"
+:
+[
+{
+"kind"
+:
+"commands"
+,
+"commandIdentifiers"
+:
+[
+"git:*"
+]
+}
+]
+,
+"allowed_directories"
+:
+[
+"C:\\src\\shared-docs"
+]
+}
+}
+}
+Allow selected commands while still asking before file writes:
+JSON
+{
+"locations": {
+"/Users/<name>/src/my-repo": {
+"tool_approvals": [
+{
+"kind": "commands",
+"commandIdentifiers": [
+"git status",
+"git diff",
+"git log",
+"npm test",
+"npm run build"
+]
+}
+]
+}
+}
+}
+{
+"locations"
+:
+{
+"/Users/<name>/src/my-repo"
+:
+{
+"tool_approvals"
+:
+[
+{
+"kind"
+:
+"commands"
+,
+"commandIdentifiers"
+:
+[
+"git status"
+,
+"git diff"
+,
+"git log"
+,
+"npm test"
+,
+"npm run build"
+]
+}
+]
+}
+}
+}
+Approve file writes and one MCP server for a repository:
+JSON
+{
+[snapshot truncated]
