@@ -13,22 +13,24 @@ const path = require('node:path');
 const { spawn, execFileSync } = require('node:child_process');
 const { tempDir, removeTree } = require('../helper/tmp.js');
 const { runSchedule, GATED_METHODS, parseTrace, formatTrace, WATCHDOG_MARGIN_MS } = require('../helper/sequence-gate.js');
+const { INTERLEAVED } = require('../helper/ledger-scenarios.js');
 
 const GATE = path.join(__dirname, '../helper/sequence-gate.js');
 
-// Round 3's P1 trace on S1 from a stale lock (A = finish, B = cancel). On the unfixed lock it ends
-// finish `applied`, cancel `cancelled`, final attempt `cancelled`: both acknowledged, one lost.
-const P1 = 'B.mkdir A.mkdir B.stat A.stat B.rmdir B.mkdir B.exists A.rmdir A.mkdir A.exists B.readFile B.writeFile '
-  + 'A.readFile A.writeFile A.rename B.rename A.rmdir B.rmdir';
 const REPLAYS = 20;
 // A runs to its end first. S1: B's cancel then finds no active attempt; S2: B's claim finds A's
-// active attempt. Either way B refuses without writing, so B has no write or rename.
-const A_FIRST = 'A.mkdir A.exists A.readFile A.writeFile A.rename A.rmdir B.mkdir B.exists B.readFile B.rmdir';
+// active attempt. Either way B refuses without writing, so B has no write or rename. Each actor makes
+// the lock and its owner entry (mkdir mkdir) and lists the lock (readdir: it is alone, so it holds);
+// A checks its entry is still there (exists) before its rename. A release notes the lock's identity
+// while its entry is in it (stat exists), removes the entry, and removes the lock only if it is still
+// that directory (stat rmdir).
+const A_FIRST = 'A.mkdir A.mkdir A.readdir A.exists A.readFile A.writeFile A.exists A.rename A.stat A.exists A.rmdir A.stat A.rmdir '
+  + 'B.mkdir B.mkdir B.readdir B.exists B.readFile B.stat B.exists B.rmdir B.stat B.rmdir';
 
 const aFirst = (parked) => (parked.includes('A') ? 'A' : 'B');
-// The run key and exec worktree name the per-schedule temp dir, so they are left out of the comparison.
+// The run key and the (exec) worktree name the per-schedule temp dir, so they are left out of the comparison.
 const outcomeKey = (o) => JSON.stringify({ trace: o.trace, actors: o.actors.map((a) => a.outcome), final: o.final, incomplete: o.incomplete },
-  (key, value) => (key === 'runKey' || key === 'execWorktree' ? undefined : value));
+  (key, value) => (['runKey', 'execWorktree', 'worktree'].includes(key) ? undefined : value));
 
 /** Run `n` schedules from `make()`, `width` at a time. */
 async function batch(n, make, width = 10) {
@@ -80,19 +82,19 @@ test('gate: S1 and S2 from lock none complete, both DONE, every gated call trace
   }
 });
 
-test('completion rule: the P1 trace replayed 20 times gives one outcome', async () => {
-  const runs = await batch(REPLAYS, () => ({ scenario: 'S1', init: 'stale', replay: P1 }));
+test('completion rule: the INTERLEAVED trace replayed 20 times gives one outcome', async () => {
+  const runs = await batch(REPLAYS, () => ({ scenario: 'S1', init: 'none', replay: INTERLEAVED }));
   const keys = new Set(runs.map(outcomeKey));
   assert.equal(keys.size, 1, [...keys].join('\n'));
   assert.equal(runs[0].incomplete, null);
-  assert.equal(runs[0].trace, P1);
-  // Recorded on the unfixed lock (e76352b0): finish applied, cancel cancelled, final cancelled.
+  assert.equal(runs[0].trace, INTERLEAVED);
+  // Recorded on the 117 Phase C lock: finish applied, cancel refused, final finished.
 });
 
 // The grant-on-release negative control (the completion rule reverted must break this determinism)
 // runs on demand in test/explore/ledger-controls.js, outside npm test (117 D-ORCH budget option (b)).
 
-test('faults: init stale seeds a 60 s old lock; age-lock@k lets B break the lock A holds', async () => {
+test('faults: init stale seeds a 60 s old lock; age-lock@k lets B reclaim the lock A holds', async () => {
   let lockAgeMs = null;
   await runSchedule({
     scenario: 'S1', init: 'stale', chooser: aFirst,
@@ -100,20 +102,25 @@ test('faults: init stale seeds a 60 s old lock; age-lock@k lets B break the lock
   });
   assert.ok(lockAgeMs >= 59_000 && lockAgeMs < 70_000, `lock age ${lockAgeMs}`);
 
-  // A takes the lock, then B tries four times in a row.
-  const script = ['A', 'B', 'B', 'B', 'B'];
-  const chooser = (parked, step) => script[step] ?? aFirst(parked);
-  const aged = await runSchedule({ scenario: 'S1', init: 'none', fault: { kind: 'age-lock', at: 1 }, chooser });
-  assert.ok(aged.trace.startsWith('A.mkdir age-lock@1 B.mkdir B.stat B.rmdir B.mkdir'), aged.trace);
-  assert.deepEqual(aged.fault, { kind: 'age-lock', at: 1 });
+  // A takes the lock (mkdir, owner entry, list), then B makes eight calls in a row: on the aged lock
+  // they list it, enter it, check it is the same directory, remove A's entry and list it again; on a
+  // fresh one B only retries. Then the two alternate, so neither waits on the other forever.
+  const script = ['A', 'A', 'A', 'A', 'B', 'B', 'B', 'B', 'B', 'B', 'B', 'B'];
+  const chooser = (parked, step) => {
+    const want = script[step] ?? (step % 2 ? 'B' : 'A');
+    return parked.includes(want) ? want : parked[0];
+  };
+  const aged = await runSchedule({ scenario: 'S1', init: 'none', fault: { kind: 'age-lock', at: 4 }, chooser });
+  assert.ok(aged.trace.startsWith('A.mkdir A.mkdir A.readdir A.exists age-lock@4 B.mkdir B.stat B.readdir B.stat B.mkdir B.stat B.rmdir B.readdir'), aged.trace);
+  assert.deepEqual(aged.fault, { kind: 'age-lock', at: 4 });
   assert.equal(aged.faultApplied, true);
   assert.equal(aged.incomplete, null);
   const fresh = await runSchedule({ scenario: 'S1', init: 'none', chooser });
-  assert.ok(fresh.trace.startsWith('A.mkdir B.mkdir B.stat B.mkdir'), fresh.trace);
+  assert.ok(fresh.trace.startsWith('A.mkdir A.mkdir A.readdir A.exists B.mkdir B.stat B.mkdir B.stat'), fresh.trace);
   assert.equal(fresh.fault, null);
   assert.equal(fresh.faultApplied, null);
   // The fault survives a replay round trip.
-  assert.deepEqual(parseTrace(aged.trace).fault, { kind: 'age-lock', at: 1 });
+  assert.deepEqual(parseTrace(aged.trace).fault, { kind: 'age-lock', at: 4 });
 });
 
 test('faults: a requested age-lock that never took effect ends INCOMPLETE fault-not-applied', async () => {
@@ -190,13 +197,13 @@ test('ungated store call: node:fs, fs.promises, a re-spelled path and a descript
 });
 
 test('lock directory: a path under <store>.lock is lock-class, gated by a gated method and detected by any other', async (t) => {
-  // An owner record inside the lock dir (N-1): the writeFileSync parks and is traced; rmSync is ungated.
+  // An owner record inside the lock dir (N-1): the writeFileSync parks and is traced; unlinkSync is ungated.
   const actorModule = stub(t, "const lock = fixture.file + '.lock';\nfsImpl.mkdirSync(lock);\n"
-    + "fsImpl.writeFileSync(lock + '/owner', String(process.pid));\nfsImpl.rmSync(lock + '/owner');\nfsImpl.rmdirSync(lock);\nreturn { ok: true };");
+    + "fsImpl.writeFileSync(lock + '/owner', String(process.pid));\nfsImpl.unlinkSync(lock + '/owner');\nfsImpl.rmdirSync(lock);\nreturn { ok: true };");
   const o = await runSchedule({ scenario: 'S1', init: 'none', chooser: aFirst, actorModule });
   assert.match(o.trace, /^A\.mkdir A\.writeFile\b/, o.trace);
   assert.equal(o.incomplete?.cause, 'ungated-store-call', JSON.stringify(o.incomplete));
-  assert.match(o.incomplete.detail, /called rmSync on/);
+  assert.match(o.incomplete.detail, /called unlinkSync on/);
 });
 
 test('vacuous schedules: no gated call, or an unreadable final store, end INCOMPLETE', async (t) => {

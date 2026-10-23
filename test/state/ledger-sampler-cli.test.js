@@ -9,10 +9,10 @@ const path = require('node:path');
 const { spawnSync, spawn } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.js');
 const { exitCodeFor, resultLine, renderText } = require('../explore/ledger-sampler.js');
+const { LOST_ACK } = require('../helper/ledger-scenarios.js');
 
 const REPO = path.resolve(__dirname, '../..');
 const SCRIPT = path.join(REPO, 'test/explore/ledger-sampler.js');
-const P1 = 'B.mkdir A.mkdir B.stat A.stat B.rmdir B.mkdir B.exists A.rmdir A.mkdir A.exists B.readFile B.writeFile A.readFile A.writeFile A.rename B.rename A.rmdir B.rmdir';
 
 function run(args, options = {}) {
   const result = spawnSync(process.execPath, [SCRIPT, ...args], {
@@ -119,10 +119,10 @@ test('replay reports lost acknowledgment through the real oracle under an overri
   const dir = tempDir(t, 'doflow-sampler-');
   const stub = path.join(dir, 'oracle.js');
   fs.writeFileSync(stub, "'use strict'; module.exports = { check: () => ({ verdict: 'PASS', class: null, detail: 'stub' }) };\n");
-  const replay = run(['--scenario', 'S1', '--init', 'stale', '--replay', P1], { env: { DOFLOW_SAMPLER_ORACLE: stub } });
+  const replay = run(['--scenario', 'S1', '--init', 'none', '--replay', LOST_ACK], { env: { DOFLOW_SAMPLER_ORACLE: stub } });
   assert.equal(replay.status, 1, replay.stderr);
   assert.match(replay.stdout, /lost-ack/);
-  assert.ok(replay.stdout.includes(P1));
+  assert.ok(replay.stdout.includes(LOST_ACK));
   // --replay ignores the override and judges with the real oracle, so the record names it.
   assert.ok(replay.stdout.includes('oracle: real'));
   assert.match(replay.stdout, /result: violation/);

@@ -35,7 +35,7 @@ const { SCENARIOS, INITS, DEFAULT_REPO, buildFixture, actorCall, ageLock } = req
 
 const ACTOR_FLAG = '--gate-actor';
 const GRANT_FD = 3;
-const GATED_METHODS = ['existsSync', 'mkdirSync', 'readFileSync', 'renameSync', 'rmdirSync', 'statSync', 'writeFileSync'];
+const GATED_METHODS = ['existsSync', 'mkdirSync', 'readFileSync', 'readdirSync', 'renameSync', 'rmSync', 'rmdirSync', 'statSync', 'writeFileSync'];
 const SHORT = new Map(GATED_METHODS.map((m) => [m.replace(/Sync$/, ''), m]));
 const GRANT_MODES = ['park', 'release'];
 const pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -281,7 +281,8 @@ function abortAll() {
  * Runs one two-actor schedule in a fresh temp dir and resolves to the Observation (shared contract):
  * `{ scenario, init, fault, faultApplied, trace, gatedMethods, actors, final, incomplete, ms, maxRssKb }`.
  *
- * Exactly one of `chooser(parkedNames, step) -> name` or `replay` (a trace string; an age-lock token
+ * Exactly one of `chooser(parkedNames, step, view) -> name` (`view`: `{ methods: { A: 'mkdir', ... } }` for the
+ * parked actors and `trace`, the tokens granted so far) or `replay` (a trace string; an age-lock token
  * in it is the fault unless `fault` is given). `deadlineMs` kills both children and ends the schedule
  * INCOMPLETE. Test-only: `grantOn: 'release'` grants the next step right after writing a grant
  * (the round-3 P2 defect, for the negative control); `actorModule` replaces the ledger call with
@@ -372,7 +373,8 @@ function drive({ repo, scenario, fixture, fault, chooser, plan, deadlineMs, gran
       const parked = actors.filter((a) => a.parked);
       if (plan === null) {
         if (parked.length === 0) return null;
-        const name = chooser(parked.map((a) => a.name), grants);
+        const view = { methods: Object.fromEntries(parked.map((a) => [a.name, a.parked.method.replace(/Sync$/, '')])), trace: [...trace] };
+        const name = chooser(parked.map((a) => a.name), grants, view);
         const chosen = parked.find((a) => a.name === name);
         if (!chosen) throw new Error(`chooser picked '${name}', parked: ${parked.map((a) => a.name).join(',')}`);
         return chosen;
