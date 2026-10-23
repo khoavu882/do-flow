@@ -790,7 +790,7 @@ runtime behavior, and it is what most changes actually need to keep green. `test
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries; G18 labels two files, of which `adapter-force.test.js` is not listed; and G30 labels two
 files, `advice.test.js` and a ratchet test in `module-reachability.test.js` (the G16 file). The collisions are
-historical rather than a convention; G63 is the highest number in use, so a new guard takes the next
+historical rather than a convention; G65 is the highest number in use, so a new guard takes the next
 one above it instead of adding another collision. The list is not the whole directory. The
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
@@ -1149,7 +1149,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   word) or of a `reviewDepth.lightPaths` entry. There is no exclusion for `a single`. Controls: the
   detector flags `single seat when LOW`, `A single seat is enough when risk is LOW.`,
   `Use one seat when LOW.` and `single reviewer for edits to docs/ only`, and passes plain prose.
-- **G63** (`adopted-stores.test.js`) — the stores a linked worktree's records are adopted from
+- **G65** (`adopted-stores.test.js`) — the stores a linked worktree's records are adopted from
   (`core/registry/storage.json` stores with `root: project-state` that name `src/runtime/state-root.ts`
   in `writers`, read through `adoptedStores`) are the stores that source files address through
   `taskRecord`, `taskStoreDir`, `recordIn` or `resolveTaskScope`. Each helper call is tied to its own

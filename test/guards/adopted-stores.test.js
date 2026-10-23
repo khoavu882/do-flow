@@ -1,6 +1,6 @@
 'use strict';
 
-// G63 — the stores a linked worktree's records are adopted from are the stores that use the
+// G65 — the stores a linked worktree's records are adopted from are the stores that use the
 // namespaced task-record helpers (FU-tbd9by).
 //
 // `src/runtime/state-root.ts` takes its list of adopted stores from `core/registry/storage.json`: the
@@ -186,7 +186,7 @@ function checkAdopters(adopted, sources) {
 const shippedSources = () => new Map(walkSource('src').map((file) => [file, fs.readFileSync(path.join(REPO, file), 'utf8')]));
 const registry = loadStorageRegistry({ repoRoot: REPO });
 
-test('G63: the adopted stores and the task-record helper users name the same stores', () => {
+test('G65: the adopted stores and the task-record helper users name the same stores', () => {
   const adopted = adoptedStores(registry);
   assert.ok(adopted.length >= 7, 'the adopted stores were found');
   const users = helperUsers(shippedSources());
@@ -210,17 +210,17 @@ const fixtureSources = (files) => new Map(Object.entries(files));
 const alphaUser = "const { taskRecord } = require('./task-scope.ts');\ntaskRecord({ projectRoot, store: 'alpha', taskId });\n";
 const betaUser = "const { recordIn } = require('./task-scope.ts');\nconst base = path.join(root, '.doflow', 'state', 'beta');\nrecordIn({ base, namespace, name });\n";
 
-test('G63 control: adoption read from a synthetic registry covers only project-state stores that name the adopter', () => {
+test('G65 control: adoption read from a synthetic registry covers only project-state stores that name the adopter', () => {
   assert.deepEqual(adoptedStores(fixtureRegistry()).map((store) => store.id).sort(), ['task-alpha', 'task-beta']);
 });
 
-test('G63 control: a consistent synthetic registry and source set reports nothing', () => {
+test('G65 control: a consistent synthetic registry and source set reports nothing', () => {
   assert.deepEqual(checkAdopters(adoptedStores(fixtureRegistry()), fixtureSources({
     'src/alpha.ts': alphaUser, 'src/beta.ts': betaUser, 'src/unrelated.ts': "fs.writeFileSync(path.join(root, '.doflow', 'state', 'gamma', 'x.json'), '');\n",
   })), []);
 });
 
-test('G63 control: a store used through a helper but not adopted is named with its file', () => {
+test('G65 control: a store used through a helper but not adopted is named with its file', () => {
   const errors = checkAdopters(adoptedStores(fixtureRegistry()), fixtureSources({
     'src/alpha.ts': alphaUser, 'src/beta.ts': betaUser,
     'src/gamma.ts': "taskRecord({ projectRoot, store: 'gamma', taskId });\n",
@@ -229,13 +229,13 @@ test('G63 control: a store used through a helper but not adopted is named with i
   assert.match(errors[0], /^src\/gamma\.ts addresses store 'gamma' through a task-record helper/);
 });
 
-test('G63 control: an adopted store with no helper user is named by its id', () => {
+test('G65 control: an adopted store with no helper user is named by its id', () => {
   const errors = checkAdopters(adoptedStores(fixtureRegistry()), fixtureSources({ 'src/alpha.ts': alphaUser }));
   assert.equal(errors.length, 1, errors.join('\n'));
   assert.match(errors[0], /^store task-beta \(beta\) lists src\/runtime\/state-root\.ts in its writers, but no source file addresses 'beta'/);
 });
 
-test('G63 control: a store named in a comment, in the helper module or beside no helper call does not count as a user', () => {
+test('G65 control: a store named in a comment, in the helper module or beside no helper call does not count as a user', () => {
   const errors = checkAdopters(adoptedStores(fixtureRegistry()), fixtureSources({
     'src/alpha.ts': alphaUser,
     'src/comment.ts': "// recordIn({ store: 'beta' })\n/* taskRecord({ store: 'beta' }) */\nconst x = 1; // taskRecord({ store: 'beta' })\n",
@@ -246,7 +246,7 @@ test('G63 control: a store named in a comment, in the helper module or beside no
   assert.match(errors[0], /store task-beta/);
 });
 
-test('G63 control: removing the adopter from a real store, or adding it to one with no user, fails against the shipped sources', () => {
+test('G65 control: removing the adopter from a real store, or adding it to one with no user, fails against the shipped sources', () => {
   const sources = shippedSources();
   const without = structuredClone(registry);
   const evidence = without.stores.find((store) => store.id === 'task-evidence');
@@ -261,18 +261,18 @@ test('G63 control: removing the adopter from a real store, or adding it to one w
 
 // --- Controls: each helper call is tied to its own argument ------------------------------------
 
-test('G63 control: a store literal outside any helper call is not attributed to the file', () => {
+test('G65 control: a store literal outside any helper call is not attributed to the file', () => {
   const sources = fixtureSources({ 'src/x.ts': "taskRecord({ store: 'alpha' }); const unrelated = { store: 'gamma' };\n" });
   assert.deepEqual(checkAdopters([{ id: 'task-alpha', path: 'alpha' }], sources), []);
   assert.deepEqual([...helperUsers(sources).get('src/x.ts').stores], ['alpha']);
 });
 
-test('G63 control: a store literal in an object nested in a helper call is not the call\'s store', () => {
+test('G65 control: a store literal in an object nested in a helper call is not the call\'s store', () => {
   const sources = fixtureSources({ 'src/x.ts': "taskRecord({ projectRoot, taskId: pick({ store: 'gamma' }), store: 'alpha' });\n" });
   assert.deepEqual([...helperUsers(sources).get('src/x.ts').stores], ['alpha']);
 });
 
-test('G63 control: a helper call whose store is a variable, or is missing, is reported with its file and line', () => {
+test('G65 control: a helper call whose store is a variable, or is missing, is reported with its file and line', () => {
   const adopted = adoptedStores(fixtureRegistry());
   const variable = checkAdopters(adopted, fixtureSources({ 'src/alpha.ts': alphaUser, 'src/beta.ts': betaUser, 'src/x.ts': "const extra = 'gamma';\ntaskRecord({ store: extra });\n" }));
   assert.equal(variable.length, 1, variable.join('\n'));
@@ -283,7 +283,7 @@ test('G63 control: a helper call whose store is a variable, or is missing, is re
   assert.match(missing[1], /^src\/y\.ts:2 calls recordIn.*its first argument is not an object literal/);
 });
 
-test('G63 control: a recordIn base resolves through runStoreDir, RUN_STORE_REL, a literal path, a variable or a this field; a resolveTaskScope file addresses the state paths it names', () => {
+test('G65 control: a recordIn base resolves through runStoreDir, RUN_STORE_REL, a literal path, a variable or a this field; a resolveTaskScope file addresses the state paths it names', () => {
   const store = (text) => helperUsers(fixtureSources({ 'src/x.ts': text })).get('src/x.ts');
   const orchestration = RUN_STORE_REL.split(/[\\/]/).pop();
   assert.equal(orchestration, 'orchestration');
@@ -301,7 +301,7 @@ test('G63 control: a recordIn base resolves through runStoreDir, RUN_STORE_REL, 
   assert.match(unknown.unresolved[0].reason, /does not resolve/);
 });
 
-test('G63 control: the orchestrator is recognised as an orchestration user from its own run-store call, and the shipped tree stays consistent without research-request.ts naming it', () => {
+test('G65 control: the orchestrator is recognised as an orchestration user from its own run-store call, and the shipped tree stays consistent without research-request.ts naming it', () => {
   const sources = shippedSources();
   const without = new Map(sources);
   const request = sources.get('src/runtime/research-request.ts');
