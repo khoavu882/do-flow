@@ -59,7 +59,7 @@
     "debate": ["debate-3", "debate-2"]
   },
   "invariants": [
-    { "id": "INV-1", "statement": "A seat is never the agent and session that authored the reviewed change", "enforcedBy": "review --action check" },
+    { "id": "INV-1", "statement": "A seat is never the agent or the session that authored the reviewed change", "enforcedBy": "review --action check" },
     { "id": "INV-2", "statement": "Seats are read-only; the synthesizer sat as no seat", "enforcedBy": "review --action check" },
     { "id": "INV-3", "statement": "Verify PASS on the reviewed head before any seat", "enforcedBy": "review --action start" },
     { "id": "INV-4", "statement": "The class seat floor can be raised, never lowered", "enforcedBy": "review --action start, gate-b" },

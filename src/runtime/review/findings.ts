@@ -117,7 +117,7 @@ type Sameness = 'warn' | 'refuse';
 
 /**
  * The reviewer-independence facts of a record whose shape is already checked (119 L-C2). Only a record holding
- * `author` has any: INV-1 `independence:<seat>` always an error; `same-family:<seat>` an error under `refuse`,
+ * `author` has any: INV-1 `independence:<seat>` always an error (the seat's agent is the author's, or both sessions are non-null and equal: OR, FR-007); `same-family:<seat>` an error under `refuse`,
  * an advisory under `warn`; `family-unverified:<seat>` an advisory.
  */
 function identityFacts(data: any, sameFamily: Sameness): { errors: string[]; advisories: string[] } {
@@ -126,7 +126,7 @@ function identityFacts(data: any, sameFamily: Sameness): { errors: string[]; adv
   const { author } = data;
   for (const seat of data.seats) {
     if (!object(seat) || !nonempty(seat.id) || !validSeatIdentity(seat)) continue;
-    if (seat.agent === author.agent && seat.session != null && author.session != null && seat.session === author.session) {
+    if (seat.agent === author.agent || (seat.session != null && author.session != null && seat.session === author.session)) {
       facts.errors.push(`independence:${seat.id}`);
     }
     if (seat.family === undefined || seat.family === 'unknown' || author.family === 'unknown') facts.advisories.push(`family-unverified:${seat.id}`);

@@ -2,7 +2,7 @@
 
 // 119 C.1 (IC-002 second half, D-5, FR-007, INV-1): a findings record may declare who authored the reviewed change
 // (`author`) and who sat each seat (`agent`/`session`/`family`). The validator refuses a seat that is the author's own
-// agent and session, applies the same-family rule, and `review --action check` cross-reads the head's Co-Authored-By
+// agent or session (INV-1 is OR, C-4), applies the same-family rule, and `review --action check` cross-reads the head's Co-Authored-By
 // trailers and the slug's task-attempt owners. Scratch repos and records only; a test reads only its own repo.
 
 const { test } = require('node:test');
@@ -36,16 +36,28 @@ const identityOf = (record, option) => reviewAdvisories(record, option).filter((
 
 // ---- the validator ------------------------------------------------------------------------------
 
-test('INV-1: a seat with the author\'s agent and session is error independence:<seatId>', () => {
+test('INV-1: a seat with the author\'s agent and session (both) is error independence:<seatId>', () => {
   const record = withIdentity({ seatA: { agent: 'core-implementer', session: 'sess-1', family: 'gpt' } });
   assert.deepEqual(errorsOf(record), ['independence:backend-expert']);
 });
 
-test('INV-1: the same agent with a different session, or a null session on either side, passes', () => {
-  assert.deepEqual(errorsOf(withIdentity({ seatA: { agent: 'core-implementer', session: 'sess-2', family: 'gpt' } })), []);
-  assert.deepEqual(errorsOf(withIdentity({ seatA: { agent: 'core-implementer', session: null, family: 'gpt' } })), []);
-  assert.deepEqual(errorsOf(withIdentity({ author: { ...AUTHOR, session: null }, seatA: { agent: 'core-implementer', session: 'sess-1', family: 'gpt' } })), []);
-  assert.deepEqual(errorsOf(withIdentity({ author: { ...AUTHOR, session: null }, seatA: { agent: 'core-implementer', session: null, family: 'gpt' } })), []);
+test('INV-1 is OR (C-4): the author\'s agent with a different or null session is error independence:<seatId>', () => {
+  const err = ['independence:backend-expert'];
+  assert.deepEqual(errorsOf(withIdentity({ seatA: { agent: 'core-implementer', session: 'sess-2', family: 'gpt' } })), err);
+  assert.deepEqual(errorsOf(withIdentity({ seatA: { agent: 'core-implementer', session: null, family: 'gpt' } })), err);
+  assert.deepEqual(errorsOf(withIdentity({ author: { ...AUTHOR, session: null }, seatA: { agent: 'core-implementer', session: 'sess-1', family: 'gpt' } })), err);
+  assert.deepEqual(errorsOf(withIdentity({ author: { ...AUTHOR, session: null }, seatA: { agent: 'core-implementer', session: null, family: 'gpt' } })), err);
+});
+
+test('INV-1 is OR (C-4): the author\'s session under a different agent is error independence:<seatId>', () => {
+  assert.deepEqual(errorsOf(withIdentity({ seatA: { agent: 'reviewer', session: 'sess-1', family: 'gpt' } })), ['independence:backend-expert']);
+});
+
+test('INV-1: a different agent with a different or null session on either side passes', () => {
+  assert.deepEqual(errorsOf(withIdentity({ seatA: { agent: 'reviewer', session: 'sess-2', family: 'gpt' } })), []);
+  assert.deepEqual(errorsOf(withIdentity({ seatA: { agent: 'reviewer', session: null, family: 'gpt' } })), []);
+  assert.deepEqual(errorsOf(withIdentity({ author: { ...AUTHOR, session: null }, seatA: { agent: 'reviewer', session: null, family: 'gpt' } })), []);
+  assert.deepEqual(errorsOf(withIdentity({ author: { ...AUTHOR, session: null }, seatA: { agent: 'reviewer', session: 'sess-1', family: 'gpt' } })), []);
 });
 
 test('a seat identity without an author declares nothing to compare: valid, no advisory', () => {
