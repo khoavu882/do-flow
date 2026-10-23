@@ -8,6 +8,7 @@ const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { countFindings } = require('../../src/runtime/review/findings.ts');
 const { handleReviewCommand } = require('../../src/runtime/review/command.ts');
+const { createSettingsEnv } = require('../helper/settings-fixtures');
 
 const REPO = path.resolve(__dirname, '../..');
 const SECRET = 'SECRET-095-PLANT';
@@ -488,4 +489,27 @@ test('095b IC-006: the telemetry registry declares depth, risk and head and the 
   assert.deepEqual(fields.risk, { name: 'doflow.review.run.risk', class: 'T2', type: 'enum:risk|null', phase: 'P7' });
   assert.deepEqual(fields.head, { name: 'doflow.review.run.head', class: 'T0', type: 'token|null', phase: 'P7' });
   assert.deepEqual(registry.vocabularies.depth, ['single', 'deep']);
+});
+
+test('C-6: a malformed or invalid project review.sameFamily is an unreadable setting: check errors (exit 1), never the advisory', (t) => {
+  const f = createSettingsEnv(t, { prefix: 'doflow-review-check-settings-' });
+  const record = { ...validRecord(), author: { agent: 'core-implementer', session: 's1', family: 'claude' } };
+  record.seats[0] = { ...record.seats[0], agent: 'reviewer', session: 's2', family: 'gpt' };
+  record.seats[1] = { ...record.seats[1], agent: 'reviewer', session: 's3', family: 'gpt' };
+  const file = writeRecord(f.project, record);
+  const check = () => {
+    const result = invoke({ ...baseOptions(f.project, file, fakeWriter().writer), env: f.env(), json: true });
+    return { exitCode: result.exitCode, body: parseJsonOutput(result.lines) };
+  };
+  assert.equal(check().exitCode, 0, 'no settings file: valid');
+  for (const text of ['{ "schema": 1, "review.sameFamily": "refuse", }', '{ "schema": 1, "review.sameFamily": "strict" }']) {
+    fs.writeFileSync(path.join(f.project, '.doflow', 'settings.json'), text);
+    const { exitCode, body } = check();
+    assert.equal(exitCode, 1, text);
+    assert.equal(body.valid, false);
+    assert.deepEqual(body.errors, ['same-family-setting-unread'], text);
+    assert.ok(!body.advisories.includes('same-family-setting-unread'));
+  }
+  fs.writeFileSync(path.join(f.project, '.doflow', 'settings.json'), '{ "schema": 1, "review.sameFamily": "warn" }');
+  assert.equal(check().exitCode, 0, 'a readable file is fine again');
 });

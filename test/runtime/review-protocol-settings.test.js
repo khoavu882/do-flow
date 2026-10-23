@@ -287,3 +287,22 @@ test('settings: a settings view that cannot load is a settings-unavailable refus
   assert.equal(code, 1);
   assert.deepEqual(JSON.parse(lines.join('\n')), { ok: false, error: 'settings-unavailable', message: 'settings registry exploded' });
 });
+
+test('C-6: a malformed project file, or an invalid review.* value in it, is a settings-unavailable refusal naming the key and file', (t) => {
+  const f = createSettingsEnv(t);
+  const priorExit = process.exitCode;
+  t.after(() => { process.exitCode = priorExit; });
+  const file = path.join(f.project, '.doflow', 'settings.json');
+  for (const [text, key] of [['{ "schema": 1, "review.preset": "review-deep", }', 'review.preset'], ['{ "schema": 1, "review.sameFamily": "strict" }', 'review.sameFamily']]) {
+    fs.writeFileSync(file, text);
+    const got = loadProtocolInputs('feature', f.project, f.env());
+    assert.equal(got.error, 'settings-unavailable', text);
+    assert.ok(got.message.includes(key) && got.message.includes(file), got.message);
+    const lines = [];
+    const code = handleProtocolCommand({ action: 'resolve', kind: 'review', json: true, cwd: f.project, env: f.env(), out: (line) => lines.push(line) });
+    assert.equal(code, 1);
+    assert.equal(JSON.parse(lines.join('\n')).error, 'settings-unavailable');
+  }
+  fs.writeFileSync(file, '{ "schema": 1, "review.preset": "review-deep" }');
+  assert.equal('error' in loadProtocolInputs('feature', f.project, f.env()), false);
+});

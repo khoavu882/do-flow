@@ -202,15 +202,16 @@ test('check: INV-1 is an error through the verb too', (t) => {
   assert.deepEqual(got.result.errors, ['independence:backend-expert']);
 });
 
-test('check: unreadable settings use warn and add same-family-setting-unread', (t) => {
+test('check: unreadable settings (a broken project file, or a load that throws) are error same-family-setting-unread, exit 1 (C-6)', (t) => {
   const s = scratchRepo(t);
   const record = withIdentity({ seatA: { agent: 'reviewer', session: 's9', family: 'claude' }, seatB: { agent: 'reviewer', session: 's8', family: 'gpt' } });
   record.reviewedHead = s.commit('one');
   fs.writeFileSync(path.join(s.f.project, '.doflow', 'settings.json'), '{ not json');
-  const warned = check(s, record);
-  assert.equal(warned.code, 0);
-  assert.ok(warned.result.advisories.includes('same-family:backend-expert'));
-  // A broken project file falls back to the registry default; only a thrown load reports the setting unread.
+  const broken = check(s, record);
+  assert.equal(broken.code, 1);
+  assert.deepEqual(broken.result.errors, ['same-family-setting-unread']);
+  assert.ok(!broken.result.advisories.includes('same-family-setting-unread'));
+  fs.rmSync(path.join(s.f.project, '.doflow', 'settings.json'));
   const file = path.join(s.f.project, 'review', 'findings.json');
   const lines = [];
   const code = handleReviewCommand({
@@ -218,10 +219,8 @@ test('check: unreadable settings use warn and add same-family-setting-unread', (
     out: (line) => lines.push(line), writer: { write() {} },
     loadSettings: () => { throw new Error('boom'); },
   });
-  assert.equal(code, 0);
-  const result = JSON.parse(lines.join('\n'));
-  assert.ok(result.advisories.includes('same-family-setting-unread'), result.advisories.join());
-  assert.ok(result.advisories.includes('same-family:backend-expert'));
+  assert.equal(code, 1);
+  assert.deepEqual(JSON.parse(lines.join('\n')).errors, ['same-family-setting-unread']);
 });
 
 test('check: a Claude trailer against author family gpt is author-trailer-contradiction; against claude or unknown, nothing', (t) => {

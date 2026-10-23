@@ -14,6 +14,7 @@ const { spawnSync } = require('node:child_process');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { verifyRecordReasons, loadPolicy } = require('../roadmap/gates.ts');
 const { finishRuntime, captureCaught } = require('../cli-result.ts');
+const { invalidProjectCandidate } = require('./findings.ts');
 const { resolveProtocol, protocolLines, protocolDigest, pathScope, gateMinSeats } = require('./resolve-protocol.ts');
 
 type Env = Record<string, string | undefined>;
@@ -234,6 +235,9 @@ function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<s
     const settings = require('../settings/resolve.ts').loadSettings({ projectRoot: path.resolve(cwd), env });
     for (const key of PROTOCOL_SETTINGS) {
       const resolution = settings.get(key);
+      // C-6: an invalid project or local review.* candidate would silently fall back to the default: refuse instead.
+      const invalid = key.startsWith('review.') ? invalidProjectCandidate(resolution) : undefined;
+      if (invalid) return { error: 'settings-unavailable', message: `${key} in ${invalid.source}: ${invalid.reason}` };
       settingsView[key] = { value: resolution.value, layer: resolution.origin.layer };
     }
   } catch (error: any) {

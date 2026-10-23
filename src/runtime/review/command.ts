@@ -5,7 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { validateFindings, countFindings, reviewAdvisories } = require('./findings.ts');
+const { validateFindings, countFindings, reviewAdvisories, invalidProjectCandidate } = require('./findings.ts');
 const { resolveActiveFeature } = require('../feature-resolve.ts');
 const { TelemetryWriter } = require('../trace/telemetry.ts');
 const { finishRuntime } = require('../cli-result.ts');
@@ -36,11 +36,14 @@ function defaultGit(args: string[], cwd: string, env: Env): { status: number | n
   return spawnSync('git', ['-C', cwd, ...args], { cwd, env: gitEnv, stdio: 'ignore' });
 }
 
-/** The project's `review.sameFamily` (119 L-C3), read for the checkout the verb runs in. An unloadable settings
- * view is `warn` plus `unread`, never a crash and never a silent `refuse`. */
+/** The project's `review.sameFamily` (119 L-C3), read for the checkout the verb runs in. A settings view that cannot
+ * load, or an invalid project or local value for the key (C-6: the resolver would fall back to the default without a
+ * word), is `warn` plus `unread`; the caller turns `unread` into an error. Never a crash, never a silent `refuse`. */
 function readSameFamily(load: (options: { projectRoot: string; env: Env }) => any, cwd: string, env: Env): { value: 'warn' | 'refuse'; unread: boolean } {
   try {
-    return { value: load({ projectRoot: path.resolve(cwd), env }).get('review.sameFamily').value === 'refuse' ? 'refuse' : 'warn', unread: false };
+    const resolution = load({ projectRoot: path.resolve(cwd), env }).get('review.sameFamily');
+    if (invalidProjectCandidate(resolution)) return { value: 'warn', unread: true };
+    return { value: resolution.value === 'refuse' ? 'refuse' : 'warn', unread: false };
   } catch {
     return { value: 'warn', unread: true };
   }
@@ -148,7 +151,7 @@ function handleReviewCommand({
       if (peek !== null && typeof peek === 'object' && Object.hasOwn(peek, 'author')) {
         const read = readSameFamily(loadSettings, cwd, env);
         sameFamily = read.value;
-        if (read.unread) identityAdvisories.push('same-family-setting-unread');
+        if (read.unread) errors.push('same-family-setting-unread');
       }
       const validation = validateFindings(raw, { sameFamily });
       for (const error of validation.errors) errors.push(error); // a spread overflows the stack at ~200k errors (C-6)

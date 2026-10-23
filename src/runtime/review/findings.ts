@@ -81,6 +81,12 @@ function validProtocol(value: any): boolean {
   return typeof value.id === 'string' && ids !== null && ids.includes(value.id);
 }
 
+/** C-6: the first project or local candidate of a resolved setting that is `invalid` (a malformed file or a bad value in it).
+ * The resolver then falls back to the key's default without a word, so a `review.*` reader treats it as unreadable. */
+function invalidProjectCandidate(resolution: any): { source: string; reason: string } | undefined {
+  return (resolution?.candidates ?? []).find((c: any) => ['project', 'local'].includes(c.layer) && c.status === 'invalid');
+}
+
 /** True when the record's protocol is looser (later in the registry's strictest-first `order.review`) than `presetId`,
  * the project's `review.preset`. `auto` needs the diff, which gate-b does not read, so it never compares (C-2). */
 function protocolLooserThanPreset(protocol: any, presetId: any): boolean {
@@ -278,5 +284,5 @@ function reviewAdvisories(json: any, { sameFamily = 'warn' }: { sameFamily?: Sam
 
 module.exports = {
   HEX_HEAD, SEVERITIES, DISPOSITIONS, ORIGINS, VERIFICATIONS, ACCEPTED_AS, ROUND_CAP, RECORD_KEYS, FINDING_FIELDS,
-  object, nonempty, strings, validPath, evidenceLocator, validateFindings, countFindings, reviewAdvisories, protocolLooserThanPreset,
+  object, nonempty, strings, validPath, evidenceLocator, validateFindings, countFindings, reviewAdvisories, protocolLooserThanPreset, invalidProjectCandidate,
 };

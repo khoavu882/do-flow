@@ -178,6 +178,21 @@ test('C-2: the review-settings fact also carries the project review.preset, whic
   assert.equal(evaluate(env.options.policy, 'feature', 'gate-b', env.gather('gate-b', { env: sandbox })).reasons.includes('findings-invalid'), false);
 });
 
+test('C-6: an invalid project review.* value or a malformed project settings file makes the review-settings fact unreadable (gate-b denies)', (t) => {
+  const env = setup(t);
+  const sandbox = { ...process.env, HOME: path.join(env.root, 'home'), XDG_CONFIG_HOME: path.join(env.root, 'xdg') };
+  for (const text of ['{ "schema": 1, "review.sameFamily": "refuse", }', '{ "schema": 1, "review.preset": "bogus" }']) {
+    const file = env.write('.doflow/settings.json', text);
+    const gathered = env.gather('gate-b', { env: sandbox });
+    const fact = gathered.find((f) => f.name === 'review-settings');
+    assert.equal(fact.unreadable, 'settings-unavailable', text);
+    assert.equal(fact.locator, file);
+    assert.ok(evaluate(env.options.policy, 'feature', 'gate-b', gathered).reasons.some((r) => r.startsWith('findings-invalid:')), text);
+  }
+  env.write('.doflow/settings.json', JSON.stringify({ schema: 1, 'review.preset': 'review-deep' }));
+  assert.equal(env.gather('gate-b', { env: sandbox }).find((f) => f.name === 'review-settings').unreadable, undefined);
+});
+
 test('a register that does not exist yet is an empty decision list; a malformed one stays unreadable', (t) => {
   const env = setup(t);
   env.write(`agent-docs/doflow/${row.slug}/review/findings.json`, JSON.stringify({ ...review, converged: [
