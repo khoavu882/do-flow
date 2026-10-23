@@ -8,7 +8,7 @@ and recovery procedures, continue to [Setup](setup.md).
 
 ## 1. Install
 
-DoFlow needs Node.js `^22.18.0 || >=24.3.0` (the `engines.node` range in `package.json`). A source
+DoFlow needs Node.js `>=24.22.1` (the `engines.node` range in `package.json`; Node 22 is no longer supported). A source
 checkout runs its TypeScript directly through Node's type stripping; the npm package ships
 JavaScript built by `npm run build:package`, and its `bin/doflow.js` still checks for type-stripping
 support, so the same Node range applies. Git, `bash` and

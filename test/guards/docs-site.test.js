@@ -104,12 +104,13 @@ function checkNavAndLlms(root) {
   return problems;
 }
 
-/** `^22.18.0 || >=24.3.0` with whitespace and the table-cell backslash before `|` removed. */
+/** `>=24.22.1` (or an older `^22.18.0 || >=24.3.0`) with whitespace and the table-cell backslash before `|` removed. */
 function normalizeRange(text) {
   return text.replace(/\\/g, '').replace(/\s+/g, '');
 }
 
-const RANGE_PATTERN = /\^\d+\.\d+\.\d+\s*\\?\|\\?\|\s*>=\d+\.\d+\.\d+/g;
+// The optional leading alternative keeps an old `^a.b.c || >=x.y.z` statement whole, so it is reported as stale.
+const RANGE_PATTERN = /(?:\^\d+\.\d+\.\d+\s*\\?\|\\?\|\s*)?>=\d+\.\d+\.\d+/g;
 
 function checkNodeFloor(root) {
   const problems = [];
@@ -127,13 +128,13 @@ function checkNodeFloor(root) {
   return problems;
 }
 
-// A claim of an 18 or 20 floor: "Node 18", "Node.js 20+", "node >=18", "Node v20", "node@20",
-// "Node 18.19 or later", "Node versions: 18 and 20", "requires 18+". The lookbehind keeps "22.18+" out.
+// A claim of an 18, 20 or 22 floor: "Node 18", "Node.js 20+", "node >=22", "Node v20", "node@22",
+// "Node 18.19 or later", "Node versions: 18 and 20", "requires 22+". The lookbehind keeps "24.22+" out.
 const STALE_FLOOR = new RegExp(
   [
-    '\\bnode(?:\\.js)?(?:\\s+versions?)?\\s*(?::|@|>=|≥|v|version\\s+)?\\s*(?:18|20)\\b',
-    '(?:>=|≥)\\s*(?:18|20)\\b',
-    '(?<![\\d.])(?:18|20)\\+',
+    '\\bnode(?:\\.js)?(?:\\s+versions?)?\\s*(?::|@|>=|≥|v|version\\s+)?\\s*(?:18|20|22)\\b',
+    '(?:>=|≥)\\s*(?:18|20|22)\\b',
+    '(?<![\\d.])(?:18|20|22)\\+',
   ].join('|'),
   'i',
 );
@@ -151,7 +152,7 @@ function checkStaleNodeFloor(root) {
   for (const page of markdownPages(root)) {
     read(root, page).split('\n').forEach((line, index) => {
       if (clauses(line).some((clause) => STALE_FLOOR.test(clause) && !FLOOR_HISTORY.test(clause))) {
-        problems.push(`${page}:${index + 1} claims a Node 18 or 20 floor`);
+        problems.push(`${page}:${index + 1} claims a Node 18, 20 or 22 floor`);
       }
     });
   }
@@ -243,16 +244,16 @@ test('G49.b: quickstart.md and setup.md state the Node range package.json declar
 
 test('G49.b negative control: a changed range, or a page with none, is reported', (t) => {
   const changed = copySite(t);
-  edit(changed, 'docs/quickstart.md', (s) => s.replace('>=24.3.0', '>=24.0.0'));
+  edit(changed, 'docs/quickstart.md', (s) => s.replace('>=24.22.1', '>=24.0.0'));
   assert.ok(checkNodeFloor(changed).some((p) => /quickstart\.md states Node/.test(p)));
 
   const drifted = copySite(t);
-  edit(drifted, 'package.json', (s) => s.replace('^22.18.0', '^22.19.0'));
+  edit(drifted, 'package.json', (s) => s.replace('>=24.22.1', '>=24.23.0'));
   const problems = checkNodeFloor(drifted);
   assert.ok(problems.some((p) => /quickstart\.md/.test(p)) && problems.some((p) => /setup\.md/.test(p)));
 
   const none = copySite(t);
-  edit(none, 'docs/setup.md', (s) => s.split('^22.18.0').join('22.18'));
+  edit(none, 'docs/setup.md', (s) => s.split('>=24.22.1').join('24.22.1'));
   assert.ok(checkNodeFloor(none).some((p) => /setup\.md does not state a Node range/.test(p)));
 
   // Every statement is checked, not the first: a stale range after a correct one is reported.
@@ -264,11 +265,11 @@ test('G49.b negative control: a changed range, or a page with none, is reported'
   assert.ok(checkNodeFloor(secondQuickstart).some((p) => /quickstart\.md states Node "\^22\.6\.0/.test(p)));
 });
 
-test('G49.c: no page claims a Node 18 or 20 floor', () => {
+test('G49.c: no page claims a Node 18, 20 or 22 floor', () => {
   assert.deepEqual(checkStaleNodeFloor(REPO), []);
 });
 
-test('G49.c negative control: re-seeded 18 and 20 floor claims are reported, a history clause is not', (t) => {
+test('G49.c negative control: re-seeded 18, 20 and 22 floor claims are reported, a history clause is not', (t) => {
   const seeded = copySite(t);
   edit(seeded, 'docs/setup.md', (s) => `${s}\nDoFlow requires Node.js 18 or newer.\n`);
   edit(seeded, 'docs/quickstart.md', (s) => `${s}\nSupported: node >=20.\n`);
@@ -277,7 +278,7 @@ test('G49.c negative control: re-seeded 18 and 20 floor claims are reported, a h
   assert.ok(problems.some((p) => /^docs\/quickstart\.md:\d+ /.test(p)));
 
   // Each form an earlier pattern let through.
-  for (const claim of ['Install with node@20 or newer.', 'Needs Node 18.19 or later.', 'Node versions: 18 and 20.', 'Runs on Node 20.x.', 'Requires 18+.']) {
+  for (const claim of ['Install with node@20 or newer.', 'Needs Node 18.19 or later.', 'Node versions: 18 and 20.', 'Runs on Node 20.x.', 'Requires 18+.', 'Install with node@22 or newer.', 'Needs Node 22.18 or later.', 'Node 22+ is enough.']) {
     const form = copySite(t);
     edit(form, 'docs/guide.md', (s) => `${s}\n${claim}\n`);
     assert.ok(checkStaleNodeFloor(form).some((p) => /^docs\/guide\.md:\d+ /.test(p)), `not reported: ${claim}`);
@@ -288,7 +289,7 @@ test('G49.c negative control: re-seeded 18 and 20 floor claims are reported, a h
   edit(sameLine, 'docs/guide.md', (s) => `${s}\nNode 20+ works. Node 18 is no longer supported.\n`);
   assert.ok(checkStaleNodeFloor(sameLine).some((p) => /^docs\/guide\.md:\d+ /.test(p)));
   const row = copySite(t);
-  edit(row, 'docs/setup.md', (s) => s.replace('| Node.js 22.18+ / 24.3+ |', '| Node.js 20+ |'));
+  edit(row, 'docs/setup.md', (s) => s.replace('| Node.js 24.22.1+ |', '| Node.js 22+ |'));
   assert.ok(checkStaleNodeFloor(row).some((p) => /^docs\/setup\.md:15 /.test(p)));
   assert.deepEqual(checkNodeFloor(row), [], 'the range cell is unchanged, so only this check can see the header');
 

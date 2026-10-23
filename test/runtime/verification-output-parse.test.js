@@ -97,7 +97,7 @@ FAILED test_app.py::test_two - assert 1 == 2
 ========================= 1 failed, 2 passed in 0.05s ==========================
 `;
 
-test('parseTestCounts parses pinned TAP 22.18 shape', () => {
+test('parseTestCounts parses the TAP shape of a project reporter', () => {
   assert.deepEqual(parseTestCounts(TAP_PASS), { tests: 2, testsFailed: 0 });
   assert.deepEqual(parseTestCounts(TAP_FAIL), { tests: 2, testsFailed: 1 });
 });

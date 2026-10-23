@@ -7,7 +7,7 @@
 // payloads). This script re-derives the watch list FROM THE REGISTRIES at runtime, fingerprints
 // each cited page, and diffs the fingerprints against scripts/drift/baseline.json.
 //
-// Doctrine: plain Node ^22.18.0 || >=24.3.0, zero dependencies (global fetch + node:crypto sha256). Deterministic:
+// Doctrine: plain Node >=24.22.1, zero dependencies (global fetch + node:crypto sha256). Deterministic:
 // the same page content yields the same fingerprint regardless of fetch order, time of day, or
 // cosmetic page churn — normalization strips tags/script/style, collapses whitespace, and drops
 // date-like and copyright lines before hashing. Baseline lives under scripts/, NOT core/registry/

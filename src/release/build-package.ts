@@ -20,9 +20,6 @@ function walkFiles(root: string): string[] {
 }
 
 function buildPackage(outDir: string, { repoRoot = REPO_ROOT }: { repoRoot?: string } = {}): string {
-  if (typeof stripTypeScriptTypes !== 'function') {
-    throw new Error('Node does not provide node:module.stripTypeScriptTypes');
-  }
   const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'));
   const output = path.resolve(outDir);
   fs.rmSync(output, { recursive: true, force: true });
