@@ -357,6 +357,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--baseline-ref', 'baselineRef'],             // verify: explicit ancestor commit or ref to measure change against (IC-022)
   ['--base', 'base'],                  // review --action start: the commit or ref the changed paths are measured from (095b IC-001)
   ['--preset', 'preset'],              // review --action start: a review preset id to run with, never looser than the decided one (119 IC-005)
+  ['--layer', 'layer'],                // config validate|set|unset: user | project | local, checked in handleConfigCommand (119 IC-008)
   ['--error', 'errorMessage'],         // recover: the failure text to classify
   ['--agent', 'agent'],                // recover: which agent produced the failure
   ['--task', 'task'],                  // task-attempt: the plan task id, e.g. A.1
@@ -531,7 +532,12 @@ Commands:
   discover             Missed capability opportunities in recorded runs
   inventory            Shadowed copies, drift and unmanaged files across both install scopes
   storage              Report stored data and retention bounds (--action report|prune|upkeep)
-  config               Show each setting's effective value and where it came from (list [--show-origin] [--json])
+  config               Show each setting's effective value and where it came from, print the settings schema, or validate, set or unset one (exit 0 ok, 1 refused, 2 usage):
+                       config [list] [--show-origin] [--json] [-g] [<project path>]   read-only
+                       config schema [--json]   every key with its type, values, default, scope and whether config set may write it, the locked invariants and the presets
+                       config validate <key> <json-value> [--layer user|project|local] [--json]   check a value, writes nothing
+                       config set <key> <json-value> --layer user|project|local [--json]   validate, then write that layer's file; refuses security-relevant and invariant.* keys
+                       config unset <key> --layer user|project|local [--json]   remove the key from that layer's file
   scaffold             Emit the reviewable code scaffold the active feature's artifacts imply
   decision             Register, list or compact the active feature's decisions (--action init|add|list|compact)
   followup             Record, list, take, settle, promote or report what a feature left unfinished (--action add|list|take|settle|promote|report)
@@ -670,6 +676,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --slug | --path                       review --action check (at most one; with neither, the active feature)
       --base <ref>                          review --action start (measure the changed paths from this commit, which must be the review's base; --path is refused)
       --preset <id>                         review --action start, protocol --action resolve (run this preset; refused when looser than the decided protocol)
+      --layer user|project|local            config validate, set, unset (which settings file; project and local are the current project's .doflow/settings.json and settings.local.json)
       --kind review|debate, --risk <level>  protocol (--kind filters list and selects what resolve decides; --risk is the change's risk level)
       --ids, --as, --evidence, --title,
       --release, --source, --channel        followup (add, list, take, settle, promote)

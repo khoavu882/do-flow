@@ -22,7 +22,7 @@
                  { "layer": "project", "kind": "decision-model", "path": "decision-model.json", "field": "endpoint" }],
       "consumers": ["src/runtime/advice/config.ts"], "description": "Decision-model endpoint; default is the provider's defaultEndpoint." },
     "advice.model": { "type": "string", "default": null, "scope": "project-overridable", "combine": "override",
-      "securityRelevant": false, "env": null, "flag": null, "shellRead": null, "needsConfigHome": false,
+      "securityRelevant": true, "failSafe": { "gate": "advice.enabled" }, "env": null, "flag": null, "shellRead": null, "needsConfigHome": false,
       "legacy": [{ "layer": "user", "kind": "decision-model", "path": "decision-model.json", "field": "model" },
                  { "layer": "project", "kind": "decision-model", "path": "decision-model.json", "field": "model" }],
       "consumers": ["src/runtime/advice/config.ts"], "description": "Decision-model name; a project may choose it while advice is on." },

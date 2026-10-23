@@ -164,17 +164,44 @@ function securityFault(report: any): boolean {
   return Object.values(report.keys || {}).some(check);
 }
 
-function configArguments(positional: any): { project: string | null; error: string | null } {
+const CONFIG_ACTIONS = ['list', 'schema', 'validate', 'set', 'unset'];
+const CONFIG_LAYERS = ['user', 'project', 'local'];
+/** Positional words after the action: the key and, for validate and set, a JSON value. */
+const CONFIG_OPERANDS: Record<string, number> = { schema: 0, validate: 2, set: 2, unset: 1 };
+
+interface ConfigArgs { action: string; project: string | null; key: string | null; valueText: string | null; error: string | null }
+
+/** Splits `config [list] [path] | schema | validate <key> <value> | set <key> <value> | unset <key>` and its flags. */
+function configArguments(positional: any, { layer, global, showOrigin }: any): ConfigArgs {
   const args = Array.isArray(positional) ? [...positional] : [];
-  if (args[0] === 'set') return { project: null, error: 'config set is not supported; config is read-only' };
-  if (args[0] === 'list') args.shift();
-  if (args.length > 1) return { project: null, error: 'expected config [list] [project path]' };
-  return { project: args[0] || null, error: null };
+  const fail = (error: string): ConfigArgs => ({ action: 'list', project: null, key: null, valueText: null, error });
+  let action = 'list';
+  if (CONFIG_ACTIONS.includes(args[0])) action = args.shift();
+  else if (args.length === 1 && !args[0].includes(path.sep) && !fs.existsSync(args[0])) {
+    return fail(`unknown action '${args[0]}'; expected ${CONFIG_ACTIONS.join(', ')}`);
+  }
+  if (layer !== undefined && !CONFIG_LAYERS.includes(layer)) return fail(`--layer must be one of ${CONFIG_LAYERS.join(', ')}`);
+  if (action === 'list') {
+    if (args.length > 1) return fail('expected config [list] [project path]');
+    if (layer !== undefined) return fail('--layer is only for validate, set and unset');
+    return { action, project: args[0] || null, key: null, valueText: null, error: null };
+  }
+  if (showOrigin) return fail('--show-origin is only for config list');
+  if (global) return fail(`-g is not for config ${action}`);
+  if (action === 'schema' && layer !== undefined) return fail('--layer is only for validate, set and unset');
+  const want = CONFIG_OPERANDS[action];
+  if (args.length !== want) {
+    const usage = { schema: 'config schema', validate: 'config validate <key> <json-value> [--layer user|project|local]',
+      set: 'config set <key> <json-value> --layer user|project|local', unset: 'config unset <key> --layer user|project|local' }[action];
+    return fail(`expected ${usage}`);
+  }
+  if ((action === 'set' || action === 'unset') && layer === undefined) return fail(`config ${action} needs --layer user|project|local`);
+  return { action, project: null, key: args[0] ?? null, valueText: args[1] ?? null, error: null };
 }
 
-function handleConfigCommand({ json = false, global = false, showOrigin = false, positional = [],
+function handleConfigCommand({ json = false, global = false, showOrigin = false, positional = [], layer,
   projectRoot, repoRoot = REPO_ROOT, env = process.env, fsImpl = fs }: any = {}): number {
-  const args = configArguments(positional);
+  const args = configArguments(positional, { layer, global, showOrigin });
   if (args.error) return usageError('config', args.error, json);
   const loaded = loadSettingsRegistry({ repoRoot, fsImpl });
   if (!loaded.ok) {
@@ -183,6 +210,14 @@ function handleConfigCommand({ json = false, global = false, showOrigin = false,
       error: 'settings-registry-invalid', detail }, null, 2));
     else console.error(`doflow config: settings registry unavailable: ${detail}`);
     return finishRuntime(2);
+  }
+
+  if (args.action !== 'list') {
+    // loaded on demand: the writer and the protocol registry stay off the read-only list path
+    return require('./config-write.ts').handleConfigAction({
+      action: args.action, key: args.key, valueText: args.valueText, layer, json, registry: loaded.registry,
+      repoRoot, projectRoot: projectRoot || process.cwd(), env, fsImpl,
+    });
   }
 
   try {

@@ -1,0 +1,418 @@
+'use strict';
+
+// 119 IC-007, IC-008, IC-009 (D-2): `doflow config schema|validate|set|unset`. Every case runs the CLI
+// against a scratch HOME / XDG_CONFIG_HOME and a scratch project (test/helper/settings-fixtures.js),
+// so nothing here reads or writes the real config home or the live repository.
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { createSettingsEnv, REPO } = require('../helper/settings-fixtures');
+
+const REGISTRY = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/settings.json'), 'utf8'));
+const PROTOCOLS = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/protocols.json'), 'utf8'));
+const STORAGE = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/storage.json'), 'utf8'));
+const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
+
+/** The single IC-009 entry of a refused `--json` call, with the call's shape checked on the way. */
+function refusal(result, key) {
+  assert.equal(result.status, 1, `${result.stdout}${result.stderr}`);
+  assert.equal(result.json.ok, false);
+  assert.equal(result.json.errors.length, 1, JSON.stringify(result.json.errors));
+  const [entry] = result.json.errors;
+  assert.equal(entry.key, key);
+  assert.equal(entry.ok, false);
+  assert.deepEqual(Object.keys(entry).sort(), ['allowed', 'code', 'key', 'layer', 'message', 'ok']);
+  assert.equal(typeof entry.message, 'string');
+  assert.ok(entry.message && !entry.message.includes('\n'));
+  return entry;
+}
+
+// ── set: the success path ─────────────────────────────────────────────────────────────────────────
+
+test('set review.rounds 3 --layer project writes a valid 0600 file and reports origin project', (t) => {
+  const f = createSettingsEnv(t);
+  const file = f.projectFile('settings.json');
+  const result = f.run(['config', 'set', 'review.rounds', '3', '--layer', 'project', '--json']);
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+  assert.equal(result.json.ok, true);
+  assert.deepEqual(result.json.errors, []);
+  assert.equal(result.json.key, 'review.rounds');
+  assert.equal(result.json.layer, 'project');
+  assert.equal(result.json.file, file);
+  assert.equal(result.json.value, 3);
+  assert.equal(result.json.origin.layer, 'project');
+  assert.equal(result.json.origin.source, file);
+  assert.deepEqual(readJson(file), { schema: 1, 'review.rounds': 3 });
+  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+});
+
+test('set text form prints key, value and origin; a later set keeps the other keys', (t) => {
+  const f = createSettingsEnv(t);
+  f.writeProjectSettings({ schema: 1, 'storage.prune': 'off' });
+  const result = f.run(['config', 'set', 'review.rounds', '2', '--layer', 'project']);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout.trim(), `review.rounds = 2  (project: ${f.projectFile('settings.json')})`);
+  assert.deepEqual(readJson(f.projectFile('settings.json')), { schema: 1, 'storage.prune': 'off', 'review.rounds': 2 });
+});
+
+test('set at the local and user layers writes settings.local.json and the config home file', (t) => {
+  const f = createSettingsEnv(t);
+  assert.equal(f.run(['config', 'set', 'review.sameFamily', '"refuse"', '--layer', 'local']).status, 0);
+  assert.deepEqual(readJson(f.projectFile('settings.local.json')), { schema: 1, 'review.sameFamily': 'refuse' });
+  const user = f.run(['config', 'set', 'review.rounds', '2', '--layer', 'user', '--json']);
+  assert.equal(user.status, 0, user.stderr);
+  assert.equal(user.json.file, f.userFile('settings.json'));
+  assert.deepEqual(readJson(f.userFile('settings.json')), { schema: 1, 'review.rounds': 2 });
+});
+
+test('set from a linked worktree writes the main checkout settings, as config list reads them', (t) => {
+  const f = createSettingsEnv(t, { worktree: true });
+  const result = f.run(['config', 'set', 'review.rounds', '3', '--layer', 'project', '--json'], { cwd: f.worktree });
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+  assert.equal(result.json.file, f.projectFile('settings.json'));
+  assert.deepEqual(readJson(f.projectFile('settings.json')), { schema: 1, 'review.rounds': 3 });
+});
+
+test('set of a string-list key adds items; a repeated item is refused with code items', (t) => {
+  const f = createSettingsEnv(t);
+  const ok = f.run(['config', 'set', 'review.extraLenses', '["correctness"]', '--layer', 'project', '--json']);
+  assert.equal(ok.status, 0, `${ok.stdout}${ok.stderr}`);
+  assert.deepEqual(ok.json.value, ['correctness']);
+  const dup = refusal(f.run(['config', 'set', 'review.extraLenses', '["correctness","correctness"]', '--layer', 'project', '--json']), 'review.extraLenses');
+  assert.equal(dup.code, 'items');
+  const wrong = refusal(f.run(['config', 'set', 'review.extraLenses', '["nope"]', '--layer', 'project', '--json']), 'review.extraLenses');
+  assert.equal(wrong.code, 'enum');
+  assert.deepEqual(wrong.allowed, PROTOCOLS.lenses.map((lens) => lens.id));
+});
+
+// ── set: D-2, locked and unknown keys ─────────────────────────────────────────────────────────────
+
+test('set refuses autopilot.enabled as security and writes nothing', (t) => {
+  const f = createSettingsEnv(t);
+  const entry = refusal(f.run(['config', 'set', 'autopilot.enabled', '"on"', '--layer', 'user', '--json']), 'autopilot.enabled');
+  assert.equal(entry.code, 'security');
+  assert.equal(entry.layer, 'user');
+  assert.equal(entry.allowed, null);
+  assert.equal(fs.existsSync(f.userFile('settings.json')), false);
+  assert.equal(fs.existsSync(f.configDir), false, 'no config home was created');
+});
+
+test('set refuses advice.model (D-2), verify.reuse and workers.billing as security, with no directory created', (t) => {
+  const f = createSettingsEnv(t);
+  for (const [key, value] of [['advice.model', '"x"'], ['verify.reuse', '"on"'], ['workers.billing', '{}'], ['advice.enabled', 'true']]) {
+    const entry = refusal(f.run(['config', 'set', key, value, '--layer', 'user', '--json']), key);
+    assert.equal(entry.code, 'security', key);
+  }
+  assert.equal(fs.existsSync(f.configDir), false, 'no config home was created');
+  const project = refusal(f.run(['config', 'set', 'advice.model', '"x"', '--layer', 'project', '--json']), 'advice.model');
+  assert.equal(project.code, 'security');
+  assert.equal(fs.existsSync(f.projectFile('settings.json')), false);
+});
+
+test('set refuses an invariant.* key as locked and names the invariant', (t) => {
+  const f = createSettingsEnv(t);
+  const entry = refusal(f.run(['config', 'set', 'invariant.INV-1', 'false', '--layer', 'project', '--json']), 'invariant.INV-1');
+  assert.equal(entry.code, 'locked');
+  assert.match(entry.message, /INV-1/);
+  assert.match(entry.message, /core\/registry\/protocols\.json/);
+  assert.equal(fs.existsSync(f.projectFile('settings.json')), false);
+});
+
+test('set refuses an unregistered key as unknown-key', (t) => {
+  const f = createSettingsEnv(t);
+  const entry = refusal(f.run(['config', 'set', 'nope.key', '1', '--layer', 'user', '--json']), 'nope.key');
+  assert.equal(entry.code, 'unknown-key');
+  assert.equal(fs.existsSync(f.configDir), false);
+});
+
+test('set text refusal is one line per error: config set: <key>: <code>: <message>', (t) => {
+  const f = createSettingsEnv(t);
+  const result = f.run(['config', 'set', 'autopilot.enabled', '"on"', '--layer', 'user']);
+  assert.equal(result.status, 1);
+  const lines = `${result.stdout}${result.stderr}`.trim().split('\n');
+  assert.equal(lines.length, 1, lines.join('|'));
+  assert.match(lines[0], /^config set: autopilot\.enabled: security: .+/);
+});
+
+// ── set: value, scope and narrowing refusals ──────────────────────────────────────────────────────
+
+test('set refuses a wider narrow-only value than the layers below, whichever layer holds the lower value', (t) => {
+  const f = createSettingsEnv(t);
+  f.writeUserSettings({ schema: 1, 'review.rounds': 2 });
+  const rounds = refusal(f.run(['config', 'set', 'review.rounds', '1', '--layer', 'project', '--json']), 'review.rounds');
+  assert.equal(rounds.code, 'not-narrower');
+  assert.equal(rounds.layer, 'project');
+  assert.equal(fs.existsSync(f.projectFile('settings.json')), false);
+  // the default `auto` is already below review-single in the preset order
+  const preset = refusal(f.run(['config', 'set', 'review.preset', '"review-single"', '--layer', 'project', '--json']), 'review.preset');
+  assert.equal(preset.code, 'not-narrower');
+  // an equal or narrower value is accepted
+  assert.equal(f.run(['config', 'set', 'review.rounds', '2', '--layer', 'project']).status, 0);
+  assert.equal(f.run(['config', 'set', 'review.preset', '"review-deep"', '--layer', 'project']).status, 0);
+});
+
+test('set at the local layer is checked against the project layer below it', (t) => {
+  const f = createSettingsEnv(t);
+  f.writeProjectSettings({ schema: 1, 'review.rounds': 3 });
+  const entry = refusal(f.run(['config', 'set', 'review.rounds', '2', '--layer', 'local', '--json']), 'review.rounds');
+  assert.equal(entry.code, 'not-narrower');
+  assert.equal(entry.layer, 'local');
+});
+
+test('set refuses a bad enum with the allowed values, and a bad integer with {min,max}', (t) => {
+  const f = createSettingsEnv(t);
+  const enumEntry = refusal(f.run(['config', 'set', 'storage.prune', '"maybe"', '--layer', 'project', '--json']), 'storage.prune');
+  assert.equal(enumEntry.code, 'enum');
+  assert.deepEqual(enumEntry.allowed, ['off', 'on']);
+  const range = refusal(f.run(['config', 'set', 'review.rounds', '9', '--layer', 'project', '--json']), 'review.rounds');
+  assert.equal(range.code, 'range');
+  assert.deepEqual(range.allowed, { min: 1, max: 3 });
+  const retention = refusal(f.run(['config', 'set', 'storage.retentionHours', '0', '--layer', 'project', '--json']), 'storage.retentionHours');
+  assert.equal(retention.code, 'range');
+  assert.deepEqual(retention.allowed, { min: 1, max: null });
+  const type = refusal(f.run(['config', 'set', 'review.rounds', '"two"', '--layer', 'project', '--json']), 'review.rounds');
+  assert.equal(type.code, 'type');
+  assert.equal(fs.existsSync(f.projectFile('settings.json')), false);
+});
+
+test('set refuses a global-only key at a project layer and a project-only key at the user layer as scope', (t) => {
+  const f = createSettingsEnv(t);
+  const globalOnly = refusal(f.run(['config', 'set', 'failure.capture', '"off"', '--layer', 'project', '--json']), 'failure.capture');
+  assert.equal(globalOnly.code, 'scope');
+  const projectOnly = refusal(f.run(['config', 'set', 'guard.workerDropDatabases', '"x"', '--layer', 'user', '--json']), 'guard.workerDropDatabases');
+  assert.equal(projectOnly.code, 'scope');
+  assert.equal(f.run(['config', 'set', 'failure.capture', '"off"', '--layer', 'user']).status, 0, 'the allowed layer still accepts it');
+  assert.equal(f.run(['config', 'set', 'guard.workerDropDatabases', '"x"', '--layer', 'project']).status, 0);
+});
+
+test('a value that is not JSON is a type error that says to quote strings, not a usage error', (t) => {
+  const f = createSettingsEnv(t);
+  const entry = refusal(f.run(['config', 'set', 'storage.prune', 'off', '--layer', 'project', '--json']), 'storage.prune');
+  assert.equal(entry.code, 'type');
+  assert.match(entry.message, /quote/i);
+  assert.deepEqual(entry.allowed, ['off', 'on']);
+  assert.equal(fs.existsSync(f.projectFile('settings.json')), false);
+});
+
+test('set refuses to write over a layer file that is not a valid settings file', (t) => {
+  const f = createSettingsEnv(t);
+  fs.writeFileSync(f.projectFile('settings.json'), '{ not json');
+  const entry = refusal(f.run(['config', 'set', 'review.rounds', '3', '--layer', 'project', '--json']), 'review.rounds');
+  assert.equal(entry.code, 'layer-invalid');
+  assert.equal(fs.readFileSync(f.projectFile('settings.json'), 'utf8'), '{ not json');
+});
+
+// ── advice.model is security-relevant now (D-2) ───────────────────────────────────────────────────
+
+test('an invalid advice.model at a layer that may widen it trips advice.enabled and config list exits 1', (t) => {
+  const f = createSettingsEnv(t);
+  f.writeProjectSettings({ schema: 1, 'advice.model': 7 });
+  const listed = f.run(['config', 'list', '--json']);
+  assert.equal(listed.status, 1, listed.stderr);
+  assert.equal(listed.json.keys['advice.enabled'].origin.via, 'fail-safe');
+  assert.equal(listed.json.keys['advice.model'].meta.securityRelevant, true);
+});
+
+test('advise --action configure still writes advice.model (a person command, not config set)', (t) => {
+  const f = createSettingsEnv(t);
+  f.writeUserSettings({ schema: 1, 'advice.model': 'clef-flash' });
+  const listed = f.run(['config', 'list', '-g', '--json']);
+  assert.equal(listed.status, 0, listed.stderr);
+  assert.equal(listed.json.keys['advice.model'].value, 'clef-flash');
+});
+
+// ── validate ──────────────────────────────────────────────────────────────────────────────────────
+
+test('validate --json with a bad value returns one IC-009 entry and exits 1, and writes nothing', (t) => {
+  const f = createSettingsEnv(t);
+  const entry = refusal(f.run(['config', 'validate', 'review.rounds', '9', '--layer', 'project', '--json']), 'review.rounds');
+  assert.equal(entry.code, 'range');
+  assert.deepEqual(entry.allowed, { min: 1, max: 3 });
+  const bare = refusal(f.run(['config', 'validate', 'review.rounds', '9', '--json']), 'review.rounds');
+  assert.equal(bare.layer, null);
+  assert.equal(bare.code, 'range');
+  assert.equal(fs.existsSync(f.projectFile('settings.json')), false);
+});
+
+test('validate accepts a good value (exit 0, ok true) and runs no layer checks without --layer', (t) => {
+  const f = createSettingsEnv(t);
+  const good = f.run(['config', 'validate', 'review.rounds', '2', '--layer', 'project', '--json']);
+  assert.equal(good.status, 0, good.stderr);
+  assert.deepEqual(good.json, { ok: true, errors: [] });
+  // no layer: scope, security and narrowing are not decided
+  f.writeUserSettings({ schema: 1, 'review.rounds': 3 });
+  assert.equal(f.run(['config', 'validate', 'review.rounds', '1', '--json']).status, 0);
+  assert.equal(f.run(['config', 'validate', 'failure.capture', '"off"', '--json']).status, 0);
+  assert.equal(refusal(f.run(['config', 'validate', 'review.rounds', '1', '--layer', 'project', '--json']), 'review.rounds').code, 'not-narrower');
+  assert.equal(refusal(f.run(['config', 'validate', 'invariant.INV-2', 'true', '--json']), 'invariant.INV-2').code, 'locked');
+  assert.equal(refusal(f.run(['config', 'validate', 'nope.key', '1', '--json']), 'nope.key').code, 'unknown-key');
+});
+
+test('validate text form prints the message and exits 1 on a refusal', (t) => {
+  const f = createSettingsEnv(t);
+  const result = f.run(['config', 'validate', 'storage.prune', '"maybe"', '--layer', 'project']);
+  assert.equal(result.status, 1);
+  assert.match(`${result.stdout}${result.stderr}`, /storage\.prune: enum: must be one of: off, on/);
+});
+
+// ── unset ─────────────────────────────────────────────────────────────────────────────────────────
+
+test('unset removes the key from the layer file and keeps the others', (t) => {
+  const f = createSettingsEnv(t);
+  f.writeProjectSettings({ schema: 1, 'review.rounds': 3, 'storage.prune': 'off' });
+  const result = f.run(['config', 'unset', 'review.rounds', '--layer', 'project', '--json']);
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+  assert.equal(result.json.ok, true);
+  assert.deepEqual(readJson(f.projectFile('settings.json')), { schema: 1, 'storage.prune': 'off' });
+});
+
+test('unset of an absent key or an absent file is ok and creates nothing', (t) => {
+  const f = createSettingsEnv(t);
+  const absentFile = f.run(['config', 'unset', 'review.rounds', '--layer', 'project', '--json']);
+  assert.equal(absentFile.status, 0, `${absentFile.stdout}${absentFile.stderr}`);
+  assert.equal(fs.existsSync(f.projectFile('settings.json')), false);
+  const userAbsent = f.run(['config', 'unset', 'review.rounds', '--layer', 'user']);
+  assert.equal(userAbsent.status, 0, userAbsent.stderr);
+  assert.equal(fs.existsSync(f.configDir), false, 'no config home was created');
+  f.writeProjectSettings({ schema: 1, 'storage.prune': 'off' });
+  const before = fs.readFileSync(f.projectFile('settings.json'), 'utf8');
+  assert.equal(f.run(['config', 'unset', 'review.rounds', '--layer', 'project']).status, 0);
+  assert.equal(fs.readFileSync(f.projectFile('settings.json'), 'utf8'), before, 'an absent key leaves the bytes alone');
+});
+
+test('unset refuses locked, unknown and security keys', (t) => {
+  const f = createSettingsEnv(t);
+  f.writeUserSettings({ schema: 1, 'autopilot.enabled': 'on' });
+  const before = fs.readFileSync(f.userFile('settings.json'), 'utf8');
+  assert.equal(refusal(f.run(['config', 'unset', 'invariant.INV-3', '--layer', 'project', '--json']), 'invariant.INV-3').code, 'locked');
+  assert.equal(refusal(f.run(['config', 'unset', 'nope.key', '--layer', 'project', '--json']), 'nope.key').code, 'unknown-key');
+  assert.equal(refusal(f.run(['config', 'unset', 'autopilot.enabled', '--layer', 'user', '--json']), 'autopilot.enabled').code, 'security');
+  assert.equal(fs.readFileSync(f.userFile('settings.json'), 'utf8'), before);
+});
+
+// ── schema ────────────────────────────────────────────────────────────────────────────────────────
+
+test('schema --json lists every registry key with the IC-007 fields, and the invariants as locked', (t) => {
+  const f = createSettingsEnv(t);
+  const result = f.run(['config', 'schema', '--json']);
+  assert.equal(result.status, 0, result.stderr);
+  const { schema, keys, invariants, presets } = result.json;
+  assert.equal(schema, 1);
+  assert.deepEqual(keys.map((k) => k.key), Object.keys(REGISTRY.keys), 'registry order');
+  for (const entry of keys) {
+    assert.deepEqual(Object.keys(entry).sort(), ['combine', 'default', 'description', 'key', 'locked', 'max', 'maxItems', 'maxLength', 'min', 'order', 'scope', 'securityRelevant', 'type', 'values', 'writable']);
+    const spec = REGISTRY.keys[entry.key];
+    assert.equal(entry.type, spec.type);
+    assert.equal(entry.scope, spec.scope);
+    assert.equal(entry.combine, spec.combine);
+    assert.equal(entry.description, spec.description);
+    assert.equal(entry.securityRelevant, spec.securityRelevant);
+    assert.equal(entry.writable, !spec.securityRelevant);
+    assert.equal(entry.locked, false);
+  }
+  const byKey = Object.fromEntries(keys.map((k) => [k.key, k]));
+  for (const key of ['advice.enabled', 'advice.provider', 'advice.endpoint', 'advice.model', 'verify.reuse', 'autopilot.enabled', 'workers.billing']) {
+    assert.equal(byKey[key].writable, false, key);
+  }
+  assert.equal(byKey['review.rounds'].writable, true);
+  assert.equal(byKey['review.rounds'].min, 1);
+  assert.equal(byKey['review.rounds'].max, 3);
+  assert.equal(byKey['review.rounds'].order, 'descending');
+  assert.equal(byKey['review.rounds'].default, null);
+  assert.deepEqual(byKey['review.preset'].values, ['auto', ...PROTOCOLS.order.review]);
+  assert.deepEqual(byKey['review.extraLenses'].values, PROTOCOLS.lenses.map((l) => l.id));
+  assert.equal(byKey['review.extraLenses'].maxItems, 4);
+  assert.equal(byKey['review.extraLenses'].maxLength, 40);
+  assert.deepEqual(byKey['review.extraLenses'].default, []);
+  assert.equal(byKey['advice.endpoint'].default, 'http://127.0.0.1:11434', 'a defaultRef is resolved');
+  assert.equal(byKey['storage.retentionHours'].default, STORAGE.stores.find((store) => store.id === 'lifecycle-events').bound.defaultHours, 'a defaultRef with no dependency is resolved');
+  assert.deepEqual(invariants.map((i) => i.key), PROTOCOLS.invariants.map((i) => `invariant.${i.id}`));
+  assert.equal(invariants.length, 7);
+  for (const inv of invariants) {
+    assert.equal(inv.locked, true);
+    assert.equal(inv.writable, false);
+    assert.equal(typeof inv.statement, 'string');
+    assert.equal(typeof inv.enforcedBy, 'string');
+  }
+  assert.deepEqual(presets.map((p) => p.id), [...PROTOCOLS.order.review, ...PROTOCOLS.order.debate]);
+  const deep = presets.find((p) => p.id === 'review-deep');
+  assert.equal(deep.kind, 'review');
+  assert.equal(deep.depth, 'deep');
+  assert.equal(deep.seats, 2);
+  assert.equal(deep.rounds, 2);
+  assert.equal(deep.summary, '2 seats, 2 rounds, synthesizer separate, decider gate');
+  assert.equal('depth' in presets.find((p) => p.id === 'debate-2'), false);
+});
+
+test('schema text is one line per key, invariant and preset, exit 0, and writes nothing', (t) => {
+  const f = createSettingsEnv(t);
+  const result = f.run(['config', 'schema']);
+  assert.equal(result.status, 0, result.stderr);
+  const lines = result.stdout.trim().split('\n');
+  const total = Object.keys(REGISTRY.keys).length + PROTOCOLS.invariants.length + Object.keys(PROTOCOLS.presets).length;
+  assert.equal(lines.length, total);
+  assert.ok(lines.includes('review.rounds integer default=null scope=narrow-only writable=true'));
+  assert.ok(lines.includes('autopilot.enabled enum default="off" scope=global-only writable=false'));
+  assert.ok(lines.some((line) => /^invariant\.INV-1 locked: /.test(line)));
+  assert.equal(fs.existsSync(f.configDir), false);
+  assert.equal(fs.existsSync(f.projectFile('settings.json')), false);
+});
+
+// ── usage (exit 2) ────────────────────────────────────────────────────────────────────────────────
+
+test('usage mistakes exit 2 and write nothing', (t) => {
+  const f = createSettingsEnv(t);
+  const usage = [
+    ['config', 'bogus'],
+    ['config', 'set'],
+    ['config', 'set', 'review.rounds', '--layer', 'project'],
+    ['config', 'set', 'review.rounds', '3'],
+    ['config', 'set', 'review.rounds', '3', '--layer', 'galaxy'],
+    ['config', 'set', 'review.rounds', '3', 'extra', '--layer', 'project'],
+    ['config', 'set', 'advice.enabled=true'],
+    ['config', 'unset', '--layer', 'project'],
+    ['config', 'unset', 'review.rounds'],
+    ['config', 'unset', 'review.rounds', 'more', '--layer', 'project'],
+    ['config', 'validate'],
+    ['config', 'validate', 'review.rounds'],
+    ['config', 'validate', 'review.rounds', '1', '--layer', 'galaxy'],
+    ['config', 'validate', 'review.rounds', '1', 'extra'],
+    ['config', 'set', 'review.rounds', '3', '--layer', 'project', '-g'],
+    ['config', 'unset', 'review.rounds', '--layer', 'project', '-g'],
+    ['config', 'validate', 'review.rounds', '1', '-g'],
+    ['config', 'schema', '-g'],
+    ['config', 'schema', 'extra'],
+    ['config', 'schema', '--layer', 'project'],
+    ['config', 'list', '--layer', 'project'],
+    ['config', 'set', 'review.rounds', '3', '--layer', 'project', '--show-origin'],
+    ['config', 'schema', '--show-origin'],
+    ['config', '--layer', 'user'],
+  ];
+  for (const args of usage) {
+    const result = f.run(args);
+    assert.equal(result.status, 2, `${args.join(' ')} -> ${result.status}\n${result.stdout}${result.stderr}`);
+  }
+  assert.equal(fs.existsSync(f.projectFile('settings.json')), false);
+  assert.equal(fs.existsSync(f.configDir), false);
+});
+
+test('the user layer with no config home is a usage error', (t) => {
+  const f = createSettingsEnv(t);
+  const result = f.run(['config', 'set', 'review.rounds', '2', '--layer', 'user'], { env: { HOME: undefined, XDG_CONFIG_HOME: undefined } });
+  assert.equal(result.status, 2, `${result.stdout}${result.stderr}`);
+  assert.match(result.stderr, /no config home/);
+});
+
+test('config [list] [project path] still reads as before', (t) => {
+  const f = createSettingsEnv(t);
+  f.writeProjectSettings({ schema: 1, 'review.rounds': 3 });
+  const listed = f.run(['config', 'list', '--json']);
+  assert.equal(listed.status, 0, listed.stderr);
+  assert.equal(listed.json.keys['review.rounds'].value, 3);
+  const bare = f.run(['config', '--json']);
+  assert.equal(bare.json.keys['review.rounds'].value, 3);
+  const elsewhere = f.run(['config', 'list', f.project, '--json'], { cwd: f.dir });
+  assert.equal(elsewhere.json.keys['review.rounds'].value, 3);
+});
