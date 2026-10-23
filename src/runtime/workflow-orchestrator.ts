@@ -735,14 +735,12 @@ class WorkflowOrchestrator {
         rule: `${node.id}/autopilot`, policy: { id: policyId, digest: null }, inputs: [], annotations: { switch: killSwitch.switch } };
     }
     // Loaded here, not at module top: every other orchestrator path (and a dry-run install) must not import them.
-    const { listCheckouts } = require('./checkouts.ts');
     const { projectLayerSource } = require('./settings/project-layers.ts');
     const { parseSeed } = require('./roadmap/rows.ts');
     const { loadPolicy, evaluate } = require('./roadmap/gates.ts');
     const { gatherGateFacts } = require('./roadmap/facts.ts');
     const root = this.sourceRoot;
-    const checkouts = listCheckouts({ cwd: root });
-    const mainRoot = checkouts.ok && checkouts.main ? checkouts.main : root;
+    const mainRoot = mainCheckoutOf(root);
     const execOptions = { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] };
     let developHead: string | undefined;
     let baseBytes: string | null = null;
@@ -775,14 +773,10 @@ class WorkflowOrchestrator {
       if (error.code === 'seed-typed-status') return { ...this.snapshot(run), decision: 'deny', reason: error.code, reasons: [error.code], policy, inputs: [] };
       // Invalid or unreadable seed means no trustworthy row; evaluate returns row-unknown.
     }
-    // The feature folder follows the feature-store rule: the calling checkout's own, else the main
-    // checkout's when a linked worktree does not hold it. The resolver names `<checkout>/agent-docs/
-    // doflow/<slug>` whether or not it exists, so a linked worktree without the folder would read
-    // no artifacts (a false `unresolved-clarifications`) and register into a missing folder.
-    let feature = resolveActiveFeature({ projectRoot: root, slug });
-    if (!feature.error && !this.fsImpl.existsSync(feature.featureDir) && mainRoot !== root) {
-      feature = resolveActiveFeature({ projectRoot: mainRoot, slug });
-    }
+    // The feature folder follows the feature-store rule (resolveFeatureInStore): a linked worktree
+    // without the folder would otherwise read no artifacts (a false `unresolved-clarifications`) and
+    // register into a missing folder.
+    const feature = resolveFeatureInStore({ root, slug });
     if (feature.error) throw new Error(`Cannot resolve policy gate artifacts: ${feature.message}`);
     const facts = gatherGateFacts({ root, mainRoot, registryRoot: this.repoRoot, artifactRoot: feature.featureDir,
       gateId: node.id, policy: loaded.policy, row, rows: seed?.rows, developHead, featureBranch: `feat/${slug}`, fsImpl: this.fsImpl });
@@ -922,6 +916,26 @@ class WorkflowOrchestrator {
   }
 }
 
+/** The project's main checkout, or `root` itself when the checkouts cannot be listed. Loaded here, not at
+ * module top: every other orchestrator path (and a dry-run install) must not import the resolver. */
+function mainCheckoutOf(root: string): string {
+  const { listCheckouts } = require('./checkouts.ts');
+  const checkouts = listCheckouts({ cwd: root });
+  return checkouts.ok && checkouts.main ? checkouts.main : root;
+}
+
+/**
+ * The feature folder follows the feature-store rule, which the feature resolver already applies: the
+ * calling checkout's own folder, else the main checkout's when a linked worktree holds none
+ * (`featureFolder` under `featureRoot`). `featureDir` and `repoRoot` of the result name that folder and
+ * checkout, as `decision --action compact` reads them, so a caller never looks in the wrong checkout.
+ */
+function resolveFeatureInStore({ root, slug }: { root: string; slug: string }) {
+  const feature = resolveActiveFeature({ projectRoot: root, slug });
+  if (feature.error) return feature;
+  return { ...feature, featureDir: feature.featureFolder, repoRoot: feature.featureRoot };
+}
+
 /**
  * IC-013: fold the finished stage's History into the feature's archive. The task id is the feature
  * slug. This is housekeeping after a recorded handoff, so it reports and never throws: the
@@ -931,7 +945,7 @@ class WorkflowOrchestrator {
  */
 function compactAfterHandoff({ taskId, projectRoot }: any) {
   try {
-    const feature = resolveActiveFeature({ projectRoot, slug: taskId });
+    const feature = resolveFeatureInStore({ root: projectRoot, slug: taskId });
     if (feature.error) return { status: 'skipped', reason: feature.message };
     // A task id such as a plan task (`B.1`) resolves on a feature branch to a folder that was
     // never created; say that, rather than blaming a missing register.

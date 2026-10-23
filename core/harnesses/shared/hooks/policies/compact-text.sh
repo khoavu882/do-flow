@@ -21,6 +21,26 @@ doflow_compact_text() {
       "$preserve" "${CWD:-unknown}")
   fi
 
-  DF_COMPACT_TEXT="${text:0:490}"
+  # The cap is 490 BYTES in every locale: LC_ALL=C makes the substring and length below count bytes,
+  # where a UTF-8 locale would count characters. A cut can then end inside a multi-byte character, so
+  # a trailing partial UTF-8 sequence is dropped (FU-tsq77m).
+  local LC_ALL=C cut i b need
+  cut="${text:0:490}"
+  i=$(( ${#cut} - 1 ))
+  # Walk back over at most three continuation bytes (0x80-0xBF) to the byte that starts the last character.
+  while [[ $i -ge 1 && $(( ${#cut} - i )) -le 3 ]]; do
+    printf -v b '%d' "'${cut:i:1}"
+    b=$(( b & 255 )) # the shell may print a byte above 127 as a negative number (bash 3.2) or a code unit
+    [[ $b -ge 128 && $b -lt 192 ]] || break
+    i=$(( i - 1 ))
+  done
+  printf -v b '%d' "'${cut:i:1}"
+  b=$(( b & 255 ))
+  need=1
+  [[ $b -ge 192 ]] && need=2
+  [[ $b -ge 224 ]] && need=3
+  [[ $b -ge 240 ]] && need=4
+  [[ $(( ${#cut} - i )) -lt $need ]] && cut="${cut:0:i}"
+  DF_COMPACT_TEXT="$cut"
   return 0
 }

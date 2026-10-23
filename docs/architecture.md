@@ -854,7 +854,9 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   anywhere else, and a leading byte order mark, are findings. Every file
   under `core/`, `src/`, `bin/` and `docs/`, and `README.md`, must hold none and must decode as strict
   UTF-8, so an undecodable file cannot slip past unscanned. `test/` and `bench/` are not scanned:
-  `test/` holds deliberate bidirectional fixtures.
+  `test/` holds deliberate bidirectional fixtures. A second test in the same file covers every
+  tracked file, `test/` included: a text file (any extension outside a short binary list) that holds
+  a raw NUL byte is a finding, because grep and diff then treat it as binary and hide its contents.
 - **G24** (`instruction-lint.test.js`) — the guidance, skills and agent specs the harnesses load tell a
   model to read files and run `doflow-run` verbs, and nothing else checked those instructions against
   the tree. Every `doflow-run <verb>` they name must be a verb the dispatcher serves, every backticked
