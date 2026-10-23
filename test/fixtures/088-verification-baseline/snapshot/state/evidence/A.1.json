@@ -1,0 +1,38 @@
+{
+  "taskId": "A.1",
+  "updatedAt": "2026-10-18T15:21:45.516Z",
+  "evidenceCount": 1,
+  "evidence": [
+    {
+      "id": "ev_mvdz47cb_caa98dbb_1",
+      "taskId": "A.1",
+      "kind": "test-result",
+      "source": {
+        "provider": "node-test",
+        "capability": "unit-testing",
+        "attemptRef": "A.1#1"
+      },
+      "locator": {},
+      "provenance": "extracted",
+      "content": null,
+      "freshness": {
+        "gitCommit": "5b9b0f545d6567b2a02aca7b1449d063bbfbca1a",
+        "fileHash": null,
+        "observedAt": "2026-10-18T15:21:45.515Z",
+        "status": "FRESH",
+        "isDirty": null
+      },
+      "establishes": [],
+      "observation": {
+        "command": "node --test test/calc.test.js",
+        "exitCode": 0
+      },
+      "supports": [],
+      "contradicts": [],
+      "status": "active",
+      "supersededBy": null
+    }
+  ],
+  "version": 1,
+  "revision": 1
+}

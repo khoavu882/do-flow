@@ -540,7 +540,7 @@ test('7. npm run bench -- verify-baseline --snapshot <dir> --json --out <dir> is
 // 8. Value assertions on the committed snapshot (088 F6, D5)
 test('8. Value assertions on the committed snapshot: fullSuiteRuns 2, duplicates 0, totalTestMs 775, verificationWallMs 1102, loopWallMs 23665', (t) => {
   const runnerPath = path.join(REPO_ROOT, 'bench', 'runner.js');
-  const baselineDir = path.join(REPO_ROOT, '..', 'do-flow', 'agent-docs', 'doflow', '088-verification-baseline', 'baseline');
+  const baselineDir = path.join(REPO_ROOT, 'test', 'fixtures', '088-verification-baseline');
   const res = spawnSync(
     process.execPath,
     [runnerPath, 'verify-baseline', '--snapshot', baselineDir, '--json'],
@@ -564,7 +564,7 @@ test('8. Value assertions on the committed snapshot: fullSuiteRuns 2, duplicates
 // 9. When window is not filled: report.md contains no Median or Lower End, shows Observed (n=1), and open (unbounded) for open window
 test('9. While recording window is not filled: no Median or Lower End in report.md, shows "Observed (n=1), not a result", and open window prints "open (unbounded)"', (t) => {
   const runnerPath = path.join(REPO_ROOT, 'bench', 'runner.js');
-  const baselineDir = path.join(REPO_ROOT, '..', 'do-flow', 'agent-docs', 'doflow', '088-verification-baseline', 'baseline');
+  const baselineDir = path.join(REPO_ROOT, 'test', 'fixtures', '088-verification-baseline');
   const res = spawnSync(
     process.execPath,
     [runnerPath, 'verify-baseline', '--snapshot', baselineDir],
@@ -601,7 +601,7 @@ test('9. While recording window is not filled: no Median or Lower End in report.
 // 10. D7 manifest hardening: runner rejects missing/non-array files, unlisted files, outside paths, symlinks, bad schema
 test('10. D7 manifest hardening: verify-baseline rejects no files, object files, missing path, escaping path, symlink, unlisted file, v!=1, missing commit', (t) => {
   const runnerPath = path.join(REPO_ROOT, 'bench', 'runner.js');
-  const baselineDir = path.join(REPO_ROOT, '..', 'do-flow', 'agent-docs', 'doflow', '088-verification-baseline', 'baseline');
+  const baselineDir = path.join(REPO_ROOT, 'test', 'fixtures', '088-verification-baseline');
 
   function makeVariant(name, modifier) {
     const dir = tempDir(t, `doflow-d7-${name}-`);

@@ -1,0 +1,228 @@
+{
+  "biases": [
+    "union assumes overlapping verification intervals reflect concurrent execution or waiting",
+    "outside-verb tests observed with completion duration on Claude only; other harnesses record duration as unreached",
+    "child CPU ticks recorded on Linux proc-children only; unreached on Darwin/Windows",
+    "peak memory unreached on all platforms",
+    "candidate test duplicates treat all same-class repeats within a session as candidates due to absence of edit hook lines"
+  ],
+  "context": {
+    "surveyProxies": {
+      "note": "pre-telemetry proxies from research/baseline-survey.md §4, context only, never a result",
+      "proxies": [
+        {
+          "bias": "Denominator is only DoFlow verbs; excludes agent, edit and Bash time. Says verify dominates DoFlow verb time, nothing about goal loop.",
+          "id": "A",
+          "name": "Ledger dispatched time",
+          "share": "87.0 %"
+        },
+        {
+          "bias": "30-minute gap is an inference; single-record sessions have 0 wall; overnight idle excluded only when gap > 30 min.",
+          "id": "B",
+          "name": "Idle-gap session wall",
+          "share": "1.34 %"
+        },
+        {
+          "bias": "Selects sessions where verification happened, biased upward.",
+          "id": "B2",
+          "name": "Sessions containing verify",
+          "share": "4.14 %"
+        },
+        {
+          "bias": "Stages are completion intervals; verification stage closed almost immediately; suite reruns land in implementation.",
+          "id": "C",
+          "name": "Orchestration records",
+          "share": "1.1 %"
+        },
+        {
+          "bias": "Understates verification time; reruns happened outside the verb.",
+          "id": "total",
+          "name": "Verify verb vs orchestration totalMs",
+          "share": "0.49 %"
+        }
+      ],
+      "range": "0.49 % - 87.0 %"
+    }
+  },
+  "goalLoops": [
+    {
+      "epoch": 1,
+      "harness": "claude",
+      "idleGaps": [],
+      "metrics": {
+        "candidateDuplicates": 0,
+        "cpuMs": "unreached",
+        "duplicates": 0,
+        "exactDuplicates": 0,
+        "fullSuiteRuns": 2,
+        "idleGapsMs": 0,
+        "implementationMs": 22563,
+        "loopWallMs": 23665,
+        "peakMemory": "unreached",
+        "ratio": 0.0466,
+        "share": 0.0466,
+        "totalTestMs": 775,
+        "verificationWallMs": 1102
+      },
+      "runKey": "5f8e3323f8ecc108/f2-loop/main",
+      "traceId": "7dd7bc7144d5aed7feddb5289f6260a9",
+      "upperBound": null,
+      "window": {
+        "from": "2026-10-18T15:21:22.547Z",
+        "to": null
+      }
+    }
+  ],
+  "inputTable": [
+    {
+      "basis": "derived",
+      "cause": "derived as last span end minus first span start across trace spans",
+      "metric": "loopWallMs",
+      "recordsRead": "task-run history start/resume, activity endpoints, trace span window",
+      "uncapturedInputs": "open-ended spans without completion events"
+    },
+    {
+      "basis": "derived",
+      "cause": "union of verify.run intervals and outside-verb test intervals",
+      "metric": "verificationWallMs",
+      "recordsRead": "verify.run spans, outside-verb test spans",
+      "uncapturedInputs": "tests on unobserved harnesses (OpenCode, Copilot)"
+    },
+    {
+      "basis": "derived",
+      "cause": "sum of executed check durations (excluding in-run and follower) + outside-verb test durations",
+      "metric": "totalTestMs",
+      "recordsRead": "executed verify.check spans, outside-verb test spans",
+      "uncapturedInputs": "per-check timing on pre-FR-016 records, test durations on non-Claude harnesses"
+    },
+    {
+      "basis": "derived",
+      "cause": "goal loop wall time minus verification wall time minus idle gaps > 30 min",
+      "metric": "implementationMs",
+      "recordsRead": "loop wall time, verification union wall time, idle intervals > 30 min",
+      "uncapturedInputs": "fine-grained model thinking / editing time outside observed commands"
+    },
+    {
+      "basis": "derived",
+      "cause": "verificationWallMs / loopWallMs",
+      "metric": "ratio",
+      "recordsRead": "verificationWallMs, loopWallMs",
+      "uncapturedInputs": "none beyond constituent metrics"
+    },
+    {
+      "basis": "derived",
+      "cause": "verificationWallMs / loopWallMs",
+      "metric": "share",
+      "recordsRead": "verificationWallMs, loopWallMs",
+      "uncapturedInputs": "none beyond constituent metrics"
+    },
+    {
+      "basis": "derived",
+      "cause": "exact check_key duplicates + candidate same-class test repeats in a session",
+      "metric": "duplicates",
+      "recordsRead": "executed verify.check spans with check_key, outside-verb test spans by session and test_class",
+      "uncapturedInputs": "edit hook lines not available in 088, so all repeated tests in session are candidate duplicates"
+    },
+    {
+      "basis": "derived",
+      "cause": "sum of executed broad-tests checks and test.full runs",
+      "metric": "fullSuiteRuns",
+      "recordsRead": "executed broad-tests checks, test.full outside-verb test spans",
+      "uncapturedInputs": "none"
+    },
+    {
+      "basis": "unreached",
+      "cause": "child CPU ticks unreached on non-Linux platforms",
+      "metric": "cpuMs",
+      "recordsRead": "verify.check spans with resource_basis proc-children",
+      "uncapturedInputs": "non-Linux platforms (darwin, win32) and unkeyable/read faults"
+    },
+    {
+      "basis": "unreached",
+      "cause": "no portable zero-dependency child memory sampling while spawnSync blocks",
+      "metric": "peakMemory",
+      "recordsRead": "none",
+      "uncapturedInputs": "process peak RSS memory measurement"
+    },
+    {
+      "basis": "derived",
+      "cause": "sum of activity gaps exceeding the 30-minute session threshold (D-8)",
+      "metric": "idleGapsMs",
+      "recordsRead": "inferred from timestamps between consecutive activities",
+      "uncapturedInputs": "sub-30-minute idle pauses treated as implementation time"
+    }
+  ],
+  "manifest": {
+    "commit": "9afce61d52897fbe5b240d21210cc45bf6d7a9b8",
+    "fileCount": 7,
+    "harness": "claude",
+    "node": "v26.8.1",
+    "platform": "darwin"
+  },
+  "metrics": {
+    "cpuMs": "unreached",
+    "duplicates": 0,
+    "fullSuiteRuns": 2,
+    "idleGapsMs": 0,
+    "implementationMs": 22563,
+    "loopWallMs": 23665,
+    "peakMemory": "unreached",
+    "ratio": 0.0466,
+    "share": 0.0466,
+    "totalTestMs": 775,
+    "verificationWallMs": 1102
+  },
+  "observed": {
+    "n": 1,
+    "values": {
+      "cpuMs": {
+        "basis": "unreached",
+        "value": "unreached"
+      },
+      "duplicates": {
+        "basis": "derived",
+        "value": 0
+      },
+      "fullSuiteRuns": {
+        "basis": "derived",
+        "value": 2
+      },
+      "idleGapsMs": {
+        "basis": "derived",
+        "value": 0
+      },
+      "implementationMs": {
+        "basis": "derived",
+        "value": 22563
+      },
+      "loopWallMs": {
+        "basis": "derived",
+        "value": 23665
+      },
+      "peakMemory": {
+        "basis": "unreached",
+        "value": "unreached"
+      },
+      "ratio": {
+        "basis": "derived",
+        "value": 0.0466
+      },
+      "share": {
+        "basis": "derived",
+        "value": 0.0466
+      },
+      "totalTestMs": {
+        "basis": "derived",
+        "value": 775
+      },
+      "verificationWallMs": {
+        "basis": "derived",
+        "value": 1102
+      }
+    }
+  },
+  "progress": "1 of 5 loops, 1 of 2 harnesses",
+  "samplingRule": "controlled goal loop on a pinned snapshot with run identity and FR-016/FR-019 telemetry",
+  "v": 1,
+  "verdict": "verdict not yet derivable"
+}
