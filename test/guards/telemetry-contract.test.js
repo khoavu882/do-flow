@@ -644,7 +644,7 @@ test('088 docs name the shipped reports, manifest exits, guard inventory and obs
   assert.match(architecture, new RegExp(`holds\\s+${guards.length} test files`));
   assert.ok(architecture.includes(`${entries.length} entries across ${files.size} test files and carries ${numbers.size} distinct G-numbers`));
 
-  const release = fs.readFileSync(path.join(REPO, 'CHANGELOG.md'), 'utf8').split('\n').find((line) => line.startsWith('- **Feature 088 '));
+  const release = fs.readFileSync(path.join(REPO, 'CHANGELOG.md'), 'utf8').split('\n').find((line) => line.startsWith('- **Feature 088b '));
   assert.match(release, /`tool_duration_ms`.*`duration_ms:null`/);
   assert.match(release, /bounded output excerpts in the in-flight store with a short TTL/);
   assert.match(release, /baseline shown as observed, not a result/);
