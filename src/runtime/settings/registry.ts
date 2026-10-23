@@ -261,6 +261,14 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
       if (!stateSafe && (!has(spec, 'failSafe') || (isObject(safe) && !has(safe, 'gate')))) err('is securityRelevant and needs a failSafe value or {gate}');
     }
 
+    // A cross-key rule (resolve.ts requires) or a missing config home takes `value = spec.failSafe`; the state form
+    // is not a value, so it would resolve to the object {state: 'invalid'} with state ok (119 closure N-3). A record
+    // key (workers.billing) is the one type whose invalid state is its fail-safe, so it is exempt.
+    if (!record && isObject(spec.failSafe) && spec.failSafe.state === 'invalid'
+      && ((Array.isArray(spec.requires) && spec.requires.length > 0) || spec.needsConfigHome === true)) {
+      err("failSafe {state: 'invalid'} cannot be combined with 'requires' or 'needsConfigHome' (they resolve to the failSafe as a value)");
+    }
+
     // requires
     if (has(spec, 'requires')) {
       if (!Array.isArray(spec.requires)) err('requires must be a list');

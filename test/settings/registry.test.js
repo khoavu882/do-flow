@@ -136,6 +136,24 @@ test('project-only refuses every environment binding, including a narrowing bind
   }
 });
 
+test("N-3: failSafe {state: 'invalid'} cannot be combined with requires or needsConfigHome (they would resolve to the failSafe object as the value)", () => {
+  const guard = 'guard.workerDropDatabases';
+  assert.equal(validateSettingsRegistry(clone(SHIPPED)).ok, true, 'the shipped project-only security key is valid');
+  for (const extra of [
+    { requires: [{ when: 'on', key: 'storage.retentionHours', view: 'project' }] },
+    { needsConfigHome: true },
+  ]) {
+    const raw = clone(SHIPPED);
+    Object.assign(raw.keys[guard], extra);
+    const rejected = validateSettingsRegistry(raw);
+    assert.equal(rejected.ok, false, JSON.stringify(extra));
+    assert.ok(rejected.errors.some((e) => e.includes(guard) && e.includes("failSafe {state: 'invalid'}") && e.includes('requires')), rejected.errors.join('\n'));
+  }
+  const empty = clone(SHIPPED);
+  empty.keys[guard].requires = [];
+  assert.equal(validateSettingsRegistry(empty).ok, true, 'an empty requires list resolves nothing');
+});
+
 test('project-only ignores user/global values and env; project and local files alone decide', (t) => {
   const w = createSettingsEnv(t);
   const key = 'guard.workerDropDatabases';
