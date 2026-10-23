@@ -64,7 +64,7 @@ function validatePrepared(doc: Record<string, any>, ctx: any): Entry[] {
     where ??= layerFile('project', ctx.env, ctx.projectRoot, ctx.fsImpl);
     if ('error' in where) throw Object.assign(new Error(where.error), { usage: true });
     const fault = layerEntry(registry, key, 'project', where.file, { ok: true, value: settings[key] },
-      { env: ctx.env, projectRoot: ctx.projectRoot, fsImpl: ctx.fsImpl });
+      { env: ctx.env, projectRoot: ctx.projectRoot, fsImpl: ctx.fsImpl, siblings: settings });
     if (fault) errors.push(named(fault));
   }
 

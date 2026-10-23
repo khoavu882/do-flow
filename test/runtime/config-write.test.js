@@ -165,6 +165,67 @@ test('set refuses a wider narrow-only value than the layers below, whichever lay
   assert.equal(f.run(['config', 'set', 'review.preset', '"review-deep"', '--layer', 'project']).status, 0);
 });
 
+// C-8: review.rounds below the rounds.min of the preset in force is a value the resolver would ignore.
+const DEEP_MIN = PROTOCOLS.presets['review-deep'].rounds.min;
+const NOTE = (n) => `note: review.rounds ${n} is below review-deep rounds.min ${DEEP_MIN}; the resolver ignores it when the risk rule picks review-deep`;
+
+test('set review.rounds below the project review-deep rounds.min is refused naming the floor; the floor itself is written', (t) => {
+  const f = createSettingsEnv(t);
+  const file = f.projectFile('settings.json');
+  f.writeProjectSettings({ schema: 1, 'review.preset': 'review-deep' });
+  const before = fs.readFileSync(file, 'utf8');
+  const entry = refusal(f.run(['config', 'set', 'review.rounds', '1', '--layer', 'project', '--json']), 'review.rounds');
+  assert.equal(entry.code, 'not-narrower');
+  assert.equal(entry.layer, 'project');
+  assert.equal(entry.message, `review.rounds 1 is below review-deep rounds.min ${DEEP_MIN}`);
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+  const validated = refusal(f.run(['config', 'validate', 'review.rounds', '1', '--layer', 'project', '--json']), 'review.rounds');
+  assert.equal(validated.code, 'not-narrower');
+  const ok = f.run(['config', 'set', 'review.rounds', String(DEEP_MIN), '--layer', 'project', '--json']);
+  assert.equal(ok.status, 0, `${ok.stdout}${ok.stderr}`);
+  assert.equal(ok.json.notes, undefined);
+  assert.deepEqual(readJson(file), { schema: 1, 'review.preset': 'review-deep', 'review.rounds': DEEP_MIN });
+});
+
+test('set review.rounds is judged against the preset of a lower layer too, at the local layer', (t) => {
+  const f = createSettingsEnv(t);
+  f.writeUserSettings({ schema: 1, 'review.preset': 'review-deep' });
+  const entry = refusal(f.run(['config', 'set', 'review.rounds', '1', '--layer', 'local', '--json']), 'review.rounds');
+  assert.equal(entry.code, 'not-narrower');
+  assert.equal(entry.layer, 'local');
+  assert.equal(fs.existsSync(f.projectFile('settings.local.json')), false);
+});
+
+test('set review.rounds under preset auto is written with an advisory note in text and --json', (t) => {
+  const f = createSettingsEnv(t);
+  const file = f.projectFile('settings.json');
+  const text = f.run(['config', 'set', 'review.rounds', '1', '--layer', 'project']);
+  assert.equal(text.status, 0, text.stderr);
+  assert.deepEqual(text.stdout.trim().split('\n'), [`review.rounds = 1  (project: ${file})`, NOTE(1)]);
+  assert.equal(readJson(file)['review.rounds'], 1);
+  const json = f.run(['config', 'set', 'review.rounds', '1', '--layer', 'project', '--json']);
+  assert.equal(json.status, 0, json.stderr);
+  assert.deepEqual(json.json.notes, [NOTE(1)]);
+  assert.deepEqual(json.json.errors, []);
+  const validated = f.run(['config', 'validate', 'review.rounds', '1', '--layer', 'project', '--json']);
+  assert.deepEqual(validated.json, { ok: true, errors: [], notes: [NOTE(1)] });
+  // no note when the value meets the strictest floor
+  assert.equal(f.run(['config', 'set', 'review.rounds', '2', '--layer', 'project', '--json']).json.notes, undefined);
+});
+
+test('layerEntry judges review.rounds with the sibling review.preset of the same change (a prepared run\'s settings)', (t) => {
+  const f = createSettingsEnv(t);
+  const { layerEntry, layerFile } = require('../../src/runtime/settings/config-write.ts');
+  const { loadSettingsRegistry } = require('../../src/runtime/settings/registry.ts');
+  const loaded = loadSettingsRegistry({});
+  const { file } = layerFile('project', f.env(), f.project, fs);
+  const judge = (value, siblings) => layerEntry(loaded.registry, 'review.rounds', 'project', file, { ok: true, value },
+    { env: f.env(), projectRoot: f.project, fsImpl: fs, siblings });
+  assert.equal(judge(1, { 'review.preset': 'review-deep' })?.code, 'not-narrower');
+  assert.equal(judge(2, { 'review.preset': 'review-deep' }), null);
+  assert.equal(judge(1, {}), null);
+});
+
 test('set at the local layer is checked against the project layer below it', (t) => {
   const f = createSettingsEnv(t);
   f.writeProjectSettings({ schema: 1, 'review.rounds': 3 });

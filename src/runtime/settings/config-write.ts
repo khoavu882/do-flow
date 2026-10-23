@@ -107,14 +107,17 @@ function layerFile(layer: string, env: any, projectRoot: string, fsImpl: any): W
  * The layer-dependent verdict for `value` at `layer` in `file`: the existing document plus the value,
  * served to the resolver as that file, and the key's candidate read back. Null when the write is fine.
  * `read` is the caller's own `readLayerFile` result, so a write can require the file it then replaces
- * to be the one judged here.
+ * to be the one judged here. For `review.rounds` the effective `review.preset` of the same view is read too:
+ * a value below that preset's `rounds.min` is refused; under `auto` it is accepted and, when below the
+ * strictest preset's `rounds.min`, an advisory is pushed to `notes` (the caller's array). `siblings` are other
+ * keys of the same change (a prepared run's settings), served in the document so keys are judged together.
  */
 function layerEntry(registry: any, key: string, layer: string, file: string, parsed: Parsed,
-  { env, projectRoot, fsImpl, read = readLayerFile(file, { registry, fsImpl, includeDocument: true }) }: any): Entry | null {
+  { env, projectRoot, fsImpl, repoRoot, notes, siblings, read = readLayerFile(file, { registry, fsImpl, includeDocument: true }) }: any): Entry | null {
   if (read.status === 'invalid') {
     return entryOf(registry, key, layer, 'layer-invalid', `${file} ${read.reason}; fix or remove it first`);
   }
-  const values: Record<string, unknown> = read.status === 'ok' ? { ...read.document } : {};
+  const values: Record<string, unknown> = read.status === 'ok' ? { ...read.document, ...siblings } : { ...siblings };
   values[key] = parsed.ok ? parsed.value : null;
   const bytes = serializeLayer(layerDocument(registry, values));
   const tooLarge = oversize(file, bytes);
@@ -126,6 +129,25 @@ function layerEntry(registry: any, key: string, layer: string, file: string, par
   if (!parsed.ok) return entryOf(registry, key, layer, 'type', NOT_JSON);
   if (candidate.status === 'invalid') return entryOf(registry, key, layer, candidate.code, candidate.reason);
   if (candidate.status === 'not-narrower') return entryOf(registry, key, layer, 'not-narrower', `${candidate.reason} (the value is wider than the layers below)`);
+  if (key === 'review.rounds' && Number.isInteger(parsed.value)) return roundsFloor(registry, view, layer, parsed.value as number, repoRoot, notes);
+  return null;
+}
+
+/** The `rounds.min` check of `review.rounds` against the preset the view resolves (see layerEntry). */
+function roundsFloor(registry: any, view: any, layer: string, rounds: number, repoRoot: string | undefined, notes: string[] | undefined): Entry | null {
+  const protocols = loadProtocols({ repoRoot });
+  if (!protocols.ok) throw new Error(protocols.errors.join('; '));
+  const preset = view.get('review.preset').value;
+  const presets = protocols.registry.presets;
+  if (typeof preset === 'string' && preset !== 'auto' && Object.hasOwn(presets, preset)) {
+    const floor = presets[preset].rounds.min;
+    return rounds < floor ? entryOf(registry, 'review.rounds', layer, 'not-narrower', `review.rounds ${rounds} is below ${preset} rounds.min ${floor}`) : null;
+  }
+  const strictest = presetIds(protocols.registry, 'review')[0];
+  const floor = presets[strictest]?.rounds.min;
+  if (preset === 'auto' && notes && floor !== undefined && rounds < floor) {
+    notes.push(`note: review.rounds ${rounds} is below ${strictest} rounds.min ${floor}; the resolver ignores it when the risk rule picks ${strictest}`);
+  }
   return null;
 }
 
@@ -203,7 +225,7 @@ function handleSchema({ json, registry, repoRoot, fsImpl }: any): number {
 
 // ── validate, set, unset ──────────────────────────────────────────────────────────────────────────
 
-function handleChange({ action, key, valueText, layer, json, registry, projectRoot, env, fsImpl }: any): number {
+function handleChange({ action, key, valueText, layer, json, registry, repoRoot, projectRoot, env, fsImpl }: any): number {
   const writes = action !== 'validate';
   const root = path.resolve(projectRoot);
   const keyFault = keyEntry(registry, key, layer ?? null, writes || layer !== undefined);
@@ -228,6 +250,7 @@ function handleChange({ action, key, valueText, layer, json, registry, projectRo
   for (let attempt = 1; ; attempt++) {
     const read = readLayerFile(file, { registry, fsImpl, includeDocument: true });
     const expect = read.status === 'ok' ? read.document : null;
+    const notes: string[] = [];
     let written: any;
     if (action === 'unset') {
       if (read.status === 'invalid') return refuse(action, [entryOf(registry, key, layer, 'layer-invalid', `${file} ${read.reason}; fix or remove it first`)], json);
@@ -236,9 +259,9 @@ function handleChange({ action, key, valueText, layer, json, registry, projectRo
       }
       written = writeLayer({ file, unset: [key], expect, backup: true, fsImpl });
     } else {
-      const fault = layerEntry(registry, key, layer, file, parsed, { env, projectRoot: root, fsImpl, read });
+      const fault = layerEntry(registry, key, layer, file, parsed, { env, projectRoot: root, fsImpl, repoRoot, notes, read });
       if (fault) return refuse(action, [fault], json);
-      if (action === 'validate') return done(json, { ok: true, errors: [] }, [`${key}: valid  (${layer}: ${file})`]);
+      if (action === 'validate') return done(json, { ok: true, errors: [], ...(notes.length ? { notes } : {}) }, [`${key}: valid  (${layer}: ${file})`, ...notes]);
       written = writeLayer({ file, set: { [key]: parsed.value }, expect, backup: true, fsImpl });
     }
     if (!written.ok && written.code === 'changed' && attempt < WRITE_ATTEMPTS) continue;
@@ -253,7 +276,8 @@ function handleChange({ action, key, valueText, layer, json, registry, projectRo
     const shown = JSON.stringify(resolution.value);
     const text = [`${key} = ${shown}  (${origin.layer}: ${origin.source})`];
     if (origin.source !== file) text.push(`written: ${layer}: ${file}`);
-    return done(json, { ok: true, key, layer, file, value: resolution.value, origin, errors: [] }, text);
+    text.push(...notes);
+    return done(json, { ok: true, key, layer, file, value: resolution.value, origin, errors: [], ...(notes.length ? { notes } : {}) }, text);
   }
 }
 

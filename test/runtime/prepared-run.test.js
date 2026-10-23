@@ -162,6 +162,17 @@ test('a settings entry is judged as config validate <key> <value> --layer projec
   assert.deepEqual(entry.allowed, { min: 1, max: 3 });
 });
 
+test('C-8: settings review.rounds below the rounds.min of the review.preset in the same settings is not-narrower', (t) => {
+  const { validate } = setup(t);
+  const entry = entryFor(validate({ schema: 1, taskClass: 'feature', settings: { 'review.preset': 'review-deep', 'review.rounds': 1 } }), 'settings.review.rounds');
+  assert.equal(entry.code, 'not-narrower');
+  assert.equal(entry.layer, 'project');
+  assert.match(entry.message, /review\.rounds 1 is below review-deep rounds\.min 2/);
+  const ok = validate({ schema: 1, taskClass: 'feature', settings: { 'review.preset': 'review-deep', 'review.rounds': 2 } });
+  assert.equal(ok.status, 0, `${ok.stdout}${ok.stderr}`);
+  assert.deepEqual(ok.json, { ok: true, errors: [] });
+});
+
 test('settings entries: unknown key, security-relevant key and a key not settable at the project layer', (t) => {
   const { validate } = setup(t);
   const security = Object.entries(REGISTRY.keys).find(([, spec]) => spec.securityRelevant)[0];
