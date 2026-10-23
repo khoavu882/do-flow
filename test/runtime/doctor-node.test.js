@@ -12,7 +12,7 @@ const { buildHealthReport, nodeSecurityWarning } = require('../../src/runtime/he
 const stub = () => { const error = new Error('not found'); error.code = 'ENOENT'; throw error; };
 
 test('nodeSecurityWarning: below the patched release of a line warns and names the CVE, the version and the fix', () => {
-  for (const [version, patched] of [['v26.12.0', '26.12.1'], ['v26.11.9', '26.12.1'], ['v26.0.0', '26.12.1'], ['v24.22.0', '24.22.1'], ['v24.3.0', '24.22.1']]) {
+  for (const [version, patched] of [['v26.12.0', '26.12.1'], ['v26.11.9', '26.12.1'], ['v26.0.0', '26.12.1'], ['v24.22.0', '24.22.1'], ['v24.3.0', '24.22.1'], ['v24.22.1-rc.1', '24.22.1'], ['v26.12.1-rc.0', '26.12.1']]) {
     const warning = nodeSecurityWarning(version);
     assert.equal(warning.kind, 'node-security-release', version);
     assert.equal(warning.subject, 'node');
@@ -22,7 +22,7 @@ test('nodeSecurityWarning: below the patched release of a line warns and names t
 });
 
 test('nodeSecurityWarning: a patched release, a later release and a line without an entry do not warn', () => {
-  for (const version of ['v24.22.1', 'v24.23.0', 'v26.12.1', 'v26.13.0', 'v27.0.0', 'v25.1.0', 'v22.23.4', 'garbage', '']) {
+  for (const version of ['v24.22.1', 'v24.23.0', 'v26.12.1', 'v26.13.0', 'v27.0.0', 'v25.1.0', 'v22.23.4', 'v24.22.2-rc.1', 'v26.13.0-rc.1', 'garbage', '']) {
     assert.equal(nodeSecurityWarning(version), null, version);
   }
 });
@@ -36,5 +36,6 @@ test('doctor report: the warning rides in warnings, not findings, for an injecte
   const patched = report('v26.12.1');
   assert.equal(patched.warnings.some((w) => w.kind === 'node-security-release'), false);
   assert.deepEqual(old.findings, patched.findings);
-  assert.equal(report().warnings.some((w) => w.kind === 'node-security-release'), false, 'the Node running the suite is patched (24.22.1 or 26.12.1)');
+  assert.equal(report('v24.22.1').warnings.some((w) => w.kind === 'node-security-release'), false);
+  assert.equal(report('v25.9.0').warnings.some((w) => w.kind === 'node-security-release'), false, 'a line with no entry gets no warning');
 });

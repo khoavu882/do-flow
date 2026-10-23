@@ -625,15 +625,17 @@ const NODE_PATCHED_RELEASE: Record<number, number[]> = Object.freeze({ 24: [24, 
  * A warning when `version` (a `process.version` string) is a release of a Node line below that
  * line's patched release; null for a patched release and for a line this table does not know.
  * The floor in `bin/doflow.js` already refuses anything under 24.22.1, so in practice this fires for
- * a Node 26 below 26.12.1; the 24 entry keeps the table complete for a caller that bypasses the bin.
+ * a Node 26 below 26.12.1; the 24 entry keeps the table complete for a caller that bypasses the bin. A line with no entry (25, 27) gets no warning. A prerelease of the
+ * patched release (26.12.1-rc.1) counts as below it.
  */
 function nodeSecurityWarning(version: string): { kind: string, subject: string, detail: string } | null {
-  const parts = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(version));
+  const parts = /^v?(\d+)\.(\d+)\.(\d+)(-.*)?$/.exec(String(version));
   if (!parts) return null;
   const running = [Number(parts[1]), Number(parts[2]), Number(parts[3])];
   const patched = NODE_PATCHED_RELEASE[running[0]];
   if (!patched) return null;
-  const below = patched.reduce((order, part, i) => order || Math.sign(running[i] - part), 0) < 0;
+  const order = patched.reduce((result, part, i) => result || Math.sign(running[i] - part), 0);
+  const below = order < 0 || (order === 0 && Boolean(parts[4])); // a prerelease of the patched release sorts below it
   if (!below) return null;
   return {
     kind: 'node-security-release',
@@ -879,7 +881,7 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   printSettingsReport(settings);
 
   if (report.warnings.length) {
-    console.log('\n[Warnings] — not blocking; a stale or unprobeable provider still degrades cleanly');
+    console.log('\n[Warnings] — not blocking; a stale or unprobeable provider still degrades cleanly, and a Node below the security release of its line is named here');
     for (const warning of report.warnings) console.log(`  ${warning.subject.padEnd(18)}${warning.detail}`);
   }
 
