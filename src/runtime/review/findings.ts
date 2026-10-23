@@ -21,12 +21,26 @@ const ROUND_CAP = 3;
 const IGNORABLE = /[\p{Default_Ignorable_Code_Point}\p{Cf}]/gu;
 const DASH = /\p{Pd}/gu;
 /** The closed top-level key set (IC-001). */
-const RECORD_KEYS = Object.freeze(['schema', 'row', 'slug', 'reviewedHead', 'rounds', 'seats', 'converged']);
+const RECORD_KEYS = Object.freeze(['schema', 'row', 'slug', 'reviewedHead', 'depth', 'risk', 'rounds', 'seats', 'converged']);
 /** The optional convergence keys of a converged finding (IC-001); other finding keys stay open. */
 const FINDING_FIELDS = Object.freeze(['origin', 'preExistingAt', 'escapedFrom', 'verification', 'verifiedBy', 'bugClass', 'sweep', 'acceptedAs']);
 const object = (x: any): boolean => x !== null && typeof x === 'object' && !Array.isArray(x);
 const nonempty = (x: any): boolean => typeof x === 'string' && x.trim().length > 0;
 const strings = (x: any): boolean => Array.isArray(x) && x.every(nonempty) && new Set(x).size === x.length;
+
+/** The depth and risk vocabularies (095b IC-005), read from the verification registry on first use only,
+ * so a record without `depth` or `risk` (and a bench `require` of this file) never loads it. `null` fails closed. */
+let depthVocabulary: { depths: Record<string, { seats: number }>; risks: string[] } | null | undefined;
+function depthPolicy(): { depths: Record<string, { seats: number }>; risks: string[] } | null {
+  if (depthVocabulary === undefined) {
+    try {
+      const { loadVerificationRegistry, reviewDepthPolicy } = require('../verification/registry.ts');
+      const registry = loadVerificationRegistry();
+      depthVocabulary = { depths: reviewDepthPolicy(registry).depths, risks: Object.keys(registry.riskLevels) };
+    } catch { depthVocabulary = null; }
+  }
+  return depthVocabulary;
+}
 
 /** Repo-relative literal path; traversal, globs, absolute paths and alternate separators fail closed. */
 function validPath(value: any): boolean {
@@ -59,6 +73,9 @@ function validateFindings(json: any): { ok: boolean; errors: string[] } {
   if (typeof data.row !== 'string' || !ROW_ID.test(data.row)) errors.push('row');
   if (typeof data.slug !== 'string' || !data.slug.startsWith(`${data.row}-`) || !/^[a-zA-Z0-9-]+$/.test(data.slug)) errors.push('slug');
   if (typeof data.reviewedHead !== 'string' || !HEX_HEAD.test(data.reviewedHead)) errors.push('reviewedHead');
+  const policy = Object.hasOwn(data, 'depth') || Object.hasOwn(data, 'risk') ? depthPolicy() : null;
+  if (Object.hasOwn(data, 'depth') && !(typeof data.depth === 'string' && policy && Object.hasOwn(policy.depths, data.depth))) errors.push('depth');
+  if (Object.hasOwn(data, 'risk') && !(typeof data.risk === 'string' && policy && policy.risks.includes(data.risk))) errors.push('risk');
   if (Object.hasOwn(data, 'rounds') && !(Number.isSafeInteger(data.rounds) && data.rounds >= 1)) errors.push('rounds');
   const seats = Array.isArray(data.seats) ? data.seats : [];
   const converged = Array.isArray(data.converged) ? data.converged : [];
@@ -156,6 +173,7 @@ function reviewAdvisories(json: any): string[] {
     if (Object.hasOwn(finding, 'bugClass') && finding.status === 'open') advisories.push(`bug-class-open:${finding.id}`);
   }
   if (Object.hasOwn(data, 'rounds') && data.rounds >= ROUND_CAP) advisories.push(`round-cap:${data.rounds}`);
+  if (Object.hasOwn(data, 'depth') && data.seats.length < (depthPolicy() as any).depths[data.depth].seats) advisories.push(`depth-unmet:${data.depth}`);
   return advisories.sort();
 }
 

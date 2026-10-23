@@ -97,6 +97,9 @@
       "writers": ["src/runtime/trace/telemetry.ts"],
       "fields": {
         "task": { "name": "doflow.review.run.task", "class": "T0", "type": "token|null", "phase": "P7" },
+        "depth": { "name": "doflow.review.run.depth", "class": "T2", "type": "enum:depth|null", "phase": "P7" },
+        "risk": { "name": "doflow.review.run.risk", "class": "T2", "type": "enum:risk|null", "phase": "P7" },
+        "head": { "name": "doflow.review.run.head", "class": "T0", "type": "token|null", "phase": "P7" },
         "rounds": { "name": "doflow.review.run.rounds", "class": "T1", "type": "uint|null", "phase": "P7" },
         "seats": { "name": "doflow.review.run.seats", "class": "T1", "type": "uint|null", "phase": "P7" },
         "seat_findings": { "name": "doflow.review.run.seat_findings", "class": "T1", "type": "uint|null", "phase": "P7" },
@@ -135,6 +138,7 @@
     "source": ["verb", "dispatch"],
     "status": ["PASS", "FAIL", "UNRESOLVED", "SUBSUMED", "NOT_APPLICABLE", "SKIPPED", "NOT_RUN"],
     "risk": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+    "depth": ["single", "deep"],
     "role": ["main", "worker"],
     "level": ["L0", "L1", "L2", "L3"],
     "selection_basis": ["changed-test-files", "explicit-pattern", "none"],

@@ -169,11 +169,14 @@ function handleReviewCommand({
   const telemetryRecord: ReviewRecord = {
     kind: 'review.run',
     task,
+    depth: null,
+    risk: null,
+    head: null,
     ...Object.fromEntries(TELEMETRY_COUNT_KEYS.map((key) => [key, null])),
     advisories: advisories.length,
     errors: errors.length,
   };
-  if (counts) Object.assign(telemetryRecord, counts);
+  if (counts && record) Object.assign(telemetryRecord, counts, { depth: record.depth ?? null, risk: record.risk ?? null, head: record.reviewedHead });
   try { telemetryWriter.write([telemetryRecord]); } catch { /* telemetry never changes the check result */ }
 
   return finishRuntime(valid ? 0 : 1);

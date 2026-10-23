@@ -36,7 +36,7 @@ test('frozen vocabularies, closed key lists and ROUND_CAP', () => {
   assert.deepEqual(findings.ORIGINS, ['introduced', 'pre-existing']);
   assert.deepEqual(findings.VERIFICATIONS, ['confirmed', 'plausible']);
   assert.deepEqual(findings.ACCEPTED_AS, ['intentional', 'not-worth-fixing']);
-  assert.deepEqual(findings.RECORD_KEYS, ['schema', 'row', 'slug', 'reviewedHead', 'rounds', 'seats', 'converged']);
+  assert.deepEqual(findings.RECORD_KEYS, ['schema', 'row', 'slug', 'reviewedHead', 'depth', 'risk', 'rounds', 'seats', 'converged']);
   assert.deepEqual(findings.FINDING_FIELDS, ['origin', 'preExistingAt', 'escapedFrom', 'verification', 'verifiedBy', 'bugClass', 'sweep', 'acceptedAs']);
   assert.equal(findings.ROUND_CAP, 3);
 });
@@ -226,4 +226,41 @@ test('reviewAdvisories: empty for an invalid record; sorted', () => {
   assert.deepEqual(reviewAdvisories('{broken'), []);
   const rec = record([open({ id: 'C9', severity: 'blocker' }), open({ id: 'C1', bugClass: 'k', sweep: 'rg' })], { rounds: 3 });
   assert.deepEqual(reviewAdvisories(rec), ['bug-class-open:C1', 'round-cap:3', 'unverified-blocker:C9']);
+});
+
+test('095b IC-005: depth and risk are optional; absent and valid values pass', () => {
+  assert.deepEqual(errorsOf({}), []);
+  for (const depth of ['single', 'deep']) assert.deepEqual(errorsOf({}, { depth }), [], depth);
+  for (const risk of ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']) assert.deepEqual(errorsOf({}, { risk }), [], risk);
+  assert.deepEqual(errorsOf({}, { depth: 'deep', risk: 'HIGH' }), []);
+});
+
+test('095b IC-005: an unknown depth or risk is refused with its own error', () => {
+  assert.deepEqual(errorsOf({}, { depth: 'shallow' }), ['depth']);
+  assert.deepEqual(errorsOf({}, { risk: 'URGENT' }), ['risk']);
+  assert.deepEqual(errorsOf({}, { depth: 'shallow', risk: 'URGENT' }), ['depth', 'risk']);
+  for (const bad of [null, '', 1, ['deep'], {}, 'DEEP', 'low']) {
+    assert.deepEqual(errorsOf({}, { depth: bad }), ['depth'], `depth ${JSON.stringify(bad)}`);
+    assert.deepEqual(errorsOf({}, { risk: bad }), ['risk'], `risk ${JSON.stringify(bad)}`);
+  }
+});
+
+test('095b IC-005: depth-unmet:<depth> when the seats are fewer than the policy; advisories are sorted with the rest', () => {
+  const one = (extra) => ({ ...record([open()], extra), seats: record([open()]).seats.slice(0, 1) });
+  assert.deepEqual(reviewAdvisories(one({ depth: 'deep' })), ['depth-unmet:deep']);
+  assert.deepEqual(reviewAdvisories(one({ depth: 'single' })), []);
+  assert.deepEqual(reviewAdvisories(one({})), []);
+  assert.deepEqual(reviewAdvisories(record([open()], { depth: 'deep' })), []);
+  assert.deepEqual(reviewAdvisories(one({ depth: 'deep', rounds: 3 })), ['depth-unmet:deep', 'round-cap:3']);
+  assert.deepEqual(reviewAdvisories(one({ depth: 'shallow' })), [], 'an invalid record has no advisories');
+});
+
+test('095b IC-005 NFR-004: every committed findings fixture still validates and keeps its counts', () => {
+  const dir = path.join(__dirname, '../fixtures/roadmap/findings');
+  const files = fs.readdirSync(dir).filter((name) => name.endsWith('.json'));
+  assert.ok(files.length >= 2);
+  for (const name of files) {
+    assert.deepEqual(validateFindings(fs.readFileSync(path.join(dir, name), 'utf8')), { ok: true, errors: [] }, name);
+    assert.deepEqual(reviewAdvisories(fs.readFileSync(path.join(dir, name), 'utf8')).filter((a) => a.startsWith('depth-unmet')), [], name);
+  }
 });
