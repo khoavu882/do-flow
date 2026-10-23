@@ -20,6 +20,11 @@ function harnessesFor(assetId) {
     .filter((id) => selectAssets(registry, { harness: id }).some((a) => a.id === assetId));
 }
 
+/** Agent-spec keys DoFlow reads itself and never projects (118 IC-002, IC-005): the adapters turn
+ * `access` into each harness's own limit keys and drop it, so no harness has to recognize it.
+ * `test/adapters/agent-limits-projection.test.js` fails if `access` reaches any projected file. */
+const DOFLOW_INTERNAL_AGENT_KEYS = new Set(['access']);
+
 /** A key is a defect only when EVERY harness it ships to rejects it. Requiring the intersection
  * instead would flag `permissionMode`, which Claude genuinely honours, merely because a
  * lower-bound contract elsewhere does not list it. */
@@ -44,7 +49,8 @@ test('G1: every agent-spec frontmatter key is recognized by at least one harness
   assert.ok(harnesses.length, 'agents.shared must project to at least one harness');
   const offenders = [];
   for (const { name, file } of agentSpecFiles()) {
-    for (const key of unrecognized(frontmatterKeys(file), harnesses, 'agentFields')) {
+    const keys = frontmatterKeys(file).filter((key) => !DOFLOW_INTERNAL_AGENT_KEYS.has(key));
+    for (const key of unrecognized(keys, harnesses, 'agentFields')) {
       offenders.push(`${name}: '${key}'`);
     }
   }

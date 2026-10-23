@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { WorkflowEngine } = require('../../src/runtime/workflow-engine.ts');
+const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, '../..');
 const PATTERN = /^[a-z][a-z0-9-]*$/;
@@ -53,17 +54,13 @@ test('`resolveWorkflow` output is otherwise unchanged by the field (negative con
   }
 });
 
-test('`classify --task-class feature` stages carry `agent`', () => {
-  const home = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'doflow-agent-field-'));
-  try {
-    const run = spawnSync(process.execPath, [path.join(REPO, 'bin', 'doflow.js'), 'classify', '--task-class', 'feature', '--calling-skill', 'do', '--json'], {
-      cwd: REPO, encoding: 'utf8', env: { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), FORCE_COLOR: '' },
-    });
-    assert.equal(run.status, 0, run.stderr);
-    const json = JSON.parse(run.stdout);
-    assert.ok(json.workflow.stages.length > 0);
-    for (const stage of json.workflow.stages) assert.ok(KEBAB.test(stage.agent), stage.id);
-  } finally {
-    fs.rmSync(home, { recursive: true, force: true });
-  }
+test('`classify --task-class feature` stages carry `agent`', (t) => {
+  const home = tempDir(t, 'doflow-agent-field-');
+  const run = spawnSync(process.execPath, [path.join(REPO, 'bin', 'doflow.js'), 'classify', '--task-class', 'feature', '--calling-skill', 'do', '--json'], {
+    cwd: REPO, encoding: 'utf8', env: { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), FORCE_COLOR: '' },
+  });
+  assert.equal(run.status, 0, run.stderr);
+  const json = JSON.parse(run.stdout);
+  assert.ok(json.workflow.stages.length > 0);
+  for (const stage of json.workflow.stages) assert.ok(KEBAB.test(stage.agent), stage.id);
 });
