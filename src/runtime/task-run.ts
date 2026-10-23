@@ -364,9 +364,9 @@ function cancelAttempt(store: any, { key, graph, task, token, by, reason, now }:
 // rebuild the ledger-derived half of the report and recompute the digest against what is on disk.
 
 /**
- * IC-005 row 4: the cancelled attempts a resume has cleared. A cancel is cleared when the run its
- * attempt's `runKey` names has a `resume` history entry that lists it in `cleared`, or that is
- * later than `cancel.at`. Pure; an empty list for a store with no cancelled attempt (every
+ * IC-005 row 4: the cancelled attempts a resume has cleared. A cancel is cleared only when the run
+ * its attempt's `runKey` names has a `resume` history entry that lists it in `cleared`; no
+ * timestamp is compared, since a stamp from another clock can sort either side of a resume. Pure; an empty list for a store with no cancelled attempt (every
  * `8ce5ad7` store). Each entry also carries the cleared `attempt` object itself, so a caller can
  * pair by identity when tokens are duplicated or missing (a malformed ledger).
  */
@@ -380,10 +380,8 @@ function clearedCancels(store: any): Array<{ taskId: string; token: number; atte
       if (!a || a.state !== 'cancelled' || !a.runKey) continue;
       const run = ownRun(store, a.runKey);
       const history: any[] = run && Array.isArray(run.history) ? run.history : [];
-      const at = a.cancel && typeof a.cancel.at === 'string' ? a.cancel.at : null;
-      const cleared = history.some((h: any) => h && h.action === 'resume' && (
-        (Array.isArray(h.cleared) && h.cleared.some((c: any) => c && c.taskId === taskId && c.token === a.token))
-        || (at !== null && typeof h.at === 'string' && h.at > at)));
+      const cleared = history.some((h: any) => h && h.action === 'resume'
+        && Array.isArray(h.cleared) && h.cleared.some((c: any) => c && c.taskId === taskId && c.token === a.token));
       if (cleared) out.push({ taskId, token: a.token, attempt: a });
     }
   }

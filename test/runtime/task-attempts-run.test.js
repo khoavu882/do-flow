@@ -15,7 +15,7 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { claim, TaskAttemptError } = require('../../src/runtime/task-attempts.ts');
-const { runKeyFor, createRun, epochRefusal } = require('../../src/runtime/task-run.ts');
+const { runKeyFor, createRun, epochRefusal, clearedCancels } = require('../../src/runtime/task-run.ts');
 const { graphDigest, graphTuples, buildGraph } = require('../../src/runtime/task-graph.ts');
 const { parsePlan } = require('../../src/runtime/scaffold/artifacts.ts');
 
@@ -170,6 +170,30 @@ test('execWorktree defaults to the run worktree; a given path is lifted to its t
 });
 
 // ── recorded graph (IC-004) and the mode as declared (FR-006) ───────────────────────────────────
+
+// ── IC-005 row 4: a cancel is cleared only by a resume that lists it (FU-82p04v) ────────────────
+
+test('a cancel stamped earlier than a resume is not cleared by the clock; only the resume that lists it clears it', (t) => {
+  const p = project(t, planText());
+  const cancelled = (token, at) => ({
+    token, state: 'cancelled', runKey: p.key.runKey, startedAt: '2026-01-01T00:00:00.000Z', cancel: { at, by: 'lead', reason: 'x' },
+  });
+  // The resume entry is stamped 12:00; both cancels happened after it in ledger order, but the
+  // second was written by a host whose clock was behind (stamp 09:00 < 12:00).
+  const resume = { at: '2026-01-02T12:00:00.000Z', action: 'resume', by: 'lead', reason: null, digest: 'd', epoch: 2, cleared: [{ taskId: 'A.1', token: 1 }] };
+  const store = {
+    version: 1, revision: 1, planPath: null,
+    tasks: {
+      'A.1': { nextToken: 2, attempts: [cancelled(1, '2026-01-02T09:00:00.000Z')] },
+      'A.2': { nextToken: 2, attempts: [cancelled(1, '2026-01-02T09:00:00.000Z')] },
+    },
+    runs: { [p.key.runKey]: { ...p.runRecord({ epoch: 2 }), history: [resume] } },
+  };
+  assert.deepEqual(clearedCancels(store).map((c) => `${c.taskId}#${c.token}`), ['A.1#1'], 'only the listed attempt is cleared');
+  // Control: the same store with A.2 listed clears both, so the listing is what decides.
+  store.runs[p.key.runKey].history[0].cleared.push({ taskId: 'A.2', token: 1 });
+  assert.deepEqual(clearedCancels(store).map((c) => `${c.taskId}#${c.token}`).sort(), ['A.1#1', 'A.2#1']);
+});
 
 test('graphTasks is stored at 500 tasks and null with graphTruncated at 501', (t) => {
   for (const n of [500, 501]) {
