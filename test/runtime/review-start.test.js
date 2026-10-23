@@ -556,7 +556,22 @@ test('N-3 control: a healthy flat run of another slug does not block; the slug h
   assert.equal(json.notApplicable, 'no-run');
 });
 
-// ---- N-6: an error refusal does not know whether a review applies ------------------------------------------
+// ---- N-9: a readable legacy flat run that names the slug only through `slug` is the slug's run -----------
+
+test('N-9: a flat <id>.json naming the slug only via `slug`, on a verify FAIL and a dirty tree, is found and refuses', async (t) => {
+  const r = repo(t, { run: false });
+  putRun(r, LEGACY, { taskId: 'legacy-id', slug: SLUG, taskClass: 'bug' });
+  // The verify records are keyed on the run's own task id.
+  put(r.cwd, '.doflow/state/verification/runs/legacy-id.jsonl', `${JSON.stringify({ ...r.line({ taskId: 'legacy-id' }), verdict: 'FAIL' })}\n`);
+  put(r.cwd, 'src/uncommitted.ts', 'x\n');
+  const { exitCode, json } = await start(r);
+  assert.equal(exitCode, 1);
+  assert.notEqual(json.notApplicable, 'no-run');
+  assert.equal(json.seats, null);
+  assert.deepEqual(json.reasons, ['tree-dirty', 'verify-not-pass']);
+});
+
+// ---- N-6: every error refusal prints applicable null -----------------------------------------------------
 
 test('N-6: every error refusal prints applicable null; a precondition refusal stays applicable true', async (t) => {
   const r = repo(t, { run: false });

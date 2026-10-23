@@ -190,7 +190,10 @@ function lookupRun(stateRoot: string, slug: string): RunLookup {
   if (!listed.ok) return { status: 'unreadable', message: `the run records could not be listed (${listed.error})` };
   const mine = selectRunEntries(listed.entries).filter((entry: any) => {
     const namespaced = path.relative(path.join(entry.root, '.doflow', 'state', 'orchestration'), entry.file).split(path.sep).length > 1;
-    return entry.slug === slug || (!namespaced && path.basename(entry.file, '.json') === slug);
+    // `slug` names the feature like `featureSlug` does (the runtime's flatRecordIsOurs honours both).
+    const named = typeof entry.record?.featureSlug === 'string' && entry.record.featureSlug !== '' ? null : entry.record?.slug;
+    return entry.slug === slug || (typeof named === 'string' && named === slug)
+      || (!namespaced && path.basename(entry.file, '.json') === slug);
   });
   if (mine.length === 0) {
     // No entry names this slug. A flat run of this store that could not be read (io/unparseable, or a
@@ -289,7 +292,7 @@ async function handleReviewStart({ slug, base, json = false, cwd, env, resolve, 
     };
     // An uncertain applicability is a refusal with a named reason, never a silent not-applicable.
     const refuse = (error: string, message: string): number => {
-      // applicable is null: a refusal does not know whether a review applies.
+      // applicable is null on every error refusal.
       out(json ? JSON.stringify({ ...result, applicable: null, ok: false, error, message }) : `review start: ${error}: ${message}`);
       return finishRuntime(1);
     };
