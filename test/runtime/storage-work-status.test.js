@@ -359,6 +359,16 @@ test('IC-028 a cancel that a resume cleared no longer holds the ledger open (FU-
   assert.deepEqual(ledgerStatus(projectRoot, byTime), finished, 'a resume later than the cancel');
 });
 
+test('IC-028 a null attempt beside a cancelled one does not fail the ledger check (C-4)', (t) => {
+  const projectRoot = setup(t);
+  const cancel = { at: '2026-10-01T00:00:00.000Z', by: 'user', reason: 'stop' };
+  const history = [{ at: '2026-10-02T00:00:00.000Z', action: 'resume', cleared: [{ taskId: 'A.1', token: 1 }] }];
+  const cleared = ledger({ attempts: [null, { token: 1, state: 'cancelled', runKey: 'k', cancel }], runs: { k: { control: 'running', history } } });
+  assert.deepEqual(ledgerStatus(projectRoot, cleared), { state: 'finished', since: 5, reason: 'no-run', run: null, feature: '080-ledger' });
+  const uncleared = ledger({ attempts: [null, { token: 1, state: 'cancelled', runKey: 'k', cancel }], runs: { k: { control: 'running', history: [] } } });
+  assert.deepEqual(ledgerStatus(projectRoot, uncleared), { state: 'open', since: null, reason: 'attempt-open', run: null, feature: null }, 'an uncleared cancel still holds');
+});
+
 test('IC-028 a cancel no resume cleared, or a different attempt\'s cleared entry, still holds the ledger open', (t) => {
   const projectRoot = setup(t);
   const cancel = { at: '2026-10-03T00:00:00.000Z', by: 'user', reason: 'stop' };

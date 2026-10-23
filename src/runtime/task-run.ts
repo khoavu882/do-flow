@@ -376,7 +376,7 @@ function clearedCancels(store: any): Array<{ taskId: string; token: number }> {
   for (const [taskId, entry] of Object.entries<any>(store.tasks || {})) {
     const attempts: any[] = entry && Array.isArray(entry.attempts) ? entry.attempts : [];
     for (const a of attempts) {
-      if (a.state !== 'cancelled' || !a.runKey) continue;
+      if (!a || a.state !== 'cancelled' || !a.runKey) continue;
       const run = ownRun(store, a.runKey);
       const history: any[] = run && Array.isArray(run.history) ? run.history : [];
       const at = a.cancel && typeof a.cancel.at === 'string' ? a.cancel.at : null;
