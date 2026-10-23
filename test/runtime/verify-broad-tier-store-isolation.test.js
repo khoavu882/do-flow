@@ -6,9 +6,10 @@
 // worktree's store, which then refused every record verb with store-conflict. This runs the test
 // file that leaked with the same shell and cwd, from a linked worktree of a scratch repository, and
 // asserts it adds, removes or changes no file in the worktree's store, the main checkout's store,
-// HOME or XDG_CONFIG_HOME. It models cwd-relative and HOME/XDG-relative writes; the environment is
-// the scratch one (telemetry off, no global git config), not the caller's. The writer controls,
-// one per root plus two overwrites, prove the snapshot sees each leak shape.
+// HOME or XDG_CONFIG_HOME. It models cwd-relative and HOME/XDG-relative writes. The environment
+// is the caller's (scratch-env.js copies process.env) with only HOME, XDG_CONFIG_HOME, git config
+// and identity, and telemetry replaced by scratch values. The writer controls, one per root plus
+// two overwrites, prove the snapshot sees each leak shape.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -66,9 +67,17 @@ function linkedWorktreeLayout(t) {
   return { env, main, wt, before: snapshot(), snapshot };
 }
 
+// Hang guard: the inner run takes about a second; a hung one fails this test instead of the suite.
+const INNER_TIMEOUT_MS = 120000;
+
 // Mirrors contract-runner.ts runCheck: shell command, cwd = the checkout verify runs in.
 function runLikeVerify(command, { wt, env }) {
-  return spawnSync(command, { shell: true, cwd: wt, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const result = spawnSync(command, { shell: true, cwd: wt, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+    timeout: INNER_TIMEOUT_MS, killSignal: 'SIGKILL' });
+  if (result.error) {
+    assert.fail(`inner command did not finish within ${INNER_TIMEOUT_MS} ms or could not start (${result.error.code || result.error.message}): ${command}`);
+  }
+  return result;
 }
 
 test('FU-k9h1df: the context-pack test file run as verify runs it from a linked worktree writes into no real store', (t) => {
