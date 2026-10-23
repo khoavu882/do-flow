@@ -10,7 +10,9 @@
 //             it prints `R` and pauses inside its critical section first
 //   pauseAtAct  print `R` and wait 500 ms (the caller SIGSTOPs it then) at the first step that acts
 //             on a lock it judged: the mkdir of its entry (new) or the rename aside (old)
-//   quietMs   the new runtime's wait after a risky reclaim (default its 10 s)
+//   pauseAtActMs  how long that pause lasts (default 500 ms)
+//   pauseBeforeCommitMs  'write' mode: print `C` and pause this long before the rename onto `file`
+//   quietMs   the new runtime's quiet hold after a reclaim (default its 10 s)
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -28,15 +30,21 @@ const wait = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0
 const event = (name) => fs.appendFileSync(config.eventsFile, `${config.label}-${name}\n`);
 
 let fired = false;
-const pause = () => { fired = true; process.stdout.write('R\n'); wait(500); };
-const fsImpl = !config.pauseAtAct ? fs : {
+const pause = () => { fired = true; process.stdout.write('R\n'); wait(config.pauseAtActMs ?? 500); };
+let committing = false;
+const fsImpl = !config.pauseAtAct && !config.pauseBeforeCommitMs ? fs : {
   ...fs,
   mkdirSync: (target, ...rest) => {
-    if (!fired && typeof target === 'string' && target.startsWith(lockDir + path.sep)) pause();
+    if (config.pauseAtAct && !fired && typeof target === 'string' && target.startsWith(lockDir + path.sep)) pause();
     return fs.mkdirSync(target, ...rest);
   },
   renameSync: (from, to) => {
-    if (!fired && from === lockDir) pause();
+    if (config.pauseAtAct && !fired && from === lockDir) pause();
+    if (config.pauseBeforeCommitMs && !committing && to === config.file) {
+      committing = true;
+      process.stdout.write('C\n');
+      wait(config.pauseBeforeCommitMs);
+    }
     return fs.renameSync(from, to);
   },
 };

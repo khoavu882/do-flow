@@ -215,9 +215,10 @@ test('an older runtime\'s lock whose owner is dead is reclaimed in place, and he
   assert.equal(fs.existsSync(lockDir), false);
 });
 
-test('an entry names its owner\'s pid and start, so a reused pid is judged dead', () => {
+test('an entry names its owner\'s pid and start, so a reused pid is judged dead without waiting out the 10 s age', () => {
   const { file, lockDir } = lockFile();
-  const deps = { pid: process.pid, procStart, alive, fsImpl: fs };
+  // quietMs 0: the judgement is under test; the quiet hold after every reclaim is tested above.
+  const deps = { pid: process.pid, procStart, alive, fsImpl: fs, quietMs: 0 };
   const release = acquireSlotLock(fs, file, deps);
   const [entry] = fs.readdirSync(lockDir);
   const match = /^owner-(\d+)-([0-9a-f]+)-[0-9a-f]{12}$/.exec(entry);
@@ -230,7 +231,7 @@ test('an entry names its owner\'s pid and start, so a reused pid is judged dead'
   fs.mkdirSync(path.join(lockDir, `owner-${process.pid}-${hex('Mon Jan  1 00:00:00 2001')}-0123456789ab`));
   const started = Date.now();
   const again = acquireSlotLock(fs, file, deps);
-  assert.ok(Date.now() - started < 2000, 'an entry of a reused pid was waited on');
+  assert.ok(Date.now() - started < 2000, 'an entry of a reused pid was judged by the 10 s age rule');
   again();
 });
 
@@ -279,6 +280,63 @@ test('C-1: a dead token is not unlinked once an older runtime moved the lock asi
   assert.equal(tokenKept, true, 'the older runtime\'s live token was removed');
   assert.equal(released, true, 'the lock was held before the older runtime released it');
   release();
+});
+
+// N-4: each half of the C-1 check on its own. In the moves above both halves see the change; here
+// each case changes only what one half looks at (the token half is defence in depth: an older runtime
+// writes `owner.json` only into a lock it made).
+function tokenRace(t, change) {
+  const { file, lockDir } = lockFile();
+  fs.mkdirSync(lockDir);
+  const token = path.join(lockDir, 'owner.json');
+  const dead = JSON.stringify({ pid: DEAD, start: null });
+  fs.writeFileSync(token, dead);
+  const state = { entered: false, changed: false, rejudged: false, wrongUnlink: false, looks: 0, released: false };
+  const reclaimerFs = hookedFs({
+    mkdirSync: (original, target, ...rest) => {
+      const result = original(target, ...rest);
+      if (target.startsWith(lockDir + path.sep)) state.entered = true;
+      return result;
+    },
+    statSync: (original, target, ...rest) => {
+      const result = original(target, ...rest);
+      if (state.entered && !state.changed && target === lockDir) { state.changed = true; change({ lockDir, token, dead }); }
+      return result;
+    },
+    readdirSync: (original, ...args) => {
+      if (state.changed) { state.rejudged = true; state.looks += 1; }
+      if (state.changed && !state.released && state.looks === 5 && fs.existsSync(token) && fs.readFileSync(token, 'utf8') !== dead) {
+        fs.unlinkSync(token); // the live owner's release (the 115 release: token, then the directory)
+        try { fs.rmdirSync(lockDir); } catch { /* another entry is in it */ }
+        state.released = true;
+      }
+      return original(...args);
+    },
+    unlinkSync: (original, target) => {
+      if (target === token && state.changed && (!state.rejudged || fs.readFileSync(token, 'utf8') !== dead)) state.wrongUnlink = true;
+      return original(target);
+    },
+  });
+  const release = acquireSlotLock(reclaimerFs, file, { pid: process.pid, procStart, alive, fsImpl: reclaimerFs, quietMs: 0 });
+  release();
+  return state;
+}
+
+test('N-4: the C-1 check refuses a token in a lock that no longer holds this process\'s entry, even when the token reads the same', (t) => {
+  const state = tokenRace(t, ({ lockDir, token, dead }) => {
+    fs.renameSync(lockDir, `${lockDir}.stale-older`);
+    fs.mkdirSync(lockDir);
+    fs.writeFileSync(token, dead);
+  });
+  assert.equal(state.changed, true);
+  assert.equal(state.wrongUnlink, false, 'a token was unlinked in a lock this process had not judged');
+});
+
+test('N-4: the C-1 check refuses a token that changed in the lock that still holds this process\'s entry', (t) => {
+  const state = tokenRace(t, ({ token }) => { fs.writeFileSync(token, liveToken()); });
+  assert.equal(state.changed, true);
+  assert.equal(state.wrongUnlink, false, 'a live token was unlinked');
+  assert.equal(state.released, true);
 });
 
 for (const [seed, prepare] of [
@@ -345,7 +403,7 @@ test('C-4: a file in a slot lock keeps it locked and the error names it', () => 
   assert.deepEqual(fs.readdirSync(lockDir), ['.DS_Store']);
 });
 
-test('C-5: a queued process takes the lock at once when the holder ahead of it dies', () => {
+test('C-5: a queued process reclaims the lock when the holder ahead of it dies, without waiting out its budget', () => {
   const { file, lockDir } = lockFile();
   const holderPid = 99_999_998; // sorts after this process's pid; no process has it, so it is dead once looked at
   fs.mkdirSync(lockDir);
@@ -354,13 +412,14 @@ test('C-5: a queued process takes the lock at once when the holder ahead of it d
   const waiterFs = hookedFs({
     mkdirSync: (original, target, ...rest) => {
       if (!holder && target.startsWith(lockDir + path.sep)) {
-        holder = acquireSlotLock(fs, file, { pid: holderPid, procStart: () => null, alive, fsImpl: fs });
+        holder = acquireSlotLock(fs, file, { pid: holderPid, procStart: () => null, alive, fsImpl: fs, quietMs: 0 });
       }
       return original(target, ...rest);
     },
   });
   const started = Date.now();
-  const release = acquireSlotLock(waiterFs, file, { pid: process.pid, procStart, alive, fsImpl: waiterFs });
+  // quietMs 0: the re-judgement is under test; the quiet hold after every reclaim is tested above.
+  const release = acquireSlotLock(waiterFs, file, { pid: process.pid, procStart, alive, fsImpl: waiterFs, quietMs: 0 });
   assert.equal(typeof holder, 'function');
   assert.ok(Date.now() - started < 2000, `held after ${Date.now() - started} ms`);
   assert.equal(release.held(), true);
@@ -446,6 +505,29 @@ test('mixed runtimes: an old runtime\'s holder killed while holding is reclaimed
   assert.ok(took >= 10_000 && took < 16_000, `the dead old holder's lock was held after ${took} ms`);
   assert.deepEqual(events(eventsFile), ['old-enter', 'new-enter', 'new-exit']);
   assert.equal(fs.existsSync(lockDir), false);
+});
+
+test('N-1: a current process killed in its quiet hold hands on a lock whose next holder quiets too, so an older runtime\'s pending move keeps both writes', async (t) => {
+  const { dir, file, lockDir } = lockFile();
+  const eventsFile = path.join(dir, 'events');
+  const older = actor(t, { runtime: 'old', mode: 'hold', file, label: 'O', eventsFile, goFile: path.join(dir, 'never') });
+  await until(() => events(eventsFile).includes('O-enter'));
+  older.child.kill('SIGKILL');
+  await older.done;
+  // W judged the dead token and is preempted 3 s before its move.
+  const waiting = actor(t, { runtime: 'old', mode: 'write', file, label: 'W', eventsFile, pauseAtAct: true, pauseAtActMs: 3000 });
+  await waiting.paused;
+  // A reclaims in place and is killed 600 ms into its quiet hold.
+  const quietOne = actor(t, { runtime: 'new', mode: 'hold', file, label: 'A', eventsFile, goFile: path.join(dir, 'never') });
+  await until(() => { try { return fs.readdirSync(lockDir).some((name) => name.startsWith(`owner-${quietOne.child.pid}-`)); } catch { return false; } });
+  await sleep(600);
+  quietOne.child.kill('SIGKILL');
+  await quietOne.done;
+  // C reclaims A's dead entry and would be preempted 3 s between its pre-write check and its rename.
+  const current = actor(t, { runtime: 'new', mode: 'write', file, label: 'C', eventsFile, pauseBeforeCommitMs: 3000 });
+  const [w, c] = await Promise.all([waiting.done, current.done]);
+  assert.deepEqual([w.kind, c.kind], ['DONE', 'DONE'], JSON.stringify([w, c]));
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).writes, ['W', 'C']);
 });
 
 test('mixed runtimes (accepted cost): an old runtime moves a new holder\'s lock aside after 10 s, and the new holder writes nothing', async (t) => {

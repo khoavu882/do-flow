@@ -72,7 +72,7 @@ type Deps = {
   pollMs?: number;
   platform?: string;
   proc?: any;
-  quietMs?: number; // tests only: the wait after a risky reclaim (default LOCK_STALE_MS)
+  quietMs?: number; // tests only: the quiet hold after a reclaim (default LOCK_STALE_MS)
   lockBudgetMs?: number; // tests only: how long a slot lock is waited for (default 30 s)
 };
 
@@ -152,11 +152,11 @@ const refuse = (why: string) => Object.assign(new Error(why), { code: 'EBUSY' })
  * The slot lock (FU-31dyvs) is the task-state lock (`src/runtime/task-state.ts`, its protocol and
  * `release.held()`), with the entry naming its owner and a stale rule that keeps 115's C-4: an entry
  * whose owner is alive is never reclaimed, however old (a slow live critical section is not a crash);
- * one whose owner is dead is reclaimed at once; one whose liveness is unknown, an empty lock and a
- * directory name this lock does not make are reclaimed once the lock is 10 s old, as in task-state.
- * An older runtime's lock (its `owner.json` token) is judged the same way. `risky` records that this
- * acquire reclaimed a lock an older runtime may also have judged stale (it had a token, or it was over
- * 10 s old): see `quiet`. See docs/architecture.md, "The slot lock".
+ * one whose owner is dead is reclaimable at once; one whose liveness is unknown, an empty lock and a
+ * directory name this lock does not make once the lock is 10 s old, as in task-state. An older
+ * runtime's lock (its `owner.json` token) is judged the same way. `reclaimed` records that this acquire
+ * judged a lock reclaimable, so it holds only after `quiet` (every reclaim quiets; user ruling, 117
+ * decisions: amends 115 C-4's "dead owner reclaimed at once"). See docs/architecture.md, "The slot lock".
  */
 function slotLock(fsImpl: any, deps: any) {
   const start = deps.procStart(deps.pid);
@@ -164,16 +164,14 @@ function slotLock(fsImpl: any, deps: any) {
   const liveness = (owner: any): boolean | 'unknown' => {
     try { return deps.alive({ pid: owner.pid, start: owner.start }); } catch { return 'unknown'; }
   };
-  const lock: any = { risky: false, current: null, judgedToken: null };
+  const lock: any = { reclaimed: false, current: null, judgedToken: null };
   lock.options = {
     entryName: () => (lock.current = `owner-${deps.pid}-${startCode}-${randomBytes(6).toString('hex')}`),
     stale: ({ lockDir, entries, ageMs }: { lockDir: string; entries: string[]; ageMs: number }) => {
       const aged = ageMs > LOCK_STALE_MS;
-      let legacy = false;
       const reclaimable = entries.length === 0 ? aged : entries.every((name: string) => {
         let owner: any;
         if (name === LEGACY_OWNER) {
-          legacy = true;
           lock.judgedToken = readLegacyToken(fsImpl, lockDir);
           owner = legacyOwner(lock.judgedToken);
         } else owner = entryOwner(name);
@@ -181,7 +179,10 @@ function slotLock(fsImpl: any, deps: any) {
         const state = liveness(owner);
         return state === false || (state !== true && aged);
       });
-      if (reclaimable && (legacy || aged)) lock.risky = true;
+      // Any reclaim quiets (FU-31dyvs N-1): an older runtime may have judged the lock, or the one before
+      // it, stale, and a current process that died in its own quiet hold leaves a young lock with a dead
+      // entry, which only a quiet successor keeps safe from that older runtime's pending move.
+      if (reclaimable) lock.reclaimed = true;
       return reclaimable;
     },
     removeEntry: (lockFs: any, lockDir: string, name: string) => {
@@ -200,8 +201,8 @@ function slotLock(fsImpl: any, deps: any) {
 }
 
 /**
- * After reclaiming a lock an older runtime may also have judged stale (FU-31dyvs C-2): an older
- * runtime moves such a lock aside by name, at any later moment, so this process waits LOCK_STALE_MS
+ * After reclaiming a lock (FU-31dyvs C-2, N-1): an older runtime that judged it (or an earlier lock at
+ * the path) stale moves it aside by name, at any later moment, so this process waits LOCK_STALE_MS
  * with its entry in the lock, holding nothing, before it uses the lock. A move that lands meanwhile
  * takes the lock with this process's entry (`held()` turns false and the acquire starts over); one
  * that lands later came from a process paused 10 s or more between its judgement and its move. The
@@ -249,7 +250,7 @@ function acquireSlotLock(fsImpl: any, file: string, deps: any): any {
   for (;;) {
     const left = deadline - Date.now();
     if (left <= 0) throw lockFailure(fsImpl, file, budgetMs);
-    lock.risky = false;
+    lock.reclaimed = false;
     let release: any;
     try {
       release = acquireLock(fsImpl, file, { ...lock.options, retries: Math.max(1, Math.ceil(left / LOCK_WAIT_MS)) });
@@ -257,7 +258,7 @@ function acquireSlotLock(fsImpl: any, file: string, deps: any): any {
       if (typeof error?.message !== 'string' || !error.message.startsWith('Could not lock')) throw error;
       throw lockFailure(fsImpl, file, budgetMs);
     }
-    if (!lock.risky || quiet(fsImpl, lockDir, release, deps.quietMs ?? LOCK_STALE_MS)) return release;
+    if (!lock.reclaimed || quiet(fsImpl, lockDir, release, deps.quietMs ?? LOCK_STALE_MS)) return release;
     release(); // an older runtime moved the lock with our entry in it: nothing of ours is at the path
   }
 }
