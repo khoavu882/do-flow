@@ -30,12 +30,12 @@ doflow_compact_text() {
   # Walk back over at most three continuation bytes (0x80-0xBF) to the byte that starts the last character.
   while [[ $i -ge 1 && $(( ${#cut} - i )) -le 3 ]]; do
     printf -v b '%d' "'${cut:i:1}"
-    [[ $b -lt 0 ]] && b=$(( b + 256 )) # bash 3.2 prints a byte above 127 as a negative number
+    b=$(( b & 255 )) # the shell may print a byte above 127 as a negative number (bash 3.2) or a code unit
     [[ $b -ge 128 && $b -lt 192 ]] || break
     i=$(( i - 1 ))
   done
   printf -v b '%d' "'${cut:i:1}"
-  [[ $b -lt 0 ]] && b=$(( b + 256 ))
+  b=$(( b & 255 ))
   need=1
   [[ $b -ge 192 ]] && need=2
   [[ $b -ge 224 ]] && need=3

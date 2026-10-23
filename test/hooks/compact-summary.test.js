@@ -558,26 +558,74 @@ function preCompactBytes(harness, cwd, env) {
   return r.stdout;
 }
 
-const CUT_LOCALES = ['C', 'en_US.UTF-8'];
 const CUT_CHARACTERS = [['U+00E9 (2 bytes)', 'é'], ['U+20AC (3 bytes)', '€'], ['U+1F600 (4 bytes)', '\u{1F600}']];
 
-test('PreCompact cut never splits a multi-byte character and holds 490 bytes in every locale', () => {
+/** The first installed UTF-8 locale (en_US.UTF-8, C.UTF-8, ...) under which bash counts characters, not
+ * bytes; a locale that is not installed makes bash fall back to C, so it is proved active here, not assumed. */
+function installedUtf8Locale() {
+  for (const locale of ['en_US.UTF-8', 'C.UTF-8', 'en_US.utf8', 'C.utf8']) {
+    const r = spawnSync('bash', ['-c', 's=$(printf "\\303\\251"); echo ${#s}'], { env: scratch.env({ LC_ALL: locale }), encoding: 'utf8' });
+    if (r.status === 0 && r.stdout.trim() === '1') return locale;
+  }
+  return null;
+}
+const UTF8_LOCALE = installedUtf8Locale();
+
+function assertCutHolds(locale) {
   const cwd = project('topic');
   commitFile(cwd, 'first.txt', 'first');
-  for (const locale of CUT_LOCALES) {
+  for (const [label, character] of CUT_CHARACTERS) {
+    // Prefixes of 0 to 3 ASCII bytes move the cut across every offset inside the character.
+    for (let prefix = 0; prefix < 4; prefix += 1) {
+      gitOutput(cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--amend', '--allow-empty', '-qm',
+        `${'x'.repeat(prefix)}${character.repeat(300)}`);
+      const env = { LC_ALL: locale };
+      const claude = preCompactBytes('claude', cwd, env);
+      const where = `${locale} ${label} prefix ${prefix}`;
+      assert.ok(claude.length <= 490, `${where}: ${claude.length} bytes`);
+      const text = strictUtf8.decode(claude);
+      assert.equal(text.split('\n')[0], PRESERVE_LINE, where);
+      assert.ok(text.includes('\n- recent commits: '), `${where}: the git context line survives`);
+      assert.equal(JSON.parse(preCompactBytes('codex', cwd, env).toString('utf8')).systemMessage, text, `${where}: Codex parity`);
+    }
+  }
+}
+
+test('PreCompact cut never splits a multi-byte character and holds 490 bytes under LC_ALL=C', () => assertCutHolds('C'));
+
+test('PreCompact cut never splits a multi-byte character and holds 490 bytes under an installed UTF-8 locale',
+  { skip: UTF8_LOCALE ? false : 'no UTF-8 locale (en_US.UTF-8, C.UTF-8) is installed on this host, so the byte-not-character cap cannot be exercised' },
+  () => assertCutHolds(UTF8_LOCALE));
+
+// Review C-1: the byte value of a character above 127 depends on the shell and libc. bash 3.2 prints it
+// negative, glibc prints 128-255, and a libc that maps a C-locale byte to a code unit prints 0xDF00 | byte.
+// The cut masks the value to one byte, so every one of them gives the same valid UTF-8; this stubs the
+// `printf -v` the builder reads bytes with, because no installed shell here prints the code-unit form.
+const BYTE_FORMS = {
+  signed: 'b=$(( b > 127 ? b - 256 : b ))',
+  plain: 'b=$(( b & 255 ))',
+  codeunit: 'b=$(( b > 127 || b < 0 ? 0xDF00 | (b & 255) : b ))',
+};
+
+test('PreCompact cut gives valid UTF-8 whatever form the shell prints a byte above 127 in', () => {
+  const builder = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'compact-text.sh');
+  for (const [form, convert] of Object.entries(BYTE_FORMS)) {
     for (const [label, character] of CUT_CHARACTERS) {
-      // Prefixes of 0 to 3 ASCII bytes move the cut across every offset inside the character.
       for (let prefix = 0; prefix < 4; prefix += 1) {
-        gitOutput(cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '--amend', '--allow-empty', '-qm',
-          `${'x'.repeat(prefix)}${character.repeat(300)}`);
-        const env = { LC_ALL: locale };
-        const claude = preCompactBytes('claude', cwd, env);
-        const where = `${locale} ${label} prefix ${prefix}`;
-        assert.ok(claude.length <= 490, `${where}: ${claude.length} bytes`);
-        const text = strictUtf8.decode(claude);
-        assert.equal(text.split('\n')[0], PRESERVE_LINE, where);
-        assert.ok(text.includes('\n- recent commits: '), `${where}: the git context line survives`);
-        assert.equal(JSON.parse(preCompactBytes('codex', cwd, env).toString('utf8')).systemMessage, text, `${where}: Codex parity`);
+        const script = [
+          'is_git_worktree() { return 1; }',
+          // Wraps only the byte read: `printf -v b %d "'<char>"`.
+          'printf() { if [[ $1 == -v && $2 == b && $3 == %d ]]; then builtin printf "$@"; ' + convert + '; else builtin printf "$@"; fi; }',
+          `source "${builder}"`,
+          'doflow_compact_text "$1"',
+          'builtin printf "%s" "$DF_COMPACT_TEXT"',
+        ].join('\n');
+        const cwd = `${'x'.repeat(prefix)}${character.repeat(300)}`;
+        const r = spawnSync('bash', ['-c', script, 'bash', cwd], { env: scratch.env({ LC_ALL: 'C' }) });
+        const where = `${form} ${label} prefix ${prefix}`;
+        assert.equal(r.status, 0, `${where}: ${r.stderr}`);
+        assert.ok(r.stdout.length <= 490, `${where}: ${r.stdout.length} bytes`);
+        assert.doesNotThrow(() => strictUtf8.decode(r.stdout), `${where}: valid UTF-8`);
       }
     }
   }
