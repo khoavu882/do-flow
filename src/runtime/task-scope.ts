@@ -146,18 +146,57 @@ function resolveTaskScope({ projectRoot, taskId, slug = null }: { projectRoot: s
   return { namespace: feature, slug: feature, reason: 'namespaced' };
 }
 
+/** The largest record file `readRegularFileText` reads; a bigger one is refused (a record is a few KiB). */
+const MAX_RECORD_FILE_BYTES = 1024 * 1024;
+
+/** A record file's text, or null when it must not be read: not a regular file (a link, a FIFO, a
+ * device, a folder), larger than `MAX_RECORD_FILE_BYTES`, or any read error. The lifecycle reader's
+ * pattern (event-store.ts `readEventFile`): `lstat`, then `O_NOFOLLOW|O_NONBLOCK` so neither a link
+ * nor a FIFO swapped in after the `lstat` is followed or blocks, then `fstat` on the descriptor
+ * before reading. The one read every run-file probe and reader shares (FU-16c2wz). */
+function readRegularFileText(file: string, fsImpl: any = fs): string | null {
+  const flags = fs.constants;
+  let fd: number | undefined;
+  try {
+    if (!fsImpl.lstatSync(file).isFile()) return null;
+    fd = fsImpl.openSync(file, flags.O_RDONLY | (flags.O_NOFOLLOW || 0) | (flags.O_NONBLOCK || 0));
+    const st = fsImpl.fstatSync(fd);
+    if (!st.isFile() || st.size > MAX_RECORD_FILE_BYTES) return null;
+    // Read at most one byte past the cap, so a file that grew after the fstat is still refused.
+    const buffer = Buffer.alloc(MAX_RECORD_FILE_BYTES + 1);
+    let length = 0;
+    for (let n = -1; n !== 0 && length <= MAX_RECORD_FILE_BYTES; length += n) {
+      n = fsImpl.readSync(fd, buffer, length, buffer.length - length, null);
+    }
+    return length > MAX_RECORD_FILE_BYTES ? null : buffer.subarray(0, length).toString('utf8');
+  } catch {
+    return null;
+  } finally {
+    if (fd !== undefined) { try { fsImpl.closeSync(fd); } catch { /* the read is done */ } }
+  }
+}
+
 /**
  * Whether a flat record may be read as `slug`'s (D-3): it names that feature (`featureSlug` on a
  * run, `slug` on a readiness record) or names none. A file that does not parse names nobody, so a
- * namespaced read never falls back to it.
+ * namespaced read never falls back to it. The probe never blocks and follows no link: a flat file
+ * that is not a regular file of at most `MAX_RECORD_FILE_BYTES` is not read; `unsafeIsOurs` is then
+ * the answer, so a caller whose reader refuses such a file (the run store's `readRunRecord`) is
+ * pointed at it and reports it, and any other caller treats it as not ours.
  * @param {string} file
  * @param {string|null} slug
  * @param {Object} [fsImpl]
+ * @param {boolean} [unsafeIsOurs]
  * @returns {boolean}
  */
-function flatRecordIsOurs(file: string, slug: string | null, fsImpl: any = fs): boolean {
+function flatRecordIsOurs(file: string, slug: string | null, fsImpl: any = fs, unsafeIsOurs = false): boolean {
   let data: any;
-  try { data = JSON.parse(fsImpl.readFileSync(file, 'utf8')); } catch { return false; }
+  try {
+    const text = typeof fsImpl.lstatSync === 'function' && typeof fsImpl.openSync === 'function'
+      ? readRegularFileText(file, fsImpl) : fsImpl.readFileSync(file, 'utf8');
+    if (text === null) return unsafeIsOurs;
+    data = JSON.parse(text);
+  } catch { return false; }
   const named = [data?.featureSlug, data?.slug].find((value) => typeof value === 'string' && value !== '');
   return named === undefined || named === slug;
 }
@@ -198,14 +237,16 @@ function taskRecord({ projectRoot, store, taskId, slug = null, name = null, fsIm
 
 /**
  * `taskRecord` for a store directory and a namespace already known (the orchestrator's run journal).
- * @param {{base: string, namespace: string|null, name: string, fsImpl?: Object}} options
+ * @param {{base: string, namespace: string|null, name: string, fsImpl?: Object, refuseUnsafeFlat?: boolean}} options
+ *   `refuseUnsafeFlat`: a flat file that is not a safely readable regular file is `read` (so the
+ *   caller's safe reader refuses it by name) instead of being skipped
  * @returns {{file: string, read: string, seed: () => void}}
  */
-function recordIn({ base, namespace, name, fsImpl = fs }: any): { file: string; read: string; seed: () => void } {
+function recordIn({ base, namespace, name, fsImpl = fs, refuseUnsafeFlat = false }: any): { file: string; read: string; seed: () => void } {
   const file = path.join(base, ...(namespace ? [namespace] : []), name);
   const flat = path.join(base, name);
   const fallback = (): string | null => (namespace && !fsImpl.existsSync(file) && fsImpl.existsSync(flat)
-    && flatRecordIsOurs(flat, namespace, fsImpl) ? flat : null);
+    && flatRecordIsOurs(flat, namespace, fsImpl, refuseUnsafeFlat) ? flat : null);
   const seed = () => {
     const from = fallback();
     // Required on use: the record mover (a declared writer of every task store) loads the storage registry.
@@ -232,4 +273,4 @@ function slugNamesNoFeature({ projectRoots, slug }: { projectRoots: string[]; sl
   });
 }
 
-module.exports = { resolveFeature, resolveTaskScope, taskStoreDir, taskRecord, recordIn, flatRecordIsOurs, setRecordSlug, callerFeatureSlug, clearTaskScopeCache, isSafeSlug, invalidSlugRefusal, slugNamesNoFeature };
+module.exports = { readRegularFileText, MAX_RECORD_FILE_BYTES, resolveFeature, resolveTaskScope, taskStoreDir, taskRecord, recordIn, flatRecordIsOurs, setRecordSlug, callerFeatureSlug, clearTaskScopeCache, isSafeSlug, invalidSlugRefusal, slugNamesNoFeature };

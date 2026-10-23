@@ -8,7 +8,7 @@ const { readReadinessRecord, newerVersionOf, RECORD_VERSION } = require('./readi
 const { listCheckouts } = require('./checkouts.ts');
 const { readTaskState } = require('./task-state.ts');
 const { resolveActiveFeature } = require('./feature-resolve.ts');
-const { isSafeSlug, flatRecordIsOurs } = require('./task-scope.ts');
+const { isSafeSlug, flatRecordIsOurs, readRegularFileText, MAX_RECORD_FILE_BYTES } = require('./task-scope.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 // The implementation gate: which stage of a workflow needs a READY readiness record before it is
@@ -214,33 +214,7 @@ function runFilesAt(root: string, { listing = false }: { listing?: boolean } = {
 
 /** The largest run file the list action and `readRunRecord` read; a bigger one is reported as `io` /
  * refused (a journal is a few KiB). */
-const MAX_RUN_FILE_BYTES = 1024 * 1024;
-
-/** A run file's text, or null when it must not be read: not a regular file (a link, a FIFO, a
- * device, a folder), larger than `MAX_RUN_FILE_BYTES`, or any read error. The lifecycle reader's pattern (event-store.ts
- * `readEventFile`): `lstat`, then `O_NOFOLLOW|O_NONBLOCK` so neither a link nor a FIFO swapped in
- * after the `lstat` is followed or blocks, then `fstat` on the descriptor before reading. */
-function readRunFileText(file: string, fsImpl: any = fs): string|null {
-  const flags = fs.constants;
-  let fd: number|undefined;
-  try {
-    if (!fsImpl.lstatSync(file).isFile()) return null;
-    fd = fsImpl.openSync(file, flags.O_RDONLY | (flags.O_NOFOLLOW || 0) | (flags.O_NONBLOCK || 0));
-    const st = fsImpl.fstatSync(fd);
-    if (!st.isFile() || st.size > MAX_RUN_FILE_BYTES) return null;
-    // Read at most one byte past the cap, so a file that grew after the fstat is still refused.
-    const buffer = Buffer.alloc(MAX_RUN_FILE_BYTES + 1);
-    let length = 0;
-    for (let n = -1; n !== 0 && length <= MAX_RUN_FILE_BYTES; length += n) {
-      n = fsImpl.readSync(fd, buffer, length, buffer.length - length, null);
-    }
-    return length > MAX_RUN_FILE_BYTES ? null : buffer.subarray(0, length).toString('utf8');
-  } catch {
-    return null;
-  } finally {
-    if (fd !== undefined) { try { fsImpl.closeSync(fd); } catch { /* the read is done */ } }
-  }
-}
+const MAX_RUN_FILE_BYTES = MAX_RECORD_FILE_BYTES;
 
 /**
  * One run's record, read the way the list action reads it (FU-16c2wz): no link is followed on the
@@ -255,6 +229,13 @@ function readRunFileText(file: string, fsImpl: any = fs): string|null {
  */
 function readRunRecord(fsImpl: any, file: string, storeDir: string): any {
   if (typeof fsImpl.lstatSync !== 'function' || typeof fsImpl.openSync !== 'function') return readTaskState(fsImpl, file);
+  const text = readRunText(fsImpl, file, storeDir);
+  return text === null ? null : readTaskState({ existsSync: () => true, readFileSync: () => text }, file);
+}
+
+/** `readRunRecord`'s guarded read without the parse: the run file's text, `null` when it is not
+ * there, `store-unreadable` when it must not be read. */
+function readRunText(fsImpl: any, file: string, storeDir: string): string|null {
   const relative = path.relative(storeDir, file);
   const parts = relative === '' || relative.startsWith('..') || path.isAbsolute(relative) ? [] : relative.split(path.sep);
   const refuse = (): never => {
@@ -278,9 +259,9 @@ function readRunRecord(fsImpl: any, file: string, storeDir: string): any {
     throw error;
   }
   if (!stat.isFile()) refuse();
-  const text = readRunFileText(file, fsImpl);
+  const text = readRegularFileText(file, fsImpl);
   if (text === null) refuse();
-  return readTaskState({ existsSync: () => true, readFileSync: () => text }, file);
+  return text;
 }
 
 /** The run files under one checkout's store, read, with each malformed or unreadable file isolated. */
@@ -288,7 +269,7 @@ function runEntriesAt(root: string, origin: 'current'|'other'): any[] {
   return runFilesAt(root, { listing: true }).map(({ file, namespace, linked }) => {
     let record: any = null;
     let error: string|null = null;
-    const bytes = linked ? null : readRunFileText(file);
+    const bytes = linked ? null : readRegularFileText(file);
     if (bytes === null) error = 'io';
     else {
       try { record = JSON.parse(bytes); } catch { error = 'unparseable'; }
@@ -442,7 +423,7 @@ function findRunFileFor({ stateRoot, taskId, slug, exec }: any) {
   const localNamespaced = namespaced && here.find((entry) => path.relative(stateRoot, entry.file) === namespaced);
   const localFlat = here.find((entry) => path.relative(stateRoot, entry.file) === flat);
   if (localNamespaced) return { status: 'found', file: localNamespaced.file, root: stateRoot, origin: 'current', candidates: [] };
-  if (localFlat && (!namespaced || flatRecordIsOurs(localFlat.file, slug))) {
+  if (localFlat && (!namespaced || flatRecordIsOurs(localFlat.file, slug, fs, true))) {
     return { status: 'found', file: localFlat.file, root: stateRoot, origin: 'current', candidates: [] };
   }
   if (!slug) return missing;
@@ -453,7 +434,9 @@ function findRunFileFor({ stateRoot, taskId, slug, exec }: any) {
     const files = runFilesAt(root);
     const found = [namespaced, flat].filter(Boolean).map((rel: any) => files.find((entry) => path.relative(root, entry.file) === rel)).find((entry: any) => {
       if (!entry) return false;
-      try { return runSlugOf(JSON.parse(fs.readFileSync(entry.file, 'utf8')), root) === slug; } catch { return false; }
+      // The same safe read as every other run read: a linked run or namespace folder, a FIFO or a
+      // device in another checkout is never opened, and is not a match.
+      try { return runSlugOf(JSON.parse(readRunText(fs, entry.file, runStoreDir(root)) as string), root) === slug; } catch { return false; }
     });
     if (found) matches.push({ file: found.file, root });
   }
@@ -548,7 +531,9 @@ function verifyReadinessCheck({ stateRoot, taskId, slug = null, now = new Date()
     };
   }
   if (found.status === 'missing') return { applies: false, reason: 'no-run' };
-  const run = readTaskState(fs, found.file);
+  // Reads only through the run store's safe reader; a run file that must not be read is refused by name.
+  const run = readRunRecord(fs, found.file, runStoreDir(found.root));
+  if (!run) return { applies: false, reason: 'no-run' };
   if (run.state === 'COMPLETED' || run.state === 'REJECTED') return { applies: false, reason: 'run-finished' };
   const stageNodes = (run.program || []).filter((n: any) => n.type === 'stage');
   const stage = gatedStage(stageNodes);

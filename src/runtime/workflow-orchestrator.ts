@@ -179,7 +179,7 @@ class WorkflowOrchestrator {
   runRecord(taskId: any) {
     const id = assertSafeId(taskId, 'taskId');
     const namespace = isSafeSlug(this.featureSlug) && this.featureSlug !== id ? this.featureSlug : null;
-    return recordIn({ base: this.stateDir, namespace, name: `${id}.json`, fsImpl: this.fsImpl });
+    return recordIn({ base: this.stateDir, namespace, name: `${id}.json`, fsImpl: this.fsImpl, refuseUnsafeFlat: true });
   }
 
   runFile(taskId: any) {
