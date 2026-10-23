@@ -561,6 +561,28 @@ test('journal: when the lock for the last read cannot be taken, the read throws 
   assert.throws(() => store.readEvents(root, { fsImpl: held }), (error) => error instanceof store.StoreLockedError && /^Could not lock .* Nothing was written\.$/s.test(error.message));
 });
 
+test('FU-mtjqt9 C-10: under DOFLOW_UPKEEP=off a fold whose journal keeps moving throws StoreLockedError without taking the lock', () => {
+  const root = plainDir('journal-moves-always-off');
+  eventFile(root, followupEvent('20261003T000000000Z', 'FU-aaaaaa'));
+  writeJournal(root, { v: 1, generation: 'g0', pending: [] });
+  const { fsImpl, counts } = countingFs(root, (n) => writeJournal(root, { v: 1, generation: `g${n}`, pending: [] }));
+  assert.throws(() => store.readFold(root, { fsImpl, env: { DOFLOW_UPKEEP: 'off' } }), (error) => error instanceof store.StoreLockedError);
+  assert.deepEqual([counts.lists, counts.locks], [3, 0], 'three lock-free reads, and the lock was never made');
+  assert.equal(fs.existsSync(`${path.join(root, store.EVENTS_REL)}.lock`), false);
+});
+
+test('FU-mtjqt9 C-10: with the switch unset or not exactly off, the fold still falls back to one read under the lock', () => {
+  for (const env of [{}, { DOFLOW_UPKEEP: 'on' }, { DOFLOW_UPKEEP: 'OFF' }]) {
+    const root = plainDir('journal-moves-always-on');
+    eventFile(root, followupEvent('20261003T000000000Z', 'FU-aaaaaa'));
+    writeJournal(root, { v: 1, generation: 'g0', pending: [] });
+    const { fsImpl, counts } = countingFs(root, (n) => writeJournal(root, { v: 1, generation: `g${n}`, pending: [] }));
+    const fold = store.readFold(root, { fsImpl, env });
+    assert.deepEqual([counts.lists, counts.locks], [4, 1], JSON.stringify(env));
+    assert.deepEqual(fold.followups.map((f) => f.id), ['FU-aaaaaa']);
+  }
+});
+
 test('journal: a read made while the caller holds the lock returns on the first read, and the fold under it hides pending files', () => {
   const root = plainDir('journal-under-lock');
   eventFile(root, followupEvent('20261003T000000000Z', 'FU-aaaaaa'));

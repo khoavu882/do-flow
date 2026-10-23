@@ -235,13 +235,15 @@ function readEvents(root: string, { fsImpl = nodeFs, lockFallback = true, should
 }
 
 /**
- * Reads and folds the store.
+ * Reads and folds the store. With `DOFLOW_UPKEEP=off` in `env` the read never falls back to the
+ * store lock (it would make `events.lock`, a write the switch promises not to make): a journal that
+ * keeps moving during the read throws StoreLockedError instead.
  * @param {string} root the IC-001 root
- * @param {{hasBody?: Function, fsImpl?: Object}} [options]
+ * @param {{hasBody?: Function, fsImpl?: Object, now?: Date, env?: Object}} [options]
  * @returns {Object} the fold result (see fold.js) plus `unreadable`
  */
-function readFold(root: string, { fsImpl = nodeFs, hasBody, now = new Date() }: any = {}): any {
-  const { events, unreadable, reasons } = readEvents(root, { fsImpl });
+function readFold(root: string, { fsImpl = nodeFs, hasBody, now = new Date(), env = process.env }: any = {}): any {
+  const { events, unreadable, reasons } = readEvents(root, { fsImpl, lockFallback: env.DOFLOW_UPKEEP !== 'off' });
   return { ...finalize(foldInto(events, { now }), { hasBody }), unreadable, unreadableReasons: reasons };
 }
 
