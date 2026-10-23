@@ -9,7 +9,9 @@
 // an emoji's presentation and are allowed; a variation selector anywhere else is a finding. The scan reads the files git tracks (the working-tree
 // walk is the fallback when git cannot list them), so an ignored or untracked artifact never fails
 // it; a tracked file holding a NUL byte is binary and a symlink is not a file of its own, and
-// both are skipped. test/ and bench/ are not scanned: test/ holds deliberate bidirectional
+// both are skipped by that scan. The NUL scan below closes the hole this leaves: a tracked text file
+// (any extension not in BINARY_EXTENSIONS) that holds a raw NUL byte is a finding, because grep and
+// diff then treat it as binary and hide its contents; write the byte as an escape instead. test/ and bench/ are not scanned: test/ holds deliberate bidirectional
 // fixtures. This file builds every fixture character with String.fromCodePoint and names code
 // points only in escapes, so it does not flag itself.
 const { test } = require('node:test');
@@ -23,6 +25,10 @@ const { tempDir } = require('../helper/tmp');
 
 const SCAN_ROOTS = ['core', 'src', 'bin', 'docs'];
 const SCAN_FILES = ['README.md'];
+
+// Extensions of tracked files that are binary by nature and so may hold NUL bytes. The repository
+// tracks none today; a file with one of these extensions is exempt from the raw-NUL scan.
+const BINARY_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.ico', '.webp', '.woff', '.woff2', '.pdf', '.zip', '.gz']);
 
 // Named classes for the code points a finding is most useful to label. Every other code point with the
 // Unicode property Default_Ignorable_Code_Point is a finding too, classed as 'default-ignorable', so a
@@ -111,6 +117,26 @@ function scanBuffer(rel, buffer) {
     return [`${rel}: not valid UTF-8, not scanned`];
   }
   return scanText(rel, text).map(describe);
+}
+
+/** Positions (`rel:line`) of raw NUL bytes in a tracked file's bytes; none for a binary-by-extension file. */
+function nulFindings(rel, buffer) {
+  if (BINARY_EXTENSIONS.has(path.extname(rel).toLowerCase())) return [];
+  const findings = [];
+  let line = 1;
+  buffer.forEach((byte) => {
+    if (byte === 0x0A) line += 1;
+    else if (byte === 0) findings.push(`${rel}:${line} raw NUL byte`);
+  });
+  return findings;
+}
+
+/** Every file git tracks in the repository, repo-relative. */
+function allTracked(root) {
+  return execFileSync('git', ['ls-files', '-z'], {
+    cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    env: { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1' },
+  }).split('\0').filter(Boolean);
 }
 
 /** Every regular file under `dir` (repo-relative, forward slashes); a symlink, dangling or not, is not one. */
@@ -254,4 +280,21 @@ test('G23: controls — binary files, symlinks and untracked files do not fail t
 
   assert.deepEqual(outsideRoots([{ id: 'x.tests', source: 'test/fixtures' }, { id: 'y', source: 'core/shared' }]),
     ['asset x.tests source test/fixtures is outside the scanned roots']);
+});
+
+test('G23: no tracked text file holds a raw NUL byte', () => {
+  const tracked = allTracked(REPO);
+  assert.ok(tracked.length > 0, 'git listed no tracked file; the scan would measure nothing');
+  const findings = [];
+  for (const rel of tracked) {
+    const buffer = readRegularFile(path.join(REPO, rel));
+    if (buffer) findings.push(...nulFindings(rel, buffer));
+  }
+  assert.deepEqual(findings, [], `raw NUL bytes make grep and diff treat the file as binary; write them as an escape:\n  ${findings.join('\n  ')}`);
+});
+
+test('G23: controls — the NUL scan reports a raw NUL with its line and exempts binary extensions', () => {
+  assert.deepEqual(nulFindings('a.js', Buffer.from('ok\nbad\0here\n\0')), ['a.js:2 raw NUL byte', 'a.js:3 raw NUL byte']);
+  assert.deepEqual(nulFindings('a.js', Buffer.from('escaped \\0 is two characters')), []);
+  assert.deepEqual(nulFindings('logo.PNG', Buffer.from([0x89, 0x50, 0x00])), [], 'a binary extension may hold NUL');
 });

@@ -481,47 +481,45 @@ test('a slot lock with a dead owner token is recovered', async () => {
   const { deps } = baseDeps({
     alive: (proc) => proc.pid !== 98765,
     spawn: () => { spawned += 1; return fakeChild(8801); },
+    quietMs: 0, // the 10 s wait after reclaiming an older runtime's lock is tested in slot-lock.test.js
   });
   assert.equal(await runSlot({ name: 'recover-lock', command: ['tool'], env, deps }), 0);
   assert.equal(spawned, 1);
   assert.equal(fs.existsSync(lockDir), false);
 });
 
-test('a lock release leaves a directory whose owner token changed', async () => {
+test('a lock release leaves a directory whose owner entry was replaced', async () => {
+  // FU-31dyvs: the slot lock is the task-state lock; a reclaimer replaces the holder's entry with its own.
   const { env, home } = scratchEnv();
   const file = slotFile(home, 'foreign-release');
   const lockDir = `${file}.lock`;
-  const ownerFile = path.join(lockDir, 'owner.json');
-  let foreignTokenInstalled = false;
-  const fsImpl = new Proxy(fs, {
+  const foreign = 'owner-99999-x-aaaaaaaaaaaa';
+  let foreignEntryInstalled = false;
+  let removeAttempts = 0;
+  const trackedFs = new Proxy(fs, {
     get(target, property) {
       if (property === 'unlinkSync') return (targetPath) => {
         const result = fs.unlinkSync(targetPath);
         if (targetPath === file) {
-          fs.writeFileSync(ownerFile, JSON.stringify({ pid: 99999, start: 'foreign' }));
-          foreignTokenInstalled = true;
+          for (const name of fs.readdirSync(lockDir)) fs.rmdirSync(path.join(lockDir, name));
+          fs.mkdirSync(path.join(lockDir, foreign));
+          foreignEntryInstalled = true;
         }
         return result;
+      };
+      if (property === 'rmdirSync') return (targetPath, ...args) => {
+        if (targetPath === lockDir && foreignEntryInstalled) removeAttempts += 1;
+        return fs.rmdirSync(targetPath, ...args);
       };
       const value = Reflect.get(target, property, target);
       return typeof value === 'function' ? value.bind(target) : value;
     },
   });
-  let removeAttempts = 0;
-  const trackedFs = new Proxy(fsImpl, {
-    get(target, property) {
-      if (property === 'rmdirSync') return (targetPath, ...args) => {
-        if (targetPath === lockDir && foreignTokenInstalled) removeAttempts += 1;
-        return fs.rmdirSync(targetPath, ...args);
-      };
-      return Reflect.get(target, property, target);
-    },
-  });
   const { deps } = baseDeps({ fsImpl: trackedFs, spawn: () => fakeChild(8802) });
   assert.equal(await runSlot({ name: 'foreign-release', command: ['tool'], env, deps }), 0);
-  assert.equal(fs.existsSync(lockDir), true);
+  assert.equal(foreignEntryInstalled, true);
   assert.equal(removeAttempts, 0, 'a non-owner never attempts to remove the lock directory');
-  assert.deepEqual(JSON.parse(fs.readFileSync(ownerFile, 'utf8')), { pid: 99999, start: 'foreign' });
+  assert.deepEqual(fs.readdirSync(lockDir), [foreign]);
 });
 
 test('a failed child registration keeps the slot until that child exits', async () => {

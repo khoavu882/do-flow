@@ -372,6 +372,25 @@ test('045: a handoff that compacts one artifact and is refused by another report
   assert.match(fs.readFileSync(path.join(featureDir, 'plan.md'), 'utf8'), /Earlier entries:/);
 });
 
+test('FU-kda1bk: a handoff from a linked worktree without agent-docs compacts the main checkout\'s feature folder', (t) => {
+  const { cwd, wt } = mainAndWorktree(t);
+  const requirement = path.join(cwd, 'agent-docs', 'doflow', '900-demo', 'intention', 'requirement.md');
+  fs.mkdirSync(path.dirname(requirement), { recursive: true });
+  fs.writeFileSync(requirement, HISTORY_REQUIREMENT);
+  assert.equal(fs.existsSync(path.join(wt, 'agent-docs')), false, 'precondition: the worktree holds no agent-docs');
+
+  const result = handoff(wt, '900-demo', 'do-brainstorm', ['--task-class', 'feature']);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.data.disposition, 'completed');
+  assert.equal(result.data.compaction.status, 'compacted', JSON.stringify(result.data.compaction));
+  assert.match(fs.readFileSync(requirement, 'utf8'), /^Earlier entries: \[decisions\/history\/requirement\.md\]/m, 'the main checkout\'s requirement was compacted');
+  assert.equal(fs.existsSync(path.join(wt, 'agent-docs')), false, 'nothing was written into the worktree');
+
+  // Control: a task id with no feature folder in either checkout is still skipped.
+  const none = handoff(wt, 'B.1', 'do-brainstorm', ['--task-class', 'feature']);
+  assert.equal(none.data.compaction.status, 'skipped');
+});
+
 test('044: the human-readable handoff output names the compaction status', () => {
   const cwd = featureProject('074-x');
   const res = run(cwd, ['orchestrate', '--action', 'handoff', '--task-id', '074-x', '--task-class', 'feature', '--calling-skill', 'do-brainstorm', '--note', 'recorded']);
