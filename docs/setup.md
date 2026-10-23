@@ -262,7 +262,7 @@ install manifest is copied. After each install or update the newest 3
 backups of that scope are kept: `--prune N` keeps N, and `--prune 0` keeps all. An update with
 nothing to change prunes nothing, so the first run after upgrading from 1.19 that prunes is an
 install, or an update that changes files; it removes the older DoFlow-written backups beyond the
-newest 3 (`--dry-run` shows how many first). The legacy `.claude/backups` folder is listed but never pruned. `--no-backup`
+newest 3 (`--dry-run` shows how many first). Pruning only removes backups older than the one the run just made, so a backup a concurrent run finished in the meantime is never pruned ("newer" follows the backup sort order, so a backup dated in the future is never pruned while its date is in the future), and each removal renames the backup aside first so a half-deleted backup is never listed. A leftover rename-aside (`.tmp-del-*`) from a pass that died is deleted by the next prune on the same host once its process is gone, and if both the delete and the roll-back of a pass failed, that backup, which the pass had already selected for removal, goes with it. The legacy `.claude/backups` folder is listed but never pruned. `--no-backup`
 requires `--force`; use it only when the configuration is disposable.
 
 ### doflow.lock and reconciliation
