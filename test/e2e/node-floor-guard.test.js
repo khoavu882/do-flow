@@ -82,7 +82,7 @@ function guard(version) {
 }
 
 test('node floor: a Node below 24.22.1, Node 22 included, exits 2 naming the Node and the floor in one line', () => {
-  for (const version of ['22.18.0', '22.23.4', '23.6.0', '24.3.0', '24.21.9', '24.22.0']) {
+  for (const version of ['22.18.0', '22.23.4', '23.6.0', '24.3.0', '24.21.9', '24.22.0', '24.22.1-rc.1']) {
     const r = guard(version);
     assert.deepEqual(r.outcome, { exit: 2 }, version);
     assert.ok(r.stderr.includes(`Node ${version}`), `${version}: stderr must name the running Node: ${r.stderr}`);
@@ -91,8 +91,13 @@ test('node floor: a Node below 24.22.1, Node 22 included, exits 2 naming the Nod
   }
 });
 
+test('node floor: a prerelease of the floor version counts as below it; a prerelease of a later patch does not', () => {
+  assert.deepEqual(guard('24.22.1-rc.1').outcome, { exit: 2 });
+  assert.equal(guard('24.22.2-rc.1').outcome, 'accepted');
+});
+
 test('node floor: 24.22.1 and newer pass the guard', () => {
-  for (const version of ['24.22.1', '24.22.2', '24.23.0', '24.100.0', '25.0.0', '26.12.1', '26.13.0', '30.0.0']) {
+  for (const version of ['24.22.1', '24.22.2', '24.22.2-rc.1', '24.23.0-rc.1', '24.23.0', '24.100.0', '25.0.0', '26.12.1', '26.13.0', '30.0.0']) {
     const r = guard(version);
     assert.equal(r.outcome, 'accepted', `${version}: ${JSON.stringify(r)}`);
     assert.equal(r.stderr, '', version);
@@ -103,4 +108,5 @@ test('node floor: the floor in bin/doflow.js, package.json engines and the messa
   const engines = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8')).engines.node;
   assert.equal(engines, '>=24.22.1');
   assert.ok(guard('24.21.9').stderr.includes(engines));
+  assert.equal(/const NODE_FLOOR_VERSION = '([^']+)'/.exec(fs.readFileSync(BIN, 'utf8'))[1], engines.replace('>=', ''), 'the bin holds the floor once');
 });

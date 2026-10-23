@@ -11,12 +11,15 @@
 // the same value); stripping is on by default from there and off only under
 // --no-experimental-strip-types. This file stays plain JavaScript so it can say so. Exit 2 is the
 // doflow-run usage/resolution-error code.
-const NODE_FLOOR = '>=24.22.1';
-const floorParts = [24, 22, 1];
-const running = String(process.versions.node).split('.').map(Number);
-const belowFloor = floorParts.reduce((order, part, i) => order || Math.sign((running[i] || 0) - part), 0) < 0;
+const NODE_FLOOR_VERSION = '24.22.1';
+const NODE_FLOOR = `>=${NODE_FLOOR_VERSION}`;
+// A prerelease of the floor version (24.22.1-rc.1) sorts below it, as in semver; any other
+// prerelease suffix is ignored, so 24.22.2-rc.1 and 24.23.0-rc.1 both pass.
+const running = /^(\d+)\.(\d+)\.(\d+)(-.*)?$/.exec(String(process.versions.node)) || [];
+const order = NODE_FLOOR_VERSION.split('.').reduce((result, part, i) => result || Math.sign(Number(running[i + 1] || 0) - Number(part)), 0);
+const belowFloor = order < 0 || (order === 0 && Boolean(running[4]));
 if (belowFloor) {
-  process.stderr.write(`doflow: Node ${process.versions.node} is not supported; doflow needs Node ${NODE_FLOOR} (Node 22 and Node 24 before 24.22.1 are no longer supported).\n`);
+  process.stderr.write(`doflow: Node ${process.versions.node} is not supported; doflow needs Node ${NODE_FLOOR} (Node 22 and Node 24 before ${NODE_FLOOR_VERSION} are no longer supported).\n`);
   process.exit(2);
 }
 if (!process.features || !process.features.typescript) {
@@ -26,12 +29,10 @@ if (!process.features || !process.features.typescript) {
 // Enable Node's module compile cache before any ../src require. Type stripping makes the first load
 // of each .ts module cost a transform; the cache turns that into a one-time cost per Node version
 // and file content. Called without options so an explicit NODE_COMPILE_CACHE directory is honoured
-// and NODE_DISABLE_COMPILE_CACHE still disables it. Best-effort: where the API is missing (older
-// Node) or throws, the CLI runs at today's speed.
+// and NODE_DISABLE_COMPILE_CACHE still disables it. Best-effort: if it throws, the CLI runs at
+// today's speed.
 const nodeModule = require('node:module');
-if (typeof nodeModule.enableCompileCache === 'function') {
-  try { nodeModule.enableCompileCache(); } catch { /* best-effort */ }
-}
+try { nodeModule.enableCompileCache(); } catch { /* best-effort */ }
 // Record an error that escapes everything, including one thrown while the CLI loads (a half-updated
 // install), before it is loaded (IC-016). The monitor only observes: Node's own crash output and
 // exit status are unchanged, and a monitor that threw would change that status to 7, hence the

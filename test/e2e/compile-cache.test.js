@@ -2,7 +2,7 @@
 
 // 073 D5 — bin/doflow.js turns on Node's module compile cache before it loads anything from src/,
 // so the type-stripping cost of the .ts modules is paid once rather than on every invocation.
-// Static: the enableCompileCache call is guarded and precedes the first ../src require. Functional:
+// Static: the enableCompileCache call is best-effort and precedes the first ../src require. Functional:
 // a real run reports an enabled cache (inside NODE_COMPILE_CACHE when set), NODE_DISABLE_COMPILE_CACHE
 // still disables it, and the cache adds nothing to stdout or stderr.
 
@@ -39,14 +39,14 @@ function run(extraEnv, args = ['--version']) {
   return { r, report };
 }
 
-test('compile cache: enableCompileCache is guarded and called before the first ../src require', () => {
+test('compile cache: enableCompileCache is best-effort and called before the first ../src require', () => {
   const src = fs.readFileSync(BIN, 'utf8');
   const call = src.indexOf('enableCompileCache()');
   const firstSrc = src.search(/require\(['"]\.\.\/src\//);
   assert.ok(call !== -1, 'bin/doflow.js must call enableCompileCache()');
   assert.ok(firstSrc !== -1, 'bin/doflow.js must require from ../src/');
   assert.ok(call < firstSrc, 'enableCompileCache() must run before the first ../src require, or the first-load cost is not cached');
-  assert.match(src, /typeof nodeModule\.enableCompileCache === 'function'/, 'the call must be guarded for Node versions without the API');
+  assert.doesNotMatch(src, /typeof nodeModule\.enableCompileCache/, 'the floor Node always provides the API, so no feature check');
   assert.match(src, /try \{ nodeModule\.enableCompileCache\(\); \} catch/, 'the call must be best-effort');
 });
 
