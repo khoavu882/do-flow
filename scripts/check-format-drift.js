@@ -492,16 +492,23 @@ async function run(options = {}) {
     const doc = {
       version: 2, generator: 'scripts/check-format-drift.js', updatedAt: o.updatedAt(), urls: {}, extractors: {},
     };
+    const kept = new Set(); // unreachable now, fingerprinted before: the old entry and snapshot stay
     for (const row of results) {
+      if (row.status === 'UNREACHABLE' && typeof baseline[row.url] === 'string') {
+        doc.urls[row.url] = baseline[row.url];
+        if (typeof baselineExtractors[row.url] === 'string') doc.extractors[row.url] = baselineExtractors[row.url];
+        kept.add(snapshotName(row.url));
+        continue;
+      }
       doc.urls[row.url] = row.fingerprint; // null marks unreachable-at-baseline
       if (row.extractor) doc.extractors[row.url] = row.extractor;
     }
     fs.mkdirSync(path.dirname(o.baselineFile), { recursive: true });
     fs.writeFileSync(o.baselineFile, `${JSON.stringify(doc, null, 2)}\n`);
 
-    // Snapshots follow the baseline: one capped text file per reachable URL, none for the rest.
+    // Snapshots follow the baseline: one capped text file per fingerprinted URL, none for the rest.
     fs.mkdirSync(o.snapshotDir, { recursive: true });
-    const keep = new Set();
+    const keep = new Set(kept);
     for (const [url, text] of texts) {
       keep.add(snapshotName(url));
       fs.writeFileSync(path.join(o.snapshotDir, snapshotName(url)), `${capSnapshot(text)}\n`);

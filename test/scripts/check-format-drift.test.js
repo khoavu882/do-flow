@@ -167,6 +167,35 @@ test('--update prunes snapshots of URLs that are no longer watched', async (t) =
   assert.deepEqual(fs.readdirSync(s.env.snapshotDir), [drift.snapshotName(URL_A)]);
 });
 
+test('--update keeps the fingerprint, extractor and snapshot of a URL that is unreachable during the update', async (t) => {
+  const s = setup(t, page());
+  await s.check({ update: true });
+  const before = JSON.parse(fs.readFileSync(s.env.baselineFile, 'utf8'));
+  const snapshotPath = path.join(s.env.snapshotDir, drift.snapshotName(URL_A));
+  const snapshot = fs.readFileSync(snapshotPath, 'utf8');
+
+  const down = await s.check({ update: true, fetchImpl: async () => { throw new Error('offline'); } });
+  assert.equal(rowOf(down).status, 'UNREACHABLE');
+  const after = JSON.parse(fs.readFileSync(s.env.baselineFile, 'utf8'));
+  assert.equal(after.urls[URL_A], before.urls[URL_A], 'fingerprint kept');
+  assert.equal(after.extractors[URL_A], 'main', 'extractor kept');
+  assert.equal(fs.readFileSync(snapshotPath, 'utf8'), snapshot, 'snapshot kept');
+
+  s.site.html = page({ main: '<p>Hooks changed while the update was offline.</p>' });
+  const back = rowOf(await s.check());
+  assert.equal(back.status, 'DRIFTED', 'a change made during the outage is still reported, not turned into NEW');
+  assert.match(back.diff, /^-Hooks use stdin JSON\.$/m);
+});
+
+test('--update still records null for a URL that was never fingerprinted and is unreachable', async (t) => {
+  const s = setup(t, page());
+  const down = await s.check({ update: true, fetchImpl: async () => { throw new Error('offline'); } });
+  assert.equal(rowOf(down).status, 'UNREACHABLE');
+  const doc = JSON.parse(fs.readFileSync(s.env.baselineFile, 'utf8'));
+  assert.equal(doc.urls[URL_A], null);
+  assert.equal(URL_A in doc.extractors, false);
+});
+
 test('unifiedDiff renders hunks with context and caps a long diff', () => {
   const a = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].join('\n');
   const b = ['a', 'b', 'c', 'd', 'E', 'f', 'g', 'h'].join('\n');
