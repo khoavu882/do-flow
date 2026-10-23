@@ -249,12 +249,21 @@ function planWithUncheckedTask(cache: any, taskId: string, shouldStop?: () => bo
 }
 
 /** IC-028: why a task-attempts ledger is open work, or null when it holds neither an active or
- * cancelled attempt nor a run whose control is other than `running`. */
+ * uncleared cancelled attempt nor a run whose control is other than `running`. A cancel a resume has
+ * cleared (the same `clearedCancels` the resume report uses) is settled work, not open work. */
 function openLedgerReason(ledger: any): string | null {
-  const tasks = ledger && typeof ledger.tasks === 'object' && ledger.tasks ? Object.values<any>(ledger.tasks) : [];
-  for (const entry of tasks) {
+  const tasks = ledger && typeof ledger.tasks === 'object' && ledger.tasks ? Object.entries<any>(ledger.tasks) : [];
+  let cleared: Set<string> | null = null;
+  for (const [taskId, entry] of tasks) {
     const attempts: any[] = entry && Array.isArray(entry.attempts) ? entry.attempts : [];
-    if (attempts.some((a: any) => a && (a.state === 'active' || a.state === 'cancelled'))) return 'attempt-open';
+    for (const a of attempts) {
+      if (!a) continue;
+      if (a.state === 'active') return 'attempt-open';
+      if (a.state !== 'cancelled') continue;
+      // Loaded only when a cancelled attempt exists: task-run is a heavy module for a storage pass.
+      if (cleared === null) cleared = new Set(require('../task-run.ts').clearedCancels(ledger).map((c: any) => `${c.taskId}#${c.token}`));
+      if (!cleared.has(`${taskId}#${a.token}`)) return 'attempt-open';
+    }
   }
   const runs = ledger && typeof ledger.runs === 'object' && ledger.runs ? Object.values<any>(ledger.runs) : [];
   if (runs.some((run: any) => !run || run.control !== 'running')) return 'run-control-open';
