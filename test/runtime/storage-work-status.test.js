@@ -477,3 +477,101 @@ test('FU-c2ddw2 a lock directory in orchestration is not a run namespace', (t) =
   writeNamespacedRun(projectRoot, 'task-7.json.lock', 'task-7', { state: 'RUNNING' });
   assert.equal(status(projectRoot, { taskId: 'task-7', mtimeMs: 1 }).reason, 'no-run');
 });
+
+// C-1 (maint-runtime-b review): a record is judged only by a run it owns. A record under feature A's
+// namespace never takes feature B's namespaced run of the same task id, and a flat record that two
+// namespaces could claim is undecidable rather than guessed.
+const storageRegistry = require('../../core/registry/storage.json');
+const { runPass } = require('../../src/runtime/storage/engine.ts');
+const { recordStillCandidate } = require('../../src/runtime/storage/rules.ts');
+const OLD = Date.parse('2026-07-01T00:00:00Z');
+const OLD_ISO = '2026-01-01T00:00:00.000Z';
+
+function crossFeatureProject(t, planA = '- [ ] T.5 do it\n') {
+  const projectRoot = setup(t);
+  writePlan(projectRoot, 'feat-a', planA);
+  writePlan(projectRoot, 'feat-b', '- [x] T.5 done\n');
+  writeRecord(projectRoot, { taskId: 'T.5', namespace: 'feat-a', mtimeMs: OLD });
+  writeNamespacedRun(projectRoot, 'feat-b', 'T.5', { state: 'COMPLETED', featureSlug: 'feat-b', updatedAt: OLD_ISO });
+  return projectRoot;
+}
+
+test('C-1 a record under feature A never takes feature B\'s namespaced run of the same task id (selection)', (t) => {
+  const projectRoot = crossFeatureProject(t);
+  assert.deepEqual(status(projectRoot, { taskId: 'T.5', namespace: 'feat-a', mtimeMs: OLD }), {
+    state: 'open', since: null, reason: 'plan-unchecked', run: null, feature: 'feat-a',
+  });
+});
+
+test('C-1 the locked recheck refuses the same cross-feature run', (t) => {
+  const projectRoot = crossFeatureProject(t);
+  const storeDir = path.join(projectRoot, '.doflow', 'state', 'evidence');
+  const store = storageRegistry.stores.find((s) => s.id === 'task-evidence');
+  const recheck = (namespace, name) => {
+    const info = fs.lstatSync(path.join(storeDir, namespace, name));
+    const cache = createWorkCache({ projectRoot });
+    return recordStillCandidate(store, { name: `${namespace}/${name}`, reason: 'finished-work', mtimeMs: info.mtimeMs, recordStat: info }, info, {
+      fsImpl: fs, roots: { 'project-state': path.join(projectRoot, '.doflow', 'state') }, now: Date.now(),
+      settings: { staleTmpHours: 24 }, cache, storeDir,
+    });
+  };
+  assert.equal(recheck('feat-a', 'T.5.json'), false);
+  // Control: feature B's own record, with its own finished run and checked plan, still passes the recheck.
+  writeRecord(projectRoot, { taskId: 'T.5', namespace: 'feat-b', mtimeMs: OLD });
+  assert.equal(recheck('feat-b', 'T.5.json'), true);
+});
+
+test('C-1 a delimited-prefix id takes only a prefix run it owns', (t) => {
+  const projectRoot = setup(t);
+  writePlan(projectRoot, 'feat-a', '- [ ] T.5-x do it\n');
+  writePlan(projectRoot, 'feat-b', '- [x] T.5 done\n');
+  writeRecord(projectRoot, { taskId: 'T.5-x', namespace: 'feat-a', mtimeMs: OLD });
+  writeNamespacedRun(projectRoot, 'feat-b', 'T.5', { state: 'COMPLETED', featureSlug: 'feat-b', updatedAt: OLD_ISO });
+  assert.deepEqual(status(projectRoot, { taskId: 'T.5-x', namespace: 'feat-a', mtimeMs: OLD }), {
+    state: 'open', since: null, reason: 'plan-unchecked', run: null, feature: 'feat-a',
+  });
+});
+
+test('C-1 a namespaced record reads its own copy first and the flat run, never another namespace\'s copy', (t) => {
+  const projectRoot = setup(t);
+  writePlan(projectRoot, 'feat-a');
+  writePlan(projectRoot, 'feat-b');
+  writeRecord(projectRoot, { taskId: 'T.6', namespace: 'feat-a', mtimeMs: OLD });
+  writeNamespacedRun(projectRoot, 'feat-b', 'T.6', { state: 'RUNNING', featureSlug: 'feat-b' });
+  assert.equal(status(projectRoot, { taskId: 'T.6', namespace: 'feat-a', mtimeMs: OLD }).run, null, 'another namespace\'s live run is not this record\'s run');
+  writeRun(projectRoot, 'T.6', { state: 'RUNNING', featureSlug: 'feat-a' });
+  assert.equal(status(projectRoot, { taskId: 'T.6', namespace: 'feat-a', mtimeMs: OLD }).reason, 'run-open', 'the flat run is still read');
+  writeNamespacedRun(projectRoot, 'feat-a', 'T.6', { state: 'COMPLETED', featureSlug: 'feat-a', updatedAt: OLD_ISO });
+  assert.equal(status(projectRoot, { taskId: 'T.6', namespace: 'feat-a', mtimeMs: OLD }).reason, 'run-open', 'an open copy still wins over a finished one');
+});
+
+test('C-1 a flat record that two namespaced copies could claim is undecidable, one claimant is read as before', (t) => {
+  const projectRoot = setup(t);
+  writePlan(projectRoot, 'feat-a');
+  writePlan(projectRoot, 'feat-b');
+  writeRecord(projectRoot, { taskId: 'T.7', mtimeMs: OLD });
+  writeNamespacedRun(projectRoot, 'feat-a', 'T.7', { state: 'COMPLETED', featureSlug: 'feat-a', updatedAt: OLD_ISO });
+  assert.equal(status(projectRoot, { taskId: 'T.7', mtimeMs: OLD }).state, 'finished');
+  writeNamespacedRun(projectRoot, 'feat-b', 'T.7', { state: 'COMPLETED', featureSlug: 'feat-b', updatedAt: OLD_ISO });
+  assert.deepEqual(status(projectRoot, { taskId: 'T.7', mtimeMs: OLD }), {
+    state: 'undecidable', since: null, reason: 'run-unreadable', run: 'T.7', feature: null,
+  });
+  // The same holds through a delimited prefix.
+  writeRecord(projectRoot, { taskId: 'T.7-x', mtimeMs: OLD });
+  assert.equal(status(projectRoot, { taskId: 'T.7-x', mtimeMs: OLD }).state, 'undecidable');
+});
+
+test('C-1 prune keeps feature A\'s open evidence while feature B\'s same-id run is finished', (t) => {
+  const projectRoot = crossFeatureProject(t);
+  const roots = Object.fromEntries(Object.entries(storageRegistry.roots).map(([id, r]) => [id, path.join(r.base === 'xdg-config' ? path.join(projectRoot, 'home', '.config') : r.base === 'home' ? path.join(projectRoot, 'home') : projectRoot, ...r.segments)]));
+  const evidence = path.join(projectRoot, '.doflow', 'state', 'evidence', 'feat-a', 'T.5.json');
+  const pass = () => runPass({ registry: storageRegistry, roots, stores: ['task-evidence', 'task-orchestration'], mode: 'prune',
+    setting: Object.fromEntries(Object.keys(roots).map((id) => [id, 'on'])), now: Date.now() });
+  pass();
+  assert.equal(fs.existsSync(evidence), true, 'feature A\'s evidence for the unchecked task survives');
+  // Control: once feature A's plan is checked, the same record is finished work and is pruned.
+  writePlan(projectRoot, 'feat-a', '- [x] T.5 do it\n');
+  writeRun(projectRoot, 'T.5', { state: 'COMPLETED', featureSlug: 'feat-a', updatedAt: OLD_ISO });
+  pass();
+  assert.equal(fs.existsSync(evidence), false);
+});

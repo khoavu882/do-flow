@@ -148,14 +148,26 @@ function readRunAt(cache: any, runId: string, where: string): any {
 }
 
 /**
- * The run record of `runId`: the copy in the record's own namespace first, then the other namespaces,
- * the flat file last. A copy that is open wins (a stale flat seed never closes a live run); otherwise
- * the first copy decides, and an unreadable first copy keeps the run unreadable (fail closed).
+ * The copies of run `runId` a record in `namespace` may be judged by (C-1). A record with a safe
+ * namespace owns the copy in that namespace and the flat copy (what it read before 115); it never owns
+ * another namespace's copy, whose run belongs to that feature. A flat record (no safe namespace) owns
+ * every copy; more than one namespaced copy is ambiguous, and the caller fails closed.
+ */
+function ownedCopies(cache: any, runId: string, namespace: any): { where: string[]; ambiguous: boolean } {
+  const held: string[] = cache.runLocations?.get(runId) || [];
+  if (!safeSegment(namespace)) return { where: held, ambiguous: held.filter((w: string) => w !== '').length > 1 };
+  return { where: held.filter((w: string) => w === namespace || w === ''), ambiguous: false };
+}
+
+/**
+ * The run record of `runId` among the copies the record owns (`ownedCopies`). A copy that is open
+ * wins (a stale flat seed never closes a live run); otherwise the first copy decides, and an
+ * unreadable first copy keeps the run unreadable (fail closed), as does an ambiguous flat record.
  */
 function readRun(cache: any, runId: string, namespace: any): any {
-  const where: string[] = [...(cache.runLocations?.get(runId) || [''])];
-  if (safeSegment(namespace) && where.includes(namespace)) where.unshift(...where.splice(where.indexOf(namespace), 1));
-  const reads = where.map((w) => readRunAt(cache, runId, w));
+  const owned = ownedCopies(cache, runId, namespace);
+  if (owned.ambiguous || owned.where.length === 0) return { ok: false, where: '' };
+  const reads = owned.where.map((w: string) => readRunAt(cache, runId, w));
   return reads.find((r: any) => r.ok && RUN_OPEN_STATES.includes(r.value.state)) || reads[0];
 }
 
@@ -166,10 +178,13 @@ function resolveRun(cache: any, taskId: string, namespace: any, shouldStop?: () 
   let exact = false, namespaced = false, prefix: string | null = null;
   for (const candidate of listed.names) {
     if (shouldStop?.()) return { id: null, unreadable: false, incomplete: true };
-    if (candidate === taskId) exact = true;
-    else if (safeSegment(namespace) && candidate === namespace) namespaced = true;
+    // A run another record owns (C-1) is not this record's run, whichever way its id matches.
+    const claimed = (): boolean => ownedCopies(cache, candidate, namespace).where.length > 0;
+    if (candidate === taskId) { if (claimed()) exact = true; }
+    else if (safeSegment(namespace) && candidate === namespace) { if (claimed()) namespaced = true; }
     else if ((taskId.startsWith(`${candidate}-`) || taskId.startsWith(`${candidate}.`))
-      && (!prefix || candidate.length > prefix.length || (candidate.length === prefix.length && candidate < prefix))) prefix = candidate;
+      && (!prefix || candidate.length > prefix.length || (candidate.length === prefix.length && candidate < prefix))
+      && claimed()) prefix = candidate;
   }
   const id = exact ? taskId : namespaced ? namespace : prefix;
   if (!id) return { id: null, value: null, unreadable: false };
