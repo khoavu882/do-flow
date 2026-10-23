@@ -1,0 +1,37 @@
+{
+  "v": 1,
+  "commit": "9afce61d52897fbe5b240d21210cc45bf6d7a9b8",
+  "node": "v26.8.1",
+  "platform": "darwin",
+  "harness": "claude",
+  "files": [
+    {
+      "path": "state/.gitignore",
+      "sha256": "9462f175125656c28964ccfe1b1ff5b2daa98a6c50b8bbec81f5f77d9240f6ba"
+    },
+    {
+      "path": "state/evidence/A.1.json",
+      "sha256": "dd78eb54abcd9a616fd28673f3f64d88514fb778f04460959609185b4501f2a5"
+    },
+    {
+      "path": "state/runs/2026-10-18.jsonl",
+      "sha256": "5773061e9f2f3a5b085508f78067990565833cc75e755759b0f4a03bedb40a73"
+    },
+    {
+      "path": "state/runs/telemetry/2026-10-18.jsonl",
+      "sha256": "ea3d935c4ce3ee58c418ae643c00d071143a866462fcc83b01344aad70a60e5c"
+    },
+    {
+      "path": "state/task-attempts/f2-loop.json",
+      "sha256": "4d5be4959cd5803b41d9d68cc90f5dfe33039c1f17385bbc7990626b985c8899"
+    },
+    {
+      "path": "state/upkeep-due",
+      "sha256": "b3c8152a859a246d5de464e24c7b6a4caa448570a1cd5bb32d420358a003c21b"
+    },
+    {
+      "path": "state/verification/logs/1792336889922-targeted-tests_test.log",
+      "sha256": "2bb87158113903e4b5bc838a4cf57605f07cf17797b081a438d2c3ae280330ae"
+    }
+  ]
+}

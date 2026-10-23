@@ -1,0 +1,4 @@
+# DoFlow runtime state: local to this machine, kept out of git by DoFlow.
+# Removed by `doflow remove` when DoFlow leaves this project.
+*
+!/ledger.json
