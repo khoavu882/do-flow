@@ -150,7 +150,7 @@ doflow config unset review.rounds --layer project
 doflow config validate --prepared-run prepared.json   # check a prepared-run file; writes nothing
 ```
 
-Quote a string value so the shell passes it as JSON. A security-relevant setting (`autopilot.enabled`, `verify.reuse`, `workers.billing`, every `advice.*`) is refused: you write those in the settings file yourself. A value a layer may not set, or a wider value than the layers below for a narrow-only setting, is refused with exit 1 and nothing is written; a usage mistake exits 2.
+Quote a string value so the shell passes it as JSON. A security-relevant setting (`autopilot.enabled`, `verify.reuse`, `workers.billing`, `guard.workerDropDatabases`, every `advice.*`) is refused: you write those in the settings file yourself. A value a layer may not set, a wider value than the layers below for a narrow-only setting, or a `review.rounds` below the project preset's minimum rounds, is refused with exit 1 and nothing is written; a usage mistake exits 2. Two `config set` calls at the same time both land, and each write keeps the file it replaced as `<file>.config.bak`; a file another writer holds for more than 2 s is refused as `locked`, and one that would grow past 64 KiB as `too-large`.
 
 ### See the review or debate protocol
 
