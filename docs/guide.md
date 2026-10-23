@@ -442,7 +442,7 @@ doflow roadmap --action status           # merged / in-flight / not-started per 
 `--row <id>` restricts a call to one in-flight row and `--run <id>` names the run; the default is the
 open run. Only one `next` runs at a time (`lease-held` otherwise).
 
-**Record a worker's billing.** DoFlow never says a harness is free: the registry lists every harness's billing as `unknown`, and only you can state that your account has no per-run charge for it (a flat subscription counts). Write the record yourself under `workers.billing` in `~/.config/doflow/settings.json` (or under `$XDG_CONFIG_HOME/doflow`). The key is global-only, so a project file cannot set it, and `doflow config` never writes it. For example, for `codex` and for `antigravity` (the `agy` CLI):
+**Record a worker's billing.** DoFlow never says a harness is free: the registry lists every harness's billing as `unknown`, and the record is where you state that your account has no per-run charge for it (a flat subscription counts). Write the record yourself under `workers.billing` in `~/.config/doflow/settings.json` (or under `$XDG_CONFIG_HOME/doflow`). The key is global-only, so a project file cannot set it, and `doflow config` never writes it. DoFlow reads the record from the caller's config home (`$XDG_CONFIG_HOME` or `$HOME`) and does not guard who wrote that file, the same as `autopilot.enabled`. For example, for `codex` and for `antigravity` (the `agy` CLI):
 
 ```json
 {
