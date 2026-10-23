@@ -405,3 +405,75 @@ test('IC-028 a running run with no active attempt and every box ticked keeps tod
     state: 'finished', since: 5, reason: 'no-run', run: null, feature: '080-ledger',
   });
 });
+
+// FU-c2ddw2: since 115 a run of a task id other than its feature's slug lives in orchestration/<slug>/.
+function writeNamespacedRun(projectRoot, namespace, id, value) {
+  return writeJson(path.join(projectRoot, '.doflow', 'state', 'orchestration', namespace, `${id}.json`), value);
+}
+
+test('FU-c2ddw2 a namespaced RUNNING run keeps its record open, found by the record\'s own namespace', (t) => {
+  const projectRoot = setup(t);
+  writePlan(projectRoot, 'feat-a');
+  writeRecord(projectRoot, { taskId: 'task-1', namespace: 'feat-a' });
+  writeNamespacedRun(projectRoot, 'feat-a', 'task-1', { state: 'RUNNING', featureSlug: 'feat-a', updatedAt: '2026-01-01T00:00:00.000Z' });
+  assert.deepEqual(status(projectRoot, { taskId: 'task-1', namespace: 'feat-a', mtimeMs: 1 }), {
+    state: 'open', since: null, reason: 'run-open', run: 'task-1', feature: null,
+  });
+});
+
+test('FU-c2ddw2 a flat record finds its run in whichever namespace holds it, and a gate-paused one is open too', (t) => {
+  const projectRoot = setup(t);
+  writePlan(projectRoot, 'feat-b');
+  writeRecord(projectRoot, { taskId: 'task-2' });
+  writeNamespacedRun(projectRoot, 'feat-b', 'task-2', { state: 'AWAITING_GATE', featureSlug: 'feat-b' });
+  assert.equal(status(projectRoot, { taskId: 'task-2', mtimeMs: 1 }).reason, 'run-open');
+  assert.equal(status(projectRoot, { taskId: 'task-2', mtimeMs: 1 }).run, 'task-2');
+});
+
+test('FU-c2ddw2 a delimited-prefix run in a namespace is found as a flat prefix run is', (t) => {
+  const projectRoot = setup(t);
+  writePlan(projectRoot, 'feat-c');
+  writeRecord(projectRoot, { taskId: 'wide-sub', namespace: 'feat-c' });
+  writeNamespacedRun(projectRoot, 'feat-c', 'wide', { state: 'RUNNING', featureSlug: 'feat-c' });
+  const found = status(projectRoot, { taskId: 'wide-sub', namespace: 'feat-c', mtimeMs: 1 });
+  assert.equal(found.reason, 'run-open');
+  assert.equal(found.run, 'wide');
+});
+
+test('FU-c2ddw2 an orchestration record that is a namespaced run resolves it', (t) => {
+  const projectRoot = setup(t);
+  writePlan(projectRoot, 'feat-d');
+  writeNamespacedRun(projectRoot, 'feat-d', 'task-3', { state: 'RUNNING', featureSlug: 'feat-d' });
+  const live = workStatus({ projectRoot, store: 'task-orchestration', taskId: 'task-3', namespace: 'feat-d', mtimeMs: 1 });
+  assert.equal(live.state, 'open');
+  assert.equal(live.reason, 'run-open');
+  writeNamespacedRun(projectRoot, 'feat-d', 'task-4', { state: 'COMPLETED', featureSlug: 'feat-d', updatedAt: '2026-01-01T00:00:00.000Z' });
+  const done = workStatus({ projectRoot, store: 'task-orchestration', taskId: 'task-4', namespace: 'feat-d', mtimeMs: 1 });
+  assert.equal(done.state, 'finished');
+  assert.equal(done.reason, 'run-finished');
+  assert.equal(done.run, 'task-4');
+});
+
+test('FU-c2ddw2 the namespaced copy of a run is read before a stale flat seed, and an unreadable one fails closed', (t) => {
+  const projectRoot = setup(t);
+  writePlan(projectRoot, 'feat-e');
+  writeRecord(projectRoot, { taskId: 'task-5', namespace: 'feat-e' });
+  writeRun(projectRoot, 'task-5', { state: 'COMPLETED', featureSlug: 'feat-e', updatedAt: '2026-01-01T00:00:00.000Z' });
+  writeNamespacedRun(projectRoot, 'feat-e', 'task-5', { state: 'RUNNING', featureSlug: 'feat-e' });
+  assert.equal(status(projectRoot, { taskId: 'task-5', namespace: 'feat-e', mtimeMs: 1 }).reason, 'run-open', 'a live namespaced copy beats a finished flat seed');
+
+  writeRecord(projectRoot, { taskId: 'task-6', namespace: 'feat-e' });
+  const bad = path.join(projectRoot, '.doflow', 'state', 'orchestration', 'feat-e', 'task-6.json');
+  fs.mkdirSync(path.dirname(bad), { recursive: true });
+  fs.writeFileSync(bad, '{not json');
+  assert.deepEqual(status(projectRoot, { taskId: 'task-6', namespace: 'feat-e', mtimeMs: 1 }), {
+    state: 'undecidable', since: null, reason: 'run-unreadable', run: 'task-6', feature: null,
+  });
+});
+
+test('FU-c2ddw2 a lock directory in orchestration is not a run namespace', (t) => {
+  const projectRoot = setup(t);
+  writeRecord(projectRoot, { taskId: 'task-7' });
+  writeNamespacedRun(projectRoot, 'task-7.json.lock', 'task-7', { state: 'RUNNING' });
+  assert.equal(status(projectRoot, { taskId: 'task-7', mtimeMs: 1 }).reason, 'no-run');
+});

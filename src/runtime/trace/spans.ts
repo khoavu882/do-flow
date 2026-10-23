@@ -63,6 +63,7 @@ const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 const PARTITION = /^\d{4}-\d{2}-\d{2}\.jsonl$/;
 const STORE_FILE = /^[A-Za-z0-9][A-Za-z0-9._-]*\.json$/;
+const NAMESPACE_DIR = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const HEX16 = /^[0-9a-f]{16}$/;
 const HEX32 = /^[0-9a-f]{32}$/;
 const WORKER_RUN_ID = /^w-[0-9a-f]{12}$/;
@@ -166,20 +167,35 @@ function readLines(fsImpl: any, dir: string, rel: string, gaps: any[], kind: str
   return out;
 }
 
-/** Each JSON store file of a directory as `{ file, value }`, or a gap when it does not parse. */
-function readStores(fsImpl: any, stateDir: string, rel: string, gaps: any[], kind: string): any[] {
+/** Each JSON store file of a directory as `{ file, value }`, or a gap when it does not parse. With
+ * `namespaced`, the files of each `<slug>/` directory come too (115: a run of a task id other than its
+ * feature's slug lives in `orchestration/<slug>/`); a flat file whose namespaced copy exists is that
+ * copy's seed, not a second record, and is left out. */
+function readStores(fsImpl: any, stateDir: string, rel: string, gaps: any[], kind: string, namespaced = false): any[] {
   const out: any[] = [];
-  for (const name of listDir(fsImpl, path.join(stateDir, rel), STORE_FILE)) {
-    const file = `${rel}/${name}`;
+  const read = (file: string, name: string, dir: string, namespace: string): void => {
     try {
-      const text = readRegular(fsImpl, path.join(stateDir, rel, name));
+      const text = readRegular(fsImpl, path.join(dir, name));
       if (text === null) throw new Error('not a readable regular file');
       const value = JSON.parse(text);
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('not an object');
-      out.push({ file, value });
+      out.push({ file, value, name, namespace });
     } catch { gaps.push({ locator: file, reason: 'unparseable', kind }); }
+  };
+  const base = path.join(stateDir, rel);
+  for (const name of listDir(fsImpl, base, STORE_FILE)) read(`${rel}/${name}`, name, base, '');
+  if (!namespaced) return out.map(({ file, value }) => ({ file, value }));
+  let entries: any[] = [];
+  try { entries = fsImpl.readdirSync(base, { withFileTypes: true }); } catch { entries = []; }
+  const namespaces = entries.filter((entry: any) => entry.isDirectory() && NAMESPACE_DIR.test(entry.name) && !entry.name.endsWith('.lock'))
+    .map((entry: any) => entry.name).sort();
+  for (const namespace of namespaces) {
+    const dir = path.join(base, namespace);
+    for (const name of listDir(fsImpl, dir, STORE_FILE)) read(`${rel}/${namespace}/${name}`, name, dir, namespace);
   }
-  return out;
+  const copied = (flat: any): boolean => out.some((other) => other.namespace !== ''
+    && other.name === flat.name && (typeof flat.value.featureSlug !== 'string' || flat.value.featureSlug === other.namespace));
+  return out.filter((entry) => entry.namespace !== '' || !copied(entry)).map(({ file, value }) => ({ file, value }));
 }
 
 const objects = (v: any): Array<[string, any]> => (v && typeof v === 'object' && !Array.isArray(v)
@@ -334,7 +350,7 @@ function buildSpans({ stateDir, run = null, fsImpl = nodeFs }: any): any {
   }
 
   const activities: any[] = [];
-  for (const { file, value } of readStores(fsImpl, stateDir, 'orchestration', gaps, 'orchestration')) {
+  for (const { file, value } of readStores(fsImpl, stateDir, 'orchestration', gaps, 'orchestration', true)) {
     const runKey = runKeyOf(value.runKey);
     const history: any[] = Array.isArray(value.history) ? value.history : [];
     let stageStart = iso(value.startedAt) ?? iso(history[0]?.at);

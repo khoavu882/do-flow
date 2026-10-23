@@ -243,6 +243,25 @@ test('no outcome warns in doctor: the run is listed, counted once, and the exit 
   assert.ok(lines.includes(`    ${OUTCOME_LABELS['no-outcome']}: 062-mcp-leverage design 2026-10-10T08:12:03.000Z (${SECOND})`), lines.join('\n'));
 });
 
+test('FU-c2ddw2 a run namespaced under its feature slug is counted; a flat seed of it is not counted twice', (t) => {
+  const f = fixture(t);
+  const history = [entry('2026-10-11T09:00:00.000Z', 'design', consultations('do-design', [FIRST, SECOND], [[FIRST, 'consulted-used']]))];
+  const journal = (taskId, featureSlug) => JSON.stringify({ version: 1, taskId, taskClass: 'feature', state: 'RUNNING', featureSlug, history });
+  write(path.join(f.proj, '.doflow', 'state', 'orchestration', '115-ns', 'design-run.json'), journal('design-run', '115-ns'));
+  write(path.join(f.proj, '.doflow', 'state', 'orchestration', 'design-run.json'), journal('design-run', '115-ns')); // the legacy flat copy
+  write(path.join(f.proj, '.doflow', 'state', 'orchestration', '115-ns', 'only-ns.json'), JSON.stringify({ version: 1, taskId: 'only-ns', taskClass: 'feature', state: 'RUNNING', featureSlug: '115-ns',
+    history: [entry('2026-10-12T09:00:00.000Z', 'design', consultations('do-design', [FIRST], [[FIRST, 'skipped', 'not-due']]))] }));
+  write(path.join(f.proj, '.doflow', 'state', 'orchestration', 'broken.json.lock', 'x.json'), '{}'); // a lock dir is no namespace
+  write(path.join(f.proj, '.doflow', 'state', 'orchestration', '115-ns', 'torn.json'), '{not json');
+  const report = JSON.parse(doctor(f, [f.proj, '--json']).stdout);
+  const design = stage(report, 'do-design');
+  assert.equal(design.runs, 2, 'each namespaced run is counted once');
+  assert.equal(serverRow(design, FIRST).used, 1);
+  assert.equal(serverRow(design, FIRST).skipped, 1);
+  assert.deepEqual(design.noOutcome, [{ taskId: 'design-run', node: 'design', at: '2026-10-11T09:00:00.000Z', server: SECOND }]);
+  assert.equal(report.mcp.consultations.unreadableRuns, 1, 'an unreadable namespaced journal is counted unreadable');
+});
+
 test('every outcome recorded is quiet: one used, one skipped, no "no outcome" line', (t) => {
   const f = fixture(t);
   run(f, 'quiet', [

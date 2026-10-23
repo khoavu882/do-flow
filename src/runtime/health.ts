@@ -500,13 +500,29 @@ const byText = (a: any, b: any) => (a < b ? -1 : a > b ? 1 : 0);
  */
 function mcpConsultationsView({ projectRoot, fsImpl }: any) {
   const dir = path.join(projectRoot, '.doflow', 'state', 'orchestration');
-  let files = [];
-  try { files = fsImpl.readdirSync(dir).filter((name: any) => name.endsWith('.json')).sort(); } catch { files = []; }
+  // Runs live flat or in `<slug>/` (115: a task id other than its feature's slug is namespaced).
+  const listed: Array<{ rel: string; name: string; namespace: string; run: any }> = [];
+  const readRunFile = (rel: string, name: string, namespace: string): void => {
+    let run;
+    try { run = JSON.parse(fsImpl.readFileSync(path.join(dir, rel), 'utf8')); } catch { run = null; }
+    listed.push({ rel, name, namespace, run });
+  };
+  let entries: any[] = [];
+  try { entries = fsImpl.readdirSync(dir, { withFileTypes: true }); } catch { entries = []; }
+  for (const entry of entries) if (entry.name.endsWith('.json') && !entry.isDirectory()) readRunFile(entry.name, entry.name, '');
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(entry.name) || entry.name.endsWith('.lock')) continue;
+    let inner: any[] = [];
+    try { inner = fsImpl.readdirSync(path.join(dir, entry.name), { withFileTypes: true }); } catch { inner = []; }
+    for (const file of inner) if (file.name.endsWith('.json') && !file.isDirectory()) readRunFile(`${entry.name}/${file.name}`, file.name, entry.name);
+  }
+  listed.sort((a, b) => byText(a.rel, b.rel));
+  // A flat run whose namespaced copy exists is that copy's seed, not a second run.
+  const files = listed.filter((one) => one.namespace !== '' || !listed.some((other) => other.namespace !== '' && other.name === one.name
+    && (typeof one.run?.featureSlug !== 'string' || one.run.featureSlug === other.namespace)));
   let unreadableRuns = 0;
   const bySkill = new Map();
-  for (const name of files) {
-    let run;
-    try { run = JSON.parse(fsImpl.readFileSync(path.join(dir, name), 'utf8')); } catch { run = null; }
+  for (const { name, run } of files) {
     if (!run || typeof run !== 'object' || Array.isArray(run)) { unreadableRuns += 1; continue; }
     for (const item of Array.isArray(run.history) ? run.history : []) {
       const record = item && item.consultations;
