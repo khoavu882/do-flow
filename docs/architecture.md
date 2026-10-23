@@ -257,6 +257,7 @@ registries](#installation-registries) for the same plain-JSON convention. Across
 | `core/registry/routes.json` | Information need → capability, with an ordered fallback when the preferred capability has no healthy provider |
 | `core/registry/models.json` | Abstract model roles and their providers (`doflow model-role`), and `dispatchTiers`: the tier names (`tiers`), the `default`, and the tier per agent archetype (`byOwner`, seven archetypes; `delivery-lead` and `reviewer` are `frontier`) that a generated brief states. G29 holds `tiers` to `MODEL_SELECTION.md` `## Capability tiers`, `byOwner` keys to `core/shared/agent-specs/`, and every `byOwner` value to the `## Archetype dispatch tiers` prescription table in `MODEL_SELECTION.md` |
 | `core/registry/gates.json` | The roadmap loop's gate policy: per class and gate, whether autopilot may approve (`approve` or `never`), the ordered predicates and the minimum review seats; the protected paths; the loop and merge limits; and the closed `denyReasons` list. Read at develop's committed head by `orchestrate --action decide-gate --policy`, never from a feature branch; a project override can only narrow it. G55 holds its gate ids to `workflows.json` and its reasons to the code |
+| `core/registry/protocols.json` | The review and debate protocols (119): the presets (`review-deep`, `review-single`, `debate-2`, `debate-3`), each with its kind, seats (agent, lenses, model tier and family), rounds, cross-answer, synthesizer and decider; the lens catalogue; `order`, each kind's presets strictest first; `hardRoundCap`; and the locked invariants, each naming what enforces it. `src/runtime/review/protocols.ts` loads and validates it (`loadProtocols`, `validateProtocols`); G66 holds it to itself and to the class seat floors in `gates.json` |
 | `core/registry/external-tools.json` | External tools DoFlow can detect, install, and probe rather than reimplement |
 | `core/registry/storage.json` | Every store DoFlow writes: its root, location, retention bound, rule kind and writer files, plus the pass budget, throttle and ignore-file text. `src/runtime/storage/` reads it and G26 checks it against the code and `docs/reference.md` |
 | `core/registry/settings.json` | Every runtime settings key, its types, defaults, scopes, bindings, legacy files and consumers. `src/runtime/settings/registry.ts` reads it; G44 checks its consumers, reference defaults and documentation |
@@ -785,12 +786,12 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-72 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-65 entries across 61 test files and carries 63 distinct G-numbers.
+73 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+66 entries across 62 test files and carries 64 distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries; G18 labels two files, of which `adapter-force.test.js` is not listed; and G30 labels two
 files, `advice.test.js` and a ratchet test in `module-reachability.test.js` (the G16 file). The collisions are
-historical rather than a convention; G65 is the highest number in use, so a new guard takes the next
+historical rather than a convention; G66 is the highest number in use, so a new guard takes the next
 one above it instead of adding another collision. The list is not the whole directory. The
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
@@ -1185,6 +1186,16 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   `workflow-orchestrator.ts` is an orchestration user through `runStoreDir()` even when
   `research-request.ts` no longer names that store; and against the shipped sources, removing the adopter from
   `task-evidence` or adding it to `task-attempts` turns it red.
+- **G66** (`protocols.test.js`) — `core/registry/protocols.json` is consistent with itself and with the
+  class seat floors: preset ids are unique in the raw file text (parsed JSON hides a duplicate key), every
+  seat lens is in the lens catalogue, `review-deep` is the strictest review preset in `order.review` with at
+  least as many seats as every class's `gate-b.minSeats` in `gates.json` (so no other review preset is needed
+  to meet a floor), no preset's `rounds.default` exceeds `hardRoundCap`, every invariant carries a non-empty
+  `enforcedBy`, and the shipped file passes `validateProtocols` with no error. Controls on cloned registries:
+  a one-seat `review-deep`, an unknown lens, rounds above the cap, an invariant without `enforcedBy`, a
+  non-strictest first review preset and a duplicate preset id in the raw text are each named, and the shipped
+  registry reports nothing. The check that settings `valuesRef` entries into protocols resolve joins in
+  Phase B, when the first such key exists.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.
