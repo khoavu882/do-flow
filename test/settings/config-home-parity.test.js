@@ -24,13 +24,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
+const { spawnBash } = require('../helper/home-less-bash');
 const { REPO } = require('../helper/settings-fixtures');
 const { configHome } = require('../../src/runtime/config-home.ts');
 const { lexicalCapture, readLexicalCapture } = require('../../src/runtime/settings/lexical.ts');
 const { identityInlineConfigHomeBlock } = require('../helper/settings-shell-blocks');
 
 const POSIX = process.platform !== 'win32';
-const BASH = '/bin/bash';
 const HOOKS = path.join(REPO, 'core', 'harnesses');
 const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 const POLICY_HELPER = path.join(HOOKS, 'shared', 'hooks', 'policies', 'capture-failure.sh');
@@ -136,7 +136,7 @@ function caseEnv(abs, xdg, home) {
 /** Runs a config-home bash block under `set -euo pipefail` and returns DOFLOW_HOME ('' = none). */
 function runBashConfigHome(block, env) {
   const script = `set -euo pipefail\n${block}\ndoflow_config_home\nprintf '%s' "$DOFLOW_HOME"`;
-  const r = spawnSync(BASH, ['-c', script], { env, encoding: 'utf8', cwd: path.parse(process.cwd()).root });
+  const r = spawnBash(['-c', script], { env, encoding: 'utf8', cwd: path.parse(process.cwd()).root });
   assert.equal(r.status, 0, `bash exits 0: ${r.stderr}`);
   assert.equal(r.stderr, '', 'the block writes nothing to stderr');
   return r.stdout;
@@ -165,7 +165,7 @@ function configHomeMisses(t, block, run) {
 
 function runIdentityConfigHome(copy, env, cwd) {
   const script = `set -euo pipefail\nsessions="${'${SESSION_DIR:-}'}"\n${copy}\nprintf '%s' "$sessions"`;
-  const result = spawnSync(BASH, ['-c', script], { cwd, env, encoding: 'utf8' });
+  const result = spawnBash(['-c', script], { cwd, env, encoding: 'utf8' });
   assert.equal(result.status, 0, `bash exits 0: ${result.stderr}`);
   assert.equal(result.stderr, '', 'identity config-home copy is silent');
   return result.stdout;
@@ -225,7 +225,7 @@ const asAnswer = (s) => (s === '' ? null : s);
 /** Runs a lexical bash block over the file `file` and returns 'on' | 'off' | null. */
 function runBashLexical(block, file) {
   const script = `set -euo pipefail\n${block}\ndoflow_lex_capture "$1"\nprintf '%s' "$DOFLOW_LEX_CAPTURE"`;
-  const r = spawnSync(BASH, ['-c', script, 'x', file], { env: { PATH: process.env.PATH }, encoding: 'utf8' });
+  const r = spawnBash(['-c', script, 'x', file], { env: { PATH: process.env.PATH }, encoding: 'utf8' });
   assert.equal(r.status, 0, `bash exits 0: ${r.stderr}`);
   assert.equal(r.stderr, '', 'the block writes nothing to stderr');
   return asAnswer(r.stdout);

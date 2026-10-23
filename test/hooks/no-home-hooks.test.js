@@ -7,7 +7,7 @@
 // exits for want of a home, every state path is empty, each state function returns 0 at once, and
 // a guard that sources lib.sh reaches its own decision.
 //
-// Isolation: every spawn is `/bin/bash` with an explicit environment (PATH, plus whatever the row
+// Isolation: every spawn is bash (through the shared home-less helper) with an explicit environment (PATH, plus whatever the row
 // sets; HOME is absent on purpose) and a temp folder as cwd, so no hook can reach the real home.
 // "Nothing created" is checked in the cwd and in every fixture folder a row names.
 
@@ -18,17 +18,17 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir, suiteTempDir } = require('../helper/tmp');
 const { buildInstallMirror, encodeEnvelope } = require('../helper/hook-fixtures');
+const { spawnBash } = require('../helper/home-less-bash');
 
 const POSIX = process.platform !== 'win32';
 const ROOT = POSIX && typeof process.getuid === 'function' && process.getuid() === 0;
 const HAS_JQ = spawnSync('jq', ['--version']).status === 0;
-const BASH = '/bin/bash';
 const HARNESSES = path.resolve(__dirname, '..', '..', 'core', 'harnesses');
 const POLICIES = path.join(HARNESSES, 'shared', 'hooks', 'policies');
 
 /** Runs bash with only PATH and `extra` in its environment; the cwd is an empty temp folder. */
 function bash(t, args, extra = {}, { input = '', cwd = tempDir(t, 'doflow-no-home-') } = {}) {
-  const r = spawnSync(BASH, args, { cwd, env: { PATH: process.env.PATH, ...extra }, input, encoding: 'utf8' });
+  const r = spawnBash(args, { cwd, env: { PATH: process.env.PATH, ...extra }, input, encoding: 'utf8' });
   return { status: r.status, stdout: r.stdout, stderr: r.stderr, cwd, untouched: fs.readdirSync(cwd).length === 0 };
 }
 
