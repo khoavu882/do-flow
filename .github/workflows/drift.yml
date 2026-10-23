@@ -51,9 +51,19 @@ jobs:
           {
             echo "**Drifted claims** from [$GITHUB_SHA]($run_url):"
             echo ""
+            # Each DRIFTED row also carries `diff`, a unified diff of the page's main content
+            # against the stored snapshot: null when the baseline has no snapshot for the URL, ""
+            # when the change lies beyond the snapshot's size cap.
             jq -r '.results[] | select(.status == "DRIFTED")
-              | "- `\(.url)`\n  claims: \(.claims | join(", "))"' drift-report.json
+              | "- `\(.url)`\n  claims: \(.claims | join(", "))"
+                + (if (.diff // "") != "" then "\n\n````diff\n\(.diff)\n````\n"
+                   elif .diff == "" then "\n  (change lies beyond the stored snapshot; no diff)"
+                   else "\n  (no snapshot to diff against)" end)' drift-report.json
           } > drift-body.md
+          # A comment body is capped at 65536 characters; keep the run's comment under it.
+          if [ "$(wc -c < drift-body.md)" -gt 60000 ]; then
+            { head -c 60000 drift-body.md; printf '\n\n(truncated)\n'; } > drift-body.cut && mv drift-body.cut drift-body.md
+          fi
 
           # Exactly one open tracking issue at a time: create it on first drift, append every
           # later run as a comment. Resolve by refreshing scripts/drift/baseline.json
