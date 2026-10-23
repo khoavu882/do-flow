@@ -157,6 +157,25 @@ test('refuses an invalid settings file unless force is set', (t) => {
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { schema: 1, 'storage.prune': 'off' });
 });
 
+test('refuses with code too-large, writing nothing, when the file as written would be over the reader\'s limit (C-13)', (t) => {
+  const f = createSettingsEnv(t);
+  const file = f.userFile('settings.json');
+  const { MAX_BYTES } = require('../../src/runtime/settings/files.ts');
+  const pad = 'p'.repeat(MAX_BYTES - 1 - JSON.stringify({ schema: 1, 'x.pad': '' }).length);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify({ schema: 1, 'x.pad': pad })}\n`);
+  assert.equal(fs.statSync(file).size, MAX_BYTES, 'the file on disk is exactly at the limit and reads');
+  const before = fs.readFileSync(file);
+
+  const result = writeLayer({ file, set: { 'storage.prune': 'off' } });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'config-invalid');
+  assert.equal(result.code, 'too-large');
+  assert.deepEqual(fs.readFileSync(file), before);
+  assert.deepEqual(fs.readdirSync(path.dirname(file)), ['settings.json'], 'no temporary or lock file is left');
+});
+
 test('replaces a symlinked settings target without changing its referent', (t) => {
   assertSymlinkReplacement(writeLayer, t);
 });

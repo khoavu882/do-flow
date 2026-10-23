@@ -6,6 +6,11 @@ const { REF_META } = require('../../src/runtime/settings/refs.ts');
 // docsRows does, before comparing.
 const { text: cellText, code: cellCode } = require('../../src/release/docs-blocks.ts');
 
+// A list default is shown as its JSON text, as docs-blocks.ts renders it.
+function listAsJson(value) {
+  return Array.isArray(value) ? JSON.stringify(value) : value;
+}
+
 function codeCell(value) {
   return cellCode(value).replace(/^`(.*)`$/, '$1');
 }
@@ -58,7 +63,7 @@ function resolvedDefault(key, spec, registry, resolving = new Set()) {
 }
 
 function renderSettingsRow(key, spec, registry) {
-  return `| ${cellCode(key)} | ${cellText(spec.type)} | ${cellCode(resolvedDefault(key, spec, registry))} | ${cellText(spec.scope)} | ${cellCode(spec.env?.name)} | ${cellCode(legacyPaths(spec))} | ${cellText(spec.description)} |`;
+  return `| ${cellCode(key)} | ${cellText(spec.type)} | ${cellCode(listAsJson(resolvedDefault(key, spec, registry)))} | ${cellText(spec.scope)} | ${cellCode(spec.env?.name)} | ${cellCode(legacyPaths(spec))} | ${cellText(spec.description)} |`;
 }
 
 function renderSettingsTable(raw, registry, { omitKey = null } = {}) {
@@ -85,7 +90,7 @@ function checkSettingsDocs(raw, text, registry) {
     if (row.duplicate) { errors.push(`settings table duplicates ${key} at line ${row.line}`); continue; }
     const expected = [
       ['type', row.type, cellText(spec.type)],
-      ['default', row.defaultValue, codeCell(resolvedDefault(key, spec, registry))],
+      ['default', row.defaultValue, codeCell(listAsJson(resolvedDefault(key, spec, registry)))],
       ['scope', row.scope, cellText(spec.scope)],
       ['env', row.env, codeCell(spec.env?.name)],
       ['legacy file', row.legacy, codeCell(legacyPaths(spec))],

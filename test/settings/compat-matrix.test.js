@@ -124,9 +124,13 @@ test('C6: a user {enabled:false} is off user-disabled and the project file is ne
   assert.equal(result.reason, 'user-disabled');
   assert.deepEqual(result.decidedBy, { user: f.userFile('decision-model.json'), project: null });
   assert.deepEqual(result.notes, [], 'no project note: the project file was not read');
-  // The same disabled project file under an enabled user file is read: it appears as a note.
+  // The same malformed project file under an enabled user file is read: it appears as a note, and advice is
+  // off (119 phase-BC item 6: advice.model is security-relevant, so a malformed project file turns advice off).
   f.writeUserDecision(userDecision());
-  assert.ok(advice(f).notes.some((note) => note.startsWith(`project setting at ${f.projectFile('decision-model.json')} ignored:`)));
+  const enabled = advice(f);
+  assert.equal(enabled.state, 'off');
+  assert.equal(enabled.reason, 'config-invalid');
+  assert.ok(enabled.notes.some((note) => note.startsWith(`project setting at ${f.projectFile('decision-model.json')} is invalid:`) && note.endsWith('; advice is off')));
 });
 
 const C7_CASES = [
@@ -151,17 +155,21 @@ for (const [letter, label, content] of C7_CASES) {
   });
 }
 
-test('C8: C2 plus an invalid project file is on with the user values and an ignored-project note', (t) => {
+// 119 phase-BC item 6 (advice.model security-relevant, fail-safe gate advice.enabled): a malformed project
+// decision-model.json no longer leaves advice on with the user values; it turns advice off and the note says so.
+test('C8: C2 plus an invalid project file is off config-invalid with the user values kept and a note naming the project file', (t) => {
   const f = fx(t);
   f.writeUserDecision(userDecision());
   const projectFile = f.writeProjectDecision('{not json');
   const result = advice(f);
-  assert.equal(result.state, 'on');
+  assert.equal(result.state, 'off');
+  assert.equal(result.reason, 'config-invalid');
   assert.equal(result.model, 'clef-flash');
   assert.equal(result.modelFrom, 'user');
-  assert.deepEqual(result.decidedBy, { user: f.userFile('decision-model.json'), project: null });
+  assert.deepEqual(result.decidedBy, { user: f.userFile('decision-model.json'), project: projectFile });
   assert.equal(result.notes.length, 1);
-  assert.ok(result.notes[0].startsWith(`project setting at ${projectFile} ignored:`));
+  assert.ok(result.notes[0].startsWith(`project setting at ${projectFile} is invalid:`));
+  assert.ok(result.notes[0].endsWith('; advice is off'));
 });
 
 test('control C1-C8: the layer that decides changes the result when its file changes', (t) => {

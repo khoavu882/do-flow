@@ -8,6 +8,8 @@ const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { countFindings } = require('../../src/runtime/review/findings.ts');
 const { handleReviewCommand } = require('../../src/runtime/review/command.ts');
+const { createSettingsEnv } = require('../helper/settings-fixtures');
+const { derivedVocabularies } = require('../../src/runtime/trace/telemetry.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const SECRET = 'SECRET-095-PLANT';
@@ -458,11 +460,78 @@ test('095b IC-006: an invalid record (bad depth) writes null for depth, risk and
   assert.equal(capture.records[0].head, null);
 });
 
-test('095b IC-006: the telemetry registry declares depth, risk and head and the depth vocabulary', () => {
+test('119 IC-002: a valid record with protocol writes the preset id; without protocol or when invalid it writes null', (t) => {
+  const cwd = tempDir(t, 'doflow-review-check-protocol-');
+  const protocol = { id: 'review-deep', digest: 'a'.repeat(64) };
+  const run = (record, name) => {
+    const capture = fakeWriter();
+    const result = invoke({ ...baseOptions(cwd, writeRecord(cwd, record, name), capture.writer), json: true });
+    return { result, telemetry: capture.records[0] };
+  };
+
+  const withProtocol = run({ ...validRecord(), protocol }, 'with/review/findings.json');
+  assert.equal(withProtocol.result.exitCode, 0);
+  assert.equal(withProtocol.telemetry.protocol, 'review-deep');
+
+  const without = run(validRecord(), 'without/review/findings.json');
+  assert.equal(without.result.exitCode, 0);
+  assert.equal(without.telemetry.protocol, null);
+
+  const invalid = run({ ...validRecord(), protocol: { ...protocol, id: 'debate-2' } }, 'invalid/review/findings.json');
+  assert.equal(invalid.result.exitCode, 1);
+  assert.deepEqual(parseJsonOutput(invalid.result.lines).errors, ['protocol']);
+  assert.equal(invalid.telemetry.protocol, null);
+});
+
+test('095b IC-006: the telemetry registry declares depth, risk and head; the depth vocabulary is derived from protocols.json (C-9)', () => {
   const registry = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/telemetry.json'), 'utf8'));
   const fields = registry.kinds['review.run'].fields;
   assert.deepEqual(fields.depth, { name: 'doflow.review.run.depth', class: 'T2', type: 'enum:depth|null', phase: 'P7' });
   assert.deepEqual(fields.risk, { name: 'doflow.review.run.risk', class: 'T2', type: 'enum:risk|null', phase: 'P7' });
   assert.deepEqual(fields.head, { name: 'doflow.review.run.head', class: 'T0', type: 'token|null', phase: 'P7' });
-  assert.deepEqual(registry.vocabularies.depth, ['single', 'deep']);
+  assert.equal(Object.hasOwn(registry.vocabularies, 'depth'), false, 'telemetry.json holds no copy');
+  assert.deepEqual(derivedVocabularies().depth, ['single', 'deep']);
+});
+
+test('C-6: a malformed or invalid project review.sameFamily is an unreadable setting: check errors (exit 1), never the advisory', (t) => {
+  const f = createSettingsEnv(t, { prefix: 'doflow-review-check-settings-' });
+  const record = { ...validRecord(), author: { agent: 'core-implementer', session: 's1', family: 'claude' } };
+  record.seats[0] = { ...record.seats[0], agent: 'reviewer', session: 's2', family: 'gpt' };
+  record.seats[1] = { ...record.seats[1], agent: 'reviewer', session: 's3', family: 'gpt' };
+  const file = writeRecord(f.project, record);
+  const check = () => {
+    const result = invoke({ ...baseOptions(f.project, file, fakeWriter().writer), env: f.env(), json: true });
+    return { exitCode: result.exitCode, body: parseJsonOutput(result.lines) };
+  };
+  assert.equal(check().exitCode, 0, 'no settings file: valid');
+  for (const text of ['{ "schema": 1, "review.sameFamily": "refuse", }', '{ "schema": 1, "review.sameFamily": "strict" }']) {
+    fs.writeFileSync(path.join(f.project, '.doflow', 'settings.json'), text);
+    const { exitCode, body } = check();
+    assert.equal(exitCode, 1, text);
+    assert.equal(body.valid, false);
+    // A malformed file is unreadable for every review.* key, so it also reports the preset (C-2 closure); a bad value only its own key.
+    assert.deepEqual(body.errors, text.endsWith(', }') ? ['same-family-setting-unread', 'review-preset-setting-unread'] : ['same-family-setting-unread'], text);
+    assert.ok(!body.advisories.includes('same-family-setting-unread'));
+  }
+  fs.writeFileSync(path.join(f.project, '.doflow', 'settings.json'), '{ "schema": 1, "review.sameFamily": "warn" }');
+  assert.equal(check().exitCode, 0, 'a readable file is fine again');
+});
+
+test('C-2 closure: with a non-auto review.preset a record without protocol is invalid at check; auto or unset keeps it valid', (t) => {
+  const f = createSettingsEnv(t, { prefix: 'doflow-review-check-preset-' });
+  const file = writeRecord(f.project, { ...validRecord(), rounds: 1 });
+  const check = () => {
+    const result = invoke({ ...baseOptions(f.project, file, fakeWriter().writer), env: f.env(), json: true });
+    return { exitCode: result.exitCode, body: parseJsonOutput(result.lines) };
+  };
+  const settings = path.join(f.project, '.doflow', 'settings.json');
+  assert.equal(check().exitCode, 0, 'no settings: valid');
+  fs.writeFileSync(settings, '{ "schema": 1, "review.preset": "auto" }');
+  assert.equal(check().exitCode, 0, 'auto: valid');
+  fs.writeFileSync(settings, '{ "schema": 1, "review.preset": "review-deep" }');
+  const { exitCode, body } = check();
+  assert.equal(exitCode, 1);
+  assert.deepEqual(body.errors, ['protocol-missing', 'protocol-rounds']);
+  fs.writeFileSync(settings, '{ "schema": 1, "review.preset": "review-deep", }');
+  assert.deepEqual(check().body.errors, ['review-preset-setting-unread'], 'a malformed settings file fails closed');
 });

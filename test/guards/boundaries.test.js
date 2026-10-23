@@ -63,8 +63,10 @@ test('G-B2: inventory ratchets — registry files and adapters', () => {
   // registry of settings keys. Per-owner declarations in advice.json and storage.json were
   // rejected, so one loader reads and renders every key once.
   // `telemetry.json` (088) is the telemetry contract v1: one registry for every key a telemetry line may carry.
-  assert.equal(registryEntries.length, 17,
-    `core/registry holds ${registryEntries.length} files; expected the ratcheted 17`);
+  // `protocols.json` (119 IC-001) holds review and debate presets, the lens catalogue and the locked invariants;
+  // presets are registry data, not settings objects (119 D2).
+  assert.equal(registryEntries.length, 18,
+    `core/registry holds ${registryEntries.length} files; expected the ratcheted 18`);
 
   // Stage 3 makes adapters thinner but never fewer: one directory per harness, plus the shared
   // copy-tree engine and the contract validator live as siblings.

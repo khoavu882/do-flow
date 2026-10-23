@@ -62,14 +62,16 @@ const { handleRoadmapCommand, resolveMainRoot } = require('../runtime/roadmap/lo
 const { handlePlanCheckCommand } = require('../runtime/plan-check.ts');
 const { handleSlotCommand } = require('../runtime/slot-command.ts');
 const { handleReviewCommand } = require('../runtime/review/command.ts');
+const { handleProtocolCommand } = require('../runtime/review/protocol-command.ts');
 // `plan-check` is read-only (115 IC-001): no upkeep, which would write `.gitignore` and `upkeep-due`.
 // `review` writes only its one telemetry line (095 IC-003).
-const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review']);
+// `protocol` only prints the registry and the resolved protocol (119 IC-004), so it has nothing to keep up.
+const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review', 'protocol']);
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
 // The seed validator loads only for `roadmap seed`, and only this file may require it (G54).
 function handleSeedCommand(options: any): any { return require('../runtime/roadmap/seed.ts').handleSeedCommand(options); }
-// Settings support is needed only when the read-only config verb runs.
+// Settings support is needed only when the config verb runs.
 function handleConfigCommand(options: any): any { return require('../runtime/settings/cli.ts').handleConfigCommand(options); }
 const { handleInventoryCommand } = require('../runtime/inventory/index.ts');
 const { finishRuntime, usageError } = require('../runtime/cli-result.ts');
@@ -345,7 +347,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // the process home directory inside the lifecycle view (design R7) and is not an argument.
     case 'inventory': return handleInventoryCommand({ json: o.json, global: o.global, targets: o.targets, repoRoot: REPO_ROOT, projectRoot: path.resolve(o.positional[0] || '.') });
     case 'storage': return handleStorageCommand({ action: o.actionGiven ? o.action : 'report', json: o.json, global: o.global, projectRoot: evidenceRoot(o) });
-    case 'config': return handleConfigCommand({ json: o.json, global: o.global, showOrigin: o.showOrigin, positional: o.positional, repoRoot: REPO_ROOT });
+    case 'config': return handleConfigCommand({ json: o.json, global: o.global, showOrigin: o.showOrigin, positional: o.positional, layer: o.layer, preparedRun: o.preparedRun, repoRoot: REPO_ROOT });
     // No REPO_ROOT: the scaffold's repo root is the *caller's* repo, reported by the resolver,
     // because the plan's `files:` paths are relative to it. Passing the DoFlow install here
     // would detect the wrong language and mirror the wrong tree.
@@ -398,7 +400,8 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     case 'roadmap': return handleRoadmapVerbCommand(o);
     case 'plan-check': return handlePlanCheckCommand({ positional: o.positional, extraFlags: o.extraFlags, json: o.json, cwd: process.cwd() });
     // One --path only: a second occurrence reaches the handler as a list, which it refuses as usage.
-    case 'review': return handleReviewCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, path: o.paths?.length === 1 ? o.paths[0] : o.paths, base: o.base, json: o.json, cwd: process.cwd(), env: process.env });
+    case 'review': return handleReviewCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, path: o.paths?.length === 1 ? o.paths[0] : o.paths, base: o.base, preset: o.preset, json: o.json, cwd: process.cwd(), env: process.env });
+    case 'protocol': return handleProtocolCommand({ action: o.actionGiven ? o.action : undefined, kind: o.kind, taskClass: o.taskClass, risk: o.risk, preset: o.preset, json: o.json, cwd: process.cwd() });
     case 'slot': return handleSlotCommand({ action: o.actionGiven ? o.action : undefined, name: o.name, label: o.label, timeout: o.timeout, noWait: Boolean(o.noWait), command: o.slotCommand, by: o.by, reason: o.reason, positional: o.positional, extraFlags: o.extraFlags, json: o.json, env: process.env, cwd: process.cwd() });
     default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
   }

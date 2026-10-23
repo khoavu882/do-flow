@@ -7,9 +7,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { randomBytes } = require('node:crypto');
+const { isDeepStrictEqual } = require('node:util');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { loadSettingsRegistry } = require('./registry.ts');
-const { readLayerFile, validateValue } = require('./files.ts');
+const { MAX_BYTES, readLayerFile, validateValue } = require('./files.ts');
 const { clearSettingsCache } = require('./resolve.ts');
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -28,6 +29,31 @@ function scrub(value: any, keys: Set<string>): any {
     if (!keys.has(key)) Object.defineProperty(out, key, { value: scrub(entry, keys), enumerable: true, configurable: true, writable: true });
   }
   return out;
+}
+
+/** A layer document as written: `schema` first, then the owned keys in registry order, then the rest. */
+function layerDocument(registry: any, values: Record<string, unknown>): Record<string, unknown> {
+  const after: Record<string, unknown> = { schema: 1 };
+  for (const key of registry.keys.keys()) {
+    if (Object.hasOwn(values, key)) after[key] = values[key];
+  }
+  for (const [key, value] of Object.entries(values)) {
+    if (key !== 'schema' && !registry.keys.has(key)) {
+      Object.defineProperty(after, key, { value, enumerable: true, configurable: true, writable: true });
+    }
+  }
+  return after;
+}
+
+/** The bytes of a layer file. The one serializer: a check that measures a write measures these. */
+function serializeLayer(document: Record<string, unknown>): Buffer {
+  return Buffer.from(`${JSON.stringify(document, null, 2)}\n`, 'utf8');
+}
+
+/** The refusal for bytes the layer reader (`readLayerFile`, MAX_BYTES) would reject as too-large. */
+function oversize(file: string, bytes: Buffer): any {
+  if (bytes.length <= MAX_BYTES) return null;
+  return invalid(file, `would be ${bytes.length} bytes as written, over the ${MAX_BYTES}-byte limit of a settings file`, 'too-large');
 }
 
 function backupLayerFile(file: string, fsImpl = fs): any {
@@ -52,7 +78,74 @@ function backupLayerFile(file: string, fsImpl = fs): any {
   }
 }
 
-function writeLayer({ file, set = {}, unset = [], scrubKeys = [], force = false, fsImpl = fs }: any = {}): any {
+/**
+ * Keep the bytes a write replaces in `<file>.config.bak`, replaced atomically on every write, so the
+ * backup stays one file however often a layer is written. It is not backupLayerFile's `.bak[.N]`
+ * series, which preserves a malformed file once and must never be overwritten by a later write.
+ */
+function replaceBackup(file: string, fsImpl: any): any {
+  const backup = `${file}.config.bak`;
+  const temporary = path.join(path.dirname(file), `.${path.basename(backup)}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`);
+  try {
+    fsImpl.writeFileSync(temporary, fsImpl.readFileSync(file), { flag: 'wx', mode: 0o600 });
+    fsImpl.chmodSync(temporary, 0o600);
+    fsImpl.renameSync(temporary, backup);
+    return { ok: true, file: backup };
+  } catch (error: any) {
+    try { fsImpl.rmSync(temporary, { force: true }); } catch { /* preserve the primary refusal */ }
+    return invalid(file, `could not be backed up: ${error?.message || 'could not be written'}`);
+  }
+}
+
+/** How long a writer waits for another writer's lock. */
+const LOCK_WAIT_MS = 2000;
+const PAUSE = new Int32Array(new SharedArrayBuffer(4));
+
+/**
+ * Take `<file>.lock` (created exclusively, holding a token) so one read-merge-rename of a layer runs at a
+ * time across processes. A held lock is waited on for LOCK_WAIT_MS, then refused with code `locked`, naming
+ * the lock and its age. A lock is never removed automatically, whatever its age: a writer stalled in its
+ * critical section would otherwise lose its write silently, and a lock left by a crashed writer is one
+ * file the person removes.
+ */
+function acquireLock(file: string, fsImpl: any): any {
+  const lock = `${file}.lock`;
+  const token = `${process.pid} ${randomBytes(8).toString('hex')}\n`;
+  const deadline = Date.now() + LOCK_WAIT_MS;
+  for (;;) {
+    try {
+      fsImpl.writeFileSync(lock, token, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+      return { ok: true, lock, token };
+    } catch (error: any) {
+      if (error?.code !== 'EEXIST') return invalid(file, `could not be locked: ${error?.message || 'lock not created'}`, 'locked');
+    }
+    let age: number;
+    try { age = Math.round((Date.now() - fsImpl.statSync(lock).mtimeMs) / 1000); } catch (error: any) {
+      if (error?.code === 'ENOENT') continue;
+      age = NaN;
+    }
+    if (Date.now() >= deadline) {
+      const aged = Number.isFinite(age) ? `${Math.max(age, 0)} s old` : 'age unknown';
+      return invalid(file, `is held by the lock ${lock} (${aged}); nothing was written; if no writer is running, remove that lock file and run it again`, 'locked');
+    }
+    Atomics.wait(PAUSE, 0, 0, 20);
+  }
+}
+
+function releaseLock({ lock, token }: any, fsImpl: any): void {
+  try {
+    if (fsImpl.readFileSync(lock, 'utf8') === token) fsImpl.rmSync(lock, { force: true });
+  } catch { /* already gone; keep the primary result */ }
+}
+
+/**
+ * Write one layer. The read, merge and rename run under the layer's lock (`acquireLock`), so two
+ * writers of different keys never drop each other's key. `expect` (optional): the document the caller
+ * validated against, or null when it found no file; when the file under the lock differs, nothing is
+ * written and the result has code `changed`, so a caller's verdict always describes what it replaces.
+ * `backup` (optional): before an existing file is replaced, keep its bytes (`replaceBackup`).
+ */
+function writeLayer({ file, set = {}, unset = [], scrubKeys = [], force = false, expect, backup = false, fsImpl = fs }: any = {}): any {
   if (typeof file !== 'string' || file.length === 0) {
     return { ok: false, reason: 'config-invalid', detail: 'file is required' };
   }
@@ -71,7 +164,7 @@ function writeLayer({ file, set = {}, unset = [], scrubKeys = [], force = false,
     const spec = registry.keys.get(key);
     if (!spec) return invalid(file, `unknown owned key '${key}'`);
     if (unsetKeys.has(key)) return invalid(file, `key '${key}' cannot be both set and unset`);
-    const fault = validateValue(spec, value, spec.type === 'enum' ? registry.enumValues(key) : null);
+    const fault = validateValue(spec, value, registry.enumValues(key));
     if (fault) return invalid(file, `'${key}' ${fault.reason}`);
   }
   for (const key of unsetKeys) {
@@ -81,6 +174,24 @@ function writeLayer({ file, set = {}, unset = [], scrubKeys = [], force = false,
     if (!registry.keys.has(key) || !Object.hasOwn(set, key)) return invalid(file, `scrub key '${key}' must be a registered key also present in set`);
   }
 
+  try {
+    fsImpl.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  } catch (error: any) {
+    return invalid(file, error?.message || 'could not be written');
+  }
+  const held = acquireLock(file, fsImpl);
+  if (!held.ok) return held;
+  try {
+    return replaceLayer({ file, registry, set, unsetKeys, scrubKeys, force, expect, backup, fsImpl });
+  } finally {
+    releaseLock(held, fsImpl);
+  }
+}
+
+const INVALID = Symbol('invalid layer');
+
+/** The read, merge and rename of `writeLayer`, run while it holds the layer's lock. */
+function replaceLayer({ file, registry, set, unsetKeys, scrubKeys, force, expect, backup, fsImpl }: any): any {
   let before: Record<string, unknown> | null = null;
   let existing: Record<string, unknown> = {};
   let layer: any;
@@ -102,6 +213,13 @@ function writeLayer({ file, set = {}, unset = [], scrubKeys = [], force = false,
     existing = {};
   }
 
+  if (expect !== undefined) {
+    const current = layer?.status === 'ok' ? layer.document : layer?.status === 'absent' ? null : INVALID;
+    if (!isDeepStrictEqual(current, expect)) {
+      return invalid(file, 'changed while this write was being checked; nothing was written', 'changed');
+    }
+  }
+
   const changed = layer?.status !== 'ok'
     || scrubKeys.length > 0
     || Object.entries(set).some(([key, value]) => !Object.hasOwn(existing, key) || existing[key] !== value)
@@ -112,24 +230,21 @@ function writeLayer({ file, set = {}, unset = [], scrubKeys = [], force = false,
   for (const [key, value] of Object.entries(set)) values[key] = value;
   for (const key of unsetKeys) delete values[key];
 
-  const after: Record<string, unknown> = { schema: 1 };
-  for (const key of registry.keys.keys()) {
-    if (Object.hasOwn(values, key)) after[key] = values[key];
-  }
-  for (const [key, value] of Object.entries(values)) {
-    if (key !== 'schema' && !registry.keys.has(key)) {
-      Object.defineProperty(after, key, { value, enumerable: true, configurable: true, writable: true });
-    }
+  const after = layerDocument(registry, values);
+  const bytes = serializeLayer(after);
+  const tooLarge = oversize(file, bytes);
+  if (tooLarge) return tooLarge;
+
+  if (backup && layer?.status !== 'absent') {
+    const kept = replaceBackup(file, fsImpl);
+    if (!kept.ok) return kept;
   }
 
   const directory = path.dirname(file);
   let temporary: string | null = null;
   try {
-    fsImpl.mkdirSync(directory, { recursive: true, mode: 0o700 });
     temporary = path.join(directory, `.${path.basename(file)}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`);
-    fsImpl.writeFileSync(temporary, `${JSON.stringify(after, null, 2)}\n`, {
-      encoding: 'utf8', flag: 'wx', mode: 0o600,
-    });
+    fsImpl.writeFileSync(temporary, bytes, { flag: 'wx', mode: 0o600 });
     fsImpl.chmodSync(temporary, 0o600);
     fsImpl.renameSync(temporary, file);
     temporary = null;
@@ -144,4 +259,4 @@ function writeLayer({ file, set = {}, unset = [], scrubKeys = [], force = false,
   }
 }
 
-module.exports = { writeLayer, backupLayerFile };
+module.exports = { writeLayer, backupLayerFile, layerDocument, serializeLayer, oversize };

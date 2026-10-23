@@ -23,7 +23,7 @@ function projectLayer(layer: string): boolean {
   return layer === 'project' || layer === 'local';
 }
 
-function errorNote(error: any): string {
+function errorNote(error: any, offBy: string | null = null): string {
   if (error.legacy && error.layer === 'user') {
     if (error.code === 'unreadable' || error.code === 'not-file'
       || (error.code === 'unparseable' && error.reason.startsWith('not valid JSON'))) {
@@ -31,11 +31,14 @@ function errorNote(error: any): string {
     }
     return `${error.reason} (${error.source})`;
   }
-  if (projectLayer(error.layer)) return `project setting at ${error.source} ignored: ${error.reason}`;
+  if (projectLayer(error.layer)) {
+    if (offBy && error.source === offBy) return `project setting at ${error.source} is invalid: ${error.reason}; advice is off`;
+    return `project setting at ${error.source} ignored: ${error.reason}`;
+  }
   return `user setting at ${error.source} is invalid${error.key ? ` for '${error.key}'` : ''}: ${error.reason}`;
 }
 
-function settingNotes(view: any, includeProject: boolean, includeDeprecated = false): string[] {
+function settingNotes(view: any, includeProject: boolean, includeDeprecated = false, offBy: string | null = null): string[] {
   const notes = view.notes
     .filter((note: any) => {
       if (note.code !== 'deprecated' || !includeDeprecated) return note.code !== 'deprecated';
@@ -54,7 +57,7 @@ function settingNotes(view: any, includeProject: boolean, includeDeprecated = fa
       : `${error.layer}\0${error.source}\0${error.key}\0${error.code}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    notes.push(errorNote(error));
+    notes.push(errorNote(error, offBy));
   }
   return notes;
 }
@@ -121,7 +124,8 @@ function resolveSetting({
       else reason = 'user-disabled';
     }
 
-    const notes = settingNotes(view, canReadProject, includeDeprecated);
+    // A project file that turned advice off (fail-safe, reason config-invalid) is not "ignored": say advice is off.
+    const notes = settingNotes(view, canReadProject, includeDeprecated, reason === 'config-invalid' ? decidedBy.project : null);
     if (reason === 'not-configured') return offResult(reason, decidedBy, notes);
     if (reason === 'config-invalid' && (enabledGlobal.state === 'invalid'
       || enabledGlobal.origin.via === 'fail-safe' || enabledGlobal.origin.via === 'cross-key')) {

@@ -17,6 +17,10 @@ const { REF_META, createRefs } = require('../../src/runtime/settings/refs.ts');
 
 const SHIPPED = JSON.parse(fs.readFileSync(path.join(REPO, REGISTRY_FILE), 'utf8'));
 
+// Fields shared by the seven 119 protocol keys.
+const PROTOCOL_COMMON = { securityRelevant: false, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+  consumers: ['src/runtime/review/resolve-protocol.ts'] };
+
 // The seven v1 entries plus 112's project-only guard entry, 089's verify.reuse switch and 106's
 // dispatch.fallback default (the
 // design folder is not in the repo, so the contract is pinned here; a registry edit must change
@@ -42,7 +46,7 @@ const V1 = {
       { layer: 'project', kind: 'decision-model', path: 'decision-model.json', field: 'endpoint' }],
     consumers: ['src/runtime/advice/config.ts'], description: "Decision-model endpoint; default is the provider's defaultEndpoint." },
   'advice.model': { type: 'string', default: null, scope: 'project-overridable', combine: 'override',
-    securityRelevant: false, env: null, flag: null, shellRead: null, needsConfigHome: false,
+    securityRelevant: true, failSafe: { gate: 'advice.enabled' }, env: null, flag: null, shellRead: null, needsConfigHome: false,
     legacy: [{ layer: 'user', kind: 'decision-model', path: 'decision-model.json', field: 'model' },
       { layer: 'project', kind: 'decision-model', path: 'decision-model.json', field: 'model' }],
     consumers: ['src/runtime/advice/config.ts'], description: 'Decision-model name; a project may choose it while advice is on.' },
@@ -71,7 +75,7 @@ const V1 = {
     consumers: ['src/runtime/settings/autopilot.ts'],
     description: 'Roadmap autopilot kill switch, off until the owner turns it on; the env and the autopilot/off sentinel can only turn it off.' },
   'guard.workerDropDatabases': { type: 'string', default: null, scope: 'project-only', combine: 'override',
-    securityRelevant: false, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    securityRelevant: true, failSafe: { state: 'invalid' }, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
     consumers: ['src/runtime/worker/launch.ts'],
     description: 'Space-separated exact database names a worker session may DROP DATABASE; project layer only.' },
   'verify.reuse': { type: 'enum', values: ['off', 'on'], order: ['off', 'on'], default: 'off',
@@ -92,6 +96,28 @@ const V1 = {
     env: null, flag: null, shellRead: null, needsConfigHome: true, legacy: [],
     consumers: ['src/runtime/settings/worker-billing.ts'],
     description: 'Person-written billing record per headless worker id: free or metered, with the date asserted. Lets dispatch --billing-cap free launch a worker the registry lists as unknown; global-only.' },
+  // 119 IC-006: the review and debate protocol keys the resolver reads (src/runtime/review/resolve-protocol.ts).
+  'review.preset': { type: 'enum', valuesRef: 'protocols.reviewPresetIds', orderRef: 'protocols.reviewPresetOrder', default: 'auto',
+    scope: 'narrow-only', combine: 'override', ...PROTOCOL_COMMON,
+    description: 'Review protocol preset for this project: auto follows the risk rule; a project may only pick a stricter preset.' },
+  'review.rounds': { type: 'integer', min: 1, max: 3, order: 'descending', default: null,
+    scope: 'narrow-only', combine: 'override', ...PROTOCOL_COMMON,
+    description: "Review rounds; unset uses the preset's rounds, a project may only choose more rounds than its user layer." },
+  'review.sameFamily': { type: 'enum', values: ['refuse', 'warn'], order: ['refuse', 'warn'], default: 'warn',
+    scope: 'narrow-only', combine: 'override', ...PROTOCOL_COMMON,
+    description: "Whether a reviewer seat from the author's model family is refused or only warned about; a project may only choose refuse." },
+  'review.crossFamilyRereview': { type: 'enum', values: ['on', 'off'], order: ['on', 'off'], default: 'on',
+    scope: 'narrow-only', combine: 'override', ...PROTOCOL_COMMON,
+    description: 'Cross-family re-review of a changed record; a project may only keep it on.' },
+  'review.extraLenses': { type: 'string-list', valuesRef: 'protocols.lensIds', maxItems: 4, maxLength: 40, default: [],
+    scope: 'project-overridable', combine: 'union', ...PROTOCOL_COMMON,
+    description: 'Lens ids added to every review seat; lists from all layers add up and never remove.' },
+  'review.blockerClauses': { type: 'string-list', maxItems: 8, maxLength: 200, default: [],
+    scope: 'project-overridable', combine: 'union', ...PROTOCOL_COMMON,
+    description: 'Extra project rules a reviewer must treat as blockers; lists from all layers add up and never remove.' },
+  'debate.preset': { type: 'enum', valuesRef: 'protocols.debatePresetIds', default: 'debate-2',
+    scope: 'project-overridable', combine: 'override', ...PROTOCOL_COMMON,
+    description: 'Debate protocol preset for this project.' },
 };
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -108,6 +134,24 @@ test('project-only refuses every environment binding, including a narrowing bind
     raw.keys['storage.retentionHours'].env = null;
     assert.equal(validateSettingsRegistry(raw).ok, true, 'the same project-only key with no env binding is valid');
   }
+});
+
+test("N-3: failSafe {state: 'invalid'} cannot be combined with requires or needsConfigHome (they would resolve to the failSafe object as the value)", () => {
+  const guard = 'guard.workerDropDatabases';
+  assert.equal(validateSettingsRegistry(clone(SHIPPED)).ok, true, 'the shipped project-only security key is valid');
+  for (const extra of [
+    { requires: [{ when: 'on', key: 'storage.retentionHours', view: 'project' }] },
+    { needsConfigHome: true },
+  ]) {
+    const raw = clone(SHIPPED);
+    Object.assign(raw.keys[guard], extra);
+    const rejected = validateSettingsRegistry(raw);
+    assert.equal(rejected.ok, false, JSON.stringify(extra));
+    assert.ok(rejected.errors.some((e) => e.includes(guard) && e.includes("failSafe {state: 'invalid'}") && e.includes('requires')), rejected.errors.join('\n'));
+  }
+  const empty = clone(SHIPPED);
+  empty.keys[guard].requires = [];
+  assert.equal(validateSettingsRegistry(empty).ok, true, 'an empty requires list resolves nothing');
 });
 
 test('project-only ignores user/global values and env; project and local files alone decide', (t) => {
@@ -139,11 +183,11 @@ test('project-only ignores user/global values and env; project and local files a
 
 // ── the shipped registry ───────────────────────────────────────────────────────────────────────
 
-test('the shipped registry pins the seven v1 entries plus the 108 autopilot switch, the 112 project-only guard key, the 089 verify.reuse switch, the 106 dispatch.fallback default and the workers.billing record, in display order', () => {
+test('the shipped registry pins the seven v1 entries plus the 108 autopilot switch, the 112 project-only guard key, the 089 verify.reuse switch, the 106 dispatch.fallback default and the workers.billing record and the seven 119 protocol keys, in display order', () => {
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 12);
+  assert.equal(Object.keys(SHIPPED.keys).length, 19);
 });
 
 test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {
@@ -158,6 +202,10 @@ test('the shipped registry loads with refs resolved and every consumer path pres
   assert.deepEqual(loaded.registry.enumValues('advice.provider'), ['ollama']);
   assert.deepEqual(loaded.registry.enumValues('storage.prune'), ['off', 'on']);
   assert.equal(loaded.registry.enumValues('advice.model'), null, 'not an enum');
+  // C-9: review.preset's values and order are derived from protocols.json and equal what was hand-kept before.
+  assert.deepEqual(loaded.registry.enumValues('review.preset'), ['auto', 'review-deep', 'review-single']);
+  assert.deepEqual(loaded.registry.keys.get('review.preset').order, ['review-deep', 'auto', 'review-single']);
+  assert.deepEqual(loadSettingsRegistry().registry.keys.get('review.preset').order, ['review-deep', 'auto', 'review-single'], 'the default load derives it too');
 });
 
 test('the default load (no ref resolution, no consumer check) also accepts the shipped file and is cached per process', () => {
@@ -175,7 +223,7 @@ test('defaultRef values equal advice.json defaultEndpoint and storage.json lifec
   assert.equal(refs.resolve('storage.lifecycleEventsDefaultHours'), storage.stores.find((s) => s.id === 'lifecycle-events').bound.defaultHours);
   assert.equal(refs.resolve('storage.lifecycleEventsDefaultHours'), 4320);
   assert.deepEqual(refs.resolve('advice.providerIds'), advice.providers.map((p) => p.id));
-  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'storage.lifecycleEventsDefaultHours']);
+  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'protocols.debatePresetIds', 'protocols.lensIds', 'protocols.reviewPresetIds', 'protocols.reviewPresetOrder', 'storage.lifecycleEventsDefaultHours']);
 });
 
 test('refs: an unknown name (including an inherited property name) and an unreadable source throw without file text', () => {
@@ -224,6 +272,12 @@ const BAD = [
   ['order that omits a value', keyed({ type: 'boolean', min: undefined, default: false, order: [true] }), 'order must list both false and true', 'storage.planted'],
   ['order that repeats a value', keyed({ order: [1, 1] }), 'distinct values', 'storage.planted'],
   ['ascending order on a boolean', keyed({ type: 'boolean', min: undefined, default: false, order: 'ascending' }), 'only for integer keys', 'storage.planted'],
+  ['orderRef on an integer key', keyed({ orderRef: 'protocols.reviewPresetOrder' }), "'orderRef' is only for enum keys with a 'valuesRef'", 'storage.planted'],
+  ['orderRef on an enum with literal values', keyed({ type: 'enum', min: undefined, default: 'a', values: ['a'], orderRef: 'protocols.reviewPresetOrder' }), "'orderRef' is only for enum keys with a 'valuesRef'", 'storage.planted'],
+  ['both order and orderRef', keyed({ type: 'enum', min: undefined, default: 'auto', valuesRef: 'protocols.reviewPresetIds', order: ['auto'], orderRef: 'protocols.reviewPresetOrder' }), "at most one of 'order' or 'orderRef'", 'storage.planted'],
+  ['unknown orderRef', keyed({ type: 'enum', min: undefined, default: 'auto', valuesRef: 'protocols.reviewPresetIds', orderRef: 'protocols.nowhere' }), "orderRef 'protocols.nowhere' is not a known order ref", 'storage.planted'],
+  ['a values ref used as an orderRef', keyed({ type: 'enum', min: undefined, default: 'auto', valuesRef: 'protocols.reviewPresetIds', orderRef: 'protocols.reviewPresetIds' }), 'is not a known order ref', 'storage.planted'],
+  ['an order ref used as a valuesRef', keyed({ type: 'enum', min: undefined, default: 'auto', valuesRef: 'protocols.reviewPresetOrder' }), 'is not a known values ref', 'storage.planted'],
   ['security key with env direction any', registryOf({ 'advice.planted': { ...clone(GOOD), securityRelevant: true, failSafe: 1, env: { name: 'DOFLOW_ADVICE_PLANTED', parse: 'positive-int', direction: 'any' } } }), "env.direction must be 'narrow'", 'advice.planted'],
   ['global-only key with a widening env', registryOf({ 'storage.planted': { ...clone(GOOD), scope: 'global-only', env: { name: 'DOFLOW_STORAGE_PLANTED', parse: 'positive-int', direction: 'any' } } }), "env.direction must be 'narrow'", 'storage.planted'],
   ['narrow env without an order', keyed({ env: { name: 'DOFLOW_STORAGE_PLANTED', parse: 'positive-int', direction: 'narrow' } }), "needs an 'order'", 'storage.planted'],
@@ -274,6 +328,16 @@ for (const [label, raw, fragment, start] of BAD) {
     assert.ok(hit.startsWith(start), `the error must start with the key it is about (${start}): ${hit}`);
   });
 }
+
+test('C-9: a resolved orderRef must rank every allowed value exactly once, and one that does not resolve is named', () => {
+  const derived = keyed({ type: 'enum', min: undefined, default: 'auto', valuesRef: 'protocols.reviewPresetIds', orderRef: 'protocols.reviewPresetOrder', scope: 'narrow-only' });
+  const refsWith = (order) => ({ meta: REF_META, resolve: (name) => (name === 'protocols.reviewPresetIds' ? ['auto', 'a', 'b'] : order()) });
+  assert.deepEqual(errorsOf(derived, refsWith(() => ['a', 'auto', 'b'])), [], 'control: a permutation of the values');
+  assert.match(errorsOf(derived, refsWith(() => ['a', 'auto'])).join('\n'), /^storage\.planted orderRef 'protocols\.reviewPresetOrder' must resolve to every allowed value exactly once/m);
+  assert.match(errorsOf(derived, refsWith(() => ['a', 'a', 'auto', 'b'])).join('\n'), /must resolve to every allowed value exactly once/);
+  assert.match(errorsOf(derived, refsWith(() => { throw new Error('no deep preset'); })).join('\n'), /orderRef 'protocols\.reviewPresetOrder' does not resolve: no deep preset/);
+  assert.deepEqual(errorsOf(derived), [], 'without ref resolution an orderRef satisfies narrow-only');
+});
 
 test('cross-key checks: a duplicate env name, a gate without a plain failSafe, a gate on itself, an unknown gate or requires key', () => {
   const env = (name) => ({ name, parse: 'positive-int', direction: 'any' });
@@ -383,6 +447,13 @@ test('env names: DOFLOW_<KEY_UPPER_SNAKE> for new bindings, the two existing nam
   assert.ok(errorsOf(widened).some((m) => m.startsWith('failure.capture') && m.includes("env.direction must be 'narrow'")));
 });
 
+test('a project-only security key may carry the {state: invalid} fail-safe; any other scope may not', () => {
+  const projectOnly = keyed({ scope: 'project-only', securityRelevant: true, failSafe: { state: 'invalid' } });
+  assert.deepEqual(errorsOf(projectOnly), []);
+  const widening = keyed({ scope: 'project-overridable', securityRelevant: true, failSafe: { state: 'invalid' } });
+  assert.ok(errorsOf(widening).some((m) => m.startsWith('storage.planted') && m.includes('needs a failSafe value or {gate}')));
+});
+
 test('every failSafe form of the shipped registry validates, and each form is refused when planted wrongly', () => {
   assert.deepEqual(errorsOf(clone(SHIPPED)), []);
   const forms = Object.fromEntries(Object.entries(SHIPPED.keys).filter(([, s]) => 'failSafe' in s).map(([k, s]) => [k, s.failSafe]));
@@ -390,10 +461,12 @@ test('every failSafe form of the shipped registry validates, and each form is re
     'advice.enabled': false,
     'advice.provider': { gate: 'advice.enabled' },
     'advice.endpoint': { gate: 'advice.enabled' },
+    'advice.model': { gate: 'advice.enabled' },
     'storage.prune': 'off',
     'storage.retentionHours': { state: 'invalid' },
     'failure.capture': 'off',
     'autopilot.enabled': 'off',
+    'guard.workerDropDatabases': { state: 'invalid' },
     'verify.reuse': 'off',
     'dispatch.fallback': 'off',
     'workers.billing': { state: 'invalid' },

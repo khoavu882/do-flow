@@ -136,7 +136,7 @@ test('C5 shape: with no user setting, a project cannot enable advice (not-narrow
   assert.deepEqual(w.errors, []);
 });
 
-test('C6: user {enabled:false}: an equal project value is redundant and never takes the origin; an invalid one is skipped', (t) => {
+test('C6: user {enabled:false}: an equal project value is redundant and never takes the origin; an invalid one trips the gate', (t) => {
   const f = fx(t);
   const userFile = f.writeUserDecision(userDecision({ enabled: false }));
   f.writeProjectDecision({ schema: 1, enabled: false });
@@ -144,12 +144,13 @@ test('C6: user {enabled:false}: an equal project value is redundant and never ta
   assert.equal(r.value, false);
   assert.equal(r.origin.source, userFile);
   assert.deepEqual(statuses(r), ['user*:decided', 'project*:redundant']);
-  f.writeProjectDecision('{this is not json');
+  // 119 phase-BC item 6: a malformed project decision-model.json trips advice.model's gate, so advice.enabled
+  // reports the file that forced it off (the value is unchanged, the user's off) and config list exits 1.
+  const projectFile = f.writeProjectDecision('{this is not json');
   r = load(f).get('advice.enabled');
   assert.equal(r.value, false);
-  assert.equal(r.origin.source, userFile);
-  assert.equal(r.origin.via, null);
-  assert.deepEqual(statuses(r), ['user*:decided', 'project*:invalid']);
+  assert.deepEqual(r.origin, origin('project', projectFile, { checkout: 'own', legacy: true, via: 'fail-safe' }));
+  assert.deepEqual(statuses(r), ['user*:overridden', 'project*:invalid']);
 });
 
 const C7_CASES = [
@@ -203,14 +204,15 @@ test('C7 (new file): enabled with no model is cross-key; an invalid endpoint tri
   assert.deepEqual(statuses(v.get('advice.endpoint')), ['user:invalid']);
 });
 
-test('C8: an invalid project decision-model cannot widen advice: skipped, the user values stand', (t) => {
+// 119 phase-BC item 6: advice.model is security-relevant with advice.enabled as its fail-safe gate, so an invalid
+// project decision-model trips the gate: advice.enabled takes its fail-safe (off), the gated keys keep the user values.
+test('C8: an invalid project decision-model trips the advice.enabled gate: advice is off, the user values stand', (t) => {
   const f = fx(t);
-  const userFile = f.writeUserDecision(userDecision());
+  f.writeUserDecision(userDecision());
   const projectFile = f.writeProjectDecision('{not json');
   const v = load(f);
-  assert.equal(v.get('advice.enabled').value, true);
-  assert.equal(v.get('advice.enabled').origin.source, userFile);
-  assert.equal(v.get('advice.enabled').origin.via, null);
+  assert.equal(v.get('advice.enabled').value, false);
+  assert.deepEqual(v.get('advice.enabled').origin, origin('project', projectFile, { checkout: 'own', legacy: true, via: 'fail-safe' }));
   assert.equal(v.get('advice.model').value, 'clef-flash');
   assert.deepEqual(statuses(v.get('advice.model')), ['user*:decided', 'project*:invalid']);
   assert.deepEqual(statuses(v.get('advice.endpoint')), ['user*:decided', 'project*:ignored-scope']);
@@ -566,7 +568,7 @@ test('an unparseable user file marks every key of that layer invalid and affects
   assert.equal(v.get('advice.model').value, 'p', 'the project layer is untouched');
   assert.equal(v.get('failure.capture').value, 'on', 'capture reads the file lexically: no match is no setting');
   const userErrors = v.errors.filter((e) => e.source === file);
-  assert.deepEqual(userErrors.map((e) => e.key).sort(), ['advice.enabled', 'advice.endpoint', 'advice.model', 'advice.provider', 'autopilot.enabled', 'dispatch.fallback', 'storage.prune', 'storage.retentionHours', 'verify.reuse', 'workers.billing']);
+  assert.deepEqual(userErrors.map((e) => e.key).sort(), ['advice.enabled', 'advice.endpoint', 'advice.model', 'advice.provider', 'autopilot.enabled', 'debate.preset', 'dispatch.fallback', 'review.blockerClauses', 'review.crossFamilyRereview', 'review.extraLenses', 'review.preset', 'review.rounds', 'review.sameFamily', 'storage.prune', 'storage.retentionHours', 'verify.reuse', 'workers.billing']);
   // V8 quotes the input in an "Unexpected token" message and gives no position: no offset then
   assert.ok(userErrors.every((e) => e.code === 'unparseable' && e.offset === null && e.reason === 'not valid JSON'));
   assert.ok(!JSON.stringify(report).includes('root:x'), 'no byte of the file in any output');
@@ -577,9 +579,11 @@ test('an unparseable project file: project-overridable keys fail safe in the pro
   f.writeUserSettings({ schema: 1, 'advice.enabled': true, 'advice.model': 'm' });
   const file = f.writeProjectSettings('{nope');
   const v = load(f);
-  assert.equal(v.get('advice.enabled').value, true, 'narrow-only: the project layer cannot widen, fall through');
-  assert.deepEqual(statuses(v.get('advice.enabled')), ['user:decided', 'project:invalid']);
-  assert.equal(v.get('advice.model').value, 'm', 'no fail-safe: fall through');
+  // 119 phase-BC item 6: advice.model gates advice.enabled, so the broken project layer turns advice off
+  assert.equal(v.get('advice.enabled').value, false, 'advice.model is security-relevant: the project layer trips the advice.enabled gate');
+  assert.deepEqual(v.get('advice.enabled').origin, origin('project', file, { checkout: 'own', via: 'fail-safe' }));
+  assert.deepEqual(statuses(v.get('advice.enabled')), ['user:overridden', 'project:invalid']);
+  assert.equal(v.get('advice.model').value, 'm', 'the gated key keeps its lower value');
   assert.deepEqual(v.get('storage.prune').origin, origin('project', file, { checkout: 'own', via: 'fail-safe' }));
   assert.equal(v.get('storage.retentionHours').state, 'invalid');
   assert.equal(v.get('storage.prune', 'global').value, 'on');

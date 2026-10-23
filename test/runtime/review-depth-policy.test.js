@@ -18,9 +18,7 @@ function load(mutate) {
 test('095b IC-003: the shipped reviewDepth block loads and the accessor returns it', () => {
   const registry = loadVerificationRegistry({ repoRoot: REPO });
   const policy = reviewDepthPolicy(registry);
-  assert.deepEqual(Object.keys(policy.depths), ['single', 'deep']);
-  assert.equal(policy.depths.single.seats, 1);
-  assert.equal(policy.depths.deep.seats, 2);
+  assert.deepEqual(Object.keys(policy).sort(), ['description', 'lightPaths', 'singleRisks']);
   assert.deepEqual(policy.singleRisks, ['LOW']);
   assert.deepEqual(policy.lightPaths, ['docs/', 'README.md', 'CHANGELOG.md']);
   assert.ok(policy.singleRisks.every((risk) => Object.hasOwn(registry.riskLevels, risk)));
@@ -34,14 +32,10 @@ test('095b IC-003: the accessor refuses a registry without the block', () => {
 const INVALID = [
   ['block missing', (r) => { delete r.reviewDepth; }, /reviewDepth/],
   ['block not an object', (r) => { r.reviewDepth = []; }, /reviewDepth/],
-  ['deep missing', (r) => { delete r.reviewDepth.depths.deep; }, /reviewDepth\.depths/],
-  ['single missing', (r) => { delete r.reviewDepth.depths.single; }, /reviewDepth\.depths/],
-  ['extra depth key', (r) => { r.reviewDepth.depths.medium = { seats: 3 }; }, /reviewDepth\.depths/],
-  ['single seats equal to deep', (r) => { r.reviewDepth.depths.single.seats = 2; }, /single.*below.*deep/],
-  ['single seats above deep', (r) => { r.reviewDepth.depths.single.seats = 3; }, /single.*below.*deep/],
-  ['seats zero', (r) => { r.reviewDepth.depths.single.seats = 0; }, /seats/],
-  ['seats fractional', (r) => { r.reviewDepth.depths.deep.seats = 2.5; }, /seats/],
-  ['seats a string', (r) => { r.reviewDepth.depths.deep.seats = '2'; }, /seats/],
+  // 119 D-4: the seat counts live in core/registry/protocols.json, so the old map is an unknown key.
+  ['a leftover depths key', (r) => { r.reviewDepth.depths = { single: { seats: 1 }, deep: { seats: 2 } }; }, /reviewDepth has an unknown key 'depths'/],
+  ['an empty depths key', (r) => { r.reviewDepth.depths = {}; }, /unknown key 'depths'/],
+  ['a seats key', (r) => { r.reviewDepth.seats = 2; }, /unknown key 'seats'/],
   ['singleRisks not an array', (r) => { r.reviewDepth.singleRisks = 'LOW'; }, /singleRisks/],
   ['singleRisks holds URGENT', (r) => { r.reviewDepth.singleRisks = ['LOW', 'URGENT']; }, /singleRisks.*URGENT/],
   ['lightPaths empty', (r) => { r.reviewDepth.lightPaths = []; }, /lightPaths/],
@@ -53,7 +47,6 @@ const INVALID = [
   ['lightPaths bare ./ (C-11)', (r) => { r.reviewDepth.lightPaths = ['docs/', './']; }, /lightPaths.*\.\//],
   ['lightPaths with a backslash (C-11)', (r) => { r.reviewDepth.lightPaths = ['docs\\']; }, /lightPaths.*backslash/],
   ['an unknown key in the reviewDepth block (C-11)', (r) => { r.reviewDepth.lightPath = ['docs/']; }, /reviewDepth.*lightPath/],
-  ['an unknown key in a depths entry (C-11)', (r) => { r.reviewDepth.depths.single.weight = 1; }, /reviewDepth\.depths\.single.*weight/],
 ];
 
 for (const [name, mutate, message] of INVALID) {

@@ -20,26 +20,82 @@ const ROUND_CAP = 3;
 // stripped and dash variants unified before a verifier id is compared with a seat id (095 C-7, R-1).
 const IGNORABLE = /[\p{Default_Ignorable_Code_Point}\p{Cf}]/gu;
 const DASH = /\p{Pd}/gu;
+const PROTOCOL_DIGEST = /^[0-9a-f]{64}$/;
 /** The closed top-level key set (IC-001). */
-const RECORD_KEYS = Object.freeze(['schema', 'row', 'slug', 'reviewedHead', 'depth', 'risk', 'rounds', 'seats', 'converged']);
+const RECORD_KEYS = Object.freeze(['schema', 'row', 'slug', 'reviewedHead', 'depth', 'risk', 'protocol', 'rounds', 'author', 'seats', 'converged']);
 /** The optional convergence keys of a converged finding (IC-001); other finding keys stay open. */
 const FINDING_FIELDS = Object.freeze(['origin', 'preExistingAt', 'escapedFrom', 'verification', 'verifiedBy', 'bugClass', 'sweep', 'acceptedAs']);
+/** `family` of an author or a seat: a lower-case family id; `unknown` means not verifiable (119 IC-002). */
+const FAMILY_ID = /^[a-z][a-z0-9-]*$/;
 const object = (x: any): boolean => x !== null && typeof x === 'object' && !Array.isArray(x);
 const nonempty = (x: any): boolean => typeof x === 'string' && x.trim().length > 0;
 const strings = (x: any): boolean => Array.isArray(x) && x.every(nonempty) && new Set(x).size === x.length;
 
-/** The depth and risk vocabularies (095b IC-005), read from the verification registry on first use only,
- * so a record without `depth` or `risk` (and a bench `require` of this file) never loads it. `null` fails closed. */
-let depthVocabulary: { depths: Record<string, { seats: number }>; risks: string[] } | null | undefined;
-function depthPolicy(): { depths: Record<string, { seats: number }>; risks: string[] } | null {
-  if (depthVocabulary === undefined) {
+/** The risk vocabulary (095b IC-005), read from the verification registry on first use only, so a record without
+ * `risk` (and a bench `require` of this file) never loads it. `null` fails closed. */
+let riskVocabulary: string[] | null | undefined;
+function riskLevels(): string[] | null {
+  if (riskVocabulary === undefined) {
     try {
-      const { loadVerificationRegistry, reviewDepthPolicy } = require('../verification/registry.ts');
-      const registry = loadVerificationRegistry();
-      depthVocabulary = { depths: reviewDepthPolicy(registry).depths, risks: Object.keys(registry.riskLevels) };
-    } catch { depthVocabulary = null; }
+      const { loadVerificationRegistry } = require('../verification/registry.ts');
+      riskVocabulary = Object.keys(loadVerificationRegistry().riskLevels);
+    } catch { riskVocabulary = null; }
   }
-  return depthVocabulary;
+  return riskVocabulary;
+}
+
+/** The protocol registry (119 IC-001), read on first use only, so a record with neither `depth` nor `protocol`
+ * never loads it. `null` (a load failure) fails closed. One read serves the preset ids and the depth vocabulary. */
+let protocolRegistry: any | null | undefined;
+function protocols(): any | null {
+  if (protocolRegistry === undefined) {
+    try {
+      const loaded = require('./protocols.ts').loadProtocols();
+      protocolRegistry = loaded.ok ? loaded.registry : null;
+    } catch { protocolRegistry = null; }
+  }
+  return protocolRegistry;
+}
+
+/** The `kind: review` preset ids of the protocol registry (119 IC-002). */
+function reviewPresets(): string[] | null {
+  const registry = protocols();
+  return registry ? require('./protocols.ts').presetIds(registry, 'review') : null;
+}
+
+/** The depth vocabulary (L-1, D-4): each review preset's `depth` label with that preset's seat count. */
+function depthSeats(): Record<string, number> | null {
+  const registry = protocols();
+  if (!registry) return null;
+  return Object.fromEntries(require('./protocols.ts').presetIds(registry, 'review')
+    .map((id: string) => [registry.presets[id].depth, registry.presets[id].seats.length]));
+}
+
+/** `protocol` is exactly `{ id, digest }`: a review preset id of the shipped registry and a sha256 hex digest. */
+function validProtocol(value: any): boolean {
+  if (!object(value)) return false;
+  const keys = Object.keys(value);
+  if (keys.length !== 2 || !keys.includes('id') || !keys.includes('digest')) return false;
+  if (typeof value.digest !== 'string' || !PROTOCOL_DIGEST.test(value.digest)) return false;
+  const ids = reviewPresets();
+  return typeof value.id === 'string' && ids !== null && ids.includes(value.id);
+}
+
+/** C-6: the first project or local candidate of a resolved setting that is `invalid` (a malformed file or a bad value in it).
+ * The resolver then falls back to the key's default without a word, so a `review.*` reader treats it as unreadable. */
+function invalidProjectCandidate(resolution: any): { source: string; reason: string } | undefined {
+  return (resolution?.candidates ?? []).find((c: any) => ['project', 'local'].includes(c.layer) && c.status === 'invalid');
+}
+
+/** True when the record's protocol is looser (later in the registry's strictest-first `order.review`) than `presetId`,
+ * the project's `review.preset`. `auto` needs the diff, which gate-b does not read, so it never compares (C-2). */
+function protocolLooserThanPreset(protocol: any, presetId: any): boolean {
+  if (!object(protocol) || typeof presetId !== 'string' || presetId === 'auto') return false;
+  const order = protocols()?.order?.review;
+  if (!Array.isArray(order)) return false;
+  const have = order.indexOf(protocol.id);
+  const want = order.indexOf(presetId);
+  return have !== -1 && want !== -1 && have > want;
 }
 
 /** Repo-relative literal path; traversal, globs, absolute paths and alternate separators fail closed. */
@@ -60,8 +116,47 @@ function normalizedSeatId(value: string): string {
   return value.normalize('NFKC').replace(IGNORABLE, '').replace(DASH, '-').trim().toUpperCase().toLowerCase();
 }
 
-/** Schema checks only. Git ancestry and register-channel backing are separate facts. */
-function validateFindings(json: any): { ok: boolean; errors: string[] } {
+const identityPart = (key: string, value: any): boolean => key === 'agent' ? nonempty(value)
+  : key === 'session' ? value === null || nonempty(value)
+  : typeof value === 'string' && FAMILY_ID.test(value);
+
+/** `author` is exactly `{ agent, session, family }` (119 IC-002, L-C1). */
+function validAuthor(value: any): boolean {
+  const keys = object(value) ? Object.keys(value) : [];
+  return keys.length === 3 && ['agent', 'session', 'family'].every((key) => keys.includes(key) && identityPart(key, value[key]));
+}
+
+/** A seat's optional `agent`/`session`/`family`: any may be present, each with the author's shape. */
+const validSeatIdentity = (seat: any): boolean =>
+  ['agent', 'session', 'family'].every((key) => !Object.hasOwn(seat, key) || identityPart(key, seat[key]));
+
+type Sameness = 'warn' | 'refuse';
+
+/**
+ * The reviewer-independence facts of a record whose shape is already checked (119 L-C2). Only a record holding
+ * `author` has any: INV-1 `independence:<seat>` always an error (the seat's agent is the author's, or both sessions are non-null and equal: OR, FR-007); `same-family:<seat>` an error under `refuse`,
+ * an advisory under `warn`; `family-unverified:<seat>` an advisory.
+ */
+function identityFacts(data: any, sameFamily: Sameness): { errors: string[]; advisories: string[] } {
+  const facts = { errors: [] as string[], advisories: [] as string[] };
+  if (!Object.hasOwn(data, 'author') || !validAuthor(data.author) || !Array.isArray(data.seats)) return facts;
+  const { author } = data;
+  for (const seat of data.seats) {
+    if (!object(seat) || !nonempty(seat.id) || !validSeatIdentity(seat)) continue;
+    if (seat.agent === author.agent || (seat.session != null && author.session != null && seat.session === author.session)) {
+      facts.errors.push(`independence:${seat.id}`);
+    }
+    if (seat.family === undefined || seat.family === 'unknown' || author.family === 'unknown') facts.advisories.push(`family-unverified:${seat.id}`);
+    else if (seat.family === author.family) (sameFamily === 'refuse' ? facts.errors : facts.advisories).push(`same-family:${seat.id}`);
+  }
+  return facts;
+}
+
+/** Schema checks only. Git ancestry and register-channel backing are separate facts.
+ * `sameFamily` (`warn` by default) is the project's `review.sameFamily`: under `refuse` a same-family seat is an error.
+ * `preset` (`auto` by default) is the effective `review.preset`: when it is not `auto` a record without `protocol`
+ * is an error (`protocol-missing`) and its rounds and seats are held to that preset (C-2 closure). */
+function validateFindings(json: any, { sameFamily = 'warn', preset = 'auto' }: { sameFamily?: Sameness; preset?: string } = {}): { ok: boolean; errors: string[] } {
   const errors: string[] = [];
   let data = json;
   if (typeof json === 'string' || Buffer.isBuffer(json)) {
@@ -73,10 +168,13 @@ function validateFindings(json: any): { ok: boolean; errors: string[] } {
   if (typeof data.row !== 'string' || !ROW_ID.test(data.row)) errors.push('row');
   if (typeof data.slug !== 'string' || !data.slug.startsWith(`${data.row}-`) || !/^[a-zA-Z0-9-]+$/.test(data.slug)) errors.push('slug');
   if (typeof data.reviewedHead !== 'string' || !HEX_HEAD.test(data.reviewedHead)) errors.push('reviewedHead');
-  const policy = Object.hasOwn(data, 'depth') || Object.hasOwn(data, 'risk') ? depthPolicy() : null;
-  if (Object.hasOwn(data, 'depth') && !(typeof data.depth === 'string' && policy && Object.hasOwn(policy.depths, data.depth))) errors.push('depth');
-  if (Object.hasOwn(data, 'risk') && !(typeof data.risk === 'string' && policy && policy.risks.includes(data.risk))) errors.push('risk');
+  const depths = Object.hasOwn(data, 'depth') ? depthSeats() : null;
+  const risks = Object.hasOwn(data, 'risk') ? riskLevels() : null;
+  if (Object.hasOwn(data, 'depth') && !(typeof data.depth === 'string' && depths && Object.hasOwn(depths, data.depth))) errors.push('depth');
+  if (Object.hasOwn(data, 'risk') && !(typeof data.risk === 'string' && risks && risks.includes(data.risk))) errors.push('risk');
+  if (Object.hasOwn(data, 'protocol') && !validProtocol(data.protocol)) errors.push('protocol');
   if (Object.hasOwn(data, 'rounds') && !(Number.isSafeInteger(data.rounds) && data.rounds >= 1)) errors.push('rounds');
+  if (Object.hasOwn(data, 'author') && !validAuthor(data.author)) errors.push('author');
   const seats = Array.isArray(data.seats) ? data.seats : [];
   const converged = Array.isArray(data.converged) ? data.converged : [];
   if (!Array.isArray(data.seats)) errors.push('seats');
@@ -87,6 +185,7 @@ function validateFindings(json: any): { ok: boolean; errors: string[] } {
   for (const seat of seats) {
     if (!object(seat) || !nonempty(seat.id) || seatIds.has(seat.id) || !Array.isArray(seat.findings)) { errors.push('seat'); continue; }
     seatIds.add(seat.id);
+    if (!validSeatIdentity(seat)) errors.push(`seat-identity:${seat.id}`);
     for (const finding of seat.findings) {
       if (!object(finding) || !nonempty(finding.id) || findingIds.has(finding.id) || !SEVERITIES.includes(finding.severity)
         || !nonempty(finding.locator) || !nonempty(finding.summary)) { errors.push('seat-finding'); continue; }
@@ -94,6 +193,17 @@ function validateFindings(json: any): { ok: boolean; errors: string[] } {
       seatOf.set(finding.id, seat.id);
     }
   }
+  // C-2: the record is held to its own preset, not only to its shape; a record that omits `protocol` is held to the
+  // project's non-auto `review.preset` instead (omitting the field must not skip the check).
+  const recorded = Object.hasOwn(data, 'protocol');
+  if (!recorded && preset !== 'auto') errors.push('protocol-missing');
+  const held = recorded ? (validProtocol(data.protocol) ? data.protocol.id : null) : (preset !== 'auto' ? preset : null);
+  if (held && Array.isArray(data.seats) && reviewPresets()?.includes(held)) {
+    const heldPreset = protocols().presets[held];
+    if (Number.isSafeInteger(data.rounds) && data.rounds >= 1 && data.rounds < heldPreset.rounds.min) errors.push('protocol-rounds');
+    if (data.seats.length < heldPreset.seats.length) errors.push('protocol-seats');
+  }
+  for (const error of identityFacts(data, sameFamily === 'refuse' ? 'refuse' : 'warn').errors) errors.push(error);
   const convergedIds = new Set<string>();
   for (const finding of converged) {
     if (!object(finding) || !nonempty(finding.id) || convergedIds.has(finding.id) || !strings(finding.from)
@@ -164,20 +274,21 @@ function countFindings(json: any): Record<string, string | number | null> | null
 }
 
 /** IC-002's advisories of a valid record, sorted; `[]` for an invalid one (its errors say why). */
-function reviewAdvisories(json: any): string[] {
-  if (!validateFindings(json).ok) return [];
+function reviewAdvisories(json: any, { sameFamily = 'warn' }: { sameFamily?: Sameness } = {}): string[] {
+  const option = { sameFamily: sameFamily === 'refuse' ? 'refuse' : 'warn' } as { sameFamily: Sameness };
+  if (!validateFindings(json, option).ok) return [];
   const data = parsed(json);
-  const advisories: string[] = [];
+  const advisories: string[] = identityFacts(data, option.sameFamily).advisories;
   for (const finding of data.converged) {
     if (finding.severity === 'blocker' && finding.verification !== 'confirmed') advisories.push(`unverified-blocker:${finding.id}`);
     if (Object.hasOwn(finding, 'bugClass') && finding.status === 'open') advisories.push(`bug-class-open:${finding.id}`);
   }
   if (Object.hasOwn(data, 'rounds') && data.rounds >= ROUND_CAP) advisories.push(`round-cap:${data.rounds}`);
-  if (Object.hasOwn(data, 'depth') && data.seats.length < (depthPolicy() as any).depths[data.depth].seats) advisories.push(`depth-unmet:${data.depth}`);
+  if (Object.hasOwn(data, 'depth') && data.seats.length < (depthSeats() as Record<string, number>)[data.depth]) advisories.push(`depth-unmet:${data.depth}`);
   return advisories.sort();
 }
 
 module.exports = {
   HEX_HEAD, SEVERITIES, DISPOSITIONS, ORIGINS, VERIFICATIONS, ACCEPTED_AS, ROUND_CAP, RECORD_KEYS, FINDING_FIELDS,
-  object, nonempty, strings, validPath, evidenceLocator, validateFindings, countFindings, reviewAdvisories,
+  object, nonempty, strings, validPath, evidenceLocator, validateFindings, countFindings, reviewAdvisories, protocolLooserThanPreset, invalidProjectCandidate,
 };

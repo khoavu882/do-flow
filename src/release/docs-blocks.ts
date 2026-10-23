@@ -160,6 +160,11 @@ function resolvedDefault(key: string, spec: any, registry: any, resolving: Set<s
   return registry.resolveRef(spec.defaultRef, deps);
 }
 
+/** A list default shown as its JSON text (`[]`), as `String([])` would be empty. */
+function listAsJson(value: unknown): unknown {
+  return Array.isArray(value) ? JSON.stringify(value) : value;
+}
+
 function renderSettingsKeys(root: string): string {
   // Passing the file system bypasses the loader's per-process cache, so a changed registry is read.
   const loaded = loadSettingsRegistry({ repoRoot: root, fsImpl: fs, verifyRefs: true });
@@ -168,7 +173,7 @@ function renderSettingsKeys(root: string): string {
   return table(['Key', 'Type', 'Default', 'Scope', 'Env', 'Legacy file', 'Description'], Object.entries(raw.keys).map(([key, spec]: [string, any]) => [
     code(key),
     text(spec.type),
-    code(resolvedDefault(key, spec, loaded.registry)),
+    code(listAsJson(resolvedDefault(key, spec, loaded.registry))),
     text(spec.scope),
     code(spec.env?.name),
     code([...new Set((spec.legacy || []).map((entry: any) => entry.path).filter(Boolean))].join(', ')),

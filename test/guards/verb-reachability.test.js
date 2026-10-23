@@ -96,6 +96,7 @@ const ALLOWLIST = new Map([
   ],
   ['plan-check', 'called by validate-artifacts.sh, no skill calls it'],
   ['slot', 'orchestrator tool, no skill calls it'],
+  ['protocol', 'read-only protocol printer (119 IC-004) that a person or orchestrator runs, for example to embed a debate protocol in a brief; `review --action start` prints the review protocol itself, so no skill calls it'],
 ]);
 
 /** Parse all shell-backed verbs from shell_helper_for() in doflow-run. `\r?\n` keeps the parser

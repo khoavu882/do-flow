@@ -6,10 +6,13 @@ const PREDICATES = new Set(['markers-zero:requirement', 'markers-zero:design', '
   'protected-paths', 'plan-verification-absent', 'plan-parses', 'needs-merged', 'requires-reachable', 'plan-within-write-set',
   'verify-pass-on-head', 'findings-valid', 'no-dropped-findings', 'dispositions-backed', 'blockers-zero']);
 // The review record's validator and the shape helpers it shares with this file (feature 095, IC-002).
-const { HEX_HEAD, object, nonempty, strings, validPath, evidenceLocator, validateFindings } = require('../review/findings.ts');
+const { HEX_HEAD, object, nonempty, strings, validPath, evidenceLocator, validateFindings, protocolLooserThanPreset } = require('../review/findings.ts');
 const USER_CHANNELS = new Set(['question', 'gate', 'prompt']);
 const positive = (x: any): boolean => Number.isSafeInteger(x) && x > 0;
 const digest = (bytes: string | Buffer): string => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+
+/** The effective `review.preset` of the review-settings fact (`auto` when absent or not a string). */
+const reviewPreset = (fact: any): string => (typeof fact?.preset === 'string' ? fact.preset : 'auto');
 
 function covers(parent: string, child: string): boolean {
   return parent === child || (parent.endsWith('/') && child.startsWith(parent));
@@ -211,9 +214,12 @@ function evaluate(policy: any, cls: string, gateId: string, facts: any[]): any {
     } else if (predicate === 'verify-pass-on-head') {
       if (requireFact('verification', 'verify-missing') && requireFact('heads', 'verify-missing')) reasons.push(...verifyRecordReasons(get('verification'), head, row.slug));
     } else if (predicate === 'findings-valid') {
-      if (requireFact('findings', 'findings-invalid')) {
+      // 119 L-D3b: an absent review-settings fact (gathered before it existed) warns; an unreadable one fails closed.
+      // C-2: a recorded protocol looser than the project's non-auto review.preset is invalid, and so is a record without one.
+      if (requireFact('findings', 'findings-invalid') && (!byName.has('review-settings') || requireFact('review-settings', 'findings-invalid'))) {
         if (findings === null || findings === undefined) reasons.push('findings-missing');
-        else if (!validateFindings(findings).ok || findings.row !== row.id || findings.slug !== row.slug) reasons.push('findings-invalid');
+        else if (!validateFindings(findings, { sameFamily: get('review-settings')?.sameFamily === 'refuse' ? 'refuse' : 'warn', preset: reviewPreset(get('review-settings')) }).ok || findings.row !== row.id || findings.slug !== row.slug
+          || protocolLooserThanPreset(findings.protocol, get('review-settings')?.preset)) reasons.push('findings-invalid');
         else {
           if (unavailable('heads') || !HEX_HEAD.test(head) || findings.reviewedHead !== head) reasons.push('review-stale-head');
           if (seats.length < (gate.minSeats || 0)) reasons.push('seats-too-few');

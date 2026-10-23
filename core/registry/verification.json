@@ -320,15 +320,7 @@
     }
   },
   "reviewDepth": {
-    "description": "Review depth decided at review start by doflow review --action start (feature 095b). Skill text names the verb, never these values.",
-    "depths": {
-      "single": {
-        "seats": 1
-      },
-      "deep": {
-        "seats": 2
-      }
-    },
+    "description": "Review depth rule (single risks and light paths) read by doflow review --action start (feature 095b). The seat counts live in core/registry/protocols.json. Skill text names the verb, never these values.",
     "singleRisks": [
       "LOW"
     ],

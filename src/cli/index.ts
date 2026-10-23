@@ -133,13 +133,13 @@ function parseArgs(argv: string[]): any {
       }
       case '--action': {
         const val = argv[i + 1];
-        // `review` answers a missing value as usage, exit 2 (095 IC-003); other verbs keep exit 1.
-        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'review' ? 2 : 1); }
+        // `review` and `protocol` answer a missing value as usage, exit 2 (095 IC-003, 119 IC-004); other verbs keep exit 1.
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'review' || o.cmd === 'protocol' ? 2 : 1); }
         o.action = val; o.actionGiven = true; i++; break;
       }
       case '--task-class': {
         const val = argv[i + 1];
-        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(1); }
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'protocol' ? 2 : 1); }
         o.taskClass = val; i++; break;
       }
       case '--task-id': {
@@ -356,6 +356,9 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--verification-phase', 'verificationPhase'], // verify: postimplementation (IC-022)
   ['--baseline-ref', 'baselineRef'],             // verify: explicit ancestor commit or ref to measure change against (IC-022)
   ['--base', 'base'],                  // review --action start: the commit or ref the changed paths are measured from (095b IC-001)
+  ['--preset', 'preset'],              // review --action start: a review preset id to run with, never looser than the decided one (119 IC-005)
+  ['--layer', 'layer'],                // config validate|set|unset: user | project | local, checked in handleConfigCommand (119 IC-008)
+  ['--prepared-run', 'preparedRun'],   // config validate: a prepared-run file to check, writes nothing (119 IC-010)
   ['--error', 'errorMessage'],         // recover: the failure text to classify
   ['--agent', 'agent'],                // recover: which agent produced the failure
   ['--task', 'task'],                  // task-attempt: the plan task id, e.g. A.1
@@ -530,7 +533,13 @@ Commands:
   discover             Missed capability opportunities in recorded runs
   inventory            Shadowed copies, drift and unmanaged files across both install scopes
   storage              Report stored data and retention bounds (--action report|prune|upkeep)
-  config               Show each setting's effective value and where it came from (list [--show-origin] [--json])
+  config               Show each setting's effective value and where it came from, print the settings schema, or validate, set or unset one (exit 0 ok, 1 refused, 2 usage):
+                       config [list] [--show-origin] [--json] [-g] [<project path>]   read-only
+                       config schema [--json]   every key with its type, values, default, scope and whether config set may write it, the locked invariants and the presets
+                       config validate <key> <json-value> [--layer user|project|local] [--json]   check a value, writes nothing
+                       config validate --prepared-run <file> [--json]   check a prepared-run file (task class, settings, presets), one entry per fault, writes nothing
+                       config set <key> <json-value> --layer user|project|local [--json]   validate, then write that layer's file; refuses security-relevant and invariant.* keys
+                       config unset <key> --layer user|project|local [--json]   remove the key from that layer's file
   scaffold             Emit the reviewable code scaffold the active feature's artifacts imply
   decision             Register, list or compact the active feature's decisions (--action init|add|list|compact)
   followup             Record, list, take, settle, promote or report what a feature left unfinished (--action add|list|take|settle|promote|report)
@@ -543,7 +552,10 @@ Commands:
   plan-check           Check a plan's task lines the way the task-attempt ledger reads them: plan-check <plan path> [--json]
   review               Validate a feature's review/findings.json; print errors, advisories and counts (exit 0 valid, 1 invalid, 2 usage):
                        review --action check [--slug <name> | --path <findings.json>] [--json]
-                       review --action start [--slug <name>] [--base <ref>] [--json]   verify precondition and review depth; --base must be the review's base (exit 0 ok or not applicable, 1 refused, 2 usage)
+                       review --action start [--slug <name>] [--base <ref>] [--json] [--preset <id>]   verify precondition and review protocol; --base must be the review's base (exit 0 ok or not applicable, 1 refused, 2 usage)
+  protocol             Print the review and debate protocol presets, or the one a run would use (read-only, writes nothing):
+                       protocol --action list [--kind review|debate] [--json]
+                       protocol --action resolve --kind review|debate [--task-class <id>] [--risk <level>] [--preset <id>] [--json]   (exit 0 resolved, 1 refused, 2 usage)
   slot                 Named machine-wide queue, one holder at a time (--action run|list|release);
                        slot --action run --name <name> [--label <text>] [--timeout <s>] [--no-wait] -- <command> [args...]
                        slot --action release --name <name> --by <who> --reason <text>
@@ -582,7 +594,7 @@ Options:
       --slug <name>    Scaffold this feature instead of the branch-resolved active one
 
 Runtime verb arguments (accept --flag value or --flag=value):
-      --task-class     classify, workflow, readiness, context-pack, outcome --action record
+      --task-class     classify, workflow, readiness, context-pack, outcome --action record, protocol --action resolve
       --task-id        readiness, evidence, claim, context-pack, retrieval-plan, outcome, verify, advise, retrieve,
                        trace analyze --emit followups (the ledger read for evidence ids)
       --action         claim: list|add|link|retract|supersede · evidence: list|add|supersede
@@ -598,6 +610,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        roadmap: render|status|next|audit (seed: check|apply|amend)
                        slot: run|list|release
                        review: check|start
+                       protocol: list|resolve
       --task, --token, --owner, --mode,
       --result, --evidence-id, --reason     task-attempt (claim: --task --owner --mode manual|sequential|subagent
                                             [--owner-override <reason>] [--epoch <n>=1+] [--reserve-tokens <n>]
@@ -664,6 +677,10 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --path, --exclude (repeatable)        leak-scan
       --slug | --path                       review --action check (at most one; with neither, the active feature)
       --base <ref>                          review --action start (measure the changed paths from this commit, which must be the review's base; --path is refused)
+      --preset <id>                         review --action start, protocol --action resolve (run this preset; refused when looser than the decided protocol)
+      --prepared-run <file>                 config validate (check a prepared-run file instead of one key; exit 2 with a key, value or --layer)
+      --layer user|project|local            config validate, set, unset (which settings file; project and local are the current project's .doflow/settings.json and settings.local.json)
+      --kind review|debate, --risk <level>  protocol (--kind filters list and selects what resolve decides; --risk is the change's risk level)
       --ids, --as, --evidence, --title,
       --release, --source, --channel        followup (add, list, take, settle, promote)
       --file <path|->, --stdin, --text,

@@ -139,6 +139,31 @@ Use diagnosis to establish the root cause or audit scope, then improve only the 
 
 For parallel task orchestration, `do-execute-plan` automatically isolates write-sets across specialist subagents.
 
+### Change a setting from the command line
+
+`doflow config schema` lists every setting with its type, allowed values, default and scope, and says which ones `config set` may write; the locked review invariants appear in the same list as read-only entries. `doflow config set` validates a JSON value and writes it into one settings file, for example:
+
+```bash
+doflow config set review.rounds 3 --layer project
+doflow config validate review.preset '"review-deep"' --layer project
+doflow config unset review.rounds --layer project
+doflow config validate --prepared-run prepared.json   # check a prepared-run file; writes nothing
+```
+
+Quote a string value so the shell passes it as JSON. A security-relevant setting (`autopilot.enabled`, `verify.reuse`, `workers.billing`, `guard.workerDropDatabases`, every `advice.*`) is refused: you write those in the settings file yourself. A value a layer may not set, a wider value than the layers below for a narrow-only setting, or a `review.rounds` below the project preset's minimum rounds, is refused with exit 1 and nothing is written; a usage mistake exits 2. Two `config set` calls at the same time both land, and each write keeps the file it replaced as `<file>.config.bak`; a file another writer holds for more than 2 s is refused as `locked`, and one that would grow past 64 KiB as `too-large`.
+
+### See the review or debate protocol
+
+`doflow protocol` prints how a review or a debate will run, so a brief can embed it as printed. It is read-only: it writes no file and no telemetry.
+
+```bash
+doflow protocol --action list [--kind review|debate]
+doflow protocol --action resolve --kind debate [--preset debate-3]
+doflow protocol --action resolve --kind review --task-class feature [--risk HIGH] [--preset review-deep]
+```
+
+`list` shows each preset with its seats, rounds, synthesizer and decider, then the invariants no setting can change. `resolve` shows the protocol one run would use and where each value came from. It has no diff to read, so a review always resolves to at least the deep preset; a `--preset` can only raise it. A preset looser than that is refused with exit 1, and a bad flag value is a usage error with exit 2. Add `--json` for the same data as one object.
+
 ## Retrieve code from the project
 
 `doflow retrieve` keeps its existing guidance search when you pass only `--query`. Use

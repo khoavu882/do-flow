@@ -183,22 +183,6 @@ function loadVerificationRegistry(options: any = {}): any {
   for (const key of Object.keys(depthPolicy)) {
     assert(REVIEW_DEPTH_KEYS.includes(key), `reviewDepth has an unknown key '${key}' (allowed: ${REVIEW_DEPTH_KEYS.join(', ')})`);
   }
-  const depthKeys = isPlainObject(depthPolicy.depths) ? Object.keys(depthPolicy.depths) : [];
-  assert(
-    depthKeys.length === 2 && depthKeys.includes('single') && depthKeys.includes('deep'),
-    "reviewDepth.depths must have exactly the keys 'single' and 'deep'",
-  );
-  for (const key of depthKeys) {
-    for (const field of Object.keys(depthPolicy.depths[key] ?? {})) {
-      assert(field === 'seats', `reviewDepth.depths.${key} has an unknown key '${field}' (allowed: seats)`);
-    }
-    const seats = depthPolicy.depths[key]?.seats;
-    assert(Number.isInteger(seats) && seats > 0, `reviewDepth.depths.${key}.seats must be a positive integer`);
-  }
-  assert(
-    depthPolicy.depths.single.seats < depthPolicy.depths.deep.seats,
-    "reviewDepth.depths 'single' seats must be below 'deep' seats",
-  );
   assert(Array.isArray(depthPolicy.singleRisks), 'reviewDepth.singleRisks must be an array');
   for (const risk of depthPolicy.singleRisks) {
     assert(
@@ -222,15 +206,16 @@ function loadVerificationRegistry(options: any = {}): any {
   return data;
 }
 
-/** The keys a `reviewDepth` block may carry (095b IC-003); anything else can never take effect. */
-const REVIEW_DEPTH_KEYS = ['description', 'depths', 'singleRisks', 'lightPaths'];
+/** The keys a `reviewDepth` block may carry (095b IC-003); anything else can never take effect. The seat counts
+ * live in core/registry/protocols.json (119 D-4), so a `depths` key is refused here as unknown. */
+const REVIEW_DEPTH_KEYS = ['description', 'singleRisks', 'lightPaths'];
 
 function isPlainObject(value: any): boolean {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 }
 
 /**
- * The validated review depth policy (095b IC-003): `{ description, depths: { single, deep }, singleRisks, lightPaths }`.
+ * The validated review depth policy (095b IC-003): `{ description, singleRisks, lightPaths }`.
  * Throws when the registry carries no such block; `loadVerificationRegistry` already guarantees it for a loaded registry.
  */
 function reviewDepthPolicy(registry: any): any {

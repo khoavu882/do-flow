@@ -19,7 +19,7 @@ const nodeFs = require('node:fs');
 const MAX_BYTES = 65536;
 const BOM = '\uFEFF';
 
-interface ValueFault { code: 'type' | 'enum' | 'range' | 'url'; reason: string }
+interface ValueFault { code: 'type' | 'enum' | 'range' | 'url' | 'items' | 'length'; reason: string }
 interface Entry { raw: unknown; value: unknown | null; error: ValueFault | null }
 interface Note { code: 'unknown-key' | 'nested' | 'schema-missing'; key: string | null; source: string; text: string }
 type LayerCode = 'unparseable' | 'schema' | 'too-large' | 'not-file' | 'unreadable';
@@ -104,7 +104,7 @@ function validateWorkerBilling(value: unknown): ValueFault | null {
 
 /**
  * Whether a JSON value is acceptable for a key (data-model §2 encodings). The reason never echoes the
- * value. `enumValues` is the allowed list for an enum key.
+ * value. `enumValues` is the allowed list for an enum key, or for a string-list key with a `valuesRef`.
  */
 function validateValue(spec: any, value: unknown, enumValues: readonly string[] | null = null): ValueFault | null {
   switch (spec.type) {
@@ -116,7 +116,17 @@ function validateValue(spec: any, value: unknown, enumValues: readonly string[] 
       return enumValues.includes(value) ? null : { code: 'enum', reason: `must be one of: ${enumValues.join(', ')}` };
     case 'integer':
       if (typeof value !== 'number' || !Number.isSafeInteger(value)) return { code: 'type', reason: 'must be a whole number' };
-      return value >= (spec.min ?? Number.MIN_SAFE_INTEGER) ? null : { code: 'range', reason: `must be at least ${spec.min}` };
+      if (value < (spec.min ?? Number.MIN_SAFE_INTEGER)) return { code: 'range', reason: `must be at least ${spec.min}` };
+      return value > (spec.max ?? Number.MAX_SAFE_INTEGER) ? { code: 'range', reason: `must be at most ${spec.max}` } : null;
+    case 'string-list': {
+      if (!Array.isArray(value) || value.some((item) => typeof item !== 'string' || !item.trim())) return { code: 'type', reason: 'must be a list of non-empty strings' };
+      if (value.length > spec.maxItems) return { code: 'items', reason: `must hold at most ${spec.maxItems} items` };
+      if (new Set(value).size !== value.length) return { code: 'items', reason: 'must not repeat an item' };
+      if (value.some((item) => item.length > spec.maxLength)) return { code: 'length', reason: `each item must be at most ${spec.maxLength} characters` };
+      if (!spec.valuesRef || value.length === 0) return null;
+      if (!enumValues) return { code: 'enum', reason: 'has no allowed values available' };
+      return value.every((item) => enumValues.includes(item)) ? null : { code: 'enum', reason: `each item must be one of: ${enumValues.join(', ')}` };
+    }
     case 'string':
       return typeof value === 'string' && value.trim() ? null : { code: 'type', reason: 'must be a non-empty string' };
     case 'url':
@@ -186,7 +196,7 @@ function readLayerFile(file: string, { registry, fsImpl = nodeFs, includeDocumen
       }
       continue;
     }
-    const error = validateValue(spec, raw, spec.type === 'enum' ? registry.enumValues(key) : null);
+    const error = validateValue(spec, raw, registry.enumValues(key));
     values.set(key, { raw, value: error ? null : raw, error });
   }
   return { status: 'ok', code: null, offset: null, reason: null, values, notes,

@@ -319,11 +319,10 @@ vocabulary. A dispatched review that reports differently from an in-session one 
 variant.
 
 Review read-only at `frontier`, with an agent and model different from the author; pass `model:`
-where supported. Re-review only an open blocker tests cannot settle, after asking: read only
-`reviewedHead`..new head
+where supported. Follow the protocol `review --action start` prints; each `protocol.blocker` is a blocker rule.
+Re-review only fixes automatically: read only `reviewedHead`..new head
 (`"$DOFLOW" review-package --task=<task id> --base=<reviewedHead> --head=HEAD`), raise `rounds` by
-one, and at round 3 ask the author to reconsider the approach instead of reviewing again. See
-`references/MODEL_SELECTION.md`.
+one, and at round 3 ask the author to reconsider the approach. See `references/MODEL_SELECTION.md`.
 
 This is not the multi-task orchestration the boundary above rules out: one review, one subagent, one
 report back.

@@ -144,16 +144,15 @@ test('IC-001 lists unknown user keys and ignores project enable, endpoint and pr
   }
 });
 
-test('IC-001 ignores an invalid project file with a note and keeps the user setting on', (t) => {
+test('IC-001 an invalid project file turns advice off (fail-closed, config-invalid) and keeps the note', (t) => {
   const paths = fixture(t);
   writeJson(paths.userFile, userSetting());
   fs.mkdirSync(path.dirname(paths.projectFile), { recursive: true });
   fs.writeFileSync(paths.projectFile, '{broken');
   const result = resolve(paths);
-  assert.equal(result.state, 'on');
-  assert.equal(result.model, 'clef-flash');
-  assert.equal(result.modelFrom, 'user');
-  assert.equal(result.decidedBy.project, null);
+  assert.equal(result.state, 'off');
+  assert.equal(result.reason, 'config-invalid');
+  assert.equal(result.decidedBy.project, paths.projectFile, 'the invalid project file is what turned advice off');
   assert.ok(result.notes.some((note) => note.includes(paths.projectFile)));
 });
 
@@ -183,8 +182,10 @@ test('C4: decision-model JSON failures report offsets without file contents', (t
   fs.mkdirSync(path.dirname(paths.projectFile), { recursive: true });
   fs.writeFileSync(paths.projectFile, projectSecret);
   result = resolve(paths);
-  assert.equal(result.state, 'on');
-  assert.match(result.notes[0], /ignored: not valid JSON(?: at offset \d+)?/);
+  assert.equal(result.state, 'off');
+  assert.equal(result.reason, 'config-invalid');
+  assert.match(result.notes[0], new RegExp(`^project setting at .+ is invalid: not valid JSON(?: at offset \\d+)?; advice is off$`));
+  assert.doesNotMatch(result.notes.join('\n'), /ignored:/, 'a project file that turned advice off is not "ignored"');
   assert.doesNotMatch(result.notes.join('\n'), new RegExp(projectSecret));
 });
 

@@ -144,6 +144,55 @@ test('gate-b reads head-bound verification and disposition ancestry and register
   assert.ok(evaluate(env.options.policy, 'feature', 'gate-b', stale).reasons.includes('review-stale-head'));
 });
 
+test('D.3: gate-b gathers the project review.sameFamily as a review-settings fact; the dispositions schemaValid follows it', (t) => {
+  const env = setup(t);
+  const sandbox = { ...process.env, HOME: path.join(env.root, 'home'), XDG_CONFIG_HOME: path.join(env.root, 'xdg') };
+  const settingsFact = (gathered) => gathered.find((f) => f.name === 'review-settings');
+  const withFamilies = { ...review, author: { agent: 'core-implementer', session: 's1', family: 'claude' },
+    seats: [{ id: 'one', findings: [], agent: 'reviewer', session: 's2', family: 'claude' }, { id: 'two', findings: [] }],
+    converged: [{ id: 'C1', from: [], severity: 'blocker', locator: 'src/x.ts:1', status: 'fixed', fixedIn: PARENT }] };
+  env.write(`agent-docs/doflow/${row.slug}/review/findings.json`, JSON.stringify(withFamilies));
+  const absent = env.gather('gate-b', { env: sandbox });
+  assert.deepEqual(settingsFact(absent).value, { sameFamily: 'warn', preset: 'auto' });
+  assert.equal(settingsFact(absent).unreadable, undefined);
+  assert.equal(absent.find((f) => f.name === 'dispositions').value.schemaValid, true);
+  env.write('.doflow/settings.json', JSON.stringify({ schema: 1, 'review.sameFamily': 'refuse' }));
+  const refuse = env.gather('gate-b', { env: sandbox });
+  assert.deepEqual(settingsFact(refuse).value, { sameFamily: 'refuse', preset: 'auto' });
+  assert.equal(refuse.find((f) => f.name === 'dispositions').value.schemaValid, false);
+  assert.ok(evaluate(env.options.policy, 'feature', 'gate-b', refuse).reasons.includes('findings-invalid'));
+  assert.equal(env.gather('gate-0', { env: sandbox }).some((f) => f.name === 'review-settings'), false, 'read only when a findings predicate is in use');
+});
+
+test('C-2: the review-settings fact also carries the project review.preset, which gate-b reads as a floor for the recorded protocol', (t) => {
+  const env = setup(t);
+  const sandbox = { ...process.env, HOME: path.join(env.root, 'home'), XDG_CONFIG_HOME: path.join(env.root, 'xdg') };
+  const record = { ...review, protocol: { id: 'review-single', digest: 'f'.repeat(64) }, rounds: 1 };
+  env.write(`agent-docs/doflow/${row.slug}/review/findings.json`, JSON.stringify(record));
+  env.write('.doflow/settings.json', JSON.stringify({ schema: 1, 'review.preset': 'review-deep' }));
+  const gathered = env.gather('gate-b', { env: sandbox });
+  assert.deepEqual(gathered.find((f) => f.name === 'review-settings').value, { sameFamily: 'warn', preset: 'review-deep' });
+  assert.ok(evaluate(env.options.policy, 'feature', 'gate-b', gathered).reasons.includes('findings-invalid'));
+  // A project may only narrow review.preset (it cannot loosen toward review-single), so a deep record meets the deep floor.
+  env.write(`agent-docs/doflow/${row.slug}/review/findings.json`, JSON.stringify({ ...record, protocol: { id: 'review-deep', digest: 'f'.repeat(64) }, rounds: 2 }));
+  assert.equal(evaluate(env.options.policy, 'feature', 'gate-b', env.gather('gate-b', { env: sandbox })).reasons.includes('findings-invalid'), false);
+});
+
+test('C-6: an invalid project review.* value or a malformed project settings file makes the review-settings fact unreadable (gate-b denies)', (t) => {
+  const env = setup(t);
+  const sandbox = { ...process.env, HOME: path.join(env.root, 'home'), XDG_CONFIG_HOME: path.join(env.root, 'xdg') };
+  for (const text of ['{ "schema": 1, "review.sameFamily": "refuse", }', '{ "schema": 1, "review.preset": "bogus" }']) {
+    const file = env.write('.doflow/settings.json', text);
+    const gathered = env.gather('gate-b', { env: sandbox });
+    const fact = gathered.find((f) => f.name === 'review-settings');
+    assert.equal(fact.unreadable, 'settings-unavailable', text);
+    assert.equal(fact.locator, file);
+    assert.ok(evaluate(env.options.policy, 'feature', 'gate-b', gathered).reasons.some((r) => r.startsWith('findings-invalid:')), text);
+  }
+  env.write('.doflow/settings.json', JSON.stringify({ schema: 1, 'review.preset': 'review-deep' }));
+  assert.equal(env.gather('gate-b', { env: sandbox }).find((f) => f.name === 'review-settings').unreadable, undefined);
+});
+
 test('a register that does not exist yet is an empty decision list; a malformed one stays unreadable', (t) => {
   const env = setup(t);
   env.write(`agent-docs/doflow/${row.slug}/review/findings.json`, JSON.stringify({ ...review, converged: [

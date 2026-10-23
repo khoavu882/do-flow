@@ -11,8 +11,10 @@
  *
  * The checks that need no I/O live in `validateSettingsRegistry` (pure, takes the registry text
  * already parsed). `loadSettingsRegistry` adds the file read and, on request, the checks that reach
- * other files: `verifyRefs` resolves every `valuesRef`/`defaultRef` against advice.json and
- * storage.json, `checkConsumers` confirms each `consumers` path exists. Both default to off so the
+ * other files: `verifyRefs` resolves every `valuesRef`/`orderRef`/`defaultRef` against the registry
+ * that owns it (refs.ts), `checkConsumers` confirms each `consumers` path exists. A key with an
+ * `orderRef` carries its `order` on the loaded spec, resolved on first read (null when its source
+ * cannot be read, as `enumValues` is), so consumers read `spec.order` whichever way it was declared. Both default to off so the
  * hot path pays for one small file read; the registry test and the settings guard turn them on.
  */
 
@@ -25,9 +27,9 @@ const { jsonFailure, validateValue } = require('./files.ts');
 const REGISTRY_FILE = 'core/registry/settings.json';
 
 const KEY_RE = /^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
-const TYPES = ['boolean', 'enum', 'integer', 'string', 'url', 'worker-billing'];
+const TYPES = ['boolean', 'enum', 'integer', 'string', 'string-list', 'url', 'worker-billing'];
 const SCOPES = ['global-only', 'project-only', 'narrow-only', 'project-overridable'];
-const COMBINES = ['override', 'narrowest'];
+const COMBINES = ['override', 'narrowest', 'union'];
 const PARSES = ['positive-int', 'off-words'];
 const DIRECTIONS = ['any', 'narrow'];
 const LEGACY_LAYERS = ['user', 'project'];
@@ -36,7 +38,7 @@ const VIEWS = ['project', 'global'];
 const SHELL_READS = [null, 'lexical-v1'];
 const TOP_FIELDS = ['version', 'description', 'keys'];
 const SPEC_FIELDS = [
-  'type', 'values', 'valuesRef', 'min', 'order', 'default', 'defaultRef', 'scope', 'combine', 'views',
+  'type', 'values', 'valuesRef', 'min', 'max', 'maxItems', 'maxLength', 'order', 'orderRef', 'default', 'defaultRef', 'scope', 'combine', 'views',
   'securityRelevant', 'failSafe', 'requires', 'env', 'flag', 'shellRead', 'needsConfigHome', 'legacy',
   'consumers', 'description',
 ];
@@ -105,9 +107,9 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
   const enumLists = new Map<string, string[] | null>();
   for (const name of names) {
     const spec = specs[name];
-    if (!isObject(spec) || spec.type !== 'enum') continue;
+    if (!isObject(spec) || (spec.type !== 'enum' && spec.type !== 'string-list')) continue;
     let list: string[] | null = null;
-    if (Array.isArray(spec.values) && spec.values.every((v: unknown) => typeof v === 'string')) list = spec.values;
+    if (spec.type === 'enum' && Array.isArray(spec.values) && spec.values.every((v: unknown) => typeof v === 'string')) list = spec.values;
     else if (typeof spec.valuesRef === 'string' && refs.resolve && refMeta(spec.valuesRef)?.kind === 'values') {
       try {
         const resolved = refs.resolve(spec.valuesRef);
@@ -134,9 +136,10 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
 
     const type: string = spec.type;
     const list = enumLists.get(name) ?? null;
-    /** A fault text for a value of this key, or null. An enum whose list is unresolved accepts any string. */
+    /** A fault text for a value of this key, or null. A list-bound key whose list is unresolved checks only the rest. */
     const faultOf = (value: unknown): string | null => {
       if (type === 'enum' && list === null) return typeof value === 'string' ? null : 'must be a string';
+      if (type === 'string-list' && list === null) return validateValue({ ...spec, valuesRef: undefined }, value)?.reason ?? null;
       return validateValue(spec, value, list)?.reason ?? null;
     };
 
@@ -150,13 +153,25 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
         err("values must be a non-empty list of distinct non-empty strings");
       }
       if (hasRef && refMeta(spec.valuesRef)?.kind !== 'values') err(`valuesRef '${String(spec.valuesRef)}' is not a known values ref`);
+    } else if (type === 'string-list') {
+      if (has(spec, 'values')) err("'values' is not allowed for a string-list key (use 'valuesRef')");
+      if (has(spec, 'valuesRef') && refMeta(spec.valuesRef)?.kind !== 'values') err(`valuesRef '${String(spec.valuesRef)}' is not a known values ref`);
     } else {
       if (has(spec, 'values')) err("'values' is only for enum keys");
-      if (has(spec, 'valuesRef')) err("'valuesRef' is only for enum keys");
+      if (has(spec, 'valuesRef')) err("'valuesRef' is only for enum and string-list keys");
     }
     if (has(spec, 'min')) {
       if (type !== 'integer') err("'min' is only for integer keys");
       else if (!Number.isSafeInteger(spec.min)) err('min must be an integer');
+    }
+    if (has(spec, 'max')) {
+      if (type !== 'integer') err("'max' is only for integer keys");
+      else if (!Number.isSafeInteger(spec.max)) err('max must be an integer');
+      else if (Number.isSafeInteger(spec.min) && spec.max < spec.min) err('max must not be below min');
+    }
+    for (const bound of ['maxItems', 'maxLength']) {
+      if (type !== 'string-list') { if (has(spec, bound)) err(`'${bound}' is only for string-list keys`); }
+      else if (!has(spec, bound) || !Number.isSafeInteger(spec[bound]) || spec[bound] < 1) err(`${bound} must be a positive integer`);
     }
 
     // scope / combine / order
@@ -165,12 +180,30 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     const free = type === 'string' || type === 'url';
     // worker-billing is a structured record: no order ranks two records, only an override is defined.
     const record = type === 'worker-billing';
-    if (spec.scope === 'narrow-only' && (free || record)) err(`a ${type} key cannot be narrow-only: no order says which value is narrower`);
+    // string-list is a set of items: no order ranks two lists, only a union is defined.
+    const multi = type === 'string-list';
+    if (spec.scope === 'narrow-only' && (free || record || multi)) err(`a ${type} key cannot be narrow-only: no order says which value is narrower`);
     if (record && spec.combine !== 'override') err("a worker-billing key must combine by 'override'");
+    if (multi !== (spec.combine === 'union')) err(multi ? "a string-list key must combine by 'union'" : "combine 'union' is only for string-list keys");
     const needsOrder = spec.scope === 'narrow-only' || spec.combine === 'narrowest';
-    if (has(spec, 'order')) {
+    const ordered = has(spec, 'order') || has(spec, 'orderRef');
+    if (has(spec, 'orderRef')) {
+      if (has(spec, 'order')) err("needs at most one of 'order' or 'orderRef'");
+      if (type !== 'enum' || !has(spec, 'valuesRef')) err("'orderRef' is only for enum keys with a 'valuesRef'");
+      else if (refMeta(spec.orderRef)?.kind !== 'order') err(`orderRef '${String(spec.orderRef)}' is not a known order ref`);
+      else if (refs.resolve) {
+        try {
+          const order = refs.resolve(spec.orderRef);
+          if (!Array.isArray(order) || new Set(order).size !== order.length || (list && !sameList(order, list))) {
+            err(`orderRef '${spec.orderRef}' must resolve to every allowed value exactly once`);
+          }
+        } catch (error: any) {
+          err(`orderRef '${spec.orderRef}' does not resolve: ${error.message}`);
+        }
+      }
+    } else if (has(spec, 'order')) {
       const order = spec.order;
-      if (free || record) err(`order is refused for a ${type} key`);
+      if (free || record || multi) err(`order is refused for a ${type} key`);
       else if (order === 'ascending' || order === 'descending') {
         if (type !== 'integer') err("'ascending'/'descending' order is only for integer keys");
       } else if (!Array.isArray(order) || order.length === 0 || new Set(order).size !== order.length) {
@@ -181,7 +214,8 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
         else if (type === 'boolean' && !sameList(order, [false, true])) err('order must list both false and true');
         else if (type === 'enum' && list && !sameList(order, list)) err('order must list every allowed value exactly once');
       }
-    } else if (needsOrder) {
+    }
+    if (needsOrder && !ordered) {
       err(spec.scope === 'narrow-only' ? "scope 'narrow-only' requires an 'order'" : "combine 'narrowest' requires an 'order'");
     }
 
@@ -190,7 +224,7 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     const hasDefaultRef = has(spec, 'defaultRef');
     if (hasDefault === hasDefaultRef) err("needs exactly one of 'default' or 'defaultRef'");
     if (record && (!hasDefault || spec.default !== null)) err('a worker-billing key must default to null');
-    if (hasDefault && !(spec.default === null && (free || record))) {
+    if (hasDefault && !(spec.default === null && (free || record || type === 'integer'))) {
       const fault = faultOf(spec.default);
       if (fault) err(`default is not valid: ${fault}`);
     }
@@ -221,8 +255,18 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     if (spec.securityRelevant === true) {
       const safe = spec.failSafe;
       // A record has no plain fail-safe value; its invalid state is the fail-safe (this type only).
-      const stateSafe = record && isObject(safe) && safe.state === 'invalid';
+      // A project-only key's candidates never widen (resolve.ts canWiden), so no fail-safe value is ever
+      // taken; the consumer's invalid path voids it (worker/launch.ts dropDatabases), so the state form is allowed.
+      const stateSafe = (record || spec.scope === 'project-only') && isObject(safe) && safe.state === 'invalid';
       if (!stateSafe && (!has(spec, 'failSafe') || (isObject(safe) && !has(safe, 'gate')))) err('is securityRelevant and needs a failSafe value or {gate}');
+    }
+
+    // A cross-key rule (resolve.ts requires) or a missing config home takes `value = spec.failSafe`; the state form
+    // is not a value, so it would resolve to the object {state: 'invalid'} with state ok (119 closure N-3). A record
+    // key (workers.billing) is the one type whose invalid state is its fail-safe, so it is exempt.
+    if (!record && isObject(spec.failSafe) && spec.failSafe.state === 'invalid'
+      && ((Array.isArray(spec.requires) && spec.requires.length > 0) || spec.needsConfigHome === true)) {
+      err("failSafe {state: 'invalid'} cannot be combined with 'requires' or 'needsConfigHome' (they resolve to the failSafe as a value)");
     }
 
     // requires
@@ -252,7 +296,7 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
         if (!DIRECTIONS.includes(env.direction)) err(`env.direction must be one of ${DIRECTIONS.join(', ')}`);
         else if (env.direction === 'any' && (spec.securityRelevant === true || spec.scope === 'global-only')) {
           err("env.direction must be 'narrow': an environment variable may only narrow a security-relevant or global-only key");
-        } else if (env.direction === 'narrow' && !has(spec, 'order')) err("env.direction 'narrow' needs an 'order'");
+        } else if (env.direction === 'narrow' && !ordered) err("env.direction 'narrow' needs an 'order'");
       }
     }
     if (has(spec, 'flag') && spec.flag !== null) err("flag must be null in v1 (a declared flag must be absent from the CLI flag tables; '--set' and '--setting' are reserved)");
@@ -365,7 +409,7 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
 interface SettingsRegistry {
   version: 1;
   keys: Map<string, any>;
-  /** The allowed values of an enum key (its list or its resolved ref); null when unavailable. */
+  /** The allowed values of an enum key, or of a string-list key with a valuesRef (its list or its resolved ref); null when unavailable or not list-bound. */
   enumValues(key: string): string[] | null;
   /** The value of a named ref, lazily read from advice.json or storage.json. Throws when unreadable. */
   resolveRef(name: string, deps?: Record<string, unknown>): unknown;
@@ -406,7 +450,21 @@ function loadSettingsRegistry({ repoRoot = REPO_ROOT, fsImpl, verifyRefs = false
   );
   if (!checked.ok) return done(failure(checked.errors));
 
-  const keys = new Map<string, any>(Object.entries(raw.keys).map(([name, spec]) => [name, Object.freeze(spec)]));
+  const keys = new Map<string, any>(Object.entries(raw.keys).map(([name, spec]: [string, any]) => {
+    if (typeof spec.orderRef === 'string') {
+      let order: string[] | null | undefined;
+      Object.defineProperty(spec, 'order', {
+        enumerable: true,
+        get() {
+          if (order === undefined) {
+            try { order = refs.resolve(spec.orderRef) as string[]; } catch { order = null; }
+          }
+          return order;
+        },
+      });
+    }
+    return [name, Object.freeze(spec)];
+  }));
   const lists = new Map<string, string[] | null>();
   const registry: SettingsRegistry = {
     version: 1,
@@ -415,11 +473,13 @@ function loadSettingsRegistry({ repoRoot = REPO_ROOT, fsImpl, verifyRefs = false
       if (lists.has(key)) return lists.get(key)!;
       const spec = keys.get(key);
       let list: string[] | null = null;
-      if (spec?.type === 'enum') {
+      if (spec?.type === 'enum' || (spec?.type === 'string-list' && spec.valuesRef)) {
         if (Array.isArray(spec.values)) list = spec.values;
         else {
           try { list = refs.resolve(spec.valuesRef) as string[]; } catch { list = null; }
         }
+        // A value with no rank is never valid: a narrow-only fold could not compare it.
+        if (typeof spec.orderRef === 'string' && spec.order === null) list = null;
       }
       lists.set(key, list);
       return list;

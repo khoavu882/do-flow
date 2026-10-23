@@ -415,7 +415,12 @@ test('G12: doflow --help documents every command the CLI accepts, and nothing it
 test('config is a Node verb with list, origin, and JSON help', () => {
   assert.ok(nodeVerbs().includes('config'), 'doflow-run must dispatch config to the Node CLI');
   const cliText = fs.readFileSync(path.join(REPO, 'src', 'cli', 'index.ts'), 'utf8');
-  assert.match(cliText, /^  config\s+Show each setting's effective value and where it came from \(list \[--show-origin\] \[--json\]\)$/m);
+  // 119 B.3 widened the help from list-only to list, schema, validate, set and unset (O-4, D-2); the list form keeps its flags.
+  assert.match(cliText, /^  config\s+Show each setting's effective value and where it came from, print the settings schema, or validate, set or unset one/m);
+  assert.match(cliText, /^\s+config \[list\] \[--show-origin\] \[--json\] \[-g\] \[<project path>\]\s+read-only$/m);
+  for (const form of ['schema', 'validate', 'set', 'unset']) {
+    assert.match(cliText, new RegExp(`^\\s+config ${form} `, 'm'), `config help documents ${form}`);
+  }
 });
 
 // ------------------------------------------------------------ 6. no skill goes around the seam

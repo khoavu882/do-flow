@@ -3,8 +3,8 @@
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 
 /**
- * `doflow review --action start` (095b IC-001) and the pure depth rule `decideDepth` (IC-002).
- * The verb checks the verify precondition on HEAD and decides the review depth in one call. It never
+ * `doflow review --action start` (095b IC-001). The verb checks the verify precondition on HEAD and
+ * resolves the review protocol (119 IC-003/IC-005, `resolve-protocol.ts`) in one call. It never
  * prompts, reads no stdin and writes no file and no telemetry line.
  */
 
@@ -14,9 +14,10 @@ const { spawnSync } = require('node:child_process');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { verifyRecordReasons, loadPolicy } = require('../roadmap/gates.ts');
 const { finishRuntime, captureCaught } = require('../cli-result.ts');
+const { invalidProjectCandidate } = require('./findings.ts');
+const { resolveProtocol, protocolLines, protocolDigest, pathScope, gateMinSeats } = require('./resolve-protocol.ts');
 
 type Env = Record<string, string | undefined>;
-type Decision = { depth: string; seats: number; scope: string; raisedBy: string | null };
 
 const SLUG_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/;
 const HEX_HEAD = /^[0-9a-f]{40}$/;
@@ -28,41 +29,6 @@ const GIT_LOCATION_KEYS = Object.freeze([
 
 function validSlug(value: unknown): boolean {
   return typeof value === 'string' && SLUG_PATTERN.test(value);
-}
-
-/** Whether `policy.lightPaths` covers `file`: a `/`-ending entry covers its subtree, any other entry that exact path. */
-function lightCovers(lightPaths: string[], file: string): boolean {
-  const normal = String(file).replace(/^(\.\/)+/, '');
-  return lightPaths.some((entry) => (entry.endsWith('/') ? normal.startsWith(entry) : normal === entry));
-}
-
-/**
- * IC-002: the pure depth rule. `paths` is the changed repository-relative paths, or null when
- * unreadable; an empty list is also an unknown scope (the base resolved to HEAD). A rename is two entries, so it counts both paths. `floor` is the gate-b minimum seat count.
- */
-function decideDepth({ policy, risk, paths, floor }: any): Decision {
-  // An empty list is an unknown scope, not "only light paths": the verb does not know what the review covers.
-  const scope = !Array.isArray(paths) || paths.length === 0 ? 'unknown'
-    : paths.every((file: string) => lightCovers(policy.lightPaths, file)) ? 'light' : 'code';
-  const single = scope === 'light' && typeof risk === 'string' && policy.singleRisks.includes(risk);
-  let depth = single ? 'single' : 'deep';
-  let raisedBy: string | null = single ? null : 'policy';
-  let seats: number = policy.depths[depth].seats;
-  const needed = Number.isInteger(floor) && floor > 0 ? floor : 0;
-  if (needed > seats) {
-    const bySeats = Object.keys(policy.depths).sort((a, b) => policy.depths[a].seats - policy.depths[b].seats);
-    depth = bySeats.find((id) => policy.depths[id].seats >= needed) ?? bySeats[bySeats.length - 1];
-    seats = needed;
-    raisedBy = 'gate-floor';
-  }
-  return { depth, seats, scope, raisedBy };
-}
-
-/** IC-001 step 6: advice only raises. A `deep` pick over a decided `single` gives `deep`; anything else changes nothing. */
-function raiseByAdvice({ policy, decision, pick, floor }: any): Decision {
-  if (pick !== 'deep' || decision.depth !== 'single') return decision;
-  const needed = Number.isInteger(floor) && floor > 0 ? floor : 0;
-  return { depth: 'deep', seats: Math.max(policy.depths.deep.seats, needed), scope: decision.scope, raisedBy: 'advice' };
 }
 
 /** IC-001 step 4: gate-b's verify rule plus the clean-tree rule, sorted and unique. */
@@ -212,13 +178,91 @@ function lookupRun(stateRoot: string, slug: string): RunLookup {
   return { status: 'found', taskId: taskId ?? slug, taskClass };
 }
 
-/** The gate-b seat floor of a class from the shipped gates.json, through its loader; 0 when the class has none. */
-function gateFloor(taskClass: string | null): number {
-  if (!taskClass) return 0;
-  const loaded = loadPolicy(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'gates.json'), 'utf8'));
-  if (!loaded.ok) throw new Error(`core/registry/gates.json: ${loaded.reason}`);
-  const floor = loaded.policy.classes?.[taskClass]?.['gate-b']?.minSeats;
-  return Number.isInteger(floor) && floor > 0 ? floor : 0;
+// The settings keys `resolveProtocol` reads (119 IC-006), by their resolution's value and origin layer.
+const PROTOCOL_SETTINGS = ['review.preset', 'review.rounds', 'review.sameFamily', 'review.crossFamilyRereview',
+  'review.extraLenses', 'review.blockerClauses', 'debate.preset'];
+
+/**
+ * 119 FR-008: the two inputs `resolveProtocol` turns into `enforcement`: `agentAccess` (the spec `access` of every
+ * agent the registry seats) and `readOnlyLimits` (each harness's `agentLimits.readOnly`, registry order). A spec or
+ * harness registry that cannot be read, or that lacks a value, is an error for the caller to refuse with.
+ */
+function loadEnforcementInputs(registry: any, { harnessesFile = path.join(REPO_ROOT, 'core', 'registry', 'harnesses.json'), specDir = path.join(REPO_ROOT, 'core', 'shared', 'agent-specs') }: { harnessesFile?: string; specDir?: string } = {}):
+  { agentAccess: Record<string, string>; readOnlyLimits: { harness: string; status: string; reason: string | null }[] } | { error: string; message: string } {
+  const fail = (message: string) => ({ error: 'protocols-invalid', message });
+  const agentAccess: Record<string, string> = {};
+  const agents = new Set<string>();
+  for (const preset of Object.values<any>(registry?.presets ?? {})) for (const seat of preset?.seats ?? []) agents.add(seat.agent);
+  for (const agent of agents) {
+    let text: string;
+    try {
+      if (!/^[a-z][a-z0-9-]*$/.test(agent)) throw new Error('not a plain agent name');
+      text = fs.readFileSync(path.join(specDir, `${agent}.md`), 'utf8');
+    } catch {
+      return fail(`seat agent '${agent}' has no readable spec at core/shared/agent-specs/${agent}.md`);
+    }
+    const access = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1].match(/^access:\s*(\S+)\s*$/m)?.[1];
+    if (access !== 'read-only' && access !== 'write') return fail(`seat agent '${agent}' spec has no access: read-only|write`);
+    agentAccess[agent] = access;
+  }
+  let harnesses: any;
+  try { harnesses = JSON.parse(fs.readFileSync(harnessesFile, 'utf8')).harnesses; } catch {
+    return fail(`the harnesses registry (core/registry/harnesses.json) cannot be read`);
+  }
+  if (!Array.isArray(harnesses) || harnesses.length === 0) return fail('the harnesses registry lists no harness');
+  const readOnlyLimits: { harness: string; status: string; reason: string | null }[] = [];
+  for (const harness of harnesses) {
+    const limit = harness?.agentLimits?.readOnly;
+    if (typeof harness?.id !== 'string' || (limit?.status !== 'native' && limit?.status !== 'unenforced')) {
+      return fail(`harness '${harness?.id}' has no agentLimits.readOnly.status of native or unenforced`);
+    }
+    readOnlyLimits.push({ harness: harness.id, status: limit.status, reason: typeof limit.reason === 'string' ? limit.reason : null });
+  }
+  return { agentAccess, readOnlyLimits };
+}
+
+/**
+ * The inputs `resolveProtocol` needs beyond the change facts: the project's settings as the plain `settingsView`
+ * the resolver reads (`{ key: { value, layer } }`, 119 L-B8), the gate policy (the shipped gates.json narrowed by the
+ * project's `.doflow/gates.override.json`, read as roadmap gate-b reads it, 119 IC-005; null when there is no task class, so
+ * no floor), the protocols registry and the enforcement inputs (`loadEnforcementInputs`). A base, override or registry the loaders reject is a refusal carrying the loader's
+ * reason (and the override file). Shared with the `protocol` verb.
+ */
+function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<string, string | undefined> = process.env):
+  { gatePolicy: any; registry: any; settingsView: Record<string, { value: unknown; layer: string }>; agentAccess: Record<string, string>; readOnlyLimits: any[] } | { error: string; message: string } {
+  const settingsView: Record<string, { value: unknown; layer: string }> = {};
+  try {
+    const settings = require('../settings/resolve.ts').loadSettings({ projectRoot: path.resolve(cwd), env });
+    for (const key of PROTOCOL_SETTINGS) {
+      const resolution = settings.get(key);
+      // C-6: an invalid project or local review.* candidate would silently fall back to the default: refuse instead.
+      const invalid = key.startsWith('review.') ? invalidProjectCandidate(resolution) : undefined;
+      if (invalid) return { error: 'settings-unavailable', message: `${key} in ${invalid.source}: ${invalid.reason}` };
+      settingsView[key] = { value: resolution.value, layer: resolution.origin.layer };
+    }
+  } catch (error: any) {
+    return { error: 'settings-unavailable', message: error?.message || String(error) };
+  }
+  let gatePolicy: any = null;
+  if (taskClass) {
+    const { projectLayerSource } = require('../settings/project-layers.ts');
+    const layers = projectLayerSource(cwd, fs);
+    const overrideFile: string | null = layers.layersFrom ? path.join(layers.layersFrom, 'gates.override.json') : null;
+    let override: string | null = null;
+    if (overrideFile) {
+      try { override = fs.readFileSync(overrideFile, 'utf8'); } catch (error: any) { if (error?.code !== 'ENOENT') override = ''; }
+    }
+    const loaded = loadPolicy(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'gates.json'), 'utf8'), override);
+    if (!loaded.ok) {
+      return { error: String(loaded.reason).split(':')[0], message: `${loaded.reason} (core/registry/gates.json narrowed by ${overrideFile ?? 'no project override'})` };
+    }
+    gatePolicy = loaded.policy;
+  }
+  const protocols = require('./protocols.ts').loadProtocols();
+  if (!protocols.ok) return { error: 'protocols-invalid', message: protocols.errors.join('; ') };
+  const enforcement = loadEnforcementInputs(protocols.registry);
+  if ('error' in enforcement) return enforcement;
+  return { gatePolicy, registry: protocols.registry, settingsView, ...enforcement };
 }
 
 /** The decision model's opinion on the decided depth. Never throws: any failure is `unavailable`. */
@@ -256,7 +300,8 @@ function renderText(result: any, nextCommand: string | null): string[] {
   const lines: string[] = [];
   for (const [key, value] of Object.entries(result)) {
     if (value === null || value === undefined) continue;
-    if (Array.isArray(value)) lines.push(`${key}: ${value.length ? value.join(',') : 'none'}`);
+    if (key === 'protocol') lines.push(...protocolLines(value));
+    else if (Array.isArray(value)) lines.push(`${key}: ${value.length ? value.join(',') : 'none'}`);
     else if (typeof value === 'object') {
       lines.push(`${key}: ${Object.entries(value).filter(([, v]) => v !== null).map(([k, v]) => `${k}=${v}`).join(' ')}`);
     } else lines.push(`${key}: ${value}`);
@@ -274,7 +319,7 @@ function emit(out: (line: string) => void, json: boolean, result: any, nextComma
  * IC-001. Exit 0 applicable and ok, or not applicable; 1 refused or records-unreadable.
  * Usage errors (2) are decided by the caller before this runs.
  */
-async function handleReviewStart({ slug, base, json = false, cwd, env, resolve, adviceClient, out }: any): Promise<number> {
+async function handleReviewStart({ slug, base, preset, json = false, cwd, env, resolve, adviceClient, out }: any): Promise<number> {
   try {
     const { WorkflowEngine } = require('../workflow-engine.ts');
     const { loadVerificationRegistry, reviewDepthPolicy } = require('../verification/registry.ts');
@@ -282,12 +327,12 @@ async function handleReviewStart({ slug, base, json = false, cwd, env, resolve, 
     const { resolveExplicitBaseline, resolveIntegrationBase } = require('../verification/scope-bound.ts');
 
     const registry = loadVerificationRegistry({ repoRoot: REPO_ROOT });
-    const policy = reviewDepthPolicy(registry);
+    const riskPolicy = reviewDepthPolicy(registry);
     const defaultRisk: string = registry.policy.defaultRiskLevel;
 
     const result: any = {
       schema: 1, slug: null, taskClass: null, applicable: false, notApplicable: null, head: null, clean: null,
-      ok: true, reasons: [], depth: null, seats: null, risk: defaultRisk, riskSource: 'default', depthBasis: null,
+      ok: true, reasons: [], depth: null, seats: null, risk: defaultRisk, riskSource: 'default', protocol: null, protocolDigest: null, depthBasis: null,
       advice: { status: 'off', pick: null },
     };
     // An uncertain applicability is a refusal with a named reason, never a silent not-applicable.
@@ -362,13 +407,31 @@ async function handleReviewStart({ slug, base, json = false, cwd, env, resolve, 
       baseSha = typeof integration.mergeBase === 'string' && integration.mergeBase ? integration.mergeBase : null;
     }
     const paths = changedPaths(cwd, env, baseSha);
-    const floor = gateFloor(taskClass);
-    let decision = decideDepth({ policy, risk: result.risk, paths, floor });
-    const advice = await askAdvice({ decision, risk: result.risk, taskClass, slug: resolvedSlug, files: paths ? paths.length : null, cwd, env, adviceClient });
-    decision = raiseByAdvice({ policy, decision, pick: advice.pick, floor });
-    result.depth = decision.depth;
-    result.seats = decision.seats;
-    result.depthBasis = { scope: decision.scope, files: paths ? paths.length : null, base: paths ? baseSha : null, floor, raisedBy: decision.raisedBy };
+    const inputs = loadProtocolInputs(taskClass, cwd, env);
+    if ('error' in inputs) return refuse(inputs.error, inputs.message);
+    const scope = pathScope(riskPolicy, paths);
+    const floor = gateMinSeats(inputs.gatePolicy, taskClass);
+    const facts = { kind: 'review', taskClass, risk: result.risk, paths, runPreset: preset ?? null, ...inputs, riskPolicy };
+    const REFUSALS: Record<string, string> = {
+      'preset-unknown': `--preset '${preset}' is not a review preset`,
+      'preset-looser': `--preset '${preset}' is looser than the protocol this change needs; a run preset can only raise it`,
+      'registry-incomplete': 'the protocols registry has no review preset for the decided depth',
+    };
+    const refuseResolution = (reason: string): number => refuse(reason, REFUSALS[reason] ?? reason);
+    // Once without advice for the depth the advice question is asked about, then with the pick.
+    const decided = resolveProtocol({ ...facts, advicePick: null });
+    if (!decided.ok) return refuseResolution(decided.reason);
+    const advice = await askAdvice({ decision: { depth: decided.protocol.depth, scope }, risk: result.risk, taskClass, slug: resolvedSlug, files: paths ? paths.length : null, cwd, env, adviceClient });
+    const resolved = resolveProtocol({ ...facts, advicePick: advice.pick });
+    if (!resolved.ok) return refuseResolution(resolved.reason);
+    const { protocol } = resolved;
+    const raisedBy = ({ floor: 'gate-floor', advice: 'advice', run: 'run', user: 'setting', project: 'setting', local: 'setting', env: 'setting' } as Record<string, string>)[protocol.origins.id]
+      ?? (protocol.depth === 'single' ? null : 'policy');
+    result.depth = protocol.depth;
+    result.seats = protocol.seats.length;
+    result.protocol = protocol;
+    result.protocolDigest = protocolDigest(protocol);
+    result.depthBasis = { scope, files: paths ? paths.length : null, base: paths ? baseSha : null, floor, raisedBy };
     result.advice = advice;
     emit(out, json, result, null);
     return finishRuntime(0);
@@ -379,4 +442,4 @@ async function handleReviewStart({ slug, base, json = false, cwd, env, resolve, 
   }
 }
 
-module.exports = { decideDepth, raiseByAdvice, reviewPrecondition, handleReviewStart, validSlug };
+module.exports = { reviewPrecondition, handleReviewStart, loadProtocolInputs, loadEnforcementInputs, validSlug };

@@ -36,7 +36,7 @@ test('frozen vocabularies, closed key lists and ROUND_CAP', () => {
   assert.deepEqual(findings.ORIGINS, ['introduced', 'pre-existing']);
   assert.deepEqual(findings.VERIFICATIONS, ['confirmed', 'plausible']);
   assert.deepEqual(findings.ACCEPTED_AS, ['intentional', 'not-worth-fixing']);
-  assert.deepEqual(findings.RECORD_KEYS, ['schema', 'row', 'slug', 'reviewedHead', 'depth', 'risk', 'rounds', 'seats', 'converged']);
+  assert.deepEqual(findings.RECORD_KEYS, ['schema', 'row', 'slug', 'reviewedHead', 'depth', 'risk', 'protocol', 'rounds', 'author', 'seats', 'converged']);
   assert.deepEqual(findings.FINDING_FIELDS, ['origin', 'preExistingAt', 'escapedFrom', 'verification', 'verifiedBy', 'bugClass', 'sweep', 'acceptedAs']);
   assert.equal(findings.ROUND_CAP, 3);
 });
@@ -243,6 +243,58 @@ test('095b IC-005: an unknown depth or risk is refused with its own error', () =
     assert.deepEqual(errorsOf({}, { depth: bad }), ['depth'], `depth ${JSON.stringify(bad)}`);
     assert.deepEqual(errorsOf({}, { risk: bad }), ['risk'], `risk ${JSON.stringify(bad)}`);
   }
+});
+
+const DIGEST = 'f'.repeat(64);
+
+test('119 IC-002: protocol is optional; a review preset id with a 64-hex digest passes', () => {
+  assert.deepEqual(errorsOf({}), []);
+  for (const id of ['review-deep', 'review-single']) assert.deepEqual(errorsOf({}, { protocol: { id, digest: DIGEST } }), [], id);
+  assert.deepEqual(errorsOf({}, { depth: 'deep', protocol: { id: 'review-deep', digest: '0123456789abcdef'.repeat(4) } }), []);
+});
+
+test('119 IC-002: an unknown id, a debate id, a bad digest or an extra key is refused with the error protocol', () => {
+  const good = { id: 'review-deep', digest: DIGEST };
+  const bad = [
+    { ...good, id: 'review-nope' },
+    { ...good, id: 'debate-2' },
+    { ...good, digest: 'f'.repeat(63) },
+    { ...good, digest: 'f'.repeat(65) },
+    { ...good, digest: 'F'.repeat(64) },
+    { ...good, extra: 1 },
+    { id: 'review-deep' },
+    { digest: DIGEST },
+    null, '', 'review-deep', ['review-deep'], {},
+  ];
+  for (const protocol of bad) assert.deepEqual(errorsOf({}, { protocol }), ['protocol'], JSON.stringify(protocol));
+});
+
+test('C-2: the recorded protocol is checked against its preset (rounds below rounds.min, fewer seats than the preset)', () => {
+  const deep = { id: 'review-deep', digest: DIGEST };
+  const single = { id: 'review-single', digest: DIGEST };
+  assert.deepEqual(errorsOf({}, { protocol: deep, rounds: 1 }), ['protocol-rounds']);
+  assert.deepEqual(errorsOf({}, { protocol: deep, rounds: 2 }), []);
+  assert.deepEqual(errorsOf({}, { protocol: single, rounds: 1 }), []);
+  const oneSeat = (extra) => ({ ...record([open()], extra), seats: record([open()]).seats.slice(0, 1) });
+  assert.deepEqual(validateFindings(oneSeat({ protocol: deep })).errors, ['protocol-seats']);
+  assert.deepEqual(validateFindings(oneSeat({ protocol: single })).errors, []);
+  // Both at once, and an absent `rounds` is not judged (rounds is optional); a malformed protocol reports only `protocol`.
+  assert.deepEqual(validateFindings(oneSeat({ protocol: deep, rounds: 1 })).errors, ['protocol-rounds', 'protocol-seats']);
+  assert.deepEqual(validateFindings(oneSeat({ protocol: { ...deep, id: 'review-nope' }, rounds: 1 })).errors, ['protocol']);
+});
+
+test('C-2 closure: a record without protocol is held to a non-auto review.preset; under auto it stays valid (IC-002 optional)', () => {
+  const oneSeat = (extra) => ({ ...record([open()], extra), seats: record([open()]).seats.slice(0, 1) });
+  const deep = { preset: 'review-deep' };
+  assert.deepEqual(validateFindings(record([open()], { rounds: 1 }), deep).errors, ['protocol-missing', 'protocol-rounds']);
+  assert.deepEqual(validateFindings(oneSeat({ rounds: 2 }), deep).errors, ['protocol-missing', 'protocol-seats']);
+  assert.deepEqual(validateFindings(record([open()], { rounds: 2 }), deep).errors, ['protocol-missing'], 'rounds and seats meet the preset; the missing protocol still refuses');
+  assert.deepEqual(validateFindings(record([open()], { rounds: 1 }), { preset: 'review-single' }).errors, ['protocol-missing']);
+  for (const options of [undefined, { preset: 'auto' }]) {
+    assert.deepEqual(validateFindings(record([open()], { rounds: 1 }), options).errors, [], 'auto or unset: unchanged');
+  }
+  const recorded = { protocol: { id: 'review-single', digest: DIGEST }, rounds: 1 };
+  assert.deepEqual(validateFindings(record([open()], recorded), deep).errors, [], 'a recorded protocol is judged by its own preset here; the looser-than-setting rule is gate-b\'s');
 });
 
 test('095b IC-005: depth-unmet:<depth> when the seats are fewer than the policy; advisories are sorted with the rest', () => {

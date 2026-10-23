@@ -251,12 +251,13 @@ registries](#installation-registries) for the same plain-JSON convention. Across
 | File | Declares |
 |---|---|
 | `core/registry/workflows.json` | Nine task classes, each an ordered stage list naming skills that already exist (every stage also carries a required `agent`, the archetype that works it, validated in `src/runtime/workflow-engine.ts` and bound to a spec by G63), and a `readinessNote` (only `feature` lists any gates, and five classes, `feature`, `bug`, `refactor`, `dependency-change` and `trivial-edit`, have a readiness template in `readiness-templates.json`), plus the `callers` map giving every shipped skill a role (`stage`, `router`, `standalone`) so the classifier can judge whether a class has a stage for the skill asking. There is no default class: an unrecognized proposal is rejected with the valid set rather than coerced into one. It also carries the `promptNudge` object, the rules and message for the once-per-session `/do` suggestion; only the prompt hook and G25 read it, not the workflow engine or the classifier |
-| `core/registry/verification.json` | Nine check tiers and four risk levels; a level selects its required and advisory tiers and sets the recovery-retry bound. Its `reviewDepth` block is the one source of review depth: the seat count of `single` and `deep`, the risk levels that may take `single`, and the light paths (`docs/`, `README.md`, `CHANGELOG.md`); `loadVerificationRegistry` rejects an invalid block, and `review --action start` applies it |
+| `core/registry/verification.json` | Nine check tiers and four risk levels; a level selects its required and advisory tiers and sets the recovery-retry bound. Its `reviewDepth` block is the one source of the review depth rule: the risk levels that may take `single` and the light paths (`docs/`, `README.md`, `CHANGELOG.md`); the seat counts are not here but in the review presets of `core/registry/protocols.json` (119), and a leftover `depths` key is refused as unknown. `loadVerificationRegistry` rejects an invalid block, and `review --action start` applies it through `resolveProtocol` |
 | `core/registry/readiness-templates.json` | Per-class readiness requirements and the evidence kinds that satisfy each one |
 | `core/registry/capabilities.json` | The capabilities an information need can resolve to, and their providers. Every provider declares `sourceMode` (`live` or `index`) and may carry `mcp: {server, tool}`; the router derives its `mcpTool` from it and the brief block names the MCP tool from it |
 | `core/registry/routes.json` | Information need → capability, with an ordered fallback when the preferred capability has no healthy provider |
 | `core/registry/models.json` | Abstract model roles and their providers (`doflow model-role`), and `dispatchTiers`: the tier names (`tiers`), the `default`, and the tier per agent archetype (`byOwner`, seven archetypes; `delivery-lead` and `reviewer` are `frontier`) that a generated brief states. G29 holds `tiers` to `MODEL_SELECTION.md` `## Capability tiers`, `byOwner` keys to `core/shared/agent-specs/`, and every `byOwner` value to the `## Archetype dispatch tiers` prescription table in `MODEL_SELECTION.md` |
 | `core/registry/gates.json` | The roadmap loop's gate policy: per class and gate, whether autopilot may approve (`approve` or `never`), the ordered predicates and the minimum review seats; the protected paths; the loop and merge limits; and the closed `denyReasons` list. Read at develop's committed head by `orchestrate --action decide-gate --policy`, never from a feature branch; a project override can only narrow it. G55 holds its gate ids to `workflows.json` and its reasons to the code |
+| `core/registry/protocols.json` | The review and debate protocols (119): the presets (`review-deep`, `review-single`, `debate-2`, `debate-3`), each with its kind, seats (agent, lenses, model tier and family), rounds, cross-answer, synthesizer and decider; the lens catalogue; `order`, each kind's presets strictest first; `hardRoundCap`; and the locked invariants, each naming what enforces it. `src/runtime/review/protocols.ts` loads and validates it (`loadProtocols`, `validateProtocols`); G66 holds it to itself and to the class seat floors in `gates.json` |
 | `core/registry/external-tools.json` | External tools DoFlow can detect, install, and probe rather than reimplement |
 | `core/registry/storage.json` | Every store DoFlow writes: its root, location, retention bound, rule kind and writer files, plus the pass budget, throttle and ignore-file text. `src/runtime/storage/` reads it and G26 checks it against the code and `docs/reference.md` |
 | `core/registry/settings.json` | Every runtime settings key, its types, defaults, scopes, bindings, legacy files and consumers. `src/runtime/settings/registry.ts` reads it; G44 checks its consumers, reference defaults and documentation |
@@ -320,7 +321,7 @@ works](how-doflow-work.md#after-the-chain-the-lifecycle-loop).
 | Path | Owns |
 |---|---|
 | `src/runtime/mask.ts` | Best-effort masking and failure-message normalisation, in two profiles (line and body). Used by the follow-up service, the report store and the failure writer |
-| `src/runtime/review/` | `review/findings.ts`: review record validator, vocabularies, counts and advisories (pure); `review/command.ts`: the `review --action check` and `--action start` verb handler; `review/start.ts`: the `review --action start` precondition (the gate-b verify rule plus a clean tree) and `decideDepth`, the pure depth rule over `reviewDepth` |
+| `src/runtime/review/` | `review/findings.ts`: review record validator, vocabularies, counts and advisories (pure); `review/command.ts`: the `review --action check` and `--action start` verb handler; `review/start.ts`: the `review --action start` precondition (the gate-b verify rule plus a clean tree), `loadProtocolInputs` (the gate policy narrowed by the project override, and the protocols registry) and the call to the resolver; `review/resolve-protocol.ts`: `resolveProtocol`, the pure resolver over the risk rule in `reviewDepth`, the run preset, the gate-b seat floor and `core/registry/protocols.json` (seat counts live there), and `protocolLines`, its text form |
 | `src/runtime/lifecycle/root.ts` | The project root a store is keyed by: the first entry of `git worktree list` when that entry is a real working tree, else the current worktree's root (`--show-toplevel`), else the working directory |
 | `src/runtime/lifecycle/event-store.ts` | Write-once event files under `.doflow/state/lifecycle/events/`, local to the machine: id and `at` stamping, exclusive create, the store lock, the pre-write fold check |
 | `src/runtime/lifecycle/store-upkeep.ts` | The one-time copy from `agent-docs/lifecycle/events` and the retention pass, run once per verb before its work |
@@ -785,12 +786,12 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-72 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-65 entries across 61 test files and carries 63 distinct G-numbers.
+73 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+66 entries across 62 test files and carries 64 distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries; G18 labels two files, of which `adapter-force.test.js` is not listed; and G30 labels two
 files, `advice.test.js` and a ratchet test in `module-reachability.test.js` (the G16 file). The collisions are
-historical rather than a convention; G65 is the highest number in use, so a new guard takes the next
+historical rather than a convention; G66 is the highest number in use, so a new guard takes the next
 one above it instead of adding another collision. The list is not the whole directory. The
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
@@ -1141,8 +1142,10 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   another workflow (f); `docs/llms.txt` stays within 4,096 bytes (g).
   Each clause re-seeds its fault in a copy. Run `node src/release/docs-blocks.ts --write` after a
   registry, help or nav change, then review the diff.
-- **G62** (`review-depth-source.test.js`) — review depth has one source, the `reviewDepth` block of
-  `core/registry/verification.json`: `core/shared/skills/do-code-review/SKILL.md` names
+- **G62** (`review-depth-source.test.js`) — the review depth rule has one source, the `reviewDepth` block of
+  `core/registry/verification.json`, and the seat counts have one source, the review presets of
+  `core/registry/protocols.json` (the block holds no `depths` and no `seats` key anywhere, and every
+  review preset's seat count is its own `seats` length): `core/shared/skills/do-code-review/SKILL.md` names
   `review --action start`, proceeds past it only on exit 0 with `ok:true`, and keeps `risk` only when
   `riskSource` is `record`; and no file under `core/shared/` states a single-depth rule, meaning the
   word `single`, or `one seat` / `one reviewer`, within 80 characters of a risk level name (whole
@@ -1185,6 +1188,21 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   `workflow-orchestrator.ts` is an orchestration user through `runStoreDir()` even when
   `research-request.ts` no longer names that store; and against the shipped sources, removing the adopter from
   `task-evidence` or adding it to `task-attempts` turns it red.
+- **G66** (`protocols.test.js`) — `core/registry/protocols.json` is consistent with itself and with the
+  class seat floors: preset ids are unique in the raw file text (parsed JSON hides a duplicate key), every
+  seat lens is in the lens catalogue, `review-deep` is the strictest review preset in `order.review` with at
+  least as many seats as every class's `gate-b.minSeats` in `gates.json` (so no other review preset is needed
+  to meet a floor), no preset's `rounds.default` exceeds `hardRoundCap`, every invariant carries a non-empty
+  `enforcedBy`, every review-preset seat names an agent whose spec in `core/shared/agent-specs/` declares
+  `access: read-only` (a debate seat may be a write-access agent), and the shipped file passes
+  `validateProtocols` with no error. Controls on cloned registries: a review seat on a write-access or
+  missing agent, a one-seat `review-deep`, an unknown lens, rounds above the cap, an invariant without `enforcedBy`, a
+  non-strictest first review preset and a duplicate preset id in the raw text are each named, and the shipped
+  registry reports nothing. Preset and lens ids leave protocols.json only by derivation (C-9): `review.preset`,
+  `debate.preset` and `review.extraLenses` in `settings.json` point at their `src/runtime/settings/refs.ts` refs
+  (`review.preset` ranks by `orderRef`, never a literal `order`), no settings literal or `telemetry.json`
+  vocabulary lists a preset id, and the shipped settings registry loads with those refs resolved; a planted
+  literal order, literal preset list or telemetry copy is each named.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

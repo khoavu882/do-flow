@@ -1,0 +1,70 @@
+{
+  "schema": 1,
+  "description": "Review and debate protocol presets, the lens catalogue and the locked invariants (119 IC-001). Presets are registry data behind one validator (src/runtime/review/protocols.ts). review.* and debate.* settings choose among them; the invariants are never settings.",
+  "hardRoundCap": 3,
+  "lenses": [
+    { "id": "correctness", "description": "central risk of the change" },
+    { "id": "test-honesty", "description": "red on base, green on head, revert control red" },
+    { "id": "boundaries", "description": "guards, docs blocks, typecheck, changelog, no new dependency, no legacy left" }
+  ],
+  "presets": {
+    "review-deep": {
+      "kind": "review",
+      "depth": "deep",
+      "seats": [
+        { "id": "seat-a", "agent": "reviewer", "lenses": ["correctness", "boundaries"], "model": { "tier": "frontier", "family": "different-from-author" } },
+        { "id": "seat-b", "agent": "reviewer", "lenses": ["correctness", "test-honesty", "boundaries"], "model": { "tier": "frontier", "family": "any" } }
+      ],
+      "rounds": { "default": 2, "min": 2 },
+      "crossAnswer": true,
+      "synthesizer": "separate",
+      "decider": "gate"
+    },
+    "review-single": {
+      "kind": "review",
+      "depth": "single",
+      "seats": [
+        { "id": "seat-a", "agent": "reviewer", "lenses": ["correctness", "test-honesty", "boundaries"], "model": { "tier": "frontier", "family": "any" } }
+      ],
+      "rounds": { "default": 1, "min": 1 },
+      "crossAnswer": false,
+      "synthesizer": "seat",
+      "decider": "gate"
+    },
+    "debate-2": {
+      "kind": "debate",
+      "seats": [
+        { "id": "architect", "agent": "system-architect", "model": { "tier": "frontier" } },
+        { "id": "llm-expert", "agent": "system-architect", "model": { "tier": "frontier" } }
+      ],
+      "rounds": { "default": 2, "min": 2 },
+      "crossAnswer": true,
+      "synthesizer": "none",
+      "decider": "orchestrator"
+    },
+    "debate-3": {
+      "kind": "debate",
+      "seats": [
+        { "id": "architect", "agent": "system-architect", "model": { "tier": "frontier" } },
+        { "id": "llm-expert", "agent": "system-architect", "model": { "tier": "frontier" } }
+      ],
+      "rounds": { "default": 3, "min": 3 },
+      "crossAnswer": true,
+      "synthesizer": "verifier",
+      "decider": "orchestrator"
+    }
+  },
+  "order": {
+    "review": ["review-deep", "review-single"],
+    "debate": ["debate-3", "debate-2"]
+  },
+  "invariants": [
+    { "id": "INV-1", "statement": "A seat is never the agent or the session that authored the reviewed change", "enforcedBy": "review --action check" },
+    { "id": "INV-2", "statement": "Seats are read-only; the synthesizer sat as no seat", "enforcedBy": "review --action check" },
+    { "id": "INV-3", "statement": "Verify PASS on the reviewed head before any seat", "enforcedBy": "review --action start" },
+    { "id": "INV-4", "statement": "The class seat floor can be raised, never lowered", "enforcedBy": "review --action start, gate-b" },
+    { "id": "INV-5", "statement": "Findings contract: schema, severities, verdicts, locator plus reproducer, every finding answered", "enforcedBy": "review --action check" },
+    { "id": "INV-6", "statement": "Round 1 is independent", "enforcedBy": "printed protocol (not machine-checkable)", "kinds": ["review", "debate"] },
+    { "id": "INV-7", "statement": "Fix and gate decisions stay under the person-only and ask-first rules", "enforcedBy": "orchestrate decide-gate", "kinds": ["review", "debate"] }
+  ]
+}
