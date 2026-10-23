@@ -470,7 +470,13 @@ test('a run with the same id for another feature in another worktree neither blo
   assert.ok(!fs.existsSync(runFileOf(w1, 'A.1')), 'nothing in the worktree');
   const theirs = fs.readFileSync(theirsFile);
 
-  const missing = run(cwd, ['orchestrate', '--action', 'status', '--task-id', 'A.1']);
+  // FU-wrnnaq: status, which only reads, opens the one run list shows for the id; an action that
+  // changes a run does not take another feature's run for this checkout's task.
+  const seen = json(cwd, ['orchestrate', '--action', 'status', '--task-id', 'A.1']);
+  assert.equal(seen.status, 0, seen.stderr);
+  assert.equal(seen.data.taskId, 'A.1');
+  assert.deepEqual(fs.readFileSync(theirsFile), theirs, 'status changed nothing');
+  const missing = run(cwd, ['orchestrate', '--action', 'annotate', '--task-id', 'A.1', '--node', 'reproduction', '--note', 'n']);
   assert.equal(missing.status, 1, 'the other feature\'s run is not this checkout\'s task');
   assert.match(missing.stderr, /No workflow run for task 'A\.1'/);
 
@@ -581,6 +587,40 @@ test('FU-16c2wz: an ordinary run file is still read by status', (t) => {
   json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'T.2', '--task-class', 'bug', '--slug', 'feat-c']);
   assert.equal(statusWithin(cwd, ['--task-id', 'plain']).status, 0);
   assert.equal(statusWithin(cwd, ['--task-id', 'T.2', '--slug', 'feat-c']).status, 0);
+});
+
+test('FU-wrnnaq: status without --slug opens the single namespaced run that list shows', (t) => {
+  const cwd = project(t);
+  execFileSync('git', ['-C', cwd, 'branch', '-M', 'main'], { stdio: 'ignore' });
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'T.5', '--task-class', 'bug', '--slug', 'aaa']);
+  const listed = json(cwd, ['orchestrate', '--action', 'list']);
+  assert.deepEqual(listed.data.runs.map((r) => [r.featureSlug, r.taskId]), [['aaa', 'T.5']]);
+  const res = json(cwd, ['orchestrate', '--action', 'status', '--task-id', 'T.5']);
+  assert.equal(res.status, 0, res.stderr);
+  assert.equal(res.data.taskId, 'T.5');
+  assert.equal(res.data.current.id, 'reproduction');
+});
+
+test('FU-wrnnaq: status without --slug refuses when two features hold the id, naming both', (t) => {
+  const cwd = project(t);
+  execFileSync('git', ['-C', cwd, 'branch', '-M', 'main'], { stdio: 'ignore' });
+  for (const slug of ['aaa', 'bbb']) json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'T.5', '--task-class', 'bug', '--slug', slug]);
+  const res = run(cwd, ['orchestrate', '--action', 'status', '--task-id', 'T.5']);
+  assert.equal(res.status, 1);
+  assert.ok(res.stderr.includes(path.join(storeOf(cwd), 'aaa', 'T.5.json')), res.stderr);
+  assert.ok(res.stderr.includes(path.join(storeOf(cwd), 'bbb', 'T.5.json')), res.stderr);
+  // Naming the feature still opens the one asked for.
+  assert.equal(json(cwd, ['orchestrate', '--action', 'status', '--task-id', 'T.5', '--slug', 'bbb']).status, 0);
+});
+
+test('FU-wrnnaq: only status looks across namespaces; a write action without --slug still finds no run', (t) => {
+  const cwd = project(t);
+  execFileSync('git', ['-C', cwd, 'branch', '-M', 'main'], { stdio: 'ignore' });
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'T.5', '--task-class', 'bug', '--slug', 'aaa']);
+  const before = fs.readFileSync(path.join(storeOf(cwd), 'aaa', 'T.5.json'));
+  const res = run(cwd, ['orchestrate', '--action', 'annotate', '--task-id', 'T.5', '--node', 'reproduction', '--note', 'n']);
+  assert.equal(res.status, 1);
+  assert.deepEqual(fs.readFileSync(path.join(storeOf(cwd), 'aaa', 'T.5.json')), before);
 });
 
 test('FU-mtjqt9 C-13: status on a corrupt run journal reveals none of its bytes', (t) => {

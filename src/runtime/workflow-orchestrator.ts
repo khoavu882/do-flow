@@ -1117,18 +1117,25 @@ function handleOrchestrateCommand({
   // The feature this task belongs to: recorded on a run this command starts, the namespace its run
   // and readiness record live under (115 C-1), and matched against a run found in another checkout.
   // The dispatcher passes the call's record slug, computed once for every store the call touches.
-  const featureSlug = recordSlug !== undefined ? recordSlug : safeId ? featureSlugFor({ projectRoot: source, taskId, slug }) : slug;
+  let featureSlug = recordSlug !== undefined ? recordSlug : safeId ? featureSlugFor({ projectRoot: source, taskId, slug }) : slug;
   // A run started in another checkout of this repository for the same feature is read and updated
   // where it is. `start` is always local: an unrelated run with the same id elsewhere neither
   // refuses nor satisfies it.
   let runRoot = state;
   if (safeId && action !== 'start') {
-    const found = findRunFile({ stateRoot: state, taskId, slug: featureSlug });
+    // `status` with no --slug opens the one run the list action shows for the id, whichever feature
+    // namespace holds it (FU-wrnnaq); more than one is refused until --slug names the feature.
+    const found = findRunFile({ stateRoot: state, taskId, slug: featureSlug, anyNamespace: action === 'status' && !slug });
     if (found.status === 'ambiguous') {
-      console.error(`[ERROR] orchestrate: run '${taskId}' exists in more than one other checkout (${found.candidates.join(', ')}); run the command from the checkout that holds the run you mean. Nothing was changed.`);
+      console.error(found.byFeature
+        ? `[ERROR] orchestrate: run '${taskId}' exists under more than one feature (${found.candidates.join(', ')}); pass --slug <feature> to name the one you mean. Nothing was changed.`
+        : `[ERROR] orchestrate: run '${taskId}' exists in more than one other checkout (${found.candidates.join(', ')}); run the command from the checkout that holds the run you mean. Nothing was changed.`);
       return finishRuntime(1);
     }
-    if (found.status === 'found') runRoot = found.root;
+    if (found.status === 'found') {
+      runRoot = found.root;
+      if (found.slug !== undefined) featureSlug = found.slug;
+    }
   }
   const orchestrator = new WorkflowOrchestrator({
     repoRoot: root, projectRoot: runRoot, sourceRoot: source,

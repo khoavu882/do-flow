@@ -336,7 +336,7 @@ function namesNoFeature(record: any): boolean {
  * A flat file that names no feature, or that cannot be read or is a link, is keyed as `findRunFile`
  * would first read it, the id as its slug, and stays its own entry. Across stores, the current
  * store's copy of a key wins over every other checkout's; a current flat file `status` reads for
- * any feature without a namespaced copy here (one naming no feature, or a link it would follow)
+ * any feature without a namespaced copy here (one naming no feature, or a link, which status refuses)
  * also shadows the other checkouts' copies of that id. With no current copy, each other checkout
  * that holds one keeps its entry (more than one is the case `status` refuses as ambiguous). A
  * losing copy is dropped: `status` never reads it for this run.
@@ -402,7 +402,38 @@ function selectRunEntries(entries: any[]): any[] {
  * @returns {{status: 'found'|'missing'|'ambiguous', file: string|null, root: string|null,
  *   origin: 'current'|'other'|null, candidates: Array<string>}}
  */
-function findRunFile({ stateRoot, taskId, slug, exec }: any) {
+function findRunFile({ stateRoot, taskId, slug, exec, anyNamespace = false }: any) {
+  const found = findRunFileFor({ stateRoot, taskId, slug, exec });
+  return anyNamespace && found.status === 'missing' ? findNamespacedRun({ stateRoot, taskId, exec }) : found;
+}
+
+/**
+ * FU-wrnnaq: the run of `taskId` under whichever feature namespace holds it, for a caller that has
+ * no feature to name (`status` run from another branch). This is the run the list action shows for
+ * the id: this checkout's namespaced run first, else the other checkouts'; exactly one is the run,
+ * more than one is `ambiguous` (the feature must then be named), none is `missing`. `slug` is the
+ * namespace the run is in, for the caller to read it by.
+ * @returns {{status: 'found'|'missing'|'ambiguous', file: string|null, root: string|null,
+ *   origin: 'current'|'other'|null, candidates: Array<string>, slug?: string, byFeature?: true}}
+ */
+function findNamespacedRun({ stateRoot, taskId, exec }: any) {
+  const name = `${taskId}.json`;
+  const missing = { status: 'missing', file: null, root: null, origin: null, candidates: [] };
+  const inRoot = (root: string) => runFilesAt(root).filter((entry) => entry.namespace !== null && path.basename(entry.file) === name);
+  const settle = (entries: Array<{ file: string; namespace: string|null }>, root: string, origin: 'current'|'other') => (
+    entries.length === 1
+      ? { status: 'found', file: entries[0].file, root, origin, candidates: [], slug: entries[0].namespace as string }
+      : { ...missing, status: 'ambiguous', byFeature: true, candidates: entries.map((entry) => entry.file) });
+  const here = inRoot(stateRoot);
+  if (here.length > 0) return settle(here, stateRoot, 'current');
+  const checkouts = listCheckouts({ cwd: stateRoot, ...(exec ? { exec } : {}) });
+  if (!checkouts.ok || checkouts.sandbox) return missing;
+  const matches = checkouts.others.flatMap((root: string) => inRoot(root).map((entry) => ({ ...entry, root })));
+  if (matches.length === 0) return missing;
+  return settle(matches, matches[0].root, 'other');
+}
+
+function findRunFileFor({ stateRoot, taskId, slug, exec }: any) {
   const store = RUN_STORE_REL;
   const flat = path.join(store, `${taskId}.json`);
   const namespaced = slug && slug !== taskId ? path.join(store, slug, `${taskId}.json`) : null;
