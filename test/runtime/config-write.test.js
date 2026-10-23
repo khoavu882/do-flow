@@ -111,6 +111,18 @@ test('set refuses advice.model (D-2), verify.reuse and workers.billing as securi
   assert.equal(fs.existsSync(f.projectFile('settings.json')), false);
 });
 
+test('set and unset refuse guard.workerDropDatabases as security (C-1) and write nothing', (t) => {
+  const f = createSettingsEnv(t);
+  const set = refusal(f.run(['config', 'set', 'guard.workerDropDatabases', '"scratch_db"', '--layer', 'project', '--json']), 'guard.workerDropDatabases');
+  assert.equal(set.code, 'security');
+  assert.equal(fs.existsSync(f.projectFile('settings.json')), false);
+  f.writeProjectSettings({ schema: 1, 'guard.workerDropDatabases': 'kept_db' });
+  const before = fs.readFileSync(f.projectFile('settings.json'), 'utf8');
+  const unset = refusal(f.run(['config', 'unset', 'guard.workerDropDatabases', '--layer', 'project', '--json']), 'guard.workerDropDatabases');
+  assert.equal(unset.code, 'security');
+  assert.equal(fs.readFileSync(f.projectFile('settings.json'), 'utf8'), before);
+});
+
 test('set refuses an invariant.* key as locked and names the invariant', (t) => {
   const f = createSettingsEnv(t);
   const entry = refusal(f.run(['config', 'set', 'invariant.INV-1', 'false', '--layer', 'project', '--json']), 'invariant.INV-1');
@@ -177,14 +189,11 @@ test('set refuses a bad enum with the allowed values, and a bad integer with {mi
   assert.equal(fs.existsSync(f.projectFile('settings.json')), false);
 });
 
-test('set refuses a global-only key at a project layer and a project-only key at the user layer as scope', (t) => {
+test('set refuses a global-only key at a project layer as scope', (t) => {
   const f = createSettingsEnv(t);
   const globalOnly = refusal(f.run(['config', 'set', 'failure.capture', '"off"', '--layer', 'project', '--json']), 'failure.capture');
   assert.equal(globalOnly.code, 'scope');
-  const projectOnly = refusal(f.run(['config', 'set', 'guard.workerDropDatabases', '"x"', '--layer', 'user', '--json']), 'guard.workerDropDatabases');
-  assert.equal(projectOnly.code, 'scope');
   assert.equal(f.run(['config', 'set', 'failure.capture', '"off"', '--layer', 'user']).status, 0, 'the allowed layer still accepts it');
-  assert.equal(f.run(['config', 'set', 'guard.workerDropDatabases', '"x"', '--layer', 'project']).status, 0);
 });
 
 test('a value that is not JSON is a type error that says to quote strings, not a usage error', (t) => {
@@ -313,7 +322,7 @@ test('schema --json lists every registry key with the IC-007 fields, and the inv
     assert.equal(entry.locked, false);
   }
   const byKey = Object.fromEntries(keys.map((k) => [k.key, k]));
-  for (const key of ['advice.enabled', 'advice.provider', 'advice.endpoint', 'advice.model', 'verify.reuse', 'autopilot.enabled', 'workers.billing']) {
+  for (const key of ['advice.enabled', 'advice.provider', 'advice.endpoint', 'advice.model', 'verify.reuse', 'autopilot.enabled', 'workers.billing', 'guard.workerDropDatabases']) {
     assert.equal(byKey[key].writable, false, key);
   }
   assert.equal(byKey['review.rounds'].writable, true);

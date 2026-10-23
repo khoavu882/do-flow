@@ -51,7 +51,7 @@
       "consumers": ["src/runtime/settings/autopilot.ts"],
       "description": "Roadmap autopilot kill switch, off until the owner turns it on; the env and the autopilot/off sentinel can only turn it off." },
     "guard.workerDropDatabases": { "type": "string", "default": null, "scope": "project-only", "combine": "override",
-      "securityRelevant": false, "env": null, "flag": null, "shellRead": null, "needsConfigHome": false, "legacy": [],
+      "securityRelevant": true, "failSafe": { "state": "invalid" }, "env": null, "flag": null, "shellRead": null, "needsConfigHome": false, "legacy": [],
       "consumers": ["src/runtime/worker/launch.ts"],
       "description": "Space-separated exact database names a worker session may DROP DATABASE; project layer only." },
     "verify.reuse": { "type": "enum", "values": ["off", "on"], "order": ["off", "on"], "default": "off",

@@ -75,7 +75,7 @@ const V1 = {
     consumers: ['src/runtime/settings/autopilot.ts'],
     description: 'Roadmap autopilot kill switch, off until the owner turns it on; the env and the autopilot/off sentinel can only turn it off.' },
   'guard.workerDropDatabases': { type: 'string', default: null, scope: 'project-only', combine: 'override',
-    securityRelevant: false, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    securityRelevant: true, failSafe: { state: 'invalid' }, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
     consumers: ['src/runtime/worker/launch.ts'],
     description: 'Space-separated exact database names a worker session may DROP DATABASE; project layer only.' },
   'verify.reuse': { type: 'enum', values: ['off', 'on'], order: ['off', 'on'], default: 'off',
@@ -409,6 +409,13 @@ test('env names: DOFLOW_<KEY_UPPER_SNAKE> for new bindings, the two existing nam
   assert.ok(errorsOf(widened).some((m) => m.startsWith('failure.capture') && m.includes("env.direction must be 'narrow'")));
 });
 
+test('a project-only security key may carry the {state: invalid} fail-safe; any other scope may not', () => {
+  const projectOnly = keyed({ scope: 'project-only', securityRelevant: true, failSafe: { state: 'invalid' } });
+  assert.deepEqual(errorsOf(projectOnly), []);
+  const widening = keyed({ scope: 'project-overridable', securityRelevant: true, failSafe: { state: 'invalid' } });
+  assert.ok(errorsOf(widening).some((m) => m.startsWith('storage.planted') && m.includes('needs a failSafe value or {gate}')));
+});
+
 test('every failSafe form of the shipped registry validates, and each form is refused when planted wrongly', () => {
   assert.deepEqual(errorsOf(clone(SHIPPED)), []);
   const forms = Object.fromEntries(Object.entries(SHIPPED.keys).filter(([, s]) => 'failSafe' in s).map(([k, s]) => [k, s.failSafe]));
@@ -421,6 +428,7 @@ test('every failSafe form of the shipped registry validates, and each form is re
     'storage.retentionHours': { state: 'invalid' },
     'failure.capture': 'off',
     'autopilot.enabled': 'off',
+    'guard.workerDropDatabases': { state: 'invalid' },
     'verify.reuse': 'off',
     'dispatch.fallback': 'off',
     'workers.billing': { state: 'invalid' },

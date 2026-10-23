@@ -237,7 +237,9 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     if (spec.securityRelevant === true) {
       const safe = spec.failSafe;
       // A record has no plain fail-safe value; its invalid state is the fail-safe (this type only).
-      const stateSafe = record && isObject(safe) && safe.state === 'invalid';
+      // A project-only key's candidates never widen (resolve.ts canWiden), so no fail-safe value is ever
+      // taken; the consumer's invalid path voids it (worker/launch.ts dropDatabases), so the state form is allowed.
+      const stateSafe = (record || spec.scope === 'project-only') && isObject(safe) && safe.state === 'invalid';
       if (!stateSafe && (!has(spec, 'failSafe') || (isObject(safe) && !has(safe, 'gate')))) err('is securityRelevant and needs a failSafe value or {gate}');
     }
 
