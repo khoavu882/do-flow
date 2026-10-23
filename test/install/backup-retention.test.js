@@ -186,6 +186,34 @@ test('a pass on another host never deletes this host\'s rename-aside, even when 
   assert.ok(fs.existsSync(path.join(root, ids[0], '.manifest.json')), 'the backup whose delete failed is back under its id');
 });
 
+test('a sweep in another pid namespace on the same hostname keeps the aside (N-7)', () => {
+  const root = backupRootOf(scratchDir());
+  const ids = plantFive(root);
+  let foreign = null;
+  const failing = {
+    ...fs,
+    rmSync(target, options) {
+      if (path.basename(target).startsWith('.tmp-del-') && foreign === null) {
+        // Same hostname (a container sharing the host's UTS namespace), a different pid namespace.
+        foreign = sweepStaleTemps(root, { pidNamespace: 'pid:[4026539999]', isAlive: () => false });
+        throw Object.assign(new Error('EACCES: denied'), { code: 'EACCES' });
+      }
+      return fs.rmSync(target, options);
+    },
+  };
+  const result = applyRetention({ backupRoot: root, keep: 4, protect: [ids[4]], fsImpl: failing });
+  assert.strictEqual(foreign, 0, 'the other namespace could not see the pid, so it must not judge it');
+  assert.strictEqual(result.failed.length, 1);
+  assert.ok(fs.existsSync(path.join(root, ids[0], '.manifest.json')), 'rolled back whole');
+});
+
+test('the host tag depends on the pid namespace when one is known, and on the hostname alone when not (N-7)', () => {
+  assert.notStrictEqual(hostTag('h', 'pid:[1]'), hostTag('h', 'pid:[2]'));
+  assert.notStrictEqual(hostTag('h', 'pid:[1]'), hostTag('other', 'pid:[1]'));
+  assert.strictEqual(hostTag('h', ''), hostTag('h', ''));
+  assert.match(hostTag(), /^[0-9a-f]{8}$/);
+});
+
 test('an aside made on another host, or in the old nameless layout, is kept and never listed (N-2)', () => {
   const root = backupRootOf(scratchDir());
   const ids = plantFive(root);

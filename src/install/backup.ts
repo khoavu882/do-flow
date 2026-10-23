@@ -239,12 +239,21 @@ function defaultIsAlive(pid: number): boolean {
 }
 
 /**
- * Eight hex digits that identify a host in a rename-aside name. A pid means something only on the
- * host (and in the pid namespace) it was issued in, so an aside is judged by pid only by the host that
- * made it.
+ * The id of this process's pid namespace where the platform exposes one (Linux: the target of
+ * `/proc/self/ns/pid`, such as `pid:[4026531836]`), else the empty string. A pid means something only
+ * inside the namespace that issued it; two containers can share a hostname and not a pid space.
  */
-function hostTag(hostname: string = os.hostname()): string {
-  return crypto.createHash('sha1').update(String(hostname)).digest('hex').slice(0, 8);
+function pidNamespaceId(): string {
+  try { return fs.readlinkSync('/proc/self/ns/pid'); } catch { return ''; }
+}
+
+/**
+ * Eight hex digits that identify the host and pid namespace in a rename-aside name. A pid means
+ * something only in the namespace it was issued in, so an aside is judged by pid only by a process
+ * in the same namespace on the same host. Where no namespace id exists the tag is the hostname alone.
+ */
+function hostTag(hostname: string = os.hostname(), pidNamespace: string = pidNamespaceId()): string {
+  return crypto.createHash('sha1').update(`${hostname}\0${pidNamespace}`).digest('hex').slice(0, 8);
 }
 
 /**
@@ -274,10 +283,10 @@ function isStaleTemp(dir: string, { now, fsImpl, isAlive, hostname }: any): bool
  *
  * A `.tmp-del-*` rename-aside is a backup a retention pass is deleting, so age says nothing about it
  * (it keeps the backup's own, possibly old, mtime and may be rolled back if the delete fails). It is
- * removed only by the host named in it, and only when the pid in its name is not alive; any other
- * host's aside, and one whose name carries no owner, is left alone.
+ * removed only by the host and pid namespace named in it, and only when the pid in its name is not
+ * alive; any other host's or namespace's aside, and one whose name carries no owner, is left alone.
  */
-function sweepStaleTemps(backupRoot: string, { now = Date.now(), fsImpl = fs, isAlive = defaultIsAlive, hostname = os.hostname() }: any = {}): number {
+function sweepStaleTemps(backupRoot: string, { now = Date.now(), fsImpl = fs, isAlive = defaultIsAlive, hostname = os.hostname(), pidNamespace = pidNamespaceId() }: any = {}): number {
   assertMutableBackupRoot(backupRoot, 'clean up backups');
   if (!fsImpl.existsSync(backupRoot)) return 0;
   let removed = 0;
@@ -288,7 +297,7 @@ function sweepStaleTemps(backupRoot: string, { now = Date.now(), fsImpl = fs, is
       // Removed only by the host that made it, and only once its pid is gone there. Another host's
       // (or an unparseable) aside is kept: its pass may be live where this one cannot see it.
       const owner = removingOwner(e.name);
-      if (owner === null || owner.host !== hostTag(hostname) || isAlive(owner.pid)) continue;
+      if (owner === null || owner.host !== hostTag(hostname, pidNamespace) || isAlive(owner.pid)) continue;
     } else if (!isStaleTemp(dir, { now, fsImpl, isAlive, hostname })) continue;
     try {
       fsImpl.rmSync(dir, { recursive: true, force: true });
