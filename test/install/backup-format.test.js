@@ -250,6 +250,30 @@ test('createFileBackup refuses the legacy root before writing anything', () => {
   assert.ok(!fs.existsSync(legacyRoot));
 });
 
+test('a temp records when the run started, not the date the backup is named for (FU-kj372j)', () => {
+  const root = scratchDir();
+  const file = write(path.join(root, '.claude', 'a.md'), 'x');
+  const backupRoot = path.join(root, '.doflow', 'backups');
+  const pastDate = new Date(Date.now() - 3 * 24 * HOUR);
+  let owner = null;
+  let sweptWhileRunning = null;
+  const fsImpl = {
+    ...fs,
+    copyFileSync(from, to, ...rest) {
+      const tmp = path.join(backupRoot, fs.readdirSync(backupRoot).find((n) => n.startsWith('.tmp-')));
+      owner = JSON.parse(fs.readFileSync(path.join(tmp, '.owner.json'), 'utf8'));
+      // Another run sweeps while this one is still copying; the owner process (this one) is alive.
+      sweptWhileRunning = sweepStaleTemps(backupRoot, { isAlive: () => true });
+      return fs.copyFileSync(from, to, ...rest);
+    },
+  };
+  const made = backup(handSet(root, [{ file }]), backupRoot, { fsImpl, date: pastDate });
+  assert.ok(made, 'the backup was made');
+  assert.ok(Math.abs(Date.parse(owner.startedAt) - Date.now()) < 60 * 1000, `startedAt is ${owner.startedAt}`);
+  assert.strictEqual(sweptWhileRunning, 0, 'a live run\'s temp is not swept because its backup date is old');
+  assert.ok(fs.existsSync(path.join(backupRoot, made.id, '.manifest.json')), 'the backup finished intact');
+});
+
 test('sweepStaleTemps removes dead and expired temps, keeps live ones, ignores non-dot directories', () => {
   const root = scratchDir();
   const backupRoot = path.join(root, '.doflow', 'backups');

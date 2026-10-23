@@ -129,7 +129,9 @@ function createFileBackup({
       fsImpl.mkdirSync(backupRoot, { recursive: true });
       fsImpl.mkdirSync(tmpDir);
       tmpCreated = true;
-      const owner = { pid: process.pid, hostname: os.hostname(), startedAt: date.toISOString() };
+      // When this run started, not `date`: that is the time the backup is named for, and a caller may pass any
+      // date. isStaleTemp measures a temp's age from this field.
+      const owner = { pid: process.pid, hostname: os.hostname(), startedAt: new Date().toISOString() };
       fsImpl.writeFileSync(path.join(tmpDir, OWNER_FILE), `${JSON.stringify(owner)}\n`, { flag: 'wx' });
     } catch (err) { throw writeFailure(err); }
 
