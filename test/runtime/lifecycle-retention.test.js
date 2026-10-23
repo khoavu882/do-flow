@@ -608,25 +608,29 @@ test('a unit protected by an unknown-type event never shifts which other units a
   assert.ok(out.files.every((f) => baseFiles(events, options).has(f)));
 });
 
-test('over random event mixes the files selected never exceed what base selects (N-1)', () => {
+test('over random event mixes with conflicting goal.linked history the files selected never exceed what base selects (N-1)', () => {
+  // Four goals, one tracked feature, 4-8 goal.linked events in random order with random `replace`
+  // flags (the conflicting history that makes the refold non-monotone), and one unknown-type event
+  // protecting one goal. With the pre-fix selection (8d127acf) the seed below yields several rounds
+  // where protecting a goal makes base's greedy pass pick a different, larger set.
   let seed = 20261023;
   const rand = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
   const pick = (list) => list[Math.floor(rand() * list.length)];
-  const now = Date.parse('2026-10-23T00:00:00Z');
-  const options = { now: new Date(now), windowMs: HOUR };
-  const goals = ['A', 'B', 'C', 'D', 'E'];
+  const options = { now: new Date('2026-10-23T00:00:00Z'), windowMs: HOUR };
+  const goals = ['A', 'B', 'C', 'D'];
   let protectedRuns = 0;
-  for (let round = 0; round < 150; round += 1) {
+  for (let round = 0; round < 3000; round += 1) {
     const events = [];
     let t = Date.parse('2026-01-01T00:00:00Z');
-    const tick = () => { t += 1000 * (1 + Math.floor(rand() * 5)); return t; };
+    const tick = () => { t += 1000 * (1 + Math.floor(rand() * 4)); return t; };
     events.push(ev('feature.tracked', { slug: 'g' }, tick()));
     for (const g of goals) {
       events.push(ev('goal.added', { goal: g, items: [] }, tick()));
-      if (rand() < 0.7) events.push(ev('goal.done', { goal: g }, tick()));
+      if (rand() < 0.75) events.push(ev('goal.done', { goal: g }, tick()));
     }
-    for (let i = 0; i < 6; i += 1) events.push(ev('goal.linked', { goal: pick(goals), slug: 'g', replace: rand() < 0.5 }, tick()));
-    for (let i = 0; i < 3; i += 1) events.push(ev(`future.type${i}`, { protect: [pick(goals)], also: { [pick(goals)]: 1 } }, tick()));
+    const links = 4 + Math.floor(rand() * 5);
+    for (let i = 0; i < links; i += 1) events.push(ev('goal.linked', { goal: pick(goals), slug: 'g', replace: rand() < 0.5 }, tick()));
+    events.push(ev('future.event', { protect: [pick(goals)] }, tick()));
     const base = baseFiles(events, options);
     const out = selectExpired(events, options);
     if (out.files.length < base.size) protectedRuns += 1;
