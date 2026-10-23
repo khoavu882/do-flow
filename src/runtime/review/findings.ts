@@ -81,6 +81,17 @@ function validProtocol(value: any): boolean {
   return typeof value.id === 'string' && ids !== null && ids.includes(value.id);
 }
 
+/** True when the record's protocol is looser (later in the registry's strictest-first `order.review`) than `presetId`,
+ * the project's `review.preset`. `auto` needs the diff, which gate-b does not read, so it never compares (C-2). */
+function protocolLooserThanPreset(protocol: any, presetId: any): boolean {
+  if (!object(protocol) || typeof presetId !== 'string' || presetId === 'auto') return false;
+  const order = protocols()?.order?.review;
+  if (!Array.isArray(order)) return false;
+  const have = order.indexOf(protocol.id);
+  const want = order.indexOf(presetId);
+  return have !== -1 && want !== -1 && have > want;
+}
+
 /** Repo-relative literal path; traversal, globs, absolute paths and alternate separators fail closed. */
 function validPath(value: any): boolean {
   return nonempty(value) && !/^[\/~]|[\\\x00-\x1f:*?\[\]{}]/.test(value)
@@ -174,6 +185,12 @@ function validateFindings(json: any, { sameFamily = 'warn' }: { sameFamily?: Sam
       seatOf.set(finding.id, seat.id);
     }
   }
+  if (Object.hasOwn(data, 'protocol') && validProtocol(data.protocol) && Array.isArray(data.seats)) {
+    // C-2: the recorded protocol is held to its own preset, not only to its shape.
+    const preset = protocols().presets[data.protocol.id];
+    if (Number.isSafeInteger(data.rounds) && data.rounds >= 1 && data.rounds < preset.rounds.min) errors.push('protocol-rounds');
+    if (data.seats.length < preset.seats.length) errors.push('protocol-seats');
+  }
   for (const error of identityFacts(data, sameFamily === 'refuse' ? 'refuse' : 'warn').errors) errors.push(error);
   const convergedIds = new Set<string>();
   for (const finding of converged) {
@@ -261,5 +278,5 @@ function reviewAdvisories(json: any, { sameFamily = 'warn' }: { sameFamily?: Sam
 
 module.exports = {
   HEX_HEAD, SEVERITIES, DISPOSITIONS, ORIGINS, VERIFICATIONS, ACCEPTED_AS, ROUND_CAP, RECORD_KEYS, FINDING_FIELDS,
-  object, nonempty, strings, validPath, evidenceLocator, validateFindings, countFindings, reviewAdvisories,
+  object, nonempty, strings, validPath, evidenceLocator, validateFindings, countFindings, reviewAdvisories, protocolLooserThanPreset,
 };

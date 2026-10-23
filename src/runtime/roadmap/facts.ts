@@ -385,16 +385,20 @@ function gatherGateFacts(options: any): GateFact[] {
 
   let findings: any = null;
   let sameFamily: 'warn' | 'refuse' = 'warn';
+  let preset = 'auto';
   if (predicates.some((predicate: string) => ['findings-valid', 'no-dropped-findings', 'dispositions-backed', 'blockers-zero'].includes(predicate))) {
-    // The project's `review.sameFamily` (119 L-D3a), read once; the gate judges the fact, never the settings.
+    // The project's `review.sameFamily` (119 L-D3a) and `review.preset` (C-2), read once; the gate judges the fact, never the settings.
     let settingsLocator = `${root}/.doflow/settings.json#review.sameFamily`;
     let settingsUnreadable: string | undefined;
     try {
-      const resolved = require('../settings/resolve.ts').loadSettings({ projectRoot: root, env: options.env || process.env, fsImpl }).get('review.sameFamily');
+      const settings = require('../settings/resolve.ts').loadSettings({ projectRoot: root, env: options.env || process.env, fsImpl });
+      const resolved = settings.get('review.sameFamily');
       if (resolved.value === 'refuse') sameFamily = 'refuse';
+      // C-2: the project's `review.preset` is the floor gate-b holds the recorded protocol to (`auto` needs the diff).
+      if (typeof settings.get('review.preset').value === 'string') preset = settings.get('review.preset').value;
       if (resolved.origin?.layer !== 'default' && typeof resolved.origin?.source === 'string') settingsLocator = resolved.origin.source;
     } catch { settingsUnreadable = 'settings-unavailable'; }
-    add('review-settings', { sameFamily }, settingsLocator, undefined, settingsUnreadable);
+    add('review-settings', { sameFamily, preset }, settingsLocator, undefined, settingsUnreadable);
     const input = read([path.join(artifactRoot, 'review/findings.json')]);
     if (!input.unreadable) {
       try { findings = JSON.parse(input.text); } catch { findings = input.text; }

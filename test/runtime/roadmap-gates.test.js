@@ -284,6 +284,7 @@ const mutations = [
   { name: 'readability changes digest', module: 'facts', from: 'unreadable ? sha256Digest(JSON.stringify({ unreadable, contentDigest })) : contentDigest', to: 'contentDigest', pattern: 'unreadable empty artifacts have a different input digest' },
   { name: 'verification schema', from: 'runs.some((run: any) => run.schema !== 1)', to: 'false', pattern: 'verification ignores dirty, stale-head' },
   { name: 'sameFamily option', from: "{ sameFamily: get('review-settings')?.sameFamily === 'refuse' ? 'refuse' : 'warn' }", to: '{}', pattern: 'D.3: gate-b findings-valid applies' },
+  { name: 'preset floor', from: "|| protocolLooserThanPreset(findings.protocol, get('review-settings')?.preset)", to: '', pattern: 'C-2: gate-b findings-valid checks the recorded protocol' },
   { name: 'artifact layout precedence', module: 'facts', from: "['intention/requirement.md', 'requirement.md']", to: "['requirement.md', 'intention/requirement.md']", pattern: 'artifact lookup follows' },
 ];
 for (const fixture of require('../fixtures/roadmap/gates/cases.json')) {
@@ -354,6 +355,26 @@ test('D.3: gate-b findings-valid applies the review-settings fact (sameFamily re
   for (const sameFamily of ['warn', 'refuse']) {
     assert.deepEqual(reasons({ findings: own, 'review-settings': { sameFamily } }), ['findings-invalid']);
   }
+});
+
+test('C-2: gate-b findings-valid checks the recorded protocol against its preset and against the review.preset setting', () => {
+  const policy = loadPolicy(baseBytes).policy;
+  policy.classes.feature['gate-b'].predicates = ['findings-valid'];
+  const DIGEST = 'f'.repeat(64);
+  const deep = { ...review(), protocol: { id: 'review-deep', digest: DIGEST }, rounds: 2 };
+  const single = { ...review(), protocol: { id: 'review-single', digest: DIGEST }, rounds: 1 };
+  const reasons = (record, settings) => evaluate(policy, 'feature', 'gate-b', facts({ findings: record, ...(settings ? { 'review-settings': settings } : {}) })).reasons;
+  assert.deepEqual(reasons(deep), []);
+  assert.deepEqual(reasons({ ...deep, rounds: 1 }), ['findings-invalid'], 'deep recorded with one round');
+  assert.deepEqual(reasons({ ...deep, seats: deep.seats.slice(0, 1) }), ['findings-invalid'], 'deep recorded with one seat');
+  // The project's non-auto review.preset is a floor: a looser recorded protocol is invalid, an equal or stricter one passes.
+  assert.deepEqual(reasons(single, { sameFamily: 'warn', preset: 'review-deep' }), ['findings-invalid']);
+  assert.deepEqual(reasons(deep, { sameFamily: 'warn', preset: 'review-deep' }), []);
+  assert.deepEqual(reasons(deep, { sameFamily: 'warn', preset: 'review-single' }), []);
+  assert.deepEqual(reasons(single, { sameFamily: 'warn', preset: 'review-single' }), []);
+  assert.deepEqual(reasons(single, { sameFamily: 'warn', preset: 'auto' }), [], 'auto resolves from the diff, which gate-b does not read');
+  assert.deepEqual(reasons(single, { sameFamily: 'warn' }), [], 'a fact without a preset (older gather) keeps its verdict');
+  assert.deepEqual(reasons(review(), { sameFamily: 'warn', preset: 'review-deep' }), [], 'a record that names no protocol has nothing to compare');
 });
 
 test('C20: one verify-record rule serves gate-b and the post-merge check (task, head, clean, schema, flaky)', () => {

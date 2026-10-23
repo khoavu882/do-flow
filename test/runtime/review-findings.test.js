@@ -269,6 +269,20 @@ test('119 IC-002: an unknown id, a debate id, a bad digest or an extra key is re
   for (const protocol of bad) assert.deepEqual(errorsOf({}, { protocol }), ['protocol'], JSON.stringify(protocol));
 });
 
+test('C-2: the recorded protocol is checked against its preset (rounds below rounds.min, fewer seats than the preset)', () => {
+  const deep = { id: 'review-deep', digest: DIGEST };
+  const single = { id: 'review-single', digest: DIGEST };
+  assert.deepEqual(errorsOf({}, { protocol: deep, rounds: 1 }), ['protocol-rounds']);
+  assert.deepEqual(errorsOf({}, { protocol: deep, rounds: 2 }), []);
+  assert.deepEqual(errorsOf({}, { protocol: single, rounds: 1 }), []);
+  const oneSeat = (extra) => ({ ...record([open()], extra), seats: record([open()]).seats.slice(0, 1) });
+  assert.deepEqual(validateFindings(oneSeat({ protocol: deep })).errors, ['protocol-seats']);
+  assert.deepEqual(validateFindings(oneSeat({ protocol: single })).errors, []);
+  // Both at once, and an absent `rounds` is not judged (rounds is optional); a malformed protocol reports only `protocol`.
+  assert.deepEqual(validateFindings(oneSeat({ protocol: deep, rounds: 1 })).errors, ['protocol-rounds', 'protocol-seats']);
+  assert.deepEqual(validateFindings(oneSeat({ protocol: { ...deep, id: 'review-nope' }, rounds: 1 })).errors, ['protocol']);
+});
+
 test('095b IC-005: depth-unmet:<depth> when the seats are fewer than the policy; advisories are sorted with the rest', () => {
   const one = (extra) => ({ ...record([open()], extra), seats: record([open()]).seats.slice(0, 1) });
   assert.deepEqual(reviewAdvisories(one({ depth: 'deep' })), ['depth-unmet:deep']);
