@@ -246,6 +246,9 @@ const UNEXPOSED_HELPERS = new Map([
     + 'at all any more — parallel_dispatch.md used to mention it while explaining where a brief\'s '
     + 'paths come from, and no longer does — so a verb here would widen the public surface without '
     + 'removing a single inlined resolver'],
+  ['do-args.sh',
+    'sourced, never run: the argument rule (`--flag value` read like `--flag=value`) that the do-*.sh '
+    + 'helpers share. It has no entry point of its own, so there is nothing for a verb to dispatch to'],
 ]);
 
 test('G12: every shell helper is either a verb target or a recorded non-verb helper', () => {

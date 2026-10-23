@@ -29,6 +29,9 @@ group_id=""
 tasks_csv=""
 slug_override=""
 mode=""
+# Shared argument rule: `--flag value` is read like `--flag=value` for the flags named here (do-args.sh).
+_da="$(dirname "$0")/do-args.sh"
+if [ -r "$_da" ]; then . "$_da"; doflow_normalize_args "--task --group --tasks --slug" "$@"; set -- ${DOFLOW_ARGS[@]+"${DOFLOW_ARGS[@]}"}; fi
 for arg in "$@"; do
   case "$arg" in
     --task=*)
