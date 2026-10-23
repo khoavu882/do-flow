@@ -136,7 +136,7 @@ test('C5 shape: with no user setting, a project cannot enable advice (not-narrow
   assert.deepEqual(w.errors, []);
 });
 
-test('C6: user {enabled:false}: an equal project value is redundant and never takes the origin; an invalid one is skipped', (t) => {
+test('C6: user {enabled:false}: an equal project value is redundant and never takes the origin; an invalid one trips the gate', (t) => {
   const f = fx(t);
   const userFile = f.writeUserDecision(userDecision({ enabled: false }));
   f.writeProjectDecision({ schema: 1, enabled: false });
@@ -144,12 +144,13 @@ test('C6: user {enabled:false}: an equal project value is redundant and never ta
   assert.equal(r.value, false);
   assert.equal(r.origin.source, userFile);
   assert.deepEqual(statuses(r), ['user*:decided', 'project*:redundant']);
-  f.writeProjectDecision('{this is not json');
+  // 119 phase-BC item 6: a malformed project decision-model.json trips advice.model's gate, so advice.enabled
+  // reports the file that forced it off (the value is unchanged, the user's off) and config list exits 1.
+  const projectFile = f.writeProjectDecision('{this is not json');
   r = load(f).get('advice.enabled');
   assert.equal(r.value, false);
-  assert.equal(r.origin.source, userFile);
-  assert.equal(r.origin.via, null);
-  assert.deepEqual(statuses(r), ['user*:decided', 'project*:invalid']);
+  assert.deepEqual(r.origin, origin('project', projectFile, { checkout: 'own', legacy: true, via: 'fail-safe' }));
+  assert.deepEqual(statuses(r), ['user*:overridden', 'project*:invalid']);
 });
 
 const C7_CASES = [
