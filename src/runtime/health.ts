@@ -618,7 +618,31 @@ function printMcpSections(mcp: any) {
   if (unreadableRuns) console.log(`  ${unreadableRuns} run file(s) could not be read`);
 }
 
-function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, execFileImpl, fsImpl = fs, detector, adapters, env = process.env }: any = {}) {
+/** The first release of each Node line that carries the 2026-10-21 security fix (CVE-2026-111497). */
+const NODE_PATCHED_RELEASE: Record<number, number[]> = Object.freeze({ 24: [24, 22, 1], 26: [26, 12, 1] });
+
+/**
+ * A warning when `version` (a `process.version` string) is a release of a Node line below that
+ * line's patched release; null for a patched release and for a line this table does not know.
+ * The floor in `bin/doflow.js` already refuses anything under 24.22.1, so in practice this fires for
+ * a Node 26 below 26.12.1; the 24 entry keeps the table complete for a caller that bypasses the bin.
+ */
+function nodeSecurityWarning(version: string): { kind: string, subject: string, detail: string } | null {
+  const parts = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(version));
+  if (!parts) return null;
+  const running = [Number(parts[1]), Number(parts[2]), Number(parts[3])];
+  const patched = NODE_PATCHED_RELEASE[running[0]];
+  if (!patched) return null;
+  const below = patched.reduce((order, part, i) => order || Math.sign(running[i] - part), 0) < 0;
+  if (!below) return null;
+  return {
+    kind: 'node-security-release',
+    subject: 'node',
+    detail: `Node ${String(version).replace(/^v/, '')} is below ${patched.join('.')}, the first ${running[0]}.x release with the fix for CVE-2026-111497 (2026-10-21 security release); upgrade Node`,
+  };
+}
+
+function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, execFileImpl, fsImpl = fs, detector, adapters, env = process.env, nodeVersion = process.version }: any = {}) {
   const root = repoRoot || REPO_ROOT;
   const registry = loadRegistry({ repoRoot: root });
   const activeRouter = router || new CapabilityRouter({ repoRoot: root, projectRoot });
@@ -681,7 +705,9 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
       .filter((row: any) => row.state === 'NO-REACH')
       .map((row: any) => ({ kind: 'runtime-no-reach', subject: `${row.harness}:${row.scope}`, detail: `${row.reason}; fix: ${row.fix}` })),
   ];
+  const nodeWarning = nodeSecurityWarning(nodeVersion);
   const warnings = [
+    ...(nodeWarning ? [nodeWarning] : []),
     ...freshness
       .filter((item) => item.state === 'STALE')
       .map((item) => ({ kind: 'index-stale', subject: item.providerId, detail: `${item.label} is behind the working tree; refresh with: ${item.refresh}` })),
@@ -881,6 +907,7 @@ module.exports = {
   newestSourceMtime,
   detectProjectCommands,
   buildHealthReport,
+  nodeSecurityWarning,
   handleDoctorCommand,
   PROBE_TIMEOUT_MS,
 };
