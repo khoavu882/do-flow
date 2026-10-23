@@ -180,12 +180,18 @@ function loadVerificationRegistry(options: any = {}): any {
   // 095b IC-003: the review depth policy is data. An invalid block is a load error, never a default.
   const depthPolicy = data.reviewDepth;
   assert(isPlainObject(depthPolicy), 'reviewDepth must be an object');
+  for (const key of Object.keys(depthPolicy)) {
+    assert(REVIEW_DEPTH_KEYS.includes(key), `reviewDepth has an unknown key '${key}' (allowed: ${REVIEW_DEPTH_KEYS.join(', ')})`);
+  }
   const depthKeys = isPlainObject(depthPolicy.depths) ? Object.keys(depthPolicy.depths) : [];
   assert(
     depthKeys.length === 2 && depthKeys.includes('single') && depthKeys.includes('deep'),
     "reviewDepth.depths must have exactly the keys 'single' and 'deep'",
   );
   for (const key of depthKeys) {
+    for (const field of Object.keys(depthPolicy.depths[key] ?? {})) {
+      assert(field === 'seats', `reviewDepth.depths.${key} has an unknown key '${field}' (allowed: seats)`);
+    }
     const seats = depthPolicy.depths[key]?.seats;
     assert(Number.isInteger(seats) && seats > 0, `reviewDepth.depths.${key}.seats must be a positive integer`);
   }
@@ -207,13 +213,17 @@ function loadVerificationRegistry(options: any = {}): any {
   for (const entry of depthPolicy.lightPaths) {
     assert(
       typeof entry === 'string' && entry !== '' && !entry.includes('\0')
-        && !entry.startsWith('/') && !entry.split(/[\\/]+/).includes('..'),
-      `reviewDepth.lightPaths entries must be non-empty strings without a '..' segment or a leading '/': found '${String(entry)}'`,
+        && !entry.startsWith('/') && !entry.split(/[\\/]+/).includes('..')
+        && !entry.startsWith('./') && !entry.includes('\\'),
+      `reviewDepth.lightPaths entries must be non-empty '/'-separated strings without a '..' segment, a leading '/' or './', or a backslash: found '${String(entry)}'`,
     );
   }
 
   return data;
 }
+
+/** The keys a `reviewDepth` block may carry (095b IC-003); anything else can never take effect. */
+const REVIEW_DEPTH_KEYS = ['description', 'depths', 'singleRisks', 'lightPaths'];
 
 function isPlainObject(value: any): boolean {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);

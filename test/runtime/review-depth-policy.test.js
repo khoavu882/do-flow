@@ -49,6 +49,11 @@ const INVALID = [
   ['lightPaths with a .. segment', (r) => { r.reviewDepth.lightPaths = ['docs/../src/']; }, /lightPaths.*\.\./],
   ['lightPaths bare ..', (r) => { r.reviewDepth.lightPaths = ['..']; }, /lightPaths.*\.\./],
   ['lightPaths leading slash', (r) => { r.reviewDepth.lightPaths = ['/docs/']; }, /lightPaths.*\//],
+  ['lightPaths leading ./ (C-11)', (r) => { r.reviewDepth.lightPaths = ['./docs/']; }, /lightPaths.*\.\//],
+  ['lightPaths bare ./ (C-11)', (r) => { r.reviewDepth.lightPaths = ['docs/', './']; }, /lightPaths.*\.\//],
+  ['lightPaths with a backslash (C-11)', (r) => { r.reviewDepth.lightPaths = ['docs\\']; }, /lightPaths.*backslash/],
+  ['an unknown key in the reviewDepth block (C-11)', (r) => { r.reviewDepth.lightPath = ['docs/']; }, /reviewDepth.*lightPath/],
+  ['an unknown key in a depths entry (C-11)', (r) => { r.reviewDepth.depths.single.weight = 1; }, /reviewDepth\.depths\.single.*weight/],
 ];
 
 for (const [name, mutate, message] of INVALID) {
