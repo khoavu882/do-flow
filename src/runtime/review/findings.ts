@@ -29,32 +29,44 @@ const object = (x: any): boolean => x !== null && typeof x === 'object' && !Arra
 const nonempty = (x: any): boolean => typeof x === 'string' && x.trim().length > 0;
 const strings = (x: any): boolean => Array.isArray(x) && x.every(nonempty) && new Set(x).size === x.length;
 
-/** The depth and risk vocabularies (095b IC-005), read from the verification registry on first use only,
- * so a record without `depth` or `risk` (and a bench `require` of this file) never loads it. `null` fails closed. */
-let depthVocabulary: { depths: Record<string, { seats: number }>; risks: string[] } | null | undefined;
-function depthPolicy(): { depths: Record<string, { seats: number }>; risks: string[] } | null {
-  if (depthVocabulary === undefined) {
+/** The risk vocabulary (095b IC-005), read from the verification registry on first use only, so a record without
+ * `risk` (and a bench `require` of this file) never loads it. `null` fails closed. */
+let riskVocabulary: string[] | null | undefined;
+function riskLevels(): string[] | null {
+  if (riskVocabulary === undefined) {
     try {
-      const { loadVerificationRegistry, reviewDepthPolicy } = require('../verification/registry.ts');
-      const registry = loadVerificationRegistry();
-      depthVocabulary = { depths: reviewDepthPolicy(registry).depths, risks: Object.keys(registry.riskLevels) };
-    } catch { depthVocabulary = null; }
+      const { loadVerificationRegistry } = require('../verification/registry.ts');
+      riskVocabulary = Object.keys(loadVerificationRegistry().riskLevels);
+    } catch { riskVocabulary = null; }
   }
-  return depthVocabulary;
+  return riskVocabulary;
 }
 
-/** The `kind: review` preset ids of the protocol registry (119 IC-002), read on first use only, so a record
- * without `protocol` never loads it. `null` (a load failure) fails closed. */
-let reviewPresetIds: string[] | null | undefined;
-function reviewPresets(): string[] | null {
-  if (reviewPresetIds === undefined) {
+/** The protocol registry (119 IC-001), read on first use only, so a record with neither `depth` nor `protocol`
+ * never loads it. `null` (a load failure) fails closed. One read serves the preset ids and the depth vocabulary. */
+let protocolRegistry: any | null | undefined;
+function protocols(): any | null {
+  if (protocolRegistry === undefined) {
     try {
-      const { loadProtocols, presetIds } = require('./protocols.ts');
-      const loaded = loadProtocols();
-      reviewPresetIds = loaded.ok ? presetIds(loaded.registry, 'review') : null;
-    } catch { reviewPresetIds = null; }
+      const loaded = require('./protocols.ts').loadProtocols();
+      protocolRegistry = loaded.ok ? loaded.registry : null;
+    } catch { protocolRegistry = null; }
   }
-  return reviewPresetIds ?? null;
+  return protocolRegistry;
+}
+
+/** The `kind: review` preset ids of the protocol registry (119 IC-002). */
+function reviewPresets(): string[] | null {
+  const registry = protocols();
+  return registry ? require('./protocols.ts').presetIds(registry, 'review') : null;
+}
+
+/** The depth vocabulary (L-1, D-4): each review preset's `depth` label with that preset's seat count. */
+function depthSeats(): Record<string, number> | null {
+  const registry = protocols();
+  if (!registry) return null;
+  return Object.fromEntries(require('./protocols.ts').presetIds(registry, 'review')
+    .map((id: string) => [registry.presets[id].depth, registry.presets[id].seats.length]));
 }
 
 /** `protocol` is exactly `{ id, digest }`: a review preset id of the shipped registry and a sha256 hex digest. */
@@ -98,9 +110,10 @@ function validateFindings(json: any): { ok: boolean; errors: string[] } {
   if (typeof data.row !== 'string' || !ROW_ID.test(data.row)) errors.push('row');
   if (typeof data.slug !== 'string' || !data.slug.startsWith(`${data.row}-`) || !/^[a-zA-Z0-9-]+$/.test(data.slug)) errors.push('slug');
   if (typeof data.reviewedHead !== 'string' || !HEX_HEAD.test(data.reviewedHead)) errors.push('reviewedHead');
-  const policy = Object.hasOwn(data, 'depth') || Object.hasOwn(data, 'risk') ? depthPolicy() : null;
-  if (Object.hasOwn(data, 'depth') && !(typeof data.depth === 'string' && policy && Object.hasOwn(policy.depths, data.depth))) errors.push('depth');
-  if (Object.hasOwn(data, 'risk') && !(typeof data.risk === 'string' && policy && policy.risks.includes(data.risk))) errors.push('risk');
+  const depths = Object.hasOwn(data, 'depth') ? depthSeats() : null;
+  const risks = Object.hasOwn(data, 'risk') ? riskLevels() : null;
+  if (Object.hasOwn(data, 'depth') && !(typeof data.depth === 'string' && depths && Object.hasOwn(depths, data.depth))) errors.push('depth');
+  if (Object.hasOwn(data, 'risk') && !(typeof data.risk === 'string' && risks && risks.includes(data.risk))) errors.push('risk');
   if (Object.hasOwn(data, 'protocol') && !validProtocol(data.protocol)) errors.push('protocol');
   if (Object.hasOwn(data, 'rounds') && !(Number.isSafeInteger(data.rounds) && data.rounds >= 1)) errors.push('rounds');
   const seats = Array.isArray(data.seats) ? data.seats : [];
@@ -199,7 +212,7 @@ function reviewAdvisories(json: any): string[] {
     if (Object.hasOwn(finding, 'bugClass') && finding.status === 'open') advisories.push(`bug-class-open:${finding.id}`);
   }
   if (Object.hasOwn(data, 'rounds') && data.rounds >= ROUND_CAP) advisories.push(`round-cap:${data.rounds}`);
-  if (Object.hasOwn(data, 'depth') && data.seats.length < (depthPolicy() as any).depths[data.depth].seats) advisories.push(`depth-unmet:${data.depth}`);
+  if (Object.hasOwn(data, 'depth') && data.seats.length < (depthSeats() as Record<string, number>)[data.depth]) advisories.push(`depth-unmet:${data.depth}`);
   return advisories.sort();
 }
 

@@ -1,14 +1,18 @@
 'use strict';
 
-// G62 — review depth has one source (feature 095b, FR-002, FR-005, NFR-003, IC-001).
+// G62 — review depth has one source (feature 095b, FR-002, FR-005, NFR-003, IC-001; 119 D-4).
 //
-// Two checks keep the depth rule in the registry and the verb, never in prose:
+// The depth rule (single risks, light paths) lives in core/registry/verification.json `reviewDepth`; the seat
+// counts live in core/registry/protocols.json review presets and nowhere else (check d).
+// Checks keep the depth rule in the registry and the verb, never in prose:
 //   (a) do-code-review's SKILL.md names `review --action start`, the verb that decides depth.
 //   (b) No file under core/shared/ states a single-depth rule: the word `single`, or `one seat` /
 //       `one reviewer`, within 80 characters of a risk level name (the keys of verification.json riskLevels) or of a
 //       reviewDepth.lightPaths entry. The rule lives in core/registry/verification.json.
 //   (c) The skill proceeds past `review --action start` only on exit 0 with ok:true, and keeps the
 //       measured risk only when the result's riskSource is `record`.
+//   (d) verification.json `reviewDepth` holds no `depths` and no `seats` key at any depth, and every review preset's
+//       seat count is its own `seats` length in protocols.json (the one source of the seat counts).
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -50,6 +54,30 @@ function singleDepthRules(text) {
   }
   return hits;
 }
+
+test('G62.d the seat counts have one source: protocols.json, not verification.json reviewDepth', () => {
+  const keys = (value, found = []) => {
+    if (value && typeof value === 'object') {
+      for (const [key, child] of Object.entries(value)) { found.push(key); keys(child, found); }
+    }
+    return found;
+  };
+  const stray = keys(verification.reviewDepth).filter((key) => key === 'depths' || key === 'seats');
+  assert.deepEqual(stray, [], 'reviewDepth must not carry seat counts');
+  const protocols = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'protocols.json'), 'utf8'));
+  const review = Object.entries(protocols.presets).filter(([, preset]) => preset.kind === 'review');
+  assert.ok(review.length >= 2);
+  for (const [id, preset] of review) {
+    assert.ok(Array.isArray(preset.seats) && preset.seats.length >= 1, `${id} has seats`);
+    assert.equal(typeof preset.depth, 'string', `${id} has a depth label`);
+  }
+  assert.deepEqual(Object.keys(verification.reviewDepth).sort(), ['description', 'lightPaths', 'singleRisks']);
+  // No reader takes a seat count from a `depths` map any more.
+  const reviewDir = path.join(REPO, 'src', 'runtime', 'review');
+  for (const file of fs.readdirSync(reviewDir).filter((name) => name.endsWith('.ts'))) {
+    assert.doesNotMatch(fs.readFileSync(path.join(reviewDir, file), 'utf8'), /\.depths\b/, `${file} reads a depths map`);
+  }
+});
 
 test('G62.a do-code-review SKILL.md names `review --action start`', () => {
   assert.match(fs.readFileSync(SKILL, 'utf8'), /review --action start/);

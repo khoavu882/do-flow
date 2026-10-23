@@ -230,8 +230,7 @@ does not declare is dropped, and its value is never echoed.
 
 The closed lists a later export may use. `harness` equals the ids in `core/registry/harnesses.json`,
 `status` equals `tierStatuses`, `risk` equals the risk levels of `core/registry/verification.json`,
-`depth` equals the keys of its `reviewDepth.depths` and `protocol` equals `order.review` of
-`core/registry/protocols.json`; G45.1 holds those five equal.
+`depth` equals the `depth` labels of the review presets of `core/registry/protocols.json` (loosest first) and `protocol` equals its `order.review`; G45.1 holds those five equal.
 
 | Name | Values |
 |---|---|

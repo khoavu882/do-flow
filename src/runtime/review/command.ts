@@ -35,6 +35,9 @@ function defaultGit(args: string[], cwd: string, env: Env): { status: number | n
   return spawnSync('git', ['-C', cwd, ...args], { cwd, env: gitEnv, stdio: 'ignore' });
 }
 
+// A preset id as protocols.ts validates it (`^[a-z][a-z0-9-]*$`).
+const PRESET_ID = /^[a-z][a-z0-9-]*$/;
+
 function usage(message: string, json: boolean, out: (line: string) => void): number {
   out(json
     ? JSON.stringify({ ok: false, error: 'usage', message })
@@ -55,6 +58,7 @@ function handleReviewCommand({
   slug,
   path: recordPath,
   base,
+  preset,
   adviceClient,
   json = false,
   cwd = process.cwd(),
@@ -65,16 +69,20 @@ function handleReviewCommand({
   out = (line: string) => console.log(line),
 }: any = {}): number | Promise<number> {
   if (action !== 'check' && action !== 'start') return usage('action must be check or start', json, out);
-  if (emptyValue(slug) || emptyValue(recordPath) || emptyValue(base)) return usage('flag values must not be empty', json, out);
+  if (emptyValue(slug) || emptyValue(recordPath) || emptyValue(base) || emptyValue(preset)) return usage('flag values must not be empty', json, out);
   if (action === 'start') {
     // 095b IC-001: the start verb reads no record path, and the slug becomes a file name.
     if (hasValue(recordPath)) return usage('--path is not valid with --action start', json, out);
     if ((hasValue(slug) && !validSlug(slug)) || (hasValue(base) && typeof base !== 'string')) {
       return usage('--slug must be a plain feature name and --base a string', json, out);
     }
-    return handleReviewStart({ slug: hasValue(slug) ? slug : null, base: hasValue(base) ? base : null, json, cwd, env, resolve, adviceClient, out });
+    if (hasValue(preset) && !(typeof preset === 'string' && PRESET_ID.test(preset))) {
+      return usage('--preset must be a preset id (lower-case letters, digits and hyphens)', json, out);
+    }
+    return handleReviewStart({ slug: hasValue(slug) ? slug : null, base: hasValue(base) ? base : null, preset: hasValue(preset) ? preset : null, json, cwd, env, resolve, adviceClient, out });
   }
   if (hasValue(base)) return usage('--base is valid only with --action start', json, out);
+  if (hasValue(preset)) return usage('--preset is valid only with --action start', json, out);
   if (hasValue(slug) && hasValue(recordPath)) return usage('use either --slug or --path, not both', json, out);
   if ((hasValue(slug) && typeof slug !== 'string') || (hasValue(recordPath) && typeof recordPath !== 'string')) {
     return usage('--slug and --path values must be strings', json, out);

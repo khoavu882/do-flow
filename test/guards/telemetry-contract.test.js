@@ -600,12 +600,13 @@ test('G45.1: telemetry.json is well formed, its owned vocabularies match their o
   assert.deepEqual(checkRegistryShape(registry), []);
   const harnesses = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/harnesses.json'), 'utf8'));
   const verification = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/verification.json'), 'utf8'));
+  const protocols = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/protocols.json'), 'utf8'));
   assert.deepEqual(checkVocabularyOwners(registry, {
     harness: { owner: 'core/registry/harnesses.json', values: harnesses.harnesses.map((entry) => entry.id) },
     status: { owner: 'core/registry/verification.json tierStatuses', values: verification.tierStatuses },
     risk: { owner: 'core/registry/verification.json riskLevels', values: Object.keys(verification.riskLevels) },
-    depth: { owner: 'core/registry/verification.json reviewDepth.depths', values: Object.keys(verification.reviewDepth.depths) },
-    protocol: { owner: 'core/registry/protocols.json order.review', values: JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/protocols.json'), 'utf8')).order.review },
+    depth: { owner: 'core/registry/protocols.json review presets depth', values: [...protocols.order.review].reverse().map((id) => protocols.presets[id].depth) }, // loosest first, as the vocabulary lists them
+    protocol: { owner: 'core/registry/protocols.json order.review', values: protocols.order.review },
     role: { owner: 'core/harnesses/shared/hooks/bridge/envelope.jq role literals', values: ['main', 'worker'] },
   }), []);
   const observations = shippedObservations(registry);
