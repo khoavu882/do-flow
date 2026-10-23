@@ -134,6 +134,22 @@ class ReadinessEngine {
         action: 'Execute automated tests or record runtime observation reproducing the behavior.',
       };
     }
+    // These are satisfied by what the caller states, not by retrieved evidence (evaluateReadiness),
+    // so the action names the flag that states it (--scope / --invariants, cli/index.ts).
+    if (reqId === 'scope_clear' || reqId === 'scope_verified') {
+      return {
+        intent: 'locate-concept',
+        capability: 'code.semantic-search',
+        action: `State the scope boundary for requirement '${reqId}' (${reqDef.description}): pass --scope "<boundary>" when evaluating readiness.`,
+      };
+    }
+    if (reqId === 'invariants_captured') {
+      return {
+        intent: 'locate-concept',
+        capability: 'code.semantic-search',
+        action: `State the invariants the change must preserve for requirement '${reqId}' (${reqDef.description}): pass --invariants "<invariants>" when evaluating readiness.`,
+      };
+    }
     return {
       intent: 'locate-concept',
       capability: 'code.semantic-search',

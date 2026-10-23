@@ -974,3 +974,40 @@ test('107-B N-b control: a task with no supported claim keeps the plain reason a
   assert.equal(rootCause.reasonCode, null);
   assert.equal(rootCause.reason, "Requires at least one claim with status 'supported' and role 'root-cause'.");
 });
+
+// ── FU-afkns5: an unmet scope/invariants action names the flag that supplies it ──────────────
+//
+// `scope_clear`, `scope_verified` and `invariants_captured` are satisfied only by what the caller
+// states (`--scope`, `--invariants`), yet their recommended action fell to the generic "Gather
+// evidence", which names no flag a caller could pass.
+
+function unmetAction(taskClass, reqId, profile = {}) {
+  const engine = new ReadinessEngine({ repoRoot: REPO });
+  const ledger = new EvidenceLedger();
+  const claims = new ClaimsManager({ evidenceLedger: ledger });
+  const report = engine.evaluateReadiness({ taskId: `t-afkns5-${reqId}`, taskClass, ...profile }, ledger, claims);
+  const requirement = report.requirements.find((item) => item.id === reqId);
+  assert.equal(requirement.satisfied, false);
+  return requirement.recommendedAction;
+}
+
+test('FU-afkns5: an unmet scope_clear action names --scope', () => {
+  const action = unmetAction('feature', 'scope_clear', { verificationPlan: 'npm test' });
+  assert.match(action.action, /--scope\b/);
+  assert.doesNotMatch(action.action, /--invariants\b/);
+});
+
+test('FU-afkns5: an unmet scope_verified action names --scope', () => {
+  assert.match(unmetAction('trivial-edit', 'scope_verified').action, /--scope\b/);
+});
+
+test('FU-afkns5: an unmet invariants_captured action names --invariants', () => {
+  const action = unmetAction('refactor', 'invariants_captured');
+  assert.match(action.action, /--invariants\b/);
+  assert.doesNotMatch(action.action, /--scope\b/);
+});
+
+test('FU-afkns5 control: a requirement with no stated-input flag keeps the generic action', () => {
+  const action = unmetAction('refactor', 'architecture_mapped');
+  assert.doesNotMatch(action.action, /--scope\b|--invariants\b/);
+});
