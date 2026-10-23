@@ -23,9 +23,11 @@ function refuse(error: string, message: string, json: boolean): number {
 }
 
 function describe(file: string, verdict: any): string {
-  if (verdict.ok) return `plan-check: ${file}: ok, ${verdict.tasks} tasks`;
+  const warned = verdict.warnings.length ? `; warnings: ${verdict.warnings.join('; ')}` : '';
   const parts = verdict.problems.map((problem: any) => (problem.ids.length ? `${problem.kind} ${problem.ids.join(',')}` : problem.kind));
-  const line = `plan-check: ${file}: ${verdict.problems.length} problem(s): ${parts.join('; ')}`;
+  const line = verdict.ok
+    ? `plan-check: ${file}: ok, ${verdict.tasks} tasks${warned}`
+    : `plan-check: ${file}: ${verdict.problems.length} problem(s): ${parts.join('; ')}${warned}`;
   return line.length > TEXT_MAX ? `${line.slice(0, TEXT_MAX - 3)}...` : line;
 }
 
