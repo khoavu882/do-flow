@@ -55,16 +55,55 @@ const AUTH_HEADER = /((?:Proxy-)?Authorization:)[ \t]*([^\r\n]*)/gi;
 const SECRET_FLAG = /(--(?:password|passwd|token|secret|api-key|client-secret)(?:=|[ \t]+))("[^"\r\n]*"|'[^'\r\n]*'|[^\s"']+)/gi;
 
 // Rules 14 to 17 (body profile only, FU-ht8b3r). Command shapes that carry a secret without a key
-// word: `curl -u user:pw`, `mysql -psecret` (value glued to the flag; a bare `-p` prompts and carries
-// none), and the phrase `password hunter2`. They are scoped to the command (or to the key word) so
-// `sort -u`, `git push -u` and `mysql -P 3306` stay as written.
-const CURL_USER_FLAG = /(\bcurl\b[^\r\n|;&]{0,200}?[ \t](?:-u|--user)(?:=|[ \t]+))("[^"\r\n]*"|'[^'\r\n]*'|[^\s"']+)/g;
-const MYSQL_PASSWORD_FLAG = /(\bmysql(?:dump|admin|pump|import)?\b[^\r\n|;&]{0,200}?[ \t]-p)("[^"\r\n]*"|'[^'\r\n]*'|[^\s"'-][^\s"']*)/g;
+// word: `curl -u user:pw` (also glued, `-uuser:pw`), `mysql -psecret` (value glued to the flag; a bare
+// `-p` prompts and carries none), and the phrase `password hunter2`. The flags are masked by one
+// left-to-right scan (rules 14 and 15, `maskCommandFlags`) that knows which command it is in, so every
+// flag of a command is masked and `sort -u`, `git push -u` and `mysql -P 3306` stay as written.
+// Quoted text is skipped whole, so a `|` or `;` inside quotes does not end a command.
+// Alternatives, in order: quoted text (skipped), a command word, a command break, curl's `--user` and
+// `-u` (the short one may be glued to its value), mysql's `-p` glued to its value.
+const COMMAND_SCAN = /"[^"\r\n]*"|'[^'\r\n]*'|(?<cmd>\b(?:curl|mysql(?:dump|admin|pump|import)?)\b)|(?<brk>[|;&\r\n])|(?<=[ \t])(?:(?<long>--user)(?:=|[ \t]+)|(?<short>-u)(?:=|[ \t]*)(?=[^\s|;&]))|(?<=[ \t])(?<pass>-p)(?=[^\s|;&-])/g;
+// A flag value: quoted, or unquoted up to a space, quote or command break.
+const COMMAND_FLAG_VALUE = /"[^"\r\n]*"|'[^'\r\n]*'|[^\s"'|;&]+/y;
 // The value after the phrase must hold a non-letter, as in rule 4, so ordinary prose ("the password is
-// required") survives; a plain-letter value after a bare `password ` is a known gap.
+// required") survives; a plain-letter value after a bare `password ` is a known gap, and so is a
+// password of one to three digits (`reset password 2 times` is prose).
 const PASSWORD_PHRASE = /(?<![A-Za-z0-9_.-])((?:password|passwd)[ \t]+)(?!<masked>|[=:])([^\s,;&"'`)\]}]+)/gi;
-// Another user's home directory (the running user's is rule 0). `Shared` is not a person.
-const OTHER_USER_HOME = /(?<![A-Za-z0-9_.-])\/Users\/(?!Shared(?![^/\s"'`<>:;,()[\]{}])|<)[^/\s"'`<>:;,()[\]{}]+/g;
+// Another user's home directory (the running user's is rule 0). `Shared` is not a person and `runner`
+// is the CI runner account (`/Users/runner/work/...`), so neither is masked.
+const OTHER_USER_HOME = /(?<![A-Za-z0-9_.-])\/Users\/(?!(?:Shared|runner)(?![^/\s"'`<>:;,()[\]{}])|<)[^/\s"'`<>:;,()[\]{}]+/g;
+
+/**
+ * Rules 14 and 15. Scans left to right, remembering the command word (`curl`, `mysql*`) the last
+ * break (`|`, `;`, `&`, a line end) did not end, and masks the value of every `-u`/`--user` of a curl
+ * command and every `-p<value>` of a mysql command. One pass, each step consumes at least one
+ * character, so the cost is linear in the line.
+ */
+function maskCommandFlags(text: string): string {
+  let out = '';
+  let copied = 0;
+  let command: 'curl' | 'mysql' | null = null;
+  COMMAND_SCAN.lastIndex = 0;
+  let found: RegExpExecArray | null;
+  while ((found = COMMAND_SCAN.exec(text)) !== null) {
+    const groups = found.groups || {};
+    const end = found.index + found[0].length;
+    if (groups.cmd) command = groups.cmd === 'curl' ? 'curl' : 'mysql';
+    else if (groups.brk) { if (!(groups.brk === '&' && /[<>]/.test(text[found.index - 1] || ''))) command = null; }
+    else if (((groups.long || groups.short) && command === 'curl') || (groups.pass && command === 'mysql')) {
+      COMMAND_FLAG_VALUE.lastIndex = end;
+      const value = COMMAND_FLAG_VALUE.exec(text);
+      if (value && !isMasked(value[0]) && !(command === 'mysql' && value[0].startsWith(MASKED))) {
+        out += text.slice(copied, end) + MASKED;
+        copied = end + value[0].length;
+        COMMAND_SCAN.lastIndex = copied;
+      }
+    } else if (groups.long || groups.short || groups.pass) {
+      COMMAND_SCAN.lastIndex = end;   // another command's flag: rescan what follows it
+    }
+  }
+  return out + text.slice(copied);
+}
 
 function escapeRegExp(text: string): string { return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
@@ -152,12 +191,10 @@ function mask(text: any, profile: 'line' | 'body', options: any = {}): { text: s
     out = out.replace(AUTH_HEADER, (match: string, name: string, rest: string) => (rest === '' || rest === MASKED ? match : `${name} ${MASKED}`));
     // 9. Secret-bearing command-line flags.
     out = out.replace(SECRET_FLAG, (match: string, flag: string, value: string) => (isMasked(value) ? match : `${flag}${MASKED}`));
-    // 14. `curl -u user:pw` and `curl --user user:pw`.
-    out = out.replace(CURL_USER_FLAG, (match: string, flag: string, value: string) => (isMasked(value) ? match : `${flag}${MASKED}`));
-    // 15. `mysql -psecret`: the password glued to -p.
-    out = out.replace(MYSQL_PASSWORD_FLAG, (match: string, flag: string, value: string) => (isMasked(value) || value.startsWith(MASKED) ? match : `${flag}${MASKED}`));
+    // 14 and 15. `curl -u user:pw`, `curl --user user:pw`, `curl -uuser:pw` and `mysql -psecret`, every flag of a command.
+    out = maskCommandFlags(out);
     // 16. `password hunter2`: the key word, a space and a value with a non-letter in it.
-    out = out.replace(PASSWORD_PHRASE, (match: string, head: string, value: string) => (/[^A-Za-z]/.test(value) ? `${head}${MASKED}` : match));
+    out = out.replace(PASSWORD_PHRASE, (match: string, head: string, value: string) => (/[^A-Za-z]/.test(value) && !/^[0-9]{1,3}$/.test(value) ? `${head}${MASKED}` : match));
     // 17. Another user's home directory: `/Users/<name>` becomes `/Users/<masked>`.
     out = out.replace(OTHER_USER_HOME, `/Users/${MASKED}`);
   }
