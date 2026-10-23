@@ -1351,7 +1351,7 @@
           "evidence": [
             "https://opencode.ai/docs/agents"
           ],
-          "note": "OpenCode supports native agent definitions as Markdown files with frontmatter (description, mode primary|subagent, model, temperature, permission, hidden) discovered at .opencode/agents/ (project) and ~/.config/opencode/agents/ (global); agents are also definable in opencode.json's agent key. DoFlow projects each shared agent spec into those directories through the opencode-agents renderer: description, mode subagent, and a permission block for read-only agents; model is omitted because OpenCode has no 'inherit' value, so a subagent uses the model of the primary agent that invoked it.",
+          "note": "OpenCode supports native agent definitions as Markdown files with frontmatter (description, mode primary|subagent, model, temperature, permission, hidden) discovered at .opencode/agents/ (project) and ~/.config/opencode/agents/ (global); agents are also definable in opencode.json's agent key. DoFlow projects each shared agent spec into those directories through the opencode-agents renderer: description, mode subagent, and a permission block (edit and bash set to deny, the keys opencode.ai/docs/permissions documents) for read-only agents; model is omitted because OpenCode has no 'inherit' value, so a subagent uses the model of the primary agent that invoked it.",
           "verification": "Confirm a native agent under .opencode/agents/ or ~/.config/opencode/agents/ is selectable (Tab cycles primary agents; @ mentions invoke subagents)."
         },
         "scripts": {
@@ -2582,7 +2582,7 @@
           "evidence": [
             "https://kiro.dev/docs/custom-agents/configuration-reference/"
           ],
-          "note": "DoFlow writes custom agents as .kiro/agents/<name>.json. Kiro's configuration reference (read 2026-10-23) also documents Markdown agents; DoFlow does not write them, and `kiro-cli agent list` 2.27.1 did not list .md agents when last tested (not re-tested since). DoFlow renders each shared agent spec to JSON (name, description, prompt, tools, hooks) through the kiro-agents transform and installs a static doflow agent beside them. A pre-existing DoFlow-owned <name>.md is removed on update. DoFlow never changes the user's default agent; run `kiro-cli chat --agent doflow` or opt in with `kiro-cli agent set-default doflow`.",
+          "note": "DoFlow writes custom agents as .kiro/agents/<name>.json. Kiro's configuration reference (read 2026-10-23) also documents Markdown agents; DoFlow does not write them, and `kiro-cli agent list` 2.27.1 did not list .md agents when last tested (not re-tested since). DoFlow renders each shared agent spec to JSON (name, description, prompt, tools, hooks) through the kiro-agents transform and installs a static doflow agent beside them. The read-only `tools` list uses the category tags read, shell and web, which are the Kiro CLI V3 vocabulary (kiro.dev/docs/cli/v3/agent-config/); CLI 2.x named tools such as fs_read and execute_bash, so on a 2.x CLI that list may not be recognised (INFERENCE from the two documentation pages, not run live). A pre-existing DoFlow-owned <name>.md is removed on update. DoFlow never changes the user's default agent; run `kiro-cli chat --agent doflow` or opt in with `kiro-cli agent set-default doflow`.",
           "verification": "Confirm an installed custom agent under .kiro/agents is discoverable by Kiro."
         },
         "scripts": {
@@ -2720,7 +2720,8 @@
             ]
           },
           "evidence": [
-            "https://kiro.dev/docs/custom-agents/configuration-reference/"
+            "https://kiro.dev/docs/custom-agents/configuration-reference/",
+            "https://kiro.dev/docs/cli/v3/agent-config/"
           ],
           "checked": "docs",
           "verifiedOn": "2026-10-23"
