@@ -535,3 +535,18 @@ test('C-2 closure: with a non-auto review.preset a record without protocol is in
   fs.writeFileSync(settings, '{ "schema": 1, "review.preset": "review-deep", }');
   assert.deepEqual(check().body.errors, ['review-preset-setting-unread'], 'a malformed settings file fails closed');
 });
+
+test('an unknown review.preset in the user file is an unread setting at check, never a silent auto', (t) => {
+  const f = createSettingsEnv(t, { prefix: 'doflow-review-check-user-preset-' });
+  const file = writeRecord(f.project, validRecord());
+  const check = () => {
+    const result = invoke({ ...baseOptions(f.project, file, fakeWriter().writer), env: f.env(), json: true });
+    return { exitCode: result.exitCode, body: parseJsonOutput(result.lines) };
+  };
+  f.writeUserSettings({ schema: 1, 'review.preset': 'bogus-9' });
+  const { exitCode, body } = check();
+  assert.equal(exitCode, 1);
+  assert.deepEqual(body.errors, ['review-preset-setting-unread']);
+  f.writeUserSettings({ schema: 1, 'review.preset': 'auto' });
+  assert.equal(check().exitCode, 0, 'a readable user file is fine again');
+});

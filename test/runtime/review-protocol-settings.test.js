@@ -306,3 +306,38 @@ test('C-6: a malformed project file, or an invalid review.* value in it, is a se
   fs.writeFileSync(file, '{ "schema": 1, "review.preset": "review-deep" }');
   assert.equal('error' in loadProtocolInputs('feature', f.project, f.env()), false);
 });
+
+test('an unknown debate.preset in a project or local file is a settings-unavailable refusal, not a silent debate-2', (t) => {
+  const f = createSettingsEnv(t);
+  const priorExit = process.exitCode;
+  t.after(() => { process.exitCode = priorExit; });
+  for (const [write, file] of [[f.writeProjectSettings, f.projectFile('settings.json')], [f.writeProjectLocal, f.projectFile('settings.local.json')]]) {
+    write({ schema: 1, 'debate.preset': 'debate-9' });
+    const got = loadProtocolInputs(null, f.project, f.env());
+    assert.equal(got.error, 'settings-unavailable', file);
+    assert.ok(got.message.includes('debate.preset') && got.message.includes(file), got.message);
+    const lines = [];
+    const code = handleProtocolCommand({ action: 'resolve', kind: 'debate', json: true, cwd: f.project, env: f.env(), out: (line) => lines.push(line) });
+    assert.equal(code, 1, file);
+    assert.equal(JSON.parse(lines.join('\n')).error, 'settings-unavailable');
+    write({ schema: 1, 'debate.preset': 'debate-3' });
+    assert.equal('error' in loadProtocolInputs(null, f.project, f.env()), false, 'a known id resolves');
+    f.remove(file);
+  }
+});
+
+test('an unknown review.preset or debate.preset in the user file is a settings-unavailable refusal, not a silent auto or debate-2', (t) => {
+  const f = createSettingsEnv(t);
+  const file = f.userFile('settings.json');
+  for (const key of ['review.preset', 'debate.preset']) {
+    f.writeUserSettings({ schema: 1, [key]: 'bogus-9' });
+    const got = loadProtocolInputs(null, f.project, f.env());
+    assert.equal(got.error, 'settings-unavailable', key);
+    assert.ok(got.message.includes(key) && got.message.includes(file), got.message);
+  }
+  f.writeUserSettings({ schema: 1, 'review.preset': 'review-deep', 'debate.preset': 'debate-3' });
+  assert.equal('error' in loadProtocolInputs(null, f.project, f.env()), false, 'known ids resolve');
+  // Other review.* keys keep their project-and-local scope: a bad user value there is still the resolver's default.
+  f.writeUserSettings({ schema: 1, 'review.sameFamily': 'strict' });
+  assert.equal('error' in loadProtocolInputs(null, f.project, f.env()), false);
+});

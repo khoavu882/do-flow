@@ -87,6 +87,12 @@ function invalidProjectCandidate(resolution: any): { source: string; reason: str
   return (resolution?.candidates ?? []).find((c: any) => ['project', 'local'].includes(c.layer) && c.status === 'invalid');
 }
 
+/** The preset keys (`review.preset`, `debate.preset`) also refuse an invalid user value: the user file's preset is a
+ * floor like the project's, and an unknown id dropped to `auto` or the registry default would lower it without a word. */
+function invalidPresetCandidate(resolution: any): { source: string; reason: string } | undefined {
+  return (resolution?.candidates ?? []).find((c: any) => ['user', 'project', 'local'].includes(c.layer) && c.status === 'invalid');
+}
+
 /** True when the record's protocol is looser (later in the registry's strictest-first `order.review`) than `presetId`,
  * the project's `review.preset`. `auto` needs the diff, which gate-b does not read, so it never compares (C-2). */
 function protocolLooserThanPreset(protocol: any, presetId: any): boolean {
@@ -290,5 +296,5 @@ function reviewAdvisories(json: any, { sameFamily = 'warn' }: { sameFamily?: Sam
 
 module.exports = {
   HEX_HEAD, SEVERITIES, DISPOSITIONS, ORIGINS, VERIFICATIONS, ACCEPTED_AS, ROUND_CAP, RECORD_KEYS, FINDING_FIELDS,
-  object, nonempty, strings, validPath, evidenceLocator, validateFindings, countFindings, reviewAdvisories, protocolLooserThanPreset, invalidProjectCandidate,
+  object, nonempty, strings, validPath, evidenceLocator, validateFindings, countFindings, reviewAdvisories, protocolLooserThanPreset, invalidProjectCandidate, invalidPresetCandidate,
 };
