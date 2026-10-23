@@ -631,6 +631,33 @@ test('retainLocked takes its stale age from the caller, so the storage setting d
   assert.equal(fs.existsSync(tmp), false, 'older than the caller\'s age');
 });
 
+test('the temp sweep honours shouldStop and counts against maxFiles (C-3)', () => {
+  const window = { state: 'on', hours: 1, ms: HOUR };
+  const setup = (name) => {
+    const dir = project(name);
+    const files = writeAll(eventsDir(dir), dismissedFollowup('FU-aaaaaa', Date.now(), 200));
+    const tmps = [1, 2, 3, 4].map((n) => strandTmp(dir, `.retention-424${n}-abc123.tmp`, 30));
+    return { dir, files, tmps };
+  };
+  const left = (tmps) => tmps.filter((f) => fs.existsSync(f)).length;
+
+  const stopped = setup('stale-tmp-stop');
+  let unlinked = 0;
+  const counting = { ...fs, unlinkSync: (f) => { if (/\.tmp$/.test(String(f))) unlinked += 1; return fs.unlinkSync(f); } };
+  const out = retainLocked(stopped.dir, { window, now: new Date(), fsImpl: counting, shouldStop: () => unlinked >= 1 });
+  assert.equal(unlinked, 1, 'one unlink, then the stop is seen before the next');
+  assert.equal(left(stopped.tmps), 3);
+  assert.equal(out.partial, true);
+  assert.deepEqual(eventFiles(stopped.dir), stopped.files.sort(), 'the stopped pass removed none of its own files');
+
+  const capped = setup('stale-tmp-cap');
+  const result = retainLocked(capped.dir, { window, now: new Date(), maxFiles: 2 });
+  assert.equal(left(capped.tmps), 2, 'two unlinks used the whole budget');
+  assert.equal(result.partial, true);
+  assert.equal(result.removed, 0);
+  assert.deepEqual(eventFiles(capped.dir), capped.files.sort());
+});
+
 test('a lifecycle verb that runs a retention pass also clears a stale crashed temp file', () => {
   const dir = project('stale-tmp-verb');
   writeAll(eventsDir(dir), dismissedFollowup('FU-aaaaaa', Date.now(), 200));
