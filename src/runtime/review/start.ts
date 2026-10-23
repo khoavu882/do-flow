@@ -166,17 +166,25 @@ type RunLookup = { status: 'none' } | { status: 'found'; taskId: string; taskCla
 function lookupRun(stateRoot: string, slug: string): RunLookup {
   const { orchestrationRuns, selectRunEntries } = require('../implementation-gate.ts');
   const store = path.join(stateRoot, '.doflow', 'state', 'orchestration');
-  // A FIFO or device at a run path is not listed by the runtime (it lists regular files and links), so it
-  // would read as absent; a non-regular entry that could be this slug's run is unreadable instead.
-  const odd = (dir: string, name: (n: string) => boolean): string | null => {
-    try {
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        if (name(entry.name) && !entry.isFile() && !entry.isSymbolicLink() && !entry.isDirectory()) return path.join(dir, entry.name);
-      }
-    } catch { /* an absent or unreadable folder holds no run here */ }
-    return null;
+  // The runtime's listing treats a folder it cannot read as empty, which would read as no run. ENOENT is
+  // the one error that means absent; any other error on the store or on `<slug>/` is unreadable.
+  const listDir = (dir: string): { entries: any[] } | { error: string } => {
+    try { return { entries: fs.readdirSync(dir, { withFileTypes: true }) }; } catch (error: any) {
+      return error?.code === 'ENOENT' ? { entries: [] } : { error: `${dir} cannot be listed (${error?.code || error?.message || String(error)})` };
+    }
   };
-  const strange = odd(store, (n) => n === `${slug}.json`) ?? odd(path.join(store, slug), (n) => n.endsWith('.json'));
+  const flat = listDir(store);
+  if ('error' in flat) return { status: 'unreadable', message: flat.error };
+  const nested = listDir(path.join(store, slug));
+  if ('error' in nested) return { status: 'unreadable', message: nested.error };
+  // A FIFO or device at a run path is not listed by the runtime (it lists regular files and links), so it
+  // would read as absent; a non-regular `.json` entry in the flat layer or in `<slug>/` could be this
+  // slug's run and cannot be attributed, so it is unreadable.
+  const odd = (dir: string, entries: any[]): string | null => {
+    const entry = entries.find((e: any) => e.name.endsWith('.json') && !e.isFile() && !e.isSymbolicLink() && !e.isDirectory());
+    return entry ? path.join(dir, entry.name) : null;
+  };
+  const strange = odd(store, flat.entries) ?? odd(path.join(store, slug), nested.entries);
   if (strange) return { status: 'unreadable', message: `${strange} is not a regular file` };
   const listed = orchestrationRuns({ stateRoot });
   if (!listed.ok) return { status: 'unreadable', message: `the run records could not be listed (${listed.error})` };
@@ -184,7 +192,14 @@ function lookupRun(stateRoot: string, slug: string): RunLookup {
     const namespaced = path.relative(path.join(entry.root, '.doflow', 'state', 'orchestration'), entry.file).split(path.sep).length > 1;
     return entry.slug === slug || (!namespaced && path.basename(entry.file, '.json') === slug);
   });
-  if (mine.length === 0) return { status: 'none' };
+  if (mine.length === 0) {
+    // No entry names this slug. A flat run of this store that could not be read (io/unparseable, or a
+    // link) cannot be attributed to any slug, so it could be this one's: fail closed and name the file.
+    const blind = selectRunEntries(listed.entries).find((entry: any) => entry.error && entry.origin === 'current'
+      && path.dirname(entry.file) === store);
+    if (blind) return { status: 'unreadable', message: `${blind.file} is ${blind.error === 'io' ? 'not a readable regular file' : 'not valid JSON'} and cannot be ruled out as the run of ${slug}` };
+    return { status: 'none' };
+  }
   if (mine.length > 1) return { status: 'ambiguous', message: `more than one run belongs to ${slug}: ${mine.map((e: any) => e.file).join(', ')}` };
   const [entry] = mine;
   if (entry.error) return { status: 'unreadable', message: `${entry.file} is ${entry.error === 'io' ? 'not a readable regular file' : 'not valid JSON'}` };
@@ -274,7 +289,8 @@ async function handleReviewStart({ slug, base, json = false, cwd, env, resolve, 
     };
     // An uncertain applicability is a refusal with a named reason, never a silent not-applicable.
     const refuse = (error: string, message: string): number => {
-      out(json ? JSON.stringify({ ...result, ok: false, error, message }) : `review start: ${error}: ${message}`);
+      // applicable is null: a refusal does not know whether a review applies.
+      out(json ? JSON.stringify({ ...result, applicable: null, ok: false, error, message }) : `review start: ${error}: ${message}`);
       return finishRuntime(1);
     };
 
@@ -284,8 +300,18 @@ async function handleReviewStart({ slug, base, json = false, cwd, env, resolve, 
       try { feature = resolve({ projectRoot: cwd, slug: null }); } catch (error: any) {
         return refuse('feature-unresolved', `the active feature could not be resolved: ${error?.message || String(error)}`);
       }
-      const candidate = feature && !feature.error ? feature.paths?.feature_slug : null;
-      resolvedSlug = validSlug(candidate) ? candidate : null;
+      // Only a resolver that names no active feature (or returns nothing) is a known absence; any other
+      // resolver error, or a slug that is not a plain name, is an uncertain applicability.
+      if (feature && typeof feature === 'object') {
+        if (feature.error && feature.error !== 'no-active-feature') {
+          return refuse('feature-unresolved', `${String(feature.error)}: ${feature.message ?? 'the active feature could not be resolved'}`);
+        }
+        if (!feature.error) {
+          const candidate = feature.paths?.feature_slug;
+          if (!validSlug(candidate)) return refuse('feature-unresolved', `invalid-slug: the resolved feature slug ${JSON.stringify(candidate ?? null)} is not a plain feature name`);
+          resolvedSlug = candidate;
+        }
+      }
     }
     result.slug = resolvedSlug;
 

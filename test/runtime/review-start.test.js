@@ -76,7 +76,7 @@ async function start(r, options = {}) {
   const saved = process.exitCode;
   const exitCode = await handleReviewCommand({
     action: 'start', slug: SLUG, json: true, cwd: r.cwd, env: r.env,
-    resolve: () => ({ error: 'no-feature' }), out: (l) => out.push(l), ...options,
+    resolve: () => ({ error: 'no-active-feature' }), out: (l) => out.push(l), ...options,
   });
   process.exitCode = saved;
   return { exitCode, out, json: options.json === false ? null : JSON.parse(out.join('\n')) };
@@ -412,10 +412,38 @@ test('C-1: a resolver that throws exits 1 with feature-unresolved; one that repo
   assert.equal(thrown.json.error, 'feature-unresolved');
   assert.match(thrown.json.message, /boom/);
   assert.equal(thrown.json.seats, null);
-  const none = await start(r, { slug: undefined, resolve: () => ({ error: 'no-feature' }) });
+  const none = await start(r, { slug: undefined, resolve: () => ({ error: 'no-active-feature' }) });
   assert.equal(none.exitCode, 0);
   assert.equal(none.json.notApplicable, 'no-feature');
+  const nothing = await start(r, { slug: undefined, resolve: () => null });
+  assert.equal(nothing.exitCode, 0);
+  assert.equal(nothing.json.notApplicable, 'no-feature');
 });
+
+// N-1: only no-active-feature is a known absence; every other resolver error and an invalid slug refuses.
+for (const [name, resolve, pattern] of [
+  ['jq-not-found', () => ({ error: 'jq-not-found', message: 'jq is required' }), /^jq-not-found: jq is required/],
+  ['ambiguous-feature', () => ({ error: 'ambiguous-feature', message: 'ambiguous-feature (candidates: a, b)' }), /^ambiguous-feature: /],
+  ['resolver-failed', () => ({ error: 'resolver-failed', message: 'could not run the feature resolver' }), /^resolver-failed: /],
+  ['resolver-missing', () => ({ error: 'resolver-missing' }), /^resolver-missing: /],
+  ['invalid-slug error', () => ({ error: 'invalid-slug', message: 'bad' }), /^invalid-slug: /],
+  ['a feature_slug that is not a plain name', () => ({ featureFolder: '/x', paths: { feature_slug: '../escape' } }), /invalid-slug/],
+  ['a feature with no feature_slug', () => ({ featureFolder: '/x', paths: { feature_slug: null } }), /invalid-slug/],
+]) {
+  test(`N-1: a resolver result of ${name} exits 1 with feature-unresolved and no seats, even on a dirty tree`, async (t) => {
+    const r = repo(t);
+    r.lines([{ ...r.line(), verdict: 'FAIL' }]);
+    put(r.cwd, 'src/uncommitted.ts', 'x\n');
+    const { exitCode, json } = await start(r, { slug: undefined, resolve });
+    assert.equal(exitCode, 1);
+    assert.equal(json.ok, false);
+    assert.equal(json.error, 'feature-unresolved');
+    assert.match(json.message, pattern);
+    assert.equal(json.notApplicable, null);
+    assert.equal(json.seats, null);
+    assert.equal(json.depth, null);
+  });
+}
 
 test('C-1: a run known to be absent in both layouts stays not applicable (no-run), and another slug\'s namespace is ignored', async (t) => {
   const r = repo(t, { run: false });
@@ -455,6 +483,93 @@ fifoRegression('run file', 'run-unreadable', (r) => {
   const file = path.join(r.cwd, '.doflow/state/orchestration', `${SLUG}.json`);
   fs.rmSync(file);
   return file;
+});
+
+// ---- N-2: a store or namespace folder that cannot be listed refuses (ENOENT alone means absent) ----------
+
+function chmodRegression(name, place) {
+  test(`N-2: ${name} that cannot be listed exits 1 with run-unreadable naming it`, (t) => {
+    if (typeof process.getuid === 'function' && process.getuid() === 0) return t.skip('root ignores directory modes');
+    const r = repo(t, { run: false });
+    putRun(r, `${SLUG}/${FIX}.json`, { taskId: FIX, taskClass: 'bug', state: 'ACTIVE' });
+    putRecords(r, FIX, [r.line({ taskId: FIX, verdict: 'FAIL' })]);
+    put(r.cwd, 'src/uncommitted.ts', 'x\n');
+    const dir = place(r);
+    fs.chmodSync(dir, 0o000);
+    try {
+      const res = spawnSync(process.execPath, [CLI, 'review', '--action', 'start', '--slug', SLUG, '--json'],
+        { cwd: r.cwd, env: { ...r.env, DOFLOW_CLI: CLI }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20000 });
+      assert.equal(res.status, 1, res.stderr);
+      const json = JSON.parse(res.stdout);
+      assert.equal(json.error, 'run-unreadable');
+      assert.ok(json.message.includes(dir), json.message);
+      assert.equal(json.seats, null);
+      assert.equal(json.notApplicable, null);
+    } finally {
+      fs.chmodSync(dir, 0o755);
+    }
+  });
+}
+chmodRegression('the orchestration store', (r) => path.join(r.cwd, '.doflow/state/orchestration'));
+chmodRegression('the <slug>/ folder', (r) => path.join(r.cwd, '.doflow/state/orchestration', SLUG));
+
+// ---- N-3: a flat run that cannot be attributed to a slug blocks, naming the file ---------------------------
+
+const LEGACY = 'legacy-id.json';
+for (const [name, place] of [
+  ['truncated', (r) => putRun(r, LEGACY, '{"taskId":"legacy-id","featureSlug":"aaa-one","taskCla')],
+  ['a symlink', (r) => {
+    const target = path.join(r.dir, 'elsewhere.json');
+    fs.writeFileSync(target, JSON.stringify({ taskId: 'legacy-id', featureSlug: SLUG, taskClass: 'bug' }));
+    fs.mkdirSync(path.join(r.cwd, '.doflow/state/orchestration'), { recursive: true });
+    fs.symlinkSync(target, path.join(r.cwd, '.doflow/state/orchestration', LEGACY));
+  }],
+  ['a FIFO', (r) => {
+    fs.mkdirSync(path.join(r.cwd, '.doflow/state/orchestration'), { recursive: true });
+    const made = spawnSync('mkfifo', [path.join(r.cwd, '.doflow/state/orchestration', LEGACY)]);
+    if (made.status !== 0) throw new Error('skip');
+  }],
+]) {
+  test(`N-3: a flat run stored under another id that is ${name} exits 1 with run-unreadable naming the file`, async (t) => {
+    const r = repo(t, { run: false });
+    try { place(r); } catch (error) { if (error.message === 'skip') return t.skip('mkfifo is not available'); throw error; }
+    r.lines([{ ...r.line(), verdict: 'FAIL' }]);
+    put(r.cwd, 'src/uncommitted.ts', 'x\n');
+    try {
+      const { exitCode, json } = await start(r);
+      assert.equal(exitCode, 1);
+      assert.equal(json.error, 'run-unreadable');
+      assert.ok(json.message.includes(LEGACY), json.message);
+      assert.equal(json.seats, null);
+    } finally {
+      fs.rmSync(path.join(r.cwd, '.doflow/state/orchestration', LEGACY), { force: true });
+    }
+  });
+}
+
+test('N-3 control: a healthy flat run of another slug does not block; the slug has no run', async (t) => {
+  const r = repo(t, { run: false });
+  putRun(r, LEGACY, { taskId: 'legacy-id', taskClass: 'bug', featureSlug: 'other-feature' });
+  put(r.cwd, 'src/uncommitted.ts', 'x\n');
+  const { exitCode, json } = await start(r);
+  assert.equal(exitCode, 0);
+  assert.equal(json.notApplicable, 'no-run');
+});
+
+// ---- N-6: an error refusal does not know whether a review applies ------------------------------------------
+
+test('N-6: every error refusal prints applicable null; a precondition refusal stays applicable true', async (t) => {
+  const r = repo(t, { run: false });
+  putRun(r, `${SLUG}.json`, { taskId: SLUG, taskClass: 'hotfix' });
+  const unknown = await start(r);
+  assert.equal(unknown.json.error, 'class-unknown');
+  assert.equal(unknown.json.applicable, null);
+  const thrown = await start(r, { slug: undefined, resolve: () => { throw new Error('boom'); } });
+  assert.equal(thrown.json.applicable, null);
+  const pre = repo(t);
+  const refused = await start(pre);
+  assert.equal(refused.json.applicable, true);
+  assert.deepEqual(refused.json.reasons, ['verify-missing']);
 });
 
 // ---- IC-001 step 6: advice raises, never lowers ---------------------------------------------------
