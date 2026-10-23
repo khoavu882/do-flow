@@ -415,7 +415,24 @@ test('IC-001: a step whose outcome is blocked exits 0; the text form prints one 
   assert.equal(lines.length, 1, JSON.stringify(lines));
   assert.equal(lines[0][0], 'out');
   assert.match(lines[0][1], /^started p-[0-9a-f]{12} /);
-  for (const arg of q.sb.verifyArgv) assert.ok(!lines[0][1].includes(arg), 'no argv element is printed');
+  for (const arg of q.sb.verifyArgv) assert.equal(printsElement(lines[0][1], arg), false, `argv element ${JSON.stringify(arg)} is not printed`);
+});
+
+/**
+ * Whether `line` prints `arg` as a whole element: bounded by white space or the line's ends. A bare
+ * substring test reads the `-e` of a run id such as `p-e0c1...` (1 in 16) as the printed argument `-e`.
+ */
+function printsElement(line, arg) {
+  return new RegExp(`(^|\\s)${arg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`).test(line);
+}
+
+test('FU-wdktxq: the argv check reads whole elements, so a run id that starts with e does not match -e', () => {
+  const line = 'started p-e0123456789a slug s branch b base c concurrency 2 mode sequential verification argc 3 sha256 ab';
+  assert.equal(line.includes('-e'), true, 'the substring check the test used reads the run id as the argument -e');
+  assert.equal(printsElement(line, '-e'), false);
+  assert.equal(printsElement(`${line} -e`, '-e'), true, 'negative control: a printed -e element is still found');
+  assert.equal(printsElement(`${line} /usr/bin/node -e x`, '/usr/bin/node'), true, 'negative control: a printed path element is still found');
+  assert.equal(printsElement('started p-1 process.exitCode = 0;', 'process.exitCode = 0;'), true, 'negative control: an element with spaces is matched whole');
 });
 
 test('106 IC-005: start stores run.fallback from --fallback and --ladder, else from the dispatch.fallback setting', POSIX, async (t) => {

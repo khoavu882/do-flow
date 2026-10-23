@@ -52,6 +52,7 @@ All notable changes to DoFlow are documented here. Format follows
   promotion use `NPM_TOKEN`.
 
 ### Fixed
+- **dispatch-command IC-001 argv check (FU-wdktxq):** Test-only. The text-form check asserted `!line.includes(arg)` for each verification argv element, and the argv holds `-e`, so a run id `p-e...` (1 in 16) matched it and failed the test at random. It now matches whole elements (white-space boundaries), with a fixed-id test and negative controls that a printed element is still found.
 - **PreCompact stdout evidence (FU-w563w2, evidence part):** The hook comments now say the PreCompact stdout path, read as custom instructions by the summary call, was observed in Claude Code 2.1.304 and 2.1.308 (a read-only scan of both installed binaries). Comment-only; a live compaction check stays open.
 - **Compaction after a handoff from a linked worktree (FU-kda1bk):** `orchestrate --action handoff` looked for the feature folder to compact only in the calling checkout, so a linked worktree without `agent-docs` reported `skipped` and the main checkout's register and History were never folded. It now falls back to the main checkout's folder, through the same helper the policy gate decision uses, so the two cannot drift.
 - **Verification reuse eviction (FU-kerery):** When the key read before a check faulted (null), the check's FAIL evicted nothing and an older stored PASS stayed reusable. The post-run tree read now also returns its key, and a FAIL (including a timeout or spawn error) evicts by it when the pre-run key is null. Reuse still ships off.
