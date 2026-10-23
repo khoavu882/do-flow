@@ -122,6 +122,11 @@ const TRANSFORMS: Record<string, (sourceRel: string, content: any) => any> = {
     void sourceRel;
     return Buffer.from(applyAgentLimits(content.toString('utf8'), 'claude'));
   },
+  /** Shared agent spec -> the same file without `access`; Codex's limit is `unenforced` (the TOML carries it), so no keys are added */
+  'codex-agents': (sourceRel: string, content: any) => {
+    void sourceRel;
+    return Buffer.from(applyAgentLimits(content.toString('utf8'), 'codex'));
+  },
   /** Shared agent spec -> the same file without `access`, plus Copilot's read-only limit keys (118 IC-005) */
   'copilot-agents': (sourceRel: string, content: any) => {
     void sourceRel;

@@ -9,7 +9,9 @@ const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp');
 const { TRANSFORMS, readOnlyApply } = require('../../src/adapters/copy-tree.ts');
 const codexAgents = require('../../src/adapters/codex/agents.ts');
-const { loadRegistry } = require('../../src/registry/index.ts');
+const { loadRegistry, selectAssets, harnessFor } = require('../../src/registry/index.ts');
+const { projectAdapterInput } = require('../../src/adapters/index.ts');
+const codexAdapter = require('../../src/adapters/codex/index.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const SPECS = path.join(REPO, 'core', 'shared', 'agent-specs');
@@ -34,6 +36,14 @@ function render(id, spec) {
 test('the specs under test carry both access values', () => {
   assert.ok(specs.some((spec) => spec.access === 'read-only'));
   assert.ok(specs.some((spec) => spec.access === 'write'));
+});
+
+test('every harness agents.shared applies to projects through a registered transform (no byte-copy path)', () => {
+  assert.ok(sharedAgents.appliesTo.length >= 7);
+  for (const id of sharedAgents.appliesTo) {
+    const transform = sharedAgents.projection[id].transform;
+    assert.ok(transform && TRANSFORMS[transform], `${id}: agents.shared declares a registered transform`);
+  }
 });
 
 test('readOnlyApply returns the registry apply block, or null when the limit is unenforced', () => {
@@ -106,6 +116,36 @@ test('codex: every TOML carries sandbox_mode = "read-only" exactly when its spec
     assert.equal(agent.sandbox_mode, spec.access === 'read-only' ? 'read-only' : undefined, agent.name);
     assert.ok(!/^access\b/m.test(agent.source), `${agent.name}: no access key`);
   }
+});
+
+test('codex: the Markdown agent copies in ~/.codex/agents carry no access key, through plan, apply and verify', () => {
+  const projectRoot = suiteTempDir('doflow-agent-limits-codex-');
+  const assets = selectAssets(registry, { harness: 'codex' });
+  const projected = projectAdapterInput({ registry, harness: harnessFor(registry, 'codex'), scope: 'project', scopeRoot: projectRoot, assets, mcp: [], policies: [], context: { sourceVersion: 'test-v1' } });
+  const input = { ...projected, projectRoot, context: { repoRoot: REPO, sourceVersion: 'test-v1' } };
+  const planned = codexAdapter.plan(input);
+  assert.equal(planned.components.copyTree.ok, true);
+  codexAdapter.apply({ ...input, changes: planned.changes });
+  const agentsDir = path.join(projectRoot, '.codex', 'agents');
+  const written = fs.readdirSync(agentsDir);
+  const mdFiles = written.filter((file) => file.endsWith('.md')).sort();
+  assert.deepEqual(mdFiles, specs.map((spec) => spec.file), 'one Markdown copy per spec');
+  for (const spec of specs) {
+    const out = fs.readFileSync(path.join(agentsDir, spec.file), 'utf8');
+    assert.ok(!/^access:/m.test(out), `codex/${spec.name}: no access key in the projected Markdown`);
+    // Codex's limit is unenforced, so the output is the spec minus the access line and nothing added.
+    assert.equal(out, spec.text.replace(/^access:.*\n/m, ''), `codex/${spec.name}: spec minus access`);
+  }
+  // The TOMLs are a separate asset and stay byte for byte what the repo ships.
+  for (const file of written.filter((name) => name.endsWith('.toml'))) {
+    assert.equal(fs.readFileSync(path.join(agentsDir, file), 'utf8'), fs.readFileSync(path.join(CODEX_TOMLS, file), 'utf8'), `${file}: untouched`);
+  }
+  assert.ok(written.some((file) => file.endsWith('.toml')));
+  // verify re-derives the transformed bytes: clean after apply, and the ledger plan is a no-op.
+  const verified = codexAdapter.verify({ ...input, registry });
+  assert.equal(verified.ok, true, verified.conflicts.join('\n'));
+  const ledger = { resources: verified.resources.map((resource) => ({ ...resource, harness: 'codex' })) };
+  assert.equal(codexAdapter.plan({ ...input, ledger }).changes.filter((change) => change.projection?.renderer === 'copy-tree').length, 0, 'second plan is idempotent');
 });
 
 test('codex validator: a TOML disagreeing with its spec access is rejected, a user agent is not', () => {

@@ -22,7 +22,9 @@ function harnessesFor(assetId) {
 
 /** Agent-spec keys DoFlow reads itself and never projects (118 IC-002, IC-005): the adapters turn
  * `access` into each harness's own limit keys and drop it, so no harness has to recognize it.
- * `test/adapters/agent-limits-projection.test.js` fails if `access` reaches any projected file. */
+ * `test/adapters/agent-limits-projection.test.js` fails if `access` reaches any projected agent file:
+ * it requires a transform on every harness that agents.shared applies to, renders each through it,
+ * and runs the Codex copy path end to end. */
 const DOFLOW_INTERNAL_AGENT_KEYS = new Set(['access']);
 
 /** A key is a defect only when EVERY harness it ships to rejects it. Requiring the intersection

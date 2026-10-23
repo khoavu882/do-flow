@@ -216,7 +216,8 @@
         },
         "codex": {
           "renderer": "copy-tree",
-          "capability": "agents"
+          "capability": "agents",
+          "transform": "codex-agents"
         },
         "gemini": {
           "renderer": "copy-tree",
