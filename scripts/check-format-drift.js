@@ -10,7 +10,10 @@
 // Doctrine: plain Node >=24.22.1, zero dependencies (global fetch + node:crypto sha256). Deterministic:
 // the same page content yields the same fingerprint regardless of fetch order, time of day, or
 // cosmetic page churn — normalization strips tags/script/style, collapses whitespace, and drops
-// date-like and copyright lines before hashing. Baseline lives under scripts/, NOT core/registry/
+// date-like and copyright lines before hashing. Only the MAIN content is fingerprinted (<main>,
+// else <article>, else role=main, else the whole page), so site-wide chrome (nav, sidebars, footers)
+// cannot drift a page; the extractor used is recorded per URL. A capped text snapshot of that
+// content sits beside each hash (scripts/drift/snapshots/) so a DRIFTED row can show a diff. Baseline lives under scripts/, NOT core/registry/
 // (that family is ratcheted at exactly 12 files by G-B2; the baseline is CI state, not registry).
 //
 // Exit codes:
@@ -29,6 +32,15 @@ const REPO = path.resolve(__dirname, '..');
 const REGISTRY_DIR = path.join(REPO, 'core', 'registry');
 const BASELINE_FILE = path.join(REPO, 'scripts', 'drift', 'baseline.json');
 const ALLOWLIST_FILE = path.join(REPO, 'scripts', 'drift', 'allowlist.json');
+const SNAPSHOT_DIR = path.join(REPO, 'scripts', 'drift', 'snapshots');
+
+// A snapshot file never exceeds this many bytes (marker and final newline included); longer text is
+// cut on a line boundary. The hash still covers the full text, so a change past the cap drifts with
+// an empty diff. 16 KiB x ~60 pages is at most ~1 MB (10 live pages measured: ~11 KB average).
+const SNAPSHOT_MAX_BYTES = 16384;
+const SNAPSHOT_MARKER = '[snapshot truncated]';
+const DIFF_MAX_LINES = 40; // hunk lines shown per row; the rest is summarised
+const DIFF_CONTEXT = 2;
 
 const FETCH_TIMEOUT_MS = 10_000;
 const FETCH_RETRIES = 2; // initial attempt + 2 retries
@@ -104,11 +116,7 @@ function loadAllowlist(file, specIds) {
 /** Normalize fetched HTML/text into the stable form that gets hashed. Cosmetic churn — tag soup,
  * whitespace, "Last updated" stamps, copyright footers — must NOT move the fingerprint. */
 function normalizeText(raw) {
-  let text = String(raw)
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gis, ' ')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gis, ' ')
-    .replace(/<(noscript|svg|template|iframe)\b[^>]*>[\s\S]*?<\/\1\s*>/gis, ' ')
-    .replace(/<!--[\s\S]*?-->/g, ' ')
+  let text = stripNonContent(raw)
     .replace(/<[^>]+>/g, '\n'); // every tag becomes a line break, so text nodes stay separate lines
 
   text = text
@@ -134,6 +142,149 @@ function normalizeText(raw) {
     lines.push(line);
   }
   return lines.join('\n');
+}
+
+// ----------------------------------------------------------------------------- main-content extraction
+
+function stripNonContent(raw) {
+  return String(raw)
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gis, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style\s*>/gis, ' ')
+    .replace(/<(noscript|svg|template|iframe)\b[^>]*>[\s\S]*?<\/\1\s*>/gis, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ');
+}
+
+/** Inner HTML of the first element whose opening tag matches `openRe` (capture 1 = tag name), found
+ * by counting same-name open/close tags; null when there is no such element or it never closes. */
+function innerOf(html, openRe) {
+  const open = openRe.exec(html);
+  if (!open) return null;
+  const name = open[1].toLowerCase();
+  const start = open.index + open[0].length;
+  if (open[0].endsWith('/>')) return null;
+  const tag = new RegExp(`<(/?)${name}(?=[\\s>/])[^>]*>`, 'gi');
+  tag.lastIndex = start;
+  let depth = 1;
+  for (let m = tag.exec(html); m; m = tag.exec(html)) {
+    if (m[1]) depth -= 1;
+    else if (!m[0].endsWith('/>')) depth += 1;
+    if (depth === 0) return html.slice(start, m.index);
+  }
+  return null;
+}
+
+// Tried in order; the first that yields non-empty text wins. Tag-aware, not a parser: it counts
+// same-name tags, so a `>` inside an attribute value, an unclosed <div> inside the block, or markup
+// in a plain-text/markdown body can mis-slice it. Only the FIRST element of each kind is read. An
+// unterminated or empty block falls through to the next rule rather than being trusted.
+const EXTRACTORS = [
+  ['main', /<(main)(?=[\s>/])[^>]*>/i],
+  ['article', /<(article)(?=[\s>/])[^>]*>/i],
+  ['role=main', /<([a-z][a-z0-9-]*)(?=[\s/])[^>]*?\brole\s*=\s*(?:"main"|'main'|main(?=[\s>/]))[^>]*>/i],
+];
+
+/** Pick the main-content HTML of a page: {extractor, html}. `page` = the whole input. */
+function extractMain(raw) {
+  const html = stripNonContent(raw);
+  for (const [extractor, openRe] of EXTRACTORS) {
+    const inner = innerOf(html, openRe);
+    if (inner !== null && normalizeText(inner)) return { extractor, html: inner };
+  }
+  return { extractor: 'page', html: raw };
+}
+
+/** {extractor, text}: the normalized main content, or (forced 'page') the whole page as v1 hashed it. */
+function normalizeContent(raw, forced) {
+  const picked = forced === 'page' ? { extractor: 'page', html: raw } : extractMain(raw);
+  return { extractor: picked.extractor, text: normalizeText(picked.html) };
+}
+
+// ---------------------------------------------------------------------------------- snapshots + diff
+
+function snapshotName(url) {
+  return crypto.createHash('sha1').update(url, 'utf8').digest('hex') + '.txt';
+}
+
+/** Cut `text` on a line boundary so the stored file (text + marker + newline) fits SNAPSHOT_MAX_BYTES. */
+function capSnapshot(text) {
+  if (Buffer.byteLength(text) + 1 <= SNAPSHOT_MAX_BYTES) return text;
+  const budget = SNAPSHOT_MAX_BYTES - Buffer.byteLength(`\n${SNAPSHOT_MARKER}`) - 1;
+  const kept = [];
+  let used = 0;
+  for (const line of text.split('\n')) {
+    const size = Buffer.byteLength(line) + (kept.length ? 1 : 0);
+    if (used + size > budget) break;
+    kept.push(line);
+    used += size;
+  }
+  if (!kept.length) { // one huge first line: cut it by bytes, dropping a split trailing character
+    kept.push(Buffer.from(text.split('\n')[0]).subarray(0, budget).toString('utf8').replace(/�$/, ''));
+  }
+  return `${kept.join('\n')}\n${SNAPSHOT_MARKER}`;
+}
+
+/** Line diff of two texts as a capped unified diff ('' when equal). LCS over the lines between the
+ * common prefix and suffix; texts are snapshot-capped, so the table stays small. */
+function unifiedDiff(before, after) {
+  const a = before.split('\n');
+  const b = after.split('\n');
+  let pre = 0;
+  while (pre < a.length && pre < b.length && a[pre] === b[pre]) pre += 1;
+  let suf = 0;
+  while (suf < a.length - pre && suf < b.length - pre && a[a.length - 1 - suf] === b[b.length - 1 - suf]) suf += 1;
+  const am = a.slice(pre, a.length - suf);
+  const bm = b.slice(pre, b.length - suf);
+  if (!am.length && !bm.length) return '';
+
+  const w = bm.length + 1;
+  const lcs = new Uint32Array((am.length + 1) * w);
+  for (let i = am.length - 1; i >= 0; i -= 1) {
+    for (let j = bm.length - 1; j >= 0; j -= 1) {
+      lcs[i * w + j] = am[i] === bm[j] ? lcs[(i + 1) * w + j + 1] + 1
+        : Math.max(lcs[(i + 1) * w + j], lcs[i * w + j + 1]);
+    }
+  }
+  const ops = a.slice(0, pre).map((text) => ({ t: ' ', text }));
+  let i = 0;
+  let j = 0;
+  while (i < am.length || j < bm.length) {
+    if (i < am.length && j < bm.length && am[i] === bm[j]) { ops.push({ t: ' ', text: am[i] }); i += 1; j += 1; }
+    else if (i < am.length && (j === bm.length || lcs[(i + 1) * w + j] >= lcs[i * w + j + 1])) { ops.push({ t: '-', text: am[i] }); i += 1; }
+    else { ops.push({ t: '+', text: bm[j] }); j += 1; }
+  }
+  for (const text of a.slice(a.length - suf)) ops.push({ t: ' ', text });
+
+  // Hunks: every changed op plus DIFF_CONTEXT lines either side, overlapping ranges merged.
+  const ranges = [];
+  ops.forEach((op, k) => {
+    if (op.t === ' ') return;
+    const lo = Math.max(0, k - DIFF_CONTEXT);
+    const hi = Math.min(ops.length, k + DIFF_CONTEXT + 1);
+    const last = ranges[ranges.length - 1];
+    if (last && lo <= last[1]) last[1] = hi; else ranges.push([lo, hi]);
+  });
+  const body = [];
+  for (const [lo, hi] of ranges) {
+    const seen = ops.slice(0, lo);
+    const oldStart = seen.filter((o) => o.t !== '+').length + 1;
+    const newStart = seen.filter((o) => o.t !== '-').length + 1;
+    const hunk = ops.slice(lo, hi);
+    body.push(`@@ -${oldStart},${hunk.filter((o) => o.t !== '+').length} `
+      + `+${newStart},${hunk.filter((o) => o.t !== '-').length} @@`);
+    for (const o of hunk) body.push(`${o.t}${o.text}`);
+  }
+  const shown = body.slice(0, DIFF_MAX_LINES);
+  if (body.length > shown.length) shown.push(`... (${body.length - shown.length} more diff lines)`);
+  return ['--- baseline', '+++ current', ...shown].join('\n');
+}
+
+function readSnapshot(dir, url) {
+  try {
+    return fs.readFileSync(path.join(dir, snapshotName(url)), 'utf8').replace(/\n$/, '');
+  } catch (err) {
+    if (err && err.code === 'ENOENT') return null;
+    throw err;
+  }
 }
 
 /** Self-describing sha256 hex of already-normalized text. */
@@ -214,7 +365,15 @@ function renderHuman(report) {
   for (const row of results) {
     out.push(`${row.status.padEnd(width)}  ${row.url}`);
     out.push(`${''.padEnd(width)}  -> claims: ${row.claims.join(', ') || '(none)'}`);
+    if (row.extractor) out.push(`${''.padEnd(width)}  -> extractor: ${row.extractor}`);
     if (row.error) out.push(`${''.padEnd(width)}  -> ${row.error}`);
+    if (row.status === 'DRIFTED' && row.diff === null) {
+      out.push(`${''.padEnd(width)}  -> no snapshot to diff against (refresh with --update)`);
+    } else if (row.status === 'DRIFTED' && row.diff === '') {
+      out.push(`${''.padEnd(width)}  -> change lies beyond the ${SNAPSHOT_MAX_BYTES}-byte snapshot`);
+    } else if (row.diff) {
+      for (const line of row.diff.split('\n')) out.push(`${''.padEnd(width)}  | ${line}`);
+    }
   }
   if (excluded.length) {
     out.push('');
@@ -243,6 +402,7 @@ async function run(options = {}) {
     registriesDir: REGISTRY_DIR,
     baselineFile: BASELINE_FILE,
     allowlistFile: ALLOWLIST_FILE,
+    snapshotDir: SNAPSHOT_DIR,
     update: false,
     json: false,
     updatedAt: () => new Date().toISOString(),
@@ -267,14 +427,20 @@ async function run(options = {}) {
   }
   const urls = [...claimsByUrl.keys()].sort();
 
+  // v1 baselines hold only `urls` (hashes of the whole page); v2 adds `extractors` (url -> rule).
+  // `urls` keeps the v1 shape, so a reader that predates the extractor still parses it.
   let baseline = {};
+  let baselineExtractors = {};
   try {
-    baseline = JSON.parse(fs.readFileSync(o.baselineFile, 'utf8')).urls || {};
+    const baselineDoc = JSON.parse(fs.readFileSync(o.baselineFile, 'utf8'));
+    baseline = baselineDoc.urls || {};
+    baselineExtractors = baselineDoc.extractors || {};
   } catch (err) {
     if (!(err && err.code === 'ENOENT')) throw err; // absent baseline: everything reports NEW
   }
 
   const results = [];
+  const texts = new Map(); // url -> normalized main text, for the snapshots written by --update
   for (const url of urls) {
     const outcome = await fetchText(url, o);
     const prior = Object.prototype.hasOwnProperty.call(baseline, url) ? baseline[url] : undefined;
@@ -282,16 +448,30 @@ async function run(options = {}) {
       url,
       status: null,
       claims: claimsByUrl.get(url),
+      extractor: null,
+      baselineExtractor: typeof baselineExtractors[url] === 'string' ? baselineExtractors[url]
+        : (typeof prior === 'string' ? 'page' : null), // a v1 entry was hashed over the whole page
       fingerprint: null,
       baselineFingerprint: typeof prior === 'string' ? prior : null,
+      diff: null,
       error: null,
       suspicious: false,
     };
     if (outcome.ok) {
-      row.fingerprint = fingerprintText(normalizeText(outcome.body));
+      // A v1 entry is compared on the whole page (as it was hashed) so the extractor change alone
+      // drifts nothing; --update migrates it. An update run always hashes the main content.
+      const legacy = row.baselineExtractor === 'page' && typeof baselineExtractors[url] !== 'string' && !o.update;
+      const content = normalizeContent(outcome.body, legacy ? 'page' : undefined);
+      texts.set(url, content.text);
+      row.extractor = content.extractor;
+      row.fingerprint = fingerprintText(content.text);
       if (typeof prior !== 'string') row.status = 'NEW';       // first sighting (or prior run was offline)
       else if (prior === row.fingerprint) row.status = 'OK';
-      else row.status = 'DRIFTED';
+      else {
+        row.status = 'DRIFTED';
+        const snapshot = legacy ? null : readSnapshot(o.snapshotDir, url);
+        if (snapshot !== null) row.diff = unifiedDiff(snapshot, capSnapshot(content.text));
+      }
     } else {
       row.status = 'UNREACHABLE';
       row.suspicious = typeof prior === 'string';
@@ -304,10 +484,26 @@ async function run(options = {}) {
   const summary = summarize(results, excluded, staleUrlCount);
 
   if (o.update) {
-    const doc = { version: 1, generator: 'scripts/check-format-drift.js', updatedAt: o.updatedAt(), urls: {} };
-    for (const row of results) doc.urls[row.url] = row.fingerprint; // null marks unreachable-at-baseline
+    const doc = {
+      version: 2, generator: 'scripts/check-format-drift.js', updatedAt: o.updatedAt(), urls: {}, extractors: {},
+    };
+    for (const row of results) {
+      doc.urls[row.url] = row.fingerprint; // null marks unreachable-at-baseline
+      if (row.extractor) doc.extractors[row.url] = row.extractor;
+    }
     fs.mkdirSync(path.dirname(o.baselineFile), { recursive: true });
     fs.writeFileSync(o.baselineFile, `${JSON.stringify(doc, null, 2)}\n`);
+
+    // Snapshots follow the baseline: one capped text file per reachable URL, none for the rest.
+    fs.mkdirSync(o.snapshotDir, { recursive: true });
+    const keep = new Set();
+    for (const [url, text] of texts) {
+      keep.add(snapshotName(url));
+      fs.writeFileSync(path.join(o.snapshotDir, snapshotName(url)), `${capSnapshot(text)}\n`);
+    }
+    for (const file of fs.readdirSync(o.snapshotDir)) {
+      if (/^[0-9a-f]{40}\.txt$/.test(file) && !keep.has(file)) fs.rmSync(path.join(o.snapshotDir, file));
+    }
   }
 
   const report = { summary, results, excluded, specs: activeSpecs };
@@ -330,8 +526,9 @@ function parseArgs(argv) {
 }
 
 module.exports = {
-  buildWatchSpecs, loadAllowlist, normalizeText, fingerprintText, fetchText, parseArgs, run,
-  REPO, BASELINE_FILE, ALLOWLIST_FILE,
+  buildWatchSpecs, loadAllowlist, normalizeText, extractMain, normalizeContent, capSnapshot,
+  unifiedDiff, snapshotName, fingerprintText, fetchText, parseArgs, run,
+  REPO, BASELINE_FILE, ALLOWLIST_FILE, SNAPSHOT_DIR, SNAPSHOT_MAX_BYTES, DIFF_MAX_LINES,
 };
 
 if (require.main === module) {
