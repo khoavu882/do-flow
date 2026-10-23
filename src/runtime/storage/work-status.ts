@@ -136,7 +136,12 @@ function readRunAt(cache: any, runId: string, where: string): any {
   const file = path.join(stateRoot(cache.projectRoot), 'orchestration', ...(where ? [where] : []), `${runId}.json`);
   let result: any;
   try {
-    const value = JSON.parse(cache.fsImpl.readFileSync(file, 'utf8'));
+    // A namespaced copy is a file base never read (N-4): a link, a FIFO or a device there reads as
+    // unreadable (the record is kept) and never blocks. The flat copy keeps its plain read (FU-d88kp0).
+    const text = where && typeof cache.fsImpl.lstatSync === 'function' && typeof cache.fsImpl.openSync === 'function'
+      ? require('../task-scope.ts').readRegularFileText(file, cache.fsImpl) : cache.fsImpl.readFileSync(file, 'utf8');
+    if (text === null) throw new Error('not a regular file');
+    const value = JSON.parse(text);
     result = value && typeof value === 'object' && !Array.isArray(value) && RUN_STATES.has(value.state)
       ? { ok: true, value, where }
       : { ok: false, where };

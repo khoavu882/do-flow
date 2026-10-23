@@ -802,3 +802,27 @@ test('N-1 property: over mixed flat, namespaced and foreign layouts, head prunes
   // The generator reaches both outcomes; a property that never deleted would prove nothing.
   assert.ok(deletedByBoth > 20, `expected many layouts both versions prune, saw ${deletedByBoth}`);
 });
+
+// N-4: base never read the run-namespace folders, so a FIFO or a link there must not block retention
+// or make a record finishable; it reads as unreadable and the record is kept.
+test('N-4 a FIFO in the record\'s run namespace folder neither hangs retention nor lets the record finish', { skip: process.platform === 'win32' }, (t) => {
+  const { spawnSync } = require('node:child_process');
+  const projectRoot = setup(t);
+  writePlan(projectRoot, 'feat-a');
+  writeRecord(projectRoot, { taskId: 'T.5', namespace: 'feat-a', mtimeMs: 1 });
+  const fifo = path.join(projectRoot, '.doflow', 'state', 'orchestration', 'feat-a', 'T.5.json');
+  fs.mkdirSync(path.dirname(fifo), { recursive: true });
+  assert.equal(spawnSync('mkfifo', [fifo]).status, 0);
+  const script = `const { workStatus } = require(${JSON.stringify(path.join(__dirname, '../../src/runtime/storage/work-status.ts'))});
+    process.stdout.write(JSON.stringify(workStatus({ projectRoot: ${JSON.stringify(projectRoot)}, store: 'task-evidence', taskId: 'T.5', namespace: 'feat-a', mtimeMs: 1 })));`;
+  const ran = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 8000, killSignal: 'SIGKILL' });
+  assert.equal(ran.error, undefined, `retention blocked on the FIFO: ${ran.error && ran.error.code}`);
+  const answer = JSON.parse(ran.stdout);
+  assert.notEqual(answer.state, 'finished', 'a record whose run copy cannot be read is kept');
+  assert.equal(answer.reason, 'run-unreadable');
+  // Control: the same layout with a regular, finished namespaced copy is not read as a hold either way.
+  fs.rmSync(fifo);
+  writeNamespacedRun(projectRoot, 'feat-a', 'T.5', { state: 'COMPLETED', featureSlug: 'feat-a', updatedAt: '2026-01-01T00:00:00.000Z' });
+  const control = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8', timeout: 8000, killSignal: 'SIGKILL' });
+  assert.notEqual(JSON.parse(control.stdout).reason, 'run-unreadable');
+});
