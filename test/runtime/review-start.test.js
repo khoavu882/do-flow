@@ -153,6 +153,51 @@ test('a feature run takes the gate-b floor: docs-only at LOW is deep, raised by 
   assert.deepEqual(json.depthBasis, { scope: 'light', files: 1, base: r.base, floor: 2, raisedBy: 'gate-floor' });
 });
 
+// ---- IC-005: the seat floor is the shipped gates.json narrowed by the project's gates.override.json ----
+
+const OVERRIDE = '.doflow/gates.override.json';
+const overrideMinSeats = (n) => JSON.stringify({ classes: { feature: { 'gate-b': { minSeats: n } } } });
+
+test('a project override that raises the feature gate-b minSeats to 3 gives 3 seats and floor 3', async (t) => {
+  const r = repo(t, { taskClass: 'feature', files: { 'docs/a.md': 'x\n' } });
+  r.lines([r.line({ risk: 'LOW' })]);
+  put(r.cwd, OVERRIDE, overrideMinSeats(3));
+  const { exitCode, json } = await start(r, { base: r.base });
+  assert.equal(exitCode, 0);
+  assert.equal(json.seats, 3);
+  assert.equal(json.depth, 'deep');
+  assert.deepEqual(json.depthBasis, { scope: 'light', files: 1, base: r.base, floor: 3, raisedBy: 'gate-floor' });
+});
+
+for (const [name, bytes, error, reason] of [
+  ['an override that lowers minSeats to 1', overrideMinSeats(1), 'policy-override-widens', 'policy-override-widens:classes.feature.gate-b.minSeats'],
+  ['an override that is not JSON', 'not json {', 'policy-override-invalid', 'policy-override-invalid'],
+]) {
+  test(`${name} is refused ${error}: exit 1, no decision, the message names the reason and the file`, async (t) => {
+    const r = repo(t, { taskClass: 'feature', files: { 'docs/a.md': 'x\n' } });
+    r.lines([r.line({ risk: 'LOW' })]);
+    put(r.cwd, OVERRIDE, bytes);
+    const { exitCode, json } = await start(r, { base: r.base });
+    assert.equal(exitCode, 1);
+    assert.equal(json.ok, false);
+    assert.equal(json.applicable, null);
+    assert.equal(json.error, error);
+    assert.ok(json.message.includes(reason), json.message);
+    assert.ok(json.message.includes(OVERRIDE), json.message);
+    assert.equal(json.depth, null);
+    assert.equal(json.seats, null);
+  });
+}
+
+test('an override does not turn a failed precondition into a policy refusal: the verify reasons still come first', async (t) => {
+  const r = repo(t, { taskClass: 'feature' });
+  put(r.cwd, OVERRIDE, 'not json {');
+  const { exitCode, json } = await start(r);
+  assert.equal(exitCode, 1);
+  assert.deepEqual(json.reasons, ['verify-missing']);
+  assert.equal(json.error, undefined);
+});
+
 test('a base that does not resolve gives scope unknown and deep', async (t) => {
   const r = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'LOW' })]);

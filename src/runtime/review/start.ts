@@ -212,13 +212,26 @@ function lookupRun(stateRoot: string, slug: string): RunLookup {
   return { status: 'found', taskId: taskId ?? slug, taskClass };
 }
 
-/** The gate-b seat floor of a class from the shipped gates.json, through its loader; 0 when the class has none. */
-function gateFloor(taskClass: string | null): number {
-  if (!taskClass) return 0;
-  const loaded = loadPolicy(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'gates.json'), 'utf8'));
-  if (!loaded.ok) throw new Error(`core/registry/gates.json: ${loaded.reason}`);
+/**
+ * The gate-b seat floor of a class: the shipped gates.json narrowed by the project's
+ * `.doflow/gates.override.json`, read as roadmap gate-b reads it (IC-005). 0 when the class has none; a base or
+ * override the loader rejects is a refusal carrying the loader's reason and the override file.
+ */
+function gateFloor(taskClass: string | null, cwd: string): { floor: number } | { error: string; message: string } {
+  if (!taskClass) return { floor: 0 };
+  const { projectLayerSource } = require('../settings/project-layers.ts');
+  const layers = projectLayerSource(cwd, fs);
+  const overrideFile: string | null = layers.layersFrom ? path.join(layers.layersFrom, 'gates.override.json') : null;
+  let override: string | null = null;
+  if (overrideFile) {
+    try { override = fs.readFileSync(overrideFile, 'utf8'); } catch (error: any) { if (error?.code !== 'ENOENT') override = ''; }
+  }
+  const loaded = loadPolicy(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'gates.json'), 'utf8'), override);
+  if (!loaded.ok) {
+    return { error: String(loaded.reason).split(':')[0], message: `${loaded.reason} (core/registry/gates.json narrowed by ${overrideFile ?? 'no project override'})` };
+  }
   const floor = loaded.policy.classes?.[taskClass]?.['gate-b']?.minSeats;
-  return Number.isInteger(floor) && floor > 0 ? floor : 0;
+  return { floor: Number.isInteger(floor) && floor > 0 ? floor : 0 };
 }
 
 /** The decision model's opinion on the decided depth. Never throws: any failure is `unavailable`. */
@@ -362,7 +375,9 @@ async function handleReviewStart({ slug, base, json = false, cwd, env, resolve, 
       baseSha = typeof integration.mergeBase === 'string' && integration.mergeBase ? integration.mergeBase : null;
     }
     const paths = changedPaths(cwd, env, baseSha);
-    const floor = gateFloor(taskClass);
+    const gate = gateFloor(taskClass, cwd);
+    if ('error' in gate) return refuse(gate.error, gate.message);
+    const { floor } = gate;
     let decision = decideDepth({ policy, risk: result.risk, paths, floor });
     const advice = await askAdvice({ decision, risk: result.risk, taskClass, slug: resolvedSlug, files: paths ? paths.length : null, cwd, env, adviceClient });
     decision = raiseByAdvice({ policy, decision, pick: advice.pick, floor });
