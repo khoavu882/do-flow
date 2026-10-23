@@ -1,6 +1,6 @@
 ---
 name: do-execute-plan
-description: "Execute plan.md's task checklist: subagent-driven orchestration over named specialist archetypes (system-architect, core-implementer, quality-guardian) with prerequisite gates, readiness contracts, and parallel execution. Use whenever requirement.md, design.md, and plan.md exist and the next step is building the plan's tasks through subagents, or when the user says 'execute the plan', 'run the plan', 'start building', or 'implement phase N'. Always activate this skill to orchestrate multi-task implementation plans with write-set isolation."
+description: "Execute plan.md's task checklist: subagent-driven orchestration over the agent specs named as plan owners, with prerequisite gates, readiness contracts, and parallel execution. Use whenever requirement.md, design.md, and plan.md exist and the next step is building the plan's tasks through subagents, or when the user says 'execute the plan', 'run the plan', 'start building', or 'implement phase N'. Always activate this skill to orchestrate multi-task implementation plans with write-set isolation."
 argument-hint: "[--scope next|phase:N|all|resume] [--review] [--scaffold]"
 effort: high
 ---
@@ -175,10 +175,7 @@ Branch on the returned `outcome` field, not the exit code.
      isn't there. A non-empty pack is included in the brief as the subagent's prior context, same
      handoff.
    - Claim each task before dispatch and finish it with evidence: `references/task_attempts.md`.
-   - Dispatch tasks to appropriate specialist archetypes:
-     - Architecture & Schema $\rightarrow$ `system-architect`
-     - Code Implementation & Refactoring $\rightarrow$ `core-implementer`
-     - Test Automation & Quality $\rightarrow$ `quality-guardian`
+   - Dispatch each task to its plan `owner` (an agent spec).
    - Name a model tier on every dispatch — an omitted tier inherits the session's model. Pass the
      tier from task-brief's `record.tier` as the dispatch model; for review passes and the limit
      where a harness honors only `model: inherit`, see `references/MODEL_SELECTION.md`.

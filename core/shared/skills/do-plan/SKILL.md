@@ -131,7 +131,7 @@ Filling §8's task dependency graph, read the guidance tree's `references/DIAGRA
    `--depth shallow|normal|deep` is the single granularity knob: it sets how finely a phase is
    split into tasks and how much detail each task carries. Default `normal`.
    **Why explicit task scoping and `[P]` markers**: Specifying concrete file paths (`files: [...]`)
-   and named specialist owners (`system-architect`, `core-implementer`, `quality-guardian`) per task
+   and agent-spec owners (review tasks name `reviewer`) per task
    enables `/do-execute-plan` to compute write-set isolation (`parallel-check`). Tasks with disjoint
    file sets run concurrently without merge conflicts, while overlapping tasks are safely serialized.
    **Mark `[P]` by default:** parallel execution is the framework default, so apply `[P]` to every
