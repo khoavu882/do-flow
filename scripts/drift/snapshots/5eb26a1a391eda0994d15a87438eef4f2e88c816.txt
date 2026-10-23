@@ -1,0 +1,726 @@
+In this article
+GitHub Copilot hooks reference
+Find hook events, configuration formats, and input payloads for hooks in Copilot CLI and Copilot cloud agent.
+Copy markdown
+In this article
+Introduction
+Hooks locations
+Cloud agent execution environment
+Hook configuration format
+Hook events
+Hook event input payloads
+preToolUse decision control
+agentStop / subagentStop decision control
+postToolUse output
+permissionRequest decision control
+notification hook
+Matcher filtering
+Tool names for hook matching
+Exit codes for command hooks
+Disable all hooks
+Further reading
+Introduction
+Hooks are external commands that execute at specific lifecycle points during a session, enabling custom automation, security controls, and integrations.
+Hooks are supported in two Copilot surfaces: Copilot CLI and Copilot cloud agent. Most of the configuration format and event payloads are identical, but the execution environment and the set of events that can fire differ.
+Throughout this article, behavior that differs between the two surfaces is called out in "CLI only" and "Cloud agent only" notes. Anything not marked applies to both.
+Hooks locations
+The locations where hooks run, and where you can store hook configuration files, depend on the surface:
+Copilot CLI
+— hooks run on the developer&#x27;s local machine in the same shell as the CLI. All hook events described in this article are supported by the CLI.
+Hooks are loaded from the following sources in order (policy, then user, then project, then plugins) and combined. When the same event appears in multiple sources, all hook entries from all sources are run.
+Policy-level hook files
+— JSON files in the platform-appropriate policy directory, loaded in alphabetical order. Policy hooks are machine-wide and load before all other hooks. They cannot be disabled by
+disableAllHooks
+and are available regardless of folder trust state. See
+Policy hooks
+below.
+Repository-level hook files
+—
+.github/hooks/*.json
+in the repository root.
+User-level hook files
+—
+*.json
+files in the user-level hooks directory. By default this is
+~/.copilot/hooks/
+on macOS and Linux, or
+%USERPROFILE%\.copilot\hooks\
+on Windows. If
+COPILOT_HOME
+is set, it is
+$COPILOT_HOME/hooks/
+.
+Inline
+hooks
+block in repository settings
+— the
+hooks
+field at the top level of
+.github/copilot/settings.json
+(Git committed) or
+.github/copilot/settings.local.json
+(typically gitignored and user specific) in the repository. Cross-tool
+.claude/settings.json
+and
+.claude/settings.local.json
+files in the repository are also read.
+Inline
+hooks
+block in user-level config
+— the
+hooks
+field at the top level of
+~/.copilot/settings.json
+. The CLI no longer reads
+~/.copilot/config.json
+for hooks.
+Hooks contributed by installed plugins
+— declared by each plugin in its own
+hooks.json
+(or under
+hooks/hooks.json
+) inside the plugin&#x27;s installation directory.
+Copilot cloud agent
+— hooks run inside the ephemeral Linux sandbox that cloud agent provisions for each job. The sandbox is non-interactive, has a constrained network, and is destroyed when the job ends. A subset of events fires, and only
+bash
+(or
+command
+) entries are honored.
+Hook configuration is loaded from
+.github/hooks/*.json
+files in the cloned repository.
+Policy hooks
+Note
+Copilot CLI only.
+Policy hooks are not supported under Copilot cloud agent.
+Policy hooks are machine-wide hooks loaded by administrators. They load before all other hooks and cannot be disabled by
+disableAllHooks
+.
+Policy hooks are discovered from two sources:
+Filesystem
+: JSON files in the platform-appropriate policy directory, loaded in alphabetical order:
+Linux/macOS:
+/etc/github-copilot/policy.d/*.json
+Windows:
+C:\ProgramData\GitHub\Copilot\policy.d\*.json
+Windows Registry
+: Values under
+HKLM\Software\Policies\GitHub\Copilot
+(each subkey holds a
+Policy
+REG_SZ value containing a JSON policy document).
+Policy hook files use the same hook configuration format as user and project hooks (
+{ "version": 1, "hooks": { ... } }
+). On POSIX systems, policy files must be owned by root and must not be group- or world-writable.
+Policy hooks are intended for use by enterprise IT administrators and require elevated privileges to install. End users cannot modify them. Policy hooks always run on the host, even when the session sandbox is enabled—see
+Sandboxed sessions
+.
+Agent-scoped hooks
+Note
+Copilot CLI only.
+Declare a
+hooks
+event map in a custom agent&#x27;s frontmatter to run command or HTTP hooks only while that agent is selected. These hooks run in addition to session, user, repository, plugin, and policy hooks.
+---
+name:
+formatter
+description:
+Formats
+changed
+files
+hooks:
+PostToolUse:
+-
+type:
+command
+command:
+./scripts/format-changed-files.sh
+windows:
+./scripts/format-changed-files.ps1
+---
+Format
+the
+files
+you
+change.
+Behavior
+Details
+Event names
+Runtime names such as
+postToolUse
+and aliases such as
+PostToolUse
+are accepted.
+Commands
+command
+is the fallback.
+windows
+,
+linux
+, and
+osx
+override it per platform. Paths resolve from the repository root.
+Subagent
+Stop
+A subagent&#x27;s scoped
+Stop
+(
+agentStop
+) hooks run at
+SubagentStop
+. After eight consecutive scoped blocks, further blocks are ignored.
+Trust
+Repository and inherited-agent hooks require workspace admission. Hook-disable settings, enterprise restrictions, and timeouts still apply.
+Unsupported
+Remote or organization-hosted agent definitions do not run scoped hooks.
+Cloud agent execution environment
+This section applies to
+Copilot cloud agent only
+. It describes constraints that affect how you write hook scripts and configure hook entries for cloud agent jobs.
+Property
+Value
+Operating system
+Linux. Only the
+bash
+field on command hooks is honored;
+powershell
+entries are ignored. The cross-platform
+command
+field is honored as a fallback.
+Working directory
+/workspace
+when a repository is cloned, otherwise
+/root
+. Use this path when setting
+cwd
+on a hook entry or when referencing files from a script.
+Filesystem
+Ephemeral. Files written by hooks (logs, CSVs, transcripts) are discarded when the job ends. To retain hook output, send it via an
+http
+hook entry.
+Outbound network
+Restricted by the cloud agent firewall. By default only GitHub and Copilot hostnames are reachable; reaching any other host (for example
+https:/
+/
+hooks.example.com
+) requires an admin-configured firewall allow rule.
+Available environment variables
+GITHUB_COPILOT_
+API_TOKEN
+and
+GITHUB_COPILOT_
+GIT_TOKEN
+are set in the sandbox.
+COPILOT_AGENT_
+PROMPT
+holds the prompt the job was invoked with.
+HOME
+is set to
+/root
+, so any hook script that resolves
+~/...
+paths writes into the ephemeral sandbox.
+GITHUB_TOKEN
+is not set.
+Interactivity
+Fully non-interactive. The agent runs with all tool permissions pre-granted, so no permission dialogs are shown and no notifications are surfaced to a user.
+Configuration discovery
+In a cloud agent job, the only hook configuration that exists by default is
+.github/
+hooks/
+*.json
+inside the cloned repository. The sandbox does not ship with user-level hook files,
+settings.json
+,
+config.json
+, or installed plugins.
+Hook configuration format
+Hook configuration files use JSON format with version
+1
+.
+Note
+If a hook configuration file loaded from a directory (for example,
+.github/hooks/
+) contains a malformed hook item, only that item is dropped and logged—valid sibling hooks in the same file still load. Structural errors (invalid JSON, a bad
+version
+, or a non-array event list) still reject the entire file. Hooks defined inline in
+settings.json
+remain strict: any item-level validation error rejects the whole
+hooks
+field. Other configuration files always load independently.
+Command hooks
+Command hooks run shell scripts or executables and are supported on all hook types.
+Note
+Cloud agent only.
+Cloud agent runs hooks in a Linux sandbox. Only the
+bash
+field is honored;
+powershell
+entries are ignored. The cross-platform
+command
+field is honored as a fallback.
+{
+"version"
+:
+1
+,
+"hooks"
+:
+{
+"preToolUse"
+:
+[
+{
+"type"
+:
+"command"
+,
+"bash"
+:
+"YOUR_BASH_COMMAND"
+,
+"powershell"
+:
+"YOUR_POWERSHELL_COMMAND"
+,
+"cwd"
+:
+"OPTIONAL/WORKING/DIRECTORY"
+,
+"env"
+:
+{
+"VAR"
+:
+"VALUE"
+}
+,
+"timeoutSec"
+:
+30
+}
+]
+}
+}
+In Copilot CLI, you can use
+exec
+and
+args
+to run an executable directly instead of using a shell:
+{
+"version"
+:
+1
+,
+"hooks"
+:
+{
+"preToolUse"
+:
+[
+{
+"type"
+:
+"command"
+,
+"exec"
+:
+"YOUR_EXECUTABLE"
+,
+"args"
+:
+[
+"YOUR_ARGUMENT"
+]
+,
+"cwd"
+:
+"OPTIONAL/WORKING/DIRECTORY"
+,
+"env"
+:
+{
+"VAR"
+:
+"VALUE"
+}
+,
+"timeoutSec"
+:
+30
+}
+]
+}
+}
+Replace
+YOUR_EXECUTABLE
+with the executable name or path and
+YOUR_ARGUMENT
+with an argument to pass to it. You can include additional arguments in the
+args
+array.
+Do not combine
+exec
+with
+bash
+,
+powershell
+, or
+command
+. Arguments are passed directly to the executable without shell interpretation, so shell features such as pipes, redirection, and glob expansion are not available.
+Field
+Type
+Required
+Description
+args
+array of strings
+No
+Arguments passed directly to
+exec
+. Only supported in Copilot CLI.
+bash
+string
+One of
+bash
+,
+powershell
+, or
+command
+, unless
+exec
+is specified
+Shell command for Unix.
+command
+string
+One of
+bash
+,
+powershell
+, or
+command
+, unless
+exec
+is specified
+Cross-platform fallback. Copied to both
+bash
+and
+powershell
+when those fields are absent; explicit
+bash
+or
+powershell
+entries take precedence on their respective platforms.
+cwd
+string
+No
+Working directory for the command (relative to repository root or absolute).
+env
+object
+No
+Environment variables to set (supports variable expansion).
+exec
+string
+Instead of
+bash
+,
+powershell
+, and
+command
+Executable name or path. Runs the executable directly without a shell. Only supported in Copilot CLI.
+powershell
+string
+One of
+bash
+,
+powershell
+, or
+command
+, unless
+exec
+is specified
+Shell command for Windows.
+timeout
+number
+No
+Alias for
+timeoutSec
+, in seconds. Used only when
+timeoutSec
+is absent;
+timeoutSec
+takes precedence when both are present.
+timeoutSec
+number
+No
+Timeout in seconds. Default:
+30
+.
+type
+"command"
+No
+Hook type. Defaults to
+"command"
+when omitted.
+Progress messages
+Command hooks can emit progress status lines to the CLI timeline while executing. Write a
+{"type": "progress", "message": "..."}
+JSON object to stdout before writing the final output:
+echo
+&#x27;{"type": "progress", "message": "Checking policy..."}&#x27;
+# ... perform work ...
+echo
+&#x27;{"permissionDecision": "allow"}&#x27;
+Set
+"temporary": true
+to emit a transient status line. A transient line replaces the previous transient line and is cleared when the assistant responds, instead of accumulating in the timeline:
+echo
+&#x27;{"type": "progress", "message": "Routing...", "temporary": true}&#x27;
+echo
+&#x27;{"type": "progress", "message": "Thinking...", "temporary": true}&#x27;
+# ... perform work ...
+echo
+&#x27;{"permissionDecision": "allow"}&#x27;
+Progress messages are display-only and do not affect hook output or decision logic.
+How stdout is parsed when progress messages are mixed in.
+— The CLI scans stdout line-by-line as the hook runs. Any line that, after trimming, is a single complete JSON object with
+"type": "progress"
+is consumed as a progress event and
+removed from the hook&#x27;s output stream
+. Every other line—blank lines, plain text, and JSON objects that are not progress messages—is preserved verbatim. When the hook exits, the preserved lines are concatenated, trimmed, and parsed with a single
+JSON.parse
+call: that result is the hook&#x27;s output (the "hook output JSON" referenced elsewhere in this article). This means:
+Emitting progress lines alongside a final decision object (as in the examples above) is safe and is the intended pattern—the progress lines never reach the JSON parser.
+Each progress message must be on its own line and must be valid JSON on that single line. Multi-line / pretty-printed progress objects are not recognized as progress and will be left in the output stream, where they will likely cause the final
+JSON.parse
+to fail.
+The final decision object, by contrast, may span multiple lines—only progress
+recognition
+is line-oriented; what remains after progress stripping is parsed as one JSON document, not as line-delimited JSON.
+If the leftover output is empty, or fails to parse as JSON, the hook is treated as having produced no output and falls through to default behavior. Two or more non-progress JSON objects on stdout (for example, two
+echo &#x27;{"permissionDecision": ...}&#x27;
+calls) will therefore concatenate into invalid JSON and be ignored—emit exactly one final decision object.
+Sandboxed sessions
+Note
+Copilot CLI only.
+When the session sandbox is enabled, command hooks from the repository, your user settings, and plugins run inside it, with the same access as the agent&#x27;s shell commands. A hook can also read the directory it was loaded from, so a plugin can run the scripts it ships, and a plugin hook can write to its data directory (
+$COPILOT_PLUGIN_DATA
+).
+A hook&#x27;s
+cwd
+and
+env
+fields don&#x27;t widen that access: a
+cwd
+outside the session&#x27;s grants gives the hook no access there, and variables such as
+TMPDIR
+or
+PATH
+set in the hook&#x27;s
+env
+grant nothing. When a hook fails in the sandbox, Copilot shows a warning once per hook and session. To give a hook more access, add the required paths to
+sandbox.userPolicy
+in your settings. See
+GitHub Copilot CLI configuration directory
+.
+Policy hooks always run on the host, outside the sandbox, even when the session sandbox is enabled. A policy hook should not run scripts from the workspace.
+HTTP hooks
+HTTP hooks send the input payload as a JSON
+POST
+to a URL.
+Note
+By default, only
+https://
+URLs are allowed. Non-TLS
+http://
+requests are rejected, except for
+http://localhost
+,
+http://127.*
+, and
+http://[::1]
+when
+COPILOT_HOOK_ALLOW_LOCALHOST=1
+is set.
+Cloud agent only.
+Outbound network from the sandbox is restricted by the cloud agent firewall, so
+url
+must target an allow-listed host.
+{
+"version"
+:
+1
+,
+"hooks"
+:
+{
+"postToolUse"
+:
+[
+{
+"type"
+:
+"http"
+,
+"url"
+:
+"https://hooks.example.com/copilot"
+,
+"headers"
+:
+{
+"X-Source"
+:
+"copilot-cli"
+}
+,
+"allowedEnvVars"
+:
+[
+"GITHUB_TOKEN"
+]
+,
+"timeoutSec"
+:
+30
+}
+]
+}
+}
+Field
+Type
+Required
+Description
+allowedEnvVars
+string[]
+No
+Environment variable names that may be expanded inside
+headers
+values. When set,
+url
+must use
+https://
+.
+headers
+object
+No
+Request headers to include.
+timeout
+number
+No
+Alias for
+timeoutSec
+, in seconds. Used only when
+timeoutSec
+is absent;
+timeoutSec
+takes precedence when both are present.
+timeoutSec
+number
+No
+Timeout in seconds. Default:
+30
+.
+type
+"http"
+Yes
+Must be
+"http"
+.
+url
+string
+Yes
+Target URL. Must use
+http:
+or
+https:
+. For
+preToolUse
+and
+permissionRequest
+, must use
+https://
+because the response can grant tool permissions.
+Prompt hooks
+Prompt hooks auto-submit text as if the user typed it. They are only supported on
+sessionStart
+. The text can be a natural language prompt or a slash command.
+Note
+Copilot CLI only.
+Prompt hooks fire only for
+new interactive sessions
+. They do not fire on resume, and they do not fire in non-interactive prompt mode (
+-p
+).
+Note
+Cloud agent.
+Cloud agent jobs run non-interactively (similar to
+-p
+), so
+prompt
+hook entries may not fire. Confirm the behavior in your environment before relying on them.
+{
+"version"
+:
+1
+,
+"hooks"
+:
+{
+"sessionStart"
+:
+[
+{
+"type"
+:
+"prompt"
+,
+"prompt"
+:
+"YOUR_PROMPT_TEXT_OR_SLASH_COMMAND"
+}
+]
+}
+}
+Field
+Type
+Required
+Description
+type
+"prompt"
+Yes
+Must be
+"prompt"
+.
+prompt
+string
+Yes
+Text to submit—can be a natural language message or a slash command.
+Hook events
+The table below lists every supported event. The
+Cloud agent
+column shows whether the event fires under cloud agent and notes any behavior differences.
+Event
+Fires when
+Output processed
+Cloud agent
+agentStop
+The main agent finishes a turn.
+Yes — can block and force continuation.
+Fires.
+decision: "block"
+forces another turn, which still counts against the job&#x27;s timeout.
+errorOccurred
+An error occurs during execution.
+No
+Fires.
+notification
+Fires asynchronously when the CLI emits a system notification (shell completion, agent completion or idle, permission prompts, elicitation dialogs). Fire-and-forget: never blocks the session. Supports a
+matcher
+regex pattern (the value of the
+matcher
+field) on
+notification_type
+.
+Optional — can inject
+additionalContext
+[snapshot truncated]

@@ -22,7 +22,10 @@
         "background",
         "hooks",
         "paths",
-        "shell"
+        "shell",
+        "metadata",
+        "license",
+        "compatibility"
       ],
       "agentFields": [
         "name",
@@ -40,7 +43,10 @@
         "effort",
         "isolation",
         "color",
-        "initialPrompt"
+        "initialPrompt",
+        "autoCompactWindow",
+        "omitClaudeMd",
+        "experimental"
       ],
       "hookEvents": [
         "SessionStart",
@@ -73,7 +79,9 @@
         "Notification",
         "MessageDisplay",
         "Elicitation",
-        "ElicitationResult"
+        "ElicitationResult",
+        "PreModelSwitch",
+        "PostModelSwitch"
       ],
       "evidence": [
         "https://code.claude.com/docs/en/skills",
@@ -145,7 +153,7 @@
     {
       "harness": "copilot",
       "completeness": "lower-bound",
-      "note": "Copilot CLI now documents a full hook surface (use-hooks / hooks-reference, 2026): .github/hooks/*.json and ~/.copilot/hooks/, shape {version:1,hooks:{camelCaseEvent:[entries]}}. DoFlow wires none of it: the shipped scripts are Claude-payload-coupled (tool names, .session_id/.transcript_path stdin fields, CLAUDE_* envs) and Copilot's payload schemas are unverified here. hookEvents stays empty until that verification lands; widen only alongside it and an added evidence URL.",
+      "note": "Copilot CLI now documents a full hook surface (use-hooks / hooks-reference, 2026): .github/hooks/*.json and ~/.copilot/hooks/, shape {version:1,hooks:{event:[entries]}} where the event name is camelCase (camelCase payload fields) or PascalCase (VS Code/Claude-compatible, snake_case payload fields). DoFlow wires none of it: the shipped scripts are Claude-payload-coupled (tool names, .session_id/.transcript_path stdin fields, CLAUDE_* envs) and Copilot's payload schemas are unverified here. hookEvents stays empty until that verification lands; widen only alongside it and an added evidence URL.",
       "hookEvents": [],
       "evidence": [
         "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills",
@@ -157,32 +165,29 @@
     {
       "harness": "kiro",
       "completeness": "lower-bound",
-      "note": "hookEvents lists only the events DoFlow actually installs a doflow.json entry for (session-context on SessionStart, pre-implementation-gate, pre-bash-guard and mcp-tool-guard all on PreToolUse \u2014 hence PreToolUse appearing once, not twice \u2014 and stop-check on Stop), not the full set of trigger names Kiro's docs confirm (SessionStart, Stop, PreToolUse, PostToolUse, UserPromptSubmit, PreTaskExec, PostTaskExec, PostFileSave, PostFileCreate, PostFileDelete \u2014 see kiro.dev/docs/hooks/actions/). Widen this list only when DoFlow wires a hook to one of the unused confirmed events, alongside an added evidence URL.",
+      "note": "hookEvents lists only the events DoFlow actually installs a doflow.json entry for (session-context on SessionStart, pre-implementation-gate, pre-bash-guard and mcp-tool-guard all on PreToolUse \u2014 hence PreToolUse appearing once, not twice \u2014 and stop-check on Stop), not the full set of trigger names Kiro's docs confirm (SessionStart, Stop, PreToolUse, PostToolUse, UserPromptSubmit, PreTaskExec, PostTaskExec, PostFileSave, PostFileCreate, PostFileDelete, plus SessionEnd on CLI V3 only \u2014 see kiro.dev/docs/hooks/types/). Widen this list only when DoFlow wires a hook to one of the unused confirmed events, alongside an added evidence URL.",
       "hookEvents": [
         "SessionStart",
         "PreToolUse",
         "Stop"
       ],
       "evidence": [
-        "https://kiro.dev/docs/steering/",
-        "https://kiro.dev/docs/mcp/configuration/",
         "https://kiro.dev/docs/hooks/",
-        "https://kiro.dev/docs/hooks/actions/"
+        "https://kiro.dev/docs/hooks/actions/",
+        "https://kiro.dev/docs/hooks/types/"
       ]
     },
     {
       "harness": "antigravity",
       "completeness": "lower-bound",
-      "note": "hookEvents lists what DoFlow wires; widen only with added evidence. Antigravity documents five hook events; DoFlow wires PreToolUse (pre-implementation gate) and Stop (stop check) today.",
+      "note": "hookEvents lists what DoFlow wires; widen only with added evidence. Antigravity documents six hook events (SessionStart added); DoFlow wires PreToolUse (pre-implementation gate) and Stop (stop check) today.",
       "hookEvents": [
         "PreToolUse",
         "Stop"
       ],
       "evidence": [
-        "https://antigravity.google/docs/cli/gcli-migration",
         "https://antigravity.google/docs/hooks",
-        "https://antigravity.google/docs/cli/mcp",
-        "https://antigravity.google/docs/hooks/"
+        "https://antigravity.google/docs/mcp?tab=cli"
       ]
     }
   ]

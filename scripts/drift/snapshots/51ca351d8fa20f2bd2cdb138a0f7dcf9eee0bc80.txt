@@ -1,0 +1,230 @@
+Hook actions - Hooks - Features - Docs - Kiro
+Loading image...
+Product
+About Kiro
+Agents
+IDE
+CLI
+Web
+Mobile
+Crew
+Pricing
+Downloads
+For
+Enterprise
+Startups
+Students
+Community
+Overview
+Ambassadors
+Case studies
+Discord
+Events
+Powers
+Shop
+Showcase
+Resources
+Docs
+Blog
+Changelog
+FAQs
+Videos
+Report a bug
+Suggest an idea
+Billing support
+Social
+English
+Site Terms
+License
+Responsible AI Policy
+Legal
+Privacy Policy
+Cookie Preferences
+English
+Loading image...
+Agents
+Apps
+Enterprise
+Pricing
+Docs
+Community
+Resources
+SIGN IN
+DOWNLOADS
+Loading image...
+Get Started
+Installation
+Authentication
+Your first project
+Models
+Overview
+Available models
+Reasoning effort
+AWS GovCloud (US) models
+Features
+How Kiro works
+Local command sandbox
+ACP integrations
+Specs
+Steering
+Hooks
+Hook triggers
+Hook actions
+Examples
+Management
+Best practices
+Troubleshooting
+MCP
+Permissions
+Custom agents
+Workflows
+Agent Skills
+Powers
+Cloud sessions
+Memory
+Compaction
+Kiroignore
+Checkpoints and rewind
+Built-in tools
+Configuration scopes
+IDE 1.x
+What&#x27;s new in 1.0
+Setup & First Run
+Editor
+Chat
+Experimental
+Troubleshooting
+0.x reference
+CLI
+What&#x27;s new in V3
+Setup & First Run
+Terminal UI
+Chat
+Fullscreen mode
+Voice mode
+Headless mode
+ACP
+Auto complete
+Experimental
+2.x reference
+Crew
+Quick start
+Installation
+Running 24/7
+Chat
+Agent Capabilities
+Features
+Interfaces
+Apps
+System & storage
+Configuration
+Security
+Troubleshooting
+Web
+Setup & First Run
+Identity Center
+Connect your repositories
+Working with the agent
+Autonomous mode
+Schedule
+Configuration Sync
+Sandbox
+Mobile - Preview
+Overview
+Commands and Reference
+CLI commands
+Slash commands
+Built-in tools
+Exit codes
+Settings
+Billing
+Overview
+Managing your subscription
+Upgrading your plan
+Downgrading your plan
+Cancelling your plan
+Purchasing add-on credits
+Managing your payments
+Managing usage notifications
+Managing your taxes
+Contacting billing support
+Deleting your account
+Related questions
+Enterprise
+Concepts
+Onboarding quickstart
+Connecting your identity provider
+Deployment options
+Subscribe your team
+Manage subscriptions
+Governance
+Monitor and track
+Settings
+Managed updates
+Billing
+IAM
+Supported regions
+AWS GovCloud (US)
+Privacy and Security
+Overview
+Data protection
+Code references
+Compliance validation
+Infrastructure security
+IAM permissions
+Firewalls, proxies, and data perimeters
+VPC endpoints (AWS PrivateLink)
+Guides
+Overview
+Running Kiro in the cloud
+Language support
+Learn by playing
+Migration
+Migrating from Q Developer
+Migrating from VSCode
+Upgrading from Q CLI
+Docs
+Features
+Hooks
+Hook actions
+Copy page
+View as Markdown
+Hook actions
+Copy page
+View as Markdown
+Agent hooks support both an "agent prompt" and a "shell command" action. Once you have selected the specific event that
+triggers
+a hook, you can decide what action will be taken when that hook is triggered.
+Agent Prompt action
+With this action, you can define a prompt that is sent to the agent each time the hook is triggered. The agent will respond and act on this prompt just like it does with a prompt provided in the chat panel.
+In the case of the
+Prompt Submit
+trigger, the prompt specified in the hook is
+appended
+to the user prompt, and the combined prompt is sent to the agent.
+Shell Command action
+With this action, you can define a shell command that is executed each time the hook is triggered.
+IDE
+CLI
+If the command returns an exit code of "0" indicating success, the
+stdout
+output of the command is added to the agent&#x27;s context.
+If the command returns any other exit code, the
+stderr
+output of the command is sent to the agent, and the agent is notified that the hook returned an error. Additionally, in the case of the
+Pre Tool Use
+hook, the tool invocation is blocked, and for the
+Prompt Submit
+hook, the user prompt submission is blocked.
+An execution timeout can be specified. The default timeout is 60 seconds. Set to 0 to disable the timeout.
+Selecting an action type
+You should use the
+Agent Prompt
+action when, in response to a trigger event, you want to use natural language to instruct the agent to perform some action based on context.
+You should use the
+Shell Command
+action when you want to run a specific command or perform a deterministic set of actions that do not depend on the agent&#x27;s current context.
+Info
+Agent Prompt actions consume credits as these actions trigger a new agent loop, whereas Shell Command actions do not. Shell Command actions are also generally faster as they are executed locally and do not use an LLM.
+Hook triggers
+Examples
