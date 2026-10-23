@@ -924,7 +924,8 @@ function heldDeny(ctx: any, row: any, kind: string, reason: string, inputsDigest
   const slot = (ctx.record.rows[row.id] ||= {});
   if (slot.held && slot.held.kind === kind && slot.held.inputsDigest === inputsDigest) return { skip: `held:${slot.held.reason}` };
   slot.held = { kind, reason, inputsDigest };
-  return finish(ctx, { outcome: 'denied', step: 'merge', reason, row: row.id, slug: row.slug, rule: `merge/${reason}`, ...fields });
+  const step = fields.step ?? 'merge';
+  return finish(ctx, { outcome: 'denied', step, reason, row: row.id, slug: row.slug, rule: `${step}/${reason}`, ...fields });
 }
 
 async function mergeStep(ctx: any, row: any, source: { intent?: any; run?: any; worktree?: string; held?: boolean; holdDigest?: string }): Promise<any> {
@@ -1068,6 +1069,16 @@ async function gateStep(ctx: any, row: any, orch: any, gateId: string, worktree:
 
 function performStep(ctx: any, row: any, worktree: string, node: any): any {
   const slot = (ctx.record.rows[row.id] ||= {});
+  if (node.id === 'review') {
+    // IC-007: gate-b's own verify rule, applied before the review envelope is spent. No question, no prompt.
+    const head = readHeads(ctx, row).featureHead;
+    const reasons = postMergeReasons(row, worktree, head, ctx.fsImpl);
+    if (reasons.length) {
+      return heldDeny(ctx, row, 'review', reasons[0],
+        sha256Digest(JSON.stringify({ reasons, head, record: stageArtifact(ctx, row, worktree, 'verification').sha256 })), { step: 'review', reasons });
+    }
+    if (slot.held?.kind === 'review') delete slot.held;
+  }
   slot.perform = envelopeFor(ctx, row, worktree, node.id, node.skill, stageArtifact(ctx, row, worktree, node.id));
   return finish(ctx, { outcome: 'perform', row: row.id, slug: row.slug, perform: slot.perform });
 }
