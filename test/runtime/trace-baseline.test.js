@@ -606,7 +606,7 @@ test('10. D7 manifest hardening: verify-baseline rejects no files, object files,
   function makeVariant(name, modifier) {
     const dir = tempDir(t, `doflow-d7-${name}-`);
     // Copy state and manifest from committed baseline
-    fs.cpSync(path.join(baselineDir, 'snapshot', 'state'), path.join(dir, 'state'), { recursive: true });
+    fs.cpSync(path.join(baselineDir, 'state'), path.join(dir, 'state'), { recursive: true });
     const manifest = JSON.parse(fs.readFileSync(path.join(baselineDir, 'manifest.json'), 'utf8'));
     modifier(dir, manifest);
     fs.writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2), 'utf8');

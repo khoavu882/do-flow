@@ -18,7 +18,7 @@
           "reason": null,
           "runKey": "5f8e3323f8ecc108/f2-loop/main",
           "epoch": 1,
-          "execWorktree": "/private/tmp/claude-504/-Users-kai-Workspace-learning-do-flow/288d49f8-f8c7-401e-b4b2-b8ba47e5c9fd/scratchpad/088b/f2/run-proj",
+          "execWorktree": "<scratch>/run-proj",
           "sources": [
             {
               "file": "src/calc.js",
@@ -36,7 +36,7 @@
           "finishedBy": {
             "role": "main",
             "lineage": "main",
-            "worktree": "/private/tmp/claude-504/-Users-kai-Workspace-learning-do-flow/288d49f8-f8c7-401e-b4b2-b8ba47e5c9fd/scratchpad/088b/f2/run-proj"
+            "worktree": "<scratch>/run-proj"
           },
           "usage": null
         }
@@ -49,7 +49,7 @@
       "worktreeKey": "5f8e3323f8ecc108",
       "run": "f2-loop",
       "lineage": "main",
-      "worktree": "/private/tmp/claude-504/-Users-kai-Workspace-learning-do-flow/288d49f8-f8c7-401e-b4b2-b8ba47e5c9fd/scratchpad/088b/f2/run-proj",
+      "worktree": "<scratch>/run-proj",
       "createdAt": "2026-10-18T15:21:22.547Z",
       "control": "running",
       "epoch": 1,

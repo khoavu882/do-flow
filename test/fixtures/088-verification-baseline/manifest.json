@@ -23,7 +23,7 @@
     },
     {
       "path": "state/task-attempts/f2-loop.json",
-      "sha256": "7fd99915cb0066170ac5a958abcf789d0b5fbce3ab5fe4cf75b74e10e42dcc0f"
+      "sha256": "4d5be4959cd5803b41d9d68cc90f5dfe33039c1f17385bbc7990626b985c8899"
     },
     {
       "path": "state/upkeep-due",
@@ -31,7 +31,7 @@
     },
     {
       "path": "state/verification/logs/1792336889922-targeted-tests_test.log",
-      "sha256": "dc814e84549776b257f21395c0a1dc5d171190be983a9f159e92ebcb2ee3baed"
+      "sha256": "2bb87158113903e4b5bc838a4cf57605f07cf17797b081a438d2c3ae280330ae"
     }
   ]
 }
