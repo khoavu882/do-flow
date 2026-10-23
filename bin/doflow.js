@@ -5,13 +5,22 @@
 // so the `doflow` binary path and the doflow-run dispatcher seam
 // (core/shared/scripts/doflow/bin/doflow-run, which execs `node <repoRoot>/bin/doflow.js`)
 // keep resolving to this exact location.
-// Refuse clearly on a Node that cannot strip types: src/ is TypeScript, and without stripping
-// loading a .ts module dies with a SyntaxError on the first annotation. Stripping is on by
-// default from Node 22.18.0 / 23.6.0 and off under --no-experimental-strip-types; the range stops at
-// 24.3.0 because 23.6 to 24.2 print an ExperimentalWarning on every .ts load. This file stays
-// plain JavaScript so it can say so. Exit 2 is the doflow-run usage/resolution-error code.
+// Refuse clearly on a Node below the floor, or one that cannot strip types: src/ is TypeScript, and
+// without stripping loading a .ts module dies with a SyntaxError on the first annotation. The floor
+// is 24.22.1, the 2026-10-21 security release of the Node 24 line (engines.node in package.json is
+// the same value); stripping is on by default from there and off only under
+// --no-experimental-strip-types. This file stays plain JavaScript so it can say so. Exit 2 is the
+// doflow-run usage/resolution-error code.
+const NODE_FLOOR = '>=24.22.1';
+const floorParts = [24, 22, 1];
+const running = String(process.versions.node).split('.').map(Number);
+const belowFloor = floorParts.reduce((order, part, i) => order || Math.sign((running[i] || 0) - part), 0) < 0;
+if (belowFloor) {
+  process.stderr.write(`doflow: Node ${process.versions.node} is not supported; doflow needs Node ${NODE_FLOOR} (Node 22 and Node 24 before 24.22.1 are no longer supported).\n`);
+  process.exit(2);
+}
 if (!process.features || !process.features.typescript) {
-  process.stderr.write(`doflow: Node ${process.versions.node} cannot strip TypeScript types; doflow needs Node ^22.18.0 || >=24.3.0 with type-stripping enabled (it is off under --no-experimental-strip-types, including via NODE_OPTIONS).\n`);
+  process.stderr.write(`doflow: Node ${process.versions.node} cannot strip TypeScript types; doflow needs Node ${NODE_FLOOR} with type-stripping enabled (it is off under --no-experimental-strip-types, including via NODE_OPTIONS).\n`);
   process.exit(2);
 }
 // Enable Node's module compile cache before any ../src require. Type stripping makes the first load

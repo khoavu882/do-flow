@@ -371,7 +371,7 @@ test('C-9: the llms.txt summary takes the harness names and the Node range from 
   writeAll(root);
   const summary = fs.readFileSync(path.join(root, 'docs/llms.txt'), 'utf8').split('\n')[2];
   assert.match(summary, /eight AI coding tools: Claude Code, Codex, .*, and Antigravity CLI\./);
-  assert.match(summary, /Node\.js \^22\.18\.0 \|\| >=24\.3\.0/);
+  assert.match(summary, /Node\.js >=24\.22\.1;/);
   assert.match(summary, /npm run build:package/);
   assert.doesNotMatch(summary, /no build step/);
   editJson(path.join(root, 'core/registry/harnesses.json'), (raw) => { raw.harnesses[6].displayName = 'Kiro IDE'; });

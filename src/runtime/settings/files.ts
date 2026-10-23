@@ -8,7 +8,7 @@
  * imports nothing from it.
  *
  * Nothing here ever returns file text. `JSON.parse` quotes the first bytes of the input in its
- * "Unexpected token" messages (Node 22 and 26 both do), so a parse failure is reported as a code and a
+ * "Unexpected token" messages (Node 24 and 26 both do), so a parse failure is reported as a code and a
  * byte offset only, and `error.message` is never forwarded. `jsonFailure` is the shared helper for any
  * other reader that parses a user's JSON (the legacy decision-model reads move onto it in C.4).
  */
