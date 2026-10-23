@@ -349,7 +349,7 @@ function formatBytes(n: number | null | undefined): string {
 
 /** Security guard: a backup id is a directory *name*, never a path — reject traversal/absolute ids. */
 function assertSafeBackupId(bid: string): void {
-  if (!bid || bid.includes('/') || bid.includes('\\') || bid === '..' || bid.includes('..')) {
+  if (!bid || bid === '.' || bid.includes('/') || bid.includes('\\') || bid === '..' || bid.includes('..')) {
     throw new Error(`Invalid backup id: '${bid}'`);
   }
 }
@@ -443,6 +443,9 @@ function refusalOf(entry: any, target: string, { scope, scopeRoot, bkDir, fsImpl
   } catch {
     return 'content missing from backup';
   }
+  // A restore chmods the file it writes to this mode, so a manifest that lacks one (or holds anything
+  // but a permission mask) is refused here, with a name, rather than failing inside the write.
+  if (!Number.isInteger(entry.mode) || entry.mode < 0 || entry.mode > 0o7777) return 'invalid mode';
   return null;
 }
 
