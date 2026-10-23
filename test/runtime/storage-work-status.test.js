@@ -369,6 +369,19 @@ test('IC-028 a null attempt beside a cancelled one does not fail the ledger chec
   assert.deepEqual(ledgerStatus(projectRoot, uncleared), { state: 'open', since: null, reason: 'attempt-open', run: null, feature: null }, 'an uncleared cancel still holds');
 });
 
+test('IC-028 cancelled attempts are paired with their resume by identity, so duplicate or missing tokens never clear an uncleared one (N-3)', (t) => {
+  const projectRoot = setup(t);
+  const cancelled = (token, runKey) => ({ ...(token === undefined ? {} : { token }), state: 'cancelled', runKey, cancel: { at: '2026-10-01T00:00:00.000Z' } });
+  const runs = {
+    k: { control: 'running', history: [{ at: '2026-10-02T00:00:00.000Z', action: 'resume' }] },
+    k2: { control: 'running', history: [] },
+  };
+  const open = { state: 'open', since: null, reason: 'attempt-open', run: null, feature: null };
+  assert.deepEqual(ledgerStatus(projectRoot, ledger({ attempts: [cancelled(undefined, 'k'), cancelled(undefined, 'k2')], runs })), open, 'no token on either');
+  assert.deepEqual(ledgerStatus(projectRoot, ledger({ attempts: [cancelled(1, 'k'), cancelled(1, 'k2')], runs })), open, 'the same token on both');
+  assert.deepEqual(ledgerStatus(projectRoot, ledger({ attempts: [cancelled(undefined, 'k')], runs })), { state: 'finished', since: 5, reason: 'no-run', run: null, feature: '080-ledger' }, 'control: a cleared cancel alone still settles');
+});
+
 test('IC-028 a cancel no resume cleared, or a different attempt\'s cleared entry, still holds the ledger open', (t) => {
   const projectRoot = setup(t);
   const cancel = { at: '2026-10-03T00:00:00.000Z', by: 'user', reason: 'stop' };
