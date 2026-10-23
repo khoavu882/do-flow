@@ -1,18 +1,25 @@
 'use strict';
 
 // Feature 117 B.1 (IC-005): in-suite regressions for the task-attempt ledger's stale-lock defect.
-// The lock in src/runtime/task-state.ts breaks a lock older than LOCK_STALE_MS without checking its
-// holder and releases unconditionally, so a paused holder and a breaker both "own" the lock:
+// Up to e003dc0d the lock in src/runtime/task-state.ts broke a lock older than LOCK_STALE_MS without
+// checking its holder and released unconditionally, so a paused holder and a breaker both "owned" the
+// lock. 117 Phase C (FU-8acds5, FU-vgkrvd) gave the lock an owner entry, an in-place reclaim and a
+// pre-write ownership check; these regressions now run required:
 //
 //   R-nested       one process: finish stalls inside its store read, the lock ages, cancel runs nested
-//   R-two-process  round 3's P1 trace on S1 from a stale lock, replayed through the actor gate
-//   R-claim        a double-grant trace on S2 from a stale lock, replayed through the actor gate
+//   R-two-process  S1 from a stale lock: both actors judge it stale before either acts on it; A acts
+//                  first and reaches its store read, then B acts on its judgement
+//   R-claim        S2 from a stale lock: the same rule with B acting first, then A
 //
-// Every regression asserts the correct behaviour (the oracle's PASS). While the defect is open its
-// PASS test is `todo`: KNOWN_DEFECTS below is the marker list, and the fix removes its entries in the
-// same commit, which turns the PASS tests required. Required checks keep the todo honest: each
-// schedule completed (so a todo never fails for a harness reason), each todo names an open followup,
-// and a todo that starts passing fails the suite until its marker is removed.
+// R-two-process and R-claim are chooser rules over the parked calls, not replay strings, so they hold
+// for any lock implementation: on develop up to e003dc0d each ends in an oracle VIOLATION (the second
+// actor's stale break removes the first one's live lock, a lost acknowledgement or a double grant).
+//
+// Every regression asserts the correct behaviour (the oracle's PASS). A known open defect's PASS test
+// is `todo`: KNOWN_DEFECTS below is the marker list, and a fix removes its entries in the same commit,
+// which turns the PASS tests required. Required checks keep a todo honest: each schedule completed (so
+// a todo never fails for a harness reason), each todo names an open followup, and a todo that starts
+// passing fails the suite until its marker is removed.
 
 const { test, before } = require('node:test');
 const assert = require('node:assert/strict');
@@ -26,24 +33,48 @@ const { check, MODEL_VERSION } = require('../helper/ledger-oracle.js');
 
 // The open defects whose regressions are registered `todo`. FU-8acds5 is the stale-lock takeover race;
 // FU-vgkrvd (the same lock's unconditional break and release) is the related followup the fix settles too.
-const KNOWN_DEFECTS = [
-  { id: 'R-nested', followup: 'FU-8acds5', defect: 'resurrected cancel' },
-  { id: 'R-two-process', followup: 'FU-8acds5', defect: 'lost-ack' },
-  { id: 'R-claim', followup: 'FU-8acds5', defect: 'double-grant' },
-];
+// 117 Phase C settled both and removed their three markers (R-nested, R-two-process, R-claim).
+const KNOWN_DEFECTS = [];
 const FOLLOWUP_ID = /^FU-[a-z0-9]{6}$/;
 // The regressions this file must always run, pinned apart from the todo list: Phase C removes todo
 // markers, never these ids, so dropping a regression together with its marker still fails (C-13).
 const REQUIRED_REGRESSIONS = ['R-nested', 'R-two-process', 'R-claim'];
 
-// Round 3's P1 trace (S1, init stale; A = finish, B = cancel).
+// Round 3's P1 trace (S1, init stale; A = finish, B = cancel): the lost-ack on the pre-fix lock (e003dc0d
+// and earlier). It no longer replays: the fixed lock makes other fs calls. Kept as the oracle control below.
 const P1 = 'B.mkdir A.mkdir B.stat A.stat B.rmdir B.mkdir B.exists A.rmdir A.mkdir A.exists B.readFile B.writeFile '
   + 'A.readFile A.writeFile A.rename B.rename A.rmdir B.rmdir';
-// pinned by C.1: the sampler's shortest S2 double-grant trace (seed 117, N 200, init stale, ca53f2e8;
-// 12/200 double-grant on Node 26.8.1 and 22.23.2; 10/10 replays double-grant). A breaks the stale lock
-// and takes it, B breaks A's live lock, both read the empty task before either writes: both `claimed` token 1.
-const R_CLAIM = 'A.mkdir B.mkdir A.stat B.stat A.rmdir A.mkdir B.rmdir A.exists A.readFile B.mkdir B.exists B.readFile '
-  + 'A.writeFile A.rename A.rmdir B.writeFile B.rename B.rmdir';
+
+/**
+ * The chooser rule of R-two-process and R-claim: "both judge the stale lock before either acts on it".
+ * Both actors run to their first stat of the lock (each judges it stale); then `first` runs until it
+ * is parked on its store read (it holds the lock); then the other runs on its judgement, up to 12 calls
+ * or until it too is parked on its store read; then the two alternate, `first` first, to the end.
+ */
+function bothJudgeFirst(first) {
+  const second = first === 'A' ? 'B' : 'A';
+  let phase = 'judge';
+  let secondCalls = 0;
+  let turn = 0;
+  return (parked, step, { methods, trace }) => {
+    const has = (name) => parked.includes(name);
+    if (phase === 'judge') {
+      for (const name of ['A', 'B']) if (has(name) && !trace.includes(`${name}.stat`)) return name;
+      phase = 'first';
+    }
+    if (phase === 'first') {
+      if (has(first) && methods[first] !== 'readFile') return first;
+      phase = 'second';
+    }
+    if (phase === 'second') {
+      if (has(second) && methods[second] !== 'readFile' && secondCalls < 12) { secondCalls += 1; return second; }
+      phase = 'alternate';
+    }
+    turn += 1;
+    const want = turn % 2 ? first : second;
+    return has(want) ? want : parked[0];
+  };
+}
 const R_NESTED_TRACE = 'A.finish(readFile store) age-lock B.cancel(nested, to its end) A.finish(continues)';
 
 const aFirst = (parked) => (parked.includes('A') ? 'A' : 'B');
@@ -94,8 +125,8 @@ function runNested() {
 
 const REGRESSIONS = [
   { id: 'R-nested', run: async () => runNested() },
-  { id: 'R-two-process', run: () => runSchedule({ scenario: 'S1', init: 'stale', replay: P1 }) },
-  { id: 'R-claim', run: () => runSchedule({ scenario: 'S2', init: 'stale', replay: R_CLAIM }) },
+  { id: 'R-two-process', run: () => runSchedule({ scenario: 'S1', init: 'stale', chooser: bothJudgeFirst('A') }) },
+  { id: 'R-claim', run: () => runSchedule({ scenario: 'S2', init: 'stale', chooser: bothJudgeFirst('B') }) },
 ];
 const SELF_TESTS = ['S1', 'S2'];
 

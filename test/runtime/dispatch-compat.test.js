@@ -41,7 +41,7 @@ const UNCHANGED_FILES = Object.freeze([
   // package.json: version and scripts change with every release cut (beta.6 added release:preflight); no longer frozen at 0a474666
   // task-attempts.ts, task-graph.ts: edited by 115 A.1 (planVerdict); no longer frozen at 0a474666
   // task-run.ts: edited by 088 B.1 (trace ids); no longer frozen at 0a474666
-  'src/runtime/task-state.ts',
+  // task-state.ts: edited by 117 Phase C (owner entry, in-place reclaim, owned release); no longer frozen at 0a474666
   'src/runtime/task-sources.ts',
   // parsers.ts: edited by 109 A.2 (codex-exec-json-v1); no longer frozen at 0a474666
   'src/runtime/worker/process-tree.ts',

@@ -179,6 +179,8 @@ function mutate({ file, fsImpl, apply }: any) {
   try {
     updateTaskState({
       fsImpl, file,
+      // `apply` decides from the store alone, so a reclaimed writer re-runs it on the fresh store.
+      lostLockRetries: 2,
       build: (disk: any) => {
         const store = normalizeStore(disk, file);
         store.revision = (Number.isInteger(store.revision) ? store.revision : 0) + 1;
@@ -190,6 +192,8 @@ function mutate({ file, fsImpl, apply }: any) {
   } catch (error: any) {
     if (error instanceof NoWrite) return outcome.result;
     if (error instanceof TaskAttemptError) throw error;
+    // Contention, not damage: the store is intact and a later run decides afresh.
+    if (error?.code === 'lock-lost') throw new TaskAttemptError('lock-lost', error.message);
     throw unreadable(file, error.message);
   }
   return outcome.result;

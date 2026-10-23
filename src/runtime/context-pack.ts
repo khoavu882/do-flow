@@ -115,6 +115,8 @@ function sourcesChanged(root: string, sources: Record<string, string>): boolean 
 
 function classifyStoreFailure(error: any): string {
   if (error?.code === 'store-locked' || error?.message === 'store-locked') return 'store-locked';
+  // Another writer reclaimed the lock mid-write; nothing was recorded and the store is intact.
+  if (error?.code === 'lock-lost') return 'lock-lost';
   if (error?.code === 'store-unreadable') return 'store-unreadable';
   if (['EACCES', 'EROFS', 'EPERM', 'ENOSPC'].includes(error?.code)) return 'store-unwritable';
   return 'store-unwritable';
@@ -1324,6 +1326,7 @@ function packForEmission({ root, stateRoot = root, taskId = 'default', taskClass
 }
 
 module.exports = {
+  classifyStoreFailure,
   ContextPackCompiler,
   arbitrate,
   emitContext,
