@@ -210,6 +210,31 @@ test('--update still records null for a URL that was never fingerprinted and is 
   assert.equal(URL_A in doc.extractors, false);
 });
 
+test('a body that is only a client-side redirect stub is flagged STUB, even when it matches the baseline', async (t) => {
+  const stub = '<html><body><p>Redirecting to: /docs/mcp?tab=cli</p><p>Redirecting from</p><p>/docs/cli/mcp/</p></body></html>';
+  const s = setup(t, stub);
+  await s.check({ update: true });
+  const chunks = [];
+  const result = await s.check({ out: (c) => chunks.push(c) });
+  assert.equal(rowOf(result).status, 'STUB', 'identical to its baseline, still not a real page');
+  assert.equal(rowOf(result).note, 'redirect stub: Redirecting to: /docs/mcp?tab=cli');
+  assert.equal(result.report.summary.stub, 1);
+  assert.equal(result.code, 1);
+  assert.match(chunks.join(''), /redirect stub: Redirecting to: \/docs\/mcp\?tab=cli/);
+
+  s.site.html = '<html><head><meta http-equiv="refresh" content="0; url=/docs/x"></head><body>Moved.</body></html>';
+  assert.equal(rowOf(await s.check()).status, 'STUB', 'a meta refresh with a near-empty body is a stub too');
+});
+
+test('real pages are not mistaken for stubs: a short page, and a long page that mentions redirecting', async (t) => {
+  const s = setup(t, page({ main: '<p>Hooks.</p>' }));
+  await s.check({ update: true });
+  assert.equal(rowOf(await s.check()).status, 'OK');
+  const long = '<p>Redirecting to a new endpoint is covered below.</p>' + '<p>' + 'More documentation text. '.repeat(40) + '</p>';
+  s.site.html = page({ main: long });
+  assert.equal(rowOf(await s.check()).status, 'DRIFTED');
+});
+
 test('unifiedDiff renders hunks with context and caps a long diff', () => {
   const a = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].join('\n');
   const b = ['a', 'b', 'c', 'd', 'E', 'f', 'g', 'h'].join('\n');

@@ -3000,7 +3000,7 @@
         "skills": {
           "status": "supported",
           "evidence": [
-            "https://antigravity.google/docs/cli/plugins",
+            "https://antigravity.google/docs/plugins?tab=cli",
             "https://antigravity.google/docs/skills",
             "https://antigravity.google/docs/cli/gcli-migration"
           ],
@@ -3010,7 +3010,7 @@
         "agents": {
           "status": "supported",
           "evidence": [
-            "https://antigravity.google/docs/cli/subagents"
+            "https://antigravity.google/docs/subagents?tab=cli"
           ],
           "note": "Shared agent-spec frontmatter (name, description) is a compatible subset of Antigravity's subagent schema; body becomes the system prompt.",
           "verification": "Confirm invoke_subagent reaches the installed agent definition."
@@ -3018,7 +3018,7 @@
         "scripts": {
           "status": "supported",
           "evidence": [
-            "https://antigravity.google/docs/cli/plugins",
+            "https://antigravity.google/docs/plugins?tab=cli",
             "https://antigravity.google/docs/skills"
           ],
           "note": "Bundled skill scripts travel inside skills/<name>/scripts/. DoFlow projects its runtime seam under .doflow and locator in the configDir bin/ (project and global scopes).",
@@ -3027,21 +3027,21 @@
         "templates": {
           "status": "different",
           "evidence": [
-            "https://antigravity.google/docs/cli/plugins"
+            "https://antigravity.google/docs/plugins?tab=cli"
           ],
           "verification": "Report that template access arrives through skill bundles, not a projected tree."
         },
         "modes": {
           "status": "different",
           "evidence": [
-            "https://antigravity.google/docs/rules-workflows"
+            "https://antigravity.google/docs/rules"
           ],
           "verification": "Report that mode guidance rides the instructions pointer; .agents/rules projection is future work."
         },
         "settings": {
           "status": "unavailable",
           "evidence": [
-            "https://antigravity.google/docs/cli/settings"
+            "https://antigravity.google/docs/settings?tab=cli"
           ],
           "note": "Settings live only at user scope (~/.gemini/antigravity-cli/settings.json); no project settings tier exists.",
           "verification": "Report the capability gap; never write that file."
@@ -3087,7 +3087,7 @@
         "mcp": {
           "status": "supported",
           "evidence": [
-            "https://antigravity.google/docs/cli/mcp"
+            "https://antigravity.google/docs/mcp?tab=cli"
           ],
           "note": "mcpServers object in .agents/mcp_config.json (workspace) or ~/.gemini/config/mcp_config.json (user). Remote servers project url/httpUrl to serverUrl per current schema.",
           "verification": "Confirm selected MCP servers appear via /mcp in agy."
@@ -3095,7 +3095,7 @@
         "plugin": {
           "status": "different",
           "evidence": [
-            "https://antigravity.google/docs/cli/plugins"
+            "https://antigravity.google/docs/plugins?tab=cli"
           ],
           "note": "Local-path plugin installs only; DoFlow publishes none.",
           "verification": "Report that no plugin is installed."
@@ -3289,7 +3289,7 @@
         "evidence": [
           "https://antigravity.google/docs/skills/",
           "https://antigravity.google/docs/subagents",
-          "https://antigravity.google/docs/cli/mcp"
+          "https://antigravity.google/docs/mcp?tab=cli"
         ],
         "note": "The question was asked across the three dual-scope asset types Antigravity documents (skills, subagents, MCP servers) and the documentation is silent on all three: each page names a workspace location and a global location but never states which wins on a same-name conflict. Resolution mode is likewise unestablished: with no order documented there is nothing for a mode to qualify.",
         "determinedOn": "2026-09-27",

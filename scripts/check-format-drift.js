@@ -18,7 +18,7 @@
 //
 // Exit codes:
 //   0  clean (or only benign UNREACHABLE / NEW / allowlisted claims)
-//   1  at least one watched page DRIFTED from its baseline fingerprint
+//   1  at least one watched page DRIFTED from its baseline fingerprint, or is only a redirect STUB
 //   2  usage or configuration error (bad flag, malformed allowlist, stale allowlist id)
 //   3  a page that HAD a fingerprint became unreachable — suspicious, investigate
 // Exit precedence: 2 > 1 > 3 > 0. Network failures on never-seen URLs stay exit 0 so upstream
@@ -283,6 +283,22 @@ function unifiedDiff(before, after) {
   return ['--- baseline', '+++ current', ...shown].join('\n');
 }
 
+// A page that is only a client-side redirect ("Redirecting to: /docs/x") carries none of the claims
+// it is cited for, and its hash never moves. It is reported as STUB so the evidence URL gets
+// pointed at the redirect target. Heuristic: near-empty text that opens with "Redirecting", or a
+// meta refresh with a near-empty body; a long page that merely mentions redirecting is not a stub.
+const STUB_MAX_CHARS = 400;
+
+function redirectStub(raw, text) {
+  if (text.length > STUB_MAX_CHARS) return null;
+  const first = text.split('\n')[0];
+  if (/^redirecting\b/i.test(first)) return `redirect stub: ${first}`;
+  const meta = /<meta\b[^>]*http-equiv\s*=\s*["']?refresh[^>]*>/i.exec(raw);
+  if (!meta) return null;
+  const target = /url\s*=\s*([^"'>\s;]+)/i.exec(meta[0]);
+  return `redirect stub: meta refresh${target ? ` to ${target[1]}` : ''}`;
+}
+
 function readSnapshot(dir, url) {
   try {
     return fs.readFileSync(path.join(dir, snapshotName(url)), 'utf8').replace(/\n$/, '');
@@ -333,13 +349,14 @@ async function fetchText(url, {
 function summarize(results, excluded, staleUrlCount) {
   const summary = {
     watchedUrls: results.length,
-    ok: 0, drifted: 0, new_: 0, unreachable: 0, unreachableSuspicious: 0,
+    ok: 0, drifted: 0, stub: 0, new_: 0, unreachable: 0, unreachableSuspicious: 0,
     excludedClaims: excluded.length,
     staleBaselineUrls: staleUrlCount,
   };
   for (const row of results) {
     if (row.status === 'OK') summary.ok += 1;
     else if (row.status === 'DRIFTED') summary.drifted += 1;
+    else if (row.status === 'STUB') summary.stub += 1;
     else if (row.status === 'NEW') summary.new_ += 1;
     else if (row.status === 'UNREACHABLE') {
       summary.unreachable += 1;
@@ -350,7 +367,7 @@ function summarize(results, excluded, staleUrlCount) {
 }
 
 function exitCodeFor(summary) {
-  if (summary.drifted > 0) return 1;
+  if (summary.drifted > 0 || summary.stub > 0) return 1;
   if (summary.unreachableSuspicious > 0) return 3;
   return 0;
 }
@@ -371,6 +388,7 @@ function renderHuman(report) {
     out.push(`${row.status.padEnd(width)}  ${row.url}`);
     out.push(`${''.padEnd(width)}  -> claims: ${row.claims.join(', ') || '(none)'}`);
     if (row.extractor) out.push(`${''.padEnd(width)}  -> extractor: ${row.extractor}`);
+    if (row.note) out.push(`${''.padEnd(width)}  -> ${row.note}`);
     if (row.error) out.push(`${''.padEnd(width)}  -> ${row.error}`);
     if (row.status === 'DRIFTED' && row.diff === null) {
       out.push(`${''.padEnd(width)}  -> no snapshot to diff against (refresh with --update)`);
@@ -386,11 +404,13 @@ function renderHuman(report) {
     for (const e of excluded) out.push(`  ${e.id} — ${e.reason}`);
   }
   out.push('');
-  out.push(`summary: ok=${summary.ok} drifted=${summary.drifted} new=${summary.new_} `
+  out.push(`summary: ok=${summary.ok} drifted=${summary.drifted} stub=${summary.stub} new=${summary.new_} `
     + `unreachable=${summary.unreachable}${summary.unreachableSuspicious
       ? ` (suspicious=${summary.unreachableSuspicious})` : ''}`);
   const code = exitCodeFor(summary);
-  if (code === 1) out.push('DRIFTED pages differ from the baseline — confirm each change, then '
+  if (summary.stub > 0) out.push('STUB pages are only a redirect: point their registry evidence URL at the '
+    + 'redirect target, or they can never drift');
+  if (summary.drifted > 0) out.push('DRIFTED pages differ from the baseline — confirm each change, then '
     + 'refresh explicitly with: npm run drift -- --update');
   if (code === 3) out.push('previously-fingerprinted pages became unreachable — suspicious, '
     + 'investigate before trusting the rest of this report');
@@ -459,6 +479,7 @@ async function run(options = {}) {
       fingerprint: null,
       baselineFingerprint: typeof prior === 'string' ? prior : null,
       diff: null,
+      note: null,
       error: null,
       suspicious: false,
     };
@@ -470,7 +491,9 @@ async function run(options = {}) {
       texts.set(url, content.text);
       row.extractor = content.extractor;
       row.fingerprint = fingerprintText(content.text);
-      if (typeof prior !== 'string') row.status = 'NEW';       // first sighting (or prior run was offline)
+      const stub = redirectStub(outcome.body, content.text);
+      if (stub) { row.status = 'STUB'; row.note = stub; }      // never a real page, whatever the baseline says
+      else if (typeof prior !== 'string') row.status = 'NEW';  // first sighting (or prior run was offline)
       else if (prior === row.fingerprint) row.status = 'OK';
       else {
         row.status = 'DRIFTED';

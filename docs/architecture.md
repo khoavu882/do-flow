@@ -1225,6 +1225,9 @@ indented under the row in the human report). The hash covers the full text, so a
 cap drifts with an empty diff. The baseline keeps its `urls` map of hash strings and adds
 `extractors` (version 2); a version 1 baseline is still read, and its entries are compared on the
 whole page, as they were hashed, until `--update` migrates them.
+A page that is only a client-side redirect ("Redirecting to: ...") reports `STUB` and exits 1, because
+it carries none of the claims it is cited for: point its registry evidence URL at the redirect target.
+A URL that is unreachable during `--update` keeps its previous fingerprint, extractor and snapshot.
 
 ## Contributor guardrails
 

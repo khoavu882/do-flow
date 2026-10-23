@@ -71,3 +71,11 @@ test('past the budget, whole rows are dropped and counted, never cut in the midd
   assert.doesNotMatch(whole, /truncated/, 'a report under the budget is untouched');
   assert.doesNotMatch(out, /\uFFFD/, 'no UTF-8 character is cut');
 });
+
+test('STUB rows are listed with their note, beside the DRIFTED ones', { skip: !HAS_JQ && 'jq not installed' }, (t) => {
+  const stub = { url: 'https://x.test/stub', status: 'STUB', claims: ['c'], diff: null, note: 'redirect stub: Redirecting to: /docs/mcp?tab=cli' };
+  const out = comment(t, [stub, row('https://x.test/ok', null, 'OK'), row('https://x.test/d', '--- baseline\n+++ current\n-a\n+b')]);
+  assert.match(out, /https:\/\/x\.test\/stub`\n {2}claims: c\n {2}\(redirect stub: Redirecting to: \/docs\/mcp\?tab=cli\)/);
+  assert.match(out, /https:\/\/x\.test\/d`/);
+  assert.doesNotMatch(out, /x\.test\/ok/);
+});
