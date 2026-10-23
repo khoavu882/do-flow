@@ -186,7 +186,7 @@ test('G1: a non-release v* tag (vnext) is never the previous tag and never drops
   repo.tag('v1.0.0');
   repo.mergeNoFf(featureBranch(repo, b, 1));
   repo.tag('vnext');
-  assert.equal(readGitFacts(repo.dir).base_tag, 'vnext', 'git-state itself proposes the non-release tag as its base');
+  assert.equal(readGitFacts(repo.dir).base_tag, 'v1.0.0', 'git-state never proposes the non-release tag as its base');
   const out = release(repo, { tag: 'v2.0.0' });
   assert.equal(out.previousTag, 'v1.0.0');
   assert.deepEqual(slugsOf(out), [b], 'a is contained in the unrecorded v1.0.0; b merged before vnext is still offered');
