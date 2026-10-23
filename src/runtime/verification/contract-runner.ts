@@ -374,11 +374,14 @@ class VerificationContractRunner {
   /**
    * 089 IC-004 (review C-1): after a check ran with reuse on, read the tree again. The cached
    * context is replaced when it moved, so later checks key on the tree they actually run on.
-   * Returns true only when the check's own payload digest is unchanged, i.e. its inputs did not
-   * move during the run and a PASS may be stored under the key it was looked up with.
+   * Returns `unchanged` true only when the check's own payload digest is unchanged, i.e. its inputs
+   * did not move during the run and a PASS may be stored under the key it was looked up with, and
+   * `key`, the key of the tree the check ran on (null when the read faulted or cannot be keyed).
+   * FU-kerery: a FAIL whose pre-run key was null evicts by this post-run key.
    */
-  rereadAfterRun(command: string, timeoutMs: number, payloadDigest: string | null): boolean {
-    if (!this.reuseStore) return false;
+  rereadAfterRun(command: string, timeoutMs: number, payloadDigest: string | null): { unchanged: boolean; key: string | null } {
+    const none = { unchanged: false, key: null };
+    if (!this.reuseStore) return none;
     try {
       const before = this._treeContext;
       const after = this.readTreeContext();
@@ -386,20 +389,20 @@ class VerificationContractRunner {
         // 089 re-review N-a: a faulted read is not cached; the next check reads the tree again
         // instead of keying null (and evicting nothing) for the rest of the contract.
         this._treeContext = undefined;
-        return false;
+        return none;
       }
       if (!before || before.head !== after.head || before.tree !== after.tree || before.ignored !== after.ignored
         || before.gitRoot !== after.gitRoot || before.links !== after.links) {
         this._treeContext = after;
       }
-      if (!payloadDigest || typeof after.ignored !== 'string') return false;
+      if (typeof after.ignored !== 'string') return none;
       const keyed = checkKeyV2({ command, timeoutMs, cwd: this.cwd, head: after.head, tree: after.tree,
         ignored: after.ignored, gitRoot: after.gitRoot, links: after.links, configDir: this.configDir,
         env: this.env, fsImpl: this.fsImpl });
-      return keyed?.payloadDigest === payloadDigest;
+      return { unchanged: Boolean(payloadDigest) && keyed?.payloadDigest === payloadDigest, key: keyed?.key ?? null };
     } catch {
       this._treeContext = undefined; // unknown state: the next check reads it afresh
-      return false;
+      return none;
     }
   }
 
@@ -705,8 +708,8 @@ class VerificationContractRunner {
       }
     } catch (error: any) {
       stop();
-      this.rereadAfterRun(command, timeoutMs, payloadDigest);
-      this.evictFailed(checkKeyVal);
+      const reread = this.rereadAfterRun(command, timeoutMs, payloadDigest);
+      this.evictFailed(checkKeyVal ?? reread.key);
       // Mirrors the Python's bare `except Exception` arm: an unspawnable command is a FAIL, not a
       // thrown error that aborts the whole contract.
       return remember({
@@ -719,7 +722,11 @@ class VerificationContractRunner {
     }
     stop(res);
     // Reuse on: the check may have changed what the key hashed. Read again before anything is stored.
-    const unchanged = this.rereadAfterRun(command, timeoutMs, payloadDigest);
+    const reread = this.rereadAfterRun(command, timeoutMs, payloadDigest);
+    const unchanged = reread.unchanged;
+    // FU-kerery: a FAIL evicts by the key read before the run, or by the key of the tree it ran on
+    // when that read faulted (null).
+    const failedKey = checkKeyVal ?? reread.key;
     const stdout = res.bounded === true ? res.stdout : truncate(res.stdout);
     const stderr = res.bounded === true ? res.stderr : truncate(res.stderr);
 
@@ -727,7 +734,7 @@ class VerificationContractRunner {
     // check that hung after printing its first failure told you only that it hung. Whatever the
     // process produced before the kill is exactly what a reader needs.
     if (res.error && res.error.code === 'ETIMEDOUT') {
-      this.evictFailed(checkKeyVal);
+      this.evictFailed(failedKey);
       const result = {
         name: checkName,
         command,
@@ -742,7 +749,7 @@ class VerificationContractRunner {
     }
 
     if (res.error) {
-      this.evictFailed(checkKeyVal);
+      this.evictFailed(failedKey);
       const result = {
         name: checkName,
         command,
@@ -777,7 +784,7 @@ class VerificationContractRunner {
     if (passed) {
       if (unchanged) this.storeReused(result, checkKeyVal, payloadDigest, res);
     } else {
-      this.evictFailed(checkKeyVal);
+      this.evictFailed(failedKey);
     }
     return remember(result);
   }

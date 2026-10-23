@@ -310,7 +310,7 @@ test('G8: the capability matrix agrees with the registry, cell for cell', () => 
 
   const byDisplayAndCapability = new Map();
   for (const record of capabilityMapData(loadRegistry({ repoRoot: REPO }))) {
-    byDisplayAndCapability.set(`${record.displayName} ${record.capability}`, record);
+    byDisplayAndCapability.set(`${record.displayName}\0${record.capability}`, record);
   }
 
   const drift = [];
@@ -319,7 +319,7 @@ test('G8: the capability matrix agrees with the registry, cell for cell', () => 
     if (!capability) { drift.push(`row label "${row[0]}" maps to no registry capability`); continue; }
     row.slice(1).forEach((cell, column) => {
       const displayName = harnessColumns[column];
-      const record = byDisplayAndCapability.get(`${displayName} ${capability}`);
+      const record = byDisplayAndCapability.get(`${displayName}\0${capability}`);
       if (!record) { drift.push(`no registry row for ${displayName} / ${capability}`); return; }
 
       // A cell is "Status" or "Status — `nativeTarget`". Both halves are registry facts.

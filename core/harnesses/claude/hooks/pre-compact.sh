@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # pre-compact.sh — PreCompact hook
 #
-# Outputs plain stdout, not JSON. In Claude Code 2.1.304, this reached the
+# Outputs plain stdout, not JSON. In Claude Code 2.1.304 and 2.1.308, this reached the
 # compaction summary model as custom instructions; vendor docs are silent on
 # PreCompact stdout (FU-w563w2).
-# Text comes from the shared compact-text.sh (IC-001/IC-002), capped at 490.
+# Text comes from the shared compact-text.sh (IC-001/IC-002), capped at 490 bytes.
 # Must never exit non-zero or block.
 
 set -euo pipefail
