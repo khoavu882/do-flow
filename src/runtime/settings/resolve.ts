@@ -436,8 +436,9 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
       tripped = null;
     }
 
-    if (origin.via === null) {
-      // a key that names this one as its gate hit its fail-safe: this key takes its own
+    if (origin.via === null && value !== spec.failSafe) {
+      // a key that names this one as its gate hit its fail-safe: this key takes its own, unless it already
+      // holds it (a user's explicit off stays the user's; the gated key's own error is reported either way)
       for (const [other, otherSpec] of registry.keys) {
         if (!(isObject(otherSpec.failSafe) && otherSpec.failSafe.gate === key)) continue;
         const forced = resolve(other, viewName).tripped;
