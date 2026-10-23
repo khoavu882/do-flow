@@ -298,6 +298,30 @@ test('N-a control: with the tree readable throughout, the same contract keys B a
   assert.equal(fs.existsSync(record), false);
 });
 
+// FU-kerery: the key read BEFORE a check faulted (null), so the check's FAIL had no key to evict by.
+// The post-run read succeeds and keys the tree the check ran on; that key evicts the stored PASS.
+test('FU-kerery real shell: a FAIL whose pre-run key read faulted evicts the stored PASS by the post-run key', (t) => {
+  if (process.platform === 'win32' || process.getuid?.() === 0) { t.skip('needs POSIX permissions and a non-root user'); return; }
+  const ctx = scene(t);
+  const marker = path.join(tempDir(t, 'doflow-stale-pass-marker-'), 'fail');
+  const index = path.join(ctx.root, '.git', 'index');
+  t.after(() => { try { fs.chmodSync(index, 0o644); } catch { /* fixture gone */ } });
+  // B repairs the index first, so the post-run read works, then fails on the marker.
+  const B = `chmod 644 "${index}"; ${markerCommand(marker)}`;
+  assert.deepEqual([runnerDriver(ctx, B).ran, runnerDriver(ctx, B).ran], [true, false], 'PASS stored, then reused');
+  const [record] = storedRecords(ctx);
+
+  fs.chmodSync(index, 0o000); // git status faults when B's key is read
+  fs.writeFileSync(marker, '');
+  const runner = newRunner(ctx, { risk: 'HIGH' });
+  const b = runner.runCheck('B', B, 60000);
+  assert.equal(b.status, 'FAIL');
+  assert.equal(runner.metrics.get(b)?.checkKey ?? null, null, 'precondition: the pre-run key was null');
+  assert.equal(fs.existsSync(record), false, 'the FAIL evicted the stored PASS by the post-run key');
+  const after = runnerDriver(ctx, B);
+  assert.deepEqual([after.ran, after.status], [true, 'FAIL'], 'the next MEDIUM run executes');
+});
+
 // ── C-3: the out-of-repo target of a clean tracked symlink ───────────────────────────────────────
 
 test('C-3 real shell: changing only the target of a committed symlink to an outside file executes the check', (t) => {
