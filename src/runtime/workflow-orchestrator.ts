@@ -1241,6 +1241,8 @@ function handleOrchestrateCommand({
     }
     if (json) { console.log(JSON.stringify(snapshot, null, 2)); return finishRuntime(0); }
     console.log(`Workflow ${snapshot.taskId} [${snapshot.taskClass}] — ${snapshot.state}`);
+    // `status` with no --slug opens the one run of the id under any feature (FU-wrnnaq): say whose it is.
+    if (action === 'status' && featureSlug) console.log(`Feature: ${featureSlug}`);
     if (snapshot.disposition === 'standalone') console.log(`Handoff: standalone (${snapshot.reason})`);
     else if (snapshot.disposition) console.log(`Handoff: ${snapshot.disposition}`);
     if (snapshot.compaction) console.log(`Compaction: ${snapshot.compaction.status}${snapshot.compaction.reason ? ` — ${snapshot.compaction.reason}` : ''}`);

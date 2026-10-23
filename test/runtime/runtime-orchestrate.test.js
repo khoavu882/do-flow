@@ -599,6 +599,10 @@ test('FU-wrnnaq: status without --slug opens the single namespaced run that list
   assert.equal(res.status, 0, res.stderr);
   assert.equal(res.data.taskId, 'T.5');
   assert.equal(res.data.current.id, 'reproduction');
+  // C-9: the text form says whose run it opened, since the run may belong to another feature.
+  const text = run(cwd, ['orchestrate', '--action', 'status', '--task-id', 'T.5']);
+  assert.equal(text.status, 0, text.stderr);
+  assert.match(text.stdout, /^Workflow T\.5 \[bug\] — RUNNING\nFeature: aaa$/m);
 });
 
 test('FU-wrnnaq: status without --slug refuses when two features hold the id, naming both', (t) => {
