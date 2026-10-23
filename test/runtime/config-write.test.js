@@ -213,6 +213,27 @@ test('set refuses to write over a layer file that is not a valid settings file',
   assert.equal(fs.readFileSync(f.projectFile('settings.json'), 'utf8'), '{ not json');
 });
 
+test('a value that fits compact JSON but not the file as written is refused too-large by validate and set (C-13)', (t) => {
+  const f = createSettingsEnv(t);
+  const file = f.projectFile('settings.json');
+  const { MAX_BYTES } = require('../../src/runtime/settings/files.ts');
+  const clauses = Array.from({ length: 8 }, (_, i) => `clause ${i} ${'c'.repeat(190)}`);
+  // Compact, the layer with the new value is exactly the reader's limit; written pretty, it is over it.
+  const pad = 'p'.repeat(MAX_BYTES - JSON.stringify({ schema: 1, 'x.pad': '', 'review.blockerClauses': clauses }).length);
+  const full = { schema: 1, 'x.pad': pad, 'review.blockerClauses': clauses };
+  assert.equal(JSON.stringify(full).length, MAX_BYTES);
+  assert.ok(JSON.stringify(full, null, 2).length + 1 > MAX_BYTES);
+  f.writeProjectSettings({ schema: 1, 'x.pad': pad });
+  const before = fs.readFileSync(file);
+  const value = JSON.stringify(clauses);
+  for (const action of ['validate', 'set']) {
+    const entry = refusal(f.run(['config', action, 'review.blockerClauses', value, '--layer', 'project', '--json']), 'review.blockerClauses');
+    assert.equal(entry.code, 'too-large', action);
+    assert.match(entry.message, new RegExp(`${MAX_BYTES}-byte limit`));
+    assert.deepEqual(fs.readFileSync(file), before, `${action} leaves the file unchanged`);
+  }
+});
+
 // ── advice.model is security-relevant now (D-2) ───────────────────────────────────────────────────
 
 test('an invalid advice.model at a layer that may widen it trips advice.enabled and config list exits 1', (t) => {

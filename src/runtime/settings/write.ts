@@ -10,7 +10,7 @@ const { randomBytes } = require('node:crypto');
 const { isDeepStrictEqual } = require('node:util');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { loadSettingsRegistry } = require('./registry.ts');
-const { readLayerFile, validateValue } = require('./files.ts');
+const { MAX_BYTES, readLayerFile, validateValue } = require('./files.ts');
 const { clearSettingsCache } = require('./resolve.ts');
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -29,6 +29,31 @@ function scrub(value: any, keys: Set<string>): any {
     if (!keys.has(key)) Object.defineProperty(out, key, { value: scrub(entry, keys), enumerable: true, configurable: true, writable: true });
   }
   return out;
+}
+
+/** A layer document as written: `schema` first, then the owned keys in registry order, then the rest. */
+function layerDocument(registry: any, values: Record<string, unknown>): Record<string, unknown> {
+  const after: Record<string, unknown> = { schema: 1 };
+  for (const key of registry.keys.keys()) {
+    if (Object.hasOwn(values, key)) after[key] = values[key];
+  }
+  for (const [key, value] of Object.entries(values)) {
+    if (key !== 'schema' && !registry.keys.has(key)) {
+      Object.defineProperty(after, key, { value, enumerable: true, configurable: true, writable: true });
+    }
+  }
+  return after;
+}
+
+/** The bytes of a layer file. The one serializer: a check that measures a write measures these. */
+function serializeLayer(document: Record<string, unknown>): Buffer {
+  return Buffer.from(`${JSON.stringify(document, null, 2)}\n`, 'utf8');
+}
+
+/** The refusal for bytes the layer reader (`readLayerFile`, MAX_BYTES) would reject as too-large. */
+function oversize(file: string, bytes: Buffer): any {
+  if (bytes.length <= MAX_BYTES) return null;
+  return invalid(file, `would be ${bytes.length} bytes as written, over the ${MAX_BYTES}-byte limit of a settings file`, 'too-large');
 }
 
 function backupLayerFile(file: string, fsImpl = fs): any {
@@ -211,15 +236,10 @@ function replaceLayer({ file, registry, set, unsetKeys, scrubKeys, force, expect
   for (const [key, value] of Object.entries(set)) values[key] = value;
   for (const key of unsetKeys) delete values[key];
 
-  const after: Record<string, unknown> = { schema: 1 };
-  for (const key of registry.keys.keys()) {
-    if (Object.hasOwn(values, key)) after[key] = values[key];
-  }
-  for (const [key, value] of Object.entries(values)) {
-    if (key !== 'schema' && !registry.keys.has(key)) {
-      Object.defineProperty(after, key, { value, enumerable: true, configurable: true, writable: true });
-    }
-  }
+  const after = layerDocument(registry, values);
+  const bytes = serializeLayer(after);
+  const tooLarge = oversize(file, bytes);
+  if (tooLarge) return tooLarge;
 
   if (backup && layer?.status !== 'absent') {
     const kept = replaceBackup(file, fsImpl);
@@ -230,9 +250,7 @@ function replaceLayer({ file, registry, set, unsetKeys, scrubKeys, force, expect
   let temporary: string | null = null;
   try {
     temporary = path.join(directory, `.${path.basename(file)}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`);
-    fsImpl.writeFileSync(temporary, `${JSON.stringify(after, null, 2)}\n`, {
-      encoding: 'utf8', flag: 'wx', mode: 0o600,
-    });
+    fsImpl.writeFileSync(temporary, bytes, { flag: 'wx', mode: 0o600 });
     fsImpl.chmodSync(temporary, 0o600);
     fsImpl.renameSync(temporary, file);
     temporary = null;
@@ -247,4 +265,4 @@ function replaceLayer({ file, registry, set, unsetKeys, scrubKeys, force, expect
   }
 }
 
-module.exports = { writeLayer, backupLayerFile };
+module.exports = { writeLayer, backupLayerFile, layerDocument, serializeLayer, oversize };

@@ -11,7 +11,8 @@
  *
  * Checks run in this order and the first failing one is reported per key: locked (`invariant.*`),
  * unknown-key, security (a `securityRelevant` key is written by a person in the file, never by this
- * verb), scope, the value rules (type, enum, range, items, length), not-narrower. Nothing is written,
+ * verb), then at a layer too-large (the file as `writeLayer` would write it is over the reader's
+ * limit), scope, the value rules (type, enum, range, items, length), not-narrower. Nothing is written,
  * and no directory is created, until every check passes.
  */
 
@@ -22,7 +23,7 @@ const { finishRuntime, usageError } = require('../cli-result.ts');
 const { validateValue, readLayerFile } = require('./files.ts');
 const { loadSettings, clearSettingsCache } = require('./resolve.ts');
 const { projectLayerSource } = require('./project-layers.ts');
-const { writeLayer } = require('./write.ts');
+const { writeLayer, layerDocument, serializeLayer, oversize } = require('./write.ts');
 const { REF_META } = require('./refs.ts');
 const { maskUrl } = require('./shared.ts');
 const { loadProtocols, presetIds } = require('../review/protocols.ts');
@@ -32,7 +33,7 @@ const LAYER_FILE: Record<string, string> = { user: 'settings.json', project: 'se
 /** A write that finds the layer changed since it was checked is checked again, this many times in all. */
 const WRITE_ATTEMPTS = 3;
 /** `writeLayer` refusals reported under their own code; any other write fault is `write-failed`. */
-const WRITER_CODES = new Set(['locked', 'changed']);
+const WRITER_CODES = new Set(['locked', 'changed', 'too-large']);
 /** The codes whose entry carries the key's `allowed` values (IC-009). */
 const VALUE_CODES = new Set(['type', 'enum', 'range', 'items', 'length', 'url']);
 
@@ -113,10 +114,12 @@ function layerEntry(registry: any, key: string, layer: string, file: string, par
   if (read.status === 'invalid') {
     return entryOf(registry, key, layer, 'layer-invalid', `${file} ${read.reason}; fix or remove it first`);
   }
-  const document: Record<string, unknown> = read.status === 'ok' ? { ...read.document } : {};
-  document.schema = 1;
-  document[key] = parsed.ok ? parsed.value : null;
-  const view = loadSettings({ projectRoot, env, fsImpl: servedFs(file, Buffer.from(JSON.stringify(document)), fsImpl), registry });
+  const values: Record<string, unknown> = read.status === 'ok' ? { ...read.document } : {};
+  values[key] = parsed.ok ? parsed.value : null;
+  const bytes = serializeLayer(layerDocument(registry, values));
+  const tooLarge = oversize(file, bytes);
+  if (tooLarge) return entryOf(registry, key, layer, 'too-large', tooLarge.detail);
+  const view = loadSettings({ projectRoot, env, fsImpl: servedFs(file, bytes, fsImpl), registry });
   const candidate = view.get(key).candidates.find((c: any) => c.layer === layer && c.source === file && !c.legacy);
   if (!candidate) throw new Error(`the resolver did not read ${file}`);
   if (candidate.status === 'ignored-scope') return entryOf(registry, key, layer, 'scope', `${key} cannot be set at the ${layer} layer (${candidate.reason})`);
