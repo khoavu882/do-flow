@@ -7,6 +7,7 @@ const path = require('node:path');
 const { parseYamlFile } = require('./capability-router.ts');
 const { resolveLocator, describeResolution } = require('./locator-resolve.ts');
 const { readPlan, bindEvidence, declaredIntentList } = require('./retrieval-record.ts');
+const { fileRootFor } = require('./freshness.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 const READINESS_STATES = new Set([
@@ -64,6 +65,7 @@ class ReadinessEngine {
   declare fsImpl: any;
   declare repoRoot: any;
   declare projectRoot: any;
+  declare sourceRoot: any;
   declare templatePath: any;
   declare templates: any;
   /**
@@ -72,6 +74,8 @@ class ReadinessEngine {
    * @param {string} [options.projectRoot] the repository under work, which evidence locators name.
    *   Distinct from repoRoot on purpose: when the CLI runs inside another project, the templates
    *   come from the install and the locators must be resolved against that project, not the install.
+   * @param {string} [options.sourceRoot] the checkout the verb runs in, where a relative locator's file
+   *   is read (IC-007, `fileRootFor`); differs from projectRoot in a linked worktree. Defaults to projectRoot.
    * @param {string} [options.templatePath]
    * @param {Object} [options.templates]
    * @param {Object} [options.fsImpl]
@@ -80,6 +84,7 @@ class ReadinessEngine {
     this.fsImpl = options.fsImpl || fs;
     this.repoRoot = options.repoRoot || REPO_ROOT;
     this.projectRoot = options.projectRoot || process.cwd();
+    this.sourceRoot = options.sourceRoot || this.projectRoot;
     this.templatePath = options.templatePath || path.join(this.repoRoot, 'core', 'registry', 'readiness-templates.json');
 
     if (options.templates) {
@@ -265,7 +270,7 @@ class ReadinessEngine {
     const unresolvableEvidence = [];
     for (const item of taskEvidence) {
       if (item.provenance !== 'extracted' || !item.locator || !item.locator.file) continue;
-      const resolution = resolveLocator({ locator: item.locator, repoRoot: this.projectRoot });
+      const resolution = resolveLocator({ locator: item.locator, repoRoot: fileRootFor(this.sourceRoot, this.projectRoot, item.locator) });
       if (!resolution.resolved) {
         unresolvableEvidence.push({
           evidenceId: item.id,
@@ -527,7 +532,7 @@ function evaluateTaskReadiness({ taskProfile, repoRoot = REPO_ROOT, projectRoot 
   const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: projectRoot });
   claims.load(taskProfile.taskId);
   claims.evaluateAll();
-  const report = new ReadinessEngine({ repoRoot, projectRoot }).evaluateReadiness(taskProfile, ledger, claims);
+  const report = new ReadinessEngine({ repoRoot, projectRoot, sourceRoot }).evaluateReadiness(taskProfile, ledger, claims);
   return { ...report, executionMode: mode, stageEntry: stageEntryFor(report.state, mode) };
 }
 
