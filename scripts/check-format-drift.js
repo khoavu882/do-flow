@@ -205,8 +205,13 @@ function snapshotName(url) {
   return crypto.createHash('sha1').update(url, 'utf8').digest('hex') + '.txt';
 }
 
-/** Cut `text` on a line boundary so the stored file (text + marker + newline) fits SNAPSHOT_MAX_BYTES. */
-function capSnapshot(text) {
+/** Cut `text` on a line boundary so the stored file (text + marker + newline) fits SNAPSHOT_MAX_BYTES.
+ * Vendor pages quote example home directories (`/Users/developer/...`) and guard G2 forbids those in
+ * tracked files, so every `/Users/<name>/` and `/home/<name>/` is stored as `/Users/<name>/` with
+ * the literal placeholder `<name>`. Both sides of a diff go through here, so the redaction itself
+ * never shows up as a change (a change that is only a different example name shows no diff). */
+function capSnapshot(raw) {
+  const text = raw.replace(/\/(Users|home)\/[A-Za-z][\w-]*\//g, '/$1/<name>/');
   if (Buffer.byteLength(text) + 1 <= SNAPSHOT_MAX_BYTES) return text;
   const budget = SNAPSHOT_MAX_BYTES - Buffer.byteLength(`\n${SNAPSHOT_MARKER}`) - 1;
   const kept = [];

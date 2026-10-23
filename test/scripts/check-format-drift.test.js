@@ -142,6 +142,14 @@ test('snapshots are capped: the file stays within SNAPSHOT_MAX_BYTES and a chang
   assert.match(within.diff, /^\+line zero /m);
 });
 
+test('snapshots carry no home-directory path, and the diff ignores the redaction', () => {
+  // Built from parts so this file itself holds no literal home path (guard G2).
+  const home = (root, name) => ['', root, name, ''].join('/');
+  const text = `cd ${home('Users', 'developer')}repo\nsee ${home('home', 'alice')}.config`;
+  assert.equal(drift.capSnapshot(text), 'cd /Users/<name>/repo\nsee /home/<name>/.config');
+  assert.equal(drift.unifiedDiff(drift.capSnapshot(text), drift.capSnapshot(text.replace('alice', 'bob'))), '');
+});
+
 test('--update prunes snapshots of URLs that are no longer watched', async (t) => {
   const s = setup(t, page());
   fs.mkdirSync(s.env.snapshotDir, { recursive: true });
