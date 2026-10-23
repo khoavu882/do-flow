@@ -239,12 +239,23 @@ function defaultIsAlive(pid: number): boolean {
 }
 
 /**
- * The pid a rename-aside folder (`.tmp-del-<id>-<pid>-<8 hex>`) names as its owner, or null when the
- * name does not carry one. Ids contain `-`, so the pid is read from the end.
+ * Eight hex digits that identify a host in a rename-aside name. A pid means something only on the
+ * host (and in the pid namespace) it was issued in, so an aside is judged by pid only by the host that
+ * made it.
  */
-function removingOwnerPid(name: string): number | null {
-  const m = /-([0-9]+)-[0-9a-f]{8}$/.exec(name);
-  return m ? Number(m[1]) : null;
+function hostTag(hostname: string = os.hostname()): string {
+  return crypto.createHash('sha1').update(String(hostname)).digest('hex').slice(0, 8);
+}
+
+/**
+ * The owner a rename-aside folder (`.tmp-del-<id>-<host tag>-<pid>-<8 hex>`) names, or null when the
+ * name does not carry one. Ids contain `-`, so the fields are read from the end. Names without a host
+ * tag (an earlier layout that never shipped: it existed only on unreleased commits, so no migration)
+ * are unparseable and are kept.
+ */
+function removingOwner(name: string): { host: string; pid: number } | null {
+  const m = /-([0-9a-f]{8})-([0-9]+)-[0-9a-f]{8}$/.exec(name);
+  return m ? { host: m[1], pid: Number(m[2]) } : null;
 }
 
 function isStaleTemp(dir: string, { now, fsImpl, isAlive, hostname }: any): boolean {
@@ -263,7 +274,8 @@ function isStaleTemp(dir: string, { now, fsImpl, isAlive, hostname }: any): bool
  *
  * A `.tmp-del-*` rename-aside is a backup a retention pass is deleting, so age says nothing about it
  * (it keeps the backup's own, possibly old, mtime and may be rolled back if the delete fails). It is
- * removed only when the pid in its name is not alive; one whose name carries no pid is left alone.
+ * removed only by the host named in it, and only when the pid in its name is not alive; any other
+ * host's aside, and one whose name carries no owner, is left alone.
  */
 function sweepStaleTemps(backupRoot: string, { now = Date.now(), fsImpl = fs, isAlive = defaultIsAlive, hostname = os.hostname() }: any = {}): number {
   assertMutableBackupRoot(backupRoot, 'clean up backups');
@@ -273,8 +285,10 @@ function sweepStaleTemps(backupRoot: string, { now = Date.now(), fsImpl = fs, is
     if (!e.isDirectory() || !e.name.startsWith(TEMP_PREFIX)) continue;
     const dir = path.join(backupRoot, e.name);
     if (e.name.startsWith(REMOVING_PREFIX)) {
-      const pid = removingOwnerPid(e.name);
-      if (pid === null || isAlive(pid)) continue;
+      // Removed only by the host that made it, and only once its pid is gone there. Another host's
+      // (or an unparseable) aside is kept: its pass may be live where this one cannot see it.
+      const owner = removingOwner(e.name);
+      if (owner === null || owner.host !== hostTag(hostname) || isAlive(owner.pid)) continue;
     } else if (!isStaleTemp(dir, { now, fsImpl, isAlive, hostname })) continue;
     try {
       fsImpl.rmSync(dir, { recursive: true, force: true });
@@ -730,7 +744,7 @@ function applyRetention({ backupRoot, keep, protect = [], reserve = 0, dryRun = 
     // Another run's retention pass may have removed it already.
     if (!fsImpl.existsSync(dir)) continue;
     // One rename takes the backup out of the listing whole; the deletion then happens out of sight.
-    const aside = path.join(backupRoot, `${REMOVING_PREFIX}${id}-${process.pid}-${crypto.randomBytes(4).toString('hex')}`);
+    const aside = path.join(backupRoot, `${REMOVING_PREFIX}${id}-${hostTag()}-${process.pid}-${crypto.randomBytes(4).toString('hex')}`);
     try {
       fsImpl.renameSync(dir, aside);
     } catch (err: any) {
@@ -760,7 +774,7 @@ function retentionNote(prune: number | null | undefined, keep: number): string {
 
 module.exports = {
   backupId, restoreBackup, listBackups, assertSafeBackupId, scopeRelative, retentionNote,
-  backupReadRoots, BACKUP_ORIGIN_CURRENT, BACKUP_ORIGIN_LEGACY,
+  backupReadRoots, hostTag, BACKUP_ORIGIN_CURRENT, BACKUP_ORIGIN_LEGACY,
   BackupError, DEFAULT_BACKUP_RETENTION, createFileBackup, sweepStaleTemps, classifyBackupDir,
   sortKey, backupSize, formatBytes, planRestore, executeRestore, mergeRestoredLedger, applyRetention,
 };

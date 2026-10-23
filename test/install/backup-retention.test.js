@@ -8,7 +8,7 @@ const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp');
-const { applyRetention, backupSize, listBackups, sweepStaleTemps } = require('../../src/install/backup.ts');
+const { applyRetention, backupSize, listBackups, sweepStaleTemps, hostTag } = require('../../src/install/backup.ts');
 const { plantFullBackup } = require('../helper/backup-v1-fixture');
 const { IS_WIN } = require('../helper-platform');
 
@@ -117,7 +117,7 @@ const HOURS = 60 * 60 * 1000;
 test('a .tmp-del-* left by a crashed removal is cleaned on the next pass and is never listed as a backup', () => {
   const root = backupRootOf(scratchDir());
   const ids = plantFive(root);
-  const left = path.join(root, `.tmp-del-${ids[0]}-${deadPid()}-abcd1234`);
+  const left = path.join(root, `.tmp-del-${ids[0]}-${hostTag()}-${deadPid()}-abcd1234`);
   fs.renameSync(path.join(root, ids[0]), left);
   assert.deepStrictEqual(listBackups(root).map((r) => r.id).sort(), ids.slice(1), 'not a backup');
   assert.ok(!applyRetention({ backupRoot: root, keep: 9, dryRun: true }).wouldRemove.length);
@@ -154,8 +154,8 @@ test('a concurrent pass leaves a live pass\'s rename-aside alone, so its failed 
 test('sweepStaleTemps never removes a .tmp-del-* by age: only when the pid in its name is dead (C-1)', () => {
   const root = backupRootOf(scratchDir());
   const ids = plantFive(root);
-  const live = path.join(root, `.tmp-del-${ids[0]}-${process.pid}-abcd1234`);
-  const dead = path.join(root, `.tmp-del-${ids[1]}-${deadPid()}-abcd1234`);
+  const live = path.join(root, `.tmp-del-${ids[0]}-${hostTag()}-${process.pid}-abcd1234`);
+  const dead = path.join(root, `.tmp-del-${ids[1]}-${hostTag()}-${deadPid()}-abcd1234`);
   const odd = path.join(root, '.tmp-del-no-pid-here');
   for (const [name, dir] of [[ids[0], live], [ids[1], dead]]) fs.renameSync(path.join(root, name), dir);
   fs.mkdirSync(odd);
@@ -163,6 +163,39 @@ test('sweepStaleTemps never removes a .tmp-del-* by age: only when the pid in it
   for (const dir of [live, dead, odd]) fs.utimesSync(dir, old, old);
   assert.strictEqual(sweepStaleTemps(root), 1);
   assert.deepStrictEqual([live, dead, odd].map((d) => fs.existsSync(d)), [true, false, true], 'live pid and an unparseable name stay however old');
+});
+
+test('a pass on another host never deletes this host\'s rename-aside, even when it sees no such pid (N-2)', () => {
+  const root = backupRootOf(scratchDir());
+  const ids = plantFive(root);
+  let foreign = null;
+  const failing = {
+    ...fs,
+    rmSync(target, options) {
+      if (path.basename(target).startsWith('.tmp-del-') && foreign === null) {
+        // Another host (or pid namespace) sweeps the shared root: it cannot see this pass's pid.
+        foreign = sweepStaleTemps(root, { hostname: 'some-other-host', isAlive: () => false });
+        throw Object.assign(new Error('EACCES: denied'), { code: 'EACCES' });
+      }
+      return fs.rmSync(target, options);
+    },
+  };
+  const result = applyRetention({ backupRoot: root, keep: 4, protect: [ids[4]], fsImpl: failing });
+  assert.strictEqual(foreign, 0, 'nothing removed by the foreign sweep');
+  assert.strictEqual(result.failed.length, 1);
+  assert.ok(fs.existsSync(path.join(root, ids[0], '.manifest.json')), 'the backup whose delete failed is back under its id');
+});
+
+test('an aside made on another host, or in the old nameless layout, is kept and never listed (N-2)', () => {
+  const root = backupRootOf(scratchDir());
+  const ids = plantFive(root);
+  const foreign = path.join(root, `.tmp-del-${ids[0]}-${hostTag('another-host')}-${deadPid()}-abcd1234`);
+  const nameless = path.join(root, `.tmp-del-${ids[1]}-${deadPid()}-abcd1234`);
+  fs.renameSync(path.join(root, ids[0]), foreign);
+  fs.renameSync(path.join(root, ids[1]), nameless);
+  applyRetention({ backupRoot: root, keep: 9 });
+  assert.deepStrictEqual([foreign, nameless].map((d) => fs.existsSync(d)), [true, true]);
+  assert.deepStrictEqual(listBackups(root).map((r) => r.id).sort(), ids.slice(2), 'neither is a backup in a listing');
 });
 
 test('keep 0 removes nothing and reports every backup as kept', () => {
