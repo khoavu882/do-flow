@@ -89,7 +89,15 @@ function setup(t, cases = CASES) {
 
 /** A schema-valid findings record whose converged list is `findings` ([{ severity, locator }]). */
 function findingsRecord(findings) {
-  const converged = findings.map((f, i) => ({ id: `C-${i + 1}`, from: [`s-${i + 1}`], severity: f.severity, status: 'open', locator: f.locator }));
+  const converged = findings.map((f, i) => {
+    const status = f.status ?? 'open';
+    return {
+      id: `C-${i + 1}`, from: [`s-${i + 1}`], severity: f.severity, status, locator: f.locator,
+      ...(status === 'refuted' ? { evidence: 'src/evidence.js:1' } : {}),
+      ...(status === 'fixed' ? { fixedIn: HEAD } : {}),
+      ...(status === 'user-accepted' ? { decision: 'DEC-001' } : {}),
+    };
+  });
   return {
     schema: 1,
     row: '001',
@@ -157,9 +165,49 @@ test('IC-009: a finding that names the expected span is found (passRate 1); grad
 
 test('IC-009: tolerance is 3 lines either side; one line further is not found', (t) => {
   // expected 10-20, tolerance 3: window [7, 23]
-  for (const [locator, want] of [['src/a.js:6-7', 1], ['src/a.js:5-6', 0], ['src/a.js:23', 1], ['src/a.js:24', 0], ['src/a.js:3,30', 1]]) {
+  for (const [locator, want] of [['src/a.js:6-7', 1], ['src/a.js:5-6', 0], ['src/a.js:23', 1], ['src/a.js:24', 0], ['src/a.js:3,12', 1], ['src/a.js:3,30', 0]]) {
     assert.equal(gradeSingle(t, { severity: 'blocker', locator }).passRate, want, locator);
   }
+});
+
+/** C-6: one case, expected src/a.ts:50-52 blocker; returns the run entry for a single fake finding. */
+function gradeA(t, finding) {
+  const c = mkCase('005-b-1', { path: 'src/a.ts', startLine: 50, endLine: 52, severity: 'blocker' });
+  const f = setup(t, [c]);
+  const it = `it-${++seq}`;
+  stamp(f, it);
+  review(f, it, c.id, [finding]);
+  const r = grade(f, it);
+  assert.equal(r.code, 0, r.err);
+  return gradeOf(f, it).runs[c.key];
+}
+
+test('C-6: a refuted converged finding does not count; open, fixed and user-accepted do', (t) => {
+  assert.equal(gradeA(t, { severity: 'blocker', locator: 'src/a.ts:51', status: 'refuted' }).passRate, 0, 'refuted is a miss');
+  for (const status of ['open', 'fixed', 'user-accepted']) {
+    assert.equal(gradeA(t, { severity: 'blocker', locator: 'src/a.ts:51', status }).passRate, 1, status);
+  }
+});
+
+test('C-6: a whole-file range is a miss; a range up to maxSpan lines is a span', (t) => {
+  const { maxSpan } = CONFIG;
+  assert.equal(maxSpan, 60);
+  assert.equal(gradeA(t, { severity: 'blocker', locator: 'src/a.ts:1-99999' }).passRate, 0);
+  assert.equal(gradeA(t, { severity: 'blocker', locator: `src/a.ts:1-${maxSpan + 1}` }).passRate, 0, 'maxSpan + 1 lines is too wide');
+  assert.equal(gradeA(t, { severity: 'blocker', locator: `src/a.ts:1-${maxSpan}` }).passRate, 1, 'maxSpan lines still counts');
+});
+
+test('C-6: a comma list is separate points, a hit when any one point is inside the window', (t) => {
+  assert.equal(gradeA(t, { severity: 'blocker', locator: 'src/a.ts:1,9999' }).passRate, 0, 'no point inside');
+  assert.equal(gradeA(t, { severity: 'blocker', locator: 'src/a.ts:50,9999' }).passRate, 1, 'one point inside');
+  assert.equal(gradeA(t, { severity: 'blocker', locator: 'src/a.ts:1,56' }).passRate, 0, 'points 1 and 56: window is 47..55, the gap between them is not a span');
+  assert.equal(gradeA(t, { severity: 'blocker', locator: 'src/a.ts:1,55' }).passRate, 1, 'tolerance still applies to a point');
+});
+
+test('C-6 controls: another path and a distant line stay a miss', (t) => {
+  assert.equal(gradeA(t, { severity: 'blocker', locator: 'src/other.ts:51' }).passRate, 0);
+  assert.equal(gradeA(t, { severity: 'blocker', locator: 'src/a.ts:200' }).passRate, 0);
+  assert.equal(gradeA(t, { severity: 'blocker', locator: 'src/a.ts:51' }).passRate, 1);
 });
 
 test('IC-009: a lower severity than expected is not found, an equal or higher one is', (t) => {

@@ -5,8 +5,9 @@
  * case, deterministically, and reads those grades back as the 096 repeat shape `bench/noise.js`
  * takes. Offline: reads files only; no model, no subprocess.
  *
- * A case is `found` when some converged finding sits on the expected path, overlaps the expected
- * span widened by `config.tolerance` lines each way, and is at least as severe as the expected one.
+ * A case is `found` when some converged finding that was not refuted sits on the expected path, has a
+ * locator span (at most `config.maxSpan` lines wide; a comma list is separate points) overlapping the
+ * expected span widened by `config.tolerance` lines each way, and is at least as severe as the expected one.
  * A case with no usable record is excluded (null, never 0): an infra class from `run_status.json`,
  * or `malformed` for a missing or invalid `findings.json`.
  */
@@ -92,26 +93,49 @@ function readRunStatus(caseDir) {
   return isObject(v) && typeof v.status === 'string' ? v.status : 'malformed';
 }
 
-/** True when a converged finding of `record` names the expected span at the expected severity or higher. */
-function isFound(record, expected, tolerance) {
+/** Converged statuses that count as a finding the reviewer made; `refuted` was withdrawn by the review itself. */
+const COUNTED_STATUSES = Object.freeze(['open', 'fixed', 'user-accepted']);
+
+/**
+ * The line spans one locator claims, as `{ path, spans: [[from, to], ...] }`, or null when it does not
+ * parse. A range is one span; a single line is one; a comma list is one single-line span per line
+ * (separate points, never min..max, so `1,9999` does not cover the lines between).
+ */
+function locatorSpans(locator) {
+  const at = parseLocator(locator);
+  if (at === null) return null;
+  const rest = locator.slice(at.path.length + 1);
+  const spans = rest.includes('-')
+    ? [[at.startLine, at.endLine]]
+    : rest.split(',').map((n) => [Number(n), Number(n)]);
+  return { path: at.path, spans };
+}
+
+/**
+ * True when a counted converged finding of `record` names the expected span at the expected severity
+ * or higher: some span of its locator, at most `maxSpan` lines wide, overlaps the expected span
+ * widened by `tolerance` lines each way.
+ */
+function isFound(record, expected, tolerance, maxSpan) {
   const from = expected.startLine - tolerance;
   const to = expected.endLine + tolerance;
   return record.converged.some((f) => {
-    const at = parseLocator(f.locator);
-    return at !== null && at.path === expected.path && at.startLine <= to && at.endLine >= from
-      && rank(f.severity) >= rank(expected.severity);
+    if (!COUNTED_STATUSES.includes(f.status) || rank(f.severity) < rank(expected.severity)) return false;
+    const at = locatorSpans(f.locator);
+    return at !== null && at.path === expected.path
+      && at.spans.some(([a, b]) => b - a + 1 <= maxSpan && a <= to && b >= from);
   });
 }
 
 /** `{ passRate, excluded }` of one case directory (the order of IC-009 steps 1 to 3). */
-function gradeCase({ caseDir, expected, tolerance }) {
+function gradeCase({ caseDir, expected, tolerance, maxSpan }) {
   const status = readRunStatus(caseDir);
   if (status !== null && status !== 'completed') {
     return { passRate: null, excluded: RUN_STATUSES.includes(status) ? status : 'malformed' };
   }
   const record = readJson(path.join(caseDir, FILES.findings));
   if (record === null || !validateFindings(record).ok) return { passRate: null, excluded: 'malformed' };
-  return { passRate: isFound(record, expected, tolerance) ? 1 : 0, excluded: null };
+  return { passRate: isFound(record, expected, tolerance, maxSpan) ? 1 : 0, excluded: null };
 }
 
 /**
@@ -120,13 +144,14 @@ function gradeCase({ caseDir, expected, tolerance }) {
  * iteration cannot mix truths.
  */
 function gradeIteration({ iterationDir, name, corpus, config }) {
+  if (!Number.isInteger(config.maxSpan) || config.maxSpan < 1) throw new UsageError('config: maxSpan must be a positive integer (bench/review-miss/config.json)');
   const meta = readIteration(iterationDir);
   const ids = new Set(corpus.cases.map((c) => c.id));
   const stray = fs.readdirSync(iterationDir, { withFileTypes: true }).filter((e) => e.isDirectory() && !ids.has(e.name)).map((e) => e.name).sort();
   if (stray.length) throw new UsageError(`${name}: case director${stray.length === 1 ? 'y' : 'ies'} outside the corpus: ${stray.join(', ')}`);
   const runs = {};
   for (const c of [...corpus.cases].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))) {
-    runs[c.key] = { kind: 'review-miss', split: c.split, ...gradeCase({ caseDir: path.join(iterationDir, c.id), expected: c.expected, tolerance: config.tolerance }) };
+    runs[c.key] = { kind: 'review-miss', split: c.split, ...gradeCase({ caseDir: path.join(iterationDir, c.id), expected: c.expected, tolerance: config.tolerance, maxSpan: config.maxSpan }) };
   }
   return { schema: 1, iteration: name, model: meta.model, commit: meta.sourceAt, runs };
 }
