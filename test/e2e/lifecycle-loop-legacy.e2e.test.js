@@ -118,6 +118,16 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
     };
   }
 
+  /** FU-afkns5: an unmet scope_clear, scope_verified or invariants_captured requirement used to recommend the generic
+   * "Gather evidence" action; it now names the flag that satisfies it. The one deliberate change to a printed value. */
+  function isNamedInputAction(at, old, neu) {
+    if (at !== '$.requirements[].recommendedAction.action' || typeof old !== 'string' || typeof neu !== 'string') return false;
+    const generic = /^Gather evidence for requirement '(scope_clear|scope_verified|invariants_captured)'/.exec(old);
+    if (!generic) return false;
+    const flag = generic[1] === 'invariants_captured' ? '--invariants "<invariants>"' : '--scope "<boundary>"';
+    return neu.includes(`requirement '${generic[1]}'`) && neu.includes(flag);
+  }
+
   /** Every leaf of `old` is present, unchanged, in `neu`; returns the paths only `neu` has. */
   function additions(old, neu, at = '$', expandNewPaths = []) {
     if (Array.isArray(old)) {
@@ -129,6 +139,7 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
       return [];
     }
     if (old === null || typeof old !== 'object') {
+      if (isNamedInputAction(at, old, neu)) return [];
       assert.deepEqual(neu, old, `${at} changed`);
       return [];
     }
