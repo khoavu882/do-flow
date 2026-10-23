@@ -148,27 +148,54 @@ function readRunAt(cache: any, runId: string, where: string): any {
 }
 
 /**
- * The copies of run `runId` a record in `namespace` may be judged by (C-1). A record with a safe
- * namespace owns the copy in that namespace and the flat copy (what it read before 115); it never owns
- * another namespace's copy, whose run belongs to that feature. A flat record (no safe namespace) owns
- * every copy; more than one namespaced copy is ambiguous, and the caller fails closed.
+ * Whether a namespaced copy of a run keeps the record open (C-1, N-1). A namespaced copy may only
+ * keep a record: a record is judged as 135ce230 judged it, by the flat run copy alone, and a
+ * namespaced copy never makes a record finished. The copies a record owns are its own namespace's
+ * (a namespaced record) or the namespace named by its own `featureSlug`/`slug` (a flat record); it
+ * never owns another feature's copy. The run is chosen as a flat run is: the exact id, the record's
+ * namespace, then the longest delimited prefix. An owned copy that is RUNNING or AWAITING_GATE
+ * holds the record open and one that cannot be read keeps it undecidable. A flat record that names
+ * no namespace of its own and could be claimed by two or more namespaced copies is undecidable (fail
+ * closed), not guessed.
  */
-function ownedCopies(cache: any, runId: string, namespace: any): { where: string[]; ambiguous: boolean } {
-  const held: string[] = cache.runLocations?.get(runId) || [];
-  if (!safeSegment(namespace)) return { where: held, ambiguous: held.filter((w: string) => w !== '').length > 1 };
-  return { where: held.filter((w: string) => w === namespace || w === ''), ambiguous: false };
+function namespacedHold(cache: any, taskId: string, namespace: any, recordValue: any, shouldStop?: () => boolean): any {
+  const recordNs: string | null = safeSegment(namespace) ? namespace : null;
+  const named = recordNs ? null : (stringField(recordValue, 'featureSlug') || stringField(recordValue, 'slug'));
+  const own: string | null = recordNs || (named !== null && isRunNamespaceDir(named) ? named : null);
+  const locations: Map<string, string[]> = cache.runLocations || new Map();
+  const choose = (accept: (where: string) => boolean): string | null | undefined => {
+    let exact = false, byNamespace = false, prefix: string | null = null;
+    for (const [candidate, held] of locations) {
+      if (shouldStop?.()) return undefined;
+      if (!held.some((w: string) => w !== '' && accept(w))) continue;
+      if (candidate === taskId) exact = true;
+      else if (recordNs && candidate === recordNs) byNamespace = true;
+      else if ((taskId.startsWith(`${candidate}-`) || taskId.startsWith(`${candidate}.`))
+        && (!prefix || candidate.length > prefix.length || (candidate.length === prefix.length && candidate < prefix))) prefix = candidate;
+    }
+    return exact ? taskId : byNamespace ? recordNs : prefix;
+  };
+  if (own) {
+    const id = choose((w: string) => w === own);
+    if (id === undefined || shouldStop?.()) return { incomplete: true };
+    if (id) {
+      const read = readRunAt(cache, id, own);
+      if (shouldStop?.()) return { incomplete: true };
+      if (!read.ok) return { unreadable: true, id };
+      if (RUN_OPEN_STATES.includes(read.value.state)) return { open: true, id };
+    }
+  }
+  if (!recordNs && !own) {
+    const id = choose(() => true);
+    if (id === undefined || shouldStop?.()) return { incomplete: true };
+    if (id && (locations.get(id) || []).filter((w: string) => w !== '').length > 1) return { unreadable: true, id };
+  }
+  return {};
 }
 
-/**
- * The run record of `runId` among the copies the record owns (`ownedCopies`). A copy that is open
- * wins (a stale flat seed never closes a live run); otherwise the first copy decides, and an
- * unreadable first copy keeps the run unreadable (fail closed), as does an ambiguous flat record.
- */
-function readRun(cache: any, runId: string, namespace: any): any {
-  const owned = ownedCopies(cache, runId, namespace);
-  if (owned.ambiguous || owned.where.length === 0) return { ok: false, where: '' };
-  const reads = owned.where.map((w: string) => readRunAt(cache, runId, w));
-  return reads.find((r: any) => r.ok && RUN_OPEN_STATES.includes(r.value.state)) || reads[0];
+/** The flat run copy `runId`, the only copy a record is judged by (135ce230). */
+function readRun(cache: any, runId: string): any {
+  return readRunAt(cache, runId, '');
 }
 
 function resolveRun(cache: any, taskId: string, namespace: any, shouldStop?: () => boolean): any {
@@ -178,20 +205,18 @@ function resolveRun(cache: any, taskId: string, namespace: any, shouldStop?: () 
   let exact = false, namespaced = false, prefix: string | null = null;
   for (const candidate of listed.names) {
     if (shouldStop?.()) return { id: null, unreadable: false, incomplete: true };
-    // A run another record owns (C-1) is not this record's run, whichever way its id matches.
-    const claimed = (): boolean => ownedCopies(cache, candidate, namespace).where.length > 0;
-    if (candidate === taskId) { if (claimed()) exact = true; }
-    else if (safeSegment(namespace) && candidate === namespace) { if (claimed()) namespaced = true; }
+    if (!(cache.runLocations.get(candidate) || []).includes('')) continue;
+    if (candidate === taskId) exact = true;
+    else if (safeSegment(namespace) && candidate === namespace) namespaced = true;
     else if ((taskId.startsWith(`${candidate}-`) || taskId.startsWith(`${candidate}.`))
-      && (!prefix || candidate.length > prefix.length || (candidate.length === prefix.length && candidate < prefix))
-      && claimed()) prefix = candidate;
+      && (!prefix || candidate.length > prefix.length || (candidate.length === prefix.length && candidate < prefix))) prefix = candidate;
   }
   const id = exact ? taskId : namespaced ? namespace : prefix;
   if (!id) return { id: null, value: null, unreadable: false };
   if (shouldStop?.()) return { id: null, unreadable: false, incomplete: true };
-  const read = readRun(cache, id, namespace);
+  const read = readRun(cache, id);
   if (shouldStop?.()) return { id: null, unreadable: false, incomplete: true };
-  return read.ok ? { id, value: read.value, where: read.where, unreadable: false } : { id, value: null, unreadable: true };
+  return read.ok ? { id, value: read.value, unreadable: false } : { id, value: null, unreadable: true };
 }
 
 function parseJsonLines(text: string): any {
@@ -427,7 +452,7 @@ function workStatus({
   // reading that file twice.
   const storePath = pass.recordStorePaths.get(store);
   let record: any;
-  if (storePath === 'orchestration' && !namespace && recordId === workId && resolvedRun.id === workId && resolvedRun.where === '' && run) {
+  if (storePath === 'orchestration' && !namespace && recordId === workId && resolvedRun.id === workId && run) {
     try {
       const file = path.join(stateRoot(project), storePath, `${recordId}.json`);
       const recordMtime = mtimeMs === undefined ? fileSystem.statSync(file).mtimeMs : mtimeMs;
@@ -448,6 +473,12 @@ function workStatus({
   if (run && RUN_OPEN_STATES.includes(run.state)) {
     return answer('open', 'run-open', resolvedRun.id, null);
   }
+
+  // N-1: a namespaced copy of a run may keep the record open or undecidable, never finished.
+  const hold = namespacedHold(pass, workId, namespace, record.value, shouldStop);
+  if (hold.incomplete || shouldStop?.()) return incompleteAnswer(resolvedRun.id);
+  if (hold.open) return answer('open', 'run-open', hold.id, null);
+  if (hold.unreadable) return answer('undecidable', 'run-unreadable', hold.id, null);
 
   // IC-028: a task-attempts ledger stays open while any attempt is active or cancelled and not cleared
   // by a resume, or any run is not `running`, so a paused or cancelled run whose boxes are all ticked

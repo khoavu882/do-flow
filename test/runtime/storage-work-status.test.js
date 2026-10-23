@@ -424,10 +424,14 @@ test('FU-c2ddw2 a namespaced RUNNING run keeps its record open, found by the rec
 test('FU-c2ddw2 a flat record finds its run in whichever namespace holds it, and a gate-paused one is open too', (t) => {
   const projectRoot = setup(t);
   writePlan(projectRoot, 'feat-b');
-  writeRecord(projectRoot, { taskId: 'task-2' });
+  writeRecord(projectRoot, { taskId: 'task-2', value: { featureSlug: 'feat-b' } });
   writeNamespacedRun(projectRoot, 'feat-b', 'task-2', { state: 'AWAITING_GATE', featureSlug: 'feat-b' });
   assert.equal(status(projectRoot, { taskId: 'task-2', mtimeMs: 1 }).reason, 'run-open');
   assert.equal(status(projectRoot, { taskId: 'task-2', mtimeMs: 1 }).run, 'task-2');
+  // N-1: a flat record that names no feature takes no namespaced copy; it is judged as 135ce230 judged it.
+  writeRecord(projectRoot, { taskId: 'task-2b' });
+  writeNamespacedRun(projectRoot, 'feat-b', 'task-2b', { state: 'AWAITING_GATE', featureSlug: 'feat-b' });
+  assert.equal(status(projectRoot, { taskId: 'task-2b', mtimeMs: 1 }).reason, 'no-run');
 });
 
 test('FU-c2ddw2 a delimited-prefix run in a namespace is found as a flat prefix run is', (t) => {
@@ -449,9 +453,10 @@ test('FU-c2ddw2 an orchestration record that is a namespaced run resolves it', (
   assert.equal(live.reason, 'run-open');
   writeNamespacedRun(projectRoot, 'feat-d', 'task-4', { state: 'COMPLETED', featureSlug: 'feat-d', updatedAt: '2026-01-01T00:00:00.000Z' });
   const done = workStatus({ projectRoot, store: 'task-orchestration', taskId: 'task-4', namespace: 'feat-d', mtimeMs: 1 });
+  // N-1: a finished namespaced copy never decides a record (only a live one keeps it open); the record is judged as 135ce230 judged it.
   assert.equal(done.state, 'finished');
-  assert.equal(done.reason, 'run-finished');
-  assert.equal(done.run, 'task-4');
+  assert.equal(done.reason, 'no-run');
+  assert.equal(done.run, null);
 });
 
 test('FU-c2ddw2 the namespaced copy of a run is read before a stale flat seed, and an unreadable one fails closed', (t) => {
@@ -574,4 +579,226 @@ test('C-1 prune keeps feature A\'s open evidence while feature B\'s same-id run 
   writeRun(projectRoot, 'T.5', { state: 'COMPLETED', featureSlug: 'feat-a', updatedAt: OLD_ISO });
   pass();
   assert.equal(fs.existsSync(evidence), false);
+});
+
+// N-1 (maint-runtime-b re-review): a namespaced run copy may only KEEP a record open. Otherwise a record
+// is judged exactly as 135ce230 judged it: by the flat run copy alone, the base prefix rules and the
+// record's own feature. A flat record takes a namespaced copy only when the namespace is its own feature.
+const PRUNE_ROOTS = (projectRoot) => Object.fromEntries(Object.entries(storageRegistry.roots).map(([id, r]) => [id, path.join(r.base === 'xdg-config' ? path.join(projectRoot, 'home', '.config') : r.base === 'home' ? path.join(projectRoot, 'home') : projectRoot, ...r.segments)]));
+
+function prune(projectRoot) {
+  const roots = PRUNE_ROOTS(projectRoot);
+  runPass({ registry: storageRegistry, roots, stores: ['task-evidence'], mode: 'prune',
+    setting: Object.fromEntries(Object.keys(roots).map((id) => [id, 'on'])), now: Date.now() });
+}
+
+const recordFile = (projectRoot, namespace, id) => path.join(projectRoot, '.doflow', 'state', 'evidence', ...(namespace ? [namespace] : []), `${id}.json`);
+const done = (feature, updatedAt = OLD_ISO) => ({ state: 'COMPLETED', featureSlug: feature, updatedAt });
+
+// Each case: [name, build(projectRoot) -> evidence file, survives at 135ce230 and at head]
+const N1_CASES = [
+  ['S3 flat legacy record, another feature\'s namespaced run of the same id finished', (p) => {
+    writePlan(p, 'feat-a', '- [ ] T.5 x\n'); writePlan(p, 'feat-b', '- [x] T.5 x\n');
+    writeNamespacedRun(p, 'feat-b', 'T.5', done('feat-b'));
+    return writeRecord(p, { taskId: 'T.5', mtimeMs: OLD });
+  }, true],
+  ['X1 flat record naming feature A, feature B\'s namespaced run of the same id finished', (p) => {
+    writePlan(p, 'A', '- [ ] T.5 x\n'); writePlan(p, 'B', '- [x] T.5 x\n');
+    writeNamespacedRun(p, 'B', 'T.5', done('B'));
+    return writeRecord(p, { taskId: 'T.5', value: { featureSlug: 'A' }, mtimeMs: OLD });
+  }, true],
+  ['X4 flat record, a longer prefix run in another feature never beats the flat RUNNING prefix run', (p) => {
+    writePlan(p, 'A', '- [x] y\n'); writePlan(p, 'B', '- [x] y\n');
+    writeRun(p, 'T.5', { state: 'RUNNING', featureSlug: 'A' });
+    writeNamespacedRun(p, 'B', 'T.5-x', done('B'));
+    return writeRecord(p, { taskId: 'T.5-x.1', value: { featureSlug: 'A' }, mtimeMs: OLD });
+  }, true],
+  ['S4 own namespaced run finished never overrides an unreadable flat run', (p) => {
+    writePlan(p, 'feat-a', '- [x] T.5 x\n');
+    writeNamespacedRun(p, 'feat-a', 'T.5', done('feat-a'));
+    fs.writeFileSync(path.join(p, '.doflow', 'state', 'orchestration', 'T.5.json'), '{garbage');
+    return writeRecord(p, { taskId: 'T.5', namespace: 'feat-a', mtimeMs: OLD });
+  }, true],
+  ['S5 own namespaced run finished never overrides a RUNNING flat prefix run', (p) => {
+    writePlan(p, 'feat-a', '- [x] T.5-x x\n');
+    writeNamespacedRun(p, 'feat-a', 'T.5-x', done('feat-a'));
+    writeRun(p, 'T.5', { state: 'RUNNING' });
+    return writeRecord(p, { taskId: 'T.5-x', namespace: 'feat-a', mtimeMs: OLD });
+  }, true],
+  ['X3 own namespaced run finished never overrides the flat run\'s other feature (unchecked)', (p) => {
+    writePlan(p, 'A', '- [x] T.5 x\n'); writePlan(p, 'B', '- [ ] T.5 x\n');
+    writeNamespacedRun(p, 'A', 'T.5', done('A'));
+    writeRun(p, 'T.5', done('B'));
+    return writeRecord(p, { taskId: 'T.5', namespace: 'A', mtimeMs: OLD });
+  }, true],
+  ['X5 a recently updated flat copy sets the idle time, not the older namespaced copy', (p) => {
+    writePlan(p, 'A', '- [x] T.5 x\n');
+    writeNamespacedRun(p, 'A', 'T.5', done('A'));
+    writeRun(p, 'T.5', done('A', new Date(Date.now() - DAY).toISOString()));
+    return writeRecord(p, { taskId: 'T.5', namespace: 'A', mtimeMs: OLD });
+  }, true],
+  // Controls: the shapes 135ce230 also prunes are still pruned, and a live owned copy keeps its record.
+  ['S2 control: a flat run copy still judges a namespaced record, as at 135ce230', (p) => {
+    writePlan(p, 'feat-a', '- [ ] T.5 x\n'); writePlan(p, 'feat-b', '- [x] T.5 x\n');
+    writeRun(p, 'T.5', done('feat-b'));
+    return writeRecord(p, { taskId: 'T.5', namespace: 'feat-a', mtimeMs: OLD });
+  }, false],
+  ['S7 control: no run, plan checked', (p) => {
+    writePlan(p, 'feat-a', '- [x] T.5 x\n');
+    return writeRecord(p, { taskId: 'T.5', namespace: 'feat-a', mtimeMs: OLD });
+  }, false],
+  ['S8 an own namespaced RUNNING copy keeps its record', (p) => {
+    writePlan(p, 'feat-a', '- [x] T.5 x\n');
+    writeNamespacedRun(p, 'feat-a', 'T.5', { state: 'RUNNING', featureSlug: 'feat-a' });
+    return writeRecord(p, { taskId: 'T.5', namespace: 'feat-a', mtimeMs: OLD });
+  }, true],
+  ['S9 a flat record naming its feature keeps while that feature\'s namespaced copy is AWAITING_GATE', (p) => {
+    writePlan(p, 'feat-a', '- [x] T.5 x\n');
+    writeNamespacedRun(p, 'feat-a', 'T.5', { state: 'AWAITING_GATE', featureSlug: 'feat-a' });
+    return writeRecord(p, { taskId: 'T.5', value: { featureSlug: 'feat-a' }, mtimeMs: OLD });
+  }, true],
+];
+
+for (const [name, build, survives] of N1_CASES) {
+  test(`N-1 prune: ${name}`, (t) => {
+    const projectRoot = setup(t);
+    const file = build(projectRoot);
+    prune(projectRoot);
+    assert.equal(fs.existsSync(file), survives);
+  });
+}
+
+test('N-1 the locked recheck agrees with selection for a flat record and for a foreign namespaced run', (t) => {
+  const projectRoot = setup(t);
+  writePlan(projectRoot, 'feat-a', '- [ ] T.5 x\n'); writePlan(projectRoot, 'feat-b', '- [x] T.5 x\n');
+  writeNamespacedRun(projectRoot, 'feat-b', 'T.5', done('feat-b'));
+  writeRecord(projectRoot, { taskId: 'T.5', mtimeMs: OLD });
+  const storeDir = path.join(projectRoot, '.doflow', 'state', 'evidence');
+  const store = storageRegistry.stores.find((s) => s.id === 'task-evidence');
+  const info = fs.lstatSync(path.join(storeDir, 'T.5.json'));
+  const recheck = () => recordStillCandidate(store, { name: 'T.5.json', reason: 'finished-work', mtimeMs: OLD, recordStat: info }, info, {
+    fsImpl: fs, roots: { 'project-state': path.join(projectRoot, '.doflow', 'state') }, now: Date.now(),
+    settings: { staleTmpHours: 24 }, cache: createWorkCache({ projectRoot }), storeDir,
+  });
+  assert.equal(recheck(), false);
+  assert.equal(status(projectRoot, { taskId: 'T.5', mtimeMs: OLD }).state, 'open');
+});
+
+// ---- Property: whatever the layout, head deletes only what 135ce230 deletes. ----
+// `baseDeletes` is a faithful copy of the 135ce230 selection (flat run copies only; W1-W9) for a per-task
+// record in the task-evidence store; it does not call the code under test.
+const BASE_RUN_STATES = new Set(['RUNNING', 'AWAITING_GATE', 'COMPLETED', 'REJECTED']);
+const BASE_SAFE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const baseSafe = (v) => typeof v === 'string' && BASE_SAFE.test(v) && !v.includes('..');
+function baseDeletes(projectRoot, { id, namespace, mtimeMs, now }) {
+  const state = path.join(projectRoot, '.doflow', 'state');
+  const ls = (dir) => { try { return fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { if (e.code === 'ENOENT') return []; throw e; } };
+  const runNames = ls(path.join(state, 'orchestration')).filter((e) => e.name.endsWith('.json')).map((e) => e.name.slice(0, -5));
+  let exact = false, ns = false, prefix = null;
+  for (const c of runNames) {
+    if (c === id) exact = true;
+    else if (baseSafe(namespace) && c === namespace) ns = true;
+    else if ((id.startsWith(`${c}-`) || id.startsWith(`${c}.`)) && (!prefix || c.length > prefix.length || (c.length === prefix.length && c < prefix))) prefix = c;
+  }
+  const runId = exact ? id : ns ? namespace : prefix;
+  let run = null;
+  if (runId) {
+    try {
+      const v = JSON.parse(fs.readFileSync(path.join(state, 'orchestration', `${runId}.json`), 'utf8'));
+      if (!(v && typeof v === 'object' && !Array.isArray(v) && BASE_RUN_STATES.has(v.state))) return false;
+      run = v;
+    } catch { return false; }
+  }
+  let record;
+  try { record = JSON.parse(fs.readFileSync(path.join(state, 'evidence', ...(namespace ? [namespace] : []), `${id}.json`), 'utf8')); } catch { return false; }
+  if (run && (run.state === 'RUNNING' || run.state === 'AWAITING_GATE')) return false;
+  const str = (o, k) => (o && typeof o === 'object' && typeof o[k] === 'string' && o[k] !== '' ? o[k] : null);
+  let feature = str(run, 'featureSlug') || str(record, 'featureSlug') || str(record, 'slug') || (baseSafe(namespace) ? namespace : null);
+  const featureDirs = ls(path.join(projectRoot, 'agent-docs', 'doflow')).filter((e) => e.isDirectory() && baseSafe(e.name)).map((e) => e.name);
+  if (!feature) {
+    let best = null;
+    for (const n of featureDirs) if ((id === n || id.startsWith(`${n}-`) || id.startsWith(`${n}.`)) && (!best || n.length > best.length || (n.length === best.length && n < best))) best = n;
+    feature = best;
+  }
+  const readPlanText = (f) => { try { return { text: fs.readFileSync(path.join(projectRoot, 'agent-docs', 'doflow', f, 'plan.md'), 'utf8') }; } catch (e) { return e.code === 'ENOENT' ? { missing: true, folder: fs.existsSync(path.join(projectRoot, 'agent-docs', 'doflow', f)) } : { bad: true }; } };
+  if (feature) {
+    if (!baseSafe(feature)) return false;
+    const plan = readPlanText(feature);
+    if (plan.bad) return false;
+    if (plan.missing) return false; // folder gone (feature-missing) or plan missing (open): kept either way
+    if (/^\s*- \[ \] /m.test(plan.text)) return false;
+  } else {
+    for (const f of featureDirs) {
+      const plan = readPlanText(f);
+      if (plan.bad) return false;
+      if (plan.missing) continue;
+      for (const m of plan.text.matchAll(/^\s*- \[ \] (\S+)/gm)) if (m[1] === id) return false;
+    }
+  }
+  const runEnd = run ? Date.parse(run.updatedAt) : NaN;
+  const since = Number.isFinite(runEnd) ? Math.max(runEnd, mtimeMs) : mtimeMs;
+  const store = storageRegistry.stores.find((s) => s.id === 'task-evidence');
+  return now - since > store.bound.finishedDays * DAY;
+}
+
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+
+const COPY_STATES = ['none', 'none', 'RUNNING', 'AWAITING_GATE', 'COMPLETED', 'COMPLETED-recent', 'unparseable'];
+function makeLayout(rand) {
+  const pick = (list) => list[Math.floor(rand() * list.length)];
+  const id = pick(['T.5', 'T.5-x', 'T.5-x.1']);
+  const runId = () => pick([id, id, 'T.5', 'T.5-x']);
+  const flatRecord = rand() < 0.5;
+  return {
+    id,
+    namespace: flatRecord ? null : 'feat-a',
+    recordFeature: flatRecord ? pick([null, null, 'feat-a', 'feat-b', 'feat-c']) : pick([null, null, 'feat-b']),
+    plans: { 'feat-a': pick(['checked', 'unchecked']), 'feat-b': pick(['checked', 'unchecked']) },
+    copies: [
+      ...['feat-a', 'feat-b'].map((where) => ({ where, id: runId(), state: pick(COPY_STATES), feature: pick([where, where, 'feat-a', 'feat-b', null]) })),
+      { where: '', id: runId(), state: pick(COPY_STATES), feature: pick(['feat-a', 'feat-b', null]) },
+    ],
+  };
+}
+
+function buildLayout(projectRoot, layout) {
+  for (const [feature, kind] of Object.entries(layout.plans)) {
+    writePlan(projectRoot, feature, kind === 'checked' ? `- [x] ${layout.id} x\n` : `- [ ] ${layout.id} x\n`);
+  }
+  const seen = new Set();
+  for (const copy of layout.copies) {
+    if (copy.state === 'none' || seen.has(`${copy.where}/${copy.id}`)) continue;
+    seen.add(`${copy.where}/${copy.id}`);
+    const file = path.join(projectRoot, '.doflow', 'state', 'orchestration', ...(copy.where ? [copy.where] : []), `${copy.id}.json`);
+    if (copy.state === 'unparseable') { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, '{garbage'); continue; }
+    const value = { state: copy.state.startsWith('COMPLETED') ? 'COMPLETED' : copy.state };
+    if (copy.feature) value.featureSlug = copy.feature;
+    if (value.state === 'COMPLETED') value.updatedAt = copy.state === 'COMPLETED-recent' ? new Date(Date.now() - DAY).toISOString() : OLD_ISO;
+    writeJson(file, value);
+  }
+  return writeRecord(projectRoot, { taskId: layout.id, namespace: layout.namespace, value: layout.recordFeature ? { featureSlug: layout.recordFeature } : {}, mtimeMs: OLD });
+}
+
+test('N-1 property: over mixed flat, namespaced and foreign layouts, head prunes only what 135ce230 prunes', (t) => {
+  const rand = mulberry32(0xC1);
+  const base = setup(t);
+  let deletedByBoth = 0;
+  const LAYOUTS = 400;
+  for (let n = 0; n < LAYOUTS; n += 1) {
+    const layout = makeLayout(rand);
+    const projectRoot = path.join(base, `l${n}`);
+    fs.mkdirSync(path.join(projectRoot, '.doflow', 'state'), { recursive: true });
+    const file = buildLayout(projectRoot, layout);
+    const now = Date.now();
+    const baseDeleted = baseDeletes(projectRoot, { id: layout.id, namespace: layout.namespace, mtimeMs: OLD, now });
+    prune(projectRoot);
+    const headDeleted = !fs.existsSync(file);
+    assert.ok(!headDeleted || baseDeleted, `layout ${n} deleted at head but kept at 135ce230: ${JSON.stringify(layout)}`);
+    if (baseDeleted && headDeleted) deletedByBoth += 1;
+  }
+  // The generator reaches both outcomes; a property that never deleted would prove nothing.
+  assert.ok(deletedByBoth > 20, `expected many layouts both versions prune, saw ${deletedByBoth}`);
 });
