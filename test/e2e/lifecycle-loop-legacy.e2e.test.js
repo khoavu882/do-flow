@@ -223,6 +223,9 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
       'orchestrate --action handoff: $.consultations', 'orchestrate --action handoff: $.mcpWarnings',
       // 092 IC-002: every printed snapshot carries the journal revision (0 for a journal that predates revisions).
       'orchestrate --action start: $.revision', 'orchestrate --action handoff: $.revision', 'orchestrate --action status: $.revision',
+      // 118 IC-001: every workflow stage names the agent that leads it; classify and orchestrate print the stage.
+      'classify --task-class feature: $.workflow.stages[].agent', 'classify --task-class feature: $.workflow.terminalStage.agent',
+      'orchestrate --action start: $.terminalStage.agent', 'orchestrate --action handoff: $.terminalStage.agent', 'orchestrate --action status: $.terminalStage.agent',
     ];
     assert.deepEqual([...added].filter((a) => !recordAdditions.includes(a) && !contextPackAdditions.has(a)), [], 'the new runtime adds nothing to a chain verb\'s output');
 
