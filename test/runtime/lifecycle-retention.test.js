@@ -552,6 +552,32 @@ test('a pass renews the store lock\'s age while it works, so no other verb takes
   assert.equal(fs.existsSync(lock), false, 'released');
 });
 
+// ── events of a type this version does not know (FU-dzzn17) ────────────────────────────────────
+
+test('a unit named by an event of an unknown type is kept whole; other units still go', () => {
+  const now = Date.now();
+  const mine = dismissedFollowup('FU-aaaaaa', now, 100);
+  const other = dismissedFollowup('FU-bbbbbb', now, 100);
+  const options = { now: new Date(now), windowMs: HOUR };
+  const files = (list) => selectExpired(list, options).units.map((u) => u.items.join());
+  assert.deepEqual(files([...mine, ...other]), ['followup:FU-aaaaaa', 'followup:FU-bbbbbb'], 'control: both go without the newer event');
+  const newer = ev('followup.reopened', { id: 'FU-aaaaaa', why: 'later' }, at(now, 99));
+  assert.deepEqual(files([...mine, ...other, newer]), ['followup:FU-bbbbbb'], 'the unit the unknown event names stays');
+  const nested = ev('followup.relinked', { links: [{ from: { to: 'FU-bbbbbb' } }] }, at(now, 99));
+  assert.deepEqual(files([...mine, ...other, nested]), ['followup:FU-aaaaaa'], 'a nested id counts');
+  const known = ev('followup.added', { id: 'FU-cccccc', statement: 'FU-aaaaaa', source: { kind: 'manual' } }, at(now, 99));
+  assert.deepEqual(files([...mine, ...other, known]), ['followup:FU-aaaaaa', 'followup:FU-bbbbbb'], 'a known type naming the id is not an unknown event');
+});
+
+test('a goal unit named by an unknown-type event is kept; the files stay on disk through prepareStore', () => {
+  const dir = project('unknown-type');
+  const now = Date.now();
+  const files = writeAll(eventsDir(dir), [...doneGoal('G-old', now, 100), ev('goal.archived', { goal: 'G-old' }, at(now, 99))]);
+  const out = prepareStore(dir, { env: { DOFLOW_RETENTION_HOURS: '1' } });
+  assert.deepEqual(out.lines, []);
+  assert.deepEqual(eventFiles(dir), files.sort());
+});
+
 // ── crashed temp files (FU-8g2g9z) ─────────────────────────────────────────────────────────────
 
 /** Leaves the temp files `writeAtomic` abandons when a verb dies before its rename, aged `hoursAgo`. */
