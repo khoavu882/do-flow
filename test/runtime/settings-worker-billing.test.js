@@ -93,6 +93,9 @@ for (const [label, value, code, fragment] of [
   ['an extra field', { claude: { billing: 'free', asserted: '2026-10-23', note: 'x' } }, 'type', 'a field other than'],
   ['an empty basis', { claude: { billing: 'free', asserted: '2026-10-23', basis: '' } }, 'range', "field 'basis'"],
   ['a two-line basis', { claude: { billing: 'free', asserted: '2026-10-23', basis: 'a\nb' } }, 'range', "field 'basis'"],
+  ['a basis with U+0085', { claude: { billing: 'free', asserted: '2026-10-23', basis: 'a\u0085' + 'b' } }, 'range', "field 'basis'"],
+  ['a basis with U+2028', { claude: { billing: 'free', asserted: '2026-10-23', basis: 'a\u2028' + 'b' } }, 'range', "field 'basis'"],
+  ['a basis with U+2029', { claude: { billing: 'free', asserted: '2026-10-23', basis: 'a\u2029' + 'b' } }, 'range', "field 'basis'"],
   ['a 121 character basis', { claude: { billing: 'free', asserted: '2026-10-23', basis: 'x'.repeat(121) } }, 'range', "field 'basis'"],
   ['a basis that is not a string', { claude: { billing: 'free', asserted: '2026-10-23', basis: 3 } }, 'type', "field 'basis'"],
 ]) {
