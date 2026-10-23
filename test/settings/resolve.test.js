@@ -203,14 +203,15 @@ test('C7 (new file): enabled with no model is cross-key; an invalid endpoint tri
   assert.deepEqual(statuses(v.get('advice.endpoint')), ['user:invalid']);
 });
 
-test('C8: an invalid project decision-model cannot widen advice: skipped, the user values stand', (t) => {
+// 119 phase-BC item 6: advice.model is security-relevant with advice.enabled as its fail-safe gate, so an invalid
+// project decision-model trips the gate: advice.enabled takes its fail-safe (off), the gated keys keep the user values.
+test('C8: an invalid project decision-model trips the advice.enabled gate: advice is off, the user values stand', (t) => {
   const f = fx(t);
-  const userFile = f.writeUserDecision(userDecision());
+  f.writeUserDecision(userDecision());
   const projectFile = f.writeProjectDecision('{not json');
   const v = load(f);
-  assert.equal(v.get('advice.enabled').value, true);
-  assert.equal(v.get('advice.enabled').origin.source, userFile);
-  assert.equal(v.get('advice.enabled').origin.via, null);
+  assert.equal(v.get('advice.enabled').value, false);
+  assert.deepEqual(v.get('advice.enabled').origin, origin('project', projectFile, { checkout: 'own', legacy: true, via: 'fail-safe' }));
   assert.equal(v.get('advice.model').value, 'clef-flash');
   assert.deepEqual(statuses(v.get('advice.model')), ['user*:decided', 'project*:invalid']);
   assert.deepEqual(statuses(v.get('advice.endpoint')), ['user*:decided', 'project*:ignored-scope']);
@@ -577,9 +578,11 @@ test('an unparseable project file: project-overridable keys fail safe in the pro
   f.writeUserSettings({ schema: 1, 'advice.enabled': true, 'advice.model': 'm' });
   const file = f.writeProjectSettings('{nope');
   const v = load(f);
-  assert.equal(v.get('advice.enabled').value, true, 'narrow-only: the project layer cannot widen, fall through');
-  assert.deepEqual(statuses(v.get('advice.enabled')), ['user:decided', 'project:invalid']);
-  assert.equal(v.get('advice.model').value, 'm', 'no fail-safe: fall through');
+  // 119 phase-BC item 6: advice.model gates advice.enabled, so the broken project layer turns advice off
+  assert.equal(v.get('advice.enabled').value, false, 'advice.model is security-relevant: the project layer trips the advice.enabled gate');
+  assert.deepEqual(v.get('advice.enabled').origin, origin('project', file, { checkout: 'own', via: 'fail-safe' }));
+  assert.deepEqual(statuses(v.get('advice.enabled')), ['user:overridden', 'project:invalid']);
+  assert.equal(v.get('advice.model').value, 'm', 'the gated key keeps its lower value');
   assert.deepEqual(v.get('storage.prune').origin, origin('project', file, { checkout: 'own', via: 'fail-safe' }));
   assert.equal(v.get('storage.retentionHours').state, 'invalid');
   assert.equal(v.get('storage.prune', 'global').value, 'on');
