@@ -55,6 +55,19 @@ test('resolve --kind debate prints debate-2: two rounds, decided by the orchestr
   assert.equal(json.protocol.decider, 'orchestrator');
 });
 
+test('resolve reads the project settings: a project debate.preset debate-3 prints debate-3 with origin project', (t) => {
+  const s = scratch(t);
+  fs.writeFileSync(path.join(s.cwd, '.doflow', 'settings.json'), JSON.stringify({ schema: 1, 'debate.preset': 'debate-3' }));
+  const res = s.cli(['--action', 'resolve', '--kind', 'debate']);
+  assert.equal(res.status, 0, res.stderr);
+  assert.match(res.stdout, /^protocol: id=debate-3 rounds=3 /m);
+  assert.match(res.stdout, /^protocol\.origins: id=project /m);
+  const json = JSON.parse(s.cli(['--action', 'resolve', '--kind', 'debate', '--json']).stdout);
+  assert.equal(json.protocol.id, 'debate-3');
+  assert.equal(json.protocol.origins.id, 'project');
+  assert.deepEqual(json.protocol.disagreements, []);
+});
+
 test('resolve --kind debate --preset debate-3 prints three rounds and the verifier as synthesizer', (t) => {
   const s = scratch(t);
   const res = s.cli(['--action', 'resolve', '--kind', 'debate', '--preset', 'debate-3', '--json']);

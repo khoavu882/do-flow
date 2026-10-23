@@ -17,6 +17,10 @@ const { REF_META, createRefs } = require('../../src/runtime/settings/refs.ts');
 
 const SHIPPED = JSON.parse(fs.readFileSync(path.join(REPO, REGISTRY_FILE), 'utf8'));
 
+// Fields shared by the seven 119 protocol keys.
+const PROTOCOL_COMMON = { securityRelevant: false, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+  consumers: ['src/runtime/review/resolve-protocol.ts'] };
+
 // The seven v1 entries plus 112's project-only guard entry, 089's verify.reuse switch and 106's
 // dispatch.fallback default (the
 // design folder is not in the repo, so the contract is pinned here; a registry edit must change
@@ -92,6 +96,28 @@ const V1 = {
     env: null, flag: null, shellRead: null, needsConfigHome: true, legacy: [],
     consumers: ['src/runtime/settings/worker-billing.ts'],
     description: 'Person-written billing record per headless worker id: free or metered, with the date asserted. Lets dispatch --billing-cap free launch a worker the registry lists as unknown; global-only.' },
+  // 119 IC-006: the review and debate protocol keys the resolver reads (src/runtime/review/resolve-protocol.ts).
+  'review.preset': { type: 'enum', valuesRef: 'protocols.reviewPresetIds', order: ['review-deep', 'auto', 'review-single'], default: 'auto',
+    scope: 'narrow-only', combine: 'override', ...PROTOCOL_COMMON,
+    description: 'Review protocol preset for this project: auto follows the risk rule; a project may only pick a stricter preset.' },
+  'review.rounds': { type: 'integer', min: 1, max: 3, order: 'descending', default: null,
+    scope: 'narrow-only', combine: 'override', ...PROTOCOL_COMMON,
+    description: "Review rounds; unset uses the preset's rounds, a project may only choose more rounds than its user layer." },
+  'review.sameFamily': { type: 'enum', values: ['refuse', 'warn'], order: ['refuse', 'warn'], default: 'warn',
+    scope: 'narrow-only', combine: 'override', ...PROTOCOL_COMMON,
+    description: "Whether a reviewer seat from the author's model family is refused or only warned about; a project may only choose refuse." },
+  'review.crossFamilyRereview': { type: 'enum', values: ['on', 'off'], order: ['on', 'off'], default: 'on',
+    scope: 'narrow-only', combine: 'override', ...PROTOCOL_COMMON,
+    description: 'Cross-family re-review of a changed record; a project may only keep it on.' },
+  'review.extraLenses': { type: 'string-list', valuesRef: 'protocols.lensIds', maxItems: 4, maxLength: 40, default: [],
+    scope: 'project-overridable', combine: 'union', ...PROTOCOL_COMMON,
+    description: 'Lens ids added to every review seat; lists from all layers add up and never remove.' },
+  'review.blockerClauses': { type: 'string-list', maxItems: 8, maxLength: 200, default: [],
+    scope: 'project-overridable', combine: 'union', ...PROTOCOL_COMMON,
+    description: 'Extra project rules a reviewer must treat as blockers; lists from all layers add up and never remove.' },
+  'debate.preset': { type: 'enum', valuesRef: 'protocols.debatePresetIds', default: 'debate-2',
+    scope: 'project-overridable', combine: 'override', ...PROTOCOL_COMMON,
+    description: 'Debate protocol preset for this project.' },
 };
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -139,11 +165,11 @@ test('project-only ignores user/global values and env; project and local files a
 
 // ── the shipped registry ───────────────────────────────────────────────────────────────────────
 
-test('the shipped registry pins the seven v1 entries plus the 108 autopilot switch, the 112 project-only guard key, the 089 verify.reuse switch, the 106 dispatch.fallback default and the workers.billing record, in display order', () => {
+test('the shipped registry pins the seven v1 entries plus the 108 autopilot switch, the 112 project-only guard key, the 089 verify.reuse switch, the 106 dispatch.fallback default and the workers.billing record and the seven 119 protocol keys, in display order', () => {
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 12);
+  assert.equal(Object.keys(SHIPPED.keys).length, 19);
 });
 
 test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {

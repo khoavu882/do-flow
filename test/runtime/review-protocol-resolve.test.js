@@ -179,7 +179,7 @@ test('debate: debate-2 with 2 rounds, no depth, decider orchestrator; a stricter
 test('the Resolved shape: the phase A defaults carry origin registry', () => {
   const { protocol } = resolve({ taskClass: 'feature', paths: SCOPES.code });
   assert.deepEqual(Object.keys(protocol), ['id', 'kind', 'depth', 'seats', 'rounds', 'crossAnswer', 'synthesizer', 'decider',
-    'lensesBySeat', 'blockerClauses', 'sameFamily', 'crossFamilyRereview', 'rereview', 'invariants', 'origins', 'enforcement']);
+    'lensesBySeat', 'blockerClauses', 'sameFamily', 'crossFamilyRereview', 'rereview', 'invariants', 'origins', 'disagreements', 'enforcement']);
   assert.equal(protocol.rounds, 2);
   assert.equal(protocol.crossAnswer, true);
   assert.equal(protocol.synthesizer, 'separate');
@@ -191,6 +191,7 @@ test('the Resolved shape: the phase A defaults carry origin registry', () => {
   assert.equal(protocol.rereview, 'automatic');
   assert.deepEqual(protocol.invariants, REGISTRY.invariants.map((inv) => inv.id));
   assert.deepEqual(protocol.enforcement, []);
+  assert.deepEqual(protocol.disagreements, []);
   for (const field of ['seats', 'rounds', 'lenses', 'blockerClauses', 'sameFamily', 'crossFamilyRereview']) {
     assert.equal(protocol.origins[field], 'registry', field);
   }

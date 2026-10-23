@@ -14,7 +14,7 @@ const { spawnSync } = require('node:child_process');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { verifyRecordReasons, loadPolicy } = require('../roadmap/gates.ts');
 const { finishRuntime, captureCaught } = require('../cli-result.ts');
-const { resolveProtocol, protocolLines, pathScope, gateMinSeats } = require('./resolve-protocol.ts');
+const { resolveProtocol, protocolLines, protocolDigest, pathScope, gateMinSeats } = require('./resolve-protocol.ts');
 
 type Env = Record<string, string | undefined>;
 
@@ -177,13 +177,29 @@ function lookupRun(stateRoot: string, slug: string): RunLookup {
   return { status: 'found', taskId: taskId ?? slug, taskClass };
 }
 
+// The settings keys `resolveProtocol` reads (119 IC-006), by their resolution's value and origin layer.
+const PROTOCOL_SETTINGS = ['review.preset', 'review.rounds', 'review.sameFamily', 'review.crossFamilyRereview',
+  'review.extraLenses', 'review.blockerClauses', 'debate.preset'];
+
 /**
- * The inputs `resolveProtocol` needs beyond the change facts: the gate policy (the shipped gates.json narrowed by the
+ * The inputs `resolveProtocol` needs beyond the change facts: the project's settings as the plain `settingsView`
+ * the resolver reads (`{ key: { value, layer } }`, 119 L-B8), the gate policy (the shipped gates.json narrowed by the
  * project's `.doflow/gates.override.json`, read as roadmap gate-b reads it, 119 IC-005; null when there is no task class, so
  * no floor) and the protocols registry. A base, override or registry the loaders reject is a refusal carrying the loader's
  * reason (and the override file). Shared with the `protocol` verb.
  */
-function loadProtocolInputs(taskClass: string | null, cwd: string): { gatePolicy: any; registry: any } | { error: string; message: string } {
+function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<string, string | undefined> = process.env):
+  { gatePolicy: any; registry: any; settingsView: Record<string, { value: unknown; layer: string }> } | { error: string; message: string } {
+  const settingsView: Record<string, { value: unknown; layer: string }> = {};
+  try {
+    const settings = require('../settings/resolve.ts').loadSettings({ projectRoot: path.resolve(cwd), env });
+    for (const key of PROTOCOL_SETTINGS) {
+      const resolution = settings.get(key);
+      settingsView[key] = { value: resolution.value, layer: resolution.origin.layer };
+    }
+  } catch (error: any) {
+    return { error: 'settings-unavailable', message: error?.message || String(error) };
+  }
   let gatePolicy: any = null;
   if (taskClass) {
     const { projectLayerSource } = require('../settings/project-layers.ts');
@@ -201,7 +217,7 @@ function loadProtocolInputs(taskClass: string | null, cwd: string): { gatePolicy
   }
   const protocols = require('./protocols.ts').loadProtocols();
   if (!protocols.ok) return { error: 'protocols-invalid', message: protocols.errors.join('; ') };
-  return { gatePolicy, registry: protocols.registry };
+  return { gatePolicy, registry: protocols.registry, settingsView };
 }
 
 /** The decision model's opinion on the decided depth. Never throws: any failure is `unavailable`. */
@@ -271,7 +287,7 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
 
     const result: any = {
       schema: 1, slug: null, taskClass: null, applicable: false, notApplicable: null, head: null, clean: null,
-      ok: true, reasons: [], depth: null, seats: null, risk: defaultRisk, riskSource: 'default', protocol: null, depthBasis: null,
+      ok: true, reasons: [], depth: null, seats: null, risk: defaultRisk, riskSource: 'default', protocol: null, protocolDigest: null, depthBasis: null,
       advice: { status: 'off', pick: null },
     };
     // An uncertain applicability is a refusal with a named reason, never a silent not-applicable.
@@ -346,11 +362,11 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
       baseSha = typeof integration.mergeBase === 'string' && integration.mergeBase ? integration.mergeBase : null;
     }
     const paths = changedPaths(cwd, env, baseSha);
-    const inputs = loadProtocolInputs(taskClass, cwd);
+    const inputs = loadProtocolInputs(taskClass, cwd, env);
     if ('error' in inputs) return refuse(inputs.error, inputs.message);
     const scope = pathScope(riskPolicy, paths);
     const floor = gateMinSeats(inputs.gatePolicy, taskClass);
-    const facts = { kind: 'review', taskClass, risk: result.risk, paths, runPreset: preset ?? null, settingsView: {}, ...inputs, riskPolicy };
+    const facts = { kind: 'review', taskClass, risk: result.risk, paths, runPreset: preset ?? null, ...inputs, riskPolicy };
     const REFUSALS: Record<string, string> = {
       'preset-unknown': `--preset '${preset}' is not a review preset`,
       'preset-looser': `--preset '${preset}' is looser than the protocol this change needs; a run preset can only raise it`,
@@ -364,11 +380,12 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
     const resolved = resolveProtocol({ ...facts, advicePick: advice.pick });
     if (!resolved.ok) return refuseResolution(resolved.reason);
     const { protocol } = resolved;
-    const raisedBy = ({ floor: 'gate-floor', advice: 'advice', run: 'run' } as Record<string, string>)[protocol.origins.id]
+    const raisedBy = ({ floor: 'gate-floor', advice: 'advice', run: 'run', user: 'setting', project: 'setting', local: 'setting', env: 'setting' } as Record<string, string>)[protocol.origins.id]
       ?? (protocol.depth === 'single' ? null : 'policy');
     result.depth = protocol.depth;
     result.seats = protocol.seats.length;
     result.protocol = protocol;
+    result.protocolDigest = protocolDigest(protocol);
     result.depthBasis = { scope, files: paths ? paths.length : null, base: paths ? baseSha : null, floor, raisedBy };
     result.advice = advice;
     emit(out, json, result, null);

@@ -13,6 +13,7 @@ const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { loadVerificationRegistry } = require('../../src/runtime/verification/registry.ts');
 const { handleReviewCommand } = require('../../src/runtime/review/command.ts');
 const { reviewPrecondition } = require('../../src/runtime/review/start.ts');
+const { protocolDigest } = require('../../src/runtime/review/resolve-protocol.ts');
 
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const SLUG = '095b-review-depth';
@@ -112,8 +113,11 @@ test('PASS on a clean HEAD: exit 0, deep, 2 seats, risk from the default for a l
   assert.equal(json.risk, REGISTRY.policy.defaultRiskLevel);
   assert.equal(json.riskSource, 'default');
   assert.deepEqual(json.advice, { status: 'off', pick: null });
+  assert.match(json.protocolDigest, /^[0-9a-f]{64}$/);
+  assert.equal(json.protocolDigest, protocolDigest(json.protocol));
+  assert.deepEqual(json.protocol.disagreements, []);
   assert.deepEqual(Object.keys(json), ['schema', 'slug', 'taskClass', 'applicable', 'notApplicable', 'head', 'clean', 'ok',
-    'reasons', 'depth', 'seats', 'risk', 'riskSource', 'protocol', 'depthBasis', 'advice']);
+    'reasons', 'depth', 'seats', 'risk', 'riskSource', 'protocol', 'protocolDigest', 'depthBasis', 'advice']);
 });
 
 test('the risk of the last clean matching line is used when valid; an invalid one falls back to the default', async (t) => {
@@ -164,7 +168,7 @@ test('--json carries the resolved protocol after riskSource; seats equals its se
   assert.equal(json.protocol.origins.id, 'floor');
   assert.equal(json.depthBasis.raisedBy, 'gate-floor');
   const keys = Object.keys(json);
-  assert.deepEqual(keys.slice(keys.indexOf('risk')), ['risk', 'riskSource', 'protocol', 'depthBasis', 'advice']);
+  assert.deepEqual(keys.slice(keys.indexOf('risk')), ['risk', 'riskSource', 'protocol', 'protocolDigest', 'depthBasis', 'advice']);
 });
 
 test('--preset review-single on a feature with code changes is refused preset-looser: exit 1, no decision', async (t) => {
@@ -747,6 +751,54 @@ test('advice: an answer of deep over a decided single raises it, raisedBy advice
   assert.equal(json.seats, 2);
   assert.equal(json.depthBasis.raisedBy, 'advice');
   assert.deepEqual(json.advice, { status: 'answered', pick: 'deep' });
+});
+
+test('Q-A1: --preset review-single with an advice answer of deep on a light LOW change is not a refusal; the run preset wins', async (t) => {
+  const r = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  r.lines([r.line({ risk: 'LOW' })]);
+  r.enableAdvice();
+  const { exitCode, json } = await start(r, { adviceClient: fakeClient(answered('deep')), base: r.base, preset: 'review-single' });
+  assert.equal(exitCode, 0);
+  assert.equal(json.protocol.id, 'review-single');
+  assert.equal(json.protocol.origins.id, 'run');
+  assert.equal(json.depth, 'single');
+  assert.deepEqual(json.protocol.disagreements, [{ field: 'id', by: 'advice', value: 'review-deep', reason: 'run-preset' }]);
+  assert.equal(json.depthBasis.raisedBy, 'run');
+  assert.equal(json.protocolDigest, protocolDigest(json.protocol));
+});
+
+test('settings: the verb reads the project settings; text form prints protocolDigest and the setting origin', async (t) => {
+  const r = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  r.lines([r.line({ risk: 'LOW' })]);
+  put(r.cwd, '.doflow/settings.json', JSON.stringify({ schema: 1, 'review.preset': 'review-deep', 'review.rounds': 3 }));
+  const { json } = await start(r, { base: r.base });
+  assert.equal(json.protocol.id, 'review-deep');
+  assert.equal(json.protocol.origins.id, 'project');
+  assert.equal(json.protocol.rounds, 3);
+  assert.equal(json.protocol.origins.rounds, 'project');
+  const text = await start(r, { base: r.base, json: false });
+  assert.ok(text.out.some((line) => line === `protocolDigest: ${json.protocolDigest}`), text.out.join('\n'));
+  assert.match(text.out.find((line) => line.startsWith('protocol.origins:')), /^protocol\.origins: id=project /);
+});
+
+test('settings: a project review.preset review-deep over a single-eligible change is raisedBy setting', async (t) => {
+  const r = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  r.lines([r.line({ risk: 'LOW' })]);
+  put(r.cwd, '.doflow/settings.json', JSON.stringify({ schema: 1, 'review.preset': 'review-deep' }));
+  const { json } = await start(r, { base: r.base });
+  assert.equal(json.protocol.id, 'review-deep');
+  assert.equal(json.protocol.origins.id, 'project');
+  assert.equal(json.depthBasis.raisedBy, 'setting');
+});
+
+test('protocolDigest is null whenever protocol is null (a refused review), and set for a not-applicable one that resolves', async (t) => {
+  const refused = await start(repo(t));
+  assert.equal(refused.exitCode, 1);
+  assert.equal(refused.json.protocol, null);
+  assert.equal(refused.json.protocolDigest, null);
+  const exempt = await start(repo(t, { taskClass: 'documentation' }));
+  assert.equal(exempt.json.applicable, false);
+  assert.equal(exempt.json.protocolDigest, protocolDigest(exempt.json.protocol));
 });
 
 test('advice: an unavailable answer, or a client that throws, changes nothing', async (t) => {

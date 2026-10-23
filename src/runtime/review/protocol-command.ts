@@ -82,7 +82,7 @@ function handleProtocolCommand({ action, kind, taskClass, risk, preset, json = f
     // No diff: `paths` is unknown, so a review is never `single` and the risk only matters to the scope rule.
     const resolved = resolveProtocol({
       kind, taskClass: taskClass ?? null, risk: risk ?? verification.policy.defaultRiskLevel, paths: null,
-      runPreset: preset ?? null, advicePick: null, settingsView: {}, ...inputs, riskPolicy: reviewDepthPolicy(verification),
+      runPreset: preset ?? null, advicePick: null, ...inputs, riskPolicy: reviewDepthPolicy(verification),
     });
     if (!resolved.ok) {
       const messages: Record<string, string> = {
