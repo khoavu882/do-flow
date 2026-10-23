@@ -277,6 +277,32 @@ test('unset removes the key from the layer file and keeps the others', (t) => {
   assert.deepEqual(readJson(f.projectFile('settings.json')), { schema: 1, 'storage.prune': 'off' });
 });
 
+test('set and unset keep the bytes they replace in one <file>.config.bak (C-10); a first write needs none', (t) => {
+  const f = createSettingsEnv(t);
+  const file = f.projectFile('settings.json');
+  const backup = `${file}.config.bak`;
+  const backups = () => fs.readdirSync(path.dirname(file)).filter((name) => name.includes('.bak')).sort();
+  assert.equal(f.run(['config', 'set', 'review.rounds', '3', '--layer', 'project']).status, 0);
+  assert.deepEqual(backups(), [], 'a new file has nothing to keep');
+
+  fs.writeFileSync(`${file}.bak`, 'preserved malformed settings\n');
+  const first = fs.readFileSync(file);
+  assert.equal(f.run(['config', 'set', 'storage.prune', '"off"', '--layer', 'project']).status, 0);
+  assert.deepEqual(fs.readFileSync(backup), first, 'the backup holds the previous bytes');
+  assert.equal(fs.statSync(backup).mode & 0o777, 0o600);
+
+  const second = fs.readFileSync(file);
+  assert.equal(f.run(['config', 'set', 'review.rounds', '2', '--layer', 'project']).status, 0);
+  assert.deepEqual(fs.readFileSync(backup), second, 'each write replaces the one backup');
+  const third = fs.readFileSync(file);
+  assert.equal(f.run(['config', 'set', 'review.rounds', '2', '--layer', 'project']).status, 0);
+  assert.deepEqual(fs.readFileSync(backup), second, 'a set that changes nothing writes nothing');
+  assert.equal(f.run(['config', 'unset', 'review.rounds', '--layer', 'project']).status, 0);
+  assert.deepEqual(fs.readFileSync(backup), third, 'unset keeps the bytes it replaces');
+  assert.deepEqual(backups(), ['settings.json.bak', 'settings.json.config.bak'], 'one backup however many writes');
+  assert.equal(fs.readFileSync(`${file}.bak`, 'utf8'), 'preserved malformed settings\n', 'a preserved .bak is never overwritten');
+});
+
 test('unset of an absent key or an absent file is ok and creates nothing', (t) => {
   const f = createSettingsEnv(t);
   const absentFile = f.run(['config', 'unset', 'review.rounds', '--layer', 'project', '--json']);
@@ -354,7 +380,7 @@ test('two config set calls interleaved inside the write never drop a key: the lo
     assert.equal(second.json.errors[0].code, 'locked');
     assert.deepEqual(stored, { schema: 1, 'review.rounds': 3 });
   }
-  assert.deepEqual(fs.readdirSync(path.dirname(file)).sort(), ['settings.json'], 'no lock or temporary file is left');
+  assert.deepEqual(fs.readdirSync(path.dirname(file)).sort(), ['settings.json', 'settings.json.config.bak'], 'no lock or temporary file is left');
 });
 
 test('a write between the check and the write is seen: the set is checked again and both keys are kept', (t) => {

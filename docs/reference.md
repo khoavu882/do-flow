@@ -502,8 +502,8 @@ These are the stores DoFlow keeps on this machine. A pruned store has the bound 
 | `bench-worktrees` | `.doflow/worktrees` | removed per case by the bench runner, not shipped |
 | `user-settings-project-doflow` | `.doflow/{prompt-nudge,prune,decision-model.json,settings.json,settings.local.json}` | prompt-nudge and prune are one line each; decision-model.json, settings.json and settings.local.json are JSON objects; settings.json files are written atomically by settings writers |
 | `user-settings-config-home` | `~/.config/doflow/{prompt-nudge,prune,decision-model.json,settings.json}` | prompt-nudge and prune are one line each; decision-model.json and settings.json are JSON objects; settings.json is written atomically by settings writers |
-| `settings-writer-project-doflow` | `.doflow/{settings.json,settings.local.json}.lock` | a settings writer holds the file's .lock for one read-merge-rename and removes it; a lock older than 10 s is a crashed writer's and is removed |
-| `settings-writer-config-home` | `~/.config/doflow/settings.json.lock` | a settings writer holds the file's .lock for one read-merge-rename and removes it; a lock older than 10 s is a crashed writer's and is removed |
+| `settings-writer-project-doflow` | `.doflow/{settings.json,settings.local.json}{.lock,.config.bak}` | a settings writer holds the file's .lock for one read-merge-rename and removes it; a lock older than 10 s is a crashed writer's and is removed; config set and unset keep the bytes they replace in one .config.bak beside the file, replaced on each write |
+| `settings-writer-config-home` | `~/.config/doflow/settings.json{.lock,.config.bak}` | a settings writer holds the file's .lock for one read-merge-rename and removes it; a lock older than 10 s is a crashed writer's and is removed; config set and unset keep the bytes they replace in one .config.bak beside the file, replaced on each write |
 
 Notes on five rows:
 

@@ -1106,10 +1106,10 @@
       "root": "project-doflow",
       "path": "",
       "entry": "file",
-      "match": "^settings(?:\\.local)?\\.json\\.lock$",
+      "match": "^settings(?:\\.local)?\\.json\\.(?:lock|config\\.bak)$",
       "rule": "existing",
       "bound": {
-        "text": "a settings writer holds the file's .lock for one read-merge-rename and removes it; a lock older than 10 s is a crashed writer's and is removed"
+        "text": "a settings writer holds the file's .lock for one read-merge-rename and removes it; a lock older than 10 s is a crashed writer's and is removed; config set and unset keep the bytes they replace in one .config.bak beside the file, replaced on each write"
       },
       "protect": null,
       "moments": [],
@@ -1118,7 +1118,7 @@
       ],
       "source": {
         "file": "src/runtime/settings/write.ts",
-        "pattern": ".lock"
+        "pattern": "config.bak"
       }
     },
     {
@@ -1126,10 +1126,10 @@
       "root": "config-home",
       "path": "",
       "entry": "file",
-      "match": "^settings\\.json\\.lock$",
+      "match": "^settings\\.json\\.(?:lock|config\\.bak)$",
       "rule": "existing",
       "bound": {
-        "text": "a settings writer holds the file's .lock for one read-merge-rename and removes it; a lock older than 10 s is a crashed writer's and is removed"
+        "text": "a settings writer holds the file's .lock for one read-merge-rename and removes it; a lock older than 10 s is a crashed writer's and is removed; config set and unset keep the bytes they replace in one .config.bak beside the file, replaced on each write"
       },
       "protect": null,
       "moments": [],
@@ -1138,7 +1138,7 @@
       ],
       "source": {
         "file": "src/runtime/settings/write.ts",
-        "pattern": ".lock"
+        "pattern": "config.bak"
       }
     },
     {

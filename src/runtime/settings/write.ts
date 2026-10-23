@@ -53,6 +53,25 @@ function backupLayerFile(file: string, fsImpl = fs): any {
   }
 }
 
+/**
+ * Keep the bytes a write replaces in `<file>.config.bak`, replaced atomically on every write, so the
+ * backup stays one file however often a layer is written. It is not backupLayerFile's `.bak[.N]`
+ * series, which preserves a malformed file once and must never be overwritten by a later write.
+ */
+function replaceBackup(file: string, fsImpl: any): any {
+  const backup = `${file}.config.bak`;
+  const temporary = path.join(path.dirname(file), `.${path.basename(backup)}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`);
+  try {
+    fsImpl.writeFileSync(temporary, fsImpl.readFileSync(file), { flag: 'wx', mode: 0o600 });
+    fsImpl.chmodSync(temporary, 0o600);
+    fsImpl.renameSync(temporary, backup);
+    return { ok: true, file: backup };
+  } catch (error: any) {
+    try { fsImpl.rmSync(temporary, { force: true }); } catch { /* preserve the primary refusal */ }
+    return invalid(file, `could not be backed up: ${error?.message || 'could not be written'}`);
+  }
+}
+
 /** How long a writer waits for another writer's lock, and the age at which a lock is a crashed holder's. */
 const LOCK_WAIT_MS = 2000;
 const LOCK_STALE_MS = 10000;
@@ -105,8 +124,9 @@ function releaseLock({ lock, token }: any, fsImpl: any): void {
  * writers of different keys never drop each other's key. `expect` (optional): the document the caller
  * validated against, or null when it found no file; when the file under the lock differs, nothing is
  * written and the result has code `changed`, so a caller's verdict always describes what it replaces.
+ * `backup` (optional): before an existing file is replaced, keep its bytes (`replaceBackup`).
  */
-function writeLayer({ file, set = {}, unset = [], scrubKeys = [], force = false, expect, fsImpl = fs }: any = {}): any {
+function writeLayer({ file, set = {}, unset = [], scrubKeys = [], force = false, expect, backup = false, fsImpl = fs }: any = {}): any {
   if (typeof file !== 'string' || file.length === 0) {
     return { ok: false, reason: 'config-invalid', detail: 'file is required' };
   }
@@ -143,7 +163,7 @@ function writeLayer({ file, set = {}, unset = [], scrubKeys = [], force = false,
   const held = acquireLock(file, fsImpl);
   if (!held.ok) return held;
   try {
-    return replaceLayer({ file, registry, set, unsetKeys, scrubKeys, force, expect, fsImpl });
+    return replaceLayer({ file, registry, set, unsetKeys, scrubKeys, force, expect, backup, fsImpl });
   } finally {
     releaseLock(held, fsImpl);
   }
@@ -152,7 +172,7 @@ function writeLayer({ file, set = {}, unset = [], scrubKeys = [], force = false,
 const INVALID = Symbol('invalid layer');
 
 /** The read, merge and rename of `writeLayer`, run while it holds the layer's lock. */
-function replaceLayer({ file, registry, set, unsetKeys, scrubKeys, force, expect, fsImpl }: any): any {
+function replaceLayer({ file, registry, set, unsetKeys, scrubKeys, force, expect, backup, fsImpl }: any): any {
   let before: Record<string, unknown> | null = null;
   let existing: Record<string, unknown> = {};
   let layer: any;
@@ -199,6 +219,11 @@ function replaceLayer({ file, registry, set, unsetKeys, scrubKeys, force, expect
     if (key !== 'schema' && !registry.keys.has(key)) {
       Object.defineProperty(after, key, { value, enumerable: true, configurable: true, writable: true });
     }
+  }
+
+  if (backup && layer?.status !== 'absent') {
+    const kept = replaceBackup(file, fsImpl);
+    if (!kept.ok) return kept;
   }
 
   const directory = path.dirname(file);

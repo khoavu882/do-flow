@@ -221,6 +221,7 @@ function handleChange({ action, key, valueText, layer, json, registry, projectRo
 
   // The layer is read, judged and written as one unit: `expect` makes writeLayer refuse (code `changed`)
   // when another writer replaced the file in between, and the unit then runs again on the new file.
+  // `backup` keeps the replaced bytes in `<file>.config.bak` (IC-008 "atomic, backup"; one file, replaced).
   for (let attempt = 1; ; attempt++) {
     const read = readLayerFile(file, { registry, fsImpl, includeDocument: true });
     const expect = read.status === 'ok' ? read.document : null;
@@ -230,12 +231,12 @@ function handleChange({ action, key, valueText, layer, json, registry, projectRo
       if (read.status === 'absent' || !isObject(read.document) || !Object.hasOwn(read.document, key)) {
         return done(json, { ok: true, key, layer, file, changed: false, errors: [] }, [`${key} is not set  (${layer}: ${file})`]);
       }
-      written = writeLayer({ file, unset: [key], expect, fsImpl });
+      written = writeLayer({ file, unset: [key], expect, backup: true, fsImpl });
     } else {
       const fault = layerEntry(registry, key, layer, file, parsed, { env, projectRoot: root, fsImpl, read });
       if (fault) return refuse(action, [fault], json);
       if (action === 'validate') return done(json, { ok: true, errors: [] }, [`${key}: valid  (${layer}: ${file})`]);
-      written = writeLayer({ file, set: { [key]: parsed.value }, expect, fsImpl });
+      written = writeLayer({ file, set: { [key]: parsed.value }, expect, backup: true, fsImpl });
     }
     if (!written.ok && written.code === 'changed' && attempt < WRITE_ATTEMPTS) continue;
     if (!written.ok) {
