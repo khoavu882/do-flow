@@ -209,7 +209,7 @@ test('check: unreadable settings (a broken project file, or a load that throws) 
   fs.writeFileSync(path.join(s.f.project, '.doflow', 'settings.json'), '{ not json');
   const broken = check(s, record);
   assert.equal(broken.code, 1);
-  assert.deepEqual(broken.result.errors, ['same-family-setting-unread']);
+  assert.deepEqual(broken.result.errors, ['same-family-setting-unread', 'review-preset-setting-unread'], 'a broken file is unreadable for every review.* key (C-2 closure reads review.preset too)');
   assert.ok(!broken.result.advisories.includes('same-family-setting-unread'));
   fs.rmSync(path.join(s.f.project, '.doflow', 'settings.json'));
   const file = path.join(s.f.project, 'review', 'findings.json');
@@ -220,7 +220,7 @@ test('check: unreadable settings (a broken project file, or a load that throws) 
     loadSettings: () => { throw new Error('boom'); },
   });
   assert.equal(code, 1);
-  assert.deepEqual(JSON.parse(lines.join('\n')).errors, ['same-family-setting-unread']);
+  assert.deepEqual(JSON.parse(lines.join('\n')).errors, ['same-family-setting-unread', 'review-preset-setting-unread']);
 });
 
 test('check: a Claude trailer against author family gpt is author-trailer-contradiction; against claude or unknown, nothing', (t) => {
