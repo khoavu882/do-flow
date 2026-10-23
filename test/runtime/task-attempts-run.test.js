@@ -196,6 +196,24 @@ test('a cancel stamped earlier than a resume is not cleared by the clock; only t
   assert.deepEqual(clearedCancels(store).map((c) => `${c.taskId}#${c.token}`).sort(), ['A.1#1', 'A.2#1']);
 });
 
+test('a legacy resume with no cleared list does not clear a cancel once a later resume lists others (C-4)', (t) => {
+  const p = project(t, planText());
+  const cancelled = (token, at) => ({
+    token, state: 'cancelled', runKey: p.key.runKey, startedAt: '2026-01-01T00:00:00.000Z', cancel: { at, by: 'lead', reason: 'x' },
+  });
+  const legacy = { at: '2026-01-02T12:00:00.000Z', action: 'resume', by: 'lead', reason: null, digest: 'd', epoch: 2 };
+  const listed = { at: '2026-01-02T13:00:00.000Z', action: 'resume', by: 'lead', reason: null, digest: 'd', epoch: 3, cleared: [] };
+  const build = (history) => ({
+    version: 1, revision: 1, planPath: null,
+    tasks: { 'A.1': { nextToken: 2, attempts: [cancelled(1, '2026-01-02T09:00:00.000Z')] } },
+    runs: { [p.key.runKey]: { ...p.runRecord({ epoch: 3 }), history } },
+  });
+  assert.deepEqual(clearedCancels(build([legacy, listed])), [], 'a listed resume makes the run list-authoritative');
+  // Controls: the legacy entry alone still clears by stamp; a later listed resume that names it clears it.
+  assert.deepEqual(clearedCancels(build([legacy])).map((c) => `${c.taskId}#${c.token}`), ['A.1#1']);
+  assert.deepEqual(clearedCancels(build([legacy, { ...listed, cleared: [{ taskId: 'A.1', token: 1 }] }])).map((c) => `${c.taskId}#${c.token}`), ['A.1#1']);
+});
+
 // ── IC-013: a file absent in the execution worktree reads removed (FU-ev7r3g) ───────────────────
 
 test('a declared file absent in the execution worktree reads absent even when the main copy exists', (t) => {
