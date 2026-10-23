@@ -398,7 +398,8 @@ function gatherGateFacts(options: any): GateFact[] {
       if (typeof settings.get('review.preset').value === 'string') preset = settings.get('review.preset').value;
       if (resolved.origin?.layer !== 'default' && typeof resolved.origin?.source === 'string') settingsLocator = resolved.origin.source;
       // C-6: an invalid project or local candidate silently falls back to the default, so the fact is unreadable.
-      const invalid = ['review.sameFamily', 'review.preset'].map((key) => require('../review/findings.ts').invalidProjectCandidate(settings.get(key))).find(Boolean);
+      const findingsLib = require('../review/findings.ts');
+      const invalid = findingsLib.invalidProjectCandidate(settings.get('review.sameFamily')) ?? findingsLib.invalidPresetCandidate(settings.get('review.preset'));
       if (invalid) { settingsLocator = invalid.source; settingsUnreadable = 'settings-unavailable'; }
     } catch { settingsUnreadable = 'settings-unavailable'; }
     add('review-settings', { sameFamily, preset }, settingsLocator, undefined, settingsUnreadable);

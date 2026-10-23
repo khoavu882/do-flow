@@ -5,7 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { validateFindings, countFindings, reviewAdvisories, invalidProjectCandidate } = require('./findings.ts');
+const { validateFindings, countFindings, reviewAdvisories, invalidProjectCandidate, invalidPresetCandidate } = require('./findings.ts');
 const { resolveActiveFeature } = require('../feature-resolve.ts');
 const { TelemetryWriter } = require('../trace/telemetry.ts');
 const { finishRuntime } = require('../cli-result.ts');
@@ -50,12 +50,12 @@ function readSameFamily(load: (options: { projectRoot: string; env: Env }) => an
 }
 
 /** The effective `review.preset` (C-2 closure), read for the checkout the verb runs in. A settings view that cannot
- * load, or an invalid project or local value (the resolver would fall back to `auto` without a word), is `unread`;
+ * load, or an invalid user, project or local value (the resolver would fall back to `auto` without a word), is `unread`;
  * the caller turns `unread` into an error, so a broken setting never relaxes the check. */
 function readPreset(load: (options: { projectRoot: string; env: Env }) => any, cwd: string, env: Env): { value: string; unread: boolean } {
   try {
     const resolution = load({ projectRoot: path.resolve(cwd), env }).get('review.preset');
-    if (invalidProjectCandidate(resolution)) return { value: 'auto', unread: true };
+    if (invalidPresetCandidate(resolution)) return { value: 'auto', unread: true };
     return { value: typeof resolution.value === 'string' ? resolution.value : 'auto', unread: false };
   } catch {
     return { value: 'auto', unread: true };

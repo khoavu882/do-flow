@@ -193,6 +193,23 @@ test('C-6: an invalid project review.* value or a malformed project settings fil
   assert.equal(env.gather('gate-b', { env: sandbox }).find((f) => f.name === 'review-settings').unreadable, undefined);
 });
 
+test('an unknown review.preset in the user file makes the review-settings fact unreadable (gate-b denies), never a silent auto', (t) => {
+  const env = setup(t);
+  const home = path.join(env.root, 'home');
+  const xdg = path.join(env.root, 'xdg');
+  const sandbox = { ...process.env, HOME: home, XDG_CONFIG_HOME: xdg };
+  fs.mkdirSync(path.join(xdg, 'doflow'), { recursive: true });
+  const user = path.join(xdg, 'doflow', 'settings.json');
+  fs.writeFileSync(user, JSON.stringify({ schema: 1, 'review.preset': 'bogus-9' }));
+  const gathered = env.gather('gate-b', { env: sandbox });
+  const fact = gathered.find((f) => f.name === 'review-settings');
+  assert.equal(fact.unreadable, 'settings-unavailable');
+  assert.equal(fact.locator, user);
+  assert.ok(evaluate(env.options.policy, 'feature', 'gate-b', gathered).reasons.some((r) => r.startsWith('findings-invalid:')));
+  fs.writeFileSync(user, JSON.stringify({ schema: 1, 'review.preset': 'review-deep' }));
+  assert.equal(env.gather('gate-b', { env: sandbox }).find((f) => f.name === 'review-settings').unreadable, undefined);
+});
+
 test('a register that does not exist yet is an empty decision list; a malformed one stays unreadable', (t) => {
   const env = setup(t);
   env.write(`agent-docs/doflow/${row.slug}/review/findings.json`, JSON.stringify({ ...review, converged: [
