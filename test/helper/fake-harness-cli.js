@@ -45,6 +45,10 @@
 //                                           the steps
 //   { printRepeat: { text, times } }        stdout text plus a newline, times times
 //   { sleep: ms }                           wait
+//   { waitFor: '/abs/path' }                wait until that file exists (polled every 20 ms), so a test
+//                                           releases the worker when it has observed what it needs
+//                                           instead of racing a timer; a relative path exits 97, and a
+//                                           gate still closed after 120 s exits 94 (a hang guard)
 //   { spawnChild: { newGroup?, ms?, pidFile? } }
 //                                           a sleeping node child (default 30000 ms), detached into
 //                                           its own process group when newGroup; its pid is written
@@ -79,6 +83,8 @@ const IDENTITY_VARS = ['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', '
 const PROBE_KINDS = new Set(['runnable', 'hooks', 'guidance', 'login']);
 const ESCAPE_EXIT = 97;
 const NO_TOOL_EXIT = 96;
+const GATE_TIMEOUT_EXIT = 94;
+const GATE_TIMEOUT_MS = 120000;
 
 /** The invocation kind for an argv (process.argv without node and the script). */
 function kindOf(argv) {
@@ -211,6 +217,23 @@ async function main() {
       const times = Math.max(0, Math.floor(Number(spec.times) || 0));
       for (let i = 0; i < times; i += 1) out(`${spec.text ?? ''}\n`);
     } else if (Object.hasOwn(step, 'sleep')) await new Promise((resolve) => setTimeout(resolve, step.sleep));
+    else if (Object.hasOwn(step, 'waitFor')) {
+      const gate = step.waitFor;
+      if (typeof gate !== 'string' || !path.isAbsolute(gate)) {
+        fs.writeSync(2, `fake-harness-cli: waitFor needs an absolute path: ${JSON.stringify(gate)}\n`);
+        process.exitCode = ESCAPE_EXIT;
+        return;
+      }
+      const until = Date.now() + GATE_TIMEOUT_MS;
+      while (!fs.existsSync(gate)) {
+        if (Date.now() >= until) {
+          fs.writeSync(2, `fake-harness-cli: waitFor gate never opened: ${gate}\n`);
+          process.exitCode = GATE_TIMEOUT_EXIT;
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+    }
     else if (Object.hasOwn(step, 'spawnChild')) {
       const spec = step.spawnChild ?? {};
       const child = spawn(process.execPath, ['-e', `setTimeout(() => {}, ${Number(spec.ms ?? 30000)})`], {

@@ -18,6 +18,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.js');
+const { tempDir } = require('../helper/tmp.js');
 
 const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
 const attempts = require(path.join(SRC, 'task-attempts.ts'));
@@ -178,9 +179,12 @@ async function project(t, {
 
 test('IC-029: inspect lists both active dispatches with masked argv and writes nothing; pause starts nothing new while both are collected and verified', POSIX, async (t) => {
   const started = Date.now();
+  // Both workers hold at the gate, so they are still starting or running however long the step,
+  // the inspect and the pause take; the test opens the gate once it has seen both.
+  const gate = path.join(tempDir(t, 'doflow-controls-gate-'), 'open');
   const p = await project(t, {
     plan: 'disjoint', mode: 'auto', concurrency: 2, probe: true, identity: { DOFLOW_ATTEMPT: undefined },
-    scenario: { run: [{ sleep: 700 }, { emit: SUCCESS }] }, verify: `process.exitCode = 0; // ${SECRET}`,
+    scenario: { run: [{ waitFor: gate }, { emit: SUCCESS }] }, verify: `process.exitCode = 0; // ${SECRET}`,
   });
   const first = await p.step();
   const launched = Object.values(p.read().dispatches);
@@ -219,12 +223,14 @@ test('IC-029: inspect lists both active dispatches with masked argv and writes n
   const again = await controls.pause(p.ctl({ reason: 'twice' }));
   assert.deepEqual([again.disposition, again.reason], ['refused', 'control-unchanged']);
 
+  fs.writeFileSync(gate, '');
   let r = null;
-  for (let i = 0; i < 40; i += 1) {
+  const ceiling = Date.now() + 60000;
+  for (;;) {
     r = await p.step();
     assert.equal(r.disposition, 'stepped', JSON.stringify(r));
     assert.ok(!r.actions.some((a) => a.action === 'admit' && String(a.reason).startsWith('claimed')), 'nothing is admitted while paused');
-    if (r.outcome === 'paused') break;
+    if (r.outcome === 'paused' || Date.now() >= ceiling) break;
     await sleep(150);
   }
   t.diagnostic(`pause case took ${Date.now() - started} ms`);
