@@ -6,8 +6,9 @@
  * takes. Offline: reads files only; no model, no subprocess.
  *
  * A case is `found` when some converged finding that was not refuted sits on the expected path, has a
- * locator span (at most `config.maxSpan` lines wide; a comma list is separate points) overlapping the
- * expected span widened by `config.tolerance` lines each way, and is at least as severe as the expected one.
+ * locator span overlapping the expected span widened by `config.tolerance` lines each way, and is at
+ * least as severe as the expected one. The locator (a range, or the extent of a comma list of points)
+ * may be at most `allowedWidth` lines wide: `max(config.maxSpan, expected width + 2 * tolerance)`.
  * A case with no usable record is excluded (null, never 0): an infra class from `run_status.json`,
  * or `malformed` for a missing or invalid `findings.json`.
  */
@@ -113,17 +114,21 @@ function locatorSpans(locator) {
 
 /**
  * True when a counted converged finding of `record` names the expected span at the expected severity
- * or higher: some span of its locator, at most `maxSpan` lines wide, overlaps the expected span
- * widened by `tolerance` lines each way.
+ * or higher: its locator, whose extent (max - min + 1 over all its spans) is at most `allowedWidth`
+ * lines, has a span overlapping the expected span widened by `tolerance` lines each way.
+ * `allowedWidth = max(maxSpan, expected width + 2 * tolerance)`: `maxSpan` bounds only a locator wider
+ * than the case itself needs, so an exact re-report of a wide expected span is always a hit.
  */
 function isFound(record, expected, tolerance, maxSpan) {
   const from = expected.startLine - tolerance;
   const to = expected.endLine + tolerance;
+  const allowedWidth = Math.max(maxSpan, expected.endLine - expected.startLine + 1 + 2 * tolerance);
   return record.converged.some((f) => {
     if (!COUNTED_STATUSES.includes(f.status) || rank(f.severity) < rank(expected.severity)) return false;
     const at = locatorSpans(f.locator);
-    return at !== null && at.path === expected.path
-      && at.spans.some(([a, b]) => b - a + 1 <= maxSpan && a <= to && b >= from);
+    if (at === null || at.path !== expected.path) return false;
+    const extent = Math.max(...at.spans.map(([, b]) => b)) - Math.min(...at.spans.map(([a]) => a)) + 1;
+    return extent <= allowedWidth && at.spans.some(([a, b]) => a <= to && b >= from);
   });
 }
 

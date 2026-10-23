@@ -199,10 +199,53 @@ test('C-6: a whole-file range is a miss; a range up to maxSpan lines is a span',
 
 test('C-6: a comma list is separate points, a hit when any one point is inside the window', (t) => {
   assert.equal(gradeA(t, { severity: 'blocker', locator: 'src/a.ts:1,9999' }).passRate, 0, 'no point inside');
-  assert.equal(gradeA(t, { severity: 'blocker', locator: 'src/a.ts:50,9999' }).passRate, 1, 'one point inside');
+  assert.equal(gradeA(t, { severity: 'blocker', locator: 'src/a.ts:50,59' }).passRate, 1, 'one point inside');
   assert.equal(gradeA(t, { severity: 'blocker', locator: 'src/a.ts:1,56' }).passRate, 0, 'points 1 and 56: window is 47..55, the gap between them is not a span');
   assert.equal(gradeA(t, { severity: 'blocker', locator: 'src/a.ts:1,55' }).passRate, 1, 'tolerance still applies to a point');
 });
+
+/** N-4/N-5: one synthetic case of the given expected span; returns the run entry for a single fake finding. */
+function gradeWide(t, expected, finding) {
+  const c = mkCase('006-b-1', { path: 'src/w.ts', severity: 'blocker', ...expected });
+  const f = setup(t, [c]);
+  const it = `it-${++seq}`;
+  stamp(f, it);
+  review(f, it, c.id, [finding]);
+  const r = grade(f, it);
+  assert.equal(r.code, 0, r.err);
+  return gradeOf(f, it).runs[c.key];
+}
+
+test('N-4: an exact re-report of an expected span wider than maxSpan is a hit (82 and 344 lines)', (t) => {
+  for (const [startLine, endLine] of [[446, 527], [100, 443]]) {
+    const locator = `src/w.ts:${startLine}-${endLine}`;
+    assert.ok(endLine - startLine + 1 > CONFIG.maxSpan);
+    assert.equal(gradeWide(t, { startLine, endLine }, { severity: 'blocker', locator }).passRate, 1, locator);
+    assert.equal(gradeWide(t, { startLine, endLine }, { severity: 'blocker', locator: `src/w.ts:${startLine + 5}-${endLine - 5}` }).passRate, 1, 'a span inside it');
+    assert.equal(gradeWide(t, { startLine, endLine }, { severity: 'blocker', locator: `src/w.ts:${startLine + 5}` }).passRate, 1, 'a point inside it');
+  }
+});
+
+test('N-4: on a wide case a span is bounded by expected width + 2 * tolerance, not by maxSpan', (t) => {
+  // expected 100-199 (100 lines), tolerance 3: allowedWidth 106, window [97, 202]
+  const expected = { startLine: 100, endLine: 199 };
+  const w = (locator) => gradeWide(t, expected, { severity: 'blocker', locator }).passRate;
+  assert.equal(w('src/w.ts:97-202'), 1, '106 lines is within allowedWidth although wider than maxSpan');
+  assert.equal(w('src/w.ts:96-202'), 0, '107 lines is wider than allowedWidth');
+  assert.equal(w('src/w.ts:1-9999'), 0, 'a whole-file range is still a miss');
+});
+
+test('N-5: a comma list is bounded by its extent; a 200-point list is a miss', (t) => {
+  const points = Array.from({ length: 200 }, (_, i) => 1 + i * 7);
+  assert.ok(points.includes(50) && points[199] === 1394);
+  assert.equal(gradeA2(t, `src/a.ts:${points.join(',')}`), 0, '200 points over 1..1394 hold a point in the window and are still a miss');
+  assert.equal(gradeA2(t, 'src/a.ts:50,9999'), 0, 'extent 9950 is wider than allowedWidth');
+  assert.equal(gradeA2(t, 'src/a.ts:50,100'), 1, 'extent 51 is within it');
+  assert.equal(gradeA2(t, 'src/a.ts:50,110'), 0, 'extent 61 is not');
+});
+
+/** N-5 helper: the 50-52 case, one locator, returns passRate. */
+const gradeA2 = (t, locator) => gradeA(t, { severity: 'blocker', locator }).passRate;
 
 test('C-6 controls: another path and a distant line stay a miss', (t) => {
   assert.equal(gradeA(t, { severity: 'blocker', locator: 'src/other.ts:51' }).passRate, 0);
