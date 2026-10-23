@@ -371,6 +371,17 @@ test('C16: DOFLOW_RETENTION_HOURS=abc: the env can widen, so the fail-safe {stat
   }
 });
 
+test('FU-k5g213: DOFLOW_RETENTION_HOURS with a leading zero stays invalid and the fault says no leading zeros', (t) => {
+  const f = fx(t);
+  for (const raw of ['024', '007']) {
+    const r = load(f, { env: { DOFLOW_RETENTION_HOURS: raw } }).get('storage.retentionHours');
+    assert.equal(r.state, 'invalid', raw);
+    assert.match(JSON.stringify(r.candidates[0]), /no leading zeros/, raw);
+  }
+  const plain = load(f, { env: { DOFLOW_RETENTION_HOURS: 'abc' } }).get('storage.retentionHours');
+  assert.doesNotMatch(JSON.stringify(plain.candidates[0]), /leading zeros/);
+});
+
 test('D-8: a project retention value applies (explicit) while the project turns prune off; a valid env beats an invalid file', (t) => {
   const f = fx(t);
   const projectFile = f.writeProjectSettings({ schema: 1, 'storage.prune': 'off', 'storage.retentionHours': 48 });

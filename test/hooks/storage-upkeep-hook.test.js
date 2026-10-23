@@ -178,3 +178,45 @@ test('a session started in a subdirectory runs upkeep from the project root (G.3
   while (!fs.existsSync(record) && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 50));
   assert.equal(fs.readFileSync(record, 'utf8').trim(), project);
 });
+
+// FU-0rgk31: the detached upkeep leaves the hook's session when setsid exists, so a harness that
+// kills the hook's process group on exit does not take the upkeep with it. macOS has no setsid.
+function sourceUpkeep(extraPath, projectDir, record) {
+  return spawnSync('/bin/bash', ['-c', 'source "$1" && storage_upkeep_async "$2"', 'bash', LIB, projectDir], {
+    env: scratch.env({ PATH: `${extraPath}${extraPath ? path.delimiter : ''}${process.env.PATH}`, STORAGE_TEST_RECORD: record }), encoding: 'utf8',
+  });
+}
+async function waitFor(file) {
+  const until = Date.now() + 5000;
+  while (!fs.existsSync(file) && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 50));
+  return fs.existsSync(file);
+}
+function upkeepFixture(name) {
+  const project = path.join(scratch.dir, name); fs.mkdirSync(project, { recursive: true });
+  const dispatcher = path.join(project, PROJECT_DISPATCHER);
+  fs.mkdirSync(path.dirname(dispatcher), { recursive: true });
+  fs.writeFileSync(dispatcher, `#!/bin/bash\nprintf '%s\\n' "$*" > "$STORAGE_TEST_RECORD.tmp.$$"\nmv -f "$STORAGE_TEST_RECORD.tmp.$$" "$STORAGE_TEST_RECORD"\n`);
+  fs.chmodSync(dispatcher, 0o755);
+  return { project, record: path.join(scratch.dir, `${name}-record`) };
+}
+
+test('detached upkeep runs under setsid when setsid is on PATH', { skip: process.platform === 'win32' }, async () => {
+  const { project, record } = upkeepFixture('setsid-present');
+  const bin = path.join(scratch.dir, 'setsid-bin'); fs.mkdirSync(bin, { recursive: true });
+  fs.writeFileSync(path.join(bin, 'setsid'), `#!/bin/bash\nprintf '%s\\n' "$*" > "$STORAGE_TEST_RECORD.setsid"\nexec "$@"\n`);
+  fs.chmodSync(path.join(bin, 'setsid'), 0o755);
+  const result = sourceUpkeep(bin, project, record);
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(await waitFor(`${record}.setsid`), 'upkeep was not launched through setsid');
+  assert.match(fs.readFileSync(`${record}.setsid`, 'utf8'), /doflow-run storage --action upkeep/);
+  assert.ok(await waitFor(record), 'the dispatcher did not run behind setsid');
+  assert.equal(fs.readFileSync(record, 'utf8').trim(), 'storage --action upkeep');
+});
+
+test('detached upkeep still runs when setsid is absent', { skip: process.platform === 'win32' || spawnSync('bash', ['-c', 'command -v setsid']).status === 0 }, async () => {
+  const { project, record } = upkeepFixture('setsid-absent');
+  const result = sourceUpkeep('', project, record);
+  assert.equal(result.status, 0, result.stderr);
+  assert.ok(await waitFor(record), 'the dispatcher did not run without setsid');
+  assert.equal(fs.readFileSync(record, 'utf8').trim(), 'storage --action upkeep');
+});

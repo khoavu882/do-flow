@@ -249,12 +249,23 @@ function planWithUncheckedTask(cache: any, taskId: string, shouldStop?: () => bo
 }
 
 /** IC-028: why a task-attempts ledger is open work, or null when it holds neither an active or
- * cancelled attempt nor a run whose control is other than `running`. */
+ * uncleared cancelled attempt nor a run whose control is other than `running`. A cancel a resume has
+ * cleared (the same `clearedCancels` the resume report uses) is settled work, not open work. */
 function openLedgerReason(ledger: any): string | null {
-  const tasks = ledger && typeof ledger.tasks === 'object' && ledger.tasks ? Object.values<any>(ledger.tasks) : [];
-  for (const entry of tasks) {
+  const tasks = ledger && typeof ledger.tasks === 'object' && ledger.tasks ? Object.entries<any>(ledger.tasks) : [];
+  let cleared: Set<any> | null = null;
+  for (const [, entry] of tasks) {
     const attempts: any[] = entry && Array.isArray(entry.attempts) ? entry.attempts : [];
-    if (attempts.some((a: any) => a && (a.state === 'active' || a.state === 'cancelled'))) return 'attempt-open';
+    for (const a of attempts) {
+      if (!a) continue;
+      if (a.state === 'active') return 'attempt-open';
+      if (a.state !== 'cancelled') continue;
+      // Loaded only when a cancelled attempt exists: task-run is a heavy module for a storage pass.
+      // Paired by the attempt object, not by (task, token): a malformed ledger can repeat or omit
+      // tokens, and an uncleared cancel must never be taken for a cleared one.
+      if (cleared === null) cleared = new Set(require('../task-run.ts').clearedCancels(ledger).map((c: any) => c.attempt));
+      if (!cleared.has(a)) return 'attempt-open';
+    }
   }
   const runs = ledger && typeof ledger.runs === 'object' && ledger.runs ? Object.values<any>(ledger.runs) : [];
   if (runs.some((run: any) => !run || run.control !== 'running')) return 'run-control-open';
@@ -376,8 +387,9 @@ function workStatus({
     return answer('open', 'run-open', resolvedRun.id, null);
   }
 
-  // IC-028: a task-attempts ledger stays open while any attempt is active or cancelled or any run
-  // is not `running`, so a paused or cancelled run whose boxes are all ticked is never pruned.
+  // IC-028: a task-attempts ledger stays open while any attempt is active or cancelled and not cleared
+  // by a resume, or any run is not `running`, so a paused or cancelled run whose boxes are all ticked
+  // is never pruned.
   if (store === 'task-attempts') {
     const ledgerOpen = openLedgerReason(record.value);
     if (ledgerOpen) return answer('open', ledgerOpen, resolvedRun.id, null);

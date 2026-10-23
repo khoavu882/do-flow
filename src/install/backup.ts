@@ -69,6 +69,8 @@ function backupId(op: string, date: Date): string {
 const MANIFEST_FILE = '.manifest.json';
 const OWNER_FILE = '.owner.json';
 const TEMP_PREFIX = '.tmp-';
+/** A backup retention is removing: renamed here first so a half-removed backup is never listed or counted. */
+const REMOVING_PREFIX = '.tmp-del-';
 const STALE_TEMP_MS = 24 * 60 * 60 * 1000;
 const MAX_ID_ATTEMPTS = 1000;
 const RENAME_COLLISION_CODES = new Set(['EEXIST', 'ENOTEMPTY', 'EPERM', 'EACCES']);
@@ -129,7 +131,9 @@ function createFileBackup({
       fsImpl.mkdirSync(backupRoot, { recursive: true });
       fsImpl.mkdirSync(tmpDir);
       tmpCreated = true;
-      const owner = { pid: process.pid, hostname: os.hostname(), startedAt: date.toISOString() };
+      // When this run started, not `date`: that is the time the backup is named for, and a caller may pass any
+      // date. isStaleTemp measures a temp's age from this field.
+      const owner = { pid: process.pid, hostname: os.hostname(), startedAt: new Date().toISOString() };
       fsImpl.writeFileSync(path.join(tmpDir, OWNER_FILE), `${JSON.stringify(owner)}\n`, { flag: 'wx' });
     } catch (err) { throw writeFailure(err); }
 
@@ -234,6 +238,35 @@ function defaultIsAlive(pid: number): boolean {
   }
 }
 
+/**
+ * The id of this process's pid namespace where the platform exposes one (Linux: the target of
+ * `/proc/self/ns/pid`, such as `pid:[4026531836]`), else the empty string. A pid means something only
+ * inside the namespace that issued it; two containers can share a hostname and not a pid space.
+ */
+function pidNamespaceId(): string {
+  try { return fs.readlinkSync('/proc/self/ns/pid'); } catch { return ''; }
+}
+
+/**
+ * Eight hex digits that identify the host and pid namespace in a rename-aside name. A pid means
+ * something only in the namespace it was issued in, so an aside is judged by pid only by a process
+ * in the same namespace on the same host. Where no namespace id exists the tag is the hostname alone.
+ */
+function hostTag(hostname: string = os.hostname(), pidNamespace: string = pidNamespaceId()): string {
+  return crypto.createHash('sha1').update(`${hostname}\0${pidNamespace}`).digest('hex').slice(0, 8);
+}
+
+/**
+ * The owner a rename-aside folder (`.tmp-del-<id>-<host tag>-<pid>-<8 hex>`) names, or null when the
+ * name does not carry one. Ids contain `-`, so the fields are read from the end. Names without a host
+ * tag (an earlier layout that never shipped: it existed only on unreleased commits, so no migration)
+ * are unparseable and are kept.
+ */
+function removingOwner(name: string): { host: string; pid: number } | null {
+  const m = /-([0-9a-f]{8})-([0-9]+)-[0-9a-f]{8}$/.exec(name);
+  return m ? { host: m[1], pid: Number(m[2]) } : null;
+}
+
 function isStaleTemp(dir: string, { now, fsImpl, isAlive, hostname }: any): boolean {
   let owner = null;
   try { owner = JSON.parse(fsImpl.readFileSync(path.join(dir, OWNER_FILE), 'utf8')); } catch { /* no owner */ }
@@ -247,15 +280,25 @@ function isStaleTemp(dir: string, { now, fsImpl, isAlive, hostname }: any): bool
 /**
  * Remove `.tmp-*` directories left in `backupRoot` by runs that died: the owner process is gone on
  * this host, or the temp is older than 24 hours. Returns how many were removed.
+ *
+ * A `.tmp-del-*` rename-aside is a backup a retention pass is deleting, so age says nothing about it
+ * (it keeps the backup's own, possibly old, mtime and may be rolled back if the delete fails). It is
+ * removed only by the host and pid namespace named in it, and only when the pid in its name is not
+ * alive; any other host's or namespace's aside, and one whose name carries no owner, is left alone.
  */
-function sweepStaleTemps(backupRoot: string, { now = Date.now(), fsImpl = fs, isAlive = defaultIsAlive, hostname = os.hostname() }: any = {}): number {
+function sweepStaleTemps(backupRoot: string, { now = Date.now(), fsImpl = fs, isAlive = defaultIsAlive, hostname = os.hostname(), pidNamespace = pidNamespaceId() }: any = {}): number {
   assertMutableBackupRoot(backupRoot, 'clean up backups');
   if (!fsImpl.existsSync(backupRoot)) return 0;
   let removed = 0;
   for (const e of fsImpl.readdirSync(backupRoot, { withFileTypes: true })) {
     if (!e.isDirectory() || !e.name.startsWith(TEMP_PREFIX)) continue;
     const dir = path.join(backupRoot, e.name);
-    if (!isStaleTemp(dir, { now, fsImpl, isAlive, hostname })) continue;
+    if (e.name.startsWith(REMOVING_PREFIX)) {
+      // Removed only by the host that made it, and only once its pid is gone there. Another host's
+      // (or an unparseable) aside is kept: its pass may be live where this one cannot see it.
+      const owner = removingOwner(e.name);
+      if (owner === null || owner.host !== hostTag(hostname, pidNamespace) || isAlive(owner.pid)) continue;
+    } else if (!isStaleTemp(dir, { now, fsImpl, isAlive, hostname })) continue;
     try {
       fsImpl.rmSync(dir, { recursive: true, force: true });
       removed += 1;
@@ -347,7 +390,7 @@ function formatBytes(n: number | null | undefined): string {
 
 /** Security guard: a backup id is a directory *name*, never a path — reject traversal/absolute ids. */
 function assertSafeBackupId(bid: string): void {
-  if (!bid || bid.includes('/') || bid.includes('\\') || bid === '..' || bid.includes('..')) {
+  if (!bid || bid === '.' || bid.includes('/') || bid.includes('\\') || bid === '..' || bid.includes('..')) {
     throw new Error(`Invalid backup id: '${bid}'`);
   }
 }
@@ -441,6 +484,9 @@ function refusalOf(entry: any, target: string, { scope, scopeRoot, bkDir, fsImpl
   } catch {
     return 'content missing from backup';
   }
+  // A restore chmods the file it writes to this mode, so a manifest that lacks one (or holds anything
+  // but a permission mask) is refused here, with a name, rather than failing inside the write.
+  if (!Number.isInteger(entry.mode) || entry.mode < 0 || entry.mode > 0o7777) return 'invalid mode';
   return null;
 }
 
@@ -685,7 +731,12 @@ function applyRetention({ backupRoot, keep, protect = [], reserve = 0, dryRun = 
   const protectedCandidates = candidates.filter((c) => protectedIds.has(c.id));
   const ordered = [...protectedCandidates, ...candidates.filter((c) => !protectedIds.has(c.id))];
   const keepCount = keep === 0 ? ordered.length : Math.max(keep - reserve, protectedCandidates.length);
-  const removal = ordered.slice(keepCount).map((c) => c.id);
+  // The protected backup is the run's own, so one newer than it was made by another run that finished
+  // after it; this pass only reaps history older than its own backup.
+  const newestProtected = protectedCandidates[0];
+  const removal = ordered.slice(keepCount)
+    .filter((c) => !newestProtected || compareSortKeys(c, newestProtected) >= 0)
+    .map((c) => c.id);
 
   if (dryRun || keep === 0) {
     if (dryRun) result.wouldRemove = removal;
@@ -693,16 +744,30 @@ function applyRetention({ backupRoot, keep, protect = [], reserve = 0, dryRun = 
     return result;
   }
 
+  // Also deletes what an earlier pass renamed aside and died before deleting (a `.tmp-del-*` whose pid
+  // is dead): already out of every listing, so it goes at once. One whose pid is alive belongs to a
+  // pass that may still roll it back, so it is never touched here, whatever its age.
   result.sweptTemps = sweepStaleTemps(backupRoot, { now, fsImpl });
   for (const id of removal) {
     const dir = path.join(backupRoot, id);
     // Another run's retention pass may have removed it already.
     if (!fsImpl.existsSync(dir)) continue;
+    // One rename takes the backup out of the listing whole; the deletion then happens out of sight.
+    const aside = path.join(backupRoot, `${REMOVING_PREFIX}${id}-${hostTag()}-${process.pid}-${crypto.randomBytes(4).toString('hex')}`);
     try {
-      fsImpl.rmSync(dir, { recursive: true, force: true });
+      fsImpl.renameSync(dir, aside);
+    } catch (err: any) {
+      if (err.code !== 'ENOENT') result.failed.push({ id, error: err.message });
+      continue;
+    }
+    try {
+      fsImpl.rmSync(aside, { recursive: true, force: true });
       result.removed.push(id);
     } catch (err: any) {
+      // Not removed: put it back under its id so it is still counted and listed, as when it was
+      // removed in place. If that fails too the aside folder is not listed and the next pass deletes it.
       result.failed.push({ id, error: err.message });
+      try { fsImpl.renameSync(aside, dir); } catch { /* the next pass cleans the aside folder */ }
     }
   }
   result.kept = ordered.filter((c) => fsImpl.existsSync(path.join(backupRoot, c.id))).length;
@@ -718,7 +783,7 @@ function retentionNote(prune: number | null | undefined, keep: number): string {
 
 module.exports = {
   backupId, restoreBackup, listBackups, assertSafeBackupId, scopeRelative, retentionNote,
-  backupReadRoots, BACKUP_ORIGIN_CURRENT, BACKUP_ORIGIN_LEGACY,
+  backupReadRoots, hostTag, BACKUP_ORIGIN_CURRENT, BACKUP_ORIGIN_LEGACY,
   BackupError, DEFAULT_BACKUP_RETENTION, createFileBackup, sweepStaleTemps, classifyBackupDir,
   sortKey, backupSize, formatBytes, planRestore, executeRestore, mergeRestoredLedger, applyRetention,
 };

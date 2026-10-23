@@ -192,7 +192,7 @@ function runPass({registry,roots,stores,mode,setting={},now=Date.now(),budgetMs,
           row.selected=selection.files.map((name: any)=>({name,reason:'settled',bytes:stat(fsImpl,path.join(location,name))?.size || 0}));
         } else {
           let output;
-          try { output=retainLocked(project,{fsImpl,now:new Date(now),window,maxFiles:Math.max(0,cap-removals),shouldStop}); }
+          try { output=retainLocked(project,{fsImpl,now:new Date(now),window,maxFiles:Math.max(0,cap-removals),shouldStop,staleTmpMs:registry.settings.staleTmpHours*3600000}); }
           catch(error: any) { row.failed.push({name:store.id,code:error.code || 'EIO'}); continue; }
           row.selected=output.selected.map(({name,bytes}: any)=>({name,reason:'settled',bytes}));
           row.removed=output.removed; removals+=row.removed;

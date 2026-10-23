@@ -264,6 +264,11 @@ next_free_prerelease() {
   printf '%s-%s.%s %s\n' "$core" "$label" "$candidate" "$skipped"
 }
 
+# What a release tag looks like: vX.Y.Z with an optional pre-release. A tag such as vx or vnext also
+# matches `v*`, and under the version sort `vx` outranks every vN.N.N, so the base tag, the lifecycle
+# release_tags and the next-version proposal all filter with this one pattern.
+RELEASE_TAG_PATTERN='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+
 # The newest release tag reachable from HEAD or from the production branch, by version order;
 # empty when there is none. do_next_version bases its proposal on it and the lifecycle output
 # reports it, so the two never disagree. The reasoning behind "newest by version" and "reachable
@@ -277,7 +282,7 @@ find_base_tag() {
   done <<< "$(production_refs)"
   eligible="$(printf '%s\n' "$eligible" | sort -u | sed '/^$/d')"
   if [ -n "$eligible" ]; then
-    base_tag="$(git tag --list 'v*' --sort=-v:refname 2>/dev/null | grep -Fx -f <(printf '%s\n' "$eligible") | head -1 || true)"
+    base_tag="$(git tag --list 'v*' --sort=-v:refname 2>/dev/null | grep -E "$RELEASE_TAG_PATTERN" | grep -Fx -f <(printf '%s\n' "$eligible") | head -1 || true)"
   fi
   printf '%s\n' "$base_tag"
 }
@@ -350,7 +355,7 @@ do_next_version() {
   fi
 
   jq -n \
-    --arg base_tag "${base_tag:-null}" \
+    --arg base_tag "$base_tag" \
     --arg current_version "$current_version" \
     --arg next_version "$next_version" \
     --arg next_prerelease "$next_prerelease" \
@@ -501,7 +506,7 @@ lifecycle_integration_ref() {
 do_lifecycle() {
   local integration="" tags="" base_tag=""
   integration="$(lifecycle_integration_ref)"
-  tags="$(git tag --list 'v*' 2>/dev/null | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || true)"
+  tags="$(git tag --list 'v*' 2>/dev/null | grep -E "$RELEASE_TAG_PATTERN" || true)"
   base_tag="$(find_base_tag)"
 
   local behind=0

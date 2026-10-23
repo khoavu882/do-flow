@@ -153,6 +153,47 @@ test('a symlinked target is written through and stays a link', { skip: IS_WIN &&
   assert.strictEqual(read(real), 'before');
 });
 
+test('an entry whose mode is missing or not a permission mask is refused, and the others still restore (FU-fst0yq)', () => {
+  const ctx = scratchScope();
+  const good = write(path.join(ctx.scopeRoot, '.claude', 'good.md'), 'now');
+  const noMode = write(path.join(ctx.scopeRoot, '.claude', 'no-mode.md'), 'now');
+  const badMode = write(path.join(ctx.scopeRoot, '.claude', 'bad-mode.md'), 'now');
+  const hugeMode = write(path.join(ctx.scopeRoot, '.claude', 'huge-mode.md'), 'now');
+  const bkDir = plantV2(ctx.backupRoot, 'update_x', [
+    { path: '.claude/good.md', existed: true, content: 'before' },
+    { path: '.claude/no-mode.md', existed: true, content: 'before' },
+    { path: '.claude/bad-mode.md', existed: true, content: 'before' },
+    { path: '.claude/huge-mode.md', existed: true, content: 'before' },
+  ]);
+  const manifestFile = path.join(bkDir, '.manifest.json');
+  const manifest = JSON.parse(read(manifestFile));
+  delete manifest.files[1].mode;
+  manifest.files[2].mode = '0644';
+  manifest.files[3].mode = 0o10000;
+  fs.writeFileSync(manifestFile, JSON.stringify(manifest));
+
+  const p = plan(ctx, 'update_x');
+  assert.deepStrictEqual(p.refused, [
+    { path: noMode, reason: 'invalid mode' },
+    { path: badMode, reason: 'invalid mode' },
+    { path: hugeMode, reason: 'invalid mode' },
+  ]);
+  assert.deepStrictEqual(p.restore.map((r) => r.path), [good]);
+  assert.deepStrictEqual(p.snapshot.map((r) => r.path), [good], 'a refused file is not snapshotted either');
+  const result = executeRestore(p, { backupRoot: ctx.backupRoot });
+  assert.deepStrictEqual(result.restored, [good]);
+  assert.deepStrictEqual(result.failed, []);
+  assert.strictEqual(read(good), 'before');
+  assert.strictEqual(read(noMode), 'now');
+});
+
+test('the id "." names the backup root, not a backup: planning refuses it (FU-fst0yq)', () => {
+  const ctx = scratchScope();
+  plantV2(ctx.backupRoot, 'update_x', [{ path: '.claude/a.md', existed: true, content: 'x' }]);
+  assert.throws(() => plan(ctx, '.'), /Invalid backup id/);
+  assert.throws(() => restoreBackup({ bid: '.', backupRoot: ctx.backupRoot, dirs: {} }), /Invalid backup id/);
+});
+
 test('unsafe entries are refused with their reasons and nothing is written for them', () => {
   const ctx = scratchScope();
   const outsideFile = path.join(ctx.dir, 'opt', 'AGENTS.md');

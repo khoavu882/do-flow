@@ -450,6 +450,27 @@ function readTaskState(fsImpl: any, file: string): any {
   return data;
 }
 
+/** How many times the folder is made again when it vanishes before the lock can be made in it. */
+const FOLDER_RACE_RETRIES = 5;
+
+/**
+ * Makes the state file's folder and takes the lock in it. The lock is a folder inside the state
+ * file's folder and is made without `recursive`, so a sweep that removes an empty namespace folder
+ * between the two steps makes the lock fail with ENOENT. The folder is then made again, a bounded
+ * number of times; the sweep never removes a folder that holds a lock, so a taken lock keeps it.
+ */
+function acquireInFolder(fsImpl: any, file: string, acquire: (fsImpl: any, file: string) => () => void): () => void {
+  for (let tries = 0; ; tries += 1) {
+    fsImpl.mkdirSync(path.dirname(file), { recursive: true });
+    try {
+      return acquire(fsImpl, file);
+    } catch (error: any) {
+      if (error && error.code === 'ENOENT' && tries < FOLDER_RACE_RETRIES) continue;
+      throw error;
+    }
+  }
+}
+
 /**
  * The one durable-update path: lock, re-read, merge, bump revision, atomic write.
  *
@@ -484,8 +505,7 @@ function updateTaskState({
   lostLockRetries?: number;
 }): string | null {
   for (let attempt = 0; ; attempt += 1) {
-    fsImpl.mkdirSync(path.dirname(file), { recursive: true });
-    const release: any = acquire(fsImpl, file);
+    const release: any = acquireInFolder(fsImpl, file, acquire);
     try {
       if (prepare) prepare();
       const disk = readTaskState(fsImpl, file);

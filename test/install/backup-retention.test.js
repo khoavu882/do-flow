@@ -5,9 +5,10 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
+const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp');
-const { applyRetention, backupSize } = require('../../src/install/backup.ts');
+const { applyRetention, backupSize, listBackups, sweepStaleTemps, hostTag } = require('../../src/install/backup.ts');
 const { plantFullBackup } = require('../helper/backup-v1-fixture');
 const { IS_WIN } = require('../helper-platform');
 
@@ -41,14 +42,188 @@ function remaining(root) { return fs.readdirSync(root).filter((n) => !n.startsWi
 test('keep 3 keeps the protected backup plus the two newest', () => {
   const root = backupRootOf(scratchDir());
   const ids = plantFive(root);
-  const result = applyRetention({ backupRoot: root, keep: 3, protect: [ids[0]] });
+  // The run's own backup is the newest one (FU-j55357: retention never removes a backup newer than it).
+  const result = applyRetention({ backupRoot: root, keep: 3, protect: [ids[4]] });
 
-  assert.deepStrictEqual(remaining(root), [ids[0], ids[3], ids[4]]);
-  assert.deepStrictEqual(result.removed, [ids[2], ids[1]]);
+  assert.deepStrictEqual(remaining(root), [ids[2], ids[3], ids[4]]);
+  assert.deepStrictEqual(result.removed, [ids[1], ids[0]]);
   assert.strictEqual(result.kept, 3);
   assert.strictEqual(result.keep, 3);
   assert.deepStrictEqual(result.failed, []);
   assert.deepStrictEqual(result.wouldRemove, []);
+});
+
+test('a backup newer than the run\'s own survives --prune 1, as a concurrent run\'s would (FU-j55357)', () => {
+  const root = backupRootOf(scratchDir());
+  const ids = plantFive(root);
+  // The run made ids[2]; another run finished ids[3] and ids[4] after it, before this pass listed the root.
+  const result = applyRetention({ backupRoot: root, keep: 1, protect: [ids[2]] });
+  assert.deepStrictEqual(remaining(root), [ids[2], ids[3], ids[4]]);
+  assert.deepStrictEqual(result.removed, [ids[1], ids[0]]);
+  assert.strictEqual(result.kept, 3);
+  const dry = applyRetention({ backupRoot: root, keep: 1, protect: [ids[2]], dryRun: true });
+  assert.deepStrictEqual(dry.wouldRemove, [], 'nothing older than the run\'s own backup is left to remove');
+});
+
+test('a protected backup that is the oldest leaves every newer backup alone', () => {
+  const root = backupRootOf(scratchDir());
+  const ids = plantFive(root);
+  const result = applyRetention({ backupRoot: root, keep: 2, protect: [ids[0]] });
+  assert.deepStrictEqual(remaining(root), ids);
+  assert.deepStrictEqual(result.removed, []);
+  assert.strictEqual(result.kept, 5);
+});
+
+test('a backup is renamed aside to .tmp-del-* before it is removed, so it is never half-deleted in place', () => {
+  const root = backupRootOf(scratchDir());
+  const ids = plantFive(root);
+  const seen = [];
+  const watching = {
+    ...fs,
+    rmSync(target, options) {
+      seen.push({ target, originalStillThere: fs.existsSync(path.join(root, path.basename(target).replace(/^\.tmp-del-/, '').replace(/-\d+-[0-9a-f]+$/, ''))) });
+      return fs.rmSync(target, options);
+    },
+  };
+  const result = applyRetention({ backupRoot: root, keep: 3, protect: [ids[4]], fsImpl: watching });
+  assert.deepStrictEqual(result.removed, [ids[1], ids[0]]);
+  const removals = seen.filter((c) => path.basename(c.target).startsWith('.tmp-del-'));
+  assert.strictEqual(removals.length, 2, JSON.stringify(seen));
+  assert.ok(removals.every((c) => c.originalStillThere === false), 'the id was already out of the listing when the removal began');
+  assert.deepStrictEqual(fs.readdirSync(root).filter((n) => n.startsWith('.')), [], 'no aside folder remains');
+});
+
+test('a backup whose rename aside fails is reported and left whole', () => {
+  const root = backupRootOf(scratchDir());
+  const ids = plantFive(root);
+  const failing = {
+    ...fs,
+    renameSync(from, to) {
+      if (path.basename(from) === ids[1]) throw Object.assign(new Error('EPERM: busy'), { code: 'EPERM' });
+      return fs.renameSync(from, to);
+    },
+  };
+  const result = applyRetention({ backupRoot: root, keep: 3, protect: [ids[4]], fsImpl: failing });
+  assert.deepStrictEqual(result.removed, [ids[0]]);
+  assert.strictEqual(result.failed.length, 1);
+  assert.strictEqual(result.failed[0].id, ids[1]);
+  assert.ok(fs.existsSync(path.join(root, ids[1], '.manifest.json')), 'untouched');
+});
+
+/** The pid of a process that has already exited, so no live pass can own it. */
+function deadPid() { return spawnSync(process.execPath, ['-e', '0']).pid; }
+const HOURS = 60 * 60 * 1000;
+
+test('a .tmp-del-* left by a crashed removal is cleaned on the next pass and is never listed as a backup', () => {
+  const root = backupRootOf(scratchDir());
+  const ids = plantFive(root);
+  const left = path.join(root, `.tmp-del-${ids[0]}-${hostTag()}-${deadPid()}-abcd1234`);
+  fs.renameSync(path.join(root, ids[0]), left);
+  assert.deepStrictEqual(listBackups(root).map((r) => r.id).sort(), ids.slice(1), 'not a backup');
+  assert.ok(!applyRetention({ backupRoot: root, keep: 9, dryRun: true }).wouldRemove.length);
+  assert.ok(fs.existsSync(left), 'a dry run removes nothing');
+  applyRetention({ backupRoot: root, keep: 9 });
+  assert.ok(!fs.existsSync(left), 'removed by the next pass, long before the 24 hour temp age');
+  assert.deepStrictEqual(remaining(root), ids.slice(1));
+});
+
+test('a concurrent pass leaves a live pass\'s rename-aside alone, so its failed delete rolls back whole (C-1)', () => {
+  const root = backupRootOf(scratchDir());
+  const ids = plantFive(root);
+  let inner = null;
+  const racing = {
+    ...fs,
+    rmSync(target, options) {
+      if (path.basename(target).startsWith('.tmp-del-') && inner === null) {
+        // The aside is this process's (a live pid) and is hours old by mtime; another run prunes now.
+        const old = new Date(Date.now() - 30 * HOURS);
+        fs.utimesSync(target, old, old);
+        inner = applyRetention({ backupRoot: root, keep: 9 });
+        throw Object.assign(new Error('EBUSY: resource busy'), { code: 'EBUSY' });
+      }
+      return fs.rmSync(target, options);
+    },
+  };
+  const result = applyRetention({ backupRoot: root, keep: 4, protect: [ids[4]], fsImpl: racing });
+  assert.strictEqual(result.failed.length, 1);
+  assert.ok(fs.existsSync(path.join(root, result.failed[0].id, '.manifest.json')), 'the backup is back under its id, whole');
+  assert.strictEqual(remaining(root).length, 5, 'the one removal failed, so all five remain');
+  assert.deepStrictEqual(fs.readdirSync(root).filter((n) => n.startsWith('.tmp-del-')), []);
+});
+
+test('sweepStaleTemps never removes a .tmp-del-* by age: only when the pid in its name is dead (C-1)', () => {
+  const root = backupRootOf(scratchDir());
+  const ids = plantFive(root);
+  const live = path.join(root, `.tmp-del-${ids[0]}-${hostTag()}-${process.pid}-abcd1234`);
+  const dead = path.join(root, `.tmp-del-${ids[1]}-${hostTag()}-${deadPid()}-abcd1234`);
+  const odd = path.join(root, '.tmp-del-no-pid-here');
+  for (const [name, dir] of [[ids[0], live], [ids[1], dead]]) fs.renameSync(path.join(root, name), dir);
+  fs.mkdirSync(odd);
+  const old = new Date(Date.now() - 48 * HOURS);
+  for (const dir of [live, dead, odd]) fs.utimesSync(dir, old, old);
+  assert.strictEqual(sweepStaleTemps(root), 1);
+  assert.deepStrictEqual([live, dead, odd].map((d) => fs.existsSync(d)), [true, false, true], 'live pid and an unparseable name stay however old');
+});
+
+test('a pass on another host never deletes this host\'s rename-aside, even when it sees no such pid (N-2)', () => {
+  const root = backupRootOf(scratchDir());
+  const ids = plantFive(root);
+  let foreign = null;
+  const failing = {
+    ...fs,
+    rmSync(target, options) {
+      if (path.basename(target).startsWith('.tmp-del-') && foreign === null) {
+        // Another host (or pid namespace) sweeps the shared root: it cannot see this pass's pid.
+        foreign = sweepStaleTemps(root, { hostname: 'some-other-host', isAlive: () => false });
+        throw Object.assign(new Error('EACCES: denied'), { code: 'EACCES' });
+      }
+      return fs.rmSync(target, options);
+    },
+  };
+  const result = applyRetention({ backupRoot: root, keep: 4, protect: [ids[4]], fsImpl: failing });
+  assert.strictEqual(foreign, 0, 'nothing removed by the foreign sweep');
+  assert.strictEqual(result.failed.length, 1);
+  assert.ok(fs.existsSync(path.join(root, ids[0], '.manifest.json')), 'the backup whose delete failed is back under its id');
+});
+
+test('a sweep in another pid namespace on the same hostname keeps the aside (N-7)', () => {
+  const root = backupRootOf(scratchDir());
+  const ids = plantFive(root);
+  let foreign = null;
+  const failing = {
+    ...fs,
+    rmSync(target, options) {
+      if (path.basename(target).startsWith('.tmp-del-') && foreign === null) {
+        // Same hostname (a container sharing the host's UTS namespace), a different pid namespace.
+        foreign = sweepStaleTemps(root, { pidNamespace: 'pid:[4026539999]', isAlive: () => false });
+        throw Object.assign(new Error('EACCES: denied'), { code: 'EACCES' });
+      }
+      return fs.rmSync(target, options);
+    },
+  };
+  const result = applyRetention({ backupRoot: root, keep: 4, protect: [ids[4]], fsImpl: failing });
+  assert.strictEqual(foreign, 0, 'the other namespace could not see the pid, so it must not judge it');
+  assert.strictEqual(result.failed.length, 1);
+  assert.ok(fs.existsSync(path.join(root, ids[0], '.manifest.json')), 'rolled back whole');
+});
+
+test('the host tag depends on the pid namespace when one is known, and on the hostname alone when not (N-7)', () => {
+  assert.notStrictEqual(hostTag('h', 'pid:[1]'), hostTag('h', 'pid:[2]'));
+  assert.notStrictEqual(hostTag('h', 'pid:[1]'), hostTag('other', 'pid:[1]'));
+  assert.strictEqual(hostTag('h', ''), hostTag('h', ''));
+  assert.match(hostTag(), /^[0-9a-f]{8}$/);
+});
+
+test('an aside made on another host, or in the old nameless layout, is kept and never listed (N-2)', () => {
+  const root = backupRootOf(scratchDir());
+  const ids = plantFive(root);
+  const foreign = path.join(root, `.tmp-del-${ids[0]}-${hostTag('another-host')}-${deadPid()}-abcd1234`);
+  const nameless = path.join(root, `.tmp-del-${ids[1]}-${deadPid()}-abcd1234`);
+  fs.renameSync(path.join(root, ids[0]), foreign);
+  fs.renameSync(path.join(root, ids[1]), nameless);
+  applyRetention({ backupRoot: root, keep: 9 });
+  assert.deepStrictEqual([foreign, nameless].map((d) => fs.existsSync(d)), [true, true]);
+  assert.deepStrictEqual(listBackups(root).map((r) => r.id).sort(), ids.slice(2), 'neither is a backup in a listing');
 });
 
 test('keep 0 removes nothing and reports every backup as kept', () => {
@@ -177,7 +352,8 @@ test('a removal error is reported and the pass continues', () => {
   const fsImpl = {
     ...fs,
     rmSync(p, opts) {
-      if (path.basename(p) === ids[1]) throw Object.assign(new Error(`EACCES: permission denied, rmdir '${p}'`), { code: 'EACCES' });
+      // The folder is renamed aside before it is removed (FU-j55357), so the removal sees the aside name.
+      if (path.basename(p).includes(ids[1])) throw Object.assign(new Error(`EACCES: permission denied, rmdir '${path.join(root, ids[1])}'`), { code: 'EACCES' });
       return fs.rmSync(p, opts);
     },
   };

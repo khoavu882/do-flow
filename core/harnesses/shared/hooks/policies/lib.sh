@@ -319,8 +319,9 @@ require_jq() {
 
 # Start storage cleanup without changing the hook's output, status, or latency.
 storage_upkeep_async() {
-  local cwd="${1:-}" root run home config_dir
+  local cwd="${1:-}" root run home config_dir detach=""
   [ -n "$cwd" ] || return 0
+  command -v setsid >/dev/null 2>&1 && detach="setsid"
   home="${HOME:-}"
   config_dir="${CLAUDE_CONFIG_DIR:-$home/.claude}"
   root=$(nudge_repo_root "$cwd" 2>/dev/null) || root="$cwd"
@@ -333,7 +334,9 @@ storage_upkeep_async() {
     # Background the fully redirected subshell; an inner `&` leaves this shell
     # holding the hook's captured stdout open until the dispatcher exits. The
     # storage verb takes its project from the working directory: run it at the root.
-    ( cd "$root" 2>/dev/null && nohup "$run" storage --action upkeep </dev/null >/dev/null 2>&1 ) >/dev/null 2>&1 3>&- 5>&- &
+    # setsid (absent on macOS) moves the upkeep out of the hook's session, so a harness that
+    # signals the hook's process group when the hook exits does not take the upkeep with it.
+    ( cd "$root" 2>/dev/null && nohup $detach "$run" storage --action upkeep </dev/null >/dev/null 2>&1 ) >/dev/null 2>&1 3>&- 5>&- &
     return 0
   done
   return 0

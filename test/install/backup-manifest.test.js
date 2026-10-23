@@ -95,6 +95,7 @@ test('assertSafeBackupId rejects traversal/absolute ids', () => {
   assert.throws(() => assertSafeBackupId('../../etc'));
   assert.throws(() => assertSafeBackupId('a/b'));
   assert.throws(() => assertSafeBackupId(''));
+  assert.throws(() => assertSafeBackupId('.'), /Invalid backup id/, '"." is the backup root itself, not a backup');
   assert.doesNotThrow(() => assertSafeBackupId('install_2026-03-15_10-20-30'));
 });
 

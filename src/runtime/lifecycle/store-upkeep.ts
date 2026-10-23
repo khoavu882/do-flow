@@ -36,8 +36,18 @@ const LEGACY_EVENTS_REL = path.join(LEGACY_LIFECYCLE_REL, 'events');
 const MARKER_REL = path.join(LIFECYCLE_REL, 'migrated.json');
 const MIGRATING_PREFIX = 'events.migrating-';
 const NOTICE = 'note: the lifecycle store is now .doflow/state/lifecycle/events; agent-docs/lifecycle/ is no longer read and can be deleted';
-const removedLine = (count: any, hours: any) => `retention: removed ${count} event files older than ${hours} h`;
-const invalidLine = (raw: any) => `warning: DOFLOW_RETENTION_HOURS='${raw}' is not a positive whole number of hours; ignored, nothing removed`;
+const removedLine = (count: any, hours: any) => `retention: removed ${count} event ${count === 1 ? 'file' : 'files'} older than ${hours} h`;
+// A leading zero is rejected on purpose (`024` could be read as octal); the warning names it.
+const invalidLine = (raw: any) => `warning: DOFLOW_RETENTION_HOURS='${raw}' is not a positive whole number of hours${/^0[0-9]+$/.test(String(raw)) ? ' (no leading zeros)' : ''}; ignored, nothing removed`;
+/**
+ * What `writeAtomic` leaves behind when a verb dies between creating its temp file and renaming it:
+ * `.retention-<pid>-<chars>.tmp` (the journal) and `.migrated-<pid>-<chars>.tmp` (the marker), in the
+ * lifecycle folder. The storage engine's work-store sweep matches `<name>.json.<pid>.tmp` inside
+ * record stores only, so nothing else ever removes them.
+ */
+const WRITE_TMP = /^\.(?:retention|migrated)-[0-9]+-[A-Za-z0-9]+\.tmp$/;
+/** The age past which such a file is abandoned; the storage engine passes `settings.staleTmpHours`, and a test pins this to it. */
+const STALE_TMP_MS = 24 * 3600000;
 /** Bounds one pass, so its journal stays far below the reader's cap and its lock is held briefly. */
 const MAX_PASS_FILES = 20000;
 /** Unlinks between two refreshes of the lock's age. */
@@ -208,6 +218,30 @@ function refreshLock(fsImpl: any, root: any) {
   try { fsImpl.utimesSync(`${lockTarget(root)}.lock`, now, now); } catch { /* the lock folder is ours; a failed touch only shortens its life */ }
 }
 
+/**
+ * Removes temp files a crashed writer left in the lifecycle folder, once they are older than
+ * `staleMs`. Runs under the store lock, which every writer of these files holds, so none of them
+ * belongs to a live pass unless its lock was taken over as stale. Best effort: a file that cannot
+ * be removed is left for the next pass. `shouldStop` is checked before each unlink and each unlink
+ * counts against `maxFiles`, so a bounded caller's budget and stop hold here too.
+ * @returns {{removed: number, partial: boolean}} partial: stopped or out of budget with files left
+ */
+function sweepStaleTmp(fsImpl: any, root: any, now: any, staleMs: number = STALE_TMP_MS, { maxFiles = Infinity, shouldStop }: any = {}) {
+  const dir = path.join(root, LIFECYCLE_REL);
+  let list: string[];
+  try { list = namesIn(fsImpl, dir); } catch { return { removed: 0, partial: false }; }
+  let removed = 0;
+  for (const name of list) {
+    if (!WRITE_TMP.test(name)) continue;
+    const file = path.join(dir, name);
+    const st = lstatOrNull(fsImpl, file);
+    if (!st || !st.isFile() || now.getTime() - st.mtimeMs <= staleMs) continue;
+    if (shouldStop?.() || removed >= maxFiles) return { removed, partial: true };
+    try { fsImpl.unlinkSync(file); removed += 1; } catch { /* left for the next pass */ }
+  }
+  return { removed, partial: false };
+}
+
 /** Unlinks pending event files without clearing the journal until every hidden name is finished. */
 function removePending(fsImpl: any, root: any, names: any, onRemoved = () => {}, { maxFiles = Infinity, shouldStop }: any = {}) {
   const dir = path.join(root, EVENTS_REL);
@@ -294,7 +328,7 @@ function retain(fsImpl: any, root: any, window: any, now: any, { maxFiles = MAX_
 
 /** Runs a bounded lifecycle retention pass under a non-waiting store lock for the storage engine. */
 function retainLocked(root: any, options: any = {}) {
-  const { window, now = new Date(), fsImpl = nodeFs, maxFiles = MAX_PASS_FILES, shouldStop } = options;
+  const { window, now = new Date(), fsImpl = nodeFs, maxFiles = MAX_PASS_FILES, shouldStop, staleTmpMs = STALE_TMP_MS } = options;
   const bounded = Object.hasOwn(options, 'maxFiles') || Object.hasOwn(options, 'shouldStop');
   const outcome = (removed: any, warning: any, partial = false, selected: any = [], code?: any) => bounded
     ? { removed, warning, partial, selected, ...(code ? { code } : {}) }
@@ -306,7 +340,9 @@ function retainLocked(root: any, options: any = {}) {
   const release = tryAcquireLock(fsImpl, lockTarget(root));
   if (!release) return outcome(0, [], true);
   try {
-    const result = retain(fsImpl, root, window, now, { maxFiles, shouldStop });
+    const swept = sweepStaleTmp(fsImpl, root, now, staleTmpMs, { maxFiles, shouldStop });
+    if (swept.partial) return outcome(0, [], true);
+    const result = retain(fsImpl, root, window, now, { maxFiles: Math.max(0, maxFiles - swept.removed), shouldStop });
     return outcome(result.removedCount, result.warning, result.partial, result.selected, result.code);
   } finally {
     release();
@@ -378,6 +414,7 @@ function prepareStore(root: string, { env = process.env, now = new Date(), fsImp
     throw error;
   }
   try {
+    sweepStaleTmp(fsImpl, root, now);
     // Decided again under the lock: another verb may have finished the copy while this one waited.
     let marked = hasMarker(fsImpl, root);
     if (!marked && storeHasEvents(fsImpl, root)) {
@@ -401,4 +438,4 @@ function prepareStore(root: string, { env = process.env, now = new Date(), fsImp
   }
 }
 
-module.exports = { prepareStore, retainLocked, LEGACY_LIFECYCLE_REL, LEGACY_EVENTS_REL, MARKER_REL };
+module.exports = { prepareStore, retainLocked, removedLine, STALE_TMP_MS, LEGACY_LIFECYCLE_REL, LEGACY_EVENTS_REL, MARKER_REL };

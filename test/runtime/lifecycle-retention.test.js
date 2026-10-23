@@ -14,7 +14,8 @@ const { createScratch } = require('../helper/scratch-env');
 const store = require('../../src/runtime/lifecycle/event-store.ts');
 const { parseWindow, retentionWindow, selectExpired } = require('../../src/runtime/lifecycle/retention.ts');
 const { loadSettings } = require('../../src/runtime/settings/resolve.ts');
-const { prepareStore, retainLocked, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL } = require('../../src/runtime/lifecycle/store-upkeep.ts');
+const { EVENT_TYPES } = require('../../src/runtime/lifecycle/fold.ts');
+const { prepareStore, retainLocked, removedLine, STALE_TMP_MS, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL } = require('../../src/runtime/lifecycle/store-upkeep.ts');
 
 const CLI = path.resolve(__dirname, '..', '..', 'bin', 'doflow.js');
 const POSIX = process.platform !== 'win32';
@@ -87,6 +88,12 @@ test('parseWindow: unset and empty are off; a positive whole number is on; anyth
   for (const raw of ['0', '-5', 'soon', ' 24', '24 ', '1.5', '007', '1e3', '9007199254740993']) {
     assert.deepEqual(parseWindow({ DOFLOW_RETENTION_HOURS: raw }), { state: 'invalid', raw }, raw);
   }
+});
+
+test('the count line says "1 event file" for one file and "N event files" otherwise (FU-rs5177)', () => {
+  assert.equal(removedLine(1, 24), 'retention: removed 1 event file older than 24 h');
+  assert.equal(removedLine(2, 24), 'retention: removed 2 event files older than 24 h');
+  assert.equal(removedLine(0, 1), 'retention: removed 0 event files older than 1 h');
 });
 
 test('unset or empty with prune off keeps everything and prints no line', () => {
@@ -201,6 +208,17 @@ test('an invalid window warns once, removes nothing, and the verb completes', ()
     assert.equal(r.status, 0, r.stderr);
     assert.deepEqual(r.json.items.map((i) => i.id), ['FU-aaaaaa']);
     assert.deepEqual(retentionLines(r.stderr), [`doflow followup: warning: DOFLOW_RETENTION_HOURS='${raw}' is not a positive whole number of hours; ignored, nothing removed`], raw);
+  }
+  assert.deepEqual(eventFiles(dir), files.sort());
+});
+
+test('a window with leading zeros stays invalid and the warning says why (FU-k5g213)', () => {
+  const dir = project('leading-zero');
+  const files = writeAll(eventsDir(dir), dismissedFollowup('FU-aaaaaa', Date.now(), 1000));
+  for (const raw of ['024', '007', '00']) {
+    const r = run(dir, ['followup', '--action', 'list', '--state', 'all', '--json'], raw);
+    assert.equal(r.status, 0, r.stderr);
+    assert.deepEqual(retentionLines(r.stderr), [`doflow followup: warning: DOFLOW_RETENTION_HOURS='${raw}' is not a positive whole number of hours (no leading zeros); ignored, nothing removed`], raw);
   }
   assert.deepEqual(eventFiles(dir), files.sort());
 });
@@ -533,4 +551,178 @@ test('a pass renews the store lock\'s age while it works, so no other verb takes
   const lock = `${store.lockTarget(dir)}.lock`;
   assert.ok(touched.filter((p) => p === lock).length >= 2, JSON.stringify(touched));
   assert.equal(fs.existsSync(lock), false, 'released');
+});
+
+// ── events of a type this version does not know (FU-dzzn17) ────────────────────────────────────
+
+test('a unit named by an event of an unknown type is kept whole; other units still go', () => {
+  const now = Date.now();
+  const mine = dismissedFollowup('FU-aaaaaa', now, 100);
+  const other = dismissedFollowup('FU-bbbbbb', now, 100);
+  const options = { now: new Date(now), windowMs: HOUR };
+  const files = (list) => selectExpired(list, options).units.map((u) => u.items.join());
+  assert.deepEqual(files([...mine, ...other]), ['followup:FU-aaaaaa', 'followup:FU-bbbbbb'], 'control: both go without the newer event');
+  const newer = ev('followup.reopened', { id: 'FU-aaaaaa', why: 'later' }, at(now, 99));
+  assert.deepEqual(files([...mine, ...other, newer]), ['followup:FU-bbbbbb'], 'the unit the unknown event names stays');
+  const nested = ev('followup.relinked', { links: [{ from: { to: 'FU-bbbbbb' } }] }, at(now, 99));
+  assert.deepEqual(files([...mine, ...other, nested]), ['followup:FU-aaaaaa'], 'a nested id counts');
+  const known = ev('followup.added', { id: 'FU-cccccc', statement: 'FU-aaaaaa', source: { kind: 'manual' } }, at(now, 99));
+  assert.deepEqual(files([...mine, ...other, known]), ['followup:FU-aaaaaa', 'followup:FU-bbbbbb'], 'a known type naming the id is not an unknown event');
+});
+
+test('an item id used as an object key in an unknown-type event keeps its unit (C-2)', () => {
+  const now = Date.now();
+  const mine = dismissedFollowup('FU-aaaaaa', now, 100);
+  const other = dismissedFollowup('FU-bbbbbb', now, 100);
+  const goal = doneGoal('G-old', now, 100);
+  const options = { now: new Date(now), windowMs: HOUR };
+  const kept = (list) => selectExpired(list, options).units.map((u) => u.items.join());
+  const keyed = ev('followup.bulk-noted', { byId: { 'FU-aaaaaa': { note: 'x' } } }, at(now, 99));
+  assert.deepEqual(kept([...mine, ...other, keyed]), ['followup:FU-bbbbbb'], 'a keyed follow-up id keeps its unit; the unrelated unit expires');
+  const keyedGoal = ev('goal.bulk-noted', { goals: { 'G-old': 1 } }, at(now, 99));
+  assert.deepEqual(kept([...goal, ...other, keyedGoal]), ['followup:FU-bbbbbb'], 'a keyed goal id keeps its unit');
+  const deep = ev('followup.bulk-noted', { rows: [{ by: { 'FU-bbbbbb': true } }] }, at(now, 99));
+  assert.deepEqual(kept([...mine, ...other, deep]), ['followup:FU-aaaaaa'], 'nested keys count at any depth');
+});
+
+// ── protection only removes units, never changes which others go (N-1) ─────────────────────────
+
+/** What 5bc9407b selects: the fold ignores an unknown-type event's data, so emptying it reproduces base. */
+function baseFiles(events, options) {
+  const blanked = events.map((e) => (EVENT_TYPES.includes(e.type) ? e : { ...e, data: {} }));
+  return new Set(selectExpired(blanked, options).files);
+}
+
+test('a unit protected by an unknown-type event never shifts which other units are selected (N-1)', () => {
+  const at26 = (sec) => Date.parse(`2026-01-01T00:00:${String(sec).padStart(2, '0')}.000Z`);
+  const rows = [[2, 'feature.tracked', { slug: 'g' }], [3, 'goal.added', { goal: 'A', items: [] }], [4, 'goal.done', { goal: 'A' }],
+    [5, 'goal.added', { goal: 'B', items: [] }], [6, 'goal.done', { goal: 'B' }], [7, 'goal.added', { goal: 'C', items: [] }],
+    [9, 'goal.added', { goal: 'D', items: [] }], [10, 'goal.done', { goal: 'D' }],
+    [18, 'goal.linked', { goal: 'D', slug: 'g', replace: true }], [21, 'goal.linked', { goal: 'C', slug: 'g', replace: false }],
+    [24, 'goal.linked', { goal: 'A', slug: 'g', replace: true }], [25, 'goal.linked', { goal: 'B', slug: 'g', replace: false }],
+    [26, 'goal.linked', { goal: 'C', slug: 'g', replace: true }], [27, 'future.event', { protect: ['D'] }]];
+  const events = rows.map(([sec, type, data]) => ev(type, data, at26(sec)));
+  const options = { now: new Date('2026-10-23T00:00:00Z'), windowMs: HOUR };
+  const out = selectExpired(events, options);
+  assert.deepEqual(out.units.map((u) => u.items), [['goal:B']], 'exactly what base selects, minus the protected unit');
+  assert.ok(out.files.every((f) => baseFiles(events, options).has(f)));
+});
+
+test('over random event mixes with conflicting goal.linked history the files selected never exceed what base selects (N-1)', () => {
+  // Four goals, one tracked feature, 4-8 goal.linked events in random order with random `replace`
+  // flags (the conflicting history that makes the refold non-monotone), and one unknown-type event
+  // protecting one goal. With the pre-fix selection (8d127acf) the seed below yields several rounds
+  // where protecting a goal makes base's greedy pass pick a different, larger set.
+  let seed = 20261023;
+  const rand = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+  const pick = (list) => list[Math.floor(rand() * list.length)];
+  const options = { now: new Date('2026-10-23T00:00:00Z'), windowMs: HOUR };
+  const goals = ['A', 'B', 'C', 'D'];
+  let protectedRuns = 0;
+  for (let round = 0; round < 3000; round += 1) {
+    const events = [];
+    let t = Date.parse('2026-01-01T00:00:00Z');
+    const tick = () => { t += 1000 * (1 + Math.floor(rand() * 4)); return t; };
+    events.push(ev('feature.tracked', { slug: 'g' }, tick()));
+    for (const g of goals) {
+      events.push(ev('goal.added', { goal: g, items: [] }, tick()));
+      if (rand() < 0.75) events.push(ev('goal.done', { goal: g }, tick()));
+    }
+    const links = 4 + Math.floor(rand() * 5);
+    for (let i = 0; i < links; i += 1) events.push(ev('goal.linked', { goal: pick(goals), slug: 'g', replace: rand() < 0.5 }, tick()));
+    events.push(ev('future.event', { protect: [pick(goals)] }, tick()));
+    const base = baseFiles(events, options);
+    const out = selectExpired(events, options);
+    if (out.files.length < base.size) protectedRuns += 1;
+    for (const f of out.files) assert.ok(base.has(f), `round ${round}: ${f} is selected but base keeps it`);
+  }
+  assert.ok(protectedRuns > 0, 'the generator exercises protection at least once');
+});
+
+test('a goal unit named by an unknown-type event is kept; the files stay on disk through prepareStore', () => {
+  const dir = project('unknown-type');
+  const now = Date.now();
+  const files = writeAll(eventsDir(dir), [...doneGoal('G-old', now, 100), ev('goal.archived', { goal: 'G-old' }, at(now, 99))]);
+  const out = prepareStore(dir, { env: { DOFLOW_RETENTION_HOURS: '1' } });
+  assert.deepEqual(out.lines, []);
+  assert.deepEqual(eventFiles(dir), files.sort());
+});
+
+// ── crashed temp files (FU-8g2g9z) ─────────────────────────────────────────────────────────────
+
+/** Leaves the temp files `writeAtomic` abandons when a verb dies before its rename, aged `hoursAgo`. */
+function strandTmp(dir, name, hoursAgo) {
+  const file = path.join(dir, store.LIFECYCLE_REL, name);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, '{"v":1,"pending":[]}\n');
+  const when = new Date(Date.now() - hoursAgo * HOUR);
+  fs.utimesSync(file, when, when);
+  return file;
+}
+
+test('retainLocked removes crashed retention and marker temp files older than the stale age and keeps the rest', () => {
+  const dir = project('stale-tmp-locked');
+  writeAll(eventsDir(dir), dismissedFollowup('FU-aaaaaa', Date.now(), 200));
+  const stale = strandTmp(dir, '.retention-4242-abc123.tmp', 30);
+  const staleMarker = strandTmp(dir, '.migrated-4242-abc123.tmp', 30);
+  const fresh = strandTmp(dir, '.retention-4243-def456.tmp', 1);
+  const unrelated = strandTmp(dir, 'notes.tmp', 30);
+  const lookalike = strandTmp(dir, '.retention-x.tmp', 30);
+  const out = retainLocked(dir, { window: { state: 'on', hours: 1, ms: HOUR }, now: new Date() });
+  assert.deepEqual(out, { removed: 2, warning: [] });
+  assert.deepEqual([stale, staleMarker].map((f) => fs.existsSync(f)), [false, false]);
+  assert.deepEqual([fresh, unrelated, lookalike].map((f) => fs.existsSync(f)), [true, true, true]);
+  assert.ok(fs.existsSync(path.join(dir, store.JOURNAL_REL)), 'the live journal is not a temp file');
+});
+
+test('retainLocked takes its stale age from the caller, so the storage setting decides', () => {
+  const dir = project('stale-tmp-age');
+  writeAll(eventsDir(dir), dismissedFollowup('FU-aaaaaa', Date.now(), 200));
+  const tmp = strandTmp(dir, '.retention-4242-abc123.tmp', 3);
+  retainLocked(dir, { window: { state: 'on', hours: 1, ms: HOUR }, now: new Date(), staleTmpMs: 4 * HOUR });
+  assert.equal(fs.existsSync(tmp), true, 'younger than the caller\'s age');
+  writeAll(eventsDir(dir), dismissedFollowup('FU-bbbbbb', Date.now(), 200));
+  retainLocked(dir, { window: { state: 'on', hours: 1, ms: HOUR }, now: new Date(), staleTmpMs: 2 * HOUR });
+  assert.equal(fs.existsSync(tmp), false, 'older than the caller\'s age');
+});
+
+test('the temp sweep honours shouldStop and counts against maxFiles (C-3)', () => {
+  const window = { state: 'on', hours: 1, ms: HOUR };
+  const setup = (name) => {
+    const dir = project(name);
+    const files = writeAll(eventsDir(dir), dismissedFollowup('FU-aaaaaa', Date.now(), 200));
+    const tmps = [1, 2, 3, 4].map((n) => strandTmp(dir, `.retention-424${n}-abc123.tmp`, 30));
+    return { dir, files, tmps };
+  };
+  const left = (tmps) => tmps.filter((f) => fs.existsSync(f)).length;
+
+  const stopped = setup('stale-tmp-stop');
+  let unlinked = 0;
+  const counting = { ...fs, unlinkSync: (f) => { if (/\.tmp$/.test(String(f))) unlinked += 1; return fs.unlinkSync(f); } };
+  const out = retainLocked(stopped.dir, { window, now: new Date(), fsImpl: counting, shouldStop: () => unlinked >= 1 });
+  assert.equal(unlinked, 1, 'one unlink, then the stop is seen before the next');
+  assert.equal(left(stopped.tmps), 3);
+  assert.equal(out.partial, true);
+  assert.deepEqual(eventFiles(stopped.dir), stopped.files.sort(), 'the stopped pass removed none of its own files');
+
+  const capped = setup('stale-tmp-cap');
+  const result = retainLocked(capped.dir, { window, now: new Date(), maxFiles: 2 });
+  assert.equal(left(capped.tmps), 2, 'two unlinks used the whole budget');
+  assert.equal(result.partial, true);
+  assert.equal(result.removed, 0);
+  assert.deepEqual(eventFiles(capped.dir), capped.files.sort());
+});
+
+test('a lifecycle verb that runs a retention pass also clears a stale crashed temp file', () => {
+  const dir = project('stale-tmp-verb');
+  writeAll(eventsDir(dir), dismissedFollowup('FU-aaaaaa', Date.now(), 200));
+  const stale = strandTmp(dir, '.retention-4242-abc123.tmp', 30);
+  const fresh = strandTmp(dir, '.migrated-4243-def456.tmp', 1);
+  const out = prepareStore(dir, { env: { DOFLOW_RETENTION_HOURS: '1' } });
+  assert.deepEqual(out.lines, ['retention: removed 2 event files older than 1 h']);
+  assert.deepEqual([stale, fresh].map((f) => fs.existsSync(f)), [false, true]);
+});
+
+test('the default stale age matches the storage registry setting', () => {
+  assert.equal(STALE_TMP_MS, require('../../core/registry/storage.json').settings.staleTmpHours * HOUR);
 });

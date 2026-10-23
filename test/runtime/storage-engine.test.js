@@ -200,3 +200,17 @@ test('removal-time EIO is a failure, not a successful removal', t => {
   const result=f.pass(['task-research'],'prune',{fsImpl}).stores[0];
   assert.equal(result.removed,0);assert.deepEqual(result.failed,[{name:'broken.json',code:'EIO'}]);assert.equal(fs.existsSync(file),true);
 });
+test('a prune pass removes a crashed lifecycle temp file older than staleTmpHours and keeps a younger one (FU-8g2g9z)', t => {
+  const f = fixture(t), lifecycle = store(f, 'lifecycle'), events = path.join(lifecycle, 'events');
+  const stamp = new Date(NOW - 200 * 3600000).toISOString().replace(/[-:.]/g, '');
+  fs.mkdirSync(events, { recursive: true });
+  const added = { v: 1, id: `${stamp}-000001`, type: 'followup.added', at: new Date(NOW - 200 * 3600000).toISOString(), by: 'agent', data: { id: 'FU-aaaaaa', statement: 's', source: { kind: 'manual' } } };
+  const settled = { v: 1, id: `${stamp.replace('000Z', '001Z')}-000002`, type: 'followup.settled', at: new Date(NOW - 200 * 3600000 + 1).toISOString(), by: 'agent', data: { id: 'FU-aaaaaa', as: 'dismissed', reason: 'r' } };
+  for (const event of [added, settled]) fs.writeFileSync(path.join(events, `${event.id}.json`), JSON.stringify(event));
+  const stale = put(lifecycle, '.retention-4242-abc123.tmp', '{}', 2);
+  const young = put(lifecycle, '.retention-4243-def456.tmp', '{}', 0);
+  const result = f.pass(['lifecycle-events'], 'prune', { env: { DOFLOW_RETENTION_HOURS: '1' } }).stores[0];
+  assert.equal(result.removed, 2, JSON.stringify(result));
+  assert.equal(fs.existsSync(stale), false);
+  assert.equal(fs.existsSync(young), true);
+});
