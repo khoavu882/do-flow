@@ -212,33 +212,75 @@ function runFilesAt(root: string, { listing = false }: { listing?: boolean } = {
   return files.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : 0);
 }
 
-/** The largest run file the list action reads; a bigger one is reported as `io` (a journal is a few KiB). */
+/** The largest run file the list action and `readRunRecord` read; a bigger one is reported as `io` /
+ * refused (a journal is a few KiB). */
 const MAX_RUN_FILE_BYTES = 1024 * 1024;
 
 /** A run file's text, or null when it must not be read: not a regular file (a link, a FIFO, a
  * device, a folder), larger than `MAX_RUN_FILE_BYTES`, or any read error. The lifecycle reader's pattern (event-store.ts
  * `readEventFile`): `lstat`, then `O_NOFOLLOW|O_NONBLOCK` so neither a link nor a FIFO swapped in
  * after the `lstat` is followed or blocks, then `fstat` on the descriptor before reading. */
-function readRunFileText(file: string): string|null {
+function readRunFileText(file: string, fsImpl: any = fs): string|null {
   const flags = fs.constants;
   let fd: number|undefined;
   try {
-    if (!fs.lstatSync(file).isFile()) return null;
-    fd = fs.openSync(file, flags.O_RDONLY | (flags.O_NOFOLLOW || 0) | (flags.O_NONBLOCK || 0));
-    const st = fs.fstatSync(fd);
+    if (!fsImpl.lstatSync(file).isFile()) return null;
+    fd = fsImpl.openSync(file, flags.O_RDONLY | (flags.O_NOFOLLOW || 0) | (flags.O_NONBLOCK || 0));
+    const st = fsImpl.fstatSync(fd);
     if (!st.isFile() || st.size > MAX_RUN_FILE_BYTES) return null;
     // Read at most one byte past the cap, so a file that grew after the fstat is still refused.
     const buffer = Buffer.alloc(MAX_RUN_FILE_BYTES + 1);
     let length = 0;
     for (let n = -1; n !== 0 && length <= MAX_RUN_FILE_BYTES; length += n) {
-      n = fs.readSync(fd, buffer, length, buffer.length - length, null);
+      n = fsImpl.readSync(fd, buffer, length, buffer.length - length, null);
     }
     return length > MAX_RUN_FILE_BYTES ? null : buffer.subarray(0, length).toString('utf8');
   } catch {
     return null;
   } finally {
-    if (fd !== undefined) { try { fs.closeSync(fd); } catch { /* the read is done */ } }
+    if (fd !== undefined) { try { fsImpl.closeSync(fd); } catch { /* the read is done */ } }
   }
+}
+
+/**
+ * One run's record, read the way the list action reads it (FU-16c2wz): no link is followed on the
+ * way from the store folder `storeDir` to the file or at the file, and the file must be a regular
+ * file of at most `MAX_RUN_FILE_BYTES`, so a FIFO or a device cannot block the read and a link
+ * cannot make it read outside the store. A run file that is not there is `null`; one that must not
+ * be read throws `store-unreadable` naming the file, and nothing of it is read.
+ * @param {Object} fsImpl
+ * @param {string} file the run file, under `storeDir`
+ * @param {string} storeDir the run store folder it belongs to
+ * @returns {Object|null} the parsed record
+ */
+function readRunRecord(fsImpl: any, file: string, storeDir: string): any {
+  if (typeof fsImpl.lstatSync !== 'function' || typeof fsImpl.openSync !== 'function') return readTaskState(fsImpl, file);
+  const relative = path.relative(storeDir, file);
+  const parts = relative === '' || relative.startsWith('..') || path.isAbsolute(relative) ? [] : relative.split(path.sep);
+  const refuse = (): never => {
+    const failure: any = new Error(`Run file '${file}' is not a regular file inside the run store (a link, FIFO, device or folder, or larger than ${MAX_RUN_FILE_BYTES} bytes). Nothing was read.`);
+    failure.code = 'store-unreadable';
+    throw failure;
+  };
+  let at = storeDir;
+  for (const part of parts.slice(0, -1)) {
+    at = path.join(at, part);
+    let stat: any;
+    try { stat = fsImpl.lstatSync(at); } catch (error: any) {
+      if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null;
+      throw error;
+    }
+    if (stat.isSymbolicLink()) refuse();
+  }
+  let stat: any;
+  try { stat = fsImpl.lstatSync(file); } catch (error: any) {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null;
+    throw error;
+  }
+  if (!stat.isFile()) refuse();
+  const text = readRunFileText(file, fsImpl);
+  if (text === null) refuse();
+  return readTaskState({ existsSync: () => true, readFileSync: () => text }, file);
 }
 
 /** The run files under one checkout's store, read, with each malformed or unreadable file isolated. */
@@ -513,4 +555,5 @@ module.exports = {
   findRunFile,
   RUN_STORE_REL,
   runStoreDir,
+  readRunRecord,
 };

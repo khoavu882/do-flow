@@ -517,3 +517,81 @@ test('C-10: a run\'s brief records are read from the checkout the verb runs in, 
   assert.deepEqual(briefRecords, [{ runTaskId: '950-brief', stage: 'discovery', tier: 'sonnet' }]);
   assert.equal(repoRoot, fs.realpathSync(wt), 'report paths resolve in the checkout that holds the folder');
 });
+
+// ─────────────────────────────── FU-16c2wz / FU-wrnnaq / FU-mtjqt9 C-13: what `status` reads
+
+const storeOf = (cwd) => path.join(cwd, '.doflow', 'state', 'orchestration');
+/** `status` with a time limit, so a read that blocks fails the test instead of hanging the file. */
+function statusWithin(cwd, args, timeout = 20000) {
+  const res = spawnSync('node', [DOFLOW, 'orchestrate', '--action', 'status', ...args], {
+    cwd, env: { ...process.env, HOME: cwd }, encoding: 'utf8', timeout, killSignal: 'SIGKILL',
+  });
+  return { status: res.status, signal: res.signal, error: res.error, stdout: res.stdout, stderr: res.stderr };
+}
+
+test('FU-16c2wz: a FIFO as the run file makes status fail fast, naming the file, not hang', (t) => {
+  const cwd = project(t);
+  fs.mkdirSync(storeOf(cwd), { recursive: true });
+  const fifo = path.join(storeOf(cwd), 'ZZ.json');
+  assert.equal(spawnSync('mkfifo', [fifo]).status, 0);
+  const res = statusWithin(cwd, ['--task-id', 'ZZ']);
+  assert.equal(res.error, undefined, 'status did not return in time');
+  assert.equal(res.status, 1);
+  assert.match(res.stderr, /\[ERROR\] orchestrate: .*not a regular file/);
+  assert.ok(res.stderr.includes(fifo), res.stderr);
+});
+
+test('FU-16c2wz: a FIFO as a namespaced run file makes status fail fast too', (t) => {
+  const cwd = project(t);
+  fs.mkdirSync(path.join(storeOf(cwd), 'feat-a'), { recursive: true });
+  assert.equal(spawnSync('mkfifo', [path.join(storeOf(cwd), 'feat-a', 'ZZ.json')]).status, 0);
+  const res = statusWithin(cwd, ['--task-id', 'ZZ', '--slug', 'feat-a']);
+  assert.equal(res.error, undefined, 'status did not return in time');
+  assert.equal(res.status, 1);
+  assert.match(res.stderr, /not a regular file/);
+});
+
+test('FU-16c2wz: a run file that links outside the store is refused and its target is not read', (t) => {
+  const cwd = project(t);
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'real', '--task-class', 'bug']);
+  const outside = path.join(cwd, 'outside-run.json');
+  fs.renameSync(path.join(storeOf(cwd), 'real.json'), outside);
+  fs.symlinkSync(outside, path.join(storeOf(cwd), 'L1.json'));
+  const res = statusWithin(cwd, ['--task-id', 'L1']);
+  assert.equal(res.status, 1, res.stdout);
+  assert.match(res.stderr, /\[ERROR\] orchestrate: .*not a regular file/);
+  assert.equal(res.stdout, '', 'nothing of the linked record is printed');
+});
+
+test('FU-16c2wz: a namespace folder that links outside the store is refused too', (t) => {
+  const cwd = project(t);
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'T.1', '--task-class', 'bug', '--slug', 'feat-b']);
+  const outside = path.join(cwd, 'outside-ns');
+  fs.renameSync(path.join(storeOf(cwd), 'feat-b'), outside);
+  fs.symlinkSync(outside, path.join(storeOf(cwd), 'feat-b'));
+  const res = statusWithin(cwd, ['--task-id', 'T.1', '--slug', 'feat-b']);
+  assert.equal(res.status, 1, res.stdout);
+  assert.match(res.stderr, /not a regular file/);
+  assert.equal(res.stdout, '');
+});
+
+test('FU-16c2wz: an ordinary run file is still read by status', (t) => {
+  const cwd = project(t);
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'plain', '--task-class', 'bug']);
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'T.2', '--task-class', 'bug', '--slug', 'feat-c']);
+  assert.equal(statusWithin(cwd, ['--task-id', 'plain']).status, 0);
+  assert.equal(statusWithin(cwd, ['--task-id', 'T.2', '--slug', 'feat-c']).status, 0);
+});
+
+test('FU-mtjqt9 C-13: status on a corrupt run journal reveals none of its bytes', (t) => {
+  const cwd = project(t);
+  fs.mkdirSync(storeOf(cwd), { recursive: true });
+  const secret = 'SECRET-PAYLOAD-4f9a';
+  fs.writeFileSync(path.join(storeOf(cwd), 'C13.json'), `${secret} not json`);
+  const res = statusWithin(cwd, ['--task-id', 'C13']);
+  assert.equal(res.status, 1);
+  assert.match(res.stderr, /Failed to load state file/);
+  assert.match(res.stderr, /C13\.json/);
+  assert.equal(res.stderr.includes(secret), false, res.stderr);
+  assert.equal(res.stderr.includes('SECRET'), false, res.stderr);
+});

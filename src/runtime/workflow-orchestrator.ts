@@ -32,7 +32,7 @@ const { projectRoot: lifecycleProjectRoot } = require('./lifecycle/root.ts');
 const { appendOutcome, findPick, readWindow } = require('./advice/record.ts');
 const {
   checkReadiness, harnessHookNote, featureSlugFor, runSlugOf, findRunFile, orchestrationRuns, selectRunEntries,
-  RUN_STORE_REL, runStoreDir,
+  RUN_STORE_REL, runStoreDir, readRunRecord,
 } = require('./implementation-gate.ts');
 
 /** Appended to the note of an implementation stage completed with no task-attempt ledger (FR-006). */
@@ -187,9 +187,7 @@ class WorkflowOrchestrator {
   }
 
   readRun(taskId: any) {
-    const file = this.runRecord(taskId).read;
-    if (!this.fsImpl.existsSync(file)) return null;
-    return readTaskState(this.fsImpl, file);
+    return readRunRecord(this.fsImpl, this.runRecord(taskId).read, this.stateDir);
   }
 
   writeRun(run: any, now: any, beforeWrite?: any) {
