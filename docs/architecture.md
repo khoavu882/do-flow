@@ -740,9 +740,11 @@ Bounds, beyond those of the task-state lock:
 
 1. A pid reused within the same second as its first start (`ps` start times have one-second
    resolution) is judged alive: the lock is waited on until that process ends.
-2. An older runtime paused 10 s or more between its `mkdir` of the lock and its write of
-   `owner.json` can write its token into a lock a current process reclaimed meanwhile, and both hold
-   (review C-3: with the user).
+2. Mixed installs, accepted by the user with the cost above (review C-3): an older runtime that
+   stalls 10 s or more between creating the lock and writing its `owner.json` can write its token
+   into a lock a current process reclaimed meanwhile. Both then hold and both write, and the write
+   that lands first is lost (each writer's command reports success). Two older runtimes have the same
+   hole between themselves; it is gone once every runtime on the machine is current.
 3. An older runtime paused 10 s or more between judging a lock stale and moving it can move a lock a
    current process holds by then; that holder writes nothing unless the move lands between its
    pre-write check and its rename (task-state bound 1). Older runtimes have the same window between
