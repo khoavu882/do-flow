@@ -58,7 +58,7 @@ bridge writes hook lines in its own fixed order (see Hook lines).
 | `verify.run` | `src/runtime/trace/telemetry.ts` | `verify_id`, `source`, `task`, `dispatch_run`, `risk`, `level`, `status`, `exit_code`, `duration_ms`, `checks_run`, `v0` (see Verify lines) |
 | `verify.tier` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status`, `selection_basis`, `selected`, `total`, `fallback`, `duration_ms` |
 | `verify.check` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status`, `exit_code`, `duration_ms`, `tests`, `tests_failed`, `cpu_ms`, `resource_basis`, `check_key`, `shared`, `shared_ref`, `failed_first` |
-| `review.run` | `src/runtime/trace/telemetry.ts` | `task`, `rounds`, `seats`, `seat_findings`, `converged`, `blocker`, `should_fix`, `note`, `open`, `fixed`, `refuted`, `user_accepted`, `pre_existing`, `escaped`, `confirmed`, `plausible`, `unverified_blockers`, `bug_classes`, `advisories`, `errors` (see Review lines) |
+| `review.run` | `src/runtime/trace/telemetry.ts` | `task`, `depth`, `risk`, `head`, `rounds`, `seats`, `seat_findings`, `converged`, `blocker`, `should_fix`, `note`, `open`, `fixed`, `refuted`, `user_accepted`, `pre_existing`, `escaped`, `confirmed`, `plausible`, `unverified_blockers`, `bug_classes`, `advisories`, `errors` (see Review lines) |
 
 A key is added to a kind in the same change that writes it, with its `phase` (the merge that first
 writes it). Until then the writer drops every key it is handed for that kind. Changes to the contract
@@ -183,6 +183,9 @@ identifier is on one page; G45.1 does not compare them with line keys.
 | Kind | Key | Type | Class | Phase | Source |
 |---|---|---|---|---|---|
 | `review.run` | `task` | `token` or null | T0 | P7 | the record's `slug` only when the record is valid and the slug passes `token`; otherwise null (an invalid record's slug is never written) |
+| `review.run` | `depth` | `enum:depth` or null | T2 | P7 | the record's `depth` (`single` or `deep`) when the record is valid and carries one; otherwise null |
+| `review.run` | `risk` | `enum:risk` or null | T2 | P7 | the record's `risk` when the record is valid and carries one; otherwise null |
+| `review.run` | `head` | `token` or null | T0 | P7 | the record's `reviewedHead` when the record is valid; otherwise null |
 | `review.run` | `rounds` | `uint` or null | T1 | P7 | review round count; null when invalid |
 | `review.run` | `seats`, `seat_findings`, `converged` | `uint` or null | T1 | P7 | counts; null when invalid |
 | `review.run` | `blocker`, `should_fix`, `note` | `uint` or null | T1 | P7 | severity counts; null when invalid |
@@ -225,8 +228,8 @@ does not declare is dropped, and its value is never echoed.
 ## Vocabularies
 
 The closed lists a later export may use. `harness` equals the ids in `core/registry/harnesses.json`,
-`status` equals `tierStatuses` and `risk` equals the risk levels of `core/registry/verification.json`;
-G45.1 holds those three equal.
+`status` equals `tierStatuses`, `risk` equals the risk levels of `core/registry/verification.json` and
+`depth` equals the keys of its `reviewDepth.depths`; G45.1 holds those four equal.
 
 | Name | Values |
 |---|---|
@@ -238,6 +241,7 @@ G45.1 holds those three equal.
 | `source` | `verb`, `dispatch` |
 | `status` | `PASS`, `FAIL`, `UNRESOLVED`, `SUBSUMED`, `NOT_APPLICABLE`, `SKIPPED`, `NOT_RUN` |
 | `risk` | `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` |
+| `depth` | `single`, `deep` |
 | `role` | `main`, `worker` |
 | `level` | `L0`, `L1`, `L2`, `L3` |
 | `selection_basis` | `changed-test-files`, `explicit-pattern`, `none` |

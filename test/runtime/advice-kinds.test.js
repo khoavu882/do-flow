@@ -87,6 +87,16 @@ test('IC-004: both other own-criteria kinds use the registry text', () => {
   }
 });
 
+test('095b IC-003: review-depth is asked by the review verb and its static answer names the IC-002 rule', () => {
+  const kind = ADVICE.kinds.find((entry) => entry.id === 'review-depth');
+  assert.deepEqual(kind.askedBy, ['review']);
+  assert.match(kind.staticFrom, /light-path/);
+  assert.match(kind.staticFrom, /singleRisks/);
+  assert.match(kind.staticFrom, /gate-b floor/);
+  assert.match(kind.staticFrom, /deep/);
+  assert.deepEqual(Object.keys(kind.criteria), ['single', 'deep']);
+});
+
 test('IC-004: a criteria source below minOptions makes only that kind unavailable', () => {
   const sources = structuredClone(SOURCES);
   sources.workflows.classes = { only: { description: 'One class.' } };

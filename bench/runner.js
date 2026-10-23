@@ -1842,6 +1842,7 @@ const USAGE = `doflow bench — evaluation harness for the shipped skills
   node bench/runner.js retrieval <verb> [flags]       retrieval benchmark: verify|run|rerun|capture|seal|migrate
   node bench/runner.js perf <verb> [flags]            latency and context budgets: measure|check
   node bench/runner.js agentic <verb> [flags]         agentic baseline: plan|execute|grade|noise|report
+  node bench/runner.js review-miss <verb> [flags]     review-miss: corpus|lint|grade|noise|report
 
 Model is pinned in bench/config.json so runs stay comparable. This command is deliberately not
 part of \`npm test\`: the dispatch step makes paid model calls.`;
@@ -2086,6 +2087,7 @@ function main(argv = process.argv.slice(2)) {
   if (argv[0] === 'retrieval') return require('./retrieval/runner.js').main(argv.slice(1));
   if (argv[0] === 'perf') return require('./perf/runner.js').main(argv.slice(1));
   if (argv[0] === 'agentic') return require('./agentic/runner.js').main(argv.slice(1));
+  if (argv[0] === 'review-miss') return require('./review-miss/runner.js').main(argv.slice(1));
   const { cmd, opts } = parseArgs(argv);
   if (opts.error !== undefined) return opts.error;
   if (opts.help || !cmd) {

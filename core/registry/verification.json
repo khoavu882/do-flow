@@ -318,5 +318,24 @@
       ],
       "outsideVerb": "release and CI runs"
     }
+  },
+  "reviewDepth": {
+    "description": "Review depth decided at review start by doflow review --action start (feature 095b). Skill text names the verb, never these values.",
+    "depths": {
+      "single": {
+        "seats": 1
+      },
+      "deep": {
+        "seats": 2
+      }
+    },
+    "singleRisks": [
+      "LOW"
+    ],
+    "lightPaths": [
+      "docs/",
+      "README.md",
+      "CHANGELOG.md"
+    ]
   }
 }

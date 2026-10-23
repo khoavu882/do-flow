@@ -1624,7 +1624,8 @@ function reusedCount(report: any): number {
 
 /** Persist the already printed report as one JSONL line; state I/O never changes its answer.
  * 089 IC-006: with reuse on for the run, `reused` (the count) precedes `reportSha256`; with reuse
- * off the record is byte-identical to the one before reuse existed. */
+ * off the record has no `reused` key. 095b IC-004: `risk` (the report's risk level) follows `verdict`;
+ * readers default a missing one, and `verifyRecordReasons` ignores it. */
 function appendVerificationRunRecord({ taskId, report, gitState, reuse = false, fsImpl = nodeFs }: any): void {
   if (!gitState) return;
   try {
@@ -1635,6 +1636,7 @@ function appendVerificationRunRecord({ taskId, report, gitState, reuse = false, 
       head: gitState.head,
       clean: gitState.clean,
       verdict: report.status,
+      risk: report.riskLevel,
       at: new Date().toISOString(),
       ...(reuse === true ? { reused: reusedCount(report) } : {}),
       reportSha256: `sha256:${nodeCrypto.createHash('sha256').update(reportJson, 'utf8').digest('hex')}`,

@@ -604,6 +604,7 @@ test('G45.1: telemetry.json is well formed, its owned vocabularies match their o
     harness: { owner: 'core/registry/harnesses.json', values: harnesses.harnesses.map((entry) => entry.id) },
     status: { owner: 'core/registry/verification.json tierStatuses', values: verification.tierStatuses },
     risk: { owner: 'core/registry/verification.json riskLevels', values: Object.keys(verification.riskLevels) },
+    depth: { owner: 'core/registry/verification.json reviewDepth.depths', values: Object.keys(verification.reviewDepth.depths) },
     role: { owner: 'core/harnesses/shared/hooks/bridge/envelope.jq role literals', values: ['main', 'worker'] },
   }), []);
   const observations = shippedObservations(registry);

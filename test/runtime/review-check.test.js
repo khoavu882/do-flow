@@ -412,3 +412,57 @@ test('end-to-end: real telemetry writer and git verify ancestry and omit planted
   assert.equal(lines[1].errors, 1);
 });
 
+
+test('095b IC-005/IC-006: depth deep with one seat gives depth-unmet:deep, exit 0, and the telemetry carries depth, risk and head', (t) => {
+  const cwd = tempDir(t, 'doflow-review-check-depth-');
+  const record = { ...validRecord(), depth: 'deep', risk: 'HIGH' };
+  record.seats = record.seats.slice(0, 1);
+  const file = writeRecord(cwd, record);
+  const capture = fakeWriter();
+  const result = invoke({ ...baseOptions(cwd, file, capture.writer), json: true });
+  const body = parseJsonOutput(result.lines);
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(body.valid, true);
+  assert.deepEqual(body.advisories, ['depth-unmet:deep']);
+  assert.equal(capture.records.length, 1);
+  assert.equal(capture.records[0].depth, 'deep');
+  assert.equal(capture.records[0].risk, 'HIGH');
+  assert.equal(capture.records[0].head, HEAD_B);
+  assert.equal(capture.records[0].advisories, 1);
+});
+
+test('095b IC-006: a valid record without depth and risk writes null for them and its head', (t) => {
+  const cwd = tempDir(t, 'doflow-review-check-nodepth-');
+  const file = writeRecord(cwd, validRecord());
+  const capture = fakeWriter();
+  const result = invoke({ ...baseOptions(cwd, file, capture.writer), json: true });
+
+  assert.equal(result.exitCode, 0);
+  assert.equal(capture.records[0].depth, null);
+  assert.equal(capture.records[0].risk, null);
+  assert.equal(capture.records[0].head, HEAD_B);
+});
+
+test('095b IC-006: an invalid record (bad depth) writes null for depth, risk and head, exit 1', (t) => {
+  const cwd = tempDir(t, 'doflow-review-check-baddepth-');
+  const file = writeRecord(cwd, { ...validRecord(), depth: 'shallow', risk: 'HIGH' });
+  const capture = fakeWriter();
+  const result = invoke({ ...baseOptions(cwd, file, capture.writer), json: true });
+  const body = parseJsonOutput(result.lines);
+
+  assert.equal(result.exitCode, 1);
+  assert.deepEqual(body.errors, ['depth']);
+  assert.equal(capture.records[0].depth, null);
+  assert.equal(capture.records[0].risk, null);
+  assert.equal(capture.records[0].head, null);
+});
+
+test('095b IC-006: the telemetry registry declares depth, risk and head and the depth vocabulary', () => {
+  const registry = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/telemetry.json'), 'utf8'));
+  const fields = registry.kinds['review.run'].fields;
+  assert.deepEqual(fields.depth, { name: 'doflow.review.run.depth', class: 'T2', type: 'enum:depth|null', phase: 'P7' });
+  assert.deepEqual(fields.risk, { name: 'doflow.review.run.risk', class: 'T2', type: 'enum:risk|null', phase: 'P7' });
+  assert.deepEqual(fields.head, { name: 'doflow.review.run.head', class: 'T0', type: 'token|null', phase: 'P7' });
+  assert.deepEqual(registry.vocabularies.depth, ['single', 'deep']);
+});

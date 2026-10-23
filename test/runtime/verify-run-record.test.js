@@ -12,6 +12,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { createScratch } = require('../helper/scratch-env');
+const { verifyRecordReasons } = require('../../src/runtime/roadmap/gates.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
@@ -55,9 +56,9 @@ function fixedClock(t) {
   return file;
 }
 
-function verify(p, preloads = []) {
+function verify(p, preloads = [], risk = 'LOW') {
   const args = preloads.flatMap((file) => ['--require', file]);
-  args.push(DOFLOW, 'verify', '--action', 'report', '--task-id', 'T-1', '--risk', 'LOW', '--plan-path', p.plan,
+  args.push(DOFLOW, 'verify', '--action', 'report', '--task-id', 'T-1', '--risk', risk, '--plan-path', p.plan,
     '--scope', 'src/a.js', '--json');
   return spawnSync(process.execPath, args, {
     cwd: p.root,
@@ -99,13 +100,14 @@ test('verify report appends one head-bound record per run without changing JSON 
   assert.equal(records.length, 2, 'two reports append two JSONL lines');
   const head = git(p.root, 'rev-parse', 'HEAD');
   for (const record of records) {
-    assert.deepEqual(Object.keys(record), ['schema', 'taskId', 'head', 'clean', 'verdict', 'at', 'reportSha256']);
+    assert.deepEqual(Object.keys(record), ['schema', 'taskId', 'head', 'clean', 'verdict', 'risk', 'at', 'reportSha256']);
     assert.equal(record.schema, 1);
     assert.equal(record.taskId, 'T-1');
     assert.equal(record.head, head);
     assert.match(record.head, /^[0-9a-f]{40}$/);
     assert.equal(record.clean, true);
     assert.equal(record.verdict, 'PASS');
+    assert.equal(record.risk, 'LOW', 'risk is report.riskLevel');
     assert.match(record.at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
     assert.equal(record.reportSha256, recordHash(first.stdout));
   }
@@ -138,7 +140,7 @@ test('with verify.reuse on the record carries the reused count before reportSha2
   const records = readRecords(p.root);
   assert.equal(records.length, 2);
   for (const [record, out] of [[records[0], first.stdout], [records[1], second.stdout]]) {
-    assert.deepEqual(Object.keys(record), ['schema', 'taskId', 'head', 'clean', 'verdict', 'at', 'reused', 'reportSha256']);
+    assert.deepEqual(Object.keys(record), ['schema', 'taskId', 'head', 'clean', 'verdict', 'risk', 'at', 'reused', 'reportSha256']);
     assert.equal(record.schema, 1);
     assert.equal(record.verdict, 'PASS');
     assert.equal(record.reused, carrying(out));
@@ -185,4 +187,33 @@ test('an unwritable run-record directory does not change the report or exit', (t
   assert.equal(faulted.status, first.status, faulted.stderr);
   assert.equal(faulted.stdout, first.stdout, 'record I/O failure leaves verify --json bytes unchanged');
   assert.equal(readRecords(p.root).length, 1, 'failed append leaves the prior line intact');
+});
+
+// 095b IC-004: `risk` is the report's risk level, placed right after `verdict`.
+test('a report at --risk HIGH records risk HIGH right after verdict', (t) => {
+  const p = project(t);
+  // The verdict at HIGH does not matter here (the fixture's stricter tiers may fail); the record is written either way.
+  const result = verify(p, [fixedClock(t)], 'HIGH');
+  assert.equal(JSON.parse(result.stdout).riskLevel, 'HIGH');
+  const [record] = readRecords(p.root);
+  assert.equal(record.risk, 'HIGH');
+  const keys = Object.keys(record);
+  assert.equal(keys[keys.indexOf('verdict') + 1], 'risk');
+});
+
+// 095b IC-004 negative control: a develop-era line without `risk` gates exactly as before; the key is ignored.
+test('verifyRecordReasons ignores risk: develop-era lines without it give the same reasons', () => {
+  const HEAD = 'a'.repeat(40);
+  const line = (extra = {}) => ({ schema: 1, taskId: 'T-1', head: HEAD, clean: true, verdict: 'PASS', at: '2026-10-23T00:00:00.000Z', reportSha256: 'sha256:x', ...extra });
+  const withRisk = (extra = {}) => line({ risk: 'HIGH', ...extra });
+  const cases = [
+    [[line()], [withRisk()]],
+    [[line({ verdict: 'FAIL' }), line()], [withRisk({ verdict: 'FAIL' }), withRisk()]],
+    [[line({ clean: false })], [withRisk({ clean: false })]],
+  ];
+  const expected = [[], ['verify-flaky'], ['verify-missing']];
+  cases.forEach(([old, next], i) => {
+    assert.deepEqual(verifyRecordReasons(old, HEAD, 'T-1'), expected[i]);
+    assert.deepEqual(verifyRecordReasons(next, HEAD, 'T-1'), expected[i]);
+  });
 });

@@ -34,7 +34,7 @@ mechanical work. Fewer turns can cost less than a cheaper model that needs repea
 
 Reviews are read-only `frontier` work by an agent and model different from the author. Report if that
 tier is unavailable. Review once per phase or fix batch; re-review only an open blocker tests cannot
-settle, after asking. Deep reviews use two independent reviewers with different lenses.
+settle, after asking. Seat count: `doflow review --action start`.
 
 ## Archetype dispatch tiers
 
