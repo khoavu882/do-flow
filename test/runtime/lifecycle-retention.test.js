@@ -14,6 +14,7 @@ const { createScratch } = require('../helper/scratch-env');
 const store = require('../../src/runtime/lifecycle/event-store.ts');
 const { parseWindow, retentionWindow, selectExpired } = require('../../src/runtime/lifecycle/retention.ts');
 const { loadSettings } = require('../../src/runtime/settings/resolve.ts');
+const { EVENT_TYPES } = require('../../src/runtime/lifecycle/fold.ts');
 const { prepareStore, retainLocked, removedLine, STALE_TMP_MS, LEGACY_EVENTS_REL, LEGACY_LIFECYCLE_REL } = require('../../src/runtime/lifecycle/store-upkeep.ts');
 
 const CLI = path.resolve(__dirname, '..', '..', 'bin', 'doflow.js');
@@ -582,6 +583,56 @@ test('an item id used as an object key in an unknown-type event keeps its unit (
   assert.deepEqual(kept([...goal, ...other, keyedGoal]), ['followup:FU-bbbbbb'], 'a keyed goal id keeps its unit');
   const deep = ev('followup.bulk-noted', { rows: [{ by: { 'FU-bbbbbb': true } }] }, at(now, 99));
   assert.deepEqual(kept([...mine, ...other, deep]), ['followup:FU-aaaaaa'], 'nested keys count at any depth');
+});
+
+// ── protection only removes units, never changes which others go (N-1) ─────────────────────────
+
+/** What 5bc9407b selects: the fold ignores an unknown-type event's data, so emptying it reproduces base. */
+function baseFiles(events, options) {
+  const blanked = events.map((e) => (EVENT_TYPES.includes(e.type) ? e : { ...e, data: {} }));
+  return new Set(selectExpired(blanked, options).files);
+}
+
+test('a unit protected by an unknown-type event never shifts which other units are selected (N-1)', () => {
+  const at26 = (sec) => Date.parse(`2026-01-01T00:00:${String(sec).padStart(2, '0')}.000Z`);
+  const rows = [[2, 'feature.tracked', { slug: 'g' }], [3, 'goal.added', { goal: 'A', items: [] }], [4, 'goal.done', { goal: 'A' }],
+    [5, 'goal.added', { goal: 'B', items: [] }], [6, 'goal.done', { goal: 'B' }], [7, 'goal.added', { goal: 'C', items: [] }],
+    [9, 'goal.added', { goal: 'D', items: [] }], [10, 'goal.done', { goal: 'D' }],
+    [18, 'goal.linked', { goal: 'D', slug: 'g', replace: true }], [21, 'goal.linked', { goal: 'C', slug: 'g', replace: false }],
+    [24, 'goal.linked', { goal: 'A', slug: 'g', replace: true }], [25, 'goal.linked', { goal: 'B', slug: 'g', replace: false }],
+    [26, 'goal.linked', { goal: 'C', slug: 'g', replace: true }], [27, 'future.event', { protect: ['D'] }]];
+  const events = rows.map(([sec, type, data]) => ev(type, data, at26(sec)));
+  const options = { now: new Date('2026-10-23T00:00:00Z'), windowMs: HOUR };
+  const out = selectExpired(events, options);
+  assert.deepEqual(out.units.map((u) => u.items), [['goal:B']], 'exactly what base selects, minus the protected unit');
+  assert.ok(out.files.every((f) => baseFiles(events, options).has(f)));
+});
+
+test('over random event mixes the files selected never exceed what base selects (N-1)', () => {
+  let seed = 20261023;
+  const rand = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+  const pick = (list) => list[Math.floor(rand() * list.length)];
+  const now = Date.parse('2026-10-23T00:00:00Z');
+  const options = { now: new Date(now), windowMs: HOUR };
+  const goals = ['A', 'B', 'C', 'D', 'E'];
+  let protectedRuns = 0;
+  for (let round = 0; round < 150; round += 1) {
+    const events = [];
+    let t = Date.parse('2026-01-01T00:00:00Z');
+    const tick = () => { t += 1000 * (1 + Math.floor(rand() * 5)); return t; };
+    events.push(ev('feature.tracked', { slug: 'g' }, tick()));
+    for (const g of goals) {
+      events.push(ev('goal.added', { goal: g, items: [] }, tick()));
+      if (rand() < 0.7) events.push(ev('goal.done', { goal: g }, tick()));
+    }
+    for (let i = 0; i < 6; i += 1) events.push(ev('goal.linked', { goal: pick(goals), slug: 'g', replace: rand() < 0.5 }, tick()));
+    for (let i = 0; i < 3; i += 1) events.push(ev(`future.type${i}`, { protect: [pick(goals)], also: { [pick(goals)]: 1 } }, tick()));
+    const base = baseFiles(events, options);
+    const out = selectExpired(events, options);
+    if (out.files.length < base.size) protectedRuns += 1;
+    for (const f of out.files) assert.ok(base.has(f), `round ${round}: ${f} is selected but base keeps it`);
+  }
+  assert.ok(protectedRuns > 0, 'the generator exercises protection at least once');
 });
 
 test('a goal unit named by an unknown-type event is kept; the files stay on disk through prepareStore', () => {

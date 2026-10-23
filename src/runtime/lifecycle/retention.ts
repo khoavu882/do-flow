@@ -225,6 +225,10 @@ function selectExpired(events: any[], { now, windowMs, shouldStop }: any = {}): 
   if (!named || shouldStop?.()) return incomplete();
   const mentioned = unknownTypeStrings(events, shouldStop);
   if (!mentioned || shouldStop?.()) return incomplete();
+  // Selected exactly as 5bc9407b did (every settled, expired, unserved unit is a candidate), and only
+  // then are the units an unknown-type event names dropped. Protection removes units from that
+  // selection; it never changes which of the others are picked, so what is deleted is always a subset
+  // of what base would delete on the same events.
   const candidates: any[] = [];
   for (const unit of named) {
     if (shouldStop?.()) return incomplete();
@@ -233,25 +237,33 @@ function selectExpired(events: any[], { now, windowMs, shouldStop }: any = {}): 
     let eligible = Date.parse(newest) < cutoff;
     if (eligible) for (const key of unit.items) {
       if (shouldStop?.()) return incomplete();
-      if (!isSettled(state, key) || (key.startsWith('goal:') && served.has(key.slice('goal:'.length))) || mentioned.has(key.slice(key.indexOf(':') + 1))) { eligible = false; break; }
+      if (!isSettled(state, key) || (key.startsWith('goal:') && served.has(key.slice('goal:'.length)))) { eligible = false; break; }
     }
     if (eligible) candidates.push({ ...unit, newestAt: newest });
   }
   const full = finalize(state);
-  let selected = candidates;
-  const allSafe = refoldEqual(events, full, candidates, now, shouldStop);
-  if (allSafe === null || shouldStop?.()) return incomplete();
-  if (!allSafe) {
-    selected = [];
-    const ordered = [...candidates].sort((a: any, b: any) => Date.parse(a.newestAt) - Date.parse(b.newestAt));
-    if (shouldStop?.()) return incomplete();
+  /** The refold-safe subset of `list`: all of it when that holds, else the oldest-first greedy pass. */
+  const safeSubset = (list: any[]): any[] | null => {
+    const allSafe = refoldEqual(events, full, list, now, shouldStop);
+    if (allSafe === null || shouldStop?.()) return null;
+    if (allSafe) return list;
+    const chosen: any[] = [];
+    const ordered = [...list].sort((a: any, b: any) => Date.parse(a.newestAt) - Date.parse(b.newestAt));
+    if (shouldStop?.()) return null;
     for (const unit of ordered) {
-      if (shouldStop?.()) return incomplete();
-      const safe = refoldEqual(events, full, [...selected, unit], now, shouldStop);
-      if (safe === null) return incomplete();
-      if (safe) selected.push(unit);
+      if (shouldStop?.()) return null;
+      const safe = refoldEqual(events, full, [...chosen, unit], now, shouldStop);
+      if (safe === null) return null;
+      if (safe) chosen.push(unit);
     }
-  }
+    return chosen;
+  };
+  const baseSelected = safeSubset(candidates);
+  if (!baseSelected) return incomplete();
+  const unprotected = baseSelected.filter((unit: any) => ![...unit.items].some((key: string) => mentioned.has(key.slice(key.indexOf(':') + 1))));
+  // Dropping units can leave a set the refold no longer accepts; check it again, inside the subset.
+  const selected = unprotected.length === baseSelected.length ? baseSelected : safeSubset(unprotected);
+  if (!selected) return incomplete();
   const units: any[] = [];
   for (const unit of selected) {
     if (shouldStop?.()) return incomplete();
