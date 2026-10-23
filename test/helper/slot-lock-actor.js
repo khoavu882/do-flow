@@ -10,6 +10,7 @@
 //             it prints `R` and pauses inside its critical section first
 //   pauseAtAct  print `R` and wait 500 ms (the caller SIGSTOPs it then) at the first step that acts
 //             on a lock it judged: the mkdir of its entry (new) or the rename aside (old)
+//   quietMs   the new runtime's wait after a risky reclaim (default its 10 s)
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -39,7 +40,7 @@ const fsImpl = !config.pauseAtAct ? fs : {
     return fs.renameSync(from, to);
   },
 };
-const deps = { pid: process.pid, procStart: (pid) => procStart(pid), alive: (proc) => alive(proc), fsImpl };
+const deps = { pid: process.pid, procStart: (pid) => procStart(pid), alive: (proc) => alive(proc), fsImpl, quietMs: config.quietMs };
 
 let out;
 try {

@@ -240,6 +240,37 @@ function reclaimIfStale(fsImpl: any, lockDir: string, me: Entry, options: LockOp
   return elect(fsImpl, lockDir, me, true, options);
 }
 
+/**
+ * A queued attempt's next look, for a lock with a `stale` rule (FU-31dyvs C-5): the other entries are
+ * judged as a reclaim judges them (listing re-check, `stale`, the directory still the one holding our
+ * entry), and when they are stale they are removed by name, so a queued process does not wait out its
+ * budget behind a holder that died. Without a `stale` rule this is `elect`, unchanged.
+ */
+function queuedStep(fsImpl: any, lockDir: string, me: Entry, options: LockOptions): LockStep {
+  if (!options.stale) return elect(fsImpl, lockDir, me, true, options);
+  let judged: any;
+  let others: string[];
+  try {
+    judged = fsImpl.statSync(lockDir);
+    const entries: string[] = fsImpl.readdirSync(lockDir);
+    const listed = fsImpl.statSync(lockDir);
+    if (!sameDir(judged, listed) || listed.mtimeMs !== judged.mtimeMs || !entries.includes(me.name)) return elect(fsImpl, lockDir, me, true, options);
+    others = entries.filter((name: string) => name !== me.name);
+  } catch { return elect(fsImpl, lockDir, me, true, options); }
+  if (others.length === 0 || !options.stale({ lockDir, entries: others, ageMs: Date.now() - judged.mtimeMs })) return elect(fsImpl, lockDir, me, true, options);
+  const pinned = pinnedDir(fsImpl, lockDir, me);
+  if (!pinned || !sameDir(pinned, judged)) return elect(fsImpl, lockDir, me, true, options);
+  for (const name of others) {
+    try {
+      if (options.removeEntry) options.removeEntry(fsImpl, lockDir, name);
+      else fsImpl.rmdirSync(path.join(lockDir, name));
+    } catch (error: any) {
+      if (error.code !== 'ENOENT') break; // not removable now: elect decides as before
+    }
+  }
+  return elect(fsImpl, lockDir, me, true, options);
+}
+
 /** One step towards holding the lock under `me`: held, queued (our entry waits in it), busy, or again. */
 function attemptLock(fsImpl: any, lockDir: string, me: Entry, options: LockOptions = {}): LockStep {
   const started = Date.now();
@@ -304,7 +335,7 @@ function tryAcquireLock(fsImpl: any, file: string, options: LockOptions = {}): (
     let step = attemptLock(fsImpl, lockDir, me, options);
     while (step === 'queued' && Date.now() < deadline) {
       sleep(CONTEND_WAIT_MS);
-      step = elect(fsImpl, lockDir, me, true, options);
+      step = queuedStep(fsImpl, lockDir, me, options);
     }
     if (step === 'queued') step = giveUp(fsImpl, lockDir, me, options);
     if (step === 'held') return ownedRelease(fsImpl, lockDir, me);
@@ -331,7 +362,7 @@ function acquireLock(fsImpl: any, file: string, options: LockOptions = {}): () =
   let step: LockStep = 'again';
   let me: Entry = { name: '' };
   for (let attempt = 0; attempt < retries && (attempt === 0 || Date.now() < deadline); attempt += 1) {
-    if (step === 'queued') step = elect(fsImpl, lockDir, me, true, options);
+    if (step === 'queued') step = queuedStep(fsImpl, lockDir, me, options);
     else {
       me = { name: (options.entryName || newToken)() }; // a fresh entry name per attempt: an earlier one's name never comes back
       step = attemptLock(fsImpl, lockDir, me, options);
@@ -488,6 +519,7 @@ module.exports = {
   acquireLock,
   tryAcquireLock,
   LOCK_STALE_MS,
+  LOCK_WAIT_MS,
   boundedAcquire,
   updateTaskState,
   readTaskState,

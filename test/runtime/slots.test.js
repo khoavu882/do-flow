@@ -481,6 +481,7 @@ test('a slot lock with a dead owner token is recovered', async () => {
   const { deps } = baseDeps({
     alive: (proc) => proc.pid !== 98765,
     spawn: () => { spawned += 1; return fakeChild(8801); },
+    quietMs: 0, // the 10 s wait after reclaiming an older runtime's lock is tested in slot-lock.test.js
   });
   assert.equal(await runSlot({ name: 'recover-lock', command: ['tool'], env, deps }), 0);
   assert.equal(spawned, 1);

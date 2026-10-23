@@ -700,7 +700,7 @@ storage pruning's record lock and upkeep's pass lock. The slot queue uses this l
 
 The machine-wide slot queue (`src/runtime/slots.ts`) writes each `~/.doflow/state/slots/<name>.json`
 through the task-state lock above: the same `<file>.lock` path, the same protocol, `release.held()`
-before every write. Two settings differ (the optional `LockOptions` of `acquireLock`), so that a
+before every write. Its settings differ (the optional `LockOptions` of `acquireLock`), so that a
 slot's lock keeps the rule feature 115 gave it (its C-4: a slow live critical section is not a crash):
 
 - The entry is `owner-<pid>-<start>-<random>`, `<start>` being the hex of the owner's `ps` start time
@@ -708,28 +708,50 @@ slot's lock keeps the rule feature 115 gave it (its C-4: a slow live critical se
 - A reclaim, after its listing re-check, goes ahead only when every entry is reclaimable: one whose
   owner is dead (the pid is gone, a zombie, or now has another start time) at any age; one whose
   owner is alive never, however old; one whose liveness is unknown (no start time, `ps` failed,
-  win32), an empty lock and an entry it cannot read once the lock is 10 s old, as above. An entry
-  whose owner is dead is never acted on again by that owner, so removing it early is safe.
+  win32), an empty lock and a directory with a name this lock does not make once the lock is 10 s
+  old, as above. An entry whose owner is dead is never acted on again by that owner, so removing it
+  early is safe. A file in the lock (other than an older runtime's `owner.json`) is never removed: it
+  keeps the lock locked until removed by hand, and the `Could not lock` error names it.
+- A process queued in the lock behind a holder applies the same rule to the other entries at each
+  look, so a holder that dies while another process waits behind it is reclaimed at once.
 - A slot change that finds its lock reclaimed before its write or before deleting an emptied slot
   file changes nothing (`lock-lost`) and runs again on the fresh file, up to three runs in all.
   A waiter gives up after 30 s.
+- Shared slot state assumes one PID namespace: liveness is `kill(pid, 0)` and `ps` on this machine,
+  so runtimes in different PID namespaces sharing one HOME (or `ps` under `hidepid`) can judge a live
+  holder dead.
 
 Locks of runtimes from before FU-31dyvs (an `owner.json` file in the lock) are judged by that token
-the same way: a dead owner's lock is reclaimed at once and its token removed in place; a live owner's
-is waited on until its release. Accepted with the change (user decision, 117 feature records): those
-older runtimes ignore entries, so when a current holder's lock is 10 s old they move it aside, as they
-always did with a stale lock, and take it. The current holder then writes nothing (`lock-lost`; its
-change runs again), and each such move leaves a `<file>.lock.stale-*` directory that nothing removes.
-They also wait out the 10 s on a current lock whose owner died, instead of reclaiming it at once.
+the same way; a live owner's lock is waited on until its release. Those older runtimes ignore entries
+and move a lock they judge stale aside by name (its token's owner dead, or no token and the lock older
+than 10 s), at whatever moment their move lands. So a current process that reclaims a lock an older
+runtime may also have judged stale (one with a token, or one older than 10 s) does not use it at once:
+it removes the dead token only if the token and the lock holding its entry are still the ones it
+judged, then keeps its entry in the lock, holding nothing, for 10 s, refreshing the lock's time so
+that no older runtime judges it stale by age. An older runtime's move that lands meanwhile takes the
+lock with that entry, and the current process starts over behind it. Accepted with the change (user
+decision, 117 feature records): when a current holder's lock is 10 s old, older runtimes move it aside
+and take it; the current holder then writes nothing (`lock-lost`; its change runs again), each move
+leaves a `<file>.lock.stale-*` directory that nothing removes, and older runtimes wait out the 10 s on
+a current lock whose owner died. Reclaiming an older runtime's dead lock, or any lock older than 10 s,
+costs the current process those 10 s.
 
 Bounds, beyond those of the task-state lock:
 
 1. A pid reused within the same second as its first start (`ps` start times have one-second
    resolution) is judged alive: the lock is waited on until that process ends.
 2. An older runtime paused 10 s or more between its `mkdir` of the lock and its write of
-   `owner.json` can write its token into a lock a current process reclaimed meanwhile, and both hold.
-   This is the older runtime's own window, as between two older runtimes.
-3. A holder whose owner is alive but stopped (SIGSTOP, a debugger) blocks the slot's lock until it
+   `owner.json` can write its token into a lock a current process reclaimed meanwhile, and both hold
+   (review C-3: with the user).
+3. An older runtime paused 10 s or more between judging a lock stale and moving it can move a lock a
+   current process holds by then; that holder writes nothing unless the move lands between its
+   pre-write check and its rename (task-state bound 1). Older runtimes have the same window between
+   themselves, and with an earlier lock than the one a current process reclaimed.
+4. Between a current reclaim's check of an older runtime's dead token and its `unlink` (one system
+   call), an older runtime can move the lock aside and write its own token at the path, which the
+   unlink then removes; that runtime's lock then looks empty and is reclaimed once it is 10 s old,
+   plus the 10 s wait, so a second writer needs that older holder to run for 20 s or more.
+5. A holder whose owner is alive but stopped (SIGSTOP, a debugger) blocks the slot's lock until it
    resumes or ends, as in feature 115; waiters fail after 30 s with `Could not lock`.
 
 The docs build needs `mkdocs`, the Dracula theme and `pymdown-extensions` (the `mermaid` fence in

@@ -15,6 +15,7 @@ const { spawn } = require('node:child_process');
 const MODULE = process.env.SLOTS_MODULE || path.join(__dirname, '..', '..', 'src', 'runtime', 'slots.ts');
 const { acquireSlotLock, releaseSlot } = require(MODULE);
 const { procStart, alive } = require('../../src/runtime/worker/process-tree.ts');
+const { updateTaskState } = require('../../src/runtime/task-state.ts');
 const { suiteTempDir } = require('../helper/tmp');
 
 const ACTOR = path.join(__dirname, '..', 'helper', 'slot-lock-actor.js');
@@ -31,7 +32,8 @@ function age(target, seconds) {
   fs.utimesSync(target, t, t);
 }
 function fakeDeps(extra = {}) {
-  return { pid: process.pid, procStart: () => 'test-start', alive: (proc) => proc.pid !== DEAD, fsImpl: fs, ...extra };
+  // quietMs 0: these tests are about the protocol, not the wait after a risky reclaim (tested below).
+  return { pid: process.pid, procStart: () => 'test-start', alive: (proc) => proc.pid !== DEAD, fsImpl: fs, quietMs: 0, ...extra };
 }
 /** fs whose methods `hooks` wraps: hooks[name](original, ...args). */
 function hookedFs(hooks) {
@@ -188,13 +190,24 @@ test('an older runtime\'s lock whose owner is alive is not reclaimed however old
   release();
 });
 
-test('an older runtime\'s lock whose owner is dead is reclaimed at once, its token removed in place', () => {
+test('an older runtime\'s lock whose owner is dead is reclaimed in place, and held once it was quiet 10 s', () => {
   const { file, lockDir } = lockFile();
   fs.mkdirSync(lockDir);
   fs.writeFileSync(path.join(lockDir, 'owner.json'), JSON.stringify({ pid: DEAD, start: null }));
+  // While it waits, the lock is kept young, so an older runtime never judges it stale by its age (C-2).
+  let oldest = 0;
+  const watchFs = hookedFs({
+    existsSync: (original, ...args) => {
+      try { oldest = Math.max(oldest, Date.now() - fs.statSync(lockDir).mtimeMs); } catch { /* not there */ }
+      return original(...args);
+    },
+  });
   const started = Date.now();
-  const release = acquireSlotLock(fs, file, { pid: process.pid, procStart, alive, fsImpl: fs });
-  assert.ok(Date.now() - started < 2000);
+  const release = acquireSlotLock(watchFs, file, { pid: process.pid, procStart, alive, fsImpl: watchFs });
+  const took = Date.now() - started;
+  assert.ok(took >= 10_000 && took < 15_000, `held after ${took} ms`);
+  assert.ok(oldest < 10_000, `the lock was ${oldest} ms old while it waited`);
+  assert.ok(Date.now() - fs.statSync(lockDir).mtimeMs < 1000, 'the lock was handed over old');
   const entries = fs.readdirSync(lockDir);
   assert.equal(entries.length, 1);
   assert.match(entries[0], /^owner-\d+-[0-9a-f]+-[0-9a-f]{12}$/);
@@ -219,6 +232,139 @@ test('an entry names its owner\'s pid and start, so a reused pid is judged dead'
   const again = acquireSlotLock(fs, file, deps);
   assert.ok(Date.now() - started < 2000, 'an entry of a reused pid was waited on');
   again();
+});
+
+// ── Older runtimes judging the dead token this process reclaims (review C-1, C-2) ─────────────
+
+const liveToken = () => JSON.stringify({ pid: process.pid, start: procStart(process.pid) });
+
+test('C-1: a dead token is not unlinked once an older runtime moved the lock aside and put its own token in a new one', () => {
+  const { file, lockDir } = lockFile();
+  fs.mkdirSync(lockDir);
+  const token = path.join(lockDir, 'owner.json');
+  fs.writeFileSync(token, JSON.stringify({ pid: DEAD, start: null }));
+  let entered = false;
+  let swapped = false;
+  let released = false;
+  let tokenKept = true;
+  let looks = 0;
+  const reclaimerFs = hookedFs({
+    mkdirSync: (original, target, ...rest) => {
+      const result = original(target, ...rest);
+      if (target.startsWith(lockDir + path.sep)) entered = true;
+      return result;
+    },
+    statSync: (original, target, ...rest) => {
+      const result = original(target, ...rest);
+      if (entered && !swapped && target === lockDir) {
+        // Right after this process's identity check: an older waiter that judged the same dead token
+        // moves the lock aside and makes its own, with a live token (the 115 acquire).
+        swapped = true;
+        fs.renameSync(lockDir, `${lockDir}.stale-older`);
+        fs.mkdirSync(lockDir);
+        fs.writeFileSync(token, liveToken());
+      }
+      return result;
+    },
+    readdirSync: (original, ...args) => {
+      if (swapped && !released) {
+        if (!fs.existsSync(token) || fs.readFileSync(token, 'utf8') !== liveToken()) tokenKept = false;
+        if ((looks += 1) === 5) { fs.unlinkSync(token); fs.rmdirSync(lockDir); released = true; } // its release
+      }
+      return original(...args);
+    },
+  });
+  const release = acquireSlotLock(reclaimerFs, file, { pid: process.pid, procStart, alive, fsImpl: reclaimerFs, quietMs: 0 });
+  assert.equal(swapped, true);
+  assert.equal(tokenKept, true, 'the older runtime\'s live token was removed');
+  assert.equal(released, true, 'the lock was held before the older runtime released it');
+  release();
+});
+
+for (const [seed, prepare] of [
+  ['the dead token', (lockDir) => {
+    fs.mkdirSync(lockDir);
+    fs.writeFileSync(path.join(lockDir, 'owner.json'), JSON.stringify({ pid: DEAD, start: null }));
+  }],
+  ['a lock older than 10 s', (lockDir) => { fs.mkdirSync(lockDir); age(lockDir, 60); }],
+]) {
+  test(`C-2: an older runtime that judged ${seed} before this reclaim moves the lock while nobody holds it, and both writes are kept`, () => {
+    const { file, lockDir } = lockFile();
+    prepare(lockDir);
+    const token = path.join(lockDir, 'owner.json');
+    let reclaimedAt = 0;
+    let moved = false;
+    let ageAtCommit = null;
+    // The older waiter judged the lock before this process reclaimed it; its move lands at the worst
+    // moment within 10 s of that: just before this process commits, or at its last look before 10 s.
+    const olderMoves = () => {
+      moved = true;
+      fs.renameSync(lockDir, `${lockDir}.stale-older`);
+      fs.mkdirSync(lockDir);
+      fs.writeFileSync(token, liveToken());
+      let disk = null;
+      try { disk = JSON.parse(fs.readFileSync(file, 'utf8')); } catch { /* no file yet */ }
+      fs.writeFileSync(file, JSON.stringify({ writes: [...(disk?.writes || []), 'older'] }));
+      fs.unlinkSync(token);
+      fs.rmdirSync(lockDir);
+    };
+    const hooks = {};
+    for (const name of ['statSync', 'existsSync', 'readdirSync', 'readFileSync', 'writeFileSync', 'mkdirSync', 'rmdirSync', 'utimesSync', 'renameSync', 'unlinkSync']) {
+      hooks[name] = (original, ...args) => {
+        const committing = name === 'renameSync' && args[1] === file;
+        if (committing && moved) ageAtCommit = Date.now() - fs.statSync(lockDir).mtimeMs;
+        if (reclaimedAt && !moved && (committing || Date.now() - reclaimedAt >= 9_000)) olderMoves();
+        const result = original(...args);
+        if (name === 'mkdirSync' && !reclaimedAt && args[0].startsWith(lockDir + path.sep)) reclaimedAt = Date.now();
+        return result;
+      };
+    }
+    const reclaimerFs = hookedFs(hooks);
+    const deps = { pid: process.pid, procStart, alive, fsImpl: reclaimerFs };
+    updateTaskState({
+      fsImpl: reclaimerFs,
+      file,
+      acquire: (lockFs, target) => acquireSlotLock(lockFs, target, deps),
+      build: (disk) => ({ writes: [...(disk?.writes || []), 'current'] }),
+    });
+    assert.equal(moved, true);
+    assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')).writes, ['older', 'current']);
+    assert.ok(ageAtCommit !== null && ageAtCommit < 10_000, `the lock looked ${ageAtCommit} ms old to an older runtime at commit`);
+  });
+}
+
+// ── Liveness (review C-4, C-5) ───────────────────────────────────────────────────────────────
+
+test('C-4: a file in a slot lock keeps it locked and the error names it', () => {
+  const { file, lockDir } = lockFile();
+  fs.mkdirSync(lockDir);
+  fs.writeFileSync(path.join(lockDir, '.DS_Store'), 'x');
+  age(lockDir, 60);
+  assert.throws(() => acquireSlotLock(fs, file, { pid: process.pid, procStart, alive, fsImpl: fs, lockBudgetMs: 300 }),
+    (error) => /Could not lock .* after 0\.3s/.test(error.message) && error.message.includes("It holds '.DS_Store'"));
+  assert.deepEqual(fs.readdirSync(lockDir), ['.DS_Store']);
+});
+
+test('C-5: a queued process takes the lock at once when the holder ahead of it dies', () => {
+  const { file, lockDir } = lockFile();
+  const holderPid = 99_999_998; // sorts after this process's pid; no process has it, so it is dead once looked at
+  fs.mkdirSync(lockDir);
+  fs.mkdirSync(path.join(lockDir, `owner-${DEAD}-x-0123456789ab`));
+  let holder = null;
+  const waiterFs = hookedFs({
+    mkdirSync: (original, target, ...rest) => {
+      if (!holder && target.startsWith(lockDir + path.sep)) {
+        holder = acquireSlotLock(fs, file, { pid: holderPid, procStart: () => null, alive, fsImpl: fs });
+      }
+      return original(target, ...rest);
+    },
+  });
+  const started = Date.now();
+  const release = acquireSlotLock(waiterFs, file, { pid: process.pid, procStart, alive, fsImpl: waiterFs });
+  assert.equal(typeof holder, 'function');
+  assert.ok(Date.now() - started < 2000, `held after ${Date.now() - started} ms`);
+  assert.equal(release.held(), true);
+  release();
 });
 
 // ── Real processes ─────────────────────────────────────────────────────────────────────────────
@@ -256,10 +402,10 @@ test('SIGSTOP: a reclaimer stopped between judging a stale lock and acting on it
   age(lockDir, 60);
   const eventsFile = path.join(dir, 'events');
   const goFile = path.join(dir, 'go');
-  const stopped = actor(t, { runtime: 'new', mode: 'hold', file, label: 'A', eventsFile, pauseAtAct: true });
+  const stopped = actor(t, { runtime: 'new', mode: 'hold', file, label: 'A', eventsFile, pauseAtAct: true, quietMs: 0 });
   await stopped.paused;
   stopped.child.kill('SIGSTOP');
-  const other = actor(t, { runtime: 'new', mode: 'hold', file, label: 'B', eventsFile, goFile });
+  const other = actor(t, { runtime: 'new', mode: 'hold', file, label: 'B', eventsFile, goFile, quietMs: 0 });
   await until(() => events(eventsFile).includes('B-enter'));
   stopped.child.kill('SIGCONT');
   await sleep(1500);
@@ -285,7 +431,7 @@ for (const [first, second] of [['old', 'new'], ['new', 'old']]) {
   });
 }
 
-test('mixed runtimes: an old runtime\'s holder killed while holding is reclaimed at once by a new one', async (t) => {
+test('mixed runtimes: an old runtime\'s holder killed while holding is reclaimed by a new one after the 10 s quiet wait', async (t) => {
   const { dir, file, lockDir } = lockFile();
   const eventsFile = path.join(dir, 'events');
   const holding = actor(t, { runtime: 'old', mode: 'hold', file, label: 'old', eventsFile, goFile: path.join(dir, 'never') });
@@ -296,7 +442,8 @@ test('mixed runtimes: an old runtime\'s holder killed while holding is reclaimed
   const started = Date.now();
   const taking = actor(t, { runtime: 'new', mode: 'hold', file, label: 'new', eventsFile });
   assert.equal((await taking.done).kind, 'DONE');
-  assert.ok(Date.now() - started < 5000, 'the dead old holder\'s lock was waited on');
+  const took = Date.now() - started;
+  assert.ok(took >= 10_000 && took < 16_000, `the dead old holder's lock was held after ${took} ms`);
   assert.deepEqual(events(eventsFile), ['old-enter', 'new-enter', 'new-exit']);
   assert.equal(fs.existsSync(lockDir), false);
 });
