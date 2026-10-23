@@ -79,7 +79,7 @@ test('config: adopt still refuses an entry whose record disagrees with the file'
 
 /** The real shipped shape, satisfying the whole agent contract in one go: `name`, `description`
  * (>= 20 chars) and `developer_instructions` (>= 100 chars) are required, `sandbox_mode` is the only
- * other accepted field, and `spec-analyst` is a read-only role so it must declare read-only.
+ * other accepted field, and `reviewer` is a read-only role so it must declare read-only.
  * Inventing the shape, then discovering one rule per run, cost four iterations — the contract is
  * stated in validateAgentContract and reading it whole was the cheaper move. */
 function agentSource(name, marker = 'declared') {
@@ -107,37 +107,37 @@ function agentFixture(name, { installedBody } = {}) {
 }
 
 test('agents: an unrecorded agent file is refused by default', () => {
-  const { sourceDir, codexDir } = agentFixture('spec-analyst', { installedBody: agentSource('spec-analyst') });
+  const { sourceDir, codexDir } = agentFixture('reviewer', { installedBody: agentSource('reviewer') });
   const plan = planCodexAgents({ scope: 'global', codexDir, sourceDir, managedResources: [] });
   assert.equal(plan.ok, false);
-  assert.deepEqual(plan.conflicts, ["Agent 'spec-analyst' exists but is not owned by DoFlow"]);
+  assert.deepEqual(plan.conflicts, ["Agent 'reviewer' exists but is not owned by DoFlow"]);
 });
 
 test('agents: adopt claims the unrecorded agent file and records ownership', () => {
-  const { sourceDir, codexDir } = agentFixture('spec-analyst', { installedBody: agentSource('spec-analyst') });
+  const { sourceDir, codexDir } = agentFixture('reviewer', { installedBody: agentSource('reviewer') });
   const plan = planCodexAgents({ scope: 'global', codexDir, sourceDir, managedResources: [], adopt: true });
   assert.equal(plan.ok, true, 'adoption is not a conflict');
   assert.deepEqual(plan.conflicts, []);
-  assert.ok(plan.managedResources.some((r) => r.identity === 'agent:spec-analyst'), 'now owned');
+  assert.ok(plan.managedResources.some((r) => r.identity === 'agent:reviewer'), 'now owned');
 });
 
 test('agents: adopt still refuses an agent whose record disagrees with the file', () => {
-  const body = agentSource('spec-analyst');
-  const { sourceDir, codexDir } = agentFixture('spec-analyst', { installedBody: body });
+  const body = agentSource('reviewer');
+  const { sourceDir, codexDir } = agentFixture('reviewer', { installedBody: body });
   // Recorded, but the record describes different bytes than the file holds.
   const owned = {
-    target: 'codex', scope: 'global', kind: 'custom-agent', identity: 'agent:spec-analyst',
+    target: 'codex', scope: 'global', kind: 'custom-agent', identity: 'agent:reviewer',
     fingerprint: agentFingerprint('something else entirely'),
   };
   const plan = planCodexAgents({ scope: 'global', codexDir, sourceDir, managedResources: [owned], adopt: true });
   assert.equal(plan.ok, false, 'adopt is not a drift override');
-  assert.deepEqual(plan.conflicts, ["Agent 'spec-analyst' was modified outside DoFlow"]);
+  assert.deepEqual(plan.conflicts, ["Agent 'reviewer' was modified outside DoFlow"]);
 });
 
 test('agents: adopting an unrecorded file whose content differs plans an update to the declared source', () => {
   // Adoption records ownership; ordinary planning then brings the file to the declared state, exactly
   // as it would for any managed resource. Adoption is not "keep whatever is there".
-  const { sourceDir, codexDir } = agentFixture('spec-analyst', { installedBody: agentSource('spec-analyst', 'stale-predates-the-ledger') });
+  const { sourceDir, codexDir } = agentFixture('reviewer', { installedBody: agentSource('reviewer', 'stale-predates-the-ledger') });
   const plan = planCodexAgents({ scope: 'global', codexDir, sourceDir, managedResources: [], adopt: true });
   assert.equal(plan.ok, true);
   assert.deepEqual(plan.changes.map((c) => c.type), ['update']);

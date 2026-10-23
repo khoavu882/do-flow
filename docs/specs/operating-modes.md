@@ -104,7 +104,7 @@ and still refuses a cancelled token (DEC-013).
 
 ## Harness primitives
 
-Whether a harness can spawn, wait for, report the status of, cancel or resume a subagent is
+Whether a harness can spawn, wait for, report the status of, cancel or resume a subagent, or let a subagent start a subagent (`nest`), is
 declared per harness in the `orchestration` block of `core/registry/harnesses.json`, defined by
 IC-026 of feature 074 and validated by
 `src/registry/index.ts`. This document restates no value from that block. A value is never inferred

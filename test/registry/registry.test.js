@@ -272,7 +272,7 @@ test('models.json dispatchTiers: shipped values load; a default or owner tier ou
   assert.deepEqual(dispatchTiers, {
     tiers: ['light', 'standard', 'frontier'],
     default: 'standard',
-    byOwner: { 'system-architect': 'frontier', 'core-implementer': 'standard', 'quality-guardian': 'standard', 'spec-analyst': 'standard', 'research-writer': 'standard' },
+    byOwner: { 'system-architect': 'frontier', 'core-implementer': 'standard', 'quality-guardian': 'standard', 'spec-analyst': 'standard', 'research-writer': 'standard', 'delivery-lead': 'frontier', reviewer: 'frontier' },
   });
   assert.match(errorsOf((r) => { r.dispatchTiers.default = 'heavy'; }), /dispatchTiers.*default/);
   assert.match(errorsOf((r) => { r.dispatchTiers.byOwner['core-implementer'] = 'heavy'; }), /dispatchTiers.*core-implementer/);

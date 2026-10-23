@@ -30,7 +30,25 @@ test('orchestration: the shipped registry declares the block on all eight harnes
   for (const harness of registry.harnesses) {
     assert.deepEqual(Object.keys(harness.orchestration), ORCHESTRATION_OPS, `${harness.id} operation keys`);
   }
+  assert.deepEqual(ORCHESTRATION_OPS, ['spawn', 'wait', 'status', 'cancel', 'resume', 'nest']);
   assert.deepEqual([...ORCHESTRATION_STATUS], ['supported', 'unsupported', 'unknown']);
+});
+
+test('orchestration: nest (118 IC-004) carries the recorded status and fallback per harness', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const nest = Object.fromEntries(registry.harnesses.map((h) => [h.id, h.orchestration.nest]));
+  for (const id of ['claude', 'antigravity', 'copilot']) assert.equal(nest[id].status, 'supported', `${id} nest`);
+  for (const id of ['gemini', 'pi']) {
+    assert.equal(nest[id].status, 'unsupported', `${id} nest`);
+    assert.equal(nest[id].fallback, 'sequential', `${id} nest fallback`);
+    assert.ok(nest[id].evidence.length > 0, `${id} nest evidence`);
+  }
+  for (const id of ['codex', 'opencode', 'kiro']) {
+    assert.equal(nest[id].status, 'unknown', `${id} nest`);
+    assert.equal(nest[id].fallback, 'sequential', `${id} nest fallback`);
+    assert.match(nest[id].reason, /vendor docs silent/, `${id} nest reason`);
+  }
+  for (const harness of registry.harnesses) assert.equal(harness.orchestration.nest.verifiedOn, '2026-10-23', `${harness.id} nest verifiedOn`);
 });
 
 test('orchestration: a harness without the block is reported', () => {
@@ -39,6 +57,10 @@ test('orchestration: a harness without the block is reported', () => {
 
 test('orchestration: a missing operation key is reported', () => {
   assertReports(mutated((block) => { delete block.resume; }), /missing operation 'resume'/);
+});
+
+test('orchestration: a missing nest operation is reported', () => {
+  assertReports(mutated((block) => { delete block.nest; }), /orchestration is missing operation 'nest'/);
 });
 
 test('orchestration: an extra operation key is reported', () => {

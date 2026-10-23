@@ -12,6 +12,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { guidanceManifest } = require('./guidance-manifest.ts');
+const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 function sha256(buf: any): string {
   return crypto.createHash('sha256').update(buf).digest('hex');
@@ -116,10 +117,30 @@ const TRANSFORMS: Record<string, (sourceRel: string, content: any) => any> = {
     void sourceRel;
     return Buffer.from(`---\ntrigger: always_on\n---\n\n${stripFrontmatter(content.toString('utf8'))}`);
   },
-  /** Shared agent spec frontmatter -> only the keys Gemini CLI's subagent schema accepts */
+  /** Shared agent spec -> the same file without `access`, plus Claude's read-only limit keys (118 IC-005) */
+  'claude-agents': (sourceRel: string, content: any) => {
+    void sourceRel;
+    return Buffer.from(applyAgentLimits(content.toString('utf8'), 'claude'));
+  },
+  /** Shared agent spec -> the same file without `access`; Codex's limit is `unenforced` (the TOML carries it), so no keys are added */
+  'codex-agents': (sourceRel: string, content: any) => {
+    void sourceRel;
+    return Buffer.from(applyAgentLimits(content.toString('utf8'), 'codex'));
+  },
+  /** Shared agent spec -> the same file without `access`, plus Copilot's read-only limit keys (118 IC-005) */
+  'copilot-agents': (sourceRel: string, content: any) => {
+    void sourceRel;
+    return Buffer.from(applyAgentLimits(content.toString('utf8'), 'copilot'));
+  },
+  /** Shared agent spec -> the same file without `access`; Antigravity's limit is `unenforced`, so no keys are added */
+  'antigravity-agents': (sourceRel: string, content: any) => {
+    void sourceRel;
+    return Buffer.from(applyAgentLimits(content.toString('utf8'), 'antigravity'));
+  },
+  /** Shared agent spec frontmatter -> only the keys Gemini CLI's subagent schema accepts, plus its read-only `tools` */
   'gemini-agents': (sourceRel: string, content: any) => {
     void sourceRel;
-    return Buffer.from(filterGeminiAgentFrontmatter(content.toString('utf8')));
+    return Buffer.from(filterGeminiAgentFrontmatter(applyAgentLimits(content.toString('utf8'), 'gemini')));
   },
   /** Shared agent spec frontmatter -> OpenCode's markdown-agent vocabulary */
   'opencode-agents': (sourceRel: string, content: any) => {
@@ -157,6 +178,44 @@ function renderClaudeOutputStyle(sourceRel: string, content: any): string {
   const purpose = text.match(/\*\*Purpose\*\*[:*]*\s*(.+)?/);
   const description = (purpose && purpose[1] ? purpose[1] : `DoFlow ${base} mode`).trim().replace(/\s+/g, ' ');
   return ['---', `name: DoFlow: ${base}`, `description: ${JSON.stringify(description)}`, 'keep-coding-instructions: true', '---', '', text.replace(/\n*$/, ''), ''].join('\n');
+}
+
+/** The `apply` keys a harness writes into the file of a `read-only` agent spec (118 IC-003), read from
+ * `agentLimits.readOnly` in core/registry/harnesses.json. `null` when the harness's limit is
+ * `unenforced`: nothing is written, and the registry says why. The one place adapters learn a limit. */
+let harnessAgentLimits: any[] | null = null;
+function readOnlyApply(harnessId: string): Record<string, any> | null {
+  if (!harnessAgentLimits) {
+    harnessAgentLimits = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'harnesses.json'), 'utf8')).harnesses;
+  }
+  const harness = (harnessAgentLimits as any[]).find((item: any) => item.id === harnessId);
+  if (!harness) throw new Error(`readOnlyApply: unknown harness '${harnessId}'`);
+  const entry = harness.agentLimits?.readOnly;
+  return entry?.status === 'native' ? entry.apply : null;
+}
+
+/** One frontmatter key as YAML lines: a scalar inline, an array as a flow sequence, an object as an
+ * indented block. */
+function yamlLines(key: string, value: any, indent: string = ''): string[] {
+  if (Array.isArray(value)) return [`${indent}${key}: ${JSON.stringify(value)}`];
+  if (value && typeof value === 'object') {
+    return [`${indent}${key}:`, ...Object.entries(value).flatMap(([k, v]) => yamlLines(k, v, `${indent}  `))];
+  }
+  return [`${indent}${key}: ${value}`];
+}
+
+/** Rewrite a shared agent spec's frontmatter for one harness: `access` is never projected, and a
+ * `read-only` spec gains the harness's `apply` keys (a `write` spec gains none). Body and every other
+ * key pass through byte for byte; a file without frontmatter is returned unchanged. */
+function applyAgentLimits(text: string, harnessId: string): string {
+  const match = text.match(/^---\r?\n([\s\S]*?\r?\n)---(?=\r?\n|$)/);
+  if (!match) return text;
+  const lines = match[1].split(/(?<=\n)/);
+  const readOnly = lines.some((line: string) => /^access:\s*read-only\s*$/.test(line));
+  const apply = readOnly ? readOnlyApply(harnessId) : null;
+  const added = apply ? Object.entries(apply).flatMap(([key, value]) => yamlLines(key, value)).map((line: string) => `${line}\n`) : [];
+  const kept = lines.filter((line: string) => !/^access:/.test(line));
+  return `${text.slice(0, text.indexOf('\n') + 1)}${kept.join('')}${added.join('')}${text.slice(match[0].length - 3)}`;
 }
 
 /** The frontmatter keys Gemini CLI documents for a custom subagent (https://geminicli.com/docs/core/subagents, accessed 2026-10-06).
@@ -206,7 +265,8 @@ function kiroPreToolUseHooks(): any[] {
 }
 
 /** Map one core/shared agent-spec file onto a kiro-cli custom agent. Spec keys other than
- * name/description (model: inherit, effort) are dropped: Kiro inherits the session model. */
+ * name/description (model: inherit, effort) are dropped: Kiro inherits the session model. `access` is
+ * never projected; a `read-only` spec replaces `tools: ["*"]` with the harness's `apply.tools`. */
 function renderKiroAgent(text: string): string {
   const fm: Record<string, string> = {};
   let body = text;
@@ -220,16 +280,15 @@ function renderKiroAgent(text: string): string {
       body = text.slice(end + 4).replace(/^\n+/, '');
     }
   }
+  const limits = fm.access === 'read-only' ? readOnlyApply('kiro') : null;
   const agent = {
     name: fm.name || '', description: fm.description || '',
     prompt: `${body.replace(/\s+$/, '')}\n`,
-    tools: ['*'],
+    tools: limits?.tools ?? ['*'],
     hooks: kiroPreToolUseHooks(),
   };
   return `${JSON.stringify(agent, null, 2)}\n`;
 }
-
-const OPENCODE_READONLY_AGENTS = new Set(['spec-analyst', 'system-architect', 'quality-guardian', 'research-writer']);
 
 /** Map one core/shared agent-spec file onto OpenCode's documented markdown-agent frontmatter
  * (description / mode / permission; model omitted because OpenCode has no 'inherit'). Unknown
@@ -251,9 +310,8 @@ function renderOpencodeAgent(text: string): string {
   const lines = ['---'];
   if (fm.description) lines.push(`description: ${JSON.stringify(fm.description)}`);
   lines.push('mode: subagent');
-  if (OPENCODE_READONLY_AGENTS.has(fm.name)) {
-    lines.push('permission:', '  edit: deny', '  bash: deny');
-  }
+  const limits = fm.access === 'read-only' ? readOnlyApply('opencode') : null;
+  if (limits) lines.push(...Object.entries(limits).flatMap(([key, value]) => yamlLines(key, value)));
   lines.push('---', '', body.replace(/\n*$/, ''), '');
   return lines.join('\n');
 }
@@ -684,4 +742,4 @@ function ledgerFileResources(resources: any, harness: string, assetId: string): 
     .map((resource: any) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
 }
 
-module.exports = { kiroHook, kiroHookCommand, kiroPreToolUseHooks, walkRelFiles, discoverTree, sameFileIndex, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveSelect, SELECTORS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };
+module.exports = { readOnlyApply, kiroHook, kiroHookCommand, kiroPreToolUseHooks, walkRelFiles, discoverTree, sameFileIndex, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveSelect, SELECTORS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };

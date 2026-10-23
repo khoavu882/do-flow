@@ -9,9 +9,11 @@ const REPO = path.resolve(__dirname, "../../..");
 const SOURCE_ROLES = path.join(REPO, 'core', 'shared', 'agent-specs');
 const CODEX_AGENTS = path.join(REPO, 'core', 'harnesses', 'codex', 'agents');
 const REQUIRED_FIELDS = ['name', 'description', 'developer_instructions'];
-const READ_ONLY_ROLES = new Set([
-  'spec-analyst', 'system-architect', 'quality-guardian', 'research-writer',
-]);
+// Which roles are read-only is the spec's `access` (118 IC-002), not a list kept here.
+const rolesWithAccess = (access) => fs.readdirSync(SOURCE_ROLES)
+  .filter((file) => file.endsWith('.md'))
+  .filter((file) => new RegExp(`^access: ${access}\\s*$`, 'm').test(fs.readFileSync(path.join(SOURCE_ROLES, file), 'utf8')))
+  .map((file) => path.basename(file, '.md'));
 
 function parseAgentToml(source, file) {
   assert.match(source, /^(?:[A-Za-z_][A-Za-z0-9_]*\s*=\s*(?:"[^"\n]*"|"""[\s\S]*?"""))\s*$/m, `${file} must contain TOML assignments`);
@@ -53,7 +55,7 @@ test('every Codex custom-agent file has the required schema and valid narrow TOM
 });
 
 test('analysis-only roles use least-privilege read-only sandboxes and prohibit writes', () => {
-  for (const role of READ_ONLY_ROLES) {
+  for (const role of rolesWithAccess('read-only')) {
     const source = fs.readFileSync(path.join(CODEX_AGENTS, `${role}.toml`), 'utf8');
     const agent = parseAgentToml(source, `${role}.toml`);
     assert.strictEqual(agent.sandbox_mode, 'read-only', `${role} must be read-only`);
@@ -62,7 +64,7 @@ test('analysis-only roles use least-privilege read-only sandboxes and prohibit w
 });
 
 test('implementation-oriented roles do not receive an unnecessary read-only sandbox', () => {
-  for (const role of ['core-implementer']) {
+  for (const role of rolesWithAccess('write')) {
     const source = fs.readFileSync(path.join(CODEX_AGENTS, `${role}.toml`), 'utf8');
     const agent = parseAgentToml(source, `${role}.toml`);
     assert.strictEqual(agent.sandbox_mode, undefined, `${role} must inherit the parent sandbox for requested implementation work`);

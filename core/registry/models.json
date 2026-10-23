@@ -61,7 +61,9 @@
       "core-implementer": "standard",
       "quality-guardian": "standard",
       "spec-analyst": "standard",
-      "research-writer": "standard"
+      "research-writer": "standard",
+      "delivery-lead": "frontier",
+      "reviewer": "frontier"
     }
   },
   "roles": [

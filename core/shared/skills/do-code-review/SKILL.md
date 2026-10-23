@@ -309,9 +309,8 @@ through specialist subagents (`/do-execute-plan`'s job) or replace human judgmen
 
 ## Running the review in a subagent
 
-A review over a large change can be dispatched whole to the `quality-guardian` archetype, which
-already declares code quality review among its capabilities, and which returns its report to the
-calling session. Use it when the analysis would otherwise consume context the caller still needs for
+A review over a large change can be dispatched whole to the `reviewer` agent, which
+returns its report to the calling session. Use it when the analysis would otherwise consume context the caller still needs for
 the work itself.
 
 This changes **where** the review runs and nothing else: the dispatched review loads the same rules

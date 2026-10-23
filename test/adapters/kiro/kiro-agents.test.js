@@ -9,14 +9,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
 const { createKiroAdapter } = require('../../../src/adapters/kiro/index.ts');
-const { TRANSFORMS, LAYOUTS, resolveLayout, kiroPreToolUseHooks, kiroHook } = require('../../../src/adapters/copy-tree.ts');
+const { TRANSFORMS, LAYOUTS, resolveLayout, kiroPreToolUseHooks, kiroHook, readOnlyApply } = require('../../../src/adapters/copy-tree.ts');
 const { loadRegistry, selectAssets } = require('../../../src/registry/index.ts');
 const { projectAdapterInput } = require('../../../src/adapters/index.ts');
 
 const REPO_ROOT = path.resolve(__dirname, '../../..');
 const SPECS_DIR = path.join(REPO_ROOT, 'core', 'shared', 'agent-specs');
 const DOFLOW_AGENT = path.join(REPO_ROOT, 'core', 'harnesses', 'kiro', 'agents', 'doflow.json');
-const SPEC_NAMES = ['core-implementer', 'quality-guardian', 'research-writer', 'spec-analyst', 'system-architect'];
+const SPEC_NAMES = ['core-implementer', 'delivery-lead', 'quality-guardian', 'research-writer', 'reviewer', 'spec-analyst', 'system-architect'];
 
 const scratch = () => suiteTempDir('doflow-kiro-agents-');
 const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
@@ -53,7 +53,8 @@ test('kiro-agents transform: deterministic bytes, valid JSON, prompt equals the 
     assert.ok(agent.description.length > 0);
     const body = source.slice(source.indexOf('\n---', 3) + 4).replace(/^\n+/, '').replace(/\s+$/, '');
     assert.equal(agent.prompt, `${body}\n`);
-    assert.deepEqual(agent.tools, ['*']);
+    // 118 IC-005: a read-only spec's tools come from the harness's agentLimits; a write spec keeps ["*"].
+    assert.deepEqual(agent.tools, /^access: read-only$/m.test(source) ? readOnlyApply('kiro').tools : ['*']);
     assert.equal(first, `${JSON.stringify(agent, null, 2)}\n`, `${name}: canonical two-space JSON`);
   }
 });
@@ -110,7 +111,7 @@ test('the registry projects shared agents to JSON and declares the doflow agent 
   assert.equal(own.source, 'core/harnesses/kiro/agents');
 });
 
-test('adapter installs <name>.json for all five specs plus doflow.json, verifies managed, and uninstalls', () => {
+test('adapter installs <name>.json for all seven specs plus doflow.json, verifies managed, and uninstalls', () => {
   const root = scratch(); const adapter = createKiroAdapter();
   const assets = kiroAgentAssets();
   const context = { repoRoot: REPO_ROOT };

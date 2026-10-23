@@ -3,6 +3,7 @@ name: core-implementer
 description: "Specialist code engineer for full-stack implementation, precision refactoring, performance optimization, and algorithmic design"
 model: inherit
 effort: high
+access: write
 ---
 
 # core-implementer

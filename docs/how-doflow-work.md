@@ -63,7 +63,7 @@ there is no source edit for a contract to gate.
 
 ## Stages have kinds
 
-Every stage declares a `kind`, and the kind decides what the stage may do.
+Every stage declares a `kind`, and the kind decides what the stage may do; it also names the `agent` that leads it.
 
 | Kind | What it does | Mutates source |
 |---|---|---|
