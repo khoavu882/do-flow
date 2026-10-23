@@ -194,6 +194,58 @@ describe('a FIFO at the failure file', { skip: process.platform === 'win32' }, (
   });
 });
 
+describe('a non-regular file at settlements.jsonl (FU-vc0agq)', { skip: process.platform === 'win32' }, () => {
+  const settleArgs = ['--action', 'settle', '--fp', fpOf(), '--as', 'noise', '--reason', 'r', '--json'];
+  /** Runs settle with a 10 s ceiling, so a hang shows as a null status rather than a stuck suite. */
+  function settleWith(m, args) {
+    const result = spawnSync(process.execPath, [BIN, 'failure', ...args], { cwd: m.project, env: m.env, encoding: 'utf8', timeout: 10000 });
+    let json = null;
+    try { json = JSON.parse(result.stdout); } catch { /* text output */ }
+    return { status: result.status, signal: result.signal, stdout: result.stdout, stderr: result.stderr, json };
+  }
+  test('a FIFO: settle exits 1 at once, naming the file, and writes nothing', () => {
+    const m = machine('settle-fifo');
+    writeEvents(m, [line()]);
+    spawnSync('mkfifo', [path.join(m.failures, 'settlements.jsonl')]);
+    const r = settleWith(m, settleArgs);
+    assert.equal(r.signal, null, 'settle did not hang');
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /settlements\.jsonl is not a regular file that can be appended to/);
+    assert.match(r.stderr, /Nothing was written\./);
+    assert.ok(fs.lstatSync(path.join(m.failures, 'settlements.jsonl')).isFIFO(), 'the FIFO is left as it was');
+  });
+  test('a symlink at the file is refused too, and its target is not written', () => {
+    const m = machine('settle-link');
+    writeEvents(m, [line()]);
+    const target = path.join(m.dir, 'elsewhere.jsonl');
+    fs.writeFileSync(target, '');
+    fs.symlinkSync(target, path.join(m.failures, 'settlements.jsonl'));
+    const r = settleWith(m, settleArgs);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /not a regular file/);
+    assert.equal(fs.readFileSync(target, 'utf8'), '');
+  });
+  test('settle --as imported over a FIFO creates no follow-up', () => {
+    const m = machine('settle-fifo-import');
+    writeEvents(m, [line()]);
+    m.markDoflowRepo();
+    spawnSync('mkfifo', [path.join(m.failures, 'settlements.jsonl')]);
+    const r = settleWith(m, ['--action', 'settle', '--fp', fpOf(), '--as', 'imported', '--json']);
+    assert.equal(r.signal, null);
+    assert.equal(r.status, 1);
+    assert.match(r.stderr, /not a regular file/);
+    assert.equal(fs.existsSync(path.join(m.project, '.doflow', 'state', 'lifecycle', 'events')), false, 'no follow-up was written');
+  });
+  test('control: a regular settlements file is still appended to', () => {
+    const m = machine('settle-regular');
+    writeEvents(m, [line()]);
+    fs.writeFileSync(path.join(m.failures, 'settlements.jsonl'), '');
+    const r = settleWith(m, settleArgs);
+    assert.equal(r.status, 0);
+    assert.equal(fs.readFileSync(path.join(m.failures, 'settlements.jsonl'), 'utf8').trim().split('\n').length, 1);
+  });
+});
+
 describe('failure --action list', () => {
   test('an empty store: exit 0, empty list, capture on, nothing created', () => {
     const m = machine('list-empty');
