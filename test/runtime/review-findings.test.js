@@ -36,7 +36,7 @@ test('frozen vocabularies, closed key lists and ROUND_CAP', () => {
   assert.deepEqual(findings.ORIGINS, ['introduced', 'pre-existing']);
   assert.deepEqual(findings.VERIFICATIONS, ['confirmed', 'plausible']);
   assert.deepEqual(findings.ACCEPTED_AS, ['intentional', 'not-worth-fixing']);
-  assert.deepEqual(findings.RECORD_KEYS, ['schema', 'row', 'slug', 'reviewedHead', 'depth', 'risk', 'rounds', 'seats', 'converged']);
+  assert.deepEqual(findings.RECORD_KEYS, ['schema', 'row', 'slug', 'reviewedHead', 'depth', 'risk', 'protocol', 'rounds', 'seats', 'converged']);
   assert.deepEqual(findings.FINDING_FIELDS, ['origin', 'preExistingAt', 'escapedFrom', 'verification', 'verifiedBy', 'bugClass', 'sweep', 'acceptedAs']);
   assert.equal(findings.ROUND_CAP, 3);
 });
@@ -243,6 +243,30 @@ test('095b IC-005: an unknown depth or risk is refused with its own error', () =
     assert.deepEqual(errorsOf({}, { depth: bad }), ['depth'], `depth ${JSON.stringify(bad)}`);
     assert.deepEqual(errorsOf({}, { risk: bad }), ['risk'], `risk ${JSON.stringify(bad)}`);
   }
+});
+
+const DIGEST = 'f'.repeat(64);
+
+test('119 IC-002: protocol is optional; a review preset id with a 64-hex digest passes', () => {
+  assert.deepEqual(errorsOf({}), []);
+  for (const id of ['review-deep', 'review-single']) assert.deepEqual(errorsOf({}, { protocol: { id, digest: DIGEST } }), [], id);
+  assert.deepEqual(errorsOf({}, { depth: 'deep', protocol: { id: 'review-deep', digest: '0123456789abcdef'.repeat(4) } }), []);
+});
+
+test('119 IC-002: an unknown id, a debate id, a bad digest or an extra key is refused with the error protocol', () => {
+  const good = { id: 'review-deep', digest: DIGEST };
+  const bad = [
+    { ...good, id: 'review-nope' },
+    { ...good, id: 'debate-2' },
+    { ...good, digest: 'f'.repeat(63) },
+    { ...good, digest: 'f'.repeat(65) },
+    { ...good, digest: 'F'.repeat(64) },
+    { ...good, extra: 1 },
+    { id: 'review-deep' },
+    { digest: DIGEST },
+    null, '', 'review-deep', ['review-deep'], {},
+  ];
+  for (const protocol of bad) assert.deepEqual(errorsOf({}, { protocol }), ['protocol'], JSON.stringify(protocol));
 });
 
 test('095b IC-005: depth-unmet:<depth> when the seats are fewer than the policy; advisories are sorted with the rest', () => {

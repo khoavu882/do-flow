@@ -20,8 +20,9 @@ const ROUND_CAP = 3;
 // stripped and dash variants unified before a verifier id is compared with a seat id (095 C-7, R-1).
 const IGNORABLE = /[\p{Default_Ignorable_Code_Point}\p{Cf}]/gu;
 const DASH = /\p{Pd}/gu;
+const PROTOCOL_DIGEST = /^[0-9a-f]{64}$/;
 /** The closed top-level key set (IC-001). */
-const RECORD_KEYS = Object.freeze(['schema', 'row', 'slug', 'reviewedHead', 'depth', 'risk', 'rounds', 'seats', 'converged']);
+const RECORD_KEYS = Object.freeze(['schema', 'row', 'slug', 'reviewedHead', 'depth', 'risk', 'protocol', 'rounds', 'seats', 'converged']);
 /** The optional convergence keys of a converged finding (IC-001); other finding keys stay open. */
 const FINDING_FIELDS = Object.freeze(['origin', 'preExistingAt', 'escapedFrom', 'verification', 'verifiedBy', 'bugClass', 'sweep', 'acceptedAs']);
 const object = (x: any): boolean => x !== null && typeof x === 'object' && !Array.isArray(x);
@@ -40,6 +41,30 @@ function depthPolicy(): { depths: Record<string, { seats: number }>; risks: stri
     } catch { depthVocabulary = null; }
   }
   return depthVocabulary;
+}
+
+/** The `kind: review` preset ids of the protocol registry (119 IC-002), read on first use only, so a record
+ * without `protocol` never loads it. `null` (a load failure) fails closed. */
+let reviewPresetIds: string[] | null | undefined;
+function reviewPresets(): string[] | null {
+  if (reviewPresetIds === undefined) {
+    try {
+      const { loadProtocols, presetIds } = require('./protocols.ts');
+      const loaded = loadProtocols();
+      reviewPresetIds = loaded.ok ? presetIds(loaded.registry, 'review') : null;
+    } catch { reviewPresetIds = null; }
+  }
+  return reviewPresetIds ?? null;
+}
+
+/** `protocol` is exactly `{ id, digest }`: a review preset id of the shipped registry and a sha256 hex digest. */
+function validProtocol(value: any): boolean {
+  if (!object(value)) return false;
+  const keys = Object.keys(value);
+  if (keys.length !== 2 || !keys.includes('id') || !keys.includes('digest')) return false;
+  if (typeof value.digest !== 'string' || !PROTOCOL_DIGEST.test(value.digest)) return false;
+  const ids = reviewPresets();
+  return typeof value.id === 'string' && ids !== null && ids.includes(value.id);
 }
 
 /** Repo-relative literal path; traversal, globs, absolute paths and alternate separators fail closed. */
@@ -76,6 +101,7 @@ function validateFindings(json: any): { ok: boolean; errors: string[] } {
   const policy = Object.hasOwn(data, 'depth') || Object.hasOwn(data, 'risk') ? depthPolicy() : null;
   if (Object.hasOwn(data, 'depth') && !(typeof data.depth === 'string' && policy && Object.hasOwn(policy.depths, data.depth))) errors.push('depth');
   if (Object.hasOwn(data, 'risk') && !(typeof data.risk === 'string' && policy && policy.risks.includes(data.risk))) errors.push('risk');
+  if (Object.hasOwn(data, 'protocol') && !validProtocol(data.protocol)) errors.push('protocol');
   if (Object.hasOwn(data, 'rounds') && !(Number.isSafeInteger(data.rounds) && data.rounds >= 1)) errors.push('rounds');
   const seats = Array.isArray(data.seats) ? data.seats : [];
   const converged = Array.isArray(data.converged) ? data.converged : [];

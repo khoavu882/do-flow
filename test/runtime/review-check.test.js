@@ -458,6 +458,29 @@ test('095b IC-006: an invalid record (bad depth) writes null for depth, risk and
   assert.equal(capture.records[0].head, null);
 });
 
+test('119 IC-002: a valid record with protocol writes the preset id; without protocol or when invalid it writes null', (t) => {
+  const cwd = tempDir(t, 'doflow-review-check-protocol-');
+  const protocol = { id: 'review-deep', digest: 'a'.repeat(64) };
+  const run = (record, name) => {
+    const capture = fakeWriter();
+    const result = invoke({ ...baseOptions(cwd, writeRecord(cwd, record, name), capture.writer), json: true });
+    return { result, telemetry: capture.records[0] };
+  };
+
+  const withProtocol = run({ ...validRecord(), protocol }, 'with/review/findings.json');
+  assert.equal(withProtocol.result.exitCode, 0);
+  assert.equal(withProtocol.telemetry.protocol, 'review-deep');
+
+  const without = run(validRecord(), 'without/review/findings.json');
+  assert.equal(without.result.exitCode, 0);
+  assert.equal(without.telemetry.protocol, null);
+
+  const invalid = run({ ...validRecord(), protocol: { ...protocol, id: 'debate-2' } }, 'invalid/review/findings.json');
+  assert.equal(invalid.result.exitCode, 1);
+  assert.deepEqual(parseJsonOutput(invalid.result.lines).errors, ['protocol']);
+  assert.equal(invalid.telemetry.protocol, null);
+});
+
 test('095b IC-006: the telemetry registry declares depth, risk and head and the depth vocabulary', () => {
   const registry = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/telemetry.json'), 'utf8'));
   const fields = registry.kinds['review.run'].fields;

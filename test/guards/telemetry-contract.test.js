@@ -605,6 +605,7 @@ test('G45.1: telemetry.json is well formed, its owned vocabularies match their o
     status: { owner: 'core/registry/verification.json tierStatuses', values: verification.tierStatuses },
     risk: { owner: 'core/registry/verification.json riskLevels', values: Object.keys(verification.riskLevels) },
     depth: { owner: 'core/registry/verification.json reviewDepth.depths', values: Object.keys(verification.reviewDepth.depths) },
+    protocol: { owner: 'core/registry/protocols.json order.review', values: JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/protocols.json'), 'utf8')).order.review },
     role: { owner: 'core/harnesses/shared/hooks/bridge/envelope.jq role literals', values: ['main', 'worker'] },
   }), []);
   const observations = shippedObservations(registry);
