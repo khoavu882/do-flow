@@ -59,10 +59,21 @@ const SECRET_FLAG = /(--(?:password|passwd|token|secret|api-key|client-secret)(?
 // `-p` prompts and carries none), and the phrase `password hunter2`. The flags are masked by one
 // left-to-right scan (rules 14 and 15, `maskCommandFlags`) that knows which command it is in, so every
 // flag of a command is masked and `sort -u`, `git push -u` and `mysql -P 3306` stay as written.
-// Quoted text is skipped whole, so a `|` or `;` inside quotes does not end a command.
-// Alternatives, in order: quoted text (skipped), a command word, a command break, curl's `--user` and
-// `-u` (the short one may be glued to its value), mysql's `-p` glued to its value.
-const COMMAND_SCAN = /"[^"\r\n]*"|'[^'\r\n]*'|(?<cmd>\b(?:curl|mysql(?:dump|admin|pump|import)?)\b)|(?<brk>[|;&\r\n])|(?<=[ \t])(?:(?<long>--user)(?:=|[ \t]+)|(?<short>-u)(?:=|[ \t]*)(?=[^\s|;&]))|(?<=[ \t])(?<pass>-p)(?=[^\s|;&-])/g;
+// A command word counts only at command position (see `maskCommandFlags`), and quoted text is scanned,
+// not skipped. Alternatives, in order: a quote, a command break (`|`, `;`, `&`, parentheses, a
+// backtick, a line end), curl's `--user` and `-u` (the short one may be glued to its value), mysql's
+// `-p` glued to its value, any other word.
+const COMMAND_SCAN = /(?<quote>["'])|(?<brk>[|;&()`\r\n])|(?<=[ \t])(?:(?<long>--user)(?:=|[ \t]+)|(?<short>-u)(?:=|[ \t]*)(?=[^\s|;&]))|(?<=[ \t])(?<pass>-p)(?=[^\s|;&-])|(?<word>[^\s|;&()`"']+)/g;
+// The closing quote of a quoted span, on the same line.
+const QUOTE_CLOSE: Record<string, RegExp> = { '"': /[^"\r\n]*"/y, "'": /[^'\r\n]*'/y };
+// A word that is the command: bare or as a path (never a URL, which holds `:`).
+const COMMAND_WORD = /^(?:(?:\.{0,2}|~)?\/(?:[^\s:]*\/)?)?(?:(curl)|(mysql(?:dump|admin|pump|import)?))$/;
+// Words after which the next word is the command: wrappers, remote and container runners, shell keywords.
+const WRAPPER_WORDS = new Set(['sudo', 'doas', 'su', 'env', 'exec', 'nohup', 'time', 'timeout', 'nice', 'ionice', 'xargs', 'watch',
+  'command', 'builtin', 'eval', 'setsid', 'stdbuf', 'flock', 'chroot', 'ssh', 'docker', 'podman', 'kubectl', 'sh', 'bash', 'zsh', 'dash', 'ksh',
+  'if', 'then', 'else', 'elif', 'do', 'while', 'until', '!', '{']);
+// A first word that does not use up the command position: a prompt mark, or a variable assignment.
+const PROMPT_OR_ASSIGNMENT = /^(?:[$#%>+]+|[A-Za-z_][A-Za-z0-9_]*=[^=]*)$/;
 // A flag value: quoted, or unquoted up to a space, quote or command break.
 const COMMAND_FLAG_VALUE = /"[^"\r\n]*"|'[^'\r\n]*'|[^\s"'|;&]+/y;
 // The value after the phrase must hold a non-letter, as in rule 4, so ordinary prose ("the password is
@@ -74,23 +85,53 @@ const PASSWORD_PHRASE = /(?<![A-Za-z0-9_.-])((?:password|passwd)[ \t]+)(?!<maske
 const OTHER_USER_HOME = /(?<![A-Za-z0-9_.-])\/Users\/(?!(?:Shared|runner)(?![^/\s"'`<>:;,()[\]{}])|<)[^/\s"'`<>:;,()[\]{}]+/g;
 
 /**
- * Rules 14 and 15. Scans left to right, remembering the command word (`curl`, `mysql*`) the last
- * break (`|`, `;`, `&`, a line end) did not end, and masks the value of every `-u`/`--user` of a curl
- * command and every `-p<value>` of a mysql command. One pass, each step consumes at least one
- * character, so the cost is linear in the line.
+ * Rules 14 and 15. Scans left to right and masks the value of every `-u`/`--user` of a curl command
+ * and every `-p<value>` of a mysql command. A command word (`curl`, `mysql*`) is the command of its
+ * segment only at command position: the first word of the text, of a line or of a segment after a
+ * break (`|`, `;`, `&`, a parenthesis, a backtick), of a quoted span, or after a wrapper word
+ * (`sudo`, `env`, `ssh`, `docker`, `sh`, `bash`, ...) at the start of the segment. A word that holds `:`
+ * (a URL) or is followed by more of its token (`mysql-8`) is not the command. A segment has one
+ * command. Quoted text is scanned: its start is a command position, and a break inside it ends only
+ * the command inside it, so `curl -H "a|b" -u x:y` keeps its command. One pass; every step consumes
+ * at least one character and a closing quote is searched on its own line, so the cost is linear.
  */
 function maskCommandFlags(text: string): string {
   let out = '';
   let copied = 0;
   let command: 'curl' | 'mysql' | null = null;
+  let atStart = true;       // the next word is the first of its segment
+  let wrapped = false;      // the segment began with a wrapper word
+  const spans: Array<{ quote: string; command: 'curl' | 'mysql' | null; atStart: boolean; wrapped: boolean }> = [];
   COMMAND_SCAN.lastIndex = 0;
   let found: RegExpExecArray | null;
   while ((found = COMMAND_SCAN.exec(text)) !== null) {
     const groups = found.groups || {};
     const end = found.index + found[0].length;
-    if (groups.cmd) command = groups.cmd === 'curl' ? 'curl' : 'mysql';
-    else if (groups.brk) { if (!(groups.brk === '&' && /[<>]/.test(text[found.index - 1] || ''))) command = null; }
-    else if (((groups.long || groups.short) && command === 'curl') || (groups.pass && command === 'mysql')) {
+    if (groups.quote) {
+      const top = spans[spans.length - 1];
+      if (top && top.quote === groups.quote) {
+        spans.pop();
+        ({ command, atStart, wrapped } = top);
+        atStart = false;
+      } else {
+        const close = QUOTE_CLOSE[groups.quote];
+        close.lastIndex = end;
+        if (close.test(text)) {
+          spans.push({ quote: groups.quote, command, atStart, wrapped });
+          command = null; atStart = true; wrapped = false;
+        }
+      }
+    } else if (groups.brk) {
+      if (!(groups.brk === '&' && /[<>]/.test(text[found.index - 1] || ''))) { command = null; atStart = true; wrapped = false; }
+    } else if (groups.word) {
+      const word = groups.word;
+      if (atStart && PROMPT_OR_ASSIGNMENT.test(word)) continue;
+      const named = COMMAND_WORD.exec(word);
+      if (command === null && (atStart || wrapped) && named) command = named[1] ? 'curl' : 'mysql';
+      else if (atStart) wrapped = WRAPPER_WORDS.has(word.slice(word.lastIndexOf('/') + 1));
+      atStart = false;
+    } else if (((groups.long || groups.short) && command === 'curl') || (groups.pass && command === 'mysql')) {
+      atStart = false;
       COMMAND_FLAG_VALUE.lastIndex = end;
       const value = COMMAND_FLAG_VALUE.exec(text);
       if (value && !isMasked(value[0]) && !(command === 'mysql' && value[0].startsWith(MASKED))) {
@@ -98,8 +139,9 @@ function maskCommandFlags(text: string): string {
         copied = end + value[0].length;
         COMMAND_SCAN.lastIndex = copied;
       }
-    } else if (groups.long || groups.short || groups.pass) {
-      COMMAND_SCAN.lastIndex = end;   // another command's flag: rescan what follows it
+    } else {
+      atStart = false;                // another command's flag: rescan what follows it
+      COMMAND_SCAN.lastIndex = end;
     }
   }
   return out + text.slice(copied);

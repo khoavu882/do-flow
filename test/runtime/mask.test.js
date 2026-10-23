@@ -318,3 +318,56 @@ test('FU-ht8b3r C-5: many credential flags and unterminated quotes in one long l
     assert.ok(Date.now() - started < 2000, `${JSON.stringify(unit)} took ${Date.now() - started} ms`);
   }
 });
+
+// N-2: a command word is the command only at command position (line or segment start, after a break,
+// at the start of a quoted span, after a wrapper word); quoted text is scanned, not skipped; one pass.
+// Known false positive, not asserted: a command word after a wrapper word that only prints it
+// (`sudo echo curl documentation -u unique`) still masks the value after `-u`.
+test('FU-ht8b3r N-2: credential flags of a command inside quotes or behind a wrapper word are masked in one pass', () => {
+  for (const [input, expected] of [
+    ['bash -c "curl -u admin:S3cret https://x"', 'bash -c "curl -u <masked> https://x"'],
+    ["ssh db1 'mysql -pS3cret -e \"select 1\"'", "ssh db1 'mysql -p<masked> -e \"select 1\"'"],
+    ['docker exec c sh -c "mysqldump -pS3cret db"', 'docker exec c sh -c "mysqldump -p<masked> db"'],
+    ['ssh db1 mysql -pS3cret db', 'ssh db1 mysql -p<masked> db'],
+    ['sudo -u bob curl -u a:b x', 'sudo -u bob curl -u <masked> x'],
+    ['FOO=1 /usr/bin/curl -u a:b x', 'FOO=1 /usr/bin/curl -u <masked> x'],
+    ['$ curl -u a:b x', '$ curl -u <masked> x'],
+    ['echo "curl -u a:b"', 'echo "curl -u <masked>"'],
+    ['echo $(curl -u a:b x)|cat', 'echo $(curl -u <masked> x)|cat'],
+  ]) {
+    const once = maskBody(input, opts).text;
+    assert.equal(once, expected, input);
+    assert.equal(maskBody(once, opts).text, once, `not idempotent: ${input}`);
+  }
+});
+
+test('FU-ht8b3r N-2: a tool name inside a URL, a path or an argument is not a command', () => {
+  for (const [input, expected] of [
+    ['curl https://h/mysql/x -u a:b', 'curl https://h/mysql/x -u <masked>'],
+    ['curl http://mysql -u a:b', 'curl http://mysql -u <masked>'],
+    ['curl password mysql-8 -u a:b', 'curl password <masked> -u <masked>'],
+  ]) {
+    const once = maskBody(input, opts).text;
+    assert.equal(once, expected, input);
+    assert.equal(maskBody(once, opts).text, once, `not idempotent: ${input}`);
+  }
+  for (const same of ['ls /var/lib/mysql -pfoo', 'git clone https://h/curl -u x', 'mysql-8 -pfoo', 'cat notes-curl -u a']) {
+    assert.equal(maskBody(same, opts).text, same, same);
+  }
+});
+
+test('FU-ht8b3r N-2: a break inside quotes ends only the command inside them', () => {
+  for (const [input, expected] of [
+    ['curl -H "x: a|b;c" -u a:b y', 'curl -H "x: a|b;c" -u <masked> y'],
+    ['bash -c "curl x | sort -u; mysql -pfoo db" && curl -u a:b y', 'bash -c "curl x | sort -u; mysql -p<masked> db" && curl -u <masked> y'],
+    ["sh -c 'ls -pfoo; curl -u a:b'", "sh -c 'ls -pfoo; curl -u <masked>'"],
+  ]) assert.equal(maskBody(input, opts).text, expected, input);
+});
+
+test('FU-ht8b3r N-2: nested and unterminated quotes stay linear', () => {
+  for (const unit of ['sh -c "curl -u a:b ', "ssh h 'mysql -pa \" ", 'x "', "y '", '"\'']) {
+    const started = Date.now();
+    maskBody(unit.repeat(50000), opts);
+    assert.ok(Date.now() - started < 2000, `${JSON.stringify(unit)} took ${Date.now() - started} ms`);
+  }
+});
