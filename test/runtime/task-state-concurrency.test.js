@@ -12,7 +12,7 @@ const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 const { ClaimsManager } = require('../../src/runtime/claims.ts');
-const { acquireLock, tryAcquireLock, readTaskState, SCHEMA_VERSION } = require('../../src/runtime/task-state.ts');
+const { acquireLock, tryAcquireLock, readTaskState, updateTaskState, SCHEMA_VERSION } = require('../../src/runtime/task-state.ts');
 
 function stateRoot(t) {
   const dir = tempDir(t, 'doflow-task-state-concurrency-');
@@ -203,4 +203,42 @@ test('R4: a slow host gives up on a live holder at the wait bound instead of out
 
   assert.ok(waited < 9_000, `refusal must arrive inside the holder's 10 s staleness window, took ${waited} ms`);
   assert.ok(fs.existsSync(lockDir), 'the live holder\'s lock must still be in place after the refusal');
+});
+
+// FU-10t7cn: the storage sweep removes an empty namespace folder (a plain rmdir) while a writer has
+// just created it and not yet taken its lock. The lock is a folder inside the namespace and is made
+// without `recursive`, so the writer used to fail with ENOENT instead of making the folder again.
+test('a writer survives its namespace folder being removed between making it and taking the lock (FU-10t7cn)', (t) => {
+  const dir = path.join(stateRoot(t), 'ns');
+  const file = path.join(dir, 'task.json');
+  let removals = 0;
+  const racing = {
+    ...fs,
+    mkdirSync(target, options) {
+      const made = fs.mkdirSync(target, options);
+      if (removals < 2 && options && options.recursive && target === dir) { removals += 1; fs.rmdirSync(dir); }
+      return made;
+    },
+  };
+  const written = updateTaskState({ fsImpl: racing, file, build: () => ({ items: ['kept'] }) });
+  assert.equal(written, file);
+  assert.equal(removals, 2, 'the folder vanished twice, as a sweep running in a loop would make it');
+  assert.deepEqual(readTaskState(fs, file).items, ['kept']);
+  assert.equal(fs.existsSync(`${file}.lock`), false, 'the lock is released');
+});
+
+test('a namespace folder that keeps vanishing is reported after a bounded number of tries, not retried forever', (t) => {
+  const dir = path.join(stateRoot(t), 'ns');
+  const file = path.join(dir, 'task.json');
+  let made = 0;
+  const hostile = {
+    ...fs,
+    mkdirSync(target, options) {
+      const result = fs.mkdirSync(target, options);
+      if (options && options.recursive && target === dir) { made += 1; fs.rmdirSync(dir); }
+      return result;
+    },
+  };
+  assert.throws(() => updateTaskState({ fsImpl: hostile, file, build: () => ({ items: [] }) }), (error) => error.code === 'ENOENT');
+  assert.ok(made > 1 && made < 20, `${made} attempts`);
 });
