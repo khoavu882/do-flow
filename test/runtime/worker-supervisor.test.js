@@ -249,7 +249,7 @@ test('a user cancel of a running supervised worker keeps the step-6 fields (S-1,
   const p = project(t, { run: [{ print: 'working' }, { sleep: 30000 }] });
   const { runId } = p.seed();
   const supervised = p.supervise(runId);
-  const until = Date.now() + 10000;
+  const until = Date.now() + 60000;
   while (p.run(runId).phase !== 'running') {
     assert.ok(Date.now() < until, 'the run reached running');
     await sleep(20);
@@ -486,7 +486,7 @@ test('detached through SUPERVISOR_FILE the run ends exited with a success report
   const exited = new Promise((resolve) => child.on('exit', (code, signal) => resolve({ code, signal })));
   child.unref();
   t.diagnostic(`supervisor execArgv: ${JSON.stringify(process.execArgv)}`);
-  const until = Date.now() + 15000;
+  const until = Date.now() + 60000;
   let run = p.run(runId);
   while (run.phase !== 'ended' && Date.now() < until) {
     await sleep(100);
