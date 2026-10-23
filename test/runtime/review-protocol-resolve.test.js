@@ -8,6 +8,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { tempDir } = require('../helper/tmp');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { loadProtocols } = require('../../src/runtime/review/protocols.ts');
 const { resolveProtocol, protocolLines, gateMinSeats } = require('../../src/runtime/review/resolve-protocol.ts');
@@ -283,11 +284,11 @@ test('enforcement: one row per distinct read-only seat agent, in seat order, fro
   assert.deepEqual([...new Set(mixed.protocol.enforcement.map((row) => row.agent))], ['reviewer']);
 });
 
-test('enforcement: an unreadable harness registry or agent spec is refused, not an empty enforcement', () => {
+test('enforcement: an unreadable harness registry or agent spec is refused, not an empty enforcement', (t) => {
   const none = loadEnforcementInputs({ presets: { x: { seats: [{ agent: 'no-such-agent' }] } } });
   assert.equal(none.error, 'protocols-invalid');
   assert.match(none.message, /no-such-agent/);
-  const empty = loadEnforcementInputs(REGISTRY, { harnessesFile: path.join(require('node:os').tmpdir(), 'doflow-no-such-harnesses.json') });
+  const empty = loadEnforcementInputs(REGISTRY, { harnessesFile: path.join(tempDir(t), 'doflow-no-such-harnesses.json') });
   assert.equal(empty.error, 'protocols-invalid');
   assert.match(empty.message, /harnesses/);
 });
