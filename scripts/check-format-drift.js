@@ -180,7 +180,7 @@ function innerOf(html, openRe) {
 const EXTRACTORS = [
   ['main', /<(main)(?=[\s>/])[^>]*>/i],
   ['article', /<(article)(?=[\s>/])[^>]*>/i],
-  ['role=main', /<([a-z][a-z0-9-]*)(?=[\s/])[^>]*?\brole\s*=\s*(?:"main"|'main'|main(?=[\s>/]))[^>]*>/i],
+  ['role=main', /<([a-z][a-z0-9-]*)(?=[\s/])[^>]*?\srole\s*=\s*(?:"main"|'main'|main(?=[\s>/]))[^>]*>/i],
 ];
 
 /** Pick the main-content HTML of a page: {extractor, html}. `page` = the whole input. */

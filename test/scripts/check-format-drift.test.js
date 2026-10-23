@@ -99,6 +99,13 @@ test('extractMain takes the first complete block, skips tags inside scripts, and
   assert.equal(drift.normalizeContent('plain text, no tags').extractor, 'page');
 });
 
+test('role=main matches the role attribute, not data-role or aria-role', () => {
+  const html = '<div data-role="main">WRONG</div><div aria-role="main">WRONG</div><div role="main">RIGHT</div>';
+  assert.deepEqual(drift.normalizeContent(html), { extractor: 'role=main', text: 'RIGHT' });
+  assert.equal(drift.normalizeContent('<div data-role="main">only a data attribute</div>').extractor, 'page');
+  assert.equal(drift.normalizeContent("<section id=x role='main'>quoted</section>").extractor, 'role=main');
+});
+
 test('a baseline written by the old reader (hash strings only) is compared on the whole page', async (t) => {
   const s = setup(t, page());
   fs.mkdirSync(path.dirname(s.env.baselineFile), { recursive: true });
