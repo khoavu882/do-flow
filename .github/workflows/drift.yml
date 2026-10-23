@@ -28,7 +28,7 @@ jobs:
       - name: Check upstream format drift (read-only)
         id: drift
         shell: bash
-        # npm run drift exits: 0 clean · 1 DRIFTED · 3 previously-fingerprinted page unreachable ·
+        # npm run drift exits: 0 clean · 1 DRIFTED or STUB (a redirect-only page) · 3 previously-fingerprinted page unreachable ·
         # 2 config error. Only 1 opens the tracking issue; 3 is visible in the log but must not
         # spam issues; neither may fail the job outright — upstream flakiness is not our regression.
         run: |
@@ -49,7 +49,7 @@ jobs:
           title="Upstream format drift detected"
           run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           {
-            echo "**Drifted claims** from [$GITHUB_SHA]($run_url):"
+            echo "**Drifted or stub claims** from [$GITHUB_SHA]($run_url):"
             echo ""
             # A STUB row is a watched page that is only a redirect (its note names the target).
             # Each DRIFTED row carries `diff`, a unified diff of the page's main content
