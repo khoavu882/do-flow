@@ -144,6 +144,26 @@ test('gate-b reads head-bound verification and disposition ancestry and register
   assert.ok(evaluate(env.options.policy, 'feature', 'gate-b', stale).reasons.includes('review-stale-head'));
 });
 
+test('D.3: gate-b gathers the project review.sameFamily as a review-settings fact; the dispositions schemaValid follows it', (t) => {
+  const env = setup(t);
+  const sandbox = { ...process.env, HOME: path.join(env.root, 'home'), XDG_CONFIG_HOME: path.join(env.root, 'xdg') };
+  const settingsFact = (gathered) => gathered.find((f) => f.name === 'review-settings');
+  const withFamilies = { ...review, author: { agent: 'core-implementer', session: 's1', family: 'claude' },
+    seats: [{ id: 'one', findings: [], agent: 'reviewer', session: 's2', family: 'claude' }, { id: 'two', findings: [] }],
+    converged: [{ id: 'C1', from: [], severity: 'blocker', locator: 'src/x.ts:1', status: 'fixed', fixedIn: PARENT }] };
+  env.write(`agent-docs/doflow/${row.slug}/review/findings.json`, JSON.stringify(withFamilies));
+  const absent = env.gather('gate-b', { env: sandbox });
+  assert.deepEqual(settingsFact(absent).value, { sameFamily: 'warn' });
+  assert.equal(settingsFact(absent).unreadable, undefined);
+  assert.equal(absent.find((f) => f.name === 'dispositions').value.schemaValid, true);
+  env.write('.doflow/settings.json', JSON.stringify({ schema: 1, 'review.sameFamily': 'refuse' }));
+  const refuse = env.gather('gate-b', { env: sandbox });
+  assert.deepEqual(settingsFact(refuse).value, { sameFamily: 'refuse' });
+  assert.equal(refuse.find((f) => f.name === 'dispositions').value.schemaValid, false);
+  assert.ok(evaluate(env.options.policy, 'feature', 'gate-b', refuse).reasons.includes('findings-invalid'));
+  assert.equal(env.gather('gate-0', { env: sandbox }).some((f) => f.name === 'review-settings'), false, 'read only when a findings predicate is in use');
+});
+
 test('a register that does not exist yet is an empty decision list; a malformed one stays unreadable', (t) => {
   const env = setup(t);
   env.write(`agent-docs/doflow/${row.slug}/review/findings.json`, JSON.stringify({ ...review, converged: [

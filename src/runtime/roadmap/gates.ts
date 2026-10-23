@@ -211,9 +211,10 @@ function evaluate(policy: any, cls: string, gateId: string, facts: any[]): any {
     } else if (predicate === 'verify-pass-on-head') {
       if (requireFact('verification', 'verify-missing') && requireFact('heads', 'verify-missing')) reasons.push(...verifyRecordReasons(get('verification'), head, row.slug));
     } else if (predicate === 'findings-valid') {
-      if (requireFact('findings', 'findings-invalid')) {
+      // 119 L-D3b: an absent review-settings fact (gathered before it existed) warns; an unreadable one fails closed.
+      if (requireFact('findings', 'findings-invalid') && (!byName.has('review-settings') || requireFact('review-settings', 'findings-invalid'))) {
         if (findings === null || findings === undefined) reasons.push('findings-missing');
-        else if (!validateFindings(findings).ok || findings.row !== row.id || findings.slug !== row.slug) reasons.push('findings-invalid');
+        else if (!validateFindings(findings, { sameFamily: get('review-settings')?.sameFamily === 'refuse' ? 'refuse' : 'warn' }).ok || findings.row !== row.id || findings.slug !== row.slug) reasons.push('findings-invalid');
         else {
           if (unavailable('heads') || !HEX_HEAD.test(head) || findings.reviewedHead !== head) reasons.push('review-stale-head');
           if (seats.length < (gate.minSeats || 0)) reasons.push('seats-too-few');
