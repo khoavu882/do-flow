@@ -3,27 +3,39 @@
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 
 /**
- * The three named references a settings key may point at (086 IC-001, DD-1): the one place the
- * settings registry reaches into another registry for a value it must not copy. `valuesRef` names a
- * list of allowed values, `defaultRef` names a default. There is no other per-key code here; a key
- * that needs a fourth reference adds a function below and a row to `REF_META`.
+ * The named references a settings key may point at (086 IC-001, DD-1): the one place the settings
+ * registry reaches into another registry for a value it must not copy. `valuesRef` names a list of
+ * allowed values, `orderRef` names that list ranked narrowest first, `defaultRef` names a default.
+ * There is no other per-key code here; a key that needs another reference adds a function below and
+ * a row to `REF_META`.
  *
  *   advice.providerIds                    core/registry/advice.json  providers[].id
  *   advice.providerDefaultEndpoint        core/registry/advice.json  providers[id = advice.provider].defaultEndpoint
  *   storage.lifecycleEventsDefaultHours   core/registry/storage.json stores[lifecycle-events].bound.defaultHours
  *   protocols.reviewPresetIds             core/registry/protocols.json 'auto', then order.review
+ *   protocols.reviewPresetOrder           core/registry/protocols.json order.review with 'auto' right after the
+ *                                         preset of depth 'deep'
  *   protocols.debatePresetIds             core/registry/protocols.json order.debate
  *   protocols.lensIds                     core/registry/protocols.json lenses[].id
  *
- * Sources are read on first use and cached for the life of the returned resolver. A failure throws an
- * Error that names the file and the field and never carries file text.
+ * Where `auto` ranks: `auto` follows the risk rule, which picks the preset of depth `deep` or the one
+ * of depth `single` (resolve-protocol.ts `idOfDepth`), so the deep preset is the strictest it can
+ * pick. A preset at or above the deep one in order.review is at least as strict as anything `auto`
+ * gives and ranks above it; every preset below the deep one ranks below it. A preset a package adds
+ * above review-deep therefore needs no settings edit.
+ *
+ * protocols.json is held to `validateProtocols` before any of its refs resolves, so a ref never hands
+ * out ids from a registry the review verbs would refuse. Sources are read on first use and cached for
+ * the life of the returned resolver. A failure throws an Error that names the file and the field and
+ * never carries file text.
  */
 
 const nodeFs = require('node:fs');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
+const { validateProtocols } = require('../review/protocols.ts');
 
-type RefKind = 'values' | 'default';
+type RefKind = 'values' | 'order' | 'default';
 interface RefMeta { kind: RefKind; dependsOn: string[] }
 /** Values of the keys a ref depends on (`dependsOn`), by key name. */
 type Deps = Record<string, unknown>;
@@ -39,9 +51,13 @@ const REF_META: Readonly<Record<string, RefMeta>> = Object.freeze({
   'advice.providerDefaultEndpoint': { kind: 'default', dependsOn: ['advice.provider'] },
   'storage.lifecycleEventsDefaultHours': { kind: 'default', dependsOn: [] },
   'protocols.reviewPresetIds': { kind: 'values', dependsOn: [] },
+  'protocols.reviewPresetOrder': { kind: 'order', dependsOn: [] },
   'protocols.debatePresetIds': { kind: 'values', dependsOn: [] },
   'protocols.lensIds': { kind: 'values', dependsOn: [] },
 });
+
+/** The depth label of the strictest preset the risk rule picks (resolve-protocol.ts step 1). */
+const RISK_STRICTEST_DEPTH = 'deep';
 
 function providers(source: Source): any[] {
   const list = source(ADVICE_FILE)?.providers;
@@ -71,6 +87,18 @@ function storageLifecycleEventsDefaultHours(source: Source): number {
   return hours;
 }
 
+/**
+ * `pick(data)` from protocols.json, once the picked field has the ref's shape (an Error naming that
+ * field) and the whole file passes `validateProtocols` (an Error naming the file, never its text).
+ */
+function fromProtocols<T>(source: Source, pick: (data: any) => T): T {
+  const data = source(PROTOCOLS_FILE);
+  const picked = pick(data);
+  const checked = validateProtocols(data);
+  if (!checked.ok) throw new Error(`${PROTOCOLS_FILE} fails validateProtocols (${checked.errors.length} error(s))`);
+  return picked;
+}
+
 /** A non-empty list of non-empty strings, or an Error naming the file and `field`. */
 function idList(list: unknown, field: string): string[] {
   if (!Array.isArray(list) || list.length === 0 || list.some((id: unknown) => typeof id !== 'string' || !id)) {
@@ -81,16 +109,27 @@ function idList(list: unknown, field: string): string[] {
 
 /** `review.preset` may be `auto` or any review preset id (IC-006). */
 function protocolsReviewPresetIds(source: Source): string[] {
-  return ['auto', ...idList(source(PROTOCOLS_FILE)?.order?.review, 'order.review')];
+  return ['auto', ...fromProtocols(source, (data) => idList(data?.order?.review, 'order.review'))];
+}
+
+/** The `review.preset` values narrowest (strictest) first; the header says where `auto` goes and why. */
+function protocolsReviewPresetOrder(source: Source): string[] {
+  const order = protocolsReviewPresetIds(source).slice(1);
+  const presets = source(PROTOCOLS_FILE).presets;
+  const deep = order.findIndex((id) => presets[id].depth === RISK_STRICTEST_DEPTH);
+  if (deep === -1) throw new Error(`${PROTOCOLS_FILE} order.review has no preset of depth '${RISK_STRICTEST_DEPTH}'`);
+  return [...order.slice(0, deep + 1), 'auto', ...order.slice(deep + 1)];
 }
 
 function protocolsDebatePresetIds(source: Source): string[] {
-  return idList(source(PROTOCOLS_FILE)?.order?.debate, 'order.debate');
+  return fromProtocols(source, (data) => idList(data?.order?.debate, 'order.debate'));
 }
 
 function protocolsLensIds(source: Source): string[] {
-  const lenses = source(PROTOCOLS_FILE)?.lenses;
-  return idList(Array.isArray(lenses) ? lenses.map((l: any) => l?.id) : null, 'lenses[].id');
+  return fromProtocols(source, (data) => {
+    const lenses = data?.lenses;
+    return idList(Array.isArray(lenses) ? lenses.map((l: any) => l?.id) : null, 'lenses[].id');
+  });
 }
 
 const RESOLVERS: Readonly<Record<string, (source: Source, deps: Deps) => unknown>> = Object.freeze({
@@ -98,6 +137,7 @@ const RESOLVERS: Readonly<Record<string, (source: Source, deps: Deps) => unknown
   'advice.providerDefaultEndpoint': adviceProviderDefaultEndpoint,
   'storage.lifecycleEventsDefaultHours': storageLifecycleEventsDefaultHours,
   'protocols.reviewPresetIds': protocolsReviewPresetIds,
+  'protocols.reviewPresetOrder': protocolsReviewPresetOrder,
   'protocols.debatePresetIds': protocolsDebatePresetIds,
   'protocols.lensIds': protocolsLensIds,
 });

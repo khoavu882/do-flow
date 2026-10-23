@@ -97,7 +97,7 @@ const V1 = {
     consumers: ['src/runtime/settings/worker-billing.ts'],
     description: 'Person-written billing record per headless worker id: free or metered, with the date asserted. Lets dispatch --billing-cap free launch a worker the registry lists as unknown; global-only.' },
   // 119 IC-006: the review and debate protocol keys the resolver reads (src/runtime/review/resolve-protocol.ts).
-  'review.preset': { type: 'enum', valuesRef: 'protocols.reviewPresetIds', order: ['review-deep', 'auto', 'review-single'], default: 'auto',
+  'review.preset': { type: 'enum', valuesRef: 'protocols.reviewPresetIds', orderRef: 'protocols.reviewPresetOrder', default: 'auto',
     scope: 'narrow-only', combine: 'override', ...PROTOCOL_COMMON,
     description: 'Review protocol preset for this project: auto follows the risk rule; a project may only pick a stricter preset.' },
   'review.rounds': { type: 'integer', min: 1, max: 3, order: 'descending', default: null,
@@ -184,6 +184,10 @@ test('the shipped registry loads with refs resolved and every consumer path pres
   assert.deepEqual(loaded.registry.enumValues('advice.provider'), ['ollama']);
   assert.deepEqual(loaded.registry.enumValues('storage.prune'), ['off', 'on']);
   assert.equal(loaded.registry.enumValues('advice.model'), null, 'not an enum');
+  // C-9: review.preset's values and order are derived from protocols.json and equal what was hand-kept before.
+  assert.deepEqual(loaded.registry.enumValues('review.preset'), ['auto', 'review-deep', 'review-single']);
+  assert.deepEqual(loaded.registry.keys.get('review.preset').order, ['review-deep', 'auto', 'review-single']);
+  assert.deepEqual(loadSettingsRegistry().registry.keys.get('review.preset').order, ['review-deep', 'auto', 'review-single'], 'the default load derives it too');
 });
 
 test('the default load (no ref resolution, no consumer check) also accepts the shipped file and is cached per process', () => {
@@ -201,7 +205,7 @@ test('defaultRef values equal advice.json defaultEndpoint and storage.json lifec
   assert.equal(refs.resolve('storage.lifecycleEventsDefaultHours'), storage.stores.find((s) => s.id === 'lifecycle-events').bound.defaultHours);
   assert.equal(refs.resolve('storage.lifecycleEventsDefaultHours'), 4320);
   assert.deepEqual(refs.resolve('advice.providerIds'), advice.providers.map((p) => p.id));
-  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'protocols.debatePresetIds', 'protocols.lensIds', 'protocols.reviewPresetIds', 'storage.lifecycleEventsDefaultHours']);
+  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'protocols.debatePresetIds', 'protocols.lensIds', 'protocols.reviewPresetIds', 'protocols.reviewPresetOrder', 'storage.lifecycleEventsDefaultHours']);
 });
 
 test('refs: an unknown name (including an inherited property name) and an unreadable source throw without file text', () => {
@@ -250,6 +254,12 @@ const BAD = [
   ['order that omits a value', keyed({ type: 'boolean', min: undefined, default: false, order: [true] }), 'order must list both false and true', 'storage.planted'],
   ['order that repeats a value', keyed({ order: [1, 1] }), 'distinct values', 'storage.planted'],
   ['ascending order on a boolean', keyed({ type: 'boolean', min: undefined, default: false, order: 'ascending' }), 'only for integer keys', 'storage.planted'],
+  ['orderRef on an integer key', keyed({ orderRef: 'protocols.reviewPresetOrder' }), "'orderRef' is only for enum keys with a 'valuesRef'", 'storage.planted'],
+  ['orderRef on an enum with literal values', keyed({ type: 'enum', min: undefined, default: 'a', values: ['a'], orderRef: 'protocols.reviewPresetOrder' }), "'orderRef' is only for enum keys with a 'valuesRef'", 'storage.planted'],
+  ['both order and orderRef', keyed({ type: 'enum', min: undefined, default: 'auto', valuesRef: 'protocols.reviewPresetIds', order: ['auto'], orderRef: 'protocols.reviewPresetOrder' }), "at most one of 'order' or 'orderRef'", 'storage.planted'],
+  ['unknown orderRef', keyed({ type: 'enum', min: undefined, default: 'auto', valuesRef: 'protocols.reviewPresetIds', orderRef: 'protocols.nowhere' }), "orderRef 'protocols.nowhere' is not a known order ref", 'storage.planted'],
+  ['a values ref used as an orderRef', keyed({ type: 'enum', min: undefined, default: 'auto', valuesRef: 'protocols.reviewPresetIds', orderRef: 'protocols.reviewPresetIds' }), 'is not a known order ref', 'storage.planted'],
+  ['an order ref used as a valuesRef', keyed({ type: 'enum', min: undefined, default: 'auto', valuesRef: 'protocols.reviewPresetOrder' }), 'is not a known values ref', 'storage.planted'],
   ['security key with env direction any', registryOf({ 'advice.planted': { ...clone(GOOD), securityRelevant: true, failSafe: 1, env: { name: 'DOFLOW_ADVICE_PLANTED', parse: 'positive-int', direction: 'any' } } }), "env.direction must be 'narrow'", 'advice.planted'],
   ['global-only key with a widening env', registryOf({ 'storage.planted': { ...clone(GOOD), scope: 'global-only', env: { name: 'DOFLOW_STORAGE_PLANTED', parse: 'positive-int', direction: 'any' } } }), "env.direction must be 'narrow'", 'storage.planted'],
   ['narrow env without an order', keyed({ env: { name: 'DOFLOW_STORAGE_PLANTED', parse: 'positive-int', direction: 'narrow' } }), "needs an 'order'", 'storage.planted'],
@@ -300,6 +310,16 @@ for (const [label, raw, fragment, start] of BAD) {
     assert.ok(hit.startsWith(start), `the error must start with the key it is about (${start}): ${hit}`);
   });
 }
+
+test('C-9: a resolved orderRef must rank every allowed value exactly once, and one that does not resolve is named', () => {
+  const derived = keyed({ type: 'enum', min: undefined, default: 'auto', valuesRef: 'protocols.reviewPresetIds', orderRef: 'protocols.reviewPresetOrder', scope: 'narrow-only' });
+  const refsWith = (order) => ({ meta: REF_META, resolve: (name) => (name === 'protocols.reviewPresetIds' ? ['auto', 'a', 'b'] : order()) });
+  assert.deepEqual(errorsOf(derived, refsWith(() => ['a', 'auto', 'b'])), [], 'control: a permutation of the values');
+  assert.match(errorsOf(derived, refsWith(() => ['a', 'auto'])).join('\n'), /^storage\.planted orderRef 'protocols\.reviewPresetOrder' must resolve to every allowed value exactly once/m);
+  assert.match(errorsOf(derived, refsWith(() => ['a', 'a', 'auto', 'b'])).join('\n'), /must resolve to every allowed value exactly once/);
+  assert.match(errorsOf(derived, refsWith(() => { throw new Error('no deep preset'); })).join('\n'), /orderRef 'protocols\.reviewPresetOrder' does not resolve: no deep preset/);
+  assert.deepEqual(errorsOf(derived), [], 'without ref resolution an orderRef satisfies narrow-only');
+});
 
 test('cross-key checks: a duplicate env name, a gate without a plain failSafe, a gate on itself, an unknown gate or requires key', () => {
   const env = (name) => ({ name, parse: 'positive-int', direction: 'any' });

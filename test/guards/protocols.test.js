@@ -15,8 +15,11 @@
 // Two checks read the shipped file directly: (a) preset ids are unique in the raw text (parsed JSON
 // hides a duplicate key; `loadProtocols` scans the text, so the check does not depend on formatting), and (f) the shipped file passes `validateProtocols` with zero errors.
 //
-// Phase B adds "every settings valuesRef into protocols resolves": no settings key references
-// protocols yet, so that check is not here.
+// `checkDerivations(settings, telemetry, protocols)` (h, C-9) returns offenders for a preset or lens id
+// copied out of protocols.json: the settings keys that choose among presets and lenses must point at
+// their refs (refs.ts; `review.preset` ranks by `orderRef`, never a literal `order`), and no settings
+// literal or telemetry vocabulary may list a preset id (telemetry reads `protocol` from protocols.json,
+// telemetry.ts DERIVED_VOCABULARIES). The shipped settings registry must load with those refs resolved.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -25,6 +28,8 @@ const path = require('node:path');
 const { REPO } = require('./_shared');
 const { validateProtocols, loadProtocols } = require(path.join(REPO, 'src', 'runtime', 'review', 'protocols.ts'));
 const { suiteTempDir } = require('../helper/tmp');
+const { loadSettingsRegistry } = require(path.join(REPO, 'src', 'runtime', 'settings', 'registry.ts'));
+const { derivedVocabularies } = require(path.join(REPO, 'src', 'runtime', 'trace', 'telemetry.ts'));
 
 const PROTOCOLS_TEXT = fs.readFileSync(path.join(REPO, 'core', 'registry', 'protocols.json'), 'utf8');
 const protocols = JSON.parse(PROTOCOLS_TEXT);
@@ -90,6 +95,40 @@ function checkProtocols(p, g) {
 
 const clone = () => structuredClone(protocols);
 
+const SETTINGS = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'settings.json'), 'utf8'));
+const TELEMETRY = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'telemetry.json'), 'utf8'));
+/** The settings keys that choose among protocols.json ids, and the refs they must use. */
+const DERIVED_KEYS = {
+  'review.preset': { valuesRef: 'protocols.reviewPresetIds', orderRef: 'protocols.reviewPresetOrder' },
+  'debate.preset': { valuesRef: 'protocols.debatePresetIds' },
+  'review.extraLenses': { valuesRef: 'protocols.lensIds' },
+};
+
+function checkDerivations(settings, telemetry, p) {
+  const offenders = [];
+  const presetIdSet = new Set(Object.keys(p.presets ?? {}));
+  for (const [key, refs] of Object.entries(DERIVED_KEYS)) {
+    const spec = settings.keys?.[key];
+    if (!spec) { offenders.push(`settings key ${key} is missing`); continue; }
+    for (const [field, ref] of Object.entries(refs)) {
+      if (spec[field] !== ref) offenders.push(`settings ${key}.${field} must be '${ref}'`);
+    }
+    if (Object.hasOwn(refs, 'orderRef') && Object.hasOwn(spec, 'order')) offenders.push(`settings ${key} copies an order; it ranks by orderRef`);
+  }
+  for (const [key, spec] of Object.entries(settings.keys ?? {})) {
+    for (const field of ['values', 'order', 'default']) {
+      const listed = Array.isArray(spec[field]) ? spec[field] : [spec[field]];
+      const copy = listed.find((value) => presetIdSet.has(value) && !(field === 'default' && Object.hasOwn(DERIVED_KEYS, key)));
+      if (copy !== undefined) offenders.push(`settings ${key}.${field} copies preset id '${copy}'`);
+    }
+  }
+  for (const [name, values] of Object.entries(telemetry.vocabularies ?? {})) {
+    const copy = (Array.isArray(values) ? values : []).find((value) => presetIdSet.has(value));
+    if (copy !== undefined) offenders.push(`telemetry vocabularies.${name} copies preset id '${copy}'`);
+  }
+  return offenders;
+}
+
 test('G66.a preset ids are unique in the raw file', () => {
   assert.deepEqual(duplicateKeyErrors(PROTOCOLS_TEXT), []);
   assert.equal(loadProtocols({ file: PROTOCOLS_FILE }).ok, true);
@@ -102,6 +141,37 @@ test('G66.b-e the shipped registry is consistent with the class seat floors', ()
 
 test('G66.f the shipped registry passes validateProtocols', () => {
   assert.deepEqual(validateProtocols(protocols).errors, []);
+});
+
+test('G66.h preset and lens ids reach settings and telemetry by derivation, not by copy', () => {
+  assert.deepEqual(checkDerivations(SETTINGS, TELEMETRY, protocols), []);
+  const loaded = loadSettingsRegistry({ verifyRefs: true });
+  assert.equal(loaded.ok, true, loaded.detail);
+  const deep = protocols.order.review.findIndex((id) => protocols.presets[id].depth === 'deep');
+  assert.deepEqual(loaded.registry.keys.get('review.preset').order,
+    [...protocols.order.review.slice(0, deep + 1), 'auto', ...protocols.order.review.slice(deep + 1)]);
+  assert.deepEqual(loaded.registry.enumValues('debate.preset'), protocols.order.debate);
+  assert.deepEqual(derivedVocabularies(), {
+    depth: [...protocols.order.review].reverse().map((id) => protocols.presets[id].depth),
+    protocol: protocols.order.review,
+  });
+});
+
+test('G66 control: a settings literal order, a literal preset list or a telemetry copy is red', () => {
+  const literal = structuredClone(SETTINGS);
+  delete literal.keys['review.preset'].orderRef;
+  literal.keys['review.preset'].order = ['review-deep', 'auto', 'review-single'];
+  const found = checkDerivations(literal, TELEMETRY, protocols);
+  assert.ok(found.some((o) => /review\.preset\.orderRef must be 'protocols\.reviewPresetOrder'/.test(o)), found.join('\n'));
+  assert.ok(found.some((o) => /review\.preset copies an order/.test(o)));
+  assert.ok(found.some((o) => /review\.preset\.order copies preset id 'review-deep'/.test(o)));
+  const values = structuredClone(SETTINGS);
+  delete values.keys['debate.preset'].valuesRef;
+  values.keys['debate.preset'].values = ['debate-3', 'debate-2'];
+  assert.ok(checkDerivations(values, TELEMETRY, protocols).some((o) => /debate\.preset\.values copies preset id 'debate-3'/.test(o)));
+  const vocab = structuredClone(TELEMETRY);
+  vocab.vocabularies.protocol = ['review-deep', 'review-single'];
+  assert.deepEqual(checkDerivations(SETTINGS, vocab, protocols), ["telemetry vocabularies.protocol copies preset id 'review-deep'"]);
 });
 
 test('G66 control: a one-seat review-deep is red against the class floor', () => {

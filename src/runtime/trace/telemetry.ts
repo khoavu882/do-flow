@@ -7,6 +7,7 @@ const path = require('node:path');
 const { resolveRunsLocation } = require('./ledger.ts');
 const { identityFields } = require('../context/identity.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
+const { loadProtocols, presetIds } = require('../review/protocols.ts');
 
 /**
  * Telemetry contract v1 (088 A.1, IC-001, IC-002): the switch and the writer for the lines that
@@ -36,6 +37,30 @@ const ISO_MS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 type Env = Record<string, string | undefined>;
+type Vocabulary = (name: string) => readonly string[] | null;
+
+/**
+ * Vocabularies another registry owns, which telemetry.json names in `enum:<name>` types but does not
+ * copy (119 C-9): a preset added to protocols.json is a valid `protocol` with no edit here. Each is
+ * read from its owner, through the owner's validator, the first time a writer needs it. An owner that
+ * cannot be read or fails its validator gives no list, so the field is written null (as any value
+ * outside its vocabulary is) and the rest of the line is still written.
+ */
+const DERIVED_VOCABULARIES: Readonly<Record<string, string>> = Object.freeze({
+  depth: 'core/registry/protocols.json review preset depth labels, loosest first',
+  protocol: 'core/registry/protocols.json order.review',
+});
+
+/** The derived vocabularies read from the registries under `repoRoot`; `{}` when protocols.json is unusable. */
+function derivedVocabularies(repoRoot: string = REPO_ROOT): Record<string, string[]> {
+  const loaded = loadProtocols({ repoRoot });
+  if (!loaded.ok) return {};
+  const review: string[] = presetIds(loaded.registry, 'review');
+  return {
+    depth: [...review].reverse().map((id) => loaded.registry.presets[id].depth),
+    protocol: review,
+  };
+}
 
 /**
  * The one reader of the switch in Node. The bridge and the observer test the same string in shell.
@@ -47,7 +72,7 @@ function telemetryOff(env: Env = process.env): boolean {
 }
 
 /** One type alternative of a field (`token`, `uint`, `enum:<vocabulary>`, ...) against one value. */
-function matches(alternative: string, value: unknown, vocabularies: any): boolean {
+function matches(alternative: string, value: unknown, vocabulary: Vocabulary): boolean {
   if (alternative === 'null') return value === null;
   if (alternative === 'uint') return typeof value === 'number' && Number.isFinite(value) && Math.trunc(value) >= 0;
   if (alternative === 'int') return typeof value === 'number' && Number.isFinite(value);
@@ -59,15 +84,15 @@ function matches(alternative: string, value: unknown, vocabularies: any): boolea
   if (alternative === 'iso8601ms') return ISO_MS.test(value);
   if (alternative === 'date') return DATE.test(value);
   if (alternative.startsWith('enum:')) {
-    const vocabulary = vocabularies && Object.hasOwn(vocabularies, alternative.slice(5)) ? vocabularies[alternative.slice(5)] : null;
-    return Array.isArray(vocabulary) && vocabulary.includes(value);
+    const list = vocabulary(alternative.slice(5));
+    return Array.isArray(list) && list.includes(value);
   }
   return false; // an unknown type never passes, so a typo in the registry writes null, not content
 }
 
 /** The value as it is written: integers truncated, anything failing the field's type null. */
-function coerce(type: string, value: unknown, vocabularies: any): unknown {
-  if (typeof type !== 'string' || !type.split('|').some((alternative) => matches(alternative, value, vocabularies))) return null;
+function coerce(type: string, value: unknown, vocabulary: Vocabulary): unknown {
+  if (typeof type !== 'string' || !type.split('|').some((alternative) => matches(alternative, value, vocabulary))) return null;
   return typeof value === 'number' ? Math.trunc(value) : value;
 }
 
@@ -83,6 +108,8 @@ class TelemetryWriter {
   fsImpl: any;
   now: () => Date;
   start: string | undefined;
+  repoRoot: string;
+  derived: Record<string, string[]> | null = null;
 
   /**
    * @param {Object} [options]
@@ -91,9 +118,11 @@ class TelemetryWriter {
    * @param {Object} [options.fsImpl=fs] test seam
    * @param {Function} [options.now] returns the current Date; test seam
    * @param {string} [options.start] directory to walk up from for `.doflow` (default: cwd)
+   * @param {string} [options.repoRoot=REPO_ROOT] the install root the derived vocabularies are read from
    */
-  constructor({ registry, env = process.env, fsImpl = nodeFs, now = () => new Date(), start }: any = {}) {
+  constructor({ registry, env = process.env, fsImpl = nodeFs, now = () => new Date(), start, repoRoot = REPO_ROOT }: any = {}) {
     this.registry = registry;
+    this.repoRoot = repoRoot;
     this.env = env;
     this.fsImpl = fsImpl;
     this.now = now;
@@ -164,6 +193,13 @@ class TelemetryWriter {
     const kind = record.kind;
     if (typeof kind !== 'string' || !Object.hasOwn(registry.kinds, kind)) return null;
     const vocabularies = registry.vocabularies;
+    const vocabulary: Vocabulary = (name) => {
+      if (Object.hasOwn(DERIVED_VOCABULARIES, name)) {
+        this.derived ??= derivedVocabularies(this.repoRoot);
+        return this.derived[name] ?? null;
+      }
+      return vocabularies && Object.hasOwn(vocabularies, name) ? vocabularies[name] : null;
+    };
     const timestamp = typeof record.timestamp === 'string' && ISO_MS.test(record.timestamp)
       ? record.timestamp
       : this.now().toISOString();
@@ -179,10 +215,10 @@ class TelemetryWriter {
     const fields = registry.kinds[kind].fields || {};
     for (const key of Object.keys(fields)) {
       if (!Object.hasOwn(record, key)) continue;
-      out[key] = coerce(fields[key].type, record[key], vocabularies);
+      out[key] = coerce(fields[key].type, record[key], vocabulary);
     }
     return out;
   }
 }
 
-module.exports = { SAFE_TOKEN, telemetryOff, TelemetryWriter };
+module.exports = { SAFE_TOKEN, DERIVED_VOCABULARIES, derivedVocabularies, telemetryOff, TelemetryWriter };

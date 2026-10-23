@@ -9,6 +9,7 @@ const { tempDir } = require('../helper/tmp');
 const { countFindings } = require('../../src/runtime/review/findings.ts');
 const { handleReviewCommand } = require('../../src/runtime/review/command.ts');
 const { createSettingsEnv } = require('../helper/settings-fixtures');
+const { derivedVocabularies } = require('../../src/runtime/trace/telemetry.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const SECRET = 'SECRET-095-PLANT';
@@ -482,13 +483,14 @@ test('119 IC-002: a valid record with protocol writes the preset id; without pro
   assert.equal(invalid.telemetry.protocol, null);
 });
 
-test('095b IC-006: the telemetry registry declares depth, risk and head and the depth vocabulary', () => {
+test('095b IC-006: the telemetry registry declares depth, risk and head; the depth vocabulary is derived from protocols.json (C-9)', () => {
   const registry = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/telemetry.json'), 'utf8'));
   const fields = registry.kinds['review.run'].fields;
   assert.deepEqual(fields.depth, { name: 'doflow.review.run.depth', class: 'T2', type: 'enum:depth|null', phase: 'P7' });
   assert.deepEqual(fields.risk, { name: 'doflow.review.run.risk', class: 'T2', type: 'enum:risk|null', phase: 'P7' });
   assert.deepEqual(fields.head, { name: 'doflow.review.run.head', class: 'T0', type: 'token|null', phase: 'P7' });
-  assert.deepEqual(registry.vocabularies.depth, ['single', 'deep']);
+  assert.equal(Object.hasOwn(registry.vocabularies, 'depth'), false, 'telemetry.json holds no copy');
+  assert.deepEqual(derivedVocabularies().depth, ['single', 'deep']);
 });
 
 test('C-6: a malformed or invalid project review.sameFamily is an unreadable setting: check errors (exit 1), never the advisory', (t) => {

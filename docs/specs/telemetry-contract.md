@@ -229,8 +229,13 @@ does not declare is dropped, and its value is never echoed.
 ## Vocabularies
 
 The closed lists a later export may use. `harness` equals the ids in `core/registry/harnesses.json`,
-`status` equals `tierStatuses`, `risk` equals the risk levels of `core/registry/verification.json`,
-`depth` equals the `depth` labels of the review presets of `core/registry/protocols.json` (loosest first) and `protocol` equals its `order.review`; G45.1 holds those five equal.
+`status` equals `tierStatuses`, and `risk` equals the risk levels of `core/registry/verification.json`;
+G45.1 holds those three equal.
+`depth` and `protocol` are not listed in `telemetry.json`: the writer reads them from `core/registry/protocols.json`
+through `validateProtocols` (`src/runtime/trace/telemetry.ts` `DERIVED_VOCABULARIES`): `protocol` is `order.review`, `depth`
+the `depth` labels of those presets, loosest first. A preset added there, with its own depth label, is a valid `protocol`
+and `depth` with no edit here, and G45.1 refuses a copy. When protocols.json cannot be read or fails its validator, both are
+written null and the rest of the line is unchanged.
 
 | Name | Values |
 |---|---|
@@ -242,8 +247,8 @@ The closed lists a later export may use. `harness` equals the ids in `core/regis
 | `source` | `verb`, `dispatch` |
 | `status` | `PASS`, `FAIL`, `UNRESOLVED`, `SUBSUMED`, `NOT_APPLICABLE`, `SKIPPED`, `NOT_RUN` |
 | `risk` | `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` |
-| `depth` | `single`, `deep` |
-| `protocol` | `review-deep`, `review-single` |
+| `depth` | derived: the `depth` labels of the `order.review` presets in `core/registry/protocols.json`, loosest first (today `single`, `deep`) |
+| `protocol` | derived: the ids of `order.review` in `core/registry/protocols.json` (today `review-deep`, `review-single`) |
 | `role` | `main`, `worker` |
 | `level` | `L0`, `L1`, `L2`, `L3` |
 | `selection_basis` | `changed-test-files`, `explicit-pattern`, `none` |

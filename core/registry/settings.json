@@ -70,7 +70,7 @@
       "env": null, "flag": null, "shellRead": null, "needsConfigHome": true, "legacy": [],
       "consumers": ["src/runtime/settings/worker-billing.ts"],
       "description": "Person-written billing record per headless worker id: free or metered, with the date asserted. Lets dispatch --billing-cap free launch a worker the registry lists as unknown; global-only." },
-    "review.preset": { "type": "enum", "valuesRef": "protocols.reviewPresetIds", "order": ["review-deep", "auto", "review-single"], "default": "auto",
+    "review.preset": { "type": "enum", "valuesRef": "protocols.reviewPresetIds", "orderRef": "protocols.reviewPresetOrder", "default": "auto",
       "scope": "narrow-only", "combine": "override", "securityRelevant": false,
       "env": null, "flag": null, "shellRead": null, "needsConfigHome": false, "legacy": [],
       "consumers": ["src/runtime/review/resolve-protocol.ts"],

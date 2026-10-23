@@ -1198,8 +1198,11 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   `validateProtocols` with no error. Controls on cloned registries: a review seat on a write-access or
   missing agent, a one-seat `review-deep`, an unknown lens, rounds above the cap, an invariant without `enforcedBy`, a
   non-strictest first review preset and a duplicate preset id in the raw text are each named, and the shipped
-  registry reports nothing. The check that settings `valuesRef` entries into protocols resolve joins in
-  Phase B, when the first such key exists.
+  registry reports nothing. Preset and lens ids leave protocols.json only by derivation (C-9): `review.preset`,
+  `debate.preset` and `review.extraLenses` in `settings.json` point at their `src/runtime/settings/refs.ts` refs
+  (`review.preset` ranks by `orderRef`, never a literal `order`), no settings literal or `telemetry.json`
+  vocabulary lists a preset id, and the shipped settings registry loads with those refs resolved; a planted
+  literal order, literal preset list or telemetry copy is each named.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

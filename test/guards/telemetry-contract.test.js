@@ -15,7 +15,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO } = require('./_shared');
 const { tempDir, suiteTempDir, removeTree } = require('../helper/tmp');
-const { TelemetryWriter } = require('../../src/runtime/trace/telemetry.ts');
+const { TelemetryWriter, DERIVED_VOCABULARIES, derivedVocabularies } = require('../../src/runtime/trace/telemetry.ts');
 const { RunLedger } = require('../../src/runtime/trace/ledger.ts');
 const { attributeRule } = require('../../src/runtime/trace/otlp-map.ts');
 
@@ -45,12 +45,14 @@ function checkRegistryShape(registry) {
     if (typeof type !== 'string' || type === '') return ['is not a string'];
     return type.split('|').flatMap((atom) => {
       if (TYPE_ATOMS.has(atom) || READ_ONLY_TYPES.has(atom)) return [];
-      if (atom.startsWith('enum:')) return Object.hasOwn(vocabularies, atom.slice(5)) ? [] : [`names no vocabulary '${atom.slice(5)}'`];
+      if (atom.startsWith('enum:')) return Object.hasOwn(vocabularies, atom.slice(5)) || Object.hasOwn(DERIVED_VOCABULARIES, atom.slice(5)) ? [] : [`names no vocabulary '${atom.slice(5)}'`];
       return [`has unknown type '${atom}'`];
     });
   };
   for (const [name, values] of Object.entries(vocabularies)) {
-    if (!Array.isArray(values) || values.length === 0 || values.some((value) => typeof value !== 'string' || value === '')) at(`vocabularies.${name}`, 'must be a non-empty array of strings');
+    // C-9: a vocabulary another registry owns is read from it (telemetry.ts DERIVED_VOCABULARIES), never copied here.
+    if (Object.hasOwn(DERIVED_VOCABULARIES, name)) at(`vocabularies.${name}`, `is derived from ${DERIVED_VOCABULARIES[name]} and must not be copied`);
+    else if (!Array.isArray(values) || values.length === 0 || values.some((value) => typeof value !== 'string' || value === '')) at(`vocabularies.${name}`, 'must be a non-empty array of strings');
     else if (new Set(values).size !== values.length) at(`vocabularies.${name}`, 'has duplicate values');
   }
   const common = Array.isArray(registry.common) ? registry.common : [];
@@ -135,6 +137,9 @@ function checkAllowlist(registry, observations) {
   return errors;
 }
 
+/** Every vocabulary a line is checked against: the registry's own lists plus the derived ones. */
+const allVocabularies = (registry) => ({ ...registry.vocabularies, ...derivedVocabularies() });
+
 /** A value that passes `type`, for the writer observation. */
 function sampleValue(type, vocabularies) {
   const atom = type.split('|').find((candidate) => candidate !== 'null');
@@ -155,7 +160,7 @@ function writerObservations(registry) {
       .map(([kind, spec]) => ({
         kind,
         stranger_key: 'x',
-        ...Object.fromEntries(Object.entries(spec.fields).map(([key, field]) => [key, sampleValue(field.type, registry.vocabularies)])),
+        ...Object.fromEntries(Object.entries(spec.fields).map(([key, field]) => [key, sampleValue(field.type, allVocabularies(registry))])),
       }));
     new TelemetryWriter({ registry, env: {}, start: root, now: () => new Date('2026-10-17T00:00:00.000Z') }).write(records);
     const dir = path.join(root, '.doflow', 'state', 'runs', 'telemetry');
@@ -605,10 +610,14 @@ test('G45.1: telemetry.json is well formed, its owned vocabularies match their o
     harness: { owner: 'core/registry/harnesses.json', values: harnesses.harnesses.map((entry) => entry.id) },
     status: { owner: 'core/registry/verification.json tierStatuses', values: verification.tierStatuses },
     risk: { owner: 'core/registry/verification.json riskLevels', values: Object.keys(verification.riskLevels) },
-    depth: { owner: 'core/registry/protocols.json review presets depth', values: [...protocols.order.review].reverse().map((id) => protocols.presets[id].depth) }, // loosest first, as the vocabulary lists them
-    protocol: { owner: 'core/registry/protocols.json order.review', values: protocols.order.review },
     role: { owner: 'core/harnesses/shared/hooks/bridge/envelope.jq role literals', values: ['main', 'worker'] },
   }), []);
+  // C-9: depth and protocol are derived, not copied; what the writer checks equals protocols.json.
+  assert.deepEqual(derivedVocabularies(), {
+    depth: [...protocols.order.review].reverse().map((id) => protocols.presets[id].depth), // loosest first
+    protocol: protocols.order.review,
+  });
+  assert.deepEqual(Object.keys(DERIVED_VOCABULARIES), ['depth', 'protocol']);
   const observations = shippedObservations(registry);
   assert.deepEqual(checkAllowlist(registry, observations), []);
   assert.deepEqual(checkTupleFixtures(observations), []);
@@ -780,6 +789,16 @@ test('G45.1 self-test: a vocabulary that differs from its owning registry fails'
   const errors = checkVocabularyOwners(changed, { status: { owner: 'core/registry/verification.json tierStatuses', values: registry.vocabularies.status } });
   assert.equal(errors.length, 1);
   assert.match(errors[0], /vocabularies\.status differs from core\/registry\/verification\.json tierStatuses/);
+});
+
+test('G45.1 self-test (C-9): a copy of a derived vocabulary in telemetry.json fails, and an enum type naming one resolves', () => {
+  const copied = clone(registry);
+  copied.vocabularies.protocol = ['review-deep', 'review-single'];
+  copied.vocabularies.depth = ['single', 'deep'];
+  const errors = checkRegistryShape(copied).join('\n');
+  assert.match(errors, /vocabularies\.protocol: is derived from core\/registry\/protocols\.json order\.review and must not be copied/);
+  assert.match(errors, /vocabularies\.depth: is derived from core\/registry\/protocols\.json review preset depth labels, loosest first and must not be copied/);
+  assert.deepEqual(checkRegistryShape(withField('duration_ms', { ...GOOD_FIELD, type: 'enum:protocol|null' })), []);
 });
 
 test('G45.2 self-test: a hook file with node -e fails, a comment or a quoted word does not, a new node file fails', () => {

@@ -100,3 +100,101 @@ test('protocols: schema must be 1 and a non-object is refused', () => {
   refuses((d) => { d.schema = 2; }, /schema must be 1/);
   assert.equal(validateProtocols(null).ok, false);
 });
+
+// ── C-9 extension-first: a preset added to protocols.json alone reaches settings and telemetry ────
+
+const { loadSettingsRegistry } = require('../../src/runtime/settings/registry.ts');
+const { validateValue } = require('../../src/runtime/settings/files.ts');
+const { TelemetryWriter, derivedVocabularies } = require('../../src/runtime/trace/telemetry.ts');
+const { suiteTempDir } = require('../helper/tmp');
+
+/** A temp repoRoot holding a copy of core/registry/, with `mutate` applied to its protocols.json. */
+function scratchRegistry(mutate) {
+  const root = suiteTempDir('doflow-c9-');
+  fs.cpSync(path.join(REPO, 'core', 'registry'), path.join(root, 'core', 'registry'), { recursive: true });
+  mutate(path.join(root, 'core', 'registry', 'protocols.json'));
+  return root;
+}
+
+/** Every file of the copied registry other than protocols.json, as text, to prove nothing else was edited. */
+function otherRegistryFiles(root) {
+  const dir = path.join(root, 'core', 'registry');
+  return Object.fromEntries(fs.readdirSync(dir).filter((name) => name !== 'protocols.json').sort()
+    .map((name) => [name, fs.readFileSync(path.join(dir, name), 'utf8')]));
+}
+
+const reviewLine = (root, record) => {
+  const telemetry = JSON.parse(fs.readFileSync(path.join(root, 'core', 'registry', 'telemetry.json'), 'utf8'));
+  return new TelemetryWriter({ repoRoot: root, env: {} }).line(telemetry, { kind: 'review.run', ...record });
+};
+
+test('C-9: review-triple added to protocols.json alone loads, is a review.preset value ranked strictest, and is a telemetry protocol', () => {
+  const root = scratchRegistry((file) => {
+    const data = shipped();
+    const seat = (id) => ({ id, agent: 'reviewer', lenses: ['correctness', 'test-honesty', 'boundaries'], model: { tier: 'frontier', family: 'any' } });
+    data.presets['review-triple'] = {
+      kind: 'review', depth: 'triple', seats: [seat('seat-a'), seat('seat-b'), seat('seat-c')],
+      rounds: { default: 2, min: 2 }, crossAnswer: true, synthesizer: 'separate', decider: 'gate',
+    };
+    data.order.review.unshift('review-triple');
+    fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
+  });
+  const shippedRoot = path.join(REPO);
+  assert.deepEqual(otherRegistryFiles(root), Object.fromEntries(Object.keys(otherRegistryFiles(root))
+    .map((name) => [name, fs.readFileSync(path.join(shippedRoot, 'core', 'registry', name), 'utf8')])), 'only protocols.json differs from the shipped registry');
+
+  const protocols = loadProtocols({ repoRoot: root });
+  assert.deepEqual(protocols.errors, []);
+  assert.deepEqual(presetIds(protocols.registry, 'review'), ['review-triple', 'review-deep', 'review-single']);
+
+  const loaded = loadSettingsRegistry({ repoRoot: root, verifyRefs: true });
+  assert.equal(loaded.ok, true, loaded.detail);
+  const spec = loaded.registry.keys.get('review.preset');
+  const values = loaded.registry.enumValues('review.preset');
+  assert.deepEqual(values, ['auto', 'review-triple', 'review-deep', 'review-single']);
+  assert.equal(validateValue(spec, 'review-triple', values), null, 'review.preset accepts review-triple');
+  assert.deepEqual(spec.order, ['review-triple', 'review-deep', 'auto', 'review-single'], 'strictest first; auto sits right after the deep preset the risk rule can pick');
+
+  assert.equal(reviewLine(root, { protocol: 'review-triple' }).protocol, 'review-triple');
+  assert.equal(reviewLine(REPO, { protocol: 'review-triple' }).protocol, null, 'control: the shipped registry has no review-triple');
+  assert.equal(reviewLine(root, { depth: 'triple' }).depth, 'triple', 'the preset carries its own depth label into telemetry');
+  assert.equal(reviewLine(REPO, { depth: 'triple' }).depth, null, 'control: the shipped registry has no triple depth');
+  assert.deepEqual(derivedVocabularies(root).depth, ['single', 'deep', 'triple'], 'depth lists loosest first');
+});
+
+test('C-9: an unreadable protocols.json leaves the settings registry loadable and writes telemetry protocol as null', () => {
+  const root = scratchRegistry((file) => fs.writeFileSync(file, '{ not json'));
+  const loaded = loadSettingsRegistry({ repoRoot: root });
+  assert.equal(loaded.ok, true, loaded.detail);
+  assert.equal(loaded.registry.enumValues('review.preset'), null);
+  assert.equal(loaded.registry.keys.get('review.preset').order, null);
+  assert.equal(loadSettingsRegistry({ repoRoot: root, verifyRefs: true }).ok, false, 'the ref check still names the fault');
+  const line = reviewLine(root, { protocol: 'review-deep', depth: 'deep', risk: 'HIGH' });
+  assert.equal(line.protocol, null);
+  assert.equal(line.depth, null);
+  assert.equal(line.risk, 'HIGH', 'other vocabularies still apply');
+});
+
+test('C-9: protocols.json with no deep preset, or one failing validateProtocols, gives no review.preset values; the ref check names why', () => {
+  const noDeep = scratchRegistry((file) => {
+    const data = shipped();
+    data.presets['review-deep'].depth = 'wide';
+    fs.writeFileSync(file, JSON.stringify(data));
+  });
+  assert.equal(loadProtocols({ repoRoot: noDeep }).ok, true, 'a valid protocol registry');
+  const loose = loadSettingsRegistry({ repoRoot: noDeep });
+  assert.equal(loose.ok, true, loose.detail);
+  assert.equal(loose.registry.keys.get('review.preset').order, null);
+  assert.equal(loose.registry.enumValues('review.preset'), null, 'a value with no rank is never valid');
+  assert.match(loadSettingsRegistry({ repoRoot: noDeep, verifyRefs: true }).detail, /review\.preset orderRef 'protocols\.reviewPresetOrder' does not resolve: core\/registry\/protocols\.json order\.review has no preset of depth 'deep'/);
+
+  const invalid = scratchRegistry((file) => {
+    const data = shipped();
+    data.presets['review-single'].seats[0].lenses.push('SECRET-LENS');
+    fs.writeFileSync(file, JSON.stringify(data));
+  });
+  const detail = loadSettingsRegistry({ repoRoot: invalid, verifyRefs: true }).detail;
+  assert.match(detail, /review\.preset valuesRef 'protocols\.reviewPresetIds' does not resolve: core\/registry\/protocols\.json fails validateProtocols \(1 error\(s\)\)/);
+  assert.equal(detail.includes('SECRET-LENS'), false, 'no file text in the error');
+  assert.equal(reviewLine(invalid, { protocol: 'review-deep' }).protocol, null, 'telemetry reads no list from an invalid registry');
+});

@@ -11,8 +11,10 @@
  *
  * The checks that need no I/O live in `validateSettingsRegistry` (pure, takes the registry text
  * already parsed). `loadSettingsRegistry` adds the file read and, on request, the checks that reach
- * other files: `verifyRefs` resolves every `valuesRef`/`defaultRef` against advice.json and
- * storage.json, `checkConsumers` confirms each `consumers` path exists. Both default to off so the
+ * other files: `verifyRefs` resolves every `valuesRef`/`orderRef`/`defaultRef` against the registry
+ * that owns it (refs.ts), `checkConsumers` confirms each `consumers` path exists. A key with an
+ * `orderRef` carries its `order` on the loaded spec, resolved on first read (null when its source
+ * cannot be read, as `enumValues` is), so consumers read `spec.order` whichever way it was declared. Both default to off so the
  * hot path pays for one small file read; the registry test and the settings guard turn them on.
  */
 
@@ -36,7 +38,7 @@ const VIEWS = ['project', 'global'];
 const SHELL_READS = [null, 'lexical-v1'];
 const TOP_FIELDS = ['version', 'description', 'keys'];
 const SPEC_FIELDS = [
-  'type', 'values', 'valuesRef', 'min', 'max', 'maxItems', 'maxLength', 'order', 'default', 'defaultRef', 'scope', 'combine', 'views',
+  'type', 'values', 'valuesRef', 'min', 'max', 'maxItems', 'maxLength', 'order', 'orderRef', 'default', 'defaultRef', 'scope', 'combine', 'views',
   'securityRelevant', 'failSafe', 'requires', 'env', 'flag', 'shellRead', 'needsConfigHome', 'legacy',
   'consumers', 'description',
 ];
@@ -184,7 +186,22 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     if (record && spec.combine !== 'override') err("a worker-billing key must combine by 'override'");
     if (multi !== (spec.combine === 'union')) err(multi ? "a string-list key must combine by 'union'" : "combine 'union' is only for string-list keys");
     const needsOrder = spec.scope === 'narrow-only' || spec.combine === 'narrowest';
-    if (has(spec, 'order')) {
+    const ordered = has(spec, 'order') || has(spec, 'orderRef');
+    if (has(spec, 'orderRef')) {
+      if (has(spec, 'order')) err("needs at most one of 'order' or 'orderRef'");
+      if (type !== 'enum' || !has(spec, 'valuesRef')) err("'orderRef' is only for enum keys with a 'valuesRef'");
+      else if (refMeta(spec.orderRef)?.kind !== 'order') err(`orderRef '${String(spec.orderRef)}' is not a known order ref`);
+      else if (refs.resolve) {
+        try {
+          const order = refs.resolve(spec.orderRef);
+          if (!Array.isArray(order) || new Set(order).size !== order.length || (list && !sameList(order, list))) {
+            err(`orderRef '${spec.orderRef}' must resolve to every allowed value exactly once`);
+          }
+        } catch (error: any) {
+          err(`orderRef '${spec.orderRef}' does not resolve: ${error.message}`);
+        }
+      }
+    } else if (has(spec, 'order')) {
       const order = spec.order;
       if (free || record || multi) err(`order is refused for a ${type} key`);
       else if (order === 'ascending' || order === 'descending') {
@@ -197,7 +214,8 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
         else if (type === 'boolean' && !sameList(order, [false, true])) err('order must list both false and true');
         else if (type === 'enum' && list && !sameList(order, list)) err('order must list every allowed value exactly once');
       }
-    } else if (needsOrder) {
+    }
+    if (needsOrder && !ordered) {
       err(spec.scope === 'narrow-only' ? "scope 'narrow-only' requires an 'order'" : "combine 'narrowest' requires an 'order'");
     }
 
@@ -270,7 +288,7 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
         if (!DIRECTIONS.includes(env.direction)) err(`env.direction must be one of ${DIRECTIONS.join(', ')}`);
         else if (env.direction === 'any' && (spec.securityRelevant === true || spec.scope === 'global-only')) {
           err("env.direction must be 'narrow': an environment variable may only narrow a security-relevant or global-only key");
-        } else if (env.direction === 'narrow' && !has(spec, 'order')) err("env.direction 'narrow' needs an 'order'");
+        } else if (env.direction === 'narrow' && !ordered) err("env.direction 'narrow' needs an 'order'");
       }
     }
     if (has(spec, 'flag') && spec.flag !== null) err("flag must be null in v1 (a declared flag must be absent from the CLI flag tables; '--set' and '--setting' are reserved)");
@@ -424,7 +442,21 @@ function loadSettingsRegistry({ repoRoot = REPO_ROOT, fsImpl, verifyRefs = false
   );
   if (!checked.ok) return done(failure(checked.errors));
 
-  const keys = new Map<string, any>(Object.entries(raw.keys).map(([name, spec]) => [name, Object.freeze(spec)]));
+  const keys = new Map<string, any>(Object.entries(raw.keys).map(([name, spec]: [string, any]) => {
+    if (typeof spec.orderRef === 'string') {
+      let order: string[] | null | undefined;
+      Object.defineProperty(spec, 'order', {
+        enumerable: true,
+        get() {
+          if (order === undefined) {
+            try { order = refs.resolve(spec.orderRef) as string[]; } catch { order = null; }
+          }
+          return order;
+        },
+      });
+    }
+    return [name, Object.freeze(spec)];
+  }));
   const lists = new Map<string, string[] | null>();
   const registry: SettingsRegistry = {
     version: 1,
@@ -438,6 +470,8 @@ function loadSettingsRegistry({ repoRoot = REPO_ROOT, fsImpl, verifyRefs = false
         else {
           try { list = refs.resolve(spec.valuesRef) as string[]; } catch { list = null; }
         }
+        // A value with no rank is never valid: a narrow-only fold could not compare it.
+        if (typeof spec.orderRef === 'string' && spec.order === null) list = null;
       }
       lists.set(key, list);
       return list;

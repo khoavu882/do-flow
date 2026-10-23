@@ -139,8 +139,6 @@
     "source": ["verb", "dispatch"],
     "status": ["PASS", "FAIL", "UNRESOLVED", "SUBSUMED", "NOT_APPLICABLE", "SKIPPED", "NOT_RUN"],
     "risk": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
-    "depth": ["single", "deep"],
-    "protocol": ["review-deep", "review-single"],
     "role": ["main", "worker"],
     "level": ["L0", "L1", "L2", "L3"],
     "selection_basis": ["changed-test-files", "explicit-pattern", "none"],
