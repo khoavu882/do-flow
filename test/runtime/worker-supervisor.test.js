@@ -255,9 +255,19 @@ test('a user cancel of a running supervised worker keeps the step-6 fields (S-1,
     await sleep(20);
   }
   p.killAfter(p.run(runId));
-  const answer = await cancelRun({ file: p.store, runId, by: 'main', reason: 'stop', env: p.env, cwd: p.dir });
+  // A loaded machine can write the canceller's end after the supervisor is done; the delay after the
+  // tree is gone and before step 5 makes that order certain, so the test never depends on the race.
+  const slowEnd = async (options) => {
+    const outcome = await tree.escalate(options);
+    await sleep(400);
+    return outcome;
+  };
+  const answer = await cancelRun({ file: p.store, runId, by: 'main', reason: 'stop', env: p.env, cwd: p.dir, escalate: slowEnd });
   assert.equal(answer.disposition, 'cancelled');
-  const run = await supervised;
+  // The supervisor resolves the record as it stood when it was done (IC-014); a user cancel's end is
+  // the canceller's write (step 7 awaits only a timeout's), so the settled record is read from the store.
+  await supervised;
+  const run = p.run(runId);
   assert.equal(run.phase, 'ended');
   assert.equal(run.end.state, 'cancelled');
   assert.equal(run.process && run.process.kind, 'exited', JSON.stringify(run.process));

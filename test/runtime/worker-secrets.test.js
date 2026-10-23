@@ -36,6 +36,7 @@ const SRC = path.join(REPO, 'src', 'runtime');
 const { discover, probe } = require(path.join(SRC, 'worker', 'readiness.ts'));
 const { superviseRun } = require(path.join(SRC, 'worker', 'supervisor.ts'));
 const { cancelRun } = require(path.join(SRC, 'worker', 'cancel.ts'));
+const tree = require(path.join(SRC, 'worker', 'process-tree.ts'));
 const { storeFileFor, newRunId, insertRun, readRuns } = require(path.join(SRC, 'worker', 'run-store.ts'));
 const { ENV_SET, launchEnv, launchRecord } = require(path.join(SRC, 'worker', 'launch.ts'));
 const attempts = require(path.join(SRC, 'task-attempts.ts'));
@@ -248,7 +249,8 @@ test('credentials stay unread and secrets stay out of every DoFlow file (IC-030)
     version: [{ print: 'fake 1.0' }],
     runnable: [{ print: `runnable ${KNOWN}` }, { exit: 0 }],
     guidance: [{ print: DESCRIPTORS.claude.guidanceProbe.marker }],
-    byBinary: { 'fake-slow': { run: [{ print: `waiting with ${KNOWN}` }, { sleep: 30000 }] } },
+    // The 400 ms start delay is a loaded machine's slow worker: the cancel below waits for the print, never for time.
+    byBinary: { 'fake-slow': { run: [{ sleep: 400 }, { print: `waiting with ${KNOWN}` }, { sleep: 30000 }] } },
     run: printing,
   };
   const a = project(t, base, 'project-a', scenario);
@@ -273,11 +275,27 @@ test('credentials stay unread and secrets stay out of every DoFlow file (IC-030)
     supervised = await superviseRun({ file: a.store, runId: supervisedId, env: a.env, cwd: a.dir });
 
     const running = superviseRun({ file: b.store, runId: cancelledId, env: b.env, cwd: b.dir });
-    const until = Date.now() + 15000;
+    const until = Date.now() + 60000;
     while (!(b.run(cancelledId).phase === 'running' && b.run(cancelledId).worker) && Date.now() < until) await sleep(50);
     t.after(() => { try { process.kill(-b.run(cancelledId).worker.pid, 'SIGKILL'); } catch { /* ended */ } });
-    cancelled = await cancelRun({ file: b.store, runId: cancelledId, by: 'main', reason: 'stop the review', env: b.env, cwd: b.dir });
-    afterCancel = await running;
+    // The worker has logged its start and printed the secret only once its masked line is in the sink's file.
+    const printed = () => {
+      try { return fs.readFileSync(path.join(b.dir, '.doflow', 'state', 'worker-output', `${cancelledId}.out.log`), 'utf8').includes('waiting with'); } catch { return false; }
+    };
+    while (!printed() && Date.now() < until) await sleep(50);
+    assert.equal(printed(), true, 'the worker printed before it was cancelled');
+    // The delay after the tree is gone and before the end is written makes the canceller's end land
+    // after the supervisor is done, the order a loaded machine produces at random.
+    const slowEnd = async (options) => {
+      const outcome = await tree.escalate(options);
+      await sleep(400);
+      return outcome;
+    };
+    cancelled = await cancelRun({ file: b.store, runId: cancelledId, by: 'main', reason: 'stop the review', env: b.env, cwd: b.dir, escalate: slowEnd });
+    // The supervisor resolves its record as it stood when it was done; the user cancel's end is the
+    // canceller's write, so the settled record is read from the store.
+    await running;
+    afterCancel = b.run(cancelledId);
   } finally {
     spy.restore();
   }
