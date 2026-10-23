@@ -9,6 +9,9 @@ const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const ADVICE_FILE = 'core/registry/advice.json';
 const MODELS_FILE = 'core/registry/models.json';
 const ADAPTER_DIR = 'src/runtime/advice/providers';
+// The adapter is a sibling module of this file, so it has this file's own extension: `.ts` in a
+// checkout, `.js` in the package `build:package` stages (every module there is stripped to `.js`).
+const ADAPTER_EXT = path.extname(__filename);
 const TIER_KIND = 'tier';
 const LIMIT_FIELDS = ['maxStateBytes', 'maxBodyBytes', 'minQuestions', 'maxQuestions', 'minOptions', 'maxOptions'];
 const BAND_FIELDS: Record<string, string[]> = {
@@ -107,7 +110,7 @@ function validateAdviceRegistry(registry: any, { repoRoot = REPO_ROOT, models, f
         if (!/^[a-z][a-z0-9-]*$/.test(provider.adapter)) {
           addError(errors, `${base}.adapter`, 'must be a safe adapter id');
         } else {
-          const adapterFile = path.resolve(adapterRoot, `${provider.adapter}.ts`);
+          const adapterFile = path.resolve(adapterRoot, `${provider.adapter}${ADAPTER_EXT}`);
           if (!adapterFile.startsWith(`${adapterRoot}${path.sep}`) || !fsImpl.existsSync(adapterFile)) {
             addError(errors, `${base}.adapter`, `must name a file under ${ADAPTER_DIR}`);
           }
