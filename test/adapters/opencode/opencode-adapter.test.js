@@ -356,9 +356,9 @@ test('agents.shared projects transformed OpenCode markdown agents and reclaims t
   const specsDir = path.join(root, 'specs');
   fs.mkdirSync(specsDir, { recursive: true });
   fs.writeFileSync(path.join(specsDir, 'spec-analyst.md'),
-    '---\nname: spec-analyst\ndescription: "Requirements specialist"\ntools: Read, Grep\nmodel: inherit\neffort: high\n---\n\n# spec-analyst\n');
+    '---\nname: spec-analyst\ndescription: "Requirements specialist"\ntools: Read, Grep\nmodel: inherit\neffort: high\naccess: read-only\n---\n\n# spec-analyst\n');
   fs.writeFileSync(path.join(specsDir, 'core-implementer.md'),
-    '---\nname: core-implementer\ndescription: "Implementation specialist"\n---\n\n# core-implementer\n');
+    '---\nname: core-implementer\ndescription: "Implementation specialist"\naccess: write\n---\n\n# core-implementer\n');
   const assets = [{
     id: 'agents.shared', kind: 'agents', source: 'specs',
     renderer: 'opencode-agents', capability: 'agents',
@@ -374,7 +374,7 @@ test('agents.shared projects transformed OpenCode markdown agents and reclaims t
   adapter.apply({ changes: planned.changes });
   const analyst = fs.readFileSync(path.join(root, '.opencode', 'agents', 'spec-analyst.md'), 'utf8');
   assert.match(analyst, /^---\ndescription: "Requirements specialist"\nmode: subagent\npermission:\n  edit: deny\n  bash: deny\n---/);
-  assert.doesNotMatch(analyst, /tools:|model:|effort:/, 'spec vocabulary OpenCode does not define must not leak through');
+  assert.doesNotMatch(analyst, /tools:|model:|effort:|access:/, 'spec vocabulary OpenCode does not define must not leak through');
   const implementer = fs.readFileSync(path.join(root, '.opencode', 'agents', 'core-implementer.md'), 'utf8');
   assert.match(implementer, /mode: subagent/);
   assert.doesNotMatch(implementer, /permission:/, 'the write-capable archetype inherits host defaults');

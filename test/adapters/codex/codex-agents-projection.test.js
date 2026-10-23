@@ -31,7 +31,8 @@ test('rejects malformed TOML, missing required fields, and incorrect role sandbo
   assert.throws(() => discoverCodexAgents(sourceDirectory(root, 'backend-architect', 'name = "backend-architect"\n')), /missing required/);
   const malformed = sourceDirectory(scratch(), 'backend-architect', 'name = "backend-architect"\nnot valid\n');
   assert.throws(() => discoverCodexAgents(malformed), /Malformed agent TOML/);
-  const writableAnalysisRole = sourceDirectory(scratch(), 'backend-architect', agent('backend-architect', 'sandbox_mode = "workspace-write"'));
+  // Tied to the spec's access (118 IC-005): system-architect is access: read-only.
+  const writableAnalysisRole = sourceDirectory(scratch(), 'system-architect', agent('system-architect', 'sandbox_mode = "workspace-write"'));
   assert.throws(() => discoverCodexAgents(writableAnalysisRole), /must use sandbox_mode/);
 });
 

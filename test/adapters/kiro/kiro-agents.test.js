@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../../helper/tmp');
 const { createKiroAdapter } = require('../../../src/adapters/kiro/index.ts');
-const { TRANSFORMS, LAYOUTS, resolveLayout, kiroPreToolUseHooks, kiroHook } = require('../../../src/adapters/copy-tree.ts');
+const { TRANSFORMS, LAYOUTS, resolveLayout, kiroPreToolUseHooks, kiroHook, readOnlyApply } = require('../../../src/adapters/copy-tree.ts');
 const { loadRegistry, selectAssets } = require('../../../src/registry/index.ts');
 const { projectAdapterInput } = require('../../../src/adapters/index.ts');
 
@@ -53,7 +53,8 @@ test('kiro-agents transform: deterministic bytes, valid JSON, prompt equals the 
     assert.ok(agent.description.length > 0);
     const body = source.slice(source.indexOf('\n---', 3) + 4).replace(/^\n+/, '').replace(/\s+$/, '');
     assert.equal(agent.prompt, `${body}\n`);
-    assert.deepEqual(agent.tools, ['*']);
+    // 118 IC-005: a read-only spec's tools come from the harness's agentLimits; a write spec keeps ["*"].
+    assert.deepEqual(agent.tools, /^access: read-only$/m.test(source) ? readOnlyApply('kiro').tools : ['*']);
     assert.equal(first, `${JSON.stringify(agent, null, 2)}\n`, `${name}: canonical two-space JSON`);
   }
 });
