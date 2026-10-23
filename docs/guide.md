@@ -428,8 +428,9 @@ doflow roadmap --action status           # merged / in-flight / not-started per 
   it gives. If the artifact is missing or unchanged, or the stage was not handed off, `next` answers
   `denied: stage-not-performed` with the same envelope. The implementation envelope runs `dispatch`
   with `--billing-cap free`, so no worker launches until you have recorded a harness's `billing` as
-  `free`, and with `--verify-argv` from the row's seed `verifyArgv` or the worktree's `npm test`; when
-  the dispatch completes, the loop fast-forwards the feature branch to its integration branch. The
+  `free` (see **Record a worker's billing** below), and with `--verify-argv` from the row's seed `verifyArgv` or the worktree's
+  `npm test`; when the dispatch completes, the loop fast-forwards the feature branch to its
+  integration branch. The
   verification envelopes pass `--baseline-ref`, so a local merge you have not pushed does not widen the
   next row's change scope. After a merge, the envelope asks for the post-merge `verify --action report`
   in the develop worktree.
@@ -440,6 +441,20 @@ doflow roadmap --action status           # merged / in-flight / not-started per 
 
 `--row <id>` restricts a call to one in-flight row and `--run <id>` names the run; the default is the
 open run. Only one `next` runs at a time (`lease-held` otherwise).
+
+**Record a worker's billing.** DoFlow never says a harness is free: the registry lists every harness's billing as `unknown`, and only you can state that your account has no per-run charge for it (a flat subscription counts). Write the record yourself under `workers.billing` in `~/.config/doflow/settings.json` (or under `$XDG_CONFIG_HOME/doflow`). The key is global-only, so a project file cannot set it, and `doflow config` never writes it. For example, for `codex` and for `antigravity` (the `agy` CLI):
+
+```json
+{
+  "schema": 1,
+  "workers.billing": {
+    "codex": { "billing": "free", "asserted": "2026-10-23", "basis": "flat plan, no per-run charge" },
+    "antigravity": { "billing": "free", "asserted": "2026-10-23", "basis": "flat plan, no per-run charge" }
+  }
+}
+```
+
+Each key is a registry harness id, `billing` is `free` or `metered`, `asserted` is the real calendar date (`YYYY-MM-DD`) on which you stated it, and `basis` is an optional one-line note. A capped `dispatch start` prints one line per recorded worker, for example `billing: codex free (user record, asserted 2026-10-23)`, so you see what counts as free before any worker launches. If the record is malformed or names an id that is not a registry harness, no worker counts as free. The record says nothing about quota: when a worker runs out of quota, the fallback ladder decides what happens next. [Settings](settings.md) has the full rules.
 
 **Turn it on and off.** It ships off. To turn it on, put `{"schema":1,"autopilot.enabled":"on"}` in
 `~/.config/doflow/settings.json` (or under `$XDG_CONFIG_HOME/doflow`). To stop it: set
