@@ -72,7 +72,9 @@ function baseDeps(overrides = {}) {
   };
 }
 
-function waitFor(predicate, timeoutMs = 5000) {
+// The ceiling bounds a hang; the wait ends as soon as the predicate holds. A child process that has to
+// start node and compile the TypeScript runtime can take far longer than 5 s on a loaded machine.
+function waitFor(predicate, timeoutMs = 60000) {
   const deadline = Date.now() + timeoutMs;
   return new Promise((resolve, reject) => {
     const poll = () => {
@@ -460,7 +462,7 @@ test('a live slot lock is not stolen after ten seconds while its owner is paused
   };
 
   const first = run('first', 11500);
-  await waitFor(() => fs.existsSync(pauseFile), 5000);
+  await waitFor(() => fs.existsSync(pauseFile));
   await new Promise((resolve) => setTimeout(resolve, 10200));
   const second = run('second');
   const [firstExit, secondExit] = await Promise.all([first.exited, second.exited]);
