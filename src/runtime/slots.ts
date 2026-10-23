@@ -20,7 +20,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn: spawnChild } = require('node:child_process');
-const { updateTaskState, readTaskState } = require('./task-state.ts');
+const { randomBytes } = require('node:crypto');
+const { updateTaskState, readTaskState, acquireLock, LOCK_STALE_MS, LOCK_WAIT_MS } = require('./task-state.ts');
 const { alive: processAlive, procStart: processStart } = require('./worker/process-tree.ts');
 const { loadStorageRegistry } = require('./storage/registry.ts');
 const { resolveRoots, resolveStorePath } = require('./storage/roots.ts');
@@ -32,9 +33,8 @@ const POLL_MS = 1000;
 const LABEL_MAX = 80;
 const BUSY_EXIT = 75;
 const FORWARDED = ['SIGINT', 'SIGTERM', 'SIGHUP'];
-const SLOT_LOCK_STALE_MS = 10_000;
-const SLOT_LOCK_WAIT_MS = 20;
-const SLOT_LOCK_RETRIES = 1500;
+const SLOT_LOCK_BUDGET_MS = 30_000;
+const SLOT_LOST_RETRIES = 2;
 
 function fail(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });
@@ -72,6 +72,8 @@ type Deps = {
   pollMs?: number;
   platform?: string;
   proc?: any;
+  quietMs?: number; // tests only: the quiet hold after a reclaim (default LOCK_STALE_MS)
+  lockBudgetMs?: number; // tests only: how long a slot lock is waited for (default 30 s)
 };
 
 function resolveDeps(deps: Deps = {}) {
@@ -89,6 +91,8 @@ function resolveDeps(deps: Deps = {}) {
     pollMs: deps.pollMs ?? POLL_MS,
     platform: deps.platform ?? process.platform,
     proc: deps.proc || process,
+    quietMs: deps.quietMs,
+    lockBudgetMs: deps.lockBudgetMs,
   };
 }
 
@@ -104,20 +108,28 @@ function shape(disk: any, name: string) {
   };
 }
 
-function blockingSleep(ms: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
+const LEGACY_OWNER = 'owner.json';
+// An entry is `owner-<pid>-<hex of the owner's start time, or x>-<12 hex>`: the protocol needs a
+// unique name, the slot lock also reads its owner from it.
+const ENTRY = /^owner-(\d+)-([0-9a-f]+|x)-[0-9a-f]{12}$/;
 
-function ownerFile(lockDir: string): string {
-  return path.join(lockDir, 'owner.json');
-}
-
-function readLockOwner(fsImpl: any, lockDir: string): any | null {
-  const file = ownerFile(lockDir);
+/** The text of the 115 slot lock's owner token (`owner.json`, a regular file), or null. */
+function readLegacyToken(fsImpl: any, lockDir: string): string | null {
+  const file = path.join(lockDir, LEGACY_OWNER);
   try {
     const stat = fsImpl.lstatSync(file);
     if (!stat.isFile() || stat.isSymbolicLink()) return null;
-    const owner = JSON.parse(fsImpl.readFileSync(file, 'utf8'));
+    return fsImpl.readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/** The owner a 115 token names, or null. */
+function legacyOwner(text: string | null): any | null {
+  if (text == null) return null;
+  try {
+    const owner = JSON.parse(text);
     if (!Number.isInteger(owner?.pid) || owner.pid <= 0) return null;
     return { pid: owner.pid, start: owner.start ?? null };
   } catch {
@@ -125,68 +137,130 @@ function readLockOwner(fsImpl: any, lockDir: string): any | null {
   }
 }
 
+/** The owner an entry name records, or null for a name this lock does not make. */
+function entryOwner(name: string): any | null {
+  const match = ENTRY.exec(name);
+  if (!match) return null;
+  const pid = Number(match[1]);
+  if (!Number.isSafeInteger(pid) || pid <= 0) return null;
+  return { pid, start: match[2] === 'x' ? null : Buffer.from(match[2], 'hex').toString('utf8') };
+}
+
+const refuse = (why: string) => Object.assign(new Error(why), { code: 'EBUSY' });
+
 /**
- * Slot writes need a stronger lock than task-state's age-only default: a slow live critical section
- * must not be mistaken for a crashed writer. The owner token is written only after mkdir succeeds;
- * stale directories are renamed aside before removal so competing reclaimers cannot delete a new
- * owner's directory.
+ * The slot lock (FU-31dyvs) is the task-state lock (`src/runtime/task-state.ts`, its protocol and
+ * `release.held()`), with the entry naming its owner and a stale rule that keeps 115's C-4: an entry
+ * whose owner is alive is never reclaimed, however old (a slow live critical section is not a crash);
+ * one whose owner is dead is reclaimable at once; one whose liveness is unknown, an empty lock and a
+ * directory name this lock does not make once the lock is 10 s old, as in task-state. An older
+ * runtime's lock (its `owner.json` token) is judged the same way. `reclaimed` records that this acquire
+ * judged a lock reclaimable, so it holds only after `quiet` (every reclaim quiets; user ruling, 117
+ * decisions: amends 115 C-4's "dead owner reclaimed at once"). See docs/architecture.md, "The slot lock".
  */
-function acquireSlotLock(fsImpl: any, file: string, deps: any): () => void {
-  const lockDir = `${file}.lock`;
-  const token = { pid: deps.pid, start: deps.procStart(deps.pid) };
-  const tokenFile = ownerFile(lockDir);
-  const sameOwner = (owner: any) => owner && owner.pid === token.pid && owner.start === token.start;
+function slotLock(fsImpl: any, deps: any) {
+  const start = deps.procStart(deps.pid);
+  const startCode = typeof start === 'string' && start ? Buffer.from(start, 'utf8').toString('hex') : 'x';
+  const liveness = (owner: any): boolean | 'unknown' => {
+    try { return deps.alive({ pid: owner.pid, start: owner.start }); } catch { return 'unknown'; }
+  };
+  const lock: any = { reclaimed: false, current: null, judgedToken: null };
+  lock.options = {
+    entryName: () => (lock.current = `owner-${deps.pid}-${startCode}-${randomBytes(6).toString('hex')}`),
+    stale: ({ lockDir, entries, ageMs }: { lockDir: string; entries: string[]; ageMs: number }) => {
+      const aged = ageMs > LOCK_STALE_MS;
+      const reclaimable = entries.length === 0 ? aged : entries.every((name: string) => {
+        let owner: any;
+        if (name === LEGACY_OWNER) {
+          lock.judgedToken = readLegacyToken(fsImpl, lockDir);
+          owner = legacyOwner(lock.judgedToken);
+        } else owner = entryOwner(name);
+        if (!owner) return aged;
+        const state = liveness(owner);
+        return state === false || (state !== true && aged);
+      });
+      // Any reclaim quiets (FU-31dyvs N-1): an older runtime may have judged the lock, or the one before
+      // it, stale, and a current process that died in its own quiet hold leaves a young lock with a dead
+      // entry, which only a quiet successor keeps safe from that older runtime's pending move.
+      if (reclaimable) lock.reclaimed = true;
+      return reclaimable;
+    },
+    removeEntry: (lockFs: any, lockDir: string, name: string) => {
+      const entry = path.join(lockDir, name);
+      const stat = lockFs.lstatSync(entry);
+      if (name !== LEGACY_OWNER || stat.isDirectory()) return lockFs.rmdirSync(entry);
+      if (!stat.isFile()) throw refuse('not a token');
+      // C-1: unlink only the dead token judged, in the lock that holds this process's entry. An older
+      // runtime that moved the lock aside and made a new one in between has its own token there.
+      if (!lock.current || !lockFs.existsSync(path.join(lockDir, lock.current))) throw refuse('the lock was replaced');
+      if (lockFs.readFileSync(entry, 'utf8') !== lock.judgedToken) throw refuse('the token changed');
+      return lockFs.unlinkSync(entry);
+    },
+  };
+  return lock;
+}
 
-  for (let attempt = 0; attempt < SLOT_LOCK_RETRIES; attempt += 1) {
-    try {
-      fsImpl.mkdirSync(lockDir);
-      try {
-        fsImpl.writeFileSync(tokenFile, JSON.stringify(token), 'utf8');
-      } catch (error) {
-        try { fsImpl.rmdirSync(lockDir); } catch { /* the failed writer still owns the empty directory */ }
-        throw error;
-      }
-      let released = false;
-      return () => {
-        if (released) return;
-        released = true;
-        if (!sameOwner(readLockOwner(fsImpl, lockDir))) return;
-        try { fsImpl.unlinkSync(tokenFile); } catch (error: any) { if (error.code !== 'ENOENT') return; }
-        try { fsImpl.rmdirSync(lockDir); } catch { /* another process already removed or replaced it */ }
-      };
-    } catch (error: any) {
-      if (error.code !== 'EEXIST') throw error;
+/**
+ * After reclaiming a lock (FU-31dyvs C-2, N-1): an older runtime that judged it (or an earlier lock at
+ * the path) stale moves it aside by name, at any later moment, so this process waits LOCK_STALE_MS
+ * with its entry in the lock, holding nothing, before it uses the lock. A move that lands meanwhile
+ * takes the lock with this process's entry (`held()` turns false and the acquire starts over); one
+ * that lands later came from a process paused 10 s or more between its judgement and its move. The
+ * lock's time is refreshed meanwhile so that no older runtime judges it stale by its age.
+ */
+function quiet(fsImpl: any, lockDir: string, release: any, quietMs: number): boolean {
+  const until = Date.now() + quietMs;
+  let touched = -Infinity;
+  for (;;) {
+    if (!release.held()) return false;
+    const now = Date.now();
+    if (now >= until || now - touched >= LOCK_STALE_MS / 4) {
+      try { fsImpl.utimesSync(lockDir, now / 1000, now / 1000); } catch { /* held() below decides */ }
+      touched = now;
     }
-
-    let stat: any;
-    try { stat = fsImpl.statSync(lockDir); } catch (error: any) {
-      if (error.code === 'ENOENT') continue;
-      blockingSleep(SLOT_LOCK_WAIT_MS);
-      continue;
-    }
-    const ageMs = Date.now() - stat.mtimeMs;
-    const owner = readLockOwner(fsImpl, lockDir);
-    let ownerAlive: any = 'unknown';
-    if (owner) {
-      try { ownerAlive = deps.alive({ pid: owner.pid, start: owner.start }); } catch { ownerAlive = 'unknown'; }
-    }
-    const stale = owner
-      ? ownerAlive === false || (ownerAlive === 'unknown' && ageMs > SLOT_LOCK_STALE_MS)
-      : ageMs > SLOT_LOCK_STALE_MS;
-    if (stale) {
-      const abandoned = `${lockDir}.stale-${deps.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      try {
-        fsImpl.renameSync(lockDir, abandoned);
-        try { fsImpl.unlinkSync(ownerFile(abandoned)); } catch { /* a token may never have been written */ }
-        try { fsImpl.rmdirSync(abandoned); } catch { /* leave unexpected contents for inspection */ }
-        continue;
-      } catch (error: any) {
-        if (error.code === 'ENOENT' || error.code === 'EEXIST') continue;
-      }
-    }
-    if (attempt + 1 < SLOT_LOCK_RETRIES) blockingSleep(SLOT_LOCK_WAIT_MS);
+    if (now >= until) return release.held();
+    blockingSleep(LOCK_WAIT_MS);
   }
-  throw new Error(`Could not lock '${file}' after ${(SLOT_LOCK_RETRIES * SLOT_LOCK_WAIT_MS) / 1000}s — another writer holds '${lockDir}'.`);
+}
+
+function blockingSleep(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** The slot lock's give-up error; it names a file in the lock, which keeps it locked (C-4). */
+function lockFailure(fsImpl: any, file: string, budgetMs: number): Error {
+  const lockDir = `${file}.lock`;
+  let stray: string[] = [];
+  try {
+    stray = fsImpl.readdirSync(lockDir, { withFileTypes: true })
+      .filter((entry: any) => !entry.isDirectory() && entry.name !== LEGACY_OWNER).map((entry: any) => entry.name);
+  } catch { /* no lock left to name anything in */ }
+  const named = stray.length === 0 ? ''
+    : ` It holds ${stray.map((name) => `'${name}'`).join(', ')}, which no DoFlow runtime makes and which keeps it locked: `
+      + `remove ${stray.length > 1 ? 'them' : 'it'} once no DoFlow process is running.`;
+  return new Error(`Could not lock '${file}' after ${budgetMs / 1000}s — another writer holds '${lockDir}'.${named}`);
+}
+
+/** Takes the slot lock for `file` within SLOT_LOCK_BUDGET_MS; the release function carries `held()`. */
+function acquireSlotLock(fsImpl: any, file: string, deps: any): any {
+  const lockDir = `${file}.lock`;
+  const budgetMs = deps.lockBudgetMs ?? SLOT_LOCK_BUDGET_MS;
+  const deadline = Date.now() + budgetMs;
+  const lock = slotLock(fsImpl, deps);
+  for (;;) {
+    const left = deadline - Date.now();
+    if (left <= 0) throw lockFailure(fsImpl, file, budgetMs);
+    lock.reclaimed = false;
+    let release: any;
+    try {
+      release = acquireLock(fsImpl, file, { ...lock.options, retries: Math.max(1, Math.ceil(left / LOCK_WAIT_MS)) });
+    } catch (error: any) {
+      if (typeof error?.message !== 'string' || !error.message.startsWith('Could not lock')) throw error;
+      throw lockFailure(fsImpl, file, budgetMs);
+    }
+    if (!lock.reclaimed || quiet(fsImpl, lockDir, release, deps.quietMs ?? LOCK_STALE_MS)) return release;
+    release(); // an older runtime moved the lock with our entry in it: nothing of ours is at the path
+  }
 }
 
 /** Holder liveness for a run: dead only when the runner and its recorded child are both `false`. */
@@ -212,20 +286,32 @@ function sweep(state: any, alive: (proc: any) => boolean | 'unknown') {
  * starts from nothing.
  */
 function locked(file: string, name: string, deps: any, change: (state: any) => any): void {
-  updateTaskState({
-    fsImpl: deps.fsImpl,
-    file,
-    acquire: (fsImpl: any, target: string) => acquireSlotLock(fsImpl, target, deps),
-    build: (disk: any) => {
-      const next = change(shape(disk, name));
-      if (next === false) return null;
-      if (!next.holder && next.waiters.length === 0) {
-        try { deps.fsImpl.unlinkSync(file); } catch (error: any) { if (error.code !== 'ENOENT') throw error; }
-        return null;
-      }
-      return next;
-    },
-  });
+  // A lock reclaimed from this process before its write or delete (`lock-lost`: nothing was written)
+  // runs the change again on the fresh file; every `change` here only sets what it returns or reports.
+  for (let attempt = 0; ; attempt += 1) {
+    let release: any = null;
+    try {
+      updateTaskState({
+        fsImpl: deps.fsImpl,
+        file,
+        acquire: (fsImpl: any, target: string) => (release = acquireSlotLock(fsImpl, target, deps)),
+        build: (disk: any) => {
+          const next = change(shape(disk, name));
+          if (next === false) return null;
+          if (!next.holder && next.waiters.length === 0) {
+            // The delete is a write too: check the lock is still ours first, as updateTaskState does.
+            if (!release.held()) throw Object.assign(new Error(`Lost the lock on '${file}' to another writer before deleting it. Nothing was changed; run the command again.`), { code: 'lock-lost' });
+            try { deps.fsImpl.unlinkSync(file); } catch (error: any) { if (error.code !== 'ENOENT') throw error; }
+            return null;
+          }
+          return next;
+        },
+      });
+      return;
+    } catch (error: any) {
+      if (error?.code !== 'lock-lost' || attempt >= SLOT_LOST_RETRIES) throw error;
+    }
+  }
 }
 
 /** One look at the queue for `self`: append, and grant when first in line with the holder gone. */
@@ -350,6 +436,7 @@ async function runSlot({
       if (Number.isInteger(child.pid)) {
         const childStart = deps.procStart(child.pid);
         locked(file, name, deps, (state) => {
+          registered = false; // a lock-lost re-run decides again on the fresh file
           if (state.holder && state.holder.pid === self.pid) {
             state.holder = { ...state.holder, childPid: child.pid, childStart };
             registered = true;
@@ -440,4 +527,4 @@ async function releaseSlot({ name, by, reason, env = process.env, deps: injected
   return result;
 }
 
-module.exports = { runSlot, listSlots, releaseSlot, SLOT_NAME, POLL_MS };
+module.exports = { runSlot, listSlots, releaseSlot, acquireSlotLock, SLOT_NAME, POLL_MS };
