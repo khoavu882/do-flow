@@ -202,3 +202,22 @@ test('R1: reconcile --json names a harness the ledger holds and the lock lacks, 
     scratch.remove();
   }
 });
+
+test('R6: a global lock holding only packages is `empty` and repairs nothing, read from disk or built in memory', (t) => {
+  const home = tempDir(t, 'doflow-coverage-pkg-home-');
+  const project = tempDir(t, 'doflow-coverage-pkg-project-');
+  const row = { id: 'acme', version: '1.0.0', source: { type: 'local', path: '/abs/acme' }, contentDigest: 'a'.repeat(64),
+    capabilityDigest: 'b'.repeat(64), enabled: false, addedAt: '2026-10-24T09:00:00.000Z' };
+  const lock = { ...lockPinning('global', [], home), packages: [row] };
+  writeLock({ scope: 'global', homeDir: home }, lock);
+  const onDisk = readScopeLocks({ projectRoot: project, homeDir: home });
+  assert.equal(onDisk.global.version, 2);
+  for (const locks of [{ global: lock }, onDisk]) {
+    const coverage = repairCoverage({ findings: [finding('claude', 'global')], locks });
+    assert.equal(coverage.scopes.global.lock, 'empty');
+    assert.equal(coverage.scopes.global.pinned, false);
+    assert.deepEqual(coverage.scopes.global.targets, []);
+    assert.equal(coverage.repairable, 0);
+    assert.equal(coverage.details[0].reason, REPAIR_REASONS.SCOPE_NOT_PINNED);
+  }
+});

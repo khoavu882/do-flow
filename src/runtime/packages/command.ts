@@ -14,7 +14,7 @@ const { loadPoints, pointRows } = require('./points.ts');
 const { checkPackage } = require('./manifest.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { packageView, hostVersion } = require('./view.ts');
-const { LOCK_VERSION } = require('../../state/lockfile.ts');
+const { readLock, LOCK_VERSION_BASE } = require('../../state/lockfile.ts');
 
 function pointLine(row: any): string {
   return `point ${row.id}: tier=${row.tier} status=${row.status} entry=${row.entry} versions=${row.versions.join(',') || '-'}`
@@ -50,9 +50,15 @@ function stateLine(p: any): string {
     + (p.reasons.length > 0 ? ` reasons=${p.reasons.join(',')}` : '');
 }
 
+/** The global lock's `version`; 1 with no lock, null for an unreadable one. Read-only. */
+function globalLockVersion(): number | null {
+  try { return readLock({ scope: 'global' })?.version ?? LOCK_VERSION_BASE; } catch { return null; }
+}
+
 /**
- * `list [--id]` and `show --id`: the package view, read-only. `lockVersion` is the version `writeLock` writes
- * today (no lock is read until Phase B, which records packages in it). `list` exits 1 when a package is neither
+ * `list [--id]` and `show --id`: the package view, read-only. `lockVersion` is the `version` of the global lock
+ * on disk, 1 when there is none (the version written while no package is recorded) and null when it cannot be
+ * read; the lock is only read here, never written. `list` exits 1 when a package is neither
  * `active` nor `disabled` or any finding is an error (a corrupt point registry among them); an unknown id is exit 1.
  */
 function handleView({ action, id, json, repoRoot, out }: any): number {
@@ -73,7 +79,7 @@ function handleView({ action, id, json, repoRoot, out }: any): number {
     out(json ? JSON.stringify(wanted[0]) : stateLine(wanted[0]));
     return finishRuntime(0);
   }
-  if (json) out(JSON.stringify({ points: view.points, packages: wanted, findings, lockVersion: LOCK_VERSION }));
+  if (json) out(JSON.stringify({ points: view.points, packages: wanted, findings, lockVersion: globalLockVersion() }));
   else {
     for (const p of wanted) out(stateLine(p));
     if (wanted.length === 0) out('no packages');

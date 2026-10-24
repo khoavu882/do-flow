@@ -156,3 +156,79 @@ test('recordLock with no lock to pin removes the file, and is silent when there 
   assert.equal(fs.existsSync(lockPath(args)), false);
   assert.deepEqual(recordLock(args, null), { changed: false, summary: 'unchanged' });
 });
+
+// ── packages survive an install, a remove and an update (122 IC-007) ─────────────────────────────
+const globalArgs = (home) => ({ scope: 'global', homeDir: home });
+const row = (id, overrides = {}) => ({
+  id, version: '1.0.0', source: { type: 'local', path: `/abs/${id}` }, contentDigest: 'a'.repeat(64),
+  capabilityDigest: 'b'.repeat(64), enabled: false, addedAt: '2026-10-24T09:00:00.000Z', ...overrides,
+});
+const withPackages = (home, packages, targets = []) => ({
+  ...defaultLock({ scope: 'global', scopeRoot: home }), generatedAt: 'x', sourceVersion: 'old',
+  targets: targets.map((harness) => ({ harness })), packages,
+});
+
+test('P1: install keeps a recorded package, and a lock without packages gets no packages key', (t) => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const home = scratch(t);
+  const previous = withPackages(home, [row('acme'), row('beta', { enabled: true })]);
+  const doc = lockDocument({ registry, scope: 'global', scopeRoot: home, previous, ledger: holding('claude'), plannedTargets: ['claude'] });
+  assert.deepEqual(doc.packages, previous.packages);
+  assert.deepEqual(doc.targets, [{ harness: 'claude' }]);
+
+  const bare = lockDocument({ registry, scope: 'global', scopeRoot: home, previous: { ...previous, packages: [] }, ledger: holding('claude'), plannedTargets: ['claude'] });
+  assert.equal('packages' in bare, false);
+  const none = lockDocument({ registry, scope: 'project', scopeRoot: home, ledger: holding('claude'), plannedTargets: ['claude'] });
+  assert.equal('packages' in none, false);
+});
+
+test('P2: remove of the last harness leaves a packages-only lock, not a removed file; with no packages the file still goes', (t) => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const home = scratch(t);
+  const args = globalArgs(home);
+  recordLock(args, withPackages(home, [row('acme')], ['claude']));
+  const next = lockDocument({ registry, scope: 'global', scopeRoot: home, previous: readLock(args), ledger: holding() });
+  assert.deepEqual(next.targets, []);
+  assert.deepEqual(next.assets, []);
+  assert.deepEqual(next.mcpSelections, {});
+  assert.deepEqual(next.packages, [row('acme')]);
+  assert.equal(recordLock(args, next).changed, true);
+  const kept = readLock(args);
+  assert.equal(kept.version, 2);
+  assert.deepEqual(kept.targets, []);
+  assert.deepEqual(kept.packages, [row('acme')]);
+
+  // a second identical remove is a no-op and the file keeps its bytes
+  const bytes = fs.readFileSync(lockPath(args));
+  const again = lockDocument({ registry, scope: 'global', scopeRoot: home, previous: readLock(args), ledger: holding() });
+  assert.deepEqual(recordLock(args, again), { changed: false, summary: 'unchanged' });
+  assert.deepEqual(fs.readFileSync(lockPath(args)), bytes);
+
+  // the earlier L8 behaviour is unchanged for a lock holding no packages
+  const lone = scratch(t);
+  recordLock(globalArgs(lone), withPackages(lone, [], ['claude']));
+  const gone = lockDocument({ registry, scope: 'global', scopeRoot: lone, previous: readLock(globalArgs(lone)), ledger: holding() });
+  assert.equal(gone, null);
+  assert.deepEqual(recordLock(globalArgs(lone), gone), { changed: true, summary: 'cleared' });
+  assert.equal(fs.existsSync(lockPath(globalArgs(lone))), false);
+});
+
+test('P3: lockDelta counts package changes, and a pinned-only re-run leaves the packages and the file alone', (t) => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  const home = scratch(t);
+  const base = withPackages(home, [row('acme')], ['claude']);
+  assert.deepEqual(lockDelta(base, base), { changed: false, summary: 'unchanged' });
+  assert.deepEqual(lockDelta(base, { ...base, packages: [row('acme', { enabled: true })] }), { changed: true, summary: '1 change(s)' });
+  assert.deepEqual(lockDelta(base, { ...base, packages: [row('acme'), row('beta')] }), { changed: true, summary: '1 change(s)' });
+  assert.deepEqual(lockDelta(base, { ...base, packages: [] }), { changed: true, summary: '1 change(s)' });
+  const { packages: _none, ...bare } = base;
+  assert.deepEqual(lockDelta({ ...bare, packages: [] }, bare), { changed: false, summary: 'unchanged' }, 'absent and empty are the same list');
+
+  const args = globalArgs(home);
+  const pin = (now) => lockDocument({ registry, scope: 'global', scopeRoot: home, previous: readLock(args), ledger: holding('claude'), plannedTargets: ['claude'], now });
+  recordLock(args, { ...pin(new Date('2026-10-01T00:00:00Z')), packages: [row('acme')] });
+  const bytes = fs.readFileSync(lockPath(args));
+  assert.deepEqual(recordLock(args, pin(new Date('2026-10-02T00:00:00Z'))), { changed: false, summary: 'unchanged' });
+  assert.deepEqual(fs.readFileSync(lockPath(args)), bytes);
+  assert.deepEqual(readLock(args).packages, [row('acme')]);
+});

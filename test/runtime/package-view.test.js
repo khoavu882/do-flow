@@ -12,6 +12,7 @@ const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { packageView, resetPackageView } = require('../../src/runtime/packages/view.ts');
+const { defaultLock, writeLock } = require('../../src/state/lockfile.ts');
 
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const COMMAND = path.join(REPO_ROOT, 'src', 'runtime', 'packages', 'command.ts');
@@ -50,11 +51,12 @@ const entry = (id, dir) => ({ id, dir, contentDigest: DIGEST });
 const view = (root, extra = {}) => { resetPackageView(); return packageView({ repoRoot: root, ...extra }); };
 
 /** Run `package --action <args>` in-process in a child whose PATH holds a node symlink and nothing else. */
-function runList(t, root, args = {}) {
+function runList(t, root, args = {}, { seedHome } = {}) {
   const bin = path.join(tempDir(t, 'doflow-pkgbin-'), 'bin');
   fs.mkdirSync(bin);
   fs.symlinkSync(process.execPath, path.join(bin, 'node'));
   const home = tempDir(t, 'doflow-pkghome-');
+  if (seedHome) seedHome(home);
   const script = `const { handlePackageCommand } = require(${JSON.stringify(COMMAND)});
     const lines = [];
     const code = handlePackageCommand({ ...${JSON.stringify(args)}, repoRoot: ${JSON.stringify(root)}, out: (l) => lines.push(l) });
@@ -206,6 +208,30 @@ test('list --json with no harness on PATH shows one bundled package, active and 
   assert.deepEqual(out.findings, []);
   assert.deepEqual(snapshot(root), before, 'the runtime root is untouched');
   assert.deepEqual(snapshot(run.home), {}, 'the scratch HOME the child ran in stays empty');
+});
+
+test('list --json reports the version of the global lock on disk as lockVersion, 1 when none, and never writes it', (t) => {
+  const root = scratchRoot(t, [entry('doflow', 'core/registry/packages/doflow')]);
+  bundledPackage(root, 'core/registry/packages/doflow');
+  const row = { id: 'acme', version: '1.0.0', source: { type: 'local', path: '/abs/acme' }, contentDigest: DIGEST,
+    capabilityDigest: DIGEST, enabled: false, addedAt: '2026-10-24T09:00:00.000Z' };
+  const lockVersionOf = (seed) => {
+    let lockBytes = null;
+    const run = runList(t, root, { action: 'list', json: true }, { seedHome: (home) => { seed(home); } });
+    const parsed = JSON.parse(run.lines.join('\n'));
+    lockBytes = fs.existsSync(path.join(run.home, '.doflow', 'doflow.lock')) ? fs.readFileSync(path.join(run.home, '.doflow', 'doflow.lock'), 'utf8') : null;
+    return { version: parsed.lockVersion, lockBytes };
+  };
+  const seeded = (packages) => (home) => writeLock({ scope: 'global', homeDir: home }, { ...defaultLock({ scope: 'global', scopeRoot: home }), packages });
+  assert.deepEqual(lockVersionOf(() => {}), { version: 1, lockBytes: null }, 'no lock: 1, and none created');
+  const v1 = lockVersionOf(seeded([]));
+  assert.equal(v1.version, 1);
+  const v2 = lockVersionOf(seeded([row]));
+  assert.equal(v2.version, 2);
+  assert.equal(JSON.parse(v2.lockBytes).packages.length, 1, 'the lock is left as written');
+  const corrupt = lockVersionOf((home) => write(path.join(home, '.doflow', 'doflow.lock'), '{ nope'));
+  assert.equal(corrupt.version, null);
+  assert.equal(corrupt.lockBytes, '{ nope');
 });
 
 test('list exits 1 when a package is incompatible and 1 for a corrupt registry, and prints the findings', (t) => {

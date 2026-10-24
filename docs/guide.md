@@ -193,7 +193,7 @@ doflow package --action list [--id <id>] [--json]
 doflow package --action show --id <id> [--json]
 ```
 
-A package is `active` when it can be used. One whose files are missing or break a rule of `check` is `incompatible`, with the reason codes beside it; it affects no other package and no other command. `list` exits 0 when every package is `active` or `disabled` and 1 otherwise, `show` exits 1 for an unknown id and 2 without `--id`. Add `--json` for `{ points, packages, findings, lockVersion }`.
+A package is `active` when it can be used. One whose files are missing or break a rule of `check` is `incompatible`, with the reason codes beside it; it affects no other package and no other command. `list` exits 0 when every package is `active` or `disabled` and 1 otherwise, `show` exits 1 for an unknown id and 2 without `--id`. Add `--json` for `{ points, packages, findings, lockVersion }`, where `lockVersion` is the version of the global lock on disk (1 when none).
 
 ## Retrieve code from the project
 
