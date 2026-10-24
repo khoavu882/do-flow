@@ -9,8 +9,9 @@
  * `grants` that count right now, and IC-004 findings. Void rules: an unreadable file, a line over 2 KiB, more
  * than 1000 lines, a malformed line, an unknown key or kind, or a duplicate (grant, package, version) voids
  * every grant (`state-unreadable`, naming the line number and never its text). A file whose realpath lies in
- * the project root, a `.doflow/state/dispatch-worktrees/` directory or the system temp directory is ignored
- * (`grant-invalid`, reason `grants-file-location`). No file means no grants and no finding.
+ * the detected project root (`detectedProjectRoot`, never the working directory itself), a
+ * `.doflow/state/dispatch-worktrees/` directory or the system temp directory is ignored (`grant-invalid`, reason
+ * `grants-file-location`). No file means no grants and no finding.
  */
 
 const fs = require('node:fs');
@@ -89,20 +90,41 @@ const within = (child: string, parent: string): boolean => {
   return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 };
 
-/** `grants-file-location` (IC-008): the realpath is in the project root, a dispatch worktree or the temp dir. */
-function badLocation(real: string, projectRoot: string, tmpDir: string, fsImpl: any): boolean {
+/** True when `path.join(dir, name)` exists and, with `directory`, is a directory. Never throws. */
+const holds = (fsImpl: any, dir: string, name: string, directory: boolean): boolean => {
+  try { const stat = fsImpl.statSync(path.join(dir, name)); return !directory || stat.isDirectory(); } catch { return false; }
+};
+
+/**
+ * The detected project root (IC-008 as amended by FU-t622ad; IC-025 reuses it): from `cwd` upward, the nearest
+ * directory, `cwd` included, that holds `.git` (a directory, or the file of a linked worktree) or a `.doflow/`
+ * directory. The account home `homeDir` and every ancestor of it end the walk, because the home is the global scope,
+ * not a project. Returns that directory's real path, or null when there is no project. Spawns no process.
+ */
+function detectedProjectRoot({ cwd = process.cwd(), homeDir = os.homedir(), fsImpl = fs }: { cwd?: string; homeDir?: string | null; fsImpl?: any } = {}): string | null {
+  const home = homeDir ? realOf(fsImpl, homeDir) : null;
+  for (let dir = realOf(fsImpl, cwd); ; dir = path.dirname(dir)) {
+    if (home !== null && within(home, dir)) return null; // the home or an ancestor of it: so is every parent
+    if (holds(fsImpl, dir, '.git', false) || holds(fsImpl, dir, '.doflow', true)) return dir;
+    if (path.dirname(dir) === dir) return null;
+  }
+}
+
+/** `grants-file-location` (IC-008): the realpath is in the project root (none when null), a dispatch worktree or the temp dir. */
+function badLocation(real: string, projectRoot: string | null, tmpDir: string, fsImpl: any): boolean {
   const marker = `${path.sep}.doflow${path.sep}state${path.sep}dispatch-worktrees${path.sep}`;
-  return within(real, realOf(fsImpl, projectRoot)) || within(real, realOf(fsImpl, tmpDir)) || `${real}${path.sep}`.includes(marker);
+  return (projectRoot !== null && within(real, realOf(fsImpl, projectRoot))) || within(real, realOf(fsImpl, tmpDir)) || `${real}${path.sep}`.includes(marker);
 }
 
 /**
- * Read the grant file. Options: `env` (for the config home), `fsImpl`, `projectRoot`, `tmpDir` (default
- * `os.tmpdir()`; an injected seam for tests). Never throws.
+ * Read the grant file. Options: `env` (for the config home, and its `HOME` for the account home), `fsImpl`,
+ * `projectRoot` (default: `detectedProjectRoot` from the working directory; `null` means no project, so only the
+ * dispatch-worktree and temp-dir rules apply), `tmpDir` (default `os.tmpdir()`; an injected seam for tests). Never throws.
  * Returns `{ path, noConfigHome, exists, mtime, entries, grants, findings }`: `path` is null with no config home
  * (no grant can exist); `mtime` is an ISO string or null; `entries` holds each well-formed line as
  * `{ line, raw, state: 'valid'|'void'|'ignored', reason?, ...fields }`; `grants` are the `valid` entries.
  */
-function readGrants({ env = process.env, fsImpl = fs, projectRoot = process.cwd(), tmpDir = os.tmpdir() }: any = {}): any {
+function readGrants({ env = process.env, fsImpl = fs, projectRoot, tmpDir = os.tmpdir() }: any = {}): any {
   const dir = configHome(env).dir;
   const result: any = { path: null, noConfigHome: dir === null, exists: false, mtime: null, entries: [], grants: [], findings: [] };
   if (dir === null) return result;
@@ -144,7 +166,9 @@ function readGrants({ env = process.env, fsImpl = fs, projectRoot = process.cwd(
     seen.add(key);
     result.entries.push({ line: number, raw, state: 'valid', ...grant });
   }
-  const misplaced = badLocation(realOf(fsImpl, file), projectRoot, tmpDir, fsImpl);
+  const root = projectRoot !== undefined ? projectRoot
+    : detectedProjectRoot({ homeDir: typeof env.HOME === 'string' && path.isAbsolute(env.HOME) ? env.HOME : os.homedir(), fsImpl });
+  const misplaced = badLocation(realOf(fsImpl, file), root, tmpDir, fsImpl);
   if (problem !== null && !misplaced) return unreadable(problem);
   if (misplaced) {
     for (const entry of result.entries) { entry.state = 'ignored'; entry.reason = 'grants-file-location'; }
@@ -156,4 +180,4 @@ function readGrants({ env = process.env, fsImpl = fs, projectRoot = process.cwd(
   return result;
 }
 
-module.exports = { readGrants, GRANTS_FILE, LINE_MAX_BYTES, LINES_MAX };
+module.exports = { readGrants, detectedProjectRoot, GRANTS_FILE, LINE_MAX_BYTES, LINES_MAX };

@@ -47,7 +47,7 @@ const { configHome } = require('../config-home.ts');
 const { readLock, lockPackages } = require('../../state/lockfile.ts');
 const { loadPoints, pointRows } = require('./points.ts');
 const { checkManifest, checkPackage, MANIFEST_FILE } = require('./manifest.ts');
-const { readGrants } = require('./grants.ts');
+const { readGrants, detectedProjectRoot } = require('./grants.ts');
 const { readState, grantRevoked } = require('./state.ts');
 const { loadCoreProtocols } = require('../review/protocols.ts');
 
@@ -339,12 +339,13 @@ function applySettingsDisable(packages: any[], entry: any): any[] {
 
 /**
  * `{ packages, points, findings }`. `repoRoot`, `fsImpl`, `homeDir` (the account home, default: `HOME` of `env`, else
- * `os.homedir()`), `projectRoot` (default: the working directory) and `tmpDir` (default: the system temp directory;
- * both only decide whether the grants file counts, IC-008) are for tests and the verbs; an injected `fsImpl` bypasses
+ * `os.homedir()`), `projectRoot` (default: the project detected from the working directory, `detectedProjectRoot`;
+ * `null` means no project) and `tmpDir` (default: the system temp directory; both only decide whether the grants file
+ * counts, IC-008) are for tests and the verbs; an injected `fsImpl` bypasses
  * the memo. A point registry that cannot be read leaves no package to find: `packages` and `points` are empty and the
  * one finding is `state-unreadable` on `points`.
  */
-function packageView({ settingsView, env, fsImpl = fs, repoRoot = REPO_ROOT, homeDir, projectRoot, tmpDir }: { settingsView?: any; env?: any; fsImpl?: any; now?: any; repoRoot?: string; homeDir?: string; projectRoot?: string; tmpDir?: string } = {}): { packages: any[]; points: any[]; findings: any[] } {
+function packageView({ settingsView, env, fsImpl = fs, repoRoot = REPO_ROOT, homeDir, projectRoot, tmpDir }: { settingsView?: any; env?: any; fsImpl?: any; now?: any; repoRoot?: string; homeDir?: string; projectRoot?: string | null; tmpDir?: string } = {}): { packages: any[]; points: any[]; findings: any[] } {
   const base = fullView({ repoRoot, fsImpl, env, homeDir, projectRoot, tmpDir });
   const entry = settingsView ? settingsView[DISABLED_KEY] : fsImpl === fs ? resolvedDisabledEntry(env) : undefined;
   const packages = applySettingsDisable(base.packages, entry);
@@ -357,7 +358,8 @@ function fullView(o: any): { packages: any[]; points: any[]; findings: any[] } {
   if (building > 0 || bundled.points.length === 0) return bundled;
   const environment = o.env ?? process.env;
   const home = o.homeDir ?? (typeof environment.HOME === 'string' && path.isAbsolute(environment.HOME) ? environment.HOME : os.homedir());
-  const projectRoot = path.resolve(o.projectRoot ?? process.cwd());
+  const projectRoot = o.projectRoot === undefined ? detectedProjectRoot({ homeDir: home, fsImpl: o.fsImpl })
+    : o.projectRoot === null ? null : path.resolve(o.projectRoot);
   const key = JSON.stringify([path.resolve(o.repoRoot), path.resolve(home), configHome(environment).dir, projectRoot, o.tmpDir ?? null]);
   if (o.fsImpl === fs && fullMemo.has(key)) return fullMemo.get(key);
   building += 1;

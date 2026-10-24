@@ -27,7 +27,7 @@ const { evaluateReach } = require('./reach.ts');
 const { mcpReach } = require('./mcp-reach.ts');
 const { OUTCOME_LABELS } = require('./mcp-consultations.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
-const { readGrants } = require('./packages/grants.ts');
+const { readGrants, detectedProjectRoot } = require('./packages/grants.ts');
 const { readState, grantRevoked } = require('./packages/state.ts');
 
 /** Answered a probe. */
@@ -580,7 +580,9 @@ function mcpView({ registry, projectRoot, fsImpl, adapters }: any) {
  */
 function packagesView({ projectRoot, fsImpl, env, homeDir, tmpDir }: any) {
   try {
-    const grants = readGrants({ env, fsImpl, projectRoot, tmpDir });
+    // The trust root is the project detected from the directory reported on, never that directory itself (IC-008).
+    const home = homeDir ?? (typeof env?.HOME === 'string' && path.isAbsolute(env.HOME) ? env.HOME : os.homedir());
+    const grants = readGrants({ env, fsImpl, projectRoot: detectedProjectRoot({ cwd: projectRoot, homeDir: home, fsImpl }), tmpDir });
     const state = readState({ homeDir, fsImpl });
     const rows = grants.entries.map((entry: any) => {
       const revoked = entry.state === 'valid' && entry.grant !== 'fetch' && grantRevoked(state, entry);

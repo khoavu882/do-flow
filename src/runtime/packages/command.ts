@@ -590,7 +590,7 @@ function settingsLayerFiles(o: any): Array<{ layer: string; file: string }> {
   const files: Array<{ layer: string; file: string }> = [];
   const home = configHome(o.env).dir;
   if (home !== null) files.push({ layer: 'user', file: path.join(home, 'settings.json') });
-  const layers = require('../settings/project-layers.ts').projectLayerSource(o.projectRoot).layersFrom;
+  const layers = require('../settings/project-layers.ts').projectLayerSource(o.projectRoot ?? process.cwd()).layersFrom;
   if (layers !== null) files.push({ layer: 'project', file: path.join(layers, 'settings.json') }, { layer: 'local', file: path.join(layers, 'settings.local.json') });
   return files;
 }
@@ -633,7 +633,7 @@ function scanReferences(o: any, ids: Set<string>, keys: string[]): { dangling: a
       }
     }
   }
-  for (const file of findingsFiles(o.projectRoot)) {
+  for (const file of findingsFiles(o.projectRoot ?? process.cwd())) {
     try {
       if (fs.statSync(file).size > 1048576) continue;
       const id = JSON.parse(fs.readFileSync(file, 'utf8'))?.protocol?.id;
@@ -802,7 +802,7 @@ function emitVerb(o: any, action: string, code: number, tierMax: string | null):
   } catch { /* a telemetry fault changes nothing */ }
 }
 
-function handlePackageCommand({ action, path: pkgPath, id, source, plan, repair, json = false, repoRoot, homeDir = os.homedir(), env = process.env, projectRoot = process.cwd(), tmpDir, settingsView, writer, now = Date.now(), hooks, registry, out = (line: string) => console.log(line) }: any = {}): number {
+function handlePackageCommand({ action, path: pkgPath, id, source, plan, repair, json = false, repoRoot, homeDir = os.homedir(), env = process.env, projectRoot, tmpDir, settingsView, writer, now = Date.now(), hooks, registry, out = (line: string) => console.log(line) }: any = {}): number {
   const o = { action, id, repair: repair === true, json, repoRoot, homeDir, env, projectRoot, tmpDir, settingsView, writer, now, hooks, registry, out };
   if (VERB_ACTIONS.includes(action)) return handleVerb(o);
   if (action === 'add' || action === 'update') {
