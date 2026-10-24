@@ -19,7 +19,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO } = require('./_shared');
 const { suiteTempDir } = require('../helper/tmp');
-const { loadPoints, validatePoints } = require(path.join(REPO, 'src', 'runtime', 'packages', 'points.ts'));
+const { loadPoints, validatePoints, templateFindings } = require(path.join(REPO, 'src', 'runtime', 'packages', 'points.ts'));
 const { contentDigest } = require(path.join(REPO, 'src', 'runtime', 'packages', 'digest.ts'));
 const { checkPackage, MANIFEST_FILE } = require(path.join(REPO, 'src', 'runtime', 'packages', 'manifest.ts'));
 const { loadCoreProtocols } = require(path.join(REPO, 'src', 'runtime', 'review', 'protocols.ts'));
@@ -105,4 +105,23 @@ test('G68.d control: a first-party preset that package mode refuses is red', () 
   fs.writeFileSync(preset, JSON.stringify(body));
   const result = checkPackage(path.join(root, entry.dir), { pointsRegistry: POINTS, hostVersion: VERSION, bundled: [entry.id], protocols: loadCoreProtocols().registry });
   assert.ok(result.findings.some((f) => f.code === 'contribution-invalid' && /seats\[0\]\.agent/.test(f.field)), JSON.stringify(result.findings));
+});
+
+test('G68.e shipped templates are valid and the README has its four sections', () => {
+  assert.deepEqual(templateFindings({ registry: POINTS, repoRoot: REPO }), []);
+  const readme = fs.readFileSync(path.join(REPO, 'core', 'registry', 'package-templates', 'README.md'), 'utf8');
+  for (const heading of ['## What and why', '## Contributions', '## Check, add and trust', '## Editing after it is added']) {
+    assert.ok(readme.split(/\r?\n/).includes(heading), heading);
+  }
+});
+
+test('G68.e control: an unknown placeholder or missing README section is red', () => {
+  const root = suiteTempDir('doflow-g68-template-');
+  fs.cpSync(path.join(REPO, 'core', 'registry'), path.join(root, 'core', 'registry'), { recursive: true });
+  const stub = path.join(root, 'core', 'registry', 'package-templates', 'skill', 'files', 'SKILL.md');
+  fs.writeFileSync(stub, fs.readFileSync(stub, 'utf8') + '\n{{x}}\n');
+  const readme = path.join(root, 'core', 'registry', 'package-templates', 'README.md');
+  fs.writeFileSync(readme, fs.readFileSync(readme, 'utf8').replace('## What and why', '## Why'));
+  assert.ok(templateFindings({ registry: POINTS, repoRoot: root }).some((finding) => finding.code === 'template-invalid' && /unknown template placeholder/.test(finding.message)));
+  assert.ok(templateFindings({ registry: POINTS, repoRoot: root }).some((finding) => finding.field === 'templates.README.md' && /missing/.test(finding.message)));
 });

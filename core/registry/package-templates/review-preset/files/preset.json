@@ -1,0 +1,30 @@
+{
+  "kind": "review",
+  "seats": [
+    {
+      "id": "seat-a",
+      "agent": "reviewer",
+      "lenses": ["correctness", "boundaries"],
+      "model": {
+        "tier": "frontier",
+        "family": "different-from-author"
+      }
+    },
+    {
+      "id": "seat-b",
+      "agent": "reviewer",
+      "lenses": ["correctness", "test-honesty", "boundaries"],
+      "model": {
+        "tier": "frontier",
+        "family": "any"
+      }
+    }
+  ],
+  "rounds": {
+    "default": 2,
+    "min": 2
+  },
+  "crossAnswer": true,
+  "synthesizer": "separate",
+  "decider": "gate"
+}

@@ -82,6 +82,10 @@ test('the shipped registry is valid and holds the IC-002 facts', () => {
   const byId = Object.fromEntries(reg.points.map((p) => [p.id, p]));
   assert.equal(byId.skill.validator, 'skill-v1');
   assert.equal(byId.agent.validator, 'agent-v1');
+  assert.equal(byId['review-preset'].template, 'package-templates/review-preset');
+  assert.equal(byId['debate-preset'].template, 'package-templates/debate-preset');
+  assert.equal(byId.skill.template, 'package-templates/skill');
+  assert.equal(byId.agent.template, 'package-templates/agent');
   assert.equal(byId.worker.opensWith, 'slice D');
   assert.equal(byId['capability-provider'].opensWith, 'row 121');
   assert.deepEqual(byId['capability-provider'].versions, []);
@@ -159,6 +163,9 @@ test('a scratch registry is refused naming the field', () => {
   assert.match(bad((r) => { r.points[0].extra = 1; }), /points\[0\].*unknown key 'extra'/);
   assert.match(bad((r) => { r.surprise = 1; }), /unknown key 'surprise'/);
   assert.match(bad((r) => { delete r.points[5].opensWith; }), /points\[5\]\.opensWith/);
+  assert.match(bad((r) => { delete r.points[0].template; }), /points\[0\]\.template is required on an open point/);
+  assert.match(bad((r) => { r.points[4].template = 'package-templates/worker'; }), /points\[4\]\.template is refused on a reserved point/);
+  assert.match(bad((r) => { r.points[0].template = 'elsewhere'; }), /points\[0\]\.template must be package-templates\/review-preset/);
   assert.match(bad((r) => { r.points[0].combine = 'replace'; }), /points\[0\]\.combine/);
   assert.match(bad((r) => { r.points[0].validator = null; }), /points\[0\]\.validator/);
   assert.match(bad((r) => { r.points[0].versions = [2, 1]; }), /points\[0\]\.versions/);
