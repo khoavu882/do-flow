@@ -1219,7 +1219,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   (`review.preset` ranks by `orderRef`, never a literal `order`), no settings literal or `telemetry.json`
   vocabulary lists a preset id, and the shipped settings registry loads with those refs resolved; a planted
   literal order, literal preset list or telemetry copy is each named.
-- **G68** (`packages.test.js`) — the package extension model's registry facts hold (122 IC-002, IC-005, IC-015):
+- **G68** (`packages.test.ts`) — the package extension model's registry facts hold (122 IC-002, IC-005, IC-015):
   `core/registry/contribution-points.json` passes `validatePoints` with no error; each `bundled[]` entry's
   directory hashes (IC-005 content digest) to its `contentDigest` and its manifest carries the bundled id, the
   `package.json` version and the exact range `=<version>` (the runtime trusts a bundled package and never
