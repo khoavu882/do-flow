@@ -1,0 +1,43 @@
+'use strict';
+
+const WORKER_ID_MAX = 32;
+const BUILTIN_WORKER_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
+const RESERVED_WORKER_IDS = Object.freeze(['primary', 'auto', 'subagent', 'sequential', 'manual', 'held', 'none', 'unknown']);
+
+/** One definition; row 122 moves it to src/helper/package-ids.ts and this module then imports it. */
+function isQualifiedId(id: unknown): boolean {
+  if (typeof id !== 'string' || id.length > WORKER_ID_MAX) return false;
+  const parts = id.split('.');
+  if (parts.length !== 2 || parts.some((part) => part.includes('--'))) return false;
+  const packageId = /^[a-z][a-z0-9-]{0,14}[a-z0-9]$/;
+  const localId = /^[a-z][a-z0-9-]{0,13}[a-z0-9]$/;
+  return packageId.test(parts[0]) && localId.test(parts[1]);
+}
+
+/** IC-001: validate worker id shape without checking catalogue membership. */
+function workerIdFault(id: unknown): { code: 'type' | 'reserved'; reason: string } | null {
+  if (typeof id === 'string' && RESERVED_WORKER_IDS.includes(id)) return { code: 'reserved', reason: 'worker id is reserved' };
+  if (typeof id === 'string' && (BUILTIN_WORKER_ID_RE.test(id) || isQualifiedId(id))) return null;
+  return { code: 'type', reason: 'worker id must be a lowercase built-in or qualified id' };
+}
+
+/** IC-001: classify worker shape and membership independently. */
+function classifyWorkerId(id: unknown, known: readonly string[]): 'ok' | 'malformed' | 'reserved' | 'dangling' {
+  const fault = workerIdFault(id);
+  if (fault?.code === 'type') return 'malformed';
+  if (fault?.code === 'reserved') return 'reserved';
+  return known.includes(id as string) ? 'ok' : 'dangling';
+}
+
+/** IC-001: return built-in harness ids that carry a worker object, in registry order. */
+function shippedWorkerIds(registry: any): string[] {
+  return (registry.harnesses || []).filter((h: any) => h.worker && typeof h.worker === 'object').map((h: any) => h.id);
+}
+
+/** IC-001 and IC-019: read worker membership from the catalogue seam. */
+function knownWorkerIds({ registry, view }: any = {}): { ids: string[] } {
+  const { workerCatalogue } = require('../runtime/worker/catalogue.ts');
+  return { ids: workerCatalogue({ registry, view }).map((entry: any) => entry.id) };
+}
+
+module.exports = { WORKER_ID_MAX, BUILTIN_WORKER_ID_RE, RESERVED_WORKER_IDS, isQualifiedId, workerIdFault, classifyWorkerId, shippedWorkerIds, knownWorkerIds };

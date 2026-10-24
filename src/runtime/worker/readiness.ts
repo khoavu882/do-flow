@@ -28,6 +28,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
+const { workerCatalogue } = require('./catalogue.ts');
+const { knownWorkerIds } = require('../../registry/worker-ids.ts');
 const { runProbe, PROBE_TIMEOUT_MS } = require('../health.ts');
 const { updateTaskState, readTaskState } = require('../task-state.ts');
 const { stateDir } = require('../context/identity.ts');
@@ -62,25 +64,13 @@ const clock = (now: any) => (typeof now === 'function' ? now : () => (typeof now
 const fact = (state: string, reason: string | null, at: string, basis = 'free') => ({ state, reason, at, basis });
 const supported = (entry: any) => entry?.status === 'supported';
 
-/** Stable JSON: object keys sorted at every depth. */
-function stable(value: any): string {
-  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable(value[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
-/** `sha256:` over the stable JSON of a harness's `worker` block (IC-007). */
-function descriptorDigest(worker: any): string {
-  return `sha256:${crypto.createHash('sha256').update(stable(worker)).digest('hex')}`;
-}
+const { descriptorDigest } = require('./catalogue.ts');
 
 /** `[{ harness, worker }]` in registry order: the registry's blocks, or exactly the injected ones. */
 function workerDescriptors({ descriptors, registry }: any = {}): { harness: string; worker: any }[] {
   const reg = registry || loadRegistry({ repoRoot: REPO_ROOT });
-  const ids: string[] = reg.harnesses.map((h: any) => h.id);
-  if (!descriptors) return reg.harnesses.map((h: any) => ({ harness: h.id, worker: h.worker }));
+  const ids: string[] = knownWorkerIds({ registry: reg }).ids;
+  if (!descriptors) return workerCatalogue({ registry: reg }).map((entry: any) => ({ harness: entry.id, worker: entry.worker }));
   const unknown = Object.keys(descriptors).filter((id) => !ids.includes(id));
   if (unknown.length) throw new ReadinessError('usage', `descriptors name unregistered harness(es): ${unknown.join(', ')}; registered: ${ids.join(', ')}`);
   return ids.filter((id) => Object.hasOwn(descriptors, id)).map((id) => ({ harness: id, worker: descriptors[id] }));

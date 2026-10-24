@@ -6,6 +6,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { validatePathsSection } = require('../helper/harness-paths.ts');
+const { BUILTIN_WORKER_ID_RE, RESERVED_WORKER_IDS } = require('./worker-ids.ts');
 
 const REGISTRY_FILES = Object.freeze({
   harnesses: 'harnesses.json',
@@ -771,7 +772,8 @@ function validateRegistry(
   for (const harness of harnesses || []) {
     const at = `harness '${harness?.id ?? '?'}'`;
     if (!object(harness)) { issue(errors, 'harnesses', 'entries must be objects'); continue; }
-    if (typeof harness.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(harness.id)) issue(errors, at, 'id must be a lowercase identifier');
+    if (typeof harness.id !== 'string' || !BUILTIN_WORKER_ID_RE.test(harness.id)) issue(errors, at, 'id must be a lowercase identifier');
+    else if (RESERVED_WORKER_IDS.includes(harness.id)) issue(errors, at, `id '${harness.id}' is a reserved worker id`);
     if (typeof harness.displayName !== 'string' || !harness.displayName.trim()) issue(errors, at, 'requires displayName');
     if (typeof harness.adapter !== 'string' || !harness.adapter.trim()) issue(errors, at, 'requires adapter');
     if (!Array.isArray(harness.scopes) || harness.scopes.length === 0 || harness.scopes.some((scope: any) => !SCOPES.has(scope))) issue(errors, at, 'scopes must contain project and/or user');

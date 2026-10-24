@@ -36,6 +36,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn, spawnSync } = require('node:child_process');
 const readiness = require('./readiness.ts');
+const { workerCatalogue } = require('./catalogue.ts');
 const { storeFileFor, newRunId, insertRun, transition, readRuns, RUN_ID } = require('./run-store.ts');
 const evidence = require('./evidence.ts');
 const { launchEnv, launchRecord, PROMPT_LIMITS } = require('./launch.ts');
@@ -170,13 +171,14 @@ function registryOf(registry: any) {
 
 /** The worker block for `harness`: the injected descriptor, or the registry's. */
 function workerBlock(reg: any, descriptors: any, harness: string) {
-  const ids = reg.harnesses.map((h: any) => h.id);
+  const entries = workerCatalogue({ registry: reg });
+  const ids = entries.map((entry: any) => entry.id);
   if (!ids.includes(harness)) throw usage(`unknown harness '${harness}'; known: ${ids.join(', ')}`);
   if (descriptors) {
     if (!Object.hasOwn(descriptors, harness)) throw usage(`no worker descriptor was given for harness '${harness}'`);
     return descriptors[harness];
   }
-  return reg.harnesses.find((h: any) => h.id === harness).worker;
+  return entries.find((entry: any) => entry.id === harness).worker;
 }
 
 /** `--slug`, or the feature resolved from the branch. */

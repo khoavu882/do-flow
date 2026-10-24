@@ -45,6 +45,7 @@ const { runKeyFor, identityRefusal } = require('../task-run.ts');
 const { isSafeSlug } = require('../task-scope.ts');
 const { projectRoot } = require('../lifecycle/root.ts');
 const { loadRegistry } = require('../../registry/index.ts');
+const { knownWorkerIds } = require('../../registry/worker-ids.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const readiness = require('../worker/readiness.ts');
 const { storeFileFor, newDispatchRunId, readDispatch, mutateDispatch, fallbackOf, DispatchStoreError, DISPATCH_ID } = require('./store.ts');
@@ -194,7 +195,7 @@ function ladderOf(o: any): string[] | null {
   if (given(o.harness)) throw usage('--ladder does not go with --harness: a --harness run is a one-rung ladder');
   const ids = String(o.ladder).split(',').map((id: string) => id.trim()).filter(Boolean);
   if (ids.length < 1 || ids.length > LADDER_MAX) throw usage(`--ladder expects 1 to ${LADDER_MAX} comma-separated harness ids, got ${ids.length}`);
-  const known = registryOf(o.registry).harnesses.map((h: any) => h.id);
+  const known = knownWorkerIds({ registry: registryOf(o.registry) }).ids;
   const unknown = ids.find((id: string) => !known.includes(id));
   if (unknown !== undefined) throw usage(`--ladder names unknown harness '${unknown}'; known: ${known.join(', ')}`);
   if (new Set(ids).size !== ids.length) throw usage('--ladder names a harness more than once');
@@ -240,7 +241,7 @@ function startSettings(o: any) {
     const reg = registryOf(o.registry);
     if (given(o.harness)) {
       harness = String(o.harness);
-      const ids = reg.harnesses.map((h: any) => h.id);
+      const ids = knownWorkerIds({ registry: reg }).ids;
       if (!ids.includes(harness)) throw usage(`unknown harness '${harness}'; known: ${ids.join(', ')}`);
     }
     if (needs.length) readiness.validateNeeds(needs, o.coverage === undefined ? reg.coverage : o.coverage);
@@ -405,7 +406,7 @@ function start(o: any, s: any) {
 /** The `start` body's `billingRecord`: the record's state and reason, and one row per recorded worker. */
 function billingRecordOf(env: Env, reg: any) {
   const { readWorkerBilling } = require('../settings/worker-billing.ts'); // lazy: see loop.ts evaluateHarnesses
-  const record = readWorkerBilling(env, { workerIds: reg.harnesses.map((h: any) => h.id) });
+  const record = readWorkerBilling(env, { workerIds: knownWorkerIds({ registry: reg }).ids });
   return {
     state: record.state, reason: record.reason,
     workers: Object.entries(record.workers).map(([harness, w]: [string, any]) => ({
