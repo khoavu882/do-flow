@@ -48,7 +48,8 @@ function setup() {
     git('add', name);
     git('commit', '-q', '-m', name);
   }
-  const shims = shimsUnder(scratch.home).filter((rel) => !rel.startsWith(`.doflow${path.sep}`));
+  // The shared dispatcher under ~/.doflow/scripts is the shim the skills call, so it is run too.
+  const shims = shimsUnder(scratch.home);
   const run = (shim, args) => spawnSync('bash', [path.join(scratch.home, shim), ...args], { cwd: repo, env, encoding: 'utf8' });
   return { scratch, shims, run };
 }
@@ -64,8 +65,12 @@ function assertReviewerEnforcement(protocol, where) {
 test('installed runtime: protocol resolve and review start work through every harness shim', { skip: SKIP }, () => {
   const { scratch, shims, run } = setup();
   try {
-    // Seven shims today: a global copilot install projects none (observed, 2026-10-24).
-    assert.ok(shims.length >= 7, `doflow-run shims found: ${shims.join(', ')}`);
+    // One shim per harness, except gemini and antigravity, which share ~/.gemini/config/bin; copilot's is
+    // ~/.agents/bin. Plus the shared dispatcher the skills call.
+    assert.deepEqual(shims, [
+      '.agents/bin/doflow-run', '.claude/bin/doflow-run', '.codex/bin/doflow-run', '.config/opencode/bin/doflow-run',
+      '.doflow/scripts/doflow/bin/doflow-run', '.gemini/config/bin/doflow-run', '.kiro/bin/doflow-run', '.pi/agent/bin/doflow-run',
+    ].map((rel) => rel.split('/').join(path.sep)));
     for (const shim of shims) {
       const resolved = run(shim, ['protocol', '--action', 'resolve', '--kind', 'review', '--json']);
       assert.equal(resolved.status, 0, `${shim} protocol resolve: ${resolved.stdout}${resolved.stderr}`);
