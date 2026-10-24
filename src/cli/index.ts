@@ -403,6 +403,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--emit', 'emit'],                  // trace analyze: print a batch for an existing verb, evidence | followups (091 IC-001)
   ['--row', 'row'],                    // roadmap: restricts the step to one in-flight row (108 IC-001)
   ['--draft', 'draft'],                // roadmap seed: the draft file to check, apply or amend (113 IC-001)
+  ['--id', 'id'],                      // package --action list|show: the package id
   ['--name', 'name'],                  // slot: the slot's name, 1 to 64 characters of a-z, 0-9 and - (115 IC-008)
   ['--label', 'label'],                // slot --action run: the holder's label, at most 80 characters (115 IC-008)
 ]);
@@ -556,9 +557,11 @@ Commands:
   protocol             Print the review and debate protocol presets, or the one a run would use (read-only, writes nothing):
                        protocol --action list [--kind review|debate] [--json]
                        protocol --action resolve --kind review|debate [--task-class <id>] [--risk <level>] [--preset <id>] [--json]   (exit 0 resolved, 1 refused, 2 usage)
-  package              List the contribution points a package may fill (read-only, writes nothing):
+  package              List the contribution points a package may fill, check a package directory, or show the packages (read-only, writes nothing):
                        package --action points [--json]
                        package --action check --path <dir> [--json]   (exit 0 clean, 1 findings, 2 usage)
+                       package --action list [--id <id>] [--json]   (exit 0, 1 when a package is neither active nor disabled)
+                       package --action show --id <id> [--json]   (exit 0, 1 unknown id, 2 no --id)
   slot                 Named machine-wide queue, one holder at a time (--action run|list|release);
                        slot --action run --name <name> [--label <text>] [--timeout <s>] [--no-wait] -- <command> [args...]
                        slot --action release --name <name> --by <who> --reason <text>
@@ -614,7 +617,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        slot: run|list|release
                        review: check|start
                        protocol: list|resolve
-                       package: points|check
+                       package: points|check|list|show
       --task, --token, --owner, --mode,
       --result, --evidence-id, --reason     task-attempt (claim: --task --owner --mode manual|sequential|subagent
                                             [--owner-override <reason>] [--epoch <n>=1+] [--reserve-tokens <n>]
@@ -681,6 +684,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --path, --exclude (repeatable)        leak-scan
       --slug | --path                       review --action check (at most one; with neither, the active feature)
       --path <dir>                          package --action check (exactly one package directory)
+      --id <id>                             package --action list (one package) and show (required)
       --base <ref>                          review --action start (measure the changed paths from this commit, which must be the review's base; --path is refused)
       --preset <id>                         review --action start, protocol --action resolve (run this preset; refused when looser than the decided protocol)
       --prepared-run <file>                 config validate (check a prepared-run file instead of one key; exit 2 with a key, value or --layer)

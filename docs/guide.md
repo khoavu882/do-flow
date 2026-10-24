@@ -184,6 +184,17 @@ doflow package --action check --path <dir> [--json]
 
 Each finding names the field, a code and what is allowed. A clean package prints its content and capability digests. Exit 0 means clean, 1 means at least one error finding (a manifest that needs a DoFlow version outside the running one, or whose version cannot be read, is one), and 2 means a missing or repeated `--path`. Add `--json` for `{ path, ok, findings, contentDigest?, capabilityDigest? }`.
 
+### See which packages are available
+
+`doflow package --action list` shows every package and whether it is in use; `doflow package --action show --id <id>` shows one. Both are read-only and offline: they write no file and no telemetry, and need no harness installed. Today the packages are the ones DoFlow ships itself.
+
+```bash
+doflow package --action list [--id <id>] [--json]
+doflow package --action show --id <id> [--json]
+```
+
+A package is `active` when it can be used. One whose files are missing or break a rule of `check` is `incompatible`, with the reason codes beside it; it affects no other package and no other command. `list` exits 0 when every package is `active` or `disabled` and 1 otherwise, `show` exits 1 for an unknown id and 2 without `--id`. Add `--json` for `{ points, packages, findings, lockVersion }`.
+
 ## Retrieve code from the project
 
 `doflow retrieve` keeps its existing guidance search when you pass only `--query`. Use

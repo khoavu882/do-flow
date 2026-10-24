@@ -419,7 +419,7 @@ Workflow and evidence:
   plan-check       check a plan's task lines the way the task-attempt ledger reads them
   review           validate a feature's review/findings.json, print counts and advisories (review-package assembles the payload)
   protocol         print the review and debate protocol presets, or the one a run would use (read-only)
-  package          list the contribution points a package may fill, or check a package directory (read-only)
+  package          list the contribution points a package may fill, check a package directory, or list/show packages (read-only)
   slot             named machine-wide queue: run a command as its one holder, list or release
 
 Verification and recovery:

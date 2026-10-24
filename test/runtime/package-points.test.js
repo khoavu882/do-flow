@@ -135,7 +135,7 @@ test('points text prints one line per point and writes nothing', (t) => {
 
 test('a missing, unknown or later action is usage, exit 2', (t) => {
   const s = scratch(t);
-  for (const args of [['package'], ['package', '--action', 'list'], ['package', '--action', 'bogus', '--json'], ['package', '--action']]) {
+  for (const args of [['package'], ['package', '--action', 'add'], ['package', '--action', 'bogus', '--json'], ['package', '--action']]) {
     const res = s.cli(args);
     assert.equal(res.status, 2, `${args.join(' ')}: ${res.stdout}${res.stderr}`);
   }
