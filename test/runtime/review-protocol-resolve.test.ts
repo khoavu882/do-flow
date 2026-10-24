@@ -197,7 +197,7 @@ test('C-11: a debate whose preset a project or user layer set to the default nam
 test('C-11: a debate lists only the invariants that apply to it; a review keeps INV-1..INV-7', () => {
   assert.deepEqual(resolve({ kind: 'debate' }).protocol.invariants, ['INV-6', 'INV-7']);
   assert.deepEqual(resolve({ kind: 'debate', runPreset: 'debate-3' }).protocol.invariants, ['INV-6', 'INV-7']);
-  assert.deepEqual(resolve().protocol.invariants, ['INV-1', 'INV-2', 'INV-3', 'INV-4', 'INV-5', 'INV-6', 'INV-7']);
+  assert.deepEqual(resolve().protocol.invariants, ['INV-1', 'INV-2', 'INV-3', 'INV-4', 'INV-5', 'INV-6', 'INV-7', 'INV-8']);
   const lines = protocolLines(resolve({ kind: 'debate' }).protocol);
   assert.ok(lines.includes('protocol.invariants: INV-6,INV-7'), lines.join('\n'));
 });
@@ -249,7 +249,7 @@ test('protocolLines: a compact id line, seats with lenses, origins and invariant
   assert.equal(lines[0], 'protocol: id=review-deep rounds=2 crossAnswer=true synthesizer=separate decider=gate rereview=automatic');
   assert.equal(lines[1], 'protocol.seats: seat-a[correctness,boundaries] seat-b[correctness,test-honesty,boundaries]');
   assert.match(lines[2], /^protocol\.origins: id=floor seats=registry rounds=registry /);
-  assert.equal(lines[3], 'protocol.invariants: INV-1,INV-2,INV-3,INV-4,INV-5,INV-6,INV-7');
+  assert.equal(lines[3], 'protocol.invariants: INV-1,INV-2,INV-3,INV-4,INV-5,INV-6,INV-7,INV-8');
 });
 
 test('a registry with no single-labelled review preset is refused registry-incomplete', () => {
@@ -338,7 +338,7 @@ test('protocolLines: one enforcement line per read-only agent, harness ids group
   const { protocol } = resolve({ taskClass: 'feature', ...inputs });
   const lines = protocolLines(protocol);
   assert.equal(lines.length, 6);
-  assert.equal(lines[3], 'protocol.invariants: INV-1,INV-2,INV-3,INV-4,INV-5,INV-6,INV-7');
+  assert.equal(lines[3], 'protocol.invariants: INV-1,INV-2,INV-3,INV-4,INV-5,INV-6,INV-7,INV-8');
   assert.equal(lines[4], 'protocol.enforcement: reviewer native=claude,gemini,opencode,copilot,kiro unenforced=codex,pi,antigravity');
   assert.equal(lines[5], 'protocol.rules: sameFamily=warn crossFamilyRereview=on');
 });

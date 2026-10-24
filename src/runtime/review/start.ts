@@ -300,7 +300,17 @@ function renderText(result: any, nextCommand: string | null): string[] {
   for (const [key, value] of Object.entries(result)) {
     if (value === null || value === undefined) continue;
     if (key === 'protocol') lines.push(...protocolLines(value));
-    else if (Array.isArray(value)) lines.push(`${key}: ${value.length ? value.join(',') : 'none'}`);
+    else if (key === 'authors') {
+      const formatted = Array.isArray(value) && value.length
+        ? value.map((a: any) => `${a.kind}:${a.harness}/${a.model}(${a.channel})`).join(' ')
+        : 'none';
+      lines.push(`authors: ${formatted}`);
+    } else if (key === 'forbidden') {
+      const formatted = Array.isArray(value) && value.length
+        ? value.map((p: any) => `(${p[0]}, ${p[1]})`).join(', ')
+        : 'none';
+      lines.push(`forbidden: ${formatted}`);
+    } else if (Array.isArray(value)) lines.push(`${key}: ${value.length ? value.join(',') : 'none'}`);
     else if (typeof value === 'object') {
       lines.push(`${key}: ${Object.entries(value).filter(([, v]) => v !== null).map(([k, v]) => `${k}=${v}`).join(' ')}`);
     } else lines.push(`${key}: ${value}`);
@@ -333,6 +343,7 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
       schema: 1, slug: null, taskClass: null, applicable: false, notApplicable: null, head: null, clean: null,
       ok: true, reasons: [], depth: null, seats: null, risk: defaultRisk, riskSource: 'default', protocol: null, protocolDigest: null, depthBasis: null,
       advice: { status: 'off', pick: null },
+      authors: [], forbidden: [],
     };
     // An uncertain applicability is a refusal with a named reason, never a silent not-applicable.
     const refuse = (error: string, message: string): number => {
@@ -397,6 +408,18 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
       Object.assign(result, riskOfRecords({ records: parsed.records, head: state.head, slug: verifyId, levels: registry.riskLevels, defaultRisk }));
     }
 
+    let primary: any = null;
+    if (result.applicable) {
+      const { resolvePrimary } = require('../context/primary.ts');
+      try {
+        primary = resolvePrimary({ projectRoot: cwd ? path.resolve(cwd) : process.cwd(), env });
+        if (primary?.state === 'refused') {
+          const msg = primary.warnings?.length ? primary.warnings.join('; ') : (primary.reason || 'primary is contradicted');
+          return refuse('primary-refused', msg);
+        }
+      } catch {}
+    }
+
     let baseSha: string | null = null;
     if (typeof base === 'string') {
       const explicit = resolveExplicitBaseline({ cwd, ref: base });
@@ -408,6 +431,32 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
     const paths = changedPaths(cwd, env, baseSha);
     const inputs = loadProtocolInputs(taskClass, cwd, env);
     if ('error' in inputs) return refuse(inputs.error, inputs.message);
+
+    if (result.applicable) {
+      const { authoringIdentities } = require('./identity.ts');
+      const authors = authoringIdentities({
+        slug: resolvedSlug ?? undefined,
+        cwd,
+        env,
+        primary,
+      });
+      result.authors = authors;
+
+      const inv8 = inputs.registry?.invariants?.find((inv: any) => inv.id === 'INV-8');
+      const authorKinds: string[] = Array.isArray(inv8?.authorKinds) ? inv8.authorKinds : ['subagent', 'sequential'];
+      const forbidden: [string, string][] = [];
+      const seenForbidden = new Set<string>();
+      for (const a of authors) {
+        if (!authorKinds.includes(a.kind)) continue;
+        if (!a.harness || !a.model || a.model === 'unknown') continue;
+        const key = `${a.harness}:${a.model}`;
+        if (!seenForbidden.has(key)) {
+          seenForbidden.add(key);
+          forbidden.push([a.harness, a.model]);
+        }
+      }
+      result.forbidden = forbidden;
+    }
     const scope = pathScope(riskPolicy, paths);
     const floor = gateMinSeats(inputs.gatePolicy, taskClass);
     const facts = { kind: 'review', taskClass, risk: result.risk, paths, runPreset: preset ?? null, ...inputs, riskPolicy };

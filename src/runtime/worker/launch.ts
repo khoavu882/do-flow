@@ -12,10 +12,10 @@
 //
 // `assembleArgv` builds the IC-003 argv: `readOnly`, `spawnDenial`, `structuredOutput` and
 // `oneShot` argv in that order (082 IC-014: an edit run puts `isolatedEdit` first in place of
-// `readOnly`), the `{prompt}` element replaced whole. `{lastMessageFile}` is also replaced whole
-// with its output path. Substitution never interpolates inside a longer string. `argvShape` is the
-// same argv with the prompt written `<prompt sha256:<hex> bytes:<n>>` and the path written
-// `<last-message-file>`, the only forms a run record stores.
+// `readOnly`). 120 IC-011 inserts `model` second only for a supported binding. The `{prompt}`,
+// `{lastMessageFile}` and `{model}` elements are replaced whole, never inside a longer string.
+// `argvShape` writes the prompt as `<prompt sha256:<hex> bytes:<n>>`, the output path as
+// `<last-message-file>` and the model as the original `{model}` placeholder.
 //
 // `launchWorker` runs IC-012 steps 1 to 5: the environment, the optional 078 grant, the launch
 // emission in process, the emission text before the brief, then `spawn` with no shell. It returns a
@@ -32,6 +32,8 @@ const { grantSummary } = require('../context/summary-store.ts');
 const { loadSettings } = require('../settings/resolve.ts');
 
 type Env = Record<string, string | undefined>;
+/** 120 IC-011 / IC-012: the binding shape consumed by the recipe assembler. */
+type ModelBinding = { model: string | null; flag: 'supported' | 'unevidenced' | 'n/a' };
 
 /** IC-012: the names a launch may set, in the order the run record lists them. The first five are the
  * identity contract; `DOFLOW_WORKER_RUN` (110) carries the worker run id `w-<12 hex>` and nothing else,
@@ -42,14 +44,15 @@ const DROP_DATABASES_VAR = 'DOFLOW_GUARD_DROP_DATABASES';
 const ENV_SET = Object.freeze(['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE', WORKER_RUN_VAR, DROP_DATABASES_VAR]);
 const PROMPT_ELEMENT = '{prompt}';
 const LAST_MESSAGE_FILE_ELEMENT = '{lastMessageFile}';
+const MODEL_ELEMENT = '{model}';
 /** IC-003 prompt limits in bytes. argv is one under Linux MAX_ARG_STRLEN, which counts the NUL (DEC-062). */
 const PROMPT_LIMITS = Object.freeze({ argv: 131071, stdin: 1048576 });
 const DEFAULT_RUN = 'local';
 const RUN_ID = /^w-[0-9a-f]{12}$/;
-/** IC-003 order of the run recipe's argv. */
-const RECIPE_ORDER = Object.freeze(['readOnly', 'spawnDenial', 'structuredOutput', 'oneShot']);
-/** 082 IC-014: the order of an edit run's recipe argv. */
-const EDIT_RECIPE_ORDER = Object.freeze(['isolatedEdit', 'spawnDenial', 'structuredOutput', 'oneShot']);
+/** IC-003 / 120 IC-011: order of the run recipe's argv; model is conditional on its binding. */
+const RECIPE_ORDER = Object.freeze(['readOnly', 'model', 'spawnDenial', 'structuredOutput', 'oneShot']);
+/** 082 IC-014 / 120 IC-011: the order of an edit run's recipe argv. */
+const EDIT_RECIPE_ORDER = Object.freeze(['isolatedEdit', 'model', 'spawnDenial', 'structuredOutput', 'oneShot']);
 
 interface WorkerIdentity {
   run: string;
@@ -108,6 +111,9 @@ function withIdentity(env: Env, identity: WorkerIdentity, execWorktree: string, 
   if (runId !== undefined) out[WORKER_RUN_VAR] = runId;
   else delete out[WORKER_RUN_VAR];
   delete out[DROP_DATABASES_VAR];
+  // 120 IC-003: the primary declaration names the person's main session, never a worker.
+  delete out.DOFLOW_PRIMARY_HARNESS;
+  delete out.DOFLOW_PRIMARY_MODEL;
   const databases = dropDatabases(execWorktree, env);
   if (databases !== null) out[DROP_DATABASES_VAR] = databases;
   return out;
@@ -129,10 +135,21 @@ function launchEnv({ env, runKey, token, execWorktree, runId, runScoped = false 
   return { env: withIdentity(env, identity, execWorktree, runId), identity };
 }
 
-/** The recipe argv with the `{prompt}` element replaced whole by `element`; a longer string is kept as written. */
-function assemble(recipe: any, element: string, edit = false, lastMessageFile?: string): string[] {
+/** 120 IC-011: only a supported binding supplies a non-empty model element. */
+function boundModel(binding?: ModelBinding | null): string | null {
+  if (binding?.flag !== 'supported') return null;
+  if (typeof binding.model !== 'string' || binding.model.length === 0) {
+    throw new LaunchUsageError('model-invalid', 'assembleArgv: a supported model binding requires a non-empty model string');
+  }
+  return binding.model;
+}
+
+/** IC-003 / 120 IC-011: replace prompt, output path and bound model only as whole elements. */
+function assemble(recipe: any, element: string, edit = false, lastMessageFile?: string, binding?: ModelBinding | null): string[] {
+  const model = boundModel(binding);
   const argv: string[] = [];
   for (const key of edit ? EDIT_RECIPE_ORDER : RECIPE_ORDER) {
+    if (key === 'model' && model === null) continue;
     const entry = recipe?.[key];
     if (!entry || entry.status !== 'supported' || !Array.isArray(entry.argv)) {
       throw new LaunchUsageError('recipe-incomplete', `assembleArgv: worker '${key}' is not supported with an argv`);
@@ -146,6 +163,7 @@ function assemble(recipe: any, element: string, edit = false, lastMessageFile?: 
       }
       return lastMessageFile;
     }
+    if (value === MODEL_ELEMENT && model !== null) return model;
     if (value === PROMPT_ELEMENT && recipe.oneShot.promptVia === 'argv') return element;
     return value;
   });
@@ -156,29 +174,31 @@ function promptVia(recipe: any): 'argv' | 'stdin' {
 }
 
 /** IC-003: the worker argv for `prompt`; a prompt over its mode's limit is `prompt-too-large`.
- * `edit` selects the edit recipe order (082 IC-014). */
-function assembleArgv(recipe: any, prompt: string, edit = false, lastMessageFile?: string): string[] {
+ * `edit` selects the edit recipe order (082 IC-014); 120 IC-011 optionally inserts the bound model. */
+function assembleArgv(recipe: any, prompt: string, edit = false, lastMessageFile?: string, binding?: ModelBinding | null): string[] {
   const mode = promptVia(recipe);
   const bytes = Buffer.byteLength(prompt, 'utf8');
   if (bytes > PROMPT_LIMITS[mode]) {
     throw new LaunchUsageError('prompt-too-large', `assembleArgv: the prompt is ${bytes} bytes; ${mode} mode allows ${PROMPT_LIMITS[mode]}`);
   }
-  return assemble(recipe, prompt, edit, lastMessageFile);
+  return assemble(recipe, prompt, edit, lastMessageFile, binding);
 }
 
-/** IC-003: the argv a record stores, the prompt element written `<prompt sha256:<hex> bytes:<n>>`. */
-function argvShape(recipe: any, prompt: string, edit = false): string[] {
+/** IC-003 / 120 IC-011: the stored shape hashes the prompt and preserves the model placeholder. */
+function argvShape(recipe: any, prompt: string, edit = false, binding?: ModelBinding | null): string[] {
   const hex = crypto.createHash('sha256').update(prompt, 'utf8').digest('hex');
-  return assemble(recipe, `<prompt sha256:${hex} bytes:${Buffer.byteLength(prompt, 'utf8')}>`, edit, '<last-message-file>');
+  const shapeBinding: ModelBinding | null | undefined = boundModel(binding) === null
+    ? binding : { model: MODEL_ELEMENT, flag: 'supported' };
+  return assemble(recipe, `<prompt sha256:${hex} bytes:${Buffer.byteLength(prompt, 'utf8')}>`, edit, '<last-message-file>', shapeBinding);
 }
 
 /** IC-012 / data-model §1: the launch fields a run record stores. Names only, never a value. */
-function launchRecord(recipe: any, identity: WorkerIdentity, prompt: string, edit = false) {
+function launchRecord(recipe: any, identity: WorkerIdentity, prompt: string, edit = false, binding?: ModelBinding | null) {
   return {
     identity: { run: identity.run, lineage: identity.lineage, attempt: identity.attempt, runSource: identity.runSource },
     recipe: {
       binary: recipe.cli.binary,
-      argvShape: argvShape(recipe, prompt, edit),
+      argvShape: argvShape(recipe, prompt, edit, binding),
       promptVia: promptVia(recipe),
       parser: recipe.structuredOutput.parser,
       profile: recipe.profile ?? null,
@@ -202,10 +222,12 @@ interface LaunchOptions {
   lastMessageFile?: string;
   /** 110: the worker run id (`w-<12 hex>`), set as `DOFLOW_WORKER_RUN`; absent leaves the variable unset. */
   runId?: string;
+  /** 120 IC-011: insert model.argv only for a supported binding. */
+  binding?: ModelBinding | null;
 }
 
 /** IC-012 steps 1 to 5. Resolves `{ child, env, launched: { reason, bytes } }` once the process has spawned. */
-function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, grant, edit = false, lastMessageFile, runId }: LaunchOptions): Promise<any> {
+function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, grant, edit = false, lastMessageFile, runId, binding }: LaunchOptions): Promise<any> {
   return new Promise((resolve, reject) => {
     const workerEnv = withIdentity(env, identity, execWorktree, runId);
     if (grant) grantSummary({ ...grant, toRun: identity.run, toLineage: identity.lineage, env });
@@ -215,7 +237,7 @@ function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, gra
     const delivered = typeof emitted.text === 'string' ? emitted.text : null;
     const text = delivered !== null ? `${delivered}\n\n${prompt}` : prompt;
     const launched = { reason, bytes: delivered !== null ? utf8Bytes(delivered) : 0 };
-    const argv = assembleArgv(recipe, text, edit, lastMessageFile);
+    const argv = assembleArgv(recipe, text, edit, lastMessageFile, binding);
     const viaStdin = promptVia(recipe) === 'stdin';
     const child = spawn(recipe.cli.binary, argv, {
       cwd: execWorktree,

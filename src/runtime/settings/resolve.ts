@@ -21,6 +21,9 @@
  *      `redundant` and never takes the origin (C6), a wider one is `not-narrower`;
  *   3b. a `combine: union` key (a string-list) adds each valid candidate's items that are not yet present, in
  *      fold order; every contributor stays `decided`, a candidate adding nothing is `redundant`;
+ *   3c. a `combine: subset` key at project/local layers intersects the value below with the candidate,
+ *      preserving the order below; installed additions are `not-narrower`, dangling ids are notes
+ *      (IC-004). A valid user candidate overrides under rule 4;
  *   4. anything else overrides, an equal value included (so the deciding file is the highest one that
  *      sets it, as `doflow storage` names it today, OI-3).
  * After the fold: a key named as `{gate}` by another key's fail-safe takes its own fail-safe when one
@@ -169,7 +172,7 @@ function loadSettings({ projectRoot = null, global = false, env = process.env, r
 function buildView(registry: any, home: any, root: string | null, global: boolean, env: any, fsImpl: any): any {
   const { REGISTRY_FILE } = require('./registry.ts');
   const { REF_META } = require('./refs.ts');
-  const { readLayerFile } = require('./files.ts');
+  const { readLayerFile, validateValue } = require('./files.ts');
   const { projectLayerSource } = require('./project-layers.ts');
   const scope: ViewName = global ? 'global' : 'project';
   const io = onceFs(fsImpl);
@@ -327,6 +330,10 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
           // 2.0 parseWindow (lifecycle/retention.ts)
           const ok = /^[1-9][0-9]*$/.test(raw) && Number.isSafeInteger(Number(raw));
           out.push({ ...base0, value: ok ? Number(raw) : null, fault: ok ? null : { code: 'type', reason: /^0[0-9]+$/.test(raw) ? 'must be a positive whole number (no leading zeros)' : 'must be a positive whole number', offset: null } });
+        } else if (spec.env.parse === 'verbatim') {
+          // 120 IC-002: taken as written and judged like any file value
+          const fault = validateValue(spec, raw, registry.enumValues(key));
+          out.push({ ...base0, value: fault ? null : raw, fault: fault ? { ...fault, offset: null } : null });
         } else if (isOffWord(raw)) {
           // 2.0 envSetting + OFF_VALUES (failure/home.ts): only an off word has an effect
           out.push({ ...base0, value: 'off', fault: null });
@@ -404,6 +411,17 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         }
         continue;
       }
+      // IC-002, IC-004: report each dangling worker once per key, source and id, across both views.
+      if (spec.combine === 'subset' || spec.type === 'worker-models') {
+        const known = registry.enumValues(key) ?? [];
+        const ids = spec.type === 'worker-models' ? Object.keys(c.value as Record<string, unknown>) : c.value as string[];
+        for (const id of ids) {
+          if (id === 'primary' || known.includes(id)) continue;
+          if (once(`dangling-worker\0${key}\0${c.source}\0${id}`)) {
+            notes.push({ code: 'dangling-worker', key, source: c.source, text: `${key}: worker '${id}' is not installed (ignored)` });
+          }
+        }
+      }
       if (spec.combine === 'union') {
         const added = (c.value as string[]).filter((item) => !(value as string[]).includes(item));
         if (added.length === 0) {
@@ -414,6 +432,40 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         value = [...(value as string[]), ...added];
         state = 'ok';
         tripped = null;
+        continue;
+      }
+      // IC-004 rule 3c: a project allowlist can remove entries, never add or reorder them.
+      if (spec.combine === 'subset' && projectLayer) {
+        if (state === 'invalid') {
+          Object.assign(c, { status: 'no-effect', reason: 'the value below is invalid' });
+          continue;
+        }
+        const below = value as string[];
+        const candidate = c.value as string[];
+        const known = registry.enumValues(key) ?? [];
+        const added = candidate.filter((id) => !below.includes(id) && (id === 'primary' || known.includes(id)));
+        if (added.length > 0) {
+          Object.assign(c, { status: 'not-narrower', reason: `narrow-only: a project may only remove workers ('${added[0]}' is not in the value below)` });
+          continue;
+        }
+        const result = below.filter((id) => candidate.includes(id));
+        if (result.length === below.length) {
+          Object.assign(c, { status: 'redundant', reason: 'equal to the value below' });
+          continue;
+        }
+        if (result.length === 0) {
+          Object.assign(c, { status: 'no-effect', reason: 'no workers remain in the intersection' });
+          continue;
+        }
+        take(c, null);
+        value = result;
+        state = 'ok';
+        tripped = null;
+        const ordered = candidate.filter((id) => result.includes(id));
+        if (ordered.some((id, index) => id !== result[index])) {
+          c.code = 'order-ignored';
+          c.reason = 'a project cannot reorder workers; the order below applies';
+        }
         continue;
       }
       const narrowing = (projectLayer && spec.scope === 'narrow-only') || spec.combine === 'narrowest'

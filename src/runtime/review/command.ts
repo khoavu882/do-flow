@@ -10,7 +10,7 @@ const { resolveActiveFeature } = require('../feature-resolve.ts');
 const { TelemetryWriter } = require('../trace/telemetry.ts');
 const { finishRuntime } = require('../cli-result.ts');
 const { handleReviewStart, validSlug } = require('./start.ts');
-const { crossCheckAuthor } = require('./identity.ts');
+const { crossCheckAuthor, authoringIdentities } = require('./identity.ts');
 
 type ReviewRecord = Record<string, any>;
 type Env = Record<string, string | undefined>;
@@ -143,6 +143,7 @@ function handleReviewCommand({
   const identityAdvisories: string[] = [];
   let sameFamily: 'warn' | 'refuse' = 'warn';
   let reviewPreset = 'auto';
+  let authors: any[] = [];
   let record: ReviewRecord | null = null;
   if (file === null) {
     errors.push('missing');
@@ -173,7 +174,8 @@ function handleReviewCommand({
         reviewPreset = read.value;
         if (read.unread) errors.push('review-preset-setting-unread');
       }
-      const validation = validateFindings(raw, { sameFamily, preset: reviewPreset });
+      authors = authoringIdentities({ slug: peek?.slug, cwd, env, record: peek, fsImpl: fs });
+      const validation = validateFindings(raw, { sameFamily, preset: reviewPreset, authors });
       for (const error of validation.errors) errors.push(error); // a spread overflows the stack at ~200k errors (C-6)
       if (!validation.errors.includes('json')) {
         try { record = JSON.parse(raw); } catch { record = null; }
@@ -199,8 +201,8 @@ function handleReviewCommand({
     }
   }
 
-  const advisories = (record && validateFindings(record, { sameFamily, preset: reviewPreset }).ok
-    ? reviewAdvisories(record, { sameFamily }).concat(identityAdvisories)
+  const advisories = (record && validateFindings(record, { sameFamily, preset: reviewPreset, authors }).ok
+    ? reviewAdvisories(record, { sameFamily, authors }).concat(identityAdvisories)
     : []).concat(ancestryAdvisories).sort();
   const valid = errors.length === 0;
   const counts = valid && record ? countFindings(record) : null;

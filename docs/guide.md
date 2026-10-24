@@ -150,7 +150,7 @@ doflow config unset review.rounds --layer project
 doflow config validate --prepared-run prepared.json   # check a prepared-run file; writes nothing
 ```
 
-Quote a string value so the shell passes it as JSON. A security-relevant setting (`autopilot.enabled`, `verify.reuse`, `workers.billing`, `guard.workerDropDatabases`, every `advice.*`) is refused: you write those in the settings file yourself. A value a layer may not set, a wider value than the layers below for a narrow-only setting, or a `review.rounds` below the project preset's minimum rounds, is refused with exit 1 and nothing is written; a usage mistake exits 2. Two `config set` calls at the same time both land, and each write keeps the file it replaced as `<file>.config.bak`; a file another writer holds for more than 2 s is refused as `locked`, and one that would grow past 64 KiB as `too-large`.
+Quote a string value so the shell passes it as JSON. A security-relevant setting (`autopilot.enabled`, `verify.reuse`, `workers.enabled`, `workers.models`, `workers.billing`, `guard.workerDropDatabases`, every `advice.*`) is refused: you write those in the settings file yourself. A value a layer may not set, a wider value than the layers below for a narrow-only setting, or a `review.rounds` below the project preset's minimum rounds, is refused with exit 1 and nothing is written; a usage mistake exits 2. Two `config set` calls at the same time both land, and each write keeps the file it replaced as `<file>.config.bak`; a file another writer holds for more than 2 s is refused as `locked`, and one that would grow past 64 KiB as `too-large`.
 
 ### See the review or debate protocol
 
@@ -163,6 +163,16 @@ doflow protocol --action resolve --kind review --task-class feature [--risk HIGH
 ```
 
 `list` shows each preset with its seats, rounds, synthesizer and decider, then the invariants no setting can change. `resolve` shows the protocol one run would use and where each value came from. It has no diff to read, so a review always resolves to at least the deep preset; a `--preset` can only raise it. A preset looser than that is refused with exit 1, and a bad flag value is a usage error with exit 2. Add `--json` for the same data as one object.
+
+### See which primary DoFlow assumes
+
+`doflow primary --action resolve` prints which harness and model DoFlow takes the main session to run, from your `primary.harness` and `primary.model` settings and what the harness reported at session start. It is read-only. `doflow status` and `doflow doctor` show the same state in one line.
+
+```bash
+doflow primary --action resolve [--json]
+```
+
+It exits 0 for every state except `refused` (1: the declared model differs from the one observed and `primary.onContradiction` is `refuse`); a bad action or flag exits 2.
 
 ## Retrieve code from the project
 
@@ -480,6 +490,12 @@ open run. Only one `next` runs at a time (`lease-held` otherwise).
 ```
 
 Each key is a registry harness id, `billing` is `free` or `metered`, `asserted` is the real calendar date (`YYYY-MM-DD`) on which you stated it, and `basis` is an optional one-line note. A capped `dispatch start` prints one line per recorded worker, for example `billing: codex free (user record, asserted 2026-10-23)`, so you see what counts as free before any worker launches. If the record is malformed or names an id that is not a registry harness, no worker counts as free. The record says nothing about quota: when a worker runs out of quota, the fallback ladder decides what happens next. [Settings](settings.md) has the full rules.
+
+**Enable workers and bind model tiers.** By default, all shipped harnesses followed by `primary` (in-session execution) are enabled in registry order. You can restrict and order which workers are eligible via `workers.enabled` and assign models by tier (`light`, `standard`, `frontier`) via `workers.models` in your settings file (`<config home>/settings.json`). Always validate before writing:
+```bash
+doflow config validate workers.enabled '["worker-a","worker-b","primary"]' --layer user
+doflow config validate workers.models '{"worker-a":{"standard":"vendor-model-std","frontier":"vendor-model-adv"}}' --layer user
+```
 
 **Turn it on and off.** It ships off. To turn it on, put `{"schema":1,"autopilot.enabled":"on"}` in
 `~/.config/doflow/settings.json` (or under `$XDG_CONFIG_HOME/doflow`). To stop it: set

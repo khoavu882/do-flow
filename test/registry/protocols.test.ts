@@ -102,6 +102,22 @@ test('protocols: invariant kinds is a non-empty list of known kinds without repe
   assert.deepEqual(validateProtocols(ok).errors, []);
 });
 
+test('protocols: invariant authorKinds is a non-empty subset of record, subagent, sequential, primary containing subagent without repeats (120 D.2)', () => {
+  const data = shipped();
+  const inv8 = data.invariants.find((inv: any) => inv.id === 'INV-8');
+  assert.deepEqual(inv8?.authorKinds, ['subagent', 'sequential']);
+
+  refuses((d: any) => { d.invariants.find((i: any) => i.id === 'INV-8').authorKinds = []; }, /authorKinds must be a non-empty list/);
+  refuses((d: any) => { d.invariants.find((i: any) => i.id === 'INV-8').authorKinds = 'subagent'; }, /authorKinds must be a non-empty list/);
+  refuses((d: any) => { d.invariants.find((i: any) => i.id === 'INV-8').authorKinds = ['subagent', 'unknown-kind']; }, /authorKinds has unknown kind 'unknown-kind'/);
+  refuses((d: any) => { d.invariants.find((i: any) => i.id === 'INV-8').authorKinds = ['subagent', 'subagent']; }, /authorKinds lists 'subagent' more than once/);
+  refuses((d: any) => { d.invariants.find((i: any) => i.id === 'INV-8').authorKinds = ['sequential', 'primary']; }, /authorKinds must contain 'subagent'/);
+
+  const ok = shipped();
+  ok.invariants.find((i: any) => i.id === 'INV-8').authorKinds = ['subagent', 'record', 'sequential', 'primary'];
+  assert.deepEqual(validateProtocols(ok).errors, []);
+});
+
 test('protocols: unknown keys are refused at every level', () => {
   refuses((d: any) => { d.extra = 1; }, /registry has unknown key 'extra'/);
   refuses((d: any) => { d.presets['debate-2'].extra = 1; }, /presets\.debate-2 has unknown key 'extra'/);

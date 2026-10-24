@@ -801,6 +801,49 @@ const FRESHNESS_MARK: Record<string, any> = Object.freeze({
   UNKNOWN: '? UNKNOWN',
 });
 
+/** IC-014: read enabled state, bound tiers and unfiltered eligibility without writing or running worker probes. */
+function workersDoctorView({
+  env = process.env, projectRoot, repoRoot = REPO_ROOT, descriptors, now,
+}: any = {}) {
+  const reg = loadRegistry({ repoRoot });
+  const root = require('./lifecycle/root.ts').projectRoot(projectRoot);
+  const { activeWorkers } = require('./worker/active.ts');
+  // Readiness already requires health.ts; load it only after this module has initialized.
+  const { select, enabledOf, workerDescriptors } = require('./worker/readiness.ts');
+  const { readBindings, resolveBinding } = require('./worker/models.ts');
+  const active = activeWorkers({ registry: reg, env, projectRoot: root });
+  const bindings = readBindings({ env, projectRoot: root });
+  const entries = workerDescriptors({ descriptors, registry: reg });
+  const tiers = reg.dispatchTiers?.tiers ?? [];
+  const selection = select({
+    descriptors, registry: reg, env, cwd: projectRoot, root, now, needs: [],
+  });
+  const rows = selection.candidates.map(({ harness, eligible, gaps }: any) => {
+    const gap = gaps[0];
+    const descriptor = entries.find((entry: any) => entry.harness === harness)?.worker;
+    const bound = tiers.flatMap((tier: string) => {
+      const resolved = resolveBinding({ worker: harness, tier, bindings, descriptor });
+      return resolved.source === 'binding' ? [{ tier, flag: resolved.flag }] : [];
+    });
+    return {
+      harness,
+      enabled: enabledOf(active, harness),
+      eligible,
+      firstGap: gap ? { requirement: gap.requirement, result: gap.result, reason: gap.reason } : null,
+      bound,
+    };
+  });
+  return {
+    state: active.state,
+    origin: active.origin,
+    inSession: active.inSession,
+    reason: active.reason,
+    dangling: active.dangling,
+    bindings: { state: bindings.state, reason: bindings.reason },
+    rows,
+  };
+}
+
 /**
  * Handles `doflow doctor` — installation and capability health.
  * @param {Object} options
@@ -819,6 +862,22 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   report.decisionModel = adviceSections.decisionModel;
   report.advice = adviceSections.advice;
   report.settings = settings;
+  // Read on use (row 120 A.4): no probe runs, nothing is written, and a fault never breaks the report.
+  let primaryText: string;
+  try {
+    const { primaryDoctorView, resolveForReport } = require('./context/primary-command.ts');
+    const resolved = resolveForReport({ env: rest.env ?? process.env, projectRoot, repoRoot });
+    report.primary = primaryDoctorView(resolved);
+    primaryText = `${report.primary.state} ${report.primary.harness ?? '-'}/${report.primary.model ?? '-'} (${report.primary.origin}), probe ${report.primary.probe}`;
+  } catch (error: any) {
+    report.primary = { state: 'unavailable', message: error?.message || String(error) };
+    primaryText = `unavailable (${report.primary.message})`;
+  }
+  try {
+    report.workers = workersDoctorView({ env: rest.env ?? process.env, projectRoot, repoRoot });
+  } catch (error: any) {
+    report.workers = { state: 'unavailable', message: error?.message || String(error) };
+  }
 
   if (json) {
     console.log(JSON.stringify(report, null, 2));
@@ -876,6 +935,28 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   console.log(`  test              ${commandLine(commands.test)}`);
   if (commands.reason) console.log(`  note              ${commands.reason}`);
 
+  console.log('\n[Primary and Workers]');
+  console.log(`  primary: ${primaryText}`);
+  if (report.workers.state === 'unavailable') {
+    console.log(`  worker: unavailable (${report.workers.message})`);
+  } else {
+    if (report.workers.bindings.state === 'invalid') {
+      console.log(`  workers.models: invalid (${report.workers.bindings.reason})`);
+    }
+    if (report.workers.state === 'invalid') {
+      console.log(`  workers.enabled: invalid (${report.workers.reason})`);
+    }
+    for (const row of report.workers.rows) {
+      const position = row.enabled.position === null ? '' : ` #${row.enabled.position}`;
+      const eligibility = row.eligible ? 'eligible' : `ineligible (${row.firstGap.requirement})`;
+      const bound = row.bound.map((item: any) => `${item.tier}(${item.flag})`).join(', ') || 'none';
+      console.log(`  worker ${row.harness}: ${row.enabled.state}${position}, ${eligibility}; bound tiers: ${bound}`);
+    }
+    for (const id of report.workers.dangling) {
+      console.log(`  worker ${id}: dangling (no registry or enabled package knows it)`);
+    }
+  }
+
   printMcpSections(report.mcp);
   printAdviceDoctor(adviceSections);
   printSettingsReport(settings);
@@ -910,6 +991,7 @@ module.exports = {
   detectProjectCommands,
   buildHealthReport,
   nodeSecurityWarning,
+  workersDoctorView,
   handleDoctorCommand,
   PROBE_TIMEOUT_MS,
 };

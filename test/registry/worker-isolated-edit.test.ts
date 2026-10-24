@@ -41,7 +41,10 @@ function assertRefused(result: any, pattern: any) {
 }
 
 test('isolatedEdit: exported as an optional capability, WORKER_KEYS unchanged', () => {
-  assert.deepEqual(WORKER_OPTIONAL_CAPABILITIES, { isolatedEdit: { allowed: ['argv'], required: ['argv'] } });
+  assert.deepEqual(WORKER_OPTIONAL_CAPABILITIES, {
+    isolatedEdit: { allowed: ['argv'], required: ['argv'] },
+    model: { allowed: ['argv'], required: ['argv'] },
+  });
   assert.ok(!WORKER_KEYS.includes('isolatedEdit'));
 });
 

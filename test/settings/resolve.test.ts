@@ -568,7 +568,7 @@ test('an unparseable user file marks every key of that layer invalid and affects
   assert.equal(v.get('advice.model').value, 'p', 'the project layer is untouched');
   assert.equal(v.get('failure.capture').value, 'on', 'capture reads the file lexically: no match is no setting');
   const userErrors = v.errors.filter((e: any) => e.source === file);
-  assert.deepEqual(userErrors.map((e: any) => e.key).sort(), ['advice.enabled', 'advice.endpoint', 'advice.model', 'advice.provider', 'autopilot.enabled', 'debate.preset', 'dispatch.fallback', 'review.blockerClauses', 'review.crossFamilyRereview', 'review.extraLenses', 'review.preset', 'review.rounds', 'review.sameFamily', 'storage.prune', 'storage.retentionHours', 'verify.reuse', 'workers.billing']);
+  assert.deepEqual(userErrors.map((e: any) => e.key).sort(), ['advice.enabled', 'advice.endpoint', 'advice.model', 'advice.provider', 'autopilot.enabled', 'debate.preset', 'dispatch.fallback', 'primary.harness', 'primary.model', 'primary.onContradiction', 'review.blockerClauses', 'review.crossFamilyRereview', 'review.extraLenses', 'review.preset', 'review.rounds', 'review.sameFamily', 'storage.prune', 'storage.retentionHours', 'verify.reuse', 'workers.billing', 'workers.enabled', 'workers.models']);
   // V8 quotes the input in an "Unexpected token" message and gives no position: no offset then
   assert.ok(userErrors.every((e: any) => e.code === 'unparseable' && e.offset === null && e.reason === 'not valid JSON'));
   assert.ok(!JSON.stringify(report).includes('root:x'), 'no byte of the file in any output');

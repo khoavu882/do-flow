@@ -6,6 +6,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { validatePathsSection } = require('../helper/harness-paths.ts');
+const { BUILTIN_WORKER_ID_RE, RESERVED_WORKER_IDS } = require('./worker-ids.ts');
 
 const REGISTRY_FILES = Object.freeze({
   harnesses: 'harnesses.json',
@@ -501,10 +502,11 @@ const WORKER_CAPABILITIES: Record<string, { allowed: string[], required: string[
   resume: { allowed: [], required: [] },
   steering: { allowed: [], required: [] },
 });
-/** Capability entries a `worker` block may carry but need not (082 IC-013, DEC-020). Absent reads
- * as `unknown`; present, the entry takes every IC-001 capability-entry rule. */
+/** Capability entries a `worker` block may carry but need not (082 IC-013, DEC-020; 120 IC-011).
+ * Absent reads as `unknown`; present, the entry takes every IC-001 capability-entry rule. */
 const WORKER_OPTIONAL_CAPABILITIES: Record<string, { allowed: string[], required: string[] }> = Object.freeze({
   isolatedEdit: { allowed: ['argv'], required: ['argv'] },
+  model: { allowed: ['argv'], required: ['argv'] },
 });
 const WORKER_BILLING = new Set(['free', 'metered', 'unknown']);
 const WORKER_KEYS = Object.freeze(['profile', 'billing', ...Object.keys(WORKER_CAPABILITIES), 'modelChecks']);
@@ -576,6 +578,15 @@ function validateWorker(value: any, location: string, errors: string[]): void {
       if (problem) {
         fail(key, problem.replace(/^argv/, field));
       } else {
+        // 120 IC-011: only model.argv carries one whole model placeholder.
+        if (key === 'model' && field === 'argv') {
+          const count = entry.argv.filter((item: string) => item === '{model}').length;
+          if (count !== 1 || entry.argv.some((item: string) => item.includes('{model}') && item !== '{model}')) {
+            fail(key, "argv must contain the element '{model}' exactly once, as a whole element");
+          }
+        } else if (entry[field].some((item: string) => item.includes('{model}'))) {
+          fail(key, `${field} must not contain '{model}' outside model.argv`);
+        }
         // DEC-066: only oneShot.argv carries the prompt; a second placeholder would duplicate it.
         if (!(key === 'oneShot' && field === 'argv') && entry[field].includes('{prompt}')) {
           fail(key, `${field} must not contain '{prompt}' outside oneShot.argv`);
@@ -644,6 +655,7 @@ function validateWorker(value: any, location: string, errors: string[]): void {
     if (problem) {
       fail(key, problem);
     } else {
+      if (check.argv.some((item: string) => item.includes('{model}'))) fail(key, "argv must not contain '{model}' outside model.argv");
       if (check.argv.includes('{prompt}')) fail(key, "argv must not contain '{prompt}' outside oneShot.argv");
       if (check.argv.includes('{lastMessageFile}')) fail(key, "argv must contain '{lastMessageFile}' only once and only in structuredOutput.argv");
     }
@@ -743,6 +755,55 @@ function validateContextProfile(value: any, location: string, errors: string[]):
   }
 }
 
+/** Validates the IC-006 primary model probe declaration for one harness. */
+function validatePrimaryProbe(probe: any, harnessId: string, at: string, errors: string[]): void {
+  const location = `${at} primaryProbe`;
+  const fields = ['model', 'events', 'status', 'evidence', 'verifiedOn', 'reason'];
+  if (!object(probe)) {
+    issue(errors, location, 'must be an object');
+    return;
+  }
+  for (const key of Object.keys(probe)) {
+    if (!fields.includes(key)) issue(errors, location, `has an unknown key '${key}'`);
+  }
+  for (const field of fields) {
+    if (!Object.prototype.hasOwnProperty.call(probe, field)) issue(errors, location, `is missing field '${field}'`);
+  }
+  if (probe.model !== 'payload' && probe.model !== 'none') issue(errors, location, "model must be 'payload' or 'none'");
+  if (!Array.isArray(probe.events)) {
+    issue(errors, location, 'events must be an array of distinct non-empty strings');
+  } else {
+    if (probe.events.some((event: any) => typeof event !== 'string' || !event.trim())) {
+      issue(errors, location, 'events must contain only non-empty strings');
+    }
+    if (new Set(probe.events).size !== probe.events.length) issue(errors, location, 'events must contain distinct strings');
+    if (probe.model === 'payload' && probe.events.length === 0) issue(errors, location, "events must be non-empty when model is 'payload'");
+    if (probe.model === 'none' && probe.events.length !== 0) issue(errors, location, "events must be empty when model is 'none'");
+  }
+  if (probe.status !== 'supported' && probe.status !== 'unverified') issue(errors, location, "status must be 'supported' or 'unverified'");
+  if (!Array.isArray(probe.evidence) || probe.evidence.some((item: any) => typeof item !== 'string')) {
+    issue(errors, location, 'evidence must be an array of strings');
+  }
+  if (probe.verifiedOn !== null && (typeof probe.verifiedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(probe.verifiedOn))) {
+    issue(errors, location, 'verifiedOn must be null or a YYYY-MM-DD string');
+  }
+  if (typeof probe.reason !== 'string' || !probe.reason.trim()) {
+    issue(errors, location, 'reason must be a non-empty line');
+  } else if (/[\r\n]/.test(probe.reason)) {
+    issue(errors, location, 'reason must be a non-empty line');
+  }
+  if (probe.status === 'supported') {
+    if (probe.model !== 'payload') issue(errors, location, "status 'supported' requires model 'payload'");
+    const prefix = `core/worker-evidence/${harnessId}/primary-probe/`;
+    if (!Array.isArray(probe.evidence) || !probe.evidence.some((item: any) => typeof item === 'string' && item.startsWith(prefix) && item.length > prefix.length)) {
+      issue(errors, location, `status 'supported' requires evidence under '${prefix}'`);
+    }
+    if (typeof probe.verifiedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(probe.verifiedOn)) {
+      issue(errors, location, "status 'supported' requires a verifiedOn date");
+    }
+  }
+}
+
 function validateRegistry(
   registry: any,
   { repoRoot, fsImpl = fs, sources = 'require' }: { repoRoot?: string, fsImpl?: any, sources?: SourceMode } = {},
@@ -771,7 +832,8 @@ function validateRegistry(
   for (const harness of harnesses || []) {
     const at = `harness '${harness?.id ?? '?'}'`;
     if (!object(harness)) { issue(errors, 'harnesses', 'entries must be objects'); continue; }
-    if (typeof harness.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(harness.id)) issue(errors, at, 'id must be a lowercase identifier');
+    if (typeof harness.id !== 'string' || !BUILTIN_WORKER_ID_RE.test(harness.id)) issue(errors, at, 'id must be a lowercase identifier');
+    else if (RESERVED_WORKER_IDS.includes(harness.id)) issue(errors, at, `id '${harness.id}' is a reserved worker id`);
     if (typeof harness.displayName !== 'string' || !harness.displayName.trim()) issue(errors, at, 'requires displayName');
     if (typeof harness.adapter !== 'string' || !harness.adapter.trim()) issue(errors, at, 'requires adapter');
     if (!Array.isArray(harness.scopes) || harness.scopes.length === 0 || harness.scopes.some((scope: any) => !SCOPES.has(scope))) issue(errors, at, 'scopes must contain project and/or user');
@@ -799,6 +861,7 @@ function validateRegistry(
       }
     }
     validateContextProfile(harness.contextProfile, at, errors);
+    validatePrimaryProbe(harness.primaryProbe, typeof harness.id === 'string' ? harness.id : '?', at, errors);
     if (harness.id === 'codex') validateNativeProjection(harness.nativeProjection, harness, { repoRoot, fsImpl, sources }, errors);
   }
 

@@ -50,14 +50,16 @@ test('IC-011/012: answered tier advice follows Tier and retains the static tier 
   const server = await f.startServer();
   t.after(() => server.close());
   f.enable(server.origin);
-  const baseline = JSON.parse(f.run([]).stdout);
-  const result = f.run(['--tasks', 'A.1']);
+  const baseline = JSON.parse(f.run(['--harness', 'claude']).stdout);
+  const result = f.run(['--harness', 'claude', '--tasks', 'A.1']);
   assert.equal(result.status, 0, result.stderr);
   const actual = JSON.parse(result.stdout);
   const tierParagraph = 'Tier: `frontier` (task line), per\n`references/MODEL_SELECTION.md`.';
-  assert.ok(actual.markdown.includes(`${tierParagraph}\nDecision model: `));
+  const modelLine = `Model: harness default on \`${actual.record.model.harness}\`.`;
+  assert.ok(actual.markdown.includes(`${tierParagraph}\n${modelLine}\nDecision model: `));
   assert.match(actual.markdown, /Decision model: `light` \(clear\), advisory\. The tier above stands unless you change it\./);
   assert.equal(actual.markdown.match(/^Decision model:/gm)?.length, 1);
+  assert.equal(actual.markdown.match(/^Model:/gm)?.length, 1);
   assert.equal(actual.record.tier, baseline.record.tier);
   for (const [key, value] of Object.entries(baseline.record)) assert.deepEqual(actual.record[key], value, key);
   assert.deepEqual(actual.record.advice, {
@@ -88,7 +90,7 @@ test('IC-011: advice timeout fails open without changing the 062 block', async (
   const registry = loadRegistry({ repoRoot: REPO_ROOT });
   const router: any = new CapabilityRouter({ repoRoot: REPO_ROOT, projectRoot: f.project });
   f.enable('http://127.0.0.1:9');
-  const fixed: any = { registry, router, probes: {}, reach: null, owner: 'core-implementer', tier: 'frontier', stage: { feature: '001-feature' }, slug: '001-feature', probe: () => ({}) };
+  const fixed: any = { registry, router, probes: {}, reach: null, owner: 'core-implementer', tier: 'frontier', stage: { feature: '001-feature' }, slug: '001-feature', probe: () => ({}), env: f.scratch.env() };
   let request: any;
   const adviceClient: any = { ask: (input: any) => { request = input; return new Promise((resolve) => setTimeout(() => resolve({ status: 'unavailable', reason: 'timeout', answers: [] }), 25)); } };
   async function invoke(tasks: any) {

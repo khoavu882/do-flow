@@ -1,0 +1,14 @@
+{
+  "schema": "doflow-worker-checks-v1",
+  "harness": "antigravity",
+  "binary": "agy",
+  "version": { "argv": ["--version"], "expect": "^\\d+\\.\\d+\\.\\d+" },
+  "checks": [
+    {
+      "id": "help-model",
+      "argv": ["--help"],
+      "expect": ["^\\s+--model\\s"],
+      "establishes": ["model"]
+    }
+  ]
+}

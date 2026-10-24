@@ -36,6 +36,9 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn, spawnSync } = require('node:child_process');
 const readiness = require('./readiness.ts');
+const { activeWorkers, workerGate } = require('./active.ts');
+const { readBindings } = require('./models.ts');
+const { workerCatalogue } = require('./catalogue.ts');
 const { storeFileFor, newRunId, insertRun, transition, readRuns, RUN_ID } = require('./run-store.ts');
 const evidence = require('./evidence.ts');
 const { launchEnv, launchRecord, PROMPT_LIMITS } = require('./launch.ts');
@@ -170,13 +173,14 @@ function registryOf(registry: any) {
 
 /** The worker block for `harness`: the injected descriptor, or the registry's. */
 function workerBlock(reg: any, descriptors: any, harness: string) {
-  const ids = reg.harnesses.map((h: any) => h.id);
+  const entries = workerCatalogue({ registry: reg });
+  const ids = entries.map((entry: any) => entry.id);
   if (!ids.includes(harness)) throw usage(`unknown harness '${harness}'; known: ${ids.join(', ')}`);
   if (descriptors) {
     if (!Object.hasOwn(descriptors, harness)) throw usage(`no worker descriptor was given for harness '${harness}'`);
     return descriptors[harness];
   }
-  return reg.harnesses.find((h: any) => h.id === harness).worker;
+  return entries.find((entry: any) => entry.id === harness).worker;
 }
 
 /** `--slug`, or the feature resolved from the branch. */
@@ -287,6 +291,7 @@ function evaluate({ reg, worker, harness, needs, coverage, env, cwd, root, nowMs
 /** IC-011 steps 0 to 12, then the supervisor spawn and the start poll. */
 async function runAction(o: any) {
   const { env, cwd, root, platform, clock, sleep, slug, harness, task, token, needs, timeoutSeconds, prompt, worker, reg, coverage } = o;
+  const binding = o.binding ?? null;
   const edit = o.edit === true;
   const childOf: string | null = o.childOf ?? null;
   const nowMs = () => clock().getTime();
@@ -358,7 +363,8 @@ async function runAction(o: any) {
       attempt: key.identity.attempt || null, role: key.identity.role, lineageKind: key.identity.lineageKind,
     },
     edit: editRecord, childOf, request: childOf ? o.request : null,
-    ...launchRecord(worker, identity, prompt.bytes.toString('utf8'), edit),
+    ...launchRecord(worker, identity, prompt.bytes.toString('utf8'), edit, binding),
+    ...(binding ? { binding: { model: binding.model, flag: binding.flag } } : {}),
     descriptor: worker,
     prompt: { path: prompt.path, sha256: prompt.sha256, bytes: prompt.bytes.length },
     needs: evaluated.requirements.map((item: any) => ({ requirement: item.requirement, at: item.at ?? null })),
@@ -527,7 +533,7 @@ async function executeWorkerCommand({
   action, slug = null, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait = false,
   workerRun, checks, out, by, reason, edit = false, childOf, request, execWorktree,
   env = process.env, cwd = process.cwd(), resolveSlug = null, platform = process.platform, now = () => new Date(),
-  descriptors, registry, coverage, sleep = defaultSleep,
+  descriptors, registry, coverage, sleep = defaultSleep, binding = null,
 }: any = {}): Promise<{ exit: number; body: any }> {
   try {
     if (!given(action)) throw usage(`--action is required; valid: ${ACTIONS.join(' | ')}`);
@@ -551,11 +557,24 @@ async function executeWorkerCommand({
     switch (action) {
       case 'discover': body = readiness.discover(common); break;
       case 'probe': body = await readiness.probe({ ...atRoot, coverage: cov, needs, harness: given(harness) ? String(harness) : undefined, modelCheck: given(modelCheck) ? String(modelCheck) : undefined, budgetTokens: digits(budgetTokens, '--budget-tokens', 1) }); break;
-      case 'describe':
+      case 'describe': {
         if (!given(harness)) throw usage('--action describe needs --harness');
-        body = readiness.describe({ ...atRoot, coverage: cov, harness: String(harness), needs, edit: given(edit) });
+        let primary: any;
+        try {
+          const { resolvePrimary } = require('../context/primary.ts');
+          primary = resolvePrimary({ env, projectRoot: cwd, registry: reg });
+        } catch (error: any) {
+          primary = { state: 'unavailable', message: error?.message || String(error) };
+        }
+        body = readiness.describe({
+          ...atRoot, coverage: cov, harness: String(harness), needs, edit: given(edit),
+          active: activeWorkers({ registry: reg, env, projectRoot: root }),
+          primary,
+          bindings: readBindings({ env, projectRoot: root }),
+        });
         break;
-      case 'select': body = readiness.select({ ...atRoot, coverage: cov, harness: given(harness) ? String(harness) : undefined, needs, edit: given(edit) }); break;
+      }
+      case 'select': body = readiness.select({ ...atRoot, coverage: cov, harness: given(harness) ? String(harness) : undefined, needs, edit: given(edit), active: activeWorkers({ registry: reg, env, projectRoot: root }) }); break;
       case 'run': {
         const feature = featureOf(slug, resolveSlug, cwd);
         if (!given(harness)) throw usage('--action run needs --harness');
@@ -563,11 +582,17 @@ async function executeWorkerCommand({
         if (!given(promptFile)) throw usage('--action run needs --prompt-file');
         runFlagRules({ edit, childOf, request, execWorktree });
         const worker = workerBlock(reg, descriptors, String(harness));
+        const gate = workerGate(activeWorkers({ registry: reg, env, projectRoot: root }), String(harness));
+        if (gate) {
+          body = refused(gate.reason, { harness: gate.harness, enabled: gate.enabled, origin: gate.origin });
+          break;
+        }
         const seconds = digits(timeoutSeconds, '--timeout-seconds', 1, TIMEOUT_MAX_SECONDS) ?? TIMEOUT_DEFAULT_SECONDS;
         const prompt = readPrompt(promptFile, cwd, worker);
         body = await runAction({
           env, cwd, root, platform, clock, sleep, slug: feature, harness: String(harness), task: String(task), token: Number(token),
           needs, timeoutSeconds: seconds, prompt, worker, reg, coverage: cov, wait: Boolean(wait),
+          binding,
           edit: given(edit), childOf: given(childOf) ? String(childOf) : null, request: given(request) ? String(request) : null,
           execWorktree: given(execWorktree) ? String(execWorktree) : null,
         });

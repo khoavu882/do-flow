@@ -35,7 +35,7 @@ const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
 const { start, claim, finish } = require(path.join(SRC, 'task-attempts.ts'));
 const { procStart } = require(path.join(SRC, 'worker', 'process-tree.ts'));
 const store = require(path.join(SRC, 'dispatch', 'store.ts'));
-const { registerDriver, endDriver, admit, concurrencyOf } = require(path.join(SRC, 'dispatch', 'admission.ts'));
+const { registerDriver, endDriver, admit, dispatchModelFor, concurrencyOf } = require(path.join(SRC, 'dispatch', 'admission.ts'));
 
 const SLUG = '082-admission-fixture';
 const POSIX: any = { skip: process.platform === 'win32' && 'tree cleanup is unverified on win32 (NFR-005)' };
@@ -90,6 +90,101 @@ test('concurrencyOf: 1 to 4, default 2 (DEC-002)', () => {
   for (const bad of [0, 5, '2.5', 'x', -1]) assert.throws(() => concurrencyOf(bad), { code: 'usage' });
 });
 
+test('IC-013 / IC-010: admission copies model metadata and only sequential primary snapshots', POSIX, (t) => {
+  const model = { tier: 'standard', requested: 'm-1', source: 'binding' };
+  const primary = { harness: 'claude', model: null, state: 'unconfirmed' };
+  for (const mode of ['subagent', 'sequential', 'manual']) {
+    const p = project(t, { concurrency: 1 });
+    const result = p.pass({
+      modeFor: () => ({ mode, harness: 'claude' }),
+      modelFor: (task: any, choice: any) => {
+        assert.equal(fs.existsSync(`${p.file}.lock`), false);
+        assert.equal(typeof task, 'string');
+        assert.deepEqual(choice, { mode, harness: mode === 'subagent' ? 'claude' : null, selection: null });
+        return { model, primary: mode === 'subagent' ? null : primary };
+      },
+    });
+    assert.equal(result.admitted.length, 1);
+    const d = p.read().dispatches[result.admitted[0].dispatchId];
+    assert.deepEqual(d.model, { ...model, served: null });
+    if (mode === 'sequential') assert.deepEqual(d.primary, primary);
+    else assert.equal(Object.hasOwn(d, 'primary'), false);
+  }
+});
+
+test('IC-013: malformed model answers refuse before admission and holds never call modelFor', POSIX, (t) => {
+  const p = project(t, { concurrency: 1 });
+  const model = { tier: 'standard', requested: 'm-1', source: 'binding' };
+  const primary = { harness: 'claude', model: null, state: 'unconfirmed' };
+  const before = fs.readFileSync(p.file);
+  for (const answer of [
+    { model: { ...model, tier: 'ultra' }, primary: null },
+    { model: { ...model, source: 'x' }, primary: null },
+    { model: { ...model, requested: 7 }, primary: null },
+    { model, primary: { ...primary, extra: true } },
+  ]) {
+    assert.throws(() => p.pass({ modelFor: () => answer }), { code: 'usage' });
+    assert.deepEqual(fs.readFileSync(p.file), before);
+  }
+  let calls = 0;
+  const held = p.pass({
+    modeFor: () => ({ hold: 'quota' }),
+    modelFor: () => { calls += 1; return { model, primary: null }; },
+  });
+  assert.equal(calls, 0);
+  assert.deepEqual(held.admitted, []);
+  assert.deepEqual(fs.readFileSync(p.file), before);
+});
+
+test('IC-013: dispatchModelFor records binding intent independently of model flag support', () => {
+  const tier = 'standard';
+  const primary = { harness: 'claude', model: null, state: 'unconfirmed', ignored: true };
+  const bindings = { state: 'set', map: { claude: { standard: 'm-1' } } };
+  const resolve = (extra: any) => dispatchModelFor({ mode: 'subagent', harness: 'claude', tier, bindings, primary, ...extra });
+  const fallback = { tier, requested: null, source: 'harness-default' };
+  const bound = { tier, requested: 'm-1', source: 'binding' };
+  assert.deepEqual(resolve({ bindings: { state: 'unset', map: null } }), { model: fallback, primary: null });
+  assert.deepEqual(resolve({}), { model: bound, primary: null });
+  assert.deepEqual(resolve({ mode: 'sequential', harness: null }), {
+    model: bound, primary: { harness: 'claude', model: null, state: 'unconfirmed' },
+  });
+  const unknown = { harness: null, model: null, state: 'unknown' };
+  assert.deepEqual(resolve({ mode: 'sequential', primary: unknown }), { model: fallback, primary: unknown });
+  assert.deepEqual(resolve({ bindings: { state: 'invalid', map: null } }), { model: fallback, primary: null });
+  assert.deepEqual(resolve({ mode: 'manual' }), { model: fallback, primary: null });
+});
+
+test('IC-013 / IC-010: accessors read legacy records without rewriting them', POSIX, (t) => {
+  const empty = { tier: null, requested: null, source: null, served: null };
+  for (const d of [{}, { model: null }, { model: [] }, { model: { tier: 'ultra', source: 7 } }]) {
+    assert.deepEqual(store.modelRecordOf(d), empty);
+  }
+  assert.deepEqual(store.modelRecordOf({ model: { tier: 'standard' } }), { ...empty, tier: 'standard' });
+  const complete = { tier: 'light', requested: 'm-1', source: 'binding', served: 'served-x' };
+  assert.deepEqual(store.modelRecordOf({ model: complete }), complete);
+  assert.deepEqual(store.modelRecordOf({ model: { ...complete, requested: 7, served: false, source: 'harness-default' } }), {
+    tier: 'light', requested: null, source: 'harness-default', served: null,
+  });
+  assert.equal(store.primaryOf({}), null);
+  assert.equal(store.primaryOf({ primary: [] }), null);
+  const primary = { harness: 'claude', model: null, state: 'unconfirmed' };
+  assert.equal(store.primaryOf({ primary }), primary);
+
+  const p = project(t);
+  const id = store.newDispatchId();
+  store.mutateDispatch(p.file, (s: any) => {
+    s.dispatches[id] = { dispatchId: id, task: 'A.1', phase: 'admitted', token: null, mode: 'subagent' };
+    return { write: true, result: null };
+  });
+  store.mutateDispatch(p.file, (s: any) => {
+    assert.deepEqual(store.modelRecordOf(s.dispatches[id]), empty);
+    return { write: true, result: null };
+  });
+  const disk = JSON.parse(fs.readFileSync(p.file, 'utf8')).dispatches[id];
+  assert.equal(Object.hasOwn(disk, 'model'), false);
+  assert.equal(Object.hasOwn(p.read().dispatches[id], 'model'), false);
+});
+
 test('four disjoint READY tasks with concurrency 2 admit two, claimed with token, epoch and worktree', POSIX, (t) => {
   const p: any = project(t, { concurrency: 2 });
   const result = p.pass();
@@ -108,6 +203,13 @@ test('four disjoint READY tasks with concurrency 2 admit two, claimed with token
     assert.equal(d.parentRunKey, p.started.runKey);
     assert.equal(d.mode, 'subagent');
     assert.equal(d.harness, 'claude');
+    assert.deepEqual(d.model, { tier: null, requested: null, source: null, served: null });
+    assert.equal(Object.hasOwn(d, 'primary'), false);
+    assert.deepEqual(Object.keys(d).sort(), [
+      'dispatchId', 'dispatchRunId', 'parentRunKey', 'task', 'token', 'epoch', 'phase', 'mode', 'harness',
+      'selection', 'grant', 'model', 'workerRunId', 'disposition', 'failureClass', 'attempt', 'admittedAt',
+      'admittedBy', 'seq', 'reservation', 'claimedAt', 'claimedBy',
+    ].sort());
     assert.deepEqual(d.admittedBy, DRIVER);
     assert.deepEqual(d.claimedBy, DRIVER);
     assert.deepEqual(d.reservation, { tokens: null });

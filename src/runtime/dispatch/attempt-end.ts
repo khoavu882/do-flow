@@ -7,6 +7,7 @@
 // function runs inside a `mutateDispatch` decide callback: it takes the store that callback holds,
 // makes one in-process 080 call (`finish` or `release`, each taking the ledger lock inside it, the
 // lock order of IC-006), changes the store in place and returns the callback's `{ write, result }`.
+// I/O is limited to the 080 calls and one bounded read of one small file (IC-013).
 // It runs no git, spawns nothing, signals nothing and waits on nothing.
 //
 // The repeat rule (DEC-007, DEC-026): a failure finishes 080 FAILED with `<class>: <detail>`, unless
@@ -25,6 +26,7 @@
 const { finish, release } = require('../task-attempts.ts');
 const { maskLine } = require('../mask.ts');
 const { DispatchStoreError } = require('./store.ts');
+const { stateDir } = require('../context/identity.ts');
 
 /** IC-024's eleven failure classes (106 IC-003 adds `quota`), each with the 080 call that ends its attempt and whether the
  * worker run is then ended with `cancelRun` (outside the lock, by the caller). */
@@ -155,6 +157,19 @@ function contextOf(ctx: any): any {
   return ctx;
 }
 
+/** IC-013: the served model from this dispatch's worker observation, without changing the record. */
+function servedModel(dispatch: any, ctx: any): string | null {
+  const plain = (value: any) => value !== null && typeof value === 'object'
+    && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
+  if (!plain(dispatch.model) || !plain(dispatch.workerIdentity)
+    || typeof dispatch.harness !== 'string' || dispatch.harness.length === 0
+    || !ctx.env || typeof ctx.env !== 'object') return null;
+  const { readWorkerObservation } = require('../context/primary.ts');
+  return readWorkerObservation({
+    root: stateDir(ctx.env), identity: dispatch.workerIdentity, harness: dispatch.harness, fsImpl: ctx.fsImpl,
+  })?.model ?? null;
+}
+
 /**
  * One in-process 080 call. Applied: the dispatch ends with `ended` and the 080 result. A refusal, a
  * stale answer or a thrown 080 error (a `TaskAttemptError`, such as `plan-malformed`): `lastError`
@@ -179,6 +194,8 @@ function call080(dispatch: any, name: 'finish' | 'release', args: any, ctx: any,
     dispatch.lastError = { at: now.toISOString(), call: name, reason: answer.reason || answer.disposition };
     return { write: true, result: { ended: false, outcome: answer.disposition, call: name, reason: answer.reason || null, dispatchId: dispatch.dispatchId } };
   }
+  const served = servedModel(dispatch, ctx);
+  if (served !== null) dispatch.model = { ...dispatch.model, served };
   Object.assign(dispatch, ended, { phase: 'ended', endedAt: now.toISOString(), usage: { tokens: args.tokens, basis: args.basis } });
   return {
     write: true,

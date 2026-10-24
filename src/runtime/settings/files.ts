@@ -14,12 +14,13 @@
  */
 
 const nodeFs = require('node:fs');
+const { workerIdFault, LADDER_MAX } = require('../../registry/worker-ids.ts');
 
 /** A file larger than this is a layer fault, not a read (data-model §2). */
 const MAX_BYTES = 65536;
 const BOM = '\uFEFF';
 
-interface ValueFault { code: 'type' | 'enum' | 'range' | 'url' | 'items' | 'length'; reason: string }
+interface ValueFault { code: 'type' | 'enum' | 'range' | 'url' | 'items' | 'length' | 'reserved'; reason: string }
 interface Entry { raw: unknown; value: unknown | null; error: ValueFault | null }
 interface Note { code: 'unknown-key' | 'nested' | 'schema-missing'; key: string | null; source: string; text: string }
 type LayerCode = 'unparseable' | 'schema' | 'too-large' | 'not-file' | 'unreadable';
@@ -60,7 +61,9 @@ function jsonFailure(error: any, text: string, bomBytes = 0): { offset: number |
   return { offset, reason: `not valid JSON at offset ${offset}` };
 }
 
-const WORKER_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
+/** IC-002 `model-id`: 1 to 120 characters, a leading letter or digit (so never `-`), no trailing space. */
+const MODEL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9 ._:/@()[\]#+-]*$/;
+const MODEL_ID_MAX = 120;
 /** The two billing values a person may record (the registry's `unknown` is not a claim). */
 const RECORDED_BILLING = ['free', 'metered'];
 const BILLING_ENTRY_FIELDS = ['billing', 'asserted', 'basis'];
@@ -85,7 +88,8 @@ function validateWorkerBilling(value: unknown): ValueFault | null {
   const ids = Object.keys(value);
   if (ids.length < 1 || ids.length > BILLING_MAX_ENTRIES) return { code: 'range', reason: `must hold 1 to ${BILLING_MAX_ENTRIES} worker entries` };
   for (const id of ids) {
-    if (!WORKER_ID_RE.test(id)) return { code: 'type', reason: 'has an entry key that is not a worker id (lowercase letters, digits and hyphens)' };
+    const fault = workerIdFault(id);
+    if (fault) return fault.code === 'reserved' ? fault : { code: 'type', reason: 'has an entry key that is not a worker id (lowercase built-in or qualified id)' };
     const entry = value[id];
     const at = `entry '${id}'`;
     if (!isObject(entry)) return { code: 'type', reason: `${at} must be an object` };
@@ -129,9 +133,53 @@ function validateValue(spec: any, value: unknown, enumValues: readonly string[] 
     }
     case 'string':
       return typeof value === 'string' && value.trim() ? null : { code: 'type', reason: 'must be a non-empty string' };
+    case 'model-id':
+      if (typeof value !== 'string' || value === '') return { code: 'type', reason: 'must be a model name string' };
+      if (value.length > MODEL_ID_MAX) return { code: 'length', reason: `must be at most ${MODEL_ID_MAX} characters` };
+      return MODEL_ID_RE.test(value) && !value.endsWith(' ') ? null : { code: 'type', reason: 'must start with a letter or digit, use only letters, digits, spaces and . _ : / @ ( ) [ ] # + -, and not end with a space' };
     case 'url':
       if (typeof value !== 'string' || !value.trim()) return { code: 'type', reason: 'must be a URL string' };
       try { new URL(value); return null; } catch { return { code: 'url', reason: 'must be a URL string' }; }
+    // IC-002: membership is advisory; only shape, count and the final primary token constrain validity.
+    case 'worker-list': {
+      if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) return { code: 'type', reason: 'must be a list of strings' };
+      if (value.length < 1 || value.length > LADDER_MAX + 1 || value.filter((item) => item !== 'primary').length > LADDER_MAX) {
+        return { code: 'items', reason: `must hold 1 to ${LADDER_MAX} worker ids plus an optional final primary` };
+      }
+      if (new Set(value).size !== value.length) return { code: 'items', reason: 'must not repeat an item' };
+      if (value.includes('primary') && value.at(-1) !== 'primary') return { code: 'items', reason: 'primary must be the last item' };
+      for (const item of value) {
+        if (item === 'primary') continue;
+        const fault = workerIdFault(item);
+        if (fault) return fault;
+      }
+      return null;
+    }
+    // IC-002: the first shape fault invalidates the entire worker model map.
+    case 'worker-models': {
+      if (!isObject(value) || (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)) {
+        return { code: 'type', reason: 'must be an object keyed by worker id' };
+      }
+      const ids = Object.keys(value);
+      if (ids.length < 1 || ids.length > 16) return { code: 'items', reason: 'must hold 1 to 16 worker entries' };
+      for (const id of ids) {
+        const fault = workerIdFault(id);
+        if (fault) return fault.code === 'reserved' ? fault : { code: 'type', reason: 'has an entry key that is not a worker id (lowercase built-in or qualified id)' };
+        const entry = value[id];
+        if (!isObject(entry) || (Object.getPrototypeOf(entry) !== Object.prototype && Object.getPrototypeOf(entry) !== null)) {
+          return { code: 'type', reason: 'each worker entry must be an object keyed by tier' };
+        }
+        const tiers = Object.keys(entry);
+        if (tiers.length < 1 || tiers.length > 3) return { code: 'items', reason: 'each worker entry must hold 1 to 3 tiers' };
+        for (const tier of tiers) {
+          if (!Array.isArray(spec.tiers) || spec.tiers.length === 0) return { code: 'enum', reason: 'has no allowed tiers available' };
+          if (!spec.tiers.includes(tier)) return { code: 'enum', reason: `each tier must be one of: ${spec.tiers.join(', ')}` };
+          const modelFault = validateValue({ type: 'model-id' }, entry[tier]);
+          if (modelFault) return { code: modelFault.code, reason: `a tier's model ${modelFault.reason}` };
+        }
+      }
+      return null;
+    }
     case 'worker-billing':
       return validateWorkerBilling(value);
     default:

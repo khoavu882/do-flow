@@ -28,6 +28,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
+const { workerCatalogue } = require('./catalogue.ts');
+const { workerGate } = require('./active.ts');
+const { bindingsOf } = require('./models.ts');
+const { knownWorkerIds } = require('../../registry/worker-ids.ts');
 const { runProbe, PROBE_TIMEOUT_MS } = require('../health.ts');
 const { updateTaskState, readTaskState } = require('../task-state.ts');
 const { stateDir } = require('../context/identity.ts');
@@ -62,25 +66,13 @@ const clock = (now: any) => (typeof now === 'function' ? now : () => (typeof now
 const fact = (state: string, reason: string | null, at: string, basis = 'free') => ({ state, reason, at, basis });
 const supported = (entry: any) => entry?.status === 'supported';
 
-/** Stable JSON: object keys sorted at every depth. */
-function stable(value: any): string {
-  if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;
-  if (value && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stable(value[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
-/** `sha256:` over the stable JSON of a harness's `worker` block (IC-007). */
-function descriptorDigest(worker: any): string {
-  return `sha256:${crypto.createHash('sha256').update(stable(worker)).digest('hex')}`;
-}
+const { descriptorDigest } = require('./catalogue.ts');
 
 /** `[{ harness, worker }]` in registry order: the registry's blocks, or exactly the injected ones. */
 function workerDescriptors({ descriptors, registry }: any = {}): { harness: string; worker: any }[] {
   const reg = registry || loadRegistry({ repoRoot: REPO_ROOT });
-  const ids: string[] = reg.harnesses.map((h: any) => h.id);
-  if (!descriptors) return reg.harnesses.map((h: any) => ({ harness: h.id, worker: h.worker }));
+  const ids: string[] = knownWorkerIds({ registry: reg }).ids;
+  if (!descriptors) return workerCatalogue({ registry: reg }).map((entry: any) => ({ harness: entry.id, worker: entry.worker }));
   const unknown = Object.keys(descriptors).filter((id) => !ids.includes(id));
   if (unknown.length) throw new ReadinessError('usage', `descriptors name unregistered harness(es): ${unknown.join(', ')}; registered: ${ids.join(', ')}`);
   return ids.filter((id) => Object.hasOwn(descriptors, id)).map((id) => ({ harness: id, worker: descriptors[id] }));
@@ -578,10 +570,12 @@ function eligibility(requirements: any[]) {
   return { eligible: gaps.length === 0, gaps };
 }
 
-/** Registry, coverage and descriptors for one describe or select call. */
-function readinessContext({ descriptors, registry, coverage }: any) {
+/** Registry, coverage and descriptors for one call; IC-009 filters only when active is supplied. */
+function readinessContext({ descriptors, registry, coverage, active }: any) {
   const reg = registry || loadRegistry({ repoRoot: REPO_ROOT });
-  return { entries: workerDescriptors({ descriptors, registry: reg }), coverage: coverage === undefined ? reg.coverage : coverage };
+  const all = workerDescriptors({ descriptors, registry: reg });
+  const entries = active ? all.filter((entry) => workerGate(active, entry.harness) === null) : all;
+  return { entries, known: all.map((entry) => entry.harness), coverage: coverage === undefined ? reg.coverage : coverage };
 }
 
 /** Discover, then the IC-007 effective facts and IC-008 evaluation of one harness. Writes nothing. */
@@ -593,12 +587,28 @@ function evaluateHarness(entry: any, needs: string[], coverage: any, { env, cwd,
   return { harness: entry.harness, facts, recordedAt: record?.at ?? null, requirements, ...eligibility(requirements) };
 }
 
+/** IC-014: describe a worker's enabled state and rung without changing eligibility. */
+function enabledOf(active: any, id: string): {
+  state: 'enabled' | 'disabled' | 'unlisted' | 'default';
+  position: number | null;
+  origin: { layer: string; source: string | null };
+} {
+  const origin = { layer: active.origin.layer, source: active.origin.source };
+  if (active.state === 'unset') return { state: 'default', position: null, origin };
+  if (active.state === 'invalid') return { state: 'unlisted', position: null, origin };
+  const index = active.workers.indexOf(id);
+  if (index !== -1) return { state: 'enabled', position: index + 1, origin };
+  if (active.narrowedFrom?.includes(id)) return { state: 'disabled', position: null, origin };
+  return { state: 'unlisted', position: null, origin };
+}
+
 /**
  * IC-009: what one harness declares, its effective probe facts with a `stale` flag, and IC-008's
- * requirements for the baseline and `needs`. Read-only.
+ * requirements for the baseline and `needs`. IC-014 adds enabled, active, primary and bindings when
+ * supplied, without filtering the described harness. Read-only.
  */
 function describe({
-  descriptors, registry, coverage, harness, needs, edit = false,
+  descriptors, registry, coverage, harness, needs, active, primary, bindings, edit = false,
   env = process.env, cwd = process.cwd(), root = cwd, now = Date.now, platform = process.platform,
 }: any = {}) {
   const context = readinessContext({ descriptors, registry, coverage });
@@ -615,7 +625,18 @@ function describe({
   }
   const probeFacts: any = {};
   for (const name of FACTS) probeFacts[name] = { ...evaluated.facts[name], stale: evaluated.facts[name].reason === 'probe-stale' };
-  return { disposition: 'described', harness, declared, probe: probeFacts, requirements: evaluated.requirements, eligible: evaluated.eligible };
+  return {
+    disposition: 'described', harness, declared, probe: probeFacts,
+    requirements: evaluated.requirements, eligible: evaluated.eligible,
+    ...(active !== undefined ? { enabled: enabledOf(active, harness), active: { ...active } } : {}),
+    ...(primary !== undefined ? { primary } : {}),
+    ...(bindings !== undefined ? {
+      bindings: bindingsOf({
+        worker: harness, descriptor: entry.worker, bindings,
+        tiers: (registry || loadRegistry({ repoRoot: REPO_ROOT })).dispatchTiers?.tiers ?? [],
+      }),
+    } : {}),
+  };
 }
 
 /**
@@ -623,13 +644,13 @@ function describe({
  * fallback modes. Claims nothing and writes nothing (DEC-002).
  */
 function select({
-  descriptors, registry, coverage, harness, needs, edit = false,
+  descriptors, registry, coverage, harness, needs, active, edit = false,
   env = process.env, cwd = process.cwd(), root = cwd, now = Date.now, platform = process.platform,
 }: any = {}) {
-  const context = readinessContext({ descriptors, registry, coverage });
+  const context = readinessContext({ descriptors, registry, coverage, active });
   const entries = harness ? context.entries.filter((item) => item.harness === harness) : context.entries;
-  if (harness && entries.length === 0) {
-    throw new ReadinessError('usage', `unknown harness '${harness}'; known: ${context.entries.map((item) => item.harness).join(', ')}`);
+  if (harness && !context.known.includes(harness)) {
+    throw new ReadinessError('usage', `unknown harness '${harness}'; known: ${context.known.join(', ')}`);
   }
   const valid = validateNeeds(needs, context.coverage);
   const tick = clock(now);
@@ -677,6 +698,7 @@ module.exports = {
   capabilityRequirement,
   requirementsFor,
   eligibility,
+  enabledOf,
   describe,
   select,
 };

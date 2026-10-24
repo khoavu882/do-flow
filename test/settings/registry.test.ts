@@ -21,6 +21,10 @@ const SHIPPED = JSON.parse(fs.readFileSync(path.join(REPO, REGISTRY_FILE), 'utf8
 const PROTOCOL_COMMON = { securityRelevant: false, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
   consumers: ['src/runtime/review/resolve-protocol.ts'] };
 
+// Fields shared by the three 120 primary keys (a key with an env binding overrides `env`).
+const PRIMARY_COMMON = { securityRelevant: false, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+  consumers: ['src/runtime/context/primary.ts'] };
+
 // The seven v1 entries plus 112's project-only guard entry, 089's verify.reuse switch and 106's
 // dispatch.fallback default (the
 // design folder is not in the repo, so the contract is pinned here; a registry edit must change
@@ -118,6 +122,28 @@ const V1 = {
   'debate.preset': { type: 'enum', valuesRef: 'protocols.debatePresetIds', default: 'debate-2',
     scope: 'project-overridable', combine: 'override', ...PROTOCOL_COMMON,
     description: 'Debate protocol preset for this project.' },
+  // 120 IC-003: primary declarations are read by context/primary.ts.
+  'primary.harness': { type: 'enum', valuesRef: 'harnesses.primaryIds', default: 'unknown',
+    scope: 'project-overridable', combine: 'override', ...PRIMARY_COMMON,
+    env: { name: 'DOFLOW_PRIMARY_HARNESS', parse: 'verbatim', direction: 'any' },
+    description: 'Which harness the main session runs, so DoFlow can tell the primary from its workers; unknown means undeclared.' },
+  'primary.model': { type: 'model-id', default: null,
+    scope: 'project-overridable', combine: 'override', ...PRIMARY_COMMON,
+    env: { name: 'DOFLOW_PRIMARY_MODEL', parse: 'verbatim', direction: 'any' },
+    description: 'Model the main session runs, as the harness names it; a declaration the hook probe checks where it can.' },
+  'primary.onContradiction': { type: 'enum', values: ['refuse', 'warn'], order: ['refuse', 'warn'], default: 'warn',
+    scope: 'narrow-only', combine: 'override', ...PRIMARY_COMMON,
+    description: 'What happens when the probe sees a model other than the declared one: warn, or refuse; a project may only choose refuse.' },
+  'workers.enabled': { type: 'worker-list', valuesRef: 'workers.ids', defaultRef: 'workers.defaultRungs',
+    scope: 'narrow-only', combine: 'subset', securityRelevant: true, failSafe: { state: 'invalid' },
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/worker/active.ts'],
+    description: 'Ordered list of worker ids a run may use, optionally ending in primary; a project can only remove entries.' },
+  'workers.models': { type: 'worker-models', valuesRef: 'workers.ids', tiersRef: 'models.tierIds', default: null,
+    scope: 'global-only', combine: 'override', securityRelevant: true, failSafe: { state: 'invalid' },
+    env: null, flag: null, shellRead: null, needsConfigHome: true, legacy: [],
+    consumers: ['src/runtime/worker/models.ts'],
+    description: 'Person-written model per worker and tier; a worker or tier not listed keeps the harness default.' },
 };
 
 const clone = (value: any) => JSON.parse(JSON.stringify(value));
@@ -183,11 +209,11 @@ test('project-only ignores user/global values and env; project and local files a
 
 // ── the shipped registry ───────────────────────────────────────────────────────────────────────
 
-test('the shipped registry pins the seven v1 entries plus the 108 autopilot switch, the 112 project-only guard key, the 089 verify.reuse switch, the 106 dispatch.fallback default and the workers.billing record and the seven 119 protocol keys, in display order', () => {
+test('the shipped registry pins the seven v1 entries plus the 108 autopilot switch, the 112 project-only guard key, the 089 verify.reuse switch, the 106 dispatch.fallback default and the workers.billing record and the seven 119 protocol keys and the three 120 primary keys and workers.enabled and workers.models, in display order', () => {
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 19);
+  assert.equal(Object.keys(SHIPPED.keys).length, 24);
 });
 
 test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {
@@ -223,7 +249,13 @@ test('defaultRef values equal advice.json defaultEndpoint and storage.json lifec
   assert.equal(refs.resolve('storage.lifecycleEventsDefaultHours'), storage.stores.find((s: any) => s.id === 'lifecycle-events').bound.defaultHours);
   assert.equal(refs.resolve('storage.lifecycleEventsDefaultHours'), 4320);
   assert.deepEqual(refs.resolve('advice.providerIds'), advice.providers.map((p: any) => p.id));
-  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'protocols.debatePresetIds', 'protocols.lensIds', 'protocols.reviewPresetIds', 'protocols.reviewPresetOrder', 'storage.lifecycleEventsDefaultHours']);
+  const harnesses = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/harnesses.json'), 'utf8'));
+  assert.deepEqual(refs.resolve('harnesses.primaryIds'), ['unknown', ...harnesses.harnesses.map((h: any) => h.id)]);
+  assert.deepEqual(refs.resolve('workers.ids'), harnesses.harnesses.filter((h: any) => h.worker).map((h: any) => h.id));
+  assert.deepEqual(refs.resolve('workers.defaultRungs'), [...harnesses.harnesses.filter((h: any) => h.worker).map((h: any) => h.id), 'primary']);
+  const models = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/models.json'), 'utf8'));
+  assert.deepEqual(refs.resolve('models.tierIds'), models.dispatchTiers.tiers);
+  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'harnesses.primaryIds', 'models.tierIds', 'protocols.debatePresetIds', 'protocols.lensIds', 'protocols.reviewPresetIds', 'protocols.reviewPresetOrder', 'storage.lifecycleEventsDefaultHours', 'workers.defaultRungs', 'workers.ids']);
 });
 
 test('refs: an unknown name (including an inherited property name) and an unreadable source throw without file text', () => {
@@ -435,7 +467,7 @@ test('env names: DOFLOW_<KEY_UPPER_SNAKE> for new bindings, the two existing nam
   assert.equal(derivedEnvName('storage.retentionHours'), 'DOFLOW_STORAGE_RETENTION_HOURS');
   assert.equal(derivedEnvName('advice.model'), 'DOFLOW_ADVICE_MODEL');
   const names = Object.values(SHIPPED.keys).filter((spec: any) => spec.env).map((spec: any) => spec.env.name).sort();
-  assert.deepEqual(names, ['DOFLOW_AUTOPILOT_ENABLED', 'DOFLOW_FAILURE_CAPTURE', 'DOFLOW_RETENTION_HOURS', 'DOFLOW_VERIFY_REUSE']);
+  assert.deepEqual(names, ['DOFLOW_AUTOPILOT_ENABLED', 'DOFLOW_FAILURE_CAPTURE', 'DOFLOW_PRIMARY_HARNESS', 'DOFLOW_PRIMARY_MODEL', 'DOFLOW_RETENTION_HOURS', 'DOFLOW_VERIFY_REUSE']);
   assert.equal(derivedEnvName('verify.reuse'), 'DOFLOW_VERIFY_REUSE', '089: the new binding takes the derived name');
   // control: the same key under a renamed variable that is not one of the grandfathered pair fails
   const renamed = clone(SHIPPED);
@@ -470,6 +502,8 @@ test('every failSafe form of the shipped registry validates, and each form is re
     'verify.reuse': 'off',
     'dispatch.fallback': 'off',
     'workers.billing': { state: 'invalid' },
+    'workers.enabled': { state: 'invalid' },
+    'workers.models': { state: 'invalid' },
   });
   const wrongValue = clone(SHIPPED);
   wrongValue.keys['storage.prune'].failSafe = 'maybe';

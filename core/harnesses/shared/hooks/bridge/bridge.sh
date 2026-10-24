@@ -160,6 +160,14 @@ doflow_bridge() {
       encoded="$(jq -cn --arg harness "$harness" --arg event "$event" --arg policy "$policy" --arg mode minimal -f "$_DOFLOW_BRIDGE_DIR/envelope.jq" 2>/dev/null)" || encoded=""
       case "$encoded" in \{*) payload="$encoded" ;; *) payload="{\"doflow_event\":{\"version\":1,\"harness\":\"$harness\",\"event\":\"$event\",\"operation\":\"tool\"}}" ;; esac
       doflow_bridge_failure "$policy" envelope-encode
+    else
+      # Step observe-model (row 120 IC-005): an envelope whose identity names a model is recorded
+      # under the config home. It never changes the decision, the exit code or the streams.
+      case "$payload" in
+        *'"doflow_event":{'*'"model":"'*)
+          [ ! -f "$_DOFLOW_BRIDGE_DIR/observe-model.sh" ] || ( . "$_DOFLOW_BRIDGE_DIR/observe-model.sh" && doflow_observe_model "$harness" "$payload" ) >/dev/null 2>&1 </dev/null || true
+          ;;
+      esac
     fi
   else
     doflow_bridge_failure "$policy" dependency-missing:jq

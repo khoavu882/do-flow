@@ -80,8 +80,19 @@ function cmdStatus(o: any): void {
     ctx.registry = { status: 'invalid', error: error.message };
   }
 
+  // The primary is read on use only (row 120 A.4): a fault in resolving it never breaks status.
+  let primary: any = null;
+  let primaryText: string;
+  try {
+    const { primarySummary, resolveForReport } = require('../../runtime/context/primary-command.ts');
+    primary = resolveForReport({ env: process.env, projectRoot: path.resolve(scope.projectRoot) }).primary;
+    primaryText = primarySummary(primary);
+  } catch (error: any) {
+    primaryText = `unavailable (${error?.message || String(error)})`;
+  }
+
   if (o.json) {
-    console.log(JSON.stringify({ context: ctx, manifest, codex: ctx.codex ?? null, mcpSelections }, null, 2));
+    console.log(JSON.stringify({ context: ctx, manifest, codex: ctx.codex ?? null, mcpSelections, primary }, null, 2));
     return;
   }
 
@@ -92,6 +103,7 @@ function cmdStatus(o: any): void {
   };
 
   printContext(ctx);
+  console.log(`primary: ${primaryText}`);
   if (!manifest) {
     console.log("[WARN] No install manifest found — run 'doflow install' to get started");
     return;

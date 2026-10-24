@@ -12,6 +12,10 @@ const path = require('node:path');
 const { createSettingsEnv, REPO } = require('../helper/settings-fixtures.ts');
 
 const REGISTRY = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/settings.json'), 'utf8'));
+const HARNESS_REGISTRY = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/harnesses.json'), 'utf8'));
+const WORKERS = HARNESS_REGISTRY.harnesses.filter((item: any) => item.worker);
+const SUPPORTED = WORKERS.find((item: any) => item.worker.model?.status === 'supported')?.id;
+const UNSUPPORTED = WORKERS.find((item: any) => item.worker.model?.status !== 'supported')?.id;
 const BARE_PATH: any = { PATH: path.dirname(process.execPath) };
 
 /** A fixture plus a `validate(file-content | object, extraArgs)` runner that writes the prepared run outside project and HOME. */
@@ -73,13 +77,13 @@ test('the text form prints prepared run: valid (<file>), or one <key>: <message>
   const ok = f.run(['config', 'validate', '--prepared-run', good], { env: BARE_PATH });
   assert.equal(ok.status, 0, ok.stderr);
   assert.equal(ok.stdout.trim(), `prepared run: valid (${good})`);
-  const bad = prepared({ schema: 1, taskClass: 'nope', primary: {} });
+  const bad = prepared({ schema: 1, taskClass: 'nope', workers: [] });
   const refused = f.run(['config', 'validate', '--prepared-run', bad], { env: BARE_PATH });
   assert.equal(refused.status, 1);
   const lines = refused.stderr.trim().split('\n');
   assert.equal(lines.length, 2, refused.stderr);
   assert.ok(lines[0].startsWith('taskClass: '), lines[0]);
-  assert.ok(lines[1].startsWith('primary: '), lines[1]);
+  assert.ok(lines[1].startsWith('workers: '), lines[1]);
 });
 
 test('an unknown task class is refused as taskClass enum, listing the registry classes', (t) => {
@@ -183,23 +187,176 @@ test('settings entries: unknown key, security-relevant key and a key not settabl
   assert.deepEqual(codes, { 'settings.no.such.key': 'unknown-key', [`settings.${security}`]: 'security', [`settings.${global}`]: 'scope' });
 });
 
-test('primary and workers are reserved for a later release; any other top-level key is unknown-key', (t) => {
+test('primary fields use project-layer config validation', (t) => {
   const { validate } = setup(t);
-  const result = validate({ ...VALID(), primary: {}, workers: [], bogus: 1 });
+  const harness = validate({ ...VALID(), primary: { harness: 'nope' } });
+  assert.equal(harness.json.errors.length, 1);
+  const harnessEntry = entryFor(harness, 'primary.harness');
+  assert.equal(harnessEntry.code, 'enum');
+  assert.equal(harnessEntry.layer, 'project');
+
+  const model = validate({ ...VALID(), primary: { model: '-x' } });
+  assert.equal(model.json.errors.length, 1);
+  const modelEntry = entryFor(model, 'primary.model');
+  assert.equal(modelEntry.code, 'type');
+  assert.equal(modelEntry.layer, 'project');
+
+  const valid = validate({ ...VALID(), primary: { harness: 'codex', model: 'gpt-6-luna' } });
+  assert.equal(valid.status, 0, `${valid.stdout}${valid.stderr}`);
+  assert.deepEqual(valid.json, { ok: true, errors: [] });
+});
+
+test('primary accepts an empty object, rejects unknown fields and non-objects', (t) => {
+  const { validate } = setup(t);
+  const empty = validate({ ...VALID(), primary: {} });
+  assert.equal(empty.status, 0, `${empty.stdout}${empty.stderr}`);
+  assert.deepEqual(empty.json, { ok: true, errors: [] });
+
+  const unknown = validate({ ...VALID(), primary: { harness: 'codex', bogus: 1 } });
+  assert.equal(unknown.json.errors.length, 1);
+  const unknownEntry = entryFor(unknown, 'primary.bogus');
+  assert.equal(unknownEntry.code, 'unknown-key');
+  assert.equal(unknownEntry.layer, null);
+
+  const array = validate({ ...VALID(), primary: [] });
+  assert.equal(array.json.errors.length, 1);
+  const arrayEntry = entryFor(array, 'primary');
+  assert.equal(arrayEntry.code, 'type');
+  assert.equal(arrayEntry.layer, null);
+});
+
+test('primary and settings entries for the same key are judged independently', (t) => {
+  const { validate } = setup(t);
+  const result = validate({
+    ...VALID(),
+    primary: { harness: 'codex' },
+    settings: { 'primary.harness': 'nope' },
+  });
+  assert.equal(result.json.errors.length, 1);
+  const entry = entryFor(result, 'settings.primary.harness');
+  assert.equal(entry.code, 'enum');
+  assert.equal(entry.layer, 'project');
+});
+
+test('no top-level word is reserved; workers is recognized and other unknown keys remain unknown-key', (t) => {
+  const { validate } = setup(t);
+  const result = validate({ ...VALID(), primary: {}, workers: {}, bogus: 1 });
   assert.equal(result.status, 1);
-  assert.deepEqual(result.json.errors.map((e: any) => [e.key, e.code, e.layer]),
-    [['primary', 'unknown-key', null], ['workers', 'unknown-key', null], ['bogus', 'unknown-key', null]]);
-  assert.match(entryFor(result, 'primary').message, /reserved for a later release/);
-  assert.match(entryFor(result, 'workers').message, /reserved for a later release/);
+  assert.deepEqual(result.json.errors.map((e: any) => [e.key, e.code, e.layer]), [['bogus', 'unknown-key', null]]);
   assert.doesNotMatch(entryFor(result, 'bogus').message, /reserved/);
 });
 
 test('three faults in one file are three entries, all reported', (t) => {
   const { validate } = setup(t);
-  const result = validate({ schema: 1, taskClass: 'nope', settings: { 'review.rounds': 9 }, primary: {} });
+  const result = validate({ schema: 1, taskClass: 'nope', settings: { 'review.rounds': 9 }, workers: [] });
   assert.equal(result.status, 1);
   assert.deepEqual(result.json.errors.map((e: any) => `${e.key}:${e.code}`).sort(),
-    ['primary:unknown-key', 'settings.review.rounds:range', 'taskClass:enum']);
+    ['settings.review.rounds:range', 'taskClass:enum', 'workers:type']);
+});
+
+test('workers shape is checked independently from primary and settings', (t) => {
+  const { f, validate } = setup(t);
+  f.writeUserSettings({ schema: 1, 'workers.enabled': ['codex', 'gemini', 'primary'] });
+  const array = entryFor(validate({ ...VALID(), workers: [] }), 'workers');
+  assert.equal(array.code, 'type');
+  assert.equal(array.layer, null);
+  assert.match(array.message, /object with enabled and models/);
+  assert.equal(entryFor(validate({ ...VALID(), workers: { bogus: 1 } }), 'workers.bogus').code, 'unknown-key');
+
+  const both = validate({ ...VALID(), primary: { harness: 'nope' }, workers: { enabled: ['codex', 'claude'] } });
+  assert.equal(both.json.errors.some((e: any) => e.key === 'primary.harness'), true);
+  assert.equal(both.json.errors.some((e: any) => e.key === 'workers.enabled[1]'), true);
+  assert.equal(both.json.errors.some((e: any) => e.key === 'workers.enabled[1]' && e.code === 'not-narrower'), true);
+});
+
+test('workers.enabled applies project narrowing and reports shape faults at the first item', (t) => {
+  const { f, validate } = setup(t);
+  f.writeUserSettings({ schema: 1, 'workers.enabled': ['codex', 'gemini', 'primary'] });
+  const wider = entryFor(validate({ ...VALID(), workers: { enabled: ['codex', 'claude'] } }), 'workers.enabled[1]');
+  assert.equal(wider.code, 'not-narrower');
+  assert.equal(wider.layer, 'project');
+  assert.match(wider.message, /'claude' is not in the value below/);
+
+  const narrowed = validate({ ...VALID(), workers: { enabled: ['codex'] } });
+  assert.equal(narrowed.status, 0, `${narrowed.stdout}${narrowed.stderr}`);
+  assert.deepEqual(narrowed.json, { ok: true, errors: [] });
+
+  const reordered = validate({ ...VALID(), workers: { enabled: ['gemini', 'codex'] } });
+  assert.equal(reordered.status, 0, `${reordered.stdout}${reordered.stderr}`);
+  assert.ok(reordered.json.notes.some((note: string) => note.includes('order is ignored')));
+
+  for (const [value, key, code] of [
+    [['codex', 'codex'], 'workers.enabled[1]', 'items'],
+    [['codex', 5], 'workers.enabled[1]', 'type'],
+    [['codex', 'primary', 'gemini'], 'workers.enabled[2]', 'items'],
+    [['codex', 'auto'], 'workers.enabled[1]', 'reserved'],
+    [[], 'workers.enabled', 'items'],
+    ['codex', 'workers.enabled', 'type'],
+    [null, 'workers.enabled', 'type'],
+  ] as any[]) {
+    const fault = entryFor(validate({ ...VALID(), workers: { enabled: value } }), key);
+    assert.equal(fault.code, code, `${key} for ${JSON.stringify(value)}`);
+  }
+
+  const dangling = validate({ ...VALID(), workers: { enabled: ['codex', 'zzz-nope'] } });
+  assert.equal(dangling.status, 0, `${dangling.stdout}${dangling.stderr}`);
+  assert.ok(dangling.json.notes.some((note: string) => note.includes("worker 'zzz-nope' is not installed")));
+});
+
+test('workers.models validates bindings and reports unevidenced flags without exposing model names', (t) => {
+  const { validate } = setup(t);
+  assert.ok(SUPPORTED, 'registry includes a supported model flag');
+  assert.ok(UNSUPPORTED, 'registry includes a worker without a supported model flag');
+
+  const unsupported = validate({ ...VALID(), workers: { models: { [UNSUPPORTED]: { standard: 'secret-model', frontier: 'other-model' }, [SUPPORTED]: { frontier: 'gpt-X' } } } });
+  assert.equal(unsupported.status, 1);
+  assert.deepEqual(unsupported.json.errors.map((e: any) => [e.key, e.code, e.layer]), [
+    [`workers.models.${UNSUPPORTED}.standard`, 'model-flag-unevidenced', null],
+    [`workers.models.${UNSUPPORTED}.frontier`, 'model-flag-unevidenced', null],
+  ]);
+  assert.ok(unsupported.json.errors.every((e: any) => !e.message.includes('secret-model') && !e.message.includes('other-model')));
+
+  const supported = validate({ ...VALID(), workers: { models: { [SUPPORTED]: { frontier: 'gpt-X' } } } });
+  assert.equal(supported.status, 0, `${supported.stdout}${supported.stderr}`);
+  assert.deepEqual(supported.json, { ok: true, errors: [] });
+
+  for (const [value, code] of [
+    [{ [SUPPORTED]: { huge: 'x' } }, 'enum'],
+    [{ [SUPPORTED]: { standard: '-x' } }, 'type'],
+    [{ primary: { standard: 'x' } }, 'reserved'],
+    [null, 'type'],
+  ] as any[]) {
+    assert.equal(entryFor(validate({ ...VALID(), workers: { models: value } }), 'workers.models').code, code);
+  }
+
+  const dangling = validate({ ...VALID(), workers: { models: { 'zzz-nope': { standard: 'gpt-X' } } } });
+  assert.equal(dangling.status, 0, `${dangling.stdout}${dangling.stderr}`);
+  assert.ok(dangling.json.notes.some((note: string) => note.includes("worker 'zzz-nope' is not installed")));
+});
+
+test('workers prepared-run validation has no side effects and omits notes when none exist', (t) => {
+  const { f, validate } = setup(t);
+  const before = listing(f.project, f.home, f.xdg);
+  const result = validate({ ...VALID(), workers: { enabled: ['codex'], models: { [SUPPORTED]: { frontier: 'gpt-X' } } } });
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+  assert.deepEqual(result.json, { ok: true, errors: [] });
+  assert.deepEqual(listing(f.project, f.home, f.xdg), before);
+});
+
+test('prepared-run notes are printed after the valid text result', (t) => {
+  const { f, validate } = setup(t);
+  f.writeUserSettings({ schema: 1, 'workers.enabled': ['codex', 'gemini', 'primary'] });
+  const result = validate({ ...VALID(), workers: { enabled: ['gemini', 'codex'] } }, []);
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+  const lines = result.stdout.trim().split('\n');
+  assert.match(lines[0], /^prepared run: valid \(/);
+  assert.match(lines[1], /order is ignored at the project layer/);
+});
+
+test('bindingKey formats built-in and qualified worker ids', () => {
+  const { bindingKey } = require('../../src/runtime/settings/prepared-run.ts');
+  assert.equal(bindingKey('acme.coder', 'standard'), 'workers.models["acme.coder"].standard');
+  assert.equal(bindingKey('codex', 'light'), 'workers.models.codex.light');
 });
 
 test('schema must be 1, taskClass is required, settings and presets must be objects', (t) => {

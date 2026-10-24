@@ -1,4 +1,12 @@
 def nonempty($v): if ($v | type) == "string" and $v != "" then $v else null end;
+def valid_model_id($v):
+  ($v | type) == "string" and ($v | length) >= 1 and ($v | length) <= 120 and
+  ($v | test("^[A-Za-z0-9][A-Za-z0-9 ._:/@()\\[\\]#+-]*$")) and
+  (($v | endswith(" ")) | not);
+def model_identity($v):
+  if ($v | type) != "string" then {}
+  elif valid_model_id($v) then {model:$v}
+  else {modelUnparsed:true} end;
 def put($o; $k; $v): if $v == null then $o else $o + {($k): $v} end;
 def event_name($fallback): if (.hook_event_name | type) == "string" then .hook_event_name else $fallback end;
 def path_values($obj; $keys): first([$keys[] as $k | $obj[$k] | select(type == "string" and length > 0)][]) // null | if . == null then null else [.] end;
@@ -23,11 +31,14 @@ def canonical_tool($name; $harness):
   else {operation:"tool",tool:$name} end;
 def decode_claude:
   (canonical_tool(.tool_name // ""; "claude")) as $t |
-  if .tool_name == null then {operation: event_operation($event), identity: session_identity(.session_id)}
-  else {operation:$t.operation, tool:$t.tool, paths:(if $t.operation == "edit" then path_values(.tool_input; ["file_path"]) else null end), command:(if $t.operation == "command" then string_value(.tool_input; ["command"]) else null end), identity:session_identity(.session_id)} end;
+  (if event_name($event) == "SessionStart" then model_identity(.model) else {} end) as $model |
+  if .tool_name == null then {operation: event_operation($event), identity: (session_identity(.session_id) + $model)}
+  else {operation:$t.operation, tool:$t.tool, paths:(if $t.operation == "edit" then path_values(.tool_input; ["file_path"]) else null end), command:(if $t.operation == "command" then string_value(.tool_input; ["command"]) else null end), identity:(session_identity(.session_id) + $model)} end;
 def decode_codex:
   decode_claude as $d |
-  if .tool_name == "apply_patch" then $d + {patch:(string_value(.tool_input; ["command"]))} else $d end;
+  (model_identity(.model)) as $model |
+  (if .tool_name == "apply_patch" then $d + {patch:(string_value(.tool_input; ["command"]))} else $d end) |
+  .identity += $model;
 def decode_gemini:
   (canonical_tool(.tool_name // ""; "gemini")) as $t |
   if .tool_name == null then {operation:event_operation($event),identity:session_identity(.session_id)}
@@ -40,12 +51,14 @@ def decode_kiro:
   if .tool_name == null then {operation:event_operation($event),identity:session_identity(.session_id)}
   else {operation:$t.operation,tool:$t.tool,paths:(if $t.operation == "edit" then path_values(.tool_input; ["file_path"]) else null end),command:(if $t.operation == "command" then string_value(.tool_input; ["command"]) else null end),identity:session_identity(.session_id)} end;
 def decode_antigravity:
-  if .toolCall == null then {operation:event_operation($event),identity:session_identity(.session_id)}
+  (model_identity(.modelName)) as $model |
+  (session_identity(if (.session_id | type) == "string" and .session_id != "" then .session_id else .conversationId end) + $model) as $identity |
+  if .toolCall == null then {operation:event_operation($event),identity:$identity}
   else (canonical_tool(.toolCall.name // ""; "antigravity")) as $t |
-    {operation:$t.operation,tool:$t.tool,paths:(if $t.operation == "edit" then path_values(.toolCall.args; ["AbsolutePath","TargetFile","Path","file_path","path"]) else null end),command:(if $t.operation == "command" then string_value(.toolCall.args; ["CommandLine","command"]) else null end),identity:session_identity(.session_id)} end;
+    {operation:$t.operation,tool:$t.tool,paths:(if $t.operation == "edit" then path_values(.toolCall.args; ["AbsolutePath","TargetFile","Path","file_path","path"]) else null end),command:(if $t.operation == "command" then string_value(.toolCall.args; ["CommandLine","command"]) else null end),identity:$identity} end;
 def decode_pi:
   (canonical_tool(.toolName // ""; "pi")) as $t |
-  {operation:$t.operation,tool:$t.tool,paths:(if $t.operation == "edit" then path_values(.input; ["path"]) else null end),command:(if $t.operation == "command" then string_value(.input; ["command"]) else null end),identity:session_identity(.sessionId),correlation:(correlation(.toolCallId;.parentToolCallId))};
+  {operation:$t.operation,tool:$t.tool,paths:(if $t.operation == "edit" then path_values(.input; ["path"]) else null end),command:(if $t.operation == "command" then string_value(.input; ["command"]) else null end),identity:(session_identity(.sessionId) + model_identity(.model)),correlation:(correlation(.toolCallId;.parentToolCallId))};
 # IC-005: only this closed vocabulary enters telemetry. The policy envelope keeps its command.
 def command_segment_class:
   gsub("^\\s+|\\s+$"; "") | sub("^([A-Za-z_][A-Za-z0-9_]*=[^\\s]*\\s+)+"; "") |

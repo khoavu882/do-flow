@@ -138,6 +138,13 @@ export default function (pi) {
         captureFailure(policy, 'bridge-missing');
         return { block: true, reason: '[doflow] shared hooks lack the bridge; run: doflow update -t pi' };
       }
+      let model;
+      try {
+        const modelId = ctx.model?.id;
+        if (typeof modelId === 'string' && modelId.length > 0) model = modelId;
+      } catch {
+        // A model getter must not prevent the tool call from reaching the bridge.
+      }
       const payload = JSON.stringify({
         type: event.type,
         toolName: event.toolName,
@@ -146,6 +153,7 @@ export default function (pi) {
         input: event.input,
         cwd: ctx.cwd,
         sessionId: ctx.sessionManager?.getSessionId?.() ?? null,
+        ...(model ? { model } : {}),
       });
       if (Buffer.byteLength(payload) > LIMIT) throw Object.assign(new Error('bridge input exceeded limit'), { failurePoint: 'bridge-input-limit' });
       return await bridgeCall(policy, payload, ctx);

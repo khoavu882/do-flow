@@ -158,6 +158,73 @@ function protectedLogs({ registry, roots, fsImpl, cache, shouldStop }: any) {
   }
   return { names: protectedNames, incomplete: false };
 }
+const WORKER_UNIT = /^L\.([A-Za-z0-9][A-Za-z0-9_-]{0,55})\.([A-Za-z0-9][A-Za-z0-9_-]{0,55})\.([1-9][0-9]{0,3})\.json$/;
+/** Every `<slug>.json` store file of `.doflow/state/<dir>` read by `read`; [] when the folder is
+ * absent, null when a link sits on the path or any file cannot be read (the caller fails closed). */
+function stateStores(project: string, dir: string, read: (file: string, fsImpl: any) => any, fsImpl: any, shouldStop: any): any[] | null {
+  let current = project;
+  for (const segment of ['.doflow', 'state', dir]) {
+    current = path.join(current, segment);
+    let info;
+    try { info = fsImpl.lstatSync(current); }
+    catch (error: any) { if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return []; return null; }
+    if (info.isSymbolicLink() || !info.isDirectory()) return null;
+  }
+  const stores: any[] = [];
+  let list;
+  try { list = names(fsImpl, current); } catch { return null; }
+  for (const name of list) {
+    if (shouldStop?.()) return null;
+    if (!name.endsWith('.json')) continue;
+    const info = safeStat(fsImpl, path.join(current, name));
+    if (!info || info.isSymbolicLink() || !info.isFile()) return null;
+    try { stores.push(read(path.join(current, name), fsImpl)); } catch { return null; }
+  }
+  return stores;
+}
+/**
+ * Protect kind `unfinished-run` (row 120 IC-005): of the candidate names `L.<run>.<lineage>.<attempt>.json`,
+ * the ones to keep. A name is released only when this project's worker run store holds at least one
+ * run whose `identity` is that unit and every such run is terminal, and no dispatch naming one of
+ * those runs (`workerRunId`) is still open. Terminal is the one end phase each store has: a worker
+ * run's `phase: 'ended'` (run-store.ts PHASES, which `transition` never leaves) and a dispatch's
+ * `phase: 'ended'` (dispatch/store.ts NEXT_PHASES, add-only once reached). Everything else is kept
+ * (fail closed): an unparsable name, no project, an unknown unit (another project's file, or a run
+ * record pruned first), a link on a store path or any store file that cannot be read.
+ */
+function unfinishedRuns({ roots, fsImpl, names: candidates, shouldStop }: any): { names: Set<string>; incomplete: boolean } {
+  const all = new Set<string>(candidates);
+  const project = projectRoot(roots);
+  if (!project) return { names: all, incomplete: false };
+  const { readRuns } = require('../worker/run-store.ts');
+  const { readDispatch } = require('../dispatch/store.ts');
+  const runStores = stateStores(project, 'worker-runs', (file, impl) => ({ runs: readRuns(file, impl) }), fsImpl, shouldStop);
+  if (shouldStop?.()) return { names: all, incomplete: true };
+  const dispatchStores = runStores && stateStores(project, 'dispatch', readDispatch, fsImpl, shouldStop);
+  if (shouldStop?.()) return { names: all, incomplete: true };
+  if (!runStores || !dispatchStores) return { names: all, incomplete: false };
+  const units = new Map<string, { ended: boolean; runIds: string[] }>();
+  for (const store of runStores) for (const [runId, run] of Object.entries(store.runs) as [string, any][]) {
+    const id = run?.identity;
+    if (!id || typeof id.run !== 'string' || typeof id.lineage !== 'string' || typeof id.attempt !== 'string') continue;
+    const key = `${id.run}.${id.lineage}.${id.attempt}`;
+    const unit = units.get(key) || { ended: true, runIds: [] };
+    unit.ended = unit.ended && run.phase === 'ended';
+    unit.runIds.push(runId);
+    units.set(key, unit);
+  }
+  const openRuns = new Set<string>();
+  for (const store of dispatchStores) for (const dispatch of Object.values(store.dispatches) as any[]) {
+    if (dispatch.phase !== 'ended' && typeof dispatch.workerRunId === 'string') openRuns.add(dispatch.workerRunId);
+  }
+  const kept = new Set<string>();
+  for (const name of candidates) {
+    const match = WORKER_UNIT.exec(name);
+    const unit = match && units.get(`${match[1]}.${match[2]}.${match[3]}`);
+    if (!unit || !unit.ended || unit.runIds.some((runId) => openRuns.has(runId))) kept.add(name);
+  }
+  return { names: kept, incomplete: false };
+}
 function lifecyclePathsSafe(project: any, fsImpl: any) {
   for (const rel of [path.join('.doflow'), path.join('.doflow', 'state'), path.join('.doflow', 'state', 'lifecycle'), path.join('.doflow', 'state', 'lifecycle', 'events')]) {
     try { if (fsImpl.lstatSync(path.join(project, rel)).isSymbolicLink()) return false; }
@@ -284,4 +351,4 @@ function selectCandidates(store: any, entries: any, context: any) {
     default: throw new Error(`Unknown storage rule '${store.rule}'`);
   }
 }
-module.exports={selectCandidates,recordStillCandidate,protectedLogs,removableRules,ruleOrder,projectRoot,BODY};
+module.exports={selectCandidates,recordStillCandidate,protectedLogs,unfinishedRuns,removableRules,ruleOrder,projectRoot,BODY};

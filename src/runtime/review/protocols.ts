@@ -23,7 +23,7 @@ const PRESET_KEYS = ['kind', 'depth', 'seats', 'rounds', 'crossAnswer', 'synthes
 const SEAT_KEYS = ['id', 'agent', 'lenses', 'model'];
 const MODEL_KEYS = ['tier', 'family'];
 const ROUNDS_KEYS = ['default', 'min'];
-const INVARIANT_KEYS = ['id', 'statement', 'enforcedBy', 'kinds'];
+const INVARIANT_KEYS = ['id', 'statement', 'enforcedBy', 'kinds', 'authorKinds'];
 
 function isObject(value: any): boolean {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -172,6 +172,24 @@ function validateProtocols(data: any): { ok: boolean; errors: string[] } {
           for (const kind of inv.kinds) if (!KINDS.includes(kind)) errors.push(`${where}.kinds has unknown kind '${kind}'`);
           for (const kind of new Set(inv.kinds)) {
             if (inv.kinds.filter((k: any) => k === kind).length > 1) errors.push(`${where}.kinds lists '${kind}' more than once`);
+          }
+        }
+      }
+      if (Object.hasOwn(inv, 'authorKinds')) {
+        const VALID_AUTHOR_KINDS = ['record', 'subagent', 'sequential', 'primary'];
+        if (!Array.isArray(inv.authorKinds) || inv.authorKinds.length === 0) {
+          errors.push(`${where}.authorKinds must be a non-empty list of ${VALID_AUTHOR_KINDS.join(', ')}`);
+        } else {
+          for (const kind of inv.authorKinds) {
+            if (!VALID_AUTHOR_KINDS.includes(kind)) errors.push(`${where}.authorKinds has unknown kind '${kind}'`);
+          }
+          for (const kind of new Set(inv.authorKinds)) {
+            if (inv.authorKinds.filter((k: any) => k === kind).length > 1) {
+              errors.push(`${where}.authorKinds lists '${kind}' more than once`);
+            }
+          }
+          if (!inv.authorKinds.includes('subagent')) {
+            errors.push(`${where}.authorKinds must contain 'subagent'`);
           }
         }
       }

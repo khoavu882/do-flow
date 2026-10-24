@@ -4,7 +4,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { suiteTempDir } = require('../../helper/tmp.ts');
+const { pathToFileURL } = require('node:url');
+const { suiteTempDir, tempDir } = require('../../helper/tmp.ts');
 const { createPiAdapter } = require('../../../src/adapters/pi/index.ts');
 const { planPiHooks, targetPath, OWNERSHIP, ASSET_ID } = require('../../../src/adapters/pi/hooks.ts');
 const { updateLedger } = require('../../../src/lifecycle/index.ts');
@@ -17,6 +18,74 @@ const ASSETS = [
   { id: 'hooks.shared', kind: 'hooks', source: 'core/harnesses/shared/hooks', renderer: 'copy-tree', capability: 'hooks', nativeDir: '../.doflow/shared/hooks' },
   { id: ASSET_ID, kind: 'hooks', source: 'core/harnesses/pi/extensions/doflow-guard.js', renderer: 'pi-guard-extension', capability: 'hooks' },
 ];
+
+/** IC-005: load the extension with a capture bridge and return its tool_call handler. */
+async function loadPiHandler(t: any, bridgePath: any) {
+  const template = fs.readFileSync(path.join(ROOT, 'core/harnesses/pi/extensions/doflow-guard.js'), 'utf8');
+  const source = template.replace(
+    "const BRIDGE = new URL('../../shared/hooks/bridge/bridge.sh', import.meta.url);",
+    `const BRIDGE = new URL(${JSON.stringify(pathToFileURL(bridgePath).href)});`,
+  );
+  assert.notEqual(source, template, 'test bridge path substitution happened');
+  let handler: any;
+  const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString('base64')}`;
+  const { default: register } = await import(moduleUrl);
+  register({ on(name: any, callback: any) { assert.equal(name, 'tool_call'); handler = callback; } });
+  return handler;
+}
+
+/** IC-005: create a temporary bridge that captures the forwarded Pi payload. */
+function piBridgeCapture(t: any) {
+  const root = tempDir(t, 'doflow-pi-hooks-bridge-');
+  const bridgePath = path.join(root, 'bridge.sh');
+  const payloadPath = path.join(root, 'payload.json');
+  fs.writeFileSync(bridgePath, `#!/bin/sh\ncat > ${JSON.stringify(payloadPath)}\nprintf ''\n`);
+  fs.chmodSync(bridgePath, 0o755);
+  return { root, bridgePath, payloadPath };
+}
+
+/** IC-005: return a stable tool call and its expected payload without a model. */
+function piToolCallFixture(root: any) {
+  const event = {
+    type: 'tool_call',
+    toolName: 'edit',
+    toolCallId: 'call-1',
+    parentToolCallId: 'parent-1',
+    input: { path: 'src/a.js' },
+  };
+  const ctx = {
+    cwd: root,
+    sessionManager: { getSessionId: () => 'session-1' },
+  };
+  const payload = {
+    type: event.type,
+    toolName: event.toolName,
+    toolCallId: event.toolCallId,
+    parentToolCallId: event.parentToolCallId,
+    input: event.input,
+    cwd: root,
+    sessionId: 'session-1',
+  };
+  return { event, ctx, payload };
+}
+
+/** IC-005: isolate the bridge subprocess from the user's home and config directories. */
+function isolatePiBridgeEnvironment(t: any, root: any) {
+  const previous = {
+    DOFLOW_FAULT_PROFILE: process.env.DOFLOW_FAULT_PROFILE,
+    HOME: process.env.HOME,
+    XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
+  };
+  process.env.DOFLOW_FAULT_PROFILE = 'compat-1';
+  process.env.HOME = root;
+  process.env.XDG_CONFIG_HOME = path.join(root, 'xdg-config');
+  t.after(() => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+}
 
 function tempHome() { return suiteTempDir('doflow-pi-hooks-'); }
 function baseInput(home: any, { env = {}, operation = 'apply', scope = 'global', ledger = defaultLedger({ scope, scopeRoot: home }) } = {}) {
@@ -218,4 +287,46 @@ test('removal releases a modified extension but removes only an unchanged owned 
     context: { repoRoot: ROOT, operation: 'remove' } });
   cleanAdapter.remove({ changes: cleanRemoval.changes });
   assert.equal(fs.existsSync(cleanTarget), false);
+});
+
+test('Pi tool_call forwards a non-empty model id in the bridge payload', async (t: any) => {
+  const tree = piBridgeCapture(t);
+  isolatePiBridgeEnvironment(t, tree.root);
+  const handler = await loadPiHandler(t, tree.bridgePath);
+  const { event, ctx, payload } = piToolCallFixture(tree.root);
+
+  assert.equal(await handler(event, { ...ctx, model: { id: 'gpt-6-luna' } }), undefined);
+  assert.deepEqual(JSON.parse(fs.readFileSync(tree.payloadPath, 'utf8')), { ...payload, model: 'gpt-6-luna' });
+});
+
+test('Pi tool_call omits an absent or empty model and preserves the rest of the payload', async (t: any) => {
+  const tree = piBridgeCapture(t);
+  isolatePiBridgeEnvironment(t, tree.root);
+  const handler = await loadPiHandler(t, tree.bridgePath);
+  const { event, ctx, payload } = piToolCallFixture(tree.root);
+
+  assert.equal(await handler(event, ctx), undefined);
+  const absentModelPayload = JSON.parse(fs.readFileSync(tree.payloadPath, 'utf8'));
+  assert.equal(Object.hasOwn(absentModelPayload, 'model'), false);
+  assert.deepEqual(absentModelPayload, payload);
+
+  assert.equal(await handler(event, { ...ctx, model: {} }), undefined);
+  const emptyModelPayload = JSON.parse(fs.readFileSync(tree.payloadPath, 'utf8'));
+  assert.equal(Object.hasOwn(emptyModelPayload, 'model'), false);
+  assert.deepEqual(emptyModelPayload, payload);
+});
+
+test('Pi tool_call treats a throwing model getter as absent', async (t: any) => {
+  const tree = piBridgeCapture(t);
+  isolatePiBridgeEnvironment(t, tree.root);
+  const handler = await loadPiHandler(t, tree.bridgePath);
+  const { event, ctx, payload } = piToolCallFixture(tree.root);
+  Object.defineProperty(ctx, 'model', {
+    get() { throw new Error('model unavailable'); },
+  });
+
+  assert.equal(await handler(event, ctx), undefined);
+  const forwardedPayload = JSON.parse(fs.readFileSync(tree.payloadPath, 'utf8'));
+  assert.equal(Object.hasOwn(forwardedPayload, 'model'), false);
+  assert.deepEqual(forwardedPayload, payload);
 });

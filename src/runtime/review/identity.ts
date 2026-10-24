@@ -93,4 +93,163 @@ function crossCheckAuthor({ record, cwd, env = process.env, git = defaultGit, re
   }
 }
 
-module.exports = { crossCheckAuthor };
+type AuthorIdentityRow = {
+  kind: 'record' | 'subagent' | 'sequential' | 'primary';
+  harness: string;
+  model: string;
+  channel: 'observed' | 'claim';
+};
+
+/**
+ * 120 D.1 (IC-015, IC-016): extracts the read-only authoring identities of a slug.
+ * Returns flat identity rows from:
+ * 1. The record's `author` (channel 'claim').
+ * 2. Every dispatch of the slug's dispatch runs that reached submit:
+ *    - subagent: requested (channel 'observed' when descriptor model status is 'supported', else 'claim')
+ *      and served (channel 'observed').
+ *    - sequential: harness from primary snapshot, model from requested binding or 'unknown' (channel 'claim').
+ * 3. The primary when author.harness equals the primary harness (channel 'observed' when confirmed, else 'claim').
+ */
+function authoringIdentities({
+  slug,
+  cwd = process.cwd(),
+  env = process.env,
+  record = null,
+  registry = null,
+  primary: primaryOverride = null,
+  fsImpl = fs,
+}: {
+  slug?: string;
+  cwd?: string;
+  env?: Env;
+  record?: any;
+  registry?: any;
+  primary?: any;
+  fsImpl?: any;
+} = {}): AuthorIdentityRow[] {
+  const rows: AuthorIdentityRow[] = [];
+
+  // 1. Record's author
+  if (record?.author && typeof record.author === 'object') {
+    const authorHarness = typeof record.author.harness === 'string' && record.author.harness.length > 0 ? record.author.harness : null;
+    const authorModel = typeof record.author.model === 'string' && record.author.model.length > 0 ? record.author.model : 'unknown';
+    if (authorHarness !== null) {
+      rows.push({
+        kind: 'record',
+        harness: authorHarness,
+        model: authorModel,
+        channel: 'claim',
+      });
+
+      // 3. Primary joins when record's author names primary
+      try {
+        let primary = primaryOverride;
+        if (!primary) {
+          const { resolvePrimary } = require('../context/primary.ts');
+          primary = resolvePrimary({ projectRoot: cwd ? path.resolve(cwd) : process.cwd(), cwd, env, registry });
+        }
+        if (primary && primary.harness && primary.harness === authorHarness) {
+          rows.push({
+            kind: 'primary',
+            harness: primary.harness,
+            model: typeof primary.model === 'string' && primary.model.length > 0 ? primary.model : 'unknown',
+            channel: primary.state === 'confirmed' ? 'observed' : 'claim',
+          });
+        }
+      } catch {}
+    }
+  }
+
+  // 2. Dispatches in dispatch store
+  if (slug && typeof slug === 'string') {
+    try {
+      const { projectRoot } = require('../lifecycle/root.ts');
+      const { storeFileFor, readDispatch } = require('../dispatch/store.ts');
+      const root = projectRoot(cwd);
+      const file = storeFileFor(root, slug);
+      if (fsImpl.existsSync(file)) {
+        const store = readDispatch(file, fsImpl);
+        const dispatches = store?.dispatches && typeof store.dispatches === 'object' ? Object.values(store.dispatches) : [];
+
+        // Descriptor model status lookup
+        let descriptors: Record<string, any> = {};
+        try {
+          const { loadRegistry } = require('../../registry/index.ts');
+          const reg = registry || loadRegistry({ repoRoot: REPO_ROOT });
+          for (const h of reg.harnesses || []) {
+            if (h.worker && typeof h.worker === 'object') {
+              descriptors[h.id] = h.worker;
+            }
+          }
+        } catch {}
+
+        for (const d of dispatches as any[]) {
+          if (!d || typeof d !== 'object') continue;
+          const reachedSubmit = Boolean(
+            d.collectedAt ||
+            d.phase === 'collected' ||
+            d.phase === 'integrating' ||
+            (d.phase === 'ended' && (d.commit || d.report || d.collectedAt))
+          );
+          if (!reachedSubmit) continue;
+
+          if (d.mode === 'subagent') {
+            const harness = typeof d.harness === 'string' && d.harness.length > 0 ? d.harness : 'unknown';
+            const desc = descriptors[harness];
+            const isSupported = desc?.model?.status === 'supported' && Array.isArray(desc.model?.argv);
+
+            if (typeof d.model?.served === 'string' && d.model.served.length > 0) {
+              rows.push({
+                kind: 'subagent',
+                harness,
+                model: d.model.served,
+                channel: 'observed',
+              });
+            }
+
+            if (typeof d.model?.requested === 'string' && d.model.requested.length > 0) {
+              rows.push({
+                kind: 'subagent',
+                harness,
+                model: d.model.requested,
+                channel: isSupported ? 'observed' : 'claim',
+              });
+            }
+
+            if (!d.model?.served && !d.model?.requested) {
+              rows.push({
+                kind: 'subagent',
+                harness,
+                model: 'unknown',
+                channel: 'claim',
+              });
+            }
+          } else if (d.mode === 'sequential') {
+            const harness = d.primary?.harness ?? (typeof d.harness === 'string' && d.harness.length > 0 ? d.harness : 'unknown');
+            const model = typeof d.model?.requested === 'string' && d.model.requested.length > 0 ? d.model.requested : 'unknown';
+            rows.push({
+              kind: 'sequential',
+              harness,
+              model,
+              channel: 'claim',
+            });
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // Deduplicate preserving order
+  const seen = new Set<string>();
+  const deduped: AuthorIdentityRow[] = [];
+  for (const row of rows) {
+    const key = `${row.kind}:${row.harness}:${row.model}:${row.channel}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      deduped.push(row);
+    }
+  }
+  return deduped;
+}
+
+module.exports = { crossCheckAuthor, authoringIdentities };

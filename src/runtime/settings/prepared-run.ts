@@ -4,10 +4,11 @@
 
 /**
  * `doflow config validate --prepared-run <file>` (119 IC-010, FR-013, NFR-005). Checks a prepared-run file
- * `{ schema: 1, taskClass, settings: { <key>: <value> }, presets: { review, debate } }` and returns one IC-009
- * entry per fault, keyed by JSON path. It starts no harness, calls no model, runs no git, opens no network
- * connection and writes nothing. Each `settings` entry is judged exactly as `config validate <key> <value>
- * --layer project` (config-write.ts `keyEntry` + `layerEntry`), so no value rule is repeated here. The presets
+ * `{ schema: 1, taskClass, primary: { harness, model }, settings: { <key>: <value> }, presets: { review, debate } }`
+ * and returns one IC-009 entry per fault, keyed by JSON path. It starts no harness, calls no model, runs no git,
+ * opens no network connection and writes nothing. Each `settings` and `primary` entry is judged exactly as
+ * `config validate <key> <value> --layer project` (config-write.ts `keyEntry` + `layerEntry`), so no value
+ * rule is repeated here. The presets
  * are checked against what a run can know before there is a diff (L-E1): the risk-policy step of the protocol
  * resolution needs the diff and is not applied.
  */
@@ -19,9 +20,8 @@ const { keyEntry, layerFile, layerEntry } = require('./config-write.ts');
 const { loadProtocols, presetIds } = require('../review/protocols.ts');
 const { gateMinSeats, settingsPick } = require('../review/resolve-protocol.ts');
 
-/** Top-level names kept for a later release (IC-010): refused now, with their own message. */
-const RESERVED = new Set(['primary', 'workers']);
-const KNOWN = new Set(['schema', 'taskClass', 'settings', 'presets']);
+/** The worker fields are judged here, without applying them or launching a harness. */
+const KNOWN = new Set(['schema', 'taskClass', 'primary', 'workers', 'settings', 'presets']);
 
 interface Entry { key: string; layer: string | null; ok: false; code: string; message: string; allowed: unknown }
 
@@ -33,6 +33,12 @@ function isObject(value: unknown): value is Record<string, any> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+/** IC-018: qualified worker ids need JSON-path brackets; built-in ids stay readable. */
+function bindingKey(id: string, tier: string): string {
+  const worker = /^[a-z][a-z0-9-]*$/.test(id) ? `.${id}` : `[${JSON.stringify(id)}]`;
+  return `workers.models${worker}.${tier}`;
+}
+
 /** The task classes of the workflow registry, the one `doflow classify` validates against. */
 function taskClasses(repoRoot: string, fsImpl: any): string[] {
   const { WorkflowEngine } = require('../workflow-engine.ts');
@@ -42,6 +48,7 @@ function taskClasses(repoRoot: string, fsImpl: any): string[] {
 function validatePrepared(doc: Record<string, any>, ctx: any): Entry[] {
   const { registry, protocols, classes } = ctx;
   const errors: Entry[] = [];
+  const notes: string[] = ctx.notes;
 
   if (!Object.hasOwn(doc, 'schema')) errors.push(entry('schema', null, 'type', 'schema is required and must be 1'));
   else if (doc.schema !== 1) errors.push(entry('schema', null, 'enum', 'schema must be 1', [1]));
@@ -66,6 +73,115 @@ function validatePrepared(doc: Record<string, any>, ctx: any): Entry[] {
     const fault = layerEntry(registry, key, 'project', where.file, { ok: true, value: settings[key] },
       { env: ctx.env, projectRoot: ctx.projectRoot, fsImpl: ctx.fsImpl, siblings: settings });
     if (fault) errors.push(named(fault));
+  }
+
+  const primary: Record<string, any> = isObject(doc.primary) ? doc.primary : {};
+  if (Object.hasOwn(doc, 'primary') && !isObject(doc.primary)) {
+    errors.push(entry('primary', null, 'type', 'primary must be an object with harness and model'));
+  } else if (Object.hasOwn(doc, 'primary')) {
+    for (const field of Object.keys(primary)) {
+      const key = `primary.${field}`;
+      if (field !== 'harness' && field !== 'model') {
+        errors.push(entry(key, null, 'unknown-key', `${field} is not a primary field; expected harness, model`));
+        continue;
+      }
+      const keyFault = keyEntry(registry, key, 'project', true);
+      if (keyFault) { errors.push(keyFault); continue; }
+      if (primary[field] === null) {
+        errors.push(entry(key, 'project', 'type', `${key} cannot be null; leave the key out`));
+        continue;
+      }
+      where ??= layerFile('project', ctx.env, ctx.projectRoot, ctx.fsImpl);
+      if ('error' in where) throw Object.assign(new Error(where.error), { usage: true });
+      const fault = layerEntry(registry, key, 'project', where.file, { ok: true, value: primary[field] },
+        { env: ctx.env, projectRoot: ctx.projectRoot, fsImpl: ctx.fsImpl, siblings: primary });
+      if (fault) errors.push(fault);
+    }
+  }
+
+  if (Object.hasOwn(doc, 'workers')) {
+    const { validateValue } = require('./files.ts');
+    const workers: Record<string, any> = isObject(doc.workers) ? doc.workers : {};
+    if (!isObject(doc.workers)) {
+      errors.push(entry('workers', null, 'type', 'workers must be an object with enabled and models'));
+    } else {
+      for (const field of Object.keys(workers)) {
+        if (field !== 'enabled' && field !== 'models') {
+          errors.push(entry(`workers.${field}`, null, 'unknown-key', `${field} is not a workers field; expected enabled, models`));
+        }
+      }
+
+      if (Object.hasOwn(workers, 'enabled')) {
+        const key = 'workers.enabled';
+        const value = workers.enabled;
+        const spec = registry.keys.get(key);
+        const allowed = registry.enumValues(key);
+        if (value === null) {
+          errors.push(entry(key, null, 'type', `${key} cannot be null; leave the key out`));
+        } else {
+          const fault = validateValue(spec, value, allowed);
+          if (fault) {
+            let index = -1;
+            if (Array.isArray(value)) {
+              for (let i = 0; i < value.length; i += 1) {
+                if (validateValue(spec, value.slice(0, i + 1), allowed)) { index = i; break; }
+              }
+            }
+            if (index >= 0) {
+              const prefixFault = validateValue(spec, value.slice(0, index + 1), allowed);
+              errors.push(entry(`${key}[${index}]`, null, prefixFault.code, prefixFault.reason, allowed));
+            } else errors.push(entry(key, null, fault.code, fault.reason, allowed));
+          } else {
+            where ??= layerFile('project', ctx.env, ctx.projectRoot, ctx.fsImpl);
+            if ('error' in where) throw Object.assign(new Error(where.error), { usage: true });
+            const fault = layerEntry(registry, key, 'project', where.file, { ok: true, value },
+              { env: ctx.env, projectRoot: ctx.projectRoot, fsImpl: ctx.fsImpl, notes, siblings: {} });
+            if (fault) {
+              if (fault.code === 'not-narrower') {
+                const match = fault.message.match(/\('([^']*)' is not in the value below\)/);
+                const index = match ? value.indexOf(match[1]) : -1;
+                if (index >= 0) fault.key = `${key}[${index}]`;
+              }
+              errors.push(fault);
+            }
+          }
+        }
+      }
+
+      if (Object.hasOwn(workers, 'models')) {
+        const key = 'workers.models';
+        const value = workers.models;
+        const spec = registry.keys.get(key);
+        const allowed = registry.enumValues(key);
+        if (value === null) {
+          errors.push(entry(key, null, 'type', `${key} cannot be null; leave the key out`));
+        } else {
+          const fault = validateValue(spec, value, allowed);
+          if (fault) {
+            errors.push(entry(key, null, fault.code, fault.reason, allowed));
+          } else {
+            const { loadRegistry } = require('../../registry/index.ts');
+            const { workerCatalogue } = require('../worker/catalogue.ts');
+            const workerRegistry = loadRegistry({ repoRoot: ctx.repoRoot, fsImpl: ctx.fsImpl });
+            const catalogue = workerCatalogue({ registry: workerRegistry });
+            const byId = new Map<string, any>(catalogue.map((worker: any) => [worker.id, worker]));
+            for (const id of Object.keys(value)) {
+              const worker = byId.get(id);
+              if (!worker) {
+                notes.push(`note: ${key}: worker '${id}' is not installed (ignored)`);
+                continue;
+              }
+              const status = worker.worker.model?.status || 'absent';
+              if (status === 'supported') continue;
+              for (const tier of Object.keys(value[id])) {
+                errors.push(entry(bindingKey(id, tier), null, 'model-flag-unevidenced',
+                  `${id} has no evidenced model flag (descriptor model is ${status}); dispatch would skip the worker for this binding`));
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   const presets: Record<string, any> = isObject(doc.presets) ? doc.presets : {};
@@ -105,17 +221,18 @@ function validatePrepared(doc: Record<string, any>, ctx: any): Entry[] {
 
   for (const key of Object.keys(doc)) {
     if (KNOWN.has(key)) continue;
-    errors.push(entry(key, null, 'unknown-key', RESERVED.has(key)
-      ? `${key} is reserved for a later release and is not accepted in a prepared run yet`
-      : `${key} is not a prepared-run field; expected schema, taskClass, settings, presets`));
+    errors.push(entry(key, null, 'unknown-key', `${key} is not a prepared-run field; expected schema, taskClass, primary, workers, settings, presets`));
   }
   return errors;
 }
 
-function report(file: string, errors: Entry[], json: boolean): number {
-  if (json) console.log(JSON.stringify({ ok: errors.length === 0, errors }, null, 2));
-  else if (errors.length === 0) console.log(`prepared run: valid (${file})`);
-  else for (const error of errors) console.error(`${error.key}: ${error.message}`);
+function report(file: string, errors: Entry[], json: boolean, notes: string[] = []): number {
+  if (json) console.log(JSON.stringify({ ok: errors.length === 0, errors, ...(notes.length ? { notes } : {}) }, null, 2));
+  else {
+    if (errors.length === 0) console.log(`prepared run: valid (${file})`);
+    else for (const error of errors) console.error(`${error.key}: ${error.message}`);
+    for (const note of notes) console.log(note);
+  }
   return finishRuntime(errors.length === 0 ? 0 : 1);
 }
 
@@ -130,8 +247,9 @@ function handlePreparedRun({ file, json, registry, repoRoot, projectRoot, env, f
     const protocols = loadProtocols({ repoRoot, fsImpl });
     if (!protocols.ok) throw new Error(protocols.errors.join('; '));
     const root = path.resolve(projectRoot);
+    const notes: string[] = [];
     const ctx = {
-      registry, protocols: protocols.registry, classes: taskClasses(repoRoot, fsImpl), env, projectRoot: root, fsImpl,
+      registry, protocols: protocols.registry, classes: taskClasses(repoRoot, fsImpl), env, projectRoot: root, repoRoot, fsImpl, notes,
       // what `review --action start` loads: the protocol settings view and gates.json narrowed by the project's override
       inputs: (taskClass: string | null): any => {
         const inputs = require('../review/start.ts').loadProtocolInputs(taskClass, root, env);
@@ -139,10 +257,10 @@ function handlePreparedRun({ file, json, registry, repoRoot, projectRoot, env, f
         return inputs;
       },
     };
-    return report(file, validatePrepared(doc, ctx), json);
+    return report(file, validatePrepared(doc, ctx), json, notes);
   } catch (error: any) {
     return usageError('config', error?.message || String(error), json, error.usage ? undefined : error);
   }
 }
 
-module.exports = { handlePreparedRun };
+module.exports = { handlePreparedRun, bindingKey };

@@ -18,6 +18,9 @@ const RULES: Map<string, string[]> = new Map([
   ['existing', []],
   ['control', []],
 ]);
+// open-work keeps logs an unfinished task's record names; unfinished-run keeps a worker-model file
+// while its worker run or dispatch is not terminal or cannot be resolved (row 120 IC-005).
+const PROTECTS = new Set(['open-work', 'unfinished-run']);
 const MOMENTS = new Set(['verb', 'session', 'verify', 'install', 'lifecycle-verb', 'uninstall']);
 const STORE_ID = /^[a-z][a-z0-9-]*$/;
 
@@ -81,7 +84,7 @@ function validateStorageRegistry(registry: any): { ok: boolean; errors: string[]
           if (!allowed.has(key)) error(errors, `${where}.bound`, `unknown key '${key}'`);
         }
       }
-      if (store.protect !== null && store.protect !== 'open-work') error(errors, `${where}.protect`, 'must be open-work or null');
+      if (store.protect !== null && !PROTECTS.has(store.protect)) error(errors, `${where}.protect`, 'must be open-work, unfinished-run or null');
       if (!Array.isArray(store.moments) || store.moments.some((moment: any) => !MOMENTS.has(moment)) || new Set(store.moments).size !== store.moments.length) error(errors, `${where}.moments`, 'must be a unique subset of known moments');
       if (store.rule === 'existing' && store.moments?.length) error(errors, `${where}.moments`, 'must be empty for existing stores');
       if (!Array.isArray(store.writers) || store.writers.some((writer: any) => typeof writer !== 'string' || !writer)) error(errors, `${where}.writers`, 'must be an array of repository-relative paths');

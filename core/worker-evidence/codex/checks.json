@@ -27,6 +27,12 @@
       "argv": ["features", "list", "--disable", "multi_agent", "--disable", "multi_agent_v2"],
       "expect": ["^multi_agent\\s+\\S+\\s+false$", "^multi_agent_v2\\s+\\S+\\s+false$"],
       "establishes": ["spawnDenial"]
+    },
+    {
+      "id": "exec-model",
+      "argv": ["exec", "--help"],
+      "expect": ["^\\s+-m, --model <MODEL>$"],
+      "establishes": ["model"]
     }
   ]
 }

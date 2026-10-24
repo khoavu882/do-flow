@@ -343,6 +343,13 @@
           "verifiedOn": "2026-10-16",
           "reason": "no recorded evidence for claude: no free check shows a flag that confines edits to the working directory"
         },
+        "model": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag that selects the model and its source",
+          "verifiedOn": "2026-10-24",
+          "reason": "no recorded evidence for claude: no free check shows a flag that selects the model"
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -379,6 +386,14 @@
         "note": "The skills doc's \"Resolve skills that share a name\" table states a first-match-wins hierarchy for a same-named skill: \"Enterprise over personal, and personal over project\" -- with `deploy` in both `~/.claude/skills/` and the project's `.claude/skills/`, the personal one runs. Order lists DoFlow's two tracked scopes (user, project); the fuller vendor hierarchy also has an enterprise-managed tier consulted before user. The skills doc states a first-match-wins hierarchy, so the order lists the winner first: the user copy is used.",
         "determinedOn": "2026-09-27",
         "mode": "first-wins"
+      },
+      "primaryProbe": {
+        "model": "payload",
+        "events": ["SessionStart"],
+        "status": "unverified",
+        "evidence": [],
+        "verifiedOn": null,
+        "reason": "Claude Code sends the model on SessionStart only, and sometimes omits it; no live capture recorded yet."
       }
     },
     {
@@ -813,6 +828,18 @@
             "workspace-write"
           ]
         },
+        "model": {
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/codex/2026-10-24-cli-check.json"
+          ],
+          "verification": "Run `codex exec --help` and read the `-m, --model <MODEL>` line; record it with `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out <new cli-check path>` (check exec-model)",
+          "verifiedOn": "2026-10-24",
+          "argv": [
+            "-m",
+            "{model}"
+          ]
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -849,6 +876,14 @@
         "note": "AGENTS.md discovery is documented as: \"1. Global scope: In your Codex home directory ... Codex reads AGENTS.override.md if it exists. Otherwise, Codex reads AGENTS.md. 2. Project scope: Starting at the project root ...\", then \"Codex concatenates files from the root down ... Files closer to your current directory override earlier guidance because they appear later in the combined prompt.\" Codex concatenates and states that files closer to the working directory override earlier guidance because they appear later, so the LAST scope consulted takes effect: the project copy wins despite being consulted second.",
         "determinedOn": "2026-09-27",
         "mode": "last-wins"
+      },
+      "primaryProbe": {
+        "model": "payload",
+        "events": ["PreToolUse", "SessionStart", "Stop"],
+        "status": "unverified",
+        "evidence": [],
+        "verifiedOn": null,
+        "reason": "Codex hook payloads carry the session model (codex-rs/hooks schema); no live capture recorded yet."
       }
     },
     {
@@ -1202,6 +1237,13 @@
           "verifiedOn": "2026-10-16",
           "reason": "no recorded evidence for gemini: no free check shows a flag that confines edits to the working directory"
         },
+        "model": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag that selects the model and its source",
+          "verifiedOn": "2026-10-24",
+          "reason": "no recorded evidence for gemini: no free check shows a flag that selects the model"
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -1238,6 +1280,14 @@
         "note": "The CLI loads context files in the following order: (1) global context file at ~/.gemini/GEMINI.md, (2) environment/workspace context files (project directory and its parents), (3) just-in-time files read on demand from directories a tool touches. The page states this loading order but explicitly does not state a conflict-resolution rule -- contents are concatenated and sent to the model together. Order here reflects DoFlow's two tracked scopes; the documented third, finer-grained JIT tier is omitted. The load order is documented but the page explicitly states no conflict-resolution rule and describes contents being concatenated and sent together, so no copy can be said to win. Order established, winner not.",
         "determinedOn": "2026-09-27",
         "mode": "unestablished"
+      },
+      "primaryProbe": {
+        "model": "none",
+        "events": [],
+        "status": "unverified",
+        "evidence": [],
+        "verifiedOn": null,
+        "reason": "The hook payload carries no model; the declaration is the only source (declared-only)."
       }
     },
     {
@@ -1630,6 +1680,13 @@
           "verifiedOn": "2026-10-16",
           "reason": "no recorded evidence for opencode: no free check shows a flag that confines edits to the working directory"
         },
+        "model": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag that selects the model and its source",
+          "verifiedOn": "2026-10-24",
+          "reason": "no recorded evidence for opencode: no free check shows a flag that selects the model"
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -1666,6 +1723,14 @@
         "note": "\"When opencode starts, it looks for rule files in this order: 1. Local files by traversing up from the current directory (AGENTS.md, CLAUDE.md) 2. Global file at ~/.config/opencode/AGENTS.md\", and \"The first matching file wins in each category.\" A community issue (anomalyco/opencode#9282, filed 2026-01-18) argues project and global files are actually combined rather than one overriding the other; this block records only the documented consultation order above, not that unresolved merge-vs-override dispute. The rules doc states the first matching file wins, so the order lists the winner first: the project copy is used.",
         "determinedOn": "2026-09-27",
         "mode": "first-wins"
+      },
+      "primaryProbe": {
+        "model": "none",
+        "events": [],
+        "status": "unverified",
+        "evidence": [],
+        "verifiedOn": null,
+        "reason": "The hook payload carries no model; the declaration is the only source (declared-only)."
       }
     },
     {
@@ -2043,6 +2108,13 @@
           "verifiedOn": "2026-10-16",
           "reason": "no recorded evidence for pi: no free check shows a flag that confines edits to the working directory"
         },
+        "model": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag that selects the model and its source",
+          "verifiedOn": "2026-10-24",
+          "reason": "no recorded evidence for pi: no free check shows a flag that selects the model"
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -2075,6 +2147,14 @@
         "note": "The question was asked and the documentation is silent: the skills doc names both `.agents/skills/` (project, discovered walking up from the working directory) and `~/.agents/skills/` (user, under ~/.pi/agent) and states only that \"name collisions keep the first discovered skill and produce a warning\" -- it never states which location is discovered first, and no other primary Pi doc found in this pass states one either. Resolution mode is likewise unestablished: with no order documented there is nothing for a mode to qualify.",
         "determinedOn": "2026-09-27",
         "mode": "unestablished"
+      },
+      "primaryProbe": {
+        "model": "payload",
+        "events": ["tool_call"],
+        "status": "unverified",
+        "evidence": [],
+        "verifiedOn": null,
+        "reason": "The DoFlow pi extension forwards ctx.model.id (task B.3); no live capture recorded yet."
       }
     },
     {
@@ -2468,6 +2548,13 @@
           "verifiedOn": "2026-10-16",
           "reason": "no recorded evidence for copilot: no free check shows a flag that confines edits to the working directory"
         },
+        "model": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag that selects the model and its source",
+          "verifiedOn": "2026-10-24",
+          "reason": "no recorded evidence for copilot: no free check shows a flag that selects the model"
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -2504,6 +2591,14 @@
         "note": "Confirmed for custom agents only: \"If you have custom agents with the same name in both locations, the one in your home directory will be used, rather than the one in the repository\" (user overrides project). The parallel add-skills page states no such rule for skills, and no page found states one for .github/copilot-instructions.md -- this order is not shown to generalize beyond custom agents, and the general customize-copilot overview page names no precedence word at all. The source states an outcome rather than a consultation order: the home-directory copy is used rather than the repository one. Encoded as the recorded consultation order with a last-wins mode, which yields the documented winner, the user copy. Confirmed for custom agents only.",
         "determinedOn": "2026-09-27",
         "mode": "last-wins"
+      },
+      "primaryProbe": {
+        "model": "none",
+        "events": [],
+        "status": "unverified",
+        "evidence": [],
+        "verifiedOn": null,
+        "reason": "The hook payload carries no model; the declaration is the only source (declared-only)."
       }
     },
     {
@@ -2831,6 +2926,13 @@
           "verifiedOn": "2026-10-16",
           "reason": "no recorded evidence for kiro-cli: no free check shows a flag that confines edits to the working directory"
         },
+        "model": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag that selects the model and its source",
+          "verifiedOn": "2026-10-24",
+          "reason": "no recorded evidence for kiro-cli: no free check shows a flag that selects the model"
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -2868,6 +2970,14 @@
         "note": "Skills doc: \"Scanned from .kiro/skills/ (workspace) and ~/.kiro/skills/ (global); workspace wins on a same-name conflict.\" Steering doc likewise requires workspace files to win on conflict. Order lists workspace (project) before global (user), matching the scan order the skills doc states them in. The skills doc states the workspace copy wins on a same-name conflict, so the order lists the winner first: the project copy is used.",
         "determinedOn": "2026-09-27",
         "mode": "first-wins"
+      },
+      "primaryProbe": {
+        "model": "none",
+        "events": [],
+        "status": "unverified",
+        "evidence": [],
+        "verifiedOn": null,
+        "reason": "The hook payload carries no model; the declaration is the only source (declared-only)."
       }
     },
     {
@@ -3260,6 +3370,13 @@
           "verifiedOn": "2026-10-16",
           "reason": "no recorded evidence for agy: no free check shows a flag that confines edits to the working directory"
         },
+        "model": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Run `agy --help` and read the `--model` line; record it with `node bin/doflow.js worker --action evidence --harness antigravity --checks core/worker-evidence/antigravity/checks.json --out <new cli-check path>` (check help-model)",
+          "verifiedOn": "2026-10-24",
+          "reason": "declared: agy --help lists --model on stderr, but the free check help-model reads stdout only and fails; supported only after a recorded cli-check passes"
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -3294,6 +3411,14 @@
         "note": "The question was asked across the three dual-scope asset types Antigravity documents (skills, subagents, MCP servers) and the documentation is silent on all three: each page names a workspace location and a global location but never states which wins on a same-name conflict. Resolution mode is likewise unestablished: with no order documented there is nothing for a mode to qualify.",
         "determinedOn": "2026-09-27",
         "mode": "unestablished"
+      },
+      "primaryProbe": {
+        "model": "payload",
+        "events": ["PreToolUse", "Stop"],
+        "status": "unverified",
+        "evidence": [],
+        "verifiedOn": null,
+        "reason": "Antigravity hook payloads carry modelName; no live capture recorded yet."
       }
     }
   ]

@@ -256,21 +256,26 @@ test('G41.3: codex declares the codex-exec-json-v1 parser and the seven other ha
 test('G41.4: every supported worker entry cites a recorded evidence file that establishes it', () => {
   const { registry } = shipped();
   assert.deepEqual(establishingRecordFindings(registry, REPO), []);
-  // The guard is not vacuous: codex holds six supported capability entries, the seven others none.
+  // The guard is not vacuous: codex holds seven supported capability entries, the seven others none.
   const supportedKeys = (harness: any) => Object.entries(harness.worker)
     .filter(([key, entry]) => !NOT_CAPABILITIES.has(key) && entry?.status === 'supported').map(([key]) => key).sort();
   for (const harness of registry.harnesses) {
     assert.deepEqual(supportedKeys(harness), harness.id === 'codex'
-      ? ['isolatedEdit', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput']
+      ? ['isolatedEdit', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput']
       : [], harness.id);
   }
 });
 
-/** A scratch repo root holding a mutated copy of codex's cited record next to the real checks.json. */
+/** G41.4 / 120 IC-011: isolate codex and bind its seven capabilities to its latest free-check record. */
 function scratchRecordRoot(t: any, mutate: any) {
   const root = tempDir(t, 'doflow-g414-');
   const registry = structuredClone(shipped().registry);
-  const cited = registry.harnesses.find((h: any) => h.id === 'codex').worker.structuredOutput.evidence[0];
+  const codex = registry.harnesses.find((h: any) => h.id === 'codex');
+  registry.harnesses = [codex];
+  const cited = codex.worker.model.evidence[0];
+  for (const [key, entry] of Object.entries(codex.worker)) {
+    if (!NOT_CAPABILITIES.has(key) && entry?.status === 'supported') entry.evidence = [cited];
+  }
   const record = JSON.parse(fs.readFileSync(path.join(REPO, cited), 'utf8'));
   mutate(record);
   const dir = path.join(root, path.dirname(cited));
@@ -279,6 +284,21 @@ function scratchRecordRoot(t: any, mutate: any) {
   fs.copyFileSync(path.join(REPO, path.dirname(cited), 'checks.json'), path.join(dir, 'checks.json'));
   return { root, registry, cited };
 }
+
+test('G41.4 C control: the older codex record cannot establish model', () => {
+  const registry = structuredClone(shipped().registry);
+  const codex = registry.harnesses.find((h: any) => h.id === 'codex');
+  codex.worker.model = {
+    status: 'supported',
+    argv: ['-m', '{model}'],
+    evidence: ['core/worker-evidence/codex/2026-10-18-cli-check.json'],
+    verification: 'control fixture',
+    verifiedOn: '2026-10-24',
+  };
+  assert.deepEqual(establishingRecordFindings(registry, REPO), [
+    "G41.4: harness 'codex' worker 'model': supported without a recorded evidence file that establishes it",
+  ]);
+});
 
 test('G41.4 control: a record that no longer establishes structuredOutput gives exactly that one finding', (t) => {
   const { root, registry, cited } = scratchRecordRoot(t, (record: any) => {
@@ -312,7 +332,7 @@ test('G41.4 control: a check with exit 0 but no matched lines, or exit 1 despite
 test('G41.4 control: a hand-written record with no checks that claims every capability establishes none', (t) => {
   const { root, registry } = scratchRecordRoot(t, (record: any) => { record.checks = []; });
   assert.deepEqual(establishingRecordFindings(registry, root).map((f: any) => /worker '(\w+)'/.exec(f)![1]).sort(),
-    ['isolatedEdit', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput']);
+    ['isolatedEdit', 'model', 'oneShot', 'readOnly', 'runnableProbe', 'spawnDenial', 'structuredOutput']);
 });
 
 test('G41.4 control: a check altered against checks.json (argv, expect or establishes) breaks the record', (t) => {
@@ -329,10 +349,10 @@ test('G41.4 control: a check altered against checks.json (argv, expect or establ
 
 test('G41.4 control: a cli-check record with a run, or without a checks.json beside it, establishes nothing', (t) => {
   const withRun = scratchRecordRoot(t, (record: any) => { record.run = { resultOffered: true, report: { status: 'success' } }; });
-  assert.equal(establishingRecordFindings(withRun.registry, withRun.root).length, 6, 'run must be null for a cli-check');
+  assert.equal(establishingRecordFindings(withRun.registry, withRun.root).length, 7, 'run must be null for a cli-check');
   const lonely = scratchRecordRoot(t, () => {});
   fs.rmSync(path.join(lonely.root, 'core', 'worker-evidence', 'codex', 'checks.json'));
-  assert.equal(establishingRecordFindings(lonely.registry, lonely.root).length, 6, 'no checks.json');
+  assert.equal(establishingRecordFindings(lonely.registry, lonely.root).length, 7, 'no checks.json');
 });
 
 test('G41.4 control: a live-run record whose result was not offered or whose run failed, a missing file and another harness\'s record do not count', (t) => {

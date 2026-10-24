@@ -27,6 +27,7 @@ const { writeLayer, layerDocument, serializeLayer, oversize } = require('./write
 const { REF_META } = require('./refs.ts');
 const { maskUrl } = require('./shared.ts');
 const { loadProtocols, presetIds } = require('../review/protocols.ts');
+const { LADDER_MAX } = require('../../registry/worker-ids.ts');
 
 const LAYERS = ['user', 'project', 'local'];
 const LAYER_FILE: Record<string, string> = { user: 'settings.json', project: 'settings.json', local: 'settings.local.json' };
@@ -35,7 +36,7 @@ const WRITE_ATTEMPTS = 3;
 /** `writeLayer` refusals reported under their own code; any other write fault is `write-failed`. */
 const WRITER_CODES = new Set(['locked', 'changed', 'too-large']);
 /** The codes whose entry carries the key's `allowed` values (IC-009). */
-const VALUE_CODES = new Set(['type', 'enum', 'range', 'items', 'length', 'url']);
+const VALUE_CODES = new Set(['type', 'enum', 'range', 'items', 'length', 'url', 'reserved']);
 
 interface Entry { key: string; layer: string | null; ok: false; code: string; message: string; allowed: unknown }
 interface Parsed { ok: boolean; value: unknown }
@@ -47,7 +48,7 @@ function isObject(value: unknown): value is Record<string, any> {
 function allowedOf(registry: any, key: string): unknown {
   const spec = registry.keys.get(key);
   if (!spec) return null;
-  if (spec.type === 'enum' || (spec.type === 'string-list' && spec.valuesRef)) return registry.enumValues(key);
+  if (spec.type === 'enum' || spec.type === 'worker-list' || spec.type === 'worker-models' || (spec.type === 'string-list' && spec.valuesRef)) return registry.enumValues(key);
   if (spec.type === 'integer') return { min: spec.min ?? null, max: spec.max ?? null };
   return null;
 }
@@ -128,6 +129,16 @@ function layerEntry(registry: any, key: string, layer: string, file: string, par
   if (candidate.status === 'ignored-scope') return entryOf(registry, key, layer, 'scope', `${key} cannot be set at the ${layer} layer (${candidate.reason})`);
   if (!parsed.ok) return entryOf(registry, key, layer, 'type', NOT_JSON);
   if (candidate.status === 'invalid') return entryOf(registry, key, layer, candidate.code, candidate.reason);
+  // IC-002, IC-004: valid worker lists and model maps keep dangling ids advisory.
+  const type = registry.keys.get(key).type;
+  if ((type === 'worker-list' || type === 'worker-models') && notes) {
+    const known = registry.enumValues(key) ?? [];
+    const ids = type === 'worker-models' ? Object.keys(parsed.value as Record<string, unknown>) : parsed.value as string[];
+    for (const id of ids) {
+      if (id !== 'primary' && !known.includes(id)) notes.push(`note: ${key}: worker '${id}' is not installed (ignored)`);
+    }
+    if (type === 'worker-list' && candidate.code === 'order-ignored') notes.push(`note: ${key}: the order is ignored at the ${layer} layer; the order below applies`);
+  }
   if (candidate.status === 'not-narrower') return entryOf(registry, key, layer, 'not-narrower', `${candidate.reason} (the value is wider than the layers below)`);
   if (key === 'review.rounds' && Number.isInteger(parsed.value)) return roundsFloor(registry, view, layer, parsed.value as number, repoRoot, notes);
   return null;
@@ -183,15 +194,16 @@ function buildSchema(registry: any, protocols: any): any {
   const keys = [...registry.keys].map(([key, spec]: [string, any]) => {
     const fallback = defaultOf(registry, key);
     return {
-      key, type: spec.type, values: registry.enumValues(key), order: spec.order ?? null,
-      min: spec.min ?? null, max: spec.max ?? null, maxItems: spec.maxItems ?? null, maxLength: spec.maxLength ?? null,
+      key, type: spec.type, values: registry.enumValues(key), order: spec.order ?? null, tiers: spec.tiers ?? null,
+      min: spec.min ?? null, max: spec.max ?? null, maxItems: spec.type === 'worker-list' ? LADDER_MAX + 1 : spec.maxItems ?? null, maxLength: spec.maxLength ?? null,
       default: spec.type === 'url' && typeof fallback === 'string' ? maskUrl(fallback) : fallback,
       scope: spec.scope, combine: spec.combine, description: spec.description,
       securityRelevant: spec.securityRelevant, writable: !spec.securityRelevant, locked: false,
     };
   });
   const invariants = protocols.invariants.map((inv: any) => ({
-    key: `invariant.${inv.id}`, locked: true, writable: false, statement: inv.statement, enforcedBy: inv.enforcedBy,
+    id: inv.id, key: `invariant.${inv.id}`, locked: true, writable: false, statement: inv.statement, enforcedBy: inv.enforcedBy,
+    ...(inv.authorKinds ? { authorKinds: inv.authorKinds } : {}),
   }));
   const presets = ['review', 'debate'].flatMap((kind) => presetIds(protocols, kind)).map((id: string) => {
     const preset = protocols.presets[id];
@@ -228,7 +240,8 @@ function handleSchema({ json, registry, repoRoot, fsImpl }: any): number {
 function handleChange({ action, key, valueText, layer, json, registry, repoRoot, projectRoot, env, fsImpl }: any): number {
   const writes = action !== 'validate';
   const root = path.resolve(projectRoot);
-  const keyFault = keyEntry(registry, key, layer ?? null, writes || layer !== undefined);
+  const keyFault = keyEntry(registry, key, layer ?? null,
+    writes || (layer !== undefined && !['worker-list', 'worker-models'].includes(registry.keys.get(key)?.type)));
   if (keyFault) return refuse(action, [keyFault], json);
 
   const parsed: Parsed = action === 'unset' ? { ok: true, value: null } : parseValue(valueText);

@@ -12,11 +12,15 @@
  *   advice.providerIds                    core/registry/advice.json  providers[].id
  *   advice.providerDefaultEndpoint        core/registry/advice.json  providers[id = advice.provider].defaultEndpoint
  *   storage.lifecycleEventsDefaultHours   core/registry/storage.json stores[lifecycle-events].bound.defaultHours
+ *   models.tierIds                       core/registry/models.json dispatchTiers.tiers
  *   protocols.reviewPresetIds             core/registry/protocols.json 'auto', then order.review
  *   protocols.reviewPresetOrder           core/registry/protocols.json order.review with 'auto' right after the
  *                                         preset of depth 'deep'
  *   protocols.debatePresetIds             core/registry/protocols.json order.debate
  *   protocols.lensIds                     core/registry/protocols.json lenses[].id
+ *   harnesses.primaryIds                  'unknown', then core/registry/harnesses.json harnesses[].id in order
+ *   workers.ids                          known worker ids from core/registry/harnesses.json
+ *   workers.defaultRungs                 shipped worker ids from that file, then 'primary'
  *
  * Where `auto` ranks: `auto` follows the risk rule, which picks the preset of depth `deep` or the one
  * of depth `single` (resolve-protocol.ts `idOfDepth`), so the deep preset is the strictest it can
@@ -44,16 +48,22 @@ type Source = (name: string) => any;
 const ADVICE_FILE = 'core/registry/advice.json';
 const STORAGE_FILE = 'core/registry/storage.json';
 const PROTOCOLS_FILE = 'core/registry/protocols.json';
+const HARNESSES_FILE = 'core/registry/harnesses.json';
+const MODELS_FILE = 'core/registry/models.json';
 
 /** What each ref is and which keys' values it needs, so the loader can detect a cycle without resolving. */
 const REF_META: Readonly<Record<string, RefMeta>> = Object.freeze({
   'advice.providerIds': { kind: 'values', dependsOn: [] },
   'advice.providerDefaultEndpoint': { kind: 'default', dependsOn: ['advice.provider'] },
   'storage.lifecycleEventsDefaultHours': { kind: 'default', dependsOn: [] },
+  'models.tierIds': { kind: 'values', dependsOn: [] },
   'protocols.reviewPresetIds': { kind: 'values', dependsOn: [] },
   'protocols.reviewPresetOrder': { kind: 'order', dependsOn: [] },
   'protocols.debatePresetIds': { kind: 'values', dependsOn: [] },
   'protocols.lensIds': { kind: 'values', dependsOn: [] },
+  'harnesses.primaryIds': { kind: 'values', dependsOn: [] },
+  'workers.ids': { kind: 'values', dependsOn: [] },
+  'workers.defaultRungs': { kind: 'default', dependsOn: [] },
 });
 
 /** The depth label of the strictest preset the risk rule picks (resolve-protocol.ts step 1). */
@@ -136,14 +146,53 @@ function protocolsLensIds(source: Source): string[] {
   });
 }
 
+/** `primary.harness` may be `unknown` (undeclared) or any registry harness id. */
+function harnessesPrimaryIds(source: Source): string[] {
+  const list = source(HARNESSES_FILE)?.harnesses;
+  const ids = Array.isArray(list) ? list.map((h: any) => h?.id) : [];
+  if (ids.length === 0 || ids.some((id: unknown) => typeof id !== 'string' || !id)) {
+    throw new Error(`${HARNESSES_FILE} harnesses[].id must be non-empty strings`);
+  }
+  return ['unknown', ...ids];
+}
+
+/** IC-003: schema membership comes from the worker catalogue, loaded only on demand. */
+function workersIds(source: Source): string[] {
+  const { knownWorkerIds } = require('../../registry/worker-ids.ts');
+  const { harnesses } = source(HARNESSES_FILE);
+  return knownWorkerIds({ registry: { harnesses } }).ids;
+}
+
+/** IC-003: the unset list contains shipped workers and the primary rung. */
+function workersDefaultRungs(source: Source): string[] {
+  const { shippedWorkerIds } = require('../../registry/worker-ids.ts');
+  const { harnesses } = source(HARNESSES_FILE);
+  return [...shippedWorkerIds({ harnesses }), 'primary'];
+}
+
+/** IC-002: model tiers come from the registry as distinct non-empty strings. */
+function modelsTierIds(source: Source): string[] {
+  const tiers = source(MODELS_FILE)?.dispatchTiers?.tiers;
+  if (!Array.isArray(tiers) || tiers.length === 0
+      || tiers.some((tier: unknown) => typeof tier !== 'string' || !tier)
+      || new Set(tiers).size !== tiers.length) {
+    throw new Error(`${MODELS_FILE} dispatchTiers.tiers must be a non-empty list of distinct non-empty strings`);
+  }
+  return tiers;
+}
+
 const RESOLVERS: Readonly<Record<string, (source: Source, deps: Deps) => unknown>> = Object.freeze({
   'advice.providerIds': adviceProviderIds,
   'advice.providerDefaultEndpoint': adviceProviderDefaultEndpoint,
   'storage.lifecycleEventsDefaultHours': storageLifecycleEventsDefaultHours,
+  'models.tierIds': modelsTierIds,
   'protocols.reviewPresetIds': protocolsReviewPresetIds,
   'protocols.reviewPresetOrder': protocolsReviewPresetOrder,
   'protocols.debatePresetIds': protocolsDebatePresetIds,
   'protocols.lensIds': protocolsLensIds,
+  'harnesses.primaryIds': harnessesPrimaryIds,
+  'workers.ids': workersIds,
+  'workers.defaultRungs': workersDefaultRungs,
 });
 
 interface Refs {

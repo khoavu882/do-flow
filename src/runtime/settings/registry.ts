@@ -11,11 +11,12 @@
  *
  * The checks that need no I/O live in `validateSettingsRegistry` (pure, takes the registry text
  * already parsed). `loadSettingsRegistry` adds the file read and, on request, the checks that reach
- * other files: `verifyRefs` resolves every `valuesRef`/`orderRef`/`defaultRef` against the registry
- * that owns it (refs.ts), `checkConsumers` confirms each `consumers` path exists. A key with an
- * `orderRef` carries its `order` on the loaded spec, resolved on first read (null when its source
- * cannot be read, as `enumValues` is), so consumers read `spec.order` whichever way it was declared. Both default to off so the
- * hot path pays for one small file read; the registry test and the settings guard turn them on.
+ * other files: `verifyRefs` resolves every `valuesRef`/`orderRef`/`tiersRef`/`defaultRef` against the
+ * registry that owns it (refs.ts), `checkConsumers` confirms each `consumers` path exists. A key with
+ * an `orderRef` carries its `order` on the loaded spec; `tiersRef` similarly supplies non-enumerable
+ * `tiers` (IC-002). Both resolve on first read and return null when unavailable, as `enumValues` does.
+ * Both verification options default to off so the hot path pays for one small file read; the
+ * registry test and the settings guard turn them on.
  */
 
 const nodeFs = require('node:fs');
@@ -27,10 +28,10 @@ const { jsonFailure, validateValue } = require('./files.ts');
 const REGISTRY_FILE = 'core/registry/settings.json';
 
 const KEY_RE = /^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
-const TYPES = ['boolean', 'enum', 'integer', 'string', 'string-list', 'url', 'worker-billing'];
+const TYPES = ['boolean', 'enum', 'integer', 'model-id', 'string', 'string-list', 'url', 'worker-billing', 'worker-list', 'worker-models'];
 const SCOPES = ['global-only', 'project-only', 'narrow-only', 'project-overridable'];
-const COMBINES = ['override', 'narrowest', 'union'];
-const PARSES = ['positive-int', 'off-words'];
+const COMBINES = ['override', 'narrowest', 'union', 'subset'];
+const PARSES = ['positive-int', 'off-words', 'verbatim'];
 const DIRECTIONS = ['any', 'narrow'];
 const LEGACY_LAYERS = ['user', 'project'];
 const LEGACY_KINDS = ['decision-model', 'line-onoff', 'sentinel'];
@@ -38,7 +39,7 @@ const VIEWS = ['project', 'global'];
 const SHELL_READS = [null, 'lexical-v1'];
 const TOP_FIELDS = ['version', 'description', 'keys'];
 const SPEC_FIELDS = [
-  'type', 'values', 'valuesRef', 'min', 'max', 'maxItems', 'maxLength', 'order', 'orderRef', 'default', 'defaultRef', 'scope', 'combine', 'views',
+  'type', 'values', 'valuesRef', 'tiersRef', 'min', 'max', 'maxItems', 'maxLength', 'order', 'orderRef', 'default', 'defaultRef', 'scope', 'combine', 'views',
   'securityRelevant', 'failSafe', 'requires', 'env', 'flag', 'shellRead', 'needsConfigHome', 'legacy',
   'consumers', 'description',
 ];
@@ -103,11 +104,11 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
   const refMeta = (name: unknown): { kind: string; dependsOn: string[] } | null =>
     typeof name === 'string' && has(refs.meta, name) ? refs.meta[name] : null;
 
-  // Allowed values of each enum key: its literal list, or its resolved ref when refs are resolved.
+  // Enum values and list membership: literal enum values, or the resolved ref when refs are resolved.
   const enumLists = new Map<string, string[] | null>();
   for (const name of names) {
     const spec = specs[name];
-    if (!isObject(spec) || (spec.type !== 'enum' && spec.type !== 'string-list')) continue;
+    if (!isObject(spec) || !['enum', 'string-list', 'worker-list', 'worker-models'].includes(spec.type)) continue;
     let list: string[] | null = null;
     if (spec.type === 'enum' && Array.isArray(spec.values) && spec.values.every((v: unknown) => typeof v === 'string')) list = spec.values;
     else if (typeof spec.valuesRef === 'string' && refs.resolve && refMeta(spec.valuesRef)?.kind === 'values') {
@@ -153,13 +154,29 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
         err("values must be a non-empty list of distinct non-empty strings");
       }
       if (hasRef && refMeta(spec.valuesRef)?.kind !== 'values') err(`valuesRef '${String(spec.valuesRef)}' is not a known values ref`);
-    } else if (type === 'string-list') {
-      if (has(spec, 'values')) err("'values' is not allowed for a string-list key (use 'valuesRef')");
+    } else if (type === 'string-list' || type === 'worker-list' || type === 'worker-models') {
+      if (has(spec, 'values')) err(`'values' is not allowed for a ${type} key (use 'valuesRef')`);
       if (has(spec, 'valuesRef') && refMeta(spec.valuesRef)?.kind !== 'values') err(`valuesRef '${String(spec.valuesRef)}' is not a known values ref`);
     } else {
       if (has(spec, 'values')) err("'values' is only for enum keys");
-      if (has(spec, 'valuesRef')) err("'valuesRef' is only for enum and string-list keys");
+      if (has(spec, 'valuesRef')) err("'valuesRef' is only for enum, string-list, worker-list and worker-models keys");
     }
+    // IC-002: worker model tiers are declared by a values ref, never copied into the setting.
+    if (type === 'worker-models') {
+      if (!has(spec, 'tiersRef')) err("a worker-models key needs 'tiersRef'");
+      else if (refMeta(spec.tiersRef)?.kind !== 'values') err(`tiersRef '${String(spec.tiersRef)}' is not a known values ref`);
+      else if (refs.resolve) {
+        try {
+          const tiers = refs.resolve(spec.tiersRef);
+          if (!Array.isArray(tiers) || tiers.length === 0 || tiers.some((tier: unknown) => typeof tier !== 'string')
+              || new Set(tiers).size !== tiers.length) {
+            err(`tiersRef '${spec.tiersRef}' did not resolve to a non-empty list of strings`);
+          }
+        } catch (error: any) {
+          err(`tiersRef '${spec.tiersRef}' does not resolve: ${error.message}`);
+        }
+      }
+    } else if (has(spec, 'tiersRef')) err("'tiersRef' is only for worker-models keys");
     if (has(spec, 'min')) {
       if (type !== 'integer') err("'min' is only for integer keys");
       else if (!Number.isSafeInteger(spec.min)) err('min must be an integer');
@@ -177,15 +194,20 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     // scope / combine / order
     if (!SCOPES.includes(spec.scope)) err(`scope must be one of ${SCOPES.join(', ')}`);
     if (!COMBINES.includes(spec.combine)) err(`combine must be one of ${COMBINES.join(', ')}`);
-    const free = type === 'string' || type === 'url';
-    // worker-billing is a structured record: no order ranks two records, only an override is defined.
+    const free = type === 'string' || type === 'url' || type === 'model-id';
+    // IC-002: keyed worker records have no order; only an override is defined.
     const record = type === 'worker-billing';
+    const models = type === 'worker-models';
+    const keyed = record || models;
     // string-list is a set of items: no order ranks two lists, only a union is defined.
     const multi = type === 'string-list';
-    if (spec.scope === 'narrow-only' && (free || record || multi)) err(`a ${type} key cannot be narrow-only: no order says which value is narrower`);
-    if (record && spec.combine !== 'override') err("a worker-billing key must combine by 'override'");
+    // IC-002: worker lists narrow by membership, preserving the order below.
+    const workerList = type === 'worker-list';
+    if (spec.scope === 'narrow-only' && (free || keyed || multi)) err(`a ${type} key cannot be narrow-only: no order says which value is narrower`);
+    if (keyed && spec.combine !== 'override') err(`a ${type} key must combine by 'override'`);
     if (multi !== (spec.combine === 'union')) err(multi ? "a string-list key must combine by 'union'" : "combine 'union' is only for string-list keys");
-    const needsOrder = spec.scope === 'narrow-only' || spec.combine === 'narrowest';
+    if (workerList !== (spec.combine === 'subset')) err(workerList ? "a worker-list key must combine by 'subset'" : "combine 'subset' is only for worker-list keys");
+    const needsOrder = (spec.scope === 'narrow-only' && spec.combine !== 'subset') || spec.combine === 'narrowest';
     const ordered = has(spec, 'order') || has(spec, 'orderRef');
     if (has(spec, 'orderRef')) {
       if (has(spec, 'order')) err("needs at most one of 'order' or 'orderRef'");
@@ -203,7 +225,7 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
       }
     } else if (has(spec, 'order')) {
       const order = spec.order;
-      if (free || record || multi) err(`order is refused for a ${type} key`);
+      if (free || keyed || multi || workerList) err(`order is refused for a ${type} key`);
       else if (order === 'ascending' || order === 'descending') {
         if (type !== 'integer') err("'ascending'/'descending' order is only for integer keys");
       } else if (!Array.isArray(order) || order.length === 0 || new Set(order).size !== order.length) {
@@ -223,8 +245,8 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     const hasDefault = has(spec, 'default');
     const hasDefaultRef = has(spec, 'defaultRef');
     if (hasDefault === hasDefaultRef) err("needs exactly one of 'default' or 'defaultRef'");
-    if (record && (!hasDefault || spec.default !== null)) err('a worker-billing key must default to null');
-    if (hasDefault && !(spec.default === null && (free || record || type === 'integer'))) {
+    if (keyed && (!hasDefault || spec.default !== null)) err(`a ${type} key must default to null`);
+    if (hasDefault && !(spec.default === null && (free || keyed || type === 'integer'))) {
       const fault = faultOf(spec.default);
       if (fault) err(`default is not valid: ${fault}`);
     }
@@ -249,23 +271,23 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
         if (fault) err(`failSafe is not valid: ${fault}`);
       }
     }
-    if (record && !(isObject(spec.failSafe) && sameList(Object.keys(spec.failSafe), ['state']) && spec.failSafe.state === 'invalid')) {
-      err("a worker-billing key needs failSafe {state: 'invalid'}");
+    if (keyed && !(isObject(spec.failSafe) && sameList(Object.keys(spec.failSafe), ['state']) && spec.failSafe.state === 'invalid')) {
+      err(`a ${type} key needs failSafe {state: 'invalid'}`);
     }
     if (spec.securityRelevant === true) {
       const safe = spec.failSafe;
-      // A record has no plain fail-safe value; its invalid state is the fail-safe (this type only).
+      // Records and worker lists use the consumer's invalid path as their fail-safe (IC-003).
       // A project-only key's candidates never widen (resolve.ts canWiden), so no fail-safe value is ever
       // taken; the consumer's invalid path voids it (worker/launch.ts dropDatabases), so the state form is allowed.
-      const stateSafe = (record || spec.scope === 'project-only') && isObject(safe) && safe.state === 'invalid';
+      const stateSafe = (keyed || workerList || spec.scope === 'project-only') && isObject(safe) && safe.state === 'invalid';
       if (!stateSafe && (!has(spec, 'failSafe') || (isObject(safe) && !has(safe, 'gate')))) err('is securityRelevant and needs a failSafe value or {gate}');
     }
 
     // A cross-key rule (resolve.ts requires) or a missing config home takes `value = spec.failSafe`; the state form
-    // is not a value, so it would resolve to the object {state: 'invalid'} with state ok (119 closure N-3). A record
-    // key (workers.billing) is the one type whose invalid state is its fail-safe, so it is exempt.
+    // is not a value, so it would resolve to the object {state: 'invalid'} with state ok (119 closure N-3).
+    // IC-003: billing retains its exemption; worker-models exempts only needsConfigHome, not requires.
     if (!record && isObject(spec.failSafe) && spec.failSafe.state === 'invalid'
-      && ((Array.isArray(spec.requires) && spec.requires.length > 0) || spec.needsConfigHome === true)) {
+      && ((Array.isArray(spec.requires) && spec.requires.length > 0) || (!models && spec.needsConfigHome === true))) {
       err("failSafe {state: 'invalid'} cannot be combined with 'requires' or 'needsConfigHome' (they resolve to the failSafe as a value)");
     }
 
@@ -293,6 +315,7 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
         if (!PARSES.includes(env.parse)) err(`env.parse must be one of ${PARSES.join(', ')}`);
         else if (env.parse === 'positive-int' && type !== 'integer') err('env.parse positive-int needs an integer key');
         else if (env.parse === 'off-words' && !(type === 'enum' && list?.includes('off'))) err("env.parse off-words needs an enum key with the value 'off'");
+        else if (env.parse === 'verbatim' && !(['enum', 'string', 'model-id'].includes(type) && env.direction === 'any')) err("env.parse verbatim needs an enum, string or model-id key with direction 'any'");
         if (!DIRECTIONS.includes(env.direction)) err(`env.direction must be one of ${DIRECTIONS.join(', ')}`);
         else if (env.direction === 'any' && (spec.securityRelevant === true || spec.scope === 'global-only')) {
           err("env.direction must be 'narrow': an environment variable may only narrow a security-relevant or global-only key");
@@ -463,6 +486,19 @@ function loadSettingsRegistry({ repoRoot = REPO_ROOT, fsImpl, verifyRefs = false
         },
       });
     }
+    // IC-002: resolve tiers lazily without adding a serialized field to the declared spec.
+    if (typeof spec.tiersRef === 'string') {
+      let tiers: string[] | null | undefined;
+      Object.defineProperty(spec, 'tiers', {
+        enumerable: false,
+        get() {
+          if (tiers === undefined) {
+            try { tiers = refs.resolve(spec.tiersRef) as string[]; } catch { tiers = null; }
+          }
+          return tiers;
+        },
+      });
+    }
     return [name, Object.freeze(spec)];
   }));
   const lists = new Map<string, string[] | null>();
@@ -473,7 +509,7 @@ function loadSettingsRegistry({ repoRoot = REPO_ROOT, fsImpl, verifyRefs = false
       if (lists.has(key)) return lists.get(key)!;
       const spec = keys.get(key);
       let list: string[] | null = null;
-      if (spec?.type === 'enum' || (spec?.type === 'string-list' && spec.valuesRef)) {
+      if (spec?.type === 'enum' || (['string-list', 'worker-list', 'worker-models'].includes(spec?.type) && spec.valuesRef)) {
         if (Array.isArray(spec.values)) list = spec.values;
         else {
           try { list = refs.resolve(spec.valuesRef) as string[]; } catch { list = null; }
