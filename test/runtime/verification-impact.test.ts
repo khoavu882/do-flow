@@ -378,3 +378,137 @@ test('negative control: treating unknown files as no-op turns the registry case 
   }, assert.AssertionError, 'unknown file expansion removal leaves mode as selected');
   assert.equal(out.mode, 'selected');
 });
+
+test('090 IC-001: test/** helper traversal selects tests importing helper or spawning CLI through helper', (t) => {
+  const { selectImpactedTests } = require('../../src/runtime/verification/impact.ts');
+  const { root, found } = fixtureProject(t, {
+    files: {
+      'test/runtime/prepared-run.test.js': "const { createEnv } = require('../helper/settings-fixtures');\n",
+      'test/runtime/direct-helper.test.js': "const { callLib } = require('../helper/lib-helper');\n",
+      'test/runtime/unrelated.test.js': "require('../../src/other.ts');\n",
+      'test/helper/settings-fixtures.js': "const { spawnSync } = require('node:child_process');\nfunction createEnv() { return spawnSync('bin/doflow', ['config']); }\nmodule.exports = { createEnv };\n",
+      'test/helper/lib-helper.js': "const lib = require('../../src/lib.ts');\nmodule.exports = { callLib: () => lib };\n",
+      'test/guards/g.test.js': "// guard\n",
+      'src/lib.ts': "// lib\n",
+      'src/other.ts': "// other\n",
+    },
+  });
+
+  // 1. Changing src/lib.ts reaches test/runtime/direct-helper.test.js via test/helper/lib-helper.js
+  // and reaches test/runtime/prepared-run.test.js via transitive spawn helper test/helper/settings-fixtures.js
+  const resLib = selectImpactedTests({ root, found, changedFiles: ['src/lib.ts'] });
+  assert.equal(resLib.mode, 'selected');
+  assert.deepEqual(resLib.unknownFiles, []);
+  assert.deepEqual(resLib.tests, [
+    'test/guards/g.test.js',
+    'test/runtime/direct-helper.test.js',
+    'test/runtime/prepared-run.test.js',
+  ]);
+
+  // 2. Editing test/helper/lib-helper.js directly selects direct-helper.test.js + guard without unknown expansion
+  const resHelper = selectImpactedTests({ root, found, changedFiles: ['test/helper/lib-helper.js'] });
+  assert.equal(resHelper.mode, 'selected');
+  assert.deepEqual(resHelper.unknownFiles, []);
+  assert.deepEqual(resHelper.tests, [
+    'test/guards/g.test.js',
+    'test/runtime/direct-helper.test.js',
+  ]);
+});
+
+test('090 IC-001: guard-covered paths stay selected when test/guards exists and expand to full when absent', (t) => {
+  const { selectImpactedTests } = require('../../src/runtime/verification/impact.ts');
+  const { root: withGuards, found: foundWithGuards } = fixtureProject(t, {
+    files: {
+      'test/a.test.js': "require('../src/a.ts');\n",
+      'test/guards/g.test.js': "// guard\n",
+      'src/a.ts': "// a\n",
+      'CHANGELOG.md': "# Changelog\n",
+      'docs/reference.md': "# Ref\n",
+      'agent-docs/DOFLOW-ROADMAP.md': "# Roadmap\n",
+    },
+  });
+
+  const resWithGuards = selectImpactedTests({
+    root: withGuards,
+    found: foundWithGuards,
+    changedFiles: ['src/a.ts', 'CHANGELOG.md', 'docs/reference.md', 'agent-docs/DOFLOW-ROADMAP.md'],
+  });
+  assert.equal(resWithGuards.mode, 'selected');
+  assert.deepEqual(resWithGuards.unknownFiles, []);
+  assert.deepEqual(resWithGuards.tests, ['test/a.test.js', 'test/guards/g.test.js']);
+
+  // Negative control: when test/guards directory does not exist, docs/CHANGELOG are unknownFiles -> mode: 'full'
+  const { root: noGuards, found: foundNoGuards } = fixtureProject(t, {
+    files: {
+      'test/a.test.js': "require('../src/a.ts');\n",
+      'src/a.ts': "// a\n",
+      'docs/reference.md': "# Ref\n",
+    },
+  });
+  const resNoGuards = selectImpactedTests({
+    root: noGuards,
+    found: foundNoGuards,
+    changedFiles: ['src/a.ts', 'docs/reference.md'],
+  });
+  assert.equal(resNoGuards.mode, 'full');
+  assert.deepEqual(resNoGuards.unknownFiles, ['docs/reference.md']);
+});
+
+test('090 IC-001: CLI hub cutting and verb-scoped spawn edges isolate verb subgraphs while preserving hub and wildcard fallback', (t) => {
+  const { selectImpactedTests } = require('../../src/runtime/verification/impact.ts');
+  const { root, found } = fixtureProject(t, {
+    files: {
+      'bin/doflow.js': "require('../src/cli/index.ts');\n",
+      'src/cli/index.ts': "const { dispatchRuntimeCommand } = require('./runtime-commands.ts');\nconst cmdInstall = require('./commands/install.ts');\nconst COMMANDS = { install: cmdInstall };\n",
+      'src/cli/commands/install.ts': "module.exports = function install() {};\n",
+      'src/cli/runtime-commands.ts': "const { handleConfigCommand } = require('../runtime/settings/cli.ts');\nconst { handleLeakScanCommand } = require('../runtime/leak-scan.ts');\nfunction dispatch(o) {\n  switch (o.cmd) {\n    case 'config': return handleConfigCommand(o);\n    case 'leak-scan': return handleLeakScanCommand(o);\n  }\n}\nmodule.exports = { dispatch };\n",
+      'src/runtime/settings/cli.ts': "const { checkPrepared } = require('./prepared-run.ts');\nmodule.exports = { handleConfigCommand: () => checkPrepared() };\n",
+      'src/runtime/settings/prepared-run.ts': "module.exports = { checkPrepared: () => true };\n",
+      'src/runtime/leak-scan.ts': "module.exports = { handleLeakScanCommand: () => true };\n",
+      'test/config-spawn.test.js': "const { spawnSync } = require('node:child_process');\nspawnSync('bin/doflow', ['config', 'validate']);\n",
+      'test/leak-spawn.test.js': "const { spawnSync } = require('node:child_process');\nspawnSync('bin/doflow', ['leak-scan', '.']);\n",
+      'test/dynamic-spawn.test.js': "const { spawnSync } = require('node:child_process');\nconst args = process.argv.slice(2);\nspawnSync('bin/doflow', args);\n",
+      'test/guards/g.test.js': "// guard\n",
+    },
+  });
+
+  // Changing prepared-run.ts (under 'config' verb) selects config-spawn + dynamic-spawn + guard, NOT leak-spawn
+  const resConfig = selectImpactedTests({ root, found, changedFiles: ['src/runtime/settings/prepared-run.ts'] });
+  assert.equal(resConfig.mode, 'selected');
+  assert.deepEqual(resConfig.tests, [
+    'test/config-spawn.test.js',
+    'test/dynamic-spawn.test.js',
+    'test/guards/g.test.js',
+  ]);
+
+  // Changing runtime-commands.ts hub itself selects ALL spawn tests (config-spawn, leak-spawn, dynamic-spawn) + guard
+  const resHub = selectImpactedTests({ root, found, changedFiles: ['src/cli/runtime-commands.ts'] });
+  assert.equal(resHub.mode, 'selected');
+  assert.deepEqual(resHub.tests, [
+    'test/config-spawn.test.js',
+    'test/dynamic-spawn.test.js',
+    'test/guards/g.test.js',
+    'test/leak-spawn.test.js',
+  ]);
+});
+
+test('090 IC-002: resolveTestsImportingHelper resolves transitive test importers and handles cycles', (t) => {
+  const { resolveTestsImportingHelper } = require('../../src/runtime/verification/impact.ts');
+  const { root, found } = fixtureProject(t, {
+    files: {
+      'test/hooks/a.test.js': "require('./prompt-nudge.shared.js');\n",
+      'test/hooks/b.test.js': "require('../helper/mid-helper.js');\n",
+      'test/hooks/unrelated.test.js': "// unrelated\n",
+      'test/helper/mid-helper.js': "require('../hooks/prompt-nudge.shared.js');\n",
+      'test/hooks/prompt-nudge.shared.js': "require('../helper/mid-helper.js');\n", // cycle between helpers
+    },
+  });
+
+  const importing = resolveTestsImportingHelper({
+    root,
+    found,
+    helperFiles: ['test/hooks/prompt-nudge.shared.js'],
+  });
+  assert.deepEqual(importing, ['test/hooks/a.test.js', 'test/hooks/b.test.js']);
+});
+

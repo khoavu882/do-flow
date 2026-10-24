@@ -33,6 +33,7 @@ const { checkKeyV2, headCommit, treeState } = require('./check-key.ts');
 const { runInflight } = require('./inflight.ts');
 const { levelOf, reuseApplies, v0Applies } = require('./registry.ts');
 const { evictReuse, lookupReuse, reuseDir, storeReuse } = require('./reuse.ts');
+const { resolveTestsImportingHelper } = require('./impact.ts');
 
 /** A failing check whose name contains one of these aborts the remaining checks: once the build is
  * broken, every later result describes the broken build rather than the change. */
@@ -172,10 +173,12 @@ function extractFailedFiles(
   {
     root,
     convention,
+    found,
     fsImpl = fs,
   }: {
     root?: string;
-    convention?: { isTest?: (file: string) => boolean };
+    convention?: { isTest?: (file: string) => boolean; roots?: string[]; found?: any };
+    found?: any;
     fsImpl?: any;
   } = {},
 ): string[] {
@@ -267,10 +270,26 @@ function extractFailedFiles(
     if (!st || !st.isFile() || st.isDirectory()) {
       continue;
     }
-    if (!convention.isTest(normalized)) {
+    if (convention.isTest(normalized)) {
+      validFiles.add(normalized);
       continue;
     }
-    validFiles.add(normalized);
+    // IC-004: when location is a non-test helper under convention.roots, map to importing .test.* files
+    const underRoots = Array.isArray(convention.roots)
+      ? convention.roots.some((r: string) => normalized === r || normalized.startsWith(`${r}/`))
+      : normalized.startsWith('test/');
+    if (underRoots) {
+      const targetFound = found || convention.found || { source: 'package.json', testDirs: convention.roots || ['test'] };
+      const importing = resolveTestsImportingHelper({
+        root: realRoot,
+        found: targetFound,
+        helperFiles: [normalized],
+        fsImpl,
+      });
+      for (const t of importing) {
+        validFiles.add(t);
+      }
+    }
   }
 
   return [...validFiles].sort();
@@ -533,6 +552,7 @@ class VerificationContractRunner {
         const failedFiles = extractFailedFiles(full, {
           root: this.cwd,
           convention: this.convention,
+          found: (this.convention as any).found || (this as any).found,
           fsImpl: this.fsImpl,
         });
         if (failedFiles.length > 0) result.failedFiles = failedFiles;

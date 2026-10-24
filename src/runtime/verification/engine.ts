@@ -26,7 +26,8 @@ const os = require('node:os');
 const nodeFs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const { detectCommands, applyTargetPattern, TARGET_PATTERN_TOKEN } = require('../command-detect.ts');
-const { selectChangedTests, testFilesFor, conventionFor, quotePath } = require('./test-selection.ts');
+const { selectChangedTests, formatSelectedTestPattern, testFilesFor, conventionFor, quotePath } = require('./test-selection.ts');
+const { selectImpactedTests } = require('./impact.ts');
 const { RecoveryManager } = require('../recovery.ts');
 const { finishRuntime, usageError } = require('../cli-result.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
@@ -282,7 +283,8 @@ class VerificationEngine {
       if (!required && !advisory) return base;
 
       if (tier.source === 'detected-command') {
-        const selectorContext = { changedFiles: input.changedFiles, scope, root: detection.projectRoot || input.projectRoot || this.cwd };
+        const v0Active = Boolean(this.v0 && v0Applies(this.registry, riskLevel));
+        const selectorContext = { changedFiles: input.changedFiles, scope, root: detection.projectRoot || input.projectRoot || this.cwd, v0Active, riskLevel };
         return Object.assign(base, this.resolveCommandTier(tier, detection, declaredNone, absent, input.targetPattern, selectorContext));
       }
       if (tier.source === 'caller-supplied' && tier.id === 'structural-invariants') {
@@ -416,6 +418,47 @@ class VerificationEngine {
             selection = selected.selection;
           } else {
             selection = { basis: 'none', selectedCount: null, totalCount: null, fallback: 'not-scopable' };
+          }
+
+          // Feature 090 (IC-003): when v0 is active and files changed, augment with static impact analysis
+          const v0Active = ctx.v0Active !== undefined ? ctx.v0Active : Boolean(this.v0);
+          if (v0Active && observation && Array.isArray(observation.files) && observation.files.length > 0) {
+            const conv = conventionFor(found);
+            if (conv) {
+              const hasNonTest = observation.files.some((f: string) => !conv.isTest(f));
+              const noChangedTests = selected && selected.pattern === null && selected.selection?.fallback === 'no-changed-tests';
+              if (hasNonTest || noChangedTests) {
+                const impact = selectImpactedTests({
+                  root: ctx.root || this.cwd,
+                  found,
+                  changedFiles: observation.files,
+                  fsImpl: this.fsImpl,
+                });
+                if (impact && impact.mode === 'selected' && impact.tests.length > 0 && impact.tests.length < impact.totalCount) {
+                  const directlyChanged = observation.files.filter((f: string) => conv.isTest(f));
+                  const combined = [...new Set([...directlyChanged, ...impact.tests])].sort();
+                  pattern = formatSelectedTestPattern({
+                    selectedTests: combined,
+                    guardDir: conv.guardDir,
+                    platform: process.platform,
+                  });
+                  selection = {
+                    basis: 'impacted-tests',
+                    selectedCount: combined.length,
+                    totalCount: impact.totalCount,
+                    fallback: null,
+                  };
+                } else if (impact && impact.mode === 'full') {
+                  pattern = null;
+                  selection = {
+                    basis: 'none',
+                    selectedCount: null,
+                    totalCount: impact.totalCount,
+                    fallback: 'unknown-files',
+                  };
+                }
+              }
+            }
           }
         }
       }
@@ -842,10 +885,11 @@ class VerificationEngine {
           try {
             const savedCheck = failedFirstState?.checks?.[check.name]
               || (failedFirstState?.checks ? Object.values(failedFirstState.checks).find((c: any) => c && c.cmd === sha16(check.command)) : null);
-            const strikes = Number.isSafeInteger(savedCheck?.strikes) && savedCheck.strikes >= 0 ? savedCheck.strikes : 0;
+            const cmdChanged = savedCheck ? savedCheck.cmd !== sha16(check.command) : false;
+            const effectiveStrikes = cmdChanged ? 0 : (Number.isSafeInteger(savedCheck?.strikes) && savedCheck.strikes >= 0 ? savedCheck.strikes : 0);
             // A file can fail in isolation while the full suite passes (for example, suite setup).
             // After two narrowed failures, recheck the full scope so saved state cannot pin FAIL.
-            if (savedCheck && strikes < 2 && savedCheck.cmd === sha16(check.command) && Array.isArray(savedCheck.files) && savedCheck.files.length > 0) {
+            if (savedCheck && effectiveStrikes < 2 && Array.isArray(savedCheck.files) && savedCheck.files.length > 0) {
               const universeFiles = testFilesFor(foundTargeted, this.cwd, this.fsImpl);
               matchedFiles = universeFiles.filter((f: string) => savedCheck.files.includes(sha16(f)));
               if (matchedFiles.length > 0) {
@@ -854,7 +898,7 @@ class VerificationEngine {
                 if (sub.substituted && sub.command) {
                   narrowedCommand = sub.command;
                   runNarrowed = true;
-                  narrowedStrikes = strikes;
+                  narrowedStrikes = effectiveStrikes;
                 }
               }
             }
@@ -1186,7 +1230,23 @@ class VerificationEngine {
   failureSignature(report: any): string {
     const failed = [...(report.failedChecks || [])].sort().join('|');
     const unresolved = (report.unresolved || []).map((u: any) => u.tier).sort().join('|');
-    return `${report.status}::${failed}::${unresolved}`;
+    const failedFiles = new Set<string>();
+    const failedTests = new Set<string>();
+    for (const tier of (report.tiers || [])) {
+      for (const check of (tier.checks || [])) {
+        if (check.status === 'FAIL') {
+          if (Array.isArray(check.failedFiles)) {
+            for (const f of check.failedFiles) failedFiles.add(f);
+          }
+          if (Array.isArray(check.failedTests)) {
+            for (const t of check.failedTests) failedTests.add(t);
+          }
+        }
+      }
+    }
+    const filesPart = [...failedFiles].sort().join('|');
+    const testsPart = [...failedTests].sort().join('|');
+    return `${report.status}::${failed}::${unresolved}::${filesPart}::${testsPart}`;
   }
 
   /**

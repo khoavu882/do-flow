@@ -51,8 +51,8 @@ function fakeExec({ failing = () => false, gitStatus = null }: any = {}): any {
   return { exec, calls };
 }
 
-function compile(root: any, { risk = 'LOW', changedFiles, exec, targetPattern }: any = {}) {
-  const engine: any = new VerificationEngine({ cwd: root, repoRoot: REPO, exec });
+function compile(root: any, { risk = 'LOW', changedFiles, exec, targetPattern, v0 = false }: any = {}) {
+  const engine: any = new VerificationEngine({ cwd: root, repoRoot: REPO, exec, v0 });
   const contract = engine.compileContract({
     taskId: 'A.1',
     riskLevel: risk,
@@ -366,4 +366,73 @@ test('review 4: on win32 a path holding `%` or `!` is not selectable and the bro
   const posix = selectChangedTests({ found, observation: { files: ['test/100%.test.js'] }, root, platform: 'linux' });
   assert.equal(posix.pattern, "'test/100%.test.js'");
   assert.equal(quotePath('test/100%.test.js', 'linux'), "'test/100%.test.js'");
+});
+
+test('090 IC-003: testFilesFor discovers .test.ts files', () => {
+  const root = project({ files: { 'test/a.test.ts': '', 'test/b.test.js': '', 'test/c.txt': '' } });
+  const found = detectCommands({ projectRoot: root }).commands.testTargeted;
+  const { testFilesFor } = require('../../src/runtime/verification/test-selection.ts');
+  const files = testFilesFor(found, root);
+  assert.deepEqual(files, ['test/a.test.ts', 'test/b.test.js']);
+});
+
+test('090 IC-003: formatSelectedTestPattern replaces files under guardDir with single token and shell quotes', () => {
+  const { formatSelectedTestPattern } = require('../../src/runtime/verification/test-selection.ts');
+  const pattern = formatSelectedTestPattern({
+    selectedTests: ['test/b.test.js', 'test/guards/g1.test.js', 'test/guards/g2.test.js', 'test/a test.js'],
+    guardDir: 'test/guards',
+    platform: 'linux',
+  });
+  assert.equal(pattern, "'test/a test.js' test/b.test.js test/guards/");
+});
+
+test('090 IC-003: v0Active wires selectImpactedTests into targeted-tests for source changes and falls back on unknown files', () => {
+  const root = project({
+    files: {
+      'src/lib.ts': '// lib\n',
+      'src/other.ts': '// other\n',
+      'test/a.test.js': "require('../src/lib.ts');\n",
+      'test/b.test.js': "require('../src/other.ts');\n",
+      'test/guards/g.test.js': '// guard\n',
+      'core/registry/something.json': '{}\n',
+    },
+  });
+
+  // 1. When v0 is active, changing src/lib.ts selects test/a.test.js + test/guards/ via impacted-tests
+  const engineV0 = new VerificationEngine({ cwd: root, repoRoot: REPO, v0: true });
+  const contractV0 = engineV0.compileContract({
+    taskId: 'A.1',
+    riskLevel: 'LOW',
+    projectRoot: root,
+    changedFiles: ['src/lib.ts'],
+  });
+  const targetedV0 = contractV0.tiers.find((t: any) => t.id === 'targeted-tests');
+  assert.equal(targetedV0.resolution, 'RESOLVED');
+  assert.equal(targetedV0.selection.basis, 'impacted-tests');
+  assert.equal(targetedV0.checks[0].command, "node --test test/a.test.js test/guards/");
+
+  // 2. When v0 is active and an unknown file changes, fallback to broad command with unknown-files
+  const contractUnknown = engineV0.compileContract({
+    taskId: 'A.1',
+    riskLevel: 'LOW',
+    projectRoot: root,
+    changedFiles: ['core/registry/something.json'],
+  });
+  const targetedUnknown = contractUnknown.tiers.find((t: any) => t.id === 'targeted-tests');
+  assert.equal(targetedUnknown.checks[0].role, 'test');
+  assert.equal(targetedUnknown.checks[0].command, 'npm test');
+  assert.equal(targetedUnknown.selection.fallback, 'unknown-files');
+
+  // 3. Negative control: when v0 is false, changing src/lib.ts records no-changed-tests and runs broad command
+  const engineNoV0 = new VerificationEngine({ cwd: root, repoRoot: REPO, v0: false });
+  const contractNoV0 = engineNoV0.compileContract({
+    taskId: 'A.1',
+    riskLevel: 'LOW',
+    projectRoot: root,
+    changedFiles: ['src/lib.ts'],
+  });
+  const targetedNoV0 = contractNoV0.tiers.find((t: any) => t.id === 'targeted-tests');
+  assert.equal(targetedNoV0.checks[0].role, 'test');
+  assert.equal(targetedNoV0.checks[0].command, 'npm test');
+  assert.equal(targetedNoV0.selection.fallback, 'no-changed-tests');
 });
