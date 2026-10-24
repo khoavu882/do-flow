@@ -26,7 +26,8 @@ const os = require('node:os');
 const nodeFs = require('node:fs');
 const { spawnSync } = require('node:child_process');
 const { detectCommands, applyTargetPattern, TARGET_PATTERN_TOKEN } = require('../command-detect.ts');
-const { selectChangedTests, testFilesFor, conventionFor, quotePath } = require('./test-selection.ts');
+const { selectChangedTests, formatSelectedTestPattern, testFilesFor, conventionFor, quotePath } = require('./test-selection.ts');
+const { selectImpactedTests } = require('./impact.ts');
 const { RecoveryManager } = require('../recovery.ts');
 const { finishRuntime, usageError } = require('../cli-result.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
@@ -282,7 +283,8 @@ class VerificationEngine {
       if (!required && !advisory) return base;
 
       if (tier.source === 'detected-command') {
-        const selectorContext = { changedFiles: input.changedFiles, scope, root: detection.projectRoot || input.projectRoot || this.cwd };
+        const v0Active = Boolean(this.v0 && v0Applies(this.registry, riskLevel));
+        const selectorContext = { changedFiles: input.changedFiles, scope, root: detection.projectRoot || input.projectRoot || this.cwd, v0Active, riskLevel };
         return Object.assign(base, this.resolveCommandTier(tier, detection, declaredNone, absent, input.targetPattern, selectorContext));
       }
       if (tier.source === 'caller-supplied' && tier.id === 'structural-invariants') {
@@ -416,6 +418,47 @@ class VerificationEngine {
             selection = selected.selection;
           } else {
             selection = { basis: 'none', selectedCount: null, totalCount: null, fallback: 'not-scopable' };
+          }
+
+          // Feature 090 (IC-003): when v0 is active and files changed, augment with static impact analysis
+          const v0Active = ctx.v0Active !== undefined ? ctx.v0Active : Boolean(this.v0);
+          if (v0Active && observation && Array.isArray(observation.files) && observation.files.length > 0) {
+            const conv = conventionFor(found);
+            if (conv) {
+              const hasNonTest = observation.files.some((f: string) => !conv.isTest(f));
+              const noChangedTests = selected && selected.pattern === null && selected.selection?.fallback === 'no-changed-tests';
+              if (hasNonTest || noChangedTests) {
+                const impact = selectImpactedTests({
+                  root: ctx.root || this.cwd,
+                  found,
+                  changedFiles: observation.files,
+                  fsImpl: this.fsImpl,
+                });
+                if (impact && impact.mode === 'selected' && impact.tests.length > 0 && impact.tests.length < impact.totalCount) {
+                  const directlyChanged = observation.files.filter((f: string) => conv.isTest(f));
+                  const combined = [...new Set([...directlyChanged, ...impact.tests])].sort();
+                  pattern = formatSelectedTestPattern({
+                    selectedTests: combined,
+                    guardDir: conv.guardDir,
+                    platform: process.platform,
+                  });
+                  selection = {
+                    basis: 'impacted-tests',
+                    selectedCount: combined.length,
+                    totalCount: impact.totalCount,
+                    fallback: null,
+                  };
+                } else if (impact && impact.mode === 'full') {
+                  pattern = null;
+                  selection = {
+                    basis: 'none',
+                    selectedCount: null,
+                    totalCount: impact.totalCount,
+                    fallback: 'unknown-files',
+                  };
+                }
+              }
+            }
           }
         }
       }
