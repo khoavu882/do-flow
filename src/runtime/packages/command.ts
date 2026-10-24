@@ -35,10 +35,10 @@ const os = require('node:os');
 const { planPackage, planRemote, applyPlan, removeEntry, PLAN_ID } = require('./store.ts');
 const { readIndex, pickVersion } = require('./index-file.ts');
 const { configHome } = require('../config-home.ts');
-const { GRANTS_FILE, readGrants } = require('./grants.ts');
+const { GRANTS_FILE, readGrants, duplicateKey } = require('./grants.ts');
 const { parseSource, fetchGrantLine } = require('./source.ts');
 const { acquireRunLock } = require('../../state/run-lock.ts');
-const { readState, appendAudit, recordRevocation, recordSuspension, clearSuspension, recordTombstone, repairState } = require('./state.ts');
+const { readState, appendAudit, recordRevocation, recordSuspension, clearSuspension, recordTombstone, repairState, grantRevoked } = require('./state.ts');
 const { capabilityDigest } = require('./digest.ts');
 const { satisfiesHostRange } = require('../../helper/semver.ts');
 const { isPackageId } = require('../../helper/package-ids.ts');
@@ -246,7 +246,12 @@ function handlePlan({ action, source, index, packageVersion, id, json, repoRoot,
     : planPackage({ action, source: typeof source === 'string' ? path.resolve(source) : undefined, id, homeDir, repoRoot, registry });
   if (!result.ok) return refusal(json, out, result.findings, `package refused: ${remote ? label : typeof source === 'string' ? path.resolve(source) : id}`);
   const { plan, planFile } = result;
-  if (json) { out(JSON.stringify({ ok: true, planFile, plan })); return finishRuntime(0); }
+  const prior = plan.grantLines.trust ? priorGrant({ env, projectRoot, tmpDir, homeDir }, plan.grantLines.trust) : null;
+  if (json) {
+    const said = prior?.status === 'granted' ? { alreadyGranted: prior.lineNumber } : prior?.status === 'replace' ? { replaceLine: prior.lineNumber } : {};
+    out(JSON.stringify({ ok: true, planFile, plan, ...said }));
+    return finishRuntime(0);
+  }
   if (plan.source.type === 'git') out(`pinned ${plan.source.url} ${plan.source.commit}`);
   if (plan.source.type === 'npm') out(`pinned ${plan.source.name}@${plan.source.version}`);
   const from = plan.source.type === 'local' ? plan.source.path : plan.source.type === 'git' ? plan.source.url : plan.source.name;
@@ -264,9 +269,10 @@ function handlePlan({ action, source, index, packageVersion, id, json, repoRoot,
   out(`contentDigest ${plan.contentDigest}`);
   out(`capabilityDigest ${plan.capabilityDigest}`);
   if (plan.grantLines.trust) {
-    const dir = configHome(env).dir;
-    out(dir === null ? 'this package needs a trust grant, but there is no config home, so none can exist' : `this package needs a trust grant; a person appends this line to ${path.join(dir, GRANTS_FILE)} (DoFlow never writes that file):`);
-    out(plan.grantLines.trust);
+    const file = grantsPath(env);
+    const lines = file === null ? ['this package needs a trust grant, but there is no config home, so none can exist', plan.grantLines.trust]
+      : appendInstruction(env, plan.grantLines.trust, 'this package needs a trust grant', prior);
+    for (const line of lines) out(line);
   }
   out(`apply with: doflow package --action ${action} --plan ${plan.planId}`);
   return finishRuntime(0);
@@ -292,6 +298,36 @@ const grantsPath = (env: any): string | null => {
   return dir === null ? null : path.join(dir, GRANTS_FILE);
 };
 
+/**
+ * What the person does with a `trust` or `exempt` line DoFlow is about to print (IC-008, FU-92eftv), judged from the
+ * grants file as it reads now (`o`: `env`, `projectRoot`, `tmpDir`, `homeDir`): `new` (append it), `granted` (line
+ * `lineNumber` has its key and grants it) or `replace` (line `lineNumber` has its key but is revoked, or exempts another
+ * host: a second line with that key voids the file, so the printed line takes its place). A grants file that is
+ * unreadable or ignored grants nothing to judge: `new`, as before. Reads only.
+ */
+function priorGrant(o: any, line: string): { status: 'new' | 'granted' | 'replace'; lineNumber?: number } {
+  const grant = JSON.parse(line);
+  const read = readGrants({ env: o.env, projectRoot: o.projectRoot, ...(o.tmpDir === undefined ? {} : { tmpDir: o.tmpDir }) });
+  const same = read.grants.find((g: any) => duplicateKey(g) === duplicateKey(grant));
+  if (!same) return { status: 'new' };
+  const holds = (grant.grant !== 'exempt' || same.host === grant.host) && !grantRevoked(readState({ homeDir: o.homeDir }), same);
+  return { status: holds ? 'granted' : 'replace', lineNumber: same.line };
+}
+
+/** The text for a line the person already has (`granted`) or puts in place of line N (`replace`); null for `new`. */
+function priorText(file: string, line: string, prior: any, what: string): string[] | null {
+  if (prior.status === 'granted') return [`${what}; already granted by line ${prior.lineNumber} of ${file}`];
+  if (prior.status === 'replace') {
+    return [`${what}; a person edits that file (DoFlow never writes it): replace line ${prior.lineNumber} of ${file} with this line (a second line with the same key voids the file):`, line];
+  }
+  return null;
+}
+
+/** The `--json` keys for a printed line: `alreadyGranted: N` and no line, or `grantLines` (plus `replaceLine: N`). */
+const priorJson = (kind: string, line: string, prior: any): any => (prior.status === 'granted'
+  ? { alreadyGranted: prior.lineNumber }
+  : { grantLines: { [kind]: line }, ...(prior.status === 'replace' ? { replaceLine: prior.lineNumber } : {}) });
+
 /** `add --plan <planId>` and `update --plan <planId>`: apply a plan. Exit 0 applied, 1 refused or failed. */
 function handleApply(o: any): number {
   const { action, plan, json, repoRoot, homeDir, env, hooks, out } = o;
@@ -305,17 +341,22 @@ function handleApply(o: any): number {
     let retrust: string[] = [];
     let retrustLine: string | null = null;
     let retrustNote: string | null = null;
+    let retrustPrior: any = { status: 'new' };
     if (result.action === 'update' && before.has(result.id) && before.get(result.id) !== result.contentDigest) {
       const pkg = freshView(o).packages.find((p: any) => p.id === result.id);
       if (pkg && TIER_ORDER.indexOf(pkg.tierMax) > 0) {
         retrustLine = trustLineFor({ id: result.id, version: result.version, contentDigest: result.contentDigest, capabilityDigest: result.capabilityDigest }, trustPolicy(repoRoot), o.now);
+        retrustPrior = priorGrant(o, retrustLine);
         const file = grantsPath(env);
         retrust = file === null
           ? [`${result.id} acts again only after a person adds it, but there is no config home, so no grant can exist; the line would be:`, retrustLine]
-          : [`${result.id} acts again only after a person adds it: append this line to ${file} (an older trust line for ${result.id} ${result.version} may stay: it no longer grants; DoFlow never writes that file):`, retrustLine];
+          : priorText(file, retrustLine, retrustPrior, retrustPrior.status === 'granted' ? `${result.id} needs no new trust line` : `${result.id} acts again only after a person adds it`)
+            ?? [`${result.id} acts again only after a person adds it: append this line to ${file} (an older trust line for ${result.id} ${result.version} may stay: it no longer grants; DoFlow never writes that file):`, retrustLine];
         retrustNote = file === null
           ? 'the package acts again only after a person adds that line to the grants file; there is no config home, so no grant can exist'
-          : `the package acts again only after a person adds that line to ${file}`;
+          : retrustPrior.status === 'granted' ? null
+            : retrustPrior.status === 'replace' ? `the package acts again only after a person puts that line in place of line ${retrustPrior.lineNumber} of ${file}`
+              : `the package acts again only after a person adds that line to ${file}`;
       }
     }
     // A changed content digest leaves the package without a valid grant above inert: its skills and agents go (IC-017).
@@ -324,7 +365,7 @@ function handleApply(o: any): number {
       const hold = acquireRunLock({ scopeRoot: homeDir, scope: 'global', command: 'package update' });
       try { sync = syncProjection(o); } finally { hold.release(); }
     }
-    if (json) out(JSON.stringify({ ...result, ...(retrustLine ? { grantLines: { trust: retrustLine }, grantFile: grantsPath(env), note: retrustNote } : {}), ...(sync ? projectionJson(sync) : {}) }));
+    if (json) out(JSON.stringify({ ...result, ...(retrustLine ? { ...priorJson('trust', retrustLine, retrustPrior), grantFile: grantsPath(env), ...(retrustNote ? { note: retrustNote } : {}) } : {}), ...(sync ? projectionJson(sync) : {}) }));
     else {
       out(`${result.action === 'add' ? 'added' : 'updated'} ${result.id} ${result.version} ${result.enabled ? 'enabled' : 'disabled'}`);
       out(`store ${result.storeDir}`);
@@ -450,12 +491,14 @@ const removedAny = (sync: any): boolean => sync.unprojected.length > 0 || sync.k
 
 // ── verb actions (B.6): enable, disable, trust, exempt, revoke, verify ──────────────────────────────
 
-/** Lines telling a person to append `line` to the grants file (or that no grant can exist without a config home). */
-function appendInstruction(env: any, line: string, what: string): string[] {
+/**
+ * Lines telling a person what to do with `line` (`prior` from `priorGrant`): append it, replace line N with it, or
+ * nothing because line N already grants it; or that no grant can exist without a config home.
+ */
+function appendInstruction(env: any, line: string, what: string, prior: any = { status: 'new' }): string[] {
   const file = grantsPath(env);
-  return file === null
-    ? [`there is no config home (set XDG_CONFIG_HOME or HOME), so no grant can exist and ${what}; the line would be:`, line]
-    : [`${what}; a person appends this line to ${file} (DoFlow never writes that file):`, line];
+  if (file === null) return [`there is no config home (set XDG_CONFIG_HOME or HOME), so no grant can exist and ${what}; the line would be:`, line];
+  return priorText(file, line, prior, what) ?? [`${what}; a person appends this line to ${file} (DoFlow never writes that file):`, line];
 }
 
 const stamp = (o: any): string => new Date(o.now).toISOString();
@@ -514,17 +557,19 @@ function reportState(o: any, after: any, extra: string[] = [], sync: any = null)
   const matched = matchedGrants(after, o);
   const owes = after.state === 'needs-trust';
   const row = owes ? rowOf(o, after.id) : null;
-  const line = row ? trustLineFor(row, trustPolicy(o.repoRoot), o.now) : null;
+  // The capability digest the view judges a grant against (recomputed under the running policy), not the lock's copy.
+  const line = row ? trustLineFor({ ...row, capabilityDigest: after.capabilityDigest }, trustPolicy(o.repoRoot), o.now) : null;
+  const prior = line ? priorGrant(o, line) : null;
   const file = grantsPath(o.env);
   if (o.json) {
     o.out(JSON.stringify({ ok: true, action: o.action, id: after.id, state: after.state, reasons: after.reasons, enabled: after.enabled, matched,
-      ...(line ? { grantLines: { trust: line }, grantFile: file } : {}), ...(sync ? projectionJson(sync) : {}) }));
+      ...(line ? { ...priorJson('trust', line, prior), grantFile: file } : {}), ...(sync ? projectionJson(sync) : {}) }));
   } else {
     o.out(stateLine(after));
     for (const text of extra) o.out(text);
     if (line) {
       o.out(`${after.id} is enabled but needs a trust grant (${after.reasons.join(', ')}); it acts only after a person adds the line`);
-      for (const text of appendInstruction(o.env, line, `${after.id} stays inactive until the grant exists`)) o.out(text);
+      for (const text of appendInstruction(o.env, line, `${after.id} stays inactive until the grant exists`, prior)) o.out(text);
       if (after.reasons.includes('state-unreadable')) o.out('state.json or the grants file is unreadable: see package --action verify --repair');
     }
     for (const text of matchedText(matched)) o.out(text);
@@ -566,12 +611,14 @@ function verbTrust(o: any, pkg: any): number {
     return finishRuntime(0);
   }
   const row = rowOf(o, pkg.id);
-  const line = trustLineFor(row, trustPolicy(o.repoRoot), o.now);
+  // The capability digest the view judges a grant against (recomputed under the running policy), not the lock's copy.
+  const line = trustLineFor({ ...row, capabilityDigest: pkg.capabilityDigest }, trustPolicy(o.repoRoot), o.now);
+  const prior = priorGrant(o, line);
   const required = TIER_ORDER.indexOf(pkg.tierMax) > 0;
-  if (o.json) o.out(JSON.stringify({ ok: true, action: 'trust', id: pkg.id, required, grantLines: { trust: line }, grantFile: grantsPath(o.env) }));
+  if (o.json) o.out(JSON.stringify({ ok: true, action: 'trust', id: pkg.id, required, ...priorJson('trust', line, prior), grantFile: grantsPath(o.env) }));
   else {
     if (!required) o.out(`${pkg.id} is inert: no grant is required, the line below is only needed if its tier changes`);
-    for (const text of appendInstruction(o.env, line, `${pkg.id} ${row.version} acts when its recorded digests are trusted`)) o.out(text);
+    for (const text of appendInstruction(o.env, line, `${pkg.id} ${row.version} acts when its recorded digests are trusted`, prior)) o.out(text);
   }
   return finishRuntime(0);
 }
@@ -591,9 +638,10 @@ function verbExempt(o: any, pkg: any): number {
   if (satisfiesHostRange(host, range)) return refuse('inside-range', `DoFlow ${host} is inside the range ${range} of ${pkg.id}: no exemption is needed`);
   const row = rowOf(o, pkg.id);
   const line = JSON.stringify({ grant: 'exempt', package: row.id, version: row.version, contentDigest: row.contentDigest, host, acceptRisk: true, at: grantTime(o.now) });
+  const prior = priorGrant(o, line);
   audit(o, 'exempt', pkg.id, 'ok');
-  if (o.json) o.out(JSON.stringify({ ok: true, action: 'exempt', id: pkg.id, host, range, grantLines: { exempt: line }, grantFile: grantsPath(o.env) }));
-  else for (const text of appendInstruction(o.env, line, `${pkg.id} ${row.version} runs on DoFlow ${host}, outside its range ${range}, only on this exemption`)) o.out(text);
+  if (o.json) o.out(JSON.stringify({ ok: true, action: 'exempt', id: pkg.id, host, range, ...priorJson('exempt', line, prior), grantFile: grantsPath(o.env) }));
+  else for (const text of appendInstruction(o.env, line, `${pkg.id} ${row.version} runs on DoFlow ${host}, outside its range ${range}, only on this exemption`, prior)) o.out(text);
   return finishRuntime(0);
 }
 
@@ -617,6 +665,15 @@ function verbRevoke(o: any, pkg: any, ctx: any): number {
     o.out(stateLine(after));
     o.out(`revoked trust for ${pkg.id} at its recorded content digest; only a trust line printed after ${at} counts${removedAny(sync) ? '' : ', and nothing is projected into a harness yet, so there is nothing to unproject'}`);
     for (const text of sync.lines) o.out(text);
+    // The undo (FU-92eftv): the line `trust --id` prints has the revoked line's key, so it takes that line's place.
+    const file = grantsPath(o.env);
+    if (row && file !== null) {
+      const undo = priorGrant(o, trustLineFor({ ...row, capabilityDigest: after.capabilityDigest }, trustPolicy(o.repoRoot), o.now));
+      const run = `run doflow package --action trust --id ${pkg.id}`;
+      o.out(undo.status === 'replace' ? `to undo: ${run} and put its line in place of line ${undo.lineNumber} of ${file}`
+        : undo.status === 'granted' ? `line ${undo.lineNumber} of ${file} is dated after the revocation and still grants`
+          : `to undo: ${run} and add its line to ${file}`);
+    }
   }
   return finishRuntime(0);
 }
@@ -780,7 +837,7 @@ function verbVerify(o: any, ctx: any): number {
   if (o.json) o.out(JSON.stringify({ ok: findings.length === 0, action: 'verify', repaired, packages: checked.map((p: any) => ({ id: p.id, state: p.state, reasons: p.reasons })), findings, ...projectionJson(sync) }));
   else {
     for (const text of notes) o.out(text);
-    if (repaired) o.out('state.json was unreadable and is rewritten: every grant line present now is revoked until a person adds a fresh line');
+    if (repaired) o.out('state.json was unreadable and is rewritten: every trust and exempt line present now is revoked; to undo one, run doflow package --action trust --id <id> (or exempt) and put its line in place of the line it names');
     for (const p of checked) o.out(p.state === 'suspended' || p.state === 'incompatible' ? `package ${p.id} ${p.state} reasons=${p.reasons.join(',')}` : `package ${p.id} intact`);
     for (const f of findings.filter((x) => x.package === null)) {
       o.out(`${f.state}: ${f.reasons.join(',')}${f.state === 'state-unreadable' ? '; run package --action verify --repair' : ''}`);

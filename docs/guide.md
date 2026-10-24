@@ -212,7 +212,7 @@ doflow package --action enable --id <id>            # switches it on; its preset
 
 A package that asks for more than data (the tiers above `inert`) is `needs-trust` after `enable`. DoFlow does not grant trust: `doflow package --action trust --id <id>` prints one line and the file to put it in, `<config home>/packages/grants.jsonl`, and only you add it. DoFlow never writes that file. Rules for the file:
 
-- One malformed line, an unknown key, or a line that repeats an earlier one's grant, package, version and digests (a `fetch` line: its source) voids every grant in the file. Lines for one package version with other digests coexist, and only the line whose digests match the installed package grants, so a fresh trust line is appended, never swapped in.
+- One malformed line, an unknown key, or a line that repeats an earlier one's grant, package, version and digests (a `trust` line also its policy; a `fetch` line: its source) voids every grant in the file. Lines for one package version with other digests or another policy coexist, and only the line whose digests match the installed package grants, so a trust line for new digests or a new policy is appended. When the file already holds a line with the printed line's key, `trust` says so: `already granted by line N` while it still grants, or `replace line N` after `revoke` or `verify --repair` revoked it; put the printed line in that place.
 - Trust belongs to one content digest. When the package's files change, the old line stops counting and `update` prints a new one.
 - The file is ignored when it lies inside the project or the system temp directory.
 
