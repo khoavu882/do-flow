@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "trustPolicyVersion": 1,
+  "forbiddenFields": [
+    "enabled", "defaultEnabled", "trust", "trusted", "settings", "guards", "hooks", "floors", "invariants", "order",
+    "position", "replaces", "override", "familyProven", "crossFamily", "firstParty", "scripts", "install", "postinstall"
+  ],
+  "limits": { "files": 512, "bytes": 4194304, "fileBytes": 262144, "pathLength": 200 },
+  "points": [
+    { "id": "review-preset", "versions": [1], "tier": "inert", "status": "open", "entry": "file",
+      "validator": "review-preset-v1", "combine": "add-only", "consumer": "src/runtime/review/protocols.ts",
+      "referencedBy": ["review.preset"], "slice": "A" },
+    { "id": "debate-preset", "versions": [1], "tier": "inert", "status": "open", "entry": "file",
+      "validator": "debate-preset-v1", "combine": "add-only", "consumer": "src/runtime/review/protocols.ts",
+      "referencedBy": ["debate.preset"], "slice": "A" },
+    { "id": "skill", "versions": [1], "tier": "instruction", "status": "reserved", "entry": "dir",
+      "validator": null, "combine": "add-only", "consumer": "src/lifecycle/index.ts",
+      "referencedBy": [], "slice": "C", "opensWith": "slice C" },
+    { "id": "agent", "versions": [1], "tier": "instruction", "status": "reserved", "entry": "file",
+      "validator": null, "combine": "add-only", "consumer": "src/lifecycle/index.ts",
+      "referencedBy": [], "slice": "C", "opensWith": "slice C" },
+    { "id": "worker", "versions": [1], "tier": "executable", "status": "reserved", "entry": "file",
+      "validator": null, "combine": "add-only", "consumer": "src/runtime/worker/catalogue.ts",
+      "referencedBy": ["workers.billing"], "slice": "D", "opensWith": "slice D" },
+    { "id": "capability-provider", "versions": [], "tier": "executable", "status": "reserved", "entry": "file",
+      "validator": null, "combine": "add-only", "consumer": null,
+      "referencedBy": [], "slice": "D", "opensWith": "row 121" }
+  ],
+  "bundled": []
+}

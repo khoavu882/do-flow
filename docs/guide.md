@@ -164,6 +164,16 @@ doflow protocol --action resolve --kind review --task-class feature [--risk HIGH
 
 `list` shows each preset with its seats, rounds, synthesizer and decider, then the invariants no setting can change. `resolve` shows the protocol one run would use and where each value came from. It has no diff to read, so a review always resolves to at least the deep preset; a `--preset` can only raise it. A preset looser than that is refused with exit 1, and a bad flag value is a usage error with exit 2. Add `--json` for the same data as one object.
 
+### See which contribution points a package may fill
+
+`doflow package --action points` lists the points a DoFlow package can contribute to. It is read-only: it writes no file and no telemetry.
+
+```bash
+doflow package --action points [--json]
+```
+
+Each point shows its supported versions, its tier (`inert`, `instruction` or `executable`), whether it is `open` or `reserved`, and what a reserved point opens with. Today `review-preset` and `debate-preset` are open; the other points are reserved and refuse every contribution until their release opens them. If the registry file is unreadable the command exits 1 and names the field; a missing or unknown `--action` exits 2. Add `--json` for the same data as one object.
+
 ## Retrieve code from the project
 
 `doflow retrieve` keeps its existing guidance search when you pass only `--query`. Use
