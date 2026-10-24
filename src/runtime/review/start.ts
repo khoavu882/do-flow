@@ -183,27 +183,24 @@ const PROTOCOL_SETTINGS = ['review.preset', 'review.rounds', 'review.sameFamily'
   'review.extraLenses', 'review.blockerClauses', 'debate.preset'];
 
 /**
- * 119 FR-008: the two inputs `resolveProtocol` turns into `enforcement`: `agentAccess` (the spec `access` of every
- * agent the registry seats) and `readOnlyLimits` (each harness's `agentLimits.readOnly`, registry order). A spec or
+ * 119 FR-008: the two inputs `resolveProtocol` turns into `enforcement`: `agentAccess` (the access of every agent
+ * the registry seats) and `readOnlyLimits` (each harness's `agentLimits.readOnly`, registry order). The access comes
+ * from core/registry/workflows.json `agents.access` (G63 holds it equal to the spec frontmatter), never from
+ * core/shared/agent-specs: an installed runtime ships core/registry only. An agent whose access cannot be read is
+ * `unknown`, never `write` and never a refusal: the seat binding stands and its enforcement rows say unknown. A
  * harness registry that cannot be read, or that lacks a value, is an error for the caller to refuse with.
  */
-function loadEnforcementInputs(registry: any, { harnessesFile = path.join(REPO_ROOT, 'core', 'registry', 'harnesses.json'), specDir = path.join(REPO_ROOT, 'core', 'shared', 'agent-specs') }: { harnessesFile?: string; specDir?: string } = {}):
+function loadEnforcementInputs(registry: any, { harnessesFile = path.join(REPO_ROOT, 'core', 'registry', 'harnesses.json'), workflowsFile = path.join(REPO_ROOT, 'core', 'registry', 'workflows.json') }: { harnessesFile?: string; workflowsFile?: string } = {}):
   { agentAccess: Record<string, string>; readOnlyLimits: { harness: string; status: string; reason: string | null }[] } | { error: string; message: string } {
   const fail = (message: string) => ({ error: 'protocols-invalid', message });
+  let declared: any = null;
+  try { declared = JSON.parse(fs.readFileSync(workflowsFile, 'utf8'))?.agents?.access; } catch { declared = null; }
   const agentAccess: Record<string, string> = {};
-  const agents = new Set<string>();
-  for (const preset of Object.values<any>(registry?.presets ?? {})) for (const seat of preset?.seats ?? []) agents.add(seat.agent);
-  for (const agent of agents) {
-    let text: string;
-    try {
-      if (!/^[a-z][a-z0-9-]*$/.test(agent)) throw new Error('not a plain agent name');
-      text = fs.readFileSync(path.join(specDir, `${agent}.md`), 'utf8');
-    } catch {
-      return fail(`seat agent '${agent}' has no readable spec at core/shared/agent-specs/${agent}.md`);
+  for (const preset of Object.values<any>(registry?.presets ?? {})) {
+    for (const seat of preset?.seats ?? []) {
+      const access = declared && Object.hasOwn(declared, seat.agent) ? declared[seat.agent] : undefined;
+      agentAccess[seat.agent] = access === 'read-only' || access === 'write' ? access : 'unknown';
     }
-    const access = text.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1].match(/^access:\s*(\S+)\s*$/m)?.[1];
-    if (access !== 'read-only' && access !== 'write') return fail(`seat agent '${agent}' spec has no access: read-only|write`);
-    agentAccess[agent] = access;
   }
   let harnesses: any;
   try { harnesses = JSON.parse(fs.readFileSync(harnessesFile, 'utf8')).harnesses; } catch {

@@ -4,9 +4,9 @@
 //
 // The agent specs under core/shared/agent-specs/ are the one roster. Several other places name or
 // depend on it: every workflow stage binds an agent, the registry says which harnesses get agents
-// and how a read-only agent is limited on each, the Codex TOMLs mirror the specs, and four prose or
-// JSON lists repeat the agent names. None of those fails by itself when a spec is added or its
-// `access` changes; the agent is just bound to nothing, limited nowhere, or missing from a list.
+// and how a read-only agent is limited on each, the Codex TOMLs mirror the specs, four prose or
+// JSON lists repeat the agent names, and workflows.json `agents.access` repeats each spec's access
+// for the runtime. None of those fails by itself when a spec is added or its `access` changes; the agent is just bound to nothing, limited nowhere, or missing from a list.
 // This guard derives the expected set from the spec directory (never from a name list here), so
 // adding a spec turns every stale list red until the list is updated.
 //
@@ -120,6 +120,18 @@ function check(root, { render } = {}) {
     });
   }
   for (const stem of stems) if (!bound.has(stem)) out.push(`${FILES.specs}/${stem}.md: bound by no workflow stage`);
+
+  // 2b: the runtime reads a seat agent's access from workflows.json `agents.access` (an installed runtime ships
+  // core/registry, not core/shared), so that map names exactly the specs, each with its spec's `access`.
+  const declared = readJson(root, FILES.workflows).agents?.access;
+  if (!declared || typeof declared !== 'object' || Array.isArray(declared)) out.push(`${FILES.workflows}: no agents.access map`);
+  else {
+    const names = Object.keys(declared);
+    if (!sameSet(names, stems)) out.push(`${FILES.workflows} agents.access: ${diff('agent names differ from specs', names, stems)}`);
+    for (const stem of stems.filter((n) => names.includes(n))) {
+      if (declared[stem] !== access[stem]) out.push(`${FILES.workflows} agents.access.${stem} is ${JSON.stringify(declared[stem])}, its spec access is ${JSON.stringify(access[stem])}`);
+    }
+  }
 
   // 3 + 4: harness registry.
   const harnesses = readJson(root, FILES.harnesses).harnesses;
@@ -246,6 +258,17 @@ test('G63 control: a spec bound by no stage is red', () => {
     fs.writeFileSync(path.join(root, FILES.specs, 'orphan-agent.md'), '---\nname: orphan-agent\ndescription: x\nmodel: inherit\neffort: low\naccess: write\n---\nbody\n');
   });
   assert.match(found, /orphan-agent\.md: bound by no workflow stage/);
+});
+
+test('G63 control: workflows.json agents.access that drifts from the specs is red, every direction', () => {
+  const flipped = controlFindings(({ edit }) => edit(`${FILES.specs}/core-implementer.md`, (s) => s.replace(/^access: write$/m, 'access: read-only')));
+  assert.match(flipped, /workflows\.json agents\.access\.core-implementer is "write", its spec access is "read-only"/);
+  const dropped = controlFindings(({ editJson }) => editJson(FILES.workflows, (j) => { delete j.agents.access.reviewer; }));
+  assert.match(dropped, /agents\.access: agent names differ from specs: missing reviewer/);
+  const ghost = controlFindings(({ editJson }) => editJson(FILES.workflows, (j) => { j.agents.access['ghost-agent'] = 'write'; }));
+  assert.match(ghost, /agents\.access: agent names differ from specs: unknown ghost-agent/);
+  const gone = controlFindings(({ editJson }) => editJson(FILES.workflows, (j) => { delete j.agents; }));
+  assert.match(gone, /workflows\.json: no agents\.access map/);
 });
 
 test('G63 control: a harness without agentLimits is red', () => {
