@@ -220,6 +220,18 @@ A package that no longer fits the running DoFlow (its `doflow` range excludes th
 
 Nothing in these steps fetches anything. `add` takes a local directory only, and `git` and `npm` are never started by a package verb.
 
+### Authoring a package
+
+Use `/do package <idea>` or ask to make an idea a DoFlow package. The route lists the open contribution points, stops if the idea needs a point that is not open, asks at most three scoping questions, and runs `new`. Follow the `next` lines it prints:
+
+1. Run `doflow package --action new --id <id> --points <point[:local],...>`. It creates checked stubs and a README in `.doflow/package/<id>/` under the project root. Use `--dir <path>` for another folder; outside a project, `--dir` is required.
+2. Edit the stubs and the README's "What and why" section. Run `doflow package --action check --path <dir>` until clean.
+3. Run `doflow package --action add --source <dir>` to inspect the inventory, projection and grant lines. Apply the printed plan with `doflow package --action add --plan <planId>`.
+4. Run `doflow package --action enable --id <id>`. An inert package is active without a grant. Above inert, run `doflow package --action trust --id <id>`; it prints a line and the grants file path. Only a person adds that line. Run `enable` again to project trusted skills and agents into globally installed harnesses.
+5. Iterate in the source folder: edit, `check`, `doflow package --action update --id <id>`, then `doflow package --action update --plan <planId>`. Every applied content change above inert needs a fresh trust line a person adds, even at the same version. The old line cannot authorize the changed content; the package stays `needs-trust` and its projection is removed until it is trusted again. At the same version, replace the old trust row before adding the new line, because duplicate grant rows void the grants file. Inert edits need no grant.
+
+The authored folder is your source: DoFlow never prunes it or follows edits automatically. You can commit it. If the project ignores `.doflow`, make the parent traversable and add `!.doflow/package/`, as `new` reports. For example, replace a blanket `.doflow` ignore rule with `.doflow/*`, followed by `!.doflow/package/`, so the package source is included while other DoFlow state stays ignored. DoFlow never edits your ignore rules.
+
 ## Retrieve code from the project
 
 `doflow retrieve` keeps its existing guidance search when you pass only `--query`. Use

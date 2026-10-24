@@ -18,7 +18,7 @@ Universal command dispatcher, task decomposer, capability router, and developmen
 
 1. **Session & Command Dispatch**:
    - If invoked with no arguments or `--help`, announce DoFlow session status and display the core command reference.
-   - If `$1` matches a known `/do-*` skill (`do-flow`, `do-brainstorm`, `do-design`, `do-plan`, `do-execute-plan`, `do-test`, `do-code-review`, `do-git`, `do-constitution`, `do-diagnose`, `do-document`, `do-implement`), forward to that skill directly.
+   - If `$1` matches a `/do-*` skill in the Core Command Reference table below, forward to that skill directly.
    - Otherwise, resolve the runtime seam **once** and reuse `$DOFLOW` for every later call here:
 
 ```bash
@@ -42,6 +42,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      goes to `doflow-run followup --action report`; a large goal they state, to
      `doflow-run goal --action add`. It edits no source file.
    - `/do program <goal>`, or an ask larger than one feature: follow `references/program_mode.md`.
+   - `/do package <idea>` or "make this a DoFlow extension/package/plugin": run `"$DOFLOW" package --action points --json`; stop if a needed point is not open. Ask up to 3 questions (what/why, id, points) via the question tool; run `"$DOFLOW" package --action new --id <id> --points <point[:local],...>`; follow `next` lines. No evidence batch; never write `grants.jsonl`, add remote sources or create a feature folder.
 
 2. **Multi-Part / Ambiguous Request Routing (`--depth`)**:
    - When a request bundles 2+ unrelated asks across different files or domains, verify referenced files exist first.
@@ -69,13 +70,7 @@ package under one the runtime accepted for a different kind of task.
      `references/pm_routing.md`.
 
 3. **Capability & Tool Selection**:
-   - Before routing, check what recorded runs already show — run `"$DOFLOW" discover --json`
-     (reuse `$DOFLOW` resolved in step 1). **It exits 1 when there is a finding — that is signal,
-     not failure; never treat that exit code as an error.** When the analysis cannot be settled
-     from the recorded metadata, `discover` reports `UNKNOWN` rather than "clear"; surface `UNKNOWN`
-     as undetermined and never round it up to "no missed opportunities". `do` surfaces the finding
-     to the user — it takes no automatic action on it, and no finding is ever rendered as a number,
-     a percentage, or a confidence.
+   - Before routing, run `"$DOFLOW" discover --json` to check recorded runs. Exit 1 signals a finding, not an error. When metadata cannot settle the analysis, surface `UNKNOWN` as undetermined, never clear. Show findings to the user; take no automatic action. Never render findings as a number, percentage or confidence.
    - Routing an information need to a tool is unconditional, not a mode this skill can be asked
      for: whenever a search, graph, or testing need arises, query the Capability Router — run `"$DOFLOW" capabilities` (add `--json` to parse, `--check` for a deep
      smoke check), or `"$DOFLOW" route --intent <intent> --json` to resolve one need end to end. It
