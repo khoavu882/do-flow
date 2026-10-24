@@ -60,7 +60,7 @@ manifest lives at the first-checked location instead: `core/.plugin/plugin.json`
     (copilot → capabilities → hooks).
   - `mcpServers` — MCP registration is installer-managed and opt-in (`--mcp context7,...`);
     a plugin declaration would force-enable servers for every plugin user.
-- Guard coverage: `test/install/doflow.test.js` asserts the manifest name is `doflow`, its
+- Guard coverage: `test/install/doflow.test.ts` asserts the manifest name is `doflow`, its
   version equals `package.json`'s version, `skills` is `./shared/skills/` and
   `core/shared/skills/do-execute-plan/SKILL.md` exists, and that none of `agents`, `hooks`,
   `mcpServers`, `lspServers`, `commands` or `extensions` is declared.

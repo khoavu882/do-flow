@@ -20,7 +20,7 @@ const nodeFs = require('node:fs');
 /** The guard lane of a `node --test` repository: structural checks that run with every selection. */
 const GUARD_DIR = 'test/guards';
 
-const NODE_TEST_FILE = /\.test\.(?:js|mjs|cjs)$/;
+const NODE_TEST_FILE = /\.test\.(?:js|mjs|cjs|ts)$/;
 const PYTEST_FILE = /(?:^|\/)(?:test_[^/]*|[^/]*_test)\.py$/;
 
 const SKIPPED_DIRS = new Set(['node_modules', '.git', '.venv', 'venv', '__pycache__']);

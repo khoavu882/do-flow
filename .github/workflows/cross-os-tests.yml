@@ -67,7 +67,7 @@ jobs:
 
       # The same file set as `npm test`, one quarter of it per job.
       - name: Run Node test suite (shard ${{ matrix.shard }}/4)
-        run: node --test --test-shard=${{ matrix.shard }}/4 "test/**/*.test.js"
+        run: node --test --test-shard=${{ matrix.shard }}/4 "test/**/*.test.ts"
 
   # The bash suites are a dedicated required job rather than per-OS steps: they are POSIX-only
   # by design, and isolating them on ubuntu makes a failure attributable to the suite that

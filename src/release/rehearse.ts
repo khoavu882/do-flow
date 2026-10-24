@@ -34,10 +34,10 @@ const SEED_SIGNATURES: Record<string, string[]> = {
   'raw-ts': ['ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING'],
 };
 const SMOKE_TESTS = [
-  'test/e2e/packed-install.e2e.test.js',
-  'test/e2e/node-floor-guard.test.js',
-  'test/e2e/compile-cache.test.js',
-  'test/e2e/install-shapes.test.js',
+  'test/e2e/packed-install.e2e.test.ts',
+  'test/e2e/node-floor-guard.test.ts',
+  'test/e2e/compile-cache.test.ts',
+  'test/e2e/install-shapes.test.ts',
 ];
 const MINUTE = 60 * 1000;
 const USAGE = 'usage: node src/release/rehearse.ts [--node <path>] [--ref <rev>] [--seed-fault plantuml|raw-ts] [--registry] [--keep]';
@@ -261,7 +261,7 @@ function runRehearse({
     },
     suite: () => {
       const seeded = opts.seed === 'plantuml';
-      const c = child(nodeBin, ['--test', ...(seeded ? ['test/runtime/render-puml-stderr.test.js'] : ['test/**/*.test.js'])], { timeout: seeded ? 5 * MINUTE : 45 * MINUTE });
+      const c = child(nodeBin, ['--test', ...(seeded ? ['test/runtime/render-puml-stderr.test.ts'] : ['test/**/*.test.ts'])], { timeout: seeded ? 5 * MINUTE : 45 * MINUTE });
       if (c.ok) return { ok: true, message: seeded ? 'render-puml-stderr passed' : 'test suite passed' };
       return failed(c, seeded ? 'render-puml-stderr' : 'test suite');
     },

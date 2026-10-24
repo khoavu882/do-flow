@@ -5,7 +5,7 @@ description: Contract and schema for machine-local telemetry lines, event kinds,
 
 Contract document for feature 088 (IC-001, IC-002, IC-003, IC-004, IC-006, IC-018). The machine-readable
 form is `core/registry/telemetry.json`; this page is its prose mirror. When the two disagree the
-registry is right, and `test/guards/telemetry-contract.test.js` (G45) is what
+registry is right, and `test/guards/telemetry-contract.test.ts` (G45) is what
 notices.
 
 Telemetry here means local metadata about DoFlow's own runs: how long a hook took, which tier of a
@@ -480,12 +480,12 @@ excerpts) is listed there too; a `verify.check` line carries only the record's r
 
 ## Guard
 
-`test/guards/telemetry-contract.test.js` (G45; 086 took G44, so this is the next free number):
+`test/guards/telemetry-contract.test.ts` (G45; 086 took G44, so this is the next free number):
 
 1. the registry is well formed, three vocabularies equal their owning registries, and the keys it
    declares per kind equal the keys the writer, the shell `printf` formats and the committed fixture
    lines (`test/fixtures/telemetry/*.jsonl`) carry; `hook.jsonl` there is held equal to a real bridge
-   line's keys by `test/hooks/bridge-hook-line.test.js`;
+   line's keys by `test/hooks/bridge-hook-line.test.ts`;
 2. no `node` process starts on a shell hook path, and the node files there are the pinned three;
 3. no network use under `src` (`.ts .js .mjs .cjs .mts .cts`, `src/cli` included) outside the pinned advice client and export sender. It is a static source check, not a sandbox, and it catches only these shapes: a network module `import` or a direct `require(...)` call, any reference to `fetch` (including `globalThis.fetch`, member access and aliases), `WebSocket`, `EventSource`, `process.getBuiltinModule`, `undici`, computed `globalThis[...]` access, `process.binding`, and `require`/`import` with a non-literal argument; comments and string, template and regex literals are not code; a verbatim copy of the sender under another name fails. It does not catch `createRequire`, `module.require` or `process.mainModule.require`, an aliased `globalThis` (`g = globalThis; g[...]`), `Reflect.get(globalThis, ...)` or `(0, globalThis)[...]` access, `eval`/`new Function`/Worker `eval` strings, a subprocess that reaches the network, `node:inspector`, or any file under `bin/` (FU-tgfbkv);
 4. no skill, guidance or agent spec names `trace spans`, `trace export`, `trace analyze` or

@@ -65,7 +65,7 @@ are reported rather than imitated.
 | `src/runtime/settings/refs.ts` | Resolves registry `defaultRef` and `valuesRef` declarations |
 | `src/runtime/storage/` | Storage retention: the registry loader and roots (`registry.ts`, `roots.ts`), the one definition of finished work (`work-status.ts`), the bounded pass and its rules (`engine.ts`, `rules.ts`), the silent cleanup moments (`upkeep.ts`) and the `storage` verb (`cli.ts`) |
 | `src/state/` | Harness-neutral ledger, recovery records, and legacy-manifest migration |
-| `src/registry/` | Loads and validates the installation registry files (`harnesses`, `assets`, `mcp`, `lifecycle`, `contracts`, `external-tools`, `models`) plus the provider descriptors in `capabilities.json` into the in-memory registry object (the other runtime registries are loaded by their own runtime modules) every adapter and lifecycle call consumes — the same data `test/guards/registry.test.js` checks implementation claims against |
+| `src/registry/` | Loads and validates the installation registry files (`harnesses`, `assets`, `mcp`, `lifecycle`, `contracts`, `external-tools`, `models`) plus the provider descriptors in `capabilities.json` into the in-memory registry object (the other runtime registries are loaded by their own runtime modules) every adapter and lifecycle call consumes — the same data `test/guards/registry.test.ts` checks implementation claims against |
 | `src/helper/` | Cross-layer utilities with no harness-, install-, or runtime-specific domain: git commit lookup (`git.ts`), managed-section merging (`marker-merge.ts`), interactive prompts (`prompt.ts`), `settings.json` merging (`settings-merge.ts`, `settings-scope.ts`), generic TOML parsing (`toml.ts`), destructive-command blocklist derivation (`guardrails.ts`), bash-helper resolution (`bash-helper.ts`), declared native path resolution (`harness-paths.ts`), and the single computation of the package root (`repo-root.ts`), which every layer shares and no layer should re-derive from its own depth. Like the rest of `src/`, it is TypeScript run by Node's native type-stripping, with no build step |
 | `src/install/` | Installer-domain operations: backup set (`backup-set.ts`), backup, restore, retention and listing (`backup.ts`), scope and target resolution (`context.ts`, `targets.ts`), manifest read/write (`manifest.ts`), external-tool detection and install (`tool-lifecycle.ts`), path resolution (`paths.ts`), and MCP server selection (`mcp.ts`). Fully TypeScript |
 | `test/` | Installer, mapping, and runtime behavior tests organized into module directories mirroring `src/` (`adapters/`, `lifecycle/`, `runtime/`, `registry/`, `state/`, `helper/`, `install/`, `e2e/`), plus `hooks/`, `release/`, `settings/`, `bench/` and `fixtures/`, and `test/guards/` for structural invariants about this repo's content |
@@ -103,7 +103,7 @@ how a shared asset projects onto it:
 |---|---|
 | `core/registry/harnesses.json` | Each target's adapter id, supported scopes, native target files, declared native path facts (`paths`: `{base, segments}` rules resolved through `src/helper/harness-paths.ts`, with adapters owning only justified logic residue), and per-surface capability status with verification evidence. A harness's `capabilities.mcp` may carry `toolName`, a template holding `{server}` and `{tool}` (only `claude` has one: `mcp__{server}__{tool}`); the brief block uses it to show a provider's MCP tool name. Each harness also carries an `agentLimits.readOnly` block (`native` with the `apply` keys the adapter writes into a `read-only` agent file, or `unenforced` with a reason; G63) and an `orchestration.nest` operation, the sixth after spawn, wait, status, cancel and resume, which records whether a subagent can start a subagent (validated in `src/registry/index.ts`) |
 | `core/registry/assets.json` | Each shared asset's `source` path and per-harness `projection`/`nativeDir` |
-| `core/registry/contracts.json` | Per-harness recognized frontmatter fields and hook events — what `test/guards/fields.test.js` (G1) checks every asset against |
+| `core/registry/contracts.json` | Per-harness recognized frontmatter fields and hook events — what `test/guards/fields.test.ts` (G1) checks every asset against |
 | `core/registry/lifecycle.json` | Five hook-based lifecycle policies (pre-implementation gate, pre-bash guard, session-context capture, MCP tool guard, stop check), each harness's support status or fallback, and the versioned `coverage` block with evidence-backed enforcement rows |
 | `core/registry/mcp.json` | The neutral MCP server catalog every harness's adapter selects from. Each server also carries a required `trigger` (one sentence, 20 to 300 characters: the generic condition under which a stage consults it) and `steps` (the skill files that name it, each `{skill, file}` and optionally `expectedWhen: "research-request"`); adapters ignore both. `src/registry/index.ts` fails the load on a server missing either |
 
@@ -152,7 +152,7 @@ Four properties are load-bearing, and each has a guard because each has already 
 
 **One namespace, one table.** The dispatcher decides whether a verb is served by a shell helper or
 by a `src/cli` command, so a verb can move between the two without any caller changing. Skills
-never name a helper. `test/guards/runtime-unification.test.js` checks that every shell verb resolves
+never name a helper. `test/guards/runtime-unification.test.ts` checks that every shell verb resolves
 to a helper that exists, that every Node verb has a CLI command and every CLI runtime command has a
 verb. A verb named on both arms would be served by its shell helper, since the dispatcher tries
 the shell arm first; no guard checks for that overlap.
@@ -161,9 +161,9 @@ the shell arm first; no guard checks for that overlap.
 command resolves against the working directory — the user's project root — not against the skill's
 own directory. A skill therefore walks up from `$PWD` looking for
 `.doflow/scripts/doflow/bin/doflow-run`, falls back to the same path under `$HOME/.doflow`, and
-exits 2 with a message naming both places searched. `test/guards/skill-seam.test.js` pins that
+exits 2 with a message naming both places searched. `test/guards/skill-seam.test.ts` pins that
 resolver to exactly one spelling across the whole skill tree, and
-`test/guards/reachability.test.js` executes each documented snippet with the working directory at a
+`test/guards/reachability.test.ts` executes each documented snippet with the working directory at a
 real project root.
 
 **The locator is a shim, not a second dispatcher.** `core/harnesses/shared/locator/doflow-run` is
@@ -178,7 +178,7 @@ missing from every searched path gets the documented exit-2 message naming each 
 **Tracing is free because it happens at the seam.** The dispatcher appends one metadata record per
 dispatched verb to a date-partitioned append-only run ledger under neutral state (`runs/*.jsonl`),
 and hooks and verification append local telemetry (`runs/telemetry/*.jsonl`). No skill has to opt
-in, and `test/guards/runtime-unification.test.js` asserts the records carry metadata only — no
+in, and `test/guards/runtime-unification.test.ts` asserts the records carry metadata only — no
 source content, no secrets. When telemetry is turned off (`DOFLOW_TELEMETRY=off`), writers emit
 nothing and create no telemetry files.
 
@@ -236,8 +236,8 @@ attempted scope and cannot establish repository-wide absence.
 The full `src/` tree is the source of `runtime.lib` for every harness and for the staged npm
 package (`package.json` includes `src/`). Therefore the Python bridge ships through the existing
 copy-tree projection and package staging path; it does not need a parallel asset declaration.
-`test/lifecycle/hybrid-runtime-assets.test.js` exercises that projection, and
-`test/release/hybrid-package.test.js` checks the staged file.
+`test/lifecycle/hybrid-runtime-assets.test.ts` exercises that projection, and
+`test/release/hybrid-package.test.ts` checks the staged file.
 
 Hybrid remains opt-in. Repeated real-provider conformance and all required same-snapshot gates are
 promotion requirements; paid outcome and token-cost measurements remain unreached without separate
@@ -290,11 +290,11 @@ must pass, the protected paths, the loop limits and the closed `denyReasons` lis
 | `merge.ts` | The merge of an approved row by git plumbing (`merge-tree --write-tree`, `commit-tree` with a pinned identity, `merge --ff-only`), the intent record with its crash-resumable phases, the repair of a killed fast-forward, the render trigger and the non-force cleanup, which keeps the worktree and branch unless the branch tip is an ancestor of develop | Force anything (`-D`, `--force`), push, or touch a checkout that is dirty, on another branch or has moved (`develop-dirty`, `develop-wrong-branch`, `develop-moved`) |
 | `loop.ts` | The verb: the kill-switch read before every mutating act, lease (taken over through `lease.reclaim`, re-read at each boundary), run record and checkpoints, the audit file, one step per `next` (pick, gate, merge, render, cleanup), the `perform` envelopes a session carries out, the dispatch-outcome mapping, `status` (including run holds and the lease holder), `render`, `audit` | Launch a worker, run a model, or call a binary other than `git` |
 
-Two guards keep the mechanical side mechanical. G53 (`roadmap-git-verbs.test.js`) reads every git
+Two guards keep the mechanical side mechanical. G53 (`roadmap-git-verbs.test.ts`) reads every git
 argument vector in `src/runtime/roadmap/**` and allows only the read verbs, the plumbing merge path and
 the tested repair verbs; `push`, `fetch`, `pull`, `tag`, `remote`, `reset`, `stash`, `checkout`,
 `switch`, `restore`, `clean`, `rebase`, `-D`, `--force` and `-f` fail it, and so does an argument vector
-it cannot read statically. G54 (`roadmap-imports.test.js`) fails when a roadmap module imports the
+it cannot read statically. G54 (`roadmap-imports.test.ts`) fails when a roadmap module imports the
 worker launcher, the worker supervisor, the dispatch loop or a model client, or spawns anything but
 `git`. Workers appear only at the implementation stage, through the existing dispatch loop, and only
 inside a `perform` envelope that the session runs with `dispatch --billing-cap free`.
@@ -435,20 +435,20 @@ command does.
 
 ### Guards this feature touched
 
-- **G4** (`flags.test.js`): `--stage` and `--statement` are the runtime `followup` verb's own
+- **G4** (`flags.test.ts`): `--stage` and `--statement` are the runtime `followup` verb's own
   arguments, quoted in `WORKFLOW_HANDOFF.md`, so they are on the `NOT_FRAMEWORK_FLAGS` list with that
   reason. A new runtime-verb flag quoted in guidance goes on the same list; do not add it to `FLAGS.md`.
-- **G13** (`context-budget.test.js`): the loaded-context rails of the `feature` and `documentation`
+- **G13** (`context-budget.test.ts`): the loaded-context rails of the `feature` and `documentation`
   classes were raised for the lifecycle lines in `do-brainstorm` and the follow-up line in
   `WORKFLOW_HANDOFF.md` (the `documentation` rail only for the second, which `do-test` and
   `do-code-review` load); `TASK_CONTEXT_RAILS` in that file holds the current rails. When a rail fails, measure
   it, record the measured value and the reason beside the rail, and raise it deliberately in its own
   commit; do not trim an unrelated file to fit. The `dependency-change` rail has little headroom.
-- **G16** (`module-reachability.test.js`): every module in `src/runtime/lifecycle/`, `src/runtime/failure/`
+- **G16** (`module-reachability.test.ts`): every module in `src/runtime/lifecycle/`, `src/runtime/failure/`
   and `mask.ts` must be reached by a static `require()` literal. The failure modules are required
   lazily (in `bin/doflow.js` inside a `try`, in `runtime-commands.ts` inside a function), so the CLI runs
   without them; keep the `require('<literal path>')` form when you add one.
-- **G17** (`verb-reachability.test.js`): each of the four verbs must be invoked in a skill file as
+- **G17** (`verb-reachability.test.ts`): each of the four verbs must be invoked in a skill file as
   `doflow-run <verb>`, `"$DOFLOW" <verb>` or `doflow <verb>`, or carry an allowlist entry with a reason; the `do` skill line does it, so no allowlist entry exists. Spell a new verb in a skill
   or the guard fails.
 
@@ -489,7 +489,7 @@ declares target capability and ownership inputs, and is not itself a native conf
 > `core/registry/mcp.json`, is relative to the **guidance root** (`.doflow/guidance/`). That is why
 > `PRINCIPLES.md`/`FLAGS.md`/`MCP_INDEX.md` sit at the root rather than in a subdirectory: writing
 > any of them one level deeper silently reinterprets those relative paths against that subdirectory
-> and breaks them without any error. `test/adapters/copy-tree.test.js` and `test/install/mcp-index.test.js` resolve
+> and breaks them without any error. `test/adapters/copy-tree.test.ts` and `test/install/mcp-index.test.ts` resolve
 > both sets of paths against the real tree to keep that anchor enforced rather than assumed.
 | `skills/`, `agent-specs/`, `scripts/`, `templates/` | `core/shared/{skills,agent-specs,scripts,templates}/` | Task knowledge and reusable assets are client-neutral |
 | Native hooks, settings, and native agent definitions per harness | `core/harnesses/{claude,codex,gemini,kiro,antigravity,pi}/` | Copied or reconciled as native configuration only where the harness has such a surface |
@@ -556,7 +556,7 @@ Examples:
 
 - Add or revise a workflow: edit its `core/shared/skills/<name>/SKILL.md`; keep the public description compact in [Reference](reference.md).
 - Change a client destination or add a supported asset: edit `core/registry/assets.json`, then cover it in tests.
-- Add a harness: declare it in `core/registry/harnesses.json`, `contracts.json`, and `assets.json`; implement `src/adapters/<id>/index.ts`'s six-function contract (`discover, render, plan, apply, remove, verify`); and register the adapter in both `createAdapterRegistry(...)` constructions: `buildAdapterRegistry()` in `src/cli/shared.ts` and `registryLifecycleView` in `src/lifecycle/view.ts`. `test/guards/registry.test.js` (G5) checks every such call site, and the three registry files and the implementation against each other.
+- Add a harness: declare it in `core/registry/harnesses.json`, `contracts.json`, and `assets.json`; implement `src/adapters/<id>/index.ts`'s six-function contract (`discover, render, plan, apply, remove, verify`); and register the adapter in both `createAdapterRegistry(...)` constructions: `buildAdapterRegistry()` in `src/cli/shared.ts` and `registryLifecycleView` in `src/lifecycle/view.ts`. `test/guards/registry.test.ts` (G5) checks every such call site, and the three registry files and the implementation against each other.
 - Change managed instruction behavior: edit the merge/copy implementation in `src/`, then test both fresh install and update paths.
 - Add or change a runtime verb: edit the dispatcher's own table alongside the implementation — it is the single place the verb namespace is written down — then run the guards, which cross-check that table against the shell helpers and the CLI commands in both directions.
 - Change a skill's flags: land the skill's `argument-hint`, `docs/reference.md`, and `docs/flags.md` in the same commit. Three guards cross-check them, so a partial change turns the suite red.
@@ -566,12 +566,12 @@ Examples:
   3. Keep the skill's handoff line carrying ``--mcp-outcome "<server>=<outcome>"``, one per named server. A server named without an outcome prints a warning at handoff and in `doflow doctor`'s `[MCP Consultations]` section; neither blocks.
   4. If the generic `trigger` changed, copy it verbatim into `docs/setup.md`; G28 checks it.
   5. `doflow doctor`'s `[MCP Servers]` section lists the server by the `steps` you added, so it needs no edit.
-  6. Run `node --test test/guards/mcp-claims.test.js test/runtime/mcp-handoff.test.js test/runtime/doctor-mcp.test.js`, then `npm test`.
+  6. Run `node --test test/guards/mcp-claims.test.ts test/runtime/mcp-handoff.test.ts test/runtime/doctor-mcp.test.ts`, then `npm test`.
 - Add a capability provider:
   1. Add it to its capability's `providers` in `core/registry/capabilities.json` with `id`, `kind`, `binary` where one exists, `costTier`, `sourceMode` (`live` for a provider that reads current files or commands, `index` for one that answers from a built artifact; required, and an `index` provider also needs an entry in `PROVIDER_ARTIFACTS` in `src/runtime/health.ts` or its freshness reads UNKNOWN) and a `checkCommand` (`doflow doctor` runs it as the provider's probe; a provider without one reports unverified, and the brief names only healthy providers).
   2. If it is reached through an MCP tool, add `mcp: {server, tool}`. The router derives `mcpTool` from it and the brief names the tool through the harness's `toolName` template.
   3. A new information need is an intent in `core/registry/routes.json` naming a capability and an ordered `fallback`. The brief block has one row per intent, in file order, and names the provider the router resolves among the healthy ones, so no code changes.
-  4. Run `node --test test/guards/brief-tools-registry.test.js test/guards/provider-source-mode.test.js test/runtime/brief-tools.test.js test/runtime/runtime-capability-router.test.js`, then `npm test`.
+  4. Run `node --test test/guards/brief-tools-registry.test.ts test/guards/provider-source-mode.test.ts test/runtime/brief-tools.test.ts test/runtime/runtime-capability-router.test.ts`, then `npm test`.
 - Change user guidance: give it one canonical document—Quickstart, Setup, Guide, Reference, or Overview—rather than copying it across all of them.
 
 ### Storage and retention
@@ -583,7 +583,7 @@ pattern, and G26 checks the two agree.
 - **Add a writer.** Declare the file in the `writers` of the store it writes, or add a store with its
   root, `match`, `bound` and rule. A new store also needs a step in G26's sandbox scenario that
   produces it. Regenerate the `| Store | Location | Bound |` rows of `docs/reference.md` from
-  `formatBound()`, then run `node --test test/guards/storage-declarations.test.js` and the
+  `formatBound()`, then run `node --test test/guards/storage-declarations.test.ts` and the
   `test/runtime/storage-*.test.js` files.
 - **Change a bound.** Edit the store's `bound` in `storage.json`, regenerate the same rows, and run the
   same tests.
@@ -594,7 +594,7 @@ Run checks appropriate to the change:
 
 ```bash
 npm test                                   # the whole suite, including test/guards/
-node --test test/guards/registry.test.js   # a single guard while iterating
+node --test test/guards/registry.test.ts   # a single guard while iterating
 bash test/doflow-chain-test.sh             # shell suites — not part of npm test
 bash test/hooks/test-hooks.sh              # shell suites — not part of npm test
 bash test/verify-hooks.sh                  # shell suites — not part of npm test
@@ -602,14 +602,14 @@ bash test/code-review-fixtures.sh          # do-code-review's analyzer fixtures,
 pip install -r requirements.txt            # docs deps, once per environment — see note below
 mkdocs build --strict --site-dir /tmp/doflow-docs-site
 d="$(mktemp -d)"; TMPDIR="$d" npm test; find "$d" -mindepth 1 -maxdepth 1 -name 'doflow-*'; rm -rf "$d"   # test debris check, outside npm test
-node test/explore/ledger-sampler.js --help   # opt-in sequence sampler, outside npm test
-node --test test/explore/ledger-controls.js  # the sampler's slow controls, outside npm test
+node test/explore/ledger-sampler.ts --help   # opt-in sequence sampler, outside npm test
+node --test test/explore/ledger-controls.ts  # the sampler's slow controls, outside npm test
 ```
 
 The debris check prints nothing when the suite left no temporary folder behind. It is not part of
 `npm test`, because a test cannot observe the whole run it belongs to.
 
-The sequence sampler (`test/explore/ledger-sampler.js`) runs two real child processes against the
+The sequence sampler (`test/explore/ledger-sampler.ts`) runs two real child processes against the
 task-attempt ledger, grants their store, lock and temp-file fs calls one at a time in a seeded
 order, and judges each schedule against a hand-written sequential model of claim, finish and
 cancel. It exits 0 when every schedule completed and none showed a violation, 1 when one did (with
@@ -623,15 +623,15 @@ other `node:fs` or `fs.promises` call that reaches those paths (also through ano
 the path, or a descriptor from `open`) makes the schedule incomplete. Outside the model: overlap inside one fs call, network
 filesystems, process death, win32, worker threads, child processes, native addons, and a hard
 link or symlink to the store under another name. The regressions pinned in
-`test/state/ledger-lock-race.test.js`, which `npm test` runs, came from the sampler (R-claim) and
+`test/state/ledger-lock-race.test.ts`, which `npm test` runs, came from the sampler (R-claim) and
 from review (R-nested and the two-process trace R-two-process); each reproduced the stale-lock
 defect FU-8acds5 under its fault assumption (a lock holder paused for longer than the 10 s stale
 age, or a forward clock jump of that size) on develop up to `e003dc0d`, also without the gate, by
 stopping a real lock holder with SIGSTOP past the stale age (the review record's `realpause.js`
 reproduction, kept with the 117 feature records). 117 Phase C fixed the lock (next section); the
-regressions are now required, and `test/state/task-state-lock.test.js` covers the protocol, a process
+regressions are now required, and `test/state/task-state-lock.test.ts` covers the protocol, a process
 paused at every step of an acquire or a reclaim, and a lock written by runtimes from before it. Slow
-controls run only on demand from `test/explore/ledger-controls.js`.
+controls run only on demand from `test/explore/ledger-controls.ts`.
 
 ### The task-state lock
 
@@ -673,7 +673,7 @@ Bounds, not covered (the argument for each step is in the 117 feature records,
    also before it saw itself alone, or the clock stepped forward that far) and which is then
    preempted between that pre-write check and its rename, long enough for a reclaimer to remove its
    entry and read the store: its acknowledged write can replace the reclaimer's (the `LOST_ACK`
-   replay in `test/helper/ledger-scenarios.js`).
+   replay in `test/helper/ledger-scenarios.ts`).
 2. Any holder that runs past 10 s loses the lock to a reclaimer. A current holder learns it at its
    pre-write check (bound 1 aside); an older runtime's holder, storage pruning's record lock (whose
    by-name `rmdir` then fails and the candidate is recorded as failed while the pass continues), and
@@ -786,47 +786,47 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-73 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+73 test files (plus `_shared.ts`, a helper rather than a test); this inventory lists
 66 entries across 62 test files and carries 64 distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
-entries; G18 labels two files, of which `adapter-force.test.js` is not listed; and G30 labels two
-files, `advice.test.js` and a ratchet test in `module-reachability.test.js` (the G16 file). The collisions are
+entries; G18 labels two files, of which `adapter-force.test.ts` is not listed; and G30 labels two
+files, `advice.test.ts` and a ratchet test in `module-reachability.test.ts` (the G16 file). The collisions are
 historical rather than a convention; G66 is the highest number in use, so a new guard takes the next
 one above it instead of adding another collision. The list is not the whole directory. The
-files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
-G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
-of the G18 pair — between them the reason the list runs G18 then G20; and `boundaries.test.js`,
-`harness-paths.test.js`, `cli-boundary.test.js`, `frozen-behaviour.test.js`,
-`provider-source-mode.test.js`, `context-docs.test.js`, `context-profile.test.js` and
-`context-silence.test.js`.
+files absent from it are `verb-reachability.test.ts`, which owns G17 and is why the list runs G16 then
+G18; `adopt-path.test.ts`, which owns G19, and `adapter-force.test.ts`, which is the unlisted half
+of the G18 pair — between them the reason the list runs G18 then G20; and `boundaries.test.ts`,
+`harness-paths.test.ts`, `cli-boundary.test.ts`, `frozen-behaviour.test.ts`,
+`provider-source-mode.test.ts`, `context-docs.test.ts`, `context-profile.test.ts` and
+`context-silence.test.ts`.
 
-- **G1** (`fields.test.js`) — every frontmatter key an asset declares is recognized by something.
-- **G2** (`paths.test.js`) — path reachability from `MCP_INDEX.md`-style generalizations.
-- **G3** (`consumers.test.js`) — every guidance-tree `modes/`/`references/` file has at least one
+- **G1** (`fields.test.ts`) — every frontmatter key an asset declares is recognized by something.
+- **G2** (`paths.test.ts`) — path reachability from `MCP_INDEX.md`-style generalizations.
+- **G3** (`consumers.test.ts`) — every guidance-tree `modes/`/`references/` file has at least one
   skill or always-loaded rule that actually reads it (lazy-loading is only safe if something
   loads it — a mode's own "Activation Triggers" prose is not itself a trigger). It also holds every
   `pointers/` file to being named as a source by a registry asset: a pointer's consumer is a registry
   entry rather than a skill, and copy-tree'ing the guidance directory is not reachability — that is
   how an orphaned pointer shipped to five harnesses while naming a directory the install had
   flattened away.
-- **G4** (`flags.test.js`) — `FLAGS.md` entries are wired to a real consumer and vice versa. A flag that is a runtime verb's own argument (such as `--stage` and `--statement` of `followup`) is listed with its reason rather than added to `FLAGS.md`. It also verifies flag ownership against skill frontmatter: the backticked `--flag` tokens on `FLAGS.md`'s shared-flags line equal the flags declared in at least two skills' `argument-hint`, and for every `**--flag ...**` entry, the backticked skill names after "Consumed by" equal exactly the skills whose `argument-hint` declares that flag.
-- **G5** (`registry.test.js`) — checks registry claims against what is actually implemented under
+- **G4** (`flags.test.ts`) — `FLAGS.md` entries are wired to a real consumer and vice versa. A flag that is a runtime verb's own argument (such as `--stage` and `--statement` of `followup`) is listed with its reason rather than added to `FLAGS.md`. It also verifies flag ownership against skill frontmatter: the backticked `--flag` tokens on `FLAGS.md`'s shared-flags line equal the flags declared in at least two skills' `argument-hint`, and for every `**--flag ...**` entry, the backticked skill names after "Consumed by" equal exactly the skills whose `argument-hint` declares that flag.
+- **G5** (`registry.test.ts`) — checks registry claims against what is actually implemented under
   `src/` and `core/harnesses/`.
-- **G6** (`docs.test.js`) — documented inventories match reality: the skill list in
+- **G6** (`docs.test.ts`) — documented inventories match reality: the skill list in
   `docs/reference.md`, and every skill/agent count quoted in `README.md`.
-- **G7** (`package.test.js`) — no backup, editor or bytecode file sits under the `files` trees that
+- **G7** (`package.test.ts`) — no backup, editor or bytecode file sits under the `files` trees that
   ship, `package.json` carries the npm page metadata and public publish access, and `LICENSE`
   matches the declared MIT license.
-- **G8** (`reachability.test.js`) — every shipped script/CLI command/doc-referenced path is
+- **G8** (`reachability.test.ts`) — every shipped script/CLI command/doc-referenced path is
   reachable from something, where a script reached *through a dispatcher verb* counts as reached;
   every flag `docs/reference.md` documents for a skill is declared in that skill's `argument-hint`
   (one direction; `docs/flags.md` is checked both ways by G10); and every
   documented runtime-resolution snippet is actually executed with CWD at a project root.
-- **G9** (`dispatch.test.js`) — a skill that names any `core/shared/agent-specs/` archetype by
+- **G9** (`dispatch.test.ts`) — a skill that names any `core/shared/agent-specs/` archetype by
   name must reference `references/MODEL_SELECTION.md` for model-tier selection.
-- **G10** (`flag-index.test.js`) — `docs/flags.md` (the flag-first companion to `reference.md`'s
+- **G10** (`flag-index.test.ts`) — `docs/flags.md` (the flag-first companion to `reference.md`'s
   skill-first table) stays in sync with every skill's `argument-hint`, forward and reverse.
-- **G11** (`evals.test.js`, with `test/bench/bench-runner.test.js` covering the runner's own
+- **G11** (`evals.test.ts`, with `test/bench/bench-runner.test.ts` covering the runner's own
   behavior) — the skill-evaluation corpus under `bench/` is tracked, so a clean clone
   can reproduce the behavioral baseline: the harness, the per-skill case files, the pinned-model
   config and the sanitized baseline are all present, every shipped skill has a case file carrying
@@ -849,17 +849,17 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   provenance: a run is told to load its skill from the sandbox by path, and a run that cannot prove
   which `SKILL.md` it read is never graded as if it could; a without-skill run withholds the skill
   and is graded `withheld`, `leaked` or `unrecorded` the same way.
-- **G11** (`scaffold.test.js`, same number, different guard) — a `--scaffold` run writes only under
+- **G11** (`scaffold.test.ts`, same number, different guard) — a `--scaffold` run writes only under
   `agent-docs/doflow/<slug>/scaffold/`, is byte-identical on re-run, emits signatures rather than
   logic, leaves a hand-edited file alone, and reports what it skipped as prominently as what it
   produced.
-- **G12** (`runtime-unification.test.js`) — one runtime: exactly one dispatcher and one locator, no
+- **G12** (`runtime-unification.test.ts`) — one runtime: exactly one dispatcher and one locator, no
   verb with two implementations, every shell verb resolving to a helper that exists, every Node verb
   having a CLI command and vice versa, no skill reaching the JS runtime except through the
   dispatcher, and the run ledger carrying metadata only.
-- **G13** (`workflows.test.js`) — every class in `workflows.json` resolves to stages naming skills
+- **G13** (`workflows.test.ts`) — every class in `workflows.json` resolves to stages naming skills
   that exist; review has no implementation stage; research requires no implementation readiness.
-- **G13** (`context-budget.test.js`, same number, different guard) — the DoFlow-authored
+- **G13** (`context-budget.test.ts`, same number, different guard) — the DoFlow-authored
   always-loaded set stays within its byte ceiling and every import in it resolves; and every task
   class stays within its loaded-context rail (SKILL.md entries plus named references, summed over
   the class's resolved workflow skills — a coarse drift rail, not a byte-exact pin). A rail is raised deliberately, in its own commit, with the measured value beside it. A size view alongside the rails
@@ -869,12 +869,12 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   reporting zero. A per-harness assertion computed from the registry holds every harness to the
   core set at least and the core set plus 1,024 B at most (the pointer or the `applyTo` headers), so
   a projection that loads a whole tree, or none of the core set, fails by name.
-- **G14** (`agent-specs.test.js`) — an agent specification references no file outside itself, since
+- **G14** (`agent-specs.test.ts`) — an agent specification references no file outside itself, since
   a dispatched agent has no working directory to resolve one against.
-- **G15** (`skill-seam.test.js`) — one path to the runtime entrypoint, one spelling of the resolver
+- **G15** (`skill-seam.test.ts`) — one path to the runtime entrypoint, one spelling of the resolver
   across the whole skill tree, and no skill reaching into the config directory for anything but that
   entrypoint.
-- **G16** (`module-reachability.test.js`) — every runtime module (`.js` or `.ts`) under `src/` is reachable from
+- **G16** (`module-reachability.test.ts`) — every runtime module (`.js` or `.ts`) under `src/` is reachable from
   something outside `test/`: a static relative `require()` in `bin/`, `src/` or `bench/`, or a path
   named on one of the caller surfaces that invoke a module without requiring it (`package.json`
   scripts, `core/shared/scripts`). It closes for runtime modules the same gap G8 already closes for
@@ -883,7 +883,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   alive solely by its own test, which is how one dead module survived thirteen months. Its companion
   check, that every relative `require()` literal resolves, deliberately still reads `test/`: it asks
   whether a specifier dangles, which is a different question.
-- **G18** (`artifact-conventions.test.js`) — `references/ARTIFACT_FORMAT.md` declares the artifact
+- **G18** (`artifact-conventions.test.ts`) — `references/ARTIFACT_FORMAT.md` declares the artifact
   conventions and the four chain-artifact templates transcribe them, so the two can disagree
   silently; this compares them. Each template must carry a `**Maturity:**` header field and no
   `**Status:**` one, and must restate both closed vocabularies, which stay disjoint. The C4 level
@@ -892,7 +892,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   appear in the template that owns each, and §10's four component labels must be transcribed into
   `design-template.md` §3 in order. Separately from the templates, the rule names
   `validate-artifacts.sh` implements must match the list §9 documents.
-- **G20** (`ownership-identity.test.js`) — `doflow inventory` treats two recorded resources as
+- **G20** (`ownership-identity.test.ts`) — `doflow inventory` treats two recorded resources as
   copies of one logical asset when `(harness, ownershipIdentity)` agrees (IC-004), which makes two
   properties of that identity load-bearing and neither was enforced anywhere: it must carry no
   scope name and no destination path, or a global and a project copy stop joining and are reported
@@ -905,7 +905,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   site under `src/adapters/` and failing closed on any interpolation not listed with the reason it
   is the same at both scopes. A plan against an empty root only exercises the create path, so the
   scan covers the verify and remove sites the behavioral half never reaches.
-- **G21** (`wholesale-assets.test.js`) — `doflow inventory` reports an unmanaged neighbouring file
+- **G21** (`wholesale-assets.test.ts`) — `doflow inventory` reports an unmanaged neighbouring file
   only in a directory the harness loads *wholesale*, and nothing in the registry records load
   semantics, so `WHOLESALE_ASSETS` in `src/runtime/inventory/siblings.ts` is derived by hand. This
   pins it to what adapters actually do, so a harness that gains an apply-to-everything transform
@@ -917,12 +917,12 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   loaded wholesale with no transform to execute; that entry instead pins the two registry facts its
   rationale rests on, and becomes removable if the registry ever declares load semantics per
   projection.
-- **G22** (`skill-caps.test.js`) — every `SKILL.md` stays inside the host's skill limits: listing text
+- **G22** (`skill-caps.test.ts`) — every `SKILL.md` stays inside the host's skill limits: listing text
   (`description` plus `when_to_use`) at most 1,536 characters, the file at most 20,000 bytes, with
   `## Boundaries` starting by byte 19,000 (inside the post-compaction window), and each task class's workflow
   skills at most 100,000 bytes together. The listing text summed over every skill also stays within
   8,000 characters, the figure Codex applies when the model's context window is unknown.
-- **G23** (`hidden-unicode.test.js`) — shipped prose and code are read by models and by reviewers, and
+- **G23** (`hidden-unicode.test.ts`) — shipped prose and code are read by models and by reviewers, and
   a code point that renders as nothing (tag characters, zero-width characters, bidirectional
   controls, invisible operators, variation selectors, soft hyphens, filler characters — in all, any code
   point with the Unicode property Default_Ignorable_Code_Point) can carry instructions or reorder text
@@ -934,7 +934,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   `test/` holds deliberate bidirectional fixtures. A second test in the same file covers every
   tracked file, `test/` included: a text file (any extension outside a short binary list) that holds
   a raw NUL byte is a finding, because grep and diff then treat it as binary and hide its contents.
-- **G24** (`instruction-lint.test.js`) — the guidance, skills and agent specs the harnesses load tell a
+- **G24** (`instruction-lint.test.ts`) — the guidance, skills and agent specs the harnesses load tell a
   model to read files and run `doflow-run` verbs, and nothing else checked those instructions against
   the tree. Every `doflow-run <verb>` they name must be a verb the dispatcher serves, every backticked
   path they cite must resolve to a file or directory that ships (G8 does the same for `docs/` and
@@ -950,7 +950,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   `AskUserQuestion`, `ToolSearch`, `<env>`, all Claude Code's) may appear in the shipped guidance,
   skills, agent specs and templates only in a paragraph that also names that harness, so text every
   harness loads does not name a tool the others lack.
-- **G25** (`prompt-nudge-registry.test.js`) — the standalone-prompt nudge reads its rules from the
+- **G25** (`prompt-nudge-registry.test.ts`) — the standalone-prompt nudge reads its rules from the
   `promptNudge` key of `core/registry/workflows.json` with `jq` and has no built-in defaults, so a
   missing or mistyped field would make the decision fail silently. The guard checks that object's
   shape and ranges, that its message names `/do` and no other skill, stays within 300 characters and
@@ -958,18 +958,18 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   (`prompt-nudge.jq`) runs against the shipped rules on a probe payload. The workflow engine does not
   read this key, so no runtime code validates it; the hook tests
   (`test/hooks/prompt-nudge*.test.js`) also run the shipped rules.
-- **G26** (`storage-declarations.test.js`) — every store DoFlow writes is declared with its retention
+- **G26** (`storage-declarations.test.ts`) — every store DoFlow writes is declared with its retention
   in `core/registry/storage.json`. The registry's shape loads; every static write call under `src/`,
   `bin/`, `core/shared/scripts/` and `core/harnesses/` is scanned and must sit in a declared writer
   file (an undeclared file is reported once per call), and every declared writer still writes; a sandbox scenario of real verbs, hooks and install steps maps each new path
   to a declaration and fails on a store no step produced; every `existing` store's bound is still in
   its source; the store table in `docs/reference.md` equals the registry; and `src/runtime/storage/`
   makes no network or child-process call.
-- **G27** (`test-tempdirs.test.js`) — tests create temporary folders only through
-  `test/helper/tmp.js`, so every folder is removed when its test or file ends. Each other call is
+- **G27** (`test-tempdirs.test.ts`) — tests create temporary folders only through
+  `test/helper/tmp.ts`, so every folder is removed when its test or file ends. Each other call is
   named by file and line, and an `EXEMPT` entry needs a reason and fails once it no longer matches.
 
-- **G28** (`mcp-claims.test.js`) — shipped text, the MCP registry and the code agree on which MCP
+- **G28** (`mcp-claims.test.ts`) — shipped text, the MCP registry and the code agree on which MCP
   servers exist and where they are used. Declared names are the `mcp.json` ids plus every
   provider's `mcp.server`. Over the skills, agent specs and guidance (not `FLAGS.md`), ``MCP `<id>` ``,
   `mcp__<id>__` and `MCP_<Name>.md` must name a declared server or doc, and the ``MCP `<id>` `` marker
@@ -980,7 +980,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   and `do-task-brief.sh` contain no `mcp.json` id as a literal, and the first three require none of
   `http`, `https`, `net` or `dns`. `docs/setup.md` holds each stepped server's `trigger` verbatim. The
   checks are one function over injected files, and fixture tests run it over bad trees.
-- **G29** (`brief-tools-registry.test.js`) — the tier, tools and report-format block of a generated
+- **G29** (`brief-tools-registry.test.ts`) — the tier, tools and report-format block of a generated
   brief follows the registries. `src/runtime/brief-tools.ts` and `do-task-brief.sh` contain no
   capability id, provider id or binary, route intent, `mcp.json` id or provider `mcp.server` as a
   literal. The block rendered over the shipped registries has one row per route intent and names
@@ -991,16 +991,16 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   every `byOwner` value equals the archetype's row in the `## Archetype dispatch tiers` prescription
   table in `MODEL_SELECTION.md`, so an off-policy tier edit to `models.json` is caught. Every
   harness `capabilities.mcp.toolName` holds `{server}` and `{tool}` and no other braces.
-- **G30** (`advice.test.js`) — hook, dependency, import and provider-route boundaries for advisory
+- **G30** (`advice.test.ts`) — hook, dependency, import and provider-route boundaries for advisory
   model calls: hooks cannot invoke advice, the project adds no package dependencies, within
   `src/runtime/advice/` only `client` and provider modules may require `http`/`https`, only
   `endpoint-guard` may require `dns`, and no module may require `net` or `child_process` (the
   repo-wide network check is G45.3), and providers cannot use model-pull,
   push, create, copy or delete routes or start Ollama.
-- **G31** (`advice.test.js`) — advice cases cover every registered advice kind, and the `tier`
+- **G31** (`advice.test.ts`) — advice cases cover every registered advice kind, and the `tier`
   criteria keys/order and their `Work` text stay synchronized with `models.json` and
   `MODEL_SELECTION.md` respectively, as DEC-033 requires.
-- **G32** (`runtime-tree.test.js`) — the two facts the lifecycle's runtime prune rests on: each of
+- **G32** (`runtime-tree.test.ts`) — the two facts the lifecycle's runtime prune rests on: each of
   `runtime.cli`, `runtime.lib` and `runtime.registry` projects one source directory to one
   `.doflow/runtime/...` tree for every harness, with no layout or transform, and no other asset
   writes into those trees; and every path under a shared `.doflow/` tree that a projected file
@@ -1009,7 +1009,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   `${DOFLOW_CONFIG_DIR:-$HOME/.doflow}/runtime/...` or a `../runtime/...` hop — so a prune can never
   delete a file a not-yet-updated harness calls by path. A reference already broken when the guard
   landed is listed in `KNOWN_STALE` with its reason and fails once it resolves.
-- **G33** (`baseline-contracts.test.js`) — the eighteen baseline and measurement contract checks of
+- **G33** (`baseline-contracts.test.ts`) — the eighteen baseline and measurement contract checks of
   P0 (074, IC-030): the pinned snapshot commit exists in git history (G33.1); the manifest matches
   `git ls-tree` at that commit (G33.2); dev tasks satisfy IC-013 validation against blobs at the commit
   and match `snapshot.taskFiles.dev.sha256` (G33.3); holdout ids never appear in dev tasks and every
@@ -1026,38 +1026,38 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   headings, states, and examples with score rejection (G33.16); retrieval README includes the three gate
   sentences verbatim (G33.17); and every deliverable defines refresh metadata and avoids transient
   feature-doc paths (G33.18).
-- **G36** (`lifecycle-bridges.test.js`) — coverage rows satisfy IC-022 fields, evidence, lifecycle and
+- **G36** (`lifecycle-bridges.test.ts`) — coverage rows satisfy IC-022 fields, evidence, lifecycle and
   inventory joins, digest, generated matrix, and shell-write exclusions (G36.1–G36.7).
-- **G37** (`lifecycle-bridges.test.js`) — wired events have parity fixtures and matching template
+- **G37** (`lifecycle-bridges.test.ts`) — wired events have parity fixtures and matching template
   sources; shipped hook files equal the reachable closure plus declared documentation; every
   shipped file belongs to a registry asset; Kiro Stop claims retain their evidence; and deny and error fixtures pin valid visible-byte ceilings and Pi result sizes (G37.1–G37.5).
 
-- **G34** (`lifecycle-bridges.test.js`) — bridge files contain no policy rules, agent spawns, context
+- **G34** (`lifecycle-bridges.test.ts`) — bridge files contain no policy rules, agent spawns, context
   injection, bash-to-Node calls or Pi input mutation (G34.1); the lifecycle architecture names the
   install adapter, lifecycle bridge and 081-owned harness execution adapter with their boundaries
   (G34.2).
-- **G35** (`lifecycle-bridges.test.js`) — the envelope encoder matches every fixture expectation
+- **G35** (`lifecycle-bridges.test.ts`) — the envelope encoder matches every fixture expectation
   and missing, v1 and unsupported version classes follow the v1-only contract (G35.1–G35.2); canonical policies preserve their
   0fcd973 output without the decision fd and begin records with provisional allow (G35.3); exit-2
   faults block with a fixed reason (G35.4), every policy deny has a record (G35.5), and migration
   guidance anchors Pi on `tool_call` and envelope version 1 (G35.6).
-- **G38** (`context-authority.test.js`) - hook paths run no retrieval, model or index work, and no
+- **G38** (`context-authority.test.ts`) - hook paths run no retrieval, model or index work, and no
   full test run; the compiled emission table equals its rules; context output goes only through the
   emission adapter; the retired `last-compact-summary.md` name is confined to the summary-store
   adopter; check policies read no emission state; and bash and TypeScript identity agree
   (G38.1 to G38.6).
-- **G39** (`coverage-semantics.test.js`) - end-of-turn events agree with stop rows, fixtures, the
+- **G39** (`coverage-semantics.test.ts`) - end-of-turn events agree with stop rows, fixtures, the
   inventory and external provenance; every behaviour and harness pair is stated once, with real tests
   or a limitation, and identity is enforced only with live provenance; and the rendered behaviour
   block equals its renderer (G39.1 to G39.3).
-- **G40** (`operating-modes-locators.test.js`) - the `implemented` claims in
+- **G40** (`operating-modes-locators.test.ts`) - the `implemented` claims in
   `docs/specs/operating-modes.md` point at code that exists: every `implemented` row of the Task
   states and User controls tables carries a `path#symbol` locator, and every such locator names an
   existing file that declares the symbol as a function, `const`/`let`/`var`, class, `export { }` name
   or `module.exports` key (G40.1); the Manual / assisted cells of Pause, Cancel, Resume and Inspect
   are `implemented` (G40.2); and no locator is a bare `path:line`, which goes stale on the next edit
   (G40.3).
-- **G41** (`worker-descriptors.test.js`) - every harness in `core/registry/harnesses.json` carries a
+- **G41** (`worker-descriptors.test.ts`) - every harness in `core/registry/harnesses.json` carries a
   `worker` block and the registry validator reports no worker error (G41.1); every `supported`
   worker entry has evidence naming an existing repository path or an `https://` URL (G41.2);
   every declared `structuredOutput.parser` is a key of `PARSERS` in `src/runtime/worker/parsers.ts`
@@ -1067,7 +1067,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   establishes), and a capability counts only when a check with result `pass`, exit 0 and matched lines
   establishes it, whatever the record's own `establishes` says. A `live-run` record counts only when its
   run report is `success` and its result was offered.
-- **G42** (`dispatch-loop.test.js`) - `core/registry/storage.json` declares the `dispatch`,
+- **G42** (`dispatch-loop.test.ts`) - `core/registry/storage.json` declares the `dispatch`,
   `dispatch-envelopes` and `dispatch-worktrees` stores (G42.1); every harness declares
   `isolatedEdit`, the registry validator reports no `isolatedEdit` error, and the edit baseline is the
   read-only baseline with `read-only` replaced by `isolated-edit` (G42.2); the Autonomous cells of
@@ -1079,18 +1079,18 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   references `escalate`, and IC-032's lease rule calls `verify-run.ts`'s exported `endVerification`
   (G42.5); and no dispatch module holds the literals `'push'`, `'fetch'`,
   `'config'`, `'--no-verify'`, `'checkout'` or `'merge'` (G42.6).
-- **G43** (`hybrid-retrieval.test.js`) — the separate `hybrid-c-v1` protocol preserves A/B
+- **G43** (`hybrid-retrieval.test.ts`) — the separate `hybrid-c-v1` protocol preserves A/B
   history; its six aggregate slots are reserved before holdout decryption and released only on a
   failed pre-evaluation check; the Semble 0.7.0 bridge uses bounded public dense search, preserves
   provider order, denies network and confines writes, and never rebuilds during query; and the
   promotion gate cannot pass with missing thresholds or unreached paid T-005/T-006 (G43.1–G43.3).
   Package and runtime-projection conformance are exercised separately by the focused release and
   lifecycle tests.
-- **G44** (`settings.test.js`) — settings registry consumers and references resolve, the `Settings keys` table
+- **G44** (`settings.test.ts`) — settings registry consumers and references resolve, the `Settings keys` table
   matches defaults, scopes and environment names, config-home and lexical copies stay within their
   checked rules, and the settings files remain declared storage stores (086 IC-014/015). The later-key
-  registration contract is exercised by `test/settings/register-key.test.js` (IC-016).
-- **G45** (`telemetry-contract.test.js`) — `core/registry/telemetry.json` is well
+  registration contract is exercised by `test/settings/register-key.test.ts` (IC-016).
+- **G45** (`telemetry-contract.test.ts`) — `core/registry/telemetry.json` is well
   formed and its keys per kind equal the keys the `TelemetryWriter`, the bridge and observer `printf`
   formats and the fixture lines carry, with `harness`, `status` and `risk` equal to their owning
   registries (G45.1); no `node` process starts on a shell hook path except the two pinned Antigravity
@@ -1103,34 +1103,34 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   G30.2 is still enforced (G45.5); every telemetry store is a declared `runs/` subdirectory the ledger
   readers skip (G45.6); and the export block maps only closed descriptors and the analysis block is
   well formed (G45.7). The writer and contract are specified in `docs/specs/telemetry-contract.md`.
-- **G46** (`guidance-truth.test.js`) — prose claims that restate runtime gate behavior, install layout or
+- **G46** (`guidance-truth.test.ts`) — prose claims that restate runtime gate behavior, install layout or
   packaged file sets must agree with the scripts and registries that own those facts. The numbered `# Denies` cases in the header of `core/harnesses/shared/hooks/policies/pre-implementation-gate.sh` must be as many as the deny-code families the script emits, and the backticked deny codes in the implement-gate bullet in `core/shared/guidance/references/DOFLOW_CHAIN.md` must equal the codes the script emits (G46.1); a "hard gate" or "hard hook" scope claim anywhere in guidance, skills, or agent specs
   must cite `DOFLOW_CHAIN.md` in its own sentence or an adjacent one (G46.2); the Layout table's
   `shared/hooks/policies/` row must list the shared policy scripts emitting literal deny decisions (G46.3);
   the `templates/doflow/` row must match all ten templates declared in `templates.doflow` (G46.4); the
   `guidance/references/` row must match all ten reference files in `guidance.context-layer` (G46.5); and the
   install-root note must match the resolver search order in `core/shared/skills/do/SKILL.md` (G46.6).
-- **G47** (`guidance-consistency.test.js`) — guidance statements must maintain consistent wording and grounded
+- **G47** (`guidance-consistency.test.ts`) — guidance statements must maintain consistent wording and grounded
   enforcement claims across all shared documentation in `core/shared/guidance/`. Threshold expressions across
   the corpus (`>N`, `N+`, `more than N`, `past N`, `over N`, `at least N` for files, steps, tasks, directories)
   must normalize to a single consistent minimum per unit (such as `>3 files` and `>3 steps/tasks`) (G47.1); and
   uppercase enforcement words (`BLOCK`, `BLOCKS`, `BLOCKED`, `ENFORCED`) must not appear without a matching
   backticked `*.sh` name on the same line that exists in `core/harnesses/shared/hooks/policies/`; any script
   there counts, and the check does not read what the script enforces (G47.2).
-- **G48** (`registry-sources.test.js`) - registry source mode: the source tree requires every declared source and asset to exist (`require` mode), while a runtime-shaped tree (holding only `bin/`, `src/` and `core/registry/`) loads in `skip` mode without checking shared assets or native-projection sources, and fails in `require` mode.
-- **G49** (`docs-site.test.js`) - the published docs site stays true to the code: every `mkdocs.yml` nav page exists and is listed in `docs/llms.txt`, and every `llms.txt` link is a nav page; every Node range statement in `docs/quickstart.md` and `docs/setup.md` equals the range `package.json` declares in `engines.node`; no page claims a Node 18, 20 or 22 floor except in a sentence (or table cell) that itself says the floor was raised; and whenever a page holds a `mermaid` fence, `mkdocs.yml` (YAML comments ignored) declares the mermaid custom fence and an `extra_javascript` script pins the mermaid library (`mermaid@<version>/dist/mermaid`) with a `sha384` integrity hash. Each check has a negative control that re-seeds the fault in a copy under `tempDir`.
-- **G50** (`bare-imports.test.js`) — every code module under `src/` and `bin/` (`.ts`, `.js`, `.mjs`, `.cjs`, ignoring `.d.ts` and files outside those directories) must use `node:` builtins or relative specifiers (`./` or `../`): bare package imports without `node:` prefixes, bare Node builtins (such as `'fs'`), and non-literal or dynamic `require()` calls are forbidden so unvendored dependencies and dynamic lookups cannot slip into shipped code. Specifiers are scanned across all five forms: `require()`, `require.resolve()`, `import()`, `from ...`, and bare `import`. Each check has a negative control: fixture-map tests assert that bare packages, bare Node builtins, dynamic `require()` arguments, and all five specifier forms are reported while safe specifiers are permitted, and a filesystem walk over directories copied into `tempDir` identifies a seeded fault by file and line without modifying tracked sources.
-- **G51** (`release-workflow.test.js`) — the committed release workflow (`.github/workflows/release.yml`) satisfies the IC-004 workflow rules and IC-005 job graph. Each check has a negative control: string mutations re-seed faults on workflow copies (leaving the committed file untouched) to verify that violations of rules R1 (empty top-level permissions), R3 (`id-token: write` restricted to `publish`), R5 (40-hex SHA pinning for external actions), R6 (`preflight` having no dependencies), R7 (`publish-release` dependency on `promote`), and R9 (`publish` publishing to `${channel}-candidate`) are detected and reported by their respective rules.
-- **G52** (`verification-levels.test.js`) — verification levels are data over tiers: L0 tiers exist and lead every risk level's `requiredTiers`; each risk level is in exactly one of L1..L3; L3 includes HIGH and CRITICAL; `policy.v0.levels` is a subset of {L1, L2}. Each check has a negative control.
-- **G53** (`roadmap-git-verbs.test.js`) — every git argument vector in `src/runtime/roadmap/**` is on the allow-list: the read verbs, `merge-tree --write-tree`, `commit-tree`, `merge --ff-only`, `worktree add -b`, `worktree remove` without force, `branch -d`, and the repair-only `read-tree`, three-argument `update-ref`, `checkout-index -a` and `update-index -q --refresh`. `push`, `fetch`, `pull`, `tag`, `remote`, `reset`, `stash`, `checkout`, `switch`, `restore`, `clean`, `rebase`, `-D`, `--force` and `-f` fail it, as does an argument vector that cannot be read statically (computed or spread arguments). Controls: scratch sources with `push`, `branch -D`, `worktree remove --force` and a computed argv turn it red; config reads pass and config writes fail; it passes on an empty tree and reports module count 0.
-- **G54** (`roadmap-imports.test.js`) — no module under `src/runtime/roadmap/**` imports `worker/launch`, `worker/supervisor`, `dispatch/loop`, `model-router` or a model client, and none spawns a binary other than `git`, in any invocation form, static or dynamic. Person-only clause (feature 113): `src/runtime/roadmap/seed.ts` is required only by `src/cli/runtime-commands.ts`, `core/registry/gates.json` names no `seed` predicate, and, over the comment-stripped whole files of every `src/**` module except `seed.ts` and `runtime-commands.ts`, the guard is red on an array literal (single or multi-line) holding `'seed'` beside `'roadmap'`, `--action` or `--draft` (with or without `=value`), on a `skill: 'seed'` field, on a literal `'seed'` argument of `envelopeFor(...)`, and, under `src/runtime/roadmap/**`, on a binding whose value is exactly `'seed'`; over `core/shared/**` and `core/registry/**` it is red on `seed --action apply|amend`. Controls: a scratch `require('../worker/launch.ts')`, a scratch `spawn('node')` and a scratch `require('./seed.ts')` in `loop.ts` each turn it red; controls mutate the real `loop.ts` text in memory (single-line, multi-line, `=` and constant forms), a scratch `rows.ts` copy and a scratch SKILL.md; the unmodified tree stays green (`loop.ts` `Unreadable(['seed'], ...)` and the `rehearse.ts` stage list); the import and spawn check passes on an empty tree and reports module count 0.
-- **G55** (`gate-vocabulary.test.js`) — the gate ids in `core/registry/gates.json` equal those of `core/registry/workflows.json` per class; every reason code emitted by `src/runtime/roadmap/**` and by the decide-gate path in `workflow-orchestrator.ts` is in `denyReasons` (a `:<x>` suffix is a parameter, not a new reason; row outcomes that are not denies are named in the guard); every `denyReasons` entry appears in a test expectation, with an `ALLOWED_GAPS` list that is empty today and may only shrink. The scan reads reason sites only, never every string. Controls: a scratch emitter of a made-up reason, a row outcome moved into `denyReasons`, differing gate ids and an unmentioned listed reason each turn it red.
-- **G56** (`decider-channels.test.js`) — the decision register's channel-to-decider map and the lifecycle event store's map are equal, including `resolution` (`agent`) and `policy` (`autopilot`); the `decision`, `followup`, `lifecycle` and `goal` CLIs refuse `--channel policy` with `channel-reserved` (exit 2) before any write, and a decision batch cannot smuggle the reserved channel past whitespace.
-- **G57** (`roadmap-render-check.test.js`) — `roadmap --action render --check` reports each integrity finding on a fixture: `render-drift`, `duplicate-merge`, `trailer-unknown-row`, `commit-claimed-twice`, `trailered-and-seeded`, `pointer-not-merge`, `needs-unresolved`, `duplicate-id`, `slug-id-mismatch` and `seed-typed-status`, plus the store rules `class-unknown` (an unregistered class), `needs-cycle` (reported once, `rowIds` in path order) and `seed-unknown-key` (an extra row key) on their own fixtures, with a clean acyclic fixture passing; a clean fixture passes with no findings, and a held seed row keeps the rendered bytes. A doc clause matches each `SEED_RULES` code as a backticked whole token in `docs/reference.md`; every emitted `rule:` literal in `seed.ts` and `rows.ts` must be a `SEED_RULES` code or a 108 check code, and every `SEED_RULES` code must be emitted. Controls: a check without the `commit-claimed-twice` rule turns it red; a reference copy without `` `seed-invalid` `` (with `` `seed-invalid-json` `` still present), an unlisted emitted rule and a listed but unemitted code each turn the doc and emission clauses red.
-- **G58** (`worker-billing.test.js`) — every worker block in `core/registry/harnesses.json` declares `billing`, and `validateWorker` accepts exactly `free`, `metered` and `unknown` and rejects a missing, `null`, object or other value. Every shipped descriptor must read `unknown` today, so recording a harness as `free` is a deliberate change to this guard.
-- **G59** (`review-findings-contract.test.js`) — `core/shared/skills/do-code-review/SKILL.md` names the `review/findings.json` schema 1 output contract (path, schema, `reviewedHead`, seats, converged dispositions, `converged.md` staying prose). `validateFindings` lives in `src/runtime/review/findings.ts` and is re-exported by `gates.ts`; the shipped fixture `test/fixtures/roadmap/findings/schema-1.json` passes it. The SKILL text must also name `rounds`, every optional convergence field and vocabulary value, the round cap 3, and `review --action check`, as read from `src/runtime/review/findings.ts`; `test/fixtures/roadmap/findings/schema-1-convergence.json` carries every optional field, passes validation and has non-zero counts. Controls: a scratch SKILL copy without the contract, without `verification`, or a `user-accepted` entry without its decision turns it red.
-- **G60** (`eval-noise.test.js`) — every tracked `bench-decision` JSON under `bench/` or `test/` (top level or nested in a report) passes `validateDecision` and recomputes from its recorded inputs, cases, noise, thresholds and seed through `bench/noise.js`; model mismatch and unusable-artifact preconditions follow those inputs, and source `none` requires null noise and `no-noise-band` in every scope. Every tracked `bench-noise` JSON node passes `validateNoiseArtifact`, which recomputes its scope statistics and verdict from its cases and thresholds. No other tracked JSON under `bench/` or `test/` carries `gain-above-noise` or `merge-candidate`; the README vocabulary table equals the `bench/noise.js` vocabulary exports, including `EXCLUSION_MARKS`, in order; and no other tracked bench JS file holds an array literal of two or more words of one vocabulary. G60 carries its own comment masker. It scans `test/` as well as `bench/` so committed test fixtures containing forged or stale decision records receive the same consistency check. Controls: a gain inside the band stored as `gain-above-noise`, tampered `ci95`, `n` or gain, forged preconditions and noise stats, a stray verdict value in another JSON, README value/order faults, and a scratch bench JS vocabulary list turn it red; a decision nested in a report is validated, not flagged.
-- **G61** (`docs-generated.test.js`) — the generated docs stay true to their sources: every
+- **G48** (`registry-sources.test.ts`) - registry source mode: the source tree requires every declared source and asset to exist (`require` mode), while a runtime-shaped tree (holding only `bin/`, `src/` and `core/registry/`) loads in `skip` mode without checking shared assets or native-projection sources, and fails in `require` mode.
+- **G49** (`docs-site.test.ts`) - the published docs site stays true to the code: every `mkdocs.yml` nav page exists and is listed in `docs/llms.txt`, and every `llms.txt` link is a nav page; every Node range statement in `docs/quickstart.md` and `docs/setup.md` equals the range `package.json` declares in `engines.node`; no page claims a Node 18, 20 or 22 floor except in a sentence (or table cell) that itself says the floor was raised; and whenever a page holds a `mermaid` fence, `mkdocs.yml` (YAML comments ignored) declares the mermaid custom fence and an `extra_javascript` script pins the mermaid library (`mermaid@<version>/dist/mermaid`) with a `sha384` integrity hash. Each check has a negative control that re-seeds the fault in a copy under `tempDir`.
+- **G50** (`bare-imports.test.ts`) — every code module under `src/` and `bin/` (`.ts`, `.js`, `.mjs`, `.cjs`, ignoring `.d.ts` and files outside those directories) must use `node:` builtins or relative specifiers (`./` or `../`): bare package imports without `node:` prefixes, bare Node builtins (such as `'fs'`), and non-literal or dynamic `require()` calls are forbidden so unvendored dependencies and dynamic lookups cannot slip into shipped code. Specifiers are scanned across all five forms: `require()`, `require.resolve()`, `import()`, `from ...`, and bare `import`. Each check has a negative control: fixture-map tests assert that bare packages, bare Node builtins, dynamic `require()` arguments, and all five specifier forms are reported while safe specifiers are permitted, and a filesystem walk over directories copied into `tempDir` identifies a seeded fault by file and line without modifying tracked sources.
+- **G51** (`release-workflow.test.ts`) — the committed release workflow (`.github/workflows/release.yml`) satisfies the IC-004 workflow rules and IC-005 job graph. Each check has a negative control: string mutations re-seed faults on workflow copies (leaving the committed file untouched) to verify that violations of rules R1 (empty top-level permissions), R3 (`id-token: write` restricted to `publish`), R5 (40-hex SHA pinning for external actions), R6 (`preflight` having no dependencies), R7 (`publish-release` dependency on `promote`), and R9 (`publish` publishing to `${channel}-candidate`) are detected and reported by their respective rules.
+- **G52** (`verification-levels.test.ts`) — verification levels are data over tiers: L0 tiers exist and lead every risk level's `requiredTiers`; each risk level is in exactly one of L1..L3; L3 includes HIGH and CRITICAL; `policy.v0.levels` is a subset of {L1, L2}. Each check has a negative control.
+- **G53** (`roadmap-git-verbs.test.ts`) — every git argument vector in `src/runtime/roadmap/**` is on the allow-list: the read verbs, `merge-tree --write-tree`, `commit-tree`, `merge --ff-only`, `worktree add -b`, `worktree remove` without force, `branch -d`, and the repair-only `read-tree`, three-argument `update-ref`, `checkout-index -a` and `update-index -q --refresh`. `push`, `fetch`, `pull`, `tag`, `remote`, `reset`, `stash`, `checkout`, `switch`, `restore`, `clean`, `rebase`, `-D`, `--force` and `-f` fail it, as does an argument vector that cannot be read statically (computed or spread arguments). Controls: scratch sources with `push`, `branch -D`, `worktree remove --force` and a computed argv turn it red; config reads pass and config writes fail; it passes on an empty tree and reports module count 0.
+- **G54** (`roadmap-imports.test.ts`) — no module under `src/runtime/roadmap/**` imports `worker/launch`, `worker/supervisor`, `dispatch/loop`, `model-router` or a model client, and none spawns a binary other than `git`, in any invocation form, static or dynamic. Person-only clause (feature 113): `src/runtime/roadmap/seed.ts` is required only by `src/cli/runtime-commands.ts`, `core/registry/gates.json` names no `seed` predicate, and, over the comment-stripped whole files of every `src/**` module except `seed.ts` and `runtime-commands.ts`, the guard is red on an array literal (single or multi-line) holding `'seed'` beside `'roadmap'`, `--action` or `--draft` (with or without `=value`), on a `skill: 'seed'` field, on a literal `'seed'` argument of `envelopeFor(...)`, and, under `src/runtime/roadmap/**`, on a binding whose value is exactly `'seed'`; over `core/shared/**` and `core/registry/**` it is red on `seed --action apply|amend`. Controls: a scratch `require('../worker/launch.ts')`, a scratch `spawn('node')` and a scratch `require('./seed.ts')` in `loop.ts` each turn it red; controls mutate the real `loop.ts` text in memory (single-line, multi-line, `=` and constant forms), a scratch `rows.ts` copy and a scratch SKILL.md; the unmodified tree stays green (`loop.ts` `Unreadable(['seed'], ...)` and the `rehearse.ts` stage list); the import and spawn check passes on an empty tree and reports module count 0.
+- **G55** (`gate-vocabulary.test.ts`) — the gate ids in `core/registry/gates.json` equal those of `core/registry/workflows.json` per class; every reason code emitted by `src/runtime/roadmap/**` and by the decide-gate path in `workflow-orchestrator.ts` is in `denyReasons` (a `:<x>` suffix is a parameter, not a new reason; row outcomes that are not denies are named in the guard); every `denyReasons` entry appears in a test expectation, with an `ALLOWED_GAPS` list that is empty today and may only shrink. The scan reads reason sites only, never every string. Controls: a scratch emitter of a made-up reason, a row outcome moved into `denyReasons`, differing gate ids and an unmentioned listed reason each turn it red.
+- **G56** (`decider-channels.test.ts`) — the decision register's channel-to-decider map and the lifecycle event store's map are equal, including `resolution` (`agent`) and `policy` (`autopilot`); the `decision`, `followup`, `lifecycle` and `goal` CLIs refuse `--channel policy` with `channel-reserved` (exit 2) before any write, and a decision batch cannot smuggle the reserved channel past whitespace.
+- **G57** (`roadmap-render-check.test.ts`) — `roadmap --action render --check` reports each integrity finding on a fixture: `render-drift`, `duplicate-merge`, `trailer-unknown-row`, `commit-claimed-twice`, `trailered-and-seeded`, `pointer-not-merge`, `needs-unresolved`, `duplicate-id`, `slug-id-mismatch` and `seed-typed-status`, plus the store rules `class-unknown` (an unregistered class), `needs-cycle` (reported once, `rowIds` in path order) and `seed-unknown-key` (an extra row key) on their own fixtures, with a clean acyclic fixture passing; a clean fixture passes with no findings, and a held seed row keeps the rendered bytes. A doc clause matches each `SEED_RULES` code as a backticked whole token in `docs/reference.md`; every emitted `rule:` literal in `seed.ts` and `rows.ts` must be a `SEED_RULES` code or a 108 check code, and every `SEED_RULES` code must be emitted. Controls: a check without the `commit-claimed-twice` rule turns it red; a reference copy without `` `seed-invalid` `` (with `` `seed-invalid-json` `` still present), an unlisted emitted rule and a listed but unemitted code each turn the doc and emission clauses red.
+- **G58** (`worker-billing.test.ts`) — every worker block in `core/registry/harnesses.json` declares `billing`, and `validateWorker` accepts exactly `free`, `metered` and `unknown` and rejects a missing, `null`, object or other value. Every shipped descriptor must read `unknown` today, so recording a harness as `free` is a deliberate change to this guard.
+- **G59** (`review-findings-contract.test.ts`) — `core/shared/skills/do-code-review/SKILL.md` names the `review/findings.json` schema 1 output contract (path, schema, `reviewedHead`, seats, converged dispositions, `converged.md` staying prose). `validateFindings` lives in `src/runtime/review/findings.ts` and is re-exported by `gates.ts`; the shipped fixture `test/fixtures/roadmap/findings/schema-1.json` passes it. The SKILL text must also name `rounds`, every optional convergence field and vocabulary value, the round cap 3, and `review --action check`, as read from `src/runtime/review/findings.ts`; `test/fixtures/roadmap/findings/schema-1-convergence.json` carries every optional field, passes validation and has non-zero counts. Controls: a scratch SKILL copy without the contract, without `verification`, or a `user-accepted` entry without its decision turns it red.
+- **G60** (`eval-noise.test.ts`) — every tracked `bench-decision` JSON under `bench/` or `test/` (top level or nested in a report) passes `validateDecision` and recomputes from its recorded inputs, cases, noise, thresholds and seed through `bench/noise.ts`; model mismatch and unusable-artifact preconditions follow those inputs, and source `none` requires null noise and `no-noise-band` in every scope. Every tracked `bench-noise` JSON node passes `validateNoiseArtifact`, which recomputes its scope statistics and verdict from its cases and thresholds. No other tracked JSON under `bench/` or `test/` carries `gain-above-noise` or `merge-candidate`; the README vocabulary table equals the `bench/noise.ts` vocabulary exports, including `EXCLUSION_MARKS`, in order; and no other tracked bench JS file holds an array literal of two or more words of one vocabulary. G60 carries its own comment masker. It scans `test/` as well as `bench/` so committed test fixtures containing forged or stale decision records receive the same consistency check. Controls: a gain inside the band stored as `gain-above-noise`, tampered `ci95`, `n` or gain, forged preconditions and noise stats, a stray verdict value in another JSON, README value/order faults, and a scratch bench JS vocabulary list turn it red; a decision nested in a report is validated, not flagged.
+- **G61** (`docs-generated.test.ts`) — the generated docs stay true to their sources: every
   `BEGIN GENERATED` span and `docs/llms.txt` equal what `src/release/docs-blocks.ts` renders from the
   registries, the two help texts and the nav (a); the markers on every docs page are registered to that
   page, paired and not nested (b); every
@@ -1142,7 +1142,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   another workflow (f); `docs/llms.txt` stays within 4,096 bytes (g).
   Each clause re-seeds its fault in a copy. Run `node src/release/docs-blocks.ts --write` after a
   registry, help or nav change, then review the diff.
-- **G62** (`review-depth-source.test.js`) — the review depth rule has one source, the `reviewDepth` block of
+- **G62** (`review-depth-source.test.ts`) — the review depth rule has one source, the `reviewDepth` block of
   `core/registry/verification.json`, and the seat counts have one source, the review presets of
   `core/registry/protocols.json` (the block holds no `depths` and no `seats` key anywhere, and every
   review preset's seat count is its own `seats` length): `core/shared/skills/do-code-review/SKILL.md` names
@@ -1152,7 +1152,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   word) or of a `reviewDepth.lightPaths` entry. There is no exclusion for `a single`. Controls: the
   detector flags `single seat when LOW`, `A single seat is enough when risk is LOW.`,
   `Use one seat when LOW.` and `single reviewer for edits to docs/ only`, and passes plain prose.
-- **G63** (`agent-roster.test.js`) — the agent specs under `core/shared/agent-specs/` are the one roster,
+- **G63** (`agent-roster.test.ts`) — the agent specs under `core/shared/agent-specs/` are the one roster,
   and everything that names or depends on it is derived from that directory, never from a list in the
   guard: every workflow stage carries an `agent` that is a spec and every spec is bound by some stage; each
   harness declares `agentLimits.readOnly` (an `unenforced` limit needs a reason), and
@@ -1164,14 +1164,14 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   `workflows.json` `agents.access` names exactly the specs, each with its spec's `access` (the runtime reads
   it there: an installed runtime ships `core/registry`, not `core/shared`).
   Each clause re-seeds its fault on a scratch copy of only the files it reads.
-- **G64** (`agent-budget.test.js`) — the roster is a standing context cost, so it is capped: at most 7
+- **G64** (`agent-budget.test.ts`) — the roster is a standing context cost, so it is capped: at most 7
   specs, each `description` at most 160 characters, all together at most 1,000, and every spec declares
   `access` as `read-only` or `write`. A spec is standalone: none names a DoFlow verb, state path or record
   (`doflow-run`, `.doflow/`, `task-attempt`, `readiness`, `orchestrate`, `findings.json`) outside the one
   hook line that lets a stage brief override the spec. Controls: an eighth spec, a 161-character
   description, a 1,001-character sum and a planted `doflow-run` are red. Raising a cap is a deliberate
   edit to the guard.
-- **G65** (`adopted-stores.test.js`) — the stores a linked worktree's records are adopted from
+- **G65** (`adopted-stores.test.ts`) — the stores a linked worktree's records are adopted from
   (`core/registry/storage.json` stores with `root: project-state` that name `src/runtime/state-root.ts`
   in `writers`, read through `adoptedStores`) are the stores that source files address through
   `taskRecord`, `taskStoreDir`, `recordIn` or `resolveTaskScope`. Each helper call is tied to its own
@@ -1190,7 +1190,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   `workflow-orchestrator.ts` is an orchestration user through `runStoreDir()` even when
   `research-request.ts` no longer names that store; and against the shipped sources, removing the adopter from
   `task-evidence` or adding it to `task-attempts` turns it red.
-- **G66** (`protocols.test.js`) — `core/registry/protocols.json` is consistent with itself and with the
+- **G66** (`protocols.test.ts`) — `core/registry/protocols.json` is consistent with itself and with the
   class seat floors: preset ids are unique in the raw file text (parsed JSON hides a duplicate key), every
   seat lens is in the lens catalogue, `review-deep` is the strictest review preset in `order.review` with at
   least as many seats as every class's `gate-b.minSeats` in `gates.json` (so no other review preset is needed
@@ -1211,12 +1211,12 @@ another," not a runtime bug — fix the stale side, don't weaken the guard.
 
 ### Boundary ratchets
 
-Two unlisted guard files pin structural boundaries. `test/guards/boundaries.test.js` holds G-B1,
+Two unlisted guard files pin structural boundaries. `test/guards/boundaries.test.ts` holds G-B1,
 the dependency direction rule: no file under `core/` requires from `src/`, `bin/` or `test/`, so
 the content stays usable without the tool that installs it. It also holds G-B2, the inventory
 ratchets: `core/registry/` holds exactly 17 JSON files and `src/adapters/` exactly 8 harness
 directories. A ratchet does not forbid a change; it makes the change edit the guard in the same
-commit, so each structural shift is a reviewed decision. `test/guards/cli-boundary.test.js` keeps
+commit, so each structural shift is a reviewed decision. `test/guards/cli-boundary.test.ts` keeps
 `bin/doflow.js` a thin forwarder with no command handler and no argument parser, and requires the
 `COMMANDS` table in `src/cli/index.ts` and the files in `src/cli/commands/` to name exactly the
 nine installer commands.

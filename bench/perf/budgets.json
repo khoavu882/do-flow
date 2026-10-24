@@ -525,7 +525,7 @@
       "argv": [
         "node",
         "--test",
-        "test/guards/context-budget.test.js"
+        "test/guards/context-budget.test.ts"
       ],
       "intentClass": "guardFile",
       "enforced": false
