@@ -155,4 +155,3 @@ test('gemini remains declared-only and writes no primary observation folder', (t
     false,
   );
 });
-
