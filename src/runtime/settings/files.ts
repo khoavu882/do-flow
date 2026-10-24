@@ -96,7 +96,7 @@ function validateWorkerBilling(value: unknown): ValueFault | null {
     if (Object.hasOwn(entry, 'basis')) {
       const basis = entry.basis;
       if (typeof basis !== 'string') return { code: 'type', reason: `${at} field 'basis' must be a string` };
-      if (/[\r\n\u0085\u2028\u2029]/.test(basis) || basis.length < 1 || basis.length > BILLING_BASIS_MAX) return { code: 'range', reason: `${at} field 'basis' must be one line of 1 to ${BILLING_BASIS_MAX} characters` };
+      if (/[\r\n\v\f\u0085\u2028\u2029]/.test(basis) || basis.length < 1 || basis.length > BILLING_BASIS_MAX) return { code: 'range', reason: `${at} field 'basis' must be one line of 1 to ${BILLING_BASIS_MAX} characters` };
     }
   }
   return null;

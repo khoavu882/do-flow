@@ -116,8 +116,12 @@ function protocolsReviewPresetIds(source: Source): string[] {
 function protocolsReviewPresetOrder(source: Source): string[] {
   const order = protocolsReviewPresetIds(source).slice(1);
   const presets = source(PROTOCOLS_FILE).presets;
-  const deep = order.findIndex((id) => presets[id].depth === RISK_STRICTEST_DEPTH);
+  const deep = order.findIndex((id) => presets[id]?.depth === RISK_STRICTEST_DEPTH);
   if (deep === -1) throw new Error(`${PROTOCOLS_FILE} order.review has no preset of depth '${RISK_STRICTEST_DEPTH}'`);
+  const single = order.findIndex((id) => presets[id]?.depth === 'single');
+  if (single !== -1) {
+    return [...order.slice(0, single), 'auto', ...order.slice(single)];
+  }
   return [...order.slice(0, deep + 1), 'auto', ...order.slice(deep + 1)];
 }
 

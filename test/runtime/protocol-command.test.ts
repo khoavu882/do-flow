@@ -171,6 +171,9 @@ test('usage errors exit 2', (t) => {
     ['--action', 'resolve', '--kind', 'review', '--preset', 'Bad Id'],
     ['--action', 'list', '--kind', 'nope'],
     ['--action', 'list', '--preset', 'review-deep'],
+    ['--action', 'list', 'stray'],
+    ['--action', 'resolve', '--kind', 'debate', 'stray'],
+    ['--unknown-flag'],
   ];
   for (const args of bad) {
     const res = s.cli(args);

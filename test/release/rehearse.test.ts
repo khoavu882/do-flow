@@ -308,6 +308,36 @@ test('seed plantuml: a revert that does not apply exits 3 and names the commit',
   assert.ok(result.lines.includes('SKIP suite: after seed failed'));
 });
 
+test('suite failure output prints failing test names and summary counts (FU-xhbah7)', (t) => {
+  const suiteFailureOutput = [
+    '✔ test 1 (1ms)',
+    '✖ test 2 failed (2ms)',
+    '✔ test 3 (1ms)',
+    ...Array.from({ length: 50 }, (_, i) => `✔ padding test ${i + 4} (1ms)`),
+    '✖ test 54 also failed (3ms)',
+    'ℹ tests 54',
+    'ℹ pass 52',
+    'ℹ fail 2',
+    'ℹ duration_ms 123.45',
+  ].join('\n');
+
+  const { result } = fixture(t, {
+    override: (command: any, args: any) => {
+      if (args[0] === '--test') {
+        return { status: 1, stdout: suiteFailureOutput };
+      }
+      return undefined;
+    },
+  });
+
+  assert.equal(result.exitCode, 1);
+  const log = result.lines.join('\n');
+  assert.ok(log.includes('[FAIL] ✖ test 2 failed'), 'must include earlier failing test name hidden by 40-line tail');
+  assert.ok(log.includes('[FAIL] ✖ test 54 also failed'), 'must include later failing test name');
+  assert.ok(log.includes('[SUMMARY] ℹ tests 54'), 'must include suite test count');
+  assert.ok(log.includes('[SUMMARY] ℹ fail 2'), 'must include suite fail count');
+});
+
 test('seed raw-ts: packs the raw clone, expects the type-stripping error and exits 0', (t) => {
   const { result, calls, scratchRoot } = fixture(t, {
     seed: 'raw-ts',

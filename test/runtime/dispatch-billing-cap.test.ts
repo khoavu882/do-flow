@@ -11,6 +11,7 @@ const { executeDispatchCommand, summaryLines } = require('../../src/runtime/disp
 const readiness = require('../../src/runtime/worker/readiness.ts');
 const { readRuns, storeFileFor: workerRunsFile } = require('../../src/runtime/worker/run-store.ts');
 const { readDispatch, storeFileFor } = require('../../src/runtime/dispatch/store.ts');
+const controls = require('../../src/runtime/dispatch/controls.ts');
 const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
 
 const SLUG = '108-billing-fixture';
@@ -306,3 +307,57 @@ test('uncapped, a record present changes nothing: no billing field on candidates
   for (const candidate of dispatch.selection.candidates) assert.equal('billing' in candidate, false, candidate.harness);
   await waitEnded(sb, dispatch.workerRunId);
 });
+
+test('FU-tp3gz6: a malformed persisted run.billingCap refuses to launch or step uncapped', POSIX, async (t: any) => {
+  const sb = makeDispatchSandbox(t, { plan: 'disjoint', slug: SLUG });
+  writeUserRecord(sb, CLAUDE_FREE);
+  const descriptors = billingDescriptors(sb, 'free');
+  const started = await start(sb, descriptors, 'free');
+  assert.equal(started.body.disposition, 'started');
+
+  const file = storeFileFor(sb.root, SLUG);
+  const store = readDispatch(file);
+  store.run.billingCap = 'metered';
+  fs.writeFileSync(file, JSON.stringify(store));
+
+  const stepped = await command(sb, descriptors, { action: 'step', by: 'main' });
+  assert.equal(stepped.body.disposition, 'refused');
+  assert.equal(stepped.body.reason, 'billing-cap-invalid');
+});
+
+test('FU-hg9tae: child launch re-checks workers.billing under billingCap free and refuses when changed to metered', POSIX, async (t: any) => {
+  const scenario: any = { run: [{ sleep: 30000 }, { emit: SUCCESS }] };
+  const sb = makeDispatchSandbox(t, { plan: 'disjoint', slug: SLUG, scenario, identity: { DOFLOW_ATTEMPT: undefined } });
+  t.after(() => controls.cancel({ slug: SLUG, env: sb.env, cwd: sb.root, by: 'main', reason: 'test done' }).catch(() => {}));
+  writeUserRecord(sb, CLAUDE_FREE);
+  const descriptors = billingDescriptors(sb, 'free');
+  const started = await start(sb, descriptors, 'free');
+  assert.equal(started.body.disposition, 'started');
+  await probeUntilEligible(sb, descriptors);
+
+  const firstStep = await command(sb, descriptors, { action: 'step', by: 'main' });
+  assert.equal(firstStep.body.disposition, 'stepped');
+  const file = storeFileFor(sb.root, SLUG);
+  const store = readDispatch(file);
+  const [granter] = Object.values<any>(store.dispatches);
+  assert.ok(granter && granter.phase === 'launched');
+
+  const promptRel = '.doflow/state/prompt.txt';
+  fs.writeFileSync(path.join(sb.root, promptRel), 'child prompt');
+  const reqId = `${granter.dispatchId}.c1`;
+  store.spawnRequests[reqId] = {
+    requestId: reqId, granterDispatchId: granter.dispatchId, state: 'requested',
+    prompt: promptRel, reserveTokens: 50,
+  };
+  granter.grant = { reserveTokens: 100, used: { tokens: 50 } };
+  fs.writeFileSync(file, JSON.stringify(store));
+
+  writeUserRecord(sb, { claude: { billing: 'metered', asserted: '2026-10-24' } });
+
+  const secondStep = await command(sb, descriptors, { action: 'step', by: 'main' });
+  assert.equal(secondStep.body.disposition, 'stepped');
+  const updated = readDispatch(file);
+  assert.equal(updated.spawnRequests[reqId].state, 'refused');
+  assert.equal(updated.spawnRequests[reqId].reason, 'billing:metered');
+});
+

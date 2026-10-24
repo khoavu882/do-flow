@@ -212,3 +212,21 @@ test('C-9: protocols.json with no deep preset, or one failing validateProtocols,
   assert.equal(detail.includes('SECRET-LENS'), false, 'no file text in the error');
   assert.equal(reviewLine(invalid, { protocol: 'review-deep' }).protocol, null, 'telemetry reads no list from an invalid registry');
 });
+
+test('FU-x97mrf: a contributed preset between deep and single is ranked before auto', () => {
+  const root = scratchRegistry((file: any) => {
+    const data = shipped();
+    const seat = (id: any) => ({ id, agent: 'reviewer', lenses: ['correctness', 'boundaries'], model: { tier: 'frontier', family: 'any' } });
+    data.presets['review-medium'] = {
+      kind: 'review', depth: 'medium', seats: [seat('seat-a'), seat('seat-b')],
+      rounds: { default: 1, min: 1 }, crossAnswer: false, synthesizer: 'separate', decider: 'gate',
+    };
+    data.order.review = ['review-deep', 'review-medium', 'review-single'];
+    fs.writeFileSync(file, `${JSON.stringify(data, null, 2)}\n`);
+  });
+  const loaded = loadSettingsRegistry({ repoRoot: root, verifyRefs: true });
+  assert.equal(loaded.ok, true, loaded.detail);
+  const spec = loaded.registry.keys.get('review.preset');
+  assert.deepEqual(spec.order, ['review-deep', 'review-medium', 'auto', 'review-single'], 'auto sits immediately before single, keeping review-medium narrower than auto');
+});
+

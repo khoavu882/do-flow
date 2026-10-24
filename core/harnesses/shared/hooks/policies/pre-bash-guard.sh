@@ -403,14 +403,19 @@ _text_only_command() {
   # occurrence is also its last line; otherwise a hidden second command runs.
   case $text in *$'\n'*) ;; *) return 1 ;; esac
   header=${text%%$'\n'*}; body=${text#*$'\n'}
-  local hd="<<'([A-Za-z_][A-Za-z0-9_]*)'${b}*$" cat_start='"\$\(cat' cat_end=$'\n)"'
-  re="^${b}*($git${b}+-F${b}+-${b}+|cat(${b}+>${b}*$path)?${b}+|$gh${b}+--body-file${b}+-${b}+)$hd"
-  if [[ $header =~ $re ]]; then
+  local hd="<<'([A-Za-z_][A-Za-z0-9_]*)'" cat_start='"\$\(cat' cat_end=$'\n)"'
+  local redir=">>?${b}*$path" tee_flag="(-a|--append)"
+  local re_git="^${b}*($git${b}+-F${b}+-${b}+|$gh${b}+--body-file${b}+-${b}+)${hd}${b}*$"
+  local re_cat_before="^${b}*cat(${b}+${redir})?${b}+${hd}${b}*$"
+  local re_cat_after="^${b}*cat${b}+${hd}(${b}*${redir})?${b}*$"
+  local re_tee_before="^${b}*tee(${b}+${tee_flag})?${b}+${path}${b}+${hd}${b}*$"
+  local re_tee_after="^${b}*tee(${b}+${tee_flag})?${b}+${hd}${b}+(${tee_flag}${b}+)?${path}${b}*$"
+  if [[ $header =~ $re_git ]] || [[ $header =~ $re_cat_before ]] || [[ $header =~ $re_cat_after ]] || [[ $header =~ $re_tee_before ]] || [[ $header =~ $re_tee_after ]]; then
     # Match the delimiter separately so prefix capture groups cannot change its index.
     [[ $header =~ $hd ]] || return 1
     word=${BASH_REMATCH[1]}
   else
-    re="^${b}*$git${b}+-m${b}+$cat_start${b}+$hd"
+    re="^${b}*$git${b}+-m${b}+$cat_start${b}+${hd}${b}*$"
     [[ $header =~ $re ]] || return 1
     [[ $header =~ $hd ]] || return 1
     word=${BASH_REMATCH[1]}

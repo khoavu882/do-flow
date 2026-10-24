@@ -124,6 +124,9 @@ function checkCaller({ env, cwd, file }: { env: Env; cwd: string; file: string }
   const current = readDispatch(file);
   if (!current.run) return { refusal: refused('no-dispatch-run') };
   if (current.run.runKey !== key.runKey) return { refusal: refused('foreign-run', { runKey: current.run.runKey, callerRunKey: key.runKey }) };
+  if (current.run.billingCap !== undefined && current.run.billingCap !== null && current.run.billingCap !== 'free') {
+    return { refusal: refused('billing-cap-invalid', { runKey: current.run.runKey, billingCap: current.run.billingCap }) };
+  }
   return { key, store: current };
 }
 
@@ -132,15 +135,19 @@ function checkCaller({ env, cwd, file }: { env: Env; cwd: string; file: string }
 /** DEC-052 / IC-012: static capability gaps plus the run's optional billing cap; nothing runs. */
 function staticGate(worker: any, billingCap?: string, billing?: any): any[] {
   const gaps: any[] = [];
-  // `billing` is what evaluateHarnesses judged under the cap: `{ value, source }`, or an invalid
-  // user record (`value: 'record-invalid'`, `recordReason`). Without it the registry value decides.
-  const judged = billing ?? { value: worker && worker.billing !== undefined ? worker.billing : 'unknown' };
-  if (billingCap === 'free' && judged.value !== 'free') {
-    gaps.push({
-      requirement: 'billing', result: 'failed', reason: `billing:${judged.value}`,
-      ...(judged.source ? { source: judged.source } : {}),
-      ...(judged.recordReason !== undefined ? { recordReason: judged.recordReason } : {}),
-    });
+  if (billingCap !== undefined && billingCap !== null && billingCap !== 'free') {
+    gaps.push({ requirement: 'billing', result: 'failed', reason: 'billing:cap-invalid' });
+  } else if (billingCap === 'free') {
+    // `billing` is what evaluateHarnesses judged under the cap: `{ value, source }`, or an invalid
+    // user record (`value: 'record-invalid'`, `recordReason`). Without it the registry value decides.
+    const judged = billing ?? { value: worker && worker.billing !== undefined ? worker.billing : 'unknown' };
+    if (judged.value !== 'free') {
+      gaps.push({
+        requirement: 'billing', result: 'failed', reason: `billing:${judged.value}`,
+        ...(judged.source ? { source: judged.source } : {}),
+        ...(judged.recordReason !== undefined ? { recordReason: judged.recordReason } : {}),
+      });
+    }
   }
   const cli = worker ? worker.cli : null;
   if (!cli || cli.status !== 'supported') {
@@ -168,6 +175,13 @@ function evaluateHarnesses({ harness = null, ladder = null, needs = [], billingC
   const cov = coverage === undefined ? reg.coverage : coverage;
   const entries = readiness.workerDescriptors({ descriptors, registry: reg })
     .filter((e: any) => (!harness || e.harness === harness) && (!Array.isArray(ladder) || ladder.includes(e.harness)));
+  if (billingCap !== undefined && billingCap !== null && billingCap !== 'free') {
+    return entries.map((entry: any) => ({
+      harness: entry.harness,
+      eligible: false,
+      gaps: [{ requirement: 'billing', result: 'failed', reason: 'billing:cap-invalid' }],
+    }));
+  }
   // The user's billing record matters only under the cap, and is read once per pass. Required here,
   // not at load: the settings modules stay off every path that never runs a capped dispatch.
   const capped = billingCap === 'free' ? require('../settings/worker-billing.ts') : null;
@@ -242,6 +256,9 @@ function selectMode({ policy = 'auto', held = false, lastFailureClass = null, ca
   const exhausted: string[] = fallback && Array.isArray(fallback.exhausted) ? fallback.exhausted : [];
   const afterQuota = Boolean(last && last.failureClass === 'quota' && last.harness);
   if (lastFailureClass === 'launch' && !exhausted.length && !afterQuota) return fixed('sequential');
+  if (rest.billingCap !== undefined && rest.billingCap !== null && rest.billingCap !== 'free') {
+    return { hold: { reason: 'billing-cap-invalid', from: null, proposed: null }, selection: { policy, chosen: 'held', candidates: [] } };
+  }
   let candidates = cache && cache.candidates;
   if (!candidates) {
     candidates = evaluateHarnesses({ ...rest, ladder });
@@ -888,6 +905,23 @@ async function launchChildren(p: any) {
       p.act('launch-child', who, 'refused', `${req.requestId} granter-not-running`, Date.now() - started);
       continue;
     }
+    if (current.run?.billingCap !== undefined && current.run?.billingCap !== null && current.run?.billingCap !== 'free') {
+      refuse(req.requestId, 'billing-cap-invalid');
+      p.act('launch-child', who, 'refused', `${req.requestId} billing-cap-invalid`, Date.now() - started);
+      continue;
+    }
+    if (current.run?.billingCap === 'free') {
+      const reg = p.reg();
+      const capped = require('../settings/worker-billing.ts');
+      const record = capped.readWorkerBilling(p.env, { workerIds: reg.harnesses.map((h: any) => h.id) });
+      const desc = readiness.workerDescriptors({ descriptors: p.descriptors, registry: reg }).find((e: any) => e.harness === granter.harness);
+      const effective = capped.effectiveBilling(desc?.worker?.billing, granter.harness, record);
+      if (effective.value !== 'free') {
+        refuse(req.requestId, `billing:${effective.value}`);
+        p.act('launch-child', who, 'refused', `${req.requestId} billing:${effective.value}`, Date.now() - started);
+        continue;
+      }
+    }
     const n = Number(REQUEST_ID.exec(req.requestId)?.[2]);
     let wt: any;
     try {
@@ -1033,6 +1067,10 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
   const s = readDispatch(p.file);
   const d = s.dispatches[admitted.dispatchId];
   if (!d || d.phase !== 'claimed') return;
+  if (s.run?.billingCap !== undefined && s.run?.billingCap !== null && s.run?.billingCap !== 'free') {
+    p.act('launch', d, 'refused', 'billing-cap-invalid', Date.now() - started);
+    return;
+  }
   const planTask = plan.graph.tasks.find((t: any) => t.id === d.task);
   const record = view.tasks.find((r: any) => r.id === d.task);
   const value = handoffFor(p, s, d, planTask, record);

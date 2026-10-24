@@ -43,14 +43,23 @@ function restoreOwnerWritePermission(dir: any) {
   for (const entry of entries) restoreOwnerWritePermission(path.join(dir, entry));
 }
 
-/** Recursive removal that restores owner write permission on EACCES and retries. */
+/** Recursive removal that restores owner write permission on EACCES/ENOTEMPTY/EPERM/EBUSY and retries with backoff. */
 function removeTree(dir: any) {
-  try {
-    fs.rmSync(dir, { recursive: true, force: true });
-  } catch (error: any) {
-    if (!['EACCES', 'ENOTEMPTY', 'EPERM'].includes(error?.code)) throw error;
-    restoreOwnerWritePermission(dir);
-    fs.rmSync(dir, { recursive: true, force: true });
+  const RETRY_CODES = new Set(['EACCES', 'ENOTEMPTY', 'EPERM', 'EBUSY']);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+      break;
+    } catch (error: any) {
+      if (!RETRY_CODES.has(error?.code)) throw error;
+      restoreOwnerWritePermission(dir);
+      if (attempt === 4) {
+        fs.rmSync(dir, { recursive: true, force: true });
+        break;
+      }
+      const start = Date.now();
+      while (Date.now() - start < 25 * (attempt + 1)) {}
+    }
   }
   TEMP_DIRS.delete(dir);
 }

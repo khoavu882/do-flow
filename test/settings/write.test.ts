@@ -42,6 +42,7 @@ function directWriteVariant(dir: any, t: any) {
     ['./registry.ts', path.join(REPO, 'src/runtime/settings/registry.ts')],
     ['./files.ts', path.join(REPO, 'src/runtime/settings/files.ts')],
     ['./resolve.ts', path.join(REPO, 'src/runtime/settings/resolve.ts')],
+    ['./project-layers.ts', path.join(REPO, 'src/runtime/settings/project-layers.ts')],
   ];
   for (const [specifier, absolute] of imports) {
     source = source.replace(`require('${specifier}')`, `require(${JSON.stringify(absolute)})`);
@@ -224,3 +225,21 @@ test('clears the resolver cache after writing', (t: any) => {
     }
   }
 });
+
+test('FU-84052t: refuses to write into a .doflow symlinked outside the project root', (t: any) => {
+  const f = createSettingsEnv(t);
+  const outside = path.join(f.dir, 'outside-folder');
+  fs.mkdirSync(outside, { recursive: true });
+  const projectDir = path.join(f.dir, 'proj');
+  fs.mkdirSync(projectDir, { recursive: true });
+  const doflowDir = path.join(projectDir, '.doflow');
+  fs.symlinkSync(outside, doflowDir);
+  const file = path.join(doflowDir, 'settings.json');
+
+  const result = writeLayer({ file, set: { 'storage.prune': 'off' } });
+  assert.equal(result.ok, false);
+  assert.equal(result.code, 'scope');
+  assert.match(result.detail, /\.doflow symlink points outside the project/);
+  assert.equal(fs.existsSync(path.join(outside, 'settings.json')), false);
+});
+

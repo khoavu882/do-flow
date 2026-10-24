@@ -617,6 +617,7 @@ test('usage mistakes exit 2 and write nothing', (t) => {
     ['config', 'set', 'review.rounds', '3', '--layer', 'project', '--show-origin'],
     ['config', 'schema', '--show-origin'],
     ['config', '--layer', 'user'],
+    ['config', '--unknown-flag'],
   ];
   for (const args of usage) {
     const result = f.run(args);

@@ -114,8 +114,25 @@ function stagePlan({ seed = null }: { seed?: string | null } = {}): { id: string
   });
 }
 
-function tail(text: string): string[] {
-  return text.split(/\r?\n/).filter((line, i, all) => line !== '' || i < all.length - 1).slice(-40).map((line) => `    ${line}`);
+function tail(text: string, stageId?: string): string[] {
+  const allLines = text.split(/\r?\n/).filter((line, i, all) => line !== '' || i < all.length - 1);
+  const tailLines = allLines.slice(-40).map((line) => `    ${line}`);
+  if (stageId === 'suite') {
+    const failingTests = allLines.filter((line) => /^\s*(?:✖|not ok)\s+/.test(line)).map((line) => `    [FAIL] ${line.trim()}`);
+    const summaryLines = allLines.filter((line) => /^\s*(?:ℹ\s+(?:tests|pass|fail|cancelled|skipped|todo|duration_ms)|#\s+(?:tests|pass|fail))\b/.test(line)).map((line) => `    [SUMMARY] ${line.trim()}`);
+    const result: string[] = [];
+    if (failingTests.length > 0) {
+      result.push('    Failing test names:');
+      result.push(...failingTests);
+    }
+    if (summaryLines.length > 0) {
+      result.push('    Suite summary counts:');
+      result.push(...summaryLines);
+    }
+    result.push(...tailLines);
+    return result;
+  }
+  return tailLines;
 }
 
 /** First match of `name` on `pathVar`, as a real path. */
@@ -329,7 +346,7 @@ function runRehearse({
     lines.push(`${result.ok ? 'PASS' : 'FAIL'} ${stage.id}: ${result.message}`);
     if (!result.ok) {
       anyFail = true;
-      if (result.output) lines.push(...tail(result.output));
+      if (result.output) lines.push(...tail(result.output, stage.id));
       if (stage.id !== 'preflight') chainFailed = stage.id;
       if (result.fatal) fatal = true;
     }
