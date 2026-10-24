@@ -14,8 +14,8 @@ const path = require('node:path');
 
 const {
   extractAnswer, classifyIsolation, gradeRun, gradeIteration, loadPathInfo, serializeGrading, parseTranscript,
-} = require('../../bench/agentic/grade.js');
-const { loadTaskSet, buildPrompt, promptSha256, UsageError } = require('../../bench/agentic/tasks.js');
+} = require('../../bench/agentic/grade.ts');
+const { loadTaskSet, buildPrompt, promptSha256, UsageError } = require('../../bench/agentic/tasks.ts');
 const { tempDir } = require('../helper/tmp.js');
 
 const ROOT = path.join(__dirname, '..', '..');

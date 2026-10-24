@@ -9,7 +9,7 @@
  * from looking. These tests are that validation.
  *
  * What they deliberately do not do: run a native host. A live session needs an operator, a real model
- * and money, which is why `bench/native/runner.js` says the offline suite never launches one. Nothing
+ * and money, which is why `bench/native/runner.ts` says the offline suite never launches one. Nothing
  * here spawns a host or executes the `install` argv that `prepare` records — it is checked as data.
  */
 
@@ -19,7 +19,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const { corpus, prepare, grade } = require('../../bench/native/runner');
+const { corpus, prepare, grade } = require('../../bench/native/runner.ts');
 const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, '../..');

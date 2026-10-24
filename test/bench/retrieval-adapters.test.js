@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const dispatcher = require('../../bench/retrieval/lib/adapters.js');
+const dispatcher = require('../../bench/retrieval/lib/adapters.ts');
 const { tempDir } = require('../helper/tmp');
 
 function exportTree(t) {

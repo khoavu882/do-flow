@@ -4,12 +4,12 @@
 //
 // Four checks keep the verdict vocabulary and decision rule in one home:
 //   (a) Every tracked JSON node with kind "bench-decision" passes validateDecision and recomputes from
-//       its own inputs, cases, noise, thresholds and seed through bench/noise.js. Model mismatch and
+//       its own inputs, cases, noise, thresholds and seed through bench/noise.ts. Model mismatch and
 //       noise-unusable follow those recorded inputs, never today's config; source "none" means no band
 //       in every scope. Every bench-noise node passes validateNoiseArtifact.
 //   (b) No other tracked JSON under bench/ or test/ holds the values `gain-above-noise` or
-//       `merge-candidate` (JSON values only: the README and bench/noise.js name them legitimately).
-//   (c) The vocabulary tables in bench/README.md equal the exports of bench/noise.js, row for row.
+//       `merge-candidate` (JSON values only: the README and bench/noise.ts name them legitimately).
+//   (c) The vocabulary tables in bench/README.md equal the exports of bench/noise.ts, row for row.
 //   (d) No other tracked bench JS file holds an array literal of two or more words of one vocabulary.
 
 const { test } = require('node:test');
@@ -19,9 +19,9 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { REPO } = require('./_shared');
 const { tempDir } = require('../helper/tmp');
-const noise = require('../../bench/noise.js');
+const noise = require('../../bench/noise.ts');
 
-const NOISE_MODULE = 'bench/noise.js';
+const NOISE_MODULE = 'bench/noise.ts';
 const README = 'bench/README.md';
 const SECTION = 'Noise floor and verdicts';
 const DECISION_WORDS = ['gain-above-noise', 'merge-candidate'];
@@ -220,7 +220,7 @@ function readmeFindings(readme) {
     const row = rows.find((cells) => cells[0] === label);
     if (!row) { findings.push(`${README}: no row for '${label}'`); continue; }
     const values = [...row[1].matchAll(/`([^`]+)`/g)].map((m) => m[1]);
-    if (!sameJson(values, expected)) findings.push(`${README}: row '${label}' is [${values.join(', ')}] but bench/noise.js exports [${expected.join(', ')}]`);
+    if (!sameJson(values, expected)) findings.push(`${README}: row '${label}' is [${values.join(', ')}] but bench/noise.ts exports [${expected.join(', ')}]`);
   }
   return findings;
 }
@@ -235,7 +235,7 @@ function checkEvalNoise(target = REPO) {
   const files = options.jsonFiles && options.jsFiles ? [] : listFiles(root);
   const read = (rel) => { try { return fs.readFileSync(path.join(root, rel), 'utf8'); } catch { return null; } };
   const jsonFiles = options.jsonFiles || new Map(files.filter((rel) => rel.endsWith('.json')).map((rel) => [rel, read(rel)]));
-  const jsFiles = options.jsFiles || new Map(files.filter((rel) => rel.startsWith('bench/') && rel.endsWith('.js')).map((rel) => [rel, read(rel)]));
+  const jsFiles = options.jsFiles || new Map(files.filter((rel) => rel.startsWith('bench/') && (rel.endsWith('.js') || rel.endsWith('.ts'))).map((rel) => [rel, read(rel)]));
   const readme = options.readme !== undefined ? options.readme : read(README);
   const findings = [];
   let decisions = 0;

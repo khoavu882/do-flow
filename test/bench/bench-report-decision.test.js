@@ -7,8 +7,8 @@ const { test, before } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const runner = require('../../bench/runner.js');
-const noise = require('../../bench/noise.js');
+const runner = require('../../bench/runner.ts');
+const noise = require('../../bench/noise.ts');
 const { suiteTempDir } = require('../helper/tmp.js');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');

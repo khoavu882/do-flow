@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const a = require('../../bench/retrieval/lib/adapters-a.js');
+const a = require('../../bench/retrieval/lib/adapters-a.ts');
 const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, '..', '..');

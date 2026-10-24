@@ -22,9 +22,9 @@ after(() => {
   scratch.remove();
 });
 
-const corpus = require('../../bench/review-miss/corpus.js');
-const runner = require('../../bench/review-miss/runner.js');
-const benchRunner = require('../../bench/runner.js');
+const corpus = require('../../bench/review-miss/corpus.ts');
+const runner = require('../../bench/review-miss/runner.ts');
+const benchRunner = require('../../bench/runner.ts');
 
 const FORBIDDEN_KEYS = ['fixedIn', 'summary', 'evidence', 'fix', 'proof', 'from'];
 
@@ -313,9 +313,9 @@ test('IC-008: lint exits 2 for an unreadable or unparseable corpus file and an u
   assert.equal(runner.main(['lint', '--bogus'], { repoRoot: f.dir, ...capture().io }), 2);
 });
 
-test('IC-008: bench/runner.js routes review-miss and lists it in USAGE', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', '..', 'bench', 'runner.js'), 'utf8');
+test('IC-008: bench/runner.ts routes review-miss and lists it in USAGE', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', '..', 'bench', 'runner.ts'), 'utf8');
   assert.match(src, /argv\[0\] === 'review-miss'/);
-  assert.match(src, /bench\/runner\.js review-miss <verb>/);
+  assert.match(src, /bench\/runner\.ts review-miss <verb>/);
   assert.equal(typeof benchRunner.main, 'function');
 });

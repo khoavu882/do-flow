@@ -2,8 +2,8 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const report = require('../../bench/retrieval/lib/report.js');
-const metrics = require('../../bench/retrieval/lib/metrics.js');
+const report = require('../../bench/retrieval/lib/report.ts');
+const metrics = require('../../bench/retrieval/lib/metrics.ts');
 
 const scored = (m, extra = {}) => ({ scored: { metrics: { payloadBytes: 40, tokensEst: 10, ...m }, na: {} }, result: 'RETRIEVED', ...extra });
 const CTX = { corpus: 'code', config: 'A', cls: 'conceptual-discovery', seed: 20261012 };

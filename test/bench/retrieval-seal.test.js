@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const seal = require('../../bench/retrieval/lib/seal.js');
+const seal = require('../../bench/retrieval/lib/seal.ts');
 const { tempDir } = require('../helper/tmp');
 
 const PASS = 'correct horse battery staple 123';

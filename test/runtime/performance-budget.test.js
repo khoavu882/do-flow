@@ -9,7 +9,7 @@ const {
   computeCeilingMs,
   DEFAULT_HEADROOM,
   DEFAULT_INTENT_BUDGETS_MS,
-} = require('../../bench/perf/runner.js');
+} = require('../../bench/perf/runner.ts');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const BUDGETS_PATH = path.join(REPO_ROOT, 'bench/perf/budgets.json');

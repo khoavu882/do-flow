@@ -46,10 +46,10 @@ cp.execSync = function execSync(cmd, options) {
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp.js');
-const { caseKey, splitOf, loadConfig } = require('../../bench/review-miss/corpus.js');
-const runner = require('../../bench/review-miss/runner.js');
-const benchRunner = require('../../bench/runner.js');
-const { NOISE_VERDICTS } = require('../../bench/noise.js');
+const { caseKey, splitOf, loadConfig } = require('../../bench/review-miss/corpus.ts');
+const runner = require('../../bench/review-miss/runner.ts');
+const benchRunner = require('../../bench/runner.ts');
+const { NOISE_VERDICTS } = require('../../bench/noise.ts');
 
 const CONFIG = loadConfig();
 const HEAD = 'a'.repeat(40);
@@ -454,7 +454,7 @@ test('IC-009/IC-010: an unknown verb or flag is exit 2', (t) => {
   assert.equal(run(f, ['report', '--iterations', 'x', '--bogus']).code, 2);
 });
 
-test('NFR-002 / IC-010: bench/runner.js forwards review-miss grade to the suite', (t) => {
+test('NFR-002 / IC-010: bench/runner.ts forwards review-miss grade to the suite', (t) => {
   const f = setup(t);
   const origErr = process.stderr.write;
   const seen = [];

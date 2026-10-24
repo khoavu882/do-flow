@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const runner = require('../../bench/perf/runner.js');
+const runner = require('../../bench/perf/runner.ts');
 const { tempDir } = require('../helper/tmp.js');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');

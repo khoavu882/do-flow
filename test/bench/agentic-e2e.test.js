@@ -19,10 +19,10 @@ const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp.js');
-const agentic = require('../../bench/agentic/runner.js');
-const execute = require('../../bench/agentic/execute.js');
-const { loadTaskSet } = require('../../bench/agentic/tasks.js');
-const noise = require('../../bench/noise.js');
+const agentic = require('../../bench/agentic/runner.ts');
+const execute = require('../../bench/agentic/execute.ts');
+const { loadTaskSet } = require('../../bench/agentic/tasks.ts');
+const noise = require('../../bench/noise.ts');
 // G60's own checker (recomputation of every scope, the overfit flag and the source-none rules).
 const { checkEvalNoise } = require('../guards/eval-noise.test.js');
 
@@ -507,8 +507,8 @@ test('plan prints the projection and the paid stages as text only; --json carrie
   assert.equal(fs.existsSync(path.join(RUN_ROOT, 'dry')), false, 'plan writes nothing');
 });
 
-test('bench/runner.js forwards `agentic` to the agentic runner', async () => {
-  const runner = require('../../bench/runner.js');
+test('bench/runner.ts forwards `agentic` to the agentic runner', async () => {
+  const runner = require('../../bench/runner.ts');
   const saved = console.error;
   const errors = [];
   console.error = (...a) => errors.push(a.join(' '));

@@ -8,13 +8,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const runner = require('../../bench/runner.js');
-const noise = require('../../bench/noise.js');
+const runner = require('../../bench/runner.ts');
+const noise = require('../../bench/noise.ts');
 const { suiteTempDir } = require('../helper/tmp.js');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const FIXTURE_ROOT = path.join(__dirname, '..', 'fixtures', 'bench-noise');
-const RUNNER_CLI = path.join(REPO_ROOT, 'bench', 'runner.js');
+const RUNNER_CLI = path.join(REPO_ROOT, 'bench', 'runner.ts');
 
 function quiet(fn) {
   const saved = { log: console.log, warn: console.warn, error: console.error };
@@ -498,7 +498,7 @@ test('C.1: negative control: without --out nothing is written (default path does
 test('C.1: USAGE includes noise command and flags', () => {
   const res = quiet(() => runner.main(['noise', '--help']));
   assert.equal(res.status, 0);
-  assert.match(res.stdout, /node bench\/runner\.js noise --iterations <a,b\[,c\.\.\.\]> \[--out <file>\] \[--json\]/);
+  assert.match(res.stdout, /node bench\/runner\.ts noise --iterations <a,b\[,c\.\.\.\]> \[--out <file>\] \[--json\]/);
 });
 
 test('C-3: parseIterationList dedupes on realpathSync so aliases or symlinks exit 2 and 3 distinct exit 0', () => {

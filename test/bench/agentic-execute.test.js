@@ -12,8 +12,8 @@ const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp.js');
-const execute = require('../../bench/agentic/execute.js');
-const { UsageError, buildPrompt, promptSha256 } = require('../../bench/agentic/tasks.js');
+const execute = require('../../bench/agentic/execute.ts');
+const { UsageError, buildPrompt, promptSha256 } = require('../../bench/agentic/tasks.ts');
 const launch = require('../../src/runtime/worker/launch.ts');
 
 const REPO = path.join(__dirname, '..', '..');
@@ -1040,13 +1040,13 @@ test('N-1, N-4: the version check runs in a scratch profile; the credential copy
 });
 
 test('N-2: each rehearsal command authorizes one run, so stage R stays at two runs of maxTokensPerRun', () => {
-  const runner = require('../../bench/agentic/runner.js');
+  const runner = require('../../bench/agentic/runner.ts');
   const stages = runner.paidStages({ taskSet: { train: [{ id: 'DC-1' }], tasks: [{ id: 'DC-1' }, { id: 'DC-2' }] }, config: { maxTokensPerRun: 250000 }, k: 3 });
   for (const line of stages.R) assert.match(line, / --cap 250000$/);
 });
 
 test('R-8: plan says the cap applies per execute command and gives each stage its end figure with the overshoots', async () => {
-  const runner = require('../../bench/agentic/runner.js');
+  const runner = require('../../bench/agentic/runner.ts');
   const stages = runner.paidStages({ taskSet: { train: [{ id: 'DC-1' }], tasks: [{ id: 'DC-1' }, { id: 'DC-2' }] }, config: { maxTokensPerRun: 250000 }, k: 3 });
   assert.match(stages.capScope, /per execute command/);
   assert.match(stages.capScope, /stage R: 2 x 250000 = 500000 tokens plus up to 2 one-run overshoots/);
@@ -1064,7 +1064,7 @@ test('R-8: plan says the cap applies per execute command and gives each stage it
 });
 
 test('C-5: plan states the one-run residual; the execute text names the amount the cap was exceeded by', async () => {
-  const runner = require('../../bench/agentic/runner.js');
+  const runner = require('../../bench/agentic/runner.ts');
   const s = setup();
   const lines = [];
   const code = await runner.main(['plan', '--iteration', 'x1', '--arm', 'N'], {

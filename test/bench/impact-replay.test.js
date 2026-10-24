@@ -37,8 +37,8 @@ after(() => {
   scratch.remove();
 });
 
-const impactReplay = require('../../bench/impact-replay.js');
-const runner = require('../../bench/runner.js');
+const impactReplay = require('../../bench/impact-replay.ts');
+const runner = require('../../bench/runner.ts');
 
 // ---------------------------------------------------------------------------
 // 1. Pure unit tests

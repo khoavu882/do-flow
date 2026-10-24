@@ -253,12 +253,12 @@ test('Semble 0.7.0 BM25 npz is validated before the loader: archive, members, si
 
 test('one Semble pin: bridge VERSION, provider SEMBLE_VERSION and the hybrid-c-v1 protocol pin cannot diverge', () => {
   const { SEMBLE_VERSION } = require('../../src/runtime/knowledge/semble-provider.ts');
-  const protocol = require('../../bench/retrieval/lib/hybrid-protocol.js');
+  const protocol = require('../../bench/retrieval/lib/hybrid-protocol.ts');
   const bridgeOf = (src) => (/^VERSION = "([^"]+)"/m.exec(src) || [])[1];
   const findings = (bridge, pins) => [...(bridgeOf(bridge) !== SEMBLE_VERSION ? ['bridge'] : []), ...(pins.semble !== SEMBLE_VERSION ? ['protocol'] : [])];
   const bridge = fs.readFileSync(path.join(__dirname, '../../src/runtime/knowledge/semble-bridge.py'), 'utf8');
   assert.deepEqual(findings(bridge, protocol.TOOL_PINS), []);
-  assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '../../bench/retrieval/lib/hybrid-protocol.js'), 'utf8'), /\d+\.\d+\.\d+'\s*,\s*graphify/, 'no second semble literal');
+  assert.doesNotMatch(fs.readFileSync(path.join(__dirname, '../../bench/retrieval/lib/hybrid-protocol.ts'), 'utf8'), /\d+\.\d+\.\d+'\s*,\s*graphify/, 'no second semble literal');
   assert.deepEqual(findings(bridge.replace(`VERSION = "${SEMBLE_VERSION}"`, 'VERSION = "9.9.9"'), protocol.TOOL_PINS), ['bridge']);
   assert.deepEqual(findings(bridge, { ...protocol.TOOL_PINS, semble: '9.9.9' }), ['protocol']);
 });

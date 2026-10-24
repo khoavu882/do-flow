@@ -93,26 +93,26 @@ test('G43.1 runtime control: online mode, global cache, shell and unbounded stat
 });
 
 test('G43.2: C reserves six aggregate slots before decrypt and records only audited release', () => {
-  assert.deepEqual(reservationFindings(read('bench/retrieval/lib/hybrid-protocol.js'), read('bench/retrieval/lib/verbs/holdout-preconditions.js')), []);
+  assert.deepEqual(reservationFindings(read('bench/retrieval/lib/hybrid-protocol.ts'), read('bench/retrieval/lib/verbs/holdout-preconditions.ts')), []);
 });
 
 test('G43.2 control: old protocol identity, incomplete slots, late reserve and unaudited release are named', () => {
-  const protocol = read('bench/retrieval/lib/hybrid-protocol.js');
-  const preconditions = read('bench/retrieval/lib/verbs/holdout-preconditions.js');
+  const protocol = read('bench/retrieval/lib/hybrid-protocol.ts');
+  const preconditions = read('bench/retrieval/lib/verbs/holdout-preconditions.ts');
   for (const [mutate, expected] of [
     [(s) => s.replace("const ID = 'hybrid-c-v1'", "const ID = 'legacy-ab'"), /protocol id/],
     [(s) => s.replace("const CONFIGS = ['A', 'B', 'C']", "const CONFIGS = ['A', 'B']"), /A\/B\/C/],
-    [(s) => s.replace('    try { reservation = hybridProtocol.reserveSixSlots({ repoRoot, snapshotId: snapshot.snapshotId, sealMeta, resultFiles: ever }); }\n    catch (error) { return fail(\'f\', error.message); }\n  }\n  // (d)', '  }\n  // (d)'), /reservation does not precede decryption/],
+    [(s) => s.replace('    try { reservation = hybridProtocol.reserveSixSlots({ repoRoot, snapshotId: snapshot.snapshotId, sealMeta, resultFiles: ever }); }\n    catch (error: any) { return fail(\'f\', error.message); }\n  }\n  // (d)', '  }\n  // (d)'), /reservation does not precede decryption/],
     [(s) => s.replace('hybridProtocol.releaseBeforeEvaluation({ repoRoot, reservation });', 'fs.rmSync(reservation.reservation);'), /audited reservation release/],
   ]) one(reservationFindings(mutate(protocol), mutate(preconditions)), expected);
 });
 
 test('G43.3: gate scope and promotion output preserve unresolved and paid-evidence gaps', () => {
-  assert.deepEqual(gateFindings(read('bench/retrieval/lib/hybrid-gate.js')), []);
+  assert.deepEqual(gateFindings(read('bench/retrieval/lib/hybrid-gate.ts')), []);
 });
 
 test('G43.3 control: wrong protocol, paid pass, partial threshold pass and missing incomplete status are named', () => {
-  const gate = read('bench/retrieval/lib/hybrid-gate.js');
+  const gate = read('bench/retrieval/lib/hybrid-gate.ts');
   for (const [mutate, expected] of [
     [(s) => s.replace("const PROTOCOL = 'hybrid-c-v1'", "const PROTOCOL = 'legacy-ab'"), /gate is not scoped/],
     [(s) => s.replace("return { id: threshold.id, verdict: 'UNREACHED', cause: 'paid measurement requires separate authorization' };", "return { id: threshold.id, verdict: 'PASS' };"), /paid T-005/],

@@ -55,6 +55,7 @@ declare var process: {
   execPath: string;
   version: string;
   pid: number;
+  ppid: number;
   argv: string[];
   cwd(): string;
   exit(code?: number): never;

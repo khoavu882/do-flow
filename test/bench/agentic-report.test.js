@@ -13,10 +13,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
-const { gradeIteration, loadPathInfo } = require('../../bench/agentic/grade.js');
-const { loadTaskSet, buildPrompt, promptSha256, UsageError } = require('../../bench/agentic/tasks.js');
-const report = require('../../bench/agentic/report.js');
-const { loadNoiseConfig } = require('../../bench/noise.js');
+const { gradeIteration, loadPathInfo } = require('../../bench/agentic/grade.ts');
+const { loadTaskSet, buildPrompt, promptSha256, UsageError } = require('../../bench/agentic/tasks.ts');
+const report = require('../../bench/agentic/report.ts');
+const { loadNoiseConfig } = require('../../bench/noise.ts');
 const { tempDir } = require('../helper/tmp.js');
 
 const ROOT = path.join(__dirname, '..', '..');
@@ -137,7 +137,7 @@ function gitRepo(t) {
     return git('rev-parse', 'HEAD');
   };
   git('init', '-q');
-  write('bench/agentic/tasks.js', 'one\n');
+  write('bench/agentic/tasks.ts', 'one\n');
   write('bench/agentic/results/noise.json', '{}\n');
   write('agent-docs/notes.md', 'a\n');
   const A = commit('a');
@@ -145,7 +145,7 @@ function gitRepo(t) {
   write('agent-docs/notes.md', 'b\n');
   write('CHANGELOG.md', 'x\n');
   const B = commit('record only');
-  write('bench/agentic/tasks.js', 'two\n');
+  write('bench/agentic/tasks.ts', 'two\n');
   const C = commit('input change');
   return { dir, A, B, C };
 }

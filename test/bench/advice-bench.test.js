@@ -12,7 +12,7 @@ const ROOT = path.resolve(__dirname, '../..');
 const scratch = createScratch('doflow-advice-bench-');
 const registry = require('../../core/registry/advice.json');
 const source = (id) => require(`../../core/registry/${id}.json`);
-const { adviceCoverage } = require('../../bench/advice.js');
+const { adviceCoverage } = require('../../bench/advice.ts');
 const fakeServers = [];
 after(async () => {
   await Promise.all(fakeServers.map((server) => server.close()));
@@ -24,7 +24,7 @@ function run(...args) {
 }
 
 function runAt(cwd, ...args) {
-  return spawnSync(process.execPath, [path.join(ROOT, 'bench/runner.js'), ...args], {
+  return spawnSync(process.execPath, [path.join(ROOT, 'bench/runner.ts'), ...args], {
     cwd,
     encoding: 'utf8',
     env: scratch.env(),
@@ -96,7 +96,7 @@ test('adviceCoverage rejects each IC-016 structural violation and malformed corp
   const originalLog = console.log;
   console.log = (line) => { output += `${line}\n`; };
   try {
-    assert.equal(require('../../bench/advice.js').cmdAdviceCoverage({ adviceRegistry: registry, corpus: null, sources }), 1);
+    assert.equal(require('../../bench/advice.ts').cmdAdviceCoverage({ adviceRegistry: registry, corpus: null, sources }), 1);
   } finally { console.log = originalLog; }
   assert.match(output, /GAP: corpus: input must be an object/);
 });
@@ -113,7 +113,7 @@ test('advice-coverage prints one row per kind, succeeds for corpus and fails for
   const originalLog = console.log;
   console.log = (line) => { output += `${line}\n`; };
   try {
-    const code = require('../../bench/advice.js').cmdAdviceCoverage({
+    const code = require('../../bench/advice.ts').cmdAdviceCoverage({
       adviceRegistry: registry, corpus: broken,
       sources: { workflows: source('workflows'), verification: source('verification'), mcp: source('mcp') },
     });
@@ -126,7 +126,7 @@ test('advice-coverage prints one row per kind, succeeds for corpus and fails for
   output = '';
   console.log = (line) => { output += `${line}\n`; };
   try {
-    assert.equal(require('../../bench/advice.js').cmdAdviceCoverage({
+    assert.equal(require('../../bench/advice.ts').cmdAdviceCoverage({
       adviceRegistry: registry, corpus: unregistered,
       sources: { workflows: source('workflows'), verification: source('verification'), mcp: source('mcp') },
     }), 1);

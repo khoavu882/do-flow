@@ -339,7 +339,7 @@ test('DEC-025 an invalid secondary origin is a live-validation-origin gap; bench
   assert.equal(response.results.length, 2);
   assert.deepEqual(response.gaps.map((g) => `${g.source}:${g.reason}:${g.provider}`), ['live-validation-origin:line-out-of-range:native.rg', 'live-validation-origin:line-out-of-range:native.rg']);
   assert.equal(response.coverage.complete, false);
-  const { mapCodeResponse } = require('../../bench/retrieval/lib/adapters-c.js');
+  const { mapCodeResponse } = require('../../bench/retrieval/lib/adapters-c.ts');
   const mapped = mapCodeResponse({ exit: 0, response });
   assert.deepEqual([mapped.rawValidity.raw, mapped.rawValidity.delivered, mapped.rawValidity.rejected], [2, 2, 0]);
 });

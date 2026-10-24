@@ -5,8 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const pre = require('../../bench/retrieval/lib/verbs/holdout-preconditions.js');
-const sealLib = require('../../bench/retrieval/lib/seal.js');
+const pre = require('../../bench/retrieval/lib/verbs/holdout-preconditions.ts');
+const sealLib = require('../../bench/retrieval/lib/seal.ts');
 const { tempDir } = require('../helper/tmp');
 
 const gitIn = (dir, ...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-C', dir, ...args], { encoding: 'utf8' }).trim();

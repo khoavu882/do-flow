@@ -7,7 +7,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const runner = require('../../bench/runner.js');
+const runner = require('../../bench/runner.ts');
 const { tempDir } = require('../helper/tmp.js');
 
 const FIXTURE_ROOT = path.join(__dirname, '..', 'fixtures', 'bench-noise');

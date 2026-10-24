@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const snap = require('../../bench/retrieval/lib/snapshot.js');
+const snap = require('../../bench/retrieval/lib/snapshot.ts');
 const { tempDir } = require('../helper/tmp');
 
 function gitIn(dir, ...args) {

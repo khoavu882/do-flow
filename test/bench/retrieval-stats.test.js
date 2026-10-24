@@ -2,7 +2,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const stats = require('../../bench/retrieval/lib/stats.js');
+const stats = require('../../bench/retrieval/lib/stats.ts');
 
 test('fnv1a32 matches the published vectors', () => {
   assert.equal(stats.fnv1a32(''), 0x811c9dc5);

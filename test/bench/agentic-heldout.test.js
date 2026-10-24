@@ -14,8 +14,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const tasksLib = require('../../bench/retrieval/lib/tasks.js');
-const snap = require('../../bench/retrieval/lib/snapshot.js');
+const tasksLib = require('../../bench/retrieval/lib/tasks.ts');
+const snap = require('../../bench/retrieval/lib/snapshot.ts');
 
 const FILE = path.join(__dirname, '..', '..', 'bench', 'agentic', 'tasks-heldout.json');
 const HOLDOUT_DIR = path.join(__dirname, '..', '..', 'bench', 'retrieval', 'holdout');

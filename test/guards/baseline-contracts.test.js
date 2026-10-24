@@ -17,11 +17,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync, execFileSync } = require('node:child_process');
 
-const snapshotLib = require('../../bench/retrieval/lib/snapshot.js');
-const { validateTaskFile } = require('../../bench/retrieval/lib/tasks.js');
-const sealLib = require('../../bench/retrieval/lib/seal.js');
+const snapshotLib = require('../../bench/retrieval/lib/snapshot.ts');
+const { validateTaskFile } = require('../../bench/retrieval/lib/tasks.ts');
+const sealLib = require('../../bench/retrieval/lib/seal.ts');
 const { sha256Hex } = sealLib;
-const { classesFor } = require('../../bench/retrieval/lib/metrics.js');
+const { classesFor } = require('../../bench/retrieval/lib/metrics.ts');
 const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, '..', '..');
@@ -482,7 +482,7 @@ test('G33.16 control: a dropped heading, a dropped state row, a dropped example 
 });
 
 // ---- M.5: Fourth step (G33.6, G33.9, G33.10, G33.14) ----
-const { enumerateHookSurfaces, computeCeilingMs } = require('../../bench/perf/runner.js');
+const { enumerateHookSurfaces, computeCeilingMs } = require('../../bench/perf/runner.ts');
 
 function m5ThresholdProblems(t) {
   const p = [];

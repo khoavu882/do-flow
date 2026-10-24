@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp.js');
-const tasks = require('../../bench/agentic/tasks.js');
+const tasks = require('../../bench/agentic/tasks.ts');
 
 const REPO = path.join(__dirname, '..', '..');
 const DEV = JSON.parse(fs.readFileSync(path.join(REPO, 'bench', 'retrieval', 'tasks', 'dev.json'), 'utf8'));

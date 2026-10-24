@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const runner = require('../../bench/retrieval/runner.js');
+const runner = require('../../bench/retrieval/runner.ts');
 const { tempDir } = require('../helper/tmp');
 
 const REPO = path.resolve(__dirname, '..', '..');
@@ -13,7 +13,7 @@ const CREDENTIALS = ['ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'GEMINI_API_KEY', 'G
 
 function verbsDir(t, verbs) {
   const dir = tempDir(t, 'doflow-runner-verbs-');
-  for (const [name, body] of Object.entries(verbs)) fs.writeFileSync(path.join(dir, `${name}.js`), `'use strict';\n${body}\n`);
+  for (const [name, body] of Object.entries(verbs)) fs.writeFileSync(path.join(dir, `${name}.ts`), `'use strict';\n${body}\n`);
   return dir;
 }
 
@@ -140,7 +140,7 @@ test('offline: no benchmark source opens a socket, makes an HTTP call or names a
   const walk = (dir) => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, e.name);
-      if (e.isDirectory()) { if (!['results', 'holdout', 'fixtures', 'tasks'].includes(e.name)) walk(full); } else if (e.name.endsWith('.js')) files.push(full);
+      if (e.isDirectory()) { if (!['results', 'holdout', 'fixtures', 'tasks'].includes(e.name)) walk(full); } else if (e.name.endsWith('.ts')) files.push(full);
     }
   };
   walk(path.join(REPO, 'bench', 'retrieval'));
@@ -159,16 +159,16 @@ test('offline: no benchmark source opens a socket, makes an HTTP call or names a
   assert.deepEqual(hits, []);
 });
 
-test('bench/runner.js forwards retrieval before its own argument parser', () => {
-  const run = spawnSync(process.execPath, [path.join(REPO, 'bench', 'runner.js'), 'retrieval', 'bogus-verb'], {
+test('bench/runner.ts forwards retrieval before its own argument parser', () => {
+  const run = spawnSync(process.execPath, [path.join(REPO, 'bench', 'runner.ts'), 'retrieval', 'bogus-verb'], {
     encoding: 'utf8', env: { ...process.env, ANTHROPIC_API_KEY: 'sentinel', OPENAI_API_KEY: 'sentinel' },
   });
   assert.equal(run.status, 2);
   assert.match(run.stderr, /unknown verb "bogus-verb"/);
-  const flag = spawnSync(process.execPath, [path.join(REPO, 'bench', 'runner.js'), 'retrieval', 'bogus', '--not-a-bench-flag'], { encoding: 'utf8' });
+  const flag = spawnSync(process.execPath, [path.join(REPO, 'bench', 'runner.ts'), 'retrieval', 'bogus', '--not-a-bench-flag'], { encoding: 'utf8' });
   assert.equal(flag.status, 2, 'a retrieval flag the skill benchmark does not know reaches the retrieval runner');
   assert.match(flag.stderr, /retrieval/);
-  const usage = spawnSync(process.execPath, [path.join(REPO, 'bench', 'runner.js'), '--help'], { encoding: 'utf8' });
-  assert.match(usage.stdout, /bench\/runner\.js retrieval <verb>/);
-  assert.match(usage.stdout, /bench\/runner\.js perf <verb>/);
+  const usage = spawnSync(process.execPath, [path.join(REPO, 'bench', 'runner.ts'), '--help'], { encoding: 'utf8' });
+  assert.match(usage.stdout, /bench\/runner\.ts retrieval <verb>/);
+  assert.match(usage.stdout, /bench\/runner\.ts perf <verb>/);
 });

@@ -8,7 +8,7 @@ const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { projectSpans } = require('../../src/runtime/trace/spans.ts');
-const perf = require('../../bench/perf/runner');
+const perf = require('../../bench/perf/runner.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const BRIDGE = 'core/harnesses/shared/hooks/bridge';

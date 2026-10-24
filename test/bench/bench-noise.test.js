@@ -1,21 +1,21 @@
 'use strict';
 
-// 096 A.1: bench/noise.js, the pure noise-floor module (IC-001, IC-002, IC-004, IC-007, IC-008).
+// 096 A.1: bench/noise.ts, the pure noise-floor module (IC-001, IC-002, IC-004, IC-007, IC-008).
 // Everything here runs in memory: no fixture files, no runner, no spawn.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const stats = require('../../bench/retrieval/lib/stats.js');
-const noise = require('../../bench/noise.js');
+const stats = require('../../bench/retrieval/lib/stats.ts');
+const noise = require('../../bench/noise.ts');
 
 const {
   EPS, MIN_PAIRED_CASES, loadNoiseConfig, classifyRun, computeNoise, ruleVerdict, decide,
   overfitFlag, buildDecision, validateNoiseArtifact, validateDecision,
 } = noise;
 
-const MODULE_FILE = path.join(__dirname, '..', '..', 'bench', 'noise.js');
+const MODULE_FILE = path.join(__dirname, '..', '..', 'bench', 'noise.ts');
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -151,7 +151,7 @@ test('every exported list, the label map and the defaults are frozen', () => {
 test('the module is pure: it requires only the retrieval stats and names no I/O or clock', () => {
   const source = fs.readFileSync(MODULE_FILE, 'utf8');
   const requires = [...source.matchAll(/require\(\s*['"]([^'"]+)['"]\s*\)/g)].map((m) => m[1]);
-  assert.deepEqual(requires, ['./retrieval/lib/stats.js']);
+  assert.deepEqual(requires, ['./retrieval/lib/stats.ts']);
   for (const banned of [/\bfs\b/, /child_process/, /\bDate\b/, /Math\.random/, /\bprocess\b/]) {
     assert.doesNotMatch(source, banned);
   }

@@ -10,7 +10,7 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..');
 test('CLI retrieval rerun against the committed baseline runs without dependency-default errors', { timeout: 300000 }, () => {
   const res = spawnSync(
     process.execPath,
-    ['bench/runner.js', 'retrieval', 'rerun', '--json'],
+    ['bench/runner.ts', 'retrieval', 'rerun', '--json'],
     {
       cwd: REPO_ROOT,
       encoding: 'utf8',

@@ -18,9 +18,9 @@ const BENCH = path.join(REPO, 'bench');
 // The corpus is tracked (review R6): runner, per-skill eval definitions, and the sanitized
 // baseline ship with the repo, so a fresh clone can validate the corpus offline and these checks
 // run unconditionally. Only run transcripts and reports stay local (bench/runs/, bench/reports/).
-const HAS_BENCH = fs.existsSync(path.join(BENCH, 'runner.js'));
-const runner = HAS_BENCH ? require('../../bench/runner.js') : null;
-const { loadNoiseConfig } = HAS_BENCH ? require('../../bench/noise.js') : {};
+const HAS_BENCH = fs.existsSync(path.join(BENCH, 'runner.ts'));
+const runner = HAS_BENCH ? require('../../bench/runner.ts') : null;
+const { loadNoiseConfig } = HAS_BENCH ? require('../../bench/noise.ts') : {};
 // buildPlan reads git state in-process; node --test gives each file its own process, so the scratch
 // environment keeps it off the developer's HOME and global git config.
 const scratch = createScratch('doflow-bench-guard-');
@@ -33,7 +33,7 @@ const { WorktreeManager, SKILL_SOURCE_FILE, SANDBOX_SKILLS_DIR, sha256File } = r
 const { tempDir } = require('../helper/tmp');
 
 test('G11/R6: the evaluation corpus is present — a clean clone can reproduce the baseline', () => {
-  assert.ok(HAS_BENCH, 'bench/runner.js must be tracked; the corpus stopped being local-only under review R6');
+  assert.ok(HAS_BENCH, 'bench/runner.ts must be tracked; the corpus stopped being local-only under review R6');
   assert.ok(fs.existsSync(path.join(BENCH, 'baseline', 'baseline.json')), 'the sanitized baseline must be tracked');
   assert.ok(fs.existsSync(path.join(BENCH, 'config.json')), 'the pinned-model config must be tracked (FR-017 comparability)');
 });
@@ -293,7 +293,7 @@ test('G11/028: the committed baseline still describes the committed corpus; new 
   const differences = parityDifferences(parity);
   assert.deepEqual(differences, [],
     'the committed baseline no longer describes the committed corpus — re-capture it with '
-    + '`node bench/runner.js baseline --from <iteration>`:\n  ' + differences.join('\n  '));
+    + '`node bench/runner.ts baseline --from <iteration>`:\n  ' + differences.join('\n  '));
   assert.ok(parity.ok, 'baselineParity reported differences without listing any, which is a bug in the comparison itself');
 });
 

@@ -7,18 +7,18 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp');
 const { findOnPath } = require('../../src/runtime/worker/readiness.ts');
-const dispatcher = require('../../bench/retrieval/lib/adapters.js');
-const adaptersC = require('../../bench/retrieval/lib/adapters-c.js');
-const run = require('../../bench/retrieval/lib/verbs/run.js');
-const preconditions = require('../../bench/retrieval/lib/verbs/holdout-preconditions.js');
-const protocol = require('../../bench/retrieval/lib/hybrid-protocol.js');
-const gate = require('../../bench/retrieval/lib/hybrid-gate.js');
-const seal = require('../../bench/retrieval/lib/seal.js');
-const verifyVerb = require('../../bench/retrieval/lib/verbs/verify.js');
-const tasksLib = require('../../bench/retrieval/lib/tasks.js');
-const environment = require('../../bench/retrieval/lib/environment.js');
-const snap = require('../../bench/retrieval/lib/snapshot.js');
-const report = require('../../bench/retrieval/lib/report.js');
+const dispatcher = require('../../bench/retrieval/lib/adapters.ts');
+const adaptersC = require('../../bench/retrieval/lib/adapters-c.ts');
+const run = require('../../bench/retrieval/lib/verbs/run.ts');
+const preconditions = require('../../bench/retrieval/lib/verbs/holdout-preconditions.ts');
+const protocol = require('../../bench/retrieval/lib/hybrid-protocol.ts');
+const gate = require('../../bench/retrieval/lib/hybrid-gate.ts');
+const seal = require('../../bench/retrieval/lib/seal.ts');
+const verifyVerb = require('../../bench/retrieval/lib/verbs/verify.ts');
+const tasksLib = require('../../bench/retrieval/lib/tasks.ts');
+const environment = require('../../bench/retrieval/lib/environment.ts');
+const snap = require('../../bench/retrieval/lib/snapshot.ts');
+const report = require('../../bench/retrieval/lib/report.ts');
 
 const PASS = 'a sufficiently long test-only passphrase';
 // FU-w5wv06: H1's control retrieves through native.rg, which spawns `rg` by name; without it the test cannot run.
@@ -401,14 +401,14 @@ function holdoutWorld(t, generation = 7) {
   };
   const sealMeta = {};
   for (const corpus of protocol.CORPORA) {
-    const tasks = require('../../bench/retrieval/lib/metrics.js').classesFor(corpus).map((cls, i) => {
+    const tasks = require('../../bench/retrieval/lib/metrics.ts').classesFor(corpus).map((cls, i) => {
       const more = typeof extra[cls] === 'function' ? extra[cls](corpus) : (extra[cls] || {});
       return { id: `H${corpus === 'code' ? 'C' : 'G'}-00${i + 1}`, split: 'holdout', corpus, class: cls, query: 'where is thing', qrels: [q(corpus)],
         expect: { result: ['RETRIEVED'] }, truthSource: ['x:1'], author: 'worker:t', ...more };
     });
     const { taskFile } = tasksLib.fillTaskFile({ schemaVersion: 1, snapshotId: snapshot.snapshotId, split: 'holdout', tasks }, { snapshot, manifest, repoRoot: repo, tokenize: (x) => String(x).toLowerCase().split(/[^a-z0-9]+/).filter((y) => y.length >= 2) });
     assert.deepEqual(tasksLib.validateTaskFile(taskFile, { split: 'holdout', snapshot, manifest, repoRoot: repo, corpus }), []);
-    const sealed = seal.sealTasks({ taskFile, passphrase: PASS, corpus, snapshotId: snapshot.snapshotId, generation, sealedBy: 'worker:t', classes: require('../../bench/retrieval/lib/metrics.js').CLASSES });
+    const sealed = seal.sealTasks({ taskFile, passphrase: PASS, corpus, snapshotId: snapshot.snapshotId, generation, sealedBy: 'worker:t', classes: require('../../bench/retrieval/lib/metrics.ts').CLASSES });
     seal.writeSealed({ dir: path.join(outDir, 'holdout'), corpus, generation, envelopeText: sealed.envelopeText, sealText: sealed.sealText });
     sealMeta[corpus] = sealed.seal;
   }
@@ -442,7 +442,7 @@ test('R6: a C holdout run over every class clears the holdout privacy check and 
   for (const name of names) report.assertNoTaskDetail(JSON.parse(fs.readFileSync(path.join(w.results, name), 'utf8')), name);
   report.assertNoTaskDetail({ aggregates: out.aggregates, gate: out.gate, indexes: out.indexes }, 'holdout stdout');
   const c = JSON.parse(fs.readFileSync(path.join(w.results, 'holdout-1-g7-code-C.json'), 'utf8'));
-  for (const cls of require('../../bench/retrieval/lib/metrics.js').classesFor('code')) assert.equal(c.classes[cls].n, 1, `code C ${cls} measured`);
+  for (const cls of require('../../bench/retrieval/lib/metrics.ts').classesFor('code')) assert.equal(c.classes[cls].n, 1, `code C ${cls} measured`);
   assert.deepEqual(c.classes['exact-lookup'].rawValidity, { answered: 1, raw: 4, rejected: 3, delivered: 1, semanticReached: 0 });
   // H1: every C class row names where it was served; A and B rows carry no such label.
   assert.deepEqual(Object.fromEntries(Object.entries(c.classes).filter(([, row]) => row.applicable).map(([cls, row]) => [cls, row.servedBy])), {

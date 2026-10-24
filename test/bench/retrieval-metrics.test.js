@@ -2,7 +2,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const m = require('../../bench/retrieval/lib/metrics.js');
+const m = require('../../bench/retrieval/lib/metrics.ts');
 
 const pathInfo = (p) => (p.startsWith('src/') ? { lineCount: 100 } : null);
 const cand = (path, startLine, endLine, rank, extra = {}) => ({ path, startLine, endLine, heading: null, rank, provider: 'p', snippetBytes: 10, ...extra });

@@ -5,9 +5,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const tasksLib = require('../../bench/retrieval/lib/tasks.js');
-const snap = require('../../bench/retrieval/lib/snapshot.js');
-const { sha256Hex } = require('../../bench/retrieval/lib/seal.js');
+const tasksLib = require('../../bench/retrieval/lib/tasks.ts');
+const snap = require('../../bench/retrieval/lib/snapshot.ts');
+const { sha256Hex } = require('../../bench/retrieval/lib/seal.ts');
 const { tempDir } = require('../helper/tmp');
 
 const gitIn = (dir, ...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-C', dir, ...args], { encoding: 'utf8' }).trim();

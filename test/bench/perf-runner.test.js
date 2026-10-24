@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const runner = require('../../bench/perf/runner.js');
+const runner = require('../../bench/perf/runner.ts');
 const { tempDir } = require('../helper/tmp.js');
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
@@ -429,8 +429,8 @@ test('perf runner executes Antigravity and Pi surfaces using their corpus payloa
   }
 });
 
-test('bench runner forwards perf command to bench/perf/runner.js', () => {
-  const run = spawnSync(process.execPath, ['bench/runner.js', 'perf'], {
+test('bench runner forwards perf command to bench/perf/runner.ts', () => {
+  const run = spawnSync(process.execPath, ['bench/runner.ts', 'perf'], {
     cwd: path.resolve(__dirname, '..', '..'),
     encoding: 'utf8',
   });

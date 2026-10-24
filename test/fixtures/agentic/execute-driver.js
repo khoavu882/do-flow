@@ -10,7 +10,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
-const execute = require('../../../bench/agentic/execute.js');
+const execute = require('../../../bench/agentic/execute.ts');
 
 function fakeMaterialise(commit, dir) {
   const treeRoot = path.join(dir, 'tree');

@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const context = require('../../bench/perf/lib/context.js');
+const context = require('../../bench/perf/lib/context.ts');
 const { alwaysLoaded } = require('../helper/always-loaded.js');
 const { tempDir } = require('../helper/tmp.js');
 

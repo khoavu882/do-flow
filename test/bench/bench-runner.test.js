@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Offline fixture tests for bench/runner.js behaviour: parity classification and report rows.
+ * Offline fixture tests for bench/runner.ts behaviour: parity classification and report rows.
  *
  * Every input is data built in this file. Nothing here dispatches a run, calls a model, or writes
  * under the checkout's bench/baseline, bench/runs or bench/reports; the runner functions under test
@@ -25,7 +25,7 @@ after(() => {
   scratch.remove();
 });
 
-const runner = require('../../bench/runner.js');
+const runner = require('../../bench/runner.ts');
 
 const entry = (key, name, kind, split) => {
   const [skill, id] = key.split('/');
@@ -304,7 +304,7 @@ test('F1: a triggering plan run asks for routing.json and saves it; a behavioral
 
 // --- split on plan and list (F4, split part) --------------------------------------------------
 
-const RUNNER = path.resolve(__dirname, '../../bench/runner.js');
+const RUNNER = path.resolve(__dirname, '../../bench/runner.ts');
 function runCli(...args) {
   const r = spawnSync(process.execPath, [RUNNER, ...args], { encoding: 'utf8', env: scratch.env() });
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
@@ -822,7 +822,7 @@ test('F4: in a real sandbox the removed skill files are skip-worktree, so git st
   const sandbox = path.join(clone, workingDir);
   assert.equal(fs.existsSync(path.join(sandbox, 'core', 'shared', 'skills', 'do-git')), false);
   assert.equal(fs.existsSync(path.join(sandbox, '.claude', 'skills', 'do-git')), false);
-  assert.equal(fs.existsSync(path.join(sandbox, 'bench', 'runner.js')), true, 'bench/ stays: cases work on bench/runner.js');
+  assert.equal(fs.existsSync(path.join(sandbox, 'bench', 'runner.ts')), true, 'bench/ stays: cases work on bench/runner.ts');
   const manifest = JSON.parse(fs.readFileSync(path.join(sandbox, '.doflow-skill-source.json'), 'utf8'));
   assert.equal('do-git' in manifest.skills, false);
   assert.equal('do-plan' in manifest.skills, true);

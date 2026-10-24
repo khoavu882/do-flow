@@ -445,7 +445,7 @@ test('5. When the recording window is not filled the report says "verdict not ye
 
 // 6. Manifest check
 test('6. Manifest check: a manifest sha256 mismatch exits 1 and names the path; a missing manifest exits 2 with the message', (t) => {
-  const runnerPath = path.join(REPO_ROOT, 'bench', 'runner.js');
+  const runnerPath = path.join(REPO_ROOT, 'bench', 'runner.ts');
 
   // Case A: Missing manifest -> exits 2 with message
   const emptyDir = tempDir(t, 'doflow-trace-baseline-nomanifest-');
@@ -483,8 +483,8 @@ test('6. Manifest check: a manifest sha256 mismatch exits 1 and names the path; 
 });
 
 // 7. npm run bench -- verify-baseline entry and byte-equal output files
-test('7. npm run bench -- verify-baseline --snapshot <dir> --json --out <dir> is the entry in bench/runner.js (bare invocation usage lists it; two runs give byte-equal output files)', (t) => {
-  const runnerPath = path.join(REPO_ROOT, 'bench', 'runner.js');
+test('7. npm run bench -- verify-baseline --snapshot <dir> --json --out <dir> is the entry in bench/runner.ts (bare invocation usage lists it; two runs give byte-equal output files)', (t) => {
+  const runnerPath = path.join(REPO_ROOT, 'bench', 'runner.ts');
 
   // Check bare invocation usage text lists verify-baseline
   const usageResult = spawnSync(process.execPath, [runnerPath], { encoding: 'utf8' });
@@ -539,7 +539,7 @@ test('7. npm run bench -- verify-baseline --snapshot <dir> --json --out <dir> is
 
 // 8. Value assertions on the committed snapshot (088 F6, D5)
 test('8. Value assertions on the committed snapshot: fullSuiteRuns 2, duplicates 0, totalTestMs 775, verificationWallMs 1102, loopWallMs 23665', (t) => {
-  const runnerPath = path.join(REPO_ROOT, 'bench', 'runner.js');
+  const runnerPath = path.join(REPO_ROOT, 'bench', 'runner.ts');
   const baselineDir = path.join(REPO_ROOT, 'test', 'fixtures', '088-verification-baseline');
   const res = spawnSync(
     process.execPath,
@@ -563,7 +563,7 @@ test('8. Value assertions on the committed snapshot: fullSuiteRuns 2, duplicates
 
 // 9. When window is not filled: report.md contains no Median or Lower End, shows Observed (n=1), and open (unbounded) for open window
 test('9. While recording window is not filled: no Median or Lower End in report.md, shows "Observed (n=1), not a result", and open window prints "open (unbounded)"', (t) => {
-  const runnerPath = path.join(REPO_ROOT, 'bench', 'runner.js');
+  const runnerPath = path.join(REPO_ROOT, 'bench', 'runner.ts');
   const baselineDir = path.join(REPO_ROOT, 'test', 'fixtures', '088-verification-baseline');
   const res = spawnSync(
     process.execPath,
@@ -600,7 +600,7 @@ test('9. While recording window is not filled: no Median or Lower End in report.
 
 // 10. D7 manifest hardening: runner rejects missing/non-array files, unlisted files, outside paths, symlinks, bad schema
 test('10. D7 manifest hardening: verify-baseline rejects no files, object files, missing path, escaping path, symlink, unlisted file, v!=1, missing commit', (t) => {
-  const runnerPath = path.join(REPO_ROOT, 'bench', 'runner.js');
+  const runnerPath = path.join(REPO_ROOT, 'bench', 'runner.ts');
   const baselineDir = path.join(REPO_ROOT, 'test', 'fixtures', '088-verification-baseline');
 
   function makeVariant(name, modifier) {

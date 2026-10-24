@@ -4,8 +4,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { measureSessionStart, runHookProcess } = require('../../bench/perf/lib/session-start.js');
-const { computeStartupContext } = require('../../bench/perf/lib/context.js');
+const { measureSessionStart, runHookProcess } = require('../../bench/perf/lib/session-start.ts');
+const { computeStartupContext } = require('../../bench/perf/lib/context.ts');
 const { tempDir } = require('../helper/tmp');
 
 const FIXTURE_TREE = path.resolve(__dirname, '../fixtures/session-start-tree');

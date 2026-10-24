@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO } = require('./_shared');
-const { adviceCoverage } = require('../../bench/advice');
+const { adviceCoverage } = require('../../bench/advice.ts');
 
 function entries(files) {
   return files instanceof Map ? [...files.entries()] : Object.entries(files || {});

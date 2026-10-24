@@ -26,7 +26,7 @@ const REQUIRER_ROOTS = ['bin', 'src', 'test', 'bench'].map((d) => path.join(REPO
 /**
  * Roots whose requires make a src/ module *reachable*. Deliberately excludes test/: a module whose
  * only requirer is its own test is dead code with a passing test, which is how src/state/cas.js sat
- * in this tree for thirteen months with a green suite. Including bench/ because bench/runner.js
+ * in this tree for thirteen months with a green suite. Including bench/ because bench/runner.ts
  * requires src/runtime/worktree.ts for real — it is a consumer, not a test.
  */
 const CONSUMER_ROOTS = ['bin', 'src', 'bench'].map((d) => path.join(REPO, d));
@@ -53,7 +53,7 @@ const PATH_CALLER_SURFACES = ['package.json', path.join('core', 'shared', 'scrip
  * invoked only via `node <path>` or `require.resolve` rather than a static `require('...')` a text
  * scan can see. Empty: the three modules no bin/ or src/ file requires are recognised by
  * PATH_CALLER_SURFACES (sync-plugin-versions.ts via the `version` npm script, c4-project.ts via
- * render-puml.sh) and CONSUMER_ROOTS (worktree.js via bench/runner.js), both of which stop
+ * render-puml.sh) and CONSUMER_ROOTS (worktree.js via bench/runner.ts), both of which stop
  * vouching for a module the moment its caller goes — which an allowlist entry would not.
  * "Nothing calls it" is never a reason — that module is dead, and belongs deleted, not exempted.
  */
@@ -276,7 +276,7 @@ test('G30: the count of plain .js modules under src/ never increases (TypeScript
 // Ratchets for the same migration across test/ and bench/ (generated bench output and the two
 // fixture trees, whose .js is deliberately fixed content, are not counted). Lower after each conversion.
 const TEST_JS_CEILING = 662;
-const BENCH_JS_CEILING = 39;
+const BENCH_JS_CEILING = 0;
 const RATCHET_FIXTURE_DIRS = ['test/fixtures/agentic', 'bench/perf/fixtures'].map((d) => path.join(REPO, d));
 const RATCHET_SKIPPED_DIRS = [...EXCLUDED_CONSUMER_DIRS, ...RATCHET_FIXTURE_DIRS];
 
