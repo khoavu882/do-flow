@@ -22,6 +22,7 @@ const nodeFs = require('node:fs');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { REF_META, createRefs } = require('./refs.ts');
+const { loadCoreProtocols } = require('../review/protocols.ts');
 const { jsonFailure, validateValue } = require('./files.ts');
 
 const REGISTRY_FILE = 'core/registry/settings.json';
@@ -448,9 +449,13 @@ function loadSettingsRegistry({ repoRoot = REPO_ROOT, fsImpl, verifyRefs = false
   catch (error: any) { return done(failure([`${REGISTRY_FILE} is ${jsonFailure(error, text).reason}`])); }
 
   const refs = createRefs({ repoRoot, fsImpl: fsUse });
+  // Registry validation is about core consistency, so its ref pass reads the core protocols file only: the presets active
+  // packages contribute (122 IC-014) are values without a rank and would never equal the order. A core file that does
+  // not load gives it no contributed ids and fails on validateProtocols as before. Run-time reads (`refs`) keep them.
+  const verify = verifyRefs ? createRefs({ repoRoot, fsImpl: fsUse, protocols: loadCoreProtocols({ repoRoot, fsImpl: fsUse }).registry ?? null }) : null;
   const checked = validateSettingsRegistry(
     raw,
-    { meta: REF_META, resolve: verifyRefs ? refs.resolve : undefined },
+    { meta: REF_META, resolve: verify?.resolve },
     { consumerExists: checkConsumers ? (p: string) => fsUse.existsSync(path.join(repoRoot, p)) : undefined },
   );
   if (!checked.ok) return done(failure(checked.errors));

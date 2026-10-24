@@ -16,8 +16,8 @@ const path = require('node:path');
 const nodeFs = require('node:fs');
 const { finishRuntime, usageError } = require('../cli-result.ts');
 const { keyEntry, layerFile, layerEntry } = require('./config-write.ts');
-const { loadProtocols, presetIds } = require('../review/protocols.ts');
-const { gateMinSeats, settingsPick } = require('../review/resolve-protocol.ts');
+const { loadProtocols, presetIds, contributedPresetIds } = require('../review/protocols.ts');
+const { gateMinSeats, settingsPick, atLeastAsStrict } = require('../review/resolve-protocol.ts');
 
 /** Top-level names kept for a later release (IC-010): refused now, with their own message. */
 const RESERVED = new Set(['primary', 'workers']);
@@ -74,11 +74,12 @@ function validatePrepared(doc: Record<string, any>, ctx: any): Entry[] {
   const inputs = (): any => (loaded ??= ctx.inputs(taskClass));
   for (const kind of ['review', 'debate']) {
     if (!Object.hasOwn(presets, kind)) continue;
-    const order: string[] = presetIds(protocols, kind);
+    const order: string[] = presetIds(protocols, kind); // the effective core order: the only ids that have a rank
+    const named: string[] = [...order, ...contributedPresetIds(protocols, kind)]; // selectable by name (122 IC-014)
     const key = `presets.${kind}`;
     const id = presets[kind];
-    if (typeof id !== 'string' || !order.includes(id)) {
-      errors.push(entry(key, null, 'enum', `${typeof id === 'string' ? id : JSON.stringify(id)} is not a ${kind} preset`, order));
+    if (typeof id !== 'string' || !named.includes(id)) {
+      errors.push(entry(key, null, 'enum', `${typeof id === 'string' ? id : JSON.stringify(id)} is not a ${kind} preset`, named));
       continue;
     }
     // The effective preset setting (C-3): the user/project/local layers `review --action start` reads, with this
@@ -90,7 +91,8 @@ function validatePrepared(doc: Record<string, any>, ctx: any): Entry[] {
       view[settingKey] = { value: settings[settingKey], layer: 'project' };
     }
     const pick = settingsPick({ kind, pick: { id: order[order.length - 1], origin: 'registry' }, settingsView: view, registry: protocols });
-    if (order.indexOf(id) > order.indexOf(pick.id)) {
+    // Two core ids compare by their place in the order; a pair with a contributed id by dominance (never an indexOf of -1).
+    if (!atLeastAsStrict(protocols, kind, id, pick.id)) {
       errors.push(entry(key, null, 'not-narrower', `${id} is looser than settings["${settingKey}"] ${pick.id} (${pick.origin} layer)`));
       continue;
     }
