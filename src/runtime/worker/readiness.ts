@@ -29,6 +29,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const { workerCatalogue } = require('./catalogue.ts');
+const { workerGate } = require('./active.ts');
 const { knownWorkerIds } = require('../../registry/worker-ids.ts');
 const { runProbe, PROBE_TIMEOUT_MS } = require('../health.ts');
 const { updateTaskState, readTaskState } = require('../task-state.ts');
@@ -568,10 +569,12 @@ function eligibility(requirements: any[]) {
   return { eligible: gaps.length === 0, gaps };
 }
 
-/** Registry, coverage and descriptors for one describe or select call. */
-function readinessContext({ descriptors, registry, coverage }: any) {
+/** Registry, coverage and descriptors for one call; IC-009 filters only when active is supplied. */
+function readinessContext({ descriptors, registry, coverage, active }: any) {
   const reg = registry || loadRegistry({ repoRoot: REPO_ROOT });
-  return { entries: workerDescriptors({ descriptors, registry: reg }), coverage: coverage === undefined ? reg.coverage : coverage };
+  const all = workerDescriptors({ descriptors, registry: reg });
+  const entries = active ? all.filter((entry) => workerGate(active, entry.harness) === null) : all;
+  return { entries, known: all.map((entry) => entry.harness), coverage: coverage === undefined ? reg.coverage : coverage };
 }
 
 /** Discover, then the IC-007 effective facts and IC-008 evaluation of one harness. Writes nothing. */
@@ -613,13 +616,13 @@ function describe({
  * fallback modes. Claims nothing and writes nothing (DEC-002).
  */
 function select({
-  descriptors, registry, coverage, harness, needs, edit = false,
+  descriptors, registry, coverage, harness, needs, active, edit = false,
   env = process.env, cwd = process.cwd(), root = cwd, now = Date.now, platform = process.platform,
 }: any = {}) {
-  const context = readinessContext({ descriptors, registry, coverage });
+  const context = readinessContext({ descriptors, registry, coverage, active });
   const entries = harness ? context.entries.filter((item) => item.harness === harness) : context.entries;
-  if (harness && entries.length === 0) {
-    throw new ReadinessError('usage', `unknown harness '${harness}'; known: ${context.entries.map((item) => item.harness).join(', ')}`);
+  if (harness && !context.known.includes(harness)) {
+    throw new ReadinessError('usage', `unknown harness '${harness}'; known: ${context.known.join(', ')}`);
   }
   const valid = validateNeeds(needs, context.coverage);
   const tick = clock(now);

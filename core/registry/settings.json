@@ -125,7 +125,7 @@
     "workers.enabled": { "type": "worker-list", "valuesRef": "workers.ids", "defaultRef": "workers.defaultRungs",
       "scope": "narrow-only", "combine": "subset", "securityRelevant": true, "failSafe": { "state": "invalid" },
       "env": null, "flag": null, "shellRead": null, "needsConfigHome": false, "legacy": [],
-      "consumers": ["src/runtime/settings/resolve.ts"],
+      "consumers": ["src/runtime/worker/active.ts"],
       "description": "Ordered list of worker ids a run may use, optionally ending in primary; a project can only remove entries." }
   }
 }

@@ -36,6 +36,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn, spawnSync } = require('node:child_process');
 const readiness = require('./readiness.ts');
+const { activeWorkers, workerGate } = require('./active.ts');
 const { workerCatalogue } = require('./catalogue.ts');
 const { storeFileFor, newRunId, insertRun, transition, readRuns, RUN_ID } = require('./run-store.ts');
 const evidence = require('./evidence.ts');
@@ -557,7 +558,7 @@ async function executeWorkerCommand({
         if (!given(harness)) throw usage('--action describe needs --harness');
         body = readiness.describe({ ...atRoot, coverage: cov, harness: String(harness), needs, edit: given(edit) });
         break;
-      case 'select': body = readiness.select({ ...atRoot, coverage: cov, harness: given(harness) ? String(harness) : undefined, needs, edit: given(edit) }); break;
+      case 'select': body = readiness.select({ ...atRoot, coverage: cov, harness: given(harness) ? String(harness) : undefined, needs, edit: given(edit), active: activeWorkers({ registry: reg, env, projectRoot: root }) }); break;
       case 'run': {
         const feature = featureOf(slug, resolveSlug, cwd);
         if (!given(harness)) throw usage('--action run needs --harness');
@@ -565,6 +566,11 @@ async function executeWorkerCommand({
         if (!given(promptFile)) throw usage('--action run needs --prompt-file');
         runFlagRules({ edit, childOf, request, execWorktree });
         const worker = workerBlock(reg, descriptors, String(harness));
+        const gate = workerGate(activeWorkers({ registry: reg, env, projectRoot: root }), String(harness));
+        if (gate) {
+          body = refused(gate.reason, { harness: gate.harness, enabled: gate.enabled, origin: gate.origin });
+          break;
+        }
         const seconds = digits(timeoutSeconds, '--timeout-seconds', 1, TIMEOUT_MAX_SECONDS) ?? TIMEOUT_DEFAULT_SECONDS;
         const prompt = readPrompt(promptFile, cwd, worker);
         body = await runAction({

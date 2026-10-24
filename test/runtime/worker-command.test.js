@@ -172,6 +172,27 @@ test('every IC-011 refusal comes in step order, exits 1 and writes nothing', POS
   assert.ok(ineligible.body.gaps.some((gap) => gap.requirement === 'read-only'), JSON.stringify(ineligible.body.gaps));
 });
 
+test('workers.enabled refuses a disabled worker without changing the run store or ledger', POSIX, async (t) => {
+  const previousExitCode = process.exitCode;
+  t.after(() => { process.exitCode = previousExitCode; });
+  const p = project(t);
+  const file = path.join(p.dir, 'config', 'doflow', 'settings.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify({ schema: 1, 'workers.enabled': ['gemini'] }));
+  const before = p.ledgerBytes();
+  const { exit, body } = await p.run();
+  assert.equal(exit, 1);
+  assert.deepEqual(body, {
+    disposition: 'refused',
+    reason: 'worker-disabled',
+    harness: 'claude',
+    enabled: ['gemini'],
+    origin: { layer: 'user', source: file },
+  });
+  assert.equal(fs.existsSync(p.store), false);
+  assert.deepEqual(p.ledgerBytes(), before);
+});
+
 test('an unprobed harness is harness-ineligible with its gaps', POSIX, async (t) => {
   const p = project(t);
   const { exit, body } = await p.run();
