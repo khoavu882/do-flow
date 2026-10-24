@@ -50,7 +50,6 @@ const { executeWorkerCommand, settledStatus } = require('../worker/command.ts');
 const { cancelRun } = require('../worker/cancel.ts');
 const { activeWorkers, workerGate, inSessionGate } = require('../worker/active.ts');
 const { resolveTier, readBindings, resolveBinding, bindingGap } = require('../worker/models.ts');
-const { resolvePrimary } = require('../context/primary.ts');
 const { resultOfRun } = require('../worker/supervisor.ts');
 const { readRuns, storeFileFor: runStoreFileFor } = require('../worker/run-store.ts');
 const {
@@ -1243,6 +1242,7 @@ async function admitAndLaunch(p: any) {
     if (mode === 'sequential' && !primaryResolved) {
       primaryResolved = true;
       try {
+        const { resolvePrimary } = require('../context/primary.ts');
         primary = resolvePrimary({ env: p.env, projectRoot: p.cwd, registry: p.reg() });
       } catch {
         primary = { harness: null, model: null, state: 'unknown' };

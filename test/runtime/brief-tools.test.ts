@@ -310,6 +310,99 @@ test('currentStageOf reads the stage a feature run is at', (t) => {
   assert.equal(currentStageOf({ repoRoot: REPO_ROOT, projectRoot: proj, taskId: '../bad' }), null);
 });
 
+test('IC-017: a binding is shown for a valid explicit harness and resolved tier', (t) => {
+  const id = registry.harnesses[0].id;
+  const { markdown, record } = render(t, {
+    harness: id, tier: 'frontier',
+    bindings: { state: 'set', map: { [id]: { frontier: 'gpt-6-luna' } }, reason: null },
+  });
+  assert.ok(markdown.includes(`Tier: \`frontier\` (task line), per\n\`references/MODEL_SELECTION.md\`.\nModel: \`gpt-6-luna\` on \`${id}\` (binding, user layer).\n\n`));
+  assert.deepEqual(record.model, { harness: id, id: 'gpt-6-luna', source: 'binding' });
+});
+
+test('IC-017: absent and invalid bindings produce explicit harness-default lines', (t) => {
+  const id = registry.harnesses[0].id;
+  const fallback = render(t, { harness: id, tier: 'frontier', bindings: { state: 'unset', map: null, reason: null } });
+  assert.ok(fallback.markdown.includes(`Model: harness default on \`${id}\`.`));
+  assert.deepEqual(fallback.record.model, { harness: id, id: null, source: 'harness-default' });
+  const invalid = render(t, { harness: id, bindings: { state: 'invalid', map: null, reason: 'unreadable' } });
+  assert.ok(invalid.markdown.includes(`Model: binding unreadable on \`${id}\`; harness default.`));
+  assert.deepEqual(invalid.record.model, { harness: id, id: null, source: 'invalid' });
+});
+
+test('IC-017: primary harness is the default target, while an explicit valid harness wins', (t) => {
+  const p = { state: 'declared-only', harness: registry.harnesses[0].id };
+  const primary = render(t, { primary: p });
+  assert.equal(primary.record.harness, p.harness);
+  assert.ok(primary.markdown.includes(`Model: harness default on \`${p.harness}\`.`));
+  const other = registry.harnesses.find((entry: any) => entry.id !== p.harness);
+  if (other) assert.equal(render(t, { primary: p, harness: other.id }).record.harness, other.id);
+  const unknown = render(t, { primary: p, harness: 'no-such-harness' });
+  assert.equal(unknown.record.harness, p.harness);
+  assert.ok(unknown.record.missing.some((note: any) => note.includes('no-such-harness')));
+});
+
+test('IC-017: unresolved primary states do not supply a target or model line', (t) => {
+  const noPrimary = render(t);
+  for (const state of ['unknown', 'refused', 'not-primary']) {
+    const result = render(t, { primary: { state, harness: registry.harnesses[0].id } });
+    assert.equal(result.record.harness, noPrimary.record.harness);
+    assert.equal(result.record.model, null);
+    assert.doesNotMatch(result.markdown, /^Model:/m);
+  }
+});
+
+test('IC-017 negative control: unknown primary preserves the old bytes and record fields', (t) => {
+  const baseline = render(t);
+  const result = render(t, { primary: { state: 'unknown', harness: registry.harnesses[0].id }, bindings: { state: 'set', map: {}, reason: null } });
+  assert.equal(result.markdown, baseline.markdown);
+  assert.equal(result.record.model, null);
+  const { model: _model, ...record } = result.record;
+  const { model: _baselineModel, ...baselineRecord } = baseline.record;
+  assert.deepEqual(record, baselineRecord);
+});
+
+test('IC-017: the CLI reads the resolved primary and global model binding', (t) => {
+  const { proj, env } = cleanEnv(t);
+  const id = registry.harnesses.find((entry: any) => entry.worker?.model)?.id;
+  assert.ok(id, 'the registry has a harness with a model descriptor');
+  const run = (extraEnv: any = {}, args: any[] = []) => spawnSync(process.execPath,
+    [CLI, 'brief-tools', '--owner', 'core-implementer', '--tier', 'frontier', '--json', ...args],
+    { cwd: proj, env: { ...env, DOFLOW_PRIMARY_HARNESS: id, ...extraEnv }, encoding: 'utf8' });
+
+  const defaultRun = run();
+  assert.equal(defaultRun.status, 0, defaultRun.stderr);
+  const defaultResult = JSON.parse(defaultRun.stdout);
+  assert.equal(defaultResult.record.harness, id);
+  assert.deepEqual(defaultResult.record.model, { harness: id, id: null, source: 'harness-default' });
+  assert.ok(defaultResult.markdown.includes('Model: harness default on `' + id + '`.' ));
+
+  const configDir = path.join(env.XDG_CONFIG_HOME, 'doflow');
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(path.join(configDir, 'settings.json'), JSON.stringify({
+    schema: 1,
+    'workers.models': { [id]: { frontier: 'gpt-6-luna' } },
+  }));
+  const boundRun = run();
+  assert.equal(boundRun.status, 0, boundRun.stderr);
+  const boundResult = JSON.parse(boundRun.stdout);
+  assert.deepEqual(boundResult.record.model, { harness: id, id: 'gpt-6-luna', source: 'binding' });
+  assert.ok(boundResult.markdown.includes('Model: `gpt-6-luna` on `' + id + '` (binding, user layer).'));
+});
+
+test('IC-017: an explicit harness without config home reports an unreadable binding and exits successfully', (t) => {
+  const { proj, env } = cleanEnv(t);
+  const id = registry.harnesses.find((entry: any) => entry.worker?.model)?.id;
+  assert.ok(id, 'the registry has a harness with a model descriptor');
+  const result = spawnSync(process.execPath,
+    [CLI, 'brief-tools', '--owner', 'core-implementer', '--tier', 'frontier', '--harness', id, '--json'],
+    { cwd: proj, env: { PATH: env.PATH, DOFLOW_FAILURE_CAPTURE: '' }, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  const actual = JSON.parse(result.stdout);
+  assert.deepEqual(actual.record.model, { harness: id, id: null, source: 'invalid' });
+  assert.ok(actual.markdown.includes('Model: binding unreadable on `' + id + '`; harness default.'));
+});
+
 function cleanEnv(t: any) {
   const { dir, proj } = projectDir(t);
   const home = path.join(dir, 'home');

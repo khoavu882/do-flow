@@ -178,6 +178,20 @@ test('G29: the registries yield a non-trivial set of names to scan for', () => {
   assert.ok(names.length >= 10);
 });
 
+test('G29: the generator names no harness id', () => {
+  const harnessNames = registry.harnesses.map((harness: any) => harness.id);
+  assert.deepEqual(literalHits(fs.readFileSync(path.join(REPO, GENERATOR), 'utf8'), harnessNames), []);
+  const sample = `const id = '${harnessNames[0]}';`;
+  assert.ok(literalHits(sample, harnessNames).length > 0);
+});
+
+test('G29: an added harness id is rendered without generator changes', () => {
+  const fixtureId = 'fixture-harness';
+  const fixtureRegistry = { ...registry, harnesses: [...registry.harnesses, { id: fixtureId, capabilities: { mcp: { status: 'unsupported' } } }] };
+  const output = render(router, { registry: fixtureRegistry, harness: fixtureId });
+  assert.match(output.markdown, /^Model: harness default on `fixture-harness`\.$/m);
+});
+
 test('G29: the generator and the brief script name no capability, provider, binary, intent or server', () => {
   const found: any = [];
   for (const file of [GENERATOR, BRIEF_SCRIPT]) {

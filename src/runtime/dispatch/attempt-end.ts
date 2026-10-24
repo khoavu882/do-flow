@@ -27,7 +27,6 @@ const { finish, release } = require('../task-attempts.ts');
 const { maskLine } = require('../mask.ts');
 const { DispatchStoreError } = require('./store.ts');
 const { stateDir } = require('../context/identity.ts');
-const { readWorkerObservation } = require('../context/primary.ts');
 
 /** IC-024's eleven failure classes (106 IC-003 adds `quota`), each with the 080 call that ends its attempt and whether the
  * worker run is then ended with `cancelRun` (outside the lock, by the caller). */
@@ -165,6 +164,7 @@ function servedModel(dispatch: any, ctx: any): string | null {
   if (!plain(dispatch.model) || !plain(dispatch.workerIdentity)
     || typeof dispatch.harness !== 'string' || dispatch.harness.length === 0
     || !ctx.env || typeof ctx.env !== 'object') return null;
+  const { readWorkerObservation } = require('../context/primary.ts');
   return readWorkerObservation({
     root: stateDir(ctx.env), identity: dispatch.workerIdentity, harness: dispatch.harness, fsImpl: ctx.fsImpl,
   })?.model ?? null;
