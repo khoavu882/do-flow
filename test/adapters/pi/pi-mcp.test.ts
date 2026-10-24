@@ -598,7 +598,7 @@ test('P17 (capability): Pi declares MCP supported with its MCP pages and .pi/mcp
     assert.ok(pi.capabilities.mcp.evidence.includes(url), url);
   }
   assert.equal(pi.nativeTargets.mcp, '.pi/mcp.json');
-  assert.ok(pi.capabilities.mcp.evidence.includes('https://github.com/earendil-works/pi/blob/main/packages/coding-agent/CHANGELOG.md'));
+  assert.ok(pi.capabilities.mcp.evidence.includes('https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/CHANGELOG.md'));
   // Pi 0.99.0 already lets a project entry replace a same-named user entry; 1.0.1 added partial overrides.
   assert.match(pi.capabilities.mcp.note, /a project entry replaces a user entry with the same name, and from Pi 1\.0\.1 a project entry without command, url or type overrides only enabled, exposure and toolExposure/);
   assert.doesNotMatch(pi.capabilities.skills.verification, /skills\[\]/, 'Pi skills are copied, not registered in settings.json');

@@ -1804,7 +1804,7 @@
           "status": "different",
           "evidence": [
             "https://pi.dev/docs/latest/extensions",
-            "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/CHANGELOG.md"
+            "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/CHANGELOG.md"
           ],
           "note": "DoFlow installs a ledger-owned extension at user scope or project scope that registers tool_call through pi.on() and invokes the shared lifecycle bridge. Project scope requires project trust.",
           "verification": "Verify the installed extension fingerprint, resolved shared bridge path, bash/jq prerequisites, and the project-trust prerequisite for project scope.",
@@ -1868,7 +1868,7 @@
           "evidence": [
             "https://pi.dev/docs/latest/mcp",
             "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/mcp.md",
-            "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/CHANGELOG.md"
+            "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/CHANGELOG.md"
           ],
           "note": "Pi's built-in MCP (Pi 0.99.0 or later) reads stdio and HTTP servers from the mcpServers map of .pi/mcp.json (project, read only after the project is trusted) and ~/.pi/agent/mcp.json (user, or $PI_CODING_AGENT_DIR/mcp.json); a project entry replaces a user entry with the same name, and from Pi 1.0.1 a project entry without command, url or type overrides only enabled, exposure and toolExposure of that user entry. DoFlow writes stdio entries only. An installed extension that registers /mcp, such as pi-mcp-adapter, replaces the built-in and Pi then does not read mcp.json.",
           "verification": "Confirm the selected MCP servers appear in .pi/mcp.json (project, after trusting the project) or ~/.pi/agent/mcp.json (global) and connect via /mcp in Pi 0.99.0 or later with no extension registering /mcp."
@@ -2643,8 +2643,8 @@
               "status": "supported"
             },
             "Stop": {
-              "status": "different",
-              "note": "DoFlow config uses Stop, while Kiro documents AgentStop; native trigger equivalence is unresolved."
+              "status": "supported",
+              "note": "DoFlow projects Stop in .kiro/hooks/doflow.json and agent config hooks.stop. On CLI V3 / IDE, exit 0 finishes, stdout JSON {\"decision\":\"block\",\"reason\":\"...\"} or exit 1 starts another turn, while 2.x treats non-zero exit as a warning. Payload carries session_id, hook_event_name, and cwd."
             }
           }
         },
@@ -3004,7 +3004,7 @@
             "https://antigravity.google/docs/skills",
             "https://antigravity.google/docs/cli/gcli-migration"
           ],
-          "note": "Antigravity discovers folder-form skills under .agents/skills (project) and ~/.gemini/config/skills (global, App/IDE; the agy CLI documents ~/.gemini/antigravity-cli/skills).",
+          "note": "Antigravity discovers folder-form skills under .agents/skills (project) and ~/.gemini/config/skills (global, App/IDE and verified on local agy CLI installation; ~/.gemini/antigravity-cli/ is the internal state/runtime root without a skills directory).",
           "verification": "Confirm the skill is discoverable by agy from .agents/skills."
         },
         "agents": {
@@ -3097,7 +3097,7 @@
           "evidence": [
             "https://antigravity.google/docs/plugins?tab=cli"
           ],
-          "note": "Local-path plugin installs only; DoFlow publishes none.",
+          "note": "Marketplace and local-path directory plugin installs; DoFlow publishes none.",
           "verification": "Report that no plugin is installed."
         }
       },
