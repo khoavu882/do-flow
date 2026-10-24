@@ -29,10 +29,10 @@
     "node": ">=24.22.1"
   },
   "scripts": {
-    "test": "node --test \"test/**/*.test.js\"",
+    "test": "node --test \"test/**/*.test.js\" \"test/**/*.test.ts\"",
     "typecheck": "npx -y -p typescript@5.7.2 tsc -p tsconfig.json",
     "build:package": "node src/release/build-package.ts .pack",
-    "bench": "node bench/runner.js",
+    "bench": "node bench/runner.ts",
     "drift": "node scripts/check-format-drift.js",
     "emission-rules": "node src/runtime/context/emission-rules.ts --check",
     "release-notes": "node src/release/changelog-section.ts",

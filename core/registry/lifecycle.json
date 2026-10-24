@@ -2947,7 +2947,7 @@
         "harness": "claude",
         "status": "enforced",
         "tests": [
-          "test/hooks/context-authority.test.js"
+          "test/hooks/context-authority.test.ts"
         ]
       },
       {
@@ -2955,7 +2955,7 @@
         "harness": "codex",
         "status": "enforced",
         "tests": [
-          "test/hooks/context-authority.test.js"
+          "test/hooks/context-authority.test.ts"
         ]
       },
       {
@@ -2999,8 +2999,8 @@
         "harness": "claude",
         "status": "enforced",
         "tests": [
-          "test/hooks/context-authority.test.js",
-          "test/hooks/emission-adapter.test.js"
+          "test/hooks/context-authority.test.ts",
+          "test/hooks/emission-adapter.test.ts"
         ]
       },
       {
@@ -3008,8 +3008,8 @@
         "harness": "codex",
         "status": "enforced",
         "tests": [
-          "test/hooks/context-authority.test.js",
-          "test/hooks/emission-adapter.test.js"
+          "test/hooks/context-authority.test.ts",
+          "test/hooks/emission-adapter.test.ts"
         ]
       },
       {
@@ -3053,8 +3053,8 @@
         "harness": "claude",
         "status": "enforced",
         "tests": [
-          "test/hooks/summary-scope.test.js",
-          "test/hooks/cross-harness-parity.test.js"
+          "test/hooks/summary-scope.test.ts",
+          "test/hooks/cross-harness-parity.test.ts"
         ]
       },
       {
@@ -3104,8 +3104,8 @@
         "harness": "claude",
         "status": "enforced",
         "tests": [
-          "test/hooks/summary-scope.test.js",
-          "test/hooks/cross-harness-parity.test.js"
+          "test/hooks/summary-scope.test.ts",
+          "test/hooks/cross-harness-parity.test.ts"
         ]
       },
       {
@@ -3113,7 +3113,7 @@
         "harness": "codex",
         "status": "enforced",
         "tests": [
-          "test/hooks/cross-harness-parity.test.js"
+          "test/hooks/cross-harness-parity.test.ts"
         ]
       },
       {
@@ -3205,7 +3205,7 @@
         "harness": "claude",
         "status": "enforced",
         "tests": [
-          "test/hooks/check-freshness.test.js"
+          "test/hooks/check-freshness.test.ts"
         ]
       },
       {
@@ -3213,7 +3213,7 @@
         "harness": "codex",
         "status": "enforced",
         "tests": [
-          "test/hooks/check-freshness.test.js"
+          "test/hooks/check-freshness.test.ts"
         ]
       },
       {
@@ -3221,7 +3221,7 @@
         "harness": "gemini",
         "status": "enforced",
         "tests": [
-          "test/hooks/check-freshness.test.js"
+          "test/hooks/check-freshness.test.ts"
         ]
       },
       {
@@ -3235,7 +3235,7 @@
         "harness": "pi",
         "status": "enforced",
         "tests": [
-          "test/hooks/check-freshness.test.js"
+          "test/hooks/check-freshness.test.ts"
         ]
       },
       {
@@ -3249,7 +3249,7 @@
         "harness": "kiro",
         "status": "enforced",
         "tests": [
-          "test/hooks/check-freshness.test.js"
+          "test/hooks/check-freshness.test.ts"
         ]
       },
       {
@@ -3257,7 +3257,7 @@
         "harness": "antigravity",
         "status": "enforced",
         "tests": [
-          "test/hooks/check-freshness.test.js"
+          "test/hooks/check-freshness.test.ts"
         ]
       }
     ],

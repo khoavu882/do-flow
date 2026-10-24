@@ -397,7 +397,7 @@ rather than restated as prose.
 - Never write outside `agent-docs/doflow/<slug>/scaffold/` — not into the source tree, and not
   into a target service's own repo (including the dependency service scanned for language
   inference in Part 2 step 4 — read-only). This is the one property the whole artifact rests on, and
-  `test/guards/scaffold.test.js` enforces it by running the generator against a filesystem that can
+  `test/guards/scaffold.test.ts` enforces it by running the generator against a filesystem that can
   only reach the feature directory.
 - `code/`/`data/`/`mock/` content is pinned, not freeform: signatures and type/data shapes only,
   zero implementation logic — in the inferred language, or the pinned generic-pseudocode grammar

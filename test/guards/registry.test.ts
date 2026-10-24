@@ -1,0 +1,192 @@
+'use strict';
+
+// G5 — registry truth. The only guard that reads src/ and core/harnesses/ as data. It answers a
+// question no other test asks: does the registry describe the code that actually exists? A
+// capability declared `unavailable` while its deployer ships is not a stale comment — it is
+// published as fact in the generated capability map.
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { REGISTRY_FILES, loadRegistry, selectAssets } = require('../../src/registry/index.ts');
+const { REPO } = require('./_shared.ts');
+
+const registry = loadRegistry({ repoRoot: REPO });
+
+// The registry family is plain JSON (core/registry/*.json, loaded only through
+// src/registry/index.ts). This pins both directions: the loader names .json files that all exist
+// and parse, and no stray non-JSON leftover lives in the directory. Subdirectories are skipped: the bundled
+// first-party package lives in core/registry/packages/ (122 IC-015; guard G68 holds it).
+test('G5: every core/registry entry is a parseable .json file and the loader names exactly those', () => {
+  const onDisk = fs.readdirSync(path.join(REPO, 'core', 'registry'), { withFileTypes: true }).filter((e: any) => !e.isDirectory()).map((e: any) => e.name).sort();
+  assert.deepEqual(onDisk.filter((name: any) => !name.endsWith('.json')), [],
+    'core/registry holds non-.json files — the registry family was hard-cut over to .json');
+  for (const name of onDisk) {
+    const text = fs.readFileSync(path.join(REPO, 'core', 'registry', name), 'utf8');
+    assert.doesNotThrow(() => JSON.parse(text), `${name} is not parseable JSON`);
+  }
+  const declared = Object.values(REGISTRY_FILES);
+  assert.ok(declared.every((name) => name.endsWith('.json')), 'REGISTRY_FILES must name .json files');
+  for (const name of declared) {
+    assert.ok(onDisk.includes(name), `REGISTRY_FILES entry '${name}' does not exist under core/registry/`);
+  }
+});
+
+/** Evidence that a capability is actually deployed: a native target, a projected asset, or
+ * harness-native source content on disk. Existence only — never a behavioural claim, so this
+ * stays decoupled from adapter internals. */
+function deployed(harness: any, capability: any) {
+  if (harness.nativeTargets?.[capability]) return true;
+  if (selectAssets(registry, { harness: harness.id, capability }).length) return true;
+  return fs.existsSync(path.join(REPO, 'core', 'harnesses', harness.id, capability));
+}
+
+// NOTE: `capabilities` states what the HARNESS supports, not what DoFlow chooses to deploy, so
+// "supported but we ship nothing for it" is legitimate (`plugin` is marketplace discovery; `mcp`
+// installs through a separate mechanism). Only the reverse direction is a contradiction. An
+// earlier draft asserted supported => deployed and flagged claude.modes/claude.plugin/codex.plugin
+// — that was the assertion being wrong, not the registry.
+test('G5: every capability an asset actually projects is declared by its harness', () => {
+  const offenders: any = [];
+  for (const harness of registry.harnesses) {
+    for (const asset of selectAssets(registry, { harness: harness.id })) {
+      if (!asset.capability) continue;
+      if (!harness.capabilities?.[asset.capability]) offenders.push(`${harness.id}: '${asset.capability}' (asset ${asset.id})`);
+    }
+  }
+  assert.deepEqual(offenders, [], `assets project capabilities the harness never declares:\n  ${offenders.join('\n  ')}`);
+});
+
+test('G5: a capability marked unavailable has no deployer contradicting it', () => {
+  const offenders: any = [];
+  for (const harness of registry.harnesses) {
+    for (const [capability, declaration] of Object.entries(harness.capabilities || {})) {
+      if (declaration.status !== 'unavailable') continue;
+      if (deployed(harness, capability)) offenders.push(`${harness.id}.${capability}`);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    `declared unavailable while a deployer ships — the capability map publishes this as fact:\n  ${offenders.join('\n  ')}`);
+});
+
+// Only `supported` entries must exist in the harness contract. An `unavailable` entry names an
+// event the harness deliberately does NOT have — recording that gap explicitly is the point, and
+// requiring it to also be in the contract would make a gap impossible to express.
+test('G5: every per-event hook status marked supported is in its harness contract', () => {
+  const offenders: any = [];
+  for (const harness of registry.harnesses) {
+    const allowed: any = new Set(registry.contracts.find((c: any) => c.harness === harness.id)?.hookEvents || []);
+    for (const [event, detail] of Object.entries(harness.capabilities?.hooks?.events || {})) {
+      if (detail.status === 'supported' && !allowed.has(event)) offenders.push(`${harness.id}: '${event}'`);
+    }
+  }
+  assert.deepEqual(offenders, [], `events declared supported but absent from the harness contract:\n  ${offenders.join('\n  ')}`);
+});
+
+test('G5: every unavailable event carries a note explaining why no equivalent exists', () => {
+  const offenders: any = [];
+  for (const harness of registry.harnesses) {
+    for (const [event, detail] of Object.entries(harness.capabilities?.hooks?.events || {})) {
+      if (detail.status === 'unavailable' && !detail.note) offenders.push(`${harness.id}: '${event}'`);
+    }
+  }
+  assert.deepEqual(offenders, [], `an unrecorded gap is indistinguishable from an oversight:\n  ${offenders.join('\n  ')}`);
+});
+
+// 022-normalize-hooks tiering (research-backed: LSP capability negotiation, k8s feature gates,
+// progressive enhancement — never "reduce every policy to the intersection"). A 'core' lifecycle
+// policy is the deliberately-scoped invariant: the one thing every currently-integrated harness
+// must keep. This is the regression fence — it catches "core" silently dropping below universal,
+// not the presence of harness-specific gaps in the 'enhanced' set, which are expected and fine.
+test('G5: every core-tier lifecycle policy is supported or different on every currently-integrated harness', () => {
+  const INTEGRATED_HARNESSES: any = ['claude', 'codex', 'gemini', 'kiro', 'antigravity'];
+  const offenders: any = [];
+  for (const policy of registry.lifecycle) {
+    if (policy.tier !== 'core') continue;
+    for (const harnessId of INTEGRATED_HARNESSES) {
+      const status = policy.mappings?.[harnessId]?.status;
+      if (status === 'unavailable' || status === undefined) {
+        offenders.push(`${policy.id}: '${harnessId}' is ${status ?? 'undeclared'}, not supported/different`);
+      }
+    }
+  }
+  assert.deepEqual(offenders, [], `a core-tier policy must reach every integrated harness:\n  ${offenders.join('\n  ')}`);
+});
+
+// FR-007 extension contract (design.md §4, "Adding a harness"): a harness declared in
+// harnesses.json is not actually usable until three other things agree with it. This is the exact
+// defect the multi-harness-parity feature exists to prevent recurring — opencode and pi were
+// declared in the registry for a time with no adapter module wired to dispatch, no contract entry,
+// and no --target id, i.e. present on paper but unreachable by any real command.
+test('G5: every declared harness has an adapter module, exactly one contract, and a valid --target id', () => {
+  const { VALID } = require('../../src/install/targets.ts');
+  const offenders: any = [];
+  for (const harness of registry.harnesses) {
+    const dirAdapter = ['index.ts', 'index.js'].map((n) => path.join(REPO, 'src', 'adapters', harness.adapter, n)).find((p) => fs.existsSync(p)) ?? path.join(REPO, 'src', 'adapters', harness.adapter, 'index.js');
+    const fileAdapter = path.join(REPO, 'src', 'adapters', `${harness.adapter}.js`);
+    if (!fs.existsSync(dirAdapter) && !fs.existsSync(fileAdapter)) {
+      offenders.push(`${harness.id}: no adapter module at src/adapters/${harness.adapter}/index.js or src/adapters/${harness.adapter}.js`);
+    }
+    const contractCount = registry.contracts.filter((c: any) => c.harness === harness.id).length;
+    if (contractCount !== 1) {
+      offenders.push(`${harness.id}: expected exactly one contracts.json entry, found ${contractCount}`);
+    }
+    if (!VALID.includes(harness.id)) {
+      offenders.push(`${harness.id}: not in src/targets.js's VALID array, so '--target ${harness.id}' would be rejected`);
+    }
+  }
+  assert.deepEqual(offenders, [], `harness declared without a full extension contract:\n  ${offenders.join('\n  ')}`);
+});
+
+// A module existing on disk is not the same as it being reachable: src/lifecycle/view.ts once kept
+// its own, separate adapter registry that silently fell behind the one in src/cli/shared.js
+// (fixed in 96006da). Grep every createAdapterRegistry({...}) call site — the one shared factory
+// in src/cli/shared.js (used by install, update, remove and reconcile since Stage 2 collapsed the
+// three inline copies) plus the one shared by src/lifecycle/view.ts — and confirm each declared
+// harness's id is actually passed in as a key, not just that its file exists somewhere under
+// src/adapters/. Since Stage 3 the values are factory calls with their own braces
+// (`x: createXAdapter({ ... })`), so the block extractor balances braces instead of stopping at
+// the first `})`.
+function extractRegistryBlocks(text: any) {
+  const marker = 'createAdapterRegistry(';
+  const blocks: any = [];
+  let index = text.indexOf(marker);
+  while (index !== -1) {
+    let depth = 0;
+    let start = -1;
+    for (let i = index + marker.length; i < text.length; i += 1) {
+      if (text[i] === '{') { if (depth === 0) start = i; depth += 1; }
+      else if (text[i] === '}') {
+        depth -= 1;
+        if (depth === 0 && start !== -1) { blocks.push(text.slice(start + 1, i)); break; }
+      }
+    }
+    index = text.indexOf(marker, index + marker.length);
+  }
+  return blocks;
+}
+
+test('G5: every declared harness is wired into every createAdapterRegistry(...) dispatch call site', () => {
+  const files: any = [
+    path.join(REPO, 'src', 'cli', 'shared.ts'),
+    path.join(REPO, 'src', 'lifecycle', 'view.ts'),
+  ];
+  const offenders: any = [];
+  for (const file of files) {
+    const text = fs.readFileSync(file, 'utf8');
+    const blocks = extractRegistryBlocks(text);
+    if (blocks.length === 0) {
+      offenders.push(`${path.relative(REPO, file)}: no createAdapterRegistry({...}) call site found`);
+      continue;
+    }
+    blocks.forEach((block: any, i: any) => {
+      for (const harness of registry.harnesses) {
+        const key: any = new RegExp(`(^|[{,]|\\s)${harness.id}\\s*:`);
+        if (!key.test(block)) {
+          offenders.push(`${path.relative(REPO, file)}: createAdapterRegistry call #${i + 1} is missing the '${harness.id}' key`);
+        }
+      }
+    });
+  }
+  assert.deepEqual(offenders, [], `a declared harness is not wired into dispatch:\n  ${offenders.join('\n  ')}`);
+});

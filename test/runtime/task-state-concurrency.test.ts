@@ -1,0 +1,244 @@
+'use strict';
+// task-state-concurrency.test.js — review R4 (P2): shared evidence and claims could lose writes.
+// The review reproduced it exactly as the first test below does: two ledger instances loaded the
+// same empty task, each added a distinct observation, each saved; both writes reported success and
+// the final ledger held one observation. Persistence now goes through task-state.js — a per-file
+// lock around read-merge-write, a monotonic revision, atomic rename, and schema-version
+// validation — so overlapping writers append rather than overwrite each other.
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { tempDir } = require('../helper/tmp.ts');
+const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
+const { ClaimsManager } = require('../../src/runtime/claims.ts');
+const { acquireLock, tryAcquireLock, readTaskState, updateTaskState, SCHEMA_VERSION } = require('../../src/runtime/task-state.ts');
+
+function stateRoot(t: any) {
+  const dir = tempDir(t, 'doflow-task-state-concurrency-');
+  return dir;
+}
+
+test("R4 reproduction: two overlapping evidence writers both survive — the review's lost write", (t) => {
+  const root = stateRoot(t);
+  const task = 'overlap';
+
+  // Two sessions: both load the same (empty) task BEFORE either saves.
+  const a: any = new EvidenceLedger({ repoRoot: root });
+  const b: any = new EvidenceLedger({ repoRoot: root });
+  a.load(task);
+  b.load(task);
+  a.addEvidence({ taskId: task, kind: 'exact-search', content: 'observation A', locator: { file: 'a.js' } });
+  b.addEvidence({ taskId: task, kind: 'structural', content: 'observation B', locator: { file: 'b.js' } });
+  const file = a.save(task);
+  b.save(task);
+
+  const final: any = new EvidenceLedger({ repoRoot: root });
+  assert.equal(final.load(task), 2, 'both observations must survive both saves');
+  const contents = final.getAllEvidence().map((e: any) => e.content).sort();
+  assert.deepEqual(contents, ['observation A', 'observation B']);
+
+  const payload = readTaskState(fs, file);
+  assert.equal(payload.version, SCHEMA_VERSION);
+  assert.equal(payload.revision, 2, 'each completed write bumps the revision, so the overlap is visible');
+  assert.equal(payload.evidenceCount, 2);
+});
+
+test('R4: disjoint claim additions merge while one writer updates a shared record', (t) => {
+  const root = stateRoot(t);
+  const task = 'overlap-claims';
+
+  const first: any = new ClaimsManager({ repoRoot: root });
+  first.addClaim({ id: 'claim_shared', taskId: task, statement: 'shared, original' });
+  first.save(task);
+
+  const a: any = new ClaimsManager({ repoRoot: root });
+  const b: any = new ClaimsManager({ repoRoot: root });
+  a.load(task);
+  b.load(task);
+  a.addClaim({ id: 'claim_a', taskId: task, statement: 'from writer A' });
+  b.addClaim({ id: 'claim_b', taskId: task, statement: 'from writer B' });
+  b.getClaim('claim_shared').statement = 'shared, updated by B';
+  a.save(task);
+  b.save(task);
+
+  const final: any = new ClaimsManager({ repoRoot: root });
+  assert.equal(final.load(task), 3);
+  assert.equal(final.getClaim('claim_a').statement, 'from writer A');
+  assert.equal(final.getClaim('claim_b').statement, 'from writer B');
+  assert.equal(final.getClaim('claim_shared').statement, 'shared, updated by B',
+    'only B changed the shared record, so its edit survives the merge');
+});
+
+test('R4: a stale claim writer cannot resurrect a retracted claim', t => {
+  const root = stateRoot(t);
+  const a: any = new ClaimsManager({ repoRoot: root });
+  const id = a.addClaim({ taskId: 'task', statement: 'claim' });
+  a.save('task');
+  const b: any = new ClaimsManager({ repoRoot: root });
+  b.load('task');
+  a.retractClaim(id);
+  a.save('task');
+  b.addClaim({ taskId: 'task', statement: 'unrelated' });
+  b.save('task');
+  const final: any = new ClaimsManager({ repoRoot: root });
+  final.load('task');
+  assert.equal(final.getClaim(id).status, 'retracted');
+});
+
+test('R4: competing edits fail explicitly and leave disk unchanged', t => {
+  const root = stateRoot(t);
+  for (const Store of [ClaimsManager, EvidenceLedger]) {
+    const a: any = new Store({ repoRoot: root });
+    const isClaim = Store === ClaimsManager;
+    const id = isClaim ? a.addClaim({ taskId: 'task', statement: 'original' })
+      : a.addEvidence({ taskId: 'task', kind: 'structural', content: 'original' });
+    const file = a.save('task');
+    const b: any = new Store({ repoRoot: root });
+    b.load('task');
+    const get = (store: any) => isClaim ? store.getClaim(id) : store.getEvidence(id);
+    const key = isClaim ? 'statement' : 'content';
+    get(a)[key] = 'first change';
+    a.save('task');
+    const before = fs.readFileSync(file, 'utf8');
+    get(b)[key] = 'conflicting change';
+    assert.throws(() => b.save('task'), /Concurrent update.*reload/);
+    assert.equal(fs.readFileSync(file, 'utf8'), before);
+    b.load('task');
+    get(b)[key] = 'deliberate retry';
+    b.save('task');
+    assert.match(fs.readFileSync(file, 'utf8'), /deliberate retry/);
+  }
+});
+
+test('R4: a file from a future schema version is refused by name, not guessed at', (t) => {
+  const root = stateRoot(t);
+  const dir = path.join(root, '.doflow', 'state', 'evidence');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'future.json'), JSON.stringify({ version: 99, evidence: [] }));
+  const ledger: any = new EvidenceLedger({ repoRoot: root });
+  assert.throws(() => ledger.load('future'), /schema version 99.*reads version 1/s);
+});
+
+test('R4: a torn state file is an error naming the file and the recovery, never silent data loss', (t) => {
+  const root = stateRoot(t);
+  const dir = path.join(root, '.doflow', 'state', 'evidence');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'torn.json'), '{"version": 1, "evidence": [');
+  const ledger: any = new EvidenceLedger({ repoRoot: root });
+  assert.throws(() => ledger.load('torn'), /Failed to load state file.*torn\.json/);
+});
+
+test('R4: an interrupted writer leaves the previous state intact plus an ignorable tmp file', (t) => {
+  const root = stateRoot(t);
+  const task = 'interrupted';
+  const ledger: any = new EvidenceLedger({ repoRoot: root });
+  ledger.addEvidence({ taskId: task, kind: 'exact-search', content: 'the durable item' });
+  const file = ledger.save(task);
+  // A crashed writer's leftovers: a tmp file beside the state file. Loads ignore it.
+  fs.writeFileSync(`${file}.99999.tmp`, '{"half": ');
+  const reread: any = new EvidenceLedger({ repoRoot: root });
+  assert.equal(reread.load(task), 1);
+});
+
+test('R4: a stale lock from a dead writer is broken rather than honoured forever', (t) => {
+  const root = stateRoot(t);
+  const task = 'stale-lock';
+  const ledger: any = new EvidenceLedger({ repoRoot: root });
+  ledger.addEvidence({ taskId: task, kind: 'exact-search', content: 'x' });
+
+  const file = path.join(root, '.doflow', 'state', 'evidence', `${task}.json`);
+  fs.mkdirSync(`${file}.lock`, { recursive: true });
+  const past: any = new Date(Date.now() - 60_000);
+  fs.utimesSync(`${file}.lock`, past, past);
+
+  assert.equal(ledger.save(task), file, 'the save proceeds by breaking the minute-old lock');
+  assert.ok(!fs.existsSync(`${file}.lock`), 'the lock is released after the write');
+});
+
+test('bounded try-lock refuses a live holder immediately and reclaims a stale lock', (t) => {
+  const root = stateRoot(t), file = path.join(root, 'bounded-lock.json'), lockDir = `${file}.lock`;
+  const release = tryAcquireLock(fs, file);
+  assert.equal(typeof release, 'function');
+  const started = Date.now();
+  assert.equal(tryAcquireLock(fs, file), null);
+  assert.ok(Date.now() - started < 100, 'a bounded caller does not wait for a live holder');
+  release();
+  const reAcquired = tryAcquireLock(fs, file);
+  assert.equal(typeof reAcquired, 'function');
+  reAcquired();
+  fs.mkdirSync(lockDir, { recursive: true });
+  const past: any = new Date(Date.now() - 60_000);
+  fs.utimesSync(lockDir, past, past);
+  const staleRelease = tryAcquireLock(fs, file);
+  assert.equal(typeof staleRelease, 'function');
+  staleRelease();
+  assert.equal(fs.existsSync(lockDir), false);
+});
+
+test('R4: a slow host gives up on a live holder at the wait bound instead of outliving its staleness window', (t) => {
+  // Regression for FU-cn8q67. The wait used to be bounded by attempt count only (250 x 20 ms) while
+  // the stale rule is wall-clock (10 s). When every filesystem call costs real time, 250 attempts
+  // take far longer than 5 s, so the waiter was still looping when a fresh foreign lock turned
+  // 10 s old; it broke that live holder's lock, took it, then removed it on release (macOS CI).
+  const root = stateRoot(t);
+  const file = path.join(root, 'slow-host.json');
+  const lockDir = `${file}.lock`;
+  fs.mkdirSync(lockDir);
+  const SLOW_MS = 40;
+  const slow = (fn: any) => (...args: any[]) => {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, SLOW_MS);
+    return fn(...args);
+  };
+  const slowFs: any = {
+    ...fs,
+    mkdirSync: slow(fs.mkdirSync),
+    statSync: slow(fs.statSync),
+    rmdirSync: slow(fs.rmdirSync),
+  };
+
+  const started = Date.now();
+  assert.throws(() => acquireLock(slowFs, file), /Could not lock/);
+  const waited = Date.now() - started;
+
+  assert.ok(waited < 9_000, `refusal must arrive inside the holder's 10 s staleness window, took ${waited} ms`);
+  assert.ok(fs.existsSync(lockDir), 'the live holder\'s lock must still be in place after the refusal');
+});
+
+// FU-10t7cn: the storage sweep removes an empty namespace folder (a plain rmdir) while a writer has
+// just created it and not yet taken its lock. The lock is a folder inside the namespace and is made
+// without `recursive`, so the writer used to fail with ENOENT instead of making the folder again.
+test('a writer survives its namespace folder being removed between making it and taking the lock (FU-10t7cn)', (t) => {
+  const dir = path.join(stateRoot(t), 'ns');
+  const file = path.join(dir, 'task.json');
+  let removals = 0;
+  const racing: any = {
+    ...fs,
+    mkdirSync(target: any, options: any) {
+      const made = fs.mkdirSync(target, options);
+      if (removals < 2 && options && options.recursive && target === dir) { removals += 1; fs.rmdirSync(dir); }
+      return made;
+    },
+  };
+  const written = updateTaskState({ fsImpl: racing, file, build: () => ({ items: ['kept'] }) });
+  assert.equal(written, file);
+  assert.equal(removals, 2, 'the folder vanished twice, as a sweep running in a loop would make it');
+  assert.deepEqual(readTaskState(fs, file).items, ['kept']);
+  assert.equal(fs.existsSync(`${file}.lock`), false, 'the lock is released');
+});
+
+test('a namespace folder that keeps vanishing is reported after a bounded number of tries, not retried forever', (t) => {
+  const dir = path.join(stateRoot(t), 'ns');
+  const file = path.join(dir, 'task.json');
+  let made = 0;
+  const hostile: any = {
+    ...fs,
+    mkdirSync(target: any, options: any) {
+      const result = fs.mkdirSync(target, options);
+      if (options && options.recursive && target === dir) { made += 1; fs.rmdirSync(dir); }
+      return result;
+    },
+  };
+  assert.throws(() => updateTaskState({ fsImpl: hostile, file, build: () => ({ items: [] }) }), (error: any) => error.code === 'ENOENT');
+  assert.ok(made > 1 && made < 20, `${made} attempts`);
+});

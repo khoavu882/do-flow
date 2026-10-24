@@ -9,11 +9,11 @@ bottom does the same for the `doflow` CLI's verb-local flags, which come from th
 from any skill's frontmatter. This complements, rather than duplicates, two other references:
 
 - [`reference.md`](./reference.md)'s "Full Skill Reference" table is organized **by skill** — one
-  row per skill, its full `argument-hint` verbatim; `test/guards/reachability.test.js` (G8) fails
+  row per skill, its full `argument-hint` verbatim; `test/guards/reachability.test.ts` (G8) fails
   when it documents a flag that the skill's `argument-hint` does not declare.
 - `core/shared/guidance/FLAGS.md` (in the repository, not on this site) is the always-loaded statement of what the runtime
   now does unconditionally. It names the shared flags `--depth` and `--type` (G4 in
-  `test/guards/flags.test.js` requires that line to list every flag declared by two or more
+  `test/guards/flags.test.ts` requires that line to list every flag declared by two or more
   skills), and documents `--focus`.
 
 This file owns exactly the gap between the two: every skill-local flag, organized **by flag**
@@ -56,7 +56,7 @@ appear here; the full per-verb contracts are in [`reference.md`](./reference.md)
 Diagnostics Commands" table.
 
 The flag column is backticked and the verb column is not a skill name, which is what keeps
-`test/guards/flag-index.test.js` (G10) from reading these rows as stale skill rows — G10 owns the
+`test/guards/flag-index.test.ts` (G10) from reading these rows as stale skill rows — G10 owns the
 skill table above and deliberately says nothing about this one.
 
 | Flag | Verb | Values | Purpose |

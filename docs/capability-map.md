@@ -81,14 +81,14 @@ Three consequences follow, all of them intentional:
   harness recorded at that path.
 - **The locator deliberately does not live in the shared tree.** It is the one asset whose
   `nativeDir` must stay inside the harness's own directory;
-  `test/guards/runtime-unification.test.js` fails if any locator `nativeDir` escapes into
+  `test/guards/runtime-unification.test.ts` fails if any locator `nativeDir` escapes into
   `../.doflow`. Skills do not call it either — a relative path in a skill's shell snippet resolves
   against the user's project root, not the skill's directory — so a skill inlines the same walk-up
   the locator performs. The shim exists for callers that *can* name a path correct for themselves,
   such as a harness hook or a person at a terminal.
 
 Verification is the same on every harness: run one verb through the locator and check the exit code
-and JSON, e.g. `doflow-run paths --json` from a project root. `test/e2e/install-shapes.test.js` performs
+and JSON, e.g. `doflow-run paths --json` from a project root. `test/e2e/install-shapes.test.ts` performs
 real installs for all eight harnesses into temporary directories and executes the projected locator
 and dispatcher in source-checkout, project-local, and global shapes rather than asserting against a
 mock.
@@ -97,7 +97,7 @@ mock.
 
 Per-event support, from `capabilities.hooks.events` in `core/registry/harnesses.json`. A gap is
 recorded explicitly with the reason no equivalent exists — never left out, which would be
-indistinguishable from an oversight. `test/guards/registry.test.js` enforces both directions:
+indistinguishable from an oversight. `test/guards/registry.test.ts` enforces both directions:
 an event declared supported must be in the harness contract, and an unavailable one must carry
 a reason.
 
@@ -243,23 +243,23 @@ Schema 1; revision 3; sha256:ff654d8bf2ceb65024bf5d7fb13825bc489969cca9158a6bead
 Schema 1; revision 3
 | Behaviour | Harness | Status | Limitation or tests |
 |---|---|---|---|
-| context-authority | claude | enforced | test/hooks/context-authority.test.js |
-| context-authority | codex | enforced | test/hooks/context-authority.test.js |
+| context-authority | claude | enforced | test/hooks/context-authority.test.ts |
+| context-authority | codex | enforced | test/hooks/context-authority.test.ts |
 | context-authority | gemini | limitation | no prompt hook wired; only PreCompress instructions, through the table |
 | context-authority | opencode | limitation | no DoFlow hook bridge |
 | context-authority | pi | limitation | extension handles tool\_call only |
 | context-authority | copilot | limitation | no DoFlow hook bridge |
 | context-authority | kiro | limitation | no prompt hook wired; SessionStart emits no context |
 | context-authority | antigravity | limitation | only PreToolUse and Stop wired |
-| default-silence | claude | enforced | test/hooks/context-authority.test.js, test/hooks/emission-adapter.test.js |
-| default-silence | codex | enforced | test/hooks/context-authority.test.js, test/hooks/emission-adapter.test.js |
+| default-silence | claude | enforced | test/hooks/context-authority.test.ts, test/hooks/emission-adapter.test.ts |
+| default-silence | codex | enforced | test/hooks/context-authority.test.ts, test/hooks/emission-adapter.test.ts |
 | default-silence | gemini | limitation | no prompt-time emission |
 | default-silence | opencode | limitation | no DoFlow hook bridge |
 | default-silence | pi | limitation | no prompt-time emission |
 | default-silence | copilot | limitation | no DoFlow hook bridge |
 | default-silence | kiro | limitation | no prompt-time emission |
 | default-silence | antigravity | limitation | no prompt-time emission |
-| summary-scope | claude | enforced | test/hooks/summary-scope.test.js, test/hooks/cross-harness-parity.test.js |
+| summary-scope | claude | enforced | test/hooks/summary-scope.test.ts, test/hooks/cross-harness-parity.test.ts |
 | summary-scope | codex | limitation | PreCompact carries no summary text |
 | summary-scope | gemini | limitation | PreCompress carries no summary text |
 | summary-scope | opencode | limitation | no DoFlow hook bridge |
@@ -267,8 +267,8 @@ Schema 1; revision 3
 | summary-scope | copilot | limitation | no DoFlow hook bridge |
 | summary-scope | kiro | limitation | no compaction hook wired |
 | summary-scope | antigravity | limitation | no compaction hook wired |
-| summary-grant | claude | enforced | test/hooks/summary-scope.test.js, test/hooks/cross-harness-parity.test.js |
-| summary-grant | codex | enforced | test/hooks/cross-harness-parity.test.js |
+| summary-grant | claude | enforced | test/hooks/summary-scope.test.ts, test/hooks/cross-harness-parity.test.ts |
+| summary-grant | codex | enforced | test/hooks/cross-harness-parity.test.ts |
 | summary-grant | gemini | limitation | no prompt hook to deliver |
 | summary-grant | opencode | limitation | no DoFlow hook bridge |
 | summary-grant | pi | limitation | no prompt hook to deliver |
@@ -283,14 +283,14 @@ Schema 1; revision 3
 | identity | copilot | limitation | no DoFlow hook bridge |
 | identity | kiro | limitation | launcher environment forwarding into hook processes is unverified until 081 \(DEC-004\) |
 | identity | antigravity | limitation | launcher environment forwarding into hook processes is unverified until 081 \(DEC-004\) |
-| check-freshness | claude | enforced | test/hooks/check-freshness.test.js |
-| check-freshness | codex | enforced | test/hooks/check-freshness.test.js |
-| check-freshness | gemini | enforced | test/hooks/check-freshness.test.js |
+| check-freshness | claude | enforced | test/hooks/check-freshness.test.ts |
+| check-freshness | codex | enforced | test/hooks/check-freshness.test.ts |
+| check-freshness | gemini | enforced | test/hooks/check-freshness.test.ts |
 | check-freshness | opencode | limitation | no pre-edit or pre-command gate |
-| check-freshness | pi | enforced | test/hooks/check-freshness.test.js |
+| check-freshness | pi | enforced | test/hooks/check-freshness.test.ts |
 | check-freshness | copilot | limitation | no pre-edit or pre-command gate |
-| check-freshness | kiro | enforced | test/hooks/check-freshness.test.js |
-| check-freshness | antigravity | enforced | test/hooks/check-freshness.test.js |
+| check-freshness | kiro | enforced | test/hooks/check-freshness.test.ts |
+| check-freshness | antigravity | enforced | test/hooks/check-freshness.test.ts |
 <!-- END GENERATED:context-behaviour-matrix -->
 
 ## Native verification and prerequisites
