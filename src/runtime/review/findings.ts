@@ -21,6 +21,11 @@ const ROUND_CAP = 3;
 const IGNORABLE = /[\p{Default_Ignorable_Code_Point}\p{Cf}]/gu;
 const DASH = /\p{Pd}/gu;
 const PROTOCOL_DIGEST = /^[0-9a-f]{64}$/;
+const { workerIdFault } = require('../../registry/worker-ids.ts');
+const MODEL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9 ._:/@()[\]#+-]*$/;
+const MODEL_ID_MAX = 120;
+const validModelId = (value: unknown): boolean =>
+  value === 'unknown' || (typeof value === 'string' && value.length > 0 && value.length <= MODEL_ID_MAX && MODEL_ID_RE.test(value) && !value.endsWith(' '));
 /** The closed top-level key set (IC-001). */
 const RECORD_KEYS = Object.freeze(['schema', 'row', 'slug', 'reviewedHead', 'depth', 'risk', 'protocol', 'rounds', 'author', 'seats', 'converged']);
 /** The optional convergence keys of a converged finding (IC-001); other finding keys stay open. */
@@ -126,15 +131,29 @@ const identityPart = (key: string, value: any): boolean => key === 'agent' ? non
   : key === 'session' ? value === null || nonempty(value)
   : typeof value === 'string' && FAMILY_ID.test(value);
 
-/** `author` is exactly `{ agent, session, family }` (119 IC-002, L-C1). */
+/** `author` is `{ agent, session, family }` plus optional `harness` and `model` (119 IC-002, 120 IC-015). */
 function validAuthor(value: any): boolean {
-  const keys = object(value) ? Object.keys(value) : [];
-  return keys.length === 3 && ['agent', 'session', 'family'].every((key) => keys.includes(key) && identityPart(key, value[key]));
+  if (!object(value)) return false;
+  const keys = Object.keys(value);
+  if (!['agent', 'session', 'family'].every((key) => keys.includes(key) && identityPart(key, value[key]))) return false;
+  for (const key of keys) {
+    if (key === 'agent' || key === 'session' || key === 'family') continue;
+    if (key === 'harness') {
+      if (workerIdFault(value.harness) !== null) return false;
+    } else if (key === 'model') {
+      if (!validModelId(value.model)) return false;
+    } else {
+      return false;
+    }
+  }
+  return true;
 }
 
-/** A seat's optional `agent`/`session`/`family`: any may be present, each with the author's shape. */
+/** A seat's optional `agent`/`session`/`family`/`harness`/`model`: any may be present, each with the author's shape. */
 const validSeatIdentity = (seat: any): boolean =>
-  ['agent', 'session', 'family'].every((key) => !Object.hasOwn(seat, key) || identityPart(key, seat[key]));
+  ['agent', 'session', 'family'].every((key) => !Object.hasOwn(seat, key) || identityPart(key, seat[key]))
+  && (!Object.hasOwn(seat, 'harness') || workerIdFault(seat.harness) === null)
+  && (!Object.hasOwn(seat, 'model') || validModelId(seat.model));
 
 type Sameness = 'warn' | 'refuse';
 

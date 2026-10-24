@@ -316,3 +316,95 @@ test('095b IC-005 NFR-004: every committed findings fixture still validates and 
     assert.deepEqual(reviewAdvisories(fs.readFileSync(path.join(dir, name), 'utf8')).filter((a: any) => a.startsWith('depth-unmet')), [], name);
   }
 });
+
+test('120 IC-015: author and seat accept optional harness and model; malformed values are refused', () => {
+  // Author with valid harness and model
+  assert.deepEqual(validateFindings(record([open()], {
+    author: { agent: 'codex', session: 's1', family: 'codex', harness: 'codex', model: 'gpt-4o' },
+  })).errors, []);
+
+  // Author with model: 'unknown'
+  assert.deepEqual(validateFindings(record([open()], {
+    author: { agent: 'claude', session: 's1', family: 'claude', harness: 'claude', model: 'unknown' },
+  })).errors, []);
+
+  // Author with qualified harness id
+  assert.deepEqual(validateFindings(record([open()], {
+    author: { agent: 'custom', session: 's1', family: 'custom', harness: 'acme.coder', model: 'deepseek-v3' },
+  })).errors, []);
+
+  // Author with reserved harness id refuses with error 'author'
+  assert.deepEqual(validateFindings(record([open()], {
+    author: { agent: 'codex', session: 's1', family: 'codex', harness: 'primary', model: 'gpt-4o' },
+  })).errors, ['author']);
+
+  // Author with malformed harness id
+  assert.deepEqual(validateFindings(record([open()], {
+    author: { agent: 'codex', session: 's1', family: 'codex', harness: 'Bad-Harness', model: 'gpt-4o' },
+  })).errors, ['author']);
+
+  // Author with malformed model (starts with hyphen)
+  assert.deepEqual(validateFindings(record([open()], {
+    author: { agent: 'codex', session: 's1', family: 'codex', harness: 'codex', model: '-gpt-4o' },
+  })).errors, ['author']);
+
+  // Author with malformed model (ends with space)
+  assert.deepEqual(validateFindings(record([open()], {
+    author: { agent: 'codex', session: 's1', family: 'codex', harness: 'codex', model: 'gpt-4o ' },
+  })).errors, ['author']);
+
+  // Seat with valid harness and model
+  const seatValid = {
+    ...record([open()]),
+    seats: [
+      { id: 'backend-expert', harness: 'codex', model: 'o3-mini', findings: [{ id: 'A1', severity: 'blocker', locator: 'src/a.ts:1', summary: 'a' }] },
+      { id: 'principle-software-engineer', harness: 'claude', model: 'unknown', findings: [{ id: 'B1', severity: 'should-fix', locator: 'src/b.ts:2', summary: 'b' }] },
+    ],
+  };
+  assert.deepEqual(validateFindings(seatValid).errors, []);
+
+  // Seat with malformed harness id refuses with seat-identity:<id>
+  const seatBadHarness = {
+    ...record([open()]),
+    seats: [
+      { id: 'seat1', harness: 'Bad*Harness', findings: [{ id: 'A1', severity: 'blocker', locator: 'src/a.ts:1', summary: 'a' }] },
+      { id: 'seat2', findings: [{ id: 'B1', severity: 'should-fix', locator: 'src/b.ts:2', summary: 'b' }] },
+    ],
+  };
+  assert.deepEqual(validateFindings(seatBadHarness).errors, ['seat-identity:seat1']);
+
+  // Seat with malformed model refuses with seat-identity:<id>
+  const seatBadModel = {
+    ...record([open()]),
+    seats: [
+      { id: 'seat1', harness: 'codex', model: '', findings: [{ id: 'A1', severity: 'blocker', locator: 'src/a.ts:1', summary: 'a' }] },
+      { id: 'seat2', findings: [{ id: 'B1', severity: 'should-fix', locator: 'src/b.ts:2', summary: 'b' }] },
+    ],
+  };
+  assert.deepEqual(validateFindings(seatBadModel).errors, ['seat-identity:seat1']);
+});
+
+test('120 D.1 negative control: every committed findings.json under agent-docs/ validates as on the base', () => {
+  const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+  const agentDocsDir = path.join(REPO_ROOT, 'agent-docs');
+  if (!fs.existsSync(agentDocsDir)) return;
+  function findFindings(dir: string, list: string[] = []) {
+    for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, ent.name);
+      if (ent.isDirectory()) findFindings(full, list);
+      else if (ent.isFile() && ent.name === 'findings.json') list.push(full);
+    }
+    return list;
+  }
+  const files = findFindings(agentDocsDir);
+  for (const file of files) {
+    try {
+      const raw = fs.readFileSync(file, 'utf8');
+      const parsed = JSON.parse(raw);
+      if (parsed?.schema === 1) {
+        assert.deepEqual(validateFindings(parsed).errors, [], file);
+      }
+    } catch {}
+  }
+});
+
