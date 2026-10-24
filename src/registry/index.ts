@@ -744,6 +744,55 @@ function validateContextProfile(value: any, location: string, errors: string[]):
   }
 }
 
+/** Validates the IC-006 primary model probe declaration for one harness. */
+function validatePrimaryProbe(probe: any, harnessId: string, at: string, errors: string[]): void {
+  const location = `${at} primaryProbe`;
+  const fields = ['model', 'events', 'status', 'evidence', 'verifiedOn', 'reason'];
+  if (!object(probe)) {
+    issue(errors, location, 'must be an object');
+    return;
+  }
+  for (const key of Object.keys(probe)) {
+    if (!fields.includes(key)) issue(errors, location, `has an unknown key '${key}'`);
+  }
+  for (const field of fields) {
+    if (!Object.prototype.hasOwnProperty.call(probe, field)) issue(errors, location, `is missing field '${field}'`);
+  }
+  if (probe.model !== 'payload' && probe.model !== 'none') issue(errors, location, "model must be 'payload' or 'none'");
+  if (!Array.isArray(probe.events)) {
+    issue(errors, location, 'events must be an array of distinct non-empty strings');
+  } else {
+    if (probe.events.some((event: any) => typeof event !== 'string' || !event.trim())) {
+      issue(errors, location, 'events must contain only non-empty strings');
+    }
+    if (new Set(probe.events).size !== probe.events.length) issue(errors, location, 'events must contain distinct strings');
+    if (probe.model === 'payload' && probe.events.length === 0) issue(errors, location, "events must be non-empty when model is 'payload'");
+    if (probe.model === 'none' && probe.events.length !== 0) issue(errors, location, "events must be empty when model is 'none'");
+  }
+  if (probe.status !== 'supported' && probe.status !== 'unverified') issue(errors, location, "status must be 'supported' or 'unverified'");
+  if (!Array.isArray(probe.evidence) || probe.evidence.some((item: any) => typeof item !== 'string')) {
+    issue(errors, location, 'evidence must be an array of strings');
+  }
+  if (probe.verifiedOn !== null && (typeof probe.verifiedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(probe.verifiedOn))) {
+    issue(errors, location, 'verifiedOn must be null or a YYYY-MM-DD string');
+  }
+  if (typeof probe.reason !== 'string' || !probe.reason.trim()) {
+    issue(errors, location, 'reason must be a non-empty line');
+  } else if (/[\r\n]/.test(probe.reason)) {
+    issue(errors, location, 'reason must be a non-empty line');
+  }
+  if (probe.status === 'supported') {
+    if (probe.model !== 'payload') issue(errors, location, "status 'supported' requires model 'payload'");
+    const prefix = `core/worker-evidence/${harnessId}/primary-probe/`;
+    if (!Array.isArray(probe.evidence) || !probe.evidence.some((item: any) => typeof item === 'string' && item.startsWith(prefix) && item.length > prefix.length)) {
+      issue(errors, location, `status 'supported' requires evidence under '${prefix}'`);
+    }
+    if (typeof probe.verifiedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(probe.verifiedOn)) {
+      issue(errors, location, "status 'supported' requires a verifiedOn date");
+    }
+  }
+}
+
 function validateRegistry(
   registry: any,
   { repoRoot, fsImpl = fs, sources = 'require' }: { repoRoot?: string, fsImpl?: any, sources?: SourceMode } = {},
@@ -801,6 +850,7 @@ function validateRegistry(
       }
     }
     validateContextProfile(harness.contextProfile, at, errors);
+    validatePrimaryProbe(harness.primaryProbe, typeof harness.id === 'string' ? harness.id : '?', at, errors);
     if (harness.id === 'codex') validateNativeProjection(harness.nativeProjection, harness, { repoRoot, fsImpl, sources }, errors);
   }
 
