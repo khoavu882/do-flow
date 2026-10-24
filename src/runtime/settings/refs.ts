@@ -17,6 +17,7 @@
  *                                         preset of depth 'deep'
  *   protocols.debatePresetIds             core/registry/protocols.json order.debate
  *   protocols.lensIds                     core/registry/protocols.json lenses[].id
+ *   harnesses.primaryIds                  'unknown', then core/registry/harnesses.json harnesses[].id in order
  *
  * Where `auto` ranks: `auto` follows the risk rule, which picks the preset of depth `deep` or the one
  * of depth `single` (resolve-protocol.ts `idOfDepth`), so the deep preset is the strictest it can
@@ -44,6 +45,7 @@ type Source = (name: string) => any;
 const ADVICE_FILE = 'core/registry/advice.json';
 const STORAGE_FILE = 'core/registry/storage.json';
 const PROTOCOLS_FILE = 'core/registry/protocols.json';
+const HARNESSES_FILE = 'core/registry/harnesses.json';
 
 /** What each ref is and which keys' values it needs, so the loader can detect a cycle without resolving. */
 const REF_META: Readonly<Record<string, RefMeta>> = Object.freeze({
@@ -54,6 +56,7 @@ const REF_META: Readonly<Record<string, RefMeta>> = Object.freeze({
   'protocols.reviewPresetOrder': { kind: 'order', dependsOn: [] },
   'protocols.debatePresetIds': { kind: 'values', dependsOn: [] },
   'protocols.lensIds': { kind: 'values', dependsOn: [] },
+  'harnesses.primaryIds': { kind: 'values', dependsOn: [] },
 });
 
 /** The depth label of the strictest preset the risk rule picks (resolve-protocol.ts step 1). */
@@ -132,6 +135,16 @@ function protocolsLensIds(source: Source): string[] {
   });
 }
 
+/** `primary.harness` may be `unknown` (undeclared) or any registry harness id. */
+function harnessesPrimaryIds(source: Source): string[] {
+  const list = source(HARNESSES_FILE)?.harnesses;
+  const ids = Array.isArray(list) ? list.map((h: any) => h?.id) : [];
+  if (ids.length === 0 || ids.some((id: unknown) => typeof id !== 'string' || !id)) {
+    throw new Error(`${HARNESSES_FILE} harnesses[].id must be non-empty strings`);
+  }
+  return ['unknown', ...ids];
+}
+
 const RESOLVERS: Readonly<Record<string, (source: Source, deps: Deps) => unknown>> = Object.freeze({
   'advice.providerIds': adviceProviderIds,
   'advice.providerDefaultEndpoint': adviceProviderDefaultEndpoint,
@@ -140,6 +153,7 @@ const RESOLVERS: Readonly<Record<string, (source: Source, deps: Deps) => unknown
   'protocols.reviewPresetOrder': protocolsReviewPresetOrder,
   'protocols.debatePresetIds': protocolsDebatePresetIds,
   'protocols.lensIds': protocolsLensIds,
+  'harnesses.primaryIds': harnessesPrimaryIds,
 });
 
 interface Refs {

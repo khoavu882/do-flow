@@ -169,7 +169,7 @@ function loadSettings({ projectRoot = null, global = false, env = process.env, r
 function buildView(registry: any, home: any, root: string | null, global: boolean, env: any, fsImpl: any): any {
   const { REGISTRY_FILE } = require('./registry.ts');
   const { REF_META } = require('./refs.ts');
-  const { readLayerFile } = require('./files.ts');
+  const { readLayerFile, validateValue } = require('./files.ts');
   const { projectLayerSource } = require('./project-layers.ts');
   const scope: ViewName = global ? 'global' : 'project';
   const io = onceFs(fsImpl);
@@ -327,6 +327,10 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
           // 2.0 parseWindow (lifecycle/retention.ts)
           const ok = /^[1-9][0-9]*$/.test(raw) && Number.isSafeInteger(Number(raw));
           out.push({ ...base0, value: ok ? Number(raw) : null, fault: ok ? null : { code: 'type', reason: /^0[0-9]+$/.test(raw) ? 'must be a positive whole number (no leading zeros)' : 'must be a positive whole number', offset: null } });
+        } else if (spec.env.parse === 'verbatim') {
+          // 120 IC-002: taken as written and judged like any file value
+          const fault = validateValue(spec, raw, registry.enumValues(key));
+          out.push({ ...base0, value: fault ? null : raw, fault: fault ? { ...fault, offset: null } : null });
         } else if (isOffWord(raw)) {
           // 2.0 envSetting + OFF_VALUES (failure/home.ts): only an off word has an effect
           out.push({ ...base0, value: 'off', fault: null });

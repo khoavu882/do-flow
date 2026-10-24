@@ -21,6 +21,10 @@ const SHIPPED = JSON.parse(fs.readFileSync(path.join(REPO, REGISTRY_FILE), 'utf8
 const PROTOCOL_COMMON = { securityRelevant: false, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
   consumers: ['src/runtime/review/resolve-protocol.ts'] };
 
+// Fields shared by the three 120 primary keys (a key with an env binding overrides `env`).
+const PRIMARY_COMMON = { securityRelevant: false, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+  consumers: ['src/runtime/worker/launch.ts'] };
+
 // The seven v1 entries plus 112's project-only guard entry, 089's verify.reuse switch and 106's
 // dispatch.fallback default (the
 // design folder is not in the repo, so the contract is pinned here; a registry edit must change
@@ -118,6 +122,18 @@ const V1 = {
   'debate.preset': { type: 'enum', valuesRef: 'protocols.debatePresetIds', default: 'debate-2',
     scope: 'project-overridable', combine: 'override', ...PROTOCOL_COMMON,
     description: 'Debate protocol preset for this project.' },
+  // 120 IC-003: the primary declaration keys (the reader arrives with A.3; launch.ts is the interim consumer).
+  'primary.harness': { type: 'enum', valuesRef: 'harnesses.primaryIds', default: 'unknown',
+    scope: 'project-overridable', combine: 'override', ...PRIMARY_COMMON,
+    env: { name: 'DOFLOW_PRIMARY_HARNESS', parse: 'verbatim', direction: 'any' },
+    description: 'Which harness the main session runs, so DoFlow can tell the primary from its workers; unknown means undeclared.' },
+  'primary.model': { type: 'model-id', default: null,
+    scope: 'project-overridable', combine: 'override', ...PRIMARY_COMMON,
+    env: { name: 'DOFLOW_PRIMARY_MODEL', parse: 'verbatim', direction: 'any' },
+    description: 'Model the main session runs, as the harness names it; a declaration the hook probe checks where it can.' },
+  'primary.onContradiction': { type: 'enum', values: ['refuse', 'warn'], order: ['refuse', 'warn'], default: 'warn',
+    scope: 'narrow-only', combine: 'override', ...PRIMARY_COMMON,
+    description: 'What happens when the probe sees a model other than the declared one: warn, or refuse; a project may only choose refuse.' },
 };
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -183,11 +199,11 @@ test('project-only ignores user/global values and env; project and local files a
 
 // ── the shipped registry ───────────────────────────────────────────────────────────────────────
 
-test('the shipped registry pins the seven v1 entries plus the 108 autopilot switch, the 112 project-only guard key, the 089 verify.reuse switch, the 106 dispatch.fallback default and the workers.billing record and the seven 119 protocol keys, in display order', () => {
+test('the shipped registry pins the seven v1 entries plus the 108 autopilot switch, the 112 project-only guard key, the 089 verify.reuse switch, the 106 dispatch.fallback default and the workers.billing record and the seven 119 protocol keys and the three 120 primary keys, in display order', () => {
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 19);
+  assert.equal(Object.keys(SHIPPED.keys).length, 22);
 });
 
 test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {
@@ -223,7 +239,9 @@ test('defaultRef values equal advice.json defaultEndpoint and storage.json lifec
   assert.equal(refs.resolve('storage.lifecycleEventsDefaultHours'), storage.stores.find((s) => s.id === 'lifecycle-events').bound.defaultHours);
   assert.equal(refs.resolve('storage.lifecycleEventsDefaultHours'), 4320);
   assert.deepEqual(refs.resolve('advice.providerIds'), advice.providers.map((p) => p.id));
-  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'protocols.debatePresetIds', 'protocols.lensIds', 'protocols.reviewPresetIds', 'protocols.reviewPresetOrder', 'storage.lifecycleEventsDefaultHours']);
+  const harnesses = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/harnesses.json'), 'utf8'));
+  assert.deepEqual(refs.resolve('harnesses.primaryIds'), ['unknown', ...harnesses.harnesses.map((h) => h.id)]);
+  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'harnesses.primaryIds', 'protocols.debatePresetIds', 'protocols.lensIds', 'protocols.reviewPresetIds', 'protocols.reviewPresetOrder', 'storage.lifecycleEventsDefaultHours']);
 });
 
 test('refs: an unknown name (including an inherited property name) and an unreadable source throw without file text', () => {
@@ -435,7 +453,7 @@ test('env names: DOFLOW_<KEY_UPPER_SNAKE> for new bindings, the two existing nam
   assert.equal(derivedEnvName('storage.retentionHours'), 'DOFLOW_STORAGE_RETENTION_HOURS');
   assert.equal(derivedEnvName('advice.model'), 'DOFLOW_ADVICE_MODEL');
   const names = Object.values(SHIPPED.keys).filter((spec) => spec.env).map((spec) => spec.env.name).sort();
-  assert.deepEqual(names, ['DOFLOW_AUTOPILOT_ENABLED', 'DOFLOW_FAILURE_CAPTURE', 'DOFLOW_RETENTION_HOURS', 'DOFLOW_VERIFY_REUSE']);
+  assert.deepEqual(names, ['DOFLOW_AUTOPILOT_ENABLED', 'DOFLOW_FAILURE_CAPTURE', 'DOFLOW_PRIMARY_HARNESS', 'DOFLOW_PRIMARY_MODEL', 'DOFLOW_RETENTION_HOURS', 'DOFLOW_VERIFY_REUSE']);
   assert.equal(derivedEnvName('verify.reuse'), 'DOFLOW_VERIFY_REUSE', '089: the new binding takes the derived name');
   // control: the same key under a renamed variable that is not one of the grandfathered pair fails
   const renamed = clone(SHIPPED);

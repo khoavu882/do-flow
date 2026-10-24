@@ -37,7 +37,7 @@ function sharedViewsKey() {
 function writeFixtureRepo(root, raw) {
   const registryDir = path.join(root, 'core', 'registry');
   fs.mkdirSync(registryDir, { recursive: true });
-  for (const name of ['advice.json', 'protocols.json', 'storage.json']) {
+  for (const name of ['advice.json', 'protocols.json', 'storage.json', 'harnesses.json']) {
     fs.copyFileSync(path.join(REPO, 'core', 'registry', name), path.join(registryDir, name));
   }
   fs.writeFileSync(path.join(registryDir, 'settings.json'), `${JSON.stringify(raw, null, 2)}\n`);

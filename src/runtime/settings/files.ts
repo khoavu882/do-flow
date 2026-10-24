@@ -60,6 +60,9 @@ function jsonFailure(error: any, text: string, bomBytes = 0): { offset: number |
   return { offset, reason: `not valid JSON at offset ${offset}` };
 }
 
+/** IC-002 `model-id`: 1 to 120 characters, a leading letter or digit (so never `-`), no trailing space. */
+const MODEL_ID_RE = /^[A-Za-z0-9][A-Za-z0-9 ._:/@()[\]#+-]*$/;
+const MODEL_ID_MAX = 120;
 const WORKER_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
 /** The two billing values a person may record (the registry's `unknown` is not a claim). */
 const RECORDED_BILLING = ['free', 'metered'];
@@ -129,6 +132,10 @@ function validateValue(spec: any, value: unknown, enumValues: readonly string[] 
     }
     case 'string':
       return typeof value === 'string' && value.trim() ? null : { code: 'type', reason: 'must be a non-empty string' };
+    case 'model-id':
+      if (typeof value !== 'string' || value === '') return { code: 'type', reason: 'must be a model name string' };
+      if (value.length > MODEL_ID_MAX) return { code: 'length', reason: `must be at most ${MODEL_ID_MAX} characters` };
+      return MODEL_ID_RE.test(value) && !value.endsWith(' ') ? null : { code: 'type', reason: 'must start with a letter or digit, use only letters, digits, spaces and . _ : / @ ( ) [ ] # + -, and not end with a space' };
     case 'url':
       if (typeof value !== 'string' || !value.trim()) return { code: 'type', reason: 'must be a URL string' };
       try { new URL(value); return null; } catch { return { code: 'url', reason: 'must be a URL string' }; }

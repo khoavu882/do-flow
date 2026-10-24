@@ -27,10 +27,10 @@ const { jsonFailure, validateValue } = require('./files.ts');
 const REGISTRY_FILE = 'core/registry/settings.json';
 
 const KEY_RE = /^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
-const TYPES = ['boolean', 'enum', 'integer', 'string', 'string-list', 'url', 'worker-billing'];
+const TYPES = ['boolean', 'enum', 'integer', 'model-id', 'string', 'string-list', 'url', 'worker-billing'];
 const SCOPES = ['global-only', 'project-only', 'narrow-only', 'project-overridable'];
 const COMBINES = ['override', 'narrowest', 'union'];
-const PARSES = ['positive-int', 'off-words'];
+const PARSES = ['positive-int', 'off-words', 'verbatim'];
 const DIRECTIONS = ['any', 'narrow'];
 const LEGACY_LAYERS = ['user', 'project'];
 const LEGACY_KINDS = ['decision-model', 'line-onoff', 'sentinel'];
@@ -177,7 +177,7 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     // scope / combine / order
     if (!SCOPES.includes(spec.scope)) err(`scope must be one of ${SCOPES.join(', ')}`);
     if (!COMBINES.includes(spec.combine)) err(`combine must be one of ${COMBINES.join(', ')}`);
-    const free = type === 'string' || type === 'url';
+    const free = type === 'string' || type === 'url' || type === 'model-id';
     // worker-billing is a structured record: no order ranks two records, only an override is defined.
     const record = type === 'worker-billing';
     // string-list is a set of items: no order ranks two lists, only a union is defined.
@@ -293,6 +293,7 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
         if (!PARSES.includes(env.parse)) err(`env.parse must be one of ${PARSES.join(', ')}`);
         else if (env.parse === 'positive-int' && type !== 'integer') err('env.parse positive-int needs an integer key');
         else if (env.parse === 'off-words' && !(type === 'enum' && list?.includes('off'))) err("env.parse off-words needs an enum key with the value 'off'");
+        else if (env.parse === 'verbatim' && !(['enum', 'string', 'model-id'].includes(type) && env.direction === 'any')) err("env.parse verbatim needs an enum, string or model-id key with direction 'any'");
         if (!DIRECTIONS.includes(env.direction)) err(`env.direction must be one of ${DIRECTIONS.join(', ')}`);
         else if (env.direction === 'any' && (spec.securityRelevant === true || spec.scope === 'global-only')) {
           err("env.direction must be 'narrow': an environment variable may only narrow a security-relevant or global-only key");

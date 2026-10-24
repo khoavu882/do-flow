@@ -108,6 +108,9 @@ function withIdentity(env: Env, identity: WorkerIdentity, execWorktree: string, 
   if (runId !== undefined) out[WORKER_RUN_VAR] = runId;
   else delete out[WORKER_RUN_VAR];
   delete out[DROP_DATABASES_VAR];
+  // 120 IC-003: the primary declaration names the person's main session, never a worker.
+  delete out.DOFLOW_PRIMARY_HARNESS;
+  delete out.DOFLOW_PRIMARY_MODEL;
   const databases = dropDatabases(execWorktree, env);
   if (databases !== null) out[DROP_DATABASES_VAR] = databases;
   return out;
