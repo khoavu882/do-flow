@@ -26,8 +26,11 @@
 // exhausted for the rest of the run, in the write that ends it. Selection walks the run's ladder (or
 // registry order) skipping exhausted harnesses; when the task would change rung (after its own quota
 // end, or past an exhausted rung), the task's owner and the run's mode decide: a hold (`quota`,
-// `frontier-no-step`, `ladder-exhausted`), never `sequential`, or in `auto` (or once, for a proposal
-// `resume --fallback auto` accepted) a step to the chosen rung. A held task is not admitted while
+// `frontier-no-step`, `ladder-exhausted`), or in `auto` (or once, for a proposal
+// `resume --fallback auto` accepted) a step to the chosen rung. Feature 120 IC-009 / IC-010 checks
+// current enabled workers at selection and launch; in-session fallback needs both stored and
+// current permission. Invalid settings hold transiently; unset settings preserve the old path.
+// A held task is not admitted while
 // held; a hold is a decide-phase gap with cause `quota` until its task SUCCEEDED. Every quota, step
 // and hold is one event in `run.fallback.events`, one `fallback` StepAction, and for a quota or step
 // a copy on its dispatch. No harness, provider or model id is named here.
@@ -45,10 +48,11 @@ const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const readiness = require('../worker/readiness.ts');
 const { executeWorkerCommand, settledStatus } = require('../worker/command.ts');
 const { cancelRun } = require('../worker/cancel.ts');
+const { activeWorkers, workerGate, inSessionGate } = require('../worker/active.ts');
 const { resultOfRun } = require('../worker/supervisor.ts');
 const { readRuns, storeFileFor: runStoreFileFor } = require('../worker/run-store.ts');
 const {
-  storeFileFor, readDispatch, mutateDispatch, setRunState, fallbackOf, appendFallbackEvent, HELD_RUN_STATES, DispatchStoreError, DISPATCH_ID,
+  storeFileFor, readDispatch, mutateDispatch, setRunState, fallbackOf, inSessionOf, appendFallbackEvent, HELD_RUN_STATES, DispatchStoreError, DISPATCH_ID,
 } = require('./store.ts');
 const { registerDriver, endDriver, admit, MAIN_SESSION_MODES, BUDGET_REFUSALS } = require('./admission.ts');
 const integrate = require('./integrate.ts');
@@ -163,9 +167,12 @@ function evaluateEdit({ harness, worker, needs, registry, coverage, env, cwd, ro
   return { eligible: Boolean(c && c.eligible), gaps: c ? c.gaps : [] };
 }
 
+/** IC-010: unset settings preserve eligibility, including fixture-only worker ids. */
+const gateOf = (active: any, id: string) => (active && active.state !== 'unset' ? workerGate(active, id) : null);
+
 /** Every candidate harness in registry order (or only `harness`, or only the `ladder`'s, 106 IC-004),
- * each `{ harness, eligible, gaps }`. */
-function evaluateHarnesses({ harness = null, ladder = null, needs = [], billingCap, descriptors, registry, coverage, env, cwd, root, now = Date.now, platform = process.platform, evaluateImpl = evaluateEdit }: any) {
+ * each `{ harness, eligible, gaps }`. IC-010 rejects disabled workers before evaluating them. */
+function evaluateHarnesses({ active = null, harness = null, ladder = null, needs = [], billingCap, descriptors, registry, coverage, env, cwd, root, now = Date.now, platform = process.platform, evaluateImpl = evaluateEdit }: any) {
   const reg = registry || loadRegistry({ repoRoot: REPO_ROOT });
   const cov = coverage === undefined ? reg.coverage : coverage;
   const entries = readiness.workerDescriptors({ descriptors, registry: reg })
@@ -175,6 +182,8 @@ function evaluateHarnesses({ harness = null, ladder = null, needs = [], billingC
   const capped = billingCap === 'free' ? require('../settings/worker-billing.ts') : null;
   const record = capped ? capped.readWorkerBilling(env, { workerIds: knownWorkerIds({ registry: reg }).ids }) : null;
   return entries.map((entry: any) => {
+    const closed = gateOf(active, entry.harness);
+    if (closed) return { harness: entry.harness, eligible: false, gaps: [{ requirement: 'enabled', result: 'failed', reason: closed.reason }] };
     const billing = !record ? undefined
       : record.state === 'invalid' ? { value: 'record-invalid', source: 'user-record', recordReason: record.reason }
       : capped.effectiveBilling(entry.worker ? entry.worker.billing : undefined, entry.harness, record);
@@ -234,16 +243,32 @@ function noStepReason(registry: any, owner: string | null, tier: string | null =
  * rung with `selection.fallback = { kind: 'step', from, to }`. A hold returns `{ hold: { reason,
  * from, proposed }, selection }`. The `launch` shortcut runs first only when nothing is exhausted
  * and `last` is not a quota end (review C-3), else only with no `from`. Pure: the caller persists.
+ * IC-010 intersects stored and current in-session permission; settings holds are transient, and a
+ * set list may extend an exhausted ladder to sequential under the same quota-step rules.
  */
 function selectMode({ policy = 'auto', held = false, lastFailureClass = null, cache = null, fallback = null, owner = null, tier = null, task = null, last = null, ...rest }: any) {
   const fixed = (mode: string) => ({ mode, harness: null, selection: { policy, chosen: mode, candidates: [] } });
+  const active = rest.active;
+  const live = active && active.state !== 'unset' ? active : null;
+  const blocked = () => {
+    const closed = live ? inSessionGate(live) : null;
+    return closed ? closed.reason : !inSessionOf({ fallback }) ? 'no-enabled-worker' : null;
+  };
+  const settingsHold = (reason: string) => ({
+    hold: { reason, from: null, proposed: null, transient: true },
+    selection: { policy, chosen: 'held', candidates: [] },
+  });
   if (held) return fixed(policy === 'manual' ? 'manual' : 'sequential');
   if (policy === 'manual' || policy === 'sequential') return fixed(policy);
   if (policy !== 'auto') throw usage(`mode policy '${policy}' is not auto, sequential or manual`);
+  if (live && live.state === 'invalid') return settingsHold('workers-enabled-invalid');
   const ladder = fallback && Array.isArray(fallback.ladder) ? fallback.ladder : null;
   const exhausted: string[] = fallback && Array.isArray(fallback.exhausted) ? fallback.exhausted : [];
   const afterQuota = Boolean(last && last.failureClass === 'quota' && last.harness);
-  if (lastFailureClass === 'launch' && !exhausted.length && !afterQuota) return fixed('sequential');
+  if (lastFailureClass === 'launch' && !exhausted.length && !afterQuota) {
+    const b = blocked();
+    return b ? settingsHold(b) : fixed('sequential');
+  }
   let candidates = cache && cache.candidates;
   if (!candidates) {
     candidates = evaluateHarnesses({ ...rest, ladder });
@@ -266,16 +291,25 @@ function selectMode({ policy = 'auto', held = false, lastFailureClass = null, ca
     candidates: structuredClone(candidates),
   };
   if (from === null) {
-    if (lastFailureClass === 'launch') return fixed('sequential');
+    if (lastFailureClass === 'launch') {
+      const b = blocked();
+      return b ? settingsHold(b) : fixed('sequential');
+    }
+    if (!chosen) {
+      const b = blocked();
+      if (b) return settingsHold(b);
+    }
     return chosen ? { mode: 'subagent', harness: chosen.harness, selection } : { mode: 'sequential', harness: null, selection };
   }
   const hold = (reason: string, proposed: string | null) => ({ hold: { reason, from, proposed }, selection: { ...selection, chosen: 'held' } });
-  const step = (accepted: boolean) => ({
-    mode: 'subagent', harness: chosen.harness,
-    selection: { ...selection, fallback: { kind: 'step', from, to: chosen.harness, ...(accepted ? { accepted: true } : {}) } },
-  });
   if (noStepReason(rest.registry || loadRegistry({ repoRoot: REPO_ROOT }), owner, tier) !== null) return hold('frontier-no-step', null);
-  if (!chosen) return hold('ladder-exhausted', null);
+  const viaSession = !chosen && live && live.state === 'set' && blocked() === null;
+  if (!chosen && !viaSession) return hold('ladder-exhausted', null);
+  const target = chosen ? chosen.harness : 'sequential';
+  const step = (accepted: boolean) => ({
+    mode: chosen ? 'subagent' : 'sequential', harness: chosen ? chosen.harness : null,
+    selection: { ...selection, fallback: { kind: 'step', from, to: target, ...(accepted ? { accepted: true } : {}) } },
+  });
   const mode = fallback && FALLBACK_MODES.includes(fallback.mode) ? fallback.mode : 'off';
   if (mode === 'auto') return step(false);
   // Review R-2: an acceptance steps only to the rung it accepted, and only in `ask` (an `off` hold
@@ -283,8 +317,8 @@ function selectMode({ policy = 'auto', held = false, lastFailureClass = null, ca
   // again with the new proposal, and the hold's write drops the acceptance.
   const accepted = fallback && fallback.accepted && typeof fallback.accepted === 'object' && task !== null && Object.hasOwn(fallback.accepted, task)
     ? fallback.accepted[task] : undefined;
-  if (mode === 'ask' && accepted === chosen.harness) return step(true);
-  return hold('quota', mode === 'ask' ? chosen.harness : null);
+  if (mode === 'ask' && accepted === target) return step(true);
+  return hold('quota', mode === 'ask' ? target : null);
 }
 
 /** The failure class of `task`'s most recent failed dispatch (highest token), or null. A `quota` end
@@ -416,6 +450,7 @@ function passFor(options: any) {
     if (!p.registry) p.registry = loadRegistry({ repoRoot: REPO_ROOT });
     return p.registry;
   };
+  p.activeNow = () => activeWorkers({ registry: p.reg(), env: p.env, projectRoot: p.root });
   p.act = (name: string, d: any, token: string, detail: any = null, ms = 0) => {
     p.actions.push({
       action: name, dispatchId: d && d.dispatchId ? d.dispatchId : null, task: d && d.task ? d.task : null,
@@ -1035,6 +1070,15 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
   const s = readDispatch(p.file);
   const d = s.dispatches[admitted.dispatchId];
   if (!d || d.phase !== 'claimed') return;
+  if (!MAIN_SESSION_MODES.includes(d.mode)) {
+    const closed = gateOf(p.activeNow(), d.harness);
+    if (closed) {
+      p.act('launch', d, 'refused', closed.reason, 0);
+      // IC-009 / IC-010: a gate denial narrows selection; it is not a launch failure.
+      await failDispatch(p, d, ['claimed'], 'report-denied', closed.reason, null, null);
+      return;
+    }
+  }
   const planTask = plan.graph.tasks.find((t: any) => t.id === d.task);
   const record = view.tasks.find((r: any) => r.id === d.task);
   const value = handoffFor(p, s, d, planTask, record);
@@ -1149,6 +1193,7 @@ async function admitAndLaunch(p: any) {
   const f = run.fallback && typeof run.fallback === 'object' ? run.fallback : fallbackOf({}, p.fallbackDefault);
   const heldBefore = f.holds && typeof f.holds === 'object' ? f.holds : {};
   const newHolds = new Map<string, any>();
+  const active = p.activeNow();
   const modeFor = (task: string, { store: s }: any) => {
     if (Object.hasOwn(heldBefore, task)) return { hold: heldBefore[task].reason };
     const choice: any = selectMode({
@@ -1157,9 +1202,19 @@ async function admitAndLaunch(p: any) {
       harness: run.harness || null, needs: Array.isArray(run.needs) ? run.needs : [], descriptors: p.descriptors, registry: p.reg(),
       coverage: p.coverage, env: p.env, cwd: p.cwd, root: p.root, now: () => p.clock().getTime(), platform: p.platform,
       evaluateImpl: p.evaluateImpl, cache: p.cache, fallback: f, owner: p.ownerOf ? p.ownerOf(task) : null, tier: p.tierOf ? p.tierOf(task) : null,
-      task, last: lastWorkerDispatch(s, task),
+      task, last: lastWorkerDispatch(s, task), active,
     });
     if (!choice.hold) return choice;
+    if (choice.hold.transient) {
+      const reason = choice.hold.reason;
+      p.gaps.push({
+        task, kind: reason, cause: 'input',
+        reason: reason === 'workers-enabled-invalid'
+          ? 'workers-enabled-invalid: workers.enabled is invalid, do not run in-session'
+          : 'no-enabled-worker: primary not enabled, do not run in-session',
+      });
+      return { hold: reason };
+    }
     newHolds.set(task, choice.hold);
     return { hold: choice.hold.reason };
   };
