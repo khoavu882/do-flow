@@ -11,6 +11,7 @@ const { TelemetryWriter } = require('../trace/telemetry.ts');
 const { finishRuntime } = require('../cli-result.ts');
 const { handleReviewStart, validSlug } = require('./start.ts');
 const { crossCheckAuthor } = require('./identity.ts');
+const { isQualifiedId } = require('../../helper/package-ids.ts');
 
 type ReviewRecord = Record<string, any>;
 type Env = Record<string, string | undefined>;
@@ -62,8 +63,10 @@ function readPreset(load: (options: { projectRoot: string; env: Env }) => any, c
   }
 }
 
-// A preset id as protocols.ts validates it (`^[a-z][a-z0-9-]*$`).
-const PRESET_ID = /^[a-z][a-z0-9-]*$/;
+// A preset id: a core one as protocols.ts validates it (`^[a-z][a-z0-9-]*$`), or a package preset's qualified id
+// (`<package>.<preset>`, 122 IC-003). Whether it is available and strict enough is the resolver's answer (IC-014).
+const CORE_PRESET_ID = /^[a-z][a-z0-9-]*$/;
+const presetIdShape = (value: unknown): boolean => typeof value === 'string' && (CORE_PRESET_ID.test(value) || isQualifiedId(value));
 
 function usage(message: string, json: boolean, out: (line: string) => void): number {
   out(json
@@ -104,8 +107,8 @@ function handleReviewCommand({
     if ((hasValue(slug) && !validSlug(slug)) || (hasValue(base) && typeof base !== 'string')) {
       return usage('--slug must be a plain feature name and --base a string', json, out);
     }
-    if (hasValue(preset) && !(typeof preset === 'string' && PRESET_ID.test(preset))) {
-      return usage('--preset must be a preset id (lower-case letters, digits and hyphens)', json, out);
+    if (hasValue(preset) && !presetIdShape(preset)) {
+      return usage('--preset must be a preset id (lower-case letters, digits and hyphens, or <package>.<preset> for a package preset)', json, out);
     }
     return handleReviewStart({ slug: hasValue(slug) ? slug : null, base: hasValue(base) ? base : null, preset: hasValue(preset) ? preset : null, json, cwd, env, resolve, adviceClient, out });
   }

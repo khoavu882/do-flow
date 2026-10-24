@@ -297,10 +297,13 @@ const DISABLED_KEY = 'packages.disabled';
 /**
  * The `packages.disabled` entry of the project settings of the working directory, in the shape a caller injects.
  * `byId` names the lowest layer that listed each id. A registry or settings fault is an invalid value: fail closed.
+ * The settings are read as a view of this one key (`only`): a full load validates every key of a layer file, and the
+ * `review.preset` and `debate.preset` value lists hold the presets of active packages (IC-014), which is this view
+ * again. The key's own list (`packages.ids`) reads the lock alone, so this read never re-enters the view.
  */
 function resolvedDisabledEntry(env: any): any {
   try {
-    const resolution = require('../settings/resolve.ts').loadSettings({ projectRoot: process.cwd(), env: env ?? process.env }).get(DISABLED_KEY);
+    const resolution = require('../settings/resolve.ts').loadSettings({ projectRoot: process.cwd(), env: env ?? process.env, only: [DISABLED_KEY] }).get(DISABLED_KEY);
     const byId: Record<string, string> = {};
     for (const c of resolution.candidates) {
       if (c.status !== 'decided' || !Array.isArray(c.value)) continue;

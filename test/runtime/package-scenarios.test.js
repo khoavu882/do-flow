@@ -7,10 +7,9 @@
 // `npm` that records any spawn). The later phases' scenarios (trust, executables, remote sources) belong to them.
 //
 // Reading of the plan for "does not offer the package preset": `protocol --action list` shows the registry `order`
-// only (a contributed preset is selectable by name, never ranked), and `protocol --action resolve --preset` accepts
-// no dotted id. A contributed preset is therefore observed (a) through `package --action show` (the contribution's
-// `active` flag) and (b) through a probe process that runs the shipped `loadProtocols` in the scratch HOME and project,
-// the read every review site uses. The by-name path through a `review.preset` setting is its own case at the end.
+// only (a contributed preset is selectable by name, never ranked). A contributed preset is therefore observed (a)
+// through `package --action show` (the contribution's `active` flag) and (b) through a probe process that runs the
+// shipped `loadProtocols` in the scratch HOME and project, the read every review site uses. The by-name paths (a `review.preset` setting, a run `--preset`) are their own cases.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -224,23 +223,113 @@ test('added is not enabled: add and add --plan record the package disabled and o
   assert.deepEqual(w.offered().filter((id) => id.startsWith('acme')), [], 'disable takes it away again');
 });
 
-// Open defect (reported with this task, not fixed here): while an enabled package exists, loading the settings that
-// name its preset re-enters the settings loader (`packages.disabled` -> `packages.ids` -> contributed ids ->
-// `loadProtocols` -> package view -> `packages.disabled`), the nested read throws "depends on itself", the package
-// view treats that as an invalid `packages.disabled` and fails closed (every third-party package `settings-invalid`),
-// so the preset is missing from the `review.preset` values and the value is refused. The case states the intended
-// behaviour and runs as a `todo`: its failure is reported, not hidden, and it turns into a normal test with the fix.
-test('an enabled package preset named by a review.preset setting resolves by name', { todo: 'defect: settings load re-enters packages.disabled and drops contributed ids (see B.8 report)' }, (t) => {
-  const w = world(t);
-  w.add(makePackage(t));
-  assert.equal(w.pkg('enable', '--id', 'acme').status, 0);
+// ── a contributed preset selected by name (IC-014; B.8-fix) ─────────────────────────────────────────
+//
+// Loading the settings that name a package preset reads the `review.preset` value list, which needs the package view,
+// which reads `packages.disabled` from the same settings files. These cases pin that the by-name paths (a setting and a
+// run `--preset`) work through the CLI, and that a disable, valid or invalid, still holds on each of them.
+
+/** A review preset that dominates review-deep (the pick of a run with no diff): more rounds and a higher round floor. */
+const dominantPreset = () => {
+  const preset = presetOf(3);
+  preset.rounds = { default: 3, min: CORE.presets['review-deep'].rounds.min };
+  return preset;
+};
+
+/** `doflow protocol --action resolve --kind review --json` with `extra` arguments. */
+const resolveReview = (w, extra = []) => w.cli(['protocol', '--action', 'resolve', '--kind', 'review', ...extra, '--json']);
+
+/** Writes the project settings file. */
+const projectSettings = (w, settings) => {
   fs.mkdirSync(path.dirname(w.settingsFile), { recursive: true });
-  fs.writeFileSync(w.settingsFile, `${JSON.stringify({ 'review.preset': 'acme.strict' })}\n`);
-  const resolved = w.cli(['protocol', '--action', 'resolve', '--kind', 'review', '--json']);
+  fs.writeFileSync(w.settingsFile, `${JSON.stringify(settings)}\n`);
+};
+
+test('an enabled package preset named by a review.preset setting resolves by name', (t) => {
+  const w = world(t);
+  w.add(makePackage(t, { preset: dominantPreset() }));
+  assert.equal(w.pkg('enable', '--id', 'acme').status, 0);
+  projectSettings(w, { 'review.preset': 'acme.strict' });
+  const resolved = resolveReview(w);
   assert.equal(resolved.status, 0, resolved.stdout + resolved.stderr);
   const protocol = w.json(resolved).protocol;
   assert.equal(protocol.id, 'acme.strict');
   assert.equal(protocol.origins.id, 'project');
+  assert.equal(w.show('acme').state, 'active', 'the settings file that names the preset leaves the package active');
+});
+
+test('--preset with a package preset: taken when it dominates the pick (protocol resolve, review start), refused preset-looser when it does not', (t) => {
+  const w = world(t);
+  w.add(makePackage(t, { preset: dominantPreset() }));
+  w.add(makePackage(t, { id: 'lax', local: 'loose' })); // dominates review-single only, never the deep pick
+  assert.equal(w.pkg('enable', '--id', 'acme').status, 0);
+  assert.equal(w.pkg('enable', '--id', 'lax').status, 0);
+
+  const resolved = resolveReview(w, ['--preset', 'acme.strict']);
+  assert.equal(resolved.status, 0, resolved.stdout + resolved.stderr);
+  assert.deepEqual([w.json(resolved).protocol.id, w.json(resolved).protocol.origins.id], ['acme.strict', 'run']);
+
+  const started = w.cli(['review', '--action', 'start', '--slug', SLUG, '--base', w.base, '--preset', 'acme.strict', '--json']);
+  assert.equal(started.status, 0, started.stdout + started.stderr);
+  const result = w.json(started);
+  assert.equal(result.ok, true);
+  assert.equal(result.protocol.id, 'acme.strict');
+  assert.equal(result.depthBasis.raisedBy, 'run');
+
+  const looser = resolveReview(w, ['--preset', 'lax.loose']);
+  assert.equal(looser.status, 1, looser.stdout + looser.stderr);
+  assert.equal(w.json(looser).error, 'preset-looser');
+  const looserStart = w.cli(['review', '--action', 'start', '--slug', SLUG, '--base', w.base, '--preset', 'lax.loose', '--json']);
+  assert.equal(looserStart.status, 1, looserStart.stdout + looserStart.stderr);
+  assert.equal(w.json(looserStart).error, 'preset-looser');
+
+  const unknown = resolveReview(w, ['--preset', 'acme.missing']);
+  assert.equal(unknown.status, 1, unknown.stdout + unknown.stderr);
+  assert.equal(w.json(unknown).error, 'preset-unknown');
+  for (const bad of ['Acme.strict', 'acme.strict.x', 'acme.']) {
+    assert.equal(resolveReview(w, ['--preset', bad]).status, 2, `${bad} is not a preset id`);
+  }
+});
+
+test('a project packages.disabled naming the package holds on the by-name paths: setting, --preset, the loader and the view', (t) => {
+  const w = world(t);
+  w.add(makePackage(t, { preset: dominantPreset() }));
+  assert.equal(w.pkg('enable', '--id', 'acme').status, 0);
+  projectSettings(w, { 'packages.disabled': ['acme'], 'review.preset': 'acme.strict' });
+
+  const named = resolveReview(w);
+  assert.equal(named.status, 1, named.stdout + named.stderr);
+  assert.equal(w.json(named).error, 'settings-unavailable');
+  assert.match(w.json(named).message, /review\.preset/);
+
+  projectSettings(w, { 'packages.disabled': ['acme'] });
+  const run = resolveReview(w, ['--preset', 'acme.strict']);
+  assert.equal(run.status, 1, run.stdout + run.stderr);
+  assert.equal(w.json(run).error, 'preset-unknown');
+  assert.deepEqual(w.offered().filter((id) => id.startsWith('acme')), []);
+  const shown = w.show('acme');
+  assert.deepEqual([shown.state, shown.reasons], ['disabled', ['disabled-by-project']]);
+});
+
+test('an invalid packages.disabled still disables every non-bundled package on the by-name paths (fail closed)', (t) => {
+  const w = world(t);
+  w.add(makePackage(t, { preset: dominantPreset() }));
+  assert.equal(w.pkg('enable', '--id', 'acme').status, 0);
+  projectSettings(w, { 'packages.disabled': 'acme', 'review.preset': 'acme.strict' });
+
+  const shown = w.show('acme');
+  assert.deepEqual([shown.state, shown.reasons], ['disabled', ['settings-invalid']]);
+  assert.equal(w.show('doflow').state, 'active', 'the bundled package is not disabled by an invalid value');
+  const named = resolveReview(w);
+  assert.equal(named.status, 1, named.stdout + named.stderr);
+  assert.equal(w.json(named).error, 'settings-unavailable');
+
+  projectSettings(w, { 'packages.disabled': 'acme' });
+  const run = resolveReview(w, ['--preset', 'acme.strict']);
+  assert.equal(run.status, 1, run.stdout + run.stderr);
+  assert.equal(w.json(run).error, 'preset-unknown');
+  assert.deepEqual(w.offered().filter((id) => id.startsWith('acme')), []);
+  assert.equal(resolveReview(w).status, 0, 'the core protocol still resolves');
 });
 
 // ── weakening refused (FR-007, FR-008) ────────────────────────────────────────────────────────────

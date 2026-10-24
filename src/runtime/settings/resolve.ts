@@ -168,7 +168,16 @@ function clearSettingsCache(): void {
   memo.clear();
 }
 
-interface LoadOptions { projectRoot?: string | null; global?: boolean; env?: Record<string, string | undefined>; registry?: any; fsImpl?: any; protocols?: any }
+interface LoadOptions { projectRoot?: string | null; global?: boolean; env?: Record<string, string | undefined>; registry?: any; fsImpl?: any; protocols?: any; only?: string[] }
+
+/**
+ * The registry a view limited to `only` reads: a list-bound key outside `only` has no allowed values (its value in a
+ * layer file is then invalid, and no such key can be read from the view), so reading a layer file never resolves another
+ * key's value list.
+ */
+function narrowed(registry: any, only: string[]): any {
+  return { ...registry, enumValues: (key: string) => (only.includes(key) ? registry.enumValues(key) : null) };
+}
 
 /**
  * @param projectRoot the project root DoFlow resolves for the verb (absolute; anything else means no
@@ -177,24 +186,29 @@ interface LoadOptions { projectRoot?: string | null; global?: boolean; env?: Rec
  * @param registry a loaded settings registry; defaults to the shipped one (throws when unusable)
  * @param protocols a merged protocol registry the `review.preset` fold compares contributed presets in; defaults to
  *   the runtime's own merged view, loaded only when such a comparison happens
+ * @param only the keys the view answers (`get` of any other key throws), for a reader the other keys' value lists
+ *   depend on: the package view reads `packages.disabled` this way, because the `review.preset` and `debate.preset`
+ *   lists hold the presets of active packages (122 IC-014), so validating them while reading the same layer file would
+ *   load the package view again. A key in `only` must not depend on such a key itself (`packages.ids` reads the lock).
  */
-function loadSettings({ projectRoot = null, global = false, env = process.env, registry, fsImpl = nodeFs, protocols }: LoadOptions = {}): any {
+function loadSettings({ projectRoot = null, global = false, env = process.env, registry, fsImpl = nodeFs, protocols, only }: LoadOptions = {}): any {
   const { configHome } = require('../config-home.ts');
-  const reg = registry ?? registryOrThrow();
+  const loaded = registry ?? registryOrThrow();
+  const reg = only ? narrowed(loaded, only) : loaded;
   const home = configHome(env);
   const root = global ? null : absolute(projectRoot);
   let cacheKey: string | null = null;
   if (env === process.env && fsImpl === nodeFs && !registry && protocols === undefined) {
     const bound = [...reg.keys.values()].filter((spec: any) => spec.env).map((spec: any) => env[spec.env.name] ?? null);
-    cacheKey = JSON.stringify([global ? 'global' : 'project', root, home.dir, ...bound]);
+    cacheKey = JSON.stringify([global ? 'global' : 'project', root, home.dir, only ?? null, ...bound]);
     if (memo.has(cacheKey)) return memo.get(cacheKey);
   }
-  const view = buildView(reg, home, root, global, env, fsImpl, protocols);
+  const view = buildView(reg, home, root, global, env, fsImpl, protocols, only ?? null);
   if (cacheKey) memo.set(cacheKey, view);
   return view;
 }
 
-function buildView(registry: any, home: any, root: string | null, global: boolean, env: any, fsImpl: any, protocols: any): any {
+function buildView(registry: any, home: any, root: string | null, global: boolean, env: any, fsImpl: any, protocols: any, only: string[] | null): any {
   const { REGISTRY_FILE } = require('./registry.ts');
   const { REF_META } = require('./refs.ts');
   const { readLayerFile, validateValue } = require('./files.ts');
@@ -560,6 +574,7 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
   /** One key's resolution in a view (the load's scope by default). Plain data, shared: do not mutate. */
   function get(key: string, viewName: ViewName = scope): Resolution {
     if (!registry.keys.has(key)) throw new Error(`unknown settings key "${key}"`);
+    if (only && !only.includes(key)) throw new Error(`settings key "${key}" is not in this view (only ${only.join(', ')})`);
     if (viewName !== 'project' && viewName !== 'global') throw new Error(`unknown settings view "${viewName}"`);
     if (viewName === 'project' && scope === 'global') throw new Error('the project view is not available in a global (-g) load');
     return resolve(key, viewName).resolution;

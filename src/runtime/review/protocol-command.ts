@@ -12,10 +12,13 @@ const { finishRuntime, captureCaught } = require('../cli-result.ts');
 const { resolveProtocol, protocolLines } = require('./resolve-protocol.ts');
 const { loadProtocolInputs } = require('./start.ts');
 const { loadProtocols, presetIds } = require('./protocols.ts');
+const { isQualifiedId } = require('../../helper/package-ids.ts');
 
 const KINDS = ['review', 'debate'];
-// A preset id as protocols.ts validates it (`^[a-z][a-z0-9-]*$`).
-const PRESET_ID = /^[a-z][a-z0-9-]*$/;
+// A preset id: a core one as protocols.ts validates it (`^[a-z][a-z0-9-]*$`), or a package preset's qualified id
+// (`<package>.<preset>`, 122 IC-003). Whether it is available and strict enough is the resolver's answer (IC-014).
+const CORE_PRESET_ID = /^[a-z][a-z0-9-]*$/;
+const presetIdShape = (value: unknown): boolean => typeof value === 'string' && (CORE_PRESET_ID.test(value) || isQualifiedId(value));
 
 function seatText(seat: any): string {
   return `${seat.id}[${(seat.lenses ?? []).join(',')}]`;
@@ -73,8 +76,8 @@ function handleProtocolCommand({ action, kind, taskClass, risk, preset, json = f
     if (risk != null && !Object.hasOwn(verification.riskLevels, risk)) {
       return usage(`--risk must be one of ${Object.keys(verification.riskLevels).join(', ')}`);
     }
-    if (preset != null && !(typeof preset === 'string' && PRESET_ID.test(preset))) {
-      return usage('--preset must be a preset id (lower-case letters, digits and hyphens)');
+    if (preset != null && !presetIdShape(preset)) {
+      return usage('--preset must be a preset id (lower-case letters, digits and hyphens, or <package>.<preset> for a package preset)');
     }
 
     const inputs = loadProtocolInputs(taskClass ?? null, cwd);
