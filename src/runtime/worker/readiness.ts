@@ -586,12 +586,28 @@ function evaluateHarness(entry: any, needs: string[], coverage: any, { env, cwd,
   return { harness: entry.harness, facts, recordedAt: record?.at ?? null, requirements, ...eligibility(requirements) };
 }
 
+/** IC-014: describe a worker's enabled state and rung without changing eligibility. */
+function enabledOf(active: any, id: string): {
+  state: 'enabled' | 'disabled' | 'unlisted' | 'default';
+  position: number | null;
+  origin: { layer: string; source: string | null };
+} {
+  const origin = { layer: active.origin.layer, source: active.origin.source };
+  if (active.state === 'unset') return { state: 'default', position: null, origin };
+  if (active.state === 'invalid') return { state: 'unlisted', position: null, origin };
+  const index = active.workers.indexOf(id);
+  if (index !== -1) return { state: 'enabled', position: index + 1, origin };
+  if (active.narrowedFrom?.includes(id)) return { state: 'disabled', position: null, origin };
+  return { state: 'unlisted', position: null, origin };
+}
+
 /**
  * IC-009: what one harness declares, its effective probe facts with a `stale` flag, and IC-008's
- * requirements for the baseline and `needs`. Read-only.
+ * requirements for the baseline and `needs`. IC-014 adds enabled, active and primary when supplied,
+ * without filtering the described harness. Read-only.
  */
 function describe({
-  descriptors, registry, coverage, harness, needs, edit = false,
+  descriptors, registry, coverage, harness, needs, active, primary, edit = false,
   env = process.env, cwd = process.cwd(), root = cwd, now = Date.now, platform = process.platform,
 }: any = {}) {
   const context = readinessContext({ descriptors, registry, coverage });
@@ -608,7 +624,12 @@ function describe({
   }
   const probeFacts: any = {};
   for (const name of FACTS) probeFacts[name] = { ...evaluated.facts[name], stale: evaluated.facts[name].reason === 'probe-stale' };
-  return { disposition: 'described', harness, declared, probe: probeFacts, requirements: evaluated.requirements, eligible: evaluated.eligible };
+  return {
+    disposition: 'described', harness, declared, probe: probeFacts,
+    requirements: evaluated.requirements, eligible: evaluated.eligible,
+    ...(active !== undefined ? { enabled: enabledOf(active, harness), active: { ...active } } : {}),
+    ...(primary !== undefined ? { primary } : {}),
+  };
 }
 
 /**
@@ -670,6 +691,7 @@ module.exports = {
   capabilityRequirement,
   requirementsFor,
   eligibility,
+  enabledOf,
   describe,
   select,
 };

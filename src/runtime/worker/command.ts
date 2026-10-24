@@ -554,10 +554,22 @@ async function executeWorkerCommand({
     switch (action) {
       case 'discover': body = readiness.discover(common); break;
       case 'probe': body = await readiness.probe({ ...atRoot, coverage: cov, needs, harness: given(harness) ? String(harness) : undefined, modelCheck: given(modelCheck) ? String(modelCheck) : undefined, budgetTokens: digits(budgetTokens, '--budget-tokens', 1) }); break;
-      case 'describe':
+      case 'describe': {
         if (!given(harness)) throw usage('--action describe needs --harness');
-        body = readiness.describe({ ...atRoot, coverage: cov, harness: String(harness), needs, edit: given(edit) });
+        let primary: any;
+        try {
+          const { resolvePrimary } = require('../context/primary.ts');
+          primary = resolvePrimary({ env, projectRoot: cwd, registry: reg });
+        } catch (error: any) {
+          primary = { state: 'unavailable', message: error?.message || String(error) };
+        }
+        body = readiness.describe({
+          ...atRoot, coverage: cov, harness: String(harness), needs, edit: given(edit),
+          active: activeWorkers({ registry: reg, env, projectRoot: root }),
+          primary,
+        });
         break;
+      }
       case 'select': body = readiness.select({ ...atRoot, coverage: cov, harness: given(harness) ? String(harness) : undefined, needs, edit: given(edit), active: activeWorkers({ registry: reg, env, projectRoot: root }) }); break;
       case 'run': {
         const feature = featureOf(slug, resolveSlug, cwd);
