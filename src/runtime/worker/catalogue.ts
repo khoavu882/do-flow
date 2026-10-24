@@ -38,7 +38,12 @@ function workerCatalogue({ registry, view, repoRoot = REPO_ROOT }: any = {}): Ar
   try {
     const { packageView } = require('../packages/view.ts');
     const { MANIFEST_FILE } = require('../packages/manifest.ts');
+    const { readState } = require('../packages/state.ts');
+    const { readGrants } = require('../packages/grants.ts');
     const v = view || packageView({ repoRoot });
+    const stateRead = v.stateRead || readState({ homeDir: v.homeDir });
+    const grants = v.grants || readGrants({ env: v.env, ...(v.tmpDir !== undefined ? { tmpDir: v.tmpDir } : {}) });
+
     for (const pkg of v.packages || []) {
       if (pkg.state !== 'active' || !pkg.storeDir) continue;
       let manifest: any;
@@ -51,6 +56,27 @@ function workerCatalogue({ registry, view, repoRoot = REPO_ROOT }: any = {}): Ar
       for (const c of contributions) {
         if (c.point !== 'worker' || c.version !== 1 || typeof c.id !== 'string' || typeof c.file !== 'string') continue;
         const qid = `${pkg.id}.${c.id}`;
+
+        // D.4: Tombstone check against rebind
+        const tombstone = (stateRead.state?.removed || []).find((r: any) => r.package === pkg.id && Array.isArray(r.qualifiedIds) && r.qualifiedIds.includes(qid));
+        if (tombstone) {
+          const trustLines = (grants.grants || []).filter((g: any) => g.grant === 'trust' && g.package === pkg.id && Array.isArray(g.rebind) && g.rebind.includes(qid));
+          const rebound = trustLines.some((g: any) => Date.parse(g.at) > Date.parse(tombstone.at));
+          if (!rebound) {
+            if (Array.isArray(v.findings)) {
+              v.findings.push({
+                package: pkg.id,
+                field: `contributions.${c.id}`,
+                code: 'rebind-required',
+                severity: 'warning',
+                message: `worker '${qid}' was removed and needs confirmation via rebind in a trust line`,
+                allowed: `a trust grant with "rebind": ["${qid}"] dated after ${tombstone.at}`,
+              });
+            }
+            continue;
+          }
+        }
+
         const workerFile = path.resolve(pkg.storeDir, c.file);
         if (!workerFile.startsWith(path.resolve(pkg.storeDir) + path.sep)) continue;
         let rawWorker: any;

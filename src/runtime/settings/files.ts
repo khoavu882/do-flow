@@ -14,6 +14,7 @@
  */
 
 const nodeFs = require('node:fs');
+const { workerIdFault } = require('../../registry/worker-ids.ts');
 
 /** A file larger than this is a layer fault, not a read (data-model §2). */
 const MAX_BYTES = 65536;
@@ -85,7 +86,7 @@ function validateWorkerBilling(value: unknown): ValueFault | null {
   const ids = Object.keys(value);
   if (ids.length < 1 || ids.length > BILLING_MAX_ENTRIES) return { code: 'range', reason: `must hold 1 to ${BILLING_MAX_ENTRIES} worker entries` };
   for (const id of ids) {
-    if (!WORKER_ID_RE.test(id)) return { code: 'type', reason: 'has an entry key that is not a worker id (lowercase letters, digits and hyphens)' };
+    if (workerIdFault(id) !== null) return { code: 'type', reason: 'has an entry key that is not a worker id (lowercase letters, digits and hyphens)' };
     const entry = value[id];
     const at = `entry '${id}'`;
     if (!isObject(entry)) return { code: 'type', reason: `${at} must be an object` };

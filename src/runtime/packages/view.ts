@@ -293,7 +293,7 @@ function withLock(bundled: { packages: any[]; points: any[]; findings: any[] }, 
     packages = [...packages, one.state];
     findings.push(...one.findings);
   }
-  return { packages, points: bundled.points, findings };
+  return { packages, points: bundled.points, findings, stateRead, grants, homeDir: o.home, env: o.env, tmpDir: o.tmpDir };
 }
 
 const DISABLED_KEY = 'packages.disabled';

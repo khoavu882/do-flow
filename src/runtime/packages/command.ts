@@ -282,8 +282,10 @@ function handlePlan({ action, source, index, packageVersion, id, json, repoRoot,
 const grantTime = (when: number): string => new Date(when).toISOString().replace(/\.\d+Z$/, 'Z');
 
 /** The `trust` line for a package's recorded digests; key order is the IC-008 order the plan prints. */
-function trustLineFor(row: { id: string; version: string; contentDigest: string; capabilityDigest: string }, policy: number, now: number): string {
-  return JSON.stringify({ grant: 'trust', package: row.id, version: row.version, contentDigest: row.contentDigest, capabilityDigest: row.capabilityDigest, policy, at: grantTime(now) });
+function trustLineFor(row: { id: string; version: string; contentDigest: string; capabilityDigest: string }, policy: number, now: number, rebind?: string[]): string {
+  const line: any = { grant: 'trust', package: row.id, version: row.version, contentDigest: row.contentDigest, capabilityDigest: row.capabilityDigest, policy, at: grantTime(now) };
+  if (rebind && rebind.length > 0) line.rebind = rebind;
+  return JSON.stringify(line);
 }
 
 /** The trust policy version the running DoFlow's point registry declares. */
@@ -310,7 +312,9 @@ function priorGrant(o: any, line: string): { status: 'new' | 'granted' | 'replac
   const read = readGrants({ env: o.env, projectRoot: o.projectRoot, ...(o.tmpDir === undefined ? {} : { tmpDir: o.tmpDir }) });
   const same = read.grants.find((g: any) => duplicateKey(g) === duplicateKey(grant));
   if (!same) return { status: 'new' };
-  const holds = (grant.grant !== 'exempt' || same.host === grant.host) && !grantRevoked(readState({ homeDir: o.homeDir }), same);
+  const holds = (grant.grant !== 'exempt' || same.host === grant.host)
+    && !grantRevoked(readState({ homeDir: o.homeDir }), same)
+    && (!grant.rebind || (Array.isArray(same.rebind) && grant.rebind.every((id: string) => same.rebind.includes(id))));
   return { status: holds ? 'granted' : 'replace', lineNumber: same.line };
 }
 
@@ -611,14 +615,36 @@ function verbTrust(o: any, pkg: any): number {
     return finishRuntime(0);
   }
   const row = rowOf(o, pkg.id);
+  const stateRead = readState({ homeDir: o.homeDir });
+  const tombstone = (stateRead.state?.removed || []).find((r: any) => r.package === pkg.id);
+  let rebind: string[] | undefined;
+  let rebindLines: string[] = [];
+  if (tombstone) {
+    const workerContributions = (pkg.contributions || []).filter((c: any) => c.point === 'worker').map((c: any) => c.qualifiedId);
+    const tombstonedIds = workerContributions.filter((id: string) => Array.isArray(tombstone.qualifiedIds) && tombstone.qualifiedIds.includes(id));
+    if (tombstonedIds.length > 0) {
+      const grants = readGrants({ env: o.env, projectRoot: o.projectRoot, ...(o.tmpDir === undefined ? {} : { tmpDir: o.tmpDir }) });
+      const trustLines = grants.grants.filter((g: any) => g.grant === 'trust' && g.package === pkg.id && Array.isArray(g.rebind));
+      const latestRebind = trustLines.find((g: any) => Date.parse(g.at) > Date.parse(tombstone.at) && tombstonedIds.every((id: string) => g.rebind.includes(id)));
+      if (!latestRebind) {
+        rebind = tombstonedIds;
+        const scan = scanReferences(o, new Set(tombstonedIds), ['workers.billing', 'workers.enabled', 'workers.models']);
+        for (const d of scan.dangling.filter((item: any) => item.kind === 'setting')) {
+          rebindLines.push(`rebind setting would apply again: ${d.layer} ${d.key} = ${JSON.stringify(d.value)}`);
+        }
+      }
+    }
+  }
   // The capability digest the view judges a grant against (recomputed under the running policy), not the lock's copy.
-  const line = trustLineFor({ ...row, capabilityDigest: pkg.capabilityDigest }, trustPolicy(o.repoRoot), o.now);
+  const line = trustLineFor({ ...row, capabilityDigest: pkg.capabilityDigest }, trustPolicy(o.repoRoot), o.now, rebind);
   const prior = priorGrant(o, line);
   const required = TIER_ORDER.indexOf(pkg.tierMax) > 0;
-  if (o.json) o.out(JSON.stringify({ ok: true, action: 'trust', id: pkg.id, required, ...priorJson('trust', line, prior), grantFile: grantsPath(o.env) }));
-  else {
+  if (o.json) {
+    o.out(JSON.stringify({ ok: true, action: 'trust', id: pkg.id, required, ...(rebind ? { rebind } : {}), ...priorJson('trust', line, prior), grantFile: grantsPath(o.env) }));
+  } else {
     if (!required) o.out(`${pkg.id} is inert: no grant is required, the line below is only needed if its tier changes`);
     for (const text of appendInstruction(o.env, line, `${pkg.id} ${row.version} acts when its recorded digests are trusted`, prior)) o.out(text);
+    for (const text of rebindLines) o.out(text);
   }
   return finishRuntime(0);
 }
@@ -713,7 +739,12 @@ function findingsFiles(projectRoot: string): string[] {
 function scanReferences(o: any, ids: Set<string>, keys: string[]): { dangling: any[]; unscanned: any[] } {
   const dangling: any[] = [];
   const unscanned: any[] = [];
-  const names = (value: any): boolean => (typeof value === 'string' ? ids.has(value) : Array.isArray(value) && value.some((item: any) => ids.has(item)));
+  const names = (value: any): boolean => {
+    if (typeof value === 'string') return ids.has(value);
+    if (Array.isArray(value)) return value.some((item: any) => ids.has(item));
+    if (value && typeof value === 'object') return Object.keys(value).some((key) => ids.has(key));
+    return false;
+  };
   if (keys.length > 0) {
     const { loadSettingsRegistry } = require('../settings/registry.ts');
     const { readLayerFile } = require('../settings/files.ts');
