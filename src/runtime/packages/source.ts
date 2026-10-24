@@ -3,10 +3,10 @@
 /**
  * Parse package source specs for IC-022: local paths, git URLs and npm names.
  * Unsupported schemes and URL credentials are refused as `bad-type`. This module
- * dispatches remote fetches through `fetch.ts`; the caller supplies the staging directory.
+ * dispatches git and pinned npm fetches through `fetch.ts`; the caller supplies the staging directory.
  */
 
-const { pinGit, fetchGit } = require('./fetch.ts');
+const { pinGit, fetchGit, pinNpm, fetchNpm } = require('./fetch.ts');
 
 type RemoteSource =
   | { type: 'git'; url: string; ref: string; path?: string }
@@ -69,7 +69,8 @@ function fetchGrantLine(source: RemoteSource, at: string): string {
 
 function pinSource(source: any, opts: any): any {
   if (source?.type === 'git') return pinGit(source, opts);
-  const message = source?.type === 'npm' ? 'npm fetch arrives with a later DoFlow' : 'source cannot be pinned';
+  if (source?.type === 'npm') return pinNpm(source, opts);
+  const message = 'source cannot be pinned';
   return {
     ok: false,
     finding: { package: null, field: 'source', code: 'bad-type', severity: 'error', message, allowed: ALLOWED },
@@ -78,7 +79,8 @@ function pinSource(source: any, opts: any): any {
 
 function fetchSource(pinned: any, opts: any): any {
   if (pinned?.type === 'git') return fetchGit(pinned, opts);
-  const message = pinned?.type === 'npm' ? 'npm fetch arrives with a later DoFlow' : 'source cannot be fetched';
+  if (pinned?.type === 'npm') return fetchNpm(pinned, opts);
+  const message = 'source cannot be fetched';
   return {
     ok: false,
     findings: [{ package: null, field: 'source', code: 'bad-type', severity: 'error', message, allowed: ALLOWED }],
