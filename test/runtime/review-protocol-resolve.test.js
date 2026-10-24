@@ -310,13 +310,27 @@ test('enforcement: one row per distinct read-only seat agent, in seat order, fro
   assert.deepEqual([...new Set(mixed.protocol.enforcement.map((row) => row.agent))], ['reviewer']);
 });
 
-test('enforcement: an unreadable harness registry or agent spec is refused, not an empty enforcement', (t) => {
-  const none = loadEnforcementInputs({ presets: { x: { seats: [{ agent: 'no-such-agent' }] } } });
-  assert.equal(none.error, 'protocols-invalid');
-  assert.match(none.message, /no-such-agent/);
+test('enforcement: an unreadable harness registry is refused, not an empty enforcement', (t) => {
   const empty = loadEnforcementInputs(REGISTRY, { harnessesFile: path.join(tempDir(t), 'doflow-no-such-harnesses.json') });
   assert.equal(empty.error, 'protocols-invalid');
   assert.match(empty.message, /harnesses/);
+});
+
+test('enforcement: an agent whose access cannot be read is unknown, never write and never a refusal; the binding stands', (t) => {
+  const undeclared = loadEnforcementInputs({ presets: { x: { seats: [{ agent: 'no-such-agent' }] } } });
+  assert.equal('error' in undeclared, false, JSON.stringify(undeclared));
+  assert.equal(undeclared.agentAccess['no-such-agent'], 'unknown');
+  const noFile = loadEnforcementInputs(REGISTRY, { workflowsFile: path.join(tempDir(t), 'doflow-no-such-workflows.json') });
+  assert.equal(noFile.agentAccess.reviewer, 'unknown');
+  const { protocol } = resolve({ taskClass: 'feature', ...noFile });
+  assert.ok(protocol.seats.every((seat) => seat.agent === 'reviewer'), 'the seat binding is kept');
+  assert.deepEqual(protocol.enforcement.map((row) => [row.agent, row.harness, row.status]), HARNESS_ORDER.map((id) => ['reviewer', id, 'unknown']));
+  assert.ok(protocol.enforcement.every((row) => /reviewer.*not declared in core\/registry\/workflows\.json agents\.access/.test(row.reason)));
+  assert.equal(protocolLines(protocol).find((line) => line.startsWith('protocol.enforcement:')),
+    `protocol.enforcement: reviewer native= unenforced= unknown=${HARNESS_ORDER.join(',')}`);
+  // An agent the caller's access map leaves out is unknown too, not dropped like a write agent.
+  const partial = resolve({ taskClass: 'feature', agentAccess: {}, readOnlyLimits: [{ harness: 'h1', status: 'native', reason: null }] });
+  assert.deepEqual(partial.protocol.enforcement.map((row) => row.status), ['unknown']);
 });
 
 test('protocolLines: one enforcement line per read-only agent, harness ids grouped by status', () => {

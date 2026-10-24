@@ -38,13 +38,18 @@ function gateMinSeats(gatePolicy: any, taskClass: string | null): number {
 
 /**
  * 119 FR-008: one `{ agent, harness, status, reason }` row per read-only seat agent (seat order, each once) x harness
- * (registry order). `agentAccess` is `{ <agent>: 'read-only'|'write' }`, `readOnlyLimits` the ordered
- * `[{ harness, status, reason }]` the caller loaded; a caller that passes neither gets no rows.
+ * (registry order). `agentAccess` is `{ <agent>: 'read-only'|'write'|'unknown' }`, `readOnlyLimits` the ordered
+ * `[{ harness, status, reason }]` the caller loaded; a caller that passes neither gets no rows. An agent whose access
+ * is unknown (absent counts as unknown) gets rows too, `status: unknown` with the reason, so a seat whose access the
+ * runtime cannot read is reported as such rather than dropped like a write agent.
  */
 function enforcementRows(seats: any[], agentAccess: any, readOnlyLimits: any): any[] {
   if (!agentAccess || !Array.isArray(readOnlyLimits)) return [];
-  const agents = [...new Set<string>(seats.map((seat: any) => seat.agent))].filter((agent) => agentAccess[agent] === 'read-only');
-  return agents.flatMap((agent) => readOnlyLimits.map((limit: any) => ({ agent, harness: limit.harness, status: limit.status, reason: limit.reason ?? null })));
+  const access = (agent: string) => (agentAccess[agent] === 'read-only' || agentAccess[agent] === 'write' ? agentAccess[agent] : 'unknown');
+  const agents = [...new Set<string>(seats.map((seat: any) => seat.agent))].filter((agent) => access(agent) !== 'write');
+  return agents.flatMap((agent) => readOnlyLimits.map((limit: any) => (access(agent) === 'read-only'
+    ? { agent, harness: limit.harness, status: limit.status, reason: limit.reason ?? null }
+    : { agent, harness: limit.harness, status: 'unknown', reason: `the access of agent '${agent}' is not declared in core/registry/workflows.json agents.access` })));
 }
 
 /** The review preset id carrying a depth label, or undefined. */
@@ -232,7 +237,7 @@ function protocolLines(protocol: any): string[] {
     ...[...new Set<string>((protocol.enforcement ?? []).map((row: any) => row.agent))].map((agent) => {
       const rows = protocol.enforcement.filter((row: any) => row.agent === agent);
       const ids = (status: string) => rows.filter((row: any) => row.status === status).map((row: any) => row.harness).join(',');
-      return `protocol.enforcement: ${agent} native=${ids('native')} unenforced=${ids('unenforced')}`;
+      return `protocol.enforcement: ${agent} native=${ids('native')} unenforced=${ids('unenforced')}${ids('unknown') ? ` unknown=${ids('unknown')}` : ''}`;
     }),
     // A review's rule values and the project's blocker clauses, in full (C-5); a debate has none. A control
     // character in a clause is escaped (\u00XX) so a clause cannot start a forged protocol line.
