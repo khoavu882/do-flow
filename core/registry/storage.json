@@ -714,6 +714,46 @@
       ]
     },
     {
+      "id": "model-observations",
+      "root": "config-home",
+      "path": "session-env/primary",
+      "entry": "dir",
+      "match": "^[0-9a-f]{16}$",
+      "rule": "age",
+      "bound": {
+        "maxAgeDays": 7
+      },
+      "protect": null,
+      "moments": [
+        "session",
+        "verb"
+      ],
+      "writers": [
+        "core/harnesses/shared/hooks/bridge/observe-model.sh"
+      ]
+    },
+    {
+      "id": "worker-model-observations",
+      "root": "config-home",
+      "path": "session-env/worker-model",
+      "entry": "file",
+      "match": "^L\\.[A-Za-z0-9][A-Za-z0-9_-]{0,55}\\.[A-Za-z0-9][A-Za-z0-9_-]{0,55}\\.[1-9][0-9]{0,3}\\.json$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 1000,
+        "maxAgeDays": 7,
+        "either": true
+      },
+      "protect": "unfinished-run",
+      "moments": [
+        "session",
+        "verb"
+      ],
+      "writers": [
+        "core/harnesses/shared/hooks/bridge/observe-model.sh"
+      ]
+    },
+    {
       "id": "installer-backups-user-doflow",
       "root": "user-doflow",
       "path": "backups",

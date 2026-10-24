@@ -7,7 +7,7 @@ const path = require('node:path');
 const { randomBytes } = require('node:crypto');
 const { formatBound } = require('./registry.ts');
 const { resolveStorePath } = require('./roots.ts');
-const { selectCandidates, recordStillCandidate, protectedLogs, removableRules, ruleOrder, projectRoot } = require('./rules.ts');
+const { selectCandidates, recordStillCandidate, protectedLogs, unfinishedRuns, removableRules, ruleOrder, projectRoot } = require('./rules.ts');
 const { retainLocked } = require('../lifecycle/store-upkeep.ts');
 const { parseWindow, selectExpired } = require('../lifecycle/retention.ts');
 const { readEvents } = require('../lifecycle/event-store.ts');
@@ -221,6 +221,13 @@ function runPass({registry,roots,stores,mode,setting={},now=Date.now(),budgetMs,
       }
       row.protected=candidates.filter((c: any)=>protectedSet.has(c.name)).length;
       candidates=candidates.filter((c: any)=>!protectedSet.has(c.name));
+    }
+    if (store.protect==='unfinished-run' && candidates.length) {
+      // Fails closed: a file whose run cannot be shown terminal is kept, never reported as a failure.
+      const kept=unfinishedRuns({roots,fsImpl,names:candidates.map((c: any)=>c.name),shouldStop});
+      if (kept.incomplete) { result.partial=true; break; }
+      row.protected=candidates.filter((c: any)=>kept.names.has(c.name)).length;
+      candidates=candidates.filter((c: any)=>!kept.names.has(c.name));
     }
     const orderedCandidates=store.entry==='record' ? removalOrder(candidates)
       : [...candidates].sort((a,b)=>a.mtimeMs-b.mtimeMs || a.name.localeCompare(b.name));

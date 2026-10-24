@@ -297,6 +297,8 @@ function runScenario() {
         : JSON.stringify(payload),
     });
     const target = ['--force', '--target', TARGETS];
+    const bridge = path.join(mirror, '.doflow/shared/hooks/bridge/bridge.sh');
+    const modelPayload = JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'g26-session', cwd: project, model: 'gpt-5.1' });
     const enableAdvice = "const fs=require('node:fs'),path=require('node:path');const f=path.join(process.env.XDG_CONFIG_HOME,'doflow','decision-model.json');fs.writeFileSync(f,JSON.stringify({schema:1,enabled:true,provider:'ollama',endpoint:'http://127.0.0.1:9',model:'clef-flash'})+'\\n');";
     // The bash summary store (feature 078): a scoped summary write and its owner claim, then a grant
     // seeded where grantSummary() would write it and claimed by rename.
@@ -420,6 +422,10 @@ writeIntent(path.join(process.argv[1], '.doflow/state/roadmap/intents/113.json')
       ['summary-store.sh write and claim', summaryStore(summaryWriteClaim), 0],
       ['summary-store.sh grant claim', summaryStore(grantWriteClaim), 0],
       ['post-edit-lint.sh', hook(path.join(mirror, '.claude/hooks/post-edit-lint.sh'), { ...sessionPayload, tool_name: 'Edit', tool_input: { file_path: path.join(project, 'f.js') } }), 0],
+      // The shared bridge's observe-model step (row 120 IC-005): a codex payload naming a model, once as
+      // the main session and once as a launched worker, writes one file in each observation store.
+      ['bridge observe-model main', { cmd: '/bin/bash', args: [bridge, 'codex', 'PreToolUse', 'mcp-tool-guard'], input: modelPayload }, 0],
+      ['bridge observe-model worker', { cmd: '/usr/bin/env', args: ['DOFLOW_SESSION_ROLE=worker', 'DOFLOW_RUN_ID=g26', 'DOFLOW_LINEAGE_ID=w', 'DOFLOW_ATTEMPT=1', '/bin/bash', bridge, 'codex', 'PreToolUse', 'mcp-tool-guard'], input: modelPayload }, 0],
       ['project install', cli('install', project, ...target, '--mcp', 'none'), 0],
       ['project update', cli('update', project, ...target), 0],
       ['global install', cli('install', '-g', ...target, '--mcp', 'none'), 0],
