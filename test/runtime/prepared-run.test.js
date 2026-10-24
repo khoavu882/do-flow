@@ -73,13 +73,13 @@ test('the text form prints prepared run: valid (<file>), or one <key>: <message>
   const ok = f.run(['config', 'validate', '--prepared-run', good], { env: BARE_PATH });
   assert.equal(ok.status, 0, ok.stderr);
   assert.equal(ok.stdout.trim(), `prepared run: valid (${good})`);
-  const bad = prepared({ schema: 1, taskClass: 'nope', primary: {} });
+  const bad = prepared({ schema: 1, taskClass: 'nope', workers: [] });
   const refused = f.run(['config', 'validate', '--prepared-run', bad], { env: BARE_PATH });
   assert.equal(refused.status, 1);
   const lines = refused.stderr.trim().split('\n');
   assert.equal(lines.length, 2, refused.stderr);
   assert.ok(lines[0].startsWith('taskClass: '), lines[0]);
-  assert.ok(lines[1].startsWith('primary: '), lines[1]);
+  assert.ok(lines[1].startsWith('workers: '), lines[1]);
 });
 
 test('an unknown task class is refused as taskClass enum, listing the registry classes', (t) => {
@@ -183,23 +183,73 @@ test('settings entries: unknown key, security-relevant key and a key not settabl
   assert.deepEqual(codes, { 'settings.no.such.key': 'unknown-key', [`settings.${security}`]: 'security', [`settings.${global}`]: 'scope' });
 });
 
-test('primary and workers are reserved for a later release; any other top-level key is unknown-key', (t) => {
+test('primary fields use project-layer config validation', (t) => {
+  const { validate } = setup(t);
+  const harness = validate({ ...VALID(), primary: { harness: 'nope' } });
+  assert.equal(harness.json.errors.length, 1);
+  const harnessEntry = entryFor(harness, 'primary.harness');
+  assert.equal(harnessEntry.code, 'enum');
+  assert.equal(harnessEntry.layer, 'project');
+
+  const model = validate({ ...VALID(), primary: { model: '-x' } });
+  assert.equal(model.json.errors.length, 1);
+  const modelEntry = entryFor(model, 'primary.model');
+  assert.equal(modelEntry.code, 'type');
+  assert.equal(modelEntry.layer, 'project');
+
+  const valid = validate({ ...VALID(), primary: { harness: 'codex', model: 'gpt-6-luna' } });
+  assert.equal(valid.status, 0, `${valid.stdout}${valid.stderr}`);
+  assert.deepEqual(valid.json, { ok: true, errors: [] });
+});
+
+test('primary accepts an empty object, rejects unknown fields and non-objects', (t) => {
+  const { validate } = setup(t);
+  const empty = validate({ ...VALID(), primary: {} });
+  assert.equal(empty.status, 0, `${empty.stdout}${empty.stderr}`);
+  assert.deepEqual(empty.json, { ok: true, errors: [] });
+
+  const unknown = validate({ ...VALID(), primary: { harness: 'codex', bogus: 1 } });
+  assert.equal(unknown.json.errors.length, 1);
+  const unknownEntry = entryFor(unknown, 'primary.bogus');
+  assert.equal(unknownEntry.code, 'unknown-key');
+  assert.equal(unknownEntry.layer, null);
+
+  const array = validate({ ...VALID(), primary: [] });
+  assert.equal(array.json.errors.length, 1);
+  const arrayEntry = entryFor(array, 'primary');
+  assert.equal(arrayEntry.code, 'type');
+  assert.equal(arrayEntry.layer, null);
+});
+
+test('primary and settings entries for the same key are judged independently', (t) => {
+  const { validate } = setup(t);
+  const result = validate({
+    ...VALID(),
+    primary: { harness: 'codex' },
+    settings: { 'primary.harness': 'nope' },
+  });
+  assert.equal(result.json.errors.length, 1);
+  const entry = entryFor(result, 'settings.primary.harness');
+  assert.equal(entry.code, 'enum');
+  assert.equal(entry.layer, 'project');
+});
+
+test('only workers is reserved; other unknown top-level keys remain unknown-key', (t) => {
   const { validate } = setup(t);
   const result = validate({ ...VALID(), primary: {}, workers: [], bogus: 1 });
   assert.equal(result.status, 1);
   assert.deepEqual(result.json.errors.map((e) => [e.key, e.code, e.layer]),
-    [['primary', 'unknown-key', null], ['workers', 'unknown-key', null], ['bogus', 'unknown-key', null]]);
-  assert.match(entryFor(result, 'primary').message, /reserved for a later release/);
+    [['workers', 'unknown-key', null], ['bogus', 'unknown-key', null]]);
   assert.match(entryFor(result, 'workers').message, /reserved for a later release/);
   assert.doesNotMatch(entryFor(result, 'bogus').message, /reserved/);
 });
 
 test('three faults in one file are three entries, all reported', (t) => {
   const { validate } = setup(t);
-  const result = validate({ schema: 1, taskClass: 'nope', settings: { 'review.rounds': 9 }, primary: {} });
+  const result = validate({ schema: 1, taskClass: 'nope', settings: { 'review.rounds': 9 }, workers: [] });
   assert.equal(result.status, 1);
   assert.deepEqual(result.json.errors.map((e) => `${e.key}:${e.code}`).sort(),
-    ['primary:unknown-key', 'settings.review.rounds:range', 'taskClass:enum']);
+    ['settings.review.rounds:range', 'taskClass:enum', 'workers:unknown-key']);
 });
 
 test('schema must be 1, taskClass is required, settings and presets must be objects', (t) => {

@@ -4,10 +4,11 @@
 
 /**
  * `doflow config validate --prepared-run <file>` (119 IC-010, FR-013, NFR-005). Checks a prepared-run file
- * `{ schema: 1, taskClass, settings: { <key>: <value> }, presets: { review, debate } }` and returns one IC-009
- * entry per fault, keyed by JSON path. It starts no harness, calls no model, runs no git, opens no network
- * connection and writes nothing. Each `settings` entry is judged exactly as `config validate <key> <value>
- * --layer project` (config-write.ts `keyEntry` + `layerEntry`), so no value rule is repeated here. The presets
+ * `{ schema: 1, taskClass, primary: { harness, model }, settings: { <key>: <value> }, presets: { review, debate } }`
+ * and returns one IC-009 entry per fault, keyed by JSON path. It starts no harness, calls no model, runs no git,
+ * opens no network connection and writes nothing. Each `settings` and `primary` entry is judged exactly as
+ * `config validate <key> <value> --layer project` (config-write.ts `keyEntry` + `layerEntry`), so no value
+ * rule is repeated here. The presets
  * are checked against what a run can know before there is a diff (L-E1): the risk-policy step of the protocol
  * resolution needs the diff and is not applied.
  */
@@ -19,9 +20,9 @@ const { keyEntry, layerFile, layerEntry } = require('./config-write.ts');
 const { loadProtocols, presetIds } = require('../review/protocols.ts');
 const { gateMinSeats, settingsPick } = require('../review/resolve-protocol.ts');
 
-/** Top-level names kept for a later release (IC-010): refused now, with their own message. */
-const RESERVED = new Set(['primary', 'workers']);
-const KNOWN = new Set(['schema', 'taskClass', 'settings', 'presets']);
+/** Top-level names kept for later releases; each is refused with its own message. */
+const RESERVED = new Set(['workers']);
+const KNOWN = new Set(['schema', 'taskClass', 'primary', 'settings', 'presets']);
 
 interface Entry { key: string; layer: string | null; ok: false; code: string; message: string; allowed: unknown }
 
@@ -66,6 +67,30 @@ function validatePrepared(doc: Record<string, any>, ctx: any): Entry[] {
     const fault = layerEntry(registry, key, 'project', where.file, { ok: true, value: settings[key] },
       { env: ctx.env, projectRoot: ctx.projectRoot, fsImpl: ctx.fsImpl, siblings: settings });
     if (fault) errors.push(named(fault));
+  }
+
+  const primary: Record<string, any> = isObject(doc.primary) ? doc.primary : {};
+  if (Object.hasOwn(doc, 'primary') && !isObject(doc.primary)) {
+    errors.push(entry('primary', null, 'type', 'primary must be an object with harness and model'));
+  } else if (Object.hasOwn(doc, 'primary')) {
+    for (const field of Object.keys(primary)) {
+      const key = `primary.${field}`;
+      if (field !== 'harness' && field !== 'model') {
+        errors.push(entry(key, null, 'unknown-key', `${field} is not a primary field; expected harness, model`));
+        continue;
+      }
+      const keyFault = keyEntry(registry, key, 'project', true);
+      if (keyFault) { errors.push(keyFault); continue; }
+      if (primary[field] === null) {
+        errors.push(entry(key, 'project', 'type', `${key} cannot be null; leave the key out`));
+        continue;
+      }
+      where ??= layerFile('project', ctx.env, ctx.projectRoot, ctx.fsImpl);
+      if ('error' in where) throw Object.assign(new Error(where.error), { usage: true });
+      const fault = layerEntry(registry, key, 'project', where.file, { ok: true, value: primary[field] },
+        { env: ctx.env, projectRoot: ctx.projectRoot, fsImpl: ctx.fsImpl, siblings: primary });
+      if (fault) errors.push(fault);
+    }
   }
 
   const presets: Record<string, any> = isObject(doc.presets) ? doc.presets : {};
