@@ -13,6 +13,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { validatePreset } = require('../review/protocols.ts');
+const { skillValidator, agentValidator } = require('./instruction.ts');
 
 const POINTS_FILE = 'core/registry/contribution-points.json';
 
@@ -42,6 +43,8 @@ function presetValidator(kind: string) {
 const POINT_VALIDATORS: Record<string, (id: string, entry: any, context?: any) => string[]> = Object.freeze({
   'review-preset-v1': presetValidator('review'),
   'debate-preset-v1': presetValidator('debate'),
+  'skill-v1': skillValidator,
+  'agent-v1': agentValidator,
 });
 
 function isObject(value: any): boolean {

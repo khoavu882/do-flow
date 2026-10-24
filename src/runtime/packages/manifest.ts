@@ -14,6 +14,7 @@ const { parseSemVer, parseHostRange, satisfiesHostRange } = require('../../helpe
 const { isPackageId, isLocalId, isReservedPackageId, qualifiedId } = require('../../helper/package-ids.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { loadPoints, judgeContribution, POINT_VALIDATORS } = require('./points.ts');
+const { judgeInstruction } = require('./instruction.ts');
 const { walkTree, digestFiles, capabilityDigest, SEGMENT, SEGMENT_GRAMMAR } = require('./digest.ts');
 const { duplicateKeys, loadProtocols, lensIds, coreTiers } = require('../review/protocols.ts');
 const { dominates } = require('../review/dominance.ts');
@@ -183,7 +184,14 @@ function checkManifest(input: any, options: any = {}): any[] {
     }
     const kind = given[0];
     const found = locate(entry[kind], `${where}.${kind}`, kind);
-    if (judged || !found || kind !== 'file' || !qid) return;
+    if (judged || !found || !qid) return;
+    if (point?.validator === 'skill-v1' || point?.validator === 'agent-v1') {
+      if (point.validator === 'agent-v1' && fsImpl.statSync(found).size > pointsRegistry.limits.fileBytes) return;
+      const instructionFindings = judgeInstruction(point.validator, entry.id, found, { packageId, fsImpl });
+      for (const item of instructionFindings) report(`${qid}${item.field}`, item.code, item.message, item.allowed);
+      return;
+    }
+    if (kind !== 'file') return;
     validateFile(found, entry, point, qid, context);
   }
 

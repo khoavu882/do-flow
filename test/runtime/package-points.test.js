@@ -76,12 +76,12 @@ test('the shipped registry is valid and holds the IC-002 facts', () => {
     'the first-party package (122 A.6); its digest is held to the directory by G68');
   assert.deepEqual(reg.points.map((p) => [p.id, p.status, p.tier]), [
     ['review-preset', 'open', 'inert'], ['debate-preset', 'open', 'inert'],
-    ['skill', 'reserved', 'instruction'], ['agent', 'reserved', 'instruction'],
+    ['skill', 'open', 'instruction'], ['agent', 'open', 'instruction'],
     ['worker', 'reserved', 'executable'], ['capability-provider', 'reserved', 'executable'],
   ]);
   const byId = Object.fromEntries(reg.points.map((p) => [p.id, p]));
-  assert.equal(byId.skill.opensWith, 'slice C');
-  assert.equal(byId.agent.opensWith, 'slice C');
+  assert.equal(byId.skill.validator, 'skill-v1');
+  assert.equal(byId.agent.validator, 'agent-v1');
   assert.equal(byId.worker.opensWith, 'slice D');
   assert.equal(byId['capability-provider'].opensWith, 'row 121');
   assert.deepEqual(byId['capability-provider'].versions, []);
@@ -95,7 +95,7 @@ test('the shipped registry is valid and holds the IC-002 facts', () => {
 });
 
 test('POINT_VALIDATORS is a literal map; the preset validators call validatePreset', () => {
-  assert.deepEqual(Object.keys(POINT_VALIDATORS).sort(), ['debate-preset-v1', 'review-preset-v1']);
+  assert.deepEqual(Object.keys(POINT_VALIDATORS).sort(), ['agent-v1', 'debate-preset-v1', 'review-preset-v1', 'skill-v1']);
   const protocols = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'protocols.json'), 'utf8'));
   const context = { lensIds: protocols.lenses.map((l) => l.id), hardRoundCap: protocols.hardRoundCap };
   const review = protocols.presets['review-deep'];
@@ -192,7 +192,7 @@ test('judgeContribution: undeclared, unsupported version and reserved points get
   assert.equal(undeclared.severity, 'error');
   assert.equal(undeclared.package, 'acme');
   assert.equal(undeclared.field, 'contributions[3].point');
-  assert.deepEqual(undeclared.allowed, ['review-preset', 'debate-preset']);
+  assert.deepEqual(undeclared.allowed, ['review-preset', 'debate-preset', 'skill', 'agent']);
 
   const version = judge({ point: 'review-preset', version: 2 });
   assert.equal(version.code, 'unsupported-point-version');
@@ -203,8 +203,8 @@ test('judgeContribution: undeclared, unsupported version and reserved points get
   assert.equal(reserved.code, 'point-reserved');
   assert.match(reserved.message, /row 121/);
   assert.equal(reserved.field, 'contributions[3].point');
-  assert.equal(judge({ point: 'skill', version: 1 }).code, 'point-reserved');
-  assert.match(judge({ point: 'skill', version: 1 }).message, /slice C/);
+  assert.equal(judge({ point: 'skill', version: 1 }), null);
+  assert.equal(judge({ point: 'agent', version: 1 }), null);
   assert.match(judge({ point: 'worker', version: 1 }).message, /slice D/);
   // Reserved wins over the version check: capability-provider has no version to compare.
   assert.equal(judge({ point: 'capability-provider', version: 9 }).code, 'point-reserved');

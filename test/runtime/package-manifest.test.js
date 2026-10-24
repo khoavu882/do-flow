@@ -86,7 +86,7 @@ test('one bad preset field plus one undeclared point gives exactly two findings 
   assert.deepEqual(invalid.allowed, ['light', 'standard', 'frontier']);
   assert.equal(undeclared.code, 'undeclared-point');
   assert.equal(undeclared.field, 'contributions[1].point');
-  assert.deepEqual(undeclared.allowed, ['review-preset', 'debate-preset']);
+  assert.deepEqual(undeclared.allowed, ['review-preset', 'debate-preset', 'skill', 'agent']);
   for (const f of result.findings) {
     assert.equal(f.package, 'acme');
     assert.equal(f.severity, 'error');
@@ -230,8 +230,9 @@ test('package-mode preset rules: depth, kind, agents, seat ids and the round cap
 });
 
 test('a reserved point, an unsupported point version and a wrong entry kind are refused', (t) => {
-  const reserved = checkManifest(manifestOf({ contributions: [{ point: 'skill', version: 1, id: 'triage', dir: 'skills/x' }] }), OPTIONS);
+  const reserved = checkManifest(manifestOf({ contributions: [{ point: 'worker', version: 1, id: 'triage', file: 'workers/x.json' }] }), OPTIONS);
   assert.deepEqual(codes(reserved), ['point-reserved']);
+  assert.match(reserved[0].message, /slice D/);
   const version = checkManifest(manifestOf({ contributions: [{ point: 'review-preset', version: 7, id: 'strict', file: 'a.json' }] }), OPTIONS);
   assert.deepEqual(version.map((f) => [f.code, f.allowed]), [['unsupported-point-version', [1]]]);
   const kind = checkManifest(manifestOf({ contributions: [{ point: 'review-preset', version: 1, id: 'strict', dir: 'presets' }] }), OPTIONS);
