@@ -349,6 +349,17 @@ function reachLines(o: any, pkg: any, targets: string[]): string[] {
  * scope only, planning the package targets alone, so the installed runtime (no DoFlow content) can run it. A fault is a
  * warning line and never changes the verb's exit code. Returns `{ lines, projected, unprojected, kept, warnings }`.
  */
+function packageHasProjection(homeDir: string, packageId: string): boolean {
+  try {
+    const { stateRoot, readLedger } = require('../../state/index.ts');
+    const root = stateRoot({ scope: 'global', projectRoot: homeDir, homeDir });
+    return (readLedger(root)?.resources ?? []).some((row: any) =>
+      typeof row.assetId === 'string' && row.assetId.startsWith(`pkg.${packageId}.`));
+  } catch {
+    return false;
+  }
+}
+
 function syncProjection(o: any): any {
   const result: any = { lines: [], projected: [], unprojected: [], kept: [], warnings: [] };
   const targets = globalTargets(o);
@@ -720,13 +731,14 @@ function verbVerify(o: any, ctx: any): number {
       const had = read.state.suspended.find((s: any) => s.package === p.id);
       if (p.state === 'suspended') {
         const reason = p.reasons[0];
-        recordSuspension({ homeDir: o.homeDir }, { packageId: p.id, reason, projected: had?.projected ?? false, since: had?.reason === reason ? had.since : stamp(o) });
+        recordSuspension({ homeDir: o.homeDir }, { packageId: p.id, reason, projected: packageHasProjection(o.homeDir, p.id), since: had?.reason === reason ? had.since : stamp(o) });
       } else if (had) clearSuspension({ homeDir: o.homeDir }, { packageId: p.id });
     }
     if (!repaired) audit(o, 'verify', '*', findings.length === 0 ? 'ok' : `findings:${findings.length}`);
   }
   // Projects what is active and unprojects what is not, a suspended package's among them (IC-017).
   const sync = syncProjection(o);
+  require('../../lifecycle/index.ts').settleSuspendedProjection({ homeDir: o.homeDir });
   if (o.json) o.out(JSON.stringify({ ok: findings.length === 0, action: 'verify', repaired, packages: checked.map((p: any) => ({ id: p.id, state: p.state, reasons: p.reasons })), findings, ...projectionJson(sync) }));
   else {
     for (const text of notes) o.out(text);

@@ -589,6 +589,7 @@ function packagesView({ projectRoot, fsImpl, env, homeDir, tmpDir }: any) {
     });
     return {
       grants: { path: grants.path, noConfigHome: grants.noConfigHome, exists: grants.exists, mtime: grants.mtime, rows, findings: grants.findings },
+      suspendedProjected: state.state.suspended.filter((item: any) => item.projected).map((item: any) => item.package).sort(),
       state: {
         path: state.path, exists: state.exists, unreadable: state.unreadable, findings: state.findings,
         revoked: state.state.revoked.length, suspended: state.state.suspended.length, removed: state.state.removed.length,
@@ -612,6 +613,9 @@ function printPackagesSection(packages: any) {
   }
   if (state.unreadable) console.log(`  state             ${state.path} is unreadable: every package counts as revoked (run: doflow package --action verify --repair)`);
   else if (state.revoked || state.suspended || state.removed) console.log(`  state             ${state.revoked} revoked, ${state.suspended} suspended, ${state.removed} removed (${state.path})`);
+  for (const id of packages.suspendedProjected ?? []) {
+    console.log(`  suspended         ${id} still has projected files (run: doflow package --action verify)`);
+  }
 }
 
 /** Whether the text report shows `[Packages]`: only when there is something to say. */

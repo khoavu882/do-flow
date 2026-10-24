@@ -1019,6 +1019,9 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
   const nextLedger = updateLedger({ ledger, scope: plan.scope, scopeRoot: plan.scopeRoot, verifications: verification.verifications, changes: plan.changes, recoveryRef: recovery.id });
   writeLedgerFn(stateRoot, nextLedger);
   writeRecoveryRecordFn(stateRoot, { ...recovery.record, status: 'verified', verification });
+  if (plan.scope === 'global' && plan.changes.some((change: any) => isPackageAsset(change.assetId))) {
+    settleSuspendedProjection({ homeDir: plan.scopeRoot });
+  }
   return { recovery, verification, ledger: nextLedger, retained: plan.retained ?? [] };
 }
 
@@ -1045,9 +1048,33 @@ function recordMcpOwnership({ plan, registry, adapters, stateRoot, ledger = plan
   return { ledger: next, recorded };
 }
 
+function settleSuspendedProjection({ homeDir }: any): void {
+  try {
+    const { readState, recordSuspension } = require('../runtime/packages/state.ts');
+    const { stateRoot, readLedger } = require('../state/index.ts');
+    const root = stateRoot({ scope: 'global', projectRoot: homeDir, homeDir });
+    const ledger = readLedger(root);
+    const read = readState({ homeDir });
+    if (!ledger || read.unreadable) return;
+    for (const suspension of read.state.suspended) {
+      if (!suspension.projected) continue;
+      const prefix = `pkg.${suspension.package}.`;
+      const stillProjected = ledger.resources.some((row: any) =>
+        typeof row.assetId === 'string' && row.assetId.startsWith(prefix));
+      if (!stillProjected) {
+        recordSuspension({ homeDir }, {
+          packageId: suspension.package, reason: suspension.reason, since: suspension.since, projected: false,
+        });
+      }
+    }
+  } catch {
+    // Settlement is best-effort and never blocks the verb that removed package rows.
+  }
+}
+
 function removeLifecycle(options: any) {
   const plan = planLifecycle({ ...options, context: { ...(options.context || {}), operation: 'remove' } });
   return applyLifecycle({ ...options, plan, mode: 'remove', acceptPrerequisites: options.acceptPrerequisites });
 }
 
-module.exports = { OPERATIONS, MCP_KEEP, recordMcpOwnership, isPackageAsset, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks, hookWiringStatus, markRetainedRemovals, retentionSummary, RUNTIME_TREE_ASSETS };
+module.exports = { OPERATIONS, MCP_KEEP, recordMcpOwnership, isPackageAsset, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks, hookWiringStatus, markRetainedRemovals, retentionSummary, RUNTIME_TREE_ASSETS, settleSuspendedProjection };
