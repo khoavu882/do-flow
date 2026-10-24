@@ -60,9 +60,12 @@ test('primary resolution follows ordered declaration, observation, and role rule
 
   f = setup(t);
   f.env.DOFLOW_PRIMARY_HARNESS = 'codex';
-  f.env.DOFLOW_PRIMARY_MODEL = '  gpt-X ';
+  f.env.DOFLOW_PRIMARY_MODEL = 'GPT-X';
   writeObservation(f, 'codex', 'gpt-x', '0123456789abcdef');
-  assert.equal(resolve(f).state, 'confirmed');
+  const confirmed = resolve(f);
+  assert.equal(confirmed.state, 'confirmed');
+  assert.equal(confirmed.declared.model, 'GPT-X');
+  assert.equal(confirmed.model, 'gpt-x');
 
   f = setup(t);
   f.env.DOFLOW_PRIMARY_HARNESS = 'codex';
