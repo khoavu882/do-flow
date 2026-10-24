@@ -7,10 +7,12 @@
  * A reserved point, an undeclared point or an unsupported version is a programming error and throws; a package
  * fault never does (FR-009): the entry is left out and, when the caller passes `problems`, named there.
  *
- * Phase A: the view holds the bundled first-party packages only. They are trusted at runtime and verified at
- * release (IC-015), so their entries go through the validator in core mode, which reads only the registries
- * under `core/registry/`; the package-mode extras (read-only agents, comparability) are checked by guard G68.
- * Phase B adds third-party packages and their package-mode validation here.
+ * First-party entries are trusted at runtime and verified at release (IC-015), so they go through the validator
+ * in core mode, which reads only the registries under `core/registry/`; the package-mode extras (read-only
+ * agents, comparability) are checked by guard G68. A third-party entry goes through `judgePackagePreset`, the
+ * package-mode validator `check` runs too (IC-014), so the two cannot disagree; its qualified id is
+ * `<package>.<local id>` (IC-003) and it is `firstParty: false`. Each package is judged alone: a fault in one
+ * leaves the others' entries in (FR-009).
  */
 
 const fs = require('node:fs');
@@ -18,17 +20,18 @@ const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { packageView } = require('./view.ts');
 const { loadPoints, POINT_VALIDATORS } = require('./points.ts');
-const { MANIFEST_FILE } = require('./manifest.ts');
+const { MANIFEST_FILE, judgePackagePreset, coreAgents } = require('./manifest.ts');
 const { loadCoreProtocols, lensIds } = require('../review/protocols.ts');
 
 const PRESET_KIND: Record<string, string> = { 'review-preset': 'review', 'debate-preset': 'debate' };
 
 /**
  * `Array<{ qualifiedId, localId, packageId, firstParty, data, dir, provenance: { contentDigest, source } }>`.
- * Options: `view` (a package view; default: the view of `repoRoot`), `repoRoot`, `fsImpl`, `protocols` (the core
- * registry, to skip a re-read), `problems` (an array that collects one message per left-out entry).
+ * Options: `view` (a package view; default: the view of `repoRoot`, built with `homeDir`, `env`, `projectRoot` and
+ * `tmpDir` when given), `repoRoot`, `fsImpl`, `protocols` (the core registry, to skip a re-read), `problems` (an
+ * array that collects one message per left-out entry).
  */
-function contributionsFor(pointId: string, pointVersion: number, { view, repoRoot = REPO_ROOT, fsImpl = fs, protocols, problems }: any = {}): any[] {
+function contributionsFor(pointId: string, pointVersion: number, { view, repoRoot = REPO_ROOT, fsImpl = fs, protocols, problems, homeDir, env, projectRoot, tmpDir }: any = {}): any[] {
   const loaded = loadPoints({ repoRoot, fsImpl });
   if (!loaded.ok) return []; // no point registry, no package: the view reports it
   const point = loaded.registry.points.find((p: any) => p.id === pointId);
@@ -39,9 +42,14 @@ function contributionsFor(pointId: string, pointVersion: number, { view, repoRoo
   const skip = (qualified: string, why: string): void => { problems?.push(`${pointId} contribution '${qualified}' is left out: ${why}`); };
   const validator = POINT_VALIDATORS[point.validator];
   let context: any = null;
+  let core: any = null;
+  const coreRegistry = (): any => {
+    core ??= protocols ? { ok: true, registry: protocols } : loadCoreProtocols({ repoRoot, fsImpl });
+    return core;
+  };
   const out: any[] = [];
-  for (const pkg of (view ?? packageView({ repoRoot, fsImpl })).packages) {
-    if (pkg.state !== 'active' || !pkg.storeDir || !pkg.firstParty) continue; // Phase B: third-party packages join here
+  for (const pkg of (view ?? packageView({ repoRoot, fsImpl, homeDir, env, projectRoot, tmpDir })).packages) {
+    if (pkg.state !== 'active' || !pkg.storeDir) continue;
     let entries: any[];
     try {
       entries = JSON.parse(fsImpl.readFileSync(path.join(pkg.storeDir, MANIFEST_FILE), 'utf8')).contributions;
@@ -51,7 +59,7 @@ function contributionsFor(pointId: string, pointVersion: number, { view, repoRoo
     }
     for (const entry of entries) {
       if (entry.point !== pointId || entry.version !== pointVersion) continue;
-      const qualified: string = entry.id; // the first-party package keeps bare built-in ids (IC-003)
+      const qualified: string = pkg.firstParty ? entry.id /* the first-party package keeps bare built-in ids (IC-003) */ : `${pkg.id}.${entry.id}`;
       if (point.entry !== 'file' || typeof entry.file !== 'string') { skip(qualified, 'not a file entry'); continue; }
       const file = path.resolve(pkg.storeDir, entry.file);
       if (!file.startsWith(path.resolve(pkg.storeDir) + path.sep)) { skip(qualified, `${entry.file} leaves the package`); continue; }
@@ -62,15 +70,19 @@ function contributionsFor(pointId: string, pointVersion: number, { view, repoRoo
         skip(qualified, `${entry.file} cannot be read as JSON (${error.message})`);
         continue;
       }
-      if (context === null) {
-        const core = protocols ? { ok: true, registry: protocols } : loadCoreProtocols({ repoRoot, fsImpl });
-        if (!core.ok) { skip(qualified, 'the core protocol registry is unusable'); continue; }
-        context = { lensIds: lensIds(core.registry), hardRoundCap: core.registry.hardRoundCap };
+      if (!coreRegistry().ok) { skip(qualified, 'the core protocol registry is unusable'); continue; }
+      if (pkg.firstParty) {
+        context ??= { lensIds: lensIds(core.registry), hardRoundCap: core.registry.hardRoundCap };
+        const errors: string[] = validator(entry.id, data, context);
+        if (errors.length > 0) { skip(qualified, errors.join('; ')); continue; }
+      } else {
+        const judged = judgePackagePreset(point.validator, entry.id, data, { protocols: core.registry, agents: coreAgents(repoRoot, fsImpl) });
+        const errors = [...(judged.depth ? [`presets.${entry.id}.depth is not allowed in a package preset`] : []), ...judged.errors];
+        if (errors.length === 0 && !judged.comparable) errors.push(`${qualified} dominates no core ${judged.kind} preset`);
+        if (errors.length > 0) { skip(qualified, errors.join('; ')); continue; }
       }
-      const errors: string[] = validator(entry.id, data, context);
-      if (errors.length > 0) { skip(qualified, errors.join('; ')); continue; }
       out.push({
-        qualifiedId: qualified, localId: entry.id, packageId: pkg.id, firstParty: true, data, dir: null,
+        qualifiedId: qualified, localId: entry.id, packageId: pkg.id, firstParty: pkg.firstParty, data, dir: null,
         provenance: { contentDigest: pkg.contentDigest, source: pkg.source },
       });
     }

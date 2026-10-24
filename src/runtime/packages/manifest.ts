@@ -57,7 +57,8 @@ function allowedOf(message: string): string | string[] {
  * visible there) or a parsed object. Options: `pointsRegistry` (a loaded point registry, required),
  * `hostVersion` (an unreadable one is `host-incompatible`: the range cannot be shown to hold), `bundled` (ids of the first-party manifests, which alone may use reserved and bare ids),
  * `root` (the package directory, to read contribution files), `protocols` (the core protocol registry;
- * default: the installed one), `repoRoot`, `fsImpl`. Returns the IC-004 findings.
+ * default: the installed one), `repoRoot`, `fsImpl`, `hostExempt` (a person `exempt` grant matched, IC-008: a host
+ * outside the range is then a `host-incompatible` warning, never an error). Returns the IC-004 findings.
  */
 function checkManifest(input: any, options: any = {}): any[] {
   const { pointsRegistry, hostVersion, root, repoRoot = REPO_ROOT, fsImpl = fs } = options;
@@ -120,7 +121,7 @@ function checkManifest(input: any, options: any = {}): any[] {
       else if (!hostVersion) {
         report('doflow', 'host-incompatible', 'the running DoFlow version cannot be read', manifest.doflow);
       } else if (!satisfiesHostRange(hostVersion, range)) {
-        report('doflow', 'host-incompatible', `DoFlow ${hostVersion} is outside the range ${manifest.doflow}`, manifest.doflow);
+        report('doflow', 'host-incompatible', `DoFlow ${hostVersion} is outside the range ${manifest.doflow}`, manifest.doflow, options.hostExempt === true ? 'warning' : 'error');
       }
     }
 
@@ -230,27 +231,48 @@ function checkManifest(input: any, options: any = {}): any[] {
     const protocols = context.protocols;
     if (!validator) return;
     if (kind && !protocols) { invalid(qid, 'the core protocol registry is unreadable, so a preset cannot be checked'); return; }
-    if (kind && isObject(parsed) && 'depth' in parsed) {
-      report(`${qid}.depth`, 'forbidden-field', 'depth is not allowed in a package preset (the depth vocabulary stays core)', 'omit the field');
-      parsed = { ...parsed };
-      delete parsed.depth;
+    let errors: string[];
+    let comparable: boolean | null = null;
+    if (kind) {
+      const judged = judgePackagePreset(point.validator, entry.id, parsed, { protocols, agents: context.agents });
+      if (judged.depth) report(`${qid}.depth`, 'forbidden-field', 'depth is not allowed in a package preset (the depth vocabulary stays core)', 'omit the field');
+      errors = judged.errors;
+      comparable = judged.comparable;
+    } else {
+      errors = validator(entry.id, parsed, {});
     }
-    const errors: string[] = validator(entry.id, parsed, kind
-      ? { mode: 'package', lensIds: lensIds(protocols), hardRoundCap: protocols.hardRoundCap, tiers: coreTiers(), agents: kind === 'review' ? context.agents.readOnly : context.agents.all }
-      : {});
     const prefix = `presets.${entry.id}`;
     for (const message of errors) {
       const token = message.split(' ')[0];
       invalid(token.startsWith(prefix) ? `${qid}${token.slice(prefix.length)}` : qid, message);
     }
     if (errors.length > 0 || !kind) return;
-    const tiers = coreTiers();
-    const comparable = Object.values<any>(protocols.presets).some((core) => core?.kind === kind
-      && dominates(parsed, core, { tiers, synthesizerStrength: protocols.synthesizerStrength }));
     if (!comparable) {
       report(qid, 'incomparable', `${qid} dominates no core ${kind} preset, so it cannot be ordered against them`, `a ${kind} preset that is at least as strict as one core ${kind} preset`);
     }
   }
+}
+
+/**
+ * One contributed preset in package mode (IC-014): the validator `check` runs on a package file, shared with the
+ * runtime seam (`contributionsFor`) so the two cannot disagree. `validatorKey` is the point's validator
+ * (`review-preset-v1` or `debate-preset-v1`), `protocols` the core registry, `agents` the `coreAgents` result.
+ * Returns `{ kind, depth, errors, comparable }`: `depth` says the preset carried the refused `depth` field (judged
+ * without it, as `check` reports it separately), `errors` are the validator messages, and `comparable` is whether
+ * it dominates at least one core preset of its kind (null while there are errors).
+ */
+function judgePackagePreset(validatorKey: string, localId: string, parsed: any, { protocols, agents }: any): { kind: string; depth: boolean; errors: string[]; comparable: boolean | null } {
+  const kind = PRESET_KIND[validatorKey];
+  const depth = isObject(parsed) && 'depth' in parsed;
+  let body = parsed;
+  if (depth) { body = { ...parsed }; delete body.depth; }
+  const tiers = coreTiers();
+  const errors: string[] = POINT_VALIDATORS[validatorKey](localId, body, {
+    mode: 'package', lensIds: lensIds(protocols), hardRoundCap: protocols.hardRoundCap, tiers, agents: kind === 'review' ? agents.readOnly : agents.all,
+  });
+  const comparable = errors.length > 0 ? null : Object.values<any>(protocols.presets).some((core) => core?.kind === kind
+    && dominates(body, core, { tiers, synthesizerStrength: protocols.synthesizerStrength }));
+  return { kind, depth, errors, comparable };
 }
 
 /**
@@ -294,4 +316,4 @@ function checkPackage(dir: string, options: any = {}): any {
   return result;
 }
 
-module.exports = { checkManifest, checkPackage, MANIFEST_FILE, MANIFEST_MAX_BYTES };
+module.exports = { checkManifest, checkPackage, judgePackagePreset, coreAgents, MANIFEST_FILE, MANIFEST_MAX_BYTES };
