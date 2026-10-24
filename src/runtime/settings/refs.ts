@@ -12,10 +12,11 @@
  *   advice.providerIds                    core/registry/advice.json  providers[].id
  *   advice.providerDefaultEndpoint        core/registry/advice.json  providers[id = advice.provider].defaultEndpoint
  *   storage.lifecycleEventsDefaultHours   core/registry/storage.json stores[lifecycle-events].bound.defaultHours
- *   protocols.reviewPresetIds             core/registry/protocols.json 'auto', then order.review
+ *   protocols.reviewPresetIds             core/registry/protocols.json 'auto', then order.review, then the review
+ *                                         presets active packages contribute (122 IC-014)
  *   protocols.reviewPresetOrder           core/registry/protocols.json order.review with 'auto' right after the
- *                                         preset of depth 'deep'
- *   protocols.debatePresetIds             core/registry/protocols.json order.debate
+ *                                         preset of depth 'deep'; never a contributed id
+ *   protocols.debatePresetIds             core/registry/protocols.json order.debate, then the contributed debate presets
  *   protocols.lensIds                     core/registry/protocols.json lenses[].id
  *
  * Where `auto` ranks: `auto` follows the risk rule, which picks the preset of depth `deep` or the one
@@ -23,6 +24,11 @@
  * pick. A preset at or above the deep one in order.review is at least as strict as anything `auto`
  * gives and ranks above it; every preset below the deep one ranks below it. A preset a package adds
  * above review-deep therefore needs no settings edit.
+ *
+ * A contributed preset (122 IC-014) is a value a person may name, never a rank: it is in the value lists and not in
+ * the order, so no strictest-pick path (`auto`, `order[0]`, the floor walk) can reach it, and the narrow-only fold
+ * compares it by dominance (resolve.ts). The contributed ids come from the merged view (`loadProtocols`) of the same
+ * runtime root, or from `createRefs({ protocols })`, a merged registry a caller passes; an unusable view adds none.
  *
  * protocols.json is held to `validateProtocols` before any of its refs resolves, so a ref never hands
  * out ids from a registry the review verbs would refuse. Sources are read on first use and cached for
@@ -33,13 +39,15 @@
 const nodeFs = require('node:fs');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
-const { validateProtocols } = require('../review/protocols.ts');
+const { validateProtocols, contributedPresetIds } = require('../review/protocols.ts');
 
 type RefKind = 'values' | 'order' | 'default';
 interface RefMeta { kind: RefKind; dependsOn: string[] }
 /** Values of the keys a ref depends on (`dependsOn`), by key name. */
 type Deps = Record<string, unknown>;
 type Source = (name: string) => any;
+/** The merged protocol registry (core plus active packages), or null when it cannot be loaded. */
+type Merged = () => any | null;
 
 const ADVICE_FILE = 'core/registry/advice.json';
 const STORAGE_FILE = 'core/registry/storage.json';
@@ -107,22 +115,28 @@ function idList(list: unknown, field: string): string[] {
   return list;
 }
 
-/** `review.preset` may be `auto` or any review preset id (IC-006). */
-function protocolsReviewPresetIds(source: Source): string[] {
-  return ['auto', ...fromProtocols(source, (data) => idList(data?.order?.review, 'order.review'))];
+/** The ids active packages contribute to `kind`, none when the merged view is unusable. */
+function contributed(merged: Merged, kind: string): string[] {
+  const registry = merged();
+  return registry ? contributedPresetIds(registry, kind) : [];
 }
 
-/** The `review.preset` values narrowest (strictest) first; the header says where `auto` goes and why. */
+/** `review.preset` may be `auto`, any core review preset id (IC-006) or a contributed one (122 IC-014). */
+function protocolsReviewPresetIds(source: Source, _deps: Deps, merged: Merged): string[] {
+  return ['auto', ...fromProtocols(source, (data) => idList(data?.order?.review, 'order.review')), ...contributed(merged, 'review')];
+}
+
+/** The `review.preset` values narrowest (strictest) first; the header says where `auto` goes and why. Core ids only. */
 function protocolsReviewPresetOrder(source: Source): string[] {
-  const order = protocolsReviewPresetIds(source).slice(1);
+  const order = fromProtocols(source, (data) => idList(data?.order?.review, 'order.review'));
   const presets = source(PROTOCOLS_FILE).presets;
   const deep = order.findIndex((id) => presets[id].depth === RISK_STRICTEST_DEPTH);
   if (deep === -1) throw new Error(`${PROTOCOLS_FILE} order.review has no preset of depth '${RISK_STRICTEST_DEPTH}'`);
   return [...order.slice(0, deep + 1), 'auto', ...order.slice(deep + 1)];
 }
 
-function protocolsDebatePresetIds(source: Source): string[] {
-  return fromProtocols(source, (data) => idList(data?.order?.debate, 'order.debate'));
+function protocolsDebatePresetIds(source: Source, _deps: Deps, merged: Merged): string[] {
+  return [...fromProtocols(source, (data) => idList(data?.order?.debate, 'order.debate')), ...contributed(merged, 'debate')];
 }
 
 function protocolsLensIds(source: Source): string[] {
@@ -132,7 +146,7 @@ function protocolsLensIds(source: Source): string[] {
   });
 }
 
-const RESOLVERS: Readonly<Record<string, (source: Source, deps: Deps) => unknown>> = Object.freeze({
+const RESOLVERS: Readonly<Record<string, (source: Source, deps: Deps, merged: Merged) => unknown>> = Object.freeze({
   'advice.providerIds': adviceProviderIds,
   'advice.providerDefaultEndpoint': adviceProviderDefaultEndpoint,
   'storage.lifecycleEventsDefaultHours': storageLifecycleEventsDefaultHours,
@@ -147,7 +161,7 @@ interface Refs {
   resolve(name: string, deps?: Deps): unknown;
 }
 
-function createRefs({ repoRoot = REPO_ROOT, fsImpl = nodeFs }: { repoRoot?: string; fsImpl?: any } = {}): Refs {
+function createRefs({ repoRoot = REPO_ROOT, fsImpl = nodeFs, protocols }: { repoRoot?: string; fsImpl?: any; protocols?: any } = {}): Refs {
   const cache = new Map<string, any>();
   const source: Source = (file) => {
     if (!cache.has(file)) {
@@ -158,10 +172,23 @@ function createRefs({ repoRoot = REPO_ROOT, fsImpl = nodeFs }: { repoRoot?: stri
     }
     return cache.get(file);
   };
+  let mergedRegistry: any;
+  const merged: Merged = () => {
+    if (mergedRegistry === undefined) {
+      if (protocols !== undefined) mergedRegistry = protocols;
+      else {
+        try {
+          const loaded = require('../review/protocols.ts').loadProtocols({ repoRoot, fsImpl });
+          mergedRegistry = loaded.ok ? loaded.registry : null;
+        } catch { mergedRegistry = null; }
+      }
+    }
+    return mergedRegistry;
+  };
   return {
     resolve(name, deps = {}) {
       if (!Object.hasOwn(RESOLVERS, name)) throw new Error(`unknown settings ref '${name}'`);
-      return RESOLVERS[name](source, deps);
+      return RESOLVERS[name](source, deps, merged);
     },
   };
 }

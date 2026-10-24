@@ -18,7 +18,9 @@
  *      skipped and the key falls through (FR-008, C7/C8/C13/C16);
  *   3. a narrowing comparison (project layers of a `narrow-only` key, any layer of a `combine:
  *      narrowest` key, env with `direction: narrow`) applies only a narrower value; an equal one is
- *      `redundant` and never takes the origin (C6), a wider one is `not-narrower`;
+ *      `redundant` and never takes the origin (C6), a wider one is `not-narrower`. A value the key's
+ *      order does not rank is never ranked (no `indexOf` of -1): a contributed `review.preset` (122
+ *      IC-014) is compared by dominance with the value below, anything else is `not-narrower`;
  *   3b. a `combine: union` key (a string-list) adds each valid candidate's items that are not yet present, in
  *      fold order; every contributor stays `decided`, a candidate adding nothing is `redundant`;
  *   4. anything else overrides, an equal value included (so the deciding file is the highest one that
@@ -129,10 +131,33 @@ function registryOrThrow(): any {
   throw error;
 }
 
-function rank(spec: any, value: any): number {
+/** The place of `value` in the key's order (narrowest first), or null when the order does not hold it. */
+function rank(spec: any, value: any): number | null {
   if (spec.order === 'ascending') return value;
   if (spec.order === 'descending') return -value;
-  return spec.order.indexOf(value);
+  const at = spec.order.indexOf(value);
+  return at === -1 ? null : at;
+}
+
+/**
+ * 122 IC-014: how much narrower the `review.preset` value `candidate` is than `lower` when one of them is a contributed
+ * preset (no rank): -1 narrower, 0 equal, null not narrower (no dominance relation is looser). `auto` stands for the
+ * picks the risk rule can make: a value is narrower than `auto` when it dominates the strictest of them (depth `deep`),
+ * and `auto` is narrower than a value only when the loosest of them (depth `single`) dominates it.
+ */
+function presetNarrowerBy(registry: any, candidate: string, lower: string): number | null {
+  if (!registry) return null;
+  const { atLeastAsStrict } = require('../review/resolve-protocol.ts');
+  const order: string[] = registry.order?.review ?? [];
+  const ofDepth = (depth: string): string | undefined => order.find((id) => registry.presets?.[id]?.depth === depth);
+  const geq = (a: string | undefined, b: string): boolean => a !== undefined && atLeastAsStrict(registry, 'review', a, b);
+  if (candidate === 'auto') return geq(ofDepth('single'), lower) ? -1 : null;
+  if (lower === 'auto') {
+    const deep = ofDepth('deep');
+    return deep !== undefined && geq(candidate, deep) ? -1 : null;
+  }
+  if (!geq(candidate, lower)) return null;
+  return geq(lower, candidate) ? 0 : -1;
 }
 
 const memo = new Map<string, any>();
@@ -142,31 +167,33 @@ function clearSettingsCache(): void {
   memo.clear();
 }
 
-interface LoadOptions { projectRoot?: string | null; global?: boolean; env?: Record<string, string | undefined>; registry?: any; fsImpl?: any }
+interface LoadOptions { projectRoot?: string | null; global?: boolean; env?: Record<string, string | undefined>; registry?: any; fsImpl?: any; protocols?: any }
 
 /**
  * @param projectRoot the project root DoFlow resolves for the verb (absolute; anything else means no
  *   project layers)
  * @param global `-g`: the global view, no project layers
  * @param registry a loaded settings registry; defaults to the shipped one (throws when unusable)
+ * @param protocols a merged protocol registry the `review.preset` fold compares contributed presets in; defaults to
+ *   the runtime's own merged view, loaded only when such a comparison happens
  */
-function loadSettings({ projectRoot = null, global = false, env = process.env, registry, fsImpl = nodeFs }: LoadOptions = {}): any {
+function loadSettings({ projectRoot = null, global = false, env = process.env, registry, fsImpl = nodeFs, protocols }: LoadOptions = {}): any {
   const { configHome } = require('../config-home.ts');
   const reg = registry ?? registryOrThrow();
   const home = configHome(env);
   const root = global ? null : absolute(projectRoot);
   let cacheKey: string | null = null;
-  if (env === process.env && fsImpl === nodeFs && !registry) {
+  if (env === process.env && fsImpl === nodeFs && !registry && protocols === undefined) {
     const bound = [...reg.keys.values()].filter((spec: any) => spec.env).map((spec: any) => env[spec.env.name] ?? null);
     cacheKey = JSON.stringify([global ? 'global' : 'project', root, home.dir, ...bound]);
     if (memo.has(cacheKey)) return memo.get(cacheKey);
   }
-  const view = buildView(reg, home, root, global, env, fsImpl);
+  const view = buildView(reg, home, root, global, env, fsImpl, protocols);
   if (cacheKey) memo.set(cacheKey, view);
   return view;
 }
 
-function buildView(registry: any, home: any, root: string | null, global: boolean, env: any, fsImpl: any): any {
+function buildView(registry: any, home: any, root: string | null, global: boolean, env: any, fsImpl: any, protocols: any): any {
   const { REGISTRY_FILE } = require('./registry.ts');
   const { REF_META } = require('./refs.ts');
   const { readLayerFile } = require('./files.ts');
@@ -181,6 +208,24 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
   const notes: SettingsNote[] = [];
   const seen = new Set<string>();
   const once = (tag: string): boolean => (seen.has(tag) ? false : (seen.add(tag), true));
+  let presetRegistry: any;
+  /** The rank delta of `candidate` over `lower` (negative: narrower), or null when neither rank nor dominance relates them. */
+  const narrowerBy = (spec: any, candidate: any, lower: any): number | null => {
+    const at = rank(spec, candidate);
+    const below = rank(spec, lower);
+    if (at !== null && below !== null) return at - below;
+    if (spec.orderRef !== 'protocols.reviewPresetOrder') return null;
+    if (presetRegistry === undefined) {
+      if (protocols !== undefined) presetRegistry = protocols;
+      else {
+        try {
+          const loaded = require('../review/protocols.ts').loadProtocols();
+          presetRegistry = loaded.ok ? loaded.registry : null;
+        } catch { presetRegistry = null; }
+      }
+    }
+    return presetNarrowerBy(presetRegistry, candidate, lower);
+  };
   const reads = new Map<string, any>();
   const resolved = new Map<string, { resolution: Resolution; tripped: Candidate | null }>();
   const resolving = new Set<string>();
@@ -420,12 +465,12 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         || (bound && spec.env?.direction === 'narrow');
       if (narrowing) {
         // an unset value (null) is the widest, so any valid candidate narrows it
-        const delta = value === null ? -1 : rank(spec, c.value) - rank(spec, value);
+        const delta = value === null ? -1 : narrowerBy(spec, c.value, value);
         if (delta === 0) {
           Object.assign(c, { status: 'redundant', reason: 'equal to the value below' });
           continue;
         }
-        if (delta > 0) {
+        if (delta === null || delta > 0) {
           Object.assign(c, { status: 'not-narrower', reason: projectLayer && spec.scope === 'narrow-only' ? 'narrow-only: a project may only narrow it' : 'only a narrower value applies' });
           continue;
         }

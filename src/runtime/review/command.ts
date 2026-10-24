@@ -5,7 +5,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { validateFindings, countFindings, reviewAdvisories, invalidProjectCandidate, invalidPresetCandidate } = require('./findings.ts');
+const { validateFindings, countFindings, reviewAdvisories, invalidProjectCandidate, invalidPresetCandidate, telemetryProtocol } = require('./findings.ts');
 const { resolveActiveFeature } = require('../feature-resolve.ts');
 const { TelemetryWriter } = require('../trace/telemetry.ts');
 const { finishRuntime } = require('../cli-result.ts');
@@ -231,7 +231,7 @@ function handleReviewCommand({
     advisories: advisories.length,
     errors: errors.length,
   };
-  if (counts && record) Object.assign(telemetryRecord, counts, { depth: record.depth ?? null, risk: record.risk ?? null, protocol: record.protocol?.id ?? null, head: record.reviewedHead });
+  if (counts && record) Object.assign(telemetryRecord, counts, { depth: record.depth ?? null, risk: record.risk ?? null, protocol: telemetryProtocol(record.protocol?.id), head: record.reviewedHead });
   try { telemetryWriter.write([telemetryRecord]); } catch { /* telemetry never changes the check result */ }
 
   return finishRuntime(valid ? 0 : 1);

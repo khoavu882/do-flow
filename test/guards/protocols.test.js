@@ -171,7 +171,7 @@ test('G66.h preset and lens ids reach settings and telemetry by derivation, not 
   assert.deepEqual(loaded.registry.enumValues('debate.preset'), protocols.order.debate);
   assert.deepEqual(derivedVocabularies(), {
     depth: [...protocols.order.review].reverse().map((id) => protocols.presets[id].depth),
-    protocol: protocols.order.review,
+    protocol: [...protocols.order.review, 'package'], // 122 IC-024: the one bucket for every contributed preset
   });
 });
 

@@ -185,7 +185,7 @@ identifier is on one page; G45.1 does not compare them with line keys.
 | `review.run` | `task` | `token` or null | T0 | P7 | the record's `slug` only when the record is valid and the slug passes `token`; otherwise null (an invalid record's slug is never written) |
 | `review.run` | `depth` | `enum:depth` or null | T2 | P7 | the record's `depth` (`single` or `deep`) when the record is valid and carries one; otherwise null |
 | `review.run` | `risk` | `enum:risk` or null | T2 | P7 | the record's `risk` when the record is valid and carries one; otherwise null |
-| `review.run` | `protocol` | `enum:protocol` or null | T2 | P7 | the record's `protocol.id` (a review preset id) when the record is valid and carries one; otherwise null |
+| `review.run` | `protocol` | `enum:protocol` or null | T2 | P7 | the record's `protocol.id` (a core review preset id) when the record is valid and carries one, `package` when that id is a preset an active package contributes; otherwise null |
 | `review.run` | `head` | `token` or null | T0 | P7 | the record's `reviewedHead` when the record is valid; otherwise null |
 | `review.run` | `rounds` | `uint` or null | T1 | P7 | review round count; null when invalid |
 | `review.run` | `seats`, `seat_findings`, `converged` | `uint` or null | T1 | P7 | counts; null when invalid |
@@ -232,8 +232,9 @@ The closed lists a later export may use. `harness` equals the ids in `core/regis
 `status` equals `tierStatuses`, and `risk` equals the risk levels of `core/registry/verification.json`;
 G45.1 holds those three equal.
 `depth` and `protocol` are not listed in `telemetry.json`: the writer reads them from `core/registry/protocols.json`
-through `validateProtocols` (`src/runtime/trace/telemetry.ts` `DERIVED_VOCABULARIES`): `protocol` is `order.review`, `depth`
-the `depth` labels of those presets, loosest first. A preset added there, with its own depth label, is a valid `protocol`
+through `validateProtocols` (`src/runtime/trace/telemetry.ts` `DERIVED_VOCABULARIES`): `protocol` is `order.review` and the
+literal `package`, `depth` the `depth` labels of those presets, loosest first. `package` is written for any preset a package
+contributes (`review --action check` maps the id; feature 122 IC-024), so no third-party preset name enters telemetry. A preset added there, with its own depth label, is a valid `protocol`
 and `depth` with no edit here, and G45.1 refuses a copy. When protocols.json cannot be read or fails its validator, both are
 written null and the rest of the line is unchanged.
 
@@ -248,7 +249,7 @@ written null and the rest of the line is unchanged.
 | `status` | `PASS`, `FAIL`, `UNRESOLVED`, `SUBSUMED`, `NOT_APPLICABLE`, `SKIPPED`, `NOT_RUN` |
 | `risk` | `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` |
 | `depth` | derived: the `depth` labels of the `order.review` presets in `core/registry/protocols.json`, loosest first (today `single`, `deep`) |
-| `protocol` | derived: the ids of `order.review` in `core/registry/protocols.json` (today `review-deep`, `review-single`) |
+| `protocol` | derived: the ids of `order.review` in `core/registry/protocols.json` (today `review-deep`, `review-single`), then `package` |
 | `role` | `main`, `worker` |
 | `level` | `L0`, `L1`, `L2`, `L3` |
 | `selection_basis` | `changed-test-files`, `explicit-pattern`, `none` |

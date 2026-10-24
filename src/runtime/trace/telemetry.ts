@@ -48,7 +48,7 @@ type Vocabulary = (name: string) => readonly string[] | null;
  */
 const DERIVED_VOCABULARIES: Readonly<Record<string, string>> = Object.freeze({
   depth: 'core/registry/protocols.json review preset depth labels, loosest first',
-  protocol: 'core/registry/protocols.json order.review',
+  protocol: 'core/registry/protocols.json order.review, then the literal package',
 });
 
 /** The derived vocabularies read from the registries under `repoRoot`; `{}` when protocols.json is unusable. */
@@ -58,7 +58,8 @@ function derivedVocabularies(repoRoot: string = REPO_ROOT): Record<string, strin
   const review: string[] = presetIds(loaded.registry, 'review');
   return {
     depth: [...review].reverse().map((id) => loaded.registry.presets[id].depth),
-    protocol: review,
+    // 122 IC-024: `package` stands for any preset an active package contributes, so no third-party name is written.
+    protocol: [...review, 'package'],
   };
 }
 
