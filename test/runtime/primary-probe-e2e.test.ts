@@ -7,8 +7,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp');
-const { MODEL_PAYLOADS, REPO } = require('../helper/hook-fixtures');
+const { tempDir } = require('../helper/tmp.ts');
+const { MODEL_PAYLOADS, REPO } = require('../helper/hook-fixtures.ts');
 
 const BRIDGE = path.join(REPO, 'core/harnesses/shared/hooks/bridge/bridge.sh');
 const CLI = path.join(REPO, 'bin/doflow.js');

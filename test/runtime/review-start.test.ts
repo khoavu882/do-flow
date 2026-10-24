@@ -14,6 +14,8 @@ const { loadVerificationRegistry } = require('../../src/runtime/verification/reg
 const { handleReviewCommand } = require('../../src/runtime/review/command.ts');
 const { reviewPrecondition } = require('../../src/runtime/review/start.ts');
 const { protocolDigest } = require('../../src/runtime/review/resolve-protocol.ts');
+const { storeFileFor } = require('../../src/runtime/dispatch/store.ts');
+const { cwdHash } = require('../../src/runtime/context/identity.ts');
 
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const SLUG = '095b-review-depth';
@@ -117,7 +119,7 @@ test('PASS on a clean HEAD: exit 0, deep, 2 seats, risk from the default for a l
   assert.equal(json.protocolDigest, protocolDigest(json.protocol));
   assert.deepEqual(json.protocol.disagreements, []);
   assert.deepEqual(Object.keys(json), ['schema', 'slug', 'taskClass', 'applicable', 'notApplicable', 'head', 'clean', 'ok',
-    'reasons', 'depth', 'seats', 'risk', 'riskSource', 'protocol', 'protocolDigest', 'depthBasis', 'advice']);
+    'reasons', 'depth', 'seats', 'risk', 'riskSource', 'protocol', 'protocolDigest', 'depthBasis', 'advice', 'authors', 'forbidden']);
 });
 
 test('the risk of the last clean matching line is used when valid; an invalid one falls back to the default', async (t) => {
@@ -168,7 +170,7 @@ test('--json carries the resolved protocol after riskSource; seats equals its se
   assert.equal(json.protocol.origins.id, 'floor');
   assert.equal(json.depthBasis.raisedBy, 'gate-floor');
   const keys = Object.keys(json);
-  assert.deepEqual(keys.slice(keys.indexOf('risk')), ['risk', 'riskSource', 'protocol', 'protocolDigest', 'depthBasis', 'advice']);
+  assert.deepEqual(keys.slice(keys.indexOf('risk')), ['risk', 'riskSource', 'protocol', 'protocolDigest', 'depthBasis', 'advice', 'authors', 'forbidden']);
 });
 
 test('--preset review-single on a feature with code changes is refused preset-looser: exit 1, no decision', async (t) => {
@@ -881,4 +883,154 @@ test('reviewPrecondition: reasons are sorted and unique', () => {
   const many = check([line({ verdict: 'FAIL' }), line({ verdict: 'PASS' }), line({ verdict: 'FAIL' })], false);
   assert.deepEqual(many, [...new Set(many)].sort());
   assert.deepEqual(many, ['tree-dirty', 'verify-flaky', 'verify-not-pass']);
+});
+
+// ---- 120 D.3 (IC-016): authors, forbidden pairs and primary-refused ----------------------------
+
+test('120 D.3 negative control: slug with no dispatch store and primary unknown gives empty authors and forbidden', async (t) => {
+  const r = repo(t);
+  r.lines([r.line()]);
+  const { exitCode, json } = await start(r);
+  assert.equal(exitCode, 0);
+  assert.deepEqual(json.authors, []);
+  assert.deepEqual(json.forbidden, []);
+  const text = await start(r, { json: false });
+  assert.equal(text.exitCode, 0);
+  assert.ok(text.out.some((line: string) => line === 'authors: none'), text.out.join('\n'));
+  assert.ok(text.out.some((line: string) => line === 'forbidden: none'), text.out.join('\n'));
+});
+
+test('120 D.3: scratch dispatch store populates authors and forbidden (harness, model) pairs in json and text', async (t) => {
+  const r = repo(t);
+  r.lines([r.line()]);
+  const storeFile = storeFileFor(r.cwd, SLUG);
+  fs.mkdirSync(path.dirname(storeFile), { recursive: true });
+  fs.writeFileSync(storeFile, JSON.stringify({
+    version: 1,
+    revision: 1,
+    slug: SLUG,
+    run: { runId: 'p-123456789012', state: 'running' },
+    lease: null,
+    drivers: [],
+    spawnRequests: {},
+    steps: [],
+    dispatches: {
+      'd-1': {
+        dispatchId: 'd-1',
+        seq: 0,
+        mode: 'subagent',
+        harness: 'codex',
+        phase: 'collected',
+        collectedAt: '2026-10-24T12:00:00.000Z',
+        outcome: 'offered',
+        model: {
+          requested: 'o3-mini',
+          served: 'o3-mini-2025-01-31',
+          source: 'binding',
+          tier: 'standard',
+        },
+      },
+      'd-2': {
+        dispatchId: 'd-2',
+        seq: 1,
+        mode: 'sequential',
+        harness: 'claude',
+        primary: { harness: 'claude' },
+        phase: 'collected',
+        collectedAt: '2026-10-24T12:00:00.000Z',
+        outcome: 'offered',
+        model: {
+          requested: 'claude-3-7-sonnet',
+          source: 'binding',
+          tier: 'standard',
+        },
+      },
+      'd-uncollected': {
+        dispatchId: 'd-uncollected',
+        seq: 2,
+        mode: 'subagent',
+        harness: 'gemini',
+        phase: 'launched',
+        model: { requested: 'gemini-2.0-flash' },
+      },
+    },
+  }));
+
+  const { exitCode, json } = await start(r);
+  assert.equal(exitCode, 0);
+  assert.deepEqual(json.authors, [
+    { kind: 'subagent', harness: 'codex', model: 'o3-mini-2025-01-31', channel: 'observed' },
+    { kind: 'subagent', harness: 'codex', model: 'o3-mini', channel: 'observed' },
+    { kind: 'sequential', harness: 'claude', model: 'claude-3-7-sonnet', channel: 'claim' },
+  ]);
+  assert.deepEqual(json.forbidden, [
+    ['codex', 'o3-mini-2025-01-31'],
+    ['codex', 'o3-mini'],
+    ['claude', 'claude-3-7-sonnet'],
+  ]);
+
+  const text = await start(r, { json: false });
+  assert.equal(text.exitCode, 0);
+  assert.ok(text.out.some((line: string) => line === 'authors: subagent:codex/o3-mini-2025-01-31(observed) subagent:codex/o3-mini(observed) sequential:claude/claude-3-7-sonnet(claim)'), text.out.join('\n'));
+  assert.ok(text.out.some((line: string) => line === 'forbidden: (codex, o3-mini-2025-01-31), (codex, o3-mini), (claude, claude-3-7-sonnet)'), text.out.join('\n'));
+});
+
+test('120 D.3: review start refuses primary-refused when resolvePrimary returns refused', async (t) => {
+  const r = repo(t);
+  r.lines([r.line()]);
+  put(r.cwd, '.doflow/settings.json', JSON.stringify({
+    'primary.harness': 'codex',
+    'primary.model': 'gpt-4o',
+    'primary.onContradiction': 'refuse',
+  }));
+
+  const obsDir = path.join(r.env.XDG_CONFIG_HOME, 'doflow', 'session-env', 'primary', cwdHash(r.cwd), 'codex');
+  fs.mkdirSync(obsDir, { recursive: true });
+  fs.writeFileSync(path.join(obsDir, '0123456789abcdef.json'), JSON.stringify({
+    schema: 1,
+    harness: 'codex',
+    model: 'gpt-4o-mini',
+    event: 'SessionStart',
+    observedAt: '2026-10-24T12:00:00.000Z',
+    session: '0123456789abcdef',
+  }));
+
+  const { exitCode, json } = await start(r);
+  assert.equal(exitCode, 1);
+  assert.equal(json.ok, false);
+  assert.equal(json.applicable, null);
+  assert.equal(json.error, 'primary-refused');
+  assert.match(json.message, /primary-contradicted/);
+
+  const text = await start(r, { json: false });
+  assert.equal(text.exitCode, 1);
+  assert.match(text.out[0], /^review start: primary-refused:/);
+});
+
+test('120 D.3: preconditions run before primary check (preconditions and order unchanged)', async (t) => {
+  const r = repo(t);
+  // No verify record line -> verify-missing precondition failure
+  put(r.cwd, '.doflow/settings.json', JSON.stringify({
+    'primary.harness': 'codex',
+    'primary.model': 'gpt-4o',
+    'primary.onContradiction': 'refuse',
+  }));
+  const obsDir = path.join(r.env.XDG_CONFIG_HOME, 'doflow', 'session-env', 'primary', cwdHash(r.cwd), 'codex');
+  fs.mkdirSync(obsDir, { recursive: true });
+  fs.writeFileSync(path.join(obsDir, '0123456789abcdef.json'), JSON.stringify({
+    schema: 1,
+    harness: 'codex',
+    model: 'gpt-4o-mini',
+    event: 'SessionStart',
+    observedAt: '2026-10-24T12:00:00.000Z',
+    session: '0123456789abcdef',
+  }));
+
+  const { exitCode, json } = await start(r);
+  assert.equal(exitCode, 1);
+  assert.equal(json.ok, false);
+  // Precondition failure preserves applicable: true and reports reasons, rather than primary-refused refusal
+  assert.equal(json.applicable, true);
+  assert.deepEqual(json.reasons, ['verify-missing']);
+  assert.equal(json.error, undefined);
 });

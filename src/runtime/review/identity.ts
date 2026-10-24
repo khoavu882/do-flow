@@ -146,7 +146,7 @@ function authoringIdentities({
         let primary = primaryOverride;
         if (!primary) {
           const { resolvePrimary } = require('../context/primary.ts');
-          primary = resolvePrimary({ cwd, env, registry });
+          primary = resolvePrimary({ projectRoot: cwd ? path.resolve(cwd) : process.cwd(), cwd, env, registry });
         }
         if (primary && primary.harness && primary.harness === authorHarness) {
           rows.push({
