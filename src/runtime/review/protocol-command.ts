@@ -35,7 +35,7 @@ function presetLine(entry: any): string {
     + ` rounds=${entry.rounds.default} (min ${entry.rounds.min}) crossAnswer=${entry.crossAnswer} synthesizer=${entry.synthesizer} decider=${entry.decider}`;
 }
 
-function handleProtocolCommand({ action, kind, taskClass, risk, preset, json = false, cwd = process.cwd(), out = (line: string) => console.log(line) }: any = {}): number {
+function handleProtocolCommand({ action, kind, taskClass, risk, preset, positional = [], json = false, cwd = process.cwd(), out = (line: string) => console.log(line) }: any = {}): number {
   const usage = (message: string): number => {
     out(json ? JSON.stringify({ ok: false, error: 'usage', message }) : `doflow protocol: ${message}`);
     return finishRuntime(2);
@@ -44,6 +44,7 @@ function handleProtocolCommand({ action, kind, taskClass, risk, preset, json = f
     out(json ? JSON.stringify({ ok: false, error, message }) : `protocol: ${error}: ${message}`);
     return finishRuntime(1);
   };
+  if (Array.isArray(positional) && positional.length > 0) return usage(`unexpected positional argument '${positional[0]}'`);
   if (action !== 'list' && action !== 'resolve') return usage('action must be list or resolve');
   if (kind !== undefined && kind !== null && !KINDS.includes(kind)) return usage(`--kind must be one of ${KINDS.join(', ')}`);
 

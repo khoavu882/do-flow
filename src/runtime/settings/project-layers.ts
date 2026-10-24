@@ -115,4 +115,4 @@ function projectLayerSource(projectRoot: string | null | undefined, fsImpl: any 
   }
 }
 
-module.exports = { projectLayerSource, MARKER };
+module.exports = { projectLayerSource, containedDoflow, MARKER };

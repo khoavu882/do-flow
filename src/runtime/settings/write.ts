@@ -12,6 +12,7 @@ const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { loadSettingsRegistry } = require('./registry.ts');
 const { MAX_BYTES, readLayerFile, validateValue } = require('./files.ts');
 const { clearSettingsCache } = require('./resolve.ts');
+const { containedDoflow } = require('./project-layers.ts');
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -246,6 +247,12 @@ function replaceLayer({ file, registry, set, unsetKeys, scrubKeys, force, expect
     temporary = path.join(directory, `.${path.basename(file)}.${process.pid}.${randomBytes(8).toString('hex')}.tmp`);
     fsImpl.writeFileSync(temporary, bytes, { flag: 'wx', mode: 0o600 });
     fsImpl.chmodSync(temporary, 0o600);
+    if (path.basename(directory) === '.doflow') {
+      const root = path.dirname(directory);
+      if (!containedDoflow(root, fsImpl)) {
+        return invalid(file, '.doflow symlink points outside the project', 'scope');
+      }
+    }
     fsImpl.renameSync(temporary, file);
     temporary = null;
     clearSettingsCache();

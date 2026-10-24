@@ -786,8 +786,8 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-73 test files (plus `_shared.ts`, a helper rather than a test); this inventory lists
-66 entries across 62 test files and carries 64 distinct G-numbers.
+74 test files (plus `_shared.ts`, a helper rather than a test); this inventory lists
+67 entries across 63 test files and carries 65 distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries; G18 labels two files, of which `adapter-force.test.ts` is not listed; and G30 labels two
 files, `advice.test.ts` and a ratchet test in `module-reachability.test.ts` (the G16 file). The collisions are
