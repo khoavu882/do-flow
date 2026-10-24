@@ -12,6 +12,10 @@ const path = require('node:path');
 const { createSettingsEnv, REPO } = require('../helper/settings-fixtures.ts');
 
 const REGISTRY = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/settings.json'), 'utf8'));
+const HARNESS_REGISTRY = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/harnesses.json'), 'utf8'));
+const WORKERS = HARNESS_REGISTRY.harnesses.filter((item: any) => item.worker);
+const SUPPORTED = WORKERS.find((item: any) => item.worker.model?.status === 'supported')?.id;
+const UNSUPPORTED = WORKERS.find((item: any) => item.worker.model?.status !== 'supported')?.id;
 const BARE_PATH: any = { PATH: path.dirname(process.execPath) };
 
 /** A fixture plus a `validate(file-content | object, extraArgs)` runner that writes the prepared run outside project and HOME. */
@@ -234,13 +238,11 @@ test('primary and settings entries for the same key are judged independently', (
   assert.equal(entry.layer, 'project');
 });
 
-test('only workers is reserved; other unknown top-level keys remain unknown-key', (t) => {
+test('no top-level word is reserved; workers is recognized and other unknown keys remain unknown-key', (t) => {
   const { validate } = setup(t);
-  const result = validate({ ...VALID(), primary: {}, workers: [], bogus: 1 });
+  const result = validate({ ...VALID(), primary: {}, workers: {}, bogus: 1 });
   assert.equal(result.status, 1);
-  assert.deepEqual(result.json.errors.map((e: any) => [e.key, e.code, e.layer]),
-    [['workers', 'unknown-key', null], ['bogus', 'unknown-key', null]]);
-  assert.match(entryFor(result, 'workers').message, /reserved for a later release/);
+  assert.deepEqual(result.json.errors.map((e: any) => [e.key, e.code, e.layer]), [['bogus', 'unknown-key', null]]);
   assert.doesNotMatch(entryFor(result, 'bogus').message, /reserved/);
 });
 
@@ -249,7 +251,112 @@ test('three faults in one file are three entries, all reported', (t) => {
   const result = validate({ schema: 1, taskClass: 'nope', settings: { 'review.rounds': 9 }, workers: [] });
   assert.equal(result.status, 1);
   assert.deepEqual(result.json.errors.map((e: any) => `${e.key}:${e.code}`).sort(),
-    ['settings.review.rounds:range', 'taskClass:enum', 'workers:unknown-key']);
+    ['settings.review.rounds:range', 'taskClass:enum', 'workers:type']);
+});
+
+test('workers shape is checked independently from primary and settings', (t) => {
+  const { f, validate } = setup(t);
+  f.writeUserSettings({ schema: 1, 'workers.enabled': ['codex', 'gemini', 'primary'] });
+  const array = entryFor(validate({ ...VALID(), workers: [] }), 'workers');
+  assert.equal(array.code, 'type');
+  assert.equal(array.layer, null);
+  assert.match(array.message, /object with enabled and models/);
+  assert.equal(entryFor(validate({ ...VALID(), workers: { bogus: 1 } }), 'workers.bogus').code, 'unknown-key');
+
+  const both = validate({ ...VALID(), primary: { harness: 'nope' }, workers: { enabled: ['codex', 'claude'] } });
+  assert.equal(both.json.errors.some((e: any) => e.key === 'primary.harness'), true);
+  assert.equal(both.json.errors.some((e: any) => e.key === 'workers.enabled[1]'), true);
+  assert.equal(both.json.errors.some((e: any) => e.key === 'workers.enabled[1]' && e.code === 'not-narrower'), true);
+});
+
+test('workers.enabled applies project narrowing and reports shape faults at the first item', (t) => {
+  const { f, validate } = setup(t);
+  f.writeUserSettings({ schema: 1, 'workers.enabled': ['codex', 'gemini', 'primary'] });
+  const wider = entryFor(validate({ ...VALID(), workers: { enabled: ['codex', 'claude'] } }), 'workers.enabled[1]');
+  assert.equal(wider.code, 'not-narrower');
+  assert.equal(wider.layer, 'project');
+  assert.match(wider.message, /'claude' is not in the value below/);
+
+  const narrowed = validate({ ...VALID(), workers: { enabled: ['codex'] } });
+  assert.equal(narrowed.status, 0, `${narrowed.stdout}${narrowed.stderr}`);
+  assert.deepEqual(narrowed.json, { ok: true, errors: [] });
+
+  const reordered = validate({ ...VALID(), workers: { enabled: ['gemini', 'codex'] } });
+  assert.equal(reordered.status, 0, `${reordered.stdout}${reordered.stderr}`);
+  assert.ok(reordered.json.notes.some((note: string) => note.includes('order is ignored')));
+
+  for (const [value, key, code] of [
+    [['codex', 'codex'], 'workers.enabled[1]', 'items'],
+    [['codex', 5], 'workers.enabled[1]', 'type'],
+    [['codex', 'primary', 'gemini'], 'workers.enabled[2]', 'items'],
+    [['codex', 'auto'], 'workers.enabled[1]', 'reserved'],
+    [[], 'workers.enabled', 'items'],
+    ['codex', 'workers.enabled', 'type'],
+    [null, 'workers.enabled', 'type'],
+  ] as any[]) {
+    const fault = entryFor(validate({ ...VALID(), workers: { enabled: value } }), key);
+    assert.equal(fault.code, code, `${key} for ${JSON.stringify(value)}`);
+  }
+
+  const dangling = validate({ ...VALID(), workers: { enabled: ['codex', 'zzz-nope'] } });
+  assert.equal(dangling.status, 0, `${dangling.stdout}${dangling.stderr}`);
+  assert.ok(dangling.json.notes.some((note: string) => note.includes("worker 'zzz-nope' is not installed")));
+});
+
+test('workers.models validates bindings and reports unevidenced flags without exposing model names', (t) => {
+  const { validate } = setup(t);
+  assert.ok(SUPPORTED, 'registry includes a supported model flag');
+  assert.ok(UNSUPPORTED, 'registry includes a worker without a supported model flag');
+
+  const unsupported = validate({ ...VALID(), workers: { models: { [UNSUPPORTED]: { standard: 'secret-model', frontier: 'other-model' }, [SUPPORTED]: { frontier: 'gpt-X' } } } });
+  assert.equal(unsupported.status, 1);
+  assert.deepEqual(unsupported.json.errors.map((e: any) => [e.key, e.code, e.layer]), [
+    [`workers.models.${UNSUPPORTED}.standard`, 'model-flag-unevidenced', null],
+    [`workers.models.${UNSUPPORTED}.frontier`, 'model-flag-unevidenced', null],
+  ]);
+  assert.ok(unsupported.json.errors.every((e: any) => !e.message.includes('secret-model') && !e.message.includes('other-model')));
+
+  const supported = validate({ ...VALID(), workers: { models: { [SUPPORTED]: { frontier: 'gpt-X' } } } });
+  assert.equal(supported.status, 0, `${supported.stdout}${supported.stderr}`);
+  assert.deepEqual(supported.json, { ok: true, errors: [] });
+
+  for (const [value, code] of [
+    [{ [SUPPORTED]: { huge: 'x' } }, 'enum'],
+    [{ [SUPPORTED]: { standard: '-x' } }, 'type'],
+    [{ primary: { standard: 'x' } }, 'reserved'],
+    [null, 'type'],
+  ] as any[]) {
+    assert.equal(entryFor(validate({ ...VALID(), workers: { models: value } }), 'workers.models').code, code);
+  }
+
+  const dangling = validate({ ...VALID(), workers: { models: { 'zzz-nope': { standard: 'gpt-X' } } } });
+  assert.equal(dangling.status, 0, `${dangling.stdout}${dangling.stderr}`);
+  assert.ok(dangling.json.notes.some((note: string) => note.includes("worker 'zzz-nope' is not installed")));
+});
+
+test('workers prepared-run validation has no side effects and omits notes when none exist', (t) => {
+  const { f, validate } = setup(t);
+  const before = listing(f.project, f.home, f.xdg);
+  const result = validate({ ...VALID(), workers: { enabled: ['codex'], models: { [SUPPORTED]: { frontier: 'gpt-X' } } } });
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+  assert.deepEqual(result.json, { ok: true, errors: [] });
+  assert.deepEqual(listing(f.project, f.home, f.xdg), before);
+});
+
+test('prepared-run notes are printed after the valid text result', (t) => {
+  const { f, validate } = setup(t);
+  f.writeUserSettings({ schema: 1, 'workers.enabled': ['codex', 'gemini', 'primary'] });
+  const result = validate({ ...VALID(), workers: { enabled: ['gemini', 'codex'] } }, []);
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
+  const lines = result.stdout.trim().split('\n');
+  assert.match(lines[0], /^prepared run: valid \(/);
+  assert.match(lines[1], /order is ignored at the project layer/);
+});
+
+test('bindingKey formats built-in and qualified worker ids', () => {
+  const { bindingKey } = require('../../src/runtime/settings/prepared-run.ts');
+  assert.equal(bindingKey('acme.coder', 'standard'), 'workers.models["acme.coder"].standard');
+  assert.equal(bindingKey('codex', 'light'), 'workers.models.codex.light');
 });
 
 test('schema must be 1, taskClass is required, settings and presets must be objects', (t) => {
