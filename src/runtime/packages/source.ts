@@ -3,8 +3,10 @@
 /**
  * Parse package source specs for IC-022: local paths, git URLs and npm names.
  * Unsupported schemes and URL credentials are refused as `bad-type`. This module
- * spawns nothing and writes nothing; the fetch itself arrives with E.2/E.3.
+ * dispatches remote fetches through `fetch.ts`; the caller supplies the staging directory.
  */
+
+const { pinGit, fetchGit } = require('./fetch.ts');
 
 type RemoteSource =
   | { type: 'git'; url: string; ref: string; path?: string }
@@ -35,12 +37,12 @@ function parseSource(spec: string): ParseResult {
     const url = hashAt < 0 ? target : target.slice(0, hashAt);
     const subdir = hashAt < 0 ? undefined : target.slice(hashAt + 1);
     if (!url || url.length > 512 || hasSpaceOrControl(url)) return badType('git URL must be non-empty, at most 512 characters, and contain no whitespace or control characters');
-    if (!ref || ref.length > 512 || hasSpaceOrControl(ref)) return badType('git ref must be non-empty, at most 512 characters, and contain no whitespace or control characters');
+    if (!ref || ref.length > 512 || hasSpaceOrControl(ref) || ref.startsWith('-')) return badType('git ref must be non-empty, at most 512 characters, and contain no whitespace or control characters');
     let parsed: InstanceType<typeof URL>;
     try { parsed = new URL(url); } catch { return badType('git URL must be a valid https URL'); }
     if (parsed.protocol !== 'https:' || !parsed.host) return badType('git URL must use https and include a host');
     if (parsed.username || parsed.password) return badType('git URL must not contain credentials');
-    if (subdir !== undefined && (!subdir || subdir.startsWith('/') || subdir.includes('\\') || subdir.split('/').includes('..'))) {
+    if (subdir !== undefined && (!subdir || subdir.startsWith('/') || subdir.startsWith('-') || subdir.includes('\\') || subdir.split('/').includes('..'))) {
       return badType('git subdir must be non-empty, relative, and contain no .. segment or backslash');
     }
     return { ok: true, source: { type: 'git', url, ref, ...(subdir === undefined ? {} : { path: subdir }) } };
@@ -65,4 +67,22 @@ function fetchGrantLine(source: RemoteSource, at: string): string {
   return JSON.stringify({ grant: 'fetch', source, at });
 }
 
-module.exports = { parseSource, fetchGrantLine };
+function pinSource(source: any, opts: any): any {
+  if (source?.type === 'git') return pinGit(source, opts);
+  const message = source?.type === 'npm' ? 'npm fetch arrives with a later DoFlow' : 'source cannot be pinned';
+  return {
+    ok: false,
+    finding: { package: null, field: 'source', code: 'bad-type', severity: 'error', message, allowed: ALLOWED },
+  };
+}
+
+function fetchSource(pinned: any, opts: any): any {
+  if (pinned?.type === 'git') return fetchGit(pinned, opts);
+  const message = pinned?.type === 'npm' ? 'npm fetch arrives with a later DoFlow' : 'source cannot be fetched';
+  return {
+    ok: false,
+    findings: [{ package: null, field: 'source', code: 'bad-type', severity: 'error', message, allowed: ALLOWED }],
+  };
+}
+
+module.exports = { parseSource, fetchGrantLine, pinSource, fetchSource };
