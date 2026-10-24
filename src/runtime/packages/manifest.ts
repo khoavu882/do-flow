@@ -18,6 +18,7 @@ const { judgeInstruction } = require('./instruction.ts');
 const { walkTree, digestFiles, capabilityDigest, SEGMENT, SEGMENT_GRAMMAR } = require('./digest.ts');
 const { duplicateKeys, loadProtocols, lensIds, coreTiers } = require('../review/protocols.ts');
 const { dominates } = require('../review/dominance.ts');
+const { programFindings } = require('./programs.ts');
 
 const MANIFEST_FILE = 'doflow-package.json';
 const MANIFEST_MAX_BYTES = 64 * 1024;
@@ -144,6 +145,9 @@ function checkManifest(input: any, options: any = {}): any[] {
     }
     if (Object.hasOwn(manifest, 'programs') && !executable) {
       report('programs', 'forbidden-field', 'programs belong only to a package that contributes to an executable point', 'omit the field');
+    }
+    if (executable) {
+      findings.push(...programFindings(manifest, { root, pointsRegistry, fsImpl, packageId }));
     }
   }
 
