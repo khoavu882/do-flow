@@ -59,6 +59,7 @@ bridge writes hook lines in its own fixed order (see Hook lines).
 | `verify.tier` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status`, `selection_basis`, `selected`, `total`, `fallback`, `duration_ms` |
 | `verify.check` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status`, `exit_code`, `duration_ms`, `tests`, `tests_failed`, `cpu_ms`, `resource_basis`, `check_key`, `shared`, `shared_ref`, `failed_first` |
 | `review.run` | `src/runtime/trace/telemetry.ts` | `task`, `depth`, `risk`, `protocol`, `head`, `rounds`, `seats`, `seat_findings`, `converged`, `blocker`, `should_fix`, `note`, `open`, `fixed`, `refuted`, `user_accepted`, `pre_existing`, `escaped`, `confirmed`, `plausible`, `unverified_blockers`, `bug_classes`, `advisories`, `errors` (see Review lines) |
+| `package.verb` | `src/runtime/trace/telemetry.ts` | `action`, `result`, `tier_max` (see Package lines) |
 
 A key is added to a kind in the same change that writes it, with its `phase` (the merge that first
 writes it). Until then the writer drops every key it is handed for that kind. Changes to the contract
@@ -195,6 +196,16 @@ identifier is on one page; G45.1 does not compare them with line keys.
 | `review.run` | `advisories` | `uint` | T1 | P7 | advisory count |
 | `review.run` | `errors` | `uint` | T1 | P7 | error count; zero when valid |
 
+## Package lines
+
+`doflow package --action enable|disable|trust|exempt|revoke|verify` (`src/runtime/packages/command.ts`) writes through `TelemetryWriter`, one `package.verb` line per call, whatever the exit. No package id, version, digest, path, grant line or setting value is recorded: the line says which verb ran, how it ended and the highest capability tier of the package it named. Read-only actions (`points`, `check`, `list`, `show`) and the plan and apply forms of `add` and `update` write no line yet.
+
+| Kind | Key | Type | Class | Phase | Source |
+|---|---|---|---|---|---|
+| `package.verb` | `action` | `enum:package_action` | T2 | P8 | the verb that ran |
+| `package.verb` | `result` | `enum:package_result` | T2 | P8 | `ok` for exit 0, `refused` for exit 1 (unknown id, an incompatible package, a finding), `usage` for exit 2 |
+| `package.verb` | `tier_max` | `enum:package_tier` or null | T2 | P8 | the highest tier among the contributions of the package the verb named (`verify`: of the enabled third-party packages it checked); null for an unknown id or when no tier is known |
+
 ## Privacy classes
 
 | Class | Meaning | Recorded |
@@ -240,7 +251,7 @@ written null and the rest of the line is unchanged.
 
 | Name | Values |
 |---|---|
-| `kind` | `hook`, `verify.run`, `verify.tier`, `verify.check`, `review.run` |
+| `kind` | `hook`, `verify.run`, `verify.tier`, `verify.check`, `review.run`, `package.verb` |
 | `harness` | the eight harness ids |
 | `event` | `PreToolUse`, `BeforeTool`, `tool_call`, `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure` |
 | `policy` | `pre-bash-guard`, `user-prompt-submit`, `post-shell-observe` |
@@ -259,6 +270,9 @@ written null and the rest of the line is unchanged.
 | `failed_first` | `none`, `pass`, `fail` |
 | `resource_basis` | `proc-children`, `unreached-platform`, `unreached-read` |
 | `v0` | `on`, `off` |
+| `package_action` | `enable`, `disable`, `trust`, `exempt`, `revoke`, `verify` |
+| `package_result` | `ok`, `refused`, `usage` |
+| `package_tier` | `inert`, `instruction`, `executable` |
 | `tool` | `Bash` (the canonical tool name passed to allowlisted `pre-bash-guard` front doors) |
 | `emit_reason` | `emit`, `refused:mandatory-over-budget`, `silent:already-bootstrapped`, `silent:unchanged`, `silent:no-home`, `fault:deps`, `fault:unit`, `fault:slot`, `fault:summary`, `fault:grant`, `fault:warning`, `fault:render` (the `DF_EMIT_REASON` values of `policies/emission.sh`) |
 

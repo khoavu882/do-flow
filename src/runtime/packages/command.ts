@@ -8,20 +8,35 @@
  * store.ts) and run storage upkeep like other writers. Exit 0 done, listed or clean, 1 the point registry is
  * unusable, a package is neither `active` nor `disabled`, an id is unknown, the package has errors or an apply
  * is refused, 2 usage; later actions land in the tasks that own them.
+ *
+ * The verb actions (B.6): `enable`, `disable`, `trust`, `exempt`, `revoke` and `verify [--repair]` are open to any
+ * caller, never prompt or wait (beyond the global run lock), and each appends one audit row to `state.json` under the
+ * scope's `run.lock`. `enable` and `disable` set the lock bit; `trust` and `exempt` only print the line a person
+ * appends to `grants.jsonl` (DoFlow never writes it); `revoke` and `verify` write `state.json`. Each emits one
+ * `package.verb` telemetry event (`action`, `result`, `tier_max`, no id or path).
  */
 
 const { finishRuntime, captureCaught } = require('../cli-result.ts');
 const path = require('node:path');
 const { loadPoints, pointRows } = require('./points.ts');
-const { checkPackage } = require('./manifest.ts');
+const { checkPackage, MANIFEST_FILE } = require('./manifest.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
-const { packageView, hostVersion } = require('./view.ts');
-const { readLock, LOCK_VERSION_BASE } = require('../../state/lockfile.ts');
+const { packageView, resetPackageView, hostVersion } = require('./view.ts');
+const { readLock, writeLock, defaultLock, lockPackages, LOCK_VERSION_BASE } = require('../../state/lockfile.ts');
 const fs = require('node:fs');
 const os = require('node:os');
 const { planPackage, applyPlan, PLAN_ID } = require('./store.ts');
 const { configHome } = require('../config-home.ts');
-const { GRANTS_FILE } = require('./grants.ts');
+const { GRANTS_FILE, readGrants } = require('./grants.ts');
+const { acquireRunLock } = require('../../state/run-lock.ts');
+const { readState, appendAudit, recordRevocation, recordSuspension, clearSuspension, repairState } = require('./state.ts');
+const { capabilityDigest } = require('./digest.ts');
+const { satisfiesHostRange } = require('../../helper/semver.ts');
+const { isPackageId } = require('../../helper/package-ids.ts');
+const { TelemetryWriter } = require('../trace/telemetry.ts');
+
+const TIER_ORDER = ['inert', 'instruction', 'executable'];
+const VERB_ACTIONS = ['enable', 'disable', 'trust', 'exempt', 'revoke', 'verify'];
 
 function pointLine(row: any): string {
   return `point ${row.id}: tier=${row.tier} status=${row.status} entry=${row.entry} versions=${row.versions.join(',') || '-'}`
@@ -58,23 +73,52 @@ function stateLine(p: any): string {
 }
 
 /** The global lock's `version`; 1 with no lock, null for an unreadable one. Read-only. */
-function globalLockVersion(): number | null {
-  try { return readLock({ scope: 'global' })?.version ?? LOCK_VERSION_BASE; } catch { return null; }
+function globalLockVersion(homeDir?: string): number | null {
+  try { return readLock({ scope: 'global', ...(homeDir === undefined ? {} : { homeDir }) })?.version ?? LOCK_VERSION_BASE; } catch { return null; }
 }
+
+/** The view options a handler was given (`undefined` ones fall back to the view's own defaults). */
+const viewOptions = (o: any): any => ({ repoRoot: o.repoRoot, homeDir: o.homeDir, env: o.env, projectRoot: o.projectRoot, tmpDir: o.tmpDir, settingsView: o.settingsView });
+
+/** A fresh package view: the process memo is cleared first, because a verb or a person just changed what it reads. */
+function freshView(o: any): any {
+  resetPackageView();
+  return packageView(viewOptions(o));
+}
+
+/**
+ * The grant lines an `active` third-party package runs on (IC-008: every run that uses a grant prints the line it
+ * matched, the file path and its mtime). Empty for a first-party or inert package, and for any other state.
+ */
+function matchedGrants(pkg: any, o: any, cache: { read?: any } = {}): any[] {
+  if (pkg.firstParty || pkg.state !== 'active' || !(pkg.grant?.trust || pkg.grant?.exempt)) return [];
+  cache.read ??= readGrants({ env: o.env, projectRoot: o.projectRoot, ...(o.tmpDir === undefined ? {} : { tmpDir: o.tmpDir }) });
+  const kinds = [pkg.grant.trust ? 'trust' : null, pkg.grant.exempt ? 'exempt' : null];
+  return cache.read.grants
+    .filter((g: any) => kinds.includes(g.grant) && g.package === pkg.id && g.version === pkg.version && g.contentDigest === pkg.contentDigest)
+    .map((g: any) => ({ kind: g.grant, line: g.raw, lineNumber: g.line, path: cache.read.path, mtime: cache.read.mtime }));
+}
+
+const matchedText = (matched: any[]): string[] => matched.flatMap((m: any) => [
+  `matched ${m.kind} grant (line ${m.lineNumber} of the grants file):`, m.line, `grants file ${m.path}, modified ${m.mtime}`,
+]);
 
 /**
  * `list [--id]` and `show --id`: the package view, read-only. `lockVersion` is the `version` of the global lock
  * on disk, 1 when there is none (the version written while no package is recorded) and null when it cannot be
  * read; the lock is only read here, never written. `list` exits 1 when a package is neither
  * `active` nor `disabled` or any finding is an error (a corrupt point registry among them); an unknown id is exit 1.
+ * Text output also prints the grant line, file path and mtime an active trusted package runs on; `--json` keeps the
+ * Console contract unchanged.
  */
-function handleView({ action, id, json, repoRoot, out }: any): number {
+function handleView(o: any): number {
+  const { action, id, json, out } = o;
   if (action === 'show' && (typeof id !== 'string' || id.length === 0)) {
     const message = 'show requires one --id <id>';
     out(json ? JSON.stringify({ ok: false, error: 'usage', message }) : `doflow package: ${message}`);
     return finishRuntime(2);
   }
-  const view = packageView(repoRoot ? { repoRoot } : {});
+  const view = freshView(o);
   const wanted = typeof id === 'string' ? view.packages.filter((p: any) => p.id === id) : view.packages;
   if (typeof id === 'string' && wanted.length === 0) {
     const message = `no package with id '${id}'`;
@@ -82,13 +126,15 @@ function handleView({ action, id, json, repoRoot, out }: any): number {
     return finishRuntime(1);
   }
   const findings = typeof id === 'string' ? view.findings.filter((f: any) => f.package === id) : view.findings;
+  const cache = {};
   if (action === 'show') {
-    out(json ? JSON.stringify(wanted[0]) : stateLine(wanted[0]));
+    if (json) out(JSON.stringify(wanted[0]));
+    else { out(stateLine(wanted[0])); for (const line of matchedText(matchedGrants(wanted[0], o, cache))) out(line); }
     return finishRuntime(0);
   }
-  if (json) out(JSON.stringify({ points: view.points, packages: wanted, findings, lockVersion: globalLockVersion() }));
+  if (json) out(JSON.stringify({ points: view.points, packages: wanted, findings, lockVersion: globalLockVersion(o.homeDir) }));
   else {
-    for (const p of wanted) out(stateLine(p));
+    for (const p of wanted) { out(stateLine(p)); for (const line of matchedText(matchedGrants(p, o, cache))) out(line); }
     if (wanted.length === 0) out('no packages');
     for (const f of findings) out(findingLine(f));
   }
@@ -137,18 +183,55 @@ function handlePlan({ action, source, id, json, repoRoot, homeDir, env, out }: a
   return finishRuntime(0);
 }
 
+/** The ISO 8601 UTC time of a grant line: whole seconds, as the plan prints it (IC-008). */
+const grantTime = (when: number): string => new Date(when).toISOString().replace(/\.\d+Z$/, 'Z');
+
+/** The `trust` line for a package's recorded digests; key order is the IC-008 order the plan prints. */
+function trustLineFor(row: { id: string; version: string; contentDigest: string; capabilityDigest: string }, policy: number, now: number): string {
+  return JSON.stringify({ grant: 'trust', package: row.id, version: row.version, contentDigest: row.contentDigest, capabilityDigest: row.capabilityDigest, policy, at: grantTime(now) });
+}
+
+/** The trust policy version the running DoFlow's point registry declares. */
+function trustPolicy(repoRoot?: string): number {
+  const loaded = loadPoints(repoRoot ? { repoRoot } : {});
+  return loaded.ok ? loaded.registry.trustPolicyVersion : 1;
+}
+
+/** The grants file path a person appends to, or null when no config home resolves (so no grant can exist). */
+const grantsPath = (env: any): string | null => {
+  const dir = configHome(env).dir;
+  return dir === null ? null : path.join(dir, GRANTS_FILE);
+};
+
 /** `add --plan <planId>` and `update --plan <planId>`: apply a plan. Exit 0 applied, 1 refused or failed. */
-function handleApply({ action, plan, json, repoRoot, homeDir, env, hooks, out }: any): number {
+function handleApply(o: any): number {
+  const { action, plan, json, repoRoot, homeDir, env, hooks, out } = o;
   if (typeof plan !== 'string' || !PLAN_ID.test(plan)) return usage(json, out, '--plan takes a plan id printed by add or update (16 hex characters)');
   try {
+    let before = new Map<string, string>();
+    try { before = new Map(lockPackages(readLock({ scope: 'global', homeDir })).map((r: any) => [r.id, r.contentDigest])); } catch { /* the apply reports an unreadable lock */ }
     const result = applyPlan({ planId: plan, action, homeDir, repoRoot, env, hooks });
     if (!result.ok) return refusal(json, out, result.findings, `package refused: plan ${plan}`);
-    if (json) out(JSON.stringify(result));
+    // FR-021: an update that changed the content digest above inert voids trust; print the line for the new digests.
+    let retrust: string[] = [];
+    let retrustLine: string | null = null;
+    if (result.action === 'update' && before.has(result.id) && before.get(result.id) !== result.contentDigest) {
+      const pkg = freshView(o).packages.find((p: any) => p.id === result.id);
+      if (pkg && TIER_ORDER.indexOf(pkg.tierMax) > 0) {
+        retrustLine = trustLineFor({ id: result.id, version: result.version, contentDigest: result.contentDigest, capabilityDigest: result.capabilityDigest }, trustPolicy(repoRoot), o.now);
+        const file = grantsPath(env);
+        retrust = file === null
+          ? [`${result.id} acts again only after a person adds it, but there is no config home, so no grant can exist; the line would be:`, retrustLine]
+          : [`${result.id} acts again only after a person adds it: append this line to ${file} (replace an older trust line for ${result.id} ${result.version}; DoFlow never writes that file):`, retrustLine];
+      }
+    }
+    if (json) out(JSON.stringify({ ...result, ...(retrustLine ? { grantLines: { trust: retrustLine }, grantFile: grantsPath(env) } : {}) }));
     else {
       out(`${result.action === 'add' ? 'added' : 'updated'} ${result.id} ${result.version} ${result.enabled ? 'enabled' : 'disabled'}`);
       out(`store ${result.storeDir}`);
       out(`contentDigest ${result.contentDigest}`);
       if (result.leftover) out('warning: the previous store entry could not be removed');
+      for (const line of retrust) out(line);
     }
     return finishRuntime(0);
   } catch (error: any) {
@@ -162,12 +245,274 @@ function handleApply({ action, plan, json, repoRoot, homeDir, env, hooks, out }:
   }
 }
 
-function handlePackageCommand({ action, path: pkgPath, id, source, plan, json = false, repoRoot, homeDir = os.homedir(), env = process.env, hooks, out = (line: string) => console.log(line) }: any = {}): number {
+// ── verb actions (B.6): enable, disable, trust, exempt, revoke, verify ──────────────────────────────
+
+/** Lines telling a person to append `line` to the grants file (or that no grant can exist without a config home). */
+function appendInstruction(env: any, line: string, what: string): string[] {
+  const file = grantsPath(env);
+  return file === null
+    ? [`there is no config home (set XDG_CONFIG_HOME or HOME), so no grant can exist and ${what}; the line would be:`, line]
+    : [`${what}; a person appends this line to ${file} (DoFlow never writes that file):`, line];
+}
+
+const stamp = (o: any): string => new Date(o.now).toISOString();
+
+/** One `audit` row; an unreadable `state.json` is reported by `verify`, never by the action that tried to log. */
+function audit(o: any, verb: string, packageId: string, result: string): void {
+  try { appendAudit({ homeDir: o.homeDir }, { verb, packageId: isPackageId(packageId) ? packageId : '*', result, at: stamp(o) }); } catch { /* see verify */ }
+}
+
+/** The lock row of a recorded package, or undefined. */
+const rowOf = (o: any, id: string): any => lockPackages(readLock({ scope: 'global', homeDir: o.homeDir })).find((r: any) => r.id === id);
+
+/** The row that records the bundled package as disabled: closed shape (IC-007), digests derived as B.4 does. */
+function bundledRow(o: any, pkg: any): any {
+  let capability = pkg.contentDigest;
+  try {
+    const loaded = loadPoints(o.repoRoot ? { repoRoot: o.repoRoot } : {});
+    const manifest = JSON.parse(fs.readFileSync(path.join(pkg.storeDir, MANIFEST_FILE), 'utf8'));
+    const tiers: Record<string, string> = Object.fromEntries(loaded.registry.points.map((p: any) => [p.id, p.tier]));
+    capability = capabilityDigest(manifest, { trustPolicyVersion: loaded.registry.trustPolicyVersion, tiers });
+  } catch { /* the registry digest stands in: the row only has to record the bit */ }
+  return { id: pkg.id, version: pkg.version ?? hostVersion(o.repoRoot ?? REPO_ROOT) ?? '0.0.0', source: { type: 'bundled' }, contentDigest: pkg.contentDigest, capabilityDigest: capability, enabled: false, addedAt: grantTime(o.now) };
+}
+
+/** Set the lock bit of `pkg`. A bundled package is on by default: enabling drops its row, disabling adds one. Returns whether the lock changed. */
+function setEnabled(o: any, pkg: any, enabled: boolean): boolean {
+  const lock = readLock({ scope: 'global', homeDir: o.homeDir });
+  const rows = lockPackages(lock);
+  const row = rows.find((r: any) => r.id === pkg.id);
+  let next: any[];
+  if (pkg.firstParty) {
+    if (enabled) { if (!row) return false; next = rows.filter((r: any) => r.id !== pkg.id); }
+    else { if (row && !row.enabled) return false; next = [...rows.filter((r: any) => r.id !== pkg.id), bundledRow(o, pkg)]; }
+  } else {
+    if (!row || row.enabled === enabled) return false;
+    next = rows.map((r: any) => (r.id === pkg.id ? { ...r, enabled } : r));
+  }
+  writeLock({ scope: 'global', homeDir: o.homeDir }, { ...(lock ?? defaultLock({ scope: 'global', scopeRoot: o.homeDir })), packages: next });
+  return true;
+}
+
+/** The unknown-id refusal shared by every id-taking verb: nothing is written but the audit row. */
+function unknownId(o: any): number {
+  const message = `no package with id '${o.id}'`;
+  audit(o, o.action, o.id, 'unknown-package');
+  o.out(o.json ? JSON.stringify({ ok: false, error: 'unknown-package', message }) : `doflow package: ${message}`);
+  return finishRuntime(1);
+}
+
+const highestTier = (tiers: Array<string | null>): string | null => {
+  const ranks = tiers.map((t) => TIER_ORDER.indexOf(t as string)).filter((r) => r >= 0);
+  return ranks.length > 0 ? TIER_ORDER[Math.max(...ranks)] : null;
+};
+
+/** The printed result of `enable` and `disable`: the state, the trust line when one is owed, the matched grant lines. */
+function reportState(o: any, after: any, extra: string[] = []): number {
+  const matched = matchedGrants(after, o);
+  const owes = after.state === 'needs-trust';
+  const row = owes ? rowOf(o, after.id) : null;
+  const line = row ? trustLineFor(row, trustPolicy(o.repoRoot), o.now) : null;
+  const file = grantsPath(o.env);
+  if (o.json) {
+    o.out(JSON.stringify({ ok: true, action: o.action, id: after.id, state: after.state, reasons: after.reasons, enabled: after.enabled, matched,
+      ...(line ? { grantLines: { trust: line }, grantFile: file } : {}) }));
+  } else {
+    o.out(stateLine(after));
+    for (const text of extra) o.out(text);
+    if (line) {
+      o.out(`${after.id} is enabled but needs a trust grant (${after.reasons.join(', ')}); it acts only after a person adds the line`);
+      for (const text of appendInstruction(o.env, line, `${after.id} stays inactive until the grant exists`)) o.out(text);
+      if (after.reasons.includes('state-unreadable')) o.out('state.json or the grants file is unreadable: see package --action verify --repair');
+    }
+    for (const text of matchedText(matched)) o.out(text);
+  }
+  return finishRuntime(0);
+}
+
+function verbEnable(o: any, pkg: any, ctx: any): number {
+  if (pkg.state === 'incompatible') {
+    audit(o, 'enable', pkg.id, 'incompatible');
+    const message = `package ${pkg.id} cannot be enabled: incompatible (${pkg.reasons.join(', ')})`;
+    o.out(o.json ? JSON.stringify({ ok: false, error: 'incompatible', reasons: pkg.reasons, message }) : message);
+    return finishRuntime(1);
+  }
+  setEnabled(o, pkg, true);
+  const after = freshView(o).packages.find((p: any) => p.id === pkg.id) ?? pkg;
+  ctx.tierMax = after.tierMax;
+  audit(o, 'enable', pkg.id, after.state);
+  return reportState(o, after);
+}
+
+function verbDisable(o: any, pkg: any, ctx: any): number {
+  setEnabled(o, pkg, false);
+  const after = freshView(o).packages.find((p: any) => p.id === pkg.id) ?? pkg;
+  ctx.tierMax = after.tierMax;
+  audit(o, 'disable', pkg.id, after.state);
+  return reportState(o, after, ['the grant is kept; nothing is projected into a harness yet, so there is nothing to unproject']);
+}
+
+function verbTrust(o: any, pkg: any): number {
+  audit(o, 'trust', pkg.id, 'ok');
+  if (pkg.firstParty) {
+    o.out(o.json ? JSON.stringify({ ok: true, action: 'trust', id: pkg.id, required: false }) : `${pkg.id} is a bundled first-party package and needs no grant`);
+    return finishRuntime(0);
+  }
+  const row = rowOf(o, pkg.id);
+  const line = trustLineFor(row, trustPolicy(o.repoRoot), o.now);
+  const required = TIER_ORDER.indexOf(pkg.tierMax) > 0;
+  if (o.json) o.out(JSON.stringify({ ok: true, action: 'trust', id: pkg.id, required, grantLines: { trust: line }, grantFile: grantsPath(o.env) }));
+  else {
+    if (!required) o.out(`${pkg.id} is inert: no grant is required, the line below is only needed if its tier changes`);
+    for (const text of appendInstruction(o.env, line, `${pkg.id} ${row.version} acts when its recorded digests are trusted`)) o.out(text);
+  }
+  return finishRuntime(0);
+}
+
+function verbExempt(o: any, pkg: any): number {
+  const refuse = (result: string, message: string): number => {
+    audit(o, 'exempt', pkg.id, result);
+    o.out(o.json ? JSON.stringify({ ok: false, error: result, message }) : message);
+    return finishRuntime(1);
+  };
+  if (pkg.firstParty) return refuse('bundled', `${pkg.id} is a bundled first-party package and needs no exemption`);
+  const host = hostVersion(o.repoRoot ?? REPO_ROOT);
+  let range: any;
+  try { range = JSON.parse(fs.readFileSync(path.join(pkg.storeDir, MANIFEST_FILE), 'utf8')).doflow; } catch { range = null; }
+  if (typeof range !== 'string') return refuse('manifest-unreadable', `cannot read the host range of ${pkg.id}: its store entry has no readable manifest`);
+  if (host === null) return refuse('host-unknown', 'the running DoFlow version cannot be read, so no exemption can be written for it');
+  if (satisfiesHostRange(host, range)) return refuse('inside-range', `DoFlow ${host} is inside the range ${range} of ${pkg.id}: no exemption is needed`);
+  const row = rowOf(o, pkg.id);
+  const line = JSON.stringify({ grant: 'exempt', package: row.id, version: row.version, contentDigest: row.contentDigest, host, acceptRisk: true, at: grantTime(o.now) });
+  audit(o, 'exempt', pkg.id, 'ok');
+  if (o.json) o.out(JSON.stringify({ ok: true, action: 'exempt', id: pkg.id, host, range, grantLines: { exempt: line }, grantFile: grantsPath(o.env) }));
+  else for (const text of appendInstruction(o.env, line, `${pkg.id} ${row.version} runs on DoFlow ${host}, outside its range ${range}, only on this exemption`)) o.out(text);
+  return finishRuntime(0);
+}
+
+function verbRevoke(o: any, pkg: any, ctx: any): number {
+  const row = pkg.firstParty ? null : rowOf(o, pkg.id);
+  // Whole seconds, rounded down: a line printed in the same second still sorts before the revocation (fail closed).
+  const at = new Date(Math.floor(o.now / 1000) * 1000).toISOString();
+  try {
+    recordRevocation({ homeDir: o.homeDir }, { packageId: pkg.id, contentDigest: row ? row.contentDigest : pkg.contentDigest, at });
+  } catch (error: any) {
+    const message = `cannot record the revocation: ${error.message}`;
+    o.out(o.json ? JSON.stringify({ ok: false, error: 'state-unreadable', message }) : message);
+    return finishRuntime(1);
+  }
+  const after = freshView(o).packages.find((p: any) => p.id === pkg.id) ?? pkg;
+  ctx.tierMax = after.tierMax;
+  audit(o, 'revoke', pkg.id, after.state);
+  if (o.json) o.out(JSON.stringify({ ok: true, action: 'revoke', id: pkg.id, state: after.state, reasons: after.reasons }));
+  else {
+    o.out(stateLine(after));
+    o.out(`revoked trust for ${pkg.id} at its recorded content digest; only a trust line printed after ${at} counts, and nothing is projected into a harness yet, so there is nothing to unproject`);
+  }
+  return finishRuntime(0);
+}
+
+/** `verify [--repair]`: re-hash every enabled third-party entry through the view; record or clear suspensions. */
+function verbVerify(o: any, ctx: any): number {
+  let view = freshView(o);
+  let repaired = false;
+  let notes: string[] = [];
+  let read = readState({ homeDir: o.homeDir });
+  if (o.repair) {
+    if (read.unreadable) {
+      const grants = readGrants({ env: o.env, projectRoot: o.projectRoot, ...(o.tmpDir === undefined ? {} : { tmpDir: o.tmpDir }) });
+      repairState({ homeDir: o.homeDir }, { grantEntries: grants.entries, at: stamp(o) });
+      repaired = true;
+      view = freshView(o);
+      read = readState({ homeDir: o.homeDir });
+    } else notes = ['state.json is readable, so --repair left it as it is'];
+  }
+  const checked = view.packages.filter((p: any) => !p.firstParty && p.enabled);
+  ctx.tierMax = highestTier(checked.map((p: any) => p.tierMax));
+  const findings: any[] = [];
+  for (const p of checked) {
+    if (p.state === 'suspended' || p.state === 'incompatible') findings.push({ package: p.id, state: p.state, reasons: p.reasons });
+  }
+  for (const f of view.findings) if (f.severity === 'error' && f.package === null) findings.push({ package: null, state: f.code, reasons: [f.field] });
+  if (read.unreadable && !findings.some((f) => f.state === 'state-unreadable')) findings.push({ package: null, state: 'state-unreadable', reasons: ['state.json'] });
+  if (!read.unreadable) {
+    for (const p of checked) {
+      const had = read.state.suspended.find((s: any) => s.package === p.id);
+      if (p.state === 'suspended') {
+        const reason = p.reasons[0];
+        recordSuspension({ homeDir: o.homeDir }, { packageId: p.id, reason, projected: had?.projected ?? false, since: had?.reason === reason ? had.since : stamp(o) });
+      } else if (had) clearSuspension({ homeDir: o.homeDir }, { packageId: p.id });
+    }
+    if (!repaired) audit(o, 'verify', '*', findings.length === 0 ? 'ok' : `findings:${findings.length}`);
+  }
+  if (o.json) o.out(JSON.stringify({ ok: findings.length === 0, action: 'verify', repaired, packages: checked.map((p: any) => ({ id: p.id, state: p.state, reasons: p.reasons })), findings }));
+  else {
+    for (const text of notes) o.out(text);
+    if (repaired) o.out('state.json was unreadable and is rewritten: every grant line present now is revoked until a person adds a fresh line');
+    for (const p of checked) o.out(p.state === 'suspended' || p.state === 'incompatible' ? `package ${p.id} ${p.state} reasons=${p.reasons.join(',')}` : `package ${p.id} intact`);
+    for (const f of findings.filter((x) => x.package === null)) {
+      o.out(`${f.state}: ${f.reasons.join(',')}${f.state === 'state-unreadable' ? '; run package --action verify --repair' : ''}`);
+    }
+    o.out(findings.length === 0 ? `verify: ${checked.length} enabled third-party package${checked.length === 1 ? '' : 's'} intact` : `verify: ${findings.length} finding${findings.length === 1 ? '' : 's'}`);
+  }
+  return finishRuntime(findings.length === 0 ? 0 : 1);
+}
+
+/** Run one verb under the global scope's `run.lock`, then emit `package.verb`. */
+function handleVerb(o: any): number {
+  const { action, id, json, out } = o;
+  const ctx: { tierMax: string | null } = { tierMax: null };
+  let code: number;
+  if (action !== 'verify' && (typeof id !== 'string' || id.length === 0)) code = usage(json, out, `${action} requires one --id <id>`);
+  else {
+    try {
+      const hold = acquireRunLock({ scopeRoot: o.homeDir, scope: 'global', command: `package ${action}` });
+      try {
+        if (action === 'verify') code = verbVerify(o, ctx);
+        else {
+          const pkg = freshView(o).packages.find((p: any) => p.id === id);
+          ctx.tierMax = pkg ? pkg.tierMax : null;
+          if (!pkg) code = unknownId(o);
+          else if (action === 'enable') code = verbEnable(o, pkg, ctx);
+          else if (action === 'disable') code = verbDisable(o, pkg, ctx);
+          else if (action === 'trust') code = verbTrust(o, pkg);
+          else if (action === 'exempt') code = verbExempt(o, pkg);
+          else code = verbRevoke(o, pkg, ctx);
+        }
+      } finally {
+        hold.release();
+      }
+    } catch (error: any) {
+      if (error?.name === 'RunLockTimeoutError' || error?.name === 'RunLockError') {
+        out(json ? JSON.stringify({ ok: false, error: 'run-lock', message: error.message }) : error.message);
+        code = finishRuntime(1);
+      } else {
+        captureCaught(error, 'package', 1);
+        console.error(`[ERROR] package: ${error?.message || String(error)}`);
+        code = finishRuntime(1);
+      }
+    }
+  }
+  emitVerb(o, action, code, ctx.tierMax);
+  return code;
+}
+
+/** One `package.verb` event (IC-024): closed enums only, never a package id or a path. Telemetry never changes the outcome. */
+function emitVerb(o: any, action: string, code: number, tierMax: string | null): void {
+  try {
+    const writer = o.writer || new TelemetryWriter({ env: o.env, start: process.cwd() });
+    writer.write([{ kind: 'package.verb', action, result: code === 0 ? 'ok' : code === 2 ? 'usage' : 'refused', tier_max: tierMax }]);
+  } catch { /* a telemetry fault changes nothing */ }
+}
+
+function handlePackageCommand({ action, path: pkgPath, id, source, plan, repair, json = false, repoRoot, homeDir = os.homedir(), env = process.env, projectRoot = process.cwd(), tmpDir, settingsView, writer, now = Date.now(), hooks, out = (line: string) => console.log(line) }: any = {}): number {
+  const o = { action, id, repair: repair === true, json, repoRoot, homeDir, env, projectRoot, tmpDir, settingsView, writer, now, hooks, out };
+  if (VERB_ACTIONS.includes(action)) return handleVerb(o);
   if (action === 'add' || action === 'update') {
     const given = action === 'add' ? source : id;
     if (typeof plan === 'string' && plan.length > 0) {
       if (typeof given === 'string') return usage(json, out, `${action} takes ${action === 'add' ? '--source' : '--id'} or --plan, not both`);
-      return handleApply({ action, plan, json, repoRoot, homeDir, env, hooks, out });
+      return handleApply({ ...o, plan });
     }
     try {
       return handlePlan({ action, source, id, json, repoRoot, homeDir, env, out });
@@ -179,7 +524,7 @@ function handlePackageCommand({ action, path: pkgPath, id, source, plan, json = 
   }
   if (action === 'list' || action === 'show') {
     try {
-      return handleView({ action, id, json, repoRoot, out });
+      return handleView(o);
     } catch (error: any) {
       captureCaught(error, 'package', 1);
       console.error(`[ERROR] package: ${error?.message || String(error)}`);
@@ -196,7 +541,7 @@ function handlePackageCommand({ action, path: pkgPath, id, source, plan, json = 
     }
   }
   if (action !== 'points') {
-    const message = 'action must be points, check, list, show, add or update';
+    const message = 'action must be points, check, list, show, add, update, enable, disable, trust, exempt, revoke or verify';
     out(json ? JSON.stringify({ ok: false, error: 'usage', message }) : `doflow package: ${message}`);
     return finishRuntime(2);
   }

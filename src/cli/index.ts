@@ -97,6 +97,8 @@ function parseArgs(argv: string[]): any {
       // context-emit: decide and render without taking a claim or writing a ledger line.
       case '--peek': o.peek = true; break;
       case '--check': o.check = true; break;
+      // package --action verify: rewrite an unreadable state.json (never widens, 122 IC-009).
+      case '--repair': o.repair = true; break;
       // decision --action list: every decision by id, not just the live ones.
       case '--all': o.all = true; break;
       // lifecycle --action overview: the /do maintain view, with a larger list and a pending count.
@@ -558,14 +560,18 @@ Commands:
   protocol             Print the review and debate protocol presets, or the one a run would use (read-only, writes nothing):
                        protocol --action list [--kind review|debate] [--json]
                        protocol --action resolve --kind review|debate [--task-class <id>] [--risk <level>] [--preset <id>] [--json]   (exit 0 resolved, 1 refused, 2 usage)
-  package              List the contribution points a package may fill, check a package directory, show the packages, or add and update a local package:
+  package              List the contribution points a package may fill, check a package directory, show the packages, add and update a local package, or turn it on and off:
                        package --action points [--json]
                        package --action check --path <dir> [--json]   (read-only; exit 0 clean, 1 findings, 2 usage)
                        package --action list [--id <id>] [--json]   (read-only; exit 0, 1 when a package is neither active nor disabled)
                        package --action show --id <id> [--json]   (read-only; exit 0, 1 unknown id, 2 no --id)
                        package --action add --source <dir> [--json]   (writes a plan file only; exit 0, 1 refused, 2 usage)
                        package --action add --plan <planId> [--json]   (stores the package and records it disabled; exit 0, 1 refused, e.g. digest-mismatch)
-                       package --action update --id <id> | --plan <planId> [--json]   (plan a new copy from the recorded source, or apply the plan)
+                       package --action update --id <id> | --plan <planId> [--json]   (plan a new copy from the recorded source, or apply the plan; a changed digest above inert prints the new trust line)
+                       package --action enable|disable --id <id> [--json]   (sets the lock bit; enable prints the resulting state, and for needs-trust the exact grant line and file; exit 0, 1 incompatible or unknown, 2 no --id)
+                       package --action trust|exempt --id <id> [--json]   (prints the grant line a person appends to grants.jsonl and writes nothing; exempt exits 1 while the host is inside the range)
+                       package --action revoke --id <id> [--json]   (records a revocation in state.json; only a later trust line counts)
+                       package --action verify [--repair] [--json]   (re-hashes enabled third-party entries and records suspensions; exit 0 intact, 1 findings; --repair rewrites an unreadable state.json)
   slot                 Named machine-wide queue, one holder at a time (--action run|list|release);
                        slot --action run --name <name> [--label <text>] [--timeout <s>] [--no-wait] -- <command> [args...]
                        slot --action release --name <name> --by <who> --reason <text>
@@ -621,7 +627,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        slot: run|list|release
                        review: check|start
                        protocol: list|resolve
-                       package: points|check|list|show|add|update
+                       package: points|check|list|show|add|update|enable|disable|trust|exempt|revoke|verify
       --task, --token, --owner, --mode,
       --result, --evidence-id, --reason     task-attempt (claim: --task --owner --mode manual|sequential|subagent
                                             [--owner-override <reason>] [--epoch <n>=1+] [--reserve-tokens <n>]
@@ -688,9 +694,10 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --path, --exclude (repeatable)        leak-scan
       --slug | --path                       review --action check (at most one; with neither, the active feature)
       --path <dir>                          package --action check (exactly one package directory)
-      --id <id>                             package --action list (one package), show and update (required unless --plan)
+      --id <id>                             package --action list (one package), show, update (required unless --plan), enable, disable, trust, exempt and revoke
       --source <dir>                        package --action add (a local package directory; remote sources arrive later)
       --plan <planId>                       package --action add and update (apply the plan; it is kept for 24 hours)
+      --repair                              package --action verify (rewrite an unreadable state.json; every grant line present is revoked, never widened)
       --base <ref>                          review --action start (measure the changed paths from this commit, which must be the review's base; --path is refused)
       --preset <id>                         review --action start, protocol --action resolve (run this preset; refused when looser than the decided protocol)
       --prepared-run <file>                 config validate (check a prepared-run file instead of one key; exit 2 with a key, value or --layer)
