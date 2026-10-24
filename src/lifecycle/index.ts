@@ -17,6 +17,8 @@ const { renderMcpIndex } = require('./mcp-index.ts');
 const { hasBashCapableShell } = require('./bash-availability.ts');
 const { hookTrustFor: geminiHookTrustFor } = require('../adapters/gemini/index.ts');
 const { planHookCompanions } = require('./hook-step.ts');
+const { readLock, lockPackages } = require('../state/lockfile.ts');
+const { resolveRegistrySource } = require('../adapters/resolve-source.ts');
 
 const OPERATIONS = new Set(['create', 'merge', 'update', 'remove']);
 /** A harness's MCP selection meaning "the servers it owns now", read through its adapter's
@@ -466,11 +468,217 @@ function targetFromResult({ harness, assets, mcp, mcpSelected, policies, adapter
   return { harness: harness.id, adapter: harness.adapter, assets, mcp, mcpSelected, policies, adapterInput, discovery, changes, requiredNativeResources, conflicts, prerequisites, notices: adapterNotices(result), skipped: false };
 }
 
+// ── package skills and agents (122 IC-017) ──────────────────────────────────────────────────────────
+
+/** A package contribution's asset id is `pkg.<qualified id>`; no registry asset id starts with `pkg.`. */
+const PACKAGE_ASSET_PREFIX = 'pkg.';
+const isPackageAsset = (id: any): boolean => typeof id === 'string' && id.startsWith(PACKAGE_ASSET_PREFIX);
+
+/** IC-017's ownership identity: the harness, the qualified id and the path inside the projected tree. It names no
+ * scope and no destination, as G20 requires of every identity. */
+function packageIdentity(harness: string, assetId: string, relPath: string): string {
+  return `doflow:${harness}:package:${assetId.slice(PACKAGE_ASSET_PREFIX.length)}:${relPath}`;
+}
+
+/** Whether an adapter's conflict line or status belongs to one of `ids` (copy-tree prefixes each with `<asset id>: `). */
+const namesAsset = (reason: any, ids: Set<string>): boolean => [...ids].some((id) => String(reason).includes(`${id}: `));
+
+/**
+ * The active third-party packages with skill or agent contributions, read from `context.packageView` when given (a
+ * test seam, and the verbs' own view) or else from the package view of the global lock under `scopeRoot`. Nothing is
+ * read when the lock records no third-party package. The view is taken with no `packages.disabled` applied: harness
+ * files are machine-wide, so only the lock bit, the trust grant and the store's integrity decide them.
+ */
+function activePackageEntries(registry: any, scopeRoot: string, context: any): any[] {
+  let view = context.packageView;
+  if (!view) {
+    let rows: any[];
+    try { rows = lockPackages(readLock({ scope: 'global', homeDir: scopeRoot })); } catch { return []; }
+    if (!rows.some((row: any) => row?.source?.type !== 'bundled')) return [];
+    view = require('../runtime/packages/view.ts').packageView({ repoRoot: registry.repoRoot, homeDir: scopeRoot, settingsView: {} });
+  }
+  const { instructionEntries } = require('../runtime/packages/store.ts');
+  const out: any[] = [];
+  for (const pkg of view.packages ?? []) {
+    if (pkg.firstParty || pkg.state !== 'active' || typeof pkg.storeDir !== 'string') continue;
+    let manifest: any;
+    try { manifest = JSON.parse(fs.readFileSync(path.join(pkg.storeDir, 'doflow-package.json'), 'utf8')); } catch { continue; }
+    const entries = instructionEntries(manifest);
+    if (entries.length) out.push({ id: pkg.id, storeDir: pkg.storeDir, entries });
+  }
+  return out;
+}
+
+/** The registry-shaped asset for one contribution on one harness, or `{ warning }` when it cannot be projected there.
+ * The source resolves inside the store entry with real paths on both sides (`resolveRegistrySource` with a source
+ * root); a skill lands in its own directory under the borrowed asset's destination, an agent beside DoFlow's. */
+function packageAsset(registry: any, harnessId: string, pkg: any, entry: any, realRoot: string): any {
+  const { projectionReach } = require('../runtime/packages/store.ts');
+  const reach = projectionReach(registry, harnessId, entry.point);
+  if (!reach.ok) return { warning: `${harnessId} cannot take ${entry.point} ${entry.qualifiedId}: ${reach.reason}` };
+  let real: string;
+  try { real = resolveRegistrySource(registry, entry.path, `package ${entry.qualifiedId}`, pkg.storeDir); } catch (error: any) {
+    return { warning: `${entry.point} ${entry.qualifiedId} is not projected: ${error.message}` };
+  }
+  let sourceDir = real;
+  let nativeDir = reach.nativeDir ? `${reach.nativeDir}/${entry.name}` : entry.name;
+  if (entry.point === 'agent') {
+    // The adapters project a whole source directory, so an agent file is projected only from a directory of its own.
+    sourceDir = path.dirname(real);
+    nativeDir = reach.nativeDir;
+    const others = fs.readdirSync(sourceDir).filter((name: string) => name !== path.basename(real));
+    if (others.length) return { warning: `agent ${entry.qualifiedId} is not projected: its directory ${path.relative(realRoot, sourceDir) || '.'} holds other entries (${others.slice(0, 3).join(', ')}); give the agent file a directory of its own` };
+  }
+  return {
+    asset: { id: `${PACKAGE_ASSET_PREFIX}${entry.qualifiedId}`, kind: entry.point, source: path.relative(realRoot, sourceDir), ownership: 'managed-tree',
+      projection: { [harnessId]: reach.projection }, nativeDir: { [harnessId]: nativeDir } },
+  };
+}
+
+/** What one harness's adapter plans for one package's assets alone, with every other component's output dropped and
+ * the identities rewritten to IC-017's: `{ part, changes, notices }`, or `{ warnings }` when it cannot be planned. The
+ * part (assets, adapter input, discovery) is what verification re-reads after the apply. */
+function planPackagePart({ registry, adapters, harness, scope, scopeRoot, ledger, context, pkg, assets }: any): any {
+  const realRoot = fs.realpathSync(pkg.storeDir);
+  // The native projection (codex's TOML agents and hooks) is DoFlow's own, never a package's: it is left out, so the
+  // adapter plans the package's tree assets and nothing that reads the DoFlow checkout.
+  const adapterInput = projectAdapterInput({ registry, harness: { ...harness, nativeProjection: undefined }, scope, scopeRoot, assets, mcp: [], mcpAdoptable: [], policies: [],
+    context: { repoRoot: realRoot, homeDir: context.homeDir ?? scopeRoot, projectRoot: scopeRoot, sourceVersion: context.sourceVersion, operation: context.operation } });
+  const adapter = resolveAdapter(adapters, harness);
+  const ids = new Set<string>(assets.map((asset: any) => asset.id));
+  let discovery: any;
+  let result: any;
+  try {
+    discovery = adapter.discover({ ...adapterInput, registry, ledger });
+    result = adapter.plan({ ...adapterInput, registry, ledger, discovery });
+  } catch (error: any) {
+    return { warnings: [`package ${pkg.id} is not projected into ${harness.id}: ${error.message}`] };
+  }
+  const conflicts = adapterConflicts(result, harness).filter((reason: any) => namesAsset(reason, ids));
+  if (conflicts.length) return { warnings: conflicts.map((reason: any) => `package ${pkg.id} is not projected into ${harness.id}: ${reason}`) };
+  const changes = (result.changes || []).filter((change: any) => ids.has(change.assetId))
+    .map((change: any) => normalizeChange({ ...change, ownershipIdentity: packageIdentity(harness.id, change.assetId, change.identity ?? path.basename(change.target)) }, { harness, assets }));
+  const notices = adapterNotices(result).filter((notice: string) => notice.startsWith('kept hand-edited '));
+  return { part: { packageId: pkg.id, assets, adapterInput, discovery }, changes, notices };
+}
+
+/** The removals of a package's recorded rows on one harness (IC-017 unprojection), planned from the ledger alone, so a
+ * store entry that is gone or changed is no obstacle: a file whose bytes are still DoFlow's is removed, a file a person
+ * edited is kept and only its row released (named in a notice), a file already gone only releases its row. The change
+ * shape is the one every adapter's copy-tree removal reads (`kind`, `projection.renderer`), as the runtime prune's. */
+function packageRemovals({ harness, scopeRoot, rows }: any): { changes: any[]; notices: string[] } {
+  const notices: string[] = [];
+  const changes = rows.map((row: any) => {
+    const base = { harness: harness.id, assetId: row.assetId, target: row.target, operation: 'remove', kind: 'copy-tree-file', identity: row.identity,
+      ownershipIdentity: row.ownershipIdentity, projection: { renderer: 'copy-tree' } };
+    if (!fs.existsSync(row.target)) return Object.freeze({ ...base, fingerprint: null, retained: true, retainedFor: [] });
+    const current = sha256File(row.target, fs);
+    if (current !== row.fingerprint) {
+      notices.push(`kept person-edited ${path.relative(scopeRoot, row.target)}; DoFlow no longer manages it`);
+      return Object.freeze({ ...base, fingerprint: current, retained: true, retainedFor: [] });
+    }
+    return Object.freeze({ ...base, fingerprint: current });
+  });
+  return { changes, notices };
+}
+
+/**
+ * The package work of a global-scope plan (IC-017), per harness: the changes that project each active package's skills
+ * and agents through the harness's own adapter (one `part` per package, for verification), and the removals of every
+ * recorded row that no longer belongs to an active, reachable contribution (disabled, revoked, removed, suspended,
+ * re-digested, or a `remove` run). A package fault never makes the plan unsafe (FR-009): it becomes a warning, and that
+ * package's files on that harness stay as they are. Nothing happens at project scope (NFR-005), and nothing is read
+ * when no package is recorded.
+ */
+function planPackageWork({ registry, adapters, scope, scopeRoot, harnesses, ledger, context }: any): { byHarness: Map<string, any>; warnings: any[] } {
+  const byHarness = new Map<string, any>();
+  const warnings: any[] = [];
+  if (scope !== 'global' || !harnesses.length) return { byHarness, warnings };
+  const recorded = (ledger?.resources ?? []).filter((row: any) => isPackageAsset(row.assetId) && typeof row.target === 'string');
+  const active = context.operation === 'remove' ? [] : activePackageEntries(registry, scopeRoot, context);
+  if (!active.length && !recorded.length) return { byHarness, warnings };
+  for (const harness of harnesses) {
+    const work = { changes: [] as any[], notices: [] as string[], parts: [] as any[] };
+    const wanted = new Set<string>();
+    for (const pkg of active) {
+      const realRoot = fs.realpathSync(pkg.storeDir);
+      const assets: any[] = [];
+      for (const entry of pkg.entries) {
+        const made = packageAsset(registry, harness.id, pkg, entry, realRoot);
+        if (made.warning) warnings.push({ harness: harness.id, packageId: pkg.id, warning: made.warning });
+        else { assets.push(made.asset); wanted.add(made.asset.id); }
+      }
+      if (!assets.length) continue;
+      const planned = planPackagePart({ registry, adapters, harness, scope, scopeRoot, ledger, context, pkg, assets });
+      for (const warning of planned.warnings ?? []) warnings.push({ harness: harness.id, packageId: pkg.id, warning });
+      if (!planned.part) continue;
+      work.parts.push(planned.part);
+      work.changes.push(...planned.changes);
+      work.notices.push(...planned.notices);
+    }
+    const removals = packageRemovals({ harness, scopeRoot, rows: recorded.filter((row: any) => row.harness === harness.id && !wanted.has(row.assetId)) });
+    work.changes.push(...removals.changes);
+    work.notices.push(...removals.notices);
+    if (work.parts.length || work.changes.length || work.notices.length) byHarness.set(harness.id, work);
+  }
+  return { byHarness, warnings };
+}
+
+/** A harness's plan entry with its package work added, `requiredNativeResources` kept in step as withChanges does. */
+function withPackageWork(target: any, work: any) {
+  const changes = [...target.changes, ...work.changes];
+  const requiredNativeResources = target.requiredNativeResources === target.changes ? changes
+    : [...target.requiredNativeResources, ...work.changes.map((change: any) => ({ harness: change.harness, component: 'package', target: change.target, operation: change.operation, identity: change.identity }))];
+  return { ...target, changes, requiredNativeResources, notices: [...target.notices, ...work.notices], packageParts: work.parts };
+}
+
+/** The plan entry of a package-only plan for one harness: no DoFlow asset, only the package work. */
+function packageHostTarget({ registry, harness, scope, scopeRoot, context, work }: any) {
+  const adapterInput = projectAdapterInput({ registry, harness: { ...harness, nativeProjection: undefined }, scope, scopeRoot, assets: [], mcp: [], mcpAdoptable: [], policies: [],
+    context: { repoRoot: registry.repoRoot, homeDir: context.homeDir ?? scopeRoot, projectRoot: scopeRoot, operation: context.operation } });
+  return { harness: harness.id, adapter: harness.adapter, assets: [], mcp: [], mcpSelected: null, policies: [], adapterInput, discovery: null,
+    changes: work.changes, requiredNativeResources: work.changes, conflicts: [], prerequisites: [], notices: work.notices, skipped: false,
+    packagesOnly: true, packageParts: work.parts };
+}
+
+/** The verification of one package part: the adapter's verify of that package's assets, filtered to them, with the
+ * identities rewritten as the plan wrote them. A throw is a conflict, so the run stops before the ledger is written. */
+function verifyPackagePart({ part, adapter, harness, plan, context, operation, plannedWrites }: any): any {
+  const ids = new Set<string>(part.assets.map((asset: any) => asset.id));
+  let raw: any;
+  try {
+    raw = normalizeVerification(adapter.verify({ ...part.adapterInput, registry: context.registry ?? plan.registry, discovery: part.discovery, ledger: plan.ledger,
+      operation, context: { ...part.adapterInput.context, operation, ...(plannedWrites ? { plannedWrites } : {}) } }), harness);
+  } catch (error: any) {
+    return { ok: false, statuses: [], resources: [], conflicts: [`package ${part.packageId}: ${error.message}`] };
+  }
+  const conflicts = (raw.conflicts || []).filter((reason: any) => namesAsset(reason, ids));
+  const statuses = raw.statuses.filter((status: any) => ids.has(status?.assetId));
+  const resources = raw.resources.filter((resource: any) => ids.has(resource?.assetId))
+    .map((resource: any) => ({ ...resource, ownershipIdentity: packageIdentity(harness.id, resource.assetId, resource.identity ?? path.basename(resource.target)) }));
+  const failed = statuses.some((status: any) => ['missing', 'conflict', 'error', 'invalid'].includes(status?.status));
+  return { ok: conflicts.length === 0 && !failed, statuses, resources, conflicts };
+}
+
+/** A harness's verification with its package parts' verifications merged in, so each harness keeps one entry. */
+function withPackageVerification(verification: any, target: any, options: any) {
+  let merged = verification;
+  for (const part of target.packageParts ?? []) {
+    const one = verifyPackagePart({ ...options, part });
+    merged = { ...merged, statuses: [...merged.statuses, ...one.statuses], resources: [...merged.resources, ...one.resources],
+      conflicts: [...(merged.conflicts || []), ...one.conflicts], ok: merged.ok !== false && one.ok };
+  }
+  return merged;
+}
+
 function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelections = {}, mcpAdoptable = {}, retainedMcpIds = [], ledger, context = {} }: any) {
   assertScope(scope);
   if (!registry) throw new Error('registry is required');
   const baseLedger = ledger ?? defaultLedger({ scope, scopeRoot });
-  const harnessPlans = normalizeTargets(registry, targets).map((harness) => {
+  const harnesses = normalizeTargets(registry, targets);
+  // `packagesOnly` (the package verbs): only the package targets, for a runtime that ships no DoFlow content to plan.
+  const packagesOnly = context.packagesOnly === true;
+  const harnessPlans = packagesOnly ? [] : harnesses.map((harness) => {
     if (!harness.scopes.includes(registryScope(scope))) {
       return { harness: harness.id, assets: [], changes: [], conflicts: [`Harness '${harness.id}' does not support ${scope} scope`], prerequisites: [], notices: [], skipped: true, mcpSelected: null };
     }
@@ -497,23 +705,38 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
   // the recorded selections of the harnesses this run does not touch.
   const selectedMcp = selectMcpServers(registry, catalogIds(registry,
     [...retainedMcpIds, ...harnessPlans.flatMap((item) => (item.skipped ? [] : item.mcpSelected ?? []))]));
+  // Package skills and agents ride the same plan, at global scope only (IC-017), for the harnesses it plans; each
+  // harness keeps one plan entry, its package work added to it.
+  let packages: { byHarness: Map<string, any>; warnings: any[] };
+  try {
+    packages = planPackageWork({ registry, adapters, scope, scopeRoot, ledger: baseLedger, context,
+      harnesses: harnesses.filter((harness: any) => harness.scopes.includes(registryScope(scope))) });
+  } catch (error: any) {
+    packages = { byHarness: new Map(), warnings: [{ harness: null, packageId: null, warning: `package skills and agents are not projected: ${error.message}` }] };
+  }
+  const withPackages = packagesOnly
+    ? harnesses.filter((harness: any) => packages.byHarness.has(harness.id))
+      .map((harness: any) => packageHostTarget({ registry, harness, scope, scopeRoot, context, work: packages.byHarness.get(harness.id) }))
+    : harnessPlans.map((target: any) => (!target.skipped && packages.byHarness.has(target.harness) ? withPackageWork(target, packages.byHarness.get(target.harness)) : target));
   // Only once every harness's plan is known: whether a file may be deleted depends on the rows
   // the WHOLE plan leaves standing, which no single harness's plan can see.
-  const retained = markRetainedRemovals(harnessPlans, baseLedger, scope);
-  const annotated = context.operation === 'remove' ? retained
+  const retained = markRetainedRemovals(withPackages, baseLedger, scope);
+  const annotated = context.operation === 'remove' || packagesOnly ? retained
     : pruneRetiredRuntimeFiles(retained, baseLedger, { scopeRoot, repoRoot: context.repoRoot });
   // The shared hooks tree may have moved under harnesses this run does not name (IC-037): their
   // front doors come along, as targets of this same plan.
-  const companions = planHookCompanions({ registry, adapters, scope, harnessScope: registryScope(scope), scopeRoot, ledger: baseLedger, context,
+  const companions = packagesOnly ? [] : planHookCompanions({ registry, adapters, scope, harnessScope: registryScope(scope), scopeRoot, ledger: baseLedger, context,
     targets: annotated, targetFromResult });
   const planned = [...annotated, ...companions];
   const changes = planned.flatMap((item: any) => item.changes);
   const conflicts = planned.flatMap((item: any) => item.conflicts.map((reason: any) => ({ harness: item.harness, reason })));
   const prerequisites = planned.flatMap((item: any) => item.prerequisites.map((prerequisite: any) => ({ harness: item.harness, prerequisite })));
   const requiredNativeResources = planned.flatMap((item: any) => item.requiredNativeResources || []);
-  const notices = planned.flatMap((item: any) => item.notices.map((notice: any) => ({ harness: item.harness, notice })));
+  const notices = [...planned.flatMap((item: any) => item.notices.map((notice: any) => ({ harness: item.harness, notice }))),
+    ...packages.warnings.map((item: any) => ({ harness: item.harness, notice: `warning: ${item.warning}` }))];
   return Object.freeze({ scope, scopeRoot, mcp: selectedMcp, ledger: baseLedger, targets: planned, changes, requiredNativeResources, conflicts, prerequisites, notices,
-    retained: retainedChanges(changes), safe: conflicts.length === 0 && prerequisites.length === 0 });
+    retained: retainedChanges(changes), safe: conflicts.length === 0 && prerequisites.length === 0,
+    ...(packagesOnly ? { packagesOnly: true } : {}), ...(packages.warnings.length ? { packageWarnings: packages.warnings } : {}) });
 }
 
 function verificationResources(verification: any, changes: any, scope: any, recoveryRef: any) {
@@ -657,10 +880,13 @@ function verifyLifecycle({ plan, adapters, context = {} }: any) {
       ? target.changes.filter((change: any) => !change.retained && (change.operation === 'create' || change.operation === 'update')).map((change: any) => change.target)
       : undefined;
     // A hook-front-door companion (IC-037) is verified for its doors alone: the rest of that
-    // harness is not part of this run and may legitimately trail the current source.
-    let verification = normalizeVerification(adapter[target.hookDoorsOnly ? 'verifyHookDoors' : 'verify']({ ...target.adapterInput,
-      registry: context.registry ?? plan.registry, discovery: target.discovery, ledger: plan.ledger,
-      operation, context: { ...target.adapterInput.context, operation, ...(plannedWrites ? { plannedWrites } : {}) } }), harness);
+    // harness is not part of this run and may legitimately trail the current source. A package-only entry has no
+    // DoFlow asset to verify, only its package parts (IC-017).
+    let verification = target.packagesOnly ? { harness: target.harness, ok: true, statuses: [], resources: [], conflicts: [] }
+      : normalizeVerification(adapter[target.hookDoorsOnly ? 'verifyHookDoors' : 'verify']({ ...target.adapterInput,
+        registry: context.registry ?? plan.registry, discovery: target.discovery, ledger: plan.ledger,
+        operation, context: { ...target.adapterInput.context, operation, ...(plannedWrites ? { plannedWrites } : {}) } }), harness);
+    verification = withPackageVerification(verification, target, { adapter, harness, plan, context, operation, plannedWrites });
     if (operation === 'remove') verification = normalizeRemovalVerification(verification, target.changes, plan.ledger);
     verifications.push({ ...verification, hookWiring: hookWiringStatus(harness, target, verification) });
   }
@@ -781,7 +1007,8 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
     throw new Error('Lifecycle verification failed; ledger was not updated');
   }
   try {
-    applyMcpIndex({ scopeRoot: plan.scopeRoot, selectedMcp: plan.mcp, mode, retain: !removalIsTotal(plan) });
+    // A package-only plan selects no MCP server; the index stays as the last install wrote it.
+    if (!plan.packagesOnly) applyMcpIndex({ scopeRoot: plan.scopeRoot, selectedMcp: plan.mcp, mode, retain: !removalIsTotal(plan) });
   } catch (error: any) {
     // Same reasoning as the harness-loop catch above: every native resource already applied and
     // verified successfully by this point, so leaving the record at 'pending' on a failure here
@@ -823,4 +1050,4 @@ function removeLifecycle(options: any) {
   return applyLifecycle({ ...options, plan, mode: 'remove', acceptPrerequisites: options.acceptPrerequisites });
 }
 
-module.exports = { OPERATIONS, MCP_KEEP, recordMcpOwnership, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks, hookWiringStatus, markRetainedRemovals, retentionSummary, RUNTIME_TREE_ASSETS };
+module.exports = { OPERATIONS, MCP_KEEP, recordMcpOwnership, isPackageAsset, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks, hookWiringStatus, markRetainedRemovals, retentionSummary, RUNTIME_TREE_ASSETS };

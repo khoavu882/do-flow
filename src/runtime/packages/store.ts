@@ -8,9 +8,10 @@
  * `.installed-from.json` marker beside the tree and writes the lock row last. A failure after the rename removes
  * the entry before the lock is touched. Nothing here writes the person grant file.
  *
- * Not here yet: `projection` is a placeholder `{}` until Phase C (projection into harnesses); trust voiding and
- * the new trust line printed by `update --plan` belong to B.6 (the data already makes it fall out: the lock row
- * names the new digests, and a grant names the old ones); remote sources are Phase E.
+ * The plan's `projection` (IC-006) names, per harness of the global lock's `targets`, the skills and agents the
+ * package would project there and the listing bytes they add to that harness's always-loaded context; the
+ * projection itself is the lifecycle's (IC-017, `src/lifecycle/index.ts`), which asks `projectionReach` here which
+ * harness can take which point. Remote sources are Phase E.
  */
 
 const fs = require('node:fs');
@@ -18,7 +19,7 @@ const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
-const { isPackageId } = require('../../helper/package-ids.ts');
+const { isPackageId, projectedName } = require('../../helper/package-ids.ts');
 const { checkPackage, MANIFEST_FILE } = require('./manifest.ts');
 const { loadPoints } = require('./points.ts');
 const { walkTree, digestFiles, canonicalJson } = require('./digest.ts');
@@ -70,6 +71,88 @@ function analyze(dir: string, { repoRoot = REPO_ROOT, fsImpl = fs }: any = {}): 
   };
 }
 
+// ── projection reach and the plan's `projection` (IC-017, IC-006) ───────────────────────────────────
+
+/** The built-in asset whose per-harness projection (renderer, transform, layout, destination) a package
+ * contribution of each instruction point borrows, so it lands where and how DoFlow's own skills and agents do. */
+const BORROWED_ASSET: Record<string, string> = { skill: 'skills.doflow', agent: 'agents.shared' };
+const CAPABILITY: Record<string, string> = { skill: 'skills', agent: 'agents' };
+const INSTRUCTION_POINTS = Object.keys(BORROWED_ASSET);
+
+/**
+ * Whether `harnessId` can take a package contribution of `point` (IC-017 harness reach): `{ ok: true, projection,
+ * nativeDir }` with the borrowed asset's projection for that harness, else `{ ok: false, reason }`. The capability
+ * is the harness's `skills` or `agents` capability in `harnesses.json`; `unavailable` is the gap NFR-003 names.
+ */
+function projectionReach(registry: any, harnessId: string, point: string): any {
+  const harness = registry.harnesses.find((h: any) => h.id === harnessId);
+  if (!harness) return { ok: false, reason: 'it is not a harness this DoFlow knows' };
+  const name = CAPABILITY[point];
+  if (!name) return { ok: false, reason: `${point} is not an instruction point` };
+  const capability = harness.capabilities?.[name];
+  if (!capability || capability.status === 'unavailable') return { ok: false, reason: `its ${name} capability is unavailable` };
+  const asset = registry.assets.find((a: any) => a.id === BORROWED_ASSET[point]);
+  const projection = asset?.projection?.[harnessId];
+  if (!projection) return { ok: false, reason: `DoFlow projects no ${name} into it (capability ${capability.status})` };
+  return { ok: true, projection, nativeDir: asset.nativeDir?.[harnessId] ?? '' };
+}
+
+/** The `name: value` pairs of a Markdown file's frontmatter, quotes stripped; empty when there is none. */
+function frontmatterValues(text: string): Record<string, string> {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+  const values: Record<string, string> = {};
+  for (const line of match ? match[1].split(/\r?\n/) : []) {
+    const item = /^([A-Za-z][A-Za-z0-9_-]*):[ \t]*(.*)$/.exec(line);
+    if (item) values[item[1]] = item[2].trim().replace(/^"(.*)"$/, '$1');
+  }
+  return values;
+}
+
+/** The bytes a contribution adds to a harness's always-loaded listing: its name and description, plus a skill's
+ * `when_to_use` (what G22 counts for DoFlow's own skills). 0 when the file cannot be read. */
+function listingBytes(file: string, fsImpl: any): number {
+  try {
+    const values = frontmatterValues(String(fsImpl.readFileSync(file, 'utf8')));
+    return ['name', 'description', 'when_to_use'].reduce((sum, key) => sum + Buffer.byteLength(values[key] ?? '', 'utf8'), 0);
+  } catch { return 0; }
+}
+
+/** The instruction contributions of a manifest: `{ point, qualifiedId, name, path }`, `path` relative to the package root. */
+function instructionEntries(manifest: any): any[] {
+  return (Array.isArray(manifest?.contributions) ? manifest.contributions : [])
+    .filter((c: any) => c && INSTRUCTION_POINTS.includes(c.point) && c.version === 1 && typeof c.id === 'string' && typeof (c.point === 'skill' ? c.dir : c.file) === 'string')
+    .map((c: any) => ({ point: c.point, qualifiedId: `${manifest.id}.${c.id}`, name: projectedName(`${manifest.id}.${c.id}`) ?? `${manifest.id}-${c.id}`, path: c.point === 'skill' ? c.dir : c.file }));
+}
+
+/**
+ * The plan's `projection` (IC-006): per harness of the global lock's `targets`, the projected names by point and
+ * the listing bytes they add there; a contribution the harness cannot take is named under `unreachable` and in
+ * `warnings`. `{}` for a package with no skill or agent, or when no harness is installed at global scope.
+ */
+function projectionPreview(dir: string, manifest: any, lock: any, { repoRoot = REPO_ROOT, registry, fsImpl = fs }: any = {}): { projection: Record<string, any>; warnings: string[] } {
+  const entries = instructionEntries(manifest);
+  const harnesses = (lock?.targets ?? []).map((t: any) => t?.harness).filter((h: any) => typeof h === 'string');
+  const projection: Record<string, any> = {};
+  const warnings: string[] = [];
+  if (entries.length === 0 || harnesses.length === 0) return { projection, warnings };
+  const reg = registry ?? require('../../registry/index.ts').loadRegistry({ repoRoot });
+  for (const harness of harnesses) {
+    const row: any = { listingBytes: 0 };
+    for (const entry of entries) {
+      const reach = projectionReach(reg, harness, entry.point);
+      if (!reach.ok) {
+        (row.unreachable ??= []).push(entry.name);
+        warnings.push(`${harness} cannot take ${entry.point} ${entry.qualifiedId}: ${reach.reason}`);
+        continue;
+      }
+      (row[entry.point] ??= []).push(entry.name);
+      row.listingBytes += listingBytes(path.join(dir, ...entry.path.split('/'), ...(entry.point === 'skill' ? ['SKILL.md'] : [])), fsImpl);
+    }
+    projection[harness] = row;
+  }
+  return { projection, warnings };
+}
+
 /** The highest tier in an inventory (`inert` for none). */
 const tierMax = (inventory: any[]): string => inventory.reduce((top: string, c: any) => (TIER_ORDER.indexOf(c.tier) > TIER_ORDER.indexOf(top) ? c.tier : top), 'inert');
 
@@ -92,8 +175,9 @@ function planIdFor(text: string, hash: (text: string) => string = sha256): strin
  * row of `id`. Returns `{ ok: true, plan, planFile }` or `{ ok: false, findings }`; the only thing written is
  * the plan file, and nothing is written when anything refuses.
  */
-function planPackage({ action, source, id, homeDir = os.homedir(), repoRoot = REPO_ROOT, now = Date.now(), hash, fsImpl = fs }: any): any {
-  const rows = lockPackages(readLock({ scope: 'global', homeDir }, { fsImpl }));
+function planPackage({ action, source, id, homeDir = os.homedir(), repoRoot = REPO_ROOT, now = Date.now(), hash, registry, fsImpl = fs }: any): any {
+  const lock = readLock({ scope: 'global', homeDir }, { fsImpl });
+  const rows = lockPackages(lock);
   let sourcePath = source;
   if (action === 'update') {
     const row = rows.find((r: any) => r.id === id);
@@ -119,15 +203,16 @@ function planPackage({ action, source, id, homeDir = os.homedir(), repoRoot = RE
       capabilityDigest: analysis.capabilityDigest, policy: analysis.trustPolicyVersion, at: grantTime(now),
     });
   }
+  const preview = projectionPreview(sourcePath, manifest, lock, { repoRoot, registry, fsImpl });
   const plan = {
     plan: PLAN_VERSION, planId, createdAt: new Date(now).toISOString(), action, source: source_,
     package: { id: manifest.id, version: manifest.version, doflow: manifest.doflow },
     contentDigest: analysis.contentDigest, capabilityDigest: analysis.capabilityDigest, trustPolicyVersion: analysis.trustPolicyVersion,
-    inventory: analysis.inventory, programs: analysis.programs, projection: {}, findings: analysis.findings, grantLines,
+    inventory: analysis.inventory, programs: analysis.programs, projection: preview.projection, findings: analysis.findings, grantLines,
   };
   const planFile = path.join(packagePaths(homeDir).plans, `${planId}.json`);
   atomicJsonWrite(planFile, plan, { fsImpl });
-  return { ok: true, plan, planFile, tierMax: tierMax(analysis.inventory) };
+  return { ok: true, plan, planFile, tierMax: tierMax(analysis.inventory), projectionWarnings: preview.warnings, instructions: instructionEntries(manifest).length };
 }
 
 /** A plan file's content when it is the IC-006 shape for a local source, else a finding. */
@@ -289,4 +374,4 @@ function applyLocked({ plan, homeDir, repoRoot, now, hooks, fsImpl }: any): any 
   }
 }
 
-module.exports = { planIdFor, planPackage, applyPlan, packagePaths, removeEntry, PLAN_ID, MARKER_SUFFIX };
+module.exports = { planIdFor, planPackage, applyPlan, packagePaths, removeEntry, projectionReach, instructionEntries, PLAN_ID, MARKER_SUFFIX };

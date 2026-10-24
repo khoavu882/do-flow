@@ -15,6 +15,11 @@
  * appends to `grants.jsonl` (DoFlow never writes it); `revoke` and `verify` write `state.json`. Each emits one
  * `package.verb` telemetry event (`action`, `result`, `tier_max`, no id or path). `remove` (B.7) is the seventh: it
  * deletes the package and prints what still names it. An id no package carries writes nothing for any of them.
+ *
+ * Projection (C.3, IC-017): `enable`, `disable`, `revoke`, `verify`, `remove` and a digest-changing `update --plan` bring
+ * the projected skills and agents of every third-party package in line with the view (`syncProjection`), through the
+ * lifecycle at global scope for the harnesses of the global lock's `targets`; `list` and `show` name the harnesses that
+ * cannot take a package's skills or agents, and say when no harness is installed at global scope.
  */
 
 const { finishRuntime, captureCaught } = require('../cli-result.ts');
@@ -133,16 +138,25 @@ function handleView(o: any): number {
   }
   const findings = typeof id === 'string' ? view.findings.filter((f: any) => f.package === id) : view.findings;
   const cache = {};
+  const targets = json ? [] : globalTargets(o);
   if (action === 'show') {
     if (json) out(JSON.stringify(wanted[0]));
-    else { out(stateLine(wanted[0])); for (const line of matchedText(matchedGrants(wanted[0], o, cache))) out(line); }
+    else {
+      out(stateLine(wanted[0]));
+      for (const line of matchedText(matchedGrants(wanted[0], o, cache))) out(line);
+      for (const line of reachLines(o, wanted[0], targets)) out(line);
+    }
     return finishRuntime(0);
   }
   const lockVersion = globalLockVersion(o.homeDir);
   const v2 = lockVersion !== null && lockVersion > LOCK_VERSION_BASE;
   if (json) out(JSON.stringify({ points: view.points, packages: wanted, findings, lockVersion }));
   else {
-    for (const p of wanted) { out(stateLine(p)); for (const line of matchedText(matchedGrants(p, o, cache))) out(line); }
+    for (const p of wanted) {
+      out(stateLine(p));
+      for (const line of matchedText(matchedGrants(p, o, cache))) out(line);
+      for (const line of reachLines(o, p, targets)) out(line);
+    }
     if (wanted.length === 0) out('no packages');
     for (const f of findings) out(findingLine(f));
     if (v2) out(DOWNGRADE_LIMIT);
@@ -170,7 +184,7 @@ function sameSource(left: any, right: any): boolean {
 }
 
 /** `add --source <spec>` and `update --id <id>`: local adds write a plan; remote adds stop at the fetch grant gate. */
-function handlePlan({ action, source, id, json, repoRoot, homeDir, env, projectRoot, tmpDir, now, out }: any): number {
+function handlePlan({ action, source, id, json, repoRoot, homeDir, env, projectRoot, tmpDir, now, registry, out }: any): number {
   if (action === 'add') {
     if (typeof source !== 'string' || source.length === 0) return usage(json, out, 'add requires one --source <spec> or one --plan <planId>');
     const parsed = parseSource(source);
@@ -199,7 +213,7 @@ function handlePlan({ action, source, id, json, repoRoot, homeDir, env, projectR
   } else if (typeof id !== 'string' || id.length === 0) {
     return usage(json, out, 'update requires one --id <id> or one --plan <planId>');
   }
-  const result = planPackage({ action, source: typeof source === 'string' ? path.resolve(source) : undefined, id, homeDir, repoRoot });
+  const result = planPackage({ action, source: typeof source === 'string' ? path.resolve(source) : undefined, id, homeDir, repoRoot, registry });
   if (!result.ok) return refusal(json, out, result.findings, `package refused: ${typeof source === 'string' ? path.resolve(source) : id}`);
   const { plan, planFile } = result;
   if (json) { out(JSON.stringify({ ok: true, planFile, plan })); return finishRuntime(0); }
@@ -208,6 +222,12 @@ function handlePlan({ action, source, id, json, repoRoot, homeDir, env, projectR
   for (const c of plan.inventory) out(`  ${c.point} ${c.qualifiedId} ${c.tier}`);
   if (plan.inventory.length === 0) out('  no contributions');
   for (const f of plan.findings) out(findingLine(f));
+  for (const [harness, row] of Object.entries<any>(plan.projection)) {
+    const names = ['skill', 'agent'].flatMap((point) => (row[point] ?? []).map((name: string) => `${point} ${name}`));
+    out(`  projection ${harness}: ${names.length ? names.join(', ') : 'nothing'} (${row.listingBytes} listing bytes of always-loaded context)`);
+  }
+  for (const w of result.projectionWarnings ?? []) out(`warning: ${w}`);
+  if (result.instructions > 0 && Object.keys(plan.projection).length === 0) out(NO_GLOBAL(plan.package.id));
   out(`contentDigest ${plan.contentDigest}`);
   out(`capabilityDigest ${plan.capabilityDigest}`);
   if (plan.grantLines.trust) {
@@ -261,13 +281,20 @@ function handleApply(o: any): number {
           : [`${result.id} acts again only after a person adds it: append this line to ${file} (replace an older trust line for ${result.id} ${result.version}; DoFlow never writes that file):`, retrustLine];
       }
     }
-    if (json) out(JSON.stringify({ ...result, ...(retrustLine ? { grantLines: { trust: retrustLine }, grantFile: grantsPath(env) } : {}) }));
+    // A changed content digest leaves the package without a valid grant above inert: its skills and agents go (IC-017).
+    let sync: any = null;
+    if (result.action === 'update' && before.has(result.id) && before.get(result.id) !== result.contentDigest) {
+      const hold = acquireRunLock({ scopeRoot: homeDir, scope: 'global', command: 'package update' });
+      try { sync = syncProjection(o); } finally { hold.release(); }
+    }
+    if (json) out(JSON.stringify({ ...result, ...(retrustLine ? { grantLines: { trust: retrustLine }, grantFile: grantsPath(env) } : {}), ...(sync ? projectionJson(sync) : {}) }));
     else {
       out(`${result.action === 'add' ? 'added' : 'updated'} ${result.id} ${result.version} ${result.enabled ? 'enabled' : 'disabled'}`);
       out(`store ${result.storeDir}`);
       out(`contentDigest ${result.contentDigest}`);
       if (result.leftover) out('warning: the previous store entry could not be removed');
       for (const line of retrust) out(line);
+      for (const line of sync?.lines ?? []) out(line);
     }
     return finishRuntime(0);
   } catch (error: any) {
@@ -280,6 +307,97 @@ function handleApply(o: any): number {
     return finishRuntime(1);
   }
 }
+
+// ── projection of package skills and agents (C.3, IC-017) ───────────────────────────────────────────
+
+/** The harnesses of the global lock's `targets`: where package skills and agents go. [] with no lock or an unreadable one. */
+function globalTargets(o: any): string[] {
+  try { return (readLock({ scope: 'global', homeDir: o.homeDir })?.targets ?? []).map((t: any) => t?.harness).filter((h: any) => typeof h === 'string'); } catch { return []; }
+}
+
+/** The skill and agent contributions a package's view row lists. */
+const instructionsOf = (pkg: any): any[] => (pkg?.contributions ?? []).filter((c: any) => c.point === 'skill' || c.point === 'agent');
+
+/** The line saying a package's skills and agents reach no harness, because DoFlow is not installed at global scope. */
+const NO_GLOBAL = (id: string): string => `no harness is installed at global scope, so ${id}'s skills and agents are projected into none (a project-scope install never takes them)`;
+
+/** The registry `list`, `show` and the projection read (`o.registry` is a test seam). */
+const registryOf = (o: any): any => o.registry ?? require('../../registry/index.ts').loadRegistry({ repoRoot: o.repoRoot ?? REPO_ROOT });
+
+/** The harness-reach warnings (IC-017, NFR-003) of one package for `list` and `show`: a harness of the global lock that
+ * cannot take one of its skills or agents, or the one line saying no harness is installed at global scope. */
+function reachLines(o: any, pkg: any, targets: string[]): string[] {
+  const entries = instructionsOf(pkg);
+  if (pkg.firstParty || entries.length === 0) return [];
+  if (targets.length === 0) return [NO_GLOBAL(pkg.id)];
+  const { projectionReach } = require('./store.ts');
+  const registry = registryOf(o);
+  const lines: string[] = [];
+  for (const harness of targets) {
+    for (const c of entries) {
+      const reach = projectionReach(registry, harness, c.point);
+      if (!reach.ok) lines.push(`warning: ${harness} cannot take ${c.point} ${c.qualifiedId}: ${reach.reason}`);
+    }
+  }
+  return lines;
+}
+
+/**
+ * Bring the projected skills and agents of every third-party package in line with the package view (IC-017), under the
+ * run lock the caller holds: an active package's are projected into each harness of the global lock's `targets`, any
+ * other package's recorded files are removed (a person-edited copy is kept and named). It runs the lifecycle at global
+ * scope only, planning the package targets alone, so the installed runtime (no DoFlow content) can run it. A fault is a
+ * warning line and never changes the verb's exit code. Returns `{ lines, projected, unprojected, kept, warnings }`.
+ */
+function syncProjection(o: any): any {
+  const result: any = { lines: [], projected: [], unprojected: [], kept: [], warnings: [] };
+  const targets = globalTargets(o);
+  if (targets.length === 0) return result;
+  try {
+    const lifecycle = require('../../lifecycle/index.ts');
+    const { stateRoot, readLedger, defaultLedger } = require('../../state/index.ts');
+    const registry = registryOf(o);
+    const root = stateRoot({ scope: 'global', projectRoot: o.homeDir, homeDir: o.homeDir });
+    const ledger = readLedger(root) ?? defaultLedger({ scope: 'global', scopeRoot: o.homeDir });
+    const adapters = require('../../cli/shared.ts').buildAdapterRegistry();
+    resetPackageView();
+    const view = packageView({ ...viewOptions(o), settingsView: {} });
+    const plan = lifecycle.planLifecycle({ registry, adapters, scope: 'global', scopeRoot: o.homeDir, targets, ledger,
+      context: { packagesOnly: true, packageView: view, homeDir: o.homeDir, operation: 'package' } });
+    result.warnings = (plan.packageWarnings ?? []).map((w: any) => w.warning);
+    if (plan.changes.length) lifecycle.applyLifecycle({ plan, registry, adapters, stateRoot: root, ledger, acceptPrerequisites: true });
+    const byId = (list: any[]) => {
+      const grouped = new Map<string, Set<string>>();
+      for (const change of list) {
+        const id = change.assetId.slice('pkg.'.length);
+        if (!grouped.has(id)) grouped.set(id, new Set());
+        grouped.get(id)!.add(change.harness);
+      }
+      return [...grouped].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([qualifiedId, harnesses]) => ({ qualifiedId, harnesses: [...harnesses].sort() }));
+    };
+    const live = plan.changes.filter((change: any) => lifecycle.isPackageAsset(change.assetId) && !change.retained);
+    result.projected = byId(live.filter((change: any) => change.operation !== 'remove'));
+    result.unprojected = byId(live.filter((change: any) => change.operation === 'remove'));
+    result.kept = plan.targets.filter((t: any) => t.packagesOnly).flatMap((t: any) => t.notices);
+  } catch (error: any) {
+    result.warnings.push(`the projection into harnesses failed: ${error?.message || String(error)}`);
+  }
+  result.lines = [
+    ...result.projected.map((p: any) => `projected ${p.qualifiedId} into ${p.harnesses.join(', ')}`),
+    ...result.unprojected.map((p: any) => `unprojected ${p.qualifiedId} from ${p.harnesses.join(', ')}`),
+    ...result.kept, ...result.warnings.map((w: string) => `warning: ${w}`),
+  ];
+  return result;
+}
+
+/** The `projection` key a verb's `--json` output carries when the sync did or reported anything. */
+function projectionJson(sync: any): any {
+  const { projected, unprojected, kept, warnings } = sync;
+  return projected.length || unprojected.length || kept.length || warnings.length ? { projection: { projected, unprojected, kept, warnings } } : {};
+}
+
+/** Whether the sync removed any file (the disable and revoke sentences depend on it). */
+const removedAny = (sync: any): boolean => sync.unprojected.length > 0 || sync.kept.length > 0;
 
 // ── verb actions (B.6): enable, disable, trust, exempt, revoke, verify ──────────────────────────────
 
@@ -343,7 +461,7 @@ const highestTier = (tiers: Array<string | null>): string | null => {
 };
 
 /** The printed result of `enable` and `disable`: the state, the trust line when one is owed, the matched grant lines. */
-function reportState(o: any, after: any, extra: string[] = []): number {
+function reportState(o: any, after: any, extra: string[] = [], sync: any = null): number {
   const matched = matchedGrants(after, o);
   const owes = after.state === 'needs-trust';
   const row = owes ? rowOf(o, after.id) : null;
@@ -351,7 +469,7 @@ function reportState(o: any, after: any, extra: string[] = []): number {
   const file = grantsPath(o.env);
   if (o.json) {
     o.out(JSON.stringify({ ok: true, action: o.action, id: after.id, state: after.state, reasons: after.reasons, enabled: after.enabled, matched,
-      ...(line ? { grantLines: { trust: line }, grantFile: file } : {}) }));
+      ...(line ? { grantLines: { trust: line }, grantFile: file } : {}), ...(sync ? projectionJson(sync) : {}) }));
   } else {
     o.out(stateLine(after));
     for (const text of extra) o.out(text);
@@ -361,6 +479,7 @@ function reportState(o: any, after: any, extra: string[] = []): number {
       if (after.reasons.includes('state-unreadable')) o.out('state.json or the grants file is unreadable: see package --action verify --repair');
     }
     for (const text of matchedText(matched)) o.out(text);
+    for (const text of sync?.lines ?? []) o.out(text);
   }
   return finishRuntime(0);
 }
@@ -373,18 +492,22 @@ function verbEnable(o: any, pkg: any, ctx: any): number {
     return finishRuntime(1);
   }
   setEnabled(o, pkg, true);
+  // A package that is active now has its skills and agents projected; any other package is brought in line too (IC-017).
+  const sync = syncProjection(o);
   const after = freshView(o).packages.find((p: any) => p.id === pkg.id) ?? pkg;
   ctx.tierMax = after.tierMax;
   audit(o, 'enable', pkg.id, after.state);
-  return reportState(o, after);
+  if (instructionsOf(after).length && !after.firstParty && globalTargets(o).length === 0) sync.lines.push(NO_GLOBAL(after.id));
+  return reportState(o, after, [], sync);
 }
 
 function verbDisable(o: any, pkg: any, ctx: any): number {
   setEnabled(o, pkg, false);
+  const sync = syncProjection(o);
   const after = freshView(o).packages.find((p: any) => p.id === pkg.id) ?? pkg;
   ctx.tierMax = after.tierMax;
   audit(o, 'disable', pkg.id, after.state);
-  return reportState(o, after, ['the grant is kept; nothing is projected into a harness yet, so there is nothing to unproject']);
+  return reportState(o, after, [removedAny(sync) ? 'the grant is kept' : 'the grant is kept; nothing is projected into a harness yet, so there is nothing to unproject'], sync);
 }
 
 function verbTrust(o: any, pkg: any): number {
@@ -436,13 +559,15 @@ function verbRevoke(o: any, pkg: any, ctx: any): number {
     o.out(o.json ? JSON.stringify({ ok: false, error: 'state-unreadable', message }) : message);
     return finishRuntime(1);
   }
+  const sync = syncProjection(o);
   const after = freshView(o).packages.find((p: any) => p.id === pkg.id) ?? pkg;
   ctx.tierMax = after.tierMax;
   audit(o, 'revoke', pkg.id, after.state);
-  if (o.json) o.out(JSON.stringify({ ok: true, action: 'revoke', id: pkg.id, state: after.state, reasons: after.reasons }));
+  if (o.json) o.out(JSON.stringify({ ok: true, action: 'revoke', id: pkg.id, state: after.state, reasons: after.reasons, ...projectionJson(sync) }));
   else {
     o.out(stateLine(after));
-    o.out(`revoked trust for ${pkg.id} at its recorded content digest; only a trust line printed after ${at} counts, and nothing is projected into a harness yet, so there is nothing to unproject`);
+    o.out(`revoked trust for ${pkg.id} at its recorded content digest; only a trust line printed after ${at} counts${removedAny(sync) ? '' : ', and nothing is projected into a harness yet, so there is nothing to unproject'}`);
+    for (const text of sync.lines) o.out(text);
   }
   return finishRuntime(0);
 }
@@ -539,7 +664,8 @@ function verbRemove(o: any, pkg: any, ctx: any): number {
   const dangling = grants.entries.filter((g: any) => g.grant !== 'fetch' && g.package === pkg.id).map((g: any) => ({ line: g.line, kind: g.grant, version: g.version }));
 
   setEnabled(o, pkg, false); // disable first: a run that stops below leaves the package off
-  // Lifecycle removal of the package's ledger rows (projection into harnesses) is a no-op until Phase C: nothing is projected yet.
+  // Lifecycle removal of the package's projected skills and agents and their ledger rows, before the store entry goes.
+  const sync = syncProjection(o);
   const idDir = path.dirname(pkg.storeDir);
   const leftover = fs.existsSync(idDir) && !removeEntry(idDir, path.basename(pkg.storeDir), fs);
   dropLockRow(o, pkg.id);
@@ -550,10 +676,11 @@ function verbRemove(o: any, pkg: any, ctx: any): number {
 
   const file = grantsPath(o.env);
   if (o.json) {
-    o.out(JSON.stringify({ ok: true, action: 'remove', id: pkg.id, version: row.version, qualifiedIds, dangling: scan.dangling, unscanned: scan.unscanned, grants: dangling, grantFile: file, leftover }));
+    o.out(JSON.stringify({ ok: true, action: 'remove', id: pkg.id, version: row.version, qualifiedIds, dangling: scan.dangling, unscanned: scan.unscanned, grants: dangling, grantFile: file, leftover, ...projectionJson(sync) }));
     return finishRuntime(0);
   }
   o.out(`removed ${pkg.id} ${row.version}`);
+  for (const text of sync.lines) o.out(text);
   if (leftover) o.out('warning: the store entry could not be removed');
   for (const d of scan.dangling) {
     o.out(d.kind === 'setting' ? `dangling setting ${d.layer} ${d.key} = ${JSON.stringify(d.value)}` : `dangling record ${d.path} ${d.field} = ${JSON.stringify(d.value)}`);
@@ -598,7 +725,9 @@ function verbVerify(o: any, ctx: any): number {
     }
     if (!repaired) audit(o, 'verify', '*', findings.length === 0 ? 'ok' : `findings:${findings.length}`);
   }
-  if (o.json) o.out(JSON.stringify({ ok: findings.length === 0, action: 'verify', repaired, packages: checked.map((p: any) => ({ id: p.id, state: p.state, reasons: p.reasons })), findings }));
+  // Projects what is active and unprojects what is not, a suspended package's among them (IC-017).
+  const sync = syncProjection(o);
+  if (o.json) o.out(JSON.stringify({ ok: findings.length === 0, action: 'verify', repaired, packages: checked.map((p: any) => ({ id: p.id, state: p.state, reasons: p.reasons })), findings, ...projectionJson(sync) }));
   else {
     for (const text of notes) o.out(text);
     if (repaired) o.out('state.json was unreadable and is rewritten: every grant line present now is revoked until a person adds a fresh line');
@@ -606,6 +735,7 @@ function verbVerify(o: any, ctx: any): number {
     for (const f of findings.filter((x) => x.package === null)) {
       o.out(`${f.state}: ${f.reasons.join(',')}${f.state === 'state-unreadable' ? '; run package --action verify --repair' : ''}`);
     }
+    for (const text of sync.lines) o.out(text);
     o.out(findings.length === 0 ? `verify: ${checked.length} enabled third-party package${checked.length === 1 ? '' : 's'} intact` : `verify: ${findings.length} finding${findings.length === 1 ? '' : 's'}`);
   }
   return finishRuntime(findings.length === 0 ? 0 : 1);
@@ -660,8 +790,8 @@ function emitVerb(o: any, action: string, code: number, tierMax: string | null):
   } catch { /* a telemetry fault changes nothing */ }
 }
 
-function handlePackageCommand({ action, path: pkgPath, id, source, plan, repair, json = false, repoRoot, homeDir = os.homedir(), env = process.env, projectRoot = process.cwd(), tmpDir, settingsView, writer, now = Date.now(), hooks, out = (line: string) => console.log(line) }: any = {}): number {
-  const o = { action, id, repair: repair === true, json, repoRoot, homeDir, env, projectRoot, tmpDir, settingsView, writer, now, hooks, out };
+function handlePackageCommand({ action, path: pkgPath, id, source, plan, repair, json = false, repoRoot, homeDir = os.homedir(), env = process.env, projectRoot = process.cwd(), tmpDir, settingsView, writer, now = Date.now(), hooks, registry, out = (line: string) => console.log(line) }: any = {}): number {
+  const o = { action, id, repair: repair === true, json, repoRoot, homeDir, env, projectRoot, tmpDir, settingsView, writer, now, hooks, registry, out };
   if (VERB_ACTIONS.includes(action)) return handleVerb(o);
   if (action === 'add' || action === 'update') {
     const given = action === 'add' ? source : id;
