@@ -343,6 +343,13 @@
           "verifiedOn": "2026-10-16",
           "reason": "no recorded evidence for claude: no free check shows a flag that confines edits to the working directory"
         },
+        "model": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read claude's headless CLI documentation and `claude --help`; record the flag that selects the model and its source",
+          "verifiedOn": "2026-10-24",
+          "reason": "no recorded evidence for claude: no free check shows a flag that selects the model"
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -821,6 +828,18 @@
             "workspace-write"
           ]
         },
+        "model": {
+          "status": "supported",
+          "evidence": [
+            "core/worker-evidence/codex/2026-10-24-cli-check.json"
+          ],
+          "verification": "Run `codex exec --help` and read the `-m, --model <MODEL>` line; record it with `node bin/doflow.js worker --action evidence --harness codex --checks core/worker-evidence/codex/checks.json --out <new cli-check path>` (check exec-model)",
+          "verifiedOn": "2026-10-24",
+          "argv": [
+            "-m",
+            "{model}"
+          ]
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -1217,6 +1236,13 @@
           "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag that confines edits to the working directory and its source",
           "verifiedOn": "2026-10-16",
           "reason": "no recorded evidence for gemini: no free check shows a flag that confines edits to the working directory"
+        },
+        "model": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag that selects the model and its source",
+          "verifiedOn": "2026-10-24",
+          "reason": "no recorded evidence for gemini: no free check shows a flag that selects the model"
         },
         "modelChecks": []
       },
@@ -1654,6 +1680,13 @@
           "verifiedOn": "2026-10-16",
           "reason": "no recorded evidence for opencode: no free check shows a flag that confines edits to the working directory"
         },
+        "model": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read opencode's headless CLI documentation and `opencode --help`; record the flag that selects the model and its source",
+          "verifiedOn": "2026-10-24",
+          "reason": "no recorded evidence for opencode: no free check shows a flag that selects the model"
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -2074,6 +2107,13 @@
           "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag that confines edits to the working directory and its source",
           "verifiedOn": "2026-10-16",
           "reason": "no recorded evidence for pi: no free check shows a flag that confines edits to the working directory"
+        },
+        "model": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read pi's headless CLI documentation and `pi --help`; record the flag that selects the model and its source",
+          "verifiedOn": "2026-10-24",
+          "reason": "no recorded evidence for pi: no free check shows a flag that selects the model"
         },
         "modelChecks": []
       },
@@ -2508,6 +2548,13 @@
           "verifiedOn": "2026-10-16",
           "reason": "no recorded evidence for copilot: no free check shows a flag that confines edits to the working directory"
         },
+        "model": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read copilot's headless CLI documentation and `copilot --help`; record the flag that selects the model and its source",
+          "verifiedOn": "2026-10-24",
+          "reason": "no recorded evidence for copilot: no free check shows a flag that selects the model"
+        },
         "modelChecks": []
       },
       "contextProfile": {
@@ -2878,6 +2925,13 @@
           "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag that confines edits to the working directory and its source",
           "verifiedOn": "2026-10-16",
           "reason": "no recorded evidence for kiro-cli: no free check shows a flag that confines edits to the working directory"
+        },
+        "model": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Read kiro's headless CLI documentation and `kiro-cli --help`; record the flag that selects the model and its source",
+          "verifiedOn": "2026-10-24",
+          "reason": "no recorded evidence for kiro-cli: no free check shows a flag that selects the model"
         },
         "modelChecks": []
       },
@@ -3315,6 +3369,13 @@
           "verification": "Read antigravity's headless CLI documentation and `agy --help`; record the flag that confines edits to the working directory and its source",
           "verifiedOn": "2026-10-16",
           "reason": "no recorded evidence for agy: no free check shows a flag that confines edits to the working directory"
+        },
+        "model": {
+          "status": "unknown",
+          "evidence": [],
+          "verification": "Run `agy --help` and read the `--model` line; record it with `node bin/doflow.js worker --action evidence --harness antigravity --checks core/worker-evidence/antigravity/checks.json --out <new cli-check path>` (check help-model)",
+          "verifiedOn": "2026-10-24",
+          "reason": "declared: agy --help lists --model on stderr, but the free check help-model reads stdout only and fails; supported only after a recorded cli-check passes"
         },
         "modelChecks": []
       },

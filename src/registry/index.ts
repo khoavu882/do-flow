@@ -502,10 +502,11 @@ const WORKER_CAPABILITIES: Record<string, { allowed: string[], required: string[
   resume: { allowed: [], required: [] },
   steering: { allowed: [], required: [] },
 });
-/** Capability entries a `worker` block may carry but need not (082 IC-013, DEC-020). Absent reads
- * as `unknown`; present, the entry takes every IC-001 capability-entry rule. */
+/** Capability entries a `worker` block may carry but need not (082 IC-013, DEC-020; 120 IC-011).
+ * Absent reads as `unknown`; present, the entry takes every IC-001 capability-entry rule. */
 const WORKER_OPTIONAL_CAPABILITIES: Record<string, { allowed: string[], required: string[] }> = Object.freeze({
   isolatedEdit: { allowed: ['argv'], required: ['argv'] },
+  model: { allowed: ['argv'], required: ['argv'] },
 });
 const WORKER_BILLING = new Set(['free', 'metered', 'unknown']);
 const WORKER_KEYS = Object.freeze(['profile', 'billing', ...Object.keys(WORKER_CAPABILITIES), 'modelChecks']);
@@ -577,6 +578,15 @@ function validateWorker(value: any, location: string, errors: string[]): void {
       if (problem) {
         fail(key, problem.replace(/^argv/, field));
       } else {
+        // 120 IC-011: only model.argv carries one whole model placeholder.
+        if (key === 'model' && field === 'argv') {
+          const count = entry.argv.filter((item: string) => item === '{model}').length;
+          if (count !== 1 || entry.argv.some((item: string) => item.includes('{model}') && item !== '{model}')) {
+            fail(key, "argv must contain the element '{model}' exactly once, as a whole element");
+          }
+        } else if (entry[field].some((item: string) => item.includes('{model}'))) {
+          fail(key, `${field} must not contain '{model}' outside model.argv`);
+        }
         // DEC-066: only oneShot.argv carries the prompt; a second placeholder would duplicate it.
         if (!(key === 'oneShot' && field === 'argv') && entry[field].includes('{prompt}')) {
           fail(key, `${field} must not contain '{prompt}' outside oneShot.argv`);
@@ -645,6 +655,7 @@ function validateWorker(value: any, location: string, errors: string[]): void {
     if (problem) {
       fail(key, problem);
     } else {
+      if (check.argv.some((item: string) => item.includes('{model}'))) fail(key, "argv must not contain '{model}' outside model.argv");
       if (check.argv.includes('{prompt}')) fail(key, "argv must not contain '{prompt}' outside oneShot.argv");
       if (check.argv.includes('{lastMessageFile}')) fail(key, "argv must contain '{lastMessageFile}' only once and only in structuredOutput.argv");
     }
