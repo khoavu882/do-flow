@@ -27,6 +27,7 @@ test('every open point names a valid shipped template', () => {
     'package-templates/debate-preset',
     'package-templates/skill',
     'package-templates/agent',
+    'package-templates/worker',
   ]);
   assert.deepEqual(templateFindings({ registry: REAL, repoRoot: REPO_ROOT }), []);
 });
@@ -39,10 +40,10 @@ test('open points require templates and reserved points refuse them', () => {
   assert.match(invalidMissing.errors.join('\n'), /points\[0\]\.template/);
 
   const reserved = clone(REAL);
-  reserved.points[4].template = 'package-templates/worker';
+  reserved.points[5].template = 'package-templates/capability-provider';
   const invalidReserved = validatePoints(reserved);
   assert.equal(invalidReserved.ok, false);
-  assert.match(invalidReserved.errors.join('\n'), /points\[4\]\.template is refused on a reserved point/);
+  assert.match(invalidReserved.errors.join('\n'), /points\[5\]\.template is refused on a reserved point/);
 });
 
 test('template findings catch unknown placeholders, bad paths, symlinks and programs on inert points', (t) => {

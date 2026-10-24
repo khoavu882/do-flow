@@ -42,12 +42,27 @@ function presetValidator(kind: string) {
   };
 }
 
+function workerValidator(id: string, worker: any, context: any = {}): string[] {
+  const errors: string[] = [];
+  const location = context.packageId ? `package '${context.packageId}' worker '${id}'` : `worker '${id}'`;
+  const { validateWorker } = require('../../registry/index.ts');
+  validateWorker(worker, location, errors);
+  const { PARSERS } = require('../worker/parsers.ts');
+  if (worker && typeof worker === 'object' && worker.structuredOutput && typeof worker.structuredOutput === 'object') {
+    if (typeof worker.structuredOutput.parser === 'string' && !Object.hasOwn(PARSERS, worker.structuredOutput.parser)) {
+      errors.push(`${location} worker 'structuredOutput': parser '${worker.structuredOutput.parser}' is not a registered core parser`);
+    }
+  }
+  return errors;
+}
+
 // Keep this map literal: a validator is reachable only if it is named here.
 const POINT_VALIDATORS: Record<string, (id: string, entry: any, context?: any) => string[]> = Object.freeze({
   'review-preset-v1': presetValidator('review'),
   'debate-preset-v1': presetValidator('debate'),
   'skill-v1': skillValidator,
   'agent-v1': agentValidator,
+  'worker-v1': workerValidator,
 });
 
 function isObject(value: any): boolean {

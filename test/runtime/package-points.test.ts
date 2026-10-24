@@ -77,7 +77,7 @@ test('the shipped registry is valid and holds the IC-002 facts', () => {
   assert.deepEqual(reg.points.map((p: any) => [p.id, p.status, p.tier]), [
     ['review-preset', 'open', 'inert'], ['debate-preset', 'open', 'inert'],
     ['skill', 'open', 'instruction'], ['agent', 'open', 'instruction'],
-    ['worker', 'reserved', 'executable'], ['capability-provider', 'reserved', 'executable'],
+    ['worker', 'open', 'executable'], ['capability-provider', 'reserved', 'executable'],
   ]);
   const byId = Object.fromEntries(reg.points.map((p: any) => [p.id, p]));
   assert.equal(byId.skill.validator, 'skill-v1');
@@ -86,7 +86,8 @@ test('the shipped registry is valid and holds the IC-002 facts', () => {
   assert.equal(byId['debate-preset'].template, 'package-templates/debate-preset');
   assert.equal(byId.skill.template, 'package-templates/skill');
   assert.equal(byId.agent.template, 'package-templates/agent');
-  assert.equal(byId.worker.opensWith, 'slice D');
+  assert.equal(byId.worker.template, 'package-templates/worker');
+  assert.equal(byId.worker.validator, 'worker-v1');
   assert.equal(byId['capability-provider'].opensWith, 'row 121');
   assert.deepEqual(byId['capability-provider'].versions, []);
   assert.equal(byId['capability-provider'].validator, null);
@@ -99,7 +100,7 @@ test('the shipped registry is valid and holds the IC-002 facts', () => {
 });
 
 test('POINT_VALIDATORS is a literal map; the preset validators call validatePreset', () => {
-  assert.deepEqual(Object.keys(POINT_VALIDATORS).sort(), ['agent-v1', 'debate-preset-v1', 'review-preset-v1', 'skill-v1']);
+  assert.deepEqual(Object.keys(POINT_VALIDATORS).sort(), ['agent-v1', 'debate-preset-v1', 'review-preset-v1', 'skill-v1', 'worker-v1']);
   const protocols = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'protocols.json'), 'utf8'));
   const context = { lensIds: protocols.lenses.map((l: any) => l.id), hardRoundCap: protocols.hardRoundCap };
   const review = protocols.presets['review-deep'];
@@ -164,7 +165,7 @@ test('a scratch registry is refused naming the field', () => {
   assert.match(bad((r: any) => { r.surprise = 1; }), /unknown key 'surprise'/);
   assert.match(bad((r: any) => { delete r.points[5].opensWith; }), /points\[5\]\.opensWith/);
   assert.match(bad((r: any) => { delete r.points[0].template; }), /points\[0\]\.template is required on an open point/);
-  assert.match(bad((r: any) => { r.points[4].template = 'package-templates/worker'; }), /points\[4\]\.template is refused on a reserved point/);
+  assert.match(bad((r: any) => { r.points[5].template = 'package-templates/capability-provider'; }), /points\[5\]\.template is refused on a reserved point/);
   assert.match(bad((r: any) => { r.points[0].template = 'elsewhere'; }), /points\[0\]\.template must be package-templates\/review-preset/);
   assert.match(bad((r: any) => { r.points[0].combine = 'replace'; }), /points\[0\]\.combine/);
   assert.match(bad((r: any) => { r.points[0].validator = null; }), /points\[0\]\.validator/);
@@ -199,7 +200,7 @@ test('judgeContribution: undeclared, unsupported version and reserved points get
   assert.equal(undeclared.severity, 'error');
   assert.equal(undeclared.package, 'acme');
   assert.equal(undeclared.field, 'contributions[3].point');
-  assert.deepEqual(undeclared.allowed, ['review-preset', 'debate-preset', 'skill', 'agent']);
+  assert.deepEqual(undeclared.allowed, ['review-preset', 'debate-preset', 'skill', 'agent', 'worker']);
 
   const version = judge({ point: 'review-preset', version: 2 });
   assert.equal(version.code, 'unsupported-point-version');
@@ -212,7 +213,7 @@ test('judgeContribution: undeclared, unsupported version and reserved points get
   assert.equal(reserved.field, 'contributions[3].point');
   assert.equal(judge({ point: 'skill', version: 1 }), null);
   assert.equal(judge({ point: 'agent', version: 1 }), null);
-  assert.match(judge({ point: 'worker', version: 1 }).message, /slice D/);
+  assert.equal(judge({ point: 'worker', version: 1 }), null);
   // Reserved wins over the version check: capability-provider has no version to compare.
   assert.equal(judge({ point: 'capability-provider', version: 9 }).code, 'point-reserved');
 });

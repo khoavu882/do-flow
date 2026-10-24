@@ -165,7 +165,6 @@ test('contributionsFor returns the active bundled presets: bare id, data, proven
 });
 
 test('contributionsFor throws a programming error for a reserved point, an undeclared point and an unsupported version', () => {
-  assert.throws(() => contributionsFor('worker', 1), /reserved/);
   assert.throws(() => contributionsFor('capability-provider', 1), /reserved/);
   assert.throws(() => contributionsFor('no-such-point', 1), /not declared/);
   assert.throws(() => contributionsFor('debate-preset', 2), /no version 2/);

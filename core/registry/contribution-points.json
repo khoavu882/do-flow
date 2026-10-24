@@ -19,9 +19,9 @@
     { "id": "agent", "versions": [1], "tier": "instruction", "status": "open", "entry": "file",
       "validator": "agent-v1", "combine": "add-only", "consumer": "src/lifecycle/index.ts",
       "referencedBy": [], "slice": "C", "template": "package-templates/agent" },
-    { "id": "worker", "versions": [1], "tier": "executable", "status": "reserved", "entry": "file",
-      "validator": null, "combine": "add-only", "consumer": "src/runtime/worker/catalogue.ts",
-      "referencedBy": ["workers.billing"], "slice": "D", "opensWith": "slice D" },
+    { "id": "worker", "versions": [1], "tier": "executable", "status": "open", "entry": "file",
+      "validator": "worker-v1", "combine": "add-only", "consumer": "src/runtime/worker/catalogue.ts",
+      "referencedBy": ["workers.billing"], "slice": "D", "template": "package-templates/worker" },
     { "id": "capability-provider", "versions": [], "tier": "executable", "status": "reserved", "entry": "file",
       "validator": null, "combine": "add-only", "consumer": null,
       "referencedBy": [], "slice": "D", "opensWith": "row 121" }

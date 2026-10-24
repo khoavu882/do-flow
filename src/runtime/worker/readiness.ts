@@ -79,10 +79,10 @@ function descriptorDigest(worker: any): string {
 }
 
 /** `[{ harness, worker }]` in registry order: the registry's blocks, or exactly the injected ones. */
-function workerDescriptors({ descriptors, registry }: any = {}): { harness: string; worker: any }[] {
+function workerDescriptors({ descriptors, registry, view }: any = {}): { harness: string; worker: any }[] {
   const reg = registry || loadRegistry({ repoRoot: REPO_ROOT });
-  const ids: string[] = knownWorkerIds({ registry: reg }).ids;
-  if (!descriptors) return workerCatalogue({ registry: reg }).map((entry: any) => ({ harness: entry.id, worker: entry.worker }));
+  const ids: string[] = knownWorkerIds({ registry: reg, view }).ids;
+  if (!descriptors) return workerCatalogue({ registry: reg, view }).map((entry: any) => ({ harness: entry.id, worker: entry.worker }));
   const unknown = Object.keys(descriptors).filter((id) => !ids.includes(id));
   if (unknown.length) throw new ReadinessError('usage', `descriptors name unregistered harness(es): ${unknown.join(', ')}; registered: ${ids.join(', ')}`);
   return ids.filter((id) => Object.hasOwn(descriptors, id)).map((id) => ({ harness: id, worker: descriptors[id] }));
@@ -138,10 +138,10 @@ function discoverOne({ harness, worker }: any, { env, cwd, now, platform }: any)
  * IC-004: looks every harness's binary up on `env.PATH` and runs its `versionArgv`. Writes nothing.
  * @returns {{ disposition: 'discovered', at: string, harnesses: Object[] }}
  */
-function discover({ descriptors, registry, env = process.env, cwd = process.cwd(), now = Date.now, platform = process.platform }: any = {}) {
+function discover({ descriptors, registry, view, env = process.env, cwd = process.cwd(), now = Date.now, platform = process.platform }: any = {}) {
   const tick = clock(now);
   const at = iso(tick());
-  const harnesses = workerDescriptors({ descriptors, registry }).map((entry) => discoverOne(entry, { env, cwd, now: tick, platform }));
+  const harnesses = workerDescriptors({ descriptors, registry, view }).map((entry) => discoverOne(entry, { env, cwd, now: tick, platform }));
   return { disposition: 'discovered', at, harnesses };
 }
 
@@ -581,9 +581,9 @@ function eligibility(requirements: any[]) {
 }
 
 /** Registry, coverage and descriptors for one describe or select call. */
-function readinessContext({ descriptors, registry, coverage }: any) {
+function readinessContext({ descriptors, registry, coverage, view }: any) {
   const reg = registry || loadRegistry({ repoRoot: REPO_ROOT });
-  return { entries: workerDescriptors({ descriptors, registry: reg }), coverage: coverage === undefined ? reg.coverage : coverage };
+  return { entries: workerDescriptors({ descriptors, registry: reg, view }), coverage: coverage === undefined ? reg.coverage : coverage };
 }
 
 /** Discover, then the IC-007 effective facts and IC-008 evaluation of one harness. Writes nothing. */
@@ -600,10 +600,10 @@ function evaluateHarness(entry: any, needs: string[], coverage: any, { env, cwd,
  * requirements for the baseline and `needs`. Read-only.
  */
 function describe({
-  descriptors, registry, coverage, harness, needs, edit = false,
+  descriptors, registry, coverage, view, harness, needs, edit = false,
   env = process.env, cwd = process.cwd(), root = cwd, now = Date.now, platform = process.platform,
 }: any = {}) {
-  const context = readinessContext({ descriptors, registry, coverage });
+  const context = readinessContext({ descriptors, registry, coverage, view });
   const entry = context.entries.find((item) => item.harness === harness);
   if (!entry) throw new ReadinessError('usage', `unknown harness '${harness}'; known: ${context.entries.map((item) => item.harness).join(', ')}`);
   const valid = validateNeeds(needs, context.coverage);
@@ -625,13 +625,22 @@ function describe({
  * fallback modes. Claims nothing and writes nothing (DEC-002).
  */
 function select({
-  descriptors, registry, coverage, harness, needs, edit = false,
+  descriptors, registry, coverage, view, harness, needs, edit = false,
   env = process.env, cwd = process.cwd(), root = cwd, now = Date.now, platform = process.platform,
 }: any = {}) {
-  const context = readinessContext({ descriptors, registry, coverage });
-  const entries = harness ? context.entries.filter((item) => item.harness === harness) : context.entries;
+  const context = readinessContext({ descriptors, registry, coverage, view });
+  let entries = harness ? context.entries.filter((item) => item.harness === harness) : context.entries;
   if (harness && entries.length === 0) {
     throw new ReadinessError('usage', `unknown harness '${harness}'; known: ${context.entries.map((item) => item.harness).join(', ')}`);
+  }
+  try {
+    const { loadSettings } = require('../settings/resolve.ts');
+    const enabled = loadSettings({ projectRoot: root, env }).get('workers.enabled', 'project');
+    if (enabled?.state === 'ok' && Array.isArray(enabled.value)) {
+      entries = entries.filter((item) => enabled.value.includes(item.harness));
+    }
+  } catch {
+    // workers.enabled setting absent or failed to load
   }
   const valid = validateNeeds(needs, context.coverage);
   const tick = clock(now);

@@ -146,7 +146,7 @@ test('launch specs use the binary or absolute store path and core recipe argv on
   assert.ok(!JSON.stringify([shipped.file, shipped.args]).includes(markerManifest.programs[0].argv));
 });
 
-test('inert packages need no programs and the shipped worker point remains reserved', (t: any) => {
+test('inert packages need no programs and the shipped capability-provider point remains reserved', (t: any) => {
   const preset = clone(CORE.presets['review-deep']);
   delete preset.depth;
   const dir = path.join(tempDir(t, 'doflow-pprog-inert-'), 'pkg');
@@ -164,7 +164,14 @@ test('inert packages need no programs and the shipped worker point remains reser
   const inert = checkPackage(dir, { pointsRegistry: POINTS, hostVersion: HOST, bundled: [] });
   assert.deepEqual(inert.findings, []);
 
-  const reserved = checkPackage(makePackage(t, workerManifest(undefined), {}), {
+  const reserved = checkPackage(makePackage(t, {
+    manifest: 1,
+    id: 'acme',
+    version: '1.2.0',
+    summary: 'Reserved package',
+    doflow: `=${HOST}`,
+    contributions: [{ point: 'capability-provider', version: 1, id: 'runner', file: 'providers/runner.json' }],
+  }, {}), {
     pointsRegistry: POINTS,
     hostVersion: HOST,
     bundled: [],
