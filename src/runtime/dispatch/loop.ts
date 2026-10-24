@@ -41,6 +41,8 @@ const { readTaskState } = require('../task-state.ts');
 const { maskLine, maskBody } = require('../mask.ts');
 const { projectRoot } = require('../lifecycle/root.ts');
 const { loadRegistry } = require('../../registry/index.ts');
+const { knownWorkerIds } = require('../../registry/worker-ids.ts');
+const { workerCatalogue } = require('../worker/catalogue.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const readiness = require('../worker/readiness.ts');
 const { executeWorkerCommand, settledStatus } = require('../worker/command.ts');
@@ -171,7 +173,7 @@ function evaluateHarnesses({ harness = null, ladder = null, needs = [], billingC
   // The user's billing record matters only under the cap, and is read once per pass. Required here,
   // not at load: the settings modules stay off every path that never runs a capped dispatch.
   const capped = billingCap === 'free' ? require('../settings/worker-billing.ts') : null;
-  const record = capped ? capped.readWorkerBilling(env, { workerIds: reg.harnesses.map((h: any) => h.id) }) : null;
+  const record = capped ? capped.readWorkerBilling(env, { workerIds: knownWorkerIds({ registry: reg }).ids }) : null;
   return entries.map((entry: any) => {
     const billing = !record ? undefined
       : record.state === 'invalid' ? { value: 'record-invalid', source: 'user-record', recordReason: record.reason }
@@ -976,8 +978,8 @@ function deltasFor(p: any, s: any, d: any) {
 function workerOf(p: any, harness: string | null) {
   if (!harness) return null;
   if (p.descriptors && Object.hasOwn(p.descriptors, harness)) return p.descriptors[harness];
-  const h = p.reg().harnesses.find((x: any) => x.id === harness);
-  return h ? h.worker : null;
+  const entry = workerCatalogue({ registry: p.reg() }).find((x: any) => x.id === harness);
+  return entry ? entry.worker : null;
 }
 
 /** IC-010 handoff for a claimed dispatch. */

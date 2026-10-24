@@ -33,6 +33,8 @@ const { updateTaskState, readTaskState } = require('../task-state.ts');
 const { stateDir } = require('../context/identity.ts');
 const { configHome } = require('../config-home.ts');
 const { loadRegistry } = require('../../registry/index.ts');
+const { knownWorkerIds } = require('../../registry/worker-ids.ts');
+const { workerCatalogue } = require('./catalogue.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { spawnBounded } = require('./process-tree.ts');
 const { parserFor, PARSERS } = require('./parsers.ts');
@@ -79,8 +81,8 @@ function descriptorDigest(worker: any): string {
 /** `[{ harness, worker }]` in registry order: the registry's blocks, or exactly the injected ones. */
 function workerDescriptors({ descriptors, registry }: any = {}): { harness: string; worker: any }[] {
   const reg = registry || loadRegistry({ repoRoot: REPO_ROOT });
-  const ids: string[] = reg.harnesses.map((h: any) => h.id);
-  if (!descriptors) return reg.harnesses.map((h: any) => ({ harness: h.id, worker: h.worker }));
+  const ids: string[] = knownWorkerIds({ registry: reg }).ids;
+  if (!descriptors) return workerCatalogue({ registry: reg }).map((entry: any) => ({ harness: entry.id, worker: entry.worker }));
   const unknown = Object.keys(descriptors).filter((id) => !ids.includes(id));
   if (unknown.length) throw new ReadinessError('usage', `descriptors name unregistered harness(es): ${unknown.join(', ')}; registered: ${ids.join(', ')}`);
   return ids.filter((id) => Object.hasOwn(descriptors, id)).map((id) => ({ harness: id, worker: descriptors[id] }));
