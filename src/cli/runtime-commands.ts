@@ -71,8 +71,10 @@ const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review', 'protoco
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
 // The seed validator loads only for `roadmap seed`, and only this file may require it (G54).
 function handleSeedCommand(options: any): any { return require('../runtime/roadmap/seed.ts').handleSeedCommand(options); }
-// Settings support is needed only when the config verb runs.
+ // Settings support is needed only when the config verb runs.
 function handleConfigCommand(options: any): any { return require('../runtime/settings/cli.ts').handleConfigCommand(options); }
+// The primary verb (row 120 A.4) needs the settings resolver only when it runs.
+function resolvePrimaryOnUse(options: any): any { return require('../runtime/context/primary.ts').resolvePrimary(options); }
 const { handleInventoryCommand } = require('../runtime/inventory/index.ts');
 const { finishRuntime, usageError } = require('../runtime/cli-result.ts');
 const { setRecordSlug, callerFeatureSlug, invalidSlugRefusal, slugNamesNoFeature } = require('../runtime/task-scope.ts');
