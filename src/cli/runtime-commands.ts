@@ -67,7 +67,7 @@ const { handlePackageCommand } = require('../runtime/packages/command.ts');
 // `plan-check` is read-only (115 IC-001): no upkeep, which would write `.gitignore` and `upkeep-due`.
 // `review` writes only its one telemetry line (095 IC-003).
 // `protocol` only prints the registry and the resolved protocol (119 IC-004), so it has nothing to keep up.
-// `package --action points` only prints the point registry (122 IC-012); the writing actions (add --plan, update --plan, remove) must leave this list when they land.
+// `package --action points|check` only read (122 IC-012); the writing actions (add --plan, update --plan, remove) must leave this list when they land.
 const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review', 'protocol', 'package']);
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
@@ -404,7 +404,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // One --path only: a second occurrence reaches the handler as a list, which it refuses as usage.
     case 'review': return handleReviewCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, path: o.paths?.length === 1 ? o.paths[0] : o.paths, base: o.base, preset: o.preset, json: o.json, cwd: process.cwd(), env: process.env });
     case 'protocol': return handleProtocolCommand({ action: o.actionGiven ? o.action : undefined, kind: o.kind, taskClass: o.taskClass, risk: o.risk, preset: o.preset, json: o.json, cwd: process.cwd() });
-    case 'package': return handlePackageCommand({ action: o.actionGiven ? o.action : undefined, json: o.json });
+    case 'package': return handlePackageCommand({ action: o.actionGiven ? o.action : undefined, path: o.paths?.length === 1 ? o.paths[0] : o.paths, json: o.json });
     case 'slot': return handleSlotCommand({ action: o.actionGiven ? o.action : undefined, name: o.name, label: o.label, timeout: o.timeout, noWait: Boolean(o.noWait), command: o.slotCommand, by: o.by, reason: o.reason, positional: o.positional, extraFlags: o.extraFlags, json: o.json, env: process.env, cwd: process.cwd() });
     default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
   }

@@ -558,6 +558,7 @@ Commands:
                        protocol --action resolve --kind review|debate [--task-class <id>] [--risk <level>] [--preset <id>] [--json]   (exit 0 resolved, 1 refused, 2 usage)
   package              List the contribution points a package may fill (read-only, writes nothing):
                        package --action points [--json]
+                       package --action check --path <dir> [--json]   (exit 0 clean, 1 findings, 2 usage)
   slot                 Named machine-wide queue, one holder at a time (--action run|list|release);
                        slot --action run --name <name> [--label <text>] [--timeout <s>] [--no-wait] -- <command> [args...]
                        slot --action release --name <name> --by <who> --reason <text>
@@ -613,7 +614,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        slot: run|list|release
                        review: check|start
                        protocol: list|resolve
-                       package: points
+                       package: points|check
       --task, --token, --owner, --mode,
       --result, --evidence-id, --reason     task-attempt (claim: --task --owner --mode manual|sequential|subagent
                                             [--owner-override <reason>] [--epoch <n>=1+] [--reserve-tokens <n>]
@@ -679,6 +680,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --off                              advise --action configure
       --path, --exclude (repeatable)        leak-scan
       --slug | --path                       review --action check (at most one; with neither, the active feature)
+      --path <dir>                          package --action check (exactly one package directory)
       --base <ref>                          review --action start (measure the changed paths from this commit, which must be the review's base; --path is refused)
       --preset <id>                         review --action start, protocol --action resolve (run this preset; refused when looser than the decided protocol)
       --prepared-run <file>                 config validate (check a prepared-run file instead of one key; exit 2 with a key, value or --layer)

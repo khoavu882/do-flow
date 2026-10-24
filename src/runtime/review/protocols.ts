@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { dominates } = require('./dominance.ts');
+const { isLocalId } = require('../../helper/package-ids.ts');
 
 const PROTOCOLS_FILE = 'core/registry/protocols.json';
 const MODELS_FILE = 'core/registry/models.json';
@@ -58,8 +59,10 @@ function coreTiers(): string[] | null {
 /**
  * The entry shape of one preset (122 IC-014): the one validator for core presets and, later, for a
  * package's contributed ones. `context` carries what the check reads beside the preset: `lensIds` (the
- * lens catalogue), `hardRoundCap` and `tiers` (default: the core tiers of models.json). Package-mode
- * rules (`context.mode`) belong to their callers. Cross-preset rules (unique depth, `order`) stay in
+ * lens catalogue), `hardRoundCap` and `tiers` (default: the core tiers of models.json). With
+ * `context.mode === 'package'` (a contributed preset, IC-014) `depth` is refused rather than required, each
+ * seat id must be a local id, and each seat agent must be in `context.agents` (the core agent specs a package
+ * seat may name). The kind match and comparability belong to the caller. Cross-preset rules (unique depth, `order`) stay in
  * `validateProtocols`. Returns the errors; never throws.
  */
 function validatePreset(id: string, preset: any, context: any = {}): string[] {
@@ -73,7 +76,11 @@ function validatePreset(id: string, preset: any, context: any = {}): string[] {
   checkKeys(errors, where, preset, PRESET_KEYS);
 
   if (!KINDS.includes(preset.kind)) errors.push(`${where}.kind must be one of ${KINDS.join(', ')}`);
-  if (preset.kind === 'review') {
+  const packageMode = context.mode === 'package';
+  const agents: string[] = Array.isArray(context.agents) ? context.agents : [];
+  if (packageMode) {
+    if ('depth' in preset) errors.push(`${where}.depth is not allowed in a package preset (the depth vocabulary stays core)`);
+  } else if (preset.kind === 'review') {
     if (!isNonEmptyString(preset.depth)) errors.push(`${where}.depth is required on a review preset`);
   } else if (preset.kind === 'debate' && 'depth' in preset) {
     errors.push(`${where}.depth is not allowed on a debate preset`);
@@ -90,7 +97,9 @@ function validatePreset(id: string, preset: any, context: any = {}): string[] {
       if (!isNonEmptyString(seat.id)) errors.push(`${sw}.id must be a non-empty string`);
       else if (seatIds.has(seat.id)) errors.push(`${where} seat id '${seat.id}' is duplicated`);
       else seatIds.add(seat.id);
+      if (packageMode && isNonEmptyString(seat.id) && !isLocalId(seat.id)) errors.push(`${sw}.id must be a local id (2 to 15 characters of a-z, 0-9 and single hyphens)`);
       if (!isNonEmptyString(seat.agent)) errors.push(`${sw}.agent must be a non-empty string`);
+      else if (packageMode && !agents.includes(seat.agent)) errors.push(`${sw}.agent must be one of the core agents allowed for this kind: ${agents.join(', ') || '(none readable)'}`);
       if ('lenses' in seat) {
         if (!Array.isArray(seat.lenses)) errors.push(`${sw}.lenses must be an array`);
         else for (const lens of seat.lenses) {
@@ -298,4 +307,4 @@ function lensIds(registry: any): string[] {
   return (registry.lenses ?? []).map((lens: any) => lens.id);
 }
 
-module.exports = { loadProtocols, validateProtocols, validatePreset, presetIds, lensIds, PROTOCOLS_FILE };
+module.exports = { loadProtocols, validateProtocols, validatePreset, duplicateKeys, coreTiers, presetIds, lensIds, PROTOCOLS_FILE };

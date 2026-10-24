@@ -174,6 +174,16 @@ doflow package --action points [--json]
 
 Each point shows its supported versions, its tier (`inert`, `instruction` or `executable`), whether it is `open` or `reserved`, and what a reserved point opens with. Today `review-preset` and `debate-preset` are open; the other points are reserved and refuse every contribution until their release opens them. If the registry file is unreadable the command exits 1 and names the field; a missing or unknown `--action` exits 2. Add `--json` for the same data as one object.
 
+### Check a package directory
+
+`doflow package --action check --path <dir>` checks a package without installing it: the manifest `doflow-package.json`, each contribution against its point, and the file tree (no symlinks or special files, nothing outside the package root, within the size limits). It is read-only: it writes no file and no telemetry.
+
+```bash
+doflow package --action check --path <dir> [--json]
+```
+
+Each finding names the field, a code and what is allowed. A clean package prints its content and capability digests. Exit 0 means clean, 1 means at least one error finding (a manifest that needs a DoFlow version outside the running one, or whose version cannot be read, is one), and 2 means a missing or repeated `--path`. Add `--json` for `{ path, ok, findings, contentDigest?, capabilityDigest? }`.
+
 ## Retrieve code from the project
 
 `doflow retrieve` keeps its existing guidance search when you pass only `--query`. Use
