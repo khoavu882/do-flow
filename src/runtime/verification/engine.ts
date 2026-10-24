@@ -885,10 +885,11 @@ class VerificationEngine {
           try {
             const savedCheck = failedFirstState?.checks?.[check.name]
               || (failedFirstState?.checks ? Object.values(failedFirstState.checks).find((c: any) => c && c.cmd === sha16(check.command)) : null);
-            const strikes = Number.isSafeInteger(savedCheck?.strikes) && savedCheck.strikes >= 0 ? savedCheck.strikes : 0;
+            const cmdChanged = savedCheck ? savedCheck.cmd !== sha16(check.command) : false;
+            const effectiveStrikes = cmdChanged ? 0 : (Number.isSafeInteger(savedCheck?.strikes) && savedCheck.strikes >= 0 ? savedCheck.strikes : 0);
             // A file can fail in isolation while the full suite passes (for example, suite setup).
             // After two narrowed failures, recheck the full scope so saved state cannot pin FAIL.
-            if (savedCheck && strikes < 2 && savedCheck.cmd === sha16(check.command) && Array.isArray(savedCheck.files) && savedCheck.files.length > 0) {
+            if (savedCheck && effectiveStrikes < 2 && Array.isArray(savedCheck.files) && savedCheck.files.length > 0) {
               const universeFiles = testFilesFor(foundTargeted, this.cwd, this.fsImpl);
               matchedFiles = universeFiles.filter((f: string) => savedCheck.files.includes(sha16(f)));
               if (matchedFiles.length > 0) {
@@ -897,7 +898,7 @@ class VerificationEngine {
                 if (sub.substituted && sub.command) {
                   narrowedCommand = sub.command;
                   runNarrowed = true;
-                  narrowedStrikes = strikes;
+                  narrowedStrikes = effectiveStrikes;
                 }
               }
             }
@@ -1229,7 +1230,23 @@ class VerificationEngine {
   failureSignature(report: any): string {
     const failed = [...(report.failedChecks || [])].sort().join('|');
     const unresolved = (report.unresolved || []).map((u: any) => u.tier).sort().join('|');
-    return `${report.status}::${failed}::${unresolved}`;
+    const failedFiles = new Set<string>();
+    const failedTests = new Set<string>();
+    for (const tier of (report.tiers || [])) {
+      for (const check of (tier.checks || [])) {
+        if (check.status === 'FAIL') {
+          if (Array.isArray(check.failedFiles)) {
+            for (const f of check.failedFiles) failedFiles.add(f);
+          }
+          if (Array.isArray(check.failedTests)) {
+            for (const t of check.failedTests) failedTests.add(t);
+          }
+        }
+      }
+    }
+    const filesPart = [...failedFiles].sort().join('|');
+    const testsPart = [...failedTests].sort().join('|');
+    return `${report.status}::${failed}::${unresolved}::${filesPart}::${testsPart}`;
   }
 
   /**

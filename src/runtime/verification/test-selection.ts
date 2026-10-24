@@ -97,10 +97,11 @@ function conventionFor(found: any): any {
       roots,
       isTest: (file: string) => NODE_TEST_FILE.test(file) && underRoot(file),
       guardDir: roots.some((r: string) => GUARD_DIR === r || GUARD_DIR.startsWith(`${r}/`)) ? GUARD_DIR : null,
+      found,
     };
   }
   if (found && found.source === 'pyproject.toml') {
-    return { basis: 'changed-test-files', roots: ['.'], isTest: (file: string) => PYTEST_FILE.test(file), guardDir: null };
+    return { basis: 'changed-test-files', roots: ['.'], isTest: (file: string) => PYTEST_FILE.test(file), guardDir: null, found };
   }
   return null;
 }
