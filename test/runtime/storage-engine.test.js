@@ -89,7 +89,7 @@ test('age uses newest direct child and work removes stale temp plus empty namesp
 });
 test('registry order, result shape, and existing/control stores are not selected', t => {
   const f=fixture(t); const result=f.pass();
-  assert.deepEqual(result.stores.map(s=>s.id), ['verification-runs','verification-v0','verification-reuse','task-delivery','worker-runs','worker-probes','worker-output','dispatch','roadmap','dispatch-envelopes','runs-telemetry','slots-user','summary-scopes','summary-grants','verification-logs','task-evidence','task-readiness','task-research','task-outcome','task-retrieval','task-attempts','task-orchestration','runs-project','runs-user','advice-picks-project','advice-picks-user','lifecycle-events','report-bodies','session-dirs','project-dirs','recovery-user','recovery-project']);
+  assert.deepEqual(result.stores.map(s=>s.id), ['verification-runs','verification-v0','verification-reuse','task-delivery','worker-runs','worker-probes','worker-output','dispatch','roadmap','dispatch-envelopes','runs-telemetry','slots-user','summary-scopes','summary-grants','packages-plans','packages-staging','verification-logs','task-evidence','task-readiness','task-research','task-outcome','task-retrieval','task-attempts','task-orchestration','runs-project','runs-user','advice-picks-project','advice-picks-user','lifecycle-events','report-bodies','session-dirs','project-dirs','recovery-user','recovery-project']);
   assert.equal(result.mode,'prune'); assert.equal(result.partial,false);
 });
 
