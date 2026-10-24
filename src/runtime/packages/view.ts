@@ -258,7 +258,7 @@ function thirdPartyState(row: any, ctx: any): { state: any; findings: any[] } {
  * The bundled view plus the third-party packages of the global lock. Returns `bundled` itself when the lock holds
  * nothing that changes it. An unreadable lock adds one `state-unreadable` finding and no package.
  */
-function withLock(bundled: { packages: any[]; points: any[]; findings: any[] }, o: any): { packages: any[]; points: any[]; findings: any[] } {
+function withLock(bundled: { packages: any[]; points: any[]; findings: any[] }, o: any): { packages: any[]; points: any[]; findings: any[]; stateRead?: any; grants?: any; homeDir?: any; env?: any; tmpDir?: any } {
   let rows: any[];
   try {
     rows = lockPackages(readLock({ scope: 'global', homeDir: o.home }, { fsImpl: o.fsImpl }));
@@ -349,7 +349,7 @@ function applySettingsDisable(packages: any[], entry: any): any[] {
  * the memo. A point registry that cannot be read leaves no package to find: `packages` and `points` are empty and the
  * one finding is `state-unreadable` on `points`.
  */
-function packageView({ settingsView, env, fsImpl = fs, repoRoot = REPO_ROOT, homeDir, projectRoot, tmpDir }: { settingsView?: any; env?: any; fsImpl?: any; now?: any; repoRoot?: string; homeDir?: string; projectRoot?: string | null; tmpDir?: string } = {}): { packages: any[]; points: any[]; findings: any[] } {
+function packageView({ settingsView, env, fsImpl = fs, repoRoot = REPO_ROOT, homeDir, projectRoot, tmpDir }: { settingsView?: any; env?: any; fsImpl?: any; now?: any; repoRoot?: string; homeDir?: string; projectRoot?: string | null; tmpDir?: string } = {}): { packages: any[]; points: any[]; findings: any[]; stateRead?: any; grants?: any; homeDir?: any; env?: any; tmpDir?: any } {
   const base = fullView({ repoRoot, fsImpl, env, homeDir, projectRoot, tmpDir });
   const entry = settingsView ? settingsView[DISABLED_KEY] : fsImpl === fs ? resolvedDisabledEntry(env) : undefined;
   const packages = applySettingsDisable(base.packages, entry);
@@ -357,7 +357,7 @@ function packageView({ settingsView, env, fsImpl = fs, repoRoot = REPO_ROOT, hom
 }
 
 /** The states before `packages.disabled` is applied: the bundled view plus the lock's third-party packages, memoised on everything they read. */
-function fullView(o: any): { packages: any[]; points: any[]; findings: any[] } {
+function fullView(o: any): { packages: any[]; points: any[]; findings: any[]; stateRead?: any; grants?: any; homeDir?: any; env?: any; tmpDir?: any } {
   const bundled = baseView(o.repoRoot, o.fsImpl);
   if (building > 0 || bundled.points.length === 0) return bundled;
   const environment = o.env ?? process.env;
@@ -367,7 +367,7 @@ function fullView(o: any): { packages: any[]; points: any[]; findings: any[] } {
   const key = JSON.stringify([path.resolve(o.repoRoot), path.resolve(home), configHome(environment).dir, projectRoot, o.tmpDir ?? null]);
   if (o.fsImpl === fs && fullMemo.has(key)) return fullMemo.get(key);
   building += 1;
-  let result: { packages: any[]; points: any[]; findings: any[] };
+  let result: { packages: any[]; points: any[]; findings: any[]; stateRead?: any; grants?: any; homeDir?: any; env?: any; tmpDir?: any };
   try {
     result = withLock(bundled, { ...o, env: environment, home, projectRoot });
   } finally {
@@ -382,7 +382,7 @@ function baseView(repoRoot: string, fsImpl: any): { packages: any[]; points: any
   const key = path.resolve(repoRoot);
   if (fsImpl === fs && memo.has(key)) return memo.get(key);
   const loaded = loadPoints({ repoRoot, fsImpl });
-  let result: { packages: any[]; points: any[]; findings: any[] };
+  let result: { packages: any[]; points: any[]; findings: any[]; stateRead?: any; grants?: any; homeDir?: any; env?: any; tmpDir?: any };
   if (!loaded.ok) {
     result = { packages: [], points: [], findings: [finding(null, 'points', 'state-unreadable', loaded.errors.join('; '), 'a readable point registry')] };
   } else {
