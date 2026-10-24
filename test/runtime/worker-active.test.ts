@@ -5,7 +5,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { createSettingsEnv, REPO } = require('../helper/settings-fixtures');
+const { createSettingsEnv, REPO } = require('../helper/settings-fixtures.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { shippedWorkerIds } = require('../../src/registry/worker-ids.ts');
 const { activeWorkers, workerGate, inSessionGate } = require('../../src/runtime/worker/active.ts');

@@ -9,8 +9,8 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp');
-const { MODEL_PAYLOADS } = require('../helper/hook-fixtures');
+const { tempDir } = require('../helper/tmp.ts');
+const { MODEL_PAYLOADS } = require('../helper/hook-fixtures.ts');
 const { cwdHash } = require('../../src/runtime/context/identity.ts');
 
 const REPO = path.resolve(__dirname, '../..');

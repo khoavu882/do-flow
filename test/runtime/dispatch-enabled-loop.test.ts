@@ -8,8 +8,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp');
-const { makeDispatchSandbox, editDescriptors } = require('../helper/dispatch-sandbox.js');
+const { tempDir } = require('../helper/tmp.ts');
+const { makeDispatchSandbox, editDescriptors } = require('../helper/dispatch-sandbox.ts');
 const supervisor = require('../../src/runtime/worker/supervisor.ts');
 
 // Match the quota stand-in in dispatch-fallback.test.js before loop captures resultOfRun.

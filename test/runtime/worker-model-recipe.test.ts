@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { loadRegistry, validateRegistry } = require('../../src/registry/index.ts');
 const {
   assembleArgv, argvShape, launchRecord, RECIPE_ORDER, EDIT_RECIPE_ORDER,

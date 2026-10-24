@@ -9,7 +9,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const registry = require('../../core/registry/storage.json');
 const { runPass } = require('../../src/runtime/storage/engine.ts');
 

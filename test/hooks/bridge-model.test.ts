@@ -4,8 +4,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp');
-const { encodeEnvelope, MODEL_PAYLOADS } = require('../helper/hook-fixtures');
+const { tempDir } = require('../helper/tmp.ts');
+const { encodeEnvelope, MODEL_PAYLOADS } = require('../helper/hook-fixtures.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 
 const ROOT = path.resolve(__dirname, '../..');
