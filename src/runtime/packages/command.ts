@@ -3,7 +3,7 @@
 /**
  * `doflow package` (122 IC-012). Read-only, on the no-upkeep list: `points` lists the contribution points;
  * `check --path <dir>` prints the IC-004 findings of a package directory and its digests; `list [--id]` and
- * `show --id` print the package view (IC-010). Writing: `add --source <dir>` and `update --id <id>` write a plan
+ * `show --id` print the package view (IC-010). Writing: `add --source <spec>` and `update --id <id>` write a plan
  * file and nothing else; `add --plan <planId>` and `update --plan <planId>` apply it (store and lock row, see
  * store.ts) and run storage upkeep like other writers. Exit 0 done, listed or clean, 1 the point registry is
  * unusable, a package is neither `active` nor `disabled`, an id is unknown, the package has errors or an apply
@@ -29,6 +29,7 @@ const os = require('node:os');
 const { planPackage, applyPlan, removeEntry, PLAN_ID } = require('./store.ts');
 const { configHome } = require('../config-home.ts');
 const { GRANTS_FILE, readGrants } = require('./grants.ts');
+const { parseSource, fetchGrantLine } = require('./source.ts');
 const { acquireRunLock } = require('../../state/run-lock.ts');
 const { readState, appendAudit, recordRevocation, recordSuspension, clearSuspension, recordTombstone, repairState } = require('./state.ts');
 const { capabilityDigest } = require('./digest.ts');
@@ -161,10 +162,37 @@ function refusal(json: boolean, out: (line: string) => void, findings: any[], wh
   return finishRuntime(1);
 }
 
-/** `add --source <dir>` and `update --id <id>`: write the plan file, print it and how to apply it. Changes no record. */
-function handlePlan({ action, source, id, json, repoRoot, homeDir, env, out }: any): number {
+/** Compare source objects by keys and values, ignoring key order. */
+function sameSource(left: any, right: any): boolean {
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  return leftKeys.length === rightKeys.length && leftKeys.every((key, index) => key === rightKeys[index] && left[key] === right[key]);
+}
+
+/** `add --source <spec>` and `update --id <id>`: local adds write a plan; remote adds stop at the fetch grant gate. */
+function handlePlan({ action, source, id, json, repoRoot, homeDir, env, projectRoot, tmpDir, now, out }: any): number {
   if (action === 'add') {
-    if (typeof source !== 'string' || source.length === 0) return usage(json, out, 'add requires one --source <dir> or one --plan <planId>');
+    if (typeof source !== 'string' || source.length === 0) return usage(json, out, 'add requires one --source <spec> or one --plan <planId>');
+    const parsed = parseSource(source);
+    if (!parsed.ok) return refusal(json, out, [parsed.finding], `package refused: ${source}`);
+    if (parsed.source.type !== 'local') {
+      const line = fetchGrantLine(parsed.source, grantTime(now ?? Date.now()));
+      const grants = readGrants({ env, projectRoot, ...(tmpDir === undefined ? {} : { tmpDir }) });
+      const matched = grants.grants.some((grant: any) => grant.grant === 'fetch' && sameSource(grant.source, parsed.source));
+      if (!matched) {
+        const finding = { package: null, field: 'source', code: 'grant-missing', severity: 'error', message: `no fetch grant names ${source}`, allowed: line };
+        if (json) out(JSON.stringify({ ok: false, error: 'grant-missing', findings: [finding], grantLine: line }));
+        else {
+          out(findingLine(finding));
+          const dir = configHome(env).dir;
+          out(dir === null ? 'there is no config home, so no fetch grant can exist' : `a person appends this line to ${path.join(dir, GRANTS_FILE)} (DoFlow never writes that file):`);
+          out(line);
+          out(`package refused: ${source}`);
+        }
+        return finishRuntime(1);
+      }
+      return usage(json, out, `remote fetch is not available yet: ${source} has a fetch grant, and fetching arrives with a later DoFlow`);
+    }
     let isDir = false;
     try { isDir = fs.statSync(path.resolve(source)).isDirectory(); } catch { /* not a directory */ }
     if (!isDir) return usage(json, out, `--source must be a local package directory (an absolute or cwd-relative path to an existing directory); '${source}' is not one`);
@@ -642,7 +670,7 @@ function handlePackageCommand({ action, path: pkgPath, id, source, plan, repair,
       return handleApply({ ...o, plan });
     }
     try {
-      return handlePlan({ action, source, id, json, repoRoot, homeDir, env, out });
+      return handlePlan({ ...o, source });
     } catch (error: any) {
       captureCaught(error, 'package', 1);
       console.error(`[ERROR] package: ${error?.message || String(error)}`);

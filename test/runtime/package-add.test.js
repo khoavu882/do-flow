@@ -178,7 +178,7 @@ test('a checker error refuses with its findings and writes no plan', (t) => {
 
 test('--source takes only an existing local directory: anything else is usage and writes nothing', (t) => {
   const scratch = scratchOf(t);
-  for (const source of ['git:https://example.org/acme.git@v1', path.join(scratch.dir, 'no-such-dir'), path.join(makePackage(t), 'doflow-package.json')]) {
+  for (const source of [path.join(scratch.dir, 'no-such-dir'), path.join(makePackage(t), 'doflow-package.json')]) {
     const refused = run(scratch, { action: 'add', source });
     assert.equal(refused.code, 2, source);
     assert.match(refused.text, /local package directory/);
