@@ -35,7 +35,10 @@ const { loadSettingsRegistry } = require(path.join(REPO, 'src', 'runtime', 'sett
 const { derivedVocabularies } = require(path.join(REPO, 'src', 'runtime', 'trace', 'telemetry.ts'));
 
 const PROTOCOLS_TEXT = fs.readFileSync(path.join(REPO, 'core', 'registry', 'protocols.json'), 'utf8');
-const protocols = JSON.parse(PROTOCOLS_TEXT);
+// 122 A.6: debate-3 is contributed by the bundled package `doflow`, so the registry every check below reads is the
+// merged (effective) view; `core` is the file as authored.
+const core = JSON.parse(PROTOCOLS_TEXT);
+const protocols = structuredClone(loadProtocols().registry);
 const gates = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'gates.json'), 'utf8'));
 const TIERS = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'models.json'), 'utf8')).dispatchTiers.tiers;
 
@@ -155,6 +158,7 @@ test('G66.b-e the shipped registry is consistent with the class seat floors', ()
 
 test('G66.f the shipped registry passes validateProtocols', () => {
   assert.deepEqual(validateProtocols(protocols).errors, []);
+  assert.deepEqual(validateProtocols(core).errors, [], 'the file as authored passes too: its order names a first-party id its presets do not hold');
 });
 
 test('G66.h preset and lens ids reach settings and telemetry by derivation, not by copy', () => {

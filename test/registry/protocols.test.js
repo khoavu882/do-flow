@@ -9,7 +9,10 @@ const { loadProtocols, validateProtocols, validatePreset, presetIds, lensIds } =
 
 const REPO = path.resolve(__dirname, '../..');
 const FILE = path.join(REPO, 'core', 'registry', 'protocols.json');
-const shipped = () => JSON.parse(fs.readFileSync(FILE, 'utf8'));
+// 122 A.6: debate-3 now lives in the bundled package, so `shipped()` is the merged (effective) view a mutation test
+// refuses against, and `shippedCore()` is the file as it sits on disk (what a scratch registry gets written from).
+const shippedCore = () => JSON.parse(fs.readFileSync(FILE, 'utf8'));
+const shipped = () => structuredClone(loadProtocols({ repoRoot: REPO }).registry);
 
 function refuses(mutate, pattern) {
   const data = shipped();
@@ -30,11 +33,11 @@ test('protocols: the shipped file loads with zero errors (negative control)', ()
 });
 
 test('protocols: a duplicate preset id in the raw text is refused', () => {
-  const text = fs.readFileSync(FILE, 'utf8').replace('"debate-3": {', '"debate-2": {');
+  const text = fs.readFileSync(FILE, 'utf8').replace('"review-single": {', '"review-deep": {');
   const fsImpl = { readFileSync: () => text };
   const result = loadProtocols({ repoRoot: REPO, fsImpl });
   assert.equal(result.ok, false);
-  assert.match(result.errors.join('\n'), /duplicate key 'debate-2' in presets/);
+  assert.match(result.errors.join('\n'), /duplicate key 'review-deep' in presets/);
 });
 
 test('protocols: an unreadable or non-JSON file is a returned error, not a throw', () => {
@@ -165,7 +168,7 @@ function scratchRegistry(mutate) {
 /** Every file of the copied registry other than protocols.json, as text, to prove nothing else was edited. */
 function otherRegistryFiles(root) {
   const dir = path.join(root, 'core', 'registry');
-  return Object.fromEntries(fs.readdirSync(dir).filter((name) => name !== 'protocols.json').sort()
+  return Object.fromEntries(fs.readdirSync(dir, { withFileTypes: true }).filter((e) => e.isFile() && e.name !== 'protocols.json').map((e) => e.name).sort()
     .map((name) => [name, fs.readFileSync(path.join(dir, name), 'utf8')]));
 }
 
@@ -176,7 +179,7 @@ const reviewLine = (root, record) => {
 
 test('C-9: review-triple added to protocols.json alone loads, is a review.preset value ranked strictest, and is a telemetry protocol', () => {
   const root = scratchRegistry((file) => {
-    const data = shipped();
+    const data = shippedCore();
     const seat = (id, family = 'any') => ({ id, agent: 'reviewer', lenses: ['correctness', 'test-honesty', 'boundaries'], model: { tier: 'frontier', family } });
     data.presets['review-triple'] = { // dominates review-deep, so it may sit first in order.review (IC-014)
       kind: 'review', depth: 'triple', seats: [seat('seat-a', 'different-from-author'), seat('seat-b'), seat('seat-c')],
@@ -223,7 +226,7 @@ test('C-9: an unreadable protocols.json leaves the settings registry loadable an
 
 test('C-9: protocols.json with no deep preset, or one failing validateProtocols, gives no review.preset values; the ref check names why', () => {
   const noDeep = scratchRegistry((file) => {
-    const data = shipped();
+    const data = shippedCore();
     data.presets['review-deep'].depth = 'wide';
     fs.writeFileSync(file, JSON.stringify(data));
   });
@@ -235,7 +238,7 @@ test('C-9: protocols.json with no deep preset, or one failing validateProtocols,
   assert.match(loadSettingsRegistry({ repoRoot: noDeep, verifyRefs: true }).detail, /review\.preset orderRef 'protocols\.reviewPresetOrder' does not resolve: core\/registry\/protocols\.json order\.review has no preset of depth 'deep'/);
 
   const invalid = scratchRegistry((file) => {
-    const data = shipped();
+    const data = shippedCore();
     data.presets['review-single'].seats[0].lenses.push('SECRET-LENS');
     fs.writeFileSync(file, JSON.stringify(data));
   });

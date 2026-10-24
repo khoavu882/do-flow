@@ -3,7 +3,7 @@
 // P dominates B when an injective seat matching from B's seats into P's seats exists (lens superset,
 // family at least as strict, tier at least as high), rounds default and min are each at least B's,
 // crossAnswer holds where B's does, the synthesizer is at least as strong and the decider is equal.
-// Fixtures come from an in-memory copy of the shipped protocols.json and the core tier list.
+// Fixtures come from an in-memory copy of the shipped (merged) protocol registry and the core tier list.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -11,7 +11,8 @@ const path = require('node:path');
 const { dominates } = require('../../src/runtime/review/dominance.ts');
 
 const REPO = path.resolve(__dirname, '../..');
-const registry = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'protocols.json'), 'utf8'));
+// The effective registry: `debate-3` is contributed by the bundled package `doflow` (122 A.6), not held by protocols.json.
+const registry = structuredClone(require('../../src/runtime/review/protocols.ts').loadProtocols().registry);
 const models = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'models.json'), 'utf8'));
 const context = { tiers: models.dispatchTiers.tiers, synthesizerStrength: registry.synthesizerStrength };
 const preset = (id) => structuredClone(registry.presets[id]);

@@ -72,7 +72,8 @@ test('the shipped registry is valid and holds the IC-002 facts', () => {
   assert.equal(reg.trustPolicyVersion, 1);
   assert.deepEqual(reg.forbiddenFields, FORBIDDEN);
   assert.deepEqual(reg.limits, { files: 512, bytes: 4194304, fileBytes: 262144, pathLength: 200 });
-  assert.deepEqual(reg.bundled, []);
+  assert.deepEqual(reg.bundled.map((b) => [b.id, b.dir, /^[0-9a-f]{64}$/.test(b.contentDigest)]), [['doflow', 'core/registry/packages/doflow', true]],
+    'the first-party package (122 A.6); its digest is held to the directory by G68');
   assert.deepEqual(reg.points.map((p) => [p.id, p.status, p.tier]), [
     ['review-preset', 'open', 'inert'], ['debate-preset', 'open', 'inert'],
     ['skill', 'reserved', 'instruction'], ['agent', 'reserved', 'instruction'],

@@ -11,7 +11,8 @@ const path = require('node:path');
 const { createSettingsEnv, REPO } = require('../helper/settings-fixtures');
 
 const REGISTRY = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/settings.json'), 'utf8'));
-const PROTOCOLS = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/protocols.json'), 'utf8'));
+// The effective registry `config schema` reports: `debate-3` comes from the bundled package (122 A.6).
+const PROTOCOLS = require('../../src/runtime/review/protocols.ts').loadProtocols({ repoRoot: REPO }).registry;
 const STORAGE = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/storage.json'), 'utf8'));
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 

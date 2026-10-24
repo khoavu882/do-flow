@@ -257,7 +257,7 @@ registries](#installation-registries) for the same plain-JSON convention. Across
 | `core/registry/routes.json` | Information need → capability, with an ordered fallback when the preferred capability has no healthy provider |
 | `core/registry/models.json` | Abstract model roles and their providers (`doflow model-role`), and `dispatchTiers`: the tier names (`tiers`), the `default`, and the tier per agent archetype (`byOwner`, seven archetypes; `delivery-lead` and `reviewer` are `frontier`) that a generated brief states. G29 holds `tiers` to `MODEL_SELECTION.md` `## Capability tiers`, `byOwner` keys to `core/shared/agent-specs/`, and every `byOwner` value to the `## Archetype dispatch tiers` prescription table in `MODEL_SELECTION.md` |
 | `core/registry/gates.json` | The roadmap loop's gate policy: per class and gate, whether autopilot may approve (`approve` or `never`), the ordered predicates and the minimum review seats; the protected paths; the loop and merge limits; and the closed `denyReasons` list. Read at develop's committed head by `orchestrate --action decide-gate --policy`, never from a feature branch; a project override can only narrow it. G55 holds its gate ids to `workflows.json` and its reasons to the code |
-| `core/registry/protocols.json` | The review and debate protocols (119): the presets (`review-deep`, `review-single`, `debate-2`, `debate-3`), each with its kind, seats (agent, lenses, model tier and family), rounds, cross-answer, synthesizer and decider; the lens catalogue; `synthesizerStrength`, the synthesizer lattice; `order`, each kind's presets strictest first, each dominating the next (122 IC-014); `hardRoundCap`; and the locked invariants, each naming what enforces it. `src/runtime/review/protocols.ts` loads and validates it (`loadProtocols`, `validateProtocols`, and `validatePreset` per preset, seat tiers checked against `models.json` `dispatchTiers.tiers`); `src/runtime/review/dominance.ts` holds `dominates`; G66 holds it to itself and to the class seat floors in `gates.json` |
+| `core/registry/protocols.json` | The review and debate protocols (119): the presets (`review-deep`, `review-single`, `debate-2`; `debate-3` is contributed by the bundled first-party package `doflow` in `core/registry/packages/doflow/` (122 IC-015), which `order.debate` still names), each with its kind, seats (agent, lenses, model tier and family), rounds, cross-answer, synthesizer and decider; the lens catalogue; `synthesizerStrength`, the synthesizer lattice; `order`, each kind's presets strictest first, each dominating the next (122 IC-014); `hardRoundCap`; and the locked invariants, each naming what enforces it. `src/runtime/review/protocols.ts` loads and validates it (`loadCoreProtocols` reads the file alone; `loadProtocols` merges the presets of active packages through `contributionsFor` in `src/runtime/packages/contributions.ts` and returns `provenance` and `notices`, an `order` id whose package is not active being skipped and noticed; `validateProtocols`, and `validatePreset` per preset, seat tiers checked against `models.json` `dispatchTiers.tiers`); `src/runtime/review/dominance.ts` holds `dominates`; G66 holds it to itself and to the class seat floors in `gates.json` |
 | `core/registry/external-tools.json` | External tools DoFlow can detect, install, and probe rather than reimplement |
 | `core/registry/storage.json` | Every store DoFlow writes: its root, location, retention bound, rule kind and writer files, plus the pass budget, throttle and ignore-file text. `src/runtime/storage/` reads it and G26 checks it against the code and `docs/reference.md` |
 | `core/registry/settings.json` | Every runtime settings key, its types, defaults, scopes, bindings, legacy files and consumers. `src/runtime/settings/registry.ts` reads it; G44 checks its consumers, reference defaults and documentation |
@@ -786,12 +786,12 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-73 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
-66 entries across 62 test files and carries 64 distinct G-numbers.
+74 test files (plus `_shared.js`, a helper rather than a test); this inventory lists
+67 entries across 63 test files and carries 65 distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries; G18 labels two files, of which `adapter-force.test.js` is not listed; and G30 labels two
 files, `advice.test.js` and a ratchet test in `module-reachability.test.js` (the G16 file). The collisions are
-historical rather than a convention; G66 is the highest number in use, so a new guard takes the next
+historical rather than a convention; G68 is the highest number in use (G67 is reserved for row 120), so a new guard takes the next
 one above it instead of adding another collision. The list is not the whole directory. The
 files absent from it are `verb-reachability.test.js`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.js`, which owns G19, and `adapter-force.test.js`, which is the unlisted half
@@ -1208,6 +1208,16 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   (`review.preset` ranks by `orderRef`, never a literal `order`), no settings literal or `telemetry.json`
   vocabulary lists a preset id, and the shipped settings registry loads with those refs resolved; a planted
   literal order, literal preset list or telemetry copy is each named.
+- **G68** (`packages.test.js`) — the package extension model's registry facts hold (122 IC-002, IC-005, IC-015):
+  `core/registry/contribution-points.json` passes `validatePoints` with no error; each `bundled[]` entry's
+  directory hashes (IC-005 content digest) to its `contentDigest` and its manifest carries the bundled id, the
+  `package.json` version and the exact range `=<version>` (the runtime trusts a bundled package and never
+  re-hashes it, so this is where an edit to the first-party package becomes a visible registry change; the
+  release `version` script keeps the three in step, PN-8); `forbiddenFields` equals the list `docs/reference.md`
+  prints under "Package manifest: forbidden fields"; and each bundled package passes the full package-mode check
+  (`checkPackage`: read-only review seats, local seat ids, comparability, tree rules), which the runtime does not
+  run. Controls: one changed byte in a bundled preset, a stale manifest version, a differing or missing documented
+  list, and a first-party preset naming an unknown seat agent are each named.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

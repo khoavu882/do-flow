@@ -17,7 +17,9 @@ const { contentDigest, capabilityDigest } = require('../../src/runtime/packages/
 
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const POINTS = loadPoints().registry;
-const CORE = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'protocols.json'), 'utf8'));
+// The effective core registry (122 A.6): `debate-3` is contributed by the bundled package, so the built-in ids a
+// third-party bare id is checked against come from the merged view, as `checkManifest`'s own default does.
+const CORE = structuredClone(require('../../src/runtime/review/protocols.ts').loadProtocols().registry);
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const HOST = '2.0.0-beta.7';
 const OPTIONS = { pointsRegistry: POINTS, hostVersion: HOST, bundled: [] };

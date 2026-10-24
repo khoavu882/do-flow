@@ -18,6 +18,7 @@ const COMMAND = path.join(REPO_ROOT, 'src', 'runtime', 'packages', 'command.ts')
 const VERSION = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')).version;
 const POINTS = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'contribution-points.json'), 'utf8'));
 const PROTOCOLS = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'protocols.json'), 'utf8'));
+const DEBATE_3 = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'packages', 'doflow', 'presets', 'debate-3.json'), 'utf8'));
 const DIGEST = 'ab'.repeat(32);
 
 const write = (file, body) => {
@@ -27,7 +28,7 @@ const write = (file, body) => {
 
 /** A bundled package directory under `root`: a valid manifest and one debate preset. */
 function bundledPackage(root, rel, id = 'doflow', manifestPatch = {}) {
-  const preset = JSON.parse(JSON.stringify(PROTOCOLS.presets['debate-3']));
+  const preset = JSON.parse(JSON.stringify(DEBATE_3));
   write(path.join(root, rel, 'presets', 'debate-3.json'), preset);
   write(path.join(root, rel, 'doflow-package.json'), {
     manifest: 1, id, version: VERSION, summary: 'DoFlow first-party presets', doflow: `=${VERSION}`,
@@ -92,8 +93,27 @@ test('a valid bundled package is active, first-party and enabled, with the regis
   assert.deepEqual(pkg.reasons, []);
   assert.equal(pkg.tierMax, 'inert');
   assert.equal(pkg.contentDigest, DIGEST, 'the registry value, never re-hashed');
-  assert.deepEqual(pkg.contributions, [{ point: 'debate-preset', version: 1, qualifiedId: 'doflow.debate-3', tier: 'inert', active: true }]);
+  assert.deepEqual(pkg.contributions, [{ point: 'debate-preset', version: 1, qualifiedId: 'debate-3', tier: 'inert', active: true }]);
+  assert.ok(pkg.contributions.every((c) => !c.qualifiedId.includes('.')), 'IC-003: the first-party package keeps bare built-in ids');
   assert.deepEqual(result.points.map((p) => p.id), POINTS.points.map((p) => p.id));
+});
+
+test('a runtime root with no package.json (the projected runtime) takes the bundled manifest version as the host; a different one still refuses', (t) => {
+  const root = scratchRoot(t, [entry('doflow', 'core/registry/packages/doflow')]);
+  bundledPackage(root, 'core/registry/packages/doflow');
+  fs.rmSync(path.join(root, 'package.json'));
+  assert.equal(view(root).packages[0].state, 'active');
+  write(path.join(root, 'package.json'), { name: 'doflow-scratch', version: '9.9.9' });
+  const [pkg] = view(root).packages;
+  assert.equal(pkg.state, 'incompatible');
+  assert.deepEqual(pkg.reasons, ['host-incompatible']);
+});
+
+test('a bundled contribution file is not read by the view: a missing one leaves the package active', (t) => {
+  const root = scratchRoot(t, [entry('doflow', 'core/registry/packages/doflow')]);
+  bundledPackage(root, 'core/registry/packages/doflow');
+  fs.rmSync(path.join(root, 'core/registry/packages/doflow/presets/debate-3.json'));
+  assert.equal(view(root).packages[0].state, 'active', 'verified at release by G68 and left out by contributionsFor, not judged here');
 });
 
 test('the view is memoised per process and reset on demand', (t) => {

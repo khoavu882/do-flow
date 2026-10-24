@@ -7,8 +7,12 @@
  * `settingsView`, `env` and `now` are accepted and not read yet.
  *
  * A bundled package is `active` unless its directory or manifest is missing or invalid, then `incompatible`
- * with IC-004 reason codes. Its tree is never re-hashed here (the guard checks the registry digest, IC-015);
- * `contentDigest` is the registry's value. Each package is judged alone, so a fault in one never changes
+ * with IC-004 reason codes. It is trusted at runtime and verified at release (IC-015): only the manifest's shape
+ * and lexical paths are checked here (no contribution file is read, nothing under `core/shared` is needed), and
+ * its tree is never re-hashed (guard G68 checks the registry digest); `contentDigest` is the registry's value.
+ * The projected runtime ships no `package.json`, so the host version of a bundled package then falls back to the
+ * package's own manifest `version` (PN-8 keeps the two equal); a readable `package.json` that differs still
+ * makes it `host-incompatible`. Each package is judged alone, so a fault in one never changes
  * another and the view itself never throws (FR-009). The result is memoised per process; `resetPackageView`
  * clears it for tests.
  */
@@ -16,7 +20,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
-const { qualifiedId } = require('../../helper/package-ids.ts');
 const { loadPoints, pointRows } = require('./points.ts');
 const { checkManifest, MANIFEST_FILE } = require('./manifest.ts');
 
@@ -72,10 +75,13 @@ function bundledState(entry: any, ctx: any): { state: any; findings: any[] } {
       if (text === null) {
         findings = [finding(entry.id, MANIFEST_FILE, 'file-missing', `${MANIFEST_FILE} is missing`, `a ${MANIFEST_FILE} at the package root`)];
       } else {
-        findings = checkManifest(text, { pointsRegistry, hostVersion: host, bundled: bundledIds, root: located.dir, repoRoot, fsImpl })
-          .map((f: any) => ({ ...f, package: f.package ?? entry.id }));
         let manifest: any = null;
-        try { manifest = JSON.parse(text); } catch { /* the checker reported it */ }
+        try { manifest = JSON.parse(text); } catch { /* the checker reports it */ }
+        const hostFor = host ?? (typeof manifest?.version === 'string' ? manifest.version : null);
+        // `protocols` is unused for a bundled entry without `root`; passing it stops the checker from loading the
+        // merged registry, which would build this view again.
+        findings = checkManifest(text, { pointsRegistry, hostVersion: hostFor, bundled: bundledIds, repoRoot, fsImpl, protocols: { presets: {} } })
+          .map((f: any) => ({ ...f, package: f.package ?? entry.id }));
         if (manifest && typeof manifest === 'object') {
           if (typeof manifest.version === 'string') state.version = manifest.version;
           if (manifest.id !== entry.id) {
@@ -83,7 +89,7 @@ function bundledState(entry: any, ctx: any): { state: any; findings: any[] } {
           }
           const list = Array.isArray(manifest.contributions) ? manifest.contributions : [];
           state.contributions = list.filter((c: any) => c && typeof c === 'object' && typeof c.point === 'string' && typeof c.id === 'string').map((c: any) => ({
-            point: c.point, version: c.version, qualifiedId: qualifiedId(entry.id, c.id), tier: tiers[c.point] ?? null, active: false,
+            point: c.point, version: c.version, qualifiedId: c.id /* IC-003: the first-party package keeps bare built-in ids */, tier: tiers[c.point] ?? null, active: false,
           }));
           const ranks = state.contributions.map((c: any) => TIER_ORDER.indexOf(c.tier)).filter((r: number) => r >= 0);
           if (ranks.length > 0) state.tierMax = TIER_ORDER[Math.max(...ranks)];

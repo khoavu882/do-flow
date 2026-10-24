@@ -26,5 +26,7 @@
       "validator": null, "combine": "add-only", "consumer": null,
       "referencedBy": [], "slice": "D", "opensWith": "row 121" }
   ],
-  "bundled": []
+  "bundled": [
+    { "id": "doflow", "dir": "core/registry/packages/doflow", "contentDigest": "3b583d65b1da6f1252a877debe20df390def35c07abce900d01380d484ac7991" }
+  ]
 }

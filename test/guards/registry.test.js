@@ -15,9 +15,10 @@ const registry = loadRegistry({ repoRoot: REPO });
 
 // The registry family is plain JSON (core/registry/*.json, loaded only through
 // src/registry/index.ts). This pins both directions: the loader names .json files that all exist
-// and parse, and no stray non-JSON leftover lives in the directory.
+// and parse, and no stray non-JSON leftover lives in the directory. Subdirectories are skipped: the bundled
+// first-party package lives in core/registry/packages/ (122 IC-015; guard G68 holds it).
 test('G5: every core/registry entry is a parseable .json file and the loader names exactly those', () => {
-  const onDisk = fs.readdirSync(path.join(REPO, 'core', 'registry')).sort();
+  const onDisk = fs.readdirSync(path.join(REPO, 'core', 'registry'), { withFileTypes: true }).filter((e) => !e.isDirectory()).map((e) => e.name).sort();
   assert.deepEqual(onDisk.filter((name) => !name.endsWith('.json')), [],
     'core/registry holds non-.json files — the registry family was hard-cut over to .json');
   for (const name of onDisk) {

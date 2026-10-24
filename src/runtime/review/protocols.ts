@@ -141,7 +141,25 @@ function validatePreset(id: string, preset: any, context: any = {}): string[] {
   return errors;
 }
 
-function validateProtocols(data: any): { ok: boolean; errors: string[] } {
+/**
+ * The preset ids a first-party (bundled) package contributes, by kind, for an `order` entry that names an id
+ * `presets` does not hold (122 IC-014: `order` stays core-authored and may name first-party ids). `opaque` is
+ * true when a bundled package's ids cannot be known (point registry or manifest unreadable): such an id is then
+ * skipped by the loader, never a validation error (FR-009). Lazy, so the packages modules load only when needed.
+ */
+function bundledPresetIds({ repoRoot, fsImpl }: any = {}): { review: string[]; debate: string[]; opaque: boolean } {
+  try {
+    return require('../packages/contributions.ts').firstPartyPresets({ repoRoot, fsImpl });
+  } catch {
+    return { review: [], debate: [], opaque: false };
+  }
+}
+
+/**
+ * Validate a parsed registry. `options.firstParty` (default: read from `options.repoRoot`, REPO_ROOT, only when an
+ * `order` id has no preset) names the first-party ids an `order` may carry without holding their preset.
+ */
+function validateProtocols(data: any, options: any = {}): { ok: boolean; errors: string[] } {
   const errors: string[] = [];
   if (!isObject(data)) return { ok: false, errors: ['registry must be an object'] };
   checkKeys(errors, 'registry', data, TOP_KEYS);
@@ -180,6 +198,7 @@ function validateProtocols(data: any): { ok: boolean; errors: string[] } {
     strengthOk = errors.length === before;
   }
 
+  let firstParty: { review: string[]; debate: string[]; opaque: boolean } | undefined;
   const kindOf: Record<string, string> = {};
   const validIds = new Set<string>(); // presets with no entry error: the only ones the order's dominance check compares
   const depths = new Map<string, string>();
@@ -207,7 +226,15 @@ function validateProtocols(data: any): { ok: boolean; errors: string[] } {
       const list = data.order[kind];
       if (!Array.isArray(list)) { errors.push(`order.${kind} must be an array`); continue; }
       const expected = Object.keys(kindOf).filter((id) => kindOf[id] === kind);
-      for (const id of list) if (!expected.includes(id)) errors.push(`order.${kind} lists '${id}', which is not a ${kind} preset`);
+      for (const id of list) {
+        if (expected.includes(id)) continue;
+        // An id with no preset here may be one a bundled package supplies (kept out of this file, merged by loadProtocols).
+        if (!Object.hasOwn(data.presets ?? {}, id)) {
+          firstParty ??= options.firstParty ?? bundledPresetIds(options);
+          if ((firstParty as any)[kind].includes(id) || firstParty!.opaque) continue;
+        }
+        errors.push(`order.${kind} lists '${id}', which is not a ${kind} preset`);
+      }
       for (const id of expected) {
         const count = list.filter((entry: any) => entry === id).length;
         if (count === 0) errors.push(`order.${kind} omits preset '${id}'`);
@@ -284,7 +311,8 @@ function duplicateKeys(text: string): string[] {
   return found;
 }
 
-function loadProtocols({ repoRoot = REPO_ROOT, file, fsImpl = fs }: any = {}): { ok: boolean; registry?: any; errors: string[] } {
+/** The core registry file alone: `core/registry/protocols.json` (or `file`) read, held to no duplicate key and `validateProtocols`. */
+function loadCoreProtocols({ repoRoot = REPO_ROOT, file, fsImpl = fs }: any = {}): { ok: boolean; registry?: any; errors: string[] } {
   const target = file || path.join(path.resolve(repoRoot), PROTOCOLS_FILE);
   let text: string;
   let registry: any;
@@ -294,8 +322,51 @@ function loadProtocols({ repoRoot = REPO_ROOT, file, fsImpl = fs }: any = {}): {
   } catch (error: any) {
     return { ok: false, errors: [`${target}: ${error.message}`] };
   }
-  const errors = [...duplicateKeys(text), ...validateProtocols(registry).errors];
+  const errors = [...duplicateKeys(text), ...validateProtocols(registry, { repoRoot, fsImpl }).errors];
   return errors.length === 0 ? { ok: true, registry, errors } : { ok: false, errors };
+}
+
+const CONTRIBUTION_POINT: Record<string, string> = { review: 'review-preset', debate: 'debate-preset' };
+
+/**
+ * The effective registry (122 IC-013, IC-014): the core file plus the presets of every active package, with
+ * `provenance` (`{ [presetId]: { package, contentDigest } }`, contributed presets only) and `notices`. A
+ * contributed id the core `order` names joins the validated registry, so dominance is checked on the merged order;
+ * any other contributed id is added to `presets` after validation and never to `order`. An `order` id whose
+ * package is not active is skipped from the effective order and noticed (FR-009), never a validation error.
+ */
+function loadProtocols(options: any = {}): { ok: boolean; registry?: any; errors: string[]; provenance?: Record<string, any>; notices?: string[] } {
+  const { repoRoot = REPO_ROOT, fsImpl = fs } = options;
+  const core = loadCoreProtocols(options);
+  if (!core.ok) return core;
+  const { contributionsFor } = require('../packages/contributions.ts');
+  const registry: any = { ...core.registry, presets: { ...core.registry.presets }, order: { ...core.registry.order } };
+  const provenance: Record<string, any> = {};
+  const notices: string[] = [];
+  const extra: Record<string, any> = {};
+  for (const kind of KINDS) {
+    const problems: string[] = [];
+    const contributed = contributionsFor(CONTRIBUTION_POINT[kind], 1, { repoRoot, fsImpl, protocols: core.registry, problems });
+    notices.push(...problems);
+    for (const item of contributed) {
+      if (Object.hasOwn(registry.presets, item.qualifiedId) || Object.hasOwn(extra, item.qualifiedId)) {
+        notices.push(`${kind} preset '${item.qualifiedId}' from package ${item.packageId} is skipped: the id is already taken`);
+        continue;
+      }
+      provenance[item.qualifiedId] = { package: item.packageId, contentDigest: item.provenance.contentDigest };
+      if (registry.order[kind].includes(item.qualifiedId)) registry.presets[item.qualifiedId] = item.data;
+      else extra[item.qualifiedId] = item.data;
+    }
+    const effective = registry.order[kind].filter((id: string) => Object.hasOwn(registry.presets, id));
+    for (const id of registry.order[kind]) {
+      if (!effective.includes(id)) notices.push(`order.${kind} names '${id}', which no active package provides; it is skipped from the effective order`);
+    }
+    registry.order[kind] = effective;
+  }
+  const errors = validateProtocols(registry, { repoRoot, fsImpl }).errors;
+  if (errors.length > 0) return { ok: false, errors };
+  Object.assign(registry.presets, extra);
+  return { ok: true, registry, errors: [], provenance, notices };
 }
 
 /** Preset ids of one kind, strictest first (the registry's own `order`). */
@@ -303,8 +374,14 @@ function presetIds(registry: any, kind: string): string[] {
   return [...(registry.order?.[kind] ?? [])];
 }
 
+/** Presets of one kind that `order` does not name: the contributed ones that are selectable by name only. A first-party id the core `order` names counts as core, not contributed. */
+function contributedPresetIds(registry: any, kind: string): string[] {
+  const ordered = new Set<string>(registry.order?.[kind] ?? []);
+  return Object.keys(registry.presets ?? {}).filter((id) => registry.presets[id]?.kind === kind && !ordered.has(id)).sort();
+}
+
 function lensIds(registry: any): string[] {
   return (registry.lenses ?? []).map((lens: any) => lens.id);
 }
 
-module.exports = { loadProtocols, validateProtocols, validatePreset, duplicateKeys, coreTiers, presetIds, lensIds, PROTOCOLS_FILE };
+module.exports = { loadProtocols, loadCoreProtocols, validateProtocols, validatePreset, duplicateKeys, coreTiers, presetIds, contributedPresetIds, lensIds, PROTOCOLS_FILE };
