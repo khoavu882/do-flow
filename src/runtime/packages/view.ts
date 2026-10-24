@@ -26,15 +26,29 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
+const { parseSemVer } = require('../../helper/semver.ts');
 const { loadPoints, pointRows } = require('./points.ts');
 const { checkManifest, MANIFEST_FILE } = require('./manifest.ts');
 
 const TIER_ORDER = ['inert', 'instruction', 'executable'];
 const memo = new Map<string, any>();
 
-/** The running DoFlow version; null when package.json is not shipped or unreadable, which the checker reports as host-incompatible. */
+/**
+ * The running DoFlow version. A checkout or the npm package has `<repoRoot>/package.json`, read first. A projected
+ * runtime (`<scope root>/.doflow/runtime`) ships none, but the install recorded the version in the lock it wrote beside
+ * it, so `<scope root>/.doflow/doflow.lock` `sourceVersion` (set from the installing DoFlow's package.json) is read
+ * instead, only for that layout and only when it is semver. The lock is parsed directly: `readLock` validates the whole
+ * document and throws, where one field is all this needs. Anything else is null, which the checker reports as
+ * host-incompatible (fail closed).
+ */
 function hostVersion(repoRoot: string): string | null {
-  try { return JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).version || null; } catch { return null; }
+  try { return JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8')).version || null; } catch { /* no package.json: try the lock */ }
+  const parent = path.dirname(path.resolve(repoRoot));
+  if (path.basename(path.resolve(repoRoot)) !== 'runtime' || path.basename(parent) !== '.doflow') return null;
+  try {
+    const version = JSON.parse(fs.readFileSync(path.join(parent, 'doflow.lock'), 'utf8')).sourceVersion;
+    return typeof version === 'string' && parseSemVer(version) ? version : null;
+  } catch { return null; }
 }
 
 function finding(pkg: string | null, field: string, code: string, message: string, allowed: any): any {

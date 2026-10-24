@@ -29,17 +29,18 @@ const BARE_ID = /^[a-z][a-z0-9-]*$/;
 
 const isObject = (value: any): boolean => value !== null && typeof value === 'object' && !Array.isArray(value);
 
-/** Names of the core agent specs: `all`, and `readOnly` (frontmatter `access: read-only`, the seats of INV-2, which covers review only). */
+/**
+ * Names of the core agents: `all`, and `readOnly` (`access: read-only`, the seats of INV-2, which covers review only).
+ * Read from core/registry/workflows.json `agents.access`, which an installed runtime ships (it has no core/shared);
+ * G63 holds that map equal to the spec frontmatter.
+ */
 function coreAgents(repoRoot: string, fsImpl: any): { all: string[]; readOnly: string[] } {
-  const dir = path.join(repoRoot, 'core', 'shared', 'agent-specs');
   const found = { all: [] as string[], readOnly: [] as string[] };
   try {
-    for (const file of fsImpl.readdirSync(dir).filter((f: string) => f.endsWith('.md')).sort()) {
-      const head = String(fsImpl.readFileSync(path.join(dir, file), 'utf8')).split('\n---')[0];
-      found.all.push(file.slice(0, -3));
-      if (/^access:\s*read-only\s*$/m.test(head)) found.readOnly.push(file.slice(0, -3));
-    }
-  } catch { /* an unreadable spec directory leaves no agent usable; the validator then names that */ }
+    const access = JSON.parse(String(fsImpl.readFileSync(path.join(repoRoot, 'core', 'registry', 'workflows.json'), 'utf8'))).agents.access;
+    found.all = Object.keys(access).sort();
+    found.readOnly = found.all.filter((name) => access[name] === 'read-only');
+  } catch { /* an unreadable map leaves no agent usable; the validator then names that */ }
   return found;
 }
 
