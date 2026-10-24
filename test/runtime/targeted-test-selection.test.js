@@ -128,6 +128,18 @@ test('FR-003: two changed test files and one source file select those tests plus
   assert.deepEqual(targeted.selection, { basis: 'changed-test-files', selectedCount: 4, totalCount: 5, fallback: null });
 });
 
+test('FR-003: a changed `.test.ts` file is selected and counted among the test files', () => {
+  const root = project({ files: { ...NODE_FILES, 'test/d.test.ts': '' } });
+  const { tier } = compile(root, {
+    changedFiles: ['test/d.test.ts', 'src/lib.js'],
+    exec: fakeExec().exec,
+  });
+  const targeted = tier('targeted-tests');
+  assert.equal(targeted.checks[0].command, 'node --test test/d.test.ts test/guards/');
+  // 1 changed .ts file + the 2 guard files; 6 test files exist under test/ (the .ts one is counted).
+  assert.deepEqual(targeted.selection, { basis: 'changed-test-files', selectedCount: 3, totalCount: 6, fallback: null });
+});
+
 test('FR-003: a deleted test file and a non-test file under the test directory are not selected', () => {
   const root = project({ files: NODE_FILES });
   const { tier } = compile(root, {

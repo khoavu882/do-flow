@@ -22,7 +22,7 @@ const scratch = suiteTempDir('doflow-artifact-grammar-');
 
 // Run the checker over one artifact written to the scratch directory, and read its findings back
 // through --json so a message never has to be recovered from column-aligned text.
-function check(name, body) {
+function check(name: any, body: any) {
   const file = path.join(scratch, name);
   fs.writeFileSync(file, body.endsWith('\n') ? body : `${body}\n`);
   const run = spawnSync('bash', [VALIDATOR, '--json', file], { encoding: 'utf8' });
@@ -35,19 +35,19 @@ function check(name, body) {
 /** Parse the checker's stdout, reporting what actually came back when it is not JSON. A bare
  * JSON.parse here surfaces an environment failure as "SyntaxError: Unexpected token" with no
  * fixture name, no exit code and no stderr -- misreporting the environment as a validator bug. */
-function parseJson(run, ctx) {
+function parseJson(run: any, ctx: any) {
   try {
     return JSON.parse(run.stdout);
   } catch (err) {
     assert.fail(`${ctx}: the validator did not emit JSON (exit ${run.status}).\n`
       + `  stdout: ${JSON.stringify(run.stdout.slice(0, 300))}\n`
       + `  stderr: ${JSON.stringify((run.stderr || '').slice(0, 300))}\n`
-      + `  parse error: ${err.message}`);
+      + `  parse error: ${(err as Error).message}`);
   }
 }
 
-function rules(result) {
-  return result.findings.map((f) => `${f.rule} ${f.id}`);
+function rules(result: any) {
+  return result.findings.map((f: any) => `${f.rule} ${f.id}`);
 }
 
 test('a heading-form detail entry whose ID is in the index is recognised', () => {
@@ -251,7 +251,7 @@ test('a named file that cannot be read is a finding, not a clean result', () => 
   const parsed = parseJson(run, 'absent.md');
   assert.equal(parsed.ok, false);
   assert.equal(run.status, 1);
-  assert.deepEqual(parsed.findings.map((f) => f.rule), ['io']);
+  assert.deepEqual(parsed.findings.map((f: any) => f.rule), ['io']);
 });
 
 test('a specs.md shaped like a real one, with family grouping, parses clean', () => {
@@ -313,12 +313,12 @@ The replacement for IC-001.
 // Both need a feature folder: the stale rule reads decisions/register.json through the resolver, so
 // these fixtures are real (scratch) git repos on a feat/ branch, and the validator runs from inside.
 
-function git(cwd, ...args) {
+function git(cwd: any, ...args: any[]) {
   const run = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], { cwd, encoding: 'utf8' });
   assert.equal(run.status, 0, `git ${args.join(' ')} failed: ${run.stderr}`);
 }
 
-const dec = (id, extra) => ({
+const dec = (id: any, extra?: any) => ({
   id, topic: `topic-${id.slice(4)}`, statement: 's', decidedBy: 'user', channel: 'question', stage: 'design',
   date: '2026-10-03', at: '2026-10-03T00:00:00.000Z', status: 'live', supersedes: [], supersededBy: null,
   refs: [], source: '', rationale: 'r', ...extra,
@@ -326,7 +326,7 @@ const dec = (id, extra) => ({
 
 /** A scratch repo holding feature 050-x (structured layout). `register` is the decisions array, or
  * null for a feature with no register. `files` maps feature-relative paths to content. */
-function featureRepo(t, name, register, files, { vcs = true } = {}) {
+function featureRepo(t: any, name: any, register: any, files: any, { vcs = true } = {}) {
   const repo = tempDir(t, `doflow-artifact-grammar-${name}-`);
   const feature = path.join(repo, 'agent-docs', 'doflow', '050-x');
   fs.mkdirSync(path.join(feature, 'intention'), { recursive: true });
@@ -350,7 +350,7 @@ function featureRepo(t, name, register, files, { vcs = true } = {}) {
   return { repo, feature };
 }
 
-function validateIn(repo, ...args) {
+function validateIn(repo: any, ...args: any[]) {
   // PWD is set so a symlinked `repo` is seen logically, as an interactive shell would see it.
   const run = spawnSync('bash', [VALIDATOR, '--json', ...args], { cwd: repo, encoding: 'utf8', env: { ...process.env, PWD: repo }, timeout: 20000 });
   assert.equal(run.error, undefined);
@@ -370,7 +370,7 @@ test('stale: a line citing a superseded decision is flagged with the live end of
     'design/design.md': '# Design\n\n## 1. Choices\n\nThe wire carries the key. DEC-001\nThis one is fine. DEC-004\n',
   });
   const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
-  assert.deepEqual(result.findings.map((f) => [f.rule, f.id, f.message]),
+  assert.deepEqual(result.findings.map((f: any) => [f.rule, f.id, f.message]),
     [['stale', 'DEC-001', 'line 5 cites DEC-001, superseded by DEC-003']]);
   assert.equal(result.status, 1);
 });
@@ -422,7 +422,7 @@ test('stale: discovery mode covers data-model.md alongside the other artifacts',
     'plan.md': `${taskPlan(['- [ ] A.1 Build'])}\n## 1. Basis\n\nResting on DEC-004.\n`,
   });
   const result = validateIn(repo);
-  assert.deepEqual(result.findings.map((f) => [path.basename(f.file), f.rule, f.id]),
+  assert.deepEqual(result.findings.map((f: any) => [path.basename(f.file), f.rule, f.id]),
     [['data-model.md', 'stale', 'DEC-001']]);
 });
 
@@ -444,7 +444,7 @@ test('data-model.md is not a default target without a register, and is with one'
 
   const registered = featureRepo(t, 'target-registered', CHAIN, { 'design/data-model.md': BAD_DATA_MODEL, 'plan.md': taskPlan(['- [ ] A.1 Build']) });
   const after = validateIn(registered.repo);
-  assert.deepEqual(after.findings.map((f) => `${path.basename(f.file)} ${f.rule} ${f.id}`).sort(),
+  assert.deepEqual(after.findings.map((f: any) => `${path.basename(f.file)} ${f.rule} ${f.id}`).sort(),
     ['data-model.md parity E-1', 'data-model.md parity E-2']);
   assert.equal(after.status, 1);
 });
@@ -457,7 +457,7 @@ test('stale: an explicit path outside the feature folder is not checked against 
 });
 
 test('history: an ID that moved to the archive named by the History pointer still has a History entry', (t) => {
-  const body = (withPointer) => [
+  const body = (withPointer: any) => [
     '# Specs', '',
     '## 1. Contracts', '',
     '| ID | Contract | Status |', '|---|---|---|', '| IC-001 | old | Superseded -> IC-002 |', '| IC-002 | new | Live |', '',
@@ -512,7 +512,7 @@ test('stale: fenced code neither opens a section nor cites a decision', (t) => {
   });
   const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
   // A fenced "## 9. History" must not exempt line 9; lines 7 and 10-13 sit inside fences.
-  assert.deepEqual(result.findings.map((f) => [f.rule, f.message]), [
+  assert.deepEqual(result.findings.map((f: any) => [f.rule, f.message]), [
     ['stale', 'line 9 cites DEC-001, superseded by DEC-003'],
     ['stale', 'line 14 cites DEC-001, superseded by DEC-003'],
   ]);
@@ -530,7 +530,7 @@ test('stale: a lone <!-- quoted in prose does not hide later citations; a same-l
     ].join('\n'),
   });
   const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
-  assert.deepEqual(result.findings.map((f) => f.message), [
+  assert.deepEqual(result.findings.map((f: any) => f.message), [
     'line 6 cites DEC-001, superseded by DEC-003',
     'line 11 cites DEC-001, superseded by DEC-003',
   ]);
@@ -551,7 +551,7 @@ test('stale: a cyclic supersededBy chain in a hand-edited register terminates an
 });
 
 test('history: a pointer leading outside decisions/history is ignored', (t) => {
-  const body = (target) => [
+  const body = (target: any) => [
     '# Specs', '',
     '## 1. Contracts', '',
     '| ID | Contract | Status |', '|---|---|---|', '| IC-001 | old | Superseded -> IC-002 |', '| IC-002 | new | Live |', '',
@@ -589,7 +589,7 @@ test('unknown: a cited DEC id the register does not hold is flagged; known live 
     ].join('\n'),
   });
   const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
-  assert.deepEqual(result.findings.map((f) => [f.rule, f.id, f.message]),
+  assert.deepEqual(result.findings.map((f: any) => [f.rule, f.id, f.message]),
     [['unknown', 'DEC-099', 'line 7 cites DEC-099, which is not in the decision register']]);
   assert.equal(result.status, 1);
 });
@@ -633,7 +633,7 @@ test('unknown and stale: a DEC token after "/" in a URL or a path is not a citat
     ].join('\n'),
   });
   const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
-  assert.deepEqual(result.findings.map((f) => [f.rule, f.id]), [
+  assert.deepEqual(result.findings.map((f: any) => [f.rule, f.id]), [
     ['unknown', 'DEC-783'],
     ['stale', 'DEC-001'],
     ['unknown', 'DEC-785'],
@@ -669,7 +669,7 @@ test('unknown and stale: DEC-001/DEC-099 in prose is a pair of citations, only U
     ].join('\n'),
   });
   const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
-  assert.deepEqual(result.findings.map((f) => [f.rule, f.id]), [
+  assert.deepEqual(result.findings.map((f: any) => [f.rule, f.id]), [
     ['unknown', 'DEC-099'], ['unknown', 'DEC-098'], ['stale', 'DEC-001'],
   ]);
 });
@@ -706,7 +706,7 @@ test('unknown and stale: link targets, query strings and file names are exempt; 
     ].join('\n'),
   });
   const result = validateIn(repo, path.join(feature, 'design', 'design.md'));
-  assert.deepEqual(result.findings.map((f) => [f.rule, f.id]), [
+  assert.deepEqual(result.findings.map((f: any) => [f.rule, f.id]), [
     ['unknown', 'DEC-090'], ['unknown', 'DEC-091'], ['unknown', 'DEC-092'],
     ['unknown', 'DEC-099'], ['unknown', 'DEC-098'],
   ]);
@@ -717,7 +717,7 @@ test('unknown and stale: link targets, query strings and file names are exempt; 
 // disagree about what a malformed plan is. The rule is advisory like the others: one finding per
 // problem plan-check reports, none when plan-check cannot run.
 
-function taskPlan(lines, { header = '**Task graph:** v1', tasksSection = true } = {}) {
+function taskPlan(lines: any, { header = '**Task graph:** v1', tasksSection = true } = {}) {
   return [
     '# Plan', '',
     ...(header ? [header, ''] : []),
@@ -750,7 +750,7 @@ const TASK_GRAPH_FIXTURES = [
 ];
 
 /** Write `body` to <scratch>/<dir>/<name> and run the checker over it with `extra` spawn options. */
-function checkIn(dir, name, body, { validator = VALIDATOR, ...options } = {}) {
+function checkIn(dir: any, name: any, body: any, { validator = VALIDATOR, ...options }: any = {}) {
   const folder = path.join(scratch, dir);
   fs.mkdirSync(folder, { recursive: true });
   const file = path.join(folder, name);
@@ -784,7 +784,7 @@ test('task-graph: a clean plan has no finding, and the other rules still run bes
     '| Phase | Tasks |', '|---|---|', '| A | 3 |', '',
     '## 8. Tasks', '', '### Phase A', '', '- [ ] A.1 First', '',
   ].join('\n'));
-  assert.deepEqual(both.result.findings.map((f) => `${f.rule} ${f.id}`), ['rollup Phase A', 'task-graph -']);
+  assert.deepEqual(both.result.findings.map((f: any) => `${f.rule} ${f.id}`), ['rollup Phase A', 'task-graph -']);
 });
 
 test('task-graph: only a file named plan.md is asked about', () => {
@@ -798,7 +798,7 @@ test('task-graph: a plan.md that cannot be read is the one io finding, with no t
   const missing = path.join(scratch, 'task-graph-absent', 'plan.md');
   const run = spawnSync('bash', [VALIDATOR, '--json', missing], { encoding: 'utf8' });
   const parsed = parseJson(run, 'absent plan.md');
-  assert.deepEqual(parsed.findings.map((f) => f.rule), ['io']);
+  assert.deepEqual(parsed.findings.map((f: any) => f.rule), ['io']);
   assert.equal(run.status, 1);
 });
 
@@ -817,7 +817,7 @@ test('task-graph: the dispatcher missing prints one note on stderr and adds no f
   const run = spawnSync('bash', [copy, '--json', path.join(one, 'plan.md'), path.join(two, 'plan.md')], { encoding: 'utf8' });
   assert.deepEqual(parseJson(run, 'no dispatcher'), { ok: true, findings: [] });
   assert.equal(run.status, 0);
-  const notes = run.stderr.split('\n').filter((l) => l.startsWith('note:'));
+  const notes = run.stderr.split('\n').filter((l: any) => l.startsWith('note:'));
   assert.equal(notes.length, 1, `expected exactly one note line, got: ${JSON.stringify(run.stderr)}`);
   assert.match(notes[0], /plan-check/);
 });
@@ -834,14 +834,14 @@ test('task-graph: Node missing from PATH prints one note and adds no finding', (
   });
   assert.deepEqual(result, { ok: true, findings: [] });
   assert.equal(run.status, 0);
-  assert.equal(run.stderr.split('\n').filter((l) => l.startsWith('note:')).length, 1, run.stderr);
+  assert.equal(run.stderr.split('\n').filter((l: any) => l.startsWith('note:')).length, 1, run.stderr);
 });
 
 // ── 115 (IC-005, validate half): default targets join to feature_root, falling back to repo_root ──
 // A stub resolver next to a copy of the script stands in for do-paths.sh, so the two roots can be
 // told apart without a second checkout.
 
-function stubbedValidator(name, resolverJson) {
+function stubbedValidator(name: any, resolverJson: any) {
   const lib = path.join(scratch, name, 'bash');
   fs.mkdirSync(lib, { recursive: true });
   fs.copyFileSync(VALIDATOR, path.join(lib, 'validate-artifacts.sh'));
@@ -859,7 +859,7 @@ test('default targets resolve under feature_root, and under repo_root when the k
 
   const withKey = stubbedValidator('fr-with-key', { repo_root: here, feature_root: main, feature_slug: 's', design: 'f/design.md' });
   const viaMain = spawnSync('bash', [withKey, '--json'], { encoding: 'utf8' });
-  assert.deepEqual(parseJson(viaMain, 'feature_root').findings.map((f) => [f.file, f.rule, f.id]),
+  assert.deepEqual(parseJson(viaMain, 'feature_root').findings.map((f: any) => [f.file, f.rule, f.id]),
     [[path.join(main, 'f', 'design.md'), 'parity', 'D-1']]);
 
   const withoutKey = stubbedValidator('fr-without-key', { repo_root: here, feature_slug: 's', design: 'f/design.md' });
@@ -868,5 +868,5 @@ test('default targets resolve under feature_root, and under repo_root when the k
 
   fs.writeFileSync(path.join(here, 'f', 'design.md'), ORPHAN_DESIGN);
   const fallback = spawnSync('bash', [withoutKey, '--json'], { encoding: 'utf8' });
-  assert.deepEqual(parseJson(fallback, 'repo_root fallback').findings.map((f) => f.file), [path.join(here, 'f', 'design.md')]);
+  assert.deepEqual(parseJson(fallback, 'repo_root fallback').findings.map((f: any) => f.file), [path.join(here, 'f', 'design.md')]);
 });

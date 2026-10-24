@@ -21,7 +21,7 @@ const path = require('node:path');
 const { REPO } = require('./_shared');
 
 const SRC_DIR = path.join(REPO, 'src');
-const REQUIRER_ROOTS = ['bin', 'src', 'test'].map((d) => path.join(REPO, d));
+const REQUIRER_ROOTS = ['bin', 'src', 'test', 'bench'].map((d) => path.join(REPO, d));
 
 /**
  * Roots whose requires make a src/ module *reachable*. Deliberately excludes test/: a module whose
@@ -189,7 +189,9 @@ test('G16: every relative require() literal resolves to a file that exists', () 
   // `try { require(...) } catch { fallback }` around one converts the eventual MODULE_NOT_FOUND
   // into a silent, permanent degradation rather than a crash. Both patterns exist in this tree.
   // Resolving every literal statically is the only check that sees them.
-  const requirerFiles = REQUIRER_ROOTS.flatMap((root) => jsFilesUnder(root));
+  const requirerFiles = REQUIRER_ROOTS
+    .flatMap((root) => jsFilesUnder(root))
+    .filter((f) => !EXCLUDED_CONSUMER_DIRS.some((dir) => f.startsWith(`${dir}${path.sep}`)));
 
   const dangling = [];
   for (const file of requirerFiles) {
@@ -269,4 +271,42 @@ test('G30: the count of plain .js modules under src/ never increases (TypeScript
   assert.equal(jsCount, JS_CEILING,
     `src/ holds ${jsCount} plain .js modules but JS_CEILING is ${JS_CEILING}. A conversion lowered the `
     + 'real count without lowering the ceiling — set JS_CEILING to ' + jsCount + ' so the ratchet stays tight.');
+});
+
+// Ratchets for the same migration across test/ and bench/ (generated bench output and the two
+// fixture trees, whose .js is deliberately fixed content, are not counted). Lower after each conversion.
+const TEST_JS_CEILING = 662;
+const BENCH_JS_CEILING = 39;
+const RATCHET_FIXTURE_DIRS = ['test/fixtures/agentic', 'bench/perf/fixtures'].map((d) => path.join(REPO, d));
+const RATCHET_SKIPPED_DIRS = [...EXCLUDED_CONSUMER_DIRS, ...RATCHET_FIXTURE_DIRS];
+
+function ratchetFilesUnder(root) {
+  return jsFilesUnder(root).filter((f) => !RATCHET_SKIPPED_DIRS.some((dir) => f.startsWith(`${dir}${path.sep}`)));
+}
+
+for (const [label, dirName, ceiling, name] of [
+  ['test/', 'test', TEST_JS_CEILING, 'TEST_JS_CEILING'],
+  ['bench/', 'bench', BENCH_JS_CEILING, 'BENCH_JS_CEILING'],
+]) {
+  test(`G30: the count of plain .js files under ${label} never increases and tracks ${name}`, () => {
+    const jsCount = ratchetFilesUnder(path.join(REPO, dirName)).filter((f) => f.endsWith('.js')).length;
+    assert.ok(jsCount <= ceiling,
+      `${label} holds ${jsCount} plain .js files but ${name} is ${ceiling}. Author new files as .ts.`);
+    assert.equal(jsCount, ceiling,
+      `${label} holds ${jsCount} plain .js files but ${name} is ${ceiling}. Set ${name} to ${jsCount} so the ratchet stays tight.`);
+  });
+}
+
+test('G30: no stem has both foo.js and foo.ts coexisting under src/, test/ or bench/', () => {
+  const stems = new Map();
+  for (const dirName of ['src', 'test', 'bench']) {
+    for (const f of ratchetFilesUnder(path.join(REPO, dirName))) {
+      const stem = f.replace(/\.(?:js|ts)$/, '');
+      const exts = stems.get(stem) || new Set();
+      exts.add(f.slice(stem.length));
+      stems.set(stem, exts);
+    }
+  }
+  const both = [...stems].filter(([, e]) => e.has('.js') && e.has('.ts')).map(([s]) => path.relative(REPO, s)).sort();
+  assert.deepEqual(both, [], `these stems exist as both .js and .ts:\n  ${both.join('\n  ')}`);
 });
