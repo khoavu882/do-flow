@@ -13,7 +13,8 @@
  * caller, never prompt or wait (beyond the global run lock), and each appends one audit row to `state.json` under the
  * scope's `run.lock`. `enable` and `disable` set the lock bit; `trust` and `exempt` only print the line a person
  * appends to `grants.jsonl` (DoFlow never writes it); `revoke` and `verify` write `state.json`. Each emits one
- * `package.verb` telemetry event (`action`, `result`, `tier_max`, no id or path).
+ * `package.verb` telemetry event (`action`, `result`, `tier_max`, no id or path). `remove` (B.7) is the seventh: it
+ * deletes the package and prints what still names it. An id no package carries writes nothing for any of them.
  */
 
 const { finishRuntime, captureCaught } = require('../cli-result.ts');
@@ -22,21 +23,24 @@ const { loadPoints, pointRows } = require('./points.ts');
 const { checkPackage, MANIFEST_FILE } = require('./manifest.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { packageView, resetPackageView, hostVersion } = require('./view.ts');
-const { readLock, writeLock, defaultLock, lockPackages, LOCK_VERSION_BASE } = require('../../state/lockfile.ts');
+const { readLock, writeLock, removeLock, defaultLock, lockPackages, LOCK_VERSION_BASE } = require('../../state/lockfile.ts');
 const fs = require('node:fs');
 const os = require('node:os');
-const { planPackage, applyPlan, PLAN_ID } = require('./store.ts');
+const { planPackage, applyPlan, removeEntry, PLAN_ID } = require('./store.ts');
 const { configHome } = require('../config-home.ts');
 const { GRANTS_FILE, readGrants } = require('./grants.ts');
 const { acquireRunLock } = require('../../state/run-lock.ts');
-const { readState, appendAudit, recordRevocation, recordSuspension, clearSuspension, repairState } = require('./state.ts');
+const { readState, appendAudit, recordRevocation, recordSuspension, clearSuspension, recordTombstone, repairState } = require('./state.ts');
 const { capabilityDigest } = require('./digest.ts');
 const { satisfiesHostRange } = require('../../helper/semver.ts');
 const { isPackageId } = require('../../helper/package-ids.ts');
 const { TelemetryWriter } = require('../trace/telemetry.ts');
+const { loadSettingsRegistry } = require('../settings/registry.ts');
+const { readLayerFile } = require('../settings/files.ts');
+const { projectLayerSource } = require('../settings/project-layers.ts');
 
 const TIER_ORDER = ['inert', 'instruction', 'executable'];
-const VERB_ACTIONS = ['enable', 'disable', 'trust', 'exempt', 'revoke', 'verify'];
+const VERB_ACTIONS = ['enable', 'disable', 'trust', 'exempt', 'revoke', 'verify', 'remove'];
 
 function pointLine(row: any): string {
   return `point ${row.id}: tier=${row.tier} status=${row.status} entry=${row.entry} versions=${row.versions.join(',') || '-'}`
@@ -294,10 +298,9 @@ function setEnabled(o: any, pkg: any, enabled: boolean): boolean {
   return true;
 }
 
-/** The unknown-id refusal shared by every id-taking verb: nothing is written but the audit row. */
+/** The unknown-id refusal shared by every id-taking verb: nothing is written, not even an audit row. */
 function unknownId(o: any): number {
   const message = `no package with id '${o.id}'`;
-  audit(o, o.action, o.id, 'unknown-package');
   o.out(o.json ? JSON.stringify({ ok: false, error: 'unknown-package', message }) : `doflow package: ${message}`);
   return finishRuntime(1);
 }
@@ -412,6 +415,122 @@ function verbRevoke(o: any, pkg: any, ctx: any): number {
   return finishRuntime(0);
 }
 
+// ── remove (B.7) ────────────────────────────────────────────────────────────────────────────────────
+
+/** The user, project and local settings files of the current directory, in that order (the reader `config list` uses). */
+function settingsLayerFiles(o: any): Array<{ layer: string; file: string }> {
+  const files: Array<{ layer: string; file: string }> = [];
+  const home = configHome(o.env).dir;
+  if (home !== null) files.push({ layer: 'user', file: path.join(home, 'settings.json') });
+  const layers = projectLayerSource(o.projectRoot).layersFrom;
+  if (layers !== null) files.push({ layer: 'project', file: path.join(layers, 'settings.json') }, { layer: 'local', file: path.join(layers, 'settings.local.json') });
+  return files;
+}
+
+/** The `findings.json` files under `<project>/.doflow/`, sorted. Symbolic links and dispatch worktrees are not entered. */
+function findingsFiles(projectRoot: string): string[] {
+  const found: string[] = [];
+  const walk = (dir: string, depth: number): void => {
+    let entries: any[];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }).sort((a: any, b: any) => (a.name < b.name ? -1 : 1)); } catch { return; }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { if (entry.name !== 'dispatch-worktrees' && depth < 12) walk(full, depth + 1); } else if (entry.isFile() && entry.name === 'findings.json') found.push(full);
+    }
+  };
+  walk(path.join(projectRoot, '.doflow'), 0);
+  return found;
+}
+
+/**
+ * The read-only removal scan (IC-012): the settings values and findings records that still name one of `ids`.
+ * Rows are `{ kind: 'setting', layer, key, value }` and `{ kind: 'record', path, field: 'protocol.id', value }`; a
+ * layer file that cannot be read is `unscanned`. Nothing is written.
+ */
+function scanReferences(o: any, ids: Set<string>, keys: string[]): { dangling: any[]; unscanned: any[] } {
+  const dangling: any[] = [];
+  const unscanned: any[] = [];
+  const names = (value: any): boolean => (typeof value === 'string' ? ids.has(value) : Array.isArray(value) && value.some((item: any) => ids.has(item)));
+  if (keys.length > 0) {
+    const loaded = loadSettingsRegistry({ repoRoot: o.repoRoot ?? REPO_ROOT });
+    for (const { layer, file } of settingsLayerFiles(o)) {
+      if (!loaded.ok) { unscanned.push({ layer, path: file, reason: 'the settings registry is unreadable' }); continue; }
+      const read = readLayerFile(file, { registry: loaded.registry, includeDocument: true });
+      if (read.status === 'invalid') { unscanned.push({ layer, path: file, reason: read.reason }); continue; }
+      for (const key of keys) {
+        const value = read.document?.[key];
+        if (names(value)) dangling.push({ kind: 'setting', layer, key, value });
+      }
+    }
+  }
+  for (const file of findingsFiles(o.projectRoot)) {
+    try {
+      if (fs.statSync(file).size > 1048576) continue;
+      const id = JSON.parse(fs.readFileSync(file, 'utf8'))?.protocol?.id;
+      if (typeof id === 'string' && ids.has(id)) dangling.push({ kind: 'record', path: file, field: 'protocol.id', value: id });
+    } catch { /* not a findings record this scan can read */ }
+  }
+  return { dangling, unscanned };
+}
+
+/** Drop the lock row of `id`; a lock left with no package and no target is deleted (B.1's rule, as `recordLock` does). */
+function dropLockRow(o: any, id: string): void {
+  const lock = readLock({ scope: 'global', homeDir: o.homeDir });
+  if (!lock) return;
+  const rows = lockPackages(lock).filter((r: any) => r.id !== id);
+  if (rows.length === 0 && (lock.targets ?? []).length === 0) removeLock({ scope: 'global', homeDir: o.homeDir });
+  else writeLock({ scope: 'global', homeDir: o.homeDir }, { ...lock, packages: rows });
+}
+
+/**
+ * `remove --id <id>`: disable, lifecycle removal, store entry, lock row, revocation, then the `removed` tombstone, all under
+ * the run lock; then the scan. The bundled package cannot be removed (FR-004: it can be disabled). An unreadable
+ * `state.json` refuses before anything changes, because the revocation and the tombstone could not be written.
+ */
+function verbRemove(o: any, pkg: any, ctx: any): number {
+  const refuse = (result: string, message: string): number => {
+    audit(o, 'remove', pkg.id, result);
+    o.out(o.json ? JSON.stringify({ ok: false, error: result, message }) : message);
+    return finishRuntime(1);
+  };
+  if (pkg.firstParty) return refuse('bundled', `${pkg.id} is the bundled first-party package and cannot be removed; turn it off with: doflow package --action disable --id ${pkg.id}`);
+  const row = rowOf(o, pkg.id);
+  if (readState({ homeDir: o.homeDir }).unreadable) return refuse('state-unreadable', 'cannot record the revocation: the package state file is unreadable; run: doflow package --action verify --repair');
+
+  const qualifiedIds: string[] = pkg.contributions.map((c: any) => c.qualifiedId);
+  const loaded = loadPoints(o.repoRoot ? { repoRoot: o.repoRoot } : {});
+  const keys = loaded.ok ? [...new Set<string>(loaded.registry.points.filter((p: any) => pkg.contributions.some((c: any) => c.point === p.id)).flatMap((p: any) => p.referencedBy))] : [];
+  const scan = scanReferences(o, new Set(qualifiedIds), keys);
+  const grants = readGrants({ env: o.env, projectRoot: o.projectRoot, ...(o.tmpDir === undefined ? {} : { tmpDir: o.tmpDir }) });
+  const dangling = grants.entries.filter((g: any) => g.grant !== 'fetch' && g.package === pkg.id).map((g: any) => ({ line: g.line, kind: g.grant, version: g.version }));
+
+  setEnabled(o, pkg, false); // disable first: a run that stops below leaves the package off
+  // Lifecycle removal of the package's ledger rows (projection into harnesses) is a no-op until Phase C: nothing is projected yet.
+  const idDir = path.dirname(pkg.storeDir);
+  const leftover = fs.existsSync(idDir) && !removeEntry(idDir, path.basename(pkg.storeDir), fs);
+  dropLockRow(o, pkg.id);
+  // Whole seconds, rounded down, as `revoke` does: a trust line printed in the same second still sorts before the revocation.
+  recordRevocation({ homeDir: o.homeDir }, { packageId: pkg.id, contentDigest: row.contentDigest, at: new Date(Math.floor(o.now / 1000) * 1000).toISOString() });
+  recordTombstone({ homeDir: o.homeDir }, { packageId: pkg.id, qualifiedIds, at: stamp(o) });
+  audit(o, 'remove', pkg.id, 'removed');
+
+  const file = grantsPath(o.env);
+  if (o.json) {
+    o.out(JSON.stringify({ ok: true, action: 'remove', id: pkg.id, version: row.version, qualifiedIds, dangling: scan.dangling, unscanned: scan.unscanned, grants: dangling, grantFile: file, leftover }));
+    return finishRuntime(0);
+  }
+  o.out(`removed ${pkg.id} ${row.version}`);
+  if (leftover) o.out('warning: the store entry could not be removed');
+  for (const d of scan.dangling) {
+    o.out(d.kind === 'setting' ? `dangling setting ${d.layer} ${d.key} = ${JSON.stringify(d.value)}` : `dangling record ${d.path} ${d.field} = ${JSON.stringify(d.value)}`);
+  }
+  for (const u of scan.unscanned) o.out(`not scanned: ${u.layer} settings ${u.path} (${u.reason})`);
+  if (scan.dangling.length === 0 && scan.unscanned.length === 0) o.out('no dangling references');
+  else if (scan.dangling.length > 0) o.out('nothing was rewritten: edit those settings and records yourself');
+  for (const g of dangling) o.out(`grant line ${g.line} (${g.kind} ${g.version}) in ${file} still names ${pkg.id}; DoFlow never edits that file, and you may delete the line`);
+  return finishRuntime(0);
+}
+
 /** `verify [--repair]`: re-hash every enabled third-party entry through the view; record or clear suspensions. */
 function verbVerify(o: any, ctx: any): number {
   let view = freshView(o);
@@ -464,6 +583,7 @@ function handleVerb(o: any): number {
   const ctx: { tierMax: string | null } = { tierMax: null };
   let code: number;
   if (action !== 'verify' && (typeof id !== 'string' || id.length === 0)) code = usage(json, out, `${action} requires one --id <id>`);
+  else if (action !== 'verify' && !freshView(o).packages.some((p: any) => p.id === id)) code = unknownId(o); // before the run lock: an unknown id leaves not even the lock's directory behind
   else {
     try {
       const hold = acquireRunLock({ scopeRoot: o.homeDir, scope: 'global', command: `package ${action}` });
@@ -477,6 +597,7 @@ function handleVerb(o: any): number {
           else if (action === 'disable') code = verbDisable(o, pkg, ctx);
           else if (action === 'trust') code = verbTrust(o, pkg);
           else if (action === 'exempt') code = verbExempt(o, pkg);
+          else if (action === 'remove') code = verbRemove(o, pkg, ctx);
           else code = verbRevoke(o, pkg, ctx);
         }
       } finally {
@@ -541,7 +662,7 @@ function handlePackageCommand({ action, path: pkgPath, id, source, plan, repair,
     }
   }
   if (action !== 'points') {
-    const message = 'action must be points, check, list, show, add, update, enable, disable, trust, exempt, revoke or verify';
+    const message = 'action must be points, check, list, show, add, update, enable, disable, trust, exempt, revoke, verify or remove';
     out(json ? JSON.stringify({ ok: false, error: 'usage', message }) : `doflow package: ${message}`);
     return finishRuntime(2);
   }

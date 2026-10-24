@@ -67,9 +67,9 @@ const { handlePackageCommand } = require('../runtime/packages/command.ts');
 // `plan-check` is read-only (115 IC-001): no upkeep, which would write `.gitignore` and `upkeep-due`.
 // `review` writes only its one telemetry line (095 IC-003).
 // `protocol` only prints the registry and the resolved protocol (119 IC-004), so it has nothing to keep up.
-// `package` stays here (122 IC-012) except for the actions that write the store and the lock: `add --plan` and `update --plan` run upkeep (see `runsUpkeep`); `remove` joins them when it lands.
+// `package` stays here (122 IC-012) except for the actions that write the store and the lock: `add --plan`, `update --plan` and `remove` run upkeep (see `runsUpkeep`).
 const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review', 'protocol', 'package']);
-const runsUpkeep = (o: any): boolean => !NO_UPKEEP.has(o.cmd) || (o.cmd === 'package' && typeof o.planId === 'string' && (o.action === 'add' || o.action === 'update'));
+const runsUpkeep = (o: any): boolean => !NO_UPKEEP.has(o.cmd) || (o.cmd === 'package' && ((typeof o.planId === 'string' && (o.action === 'add' || o.action === 'update')) || o.action === 'remove'));
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
 // The seed validator loads only for `roadmap seed`, and only this file may require it (G54).

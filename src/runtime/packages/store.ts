@@ -289,4 +289,4 @@ function applyLocked({ plan, homeDir, repoRoot, now, hooks, fsImpl }: any): any 
   }
 }
 
-module.exports = { planIdFor, planPackage, applyPlan, packagePaths, PLAN_ID, MARKER_SUFFIX };
+module.exports = { planIdFor, planPackage, applyPlan, packagePaths, removeEntry, PLAN_ID, MARKER_SUFFIX };

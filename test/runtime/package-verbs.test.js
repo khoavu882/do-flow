@@ -494,15 +494,22 @@ test('negative control: every action on an unknown id leaves the lock byte-ident
   assert.deepEqual(empty.map((r) => r.code), [1, 1, 1, 1, 1]);
   assert.equal(fs.existsSync(w.lockFile), false, 'no lock appears from nothing');
 
+  assert.equal(fs.existsSync(w.stateFile), false, 'an unknown id appends no audit row, so no state.json appears from nothing');
+
   w.stage(makePackage(t));
+  assert.equal(w.run({ action: 'enable', id: 'acme' }).code, 0);
   const before = sha(w.lockFile);
+  const stateBefore = sha(w.stateFile);
   assert.notEqual(before, 'absent');
+  assert.notEqual(stateBefore, 'absent');
   for (const action of ['enable', 'disable', 'trust', 'exempt', 'revoke']) {
     const result = w.run({ action, id: 'ghost' });
     assert.equal(result.code, 1, `${action}: ${result.text}`);
     assert.match(result.text, /no package with id 'ghost'/);
     assert.equal(sha(w.lockFile), before, `${action} left the lock byte-identical`);
+    assert.equal(sha(w.stateFile), stateBefore, `${action} left state.json byte-identical (no audit row)`);
   }
+  assert.deepEqual(w.audit().map((a) => a.verb), ['enable'], 'the unknown id appended no audit row');
   assert.equal(fs.existsSync(w.grantsFile), false);
   assert.deepEqual(readState({ homeDir: w.home }).state.revoked, []);
 });

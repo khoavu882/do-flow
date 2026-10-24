@@ -571,6 +571,7 @@ Commands:
                        package --action enable|disable --id <id> [--json]   (sets the lock bit; enable prints the resulting state, and for needs-trust the exact grant line and file; exit 0, 1 incompatible or unknown, 2 no --id)
                        package --action trust|exempt --id <id> [--json]   (prints the grant line a person appends to grants.jsonl and writes nothing; exempt exits 1 while the host is inside the range)
                        package --action revoke --id <id> [--json]   (records a revocation in state.json; only a later trust line counts)
+                       package --action remove --id <id> [--json]   (disables, deletes the store entry and lock row, records a revocation and a removed tombstone, then lists the settings, records and grant lines that still name the package and rewrites none; exit 0, 1 unknown id or the bundled package, 2 no --id)
                        package --action verify [--repair] [--json]   (re-hashes enabled third-party entries and records suspensions; exit 0 intact, 1 findings; --repair rewrites an unreadable state.json)
   slot                 Named machine-wide queue, one holder at a time (--action run|list|release);
                        slot --action run --name <name> [--label <text>] [--timeout <s>] [--no-wait] -- <command> [args...]
@@ -627,7 +628,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        slot: run|list|release
                        review: check|start
                        protocol: list|resolve
-                       package: points|check|list|show|add|update|enable|disable|trust|exempt|revoke|verify
+                       package: points|check|list|show|add|update|enable|disable|trust|exempt|revoke|verify|remove
       --task, --token, --owner, --mode,
       --result, --evidence-id, --reason     task-attempt (claim: --task --owner --mode manual|sequential|subagent
                                             [--owner-override <reason>] [--epoch <n>=1+] [--reserve-tokens <n>]
@@ -694,7 +695,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --path, --exclude (repeatable)        leak-scan
       --slug | --path                       review --action check (at most one; with neither, the active feature)
       --path <dir>                          package --action check (exactly one package directory)
-      --id <id>                             package --action list (one package), show, update (required unless --plan), enable, disable, trust, exempt and revoke
+      --id <id>                             package --action list (one package), show, update (required unless --plan), enable, disable, trust, exempt, revoke and remove
       --source <dir>                        package --action add (a local package directory; remote sources arrive later)
       --plan <planId>                       package --action add and update (apply the plan; it is kept for 24 hours)
       --repair                              package --action verify (rewrite an unreadable state.json; every grant line present is revoked, never widened)
