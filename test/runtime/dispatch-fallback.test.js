@@ -246,6 +246,23 @@ test('106 C-3: lastFailure skips quota ends; launch then an exhausted ladder hol
   assert.deepEqual([plain.mode, read], ['sequential', 0]);
 });
 
+test('120 IC-010: fallback preserves older shapes and only stored false disables in-session work', () => {
+  const old = {};
+  assert.deepEqual(store.fallbackOf(old, 'ask'), fb());
+  assert.equal(Object.hasOwn(old.fallback, 'inSession'), false);
+
+  const stored = fb({ inSession: false });
+  const run = { fallback: stored };
+  const fallback = store.fallbackOf(run, 'off');
+  assert.equal(fallback, stored);
+  assert.equal(fallback.inSession, false);
+
+  assert.equal(store.inSessionOf({}), true);
+  assert.equal(store.inSessionOf({ fallback: fb() }), true);
+  assert.equal(store.inSessionOf({ fallback: fb({ inSession: true }) }), true);
+  assert.equal(store.inSessionOf({ fallback: fb({ inSession: false }) }), false);
+});
+
 test('106 IC-004: run.fallback.events keeps the newest 200 and counts the dropped ones', () => {
   const run = {};
   for (let i = 0; i < 205; i += 1) store.appendFallbackEvent(run, { kind: 'quota', i }, 'ask');

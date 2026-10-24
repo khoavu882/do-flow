@@ -197,11 +197,17 @@ function setRunState(store: any, next: string, writer: 'cancel' | 'resume' | nul
 
 /**
  * 106 IC-004: `run.fallback`, created in place with `mode` when absent (a run started before 106).
- * Shape: `{ mode, ladder: string[] | null, exhausted: string[], holds: { [task]: Hold }, events, eventsDropped }`.
+ * Shape: `{ mode, ladder: string[] | null, inSession?: boolean, exhausted: string[], holds: { [task]: Hold }, events, eventsDropped }`.
+ * IC-010: older runs and unset starts omit `inSession`; creating fallback never adds it.
  */
 function fallbackOf(run: any, mode: string): any {
   if (!isObject(run.fallback)) run.fallback = { mode, ladder: null, exhausted: [], holds: {}, events: [], eventsDropped: 0 };
   return run.fallback;
+}
+
+/** IC-010: only an explicitly stored false disables in-session work; older runs read true. */
+function inSessionOf(run: any): boolean {
+  return !(isObject(run.fallback) && run.fallback.inSession === false);
 }
 
 /** 106 IC-004: appends `event` to `run.fallback.events`, keeping the newest 200 and counting the dropped. */
@@ -313,6 +319,7 @@ module.exports = {
   transitionDispatch,
   setRunState,
   fallbackOf,
+  inSessionOf,
   appendFallbackEvent,
   FALLBACK_EVENTS_MAX,
   HELD_RUN_STATES,

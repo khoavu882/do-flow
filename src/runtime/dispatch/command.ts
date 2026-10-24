@@ -36,6 +36,7 @@
 // `--fallback`: once resumed, `off` or `ask` sets the run's mode in one write, and `auto` accepts the
 // pending proposals once (review C-14): it clears the `quota` holds and records each task in
 // `run.fallback.accepted`, the run's mode unchanged; run-wide `auto` comes only from `start`.
+// Feature 120 C.4 (IC-010): start gates enabled rungs and stores the ladder and in-session permission.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -48,6 +49,7 @@ const { loadRegistry } = require('../../registry/index.ts');
 const { knownWorkerIds, LADDER_MAX } = require('../../registry/worker-ids.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const readiness = require('../worker/readiness.ts');
+const { activeWorkers, workerGate, inSessionGate } = require('../worker/active.ts');
 const { storeFileFor, newDispatchRunId, readDispatch, mutateDispatch, fallbackOf, DispatchStoreError, DISPATCH_ID } = require('./store.ts');
 const { concurrencyOf } = require('./admission.ts');
 const { validateGrant, requestSpawn, spawnStatus } = require('./grants.ts');
@@ -215,6 +217,32 @@ function fallbackSetting(root: string, env: Env): string {
   }
 }
 
+/** IC-010: gate start flags and resolve the run's enabled ladder and in-session permission. */
+function enabledStart(o: any, s: any, root: string, env: Env) {
+  const active = activeWorkers({ registry: registryOf(o.registry), env, projectRoot: root });
+  if (s.harness !== null) {
+    const gate = workerGate(active, s.harness);
+    if (gate) return { refusal: refused(gate.reason, { harness: gate.harness, enabled: gate.enabled, origin: gate.origin }) };
+  }
+  if (s.ladder !== null) {
+    for (const id of s.ladder) {
+      const gate = workerGate(active, id);
+      if (gate) return { refusal: refused(gate.reason, { harness: gate.harness, enabled: gate.enabled, origin: gate.origin }) };
+    }
+  }
+  if (s.mode === 'sequential') {
+    const gate = inSessionGate(active);
+    if (gate) return { refusal: refused(gate.reason, { text: gate.text, enabled: [...active.workers], origin: active.origin }) };
+  }
+  const stored = active.state !== 'unset';
+  let ladder: string[] | null = s.ladder;
+  if (ladder === null) {
+    if (s.harness !== null) ladder = stored ? [s.harness] : null;
+    else ladder = stored ? [...active.workers] : null;
+  }
+  return { ladder, inSession: active.inSession, stored };
+}
+
 /** IC-002 step 0: every start flag, validated and normalized. */
 function startSettings(o: any) {
   const by = requireBy(o.by, 'start');
@@ -326,8 +354,10 @@ function start(o: any, s: any) {
   const key = runKeyFor(env, cwd);
   const who = identityRefusal(key.identity);
   if (who) return refused(who.reason, { runKey: key.runKey });
-  // Step 2.
   const root = projectRoot(cwd);
+  const enabled = enabledStart(o, s, root, env);
+  if (enabled.refusal) return enabled.refusal;
+  // Step 2.
   const roots = [...new Set([cwd, root])];
   const plan = attempts.loadPlan({ roots, slug, fsImpl: fs });
   // Step 3 (DEC-034).
@@ -361,7 +391,8 @@ function start(o: any, s: any) {
     : { argv: null, argvSha256: null, argvCount: 0, timeoutSeconds: s.verifySeconds };
   const remove = () => managerFor(root, slug, 'integration', env).removeVerified(dispatchRunId);
   // 106 IC-005: `--fallback` wins for the run, else the setting.
-  const fallback = { mode: s.fallback ?? fallbackSetting(root, env), ladder: s.ladder, exhausted: [], holds: {}, events: [], eventsDropped: 0 };
+  const { ladder, inSession, stored } = enabled;
+  const fallback = { mode: s.fallback ?? fallbackSetting(root, env), ladder, ...(stored ? { inSession } : {}), exhausted: [], holds: {}, events: [], eventsDropped: 0 };
   // Steps 7 and 8: one dispatch-store write, the 080 start inside it.
   let outcome: any;
   try {
