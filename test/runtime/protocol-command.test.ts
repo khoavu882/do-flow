@@ -95,7 +95,7 @@ test('resolve --kind review prints the rule values and each project blocker clau
 test('C-11: resolve --kind debate prints only the invariants that apply to a debate, and the origin of a set preset', (t) => {
   const s = scratch(t);
   assert.match(s.cli(['--action', 'resolve', '--kind', 'debate']).stdout, /^protocol\.invariants: INV-6,INV-7$/m);
-  assert.match(s.cli(['--action', 'resolve', '--kind', 'review']).stdout, /^protocol\.invariants: INV-1,INV-2,INV-3,INV-4,INV-5,INV-6,INV-7$/m);
+  assert.match(s.cli(['--action', 'resolve', '--kind', 'review']).stdout, /^protocol\.invariants: INV-1,INV-2,INV-3,INV-4,INV-5,INV-6,INV-7,INV-8$/m);
   fs.writeFileSync(path.join(s.cwd, '.doflow', 'settings.json'), JSON.stringify({ schema: 1, 'debate.preset': 'debate-2' }));
   assert.match(s.cli(['--action', 'resolve', '--kind', 'debate']).stdout, /^protocol\.origins: id=project /m);
 });
@@ -127,12 +127,12 @@ test('list --json names all four presets and INV-1..INV-7', (t) => {
   assert.equal(res.status, 0, res.stderr);
   const out = JSON.parse(res.stdout);
   assert.deepEqual(out.presets.map((p: any) => p.id), ['review-deep', 'review-single', 'debate-3', 'debate-2']);
-  assert.deepEqual(out.invariants.map((i: any) => i.id), ['INV-1', 'INV-2', 'INV-3', 'INV-4', 'INV-5', 'INV-6', 'INV-7']);
+  assert.deepEqual(out.invariants.map((i: any) => i.id), ['INV-1', 'INV-2', 'INV-3', 'INV-4', 'INV-5', 'INV-6', 'INV-7', 'INV-8']);
   const byKind = JSON.parse(s.cli(['--action', 'list', '--kind', 'debate', '--json']).stdout);
   assert.deepEqual(byKind.presets.map((p: any) => p.id), ['debate-3', 'debate-2']);
   const text = s.cli(['--action', 'list']);
   assert.equal(text.status, 0, text.stderr);
-  for (const id of ['review-deep', 'review-single', 'debate-3', 'debate-2', 'INV-1', 'INV-7']) assert.ok(text.stdout.includes(id), id);
+  for (const id of ['review-deep', 'review-single', 'debate-3', 'debate-2', 'INV-1', 'INV-7', 'INV-8']) assert.ok(text.stdout.includes(id), id);
 });
 
 test('a looser preset than the protocol needs is refused with exit 1', (t) => {

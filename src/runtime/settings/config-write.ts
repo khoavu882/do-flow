@@ -202,7 +202,8 @@ function buildSchema(registry: any, protocols: any): any {
     };
   });
   const invariants = protocols.invariants.map((inv: any) => ({
-    key: `invariant.${inv.id}`, locked: true, writable: false, statement: inv.statement, enforcedBy: inv.enforcedBy,
+    id: inv.id, key: `invariant.${inv.id}`, locked: true, writable: false, statement: inv.statement, enforcedBy: inv.enforcedBy,
+    ...(inv.authorKinds ? { authorKinds: inv.authorKinds } : {}),
   }));
   const presets = ['review', 'debate'].flatMap((kind) => presetIds(protocols, kind)).map((id: string) => {
     const preset = protocols.presets[id];

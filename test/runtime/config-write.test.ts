@@ -557,7 +557,7 @@ test('schema --json lists every registry key with the IC-007 fields, and the inv
   assert.equal(byKey['advice.endpoint'].default, 'http://127.0.0.1:11434', 'a defaultRef is resolved');
   assert.equal(byKey['storage.retentionHours'].default, STORAGE.stores.find((store: any) => store.id === 'lifecycle-events').bound.defaultHours, 'a defaultRef with no dependency is resolved');
   assert.deepEqual(invariants.map((i: any) => i.key), PROTOCOLS.invariants.map((i: any) => `invariant.${i.id}`));
-  assert.equal(invariants.length, 7);
+  assert.equal(invariants.length, 8);
   for (const inv of invariants) {
     assert.equal(inv.locked, true);
     assert.equal(inv.writable, false);
