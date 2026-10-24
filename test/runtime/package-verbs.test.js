@@ -380,7 +380,7 @@ test('update --plan with a new content digest voids trust and prints the new lin
   assert.deepEqual(w.pkg().reasons, ['content-changed'], 'voided by construction: the grant names the old digest');
   assert.deepEqual(w.contributed(), []);
 
-  fs.writeFileSync(w.grantsFile, `${JSON.stringify(line)}\n`); // the person replaces the old line: one (grant, package, version) per file
+  w.person(line); // the person appends the fresh line; the old one, for other digests, stays and grants nothing
   assert.equal(w.pkg().state, 'active');
 });
 

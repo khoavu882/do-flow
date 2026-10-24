@@ -7,10 +7,10 @@
  *
  * `readGrants` returns the file path and mtime, one `entries` row per well-formed line with its state, the
  * `grants` that count right now, and IC-004 findings. Void rules: an unreadable file, a line over 2 KiB, more
- * than 1000 lines, a malformed line, an unknown key or kind, or a duplicate (grant, package, version) voids
- * every grant (`state-unreadable`, naming the line number and never its text). A file whose realpath lies in
- * the detected project root (`detectedProjectRoot`, never the working directory itself), a
- * `.doflow/state/dispatch-worktrees/` directory or the system temp directory is ignored (`grant-invalid`, reason
+ * than 1000 lines, a malformed line, an unknown key or kind, or a duplicate key (grant, package, version,
+ * contentDigest, capabilityDigest; a fetch grant's source) voids every grant (`state-unreadable`, naming the line
+ * number and never its text). A file whose realpath lies in the detected project root (`detectedProjectRoot`,
+ * never the working directory itself), a `.doflow/state/dispatch-worktrees/` directory or the system temp directory is ignored (`grant-invalid`, reason
  * `grants-file-location`). No file means no grants and no finding.
  */
 
@@ -77,10 +77,14 @@ function lineProblem(grant: any): string | null {
   return null;
 }
 
-/** The duplicate key of IC-008: (grant, package, version), and a fetch grant's source as written. */
+/**
+ * The duplicate key of IC-008: (grant, package, version, contentDigest, capabilityDigest) for trust and exempt (a field
+ * the kind does not carry, exempt's capabilityDigest, is empty), and a fetch grant's source as written. Lines for one
+ * package version with other digests coexist, so a re-trust after an edit is an append.
+ */
 const duplicateKey = (grant: any): string => (grant.grant === 'fetch'
   ? `fetch ${JSON.stringify(Object.keys(grant.source).sort().map((key) => [key, grant.source[key]]))}`
-  : `${grant.grant} ${grant.package} ${grant.version}`);
+  : `${grant.grant} ${grant.package} ${grant.version} ${grant.contentDigest} ${grant.capabilityDigest ?? ''}`);
 
 const realOf = (fsImpl: any, file: string): string => {
   try { return fsImpl.realpathSync(file); } catch { return path.resolve(file); }
@@ -162,7 +166,8 @@ function readGrants({ env = process.env, fsImpl = fs, projectRoot, tmpDir = os.t
     const why = grant === undefined ? 'not valid JSON' : lineProblem(grant);
     if (why) { problem = `line ${number} is not a valid grant (${why})`; break; }
     const key = duplicateKey(grant);
-    if (seen.has(key)) { problem = `line ${number} repeats the (grant, package, version) of an earlier line`; break; }
+    const what = grant.grant === 'fetch' ? 'source' : '(grant, package, version, contentDigest, capabilityDigest)';
+    if (seen.has(key)) { problem = `line ${number} repeats the ${what} of an earlier line`; break; }
     seen.add(key);
     result.entries.push({ line: number, raw, state: 'valid', ...grant });
   }

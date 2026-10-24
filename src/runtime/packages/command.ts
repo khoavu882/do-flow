@@ -108,7 +108,8 @@ function matchedGrants(pkg: any, o: any, cache: { read?: any } = {}): any[] {
   cache.read ??= readGrants({ env: o.env, projectRoot: o.projectRoot, ...(o.tmpDir === undefined ? {} : { tmpDir: o.tmpDir }) });
   const kinds = [pkg.grant.trust ? 'trust' : null, pkg.grant.exempt ? 'exempt' : null];
   return cache.read.grants
-    .filter((g: any) => kinds.includes(g.grant) && g.package === pkg.id && g.version === pkg.version && g.contentDigest === pkg.contentDigest)
+    .filter((g: any) => kinds.includes(g.grant) && g.package === pkg.id && g.version === pkg.version && g.contentDigest === pkg.contentDigest
+      && (g.grant !== 'trust' || g.capabilityDigest === pkg.capabilityDigest))
     .map((g: any) => ({ kind: g.grant, line: g.raw, lineNumber: g.line, path: cache.read.path, mtime: cache.read.mtime }));
 }
 
@@ -311,7 +312,7 @@ function handleApply(o: any): number {
         const file = grantsPath(env);
         retrust = file === null
           ? [`${result.id} acts again only after a person adds it, but there is no config home, so no grant can exist; the line would be:`, retrustLine]
-          : [`${result.id} acts again only after a person adds it: append this line to ${file} (replace an older trust line for ${result.id} ${result.version}; DoFlow never writes that file):`, retrustLine];
+          : [`${result.id} acts again only after a person adds it: append this line to ${file} (an older trust line for ${result.id} ${result.version} may stay: it no longer grants; DoFlow never writes that file):`, retrustLine];
         retrustNote = file === null
           ? 'the package acts again only after a person adds that line to the grants file; there is no config home, so no grant can exist'
           : `the package acts again only after a person adds that line to ${file}`;

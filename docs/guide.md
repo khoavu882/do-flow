@@ -212,7 +212,7 @@ doflow package --action enable --id <id>            # switches it on; its preset
 
 A package that asks for more than data (the tiers above `inert`) is `needs-trust` after `enable`. DoFlow does not grant trust: `doflow package --action trust --id <id>` prints one line and the file to put it in, `<config home>/packages/grants.jsonl`, and only you add it. DoFlow never writes that file. Rules for the file:
 
-- One malformed line, an unknown key, or a second line for the same grant, package and version voids every grant in the file. Replace the old line instead of adding another.
+- One malformed line, an unknown key, or a line that repeats an earlier one's grant, package, version and digests (a `fetch` line: its source) voids every grant in the file. Lines for one package version with other digests coexist, and only the line whose digests match the installed package grants, so a fresh trust line is appended, never swapped in.
 - Trust belongs to one content digest. When the package's files change, the old line stops counting and `update` prints a new one.
 - The file is ignored when it lies inside the project or the system temp directory.
 
@@ -234,7 +234,7 @@ Use `/do package <idea>` or ask to make an idea a DoFlow package. The route list
 2. Edit the stubs and the README's "What and why" section. Run `doflow package --action check --path <dir>` until clean.
 3. Run `doflow package --action add --source <dir>` to inspect the inventory, projection and grant lines. Apply the printed plan with `doflow package --action add --plan <planId>`.
 4. Run `doflow package --action enable --id <id>`. An inert package is active without a grant. Above inert, run `doflow package --action trust --id <id>`; it prints a line and the grants file path. Only a person adds that line. Run `enable` again to project trusted skills and agents into globally installed harnesses.
-5. Iterate in the source folder: edit, `check`, `doflow package --action update --id <id>`, then `doflow package --action update --plan <planId>`. Every applied content change above inert needs a fresh trust line a person adds, even at the same version. The old line cannot authorize the changed content; the package stays `needs-trust` and its projection is removed until it is trusted again. At the same version, replace the old trust row before adding the new line, because duplicate grant rows void the grants file. Inert edits need no grant.
+5. Iterate in the source folder: edit, `check`, `doflow package --action update --id <id>`, then `doflow package --action update --plan <planId>`. Every applied content change above inert needs a fresh trust line a person adds, even at the same version. The old line cannot authorize the changed content; the package stays `needs-trust` and its projection is removed until it is trusted again. At the same version, append the new line and keep or delete the old one as you like: a line for other digests grants nothing and does not void the file, while an exact copy of a line already there does. Inert edits need no grant.
 
 The authored folder is your source: DoFlow never prunes it or follows edits automatically. You can commit it. If the project ignores `.doflow`, make the parent traversable and add `!.doflow/package/`, as `new` reports. For example, replace a blanket `.doflow` ignore rule with `.doflow/*`, followed by `!.doflow/package/`, so the package source is included while other DoFlow state stays ignored. DoFlow never edits your ignore rules.
 

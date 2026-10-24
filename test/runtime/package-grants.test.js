@@ -65,7 +65,7 @@ test('an unknown key, unknown kind, duplicate, malformed or oversized line voids
   const cases = {
     'unknown key': text(trust(), { ...exempt({ package: 'beta' }), [SECRET]: 1 }),
     'unknown kind': text(trust(), { grant: SECRET, package: 'beta' }),
-    'duplicate (grant, package, version)': text(trust(), trust({ contentDigest: D2 })),
+    'duplicate (grant, package, version, contentDigest, capabilityDigest)': text(trust(), trust({ at: '2026-10-25T00:00:00Z' })),
     'duplicate key on a line': text(trust(), `{"grant":"fetch","grant":"trust","note":"${SECRET}"}`),
     'not JSON': text(trust(), `{ ${SECRET}`),
     'bad digest': text(trust(), trust({ package: 'beta', contentDigest: SECRET })),

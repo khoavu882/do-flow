@@ -168,7 +168,11 @@ function bundledState(entry: any, ctx: any): { state: any; findings: any[] } {
 function trustReason(state: any, ctx: any): string | null {
   const { grants, stateRead, pointsRegistry } = ctx;
   if (stateRead.unreadable || grants.findings.some((f: any) => f.code === 'state-unreadable')) return 'state-unreadable';
-  const grant = grants.grants.find((g: any) => g.grant === 'trust' && g.package === state.id && g.version === state.version);
+  // Lines for one version with other digests coexist (IC-008 duplicate key): judge the one whose digests match, else
+  // the one with the matching content digest, else any (each of those reads content-changed).
+  const lines = grants.grants.filter((g: any) => g.grant === 'trust' && g.package === state.id && g.version === state.version);
+  const grant = lines.find((g: any) => g.contentDigest === state.contentDigest && g.capabilityDigest === state.capabilityDigest)
+    ?? lines.find((g: any) => g.contentDigest === state.contentDigest) ?? lines[0];
   if (!grant) return 'grant-missing';
   if (grant.contentDigest !== state.contentDigest) return 'content-changed';
   if (grant.policy < pointsRegistry.trustPolicyVersion) return 'policy-changed';

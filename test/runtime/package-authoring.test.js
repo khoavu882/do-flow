@@ -153,10 +153,9 @@ test('idea to package through the installed front door', { skip: SKIP }, async (
     state(id, 'needs-trust', ['content-changed']);
     assert.equal(fs.existsSync(projected), false);
 
-    // Same version: the person replaces its old trust row before appending the printed fresh line.
-    const remaining = fs.readFileSync(grants, 'utf8').split('\n').filter((line) => line && line !== oldTrust);
-    fs.writeFileSync(grants, remaining.length ? remaining.join('\n') + '\n' : '');
+    // Same version: the person appends the printed fresh line after the old one, which stays and grants nothing.
     appendUnlessLast(applied.grantLines.trust);
+    assert.ok(fs.readFileSync(grants, 'utf8').split('\n').includes(oldTrust), 'the old trust line is still in the file');
     assert.equal(pkg('enable', ['--id', id]).state, 'active');
     state(id, 'active');
     assert.equal(fs.readFileSync(projected, 'utf8'), editedSkill);
