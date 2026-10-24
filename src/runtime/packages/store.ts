@@ -11,7 +11,7 @@
  * The plan's `projection` (IC-006) names, per harness of the global lock's `targets`, the skills and agents the
  * package would project there and the listing bytes they add to that harness's always-loaded context; the
  * projection itself is the lifecycle's (IC-017, `src/lifecycle/index.ts`), which asks `projectionReach` here which
- * harness can take which point. Remote sources are Phase E.
+ * harness can take which point. Remote plans retain a fetched snapshot and apply it without fetching again.
  */
 
 const fs = require('node:fs');
@@ -27,6 +27,8 @@ const { hostVersion } = require('./view.ts');
 const { readLock, writeLock, defaultLock, lockPackages } = require('../../state/lockfile.ts');
 const { atomicJsonWrite } = require('../../state/index.ts');
 const { acquireRunLock } = require('../../state/run-lock.ts');
+const { pinSource, fetchSource } = require('./source.ts');
+const { pinnedSourceFindings } = require('./index-file.ts');
 
 const PLAN_VERSION = 1;
 const PLAN_ID = /^[0-9a-f]{16}$/;
@@ -38,9 +40,9 @@ const sha256 = (data: string): string => crypto.createHash('sha256').update(data
 const isObject = (value: any): boolean => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 /** `~/.doflow/packages` and its parts for a home directory. */
-function packagePaths(homeDir: string): { base: string; plans: string; store: string } {
+function packagePaths(homeDir: string): { base: string; plans: string; store: string; fetched: string } {
   const base = path.join(homeDir, '.doflow', 'packages');
-  return { base, plans: path.join(base, 'plans'), store: path.join(base, 'store') };
+  return { base, plans: path.join(base, 'plans'), store: path.join(base, 'store'), fetched: path.join(base, 'fetched') };
 }
 
 function finding(field: string, code: string, message: string, allowed: any, pkg: string | null = null): any {
@@ -171,30 +173,36 @@ function planIdFor(text: string, hash: (text: string) => string = sha256): strin
 }
 
 /**
- * Write the plan for a local source. `action` is `add` or `update`; `update` reads the source from the recorded
- * row of `id`. Returns `{ ok: true, plan, planFile }` or `{ ok: false, findings }`; the only thing written is
- * the plan file, and nothing is written when anything refuses.
+ * Check a directory and write its plan. Local calls write only the plan. Remote calls supply a pinnedSource
+ * and move their checked staging tree into fetched/<planId> before publishing the plan.
  */
-function planPackage({ action, source, id, homeDir = os.homedir(), repoRoot = REPO_ROOT, now = Date.now(), hash, registry, fsImpl = fs }: any): any {
+function planPackage({ action, source, id, pinnedSource, expected, homeDir = os.homedir(), repoRoot = REPO_ROOT, now = Date.now(), hash, registry, fsImpl = fs }: any): any {
+  if (pinnedSource) {
+    const findings = pinnedSourceFindings(pinnedSource);
+    if (findings.length) return { ok: false, findings };
+  }
   const lock = readLock({ scope: 'global', homeDir }, { fsImpl });
   const rows = lockPackages(lock);
   let sourcePath = source;
   if (action === 'update') {
     const row = rows.find((r: any) => r.id === id);
     if (!row) return { ok: false, findings: [finding('id', 'bad-id', `no package with id '${id}' is recorded`, 'the id of a recorded package', id)] };
-    if (row.source?.type !== 'local') return { ok: false, findings: [finding('source', 'bad-type', `package '${id}' was added from a ${row.source?.type} source, which update cannot read yet`, 'a local source', id)] };
+    if (row.source?.type !== 'local') return { ok: false, findings: [finding('source', 'bad-type', `package '${id}' has a remote source; remove it and use add --source or add --index with a new spec`, 'a local source for update, or a new add after remove', id)] };
     sourcePath = row.source.path;
   }
   const analysis = analyze(sourcePath, { repoRoot, fsImpl });
   if (!analysis.ok) return { ok: false, findings: analysis.findings };
   const { manifest } = analysis;
+  if (expected && (manifest.id !== expected.id || manifest.version !== expected.version)) {
+    return { ok: false, findings: [finding('source', 'bad-id', `fetched package ${manifest.id} ${manifest.version} does not match index selection ${expected.id} ${expected.version}`, expected)] };
+  }
   if (action === 'add' && rows.some((r: any) => r.id === manifest.id)) {
     return { ok: false, findings: [finding('id', 'collision-package', `package '${manifest.id}' is already recorded; use update`, 'an id no recorded package uses', manifest.id)] };
   }
   if (action === 'update' && manifest.id !== id) {
     return { ok: false, findings: [finding('id', 'bad-id', `the manifest at ${sourcePath} names '${manifest.id}', not '${id}'`, id, id)] };
   }
-  const source_ = { type: 'local', path: sourcePath };
+  const source_ = pinnedSource ?? { type: 'local', path: sourcePath };
   const planId = planIdFor(`${analysis.contentDigest}\0${analysis.capabilityDigest}\0${canonicalJson(source_)}`, hash);
   const grantLines: Record<string, string> = {};
   if (tierMax(analysis.inventory) !== 'inert') {
@@ -210,12 +218,56 @@ function planPackage({ action, source, id, homeDir = os.homedir(), repoRoot = RE
     contentDigest: analysis.contentDigest, capabilityDigest: analysis.capabilityDigest, trustPolicyVersion: analysis.trustPolicyVersion,
     inventory: analysis.inventory, programs: analysis.programs, projection: preview.projection, findings: analysis.findings, grantLines,
   };
-  const planFile = path.join(packagePaths(homeDir).plans, `${planId}.json`);
+  const paths = packagePaths(homeDir);
+  const planFile = path.join(paths.plans, `${planId}.json`);
+  if (pinnedSource) {
+    const snapshot = path.join(paths.fetched, planId);
+    fsImpl.mkdirSync(paths.fetched, { recursive: true });
+    if (fsImpl.existsSync(snapshot)) {
+      if (digestOf(snapshot, analysis.limits, fsImpl) !== analysis.contentDigest) {
+        return { ok: false, findings: [finding('contentDigest', 'digest-mismatch', `retained snapshot for plan ${planId} has changed`, analysis.contentDigest, manifest.id)] };
+      }
+    } else {
+      fsImpl.renameSync(sourcePath, snapshot);
+    }
+    fsImpl.utimesSync(snapshot, new Date(now), new Date(now));
+  }
   atomicJsonWrite(planFile, plan, { fsImpl });
   return { ok: true, plan, planFile, tierMax: tierMax(analysis.inventory), projectionWarnings: preview.warnings, instructions: instructionEntries(manifest).length };
 }
 
-/** A plan file's content when it is the IC-006 shape for a local source, else a finding. */
+/** Pin, fetch and retain a checked remote tree. The command has already checked the fetch grant. */
+function planRemote({ source, pinned, expected, homeDir = os.homedir(), repoRoot = REPO_ROOT, env = process.env, now = Date.now(), registry, fsImpl = fs }: any): any {
+  if (!pinned) {
+    const pin = pinSource(source, { env });
+    if (!pin.ok) return { ok: false, findings: [pin.finding] };
+    pinned = pin.pinned;
+  }
+  const findings = pinnedSourceFindings(pinned);
+  if (findings.length) return { ok: false, findings };
+  const loaded = loadPoints({ repoRoot });
+  if (!loaded.ok) return { ok: false, findings: [finding('points', 'state-unreadable', loaded.errors.join('; '), 'a valid point registry')] };
+  const staging = path.join(packagePaths(homeDir).fetched, `.staging-${crypto.randomBytes(8).toString('hex')}`);
+  fsImpl.mkdirSync(path.dirname(staging), { recursive: true });
+  fsImpl.mkdirSync(staging);
+  try {
+    const fetched = fetchSource(pinned, { stagingDir: staging, env, limits: loaded.registry.limits });
+    if (!fetched.ok) return fetched;
+    const tree = path.join(staging, 'tree');
+    fsImpl.mkdirSync(tree);
+    for (const file of fetched.files) {
+      const target = path.join(tree, ...file.path.split('/'));
+      fsImpl.mkdirSync(path.dirname(target), { recursive: true });
+      fsImpl.writeFileSync(target, file.data);
+      fsImpl.chmodSync(target, file.mode);
+    }
+    return planPackage({ action: 'add', source: tree, pinnedSource: pinned, expected, homeDir, repoRoot, now, registry, fsImpl });
+  } finally {
+    fsImpl.rmSync(staging, { recursive: true, force: true });
+  }
+}
+
+/** A plan file's content when it is the IC-006 shape with a local or pinned remote source, else a finding. */
 function readPlan(planId: string, homeDir: string, fsImpl: any): any {
   const planFile = path.join(packagePaths(homeDir).plans, `${planId}.json`);
   let text: string;
@@ -226,7 +278,8 @@ function readPlan(planId: string, homeDir: string, fsImpl: any): any {
   let plan: any;
   try { plan = JSON.parse(text); } catch { plan = null; }
   const ok = isObject(plan) && plan.plan === PLAN_VERSION && plan.planId === planId && (plan.action === 'add' || plan.action === 'update')
-    && isObject(plan.source) && plan.source.type === 'local' && typeof plan.source.path === 'string' && path.isAbsolute(plan.source.path)
+    && isObject(plan.source) && ((plan.source.type === 'local' && typeof plan.source.path === 'string' && path.isAbsolute(plan.source.path))
+      || (plan.action === 'add' && pinnedSourceFindings(plan.source).length === 0))
     && isObject(plan.package) && isPackageId(plan.package.id) && DIGEST.test(plan.contentDigest) && DIGEST.test(plan.capabilityDigest);
   if (!ok) return { finding: finding('plan', 'state-unreadable', `plan ${planId} is not a plan this DoFlow wrote`, 'a plan written by package add or update') };
   return { plan };
@@ -273,7 +326,17 @@ function pruneStale({ homeDir, env, now, fsImpl }: any): void {
     const registry = loadStorageRegistry({ repoRoot: REPO_ROOT });
     const roots = resolveRoots({ registry, global: true, env: { ...env, HOME: homeDir } });
     const { setting } = readPruneSetting({ roots, rootId: 'user-doflow', fsImpl });
-    runPass({ registry, roots, stores: ['packages-plans', 'packages-staging'], mode: 'prune', setting: { 'user-doflow': setting }, now, env, fsImpl });
+    runPass({ registry, roots, stores: ['packages-plans', 'packages-staging', 'packages-fetched', 'packages-fetch-staging'], mode: 'prune', setting: { 'user-doflow': setting }, now, env, fsImpl });
+    if (setting === 'on') {
+      const paths = packagePaths(homeDir);
+      if (fsImpl.existsSync(paths.fetched)) {
+        for (const name of fsImpl.readdirSync(paths.fetched)) {
+          if (PLAN_ID.test(name) && !fsImpl.existsSync(path.join(paths.plans, `${name}.json`))) {
+            fsImpl.rmSync(path.join(paths.fetched, name), { recursive: true, force: true });
+          }
+        }
+      }
+    }
   } catch { /* upkeep must never affect the apply */ }
 }
 
@@ -311,14 +374,23 @@ function applyLocked({ plan, homeDir, repoRoot, now, hooks, fsImpl }: any): any 
   if (plan.action === 'update' && !previous) {
     return { ok: false, findings: [finding('id', 'bad-id', `no package with id '${id}' is recorded`, 'the id of a recorded package', id)] };
   }
-  const analysis = analyze(plan.source.path, { repoRoot, fsImpl });
+  const remote = plan.source.type !== 'local';
+  const sourceDir = remote ? path.join(packagePaths(homeDir).fetched, plan.planId) : plan.source.path;
+  if (remote) {
+    const loaded = loadPoints({ repoRoot });
+    if (!loaded.ok) return { ok: false, findings: [finding('points', 'state-unreadable', loaded.errors.join('; '), 'a valid point registry', id)] };
+    if (digestOf(sourceDir, loaded.registry.limits, fsImpl) !== plan.contentDigest) {
+      return { ok: false, findings: [finding('contentDigest', 'digest-mismatch', `fetched snapshot for plan ${plan.planId} is missing or changed; plan again`, plan.contentDigest, id)] };
+    }
+  }
+  const analysis = analyze(sourceDir, { repoRoot, fsImpl });
   if (!analysis.ok) return { ok: false, findings: analysis.findings };
   const changed = [
     ['contentDigest', analysis.contentDigest, plan.contentDigest], ['capabilityDigest', analysis.capabilityDigest, plan.capabilityDigest],
     ['id', analysis.manifest.id, id],
   ].filter(([, now_, planned]) => now_ !== planned);
   if (changed.length > 0) {
-    return { ok: false, findings: changed.map(([field]) => finding(field, 'digest-mismatch', `${field} of ${plan.source.path} differs from plan ${plan.planId}; plan again`, `the ${field} the plan recorded`, id)) };
+    return { ok: false, findings: changed.map(([field]) => finding(field, 'digest-mismatch', `${field} of ${sourceDir} differs from plan ${plan.planId}; plan again`, `the ${field} the plan recorded`, id)) };
   }
 
   const { store } = packagePaths(homeDir);
@@ -333,11 +405,11 @@ function applyLocked({ plan, homeDir, repoRoot, now, hooks, fsImpl }: any): any 
     return { ok: false, findings: [finding('contentDigest', 'digest-mismatch', message, `the contentDigest the plan recorded`, id)] };
   };
   try {
-    const source = walkTree(plan.source.path, analysis.limits, { fsImpl });
-    if (source.findings.length > 0) return mismatch(`${plan.source.path} no longer passes the tree rules (${source.findings.map((f: any) => f.code).join(', ')}); plan again`);
+    const source = walkTree(sourceDir, analysis.limits, { fsImpl });
+    if (source.findings.length > 0) return mismatch(`${sourceDir} no longer passes the tree rules (${source.findings.map((f: any) => f.code).join(', ')}); plan again`);
     copyFiles(source.files, staging, fsImpl);
     if (typeof hooks.afterCopy === 'function') hooks.afterCopy(staging);
-    if (digestOf(staging, analysis.limits, fsImpl) !== plan.contentDigest) return mismatch(`the staged copy of ${plan.source.path} differs from plan ${plan.planId}; plan again`);
+    if (digestOf(staging, analysis.limits, fsImpl) !== plan.contentDigest) return mismatch(`the staged copy of ${sourceDir} differs from plan ${plan.planId}; plan again`);
 
     fsImpl.mkdirSync(idDir, { recursive: true });
     let created = false;
@@ -374,4 +446,4 @@ function applyLocked({ plan, homeDir, repoRoot, now, hooks, fsImpl }: any): any 
   }
 }
 
-module.exports = { planIdFor, planPackage, applyPlan, packagePaths, removeEntry, projectionReach, instructionEntries, PLAN_ID, MARKER_SUFFIX };
+module.exports = { planIdFor, planPackage, planRemote, applyPlan, packagePaths, removeEntry, projectionReach, instructionEntries, PLAN_ID, MARKER_SUFFIX };

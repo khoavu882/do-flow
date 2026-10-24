@@ -97,6 +97,8 @@ test('IC-002: every shipped declaration has its approved id, root, path, rule, a
     ['packages-store', 'user-doflow', 'packages/store', 'existing', { text: 'one directory per package id, kept until the package is removed' }],
     ['packages-plans', 'user-doflow', 'packages/plans', 'count-and-age', { keepNewest: 256, maxAgeDays: 1, either: true }],
     ['packages-staging', 'user-doflow', 'packages/store', 'age', { maxAgeDays: 1 }],
+    ['packages-fetched', 'user-doflow', 'packages/fetched', 'count-and-age', { keepNewest: 256, maxAgeDays: 1, either: true }],
+    ['packages-fetch-staging', 'user-doflow', 'packages/fetched', 'age', { maxAgeDays: 1 }],
     ['packages-state', 'user-doflow', 'packages/state.json', 'existing', { text: 'narrowing facts only, rewritten atomically with mode 0600 and kept' }],
     ['authored-packages-project-doflow', 'project-doflow', 'package', 'existing', { text: "the person's authored package source: DoFlow never prunes, moves or removes it" }],
     ['authored-packages-staging-project-doflow', 'project-doflow', 'package', 'existing', { text: 'removed by the scaffold itself after 24 hours' }],

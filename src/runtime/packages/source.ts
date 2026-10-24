@@ -53,7 +53,7 @@ function parseSource(spec: string): ParseResult {
     if (versionAt <= 0) return badType('npm source needs a package name and non-empty version or range');
     const name = body.slice(0, versionAt);
     const version = body.slice(versionAt + 1);
-    if (name.length > 214 || !/^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/.test(name)) {
+    if (name.startsWith('-') || name.length > 214 || !/^(?:@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/.test(name)) {
       return badType('npm package name does not match the allowed package name grammar');
     }
     if (!version || version.length > 512 || hasControl(version)) return badType('npm version or range must be non-empty, at most 512 characters, and contain no control characters');

@@ -32,7 +32,8 @@ const { packageView, resetPackageView, hostVersion } = require('./view.ts');
 const { readLock, writeLock, removeLock, defaultLock, lockPackages, LOCK_VERSION_BASE } = require('../../state/lockfile.ts');
 const fs = require('node:fs');
 const os = require('node:os');
-const { planPackage, applyPlan, removeEntry, PLAN_ID } = require('./store.ts');
+const { planPackage, planRemote, applyPlan, removeEntry, PLAN_ID } = require('./store.ts');
+const { readIndex, pickVersion } = require('./index-file.ts');
 const { configHome } = require('../config-home.ts');
 const { GRANTS_FILE, readGrants } = require('./grants.ts');
 const { parseSource, fetchGrantLine } = require('./source.ts');
@@ -184,41 +185,71 @@ function sameSource(left: any, right: any): boolean {
   return leftKeys.length === rightKeys.length && leftKeys.every((key, index) => key === rightKeys[index] && left[key] === right[key]);
 }
 
-/** `add --source <spec>` and `update --id <id>`: local adds write a plan; remote adds stop at the fetch grant gate. */
-function handlePlan({ action, source, id, json, repoRoot, homeDir, env, projectRoot, tmpDir, now, registry, out }: any): number {
+/** Local and granted remote adds converge on the same digest-bound plan and apply. */
+function handlePlan({ action, source, index, packageVersion, id, json, repoRoot, homeDir, env, projectRoot, tmpDir, now, registry, out }: any): number {
+  let remote: any = null;
+  let pinned: any = null;
+  let expected: any;
+  let label = typeof source === 'string' ? source : id;
   if (action === 'add') {
-    if (typeof source !== 'string' || source.length === 0) return usage(json, out, 'add requires one --source <spec> or one --plan <planId>');
-    const parsed = parseSource(source);
-    if (!parsed.ok) return refusal(json, out, [parsed.finding], `package refused: ${source}`);
-    if (parsed.source.type !== 'local') {
-      const line = fetchGrantLine(parsed.source, grantTime(now ?? Date.now()));
+    if (index !== undefined) {
+      if (typeof source === 'string') return usage(json, out, 'add takes --source or --index, not both');
+      if (typeof index !== 'string' || index.length === 0 || typeof id !== 'string' || id.length === 0) {
+        return usage(json, out, 'add --index requires one --index <file> and --id <id>');
+      }
+      const read = readIndex(index);
+      if (!read.ok) return refusal(json, out, read.findings, `package refused: ${index}`);
+      const picked = pickVersion(read.index, id, { version: packageVersion, host: hostVersion(repoRoot || REPO_ROOT) });
+      if (!picked.ok) return refusal(json, out, picked.findings, `package refused: ${index}`);
+      pinned = picked.entry.source;
+      expected = { id, version: picked.entry.version };
+      remote = pinned.type === 'git'
+        ? { type: 'git', url: pinned.url, ref: pinned.commit, ...(pinned.path === undefined ? {} : { path: pinned.path }) }
+        : { type: 'npm', name: pinned.name, version: pinned.version };
+      label = `${index} (${id} ${picked.entry.version})`;
+    } else {
+      if (packageVersion !== undefined) return usage(json, out, '--version <v> requires --index');
+      if (typeof source !== 'string' || source.length === 0) return usage(json, out, 'add requires one --source <spec>, --index <file> --id <id>, or --plan <planId>');
+      const parsed = parseSource(source);
+      if (!parsed.ok) return refusal(json, out, [parsed.finding], `package refused: ${source}`);
+      if (parsed.source.type !== 'local') remote = parsed.source;
+      else {
+        let isDir = false;
+        try { isDir = fs.statSync(path.resolve(source)).isDirectory(); } catch { /* not a directory */ }
+        if (!isDir) return usage(json, out, `--source must be a local package directory (an absolute or cwd-relative path to an existing directory); '${source}' is not one`);
+      }
+    }
+    if (remote) {
+      const line = fetchGrantLine(remote, grantTime(now ?? Date.now()));
       const grants = readGrants({ env, projectRoot, ...(tmpDir === undefined ? {} : { tmpDir }) });
-      const matched = grants.grants.some((grant: any) => grant.grant === 'fetch' && sameSource(grant.source, parsed.source));
+      const matched = grants.grants.some((grant: any) => grant.grant === 'fetch' && sameSource(grant.source, remote));
       if (!matched) {
-        const finding = { package: null, field: 'source', code: 'grant-missing', severity: 'error', message: `no fetch grant names ${source}`, allowed: line };
+        const finding = { package: null, field: 'source', code: 'grant-missing', severity: 'error', message: `no fetch grant names ${label}`, allowed: line };
         if (json) out(JSON.stringify({ ok: false, error: 'grant-missing', findings: [finding], grantLine: line }));
         else {
           out(findingLine(finding));
           const dir = configHome(env).dir;
           out(dir === null ? 'there is no config home, so no fetch grant can exist' : `a person appends this line to ${path.join(dir, GRANTS_FILE)} (DoFlow never writes that file):`);
           out(line);
-          out(`package refused: ${source}`);
+          out(`package refused: ${label}`);
         }
         return finishRuntime(1);
       }
-      return usage(json, out, `remote fetch is not available yet: ${source} has a fetch grant, and fetching arrives with a later DoFlow`);
     }
-    let isDir = false;
-    try { isDir = fs.statSync(path.resolve(source)).isDirectory(); } catch { /* not a directory */ }
-    if (!isDir) return usage(json, out, `--source must be a local package directory (an absolute or cwd-relative path to an existing directory); '${source}' is not one`);
-  } else if (typeof id !== 'string' || id.length === 0) {
-    return usage(json, out, 'update requires one --id <id> or one --plan <planId>');
+  } else {
+    if (index !== undefined || packageVersion !== undefined) return usage(json, out, '--index and --version <v> are for add');
+    if (typeof id !== 'string' || id.length === 0) return usage(json, out, 'update requires one --id <id> or one --plan <planId>');
   }
-  const result = planPackage({ action, source: typeof source === 'string' ? path.resolve(source) : undefined, id, homeDir, repoRoot, registry });
-  if (!result.ok) return refusal(json, out, result.findings, `package refused: ${typeof source === 'string' ? path.resolve(source) : id}`);
+  const result = remote
+    ? planRemote({ source: remote, pinned, expected, homeDir, repoRoot, env, now, registry })
+    : planPackage({ action, source: typeof source === 'string' ? path.resolve(source) : undefined, id, homeDir, repoRoot, registry });
+  if (!result.ok) return refusal(json, out, result.findings, `package refused: ${remote ? label : typeof source === 'string' ? path.resolve(source) : id}`);
   const { plan, planFile } = result;
   if (json) { out(JSON.stringify({ ok: true, planFile, plan })); return finishRuntime(0); }
-  out(`plan ${plan.planId}: ${action} ${plan.package.id} ${plan.package.version} from ${plan.source.path}`);
+  if (plan.source.type === 'git') out(`pinned ${plan.source.url} ${plan.source.commit}`);
+  if (plan.source.type === 'npm') out(`pinned ${plan.source.name}@${plan.source.version}`);
+  const from = plan.source.type === 'local' ? plan.source.path : plan.source.type === 'git' ? plan.source.url : plan.source.name;
+  out(`plan ${plan.planId}: ${action} ${plan.package.id} ${plan.package.version} from ${from}`);
   out(`written ${planFile} (a plan changes no record and activates nothing; DoFlow keeps it for 24 hours)`);
   for (const c of plan.inventory) out(`  ${c.point} ${c.qualifiedId} ${c.tier}`);
   if (plan.inventory.length === 0) out('  no contributions');
@@ -808,8 +839,8 @@ function emitVerb(o: any, action: string, code: number, tierMax: string | null):
   } catch { /* a telemetry fault changes nothing */ }
 }
 
-function handlePackageCommand({ action, path: pkgPath, id, source, plan, repair, points, dir, cwd = process.cwd(), fsImpl, json = false, repoRoot, homeDir = os.homedir(), env = process.env, projectRoot, tmpDir, settingsView, writer, now = Date.now(), hooks, registry, out = (line: string) => console.log(line) }: any = {}): number {
-  const o = { action, id, repair: repair === true, json, repoRoot, homeDir, env, projectRoot, tmpDir, settingsView, writer, now, hooks, registry, out };
+function handlePackageCommand({ action, path: pkgPath, id, source, index, packageVersion, plan, repair, points, dir, cwd = process.cwd(), fsImpl, json = false, repoRoot, homeDir = os.homedir(), env = process.env, projectRoot, tmpDir, settingsView, writer, now = Date.now(), hooks, registry, out = (line: string) => console.log(line) }: any = {}): number {
+  const o = { action, id, index, packageVersion, repair: repair === true, json, repoRoot, homeDir, env, projectRoot, tmpDir, settingsView, writer, now, hooks, registry, out };
   if (action === 'new') {
     const result = scaffoldPackage({ id, points, dir, cwd, homeDir, env, repoRoot, now, fsImpl, grantsPath: grantsPath(env) });
     const code = result.ok ? 0 : result.usage ? 2 : 1;
@@ -832,7 +863,9 @@ function handlePackageCommand({ action, path: pkgPath, id, source, plan, repair,
   if (action === 'add' || action === 'update') {
     const given = action === 'add' ? source : id;
     if (typeof plan === 'string' && plan.length > 0) {
-      if (typeof given === 'string') return usage(json, out, `${action} takes ${action === 'add' ? '--source' : '--id'} or --plan, not both`);
+      if (typeof given === 'string' || index !== undefined || packageVersion !== undefined || (action === 'add' && id !== undefined)) {
+        return usage(json, out, `${action} takes --plan alone, without source, index, id or version selection`);
+      }
       return handleApply({ ...o, plan });
     }
     try {

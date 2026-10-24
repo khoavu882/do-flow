@@ -218,7 +218,13 @@ A package that asks for more than data (the tiers above `inert`) is `needs-trust
 
 A package that no longer fits the running DoFlow (its `doflow` range excludes this version) is `incompatible` with the reason beside it; every other package and every other command keeps working. A package may later declare programs (executables). Those will run as your own processes on your machine, with no sandbox or confinement around them, and a package that declares programs is not available yet.
 
-Nothing in these steps fetches anything. `add` takes a local directory only, and `git` and `npm` are never started by a package verb.
+To add a remote package, pass `--source git:https://example.org/acme.git@v1.2.0` (optionally `#<subdir>` before `@<ref>`) or `--source npm:acme@1.2.0` (an npm range is also accepted). Without a matching fetch grant, `add` refuses with `grant-missing`, prints the exact JSON line and the grants file path, and starts neither git nor npm. A person appends that line to the grants file, then repeats the same command.
+
+With the fetch grant, `add` resolves the ref or range once and prints `pinned <url> <commit>` or `pinned <name>@<version>`. It fetches only that pin, checks the package and retains a snapshot under `~/.doflow/packages/fetched/<planId>/`, alongside the plan. `doflow package --action add --plan <planId>` checks the retained bytes again without fetching, then records the package disabled. Missing or changed fetched bytes refuse with `digest-mismatch`; plan again. Enable and trust remain separate steps: a fetch grant authorizes fetching that source and grants no trust.
+
+Alternatively, `doflow package --action add --index ./index.json --id acme [--version 1.2.0]` reads a local package index. Its closed JSON shape is `{ "format": 1, "packages": [{ "id": "acme", "versions": [{ "version": "1.2.0", "doflow": ">=2.0.0-beta.1 <3.0.0", "source": { "type": "git", "url": "https://example.org/acme.git", "commit": "<40 hex>" } }] }] }`; npm sources instead carry `type`, `name`, an exact `version` and `integrity` (`sha512-<base64>`). The whole index is refused if any entry is invalid, with its JSON path, or if the file exceeds 4 MiB. Without `--version`, selection takes the highest non-prerelease version compatible with this host. The index grants nothing: its fetch line names the pinned git commit as `ref`, or the exact npm version. Add that printed line before repeating the index command, then inspect the pin, apply the plan and enable/trust as above.
+
+Fetched snapshots and plans are retained for 24 hours subject to storage upkeep; stale fetch staging directories are also pruned. `update --id` continues to accept recorded local sources only; to replace a remote package, remove it and add a new source or index selection.
 
 ### Authoring a package
 

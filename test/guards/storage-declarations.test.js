@@ -392,14 +392,16 @@ writeIntent(path.join(process.argv[1], '.doflow/state/roadmap/intents/113.json')
     const writePackage = `const fs=require('node:fs'),path=require('node:path');
 const { planPackage, applyPlan } = require(${JSON.stringify(path.join(REPO, 'src/runtime/packages/store.ts'))});
 const { loadProtocols } = require(${JSON.stringify(path.join(REPO, 'src/runtime/review/protocols.ts'))});
-const dir=path.join(process.argv[1],'g26-package');
+const work=path.join(process.env.HOME,'.doflow','packages','fetched','.staging-abcdef0123456789');
+const dir=path.join(work,'tree');
 const preset=JSON.parse(JSON.stringify(loadProtocols().registry.presets['review-deep']));
 delete preset.depth;
 fs.mkdirSync(path.join(dir,'presets'),{recursive:true});
 fs.writeFileSync(path.join(dir,'presets','strict.json'),JSON.stringify(preset));
 fs.writeFileSync(path.join(dir,'doflow-package.json'),JSON.stringify({manifest:1,id:'gtwo',version:'1.0.0',summary:'G26 package',doflow:'>=2.0.0-beta.1 <3.0.0',contributions:[{point:'review-preset',version:1,id:'strict',file:'presets/strict.json'}]}));
-const planned=planPackage({action:'add',source:dir,homeDir:process.env.HOME});
+const planned=planPackage({action:'add',source:dir,pinnedSource:{type:'git',url:'https://example.org/g26.git',commit:'a'.repeat(40)},homeDir:process.env.HOME});
 if(!planned.ok){console.error(JSON.stringify(planned.findings));process.exit(1);}
+fs.rmSync(work,{recursive:true,force:true});
 const applied=applyPlan({planId:planned.plan.planId,action:'add',homeDir:process.env.HOME,env:process.env});
 if(!applied.ok){console.error(JSON.stringify(applied.findings));process.exit(1);}`;
     // `trace -g` comes first so the user state exists when the project's ignore file is first
@@ -431,7 +433,7 @@ if(!applied.ok){console.error(JSON.stringify(applied.findings));process.exit(1);
       ['verification-reuse write', node('-e', writeReuse, project), 0],
       ['roadmap intent write', node('-e', writeRoadmap, project), 0],
       ['verification-v0 inflight write', node('-e', writeInflight, project), 0],
-      ['package plan and apply (packages-plans, packages-staging)', node('-e', writePackage, project), 0],
+      ['package plan and apply (packages-plans, packages-staging, packages-fetched, packages-fetch-staging)', node('-e', writePackage, project), 0],
       ['session-context.sh', hook(path.join(mirror, '.doflow/shared/hooks/policies/session-context.sh'), sessionPayload), 0],
       ['summary-store.sh write and claim', summaryStore(summaryWriteClaim), 0],
       ['summary-store.sh grant claim', summaryStore(grantWriteClaim), 0],
@@ -745,12 +747,16 @@ test('G26: verification-runs .jsonl records are selected by the 30-day finished 
   assert.equal(selected[0].reason, 'finished-work');
 });
 
-test('G26: the four package stores are declared under ~/.doflow with their IC-024 bounds and real writers', () => {
+test('G26: the six package stores are declared under ~/.doflow with their IC-024 bounds and real writers', () => {
   const byId = new Map(registry.stores.map((store) => [store.id, store]));
   const shape = (id) => { const s = byId.get(id); return s && { root: s.root, path: s.path, entry: s.entry, rule: s.rule, bound: s.bound, writers: s.writers }; };
   assert.deepEqual(shape('packages-store'), { root: 'user-doflow', path: 'packages/store', entry: 'dir', rule: 'existing', bound: { text: 'one directory per package id, kept until the package is removed' }, writers: ['src/runtime/packages/store.ts'] });
   assert.deepEqual(shape('packages-plans'), { root: 'user-doflow', path: 'packages/plans', entry: 'file', rule: 'count-and-age', bound: { keepNewest: 256, maxAgeDays: 1, either: true }, writers: ['src/runtime/packages/store.ts'] });
   assert.deepEqual(shape('packages-staging'), { root: 'user-doflow', path: 'packages/store', entry: 'dir', rule: 'age', bound: { maxAgeDays: 1 }, writers: ['src/runtime/packages/store.ts'] });
+  assert.deepEqual(shape('packages-fetched'), { root: 'user-doflow', path: 'packages/fetched', entry: 'dir', rule: 'count-and-age', bound: { keepNewest: 256, maxAgeDays: 1, either: true }, writers: ['src/runtime/packages/store.ts'] });
+  assert.deepEqual(shape('packages-fetch-staging'), { root: 'user-doflow', path: 'packages/fetched', entry: 'dir', rule: 'age', bound: { maxAgeDays: 1 }, writers: ['src/runtime/packages/store.ts'] });
+  assert.equal(byId.get('packages-fetched').match, '^[0-9a-f]{16}$');
+  assert.equal(byId.get('packages-fetch-staging').match, '^\\.staging-[0-9a-f]{16}$');
   assert.deepEqual(shape('packages-state'), { root: 'user-doflow', path: 'packages/state.json', entry: 'file', rule: 'existing', bound: { text: 'narrowing facts only, rewritten atomically with mode 0600 and kept' }, writers: ['src/state/index.ts'] });
   assert.match(byId.get('packages-staging').match, /staging/);
   assert.deepEqual(shape('authored-packages-project-doflow'), { root: 'project-doflow', path: 'package', entry: 'dir', rule: 'existing', bound: { text: "the person's authored package source: DoFlow never prunes, moves or removes it" }, writers: ['src/runtime/packages/scaffold.ts'] });

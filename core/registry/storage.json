@@ -1415,6 +1415,40 @@
       ]
     },
     {
+      "id": "packages-fetched",
+      "root": "user-doflow",
+      "path": "packages/fetched",
+      "entry": "dir",
+      "match": "^[0-9a-f]{16}$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 256,
+        "maxAgeDays": 1,
+        "either": true
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/packages/store.ts"
+      ]
+    },
+    {
+      "id": "packages-fetch-staging",
+      "root": "user-doflow",
+      "path": "packages/fetched",
+      "entry": "dir",
+      "match": "^\\.staging-[0-9a-f]{16}$",
+      "rule": "age",
+      "bound": {
+        "maxAgeDays": 1
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/packages/store.ts"
+      ]
+    },
+    {
       "id": "packages-state",
       "root": "user-doflow",
       "path": "packages/state.json",

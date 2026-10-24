@@ -65,7 +65,12 @@ function parseArgs(argv: string[]): any {
     if (a.startsWith('-')) o.flagsGiven.push(a);
     switch (a) {
       case '-h': case '--help': o.help = true; break;
-      case '-v': case '--version': o.version = true; break;
+      case '-v': o.version = true; break;
+      case '--version':
+        if (o.cmd === 'package' && argv[i + 1] !== undefined && !argv[i + 1].startsWith('-')) {
+          o.packageVersion = argv[++i];
+        } else o.version = true;
+        break;
       case '-n': case '--dry-run': o.dryRun = true; break;
       case '--otlp-http': o.otlpHttp = true; break;
       case '-f': case '--force': o.force = true; break;
@@ -260,6 +265,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--supersedes', 'supersedes'],      // comma-separated DEC-### ids this decision replaces
   ['--refs', 'refs'],                  // comma-separated ids the decision touches, e.g. FR-001,IC-002
   ['--source', 'source'],              // where the decision was stated, e.g. design/design-02-question.md#question-1
+  ['--index', 'index'],                // package add: local pinned package index
   // followup and lifecycle (feature 046). `--statement`, `--stage`, `--slug`, `--batch`, `--reason`,
   // `--channel`, `--state`, `--source`, `--intent`, `--task-class` and `--task-id` above are shared.
   ['--ids', 'ids'],                    // followup: comma-separated FU-xxxxxx ids to take, settle or promote
@@ -567,7 +573,8 @@ Commands:
                        package --action check --path <dir> [--json]   (read-only; exit 0 clean, 1 findings, 2 usage)
                        package --action list [--id <id>] [--json]   (read-only; exit 0, 1 when a package is neither active nor disabled)
                        package --action show --id <id> [--json]   (read-only; exit 0, 1 unknown id, 2 no --id)
-                       package --action add --source <dir> [--json]   (writes a plan file only; exit 0, 1 refused, 2 usage)
+                       package --action add --source <spec> [--json]   (plans a local or granted remote source; exit 0, 1 refused, 2 usage)
+                       package --action add --index <file> --id <id> [--version <v>] [--json]   (selects a pinned source; needs a fetch grant)
                        package --action add --plan <planId> [--json]   (stores the package and records it disabled; exit 0, 1 refused, e.g. digest-mismatch)
                        package --action update --id <id> | --plan <planId> [--json]   (plan a new copy from the recorded source, or apply the plan; a changed digest above inert prints the new trust line)
                        package --action new --id <id> --points <point[:local],...> [--dir <path>] [--json]   (writes an authored package folder only; exit 0 created, 1 refused, 2 usage)
@@ -699,7 +706,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --slug | --path                       review --action check (at most one; with neither, the active feature)
       --path <dir>                          package --action check (exactly one package directory)
       --id <id>                             package --action list (one package), show, update (required unless --plan), enable, disable, trust, exempt, revoke and remove
-      --source <dir>                        package --action add (a local package directory; remote sources arrive later)
+      --source <spec>                       package --action add (local dir, git:https://<host>/<repo>[#<subdir>]@<ref>, npm:<name>@<version or range>)
+      --index <file>, --version <v>          package --action add --id <id> (local pinned index; default highest compatible stable version)
       --plan <planId>                       package --action add and update (apply the plan; it is kept for 24 hours)
       --points <point[:local],...>           package --action new (open points and optional local ids)
       --dir <path>                          package --action new (default: <project>/.doflow/package/<id>/)

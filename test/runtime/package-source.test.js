@@ -43,7 +43,7 @@ function runRemote(w, source, stubs, json = true) {
   try {
     process.env.PATH = `${stubs.dir}${path.delimiter}${savedPath || ''}`;
     const code = handlePackageCommand({
-      action: 'add', source, json, homeDir: w.homeDir, env: w.env, projectRoot: w.projectRoot, tmpDir: NO_TMP,
+      action: 'add', source, json, homeDir: w.homeDir, env: { ...w.env, PATH: process.env.PATH }, projectRoot: w.projectRoot, tmpDir: NO_TMP,
       out: (line) => lines.push(line),
     });
     return { code, lines, body: json ? JSON.parse(lines.join('')) : null, text: lines.join('\n') };
@@ -75,6 +75,7 @@ test('parseSource accepts local, git and npm specs and refuses bad types', () =>
     'git:https://example.org/acme.git',
     'git:https://example.org/a.git#../x@v1',
     'npm:Bad Name@1',
+    'npm:-x@1',
   ]) {
     const result = parseSource(spec);
     assert.equal(result.ok, false, spec);
@@ -83,7 +84,7 @@ test('parseSource accepts local, git and npm specs and refuses bad types', () =>
   }
 });
 
-test('add requires an exact fetch grant for remote specs and never spawns git or npm', (t) => {
+test('add requires an exact fetch grant and a granted spec proceeds to pinning', (t) => {
   const w = world(t);
   const stubs = stubDir(t);
   const spec = 'git:https://example.org/acme.git@v1.2.0';
@@ -96,14 +97,17 @@ test('add requires an exact fetch grant for remote specs and never spawns git or
   assert.deepEqual(grant, { grant: 'fetch', source: parsed.source, at: grant.at });
   assert.equal(grant.source.ref, 'v1.2.0');
   assertNoPlan(w);
+  assert.equal(stubs.calls(), '');
 
   const grantFile = path.join(w.xdg, 'doflow', 'packages', 'grants.jsonl');
   fs.mkdirSync(path.dirname(grantFile), { recursive: true });
   fs.writeFileSync(grantFile, `${fetchGrantLine(parsed.source, AT)}\n`);
   const matched = runRemote(w, spec, stubs);
-  assert.equal(matched.code, 2);
-  assert.match(matched.text, /remote fetch is not available yet/);
+  assert.equal(matched.code, 1);
+  assert.equal(matched.body.error, 'source-unpinned');
+  assert.equal(stubs.calls(), 'git -c core.hooksPath=/dev/null -c protocol.file.allow=never ls-remote https://example.org/acme.git v1.2.0');
   assertNoPlan(w);
+  fs.rmSync(stubs.log);
 
   fs.writeFileSync(grantFile, `${fetchGrantLine({ ...parsed.source, ref: 'v2' }, AT)}\n`);
   const otherRef = runRemote(w, spec, stubs);
