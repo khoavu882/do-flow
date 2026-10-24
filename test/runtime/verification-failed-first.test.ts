@@ -798,3 +798,91 @@ test('check name and failureSignature are unchanged by failed-first (no recovery
   const recoveryPlan = engine.planRecovery(report, { iteration: 0 });
   assert.equal(recoveryPlan.failureSignature, sig, 'recovery plan keeps failureSignature unchanged');
 });
+
+test('090 IC-005: failedFirst matches across pattern change and resets strikes on command change', (t) => {
+  const fixture = createFixture(t, { name: 'pattern-resilient' });
+  const stateFile = path.join(fixture.configDir, 'state', 'verification', 'v0', 'failed-first-T-G3.json');
+
+  // Write a state file from an older command where test/alpha.test.js failed with 2 strikes
+  fs.writeFileSync(stateFile, JSON.stringify({
+    v: 1,
+    cwd: sha16(fixture.root),
+    checks: {
+      'targeted-tests:testTargeted': {
+        cmd: 'old_command_hash',
+        files: [sha16('test/alpha.test.js')],
+        strikes: 2, // 2 strikes on old command
+      },
+    },
+  }, null, 2));
+
+  let executedCmd: any = null;
+  const exec = (cmd: any, ...rest: any[]) => {
+    if (typeof cmd === 'string' && rest[0] && Array.isArray(rest[0])) {
+      return spawnSync(cmd, rest[0], rest[1]);
+    }
+    if (typeof cmd === 'string' && cmd.startsWith('node --test')) {
+      executedCmd = cmd;
+      return { status: 1, stdout: PINNED_TAP_FAIL_ALPHA(fixture.root), stderr: '' };
+    }
+    return { status: 0, stdout: '', stderr: '' };
+  };
+
+  const engine = new VerificationEngine({
+    cwd: fixture.root,
+    repoRoot: REPO_ROOT,
+    exec,
+    configDir: fixture.configDir,
+    v0: true,
+  });
+
+  const contract = engine.compileContract({
+    taskId: 'T-G3',
+    riskLevel: 'LOW',
+    projectRoot: fixture.root,
+    planPath: fixture.plan,
+    changedFiles: ['test/alpha.test.js', 'test/beta.test.js'],
+  });
+
+  // Because the command changed ({pattern} has changed), strikes were reset to 0, so narrowed run is attempted!
+  const report = engine.runContract(contract, { changedFiles: ['test/alpha.test.js', 'test/beta.test.js'] });
+  assert.equal(report.status, 'FAIL');
+  assert.ok(executedCmd !== null && executedCmd.includes('test/alpha.test.js'), 'narrowed run executed');
+
+  // Verify state file was updated with new command hash and strikes = 1 (reset from 2 to 0 + 1)
+  const updatedState = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  const checkState = updatedState.checks['targeted-tests:testTargeted'];
+  assert.notEqual(checkState.cmd, 'old_command_hash', 'cmd updated to new command hash');
+  assert.equal(checkState.strikes, 1, 'strikes reset to 1 on command change');
+});
+
+test('090 IC-005: failureSignature distinguishes between different failing test files and tests', () => {
+  const engine = new VerificationEngine({ cwd: '/tmp', repoRoot: REPO_ROOT });
+  const reportA = {
+    status: 'FAIL',
+    failedChecks: ['targeted-tests:testTargeted'],
+    unresolved: [],
+    tiers: [{
+      checks: [{
+        name: 'targeted-tests:testTargeted',
+        status: 'FAIL',
+        failedFiles: ['test/a.test.js'],
+        failedTests: ['test one'],
+      }],
+    }],
+  };
+  const reportB = {
+    status: 'FAIL',
+    failedChecks: ['targeted-tests:testTargeted'],
+    unresolved: [],
+    tiers: [{
+      checks: [{
+        name: 'targeted-tests:testTargeted',
+        status: 'FAIL',
+        failedFiles: ['test/b.test.js'],
+        failedTests: ['test two'],
+      }],
+    }],
+  };
+  assert.notEqual(engine.failureSignature(reportA), engine.failureSignature(reportB));
+});

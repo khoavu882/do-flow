@@ -237,3 +237,28 @@ not ok 1 - outside
   assert.deepEqual(extractFailedFiles('not a test output', { root: null, convention }), []);
   assert.deepEqual(extractFailedFiles('not a test output', { root, convention: null }), []);
 });
+
+test('090 IC-004: helper failure location attributes to importing .test.* files', (t) => {
+  const root = tempDir(t, 'doflow-output-helper-');
+  fs.mkdirSync(path.join(root, 'test', 'hooks'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'f', scripts: { test: 'node --test test/' } }));
+  fs.writeFileSync(path.join(root, 'test', 'hooks', 'prompt-nudge.shared.js'), 'module.exports = 1;\n');
+  fs.writeFileSync(path.join(root, 'test', 'hooks', 'a.test.js'), "require('./prompt-nudge.shared.js');\n");
+  fs.writeFileSync(path.join(root, 'test', 'hooks', 'b.test.js'), "// does not require helper\n");
+
+  const convention = {
+    isTest: (f: string) => f.endsWith('.test.js'),
+    roots: ['test'],
+    found: { source: 'package.json', testDirs: ['test'], command: 'node --test {pattern}' },
+  };
+
+  const tapHelperFailure = `TAP version 13
+not ok 1 - helper failure
+  ---
+  location: '${path.join(root, 'test', 'hooks', 'prompt-nudge.shared.js')}:10:5'
+  ...
+`;
+
+  const failed = extractFailedFiles(tapHelperFailure, { root, convention });
+  assert.deepEqual(failed, ['test/hooks/a.test.js']);
+});
