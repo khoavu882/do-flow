@@ -31,7 +31,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO } = require('./_shared');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { parseSeed, check, render } = require('../../src/runtime/roadmap/rows.ts');
 const { handleRoadmapCommand } = require('../../src/runtime/roadmap/loop.ts');
 

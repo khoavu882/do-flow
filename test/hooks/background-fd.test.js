@@ -6,11 +6,11 @@ const path = require('node:path');
 const { performance } = require('node:perf_hooks');
 const { spawnSync } = require('node:child_process');
 const { after, test } = require('node:test');
-const { buildInstallMirror, createScratchGitRepo } = require('../helper/hook-fixtures');
-const { createScratch } = require('../helper/scratch-env');
+const { buildInstallMirror, createScratchGitRepo } = require('../helper/hook-fixtures.ts');
+const { createScratch } = require('../helper/scratch-env.ts');
 
 const scratch = createScratch('doflow-background-fd-');
-const fixtures = require('../helper/hook-fixtures').createScratch('doflow-background-fd-projects-');
+const fixtures = require('../helper/hook-fixtures.ts').createScratch('doflow-background-fd-projects-');
 const mirror = path.join(scratch.dir, 'mirror');
 buildInstallMirror(mirror);
 after(() => { scratch.remove(); fixtures.remove(); });

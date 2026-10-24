@@ -10,8 +10,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createScratch } = require('../helper/scratch-env');
-const { compareHistories, REQUIRED, OUTCOMES, HISTORIES } = require('../helper/lifecycle-derivation-reference');
+const { createScratch } = require('../helper/scratch-env.ts');
+const { compareHistories, REQUIRED, OUTCOMES, HISTORIES } = require('../helper/lifecycle-derivation-reference.ts');
 
 const scratch = createScratch('doflow-differential-even-');
 test.before(() => scratch.apply());

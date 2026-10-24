@@ -15,7 +15,7 @@ const MODULE = process.env.SLOTS_MODULE || path.join(__dirname, '..', '..', 'src
 const { runSlot, listSlots, releaseSlot } = require(MODULE);
 const { procStart } = require('../../src/runtime/worker/process-tree.ts');
 
-const { suiteTempDir } = require('../helper/tmp');
+const { suiteTempDir } = require('../helper/tmp.ts');
 
 function scratchDir(prefix = 'doflow-slots-') {
   return suiteTempDir(prefix);

@@ -6,8 +6,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const os = require('node:os');
-const { createScratch } = require('../helper/scratch-env');
-const { suiteTempDir } = require('../helper/tmp');
+const { createScratch } = require('../helper/scratch-env.ts');
+const { suiteTempDir } = require('../helper/tmp.ts');
 
 const ROOT = path.resolve(__dirname, '../..');
 const BRIDGE = path.join(ROOT, 'core/harnesses/shared/hooks/bridge/bridge.sh');

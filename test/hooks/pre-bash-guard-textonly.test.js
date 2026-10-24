@@ -2,7 +2,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { encodeEnvelope, runPolicy, parseRecords } = require('../helper/hook-fixtures');
+const { encodeEnvelope, runPolicy, parseRecords } = require('../helper/hook-fixtures.ts');
 
 // A scratch policy can be supplied for mutation checks without changing the tree.
 const policyPath = process.env.DOFLOW_PRE_BASH_GUARD_TEST_POLICY;

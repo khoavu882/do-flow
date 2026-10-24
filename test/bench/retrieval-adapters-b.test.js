@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const b = require('../../bench/retrieval/lib/adapters-b.ts');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const hasRg = spawnSync('rg', ['--version']).status === 0;

@@ -15,7 +15,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { projectSpans, handleTraceSpans } = require('../../src/runtime/trace/spans.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');

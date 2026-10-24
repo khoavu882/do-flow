@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO, GUIDANCE, SKILLS, AGENT_SPECS } = require('./_shared');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 
 const CHAIN_REL = 'core/shared/guidance/references/DOFLOW_CHAIN.md';
 const CHAIN_FILE = path.join(REPO, CHAIN_REL);

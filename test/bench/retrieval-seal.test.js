@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const seal = require('../../bench/retrieval/lib/seal.ts');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 
 const PASS = 'correct horse battery staple 123';
 const CLASSES = ['exact-lookup', 'conceptual-discovery', 'impact-refactor'];

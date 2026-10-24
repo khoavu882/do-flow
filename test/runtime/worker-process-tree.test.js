@@ -10,7 +10,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.js');
+const { tempDir } = require('../helper/tmp.ts');
 
 const MODULE = path.join(__dirname, '..', '..', 'src', 'runtime', 'worker', 'process-tree.ts');
 const tree = require(MODULE);

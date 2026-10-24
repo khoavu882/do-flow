@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { suiteTempDir } = require('../../helper/tmp');
+const { suiteTempDir } = require('../../helper/tmp.ts');
 const { planPiHooks, removePiHooks, targetPath, ASSET_ID, OWNERSHIP } = require('../../../src/adapters/pi/hooks.ts');
 const { fingerprint } = require('../../../src/adapters/copy-tree.ts');
 

@@ -4,9 +4,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { createSettingsEnv } = require('../helper/settings-fixtures');
+const { createSettingsEnv } = require('../helper/settings-fixtures.ts');
 const { captureSwitch } = require('../../src/runtime/failure/home.ts');
-const { ROWS, HOME_ROWS, FILE_ROWS, CORPUS_ROWS, rowEnv } = require('../settings/capture-agreement.test.js');
+const { ROWS, HOME_ROWS, FILE_ROWS, CORPUS_ROWS, rowEnv } = require('../settings/capture-agreement.test.ts');
 
 function snapshot(root) {
   const rows = [];

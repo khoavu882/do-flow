@@ -6,8 +6,8 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { IS_WIN } = require('../helper-platform');
-const { suiteTempDir } = require('../helper/tmp');
+const { IS_WIN } = require('../helper-platform.ts');
+const { suiteTempDir } = require('../helper/tmp.ts');
 
 
 const REPO = path.resolve(__dirname, '../..');

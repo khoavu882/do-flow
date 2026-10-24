@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 
 const ROOT = path.resolve(__dirname, '../..');
 const TEMPLATE = path.join(ROOT, 'core/harnesses/pi/extensions/doflow-guard.js');

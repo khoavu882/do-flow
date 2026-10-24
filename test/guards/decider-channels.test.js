@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { REPO } = require('./_shared');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { CHANNEL_DECIDED_BY, initRegister, runDecision, readRegister } = require('../../src/runtime/decision-register.ts');
 const { byFromChannel } = require('../../src/runtime/lifecycle/event-store.ts');
 

@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { ID_PATTERN, UNKNOWN_ROLE_LINE, cwdHash, resolveIdentity, stateDir } = require('../../src/runtime/context/identity.ts');
 
 const REPO = path.resolve(__dirname, '../..');

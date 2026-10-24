@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env');
+const { createScratch } = require('../helper/scratch-env.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const HOOK_TEST = process.platform !== 'win32' && spawnSync('jq', ['--version']).status === 0 ? test : test.skip; // needs bash + jq

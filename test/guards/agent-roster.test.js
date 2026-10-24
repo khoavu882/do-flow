@@ -16,7 +16,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const { suiteTempDir, removeTree } = require('../helper/tmp');
+const { suiteTempDir, removeTree } = require('../helper/tmp.ts');
 const path = require('node:path');
 const { resolveTransform } = require('../../src/adapters/copy-tree.ts');
 const { REPO } = require('./_shared');

@@ -27,7 +27,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO } = require('./_shared');
 const { validateProtocols, loadProtocols } = require(path.join(REPO, 'src', 'runtime', 'review', 'protocols.ts'));
-const { suiteTempDir } = require('../helper/tmp');
+const { suiteTempDir } = require('../helper/tmp.ts');
 const { loadSettingsRegistry } = require(path.join(REPO, 'src', 'runtime', 'settings', 'registry.ts'));
 const { derivedVocabularies } = require(path.join(REPO, 'src', 'runtime', 'trace', 'telemetry.ts'));
 

@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const childProcess = require('node:child_process');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 
 // Count every child-process entry point before the module (and 076's source-version.ts, which
 // binds `execFileSync` at load) is required, so any spawn by a measurement is seen.

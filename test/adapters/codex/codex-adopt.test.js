@@ -20,7 +20,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { suiteTempDir } = require('../../helper/tmp');
+const { suiteTempDir } = require('../../helper/tmp.ts');
 
 const { fingerprint, planCodexConfig } = require('../../../src/adapters/codex/config.ts');
 const { planCodexAgents, fingerprint: agentFingerprint } = require('../../../src/adapters/codex/agents.ts');

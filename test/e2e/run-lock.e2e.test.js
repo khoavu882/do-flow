@@ -14,8 +14,8 @@ const { spawn, spawnSync } = require('node:child_process');
 const REPO = path.resolve(__dirname, '../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 const RUN_LOCK_MODULE = path.join(REPO, 'src', 'state', 'run-lock.ts');
-const { IS_WIN } = require('../helper-platform');
-const { createScratch } = require('../helper/scratch-env');
+const { IS_WIN } = require('../helper-platform.ts');
+const { createScratch } = require('../helper/scratch-env.ts');
 
 const CASE_TIMEOUT_MS = 180_000;
 const WAIT_LIMIT_MS = 60_000;

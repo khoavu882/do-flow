@@ -11,7 +11,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env');
+const { createScratch } = require('../helper/scratch-env.ts');
 
 const BASH = path.resolve(__dirname, '..', '..', 'core', 'shared', 'scripts', 'doflow', 'bash');
 const script = (name) => path.join(BASH, name);

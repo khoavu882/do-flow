@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { suiteTempDir } = require('../../helper/tmp');
+const { suiteTempDir } = require('../../helper/tmp.ts');
 const { configPath, fingerprint, planCodexConfig, applyCodexConfig, reconcileCodexConfig } = require('../../../src/adapters/codex/config.ts');
 
 function scratch() { return suiteTempDir('doflow-codex-config-'); }

@@ -10,7 +10,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { spawnSync } = require('node:child_process');
 const {
   stageEntryFor, READINESS_STATES, EXECUTION_MODES, STAGE_ENTRY_DECISIONS,

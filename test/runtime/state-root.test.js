@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { taskStateRoot, sweepWorktreeRecords, adoptedStores, ADOPTER } = require('../../src/runtime/state-root.ts');
 const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts');
 

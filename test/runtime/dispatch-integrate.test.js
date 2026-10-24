@@ -14,7 +14,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.js');
+const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
 
 const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
 const { start, claim } = require(path.join(SRC, 'task-attempts.ts'));

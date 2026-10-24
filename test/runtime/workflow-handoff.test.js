@@ -2,8 +2,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp');
-const { createScratch } = require('../helper/scratch-env');
+const { tempDir } = require('../helper/tmp.ts');
+const { createScratch } = require('../helper/scratch-env.ts');
 const { spawnSync } = require('node:child_process');
 const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
 const root = path.resolve(__dirname, '../..');

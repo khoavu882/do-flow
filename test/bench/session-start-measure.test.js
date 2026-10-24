@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { measureSessionStart, runHookProcess } = require('../../bench/perf/lib/session-start.ts');
 const { computeStartupContext } = require('../../bench/perf/lib/context.ts');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 
 const FIXTURE_TREE = path.resolve(__dirname, '../fixtures/session-start-tree');
 

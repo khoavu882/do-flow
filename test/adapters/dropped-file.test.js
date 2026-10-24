@@ -8,11 +8,11 @@ const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { createScratch } = require('../helper/scratch-env');
+const { createScratch } = require('../helper/scratch-env.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view.ts');
 const { applyLifecycle } = require('../../src/lifecycle/index.ts');
-const { dropCoreFile, restoreEdited } = require('../helper/drop-core-file');
+const { dropCoreFile, restoreEdited } = require('../helper/drop-core-file.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const EDIT = '\nA line the user added.\n';

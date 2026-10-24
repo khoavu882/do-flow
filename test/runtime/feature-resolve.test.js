@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { tempDir, suiteTempDir } = require('../helper/tmp');
+const { tempDir, suiteTempDir } = require('../helper/tmp.ts');
 const { resolveActiveFeature, PATHS_HELPER } = require('../../src/runtime/feature-resolve.ts');
 
 function git(cwd, ...args) {

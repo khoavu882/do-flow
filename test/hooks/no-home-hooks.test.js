@@ -16,9 +16,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir, suiteTempDir } = require('../helper/tmp');
-const { buildInstallMirror, encodeEnvelope } = require('../helper/hook-fixtures');
-const { spawnBash } = require('../helper/home-less-bash');
+const { tempDir, suiteTempDir } = require('../helper/tmp.ts');
+const { buildInstallMirror, encodeEnvelope } = require('../helper/hook-fixtures.ts');
+const { spawnBash } = require('../helper/home-less-bash.ts');
 
 const POSIX = process.platform !== 'win32';
 const ROOT = POSIX && typeof process.getuid === 'function' && process.getuid() === 0;

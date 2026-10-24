@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { RunLedger, RUN_FIELDS, normalizeRunRecord } = require('../../src/runtime/trace/ledger.ts');
 const { ATTEMPT_PATTERN, ID_PATTERN, identityFields } = require('../../src/runtime/context/identity.ts');
 

@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const Module = require('node:module');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { evictReuse, lookupReuse, storeReuse, reuseDir } = require('../../src/runtime/verification/reuse.ts');
 
 const KEY = '0123456789abcdef';

@@ -5,8 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp');
-const { createScratch } = require('../helper/scratch-env');
+const { tempDir } = require('../helper/tmp.ts');
+const { createScratch } = require('../helper/scratch-env.ts');
 const { VerificationEngine } = require('../../src/runtime/verification/engine.ts');
 
 const REPO = path.resolve(__dirname, '../..');

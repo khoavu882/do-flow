@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { ResearchRequestStore, REASONS } = require('../../src/runtime/research-request.ts');
 const { updateTaskState } = require('../../src/runtime/task-state.ts');
 

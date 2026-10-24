@@ -12,9 +12,9 @@ const { spawn, spawnSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, '../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
-const { IS_WIN } = require('../helper-platform');
-const { createScratch } = require('../helper/scratch-env');
-const { plantFullBackup, plantPartialBackup } = require('../helper/backup-v1-fixture');
+const { IS_WIN } = require('../helper-platform.ts');
+const { createScratch } = require('../helper/scratch-env.ts');
+const { plantFullBackup, plantPartialBackup } = require('../helper/backup-v1-fixture.ts');
 
 const SCRATCHES = [];
 after(() => { for (const scratch of SCRATCHES) scratch.remove(); });

@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { suiteTempDir } = require('../helper/tmp');
+const { suiteTempDir } = require('../helper/tmp.ts');
 const { scanPaths, handleLeakScanCommand, LEAK_PATTERNS } = require('../../src/runtime/leak-scan.ts');
 
 function tmpRepo(files) {

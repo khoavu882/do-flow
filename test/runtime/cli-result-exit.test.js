@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { suiteTempDir } = require('../helper/tmp');
+const { suiteTempDir } = require('../helper/tmp.ts');
 const { EXIT, usageError } = require('../../src/runtime/cli-result.ts');
 
 const DISPATCHER = path.resolve(__dirname, '..', '..', 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');

@@ -14,8 +14,8 @@ const { spawnSync } = require('node:child_process');
 const { listCheckouts, findStateFile, clearCheckoutCache } = require('../../src/runtime/checkouts.ts');
 const { BASE_FILE } = require('../../src/runtime/worktree.ts');
 
-const { createScratch } = require('../helper/scratch-env');
-const { suiteTempDir } = require('../helper/tmp');
+const { createScratch } = require('../helper/scratch-env.ts');
+const { suiteTempDir } = require('../helper/tmp.ts');
 
 // The scratch environment is this process's, so git spawned in-process by listCheckouts, as well as
 // the helper below, reads no real HOME, global or system git config.

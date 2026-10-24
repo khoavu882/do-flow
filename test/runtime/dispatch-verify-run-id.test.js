@@ -11,8 +11,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.js');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.js');
+const { tempDir } = require('../helper/tmp.ts');
+const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
 
 const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
 const { buildVerifyRecords } = require(path.join(SRC, 'verification', 'telemetry-emit.ts'));

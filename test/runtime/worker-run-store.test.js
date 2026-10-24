@@ -20,8 +20,8 @@ if (process.argv[2] === '--race-worker') {
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const { tempDir } = require('../helper/tmp');
-const { startWorkers } = require('../helper/race-barrier');
+const { tempDir } = require('../helper/tmp.ts');
+const { startWorkers } = require('../helper/race-barrier.ts');
 const {
   storeFileFor, newRunId, insertRun, transition, readRuns, RUN_ID,
 } = require('../../src/runtime/worker/run-store.ts');

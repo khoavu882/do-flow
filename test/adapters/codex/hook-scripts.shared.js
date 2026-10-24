@@ -11,9 +11,9 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../../helper/scratch-env');
-const { suiteTempDir } = require('../../helper/tmp');
-const { IS_WIN } = require('../../helper-platform');
+const { createScratch } = require('../../helper/scratch-env.ts');
+const { suiteTempDir } = require('../../helper/tmp.ts');
+const { IS_WIN } = require('../../helper-platform.ts');
 
 const REPO = path.resolve(__dirname, '..', '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');

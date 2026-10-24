@@ -22,8 +22,8 @@ const RESOLVER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash', 
 const POLICY_CONTRACT = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'contract.sh');
 const BRIDGE = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'bridge');
 const { refusalText } = require('../../src/runtime/implementation-gate.ts');
-const { createScratch } = require('../helper/scratch-env');
-const { encodeEnvelope } = require('../helper/hook-fixtures');
+const { createScratch } = require('../helper/scratch-env.ts');
+const { encodeEnvelope } = require('../helper/hook-fixtures.ts');
 
 const HOOK_TEST = process.platform !== 'win32' ? test : test.skip; // GUARD: needs bash + jq
 const GIT_IDENTITY = ['-c', 'user.name=t', '-c', 'user.email=t@t'];

@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const dispatcher = require('../../bench/retrieval/lib/adapters.ts');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 
 function exportTree(t) {
   const root = path.join(tempDir(t, 'doflow-dispatch-'), 'tree');

@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const { resolveModelRole, resolveRetrievalSlot, handleModelRoleCommand, availableProviderIds, BACKEND_CLI } = require('../../src/runtime/model-router.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { parseArgs } = require('../../src/cli/index.ts');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const path = require('node:path');
 
 const REPO = path.resolve(__dirname, '..', '..');

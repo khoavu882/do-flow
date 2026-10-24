@@ -33,7 +33,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { fileURLToPath } = require('node:url');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.js');
+const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
 
 const REPO = path.join(__dirname, '..', '..');
 const SRC_ROOT = `${path.join(REPO, 'src')}${path.sep}`;

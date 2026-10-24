@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { runPolicyV1 } = require('../helper/hook-fixtures');
+const { runPolicyV1 } = require('../helper/hook-fixtures.ts');
 const {
   scratch, LAYOUT, REGISTRY, MESSAGE, REPO, POLICIES, CASE, env, repo, prompt, request, out, markerText, sessionFolder, write, git, ownLayout, registryWith, plainContext, runPolicy, walk, AS_ROOT, suiteTempDir
 } = require('./prompt-nudge.shared');

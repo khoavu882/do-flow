@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { tempDir } = require('../helper/tmp.js');
+const { tempDir } = require('../helper/tmp.ts');
 const {
   canonical, buildHandoff, buildResult, writeEnvelope, FIXED_CONSTRAINTS, BOUNDS,
 } = require('../../src/runtime/dispatch/envelope.ts');

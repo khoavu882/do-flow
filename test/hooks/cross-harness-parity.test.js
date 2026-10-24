@@ -6,7 +6,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { after, test } = require('node:test');
 const { pathToFileURL } = require('node:url');
-const { buildInstallMirror, createScratch, createScratchGitRepo } = require('../helper/hook-fixtures');
+const { buildInstallMirror, createScratch, createScratchGitRepo } = require('../helper/hook-fixtures.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const FIXTURES = path.join(REPO, 'test/fixtures/hooks');

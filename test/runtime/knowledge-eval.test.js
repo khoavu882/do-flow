@@ -10,7 +10,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { suiteTempDir } = require('../helper/tmp');
+const { suiteTempDir } = require('../helper/tmp.ts');
 const { searchGuidance } = require('../../src/runtime/knowledge/retrieval.ts');
 
 function scratch() { return suiteTempDir('doflow-knowledge-eval-'); }

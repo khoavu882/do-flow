@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir, suiteTempDir } = require('../helper/tmp');
+const { tempDir, suiteTempDir } = require('../helper/tmp.ts');
 const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
 const { WorkflowEngine } = require('../../src/runtime/workflow-engine.ts');
 

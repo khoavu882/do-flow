@@ -8,7 +8,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { alwaysLoaded } = require('../../../test/helper/always-loaded.js');
+const { alwaysLoaded } = require('../../../test/helper/always-loaded.ts');
 const { measureSessionStart } = require('./session-start.ts');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');

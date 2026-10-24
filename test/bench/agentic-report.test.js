@@ -17,7 +17,7 @@ const { gradeIteration, loadPathInfo } = require('../../bench/agentic/grade.ts')
 const { loadTaskSet, buildPrompt, promptSha256, UsageError } = require('../../bench/agentic/tasks.ts');
 const report = require('../../bench/agentic/report.ts');
 const { loadNoiseConfig } = require('../../bench/noise.ts');
-const { tempDir } = require('../helper/tmp.js');
+const { tempDir } = require('../helper/tmp.ts');
 
 const ROOT = path.join(__dirname, '..', '..');
 const FIXTURES = path.join(ROOT, 'test', 'fixtures', 'agentic', 'runs');

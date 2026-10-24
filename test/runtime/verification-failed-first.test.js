@@ -12,7 +12,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { VerificationEngine } = require('../../src/runtime/verification/engine.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 

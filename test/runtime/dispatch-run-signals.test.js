@@ -15,7 +15,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.js');
+const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
 
 const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
 const attempts = require(path.join(SRC, 'task-attempts.ts'));

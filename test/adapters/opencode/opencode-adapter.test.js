@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { suiteTempDir } = require('../../helper/tmp');
+const { suiteTempDir } = require('../../helper/tmp.ts');
 const { createOpenCodeAdapter, nativePaths, mergeConfig, unmergeConfig, MARKER_START, MARKER_END } = require('../../../src/adapters/opencode/index.ts');
 const { assertAdapter } = require('../../../src/adapters/index.ts');
 

@@ -22,9 +22,9 @@ for (const name of ['execFileSync', 'spawnSync', 'execSync', 'spawn', 'execFile'
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createScratch } = require('../helper/scratch-env');
-const { historyBuilder } = require('../helper/lifecycle-git-fixtures');
-const { compareHistories, writeEvents, OUTCOMES, HISTORIES, CLOCK } = require('../helper/lifecycle-derivation-reference');
+const { createScratch } = require('../helper/scratch-env.ts');
+const { historyBuilder } = require('../helper/lifecycle-git-fixtures.ts');
+const { compareHistories, writeEvents, OUTCOMES, HISTORIES, CLOCK } = require('../helper/lifecycle-derivation-reference.ts');
 const { releaseFeatures } = require('../../src/runtime/lifecycle/release.ts');
 const { buildOverview } = require('../../src/runtime/lifecycle/overview.ts');
 

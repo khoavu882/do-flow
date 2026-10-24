@@ -15,8 +15,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync, spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.js');
-const { linkBin, writeScenario, readLog } = require('../helper/fake-harness-cli.js');
+const { tempDir } = require('../helper/tmp.ts');
+const { linkBin, writeScenario, readLog } = require('../helper/fake-harness-cli.ts');
 const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
 
 const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');

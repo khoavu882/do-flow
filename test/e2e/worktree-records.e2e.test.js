@@ -10,8 +10,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync, spawn } = require('node:child_process');
-const { tempDir } = require('../helper/tmp');
-const { createScratch } = require('../helper/scratch-env');
+const { tempDir } = require('../helper/tmp.ts');
+const { createScratch } = require('../helper/scratch-env.ts');
 
 const BIN = path.resolve(__dirname, '../../bin/doflow.js');
 const SLUG = '940-wtrec';

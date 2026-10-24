@@ -6,8 +6,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
-const { tempDir } = require('../helper/tmp');
-const { buildInstallMirror } = require('../helper/hook-fixtures');
+const { tempDir } = require('../helper/tmp.ts');
+const { buildInstallMirror } = require('../helper/hook-fixtures.ts');
 
 const ROOT = path.resolve(__dirname, '../..');
 const BRIDGE_SOURCE = path.join(ROOT, 'core/harnesses/shared/hooks/bridge');

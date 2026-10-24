@@ -45,7 +45,7 @@ cp.execSync = function execSync(cmd, options) {
 // Required AFTER stubbing child_process
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.js');
+const { tempDir } = require('../helper/tmp.ts');
 const { caseKey, splitOf, loadConfig } = require('../../bench/review-miss/corpus.ts');
 const runner = require('../../bench/review-miss/runner.ts');
 const benchRunner = require('../../bench/runner.ts');

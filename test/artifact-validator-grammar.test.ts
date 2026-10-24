@@ -15,7 +15,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir, suiteTempDir } = require('./helper/tmp');
+const { tempDir, suiteTempDir } = require('./helper/tmp.ts');
 
 const VALIDATOR = path.join(__dirname, '..', 'core', 'shared', 'scripts', 'doflow', 'bash', 'validate-artifacts.sh');
 const scratch = suiteTempDir('doflow-artifact-grammar-');

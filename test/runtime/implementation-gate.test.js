@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { createScratch } = require('../helper/scratch-env');
+const { createScratch } = require('../helper/scratch-env.ts');
 const { WorkflowEngine } = require('../../src/runtime/workflow-engine.ts');
 const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
 const { writeReadinessRecord } = require('../../src/runtime/readiness-record.ts');

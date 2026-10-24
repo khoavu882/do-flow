@@ -12,7 +12,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const { WorktreeManager, BASE_FILE } = require('../../src/runtime/worktree.ts');
-const { suiteTempDir } = require('../helper/tmp');
+const { suiteTempDir } = require('../helper/tmp.ts');
 
 const IS_WIN = process.platform === 'win32';
 const CANNOT_DENY_WRITES = IS_WIN || process.getuid?.() === 0;

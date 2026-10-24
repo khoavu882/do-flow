@@ -7,12 +7,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { loadSettingsRegistry, validateSettingsRegistry } = require('../../src/runtime/settings/registry.ts');
 const { configHome } = require('../../src/runtime/config-home.ts');
 const { lexicalCapture } = require('../../src/runtime/settings/lexical.ts');
-const { checkSettingsDocs, renderSettingsTable, resolvedDefault } = require('../helper/settings-doc-guard');
-const { identityInlineConfigHomeBlock } = require('../helper/settings-shell-blocks');
+const { checkSettingsDocs, renderSettingsTable, resolvedDefault } = require('../helper/settings-doc-guard.ts');
+const { identityInlineConfigHomeBlock } = require('../helper/settings-shell-blocks.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const SOURCE_EXT = /\.(?:js|mjs|cjs|ts|sh)$/;
@@ -200,7 +200,7 @@ function shellReadBlockNames(raw) {
 }
 
 function loadLexicalCorpus() {
-  const file = path.join(REPO, 'test/settings/lexical.test.js');
+  const file = path.join(REPO, 'test/settings/lexical.test.ts');
   const source = fs.readFileSync(file, 'utf8');
   const match = source.match(/const CORPUS = (\[[\s\S]*?\n\]);/);
   assert.ok(match, `${file} exports the IC-004 corpus as a literal array`);

@@ -12,8 +12,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync, execFileSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env');
-const { suiteTempDir } = require('../helper/tmp');
+const { createScratch } = require('../helper/scratch-env.ts');
+const { suiteTempDir } = require('../helper/tmp.ts');
 const { captureIsOff } = require('../../src/runtime/failure/home.ts');
 
 const DISPATCHER = path.resolve(__dirname, '..', '..', 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');

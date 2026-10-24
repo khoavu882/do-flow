@@ -9,7 +9,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { createSettingsEnv, REPO } = require('../helper/settings-fixtures');
+const { createSettingsEnv, REPO } = require('../helper/settings-fixtures.ts');
 
 const REGISTRY = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/settings.json'), 'utf8'));
 const BARE_PATH = { PATH: path.dirname(process.execPath) };

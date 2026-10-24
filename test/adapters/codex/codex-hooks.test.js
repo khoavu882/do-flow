@@ -3,10 +3,10 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { suiteTempDir } = require('../../helper/tmp');
+const { suiteTempDir } = require('../../helper/tmp.ts');
 const { execFileSync } = require('node:child_process');
 const { validateHooksConfig, classifyClaudeGuardrails, verifyHookCommands, planCodexHooks, deployCodexHooks, shippedHookScripts, removeCodexHookScripts } = require('../../../src/adapters/codex/hooks.ts');
-const { IS_WIN, expectExecutable } = require('../../helper-platform');
+const { IS_WIN, expectExecutable } = require('../../helper-platform.ts');
 
 const CODEX_HOOKS_DIR = path.resolve(__dirname, '../../..', 'core', 'harnesses', 'codex', 'hooks');
 

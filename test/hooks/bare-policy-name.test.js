@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch, encodeEnvelope } = require('../helper/hook-fixtures');
+const { createScratch, encodeEnvelope } = require('../helper/hook-fixtures.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const POLICY_DIR = path.join(REPO, 'core/harnesses/shared/hooks/policies');

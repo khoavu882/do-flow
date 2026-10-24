@@ -20,8 +20,8 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { test } = require('node:test');
 const { pathToFileURL } = require('node:url');
-const { buildInstallMirror, createScratchGitRepo } = require('../helper/hook-fixtures');
-const { tempDir } = require('../helper/tmp');
+const { buildInstallMirror, createScratchGitRepo } = require('../helper/hook-fixtures.ts');
+const { tempDir } = require('../helper/tmp.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const FIXTURES = path.join(REPO, 'test/fixtures/hooks');

@@ -16,8 +16,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { suiteTempDir } = require('../helper/tmp');
-const { createScratch } = require('../helper/scratch-env');
+const { suiteTempDir } = require('../helper/tmp.ts');
+const { createScratch } = require('../helper/scratch-env.ts');
 const { spawnSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, '../..');

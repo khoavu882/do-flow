@@ -12,7 +12,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.js');
+const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');

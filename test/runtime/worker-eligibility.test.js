@@ -11,8 +11,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.js');
-const { IDENTITY_VARS, linkBin, writeScenario } = require('../helper/fake-harness-cli.js');
+const { tempDir } = require('../helper/tmp.ts');
+const { IDENTITY_VARS, linkBin, writeScenario } = require('../helper/fake-harness-cli.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const {
   BASELINE, NEED_IDS, FACTS, PROBE_MAX_AGE_MS, ReadinessError,

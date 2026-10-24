@@ -15,8 +15,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.js');
-const { linkBin, writeScenario, IDENTITY_VARS } = require('../helper/fake-harness-cli.js');
+const { tempDir } = require('../helper/tmp.ts');
+const { linkBin, writeScenario, IDENTITY_VARS } = require('../helper/fake-harness-cli.ts');
 
 const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
 const { cancelRun, mergeCleanup, LAUNCH_WAIT_MS } = require(path.join(SRC, 'worker', 'cancel.ts'));

@@ -5,8 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const context = require('../../bench/perf/lib/context.ts');
-const { alwaysLoaded } = require('../helper/always-loaded.js');
-const { tempDir } = require('../helper/tmp.js');
+const { alwaysLoaded } = require('../helper/always-loaded.ts');
+const { tempDir } = require('../helper/tmp.ts');
 
 test('computeStartupContext returns records for all 8 harnesses with IC-019 schema', () => {
   const result = context.computeStartupContext();

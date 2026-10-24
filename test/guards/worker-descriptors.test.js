@@ -28,7 +28,7 @@ const { REPO } = require('./_shared');
 const registryModule = require('../../src/registry/index.ts');
 const { PARSERS } = require('../../src/runtime/worker/parsers.ts');
 const { argvShape } = require('../../src/runtime/worker/launch.ts');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 
 const HARNESS_COUNT = 8;
 const WORKER_ERROR = " worker '";

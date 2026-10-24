@@ -18,8 +18,8 @@ const { spawnSync } = require('node:child_process');
 const {
   REPO, SKIP, git, makeRepo, run, decision, writeFiles, read, featureDir, initRegister, addBatch, haveTagOrSkip, gitShow, squash, HISTORY, v1120Validate,
 } = require('./register-followups.shared');
-const { claudeDoorFindings, hookReachabilityFindings } = require('../helper/hook-reachability');
-const { tempDir } = require('../helper/tmp');
+const { claudeDoorFindings, hookReachabilityFindings } = require('../helper/hook-reachability.ts');
+const { tempDir } = require('../helper/tmp.ts');
 
 // ── US1: compaction ─────────────────────────────────────────────────────────────────────────────────
 

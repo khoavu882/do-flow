@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { admitCodeCorpus } = require('../../src/runtime/knowledge/code-corpus.ts');
 const { classifyCodeQuery, searchCodeLexical } = require('../../src/runtime/knowledge/code-lexical.ts');
 

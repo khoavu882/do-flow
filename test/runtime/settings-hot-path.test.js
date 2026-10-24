@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createSettingsEnv, REPO } = require('../helper/settings-fixtures');
+const { createSettingsEnv, REPO } = require('../helper/settings-fixtures.ts');
 
 const COUNTER = path.join(REPO, 'test/helper/settings-hot-path-counter.cjs');
 const RESOLVER = path.join(REPO, 'src/runtime/settings/resolve.ts');

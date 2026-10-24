@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { suiteTempDir } = require('../helper/tmp');
+const { suiteTempDir } = require('../helper/tmp.ts');
 const { discoverTree, planTree, applyTree, removeTree, verifyTree, sharedTreeDestDir, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, resolveSelect, SELECTORS, TRANSFORMS } = require('../../src/adapters/copy-tree.ts');
 
 function scratch() { return suiteTempDir('doflow-copy-tree-'); }

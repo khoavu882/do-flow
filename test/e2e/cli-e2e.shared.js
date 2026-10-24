@@ -6,9 +6,9 @@ const { spawnSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, "../..");
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
-const { IS_WIN, expectExecutable } = require('../helper-platform');
-const { createScratch } = require('../helper/scratch-env');
-const { tempDir, suiteTempDir } = require('../helper/tmp');
+const { IS_WIN, expectExecutable } = require('../helper-platform.ts');
+const { createScratch } = require('../helper/scratch-env.ts');
+const { tempDir, suiteTempDir } = require('../helper/tmp.ts');
 
 function cleanup() { for (const scratch of SCRATCHES.values()) scratch.remove(); }
 

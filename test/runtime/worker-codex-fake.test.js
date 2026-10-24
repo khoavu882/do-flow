@@ -7,8 +7,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.js');
-const { readLog } = require('../helper/fake-harness-cli.js');
+const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
+const { readLog } = require('../helper/fake-harness-cli.ts');
 
 const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
 const { assembleArgv, argvShape } = require(path.join(SRC, 'worker', 'launch.ts'));

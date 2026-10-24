@@ -12,7 +12,7 @@ const fs = require('node:fs');
 const net = require('node:net');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { suiteTempDir, removeTree } = require('../helper/tmp');
+const { suiteTempDir, removeTree } = require('../helper/tmp.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');

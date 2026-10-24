@@ -14,7 +14,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const { createScratch } = require('../helper/scratch-env');
+const { createScratch } = require('../helper/scratch-env.ts');
 
 const scratch = createScratch('doflow-bench-runner-');
 // The runner reads git state in-process; node --test gives each file its own process, so applying

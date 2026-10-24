@@ -11,9 +11,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env');
+const { createScratch } = require('../helper/scratch-env.ts');
 const { captureIsOff } = require('../../src/runtime/failure/home.ts');
-const { encodeEnvelope } = require('../helper/hook-fixtures');
+const { encodeEnvelope } = require('../helper/hook-fixtures.ts');
 
 const POLICIES = path.resolve(__dirname, '..', '..', 'core', 'harnesses', 'shared', 'hooks', 'policies');
 const HAS_JQ = spawnSync('jq', ['--version']).status === 0;

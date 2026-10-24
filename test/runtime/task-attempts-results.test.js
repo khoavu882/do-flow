@@ -8,7 +8,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { claim, finish, release, status, loadPlan, TaskAttemptError, RESULTS } = require('../../src/runtime/task-attempts.ts');
 
 const SLUG = 'feat-r';

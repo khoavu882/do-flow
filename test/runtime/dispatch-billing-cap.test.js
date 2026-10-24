@@ -11,7 +11,7 @@ const { executeDispatchCommand, summaryLines } = require('../../src/runtime/disp
 const readiness = require('../../src/runtime/worker/readiness.ts');
 const { readRuns, storeFileFor: workerRunsFile } = require('../../src/runtime/worker/run-store.ts');
 const { readDispatch, storeFileFor } = require('../../src/runtime/dispatch/store.ts');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.js');
+const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
 
 const SLUG = '108-billing-fixture';
 const SUCCESS = { type: 'result', status: 'success', summary: 'billing fixture complete' };

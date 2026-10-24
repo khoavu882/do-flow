@@ -10,9 +10,9 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.js');
-const { IDENTITY_VARS } = require('../helper/fake-harness-cli.js');
-const { makeDispatchSandbox, editDescriptors } = require('../helper/dispatch-sandbox.js');
+const { tempDir } = require('../helper/tmp.ts');
+const { IDENTITY_VARS } = require('../helper/fake-harness-cli.ts');
+const { makeDispatchSandbox, editDescriptors } = require('../helper/dispatch-sandbox.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const {
   BASELINE, EDIT_BASELINE, probe, describe, select, requirementsFor, eligibility, capabilityRequirement,

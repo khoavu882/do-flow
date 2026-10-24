@@ -16,9 +16,9 @@ const MODULE = process.env.SLOTS_MODULE || path.join(__dirname, '..', '..', 'src
 const { acquireSlotLock, releaseSlot } = require(MODULE);
 const { procStart, alive } = require('../../src/runtime/worker/process-tree.ts');
 const { updateTaskState } = require('../../src/runtime/task-state.ts');
-const { suiteTempDir } = require('../helper/tmp');
+const { suiteTempDir } = require('../helper/tmp.ts');
 
-const ACTOR = path.join(__dirname, '..', 'helper', 'slot-lock-actor.js');
+const ACTOR = path.join(__dirname, '..', 'helper', 'slot-lock-actor.ts');
 const DEAD = 2_000_000_000; // a pid no process has
 const hex = (text) => Buffer.from(text, 'utf8').toString('hex');
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));

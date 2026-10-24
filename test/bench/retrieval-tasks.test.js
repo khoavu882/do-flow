@@ -8,7 +8,7 @@ const { execFileSync } = require('node:child_process');
 const tasksLib = require('../../bench/retrieval/lib/tasks.ts');
 const snap = require('../../bench/retrieval/lib/snapshot.ts');
 const { sha256Hex } = require('../../bench/retrieval/lib/seal.ts');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 
 const gitIn = (dir, ...args) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.com', '-C', dir, ...args], { encoding: 'utf8' }).trim();
 const A_TS = 'alpha\nbeta\ngamma\ndelta\n';

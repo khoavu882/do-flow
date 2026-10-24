@@ -29,8 +29,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.js');
-const { startWorkers } = require('../helper/race-barrier');
+const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
+const { startWorkers } = require('../helper/race-barrier.ts');
 
 const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
 const { start, claim, finish } = require(path.join(SRC, 'task-attempts.ts'));

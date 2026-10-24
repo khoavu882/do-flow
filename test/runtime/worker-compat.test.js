@@ -8,8 +8,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { builtinModules } = require('node:module');
 const { isDeepStrictEqual } = require('node:util');
-const { tempDir } = require('../helper/tmp.js');
-const { FAKE_CLI, linkBin } = require('../helper/fake-harness-cli.js');
+const { tempDir } = require('../helper/tmp.ts');
+const { FAKE_CLI, linkBin } = require('../helper/fake-harness-cli.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const SRC = path.join(REPO, 'src');
@@ -116,7 +116,7 @@ test('compat: require scan control, an in-memory module requiring undici is repo
     "const { readRuns } = require('./run-store.ts');",
     "const { request } = require('undici');",
     "const nope = require('node:not-a-builtin');",
-    "const outside = require('../../../test/helper/tmp.js');",
+    "const outside = require('../../../test/helper/tmp.ts');",
     'const computed = require(name);',
   ].join('\n');
   assert.deepEqual(requireFindings(text, file), [

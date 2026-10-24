@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { admitCodeCorpus } = require('../../src/runtime/knowledge/code-corpus.ts');
 const { searchCodeLexical } = require('../../src/runtime/knowledge/code-lexical.ts');
 const { executeCodeRetrieval } = require('../../src/runtime/knowledge/code-retrieval.ts');
@@ -125,7 +125,7 @@ test('explicit index action calls lifecycle only and rejects simultaneous query'
 });
 
 test('a lexical bound hit is reported with its bounds cause, never as provider-error', async (t) => {
-  const root = fs.realpathSync(require('../helper/tmp').tempDir(t, 'doflow-code-retrieval-bound-'));
+  const root = fs.realpathSync(require('../helper/tmp.ts').tempDir(t, 'doflow-code-retrieval-bound-'));
   fs.writeFileSync(path.join(root, 'many.js'), Array.from({ length: 205 }, (_, i) => `parseToken(${i});`).join('\n') + '\n');
   const inventory = admitCodeCorpus({ root, files: ['many.js'] });
   const result = await executeCodeRetrieval({ query: 'parseToken', root, providers: { router, inventory } });

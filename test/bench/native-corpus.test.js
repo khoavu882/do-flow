@@ -20,7 +20,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const { corpus, prepare, grade } = require('../../bench/native/runner.ts');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const SKILLS_DIR = path.join(REPO, 'core', 'shared', 'skills');

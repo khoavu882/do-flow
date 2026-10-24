@@ -11,7 +11,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { buildInstallMirror, createScratch } = require('../helper/hook-fixtures');
+const { buildInstallMirror, createScratch } = require('../helper/hook-fixtures.ts');
 
 const BASH = '/bin/bash';
 const REASONS = new Set(['emit', 'refused:mandatory-over-budget', 'silent:already-bootstrapped', 'silent:unchanged',

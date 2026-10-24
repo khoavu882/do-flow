@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const childProcess = require('node:child_process');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 
 test('toEvidence measures tree state with one status spawn for multiple file items', (t) => {
   const root = tempDir(t, 'doflow-sv-spawns-');

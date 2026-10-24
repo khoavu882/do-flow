@@ -7,7 +7,7 @@ const os = require('node:os');
 const path = require('node:path');
 const cp = require('node:child_process');
 const { createHash } = require('node:crypto');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const {
   render,
   renderRoadmapFile,

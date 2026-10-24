@@ -9,8 +9,8 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { createScratch } = require('../helper/scratch-env');
-const { writeSummary } = require('../helper/summary-fixture');
+const { createScratch } = require('../helper/scratch-env.ts');
+const { writeSummary } = require('../helper/summary-fixture.ts');
 const { compareScopeContext, grantSummary, scopeContext, summaryScope } = require('../../src/runtime/context/summary-store.ts');
 
 const AT = '2026-10-14T10:00:00Z';

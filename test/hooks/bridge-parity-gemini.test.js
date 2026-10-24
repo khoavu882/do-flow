@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { after, test } = require('node:test');
-const { buildInstallMirror, createScratch, createScratchGitRepo, encodeEnvelope, jqSorted } = require('../helper/hook-fixtures');
+const { buildInstallMirror, createScratch, createScratchGitRepo, encodeEnvelope, jqSorted } = require('../helper/hook-fixtures.ts');
 
 const CORPUS = path.resolve(__dirname, '../fixtures/hooks/gemini');
 const POLICIES = {

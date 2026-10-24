@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { handleRetrievalPlanCommand } = require('../../src/runtime/retrieval-plan.ts');
 const { planPath, readPlan, updatePlan } = require('../../src/runtime/retrieval-record.ts');
 

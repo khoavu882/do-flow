@@ -3,10 +3,10 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { suiteTempDir } = require('../../helper/tmp');
+const { suiteTempDir } = require('../../helper/tmp.ts');
 const { createGeminiAdapter, nativePaths, MARKER_START } = require('../../../src/adapters/gemini/index.ts');
 const { assertAdapter } = require('../../../src/adapters/index.ts');
-const { IS_WIN } = require('../../helper-platform');
+const { IS_WIN } = require('../../helper-platform.ts');
 
 function scratch() { return suiteTempDir('doflow-gemini-'); }
 const assets = [{ id: 'guidance.core', source: 'core/CLAUDE.md' }];

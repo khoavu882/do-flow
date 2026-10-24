@@ -8,11 +8,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.js');
-const { IDENTITY_VARS } = require('../helper/fake-harness-cli.js');
+const { tempDir } = require('../helper/tmp.ts');
+const { IDENTITY_VARS } = require('../helper/fake-harness-cli.ts');
 const {
   makeDispatchSandbox, editDescriptors, PLAN_DIR, PLAN_FIXTURES, FAKE_BINARIES, EDIT_ARGV, HARNESS_BINARIES,
-} = require('../helper/dispatch-sandbox.js');
+} = require('../helper/dispatch-sandbox.ts');
 const { validateWorker } = require('../../src/registry/index.ts');
 const { loadPlan } = require('../../src/runtime/task-attempts.ts');
 

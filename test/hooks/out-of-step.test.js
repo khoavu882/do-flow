@@ -5,8 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp');
-const { buildInstallMirror, createScratchGitRepo, parseRecords, runPolicy } = require('../helper/hook-fixtures');
+const { tempDir } = require('../helper/tmp.ts');
+const { buildInstallMirror, createScratchGitRepo, parseRecords, runPolicy } = require('../helper/hook-fixtures.ts');
 
 const POLICIES = path.resolve(__dirname, '../../core/harnesses/shared/hooks/policies');
 const BLOCKING = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard'];

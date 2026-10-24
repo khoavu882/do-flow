@@ -225,7 +225,7 @@ test('IC-001: context-pack.ts re-exports arbitrate', () => {
 // prints {text, bytes, refused, dropped, segments} in place of the hook response.
 
 const { execFileSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.js');
+const { tempDir } = require('../helper/tmp.ts');
 
 const EMISSION_JQ = path.join(REPO, 'core/harnesses/shared/hooks/policies/emission.jq');
 const RAWFILES = ['git', 'summary', 'grant', 'warning'];

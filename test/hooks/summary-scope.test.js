@@ -10,8 +10,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { buildInstallMirror } = require('../helper/hook-fixtures');
-const { createScratch } = require('../helper/scratch-env');
+const { buildInstallMirror } = require('../helper/hook-fixtures.ts');
+const { createScratch } = require('../helper/scratch-env.ts');
 const { grantSummary } = require('../../src/runtime/context/summary-store.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');

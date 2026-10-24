@@ -23,7 +23,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO } = require('./_shared');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { validateFindings } = require('../../src/runtime/roadmap/gates.ts');
 const {
   FINDING_FIELDS, ORIGINS, VERIFICATIONS, ACCEPTED_AS, ROUND_CAP, countFindings,

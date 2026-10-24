@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { EMISSION_RULES, INPUT_DOMAINS, arbitrate } = require('../../src/runtime/context/arbitrate.ts');
 const { TABLE_REL, compileArms, compileEmissionTable } = require('../../src/runtime/context/emission-rules.ts');
 

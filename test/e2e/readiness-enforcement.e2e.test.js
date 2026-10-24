@@ -12,8 +12,8 @@ const { spawnSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, '../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
-const { IS_WIN } = require('../helper-platform');
-const { createScratch } = require('../helper/scratch-env');
+const { IS_WIN } = require('../helper-platform.ts');
+const { createScratch } = require('../helper/scratch-env.ts');
 
 const PLAN_TEXT = '- [ ] A.1 [US1] demo — owner: x; files: src/a.js\n';
 const GIT_IDENTITY = ['-c', 'user.name=t', '-c', 'user.email=t@t'];

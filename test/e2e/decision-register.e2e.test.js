@@ -11,8 +11,8 @@ const { spawnSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, '../..');
 const DOFLOW_RUN = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
-const { IS_WIN } = require('../helper-platform');
-const { suiteTempDir } = require('../helper/tmp');
+const { IS_WIN } = require('../helper-platform.ts');
+const { suiteTempDir } = require('../helper/tmp.ts');
 
 const SCRATCH = suiteTempDir('doflow-decision-register-e2e-');
 const HOME = path.join(SCRATCH, 'home');

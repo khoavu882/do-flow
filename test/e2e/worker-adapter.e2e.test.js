@@ -20,8 +20,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.js');
-const { linkBin, writeScenario, readLog, kindOf } = require('../helper/fake-harness-cli.js');
+const { tempDir } = require('../helper/tmp.ts');
+const { linkBin, writeScenario, readLog, kindOf } = require('../helper/fake-harness-cli.ts');
 const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
 const ORCHESTRATION_AT_BE752D8 = require('../fixtures/worker/orchestration-be752d8.json');
 

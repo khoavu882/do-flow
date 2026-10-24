@@ -12,8 +12,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { buildInstallMirror, createScratch } = require('../helper/hook-fixtures');
-const { tempDir } = require('../helper/tmp.js');
+const { buildInstallMirror, createScratch } = require('../helper/hook-fixtures.ts');
+const { tempDir } = require('../helper/tmp.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const FIXTURES = path.join(REPO, 'test/fixtures/hooks');

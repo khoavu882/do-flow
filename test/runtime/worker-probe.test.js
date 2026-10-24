@@ -11,8 +11,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.js');
-const { IDENTITY_VARS, kindOf, linkBin, writeScenario, readLog } = require('../helper/fake-harness-cli.js');
+const { tempDir } = require('../helper/tmp.ts');
+const { IDENTITY_VARS, kindOf, linkBin, writeScenario, readLog } = require('../helper/fake-harness-cli.ts');
 const { validateWorker } = require('../../src/registry/index.ts');
 const {
   PROBE_TIMEOUT_MS, PROBE_MAX_AGE_MS, FACTS, discover, probe, effectiveFacts, descriptorDigest, readProbeRecord, probeFile,

@@ -11,7 +11,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { skillFiles } = require('./_shared');
-const { createScratch } = require('../helper/scratch-env');
+const { createScratch } = require('../helper/scratch-env.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const BENCH = path.join(REPO, 'bench');
@@ -30,7 +30,7 @@ after(() => {
   scratch.remove();
 });
 const { WorktreeManager, SKILL_SOURCE_FILE, SANDBOX_SKILLS_DIR, sha256File } = require('../../src/runtime/worktree.ts');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 
 test('G11/R6: the evaluation corpus is present — a clean clone can reproduce the baseline', () => {
   assert.ok(HAS_BENCH, 'bench/runner.ts must be tracked; the corpus stopped being local-only under review R6');

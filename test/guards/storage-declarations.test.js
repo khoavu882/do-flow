@@ -14,8 +14,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { REPO } = require('./_shared');
-const { createScratch } = require('../helper/scratch-env');
-const { encodeEnvelope } = require('../helper/hook-fixtures');
+const { createScratch } = require('../helper/scratch-env.ts');
+const { encodeEnvelope } = require('../helper/hook-fixtures.ts');
 const { loadStorageRegistry, validateStorageRegistry, renderSourcePattern, formatBound } = require('../../src/runtime/storage/registry.ts');
 const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
 
@@ -543,7 +543,7 @@ test('G26 self-test: a fixture file store with rule:age is rejected', () => {
 });
 
 test('G26: verification-v0 uses mtime and requires both age and count for failed-first files', (t) => {
-  const { tempDir } = require('../helper/tmp');
+  const { tempDir } = require('../helper/tmp.ts');
   const { selectCandidates } = require('../../src/runtime/storage/rules.ts');
   const dir = tempDir(t, 'doflow-rb-storage-age-');
   const store = registry.stores.find((entry) => entry.id === 'verification-v0');
@@ -631,7 +631,7 @@ test('G26: the loop writes the roadmap store, and the autopilot sentinel is a co
 });
 
 test('G26: roadmap pruning keeps old open intents and selects only archived done intents', (t) => {
-  const { tempDir } = require('../helper/tmp');
+  const { tempDir } = require('../helper/tmp.ts');
   const { selectCandidates } = require('../../src/runtime/storage/rules.ts');
   const { workStatus } = require('../../src/runtime/storage/work-status.ts');
   const root = tempDir(t, 'doflow-roadmap-retention-');
@@ -660,7 +660,7 @@ test('G26: roadmap pruning keeps old open intents and selects only archived done
 });
 
 test('G26: roadmap run records are pruned once finished; the newest, an intent-named, a leased run and the tripwire are kept', (t) => {
-  const { tempDir } = require('../helper/tmp');
+  const { tempDir } = require('../helper/tmp.ts');
   const { selectCandidates } = require('../../src/runtime/storage/rules.ts');
   const root = tempDir(t, 'doflow-roadmap-runs-');
   const state = path.join(root, '.doflow/state');
@@ -701,7 +701,7 @@ test('G26: roadmap run records are pruned once finished; the newest, an intent-n
 });
 
 test('G26: verification-runs .jsonl records are selected by the 30-day finished bound; an unfinished task is never selected', (t) => {
-  const { tempDir } = require('../helper/tmp');
+  const { tempDir } = require('../helper/tmp.ts');
   const { selectCandidates } = require('../../src/runtime/storage/rules.ts');
   const root = tempDir(t, 'doflow-verification-runs-retention-');
   const state = path.join(root, '.doflow/state');

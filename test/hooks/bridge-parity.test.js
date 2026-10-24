@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { after, test } = require('node:test');
-const { buildInstallMirror, createScratch, createScratchGitRepo, jqSorted } = require('../helper/hook-fixtures');
+const { buildInstallMirror, createScratch, createScratchGitRepo, jqSorted } = require('../helper/hook-fixtures.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const FIXTURES = path.join(REPO, 'test/fixtures/hooks');

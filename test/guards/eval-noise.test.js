@@ -18,7 +18,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { REPO } = require('./_shared');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const noise = require('../../bench/noise.ts');
 
 const NOISE_MODULE = 'bench/noise.ts';

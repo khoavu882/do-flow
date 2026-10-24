@@ -22,7 +22,7 @@ const { validateTaskFile } = require('../../bench/retrieval/lib/tasks.ts');
 const sealLib = require('../../bench/retrieval/lib/seal.ts');
 const { sha256Hex } = sealLib;
 const { classesFor } = require('../../bench/retrieval/lib/metrics.ts');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 

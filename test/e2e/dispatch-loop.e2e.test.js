@@ -31,7 +31,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.js');
+const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
 const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 

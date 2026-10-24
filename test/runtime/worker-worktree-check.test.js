@@ -12,8 +12,8 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const { snapshot, compare, MAX_PATHS, MAX_HASH_BYTES } = require('../../src/runtime/worker/worktree-check.ts');
-const { createScratch } = require('../helper/scratch-env');
-const { tempDir } = require('../helper/tmp');
+const { createScratch } = require('../helper/scratch-env.ts');
+const { tempDir } = require('../helper/tmp.ts');
 
 const IDENTITY = ['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE'];
 

@@ -6,8 +6,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync, execFileSync } = require('node:child_process');
 const os = require('node:os');
-const { tempDir } = require('../helper/tmp');
-const { createScratch } = require('../helper/scratch-env');
+const { tempDir } = require('../helper/tmp.ts');
+const { createScratch } = require('../helper/scratch-env.ts');
 
 const ROOT = path.resolve(__dirname, '../..');
 const FIXTURES = path.join(ROOT, 'test/fixtures/hooks');

@@ -5,8 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp');
-const { encodeEnvelope, parseRecords, runPolicy } = require('../helper/hook-fixtures');
+const { tempDir } = require('../helper/tmp.ts');
+const { encodeEnvelope, parseRecords, runPolicy } = require('../helper/hook-fixtures.ts');
 
 const POLICY = 'pre-bash-guard';
 const POLICY_PATH = process.env.DOFLOW_PRE_BASH_GUARD_TEST_POLICY;

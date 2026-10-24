@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const runner = require('../../bench/runner.ts');
-const { tempDir } = require('../helper/tmp.js');
+const { tempDir } = require('../helper/tmp.ts');
 
 const FIXTURE_ROOT = path.join(__dirname, '..', 'fixtures', 'bench-noise');
 const EXPECTED_KEYS = [

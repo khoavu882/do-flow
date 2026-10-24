@@ -5,8 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env');
-const { spawnFakeServer } = require('../helper/fake-decision-server');
+const { createScratch } = require('../helper/scratch-env.ts');
+const { spawnFakeServer } = require('../helper/fake-decision-server.ts');
 
 const ROOT = path.resolve(__dirname, '../..');
 const scratch = createScratch('doflow-advice-bench-');

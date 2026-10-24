@@ -7,7 +7,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { treeDigest, treeState, checkKey, checkKeyV2, toolDigest, envDigest } = require('../../src/runtime/verification/check-key.ts');
 
 const HEAD = '1'.repeat(40);

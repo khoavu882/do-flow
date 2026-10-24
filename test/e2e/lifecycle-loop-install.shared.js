@@ -6,10 +6,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env');
-const { resolverOf, filesUnder } = require('../helper/skill-resolver');
-const { makeRepo, featureBranch } = require('../helper/lifecycle-git-fixtures');
-const { IS_WIN } = require('../helper-platform');
+const { createScratch } = require('../helper/scratch-env.ts');
+const { resolverOf, filesUnder } = require('../helper/skill-resolver.ts');
+const { makeRepo, featureBranch } = require('../helper/lifecycle-git-fixtures.ts');
+const { IS_WIN } = require('../helper-platform.ts');
 
 
 const REPO = path.resolve(__dirname, '..', '..');

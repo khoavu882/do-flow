@@ -6,9 +6,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { REPO } = require('./_shared');
-const { encodeEnvelope } = require('../helper/hook-fixtures');
+const { encodeEnvelope } = require('../helper/hook-fixtures.ts');
 
 const TOKENS = ['context-pack', 'delivery/', 'omissions', 'packEnd', '[end of pack]'];
 const SCAN_ROOTS = [

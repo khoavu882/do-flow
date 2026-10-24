@@ -5,8 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env');
-const { startFakeServer, spawnFakeServer } = require('../helper/fake-decision-server');
+const { createScratch } = require('../helper/scratch-env.ts');
+const { startFakeServer, spawnFakeServer } = require('../helper/fake-decision-server.ts');
 const { buildAdviceDoctor } = require('../../src/runtime/advice/doctor.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 

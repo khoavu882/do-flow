@@ -5,8 +5,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.js');
-const { runPolicy, encodeEnvelope, parseRecords } = require('../helper/hook-fixtures.js');
+const { tempDir } = require('../helper/tmp.ts');
+const { runPolicy, encodeEnvelope, parseRecords } = require('../helper/hook-fixtures.ts');
 
 function world(t) {
   const root = tempDir(t, 'doflow-dropdb-');

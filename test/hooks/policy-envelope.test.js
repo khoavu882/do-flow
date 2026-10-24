@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch, createScratchGitRepo, encodeEnvelope, loadCorpus, parseRecords, runPolicy } = require('../helper/hook-fixtures');
+const { createScratch, createScratchGitRepo, encodeEnvelope, loadCorpus, parseRecords, runPolicy } = require('../helper/hook-fixtures.ts');
 
 const scratch = createScratch('doflow-policy-envelope-');
 after(() => scratch.remove());

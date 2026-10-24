@@ -10,8 +10,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env');
-const { IS_WIN } = require('../helper-platform');
+const { createScratch } = require('../helper/scratch-env.ts');
+const { IS_WIN } = require('../helper-platform.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 

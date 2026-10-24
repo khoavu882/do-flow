@@ -11,12 +11,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { buildInstallMirror } = require('../helper/hook-fixtures');
-const { createScratch } = require('../helper/scratch-env');
-const { launch, launchEnv, firstPrompt } = require('../helper/launcher-stand-in');
+const { buildInstallMirror } = require('../helper/hook-fixtures.ts');
+const { createScratch } = require('../helper/scratch-env.ts');
+const { launch, launchEnv, firstPrompt } = require('../helper/launcher-stand-in.ts');
 const { emitContext } = require('../../src/runtime/context-pack.ts');
 const { grantSummary } = require('../../src/runtime/context/summary-store.ts');
-const { writeSummary } = require('../helper/summary-fixture');
+const { writeSummary } = require('../helper/summary-fixture.ts');
 const { cwdHash } = require('../../src/runtime/context/identity.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');

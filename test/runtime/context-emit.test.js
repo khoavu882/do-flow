@@ -10,10 +10,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { emitContext } = require('../../src/runtime/context-pack.ts');
 const { grantSummary } = require('../../src/runtime/context/summary-store.ts');
-const { writeSummary } = require('../helper/summary-fixture');
+const { writeSummary } = require('../helper/summary-fixture.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const POLICIES = path.join(REPO, 'core/harnesses/shared/hooks/policies');

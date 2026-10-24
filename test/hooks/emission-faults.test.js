@@ -11,8 +11,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp');
-const { spawnBash } = require('../helper/home-less-bash');
+const { tempDir } = require('../helper/tmp.ts');
+const { spawnBash } = require('../helper/home-less-bash.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const POLICIES = process.env.EM_POLICIES || path.join(REPO, 'core/harnesses/shared/hooks/policies');

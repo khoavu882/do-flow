@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { suiteTempDir } = require('../helper/tmp');
+const { suiteTempDir } = require('../helper/tmp.ts');
 const { resolveProjectRoot, delegateToPolicy, evaluateEvent, classifyPreToolUsePolicy } = require('../../core/harnesses/shared/hooks/stream-hook-runner');
 const antigravityAdapter = require('../../core/harnesses/shared/hooks/adapters/antigravity');
 
@@ -67,7 +67,7 @@ test('stream-hook-runner adapter: native pre-tool deny renders from bridge decis
 
 const fs = require('node:fs');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env');
+const { createScratch } = require('../helper/scratch-env.ts');
 const runnerModule = require('../../core/harnesses/shared/hooks/stream-hook-runner');
 const nodeClassifier = require('../../src/runtime/failure/classifier.ts');
 const { fingerprint } = require('../../src/runtime/failure/store.ts');

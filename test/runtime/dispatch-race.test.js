@@ -46,9 +46,9 @@ if (process.argv[2] === '--race-worker') {
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { tempDir } = require('../helper/tmp.js');
-const { startWorkers } = require('../helper/race-barrier.js');
-const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.js');
+const { tempDir } = require('../helper/tmp.ts');
+const { startWorkers } = require('../helper/race-barrier.ts');
+const { makeDispatchSandbox } = require('../helper/dispatch-sandbox.ts');
 
 const SRC = path.join(__dirname, '..', '..', 'src', 'runtime');
 const attempts = require(path.join(SRC, 'task-attempts.ts'));

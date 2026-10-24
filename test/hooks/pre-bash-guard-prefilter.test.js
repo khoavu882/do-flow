@@ -4,7 +4,7 @@ const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { createScratch, encodeEnvelope, runPolicy } = require('../helper/hook-fixtures');
+const { createScratch, encodeEnvelope, runPolicy } = require('../helper/hook-fixtures.ts');
 
 const scratch = createScratch('doflow-pre-bash-prefilter-');
 after(() => scratch.remove());

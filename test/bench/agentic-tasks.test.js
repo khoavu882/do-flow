@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { suiteTempDir } = require('../helper/tmp.js');
+const { suiteTempDir } = require('../helper/tmp.ts');
 const tasks = require('../../bench/agentic/tasks.ts');
 
 const REPO = path.join(__dirname, '..', '..');

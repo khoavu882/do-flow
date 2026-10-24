@@ -33,7 +33,7 @@ test('parseArgs parses --status=UNREACHED inline syntax', () => {
 });
 
 // FU-8eqytg: the unknown-flag message is bounded and print-safe, and `--reason=x` is the same flag as `--reason x`.
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 
 function runCli(args, cwd, home) {
   return spawnSync(process.execPath, [BIN, ...args], { cwd, encoding: 'utf8', env: { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config') } });

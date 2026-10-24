@@ -19,7 +19,7 @@ const path = require('node:path');
 const { REPO } = require('./_shared');
 
 const TEST_ROOT = path.join(REPO, 'test');
-const HELPER = 'test/helper/tmp.js';
+const HELPER = 'test/helper/tmp.ts';
 const FIXTURES = 'test/fixtures/';
 
 const MK = 'mkd' + 'temp';
@@ -28,13 +28,13 @@ const CALLS = [`${MK}Sync(`, `${MK}(`, `${TMP}()`];
 
 // path (repo-relative, forward slashes) -> reason. Built from the E.2 to E.6 migration reports.
 const EXEMPT = new Map([
-  ['test/install/home-scope.test.js',
+  ['test/install/home-scope.test.ts',
     "its subject is the OS temp folder's symlinked spelling versus its real path; it reads the platform temp folder and creates nothing"],
-  ['test/install/backup-manifest.test.js',
+  ['test/install/backup-manifest.test.ts',
     'the match is the text of a test name describing the shared temp folder the fix avoids; no call exists'],
 ]);
 
-/** Every *.js file under `root`, as repo-relative paths with forward slashes, sorted. */
+/** Every *.js or *.ts file under `root`, as repo-relative paths with forward slashes, sorted. */
 function testFiles(root = TEST_ROOT) {
   const out = [];
   (function walk(dir) {
@@ -43,7 +43,7 @@ function testFiles(root = TEST_ROOT) {
       if (entry.isDirectory()) {
         if (entry.name === 'node_modules') continue;
         walk(full);
-      } else if (entry.isFile() && entry.name.endsWith('.js')) {
+      } else if (entry.isFile() && (entry.name.endsWith('.js') || entry.name.endsWith('.ts'))) {
         out.push(path.relative(REPO, full).split(path.sep).join('/'));
       }
     }
@@ -116,9 +116,9 @@ test('G27 self-test: a call fails with its file name and line; an exempt file pa
   const files = new Map([
     ['test/runtime/leaky.test.js', offending],
     ['test/install/subject.test.js', exemptText],
-    ['test/helper/tmp.js', offending],
+    ['test/helper/tmp.ts', offending],
     ['test/fixtures/sample.js', offending],
-    ['test/runtime/clean.test.js', 'const { tempDir } = require("../helper/tmp");\n'],
+    ['test/runtime/clean.test.js', 'const { tempDir } = require("../helper/tmp.ts");\n'],
   ]);
   const exempt = new Map([
     ['test/install/subject.test.js', 'its subject is the temp folder'],

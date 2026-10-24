@@ -7,8 +7,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env');
-const { dropCoreFile, restoreEdited } = require('../helper/drop-core-file');
+const { createScratch } = require('../helper/scratch-env.ts');
+const { dropCoreFile, restoreEdited } = require('../helper/drop-core-file.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const DROPPED = 'RESEARCH_CONFIG.md';

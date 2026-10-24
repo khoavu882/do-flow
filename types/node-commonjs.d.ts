@@ -14,7 +14,7 @@ interface TestFn {
   todo: TestFn;
   only: TestFn;
 }
-interface NodeTestModule {
+interface NodeTestModule extends TestFn {
   test: TestFn;
   describe: TestFn;
   it: TestFn;
@@ -46,7 +46,7 @@ declare var require: {
   cache: Record<string, any>;
 };
 
-declare var module: { exports: any };
+declare var module: { exports: any; parent?: any; filename?: string; [key: string]: any };
 
 declare var process: {
   features?: { typescript?: false | 'strip' | 'transform' };
@@ -68,6 +68,7 @@ declare var process: {
   arch: string;
   versions: Record<string, string>;
   memoryUsage(): { rss: number; heapTotal: number; heapUsed: number; external: number; [key: string]: number };
+  resourceUsage(): Record<string, number>;
   uptime(): number;
   umask(mask?: number): number;
   getuid?(): number;
@@ -116,7 +117,7 @@ interface Buffer extends Uint8Array {
   toJSON(): { type: 'Buffer'; data: number[] };
 }
 declare var Buffer: {
-  alloc(size: number): Buffer;
+  alloc(size: number, fill?: any, encoding?: string): Buffer;
   from(data: any, encoding?: string): Buffer;
   byteLength(string: string, encoding?: string): number;
   isBuffer(value: any): boolean;

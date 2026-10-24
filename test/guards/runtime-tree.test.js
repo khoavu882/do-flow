@@ -18,7 +18,7 @@ const { loadRegistry } = require('../../src/registry/index.ts');
 const { RUNTIME_TREE_ASSETS } = require('../../src/lifecycle/index.ts');
 const { sharedTreeDestDir, walkRelFiles } = require('../../src/adapters/copy-tree.ts');
 const { REPO } = require('./_shared');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 
 const registry = loadRegistry({ repoRoot: REPO });
 

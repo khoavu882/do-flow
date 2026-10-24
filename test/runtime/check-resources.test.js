@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { VerificationContractRunner, childCpuTicks } = require('../../src/runtime/verification/contract-runner.ts');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 
 test('Linux busy child cpu_ms > 0 only when a Linux container exists', {
   skip: process.platform !== 'linux' ? 'Docker is not available here; Linux container required for /proc/self/stat' : false,

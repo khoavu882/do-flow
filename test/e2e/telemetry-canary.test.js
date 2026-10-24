@@ -40,8 +40,8 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { suiteTempDir, removeTree } = require('../helper/tmp');
-const { buildInstallMirror } = require('../helper/hook-fixtures');
+const { suiteTempDir, removeTree } = require('../helper/tmp.ts');
+const { buildInstallMirror } = require('../helper/hook-fixtures.ts');
 const { start, pause, resume } = require('../../src/runtime/task-attempts.ts');
 const { scanPaths } = require('../../src/runtime/leak-scan.ts');
 

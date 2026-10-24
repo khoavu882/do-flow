@@ -275,7 +275,7 @@ test('G30: the count of plain .js modules under src/ never increases (TypeScript
 
 // Ratchets for the same migration across test/ and bench/ (generated bench output and the two
 // fixture trees, whose .js is deliberately fixed content, are not counted). Lower after each conversion.
-const TEST_JS_CEILING = 662;
+const TEST_JS_CEILING = 555;
 const BENCH_JS_CEILING = 0;
 const RATCHET_FIXTURE_DIRS = ['test/fixtures/agentic', 'bench/perf/fixtures'].map((d) => path.join(REPO, d));
 const RATCHET_SKIPPED_DIRS = [...EXCLUDED_CONSUMER_DIRS, ...RATCHET_FIXTURE_DIRS];

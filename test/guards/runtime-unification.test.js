@@ -26,7 +26,7 @@ const path = require('node:path');
 const { REPO } = require('./_shared');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { registryLifecycleView, LIFECYCLE_HARNESSES } = require('../../src/lifecycle/view.ts');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 
 const SCRIPTS = path.join(REPO, 'core', 'shared', 'scripts');
 const DISPATCHER = path.join(SCRIPTS, 'doflow', 'bin', 'doflow-run');

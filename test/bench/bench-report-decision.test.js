@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const runner = require('../../bench/runner.ts');
 const noise = require('../../bench/noise.ts');
-const { suiteTempDir } = require('../helper/tmp.js');
+const { suiteTempDir } = require('../helper/tmp.ts');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const FIXTURE_ROOT = path.join(__dirname, '..', 'fixtures', 'bench-noise');

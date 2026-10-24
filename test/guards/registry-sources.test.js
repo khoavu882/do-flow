@@ -11,7 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { REPO } = require('./_shared');
 const { loadRegistry, validateRegistry, registrySourceMode } = require('../../src/registry/index.ts');
-const { suiteTempDir } = require('../helper/tmp');
+const { suiteTempDir } = require('../helper/tmp.ts');
 
 function makeRuntimeShapedTree() {
   const root = suiteTempDir('doflow-g46-runtime-');

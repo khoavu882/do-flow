@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { suiteTempDir } = require('../../helper/tmp');
+const { suiteTempDir } = require('../../helper/tmp.ts');
 const {
   agentDirectory, destinationFor, discoverCodexAgents, planCodexAgents, reconcileCodexAgents,
 } = require('../../../src/adapters/codex/agents.ts');

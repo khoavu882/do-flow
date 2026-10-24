@@ -19,8 +19,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp');
-const { startWorkers } = require('../helper/race-barrier');
+const { tempDir } = require('../helper/tmp.ts');
+const { startWorkers } = require('../helper/race-barrier.ts');
 const { claim, release, resume } = require('../../src/runtime/task-attempts.ts');
 const { runKeyFor, createRun, computeTotals } = require('../../src/runtime/task-run.ts');
 

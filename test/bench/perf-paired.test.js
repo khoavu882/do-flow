@@ -10,7 +10,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const runner = require('../../bench/perf/runner.ts');
-const { tempDir } = require('../helper/tmp.js');
+const { tempDir } = require('../helper/tmp.ts');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const REAL_BUDGETS = path.join(REPO_ROOT, 'bench', 'perf', 'budgets.json');

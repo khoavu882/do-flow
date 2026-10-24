@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { suiteTempDir } = require('../helper/tmp');
+const { suiteTempDir } = require('../helper/tmp.ts');
 const { compactHistory, POINTER } = require('../../src/runtime/history-compactor.ts');
 
 const FIXTURES = path.join(__dirname, '..', 'fixtures', 'decision-register');

@@ -13,9 +13,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn: spawnProcess, spawnSync } = require('node:child_process');
-const { resolverOf, filesUnder } = require('../helper/skill-resolver');
-const { IS_WIN } = require('../helper-platform');
-const { suiteTempDir } = require('../helper/tmp');
+const { resolverOf, filesUnder } = require('../helper/skill-resolver.ts');
+const { IS_WIN } = require('../helper-platform.ts');
+const { suiteTempDir } = require('../helper/tmp.ts');
 
 // A developer's PI_CODING_AGENT_DIR would send this file's global Pi MCP writes outside the scratch home.
 delete process.env.PI_CODING_AGENT_DIR;

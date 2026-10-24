@@ -5,8 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env');
-const { FIXTURES, TRACKED_AT } = require('../helper/lifecycle-git-fixtures');
+const { createScratch } = require('../helper/scratch-env.ts');
+const { FIXTURES, TRACKED_AT } = require('../helper/lifecycle-git-fixtures.ts');
 const followup = require('../../src/runtime/lifecycle/followup.ts');
 const store = require('../../src/runtime/lifecycle/event-store.ts');
 

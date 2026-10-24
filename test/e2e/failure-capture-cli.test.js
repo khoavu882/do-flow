@@ -11,8 +11,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync, execFileSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env');
-const { tempDir } = require('../helper/tmp');
+const { createScratch } = require('../helper/scratch-env.ts');
+const { tempDir } = require('../helper/tmp.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const BIN = path.join(REPO, 'bin', 'doflow.js');

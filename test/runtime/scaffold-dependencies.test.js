@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { generateScaffold, SCAFFOLD_DIR_NAME, MANIFEST_NAME } = require('../../src/runtime/scaffold/generate.ts');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 
 function feature(root, taskLines) {
   const featureDir = path.join(root, '001-deps');

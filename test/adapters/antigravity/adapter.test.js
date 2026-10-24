@@ -3,11 +3,11 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { suiteTempDir } = require('../../helper/tmp');
+const { suiteTempDir } = require('../../helper/tmp.ts');
 const { loadRegistry, selectAssets } = require('../../../src/registry/index.ts');
 const { projectAdapterInput } = require('../../../src/adapters/index.ts');
 const adapter = require('../../../src/adapters/antigravity/index.ts');
-const { expectExecutable } = require('../../helper-platform');
+const { expectExecutable } = require('../../helper-platform.ts');
 
 const REPO = path.resolve(__dirname, '..', '..', '..');
 function scratch() { return suiteTempDir('doflow-agy-'); }

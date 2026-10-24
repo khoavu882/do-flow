@@ -6,7 +6,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const { defaultLock, writeLock } = require('../../src/state/lockfile.ts');
 const { repairCoverage, readScopeLocks, REPAIR_REASONS } = require('../../src/runtime/inventory/coverage.ts');
 
@@ -180,7 +180,7 @@ test('readScopeLocks propagates an unreadable lock rather than reporting it as u
 // the lock lacks — in its `--json` report, without letting it decide whether the scope is clean.
 test('R1: reconcile --json names a harness the ledger holds and the lock lacks, and still reports clean', () => {
   const { spawnSync } = require('node:child_process');
-  const { createScratch } = require('../helper/scratch-env');
+  const { createScratch } = require('../helper/scratch-env.ts');
   const scratch = createScratch('doflow-reconcile-unpinned-');
   try {
     const doflow = (...args) => spawnSync('node', [path.join(__dirname, '..', '..', 'bin', 'doflow.js'), ...args],

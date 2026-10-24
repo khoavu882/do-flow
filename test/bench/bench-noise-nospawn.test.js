@@ -44,7 +44,7 @@ cp.execSync = function(cmd, options) {
 const runner = require('../../bench/runner.ts');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.js');
+const { tempDir } = require('../helper/tmp.ts');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const FIXTURE_ROOT = path.join(__dirname, '..', 'fixtures', 'bench-noise');

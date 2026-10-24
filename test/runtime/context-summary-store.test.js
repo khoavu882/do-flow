@@ -9,12 +9,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env');
+const { createScratch } = require('../helper/scratch-env.ts');
 const {
   DEFAULT_GRANT_MAX_BYTES, SUMMARY_ID_PATTERN, SummaryStoreError,
   adoptLegacy, claimGrant, claimSummary, grantSummary, legacySummary, peekGrant, peekSummary, releaseClaim, summaryScope,
 } = require('../../src/runtime/context/summary-store.ts');
-const { writeSummary } = require('../helper/summary-fixture');
+const { writeSummary } = require('../helper/summary-fixture.ts');
 const { cwdHash } = require('../../src/runtime/context/identity.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');

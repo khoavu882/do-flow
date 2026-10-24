@@ -2,7 +2,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { tempDir } = require('../helper/tmp');
+const { tempDir } = require('../helper/tmp.ts');
 const fs = require('node:fs');
 const path = require('node:path');
 const { EvidenceLedger, VALID_EVIDENCE_KINDS } = require('../../src/runtime/evidence-ledger.ts');

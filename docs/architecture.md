@@ -236,8 +236,8 @@ attempted scope and cannot establish repository-wide absence.
 The full `src/` tree is the source of `runtime.lib` for every harness and for the staged npm
 package (`package.json` includes `src/`). Therefore the Python bridge ships through the existing
 copy-tree projection and package staging path; it does not need a parallel asset declaration.
-`test/lifecycle/hybrid-runtime-assets.test.js` exercises that projection, and
-`test/release/hybrid-package.test.js` checks the staged file.
+`test/lifecycle/hybrid-runtime-assets.test.ts` exercises that projection, and
+`test/release/hybrid-package.test.ts` checks the staged file.
 
 Hybrid remains opt-in. Repeated real-provider conformance and all required same-snapshot gates are
 promotion requirements; paid outcome and token-cost measurements remain unreached without separate
@@ -489,7 +489,7 @@ declares target capability and ownership inputs, and is not itself a native conf
 > `core/registry/mcp.json`, is relative to the **guidance root** (`.doflow/guidance/`). That is why
 > `PRINCIPLES.md`/`FLAGS.md`/`MCP_INDEX.md` sit at the root rather than in a subdirectory: writing
 > any of them one level deeper silently reinterprets those relative paths against that subdirectory
-> and breaks them without any error. `test/adapters/copy-tree.test.js` and `test/install/mcp-index.test.js` resolve
+> and breaks them without any error. `test/adapters/copy-tree.test.js` and `test/install/mcp-index.test.ts` resolve
 > both sets of paths against the real tree to keep that anchor enforced rather than assumed.
 | `skills/`, `agent-specs/`, `scripts/`, `templates/` | `core/shared/{skills,agent-specs,scripts,templates}/` | Task knowledge and reusable assets are client-neutral |
 | Native hooks, settings, and native agent definitions per harness | `core/harnesses/{claude,codex,gemini,kiro,antigravity,pi}/` | Copied or reconciled as native configuration only where the harness has such a surface |
@@ -602,14 +602,14 @@ bash test/code-review-fixtures.sh          # do-code-review's analyzer fixtures,
 pip install -r requirements.txt            # docs deps, once per environment — see note below
 mkdocs build --strict --site-dir /tmp/doflow-docs-site
 d="$(mktemp -d)"; TMPDIR="$d" npm test; find "$d" -mindepth 1 -maxdepth 1 -name 'doflow-*'; rm -rf "$d"   # test debris check, outside npm test
-node test/explore/ledger-sampler.js --help   # opt-in sequence sampler, outside npm test
-node --test test/explore/ledger-controls.js  # the sampler's slow controls, outside npm test
+node test/explore/ledger-sampler.ts --help   # opt-in sequence sampler, outside npm test
+node --test test/explore/ledger-controls.ts  # the sampler's slow controls, outside npm test
 ```
 
 The debris check prints nothing when the suite left no temporary folder behind. It is not part of
 `npm test`, because a test cannot observe the whole run it belongs to.
 
-The sequence sampler (`test/explore/ledger-sampler.js`) runs two real child processes against the
+The sequence sampler (`test/explore/ledger-sampler.ts`) runs two real child processes against the
 task-attempt ledger, grants their store, lock and temp-file fs calls one at a time in a seeded
 order, and judges each schedule against a hand-written sequential model of claim, finish and
 cancel. It exits 0 when every schedule completed and none showed a violation, 1 when one did (with
@@ -623,15 +623,15 @@ other `node:fs` or `fs.promises` call that reaches those paths (also through ano
 the path, or a descriptor from `open`) makes the schedule incomplete. Outside the model: overlap inside one fs call, network
 filesystems, process death, win32, worker threads, child processes, native addons, and a hard
 link or symlink to the store under another name. The regressions pinned in
-`test/state/ledger-lock-race.test.js`, which `npm test` runs, came from the sampler (R-claim) and
+`test/state/ledger-lock-race.test.ts`, which `npm test` runs, came from the sampler (R-claim) and
 from review (R-nested and the two-process trace R-two-process); each reproduced the stale-lock
 defect FU-8acds5 under its fault assumption (a lock holder paused for longer than the 10 s stale
 age, or a forward clock jump of that size) on develop up to `e003dc0d`, also without the gate, by
 stopping a real lock holder with SIGSTOP past the stale age (the review record's `realpause.js`
 reproduction, kept with the 117 feature records). 117 Phase C fixed the lock (next section); the
-regressions are now required, and `test/state/task-state-lock.test.js` covers the protocol, a process
+regressions are now required, and `test/state/task-state-lock.test.ts` covers the protocol, a process
 paused at every step of an acquire or a reclaim, and a lock written by runtimes from before it. Slow
-controls run only on demand from `test/explore/ledger-controls.js`.
+controls run only on demand from `test/explore/ledger-controls.ts`.
 
 ### The task-state lock
 
@@ -673,7 +673,7 @@ Bounds, not covered (the argument for each step is in the 117 feature records,
    also before it saw itself alone, or the clock stepped forward that far) and which is then
    preempted between that pre-write check and its rename, long enough for a reclaimer to remove its
    entry and read the store: its acknowledged write can replace the reclaimer's (the `LOST_ACK`
-   replay in `test/helper/ledger-scenarios.js`).
+   replay in `test/helper/ledger-scenarios.ts`).
 2. Any holder that runs past 10 s loses the lock to a reclaimer. A current holder learns it at its
    pre-write check (bound 1 aside); an older runtime's holder, storage pruning's record lock (whose
    by-name `rmdir` then fails and the candidate is recorded as failed while the pass continues), and
@@ -966,7 +966,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   its source; the store table in `docs/reference.md` equals the registry; and `src/runtime/storage/`
   makes no network or child-process call.
 - **G27** (`test-tempdirs.test.js`) — tests create temporary folders only through
-  `test/helper/tmp.js`, so every folder is removed when its test or file ends. Each other call is
+  `test/helper/tmp.ts`, so every folder is removed when its test or file ends. Each other call is
   named by file and line, and an `EXEMPT` entry needs a reason and fails once it no longer matches.
 
 - **G28** (`mcp-claims.test.js`) — shipped text, the MCP registry and the code agree on which MCP
@@ -1089,7 +1089,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
 - **G44** (`settings.test.js`) — settings registry consumers and references resolve, the `Settings keys` table
   matches defaults, scopes and environment names, config-home and lexical copies stay within their
   checked rules, and the settings files remain declared storage stores (086 IC-014/015). The later-key
-  registration contract is exercised by `test/settings/register-key.test.js` (IC-016).
+  registration contract is exercised by `test/settings/register-key.test.ts` (IC-016).
 - **G45** (`telemetry-contract.test.js`) — `core/registry/telemetry.json` is well
   formed and its keys per kind equal the keys the `TelemetryWriter`, the bridge and observer `printf`
   formats and the fixture lines carry, with `harness`, `status` and `risk` equal to their owning

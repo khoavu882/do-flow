@@ -12,7 +12,7 @@ const { execFileSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { suiteTempDir } = require('../helper/tmp');
+const { suiteTempDir } = require('../helper/tmp.ts');
 
 const PROJECTOR = path.join(__dirname, '..', '..', 'src', 'runtime', 'c4-project.ts');
 

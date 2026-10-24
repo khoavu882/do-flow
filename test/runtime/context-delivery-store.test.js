@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir, removeTree } = require('../helper/tmp');
+const { tempDir, removeTree } = require('../helper/tmp.ts');
 const { createDeliveryEntry, recordDelivery, makeTokenRecord } = require('../../src/runtime/context/delivery-store.ts');
 const { groupOmissions } = require('../../src/runtime/context/compose.ts');
 

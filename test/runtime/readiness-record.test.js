@@ -11,7 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const { createScratch } = require('../helper/scratch-env');
+const { createScratch } = require('../helper/scratch-env.ts');
 const { writeReadinessRecord, readReadinessRecord } = require('../../src/runtime/readiness-record.ts');
 const { checkReadiness } = require('../../src/runtime/implementation-gate.ts');
 const { clearCheckoutCache } = require('../../src/runtime/checkouts.ts');

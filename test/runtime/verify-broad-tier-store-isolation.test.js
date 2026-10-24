@@ -17,7 +17,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env');
+const { createScratch } = require('../helper/scratch-env.ts');
 
 const LEAKED_FILE = path.resolve(__dirname, 'context-pack-mandatory.test.js');
 
