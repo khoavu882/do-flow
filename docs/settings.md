@@ -46,6 +46,35 @@ DoFlow configuration layers resolve settings across registry defaults, environme
 
 `workers.billing` is a person-written record of which headless workers have no per-run charge for your account. It has type `worker-billing`: a JSON object of 1 to 16 entries keyed by worker id (a registry harness id, for example `codex` or `antigravity`, the `agy` CLI; lowercase letters, digits and hyphens, at most 32 characters, starting with a letter). Each entry has exactly the fields `billing` (`free` or `metered`), `asserted` (a real `YYYY-MM-DD` date you state) and, optionally, `basis` (one line of 1 to 120 characters); any other field, a wrong type or an impossible date makes the whole value invalid, never a partial one. For example, `{"schema":1,"workers.billing":{"codex":{"billing":"free","asserted":"2026-10-23","basis":"flat plan"}}}` in `<config home>/settings.json`. The key is `global-only`: a project or local value is ignored and listed as `ignored-scope`, so a repository cannot widen what counts as free. The record is read from the caller's config home (`$XDG_CONFIG_HOME` or `$HOME`) and trusted as written: DoFlow does not guard who wrote that file, the same as `autopilot.enabled`. It is security-relevant with a fail-safe of invalid, so `config list` exits 1 while the record is invalid, and `config set` refuses it, so a person writes it in the file. `free` means no per-run charge for your account; a flat subscription counts, and quota limits are still handled by the fallback ladder (`dispatch.fallback`). Only `dispatch --billing-cap free` reads the record: `free` lifts a registry `unknown`, `metered` narrows, and a registry `metered` is never lifted; see the `dispatch` row in [Reference](reference.md) for the exact rule. A record naming an id that is not a registry harness is not caught by `config`; dispatch treats it as an invalid record.
 
+`primary.harness` tells DoFlow which harness runs the primary orchestrating session (`claude`, `codex`, `gemini`, `opencode`, `pi`, `copilot`, `kiro`, `antigravity`), so DoFlow can distinguish the primary orchestrator from headless worker runs; `unknown` means undeclared. Default is `unknown`. It may be set through `DOFLOW_PRIMARY_HARNESS` or `config set primary.harness <id>`. Scope is `project-overridable`.
+
+`primary.model` declares the model the main session runs (e.g. a model name string up to 120 characters), which the session hook probe checks where supported (`primaryProbe.model: payload`). Default is null. It may be set through `DOFLOW_PRIMARY_MODEL` or `config set primary.model <id>`. Scope is `project-overridable`.
+
+`primary.onContradiction` sets what happens when the session hook observation contradicts the declared model: `warn` (default) prints a warning line on stderr, while `refuse` refuses `primary --action resolve` and `review --action start` with `primary-refused`. Scope is `narrow-only`: a project or local setting can only narrow `warn` to `refuse`, never relax `refuse` to `warn`.
+
+`workers.enabled` is an ordered list of worker ids a run may use, optionally ending in `primary`. Scope is `narrow-only` and combine is `subset`: a project or local layer can only remove worker ids from the user's enabled list, never add new ones. When unset, all shipped harnesses followed by `primary` are enabled. It is security-relevant (`writable: false` via `config set`); write it directly into `<config home>/settings.json` after validation.
+
+`workers.models` maps worker ids to model names by tier (`light`, `standard`, `frontier`). Tiers not listed fall back to the harness default. Scope is `global-only` and the key is security-relevant (`writable: false` via `config set`).
+
+Before writing custom worker order and model bindings to `<config home>/settings.json`, validate the values using `config validate` with `--layer user`:
+```bash
+doflow config validate workers.enabled '["worker-a","worker-b","primary"]' --layer user
+doflow config validate workers.models '{"worker-a":{"standard":"vendor-model-std","frontier":"vendor-model-adv"}}' --layer user
+```
+Once validated with no errors or warnings, save the configuration in `<config home>/settings.json`:
+```json
+{
+  "schema": 1,
+  "workers.enabled": ["worker-a", "worker-b", "primary"],
+  "workers.models": {
+    "worker-a": {
+      "standard": "vendor-model-std",
+      "frontier": "vendor-model-adv"
+    }
+  }
+}
+```
+
 The review keys (`review.preset`, `review.rounds`, `review.sameFamily`, `review.crossFamilyRereview`) are narrow-only: a project can only make its own review stricter. `review.extraLenses` and `review.blockerClauses` are lists that add across layers and never remove. `review.rounds` unset means the preset's rounds. A looser preset setting is ignored and shown under `protocol.disagreements` in `doflow review --action start` and `doflow protocol --action resolve`. An invalid `review.*` value in the project or local file, and an unknown or invalid `review.preset` or `debate.preset` in any layer (user, project or local), is not read as the default: `review --action start` and `protocol --action resolve` refuse with `settings-unavailable` naming the key and file, `review --action check` exits 1 with `same-family-setting-unread` (for `review.sameFamily`, for a findings record that declares an `author`) or `review-preset-setting-unread` (for `review.preset`), and roadmap gate-b fails closed. A malformed user `settings.json` (bad JSON or another schema) therefore refuses review start, review check and gate-b in every project until it is fixed. When `review.preset` is not `auto`, a findings record without `protocol` is invalid (`protocol-missing` at `review --action check`, `findings-invalid` at gate-b) and is held to that preset's rounds and seats; under `auto` it stays valid. A preset added to `core/registry/protocols.json` needs no edit to `settings.json` or `telemetry.json`: the order of the `review.preset` values (`auto` ranks right after the preset of depth `deep`) and the `protocol` and `depth` vocabularies of the review telemetry line are derived from it; an unusable `protocols.json` leaves `review.preset` at `auto` and writes `protocol` and `depth` as null.
 
 The default endpoint is the selected provider's `defaultEndpoint` in `advice.json`. `storage.retentionHours` defaults to the `lifecycle-events` bound in `storage.json`.
