@@ -786,12 +786,12 @@ configuration as a test fixture.
 
 `test/guards/*.test.js` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-73 test files (plus `_shared.ts`, a helper rather than a test); this inventory lists
-66 entries across 62 test files and carries 64 distinct G-numbers.
+74 test files (plus `_shared.ts`, a helper rather than a test); this inventory lists
+67 entries across 63 test files and carries 65 distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries; G18 labels two files, of which `adapter-force.test.ts` is not listed; and G30 labels two
 files, `advice.test.ts` and a ratchet test in `module-reachability.test.ts` (the G16 file). The collisions are
-historical rather than a convention; G66 is the highest number in use, so a new guard takes the next
+historical rather than a convention; G67 is the highest number in use, so a new guard takes the next
 one above it instead of adding another collision. The list is not the whole directory. The
 files absent from it are `verb-reachability.test.ts`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.ts`, which owns G19, and `adapter-force.test.ts`, which is the unlisted half
@@ -1205,6 +1205,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   (`review.preset` ranks by `orderRef`, never a literal `order`), no settings literal or `telemetry.json`
   vocabulary lists a preset id, and the shipped settings registry loads with those refs resolved; a planted
   literal order, literal preset list or telemetry copy is each named.
+- **G67** (`primary-workers.test.ts`) — primary harness, worker catalogue, model bindings and probe consistency (feature 120): every harness id in `core/registry/harnesses.json` passes `workerIdFault` and exactly one `isQualifiedId` definition exists (RK4); the closed list of `workerGate` call sites (`command.ts`, `loop.ts`, `worker/command.ts`, `readiness.ts`) is respected; `active.ts`, `models.ts` and `context/primary.ts` import no `advice/` module; every `model-id` and `worker-models` key in `core/registry/settings.json` defaults to `null`; and `primaryProbe.model` is `payload` exactly where `envelope.jq` emits `identity.model`, with jq and TS model grammars agreeing on every fixture (RK7). Controls verify that an unauthorized `workerGate` call site, an `advice/` import, a non-null model default, and a mismatched `primaryProbe` turn the guard red.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.
