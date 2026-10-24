@@ -284,7 +284,8 @@ const mutations: any = [
   { name: 'readability changes digest', module: 'facts', from: 'unreadable ? sha256Digest(JSON.stringify({ unreadable, contentDigest })) : contentDigest', to: 'contentDigest', pattern: 'unreadable empty artifacts have a different input digest' },
   { name: 'verification schema', from: 'runs.some((run: any) => run.schema !== 1)', to: 'false', pattern: 'verification ignores dirty, stale-head' },
   { name: 'sameFamily option', from: "sameFamily: get('review-settings')?.sameFamily === 'refuse' ? 'refuse' : 'warn',", to: '', pattern: 'D.3: gate-b findings-valid applies' },
-  { name: 'preset option', from: "preset: reviewPreset(get('review-settings')) })", to: '})', pattern: 'C-2: gate-b findings-valid checks the recorded protocol' },
+  { name: 'preset option', from: "preset: reviewPreset(get('review-settings')),", to: '', pattern: 'C-2: gate-b findings-valid checks the recorded protocol' },
+  { name: 'authors option', from: "authors: get('authoring-identities'),", to: '', pattern: 'D.4: gate-b findings-valid applies the authoring-identities fact' },
   { name: 'preset floor', from: "|| protocolLooserThanPreset(findings.protocol, get('review-settings')?.preset)", to: '', pattern: 'C-2: gate-b findings-valid checks the recorded protocol' },
   { name: 'artifact layout precedence', module: 'facts', from: "['intention/requirement.md', 'requirement.md']", to: "['requirement.md', 'intention/requirement.md']", pattern: 'artifact lookup follows' },
 ];
@@ -356,6 +357,39 @@ test('D.3: gate-b findings-valid applies the review-settings fact (sameFamily re
   for (const sameFamily of ['warn', 'refuse']) {
     assert.deepEqual(reasons({ findings: own, 'review-settings': { sameFamily } }), ['findings-invalid']);
   }
+});
+
+test('D.4: gate-b findings-valid applies the authoring-identities fact (INV-8 equal pair denies findings-invalid, independent passes, absent passes, unreadable fails closed)', () => {
+  const policy = loadPolicy(baseBytes).policy;
+  policy.classes.feature['gate-b'].predicates = ['findings-valid'];
+  const record: any = {
+    ...review(),
+    author: { agent: 'core-implementer', session: 's1', family: 'claude' },
+    seats: [
+      { id: 'one', findings: [], agent: 'reviewer', session: 's2', family: 'claude', harness: 'codex', model: 'gpt-4o' },
+      { id: 'two', findings: [], agent: 'reviewer', session: 's3', family: 'gpt', harness: 'claude', model: 'sonnet' },
+    ],
+  };
+  const authors = [
+    { kind: 'subagent', harness: 'codex', model: 'gpt-4o', channel: 'observed' },
+  ];
+  const reasons = (extra: any) => evaluate(policy, 'feature', 'gate-b', facts({ findings: record, ...extra })).reasons;
+
+  // INV-8 equal pair denies with findings-invalid
+  assert.deepEqual(reasons({ 'authoring-identities': authors }), ['findings-invalid']);
+
+  // Independent author passes
+  const independentAuthors = [
+    { kind: 'subagent', harness: 'gemini', model: 'flash', channel: 'observed' },
+  ];
+  assert.deepEqual(reasons({ 'authoring-identities': independentAuthors }), []);
+
+  // Absent authoring-identities fact (pre-120 fact set) passes
+  assert.deepEqual(evaluate(policy, 'feature', 'gate-b', facts({ findings: record })).reasons, [], 'a fact set gathered without authoring-identities keeps its verdict');
+
+  // Unreadable authoring-identities fact denies findings-invalid
+  const unreadable = facts({ findings: record, 'authoring-identities': authors }).map((f) => f.name === 'authoring-identities' ? { ...f, unreadable: 'dispatch-unreadable' } : f);
+  assert.deepEqual(evaluate(policy, 'feature', 'gate-b', unreadable).reasons, ['findings-invalid:fixture:authoring-identities']);
 });
 
 test('C-2: gate-b findings-valid checks the recorded protocol against its preset and against the review.preset setting', () => {

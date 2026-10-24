@@ -216,9 +216,16 @@ function evaluate(policy: any, cls: string, gateId: string, facts: any[]): any {
     } else if (predicate === 'findings-valid') {
       // 119 L-D3b: an absent review-settings fact (gathered before it existed) warns; an unreadable one fails closed.
       // C-2: a recorded protocol looser than the project's non-auto review.preset is invalid, and so is a record without one.
-      if (requireFact('findings', 'findings-invalid') && (!byName.has('review-settings') || requireFact('review-settings', 'findings-invalid'))) {
+      // 120 D.4: an absent authoring-identities fact warns; an unreadable one fails closed.
+      if (requireFact('findings', 'findings-invalid')
+        && (!byName.has('review-settings') || requireFact('review-settings', 'findings-invalid'))
+        && (!byName.has('authoring-identities') || requireFact('authoring-identities', 'findings-invalid'))) {
         if (findings === null || findings === undefined) reasons.push('findings-missing');
-        else if (!validateFindings(findings, { sameFamily: get('review-settings')?.sameFamily === 'refuse' ? 'refuse' : 'warn', preset: reviewPreset(get('review-settings')) }).ok || findings.row !== row.id || findings.slug !== row.slug
+        else if (!validateFindings(findings, {
+          sameFamily: get('review-settings')?.sameFamily === 'refuse' ? 'refuse' : 'warn',
+          preset: reviewPreset(get('review-settings')),
+          authors: get('authoring-identities'),
+        }).ok || findings.row !== row.id || findings.slug !== row.slug
           || protocolLooserThanPreset(findings.protocol, get('review-settings')?.preset)) reasons.push('findings-invalid');
         else {
           if (unavailable('heads') || !HEX_HEAD.test(head) || findings.reviewedHead !== head) reasons.push('review-stale-head');

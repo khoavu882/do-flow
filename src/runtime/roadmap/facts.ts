@@ -386,6 +386,7 @@ function gatherGateFacts(options: any): GateFact[] {
   let findings: any = null;
   let sameFamily: 'warn' | 'refuse' = 'warn';
   let preset = 'auto';
+  let authors: any[] = [];
   if (predicates.some((predicate: string) => ['findings-valid', 'no-dropped-findings', 'dispositions-backed', 'blockers-zero'].includes(predicate))) {
     // The project's `review.sameFamily` (119 L-D3a) and `review.preset` (C-2), read once; the gate judges the fact, never the settings.
     let settingsLocator = `${root}/.doflow/settings.json#review.sameFamily`;
@@ -403,6 +404,30 @@ function gatherGateFacts(options: any): GateFact[] {
       if (invalid) { settingsLocator = invalid.source; settingsUnreadable = 'settings-unavailable'; }
     } catch { settingsUnreadable = 'settings-unavailable'; }
     add('review-settings', { sameFamily, preset }, settingsLocator, undefined, settingsUnreadable);
+
+    // 120 D.4: authoring-identities fact
+    let authorsLocator = `${root}/.doflow/state/dispatch/${row.slug}.json`;
+    let authorsUnreadable: string | undefined;
+    try {
+      const { authoringIdentities } = require('../review/identity.ts');
+      const { storeFileFor, readDispatch } = require('../dispatch/store.ts');
+      const { projectRoot } = require('../lifecycle/root.ts');
+      const pRoot = projectRoot(root);
+      authorsLocator = storeFileFor(pRoot, row.slug);
+      if (fsImpl.existsSync(authorsLocator)) {
+        readDispatch(authorsLocator, fsImpl);
+      }
+      authors = authoringIdentities({
+        slug: row.slug,
+        cwd: root,
+        env: options.env || process.env,
+        fsImpl,
+      });
+    } catch {
+      authorsUnreadable = 'dispatch-unreadable';
+    }
+    add('authoring-identities', authors, authorsLocator, undefined, authorsUnreadable);
+
     const input = read([path.join(artifactRoot, 'review/findings.json')]);
     if (!input.unreadable) {
       try { findings = JSON.parse(input.text); } catch { findings = input.text; }
@@ -437,7 +462,7 @@ function gatherGateFacts(options: any): GateFact[] {
       }
     }
     // The schema validator is deliberately pure and shared by gathering and gate evaluation.
-    add('dispositions', { ancestors, decisions, schemaValid: validateFindings(findings, { sameFamily, preset }).ok }, `${artifactRoot}/review/findings.json#dispositions`, undefined, unreadable);
+    add('dispositions', { ancestors, decisions, schemaValid: validateFindings(findings, { sameFamily, preset, authors }).ok }, `${artifactRoot}/review/findings.json#dispositions`, undefined, unreadable);
   }
   return result;
 }

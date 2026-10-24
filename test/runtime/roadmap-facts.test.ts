@@ -164,6 +164,64 @@ test('D.3: gate-b gathers the project review.sameFamily as a review-settings fac
   assert.equal(env.gather('gate-0', { env: sandbox }).some((f: any) => f.name === 'review-settings'), false, 'read only when a findings predicate is in use');
 });
 
+test('D.4: gate-b gathers the authoring-identities fact; dispositions schemaValid follows it', (t) => {
+  const env = setup(t);
+  const sandbox: any = { ...process.env, HOME: path.join(env.root, 'home'), XDG_CONFIG_HOME: path.join(env.root, 'xdg') };
+  const authorsFact = (gathered: any) => gathered.find((f: any) => f.name === 'authoring-identities');
+
+  // When no dispatch store exists, authoring-identities is empty array and readable
+  const empty = env.gather('gate-b', { env: sandbox });
+  assert.deepEqual(authorsFact(empty).value, []);
+  assert.equal(authorsFact(empty).unreadable, undefined);
+
+  // When dispatch store has dispatches, authoring-identities fact gathers them
+  const { storeFileFor } = require('../../src/runtime/dispatch/store.ts');
+  const storeFile = storeFileFor(env.root, row.slug);
+  fs.mkdirSync(path.dirname(storeFile), { recursive: true });
+  fs.writeFileSync(storeFile, JSON.stringify({
+    version: 1,
+    revision: 1,
+    slug: row.slug,
+    run: { runId: 'p-123456789012', state: 'running' },
+    lease: null,
+    drivers: [],
+    spawnRequests: {},
+    steps: [],
+    dispatches: {
+      'd-1': {
+        dispatchId: 'd-1',
+        seq: 0,
+        mode: 'subagent',
+        harness: 'codex',
+        phase: 'collected',
+        collectedAt: '2026-10-24T12:00:00.000Z',
+        outcome: 'offered',
+        model: {
+          requested: 'o3-mini',
+          served: 'o3-mini-2025-01-31',
+          source: 'binding',
+          tier: 'standard',
+        },
+      },
+    },
+  }));
+
+  const gathered = env.gather('gate-b', { env: sandbox });
+  assert.deepEqual(authorsFact(gathered).value, [
+    { kind: 'subagent', harness: 'codex', model: 'o3-mini-2025-01-31', channel: 'observed' },
+    { kind: 'subagent', harness: 'codex', model: 'o3-mini', channel: 'observed' },
+  ]);
+  assert.equal(authorsFact(gathered).unreadable, undefined);
+
+  // When dispatch store is corrupted, authoring-identities fact is unreadable
+  fs.writeFileSync(storeFile, 'not valid json');
+  const corrupted = env.gather('gate-b', { env: sandbox });
+  assert.equal(authorsFact(corrupted).unreadable, 'dispatch-unreadable');
+
+  // Fact is not gathered for gate-0
+  assert.equal(env.gather('gate-0', { env: sandbox }).some((f: any) => f.name === 'authoring-identities'), false, 'read only when a findings predicate is in use');
+});
+
 test('C-2: the review-settings fact also carries the project review.preset, which gate-b reads as a floor for the recorded protocol', (t) => {
   const env = setup(t);
   const sandbox: any = { ...process.env, HOME: path.join(env.root, 'home'), XDG_CONFIG_HOME: path.join(env.root, 'xdg') };
