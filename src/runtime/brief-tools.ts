@@ -29,6 +29,7 @@ const { resolveSetting } = require('./advice/config.ts');
 const { materializeKind } = require('./advice/kinds.ts');
 const { createAdviceClient } = require('./advice/client.ts');
 const { strengthWords } = require('./advice/strength.ts');
+const { resolveTier } = require('./worker/models.ts');
 
 const SCHEMA = 1;
 const REACHABLE = new Set(['selected', 'configured']);
@@ -62,22 +63,6 @@ function chooseTarget({ registry, reach, harness, missing }: any) {
     if (ids.length) return ids.length === 1 ? ids[0] : null;
   }
   return null;
-}
-
-/** Tier for a dispatch: the task line's tier when valid, else the owner's, else the default (IC-004).
- * A registry without `dispatchTiers` (the key is optional) gives `standard` with a note. */
-function resolveTier({ dispatchTiers, owner, tier, missing }: any) {
-  if (!dispatchTiers) {
-    missing.push('models.json has no dispatchTiers; tier standard assumed');
-    return { tier: 'standard', source: 'default', note: 'models.json has no dispatchTiers' };
-  }
-  if (tier !== undefined && tier !== null && tier !== '') {
-    if (dispatchTiers.tiers.includes(tier)) return { tier, source: 'task' };
-    missing.push(`tier '${tier}' is not in dispatchTiers.tiers; ignored`);
-  }
-  if (Object.hasOwn(dispatchTiers.byOwner, owner)) return { tier: dispatchTiers.byOwner[owner], source: 'owner' };
-  missing.push(`owner '${owner}' has no tier in models.json dispatchTiers`);
-  return { tier: dispatchTiers.default, source: 'default' };
 }
 
 /** The first provider of a capability whose probe status is `status`, in registry order, or null. */

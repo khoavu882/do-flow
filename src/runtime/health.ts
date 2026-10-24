@@ -801,7 +801,7 @@ const FRESHNESS_MARK: Record<string, any> = Object.freeze({
   UNKNOWN: '? UNKNOWN',
 });
 
-/** IC-014: read enabled state and unfiltered worker eligibility without writing or running worker probes. */
+/** IC-014: read enabled state, bound tiers and unfiltered eligibility without writing or running worker probes. */
 function workersDoctorView({
   env = process.env, projectRoot, repoRoot = REPO_ROOT, descriptors, now,
 }: any = {}) {
@@ -809,18 +809,28 @@ function workersDoctorView({
   const root = require('./lifecycle/root.ts').projectRoot(projectRoot);
   const { activeWorkers } = require('./worker/active.ts');
   // Readiness already requires health.ts; load it only after this module has initialized.
-  const { select, enabledOf } = require('./worker/readiness.ts');
+  const { select, enabledOf, workerDescriptors } = require('./worker/readiness.ts');
+  const { readBindings, resolveBinding } = require('./worker/models.ts');
   const active = activeWorkers({ registry: reg, env, projectRoot: root });
+  const bindings = readBindings({ env, projectRoot: root });
+  const entries = workerDescriptors({ descriptors, registry: reg });
+  const tiers = reg.dispatchTiers?.tiers ?? [];
   const selection = select({
     descriptors, registry: reg, env, cwd: projectRoot, root, now, needs: [],
   });
   const rows = selection.candidates.map(({ harness, eligible, gaps }: any) => {
     const gap = gaps[0];
+    const descriptor = entries.find((entry: any) => entry.harness === harness)?.worker;
+    const bound = tiers.flatMap((tier: string) => {
+      const resolved = resolveBinding({ worker: harness, tier, bindings, descriptor });
+      return resolved.source === 'binding' ? [{ tier, flag: resolved.flag }] : [];
+    });
     return {
       harness,
       enabled: enabledOf(active, harness),
       eligible,
       firstGap: gap ? { requirement: gap.requirement, result: gap.result, reason: gap.reason } : null,
+      bound,
     };
   });
   return {
@@ -829,6 +839,7 @@ function workersDoctorView({
     inSession: active.inSession,
     reason: active.reason,
     dangling: active.dangling,
+    bindings: { state: bindings.state, reason: bindings.reason },
     rows,
   };
 }
@@ -929,13 +940,17 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   if (report.workers.state === 'unavailable') {
     console.log(`  worker: unavailable (${report.workers.message})`);
   } else {
+    if (report.workers.bindings.state === 'invalid') {
+      console.log(`  workers.models: invalid (${report.workers.bindings.reason})`);
+    }
     if (report.workers.state === 'invalid') {
       console.log(`  workers.enabled: invalid (${report.workers.reason})`);
     }
     for (const row of report.workers.rows) {
       const position = row.enabled.position === null ? '' : ` #${row.enabled.position}`;
       const eligibility = row.eligible ? 'eligible' : `ineligible (${row.firstGap.requirement})`;
-      console.log(`  worker ${row.harness}: ${row.enabled.state}${position}, ${eligibility}`);
+      const bound = row.bound.map((item: any) => `${item.tier}(${item.flag})`).join(', ') || 'none';
+      console.log(`  worker ${row.harness}: ${row.enabled.state}${position}, ${eligibility}; bound tiers: ${bound}`);
     }
     for (const id of report.workers.dangling) {
       console.log(`  worker ${id}: dangling (no registry or enabled package knows it)`);

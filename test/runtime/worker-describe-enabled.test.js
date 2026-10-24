@@ -42,7 +42,11 @@ async function describeBody(t, f, harness, extraEnv = {}) {
   assert.equal(result.exit, 0);
   assert.equal(result.body.disposition, 'described');
   assert.equal(result.body.harness, harness);
-  assert.equal(result.body.bindings, undefined);
+  assert.deepEqual(result.body.bindings, {
+    light: { model: null, flag: 'n/a' },
+    standard: { model: null, flag: 'n/a' },
+    frontier: { model: null, flag: 'n/a' },
+  });
   assert.deepEqual(result.body.active, activeWorkers({
     env: options(f, extraEnv).env, projectRoot: f.project,
   }));
@@ -91,6 +95,7 @@ function assertDoctor(f, expected) {
     assert.deepEqual(row.firstGap, baseline.candidates[index].gaps[0]);
     assert.deepEqual(Object.keys(row.firstGap).sort(), ['reason', 'requirement', 'result']);
     assert.equal(Object.hasOwn(row, 'bindings'), false);
+    assert.deepEqual(row.bound, []);
   }
   return view;
 }
@@ -301,7 +306,7 @@ test('doctor text and JSON report workers beside the unchanged primary line with
 
   const text = cli(['doctor']);
   assert.match(text, /\[Primary and Workers\]/);
-  assert.match(text, /^  worker claude: enabled #1, /m);
+  assert.match(text, /^  worker claude: enabled #1, ineligible \([^)]+\); bound tiers: none$/m);
   assert.equal(text.split('\n').filter((line) => line === '  worker ghost: dangling (no registry or enabled package knows it)').length, 1);
   assert.equal(text.split('\n').filter((line) => line === "  note: workers.enabled: worker 'ghost' is not installed (ignored)").length, 1);
   assert.deepEqual(text.split('\n').filter((line) => /^\s*primary: /.test(line)), [
@@ -317,6 +322,7 @@ test('doctor text and JSON report workers beside the unchanged primary line with
   assert.equal(report.primary.harness, 'gemini');
   for (const row of report.workers.rows) {
     assert.equal(Object.hasOwn(row, 'bindings'), false);
+    assert.deepEqual(row.bound, []);
   }
   assert.equal(fs.existsSync(f.userFile('session-env')), false);
 
@@ -325,6 +331,6 @@ test('doctor text and JSON report workers beside the unchanged primary line with
   const workerLines = invalidText.split('\n').filter((line) => /^  workers? /.test(line) || /^  workers\.enabled: /.test(line));
   assert.match(workerLines[0], /^  workers\.enabled: invalid \(.+\)$/);
   assert.equal(invalidText.includes('held'), false);
-  assert.match(invalidText, /^  worker claude: unlisted, ineligible \([^)]+\)$/m);
+  assert.match(invalidText, /^  worker claude: unlisted, ineligible \([^)]+\); bound tiers: none$/m);
   assert.equal(fs.existsSync(f.userFile('session-env')), false);
 });

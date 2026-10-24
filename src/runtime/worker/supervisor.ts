@@ -405,6 +405,7 @@ async function superviseRun({
       recipe: run.descriptor, prompt: promptBytes.toString('utf8'), identity: run.identity, runId,
       execWorktree: run.execWorktree, env, taskId: run.task, ...(run.edit ? { edit: true } : {}),
       ...(lastMessageFile ? { lastMessageFile } : {}),
+      ...(run.binding ? { binding: run.binding } : {}),
     });
   } catch (error: any) {
     notStarted(typeof error?.code === 'string' && error.code ? error.code : 'launch-failed');

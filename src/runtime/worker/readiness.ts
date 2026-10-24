@@ -30,6 +30,7 @@ const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
 const { workerCatalogue } = require('./catalogue.ts');
 const { workerGate } = require('./active.ts');
+const { bindingsOf } = require('./models.ts');
 const { knownWorkerIds } = require('../../registry/worker-ids.ts');
 const { runProbe, PROBE_TIMEOUT_MS } = require('../health.ts');
 const { updateTaskState, readTaskState } = require('../task-state.ts');
@@ -603,11 +604,11 @@ function enabledOf(active: any, id: string): {
 
 /**
  * IC-009: what one harness declares, its effective probe facts with a `stale` flag, and IC-008's
- * requirements for the baseline and `needs`. IC-014 adds enabled, active and primary when supplied,
- * without filtering the described harness. Read-only.
+ * requirements for the baseline and `needs`. IC-014 adds enabled, active, primary and bindings when
+ * supplied, without filtering the described harness. Read-only.
  */
 function describe({
-  descriptors, registry, coverage, harness, needs, active, primary, edit = false,
+  descriptors, registry, coverage, harness, needs, active, primary, bindings, edit = false,
   env = process.env, cwd = process.cwd(), root = cwd, now = Date.now, platform = process.platform,
 }: any = {}) {
   const context = readinessContext({ descriptors, registry, coverage });
@@ -629,6 +630,12 @@ function describe({
     requirements: evaluated.requirements, eligible: evaluated.eligible,
     ...(active !== undefined ? { enabled: enabledOf(active, harness), active: { ...active } } : {}),
     ...(primary !== undefined ? { primary } : {}),
+    ...(bindings !== undefined ? {
+      bindings: bindingsOf({
+        worker: harness, descriptor: entry.worker, bindings,
+        tiers: (registry || loadRegistry({ repoRoot: REPO_ROOT })).dispatchTiers?.tiers ?? [],
+      }),
+    } : {}),
   };
 }
 

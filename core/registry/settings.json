@@ -130,7 +130,7 @@
     "workers.models": { "type": "worker-models", "valuesRef": "workers.ids", "tiersRef": "models.tierIds", "default": null,
       "scope": "global-only", "combine": "override", "securityRelevant": true, "failSafe": { "state": "invalid" },
       "env": null, "flag": null, "shellRead": null, "needsConfigHome": true, "legacy": [],
-      "consumers": ["src/runtime/settings/resolve.ts"],
+      "consumers": ["src/runtime/worker/models.ts"],
       "description": "Person-written model per worker and tier; a worker or tier not listed keeps the harness default." }
   }
 }

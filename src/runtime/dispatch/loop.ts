@@ -49,6 +49,7 @@ const readiness = require('../worker/readiness.ts');
 const { executeWorkerCommand, settledStatus } = require('../worker/command.ts');
 const { cancelRun } = require('../worker/cancel.ts');
 const { activeWorkers, workerGate, inSessionGate } = require('../worker/active.ts');
+const { resolveTier, readBindings, resolveBinding, bindingGap } = require('../worker/models.ts');
 const { resultOfRun } = require('../worker/supervisor.ts');
 const { readRuns, storeFileFor: runStoreFileFor } = require('../worker/run-store.ts');
 const {
@@ -274,6 +275,18 @@ function selectMode({ policy = 'auto', held = false, lastFailureClass = null, ca
     candidates = evaluateHarnesses({ ...rest, ladder });
     if (cache) cache.candidates = candidates;
   }
+  // IC-012: the cached readiness is shared; bindings gate a fresh array for this task's tier.
+  if (rest.bindings !== undefined) {
+    const reg = rest.registry || loadRegistry({ repoRoot: REPO_ROOT });
+    const resolvedTier = resolveTier({ dispatchTiers: reg.dispatchTiers, owner, tier, missing: [] }).tier;
+    const entries = readiness.workerDescriptors({ descriptors: rest.descriptors, registry: reg });
+    candidates = candidates.map((c: any) => {
+      if (!c.eligible) return c;
+      const descriptor = entries.find((entry: any) => entry.harness === c.harness)?.worker;
+      const gap = bindingGap(resolveBinding({ worker: c.harness, tier: resolvedTier, bindings: rest.bindings, descriptor }));
+      return gap ? { ...c, eligible: false, gaps: [...c.gaps, gap] } : c;
+    });
+  }
   if (ladder) candidates = ladder.map((id: string) => candidates.find((c: any) => c.harness === id)).filter(Boolean);
   let passed: string | null = null;
   let chosen: any = null;
@@ -451,6 +464,7 @@ function passFor(options: any) {
     return p.registry;
   };
   p.activeNow = () => activeWorkers({ registry: p.reg(), env: p.env, projectRoot: p.root });
+  p.bindingsNow = () => readBindings({ env: p.env, projectRoot: p.root });
   p.act = (name: string, d: any, token: string, detail: any = null, ms = 0) => {
     p.actions.push({
       action: name, dispatchId: d && d.dispatchId ? d.dispatchId : null, task: d && d.task ? d.task : null,
@@ -1070,6 +1084,7 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
   const s = readDispatch(p.file);
   const d = s.dispatches[admitted.dispatchId];
   if (!d || d.phase !== 'claimed') return;
+  let binding: any = null;
   if (!MAIN_SESSION_MODES.includes(d.mode)) {
     const closed = gateOf(p.activeNow(), d.harness);
     if (closed) {
@@ -1078,6 +1093,24 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
       await failDispatch(p, d, ['claimed'], 'report-denied', closed.reason, null, null);
       return;
     }
+    // IC-012: settings may have changed since selection; refuse before writing the handoff.
+    const reg = p.reg();
+    const tier = resolveTier({
+      dispatchTiers: reg.dispatchTiers,
+      owner: p.ownerOf ? p.ownerOf(d.task) : null,
+      tier: p.tierOf ? p.tierOf(d.task) : null,
+      missing: [],
+    }).tier;
+    const descriptor = readiness.workerDescriptors({ descriptors: p.descriptors, registry: reg })
+      .find((entry: any) => entry.harness === d.harness)?.worker;
+    const resolved = resolveBinding({ worker: d.harness, tier, bindings: p.bindingsNow(), descriptor });
+    const gap = bindingGap(resolved);
+    if (gap) {
+      p.act('launch', d, 'refused', gap.reason, 0);
+      await failDispatch(p, d, ['claimed'], 'report-denied', gap.reason, null, null);
+      return;
+    }
+    if (resolved.flag === 'supported') binding = { model: resolved.model, flag: 'supported' };
   }
   const planTask = plan.graph.tasks.find((t: any) => t.id === d.task);
   const record = view.tasks.find((r: any) => r.id === d.task);
@@ -1098,6 +1131,7 @@ async function launch(p: any, admitted: any, plan: any, view: any) {
   try {
     outcome = await executeWorkerCommand({
       action: 'run', edit: true, slug: p.slug, harness: d.harness, task: d.task, token: d.token,
+      binding,
       promptFile: handoff.path, timeoutSeconds: seconds + BACKSTOP_SECONDS,
       env: p.env, cwd: p.cwd, platform: p.platform, now: p.clock, descriptors: p.descriptors, registry: p.reg(), coverage: p.coverage,
     });
@@ -1194,6 +1228,7 @@ async function admitAndLaunch(p: any) {
   const heldBefore = f.holds && typeof f.holds === 'object' ? f.holds : {};
   const newHolds = new Map<string, any>();
   const active = p.activeNow();
+  const bindings = p.bindingsNow();
   const modeFor = (task: string, { store: s }: any) => {
     if (Object.hasOwn(heldBefore, task)) return { hold: heldBefore[task].reason };
     const choice: any = selectMode({
@@ -1202,7 +1237,7 @@ async function admitAndLaunch(p: any) {
       harness: run.harness || null, needs: Array.isArray(run.needs) ? run.needs : [], descriptors: p.descriptors, registry: p.reg(),
       coverage: p.coverage, env: p.env, cwd: p.cwd, root: p.root, now: () => p.clock().getTime(), platform: p.platform,
       evaluateImpl: p.evaluateImpl, cache: p.cache, fallback: f, owner: p.ownerOf ? p.ownerOf(task) : null, tier: p.tierOf ? p.tierOf(task) : null,
-      task, last: lastWorkerDispatch(s, task), active,
+      task, last: lastWorkerDispatch(s, task), active, bindings,
     });
     if (!choice.hold) return choice;
     if (choice.hold.transient) {

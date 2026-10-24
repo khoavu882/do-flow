@@ -37,6 +37,7 @@ const crypto = require('node:crypto');
 const { spawn, spawnSync } = require('node:child_process');
 const readiness = require('./readiness.ts');
 const { activeWorkers, workerGate } = require('./active.ts');
+const { readBindings } = require('./models.ts');
 const { workerCatalogue } = require('./catalogue.ts');
 const { storeFileFor, newRunId, insertRun, transition, readRuns, RUN_ID } = require('./run-store.ts');
 const evidence = require('./evidence.ts');
@@ -290,6 +291,7 @@ function evaluate({ reg, worker, harness, needs, coverage, env, cwd, root, nowMs
 /** IC-011 steps 0 to 12, then the supervisor spawn and the start poll. */
 async function runAction(o: any) {
   const { env, cwd, root, platform, clock, sleep, slug, harness, task, token, needs, timeoutSeconds, prompt, worker, reg, coverage } = o;
+  const binding = o.binding ?? null;
   const edit = o.edit === true;
   const childOf: string | null = o.childOf ?? null;
   const nowMs = () => clock().getTime();
@@ -361,7 +363,8 @@ async function runAction(o: any) {
       attempt: key.identity.attempt || null, role: key.identity.role, lineageKind: key.identity.lineageKind,
     },
     edit: editRecord, childOf, request: childOf ? o.request : null,
-    ...launchRecord(worker, identity, prompt.bytes.toString('utf8'), edit),
+    ...launchRecord(worker, identity, prompt.bytes.toString('utf8'), edit, binding),
+    ...(binding ? { binding: { model: binding.model, flag: binding.flag } } : {}),
     descriptor: worker,
     prompt: { path: prompt.path, sha256: prompt.sha256, bytes: prompt.bytes.length },
     needs: evaluated.requirements.map((item: any) => ({ requirement: item.requirement, at: item.at ?? null })),
@@ -530,7 +533,7 @@ async function executeWorkerCommand({
   action, slug = null, harness, need, modelCheck, budgetTokens, task, token, promptFile, timeoutSeconds, wait = false,
   workerRun, checks, out, by, reason, edit = false, childOf, request, execWorktree,
   env = process.env, cwd = process.cwd(), resolveSlug = null, platform = process.platform, now = () => new Date(),
-  descriptors, registry, coverage, sleep = defaultSleep,
+  descriptors, registry, coverage, sleep = defaultSleep, binding = null,
 }: any = {}): Promise<{ exit: number; body: any }> {
   try {
     if (!given(action)) throw usage(`--action is required; valid: ${ACTIONS.join(' | ')}`);
@@ -567,6 +570,7 @@ async function executeWorkerCommand({
           ...atRoot, coverage: cov, harness: String(harness), needs, edit: given(edit),
           active: activeWorkers({ registry: reg, env, projectRoot: root }),
           primary,
+          bindings: readBindings({ env, projectRoot: root }),
         });
         break;
       }
@@ -588,6 +592,7 @@ async function executeWorkerCommand({
         body = await runAction({
           env, cwd, root, platform, clock, sleep, slug: feature, harness: String(harness), task: String(task), token: Number(token),
           needs, timeoutSeconds: seconds, prompt, worker, reg, coverage: cov, wait: Boolean(wait),
+          binding,
           edit: given(edit), childOf: given(childOf) ? String(childOf) : null, request: given(request) ? String(request) : null,
           execWorktree: given(execWorktree) ? String(execWorktree) : null,
         });
