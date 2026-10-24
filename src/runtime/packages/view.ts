@@ -3,8 +3,14 @@
 /**
  * The package view (122 IC-010): the effective state of every package, read-only, with no network, no
  * harness and no model call. Phase A holds the bundled first-party packages only, those listed in
- * `contribution-points.json` `bundled`; the lock, grants, settings and store belong to Phase B, so
- * `settingsView`, `env` and `now` are accepted and not read yet.
+ * `contribution-points.json` `bundled`; the lock, grants and store belong to later Phase B tasks, so `now`
+ * is accepted and not read yet, while `settingsView` and `env` feed the `packages.disabled` overlay below.
+ *
+ * The resolved `packages.disabled` setting (IC-011) is applied last, over the memoised states: a listed id is `disabled`
+ * with reason `disabled-by-<layer>`, and an invalid value disables every non-bundled package with `settings-invalid`
+ * (PN-7, fail closed). The bundled package can be disabled by the person like any other. A caller passes
+ * `settingsView['packages.disabled']` (`{ value, layer, state?, byId? }`); with none, the project settings of the working
+ * directory are read, unless `fsImpl` is injected, which keeps the view hermetic.
  *
  * A bundled package is `active` unless its directory or manifest is missing or invalid, then `incompatible`
  * with IC-004 reason codes. It is trusted at runtime and verified at release (IC-015): only the manifest's shape
@@ -108,12 +114,62 @@ function bundledState(entry: any, ctx: any): { state: any; findings: any[] } {
   return { state, findings };
 }
 
+const DISABLED_KEY = 'packages.disabled';
+
+/**
+ * The `packages.disabled` entry of the project settings of the working directory, in the shape a caller injects.
+ * `byId` names the lowest layer that listed each id. A registry or settings fault is an invalid value: fail closed.
+ */
+function resolvedDisabledEntry(env: any): any {
+  try {
+    const resolution = require('../settings/resolve.ts').loadSettings({ projectRoot: process.cwd(), env: env ?? process.env }).get(DISABLED_KEY);
+    const byId: Record<string, string> = {};
+    for (const c of resolution.candidates) {
+      if (c.status !== 'decided' || !Array.isArray(c.value)) continue;
+      for (const id of c.value) byId[id] ??= c.layer;
+    }
+    return { value: resolution.value, layer: resolution.origin.layer, state: resolution.state, byId };
+  } catch {
+    return { value: null, layer: 'default', state: 'invalid' };
+  }
+}
+
+/**
+ * The packages with the `packages.disabled` entry applied (IC-010 state 3). Only a package that would be `active` or
+ * `needs-trust` changes: `incompatible` and `suspended` outrank `disabled`. Returns `packages` itself when nothing changes.
+ */
+function applySettingsDisable(packages: any[], entry: any): any[] {
+  if (!entry) return packages;
+  const invalid = entry.state === 'invalid';
+  const listed = new Set<string>(!invalid && Array.isArray(entry.value) ? entry.value : []);
+  const reasonFor = (pkg: any): string | null => {
+    if (invalid) return pkg.source?.type === 'bundled' ? null : 'settings-invalid';
+    return listed.has(pkg.id) ? `disabled-by-${entry.byId?.[pkg.id] ?? entry.layer}` : null;
+  };
+  let changed = false;
+  const out = packages.map((pkg: any) => {
+    const reason = pkg.state === 'active' || pkg.state === 'needs-trust' ? reasonFor(pkg) : null;
+    if (reason === null) return pkg;
+    changed = true;
+    return { ...pkg, state: 'disabled', reasons: [reason], contributions: pkg.contributions.map((c: any) => ({ ...c, active: false })) };
+  });
+  return changed ? out : packages;
+}
+
 /**
  * `{ packages, points, findings }`. `repoRoot` and `fsImpl` are for tests and the verbs; an injected `fsImpl`
  * bypasses the memo. A point registry that cannot be read leaves no bundled package to find: `packages` and
  * `points` are empty and the one finding is `state-unreadable` on `points`.
  */
-function packageView({ repoRoot = REPO_ROOT, fsImpl = fs }: { settingsView?: any; env?: any; fsImpl?: any; now?: any; repoRoot?: string } = {}): { packages: any[]; points: any[]; findings: any[] } {
+function packageView({ settingsView, env, fsImpl = fs, repoRoot = REPO_ROOT }: { settingsView?: any; env?: any; fsImpl?: any; now?: any; repoRoot?: string } = {}): { packages: any[]; points: any[]; findings: any[] } {
+  const base = baseView(repoRoot, fsImpl);
+  const entry = settingsView ? settingsView[DISABLED_KEY] : fsImpl === fs ? resolvedDisabledEntry(env) : undefined;
+  const packages = applySettingsDisable(base.packages, entry);
+  return packages === base.packages ? base : { ...base, packages };
+}
+
+/** The states before any setting is applied; memoised per runtime root for the real file system. */
+function baseView(repoRoot: string, fsImpl: any): { packages: any[]; points: any[]; findings: any[] } {
   const key = path.resolve(repoRoot);
   if (fsImpl === fs && memo.has(key)) return memo.get(key);
   const loaded = loadPoints({ repoRoot, fsImpl });
@@ -138,4 +194,4 @@ function packageView({ repoRoot = REPO_ROOT, fsImpl = fs }: { settingsView?: any
 
 function resetPackageView(): void { memo.clear(); }
 
-module.exports = { packageView, resetPackageView, hostVersion };
+module.exports = { packageView, resetPackageView, hostVersion, applySettingsDisable };

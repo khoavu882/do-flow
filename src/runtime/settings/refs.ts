@@ -18,6 +18,8 @@
  *                                         preset of depth 'deep'; never a contributed id
  *   protocols.debatePresetIds             core/registry/protocols.json order.debate, then the contributed debate presets
  *   protocols.lensIds                     core/registry/protocols.json lenses[].id
+ *   packages.ids                          'doflow' then the ids the global doflow.lock records under `packages`
+ *                                         (122 IC-011); a missing, v1 or unreadable lock adds none
  *
  * Where `auto` ranks: `auto` follows the risk rule, which picks the preset of depth `deep` or the one
  * of depth `single` (resolve-protocol.ts `idOfDepth`), so the deep preset is the strictest it can
@@ -30,6 +32,10 @@
  * compares it by dominance (resolve.ts). The contributed ids come from the merged view (`loadProtocols`) of the same
  * runtime root, or from `createRefs({ protocols })`, a merged registry a caller passes; an unusable view adds none.
  *
+ * `packages.ids` is read from the machine, not from the runtime root: the global lock under `homeDir` (the account
+ * home by default). An id a project file names that this machine has not recorded is not an error (a project file
+ * travels); the key declares `unknownMembers: warn` and the settings loader reports it.
+ *
  * protocols.json is held to `validateProtocols` before any of its refs resolves, so a ref never hands
  * out ids from a registry the review verbs would refuse. Sources are read on first use and cached for
  * the life of the returned resolver. A failure throws an Error that names the file and the field and
@@ -37,9 +43,11 @@
  */
 
 const nodeFs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { validateProtocols, contributedPresetIds } = require('../review/protocols.ts');
+const { readLock } = require('../../state/lockfile.ts');
 
 type RefKind = 'values' | 'order' | 'default';
 interface RefMeta { kind: RefKind; dependsOn: string[] }
@@ -62,6 +70,7 @@ const REF_META: Readonly<Record<string, RefMeta>> = Object.freeze({
   'protocols.reviewPresetOrder': { kind: 'order', dependsOn: [] },
   'protocols.debatePresetIds': { kind: 'values', dependsOn: [] },
   'protocols.lensIds': { kind: 'values', dependsOn: [] },
+  'packages.ids': { kind: 'values', dependsOn: [] },
 });
 
 /** The depth label of the strictest preset the risk rule picks (resolve-protocol.ts step 1). */
@@ -146,7 +155,18 @@ function protocolsLensIds(source: Source): string[] {
   });
 }
 
-const RESOLVERS: Readonly<Record<string, (source: Source, deps: Deps, merged: Merged) => unknown>> = Object.freeze({
+/** The bundled package's id (core/registry/contribution-points.json `bundled`), always a valid member. */
+const BUNDLED_PACKAGE_ID = 'doflow';
+
+/** `doflow`, then the ids the global lock records. A lock that cannot be read adds none: settings must still load. */
+function packagesIds(_source: Source, _deps: Deps, _merged: Merged, homeDir: string, fsImpl: any): string[] {
+  let recorded: unknown[] = [];
+  try { recorded = readLock({ scope: 'global', homeDir }, { fsImpl })?.packages ?? []; } catch { /* the lock is reported by the verbs that own it */ }
+  const ids = (Array.isArray(recorded) ? recorded : []).map((row: any) => row?.id).filter((id: unknown) => typeof id === 'string' && id && id !== BUNDLED_PACKAGE_ID);
+  return [BUNDLED_PACKAGE_ID, ...new Set<string>(ids as string[])];
+}
+
+const RESOLVERS: Readonly<Record<string, (source: Source, deps: Deps, merged: Merged, homeDir: string, fsImpl: any) => unknown>> = Object.freeze({
   'advice.providerIds': adviceProviderIds,
   'advice.providerDefaultEndpoint': adviceProviderDefaultEndpoint,
   'storage.lifecycleEventsDefaultHours': storageLifecycleEventsDefaultHours,
@@ -154,6 +174,7 @@ const RESOLVERS: Readonly<Record<string, (source: Source, deps: Deps, merged: Me
   'protocols.reviewPresetOrder': protocolsReviewPresetOrder,
   'protocols.debatePresetIds': protocolsDebatePresetIds,
   'protocols.lensIds': protocolsLensIds,
+  'packages.ids': packagesIds,
 });
 
 interface Refs {
@@ -161,7 +182,7 @@ interface Refs {
   resolve(name: string, deps?: Deps): unknown;
 }
 
-function createRefs({ repoRoot = REPO_ROOT, fsImpl = nodeFs, protocols }: { repoRoot?: string; fsImpl?: any; protocols?: any } = {}): Refs {
+function createRefs({ repoRoot = REPO_ROOT, fsImpl = nodeFs, protocols, homeDir }: { repoRoot?: string; fsImpl?: any; protocols?: any; homeDir?: string } = {}): Refs {
   const cache = new Map<string, any>();
   const source: Source = (file) => {
     if (!cache.has(file)) {
@@ -188,7 +209,7 @@ function createRefs({ repoRoot = REPO_ROOT, fsImpl = nodeFs, protocols }: { repo
   return {
     resolve(name, deps = {}) {
       if (!Object.hasOwn(RESOLVERS, name)) throw new Error(`unknown settings ref '${name}'`);
-      return RESOLVERS[name](source, deps, merged);
+      return RESOLVERS[name](source, deps, merged, homeDir ?? os.homedir(), fsImpl);
     },
   };
 }

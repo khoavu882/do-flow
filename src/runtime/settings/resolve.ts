@@ -23,6 +23,7 @@
  *      IC-014) is compared by dominance with the value below, anything else is `not-narrower`;
  *   3b. a `combine: union` key (a string-list) adds each valid candidate's items that are not yet present, in
  *      fold order; every contributor stays `decided`, a candidate adding nothing is `redundant`;
+ *      a key declaring `unknownMembers: warn` (122 IC-011) keeps a member its list does not hold, as one note;
  *   4. anything else overrides, an equal value included (so the deciding file is the highest one that
  *      sets it, as `doflow storage` names it today, OI-3).
  * After the fold: a key named as `{gate}` by another key's fail-safe takes its own fail-safe when one
@@ -196,7 +197,7 @@ function loadSettings({ projectRoot = null, global = false, env = process.env, r
 function buildView(registry: any, home: any, root: string | null, global: boolean, env: any, fsImpl: any, protocols: any): any {
   const { REGISTRY_FILE } = require('./registry.ts');
   const { REF_META } = require('./refs.ts');
-  const { readLayerFile } = require('./files.ts');
+  const { readLayerFile, validateValue } = require('./files.ts');
   const { projectLayerSource } = require('./project-layers.ts');
   const scope: ViewName = global ? 'global' : 'project';
   const io = onceFs(fsImpl);
@@ -266,6 +267,21 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
       reads.set(file, read);
     }
     return reads.get(file);
+  }
+
+  /**
+   * A `string-list` key declaring `unknownMembers: warn` (122 IC-011) keeps a member its list does not hold, because a
+   * project file travels to a machine that has not recorded it: the value stands if it passes every other rule, and the
+   * unrecorded members are one note. A list that breaks any other rule keeps its fault.
+   */
+  function keepUnknownMembers(key: string, spec: any, entry: any, file: string): any {
+    if (validateValue({ ...spec, valuesRef: undefined }, entry.raw)) return entry;
+    const known = registry.enumValues(key) ?? [];
+    const unknown = (entry.raw as string[]).filter((item) => !known.includes(item));
+    if (once(`unknown-member\0${key}\0${file}`)) {
+      notes.push({ code: 'unknown-member', key, source: file, text: `${key} names ${unknown.join(', ')}, which this machine has not recorded (kept)` });
+    }
+    return { raw: entry.raw, value: entry.raw, error: null };
   }
 
   /** A legacy file read: a `stat` first, and `legacy.ts` only on a hit. */
@@ -350,8 +366,9 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         out.push({ ...base0, display: '', value: null, fault: { code: read.code, reason: read.reason, offset: read.offset } });
         return;
       }
-      const entry = read.values.get(key);
+      let entry = read.values.get(key);
       if (!entry) return;
+      if (spec.unknownMembers === 'warn' && entry.error?.code === 'enum') entry = keepUnknownMembers(key, spec, entry, file);
       out.push({ ...base0, display: displayOf(spec, entry.raw), value: entry.value, fault: entry.error ? { ...entry.error, offset: null } : null });
     };
 

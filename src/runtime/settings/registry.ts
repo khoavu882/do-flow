@@ -39,7 +39,7 @@ const SHELL_READS = [null, 'lexical-v1'];
 const TOP_FIELDS = ['version', 'description', 'keys'];
 const SPEC_FIELDS = [
   'type', 'values', 'valuesRef', 'min', 'max', 'maxItems', 'maxLength', 'order', 'orderRef', 'default', 'defaultRef', 'scope', 'combine', 'views',
-  'securityRelevant', 'failSafe', 'requires', 'env', 'flag', 'shellRead', 'needsConfigHome', 'legacy',
+  'securityRelevant', 'failSafe', 'requires', 'unknownMembers', 'env', 'flag', 'shellRead', 'needsConfigHome', 'legacy',
   'consumers', 'description',
 ];
 const REQUIRED_FIELDS = [
@@ -159,6 +159,11 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     } else {
       if (has(spec, 'values')) err("'values' is only for enum keys");
       if (has(spec, 'valuesRef')) err("'valuesRef' is only for enum and string-list keys");
+    }
+    // 122 IC-011: a layer may name a member the list does not hold yet (a project file travels): kept, and reported as a note.
+    if (has(spec, 'unknownMembers')) {
+      if (type !== 'string-list' || !has(spec, 'valuesRef')) err("'unknownMembers' is only for string-list keys with a 'valuesRef'");
+      else if (spec.unknownMembers !== 'warn') err("unknownMembers must be 'warn'");
     }
     if (has(spec, 'min')) {
       if (type !== 'integer') err("'min' is only for integer keys");

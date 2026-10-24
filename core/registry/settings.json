@@ -104,6 +104,11 @@
       "scope": "project-overridable", "combine": "override", "securityRelevant": false,
       "env": null, "flag": null, "shellRead": null, "needsConfigHome": false, "legacy": [],
       "consumers": ["src/runtime/review/resolve-protocol.ts"],
-      "description": "Debate protocol preset for this project." }
+      "description": "Debate protocol preset for this project." },
+    "packages.disabled": { "type": "string-list", "valuesRef": "packages.ids", "unknownMembers": "warn", "maxItems": 32, "maxLength": 32, "default": [],
+      "scope": "project-overridable", "combine": "union", "securityRelevant": false, "failSafe": { "state": "invalid" },
+      "env": null, "flag": null, "shellRead": null, "needsConfigHome": false, "legacy": [],
+      "consumers": ["src/runtime/packages/view.ts"],
+      "description": "Package ids turned off for this view; lists from all layers add up, so a project can only turn packages off." }
   }
 }
