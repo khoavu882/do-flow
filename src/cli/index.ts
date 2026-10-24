@@ -133,8 +133,8 @@ function parseArgs(argv: string[]): any {
       }
       case '--action': {
         const val = argv[i + 1];
-        // `review` and `protocol` answer a missing value as usage, exit 2 (095 IC-003, 119 IC-004); other verbs keep exit 1.
-        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'review' || o.cmd === 'protocol' ? 2 : 1); }
+        // `review`, `protocol` and `primary` answer a missing value as usage, exit 2 (095 IC-003, 119 IC-004, 120 IC-008); other verbs keep exit 1.
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'review' || o.cmd === 'protocol' || o.cmd === 'primary' ? 2 : 1); }
         o.action = val; o.actionGiven = true; i++; break;
       }
       case '--task-class': {
@@ -218,8 +218,8 @@ function parseArgs(argv: string[]): any {
         // its validation subtly wrong.
         const runtime = parseRuntimeFlag(a, argv, i, o);
         if (runtime !== null) { i = runtime; break; }
-        // slot reports an unknown flag as its own usage error (exit 2, 115 IC-008).
-        if (a.startsWith('-') && o.cmd === 'slot') (o.extraFlags = o.extraFlags || []).push(a);
+        // slot and primary report an unknown flag as their own usage error (exit 2, 115 IC-008, 120 IC-008).
+        if (a.startsWith('-') && (o.cmd === 'slot' || o.cmd === 'primary')) (o.extraFlags = o.extraFlags || []).push(a);
         else if (a.startsWith('-') && o.cmd !== 'plan-check') { console.error(unknownFlagMessage(a)); process.exit(1); }
         else if (!o.cmd) o.cmd = a;
         else o.positional.push(a);
@@ -556,6 +556,8 @@ Commands:
   protocol             Print the review and debate protocol presets, or the one a run would use (read-only, writes nothing):
                        protocol --action list [--kind review|debate] [--json]
                        protocol --action resolve --kind review|debate [--task-class <id>] [--risk <level>] [--preset <id>] [--json]   (exit 0 resolved, 1 refused, 2 usage)
+  primary              Resolve which harness and model the main session runs (read-only):
+                       primary --action resolve [--json]   (exit 0, 1 refused, 2 usage)
   slot                 Named machine-wide queue, one holder at a time (--action run|list|release);
                        slot --action run --name <name> [--label <text>] [--timeout <s>] [--no-wait] -- <command> [args...]
                        slot --action release --name <name> --by <who> --reason <text>
@@ -611,6 +613,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        slot: run|list|release
                        review: check|start
                        protocol: list|resolve
+                       primary: resolve
       --task, --token, --owner, --mode,
       --result, --evidence-id, --reason     task-attempt (claim: --task --owner --mode manual|sequential|subagent
                                             [--owner-override <reason>] [--epoch <n>=1+] [--reserve-tokens <n>]

@@ -66,15 +66,16 @@ const { handleProtocolCommand } = require('../runtime/review/protocol-command.ts
 // `plan-check` is read-only (115 IC-001): no upkeep, which would write `.gitignore` and `upkeep-due`.
 // `review` writes only its one telemetry line (095 IC-003).
 // `protocol` only prints the registry and the resolved protocol (119 IC-004), so it has nothing to keep up.
-const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review', 'protocol']);
+// `primary` only prints the resolved main session (120 IC-008) and writes nothing.
+const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review', 'protocol', 'primary']);
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
 // The seed validator loads only for `roadmap seed`, and only this file may require it (G54).
 function handleSeedCommand(options: any): any { return require('../runtime/roadmap/seed.ts').handleSeedCommand(options); }
- // Settings support is needed only when the config verb runs.
+// Settings support is needed only when the config verb runs.
 function handleConfigCommand(options: any): any { return require('../runtime/settings/cli.ts').handleConfigCommand(options); }
 // The primary verb (row 120 A.4) needs the settings resolver only when it runs.
-function resolvePrimaryOnUse(options: any): any { return require('../runtime/context/primary.ts').resolvePrimary(options); }
+function handlePrimaryCommand(options: any): any { return require('../runtime/context/primary-command.ts').handlePrimaryCommand(options); }
 const { handleInventoryCommand } = require('../runtime/inventory/index.ts');
 const { finishRuntime, usageError } = require('../runtime/cli-result.ts');
 const { setRecordSlug, callerFeatureSlug, invalidSlugRefusal, slugNamesNoFeature } = require('../runtime/task-scope.ts');
@@ -404,6 +405,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // One --path only: a second occurrence reaches the handler as a list, which it refuses as usage.
     case 'review': return handleReviewCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, path: o.paths?.length === 1 ? o.paths[0] : o.paths, base: o.base, preset: o.preset, json: o.json, cwd: process.cwd(), env: process.env });
     case 'protocol': return handleProtocolCommand({ action: o.actionGiven ? o.action : undefined, kind: o.kind, taskClass: o.taskClass, risk: o.risk, preset: o.preset, json: o.json, cwd: process.cwd() });
+    case 'primary': return handlePrimaryCommand({ action: o.actionGiven ? o.action : undefined, json: o.json, flags: o.flagsGiven, env: process.env, cwd: process.cwd() });
     case 'slot': return handleSlotCommand({ action: o.actionGiven ? o.action : undefined, name: o.name, label: o.label, timeout: o.timeout, noWait: Boolean(o.noWait), command: o.slotCommand, by: o.by, reason: o.reason, positional: o.positional, extraFlags: o.extraFlags, json: o.json, env: process.env, cwd: process.cwd() });
     default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
   }

@@ -164,6 +164,16 @@ doflow protocol --action resolve --kind review --task-class feature [--risk HIGH
 
 `list` shows each preset with its seats, rounds, synthesizer and decider, then the invariants no setting can change. `resolve` shows the protocol one run would use and where each value came from. It has no diff to read, so a review always resolves to at least the deep preset; a `--preset` can only raise it. A preset looser than that is refused with exit 1, and a bad flag value is a usage error with exit 2. Add `--json` for the same data as one object.
 
+### See which primary DoFlow assumes
+
+`doflow primary --action resolve` prints which harness and model DoFlow takes the main session to run, from your `primary.harness` and `primary.model` settings and what the harness reported at session start. It is read-only. `doflow status` and `doflow doctor` show the same state in one line.
+
+```bash
+doflow primary --action resolve [--json]
+```
+
+It exits 0 for every state except `refused` (1: the declared model differs from the one observed and `primary.onContradiction` is `refuse`); a bad action or flag exits 2.
+
 ## Retrieve code from the project
 
 `doflow retrieve` keeps its existing guidance search when you pass only `--query`. Use

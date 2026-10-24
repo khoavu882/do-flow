@@ -819,6 +819,17 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   report.decisionModel = adviceSections.decisionModel;
   report.advice = adviceSections.advice;
   report.settings = settings;
+  // Read on use (row 120 A.4): no probe runs, nothing is written, and a fault never breaks the report.
+  let primaryText: string;
+  try {
+    const { primaryDoctorView, resolveForReport } = require('./context/primary-command.ts');
+    const resolved = resolveForReport({ env: rest.env ?? process.env, projectRoot, repoRoot });
+    report.primary = primaryDoctorView(resolved);
+    primaryText = `${report.primary.state} ${report.primary.harness ?? '-'}/${report.primary.model ?? '-'} (${report.primary.origin}), probe ${report.primary.probe}`;
+  } catch (error: any) {
+    report.primary = { state: 'unavailable', message: error?.message || String(error) };
+    primaryText = `unavailable (${report.primary.message})`;
+  }
 
   if (json) {
     console.log(JSON.stringify(report, null, 2));
@@ -875,6 +886,9 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   console.log(`  build             ${commandLine(commands.build)}`);
   console.log(`  test              ${commandLine(commands.test)}`);
   if (commands.reason) console.log(`  note              ${commands.reason}`);
+
+  console.log('\n[Primary]');
+  console.log(`  primary: ${primaryText}`);
 
   printMcpSections(report.mcp);
   printAdviceDoctor(adviceSections);
