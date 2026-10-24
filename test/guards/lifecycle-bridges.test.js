@@ -370,9 +370,9 @@ function matrixDocFindings(text, coverage) {
   return actual === renderEnforcementMatrix(inert(coverage)) ? [] : ['enforcement matrix differs from renderer'];
 }
 function parityEnumeratesCorpus(files) {
-  const parityFiles = fs.readdirSync(path.join(REPO, 'test/hooks')).filter(f => /^(bridge-parity(?:-[^.]+)?|pi-bridge)\.test\.js$/.test(f));
+  const parityFiles = fs.readdirSync(path.join(REPO, 'test/hooks')).filter(f => /^(bridge-parity(?:-[^.]+)?|pi-bridge)\.test\.ts$/.test(f));
   const sources = parityFiles.map(f => fs.readFileSync(path.join(REPO, 'test/hooks', f), 'utf8')).join('\n');
-  const parityHarnesses = new Set(parityFiles.map(f => f === 'bridge-parity.test.js' ? 'claude' : f === 'pi-bridge.test.js' ? 'pi' : f.match(/^bridge-parity-(.+)\.test\.js$/)?.[1]));
+  const parityHarnesses = new Set(parityFiles.map(f => f === 'bridge-parity.test.ts' ? 'claude' : f === 'pi-bridge.test.ts' ? 'pi' : f.match(/^bridge-parity-(.+)\.test\.ts$/)?.[1]));
   return files.filter(file => {
     const row = JSON.parse(fs.readFileSync(file, 'utf8'));
     const harness = row.expect?.envelope?.harness || (file.includes('/pi/') && row.native?.type === 'tool_call' ? 'pi' : null);

@@ -154,3 +154,9 @@ declare var TextDecoder: { new (label?: string, options?: any): { decode(input?:
 declare var URLSearchParams: { new (init?: any): any; prototype: any };
 declare var EventTarget: { new (): any; prototype: any };
 declare var Event: { new (type: string, init?: any): any; prototype: any };
+
+interface ObjectConstructor {
+  entries(o: any): [string, any][];
+  values(o: any): any[];
+  fromEntries(entries: any): any;
+}
