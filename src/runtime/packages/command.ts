@@ -35,9 +35,7 @@ const { capabilityDigest } = require('./digest.ts');
 const { satisfiesHostRange } = require('../../helper/semver.ts');
 const { isPackageId } = require('../../helper/package-ids.ts');
 const { TelemetryWriter } = require('../trace/telemetry.ts');
-const { loadSettingsRegistry } = require('../settings/registry.ts');
-const { readLayerFile } = require('../settings/files.ts');
-const { projectLayerSource } = require('../settings/project-layers.ts');
+// The settings readers load only for `package remove`'s reference scan, so `install` and every other verb stay off them (settings-hot-path).
 
 const TIER_ORDER = ['inert', 'instruction', 'executable'];
 const VERB_ACTIONS = ['enable', 'disable', 'trust', 'exempt', 'revoke', 'verify', 'remove'];
@@ -428,7 +426,7 @@ function settingsLayerFiles(o: any): Array<{ layer: string; file: string }> {
   const files: Array<{ layer: string; file: string }> = [];
   const home = configHome(o.env).dir;
   if (home !== null) files.push({ layer: 'user', file: path.join(home, 'settings.json') });
-  const layers = projectLayerSource(o.projectRoot).layersFrom;
+  const layers = require('../settings/project-layers.ts').projectLayerSource(o.projectRoot).layersFrom;
   if (layers !== null) files.push({ layer: 'project', file: path.join(layers, 'settings.json') }, { layer: 'local', file: path.join(layers, 'settings.local.json') });
   return files;
 }
@@ -458,6 +456,8 @@ function scanReferences(o: any, ids: Set<string>, keys: string[]): { dangling: a
   const unscanned: any[] = [];
   const names = (value: any): boolean => (typeof value === 'string' ? ids.has(value) : Array.isArray(value) && value.some((item: any) => ids.has(item)));
   if (keys.length > 0) {
+    const { loadSettingsRegistry } = require('../settings/registry.ts');
+    const { readLayerFile } = require('../settings/files.ts');
     const loaded = loadSettingsRegistry({ repoRoot: o.repoRoot ?? REPO_ROOT });
     for (const { layer, file } of settingsLayerFiles(o)) {
       if (!loaded.ok) { unscanned.push({ layer, path: file, reason: 'the settings registry is unreadable' }); continue; }
