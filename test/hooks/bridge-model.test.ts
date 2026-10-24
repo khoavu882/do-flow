@@ -11,7 +11,7 @@ const { loadRegistry } = require('../../src/registry/index.ts');
 const ROOT = path.resolve(__dirname, '../..');
 const PAYLOAD_HARNESSES = new Set(['codex', 'claude', 'antigravity', 'pi']);
 
-function decoded(harness, event, native) {
+function decoded(harness: any, event: any, native: any) {
   return JSON.parse(encodeEnvelope(harness, event, 'pre-implementation-gate', JSON.stringify(native))).doflow_event;
 }
 
@@ -43,7 +43,7 @@ test('every shipped harness declares the expected primary model probe', () => {
   const registry = loadRegistry({ repoRoot: ROOT });
   assert.equal(registry.validation.ok, true, registry.validation.errors.join('\n'));
   assert.deepEqual(
-    registry.harnesses.filter((harness) => harness.primaryProbe.model === 'payload').map((harness) => harness.id).sort(),
+    registry.harnesses.filter((harness: any) => harness.primaryProbe.model === 'payload').map((harness: any) => harness.id).sort(),
     [...PAYLOAD_HARNESSES].sort(),
   );
 });
@@ -54,7 +54,7 @@ test('registry rejects unknown and unsupported primaryProbe declarations', (t) =
   const harnessesFile = path.join(copiedRegistry, 'harnesses.json');
 
   const unknownKeyHarnesses = JSON.parse(fs.readFileSync(harnessesFile, 'utf8'));
-  const codex = unknownKeyHarnesses.harnesses.find((harness) => harness.id === 'codex');
+  const codex = unknownKeyHarnesses.harnesses.find((harness: any) => harness.id === 'codex');
   codex.primaryProbe.extra = true;
   fs.writeFileSync(harnessesFile, JSON.stringify(unknownKeyHarnesses));
   assert.throws(
@@ -63,7 +63,7 @@ test('registry rejects unknown and unsupported primaryProbe declarations', (t) =
   );
 
   const supportedWithoutEvidence = JSON.parse(fs.readFileSync(harnessesFile, 'utf8'));
-  const supportedCodex = supportedWithoutEvidence.harnesses.find((harness) => harness.id === 'codex');
+  const supportedCodex = supportedWithoutEvidence.harnesses.find((harness: any) => harness.id === 'codex');
   delete supportedCodex.primaryProbe.extra;
   supportedCodex.primaryProbe.status = 'supported';
   supportedCodex.primaryProbe.verifiedOn = '2026-10-24';

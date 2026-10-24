@@ -13,7 +13,7 @@ const { cwdHash } = require('../../src/runtime/context/identity.ts');
 const CLI = path.resolve(__dirname, '../../bin/doflow.js');
 const REGISTRY = { harnesses: [{ id: 'codex', primaryProbe: { model: 'payload', status: 'verified' } }, { id: 'gemini' }] };
 
-function setup(t) {
+function setup(t: any) {
   const root = tempDir(t, 'doflow-primary-cmd-');
   const project = path.join(root, 'project');
   const config = path.join(root, 'config');
@@ -23,7 +23,7 @@ function setup(t) {
   return { root, project, config, env };
 }
 
-function observe(f, harness, model, session) {
+function observe(f: any, harness: any, model: any, session: any) {
   const dir = path.join(f.config, 'doflow', 'session-env', 'primary', cwdHash(f.project), harness);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, `${session}.json`), JSON.stringify({
@@ -31,18 +31,18 @@ function observe(f, harness, model, session) {
   }));
 }
 
-function cli(f, args, extraEnv = {}) {
+function cli(f: any, args: any[], extraEnv: any = {}) {
   return spawnSync(process.execPath, [CLI, ...args], { cwd: f.project, encoding: 'utf8', env: { ...f.env, ...extraEnv } });
 }
 
 /** Runs the handler in process with an injected registry; returns the printed lines and the exit code. */
-function inProcess(f, args, extraEnv = {}) {
+function inProcess(f: any, args: any, extraEnv: any = {}) {
   const { handlePrimaryCommand } = require('../../src/runtime/context/primary-command.ts');
-  const lines = [];
+  const lines: any[] = [];
   const saved = process.exitCode;
   try {
     const code = handlePrimaryCommand({
-      action: 'resolve', env: { ...f.env, ...extraEnv }, cwd: f.project, out: (line) => lines.push(line), registry: REGISTRY, ...args,
+      action: 'resolve', env: { ...f.env, ...extraEnv }, cwd: f.project, out: (line: any) => lines.push(line), registry: REGISTRY, ...args,
     });
     return { code, lines, exitCode: process.exitCode };
   } finally {
@@ -50,9 +50,9 @@ function inProcess(f, args, extraEnv = {}) {
   }
 }
 
-function listFiles(dir) {
-  const out = [];
-  const walk = (d) => {
+function listFiles(dir: any) {
+  const out: any[] = [];
+  const walk = (d: any) => {
     for (const name of fs.readdirSync(d).sort()) {
       const file = path.join(d, name);
       const stat = fs.lstatSync(file);
@@ -145,7 +145,7 @@ test('status prints one primary line and --json gains primary; neither writes se
   const env = { DOFLOW_PRIMARY_HARNESS: 'gemini', DOFLOW_PRIMARY_MODEL: 'gem-1' };
   const text = cli(f, ['status'], env);
   assert.equal(text.status, 0, text.stderr);
-  const lines = text.stdout.split('\n').filter((line) => /^\s*primary: /.test(line));
+  const lines = text.stdout.split('\n').filter((line: any) => /^\s*primary: /.test(line));
   assert.deepEqual(lines, ['primary: declared-only gemini/gem-1 (env)']);
   const json = JSON.parse(cli(f, ['status', '--json'], env).stdout);
   assert.equal(json.primary.state, 'declared-only');
@@ -159,7 +159,7 @@ test('doctor prints one primary line and --json gains primary; neither writes se
   const f = setup(t);
   const env = { DOFLOW_PRIMARY_HARNESS: 'gemini', DOFLOW_PRIMARY_MODEL: 'gem-1' };
   const text = cli(f, ['doctor'], env);
-  const lines = text.stdout.split('\n').filter((line) => /^\s*primary: /.test(line));
+  const lines = text.stdout.split('\n').filter((line: any) => /^\s*primary: /.test(line));
   assert.deepEqual(lines, ['  primary: declared-only gemini/gem-1 (env), probe declared-only']);
   const json = JSON.parse(cli(f, ['doctor', '--json'], env).stdout);
   assert.deepEqual(json.primary, { state: 'declared-only', harness: 'gemini', model: 'gem-1', origin: 'env', probe: 'declared-only' });

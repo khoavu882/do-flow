@@ -16,9 +16,9 @@ const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
 
 const FAKES = { claude: DESCRIPTORS.claude, gemini: DESCRIPTORS.gemini };
 const NOW = Date.parse('2026-10-24T00:00:00Z');
-const writeUser = (f, value) => f.writeUserSettings({ schema: 1, 'workers.enabled': value });
+const writeUser = (f: any, value: any) => f.writeUserSettings({ schema: 1, 'workers.enabled': value });
 
-function options(f, extraEnv = {}) {
+function options(f: any, extraEnv = {}) {
   return {
     descriptors: FAKES,
     env: f.env({
@@ -33,7 +33,7 @@ function options(f, extraEnv = {}) {
   };
 }
 
-async function describeBody(t, f, harness, extraEnv = {}) {
+async function describeBody(t: any, f: any, harness: any, extraEnv: any = {}) {
   const before = process.exitCode;
   t.after(() => { process.exitCode = before; });
   const result = await executeWorkerCommand({
@@ -56,7 +56,7 @@ async function describeBody(t, f, harness, extraEnv = {}) {
   return result.body;
 }
 
-function assertUnchanged(f, harness, body) {
+function assertUnchanged(f: any, harness: any, body: any) {
   const baseline = readiness.describe({
     ...options(f), harness, root: f.project, now: () => NOW,
   });
@@ -68,7 +68,7 @@ function assertUnchanged(f, harness, body) {
   }
 }
 
-function assertDoctor(f, expected) {
+function assertDoctor(f: any, expected: any) {
   const env = options(f).env;
   const view = workersDoctorView({
     env, projectRoot: f.project, descriptors: FAKES, now: () => NOW,
@@ -77,9 +77,9 @@ function assertDoctor(f, expected) {
   for (const key of ['state', 'origin', 'inSession', 'reason', 'dangling']) {
     assert.deepEqual(view[key], active[key], key);
   }
-  assert.deepEqual(view.rows.map((row) => row.harness), ['claude', 'gemini']);
+  assert.deepEqual(view.rows.map((row: any) => row.harness), ['claude', 'gemini']);
   assert.deepEqual(
-    Object.fromEntries(view.rows.map((row) => [row.harness, row.enabled.state])),
+    Object.fromEntries(view.rows.map((row: any) => [row.harness, row.enabled.state])),
     expected,
   );
   const baseline = readiness.select({
@@ -100,11 +100,11 @@ function assertDoctor(f, expected) {
   return view;
 }
 
-function snapshot(dir) {
-  return fs.readdirSync(dir).sort().flatMap((name) => {
+function snapshot(dir: any) {
+  return fs.readdirSync(dir).sort().flatMap((name: any) => {
     const file = path.join(dir, name);
     if (fs.lstatSync(file).isDirectory()) {
-      return [[`${name}/`, null], ...snapshot(file).map(([child, value]) => [`${name}/${child}`, value])];
+      return [[`${name}/`, null], ...snapshot(file).map(([child, value]: any) => [`${name}/${child}`, value])];
     }
     return [[name, fs.readFileSync(file, 'utf8')]];
   });
@@ -295,7 +295,7 @@ test('doctor text and JSON report workers beside the unchanged primary line with
     GIT_CONFIG_NOSYSTEM: '1',
     DOFLOW_PRIMARY_HARNESS: 'gemini',
   };
-  const cli = (args) => {
+  const cli = (args: any) => {
     const result = spawnSync(process.execPath, [CLI, ...args], {
       cwd: f.project, env, encoding: 'utf8', timeout: 30000,
     });
@@ -307,16 +307,16 @@ test('doctor text and JSON report workers beside the unchanged primary line with
   const text = cli(['doctor']);
   assert.match(text, /\[Primary and Workers\]/);
   assert.match(text, /^  worker claude: enabled #1, ineligible \([^)]+\); bound tiers: none$/m);
-  assert.equal(text.split('\n').filter((line) => line === '  worker ghost: dangling (no registry or enabled package knows it)').length, 1);
-  assert.equal(text.split('\n').filter((line) => line === "  note: workers.enabled: worker 'ghost' is not installed (ignored)").length, 1);
-  assert.deepEqual(text.split('\n').filter((line) => /^\s*primary: /.test(line)), [
+  assert.equal(text.split('\n').filter((line: any) => line === '  worker ghost: dangling (no registry or enabled package knows it)').length, 1);
+  assert.equal(text.split('\n').filter((line: any) => line === "  note: workers.enabled: worker 'ghost' is not installed (ignored)").length, 1);
+  assert.deepEqual(text.split('\n').filter((line: any) => /^\s*primary: /.test(line)), [
     '  primary: declared-only gemini/- (env), probe declared-only',
   ]);
 
   const report = JSON.parse(cli(['doctor', '--json']));
   assert.deepEqual(report.workers.dangling, ['ghost']);
   assert.equal(report.workers.state, 'set');
-  const claude = report.workers.rows.find((row) => row.harness === 'claude');
+  const claude = report.workers.rows.find((row: any) => row.harness === 'claude');
   assert.equal(claude.enabled.state, 'enabled');
   assert.equal(claude.enabled.position, 1);
   assert.equal(report.primary.harness, 'gemini');
@@ -328,7 +328,7 @@ test('doctor text and JSON report workers beside the unchanged primary line with
 
   writeUser(f, ['gemini', 'held']);
   const invalidText = cli(['doctor']);
-  const workerLines = invalidText.split('\n').filter((line) => /^  workers? /.test(line) || /^  workers\.enabled: /.test(line));
+  const workerLines = invalidText.split('\n').filter((line: any) => /^  workers? /.test(line) || /^  workers\.enabled: /.test(line));
   assert.match(workerLines[0], /^  workers\.enabled: invalid \(.+\)$/);
   assert.equal(invalidText.includes('held'), false);
   assert.match(invalidText, /^  worker claude: unlisted, ineligible \([^)]+\); bound tiers: none$/m);

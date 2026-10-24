@@ -26,23 +26,23 @@ const TAIL = [
 
 /** IC-011: a fresh shipped descriptor for each recipe mutation. */
 function workerOf(id = 'codex') {
-  return structuredClone(loadRegistry({ repoRoot: REPO }).harnesses.find((h) => h.id === id).worker);
+  return structuredClone(loadRegistry({ repoRoot: REPO }).harnesses.find((h: any) => h.id === id).worker);
 }
 
 /** IC-011: a supported entry whose evidence content is irrelevant to schema-only validation. */
-function supported(argv) {
+function supported(argv: any) {
   return { status: 'supported', evidence: ['x'], verification: 'v', verifiedOn: DATE, argv };
 }
 
 /** IC-011: validate a scratch registry without touching its source file. */
-function mutated(mutate) {
+function mutated(mutate: any) {
   const registry = structuredClone(loadRegistry({ repoRoot: REPO }));
-  mutate(registry.harnesses.find((h) => h.id === 'claude').worker);
+  mutate(registry.harnesses.find((h: any) => h.id === 'claude').worker);
   return validateRegistry(registry, { repoRoot: REPO });
 }
 
 /** IC-011: require the named validator message, including its worker-entry prefix. */
-function refused(mutate, key, message) {
+function refused(mutate: any, key: any, message: any) {
   const result = mutated(mutate);
   assert.equal(result.ok, false);
   assert.ok(result.errors.includes(`harness 'claude' worker '${key}': ${message}`), result.errors.join('\n'));
@@ -136,7 +136,7 @@ test('IC-011 C control: all eight harnesses keep plain group concatenation witho
 
 test('IC-011: supported model argv accepts short and long flags with one whole placeholder', () => {
   for (const argv of [['-m', '{model}'], ['--model', '{model}']]) {
-    const result = mutated((worker) => { worker.model = supported(argv); });
+    const result = mutated((worker: any) => { worker.model = supported(argv); });
     assert.equal(result.ok, true, result.errors.join('\n'));
   }
 });
@@ -149,23 +149,23 @@ test('IC-011: model argv refuses partial, duplicate and missing placeholders', (
     ['-m', 'x'],
     ['{model}', 'x{model}'],
   ]) {
-    refused((worker) => { worker.model = supported(argv); }, 'model',
+    refused((worker: any) => { worker.model = supported(argv); }, 'model',
       "argv must contain the element '{model}' exactly once, as a whole element");
   }
 });
 
 test('IC-011: every other entry argv and versionArgv refuse even a partial model placeholder', () => {
   for (const element of ['{model}', 'x{model}']) {
-    refused((worker) => { worker.readOnly = supported(['--read-only', element]); }, 'readOnly',
+    refused((worker: any) => { worker.readOnly = supported(['--read-only', element]); }, 'readOnly',
       "argv must not contain '{model}' outside model.argv");
-    refused((worker) => { worker.cli.versionArgv = ['--version', element]; }, 'cli',
+    refused((worker: any) => { worker.cli.versionArgv = ['--version', element]; }, 'cli',
       "versionArgv must not contain '{model}' outside model.argv");
   }
 });
 
 test('IC-011: modelChecks argv refuses whole and partial model placeholders', () => {
   for (const element of ['{model}', 'x{model}']) {
-    refused((worker) => {
+    refused((worker: any) => {
       worker.modelChecks = [{
         id: 'c', argv: ['x', element], establishes: ['hooksLoaded'], estimateTokens: 1, timeoutSeconds: 1,
       }];
@@ -174,7 +174,7 @@ test('IC-011: modelChecks argv refuses whole and partial model placeholders', ()
 });
 
 test('IC-011: an unknown model entry may not carry argv', () => {
-  refused((worker) => {
+  refused((worker: any) => {
     worker.model = {
       status: 'unknown', evidence: [], verification: 'v', verifiedOn: DATE, reason: 'unverified',
       argv: ['-m', '{model}'],
@@ -210,12 +210,12 @@ test('IC-011: seven shipped harnesses declare unknown model without argv; only c
       assert.ok(!Object.hasOwn(entry, 'argv'));
     }
   }
-  assert.equal(harnesses.find((h) => h.id === 'antigravity').worker.oneShot.status, 'unknown');
+  assert.equal(harnesses.find((h: any) => h.id === 'antigravity').worker.oneShot.status, 'unknown');
 });
 
 test('IC-011: codex declares the free exec-model check', () => {
   const checks = JSON.parse(fs.readFileSync(path.join(REPO, 'core/worker-evidence/codex/checks.json'), 'utf8'));
-  assert.deepEqual(checks.checks.find((check) => check.id === 'exec-model'), {
+  assert.deepEqual(checks.checks.find((check: any) => check.id === 'exec-model'), {
     id: 'exec-model',
     argv: ['exec', '--help'],
     expect: ['^\\s+-m, --model <MODEL>$'],
@@ -236,7 +236,7 @@ test('IC-011: antigravity free evidence establishes model only when its help lin
     const binary = path.join(bin, 'agy');
     fs.writeFileSync(binary, '#!/bin/sh\nexit 99\n', { mode: 0o755 });
     const env = { HOME: dir, XDG_CONFIG_HOME: config, PATH: bin };
-    const calls = [];
+    const calls: any[] = [];
     const out = path.join(dir, 'record.json');
     const result = recordCliChecks({
       checksFile: path.join(REPO, 'core/worker-evidence/antigravity/checks.json'),
@@ -247,7 +247,7 @@ test('IC-011: antigravity free evidence establishes model only when its help lin
       env,
       platform: 'linux',
       now: () => new Date('2026-10-24T00:00:00.000Z'),
-      spawnSyncImpl(command, argv, options) {
+      spawnSyncImpl(command: any, argv: any[], options: any) {
         assert.equal(command, binary);
         assert.equal(options.env, env);
         assert.equal(options.cwd, dir);
@@ -265,6 +265,6 @@ test('IC-011: antigravity free evidence establishes model only when its help lin
     assert.equal(record.checks[0].id, 'help-model');
     assert.equal(record.checks[0].result, label);
     assert.deepEqual(record.checks[0].establishes, ['model']);
-    assert.deepEqual(record.checks[0].matched, label === 'pass' ? [help.trimEnd()] : []);
+    assert.deepEqual(record.checks[0].matched, label === 'pass' ? [(help as string).trimEnd()] : []);
   }
 });

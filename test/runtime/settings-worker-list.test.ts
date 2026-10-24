@@ -15,12 +15,12 @@ const { LADDER_MAX } = require('../../src/registry/worker-ids.ts');
 const KEY = 'workers.enabled';
 const SHIPPED = JSON.parse(fs.readFileSync(path.join(REPO, REGISTRY_FILE), 'utf8'));
 const SPEC = SHIPPED.keys[KEY];
-const IDS = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/harnesses.json'), 'utf8')).harnesses.map((h) => h.id);
-const load = (f) => loadSettings({ projectRoot: f.project, env: f.env() });
-const candidate = (r, layer) => r.candidates.find((c) => c.layer === layer);
-const statuses = (r) => r.candidates.map((c) => `${c.layer}:${c.status}`);
-const writeUser = (f, value) => f.writeUserSettings({ schema: 1, [KEY]: value });
-const writeProject = (f, value) => f.writeProjectSettings({ schema: 1, [KEY]: value });
+const IDS = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/harnesses.json'), 'utf8')).harnesses.map((h: any) => h.id);
+const load = (f: any) => loadSettings({ projectRoot: f.project, env: f.env() });
+const candidate = (r: any, layer: any) => r.candidates.find((c: any) => c.layer === layer);
+const statuses = (r: any) => r.candidates.map((c: any) => `${c.layer}:${c.status}`);
+const writeUser = (f: any, value: any) => f.writeUserSettings({ schema: 1, [KEY]: value });
+const writeProject = (f: any, value: any) => f.writeProjectSettings({ schema: 1, [KEY]: value });
 
 test('unset keeps the shipped worker order and primary; shipped billing ids remain valid', (t) => {
   const f = createSettingsEnv(t);
@@ -88,7 +88,7 @@ test('a dangling user id remains valid and produces one note across views', (t) 
   assert.equal(view.get(KEY).state, 'ok');
   view.get(KEY, 'global');
   assert.deepEqual(view.errors, []);
-  assert.deepEqual(view.notes.filter((n) => n.code === 'dangling-worker'), [{
+  assert.deepEqual(view.notes.filter((n: any) => n.code === 'dangling-worker'), [{
     code: 'dangling-worker', key: KEY, source: file,
     text: "workers.enabled: worker 'agy' is not installed (ignored)",
   }]);
@@ -103,7 +103,7 @@ test('a project dangling id is ignored for additions and is reported', (t) => {
   assert.deepEqual(r.value, ['codex']);
   assert.equal(candidate(r, 'project').status, 'decided');
   assert.deepEqual(view.errors, []);
-  assert.equal(view.notes.filter((n) => n.code === 'dangling-worker' && n.text.includes('acme.coder')).length, 1);
+  assert.equal(view.notes.filter((n: any) => n.code === 'dangling-worker' && n.text.includes('acme.coder')).length, 1);
 });
 
 test('an empty intersection has no effect', (t) => {
@@ -148,7 +148,7 @@ test('an invalid user list fails safe and a valid project cannot clear that stat
   let r = view.get(KEY);
   assert.equal(r.state, 'invalid');
   assert.equal(r.origin.via, 'fail-safe');
-  assert.equal(view.errors.find((e) => e.key === KEY).code, 'reserved');
+  assert.equal(view.errors.find((e: any) => e.key === KEY).code, 'reserved');
   writeProject(f, ['codex']);
   view = load(f);
   r = view.get(KEY);
@@ -186,7 +186,7 @@ test('config schema derives membership, default and the shared list cap', (t) =>
   const f = createSettingsEnv(t);
   const result = f.run(['config', 'schema', '--json']);
   assert.equal(result.status, 0, result.stdout + result.stderr);
-  const spec = result.json.keys.find((k) => k.key === KEY);
+  const spec = result.json.keys.find((k: any) => k.key === KEY);
   assert.equal(spec.writable, false);
   assert.deepEqual(spec.values, IDS);
   assert.equal(spec.maxItems, 9);
@@ -229,7 +229,7 @@ test('config validate uses project narrowing and reports ignored order and dangl
 });
 
 test('registry accepts worker-list subset and refuses incompatible declarations', () => {
-  const plant = (overrides) => {
+  const plant = (overrides: any) => {
     const spec = { ...structuredClone(SPEC), ...overrides };
     return { version: 1, description: 'planted', keys: { [KEY]: spec } };
   };
@@ -247,6 +247,6 @@ test('registry accepts worker-list subset and refuses incompatible declarations'
   ]) {
     const checked = validateSettingsRegistry(plant(overrides));
     assert.equal(checked.ok, false, JSON.stringify(overrides));
-    assert.ok(checked.errors.some((e) => e.startsWith(KEY) && e.includes(fragment)), checked.errors.join('\n'));
+    assert.ok(checked.errors.some((e: any) => e.startsWith(KEY) && e.includes(fragment)), checked.errors.join('\n'));
   }
 });

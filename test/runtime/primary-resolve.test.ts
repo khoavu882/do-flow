@@ -13,21 +13,21 @@ const { resolvePrimary } = require('../../src/runtime/context/primary.ts');
 
 const NOW = Date.parse('2026-10-24T12:00:00.000Z');
 
-function setup(t) {
+function setup(t: any) {
   const root = tempDir(t, 'doflow-primary-');
   const projectRoot = path.join(root, 'project');
   const config = path.join(root, 'config');
   const observationsRoot = path.join(root, 'observations');
   fs.mkdirSync(projectRoot);
   fs.mkdirSync(path.join(config, 'doflow'), { recursive: true });
-  const env = { HOME: root, XDG_CONFIG_HOME: config, PATH: '', DOFLOW_SESSION_ROLE: 'main' };
+  const env: any = { HOME: root, XDG_CONFIG_HOME: config, PATH: '', DOFLOW_SESSION_ROLE: 'main' };
   const registry = { harnesses: ['codex', 'claude', 'pi', 'gemini'].map((id) => ({ id, primaryProbe: { model: id === 'gemini' ? 'none' : 'payload' } })) };
   const models = { providers: [{ id: 'claude', families: ['claude'] }, { id: 'codex', families: ['unknown'] }] };
   const storage = { stores: [] };
   return { root, projectRoot, config, observationsRoot, env, registry, models, storage };
 }
 
-function writeObservation(f, harness, model, session, extra = {}) {
+function writeObservation(f: any, harness: string, model: string, session: string, extra: any = {}) {
   const dir = path.join(f.observationsRoot, 'primary', cwdHash(f.projectRoot), harness);
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, `${session}.json`);
@@ -38,7 +38,7 @@ function writeObservation(f, harness, model, session, extra = {}) {
   return file;
 }
 
-function resolve(f) {
+function resolve(f: any) {
   return resolvePrimary({
     env: f.env, projectRoot: f.projectRoot, observationsRoot: f.observationsRoot,
     registry: f.registry, models: f.models, storage: f.storage, now: () => NOW,
@@ -46,7 +46,7 @@ function resolve(f) {
 }
 
 test('primary resolution follows ordered declaration, observation, and role rules without spawning', (t) => {
-  const originals = {};
+  const originals: any = {};
   for (const name of ['spawn', 'spawnSync', 'execFile', 'execFileSync', 'exec', 'execSync']) {
     originals[name] = childProcess[name];
     childProcess[name] = () => { throw new Error(`unexpected ${name}`); };

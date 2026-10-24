@@ -15,8 +15,8 @@ const { validateValue } = require('../../src/runtime/settings/files.ts');
 const { launchEnv } = require('../../src/runtime/worker/launch.ts');
 
 const SHIPPED = JSON.parse(fs.readFileSync(path.join(REPO, REGISTRY_FILE), 'utf8'));
-const clone = (value) => JSON.parse(JSON.stringify(value));
-const statuses = (r) => r.candidates.map((c) => `${c.layer}:${c.status}`);
+const clone = (value: any) => JSON.parse(JSON.stringify(value));
+const statuses = (r: any) => r.candidates.map((c: any) => `${c.layer}:${c.status}`);
 
 test('primary.harness: the env variable overrides the project layer', (t) => {
   const f = createSettingsEnv(t);
@@ -33,14 +33,14 @@ test('primary.harness: an env value outside the harness ids is an invalid candid
   const v = loadSettings({ projectRoot: f.project, env: f.env({ DOFLOW_PRIMARY_HARNESS: 'not-a-harness' }) });
   const r = v.get('primary.harness');
   assert.equal(r.value, 'codex');
-  assert.equal(r.candidates.find((c) => c.layer === 'env').status, 'invalid');
+  assert.equal(r.candidates.find((c: any) => c.layer === 'env').status, 'invalid');
   assert.equal(JSON.stringify(v.errors).includes('not-a-harness'), false, 'the reason never echoes the value');
 });
 
 test('primary.harness: default unknown, and the allowed list is unknown plus every registry harness in order', () => {
   const loaded = loadSettingsRegistry({ verifyRefs: true, checkConsumers: true });
   assert.equal(loaded.ok, true, loaded.detail);
-  const ids = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/harnesses.json'), 'utf8')).harnesses.map((h) => h.id);
+  const ids = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/harnesses.json'), 'utf8')).harnesses.map((h: any) => h.id);
   assert.deepEqual(loaded.registry.enumValues('primary.harness'), ['unknown', ...ids]);
   assert.equal(loaded.registry.keys.get('primary.harness').default, 'unknown');
   assert.equal(loaded.registry.keys.get('primary.model').default, null);
@@ -77,25 +77,25 @@ test('model-id: an invalid file value is reported with a code and the value is n
 });
 
 test('the registry check refuses verbatim on a securityRelevant key and on an integer key, order and narrow-only on a model-id key', () => {
-  const withEdit = (key, edit) => {
+  const withEdit = (key: any, edit: any) => {
     const raw = clone(SHIPPED);
     edit(raw.keys[key]);
     return validateSettingsRegistry(raw);
   };
   assert.equal(validateSettingsRegistry(clone(SHIPPED)).ok, true);
 
-  const secure = withEdit('advice.model', (s) => { s.env = { name: 'DOFLOW_ADVICE_MODEL', parse: 'verbatim', direction: 'any' }; });
+  const secure = withEdit('advice.model', (s: any) => { s.env = { name: 'DOFLOW_ADVICE_MODEL', parse: 'verbatim', direction: 'any' }; });
   assert.equal(secure.ok, false);
-  assert.ok(secure.errors.some((e) => e.startsWith('advice.model ') && /security-relevant|direction/.test(e)), secure.errors.join('; '));
+  assert.ok(secure.errors.some((e: any) => e.startsWith('advice.model ') && /security-relevant|direction/.test(e)), secure.errors.join('; '));
 
-  const integer = withEdit('review.rounds', (s) => { s.env = { name: 'DOFLOW_REVIEW_ROUNDS', parse: 'verbatim', direction: 'any' }; });
+  const integer = withEdit('review.rounds', (s: any) => { s.env = { name: 'DOFLOW_REVIEW_ROUNDS', parse: 'verbatim', direction: 'any' }; });
   assert.equal(integer.ok, false);
-  assert.ok(integer.errors.some((e) => e.startsWith('review.rounds ') && /verbatim/.test(e)), integer.errors.join('; '));
+  assert.ok(integer.errors.some((e: any) => e.startsWith('review.rounds ') && /verbatim/.test(e)), integer.errors.join('; '));
 
-  const ordered = withEdit('primary.model', (s) => { s.order = ['a', 'b']; });
-  assert.ok(ordered.errors.some((e) => e.startsWith('primary.model ') && /order/.test(e)), ordered.errors.join('; '));
-  const narrow = withEdit('primary.model', (s) => { s.scope = 'narrow-only'; });
-  assert.ok(narrow.errors.some((e) => e.startsWith('primary.model ') && /narrow-only/.test(e)), narrow.errors.join('; '));
+  const ordered = withEdit('primary.model', (s: any) => { s.order = ['a', 'b']; });
+  assert.ok(ordered.errors.some((e: any) => e.startsWith('primary.model ') && /order/.test(e)), ordered.errors.join('; '));
+  const narrow = withEdit('primary.model', (s: any) => { s.scope = 'narrow-only'; });
+  assert.ok(narrow.errors.some((e: any) => e.startsWith('primary.model ') && /narrow-only/.test(e)), narrow.errors.join('; '));
 });
 
 test('doflow config set primary.harness codex --layer project writes the project file (not refused as security)', (t) => {

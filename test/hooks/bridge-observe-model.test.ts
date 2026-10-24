@@ -17,7 +17,7 @@ const REPO = path.resolve(__dirname, '../..');
 const BRIDGE = path.join(REPO, 'core/harnesses/shared/hooks/bridge/bridge.sh');
 const POLICY = 'mcp-tool-guard';
 
-function scratch(t) {
+function scratch(t: any) {
   const dir = tempDir(t, 'doflow-observe-model-');
   const home = path.join(dir, 'home');
   const cwd = path.join(dir, 'project');
@@ -26,9 +26,9 @@ function scratch(t) {
   return { dir, home, cwd, store: path.join(home, '.config', 'doflow', 'session-env') };
 }
 
-function bridge(s, harness, { native, event, env = {}, cwd = s.cwd } = {}) {
+function bridge(s: any, harness: string, { native, event, env = {}, cwd = s.cwd }: any = {}) {
   const fixture = MODEL_PAYLOADS[harness];
-  const childEnv = { ...process.env, HOME: s.home, DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_TELEMETRY: 'off', DOFLOW_DECISION_FD: '', DOFLOW_BRIDGE_TRACE: '' };
+  const childEnv: any = { ...process.env, HOME: s.home, DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_TELEMETRY: 'off', DOFLOW_DECISION_FD: '', DOFLOW_BRIDGE_TRACE: '' };
   for (const name of ['XDG_CONFIG_HOME', 'DOFLOW_SESSION_ROLE', 'DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_WORKTREE', 'DOFLOW_TASK_ID']) delete childEnv[name];
   const result = spawnSync('bash', [BRIDGE, harness, event || fixture.event, POLICY], {
     cwd, env: { ...childEnv, ...env }, input: JSON.stringify(native || fixture.native), encoding: 'utf8',
@@ -36,9 +36,9 @@ function bridge(s, harness, { native, event, env = {}, cwd = s.cwd } = {}) {
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
-function files(root) {
-  const found = [];
-  const walk = (dir) => {
+function files(root: any) {
+  const found: any[] = [];
+  const walk = (dir: any) => {
     let entries;
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
     for (const entry of entries) {
@@ -50,7 +50,7 @@ function files(root) {
   return found.sort();
 }
 
-const sessionKey = (id) => crypto.createHash('sha256').update(id).digest('hex').slice(0, 16);
+const sessionKey = (id: any) => crypto.createHash('sha256').update(id).digest('hex').slice(0, 16);
 
 test('a codex payload writes one observation with exactly the six fields, mode 0600', (t) => {
   const s = scratch(t);

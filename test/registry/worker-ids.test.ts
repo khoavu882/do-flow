@@ -15,7 +15,7 @@ const ROOT = path.resolve(__dirname, '../..');
 test('worker id grammar and catalogue share the built-in registry', () => {
   const registry = loadRegistry({ repoRoot: ROOT });
   assert.equal(registry.validation.ok, true);
-  const harnessIds = registry.harnesses.map((harness) => harness.id);
+  const harnessIds = registry.harnesses.map((harness: any) => harness.id);
   const knownIds = knownWorkerIds({ registry }).ids;
   const catalogue = workerCatalogue({ registry });
 
@@ -38,9 +38,9 @@ test('worker id grammar and catalogue share the built-in registry', () => {
   assert.equal(classifyWorkerId('primary', knownIds), 'reserved');
   assert.deepEqual(knownIds, harnessIds);
   assert.deepEqual(shippedWorkerIds(registry), harnessIds);
-  assert.ok(catalogue.every((entry) => entry.origin === 'builtin'));
+  assert.ok(catalogue.every((entry: any) => entry.origin === 'builtin'));
   for (const entry of catalogue) {
-    const harness = registry.harnesses.find((item) => item.id === entry.id);
+    const harness = registry.harnesses.find((item: any) => item.id === entry.id);
     assert.equal(entry.descriptorDigest, descriptorDigest(harness.worker));
   }
 });

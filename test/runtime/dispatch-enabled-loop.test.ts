@@ -14,12 +14,12 @@ const supervisor = require('../../src/runtime/worker/supervisor.ts');
 
 // Match the quota stand-in in dispatch-fallback.test.js before loop captures resultOfRun.
 const realResultOfRun = supervisor.resultOfRun;
-supervisor.resultOfRun = (run) => {
+supervisor.resultOfRun = (run: any) => {
   const out = realResultOfRun(run);
   const summary = String(run && run.report && run.report.summary ? run.report.summary : '').toLowerCase();
   if (!run || !run.report || run.report.status !== 'failure' || !summary.includes('rate limit')) return out;
   run.report.quota = run.report.quota || { signal: 'rate limit', basis: 'unverified' };
-  return { resultOffered: false, withheld: out.withheld.map((r) => (r === 'report-failure' ? 'report-quota' : r)) };
+  return { resultOffered: false, withheld: out.withheld.map((r: any) => (r === 'report-failure' ? 'report-quota' : r)) };
 };
 
 const attempts = require('../../src/runtime/task-attempts.ts');
@@ -44,25 +44,25 @@ const SCENARIO = {
     'fake-gemini': { run: [{ write: { path: 'src/retry.js', content: '// stepped\n' } }, { emit: SUCCESS }] },
   },
 };
-const cand = (harness, eligible = true) => ({
+const cand = (harness: any, eligible = true): any => ({
   harness, eligible,
   gaps: eligible ? [] : [{ requirement: 'installed', result: 'unknown', reason: 'not-probed' }],
 });
-const fb = (extra = {}) => ({
+const fb = (extra: any = {}): any => ({
   mode: 'ask', ladder: null, exhausted: [], holds: {}, events: [], eventsDropped: 0, ...extra,
 });
-const select = (candidates, extra = {}) => loop.selectMode({
+const select = (candidates: any, extra: any = {}): any => loop.selectMode({
   policy: 'auto', registry: REG, cache: { candidates: structuredClone(candidates) }, ...extra,
 });
 
 /** IC-009: an activeWorkers result without reading any real settings. */
-const act = (state, workers = [], inSession = false) => ({
+const act = (state: any, workers: any[] = [], inSession = false): any => ({
   state, workers, inSession, dangling: [],
   origin: { layer: state === 'unset' ? 'default' : 'user', source: null },
   reason: state === 'invalid' ? 'invalid' : null, narrowedFrom: null,
 });
 
-function assertSettingsHold(choice, reason) {
+function assertSettingsHold(choice: any, reason: any) {
   assert.deepEqual(choice, {
     hold: { reason, from: null, proposed: null, transient: true },
     selection: { policy: 'auto', chosen: 'held', candidates: [] },
@@ -72,7 +72,7 @@ function assertSettingsHold(choice, reason) {
 test('IC-010 control: unset active equals no active across the existing first-pick inputs', () => {
   const eligible = [cand('claude', false), cand('codex'), cand('gemini')];
   const none = [cand('claude', false), cand('codex', false)];
-  const inputs = [{}];
+  const inputs: any[] = [{}];
   for (const mode of ['off', 'ask', 'auto']) {
     inputs.push({ fallback: fb({ mode }) });
     inputs.push({ fallback: fb({ mode, exhausted: ['gemini'] }) });
@@ -96,15 +96,15 @@ test('IC-010: disabled workers fail the enabled gate before evaluation; gemini i
   const descriptors = editDescriptors();
   descriptors.gemini.isolatedEdit = structuredClone(descriptors.claude.isolatedEdit);
   const active = act('set', ['gemini'], true);
-  const called = [];
+  const called: any[] = [];
   const candidates = loop.evaluateHarnesses({
     active, ladder: ['claude', 'gemini'], descriptors, registry: REG, env, cwd: home, root: home,
-    evaluateImpl: ({ harness }) => {
+    evaluateImpl: ({ harness }: any) => {
       called.push(harness);
       return { eligible: true, gaps: [] };
     },
   });
-  assert.deepEqual(candidates.find((c) => c.harness === 'claude'), {
+  assert.deepEqual(candidates.find((c: any) => c.harness === 'claude'), {
     harness: 'claude', eligible: false,
     gaps: [{ requirement: 'enabled', result: 'failed', reason: 'worker-disabled' }],
   });
@@ -115,16 +115,16 @@ test('IC-010: disabled workers fail the enabled gate before evaluation; gemini i
   const invalid = loop.evaluateHarnesses({
     active: act('invalid'), ladder: ['claude', 'gemini'], descriptors, registry: REG,
     env, cwd: home, root: home,
-    evaluateImpl: ({ harness }) => { called.push(harness); return { eligible: true, gaps: [] }; },
+    evaluateImpl: ({ harness }: any) => { called.push(harness); return { eligible: true, gaps: [] }; },
   });
   assert.deepEqual(called, []);
-  assert.ok(invalid.every((c) => !c.eligible && c.gaps[0].reason === 'workers-enabled-invalid'));
+  assert.ok(invalid.every((c: any) => !c.eligible && c.gaps[0].reason === 'workers-enabled-invalid'));
 
   called.length = 0;
   const unset = loop.evaluateHarnesses({
     active: act('unset', [], true), ladder: ['claude'], descriptors, registry: REG,
     env, cwd: home, root: home,
-    evaluateImpl: ({ harness }) => { called.push(harness); return { eligible: true, gaps: [] }; },
+    evaluateImpl: ({ harness }: any) => { called.push(harness); return { eligible: true, gaps: [] }; },
   });
   assert.deepEqual(called, ['claude']);
   assert.equal(unset[0].eligible, true);
@@ -222,7 +222,7 @@ test('IC-010: exhausted set ladders propose or step to sequential under the exis
 });
 
 /** IC-010: a started sandbox run whose stored fallback remains independent of live settings. */
-async function project(t, { fallback = fb({ mode: 'auto', ladder: ['claude', 'gemini'], inSession: true }) } = {}) {
+async function project(t: any, { fallback = fb({ mode: 'auto', ladder: ['claude', 'gemini'], inSession: true }) } = {}) {
   const exitCode = process.exitCode;
   t.after(() => { process.exitCode = exitCode; });
   const sb = makeDispatchSandbox(t, {
@@ -240,7 +240,7 @@ async function project(t, { fallback = fb({ mode: 'auto', ladder: ['claude', 'ge
   const dispatchRunId = store.newDispatchRunId();
   const integration = createIntegrationWorktree({ root, slug: SLUG, dispatchRunId, env });
   const file = store.storeFileFor(root, SLUG);
-  store.mutateDispatch(file, (s) => {
+  store.mutateDispatch(file, (s: any) => {
     s.run = {
       dispatchRunId, slug: SLUG, state: 'running', runKey: started.runKey, epoch: started.epoch,
       concurrency: 1, mode: 'auto', reserveTokens: 1000, attemptSeconds: 60, harness: null,
@@ -253,7 +253,7 @@ async function project(t, { fallback = fb({ mode: 'auto', ladder: ['claude', 'ge
   });
   assert.equal((await readiness.probe({ descriptors, env, cwd: root })).disposition, 'probed');
   const settings = path.join(sb.home, '.config', 'doflow', 'settings.json');
-  const setList = (value) => {
+  const setList = (value: any) => {
     fs.mkdirSync(path.dirname(settings), { recursive: true });
     fs.writeFileSync(settings, `${JSON.stringify({ schema: 1, 'workers.enabled': value })}\n`);
   };
@@ -261,17 +261,17 @@ async function project(t, { fallback = fb({ mode: 'auto', ladder: ['claude', 'ge
   const read = () => store.readDispatch(file);
   const byArgv = Object.fromEntries(Object.entries(EDIT_ARGV).map(([h, arg]) => [arg, h]));
   const ran = () => (fs.existsSync(sb.log)
-    ? fs.readFileSync(sb.log, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line))
-      .filter((entry) => Object.hasOwn(byArgv, entry.argv[0])).map((entry) => byArgv[entry.argv[0]])
+    ? fs.readFileSync(sb.log, 'utf8').trim().split('\n').filter(Boolean).map((line: any) => JSON.parse(line))
+      .filter((entry: any) => Object.hasOwn(byArgv, entry.argv[0])).map((entry: any) => byArgv[entry.argv[0]])
     : []);
   return {
     sb, file, options, read, ran, setList,
-    step: (extra) => loop.step(options(extra)),
-    run: (extra) => loop.run(options({ maxSeconds: 60, ...extra })),
+    step: (extra: any = {}) => loop.step(options(extra)),
+    run: (extra: any = {}) => loop.run(options({ maxSeconds: 60, ...extra })),
   };
 }
 
-const dispatches = (p) => Object.values(p.read().dispatches).sort((a, b) => a.token - b.token);
+const dispatches = (p: any) => Object.values(p.read().dispatches).sort((a, b) => a.token - b.token);
 
 test('IC-013 loop: an unbound worker records the owner tier and harness default', POSIX, async (t) => {
   const p = await project(t);
@@ -318,7 +318,7 @@ test('IC-010: disabling gemini mid-run narrows to an allowed sequential quota st
   assert.equal(result.outcome, 'perform', JSON.stringify(result.last));
   assert.deepEqual(p.ran(), ['claude']);
   assert.deepEqual(dispatches(p).map((d) => [d.mode, d.harness]), [['subagent', 'claude'], ['sequential', null]]);
-  assert.ok(p.read().run.fallback.events.some((event) => event.kind === 'step' && event.from === 'claude' && event.to === 'sequential'));
+  assert.ok(p.read().run.fallback.events.some((event: any) => event.kind === 'step' && event.from === 'claude' && event.to === 'sequential'));
 });
 
 test('IC-010: disabling gemini and primary leaves the quota ladder exhausted', POSIX, async (t) => {
@@ -355,10 +355,10 @@ test('IC-010: invalid mid-run settings hold transiently and a valid rewrite rele
   p.setList(['claude', 'held']);
   const result = await p.run();
   assert.equal(result.outcome, 'blocked', JSON.stringify(result.last));
-  const actions = p.read().steps.flatMap((step) => step.actions);
-  assert.ok(actions.some((action) => action.action === 'admit' && action.reason === 'skipped:held:workers-enabled-invalid'));
+  const actions = p.read().steps.flatMap((step: any) => step.actions);
+  assert.ok(actions.some((action: any) => action.action === 'admit' && action.reason === 'skipped:held:workers-enabled-invalid'));
   assert.deepEqual(p.read().run.fallback.holds, {});
-  assert.equal(p.read().run.fallback.events.some((event) => event.kind === 'hold'), false);
+  assert.equal(p.read().run.fallback.events.some((event: any) => event.kind === 'hold'), false);
   const report = JSON.stringify(result.last.blocked);
   assert.ok(report.includes('workers-enabled-invalid'));
   assert.equal(result.last.blocked.cause, 'input');
@@ -384,15 +384,15 @@ test('IC-009 launch re-check: disabling the selected worker refuses before hando
   }));
   const failed = dispatches(p)[0];
   assert.deepEqual([failed.harness, failed.phase, failed.disposition, failed.failureClass], ['claude', 'ended', 'failed', 'worker-denied']);
-  assert.ok(first.actions.some((action) => action.action === 'launch' && action.reason === 'refused:worker-disabled'));
-  assert.ok(first.actions.some((action) => action.action === 'finish' && action.reason === 'failed:worker-denied:worker-disabled'));
+  assert.ok(first.actions.some((action: any) => action.action === 'launch' && action.reason === 'refused:worker-disabled'));
+  assert.ok(first.actions.some((action: any) => action.action === 'finish' && action.reason === 'failed:worker-denied:worker-disabled'));
   assert.equal(failed.workerRunId == null, true);
   assert.equal(failed.envelopes == null || failed.envelopes.handoff == null, true);
   assert.deepEqual(p.ran(), []);
 
   // IC-010: the disabled rung is skipped and the next eligible worker is selected.
   const next = await p.step();
-  assert.ok(next.actions.some((action) => action.action === 'launch' && action.reason.startsWith('subagent:gemini')), JSON.stringify(next));
+  assert.ok(next.actions.some((action: any) => action.action === 'launch' && action.reason.startsWith('subagent:gemini')), JSON.stringify(next));
   assert.deepEqual(dispatches(p).map((d) => [d.mode, d.harness]), [['subagent', 'claude'], ['subagent', 'gemini']]);
   assert.ok(dispatches(p)[1].workerRunId);
 });
@@ -402,7 +402,7 @@ test('IC-010 launch re-check: an ineligible remaining worker falls back to enabl
   p.setList(['claude', 'gemini', 'primary']);
   let calls = 0;
   const first = await p.step({
-    evaluateImpl: ({ harness }) => {
+    evaluateImpl: ({ harness }: any) => {
       if (calls++ === 0) p.setList(['gemini', 'primary']);
       return harness === 'claude'
         ? { eligible: true, gaps: [] }
@@ -411,13 +411,13 @@ test('IC-010 launch re-check: an ineligible remaining worker falls back to enabl
   });
   const failed = dispatches(p)[0];
   assert.deepEqual([failed.phase, failed.disposition, failed.failureClass], ['ended', 'failed', 'worker-denied']);
-  assert.ok(first.actions.some((action) => action.action === 'launch' && action.reason === 'refused:worker-disabled'));
+  assert.ok(first.actions.some((action: any) => action.action === 'launch' && action.reason === 'refused:worker-disabled'));
   assert.equal(failed.workerRunId == null, true);
   assert.equal(failed.envelopes == null || failed.envelopes.handoff == null, true);
 
-  const evaluated = [];
+  const evaluated: any[] = [];
   const next = await p.step({
-    evaluateImpl: ({ harness }) => {
+    evaluateImpl: ({ harness }: any) => {
       evaluated.push(harness);
       return { eligible: false, gaps: [{ requirement: 'installed', result: 'unknown', reason: 'not-probed' }] };
     },
@@ -442,13 +442,13 @@ test('IC-010 loop: a launch failure without primary holds with the in-session re
   });
   const failed = dispatches(p)[0];
   assert.deepEqual([failed.phase, failed.disposition, failed.failureClass], ['ended', 'failed', 'launch']);
-  assert.ok(first.actions.some((action) => action.action === 'finish' && action.reason.startsWith('failed:launch:')));
+  assert.ok(first.actions.some((action: any) => action.action === 'finish' && action.reason.startsWith('failed:launch:')));
   assert.equal(failed.workerRunId == null, true);
   assert.ok(failed.envelopes.handoff);
 
   const next = await p.step();
   assert.equal(next.outcome, 'blocked', JSON.stringify(next));
-  assert.ok(next.actions.some((action) => action.action === 'admit' && action.reason === 'skipped:held:no-enabled-worker'));
+  assert.ok(next.actions.some((action: any) => action.action === 'admit' && action.reason === 'skipped:held:no-enabled-worker'));
   assert.equal(next.blocked.cause, 'input');
   assert.ok(JSON.stringify(next.blocked).includes('no-enabled-worker: primary not enabled, do not run in-session'));
   assert.deepEqual(p.read().run.fallback.holds, {});

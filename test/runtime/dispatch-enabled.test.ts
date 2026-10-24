@@ -19,14 +19,14 @@ const IDENTITY = ['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLO
 const SOLO = { DOFLOW_RUN_ID: 'local', DOFLOW_LINEAGE_ID: undefined, DOFLOW_ATTEMPT: undefined, DOFLOW_SESSION_ROLE: 'main' };
 const BASE_FALLBACK = { mode: 'ask', ladder: null, exhausted: [], holds: {}, events: [], eventsDropped: 0 };
 
-function git(cwd, env, args) {
+function git(cwd: any, env: any, args: any[]) {
   const r = spawnSync('git', ['-C', cwd, ...args], { env, encoding: 'utf8' });
   if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
   return r.stdout.trim();
 }
 
-function withIdentity(base, over = {}) {
-  const env = { ...base };
+function withIdentity(base: any, over: any = {}) {
+  const env: any = { ...base };
   for (const key of IDENTITY) {
     if (!Object.hasOwn(over, key)) continue;
     if (over[key] === undefined) delete env[key];
@@ -36,7 +36,7 @@ function withIdentity(base, over = {}) {
 }
 
 /** IC-010: a fresh project with an optional user-layer workers.enabled value. */
-function project(t, userList) {
+function project(t: any, userList: any = undefined) {
   const exitCode = process.exitCode;
   t.after(() => { process.exitCode = exitCode; });
   const sb = makeDispatchSandbox(t, { plan: 'dependent', slug: SLUG });
@@ -47,11 +47,11 @@ function project(t, userList) {
   }
   const file = store.storeFileFor(sb.root, SLUG);
   const worktrees = path.join(sb.root, '.doflow', 'state', 'dispatch-worktrees');
-  const exec = (options, over = {}) => executeDispatchCommand({
+  const exec = (options: any, over: any = {}) => executeDispatchCommand({
     slug: SLUG, cwd: sb.root, descriptors: sb.descriptors,
     ...options, env: withIdentity(sb.env, over),
   });
-  const startWith = (extra = {}, over = {}) => exec({
+  const startWith = (extra: any = {}, over: any = {}) => exec({
     action: 'start', by: 'main', mode: 'sequential',
     verifyArgv: JSON.stringify(sb.verifyArgv), ...extra,
   }, over);
@@ -59,7 +59,7 @@ function project(t, userList) {
   return { sb, file, worktrees, exec, startWith, bytes };
 }
 
-function assertNothingCreated(p) {
+function assertNothingCreated(p: any) {
   assert.equal(p.bytes(), null, 'no dispatch store');
   assert.equal(fs.existsSync(p.worktrees), false, 'no integration worktree directory');
   assert.equal(git(p.sb.root, p.sb.env, [
@@ -67,7 +67,7 @@ function assertNothingCreated(p) {
   ]), '', 'no dispatch branch');
 }
 
-function assertRefused(p, result, reason) {
+function assertRefused(p: any, result: any, reason: any) {
   assert.equal(result.exit, 1, JSON.stringify(result.body));
   assert.equal(result.body.disposition, 'refused');
   assert.equal(result.body.reason, reason);

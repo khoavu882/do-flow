@@ -18,17 +18,17 @@ const MODELS_FILE = 'core/registry/models.json';
 const SHIPPED = JSON.parse(fs.readFileSync(path.join(REPO, REGISTRY_FILE), 'utf8'));
 const SPEC = loadSettingsRegistry().registry.keys.get(KEY);
 const TIERS = JSON.parse(fs.readFileSync(path.join(REPO, MODELS_FILE), 'utf8')).dispatchTiers.tiers;
-const IDS = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/harnesses.json'), 'utf8')).harnesses.map((h) => h.id);
+const IDS = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/harnesses.json'), 'utf8')).harnesses.map((h: any) => h.id);
 const GOOD = {
   codex: { light: 'gpt-6-luna', frontier: 'gpt-6.1-sol' },
   antigravity: { standard: 'Gemini 4 Argon (Medium)' },
 };
 
 // IC-003: every resolver and CLI fixture uses its own config home and project.
-const load = (f) => loadSettings({ projectRoot: f.project, env: f.env() });
-const candidate = (r, layer) => r.candidates.find((c) => c.layer === layer);
-const writeUser = (f, value) => f.writeUserSettings({ schema: 1, [KEY]: value });
-const writeProject = (f, value) => f.writeProjectSettings({ schema: 1, [KEY]: value });
+const load = (f: any) => loadSettings({ projectRoot: f.project, env: f.env() });
+const candidate = (r: any, layer: any) => r.candidates.find((c: any) => c.layer === layer);
+const writeUser = (f: any, value: any) => f.writeUserSettings({ schema: 1, [KEY]: value });
+const writeProject = (f: any, value: any) => f.writeProjectSettings({ schema: 1, [KEY]: value });
 
 // IC-002: plant the shipped declaration without its loaded, non-enumerable tiers getter.
 const plant = (overrides = {}) => ({
@@ -45,13 +45,13 @@ test('unset is null with a default origin; schema derives workers and tiers', (t
   assert.equal(r.origin.layer, 'default');
   const result = f.run(['config', 'schema', '--json']);
   assert.equal(result.status, 0, result.stdout + result.stderr);
-  const entry = result.json.keys.find((k) => k.key === KEY);
+  const entry = result.json.keys.find((k: any) => k.key === KEY);
   assert.equal(entry.type, 'worker-models');
   assert.equal(entry.writable, false);
   assert.equal(entry.default, null);
   assert.deepEqual(entry.values, IDS);
   assert.deepEqual(entry.tiers, TIERS);
-  for (const other of result.json.keys.filter((k) => k.key !== KEY)) {
+  for (const other of result.json.keys.filter((k: any) => k.key !== KEY)) {
     assert.equal(other.tiers, null, other.key);
   }
   assert.equal(fs.existsSync(f.configDir), false);
@@ -76,8 +76,8 @@ test('an invalid user tier fails safe and a project cannot clear the invalid sta
   let r = view.get(KEY);
   assert.equal(r.state, 'invalid');
   assert.equal(r.origin.via, 'fail-safe');
-  assert.equal(view.errors.find((e) => e.key === KEY).code, 'enum');
-  assert.equal(view.errors.find((e) => e.key === KEY).reason.includes('ultra'), false);
+  assert.equal(view.errors.find((e: any) => e.key === KEY).code, 'enum');
+  assert.equal(view.errors.find((e: any) => e.key === KEY).reason.includes('ultra'), false);
   writeProject(f, GOOD);
   view = load(f);
   r = view.get(KEY);
@@ -162,7 +162,7 @@ test('dangling model-map keys remain valid and produce one note per id across bo
   assert.equal(view.get(KEY).state, 'ok');
   assert.deepEqual(view.get(KEY, 'global').value, value);
   assert.deepEqual(view.errors, []);
-  assert.deepEqual(view.notes.filter((n) => n.code === 'dangling-worker'), [
+  assert.deepEqual(view.notes.filter((n: any) => n.code === 'dangling-worker'), [
     { code: 'dangling-worker', key: KEY, source: file, text: "workers.models: worker 'agy' is not installed (ignored)" },
     { code: 'dangling-worker', key: KEY, source: file, text: "workers.models: worker 'acme.coder' is not installed (ignored)" },
   ]);
@@ -238,7 +238,7 @@ test('registry accepts the shipped worker-models declaration alone and refuses i
   assert.equal(validateSettingsRegistry(plant({ needsConfigHome: true })).ok, true);
   const missingTiers = plant();
   delete missingTiers.keys[KEY].tiersRef;
-  assert.ok(validateSettingsRegistry(missingTiers).errors.some((e) => e.includes("a worker-models key needs 'tiersRef'")));
+  assert.ok(validateSettingsRegistry(missingTiers).errors.some((e: any) => e.includes("a worker-models key needs 'tiersRef'")));
   for (const [overrides, fragment] of [
     [{ scope: 'narrow-only' }, 'cannot be narrow-only'],
     [{ combine: 'subset' }, "must combine by 'override'"],
@@ -253,28 +253,28 @@ test('registry accepts the shipped worker-models declaration alone and refuses i
   ]) {
     const checked = validateSettingsRegistry(plant(overrides));
     assert.equal(checked.ok, false, JSON.stringify(overrides));
-    assert.ok(checked.errors.some((e) => e.startsWith(KEY) && e.includes(fragment)), checked.errors.join('\n'));
+    assert.ok(checked.errors.some((e: any) => e.startsWith(KEY) && e.includes(fragment)), checked.errors.join('\n'));
   }
   const list = {
     version: 1,
     description: 'planted worker list',
     keys: { 'workers.enabled': { ...structuredClone(SHIPPED.keys['workers.enabled']), tiersRef: 'models.tierIds' } },
   };
-  assert.ok(validateSettingsRegistry(list).errors.some((e) => e.includes("'tiersRef' is only for worker-models keys")));
+  assert.ok(validateSettingsRegistry(list).errors.some((e: any) => e.includes("'tiersRef' is only for worker-models keys")));
 });
 
 test('registry verifies tiersRef resolves to a non-empty list of distinct strings', () => {
   for (const tiers of [[], ['light', 'light'], [1], null]) {
     const checked = validateSettingsRegistry(plant(), {
       meta: REF_META,
-      resolve: (name) => name === 'models.tierIds' ? tiers : IDS,
+      resolve: (name: any) => name === 'models.tierIds' ? tiers : IDS,
     });
     assert.equal(checked.ok, false);
-    assert.ok(checked.errors.some((e) => e.endsWith("tiersRef 'models.tierIds' did not resolve to a non-empty list of strings")), checked.errors.join('\n'));
+    assert.ok(checked.errors.some((e: any) => e.endsWith("tiersRef 'models.tierIds' did not resolve to a non-empty list of strings")), checked.errors.join('\n'));
   }
   assert.equal(validateSettingsRegistry(plant(), {
     meta: REF_META,
-    resolve: (name) => name === 'models.tierIds' ? TIERS : IDS,
+    resolve: (name: any) => name === 'models.tierIds' ? TIERS : IDS,
   }).ok, true);
 });
 
@@ -284,7 +284,7 @@ test('loaded tiers are lazy, non-enumerable, cached and null on source failure',
     const loaded = loadSettingsRegistry({
       repoRoot: REPO,
       fsImpl: {
-        readFileSync(file, ...args) {
+        readFileSync(file: any, ...args: any[]) {
           if (file === path.join(REPO, MODELS_FILE)) {
             reads += 1;
             if (broken) throw new Error('unavailable');
@@ -295,9 +295,9 @@ test('loaded tiers are lazy, non-enumerable, cached and null on source failure',
     });
     assert.equal(loaded.ok, true, loaded.detail);
     assert.equal(reads, 0);
-    const spec = loaded.registry.keys.get(KEY);
+    const spec: any = loaded.registry.keys.get(KEY);
     assert.equal(Object.isFrozen(spec), true);
-    assert.equal(Object.getOwnPropertyDescriptor(spec, 'tiers').enumerable, false);
+    assert.equal(Object.getOwnPropertyDescriptor(spec, 'tiers')!.enumerable, false);
     assert.equal(Object.keys(spec).includes('tiers'), false);
     assert.deepEqual(spec.tiers, broken ? null : TIERS);
     assert.deepEqual(spec.tiers, broken ? null : TIERS);

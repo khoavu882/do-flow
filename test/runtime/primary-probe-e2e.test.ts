@@ -22,7 +22,7 @@ const IDENTITY_ENV = [
   'DOFLOW_TASK_ID',
 ];
 
-function scratch(t) {
+function scratch(t: any) {
   const dir = tempDir(t, 'doflow-primary-probe-e2e-');
   const home = path.join(dir, 'home');
   const cwd = path.join(dir, 'project');
@@ -31,14 +31,14 @@ function scratch(t) {
   return { home, cwd };
 }
 
-function isolatedEnv(home) {
-  const env = { ...process.env, HOME: home };
+function isolatedEnv(home: string): any {
+  const env: any = { ...process.env, HOME: home };
   delete env.XDG_CONFIG_HOME;
   for (const name of IDENTITY_ENV) delete env[name];
   return env;
 }
 
-function runBridge(s, harness) {
+function runBridge(s: any, harness: string) {
   const fixture = MODEL_PAYLOADS[harness];
   const env = isolatedEnv(s.home);
   env.DOFLOW_FAILURE_CAPTURE = 'off';
@@ -53,7 +53,7 @@ function runBridge(s, harness) {
   });
 }
 
-function resolvePrimary(s, harness, model) {
+function resolvePrimary(s: any, harness: string, model?: string) {
   const env = isolatedEnv(s.home);
   env.DOFLOW_PRIMARY_HARNESS = harness;
   if (model === undefined) delete env.DOFLOW_PRIMARY_MODEL;
@@ -65,7 +65,7 @@ function resolvePrimary(s, harness, model) {
   });
 }
 
-function resultOf(result) {
+function resultOf(result: any) {
   assert.equal(result.error, undefined, result.error?.message);
   assert.ok(result.stdout, result.stderr);
   return JSON.parse(result.stdout);

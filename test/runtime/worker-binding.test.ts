@@ -39,7 +39,7 @@ const SUP = {
 const DEFAULT = { model: null, source: 'harness-default', flag: 'n/a' };
 const INVALID = { state: 'invalid', map: null, reason: 'invalid' };
 const UNSET = { state: 'unset', map: null, reason: null };
-const set = (map) => ({ state: 'set', map, reason: null });
+const set = (map: any) => ({ state: 'set', map, reason: null });
 const GAP_INVALID = { requirement: 'binding', result: 'failed', reason: 'binding:invalid' };
 const GAP_FLAG = { requirement: 'binding', result: 'failed', reason: 'model-flag:unevidenced' };
 const PLAN = [
@@ -122,7 +122,7 @@ test('IC-012: invalid bindings and a missing config home fail closed without val
 
 test('IC-012: moved resolveTier preserves task, owner and default precedence', () => {
   const dispatchTiers = REG.dispatchTiers;
-  const missing = [];
+  const missing: any[] = [];
   assert.deepEqual(resolveTier({ dispatchTiers, owner: 'core-implementer', tier: 'frontier', missing }), {
     tier: 'frontier', source: 'task',
   });
@@ -133,12 +133,12 @@ test('IC-012: moved resolveTier preserves task, owner and default precedence', (
   assert.equal(resolveTier({ owner: null, tier: null, missing }).tier, 'standard');
 });
 
-const cand = (harness, eligible = true) => ({
+const cand = (harness: any, eligible = true) => ({
   harness, eligible,
   gaps: eligible ? [] : [{ requirement: 'installed', result: 'unknown', reason: 'not-probed' }],
 });
 
-function select(candidates, extra = {}) {
+function select(candidates: any, extra = {}) {
   const cache = { candidates: structuredClone(candidates) };
   const before = structuredClone(cache.candidates);
   const choice = loop.selectMode({
@@ -169,7 +169,7 @@ test('IC-012: per-task bindings skip unevidenced rungs and retain exact gaps', (
   const invalid = select(candidates, { bindings: INVALID });
   assert.equal(invalid.mode, 'sequential');
   assert.equal(invalid.selection.chosen, 'sequential');
-  assert.deepEqual(invalid.selection.candidates.map((c) => c.gaps), [[GAP_INVALID], [GAP_INVALID]]);
+  assert.deepEqual(invalid.selection.candidates.map((c: any) => c.gaps), [[GAP_INVALID], [GAP_INVALID]]);
 
   const frontier = select(candidates, { tier: 'frontier', bindings: both });
   assert.equal(frontier.harness, 'claude');
@@ -191,7 +191,7 @@ test('IC-012 negative control: absent workers.models preserves every selection',
   const f = createSettingsEnv(t);
   const bindings = readBindings({ env: f.env({ PATH: '' }), projectRoot: f.project });
   assert.deepEqual(bindings, UNSET);
-  const variants = [{}, { tier: 'frontier' }, { policy: 'manual' }, { held: true }, { lastFailureClass: 'launch' }];
+  const variants: any[] = [{}, { tier: 'frontier' }, { policy: 'manual' }, { held: true }, { lastFailureClass: 'launch' }];
   for (const mode of ['off', 'ask', 'auto']) {
     variants.push({ fallback: { mode, ladder: ['claude', 'gemini'], exhausted: ['claude'] } });
   }
@@ -203,7 +203,7 @@ test('IC-012 negative control: absent workers.models preserves every selection',
 });
 
 /** IC-012: an active claim with its own sandbox execution repository, using only fake CLIs. */
-function workerProject(t) {
+function workerProject(t: any) {
   const exitCode = process.exitCode;
   t.after(() => { process.exitCode = exitCode; });
   const sb = makeDispatchSandbox(t, {
@@ -250,10 +250,10 @@ test('IC-012: supervisor forwards a bound run and omits binding on an unbound ru
       needs: [],
     };
     assert.equal(runs.insertRun(p.file, record).applied, true);
-    let captured;
+    let captured: any;
     const ended = await superviseRun({
       file: p.file, runId, env: p.sb.env, cwd: p.sb.root,
-      launch: async (options) => {
+      launch: async (options: any) => {
         captured = options;
         throw Object.assign(new Error('fixture stop'), { code: 'fixture-stop' });
       },
@@ -283,8 +283,8 @@ test('IC-012: command records a supported binding and its argv reaches the fake 
     assert.equal(result.body.disposition, 'started');
     const record = runs.readRuns(p.file)[result.body.runId];
     assert.equal(record.phase, 'ended');
-    const logged = fs.readFileSync(p.sb.log, 'utf8').trim().split('\n').map((line) => JSON.parse(line))
-      .find((entry) => entry.workerRun === record.runId);
+    const logged = fs.readFileSync(p.sb.log, 'utf8').trim().split('\n').map((line: any) => JSON.parse(line))
+      .find((entry: any) => entry.workerRun === record.runId);
     assert.ok(logged, 'the fake worker was launched');
     if (binding) {
       assert.deepEqual(record.binding, binding);
@@ -313,7 +313,7 @@ test('IC-012: launch rechecks a newly unevidenced binding and denies before work
   const dispatchRunId = store.newDispatchRunId();
   const integration = createIntegrationWorktree({ root: sb.root, slug: SLUG, dispatchRunId, env: sb.env });
   const file = store.storeFileFor(sb.root, SLUG);
-  store.mutateDispatch(file, (s) => {
+  store.mutateDispatch(file, (s: any) => {
     s.run = {
       dispatchRunId, slug: SLUG, state: 'running', runKey: started.runKey, epoch: started.epoch,
       concurrency: 1, mode: 'auto', reserveTokens: 1000, attemptSeconds: 60, harness: null,
@@ -339,8 +339,8 @@ test('IC-012: launch rechecks a newly unevidenced binding and denies before work
   const dispatch = Object.values(store.readDispatch(file).dispatches)[0];
   assert.ok(dispatch, JSON.stringify(result));
   assert.deepEqual([dispatch.phase, dispatch.disposition, dispatch.failureClass], ['ended', 'failed', 'worker-denied']);
-  assert.ok(result.actions.some((a) => a.action === 'launch' && a.reason === 'refused:model-flag:unevidenced'));
-  assert.ok(result.actions.some((a) => a.action === 'finish' && a.reason === 'failed:worker-denied:model-flag:unevidenced'));
+  assert.ok(result.actions.some((a: any) => a.action === 'launch' && a.reason === 'refused:model-flag:unevidenced'));
+  assert.ok(result.actions.some((a: any) => a.action === 'finish' && a.reason === 'failed:worker-denied:model-flag:unevidenced'));
   assert.equal(dispatch.workerRunId == null, true);
   assert.equal(dispatch.envelopes == null || dispatch.envelopes.handoff == null, true);
   assert.deepEqual(runs.readRuns(runs.storeFileFor(sb.root, SLUG)), {});
@@ -408,14 +408,14 @@ test('IC-014: doctor reports bound tiers and binding state without model ids', (
   };
   const plain = workersDoctorView(options);
   assert.deepEqual(plain.bindings, { state: 'unset', reason: null });
-  assert.ok(plain.rows.every((row) => row.bound.length === 0));
+  assert.ok(plain.rows.every((row: any) => row.bound.length === 0));
   f.writeUserSettings({
     schema: 1, 'workers.models': { claude: { light: 'private-m1' }, gemini: { frontier: 'private-m2' } },
   });
   const bound = workersDoctorView(options);
   assert.deepEqual(bound.bindings, { state: 'set', reason: null });
-  assert.deepEqual(bound.rows.find((row) => row.harness === 'claude').bound, [{ tier: 'light', flag: 'supported' }]);
-  assert.deepEqual(bound.rows.find((row) => row.harness === 'gemini').bound, [{ tier: 'frontier', flag: 'unevidenced' }]);
+  assert.deepEqual(bound.rows.find((row: any) => row.harness === 'claude').bound, [{ tier: 'light', flag: 'supported' }]);
+  assert.deepEqual(bound.rows.find((row: any) => row.harness === 'gemini').bound, [{ tier: 'frontier', flag: 'unevidenced' }]);
   assert.equal(JSON.stringify(bound).includes('private-m1'), false);
   assert.equal(JSON.stringify(bound).includes('private-m2'), false);
   for (let i = 0; i < plain.rows.length; i += 1) {
@@ -426,7 +426,7 @@ test('IC-014: doctor reports bound tiers and binding state without model ids', (
   const invalid = workersDoctorView(options);
   assert.equal(invalid.bindings.state, 'invalid');
   assert.equal(typeof invalid.bindings.reason, 'string');
-  assert.ok(invalid.rows.every((row) => row.bound.length === 0));
+  assert.ok(invalid.rows.every((row: any) => row.bound.length === 0));
   const cli = f.run(['doctor'], { env: { PATH: '' } });
   assert.match(cli.stdout, /  workers\.models: invalid \(/);
   assert.match(cli.stdout, /worker claude: .*; bound tiers: none/);

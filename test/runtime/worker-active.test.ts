@@ -18,10 +18,10 @@ const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
 const IDS = shippedWorkerIds(loadRegistry({ repoRoot: REPO }));
 const FAKES = { claude: DESCRIPTORS.claude, gemini: DESCRIPTORS.gemini };
 const NOW = Date.parse('2026-10-24T00:00:00Z');
-const read = (f) => activeWorkers({ env: f.env(), projectRoot: f.project });
-const writeUser = (f, value) => f.writeUserSettings({ schema: 1, 'workers.enabled': value });
+const read = (f: any) => activeWorkers({ env: f.env(), projectRoot: f.project });
+const writeUser = (f: any, value: any) => f.writeUserSettings({ schema: 1, 'workers.enabled': value });
 
-function preserveExitCode(t) {
+function preserveExitCode(t: any) {
   const before = process.exitCode;
   t.after(() => { process.exitCode = before; });
 }
@@ -47,7 +47,7 @@ test('unset keeps every shipped worker and in-session permission, also without a
 test('a contributed worker is usable only when the user list names it', (t) => {
   const f = createSettingsEnv(t);
   const original = catalogue.workerCatalogue;
-  catalogue.workerCatalogue = (options) => [
+  catalogue.workerCatalogue = (options: any) => [
     ...original(options),
     { id: 'acme.coder', worker: {}, origin: 'package', descriptorDigest: 'sha256:x' },
   ];
@@ -235,7 +235,7 @@ test('worker select filters disabled candidates while retaining known-harness us
   const selected = await executeWorkerCommand(options);
   assert.equal(selected.exit, 1);
   assert.equal(selected.body.disposition, 'none-eligible');
-  assert.deepEqual(selected.body.candidates.map((item) => item.harness), ['gemini']);
+  assert.deepEqual(selected.body.candidates.map((item: any) => item.harness), ['gemini']);
 
   const disabled = await executeWorkerCommand({ ...options, harness: 'claude' });
   assert.equal(disabled.exit, 1);
