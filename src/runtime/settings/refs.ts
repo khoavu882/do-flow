@@ -18,6 +18,8 @@
  *   protocols.debatePresetIds             core/registry/protocols.json order.debate
  *   protocols.lensIds                     core/registry/protocols.json lenses[].id
  *   harnesses.primaryIds                  'unknown', then core/registry/harnesses.json harnesses[].id in order
+ *   workers.ids                          known worker ids from core/registry/harnesses.json
+ *   workers.defaultRungs                 shipped worker ids from that file, then 'primary'
  *
  * Where `auto` ranks: `auto` follows the risk rule, which picks the preset of depth `deep` or the one
  * of depth `single` (resolve-protocol.ts `idOfDepth`), so the deep preset is the strictest it can
@@ -57,6 +59,8 @@ const REF_META: Readonly<Record<string, RefMeta>> = Object.freeze({
   'protocols.debatePresetIds': { kind: 'values', dependsOn: [] },
   'protocols.lensIds': { kind: 'values', dependsOn: [] },
   'harnesses.primaryIds': { kind: 'values', dependsOn: [] },
+  'workers.ids': { kind: 'values', dependsOn: [] },
+  'workers.defaultRungs': { kind: 'default', dependsOn: [] },
 });
 
 /** The depth label of the strictest preset the risk rule picks (resolve-protocol.ts step 1). */
@@ -145,6 +149,20 @@ function harnessesPrimaryIds(source: Source): string[] {
   return ['unknown', ...ids];
 }
 
+/** IC-003: schema membership comes from the worker catalogue, loaded only on demand. */
+function workersIds(source: Source): string[] {
+  const { knownWorkerIds } = require('../../registry/worker-ids.ts');
+  const { harnesses } = source(HARNESSES_FILE);
+  return knownWorkerIds({ registry: { harnesses } }).ids;
+}
+
+/** IC-003: the unset list contains shipped workers and the primary rung. */
+function workersDefaultRungs(source: Source): string[] {
+  const { shippedWorkerIds } = require('../../registry/worker-ids.ts');
+  const { harnesses } = source(HARNESSES_FILE);
+  return [...shippedWorkerIds({ harnesses }), 'primary'];
+}
+
 const RESOLVERS: Readonly<Record<string, (source: Source, deps: Deps) => unknown>> = Object.freeze({
   'advice.providerIds': adviceProviderIds,
   'advice.providerDefaultEndpoint': adviceProviderDefaultEndpoint,
@@ -154,6 +172,8 @@ const RESOLVERS: Readonly<Record<string, (source: Source, deps: Deps) => unknown
   'protocols.debatePresetIds': protocolsDebatePresetIds,
   'protocols.lensIds': protocolsLensIds,
   'harnesses.primaryIds': harnessesPrimaryIds,
+  'workers.ids': workersIds,
+  'workers.defaultRungs': workersDefaultRungs,
 });
 
 interface Refs {

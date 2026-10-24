@@ -27,9 +27,9 @@ const { jsonFailure, validateValue } = require('./files.ts');
 const REGISTRY_FILE = 'core/registry/settings.json';
 
 const KEY_RE = /^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
-const TYPES = ['boolean', 'enum', 'integer', 'model-id', 'string', 'string-list', 'url', 'worker-billing'];
+const TYPES = ['boolean', 'enum', 'integer', 'model-id', 'string', 'string-list', 'url', 'worker-billing', 'worker-list'];
 const SCOPES = ['global-only', 'project-only', 'narrow-only', 'project-overridable'];
-const COMBINES = ['override', 'narrowest', 'union'];
+const COMBINES = ['override', 'narrowest', 'union', 'subset'];
 const PARSES = ['positive-int', 'off-words', 'verbatim'];
 const DIRECTIONS = ['any', 'narrow'];
 const LEGACY_LAYERS = ['user', 'project'];
@@ -103,11 +103,11 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
   const refMeta = (name: unknown): { kind: string; dependsOn: string[] } | null =>
     typeof name === 'string' && has(refs.meta, name) ? refs.meta[name] : null;
 
-  // Allowed values of each enum key: its literal list, or its resolved ref when refs are resolved.
+  // Enum values and list membership: literal enum values, or the resolved ref when refs are resolved.
   const enumLists = new Map<string, string[] | null>();
   for (const name of names) {
     const spec = specs[name];
-    if (!isObject(spec) || (spec.type !== 'enum' && spec.type !== 'string-list')) continue;
+    if (!isObject(spec) || !['enum', 'string-list', 'worker-list'].includes(spec.type)) continue;
     let list: string[] | null = null;
     if (spec.type === 'enum' && Array.isArray(spec.values) && spec.values.every((v: unknown) => typeof v === 'string')) list = spec.values;
     else if (typeof spec.valuesRef === 'string' && refs.resolve && refMeta(spec.valuesRef)?.kind === 'values') {
@@ -153,12 +153,12 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
         err("values must be a non-empty list of distinct non-empty strings");
       }
       if (hasRef && refMeta(spec.valuesRef)?.kind !== 'values') err(`valuesRef '${String(spec.valuesRef)}' is not a known values ref`);
-    } else if (type === 'string-list') {
-      if (has(spec, 'values')) err("'values' is not allowed for a string-list key (use 'valuesRef')");
+    } else if (type === 'string-list' || type === 'worker-list') {
+      if (has(spec, 'values')) err(`'values' is not allowed for a ${type} key (use 'valuesRef')`);
       if (has(spec, 'valuesRef') && refMeta(spec.valuesRef)?.kind !== 'values') err(`valuesRef '${String(spec.valuesRef)}' is not a known values ref`);
     } else {
       if (has(spec, 'values')) err("'values' is only for enum keys");
-      if (has(spec, 'valuesRef')) err("'valuesRef' is only for enum and string-list keys");
+      if (has(spec, 'valuesRef')) err("'valuesRef' is only for enum, string-list and worker-list keys");
     }
     if (has(spec, 'min')) {
       if (type !== 'integer') err("'min' is only for integer keys");
@@ -182,10 +182,13 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     const record = type === 'worker-billing';
     // string-list is a set of items: no order ranks two lists, only a union is defined.
     const multi = type === 'string-list';
+    // IC-002: worker lists narrow by membership, preserving the order below.
+    const workerList = type === 'worker-list';
     if (spec.scope === 'narrow-only' && (free || record || multi)) err(`a ${type} key cannot be narrow-only: no order says which value is narrower`);
     if (record && spec.combine !== 'override') err("a worker-billing key must combine by 'override'");
     if (multi !== (spec.combine === 'union')) err(multi ? "a string-list key must combine by 'union'" : "combine 'union' is only for string-list keys");
-    const needsOrder = spec.scope === 'narrow-only' || spec.combine === 'narrowest';
+    if (workerList !== (spec.combine === 'subset')) err(workerList ? "a worker-list key must combine by 'subset'" : "combine 'subset' is only for worker-list keys");
+    const needsOrder = (spec.scope === 'narrow-only' && spec.combine !== 'subset') || spec.combine === 'narrowest';
     const ordered = has(spec, 'order') || has(spec, 'orderRef');
     if (has(spec, 'orderRef')) {
       if (has(spec, 'order')) err("needs at most one of 'order' or 'orderRef'");
@@ -203,7 +206,7 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
       }
     } else if (has(spec, 'order')) {
       const order = spec.order;
-      if (free || record || multi) err(`order is refused for a ${type} key`);
+      if (free || record || multi || workerList) err(`order is refused for a ${type} key`);
       else if (order === 'ascending' || order === 'descending') {
         if (type !== 'integer') err("'ascending'/'descending' order is only for integer keys");
       } else if (!Array.isArray(order) || order.length === 0 || new Set(order).size !== order.length) {
@@ -254,16 +257,16 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     }
     if (spec.securityRelevant === true) {
       const safe = spec.failSafe;
-      // A record has no plain fail-safe value; its invalid state is the fail-safe (this type only).
+      // Records and worker lists use the consumer's invalid path as their fail-safe (IC-003).
       // A project-only key's candidates never widen (resolve.ts canWiden), so no fail-safe value is ever
       // taken; the consumer's invalid path voids it (worker/launch.ts dropDatabases), so the state form is allowed.
-      const stateSafe = (record || spec.scope === 'project-only') && isObject(safe) && safe.state === 'invalid';
+      const stateSafe = (record || workerList || spec.scope === 'project-only') && isObject(safe) && safe.state === 'invalid';
       if (!stateSafe && (!has(spec, 'failSafe') || (isObject(safe) && !has(safe, 'gate')))) err('is securityRelevant and needs a failSafe value or {gate}');
     }
 
     // A cross-key rule (resolve.ts requires) or a missing config home takes `value = spec.failSafe`; the state form
-    // is not a value, so it would resolve to the object {state: 'invalid'} with state ok (119 closure N-3). A record
-    // key (workers.billing) is the one type whose invalid state is its fail-safe, so it is exempt.
+    // is not a value, so it would resolve to the object {state: 'invalid'} with state ok (119 closure N-3).
+    // The worker-billing record retains its exemption; worker-list follows N-3 (IC-003).
     if (!record && isObject(spec.failSafe) && spec.failSafe.state === 'invalid'
       && ((Array.isArray(spec.requires) && spec.requires.length > 0) || spec.needsConfigHome === true)) {
       err("failSafe {state: 'invalid'} cannot be combined with 'requires' or 'needsConfigHome' (they resolve to the failSafe as a value)");
@@ -474,7 +477,7 @@ function loadSettingsRegistry({ repoRoot = REPO_ROOT, fsImpl, verifyRefs = false
       if (lists.has(key)) return lists.get(key)!;
       const spec = keys.get(key);
       let list: string[] | null = null;
-      if (spec?.type === 'enum' || (spec?.type === 'string-list' && spec.valuesRef)) {
+      if (spec?.type === 'enum' || (['string-list', 'worker-list'].includes(spec?.type) && spec.valuesRef)) {
         if (Array.isArray(spec.values)) list = spec.values;
         else {
           try { list = refs.resolve(spec.valuesRef) as string[]; } catch { list = null; }

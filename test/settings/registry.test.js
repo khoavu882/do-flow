@@ -23,7 +23,7 @@ const PROTOCOL_COMMON = { securityRelevant: false, env: null, flag: null, shellR
 
 // Fields shared by the three 120 primary keys (a key with an env binding overrides `env`).
 const PRIMARY_COMMON = { securityRelevant: false, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
-  consumers: ['src/runtime/worker/launch.ts'] };
+  consumers: ['src/runtime/context/primary.ts'] };
 
 // The seven v1 entries plus 112's project-only guard entry, 089's verify.reuse switch and 106's
 // dispatch.fallback default (the
@@ -122,7 +122,7 @@ const V1 = {
   'debate.preset': { type: 'enum', valuesRef: 'protocols.debatePresetIds', default: 'debate-2',
     scope: 'project-overridable', combine: 'override', ...PROTOCOL_COMMON,
     description: 'Debate protocol preset for this project.' },
-  // 120 IC-003: the primary declaration keys (the reader arrives with A.3; launch.ts is the interim consumer).
+  // 120 IC-003: primary declarations are read by context/primary.ts.
   'primary.harness': { type: 'enum', valuesRef: 'harnesses.primaryIds', default: 'unknown',
     scope: 'project-overridable', combine: 'override', ...PRIMARY_COMMON,
     env: { name: 'DOFLOW_PRIMARY_HARNESS', parse: 'verbatim', direction: 'any' },
@@ -134,6 +134,11 @@ const V1 = {
   'primary.onContradiction': { type: 'enum', values: ['refuse', 'warn'], order: ['refuse', 'warn'], default: 'warn',
     scope: 'narrow-only', combine: 'override', ...PRIMARY_COMMON,
     description: 'What happens when the probe sees a model other than the declared one: warn, or refuse; a project may only choose refuse.' },
+  'workers.enabled': { type: 'worker-list', valuesRef: 'workers.ids', defaultRef: 'workers.defaultRungs',
+    scope: 'narrow-only', combine: 'subset', securityRelevant: true, failSafe: { state: 'invalid' },
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/settings/resolve.ts'],
+    description: 'Ordered list of worker ids a run may use, optionally ending in primary; a project can only remove entries.' },
 };
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -199,11 +204,11 @@ test('project-only ignores user/global values and env; project and local files a
 
 // ── the shipped registry ───────────────────────────────────────────────────────────────────────
 
-test('the shipped registry pins the seven v1 entries plus the 108 autopilot switch, the 112 project-only guard key, the 089 verify.reuse switch, the 106 dispatch.fallback default and the workers.billing record and the seven 119 protocol keys and the three 120 primary keys, in display order', () => {
+test('the shipped registry pins the seven v1 entries plus the 108 autopilot switch, the 112 project-only guard key, the 089 verify.reuse switch, the 106 dispatch.fallback default and the workers.billing record and the seven 119 protocol keys and the three 120 primary keys and workers.enabled, in display order', () => {
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 22);
+  assert.equal(Object.keys(SHIPPED.keys).length, 23);
 });
 
 test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {
@@ -241,7 +246,9 @@ test('defaultRef values equal advice.json defaultEndpoint and storage.json lifec
   assert.deepEqual(refs.resolve('advice.providerIds'), advice.providers.map((p) => p.id));
   const harnesses = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/harnesses.json'), 'utf8'));
   assert.deepEqual(refs.resolve('harnesses.primaryIds'), ['unknown', ...harnesses.harnesses.map((h) => h.id)]);
-  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'harnesses.primaryIds', 'protocols.debatePresetIds', 'protocols.lensIds', 'protocols.reviewPresetIds', 'protocols.reviewPresetOrder', 'storage.lifecycleEventsDefaultHours']);
+  assert.deepEqual(refs.resolve('workers.ids'), harnesses.harnesses.filter((h) => h.worker).map((h) => h.id));
+  assert.deepEqual(refs.resolve('workers.defaultRungs'), [...harnesses.harnesses.filter((h) => h.worker).map((h) => h.id), 'primary']);
+  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'harnesses.primaryIds', 'protocols.debatePresetIds', 'protocols.lensIds', 'protocols.reviewPresetIds', 'protocols.reviewPresetOrder', 'storage.lifecycleEventsDefaultHours', 'workers.defaultRungs', 'workers.ids']);
 });
 
 test('refs: an unknown name (including an inherited property name) and an unreadable source throw without file text', () => {
@@ -488,6 +495,7 @@ test('every failSafe form of the shipped registry validates, and each form is re
     'verify.reuse': 'off',
     'dispatch.fallback': 'off',
     'workers.billing': { state: 'invalid' },
+    'workers.enabled': { state: 'invalid' },
   });
   const wrongValue = clone(SHIPPED);
   wrongValue.keys['storage.prune'].failSafe = 'maybe';

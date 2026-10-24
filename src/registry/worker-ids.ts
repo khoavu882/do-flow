@@ -1,5 +1,7 @@
 'use strict';
 
+/** IC-002 and 106 IC-005: maximum worker ids in an enabled list or dispatch ladder. */
+const LADDER_MAX = 8;
 const WORKER_ID_MAX = 32;
 const BUILTIN_WORKER_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
 const RESERVED_WORKER_IDS = Object.freeze(['primary', 'auto', 'subagent', 'sequential', 'manual', 'held', 'none', 'unknown']);
@@ -40,4 +42,4 @@ function knownWorkerIds({ registry, view }: any = {}): { ids: string[] } {
   return { ids: workerCatalogue({ registry, view }).map((entry: any) => entry.id) };
 }
 
-module.exports = { WORKER_ID_MAX, BUILTIN_WORKER_ID_RE, RESERVED_WORKER_IDS, isQualifiedId, workerIdFault, classifyWorkerId, shippedWorkerIds, knownWorkerIds };
+module.exports = { LADDER_MAX, WORKER_ID_MAX, BUILTIN_WORKER_ID_RE, RESERVED_WORKER_IDS, isQualifiedId, workerIdFault, classifyWorkerId, shippedWorkerIds, knownWorkerIds };

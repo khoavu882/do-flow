@@ -71,6 +71,7 @@ test('validateValue accepts a record of one to sixteen well-formed entries', () 
   assert.equal(validateValue(SPEC, CLAUDE_FREE), null);
   assert.equal(validateValue(SPEC, { claude: { billing: 'metered', asserted: '2024-02-29', basis: 'pay per token' } }), null);
   assert.equal(validateValue(SPEC, { 'gemini-cli': { billing: 'free', asserted: '2999-01-01' } }), null, 'a future date is stated, not judged');
+  assert.equal(validateValue(SPEC, { 'acme.coder': { billing: 'free', asserted: '2026-10-23' } }), null, 'IC-001 qualified worker grammar');
   const sixteen = Object.fromEntries(Array.from({ length: 16 }, (_, i) => [`w${i}`, { billing: 'free', asserted: '2026-10-23' }]));
   assert.equal(validateValue(SPEC, sixteen), null);
 });
@@ -82,6 +83,7 @@ for (const [label, value, code, fragment] of [
   ['an empty record', {}, 'range', '1 to 16'],
   ['seventeen entries', Object.fromEntries(Array.from({ length: 17 }, (_, i) => [`w${i}`, { billing: 'free', asserted: '2026-10-23' }])), 'range', '1 to 16'],
   ['an entry key that is not a worker id', { Claude: { billing: 'free', asserted: '2026-10-23' } }, 'type', 'not a worker id'],
+  ['a reserved worker id', { primary: { billing: 'free', asserted: '2026-10-23' } }, 'reserved', 'worker id is reserved'],
   ['an entry that is not an object', { claude: 'free' }, 'type', "entry 'claude' must be an object"],
   ['billing subscription', { claude: { billing: 'subscription', asserted: '2026-10-23' } }, 'enum', "entry 'claude' field 'billing'"],
   ['billing unknown', { claude: { billing: 'unknown', asserted: '2026-10-23' } }, 'enum', "field 'billing'"],
