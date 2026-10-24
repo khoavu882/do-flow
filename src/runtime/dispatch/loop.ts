@@ -50,12 +50,13 @@ const { executeWorkerCommand, settledStatus } = require('../worker/command.ts');
 const { cancelRun } = require('../worker/cancel.ts');
 const { activeWorkers, workerGate, inSessionGate } = require('../worker/active.ts');
 const { resolveTier, readBindings, resolveBinding, bindingGap } = require('../worker/models.ts');
+const { resolvePrimary } = require('../context/primary.ts');
 const { resultOfRun } = require('../worker/supervisor.ts');
 const { readRuns, storeFileFor: runStoreFileFor } = require('../worker/run-store.ts');
 const {
   storeFileFor, readDispatch, mutateDispatch, setRunState, fallbackOf, inSessionOf, appendFallbackEvent, HELD_RUN_STATES, DispatchStoreError, DISPATCH_ID,
 } = require('./store.ts');
-const { registerDriver, endDriver, admit, MAIN_SESSION_MODES, BUDGET_REFUSALS } = require('./admission.ts');
+const { registerDriver, endDriver, admit, dispatchModelFor, MAIN_SESSION_MODES, BUDGET_REFUSALS } = require('./admission.ts');
 const integrate = require('./integrate.ts');
 const { classFor, endAttempt, releaseAttempt, usageFor, SIGNALS } = require('./attempt-end.ts');
 const { buildHandoff, buildResult, writeEnvelope, cutUtf8, normalizeFile } = require('./envelope.ts');
@@ -1229,6 +1230,26 @@ async function admitAndLaunch(p: any) {
   const newHolds = new Map<string, any>();
   const active = p.activeNow();
   const bindings = p.bindingsNow();
+  let primary: any = null;
+  let primaryResolved = false;
+  // IC-013 / IC-010: reuse this pass's bindings and resolve primary only for sequential choices.
+  const modelFor = (task: string, { mode, harness }: any) => {
+    const tier = resolveTier({
+      dispatchTiers: p.reg().dispatchTiers,
+      owner: p.ownerOf ? p.ownerOf(task) : null,
+      tier: p.tierOf ? p.tierOf(task) : null,
+      missing: [],
+    }).tier;
+    if (mode === 'sequential' && !primaryResolved) {
+      primaryResolved = true;
+      try {
+        primary = resolvePrimary({ env: p.env, projectRoot: p.cwd, registry: p.reg() });
+      } catch {
+        primary = { harness: null, model: null, state: 'unknown' };
+      }
+    }
+    return dispatchModelFor({ mode, harness, tier, bindings, primary });
+  };
   const modeFor = (task: string, { store: s }: any) => {
     if (Object.hasOwn(heldBefore, task)) return { hold: heldBefore[task].reason };
     const choice: any = selectMode({
@@ -1254,7 +1275,7 @@ async function admitAndLaunch(p: any) {
     return { hold: choice.hold.reason };
   };
   const result = admit({
-    root: p.root, slug: p.slug, ctx: p.ctx(), driver: p.driver, by: p.by, modeFor, env: p.env, now: p.clock, storeFile: p.file,
+    root: p.root, slug: p.slug, ctx: p.ctx(), driver: p.driver, by: p.by, modeFor, modelFor, env: p.env, now: p.clock, storeFile: p.file,
   });
   p.actions.push(...result.actions);
   const bases = new Map<string, string>((Array.isArray(f.exhausted) ? f.exhausted : []).map((h: string) => [h, basisFor(p, f, h)]));

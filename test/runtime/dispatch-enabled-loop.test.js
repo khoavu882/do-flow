@@ -28,6 +28,7 @@ const store = require('../../src/runtime/dispatch/store.ts');
 const { createIntegrationWorktree } = require('../../src/runtime/dispatch/integrate.ts');
 const loop = require('../../src/runtime/dispatch/loop.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
+const { resolveTier } = require('../../src/runtime/worker/models.ts');
 supervisor.resultOfRun = realResultOfRun;
 
 const REPO = path.join(__dirname, '..', '..');
@@ -271,6 +272,41 @@ async function project(t, { fallback = fb({ mode: 'auto', ladder: ['claude', 'ge
 }
 
 const dispatches = (p) => Object.values(p.read().dispatches).sort((a, b) => a.token - b.token);
+
+test('IC-013 loop: an unbound worker records the owner tier and harness default', POSIX, async (t) => {
+  const p = await project(t);
+  const tier = resolveTier({
+    dispatchTiers: REG.dispatchTiers, owner: 'core-implementer', tier: null, missing: [],
+  }).tier;
+  await p.step();
+  const [d] = dispatches(p);
+  assert.equal(d.mode, 'subagent');
+  assert.deepEqual(d.model, { tier, requested: null, source: 'harness-default', served: null });
+  assert.equal(Object.hasOwn(d, 'primary'), false);
+});
+
+test('IC-013 / IC-010 loop: a sequential admission records the primary binding and snapshot', POSIX, async (t) => {
+  const p = await project(t, {
+    fallback: fb({ mode: 'auto', ladder: ['claude'], inSession: true }),
+  });
+  const tier = resolveTier({
+    dispatchTiers: REG.dispatchTiers, owner: 'core-implementer', tier: null, missing: [],
+  }).tier;
+  const settings = path.join(p.sb.home, '.config', 'doflow', 'settings.json');
+  fs.mkdirSync(path.dirname(settings), { recursive: true });
+  fs.writeFileSync(settings, `${JSON.stringify({
+    schema: 1,
+    'primary.harness': 'claude',
+    'workers.models': { claude: { [tier]: 'm-1' } },
+  })}\n`);
+  const result = await p.step();
+  assert.equal(result.outcome, 'perform', JSON.stringify(result));
+  const [d] = dispatches(p);
+  assert.equal(d.mode, 'sequential');
+  assert.deepEqual(d.model, { tier, requested: 'm-1', source: 'binding', served: null });
+  assert.deepEqual(d.primary, { harness: 'claude', model: null, state: 'unconfirmed' });
+  assert.deepEqual(p.ran(), []);
+});
 
 test('IC-010: disabling gemini mid-run narrows to an allowed sequential quota step', POSIX, async (t) => {
   const p = await project(t);

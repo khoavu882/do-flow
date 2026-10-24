@@ -15,6 +15,8 @@ const path = require('node:path');
 const { tempDir } = require('../helper/tmp');
 const { claim, start, status } = require('../../src/runtime/task-attempts.ts');
 const store = require('../../src/runtime/dispatch/store.ts');
+const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
+const { readWorkerObservation } = require('../../src/runtime/context/primary.ts');
 const {
   FAILURE_CLASSES, CLASS_CALLS, classFor, usageFor, endAttempt, completeAttempt, releaseAttempt,
 } = require('../../src/runtime/dispatch/attempt-end.ts');
@@ -49,7 +51,7 @@ function project(t, { attempts: budget = 2 } = {}) {
   const dispatchFile = store.storeFileFor(dir, SLUG);
 
   /** An admitted dispatch claimed through 080 and moved to `claimed` with its token. */
-  function claimed(reserve = 100) {
+  function claimed(reserve = 100, fields = {}) {
     const id = store.newDispatchId();
     store.mutateDispatch(dispatchFile, (s) => {
       s.dispatches[id] = { dispatchId: id, task: 'A.1', phase: 'admitted', mode: 'subagent', reservation: { tokens: reserve } };
@@ -57,7 +59,11 @@ function project(t, { attempts: budget = 2 } = {}) {
     });
     const c = claim({ ...common, task: 'A.1', owner: 'core-implementer', mode: 'subagent', epoch: 1, reserveTokens: reserve });
     assert.equal(c.disposition, 'claimed', JSON.stringify(c));
-    const moved = store.transitionDispatch(dispatchFile, id, ['admitted'], (d) => { d.phase = 'claimed'; d.token = c.token; });
+    const moved = store.transitionDispatch(dispatchFile, id, ['admitted'], (d) => {
+      d.phase = 'claimed';
+      d.token = c.token;
+      Object.assign(d, fields);
+    });
     assert.equal(moved.applied, true);
     return id;
   }
@@ -66,8 +72,158 @@ function project(t, { attempts: budget = 2 } = {}) {
   const task = () => status({ file: ledgerFile, fsImpl: fs, roots: [dir], slug: SLUG }).tasks.find((r) => r.id === 'A.1');
   const attempts = () => JSON.parse(fs.readFileSync(ledgerFile, 'utf8')).tasks['A.1'].attempts;
   const dispatch = (id) => store.readDispatch(dispatchFile).dispatches[id];
-  return { dir, planFile, ledgerFile, dispatchFile, claimed, end, fail, task, attempts, dispatch };
+  return { dir, planFile, ledgerFile, dispatchFile, ctx, claimed, end, fail, task, attempts, dispatch };
 }
+
+const MODEL = { tier: 'standard', requested: 'm-1', source: 'binding', served: null };
+const WORKER = { run: 'wr1', lineage: 'main', attempt: '1', runSource: 'claim' };
+const OBSERVATION = {
+  schema: 1, harness: 'codex', model: 'served-x', event: 'PreToolUse',
+  observedAt: '2026-10-16T00:00:00Z', session: '0123456789abcdef',
+};
+
+/** IC-013: write only the sandbox worker's observation file. */
+function observation(p, token, value = OBSERVATION) {
+  const file = path.join(p.dir, '.config', 'doflow', 'session-env', 'worker-model', `L.wr1.main.${token}.json`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(value));
+  return file;
+}
+
+/** IC-024: seed passing evidence so completeAttempt reaches its applied path without a process. */
+function passingEvidence(p) {
+  const ledger = new EvidenceLedger({ repoRoot: p.dir, slug: SLUG, fsImpl: fs });
+  const id = ledger.addEvidence({
+    taskId: 'A.1', kind: 'test-result', provenance: 'extracted',
+    source: { provider: 'fixture', capability: 'verify' },
+    observation: { command: 'fixture verification', exitCode: 0 },
+    freshness: { observedAt: p.ctx.now.toISOString() },
+  });
+  ledger.save('A.1');
+  return id;
+}
+
+for (const kind of ['failure', 'completion', 'release']) {
+  test(`IC-013: ${kind} fills served in the write that ends the attempt`, (t) => {
+    const p = project(t);
+    const id = p.claimed(100, { model: MODEL, workerIdentity: WORKER, harness: 'codex' });
+    const before = p.dispatch(id);
+    observation(p, before.token);
+    const result = kind === 'failure'
+      ? p.fail(id, 'verification')
+      : kind === 'completion'
+        ? p.end(completeAttempt, { dispatchId: id, evidenceId: passingEvidence(p) })
+        : p.end(releaseAttempt, { dispatchId: id, reason: 'integration-error' });
+    assert.equal(result.ended, true, JSON.stringify(result));
+    const d = p.dispatch(id);
+    assert.equal(d.phase, 'ended');
+    assert.deepEqual(d.model, { ...MODEL, served: 'served-x' });
+    assert.deepEqual(d.workerIdentity, before.workerIdentity);
+    assert.equal(d.harness, before.harness);
+
+    const bytes = fs.readFileSync(p.dispatchFile);
+    observation(p, before.token, { ...OBSERVATION, model: 'later-model' });
+    assert.equal(p.fail(id, 'launch').ended, false);
+    assert.deepEqual(fs.readFileSync(p.dispatchFile), bytes, 'an ended record is never filled later');
+  });
+}
+
+test('IC-013: absent worker observations keep the same end record as no worker identity', (t) => {
+  const records = [];
+  for (const workerIdentity of [WORKER, undefined]) {
+    const p = project(t);
+    const id = p.claimed(100, { model: MODEL, harness: 'codex', ...(workerIdentity ? { workerIdentity } : {}) });
+    assert.equal(p.fail(id, 'verification').ended, true);
+    const { dispatchId, workerIdentity: ignored, ...record } = p.dispatch(id);
+    assert.deepEqual(record.model, MODEL);
+    records.push(record);
+  }
+  assert.deepEqual(records[0], records[1]);
+});
+
+test('IC-013: malformed, unrelated and unavailable observations leave served null', (t) => {
+  const cases = [
+    { name: 'extra key', value: { ...OBSERVATION, extra: true } },
+    { name: 'schema', value: { ...OBSERVATION, schema: 2 } },
+    { name: 'harness', value: { ...OBSERVATION, harness: 'claude' } },
+    { name: 'model', value: { ...OBSERVATION, model: '-rf' } },
+    { name: 'event', value: { ...OBSERVATION, event: '' } },
+    { name: 'date', value: { ...OBSERVATION, observedAt: 'invalid' } },
+    { name: 'session', value: { ...OBSERVATION, session: 'bad' } },
+    { name: 'symlink', symlink: true },
+    { name: 'no env', env: null },
+    { name: 'no config home', env: {} },
+    { name: 'no identity', workerIdentity: null },
+    { name: 'traversal', workerIdentity: { ...WORKER, run: '../x' } },
+    { name: 'other token', workerIdentity: { ...WORKER, attempt: '2' } },
+    { name: 'numeric attempt', workerIdentity: { ...WORKER, attempt: 1 } },
+    { name: 'array identity', workerIdentity: [] },
+  ];
+  for (const entry of cases) {
+    const p = project(t);
+    const workerIdentity = Object.hasOwn(entry, 'workerIdentity') ? entry.workerIdentity : WORKER;
+    const id = p.claimed(100, { model: MODEL, harness: 'codex', ...(workerIdentity === null ? {} : { workerIdentity }) });
+    const file = observation(p, p.dispatch(id).token, entry.value || OBSERVATION);
+    if (entry.symlink) {
+      const target = `${file}.target`;
+      fs.renameSync(file, target);
+      fs.symlinkSync(target, file);
+    }
+    const ctx = { ...p.ctx };
+    if (Object.hasOwn(entry, 'env')) {
+      if (entry.env === null) delete ctx.env;
+      else ctx.env = entry.env;
+    }
+    const result = p.fail(id, 'verification', { ctx });
+    assert.equal(result.ended, true, `${entry.name}: ${JSON.stringify(result)}`);
+    assert.deepEqual(p.dispatch(id).model, MODEL, entry.name);
+  }
+});
+
+test('IC-013: refusals and 080 errors leave model metadata unchanged despite a valid file', (t) => {
+  const p = project(t);
+  const id = p.claimed(100, { model: MODEL, harness: 'codex', workerIdentity: WORKER });
+  observation(p, p.dispatch(id).token);
+  const refused = p.end(completeAttempt, { dispatchId: id, evidenceId: 'ev-missing' });
+  assert.equal(refused.ended, false);
+  assert.deepEqual(p.dispatch(id).model, MODEL);
+  fs.writeFileSync(p.planFile, '# Plan\n\n**Task graph:** v1\n\n## Tasks\n\nnothing here\n');
+  const failed = p.fail(id, 'verification');
+  assert.equal(failed.ended, false);
+  assert.equal(failed.reason, 'plan-malformed');
+  assert.deepEqual(p.dispatch(id).model, MODEL);
+});
+
+test('IC-013: legacy dispatches remain without model even when a valid worker file exists', (t) => {
+  const p = project(t);
+  const id = p.claimed(100, { harness: 'codex', workerIdentity: WORKER });
+  observation(p, p.dispatch(id).token);
+  assert.equal(p.fail(id, 'verification').ended, true);
+  assert.equal(Object.hasOwn(p.dispatch(id), 'model'), false);
+  assert.deepEqual(store.modelRecordOf(p.dispatch(id)), { tier: null, requested: null, source: null, served: null });
+});
+
+test('IC-013 / IC-005: worker reads have no age policy and reject invalid locators before I/O', (t) => {
+  const p = project(t);
+  observation(p, 1, { ...OBSERVATION, observedAt: '2000-01-01T00:00:00Z' });
+  const root = path.join(p.dir, '.config', 'doflow', 'session-env');
+  assert.equal(readWorkerObservation({ root, identity: WORKER, harness: 'codex' }).model, 'served-x');
+  observation(p, 1, { ...OBSERVATION, observedAt: '2999-01-01T00:00:00Z' });
+  assert.equal(readWorkerObservation({ root, identity: WORKER, harness: 'codex' }).model, 'served-x');
+  let reads = 0;
+  const fsImpl = { lstatSync: () => { reads += 1; throw new Error('unexpected read'); } };
+  for (const options of [
+    { root: null, identity: WORKER },
+    { root, identity: null },
+    { root, identity: { ...WORKER, run: '../x' } },
+    { root, identity: { ...WORKER, lineage: '../x' } },
+    { root, identity: { ...WORKER, attempt: '0' } },
+    { root, identity: { ...WORKER, attempt: '10000' } },
+  ]) {
+    assert.equal(readWorkerObservation({ ...options, harness: 'codex', fsImpl }), null);
+  }
+  assert.equal(reads, 0);
+});
 
 test('IC-024: a first verification failure finishes FAILED and leaves the task claimable', (t) => {
   const p = project(t);

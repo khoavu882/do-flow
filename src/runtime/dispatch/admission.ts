@@ -34,6 +34,7 @@ const { statusView } = require('../worker/command.ts');
 const { storeFileFor, readDispatch, mutateDispatch, newDispatchId, setRunState, DispatchStoreError } = require('./store.ts');
 const { managerFor, createAttemptWorktree } = require('./integrate.ts');
 const { copyGrant } = require('./grants.ts');
+const { resolveBinding } = require('../worker/models.ts');
 
 /** DEC-002: concurrency bounds and default. */
 const CONCURRENCY_MIN = 1;
@@ -134,6 +135,42 @@ function modeOf(answer: any, task: string) {
   return { mode: out.mode, harness: out.mode === 'subagent' ? out.harness ?? null : null, selection: out.selection ?? null };
 }
 
+/** IC-013 / IC-010: validate and copy an optional admission model snapshot. */
+function modelOf(answer: any, task: string): any {
+  if (answer === undefined || answer === null) {
+    return { model: { tier: null, requested: null, source: null }, primary: null };
+  }
+  const object = (value: any) => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const nullableString = (value: any) => value === null || typeof value === 'string';
+  const model = answer.model;
+  const primary = answer.primary;
+  if (!object(answer) || !object(model) || !['light', 'standard', 'frontier'].includes(model.tier)
+    || !nullableString(model.requested) || !['binding', 'harness-default'].includes(model.source)
+    || (primary !== null && (!object(primary)
+      || Object.keys(primary).sort().join(',') !== 'harness,model,state'
+      || !nullableString(primary.harness) || !nullableString(primary.model)
+      || typeof primary.state !== 'string' || primary.state.length === 0))) {
+    throw usage(`modelFor('${task}') returned an invalid model snapshot`);
+  }
+  return {
+    model: { tier: model.tier, requested: model.requested, source: model.source },
+    primary: primary === null ? null : { harness: primary.harness, model: primary.model, state: primary.state },
+  };
+}
+
+/** IC-013 / IC-010: resolve record metadata without choosing launch argv or reading settings. */
+function dispatchModelFor({ mode, harness, tier, bindings, primary }: any): any {
+  const worker = mode === 'subagent' ? harness : mode === 'sequential' ? primary?.harness : null;
+  const binding = worker ? resolveBinding({ worker, tier, bindings, descriptor: null }) : null;
+  const bound = binding?.source === 'binding';
+  return {
+    model: { tier, requested: bound ? binding.model : null, source: bound ? 'binding' : 'harness-default' },
+    primary: mode === 'sequential' && primary
+      ? { harness: primary.harness, model: primary.model, state: primary.state }
+      : null,
+  };
+}
+
 /** The 081 status of every worker run a dispatch of `store` names, read outside the lock. */
 function workerStatuses(root: string, slug: string, store: any, ledgerFile: string, fsImpl: any, nowMs: number) {
   const named = (Object.values(store.dispatches) as any[]).filter((d) => d.workerRunId);
@@ -166,7 +203,8 @@ const isCandidate = (record: any) => record.state === 'READY' || (record.state =
  * `cwd`, `fsImpl`); `root` the lifecycle root holding the dispatch store and worktrees; `driver` the
  * `{ pid, start }` this pass registered; `by` the owner when a plan task names none; `modeFor(task,
  * { record, store })` IC-022's choice, called outside the lock once per candidate, returning a mode
- * or `{ mode, harness, selection }`.
+ * or `{ mode, harness, selection }`. Optional `modelFor(task, { mode, harness, selection })`
+ * supplies IC-013 / IC-010 metadata beside that choice, outside every lock and never for a hold.
  *
  * Returns `{ outcome, admitted, skipped, refused, gaps, actions }`: `outcome` is `admitted` when a
  * dispatch was claimed, else `none` or the reason nothing was admitted (`paused`, the run's state,
@@ -174,7 +212,7 @@ const isCandidate = (record: any) => record.state === 'READY' || (record.state =
  * caller's step record.
  */
 function admit({
-  root, slug, ctx, driver, by, modeFor, env = process.env, now = () => new Date(), storeFile = null,
+  root, slug, ctx, driver, by, modeFor, modelFor, env = process.env, now = () => new Date(), storeFile = null,
 }: any) {
   if (typeof modeFor !== 'function') throw usage('admit needs modeFor, IC-022\'s mode choice');
   if (!ctx || typeof ctx.ledgerFile !== 'string' || !Array.isArray(ctx.roots)) throw usage('admit needs ctx with ledgerFile and roots');
@@ -192,7 +230,14 @@ function admit({
   const ownerOf = new Map<string, string | null>(view.graph.tasks.map((t: any) => [t.id, t.owner ?? null]));
   const pairs = new Set<string>(overlaps(graph).flatMap((p: any) => [`${p.a}\u0000${p.b}`, `${p.b}\u0000${p.a}`]));
   const modes = new Map<string, any>();
-  for (const record of view.tasks) if (isCandidate(record)) modes.set(record.id, modeOf(modeFor(record.id, { record, store: pre }), record.id));
+  const models = new Map<string, any>();
+  for (const record of view.tasks) {
+    if (!isCandidate(record)) continue;
+    const choice = modeOf(modeFor(record.id, { record, store: pre }), record.id);
+    modes.set(record.id, choice);
+    if (choice.hold) continue;
+    models.set(record.id, modelOf(typeof modelFor === 'function' ? modelFor(record.id, choice) : null, record.id));
+  }
   const manager = managerFor(root, slug, 'attempt', env);
 
   // First section: IC-007 steps 1 to 8 and the admitted slots.
@@ -231,10 +276,13 @@ function admit({
       if (gone) { skipped.push({ task, reason: 'worker-not-gone', dispatchId: gone.dispatchId }); continue; }
 
       const dispatchId = newDispatchId();
+      const metadata = models.get(task);
       store.dispatches[dispatchId] = {
         dispatchId, dispatchRunId: run.dispatchRunId ?? null, parentRunKey: run.runKey ?? view.run.runKey ?? null,
         task, token: null, epoch: null, phase: 'admitted', mode: choice.mode, harness: choice.harness,
         selection: choice.selection, grant: copyGrant(run.spawnGrant ?? null, choice.mode),
+        model: { ...metadata.model, served: null },
+        ...(choice.mode === 'sequential' && metadata.primary ? { primary: { ...metadata.primary } } : {}),
         workerRunId: null, disposition: null, failureClass: null,
         attempt: { worktree: manager.pathFor(dispatchId), branch: manager.branchFor(dispatchId), base: run.integration ? run.integration.head : null },
         admittedAt: now().toISOString(), admittedBy: who,
@@ -333,6 +381,7 @@ module.exports = {
   registerDriver,
   endDriver,
   admit,
+  dispatchModelFor,
   concurrencyOf,
   CONCURRENCY_MIN,
   CONCURRENCY_MAX,

@@ -35,6 +35,20 @@ function sameModel(left: string, right: string): boolean {
   return left.trim().toLowerCase() === right.trim().toLowerCase();
 }
 
+/** IC-005: the common observation shape, without a reader's lifetime policy. */
+function parseObservation(value: any, harness: string): { model: string; event: string; observedAt: string; session: string } | null {
+  if (!isObject(value)) return null;
+  const keys = Object.keys(value).sort();
+  if (keys.join(',') !== 'event,harness,model,observedAt,schema,session') return null;
+  if (value.schema !== 1 || value.harness !== harness) return null;
+  if (typeof value.model !== 'string' || validateValue({ type: 'model-id' }, value.model)) return null;
+  if (typeof value.event !== 'string' || value.event.length === 0) return null;
+  if (typeof value.observedAt !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(value.observedAt)) return null;
+  if (!Number.isFinite(Date.parse(value.observedAt))) return null;
+  if (typeof value.session !== 'string' || !/^[0-9a-f]{16}$/.test(value.session)) return null;
+  return { model: value.model, event: value.event, observedAt: value.observedAt, session: value.session };
+}
+
 /** IC-005: read valid main-session model observations for one project and harness. */
 function readObservations({ root, projectRoot, harness, now, maxAgeMs = null }: ReadObservationsOptions): any[] {
   if (!root) return [];
@@ -48,24 +62,32 @@ function readObservations({ root, projectRoot, harness, now, maxAgeMs = null }: 
     const file = path.join(dir, name);
     try {
       if (!fs.lstatSync(file).isFile()) continue;
-      const value = JSON.parse(fs.readFileSync(file, 'utf8'));
-      if (!isObject(value)) continue;
-      const keys = Object.keys(value).sort();
-      if (keys.join(',') !== 'event,harness,model,observedAt,schema,session') continue;
-      if (value.schema !== 1 || value.harness !== harness) continue;
-      if (typeof value.model !== 'string' || validateValue({ type: 'model-id' }, value.model)) continue;
-      if (typeof value.event !== 'string' || value.event.length === 0) continue;
-      if (typeof value.observedAt !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(value.observedAt)) continue;
+      const value = parseObservation(JSON.parse(fs.readFileSync(file, 'utf8')), harness);
+      if (!value) continue;
       const observedAt = Date.parse(value.observedAt);
-      if (!Number.isFinite(observedAt) || observedAt > now) continue;
-      if (typeof value.session !== 'string' || !/^[0-9a-f]{16}$/.test(value.session)) continue;
+      if (observedAt > now) continue;
       if (maxAgeMs !== null && now - observedAt > maxAgeMs) continue;
-      observations.push({ model: value.model, event: value.event, observedAt: value.observedAt, session: value.session, time: observedAt });
+      observations.push({ ...value, time: observedAt });
     } catch {
       // Malformed, unreadable, and non-file entries do not count as observations.
     }
   }
   return observations;
+}
+
+/** IC-013 / IC-005: read one worker's observation; the storage store owns its lifetime. */
+function readWorkerObservation({ root, identity, harness, fsImpl = fs }: any): { model: string; event: string; observedAt: string; session: string } | null {
+  try {
+    if (typeof root !== 'string' || !isObject(identity)) return null;
+    if (typeof identity.run !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,55}$/.test(identity.run)) return null;
+    if (typeof identity.lineage !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,55}$/.test(identity.lineage)) return null;
+    if (typeof identity.attempt !== 'string' || !/^[1-9][0-9]{0,3}$/.test(identity.attempt)) return null;
+    const file = path.join(root, 'worker-model', `L.${identity.run}.${identity.lineage}.${identity.attempt}.json`);
+    if (!fsImpl.lstatSync(file).isFile()) return null;
+    return parseObservation(JSON.parse(fsImpl.readFileSync(file, 'utf8')), harness);
+  } catch {
+    return null;
+  }
 }
 
 /** IC-007: resolve the primary harness and model using settings and read-only hook observations. */
@@ -180,4 +202,4 @@ function resolvePrimary({
   });
 }
 
-module.exports = { readObservations, resolvePrimary };
+module.exports = { readObservations, readWorkerObservation, resolvePrimary };

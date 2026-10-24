@@ -19,7 +19,8 @@
 //
 // A refusal is a returned value, never a throw; a torn or future-version file is a thrown
 // `store-unreadable` (exit 2), as in 080 and 081. The callbacks run inside the lock, so they do no
-// I/O but the in-process 080 calls IC-006 lists: no git call, spawn, signal or wait.
+// I/O but the in-process 080 calls IC-006 lists and one bounded read of one small file (IC-013):
+// no git call, spawn, signal or wait.
 //
 // Feature 106 A.2 (IC-004): `fallbackOf` and `appendFallbackEvent` keep a run's `fallback` state,
 // pure helpers a locked write's callback calls on the store it holds.
@@ -210,6 +211,22 @@ function inSessionOf(run: any): boolean {
   return !(isObject(run.fallback) && run.fallback.inSession === false);
 }
 
+/** IC-013: read model fields independently; legacy records remain unchanged on disk. */
+function modelRecordOf(dispatch: any): { tier: string | null; requested: string | null; source: string | null; served: string | null } {
+  const model = isObject(dispatch?.model) ? dispatch.model : {};
+  return {
+    tier: ['light', 'standard', 'frontier'].includes(model.tier) ? model.tier : null,
+    requested: typeof model.requested === 'string' ? model.requested : null,
+    source: ['binding', 'harness-default'].includes(model.source) ? model.source : null,
+    served: typeof model.served === 'string' ? model.served : null,
+  };
+}
+
+/** IC-010: the stored admission snapshot, or null for a record without one. */
+function primaryOf(dispatch: any): any {
+  return isObject(dispatch?.primary) ? dispatch.primary : null;
+}
+
 /** 106 IC-004: appends `event` to `run.fallback.events`, keeping the newest 200 and counting the dropped. */
 function appendFallbackEvent(run: any, event: any, mode: string): any {
   const f = fallbackOf(run, mode);
@@ -320,6 +337,8 @@ module.exports = {
   setRunState,
   fallbackOf,
   inSessionOf,
+  modelRecordOf,
+  primaryOf,
   appendFallbackEvent,
   FALLBACK_EVENTS_MAX,
   HELD_RUN_STATES,
