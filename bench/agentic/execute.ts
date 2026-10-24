@@ -55,7 +55,7 @@ const SHIM_ENTRY = 'doflow-shim';
 const ENV_PASSTHROUGH = Object.freeze(['TMPDIR', 'LANG', 'LC_ALL', 'TERM']);
 /** The capabilities a recipe must support for `assembleArgv` to build a read-only one-shot argv. */
 // IC-011: model is optional and assembled only for a supported binding.
-const REQUIRED_GROUPS = launch.RECIPE_ORDER.filter((group) => group !== 'model');
+const REQUIRED_GROUPS = launch.RECIPE_ORDER.filter((group: any) => group !== 'model');
 const ITERATION_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 /** The iteration lock file: held by one `executeIteration` from before the run-exists check to its end. */
 const LOCK_FILE = '.lock';

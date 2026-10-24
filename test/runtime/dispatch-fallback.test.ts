@@ -247,7 +247,7 @@ test('106 C-3: lastFailure skips quota ends; launch then an exhausted ladder hol
 });
 
 test('120 IC-010: fallback preserves older shapes and only stored false disables in-session work', () => {
-  const old = {};
+  const old: any = {};
   assert.deepEqual(store.fallbackOf(old, 'ask'), fb());
   assert.equal(Object.hasOwn(old.fallback, 'inSession'), false);
 

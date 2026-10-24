@@ -97,7 +97,7 @@ test('IC-013 / IC-010: admission copies model metadata and only sequential prima
     const p = project(t, { concurrency: 1 });
     const result = p.pass({
       modeFor: () => ({ mode, harness: 'claude' }),
-      modelFor: (task, choice) => {
+      modelFor: (task: any, choice: any) => {
         assert.equal(fs.existsSync(`${p.file}.lock`), false);
         assert.equal(typeof task, 'string');
         assert.deepEqual(choice, { mode, harness: mode === 'subagent' ? 'claude' : null, selection: null });
@@ -140,7 +140,7 @@ test('IC-013: dispatchModelFor records binding intent independently of model fla
   const tier = 'standard';
   const primary = { harness: 'claude', model: null, state: 'unconfirmed', ignored: true };
   const bindings = { state: 'set', map: { claude: { standard: 'm-1' } } };
-  const resolve = (extra) => dispatchModelFor({ mode: 'subagent', harness: 'claude', tier, bindings, primary, ...extra });
+  const resolve = (extra: any) => dispatchModelFor({ mode: 'subagent', harness: 'claude', tier, bindings, primary, ...extra });
   const fallback = { tier, requested: null, source: 'harness-default' };
   const bound = { tier, requested: 'm-1', source: 'binding' };
   assert.deepEqual(resolve({ bindings: { state: 'unset', map: null } }), { model: fallback, primary: null });
@@ -172,11 +172,11 @@ test('IC-013 / IC-010: accessors read legacy records without rewriting them', PO
 
   const p = project(t);
   const id = store.newDispatchId();
-  store.mutateDispatch(p.file, (s) => {
+  store.mutateDispatch(p.file, (s: any) => {
     s.dispatches[id] = { dispatchId: id, task: 'A.1', phase: 'admitted', token: null, mode: 'subagent' };
     return { write: true, result: null };
   });
-  store.mutateDispatch(p.file, (s) => {
+  store.mutateDispatch(p.file, (s: any) => {
     assert.deepEqual(store.modelRecordOf(s.dispatches[id]), empty);
     return { write: true, result: null };
   });

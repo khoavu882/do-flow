@@ -45,8 +45,8 @@ rejects('bound.either on non-count-and-age rule', (r: any) => { r.stores.find((s
 
 test('row 120 IC-005: the observation stores are declared by the bridge writer; worker files keep unfinished runs', () => {
   const stores = validRegistry().stores;
-  const primary = stores.find((s) => s.id === 'model-observations');
-  const worker = stores.find((s) => s.id === 'worker-model-observations');
+  const primary = stores.find((s: any) => s.id === 'model-observations');
+  const worker = stores.find((s: any) => s.id === 'worker-model-observations');
   assert.deepEqual([primary.entry, primary.match, primary.protect], ['dir', '^[0-9a-f]{16}$', null]);
   assert.deepEqual([worker.entry, worker.protect], ['file', 'unfinished-run']);
   assert.match('L.r1.lin.2.json', new RegExp(worker.match));

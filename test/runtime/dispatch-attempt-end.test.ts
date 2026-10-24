@@ -83,7 +83,7 @@ const OBSERVATION = {
 };
 
 /** IC-013: write only the sandbox worker's observation file. */
-function observation(p, token, value = OBSERVATION) {
+function observation(p: any, token: any, value: any = OBSERVATION) {
   const file = path.join(p.dir, '.config', 'doflow', 'session-env', 'worker-model', `L.wr1.main.${token}.json`);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify(value));
@@ -91,7 +91,7 @@ function observation(p, token, value = OBSERVATION) {
 }
 
 /** IC-024: seed passing evidence so completeAttempt reaches its applied path without a process. */
-function passingEvidence(p) {
+function passingEvidence(p: any) {
   const ledger = new EvidenceLedger({ repoRoot: p.dir, slug: SLUG, fsImpl: fs });
   const id = ledger.addEvidence({
     taskId: 'A.1', kind: 'test-result', provenance: 'extracted',

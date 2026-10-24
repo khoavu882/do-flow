@@ -270,7 +270,7 @@ test('G41.4: every supported worker entry cites a recorded evidence file that es
 function scratchRecordRoot(t: any, mutate: any) {
   const root = tempDir(t, 'doflow-g414-');
   const registry = structuredClone(shipped().registry);
-  const codex = registry.harnesses.find((h) => h.id === 'codex');
+  const codex = registry.harnesses.find((h: any) => h.id === 'codex');
   registry.harnesses = [codex];
   const cited = codex.worker.model.evidence[0];
   for (const [key, entry] of Object.entries(codex.worker)) {
@@ -287,7 +287,7 @@ function scratchRecordRoot(t: any, mutate: any) {
 
 test('G41.4 C control: the older codex record cannot establish model', () => {
   const registry = structuredClone(shipped().registry);
-  const codex = registry.harnesses.find((h) => h.id === 'codex');
+  const codex = registry.harnesses.find((h: any) => h.id === 'codex');
   codex.worker.model = {
     status: 'supported',
     argv: ['-m', '{model}'],

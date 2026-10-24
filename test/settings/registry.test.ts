@@ -250,12 +250,11 @@ test('defaultRef values equal advice.json defaultEndpoint and storage.json lifec
   assert.equal(refs.resolve('storage.lifecycleEventsDefaultHours'), 4320);
   assert.deepEqual(refs.resolve('advice.providerIds'), advice.providers.map((p: any) => p.id));
   const harnesses = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/harnesses.json'), 'utf8'));
-  assert.deepEqual(refs.resolve('harnesses.primaryIds'), ['unknown', ...harnesses.harnesses.map((h) => h.id)]);
-  assert.deepEqual(refs.resolve('workers.ids'), harnesses.harnesses.filter((h) => h.worker).map((h) => h.id));
-  assert.deepEqual(refs.resolve('workers.defaultRungs'), [...harnesses.harnesses.filter((h) => h.worker).map((h) => h.id), 'primary']);
+  assert.deepEqual(refs.resolve('harnesses.primaryIds'), ['unknown', ...harnesses.harnesses.map((h: any) => h.id)]);
+  assert.deepEqual(refs.resolve('workers.ids'), harnesses.harnesses.filter((h: any) => h.worker).map((h: any) => h.id));
+  assert.deepEqual(refs.resolve('workers.defaultRungs'), [...harnesses.harnesses.filter((h: any) => h.worker).map((h: any) => h.id), 'primary']);
   const models = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/models.json'), 'utf8'));
   assert.deepEqual(refs.resolve('models.tierIds'), models.dispatchTiers.tiers);
-  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'harnesses.primaryIds', 'models.tierIds', 'protocols.debatePresetIds', 'protocols.lensIds', 'protocols.reviewPresetIds', 'protocols.reviewPresetOrder', 'storage.lifecycleEventsDefaultHours', 'workers.defaultRungs', 'workers.ids']);
   assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'harnesses.primaryIds', 'models.tierIds', 'protocols.debatePresetIds', 'protocols.lensIds', 'protocols.reviewPresetIds', 'protocols.reviewPresetOrder', 'storage.lifecycleEventsDefaultHours', 'workers.defaultRungs', 'workers.ids']);
 });
 
