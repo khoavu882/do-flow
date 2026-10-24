@@ -45,7 +45,7 @@ const { runKeyFor, identityRefusal } = require('../task-run.ts');
 const { isSafeSlug } = require('../task-scope.ts');
 const { projectRoot } = require('../lifecycle/root.ts');
 const { loadRegistry } = require('../../registry/index.ts');
-const { knownWorkerIds } = require('../../registry/worker-ids.ts');
+const { knownWorkerIds, LADDER_MAX } = require('../../registry/worker-ids.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const readiness = require('../worker/readiness.ts');
 const { storeFileFor, newDispatchRunId, readDispatch, mutateDispatch, fallbackOf, DispatchStoreError, DISPATCH_ID } = require('./store.ts');
@@ -81,8 +81,6 @@ const SUMMARY_BYTES = 8192;
 const BLOCKERS_MAX = 20;
 const BLOCKER_CHARS = 200;
 const TOKEN_BASES = Object.freeze(['measured', 'estimated']);
-/** 106 IC-005: at most this many `--ladder` rungs. */
-const LADDER_MAX = 8;
 
 /** IC-001: the actions each flag may be given to; any other action is exit 2 `usage`. */
 const FLAG_ACTIONS: Record<string, { flag: string; actions: string[] }> = Object.freeze({
