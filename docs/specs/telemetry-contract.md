@@ -198,7 +198,7 @@ identifier is on one page; G45.1 does not compare them with line keys.
 
 ## Package lines
 
-`doflow package --action enable|disable|trust|exempt|revoke|verify` (`src/runtime/packages/command.ts`) writes through `TelemetryWriter`, one `package.verb` line per call, whatever the exit. No package id, version, digest, path, grant line or setting value is recorded: the line says which verb ran, how it ended and the highest capability tier of the package it named. Read-only actions (`points`, `check`, `list`, `show`) and the plan and apply forms of `add` and `update` write no line yet.
+`doflow package --action enable|disable|trust|exempt|revoke|verify|remove|new` (`src/runtime/packages/command.ts`) writes through `TelemetryWriter`, one `package.verb` line per call, whatever the exit. No package id, version, digest, path, grant line or setting value is recorded: the line says which verb ran, how it ended and the highest capability tier of the package it named or created. Read-only actions (`points`, `check`, `list`, `show`) and the plan and apply forms of `add` and `update` write no line yet.
 
 | Kind | Key | Type | Class | Phase | Source |
 |---|---|---|---|---|---|
@@ -270,7 +270,7 @@ written null and the rest of the line is unchanged.
 | `failed_first` | `none`, `pass`, `fail` |
 | `resource_basis` | `proc-children`, `unreached-platform`, `unreached-read` |
 | `v0` | `on`, `off` |
-| `package_action` | `enable`, `disable`, `trust`, `exempt`, `revoke`, `verify` |
+| `package_action` | `enable`, `disable`, `trust`, `exempt`, `revoke`, `verify`, `remove`, `new` |
 | `package_result` | `ok`, `refused`, `usage` |
 | `package_tier` | `inert`, `instruction`, `executable` |
 | `tool` | `Bash` (the canonical tool name passed to allowlisted `pre-bash-guard` front doors) |

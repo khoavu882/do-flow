@@ -407,6 +407,8 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--draft', 'draft'],                // roadmap seed: the draft file to check, apply or amend (113 IC-001)
   ['--id', 'id'],                      // package --action list|show|update: the package id
   ['--plan', 'planId'],                // package --action add|update: apply the plan file with this 16-hex plan id (122 IC-006)
+  ['--points', 'points'],             // package --action new: point[:local] entries, comma-separated
+  ['--dir', 'dir'],                   // package --action new: authored package target directory
   ['--name', 'name'],                  // slot: the slot's name, 1 to 64 characters of a-z, 0-9 and - (115 IC-008)
   ['--label', 'label'],                // slot --action run: the holder's label, at most 80 characters (115 IC-008)
 ]);
@@ -568,6 +570,7 @@ Commands:
                        package --action add --source <dir> [--json]   (writes a plan file only; exit 0, 1 refused, 2 usage)
                        package --action add --plan <planId> [--json]   (stores the package and records it disabled; exit 0, 1 refused, e.g. digest-mismatch)
                        package --action update --id <id> | --plan <planId> [--json]   (plan a new copy from the recorded source, or apply the plan; a changed digest above inert prints the new trust line)
+                       package --action new --id <id> --points <point[:local],...> [--dir <path>] [--json]   (writes an authored package folder only; exit 0 created, 1 refused, 2 usage)
                        package --action enable|disable --id <id> [--json]   (sets the lock bit; enable prints the resulting state, and for needs-trust the exact grant line and file; exit 0, 1 incompatible or unknown, 2 no --id)
                        package --action trust|exempt --id <id> [--json]   (prints the grant line a person appends to grants.jsonl and writes nothing; exempt exits 1 while the host is inside the range)
                        package --action revoke --id <id> [--json]   (records a revocation in state.json; only a later trust line counts)
@@ -698,6 +701,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --id <id>                             package --action list (one package), show, update (required unless --plan), enable, disable, trust, exempt, revoke and remove
       --source <dir>                        package --action add (a local package directory; remote sources arrive later)
       --plan <planId>                       package --action add and update (apply the plan; it is kept for 24 hours)
+      --points <point[:local],...>           package --action new (open points and optional local ids)
+      --dir <path>                          package --action new (default: <project>/.doflow/package/<id>/)
       --repair                              package --action verify (rewrite an unreadable state.json; every grant line present is revoked, never widened)
       --base <ref>                          review --action start (measure the changed paths from this commit, which must be the review's base; --path is refused)
       --preset <id>                         review --action start, protocol --action resolve (run this preset; refused when looser than the decided protocol)

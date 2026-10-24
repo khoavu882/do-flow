@@ -753,6 +753,12 @@ test('G26: the four package stores are declared under ~/.doflow with their IC-02
   assert.deepEqual(shape('packages-staging'), { root: 'user-doflow', path: 'packages/store', entry: 'dir', rule: 'age', bound: { maxAgeDays: 1 }, writers: ['src/runtime/packages/store.ts'] });
   assert.deepEqual(shape('packages-state'), { root: 'user-doflow', path: 'packages/state.json', entry: 'file', rule: 'existing', bound: { text: 'narrowing facts only, rewritten atomically with mode 0600 and kept' }, writers: ['src/state/index.ts'] });
   assert.match(byId.get('packages-staging').match, /staging/);
+  assert.deepEqual(shape('authored-packages-project-doflow'), { root: 'project-doflow', path: 'package', entry: 'dir', rule: 'existing', bound: { text: "the person's authored package source: DoFlow never prunes, moves or removes it" }, writers: ['src/runtime/packages/scaffold.ts'] });
+  assert.deepEqual(shape('authored-packages-staging-project-doflow'), { root: 'project-doflow', path: 'package', entry: 'dir', rule: 'existing', bound: { text: 'removed by the scaffold itself after 24 hours' }, writers: ['src/runtime/packages/scaffold.ts'] });
+  assert.equal(byId.get('authored-packages-project-doflow').match, '^[a-z][a-z0-9-]{0,14}[a-z0-9]$');
+  assert.equal(byId.get('authored-packages-staging-project-doflow').match, '^\\.staging-[a-z0-9-]+-[0-9a-f]{8}$');
+  assert.deepEqual(byId.get('authored-packages-project-doflow').moments, []);
+  assert.deepEqual(byId.get('authored-packages-staging-project-doflow').moments, []);
   assert.deepEqual(checkExistingSources(registry).filter((e) => e.includes('packages-')), []);
 });
 

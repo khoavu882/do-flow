@@ -26,6 +26,7 @@ const { finishRuntime, captureCaught } = require('../cli-result.ts');
 const path = require('node:path');
 const { loadPoints, pointRows } = require('./points.ts');
 const { checkPackage, MANIFEST_FILE } = require('./manifest.ts');
+const { scaffoldPackage } = require('./scaffold.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { packageView, resetPackageView, hostVersion } = require('./view.ts');
 const { readLock, writeLock, removeLock, defaultLock, lockPackages, LOCK_VERSION_BASE } = require('../../state/lockfile.ts');
@@ -271,6 +272,7 @@ function handleApply(o: any): number {
     // FR-021: an update that changed the content digest above inert voids trust; print the line for the new digests.
     let retrust: string[] = [];
     let retrustLine: string | null = null;
+    let retrustNote: string | null = null;
     if (result.action === 'update' && before.has(result.id) && before.get(result.id) !== result.contentDigest) {
       const pkg = freshView(o).packages.find((p: any) => p.id === result.id);
       if (pkg && TIER_ORDER.indexOf(pkg.tierMax) > 0) {
@@ -279,6 +281,9 @@ function handleApply(o: any): number {
         retrust = file === null
           ? [`${result.id} acts again only after a person adds it, but there is no config home, so no grant can exist; the line would be:`, retrustLine]
           : [`${result.id} acts again only after a person adds it: append this line to ${file} (replace an older trust line for ${result.id} ${result.version}; DoFlow never writes that file):`, retrustLine];
+        retrustNote = file === null
+          ? 'the package acts again only after a person adds that line to the grants file; there is no config home, so no grant can exist'
+          : `the package acts again only after a person adds that line to ${file}`;
       }
     }
     // A changed content digest leaves the package without a valid grant above inert: its skills and agents go (IC-017).
@@ -287,13 +292,14 @@ function handleApply(o: any): number {
       const hold = acquireRunLock({ scopeRoot: homeDir, scope: 'global', command: 'package update' });
       try { sync = syncProjection(o); } finally { hold.release(); }
     }
-    if (json) out(JSON.stringify({ ...result, ...(retrustLine ? { grantLines: { trust: retrustLine }, grantFile: grantsPath(env) } : {}), ...(sync ? projectionJson(sync) : {}) }));
+    if (json) out(JSON.stringify({ ...result, ...(retrustLine ? { grantLines: { trust: retrustLine }, grantFile: grantsPath(env), note: retrustNote } : {}), ...(sync ? projectionJson(sync) : {}) }));
     else {
       out(`${result.action === 'add' ? 'added' : 'updated'} ${result.id} ${result.version} ${result.enabled ? 'enabled' : 'disabled'}`);
       out(`store ${result.storeDir}`);
       out(`contentDigest ${result.contentDigest}`);
       if (result.leftover) out('warning: the previous store entry could not be removed');
       for (const line of retrust) out(line);
+      if (retrustNote) out(retrustNote);
       for (const line of sync?.lines ?? []) out(line);
     }
     return finishRuntime(0);
@@ -802,8 +808,26 @@ function emitVerb(o: any, action: string, code: number, tierMax: string | null):
   } catch { /* a telemetry fault changes nothing */ }
 }
 
-function handlePackageCommand({ action, path: pkgPath, id, source, plan, repair, json = false, repoRoot, homeDir = os.homedir(), env = process.env, projectRoot, tmpDir, settingsView, writer, now = Date.now(), hooks, registry, out = (line: string) => console.log(line) }: any = {}): number {
+function handlePackageCommand({ action, path: pkgPath, id, source, plan, repair, points, dir, cwd = process.cwd(), fsImpl, json = false, repoRoot, homeDir = os.homedir(), env = process.env, projectRoot, tmpDir, settingsView, writer, now = Date.now(), hooks, registry, out = (line: string) => console.log(line) }: any = {}): number {
   const o = { action, id, repair: repair === true, json, repoRoot, homeDir, env, projectRoot, tmpDir, settingsView, writer, now, hooks, registry, out };
+  if (action === 'new') {
+    const result = scaffoldPackage({ id, points, dir, cwd, homeDir, env, repoRoot, now, fsImpl, grantsPath: grantsPath(env) });
+    const code = result.ok ? 0 : result.usage ? 2 : 1;
+    emitVerb(o, 'new', code, result.ok ? result.tierMax : null);
+    if (json) {
+      const { usage: _usage, ...body } = result;
+      out(JSON.stringify(body));
+    } else if (result.ok) {
+      out(`created ${result.dir}`);
+      for (const file of result.files) out(path.join(result.dir, ...file.split('/')));
+      for (const f of result.findings) out(findingLine(f));
+      if (result.ignoredByGit === true) out("the project's own ignore rules hide this folder; a person may add !.doflow/package/ to the project's .gitignore");
+      for (const step of result.next) out(`next: ${step.step}: ${step.command ? `${step.command}; ` : ''}${step.note}`);
+    } else {
+      for (const f of result.findings) out(findingLine(f));
+    }
+    return finishRuntime(code);
+  }
   if (VERB_ACTIONS.includes(action)) return handleVerb(o);
   if (action === 'add' || action === 'update') {
     const given = action === 'add' ? source : id;
@@ -838,7 +862,7 @@ function handlePackageCommand({ action, path: pkgPath, id, source, plan, repair,
     }
   }
   if (action !== 'points') {
-    const message = 'action must be points, check, list, show, add, update, enable, disable, trust, exempt, revoke, verify or remove';
+    const message = 'action must be points, check, list, show, add, update, new, enable, disable, trust, exempt, revoke, verify or remove';
     out(json ? JSON.stringify({ ok: false, error: 'usage', message }) : `doflow package: ${message}`);
     return finishRuntime(2);
   }

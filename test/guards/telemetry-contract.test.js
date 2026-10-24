@@ -27,6 +27,14 @@ const TUPLE_FIXTURE_FIELDS = {
   'verify.run': ['dispatch_run'],
   'review.run': ['task', 'rounds', 'seats', 'seat_findings', 'converged', 'blocker', 'should_fix', 'note', 'open', 'fixed', 'refuted', 'user_accepted', 'pre_existing', 'escaped', 'confirmed', 'plausible', 'unverified_blockers', 'bug_classes', 'advisories', 'errors'],
 };
+test('G45: package actions include authoring and keep the event enums-only', () => {
+  const contract = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/telemetry.json'), 'utf8'));
+  assert.deepEqual(contract.vocabularies.package_action, ['enable', 'disable', 'trust', 'exempt', 'revoke', 'verify', 'remove', 'new']);
+  assert.deepEqual(Object.keys(contract.kinds['package.verb'].fields), ['action', 'result', 'tier_max']);
+  assert.deepEqual(contract.vocabularies.package_result, ['ok', 'refused', 'usage']);
+  assert.deepEqual(contract.vocabularies.package_tier, ['inert', 'instruction', 'executable']);
+});
+
 const TYPE_ATOMS = new Set(['token', 'id', 'uint', 'int', 'hex16', 'hex32', 'iso8601ms', 'date', 'null']);
 const FIELD_KEY = /^[a-z][a-z0-9_]*$/;
 const READ_ONLY_TYPES = new Set(['runkey']); // recordFields only: a run key is `<hex16>/<run>/<lineage>`

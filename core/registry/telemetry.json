@@ -157,7 +157,7 @@
     "failed_first": ["none", "pass", "fail"],
     "resource_basis": ["proc-children", "unreached-platform", "unreached-read"],
     "v0": ["on", "off"],
-    "package_action": ["enable", "disable", "trust", "exempt", "revoke", "verify", "remove"],
+    "package_action": ["enable", "disable", "trust", "exempt", "revoke", "verify", "remove", "new"],
     "package_result": ["ok", "refused", "usage"],
     "package_tier": ["inert", "instruction", "executable"],
     "tool": ["Bash"],
