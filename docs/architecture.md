@@ -1205,6 +1205,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   (`review.preset` ranks by `orderRef`, never a literal `order`), no settings literal or `telemetry.json`
   vocabulary lists a preset id, and the shipped settings registry loads with those refs resolved; a planted
   literal order, literal preset list or telemetry copy is each named.
+- **G69** (`test-isolation.test.ts`) — every test executes hermetically within its repository and scratch directories: no test file navigates or reads above the repo root (`REPO_ROOT/..`, `../do-flow`, or sibling checkouts), preventing test dependencies on sibling checkouts that do not exist in clean CI environments or isolated release rehearsals (FU-rvzby1). Controls verify that out-of-repo and sibling paths are flagged while safe in-repo references pass.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

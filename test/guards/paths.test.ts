@@ -118,11 +118,15 @@ test('G2: no tracked file embeds an absolute home directory path', () => {
     // hash function as test input. What actually matters is whose home it is, so generic names are
     // not flagged and a real account name is.
     const PLACEHOLDER_NAMES: any = new Set(['user', 'users', 'you', 'me', 'someone', 'example', 'bin', 'test', 'name']);
-    for (const m of prosed.matchAll(/\/(?:Users|home)\/([a-z][a-z0-9_-]*)\//g)) {
+    for (const m of prosed.matchAll(/(?:\/(?:Users|home)\/|\/-(?:Users|home)-)([a-z][a-z0-9_-]*)[/-]/g)) {
       if (!PLACEHOLDER_NAMES.has(m[1])) {
         offenders.push(`${rel} -> ${m[0]}`);
         break;
       }
+    }
+    for (const m of prosed.matchAll(/\/claude-[0-9]+\/[^\s'"`;]*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/scratchpad/gi)) {
+      offenders.push(`${rel} -> ${m[0]}`);
+      break;
     }
   }
   offenders.sort();
@@ -130,4 +134,26 @@ test('G2: no tracked file embeds an absolute home directory path', () => {
   assert.deepEqual(offenders, [],
     'these tracked files embed an absolute home directory path, which is meaningless in another '
     + `checkout and public once pushed:\n  ${offenders.join('\n  ')}`);
+});
+
+test('G2: negative control: dash-encoded home and session-uuid scratchpad paths are detected (FU-mz99fc)', () => {
+  const PLACEHOLDER_NAMES = new Set(['user', 'users', 'you', 'me', 'someone', 'example', 'bin', 'test', 'name']);
+  function scan(sampleText: string) {
+    const hits: string[] = [];
+    for (const m of sampleText.matchAll(/(?:\/(?:Users|home)\/|\/-(?:Users|home)-)([a-z][a-z0-9_-]*)[/-]/g)) {
+      if (!PLACEHOLDER_NAMES.has(m[1])) hits.push(m[0]);
+    }
+    for (const m of sampleText.matchAll(/\/claude-[0-9]+\/[^\s'"`;]*[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/scratchpad/gi)) {
+      hits.push(m[0]);
+    }
+    return hits;
+  }
+
+  // Real leaked dash-encoded scratchpad shape constructed dynamically to avoid self-match in tracked files
+  const dashPath = ['/private/tmp/claude-504/-', 'Users-', 'johndoe-Workspace/f470457c-9c50-457c-9c50-f974ab47d827/scratchpad'].join('');
+  assert.ok(scan(dashPath).length > 0, 'must detect dash-encoded home path');
+
+  // Placeholder home path must NOT trigger
+  const placeholder = '/Users/user/project/file.js';
+  assert.equal(scan(placeholder).length, 0, 'placeholder home must not be flagged');
 });

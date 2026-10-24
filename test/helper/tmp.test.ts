@@ -151,6 +151,33 @@ test('removeTree removes a tree containing a read-only subfolder', {
   assert.equal(fs.existsSync(dir), false);
 });
 
+test('removeTree retries on transient ENOTEMPTY before succeeding (FU-j0q6mk)', (t) => {
+  const dir = tempDir(t, 'doflow-tmp-enotempty-');
+  const file = path.join(dir, 'test-file.txt');
+  fs.writeFileSync(file, 'sample');
+
+  let callCount = 0;
+  const originalRmSync = fs.rmSync;
+  // Simulate ENOTEMPTY on first 2 calls, then succeed
+  fs.rmSync = (p: any, opts: any) => {
+    callCount++;
+    if (callCount < 3 && p === dir) {
+      const err: any = new Error(`ENOTEMPTY: directory not empty, rm '${dir}'`);
+      err.code = 'ENOTEMPTY';
+      throw err;
+    }
+    return originalRmSync(p, opts);
+  };
+
+  try {
+    removeTree(dir);
+    assert.equal(fs.existsSync(dir), false);
+    assert.ok(callCount >= 3, `expected at least 3 attempts, got ${callCount}`);
+  } finally {
+    fs.rmSync = originalRmSync;
+  }
+});
+
 test('createScratch writes the default prune setting, supports an override, and removes idempotently', () => {
   const defaults = createScratch('doflow-tmp-scratch-default-');
   const enabled = createScratch('doflow-tmp-scratch-enabled-', { prune: 'on' });
