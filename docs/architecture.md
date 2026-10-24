@@ -63,6 +63,15 @@ are reported rather than imitated.
 | `src/runtime/settings/lexical.ts` | Reads the compatibility lexical setting used by shell copies |
 | `src/runtime/settings/project-layers.ts` | Resolves project settings ownership across linked worktrees |
 | `src/runtime/settings/refs.ts` | Resolves registry `defaultRef` and `valuesRef` declarations |
+| `src/runtime/packages/points.ts` | The contribution point registry (`core/registry/contribution-points.json`) read on its own, so a bad file disables only third-party packages; the map from a point to its validator |
+| `src/runtime/packages/manifest.ts` | The `doflow-package.json` checker: closed key set, forbidden fields, id and host-range rules, each contribution through its point's validator; `checkPackage` adds the tree rules and digests. Never writes |
+| `src/runtime/packages/digest.ts` | The package tree rules (no symlinks, no path leaving the root, size limits) and the content and capability digests |
+| `src/runtime/packages/view.ts` | The package view: the state of every package (`active`, `disabled`, `needs-trust`, `suspended`, `incompatible`), each judged alone, from the bundled package and the global lock. Read-only |
+| `src/runtime/packages/contributions.ts` | The one seam a point's owner calls for the entries of `active` packages; a faulty entry is left out, never thrown |
+| `src/runtime/packages/store.ts` | Plans, the package store under `~/.doflow/packages/store/` and the apply and remove steps, under the global scope's run lock |
+| `src/runtime/packages/grants.ts` | The reader of the person-written `grants.jsonl`; it never writes, renames or deletes that file |
+| `src/runtime/packages/state.ts` | `~/.doflow/packages/state.json`: revocations, suspensions, the audit rows and removal tombstones. Narrowing facts only |
+| `src/runtime/packages/command.ts` | The `doflow package` verb: points, check, list, show, add, update, enable, disable, trust, exempt, revoke, verify and remove |
 | `src/runtime/storage/` | Storage retention: the registry loader and roots (`registry.ts`, `roots.ts`), the one definition of finished work (`work-status.ts`), the bounded pass and its rules (`engine.ts`, `rules.ts`), the silent cleanup moments (`upkeep.ts`) and the `storage` verb (`cli.ts`) |
 | `src/state/` | Harness-neutral ledger, recovery records, and legacy-manifest migration |
 | `src/registry/` | Loads and validates the installation registry files (`harnesses`, `assets`, `mcp`, `lifecycle`, `contracts`, `external-tools`, `models`) plus the provider descriptors in `capabilities.json` into the in-memory registry object (the other runtime registries are loaded by their own runtime modules) every adapter and lifecycle call consumes — the same data `test/guards/registry.test.js` checks implementation claims against |

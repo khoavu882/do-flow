@@ -81,6 +81,9 @@ function globalLockVersion(homeDir?: string): number | null {
   try { return readLock({ scope: 'global', ...(homeDir === undefined ? {} : { homeDir }) })?.version ?? LOCK_VERSION_BASE; } catch { return null; }
 }
 
+/** The one line `list` prints when the global lock is version 2 (IC-007): a DoFlow older than the lock format refuses to read it. `--json` keeps its key set (the Console contract); its `lockVersion` carries the same fact. */
+const DOWNGRADE_LIMIT = 'the global lock is version 2 because it records packages: an older DoFlow cannot read this lock and refuses it';
+
 /** The view options a handler was given (`undefined` ones fall back to the view's own defaults). */
 const viewOptions = (o: any): any => ({ repoRoot: o.repoRoot, homeDir: o.homeDir, env: o.env, projectRoot: o.projectRoot, tmpDir: o.tmpDir, settingsView: o.settingsView });
 
@@ -136,11 +139,14 @@ function handleView(o: any): number {
     else { out(stateLine(wanted[0])); for (const line of matchedText(matchedGrants(wanted[0], o, cache))) out(line); }
     return finishRuntime(0);
   }
-  if (json) out(JSON.stringify({ points: view.points, packages: wanted, findings, lockVersion: globalLockVersion(o.homeDir) }));
+  const lockVersion = globalLockVersion(o.homeDir);
+  const v2 = lockVersion !== null && lockVersion > LOCK_VERSION_BASE;
+  if (json) out(JSON.stringify({ points: view.points, packages: wanted, findings, lockVersion }));
   else {
     for (const p of wanted) { out(stateLine(p)); for (const line of matchedText(matchedGrants(p, o, cache))) out(line); }
     if (wanted.length === 0) out('no packages');
     for (const f of findings) out(findingLine(f));
+    if (v2) out(DOWNGRADE_LIMIT);
   }
   const unhealthy = wanted.some((p: any) => p.state !== 'active' && p.state !== 'disabled');
   return finishRuntime(unhealthy || findings.some((f: any) => f.severity === 'error') ? 1 : 0);

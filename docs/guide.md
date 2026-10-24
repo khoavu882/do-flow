@@ -186,7 +186,7 @@ Each finding names the field, a code and what is allowed. A clean package prints
 
 ### See which packages are available
 
-`doflow package --action list` shows every package and whether it is in use; `doflow package --action show --id <id>` shows one. Both are read-only and offline: they write no file and no telemetry, and need no harness installed. Today the packages are the ones DoFlow ships itself.
+`doflow package --action list` shows every package and whether it is in use; `doflow package --action show --id <id>` shows one. Both are read-only and offline: they write no file and no telemetry, and need no harness installed. They list the packages DoFlow ships itself and the ones you added from a local directory (see [Add and manage a package](#add-and-manage-a-package)).
 
 ```bash
 doflow package --action list [--id <id>] [--json]
@@ -194,6 +194,31 @@ doflow package --action show --id <id> [--json]
 ```
 
 A package is `active` when it can be used. One whose files are missing or break a rule of `check` is `incompatible`, with the reason codes beside it; it affects no other package and no other command. `list` exits 0 when every package is `active` or `disabled` and 1 otherwise, `show` exits 1 for an unknown id and 2 without `--id`. Add `--json` for `{ points, packages, findings, lockVersion }`, where `lockVersion` is the version of the global lock on disk (1 when none).
+
+When the global lock on disk is version 2 (it is as soon as a package is recorded), `list` adds one line saying that an older DoFlow cannot read this lock and refuses it; `--json` keeps its keys, and its `lockVersion` is 2. While packages are recorded, keep this DoFlow or a newer one.
+
+### Add and manage a package
+
+A package is a directory with a `doflow-package.json` and the files it names. Today a package can contribute review and debate presets, which are data: it runs nothing. You add one from a local directory, in steps that each print what they will do before they do it:
+
+```bash
+doflow package --action check --path <dir>          # read-only: the findings, one line per field
+doflow package --action add --source <dir>          # writes a plan only; prints the plan id
+doflow package --action add --plan <planId>         # records the package, still switched off
+doflow package --action enable --id <id>            # switches it on; its presets join the protocols
+```
+
+`check` and `add --source` stop at the first refusal with every error listed and change nothing. A package that tries to carry a `settings`, `order` or `enabled` field, or to reuse the id of a built-in preset, is refused and the field or the collision is named. A package you added is not on until you run `enable`: until then a setting that names its preset is refused as unavailable. `disable` switches it off again and keeps your grants; `remove --id <id>` deletes it and prints every setting and review record that still names it. It never edits those files.
+
+A package that asks for more than data (the tiers above `inert`) is `needs-trust` after `enable`. DoFlow does not grant trust: `doflow package --action trust --id <id>` prints one line and the file to put it in, `<config home>/packages/grants.jsonl`, and only you add it. DoFlow never writes that file. Rules for the file:
+
+- One malformed line, an unknown key, or a second line for the same grant, package and version voids every grant in the file. Replace the old line instead of adding another.
+- Trust belongs to one content digest. When the package's files change, the old line stops counting and `update` prints a new one.
+- The file is ignored when it lies inside the project or the system temp directory.
+
+A package that no longer fits the running DoFlow (its `doflow` range excludes this version) is `incompatible` with the reason beside it; every other package and every other command keeps working. A package may later declare programs (executables). Those will run as your own processes on your machine, with no sandbox or confinement around them, and a package that declares programs is not available yet.
+
+Nothing in these steps fetches anything. `add` takes a local directory only, and `git` and `npm` are never started by a package verb.
 
 ## Retrieve code from the project
 
