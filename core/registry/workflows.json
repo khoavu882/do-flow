@@ -71,6 +71,18 @@
       "reason": "Repository governance. No workflow declares a governance stage and none should: the constitution is what workflows are checked against, not a step inside one. A classify call from here is a routing mistake rather than a class mistake, and is rejected as such."
     }
   },
+  "agents": {
+    "description": "The `access` of every agent spec in core/shared/agent-specs/, for the runtime: an installed runtime ships core/registry but not core/shared, so `review --action start` and `protocol` read a seat agent's access here. test/guards/agent-roster.test.js (G63) holds it equal to each spec's frontmatter `access`; edit the spec and this entry together.",
+    "access": {
+      "core-implementer": "write",
+      "delivery-lead": "write",
+      "quality-guardian": "write",
+      "research-writer": "write",
+      "reviewer": "read-only",
+      "spec-analyst": "write",
+      "system-architect": "write"
+    }
+  },
   "classes": {
     "feature": {
       "name": "Feature Delivery",
