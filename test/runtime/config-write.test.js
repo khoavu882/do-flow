@@ -99,9 +99,9 @@ test('set refuses autopilot.enabled as security and writes nothing', (t) => {
   assert.equal(fs.existsSync(f.configDir), false, 'no config home was created');
 });
 
-test('set refuses advice.model (D-2), verify.reuse, workers.billing and workers.enabled as security, with no directory created', (t) => {
+test('set refuses advice.model (D-2), verify.reuse, workers.billing, workers.enabled and workers.models as security, with no directory created', (t) => {
   const f = createSettingsEnv(t);
-  for (const [key, value] of [['advice.model', '"x"'], ['verify.reuse', '"on"'], ['workers.billing', '{}'], ['workers.enabled', '["codex"]'], ['advice.enabled', 'true']]) {
+  for (const [key, value] of [['advice.model', '"x"'], ['verify.reuse', '"on"'], ['workers.billing', '{}'], ['workers.enabled', '["codex"]'], ['workers.models', '{}'], ['advice.enabled', 'true']]) {
     const entry = refusal(f.run(['config', 'set', key, value, '--layer', 'user', '--json']), key);
     assert.equal(entry.code, 'security', key);
   }
@@ -530,7 +530,7 @@ test('schema --json lists every registry key with the IC-007 fields, and the inv
   assert.equal(schema, 1);
   assert.deepEqual(keys.map((k) => k.key), Object.keys(REGISTRY.keys), 'registry order');
   for (const entry of keys) {
-    assert.deepEqual(Object.keys(entry).sort(), ['combine', 'default', 'description', 'key', 'locked', 'max', 'maxItems', 'maxLength', 'min', 'order', 'scope', 'securityRelevant', 'type', 'values', 'writable']);
+    assert.deepEqual(Object.keys(entry).sort(), ['combine', 'default', 'description', 'key', 'locked', 'max', 'maxItems', 'maxLength', 'min', 'order', 'scope', 'securityRelevant', 'tiers', 'type', 'values', 'writable']);
     const spec = REGISTRY.keys[entry.key];
     assert.equal(entry.type, spec.type);
     assert.equal(entry.scope, spec.scope);
@@ -541,7 +541,7 @@ test('schema --json lists every registry key with the IC-007 fields, and the inv
     assert.equal(entry.locked, false);
   }
   const byKey = Object.fromEntries(keys.map((k) => [k.key, k]));
-  for (const key of ['advice.enabled', 'advice.provider', 'advice.endpoint', 'advice.model', 'verify.reuse', 'autopilot.enabled', 'workers.billing', 'workers.enabled', 'guard.workerDropDatabases']) {
+  for (const key of ['advice.enabled', 'advice.provider', 'advice.endpoint', 'advice.model', 'verify.reuse', 'autopilot.enabled', 'workers.billing', 'workers.enabled', 'workers.models', 'guard.workerDropDatabases']) {
     assert.equal(byKey[key].writable, false, key);
   }
   assert.equal(byKey['review.rounds'].writable, true);

@@ -139,6 +139,11 @@ const V1 = {
     env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
     consumers: ['src/runtime/worker/active.ts'],
     description: 'Ordered list of worker ids a run may use, optionally ending in primary; a project can only remove entries.' },
+  'workers.models': { type: 'worker-models', valuesRef: 'workers.ids', tiersRef: 'models.tierIds', default: null,
+    scope: 'global-only', combine: 'override', securityRelevant: true, failSafe: { state: 'invalid' },
+    env: null, flag: null, shellRead: null, needsConfigHome: true, legacy: [],
+    consumers: ['src/runtime/settings/resolve.ts'],
+    description: 'Person-written model per worker and tier; a worker or tier not listed keeps the harness default.' },
 };
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -204,11 +209,11 @@ test('project-only ignores user/global values and env; project and local files a
 
 // ── the shipped registry ───────────────────────────────────────────────────────────────────────
 
-test('the shipped registry pins the seven v1 entries plus the 108 autopilot switch, the 112 project-only guard key, the 089 verify.reuse switch, the 106 dispatch.fallback default and the workers.billing record and the seven 119 protocol keys and the three 120 primary keys and workers.enabled, in display order', () => {
+test('the shipped registry pins the seven v1 entries plus the 108 autopilot switch, the 112 project-only guard key, the 089 verify.reuse switch, the 106 dispatch.fallback default and the workers.billing record and the seven 119 protocol keys and the three 120 primary keys and workers.enabled and workers.models, in display order', () => {
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 23);
+  assert.equal(Object.keys(SHIPPED.keys).length, 24);
 });
 
 test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {
@@ -248,7 +253,9 @@ test('defaultRef values equal advice.json defaultEndpoint and storage.json lifec
   assert.deepEqual(refs.resolve('harnesses.primaryIds'), ['unknown', ...harnesses.harnesses.map((h) => h.id)]);
   assert.deepEqual(refs.resolve('workers.ids'), harnesses.harnesses.filter((h) => h.worker).map((h) => h.id));
   assert.deepEqual(refs.resolve('workers.defaultRungs'), [...harnesses.harnesses.filter((h) => h.worker).map((h) => h.id), 'primary']);
-  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'harnesses.primaryIds', 'protocols.debatePresetIds', 'protocols.lensIds', 'protocols.reviewPresetIds', 'protocols.reviewPresetOrder', 'storage.lifecycleEventsDefaultHours', 'workers.defaultRungs', 'workers.ids']);
+  const models = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/models.json'), 'utf8'));
+  assert.deepEqual(refs.resolve('models.tierIds'), models.dispatchTiers.tiers);
+  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'harnesses.primaryIds', 'models.tierIds', 'protocols.debatePresetIds', 'protocols.lensIds', 'protocols.reviewPresetIds', 'protocols.reviewPresetOrder', 'storage.lifecycleEventsDefaultHours', 'workers.defaultRungs', 'workers.ids']);
 });
 
 test('refs: an unknown name (including an inherited property name) and an unreadable source throw without file text', () => {
@@ -496,6 +503,7 @@ test('every failSafe form of the shipped registry validates, and each form is re
     'dispatch.fallback': 'off',
     'workers.billing': { state: 'invalid' },
     'workers.enabled': { state: 'invalid' },
+    'workers.models': { state: 'invalid' },
   });
   const wrongValue = clone(SHIPPED);
   wrongValue.keys['storage.prune'].failSafe = 'maybe';

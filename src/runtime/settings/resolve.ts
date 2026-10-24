@@ -411,10 +411,11 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         }
         continue;
       }
-      // IC-004: report each dangling worker once per key, source and id, across both views.
-      if (spec.combine === 'subset') {
+      // IC-002, IC-004: report each dangling worker once per key, source and id, across both views.
+      if (spec.combine === 'subset' || spec.type === 'worker-models') {
         const known = registry.enumValues(key) ?? [];
-        for (const id of c.value as string[]) {
+        const ids = spec.type === 'worker-models' ? Object.keys(c.value as Record<string, unknown>) : c.value as string[];
+        for (const id of ids) {
           if (id === 'primary' || known.includes(id)) continue;
           if (once(`dangling-worker\0${key}\0${c.source}\0${id}`)) {
             notes.push({ code: 'dangling-worker', key, source: c.source, text: `${key}: worker '${id}' is not installed (ignored)` });

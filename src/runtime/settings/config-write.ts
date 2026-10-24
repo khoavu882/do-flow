@@ -48,7 +48,7 @@ function isObject(value: unknown): value is Record<string, any> {
 function allowedOf(registry: any, key: string): unknown {
   const spec = registry.keys.get(key);
   if (!spec) return null;
-  if (spec.type === 'enum' || spec.type === 'worker-list' || (spec.type === 'string-list' && spec.valuesRef)) return registry.enumValues(key);
+  if (spec.type === 'enum' || spec.type === 'worker-list' || spec.type === 'worker-models' || (spec.type === 'string-list' && spec.valuesRef)) return registry.enumValues(key);
   if (spec.type === 'integer') return { min: spec.min ?? null, max: spec.max ?? null };
   return null;
 }
@@ -129,13 +129,15 @@ function layerEntry(registry: any, key: string, layer: string, file: string, par
   if (candidate.status === 'ignored-scope') return entryOf(registry, key, layer, 'scope', `${key} cannot be set at the ${layer} layer (${candidate.reason})`);
   if (!parsed.ok) return entryOf(registry, key, layer, 'type', NOT_JSON);
   if (candidate.status === 'invalid') return entryOf(registry, key, layer, candidate.code, candidate.reason);
-  // IC-004: valid worker lists keep dangling ids advisory and explain an ignored project order.
-  if (registry.keys.get(key).type === 'worker-list' && notes) {
+  // IC-002, IC-004: valid worker lists and model maps keep dangling ids advisory.
+  const type = registry.keys.get(key).type;
+  if ((type === 'worker-list' || type === 'worker-models') && notes) {
     const known = registry.enumValues(key) ?? [];
-    for (const id of parsed.value as string[]) {
+    const ids = type === 'worker-models' ? Object.keys(parsed.value as Record<string, unknown>) : parsed.value as string[];
+    for (const id of ids) {
       if (id !== 'primary' && !known.includes(id)) notes.push(`note: ${key}: worker '${id}' is not installed (ignored)`);
     }
-    if (candidate.code === 'order-ignored') notes.push(`note: ${key}: the order is ignored at the ${layer} layer; the order below applies`);
+    if (type === 'worker-list' && candidate.code === 'order-ignored') notes.push(`note: ${key}: the order is ignored at the ${layer} layer; the order below applies`);
   }
   if (candidate.status === 'not-narrower') return entryOf(registry, key, layer, 'not-narrower', `${candidate.reason} (the value is wider than the layers below)`);
   if (key === 'review.rounds' && Number.isInteger(parsed.value)) return roundsFloor(registry, view, layer, parsed.value as number, repoRoot, notes);
@@ -192,7 +194,7 @@ function buildSchema(registry: any, protocols: any): any {
   const keys = [...registry.keys].map(([key, spec]: [string, any]) => {
     const fallback = defaultOf(registry, key);
     return {
-      key, type: spec.type, values: registry.enumValues(key), order: spec.order ?? null,
+      key, type: spec.type, values: registry.enumValues(key), order: spec.order ?? null, tiers: spec.tiers ?? null,
       min: spec.min ?? null, max: spec.max ?? null, maxItems: spec.type === 'worker-list' ? LADDER_MAX + 1 : spec.maxItems ?? null, maxLength: spec.maxLength ?? null,
       default: spec.type === 'url' && typeof fallback === 'string' ? maskUrl(fallback) : fallback,
       scope: spec.scope, combine: spec.combine, description: spec.description,
@@ -238,7 +240,7 @@ function handleChange({ action, key, valueText, layer, json, registry, repoRoot,
   const writes = action !== 'validate';
   const root = path.resolve(projectRoot);
   const keyFault = keyEntry(registry, key, layer ?? null,
-    writes || (layer !== undefined && registry.keys.get(key)?.type !== 'worker-list'));
+    writes || (layer !== undefined && !['worker-list', 'worker-models'].includes(registry.keys.get(key)?.type)));
   if (keyFault) return refuse(action, [keyFault], json);
 
   const parsed: Parsed = action === 'unset' ? { ok: true, value: null } : parseValue(valueText);

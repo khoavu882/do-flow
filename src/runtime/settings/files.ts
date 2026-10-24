@@ -155,6 +155,31 @@ function validateValue(spec: any, value: unknown, enumValues: readonly string[] 
       }
       return null;
     }
+    // IC-002: the first shape fault invalidates the entire worker model map.
+    case 'worker-models': {
+      if (!isObject(value) || (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)) {
+        return { code: 'type', reason: 'must be an object keyed by worker id' };
+      }
+      const ids = Object.keys(value);
+      if (ids.length < 1 || ids.length > 16) return { code: 'items', reason: 'must hold 1 to 16 worker entries' };
+      for (const id of ids) {
+        const fault = workerIdFault(id);
+        if (fault) return fault.code === 'reserved' ? fault : { code: 'type', reason: 'has an entry key that is not a worker id (lowercase built-in or qualified id)' };
+        const entry = value[id];
+        if (!isObject(entry) || (Object.getPrototypeOf(entry) !== Object.prototype && Object.getPrototypeOf(entry) !== null)) {
+          return { code: 'type', reason: 'each worker entry must be an object keyed by tier' };
+        }
+        const tiers = Object.keys(entry);
+        if (tiers.length < 1 || tiers.length > 3) return { code: 'items', reason: 'each worker entry must hold 1 to 3 tiers' };
+        for (const tier of tiers) {
+          if (!Array.isArray(spec.tiers) || spec.tiers.length === 0) return { code: 'enum', reason: 'has no allowed tiers available' };
+          if (!spec.tiers.includes(tier)) return { code: 'enum', reason: `each tier must be one of: ${spec.tiers.join(', ')}` };
+          const modelFault = validateValue({ type: 'model-id' }, entry[tier]);
+          if (modelFault) return { code: modelFault.code, reason: `a tier's model ${modelFault.reason}` };
+        }
+      }
+      return null;
+    }
     case 'worker-billing':
       return validateWorkerBilling(value);
     default:
