@@ -146,7 +146,7 @@ test('a clean run passes every stage in order, spawns the documented argv and re
   assert.deepEqual(find((c: any, a: any) => c === 'git' && a.includes('checkout')).args.slice(2), ['checkout', '--quiet', '--detach', 'a'.repeat(40)]);
   assert.deepEqual(find((c: any, a: any) => a[0] === 'src/release/preflight.ts').args, ['src/release/preflight.ts', '--offline']);
   assert.equal(find((c: any, a: any) => a[0] === 'src/release/preflight.ts').command, NODE);
-  assert.deepEqual(find((c: any, a: any) => a[0] === '--test' && c === NODE).args, ['--test', 'test/**/*.test.js']);
+  assert.deepEqual(find((c: any, a: any) => a[0] === '--test' && c === NODE).args, ['--test', 'test/**/*.test.ts']);
   assert.equal(find((c: any, a: any) => a[0] === '--test' && c === NODE).options.timeout, 45 * 60 * 1000);
   const smoke = find((c: any) => c === '/fake/node26/bin/node' && true);
   assert.equal(smoke.args[0], '--test');
@@ -236,7 +236,7 @@ test('seed plantuml: reverts the commit, runs only the render test, exits 0 when
   });
   assert.equal(result.exitCode, 0, result.lines.join('\n'));
   assert.deepEqual(calls.find((c: any) => c.args[0] === 'revert').args, ['revert', '--no-commit', '0864b39a']);
-  assert.deepEqual(calls.find((c: any) => c.args[0] === '--test').args, ['--test', 'test/runtime/render-puml-stderr.test.js']);
+  assert.deepEqual(calls.find((c: any) => c.args[0] === '--test').args, ['--test', 'test/runtime/render-puml-stderr.test.ts']);
   assert.ok(!calls.some((c: any) => ['src/release/preflight.ts', 'src/release/build-package.ts'].includes(c.args[0]) || c.args.includes('pack')));
   assert.ok(result.lines.includes('SEED reproduced: plantuml failed at suite'));
   assert.deepEqual(fs.readdirSync(scratchRoot), []);

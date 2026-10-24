@@ -533,7 +533,7 @@ test('G11: the bench harness is not wired into the default test command', () => 
 });
 
 test('G11: the structural check on the test script rejects an unscoped or bench-reaching command', () => {
-  assert.deepStrictEqual(testScriptProblems('node --test "test/**/*.test.js"'), []);
+  assert.deepStrictEqual(testScriptProblems('node --test "test/**/*.test.ts"'), []);
   for (const bad of ['node --test', 'node --test test/ bench/', 'node --test "**/*.test.js"']) {
     assert.notDeepStrictEqual(testScriptProblems(bad), [], `${bad} must be rejected`);
   }

@@ -566,12 +566,12 @@ Examples:
   3. Keep the skill's handoff line carrying ``--mcp-outcome "<server>=<outcome>"``, one per named server. A server named without an outcome prints a warning at handoff and in `doflow doctor`'s `[MCP Consultations]` section; neither blocks.
   4. If the generic `trigger` changed, copy it verbatim into `docs/setup.md`; G28 checks it.
   5. `doflow doctor`'s `[MCP Servers]` section lists the server by the `steps` you added, so it needs no edit.
-  6. Run `node --test test/guards/mcp-claims.test.ts test/runtime/mcp-handoff.test.js test/runtime/doctor-mcp.test.js`, then `npm test`.
+  6. Run `node --test test/guards/mcp-claims.test.ts test/runtime/mcp-handoff.test.ts test/runtime/doctor-mcp.test.ts`, then `npm test`.
 - Add a capability provider:
   1. Add it to its capability's `providers` in `core/registry/capabilities.json` with `id`, `kind`, `binary` where one exists, `costTier`, `sourceMode` (`live` for a provider that reads current files or commands, `index` for one that answers from a built artifact; required, and an `index` provider also needs an entry in `PROVIDER_ARTIFACTS` in `src/runtime/health.ts` or its freshness reads UNKNOWN) and a `checkCommand` (`doflow doctor` runs it as the provider's probe; a provider without one reports unverified, and the brief names only healthy providers).
   2. If it is reached through an MCP tool, add `mcp: {server, tool}`. The router derives `mcpTool` from it and the brief names the tool through the harness's `toolName` template.
   3. A new information need is an intent in `core/registry/routes.json` naming a capability and an ordered `fallback`. The brief block has one row per intent, in file order, and names the provider the router resolves among the healthy ones, so no code changes.
-  4. Run `node --test test/guards/brief-tools-registry.test.ts test/guards/provider-source-mode.test.ts test/runtime/brief-tools.test.js test/runtime/runtime-capability-router.test.js`, then `npm test`.
+  4. Run `node --test test/guards/brief-tools-registry.test.ts test/guards/provider-source-mode.test.ts test/runtime/brief-tools.test.ts test/runtime/runtime-capability-router.test.ts`, then `npm test`.
 - Change user guidance: give it one canonical document—Quickstart, Setup, Guide, Reference, or Overview—rather than copying it across all of them.
 
 ### Storage and retention

@@ -996,7 +996,7 @@ test('G33.8 control: holdout results file carrying forbidden keys is reported', 
 });
 
 test('G33.11: performance-budget.test.js names bench/perf/budgets.json and matches no /ms\\s*<=\\s*\\d{3}/', () => {
-  const content = fs.readFileSync(path.join(REPO, 'test/runtime/performance-budget.test.js'), 'utf8');
+  const content = fs.readFileSync(path.join(REPO, 'test/runtime/performance-budget.test.ts'), 'utf8');
   assert.deepEqual(o2PerfTestProblems(content), []);
 });
 
@@ -1041,7 +1041,7 @@ const DELIVERABLES_IN_IC030: any = [
   'bench/inventory/proposals.json',
   'docs/specs/operating-modes.md',
   'docs/specs/candidate-evidence-boundary.md',
-  'test/runtime/performance-budget.test.js',
+  'test/runtime/performance-budget.test.ts',
 ];
 
 function q1GateRecordProblems(readmeContent: any, thresholdsDoc: any) {

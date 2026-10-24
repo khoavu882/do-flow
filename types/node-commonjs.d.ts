@@ -53,6 +53,7 @@ declare var process: {
   env: Record<string, string | undefined>;
   platform: string;
   execPath: string;
+  execArgv: string[];
   version: string;
   pid: number;
   ppid: number;
@@ -118,7 +119,7 @@ interface Buffer extends Uint8Array {
 }
 declare var Buffer: {
   alloc(size: number, fill?: any, encoding?: string): Buffer;
-  from(data: any, encoding?: string): Buffer;
+  from(data: any, encodingOrOffset?: any, length?: number): Buffer;
   byteLength(string: string, encoding?: string): number;
   isBuffer(value: any): boolean;
   allocUnsafe(size: number): Buffer;
@@ -159,4 +160,8 @@ interface ObjectConstructor {
   entries(o: any): [string, any][];
   values(o: any): any[];
   fromEntries(entries: any): any;
+}
+
+interface ErrorConstructor {
+  stackTraceLimit?: number;
 }
