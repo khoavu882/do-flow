@@ -11,7 +11,7 @@
  *      places agree: the dispatcher's Node arm, the dispatcher's `usage()`, the CLI's command
  *      switch, and the verb-reachability allowlist. `test/guards/runtime-unification.test.js`
  *      holds the *rule* (no command off the seam, no verb without a command) and
- *      `test/guards/verb-reachability.test.js` holds the *allowlist discipline* — but neither
+ *      `test/guards/verb-reachability.test.ts` holds the *allowlist discipline* — but neither
  *      notices a verb deleted from every table at once, because both are satisfied by a verb that
  *      does not exist. This file pins the membership those rules are silent about.
  *   2. **`repairPath` means one thing.** See the block comment above the second section.
@@ -69,9 +69,9 @@ test('IC-001: the inventory verb is present in all four places the seam requires
   // carries a rationale; it cannot check that THIS verb is still declared, because a verb with no
   // allowlist entry and no skill caller is simply a G17 failure — a legible one, but only if the
   // verb still exists. This asserts the recorded decision itself.
-  const reachability = fs.readFileSync(path.join(REPO, 'test', 'guards', 'verb-reachability.test.js'), 'utf8');
+  const reachability = fs.readFileSync(path.join(REPO, 'test', 'guards', 'verb-reachability.test.ts'), 'utf8');
   const entry = reachability.match(/\[\s*'inventory',\s*\r?\n\s*'([^']+)'/);
-  assert.ok(entry, 'inventory must carry an entry in verb-reachability.test.js\'s ALLOWLIST: no skill '
+  assert.ok(entry, 'inventory must carry an entry in verb-reachability.test.ts\'s ALLOWLIST: no skill '
     + 'calls it and none should, so its caller-free state is a decision that has to be recorded rather '
     + 'than a gap');
   assert.ok(entry[1].length > 40, 'the allowlist rationale must state why the verb is caller-free');

@@ -4,7 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { REPO } = require('../guards/_shared');
+const { REPO } = require('../guards/_shared.ts');
 const { tempDir } = require('../helper/tmp.ts');
 const { buildPackage } = require('../../src/release/build-package.ts');
 

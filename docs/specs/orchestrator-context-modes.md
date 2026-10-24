@@ -166,7 +166,7 @@ Status of each section in this specification, cited with code locations and prov
   Delta rules are specified by IC-015 (dormant in 075).
 - **Section 7 (Telemetry and silence)**: Implemented by `handleContextPackCommand` in
   `src/runtime/context-pack.ts`; the always-loaded budget is guarded by
-  `test/guards/context-budget.test.js`.
+  `test/guards/context-budget.test.ts`.
 - **Section 8 (The four stages of issue #9)**:
   - Stage 1 (Modes as data): retired; item-level delivery and stage agent bindings (feature 118) cover the choice.
   - Stage 2 (Budget downgrade): superseded by 075 item-level overflow in `handleContextPackCommand`

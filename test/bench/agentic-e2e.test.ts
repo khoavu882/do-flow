@@ -24,7 +24,7 @@ const execute = require('../../bench/agentic/execute.ts');
 const { loadTaskSet } = require('../../bench/agentic/tasks.ts');
 const noise = require('../../bench/noise.ts');
 // G60's own checker (recomputation of every scope, the overfit flag and the source-none rules).
-const { checkEvalNoise } = require('../guards/eval-noise.test.js');
+const { checkEvalNoise } = require('../guards/eval-noise.test.ts');
 
 const REPO = path.join(__dirname, '..', '..');
 const FAKE_WORKER = path.join(REPO, 'test', 'fixtures', 'agentic', 'fake-worker.js');

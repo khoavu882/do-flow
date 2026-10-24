@@ -1,0 +1,300 @@
+'use strict';
+
+// G23 — hidden Unicode. Shipped prose and code are read by models and by reviewers; a code point that
+// renders as nothing (tag characters, zero-width characters, bidirectional controls, invisible
+// operators, variation selectors, soft hyphens and filler characters) can carry instructions or reorder text that no reviewer sees. Every file under core/,
+// src/, bin/ and docs/, and README.md, must hold none, and must decode as strict UTF-8 so an
+// undecodable file cannot slip past unscanned. A leading byte order mark is kept in the decoded text
+// and so is found. U+FE0E and U+FE0F after a pictograph (or after a keycap base before U+20E3) choose
+// an emoji's presentation and are allowed; a variation selector anywhere else is a finding. The scan reads the files git tracks (the working-tree
+// walk is the fallback when git cannot list them), so an ignored or untracked artifact never fails
+// it; a tracked file holding a NUL byte is binary and a symlink is not a file of its own, and
+// both are skipped by that scan. The NUL scan below closes the hole this leaves: a tracked text file
+// (any extension not in BINARY_EXTENSIONS) that holds a raw NUL byte is a finding, because grep and
+// diff then treat it as binary and hide its contents; write the byte as an escape instead. test/ and bench/ are not scanned: test/ holds deliberate bidirectional
+// fixtures. This file builds every fixture character with String.fromCodePoint and names code
+// points only in escapes, so it does not flag itself.
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { execFileSync } = require('node:child_process');
+const { REPO } = require('./_shared.ts');
+const { tempDir } = require('../helper/tmp.ts');
+
+const SCAN_ROOTS: any = ['core', 'src', 'bin', 'docs'];
+const SCAN_FILES: any = ['README.md'];
+
+// Extensions of tracked files that are binary by nature and so may hold NUL bytes. The repository
+// tracks none today; a file with one of these extensions is exempt from the raw-NUL scan.
+const BINARY_EXTENSIONS: any = new Set(['.png', '.jpg', '.jpeg', '.gif', '.ico', '.webp', '.woff', '.woff2', '.pdf', '.zip', '.gz']);
+
+// Named classes for the code points a finding is most useful to label. Every other code point with the
+// Unicode property Default_Ignorable_Code_Point is a finding too, classed as 'default-ignorable', so a
+// newly assigned invisible character is covered without listing it here.
+const HIDDEN_CODE_POINTS: any = [
+  { from: 0xE0000, to: 0xE007F, cls: 'tag character' },
+  { from: 0x200B, to: 0x200D, cls: 'zero-width' },
+  { from: 0x2060, to: 0x2060, cls: 'zero-width' },
+  { from: 0xFEFF, to: 0xFEFF, cls: 'zero-width' },
+  { from: 0x202A, to: 0x202E, cls: 'bidirectional control' },
+  { from: 0x2066, to: 0x2069, cls: 'bidirectional control' },
+  { from: 0x200E, to: 0x200F, cls: 'bidirectional mark' },
+  { from: 0x061C, to: 0x061C, cls: 'bidirectional mark' },
+  { from: 0x2061, to: 0x2064, cls: 'invisible operator' },
+  { from: 0xFE00, to: 0xFE0F, cls: 'variation selector' },
+  { from: 0xE0100, to: 0xE01EF, cls: 'variation selector' },
+  { from: 0x00AD, to: 0x00AD, cls: 'invisible formatting' },
+  { from: 0x180E, to: 0x180E, cls: 'invisible formatting' },
+  { from: 0x3164, to: 0x3164, cls: 'invisible filler' },
+];
+
+const ZWJ = 0x200D;
+const VARIATION_SELECTOR_15 = 0xFE0E;
+const VARIATION_SELECTOR_16 = 0xFE0F;
+const COMBINING_ENCLOSING_KEYCAP = 0x20E3;
+const HIDDEN_RE: any = new RegExp(
+  `[\\p{Default_Ignorable_Code_Point}${HIDDEN_CODE_POINTS.map(({ from, to }: any) => `\\u{${from.toString(16)}}-\\u{${to.toString(16)}}`).join('')}]`, 'u');
+const PICTOGRAPHIC_RE = /^\p{Extended_Pictographic}$/u;
+const KEYCAP_BASE_RE = /^[0-9#*]$/;
+const isVariationSelector = (codePoint: any) => classOf(codePoint) === 'variation selector';
+
+const hex = (codePoint: any) => codePoint.toString(16).toUpperCase().padStart(4, '0');
+const classOf = (codePoint: any) => HIDDEN_CODE_POINTS.find(({ from, to }: any) => codePoint >= from && codePoint <= to)?.cls
+  ?? (HIDDEN_RE.test(String.fromCodePoint(codePoint)) ? 'default-ignorable' : undefined);
+
+/** Whether the ZWJ at `at` joins two pictographs (an emoji ZWJ sequence), skipping U+FE0F on both sides. */
+function joinsPictographs(codePoints: any, at: any) {
+  let before = at - 1;
+  while (before >= 0 && codePoints[before].codePointAt(0) === VARIATION_SELECTOR_16) before -= 1;
+  let after = at + 1;
+  while (after < codePoints.length && codePoints[after].codePointAt(0) === VARIATION_SELECTOR_16) after += 1;
+  return before >= 0 && after < codePoints.length
+    && PICTOGRAPHIC_RE.test(codePoints[before]) && PICTOGRAPHIC_RE.test(codePoints[after]);
+}
+
+/** Whether the variation selector at `at` sets the presentation of an emoji: it follows a pictograph, or a
+ * keycap base that the keycap combining mark follows. A variation selector anywhere else is a finding. */
+function selectsPresentation(codePoints: any, at: any) {
+  const selector = codePoints[at].codePointAt(0);
+  if (at === 0 || (selector !== VARIATION_SELECTOR_15 && selector !== VARIATION_SELECTOR_16)) return false;
+  const base = codePoints[at - 1];
+  return PICTOGRAPHIC_RE.test(base)
+    || (KEYCAP_BASE_RE.test(base) && codePoints[at + 1]?.codePointAt(0) === COMBINING_ENCLOSING_KEYCAP);
+}
+
+/** Hidden code points in `text`, positioned by line and code-point column, both counted from 1. */
+function scanText(rel: any, text: any): any {
+  if (!HIDDEN_RE.test(text)) return [];
+  const codePoints = Array.from(text);
+  const findings: any = [];
+  let line = 1;
+  let column = 0;
+  codePoints.forEach((char: any, at) => {
+    column += 1;
+    if (char === '\n') { line += 1; column = 0; return; }
+    const codePoint: any = char.codePointAt(0);
+    const cls = classOf(codePoint);
+    if (!cls) return;
+    if (codePoint === ZWJ && joinsPictographs(codePoints, at)) return;
+    if (isVariationSelector(codePoint) && selectsPresentation(codePoints, at)) return;
+    findings.push({ rel, line, column, codePoint, cls });
+  });
+  return findings;
+}
+
+const describe = ({ rel, line, column, codePoint, cls }: any) => `${rel}:${line}:${column} U+${hex(codePoint)} ${cls}`;
+
+/** Findings for one file's bytes: the hidden code points, or a single not-valid-UTF-8 finding. A
+ * buffer holding a NUL byte is binary (an image, a compiled file) and has no text to scan. */
+function scanBuffer(rel: any, buffer: any) {
+  if (buffer.includes(0)) return [];
+  let text;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(buffer);
+  } catch {
+    return [`${rel}: not valid UTF-8, not scanned`];
+  }
+  return scanText(rel, text).map(describe);
+}
+
+/** Positions (`rel:line`) of raw NUL bytes in a tracked file's bytes; none for a binary-by-extension file. */
+function nulFindings(rel: any, buffer: any): any {
+  if (BINARY_EXTENSIONS.has(path.extname(rel).toLowerCase())) return [];
+  const findings: any = [];
+  let line = 1;
+  buffer.forEach((byte: any) => {
+    if (byte === 0x0A) line += 1;
+    else if (byte === 0) findings.push(`${rel}:${line} raw NUL byte`);
+  });
+  return findings;
+}
+
+/** Every file git tracks in the repository, repo-relative. */
+function allTracked(root: any) {
+  return execFileSync('git', ['ls-files', '-z'], {
+    cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    env: { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1' },
+  }).split('\0').filter(Boolean);
+}
+
+/** Every regular file under `dir` (repo-relative, forward slashes); a symlink, dangling or not, is not one. */
+function filesUnder(root: any, dir: any) {
+  return fs.readdirSync(path.join(root, dir), { withFileTypes: true }).flatMap((entry: any) => {
+    const rel = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) return filesUnder(root, rel);
+    return entry.isFile() ? [rel] : [];
+  });
+}
+
+function gitTracked(root: any) {
+  const out = execFileSync('git', ['ls-files', '-z', '--', ...SCAN_ROOTS, ...SCAN_FILES], {
+    cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+    env: { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1' },
+  });
+  return out.split('\0').filter(Boolean);
+}
+
+/** The files to scan under `root`: what git tracks there, or the working-tree walk when git cannot say. */
+function scanTargets(root: any, listTracked: any = gitTracked) {
+  try {
+    const rels = listTracked(root);
+    if (rels.length) return { rels, source: 'git' };
+  } catch { /* no git, or not a repository: walk instead */ }
+  const walked = SCAN_ROOTS.filter((dir: any) => fs.existsSync(path.join(root, dir))).flatMap((dir: any) => filesUnder(root, dir));
+  return { rels: [...walked, ...SCAN_FILES.filter((file: any) => fs.existsSync(path.join(root, file)))], source: 'walk' };
+}
+
+/** A file's bytes, or null when it is not a regular file (a symlink, a directory, a path that vanished). */
+function readRegularFile(full: any) {
+  try {
+    return fs.lstatSync(full).isFile() ? fs.readFileSync(full) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Asset sources outside the scanned roots, as failure messages. */
+function outsideRoots(assets: any) {
+  return assets.filter(({ source }: any) => !/^(core|src|bin)(\/|$)/.test(source))
+    .map(({ id, source }: any) => `asset ${id} source ${source} is outside the scanned roots`);
+}
+
+test('G23: no file under core/, src/, bin/, docs/ or README.md holds a hidden code point', (t) => {
+  const started = process.hrtime.bigint();
+  const perRoot: any = new Map();
+  const findings: any = [];
+  const skipped: any = { binary: 0, notRegular: 0 };
+  const { rels, source } = scanTargets(REPO);
+  for (const rel of rels) {
+    const buffer = readRegularFile(path.join(REPO, rel));
+    if (!buffer) { skipped.notRegular += 1; continue; }
+    if (buffer.includes(0)) { skipped.binary += 1; continue; }
+    const top = SCAN_FILES.includes(rel) ? rel : rel.split('/')[0];
+    perRoot.set(top, (perRoot.get(top) || 0) + 1);
+    findings.push(...scanBuffer(rel, buffer));
+  }
+
+  const empty = [...SCAN_ROOTS, ...SCAN_FILES].filter((entry) => !perRoot.get(entry));
+  assert.deepEqual(empty, [], `scan roots that held no file; the scan below would measure nothing: ${empty.join(', ')}`);
+  const files = [...perRoot.values()].reduce((a, b) => a + b, 0);
+  t.diagnostic(`hidden unicode: ${files} ${source} files scanned (${[...perRoot].map(([root, n]) => `${root} ${n}`).join(', ')}); `
+    + `skipped ${skipped.binary} binary, ${skipped.notRegular} not regular; in ${Math.round(Number(process.hrtime.bigint() - started) / 1e6)} ms`);
+  assert.deepEqual(findings.sort(), [],
+    `hidden code points or undecodable files (position is line:column in code points):\n  ${findings.join('\n  ')}`);
+});
+
+test('G23: every asset source lies under a scanned root', () => {
+  const { assets } = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'assets.json'), 'utf8'));
+  assert.ok(assets.length > 0, 'no assets parsed; the coverage check would measure nothing');
+  const outside = outsideRoots(assets);
+  assert.deepEqual(outside, [], outside.join('\n'));
+});
+
+test('G23: controls — the scan sees hidden code points, exempts emoji joins and refuses invalid UTF-8', () => {
+  const chars = [0xE0041, 0x202E, 0x200B, 0x2066].map((codePoint) => String.fromCodePoint(codePoint));
+  const hidden = scanText('fixture.md', chars.map((char, i) => `a${char}b${i}`).join('\n'));
+  assert.deepEqual(hidden.map(({ line, column, codePoint }: any) => [line, column, codePoint]),
+    [[1, 2, 0xE0041], [2, 2, 0x202E], [3, 2, 0x200B], [4, 2, 0x2066]]);
+  assert.deepEqual(hidden.map(({ cls }: any) => cls),
+    ['tag character', 'bidirectional control', 'zero-width', 'bidirectional control']);
+  assert.equal(describe(hidden[0]), 'fixture.md:1:2 U+E0041 tag character');
+
+  const joined = String.fromCodePoint(0x1F469, ZWJ, 0x1F4BB);
+  assert.deepEqual(scanText('fixture.md', joined), []);
+  assert.deepEqual(scanText('fixture.md', String.fromCodePoint(0x2764, VARIATION_SELECTOR_16, ZWJ, 0x1F525)), []);
+
+  const between = scanText('fixture.md', `a${String.fromCodePoint(ZWJ)}b`);
+  assert.equal(between.length, 1);
+  assert.equal(between[0].codePoint, ZWJ);
+
+  const invisible = [0xFE01, 0xE0100, 0x00AD, 0x3164, 0x180E].map((codePoint) => String.fromCodePoint(codePoint));
+  assert.deepEqual(scanText('fixture.md', invisible.map((char) => `a${char}b`).join('\n')).map(({ codePoint }: any) => codePoint),
+    [0xFE01, 0xE0100, 0x00AD, 0x3164, 0x180E]);
+  const ignorable = [0x034F, 0x115F, 0x1160, 0x17B4, 0x180B, 0x180F, 0x206A, 0x206F, 0xFFA0, 0x1BCA0, 0x1D173].map((codePoint) => String.fromCodePoint(codePoint));
+  assert.deepEqual(scanText('fixture.md', ignorable.map((char) => `a${char}b`).join('\n')).map(({ codePoint, cls }: any) => [codePoint, cls]),
+    ignorable.map((char) => [char.codePointAt(0), 'default-ignorable']), 'every other Default_Ignorable_Code_Point is a finding');
+  assert.equal(scanText('fixture.md', `a${String.fromCodePoint(VARIATION_SELECTOR_16)}`)[0].cls, 'variation selector');
+  assert.equal(scanText('fixture.md', String.fromCodePoint(VARIATION_SELECTOR_16)).length, 1);
+  assert.deepEqual(scanText('fixture.md', String.fromCodePoint(0x2764, VARIATION_SELECTOR_16)), []);
+  assert.deepEqual(scanText('fixture.md', String.fromCodePoint(0x31, VARIATION_SELECTOR_16, COMBINING_ENCLOSING_KEYCAP)), []);
+  assert.equal(scanText('fixture.md', String.fromCodePoint(0x31, VARIATION_SELECTOR_16, 0x32)).length, 1);
+  assert.equal(scanText('fixture.md', String.fromCodePoint(0x2764, 0xE0100)).length, 1, 'only U+FE0E and U+FE0F select an emoji presentation');
+  assert.equal(scanText('fixture.md', String.fromCodePoint(0x2764, 0xFE01)).length, 1);
+
+  assert.deepEqual(scanBuffer('bom.md', Buffer.from([0xEF, 0xBB, 0xBF, 0x61])), ['bom.md:1:1 U+FEFF zero-width'],
+    'a leading byte order mark is read, not stripped before the scan');
+  assert.deepEqual(scanBuffer('bad.md', Buffer.from([0xC3, 0x28])), ['bad.md: not valid UTF-8, not scanned']);
+  assert.deepEqual(scanBuffer('ok.md', Buffer.from('plain text', 'utf8')), []);
+});
+
+test('G23: controls — binary files, symlinks and untracked files do not fail the scan; sources outside the roots do', (t) => {
+  assert.deepEqual(scanBuffer('image.png', Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0xC3, 0x28])), [],
+    'a binary file is skipped, not reported as undecodable');
+
+  const root = tempDir(t, 'doflow-g23-');
+  fs.mkdirSync(path.join(root, 'docs', 'sub'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'docs', 'a.md'), 'plain');
+  fs.writeFileSync(path.join(root, 'docs', 'sub', 'b.md'), 'plain');
+  fs.writeFileSync(path.join(root, 'README.md'), 'plain');
+  let linked = true;
+  try {
+    fs.symlinkSync(path.join(root, 'no-such-target'), path.join(root, 'docs', 'dangling.md'));
+    fs.symlinkSync(path.join(root, 'docs', 'sub'), path.join(root, 'docs', 'dir-link'));
+    fs.symlinkSync(path.join(root, 'docs', 'a.md'), path.join(root, 'docs', 'file-link.md'));
+  } catch { linked = false; }
+
+  assert.deepEqual(scanTargets(root, () => { throw new Error('no git'); }),
+    { rels: ['docs/a.md', 'docs/sub/b.md', 'README.md'], source: 'walk' }, 'the walk fallback lists regular files only');
+  assert.equal(scanTargets(root, () => []).source, 'walk', 'an empty git listing falls back to the walk');
+  assert.deepEqual(scanTargets(root, () => ['docs/a.md']), { rels: ['docs/a.md'], source: 'git' }, 'only tracked files are scanned');
+  if (linked) {
+    for (const name of ['dangling.md', 'dir-link', 'file-link.md']) {
+      assert.equal(readRegularFile(path.join(root, 'docs', name)), null, `${name} is not a regular file`);
+    }
+  }
+  assert.equal(readRegularFile(path.join(root, 'docs', 'gone.md')), null, 'a tracked path missing from the tree is skipped');
+  assert.deepEqual(readRegularFile(path.join(root, 'docs', 'a.md')), Buffer.from('plain'));
+  assert.ok(scanTargets(REPO).rels.includes('README.md'), 'the repository scan lists README.md');
+
+  assert.deepEqual(outsideRoots([{ id: 'x.tests', source: 'test/fixtures' }, { id: 'y', source: 'core/shared' }]),
+    ['asset x.tests source test/fixtures is outside the scanned roots']);
+});
+
+test('G23: no tracked text file holds a raw NUL byte', () => {
+  const tracked = allTracked(REPO);
+  assert.ok(tracked.length > 0, 'git listed no tracked file; the scan would measure nothing');
+  const findings: any = [];
+  for (const rel of tracked) {
+    const buffer = readRegularFile(path.join(REPO, rel));
+    if (buffer) findings.push(...nulFindings(rel, buffer));
+  }
+  assert.deepEqual(findings, [], `raw NUL bytes make grep and diff treat the file as binary; write them as an escape:\n  ${findings.join('\n  ')}`);
+});
+
+test('G23: controls — the NUL scan reports a raw NUL with its line and exempts binary extensions', () => {
+  assert.deepEqual(nulFindings('a.js', Buffer.from('ok\nbad\0here\n\0')), ['a.js:2 raw NUL byte', 'a.js:3 raw NUL byte']);
+  assert.deepEqual(nulFindings('a.js', Buffer.from('escaped \\0 is two characters')), []);
+  assert.deepEqual(nulFindings('logo.PNG', Buffer.from([0x89, 0x50, 0x00])), [], 'a binary extension may hold NUL');
+});

@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { planTree, applyTree, sharedTreeDestDir } = require('../../src/adapters/copy-tree.ts');
-const { REPO } = require('../guards/_shared');
+const { REPO } = require('../guards/_shared.ts');
 const { tempDir } = require('../helper/tmp.ts');
 
 test('runtime.lib projects the Semble bridge into every harness runtime tree', (t) => {

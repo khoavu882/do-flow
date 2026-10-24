@@ -5,7 +5,7 @@
 // the G13 guard enforces.
 const fs = require('node:fs');
 const path = require('node:path');
-const { REPO, GUIDANCE } = require('../guards/_shared');
+const { REPO, GUIDANCE } = require('../guards/_shared.ts');
 const { GENERATED_EXCLUSIONS, guidanceManifest } = require('../../src/adapters/guidance-manifest.ts');
 
 /** Newline-separated lines, without the empty line a trailing newline would add. */

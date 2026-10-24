@@ -81,14 +81,14 @@ Three consequences follow, all of them intentional:
   harness recorded at that path.
 - **The locator deliberately does not live in the shared tree.** It is the one asset whose
   `nativeDir` must stay inside the harness's own directory;
-  `test/guards/runtime-unification.test.js` fails if any locator `nativeDir` escapes into
+  `test/guards/runtime-unification.test.ts` fails if any locator `nativeDir` escapes into
   `../.doflow`. Skills do not call it either — a relative path in a skill's shell snippet resolves
   against the user's project root, not the skill's directory — so a skill inlines the same walk-up
   the locator performs. The shim exists for callers that *can* name a path correct for themselves,
   such as a harness hook or a person at a terminal.
 
 Verification is the same on every harness: run one verb through the locator and check the exit code
-and JSON, e.g. `doflow-run paths --json` from a project root. `test/e2e/install-shapes.test.js` performs
+and JSON, e.g. `doflow-run paths --json` from a project root. `test/e2e/install-shapes.test.ts` performs
 real installs for all eight harnesses into temporary directories and executes the projected locator
 and dispatcher in source-checkout, project-local, and global shapes rather than asserting against a
 mock.
@@ -97,7 +97,7 @@ mock.
 
 Per-event support, from `capabilities.hooks.events` in `core/registry/harnesses.json`. A gap is
 recorded explicitly with the reason no equivalent exists — never left out, which would be
-indistinguishable from an oversight. `test/guards/registry.test.js` enforces both directions:
+indistinguishable from an oversight. `test/guards/registry.test.ts` enforces both directions:
 an event declared supported must be in the harness contract, and an unavailable one must carry
 a reason.
 
