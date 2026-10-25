@@ -164,7 +164,7 @@ test('check before effect: one bad preset field and one undeclared point give ex
   assert.deepEqual([invalid.code, invalid.field], ['contribution-invalid', 'acme.strict.seats[0].model.tier']);
   assert.deepEqual(invalid.allowed, ['light', 'standard', 'frontier']);
   assert.deepEqual([undeclared.code, undeclared.field], ['undeclared-point', 'contributions[1].point']);
-  assert.deepEqual(undeclared.allowed, ['review-preset', 'debate-preset', 'skill', 'agent', 'worker'], 'the open points are listed');
+  assert.deepEqual(undeclared.allowed, ['review-preset', 'debate-preset', 'skill', 'agent', 'worker', 'capability-provider'], 'the open points are listed');
 
   const plain = w.pkg('check', '--path', dir);
   assert.equal(plain.status, 1);

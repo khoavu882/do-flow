@@ -268,8 +268,13 @@ function checkNoNodeOnHooks(files: any) {
 
 // --- G45.3: no network client in the runtime ----------------------------------------------------
 
-/** The model-endpoint client of feature 072; 091 adds otlp-export.ts (DEC-008, O1). */
-const PINNED_NETWORK_FILES: any = ['src/runtime/advice/client.ts', 'src/runtime/advice/endpoint-guard.ts', 'src/runtime/trace/otlp-export.ts'];
+/** The model-endpoint client of feature 072; 091 adds otlp-export.ts (DEC-008, O1); 121 adds executor.ts (DEC-051). */
+const PINNED_NETWORK_FILES: any = [
+  'src/runtime/advice/client.ts',
+  'src/runtime/advice/endpoint-guard.ts',
+  'src/runtime/trace/otlp-export.ts',
+  'src/runtime/capabilities/executor.ts',
+];
 const NETWORK_ROOTS: any = ['src'];
 const NETWORK_EXT = /\.(?:ts|js|mjs|cjs|mts|cts)$/;
 const NETWORK_MODULES = /^(?:node:)?(?:http|https|http2|net|tls|dgram|dns|undici)(?:\/.*)?$/;

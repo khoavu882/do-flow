@@ -130,7 +130,7 @@ function scaffoldPackage({
       const point = registry.points.find((p: any) => p.id === parts[0]);
       if (!point) return refuse('undeclared-point', 'points', `point '${parts[0]}' is not declared; open points: ${open.map((p: any) => p.id).join(', ')}`, open.map((p: any) => p.id));
       if (point.status !== 'open') return refuse('point-reserved', 'points', `point '${point.id}' is reserved and opens with ${point.opensWith}`, available);
-      const local = parts.length === 1 ? point.id : parts[1];
+      const local = parts.length === 1 ? (isLocalId(point.id) ? point.id : 'provider') : parts[1];
       if (parts.length > 2 || !isLocalId(local) || !qualifiedId(id, local)) return refuse('bad-id', 'points', `invalid local id in '${entry}'`, 'point[:local] with an IC-003 local id');
       const key = `${point.id}:${local}`;
       if (seen.has(key)) return refuse('bad-id', 'points', `duplicate contribution '${key}'`, 'unique (point, local id) pairs');

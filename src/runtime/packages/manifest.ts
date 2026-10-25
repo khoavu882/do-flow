@@ -134,7 +134,7 @@ function checkManifest(input: any, options: any = {}): any[] {
     } else {
       const seen = new Set<string>();
       const protocols = options.protocols ?? loadProtocols({ repoRoot }).registry;
-      const context = { protocols, agents: coreAgents(repoRoot, fsImpl) };
+      const context = { protocols, agents: coreAgents(repoRoot, fsImpl), manifest };
       contributions.forEach((entry: any, index: number) => {
         const where = `contributions[${index}]`;
         if (!isObject(entry)) { report(where, 'bad-type', 'a contribution must be an object', 'an object'); return; }
@@ -251,7 +251,7 @@ function checkManifest(input: any, options: any = {}): any[] {
       errors = judged.errors;
       comparable = judged.comparable;
     } else {
-      errors = validator(entry.id, parsed, {});
+      errors = validator(entry.id, parsed, { ...context, entry, packageId });
     }
     const prefix = `presets.${entry.id}`;
     for (const message of errors) {

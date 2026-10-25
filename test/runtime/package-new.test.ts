@@ -15,6 +15,7 @@ const { loadPoints } = require('../../src/runtime/packages/points.ts');
 const { checkPackage } = require('../../src/runtime/packages/manifest.ts');
 const { hostVersion } = require('../../src/runtime/packages/view.ts');
 const { satisfiesHostRange } = require('../../src/helper/semver.ts');
+const { isLocalId } = require('../../src/helper/package-ids.ts');
 const { GRANTS_FILE } = require('../../src/runtime/packages/grants.ts');
 const { upkeepAfterVerb } = require('../../src/runtime/storage/upkeep.ts');
 const { readLock, defaultLock, writeLock } = require('../../src/state/lockfile.ts');
@@ -120,7 +121,7 @@ test('every open point alone, and all together, scaffold clean packages with the
     for (const c of manifest.contributions) {
       const point = OPEN.find((p: any) => p.id === c.point);
       assert.equal(c.version, Math.max(...point.versions));
-      assert.equal(c.id, c.point);
+      assert.equal(c.id, isLocalId(c.point) ? c.point : 'provider');
     }
     const checked = checkPackage(result.dir, { repoRoot: REPO_ROOT, pointsRegistry: POINTS, hostVersion: HOST, bundled: [] });
     assert.equal(checked.ok, true, JSON.stringify(checked.findings));
@@ -185,7 +186,6 @@ test('non-empty targets and invalid ids or points refuse without changing existi
     [{ id: 'doflow', points: 'skill' }, 'reserved-id'],
     [{ id: 'do-x', points: 'skill' }, 'reserved-id'],
     [{ id: 'Bad', points: 'skill' }, 'bad-id'],
-    [{ id: 'acme', points: 'capability-provider' }, 'point-reserved'],
     [{ id: 'acme', points: 'lens' }, 'undeclared-point'],
     [{ id: 'acme', points: 'skill:bad_id' }, 'bad-id'],
     [{ id: 'acme', points: 'skill:triage,skill:triage' }, 'bad-id'],
@@ -195,6 +195,26 @@ test('non-empty targets and invalid ids or points refuse without changing existi
     assert.equal(result.code, 1, result.text);
     assert.equal(result.body.error, code);
   }
+  const scratchRepo = scratchRegistry(w);
+  const scratchPointsFile = path.join(scratchRepo, 'core', 'registry', 'contribution-points.json');
+  const scratchPoints = JSON.parse(fs.readFileSync(scratchPointsFile, 'utf8'));
+  scratchPoints.points.push({
+    id: 'future-point',
+    versions: [],
+    tier: 'inert',
+    status: 'reserved',
+    entry: 'file',
+    combine: 'add-only',
+    validator: null,
+    consumer: null,
+    referencedBy: [],
+    slice: 'Z',
+    opensWith: 'row 999',
+  });
+  fs.writeFileSync(scratchPointsFile, JSON.stringify(scratchPoints));
+  const resReserved = run(w, { action: 'new', id: 'acme', points: 'future-point', repoRoot: scratchRepo });
+  assert.equal(resReserved.code, 1);
+  assert.equal(resReserved.body.error, 'point-reserved');
   const many = run(w, { action: 'new', id: 'acme', points: Array(65).fill('skill').join(',') });
   assert.equal(many.code, 1);
   assert.equal(many.body.error, 'bad-type');

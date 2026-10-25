@@ -164,8 +164,16 @@ test('contributionsFor returns the active bundled presets: bare id, data, proven
   assert.deepEqual(contributionsFor('review-preset', 1), [], 'a point with no contribution is empty');
 });
 
-test('contributionsFor throws a programming error for a reserved point, an undeclared point and an unsupported version', () => {
-  assert.throws(() => contributionsFor('capability-provider', 1), /reserved/);
+test('contributionsFor throws a programming error for a reserved point, an undeclared point and an unsupported version', (t: any) => {
+  const root = scratchRoot(t);
+  const pointsFile = path.join(root, 'core', 'registry', 'contribution-points.json');
+  edit(pointsFile, (reg: any) => {
+    reg.points.push({
+      id: 'reserved-point', versions: [1], tier: 'inert', status: 'reserved', entry: 'file',
+      opensWith: 'row 999', slice: 'Z', combine: 'add-only', validator: null, consumer: null, referencedBy: [],
+    });
+  });
+  assert.throws(() => contributionsFor('reserved-point', 1, { repoRoot: root }), /reserved/);
   assert.throws(() => contributionsFor('no-such-point', 1), /not declared/);
   assert.throws(() => contributionsFor('debate-preset', 2), /no version 2/);
 });
