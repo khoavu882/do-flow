@@ -1160,6 +1160,9 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   report.decisionModel = adviceSections.decisionModel;
   report.advice = adviceSections.advice;
   report.settings = settings;
+  const { buildProfilesDoctor, printProfilesDoctor } = require('./profiles/doctor.ts');
+  const profilesSection = buildProfilesDoctor({ repoRoot, projectRoot, env: rest.env, fsImpl: rest.fsImpl });
+  report.rolloutProfile = profilesSection;
   // Read on use (row 120 A.4): no probe runs, nothing is written, and a fault never breaks the report.
   let primaryText: string;
   try {
@@ -1279,6 +1282,7 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   printMcpSections(report.mcp);
   if (packagesWorthShowing(report.packages)) printPackagesSection(report.packages);
   printAdviceDoctor(adviceSections);
+  printProfilesDoctor(profilesSection);
   printSettingsReport(settings);
 
   if (report.warnings.length) {

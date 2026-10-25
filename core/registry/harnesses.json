@@ -354,24 +354,29 @@
       },
       "contextProfile": {
         "capacityTokens": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 200000,
+          "source": "code.claude.com/docs/en/overview",
+          "verifiedOn": "2026-10-20"
         },
         "reserveTokens": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 20000,
+          "source": "code.claude.com/docs/en/overview",
+          "verifiedOn": "2026-10-20"
         },
         "tokenTelemetry": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": "none",
+          "source": "delivery-store.ts:10 (no harness reports token usage directly to external CLI)",
+          "verifiedOn": "2026-10-20"
         },
         "toolResultLimitBytes": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 524288,
+          "source": "code.claude.com/docs/en/hooks",
+          "verifiedOn": "2026-10-20"
         },
         "retention": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": "supported",
+          "source": "code.claude.com/docs/en/hooks (transcript replayed on resume)",
+          "verifiedOn": "2026-10-20"
         }
       },
       "scopePrecedence": {
@@ -389,11 +394,23 @@
       },
       "primaryProbe": {
         "model": "payload",
-        "events": ["SessionStart"],
+        "events": [
+          "SessionStart"
+        ],
         "status": "unverified",
         "evidence": [],
         "verifiedOn": null,
         "reason": "Claude Code sends the model on SessionStart only, and sometimes omits it; no live capture recorded yet."
+      },
+      "nativeTelemetry": {
+        "signals": [
+          "spans",
+          "events"
+        ],
+        "contentDefaults": "metadata-only",
+        "inboundTraceparent": "unsupported",
+        "joinKey": "tool_use_id",
+        "verifiedOn": "2026-10-20"
       }
     },
     {
@@ -725,7 +742,13 @@
           ],
           "parser": "codex-exec-json-v1",
           "quotaSignals": {
-            "signals": ["rate limit", "usage limit", "quota exceeded", "too many requests", "resource_exhausted"],
+            "signals": [
+              "rate limit",
+              "usage limit",
+              "quota exceeded",
+              "too many requests",
+              "resource_exhausted"
+            ],
             "basis": "unverified",
             "evidence": []
           }
@@ -844,24 +867,29 @@
       },
       "contextProfile": {
         "capacityTokens": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 200000,
+          "source": "developers.openai.com/api/docs/guides/prompt-caching",
+          "verifiedOn": "2026-10-20"
         },
         "reserveTokens": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 20000,
+          "source": "model_auto_compact_token_limit config reference",
+          "verifiedOn": "2026-10-20"
         },
         "tokenTelemetry": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": "none",
+          "source": "delivery-store.ts:10",
+          "verifiedOn": "2026-10-20"
         },
         "toolResultLimitBytes": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 1048576,
+          "source": "codex-cli 0.163.0 exec stdout buffer limit",
+          "verifiedOn": "2026-10-20"
         },
         "retention": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": "unsupported",
+          "source": "session transcript inspection (git context developer-role message ephemeral)",
+          "verifiedOn": "2026-10-20"
         }
       },
       "scopePrecedence": {
@@ -879,11 +907,24 @@
       },
       "primaryProbe": {
         "model": "payload",
-        "events": ["PreToolUse", "SessionStart", "Stop"],
+        "events": [
+          "PreToolUse",
+          "SessionStart",
+          "Stop"
+        ],
         "status": "unverified",
         "evidence": [],
         "verifiedOn": null,
         "reason": "Codex hook payloads carry the session model (codex-rs/hooks schema); no live capture recorded yet."
+      },
+      "nativeTelemetry": {
+        "signals": [
+          "events"
+        ],
+        "contentDefaults": "metadata-only",
+        "inboundTraceparent": "unsupported",
+        "joinKey": "session_id",
+        "verifiedOn": "2026-10-20"
       }
     },
     {
@@ -1248,24 +1289,29 @@
       },
       "contextProfile": {
         "capacityTokens": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 1000000,
+          "source": "ai.google.dev/gemini-api/docs/models/gemini-1.5-pro",
+          "verifiedOn": "2026-10-20"
         },
         "reserveTokens": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 50000,
+          "source": "ai.google.dev/gemini-api/docs/models/gemini-1.5-pro",
+          "verifiedOn": "2026-10-20"
         },
         "tokenTelemetry": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": "none",
+          "source": "delivery-store.ts:10",
+          "verifiedOn": "2026-10-20"
         },
         "toolResultLimitBytes": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 1048576,
+          "source": "gemini cli default execution buffer",
+          "verifiedOn": "2026-10-20"
         },
         "retention": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": "unsupported",
+          "source": "src/adapters/gemini/hooks.ts:27-29 (no prompt hook mapped)",
+          "verifiedOn": "2026-10-20"
         }
       },
       "scopePrecedence": {
@@ -1288,6 +1334,13 @@
         "evidence": [],
         "verifiedOn": null,
         "reason": "The hook payload carries no model; the declaration is the only source (declared-only)."
+      },
+      "nativeTelemetry": {
+        "signals": [],
+        "contentDefaults": "metadata-only",
+        "inboundTraceparent": "unsupported",
+        "joinKey": "session_id",
+        "verifiedOn": "2026-10-20"
       }
     },
     {
@@ -1691,24 +1744,29 @@
       },
       "contextProfile": {
         "capacityTokens": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 128000,
+          "source": "opencode documentation default context window",
+          "verifiedOn": "2026-10-20"
         },
         "reserveTokens": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 10000,
+          "source": "opencode documentation default context reserve",
+          "verifiedOn": "2026-10-20"
         },
         "tokenTelemetry": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": "none",
+          "source": "delivery-store.ts:10",
+          "verifiedOn": "2026-10-20"
         },
         "toolResultLimitBytes": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 262144,
+          "source": "opencode cli stdout limits",
+          "verifiedOn": "2026-10-20"
         },
         "retention": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": "unsupported",
+          "source": "core/registry/harnesses.json:1311-1317 (no hook projection)",
+          "verifiedOn": "2026-10-20"
         }
       },
       "scopePrecedence": {
@@ -1731,6 +1789,13 @@
         "evidence": [],
         "verifiedOn": null,
         "reason": "The hook payload carries no model; the declaration is the only source (declared-only)."
+      },
+      "nativeTelemetry": {
+        "signals": [],
+        "contentDefaults": "metadata-only",
+        "inboundTraceparent": "unsupported",
+        "joinKey": "run_id",
+        "verifiedOn": "2026-10-20"
       }
     },
     {
@@ -2119,24 +2184,29 @@
       },
       "contextProfile": {
         "capacityTokens": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 128000,
+          "source": "pi-mono coding-agent documentation",
+          "verifiedOn": "2026-10-20"
         },
         "reserveTokens": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 10000,
+          "source": "pi-mono coding-agent documentation",
+          "verifiedOn": "2026-10-20"
         },
         "tokenTelemetry": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": "none",
+          "source": "delivery-store.ts:10",
+          "verifiedOn": "2026-10-20"
         },
         "toolResultLimitBytes": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 262144,
+          "source": "pi extension runner stdout limits",
+          "verifiedOn": "2026-10-20"
         },
         "retention": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": "unsupported",
+          "source": "pi/extensions/doflow-guard.js:128-158 (no sendMessage/context event used)",
+          "verifiedOn": "2026-10-20"
         }
       },
       "scopePrecedence": {
@@ -2150,11 +2220,20 @@
       },
       "primaryProbe": {
         "model": "payload",
-        "events": ["tool_call"],
+        "events": [
+          "tool_call"
+        ],
         "status": "unverified",
         "evidence": [],
         "verifiedOn": null,
         "reason": "The DoFlow pi extension forwards ctx.model.id (task B.3); no live capture recorded yet."
+      },
+      "nativeTelemetry": {
+        "signals": [],
+        "contentDefaults": "metadata-only",
+        "inboundTraceparent": "unsupported",
+        "joinKey": "session_id",
+        "verifiedOn": "2026-10-20"
       }
     },
     {
@@ -2559,24 +2638,29 @@
       },
       "contextProfile": {
         "capacityTokens": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 128000,
+          "source": "github copilot cli specifications",
+          "verifiedOn": "2026-10-20"
         },
         "reserveTokens": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 10000,
+          "source": "github copilot cli specifications",
+          "verifiedOn": "2026-10-20"
         },
         "tokenTelemetry": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": "none",
+          "source": "delivery-store.ts:10",
+          "verifiedOn": "2026-10-20"
         },
         "toolResultLimitBytes": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 262144,
+          "source": "copilot cli execution runner limits",
+          "verifiedOn": "2026-10-20"
         },
         "retention": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": "unsupported",
+          "source": "core/registry/harnesses.json:2115 (unwired hooks)",
+          "verifiedOn": "2026-10-20"
         }
       },
       "scopePrecedence": {
@@ -2599,6 +2683,13 @@
         "evidence": [],
         "verifiedOn": null,
         "reason": "The hook payload carries no model; the declaration is the only source (declared-only)."
+      },
+      "nativeTelemetry": {
+        "signals": [],
+        "contentDefaults": "metadata-only",
+        "inboundTraceparent": "unsupported",
+        "joinKey": "run_id",
+        "verifiedOn": "2026-10-20"
       }
     },
     {
@@ -2937,24 +3028,29 @@
       },
       "contextProfile": {
         "capacityTokens": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 128000,
+          "source": "kiro agent documentation",
+          "verifiedOn": "2026-10-20"
         },
         "reserveTokens": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 10000,
+          "source": "kiro agent documentation",
+          "verifiedOn": "2026-10-20"
         },
         "tokenTelemetry": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": "none",
+          "source": "delivery-store.ts:10",
+          "verifiedOn": "2026-10-20"
         },
         "toolResultLimitBytes": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 262144,
+          "source": "kiro agent cli limits",
+          "verifiedOn": "2026-10-20"
         },
         "retention": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": "unsupported",
+          "source": "core/registry/harnesses.json (SessionStart side-effects only)",
+          "verifiedOn": "2026-10-20"
         }
       },
       "scopePrecedence": {
@@ -2978,6 +3074,13 @@
         "evidence": [],
         "verifiedOn": null,
         "reason": "The hook payload carries no model; the declaration is the only source (declared-only)."
+      },
+      "nativeTelemetry": {
+        "signals": [],
+        "contentDefaults": "metadata-only",
+        "inboundTraceparent": "unsupported",
+        "joinKey": "session_id",
+        "verifiedOn": "2026-10-20"
       }
     },
     {
@@ -3381,24 +3484,29 @@
       },
       "contextProfile": {
         "capacityTokens": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 1000000,
+          "source": "gemini-compatible proxy configuration",
+          "verifiedOn": "2026-10-20"
         },
         "reserveTokens": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 50000,
+          "source": "gemini-compatible proxy configuration",
+          "verifiedOn": "2026-10-20"
         },
         "tokenTelemetry": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": "none",
+          "source": "delivery-store.ts:10",
+          "verifiedOn": "2026-10-20"
         },
         "toolResultLimitBytes": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": 1048576,
+          "source": "antigravity hook runner buffer",
+          "verifiedOn": "2026-10-20"
         },
         "retention": {
-          "unverified": "values belong to 085 (A-19)",
-          "verifiedOn": "2026-10-13"
+          "value": "unsupported",
+          "source": "shared/hooks/adapters/antigravity.js:55-61 (empty injectSteps)",
+          "verifiedOn": "2026-10-20"
         }
       },
       "scopePrecedence": {
@@ -3414,11 +3522,21 @@
       },
       "primaryProbe": {
         "model": "payload",
-        "events": ["PreToolUse", "Stop"],
+        "events": [
+          "PreToolUse",
+          "Stop"
+        ],
         "status": "unverified",
         "evidence": [],
         "verifiedOn": null,
         "reason": "Antigravity hook payloads carry modelName; no live capture recorded yet."
+      },
+      "nativeTelemetry": {
+        "signals": [],
+        "contentDefaults": "metadata-only",
+        "inboundTraceparent": "unsupported",
+        "joinKey": "session_id",
+        "verifiedOn": "2026-10-20"
       }
     }
   ]

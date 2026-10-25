@@ -32,17 +32,19 @@ const {
 } = require('../../src/runtime/advice/shadow-dispatcher.ts');
 
 describe('IC-001: resolveShadowConfig (Per-Kind Shadow Configuration)', () => {
-  function setupConfigEnv(settingsObj: any): { root: string; fsImpl: any } {
-    const root = path.join(suiteTempDir('doflow-test-advice-cfg-'), 'proj');
+  function setupConfigEnv(settingsObj: any): { root: string; fsImpl: any; env: Record<string, string> } {
+    const base = suiteTempDir('doflow-test-advice-cfg-');
+    const root = path.join(base, 'proj');
+    const fakeHome = path.join(base, 'fake-home');
     const settingsPath = path.join(root, '.doflow', 'settings.json');
     fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
     fs.writeFileSync(settingsPath, JSON.stringify(settingsObj, null, 2), 'utf8');
-    return { root, fsImpl: fs };
+    return { root, fsImpl: fs, env: { HOME: fakeHome } };
   }
 
   test('defaults to mode: off when no settings are declared', () => {
-    const { root, fsImpl } = setupConfigEnv({});
-    const cfg = resolveShadowConfig('tier', { projectRoot: root, fsImpl });
+    const { root, fsImpl, env } = setupConfigEnv({});
+    const cfg = resolveShadowConfig('tier', { projectRoot: root, fsImpl, env });
     assert.equal(cfg.kind, 'tier');
     assert.equal(cfg.mode, 'off');
     assert.equal(cfg.model, null);
@@ -50,7 +52,7 @@ describe('IC-001: resolveShadowConfig (Per-Kind Shadow Configuration)', () => {
   });
 
   test('resolves off, shadow, and act modes per kind from advice.kinds.<kind>', () => {
-    const { root, fsImpl } = setupConfigEnv({
+    const { root, fsImpl, env } = setupConfigEnv({
       advice: {
         enabled: true,
         kinds: {
@@ -61,18 +63,18 @@ describe('IC-001: resolveShadowConfig (Per-Kind Shadow Configuration)', () => {
       },
     });
 
-    const tierCfg = resolveShadowConfig('tier', { projectRoot: root, fsImpl });
+    const tierCfg = resolveShadowConfig('tier', { projectRoot: root, fsImpl, env });
     assert.equal(tierCfg.mode, 'shadow');
 
-    const taskClassCfg = resolveShadowConfig('task-class', { projectRoot: root, fsImpl });
+    const taskClassCfg = resolveShadowConfig('task-class', { projectRoot: root, fsImpl, env });
     assert.equal(taskClassCfg.mode, 'off');
 
-    const verifyRiskCfg = resolveShadowConfig('verify-risk', { projectRoot: root, fsImpl });
+    const verifyRiskCfg = resolveShadowConfig('verify-risk', { projectRoot: root, fsImpl, env });
     assert.equal(verifyRiskCfg.mode, 'act');
   });
 
   test('resolves per-kind model override from advice.models.<kind>', () => {
-    const { root, fsImpl } = setupConfigEnv({
+    const { root, fsImpl, env } = setupConfigEnv({
       advice: {
         enabled: true,
         model: 'global-default:7b',
@@ -86,15 +88,15 @@ describe('IC-001: resolveShadowConfig (Per-Kind Shadow Configuration)', () => {
       },
     });
 
-    const tierCfg = resolveShadowConfig('tier', { projectRoot: root, fsImpl });
+    const tierCfg = resolveShadowConfig('tier', { projectRoot: root, fsImpl, env });
     assert.equal(tierCfg.model, 'qwen2.5-coder:1.5b', 'per-kind model override should take precedence');
 
-    const reviewCfg = resolveShadowConfig('review-depth', { projectRoot: root, fsImpl });
+    const reviewCfg = resolveShadowConfig('review-depth', { projectRoot: root, fsImpl, env });
     assert.equal(reviewCfg.model, 'global-default:7b', 'should fall back to global advice.model');
   });
 
   test('supports legacy flat alias advice.model.<kind>', () => {
-    const { root, fsImpl } = setupConfigEnv({
+    const { root, fsImpl, env } = setupConfigEnv({
       advice: {
         enabled: true,
         kinds: {
@@ -106,12 +108,12 @@ describe('IC-001: resolveShadowConfig (Per-Kind Shadow Configuration)', () => {
       },
     });
 
-    const cfg = resolveShadowConfig('tier', { projectRoot: root, fsImpl });
+    const cfg = resolveShadowConfig('tier', { projectRoot: root, fsImpl, env });
     assert.equal(cfg.model, 'legacy-alias-model:1.5b');
   });
 
   test('advice.enabled = false strictly forces mode to off regardless of per-kind settings', () => {
-    const { root, fsImpl } = setupConfigEnv({
+    const { root, fsImpl, env } = setupConfigEnv({
       advice: {
         enabled: false,
         kinds: {
@@ -124,10 +126,10 @@ describe('IC-001: resolveShadowConfig (Per-Kind Shadow Configuration)', () => {
       },
     });
 
-    const tierCfg = resolveShadowConfig('tier', { projectRoot: root, fsImpl });
+    const tierCfg = resolveShadowConfig('tier', { projectRoot: root, fsImpl, env });
     assert.equal(tierCfg.mode, 'off', 'disabled advice must force mode to off');
 
-    const reviewCfg = resolveShadowConfig('review-depth', { projectRoot: root, fsImpl });
+    const reviewCfg = resolveShadowConfig('review-depth', { projectRoot: root, fsImpl, env });
     assert.equal(reviewCfg.mode, 'off', 'disabled advice must force mode to off');
   });
 });
