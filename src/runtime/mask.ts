@@ -185,6 +185,30 @@ function mask40(run: string, before: string | undefined): string {
     looksLikeSecretRun(value, 1) && !isPathRun(value, index === 0 ? before : run[index - 1]) ? MASKED : value));
 }
 
+const TS_TYPE_NAMES: ReadonlySet<string> = new Set([
+  'string', 'number', 'boolean', 'any', 'unknown', 'void',
+  'never', 'null', 'undefined', 'symbol', 'bigint',
+]);
+
+function isCodePreserved(head: string, value: string, offset: number, fullString: string): boolean {
+  if (value.startsWith('"') || value.startsWith("'")) return false;
+  const isColon = /:[ \t]*$/.test(head);
+  if (isColon) {
+    const baseType = value.replace(/\[\]$/, '');
+    if (TS_TYPE_NAMES.has(baseType)) return true;
+    if (/^[A-Z]|^\[/.test(value)) return true;
+    if (/^(?:new\s|[A-Za-z0-9_$]+\s*\(|[A-Za-z0-9_$]+\.[A-Za-z0-9_$]+)/.test(value)) return true;
+  }
+  const isEquals = /=[ \t]*$/.test(head);
+  if (isEquals) {
+    const before = fullString.slice(Math.max(0, offset - 30), offset);
+    if (/(?:const|let|var|readonly)\s+$/.test(before)) return true;
+    if (/\bnew\s|[A-Za-z0-9_$]+\.[A-Za-z0-9_$]+|\(/.test(value)) return true;
+    if (/^[\[{]/.test(value)) return true;
+  }
+  return false;
+}
+
 function isMasked(value: string): boolean { return value.replace(/^["']|["']$/g, '') === MASKED; }
 
 function count(text: string, token: string): number { return text.split(token).length - 1; }
@@ -215,8 +239,8 @@ function mask(text: any, profile: 'line' | 'body', options: any = {}): { text: s
   // 3. Bearer tokens and URL credentials.
   out = out.replace(BEARER, `$1$2${MASKED}`).replace(URL_CREDENTIALS, `://${MASKED}@`);
   // 4. Key=value, unquoted, when the value is not plain letters.
-  out = out.replace(KEY_VALUE_LINE, (match: string, key: string, separator: string, value: string) => (
-    isMasked(value) || value.startsWith(MASKED) || !/[^A-Za-z]/.test(value) ? match : `${key}${separator}${MASKED}`));
+  out = out.replace(KEY_VALUE_LINE, (match: string, key: string, separator: string, value: string, offset: number, fullString: string) => (
+    isMasked(value) || value.startsWith(MASKED) || !/[^A-Za-z]/.test(value) || isCodePreserved(key + separator, value, offset, fullString) ? match : `${key}${separator}${MASKED}`));
   // 5. Long secret-looking runs that are not paths.
   out = out.replace(LONG_RUN, (run: string, offset: number) => (
     looksLikeSecretRun(run, 2) && !isPathRun(run, out[offset - 1]) ? MASKED : mask40(run, out[offset - 1])));
@@ -225,8 +249,9 @@ function mask(text: any, profile: 'line' | 'body', options: any = {}): { text: s
 
   if (profile === 'body') {
     // 7. Key and value, quoted or not, whatever the value looks like.
-    out = out.replace(KEY_VALUE_BODY, (match: string, head: string, value: string) => {
+    out = out.replace(KEY_VALUE_BODY, (match: string, head: string, value: string, offset: number, fullString: string) => {
       if (isMasked(value) || value.startsWith(MASKED)) return match;
+      if (isCodePreserved(head, value, offset, fullString)) return match;
       const quote = value[0] === '"' || value[0] === "'" ? value[0] : '';
       return `${head}${quote}${MASKED}${quote}`;
     });

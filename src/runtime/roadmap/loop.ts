@@ -711,7 +711,17 @@ function envelopeFor(ctx: any, row: any, worktree: string, stage: string, skill:
 /** IC-008: performed = the artifact exists, its bytes changed, and the stage's own handoff is newer. */
 function performedCheck(ctx: any, row: any, worktree: string, run: any, perform: any): { ok: boolean; current: any } {
   const current = stageArtifact(ctx, row, worktree, perform.stage);
-  if (current.sha256 === null || current.sha256 === perform.before?.sha256) return { ok: false, current };
+  if (current.sha256 === null) return { ok: false, current };
+
+  // FU-rcshhx: allow adopting rows whose design/plan artifacts were already completed and recorded
+  // in the orchestration run history, even if current.sha256 === perform.before?.sha256.
+  const isDesignOrPlan = perform.stage === 'design' || perform.stage === 'planning';
+  const alreadyCompleted = isDesignOrPlan && (run.history || []).some((entry: any) =>
+    entry && entry.node === perform.stage && (entry.action === 'complete-stage' || entry.action === 'annotate')
+  );
+  if (alreadyCompleted) return { ok: true, current };
+
+  if (current.sha256 === perform.before?.sha256) return { ok: false, current };
   const issued = Date.parse(perform.issuedAt);
   const handedOff = (run.history || []).some((entry: any) => entry && entry.node === perform.stage
     && ((entry.action === 'complete-stage' && !entry.backfilled) || entry.action === 'annotate')

@@ -133,11 +133,11 @@ function runBounded(binary: string, argv: string[], { env, cwd, spawnSyncImpl }:
       timeout: readiness.PROBE_TIMEOUT_MS,
       maxBuffer: PROBE_STDOUT_MAX,
       encoding: 'buffer',
-      stdio: ['ignore', 'pipe', 'ignore'],
+      stdio: ['ignore', 'pipe', 'pipe'],
       windowsHide: true,
     });
   } catch (error: any) {
-    return { status: null, stdout: Buffer.alloc(0), error };
+    return { status: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), error };
   }
 }
 
@@ -202,7 +202,7 @@ function recordCliChecks({ checksFile, harness, worker, out, cwd = process.cwd()
 
   const versionExpect = expression(checks.version.expect, 'version.expect');
   const versionResult = runBounded(binaryPath, checks.version.argv, { env, cwd, spawnSyncImpl });
-  const versionLines = lines(versionResult.stdout);
+  const versionLines = lines(`${versionResult.stdout ?? ''}\n${versionResult.stderr ?? ''}`);
   const versionMatch = versionLines.find((line) => versionExpect.test(line));
   if (versionResult.status !== 0 || !versionMatch) refuse('version-unmatched');
 
@@ -210,7 +210,7 @@ function recordCliChecks({ checksFile, harness, worker, out, cwd = process.cwd()
   const recordedChecks = checks.checks.map((check: any) => {
     const patterns = check.expect.map((pattern: string, index: number) => expression(pattern, `check '${check.id}' expect[${index}]`));
     const result = runBounded(binaryPath, check.argv, { env, cwd, spawnSyncImpl });
-    const outputLines = lines(result.stdout);
+    const outputLines = lines(`${result.stdout ?? ''}\n${result.stderr ?? ''}`);
     const allExpectationsMatched = patterns.every((pattern: RegExp) => outputLines.some((line) => pattern.test(line)));
     return {
       id: check.id,
