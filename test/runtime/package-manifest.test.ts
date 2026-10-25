@@ -86,7 +86,7 @@ test('one bad preset field plus one undeclared point gives exactly two findings 
   assert.deepEqual(invalid.allowed, ['light', 'standard', 'frontier']);
   assert.equal(undeclared.code, 'undeclared-point');
   assert.equal(undeclared.field, 'contributions[1].point');
-  assert.deepEqual(undeclared.allowed, ['review-preset', 'debate-preset', 'skill', 'agent', 'worker']);
+  assert.deepEqual(undeclared.allowed, ['review-preset', 'debate-preset', 'skill', 'agent', 'worker', 'capability-provider']);
   for (const f of result.findings) {
     assert.equal(f.package, 'acme');
     assert.equal(f.severity, 'error');
@@ -230,9 +230,19 @@ test('package-mode preset rules: depth, kind, agents, seat ids and the round cap
 });
 
 test('a reserved point, an unsupported point version and a wrong entry kind are refused', (t: any) => {
-  const reserved = checkManifest(manifestOf({ contributions: [{ point: 'capability-provider', version: 1, id: 'triage', file: 'providers/x.json' }] }), OPTIONS);
+  const optionsWithReserved = {
+    ...OPTIONS,
+    pointsRegistry: {
+      ...POINTS,
+      points: [
+        ...POINTS.points,
+        { id: 'future-point', versions: [1], tier: 'inert', status: 'reserved', entry: 'file', opensWith: 'row 999', slice: 'Z', combine: 'add-only', validator: null, consumer: null, referencedBy: [] },
+      ],
+    },
+  };
+  const reserved = checkManifest(manifestOf({ contributions: [{ point: 'future-point', version: 1, id: 'triage', file: 'providers/x.json' }] }), optionsWithReserved);
   assert.deepEqual(codes(reserved), ['point-reserved']);
-  assert.match(reserved[0].message, /row 121/);
+  assert.match(reserved[0].message, /row 999/);
   const version = checkManifest(manifestOf({ contributions: [{ point: 'review-preset', version: 7, id: 'strict', file: 'a.json' }] }), OPTIONS);
   assert.deepEqual(version.map((f: any) => [f.code, f.allowed]), [['unsupported-point-version', [1]]]);
   const kind = checkManifest(manifestOf({ contributions: [{ point: 'review-preset', version: 1, id: 'strict', dir: 'presets' }] }), OPTIONS);

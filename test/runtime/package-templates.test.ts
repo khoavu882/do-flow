@@ -28,6 +28,7 @@ test('every open point names a valid shipped template', () => {
     'package-templates/skill',
     'package-templates/agent',
     'package-templates/worker',
+    'package-templates/capability-provider',
   ]);
   assert.deepEqual(templateFindings({ registry: REAL, repoRoot: REPO_ROOT }), []);
 });
@@ -40,6 +41,8 @@ test('open points require templates and reserved points refuse them', () => {
   assert.match(invalidMissing.errors.join('\n'), /points\[0\]\.template/);
 
   const reserved = clone(REAL);
+  reserved.points[5].status = 'reserved';
+  reserved.points[5].opensWith = '121';
   reserved.points[5].template = 'package-templates/capability-provider';
   const invalidReserved = validatePoints(reserved);
   assert.equal(invalidReserved.ok, false);

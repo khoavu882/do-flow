@@ -98,7 +98,7 @@ test('skill and agent validators are registered and contribution points are judg
   assert.ok(Object.hasOwn(POINT_VALIDATORS, 'agent-v1'));
   assert.equal(judgeContribution(POINTS, { point: 'skill', version: 1 }, { packageId: 'acme', index: 0 }), null);
   assert.equal(judgeContribution(POINTS, { point: 'agent', version: 1 }, { packageId: 'acme', index: 0 }), null);
-  assert.equal(judgeContribution(POINTS, { point: 'capability-provider', version: 1 }, { packageId: 'acme', index: 0 }).code, 'point-reserved');
+  assert.equal(judgeContribution(POINTS, { point: 'capability-provider', version: 1 }, { packageId: 'acme', index: 0 }), null);
 });
 
 test('instruction package trust is required before activation', (t: any) => {

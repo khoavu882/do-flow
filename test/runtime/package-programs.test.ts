@@ -164,15 +164,30 @@ test('inert packages need no programs and the shipped capability-provider point 
   const inert = checkPackage(dir, { pointsRegistry: POINTS, hostVersion: HOST, bundled: [] });
   assert.deepEqual(inert.findings, []);
 
+  const reservedRegistry = clone(POINTS);
+  reservedRegistry.points.push({
+    id: 'custom-reserved',
+    versions: [1],
+    tier: 'executable',
+    status: 'reserved',
+    entry: 'file',
+    opensWith: '199',
+    slice: 'D',
+    combine: 'add-only',
+    validator: null,
+    consumer: null,
+    referencedBy: [],
+  });
+
   const reserved = checkPackage(makePackage(t, {
     manifest: 1,
     id: 'acme',
     version: '1.2.0',
     summary: 'Reserved package',
     doflow: `=${HOST}`,
-    contributions: [{ point: 'capability-provider', version: 1, id: 'runner', file: 'providers/runner.json' }],
+    contributions: [{ point: 'custom-reserved', version: 1, id: 'runner', file: 'providers/runner.json' }],
   }, {}), {
-    pointsRegistry: POINTS,
+    pointsRegistry: reservedRegistry,
     hostVersion: HOST,
     bundled: [],
   });

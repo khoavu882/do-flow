@@ -42,6 +42,23 @@
       "description": "Execute large-output CLI command with token compression.",
       "capability": "command.compress",
       "fallback": []
+    },
+    "extract-document": {
+      "description": "Extract text or structured data from local document or image files.",
+      "capability": "document.extract",
+      "fallback": []
+    },
+    "transcribe-media": {
+      "description": "Transcribe local audio or video recording to plain text or subtitles.",
+      "capability": "media.transcribe",
+      "fallback": []
+    },
+    "compress-text": {
+      "description": "Semantically compress long text or conversation history while preserving context.",
+      "capability": "text.compress",
+      "fallback": [
+        "command.compress"
+      ]
     }
   }
 }

@@ -70,15 +70,18 @@ function contributionsFor(pointId: string, pointVersion: number, { view, repoRoo
         skip(qualified, `${entry.file} cannot be read as JSON (${error.message})`);
         continue;
       }
-      if (!coreRegistry().ok) { skip(qualified, 'the core protocol registry is unusable'); continue; }
+      if (PRESET_KIND[pointId] && !coreRegistry().ok) { skip(qualified, 'the core protocol registry is unusable'); continue; }
       if (pkg.firstParty) {
         context ??= { lensIds: lensIds(core.registry), hardRoundCap: core.registry.hardRoundCap };
         const errors: string[] = validator(entry.id, data, context);
         if (errors.length > 0) { skip(qualified, errors.join('; ')); continue; }
-      } else {
+      } else if (PRESET_KIND[pointId]) {
         const judged = judgePackagePreset(point.validator, entry.id, data, { protocols: core.registry, agents: coreAgents(repoRoot, fsImpl) });
         const errors = [...(judged.depth ? [`presets.${entry.id}.depth is not allowed in a package preset`] : []), ...judged.errors];
         if (errors.length === 0 && !judged.comparable) errors.push(`${qualified} dominates no core ${judged.kind} preset`);
+        if (errors.length > 0) { skip(qualified, errors.join('; ')); continue; }
+      } else {
+        const errors: string[] = validator(entry.id, data, { packageId: pkg.id });
         if (errors.length > 0) { skip(qualified, errors.join('; ')); continue; }
       }
       out.push({

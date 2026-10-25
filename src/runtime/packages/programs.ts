@@ -14,7 +14,7 @@ const { SEGMENT, SEGMENT_GRAMMAR } = require('./digest.ts');
 
 const ARGV_SHAPES: Readonly<Record<string, readonly string[]>> = Object.freeze({
   worker: Object.freeze(['worker-recipe']),
-  'capability-provider': Object.freeze([]),
+  'capability-provider': Object.freeze(['capability-cli']),
 });
 const BINARY = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const PROGRAM_KEYS = ['id', 'binary', 'path', 'argv'];
@@ -41,8 +41,33 @@ function programFindings(
 
   if (executable.length === 0) return findings;
 
+  function isCliCapability(entry: any, point: any): boolean {
+    if (point?.id !== 'capability-provider') return false;
+    if (Array.isArray(entry?.programs) && entry.programs.length > 0) return true;
+    if (!root || !entry?.file || typeof entry.file !== 'string') return false;
+    try {
+      const real = path.join(root, entry.file);
+      const text = fsImpl.readFileSync(real, 'utf8');
+      const parsed = JSON.parse(text);
+      return parsed?.kind === 'cli';
+    } catch {
+      return false;
+    }
+  }
+
+  const needsPrograms = executable.some(({ entry, point }: any) => {
+    if (point?.id === 'capability-provider') {
+      return isCliCapability(entry, point);
+    }
+    return true;
+  });
+
   const rawPrograms = manifest?.programs;
-  if (!Array.isArray(rawPrograms) || rawPrograms.length > 16) {
+  if (rawPrograms === undefined) {
+    if (needsPrograms) {
+      add('programs', 'program-invalid', 'programs must be an array of at most 16 declarations', 'an array of 0 to 16 program declarations');
+    }
+  } else if (!Array.isArray(rawPrograms) || rawPrograms.length > 16) {
     add('programs', 'program-invalid', 'programs must be an array of at most 16 declarations', 'an array of 0 to 16 program declarations');
   }
 
@@ -82,10 +107,13 @@ function programFindings(
     }
   });
 
-  for (const { entry, index } of executable) {
+  for (const { entry, index, point } of executable) {
     const field = `contributions[${index}].programs`;
     const refs = entry?.programs;
     if (!Array.isArray(refs) || refs.length === 0) {
+      if (point?.id === 'capability-provider' && !isCliCapability(entry, point)) {
+        continue;
+      }
       add(field, 'program-undeclared', 'an executable contribution must name every program it launches', [...declaredIds]);
       continue;
     }

@@ -97,7 +97,7 @@ test('CapabilityRouter evaluates capability health across all declarations', () 
   const healthReport = router.getAllCapabilitiesHealth(false);
 
   assert.ok(Array.isArray(healthReport));
-  assert.equal(healthReport.length, 7);
+  assert.equal(healthReport.length, 10);
   for (const item of healthReport) {
     assert.ok(item.capability);
     assert.ok(item.description);

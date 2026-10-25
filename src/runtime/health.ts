@@ -245,6 +245,95 @@ function probeFreshness(providerId: any, { root = process.cwd(), homeDir = os.ho
   };
 }
 
+async function probeLocalProvider(
+  provider: any,
+  options: { timeoutMs?: number; fetchImpl?: any; execFileImpl?: any; router?: any } = {}
+): Promise<any> {
+  const timeoutMs = options.timeoutMs ?? 1500;
+
+  if (provider.kind === 'http') {
+    const targetUrl = provider.healthEndpoint || provider.endpoint;
+    const { probeHttpEndpoint } = require('./capabilities/executor.ts');
+    const probeRes = await probeHttpEndpoint(targetUrl, {
+      timeoutMs,
+      fetchImpl: options.fetchImpl,
+    });
+    if (probeRes.ok) {
+      return {
+        id: provider.id,
+        name: provider.name || provider.id,
+        kind: 'http',
+        status: 'HEALTHY',
+        endpoint: targetUrl,
+        answered: true,
+        durationMs: probeRes.durationMs,
+        detail: `HTTP ${probeRes.status}`,
+      };
+    }
+    if (probeRes.isUnavailable) {
+      return {
+        id: provider.id,
+        name: provider.name || provider.id,
+        kind: 'http',
+        status: 'UNAVAILABLE',
+        endpoint: targetUrl,
+        answered: false,
+        durationMs: probeRes.durationMs,
+        detail: `Local server at ${targetUrl} is not running`,
+      };
+    }
+    return {
+      id: provider.id,
+      name: provider.name || provider.id,
+      kind: 'http',
+      status: 'UNHEALTHY',
+      endpoint: targetUrl,
+      answered: probeRes.status !== undefined,
+      durationMs: probeRes.durationMs,
+      detail: probeRes.status ? `HTTP status ${probeRes.status}` : (probeRes.error || 'HTTP request failed'),
+    };
+  }
+
+  if (provider.kind === 'cli') {
+    const binary = provider.binary || provider.program;
+    const isAvail = options.router ? options.router.isBinaryAvailable(binary) : true;
+    if (!isAvail) {
+      return {
+        id: provider.id,
+        name: provider.name || provider.id,
+        kind: 'cli',
+        status: 'UNAVAILABLE',
+        binary,
+        answered: false,
+        durationMs: null,
+        detail: `Binary '${binary}' not found on PATH`,
+      };
+    }
+    const checkCommand = provider.checkCommand || [binary, '--version'];
+    const probe = runProbe(checkCommand, { execFileImpl: options.execFileImpl, timeoutMs });
+    return {
+      id: provider.id,
+      name: provider.name || provider.id,
+      kind: 'cli',
+      status: probe.ok ? 'HEALTHY' : 'UNHEALTHY',
+      binary,
+      answered: probe.ok,
+      durationMs: probe.durationMs,
+      detail: probe.ok ? banner(probe.output) : probe.error,
+    };
+  }
+
+  return {
+    id: provider.id,
+    name: provider.name || provider.id,
+    kind: provider.kind || 'native',
+    status: 'UNVERIFIED',
+    answered: false,
+    durationMs: null,
+    detail: 'unsupported probe kind',
+  };
+}
+
 /**
  * Probes one provider declared in `capabilities.json`.
  * @param {Object} provider
@@ -259,10 +348,11 @@ function probeProvider(provider: any, { router, projectRoot = process.cwd(), exe
   if (!provider || !provider.id) {
     return { id: null, status: UNVERIFIED, detail: 'no provider declared' };
   }
+  const binary = provider.binary || provider.program || null;
   const result: any = {
     id: provider.id,
     name: provider.name || provider.id,
-    binary: provider.binary || null,
+    binary,
     present: null,
     answered: false,
     status: UNVERIFIED,
@@ -272,22 +362,32 @@ function probeProvider(provider: any, { router, projectRoot = process.cwd(), exe
     freshness: null,
   };
 
-  if (provider.binary) {
-    result.present = router.isBinaryAvailable(provider.binary);
+  if (binary) {
+    result.present = router ? router.isBinaryAvailable(binary) : false;
     if (!result.present) {
       result.status = ABSENT;
-      result.detail = `binary '${provider.binary}' is not on PATH`;
+      result.detail = `binary '${binary}' is not on PATH`;
+      return result;
+    }
+  }
+
+  if (provider.kind === 'http' || provider.endpoint) {
+    const { validateLoopbackUrl } = require('./capabilities/loopback.ts');
+    const valid = validateLoopbackUrl(provider.endpoint);
+    if (!valid.ok) {
+      result.status = UNHEALTHY;
+      result.detail = `Disallowed endpoint: ${valid.reason}`;
       return result;
     }
   }
 
   const command = Array.isArray(provider.checkCommand) && provider.checkCommand.length
     ? provider.checkCommand
-    : null;
+    : (provider.kind === 'cli' && binary ? [binary, '--version'] : null);
   if (!command) {
     result.status = UNVERIFIED;
-    result.detail = provider.binary
-      ? `binary '${provider.binary}' is present but the registry declares no probe command, so DoFlow cannot establish that it answers`
+    result.detail = binary
+      ? `binary '${binary}' is present but the registry declares no probe command, so DoFlow cannot establish that it answers`
       : 'declares neither a binary nor a probe command, so its function depends entirely on the project (see the project commands section)';
     return result;
   }
@@ -979,7 +1079,80 @@ function workerPoolDoctorView({
  *   installed harness's skills cannot reach a runtime
  */
 async function handleDoctorCommand({ json = false, repoRoot, projectRoot = process.cwd(), ...rest }: any = {}) {
-  const report: any = buildHealthReport({ repoRoot, projectRoot, ...rest });
+  const root = repoRoot || REPO_ROOT;
+  const activeRouter = rest.router || new CapabilityRouter({ repoRoot: root, projectRoot });
+  const report: any = buildHealthReport({ repoRoot: root, projectRoot, router: activeRouter, ...rest });
+
+  // Probe local capability providers asynchronously (REV-1)
+  for (const capability of Object.values<any>(activeRouter.capabilities || {})) {
+    for (const provider of capability.providers || []) {
+      if (!provider || !provider.id) continue;
+      if (provider.kind === 'http' || provider.kind === 'cli') {
+        const localRes = await probeLocalProvider(provider, {
+          router: activeRouter,
+          execFileImpl: rest.execFileImpl,
+          fetchImpl: rest.fetchImpl,
+        });
+        const provIdx = report.providers.findIndex((p: any) => p.id === provider.id);
+        if (provIdx !== -1) {
+          report.providers[provIdx] = { ...report.providers[provIdx], ...localRes };
+        } else {
+          report.providers.push(localRes);
+        }
+      }
+    }
+  }
+
+  // Refresh report.capabilities with updated probe states
+  const probeMap: Record<string, any> = {};
+  for (const p of report.providers) {
+    probeMap[p.id] = p;
+  }
+  for (const cap of report.capabilities) {
+    const capDef = activeRouter.capabilities[cap.capability];
+    if (capDef && Array.isArray(capDef.providers)) {
+      const declared = capDef.providers.map((p: any) => probeMap[p.id]).filter(Boolean);
+      const rolled = capabilityStatus(declared);
+      cap.status = rolled.status;
+      cap.activeProvider = rolled.activeProvider;
+      cap.providers = declared.map((p: any) => ({ id: p.id, status: p.status, detail: p.detail }));
+    }
+  }
+
+  // Refresh summary, findings, warnings, and effective identity
+  report.summary.healthy = report.providers.filter((p: any) => p.status === HEALTHY).length;
+  report.summary.unhealthy = report.providers.filter((p: any) => p.status === UNHEALTHY).length;
+  report.summary.absent = report.providers.filter((p: any) => p.status === ABSENT).length;
+  report.summary.unverified = report.providers.filter((p: any) => p.status === UNVERIFIED).length;
+  report.summary.probed = report.providers.length;
+
+  const nonProviderFindings = report.findings.filter(
+    (f: any) => f.kind !== 'provider-unhealthy' && f.kind !== 'capability-degraded'
+  );
+  report.findings = [
+    ...nonProviderFindings,
+    ...report.providers
+      .filter((p: any) => p.status === UNHEALTHY)
+      .map((p: any) => ({ kind: 'provider-unhealthy', subject: p.id, detail: p.detail })),
+    ...report.capabilities
+      .filter((c: any) => c.status === 'DEGRADED')
+      .map((c: any) => ({ kind: 'capability-degraded', subject: c.capability, detail: 'every installed provider for this capability failed its probe' })),
+  ];
+
+  const nonProviderWarnings = report.warnings.filter(
+    (w: any) => w.kind !== 'provider-unverified'
+  );
+  report.warnings = [
+    ...nonProviderWarnings,
+    ...report.providers
+      .filter((p: any) => p.status === UNVERIFIED)
+      .map((p: any) => ({ kind: 'provider-unverified', subject: p.id, detail: p.detail })),
+  ];
+
+  report.identity.connectedCapabilities = report.capabilities
+    .filter((c: any) => c.activeProvider)
+    .map((c: any) => c.capability);
+
   const { buildAdviceDoctor, printAdviceDoctor } = require('./advice/doctor.ts');
   const { buildSettingsReport, printSettingsReport } = require('./settings/cli.ts');
   const adviceSections = await buildAdviceDoctor({ repoRoot, projectRoot, fsImpl: rest.fsImpl });
@@ -1132,6 +1305,7 @@ module.exports = {
   runProbe,
   probeProvider,
   probeProviders,
+  probeLocalProvider,
   probeFreshness,
   PROVIDER_ARTIFACTS,
   newestSourceMtime,

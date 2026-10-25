@@ -56,6 +56,110 @@ function workerValidator(id: string, worker: any, context: any = {}): string[] {
   return errors;
 }
 
+function capabilityProviderValidator(id: string, entry: any, context: any = {}): string[] {
+  const errors: string[] = [];
+  const location = context.packageId ? `package '${context.packageId}' provider '${id}'` : `provider '${id}'`;
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+    errors.push(`${location} must be a JSON object`);
+    return errors;
+  }
+
+  const CAPABILITY_ID = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
+  if (typeof entry.capability !== 'string' || !entry.capability.trim() || !CAPABILITY_ID.test(entry.capability)) {
+    errors.push(`${location} 'capability' must be a dot-separated capability identifier (e.g. 'text.compress')`);
+  }
+
+  if (typeof entry.name !== 'string' || !entry.name.trim() || entry.name.length > 64) {
+    errors.push(`${location} 'name' must be a non-empty string of at most 64 characters`);
+  }
+
+  if (entry.kind !== 'http' && entry.kind !== 'cli') {
+    errors.push(`${location} 'kind' must be 'http' or 'cli'`);
+  }
+
+  if (entry.sourceMode !== 'live' && entry.sourceMode !== 'index') {
+    errors.push(`${location} 'sourceMode' must be 'live' or 'index'`);
+  }
+
+  if (entry.costTier !== undefined) {
+    const validTiers = ['free', 'compute', 'local-index', 'local-graph'];
+    if (!validTiers.includes(entry.costTier)) {
+      errors.push(`${location} 'costTier' must be one of: ${validTiers.join(', ')}`);
+    }
+  }
+
+  if (entry.timeoutMs !== undefined) {
+    if (!Number.isInteger(entry.timeoutMs) || entry.timeoutMs < 1 || entry.timeoutMs > 60000) {
+      errors.push(`${location} 'timeoutMs' must be a positive integer between 1 and 60000`);
+    }
+  }
+
+  const { validateLoopbackUrl } = require('../capabilities/loopback.ts');
+
+  if (entry.kind === 'http') {
+    if (entry.program !== undefined) {
+      errors.push(`${location} 'program' is forbidden when kind is 'http'`);
+    }
+    if (typeof entry.endpoint !== 'string' || !entry.endpoint) {
+      errors.push(`${location} 'endpoint' is required when kind is 'http'`);
+    } else {
+      const valid = validateLoopbackUrl(entry.endpoint);
+      if (!valid.ok) {
+        errors.push(`${location} 'endpoint' is not a loopback URL: ${valid.reason || 'DISALLOWED_REMOTE_ENDPOINT'}`);
+      }
+    }
+
+    if (entry.healthEndpoint !== undefined) {
+      if (typeof entry.healthEndpoint !== 'string' || !entry.healthEndpoint) {
+        errors.push(`${location} 'healthEndpoint' must be a loopback URL: DISALLOWED_REMOTE_ENDPOINT`);
+      } else {
+        const valid = validateLoopbackUrl(entry.healthEndpoint);
+        if (!valid.ok) {
+          errors.push(`${location} 'healthEndpoint' must be a loopback URL: ${valid.reason || 'DISALLOWED_REMOTE_ENDPOINT'}`);
+        }
+      }
+    }
+
+    if (entry.method !== undefined && entry.method !== 'POST' && entry.method !== 'GET') {
+      errors.push(`${location} 'method' must be 'POST' or 'GET'`);
+    }
+    if (entry.headers !== undefined && (!entry.headers || typeof entry.headers !== 'object' || Array.isArray(entry.headers))) {
+      errors.push(`${location} 'headers' must be an object of string key-values`);
+    }
+    if (entry.requestTemplate !== undefined && (!entry.requestTemplate || typeof entry.requestTemplate !== 'object' || Array.isArray(entry.requestTemplate))) {
+      errors.push(`${location} 'requestTemplate' must be an object`);
+    }
+    if (entry.responsePath !== undefined && (typeof entry.responsePath !== 'string' || !entry.responsePath.trim())) {
+      errors.push(`${location} 'responsePath' must be a non-empty string`);
+    }
+  }
+
+  if (entry.kind === 'cli') {
+    if (entry.endpoint !== undefined) {
+      errors.push(`${location} 'endpoint' is forbidden when kind is 'cli'`);
+    }
+    if (typeof entry.program !== 'string' || !entry.program.trim()) {
+      errors.push(`${location} 'program' is required when kind is 'cli'`);
+    }
+    if (entry.argvTemplate !== undefined) {
+      if (!Array.isArray(entry.argvTemplate) || entry.argvTemplate.some((a: any) => typeof a !== 'string')) {
+        errors.push(`${location} 'argvTemplate' must be an array of strings`);
+      }
+    }
+    if (context?.manifest) {
+      const programs = Array.isArray(context.manifest.programs) ? context.manifest.programs : [];
+      const declared = programs.find((p: any) => p && (p.id === entry.program || p.binary === entry.program));
+      if (!declared) {
+        errors.push(`${location} program '${entry.program}' is not declared in manifest.programs`);
+      } else if (declared.argv !== 'capability-cli') {
+        errors.push(`${location} program '${entry.program}' must declare argv: 'capability-cli'`);
+      }
+    }
+  }
+
+  return errors;
+}
+
 // Keep this map literal: a validator is reachable only if it is named here.
 const POINT_VALIDATORS: Record<string, (id: string, entry: any, context?: any) => string[]> = Object.freeze({
   'review-preset-v1': presetValidator('review'),
@@ -63,6 +167,7 @@ const POINT_VALIDATORS: Record<string, (id: string, entry: any, context?: any) =
   'skill-v1': skillValidator,
   'agent-v1': agentValidator,
   'worker-v1': workerValidator,
+  'capability-provider-v1': capabilityProviderValidator,
 });
 
 function isObject(value: any): boolean {
