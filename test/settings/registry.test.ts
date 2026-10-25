@@ -155,6 +155,71 @@ const V1 = {
     env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
     consumers: ['src/runtime/packages/view.ts'],
     description: 'Package ids turned off for this view; lists from all layers add up, so a project can only turn packages off.' },
+  'rollout.profile': {
+    type: 'enum',
+    values: ['baseline', 'canary', 'staged', 'full'],
+    order: ['baseline', 'canary', 'staged', 'full'],
+    default: 'baseline',
+    scope: 'project-overridable',
+    combine: 'override',
+    securityRelevant: false,
+    failSafe: 'baseline',
+    env: {
+      name: 'DOFLOW_ROLLOUT_PROFILE',
+      parse: 'verbatim',
+      direction: 'any',
+    },
+    flag: null,
+    shellRead: null,
+    needsConfigHome: false,
+    legacy: [],
+    consumers: ['src/runtime/profiles/resolve.ts'],
+    description: 'Active rollout profile governing retrieval, decision advisor, code graph, and verification automation.',
+  },
+  'team.writerCap': {
+    type: 'integer',
+    min: 1,
+    max: 8,
+    order: 'ascending',
+    default: 2,
+    scope: 'project-overridable',
+    combine: 'override',
+    securityRelevant: false,
+    failSafe: 2,
+    env: {
+      name: 'DOFLOW_TEAM_WRITER_CAP',
+      parse: 'positive-int',
+      direction: 'any',
+    },
+    flag: null,
+    shellRead: null,
+    needsConfigHome: false,
+    legacy: [],
+    consumers: ['src/runtime/team/admission.ts'],
+    description: 'Maximum number of concurrent mutating worker sessions permitted across the active task graph.',
+  },
+  'team.maxAttempts': {
+    type: 'integer',
+    min: 1,
+    max: 10,
+    order: 'ascending',
+    default: 3,
+    scope: 'project-overridable',
+    combine: 'override',
+    securityRelevant: false,
+    failSafe: 3,
+    env: {
+      name: 'DOFLOW_TEAM_MAX_ATTEMPTS',
+      parse: 'positive-int',
+      direction: 'any',
+    },
+    flag: null,
+    shellRead: null,
+    needsConfigHome: false,
+    legacy: [],
+    consumers: ['src/runtime/team/admission.ts'],
+    description: 'Maximum attempt count permitted for any single plan task before escalating to operator intervention.',
+  },
 };
 
 const clone = (value: any) => JSON.parse(JSON.stringify(value));
@@ -224,7 +289,7 @@ test("the shipped registry pins base keys plus primary, worker and package setti
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 26);
+  assert.equal(Object.keys(SHIPPED.keys).length, 29);
 });
 
 test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {
@@ -480,7 +545,17 @@ test('env names: DOFLOW_<KEY_UPPER_SNAKE> for new bindings, the two existing nam
   assert.equal(derivedEnvName('storage.retentionHours'), 'DOFLOW_STORAGE_RETENTION_HOURS');
   assert.equal(derivedEnvName('advice.model'), 'DOFLOW_ADVICE_MODEL');
   const names = Object.values(SHIPPED.keys).filter((spec: any) => spec.env).map((spec: any) => spec.env.name).sort();
-  assert.deepEqual(names, ['DOFLOW_AUTOPILOT_ENABLED', 'DOFLOW_FAILURE_CAPTURE', 'DOFLOW_PRIMARY_HARNESS', 'DOFLOW_PRIMARY_MODEL', 'DOFLOW_RETENTION_HOURS', 'DOFLOW_VERIFY_REUSE']);
+  assert.deepEqual(names, [
+    'DOFLOW_AUTOPILOT_ENABLED',
+    'DOFLOW_FAILURE_CAPTURE',
+    'DOFLOW_PRIMARY_HARNESS',
+    'DOFLOW_PRIMARY_MODEL',
+    'DOFLOW_RETENTION_HOURS',
+    'DOFLOW_ROLLOUT_PROFILE',
+    'DOFLOW_TEAM_MAX_ATTEMPTS',
+    'DOFLOW_TEAM_WRITER_CAP',
+    'DOFLOW_VERIFY_REUSE',
+  ]);
   assert.equal(derivedEnvName('verify.reuse'), 'DOFLOW_VERIFY_REUSE', '089: the new binding takes the derived name');
   // control: the same key under a renamed variable that is not one of the grandfathered pair fails
   const renamed = clone(SHIPPED);
@@ -518,6 +593,9 @@ test('every failSafe form of the shipped registry validates, and each form is re
     'workers.enabled': { state: 'invalid' },
     'workers.models': { state: 'invalid' },
     'packages.disabled': { state: 'invalid' },
+    'rollout.profile': 'baseline',
+    'team.writerCap': 2,
+    'team.maxAttempts': 3,
   });
   const wrongValue = clone(SHIPPED);
   wrongValue.keys['storage.prune'].failSafe = 'maybe';

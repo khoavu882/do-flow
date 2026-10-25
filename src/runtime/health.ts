@@ -1176,6 +1176,36 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   } catch (error: any) {
     report.guidance = { state: 'unavailable', message: error?.message || String(error) };
   }
+  try {
+    const { AdmissionController, AdmissionError, resolveTeamSettings } = require('./team/admission.ts');
+    const { validateTaskBrief, validateTaskHandBack, quarantineInput, formatTaskBriefPrompt, EnvelopeError } = require('./team/envelope.ts');
+    const { assertReviewerSeparation, assertMechanicalPreChecks, ReviewGuardError, NeverReviewOwnCodeError, MechanicalPreChecksIncompleteError } = require('./team/review-guard.ts');
+    const teamController = new AdmissionController({ projectRoot, fsImpl: rest.fsImpl });
+    const activeClaims = teamController.getActiveClaims();
+    report.team = {
+      state: 'ready',
+      activeClaimsCount: activeClaims.length,
+      writerCap: teamController.writerCap,
+      maxAttempts: teamController.maxAttempts,
+      _symbols: [
+        AdmissionController,
+        AdmissionError,
+        resolveTeamSettings,
+        validateTaskBrief,
+        validateTaskHandBack,
+        quarantineInput,
+        formatTaskBriefPrompt,
+        EnvelopeError,
+        assertReviewerSeparation,
+        assertMechanicalPreChecks,
+        ReviewGuardError,
+        NeverReviewOwnCodeError,
+        MechanicalPreChecksIncompleteError,
+      ],
+    };
+  } catch (error: any) {
+    report.team = { state: 'unavailable', message: error?.message || String(error) };
+  }
   // Read on use (row 120 A.4): no probe runs, nothing is written, and a fault never breaks the report.
   let primaryText: string;
   try {
@@ -1303,6 +1333,14 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
       console.log(`  guidance: unavailable (${report.guidance.message})`);
     } else {
       console.log(`  ${report.guidance.rulesCount} registered rules (${report.guidance.neverAblateCount} protected invariants, ${report.guidance.candidateCount} ablation candidates)`);
+    }
+  }
+  if (report.team) {
+    console.log('\n[Agent Teams & Coordination]');
+    if (report.team.state === 'unavailable') {
+      console.log(`  team: unavailable (${report.team.message})`);
+    } else {
+      console.log(`  writer cap: ${report.team.writerCap}, max attempts: ${report.team.maxAttempts}, active claims: ${report.team.activeClaimsCount}`);
     }
   }
 

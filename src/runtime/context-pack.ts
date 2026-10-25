@@ -368,8 +368,12 @@ class ContextPackCompiler {
     const selfRefWidth = Math.max(budgetOverrides.selfRefWidth ?? this.options.selfRefWidth ?? 0, reservedHarnessWidth);
     const longestHarnessId = registeredHarnessIds.reduce((longest: string, id: string) => id.length > longest.length ? id : longest, 'unstated');
     const envelopeBudget = {
-      ...resolvedBudget,
+      maxBytes: resolvedBudget.maxBytes,
+      source: resolvedBudget.source,
       harness: { ...resolvedBudget.harness, id: longestHarnessId },
+      capacity: { value: null, basis: 'unknown:values belong to 085 (A-19)' },
+      toolResultLimitBytes: null,
+      ...(resolvedBudget.startupTokens ? { startupTokens: resolvedBudget.startupTokens } : {}),
     };
 
     const { envelopeMd, envelopeJson } = computeEnvelopes({
@@ -480,7 +484,7 @@ class ContextPackCompiler {
         taskClass: effectiveTaskClass,
         compiledAt: new Date().toISOString(),
         mode: bare ? 'bare' : (paramMode || 'full'),
-        budget: resolvedBudget,
+        budget: envelopeBudget,
         overflow: isOverflow ? {
           cause,
           mandatoryBytes: packMandatoryBytes,

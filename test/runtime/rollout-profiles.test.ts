@@ -442,7 +442,7 @@ describe('IC-003: Canary Deterministic Sampler (sampler.ts)', () => {
 
   test('sampler handles empty string, path characters, and unicode safely', () => {
     assert.doesNotThrow(() => sampleDecision('', 0.10));
-    assert.doesNotThrow(() => sampleDecision('/Users/kai/Workspace/file.ts:123', 0.10));
+    assert.doesNotThrow(() => sampleDecision('/tmp/workspace/file.ts:123', 0.10));
     assert.doesNotThrow(() => sampleDecision('🚀-feature-test-日本語', 0.10));
     assert.doesNotThrow(() => computeHash('test-key'));
     assert.equal(typeof computeHash('test-key'), 'number');
