@@ -21,8 +21,10 @@ const {
   PROBES,
 } = require('../../../src/runtime/worker/probes/index.ts');
 
+const { suiteTempDir } = require('../../helper/tmp.ts');
+
 function createTempDir(prefix: string): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), `doflow-test-probes-${prefix}-`));
+  return suiteTempDir(`doflow-test-probes-${prefix}-`);
 }
 
 test('Slice B: probe timeouts and binary mappings', () => {

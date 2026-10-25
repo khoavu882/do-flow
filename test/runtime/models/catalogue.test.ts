@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { suiteTempDir } = require('../../helper/tmp.ts');
 
 const {
   readCatalogue,
@@ -14,10 +15,10 @@ const {
   getProjectCataloguePath,
   getUserCataloguePath,
 } = require('../../../src/runtime/models/catalogue.ts');
-import type { ObservedCatalogue } from '../../../src/runtime/models/types.ts';
+import type { ObservedCatalogue } from '../../../src/runtime/models/catalogue.ts';
 
 function createTempDir(prefix: string): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), `doflow-test-${prefix}-`));
+  return suiteTempDir(`doflow-test-${prefix}-`);
 }
 
 test('Slice A: catalogue path resolution', () => {

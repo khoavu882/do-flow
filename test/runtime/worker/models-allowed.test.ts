@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { resolveBinding, bindingGap } = require('../../../src/runtime/worker/models.ts');
-import type { ObservedCatalogue } from '../../../src/runtime/models/types.ts';
+import type { ObservedCatalogue } from '../../../src/runtime/models/catalogue.ts';
 
 const SUP = {
   model: {

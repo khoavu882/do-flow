@@ -4,7 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { deriveBilling, effectiveBilling } = require('../../../src/runtime/settings/worker-billing.ts');
-import type { ObservedCatalogue } from '../../../src/runtime/models/types.ts';
+import type { ObservedCatalogue } from '../../../src/runtime/models/catalogue.ts';
 
 const recordOf = (harnessId: string, billing: 'free' | 'metered', asserted: string = '2026-10-25') => ({
   state: 'set' as const,

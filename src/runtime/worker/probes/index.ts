@@ -7,8 +7,18 @@ const { execFile } = require('node:child_process');
 const { promisify } = require('node:util');
 const execFileAsync = promisify(execFile);
 
-import type { SyncHarnessResult, LoginState, DetectedMode, DerivedBilling, OfferedModel } from '../../models/types.ts';
-import type { ProbeOptions, HarnessProbeRunner } from './types.ts';
+import type { SyncHarnessResult, LoginState, DetectedMode, DerivedBilling, OfferedModel } from '../../models/catalogue.ts';
+
+export interface ProbeOptions {
+  timeoutMs?: number;
+  execFileImpl?: any;
+  env?: Record<string, string | undefined>;
+  fsImpl?: any;
+  homeDir?: string;
+  projectRoot?: string;
+}
+
+export type HarnessProbeRunner = (options?: ProbeOptions) => Promise<SyncHarnessResult>;
 
 const DEFAULT_PROBE_TIMEOUT_MS = 3000;
 

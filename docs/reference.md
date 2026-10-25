@@ -103,6 +103,7 @@ These are `doflow` CLI commands, plus one `doflow-run` shell verb (`render-diagr
 | `primary` | Resolve which harness and model the main session runs \(read-only\): |
 | `package` | List the contribution points a package may fill, check a package directory, show the packages, add and update a local package, or turn it on and off: |
 | `slot` | Named machine-wide queue, one holder at a time \(--action run\|list\|release\); |
+| `models` | Synchronize, list, or inspect observed models across workers \(--action sync\|list\|describe\) |
 | `leak-scan` | Report DoFlow-internal identifiers in shipped files \(--path, repeatable\) |
 
 | Verb \(doflow-run\) | Group | Summary |
@@ -126,7 +127,6 @@ These are `doflow` CLI commands, plus one `doflow-run` shell verb (`render-diagr
 | `research-request` | Workflow and evidence | open, list or resolve a feature-stage research question |
 | `task-attempt` | Workflow and evidence | claim, finish, release, start, pause, cancel, resume, inspect, reopen or report-usage on a plan's task attempts |
 | `worker` | Workflow and evidence | discover, probe, describe, select, run, status or cancel an external headless worker on a claimed task |
-| `models` | Workflow and evidence | synchronize, list, or inspect observed models across workers (--action sync\|list\|describe) |
 | `dispatch` | Workflow and evidence | run a feature's task graph: start, step, run, submit, spawn, pause, inspect, cancel, takeover or resume |
 | `retrieve` | Workflow and evidence | BM25 search over the installed guidance tree \(auto-refreshing index\) |
 | `model-role` | Workflow and evidence | resolve an abstract model role to ranked, availability-annotated providers |
@@ -152,6 +152,7 @@ These are `doflow` CLI commands, plus one `doflow-run` shell verb (`render-diagr
 | `primary` | Workflow and evidence | resolve which harness and model the main session runs \(read-only\) |
 | `package` | Workflow and evidence | list the contribution points a package may fill, check a package directory, list/show packages \(read-only\), add/update a local package \(a plan, then --plan applies it\), or enable/disable/trust/exempt/revoke/verify/remove one |
 | `slot` | Workflow and evidence | named machine-wide queue: run a command as its one holder, list or release |
+| `models` | Workflow and evidence | synchronize, list, or inspect observed models across workers \(--action sync\|list\|describe\) |
 | `verify` | Verification and recovery | compile the contract, run checks, emit the report |
 | `recover` | Verification and recovery | classify a failure, return the targeted action |
 | `leak-scan` | Verification and recovery | report DoFlow-internal identifiers in shipped files |
@@ -550,6 +551,8 @@ These are the stores DoFlow keeps on this machine. A pruned store has the bound 
 | `packages-state` | `~/.doflow/packages/state.json` | narrowing facts only, rewritten atomically with mode 0600 and kept |
 | `authored-packages-project-doflow` | `.doflow/package/<id>` | the person's authored package source: DoFlow never prunes, moves or removes it |
 | `authored-packages-staging-project-doflow` | `.doflow/package/.staging-<id>-<8 hex>` | removed by the scaffold itself after 24 hours |
+| `project-models-catalogue` | `.doflow/state/models/catalogue.json` | one file, overwritten |
+| `user-models-catalogue` | `~/.config/doflow/state/models-observed.json` | one file, overwritten |
 
 Notes on five rows:
 

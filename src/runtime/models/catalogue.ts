@@ -5,16 +5,56 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { PROBES, HARNESS_IDS } = require('../worker/probes/index.ts');
-import type { ObservedCatalogue, SyncHarnessResult } from './types.ts';
+const { configHome } = require('../config-home.ts');
+
+export type LoginState = 'logged-in' | 'logged-out' | 'unsupported' | 'error';
+export type DetectedMode = 'subscription' | 'api-key' | 'unverified';
+export type DerivedBilling = 'free' | 'metered' | 'unknown';
+
+export interface OfferedModel {
+  id: string;
+  displayName?: string;
+  family?: string;
+}
+
+export interface HarnessQuota {
+  status: 'ok' | 'exceeded' | 'unknown';
+  message?: string;
+}
+
+export interface SyncHarnessResult {
+  harnessId: string;
+  binary: string;
+  installed: boolean;
+  version: string | null;
+  loginState: LoginState;
+  reloginHint: string | null;
+  detectedMode: DetectedMode;
+  derivedBilling: DerivedBilling;
+  offeredModels: Array<OfferedModel>;
+  quota?: HarnessQuota;
+  lastSyncedAt: string;
+}
+
+export type ObservedHarness = SyncHarnessResult;
+
+export interface ObservedCatalogue {
+  version: number;
+  syncedAt: string;
+  harnesses: Record<string, ObservedHarness>;
+}
 
 function getProjectCataloguePath(projectRoot: string): string {
   return path.join(projectRoot, '.doflow', 'state', 'models', 'catalogue.json');
 }
 
-function getUserCataloguePath(homeDir?: string): string {
-  const home = homeDir || os.homedir();
-  const configHome = process.env.XDG_CONFIG_HOME ? process.env.XDG_CONFIG_HOME : path.join(home, '.config');
-  return path.join(configHome, 'doflow', 'state', 'models-observed.json');
+function getUserCataloguePath(homeDir?: string, env: any = process.env): string {
+  if (homeDir) {
+    return path.join(homeDir, '.config', 'doflow', 'state', 'models-observed.json');
+  }
+  const { dir } = configHome(env);
+  const baseDir = dir || path.join(os.homedir(), '.config', 'doflow');
+  return path.join(baseDir, 'state', 'models-observed.json');
 }
 
 function resolveProjectRoot(projectRoot?: string, fsImpl: any = fs): string | null {
@@ -34,7 +74,7 @@ function resolveProjectRoot(projectRoot?: string, fsImpl: any = fs): string | nu
 
 function readCatalogue(
   projectRoot?: string,
-  options: { fsImpl?: any; homeDir?: string } = {}
+  options: { fsImpl?: any; homeDir?: string; env?: any } = {}
 ): ObservedCatalogue | null {
   const fsImpl = options.fsImpl || fs;
   const root = projectRoot ? path.resolve(projectRoot) : resolveProjectRoot(undefined, fsImpl);
@@ -61,7 +101,7 @@ function readCatalogue(
   }
 
   // Fallback to user cache
-  const userPath = getUserCataloguePath(options.homeDir);
+  const userPath = getUserCataloguePath(options.homeDir, options.env);
   if (fsImpl.existsSync(userPath)) {
     try {
       const raw = fsImpl.readFileSync(userPath, 'utf8');
@@ -86,11 +126,11 @@ function readCatalogue(
 function writeCatalogue(
   catalogue: ObservedCatalogue,
   projectRoot?: string,
-  options: { fsImpl?: any; homeDir?: string } = {}
+  options: { fsImpl?: any; homeDir?: string; env?: any } = {}
 ): void {
   const fsImpl = options.fsImpl || fs;
   const root = projectRoot ? path.resolve(projectRoot) : resolveProjectRoot(undefined, fsImpl);
-  const targetPath = root ? getProjectCataloguePath(root) : getUserCataloguePath(options.homeDir);
+  const targetPath = root ? getProjectCataloguePath(root) : getUserCataloguePath(options.homeDir, options.env);
 
   const targetDir = path.dirname(targetPath);
   fsImpl.mkdirSync(targetDir, { recursive: true });
