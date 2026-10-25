@@ -267,3 +267,39 @@ test('an explicit slug naming no feature folder notes it on stderr; the records 
     { cwd: bare, env: { ...process.env, HOME: bare }, encoding: 'utf8' });
   assert.match(res.stderr, /names no feature folder/);
 });
+
+test('FU-fw4jwh: handleEvidenceCommand scopes ledger under .doflow/state/evidence/<slug>/', () => {
+  const root = suiteTempDir('doflow-task-scope-cli-');
+  const slug = '046-scoped-evidence';
+  const taskId = 'A.1';
+  const { handleEvidenceCommand } = require('../../src/runtime/cli.ts');
+  const res = handleEvidenceCommand({
+    taskId,
+    action: 'add',
+    slug,
+    repoRoot: root,
+    json: true,
+    item: {
+      kind: 'historical',
+      provenance: 'extracted',
+      provider: 'git.native',
+      capability: 'history.search',
+      locator: 'a.js',
+    },
+  });
+  assert.equal(res, 0);
+
+  const expectedFile = path.join(root, '.doflow', 'state', 'evidence', slug, `${taskId}.json`);
+  assert.ok(fs.existsSync(expectedFile), `expected evidence file at ${expectedFile}`);
+  const unnamespacedFile = path.join(root, '.doflow', 'state', 'evidence', `${taskId}.json`);
+  assert.ok(!fs.existsSync(unnamespacedFile), 'unnamespaced file must not exist');
+
+  const listRes = handleEvidenceCommand({
+    taskId,
+    action: 'list',
+    slug,
+    repoRoot: root,
+    json: true,
+  });
+  assert.equal(listRes, 0);
+});

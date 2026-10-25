@@ -372,3 +372,13 @@ test('FU-ht8b3r N-2: nested and unterminated quotes stay linear', () => {
     assert.ok(Date.now() - started < 2000, `${JSON.stringify(unit)} took ${Date.now() - started} ms`);
   }
 });
+
+test('FU-5d100z & FU-v1sh3v: maskBody preserves TypeScript type annotations and code assignments', () => {
+  assert.equal(maskBody('(token: string, secret: number)').text, '(token: string, secret: number)');
+  assert.equal(maskBody('token: any').text, 'token: any');
+  assert.equal(maskBody('(token: string[], secret: boolean)').text, '(token: string[], secret: boolean)');
+  assert.equal(maskBody('(token: UserToken, secret: [number])').text, '(token: UserToken, secret: [number])');
+  assert.equal(maskBody('const TOKEN_BASES = Object.freeze([').text, 'const TOKEN_BASES = Object.freeze([');
+  assert.equal(maskBody('let token = getToken()').text, 'let token = getToken()');
+  assert.equal(maskBody('const secret = new Secret()').text, 'const secret = new Secret()');
+});

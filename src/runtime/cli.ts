@@ -387,7 +387,7 @@ function handleEvidenceCommand({ taskId = 'default', action = 'list', item = nul
     return usageError('evidence', 'these are write arguments and this action only reads — re-run with --action add', json);
   }
 
-  const ledger = new EvidenceLedger({ repoRoot: root });
+  const ledger = new EvidenceLedger({ repoRoot: root, slug });
   try {
     ledger.load(taskId);
   } catch (error: any) {

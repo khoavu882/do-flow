@@ -345,3 +345,33 @@ test('the shipped codex checks file still validates and runs only free commands'
     assert.match(call, /^(--version|exec --help|features list )/, `only free commands ran: ${call}`);
   }
 });
+
+test('CLI checks whose output is on stderr pass when expectations match (FU-4v8871)', async (t) => {
+  const p = project(t);
+  const bin = path.join(p.dir, 'bin', 'codex');
+  fs.writeFileSync(bin, `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\\n' 'codex-cli 0.163.0' >&2
+  exit 0
+fi
+if [ "$1" = "check" ]; then
+  printf '%s\\n' 'Usage: codex exec [OPTIONS] [PROMPT]' >&2
+  printf '%s\\n' 'instructions are read from stdin' >&2
+  exit 0
+fi
+if [ "$1" = "secret" ]; then
+  printf '%s\\n' 'api_token=${TOKEN}' >&2
+  exit 0
+fi
+exit 3
+`, { mode: 0o755 });
+
+  const result = await evidence(p);
+  assert.equal(result.exit, 0);
+  assert.equal(result.body.disposition, 'recorded');
+  assert.deepEqual(result.body.establishes, ['oneShot', 'structuredOutput']);
+
+  const record = JSON.parse(fs.readFileSync(p.out, 'utf8'));
+  assert.equal(record.checks[0].result, 'pass');
+  assert.equal(record.checks[1].result, 'pass');
+});
