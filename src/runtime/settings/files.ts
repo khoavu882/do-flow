@@ -137,6 +137,23 @@ function validateValue(spec: any, value: unknown, enumValues: readonly string[] 
       if (typeof value !== 'string' || value === '') return { code: 'type', reason: 'must be a model name string' };
       if (value.length > MODEL_ID_MAX) return { code: 'length', reason: `must be at most ${MODEL_ID_MAX} characters` };
       return MODEL_ID_RE.test(value) && !value.endsWith(' ') ? null : { code: 'type', reason: 'must start with a letter or digit, use only letters, digits, spaces and . _ : / @ ( ) [ ] # + -, and not end with a space' };
+    case 'model-list': {
+      if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
+        return { code: 'type', reason: 'must be a list of model name strings' };
+      }
+      if (value.length > 64) {
+        return { code: 'items', reason: 'must hold at most 64 items' };
+      }
+      if (new Set(value).size !== value.length) {
+        return { code: 'items', reason: 'must not repeat an item' };
+      }
+      for (const item of value) {
+        if (item === '' || item.length > MODEL_ID_MAX || !MODEL_ID_RE.test(item) || item.endsWith(' ')) {
+          return { code: 'type', reason: 'each item must start with a letter or digit, use only letters, digits, spaces and . _ : / @ ( ) [ ] # + -, and not end with a space' };
+        }
+      }
+      return null;
+    }
     case 'url':
       if (typeof value !== 'string' || !value.trim()) return { code: 'type', reason: 'must be a URL string' };
       try { new URL(value); return null; } catch { return { code: 'url', reason: 'must be a URL string' }; }

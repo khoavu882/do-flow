@@ -1547,6 +1547,46 @@
         "file": "src/runtime/packages/scaffold.ts",
         "pattern": ".staging-"
       }
+    },
+    {
+      "id": "project-models-catalogue",
+      "root": "project-state",
+      "path": "models/catalogue.json",
+      "entry": "file",
+      "match": "^catalogue\\.json$",
+      "rule": "existing",
+      "bound": {
+        "text": "one file, overwritten"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/models/catalogue.ts"
+      ],
+      "source": {
+        "file": "src/runtime/models/catalogue.ts",
+        "pattern": "catalogue.json"
+      }
+    },
+    {
+      "id": "user-models-catalogue",
+      "root": "config-home",
+      "path": "state/models-observed.json",
+      "entry": "file",
+      "match": "^models-observed\\.json$",
+      "rule": "existing",
+      "bound": {
+        "text": "one file, overwritten"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/models/catalogue.ts"
+      ],
+      "source": {
+        "file": "src/runtime/models/catalogue.ts",
+        "pattern": "models-observed.json"
+      }
     }
   ],
   "externalWriters": [

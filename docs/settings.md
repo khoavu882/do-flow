@@ -34,6 +34,7 @@ DoFlow configuration layers resolve settings across registry defaults, environme
 | `primary.onContradiction` | enum | `warn` | narrow-only | — | — | What happens when the probe sees a model other than the declared one: warn, or refuse; a project may only choose refuse. |
 | `workers.enabled` | worker-list | `["claude","codex","gemini","opencode","pi","copilot","kiro","antigravity","primary"]` | narrow-only | — | — | Ordered list of worker ids a run may use, optionally ending in primary; a project can only remove entries. |
 | `workers.models` | worker-models | — | global-only | — | — | Person-written model per worker and tier; a worker or tier not listed keeps the harness default. |
+| `models.enabled` | model-list | `[]` | project-overridable | — | — | Allow-list of models permitted for task bindings and dispatch rungs. |
 | `packages.disabled` | string-list | `[]` | project-overridable | — | — | Package ids turned off for this view; lists from all layers add up, so a project can only turn packages off. |
 <!-- END GENERATED:settings-keys -->
 

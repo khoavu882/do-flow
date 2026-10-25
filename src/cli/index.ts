@@ -588,6 +588,7 @@ Commands:
   slot                 Named machine-wide queue, one holder at a time (--action run|list|release);
                        slot --action run --name <name> [--label <text>] [--timeout <s>] [--no-wait] -- <command> [args...]
                        slot --action release --name <name> --by <who> --reason <text>
+  models               Synchronize, list, or inspect observed models across workers (--action sync|list|describe)
   leak-scan            Report DoFlow-internal identifiers in shipped files (--path, repeatable)
 
 Scope (mutually exclusive — global wins if both given):
@@ -638,6 +639,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        failure: list|settle|capture
                        roadmap: render|status|next|audit (seed: check|apply|amend)
                        slot: run|list|release
+                       models: sync|list|describe
                        review: check|start
                        protocol: list|resolve
                        primary: resolve
