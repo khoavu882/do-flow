@@ -6,11 +6,15 @@ type Bindings = {
   reason: string | null;
 };
 
-type Binding = {
+type BindingResolution = {
   model: string | null;
   source: 'binding' | 'harness-default' | 'invalid';
   flag: 'supported' | 'unevidenced' | 'n/a';
+  catalogueStatus?: 'synced' | 'unsynced';
+  enabledStatus?: 'enabled' | 'disabled';
 };
+
+type Binding = BindingResolution;
 
 /** Tier for a dispatch: the task line's tier when valid, else the owner's, else the default (IC-004).
  * A registry without `dispatchTiers` (the key is optional) gives `standard` with a note. */
@@ -49,32 +53,85 @@ function readBindings({ env = process.env, projectRoot = null }: any = {}): Bind
   }
 }
 
-/** IC-012: resolve one worker and task tier without choosing a vendor model. */
-function resolveBinding({ worker, tier, bindings, descriptor }: any): Binding {
-  if (bindings?.state === 'invalid') return { model: null, source: 'invalid', flag: 'n/a' };
-  const map = bindings?.state === 'set' ? bindings.map : null;
-  if (!map || !Object.hasOwn(map, worker) || !Object.hasOwn(map[worker], tier)) {
-    return { model: null, source: 'harness-default', flag: 'n/a' };
+/** IC-002: read project-effective models.enabled setting afresh. */
+function readAllowedModels({ env = process.env, projectRoot = null }: any = {}): string[] | null {
+  try {
+    const { loadSettings } = require('../settings/resolve.ts');
+    const res = loadSettings({ projectRoot, env: { ...env } }).get('models.enabled', 'project');
+    if (res.state === 'invalid' || res.origin?.via === 'no-config-home') return [];
+    return Array.isArray(res.value) ? res.value : [];
+  } catch {
+    return [];
   }
-  const supported = descriptor?.model?.status === 'supported' && Array.isArray(descriptor.model.argv);
-  return { model: map[worker][tier], source: 'binding', flag: supported ? 'supported' : 'unevidenced' };
 }
 
-/** IC-012: a binding denial narrows this task's ladder, rather than becoming a launch failure. */
-function bindingGap(result: Binding) {
+/** IC-012, IC-003: resolve one worker and task tier, checking catalogue sync and models.enabled allow-list. */
+function resolveBinding({ worker, tier, bindings, descriptor, catalogue, allowedModels }: any): BindingResolution {
+  if (bindings?.state === 'invalid') {
+    const res: BindingResolution = { model: null, source: 'invalid', flag: 'n/a' };
+    if (catalogue !== undefined) res.catalogueStatus = 'unsynced';
+    if (allowedModels !== undefined) res.enabledStatus = 'disabled';
+    return res;
+  }
+  const map = bindings?.state === 'set' ? bindings.map : null;
+  if (!map || !Object.hasOwn(map, worker) || !Object.hasOwn(map[worker], tier)) {
+    const res: BindingResolution = { model: null, source: 'harness-default', flag: 'n/a' };
+    if (catalogue !== undefined) res.catalogueStatus = 'synced';
+    if (allowedModels !== undefined) res.enabledStatus = 'enabled';
+    return res;
+  }
+  const boundModel = map[worker][tier];
+  const supported = descriptor?.model?.status === 'supported' && Array.isArray(descriptor.model.argv);
+
+  const res: BindingResolution = {
+    model: boundModel,
+    source: 'binding',
+    flag: supported ? 'supported' : 'unevidenced',
+  };
+
+  if (catalogue !== undefined) {
+    if (catalogue && catalogue.harnesses && Object.hasOwn(catalogue.harnesses, worker)) {
+      const offered = catalogue.harnesses[worker]?.offeredModels || [];
+      res.catalogueStatus = offered.some((m: any) => m.id === boundModel) ? 'synced' : 'unsynced';
+    } else {
+      res.catalogueStatus = 'unsynced';
+    }
+  }
+
+  if (allowedModels !== undefined) {
+    if (Array.isArray(allowedModels)) {
+      res.enabledStatus = allowedModels.includes(boundModel) ? 'enabled' : 'disabled';
+    } else {
+      res.enabledStatus = 'disabled';
+    }
+  }
+
+  return res;
+}
+
+/** IC-012, IC-003: a binding denial narrows this task's ladder, rather than becoming a launch failure. */
+function bindingGap(result: BindingResolution) {
   if (result.source === 'invalid') return { requirement: 'binding', result: 'failed', reason: 'binding:invalid' };
-  if (result.source === 'binding' && result.flag === 'unevidenced') {
-    return { requirement: 'binding', result: 'failed', reason: 'model-flag:unevidenced' };
+  if (result.source === 'binding') {
+    if (result.flag === 'unevidenced') {
+      return { requirement: 'binding', result: 'failed', reason: 'model-flag:unevidenced' };
+    }
+    if (result.catalogueStatus === 'unsynced') {
+      return { requirement: 'binding', result: 'failed', reason: 'model-unsynced' };
+    }
+    if (result.enabledStatus === 'disabled') {
+      return { requirement: 'binding', result: 'failed', reason: 'model-disabled' };
+    }
   }
   return null;
 }
 
 /** IC-014: describe every registry tier without changing worker eligibility. */
-function bindingsOf({ worker, descriptor, bindings, tiers }: any) {
+function bindingsOf({ worker, descriptor, bindings, tiers, catalogue, allowedModels }: any) {
   return Object.fromEntries(tiers.map((tier: string) => {
-    const { model, flag } = resolveBinding({ worker, tier, bindings, descriptor });
-    return [tier, { model, flag }];
+    const { model, flag, catalogueStatus, enabledStatus } = resolveBinding({ worker, tier, bindings, descriptor, catalogue, allowedModels });
+    return [tier, { model, flag, ...(catalogueStatus ? { catalogueStatus } : {}), ...(enabledStatus ? { enabledStatus } : {}) }];
   }));
 }
 
-module.exports = { resolveTier, readBindings, resolveBinding, bindingGap, bindingsOf };
+module.exports = { resolveTier, readBindings, readAllowedModels, resolveBinding, bindingGap, bindingsOf };

@@ -897,6 +897,78 @@ function workersDoctorView({
   };
 }
 
+/** IC-005: read observed catalogue, login states, derived billing and enabled models without running probes. */
+function workerPoolDoctorView({
+  env = process.env, projectRoot, repoRoot = REPO_ROOT,
+}: any = {}) {
+  const { readCatalogue } = require('./models/catalogue.ts');
+  const { readAllowedModels } = require('./worker/models.ts');
+  const { readWorkerBilling, effectiveBilling } = require('./settings/worker-billing.ts');
+  const { HARNESS_IDS } = require('./worker/probes/index.ts');
+  const reg = loadRegistry({ repoRoot });
+  const root = require('./lifecycle/root.ts').projectRoot(projectRoot);
+
+  const catalogue = readCatalogue(root);
+  const allowed = readAllowedModels({ projectRoot: root }) || [];
+  const workerIds = reg.harnesses.map((h: any) => h.id);
+  const billingRecord = readWorkerBilling(env, { workerIds });
+
+  const observedModelIds = new Set<string>();
+  const harnesses: any[] = [];
+  const allHarnessIds = Array.from(new Set([...HARNESS_IDS, ...Object.keys(catalogue?.harnesses || {})]));
+
+  for (const id of allHarnessIds) {
+    const catEntry = catalogue?.harnesses?.[id];
+    const regEntry = reg.harnesses.find((h: any) => h.id === id);
+    const descBilling = regEntry?.worker?.billing ?? 'unknown';
+
+    if (catEntry) {
+      for (const m of catEntry.offeredModels || []) {
+        if (m && m.id) observedModelIds.add(m.id);
+      }
+      const effBilling = effectiveBilling(descBilling, id, billingRecord, catalogue);
+      harnesses.push({
+        harness: id,
+        binary: catEntry.binary || id,
+        installed: Boolean(catEntry.installed),
+        loginState: catEntry.loginState,
+        reloginHint: catEntry.reloginHint || null,
+        detectedMode: catEntry.detectedMode,
+        effectiveBilling: effBilling,
+        offeredCount: (catEntry.offeredModels || []).length,
+      });
+    } else {
+      const effBilling = effectiveBilling(descBilling, id, billingRecord, null);
+      harnesses.push({
+        harness: id,
+        binary: id,
+        installed: false,
+        loginState: 'uncalibrated',
+        reloginHint: null,
+        detectedMode: 'unverified',
+        effectiveBilling: effBilling,
+        offeredCount: 0,
+      });
+    }
+  }
+
+  let enabledCount = 0;
+  for (const mId of observedModelIds) {
+    if (allowed.includes(mId)) enabledCount++;
+  }
+
+  return {
+    state: catalogue ? 'synced' : 'unsynced',
+    syncedAt: catalogue?.syncedAt || null,
+    harnesses,
+    models: {
+      enabledCount,
+      listedCount: observedModelIds.size,
+      enabled: allowed,
+    },
+  };
+}
+
 /**
  * Handles `doflow doctor` — installation and capability health.
  * @param {Object} options
@@ -930,6 +1002,11 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
     report.workers = workersDoctorView({ env: rest.env ?? process.env, projectRoot, repoRoot });
   } catch (error: any) {
     report.workers = { state: 'unavailable', message: error?.message || String(error) };
+  }
+  try {
+    report.workerPool = workerPoolDoctorView({ env: rest.env ?? process.env, projectRoot, repoRoot });
+  } catch (error: any) {
+    report.workerPool = { state: 'unavailable', message: error?.message || String(error) };
   }
 
   if (json) {
@@ -1010,6 +1087,22 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
     }
   }
 
+  console.log('\n[Worker Pool & Models]');
+  if (report.workerPool.state === 'unavailable') {
+    console.log(`  worker pool: unavailable (${report.workerPool.message})`);
+  } else if (report.workerPool.state === 'unsynced') {
+    console.log('  No observed catalogue. Run `doflow models --action sync` to probe worker pool.');
+    console.log(`  Models: ${report.workerPool.models.enabledCount} enabled, ${report.workerPool.models.listedCount} listed`);
+  } else {
+    for (const h of report.workerPool.harnesses) {
+      const binStatus = h.installed ? 'installed' : (h.loginState === 'uncalibrated' ? 'unknown' : 'missing');
+      const hint = h.loginState === 'logged-out' && h.reloginHint ? ` (re-login: ${h.reloginHint})` : '';
+      const billSource = h.effectiveBilling.source ? ` (${h.effectiveBilling.source})` : '';
+      console.log(`  ${h.harness.padEnd(14)} binary: ${binStatus.padEnd(10)} ${h.loginState.padEnd(12)} mode: ${h.detectedMode.padEnd(14)} billing: ${h.effectiveBilling.value}${billSource}${hint}`);
+    }
+    console.log(`  Models: ${report.workerPool.models.enabledCount} enabled, ${report.workerPool.models.listedCount} listed`);
+  }
+
   printMcpSections(report.mcp);
   if (packagesWorthShowing(report.packages)) printPackagesSection(report.packages);
   printAdviceDoctor(adviceSections);
@@ -1046,6 +1139,7 @@ module.exports = {
   buildHealthReport,
   nodeSecurityWarning,
   workersDoctorView,
+  workerPoolDoctorView,
   handleDoctorCommand,
   PROBE_TIMEOUT_MS,
 };

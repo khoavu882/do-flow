@@ -29,7 +29,7 @@ const { jsonFailure, validateValue } = require('./files.ts');
 const REGISTRY_FILE = 'core/registry/settings.json';
 
 const KEY_RE = /^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
-const TYPES = ['boolean', 'enum', 'integer', 'model-id', 'string', 'string-list', 'url', 'worker-billing', 'worker-list', 'worker-models'];
+const TYPES = ['boolean', 'enum', 'integer', 'model-id', 'model-list', 'string', 'string-list', 'url', 'worker-billing', 'worker-list', 'worker-models'];
 const SCOPES = ['global-only', 'project-only', 'narrow-only', 'project-overridable'];
 const COMBINES = ['override', 'narrowest', 'union', 'subset'];
 const PARSES = ['positive-int', 'off-words', 'verbatim'];
@@ -40,7 +40,7 @@ const VIEWS = ['project', 'global'];
 const SHELL_READS = [null, 'lexical-v1'];
 const TOP_FIELDS = ['version', 'description', 'keys'];
 const SPEC_FIELDS = [
-  'type', 'values', 'valuesRef', 'tiersRef', 'min', 'max', 'maxItems', 'maxLength', 'order', 'orderRef', 'default', 'defaultRef', 'scope', 'combine', 'views',
+  'type', 'values', 'valuesRef', 'tiersRef', 'min', 'max', 'maxItems', 'maxLength', 'order', 'orderRef', 'default', 'defaultRef', 'scope', 'combine', 'direction', 'views',
   'securityRelevant', 'failSafe', 'requires', 'env', 'flag', 'shellRead', 'needsConfigHome', 'legacy',
   'unknownMembers',
   'consumers', 'description',
@@ -208,12 +208,14 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     const keyed = record || models;
     // string-list is a set of items: no order ranks two lists, only a union is defined.
     const multi = type === 'string-list';
-    // IC-002: worker lists narrow by membership, preserving the order below.
+    // IC-002: worker lists and model lists narrow by membership, preserving the order below.
     const workerList = type === 'worker-list';
+    const modelList = type === 'model-list';
+    const subsetList = workerList || modelList;
     if (spec.scope === 'narrow-only' && (free || keyed || multi)) err(`a ${type} key cannot be narrow-only: no order says which value is narrower`);
     if (keyed && spec.combine !== 'override') err(`a ${type} key must combine by 'override'`);
     if (multi !== (spec.combine === 'union')) err(multi ? "a string-list key must combine by 'union'" : "combine 'union' is only for string-list keys");
-    if (workerList !== (spec.combine === 'subset')) err(workerList ? "a worker-list key must combine by 'subset'" : "combine 'subset' is only for worker-list keys");
+    if (subsetList !== (spec.combine === 'subset')) err(subsetList ? `a ${type} key must combine by 'subset'` : "combine 'subset' is only for worker-list or model-list keys");
     const needsOrder = (spec.scope === 'narrow-only' && spec.combine !== 'subset') || spec.combine === 'narrowest';
     const ordered = has(spec, 'order') || has(spec, 'orderRef');
     if (has(spec, 'orderRef')) {
@@ -232,7 +234,7 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
       }
     } else if (has(spec, 'order')) {
       const order = spec.order;
-      if (free || keyed || multi || workerList) err(`order is refused for a ${type} key`);
+      if (free || keyed || multi || subsetList) err(`order is refused for a ${type} key`);
       else if (order === 'ascending' || order === 'descending') {
         if (type !== 'integer') err("'ascending'/'descending' order is only for integer keys");
       } else if (!Array.isArray(order) || order.length === 0 || new Set(order).size !== order.length) {

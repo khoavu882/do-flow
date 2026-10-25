@@ -488,7 +488,7 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         continue;
       }
       // IC-002, IC-004: report each dangling worker once per key, source and id, across both views.
-      if (spec.combine === 'subset' || spec.type === 'worker-models') {
+      if (spec.type === 'worker-list' || spec.type === 'worker-models') {
         const known = registry.enumValues(key) ?? [];
         const ids = spec.type === 'worker-models' ? Object.keys(c.value as Record<string, unknown>) : c.value as string[];
         for (const id of ids) {
@@ -518,10 +518,14 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         }
         const below = value as string[];
         const candidate = c.value as string[];
-        const known = registry.enumValues(key) ?? [];
-        const added = candidate.filter((id) => !below.includes(id) && (id === 'primary' || known.includes(id)));
+        const isModelList = spec.type === 'model-list';
+        const itemKind = isModelList ? 'models' : 'workers';
+        const known = isModelList ? [] : (registry.enumValues(key) ?? []);
+        const added = isModelList
+          ? candidate.filter((id) => !below.includes(id))
+          : candidate.filter((id) => !below.includes(id) && (id === 'primary' || known.includes(id)));
         if (added.length > 0) {
-          Object.assign(c, { status: 'not-narrower', reason: `narrow-only: a project may only remove workers ('${added[0]}' is not in the value below)` });
+          Object.assign(c, { status: 'not-narrower', reason: `narrow-only: a project may only remove ${itemKind} ('${added[0]}' is not in the value below)` });
           continue;
         }
         const result = below.filter((id) => candidate.includes(id));
@@ -530,7 +534,7 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
           continue;
         }
         if (result.length === 0) {
-          Object.assign(c, { status: 'no-effect', reason: 'no workers remain in the intersection' });
+          Object.assign(c, { status: 'no-effect', reason: `no ${itemKind} remain in the intersection` });
           continue;
         }
         take(c, null);
@@ -540,7 +544,7 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         const ordered = candidate.filter((id) => result.includes(id));
         if (ordered.some((id, index) => id !== result[index])) {
           c.code = 'order-ignored';
-          c.reason = 'a project cannot reorder workers; the order below applies';
+          c.reason = `a project cannot reorder ${itemKind}; the order below applies`;
         }
         continue;
       }

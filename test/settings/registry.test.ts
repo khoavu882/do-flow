@@ -144,6 +144,11 @@ const V1 = {
     env: null, flag: null, shellRead: null, needsConfigHome: true, legacy: [],
     consumers: ['src/runtime/worker/models.ts'],
     description: 'Person-written model per worker and tier; a worker or tier not listed keeps the harness default.' },
+  'models.enabled': { type: 'model-list', default: [],
+    scope: 'project-overridable', combine: 'subset', direction: 'narrow-only', securityRelevant: false,
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/worker/models.ts'],
+    description: 'Allow-list of models permitted for task bindings and dispatch rungs.' },
   // 122 IC-011 + PN-7: the package disable list; an id not recorded on this machine is a warning (unknownMembers).
   'packages.disabled': { type: 'string-list', valuesRef: 'packages.ids', unknownMembers: 'warn', maxItems: 32, maxLength: 32, default: [],
     scope: 'project-overridable', combine: 'union', securityRelevant: false, failSafe: { state: 'invalid' },
@@ -219,7 +224,7 @@ test("the shipped registry pins base keys plus primary, worker and package setti
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 25);
+  assert.equal(Object.keys(SHIPPED.keys).length, 26);
 });
 
 test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {
