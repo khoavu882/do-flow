@@ -1163,6 +1163,19 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   const { buildProfilesDoctor, printProfilesDoctor } = require('./profiles/doctor.ts');
   const profilesSection = buildProfilesDoctor({ repoRoot, projectRoot, env: rest.env, fsImpl: rest.fsImpl });
   report.rolloutProfile = profilesSection;
+  try {
+    const { loadRuleLedger, getAblationCandidates } = require('./guidance/ablation.ts');
+    const ledger = loadRuleLedger({ repoRoot, fsImpl: rest.fsImpl });
+    const candidates = getAblationCandidates(ledger);
+    const neverAblateCount = ledger.rules.filter((r: any) => r.neverAblate).length;
+    report.guidance = {
+      rulesCount: ledger.rules.length,
+      neverAblateCount,
+      candidateCount: candidates.length,
+    };
+  } catch (error: any) {
+    report.guidance = { state: 'unavailable', message: error?.message || String(error) };
+  }
   // Read on use (row 120 A.4): no probe runs, nothing is written, and a fault never breaks the report.
   let primaryText: string;
   try {
@@ -1284,6 +1297,14 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   printAdviceDoctor(adviceSections);
   printProfilesDoctor(profilesSection);
   printSettingsReport(settings);
+  if (report.guidance) {
+    console.log('\n[Guidance Rules]');
+    if (report.guidance.state === 'unavailable') {
+      console.log(`  guidance: unavailable (${report.guidance.message})`);
+    } else {
+      console.log(`  ${report.guidance.rulesCount} registered rules (${report.guidance.neverAblateCount} protected invariants, ${report.guidance.candidateCount} ablation candidates)`);
+    }
+  }
 
   if (report.warnings.length) {
     console.log('\n[Warnings] — not blocking; a stale or unprobeable provider still degrades cleanly, and a Node below the security release of its line is named here');

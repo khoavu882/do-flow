@@ -795,12 +795,12 @@ configuration as a test fixture.
 
 `test/guards/*.test.ts` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-77 test files (plus `_shared.ts`, a helper rather than a test); this inventory lists
-70 entries across 66 test files and carries 68 distinct G-numbers.
+78 test files (plus `_shared.ts`, a helper rather than a test); this inventory lists
+71 entries across 67 test files and carries 69 distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries; G18 labels two files, of which `adapter-force.test.ts` is not listed; and G30 labels two
 files, `advice.test.ts` and a ratchet test in `module-reachability.test.ts` (the G16 file). The collisions are
-historical rather than a convention; G70 is the highest number in use (G67 is row 120 and G68 is row 122), so a new guard takes the next
+historical rather than a convention; G71 is the highest number in use (G67 is row 120 and G68 is row 122), so a new guard takes the next
 one above it instead of adding another collision. The list is not the whole directory. The
 files absent from it are `verb-reachability.test.ts`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.ts`, which owns G19, and `adapter-force.test.ts`, which is the unlisted half
@@ -1232,6 +1232,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   list, and a first-party preset naming an unknown seat agent are each named.
 - **G69** (`test-isolation.test.ts`) — every test executes hermetically within its repository and scratch directories: no test file navigates or reads above the repo root (`REPO_ROOT/..`, `../do-flow`, or sibling checkouts), preventing test dependencies on sibling checkouts that do not exist in clean CI environments or isolated release rehearsals (FU-rvzby1). Controls verify that out-of-repo and sibling paths are flagged while safe in-repo references pass.
 - **G70** (`rule-lint.test.ts`) — duplicate rule lint across the guidance tree (Feature 107-C, IC-004): scans all `.md` files under `core/shared/guidance/rules/` for substantive rule statements (>50 characters), asserting that no two rule files define the same rule statement verbatim, and no skill file under `core/shared/skills/` duplicates a core rule statement verbatim unless explicitly citing the rule by name (e.g. `RULE_01`, `RULE_02`, etc.). Controls verify that seeded duplicate statements across rules and un-cited duplicates in skills turn the guard red.
+- **G71** (`guidance-rules-registry.test.ts`) — guidance rules registry schema, completeness, and safety invariants (Feature 102, IC-001, IC-002): validates `core/registry/rules.json` against the IC-001 schema, asserts that all 26+ canonical guidance statements across `core/shared/guidance/rules/` and `PRINCIPLES.md` are indexed with zero missing statements, verifies that all mandatory safety rules carry `neverAblate: true` and `ablationCandidate: false`, and strictly enforces the mutual-exclusion invariant forbidding any rule from carrying both `neverAblate: true` and `ablationCandidate: true`. Negative controls verify that planted schema errors, missing statements, and safety violations turn the guard red.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.
@@ -1241,7 +1242,7 @@ another," not a runtime bug — fix the stale side, don't weaken the guard.
 Two unlisted guard files pin structural boundaries. `test/guards/boundaries.test.ts` holds G-B1,
 the dependency direction rule: no file under `core/` requires from `src/`, `bin/` or `test/`, so
 the content stays usable without the tool that installs it. It also holds G-B2, the inventory
-ratchets: `core/registry/` holds exactly 17 JSON files and `src/adapters/` exactly 8 harness
+ratchets: `core/registry/` holds exactly 20 JSON files and `src/adapters/` exactly 8 harness
 directories. A ratchet does not forbid a change; it makes the change edit the guard in the same
 commit, so each structural shift is a reviewed decision. `test/guards/cli-boundary.test.ts` keeps
 `bin/doflow.js` a thin forwarder with no command handler and no argument parser, and requires the
