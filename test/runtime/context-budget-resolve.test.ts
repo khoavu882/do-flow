@@ -110,12 +110,11 @@ test('budget-resolve: harness identity precedence: flag > env > unstated', () =>
 });
 
 test('budget-resolve: capacity basis: declared vs unknown', () => {
-  // The validated registry carries the real 075 profile; its declared capacity is intentionally
-  // unknown until 085 supplies those values (IC-012, IC-013).
+  // Row 085 supplied verified capacity values from Claude docs (code.claude.com/docs/en/overview).
   const bRealRegistry = resolveBudget({ harnessFlag: 'claude' });
   assert.deepEqual(bRealRegistry.capacity, {
-    value: null,
-    basis: 'unknown:values belong to 085 (A-19)',
+    value: 200000,
+    basis: 'declared:code.claude.com/docs/en/overview',
   });
 
   // Harness unstated

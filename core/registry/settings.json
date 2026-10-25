@@ -162,6 +162,50 @@
       "legacy": [],
       "consumers": ["src/runtime/profiles/resolve.ts"],
       "description": "Active rollout profile governing retrieval, decision advisor, code graph, and verification automation."
+    },
+    "team.writerCap": {
+      "type": "integer",
+      "min": 1,
+      "max": 8,
+      "order": "ascending",
+      "default": 2,
+      "scope": "project-overridable",
+      "combine": "override",
+      "securityRelevant": false,
+      "failSafe": 2,
+      "env": {
+        "name": "DOFLOW_TEAM_WRITER_CAP",
+        "parse": "positive-int",
+        "direction": "any"
+      },
+      "flag": null,
+      "shellRead": null,
+      "needsConfigHome": false,
+      "legacy": [],
+      "consumers": ["src/runtime/team/admission.ts"],
+      "description": "Maximum number of concurrent mutating worker sessions permitted across the active task graph."
+    },
+    "team.maxAttempts": {
+      "type": "integer",
+      "min": 1,
+      "max": 10,
+      "order": "ascending",
+      "default": 3,
+      "scope": "project-overridable",
+      "combine": "override",
+      "securityRelevant": false,
+      "failSafe": 3,
+      "env": {
+        "name": "DOFLOW_TEAM_MAX_ATTEMPTS",
+        "parse": "positive-int",
+        "direction": "any"
+      },
+      "flag": null,
+      "shellRead": null,
+      "needsConfigHome": false,
+      "legacy": [],
+      "consumers": ["src/runtime/team/admission.ts"],
+      "description": "Maximum attempt count permitted for any single plan task before escalating to operator intervention."
     }
   }
 }

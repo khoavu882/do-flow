@@ -11,13 +11,10 @@ const {
 
 const REPO = path.resolve(__dirname, '../..');
 
-test('context-profile guard: all 8 harnesses carry contextProfile with every value unverified in 075 (FR-016)', () => {
+test('context-profile guard: all 8 harnesses carry contextProfile with verified or unverified facts (085 A-19)', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   assert.equal(registry.validation.ok, true, registry.validation.errors.join('\n'));
   assert.equal(registry.harnesses.length, 8, 'must declare exactly 8 harnesses');
-
-  const EXPECTED_UNVERIFIED = 'values belong to 085 (A-19)';
-  const EXPECTED_DATE = '2026-10-13';
 
   for (const harness of registry.harnesses) {
     assert.ok(harness.contextProfile, `harness '${harness.id}' must declare contextProfile block`);
@@ -29,21 +26,13 @@ test('context-profile guard: all 8 harnesses carry contextProfile with every val
         `harness '${harness.id}' contextProfile must contain '${field}'`
       );
       const fact = profile[field];
-      assert.equal(
-        fact.unverified,
-        EXPECTED_UNVERIFIED,
-        `harness '${harness.id}' ${field}.unverified must match 075 contract`
-      );
-      assert.equal(
-        fact.verifiedOn,
-        EXPECTED_DATE,
-        `harness '${harness.id}' ${field}.verifiedOn must match 075 date`
-      );
-      assert.equal(
-        Object.hasOwn(fact, 'value'),
-        false,
-        `harness '${harness.id}' ${field} must not declare a value in 075`
-      );
+      assert.ok(fact && typeof fact === 'object', `harness '${harness.id}' fact '${field}' must be an object`);
+      assert.ok(fact.verifiedOn, `harness '${harness.id}' fact '${field}' must carry verifiedOn`);
+      if (fact.value !== undefined) {
+        assert.ok(fact.source, `harness '${harness.id}' declared fact '${field}' must carry source`);
+      } else {
+        assert.ok(fact.unverified, `harness '${harness.id}' undeclared fact '${field}' must carry unverified reason`);
+      }
     }
   }
 });
