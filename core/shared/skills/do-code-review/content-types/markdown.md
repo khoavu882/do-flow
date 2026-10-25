@@ -119,6 +119,14 @@ target rather than describing themselves as stale. Confirm the matched sentence 
 the file's own content as outdated before treating it as a real finding; if it is a rule
 description quoting the word, it is not a defect.
 
+### 6. Uncited vendor claims
+
+**Applies to:** any `.md` file under the reviewed path.
+
+Flags sentences asserting specific behavior or interfaces of a named library, framework, runtime, SDK, or package without an authoritative citation (Context7 or resolvable HTTP/HTTPS URL) or an explicit `UNVERIFIED` marker.
+
+**Interpretation:** advisory warning (`severity: "low"`, exit code 0). Verify claims via Context7, cite primary documentation with an HTTPS URL, or tag as `UNVERIFIED`.
+
 ---
 
 ## Adding a New Content Type
