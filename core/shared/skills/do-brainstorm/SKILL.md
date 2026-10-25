@@ -99,16 +99,18 @@ workflow never reads.
      fact → verify it per `MCP_Context7.md`, read-only, never a tech choice.
    - MCP `sequential-thinking`: a round's open ambiguity spans 2+ components, actors or FRs →
      reason it per `MCP_Sequential.md`.
-   After each dialogue round, before moving to the next round, partition any ambiguities
-   surfaced that round into: *independent* ones (answerable without knowing another's answer) —
-   up to 4 — batched into one question-tool call (the tool's 4-question max); *dependent*
-   ones (whose options depend on a prior answer) — asked as their own individual question-tool
-   call, in dependency order, after the dependency resolves; never batched with something it
-   depends on. Every question built for this loop MUST include an explicit "Decide for me" choice
-   among its listed options (on top of the tool's automatic "Other" free-text escape), so the
-   defer path below is actually selectable. Any question where the user picks that "Decide for
-   me" option (distinct from the general "Other" free-text escape) resolves via a recorded
-   assumption rather than by re-prompting — see Step 5 for where that assumption is recorded.
+   After each dialogue round, partition surfaced ambiguities into: *independent* ones (answerable
+   without knowing another's answer) — up to 4 batched into one question-tool call (the tool's 4-question max);
+   *dependent* ones — asked individually in dependency order after the prior answer resolves.
+   Every question must include an explicit "Decide for me" choice (on top of "Other" free-text escape);
+   picking it resolves via a recorded assumption (see Step 5).
+
+### Structured Multiple-Choice Format
+When asking clarifying questions:
+- Use structured multiple-choice options — never bury free-form questions in prose.
+- Present 2–4 meaningful, mutually-exclusive options covering the realistic scenarios.
+- Lead with the recommended default choice; provide an "Other" free-text escape as the final choice.
+
 **Stop when** every ambiguity the contract names has an answer or a stated gap, **and** the last round produced no new ambiguity. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
    The loop's posture — how deep to question, what a round is for — is the Behavioral Posture read
    below, not a second rule stated here.
@@ -218,10 +220,8 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
    ```bash
    "$DOFLOW" render-audit --slug="<slug>" --json
    ```
-   Every call in this step is advisory to the trail, not to the artifact. If one fails for a reason
-   outside this flow's control (an unwritable local state directory, say), report the failure plainly and
-   continue — a missing `audit.md` entry degrades the record, it does not make `requirement.md`
-   wrong. None of these calls is a gate on finishing this skill.
+   Every call in this step is advisory to the trail. If one fails, report it plainly and continue;
+   trail logging issues do not invalidate `requirement.md` or block finishing this skill.
 9. **Stop** — report the requirement path and confirmation that §7 has zero remaining
    `[NEEDS CLARIFICATION]` markers (or, in the rare aborted-session case, whatever markers remain).
 

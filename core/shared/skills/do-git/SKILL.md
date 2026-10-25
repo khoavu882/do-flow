@@ -72,6 +72,10 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 
 ## Safety Gates
 
+### Git Operations & Safety Invariants
+- Run `git status && git branch` first; use feature branches for ALL work; never force-push main/master.
+- Commit incrementally with descriptive messages; review `git diff` before staging; create a restore-point commit before high-risk changes.
+
 The following behaviors from today's skill are carried over unchanged:
 
 - **State checks** → `git status` before anything that could discard uncommitted work

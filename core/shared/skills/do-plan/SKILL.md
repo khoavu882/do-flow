@@ -195,6 +195,10 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
 12. **Stop** — report the plan path, Constitution Check result, the task count (`[P]`/sequential),
    and the derived branch name/repo count when the Repo Branch Plan is populated.
 
+### Planning Efficiency Invariants
+- Identify concurrent versus sequential operations across disjoint write sets.
+- Map explicit dependencies between tasks; batch tool calls; maximize parallel execution gains.
+
 ## Embedded feature research
 
 For an external fact gap or explicit request, follow the conditional protocol in `../do-document/references/embedded-research.md` before stage completion.
