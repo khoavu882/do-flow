@@ -270,6 +270,7 @@ test('an explicit slug naming no feature folder notes it on stderr; the records 
 
 test('FU-fw4jwh: handleEvidenceCommand scopes ledger under .doflow/state/evidence/<slug>/', () => {
   const root = suiteTempDir('doflow-task-scope-cli-');
+  fs.writeFileSync(path.join(root, 'a.js'), '// test file\n');
   const slug = '046-scoped-evidence';
   const taskId = 'A.1';
   const { handleEvidenceCommand } = require('../../src/runtime/cli.ts');
@@ -282,8 +283,7 @@ test('FU-fw4jwh: handleEvidenceCommand scopes ledger under .doflow/state/evidenc
     item: {
       kind: 'historical',
       provenance: 'extracted',
-      provider: 'git.native',
-      capability: 'history.search',
+      source: { provider: 'git.native', capability: 'history.search' },
       locator: 'a.js',
     },
   });

@@ -59,20 +59,10 @@ complexity, function count or SOLID verdict — see `content-types/config.md` fo
 
 State this before producing a single finding, and report against it when the review ends.
 
-1. **The file set, and how it was derived** — the `pr_analyzer.py` diff between base and head, the
-   paths the user named, or the working tree. Name the derivation, not just the count. A file the
-   derivation includes but the review never opened is reported as not reviewed; it is never dropped
-   from the list.
-2. **The rules files that will load** — from the dispatch tables above: `rules/universal.md` plus
-   one `languages/*.md` per code file, `content-types/markdown.md` per prose file. Name them before
-   loading them, so a file reviewed under the wrong rules is visible rather than plausible.
-3. **What this review refuses to conclude** — it does not certify a file it did not open, does not
-   report a threshold the analyzer does not implement, and does not convert a score into a verdict
-   the table below does not define. A check that could not run is reported as not run.
-4. **The coverage the analyzer actually achieved** — `code_quality_checker.py` reports
-   `files_analyzed`, `files_skipped` and a `coverage` of `complete` or `partial`. Report all three.
-   A `partial` coverage means the verdict describes the analysed subset; a score presented as if it
-   covered the whole change is the defect this contract exists to prevent.
+1. **The file set, and how it was derived** — `pr_analyzer.py` diff between base and head, named paths, or working tree. Name the derivation, not just the count. A file in the derivation but never opened is reported as not reviewed, never dropped.
+2. **The rules files that will load** — `rules/universal.md` plus one `languages/*.md` per code file, `content-types/markdown.md` per prose file. Name them before loading so misassigned rules are visible rather than plausible.
+3. **What this review refuses to conclude** — no certifying unopened files, reporting unimplemented thresholds, or converting scores into undefined verdicts. A check that could not run is reported as not run.
+4. **The coverage the analyzer actually achieved** — `code_quality_checker.py` reports `files_analyzed`, `files_skipped` and `complete` or `partial` coverage. Report all three; a partial coverage verdict describes the analysed subset only.
 5. **Process-leak scan** — run
    `doflow leak-scan --path <each reviewed file> --json` over the reviewed set. These are DoFlow's
    own identifiers (`FR-###`, `agent-docs/`, chain artifact names) reaching files that ship to
@@ -86,6 +76,7 @@ State this before producing a single finding, and report against it when the rev
    list each excluded path as `unscanned` with its reason. What survives is documentation about the
    chain: in other implementing repositories report the surviving count, not the lines; in DoFlow's
    own repository the step has no applicable surface; say so plainly.
+   - MCP `context7`: when reviewing dependency manifests or external API call sites, verify library facts per `MCP_Context7.md`.
 6. **Review start** — first (`$DOFLOW`: Recording, step 1) run `"$DOFLOW" review --action start --json`.
    Exit 0 with `ok:true`: run `seats` seats; keep `depth`, and `risk` only if `riskSource` is `record`.
    Any other exit: stop and report it. Never decide depth here.

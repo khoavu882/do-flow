@@ -418,6 +418,59 @@ def check_staleness(path: Path, lines: List[str]) -> List[Dict]:
 
 
 # --------------------------------------------------------------------------------------
+# Check 6: uncited vendor claims (Feature 124, IC-004)
+# --------------------------------------------------------------------------------------
+
+_VENDOR_KW_RE = re.compile(
+    r"\b(library|libraries|framework|frameworks|runtime|runtimes|sdk|sdks|package|packages|dependency|dependencies|vendor|vendors|api|apis)\b",
+    re.IGNORECASE,
+)
+_BEHAVIOR_KW_RE = re.compile(
+    r"\b(returns|throws|behaves|defaults to|implements|requires|supports)\b",
+    re.IGNORECASE,
+)
+_CITATION_RE = re.compile(
+    r"\b(context7|c7|mcp__context7__)\b|https?://|\bUNVERIFIED\b",
+    re.IGNORECASE,
+)
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?])\s+")
+
+
+def check_uncited_vendor_claims(path: Path, lines: List[str]) -> List[Dict]:
+    findings: List[Dict] = []
+    # Skip YAML frontmatter
+    fm_end = 0
+    if lines and lines[0].strip() == "---":
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "---":
+                fm_end = i + 1
+                break
+
+    for start_idx, para_lines in _iter_paragraphs(lines):
+        if start_idx < fm_end:
+            continue
+        para_text = " ".join(para_lines)
+        offset = 0
+        for sent in _SENTENCE_SPLIT_RE.split(para_text):
+            sent_clean = sent.strip()
+            if not sent_clean:
+                offset += len(sent) + 1
+                continue
+            if _VENDOR_KW_RE.search(sent_clean) and _BEHAVIOR_KW_RE.search(sent_clean):
+                if not _CITATION_RE.search(sent_clean):
+                    sent_pos = para_text.find(sent, offset)
+                    if sent_pos == -1:
+                        sent_pos = offset
+                    line_no = _offset_to_line(start_idx, para_lines, sent_pos)
+                    findings.append(make_finding(
+                        path, line_no, "uncited_vendor_claim", "low",
+                        "States library/vendor fact without citation: use context7 first, else an HTTPS URL, else tag as UNVERIFIED."
+                    ))
+            offset += len(sent) + 1
+    return findings
+
+
+# --------------------------------------------------------------------------------------
 # File / directory orchestration
 # --------------------------------------------------------------------------------------
 
@@ -437,6 +490,7 @@ def analyze_file(filepath: Path) -> List[Dict]:
     findings.extend(check_description(filepath, lines))
     findings.extend(check_dangling_references(filepath, lines))
     findings.extend(check_staleness(filepath, lines))
+    findings.extend(check_uncited_vendor_claims(filepath, lines))
     return findings
 
 

@@ -17,6 +17,7 @@ const { loadRegistry } = require('../registry/index.ts');
 const { CapabilityRouter } = require('./capability-router.ts');
 const { probeProviders, HEALTHY, UNVERIFIED } = require('./health.ts');
 const { mcpReach } = require('./mcp-reach.ts');
+const { touchesManifest } = require('./mcp-consultations.ts');
 const { WorkflowOrchestrator } = require('./workflow-orchestrator.ts');
 const { resolveActiveFeature } = require('./feature-resolve.ts');
 const { finishRuntime, usageError, captureCaught } = require('./cli-result.ts');
@@ -171,8 +172,18 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
   }
 
   const skill = stage?.skill || null;
+  const taskClass = stage?.taskClass || null;
+  const diffFiles = stage?.diffFiles || [];
+
   const expectedServers = skill
-    ? registry.mcp.filter((server: any) => (server.steps || []).some((step: any) => step.skill === skill && !step.expectedWhen)) : [];
+    ? registry.mcp.filter((server: any) => (server.steps || []).some((step: any) => {
+        if (step.skill !== skill) return false;
+        if (!step.expectedWhen) return true;
+        if (step.expectedWhen === 'dependency-change') return taskClass === 'dependency-change';
+        if (step.expectedWhen === 'manifest-review') return touchesManifest(diffFiles);
+        return false;
+      }))
+    : [];
   const expectedIds = new Set(expectedServers.map((server: any) => server.id));
   const expected = expectedServers.map((server: any) => {
     let state;
@@ -213,6 +224,11 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
     if (item.reach === 'unreachable') lines.push(`\`${item.server}\` is not reachable on ${targetName}; report it as \`${item.server}=unavailable\`.`);
     else if (item.reach === 'unknown') lines.push(`\`${item.server}\` may not be reachable on ${targetName}; if no tool answers, report \`${item.server}=unavailable\`.`);
   }
+  for (const s of expectedServers) {
+    if (typeof s.trigger === 'string' && s.trigger.toLowerCase().includes('library')) {
+      lines.push(`Vendor/library facts: \`${s.id}\` first, else a URL, else UNVERIFIED.`);
+    }
+  }
   lines.push(
     '',
     `${hashes} Report format`,
@@ -245,7 +261,7 @@ function currentStageOf({ repoRoot = REPO_ROOT, projectRoot, taskId }: any) {
   try {
     const run = new WorkflowOrchestrator({ repoRoot, projectRoot }).readRun(taskId);
     const node = run && run.cursor < run.program.length ? run.program[run.cursor] : null;
-    return node && node.type === 'stage' ? { stageId: node.id, skill: node.skill } : null;
+    return node && node.type === 'stage' ? { stageId: node.id, skill: node.skill, taskClass: run.taskClass ?? null } : null;
   } catch { return null; }
 }
 

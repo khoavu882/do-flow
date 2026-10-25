@@ -46,13 +46,10 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      `--from-review`: treat that review's findings as the work list, most-severe first, in the
      order the review itself ranked them.
    - Invoked with a description: treat that as the work list directly.
-   - If the current branch has an active DoFlow feature (`"$DOFLOW" paths --json` resolves a
-     `feature_dir`) and its `plan.md` already has a task matching the request, say so and offer
-     `/do-execute-plan` instead — that machinery exists for exactly this case, and duplicating it
-     here would just be a second, worse orchestrator. Proceed directly only if the user confirms
-     the lighter path, or if no such plan or matching task exists.
+   - If an active DoFlow feature's `plan.md` has a task matching the request (`"$DOFLOW" paths --json`), offer `/do-execute-plan` instead. Proceed directly only if the user confirms or no matching plan task exists.
    - Never block on a missing `requirement.md` / `design.md` / `plan.md`. Those artifacts are the
      chain's business, not a precondition of this skill.
+   - MCP `context7`: when implementing against external libraries or upgrading dependencies, verify APIs per `MCP_Context7.md`.
 
 **Stop when** every work-list finding the contract names has an answer or a stated gap, **and** the last round produced no new work-list finding. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
 

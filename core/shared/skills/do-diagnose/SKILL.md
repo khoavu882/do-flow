@@ -73,12 +73,11 @@ declares no analysis stage is not a workflow to diagnose under: say so and re-pr
    - Confirm root cause with concrete evidence before proposing any changes.
    - Resolve each retrieval need through the router rather than reaching for a habitual tool:
      `"$DOFLOW" route --intent <locate-known-symbol|locate-concept|trace-dependency|estimate-blast-radius|inspect-history|verify-runtime-behavior> --json`.
+   - MCP `context7`: when diagnosing library or dependency behavior, verify interface claims per `MCP_Context7.md`.
 
-**Discovery first.** One broad pass over the whole reported scope to find the terminology, the surfaces involved, and the competing readings — do not conclude here. Only then, one targeted pass per named sub-question.
+**Discovery first.** A broad pass over reported scope to find terminology, surfaces, and competing readings before concluding. Then targeted passes per question.
 
-Name the competing hypotheses the discovery pass turned up before you test any of them, and say
-what observation would falsify each. A hypothesis that nothing could falsify is not one to spend a
-retrieval on.
+Name competing hypotheses from discovery before testing; state what falsifies each. Hypotheses that cannot be falsified warrant no retrieval.
 
 **Stop when** every hypothesis the contract names has an answer or a stated gap, **and** the last round produced no new hypothesis. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
 

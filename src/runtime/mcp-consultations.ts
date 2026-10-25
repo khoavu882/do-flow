@@ -164,11 +164,33 @@ function knownServerIds(registry: any): Set<string> {
   return ids;
 }
 
+const MANIFEST_PATTERNS = Object.freeze([
+  /(?:^|[\\/])package(?:-lock)?\.json$/,
+  /(?:^|[\\/])pnpm-lock\.yaml$/,
+  /(?:^|[\\/])yarn\.lock$/,
+  /(?:^|[\\/])Cargo\.(?:toml|lock)$/,
+  /(?:^|[\\/])go\.(?:mod|sum)$/,
+  /(?:^|[\\/])requirements.*\.txt$/,
+  /(?:^|[\\/])pyproject\.toml$/,
+  /(?:^|[\\/])poetry\.lock$/,
+  /(?:^|[\\/])Gemfile(?:\.lock)?$/,
+  /(?:^|[\\/])composer\.(?:json|lock)$/,
+  /(?:^|[\\/])build\.gradle(?:\.kts)?$/,
+  /(?:^|[\\/])pom\.xml$/,
+  /(?:^|[\\/])Package\.swift$/,
+  /(?:^|[\\/])Podfile(?:\.lock)?$/,
+]);
+
+function touchesManifest(files?: string[]): boolean {
+  if (!Array.isArray(files) || files.length === 0) return false;
+  return files.some((f) => MANIFEST_PATTERNS.some((pattern) => pattern.test(f)));
+}
+
 /**
  * Servers a stage run names (IC-001 meaning). Sorted.
- * @param {{registry: object, skill: string, stageId?: string, taskId?: string, requests?: {list: Function}}} input
+ * @param {{registry: object, skill: string, stageId?: string, taskId?: string, requests?: {list: Function}, taskClass?: string, diffFiles?: string[]}} input
  */
-function namedServers({ registry, skill, stageId, taskId, requests }: any): string[] {
+function namedServers({ registry, skill, stageId, taskId, requests, taskClass, diffFiles }: any): string[] {
   let researchRequested: boolean | undefined;
   const hasRequest = (): boolean => {
     if (researchRequested === undefined) {
@@ -178,12 +200,21 @@ function namedServers({ registry, skill, stageId, taskId, requests }: any): stri
     }
     return researchRequested;
   };
+
+  const isDependencyChange = taskClass === 'dependency-change';
+  const hasManifestDiff = touchesManifest(diffFiles);
+
   const named = new Set<string>();
   for (const server of registry?.mcp || []) {
     for (const step of server.steps || []) {
-      if (step.expectedWhen === 'research-request') {
-        if (hasRequest()) named.add(server.id);
-      } else if (step.skill === skill) {
+      if (step.skill !== skill) continue;
+      if (!step.expectedWhen) {
+        named.add(server.id);
+      } else if (step.expectedWhen === 'research-request' && hasRequest()) {
+        named.add(server.id);
+      } else if (step.expectedWhen === 'dependency-change' && isDependencyChange) {
+        named.add(server.id);
+      } else if (step.expectedWhen === 'manifest-review' && hasManifestDiff) {
         named.add(server.id);
       }
     }
@@ -213,13 +244,14 @@ const bySortKey = (a: any, b: any): number => (a < b ? -1 : a > b ? 1 : 0);
 function resolveConsultations({
   taskId = null, stageId = null, skill, flags, registry, ledger, requests,
   briefRecords = [], readReport, reach, addCommand, harnessName, since = null,
+  taskClass = null, diffFiles = [],
 }: any = {}): { record: any; warnings: any[]; notices: any[]; evidenceToAdd: any[] } {
   const warnings: any[] = [];
   const notices: any[] = [];
   const evidenceToAdd: any[] = [];
   const registered = new Set((registry?.mcp || []).map((server: any) => server.id));
   const known = knownServerIds(registry);
-  const named = namedServers({ registry, skill, stageId, taskId, requests });
+  const named = namedServers({ registry, skill, stageId, taskId, requests, taskClass, diffFiles });
 
   // Rule 1: flags.
   const parsedFlags = parseMcpOutcomeFlags(flags);
@@ -408,5 +440,7 @@ module.exports = {
   parseMcpOutcomeFlags,
   parseToolsUsed,
   namedServers,
+  touchesManifest,
+  MANIFEST_PATTERNS,
   resolveConsultations,
 };

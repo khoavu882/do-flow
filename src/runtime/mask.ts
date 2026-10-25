@@ -194,7 +194,7 @@ function isCodePreserved(head: string, value: string, offset: number, fullString
   if (value.startsWith('"') || value.startsWith("'")) return false;
   const isColon = /:[ \t]*$/.test(head);
   if (isColon) {
-    const baseType = value.replace(/\[\]$/, '');
+    const baseType = value.replace(/\[\s*\]?$|\[$/, '');
     if (TS_TYPE_NAMES.has(baseType)) return true;
     if (/^[A-Z]|^\[/.test(value)) return true;
     if (/^(?:new\s|[A-Za-z0-9_$]+\s*\(|[A-Za-z0-9_$]+\.[A-Za-z0-9_$]+)/.test(value)) return true;
