@@ -141,6 +141,27 @@
       "scope": "project-overridable", "combine": "union", "securityRelevant": false, "failSafe": { "state": "invalid" },
       "env": null, "flag": null, "shellRead": null, "needsConfigHome": false, "legacy": [],
       "consumers": ["src/runtime/packages/view.ts"],
-      "description": "Package ids turned off for this view; lists from all layers add up, so a project can only turn packages off." }
+      "description": "Package ids turned off for this view; lists from all layers add up, so a project can only turn packages off." },
+    "rollout.profile": {
+      "type": "enum",
+      "values": ["baseline", "canary", "staged", "full"],
+      "order": ["baseline", "canary", "staged", "full"],
+      "default": "baseline",
+      "scope": "project-overridable",
+      "combine": "override",
+      "securityRelevant": false,
+      "failSafe": "baseline",
+      "env": {
+        "name": "DOFLOW_ROLLOUT_PROFILE",
+        "parse": "verbatim",
+        "direction": "any"
+      },
+      "flag": null,
+      "shellRead": null,
+      "needsConfigHome": false,
+      "legacy": [],
+      "consumers": ["src/runtime/profiles/resolve.ts"],
+      "description": "Active rollout profile governing retrieval, decision advisor, code graph, and verification automation."
+    }
   }
 }

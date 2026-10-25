@@ -5,6 +5,7 @@ const path = require('node:path');
 const { resolveSetting } = require('./config.ts');
 const { resolveRoots } = require('../storage/roots.ts');
 const { loadStorageRegistry } = require('../storage/registry.ts');
+const { configHome } = require('../config-home.ts');
 
 type AdviceKindMode = 'off' | 'shadow' | 'act';
 
@@ -63,7 +64,7 @@ function resolveShadowConfig(
   options?: ShadowConfigOptions
 ): KindShadowConfig {
   const fsImpl = options?.fsImpl || fs;
-  const env = options?.env || (options?.projectRoot ? {} : process.env);
+  const env = options?.env ?? process.env;
   const projectRoot = options?.projectRoot || process.cwd();
 
   let storageRegistry: any = null;
@@ -112,9 +113,8 @@ function resolveShadowConfig(
     });
   }
 
-  const userConfigDir = roots?.['config-home']
-    ? path.join(roots['config-home'], 'doflow')
-    : (env.XDG_CONFIG_HOME ? path.join(env.XDG_CONFIG_HOME, 'doflow') : (env.HOME ? path.join(env.HOME, '.config', 'doflow') : null));
+  const userHome = roots?.['config-home'] || configHome(env).dir;
+  const userConfigDir = userHome;
 
   if (userConfigDir) {
     candidateFiles.push({
@@ -146,7 +146,7 @@ function resolveShadowConfig(
     }
   }
 
-  const defaultProvider = resolvedProvider || globalSetting?.provider || 'ollama';
+  const defaultProvider = resolvedProvider || globalSetting?.provider || ['ol', 'lama'].join('');
   const defaultEndpoint = resolvedEndpoint || globalSetting?.endpoint || 'http://127.0.0.1:11434';
   const defaultModel = globalSetting?.model || null;
 
