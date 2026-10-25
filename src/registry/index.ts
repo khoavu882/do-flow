@@ -44,6 +44,7 @@ const EXTERNAL_TOOL_ACTIONS = new Set(['install', 'update', 'uninstall']);
 const MODEL_KINDS = new Set(['hosted', 'local']);
 const MODEL_SLOT_IDS = new Set(['dense', 'rerank']);
 const MCP_STEP_KEYS = new Set(['skill', 'file', 'expectedWhen']);
+const MCP_EXPECTED_WHENS = Object.freeze(new Set(['research-request', 'dependency-change', 'manifest-review']));
 const MCP_NAME = /^[A-Za-z0-9_.-]+$/;
 /** How a capability provider answers: from the current files or commands (`live`), or from a built
  * artifact that can lag the source (`index`). Required on every provider (068). */
@@ -363,8 +364,10 @@ function validateMcpStageUse(server: any, at: string, errors: string[]): void {
     if (typeof step.file !== 'string' || !step.file.trim() || path.isAbsolute(step.file) || step.file.split(/[\\/]/).includes('..')) {
       issue(errors, at, `${where}.file must be a path relative to the skill directory`);
     }
-    if (step.expectedWhen !== undefined && step.expectedWhen !== 'research-request') issue(errors, at, `${where}.expectedWhen must be 'research-request' when present`);
-    const key = `${step.skill}\u0000${step.file}`;
+    if (step.expectedWhen !== undefined && !MCP_EXPECTED_WHENS.has(step.expectedWhen)) {
+      issue(errors, at, `${where}.expectedWhen must be one of: ${[...MCP_EXPECTED_WHENS].join(', ')} when present`);
+    }
+    const key = `${step.skill}\u0000${step.file}\u0000${step.expectedWhen ?? ''}`;
     if (seen.has(key)) issue(errors, at, `${where} duplicates skill '${step.skill}' and file '${step.file}'`);
     seen.add(key);
   });

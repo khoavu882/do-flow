@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const {
   OUTCOME_STATES, OUTCOME_LABELS, outcomeLabel, parseMcpOutcomeFlags, parseToolsUsed, resolveConsultations,
+  namedServers, touchesManifest,
 } = require('../../src/runtime/mcp-consultations.ts');
 
 const registry: any = {
@@ -75,12 +76,68 @@ test('a server absent from the registry is recorded as given with one notice and
 
 test('named comes from steps without expectedWhen; expectedWhen needs a request for this stage', () => {
   assert.deepEqual(run({ skill: 'stage-a' }).record.named, ['acme-docs', 'beta-think']);
+  assert.deepEqual(run({ skill: 'stage-b' }).record.named, []);
   assert.deepEqual(run({ skill: 'other' }).record.named, []);
   const none: any = { list: () => [{ stageId: 'plan' }] };
+  assert.deepEqual(run({ skill: 'stage-b', requests: none }).record.named, []);
   assert.deepEqual(run({ skill: 'other', requests: none }).record.named, []);
   const some: any = { list: (id: any) => (id === 'run' ? [{ stageId: 'plan' }, { stageId: 'design' }] : []) };
-  assert.deepEqual(run({ skill: 'other', requests: some }).record.named, ['acme-docs']);
+  assert.deepEqual(run({ skill: 'stage-b', requests: some }).record.named, ['acme-docs']);
   assert.deepEqual(run({ skill: 'stage-a', requests: some }).record.named, ['acme-docs', 'beta-think']);
+  assert.deepEqual(run({ skill: 'other', requests: some }).record.named, []);
+});
+
+test('named evaluates dependency-change and manifest-review conditions', () => {
+  const customRegistry: any = {
+    mcp: [
+      { id: 'dep-server', selection: 'optional', steps: [{ skill: 'diagnose-skill', file: 'SKILL.md', expectedWhen: 'dependency-change' }] },
+      { id: 'rev-server', selection: 'optional', steps: [{ skill: 'review-skill', file: 'SKILL.md', expectedWhen: 'manifest-review' }] },
+    ],
+  };
+
+  // dependency-change
+  assert.deepEqual(namedServers({ registry: customRegistry, skill: 'diagnose-skill' }), []);
+  assert.deepEqual(namedServers({ registry: customRegistry, skill: 'diagnose-skill', taskClass: 'feature' }), []);
+  assert.deepEqual(namedServers({ registry: customRegistry, skill: 'diagnose-skill', taskClass: 'dependency-change' }), ['dep-server']);
+  assert.deepEqual(namedServers({ registry: customRegistry, skill: 'other-skill', taskClass: 'dependency-change' }), []);
+
+  // manifest-review
+  assert.deepEqual(namedServers({ registry: customRegistry, skill: 'review-skill' }), []);
+  assert.deepEqual(namedServers({ registry: customRegistry, skill: 'review-skill', diffFiles: ['src/index.ts', 'README.md'] }), []);
+  assert.deepEqual(namedServers({ registry: customRegistry, skill: 'review-skill', diffFiles: ['package.json'] }), ['rev-server']);
+  assert.deepEqual(namedServers({ registry: customRegistry, skill: 'review-skill', diffFiles: ['sub/dir/Cargo.lock'] }), ['rev-server']);
+  assert.deepEqual(namedServers({ registry: customRegistry, skill: 'other-skill', diffFiles: ['package.json'] }), []);
+});
+
+test('touchesManifest detects standard lockfiles and dependency manifests', () => {
+  assert.equal(touchesManifest([]), false);
+  assert.equal(touchesManifest(undefined), false);
+  assert.equal(touchesManifest(['package.json']), true);
+  assert.equal(touchesManifest(['frontend/package-lock.json']), true);
+  assert.equal(touchesManifest(['pnpm-lock.yaml']), true);
+  assert.equal(touchesManifest(['yarn.lock']), true);
+  assert.equal(touchesManifest(['Cargo.toml']), true);
+  assert.equal(touchesManifest(['Cargo.lock']), true);
+  assert.equal(touchesManifest(['go.mod']), true);
+  assert.equal(touchesManifest(['go.sum']), true);
+  assert.equal(touchesManifest(['requirements.txt']), true);
+  assert.equal(touchesManifest(['requirements-dev.txt']), true);
+  assert.equal(touchesManifest(['pyproject.toml']), true);
+  assert.equal(touchesManifest(['poetry.lock']), true);
+  assert.equal(touchesManifest(['Gemfile']), true);
+  assert.equal(touchesManifest(['Gemfile.lock']), true);
+  assert.equal(touchesManifest(['composer.json']), true);
+  assert.equal(touchesManifest(['composer.lock']), true);
+  assert.equal(touchesManifest(['build.gradle']), true);
+  assert.equal(touchesManifest(['build.gradle.kts']), true);
+  assert.equal(touchesManifest(['pom.xml']), true);
+  assert.equal(touchesManifest(['Package.swift']), true);
+  assert.equal(touchesManifest(['Podfile']), true);
+  assert.equal(touchesManifest(['Podfile.lock']), true);
+
+  assert.equal(touchesManifest(['package.json.bak']), false);
+  assert.equal(touchesManifest(['src/package.ts']), false);
+  assert.equal(touchesManifest(['docs/requirements.md']), false);
 });
 
 test('no outcome for a named server warns with the pass-this-flag text; nothing else', () => {

@@ -306,6 +306,7 @@ test('currentStageOf reads the stage a feature run is at', (t) => {
   const found = currentStageOf({ repoRoot: REPO_ROOT, projectRoot: proj, taskId: 'feat-one' });
   assert.equal(found.stageId, 'discovery');
   assert.equal(found.skill, 'do-brainstorm');
+  assert.equal(found.taskClass, 'feature');
   assert.equal(currentStageOf({ repoRoot: REPO_ROOT, projectRoot: proj, taskId: 'no-run' }), null);
   assert.equal(currentStageOf({ repoRoot: REPO_ROOT, projectRoot: proj, taskId: '../bad' }), null);
 });
@@ -455,4 +456,48 @@ test('through doflow-run with storage upkeep due, --json stdout is one JSON docu
   const parsed = JSON.parse(result.stdout);
   assert.deepEqual(Object.keys(parsed).sort(), ['markdown', 'record']);
   assert.equal(parsed.record.owner, 'core-implementer');
+});
+
+test('brief-tools: includes expected servers matching dependency-change and manifest-review stage conditions', (t) => {
+  const libraryServer = registry.mcp.find((s: any) => typeof s.trigger === 'string' && s.trigger.toLowerCase().includes('library'));
+  assert.ok(libraryServer, 'registry declares a server whose trigger mentions library');
+
+  // Test dependency-change:
+  const depStep = libraryServer.steps.find((step: any) => step.expectedWhen === 'dependency-change');
+  assert.ok(depStep, 'library server has a dependency-change step');
+
+  const withoutDep = render(t, {
+    stage: { feature: 'test-feat', runTaskId: 'test-feat', stageId: 'diagnose', skill: depStep.skill, taskClass: 'feature' },
+  });
+  assert.ok(!withoutDep.record.expected.some((e: any) => e.server === libraryServer.id));
+
+  const withDep = render(t, {
+    stage: { feature: 'test-feat', runTaskId: 'test-feat', stageId: 'diagnose', skill: depStep.skill, taskClass: 'dependency-change' },
+  });
+  assert.ok(withDep.record.expected.some((e: any) => e.server === libraryServer.id));
+  assert.match(withDep.markdown, new RegExp(`Vendor/library facts: \`${libraryServer.id}\` first, else a URL, else UNVERIFIED\\.`));
+
+  // Test manifest-review:
+  const manStep = libraryServer.steps.find((step: any) => step.expectedWhen === 'manifest-review');
+  assert.ok(manStep, 'library server has a manifest-review step');
+
+  const withoutManifest = render(t, {
+    stage: { feature: 'test-feat', runTaskId: 'test-feat', stageId: 'review', skill: manStep.skill, diffFiles: ['src/app.ts'] },
+  });
+  assert.ok(!withoutManifest.record.expected.some((e: any) => e.server === libraryServer.id));
+
+  const withManifest = render(t, {
+    stage: { feature: 'test-feat', runTaskId: 'test-feat', stageId: 'review', skill: manStep.skill, diffFiles: ['package.json'] },
+  });
+  assert.ok(withManifest.record.expected.some((e: any) => e.server === libraryServer.id));
+  assert.match(withManifest.markdown, new RegExp(`Vendor/library facts: \`${libraryServer.id}\` first, else a URL, else UNVERIFIED\\.`));
+});
+
+test('currentStageOf: reads stageId, skill and taskClass from run', (t) => {
+  const { proj } = projectDir(t);
+  new WorkflowOrchestrator({ repoRoot: REPO_ROOT, projectRoot: proj }).start({ taskId: 'dep-task', taskClass: 'dependency-change' });
+  const stage = currentStageOf({ repoRoot: REPO_ROOT, projectRoot: proj, taskId: 'dep-task' });
+  assert.equal(stage.taskClass, 'dependency-change');
+  assert.ok(stage.stageId);
+  assert.ok(stage.skill);
 });

@@ -6,7 +6,11 @@
      "steps": [
        {"skill": "do-brainstorm", "file": "SKILL.md"},
        {"skill": "do-design", "file": "SKILL.md"},
-       {"skill": "do-document", "file": "references/embedded-research.md", "expectedWhen": "research-request"}
+       {"skill": "do-document", "file": "references/embedded-research.md", "expectedWhen": "research-request"},
+       {"skill": "do-document", "file": "references/embedded-research.md", "expectedWhen": "dependency-change"},
+       {"skill": "do-diagnose", "file": "SKILL.md", "expectedWhen": "dependency-change"},
+       {"skill": "do-implement", "file": "SKILL.md", "expectedWhen": "dependency-change"},
+       {"skill": "do-code-review", "file": "SKILL.md", "expectedWhen": "manifest-review"}
      ]},
     {"id": "sequential-thinking", "transport": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"], "selection": "optional", "shortFlag": "--seq", "doc": "mcp/MCP_Sequential.md",
      "trigger": "The work settles a decision with more than one interacting part or competing option and records the choice.",

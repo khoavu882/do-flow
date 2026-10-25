@@ -102,6 +102,73 @@ else
   fail=$((fail + 1))
 fi
 
+# ── Uncited vendor claims check (Feature 124, IC-004) ───────────────────────────────────────
+if python3 - "$PWD" <<'PY'
+import importlib.util
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+skill_dir = Path(sys.argv[1])
+checker_path = skill_dir / "scripts" / "doc_quality_checker.py"
+spec = importlib.util.spec_from_file_location("doc_quality_checker", checker_path)
+checker = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(checker)
+
+# 1. Uncited vendor claim triggers finding
+lines_uncited = [
+    "# Library notes",
+    "",
+    "The express framework defaults to port 3000 in development mode.",
+]
+findings = checker.check_uncited_vendor_claims(Path("test.md"), lines_uncited)
+assert len(findings) == 1, f"expected 1 finding, got {len(findings)}"
+assert findings[0]["rule"] == "uncited_vendor_claim"
+assert findings[0]["severity"] == "low"
+assert findings[0]["line"] == 3
+
+# 2. Context7 citation clears finding
+lines_c7 = [
+    "# Library notes",
+    "",
+    "The express framework defaults to port 3000 per context7 docs.",
+]
+assert len(checker.check_uncited_vendor_claims(Path("test.md"), lines_c7)) == 0
+
+# 3. URL citation clears finding
+lines_url = [
+    "# Library notes",
+    "",
+    "The express framework defaults to port 3000 (https://expressjs.com).",
+]
+assert len(checker.check_uncited_vendor_claims(Path("test.md"), lines_url)) == 0
+
+# 4. UNVERIFIED marker clears finding
+lines_unverified = [
+    "# Library notes",
+    "",
+    "The express framework defaults to port 3000 [UNVERIFIED].",
+]
+assert len(checker.check_uncited_vendor_claims(Path("test.md"), lines_unverified)) == 0
+
+# 5. Non-vendor sentence with behavior verb does not trigger
+lines_normal = [
+    "# Guide",
+    "",
+    "This workflow requires a plan file before proceeding.",
+]
+assert len(checker.check_uncited_vendor_claims(Path("test.md"), lines_normal)) == 0
+
+print("  \033[32m✓\033[0m uncited vendor claim linter detects uncited claims and respects citations")
+PY
+then
+  pass=$((pass + 1))
+  checked=$((checked + 1))
+else
+  printf '  \033[31m✗\033[0m uncited vendor claim linter detects uncited claims and respects citations\n'
+  fail=$((fail + 1))
+fi
+
 # ── Coverage honesty (FR-006, FR-008) ────────────────────────────────────────────────────────
 #
 # A directory-level property, so the per-file fixture loop above structurally cannot express it:

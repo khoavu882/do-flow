@@ -197,7 +197,15 @@ test('the shipped registry declares a trigger and steps on every MCP server, and
     assert.ok(Array.isArray(server.steps), `${server.id} steps`);
   }
   assert.deepEqual(mcp.find((s: any) => s.id === 'context7').steps.map((s: any) => [s.skill, s.file, s.expectedWhen]),
-    [['do-brainstorm', 'SKILL.md', undefined], ['do-design', 'SKILL.md', undefined], ['do-document', 'references/embedded-research.md', 'research-request']]);
+    [
+      ['do-brainstorm', 'SKILL.md', undefined],
+      ['do-design', 'SKILL.md', undefined],
+      ['do-document', 'references/embedded-research.md', 'research-request'],
+      ['do-document', 'references/embedded-research.md', 'dependency-change'],
+      ['do-diagnose', 'SKILL.md', 'dependency-change'],
+      ['do-implement', 'SKILL.md', 'dependency-change'],
+      ['do-code-review', 'SKILL.md', 'manifest-review'],
+    ]);
   assert.deepEqual(mcp.find((s: any) => s.id === 'sequential-thinking').steps.map((s: any) => [s.skill, s.file]),
     [['do-brainstorm', 'SKILL.md'], ['do-design', 'SKILL.md']]);
 });
