@@ -144,6 +144,12 @@ const V1 = {
     env: null, flag: null, shellRead: null, needsConfigHome: true, legacy: [],
     consumers: ['src/runtime/worker/models.ts'],
     description: 'Person-written model per worker and tier; a worker or tier not listed keeps the harness default.' },
+  // 122 IC-011 + PN-7: the package disable list; an id not recorded on this machine is a warning (unknownMembers).
+  'packages.disabled': { type: 'string-list', valuesRef: 'packages.ids', unknownMembers: 'warn', maxItems: 32, maxLength: 32, default: [],
+    scope: 'project-overridable', combine: 'union', securityRelevant: false, failSafe: { state: 'invalid' },
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/packages/view.ts'],
+    description: 'Package ids turned off for this view; lists from all layers add up, so a project can only turn packages off.' },
 };
 
 const clone = (value: any) => JSON.parse(JSON.stringify(value));
@@ -209,11 +215,11 @@ test('project-only ignores user/global values and env; project and local files a
 
 // ── the shipped registry ───────────────────────────────────────────────────────────────────────
 
-test('the shipped registry pins the seven v1 entries plus the 108 autopilot switch, the 112 project-only guard key, the 089 verify.reuse switch, the 106 dispatch.fallback default and the workers.billing record and the seven 119 protocol keys and the three 120 primary keys and workers.enabled and workers.models, in display order', () => {
+test("the shipped registry pins base keys plus primary, worker and package settings in display order", () => {
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 24);
+  assert.equal(Object.keys(SHIPPED.keys).length, 25);
 });
 
 test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {
@@ -255,7 +261,7 @@ test('defaultRef values equal advice.json defaultEndpoint and storage.json lifec
   assert.deepEqual(refs.resolve('workers.defaultRungs'), [...harnesses.harnesses.filter((h: any) => h.worker).map((h: any) => h.id), 'primary']);
   const models = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/models.json'), 'utf8'));
   assert.deepEqual(refs.resolve('models.tierIds'), models.dispatchTiers.tiers);
-  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'harnesses.primaryIds', 'models.tierIds', 'protocols.debatePresetIds', 'protocols.lensIds', 'protocols.reviewPresetIds', 'protocols.reviewPresetOrder', 'storage.lifecycleEventsDefaultHours', 'workers.defaultRungs', 'workers.ids']);
+  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'harnesses.primaryIds', 'models.tierIds', 'packages.ids', 'protocols.debatePresetIds', 'protocols.lensIds', 'protocols.reviewPresetIds', 'protocols.reviewPresetOrder', 'storage.lifecycleEventsDefaultHours', 'workers.defaultRungs', 'workers.ids']);
 });
 
 test('refs: an unknown name (including an inherited property name) and an unreadable source throw without file text', () => {
@@ -324,6 +330,8 @@ const BAD = [
   ['enum with both values and valuesRef', keyed({ type: 'enum', min: undefined, default: 'a', values: ['a'], valuesRef: 'advice.providerIds' }), "exactly one of 'values' or 'valuesRef'", 'storage.planted'],
   ['values on a non-enum', keyed({ values: ['a'] }), "'values' is only for enum keys", 'storage.planted'],
   ['min on a non-integer', keyed({ type: 'string', default: null }), "'min' is only for integer keys", 'storage.planted'],
+  ['unknownMembers on a key with no valuesRef', keyed({ type: 'string-list', min: undefined, default: [], maxItems: 2, maxLength: 5, combine: 'union', unknownMembers: 'warn' }), "'unknownMembers' is only for string-list keys with a 'valuesRef'", 'storage.planted'],
+  ['unknownMembers other than warn', keyed({ type: 'string-list', min: undefined, default: [], maxItems: 2, maxLength: 5, combine: 'union', valuesRef: 'protocols.lensIds', unknownMembers: 'ignore' }), "unknownMembers must be 'warn'", 'storage.planted'],
   ['a declared flag', keyed({ flag: '--storage-planted' }), 'flag must be null in v1', 'storage.planted'],
   ['a declared flag equal to --set', keyed({ flag: '--set' }), 'flag must be null in v1', 'storage.planted'],
   ['env name off the DOFLOW_<KEY> pattern', keyed({ env: { name: 'DOFLOW_SOMETHING_ELSE', parse: 'positive-int', direction: 'any' } }), 'env.name must be DOFLOW_STORAGE_PLANTED', 'storage.planted'],
@@ -504,6 +512,7 @@ test('every failSafe form of the shipped registry validates, and each form is re
     'workers.billing': { state: 'invalid' },
     'workers.enabled': { state: 'invalid' },
     'workers.models': { state: 'invalid' },
+    'packages.disabled': { state: 'invalid' },
   });
   const wrongValue = clone(SHIPPED);
   wrongValue.keys['storage.prune'].failSafe = 'maybe';

@@ -13,20 +13,32 @@
  *   advice.providerDefaultEndpoint        core/registry/advice.json  providers[id = advice.provider].defaultEndpoint
  *   storage.lifecycleEventsDefaultHours   core/registry/storage.json stores[lifecycle-events].bound.defaultHours
  *   models.tierIds                       core/registry/models.json dispatchTiers.tiers
- *   protocols.reviewPresetIds             core/registry/protocols.json 'auto', then order.review
+ *   protocols.reviewPresetIds             core/registry/protocols.json 'auto', then order.review, then the review
+ *                                         presets active packages contribute (122 IC-014)
  *   protocols.reviewPresetOrder           core/registry/protocols.json order.review with 'auto' right after the
- *                                         preset of depth 'deep'
- *   protocols.debatePresetIds             core/registry/protocols.json order.debate
+ *                                         preset of depth 'deep'; never a contributed id
+ *   protocols.debatePresetIds             core/registry/protocols.json order.debate, then the contributed debate presets
  *   protocols.lensIds                     core/registry/protocols.json lenses[].id
  *   harnesses.primaryIds                  'unknown', then core/registry/harnesses.json harnesses[].id in order
  *   workers.ids                          known worker ids from core/registry/harnesses.json
  *   workers.defaultRungs                 shipped worker ids from that file, then 'primary'
+ *   packages.ids                          'doflow' then the ids the global doflow.lock records under `packages`
+ *                                         (122 IC-011); a missing, v1 or unreadable lock adds none
  *
  * Where `auto` ranks: `auto` follows the risk rule, which picks the preset of depth `deep` or the one
  * of depth `single` (resolve-protocol.ts `idOfDepth`), so the deep preset is the strictest it can
  * pick. A preset at or above the deep one in order.review is at least as strict as anything `auto`
  * gives and ranks above it; every preset below the deep one ranks below it. A preset a package adds
  * above review-deep therefore needs no settings edit.
+ *
+ * A contributed preset (122 IC-014) is a value a person may name, never a rank: it is in the value lists and not in
+ * the order, so no strictest-pick path (`auto`, `order[0]`, the floor walk) can reach it, and the narrow-only fold
+ * compares it by dominance (resolve.ts). The contributed ids come from the merged view (`loadProtocols`) of the same
+ * runtime root, or from `createRefs({ protocols })`, a merged registry a caller passes; an unusable view adds none.
+ *
+ * `packages.ids` is read from the machine, not from the runtime root: the global lock under `homeDir` (the account
+ * home by default). An id a project file names that this machine has not recorded is not an error (a project file
+ * travels); the key declares `unknownMembers: warn` and the settings loader reports it.
  *
  * protocols.json is held to `validateProtocols` before any of its refs resolves, so a ref never hands
  * out ids from a registry the review verbs would refuse. Sources are read on first use and cached for
@@ -35,15 +47,19 @@
  */
 
 const nodeFs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
-const { validateProtocols } = require('../review/protocols.ts');
+const { validateProtocols, contributedPresetIds } = require('../review/protocols.ts');
+const { readLock } = require('../../state/lockfile.ts');
 
 type RefKind = 'values' | 'order' | 'default';
 interface RefMeta { kind: RefKind; dependsOn: string[] }
 /** Values of the keys a ref depends on (`dependsOn`), by key name. */
 type Deps = Record<string, unknown>;
 type Source = (name: string) => any;
+/** The merged protocol registry (core plus active packages), or null when it cannot be loaded. */
+type Merged = () => any | null;
 
 const ADVICE_FILE = 'core/registry/advice.json';
 const STORAGE_FILE = 'core/registry/storage.json';
@@ -64,6 +80,7 @@ const REF_META: Readonly<Record<string, RefMeta>> = Object.freeze({
   'harnesses.primaryIds': { kind: 'values', dependsOn: [] },
   'workers.ids': { kind: 'values', dependsOn: [] },
   'workers.defaultRungs': { kind: 'default', dependsOn: [] },
+  'packages.ids': { kind: 'values', dependsOn: [] },
 });
 
 /** The depth label of the strictest preset the risk rule picks (resolve-protocol.ts step 1). */
@@ -117,14 +134,20 @@ function idList(list: unknown, field: string): string[] {
   return list;
 }
 
-/** `review.preset` may be `auto` or any review preset id (IC-006). */
-function protocolsReviewPresetIds(source: Source): string[] {
-  return ['auto', ...fromProtocols(source, (data) => idList(data?.order?.review, 'order.review'))];
+/** The ids active packages contribute to `kind`, none when the merged view is unusable. */
+function contributed(merged: Merged, kind: string): string[] {
+  const registry = merged();
+  return registry ? contributedPresetIds(registry, kind) : [];
 }
 
-/** The `review.preset` values narrowest (strictest) first; the header says where `auto` goes and why. */
+/** `review.preset` may be `auto`, any core review preset id (IC-006) or a contributed one (122 IC-014). */
+function protocolsReviewPresetIds(source: Source, _deps: Deps, merged: Merged): string[] {
+  return ['auto', ...fromProtocols(source, (data) => idList(data?.order?.review, 'order.review')), ...contributed(merged, 'review')];
+}
+
+/** The `review.preset` values narrowest (strictest) first; the header says where `auto` goes and why. Core ids only. */
 function protocolsReviewPresetOrder(source: Source): string[] {
-  const order = protocolsReviewPresetIds(source).slice(1);
+  const order = fromProtocols(source, (data) => idList(data?.order?.review, 'order.review'));
   const presets = source(PROTOCOLS_FILE).presets;
   const deep = order.findIndex((id) => presets[id]?.depth === RISK_STRICTEST_DEPTH);
   if (deep === -1) throw new Error(`${PROTOCOLS_FILE} order.review has no preset of depth '${RISK_STRICTEST_DEPTH}'`);
@@ -135,8 +158,8 @@ function protocolsReviewPresetOrder(source: Source): string[] {
   return [...order.slice(0, deep + 1), 'auto', ...order.slice(deep + 1)];
 }
 
-function protocolsDebatePresetIds(source: Source): string[] {
-  return fromProtocols(source, (data) => idList(data?.order?.debate, 'order.debate'));
+function protocolsDebatePresetIds(source: Source, _deps: Deps, merged: Merged): string[] {
+  return [...fromProtocols(source, (data) => idList(data?.order?.debate, 'order.debate')), ...contributed(merged, 'debate')];
 }
 
 function protocolsLensIds(source: Source): string[] {
@@ -181,7 +204,18 @@ function modelsTierIds(source: Source): string[] {
   return tiers;
 }
 
-const RESOLVERS: Readonly<Record<string, (source: Source, deps: Deps) => unknown>> = Object.freeze({
+/** The bundled package's id (core/registry/contribution-points.json `bundled`), always a valid member. */
+const BUNDLED_PACKAGE_ID = 'doflow';
+
+/** `doflow`, then the ids the global lock records. A lock that cannot be read adds none: settings must still load. */
+function packagesIds(_source: Source, _deps: Deps, _merged: Merged, homeDir: string, fsImpl: any): string[] {
+  let recorded: unknown[] = [];
+  try { recorded = readLock({ scope: 'global', homeDir }, { fsImpl })?.packages ?? []; } catch { /* the lock is reported by the verbs that own it */ }
+  const ids = (Array.isArray(recorded) ? recorded : []).map((row: any) => row?.id).filter((id: unknown) => typeof id === 'string' && id && id !== BUNDLED_PACKAGE_ID);
+  return [BUNDLED_PACKAGE_ID, ...new Set<string>(ids as string[])];
+}
+
+const RESOLVERS: Readonly<Record<string, (source: Source, deps: Deps, merged: Merged, homeDir: string, fsImpl: any) => unknown>> = Object.freeze({
   'advice.providerIds': adviceProviderIds,
   'advice.providerDefaultEndpoint': adviceProviderDefaultEndpoint,
   'storage.lifecycleEventsDefaultHours': storageLifecycleEventsDefaultHours,
@@ -193,6 +227,7 @@ const RESOLVERS: Readonly<Record<string, (source: Source, deps: Deps) => unknown
   'harnesses.primaryIds': harnessesPrimaryIds,
   'workers.ids': workersIds,
   'workers.defaultRungs': workersDefaultRungs,
+  'packages.ids': packagesIds,
 });
 
 interface Refs {
@@ -200,7 +235,7 @@ interface Refs {
   resolve(name: string, deps?: Deps): unknown;
 }
 
-function createRefs({ repoRoot = REPO_ROOT, fsImpl = nodeFs }: { repoRoot?: string; fsImpl?: any } = {}): Refs {
+function createRefs({ repoRoot = REPO_ROOT, fsImpl = nodeFs, protocols, homeDir }: { repoRoot?: string; fsImpl?: any; protocols?: any; homeDir?: string } = {}): Refs {
   const cache = new Map<string, any>();
   const source: Source = (file) => {
     if (!cache.has(file)) {
@@ -211,10 +246,23 @@ function createRefs({ repoRoot = REPO_ROOT, fsImpl = nodeFs }: { repoRoot?: stri
     }
     return cache.get(file);
   };
+  let mergedRegistry: any;
+  const merged: Merged = () => {
+    if (mergedRegistry === undefined) {
+      if (protocols !== undefined) mergedRegistry = protocols;
+      else {
+        try {
+          const loaded = require('../review/protocols.ts').loadProtocols({ repoRoot, fsImpl });
+          mergedRegistry = loaded.ok ? loaded.registry : null;
+        } catch { mergedRegistry = null; }
+      }
+    }
+    return mergedRegistry;
+  };
   return {
     resolve(name, deps = {}) {
       if (!Object.hasOwn(RESOLVERS, name)) throw new Error(`unknown settings ref '${name}'`);
-      return RESOLVERS[name](source, deps);
+      return RESOLVERS[name](source, deps, merged, homeDir ?? os.homedir(), fsImpl);
     },
   };
 }

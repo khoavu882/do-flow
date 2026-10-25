@@ -1,0 +1,11 @@
+{
+  "template": 1,
+  "path": "workers/{{local}}.json",
+  "programs": [
+    {
+      "id": "{{local}}",
+      "binary": "{{local}}",
+      "argv": "worker-recipe"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "manifest": 1,
+  "id": "doflow",
+  "version": "2.0.0-beta.7",
+  "summary": "DoFlow first-party presets",
+  "doflow": "=2.0.0-beta.7",
+  "contributions": [
+    {
+      "point": "debate-preset",
+      "version": 1,
+      "id": "debate-3",
+      "file": "presets/debate-3.json"
+    }
+  ]
+}

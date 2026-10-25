@@ -83,7 +83,7 @@ function assertDoctor(f: any, expected: any) {
     expected,
   );
   const baseline = readiness.select({
-    ...options(f), root: f.project, now: () => NOW, needs: [],
+    ...options(f), root: f.project, now: () => NOW, needs: [], includeDisabled: true,
   });
   for (const [index, row] of view.rows.entries()) {
     assert.deepEqual(row.enabled, readiness.enabledOf(active, row.harness));

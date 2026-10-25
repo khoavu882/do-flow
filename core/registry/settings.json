@@ -131,6 +131,11 @@
       "scope": "global-only", "combine": "override", "securityRelevant": true, "failSafe": { "state": "invalid" },
       "env": null, "flag": null, "shellRead": null, "needsConfigHome": true, "legacy": [],
       "consumers": ["src/runtime/worker/models.ts"],
-      "description": "Person-written model per worker and tier; a worker or tier not listed keeps the harness default." }
+      "description": "Person-written model per worker and tier; a worker or tier not listed keeps the harness default." },
+    "packages.disabled": { "type": "string-list", "valuesRef": "packages.ids", "unknownMembers": "warn", "maxItems": 32, "maxLength": 32, "default": [],
+      "scope": "project-overridable", "combine": "union", "securityRelevant": false, "failSafe": { "state": "invalid" },
+      "env": null, "flag": null, "shellRead": null, "needsConfigHome": false, "legacy": [],
+      "consumers": ["src/runtime/packages/view.ts"],
+      "description": "Package ids turned off for this view; lists from all layers add up, so a project can only turn packages off." }
   }
 }

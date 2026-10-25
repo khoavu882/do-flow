@@ -323,6 +323,25 @@ test('a scope with no lock reads without error, resolves no selection, and creat
   assert.equal(fs.existsSync(lockPath({ scope: 'project', projectRoot })), false, 'reading created no project lock');
 });
 
+test('R6: a global lock holding only packages reads as a scope with nothing installed, and reading leaves it untouched', () => {
+  const homeDir = suiteTempDir('doflow-read-scopes-pkgonly-home-');
+  const projectRoot = suiteTempDir('doflow-read-scopes-pkgonly-project-');
+  writeLock({ scope: 'global', homeDir }, {
+    ...defaultLock({ scope: 'global', scopeRoot: homeDir }),
+    packages: [{ id: 'acme', version: '1.0.0', source: { type: 'local', path: '/abs/acme' }, contentDigest: 'a'.repeat(64),
+      capabilityDigest: 'b'.repeat(64), enabled: false, addedAt: '2026-10-24T09:00:00.000Z' }],
+  });
+  const before = treeHash(homeDir);
+
+  const { global, project } = withHomeDir(homeDir, () => readScopes({ registry, repoRoot: REPO, projectRoot, targets: ['claude'] }));
+
+  assert.equal(global.recorded, false, 'no ledger rows, so nothing is installed at global scope');
+  assert.deepEqual(global.resources, []);
+  assert.deepEqual(global.plan.mcp, [], 'a lock with no targets pins no MCP selection');
+  assert.equal(project.recorded, false);
+  assert.deepEqual(treeHash(homeDir), before, 'reading wrote nothing under the home');
+});
+
 // ------------------------------------------------------------------- the codex MCP fixture
 
 /** `src/adapters/codex/config.ts` fingerprints a managed block as sha256 of its JSON encoding. The

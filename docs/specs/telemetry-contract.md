@@ -59,6 +59,7 @@ bridge writes hook lines in its own fixed order (see Hook lines).
 | `verify.tier` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status`, `selection_basis`, `selected`, `total`, `fallback`, `duration_ms` |
 | `verify.check` | `src/runtime/trace/telemetry.ts` | `verify_id`, `tier`, `status`, `exit_code`, `duration_ms`, `tests`, `tests_failed`, `cpu_ms`, `resource_basis`, `check_key`, `shared`, `shared_ref`, `failed_first` |
 | `review.run` | `src/runtime/trace/telemetry.ts` | `task`, `depth`, `risk`, `protocol`, `head`, `rounds`, `seats`, `seat_findings`, `converged`, `blocker`, `should_fix`, `note`, `open`, `fixed`, `refuted`, `user_accepted`, `pre_existing`, `escaped`, `confirmed`, `plausible`, `unverified_blockers`, `bug_classes`, `advisories`, `errors` (see Review lines) |
+| `package.verb` | `src/runtime/trace/telemetry.ts` | `action`, `result`, `tier_max` (see Package lines) |
 
 A key is added to a kind in the same change that writes it, with its `phase` (the merge that first
 writes it). Until then the writer drops every key it is handed for that kind. Changes to the contract
@@ -185,7 +186,7 @@ identifier is on one page; G45.1 does not compare them with line keys.
 | `review.run` | `task` | `token` or null | T0 | P7 | the record's `slug` only when the record is valid and the slug passes `token`; otherwise null (an invalid record's slug is never written) |
 | `review.run` | `depth` | `enum:depth` or null | T2 | P7 | the record's `depth` (`single` or `deep`) when the record is valid and carries one; otherwise null |
 | `review.run` | `risk` | `enum:risk` or null | T2 | P7 | the record's `risk` when the record is valid and carries one; otherwise null |
-| `review.run` | `protocol` | `enum:protocol` or null | T2 | P7 | the record's `protocol.id` (a review preset id) when the record is valid and carries one; otherwise null |
+| `review.run` | `protocol` | `enum:protocol` or null | T2 | P7 | the record's `protocol.id` (a core review preset id) when the record is valid and carries one, `package` when that id is a preset an active package contributes; otherwise null |
 | `review.run` | `head` | `token` or null | T0 | P7 | the record's `reviewedHead` when the record is valid; otherwise null |
 | `review.run` | `rounds` | `uint` or null | T1 | P7 | review round count; null when invalid |
 | `review.run` | `seats`, `seat_findings`, `converged` | `uint` or null | T1 | P7 | counts; null when invalid |
@@ -194,6 +195,16 @@ identifier is on one page; G45.1 does not compare them with line keys.
 | `review.run` | `pre_existing`, `escaped`, `confirmed`, `plausible`, `unverified_blockers`, `bug_classes` | `uint` or null | T1 | P7 | finding counts; null when invalid |
 | `review.run` | `advisories` | `uint` | T1 | P7 | advisory count |
 | `review.run` | `errors` | `uint` | T1 | P7 | error count; zero when valid |
+
+## Package lines
+
+`doflow package --action enable|disable|trust|exempt|revoke|verify|remove|new` (`src/runtime/packages/command.ts`) writes through `TelemetryWriter`, one `package.verb` line per call, whatever the exit. No package id, version, digest, path, grant line or setting value is recorded: the line says which verb ran, how it ended and the highest capability tier of the package it named or created. Read-only actions (`points`, `check`, `list`, `show`) and the plan and apply forms of `add` and `update` write no line yet.
+
+| Kind | Key | Type | Class | Phase | Source |
+|---|---|---|---|---|---|
+| `package.verb` | `action` | `enum:package_action` | T2 | P8 | the verb that ran |
+| `package.verb` | `result` | `enum:package_result` | T2 | P8 | `ok` for exit 0, `refused` for exit 1 (unknown id, an incompatible package, a finding), `usage` for exit 2 |
+| `package.verb` | `tier_max` | `enum:package_tier` or null | T2 | P8 | the highest tier among the contributions of the package the verb named (`verify`: of the enabled third-party packages it checked); null for an unknown id or when no tier is known |
 
 ## Privacy classes
 
@@ -232,14 +243,15 @@ The closed lists a later export may use. `harness` equals the ids in `core/regis
 `status` equals `tierStatuses`, and `risk` equals the risk levels of `core/registry/verification.json`;
 G45.1 holds those three equal.
 `depth` and `protocol` are not listed in `telemetry.json`: the writer reads them from `core/registry/protocols.json`
-through `validateProtocols` (`src/runtime/trace/telemetry.ts` `DERIVED_VOCABULARIES`): `protocol` is `order.review`, `depth`
-the `depth` labels of those presets, loosest first. A preset added there, with its own depth label, is a valid `protocol`
+through `validateProtocols` (`src/runtime/trace/telemetry.ts` `DERIVED_VOCABULARIES`): `protocol` is `order.review` and the
+literal `package`, `depth` the `depth` labels of those presets, loosest first. `package` is written for any preset a package
+contributes (`review --action check` maps the id; feature 122 IC-024), so no third-party preset name enters telemetry. A preset added there, with its own depth label, is a valid `protocol`
 and `depth` with no edit here, and G45.1 refuses a copy. When protocols.json cannot be read or fails its validator, both are
 written null and the rest of the line is unchanged.
 
 | Name | Values |
 |---|---|
-| `kind` | `hook`, `verify.run`, `verify.tier`, `verify.check`, `review.run` |
+| `kind` | `hook`, `verify.run`, `verify.tier`, `verify.check`, `review.run`, `package.verb` |
 | `harness` | the eight harness ids |
 | `event` | `PreToolUse`, `BeforeTool`, `tool_call`, `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure` |
 | `policy` | `pre-bash-guard`, `user-prompt-submit`, `post-shell-observe` |
@@ -248,7 +260,7 @@ written null and the rest of the line is unchanged.
 | `status` | `PASS`, `FAIL`, `UNRESOLVED`, `SUBSUMED`, `NOT_APPLICABLE`, `SKIPPED`, `NOT_RUN` |
 | `risk` | `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` |
 | `depth` | derived: the `depth` labels of the `order.review` presets in `core/registry/protocols.json`, loosest first (today `single`, `deep`) |
-| `protocol` | derived: the ids of `order.review` in `core/registry/protocols.json` (today `review-deep`, `review-single`) |
+| `protocol` | derived: the ids of `order.review` in `core/registry/protocols.json` (today `review-deep`, `review-single`), then `package` |
 | `role` | `main`, `worker` |
 | `level` | `L0`, `L1`, `L2`, `L3` |
 | `selection_basis` | `changed-test-files`, `explicit-pattern`, `none` |
@@ -258,6 +270,9 @@ written null and the rest of the line is unchanged.
 | `failed_first` | `none`, `pass`, `fail` |
 | `resource_basis` | `proc-children`, `unreached-platform`, `unreached-read` |
 | `v0` | `on`, `off` |
+| `package_action` | `enable`, `disable`, `trust`, `exempt`, `revoke`, `verify`, `remove`, `new` |
+| `package_result` | `ok`, `refused`, `usage` |
+| `package_tier` | `inert`, `instruction`, `executable` |
 | `tool` | `Bash` (the canonical tool name passed to allowlisted `pre-bash-guard` front doors) |
 | `emit_reason` | `emit`, `refused:mandatory-over-budget`, `silent:already-bootstrapped`, `silent:unchanged`, `silent:no-home`, `fault:deps`, `fault:unit`, `fault:slot`, `fault:summary`, `fault:grant`, `fault:warning`, `fault:render` (the `DF_EMIT_REASON` values of `policies/emission.sh`) |
 

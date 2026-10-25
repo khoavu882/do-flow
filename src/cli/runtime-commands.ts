@@ -63,11 +63,14 @@ const { handlePlanCheckCommand } = require('../runtime/plan-check.ts');
 const { handleSlotCommand } = require('../runtime/slot-command.ts');
 const { handleReviewCommand } = require('../runtime/review/command.ts');
 const { handleProtocolCommand } = require('../runtime/review/protocol-command.ts');
+const { handlePackageCommand } = require('../runtime/packages/command.ts');
 // `plan-check` is read-only (115 IC-001): no upkeep, which would write `.gitignore` and `upkeep-due`.
 // `review` writes only its one telemetry line (095 IC-003).
 // `protocol` only prints the registry and the resolved protocol (119 IC-004), so it has nothing to keep up.
 // `primary` only prints the resolved main session (120 IC-008) and writes nothing.
-const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review', 'protocol', 'primary']);
+// `package` stays here (122 IC-012): `new` writes only the target folder; `add --plan`, `update --plan` and `remove` write the store and lock and run upkeep (see `runsUpkeep`).
+const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review', 'protocol', 'primary', 'package']);
+const runsUpkeep = (o: any): boolean => !NO_UPKEEP.has(o.cmd) || (o.cmd === 'package' && ((typeof o.planId === 'string' && (o.action === 'add' || o.action === 'update')) || o.action === 'remove'));
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
 // The seed validator loads only for `roadmap seed`, and only this file may require it (G54).
@@ -406,6 +409,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     case 'review': return handleReviewCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, path: o.paths?.length === 1 ? o.paths[0] : o.paths, base: o.base, preset: o.preset, json: o.json, cwd: process.cwd(), env: process.env });
     case 'protocol': return handleProtocolCommand({ action: o.actionGiven ? o.action : undefined, kind: o.kind, taskClass: o.taskClass, risk: o.risk, preset: o.preset, positional: o.positional, json: o.json, cwd: process.cwd() });
     case 'primary': return handlePrimaryCommand({ action: o.actionGiven ? o.action : undefined, json: o.json, flags: o.flagsGiven, env: process.env, cwd: process.cwd() });
+    case 'package': return handlePackageCommand({ action: o.actionGiven ? o.action : undefined, path: o.paths?.length === 1 ? o.paths[0] : o.paths, id: o.id, source: o.source, index: o.index, packageVersion: o.packageVersion, plan: o.planId, repair: o.repair, points: o.points, dir: o.dir, json: o.json });
     case 'slot': return handleSlotCommand({ action: o.actionGiven ? o.action : undefined, name: o.name, label: o.label, timeout: o.timeout, noWait: Boolean(o.noWait), command: o.slotCommand, by: o.by, reason: o.reason, positional: o.positional, extraFlags: o.extraFlags, json: o.json, env: process.env, cwd: process.cwd() });
     default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
   }
@@ -415,7 +419,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
 async function dispatchRuntimeCommand(o: any): Promise<any> {
   const moment: any = {};
   const result = await dispatchRuntimeCommandInner(o, moment);
-  if (!NO_UPKEEP.has(o.cmd)) upkeepAfterVerb({ projectRoot: moment.projectRoot });
+  if (runsUpkeep(o)) upkeepAfterVerb({ projectRoot: moment.projectRoot });
   return result;
 }
 

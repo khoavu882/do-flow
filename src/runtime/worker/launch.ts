@@ -239,13 +239,39 @@ function launchWorker({ recipe, prompt, identity, execWorktree, env, taskId, gra
     const launched = { reason, bytes: delivered !== null ? utf8Bytes(delivered) : 0 };
     const argv = assembleArgv(recipe, text, edit, lastMessageFile, binding);
     const viaStdin = promptVia(recipe) === 'stdin';
-    const child = spawn(recipe.cli.binary, argv, {
+    if (recipe?.structuredOutput?.parser) {
+      const { PARSERS } = require('./parsers.ts');
+      if (!Object.hasOwn(PARSERS, recipe.structuredOutput.parser)) {
+        throw new LaunchUsageError('parser-unknown', `launchWorker: parser '${recipe.structuredOutput.parser}' is not in core PARSERS`);
+      }
+    }
+    let file = recipe.cli?.binary;
+    let spawnArgs = argv;
+    let spawnOptions: any = {
       cwd: execWorktree,
       env: workerEnv,
       detached: true,
       shell: false,
       stdio: [viaStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
-    });
+    };
+    if (recipe.program && recipe.storeEntry) {
+      const { launchSpec } = require('../packages/programs.ts');
+      const spec = launchSpec({
+        program: recipe.program,
+        storeEntry: recipe.storeEntry,
+        recipeArgv: argv,
+        cwd: execWorktree,
+        env: workerEnv,
+      });
+      file = spec.file;
+      spawnArgs = spec.args;
+      spawnOptions = {
+        ...spec.options,
+        detached: true,
+        stdio: [viaStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+      };
+    }
+    const child = spawn(file, spawnArgs, spawnOptions);
     // Kept attached: a reject after the resolve is a no-op, and an early error never goes unhandled.
     child.on('error', reject);
     child.once('spawn', () => {

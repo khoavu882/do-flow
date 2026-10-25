@@ -389,6 +389,23 @@ if(!out.stored||((fs.statSync(dir).mode&0o777)!==0o700)||!fs.existsSync(path.joi
     const writeRoadmap = `const path=require('node:path');
 const { writeIntent } = require(${JSON.stringify(path.join(REPO, 'src/runtime/roadmap/merge.ts'))});
 writeIntent(path.join(process.argv[1], '.doflow/state/roadmap/intents/113.json'), { schema:1, row:'113', phase:'intent' });`;
+    // The package stores (122 B.4, IC-024): one local package is planned and applied through the production
+    // functions, so `plans/`, a staging directory renamed into `store/` and the marker are all written.
+    const writePackage = `const fs=require('node:fs'),path=require('node:path');
+const { planPackage, applyPlan } = require(${JSON.stringify(path.join(REPO, 'src/runtime/packages/store.ts'))});
+const { loadProtocols } = require(${JSON.stringify(path.join(REPO, 'src/runtime/review/protocols.ts'))});
+const work=path.join(process.env.HOME,'.doflow','packages','fetched','.staging-abcdef0123456789');
+const dir=path.join(work,'tree');
+const preset=JSON.parse(JSON.stringify(loadProtocols().registry.presets['review-deep']));
+delete preset.depth;
+fs.mkdirSync(path.join(dir,'presets'),{recursive:true});
+fs.writeFileSync(path.join(dir,'presets','strict.json'),JSON.stringify(preset));
+fs.writeFileSync(path.join(dir,'doflow-package.json'),JSON.stringify({manifest:1,id:'gtwo',version:'1.0.0',summary:'G26 package',doflow:'>=2.0.0-beta.1 <3.0.0',contributions:[{point:'review-preset',version:1,id:'strict',file:'presets/strict.json'}]}));
+const planned=planPackage({action:'add',source:dir,pinnedSource:{type:'git',url:'https://example.org/g26.git',commit:'a'.repeat(40)},homeDir:process.env.HOME});
+if(!planned.ok){console.error(JSON.stringify(planned.findings));process.exit(1);}
+fs.rmSync(work,{recursive:true,force:true});
+const applied=applyPlan({planId:planned.plan.planId,action:'add',homeDir:process.env.HOME,env:process.env});
+if(!applied.ok){console.error(JSON.stringify(applied.findings));process.exit(1);}`;
     // `trace -g` comes first so the user state exists when the project's ignore file is first
     // written: only then does the pass record the project in the roots index (IC-017).
     const steps: any = [
@@ -418,6 +435,7 @@ writeIntent(path.join(process.argv[1], '.doflow/state/roadmap/intents/113.json')
       ['verification-reuse write', node('-e', writeReuse, project), 0],
       ['roadmap intent write', node('-e', writeRoadmap, project), 0],
       ['verification-v0 inflight write', node('-e', writeInflight, project), 0],
+      ['package plan and apply (packages-plans, packages-staging, packages-fetched, packages-fetch-staging)', node('-e', writePackage, project), 0],
       ['session-context.sh', hook(path.join(mirror, '.doflow/shared/hooks/policies/session-context.sh'), sessionPayload), 0],
       ['summary-store.sh write and claim', summaryStore(summaryWriteClaim), 0],
       ['summary-store.sh grant claim', summaryStore(grantWriteClaim), 0],
@@ -733,6 +751,27 @@ test('G26: verification-runs .jsonl records are selected by the 30-day finished 
   assert.deepEqual(selected.map((entry: any) => entry.name), ['t-old.jsonl'],
     'only the 31-day-old finished .jsonl record is eligible; 29 days and an unfinished task are kept');
   assert.equal(selected[0].reason, 'finished-work');
+});
+
+test('G26: the six package stores are declared under ~/.doflow with their IC-024 bounds and real writers', () => {
+  const byId = new Map<string, any>(registry.stores.map((store: any): [string, any] => [store.id, store]));
+  const shape = (id: string) => { const s = byId.get(id); return s && { root: s.root, path: s.path, entry: s.entry, rule: s.rule, bound: s.bound, writers: s.writers }; };
+  assert.deepEqual(shape('packages-store'), { root: 'user-doflow', path: 'packages/store', entry: 'dir', rule: 'existing', bound: { text: 'one directory per package id, kept until the package is removed' }, writers: ['src/runtime/packages/store.ts'] });
+  assert.deepEqual(shape('packages-plans'), { root: 'user-doflow', path: 'packages/plans', entry: 'file', rule: 'count-and-age', bound: { keepNewest: 256, maxAgeDays: 1, either: true }, writers: ['src/runtime/packages/store.ts'] });
+  assert.deepEqual(shape('packages-staging'), { root: 'user-doflow', path: 'packages/store', entry: 'dir', rule: 'age', bound: { maxAgeDays: 1 }, writers: ['src/runtime/packages/store.ts'] });
+  assert.deepEqual(shape('packages-fetched'), { root: 'user-doflow', path: 'packages/fetched', entry: 'dir', rule: 'count-and-age', bound: { keepNewest: 256, maxAgeDays: 1, either: true }, writers: ['src/runtime/packages/store.ts'] });
+  assert.deepEqual(shape('packages-fetch-staging'), { root: 'user-doflow', path: 'packages/fetched', entry: 'dir', rule: 'age', bound: { maxAgeDays: 1 }, writers: ['src/runtime/packages/store.ts'] });
+  assert.equal(byId.get('packages-fetched').match, '^[0-9a-f]{16}$');
+  assert.equal(byId.get('packages-fetch-staging').match, '^\\.staging-[0-9a-f]{16}$');
+  assert.deepEqual(shape('packages-state'), { root: 'user-doflow', path: 'packages/state.json', entry: 'file', rule: 'existing', bound: { text: 'narrowing facts only, rewritten atomically with mode 0600 and kept' }, writers: ['src/state/index.ts'] });
+  assert.match(byId.get('packages-staging').match, /staging/);
+  assert.deepEqual(shape('authored-packages-project-doflow'), { root: 'project-doflow', path: 'package', entry: 'dir', rule: 'existing', bound: { text: "the person's authored package source: DoFlow never prunes, moves or removes it" }, writers: ['src/runtime/packages/scaffold.ts'] });
+  assert.deepEqual(shape('authored-packages-staging-project-doflow'), { root: 'project-doflow', path: 'package', entry: 'dir', rule: 'existing', bound: { text: 'removed by the scaffold itself after 24 hours' }, writers: ['src/runtime/packages/scaffold.ts'] });
+  assert.equal(byId.get('authored-packages-project-doflow').match, '^[a-z][a-z0-9-]{0,14}[a-z0-9]$');
+  assert.equal(byId.get('authored-packages-staging-project-doflow').match, '^\\.staging-[a-z0-9-]+-[0-9a-f]{8}$');
+  assert.deepEqual(byId.get('authored-packages-project-doflow').moments, []);
+  assert.deepEqual(byId.get('authored-packages-staging-project-doflow').moments, []);
+  assert.deepEqual(checkExistingSources(registry).filter((e: string) => e.includes('packages-')), []);
 });
 
 test('G26 (b): every file with a write call is declared, and every declared writer writes', () => {

@@ -6,7 +6,8 @@
 // settings among them as a plain `settingsView` ({ '<key>': { value, layer } }, an absent key = default).
 
 const nodeCrypto = require('node:crypto');
-const { presetIds } = require('./protocols.ts');
+const { presetIds, coreTiers } = require('./protocols.ts');
+const { dominates } = require('./dominance.ts');
 
 type Origin = 'registry' | 'risk' | 'advice' | 'run' | 'floor' | 'user' | 'project' | 'local' | 'env';
 type Refusal = { ok: false; reason: 'preset-unknown' | 'preset-looser' | 'registry-incomplete'; field: string };
@@ -57,6 +58,24 @@ function idOfDepth(registry: any, depth: string): string | undefined {
   return presetIds(registry, 'review').find((id: string) => registry.presets[id].depth === depth);
 }
 
+/** The preset `id` of `kind` in the merged registry (core or an active package's), or null when it is not available. */
+function presetOf(registry: any, kind: string, id: any): any {
+  return typeof id === 'string' && Object.hasOwn(registry.presets ?? {}, id) && registry.presets[id]?.kind === kind ? registry.presets[id] : null;
+}
+
+/**
+ * 122 IC-014: true when the available preset `a` is at least as strict as `b`, both of `kind`. Two ids of the effective
+ * core order compare by their place in it; any other pair (a contributed id on either side) by `dominates`, so no
+ * `indexOf` of -1 is ever read as a rank. An id that is not available is never at least as strict.
+ */
+function atLeastAsStrict(registry: any, kind: string, a: string, b: string): boolean {
+  const order: string[] = presetIds(registry, kind);
+  if (order.includes(a) && order.includes(b)) return order.indexOf(a) <= order.indexOf(b);
+  const pa = presetOf(registry, kind, a);
+  const pb = presetOf(registry, kind, b);
+  return pa !== null && pb !== null && dominates(pa, pb, { tiers: coreTiers(), synthesizerStrength: registry.synthesizerStrength });
+}
+
 /** The setting `key` from a settings view when a non-default layer set it, else null. */
 function setBy(settingsView: any, key: string): { value: any; layer: Origin } | null {
   const entry = settingsView?.[key];
@@ -65,15 +84,25 @@ function setBy(settingsView: any, key: string): { value: any; layer: Origin } | 
 
 /**
  * IC-003 step 2, shared with the prepared-run check (119 C-3): the preset setting applied to a `pick`
- * (`{ id, origin }`). `auto`, the default and an unknown id leave the pick; a stricter id is taken with its layer
+ * (`{ id, origin }`). `auto` and the default leave the pick; a stricter id is taken with its layer
  * as origin; an equal one changes nothing, except that a debate (whose pick is the registry default) then names
- * the layer that decided it (C-11); a looser one is ignored and returned as `disagreement`. Pure.
+ * the layer that decided it (C-11); a looser one is ignored and returned as `disagreement`. 122 IC-014: an id that is
+ * not available (unknown, or its package disabled, suspended or incompatible) leaves the pick with the disagreement
+ * `unavailable`; a contributed id is taken only when it dominates the pick, else `not-dominant`. Pure apart from the
+ * core tiers a dominance comparison reads (models.json, once per process).
  */
 function settingsPick({ kind, pick, settingsView, registry }: { kind: string; pick: { id: string; origin: Origin }; settingsView: any; registry: any }):
   { id: string; origin: Origin; disagreement?: any } {
   const order: string[] = presetIds(registry, kind);
   const preset = setBy(settingsView, kind === 'review' ? 'review.preset' : 'debate.preset');
-  if (!preset || typeof preset.value !== 'string' || preset.value === 'auto' || !order.includes(preset.value)) return { ...pick };
+  if (!preset || typeof preset.value !== 'string' || preset.value === 'auto') return { ...pick };
+  if (presetOf(registry, kind, preset.value) === null) {
+    return { ...pick, disagreement: { field: 'id', by: preset.layer, value: preset.value, reason: 'unavailable' } };
+  }
+  if (!order.includes(preset.value) || !order.includes(pick.id)) {
+    return atLeastAsStrict(registry, kind, preset.value, pick.id) ? { id: preset.value, origin: preset.layer }
+      : { ...pick, disagreement: { field: 'id', by: preset.layer, value: preset.value, reason: 'not-dominant' } };
+  }
   const at = order.indexOf(preset.value);
   const from = order.indexOf(pick.id);
   if (at < from || (at === from && kind === 'debate')) return { id: preset.value, origin: preset.layer };
@@ -104,6 +133,8 @@ function resolveProtocol({ kind, taskClass, risk, paths, runPreset, advicePick, 
 
   // Step 2: the preset setting (settingsPick).
   const picked = settingsPick({ kind, pick: { id, origin: idOrigin }, settingsView, registry });
+  // The core pick of steps 1-2: what the seat floor falls back to when a contributed pick has too few seats (IC-014).
+  const corePick: string = order.includes(picked.id) ? picked.id : id;
   id = picked.id;
   idOrigin = picked.origin;
   if (picked.disagreement) disagreements.push(picked.disagreement);
@@ -112,16 +143,14 @@ function resolveProtocol({ kind, taskClass, risk, paths, runPreset, advicePick, 
   const adviceId: string | undefined = kind === 'review' && advicePick === 'deep' && registry.presets[id].depth === 'single'
     ? idOfDepth(registry, 'deep') : undefined;
 
-  // Step 3: the run preset must exist for this kind and be at least as strict as the pick of steps 1-2. It wins
-  // over advice (Q-A1): an advice raise above it is not applied and is shown as a disagreement.
+  // Step 3: the run preset must exist for this kind and be at least as strict as the pick of steps 1-2 (a contributed
+  // one: dominate it). It wins over advice (Q-A1): an advice raise above it is not applied and is shown as a disagreement.
   if (runPreset !== undefined && runPreset !== null) {
-    if (typeof runPreset !== 'string' || !Object.hasOwn(registry.presets, runPreset) || registry.presets[runPreset].kind !== kind) {
-      return { ok: false, reason: 'preset-unknown', field: 'preset' };
-    }
-    if (order.indexOf(runPreset) > order.indexOf(id)) return { ok: false, reason: 'preset-looser', field: 'preset' };
+    if (typeof runPreset !== 'string' || presetOf(registry, kind, runPreset) === null) return { ok: false, reason: 'preset-unknown', field: 'preset' };
+    if (!atLeastAsStrict(registry, kind, runPreset, id)) return { ok: false, reason: 'preset-looser', field: 'preset' };
     id = runPreset;
     idOrigin = 'run';
-    if (adviceId !== undefined && order.indexOf(adviceId) < order.indexOf(id)) {
+    if (adviceId !== undefined && !atLeastAsStrict(registry, kind, runPreset, adviceId)) {
       disagreements.push({ field: 'id', by: 'advice', value: adviceId, reason: 'run-preset' });
     }
   } else if (adviceId !== undefined) {
@@ -129,10 +158,17 @@ function resolveProtocol({ kind, taskClass, risk, paths, runPreset, advicePick, 
     idOrigin = 'advice';
   }
   // Step 5: the class seat floor. A pick with fewer seats takes the next stricter preset that has enough;
-  // when none has, the strictest preset gains copies of its last seat (L-4).
+  // when none has, the strictest preset gains copies of its last seat (L-4). The walk reads the core order only: a
+  // contributed pick with too few seats first falls back to the core pick of steps 1-2 (IC-014), with a disagreement.
   let seats: any[] = registry.presets[id].seats.map((seat: any) => structuredClone(seat));
   let seatsOrigin: Origin = 'registry';
   const needed = kind === 'review' ? gateMinSeats(gatePolicy, taskClass) : 0;
+  if (seats.length < needed && !order.includes(id)) {
+    disagreements.push({ field: 'id', by: 'floor', value: id, reason: 'seat-floor' });
+    id = corePick;
+    idOrigin = 'floor';
+    seats = registry.presets[id].seats.map((seat: any) => structuredClone(seat));
+  }
   if (seats.length < needed) {
     const stricter = order.slice(0, order.indexOf(id)).reverse().find((candidate) => registry.presets[candidate].seats.length >= needed);
     idOrigin = 'floor';
@@ -149,7 +185,7 @@ function resolveProtocol({ kind, taskClass, risk, paths, runPreset, advicePick, 
 
   const chosen = registry.presets[id];
   const protocol: any = { id, kind };
-  if (kind === 'review') protocol.depth = chosen.depth;
+  if (kind === 'review' && chosen.depth !== undefined) protocol.depth = chosen.depth; // a contributed preset has no depth label
 
   // Step 6: the knobs of a review, applied to the final preset. A debate keeps its preset's values.
   let rounds: number = chosen.rounds.default;
@@ -251,4 +287,4 @@ function protocolLines(protocol: any): string[] {
   ];
 }
 
-module.exports = { resolveProtocol, settingsPick, protocolLines, protocolDigest, pathScope, gateMinSeats };
+module.exports = { resolveProtocol, settingsPick, atLeastAsStrict, protocolLines, protocolDigest, pathScope, gateMinSeats };

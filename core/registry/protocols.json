@@ -7,6 +7,7 @@
     { "id": "test-honesty", "description": "red on base, green on head, revert control red" },
     { "id": "boundaries", "description": "guards, docs blocks, typecheck, changelog, no new dependency, no legacy left" }
   ],
+  "synthesizerStrength": { "separate": 2, "verifier": 2, "seat": 1, "none": 0 },
   "presets": {
     "review-deep": {
       "kind": "review",
@@ -40,17 +41,6 @@
       "rounds": { "default": 2, "min": 2 },
       "crossAnswer": true,
       "synthesizer": "none",
-      "decider": "orchestrator"
-    },
-    "debate-3": {
-      "kind": "debate",
-      "seats": [
-        { "id": "architect", "agent": "system-architect", "model": { "tier": "frontier" } },
-        { "id": "llm-expert", "agent": "system-architect", "model": { "tier": "frontier" } }
-      ],
-      "rounds": { "default": 3, "min": 3 },
-      "crossAnswer": true,
-      "synthesizer": "verifier",
       "decider": "orchestrator"
     }
   },

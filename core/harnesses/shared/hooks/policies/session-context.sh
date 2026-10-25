@@ -61,12 +61,32 @@ if [ "$ENVELOPE_CLASS" = unsupported ] || [ "$ENVELOPE_CLASS" = missing ]; then
 fi
 CWD=$(json_field "$INPUT" ".cwd")
 
+package_verify_async() {
+  local home="${HOME:-}" lock run config_dir detach=""
+  [ -n "$home" ] || return 0
+  lock="$home/.doflow/doflow.lock"
+  [ -f "$lock" ] || return 0
+  jq -e '(.packages // []) | length > 0' "$lock" >/dev/null 2>&1 || return 0
+  config_dir="${CLAUDE_CONFIG_DIR:-$home/.claude}"
+  command -v setsid >/dev/null 2>&1 && detach="setsid"
+  for run in \
+    "$home/.doflow/scripts/doflow/bin/doflow-run" \
+    "$config_dir/scripts/doflow/bin/doflow-run"
+  do
+    [ -x "$run" ] || continue
+    ( cd "$home/.doflow" 2>/dev/null && nohup $detach "$run" package --action verify </dev/null >/dev/null 2>&1 ) >/dev/null 2>&1 3>&- 5>&- &
+    return 0
+  done
+  return 0
+}
+
 # Guard: if we can't determine the session, nothing to do
 [[ -z "$SESSION_ID" ]] && exit 0
 
 # No config home (lib.sh leaves the state paths empty): no session store to write, but the
 # storage upkeep still starts (086 IC-010).
 if [[ -z "$SESSION_DIR" ]]; then
+  package_verify_async
   storage_upkeep_async "$CWD"
   exit 0
 fi
@@ -174,5 +194,6 @@ fi
 mkdir -p "$(dirname "$SESSIONS_LOG")"
 echo "$TIMESTAMP START $SESSION_ID ${CWD:-unknown}" >> "$SESSIONS_LOG"
 
+package_verify_async
 storage_upkeep_async "$CWD"
 exit 0

@@ -22,7 +22,12 @@
 //   (b) the shared hook bridge across `pre-bash-guard` (all 6 harnesses + MCP tool calls) and
 //       `user-prompt-submit` (claude and codex),
 //   (c) 080 `task-run` `start` and acknowledged `resume`,
-//   (d) `doflow trace spans --json` over the resulting project state.
+//   (d) `doflow trace spans --json` over the resulting project state,
+//   (e) 095 `review --action check` (valid and invalid records), and
+//   (f) 122 B.6 `doflow package` (`package.verb`): a local package whose id is the first 16 characters
+//       of the path canary (IC-003 grammar) and whose source directory path and summary carry the full
+//       canaries, staged with `add --source` and `add --plan`, then `enable`, `disable`, `revoke` and
+//       `remove`; each verb writes one `package.verb` line that holds `action`, `result` and `tier_max`.
 //
 // Every file under `.doflow/state/runs/` (including `telemetry/*.jsonl`) and the captured stdout/stderr
 // of `trace spans` are byte-searched for each canary (full string AND its first 8 characters): zero
@@ -48,6 +53,7 @@ const { scanPaths } = require('../../src/runtime/leak-scan.ts');
 const REPO = path.resolve(__dirname, '../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 const FIXTURES = path.join(REPO, 'test/fixtures/hooks');
+const PROTOCOLS = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/protocols.json'), 'utf8'));
 const REGISTRY = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/telemetry.json'), 'utf8'));
 const BASH = '/bin/bash';
 const MAX_VALUE_BYTES = 256;
@@ -383,6 +389,30 @@ function runCanaryFixture() {
   assert.equal(invalidReviewRes.status, 1, `invalid review check: ${invalidReviewRes.stdout}\n${invalidReviewRes.stderr}`);
   assert.deepEqual(JSON.parse(invalidReviewRes.stdout).errors, ['slug']);
 
+  // Producer (f, 122 B.6): `doflow package` against a scratch store under the scratch HOME. The package id is
+  // the first 16 characters of the path canary (IC-003 allows 2 to 16 lowercase alphanumerics, so only the
+  // 8-character prefix needle can match it); the source directory path and the summary carry full canaries.
+  const packageId = canaries.path.slice(0, 16);
+  const packageSrc = path.join(suiteRoot, `pkgsrc-${canaries.path}`, 'pkg');
+  fs.mkdirSync(path.join(packageSrc, 'presets'), { recursive: true });
+  fs.writeFileSync(path.join(packageSrc, 'doflow-package.json'), JSON.stringify({
+    manifest: 1, id: packageId, version: '1.2.0', summary: `canary ${canaries.argv}`, doflow: '>=2.0.0-beta.1 <3.0.0',
+    contributions: [{ point: 'review-preset', version: 1, id: 'strict', file: 'presets/strict.json' }],
+  }, null, 2));
+  const preset = JSON.parse(JSON.stringify(PROTOCOLS.presets['review-deep']));
+  delete preset.depth;
+  preset.rounds = { default: 2, min: 1 };
+  fs.writeFileSync(path.join(packageSrc, 'presets', 'strict.json'), JSON.stringify(preset, null, 2));
+  const pkg = (args: string[]) => spawnSync(process.execPath, [DOFLOW, 'package', ...args], { cwd: root, env: childEnv(), encoding: 'utf8' });
+  const planned = pkg(['--action', 'add', '--source', packageSrc, '--json']);
+  assert.equal(planned.status, 0, `package add --source: ${planned.stdout}\n${planned.stderr}`);
+  const applied = pkg(['--action', 'add', '--plan', JSON.parse(planned.stdout).plan.planId]);
+  assert.equal(applied.status, 0, `package add --plan: ${applied.stdout}\n${applied.stderr}`);
+  for (const action of ['enable', 'disable', 'revoke', 'remove']) {
+    const res = pkg(['--action', action, '--id', packageId]);
+    assert.equal(res.status, 0, `package ${action}: ${res.stdout}\n${res.stderr}`);
+  }
+
   // Producer (b): bridge hook path across pre-bash-guard (all 6 harnesses + MCP tool calls) and
   // user-prompt-submit (claude and codex), with planted argv, path, prompt, ft:<canary> and mcp__<canary>__tool.
   const invokeHook = (surface: any, payload: any) => {
@@ -512,6 +542,19 @@ test('G-O2 canary run exercises verify (pass+fail), bridge hooks, task-run start
   const hookLines = writtenLines.filter((l: any) => l.kind === 'hook');
   assert.equal(hookLines.length, 11, '8 allowlisted surface calls + 3 MCP calls wrote 11 hook lines');
   assert.equal(hookLines.filter((l: any) => l.policy === 'pre-bash-guard' && l.tool === null).length, 3, 'MCP tool calls record tool: null');
+
+  // The package.verb lines: one per verb of the package producer, holding only the three declared T2 keys
+  // with values from their enums (no package id, path, digest or summary).
+  const packageLines = writtenLines.filter((l: any) => l.kind === 'package.verb');
+  assert.deepEqual(packageLines.map((l: any) => [l.action, l.result]), [['enable', 'ok'], ['disable', 'ok'], ['revoke', 'ok'], ['remove', 'ok']]);
+  const commonKeys = REGISTRY.common || [];
+  for (const line of packageLines) {
+    const own = Object.keys(line).filter((k) => !commonKeys.includes(k)).sort();
+    assert.deepEqual(own, ['action', 'result', 'tier_max'], 'a package.verb line holds only action, result and tier_max');
+    assert.ok(REGISTRY.vocabularies.package_action.includes(line.action), `action ${line.action} is in its enum`);
+    assert.ok(REGISTRY.vocabularies.package_result.includes(line.result), `result ${line.result} is in its enum`);
+    assert.ok(line.tier_max === null || REGISTRY.vocabularies.package_tier.includes(line.tier_max), `tier_max ${line.tier_max} is in its enum`);
+  }
 
   // Run the G-O2 scanner: zero canary hits (full and 8-char prefix), allowlist equality, <= 256B values.
   const errors = scanCanaryRun({ runsDir, spansStdout, spansStderr, canaries });

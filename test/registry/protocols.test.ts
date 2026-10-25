@@ -5,11 +5,14 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { loadProtocols, validateProtocols, presetIds, lensIds } = require('../../src/runtime/review/protocols.ts');
+const { loadProtocols, validateProtocols, validatePreset, presetIds, lensIds } = require('../../src/runtime/review/protocols.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const FILE = path.join(REPO, 'core', 'registry', 'protocols.json');
-const shipped = () => JSON.parse(fs.readFileSync(FILE, 'utf8'));
+// 122 A.6: debate-3 now lives in the bundled package, so `shipped()` is the merged (effective) view a mutation test
+// refuses against, and `shippedCore()` is the file as it sits on disk (what a scratch registry gets written from).
+const shippedCore = () => JSON.parse(fs.readFileSync(FILE, 'utf8'));
+const shipped = () => structuredClone(loadProtocols({ repoRoot: REPO }).registry);
 
 function refuses(mutate: any, pattern: any) {
   const data = shipped();
@@ -30,11 +33,11 @@ test('protocols: the shipped file loads with zero errors (negative control)', ()
 });
 
 test('protocols: a duplicate preset id in the raw text is refused', () => {
-  const text = fs.readFileSync(FILE, 'utf8').replace('"debate-3": {', '"debate-2": {');
+  const text = fs.readFileSync(FILE, 'utf8').replace('"review-single": {', '"review-deep": {');
   const fsImpl = { readFileSync: () => text };
   const result = loadProtocols({ repoRoot: REPO, fsImpl });
   assert.equal(result.ok, false);
-  assert.match(result.errors.join('\n'), /duplicate key 'debate-2' in presets/);
+  assert.match(result.errors.join('\n'), /duplicate key 'review-deep' in presets/);
 });
 
 test('protocols: an unreadable or non-JSON file is a returned error, not a throw', () => {
@@ -126,6 +129,38 @@ test('protocols: unknown keys are refused at every level', () => {
   refuses((d: any) => { d.invariants[0].extra = 1; }, /invariants\[0\] has unknown key 'extra'/);
 });
 
+// ── 122 IC-014: core tiers, the synthesizer lattice and the dominance order ────────────────────
+
+test('protocols: a seat tier outside the ordered core tiers of models.json is refused', () => {
+  refuses((d: any) => { d.presets['review-deep'].seats[0].model.tier = 'ultra'; }, /presets\.review-deep\.seats\[0\]\.model\.tier 'ultra' must be one of light, standard, frontier/);
+  refuses((d: any) => { d.presets['debate-2'].seats[1].model.tier = 'Frontier'; }, /presets\.debate-2\.seats\[1\]\.model\.tier 'Frontier' must be one of/);
+});
+
+test('protocols: an order whose adjacent pair does not dominate is refused', () => {
+  refuses((d: any) => { d.order.review = ['review-single', 'review-deep']; }, /order\.review: 'review-single' does not dominate 'review-deep'/);
+  refuses((d: any) => { d.order.debate = ['debate-2', 'debate-3']; }, /order\.debate: 'debate-2' does not dominate 'debate-3'/);
+  refuses((d: any) => { d.presets['review-deep'].seats[1].lenses = ['correctness', 'boundaries']; }, /order\.review: 'review-deep' does not dominate 'review-single'/);
+});
+
+test('protocols: synthesizerStrength is required and closed over the synthesizers', () => {
+  refuses((d: any) => { delete d.synthesizerStrength; }, /synthesizerStrength must be an object/);
+  refuses((d: any) => { delete d.synthesizerStrength.verifier; }, /synthesizerStrength omits synthesizer 'verifier'/);
+  refuses((d: any) => { d.synthesizerStrength.oracle = 3; }, /synthesizerStrength has unknown key 'oracle'/);
+  refuses((d: any) => { d.synthesizerStrength.seat = -1; }, /synthesizerStrength\.seat must be a non-negative integer/);
+});
+
+test('protocols: validatePreset is exported and is the per-preset check validateProtocols runs', () => {
+  const data = shipped();
+  const context = { lensIds: new Set(lensIds(data)), hardRoundCap: data.hardRoundCap };
+  assert.deepEqual(validatePreset('review-deep', data.presets['review-deep'], context), []);
+  const bad = structuredClone(data.presets['review-deep']);
+  bad.seats[0].model.tier = 'ultra';
+  bad.rounds.default = 4;
+  const errors = validatePreset('review-deep', bad, context);
+  assert.ok(errors.some((e: string) => /model\.tier 'ultra'/.test(e)), errors.join('\n'));
+  assert.ok(errors.some((e: string) => /rounds\.default must not exceed hardRoundCap/.test(e)), errors.join('\n'));
+});
+
 test('protocols: schema must be 1 and a non-object is refused', () => {
   refuses((d: any) => { d.schema = 2; }, /schema must be 1/);
   assert.equal(validateProtocols(null).ok, false);
@@ -149,8 +184,8 @@ function scratchRegistry(mutate: any) {
 /** Every file of the copied registry other than protocols.json, as text, to prove nothing else was edited. */
 function otherRegistryFiles(root: any) {
   const dir = path.join(root, 'core', 'registry');
-  return Object.fromEntries(fs.readdirSync(dir).filter((name: any) => name !== 'protocols.json').sort()
-    .map((name: any) => [name, fs.readFileSync(path.join(dir, name), 'utf8')]));
+  return Object.fromEntries(fs.readdirSync(dir, { withFileTypes: true }).filter((e: any) => e.isFile() && e.name !== 'protocols.json').map((e: any) => e.name).sort()
+    .map((name: string) => [name, fs.readFileSync(path.join(dir, name), 'utf8')]));
 }
 
 const reviewLine = (root: any, record: any) => {
@@ -160,10 +195,10 @@ const reviewLine = (root: any, record: any) => {
 
 test('C-9: review-triple added to protocols.json alone loads, is a review.preset value ranked strictest, and is a telemetry protocol', () => {
   const root = scratchRegistry((file: any) => {
-    const data = shipped();
-    const seat = (id: any) => ({ id, agent: 'reviewer', lenses: ['correctness', 'test-honesty', 'boundaries'], model: { tier: 'frontier', family: 'any' } });
-    data.presets['review-triple'] = {
-      kind: 'review', depth: 'triple', seats: [seat('seat-a'), seat('seat-b'), seat('seat-c')],
+    const data = shippedCore();
+    const seat = (id: any, family: string = 'any') => ({ id, agent: 'reviewer', lenses: ['correctness', 'test-honesty', 'boundaries'], model: { tier: 'frontier', family } });
+    data.presets['review-triple'] = { // dominates review-deep, so it may sit first in order.review (IC-014)
+      kind: 'review', depth: 'triple', seats: [seat('seat-a', 'different-from-author'), seat('seat-b'), seat('seat-c')],
       rounds: { default: 2, min: 2 }, crossAnswer: true, synthesizer: 'separate', decider: 'gate',
     };
     data.order.review.unshift('review-triple');
@@ -207,7 +242,7 @@ test('C-9: an unreadable protocols.json leaves the settings registry loadable an
 
 test('C-9: protocols.json with no deep preset, or one failing validateProtocols, gives no review.preset values; the ref check names why', () => {
   const noDeep = scratchRegistry((file: any) => {
-    const data = shipped();
+    const data = shippedCore();
     data.presets['review-deep'].depth = 'wide';
     fs.writeFileSync(file, JSON.stringify(data));
   });
@@ -219,7 +254,7 @@ test('C-9: protocols.json with no deep preset, or one failing validateProtocols,
   assert.match(loadSettingsRegistry({ repoRoot: noDeep, verifyRefs: true }).detail, /review\.preset orderRef 'protocols\.reviewPresetOrder' does not resolve: core\/registry\/protocols\.json order\.review has no preset of depth 'deep'/);
 
   const invalid = scratchRegistry((file: any) => {
-    const data = shipped();
+    const data = shippedCore();
     data.presets['review-single'].seats[0].lenses.push('SECRET-LENS');
     fs.writeFileSync(file, JSON.stringify(data));
   });
@@ -232,9 +267,12 @@ test('C-9: protocols.json with no deep preset, or one failing validateProtocols,
 test('FU-x97mrf: a contributed preset between deep and single is ranked before auto', () => {
   const root = scratchRegistry((file: any) => {
     const data = shipped();
-    const seat = (id: any) => ({ id, agent: 'reviewer', lenses: ['correctness', 'boundaries'], model: { tier: 'frontier', family: 'any' } });
+    const seat = (id: any, lenses: string[], family: string) => ({ id, agent: 'reviewer', lenses, model: { tier: 'frontier', family } });
     data.presets['review-medium'] = {
-      kind: 'review', depth: 'medium', seats: [seat('seat-a'), seat('seat-b')],
+      kind: 'review', depth: 'medium', seats: [
+        seat('seat-a', ['correctness', 'boundaries'], 'different-from-author'),
+        seat('seat-b', ['correctness', 'test-honesty', 'boundaries'], 'any'),
+      ],
       rounds: { default: 1, min: 1 }, crossAnswer: false, synthesizer: 'separate', decider: 'gate',
     };
     data.order.review = ['review-deep', 'review-medium', 'review-single'];

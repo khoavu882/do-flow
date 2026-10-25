@@ -121,6 +121,15 @@
         "advisories": { "name": "doflow.review.run.advisories", "class": "T1", "type": "uint", "phase": "P7" },
         "errors": { "name": "doflow.review.run.errors", "class": "T1", "type": "uint", "phase": "P7" }
       }
+    },
+    "package.verb": {
+      "store": "runs-telemetry",
+      "writers": ["src/runtime/trace/telemetry.ts"],
+      "fields": {
+        "action": { "name": "doflow.package.verb.action", "class": "T2", "type": "enum:package_action", "phase": "P8" },
+        "result": { "name": "doflow.package.verb.result", "class": "T2", "type": "enum:package_result", "phase": "P8" },
+        "tier_max": { "name": "doflow.package.verb.tier_max", "class": "T2", "type": "enum:package_tier|null", "phase": "P8" }
+      }
     }
   },
   "recordFields": {
@@ -131,7 +140,7 @@
     "orchestration.run.traceId": { "class": "T0", "type": "hex32" }
   },
   "vocabularies": {
-    "kind": ["hook", "verify.run", "verify.tier", "verify.check", "review.run"],
+    "kind": ["hook", "verify.run", "verify.tier", "verify.check", "review.run", "package.verb"],
     "harness": ["claude", "codex", "gemini", "opencode", "pi", "copilot", "kiro", "antigravity"],
     "event": ["PreToolUse", "BeforeTool", "tool_call", "UserPromptSubmit", "PostToolUse", "PostToolUseFailure"],
     "policy": ["pre-bash-guard", "user-prompt-submit", "post-shell-observe"],
@@ -148,6 +157,9 @@
     "failed_first": ["none", "pass", "fail"],
     "resource_basis": ["proc-children", "unreached-platform", "unreached-read"],
     "v0": ["on", "off"],
+    "package_action": ["enable", "disable", "trust", "exempt", "revoke", "verify", "remove", "new"],
+    "package_result": ["ok", "refused", "usage"],
+    "package_tier": ["inert", "instruction", "executable"],
     "tool": ["Bash"],
     "emit_reason": ["emit", "refused:mandatory-over-budget", "silent:already-bootstrapped", "silent:unchanged", "silent:no-home", "fault:deps", "fault:unit", "fault:slot", "fault:summary", "fault:grant", "fault:warning", "fault:render"]
   },

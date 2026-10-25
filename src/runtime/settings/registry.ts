@@ -23,6 +23,7 @@ const nodeFs = require('node:fs');
 const path = require('node:path');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { REF_META, createRefs } = require('./refs.ts');
+const { loadCoreProtocols } = require('../review/protocols.ts');
 const { jsonFailure, validateValue } = require('./files.ts');
 
 const REGISTRY_FILE = 'core/registry/settings.json';
@@ -41,6 +42,7 @@ const TOP_FIELDS = ['version', 'description', 'keys'];
 const SPEC_FIELDS = [
   'type', 'values', 'valuesRef', 'tiersRef', 'min', 'max', 'maxItems', 'maxLength', 'order', 'orderRef', 'default', 'defaultRef', 'scope', 'combine', 'views',
   'securityRelevant', 'failSafe', 'requires', 'env', 'flag', 'shellRead', 'needsConfigHome', 'legacy',
+  'unknownMembers',
   'consumers', 'description',
 ];
 const REQUIRED_FIELDS = [
@@ -177,6 +179,11 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
         }
       }
     } else if (has(spec, 'tiersRef')) err("'tiersRef' is only for worker-models keys");
+    // 122 IC-011: a layer may name a member the list does not hold yet (a project file travels): kept, and reported as a note.
+    if (has(spec, 'unknownMembers')) {
+      if (type !== 'string-list' || !has(spec, 'valuesRef')) err("'unknownMembers' is only for string-list keys with a 'valuesRef'");
+      else if (spec.unknownMembers !== 'warn') err("unknownMembers must be 'warn'");
+    }
     if (has(spec, 'min')) {
       if (type !== 'integer') err("'min' is only for integer keys");
       else if (!Number.isSafeInteger(spec.min)) err('min must be an integer');
@@ -466,9 +473,13 @@ function loadSettingsRegistry({ repoRoot = REPO_ROOT, fsImpl, verifyRefs = false
   catch (error: any) { return done(failure([`${REGISTRY_FILE} is ${jsonFailure(error, text).reason}`])); }
 
   const refs = createRefs({ repoRoot, fsImpl: fsUse });
+  // Registry validation is about core consistency, so its ref pass reads the core protocols file only: the presets active
+  // packages contribute (122 IC-014) are values without a rank and would never equal the order. A core file that does
+  // not load gives it no contributed ids and fails on validateProtocols as before. Run-time reads (`refs`) keep them.
+  const verify = verifyRefs ? createRefs({ repoRoot, fsImpl: fsUse, protocols: loadCoreProtocols({ repoRoot, fsImpl: fsUse }).registry ?? null }) : null;
   const checked = validateSettingsRegistry(
     raw,
-    { meta: REF_META, resolve: verifyRefs ? refs.resolve : undefined },
+    { meta: REF_META, resolve: verify?.resolve },
     { consumerExists: checkConsumers ? (p: string) => fsUse.existsSync(path.join(repoRoot, p)) : undefined },
   );
   if (!checked.ok) return done(failure(checked.errors));

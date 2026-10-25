@@ -22,7 +22,7 @@ const { createAntigravityAdapter } = require('../adapters/antigravity/index.ts')
 const { planLifecycle } = require('./index.ts');
 const { stateRoot, readLedger, defaultLedger } = require('../state/index.ts');
 const { selectAssets } = require('../registry/index.ts');
-const { defaultLock, readLock, writeLock, diffLocks, removeLock, pinnedSelections } = require('../state/lockfile.ts');
+const { defaultLock, readLock, writeLock, diffLocks, removeLock, pinnedSelections, lockPackages } = require('../state/lockfile.ts');
 // Tolerant because the projected runtime under `.doflow/runtime/` ships bin/, src/ and
 // core/registry/ but no package.json — see the `runtime.*` assets in core/registry/assets.json.
 // A hard require here would make every Node-backed verb fail in an install, which is the exact
@@ -117,13 +117,16 @@ function assertSafeRegistryPlan(view: any) {
  * as the ledger (as the run left it) still holds a resource of that harness, so a narrower later run
  * never drops another harness's pin and a harness whose last resource is gone leaves it. MCP
  * selections carry over for pinned harnesses and are replaced by the rows this run resolved, `[]`
- * included. Assets are recomputed from the registry for every pinned harness. `null` when no harness
- * stays pinned. */
+ * included. Assets are recomputed from the registry for every pinned harness. The previous lock's
+ * `packages` (122 IC-007) are not registry-derived, so they are carried forward unchanged, and a lock
+ * that holds packages stays as `targets: []` once no harness is pinned. `null` when no harness stays
+ * pinned and no package is recorded. */
 function lockDocument({ registry, scope, scopeRoot, previous = null, ledger, plannedTargets = [], mcpSelections = {}, sourceVersion = pkg.version, now = new Date() }: any) {
   const held = new Set((ledger?.resources ?? []).map((resource: any) => resource?.harness));
   const pinned = [...new Set([...(previous?.targets ?? []).map((entry: any) => entry.harness), ...plannedTargets])]
     .filter((harness) => held.has(harness)).sort();
-  if (!pinned.length) return null;
+  const packages = lockPackages(previous);
+  if (!pinned.length && !packages.length) return null;
   const assets = [];
   for (const harness of pinned) {
     for (const asset of selectAssets(registry, { harness })) {
@@ -139,6 +142,7 @@ function lockDocument({ registry, scope, scopeRoot, previous = null, ledger, pla
     targets: pinned.map((harness) => ({ harness })),
     assets,
     mcpSelections: Object.fromEntries(pinned.filter((harness) => Array.isArray(rows[harness])).map((harness) => [harness, rows[harness]])),
+    ...(packages.length ? { packages } : {}),
   };
 }
 
@@ -150,7 +154,7 @@ function lockDelta(previous: any, next: any) {
   if (!previous) return { changed: true, summary: 'created' };
   const diff = diffLocks(previous, next);
   if (diff.clean) return { changed: false, summary: 'unchanged' };
-  const count = ['targets', 'assets']
+  const count = ['targets', 'assets', 'packages']
     .flatMap((section) => Object.values<any>(diff[section]).map((list: any) => list.length))
     .reduce((sum, n) => sum + n, 0)
     + diff.mcpSelections.changed.length + (diff.meta.sourceVersion ? 1 : 0);

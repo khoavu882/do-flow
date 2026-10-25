@@ -44,6 +44,8 @@ const { readTaskState } = require('../task-state.ts');
 const { maskLine, maskBody } = require('../mask.ts');
 const { projectRoot } = require('../lifecycle/root.ts');
 const { loadRegistry } = require('../../registry/index.ts');
+const { knownWorkerIds } = require('../../registry/worker-ids.ts');
+const { workerCatalogue } = require('../worker/catalogue.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const readiness = require('../worker/readiness.ts');
 const { executeWorkerCommand, settledStatus } = require('../worker/command.ts');
@@ -60,8 +62,6 @@ const integrate = require('./integrate.ts');
 const { classFor, endAttempt, releaseAttempt, usageFor, SIGNALS } = require('./attempt-end.ts');
 const { buildHandoff, buildResult, writeEnvelope, cutUtf8, normalizeFile } = require('./envelope.ts');
 const { runVerification } = require('./verify-run.ts');
-const { knownWorkerIds } = require('../../registry/worker-ids.ts');
-const { workerCatalogue } = require('../worker/catalogue.ts');
 const { REQUEST_ID } = require('./grants.ts');
 
 /** IC-003's outcomes. */

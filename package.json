@@ -39,7 +39,7 @@
     "docs:blocks": "node src/release/docs-blocks.ts --check",
     "release:preflight": "node src/release/preflight.ts",
     "release:rehearse": "node src/release/rehearse.ts",
-    "version": "node src/release/sync-plugin-versions.ts && git add core/.codex-plugin/plugin.json core/.claude-plugin/plugin.json core/.plugin/plugin.json"
+    "version": "node src/release/sync-plugin-versions.ts && git add core/.codex-plugin/plugin.json core/.claude-plugin/plugin.json core/.plugin/plugin.json core/registry/packages/doflow/doflow-package.json core/registry/contribution-points.json"
   },
   "files": [
     "bin/",

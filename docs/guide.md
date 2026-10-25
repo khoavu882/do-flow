@@ -173,6 +173,79 @@ doflow primary --action resolve [--json]
 ```
 
 It exits 0 for every state except `refused` (1: the declared model differs from the one observed and `primary.onContradiction` is `refuse`); a bad action or flag exits 2.
+### See which contribution points a package may fill
+
+`doflow package --action points` lists the points a DoFlow package can contribute to. It is read-only: it writes no file and no telemetry.
+
+```bash
+doflow package --action points [--json]
+```
+
+Each point shows its supported versions, its tier (`inert`, `instruction` or `executable`), whether it is `open` or `reserved`, and what a reserved point opens with. Today `review-preset` and `debate-preset` are open; the other points are reserved and refuse every contribution until their release opens them. If the registry file is unreadable the command exits 1 and names the field; a missing or unknown `--action` exits 2. Add `--json` for the same data as one object.
+
+### Check a package directory
+
+`doflow package --action check --path <dir>` checks a package without installing it: the manifest `doflow-package.json`, each contribution against its point, and the file tree (no symlinks or special files, nothing outside the package root, within the size limits). It is read-only: it writes no file and no telemetry.
+
+```bash
+doflow package --action check --path <dir> [--json]
+```
+
+Each finding names the field, a code and what is allowed. A clean package prints its content and capability digests. Exit 0 means clean, 1 means at least one error finding (a manifest that needs a DoFlow version outside the running one, or whose version cannot be read, is one), and 2 means a missing or repeated `--path`. Add `--json` for `{ path, ok, findings, contentDigest?, capabilityDigest? }`.
+
+### See which packages are available
+
+`doflow package --action list` shows every package and whether it is in use; `doflow package --action show --id <id>` shows one. Both are read-only and offline: they write no file and no telemetry, and need no harness installed. They list the packages DoFlow ships itself and the ones you added from a local directory (see [Add and manage a package](#add-and-manage-a-package)).
+
+```bash
+doflow package --action list [--id <id>] [--json]
+doflow package --action show --id <id> [--json]
+```
+
+A package is `active` when it can be used. One whose files are missing or break a rule of `check` is `incompatible`, with the reason codes beside it; it affects no other package and no other command. `list` exits 0 when every package is `active` or `disabled` and 1 otherwise, `show` exits 1 for an unknown id and 2 without `--id`. Add `--json` for `{ points, packages, findings, lockVersion }`, where `lockVersion` is the version of the global lock on disk (1 when none).
+
+When the global lock on disk is version 2 (it is as soon as a package is recorded), `list` adds one line saying that an older DoFlow cannot read this lock and refuses it; `--json` keeps its keys, and its `lockVersion` is 2. While packages are recorded, keep this DoFlow or a newer one.
+
+### Add and manage a package
+
+A package is a directory with a `doflow-package.json` and the files it names. Today a package can contribute review and debate presets, which are data: it runs nothing. You add one from a local directory, in steps that each print what they will do before they do it:
+
+```bash
+doflow package --action check --path <dir>          # read-only: the findings, one line per field
+doflow package --action add --source <dir>          # writes a plan only; prints the plan id
+doflow package --action add --plan <planId>         # records the package, still switched off
+doflow package --action enable --id <id>            # switches it on; its presets join the protocols
+```
+
+`check` and `add --source` stop at the first refusal with every error listed and change nothing. A package that tries to carry a `settings`, `order` or `enabled` field, or to reuse the id of a built-in preset, is refused and the field or the collision is named. A package you added is not on until you run `enable`: until then a setting that names its preset is refused as unavailable. `disable` switches it off again and keeps your grants; `remove --id <id>` deletes it and prints every setting and review record that still names it. When a package declaring workers was removed and re-added, `trust` includes a `rebind` key so worker settings (such as `workers.billing` and `workers.enabled`) apply again only after your confirmation. It never edits those files.
+
+A package that asks for more than data (the tiers above `inert`) is `needs-trust` after `enable`. DoFlow does not grant trust: `doflow package --action trust --id <id>` prints one line and the file to put it in, `<config home>/packages/grants.jsonl`, and only you add it. DoFlow never writes that file. Rules for the file:
+
+- One malformed line, an unknown key, or a line that repeats an earlier one's grant, package, version and digests (a `trust` line also its policy; a `fetch` line: its source) voids every grant in the file. Lines for one package version with other digests or another policy coexist, and only the line whose digests match the installed package grants, so a trust line for new digests or a new policy is appended. When the file already holds a line with the printed line's key, `trust` says so: `already granted by line N` while it still grants, or `replace line N` after `revoke` or `verify --repair` revoked it; put the printed line in that place.
+- Trust belongs to one content digest. When the package's files change, the old line stops counting and `update` prints a new one.
+- The file is ignored when it lies inside the project or the system temp directory.
+
+A package that no longer fits the running DoFlow (its `doflow` range excludes this version) is `incompatible` with the reason beside it; every other package and every other command keeps working. A package may later declare programs (executables). Those will run as your own processes on your machine, with no sandbox or confinement around them, and a package that declares programs is not available yet.
+
+To add a remote package, pass `--source git:https://example.org/acme.git@v1.2.0` (optionally `#<subdir>` before `@<ref>`) or `--source npm:acme@1.2.0` (an npm range is also accepted). Without a matching fetch grant, `add` refuses with `grant-missing`, prints the exact JSON line and the grants file path, and starts neither git nor npm. A person appends that line to the grants file, then repeats the same command.
+
+With the fetch grant, `add` resolves the ref or range once and prints `pinned <url> <commit>` or `pinned <name>@<version>`. It fetches only that pin, checks the package and retains a snapshot under `~/.doflow/packages/fetched/<planId>/`, alongside the plan. `doflow package --action add --plan <planId>` checks the retained bytes again without fetching, then records the package disabled. Missing or changed fetched bytes refuse with `digest-mismatch`; plan again. Enable and trust remain separate steps: a fetch grant authorizes fetching that source and grants no trust.
+
+Alternatively, `doflow package --action add --index ./index.json --id acme [--version 1.2.0]` reads a local package index. Its closed JSON shape is `{ "format": 1, "packages": [{ "id": "acme", "versions": [{ "version": "1.2.0", "doflow": ">=2.0.0-beta.1 <3.0.0", "source": { "type": "git", "url": "https://example.org/acme.git", "commit": "<40 hex>" } }] }] }`; npm sources instead carry `type`, `name`, an exact `version` and `integrity` (`sha512-<base64>`). The whole index is refused if any entry is invalid, with its JSON path, or if the file exceeds 4 MiB. Without `--version`, selection takes the highest non-prerelease version compatible with this host. The index grants nothing: its fetch line names the pinned git commit as `ref`, or the exact npm version. Add that printed line before repeating the index command, then inspect the pin, apply the plan and enable/trust as above.
+
+Fetched snapshots and plans are retained for 24 hours subject to storage upkeep; stale fetch staging directories are also pruned. `update --id` continues to accept recorded local sources only; to replace a remote package, remove it and add a new source or index selection.
+
+### Authoring a package
+
+Use `/do package <idea>` or ask to make an idea a DoFlow package. The route lists the open contribution points, stops if the idea needs a point that is not open, asks at most three scoping questions, and runs `new`. Follow the `next` lines it prints:
+
+1. Run `doflow package --action new --id <id> --points <point[:local],...>`. It creates checked stubs and a README in `.doflow/package/<id>/` under the project root. Use `--dir <path>` for another folder; outside a project, `--dir` is required.
+2. Edit the stubs and the README's "What and why" section. Run `doflow package --action check --path <dir>` until clean.
+3. Run `doflow package --action add --source <dir>` to inspect the inventory, projection and grant lines. Apply the printed plan with `doflow package --action add --plan <planId>`.
+4. Run `doflow package --action enable --id <id>`. An inert package is active without a grant. Above inert, run `doflow package --action trust --id <id>`; it prints a line and the grants file path. Only a person adds that line. Run `enable` again to project trusted skills and agents into globally installed harnesses.
+5. Iterate in the source folder: edit, `check`, `doflow package --action update --id <id>`, then `doflow package --action update --plan <planId>`. Every applied content change above inert needs a fresh trust line a person adds, even at the same version. The old line cannot authorize the changed content; the package stays `needs-trust` and its projection is removed until it is trusted again. At the same version, append the new line and keep or delete the old one as you like: a line for other digests grants nothing and does not void the file, while an exact copy of a line already there does. Inert edits need no grant.
+
+The authored folder is your source: DoFlow never prunes it or follows edits automatically. You can commit it. If the project ignores `.doflow`, make the parent traversable and add `!.doflow/package/`, as `new` reports. For example, replace a blanket `.doflow` ignore rule with `.doflow/*`, followed by `!.doflow/package/`, so the package source is included while other DoFlow state stays ignored. DoFlow never edits your ignore rules.
 
 ## Retrieve code from the project
 

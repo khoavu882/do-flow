@@ -161,6 +161,44 @@ test('G20: no two resources share a (harness, ownership identity) pair (IC-004)'
   }
 });
 
+/** A store entry stand-in holding one package skill and one package agent (122 IC-017). */
+function packageFixture(t: any) {
+  const dir = path.join(scratch(t, 'doflow-identity-pkg-'), 'acme');
+  fs.mkdirSync(path.join(dir, 'skills', 'acme-triage'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'agents'));
+  fs.writeFileSync(path.join(dir, 'skills', 'acme-triage', 'SKILL.md'), '---\nname: acme-triage\ndescription: Triage reports\n---\n\n# Triage\n');
+  fs.writeFileSync(path.join(dir, 'agents', 'acme-helper.md'), '---\nname: acme-helper\ndescription: "Reads logs"\nmodel: inherit\neffort: high\naccess: read-only\n---\n\n# acme-helper\n');
+  fs.writeFileSync(path.join(dir, 'doflow-package.json'), JSON.stringify({ manifest: 1, id: 'acme', version: '1.0.0', doflow: '>=1.0.0', contributions: [
+    { point: 'skill', version: 1, id: 'triage', dir: 'skills/acme-triage' }, { point: 'agent', version: 1, id: 'helper', file: 'agents/acme-helper.md' }] }));
+  return { packages: [{ id: 'acme', firstParty: false, state: 'active', storeDir: dir }] };
+}
+
+test('G20: a package projection identity names the harness, the qualified id and the projected path, never a scope or a destination (122 IC-017)', (t) => {
+  const { planLifecycle } = require('../../src/lifecycle/index.ts');
+  const { buildAdapterRegistry } = require('../../src/cli/shared.ts');
+  const packageView = packageFixture(t);
+  const changesAt = (home: string) => withHomeDir(home, () => planLifecycle({
+    registry, adapters: buildAdapterRegistry(), scope: 'global', scopeRoot: home, targets: LIFECYCLE_HARNESSES,
+    context: { packagesOnly: true, packageView, homeDir: home, operation: 'package' },
+  }).changes.filter((change: any) => String(change.assetId).startsWith('pkg.')));
+  const first = scratch(t, 'doflow-identity-pkg-home-a-');
+  const second = scratch(t, 'doflow-identity-pkg-home-second-much-longer-');
+  const fromFirst = changesAt(first);
+  const fromSecond = changesAt(second);
+
+  const skillHarnesses = registry.harnesses.filter((h: any) => h.capabilities.skills?.status !== 'unavailable').map((h: any) => h.id).sort();
+  assert.deepEqual([...new Set(fromFirst.filter((c: any) => c.assetId === 'pkg.acme.triage').map((c: any) => c.harness))].sort(), skillHarnesses,
+    'every harness that can take skills plans the package skill, or this test proves nothing');
+  assert.deepEqual(fromFirst.map(pair).sort(), fromSecond.map(pair).sort(),
+    'the same package planned into two homes produced different ownership identities, so the package identity carries a destination path');
+  for (const change of fromFirst) {
+    assert.match(change.ownershipIdentity, new RegExp(`^doflow:${change.harness}:package:acme\\.(triage|helper):[^:]+$`), change.ownershipIdentity);
+    assert.ok(!change.ownershipIdentity.includes(first), `${change.ownershipIdentity} names the destination`);
+    for (const segment of change.ownershipIdentity.split(/[:/]/)) assert.ok(!SCOPE_NAMES.has(segment), `${change.ownershipIdentity} names a scope`);
+  }
+  assert.equal(new Set(fromFirst.map(pair)).size, fromFirst.length, 'two package changes share one (harness, ownership identity)');
+});
+
 // -------------------------------------------------------------- static: every composition site
 
 /** Read one value expression starting at `start`, stopping at the top-level `,`, `;` or newline

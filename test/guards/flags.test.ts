@@ -128,6 +128,7 @@ const BEHAVIOURAL_ONLY: any = new Map([]);
 // single skill's own argument-hint, not to this framework's global flag vocabulary, so FLAGS.md
 // neither documents nor owns them. Each entry needs a reason, like BEHAVIOURAL_ONLY above.
 const NOT_FRAMEWORK_FLAGS: any = new Map<string, string>([
+  ...['--id', '--points', '--dir'].map(flag => [flag, 'package verb argument']),
   ...['--action', '--calling-skill', '--note', '--result', '--task-class', '--task-id']
     .map(flag => [flag, 'orchestrate CLI argument documented in WORKFLOW_HANDOFF.md; owned by the runtime parser, not the global framework vocabulary']),
   ['--mcp-outcome', 'orchestrate CLI argument documented in WORKFLOW_HANDOFF.md'],

@@ -1,0 +1,4 @@
+{
+  "template": 1,
+  "path": "presets/{{local}}.json"
+}

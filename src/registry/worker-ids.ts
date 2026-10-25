@@ -1,20 +1,12 @@
 'use strict';
 
+const { isQualifiedId } = require('../helper/package-ids.ts');
 /** IC-002 and 106 IC-005: maximum worker ids in an enabled list or dispatch ladder. */
 const LADDER_MAX = 8;
 const WORKER_ID_MAX = 32;
 const BUILTIN_WORKER_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
 const RESERVED_WORKER_IDS = Object.freeze(['primary', 'auto', 'subagent', 'sequential', 'manual', 'held', 'none', 'unknown']);
 
-/** One definition; row 122 moves it to src/helper/package-ids.ts and this module then imports it. */
-function isQualifiedId(id: unknown): boolean {
-  if (typeof id !== 'string' || id.length > WORKER_ID_MAX) return false;
-  const parts = id.split('.');
-  if (parts.length !== 2 || parts.some((part) => part.includes('--'))) return false;
-  const packageId = /^[a-z][a-z0-9-]{0,14}[a-z0-9]$/;
-  const localId = /^[a-z][a-z0-9-]{0,13}[a-z0-9]$/;
-  return packageId.test(parts[0]) && localId.test(parts[1]);
-}
 
 /** IC-001: validate worker id shape without checking catalogue membership. */
 function workerIdFault(id: unknown): { code: 'type' | 'reserved'; reason: string } | null {

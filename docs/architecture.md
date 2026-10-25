@@ -63,6 +63,15 @@ are reported rather than imitated.
 | `src/runtime/settings/lexical.ts` | Reads the compatibility lexical setting used by shell copies |
 | `src/runtime/settings/project-layers.ts` | Resolves project settings ownership across linked worktrees |
 | `src/runtime/settings/refs.ts` | Resolves registry `defaultRef` and `valuesRef` declarations |
+| `src/runtime/packages/points.ts` | The contribution point registry (`core/registry/contribution-points.json`) read on its own, so a bad file disables only third-party packages; the map from a point to its validator |
+| `src/runtime/packages/manifest.ts` | The `doflow-package.json` checker: closed key set, forbidden fields, id and host-range rules, each contribution through its point's validator; `checkPackage` adds the tree rules and digests. Never writes |
+| `src/runtime/packages/digest.ts` | The package tree rules (no symlinks, no path leaving the root, size limits) and the content and capability digests |
+| `src/runtime/packages/view.ts` | The package view: the state of every package (`active`, `disabled`, `needs-trust`, `suspended`, `incompatible`), each judged alone, from the bundled package and the global lock. Read-only |
+| `src/runtime/packages/contributions.ts` | The one seam a point's owner calls for the entries of `active` packages; a faulty entry is left out, never thrown |
+| `src/runtime/packages/store.ts` | Plans, the package store under `~/.doflow/packages/store/` and the apply and remove steps, under the global scope's run lock |
+| `src/runtime/packages/grants.ts` | The reader of the person-written `grants.jsonl`; it never writes, renames or deletes that file |
+| `src/runtime/packages/state.ts` | `~/.doflow/packages/state.json`: revocations, suspensions, the audit rows and removal tombstones. Narrowing facts only |
+| `src/runtime/packages/command.ts` | The `doflow package` verb: points, check, list, show, add, update, enable, disable, trust, exempt, revoke, verify and remove |
 | `src/runtime/storage/` | Storage retention: the registry loader and roots (`registry.ts`, `roots.ts`), the one definition of finished work (`work-status.ts`), the bounded pass and its rules (`engine.ts`, `rules.ts`), the silent cleanup moments (`upkeep.ts`) and the `storage` verb (`cli.ts`) |
 | `src/state/` | Harness-neutral ledger, recovery records, and legacy-manifest migration |
 | `src/registry/` | Loads and validates the installation registry files (`harnesses`, `assets`, `mcp`, `lifecycle`, `contracts`, `external-tools`, `models`) plus the provider descriptors in `capabilities.json` into the in-memory registry object (the other runtime registries are loaded by their own runtime modules) every adapter and lifecycle call consumes — the same data `test/guards/registry.test.ts` checks implementation claims against |
@@ -257,7 +266,7 @@ registries](#installation-registries) for the same plain-JSON convention. Across
 | `core/registry/routes.json` | Information need → capability, with an ordered fallback when the preferred capability has no healthy provider |
 | `core/registry/models.json` | Abstract model roles and their providers (`doflow model-role`), and `dispatchTiers`: the tier names (`tiers`), the `default`, and the tier per agent archetype (`byOwner`, seven archetypes; `delivery-lead` and `reviewer` are `frontier`) that a generated brief states. G29 holds `tiers` to `MODEL_SELECTION.md` `## Capability tiers`, `byOwner` keys to `core/shared/agent-specs/`, and every `byOwner` value to the `## Archetype dispatch tiers` prescription table in `MODEL_SELECTION.md` |
 | `core/registry/gates.json` | The roadmap loop's gate policy: per class and gate, whether autopilot may approve (`approve` or `never`), the ordered predicates and the minimum review seats; the protected paths; the loop and merge limits; and the closed `denyReasons` list. Read at develop's committed head by `orchestrate --action decide-gate --policy`, never from a feature branch; a project override can only narrow it. G55 holds its gate ids to `workflows.json` and its reasons to the code |
-| `core/registry/protocols.json` | The review and debate protocols (119): the presets (`review-deep`, `review-single`, `debate-2`, `debate-3`), each with its kind, seats (agent, lenses, model tier and family), rounds, cross-answer, synthesizer and decider; the lens catalogue; `order`, each kind's presets strictest first; `hardRoundCap`; and the locked invariants, each naming what enforces it. `src/runtime/review/protocols.ts` loads and validates it (`loadProtocols`, `validateProtocols`); G66 holds it to itself and to the class seat floors in `gates.json` |
+| `core/registry/protocols.json` | The review and debate protocols (119): the presets (`review-deep`, `review-single`, `debate-2`; `debate-3` is contributed by the bundled first-party package `doflow` in `core/registry/packages/doflow/` (122 IC-015), which `order.debate` still names), each with its kind, seats (agent, lenses, model tier and family), rounds, cross-answer, synthesizer and decider; the lens catalogue; `synthesizerStrength`, the synthesizer lattice; `order`, each kind's presets strictest first, each dominating the next (122 IC-014); `hardRoundCap`; and the locked invariants, each naming what enforces it. `src/runtime/review/protocols.ts` loads and validates it (`loadCoreProtocols` reads the file alone; `loadProtocols` merges the presets of active packages through `contributionsFor` in `src/runtime/packages/contributions.ts` and returns `provenance` and `notices`, an `order` id whose package is not active being skipped and noticed; `validateProtocols`, and `validatePreset` per preset, seat tiers checked against `models.json` `dispatchTiers.tiers`); `src/runtime/review/dominance.ts` holds `dominates`; G66 holds it to itself and to the class seat floors in `gates.json` |
 | `core/registry/external-tools.json` | External tools DoFlow can detect, install, and probe rather than reimplement |
 | `core/registry/storage.json` | Every store DoFlow writes: its root, location, retention bound, rule kind and writer files, plus the pass budget, throttle and ignore-file text. `src/runtime/storage/` reads it and G26 checks it against the code and `docs/reference.md` |
 | `core/registry/settings.json` | Every runtime settings key, its types, defaults, scopes, bindings, legacy files and consumers. `src/runtime/settings/registry.ts` reads it; G44 checks its consumers, reference defaults and documentation |
@@ -321,7 +330,7 @@ works](how-doflow-work.md#after-the-chain-the-lifecycle-loop).
 | Path | Owns |
 |---|---|
 | `src/runtime/mask.ts` | Best-effort masking and failure-message normalisation, in two profiles (line and body). Used by the follow-up service, the report store and the failure writer |
-| `src/runtime/review/` | `review/findings.ts`: review record validator, vocabularies, counts and advisories (pure); `review/command.ts`: the `review --action check` and `--action start` verb handler; `review/start.ts`: the `review --action start` precondition (the gate-b verify rule plus a clean tree), `loadProtocolInputs` (the gate policy narrowed by the project override, and the protocols registry) and the call to the resolver; `review/resolve-protocol.ts`: `resolveProtocol`, the pure resolver over the risk rule in `reviewDepth`, the run preset, the gate-b seat floor and `core/registry/protocols.json` (seat counts live there), and `protocolLines`, its text form |
+| `src/runtime/review/` | `review/findings.ts`: review record validator, vocabularies, counts and advisories (pure); `review/command.ts`: the `review --action check` and `--action start` verb handler; `review/start.ts`: the `review --action start` precondition (the gate-b verify rule plus a clean tree), `loadProtocolInputs` (the gate policy narrowed by the project override, and the protocols registry) and the call to the resolver; `review/dominance.ts`: `dominates`, the pure strictness comparison of two presets (122 IC-014); `review/resolve-protocol.ts`: `resolveProtocol`, the pure resolver over the risk rule in `reviewDepth`, the run preset, the gate-b seat floor and `core/registry/protocols.json` (seat counts live there), and `protocolLines`, its text form |
 | `src/runtime/lifecycle/root.ts` | The project root a store is keyed by: the first entry of `git worktree list` when that entry is a real working tree, else the current worktree's root (`--show-toplevel`), else the working directory |
 | `src/runtime/lifecycle/event-store.ts` | Write-once event files under `.doflow/state/lifecycle/events/`, local to the machine: id and `at` stamping, exclusive create, the store lock, the pre-write fold check |
 | `src/runtime/lifecycle/store-upkeep.ts` | The one-time copy from `agent-docs/lifecycle/events` and the retention pass, run once per verb before its work |
@@ -784,14 +793,14 @@ configuration as a test fixture.
 
 ### The guard suite
 
-`test/guards/*.test.js` checks structural truths about this repository's own content rather than
+`test/guards/*.test.ts` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-75 test files (plus `_shared.ts`, a helper rather than a test); this inventory lists
-68 entries across 64 test files and carries 66 distinct G-numbers.
+76 test files (plus `_shared.ts`, a helper rather than a test); this inventory lists
+69 entries across 65 test files and carries 67 distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries; G18 labels two files, of which `adapter-force.test.ts` is not listed; and G30 labels two
 files, `advice.test.ts` and a ratchet test in `module-reachability.test.ts` (the G16 file). The collisions are
-historical rather than a convention; G69 is the highest number in use, so a new guard takes the next
+historical rather than a convention; G69 is the highest number in use (G67 is row 120 and G68 is row 122), so a new guard takes the next
 one above it instead of adding another collision. The list is not the whole directory. The
 files absent from it are `verb-reachability.test.ts`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.ts`, which owns G19, and `adapter-force.test.ts`, which is the unlisted half
@@ -1196,16 +1205,31 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   least as many seats as every class's `gate-b.minSeats` in `gates.json` (so no other review preset is needed
   to meet a floor), no preset's `rounds.default` exceeds `hardRoundCap`, every invariant carries a non-empty
   `enforcedBy`, every review-preset seat names an agent whose spec in `core/shared/agent-specs/` declares
-  `access: read-only` (a debate seat may be a write-access agent), and the shipped file passes
-  `validateProtocols` with no error. Controls on cloned registries: a review seat on a write-access or
-  missing agent, a one-seat `review-deep`, an unknown lens, rounds above the cap, an invariant without `enforcedBy`, a
-  non-strictest first review preset and a duplicate preset id in the raw text are each named, and the shipped
+  `access: read-only` (a debate seat may be a write-access agent), each adjacent pair of `order.review` and
+  `order.debate` satisfies `dominates` (`src/runtime/review/dominance.ts`, 122 IC-014: the stricter preset covers
+  every seat of the next by an injective matching on lenses, family and the `models.json` `dispatchTiers.tiers`
+  tier, with rounds, cross-answer, the `synthesizerStrength` lattice and decider at least as strict), and the
+  shipped file passes `validateProtocols` with no error. Controls on cloned registries: a review seat on a
+  write-access or missing agent, a one-seat `review-deep`, an unknown lens, rounds above the cap, an invariant
+  without `enforcedBy`, a non-strictest first review preset, an adjacent order pair that does not dominate (a
+  narrowed seat, a swapped debate order, an inverted synthesizer lattice) and a duplicate preset id in the raw
+  text are each named, and the shipped
   registry reports nothing. Preset and lens ids leave protocols.json only by derivation (C-9): `review.preset`,
   `debate.preset` and `review.extraLenses` in `settings.json` point at their `src/runtime/settings/refs.ts` refs
   (`review.preset` ranks by `orderRef`, never a literal `order`), no settings literal or `telemetry.json`
   vocabulary lists a preset id, and the shipped settings registry loads with those refs resolved; a planted
   literal order, literal preset list or telemetry copy is each named.
 - **G67** (`primary-workers.test.ts`) — primary harness, worker catalogue, model bindings and probe consistency (feature 120): every harness id in `core/registry/harnesses.json` passes `workerIdFault` and exactly one `isQualifiedId` definition exists (RK4); the closed list of `workerGate` call sites (`src/runtime/dispatch/command.ts`, `src/runtime/dispatch/loop.ts`, `src/runtime/worker/command.ts`, `src/runtime/worker/readiness.ts`) is respected; `active.ts`, `models.ts` and `context/primary.ts` import no `advice/` module; every `model-id` and `worker-models` key in `core/registry/settings.json` defaults to `null`; and `primaryProbe.model` is `payload` exactly where `envelope.jq` emits `identity.model`, with jq and TS model grammars agreeing on every fixture (RK7). Controls verify that an unauthorized `workerGate` call site, an `advice/` import, a non-null model default, and a mismatched `primaryProbe` turn the guard red.
+- **G68** (`packages.test.ts`) — the package extension model's registry facts hold (122 IC-002, IC-005, IC-015):
+  `core/registry/contribution-points.json` passes `validatePoints` with no error; each `bundled[]` entry's
+  directory hashes (IC-005 content digest) to its `contentDigest` and its manifest carries the bundled id, the
+  `package.json` version and the exact range `=<version>` (the runtime trusts a bundled package and never
+  re-hashes it, so this is where an edit to the first-party package becomes a visible registry change; the
+  release `version` script keeps the three in step, PN-8); `forbiddenFields` equals the list `docs/reference.md`
+  prints under "Package manifest: forbidden fields"; and each bundled package passes the full package-mode check
+  (`checkPackage`: read-only review seats, local seat ids, comparability, tree rules), which the runtime does not
+  run. Controls: one changed byte in a bundled preset, a stale manifest version, a differing or missing documented
+  list, and a first-party preset naming an unknown seat agent are each named.
 - **G69** (`test-isolation.test.ts`) — every test executes hermetically within its repository and scratch directories: no test file navigates or reads above the repo root (`REPO_ROOT/..`, `../do-flow`, or sibling checkouts), preventing test dependencies on sibling checkouts that do not exist in clean CI environments or isolated release rehearsals (FU-rvzby1). Controls verify that out-of-repo and sibling paths are flagged while safe in-repo references pass.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to

@@ -510,7 +510,7 @@ const WORKER_OPTIONAL_CAPABILITIES: Record<string, { allowed: string[], required
 });
 const WORKER_BILLING = new Set(['free', 'metered', 'unknown']);
 const WORKER_KEYS = Object.freeze(['profile', 'billing', ...Object.keys(WORKER_CAPABILITIES), 'modelChecks']);
-const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER_OPTIONAL_CAPABILITIES)]);
+const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER_OPTIONAL_CAPABILITIES), 'family']);
 const WORKER_ENTRY_FIELDS = new Set(['status', 'evidence', 'verification', 'verifiedOn', 'reason']);
 const WORKER_RECIPE_FIELDS = new Set(['binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'marker', 'quotaSignals']);
 const WORKER_QUOTA_SIGNALS_FIELDS = new Set(['signals', 'basis', 'evidence']);
@@ -544,6 +544,9 @@ function validateWorker(value: any, location: string, errors: string[]): void {
   }
   if (Object.hasOwn(value, 'billing') && !WORKER_BILLING.has(value.billing)) {
     fail('billing', 'must be free, metered, or unknown');
+  }
+  if (Object.hasOwn(value, 'family') && (typeof value.family !== 'string' || !value.family.trim())) {
+    fail('family', 'must be a non-empty string');
   }
 
   for (const [key, rule] of [...Object.entries(WORKER_CAPABILITIES), ...Object.entries(WORKER_OPTIONAL_CAPABILITIES)]) {
@@ -619,9 +622,14 @@ function validateWorker(value: any, location: string, errors: string[]): void {
         else if (quota.basis === 'transcript' && quota.evidence.length === 0) fail(key, 'quotaSignals transcript basis requires evidence');
         else if (quota.basis === 'unverified' && quota.evidence.length !== 0) fail(key, 'quotaSignals unverified basis requires empty evidence');
         else if (quota.basis === 'transcript') {
+          const harnessMatch = location.match(/^harness '([^']+)'/);
           for (const item of quota.evidence) {
-            const prefix = `core/worker-evidence/${location.match(/^harness '([^']+)'/)?.[1]}/`;
-            if (!item.startsWith(prefix) || path.isAbsolute(item) || item.split(/[\\/]/).includes('..')) fail(key, 'quotaSignals transcript evidence must be under its harness worker-evidence directory');
+            if (path.isAbsolute(item) || item.split(/[\\/]/).includes('..')) {
+              fail(key, 'quotaSignals transcript evidence must be under its harness worker-evidence directory');
+            } else if (harnessMatch) {
+              const prefix = `core/worker-evidence/${harnessMatch[1]}/`;
+              if (!item.startsWith(prefix)) fail(key, 'quotaSignals transcript evidence must be under its harness worker-evidence directory');
+            }
           }
         }
       }

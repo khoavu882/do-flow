@@ -50,7 +50,10 @@ function riskLevels(): string[] | null {
 }
 
 /** The protocol registry (119 IC-001), read on first use only, so a record with neither `depth` nor `protocol`
- * never loads it. `null` (a load failure) fails closed. One read serves the preset ids and the depth vocabulary. */
+ * never loads it. `null` (a load failure) fails closed. One read serves the preset ids and the depth vocabulary.
+ * It is the merged view (122 IC-014) this process resolves under its own environment and config home: gate-b and the
+ * check verb never take a package set from the record or from the environment it was made in (NFR-005). A caller may
+ * pass another merged registry (`protocols` / `registry` below); that is the only seam. */
 let protocolRegistry: any | null | undefined;
 function protocols(): any | null {
   if (protocolRegistry === undefined) {
@@ -62,10 +65,12 @@ function protocols(): any | null {
   return protocolRegistry;
 }
 
-/** The `kind: review` preset ids of the protocol registry (119 IC-002). */
-function reviewPresets(): string[] | null {
-  const registry = protocols();
-  return registry ? require('./protocols.ts').presetIds(registry, 'review') : null;
+/** The `kind: review` preset ids of a merged view's active set (119 IC-002, 122 IC-014): the effective core order,
+ * then the ids active packages contribute. */
+function reviewPresets(registry: any = protocols()): string[] | null {
+  if (!registry) return null;
+  const { presetIds, contributedPresetIds } = require('./protocols.ts');
+  return [...presetIds(registry, 'review'), ...contributedPresetIds(registry, 'review')];
 }
 
 /** The depth vocabulary (L-1, D-4): each review preset's `depth` label with that preset's seat count. */
@@ -76,14 +81,17 @@ function depthSeats(): Record<string, number> | null {
     .map((id: string) => [registry.presets[id].depth, registry.presets[id].seats.length]));
 }
 
-/** `protocol` is exactly `{ id, digest }`: a review preset id of the shipped registry and a sha256 hex digest. */
-function validProtocol(value: any): boolean {
-  if (!object(value)) return false;
+/** The error of a recorded `protocol`, or null. It is exactly `{ id, digest }`: a review preset id of the merged view and
+ * a sha256 hex digest (`protocol`). A well-formed package-qualified id that the view does not hold active is
+ * `protocol-unavailable` (122 IC-014): its package is not installed, enabled or trusted where the record is checked. */
+function protocolError(value: any, registry: any): 'protocol' | 'protocol-unavailable' | null {
+  if (!object(value)) return 'protocol';
   const keys = Object.keys(value);
-  if (keys.length !== 2 || !keys.includes('id') || !keys.includes('digest')) return false;
-  if (typeof value.digest !== 'string' || !PROTOCOL_DIGEST.test(value.digest)) return false;
-  const ids = reviewPresets();
-  return typeof value.id === 'string' && ids !== null && ids.includes(value.id);
+  if (keys.length !== 2 || !keys.includes('id') || !keys.includes('digest')) return 'protocol';
+  if (typeof value.digest !== 'string' || !PROTOCOL_DIGEST.test(value.digest)) return 'protocol';
+  const ids = reviewPresets(registry);
+  if (typeof value.id === 'string' && ids !== null && ids.includes(value.id)) return null;
+  return ids !== null && require('../../helper/package-ids.ts').isQualifiedId(value.id) ? 'protocol-unavailable' : 'protocol';
 }
 
 /** C-6: the first project or local candidate of a resolved setting that is `invalid` (a malformed file or a bad value in it).
@@ -98,15 +106,24 @@ function invalidPresetCandidate(resolution: any): { source: string; reason: stri
   return (resolution?.candidates ?? []).find((c: any) => ['user', 'project', 'local'].includes(c.layer) && c.status === 'invalid');
 }
 
-/** True when the record's protocol is looser (later in the registry's strictest-first `order.review`) than `presetId`,
- * the project's `review.preset`. `auto` needs the diff, which gate-b does not read, so it never compares (C-2). */
-function protocolLooserThanPreset(protocol: any, presetId: any): boolean {
+/** True when the record's protocol is looser than `presetId`, the project's `review.preset`: later in the strictest-first
+ * core `order.review`, or, for a contributed id on either side, not dominating it (122 IC-014). `auto` needs the diff,
+ * which gate-b does not read, so it never compares (C-2). Fails closed: an id outside the active set of `registry` (gate-b's
+ * own merged view by default, never the record's), or no readable view, counts as looser. */
+function protocolLooserThanPreset(protocol: any, presetId: any, registry: any = protocols()): boolean {
   if (!object(protocol) || typeof presetId !== 'string' || presetId === 'auto') return false;
-  const order = protocols()?.order?.review;
-  if (!Array.isArray(order)) return false;
-  const have = order.indexOf(protocol.id);
-  const want = order.indexOf(presetId);
-  return have !== -1 && want !== -1 && have > want;
+  const ids = reviewPresets(registry);
+  if (ids === null || !ids.includes(protocol.id) || !ids.includes(presetId)) return true;
+  return !require('./resolve-protocol.ts').atLeastAsStrict(registry, 'review', protocol.id, presetId);
+}
+
+/** 122 IC-024: the `review.run` telemetry `protocol` of a recorded id: a core review preset id as it is, `package` for an
+ * id an active package contributes (no third-party name enters telemetry), null for anything else. */
+function telemetryProtocol(id: any, registry: any = protocols()): string | null {
+  if (typeof id !== 'string' || !registry) return null;
+  const { presetIds, contributedPresetIds } = require('./protocols.ts');
+  if (presetIds(registry, 'review').includes(id)) return id;
+  return contributedPresetIds(registry, 'review').includes(id) ? 'package' : null;
 }
 
 /** Repo-relative literal path; traversal, globs, absolute paths and alternate separators fail closed. */
@@ -267,7 +284,7 @@ function identityFacts(data: any, sameFamily: Sameness, authors: any[] = []): { 
  * is an error (`protocol-missing`) and its rounds and seats are held to that preset (C-2 closure). */
 function validateFindings(
   json: any,
-  { sameFamily = 'warn', preset = 'auto', authors = [] }: { sameFamily?: Sameness; preset?: string; authors?: any[] } = {}
+  { sameFamily = 'warn', preset = 'auto', authors = [], protocols: registry }: { sameFamily?: Sameness; preset?: string; authors?: any[]; protocols?: any } = {}
 ): { ok: boolean; errors: string[] } {
   const errors: string[] = [];
   let data = json;
@@ -284,7 +301,9 @@ function validateFindings(
   const risks = Object.hasOwn(data, 'risk') ? riskLevels() : null;
   if (Object.hasOwn(data, 'depth') && !(typeof data.depth === 'string' && depths && Object.hasOwn(depths, data.depth))) errors.push('depth');
   if (Object.hasOwn(data, 'risk') && !(typeof data.risk === 'string' && risks && risks.includes(data.risk))) errors.push('risk');
-  if (Object.hasOwn(data, 'protocol') && !validProtocol(data.protocol)) errors.push('protocol');
+  const view = (): any => (registry === undefined ? protocols() : registry);
+  const protocolFault = Object.hasOwn(data, 'protocol') ? protocolError(data.protocol, view()) : null;
+  if (protocolFault) errors.push(protocolFault);
   if (Object.hasOwn(data, 'rounds') && !(Number.isSafeInteger(data.rounds) && data.rounds >= 1)) errors.push('rounds');
   if (Object.hasOwn(data, 'author') && !validAuthor(data.author)) errors.push('author');
   const seats = Array.isArray(data.seats) ? data.seats : [];
@@ -309,9 +328,9 @@ function validateFindings(
   // project's non-auto `review.preset` instead (omitting the field must not skip the check).
   const recorded = Object.hasOwn(data, 'protocol');
   if (!recorded && preset !== 'auto') errors.push('protocol-missing');
-  const held = recorded ? (validProtocol(data.protocol) ? data.protocol.id : null) : (preset !== 'auto' ? preset : null);
-  if (held && Array.isArray(data.seats) && reviewPresets()?.includes(held)) {
-    const heldPreset = protocols().presets[held];
+  const held = recorded ? (protocolFault === null ? data.protocol.id : null) : (preset !== 'auto' ? preset : null);
+  if (held && Array.isArray(data.seats) && reviewPresets(view())?.includes(held)) {
+    const heldPreset = view().presets[held];
     if (Number.isSafeInteger(data.rounds) && data.rounds >= 1 && data.rounds < heldPreset.rounds.min) errors.push('protocol-rounds');
     if (data.seats.length < heldPreset.seats.length) errors.push('protocol-seats');
   }
@@ -402,5 +421,5 @@ function reviewAdvisories(json: any, { sameFamily = 'warn', authors = [] }: { sa
 
 module.exports = {
   HEX_HEAD, SEVERITIES, DISPOSITIONS, ORIGINS, VERIFICATIONS, ACCEPTED_AS, ROUND_CAP, RECORD_KEYS, FINDING_FIELDS,
-  object, nonempty, strings, validPath, evidenceLocator, validateFindings, countFindings, reviewAdvisories, protocolLooserThanPreset, invalidProjectCandidate, invalidPresetCandidate,
+  object, nonempty, strings, validPath, evidenceLocator, validateFindings, countFindings, reviewAdvisories, protocolLooserThanPreset, invalidProjectCandidate, invalidPresetCandidate, telemetryProtocol,
 };

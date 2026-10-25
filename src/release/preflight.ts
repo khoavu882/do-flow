@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
+const { parseSemVer, compareSemVer } = require('../helper/semver.ts');
 const { changelogSection } = require('./changelog-section.ts');
 const { releaseWorkflowFindings } = require('./release-workflow.ts');
 
@@ -17,7 +18,6 @@ const PLUGIN_MANIFESTS = [
 const RELEASE_TAG_PATTERN = /^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 
 type Check = { id: string, ok: boolean, skipped?: boolean, message: string };
-type SemVer = { major: string, minor: string, patch: string, prerelease: string[] };
 
 function addCheck(checks: Check[], id: string, ok: boolean, message: string, skipped = false): void {
   checks.push({ id, ok, message, ...(skipped ? { skipped: true } : {}) });
@@ -30,54 +30,6 @@ function readJson(fsImpl: typeof fs, file: string): any {
 function offlineError(error: any): boolean {
   const detail = `${error?.code || ''} ${error?.message || ''} ${String(error?.stderr || '')}`;
   return /ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ETIMEDOUT|ECONNRESET|ENETUNREACH|network|offline/i.test(detail);
-}
-
-function parseSemVer(value: string): SemVer | null {
-  const match = value.match(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/);
-  if (!match) return null;
-  const prerelease = match[4] ? match[4].split('.') : [];
-  if (prerelease.some((identifier) => /^\d+$/.test(identifier)
-    && identifier.length > 1 && identifier.startsWith('0'))) return null;
-  return { major: match[1], minor: match[2], patch: match[3], prerelease };
-}
-
-function compareNumeric(left: string, right: string): number {
-  if (left.length !== right.length) return left.length < right.length ? -1 : 1;
-  if (left === right) return 0;
-  return left < right ? -1 : 1;
-}
-
-function compareSemVer(leftValue: string, rightValue: string): number | null {
-  const left = parseSemVer(leftValue);
-  const right = parseSemVer(rightValue);
-  if (!left || !right) return null;
-
-  for (const key of ['major', 'minor', 'patch'] as const) {
-    const order = compareNumeric(left[key], right[key]);
-    if (order !== 0) return order;
-  }
-
-  if (left.prerelease.length === 0 && right.prerelease.length === 0) return 0;
-  if (left.prerelease.length === 0) return 1;
-  if (right.prerelease.length === 0) return -1;
-
-  const length = Math.min(left.prerelease.length, right.prerelease.length);
-  for (let index = 0; index < length; index++) {
-    const leftId = left.prerelease[index];
-    const rightId = right.prerelease[index];
-    const leftNumeric = /^\d+$/.test(leftId);
-    const rightNumeric = /^\d+$/.test(rightId);
-    if (leftNumeric && rightNumeric) {
-      const order = compareNumeric(leftId, rightId);
-      if (order !== 0) return order;
-    } else if (leftNumeric !== rightNumeric) {
-      return leftNumeric ? -1 : 1;
-    } else if (leftId !== rightId) {
-      return leftId < rightId ? -1 : 1;
-    }
-  }
-  if (left.prerelease.length === right.prerelease.length) return 0;
-  return left.prerelease.length < right.prerelease.length ? -1 : 1;
 }
 
 function releaseChannel(version: string): 'beta' | 'latest' {

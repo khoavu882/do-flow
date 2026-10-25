@@ -1399,6 +1399,154 @@
         "file": "src/runtime/knowledge/semble-provider.ts",
         "pattern": "semanticStatePaths"
       }
+    },
+    {
+      "id": "packages-store",
+      "root": "user-doflow",
+      "path": "packages/store",
+      "entry": "dir",
+      "match": "^[a-z][a-z0-9-]*$",
+      "rule": "existing",
+      "bound": {
+        "text": "one directory per package id, kept until the package is removed"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/packages/store.ts"
+      ],
+      "source": {
+        "file": "src/runtime/packages/store.ts",
+        "pattern": ".installed-from.json"
+      }
+    },
+    {
+      "id": "packages-plans",
+      "root": "user-doflow",
+      "path": "packages/plans",
+      "entry": "file",
+      "match": "^[0-9a-f]{16}\\.json$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 256,
+        "maxAgeDays": 1,
+        "either": true
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/packages/store.ts"
+      ]
+    },
+    {
+      "id": "packages-staging",
+      "root": "user-doflow",
+      "path": "packages/store",
+      "entry": "dir",
+      "match": "^\\.staging-[0-9a-f]{16}$",
+      "rule": "age",
+      "bound": {
+        "maxAgeDays": 1
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/packages/store.ts"
+      ]
+    },
+    {
+      "id": "packages-fetched",
+      "root": "user-doflow",
+      "path": "packages/fetched",
+      "entry": "dir",
+      "match": "^[0-9a-f]{16}$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 256,
+        "maxAgeDays": 1,
+        "either": true
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/packages/store.ts"
+      ]
+    },
+    {
+      "id": "packages-fetch-staging",
+      "root": "user-doflow",
+      "path": "packages/fetched",
+      "entry": "dir",
+      "match": "^\\.staging-[0-9a-f]{16}$",
+      "rule": "age",
+      "bound": {
+        "maxAgeDays": 1
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/packages/store.ts"
+      ]
+    },
+    {
+      "id": "packages-state",
+      "root": "user-doflow",
+      "path": "packages/state.json",
+      "entry": "file",
+      "match": "^state\\.json$",
+      "rule": "existing",
+      "bound": {
+        "text": "narrowing facts only, rewritten atomically with mode 0600 and kept"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/state/index.ts"
+      ],
+      "source": {
+        "file": "src/runtime/packages/state.ts",
+        "pattern": "state.json"
+      }
+    },
+    {
+      "id": "authored-packages-project-doflow",
+      "root": "project-doflow",
+      "path": "package",
+      "entry": "dir",
+      "match": "^[a-z][a-z0-9-]{0,14}[a-z0-9]$",
+      "rule": "existing",
+      "bound": {
+        "text": "the person's authored package source: DoFlow never prunes, moves or removes it"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/packages/scaffold.ts"
+      ],
+      "source": {
+        "file": "src/runtime/packages/scaffold.ts",
+        "pattern": "'package'"
+      }
+    },
+    {
+      "id": "authored-packages-staging-project-doflow",
+      "root": "project-doflow",
+      "path": "package",
+      "entry": "dir",
+      "match": "^\\.staging-[a-z0-9-]+-[0-9a-f]{8}$",
+      "rule": "existing",
+      "bound": {
+        "text": "removed by the scaffold itself after 24 hours"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/packages/scaffold.ts"
+      ],
+      "source": {
+        "file": "src/runtime/packages/scaffold.ts",
+        "pattern": ".staging-"
+      }
     }
   ],
   "externalWriters": [

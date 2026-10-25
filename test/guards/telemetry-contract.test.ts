@@ -27,6 +27,14 @@ const TUPLE_FIXTURE_FIELDS: any = {
   'verify.run': ['dispatch_run'],
   'review.run': ['task', 'rounds', 'seats', 'seat_findings', 'converged', 'blocker', 'should_fix', 'note', 'open', 'fixed', 'refuted', 'user_accepted', 'pre_existing', 'escaped', 'confirmed', 'plausible', 'unverified_blockers', 'bug_classes', 'advisories', 'errors'],
 };
+test('G45: package actions include authoring and keep the event enums-only', () => {
+  const contract = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/telemetry.json'), 'utf8'));
+  assert.deepEqual(contract.vocabularies.package_action, ['enable', 'disable', 'trust', 'exempt', 'revoke', 'verify', 'remove', 'new']);
+  assert.deepEqual(Object.keys(contract.kinds['package.verb'].fields), ['action', 'result', 'tier_max']);
+  assert.deepEqual(contract.vocabularies.package_result, ['ok', 'refused', 'usage']);
+  assert.deepEqual(contract.vocabularies.package_tier, ['inert', 'instruction', 'executable']);
+});
+
 const TYPE_ATOMS: any = new Set(['token', 'id', 'uint', 'int', 'hex16', 'hex32', 'iso8601ms', 'date', 'null']);
 const FIELD_KEY = /^[a-z][a-z0-9_]*$/;
 const READ_ONLY_TYPES: any = new Set(['runkey']); // recordFields only: a run key is `<hex16>/<run>/<lineage>`
@@ -615,7 +623,7 @@ test('G45.1: telemetry.json is well formed, its owned vocabularies match their o
   // C-9: depth and protocol are derived, not copied; what the writer checks equals protocols.json.
   assert.deepEqual(derivedVocabularies(), {
     depth: [...protocols.order.review].reverse().map((id) => protocols.presets[id].depth), // loosest first
-    protocol: protocols.order.review,
+    protocol: [...protocols.order.review, 'package'], // 122 IC-024: one bucket for every contributed preset
   });
   assert.deepEqual(Object.keys(DERIVED_VOCABULARIES), ['depth', 'protocol']);
   const observations = shippedObservations(registry);
@@ -796,7 +804,7 @@ test('G45.1 self-test (C-9): a copy of a derived vocabulary in telemetry.json fa
   copied.vocabularies.protocol = ['review-deep', 'review-single'];
   copied.vocabularies.depth = ['single', 'deep'];
   const errors = checkRegistryShape(copied).join('\n');
-  assert.match(errors, /vocabularies\.protocol: is derived from core\/registry\/protocols\.json order\.review and must not be copied/);
+  assert.match(errors, /vocabularies\.protocol: is derived from core\/registry\/protocols\.json order\.review, then the literal package and must not be copied/);
   assert.match(errors, /vocabularies\.depth: is derived from core\/registry\/protocols\.json review preset depth labels, loosest first and must not be copied/);
   assert.deepEqual(checkRegistryShape(withField('duration_ms', { ...GOOD_FIELD, type: 'enum:protocol|null' })), []);
 });

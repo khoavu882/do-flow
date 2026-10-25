@@ -27,6 +27,8 @@ const { evaluateReach } = require('./reach.ts');
 const { mcpReach } = require('./mcp-reach.ts');
 const { OUTCOME_LABELS } = require('./mcp-consultations.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
+const { readGrants, detectedProjectRoot } = require('./packages/grants.ts');
+const { readState, grantRevoked } = require('./packages/state.ts');
 
 /** Answered a probe. */
 const HEALTHY = 'HEALTHY';
@@ -571,6 +573,56 @@ function mcpView({ registry, projectRoot, fsImpl, adapters }: any) {
   return { servers, ...(serversNote ? { serversNote } : {}), consultations: mcpConsultationsView({ projectRoot, fsImpl }) };
 }
 
+/**
+ * The doctor's `packages` block (122 IC-008, IC-009): the grants file path and mtime, every grant with its state,
+ * and the counts held in `state.json`. A trust or exempt grant a revocation covers (or any, when `state.json` is
+ * unreadable) is listed `revoked`. Read-only and not blocking; a failure degrades to a note.
+ */
+function packagesView({ projectRoot, fsImpl, env, homeDir, tmpDir }: any) {
+  try {
+    // The trust root is the project detected from the directory reported on, never that directory itself (IC-008).
+    const home = homeDir ?? (typeof env?.HOME === 'string' && path.isAbsolute(env.HOME) ? env.HOME : os.homedir());
+    const grants = readGrants({ env, fsImpl, projectRoot: detectedProjectRoot({ cwd: projectRoot, homeDir: home, fsImpl }), tmpDir });
+    const state = readState({ homeDir, fsImpl });
+    const rows = grants.entries.map((entry: any) => {
+      const revoked = entry.state === 'valid' && entry.grant !== 'fetch' && grantRevoked(state, entry);
+      const target = entry.grant === 'fetch' ? (entry.source.url || entry.source.name) : `${entry.package}@${entry.version}`;
+      return { line: entry.line, grant: entry.grant, target, state: revoked ? 'revoked' : entry.state, ...(revoked ? { reason: state.unreadable ? 'state-unreadable' : 'revoked' } : entry.reason ? { reason: entry.reason } : {}) };
+    });
+    return {
+      grants: { path: grants.path, noConfigHome: grants.noConfigHome, exists: grants.exists, mtime: grants.mtime, rows, findings: grants.findings },
+      suspendedProjected: state.state.suspended.filter((item: any) => item.projected).map((item: any) => item.package).sort(),
+      state: {
+        path: state.path, exists: state.exists, unreadable: state.unreadable, findings: state.findings,
+        revoked: state.state.revoked.length, suspended: state.state.suspended.length, removed: state.state.removed.length,
+      },
+    };
+  } catch (error: any) {
+    return { note: `package grants unavailable: ${error.message}` };
+  }
+}
+
+function printPackagesSection(packages: any) {
+  console.log('\n[Packages] — person grants and DoFlow state; not blocking');
+  if (packages.note) { console.log(`  ${packages.note}`); return; }
+  const { grants, state } = packages;
+  if (grants.noConfigHome) console.log('  grants            no config home (HOME and XDG_CONFIG_HOME unset): no grant can exist');
+  else if (!grants.exists) console.log(`  grants            none (no file at ${grants.path})`);
+  else {
+    console.log(`  grants            ${grants.path} (modified ${grants.mtime})`);
+    for (const row of grants.rows) console.log(`    line ${String(row.line).padEnd(5)}${row.grant.padEnd(8)}${row.target.padEnd(28)}${row.state}${row.reason ? ` (${row.reason})` : ''}`);
+    for (const item of grants.findings) console.log(`    ${item.code}: ${item.message}`);
+  }
+  if (state.unreadable) console.log(`  state             ${state.path} is unreadable: every package counts as revoked (run: doflow package --action verify --repair)`);
+  else if (state.revoked || state.suspended || state.removed) console.log(`  state             ${state.revoked} revoked, ${state.suspended} suspended, ${state.removed} removed (${state.path})`);
+  for (const id of packages.suspendedProjected ?? []) {
+    console.log(`  suspended         ${id} still has projected files (run: doflow package --action verify)`);
+  }
+}
+
+/** Whether the text report shows `[Packages]`: only when there is something to say. */
+const packagesWorthShowing = (packages: any) => Boolean(packages.note || packages.grants.exists || packages.state.exists);
+
 const MCP_STATE_MARK: Record<string, any> = Object.freeze({
   selected: '✓ selected',
   configured: '✓ configured',
@@ -644,7 +696,7 @@ function nodeSecurityWarning(version: string): { kind: string, subject: string, 
   };
 }
 
-function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, execFileImpl, fsImpl = fs, detector, adapters, env = process.env, nodeVersion = process.version }: any = {}) {
+function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, execFileImpl, fsImpl = fs, detector, adapters, env = process.env, nodeVersion = process.version, homeDir, tmpDir }: any = {}) {
   const root = repoRoot || REPO_ROOT;
   const registry = loadRegistry({ repoRoot: root });
   const activeRouter = router || new CapabilityRouter({ repoRoot: root, projectRoot });
@@ -748,6 +800,7 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
     freshness,
     project,
     mcp: mcpView({ registry, projectRoot, fsImpl, adapters }),
+    packages: packagesView({ projectRoot, fsImpl, env, homeDir, tmpDir }),
     findings,
     warnings,
     summary: {
@@ -816,7 +869,7 @@ function workersDoctorView({
   const entries = workerDescriptors({ descriptors, registry: reg });
   const tiers = reg.dispatchTiers?.tiers ?? [];
   const selection = select({
-    descriptors, registry: reg, env, cwd: projectRoot, root, now, needs: [],
+    descriptors, registry: reg, env, cwd: projectRoot, root, now, needs: [], includeDisabled: true,
   });
   const rows = selection.candidates.map(({ harness, eligible, gaps }: any) => {
     const gap = gaps[0];
@@ -958,6 +1011,7 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   }
 
   printMcpSections(report.mcp);
+  if (packagesWorthShowing(report.packages)) printPackagesSection(report.packages);
   printAdviceDoctor(adviceSections);
   printSettingsReport(settings);
 
