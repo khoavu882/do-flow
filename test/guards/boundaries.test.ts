@@ -68,8 +68,9 @@ test('G-B2: inventory ratchets — registry files and adapters', () => {
   // 19: `contribution-points.json` (122 IC-002) is the point registry of the package extension model: which points exist,
   // their tier and status, and the forbidden manifest fields. A separate file because the package loader reads it on its
   // own (a bad file disables only non-bundled packages), not through `loadRegistry`.
-  assert.equal(registryEntries.length, 19,
-    `core/registry holds ${registryEntries.length} files; expected the ratcheted 19`);
+  // 20: `rules.json` (102 IC-001) is the rule ledger for always-loaded guidance rules and safety invariants.
+  assert.equal(registryEntries.length, 20,
+    `core/registry holds ${registryEntries.length} files; expected the ratcheted 20`);
 
   // Stage 3 makes adapters thinner but never fewer: one directory per harness, plus the shared
   // copy-tree engine and the contract validator live as siblings.
