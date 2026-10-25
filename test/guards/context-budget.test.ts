@@ -28,7 +28,7 @@ const { WHOLESALE_ASSETS } = require('../../src/runtime/inventory/siblings.ts');
 // this set. It is not permitted to grow the total. If the ceiling genuinely cannot hold, the
 // agreed response (RK4) is one explicit, reviewed commit that raises this constant and states the
 // new number and its cost — not a suppression, and not a quiet edit bundled into a prose diff.
-const CEILING_BYTES = 10245;
+const CEILING_BYTES = 7500;
 
 function breakdown(files: any, total: any) {
   const width = Math.max(...files.map(({ rel }: any) => rel.length));

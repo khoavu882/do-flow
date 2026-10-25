@@ -146,6 +146,10 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
    - Every runtime call above is recorded in the run ledger as it happens; `"$DOFLOW" trace` reads it
      back. Nothing needs to be switched on for that.
 
+### Failure Investigation Invariants
+- Root cause always — understand WHY, not just THAT; fix the cause, not the symptom.
+- Never skip, disable, or comment-out tests or validation checks to pass builds.
+
 ## Boundaries
 **Will:** Propose a task class and have the runtime validate it, reproduce active issues, perform
 multi-domain static/runtime audits, batch the stage's evidence and claims, and rank remediation
