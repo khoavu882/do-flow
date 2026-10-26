@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en" class="booting">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DoFlow Console</title>
+  <meta name="color-scheme" content="light dark">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="site-header">
+    <div class="site-header__inner">
+      <a class="brand" href="#/"><span class="brand__name">DoFlow</span> <span class="brand__product">Console</span></a>
+      <nav class="nav" aria-label="Primary">
+        <ul>
+          <li><a class="nav__link" href="#/">Runs</a></li>
+          <li><a class="nav__link" href="#/workflows">Workflows</a></li>
+        </ul>
+      </nav>
+      <p class="conn" id="conn" data-state="unknown"><span class="conn__long">Connecting</span><span class="conn__short">Connecting</span></p>
+      <p class="core-version" id="core-version"></p>
+      <div class="theme" role="radiogroup" aria-label="Theme">
+        <button type="button" role="radio" class="theme__opt" aria-checked="false" tabindex="-1" data-theme-choice="light"><span class="theme__label">Light</span></button>
+        <button type="button" role="radio" class="theme__opt" aria-checked="false" tabindex="-1" data-theme-choice="dark"><span class="theme__label">Dark</span></button>
+        <button type="button" role="radio" class="theme__opt" aria-checked="true" tabindex="0" data-theme-choice="system"><span class="theme__label">System</span></button>
+      </div>
+    </div>
+  </header>
+  <div class="banner-slot" id="banner-slot"></div>
+  <main id="main" class="page" tabindex="-1"></main>
+  <div class="vh" id="announcer" aria-live="polite" aria-atomic="true"></div>
+  <noscript><p class="noscript">The DoFlow Console needs JavaScript. Run <code>doflow ui</code> in a browser with it turned on.</p></noscript>
+</body>
+</html>
