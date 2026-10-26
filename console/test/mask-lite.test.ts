@@ -49,8 +49,8 @@ test('a planted secret the core left is masked', () => {
   assert.ok(!maskLite(`file:\n${PEM_BLOCK}\ndone`).includes('MIIEowIBAAKCAQEA'));
   assert.equal(maskLite('mail jane.doe@example.invalid please'), `mail ${EMAIL} please`);
   assert.equal(maskLite('host 10.20.30.40 up'), `host ${IP} up`);
-  assert.equal(maskLite('see /Users/jane/work/x.ts'), `see /Users/${MASKED}/work/x.ts`);
-  assert.equal(maskLite('see /home/jane/work/x.ts'), `see /home/${MASKED}/work/x.ts`);
+  assert.equal(maskLite('see /Users/example/work/x.ts'), `see /Users/${MASKED}/work/x.ts`);
+  assert.equal(maskLite('see /home/example/work/x.ts'), `see /home/${MASKED}/work/x.ts`);
 });
 
 test('masked input stays masked: a second pass changes nothing, and no marker is removed', () => {
