@@ -437,12 +437,38 @@ function isNonEmptyDependency(value: any) {
   return true;
 }
 
-function checkZeroDependencies(packageText: any, adviceGuardText: any) {
+// console/package.json (row 093) may carry Pele as its one exact-pinned devDependency and nothing else.
+const CONSOLE_DEV_DEPENDENCIES: any = ['pele'];
+const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
+function checkConsoleManifest(consoleText: any) {
+  const errors: any = [];
+  if (consoleText === null || consoleText === undefined) return errors;
+  const manifest = JSON.parse(consoleText);
+  for (const key of FORBIDDEN_DEPENDENCY_KEYS) {
+    if (isNonEmptyDependency(manifest[key])) errors.push(`console/package.json has ${key}`);
+  }
+  const dev = manifest.devDependencies;
+  if (isNonEmptyDependency(dev)) {
+    if (typeof dev !== 'object' || Array.isArray(dev)) {
+      errors.push('console/package.json devDependencies is not a name-to-version map');
+    } else {
+      for (const [name, version] of Object.entries(dev)) {
+        if (!CONSOLE_DEV_DEPENDENCIES.includes(name)) errors.push(`console/package.json devDependencies has ${name} (only ${CONSOLE_DEV_DEPENDENCIES.join(', ')} is allowed)`);
+        else if (typeof version !== 'string' || !EXACT_VERSION.test(version)) errors.push(`console/package.json devDependencies ${name} is ${JSON.stringify(version)}, not an exact version`);
+      }
+    }
+  }
+  return errors;
+}
+
+function checkZeroDependencies(packageText: any, adviceGuardText: any, consolePackageText?: any) {
   const errors: any = [];
   const manifest = JSON.parse(packageText);
   for (const key of FORBIDDEN_DEPENDENCY_KEYS) {
     if (isNonEmptyDependency(manifest[key])) errors.push(`package.json has ${key}`);
   }
+  errors.push(...checkConsoleManifest(consolePackageText));
   if (Array.isArray(manifest.files)) {
     for (const entry of manifest.files) {
       if (typeof entry === 'string') {
@@ -699,6 +725,16 @@ test('G45.5: the package has no runtime dependency and G30.2 is still enforced',
   assert.deepEqual(checkZeroDependencies(
     fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'),
     fs.readFileSync(path.join(REPO, 'test/guards/advice.test.ts'), 'utf8'),
+  ), []);
+});
+
+test('G45.5: console/package.json, when present, has no dependency map and only an exact pele devDependency', () => {
+  const file = path.join(REPO, 'console/package.json');
+  const consoleText = fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : null;
+  assert.deepEqual(checkZeroDependencies(
+    fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'),
+    fs.readFileSync(path.join(REPO, 'test/guards/advice.test.ts'), 'utf8'),
+    consoleText,
   ), []);
 });
 
@@ -1063,4 +1099,22 @@ test('G45.7 self-test: a planted gen_ai key in kinds fails checkRegistryShape', 
   copy.kinds.hook.fields.gen_ai_model = { name: 'gen_ai.request.model', class: 'T2', type: 'token', phase: 'P2' };
   const errors = checkRegistryShape(copy);
   assert.match(errors.join('\n'), /gen_ai/);
+});
+
+test('G45.5 self-test: console/package.json with a dependency map or a devDependency other than an exact pele fails', () => {
+  const guard = "test('G30.2: shipped package has no runtime dependencies', () => {});";
+  const run = (text: any) => checkZeroDependencies('{}', guard, text);
+  assert.deepEqual(run(null), []);
+  assert.deepEqual(run('{}'), []);
+  assert.deepEqual(run('{"dependencies":{}}'), []);
+  assert.deepEqual(run('{"devDependencies":{"pele":"1.2.3"}}'), []);
+  assert.deepEqual(run('{"dependencies":{"x":"1"}}'), ['console/package.json has dependencies']);
+  assert.deepEqual(run('{"peerDependencies":{"x":"1"}}'), ['console/package.json has peerDependencies']);
+  assert.deepEqual(run('{"optionalDependencies":{"x":"1"}}'), ['console/package.json has optionalDependencies']);
+  assert.deepEqual(run('{"bundledDependencies":["x"]}'), ['console/package.json has bundledDependencies']);
+  assert.deepEqual(run('{"bundleDependencies":["x"]}'), ['console/package.json has bundleDependencies']);
+  assert.deepEqual(run('{"devDependencies":{"left-pad":"1"}}'), ['console/package.json devDependencies has left-pad (only pele is allowed)']);
+  assert.deepEqual(run('{"devDependencies":{"pele":"^1.0.0"}}'), ['console/package.json devDependencies pele is "^1.0.0", not an exact version']);
+  assert.deepEqual(run('{"devDependencies":{"pele":"1.0.0","left-pad":"1"}}'), ['console/package.json devDependencies has left-pad (only pele is allowed)']);
+  assert.equal(run('{"devDependencies":["pele"]}').length, 1);
 });
