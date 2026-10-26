@@ -600,7 +600,8 @@ pattern, and G26 checks the two agree.
 Run checks appropriate to the change:
 
 ```bash
-npm test                                   # the whole suite, including test/guards/
+npm test                                   # the whole suite, including test/guards/ — the gate
+npm run test:fast                          # guards + unit files that start no process (test/helper/fast-tier.ts), ~1 min — the inner loop
 node --test test/guards/registry.test.ts   # a single guard while iterating
 bash test/doflow-chain-test.sh             # shell suites — not part of npm test
 bash test/hooks/test-hooks.sh              # shell suites — not part of npm test
@@ -608,7 +609,7 @@ bash test/verify-hooks.sh                  # shell suites — not part of npm te
 bash test/code-review-fixtures.sh          # do-code-review's analyzer fixtures, outside npm test
 pip install -r requirements.txt            # docs deps, once per environment — see note below
 mkdocs build --strict --site-dir /tmp/doflow-docs-site
-d="$(mktemp -d)"; TMPDIR="$d" npm test; find "$d" -mindepth 1 -maxdepth 1 -name 'doflow-*'; rm -rf "$d"   # test debris check, outside npm test
+d="$(mktemp -d)"; TMPDIR="$d" npm test; find "$d" "$d/doflow-test.noindex" -mindepth 1 -maxdepth 1 -name 'doflow-*'; rm -rf "$d"   # test debris check, outside npm test (test temp folders live under doflow-test.noindex)
 node test/explore/ledger-sampler.ts --help   # opt-in sequence sampler, outside npm test
 node --test test/explore/ledger-controls.ts  # the sampler's slow controls, outside npm test
 ```
