@@ -439,7 +439,10 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     });
     assert.equal(c.calls.length, 1);
     assert.equal(c.calls[0].length, 1, 'ask takes one options object');
-    assert.deepEqual(c.calls[0][0], {
+    const { signal, ...options } = c.calls[0][0];
+    assert.ok(signal instanceof AbortSignal, 'the call carries the budget signal');
+    assert.equal(signal.aborted, false, 'an answer inside the budget is not aborted');
+    assert.deepEqual(options, {
       questionSet: QUESTION_SET, kind: 'tier', staticAnswer: 'light', caller: 'brief-tools', taskId: 'task-abc', record: false, model: 'm',
     });
     assert.equal(res.advisorPick, 'frontier');
@@ -625,5 +628,48 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     assert.equal(run.status, 0, run.stderr);
     assert.equal(run.stdout.trim(), 'shadow');
     assert.ok(Date.now() - started < 10000, `the process stayed open for ${Date.now() - started}ms`);
+  });
+
+  test('C-11: the dispatcher budget aborts the real client request, so a stalled server does not hold the process open', async (t) => {
+    const s = store(t);
+    const sockets = new Set<any>();
+    const server = require('node:http').createServer(() => { /* accept and never answer */ });
+    server.on('connection', (socket: any) => { sockets.add(socket); });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    t.after(() => { for (const socket of sockets) socket.destroy(); server.close(); });
+    const endpoint = `http://127.0.0.1:${server.address().port}`;
+    const settingFile = path.join(s.roots['config-home'], 'decision-model.json');
+    fs.mkdirSync(path.dirname(settingFile), { recursive: true });
+    fs.writeFileSync(settingFile, JSON.stringify({ schema: 1, enabled: true, provider: 'ollama', endpoint, model: 'clef-flash' }));
+    const script = `
+      const { interceptDecisionPoint } = require(${JSON.stringify(DISPATCHER)});
+      const { createAdviceClient } = require(${JSON.stringify(path.join(REPO_ROOT, 'src/runtime/advice/client.ts'))});
+      const { loadAdviceRegistry } = require(${JSON.stringify(path.join(REPO_ROOT, 'src/runtime/advice/registry.ts'))});
+      const { loadStorageRegistry } = require(${JSON.stringify(path.join(REPO_ROOT, 'src/runtime/storage/registry.ts'))});
+      const { resolveRoots } = require(${JSON.stringify(path.join(REPO_ROOT, 'src/runtime/storage/roots.ts'))});
+      const repoRoot = ${JSON.stringify(REPO_ROOT)};
+      const roots = resolveRoots({ registry: loadStorageRegistry({ repoRoot }), projectRoot: ${JSON.stringify(s.projectRoot)}, env: ${JSON.stringify(s.env)} });
+      const adviceRegistry = { ...loadAdviceRegistry({ repoRoot }).registry, timeoutMs: 60000 };
+      const adviceClient = createAdviceClient({ adviceRegistry, roots });
+      interceptDecisionPoint({ kind: 'tier', caller: 'brief-tools', state: ${JSON.stringify(QUESTION_SET.state)}, staticPick: 'light',
+        questionSet: ${JSON.stringify(QUESTION_SET)}, adviceRegistry: { timeoutMs: 300 },
+        projectRoot: ${JSON.stringify(s.projectRoot)}, env: ${JSON.stringify(s.env)} },
+        { adviceClient, roots, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' } })
+        .then((res) => console.log(res.mode));`;
+    const started = Date.now();
+    const child = require('node:child_process').spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk: any) => { stdout += chunk; });
+    child.stderr.on('data', (chunk: any) => { stderr += chunk; });
+    const killer = setTimeout(() => child.kill('SIGKILL'), 15000);
+    const code = await new Promise((resolve) => child.on('close', resolve));
+    clearTimeout(killer);
+    const elapsed = Date.now() - started;
+    assert.ok(elapsed < 10000, `the process stayed open for ${elapsed}ms`);
+    assert.equal(code, 0, stderr);
+    assert.equal(stdout.trim(), 'shadow');
+    assert.equal(sockets.size, 1, 'the client reached the stalled server');
+    assert.deepEqual(s.lines().map((line: any) => [line.type, line.reason]), [['miss', 'timeout']]);
   });
 });

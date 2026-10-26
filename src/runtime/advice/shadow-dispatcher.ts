@@ -46,6 +46,8 @@ interface AskOptions {
   taskId: string | null;
   record: false;
   model?: string;
+  /** Aborted when the dispatcher's budget ends (client.ts ask). */
+  signal?: { readonly aborted: boolean };
 }
 
 interface AdviceClient {
@@ -129,8 +131,9 @@ function budgetMs(context: DecisionPointContext): number {
 
 /**
  * Asks the advisor with `model` (the one effective model; the client's own setting when null), bounded by `budget`.
- * The bound's timer is unref'd, so a pending call never holds the process open. The client is asked not to record:
- * the dispatcher records the call itself.
+ * When the budget ends the call's signal is aborted, so the client drops its request, socket and timer; the bound's own
+ * timer is unref'd, so neither it nor a client that ignores the signal holds the process open. The client is asked
+ * not to record: the dispatcher records the call itself.
  */
 async function askAdvisor(context: DecisionPointContext, services: DispatcherServices, model: string | null, budget: number): Promise<AdvisorCall> {
   const startedAt = Date.now();
@@ -138,6 +141,7 @@ async function askAdvisor(context: DecisionPointContext, services: DispatcherSer
     status, pick: null, answer: null, reason, provider: res?.provider ?? null, model: res?.model ?? model, durationMs: Date.now() - startedAt,
   });
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const controller = new AbortController();
   try {
     const client: AdviceClient = services.adviceClient || createAdviceClient({
       adviceRegistry: context.adviceRegistry,
@@ -151,10 +155,11 @@ async function askAdvisor(context: DecisionPointContext, services: DispatcherSer
       caller: context.caller,
       taskId: context.taskId ?? null,
       record: false,
+      signal: controller.signal,
     };
     if (model) options.model = model;
     const timeout = new Promise<'timeout'>((resolve) => {
-      timer = setTimeout(() => resolve('timeout'), budget);
+      timer = setTimeout(() => { controller.abort(); resolve('timeout'); }, budget);
       timer.unref?.();
     });
     const res = await Promise.race([client.ask(options), timeout]);

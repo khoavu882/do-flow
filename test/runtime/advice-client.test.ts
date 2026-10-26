@@ -346,11 +346,12 @@ test('084 C-3: a model override is the model asked, recorded and reported; unset
 });
 
 test('084 C-3: a model override never turns an off setting on', async (t) => {
-  const server = await startFakeServer();
-  onClose(t, server);
+  let requests = 0;
+  const counting = { request() { requests += 1; throw new Error('unexpected request'); } };
   const { createClient, roots }: any = fixture(t, { setting: false, lookup: loopbackLookup });
-  const result = await createClient().ask({ questionSet: CHOICE_SET, kind: 'tier', caller: 'advise', model: 'per-kind:1b' });
+  const result = await createClient({ httpModule: counting, httpsModule: counting })
+    .ask({ questionSet: CHOICE_SET, kind: 'tier', caller: 'advise', model: 'per-kind:1b' });
   assert.equal(result.status, 'off');
-  assert.equal(server.requests.length, 0);
+  assert.equal(requests, 0, 'no transport request is made');
   assert.equal(records(roots).length, 0);
 });

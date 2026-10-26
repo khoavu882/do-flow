@@ -42,7 +42,14 @@ function networkReason(error: any) {
     ? 'timeout' : 'unreachable';
 }
 
-function requestAction({ endpoint, action, pinnedLookup, timeoutMs, httpModule = http, httpsModule = https }: any) {
+function timeoutError(message: string) {
+  const error: any = new Error(message);
+  error.code = 'ADVICE_TIMEOUT';
+  return error;
+}
+
+/** `signal`, when given, aborts the request the way its own timeout does: the request is destroyed and the timer cleared. */
+function requestAction({ endpoint, action, pinnedLookup, timeoutMs, signal, httpModule = http, httpsModule = https }: any) {
   return new Promise<any>((resolve, reject) => {
     let request: any;
     let settled = false;
@@ -50,15 +57,18 @@ function requestAction({ endpoint, action, pinnedLookup, timeoutMs, httpModule =
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener?.('abort', onAbort);
       if (error) reject(error);
       else resolve(response);
     };
-    const timer = setTimeout(() => {
-      const error: any = new Error(`decision model request timed out after ${timeoutMs}ms`);
-      error.code = 'ADVICE_TIMEOUT';
+    const stop = (error: any) => {
       request?.destroy(error);
       finish(error);
-    }, timeoutMs);
+    };
+    const onAbort = () => stop(timeoutError('decision model request aborted by the caller'));
+    const timer = setTimeout(() => stop(timeoutError(`decision model request timed out after ${timeoutMs}ms`)), timeoutMs);
+    if (signal?.aborted) { onAbort(); return; }
+    signal?.addEventListener?.('abort', onAbort, { once: true });
 
     try {
       const url = new URL(endpoint);
@@ -118,8 +128,11 @@ function createAdviceClient({
   httpsModule = https,
   clock = () => new Date(),
 }: any = {}) {
-  /** `model`, when given, replaces the setting's model for this call: it is the model asked, recorded and reported. */
-  async function ask({ questionSet, kind, staticAnswer, caller, taskId = null, record = true, model }: any = {}) {
+  /**
+   * `model`, when given, replaces the setting's model for this call: it is the model asked, recorded and reported.
+   * `signal`, when given, ends the call early: an in-flight request is destroyed and the call is unavailable with 'timeout'.
+   */
+  async function ask({ questionSet, kind, staticAnswer, caller, taskId = null, record = true, model, signal }: any = {}) {
     const startedAt = Date.now();
     let setting: any = null;
     const effectiveKind = typeof kind === 'string' && kind ? kind : 'adhoc';
@@ -177,6 +190,7 @@ function createAdviceClient({
       if (!endpointCheck.ok) return unavailable(endpointCheck.reason || 'non-loopback', endpointCheck.message);
       const remainingMs = adviceRegistry.timeoutMs - durationSince(startedAt);
       if (remainingMs <= 0) return unavailable('timeout', 'decision model request budget exhausted');
+      if (signal?.aborted) return unavailable('timeout', 'decision model request aborted by the caller');
 
       let response;
       try {
@@ -185,6 +199,7 @@ function createAdviceClient({
           action: request,
           pinnedLookup: endpointCheck.pinnedLookup,
           timeoutMs: remainingMs,
+          signal,
           httpModule,
           httpsModule,
         });

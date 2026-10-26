@@ -46,7 +46,7 @@ for (const [name, corpus] of Object.entries(CORPORA)) {
     const repoRoot = projectWithCorpus(t, corpus);
     const res = await evaluateBenchBar('tier', 'm', { repoRoot });
     assert.equal(res.passed, false);
-    assert.equal(typeof res.reason, 'string');
+    assert.equal(res.reason, "no trusted bench scores ship for kind 'tier' and model 'm'");
   });
 }
 
