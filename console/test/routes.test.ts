@@ -151,12 +151,34 @@ test('GET /api/runs/:slug/:taskId: status, timeline, attempts and the class work
   assert.equal(reply.body.timeline.taskId, 't1');
   assert.equal(reply.body.tasks.graph.graphPlan, true);
   assert.equal(reply.body.workflow.taskClass, 'feature');
-  assert.deepEqual(runner.calls.map((call) => call.shape).sort(), ['attempts', 'status', 'timeline', 'workflow']);
+  assert.deepEqual(runner.calls.map((call) => call.shape).sort(), ['attempts', 'list', 'status', 'timeline', 'workflow']);
   const params = Object.fromEntries(runner.calls.map((call) => [call.shape, call.params]));
   assert.deepEqual(params.status, { taskId: 't1', slug: '093-console-web-ui' });
   assert.deepEqual(params.timeline, { taskId: 't1', slug: '093-console-web-ui' });
   assert.deepEqual(params.attempts, { slug: '093-console-web-ui' });
   assert.deepEqual(params.workflow, { taskClass: 'feature' });
+});
+
+/** The list fixture with its `t1` row moved to feature `slug` (the fixture row is slug-less). */
+function listWith(slug: string | null) {
+  const list = fixture('list');
+  for (const row of list.runs) if (row.taskId === 't1') row.featureSlug = slug;
+  return list;
+}
+
+test('GET /api/runs/:slug/:taskId: featureSlug, startedAt, updatedAt and origin come from the list row with the same id and slug', async (t) => {
+  const row = listWith('s1').runs.find((entry: any) => entry.taskId === 't1');
+  const { json } = await harness(scripted({ list: () => ok(listWith('s1')) }), t);
+  const { run } = (await json('/api/runs/s1/t1')).body;
+  assert.deepEqual([run.featureSlug, run.startedAt, run.updatedAt, run.origin], [row.featureSlug, row.startedAt, row.updatedAt, row.origin]);
+  assert.ok(run.updatedAt);
+  // Same id under another slug, or no row at all: the fields stay null.
+  for (const list of [listWith('s2'), listWith(null), { v: 1, runs: [], unreadable: [] }]) {
+    const other = await harness(scripted({ list: () => ok(list) }), t);
+    const reply = await other.json('/api/runs/s1/t1');
+    assert.equal(reply.status, 200);
+    assert.deepEqual([reply.body.run.featureSlug, reply.body.run.startedAt, reply.body.run.updatedAt, reply.body.run.origin], [null, null, null, null]);
+  }
 });
 
 test('GET /api/runs/:slug/:taskId: tasks null with tasksReason no-plan (inspect error plan-unreadable) and legacy-plan (no graph header)', async (t) => {
@@ -190,6 +212,10 @@ test('error mapping: runner and projector failures become the IC-005 codes with 
     ['/api/runs/s1/t1', { attempts: () => ({ ok: false, code: 'core-error', exit: 1, errorId: 'plan-unreadable' }) }, 502, errorBody('core-error', 'attempts', 1)],
     ['/api/runs/s1/t1', { workflow: () => ({ ok: false, code: 'core-error', exit: null }) }, 502, errorBody('core-error', 'workflow')],
     ['/api/runs', { list: () => ({ ok: false, code: 'core-error', exit: 1, errorId: 'cannot-list-checkouts' }) }, 502, errorBody('cannot-list-checkouts', 'list', 1)],
+    ['/api/runs/s1/t1', { list: () => ({ ok: false, code: 'core-error', exit: 1, errorId: 'cannot-list-checkouts' }) }, 502, errorBody('cannot-list-checkouts', 'list', 1)],
+    ['/api/runs/s1/t1', { list: () => ({ ok: false, code: 'core-error', exit: 1 }) }, 502, errorBody('core-error', 'list', 1)],
+    ['/api/runs/s1/t1', { list: () => ({ ok: false, code: 'core-unreachable', exit: null }) }, 503, errorBody('core-unreachable', 'list')],
+    ['/api/runs/s1/t1', { list: () => ok({ ...fixture('list'), v: 2 }) }, 502, errorBody('core-contract-mismatch', 'list', 0)],
     ['/api/runs', { list: () => ({ ok: false, code: 'core-error', exit: 1 }) }, 502, errorBody('core-error', 'list', 1)],
     ['/api/runs', { list: () => ({ ok: false, code: 'core-error', exit: 1, errorId: 'usage' }) }, 502, errorBody('core-error', 'list', 1)],
     ['/api/runs', { list: () => ({ ok: false, code: 'core-error', exit: 2 }) }, 502, errorBody('core-error', 'list', 2)],

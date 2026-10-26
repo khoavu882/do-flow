@@ -147,11 +147,13 @@ async function info(runner: Runner): Promise<Reply> {
   return jsonReply(200, { v: 1, core: { version: checked.version, inRange: checked.inRange }, capabilities: capabilities.body.capabilities });
 }
 
+/** A failed `list`: the core's own id for a checkout enumeration failure (workflow-orchestrator.ts listRuns), else its IC-005 error. */
+const listFailure = (list: Read & { ok: false }): Reply =>
+  list.errorId === 'cannot-list-checkouts' ? errorReply(502, 'cannot-list-checkouts', 'list', list.exit) : list.reply;
+
 async function runs(runner: Runner): Promise<Reply> {
   const list = await read(runner, 'list', {});
-  if (list.ok) return jsonReply(200, list.body);
-  // The core's own id for a checkout enumeration failure (workflow-orchestrator.ts listRuns); any other failure is core-error.
-  return list.errorId === 'cannot-list-checkouts' ? errorReply(502, 'cannot-list-checkouts', 'list', list.exit) : list.reply;
+  return list.ok ? jsonReply(200, list.body) : listFailure(list);
 }
 
 /**
@@ -177,6 +179,7 @@ async function runDetail(runner: Runner, slug: string, taskId: string): Promise<
   const statusCall = runner.run('status', { taskId, slug });
   const timelineCall = read(runner, 'timeline', { taskId, slug });
   const tasksCall = tasks(runner, slug);
+  const listCall = read(runner, 'list', {});
   const status = await statusCall;
   // `status` and `timeline` exit 1 when no such run exists (092 N7: a listed row status cannot open).
   if (!status.ok) return status.exit === 1 ? errorReply(404, 'run-not-found', 'status', 1) : failureReply('status', status);
@@ -191,7 +194,12 @@ async function runDetail(runner: Runner, slug: string, taskId: string): Promise<
   if (!timeline.ok) return timeline.exit === 1 ? errorReply(404, 'run-not-found', 'timeline', 1) : timeline.reply;
   const graph = await tasksCall;
   if (!graph.ok) return graph.reply;
-  const body: Record<string, unknown> = { v: 1, run: run.body, timeline: timeline.body, tasks: graph.tasks, workflow: workflow.body };
+  // `status` carries no slug, times or origin; the list row of the same id and slug does (null when none matches).
+  const list = await listCall;
+  if (!list.ok) return listFailure(list);
+  const row = list.body.runs.find((entry: any) => entry.taskId === taskId && entry.featureSlug === slug);
+  const head = { featureSlug: row ? row.featureSlug : null, startedAt: row ? row.startedAt : null, updatedAt: row ? row.updatedAt : null, origin: row ? row.origin : null };
+  const body: Record<string, unknown> = { v: 1, run: { ...run.body, ...head }, timeline: timeline.body, tasks: graph.tasks, workflow: workflow.body };
   if (graph.tasks === null) body.tasksReason = graph.reason;
   return jsonReply(200, body);
 }
