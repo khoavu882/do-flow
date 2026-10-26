@@ -14,6 +14,18 @@ DoFlow configuration layers resolve settings across registry defaults, environme
 | `advice.provider` | enum | `ollama` | global-only | — | `decision-model.json` | Decision-model provider id from advice.json. |
 | `advice.endpoint` | url | `http://127.0.0.1:11434` | global-only | — | `decision-model.json` | Decision-model endpoint; default is the provider's defaultEndpoint. |
 | `advice.model` | string | — | project-overridable | — | `decision-model.json` | Decision-model name; a project may choose it while advice is on. |
+| `advice.kinds.tier` | enum | — | project-overridable | — | — | Advice mode for the tier kind: off, shadow \(record only\) or act; unset keeps the kind's own path, the highest layer that sets it decides and an invalid value is off. |
+| `advice.kinds.task-class` | enum | — | project-overridable | — | — | Advice mode for the task-class kind: off, shadow \(record only\) or act; unset keeps the kind's own path, the highest layer that sets it decides and an invalid value is off. |
+| `advice.kinds.verify-risk` | enum | — | project-overridable | — | — | Advice mode for the verify-risk kind: off, shadow \(record only\) or act; unset keeps the kind's own path, the highest layer that sets it decides and an invalid value is off. |
+| `advice.kinds.review-depth` | enum | — | project-overridable | — | — | Advice mode for the review-depth kind: off, shadow \(record only\) or act; unset keeps the kind's own path, the highest layer that sets it decides and an invalid value is off. |
+| `advice.kinds.mcp-need` | enum | — | project-overridable | — | — | Advice mode for the mcp-need kind: off, shadow \(record only\) or act; unset keeps the kind's own path, the highest layer that sets it decides and an invalid value is off. |
+| `advice.kinds.followup-triage` | enum | — | project-overridable | — | — | Advice mode for the followup-triage kind: off, shadow \(record only\) or act; unset keeps the kind's own path, the highest layer that sets it decides and an invalid value is off. |
+| `advice.models.tier` | string | — | project-overridable | — | — | Decision-model name for the tier kind; unset uses advice.model. |
+| `advice.models.task-class` | string | — | project-overridable | — | — | Decision-model name for the task-class kind; unset uses advice.model. |
+| `advice.models.verify-risk` | string | — | project-overridable | — | — | Decision-model name for the verify-risk kind; unset uses advice.model. |
+| `advice.models.review-depth` | string | — | project-overridable | — | — | Decision-model name for the review-depth kind; unset uses advice.model. |
+| `advice.models.mcp-need` | string | — | project-overridable | — | — | Decision-model name for the mcp-need kind; unset uses advice.model. |
+| `advice.models.followup-triage` | string | — | project-overridable | — | — | Decision-model name for the followup-triage kind; unset uses advice.model. |
 | `storage.prune` | enum | `on` | project-overridable | — | `prune` | Storage pruning; project value applies to project roots only. |
 | `storage.retentionHours` | integer | `4320` | project-overridable | `DOFLOW_RETENTION_HOURS` | — | Lifecycle-events window in hours; an explicit value applies even while pruning is off. |
 | `failure.capture` | enum | `on` | global-only | `DOFLOW_FAILURE_CAPTURE` | `failures/off` | Capture of DoFlow's own failures on this machine; any layer saying off wins. |

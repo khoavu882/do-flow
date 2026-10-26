@@ -28,7 +28,8 @@ const { jsonFailure, validateValue } = require('./files.ts');
 
 const REGISTRY_FILE = 'core/registry/settings.json';
 
-const KEY_RE = /^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
+// A segment after the namespace is camelCase, or kebab-case when it names a registry id (`advice.kinds.task-class`).
+const KEY_RE = /^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*(-[a-z0-9]+)*)+$/;
 const TYPES = ['boolean', 'enum', 'integer', 'model-id', 'model-list', 'string', 'string-list', 'url', 'worker-billing', 'worker-list', 'worker-models'];
 const SCOPES = ['global-only', 'project-only', 'narrow-only', 'project-overridable'];
 const COMBINES = ['override', 'narrowest', 'union', 'subset'];
@@ -71,9 +72,9 @@ function has(object: object, field: string): boolean {
   return Object.hasOwn(object, field);
 }
 
-/** `DOFLOW_<KEY_UPPER_SNAKE>`: dots become underscores and a camelCase hump gets one. */
+/** `DOFLOW_<KEY_UPPER_SNAKE>`: dots and hyphens become underscores and a camelCase hump gets one. */
 function derivedEnvName(key: string): string {
-  return `DOFLOW_${key.replace(/\./g, '_').replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase()}`;
+  return `DOFLOW_${key.replace(/[.-]/g, '_').replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase()}`;
 }
 
 function sameList(a: readonly unknown[], b: readonly unknown[]): boolean {
@@ -131,7 +132,7 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
 
   function validateKey(name: string, spec: any): void {
     const err = (message: string): void => { errors.push(`${name} ${message}`); };
-    if (!KEY_RE.test(name)) err('is not a valid key name (lowercase namespace, a dot, then a camelCase name)');
+    if (!KEY_RE.test(name)) err('is not a valid key name (lowercase namespace, a dot, then a camelCase or kebab-case name)');
     if (!isObject(spec)) { err('must be an object'); return; }
     for (const field of Object.keys(spec)) if (!SPEC_FIELDS.includes(field)) err(`has unknown field '${field}'`);
     for (const field of REQUIRED_FIELDS) if (!has(spec, field)) err(`is missing '${field}'`);
@@ -255,7 +256,8 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     const hasDefaultRef = has(spec, 'defaultRef');
     if (hasDefault === hasDefaultRef) err("needs exactly one of 'default' or 'defaultRef'");
     if (keyed && (!hasDefault || spec.default !== null)) err(`a ${type} key must default to null`);
-    if (hasDefault && !(spec.default === null && (free || keyed || type === 'integer'))) {
+    // A null default is unset: the consumer keeps its own unset path (an enum key such as advice.kinds.<kind>).
+    if (hasDefault && !(spec.default === null && (free || keyed || type === 'integer' || type === 'enum'))) {
       const fault = faultOf(spec.default);
       if (fault) err(`default is not valid: ${fault}`);
     }

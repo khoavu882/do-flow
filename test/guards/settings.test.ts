@@ -403,3 +403,62 @@ test('G44 S6: settings files are declared as existing stores with matching write
   const errors = checkSettingsStores(control);
   assert.ok(errors.some((message: any) => message.includes('omits src/runtime/settings/write.ts')));
 });
+
+// A file outside src/runtime/settings/ that names a settings layer file may read keys straight from it, past the view
+// (which throws on an unregistered key). Every key literal it names in a registered namespace must be registered; a
+// `${...}` placeholder stands for one key segment.
+const LAYER_FILE_NAME = /settings(?:\.local)?\.json/;
+const KEY_LITERAL = /(['"`])([a-z][a-zA-Z0-9]*(?:\.(?:[a-zA-Z0-9-]+|\$\{[^}`'"]+\}))+)\1/g;
+const FILE_NAME_LITERAL = /\.(?:json|jsonl|md|ts|js|sh|ya?ml|txt|lock)$/;
+
+function unregisteredSettingsReads(sources: any, keys: string[]) {
+  const namespaces = new Set(keys.map((key) => key.split('.')[0]));
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const errors: string[] = [];
+  for (const { file, text } of sources) {
+    if (file.startsWith('src/runtime/settings/') || !LAYER_FILE_NAME.test(text)) continue;
+    for (const match of stripComments(text).matchAll(KEY_LITERAL)) {
+      const literal = match[2];
+      if (!namespaces.has(literal.split('.')[0]) || FILE_NAME_LITERAL.test(literal)) continue;
+      const pattern = new RegExp(`^${literal.split(/\$\{[^}]+\}/).map(escape).join('[a-z0-9-]+')}$`);
+      if (!keys.some((key) => pattern.test(key))) errors.push(`${file} reads ${literal}, which ${SETTINGS_FILE} does not register`);
+    }
+  }
+  return [...new Set(errors)];
+}
+
+/** Every advice kind in core/registry/advice.json has its per-kind mode and model keys. */
+function missingAdviceKindKeys(advice: any, keys: string[]) {
+  return advice.kinds.flatMap((kind: any) => [`advice.kinds.${kind.id}`, `advice.models.${kind.id}`])
+    .filter((key: string) => !keys.includes(key))
+    .map((key: string) => `${SETTINGS_FILE} does not register ${key}`);
+}
+
+test('G44 S7: every key a direct settings-file reader names is registered, and every advice kind has its keys', () => {
+  const keys = Object.keys(readJson(SETTINGS_FILE).keys);
+  assert.deepEqual(unregisteredSettingsReads(walkSourceFiles(REPO, 'src'), keys), []);
+  assert.deepEqual(missingAdviceKindKeys(readJson('core/registry/advice.json'), keys), []);
+});
+
+test('G44 S7 control: an unregistered key read by a settings-file reader, and a kind without keys, are rejected', () => {
+  const advice = readJson('core/registry/advice.json');
+  const kindKeys = advice.kinds.flatMap((kind: any) => [`advice.kinds.${kind.id}`, `advice.models.${kind.id}`]);
+  const keys = [...Object.keys(readJson(SETTINGS_FILE).keys), ...kindKeys];
+  const reader = {
+    file: 'src/runtime/fake-reader.ts',
+    text: "const file = path.join(root, '.doflow', 'settings.json');\nget(content, `advice.kinds.${kind}`);\nget(content, 'advice.planted');\nconst other = 'storage.json';",
+  };
+  assert.deepEqual(unregisteredSettingsReads([reader], keys), [
+    `src/runtime/fake-reader.ts reads advice.planted, which ${SETTINGS_FILE} does not register`,
+  ]);
+  const withoutKinds = keys.filter((key) => !key.startsWith('advice.kinds.'));
+  assert.deepEqual(unregisteredSettingsReads([reader], withoutKinds), [
+    `src/runtime/fake-reader.ts reads advice.kinds.\${kind}, which ${SETTINGS_FILE} does not register`,
+    `src/runtime/fake-reader.ts reads advice.planted, which ${SETTINGS_FILE} does not register`,
+  ]);
+  assert.deepEqual(unregisteredSettingsReads([{ ...reader, text: reader.text.replace('settings.json', 'other.json') }], withoutKinds), [],
+    'a file that names no settings layer file is not a direct reader');
+  assert.deepEqual(missingAdviceKindKeys(advice, keys), []);
+  assert.deepEqual(missingAdviceKindKeys(advice, keys.filter((key) => key !== 'advice.models.mcp-need')),
+    [`${SETTINGS_FILE} does not register advice.models.mcp-need`]);
+});
