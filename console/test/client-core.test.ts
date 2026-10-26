@@ -297,6 +297,7 @@ const standard = (target: string, init: any): Reply => {
   if (target === '/api/session') return reply(204);
   if (target === '/api/info') return reply(200, INFO);
   if (target === '/api/runs') return reply(200, RUNS);
+  if (target === '/api/workflows') return reply(200, WORKFLOWS); // F.2: the Workflows view reads it
   return errorReply(404, 'not-found');
 };
 
@@ -743,7 +744,8 @@ test('router: the old view stops polling when the route changes', async () => {
   page.win.dispatch('hashchange');
   await advance(30_000);
   assert.equal(apiCalls(page, '/api/runs').length, runsBefore, 'the Runs poller is gone');
-  assert.ok(apiCalls(page, '/api/info').length >= 4, 'the connection heartbeat stands in for a view with no data');
+  // F.2: Workflows reads /api/workflows, so its own poll (30 s) replaces the heartbeat that stood in while the view had no data.
+  assert.ok(apiCalls(page, '/api/workflows').length >= 2, 'the Workflows view polls its own route');
 });
 
 test('router: the skip link moves focus to the heading without changing the route', async () => {
@@ -2407,4 +2409,84 @@ test('E.7 sessions: the loading skeleton is three checkout rows of the loaded ro
   await advance(400);
   assert.equal(page.main.querySelectorAll('.skel--srow').length, 3);
   assert.equal(text(page.main.querySelector('.vh')), 'Loading sessions');
+});
+
+// ---- F.2: the Workflows view ---------------------------------------------------------------------
+
+const CLASS_IDS = ['feature', 'bug', 'refactor', 'review', 'research', 'documentation', 'dependency-change', 'operations', 'trivial-edit'];
+const wfOf = (taskClass: string, over: any = {}) => ({
+  taskClass, name: `Name of ${taskClass}`,
+  stages: [stageDef('one', [gateDef('gate-x', 'clarification')]), stageDef('two', [], true), stageDef('three', [gateDef('gate-y', 'approval')])], ...over,
+});
+const wfRoute = (list: () => any[]) => (target: string, init: any): Reply => (target === '/api/workflows' ? reply(200, { v: 1, workflows: list() }) : standard(target, init));
+const wfSection = (page: Page, taskClass: string) => page.main.querySelectorAll('.wf').find((s) => s.getAttribute('data-class') === taskClass)!;
+
+test('F.2 workflows: every class from the route gets a heading, an image with a text alternative and its ordered stage list', async () => {
+  const page = await start({ hash: '#/workflows', fetch: wfRoute(() => CLASS_IDS.map((c) => wfOf(c))) });
+  assert.deepEqual(apiCalls(page, '/api/workflows').length > 0, true);
+  const sections = page.main.querySelectorAll('.wf');
+  assert.deepEqual(sections.map((s) => s.getAttribute('data-class')), CLASS_IDS);
+  for (const section of sections) {
+    const taskClass = section.getAttribute('data-class')!;
+    const title = section.querySelector('h2');
+    assert.ok(text(title).startsWith(`Name of ${taskClass}`), 'the heading names the workflow');
+    assert.equal(section.getAttribute('aria-labelledby'), title.getAttribute('id'));
+    const imgs = section.querySelectorAll('img');
+    assert.equal(imgs.length, 1);
+    assert.equal(imgs[0].getAttribute('src'), `/diagrams/${taskClass}.svg`);
+    assert.ok((imgs[0].getAttribute('alt') ?? '').length > 20, 'a non-empty text alternative');
+    assert.match(imgs[0].getAttribute('alt')!, /clarification gate Name of gate-x/);
+    const items = section.querySelectorAll('ol')[0].querySelectorAll('li');
+    assert.equal(section.querySelectorAll('ol').length, 1);
+    assert.deepEqual(items.map((li) => text(li.querySelector('.wf__id'))), ['one', 'Name of gate-x', 'two', 'three', 'Name of gate-y']);
+    assert.match(text(items[2]), /optional/);
+    assert.match(text(items[1]), /clarification gate/);
+    assert.match(text(items[4]), /approval gate/);
+  }
+  assert.deepEqual(current(page), ['Workflows']);
+});
+
+test('F.2 workflows: an image that fires error is replaced by the text fallback, the list stays, the others keep their image and a poll keeps the fallback', async () => {
+  const page = await start({ hash: '#/workflows', fetch: wfRoute(() => [wfOf('feature'), wfOf('bug')]) });
+  const feature = wfSection(page, 'feature');
+  assert.equal(feature.querySelectorAll('img').length, 1);
+  feature.querySelector('img').fire('error');
+  assert.equal(wfSection(page, 'feature').querySelectorAll('img').length, 0, 'no broken image');
+  assert.match(text(wfSection(page, 'feature').querySelector('.wf__fallback')), /Diagram not available/);
+  assert.equal(wfSection(page, 'feature').querySelectorAll('ol')[0].querySelectorAll('li').length, 5, 'the ordered list is still there');
+  assert.equal(wfSection(page, 'bug').querySelectorAll('img').length, 1, 'another class keeps its image');
+  assert.equal(wfSection(page, 'bug').querySelectorAll('.wf__fallback').length, 0);
+  await advance(60_000);
+  assert.equal(wfSection(page, 'feature').querySelectorAll('img').length, 0, 'a later render does not bring the broken image back');
+  assert.equal(wfSection(page, 'feature').querySelectorAll('.wf__fallback').length, 1);
+});
+
+test('F.2 workflows: a class id that is not a plain id never reaches an image path; the list is still shown', async () => {
+  const page = await start({ hash: '#/workflows', fetch: wfRoute(() => [wfOf('../escape')]) });
+  const section = page.main.querySelectorAll('.wf')[0];
+  assert.equal(section.querySelectorAll('img').length, 0);
+  assert.equal(section.querySelectorAll('.wf__fallback').length, 1);
+  assert.equal(section.querySelectorAll('li').length, 5);
+});
+
+test('F.2 workflows hostile text: names, skills, purposes and gate names reach the page as text only', async () => {
+  const hostile = '<img src=x onerror=alert(1)><script>alert(2)</script>';
+  const workflow = wfOf('feature', { name: hostile, stages: [{ ...stageDef('one', [{ ...gateDef('g', 'approval'), name: hostile }]), skill: hostile, purpose: hostile }] });
+  const page = await start({ hash: '#/workflows', fetch: wfRoute(() => [workflow]) });
+  assert.equal(tags(page.main).filter((t) => t === 'img').length, 1, 'only the diagram image');
+  assert.ok(!tags(page.main).includes('script'));
+  assert.ok(text(page.main.querySelector('h2')).includes(hostile));
+  assert.ok(text(page.main.querySelectorAll('li')[0]).includes(hostile));
+});
+
+test('F.2 workflows: an empty route body shows the empty state; a failed read shows the inline error for workflows', async () => {
+  const empty = await start({ hash: '#/workflows', fetch: wfRoute(() => []) });
+  assert.equal(empty.main.querySelectorAll('.wf').length, 0);
+  assert.equal(text(empty.main.querySelector('.empty__title')), 'No workflows listed');
+  uninstallPage();
+  mock.timers.reset();
+  const failed = await start({ hash: '#/workflows', fetch: (target, init) => (target === '/api/workflows' ? errorReply(502, 'core-error') : standard(target, init)) });
+  await advance(400);
+  assert.equal(failed.main.querySelectorAll('.wf').length, 0);
+  assert.match(text(failed.main), /workflows/i);
 });
