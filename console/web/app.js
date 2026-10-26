@@ -430,7 +430,7 @@ function startView(route, { first = false, animate = false, focus = true } = {})
   app.view = view;
   globalThis.document.title = titleFor(route);
   const navHref = navFor(route);
-  setNav(navHref === null ? null : navHref === 'workflows' ? '#/workflows' : '#/');
+  setNav(navHref === null ? null : navHref === 'workflows' ? '#/workflows' : navHref === 'sessions' ? '#/sessions' : '#/');
   paint(view);
   if (!first && focus) {
     globalThis.scrollTo(0, 0);

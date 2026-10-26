@@ -13,6 +13,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { CORE_CLI } = require('./helpers/core-fixture.ts');
 const { RUNS, OWNERS, SCRATCH_ROOT, startFixtureConsole, parseFlags } = require('../scripts/fixture-console.ts');
+const crypto = require('node:crypto');
+const os = require('node:os');
+const { pathToFileURL } = require('node:url');
 
 const DAY = 24 * 60 * 60 * 1000;
 const URL_FORM = /^http:\/\/127\.0\.0\.1:\d+\/#c=[0-9a-f]{64}$/;
@@ -125,6 +128,63 @@ test('the work run has 12 tasks over 3 owners with finished, released and active
   assert.ok(running.every((task: any) => task.state === 'RUNNING'));
   const laneOf = (task: any) => task.attempts.find((entry: any) => entry.state === 'active').owner;
   assert.equal(new Set(running.map(laneOf)).size, 3, 'an active attempt in each of the 3 lanes');
+});
+
+test('the Sessions fixture: two checkouts, hook records from the real scripts, a dead holder, an overlap held by two runs, a 30 h claim, and nothing of the second project', async () => {
+  const reply = await fullApi.get('/api/sessions');
+  assert.equal(reply.status, 200);
+  const { sections, limits } = reply.json;
+  for (const name of ['observed', 'slots', 'runs', 'tasks', 'workers', 'roadmap']) assert.equal(sections[name].ok, true, `${name} is whole`);
+  const key = (id: string) => crypto.createHash('sha256').update(id).digest('hex').slice(0, 16);
+
+  // Two checkouts; the linked one has a commit after every record there.
+  const { checkouts, sessions, store } = sections.observed.data;
+  assert.equal(store, 'present');
+  assert.deepEqual(checkouts.map((c: any) => [c.role, c.current]), [['main', true], ['linked', false]]);
+  // Hook records: the claude session has both records (one lane), the codex one an observation only, the launched unit of the second run.
+  const bySession = (id: string) => sessions.find((entry: any) => entry.sessionKey === key(id));
+  const linked = bySession('fixture-session-linked-RAWID-1');
+  assert.equal(linked.harness, 'claude');
+  assert.equal(linked.model, 'claude-sonnet-4');
+  assert.ok(linked.startedAt !== null && linked.lastHookRecordAt !== null, 'both records joined by the session key');
+  const codex = bySession('fixture-session-main-RAWID-2');
+  assert.equal(codex.harness, 'codex');
+  assert.equal(codex.startedAt, null, 'an observation with no session directory');
+  assert.ok(sessions.some((entry: any) => entry.kind === 'launched' && entry.launched.run === 'run-two' && entry.launched.lineage === 'lin2'));
+  assert.equal(sessions.filter((entry: any) => entry.kind === 'hook').length, 2, 'the second project\'s session is not listed');
+  const text = JSON.stringify(reply.json);
+  assert.ok(!text.includes(key('fixture-session-other-RAWID-3')) && !text.includes('RAWID'), 'no key of another project, no raw session id');
+
+  // Locks: a dead holder in the linked worktree, an unknown one in main, and the second project's, held from another directory.
+  const holders = Object.fromEntries(sections.slots.data.slots.map((slot: any) => [slot.name, slot.holder]));
+  assert.equal(holders.build.alive, false);
+  assert.equal(holders.build.worktreeKey, checkouts[1].worktreeKey);
+  assert.equal(holders.suite.alive, 'unknown');
+  assert.equal(holders['other-suite'].worktreeKey, null);
+
+  // The overlap held by two runs, and the 30 h claim.
+  const entry = sections.tasks.data.find((item: any) => item.slug === RUNS.sessions.slug);
+  assert.deepEqual(entry.overlaps, [{ a: 'S.1', b: 'S.2', fileCount: 1 }]);
+  const claim = (task: string) => entry.active.find((a: any) => a.task === task);
+  assert.notEqual(`${claim('S.1').run}/${claim('S.1').lineage}`, `${claim('S.2').run}/${claim('S.2').lineage}`);
+  assert.ok(Date.now() - Date.parse(claim('S.3').startedAt) > 29 * 60 * 60 * 1000, 'S.3 was claimed about 30 h ago');
+  assert.equal(limits.runsNotChecked, 0);
+
+  // The real body, through the derivation: every conflict kind is there, and the rows come out in order.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-fixture-derive-'));
+  try {
+    fs.cpSync(path.join(__dirname, '..', 'web', 'derive'), path.join(dir, 'derive'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'package.json'), '{"type":"module"}\n');
+    const { deriveSessions } = await import(pathToFileURL(path.join(dir, 'derive', 'sessions.js')).href);
+    const result = deriveSessions(reply.json, Date.now());
+    assert.deepEqual([...new Set(result.conflicts.map((c: any) => c.code))].sort(), ['C1', 'C2', 'C3', 'C4']);
+    assert.deepEqual(result.rows.map((r: any) => r.group), ['current', 'conflict', 'records']);
+    assert.equal(result.rows[2].kind, 'unplaced', 'the lock held from another directory sits in its own last row');
+    assert.equal(result.rows[1].conflicts.map((c: any) => c.code).sort().join(), 'C3,C4', 'the linked checkout: the dead holder and the commit after its last record');
+    assert.equal(result.rows[0].lanes.find((l: any) => l.kind === 'run' && l.run === 'run-two').launched.length, 1, 'the launched unit joined its run lane');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('--empty has no runs; --core-missing serves the boundary and answers every core call core-unreachable', { timeout: 120_000 }, async (t: any) => {
