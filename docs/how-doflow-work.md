@@ -119,11 +119,11 @@ The engine fails closed: a requirement it cannot evaluate reads as unmet.
 
 Each evaluation is recorded under `.doflow/state/readiness/`, so a later step can ask whether the task
 was `READY` before its work began instead of evaluating again with whatever it is handed then. The
-runtime asks it on all eight harnesses: `orchestrate` `handoff` and `complete-stage` of the gated
+runtime asks it on all seven harnesses: `orchestrate` `handoff` and `complete-stage` of the gated
 `implementation` stage refuse without a `READY` record of the stage's template made before the call,
 and name the `readiness` command that clears the refusal; `verify` reports `INCONCLUSIVE` in place
-of `PASS` while a run with that stage pending has no such record. Six harnesses have a hook layer
-(Claude Code, Codex once its hooks are reviewed, Gemini CLI, Pi, Antigravity and Kiro), and there the
+of `PASS` while a run with that stage pending has no such record. Five harnesses have a hook layer
+(Claude Code, Codex once its hooks are reviewed, Pi, Antigravity and Kiro), and there the
 same check also refuses a source edit with the same text: on a feature branch whose three artifacts
 and decision register exist, and while a `feature`, `bug`, `refactor` or `dependency-change` run is
 open with its implementation stage pending (the run is the one named by the host's task id, else by

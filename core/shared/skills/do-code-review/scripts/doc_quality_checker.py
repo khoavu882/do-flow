@@ -91,7 +91,7 @@ def frontmatter_keys(lines: List[str]) -> List[str]:
 def is_agent_spec(path: Path, lines: Optional[List[str]] = None) -> bool:
     """True for a specialist agent-spec file. `agent-specs` is this repo's own SOURCE-TREE
     directory name — every harness projects it to a differently-named directory on install
-    (`agents/` for claude/codex/gemini/copilot/kiro; never `agent-specs/`), so a real installed
+    (`agents/` for claude/codex/copilot/kiro; never `agent-specs/`), so a real installed
     copy would silently never match a directory-name-only check. Since DoFlow is designed to be
     installed anywhere, this checks the installed-shape name too, but path name alone is too
     generic (an unrelated project can have its own unrelated `agents/` folder) — content shape

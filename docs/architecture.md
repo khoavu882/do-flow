@@ -11,7 +11,7 @@ This guide is for contributors changing DoFlow itself. For the user-facing model
 flowchart LR
     Shared[core/shared\ncontent index] --> Registry[core/registry\ncapabilities and assets]
     Registry --> Lifecycle[src/lifecycle\nplan apply verify]
-    Lifecycle -->     Adapters[8 native adapters\nclaude codex gemini opencode\npi copilot kiro antigravity]
+    Lifecycle -->     Adapters[7 native adapters\nclaude codex opencode\npi copilot kiro antigravity]
     Lifecycle --> State[.doflow/state\nneutral ledger]
     Adapters --> Installed[Installed harness tree]
     Installed --> Seam[doflow-run\nthe runtime seam]
@@ -42,15 +42,15 @@ are reported rather than imitated.
 |---|---|
 | `core/shared/` | The single physical source for cross-harness content: guidance, skills, agent specifications, scripts, and templates. Stable IDs and projections, no duplicated bytes |
 | `core/registry/` | Two registry families in one directory: installation (harness capabilities, assets, neutral MCP catalog, lifecycle policy) and runtime (capabilities, routes, workflows, verification, readiness templates, external tools) |
-| `core/harnesses/` | Native per-harness sources that have no cross-harness equivalent — hooks, settings, and native agent definitions for `claude`, `codex`, `gemini`, and `kiro`, the two hook shims under `antigravity/hooks/`, and the `pi/extensions/doflow-guard.js` extension — plus `core/harnesses/shared/` (the hook bridge, the policies, and `locator/`, the one file projected into all eight). The Antigravity adapter still projects into Gemini-compatible paths (`.agents/`, `~/.gemini/config/`) rather than owning a distinct surface |
+| `core/harnesses/` | Native per-harness sources that have no cross-harness equivalent — hooks, settings, and native agent definitions for `claude`, `codex`, and `kiro`, the two hook shims under `antigravity/hooks/`, and the `pi/extensions/doflow-guard.js` extension — plus `core/harnesses/shared/` (the hook bridge, the policies, and `locator/`, the one file projected into all seven). The Antigravity adapter projects into `.agents/` in a project and `~/.gemini/config/` plus the global `~/.gemini/GEMINI.md` for the user, rather than owning a distinct surface |
 | `core/.claude-plugin/` | Claude Code marketplace registry and plugin manifest; `core/` is the plugin root |
 | `core/.codex-plugin/` | Codex plugin manifest for plugin-based distribution |
 | `core/.plugin/` | GitHub Copilot CLI plugin manifest (skills-only); first in Copilot's documented manifest check order |
 | `bin/doflow.js` | The thin CLI entry point (exposed as the `doflow` command) — a forwarder into `src/cli`; it defines no handlers and no parser, so the binary path and the dispatcher seam (`doflow-run`) keep resolving here |
 | `src/cli/` | The CLI itself: argument parsing and the installer command→handler table (`index.ts`), one file per installer command under `commands/`, the runtime-verb forwarding switch (`runtime-commands.ts`, whose implementations stay in `src/runtime/`), and the shared command plumbing (`shared.ts`) — including `buildAdapterRegistry()`, which builds the adapter registry the install/update/remove/reconcile apply paths and some runtime verbs use; `registryLifecycleView` in `src/lifecycle/view.ts` keeps a second, literal construction (mirroring it) for the plan views those commands and `status` print. Fully TypeScript; `bin/doflow.js` stays `.js` as the shebang entry and requires `../src/cli/index.ts` explicitly |
 | `core/shared/scripts/doflow/bin/doflow-run` | The runtime seam: one dispatcher owning the whole verb namespace |
-| `src/adapters/` | Native file formats and verification boundaries, one directory per harness (`claude`, `codex`, `gemini`, `opencode`, `pi`, `copilot`, `kiro`, `antigravity`), each implementing the same six-function contract (`discover, render, plan, apply, remove, verify`) that `src/adapters/index.ts` validates and each also exposing that contract through a uniform `create<Name>Adapter()` factory (`createClaudeAdapter`, `createCodexAdapter`, `createGeminiAdapter`, and so on); `src/adapters/copy-tree.ts` is the shared tree-materializing engine most adapters call into rather than reimplementing file-copy logic; `src/adapters/mcp-entries.ts` holds the MCP entry ownership rules the Claude, Kiro, OpenCode, Copilot and Antigravity adapters share |
-| `src/lifecycle/` | Non-mutating plan, ownership checks, apply/remove orchestration, and verification against the neutral state ledger; reads Gemini hook trust through `hookTrustFor`, exported by `src/adapters/gemini/index.ts`, and does not plan Gemini hooks itself; `src/lifecycle/view.ts` parses TOML through `src/helper/toml.ts` (shared with `src/adapters/codex/config.ts`) and also imports every adapter's factory, Codex included, to build its adapter registry |
+| `src/adapters/` | Native file formats and verification boundaries, one directory per harness (`claude`, `codex`, `opencode`, `pi`, `copilot`, `kiro`, `antigravity`), each implementing the same six-function contract (`discover, render, plan, apply, remove, verify`) that `src/adapters/index.ts` validates and each also exposing that contract through a uniform `create<Name>Adapter()` factory (`createClaudeAdapter`, `createCodexAdapter`, `createOpenCodeAdapter`, and so on); `src/adapters/copy-tree.ts` is the shared tree-materializing engine most adapters call into rather than reimplementing file-copy logic; `src/adapters/mcp-entries.ts` holds the MCP entry ownership rules the Claude, Kiro, OpenCode, Copilot and Antigravity adapters share |
+| `src/lifecycle/` | Non-mutating plan, ownership checks, apply/remove orchestration, and verification against the neutral state ledger; `src/lifecycle/retired-harnesses.ts` releases the files of a retired harness the registry still records; `src/lifecycle/view.ts` parses TOML through `src/helper/toml.ts` (shared with `src/adapters/codex/config.ts`) and also imports every adapter's factory, Codex included, to build its adapter registry |
 | `src/runtime/` | Everything a skill asks for at use time: classification, workflow resolution, capability routing, evidence and claims, readiness, verification and command detection, recovery, tracing, scaffold generation, the per-feature decision register and History compaction (`decision-register.ts`, `history-compactor.ts`), and provider health; `src/runtime/cli-result.ts` holds the exit/error-reporting helpers (`finishRuntime`, `usageError`, `captureCaught`) shared by the verb handlers `src/cli/runtime-commands.ts` dispatches to; it requires nothing from `src/runtime/` at load time, and `captureCaught` lazily requires `failure/capture.ts` |
 | `src/runtime/config-home.ts` | Resolves the one absolute XDG-or-HOME config home shared by Node and shell readers |
 | `src/runtime/settings/files.ts` | Reads and validates project and user settings files |
@@ -177,9 +177,9 @@ real project root.
 
 **The locator is a shim, not a second dispatcher.** `core/harnesses/shared/locator/doflow-run` is
 projected into each harness's own `bin/` directory by the `locator.doflow` asset. It holds no verb
-table — it finds the dispatcher and `exec`s it — so adding a verb never edits eight files. Note the
+table — it finds the dispatcher and `exec`s it — so adding a verb never edits seven files. Note the
 placement, because it decides what a single-harness install can actually do: `locator.doflow` and
-`scripts.doflow`, which carries the dispatcher itself, apply to all eight harnesses, and every
+`scripts.doflow`, which carries the dispatcher itself, apply to all seven harnesses, and every
 harness projects the dispatcher into the same shared `<scope root>/.doflow/scripts`. A tree that is
 missing from every searched path gets the documented exit-2 message naming each one and the
 `install -t <harness>` command that provides it, rather than a silent failure.
@@ -419,7 +419,7 @@ writer of `settlements.jsonl`.
 ### Harness reach
 
 The runtime reaches every harness at every scope where it gets skills: a standalone install of any
-of the eight projects the `scripts.doflow` and `runtime.*` assets to `<scope root>/.doflow`, so the
+of the seven projects the `scripts.doflow` and `runtime.*` assets to `<scope root>/.doflow`, so the
 follow-up, capture and maintain lines run after installing one harness alone. Codex, OpenCode, Pi
 and GitHub Copilot CLI also receive the full shared guidance tree at `<scope root>/.doflow/guidance`,
 which the pointer in their instructions names; Kiro receives the same full tree there (the
@@ -434,8 +434,8 @@ per scope: a Copilot or Kiro install at both project and global scope probably l
 Copilot's documented de-duplication covers identical `copilot-instructions.md` files, not
 `*.instructions.md`). A global Antigravity install
 projects skills (`~/.gemini/config/skills`), agents, the `doflow-run` locator and the runtime and guidance
-trees under `~/.doflow`, but no rules and no instruction pointer: the rules and the `AGENTS.md` section are
-project scope only, and `~/.gemini/GEMINI.md` is shared with Gemini CLI. `doflow doctor` prints a
+trees under `~/.doflow`, and a marker-managed guidance-pointer section in `~/.gemini/GEMINI.md`, but no rules: the rules and the
+`AGENTS.md` section are project scope only. `doflow doctor` prints a
 `[Runtime Reach]` section with one line per installed harness and scope: `REACHED`, `NO-REACH` with the install command that fixes it, or `N/A`. At project scope
 every ledger from the working directory upward is read, so a nested ledger left by a removed harness
 does not hide the install that encloses it. Nothing in the loop
@@ -478,7 +478,7 @@ This division prevents a false parity claim: an installed file is not evidence t
 activated a plugin, trusted a hook, connected an MCP server, or made an automation available. The
 lifecycle verifier must report those prerequisites.
 
-One consequence is worth stating explicitly because the shared runtime tree made it sharper: all eight
+One consequence is worth stating explicitly because the shared runtime tree made it sharper: all seven
 harnesses project the same shared `.doflow/scripts` target (and `.doflow/runtime`), so ownership of those trees is shared
 rather than per-harness. Removing one harness must reclaim only what no other installed harness
 still claims.
@@ -501,19 +501,17 @@ declares target capability and ownership inputs, and is not itself a native conf
 > and breaks them without any error. `test/adapters/copy-tree.test.ts` and `test/install/mcp-index.test.ts` resolve
 > both sets of paths against the real tree to keep that anchor enforced rather than assumed.
 | `skills/`, `agent-specs/`, `scripts/`, `templates/` | `core/shared/{skills,agent-specs,scripts,templates}/` | Task knowledge and reusable assets are client-neutral |
-| Native hooks, settings, and native agent definitions per harness | `core/harnesses/{claude,codex,gemini,kiro,antigravity,pi}/` | Copied or reconciled as native configuration only where the harness has such a surface |
+| Native hooks, settings, and native agent definitions per harness | `core/harnesses/{claude,codex,kiro,antigravity,pi}/` | Copied or reconciled as native configuration only where the harness has such a surface |
 | The runtime locator shim | `core/harnesses/shared/locator/` | Byte-identical on every harness; only the native path it is written to differs |
 | MCP server catalog | `core/registry/mcp.json` | Single neutral source every harness's adapter selects from |
 
-Each harness's native entry file (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, and Copilot's
+Each harness's native entry file (`CLAUDE.md`, `AGENTS.md`, global `~/.gemini/GEMINI.md`, and Copilot's
 `copilot-instructions.md`) no longer receives a full copy of the guidance content — its managed
-section is a short pointer into `.doflow/guidance/` instead: `@`-import syntax for Claude and
-Gemini (both resolve relative/absolute `@file` imports natively), a prose read-instruction for
-Codex, OpenCode and Pi (`AGENTS.md` has no native import-expansion mechanism, unlike Claude/Gemini),
-and the same prose read-instruction for Copilot and Antigravity at project scope (Copilot CLI reads a
-user-level `~/.copilot/copilot-instructions.md`, but DoFlow projects no pointer there; Antigravity's
-global instructions file, `~/.gemini/GEMINI.md`, is shared with Gemini CLI and is not written by the
-Antigravity adapter). The prose pointer
+section is a short pointer into `.doflow/guidance/` instead: `@`-import syntax for Claude
+(which resolves relative/absolute `@file` imports natively), a prose read-instruction for
+Codex, OpenCode and Pi (`AGENTS.md` has no native import-expansion mechanism, unlike Claude),
+and the same prose read-instruction for Copilot (project scope) and Antigravity (project `AGENTS.md` and global `~/.gemini/GEMINI.md`); Copilot CLI reads a
+user-level `~/.copilot/copilot-instructions.md`, but DoFlow projects no pointer there. The prose pointer
 (`core/shared/guidance/pointers/codex.md`) tells the model to read `DOFLOW_CORE.md` and the files it
 imports unless they are already in its instructions, and to read other files under the guidance
 directory only when a skill names them. Its guidance path is filled per scope by
@@ -820,7 +818,8 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   flattened away.
 - **G4** (`flags.test.ts`) — `FLAGS.md` entries are wired to a real consumer and vice versa. A flag that is a runtime verb's own argument (such as `--stage` and `--statement` of `followup`) is listed with its reason rather than added to `FLAGS.md`. It also verifies flag ownership against skill frontmatter: the backticked `--flag` tokens on `FLAGS.md`'s shared-flags line equal the flags declared in at least two skills' `argument-hint`, and for every `**--flag ...**` entry, the backticked skill names after "Consumed by" equal exactly the skills whose `argument-hint` declares that flag.
 - **G5** (`registry.test.ts`) — checks registry claims against what is actually implemented under
-  `src/` and `core/harnesses/`.
+  `src/` and `core/harnesses/`, in both directions for `--target`: every live harness is accepted, and
+  every accepted id is a live registry harness, so a retired id is refused up front.
 - **G6** (`docs.test.ts`) — documented inventories match reality: the skill list in
   `docs/reference.md`, and every skill/agent count quoted in `README.md`.
 - **G7** (`package.test.ts`) — no backup, editor or bytecode file sits under the `files` trees that
@@ -865,7 +864,8 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
 - **G12** (`runtime-unification.test.ts`) — one runtime: exactly one dispatcher and one locator, no
   verb with two implementations, every shell verb resolving to a helper that exists, every Node verb
   having a CLI command and vice versa, no skill reaching the JS runtime except through the
-  dispatcher, and the run ledger carrying metadata only.
+  dispatcher, the locator projected inside each live harness's own directory (never the shared
+  `.doflow` tree), and the run ledger carrying metadata only.
 - **G13** (`workflows.test.ts`) — every class in `workflows.json` resolves to stages naming skills
   that exist; review has no implementation stage; research requires no implementation readiness.
 - **G13** (`context-budget.test.ts`, same number, different guard) — the DoFlow-authored
@@ -1030,7 +1030,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   and full hook surface coverage (G33.10); `performance-budget.test.js` references `budgets.json` without
   hardcoded millisecond ceiling literals (G33.11); inventory rows and Facts carry required fields,
   valid dates, and sources (G33.12); tool alternatives obey the 20,000-star boundary with only Serena
-  excluded (G33.13); ADR section 8 proposals require user approval (G33.14); all eight harnesses declare
+  excluded (G33.13); ADR section 8 proposals require user approval (G33.14); all seven harnesses declare
   valid orchestration operations (G33.15); operating-mode and candidate-evidence documents follow contract
   headings, states, and examples with score rejection (G33.16); retrieval README includes the three gate
   sentences verbatim (G33.17); and every deliverable defines refresh metadata and avoids transient
@@ -1243,7 +1243,7 @@ another," not a runtime bug — fix the stale side, don't weaken the guard.
 Two unlisted guard files pin structural boundaries. `test/guards/boundaries.test.ts` holds G-B1,
 the dependency direction rule: no file under `core/` requires from `src/`, `bin/` or `test/`, so
 the content stays usable without the tool that installs it. It also holds G-B2, the inventory
-ratchets: `core/registry/` holds exactly 20 JSON files and `src/adapters/` exactly 8 harness
+ratchets: `core/registry/` holds exactly 20 JSON files and `src/adapters/` exactly 7 harness
 directories. A ratchet does not forbid a change; it makes the change edit the guard in the same
 commit, so each structural shift is a reviewed decision. `test/guards/cli-boundary.test.ts` keeps
 `bin/doflow.js` a thin forwarder with no command handler and no argument parser, and requires the

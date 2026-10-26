@@ -1,14 +1,13 @@
 # DoFlow
 
-DoFlow is a configuration layer for AI coding tools. It gives Claude Code, Codex, Gemini /
-Antigravity, OpenCode, Pi, GitHub Copilot CLI, and Kiro a shared set of engineering rules, reusable
-workflows, and safer defaults — projected from one source, so the eight never drift apart.
+DoFlow is a configuration layer for AI coding tools. It gives Claude Code, Codex, Antigravity,
+OpenCode, Pi, GitHub Copilot CLI, and Kiro a shared set of engineering rules, reusable
+workflows, and safer defaults — projected from one source, so the seven never drift apart.
 
 ```mermaid
 flowchart LR
     R[One DoFlow source] --> C[Claude Code]
     R --> X[Codex]
-    R --> G[Gemini CLI]
     R --> O[OpenCode]
     R --> P[Pi]
     R --> CP[Copilot CLI]
@@ -16,7 +15,6 @@ flowchart LR
     R --> A[Antigravity CLI]
     C --> H[Hooks + MCP + skills]
     X --> S[AGENTS.md + skills]
-    G --> GM[GEMINI.md + skills]
     A --> AG[AGENTS.md + .agents tree]
     O --> S
     P --> S
@@ -111,16 +109,14 @@ Use `/do-flow "add a customer export"` to run the same sequence with its approva
 |---|---|
 | Claude Code | Full integration: skills, agents, hooks, MCP registration, session context, and rules |
 | Codex | `AGENTS.md`, skills at `.agents/skills/`, scripts, templates, rules, agents, hooks, and references |
-| Gemini CLI | `GEMINI.md`, rules, agents, modes, skills, hooks, and references |
-| Antigravity CLI (`agy`) | Managed `AGENTS.md` section (project), skills at `.agents/skills/`, shared agents, workspace rules at `.agents/rules/`, the spec-driven chain workflow shim, the pre-implementation-gate hook (`.agents/hooks.json`), and MCP in `.agents/mcp_config.json` / `~/.gemini/config/mcp_config.json` |
+| Antigravity CLI (`agy`) | Managed `AGENTS.md` section (project), skills at `.agents/skills/`, shared agents, workspace rules at `.agents/rules/`, the spec-driven chain workflow shim, the pre-implementation-gate hook (`.agents/hooks.json`), and MCP in `.agents/mcp_config.json` / `~/.gemini/config/mcp_config.json`, and a managed guidance section in the global `~/.gemini/GEMINI.md` |
 | OpenCode | `AGENTS.md`, skills discovered at `.opencode/skills/` (project) or `~/.config/opencode/skills/` (global), and `opencode.json` configuration |
 | Pi Coding Agent | `AGENTS.md`, skills discovered at `.pi/skills/` (project) or `~/.pi/agent/skills/` (global), and MCP servers in `.pi/mcp.json` (project) or `~/.pi/agent/mcp.json` (global) |
 | GitHub Copilot CLI | `.github/copilot-instructions.md` (project scope only), skills at `.agents/skills/`, agents at `.github/agents/`, and MCP registered in `.mcp.json` |
 | Kiro | Steering files under `.kiro/steering/`, skills at `.kiro/skills/`, agents at `.kiro/agents/`, hooks at `.kiro/hooks/`, and MCP registered in `.kiro/settings/mcp.json` |
 
 Codex hooks are installed as `hooks.json` but require review/trust in Codex before they run.
-Gemini hooks merge into a `hooks` key inside `settings.json` (never a full-file replace) and are
-similarly subject to Gemini's own hook trust/review gating. Kiro's hooks are not in Kiro v3's
+Kiro's hooks are not in Kiro v3's
 untrusted-workspace exclusion list; an untrusted workspace asks before every shell command, and
 whether that covers hook commands is undocumented. Copilot CLI documents hooks, settings, and a
 plugin marketplace upstream; DoFlow still installs none of those there. OpenCode and Pi
