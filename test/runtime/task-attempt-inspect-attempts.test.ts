@@ -5,6 +5,9 @@
 // ledger order, after the keys it already had. No reason text, evidence id, worktree, usage or
 // trace reaches the body, and every pre-existing key keeps its name, order and value.
 //
+// Row 093 E.5 (IC-018 c) appends `worktreeKey`, `run` and `lineage`, split from the attempt's stored
+// `runKey`, after the IC-013 fields; they are null on a record with no `runKey`.
+//
 // In-process against a temp project; every call passes an explicit identity environment.
 
 const { test } = require('node:test');
@@ -82,6 +85,13 @@ function scenario(t: any) {
 }
 
 const IC013_KEYS = ['token', 'owner', 'mode', 'state', 'startedAt', 'endedAt', 'result'];
+const IC018C_KEYS = ['worktreeKey', 'run', 'lineage'];
+
+/** The IC-018 c fields of an attempt claimed under `runKey`. */
+function keyed(runKey: string) {
+  const [worktreeKey, run, lineage] = runKey.split('/');
+  return { worktreeKey, run, lineage };
+}
 
 test('each task lists its attempts in ledger order with exactly the IC-013 fields (IC-013)', (t) => {
   const s = scenario(t);
@@ -90,14 +100,15 @@ test('each task lists its attempts in ledger order with exactly the IC-013 field
   for (const row of body.tasks) {
     assert.ok(Array.isArray(row.attempts), `${row.id} has attempts[]`);
     assert.equal(Object.keys(row).at(-1), 'attempts', `${row.id}: attempts comes after the existing keys`);
-    for (const a of row.attempts) assert.deepEqual(Object.keys(a), IC013_KEYS, `${row.id} token ${a.token}: field names and order`);
+    for (const a of row.attempts) assert.deepEqual(Object.keys(a), [...IC013_KEYS, ...IC018C_KEYS], `${row.id} token ${a.token}: field names and order`);
   }
+  const k = keyed(s.key);
   assert.deepEqual(byId['A.1'].attempts, [
-    { token: 1, owner: 'core-implementer', mode: 'subagent', state: 'finished', startedAt: NOW.toISOString(), endedAt: LATER.toISOString(), result: 'COMPLETED' },
+    { token: 1, owner: 'core-implementer', mode: 'subagent', state: 'finished', startedAt: NOW.toISOString(), endedAt: LATER.toISOString(), result: 'COMPLETED', ...k },
   ]);
   assert.deepEqual(byId['A.2'].attempts, [
-    { token: 1, owner: 'quality-guardian', mode: 'manual', state: 'released', startedAt: NOW.toISOString(), endedAt: LATER.toISOString(), result: null },
-    { token: 2, owner: 'quality-guardian', mode: 'sequential', state: 'active', startedAt: LATER.toISOString(), endedAt: null, result: null },
+    { token: 1, owner: 'quality-guardian', mode: 'manual', state: 'released', startedAt: NOW.toISOString(), endedAt: LATER.toISOString(), result: null, ...k },
+    { token: 2, owner: 'quality-guardian', mode: 'sequential', state: 'active', startedAt: LATER.toISOString(), endedAt: null, result: null, ...k },
   ]);
   assert.deepEqual(byId['B.1'].attempts, []);
 });
@@ -124,7 +135,7 @@ test('a cancelled attempt ends at its cancel time; the cancel reason stays out (
   assert.equal(off.disposition, 'cancelled', JSON.stringify(off));
   const body = inspect(p.common);
   assert.deepEqual(body.tasks.find((r: any) => r.id === 'A.2').attempts, [
-    { token: 1, owner: 'quality-guardian', mode: 'subagent', state: 'cancelled', startedAt: NOW.toISOString(), endedAt: LATER.toISOString(), result: null },
+    { token: 1, owner: 'quality-guardian', mode: 'subagent', state: 'cancelled', startedAt: NOW.toISOString(), endedAt: LATER.toISOString(), result: null, ...keyed(p.key) },
   ]);
   const attempts = JSON.stringify(body.tasks.map((r: any) => r.attempts));
   assert.ok(!attempts.includes(MARKER), 'the cancel reason is not in attempts[]');
@@ -138,6 +149,25 @@ test('inspect stays read-only and every pre-existing key keeps its name, order a
   const shape = JSON.parse(JSON.stringify(without).split(s.key).join('<runKey>'));
   assert.deepEqual(shape, PRE_CHANGE_SHAPE);
   assert.equal(JSON.stringify(shape), JSON.stringify(PRE_CHANGE_SHAPE), 'key order unchanged');
+});
+
+test('worktreeKey, run and lineage come from the stored runKey and are null without one (IC-018 c)', (t) => {
+  const s = scenario(t);
+  const k = keyed(s.key);
+  assert.match(k.worktreeKey, /^[0-9a-f]{16}$/);
+  assert.equal(k.run, 'r1');
+  assert.equal(k.lineage, 'main');
+  // An older record: the second A.2 attempt carries no runKey, the first an unparsable one.
+  const ledger = JSON.parse(s.before);
+  delete ledger.tasks['A.2'].attempts[1].runKey;
+  ledger.tasks['A.2'].attempts[0].runKey = 'not-a-run-key';
+  fs.writeFileSync(s.file, JSON.stringify(ledger, null, 2));
+  const attempts = inspect(s.common).tasks.find((r: any) => r.id === 'A.2').attempts;
+  for (const a of attempts) {
+    assert.deepEqual(Object.keys(a), [...IC013_KEYS, ...IC018C_KEYS]);
+    assert.deepEqual({ worktreeKey: a.worktreeKey, run: a.run, lineage: a.lineage }, { worktreeKey: null, run: null, lineage: null }, `token ${a.token}`);
+  }
+  assert.deepEqual(inspect(s.common).tasks.find((r: any) => r.id === 'A.1').attempts.map((a: any) => a.run), ['r1'], 'A.1 keeps its run');
 });
 
 // The body produced by the code before B.2 for `scenario`, captured against 4ebf5d18 with the

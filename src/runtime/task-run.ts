@@ -12,7 +12,7 @@
 // passed in). A refusal is returned as `{ reason, ...fields }` or `null`; the caller wraps it in
 // its own `{ write: false, result: { disposition: 'refused', ... } }`.
 
-const { cwdHash, resolveIdentity } = require('./context/identity.ts');
+const { cwdHash, resolveIdentity, ID_PATTERN } = require('./context/identity.ts');
 const { findWorkTreeTop } = require('./source-version.ts');
 const crypto = require('node:crypto');
 const { taskAttemptLimit, graphDigest, graphTuples, deriveTasks, isGraphPlan, overlaps } = require('./task-graph.ts');
@@ -664,10 +664,20 @@ function withoutTrace(entry: any) {
   return rest;
 }
 
+/** 093 IC-018 c: `worktreeKey`, `run` and `lineage` split from a stored `runKey`
+ * (`<cwdHash>/<run>/<lineage>`, `runKeyFor`); all three null when the record has none or another shape. */
+function runKeyParts(runKey: unknown): { worktreeKey: string | null; run: string | null; lineage: string | null } {
+  const parts = typeof runKey === 'string' ? runKey.split('/') : [];
+  if (parts.length === 3 && /^[0-9a-f]{16}$/.test(parts[0]) && ID_PATTERN.test(parts[1]) && ID_PATTERN.test(parts[2])) {
+    return { worktreeKey: parts[0], run: parts[1], lineage: parts[2] };
+  }
+  return { worktreeKey: null, run: null, lineage: null };
+}
+
 /** 093 IC-013: a task's attempts in ledger order, metadata only (no reason text, evidence id,
  * worktree, usage or trace). `endedAt` is `finishedAt` (finished; superseded, which is always a
  * finished attempt), else `endedAt` (released), else `cancel.at` (cancelled); `result` is kept
- * only when it is one of RESULTS. */
+ * only when it is one of RESULTS. IC-018 c appends `worktreeKey`, `run` and `lineage` (`runKeyParts`). */
 function attemptsView(store: any, taskId: string) {
   // Required here, not at the top: task-attempts.ts requires this module while it loads.
   const { RESULTS } = require('./task-attempts.ts');
@@ -677,6 +687,7 @@ function attemptsView(store: any, taskId: string) {
     token: a.token, owner: a.owner ?? null, mode: a.mode ?? null, state: a.state,
     startedAt: a.startedAt ?? null, endedAt: a.finishedAt ?? a.endedAt ?? (a.cancel && a.cancel.at) ?? null,
     result: RESULTS.includes(a.result) ? a.result : null,
+    ...runKeyParts(a.runKey),
   }));
 }
 

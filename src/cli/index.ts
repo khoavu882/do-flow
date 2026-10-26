@@ -570,6 +570,7 @@ Commands:
                        protocol --action resolve --kind review|debate [--task-class <id>] [--risk <level>] [--preset <id>] [--json]   (exit 0 resolved, 1 refused, 2 usage)
   primary              Resolve which harness and model the main session runs (read-only):
                        primary --action resolve [--json]   (exit 0, 1 refused, 2 usage)
+                       primary --action observed [--json]   checkouts and session hook records (exit 0, 1 cannot list checkouts, 2 usage)
   package              List the contribution points a package may fill, check a package directory, show the packages, add and update a local package, or turn it on and off:
                        package --action points [--json]
                        package --action check --path <dir> [--json]   (read-only; exit 0 clean, 1 findings, 2 usage)
@@ -585,7 +586,7 @@ Commands:
                        package --action revoke --id <id> [--json]   (records a revocation in state.json; only a later trust line counts)
                        package --action remove --id <id> [--json]   (disables, deletes the store entry and lock row, records a revocation and a removed tombstone, then lists the settings, records and grant lines that still name the package and rewrites none; exit 0, 1 unknown id or the bundled package, 2 no --id)
                        package --action verify [--repair] [--json]   (re-hashes enabled third-party entries and records suspensions; exit 0 intact, 1 findings; --repair rewrites an unreadable state.json)
-  slot                 Named machine-wide queue, one holder at a time (--action run|list|release);
+  slot                 Named machine-wide queue, one holder at a time (--action run|list|peek|release);
                        slot --action run --name <name> [--label <text>] [--timeout <s>] [--no-wait] -- <command> [args...]
                        slot --action release --name <name> --by <who> --reason <text>
   models               Synchronize, list, or inspect observed models across workers (--action sync|list|describe)
@@ -638,11 +639,11 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        goal: add|item|check|link|list|done
                        failure: list|settle|capture
                        roadmap: render|status|next|audit (seed: check|apply|amend)
-                       slot: run|list|release
+                       slot: run|list|peek|release
                        models: sync|list|describe
                        review: check|start
                        protocol: list|resolve
-                       primary: resolve
+                       primary: resolve|observed
                        package: points|check|list|show|add|update|enable|disable|trust|exempt|revoke|verify|remove
       --task, --token, --owner, --mode,
       --result, --evidence-id, --reason     task-attempt (claim: --task --owner --mode manual|sequential|subagent
