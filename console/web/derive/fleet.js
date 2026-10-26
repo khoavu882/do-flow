@@ -401,6 +401,12 @@ function fingerprint(event) {
   return JSON.stringify([event.kind, event.at, event.model, tool, event.text, event.args, event.tokens, event.record]);
 }
 
+/** What makes a `record` event the same event again: its agent, time, record type and task. @param {any} event */
+function recordIdentity(event) {
+  const record = event.record || {};
+  return JSON.stringify([event.agentKey, event.at, record.type, record.task]);
+}
+
 /**
  * Appends a batch to the held events and applies the bound: above `max`, the oldest are removed. `reset` starts the list
  * over. With `dedupe`, an event whose fingerprint is already held is dropped. Returns the next list, the events added,
@@ -410,7 +416,10 @@ function appendEvents(held, batch, options = {}) {
   const max = options.max ?? MAX_EVENTS;
   const base = options.reset ? [] : held;
   const known = options.dedupe ? new Set(base.map(fingerprint)) : null;
-  const fresh = known ? batch.filter((event) => !known.has(fingerprint(event))) : batch;
+  // A `record` event is held once whether or not the batch is a resume: a reader that cannot raise its watermark past one
+  // (Kiro) sends it again on every tick.
+  const records = new Set(base.filter((event) => event.kind === 'record').map(recordIdentity));
+  const fresh = batch.filter((event) => !(known && known.has(fingerprint(event))) && !(event.kind === 'record' && records.has(recordIdentity(event))));
   const all = [...base, ...fresh];
   const dropped = Math.max(0, all.length - max);
   return { events: dropped > 0 ? all.slice(dropped) : all, fresh, added: fresh.length, dropped };
