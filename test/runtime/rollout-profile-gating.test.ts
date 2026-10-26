@@ -11,6 +11,7 @@ const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
 const { interceptDecisionPoint } = require('../../src/runtime/advice/shadow-dispatcher.ts');
 const { resolveRelationshipQuery } = require('../../src/runtime/knowledge/graph-fallback.ts');
+const { profileAdvisorCap, capMode, unsetKindPath } = require('../../src/runtime/advice/mode.ts');
 
 /** A project with optional settings and rollback sentinel, and an env whose user settings home is empty. */
 function project(t: any, { settings, sentinel }: any = {}) {
@@ -92,5 +93,26 @@ for (const [name, c] of Object.entries(CASES) as any) {
       assert.equal(res.fallbackReason, 'profile-disabled');
       assert.equal(res.isAbsence, false);
     }
+  });
+}
+
+// 084 C-6 (D2): the profile's cap as mode.ts reads it from the project, for a set kind (configured act) and an unset one.
+const CAP_CASES: any = {
+  'no profile (registry default)': { cap: null, setAct: 'act', unset: 'legacy' },
+  'settings rollout.profile baseline': { settings: { rollout: { profile: 'baseline' } }, cap: 'off', setAct: 'off', unset: 'off' },
+  'env DOFLOW_ROLLOUT_PROFILE=baseline': { env: { DOFLOW_ROLLOUT_PROFILE: 'baseline' }, cap: 'off', setAct: 'off', unset: 'off' },
+  'active rollback sentinel': { sentinel: { active: true, reason: 'manual' }, cap: 'off', setAct: 'off', unset: 'off' },
+  'invalid profile value': { settings: { rollout: { profile: 'bogus' } }, cap: 'off', setAct: 'off', unset: 'off' },
+  'settings rollout.profile canary': { settings: { rollout: { profile: 'canary' } }, cap: 'shadow', setAct: 'shadow', unset: 'shadow' },
+  'settings rollout.profile staged': { settings: { rollout: { profile: 'staged' } }, cap: 'staged', setAct: 'shadow', unset: 'shadow' },
+  'settings rollout.profile full': { settings: { rollout: { profile: 'full' } }, cap: 'act', setAct: 'act', unset: 'legacy' },
+};
+for (const [name, c] of Object.entries(CAP_CASES) as any) {
+  test(`084 C-6 mode: ${name} caps a configured act to ${c.setAct} and routes an unset kind to ${c.unset}`, (t) => {
+    const p = project(t, c);
+    const cap = profileAdvisorCap({ projectRoot: p.root, env: { ...p.env, ...(c.env || {}) } });
+    assert.equal(cap, c.cap);
+    assert.equal(capMode(cap, 'act'), c.setAct);
+    assert.equal(unsetKindPath(cap), c.unset);
   });
 }

@@ -1067,18 +1067,29 @@ test('084 H2: advice.kinds.review-depth shadow keeps the decided depth and stays
   const client = fakeClient(answered('deep'));
   const { json } = await start(r, { adviceClient: client, base: r.base });
   assert.equal(json.depth, 'single');
-  assert.deepEqual(json.advice, { status: 'unavailable', pick: null });
+  assert.equal(json.depthBasis.raisedBy, null);
+  assert.deepEqual(json.advice, { status: 'shadow', pick: null, reason: null });
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(client.calls.length, 1, 'the shadow query runs in the background');
   assert.equal(client.calls[0].record, false);
   assert.equal(adviceStore(r), false, 'record: false: no pick is stored');
 });
 
-test('084 H2: advice.kinds.review-depth act without a passed bench bar keeps the decided depth', async (t) => {
+test('084 H2: advice.kinds.review-depth act without a passed bench bar keeps the decided depth and says why', async (t) => {
   const r = kindsRepo(t, 'act');
-  const { json } = await start(r, { adviceClient: fakeClient(answered('deep')), base: r.base });
+  const client = fakeClient(answered('deep'));
+  const { json } = await start(r, { adviceClient: client, base: r.base });
   assert.equal(json.depth, 'single');
-  assert.deepEqual(json.advice, { status: 'unavailable', pick: null });
+  assert.equal(json.depthBasis.raisedBy, null);
+  assert.equal(json.advice.status, 'shadow');
+  assert.equal(json.advice.pick, null);
+  assert.match(json.advice.reason, /^BENCH_BAR_UNMET: /);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(client.calls.length, 1, 'the degraded shadow query runs');
+  assert.equal(client.calls[0].record, false);
+  assert.equal(adviceStore(r), false, 'record: false: no pick is stored');
+  const text = await start(r, { adviceClient: fakeClient(answered('deep')), base: r.base, json: false });
+  assert.ok(text.out.some((line: string) => /^advice: status=shadow reason=BENCH_BAR_UNMET: /.test(line)), text.out.join('\n'));
 });
 
 test('084 H2: advice.kinds.review-depth act with a passed bench bar raises the depth and stays write-free', async (t) => {
@@ -1123,3 +1134,64 @@ for (const [name, c] of Object.entries(CHOSEN_OFF) as any) {
     assert.deepEqual(json.advice, { status: 'off', pick: null });
   });
 }
+
+// 084 C-6: on the unset-kinds path a shadow cap (canary, or staged per D2) never raises the depth, and the write-free
+// verb asks nothing, since it could not record the answer.
+const CHOSEN_SHADOW: any = {
+  'settings rollout.profile canary': { settings: { rollout: { profile: 'canary' } } },
+  'env DOFLOW_ROLLOUT_PROFILE=canary': { env: { DOFLOW_ROLLOUT_PROFILE: 'canary' } },
+  'settings rollout.profile staged': { settings: { rollout: { profile: 'staged' } } },
+};
+for (const [name, c] of Object.entries(CHOSEN_SHADOW) as any) {
+  test(`084 C-6: with advice.kinds unset, ${name} keeps a decided single when the model answers deep`, async (t) => {
+    const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+    r.lines([r.line({ risk: 'LOW' })]);
+    r.enableAdvice();
+    if (c.settings) put(r.cwd, '.doflow/settings.json', JSON.stringify(c.settings));
+    const client = fakeClient(answered('deep'));
+    const { json } = await start({ ...r, env: { ...r.env, ...(c.env || {}) } }, { adviceClient: client, base: r.base });
+    assert.equal(json.depth, 'single');
+    assert.equal(json.depthBasis.raisedBy, null);
+    assert.deepEqual(json.advice, { status: 'shadow', pick: null, reason: null });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(client.calls.length, 0, 'no call: the answer could be neither applied nor recorded');
+    assert.equal(fs.existsSync(path.join(r.cwd, '.doflow', 'state', 'advice')), false);
+  });
+}
+
+test('084 C-6: with advice.kinds unset and no profile chosen the legacy raise still applies', async (t) => {
+  const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  r.lines([r.line({ risk: 'LOW' })]);
+  r.enableAdvice();
+  const client = fakeClient(answered('deep'));
+  const { json } = await start(r, { adviceClient: client, base: r.base });
+  assert.equal(client.calls.length, 1);
+  assert.equal(client.calls[0].record, false);
+  assert.equal(json.depth, 'deep');
+  assert.equal(json.depthBasis.raisedBy, 'advice');
+  assert.deepEqual(json.advice, { status: 'answered', pick: 'deep' });
+});
+
+// 084 C-10: a set kind consumes the dispatcher's mode and effectiveDecision, never advisorPick alone.
+function stubDispatcher(t: any, resolution: any) {
+  const dispatcher = require('../../src/runtime/advice/shadow-dispatcher.ts');
+  const saved = dispatcher.interceptDecisionPoint;
+  t.after(() => { dispatcher.interceptDecisionPoint = saved; });
+  dispatcher.interceptDecisionPoint = async () => ({ kind: 'review-depth', staticPick: 'single', pickId: null, elevated: false, agreed: null, ...resolution });
+}
+
+test('084 C-10: a shadow result carrying a deep pick never raises the depth', async (t) => {
+  const r = kindsRepo(t, 'act');
+  stubDispatcher(t, { mode: 'shadow', advisorPick: 'deep', effectiveDecision: 'single' });
+  const { json } = await start(r, { adviceClient: fakeClient(answered('deep')), base: r.base });
+  assert.equal(json.depth, 'single');
+  assert.deepEqual(json.advice, { status: 'shadow', pick: null, reason: null });
+});
+
+test('084 C-10: an act result applies the effective decision, not the raw advisor pick', async (t) => {
+  const r = kindsRepo(t, 'act');
+  stubDispatcher(t, { mode: 'act', advisorPick: 'deep', effectiveDecision: 'single' });
+  const { json } = await start(r, { adviceClient: fakeClient(answered('deep')), base: r.base });
+  assert.equal(json.depth, 'single');
+  assert.deepEqual(json.advice, { status: 'answered', pick: 'single' });
+});

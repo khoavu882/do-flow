@@ -265,7 +265,7 @@ function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<s
 }
 
 /** The decision model's opinion on the decided depth. Never throws: any failure is `unavailable`. */
-async function askAdvice({ decision, risk, taskClass, slug, files, cwd, env, adviceClient }: any): Promise<{ status: string; pick: string | null }> {
+async function askAdvice({ decision, risk, taskClass, slug, files, cwd, env, adviceClient }: any): Promise<{ status: string; pick: string | null; reason?: string | null }> {
   try {
     const { loadAdviceRegistry } = require('../advice/registry.ts');
     const { loadStorageRegistry } = require('../storage/registry.ts');
@@ -286,10 +286,12 @@ async function askAdvice({ decision, risk, taskClass, slug, files, cwd, env, adv
     const { resolveShadowConfig } = require('../advice/shadow-config.ts');
     const shadow = resolveShadowConfig('review-depth', { projectRoot: path.resolve(cwd), env, roots });
     if (!shadow.kindSet) {
-      // advice.kinds.review-depth unset: ask the client directly, as before the dispatcher, unless a chosen
-      // rollout profile turns the advisor off.
-      const { profileAdvisorCap } = require('../advice/shadow-dispatcher.ts');
-      if (profileAdvisorCap({ projectRoot: path.resolve(cwd), env }) === 'off') return { status: 'off', pick: null };
+      // advice.kinds.review-depth unset: ask the client directly, as before the dispatcher. A chosen rollout profile
+      // caps it: off asks nothing, and shadow asks nothing too, since a write-free verb could not record the answer.
+      const { profileAdvisorCap, unsetKindPath } = require('../advice/mode.ts');
+      const route = unsetKindPath(profileAdvisorCap({ projectRoot: path.resolve(cwd), env }));
+      if (route === 'off') return { status: 'off', pick: null };
+      if (route === 'shadow') return { status: 'shadow', pick: null, reason: null };
       const result = await client.ask({
         questionSet: { state, questions: [built.question] },
         kind: 'review-depth', staticAnswer: decision.depth, caller: 'review', taskId: slug, record: false,
@@ -304,8 +306,10 @@ async function askAdvice({ decision, risk, taskClass, slug, files, cwd, env, adv
       questionSet: { state, questions: [built.question] }, adviceRegistry: loaded.registry,
       taskId: slug, projectRoot: path.resolve(cwd), env, record: false,
     }, { adviceClient: client, roots, shadowConfig: shadow });
-    const pick = intercepted.advisorPick;
-    if (pick === 'single' || pick === 'deep') return { status: 'answered', pick };
+    // Only act applies a pick, and it is the decision after the raise-only rule.
+    const pick = intercepted.effectiveDecision;
+    if (intercepted.mode === 'act' && intercepted.advisorPick && (pick === 'single' || pick === 'deep')) return { status: 'answered', pick };
+    if (intercepted.mode === 'shadow') return { status: 'shadow', pick: null, reason: intercepted.warning || null };
     return { status: intercepted.mode === 'off' ? 'off' : 'unavailable', pick: null };
   } catch {
     return { status: 'unavailable', pick: null };

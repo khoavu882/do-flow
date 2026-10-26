@@ -311,6 +311,7 @@ function adviceRecord(result: any) {
     };
   }
   if (result?.status === 'unavailable') return { kind: 'tier', status: 'unavailable', reason: result.reason || 'config-invalid' };
+  if (result?.status === 'shadow') return { kind: 'tier', status: 'shadow', reason: result.reason ?? null };
   return null;
 }
 
@@ -353,15 +354,18 @@ async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLeve
           const shadow = resolveShadowConfig('tier', { projectRoot: path.resolve(projectRoot), env, roots });
           let result: any = { status: 'unavailable', reason: built.reason || 'config-invalid' };
           if (built.ok && !shadow.kindSet) {
-            // advice.kinds.tier unset: the client asks and records, as before the dispatcher, unless a chosen
-            // rollout profile turns the advisor off.
-            const { profileAdvisorCap } = require('./advice/shadow-dispatcher.ts');
-            result = profileAdvisorCap({ projectRoot: path.resolve(projectRoot), env }) === 'off'
-              ? { status: 'off', reason: null }
-              : await client.ask({
+            // advice.kinds.tier unset: the client asks and records, as before the dispatcher. A chosen rollout
+            // profile caps it: off asks nothing; shadow records the pick and shows none.
+            const { profileAdvisorCap, unsetKindPath } = require('./advice/mode.ts');
+            const route = unsetKindPath(profileAdvisorCap({ projectRoot: path.resolve(projectRoot), env }));
+            if (route === 'off') result = { status: 'off', reason: null };
+            else {
+              result = await client.ask({
                 questionSet: { state, questions: [built.question] },
                 kind: 'tier', staticAnswer: record.tier, caller: 'brief-tools', taskId: stage?.feature || slug,
               });
+              if (route === 'shadow' && result?.status === 'answered') result = { status: 'shadow', reason: null };
+            }
           } else if (built.ok) {
             const { interceptDecisionPoint } = require('./advice/shadow-dispatcher.ts');
             const intercepted = await interceptDecisionPoint({
@@ -369,12 +373,15 @@ async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLeve
               questionSet: { state, questions: [built.question] }, adviceRegistry: adviceRegistry.registry,
               taskId: stage?.feature || slug, projectRoot: path.resolve(projectRoot), env,
             }, { adviceClient: client, roots, shadowConfig: shadow });
-            result = intercepted.advisorPick
-              ? { status: 'answered', answers: [{
-                ...intercepted.advisorAnswer, pick: intercepted.advisorPick, pickId: intercepted.pickId,
-                agrees: intercepted.advisorPick === record.tier,
-              }] }
-              : { status: intercepted.mode === 'off' ? 'off' : 'unavailable', reason: intercepted.warning || null };
+            // Only act shows a pick, and it is the decision after the raise-only rule.
+            if (intercepted.mode === 'act' && intercepted.advisorPick) {
+              result = { status: 'answered', answers: [{
+                ...intercepted.advisorAnswer, pick: intercepted.effectiveDecision, pickId: intercepted.pickId,
+                agrees: intercepted.effectiveDecision === record.tier,
+              }] };
+            } else if (intercepted.mode === 'shadow') result = { status: 'shadow', reason: intercepted.warning || null };
+            else if (intercepted.mode === 'off') result = { status: 'off', reason: null };
+            else result = { status: 'unavailable', reason: intercepted.warning || null };
           }
           const added = adviceRecord(result);
           if (added) {
