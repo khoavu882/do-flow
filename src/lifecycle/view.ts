@@ -92,7 +92,8 @@ function printRegistryLifecycle(view: any, prefix = '[PLAN]') {
 }
 
 /** The retirement lines (row 127 IC-003), the same under --dry-run and after an apply: one
- * `[RETIRED]` summary per retired harness the plan sweeps, then one line per kept item. Nothing
+ * `[RETIRED] <id> → <replacement>: deleted N, stripped N, released N, dropped N, deferred N, kept N`
+ * summary per retired harness the plan sweeps, then one line per kept or deferred item. Nothing
  * when the ledger holds no retired row. */
 function printRetiredPlans(view: any) {
   for (const line of formatRetiredPlans(view.plan.retiredHarnesses ?? [])) console.log(line);

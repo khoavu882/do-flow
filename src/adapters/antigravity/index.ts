@@ -377,11 +377,19 @@ function instructionTarget({ paths, assets, registry }: any) {
 /** How this run stands to a section it took over (IC-007): the lifecycle's handover verdict for the
  * file, this harness's own row on it, and whether a person-edited file stays as it is (`retained`:
  * edited before the handover, or kept since, and no --force). `predecessor` lets the retired
- * harness's span count as the section to replace; `keptRow` is a row recorded as kept. */
-function instructionState({ target, context, resources }: any) {
+ * harness's span count as the section to replace; `keptRow` is a row recorded as kept. A handover
+ * file whose DoFlow span already is this harness's render was written by DoFlow itself (a run that
+ * threw after that write and before its ledger write), so it does not count as edited. */
+function instructionState({ target, context, resources, paths, fsImpl = fs }: any) {
   const handover = (context.handovers ?? []).find((item: any) => item.target === target) ?? null;
   const ownRow = (resources ?? []).find((row: any) => row.harness === HARNESS && row.target === target && row.ownershipIdentity === INSTRUCTIONS_IDENTITY) ?? null;
-  const edited = handover?.edited === true || ownRow?.retainedEdit === true;
+  const ownWrite = () => {
+    const rendered = renderedInstruction(paths, fsImpl);
+    if (rendered === null || !fsImpl.existsSync(target)) return false;
+    const outcome = managedInstruction(fsImpl.readFileSync(target, 'utf8'), rendered);
+    return outcome.ok && outcome.operation === 'none';
+  };
+  const edited = (handover?.edited === true && !ownWrite()) || ownRow?.retainedEdit === true;
   return { predecessor: Boolean(handover) || ownRow?.retainedEdit === true, retained: edited && context.force !== true,
     keptRow: ownRow?.retainedEdit === true };
 }
@@ -408,11 +416,10 @@ function planInstructions({ paths, target, removing, state, fsImpl = fs }: any) 
     const shown = scopeOf(paths) === 'global' ? `~/${path.relative(paths.root, target)}` : path.relative(paths.root, target);
     return { ...none, notices: [`kept ${shown}: changed before handover; --force replaces the DoFlow section`] };
   }
-  const sourceText = pointerBody(fsImpl);
-  if (!sourceText) return none;
-  const pointer = renderGuidancePointer(sourceText, { scope: scopeOf(paths), scopeRoot: paths.root });
+  const rendered = renderedInstruction(paths, fsImpl);
+  if (rendered === null) return none;
   const existing = fsImpl.existsSync(target) ? fsImpl.readFileSync(target, 'utf8') : null;
-  const outcome = managedInstruction(existing, render({ content: pointer }), { name: path.basename(target), predecessor: state.predecessor });
+  const outcome = managedInstruction(existing, rendered, { name: path.basename(target), predecessor: state.predecessor });
   if (!outcome.ok) return { ...none, conflicts: [outcome.conflict] };
   if (outcome.operation === 'none') return none;
   return {
@@ -423,6 +430,12 @@ function planInstructions({ paths, target, removing, state, fsImpl = fs }: any) 
       _content: outcome.content,
     })],
   };
+}
+
+/** This scope's DoFlow section: the shared pointer rendered for the scope, inside the markers. */
+function renderedInstruction(paths: any, fsImpl: any) {
+  const sourceText = pointerBody(fsImpl);
+  return sourceText ? render({ content: renderGuidancePointer(sourceText, { scope: scopeOf(paths), scopeRoot: paths.root }) }) : null;
 }
 
 function pointerBody(fsImpl: any) {
@@ -477,7 +490,7 @@ function plan(options: any = {}, impl: any = {}) {
 
   const instructionFile = instructionTarget({ paths, assets: options.assets, registry: options.registry });
   const instructions = planInstructions({ paths, target: instructionFile, removing, fsImpl,
-    state: instructionState({ target: instructionFile, context, resources: neutralResources }) });
+    state: instructionState({ target: instructionFile, context, resources: neutralResources, paths, fsImpl }) });
   const trees = planTrees({ assets: options.assets, paths, scope, neutralResources, removing, repoRoot: context.repoRoot, force: context.force === true, fsImpl });
   const mcp = planMcpEntries({
     ...mcpEntriesInput({ paths, mcp: selectedServers, mcpAdoptable: options.mcpAdoptable, resources: neutralResources }),
@@ -532,8 +545,9 @@ function apply(options: any = {}, impl: any = {}) {
     if (change.operation === 'remove') {
       if (!fsImpl.existsSync(change.target)) continue;
       // The global file is the person's: the span goes with the one newline put before it, so their
-      // bytes come back exactly (and a file that held only the span goes with it).
-      if ((options.scope ?? 'project') === 'global') { removeMarkedSection(change.target); continue; }
+      // bytes come back exactly (and a file that held only the span goes with it). A kept file taken
+      // over from the retired harness may still hold that harness's span, under its short marker.
+      if ((options.scope ?? 'project') === 'global') { removeMarkedSection(change.target, { startMarkers: [MARKER_START, PREDECESSOR_MARKER_START] }); continue; }
       // pi precedent: strip only the managed span; the file survives even when nothing remains.
       const next = strippedInstruction(fsImpl.readFileSync(change.target, 'utf8'));
       if (next !== null) fsImpl.writeFileSync(change.target, next, 'utf8');
@@ -651,7 +665,7 @@ function verify(options: any = {}, impl: any = {}) {
   const resources = [];
 
   const instructionFile = instructionTarget({ paths, assets: options.assets, registry: options.registry });
-  const state = instructionState({ target: instructionFile, context, resources: ledgerResources(options) });
+  const state = instructionState({ target: instructionFile, context, resources: ledgerResources(options), paths, fsImpl });
   const instruction = instructionFile && fsImpl.existsSync(instructionFile)
     ? fsImpl.readFileSync(instructionFile, 'utf8') : null;
   const managed = instruction !== null && instruction.includes(MARKER_END)

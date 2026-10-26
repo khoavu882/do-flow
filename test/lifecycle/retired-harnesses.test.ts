@@ -221,15 +221,18 @@ test('rule 6: an unknown row shape is kept with its kind and renderer named', (t
 test('counts, notices and the IC-003 output lines', (t) => {
   const f = setup(t);
   fs.appendFileSync(f.rows.scripts[0].target, '# edit\n');
+  fs.rmSync(f.rows.agent.target);
   const plans = plan(f);
   assert.equal(plans.length, 1);
   assert.equal(plans[0].harness, 'oldtool');
   assert.equal(plans[0].replacement, 'antigravity');
-  // agent + 6 unchanged scripts deleted; section + hooks stripped; shared released; edited script kept
-  assert.deepEqual(plans[0].counts, { deleted: 7, stripped: 2, released: 1, kept: 1 });
+  // 6 unchanged scripts deleted; section + hooks stripped; shared released; absent agent dropped; edited script kept
+  assert.deepEqual(plans[0].counts, { deleted: 6, stripped: 2, released: 1, dropped: 1, deferred: 0, kept: 1 });
+  const counted: number[] = Object.values(plans[0].counts);
+  assert.equal(counted.reduce((a, b) => a + b, 0), plans[0].changes.length, 'the counts sum to the retired rows swept');
   const rel = path.relative(f.root, f.rows.scripts[0].target);
   assert.deepEqual(formatRetiredPlans(plans), [
-    '[RETIRED] oldtool → antigravity: deleted 7, stripped 2, released 1, kept 1',
+    '[RETIRED] oldtool → antigravity: deleted 6, stripped 2, released 1, dropped 1, deferred 0, kept 1',
     `  kept ${rel}: changed since DoFlow wrote it`,
   ]);
   for (const change of plans[0].changes) {

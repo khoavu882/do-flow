@@ -46,7 +46,7 @@ interface RetiredChange {
 
 interface RetiredHarnessPlan {
   harness: string; replacement: string; scopeRoot: string; changes: RetiredChange[];
-  counts: { deleted: number; stripped: number; released: number; kept: number };
+  counts: { deleted: number; stripped: number; released: number; dropped: number; deferred: number; kept: number };
   notices: string[];
 }
 
@@ -55,8 +55,10 @@ interface Classification { action: RetiredAction; reason?: string; fingerprint?:
 const WHOLE_FILE_KINDS = new Set(['copy-tree-file', 'hooks-script']);
 /** Actions with no filesystem effect: the row is given up and nothing is written or deleted. */
 const NO_FS_EFFECT = new Set<RetiredAction>(['release', 'handover', 'defer', 'drop-row', 'keep']);
-const COUNTED: Partial<Record<RetiredAction, keyof RetiredHarnessPlan['counts']>> = {
-  delete: 'deleted', 'strip-section': 'stripped', 'strip-hooks': 'stripped', release: 'released', handover: 'released', keep: 'kept',
+/** The count each action adds to; every action has one, so the counts sum to the rows swept. */
+const COUNTED: Record<RetiredAction, keyof RetiredHarnessPlan['counts']> = {
+  delete: 'deleted', 'strip-section': 'stripped', 'strip-hooks': 'stripped', release: 'released', handover: 'released',
+  'drop-row': 'dropped', defer: 'deferred', keep: 'kept',
 };
 
 /** What one claim covers: a whole file, except an MCP entry, which is claimed on its own because
@@ -247,7 +249,7 @@ function planRetiredHarnesses({ registry, ledger, scope, scopeRoot, livePlanChan
     if (!own.length) continue;
     const plan: RetiredHarnessPlan = {
       harness: retired.id, replacement: retired.replacement, scopeRoot, changes: [],
-      counts: { deleted: 0, stripped: 0, released: 0, kept: 0 }, notices: [],
+      counts: { deleted: 0, stripped: 0, released: 0, dropped: 0, deferred: 0, kept: 0 }, notices: [],
     };
     for (const row of own) {
       const { action, reason, fingerprint } = classify(row, retired, context);
@@ -260,8 +262,7 @@ function planRetiredHarnesses({ registry, ledger, scope, scopeRoot, livePlanChan
         ...(action === 'strip-hooks' ? { hookCommands: { key: retired.removal.hookCommands.key, commands: [...retired.removal.hookCommands.commands] } } : {}),
       };
       plan.changes.push(Object.freeze(change) as RetiredChange);
-      const counted = COUNTED[action];
-      if (counted) plan.counts[counted] += 1;
+      plan.counts[COUNTED[action]] += 1;
       if (action === 'keep') plan.notices.push(`kept ${path.relative(scopeRoot, row.target)}: ${reason}`);
       if (action === 'defer') plan.notices.push(`${path.relative(scopeRoot, row.target)}: handed over on the next run that targets ${handovers.get(change.ownershipKey).to}`);
     }
@@ -305,11 +306,11 @@ function retiredReleaseKeys(plans: RetiredHarnessPlan[]): Set<string> {
   return new Set(plans.flatMap((plan) => plan.changes.filter((change) => change.action !== 'defer').map((change) => change.ownershipKey)));
 }
 
-/** IC-003 output, for dry-run and apply alike: one summary line per retired harness, then one line per
- * kept or named item. No plans, no lines. */
+/** IC-003 output, for dry-run and apply alike: one summary line per retired harness, whose six counts
+ * sum to the rows it swept, then one line per kept or named item. No plans, no lines. */
 function formatRetiredPlans(plans: RetiredHarnessPlan[]): string[] {
   return plans.flatMap((plan) => [
-    `[RETIRED] ${plan.harness} → ${plan.replacement}: deleted ${plan.counts.deleted}, stripped ${plan.counts.stripped}, released ${plan.counts.released}, kept ${plan.counts.kept}`,
+    `[RETIRED] ${plan.harness} → ${plan.replacement}: deleted ${plan.counts.deleted}, stripped ${plan.counts.stripped}, released ${plan.counts.released}, dropped ${plan.counts.dropped}, deferred ${plan.counts.deferred}, kept ${plan.counts.kept}`,
     ...plan.notices.map((notice) => `  ${notice}`),
   ]);
 }

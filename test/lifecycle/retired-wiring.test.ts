@@ -241,7 +241,7 @@ test('reconcile with a lock pinning a retired id warns, drops it and converges t
   assert.ok(s.lines.includes('[WARN] oldtool: retired (use antigravity); dropped from the pinned targets'), s.lines.join('\n'));
   assert.ok(!s.lines.some((line) => line.includes('oldtool: installed')), 'a retired harness is not reported as unpinned');
   assert.ok(s.lines.includes('[INFO] antigravity: clean'), s.lines.join('\n'));
-  assert.ok(s.lines.includes('[RETIRED] oldtool → antigravity: deleted 8, stripped 2, released 1, kept 0'), s.lines.join('\n'));
+  assert.ok(s.lines.includes('[RETIRED] oldtool → antigravity: deleted 8, stripped 2, released 1, dropped 0, deferred 0, kept 0'), s.lines.join('\n'));
   assert.ok(s.lines.some((line) => line.startsWith('[OK] Reconciliation complete')), s.lines.join('\n'));
   assert.notEqual(process.exitCode, 1);
 

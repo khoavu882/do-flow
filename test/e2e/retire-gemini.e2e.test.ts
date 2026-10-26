@@ -77,13 +77,13 @@ test('(1) install -g -t claude releases the gemini install: scripts and agent de
   // --dry-run: reports the sweep, writes nothing.
   const dry = c.run(['install', '-g', '-f', '--no-backup', '-t', 'claude', '--dry-run']);
   assert.equal(dry.status, 0, dry.output);
-  assert.ok(dry.stdout.includes(RETIRED_LINE('deleted 8, stripped 1, released 1, kept 0')), dry.stdout);
+  assert.ok(dry.stdout.includes(RETIRED_LINE('deleted 8, stripped 1, released 1, dropped 0, deferred 1, kept 0')), dry.stdout);
   assert.ok(dry.stdout.includes(`  ${DEFERRED}`), dry.stdout);
   assert.deepEqual(digests(c.geminiDir), before, '--dry-run changes no gemini file');
 
   const first = c.run(['install', '-g', '-f', '--no-backup', '-t', 'claude']);
   assert.equal(first.status, 0, first.output);
-  assert.ok(first.stdout.includes(RETIRED_LINE('deleted 8, stripped 1, released 1, kept 0')), first.stdout);
+  assert.ok(first.stdout.includes(RETIRED_LINE('deleted 8, stripped 1, released 1, dropped 0, deferred 1, kept 0')), first.stdout);
   assert.ok(first.stdout.includes(`  ${DEFERRED}`), first.stdout);
   assert.ok(!fs.existsSync(path.join(c.geminiDir, 'hooks')), 'the seven hook scripts are deleted');
   assert.ok(!fs.existsSync(path.join(c.geminiDir, 'agents')), 'the agent file is deleted');
@@ -95,7 +95,7 @@ test('(1) install -g -t claude releases the gemini install: scripts and agent de
 
   const second = c.run(['install', '-g', '-f', '--no-backup', '-t', 'antigravity']);
   assert.equal(second.status, 0, second.output);
-  assert.ok(second.stdout.includes(RETIRED_LINE('deleted 0, stripped 0, released 1, kept 0')), second.stdout);
+  assert.ok(second.stdout.includes(RETIRED_LINE('deleted 0, stripped 0, released 1, dropped 0, deferred 0, kept 0')), second.stdout);
   const text = fs.readFileSync(c.geminiMd, 'utf8');
   const start = text.indexOf(MARKER_START);
   assert.equal(text.slice(0, start), `${USER_TEXT}\n`, 'the person\'s text before the section is byte-identical');
@@ -139,12 +139,12 @@ test('(3) reconcile -g with a lock pinning gemini drops the pin, releases the in
   const dry = c.run(['reconcile', '-g', '--dry-run']);
   assert.equal(dry.status, 1, `a drifted state fails a dry run: ${dry.output}`);
   assert.ok(dry.stdout.includes('[WARN] gemini: retired (use antigravity); dropped from the pinned targets'), dry.stdout);
-  assert.ok(dry.stdout.includes(RETIRED_LINE('deleted 9, stripped 2, released 0, kept 0')), dry.stdout);
+  assert.ok(dry.stdout.includes(RETIRED_LINE('deleted 9, stripped 2, released 0, dropped 0, deferred 0, kept 0')), dry.stdout);
   assert.deepEqual(digests(c.geminiDir), before, '--dry-run changes no gemini file');
 
   const healed = c.run(['reconcile', '-g', '-f', '--no-backup']);
   assert.equal(healed.status, 0, healed.output);
-  assert.ok(healed.stdout.includes(RETIRED_LINE('deleted 9, stripped 2, released 0, kept 0')), healed.stdout);
+  assert.ok(healed.stdout.includes(RETIRED_LINE('deleted 9, stripped 2, released 0, dropped 0, deferred 0, kept 0')), healed.stdout);
   assert.ok(healed.stdout.includes('[OK] Reconciliation complete'), healed.stdout);
   assert.ok(!fs.existsSync(path.join(c.geminiDir, 'hooks')), 'the hook scripts are gone');
   assertUserSettingsKept(c.settings());
@@ -164,7 +164,7 @@ test('(4) rollback restores the released gemini files byte for byte', () => {
 
   const installed = c.run(['install', '-g', '-f', '-t', 'claude']);
   assert.equal(installed.status, 0, installed.output);
-  assert.ok(installed.stdout.includes(RETIRED_LINE('deleted 8, stripped 1, released 1, kept 0')), installed.stdout);
+  assert.ok(installed.stdout.includes(RETIRED_LINE('deleted 8, stripped 1, released 1, dropped 0, deferred 1, kept 0')), installed.stdout);
   assert.notDeepEqual(digests(c.geminiDir), before, 'the install released files');
 
   const [backup] = fs.readdirSync(path.join(c.home, '.doflow', 'backups')).filter((name: string) => name.startsWith('install_'));
@@ -178,7 +178,7 @@ test('(5) a second update -g prints no [RETIRED] line', () => {
   const c = cell({ antigravity: false });
   const first = c.run(['install', '-g', '-f', '--no-backup', '-t', 'claude']);
   assert.equal(first.status, 0, first.output);
-  assert.ok(first.stdout.includes(RETIRED_LINE('deleted 9, stripped 2, released 0, kept 0')), `precondition: the first run swept gemini: ${first.stdout}`);
+  assert.ok(first.stdout.includes(RETIRED_LINE('deleted 9, stripped 2, released 0, dropped 0, deferred 0, kept 0')), `precondition: the first run swept gemini: ${first.stdout}`);
   assert.equal(fs.readFileSync(c.geminiMd, 'utf8'), USER_TEXT, 'no replacement installed: the retired span is stripped, the person\'s text kept');
   assert.deepEqual(c.ledger().resources.filter((row: any) => row.harness === 'gemini'), [], 'no retired row is left to sweep');
   const after = digests(c.geminiDir);

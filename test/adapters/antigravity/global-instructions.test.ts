@@ -119,6 +119,21 @@ test('IC-007: a handed-over GEMINI.md edited down to no DoFlow markers is kept u
   assert.equal(rowOf(forced.verified).retainedEdit, undefined, '--force clears the flag');
 });
 
+test('V-1: `remove -g -t antigravity` strips a kept GEMINI.md\'s retired short-marker span, so a later global install is not refused', (t) => {
+  const home = tempDir(t, 'doflow-agy-global-');
+  const edited = `# An edit of mine\n\n${USER}`;
+  fs.mkdirSync(path.dirname(target(home)), { recursive: true });
+  fs.writeFileSync(target(home), `${edited}\n<!-- doflow:start -->\noldtool pointer\n${MARKER_END}\n`);
+  const handover = run(home, { context: { handovers: [{ target: target(home), fromKey: 'oldtool-row', edited: true }] } });
+  const row = handover.verified.resources.find((item: any) => item.target === target(home));
+  assert.equal(row.retainedEdit, true, 'the edited file is kept');
+  const removed = run(home, { resources: [{ ...row, harness: 'antigravity' }], operation: 'remove' });
+  assert.deepEqual(sectionChanges(removed.planned, home).map((change: any) => change.operation), ['remove']);
+  assert.equal(fs.readFileSync(target(home), 'utf8'), edited, 'the retired span goes, the person\'s text stays byte-identical');
+  run(home);
+  assert.equal(fs.readFileSync(target(home), 'utf8'), `${edited}\n${section(home)}`, 'a later global install appends a fresh section');
+});
+
 test('the global section is planned only when the pointer asset is selected', (t) => {
   const home = tempDir(t, 'doflow-agy-global-');
   const input = { scope: 'global', scopeRoot: home, assets: [], mcp: [], ledger: { resources: [] }, context: { repoRoot: REPO, homeDir: home, operation: 'apply' } };

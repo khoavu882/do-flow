@@ -84,9 +84,9 @@ test('rollback after a later antigravity install: the restored gemini claimant o
 
   const next = c.run(['update', '-g', '-f', '--no-backup']);
   assert.equal(next.status, 0, next.output);
-  // released 1 is the GEMINI.md claimant (antigravity claims the file); the fixture's shared runtime
-  // file is no longer produced by the source, so the live prune removes it and the sweep drops its row.
-  assert.ok(next.stdout.includes('[RETIRED] gemini → antigravity: deleted 8, stripped 1, released 1, kept 0'), next.stdout);
+  // released 1 is the GEMINI.md claimant (antigravity claims the file); dropped 1 is the fixture's shared
+  // runtime file, which the source no longer produces, so the live prune removes it and the sweep drops its row.
+  assert.ok(next.stdout.includes('[RETIRED] gemini → antigravity: deleted 8, stripped 1, released 1, dropped 1, deferred 0, kept 0'), next.stdout);
   const ledger = c.ledger();
   assert.deepEqual(c.gemini(ledger), [], 'no gemini row is left');
   assert.equal(ledger.targets.gemini, undefined, 'targets.gemini is dropped again');

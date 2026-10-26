@@ -99,7 +99,7 @@ for (const legacy of [false, true]) {
     const [retired] = p.retiredHarnesses;
     assert.deepEqual(retired.changes.map((change: any) => change.action), ['handover']);
     assert.equal(retired.counts.released, 1, 'a handover counts as released');
-    assert.deepEqual(formatRetiredPlans(p.retiredHarnesses), ['[RETIRED] oldtool → antigravity: deleted 0, stripped 0, released 1, kept 0']);
+    assert.deepEqual(formatRetiredPlans(p.retiredHarnesses), ['[RETIRED] oldtool → antigravity: deleted 0, stripped 0, released 1, dropped 0, deferred 0, kept 0']);
     const agy = p.targets.find((target: any) => target.harness === 'antigravity');
     assert.deepEqual(agy.adapterInput.context.handovers, [{ target: s.target, fromKey: ownershipKey(s.row), edited: false }]);
     const [change] = instructionChanges(p, s.target);
@@ -171,6 +171,32 @@ test('control (a): a throw in antigravity\'s apply leaves the file and the ledge
   assert.deepEqual(fs.readFileSync(s.target), s.before, 'the old span and the user text are intact');
   assert.deepEqual(readLedger(s.state), ledgerBefore, 'the oldtool row is still the owner');
   assert.deepEqual(fs.readdirSync(path.dirname(s.target)).filter((name: string) => name !== 'GEMINI.md' && name !== 'config'), [], 'no temporary file is left beside it');
+});
+
+test('V-2: a retry after a throw between the handover write and the ledger write recognises DoFlow\'s own section — no "changed before handover" notice, no retainedEdit, no --force', (t) => {
+  const s = setup(t);
+  const ledgerBefore = readLedger(s.state);
+  const p = s.plan();
+  assert.throws(() => applyLifecycle({ plan: p, registry: s.registry, adapters: s.adapters, stateRoot: s.state, ledger: p.ledger,
+    hasBashCapableShellFn: () => true, writeLedgerFn: () => { throw new Error('injected: ledger write'); } }), /injected: ledger write/);
+  assert.equal(fs.readFileSync(s.target, 'utf8'), `${BEFORE}${antigravitySection(s.home)}${AFTER}`, 'the handover write landed');
+  assert.deepEqual(readLedger(s.state), ledgerBefore, 'the oldtool row still holds its old fingerprint');
+
+  const retry = s.plan();
+  assert.deepEqual(retry.retiredHarnesses[0].changes.map((change: any) => change.action), ['handover']);
+  assert.ok(!retry.notices.some((item: any) => String(item.notice).includes('changed before handover')), JSON.stringify(retry.notices));
+  assert.deepEqual(instructionChanges(retry, s.target), [], 'the span is already antigravity\'s: nothing to write');
+  const result = s.apply(retry);
+  assert.equal(fs.readFileSync(s.target, 'utf8'), `${BEFORE}${antigravitySection(s.home)}${AFTER}`);
+  assert.deepEqual(rowsOf(result.ledger, 'oldtool'), [], 'no oldtool row remains');
+  const row = sectionRow(result.ledger, s.target);
+  assert.ok(row, 'antigravity owns the section');
+  assert.equal(row.retainedEdit, undefined, 'DoFlow\'s own write is not a person\'s edit');
+  assert.equal(row.fingerprint, sha(fs.readFileSync(s.target)));
+  const again = s.plan({ current: result.ledger });
+  assert.equal(again.retiredHarnesses, undefined);
+  assert.deepEqual(instructionChanges(again, s.target), [], 'converged without --force');
+  assert.ok(!again.notices.some((item: any) => String(item.notice).includes('changed before handover')));
 });
 
 // ------------------------------------------------------------------ (b) person-edited: retainedEdit until --force
@@ -261,7 +287,7 @@ test('control (c): antigravity installed but not planned (update -g -t claude) d
   const [retired] = p.retiredHarnesses;
   assert.deepEqual(retired.changes.map((change: any) => change.action), ['defer']);
   assert.deepEqual(formatRetiredPlans(p.retiredHarnesses), [
-    '[RETIRED] oldtool → antigravity: deleted 0, stripped 0, released 0, kept 0',
+    '[RETIRED] oldtool → antigravity: deleted 0, stripped 0, released 0, dropped 0, deferred 1, kept 0',
     '  .gemini/GEMINI.md: handed over on the next run that targets antigravity',
   ]);
   const result = s.apply(p);
