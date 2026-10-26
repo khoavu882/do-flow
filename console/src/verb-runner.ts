@@ -20,7 +20,8 @@ interface Shape {
   /** `version`: the core prints a plain line, not JSON. */
   readonly text?: true;
 }
-type Failure = { ok: false; code: 'usage' | 'core-error' | 'core-unreachable'; exit: number | null; reason?: string };
+/** `errorId`: the core's own JSON `error` id from a failed call's stdout (see errorIdOf); nothing else of that stdout. */
+type Failure = { ok: false; code: 'usage' | 'core-error' | 'core-unreachable'; exit: number | null; reason?: string; errorId?: string };
 type Result = { ok: true; json: any; exit: number } | Failure;
 interface Clock {
   now(): number;
@@ -124,6 +125,22 @@ function childEnv(parent: Record<string, string | undefined>): Record<string, st
   return env;
 }
 
+/**
+ * The `error` field of a failed call's stdout when that stdout is one JSON object and the field is an
+ * id matching PARAM_PATTERN (`plan-unreadable`, `cannot-list-checkouts`, ...), else null. Messages,
+ * problems and every other field are never read, so no path or free text leaves the child.
+ */
+function errorIdOf(chunks: Buffer[]): string | null {
+  let value: any;
+  try {
+    value = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  } catch {
+    return null;
+  }
+  const id = value && typeof value === 'object' && !Array.isArray(value) ? value.error : undefined;
+  return typeof id === 'string' && PARAM_PATTERN.test(id) ? id : null;
+}
+
 const realClock: Clock = {
   now: () => Date.now(),
   setTimeout: (fn, ms) => setTimeout(fn, ms),
@@ -205,6 +222,8 @@ function createVerbRunner(options: RunnerOptions) {
         if (failure !== null) return resolve({ ok: false, code: 'core-error', exit: null, reason: failure });
         if (code !== 0) {
           const result: Failure = { ok: false, code: 'core-error', exit: code };
+          const errorId = errorIdOf(chunks);
+          if (errorId !== null) result.errorId = errorId;
           if (code === 1 && sawError) backoff.set(argv.join('\0'), { result: { ...result, reason: 'backoff' }, until: clock.now() + BACKOFF_MS });
           return resolve(result);
         }
