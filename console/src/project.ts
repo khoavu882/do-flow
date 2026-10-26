@@ -101,7 +101,9 @@ const orNull = <T>(check: Check<T>): Check<T | null> => (value) => (value === nu
 const oneOf = (set: readonly string[]): Check<string> => (value) => (typeof value === 'string' && set.includes(value) ? value : fail());
 const id: Check<string> = (value) => (typeof value === 'string' && ID.test(value) ? value : fail());
 const text: Check<string> = (value) => (typeof value === 'string' ? value : fail());
-const label: Check<string> = (value) => (typeof value !== 'string' ? fail() : LABEL.test(value) ? value : WITHHELD);
+/** A label is a name, never a place or a secret: a leading `/` or `~`, a drive prefix, or text the mask would change is withheld. */
+const PATH_LABEL = /^[/~]|^[A-Za-z]:[\\/]/;
+const label: Check<string> = (value) => (typeof value !== 'string' ? fail() : LABEL.test(value) && !PATH_LABEL.test(value) && maskLite(value) === value ? value : WITHHELD);
 const iso: Check<string> = (value) => (typeof value === 'string' && ISO.test(value) && !Number.isNaN(Date.parse(value)) ? value : fail());
 const count: Check<number> = (value) => (Number.isInteger(value) && (value as number) >= 0 ? (value as number) : fail());
 const bool: Check<boolean> = (value) => (typeof value === 'boolean' ? value : fail());
