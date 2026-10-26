@@ -263,6 +263,25 @@ test('the 500-event bound: the oldest are dropped from the top and counted; rese
   assert.equal(pushAll(1200).length, 500);
 });
 
+test('record events are held once: the same record in three normal batches is added once, other kinds are kept', () => {
+  const rec = (n: number, extra: any = {}) => ev(n, { kind: 'record', text: null, record: { type: 'attempt-end', task: 'T1', result: 'PASSED', ...extra } });
+  const kiro = { ...rec(5), at: new Date(NOW + 5000).toISOString() };
+  let held: any[] = [ev(1)];
+  const counts: number[] = [];
+  for (let i = 0; i < 3; i += 1) {
+    const next = fleet.appendEvents(held, [{ ...kiro }, ev(10 + i)]);
+    held = next.events;
+    counts.push(next.added);
+  }
+  assert.equal(held.filter((e: any) => e.kind === 'record').length, 1, 'the same record is held once');
+  assert.deepEqual(counts, [2, 1, 1]);
+  assert.equal(held.filter((e: any) => e.kind === 'reply').length, 4, 'replies are never deduped without a resume');
+  const other = fleet.appendEvents(held, [rec(5, { task: 'T2' }), { ...kiro, agentKey: key(2) }]);
+  assert.equal(other.added, 2, 'another task or another agent is another record');
+  const reset = fleet.appendEvents(held, [{ ...kiro }], { reset: true });
+  assert.equal(reset.added, 1, 'a reset starts from nothing held');
+});
+
 test('panel rows: a tool result attaches to its call by callKey and is no row of its own; one without its call is a row', () => {
   const call = (n: number, k: string) => ev(n, { kind: 'tool-call', text: null, args: 'x', tool: { name: 'Read', callKey: k, status: null, bytes: null, durationMs: null } });
   const result = (n: number, k: string, status: string) => ev(n, { kind: 'tool-result', text: null, tool: { name: 'Read', callKey: k, status, bytes: 2400, durationMs: 1200 } });
