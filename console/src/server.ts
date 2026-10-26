@@ -5,7 +5,9 @@
 // route by path and declared method (no route for the path: GET 404, any other method 405) ->
 // for a non-GET route: an own Origin, `Sec-Fetch-Site: same-origin` when sent, and
 // `Content-Type: application/json` exactly (else 403 / 415) -> the handler. Every response, including
-// Node's own 400 for a malformed request, carries the header set of headers.ts.
+// Node's own 400 for a malformed request, carries the header set of headers.ts. A stream route's
+// handler gets `res` and returns null once it owns the response (stream.ts writes the same header set
+// itself); a Reply it returns instead is sent as usual.
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -46,7 +48,7 @@ async function createServer(options: ServerOptions = {}): Promise<ConsoleServer>
   let allowedHosts: Set<string> = new Set();
   let allowedOrigins: Set<string> = new Set();
 
-  async function decide(req: any, pathname: string, api: boolean): Promise<Reply> {
+  async function decide(req: any, res: any, pathname: string, api: boolean): Promise<Reply | null> {
     const hostHeader = req.headers.host;
     if (typeof hostHeader !== 'string' || !allowedHosts.has(hostHeader.toLowerCase())) return { status: 421 };
     const origin = req.headers.origin;
@@ -67,7 +69,7 @@ async function createServer(options: ServerOptions = {}): Promise<ConsoleServer>
       if (fetchSite !== undefined && fetchSite !== 'same-origin') return errorReply(403, 'forbidden-origin');
       if (req.headers['content-type'] !== 'application/json') return errorReply(415, 'unsupported-media');
     }
-    return hit.route.handler({ req, pathname, params: hit.params, webRoot, port: boundPort });
+    return hit.route.handler({ req, res, pathname, params: hit.params, webRoot, port: boundPort });
   }
 
   function send(res: any, api: boolean, reply: Reply): void {
@@ -86,8 +88,8 @@ async function createServer(options: ServerOptions = {}): Promise<ConsoleServer>
     const pathname = url.startsWith('/') ? url.split('?')[0] : '';
     const api = isApiPath(pathname);
     Promise.resolve()
-      .then(() => decide(req, pathname, api))
-      .then((reply) => send(res, api, reply))
+      .then(() => decide(req, res, pathname, api))
+      .then((reply) => (reply === null ? undefined : send(res, api, reply)))
       .catch(() => {
         // A handler or reply fault is reported by status only: its message may carry paths (092 IC-012).
         // If even the 500 cannot be written, the socket is dropped rather than left hanging.

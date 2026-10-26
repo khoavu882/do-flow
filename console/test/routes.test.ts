@@ -102,18 +102,20 @@ async function harness(runner: any, t: any) {
 
 const errorBody = (code: string, verb: string | null = null, exit: number | null = null) => ({ error: { code, verb, exit } });
 
-test('route table: frozen, every route GET but the one POST /api/session, and exactly the IC-005 read paths', () => {
+test('route table: frozen, the only non-GET route is POST /api/session, the only stream route is GET /api/stream, and exactly the IC-005 read paths', () => {
   const routes = consoleRoutes(scripted(), createSessions());
   assert.ok(Object.isFrozen(routes) && routes.every((route: any) => Object.isFrozen(route)));
   assert.deepEqual(routes.filter((route: any) => route.method !== 'GET').map((route: any) => `${route.method} ${route.path}`), ['POST /api/session']);
+  assert.deepEqual(routes.filter((route: any) => route.stream).map((route: any) => `${route.method} ${route.path}`), ['GET /api/stream']);
   assert.deepEqual(routes.filter((route: any) => route.method === 'GET').map((route: any) => route.path).sort(),
-    ['/*', '/api/info', '/api/runs', '/api/runs/:slug/:taskId', '/api/sessions', '/api/workflows', '/healthz']);
+    ['/*', '/api/fleet', '/api/info', '/api/runs', '/api/runs/:slug/:taskId', '/api/sessions', '/api/stream', '/api/transcript', '/api/workflows', '/healthz']);
 });
 
 test('session: every read route is 401 without the cookie and no verb runs', async (t) => {
   const runner = scripted();
   const { get } = await harness(runner, t);
-  for (const target of ['/api/info', '/api/runs', '/api/runs/s1/t1', '/api/workflows', '/api/sessions']) {
+  for (const target of ['/api/info', '/api/runs', '/api/runs/s1/t1', '/api/workflows', '/api/sessions', '/api/fleet', '/api/stream?project=0cc00ec6d2062bc0',
+    '/api/transcript?project=0cc00ec6d2062bc0&agent=0cc00ec6d2062bc0']) {
     const reply = await get(target, false);
     assert.equal(reply.status, 401, target);
     assert.deepEqual(JSON.parse(reply.body), errorBody('unauthenticated'), target);
@@ -229,6 +231,16 @@ test('GET /api/runs/:slug/:taskId: a timeline that cannot be read gives timeline
   assert.deepEqual(Object.keys(bothBody), ['v', 'run', 'timeline', 'tasks', 'workflow', 'tasksReason', 'timelineReason']);
   const gone = await harness(scripted({ timeline: () => ({ ok: false, code: 'core-error', exit: 1 }) }), t);
   assert.deepEqual(await gone.json('/api/runs/s1/t1'), { status: 404, body: errorBody('run-not-found', 'timeline', 1) });
+});
+
+test('params: a Fleet project, agent or cursor failing the IC-024 pattern is 400 usage before any verb runs', async (t) => {
+  const runner = scripted();
+  const { json } = await harness(runner, t);
+  for (const target of ['/api/transcript?project=x&agent=0cc00ec6d2062bc0', '/api/transcript?project=0cc00ec6d2062bc0', '/api/transcript?project=0cc00ec6d2062bc0&agent=0cc00ec6d2062bc0&cursor=1:2',
+    '/api/stream', '/api/stream?project=0CC00EC6D2062BC0', '/api/stream?project=0cc00ec6d2062bc0&agent=../x']) {
+    assert.deepEqual(await json(target), { status: 400, body: errorBody('usage') }, target);
+  }
+  assert.deepEqual(runner.calls, []);
 });
 
 test('error mapping: runner and projector failures become the IC-005 codes with the shape id and exit', async (t) => {

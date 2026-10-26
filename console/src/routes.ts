@@ -2,8 +2,10 @@
 
 // The Console route table (IC-005). A route declares its method, so the server answers 405 for every
 // method no route declares for a path; the only non-GET route the contract allows is
-// `POST /api/session`, the launch-code exchange (092 IC-011). `buildRoutes` puts every other /api
-// route behind the session check, so a route added to the table cannot skip it. Paths are literal segments, `:name` segments (one non-empty raw segment,
+// `POST /api/session`, the launch-code exchange (092 IC-011), and the only stream route is
+// `GET /api/stream` (`stream: true`: its handler writes to `ctx.res` over time and returns null once it
+// has taken the response over; before that it may still return an error Reply). `buildRoutes` puts every
+// other /api route behind the session check, so a route added to the table cannot skip it. Paths are literal segments, `:name` segments (one non-empty raw segment,
 // still percent-encoded: handlers validate it), or the whole-table static fallback `/*`, which never
 // matches under /api.
 
@@ -11,11 +13,12 @@ const { readStatic } = require('./static.ts');
 const { processSessions, sessionCookie, readCookie, cookieName } = require('./session.ts');
 const { project } = require('./project.ts');
 const { handshake } = require('./handshake.ts');
-const { PARAM_PATTERN } = require('./verb-runner.ts');
+const { PARAM_PATTERN, fleetError } = require('./verb-runner.ts');
+const { createStreams, parseLastEventId } = require('./stream.ts');
 
 type Reply = { status: number, headers?: Record<string, string>, body?: string | Uint8Array };
-type RouteContext = { req: any, pathname: string, params: Record<string, string>, webRoot: string, port: number, session?: { scope: 'read' } };
-type Route = Readonly<{ method: 'GET' | 'POST', path: string, handler: (ctx: RouteContext) => Reply | Promise<Reply> }>;
+type RouteContext = { req: any, res: any, pathname: string, params: Record<string, string>, webRoot: string, port: number, session?: { scope: 'read' } };
+type Route = Readonly<{ method: 'GET' | 'POST', path: string, stream?: true, handler: (ctx: RouteContext) => Reply | null | Promise<Reply | null> }>;
 
 const JSON_TYPE = 'application/json; charset=utf-8';
 const SESSION_PATH = '/api/session';
@@ -115,7 +118,8 @@ const ROUTES: readonly Route[] = buildRoutes(processSessions, [healthz, staticFa
 // ---- IC-005 read routes over the verb runner (A.6) and the projectors (A.7) ----
 
 type Runner = { run(shapeId: string, params?: Record<string, string>): Promise<any> };
-type Read = { ok: true, body: any, exit: number } | { ok: false, reply: Reply, code: string, exit: number | null, errorId?: string };
+type ErrorInfo = { code: string, verb: string | null, exit: number | null };
+type Read = { ok: true, body: any, exit: number } | { ok: false, reply: Reply, code: string, exit: number | null, errorId?: string, error: ErrorInfo };
 
 /**
  * The registry's task classes in registry order: a copy of the keys of `classes` in
@@ -132,20 +136,33 @@ function failureStatus(failure: { code: string }): [number, string] {
   return [502, 'core-error'];
 }
 
-/** IC-005's error for a runner failure; `exit` is the core's exit code when it ran. */
-function failureReply(shapeId: string, failure: { code: string, exit: number | null }): Reply {
+/**
+ * IC-005's status and error body for a runner failure; `exit` is the core's exit code when it ran.
+ * The Fleet codes (IC-024) come first: `fleetError` maps them, anything else is `failureStatus`.
+ */
+function failureInfo(shapeId: string, failure: { code: string, exit: number | null, errorId?: string }): { status: number, error: ErrorInfo } {
+  const fleet = fleetError(shapeId, failure);
+  if (fleet) return { status: fleet.status, error: { code: fleet.code, verb: shapeId, exit: failure.exit } };
   const [status, code] = failureStatus(failure);
-  return errorReply(status, code, shapeId, status === 502 ? failure.exit : null);
+  return { status, error: { code, verb: shapeId, exit: status === 502 ? failure.exit : null } };
+}
+
+function failureReply(shapeId: string, failure: { code: string, exit: number | null, errorId?: string }): Reply {
+  const { status, error } = failureInfo(shapeId, failure);
+  return errorReply(status, error.code, error.verb, error.exit);
 }
 
 /** One allow-listed call, projected; a projector refusal is `core-contract-mismatch` (no partial body). */
 async function read(runner: Runner, shapeId: string, params: Record<string, string>, context?: unknown): Promise<Read> {
   const result = await runner.run(shapeId, params);
-  if (!result.ok) return { ok: false, reply: failureReply(shapeId, result), code: failureStatus(result)[1], exit: result.exit, errorId: result.errorId };
+  if (!result.ok) {
+    const { error } = failureInfo(shapeId, result);
+    return { ok: false, reply: failureReply(shapeId, result), code: error.code, exit: result.exit, errorId: result.errorId, error };
+  }
   const projected = project(shapeId, result.json, context);
   return projected.ok
     ? { ok: true, body: projected.body, exit: 0 }
-    : { ok: false, reply: errorReply(502, 'core-contract-mismatch', shapeId, 0), code: 'core-contract-mismatch', exit: 0 };
+    : { ok: false, reply: errorReply(502, 'core-contract-mismatch', shapeId, 0), code: 'core-contract-mismatch', exit: 0, error: { code: 'core-contract-mismatch', verb: shapeId, exit: 0 } };
 }
 
 async function info(runner: Runner): Promise<Reply> {
@@ -325,6 +342,96 @@ async function workflows(runner: Runner): Promise<Reply> {
   return jsonReply(200, { v: 1, workflows: reads.map((entry) => (entry as any).body) });
 }
 
+// ---- IC-025: GET /api/fleet, GET /api/transcript, GET /api/stream ----
+
+/** IC-025: projects shown per Fleet read; the rest are counted. The traffic window (10 min) is a literal of the `traffic` shape. */
+const FLEET_PROJECT_LIMIT = 12;
+/** One transcript page per read: the core's own default (IC-022). */
+const TRANSCRIPT_PAGE = '200';
+// The verb runner checks these again (IC-024); routes check them first so a bad parameter is a 400 before any verb runs.
+const KEY16 = /^[0-9a-f]{16}$/;
+const CURSOR = /^[0-9]+:[0-9]+:[0-9]+:[0-9]+$/;
+
+/**
+ * IC-025: `projects`, then `tree` and `traffic` for at most FLEET_PROJECT_LIMIT of them. A failed
+ * `projects` fails the read (`cannot-list-projects`); a failed `tree` or `traffic` fails its own section.
+ */
+async function fleetRead(runner: Runner): Promise<Read> {
+  const list = await read(runner, 'projects', {});
+  if (!list.ok) return list;
+  const shown: any[] = list.body.projects.slice(0, FLEET_PROJECT_LIMIT);
+  const projects = await Promise.all(shown.map(async (entry) => {
+    const [tree, traffic] = await Promise.all([
+      read(runner, 'tree', { projectKey: entry.projectKey }),
+      read(runner, 'traffic', { projectKey: entry.projectKey }),
+    ]);
+    return { projectKey: entry.projectKey, label: entry.label, current: entry.current, checkouts: entry.checkouts, lastRecordAt: entry.lastRecordAt, tree: sectionOf(tree), traffic: sectionOf(traffic) };
+  }));
+  return {
+    ok: true,
+    exit: 0,
+    body: {
+      v: 1,
+      store: list.body.store,
+      projects,
+      excluded: list.body.excluded,
+      limits: { projectsShown: shown.length, projectsNotShown: list.body.projects.length - shown.length, truncated: list.body.truncated },
+    },
+  };
+}
+
+function transcriptRead(runner: Runner, project: string, agent: string, cursor: string | null): Promise<Read> {
+  return read(runner, 'transcript', { projectKey: project, agent, limit: TRANSCRIPT_PAGE, ...(cursor === null ? {} : { cursor }) });
+}
+
+/** The query parameters of `req`, or null when one is unknown or given twice. */
+function queryOf(req: any, names: readonly string[]): Map<string, string> | null {
+  const url: string = typeof req.url === 'string' ? req.url : '';
+  const mark = url.indexOf('?');
+  const found = new Map<string, string>();
+  let ok = true;
+  new URLSearchParams(mark < 0 ? '' : url.slice(mark + 1)).forEach((value, name) => {
+    if (!names.includes(name) || found.has(name)) ok = false;
+    found.set(name, value);
+  });
+  return ok ? found : null;
+}
+
+const fleetRoute = (runner: Runner): Route['handler'] => async () => {
+  const fleet = await fleetRead(runner);
+  return fleet.ok ? jsonReply(200, fleet.body) : fleet.reply;
+};
+
+const transcriptRoute = (runner: Runner): Route['handler'] => async (ctx) => {
+  const query = queryOf(ctx.req, ['project', 'agent', 'cursor']);
+  const project = query?.get('project');
+  const agent = query?.get('agent');
+  const cursor = query?.get('cursor') ?? null;
+  if (!query || project === undefined || agent === undefined || !KEY16.test(project) || !KEY16.test(agent) || (cursor !== null && !CURSOR.test(cursor))) return errorReply(400, 'usage');
+  const page = await transcriptRead(runner, project, agent, cursor);
+  return page.ok ? jsonReply(200, page.body) : page.reply;
+};
+
+/**
+ * The stream route kind: validated here, then handed to stream.ts, which owns the response from
+ * `retry:` on. At most two streams per session; a third is `429 stream-limit` as a JSON body before
+ * any stream header.
+ */
+const streamRoute = (runner: Runner): Route['handler'] => {
+  const streams = createStreams({ fleet: fleetRead.bind(null, runner), transcript: (project: string, agent: string, cursor: string | null) => transcriptRead(runner, project, agent, cursor) });
+  return (ctx) => {
+    const query = queryOf(ctx.req, ['project', 'agent']);
+    const project = query?.get('project');
+    const agent = query?.get('agent') ?? null;
+    if (!query || project === undefined || !KEY16.test(project) || (agent !== null && !KEY16.test(agent))) return errorReply(400, 'usage');
+    const release = streams.acquire(ctx.session as object);
+    if (release === null) return errorReply(429, 'stream-limit');
+    const resume = parseLastEventId(ctx.req.headers['last-event-id']);
+    streams.serve(ctx.req, ctx.res, { project, agent, revision: resume.revision, cursor: agent === null ? null : resume.cursor, release });
+    return null;
+  };
+};
+
 /**
  * The Console's table (IC-005) over `runner`: every /api route but the exchange is behind the session
  * check (buildRoutes), every one is GET, and each answers `{v:1, ...}` or IC-005's error body.
@@ -337,6 +444,9 @@ function consoleRoutes(runner: Runner, sessions: any = processSessions): readonl
     { method: 'GET', path: '/api/runs/:slug/:taskId', handler: (ctx) => runDetail(runner, ctx.params.slug, ctx.params.taskId) },
     { method: 'GET', path: '/api/workflows', handler: () => workflows(runner) },
     { method: 'GET', path: '/api/sessions', handler: () => sessionsView(runner) },
+    { method: 'GET', path: '/api/fleet', handler: fleetRoute(runner) },
+    { method: 'GET', path: '/api/transcript', handler: transcriptRoute(runner) },
+    { method: 'GET', path: '/api/stream', stream: true, handler: streamRoute(runner) },
     staticFallback,
   ]);
 }
