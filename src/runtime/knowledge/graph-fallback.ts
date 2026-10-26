@@ -44,7 +44,7 @@ interface RelationshipResolution {
   provider: 'graphify.query' | 'native.rg';
   status: 'HEALTHY' | 'FALLBACK' | 'UNAVAILABLE';
   freshness: GraphFreshnessStatus;
-  fallbackReason?: 'index-stale' | 'index-missing' | 'index-corrupt' | 'graph-empty';
+  fallbackReason?: 'index-stale' | 'index-missing' | 'index-corrupt' | 'graph-empty' | 'lexical-failed';
   candidates: ResolvedCandidate[];
   isAbsence: boolean;
   absenceReason?: string;
@@ -184,9 +184,13 @@ async function executeLexicalSearch(
   symbol: string,
   projectRoot: string,
   options?: { rgSearchImpl?: any }
-): Promise<Array<{ file: string; line: number; content: string }>> {
+): Promise<{ ok: boolean; matches: Array<{ file: string; line: number; content: string }>; reason?: string }> {
   if (options?.rgSearchImpl) {
-    return options.rgSearchImpl(symbol, projectRoot);
+    try {
+      const matches = await options.rgSearchImpl(symbol, projectRoot);
+      return Array.isArray(matches) ? { ok: true, matches } : { ok: false, matches: [], reason: 'lexical-search-returned-invalid-results' };
+    }
+    catch (error: any) { return { ok: false, matches: [], reason: error?.message || 'lexical-search-failed' }; }
   }
 
   try {
@@ -209,9 +213,10 @@ async function executeLexicalSearch(
         results.push({ file, line: lineNum, content });
       }
     }
-    return results;
-  } catch {
-    return [];
+    return { ok: true, matches: results };
+  } catch (error: any) {
+    if (error?.status === 1 || error?.code === 1) return { ok: true, matches: [] };
+    return { ok: false, matches: [], reason: error?.message || error?.code || 'lexical-search-failed' };
   }
 }
 
@@ -226,7 +231,7 @@ async function resolveRelationshipQuery(
   const isGraphUsable = freshness.status === 'FRESH' || (allowStale && freshness.status === 'STALE');
 
   if (isGraphUsable) {
-    const direction = options.intent === 'estimate-blast-radius' ? 'downstream' : 'both';
+    const direction = options.intent === 'estimate-blast-radius' ? 'upstream' : 'both';
     const traversal = await traverseGraphRelationships({
       projectRoot: options.projectRoot,
       seeds: [options.symbol],
@@ -266,9 +271,15 @@ async function resolveRelationshipQuery(
       };
     }
 
-    const lexMatches = await executeLexicalSearch(options.symbol, options.projectRoot, {
+    const lexical = await executeLexicalSearch(options.symbol, options.projectRoot, {
       rgSearchImpl: services?.rgSearchImpl,
     });
+    if (!lexical.ok) return {
+      query: options.symbol, intent: options.intent, provider: 'native.rg', status: 'UNAVAILABLE',
+      freshness: freshness.status, fallbackReason: 'lexical-failed', candidates: [], isAbsence: false,
+      absenceReason: `Lexical fallback failed: ${lexical.reason}`,
+    };
+    const lexMatches = lexical.matches;
 
     if (lexMatches.length > 0) {
       const candidates: ResolvedCandidate[] = lexMatches.slice(0, 50).map((match, index) => ({
@@ -314,9 +325,15 @@ async function resolveRelationshipQuery(
       ? 'index-missing'
       : 'index-corrupt';
 
-  const lexMatches = await executeLexicalSearch(options.symbol, options.projectRoot, {
+  const lexical = await executeLexicalSearch(options.symbol, options.projectRoot, {
     rgSearchImpl: services?.rgSearchImpl,
   });
+  if (!lexical.ok) return {
+    query: options.symbol, intent: options.intent, provider: 'native.rg', status: 'UNAVAILABLE',
+    freshness: freshness.status, fallbackReason: 'lexical-failed', candidates: [], isAbsence: false,
+    absenceReason: `Lexical fallback failed: ${lexical.reason}`,
+  };
+  const lexMatches = lexical.matches;
 
   if (lexMatches.length > 0) {
     const candidates: ResolvedCandidate[] = lexMatches.slice(0, 50).map((match, index) => ({

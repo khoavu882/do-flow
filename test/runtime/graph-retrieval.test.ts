@@ -333,6 +333,61 @@ describe('IC-002: evaluateGraphFreshness & resolveRelationshipQuery', () => {
     assert.equal(res.isAbsence, false, 'must not claim absence on stale graph when lexical dependents exist');
     assert.ok(res.candidates.some((c: any) => c.locator.file.includes('app.ts')));
   });
+
+  test('estimate-blast-radius on a FRESH graph returns the callers of the symbol, not its callees', async () => {
+    const graphData = {
+      nodes: [
+        { id: 'symA', label: 'symA', file: 'src/a.ts', line: 1 },
+        { id: 'symB', label: 'symB', file: 'src/b.ts', line: 1 },
+        { id: 'symC', label: 'symC', file: 'src/c.ts', line: 1 },
+      ],
+      // symA calls symB, symB calls symC: changing symB affects symA.
+      edges: [
+        { source: 'symA', target: 'symB', relation: 'calls' },
+        { source: 'symB', target: 'symC', relation: 'calls' },
+      ],
+    };
+    const root = setupProject('blast-upstream', {
+      'src/b.ts': 'export function symB() {}\n',
+      'graphify-out/graph.json': JSON.stringify(graphData),
+    });
+    const now = Date.now();
+    fs.utimesSync(path.join(root, 'src/b.ts'), (now - 20000) / 1000, (now - 20000) / 1000);
+    fs.utimesSync(path.join(root, 'graphify-out/graph.json'), now / 1000, now / 1000);
+
+    const res = await resolveRelationshipQuery({ projectRoot: root, symbol: 'symB', intent: 'estimate-blast-radius' });
+    const files = res.candidates.map((c: any) => c.locator.file);
+    assert.equal(res.provider, 'graphify.query');
+    assert.ok(files.includes('src/a.ts'), `the caller src/a.ts is affected: ${files.join(',')}`);
+    assert.ok(!files.includes('src/c.ts'), `the callee src/c.ts is not affected: ${files.join(',')}`);
+  });
+
+  test('a failed lexical fallback is UNAVAILABLE, never a confirmed absence', async () => {
+    const root = setupProject('lexical-fails', { 'src/a.ts': 'export const x = 1;\n' });
+    const injected = await resolveRelationshipQuery(
+      { projectRoot: root, symbol: 'calculateTax', intent: 'estimate-blast-radius' },
+      { rgSearchImpl: async () => { throw new Error('rg: spawn ENOENT'); } },
+    );
+    assert.equal(injected.status, 'UNAVAILABLE');
+    assert.equal(injected.fallbackReason, 'lexical-failed');
+    assert.equal(injected.isAbsence, false);
+    assert.deepEqual(injected.candidates, []);
+
+    // The real rg path: a search that cannot run (its cwd does not exist) is a failure, not zero matches.
+    const real = await resolveRelationshipQuery({
+      projectRoot: path.join(root, 'does-not-exist'), symbol: 'calculateTax', intent: 'estimate-blast-radius',
+    });
+    assert.equal(real.status, 'UNAVAILABLE');
+    assert.equal(real.isAbsence, false);
+  });
+
+  test('a lexical search that runs and finds nothing still confirms absence', async () => {
+    const root = setupProject('lexical-none', { 'src/a.ts': 'export const x = 1;\n' });
+    const res = await resolveRelationshipQuery({ projectRoot: root, symbol: 'neverDefinedAnywhere', intent: 'estimate-blast-radius' });
+    assert.equal(res.provider, 'native.rg');
+    assert.equal(res.isAbsence, true);
+    assert.deepEqual(res.candidates, []);
+  });
 });
 
 describe('IC-004: evaluateGP3Gate (Activation Gate)', () => {
