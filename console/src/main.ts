@@ -7,7 +7,6 @@
 // server and exit 0, within 2 s. Nothing else is written to stdout, and the code goes nowhere else.
 
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const { createVerbRunner } = require('./verb-runner.ts');
 const { handshake } = require('./handshake.ts');
@@ -71,20 +70,11 @@ async function main(argv: readonly string[], io: Io = { env: process.env, cwd: p
     return 2;
   }
 
-  // console/web ships with the package; until it exists every static path is a 404 from an empty root.
-  let emptyRoot: string | null = null;
-  let webRoot = WEB_ROOT;
-  if (!fs.existsSync(WEB_ROOT)) webRoot = emptyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-web-'));
-  const dropEmptyRoot = () => {
-    if (emptyRoot !== null) fs.rmSync(emptyRoot, { recursive: true, force: true });
-  };
-
   let app: any;
   try {
-    app = await createServer({ webRoot, port: flags.port, routes: consoleRoutes(runner, processSessions) });
+    app = await createServer({ webRoot: WEB_ROOT, port: flags.port, routes: consoleRoutes(runner, processSessions) });
   } catch (error: any) {
     runner.stop();
-    dropEmptyRoot();
     io.stderr.write(`doflow ui: cannot listen on ${BIND_HOST}:${flags.port} (${error && error.code ? error.code : 'error'})\n`);
     return 1;
   }
@@ -100,7 +90,6 @@ async function main(argv: readonly string[], io: Io = { env: process.env, cwd: p
       const deadline = new Promise<void>((done) => { timer = setTimeout(done, SHUTDOWN_MS - 250); });
       Promise.race([app.close(), deadline]).then(() => {
         clearTimeout(timer);
-        dropEmptyRoot();
         resolve(0);
       });
     };
