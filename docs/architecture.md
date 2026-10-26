@@ -807,12 +807,12 @@ configuration as a test fixture.
 
 `test/guards/*.test.ts` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-79 test files (plus `_shared.ts`, a helper rather than a test); this inventory lists
-72 entries across 68 test files and carries 70 distinct G-numbers.
+80 test files (plus `_shared.ts`, a helper rather than a test); this inventory lists
+73 entries across 69 test files and carries 71 distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries; G18 labels two files, of which `adapter-force.test.ts` is not listed; and G30 labels two
 files, `advice.test.ts` and a ratchet test in `module-reachability.test.ts` (the G16 file). The collisions are
-historical rather than a convention; G72 is the highest number in use (G67 is row 120 and G68 is row 122), so a new guard takes the next
+historical rather than a convention; G73 is the highest number in use (G67 is row 120 and G68 is row 122), so a new guard takes the next
 one above it instead of adding another collision. The list is not the whole directory. The
 files absent from it are `verb-reachability.test.ts`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.ts`, which owns G19, and `adapter-force.test.ts`, which is the unlisted half
@@ -1249,6 +1249,8 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
 - **G70** (`rule-lint.test.ts`) — duplicate rule lint across the guidance tree (Feature 107-C, IC-004): scans all `.md` files under `core/shared/guidance/rules/` for substantive rule statements (>50 characters), asserting that no two rule files define the same rule statement verbatim, and no skill file under `core/shared/skills/` duplicates a core rule statement verbatim unless explicitly citing the rule by name (e.g. `RULE_01`, `RULE_02`, etc.). Controls verify that seeded duplicate statements across rules and un-cited duplicates in skills turn the guard red.
 - **G71** (`guidance-rules-registry.test.ts`) — guidance rules registry schema, completeness, and safety invariants (Feature 102, IC-001, IC-002): validates `core/registry/rules.json` against the IC-001 schema, asserts that all 26+ canonical guidance statements across `core/shared/guidance/rules/` and `PRINCIPLES.md` are indexed with zero missing statements, verifies that all mandatory safety rules carry `neverAblate: true` and `ablationCandidate: false`, and strictly enforces the mutual-exclusion invariant forbidding any rule from carrying both `neverAblate: true` and `ablationCandidate: true`. Negative controls verify that planted schema errors, missing statements, and safety violations turn the guard red.
 - **G72** (`agent-teams.test.ts`) — agent teams coordination protocol and safety invariants (Feature 103, IC-001, IC-002, IC-003, IC-004): verifies `core/registry/settings.json` declarations for `team.writerCap` and `team.maxAttempts`, enforces role validation (the 7 specialist agent archetypes) and injection quarantine for untrusted inputs in `TaskBrief` and `TaskHandBack`, validates atomic write-set collision detection and writer cap enforcement in `AdmissionController`, and enforces strict reviewer independence forbidding self-review across agent roles and worker identities.
+
+- **G73** (`gate-evidence.test.ts`) — no exemption of `pre-implementation-gate.sh` covers the gate's own evidence (maint-testdiet): the readiness and orchestration stores, the in-repository `do-paths.sh` resolver candidates, the workflow registry candidate and the feature artifacts are enumerated from the script's own text (an entry of a form the guard cannot classify fails it), and an Edit and a Write to each is run through the real script on a feature branch whose repository git-ignores every DoFlow directory. Only the feature artifacts and the decision register (the authoring surface the gate documents as always allowed under `agent-docs/`) may pass; `KNOWN_GAPS` is empty and a ratchet keeps it so (the `.claude`, `.codex` and `.kiro` resolver candidates were allowed while git-ignored until the gate gated any resolver path ending in do-paths.sh before its ignore skip). The check is also re-run on copies of the script with an exemption planted for the readiness store, the run store, a resolver candidate, the registry and a state file by name, and each plant must be reported.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.

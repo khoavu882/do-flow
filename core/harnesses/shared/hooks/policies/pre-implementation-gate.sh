@@ -266,8 +266,10 @@ while IFS= read -r file; do
   # The skip never applies to DoFlow's own state or gate artifacts: .doflow/ is gitignored, and
   # skipping it would let an edit forge a readiness record. Any `.doflow` or `agent-docs/doflow`
   # segment of the real path, or of the path as written (a `..` the resolver could not fold), keeps it gated.
-  case "/$file/" in */.doflow/*|*/agent-docs/doflow/*|*/../*) GATED=true; break ;; esac
-  case "${real#"$repo_real"}/" in */.doflow/*|*/agent-docs/doflow/*) GATED=true; break ;; esac
+  # The same holds for the do-paths.sh resolver the gate runs (any RESOLVER_CANDIDATES path, whichever
+  # harness directory holds it, ignored or not): rewriting it can make the gate find no feature.
+  case "/$file/" in */.doflow/*|*/agent-docs/doflow/*|*/../*|*/scripts/doflow/bash/do-paths.sh/) GATED=true; break ;; esac
+  case "${real#"$repo_real"}/" in */.doflow/*|*/agent-docs/doflow/*|*/scripts/doflow/bash/do-paths.sh/) GATED=true; break ;; esac
   git -C "$repo_root" check-ignore -q -- "$check" 2>/dev/null && continue
   GATED=true
   break

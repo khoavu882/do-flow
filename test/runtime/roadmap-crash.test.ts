@@ -6,21 +6,27 @@ const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
+const { repoFromTemplate } = require('../helper/repo-template.ts');
 const { mergeRoadmapRow, readOpenIntents } = require('../../src/runtime/roadmap/merge.ts');
 const { next, handleRoadmapCommand } = require('../../src/runtime/roadmap/loop.ts');
 const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
 const { createHash } = require('node:crypto');
 
 // A separate fixture keeps this suite independently runnable (no test-file imports).
+// The base repository (one commit) is built once per process and copied; the worktrees are made per case.
+const ENV: any = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
+  GIT_AUTHOR_NAME: 'Owner', GIT_AUTHOR_EMAIL: 'owner@example.test', GIT_COMMITTER_NAME: 'Owner', GIT_COMMITTER_EMAIL: 'owner@example.test' };
+const gitIn = (cwd: any, ...args: any[]) => cp.execFileSync('git', ['-C', cwd, ...args], { env: ENV, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+function buildBase(dir: any) {
+  gitIn(dir, 'init', '-q', '-b', 'main'); gitIn(dir, 'config', 'user.name', 'Owner'); gitIn(dir, 'config', 'user.email', 'owner@example.test');
+  gitIn(dir, 'config', 'core.hooksPath', '/dev/null');
+  fs.writeFileSync(path.join(dir, '.gitignore'), '.doflow/\nagent-docs/\n');
+  fs.writeFileSync(path.join(dir, 'base'), 'base'); gitIn(dir, 'add', '.'); gitIn(dir, 'commit', '-qm', 'base');
+}
 function fixture(t: any) {
   const root = tempDir(t, 'doflow-roadmap-crash-'), develop = path.join(root, 'dev'), feature = path.join(root, 'feature');
-  const env: any = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1',
-    GIT_AUTHOR_NAME: 'Owner', GIT_AUTHOR_EMAIL: 'owner@example.test', GIT_COMMITTER_NAME: 'Owner', GIT_COMMITTER_EMAIL: 'owner@example.test' };
-  const git = (cwd: any, ...args: any[]) => cp.execFileSync('git', ['-C', cwd, ...args], { env, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-  git(root, 'init', '-q', '-b', 'main'); git(root, 'config', 'user.name', 'Owner'); git(root, 'config', 'user.email', 'owner@example.test');
-  git(root, 'config', 'core.hooksPath', '/dev/null');
-  fs.writeFileSync(path.join(root, '.gitignore'), '.doflow/\nagent-docs/\n');
-  fs.writeFileSync(path.join(root, 'base'), 'base'); git(root, 'add', '.'); git(root, 'commit', '-qm', 'base');
+  const env = ENV, git = gitIn;
+  repoFromTemplate('crash-base', root, buildBase);
   git(root, 'worktree', 'add', '-qb', 'develop', develop); git(root, 'worktree', 'add', '-qb', 'feat/113-toy', feature);
   fs.writeFileSync(path.join(feature, 'new'), 'feature bytes\n');
   git(feature, 'add', '.'); git(feature, 'commit', '-qm', 'feature');
@@ -237,14 +243,16 @@ function loopFixture(t: any) {
     GIT_COMMITTER_NAME: 'Owner', GIT_COMMITTER_EMAIL: 'owner@example.test', GIT_AUTHOR_DATE: '1792400000 +0000', GIT_COMMITTER_DATE: '1792400000 +0000' };
   delete env.DOFLOW_AUTOPILOT_ENABLED;
   const git = (cwd: any, ...args: any[]) => cp.execFileSync('git', ['-C', cwd, ...args], { env, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-  git(root, 'init', '-q', '-b', 'main'); git(root, 'config', 'user.name', 'Develop Owner'); git(root, 'config', 'user.email', 'develop@example.test');
-  git(root, 'config', 'core.hooksPath', '/dev/null');
-  const policy = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/gates.json'), 'utf8'));
-  for (const gate of ['gate-0', 'gate-a', 'gate-b']) policy.classes.feature[gate].predicates = ['markers-zero:plan'];
-  put(path.join(root, 'core/registry/gates.json'), `${JSON.stringify(policy, null, 2)}\n`);
-  put(path.join(root, '.gitignore'), '.doflow/\nagent-docs/\n');
-  put(path.join(root, 'shared.txt'), 'base\n');
-  git(root, 'add', '.'); git(root, 'commit', '-qm', 'base');
+  repoFromTemplate('boundary-base', root, (base: any) => {
+    git(base, 'init', '-q', '-b', 'main'); git(base, 'config', 'user.name', 'Develop Owner'); git(base, 'config', 'user.email', 'develop@example.test');
+    git(base, 'config', 'core.hooksPath', '/dev/null');
+    const policy = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/gates.json'), 'utf8'));
+    for (const gate of ['gate-0', 'gate-a', 'gate-b']) policy.classes.feature[gate].predicates = ['markers-zero:plan'];
+    put(path.join(base, 'core/registry/gates.json'), `${JSON.stringify(policy, null, 2)}\n`);
+    put(path.join(base, '.gitignore'), '.doflow/\nagent-docs/\n');
+    put(path.join(base, 'shared.txt'), 'base\n');
+    git(base, 'add', '.'); git(base, 'commit', '-qm', 'base');
+  });
   git(root, 'worktree', 'add', '-qb', 'develop', develop);
   put(path.join(root, 'agent-docs/roadmap/rows.json'), JSON.stringify({ schema: 1, rows: [ROW] }));
   put(path.join(home, '.config/doflow/settings.json'), JSON.stringify({ schema: 1, 'autopilot.enabled': 'on' }));

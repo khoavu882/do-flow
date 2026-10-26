@@ -12,6 +12,7 @@ const path = require('node:path');
 const cp = require('node:child_process');
 const { createHash } = require('node:crypto');
 const { tempDir } = require('../helper/tmp.ts');
+const { repoFromTemplate } = require('../helper/repo-template.ts');
 const { next, acquireLease } = require('../../src/runtime/roadmap/loop.ts');
 const { readKillSwitch } = require('../../src/runtime/settings/autopilot.ts');
 const { mergeRoadmapRow, readOpenIntents } = require('../../src/runtime/roadmap/merge.ts');
@@ -53,16 +54,20 @@ function fixture(t: any, { rows = [ROW], on = true, envExtra = {}, name = 'doflo
     GIT_AUTHOR_DATE: '1792400000 +0000', GIT_COMMITTER_DATE: '1792400000 +0000', ...envExtra };
   delete env[SWITCH];
   const git = (cwd: any, ...args: any[]) => cp.execFileSync('git', ['-C', cwd, ...args], { env, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-  git(root, 'init', '-q', '-b', 'main');
-  git(root, 'config', 'user.name', 'Develop Owner');
-  git(root, 'config', 'user.email', 'develop@example.test');
-  git(root, 'config', 'core.hooksPath', '/dev/null');
-  write(path.join(root, '.gitignore'), '.doflow/\nagent-docs/\n');
-  write(path.join(root, 'core/registry/gates.json'), policyBytes(policy));
-  write(path.join(root, 'shared.txt'), 'base\n');
-  if (testScript) write(path.join(root, 'package.json'), `${JSON.stringify({ private: true, scripts: { test: 'node -e 0' } })}\n`);
-  git(root, 'add', '.');
-  git(root, 'commit', '-qm', 'base');
+  // The base commit is built once per distinct policy and test script, then copied (test/helper/repo-template.ts).
+  const gates = policyBytes(policy);
+  repoFromTemplate(`loop-base:${testScript}:${digest(gates)}`, root, (base: any) => {
+    git(base, 'init', '-q', '-b', 'main');
+    git(base, 'config', 'user.name', 'Develop Owner');
+    git(base, 'config', 'user.email', 'develop@example.test');
+    git(base, 'config', 'core.hooksPath', '/dev/null');
+    write(path.join(base, '.gitignore'), '.doflow/\nagent-docs/\n');
+    write(path.join(base, 'core/registry/gates.json'), gates);
+    write(path.join(base, 'shared.txt'), 'base\n');
+    if (testScript) write(path.join(base, 'package.json'), `${JSON.stringify({ private: true, scripts: { test: 'node -e 0' } })}\n`);
+    git(base, 'add', '.');
+    git(base, 'commit', '-qm', 'base');
+  });
   git(root, 'worktree', 'add', '-qb', 'develop', develop);
   write(path.join(root, 'agent-docs/roadmap/rows.json'), JSON.stringify({ schema: 1, rows }));
   if (on) setSwitch(home, 'on');

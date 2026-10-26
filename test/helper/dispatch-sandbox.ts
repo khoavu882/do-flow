@@ -28,6 +28,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('./tmp.ts');
+const { repoFromTemplate } = require('./repo-template.ts');
 const { IDENTITY_VARS, linkBin, writeScenario } = require('./fake-harness-cli.ts');
 const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
 const { parsePlan } = require('../../src/runtime/scaffold/artifacts.ts');
@@ -131,25 +132,35 @@ function makeDispatchSandbox(t: any, { plan = 'dependent', slug = '082-dispatch-
     GIT_CONFIG_NOSYSTEM: '1',
     FAKE_HARNESS_SCENARIO: scenarioFile,
     FAKE_HARNESS_LOG: log,
+    // The sandbox PATH holds node alone, so a worker or fake CLI it starts would otherwise compile every
+    // .ts module cold; tmp.ts points this process at one cache, and the children share it.
+    ...(process.env.NODE_COMPILE_CACHE ? { NODE_COMPILE_CACHE: process.env.NODE_COMPILE_CACHE } : {}),
   };
   for (const key of IDENTITY_VARS) if (ids[key] !== undefined) env[key] = ids[key];
 
-  // The scratch repository: the plan, its declared files seeded, one initial commit.
+  // The scratch repository: the plan, its declared files seeded, one initial commit. The repository
+  // is built once per process for each distinct plan text and slug, then copied (repo-template.ts):
+  // a case that shares them spawns no git for its base, and the commit id is the same in every copy
+  // (the identity and date are fixed below).
   const text = planText(plan);
-  const planFile = path.join(root, 'agent-docs', 'doflow', slug, 'plan.md');
-  fs.mkdirSync(path.dirname(planFile), { recursive: true });
-  fs.writeFileSync(planFile, text);
-  fs.writeFileSync(path.join(root, '.gitignore'), 'agent-docs/\n.doflow/\n');
-  fs.writeFileSync(path.join(root, 'README.md'), '# dispatch sandbox\n');
   const files = [...new Set(parsePlan(text).tasks.flatMap((task: any) => task.files))];
-  for (const file of files) {
-    const full = path.join(root, file);
-    fs.mkdirSync(path.dirname(full), { recursive: true });
-    fs.writeFileSync(full, `// ${file}\n`);
-  }
-  git(root, env, ['init', '-q', '-b', 'main']);
-  git(root, env, ['add', '-A']);
-  git(root, env, ['-c', 'user.name=sandbox', '-c', 'user.email=sandbox@invalid', 'commit', '-qm', 'sandbox: initial']);
+  const key = `dispatch-sandbox:${slug}:${crypto.createHash('sha256').update(text).digest('hex')}`;
+  repoFromTemplate(key, root, (base: any) => {
+    const planFile = path.join(base, 'agent-docs', 'doflow', slug, 'plan.md');
+    fs.mkdirSync(path.dirname(planFile), { recursive: true });
+    fs.writeFileSync(planFile, text);
+    fs.writeFileSync(path.join(base, '.gitignore'), 'agent-docs/\n.doflow/\n');
+    fs.writeFileSync(path.join(base, 'README.md'), '# dispatch sandbox\n');
+    for (const file of files) {
+      const full = path.join(base, file);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, `// ${file}\n`);
+    }
+    git(base, env, ['init', '-q', '-b', 'main']);
+    git(base, env, ['add', '-A']);
+    git(base, env, ['-c', 'user.name=sandbox', '-c', 'user.email=sandbox@invalid', 'commit', '-qm', 'sandbox: initial']);
+  });
+  const planFile = path.join(root, 'agent-docs', 'doflow', slug, 'plan.md');
 
   return {
     dir, root, bin, home, slug, planFile, files, scenarioFile, log, env, identity: ids,
