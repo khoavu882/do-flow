@@ -12,7 +12,6 @@ const {
   HARNESS_BINARIES,
   probeClaude,
   probeCodex,
-  probeGemini,
   probeOpencode,
   probePi,
   probeCopilot,
@@ -29,10 +28,9 @@ function createTempDir(prefix: string): string {
 
 test('Slice B: probe timeouts and binary mappings', () => {
   assert.equal(DEFAULT_PROBE_TIMEOUT_MS, 3000);
-  assert.equal(Object.keys(PROBES).length, 8);
+  assert.equal(Object.keys(PROBES).length, 7);
   assert.equal(RELOGIN_HINTS.claude, 'claude login');
   assert.equal(RELOGIN_HINTS.codex, 'codex login');
-  assert.equal(RELOGIN_HINTS.gemini, 'gemini');
   assert.equal(RELOGIN_HINTS.opencode, 'opencode auth login <provider>');
   assert.equal(RELOGIN_HINTS.pi, 'pi');
   assert.equal(RELOGIN_HINTS.copilot, 'copilot login');
@@ -154,53 +152,6 @@ test('Slice B: codex probe runner', async () => {
     assert.equal(res4.loginState, 'logged-in');
     assert.equal(res4.detectedMode, 'api-key');
     assert.equal(res4.derivedBilling, 'metered');
-  } finally {
-    fs.rmSync(tmpHome, { recursive: true, force: true });
-  }
-});
-
-test('Slice B: gemini probe runner', async () => {
-  const tmpHome = createTempDir('gemini');
-  try {
-    const installedExec = (bin: string, args: string[], opts: any, cb: any) => {
-      cb(null, 'gemini 2.0.0\n', '');
-    };
-
-    // 1. API key mode
-    const res1 = await probeGemini({
-      execFileImpl: installedExec,
-      homeDir: tmpHome,
-      env: { GEMINI_API_KEY: 'ai-studio-key' },
-    });
-    assert.equal(res1.installed, true);
-    assert.equal(res1.loginState, 'logged-in');
-    assert.equal(res1.detectedMode, 'api-key');
-    assert.equal(res1.derivedBilling, 'metered');
-
-    // 2. OAuth subscription mode
-    const geminiDir = path.join(tmpHome, '.gemini');
-    fs.mkdirSync(geminiDir, { recursive: true });
-    fs.writeFileSync(path.join(geminiDir, 'oauth_credentials.json'), '{}');
-    const res2 = await probeGemini({
-      execFileImpl: installedExec,
-      homeDir: tmpHome,
-      env: {},
-    });
-    assert.equal(res2.installed, true);
-    assert.equal(res2.loginState, 'logged-in');
-    assert.equal(res2.detectedMode, 'subscription');
-    assert.equal(res2.derivedBilling, 'free');
-
-    // 3. Logged out
-    fs.rmSync(path.join(geminiDir, 'oauth_credentials.json'));
-    const res3 = await probeGemini({
-      execFileImpl: installedExec,
-      homeDir: tmpHome,
-      env: {},
-    });
-    assert.equal(res3.installed, true);
-    assert.equal(res3.loginState, 'logged-out');
-    assert.equal(res3.reloginHint, 'gemini');
   } finally {
     fs.rmSync(tmpHome, { recursive: true, force: true });
   }

@@ -135,12 +135,12 @@ test('a projectRoot below the install root reads the install root ledger', () =>
 
 test('a nested ledger does not hide the enclosing install: each ancestor ledger is evaluated', () => {
   const t = fixture();
-  ledger(t.sub, 'project', { bare: ['gemini'] });
+  ledger(t.sub, 'project', { bare: ['opencode'] });
   ledger(t.proj, 'project', { skills: ['pi'] });
   install(t.proj, { runtime: false });
   const { rows } = reach(t, t.sub);
   assert.deepEqual(rows.map((row: any) => `${row.harness}:${row.scope}:${row.state}:${row.installRoot}`),
-    [`gemini:project:N/A:${t.sub}`, `pi:project:NO-REACH:${t.proj}`]);
+    [`opencode:project:N/A:${t.sub}`, `pi:project:NO-REACH:${t.proj}`]);
   assert.equal(rows[1].fix, `${path.join(t.sub, '.doflow')} hides the install at ${t.proj}; remove it if it is stale, or run: npx @khoavu882/doflow install ${t.sub} -t pi`,
     'an install at the outer root would not change what the skills find, so the hint names what hides it');
 });

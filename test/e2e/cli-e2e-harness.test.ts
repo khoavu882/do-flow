@@ -316,7 +316,7 @@ test('E12: a second install, update, reconcile and remove leaves config files, l
   assert.deepStrictEqual(snapshot(), afterRemove, 'a second remove changes no watched file');
 });
 
-test('the selection line under --dry-run names a remembered selection, and --mcp with no harness to take it has no effect', () => {
+test('the selection line under --dry-run names a remembered selection', () => {
   const home = scratchHome();
   // A 1.18.0 manifest list is what a harness with nothing recorded is offered.
   fs.mkdirSync(path.join(home, '.doflow'), { recursive: true });
@@ -324,11 +324,6 @@ test('the selection line under --dry-run names a remembered selection, and --mcp
   let r = run(['install', '-g', '--dry-run', '-t', 'kiro'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.ok(r.stdout.includes('[DRY] MCP selection: kiro: context7 (remembered)'), r.stdout);
-
-  r = run(['install', '-g', '--dry-run', '-t', 'gemini', '--mcp', 'context7'], { home });
-  assert.strictEqual(r.status, 0, r.stderr);
-  assert.ok(r.stdout.includes('[DRY] MCP: no targeted harness takes MCP servers; --mcp has no effect.'), r.stdout);
-  assert.doesNotMatch(r.stdout, /MCP selection:/);
 });
 
 test('update with no native change records a selection missing from the lock without touching a file, and says so', () => {

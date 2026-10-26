@@ -6,16 +6,11 @@
       "kind": "guidance",
       "source": "core/shared/guidance/pointers/claude-gemini.md",
       "appliesTo": [
-        "claude",
-        "gemini"
+        "claude"
       ],
       "projection": {
         "claude": {
           "renderer": "claude-instructions",
-          "capability": "instructions"
-        },
-        "gemini": {
-          "renderer": "gemini-instructions",
           "capability": "instructions"
         }
       },
@@ -63,7 +58,6 @@
       "appliesTo": [
         "claude",
         "codex",
-        "gemini",
         "kiro",
         "antigravity",
         "opencode",
@@ -76,10 +70,6 @@
           "capability": "instructions"
         },
         "codex": {
-          "renderer": "copy-tree",
-          "capability": "instructions"
-        },
-        "gemini": {
           "renderer": "copy-tree",
           "capability": "instructions"
         },
@@ -109,7 +99,6 @@
       "nativeDir": {
         "claude": "../.doflow/guidance",
         "codex": "../.doflow/guidance",
-        "gemini": "../.doflow/guidance",
         "kiro": "steering",
         "antigravity": "../.doflow/guidance",
         "opencode": "../.doflow/guidance",
@@ -142,7 +131,6 @@
       "appliesTo": [
         "claude",
         "codex",
-        "gemini",
         "opencode",
         "pi",
         "copilot",
@@ -155,10 +143,6 @@
           "capability": "skills"
         },
         "codex": {
-          "renderer": "copy-tree",
-          "capability": "skills"
-        },
-        "gemini": {
           "renderer": "copy-tree",
           "capability": "skills"
         },
@@ -187,7 +171,6 @@
       "nativeDir": {
         "claude": "skills",
         "codex": "../.agents/skills",
-        "gemini": "skills",
         "opencode": "skills",
         "pi": "skills",
         "copilot": "skills",
@@ -202,7 +185,6 @@
       "appliesTo": [
         "claude",
         "codex",
-        "gemini",
         "copilot",
         "kiro",
         "antigravity",
@@ -218,11 +200,6 @@
           "renderer": "copy-tree",
           "capability": "agents",
           "transform": "codex-agents"
-        },
-        "gemini": {
-          "renderer": "copy-tree",
-          "capability": "agents",
-          "transform": "gemini-agents"
         },
         "copilot": {
           "renderer": "copilot-agents",
@@ -251,7 +228,6 @@
       "nativeDir": {
         "claude": "agents",
         "codex": "agents",
-        "gemini": "../.gemini/agents",
         "copilot": "agents",
         "kiro": "agents",
         "antigravity": ".agents/agents",
@@ -264,8 +240,7 @@
       "source": "core/shared/templates",
       "appliesTo": [
         "claude",
-        "codex",
-        "gemini"
+        "codex"
       ],
       "projection": {
         "claude": {
@@ -275,17 +250,12 @@
         "codex": {
           "renderer": "copy-tree",
           "capability": "templates"
-        },
-        "gemini": {
-          "renderer": "copy-tree",
-          "capability": "templates"
         }
       },
       "ownership": "managed-tree",
       "nativeDir": {
         "claude": "../.doflow/templates",
-        "codex": "../.doflow/templates",
-        "gemini": "../.doflow/templates"
+        "codex": "../.doflow/templates"
       }
     },
     {
@@ -295,7 +265,6 @@
       "appliesTo": [
         "claude",
         "codex",
-        "gemini",
         "opencode",
         "pi",
         "copilot",
@@ -308,10 +277,6 @@
           "capability": "scripts"
         },
         "codex": {
-          "renderer": "copy-tree",
-          "capability": "scripts"
-        },
-        "gemini": {
           "renderer": "copy-tree",
           "capability": "scripts"
         },
@@ -340,7 +305,6 @@
       "nativeDir": {
         "claude": "../.doflow/scripts",
         "codex": "../.doflow/scripts",
-        "gemini": "../.doflow/scripts",
         "opencode": "../.doflow/scripts",
         "pi": "../.doflow/scripts",
         "copilot": "../.doflow/scripts",
@@ -355,7 +319,6 @@
       "appliesTo": [
         "claude",
         "codex",
-        "gemini",
         "opencode",
         "pi",
         "copilot",
@@ -368,10 +331,6 @@
           "capability": "scripts"
         },
         "codex": {
-          "renderer": "copy-tree",
-          "capability": "scripts"
-        },
-        "gemini": {
           "renderer": "copy-tree",
           "capability": "scripts"
         },
@@ -400,7 +359,6 @@
       "nativeDir": {
         "claude": "../.doflow/runtime/bin",
         "codex": "../.doflow/runtime/bin",
-        "gemini": "../.doflow/runtime/bin",
         "opencode": "../.doflow/runtime/bin",
         "pi": "../.doflow/runtime/bin",
         "copilot": "../.doflow/runtime/bin",
@@ -415,7 +373,6 @@
       "appliesTo": [
         "claude",
         "codex",
-        "gemini",
         "opencode",
         "pi",
         "copilot",
@@ -428,10 +385,6 @@
           "capability": "scripts"
         },
         "codex": {
-          "renderer": "copy-tree",
-          "capability": "scripts"
-        },
-        "gemini": {
           "renderer": "copy-tree",
           "capability": "scripts"
         },
@@ -460,7 +413,6 @@
       "nativeDir": {
         "claude": "../.doflow/runtime/src",
         "codex": "../.doflow/runtime/src",
-        "gemini": "../.doflow/runtime/src",
         "opencode": "../.doflow/runtime/src",
         "pi": "../.doflow/runtime/src",
         "copilot": "../.doflow/runtime/src",
@@ -475,7 +427,6 @@
       "appliesTo": [
         "claude",
         "codex",
-        "gemini",
         "opencode",
         "pi",
         "copilot",
@@ -488,10 +439,6 @@
           "capability": "scripts"
         },
         "codex": {
-          "renderer": "copy-tree",
-          "capability": "scripts"
-        },
-        "gemini": {
           "renderer": "copy-tree",
           "capability": "scripts"
         },
@@ -520,7 +467,6 @@
       "nativeDir": {
         "claude": "../.doflow/runtime/core/registry",
         "codex": "../.doflow/runtime/core/registry",
-        "gemini": "../.doflow/runtime/core/registry",
         "opencode": "../.doflow/runtime/core/registry",
         "pi": "../.doflow/runtime/core/registry",
         "copilot": "../.doflow/runtime/core/registry",
@@ -535,7 +481,6 @@
       "appliesTo": [
         "claude",
         "codex",
-        "gemini",
         "opencode",
         "pi",
         "copilot",
@@ -548,10 +493,6 @@
           "capability": "scripts"
         },
         "codex": {
-          "renderer": "copy-tree",
-          "capability": "scripts"
-        },
-        "gemini": {
           "renderer": "copy-tree",
           "capability": "scripts"
         },
@@ -580,7 +521,6 @@
       "nativeDir": {
         "claude": "bin",
         "codex": "bin",
-        "gemini": "bin",
         "opencode": "bin",
         "pi": "bin",
         "copilot": "bin",
@@ -762,7 +702,6 @@
       "appliesTo": [
         "claude",
         "codex",
-        "gemini",
         "pi",
         "kiro",
         "antigravity"
@@ -771,7 +710,6 @@
       "nativeDir": {
         "claude": "../.doflow/shared/hooks",
         "codex": "../.doflow/shared/hooks",
-        "gemini": "../.doflow/shared/hooks",
         "pi": "../.doflow/shared/hooks",
         "kiro": "../.doflow/shared/hooks",
         "antigravity": "../.doflow/shared/hooks"
@@ -782,10 +720,6 @@
           "capability": "hooks"
         },
         "codex": {
-          "renderer": "copy-tree",
-          "capability": "hooks"
-        },
-        "gemini": {
           "renderer": "copy-tree",
           "capability": "hooks"
         },

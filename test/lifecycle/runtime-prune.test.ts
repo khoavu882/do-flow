@@ -153,7 +153,7 @@ test('a harness with no row on the orphan prunes it through a synthetic removal 
   const [removal] = changesAt(planned, file);
   assert.equal(removal.harness, 'alpha');
   assert.equal(removal.kind, 'copy-tree-file', 'claude, pi, kiro and opencode filter removals on kind');
-  assert.equal(removal.projection.renderer, 'copy-tree', 'codex, gemini and copilot filter removals on the renderer');
+  assert.equal(removal.projection.renderer, 'copy-tree', 'codex, antigravity and copilot filter removals on the renderer');
   assert.equal(removal.fingerprint, sha('v1 js\n'), 'removeTree re-checks these bytes before deleting');
   assert.deepEqual(removal.supersedes, p.rowsAt('helper/git.js').map((row: any) => ownershipKey(row)));
 

@@ -92,18 +92,18 @@ test('IC-010 control: unset workers.enabled preserves the base fallback with or 
 const STARTS = [
   {
     name: 'stores enabled worker order and primary permission',
-    list: ['gemini', 'claude', 'primary'], flags: { mode: 'auto' },
-    ladder: ['gemini', 'claude'], inSession: true,
+    list: ['antigravity', 'claude', 'primary'], flags: { mode: 'auto' },
+    ladder: ['antigravity', 'claude'], inSession: true,
   },
   {
     name: 'allows a flag ladder to reorder enabled workers',
-    list: ['gemini', 'claude', 'primary'], flags: { mode: 'auto', ladder: 'claude,gemini' },
-    ladder: ['claude', 'gemini'], inSession: true,
+    list: ['antigravity', 'claude', 'primary'], flags: { mode: 'auto', ladder: 'claude,antigravity' },
+    ladder: ['claude', 'antigravity'], inSession: true,
   },
   {
     name: 'stores an enabled harness as a one-rung ladder',
-    list: ['gemini', 'claude', 'primary'], flags: { mode: 'auto', harness: 'gemini' },
-    ladder: ['gemini'], inSession: true,
+    list: ['antigravity', 'claude', 'primary'], flags: { mode: 'auto', harness: 'antigravity' },
+    ladder: ['antigravity'], inSession: true,
   },
   {
     name: 'auto starts without primary and stores false',
@@ -127,7 +127,7 @@ const STARTS = [
   },
   {
     name: 'auto starts with invalid settings and stores an empty ladder and false',
-    list: ['gemini', 'held'], flags: { mode: 'auto' },
+    list: ['antigravity', 'held'], flags: { mode: 'auto' },
     ladder: [], inSession: false,
   },
 ];
@@ -155,37 +155,37 @@ const REFUSALS = [
   },
   {
     name: 'a disabled harness is refused',
-    list: ['gemini', 'primary'], flags: { mode: 'auto', harness: 'claude' },
-    reason: 'worker-disabled', harness: 'claude', enabled: ['gemini'],
+    list: ['antigravity', 'primary'], flags: { mode: 'auto', harness: 'claude' },
+    reason: 'worker-disabled', harness: 'claude', enabled: ['antigravity'],
   },
   {
     name: 'a ladder refuses the first disabled rung',
-    list: ['gemini', 'primary'], flags: { mode: 'auto', ladder: 'gemini,claude' },
-    reason: 'worker-disabled', harness: 'claude', enabled: ['gemini'],
+    list: ['antigravity', 'primary'], flags: { mode: 'auto', ladder: 'antigravity,claude' },
+    reason: 'worker-disabled', harness: 'claude', enabled: ['antigravity'],
   },
   {
     name: 'multiple disabled rungs are checked in flag order',
-    list: ['gemini', 'primary'], flags: { mode: 'auto', ladder: 'codex,claude' },
-    reason: 'worker-disabled', harness: 'codex', enabled: ['gemini'],
+    list: ['antigravity', 'primary'], flags: { mode: 'auto', ladder: 'codex,claude' },
+    reason: 'worker-disabled', harness: 'codex', enabled: ['antigravity'],
   },
   {
     name: 'the harness gate precedes the sequential gate',
-    list: ['gemini'], flags: { mode: 'sequential', harness: 'claude' },
-    reason: 'worker-disabled', harness: 'claude', enabled: ['gemini'],
+    list: ['antigravity'], flags: { mode: 'sequential', harness: 'claude' },
+    reason: 'worker-disabled', harness: 'claude', enabled: ['antigravity'],
   },
   {
     name: 'invalid settings refuse an explicit harness',
-    list: ['gemini', 'held'], flags: { mode: 'auto', harness: 'gemini' },
-    reason: 'workers-enabled-invalid', harness: 'gemini', enabled: [],
+    list: ['antigravity', 'held'], flags: { mode: 'auto', harness: 'antigravity' },
+    reason: 'workers-enabled-invalid', harness: 'antigravity', enabled: [],
   },
   {
     name: 'invalid settings refuse an explicit ladder',
-    list: ['gemini', 'held'], flags: { mode: 'auto', ladder: 'gemini' },
-    reason: 'workers-enabled-invalid', harness: 'gemini', enabled: [],
+    list: ['antigravity', 'held'], flags: { mode: 'auto', ladder: 'antigravity' },
+    reason: 'workers-enabled-invalid', harness: 'antigravity', enabled: [],
   },
   {
     name: 'invalid settings refuse sequential start',
-    list: ['gemini', 'held'], flags: { mode: 'sequential' },
+    list: ['antigravity', 'held'], flags: { mode: 'sequential' },
     reason: 'workers-enabled-invalid', enabled: [],
     text: 'workers-enabled-invalid: workers.enabled is invalid, do not run in-session',
   },
@@ -205,7 +205,7 @@ for (const item of REFUSALS) {
 }
 
 test('IC-010: unknown harness and ladder ids remain exit 2 usage with a list set', POSIX, async (t) => {
-  const p = project(t, ['gemini', 'primary']);
+  const p = project(t, ['antigravity', 'primary']);
   for (const flags of [{ harness: 'not-a-harness' }, { ladder: 'not-a-harness' }]) {
     const r = await p.startWith({ mode: 'auto', ...flags });
     assert.equal(r.exit, 2, JSON.stringify(r.body));
@@ -216,7 +216,7 @@ test('IC-010: unknown harness and ladder ids remain exit 2 usage with a list set
 });
 
 test('IC-010: identity refusals precede the enabled-worker gate', POSIX, async (t) => {
-  const p = project(t, ['gemini']);
+  const p = project(t, ['antigravity']);
   for (const [over, reason] of [
     [SOLO, 'identity-solo'],
     [{ DOFLOW_SESSION_ROLE: 'worker' }, 'worker-session'],

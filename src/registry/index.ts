@@ -98,6 +98,8 @@ function loadRegistry({ repoRoot, dir, fsImpl = fs, sources }: { repoRoot?: stri
     directory: base,
     repoRoot: repoRoot ? path.resolve(repoRoot) : path.resolve(base, '..', '..'),
     harnesses: loaded.harnesses.harnesses,
+    // Optional in the file; an absent list is an empty one. Anything present is validated as written.
+    retired: loaded.harnesses.retired === undefined ? [] : loaded.harnesses.retired,
     assets: loaded.assets.assets,
     mcp: loaded.mcp.servers,
     lifecycle: loaded.lifecycle.policies,
@@ -876,6 +878,8 @@ function validateRegistry(
     if (harness.id === 'codex') validateNativeProjection(harness.nativeProjection, harness, { repoRoot, fsImpl, sources }, errors);
   }
 
+  validateRetired(registry?.retired, harnessIds, errors);
+
   const contractHarnesses = new Set();
   for (const contract of contracts || []) {
     validateContract(contract, `contract '${contract?.harness ?? '?'}'`, errors, harnessIds);
@@ -1066,6 +1070,70 @@ function validateBehaviours(value: any, at: string, harnessIds: Set<string>, err
   oncePerHarness(value, at, harnessIds, (entry) => JSON.stringify([entry.behaviour, entry.harness]), (entry) => `behaviour '${entry.behaviour}' × harness '${entry.harness}'`, [...COVERAGE_BEHAVIOURS], errors);
 }
 
+const RETIRED_ID_RE = /^[a-z][a-z0-9-]*$/;
+const HANDOVER_SCOPES = new Set(['global', 'project']);
+
+/** A harness DoFlow no longer supports, with what replaces it and how its installed files are
+ * released (row 127 IC-001; `removal.handover` is IC-007). */
+interface RetiredHarness {
+  id: string; displayName: string; replacement: string; retiredOn: string; reason: string; evidence: string[];
+  removal: {
+    hookCommands: { renderer: string; key: string; commands: string[] };
+    markerSectionRenderers: string[];
+    handover: Array<{ renderer: string; scope: 'global' | 'project'; to: string; surface: string }>;
+  };
+}
+
+function isCalendarDate(value: any): boolean {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+/** Validates harnesses.json `retired[]`: optional; every entry fully typed; ids unique and disjoint
+ * from the live harness ids; `replacement` and every `removal.handover[].to` name a live harness. */
+function validateRetired(value: any, harnessIds: Set<string>, errors: string[]): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value)) { issue(errors, 'retired', 'must be an array when present'); return; }
+  idsUnique(value, 'retired', errors);
+  const strings = (items: any, allowEmpty: boolean): boolean => Array.isArray(items) && (allowEmpty || items.length > 0) && items.every(nonEmptyString);
+  for (const [index, entry] of value.entries()) {
+    if (!object(entry)) { issue(errors, `retired[${index}]`, 'must be an object'); continue; }
+    const at = `retired harness '${typeof entry.id === 'string' ? entry.id : `#${index}`}'`;
+    if (typeof entry.id !== 'string' || !RETIRED_ID_RE.test(entry.id)) issue(errors, at, `id must match ${RETIRED_ID_RE}`);
+    else if (harnessIds.has(entry.id)) issue(errors, at, `id collides with live harness '${entry.id}'; an id is either live or retired`);
+    for (const field of ['displayName', 'replacement', 'reason']) if (!nonEmptyString(entry[field])) issue(errors, at, `${field} must be a non-empty string`);
+    if (nonEmptyString(entry.replacement) && !harnessIds.has(entry.replacement)) issue(errors, at, `replacement '${entry.replacement}' is not a live harness`);
+    if (!isCalendarDate(entry.retiredOn)) issue(errors, at, 'retiredOn must be a YYYY-MM-DD date');
+    if (!strings(entry.evidence, false)) issue(errors, at, 'evidence must be a non-empty array of non-empty strings');
+    const removal = entry.removal;
+    if (!object(removal)) { issue(errors, at, 'removal must be an object'); continue; }
+    const hooks = removal.hookCommands;
+    if (!object(hooks)) issue(errors, at, 'removal.hookCommands must be an object');
+    else {
+      for (const field of ['renderer', 'key']) if (!nonEmptyString(hooks[field])) issue(errors, at, `removal.hookCommands.${field} must be a non-empty string`);
+      if (!strings(hooks.commands, false)) issue(errors, at, 'removal.hookCommands.commands must be a non-empty array of non-empty strings');
+    }
+    if (!strings(removal.markerSectionRenderers, true)) issue(errors, at, 'removal.markerSectionRenderers must be an array of non-empty strings');
+    if (!Array.isArray(removal.handover)) { issue(errors, at, 'removal.handover must be an array'); continue; }
+    for (const [h, handover] of removal.handover.entries()) {
+      const hat = `removal.handover[${h}]`;
+      if (!object(handover)) { issue(errors, at, `${hat} must be an object`); continue; }
+      for (const field of ['renderer', 'to', 'surface']) if (!nonEmptyString(handover[field])) issue(errors, at, `${hat}.${field} must be a non-empty string`);
+      if (!HANDOVER_SCOPES.has(handover.scope)) issue(errors, at, `${hat}.scope must be global or project`);
+      if (nonEmptyString(handover.to) && !harnessIds.has(handover.to)) issue(errors, at, `${hat}.to '${handover.to}' is not a live harness`);
+    }
+  }
+}
+
+/** The retired record for `id`, or null when `id` is live or unknown. */
+function retiredFor(registry: any, id: string): RetiredHarness | null {
+  const retired = Array.isArray(registry?.retired) ? registry.retired : [];
+  return retired.find((entry: any) => entry?.id === id) ?? null;
+}
+
+function isRetired(registry: any, id: string): boolean { return retiredFor(registry, id) !== null; }
+
 function harnessFor(registry: any, id: string): any {
   const harness = registry.harnesses.find((item: any) => item.id === id);
   if (!harness) throw new Error(`Unknown registry harness '${id}'`);
@@ -1128,5 +1196,5 @@ function capabilityMapData(registry: any): any[] {
 module.exports = {
   REGISTRY_FILES, CAPABILITY_STATUS, COPY_TREE_SELECTS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, AGENT_LIMIT_STATUS, validateAgentLimits, WORKER_KEYS, WORKER_CAPABILITIES, WORKER_OPTIONAL_CAPABILITIES, validateWorker, CONTEXT_PROFILE_FIELDS, validateContextProfile, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS, validateCoverage,
   parseRegistryFile, registryDir, loadRegistry, validateRegistry, registrySourceMode,
-  harnessFor, selectAssets, selectMcpServers, mcpCapable, nativeMcpCatalog, capabilityMapData,
+  harnessFor, retiredFor, isRetired, selectAssets, selectMcpServers, mcpCapable, nativeMcpCatalog, capabilityMapData,
 };

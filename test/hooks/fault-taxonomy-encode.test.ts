@@ -16,7 +16,7 @@ const POLICIES = [
 ];
 const BLOCKING = new Set(['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'stop-check']);
 const BRIDGES = [
-  ['claude', 'PreToolUse'], ['codex', 'PreToolUse'], ['gemini', 'BeforeTool'],
+  ['claude', 'PreToolUse'], ['codex', 'PreToolUse'],
   ['kiro', 'PreToolUse'], ['antigravity', 'PreToolUse'], ['pi', 'tool_call'],
 ];
 
@@ -102,7 +102,7 @@ test('compat-1 empty and malformed input matches the 0fcd973 policy verdict for 
   }
 });
 
-test('envelope-encode is a bridge fault under both profiles on all six bridges', (t) => {
+test('envelope-encode is a bridge fault under both profiles on all five bridges', (t) => {
   const root = makeBridgeTree(t);
   for (const [harness, event] of BRIDGES) {
     for (const policy of POLICIES) {

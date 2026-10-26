@@ -79,12 +79,6 @@ test('every current front door renders its IC-036 fallback with the bridge remov
     ].map(([door, fixture]) => ({ harness: 'codex', door, fixture, render: door === 'stop-check.sh' ? 'codex-empty' : 'silent' })),
     { harness: 'codex', door: 'user-prompt-submit.sh', fixture: 'codex/user-prompt-submit/perf.json', render: 'silent' },
     ...[
-      ['pre-implement-gate.sh', 'gemini/pre-implement-gate/deny.json'],
-      ['pre-bash-guard.sh', 'gemini/pre-bash-guard/deny.json'],
-      ['mcp-tool-guard.sh', 'gemini/mcp-tool-guard/deny.json'],
-    ].map(([door, fixture]) => ({ harness: 'gemini', door, fixture, render: 'gemini-tool' })),
-    { harness: 'gemini', door: 'session-start.sh', fixture: 'gemini/session-start/perf.json', render: 'silent' },
-    ...[
       ['pre-implement-gate.sh', 'kiro/pre-implement-gate/deny.json', 'kiro-tool'],
       ['pre-bash-guard.sh', 'kiro/pre-bash-guard/deny.json', 'kiro-tool'],
       ['mcp-tool-guard.sh', 'kiro/mcp-tool-guard/deny.json', 'kiro-tool'],
@@ -113,10 +107,6 @@ test('every current front door renders its IC-036 fallback with the bridge remov
           permissionDecisionReason: reason,
         },
       }, `${row.harness}/${row.door} native deny`);
-      assert.equal(result.stderr, '', `${row.harness}/${row.door} stderr`);
-    } else if (row.render === 'gemini-tool') {
-      assert.equal(result.status, 0, `${row.harness}/${row.door} exit`);
-      assert.deepEqual(JSON.parse(result.stdout), { decision: 'deny', reason }, `${row.harness}/${row.door} native deny`);
       assert.equal(result.stderr, '', `${row.harness}/${row.door} stderr`);
     } else if (row.render === 'kiro-tool') {
       assert.equal(result.status, 2, `${row.harness}/${row.door} exit: ${result.stderr}`);

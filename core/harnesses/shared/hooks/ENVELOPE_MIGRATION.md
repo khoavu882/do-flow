@@ -22,7 +22,6 @@ tool's official docs (cross-checked against tool source where docs were incomple
 |---|---|---|
 | Claude Code | `PreToolUse` | `tool_name` Edit/Write/MultiEdit; `tool_input.file_path` |
 | Codex | `PreToolUse` | `apply_patch` carries paths inside a unified diff under `tool_input.command` — the ONE decoder that must parse patch text |
-| Gemini CLI | `BeforeTool` | also offers `BeforeToolSelection` (pre-selection restriction), which the gate does not use |
 | GitHub Copilot | `preToolUse` | camelCase event names; `permissionRequest` is CLI-only, not fired in the cloud agent |
 | OpenCode | `tool.execute.before` | a pluggable hook method, not a sub-event of the generic `event` hook |
 | Pi | `tool_call` | The live-observed `cli-extension` pre-implementation gate row blocks. Project-interactive and user-interactive rows remain unknown; interactive loading and project-trust behavior were not observed. `tool_execution_start` is observation-only |

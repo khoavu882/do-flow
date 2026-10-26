@@ -24,7 +24,7 @@ test('state roots are neutral and scope-specific', (t) => {
 test('ledger writes atomically and round-trips without a harness directory', (t) => {
   const root = path.join(scratch(t), 'project', '.doflow', 'state');
   const ledger = defaultLedger({ scope: 'project', scopeRoot: path.dirname(path.dirname(root)) });
-  ledger.resources.push({ harness: 'gemini', scope: 'project', assetId: 'guidance.core', target: 'GEMINI.md', ownershipIdentity: 'managed-section' });
+  ledger.resources.push({ harness: 'antigravity', scope: 'project', assetId: 'guidance.core', target: 'AGENTS.md', ownershipIdentity: 'managed-section' });
   writeLedger(root, ledger);
   assert.deepEqual(readLedger(root), ledger);
   assert.equal(fs.readdirSync(root).filter((file: any) => file.endsWith('.tmp')).length, 0);
@@ -73,11 +73,11 @@ test('legacy manifest migration imports explicit ownership once and leaves the l
 test('legacy migration does not create ownership from tool-only or malformed legacy state', (t) => {
   const project = scratch(t);
   const claude = path.join(project, '.claude');
-  writeManifest({ claudeDir: claude, scriptVersion: '2.4.4', operation: 'install', repoRoot: REPO, tools: ['gemini'], date: DATE });
+  writeManifest({ claudeDir: claude, scriptVersion: '2.4.4', operation: 'install', repoRoot: REPO, tools: ['kiro'], date: DATE });
   const root = stateRoot({ scope: 'project', projectRoot: project });
   const migrated = migrateLegacyManifest({ root, scope: 'project', scopeRoot: project, claudeDir: claude, now: DATE });
   assert.equal(migrated.ledger.resources.length, 0);
-  assert.ok(migrated.ledger.targets.gemini.imported);
+  assert.ok(migrated.ledger.targets.kiro.imported);
 
   const invalidProject = scratch(t);
   const invalidClaude = path.join(invalidProject, '.claude');
@@ -89,7 +89,7 @@ test('legacy migration does not create ownership from tool-only or malformed leg
   assert.equal(readLedger(stateRoot({ scope: 'project', projectRoot: invalidProject })), null);
 });
 
-// Phases B-E migrated Claude/Codex/Gemini's assets from the legacy copier+manifest onto the
+// Phases B-E migrated Claude/Codex's assets from the legacy copier+manifest onto the
 // registry/adapter path; a project touched by both across its lifetime now has a ledger holding
 // both `legacy.<kind>` (from an old manifest import) and adapter-owned (`skills.doflow`, etc.)
 // assetIds side by side. This scenario post-dates every existing coverage above (which only ever

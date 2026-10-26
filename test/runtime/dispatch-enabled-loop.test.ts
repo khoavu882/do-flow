@@ -35,13 +35,13 @@ const REPO = path.join(__dirname, '..', '..');
 const REG = loadRegistry({ repoRoot: REPO });
 const SLUG = '120-enabled-loop-fixture';
 const POSIX = { skip: process.platform === 'win32' && 'tree cleanup is unverified on win32 (NFR-005)' };
-const EDIT_ARGV = { claude: '--edit-in-cwd', gemini: '--gemini-edit-in-cwd' };
+const EDIT_ARGV = { claude: '--edit-in-cwd', antigravity: '--antigravity-edit-in-cwd' };
 const SUCCESS = { type: 'result', status: 'success', summary: 'edited' };
 const QUOTA = { type: 'result', status: 'failure', summary: 'Rate limit reached for this account' };
 const SCENARIO = {
   byBinary: {
     'fake-claude': { run: [{ emit: QUOTA }] },
-    'fake-gemini': { run: [{ write: { path: 'src/retry.js', content: '// stepped\n' } }, { emit: SUCCESS }] },
+    'fake-antigravity': { run: [{ write: { path: 'src/retry.js', content: '// stepped\n' } }, { emit: SUCCESS }] },
   },
 };
 const cand = (harness: any, eligible = true): any => ({
@@ -70,16 +70,16 @@ function assertSettingsHold(choice: any, reason: any) {
 }
 
 test('IC-010 control: unset active equals no active across the existing first-pick inputs', () => {
-  const eligible = [cand('claude', false), cand('codex'), cand('gemini')];
+  const eligible = [cand('claude', false), cand('codex'), cand('antigravity')];
   const none = [cand('claude', false), cand('codex', false)];
   const inputs: any[] = [{}];
   for (const mode of ['off', 'ask', 'auto']) {
     inputs.push({ fallback: fb({ mode }) });
-    inputs.push({ fallback: fb({ mode, exhausted: ['gemini'] }) });
+    inputs.push({ fallback: fb({ mode, exhausted: ['antigravity'] }) });
   }
   inputs.push(
     { lastFailureClass: 'launch', fallback: fb({ mode: 'auto' }) },
-    { lastFailureClass: 'launch', fallback: fb({ mode: 'auto', exhausted: ['gemini'] }) },
+    { lastFailureClass: 'launch', fallback: fb({ mode: 'auto', exhausted: ['antigravity'] }) },
     { policy: 'manual', fallback: fb({ mode: 'auto', exhausted: ['codex'] }) },
     { held: true, fallback: fb({ mode: 'auto', exhausted: ['codex'] }) },
   );
@@ -90,15 +90,15 @@ test('IC-010 control: unset active equals no active across the existing first-pi
   }
 });
 
-test('IC-010: disabled workers fail the enabled gate before evaluation; gemini is selected', POSIX, (t) => {
+test('IC-010: disabled workers fail the enabled gate before evaluation; antigravity is selected', POSIX, (t) => {
   const home = tempDir(t, 'doflow-enabled-evaluation-');
   const env = { HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), PATH: '' };
   const descriptors = editDescriptors();
-  descriptors.gemini.isolatedEdit = structuredClone(descriptors.claude.isolatedEdit);
-  const active = act('set', ['gemini'], true);
+  descriptors.antigravity.isolatedEdit = structuredClone(descriptors.claude.isolatedEdit);
+  const active = act('set', ['antigravity'], true);
   const called: any[] = [];
   const candidates = loop.evaluateHarnesses({
-    active, ladder: ['claude', 'gemini'], descriptors, registry: REG, env, cwd: home, root: home,
+    active, ladder: ['claude', 'antigravity'], descriptors, registry: REG, env, cwd: home, root: home,
     evaluateImpl: ({ harness }: any) => {
       called.push(harness);
       return { eligible: true, gaps: [] };
@@ -108,12 +108,12 @@ test('IC-010: disabled workers fail the enabled gate before evaluation; gemini i
     harness: 'claude', eligible: false,
     gaps: [{ requirement: 'enabled', result: 'failed', reason: 'worker-disabled' }],
   });
-  assert.deepEqual(called, ['gemini']);
-  assert.equal(select(candidates, { active }).harness, 'gemini');
+  assert.deepEqual(called, ['antigravity']);
+  assert.equal(select(candidates, { active }).harness, 'antigravity');
 
   called.length = 0;
   const invalid = loop.evaluateHarnesses({
-    active: act('invalid'), ladder: ['claude', 'gemini'], descriptors, registry: REG,
+    active: act('invalid'), ladder: ['claude', 'antigravity'], descriptors, registry: REG,
     env, cwd: home, root: home,
     evaluateImpl: ({ harness }: any) => { called.push(harness); return { eligible: true, gaps: [] }; },
   });
@@ -131,7 +131,7 @@ test('IC-010: disabled workers fail the enabled gate before evaluation; gemini i
 });
 
 test('IC-010: first pick and both launch-failure shortcuts intersect current and stored permission', () => {
-  const workers = ['claude', 'codex', 'gemini'];
+  const workers = ['claude', 'codex', 'antigravity'];
   const permitted = act('set', workers, true);
   const none = [cand('claude', false), cand('codex', false)];
   const first = select(none, { active: permitted, fallback: fb({ inSession: true }) });
@@ -140,8 +140,8 @@ test('IC-010: first pick and both launch-failure shortcuts intersect current and
     { candidates: none, extra: {} },
     { candidates: [cand('claude')], extra: { lastFailureClass: 'launch' } },
     {
-      candidates: [cand('claude'), cand('gemini')],
-      extra: { lastFailureClass: 'launch', exhausted: ['gemini'] },
+      candidates: [cand('claude'), cand('antigravity')],
+      extra: { lastFailureClass: 'launch', exhausted: ['antigravity'] },
     },
   ];
   for (const { candidates, extra } of variants) {
@@ -169,7 +169,7 @@ test('IC-010: invalid settings hold auto selection before candidates, launch sho
       last: { harness: 'claude', failureClass: 'quota' },
     },
   ]) {
-    assertSettingsHold(select([cand('claude'), cand('gemini')], { ...extra, active }), 'workers-enabled-invalid');
+    assertSettingsHold(select([cand('claude'), cand('antigravity')], { ...extra, active }), 'workers-enabled-invalid');
   }
   for (const extra of [{ policy: 'manual' }, { policy: 'sequential' }, { held: true }, { held: true, policy: 'manual' }]) {
     assert.deepEqual(select([cand('claude')], { ...extra, active }), select([cand('claude')], extra));
@@ -222,7 +222,7 @@ test('IC-010: exhausted set ladders propose or step to sequential under the exis
 });
 
 /** IC-010: a started sandbox run whose stored fallback remains independent of live settings. */
-async function project(t: any, { fallback = fb({ mode: 'auto', ladder: ['claude', 'gemini'], inSession: true }) } = {}) {
+async function project(t: any, { fallback = fb({ mode: 'auto', ladder: ['claude', 'antigravity'], inSession: true }) } = {}) {
   const exitCode = process.exitCode;
   t.after(() => { process.exitCode = exitCode; });
   const sb = makeDispatchSandbox(t, {
@@ -231,8 +231,8 @@ async function project(t: any, { fallback = fb({ mode: 'auto', ladder: ['claude'
   const { root } = sb;
   const env = { ...sb.env };
   const descriptors = structuredClone(sb.descriptors);
-  descriptors.gemini.isolatedEdit = {
-    ...structuredClone(descriptors.claude.isolatedEdit), argv: [EDIT_ARGV.gemini],
+  descriptors.antigravity.isolatedEdit = {
+    ...structuredClone(descriptors.claude.isolatedEdit), argv: [EDIT_ARGV.antigravity],
   };
   const ledgerFile = attempts.storeFile(root, SLUG);
   const started = attempts.start({ file: ledgerFile, fsImpl: fs, roots: [root], slug: SLUG, env, cwd: root, by: 'main' });
@@ -308,9 +308,9 @@ test('IC-013 / IC-010 loop: a sequential admission records the primary binding a
   assert.deepEqual(p.ran(), []);
 });
 
-test('IC-010: disabling gemini mid-run narrows to an allowed sequential quota step', POSIX, async (t) => {
+test('IC-010: disabling antigravity mid-run narrows to an allowed sequential quota step', POSIX, async (t) => {
   const p = await project(t);
-  p.setList(['claude', 'gemini', 'primary']);
+  p.setList(['claude', 'antigravity', 'primary']);
   await p.step();
   assert.equal(dispatches(p)[0].harness, 'claude');
   p.setList(['claude', 'primary']);
@@ -321,9 +321,9 @@ test('IC-010: disabling gemini mid-run narrows to an allowed sequential quota st
   assert.ok(p.read().run.fallback.events.some((event: any) => event.kind === 'step' && event.from === 'claude' && event.to === 'sequential'));
 });
 
-test('IC-010: disabling gemini and primary leaves the quota ladder exhausted', POSIX, async (t) => {
+test('IC-010: disabling antigravity and primary leaves the quota ladder exhausted', POSIX, async (t) => {
   const p = await project(t);
-  p.setList(['claude', 'gemini', 'primary']);
+  p.setList(['claude', 'antigravity', 'primary']);
   await p.step();
   p.setList(['claude']);
   const result = await p.run();
@@ -336,9 +336,9 @@ test('IC-010: disabling gemini and primary leaves the quota ladder exhausted', P
 
 test('IC-010: adding primary cannot widen a run that stored inSession false', POSIX, async (t) => {
   const p = await project(t, {
-    fallback: fb({ mode: 'auto', ladder: ['claude', 'gemini'], inSession: false }),
+    fallback: fb({ mode: 'auto', ladder: ['claude', 'antigravity'], inSession: false }),
   });
-  p.setList(['claude', 'gemini']);
+  p.setList(['claude', 'antigravity']);
   await p.step();
   p.setList(['claude', 'primary']);
   const result = await p.run();
@@ -350,7 +350,7 @@ test('IC-010: adding primary cannot widen a run that stored inSession false', PO
 
 test('IC-010: invalid mid-run settings hold transiently and a valid rewrite releases the task', POSIX, async (t) => {
   const p = await project(t);
-  p.setList(['claude', 'gemini', 'primary']);
+  p.setList(['claude', 'antigravity', 'primary']);
   await p.step();
   p.setList(['claude', 'held']);
   const result = await p.run();
@@ -365,20 +365,20 @@ test('IC-010: invalid mid-run settings hold transiently and a valid rewrite rele
   assert.equal(report.includes('["claude","held"]'), false);
   assert.deepEqual(p.ran(), ['claude']);
 
-  p.setList(['claude', 'gemini', 'primary']);
+  p.setList(['claude', 'antigravity', 'primary']);
   const resumed = await p.run();
   assert.equal(resumed.outcome, 'completed', JSON.stringify(resumed.last));
-  assert.deepEqual(p.ran(), ['claude', 'gemini']);
+  assert.deepEqual(p.ran(), ['claude', 'antigravity']);
   assert.deepEqual(p.read().run.fallback.holds, {});
 });
 
 test('IC-009 launch re-check: disabling the selected worker refuses before handoff or worker launch', POSIX, async (t) => {
   const p = await project(t);
-  p.setList(['claude', 'gemini', 'primary']);
+  p.setList(['claude', 'antigravity', 'primary']);
   let calls = 0;
   const first = await loop.step(p.options({
     evaluateImpl: () => {
-      if (calls++ === 0) p.setList(['gemini', 'primary']);
+      if (calls++ === 0) p.setList(['antigravity', 'primary']);
       return { eligible: true, gaps: [] };
     },
   }));
@@ -392,18 +392,18 @@ test('IC-009 launch re-check: disabling the selected worker refuses before hando
 
   // IC-010: the disabled rung is skipped and the next eligible worker is selected.
   const next = await p.step();
-  assert.ok(next.actions.some((action: any) => action.action === 'launch' && action.reason.startsWith('subagent:gemini')), JSON.stringify(next));
-  assert.deepEqual(dispatches(p).map((d) => [d.mode, d.harness]), [['subagent', 'claude'], ['subagent', 'gemini']]);
+  assert.ok(next.actions.some((action: any) => action.action === 'launch' && action.reason.startsWith('subagent:antigravity')), JSON.stringify(next));
+  assert.deepEqual(dispatches(p).map((d) => [d.mode, d.harness]), [['subagent', 'claude'], ['subagent', 'antigravity']]);
   assert.ok(dispatches(p)[1].workerRunId);
 });
 
 test('IC-010 launch re-check: an ineligible remaining worker falls back to enabled primary', POSIX, async (t) => {
   const p = await project(t);
-  p.setList(['claude', 'gemini', 'primary']);
+  p.setList(['claude', 'antigravity', 'primary']);
   let calls = 0;
   const first = await p.step({
     evaluateImpl: ({ harness }: any) => {
-      if (calls++ === 0) p.setList(['gemini', 'primary']);
+      if (calls++ === 0) p.setList(['antigravity', 'primary']);
       return harness === 'claude'
         ? { eligible: true, gaps: [] }
         : { eligible: false, gaps: [{ requirement: 'installed', result: 'unknown', reason: 'not-probed' }] };
@@ -422,7 +422,7 @@ test('IC-010 launch re-check: an ineligible remaining worker falls back to enabl
       return { eligible: false, gaps: [{ requirement: 'installed', result: 'unknown', reason: 'not-probed' }] };
     },
   });
-  assert.deepEqual(evaluated, ['gemini']);
+  assert.deepEqual(evaluated, ['antigravity']);
   assert.equal(next.outcome, 'perform', JSON.stringify(next));
   assert.deepEqual(dispatches(p).map((d) => [d.mode, d.harness]), [['subagent', 'claude'], ['sequential', null]]);
   assert.deepEqual(p.ran(), []);

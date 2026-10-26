@@ -34,7 +34,6 @@ const DEFAULT_HEADROOM = Object.freeze({ minMs: 10, pct: 25 });
 const HARNESS_CLI_MAP = Object.freeze({
   claude: 'claude',
   codex: 'codex',
-  gemini: 'gemini',
   opencode: 'opencode',
   pi: 'pi',
   copilot: 'copilot',

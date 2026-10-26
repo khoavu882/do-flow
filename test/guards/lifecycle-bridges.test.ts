@@ -39,7 +39,7 @@ function bridgeFiles() {
     const rel = path.relative(path.join(REPO, 'core/harnesses'), file).split(path.sep).join('/');
     if (rel.startsWith('shared/hooks/bridge/')) return true;
     if (rel === 'shared/hooks/stream-hook-runner.js' || rel === 'shared/hooks/adapters/antigravity.js' || rel === 'pi/extensions/doflow-guard.js') return true;
-    if (/^(claude|codex|gemini|kiro)\/hooks\/.*\.sh$/.test(rel)) return fs.readFileSync(file, 'utf8').includes('doflow_bridge');
+    if (/^(claude|codex|kiro)\/hooks\/.*\.sh$/.test(rel)) return fs.readFileSync(file, 'utf8').includes('doflow_bridge');
     return false;
   });
 }
@@ -248,7 +248,7 @@ test('G35.4: unmarked syntax errors block on every blocking bridge with the fixe
   const root = tempDir(t, 'doflow-g35-exit-two-');
   const tree = syntaxErrorTree(root);
   const cases: any = [
-    ['claude', 'PreToolUse'], ['codex', 'PreToolUse'], ['gemini', 'BeforeTool'], ['kiro', 'PreToolUse'],
+    ['claude', 'PreToolUse'], ['codex', 'PreToolUse'], ['kiro', 'PreToolUse'],
     ['antigravity', 'PreToolUse'], ['antigravity', 'Stop'], ['pi', 'tool_call'], ['claude', 'Stop'], ['codex', 'Stop'], ['kiro', 'Stop'],
   ];
   for (const [harness, event] of cases) {
@@ -402,7 +402,6 @@ function templateEntries(root: any = REPO) {
   };
   const templates: any = {
     claude: 'core/harnesses/claude/settings/settings.json', codex: 'core/harnesses/codex/hooks/hooks.json',
-    gemini: 'core/harnesses/gemini/hooks/hooks.json',
   };
   for (const [harness, filename] of Object.entries(templates)) {
     const config = JSON.parse(fs.readFileSync(path.join(root, filename), 'utf8'));
@@ -455,7 +454,7 @@ function wiredTemplateFindings(coverage: any, lifecycle: any, root: any = REPO) 
       const alias = event === 'PreToolUse' ? 'preToolUse' : event === 'Stop' ? 'stop' : event === 'SessionStart' && filename.includes('/agents/') ? 'agentSpawn' : event;
       return config.hooks.some((h: any) => [event,alias].includes(h.trigger) && h.action.command.includes(`${base}.sh`));
     }
-    const filename = harness === 'claude' ? 'core/harnesses/claude/settings/settings.json' : harness === 'codex' ? 'core/harnesses/codex/hooks/hooks.json' : harness === 'gemini' ? 'core/harnesses/gemini/hooks/hooks.json' : null;
+    const filename = harness === 'claude' ? 'core/harnesses/claude/settings/settings.json' : harness === 'codex' ? 'core/harnesses/codex/hooks/hooks.json' : null;
     if (!filename) return false;
     const config = JSON.parse(fs.readFileSync(path.join(root,filename),'utf8'));
     return (config.hooks[event] || []).some((group: any) => group.hooks.some((h: any) => h.command.includes(`${base}.sh`)));
@@ -484,7 +483,7 @@ function wiredTemplateFindings(coverage: any, lifecycle: any, root: any = REPO) 
   for (const entry of templateEntries(root)) if (!coverage.rows.some((r: any) => r.harness===entry.harness && r.event===entry.event && r.policy===entry.policy && r.wired)) errors.push(`${entry.harness}/${entry.event}/${entry.policy} template missing wired row`);
   const doorFiles: any = {
     claude: 'core/harnesses/claude/settings/settings.json', codex: 'core/harnesses/codex/hooks/hooks.json',
-    gemini: 'core/harnesses/gemini/hooks/hooks.json', kiro: 'core/harnesses/kiro/hooks/doflow.json',
+    kiro: 'core/harnesses/kiro/hooks/doflow.json',
   };
   for (const [harness, filename] of Object.entries(doorFiles)) {
     const config = JSON.parse(fs.readFileSync(path.join(root, filename), 'utf8'));
@@ -585,7 +584,6 @@ test('G37.3 control: wiring to a missing door is reported for every door harness
   const cases: any = [
     { harness: 'claude', template: 'core/harnesses/claude/settings/settings.json' },
     { harness: 'codex', template: 'core/harnesses/codex/hooks/hooks.json' },
-    { harness: 'gemini', template: 'core/harnesses/gemini/hooks/hooks.json' },
     { harness: 'kiro', template: 'core/harnesses/kiro/hooks/doflow.json' },
     { harness: 'antigravity', template: 'core/registry/harnesses.json' },
   ];

@@ -11,10 +11,10 @@ const {
 
 const REPO = path.resolve(__dirname, '../..');
 
-test('context-profile guard: all 8 harnesses carry contextProfile with verified or unverified facts (085 A-19)', () => {
+test('context-profile guard: all 7 harnesses carry contextProfile with verified or unverified facts (085 A-19)', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   assert.equal(registry.validation.ok, true, registry.validation.errors.join('\n'));
-  assert.equal(registry.harnesses.length, 8, 'must declare exactly 8 harnesses');
+  assert.equal(registry.harnesses.length, 7, 'must declare exactly 7 harnesses');
 
   for (const harness of registry.harnesses) {
     assert.ok(harness.contextProfile, `harness '${harness.id}' must declare contextProfile block`);
@@ -56,8 +56,8 @@ test('context-profile guard: removing one field from one harness fails, naming t
 
 test('context-profile guard: a declared value without source fails (negative control)', () => {
   const registry = structuredClone(loadRegistry({ repoRoot: REPO }));
-  const harness = registry.harnesses.find((h: any) => h.id === 'gemini');
-  assert.ok(harness, "must find harness 'gemini'");
+  const harness = registry.harnesses.find((h: any) => h.id === 'antigravity');
+  assert.ok(harness, "must find harness 'antigravity'");
 
   harness.contextProfile.capacityTokens = {
     value: 128000,
@@ -69,7 +69,7 @@ test('context-profile guard: a declared value without source fails (negative con
   const errorText = result.errors.join('\n');
   assert.match(
     errorText,
-    /harness 'gemini'.*contextProfile 'capacityTokens': a declared value requires a non-empty source/,
+    /harness 'antigravity'.*contextProfile 'capacityTokens': a declared value requires a non-empty source/,
     'error must report missing source for declared value'
   );
 });

@@ -945,14 +945,14 @@ scenario('spawn-grant-bounds', 'requests past the granted children, depth or tok
 /** Sequential runs on the outcome side; subagent mode shows the gap side with the claude fake. */
 scenario('verified-harness', 'a harness whose isolated editing is unknown is ineligible naming the gap, and the task runs sequential', ['sequential', 'subagent'], async (t: any, mode: any) => {
   // sequential: --mode auto over descriptors.json, where no fake declares isolatedEdit.
-  // subagent: --mode auto with claude's isolatedEdit supported; gemini's stays unknown.
+  // subagent: --mode auto with claude's isolatedEdit supported; antigravity's stays unknown.
   const p: any = await project(t, mode === 'sequential' ? 'subagent' : mode, { plan: 'budget', descriptors: mode === 'sequential' ? 'raw' : 'edit' });
   const last = await p.drive();
   assert.equal(last.outcome, 'completed', JSON.stringify(last.blocked || last.actions));
   const [d] = p.dispatches();
-  const gemini = d.selection.candidates.find((c: any) => c.harness === 'gemini');
-  assert.equal(gemini.eligible, false);
-  assert.deepEqual(gemini.gaps.find((g: any) => g.requirement === 'isolated-edit'), { requirement: 'isolated-edit', result: 'unknown', reason: 'not-declared' });
+  const antigravity = d.selection.candidates.find((c: any) => c.harness === 'antigravity');
+  assert.equal(antigravity.eligible, false);
+  assert.deepEqual(antigravity.gaps.find((g: any) => g.requirement === 'isolated-edit'), { requirement: 'isolated-edit', result: 'unknown', reason: 'not-declared' });
   if (mode === 'sequential') {
     for (const c of d.selection.candidates) assert.ok(c.gaps.some((g: any) => g.requirement === 'isolated-edit'), `${c.harness} names isolated-edit`);
     assert.deepEqual([d.mode, d.selection.chosen], ['sequential', 'sequential'], 'the task runs in the main session');
@@ -962,7 +962,7 @@ scenario('verified-harness', 'a harness whose isolated editing is unknown is ine
   return null;
 });
 
-scenario('honest-fallback', 'with no eligible harness each gap is named (real registry: codex fails only on installed/runnable when not probed, the seven others on isolated-edit unknown) and every attempt records mode sequential', ['sequential', 'subagent'], async (t: any, mode: any) => {
+scenario('honest-fallback', 'with no eligible harness each gap is named (real registry: codex fails only on installed/runnable when not probed, the six others on isolated-edit unknown) and every attempt records mode sequential', ['sequential', 'subagent'], async (t: any, mode: any) => {
   // sequential: the real registry (every isolatedEdit unknown). subagent: the claude fake unprobed,
   // so its effective facts are unknown, and every other fake fails the static gate.
   const p: any = await project(t, 'subagent', { plan: 'dependent', descriptors: mode === 'sequential' ? 'registry' : 'edit', probe: false });
@@ -976,7 +976,7 @@ scenario('honest-fallback', 'with no eligible harness each gap is named (real re
     for (const c of d.selection.candidates) assert.ok(c.eligible === false && c.gaps.length >= 1, `${c.harness}: ${JSON.stringify(c.gaps)}`);
     if (mode === 'sequential') {
       // 109 IC-008: codex passes the static gate, so its only gaps are the discover-time ones; the
-      // seven harnesses whose entries stay unknown still name a static gap, isolated-edit included.
+      // six harnesses whose entries stay unknown still name a static gap, isolated-edit included.
       for (const c of d.selection.candidates) {
         const requirements = c.gaps.map((g: any) => g.requirement);
         if (c.harness === 'codex') {

@@ -74,7 +74,7 @@ const RUN_ARG = /^[A-Za-z0-9][A-Za-z0-9._:-]*(?:\/[A-Za-z0-9._:-]+){0,2}$/;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
 /** A timestamp with no fraction: true only to the whole second. */
 const WHOLE_SECOND = /:\d{2}Z$/;
-const PRE_EVENTS = new Set(['PreToolUse', 'BeforeTool', 'tool_call']);
+const PRE_EVENTS = new Set(['PreToolUse', 'tool_call']);
 const POST_EVENTS = new Set(['PostToolUse', 'PostToolUseFailure']);
 const LEDGER_ATTRS: Array<[string, string]> = [['verb', 'verb'], ['outcome', 'outcome'], ['capability', 'capability'],
   ['provider', 'provider'], ['stage', 'stage'], ['workflow', 'workflow'], ['taskClass', 'task_class'], ['exitCode', 'exit_code']];

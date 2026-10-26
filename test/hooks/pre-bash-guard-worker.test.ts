@@ -15,7 +15,6 @@ const RECORD_KEYS: any = ['code', 'outcome', 'policy', 'policyVersion', 'v'];
 const WORKER_HARNESSES: any = [
   ['claude', 'PreToolUse'],
   ['codex', 'PreToolUse'],
-  ['gemini', 'BeforeTool'],
   ['kiro', 'PreToolUse'],
   ['pi', 'tool_call'],
 ];
@@ -32,8 +31,7 @@ function nativePayload(harness: any, command: any, cwd: any) {
   if (harness === 'antigravity') {
     return { toolCall: { name: 'run_command', args: { CommandLine: command } } };
   }
-  const toolName = harness === 'gemini' ? 'run_shell_command' : 'Bash';
-  return { ...location, tool_name: toolName, tool_input: { command } };
+  return { ...location, tool_name: 'Bash', tool_input: { command } };
 }
 
 function policyRun({ harness = 'claude', event = 'PreToolUse', command, cwd, role = 'worker', worktree, extraEnv = {} }: any) {

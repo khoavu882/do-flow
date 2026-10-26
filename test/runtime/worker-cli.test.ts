@@ -7,7 +7,7 @@
 // PATH set to an empty scratch bin/. The dispatcher child is `/bin/bash` with PATH set to a scratch
 // bin/ holding only `node` (a link to process.execPath) and the two coreutils the dispatcher calls.
 // The node directory itself is never put on PATH, because a global npm install puts harness CLIs
-// such as `codex` and `gemini` there. Every child sets the five DOFLOW_* identity variables.
+// such as `codex` and `agy` there. Every child sets the five DOFLOW_* identity variables.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -19,7 +19,7 @@ const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const RUN = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
-const HARNESSES: any = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+const HARNESSES: any = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
 const ACTIONS: any = ['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence'];
 const DISPATCHER_TOOLS: any = ['dirname', 'date'];
 
@@ -79,7 +79,7 @@ function assertNotOnPath(r: any) {
   }
 }
 
-test('worker --action discover --json reports all eight harnesses not-on-path (bin/doflow.js)', (t) => {
+test('worker --action discover --json reports all seven harnesses not-on-path (bin/doflow.js)', (t) => {
   const p = project(t);
   assert.deepEqual(fs.readdirSync(p.bin), [], 'the scratch PATH holds nothing');
   assertNotOnPath(p.cli('--action', 'discover', '--json'));

@@ -141,8 +141,8 @@
   },
   "vocabularies": {
     "kind": ["hook", "verify.run", "verify.tier", "verify.check", "review.run", "package.verb"],
-    "harness": ["claude", "codex", "gemini", "opencode", "pi", "copilot", "kiro", "antigravity"],
-    "event": ["PreToolUse", "BeforeTool", "tool_call", "UserPromptSubmit", "PostToolUse", "PostToolUseFailure"],
+    "harness": ["claude", "codex", "opencode", "pi", "copilot", "kiro", "antigravity"],
+    "event": ["PreToolUse", "tool_call", "UserPromptSubmit", "PostToolUse", "PostToolUseFailure"],
     "policy": ["pre-bash-guard", "user-prompt-submit", "post-shell-observe"],
     "verdict": ["allow", "deny", "advisory", "error", "unsupported", "observe"],
     "source": ["verb", "dispatch"],

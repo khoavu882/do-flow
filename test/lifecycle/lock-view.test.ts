@@ -19,11 +19,11 @@ test('L1: lockDocument pins per-harness asset selections with native dirs, a row
   const registry = loadRegistry({ repoRoot: REPO });
   const project = scratch(t);
   const doc = lockDocument({
-    registry, scope: 'project', scopeRoot: project, ledger: holding('claude', 'codex', 'gemini'), plannedTargets: ['codex', 'claude', 'gemini'],
+    registry, scope: 'project', scopeRoot: project, ledger: holding('claude', 'codex', 'antigravity'), plannedTargets: ['codex', 'claude', 'antigravity'],
     mcpSelections: { claude: ['context7'], codex: [] },
     now: new Date('2026-08-22T00:00:00Z'),
   });
-  assert.deepEqual(doc.targets.map((t: any) => t.harness), ['claude', 'codex', 'gemini']);
+  assert.deepEqual(doc.targets.map((t: any) => t.harness), ['antigravity', 'claude', 'codex']);
   assert.equal(doc.version, 1);
   assert.equal(doc.generatedAt, '2026-08-22T00:00:00.000Z');
 
@@ -38,7 +38,7 @@ test('L1: lockDocument pins per-harness asset selections with native dirs, a row
   assert.equal(skillRows.find((row: any) => row.nativeDir === 'skills')?.kind, 'skill');
   assert.ok(skillRows.every((row: any) => row.nativeDir), 'every pinned asset row records where it lands');
 
-  // An empty selection is a recorded choice of none; gemini takes no servers, so it has no row.
+  // An empty selection is a recorded choice of none; antigravity was given no selection, so it has no row.
   assert.deepEqual(doc.mcpSelections, { claude: ['context7'], codex: [] });
 });
 

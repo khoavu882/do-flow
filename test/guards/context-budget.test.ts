@@ -171,7 +171,7 @@ test('G13: controls — a harness no condition matches is refused', () => {
 // ── G13 (IC-006): every harness loads the core set and a bounded overhead ────────────────────────
 //
 // 1,024 B: the most a harness may load beyond the core set itself. The legitimate overhead is the
-// harness's pointer text (claude/gemini and codex-family pointers), the per-file `applyTo` front
+// harness's pointer text (the claude and codex-family pointers), the per-file `applyTo` front
 // matter Copilot's rule transform adds and the `trigger: always_on` header Antigravity's adds; a harness
 // that loads a whole unselected tree (the shape before 107-B) exceeds it by orders of magnitude.
 // Raising it needs the new number and its reason.

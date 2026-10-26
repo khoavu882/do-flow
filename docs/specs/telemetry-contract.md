@@ -69,7 +69,7 @@ are additive and `version` stays 1. No `gen_ai.*` name appears in v1.
 
 The shared bridge writes one `hook` line per invocation of an allowlisted surface, on the native and
 the `--emit decision` paths alike, after the verdict is known. The allowlist is the surfaces the
-paired perf run measures: `pre-bash-guard` on claude, codex, gemini, kiro, antigravity and pi, and
+paired perf run measures: `pre-bash-guard` on claude, codex, kiro, antigravity and pi, and
 `user-prompt-submit` on claude and codex. Any other surface writes nothing.
 
 | Key | Type | Class | Phase | Source |
@@ -94,13 +94,12 @@ The observer uses `--arg mode observe` to emit only the tuple, adding `duration_
 
 ### Harness observation coverage (NFR-008)
 
-No behaviour depends on one harness; observation coverage is tabulated per harness across all eight targets:
+No behaviour depends on one harness; observation coverage is tabulated per harness across all seven targets:
 
 | Harness | Pre-shell event | Command class | Post-shell observation | Duration & status |
 |---|---|---|---|---|
 | `claude` | observed (`PreToolUse`) | observed | observed (`PostToolUse`, `PostToolUseFailure`) | measured |
 | `codex` | observed (`PreToolUse`) | observed | none | `unreached` |
-| `gemini` | observed (`BeforeTool`) | observed | none | `unreached` |
 | `kiro` | observed (`PreToolUse`) | observed | none | `unreached` |
 | `antigravity` | observed (`PreToolUse`) | observed | none | `unreached` |
 | `pi` | observed (`tool_call`) | observed | none | `unreached` |
@@ -252,8 +251,8 @@ written null and the rest of the line is unchanged.
 | Name | Values |
 |---|---|
 | `kind` | `hook`, `verify.run`, `verify.tier`, `verify.check`, `review.run`, `package.verb` |
-| `harness` | the eight harness ids |
-| `event` | `PreToolUse`, `BeforeTool`, `tool_call`, `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure` |
+| `harness` | the seven harness ids |
+| `event` | `PreToolUse`, `tool_call`, `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure` |
 | `policy` | `pre-bash-guard`, `user-prompt-submit`, `post-shell-observe` |
 | `verdict` | `allow`, `deny`, `advisory`, `error`, `unsupported`, `observe` |
 | `source` | `verb`, `dispatch` |

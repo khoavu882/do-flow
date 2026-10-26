@@ -8,7 +8,6 @@ const REPO = path.resolve(__dirname, '../..');
 const TEMPLATE_PATHS = [
   'core/harnesses/claude/settings/settings.json',
   'core/harnesses/codex/hooks/hooks.json',
-  'core/harnesses/gemini/hooks/hooks.json',
   'core/harnesses/kiro/hooks/doflow.json',
   'core/harnesses/kiro/agents/doflow.json',
 ];
@@ -38,7 +37,7 @@ function addTemplateRoots(root: any, files: any, reachable: any, errors: any) {
     if (!fs.existsSync(path.join(root, template))) { errors.push(`missing hook wiring template ${template}`); continue; }
     const text = read(root, template);
     if (isShipped(template)) reachable.add(template);
-    const harness = template.includes('/claude/') ? 'claude' : template.includes('/codex/') ? 'codex' : template.includes('/gemini/') ? 'gemini' : 'kiro';
+    const harness = template.includes('/claude/') ? 'claude' : template.includes('/codex/') ? 'codex' : 'kiro';
     for (const match of text.matchAll(/[A-Za-z0-9_-]+\.sh\b/g)) addDoor(harness, match[0], template);
   }
   const registryPath = 'core/registry/harnesses.json';
@@ -132,7 +131,7 @@ function hookReachabilityFindings(root = REPO, files = trackedFiles(root)) {
   for (const file of expected) if (!shipped.includes(file)) findings.push(`reachable hook file is not shipped ${file}`);
 
   const assets = JSON.parse(read(root, 'core/registry/assets.json')).assets;
-  const sources = [...assets.map((asset: any) => asset.source), 'core/harnesses/codex/hooks', 'core/harnesses/gemini/hooks'];
+  const sources = [...assets.map((asset: any) => asset.source), 'core/harnesses/codex/hooks'];
   for (const file of shipped) if (!sources.some((source) => file === source || file.startsWith(`${source}/`))) findings.push(`${file} is outside registry asset sources`);
   const runnerPath = 'core/harnesses/shared/hooks/stream-hook-runner.js';
   if (fs.existsSync(path.join(root, runnerPath))) findings.push(...runnerHeaderFindings(read(root, runnerPath)));

@@ -1,0 +1,185 @@
+'use strict';
+
+// global-instructions.test.ts — row 127 IC-007: antigravity's marker-managed DoFlow section in the
+// global ~/.gemini/GEMINI.md. A global install appends it to the person's file (or creates the file),
+// verify reports it under its own row, and removal hands the person's bytes back exactly. While
+// another live harness declares the same file, antigravity leaves it alone, so two adapters never
+// write one marker pair; and over the shipped retired gemini install it takes the file's section over.
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { loadRegistry, selectAssets } = require('../../../src/registry/index.ts');
+const { projectAdapterInput } = require('../../../src/adapters/index.ts');
+const { renderGuidancePointer } = require('../../../src/adapters/guidance-pointer.ts');
+const { MARKER_START, MARKER_END } = require('../../../src/helper/marker-merge.ts');
+const { buildAdapterRegistry } = require('../../../src/cli/shared.ts');
+const { stateRoot, readLedger, writeLedger } = require('../../../src/state/index.ts');
+const { planLifecycle, applyLifecycle } = require('../../../src/lifecycle/index.ts');
+const adapter = require('../../../src/adapters/antigravity/index.ts');
+const { buildRetiredLedger, USER_TEXT } = require('../../helper/retired-ledger.ts');
+const { tempDir } = require('../../helper/tmp.ts');
+const crypto = require('node:crypto');
+
+const REPO = path.resolve(__dirname, '..', '..', '..');
+const USER = '# My global notes\n\nKeep this.\n';
+
+function section(home: string): string {
+  const body = fs.readFileSync(path.join(REPO, 'core', 'shared', 'guidance', 'pointers', 'codex.md'), 'utf8').trimEnd();
+  return `${MARKER_START}\n${renderGuidancePointer(body, { scope: 'global', scopeRoot: home }).trimEnd()}\n${MARKER_END}\n`;
+}
+
+/** One run the way the lifecycle drives the adapter: discover, plan, apply or remove, verify. */
+function run(home: string, { registry, operation = 'apply', resources = [], context = {} }: any = {}) {
+  const shipped = loadRegistry({ repoRoot: REPO });
+  const harness = shipped.harnesses.find((item: any) => item.id === 'antigravity');
+  const assets = selectAssets(shipped, { harness: 'antigravity' });
+  const input = { ...projectAdapterInput({ registry: shipped, harness, scope: 'global', scopeRoot: home, assets, policies: [], context: {} }),
+    ...(registry ? { registry } : {}), ledger: { resources }, context: { repoRoot: REPO, homeDir: home, operation, ...context } };
+  const discovery = adapter.discover(input);
+  const planned = adapter.plan({ ...input, discovery });
+  assert.deepEqual(planned.conflicts, []);
+  adapter[operation === 'remove' ? 'remove' : 'apply']({ ...input, changes: planned.changes });
+  const verified = adapter.verify({ ...input, discovery, operation });
+  return { planned, verified };
+}
+
+const target = (home: string) => path.join(home, '.gemini', 'GEMINI.md');
+const sectionChanges = (planned: any, home: string) => planned.changes.filter((change: any) => change.target === target(home));
+
+test('IC-007: a global install appends the section to the person\'s GEMINI.md, verifies it under its own row, and re-plans to nothing', (t) => {
+  const home = tempDir(t, 'doflow-agy-global-');
+  fs.mkdirSync(path.dirname(target(home)), { recursive: true });
+  fs.writeFileSync(target(home), USER);
+  const { planned, verified } = run(home);
+  const [change] = sectionChanges(planned, home);
+  assert.equal(change.operation, 'update');
+  assert.equal(change.assetId, 'guidance.codex-pointer');
+  assert.equal(change.kind, 'instructions-section');
+  assert.equal(change.identity, 'GEMINI.md');
+  assert.equal(change.ownershipIdentity, 'doflow:antigravity:instructions:managed-section');
+  assert.equal(change.projection.renderer, 'antigravity-instructions');
+  assert.equal(fs.readFileSync(target(home), 'utf8'), `${USER}\n${section(home)}`);
+  assert.ok(section(home).includes(path.join(home, '.doflow', 'guidance')), 'the pointer names the absolute global guidance tree');
+  const resource = verified.resources.find((item: any) => item.target === target(home));
+  assert.equal(resource.ownershipIdentity, 'doflow:antigravity:instructions:managed-section');
+  assert.equal(resource.identity, 'GEMINI.md');
+  assert.ok(verified.statuses.some((status: any) => status.target === target(home) && status.status === 'managed'));
+  assert.deepEqual(sectionChanges(run(home).planned, home), [], 'idempotent');
+});
+
+test('control (f): a fresh global install with no history and `remove -g -t antigravity` hand the person\'s GEMINI.md back byte-identical', (t) => {
+  for (const original of [USER, '', null]) {
+    const home = tempDir(t, 'doflow-agy-global-');
+    if (original !== null) {
+      fs.mkdirSync(path.dirname(target(home)), { recursive: true });
+      fs.writeFileSync(target(home), original);
+    }
+    run(home);
+    assert.ok(fs.readFileSync(target(home), 'utf8').endsWith(section(home)));
+    const { planned, verified } = run(home, { operation: 'remove' });
+    assert.equal(sectionChanges(planned, home)[0].operation, 'remove');
+    if (original === null) assert.ok(!fs.existsSync(target(home)), 'a file DoFlow created is removed with its section');
+    else assert.equal(fs.readFileSync(target(home), 'utf8'), original, `byte-identical: ${JSON.stringify(original)}`);
+    assert.ok(!verified.resources.some((item: any) => item.target === target(home)));
+  }
+});
+
+test('IC-007: a handed-over GEMINI.md edited down to no DoFlow markers is kept under a retainedEdit row until --force; remove leaves it alone', (t) => {
+  const home = tempDir(t, 'doflow-agy-global-');
+  fs.mkdirSync(path.dirname(target(home)), { recursive: true });
+  fs.writeFileSync(target(home), USER);
+  const notice = 'kept ~/.gemini/GEMINI.md: changed before handover; --force replaces the DoFlow section';
+  const rowOf = (verified: any) => verified.resources.find((item: any) => item.target === target(home));
+  const handover = run(home, { context: { handovers: [{ target: target(home), fromKey: 'oldtool-row', edited: true }] } });
+  assert.deepEqual(sectionChanges(handover.planned, home), [], 'an edited handover is not written');
+  assert.ok(handover.planned.notices.includes(notice), JSON.stringify(handover.planned.notices));
+  assert.equal(fs.readFileSync(target(home), 'utf8'), USER);
+  const row = rowOf(handover.verified);
+  assert.ok(row, 'verify records the kept file although it holds no DoFlow markers');
+  assert.equal(row.retainedEdit, true);
+  assert.equal(row.ownershipIdentity, 'doflow:antigravity:instructions:managed-section');
+  assert.equal(row.fingerprint, crypto.createHash('sha256').update(USER).digest('hex'), 'the whole-file fingerprint');
+  const resources = [{ ...row, harness: 'antigravity' }];
+
+  const plain = run(home, { resources });
+  assert.deepEqual(sectionChanges(plain.planned, home), [], 'the retained row is not rewritten without --force');
+  assert.ok(plain.planned.notices.includes(notice));
+  assert.equal(rowOf(plain.verified).retainedEdit, true, 'the next run records it as kept again');
+  assert.equal(fs.readFileSync(target(home), 'utf8'), USER);
+
+  const removed = run(home, { resources, operation: 'remove' });
+  assert.deepEqual(sectionChanges(removed.planned, home).map((change: any) => change.operation), ['remove'], 'remove releases the kept row');
+  assert.equal(fs.readFileSync(target(home), 'utf8'), USER, 'remove leaves the person\'s file untouched');
+  assert.equal(rowOf(removed.verified), undefined, 'remove records nothing for it');
+
+  const forced = run(home, { resources, context: { force: true } });
+  assert.equal(sectionChanges(forced.planned, home).length, 1);
+  assert.equal(fs.readFileSync(target(home), 'utf8'), `${USER}\n${section(home)}`, '--force appends the section');
+  assert.equal(rowOf(forced.verified).retainedEdit, undefined, '--force clears the flag');
+});
+
+test('V-1: `remove -g -t antigravity` strips a kept GEMINI.md\'s retired short-marker span, so a later global install is not refused', (t) => {
+  const home = tempDir(t, 'doflow-agy-global-');
+  const edited = `# An edit of mine\n\n${USER}`;
+  fs.mkdirSync(path.dirname(target(home)), { recursive: true });
+  fs.writeFileSync(target(home), `${edited}\n<!-- doflow:start -->\noldtool pointer\n${MARKER_END}\n`);
+  const handover = run(home, { context: { handovers: [{ target: target(home), fromKey: 'oldtool-row', edited: true }] } });
+  const row = handover.verified.resources.find((item: any) => item.target === target(home));
+  assert.equal(row.retainedEdit, true, 'the edited file is kept');
+  const removed = run(home, { resources: [{ ...row, harness: 'antigravity' }], operation: 'remove' });
+  assert.deepEqual(sectionChanges(removed.planned, home).map((change: any) => change.operation), ['remove']);
+  assert.equal(fs.readFileSync(target(home), 'utf8'), edited, 'the retired span goes, the person\'s text stays byte-identical');
+  run(home);
+  assert.equal(fs.readFileSync(target(home), 'utf8'), `${edited}\n${section(home)}`, 'a later global install appends a fresh section');
+});
+
+test('the global section is planned only when the pointer asset is selected', (t) => {
+  const home = tempDir(t, 'doflow-agy-global-');
+  const input = { scope: 'global', scopeRoot: home, assets: [], mcp: [], ledger: { resources: [] }, context: { repoRoot: REPO, homeDir: home, operation: 'apply' } };
+  assert.deepEqual(sectionChanges(adapter.plan(input), home), []);
+});
+
+test('while another live harness declares the same GEMINI.md, antigravity plans, verifies and removes nothing there', (t) => {
+  const home = tempDir(t, 'doflow-agy-global-');
+  fs.mkdirSync(path.dirname(target(home)), { recursive: true });
+  fs.writeFileSync(target(home), USER);
+  const shipped = loadRegistry({ repoRoot: REPO });
+  const instruction = shipped.harnesses.find((harness: any) => harness.id === 'antigravity').paths.instruction;
+  const registry = { ...shipped, harnesses: [...shipped.harnesses, { id: 'fake-other', paths: { instruction } }] };
+  const { planned, verified } = run(home, { registry });
+  assert.deepEqual(sectionChanges(planned, home), []);
+  assert.ok(!verified.statuses.some((status: any) => status.target === target(home)));
+  assert.equal(fs.readFileSync(target(home), 'utf8'), USER);
+  assert.deepEqual(sectionChanges(run(home, { registry, operation: 'remove' }).planned, home), []);
+});
+
+test('proof: a global install of antigravity over a retired gemini install converges on one DoFlow section in GEMINI.md', (t) => {
+  const home = tempDir(t, 'doflow-agy-global-');
+  const savedHome = process.env.HOME;
+  process.env.HOME = home;
+  t.after(() => { process.env.HOME = savedHome; });
+  const registry = loadRegistry({ repoRoot: REPO });
+  assert.ok(registry.retired.some((record: any) => record.id === 'gemini'), 'precondition: gemini is retired in the shipped registry');
+  assert.ok(!registry.harnesses.some((harness: any) => harness.id === 'gemini'), 'precondition: gemini is not live');
+  const adapters = buildAdapterRegistry();
+  const state = stateRoot({ scope: 'global', homeDir: home });
+  const { ledger, targets } = buildRetiredLedger({ root: home, id: 'gemini', scope: 'global' });
+  assert.equal(targets.instructions, target(home), 'the fixture holds gemini\'s span in the global GEMINI.md');
+  writeLedger(state, ledger);
+  const plan = () => planLifecycle({ registry, adapters, scope: 'global', scopeRoot: home, targets: ['antigravity'], ledger: readLedger(state) ?? undefined,
+    context: { repoRoot: REPO, projectRoot: home, homeDir: home, sourceVersion: 'test', operation: 'update' } });
+  for (let round = 0; round < 2; round += 1) {
+    const p = plan();
+    assert.deepEqual(p.conflicts, [], `round ${round}`);
+    if (p.changes.length || p.retiredHarnesses) applyLifecycle({ plan: p, registry, adapters, stateRoot: state, ledger: p.ledger, hasBashCapableShellFn: () => true });
+  }
+  const third = plan();
+  assert.deepEqual(third.conflicts, []);
+  assert.deepEqual(third.changes.filter((change: any) => change.target === target(home)), [], 'converged: nobody rewrites GEMINI.md');
+  const text = fs.readFileSync(target(home), 'utf8');
+  assert.equal(text, `${USER_TEXT}\n${section(home)}`, 'the person\'s text is intact and the section is antigravity\'s');
+  assert.equal(text.split('doflow:start').length - 1, 1, 'exactly one DoFlow section');
+  const owners = readLedger(state).resources.filter((row: any) => row.target === target(home)).map((row: any) => row.harness);
+  assert.deepEqual(owners, ['antigravity'], 'one owner');
+});

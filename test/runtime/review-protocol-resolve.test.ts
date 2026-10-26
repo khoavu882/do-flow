@@ -266,10 +266,10 @@ test('a registry with no single-labelled review preset is refused registry-incom
 // agent is enforced. The expected rows are written out here, never read from the code under test.
 const { loadEnforcementInputs } = require('../../src/runtime/review/start.ts');
 
-const HARNESS_ORDER: any = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+const HARNESS_ORDER: any = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
 const UNENFORCED: any = ['codex', 'pi', 'antigravity'];
 
-test('enforcement: the loaded inputs give 8 reviewer rows, codex, pi and antigravity unenforced', () => {
+test('enforcement: the loaded inputs give 7 reviewer rows, codex, pi and antigravity unenforced', () => {
   const inputs = loadEnforcementInputs(REGISTRY);
   assert.equal('error' in inputs, false, JSON.stringify(inputs));
   assert.equal(inputs.agentAccess.reviewer, 'read-only');
@@ -285,7 +285,7 @@ test('enforcement: the loaded inputs give 8 reviewer rows, codex, pi and antigra
   assert.deepEqual(Object.keys(protocol.enforcement[0]), ['agent', 'harness', 'status', 'reason']);
   const single = resolve({ ...inputs });
   assert.equal(single.protocol.id, 'review-single');
-  assert.equal(single.protocol.enforcement.length, 8);
+  assert.equal(single.protocol.enforcement.length, 7);
 });
 
 test('enforcement: a debate (write-access seat agents) has none; so has a caller that passes no inputs', () => {
@@ -339,7 +339,7 @@ test('protocolLines: one enforcement line per read-only agent, harness ids group
   const lines = protocolLines(protocol);
   assert.equal(lines.length, 6);
   assert.equal(lines[3], 'protocol.invariants: INV-1,INV-2,INV-3,INV-4,INV-5,INV-6,INV-7,INV-8');
-  assert.equal(lines[4], 'protocol.enforcement: reviewer native=claude,gemini,opencode,copilot,kiro unenforced=codex,pi,antigravity');
+  assert.equal(lines[4], 'protocol.enforcement: reviewer native=claude,opencode,copilot,kiro unenforced=codex,pi,antigravity');
   assert.equal(lines[5], 'protocol.rules: sameFamily=warn crossFamilyRereview=on');
 });
 

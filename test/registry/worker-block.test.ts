@@ -6,12 +6,12 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const {
-  loadRegistry, validateRegistry, validateWorker, WORKER_KEYS, WORKER_CAPABILITIES, WORKER_OPTIONAL_CAPABILITIES,
+  loadRegistry, validateRegistry, validateWorker, isRetired, WORKER_KEYS, WORKER_CAPABILITIES, WORKER_OPTIONAL_CAPABILITIES,
 } = require('../../src/registry/index.ts');
 const ORCHESTRATION_AT_BE752D8 = require('../fixtures/worker/orchestration-be752d8.json');
 
 const REPO = path.resolve(__dirname, '../..');
-const HARNESSES = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+const HARNESSES = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
 const CODEX_RECORD = 'core/worker-evidence/codex/2026-10-18-cli-check.json';
 const LIVE_READ_ONLY = 'core/worker-evidence/codex/2026-10-18-live-run-read-only.json';
 const LIVE_EDIT = 'core/worker-evidence/codex/2026-10-18-live-run-edit.json';
@@ -26,7 +26,7 @@ const CODEX_EVIDENCE: any = {
 };
 const CODEX_SUPPORTED = ['oneShot', 'structuredOutput', 'readOnly', 'spawnDenial', 'runnableProbe'];
 const PER_HARNESS_REASON = ['oneShot', 'structuredOutput', 'spawnDenial']; // isolatedEdit's reason is pinned in worker-isolated-edit.test.js
-const BINARIES: any = { claude: 'claude', codex: 'codex', gemini: 'gemini', opencode: 'opencode', pi: 'pi', copilot: 'copilot', kiro: 'kiro-cli', antigravity: 'agy' };
+const BINARIES: any = { claude: 'claude', codex: 'codex', opencode: 'opencode', pi: 'pi', copilot: 'copilot', kiro: 'kiro-cli', antigravity: 'agy' };
 
 /** A supported entry carrying the given recipe fields. */
 function supported(recipe: any) {
@@ -50,7 +50,7 @@ function assertReports(result: any, pattern: any) {
   }
 }
 
-test('worker: the shipped registry carries the block on all eight harnesses and validates', () => {
+test('worker: the shipped registry carries the block on all seven harnesses and validates', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   const workerErrors = registry.validation.errors.filter((line: any) => line.includes(" worker '"));
   assert.deepEqual(workerErrors, []);
@@ -61,7 +61,7 @@ test('worker: the shipped registry carries the block on all eight harnesses and 
   for (const harness of registry.harnesses) assert.deepEqual(Object.keys(harness.worker), expectedKeys, `${harness.id} worker keys`);
 });
 
-test('worker: the eight harnesses declare IC-002 values and nothing else as supported', () => {
+test('worker: the seven harnesses declare IC-002 values and nothing else as supported', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   for (const harness of registry.harnesses) {
     const worker = harness.worker;
@@ -125,7 +125,8 @@ test('worker: the six supported codex entries equal their committed status, evid
 
 test('worker: every harness orchestration block equals the copy taken at be752d8', () => {
   const registry = loadRegistry({ repoRoot: REPO });
-  assert.deepEqual(Object.keys(ORCHESTRATION_AT_BE752D8), HARNESSES);
+  // The copy is frozen history: it still holds the harnesses retired since be752d8 (row 127).
+  assert.deepEqual(Object.keys(ORCHESTRATION_AT_BE752D8).filter((id) => !isRetired(registry, id)), HARNESSES);
   for (const harness of registry.harnesses) {
     // 118 IC-004 adds `nest` after be752d8; the copy covers the five operations that existed then.
     const { nest: _nest, ...atBe752d8 } = harness.orchestration;

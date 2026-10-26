@@ -11,8 +11,8 @@ const {
 const ORCHESTRATION_AT_BE752D8 = require('../fixtures/worker/orchestration-be752d8.json');
 
 const REPO = path.resolve(__dirname, '../..');
-const HARNESSES = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
-const BINARIES: any = { claude: 'claude', codex: 'codex', gemini: 'gemini', opencode: 'opencode', pi: 'pi', copilot: 'copilot', kiro: 'kiro-cli', antigravity: 'agy' };
+const HARNESSES = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+const BINARIES: any = { claude: 'claude', codex: 'codex', opencode: 'opencode', pi: 'pi', copilot: 'copilot', kiro: 'kiro-cli', antigravity: 'agy' };
 const CODEX_RECORD = 'core/worker-evidence/codex/2026-10-18-cli-check.json';
 const AT = /^harness 'claude' worker 'isolatedEdit': /;
 

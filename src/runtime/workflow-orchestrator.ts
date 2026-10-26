@@ -779,7 +779,7 @@ class WorkflowOrchestrator {
     const feature = resolveFeatureInStore({ root, slug });
     if (feature.error) throw new Error(`Cannot resolve policy gate artifacts: ${feature.message}`);
     const facts = gatherGateFacts({ root, mainRoot, registryRoot: this.repoRoot, artifactRoot: feature.featureDir,
-      gateId: node.id, policy: loaded.policy, row, rows: seed?.rows, developHead, featureBranch: `feat/${slug}`, fsImpl: this.fsImpl });
+      gateId: node.id, policy: loaded.policy, row, rows: seed?.rows, developHead, featureBranch: `feat/${slug}`, fsImpl: this.fsImpl, env: this.env });
     const evaluation = evaluate(loaded.policy, run.taskClass, node.id, facts);
     // A deny changes nothing: the run stays AWAITING_GATE and autopilot never rejects.
     if (evaluation.decision === 'deny') return { ...this.snapshot(run), ...evaluation, policy };

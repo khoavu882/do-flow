@@ -194,7 +194,7 @@ function assertRunning(p: any) {
 
 test('worker capabilities declared honestly: every value supported, unsupported or unknown with evidence and a date; orchestration unchanged', () => {
   const reg = loadRegistry({ repoRoot: REPO });
-  assert.equal(reg.harnesses.length, 8);
+  assert.equal(reg.harnesses.length, 7);
   for (const harness of reg.harnesses) {
     assert.ok(harness.worker, `${harness.id} carries a worker block`);
     for (const key of Object.keys(WORKER_CAPABILITIES)) {
@@ -214,7 +214,7 @@ test('worker capabilities declared honestly: every value supported, unsupported 
 
 // ── Scenario: Discover starts no model (US1, FR-002, NFR-005) ─────────────────────────────────
 
-test('discover starts no model: two fake CLIs present with versions, six absent, no run invocation', POSIX, async (t) => {
+test('discover starts no model: two fake CLIs present with versions, five absent, no run invocation', POSIX, async (t) => {
   const ids = loadRegistry({ repoRoot: REPO }).harnesses.map((h: any) => h.id);
   const descriptors = Object.fromEntries(ids.map((id: any) => [id, claudeAs(`fake-${id}`)]));
   const p: any = project(t, {
@@ -224,7 +224,7 @@ test('discover starts no model: two fake CLIs present with versions, six absent,
   const { exit, body } = await p.worker({ action: 'discover' });
   assert.equal(exit, 0, JSON.stringify(body));
   assert.equal(body.disposition, 'discovered');
-  assert.equal(body.harnesses.length, 8);
+  assert.equal(body.harnesses.length, 7);
   const byId = Object.fromEntries(body.harnesses.map((entry: any) => [entry.harness, entry]));
   assert.deepEqual([byId.claude.present, byId.claude.version], [true, 'fake-claude 1.2.3']);
   assert.deepEqual([byId.codex.present, byId.codex.version], [true, 'fake-codex 4.5.6']);
@@ -568,7 +568,7 @@ test('pair chosen from probes, fallback honest: the eligible one is chosen; with
   const noSpawnDenial = claudeAs('fake-codex');
   noSpawnDenial.spawnDenial = unknownEntry('this fake declares no spawn-denial flag');
   const p: any = project(t, {
-    descriptors: { claude: DESCRIPTORS.claude, codex: noSpawnDenial, gemini: DESCRIPTORS.gemini }, claim: null,
+    descriptors: { claude: DESCRIPTORS.claude, codex: noSpawnDenial, antigravity: DESCRIPTORS.antigravity }, claim: null,
     scenario: { version: [{ print: 'fake 1.0' }] },
   });
   await p.probe();
@@ -577,7 +577,7 @@ test('pair chosen from probes, fallback honest: the eligible one is chosen; with
   assert.deepEqual([chosen.body.disposition, chosen.body.harness], ['selected', 'claude']);
   assert.match(chosen.body.reason, /^first eligible harness in registry order; met: .*; probed at /);
   const gaps = Object.fromEntries(chosen.body.candidates.map((c: any) => [c.harness, c.gaps.map((gap: any) => gap.requirement)]));
-  assert.deepEqual(gaps, { claude: [], codex: ['spawn-denial'], gemini: ['read-only'] });
+  assert.deepEqual(gaps, { claude: [], codex: ['spawn-denial'], antigravity: ['read-only'] });
 
   const none = await p.worker({ action: 'select', need: 'hooks-loaded' });
   assert.deepEqual([none.exit, none.body.disposition], [1, 'none-eligible']);

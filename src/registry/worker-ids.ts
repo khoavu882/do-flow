@@ -15,12 +15,20 @@ function workerIdFault(id: unknown): { code: 'type' | 'reserved'; reason: string
   return { code: 'type', reason: 'worker id must be a lowercase built-in or qualified id' };
 }
 
-/** IC-001: classify worker shape and membership independently. */
-function classifyWorkerId(id: unknown, known: readonly string[]): 'ok' | 'malformed' | 'reserved' | 'dangling' {
+type RetiredId = { id: string; replacement: string };
+
+/** IC-001, 127 IC-005: classify worker shape and membership independently; a retired registry id is `retired`, not `dangling`. */
+function classifyWorkerId(id: unknown, known: readonly string[], retired: readonly RetiredId[] = []): 'ok' | 'malformed' | 'reserved' | 'retired' | 'dangling' {
   const fault = workerIdFault(id);
   if (fault?.code === 'type') return 'malformed';
   if (fault?.code === 'reserved') return 'reserved';
-  return known.includes(id as string) ? 'ok' : 'dangling';
+  if (known.includes(id as string)) return 'ok';
+  return retired.some((entry) => entry.id === id) ? 'retired' : 'dangling';
+}
+
+/** 127 IC-005: the one advisory line for a retired id a setting names. */
+function retiredAdvisory(key: string, entry: RetiredId): string {
+  return `${key}: '${entry.id}' is retired; use '${entry.replacement}'`;
 }
 
 /** IC-001: return built-in harness ids that carry a worker object, in registry order. */
@@ -34,4 +42,4 @@ function knownWorkerIds({ registry, view }: any = {}): { ids: string[] } {
   return { ids: workerCatalogue({ registry, view }).map((entry: any) => entry.id) };
 }
 
-module.exports = { LADDER_MAX, WORKER_ID_MAX, BUILTIN_WORKER_ID_RE, RESERVED_WORKER_IDS, isQualifiedId, workerIdFault, classifyWorkerId, shippedWorkerIds, knownWorkerIds };
+module.exports = { LADDER_MAX, WORKER_ID_MAX, BUILTIN_WORKER_ID_RE, RESERVED_WORKER_IDS, isQualifiedId, workerIdFault, classifyWorkerId, retiredAdvisory, shippedWorkerIds, knownWorkerIds };

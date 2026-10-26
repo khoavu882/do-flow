@@ -106,13 +106,13 @@ test('IC-011: a supported binding requires a supported model recipe with an argv
   }
 });
 
-test('IC-011 C control: all eight harnesses keep plain group concatenation without an applied binding', () => {
+test('IC-011 C control: all seven harnesses keep plain group concatenation without an applied binding', () => {
   const fixture = DESCRIPTORS.claude;
   const prompt = 'p';
   const hash = crypto.createHash('sha256').update(prompt, 'utf8').digest('hex');
   const promptShape = `<prompt sha256:${hash} bytes:1>`;
   const harnesses = loadRegistry({ repoRoot: REPO }).harnesses;
-  assert.equal(harnesses.length, 8);
+  assert.equal(harnesses.length, 7);
   for (const harness of harnesses) {
     const recipe = structuredClone(harness.worker);
     for (const key of ['readOnly', 'spawnDenial', 'structuredOutput', 'oneShot']) {
@@ -182,9 +182,9 @@ test('IC-011: an unknown model entry may not carry argv', () => {
   }, 'model', "recipe field 'argv' is allowed only when status is supported");
 });
 
-test('IC-011: seven shipped harnesses declare unknown model without argv; only codex is supported', () => {
+test('IC-011: six shipped harnesses declare unknown model without argv; only codex is supported', () => {
   const harnesses = loadRegistry({ repoRoot: REPO }).harnesses;
-  assert.equal(harnesses.length, 8);
+  assert.equal(harnesses.length, 7);
   for (const harness of harnesses) {
     const entry = harness.worker.model;
     assert.ok(entry, `${harness.id} declares model`);

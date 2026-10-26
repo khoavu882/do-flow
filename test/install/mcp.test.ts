@@ -38,26 +38,24 @@ test('promptMcpCheckbox returns [] immediately for an empty server list, never e
 
 // Per-harness selection. A lock pins its rows' harnesses as targets; a ledger "holds" a harness when
 // any resource row names it.
-const ALL_HARNESSES = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
-const CAPABLE = ALL_HARNESSES.filter((harness) => harness !== 'gemini');
+const ALL_HARNESSES = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
 const lockWith = (rows: any, extraTargets = []) => ({
   targets: [...new Set([...Object.keys(rows), ...extraTargets])].map((harness) => ({ harness })),
   mcpSelections: rows,
 });
 const ledgerHolding = (...harnesses: any[]) => ({ resources: harnesses.map((harness) => ({ harness, kind: 'skill' })) });
 const resolve = (options: any) => resolveMcpSelections({
-  cmd: 'install', requested: null, targets: CAPABLE, registry, lock: null, ledger: null, manifestServers: null,
+  cmd: 'install', requested: null, targets: ALL_HARNESSES, registry, lock: null, ledger: null, manifestServers: null,
   interactive: false, promptFn: () => assert.fail('must not prompt'), ...options,
 });
 
-test('S1: --mcp ids reach every MCP-capable target, and gemini gets no entry', () => {
+test('S1: --mcp ids reach every MCP-capable target', () => {
   const result = resolve({ requested: ['context7'], targets: ALL_HARNESSES });
-  assert.deepEqual(Object.keys(result.selections), CAPABLE);
-  for (const harness of CAPABLE) {
+  assert.deepEqual(Object.keys(result.selections), ALL_HARNESSES);
+  for (const harness of ALL_HARNESSES) {
     assert.deepEqual(result.selections[harness], ['context7']);
     assert.equal(result.sources[harness], 'flag');
   }
-  assert.ok(!('gemini' in result.sources) && !('gemini' in result.adoptable));
 });
 
 test('S2: --mcp none and all resolve per target; the flag errors stay, even with no MCP-capable target', () => {
@@ -69,7 +67,7 @@ test('S2: --mcp none and all resolve per target; the flag errors stay, even with
   assert.throws(() => parseMcpFlag(['all', 'context7'], all), /--mcp keyword 'all' cannot be combined/);
   assert.throws(() => parseMcpFlag(['all', 'none'], all), /either '--mcp all' or '--mcp none'/);
   assert.throws(() => parseMcpFlag([], all), /--mcp requires at least one server/);
-  assert.throws(() => resolve({ requested: ['bogus'], targets: ['gemini'] }), /Unknown MCP server\(s\): bogus \(valid: context7, sequential-thinking\)/);
+  assert.throws(() => resolve({ requested: ['bogus'], targets: [] }), /Unknown MCP server\(s\): bogus \(valid: context7, sequential-thinking\)/);
 });
 
 test('S3: lock rows win per harness and stay distinct', () => {
@@ -122,7 +120,7 @@ test('S5: an interactive install prompts once for every target; seed rules; null
 
 test('S6: non-interactive with no flag and nothing recorded resolves every target to none', () => {
   const result = resolve({});
-  for (const harness of CAPABLE) {
+  for (const harness of ALL_HARNESSES) {
     assert.deepEqual(result.selections[harness], []);
     assert.equal(result.sources[harness], 'default');
   }
@@ -150,7 +148,7 @@ test('S8: adoptable ids are only what a 1.18.0 install recorded for an installed
     { harness: 'antigravity', kind: 'mcp-server', identity: 'sequential-thinking', fingerprint: null },
     { harness: 'antigravity', kind: 'mcp-server', identity: 'context7', fingerprint: 'sha256:abc' },
   ] };
-  const targets = ['claude', 'kiro', 'opencode', 'pi', 'copilot', 'antigravity', 'codex', 'gemini'];
+  const targets = ['claude', 'kiro', 'opencode', 'pi', 'copilot', 'antigravity', 'codex'];
   // The 1.18.0 manifest list reaches every installed harness; a harness the ledger does not hold gets none.
   const legacy = resolve({ targets, requested: ['none'], lock: lockWith({ claude: ['context7'] }), ledger, manifestServers: ['context7'] });
   assert.deepEqual(legacy.adoptable, { claude: ['context7'], kiro: ['context7'], opencode: ['context7'], pi: ['context7'],
@@ -177,7 +175,7 @@ test('recordedMcpSelections reads each target\'s lock row, or keep, and never pr
   const all = readAllServers(registry);
   const lock = lockWith({ claude: ['context7', 'playwright'], codex: ['sequential-thinking'] });
   const ledger = ledgerHolding('claude', 'kiro');
-  assert.deepEqual(recordedMcpSelections({ registry, lock, ledger, targets: ['claude', 'kiro', 'gemini'], manifestServers: all }), {
+  assert.deepEqual(recordedMcpSelections({ registry, lock, ledger, targets: ['claude', 'kiro'], manifestServers: all }), {
     selections: { claude: ['context7'], kiro: 'keep' },
     adoptable: { claude: all, kiro: all },
     retainedMcpIds: ['sequential-thinking'],

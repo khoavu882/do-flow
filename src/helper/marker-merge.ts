@@ -85,27 +85,42 @@ function mergeMarkedSection(srcAbs: string, dstAbs: string, { dryRun = false, co
 }
 
 /**
+ * Where `text`'s doflow span is: the first of `startMarkers`, the first MARKER_END after it, and no
+ * start marker after that end (a second span is `malformed`). `after` is past the end marker and the
+ * one '\n' that follows it.
+ */
+function markedSpan(text: string, startMarkers: string[] = [MARKER_START]): { state: 'none' } | { state: 'malformed' } | { state: 'ok', start: number, after: number } {
+  const found = startMarkers.map((marker) => ({ at: text.indexOf(marker), length: marker.length })).filter((item) => item.at !== -1);
+  if (!found.length) return { state: 'none' };
+  const first = found.reduce((a, b) => (b.at < a.at ? b : a));
+  const end = text.indexOf(MARKER_END, first.at + first.length);
+  if (end === -1) return { state: 'malformed' };
+  let after = end + MARKER_END.length;
+  if (startMarkers.some((marker) => text.indexOf(marker, after) !== -1)) return { state: 'malformed' };
+  if (text[after] === '\n') after += 1;
+  return { state: 'ok', start: first.at, after };
+}
+
+/**
  * Strip only the doflow-managed span from `file`, leaving any surrounding content (before/after
  * the markers) byte-for-byte untouched. Companion to `mergeMarkedSection` — shared by the Claude
  * and Codex adapters' `remove()`, which had each carried an identical private copy of this.
  * A file that held nothing but the span is DoFlow's own and is deleted; any other file is written
- * back, even when only whitespace remains.
+ * back, even when only whitespace remains. `startMarkers` (default: MARKER_START alone) lets a
+ * caller also accept an older start marker; the retirement sweep is the only one that does.
  * @returns whether a managed span was found and stripped (false if the file doesn't
  *          exist or has no doflow markers — both are no-ops, not errors)
  */
-function removeMarkedSection(file: string): boolean {
+function removeMarkedSection(file: string, { startMarkers = [MARKER_START] }: { startMarkers?: string[] } = {}): boolean {
   if (!fs.existsSync(file)) return false;
   const existing = fs.readFileSync(file, 'utf8');
-  const start = existing.indexOf(MARKER_START);
-  if (start === -1) return false;
-  const end = existing.indexOf(MARKER_END, start + MARKER_START.length);
-  if (end === -1 || existing.indexOf(MARKER_START, end + MARKER_END.length) !== -1) {
+  const span = markedSpan(existing, startMarkers);
+  if (span.state === 'none') return false;
+  if (span.state === 'malformed') {
     throw new Error(`Refusing to remove malformed DoFlow markers in ${file}`);
   }
-  let after = end + MARKER_END.length;
-  if (existing[after] === '\n') after += 1;
-  const before = existing.slice(0, start);
-  const rest = existing.slice(after);
+  const before = existing.slice(0, span.start);
+  const rest = existing.slice(span.after);
   if (before === '' && rest === '') {
     fs.unlinkSync(file);
     return true;
@@ -116,4 +131,4 @@ function removeMarkedSection(file: string): boolean {
   return true;
 }
 
-module.exports = { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END };
+module.exports = { mergeMarkedSection, removeMarkedSection, markedSpan, MARKER_START, MARKER_END };

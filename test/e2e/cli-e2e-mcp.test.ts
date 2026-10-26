@@ -223,13 +223,13 @@ test('doflow status reports the persisted MCP server selection', (t) => {
   const home = tempDir(t, 'doflow-cli-e2e-');
   let r = run(['install', '-g', '--force', '--no-backup', '--target', 'claude', '--mcp', 'context7,sequential-thinking'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
-  r = run(['status', '-g', '--json', '--target', 'claude,codex,gemini'], { home });
+  r = run(['status', '-g', '--json', '--target', 'claude,codex'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   const status = JSON.parse(r.stdout);
   assert.deepStrictEqual(status.mcpSelections, { claude: ['context7', 'sequential-thinking'], codex: null },
-    'each MCP-capable target reports its own doflow.lock row, null when it has none; gemini takes no servers');
+    'each MCP-capable target reports its own doflow.lock row, null when it has none');
 
-  r = run(['status', '-g', '--target', 'claude,codex,gemini'], { home });
+  r = run(['status', '-g', '--target', 'claude,codex'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stdout, /^ {2}MCP selections: {7}claude context7, sequential-thinking; codex not recorded$/m);
 });
@@ -239,11 +239,11 @@ test('T1: --mcp help says the default is none and reaches every harness that tak
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stdout, /--mcp <list> {5}Comma-separated MCP server names, or all or none, for every targeted/);
   assert.match(r.stdout, /or the servers an\s+installed harness already has/, 'an installed harness with no recorded selection keeps what it has');
-  assert.match(r.stdout, /harness that takes MCP servers \(all but gemini\)\. Default: none, or the/);
+  assert.match(r.stdout, /harness that takes MCP servers \(all of them\)\. Default: none, or the/);
   assert.doesNotMatch(r.stdout, /default: all|Applies to Claude and Codex/);
 });
 
-// --- Multi-harness lifecycle wiring (claude/codex/gemini all reconcile through the same
+// --- Multi-harness lifecycle wiring (claude/codex/antigravity all reconcile through the same
 // registry/lifecycle path — see bin/doflow.js's unified `lifecycleView`) ---------------------
 
 test('Claude lifecycle: fresh install owns the instructions asset in the neutral ledger with unchanged CLAUDE.md bytes', (t) => {
@@ -283,36 +283,6 @@ test('Claude lifecycle: fresh install owns the instructions asset in the neutral
   assert.ok(fs.existsSync(path.join(project, '.claude', 'skills', 'do-diagnose', 'SKILL.md')));
 });
 
-test('Gemini lifecycle: fresh install writes GEMINI.md (not AGENTS.md) and owns it in the neutral ledger', (t) => {
-  const home = tempDir(t, 'doflow-cli-e2e-');
-  const project = tempDir(t, 'doflow-cli-e2e-project-');
-  const r = run(['install', project, '--force', '--target', 'gemini'], { home });
-  assert.strictEqual(r.status, 0, r.stderr);
-  // Gemini now owns its instructions asset plus five copy-tree assets (rules, skills, agents,
-  // modes, references) under .agents/ (project scope) — well over 1, unlike before Phase C.
-  assert.match(r.stdout, /\[INFO\] gemini: lifecycle verified \((\d+) owned resource\(s\)\)/);
-  const ownedCount = Number(r.stdout.match(/lifecycle verified \((\d+) owned resource/)[1]);
-  assert.ok(ownedCount > 30, `expected well over 30 owned Gemini resources once copy-tree assets are included, got ${ownedCount}`);
-
-  const geminiMd = path.join(project, 'GEMINI.md');
-  assert.ok(fs.existsSync(geminiMd), 'GEMINI.md must be written by the Gemini adapter');
-  const content = fs.readFileSync(geminiMd, 'utf8');
-  assert.match(content, /<!-- doflow:start -->/);
-  assert.match(content, /<!-- doflow:end -->/);
-  assert.ok(!fs.existsSync(path.join(project, 'AGENTS.md')), 'Gemini must no longer write AGENTS.md (mappings.conf mapping removed)');
-
-  const ledger = JSON.parse(fs.readFileSync(path.join(project, '.doflow', 'state', 'ledger.json'), 'utf8'));
-  const owned = ledger.resources.filter((resource: any) => resource.harness === 'gemini');
-  assert.strictEqual(owned.length, ownedCount);
-  const instructionResource = owned.find((resource: any) => resource.target === geminiMd);
-  assert.ok(instructionResource, 'GEMINI.md must be ledger-owned');
-  assert.ok(owned.some((resource: any) => resource.assetId === 'skills.doflow'), 'skills.doflow must be ledger-owned');
-  assert.ok(owned.some((resource: any) => resource.assetId === 'agents.shared'), 'agents.shared must be ledger-owned');
-  assert.ok(fs.existsSync(path.join(project, '.agents', 'skills', 'do-diagnose', 'SKILL.md')));
-  // Gemini CLI discovers a custom subagent as a flat <name>.md under .gemini/agents.
-  assert.ok(fs.existsSync(path.join(project, '.gemini', 'agents', 'system-architect.md')));
-});
-
 test('Claude lifecycle: remove strips only the managed section from CLAUDE.md, preserves foreign content, and updates the ledger', (t) => {
   const home = tempDir(t, 'doflow-cli-e2e-');
   const project = tempDir(t, 'doflow-cli-e2e-project-');
@@ -334,55 +304,37 @@ test('Claude lifecycle: remove strips only the managed section from CLAUDE.md, p
   assert.ok(!ledger.resources.some((resource: any) => resource.harness === 'claude'), 'claude resource must be removed from the ledger');
 });
 
-test("Gemini lifecycle: remove deletes GEMINI.md per the adapter's own remove() semantics, updating the ledger", (t) => {
-  const home = tempDir(t, 'doflow-cli-e2e-');
-  const project = tempDir(t, 'doflow-cli-e2e-project-');
-  let r = run(['install', project, '--force', '--target', 'gemini'], { home });
-  assert.strictEqual(r.status, 0, r.stderr);
-  const geminiMd = path.join(project, 'GEMINI.md');
-  assert.ok(fs.existsSync(geminiMd));
-
-  r = run(['remove', project, '--force', '--target', 'gemini'], { home });
-  assert.strictEqual(r.status, 0, r.stderr);
-  // Unlike Claude's marker-only removal, the Gemini adapter's remove() deletes the whole
-  // owned file — this test locks in that documented adapter behavior, not a section-only edit.
-  assert.ok(!fs.existsSync(geminiMd), "Gemini's remove() deletes the whole managed file");
-
-  const ledger = JSON.parse(fs.readFileSync(path.join(project, '.doflow', 'state', 'ledger.json'), 'utf8'));
-  assert.ok(!ledger.resources.some((resource: any) => resource.harness === 'gemini'), 'gemini resource must be removed from the ledger');
-});
-
-test('mixed -t claude,codex,gemini: install, update, and remove all reconcile in one invocation without cross-harness interference', (t) => {
+test('mixed -t claude,codex,antigravity: install, update, and remove all reconcile in one invocation without cross-harness interference', (t) => {
   // Global scope (matching the existing "already up to date" convergence tests): a project-scoped
   // Claude install also rewrites settings.json's hook paths to ${CLAUDE_PROJECT_DIR} after the
   // copy, which is an orthogonal, pre-existing legacy-path concern unrelated to this lifecycle
   // wiring — global scope keeps this test focused on the three harnesses' lifecycle convergence.
   const home = tempDir(t, 'doflow-cli-e2e-');
-  let r = run(['install', '-g', '--force', '--target', 'claude,codex,gemini'], { home });
+  let r = run(['install', '-g', '--force', '--target', 'claude,codex,antigravity'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
 
   const claudeMd = path.join(home, '.claude', 'CLAUDE.md');
-  const geminiMd = path.join(home, '.gemini', 'GEMINI.md');
+  const agyMd = path.join(home, '.gemini', 'GEMINI.md');
   const codexConfig = path.join(home, '.codex', 'config.toml');
   assert.ok(fs.existsSync(claudeMd));
-  assert.ok(fs.existsSync(geminiMd));
+  assert.ok(fs.existsSync(agyMd));
   assert.ok(fs.existsSync(codexConfig));
 
   const ledgerFile = path.join(home, '.doflow', 'state', 'ledger.json');
   let ledger = JSON.parse(fs.readFileSync(ledgerFile, 'utf8'));
-  for (const harness of ['claude', 'codex', 'gemini']) {
+  for (const harness of ['claude', 'codex', 'antigravity']) {
     assert.ok(ledger.resources.some((resource: any) => resource.harness === harness), `${harness} resource missing after mixed install`);
   }
 
   // A second, immediate update has no upstream drift for any of the three harnesses — it must
   // converge to a true no-op, exactly like the single-harness "already up to date" contract.
-  r = run(['update', '-g', '--force', '--target', 'claude,codex,gemini'], { home });
+  r = run(['update', '-g', '--force', '--target', 'claude,codex,antigravity'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   assert.match(r.stdout, /Already up to date/);
 
-  r = run(['remove', '-g', '--force', '--target', 'claude,codex,gemini'], { home });
+  r = run(['remove', '-g', '--force', '--target', 'claude,codex,antigravity'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
-  assert.ok(!fs.existsSync(geminiMd), 'gemini remove deletes its file');
+  assert.ok(!fs.existsSync(agyMd), 'antigravity remove deletes ~/.gemini/GEMINI.md, which held only its section');
   assert.ok(!fs.existsSync(claudeMd), 'a CLAUDE.md holding only the managed section is deleted, like GEMINI.md');
   ledger = JSON.parse(fs.readFileSync(ledgerFile, 'utf8'));
   assert.deepStrictEqual(ledger.resources, []);

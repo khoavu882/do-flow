@@ -1,9 +1,9 @@
 'use strict';
 
-// Shared by codex-hook-scripts.test.js and gemini-hook-scripts.test.js: a real install into a scratch
+// Shared by codex-hook-scripts.test.js: a real install into a scratch
 // HOME and project, and the helpers to read what the hook scripts beside the config did. "Older"
 // scripts are the bytes of develop commit 0fcd973 (before the hook envelope), installed by that
-// commit's own CLI from `git archive`; its Codex hooks.json and Gemini settings.json hooks key are
+// commit's own CLI from `git archive`; its Codex hooks.json is
 // the same bytes as this checkout's, so only the scripts differ.
 
 const assert = require('node:assert/strict');
@@ -26,8 +26,6 @@ const SKIP = IS_WIN ? 'the hook scripts are POSIX shell'
 const HARNESSES: any = {
   codex: { hooks: '.codex/hooks', source: path.join(REPO, 'core', 'harnesses', 'codex', 'hooks'),
     payload: { hook_event_name: 'PreToolUse', session_id: 'scripts', tool_name: 'Edit', tool_input: { file_path: 'src/a.js' } } },
-  gemini: { hooks: '.gemini/hooks', source: path.join(REPO, 'core', 'harnesses', 'gemini', 'hooks'),
-    payload: { hook_event_name: 'BeforeTool', session_id: 'scripts', tool_name: 'replace', tool_input: { file_path: 'src/a.js' } } },
 };
 
 let olderCli: any = null;

@@ -2,7 +2,7 @@
 # identity.sh — Canonical Policy Library: session role and identity (feature 078, IC-007, IC-009)
 #
 # The only definition of doflow_session_role and doflow_identity (DEC-011). policies/lib.sh sources
-# it from its own directory; the Claude, Codex and Gemini hooks/lib.sh copies source it through
+# it from its own directory; the Claude and Codex hooks/lib.sh copies source it through
 # ../../.doflow/shared/hooks/policies/identity.sh.
 #
 # Sourcing this file defines functions only: it sets no shell option, no variable and no trap, and

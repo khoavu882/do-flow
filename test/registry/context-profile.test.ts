@@ -24,10 +24,10 @@ function assertReports(result: any, pattern: any) {
   assert.match(result.errors.join('\n'), pattern);
 }
 
-test('contextProfile: the shipped registry declares the block on all eight harnesses and validates', () => {
+test('contextProfile: the shipped registry declares the block on all seven harnesses and validates', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   assert.equal(registry.validation.ok, true, registry.validation.errors.join('\n'));
-  assert.equal(registry.harnesses.length, 8);
+  assert.equal(registry.harnesses.length, 7);
   for (const harness of registry.harnesses) {
     assert.ok(harness.contextProfile, `${harness.id} must declare contextProfile`);
     assert.deepEqual(

@@ -11,7 +11,7 @@ const { tempDir } = require('../helper/tmp.ts');
 const { cwdHash } = require('../../src/runtime/context/identity.ts');
 
 const CLI = path.resolve(__dirname, '../../bin/doflow.js');
-const REGISTRY = { harnesses: [{ id: 'codex', primaryProbe: { model: 'payload', status: 'verified' } }, { id: 'gemini' }] };
+const REGISTRY = { harnesses: [{ id: 'codex', primaryProbe: { model: 'payload', status: 'verified' } }, { id: 'opencode' }] };
 
 function setup(t: any) {
   const root = tempDir(t, 'doflow-primary-cmd-');
@@ -127,12 +127,12 @@ test('usage: a bad or missing action and an extra flag exit 2', (t) => {
 
 test('the verb writes nothing: config home and project stay byte-identical', (t) => {
   const f = setup(t);
-  fs.writeFileSync(path.join(f.config, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'primary.harness': 'gemini' }));
+  fs.writeFileSync(path.join(f.config, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'primary.harness': 'opencode' }));
   const before = { config: listFiles(f.config), project: listFiles(f.project), root: fs.readdirSync(f.root).sort() };
   const text = cli(f, ['primary', '--action', 'resolve']);
   assert.equal(text.status, 0, text.stderr);
-  assert.match(text.stdout, /^state: declared-only\nharness: gemini\nmodel: -\n/);
-  assert.match(text.stdout, /declared: gemini\/- \(user\)\n/);
+  assert.match(text.stdout, /^state: declared-only\nharness: opencode\nmodel: -\n/);
+  assert.match(text.stdout, /declared: opencode\/- \(user\)\n/);
   const json = cli(f, ['primary', '--action', 'resolve', '--json']);
   assert.equal(json.status, 0, json.stderr);
   assert.equal(JSON.parse(json.stdout).state, 'declared-only');
@@ -142,14 +142,14 @@ test('the verb writes nothing: config home and project stay byte-identical', (t)
 
 test('status prints one primary line and --json gains primary; neither writes session-env', (t) => {
   const f = setup(t);
-  const env = { DOFLOW_PRIMARY_HARNESS: 'gemini', DOFLOW_PRIMARY_MODEL: 'gem-1' };
+  const env = { DOFLOW_PRIMARY_HARNESS: 'opencode', DOFLOW_PRIMARY_MODEL: 'gem-1' };
   const text = cli(f, ['status'], env);
   assert.equal(text.status, 0, text.stderr);
   const lines = text.stdout.split('\n').filter((line: any) => /^\s*primary: /.test(line));
-  assert.deepEqual(lines, ['primary: declared-only gemini/gem-1 (env)']);
+  assert.deepEqual(lines, ['primary: declared-only opencode/gem-1 (env)']);
   const json = JSON.parse(cli(f, ['status', '--json'], env).stdout);
   assert.equal(json.primary.state, 'declared-only');
-  assert.equal(json.primary.harness, 'gemini');
+  assert.equal(json.primary.harness, 'opencode');
   const none = cli(f, ['status']);
   assert.ok(none.stdout.split('\n').includes('primary: unknown -/- (default)'));
   assert.equal(fs.existsSync(path.join(f.config, 'doflow', 'session-env')), false);
@@ -157,11 +157,11 @@ test('status prints one primary line and --json gains primary; neither writes se
 
 test('doctor prints one primary line and --json gains primary; neither writes session-env', (t) => {
   const f = setup(t);
-  const env = { DOFLOW_PRIMARY_HARNESS: 'gemini', DOFLOW_PRIMARY_MODEL: 'gem-1' };
+  const env = { DOFLOW_PRIMARY_HARNESS: 'opencode', DOFLOW_PRIMARY_MODEL: 'gem-1' };
   const text = cli(f, ['doctor'], env);
   const lines = text.stdout.split('\n').filter((line: any) => /^\s*primary: /.test(line));
-  assert.deepEqual(lines, ['  primary: declared-only gemini/gem-1 (env), probe declared-only']);
+  assert.deepEqual(lines, ['  primary: declared-only opencode/gem-1 (env), probe declared-only']);
   const json = JSON.parse(cli(f, ['doctor', '--json'], env).stdout);
-  assert.deepEqual(json.primary, { state: 'declared-only', harness: 'gemini', model: 'gem-1', origin: 'env', probe: 'declared-only' });
+  assert.deepEqual(json.primary, { state: 'declared-only', harness: 'opencode', model: 'gem-1', origin: 'env', probe: 'declared-only' });
   assert.equal(fs.existsSync(path.join(f.config, 'doflow', 'session-env')), false);
 });

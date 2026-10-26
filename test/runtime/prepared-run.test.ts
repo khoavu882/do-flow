@@ -256,7 +256,7 @@ test('three faults in one file are three entries, all reported', (t) => {
 
 test('workers shape is checked independently from primary and settings', (t) => {
   const { f, validate } = setup(t);
-  f.writeUserSettings({ schema: 1, 'workers.enabled': ['codex', 'gemini', 'primary'] });
+  f.writeUserSettings({ schema: 1, 'workers.enabled': ['codex', 'antigravity', 'primary'] });
   const array = entryFor(validate({ ...VALID(), workers: [] }), 'workers');
   assert.equal(array.code, 'type');
   assert.equal(array.layer, null);
@@ -271,7 +271,7 @@ test('workers shape is checked independently from primary and settings', (t) => 
 
 test('workers.enabled applies project narrowing and reports shape faults at the first item', (t) => {
   const { f, validate } = setup(t);
-  f.writeUserSettings({ schema: 1, 'workers.enabled': ['codex', 'gemini', 'primary'] });
+  f.writeUserSettings({ schema: 1, 'workers.enabled': ['codex', 'antigravity', 'primary'] });
   const wider = entryFor(validate({ ...VALID(), workers: { enabled: ['codex', 'claude'] } }), 'workers.enabled[1]');
   assert.equal(wider.code, 'not-narrower');
   assert.equal(wider.layer, 'project');
@@ -281,14 +281,14 @@ test('workers.enabled applies project narrowing and reports shape faults at the 
   assert.equal(narrowed.status, 0, `${narrowed.stdout}${narrowed.stderr}`);
   assert.deepEqual(narrowed.json, { ok: true, errors: [] });
 
-  const reordered = validate({ ...VALID(), workers: { enabled: ['gemini', 'codex'] } });
+  const reordered = validate({ ...VALID(), workers: { enabled: ['antigravity', 'codex'] } });
   assert.equal(reordered.status, 0, `${reordered.stdout}${reordered.stderr}`);
   assert.ok(reordered.json.notes.some((note: string) => note.includes('order is ignored')));
 
   for (const [value, key, code] of [
     [['codex', 'codex'], 'workers.enabled[1]', 'items'],
     [['codex', 5], 'workers.enabled[1]', 'type'],
-    [['codex', 'primary', 'gemini'], 'workers.enabled[2]', 'items'],
+    [['codex', 'primary', 'antigravity'], 'workers.enabled[2]', 'items'],
     [['codex', 'auto'], 'workers.enabled[1]', 'reserved'],
     [[], 'workers.enabled', 'items'],
     ['codex', 'workers.enabled', 'type'],
@@ -345,8 +345,8 @@ test('workers prepared-run validation has no side effects and omits notes when n
 
 test('prepared-run notes are printed after the valid text result', (t) => {
   const { f, validate } = setup(t);
-  f.writeUserSettings({ schema: 1, 'workers.enabled': ['codex', 'gemini', 'primary'] });
-  const result = validate({ ...VALID(), workers: { enabled: ['gemini', 'codex'] } }, []);
+  f.writeUserSettings({ schema: 1, 'workers.enabled': ['codex', 'antigravity', 'primary'] });
+  const result = validate({ ...VALID(), workers: { enabled: ['antigravity', 'codex'] } }, []);
   assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
   const lines = result.stdout.trim().split('\n');
   assert.match(lines[0], /^prepared run: valid \(/);

@@ -21,7 +21,7 @@ function setup(t: any) {
   fs.mkdirSync(projectRoot);
   fs.mkdirSync(path.join(config, 'doflow'), { recursive: true });
   const env: any = { HOME: root, XDG_CONFIG_HOME: config, PATH: '', DOFLOW_SESSION_ROLE: 'main' };
-  const registry = { harnesses: ['codex', 'claude', 'pi', 'gemini'].map((id) => ({ id, primaryProbe: { model: id === 'gemini' ? 'none' : 'payload' } })) };
+  const registry = { harnesses: ['codex', 'claude', 'pi', 'antigravity'].map((id) => ({ id, primaryProbe: { model: id === 'antigravity' ? 'none' : 'payload' } })) };
   const models = { providers: [{ id: 'claude', families: ['claude'] }, { id: 'codex', families: ['unknown'] }] };
   const storage = { stores: [] };
   return { root, projectRoot, config, observationsRoot, env, registry, models, storage };
@@ -93,7 +93,7 @@ test('primary resolution follows ordered declaration, observation, and role rule
   assert.equal(resolve(f).reason, 'ambiguous-sessions');
 
   f = setup(t);
-  f.env.DOFLOW_PRIMARY_HARNESS = 'gemini';
+  f.env.DOFLOW_PRIMARY_HARNESS = 'antigravity';
   assert.equal(resolve(f).state, 'declared-only');
 
   for (const role of ['worker', 'banana']) {

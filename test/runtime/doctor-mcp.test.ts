@@ -26,7 +26,7 @@ const STEPPED = MCP.filter((server: any) => server.steps.length);
 const [FIRST, SECOND] = STEPPED.map((server: any) => server.id);
 
 /** Runs `fn` with HOME (and so `os.homedir()`) at `home`, so an in-process call never reads the
- * developer's real ~/.claude.json, ~/.gemini/settings.json or global ledger. */
+ * developer's real ~/.claude.json, ~/.gemini/config/mcp_config.json or global ledger. */
 function withHome(home: any, fn: any) {
   const saved: any = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
   process.env.HOME = home; process.env.USERPROFILE = home;
@@ -111,12 +111,12 @@ function consultations(skill: any, named: any, outcomes: any) {
 const stage = (report: any, skill: any) => report.mcp.consultations.stages.find((item: any) => item.skill === skill);
 const serverRow = (item: any, id: any) => item.servers.find((row: any) => row.server === id);
 
-test('a named server DoFlow does not see: unknown (absence is no proof) with the add command or where to configure it, exit unchanged', (t) => {
+test('a named server DoFlow does not see: unknown (absence is no proof) with the add command, exit unchanged', (t) => {
   const f = fixture(t);
   ledger(f.proj, 'project', { harnesses: ['claude'] });
   install(f.proj);
   write(path.join(f.proj, '.mcp.json'), JSON.stringify({ mcpServers: {} }));
-  ledger(f.home, 'global', { harnesses: ['gemini'] });
+  ledger(f.home, 'global', { harnesses: ['antigravity'] });
   install(f.home);
   const result = doctor(f, [f.proj, '--json']);
   assert.equal(result.status, 0, result.stderr);
@@ -126,9 +126,8 @@ test('a named server DoFlow does not see: unknown (absence is no proof) with the
   assert.ok(server.namedBy.includes('do-design'));
   assert.deepEqual(server.harnesses.find((row: any) => row.id === 'claude'),
     { id: 'claude', scope: 'project', state: 'unknown', add: `doflow install --target claude --mcp ${FIRST}` });
-  const gemini = server.harnesses.find((row: any) => row.id === 'gemini');
-  assert.equal(gemini.state, 'unknown');
-  assert.equal(gemini.add, "configure it in Gemini CLI's own MCP settings; DoFlow's catalog does not reach it");
+  assert.deepEqual(server.harnesses.find((row: any) => row.id === 'antigravity'),
+    { id: 'antigravity', scope: 'global', state: 'unknown', add: `doflow install -g --target antigravity --mcp ${FIRST}` });
 
   const text = doctor(f, [f.proj]);
   assert.equal(text.status, 0, text.stderr);
@@ -136,7 +135,7 @@ test('a named server DoFlow does not see: unknown (absence is no proof) with the
   assert.equal(lines[0], '[MCP Servers] — named by shipped stages; not blocking');
   assert.ok(lines.some((line: any) => line.startsWith(`  ${FIRST.padEnd(22)}named by `)));
   assert.ok(lines.includes(`    ${'claude'.padEnd(14)}${'project'.padEnd(9)}${'? unknown'.padEnd(19)}add: doflow install --target claude --mcp ${FIRST}`));
-  assert.ok(lines.includes(`    ${'gemini'.padEnd(14)}${'global'.padEnd(9)}${'? unknown'.padEnd(19)}configure it in Gemini CLI's own MCP settings; DoFlow's catalog does not reach it`), lines.join('\n'));
+  assert.ok(lines.includes(`    ${'antigravity'.padEnd(14)}${'global'.padEnd(9)}${'? unknown'.padEnd(19)}add: doflow install -g --target antigravity --mcp ${FIRST}`), lines.join('\n'));
 });
 
 test('X8: an unreadable MCP config says to fix the file first instead of an install command', (t) => {

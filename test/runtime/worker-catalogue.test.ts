@@ -38,7 +38,7 @@ test('knownWorkerIds equals registry harnesses with worker blocks', () => {
 
 test('workerIdFault accepts built-ins and qualified ids only', () => {
   // Built-in harness ids pass
-  for (const id of ['claude', 'codex', 'gemini', 'antigravity', 'pi', 'opencode', 'copilot', 'kiro']) {
+  for (const id of ['claude', 'codex', 'antigravity', 'pi', 'opencode', 'copilot', 'kiro']) {
     assert.equal(workerIdFault(id), null);
   }
 
@@ -75,7 +75,7 @@ test('classifyWorkerId distinguishes ok, malformed, reserved, and dangling', () 
   const known = ['codex', 'claude'];
   assert.equal(classifyWorkerId('codex', known), 'ok');
   assert.equal(classifyWorkerId('claude', known), 'ok');
-  assert.equal(classifyWorkerId('gemini', known), 'dangling');
+  assert.equal(classifyWorkerId('antigravity', known), 'dangling');
   assert.equal(classifyWorkerId('acme.coder', known), 'dangling');
   assert.equal(classifyWorkerId('primary', known), 'reserved');
   assert.equal(classifyWorkerId('INVALID', known), 'malformed');

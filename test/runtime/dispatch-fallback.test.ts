@@ -51,11 +51,11 @@ const POSIX: any = { skip: process.platform === 'win32' && 'tree cleanup is unve
 const REG = loadRegistry({ repoRoot: REPO });
 const SUCCESS: any = { type: 'result', status: 'success', summary: 'edited' };
 const QUOTA: any = { type: 'result', status: 'failure', summary: 'Rate limit reached for this account' };
-/** claude ends on quota, gemini edits and succeeds. */
+/** claude ends on quota, antigravity edits and succeeds. */
 const SCENARIO: any = {
   byBinary: {
     'fake-claude': { run: [{ emit: QUOTA }] },
-    'fake-gemini': { run: [{ write: { path: 'src/retry.js', content: '// stepped\n' } }, { emit: SUCCESS }] },
+    'fake-antigravity': { run: [{ write: { path: 'src/retry.js', content: '// stepped\n' } }, { emit: SUCCESS }] },
   },
 };
 const planFor = (owner: any = 'core-implementer', budget: any = 3, tier: any = null) => [
@@ -70,7 +70,7 @@ const quotaOn = (names: any, ok: any = null) => ({ byBinary: Object.fromEntries(
 ]) });
 
 /** Each fake rung's edit argv, so the harness log names the rung that ran. */
-const EDIT_ARGV: any = Object.freeze({ claude: '--edit-in-cwd', gemini: '--gemini-edit-in-cwd', opencode: '--opencode-edit-in-cwd' });
+const EDIT_ARGV: any = Object.freeze({ claude: '--edit-in-cwd', antigravity: '--antigravity-edit-in-cwd', opencode: '--opencode-edit-in-cwd' });
 const cand = (harness: any, eligible: any = true) => ({ harness, eligible, gaps: eligible ? [] : [{ requirement: 'installed', result: 'unknown', reason: 'not-probed' }] });
 const fb = (extra: any = {}) => ({ mode: 'ask', ladder: null, exhausted: [], holds: {}, events: [], eventsDropped: 0, ...extra });
 const select = (candidates: any, extra: any = {}) => loop.selectMode({ policy: 'auto', registry: REG, cache: { candidates: structuredClone(candidates) }, ...extra });
@@ -79,23 +79,23 @@ const line = (kind: any, task: any, from: any, to: any, reason: any, mode: any, 
 // ── selection (IC-004, pure) ─────────────────────────────────────────────────────────────────────
 
 test('106 IC-004: the ladder order is honoured; without a ladder registry order; a harness outside the ladder is never chosen', () => {
-  const all: any = [cand('claude'), cand('codex'), cand('gemini')];
-  const laddered = select(all, { fallback: fb({ ladder: ['gemini', 'claude'] }) });
-  assert.deepEqual([laddered.mode, laddered.harness], ['subagent', 'gemini']);
-  assert.deepEqual(laddered.selection.candidates.map((c: any) => c.harness), ['gemini', 'claude']);
+  const all: any = [cand('claude'), cand('codex'), cand('antigravity')];
+  const laddered = select(all, { fallback: fb({ ladder: ['antigravity', 'claude'] }) });
+  assert.deepEqual([laddered.mode, laddered.harness], ['subagent', 'antigravity']);
+  assert.deepEqual(laddered.selection.candidates.map((c: any) => c.harness), ['antigravity', 'claude']);
   assert.equal(select(all, { fallback: fb() }).harness, 'claude');
 
-  const outside = select([cand('claude'), cand('codex'), cand('gemini', false)], { fallback: fb({ ladder: ['gemini'] }) });
+  const outside = select([cand('claude'), cand('codex'), cand('antigravity', false)], { fallback: fb({ ladder: ['antigravity'] }) });
   assert.deepEqual([outside.mode, outside.harness], ['sequential', null], 'claude and codex are not rungs');
-  const gone = select([cand('claude'), cand('gemini')], { owner: 'core-implementer', fallback: fb({ ladder: ['gemini'], exhausted: ['gemini'], mode: 'auto' }) });
-  assert.deepEqual(gone.hold, { reason: 'ladder-exhausted', from: 'gemini', proposed: null });
+  const gone = select([cand('claude'), cand('antigravity')], { owner: 'core-implementer', fallback: fb({ ladder: ['antigravity'], exhausted: ['antigravity'], mode: 'auto' }) });
+  assert.deepEqual(gone.hold, { reason: 'ladder-exhausted', from: 'antigravity', proposed: null });
   assert.equal(gone.mode, undefined, 'never a mode, never claude');
 });
 
 test('106 IC-004: an exhausted harness is never chosen again, for any task and any ladder', () => {
-  const all: any = [cand('claude'), cand('codex'), cand('gemini')];
+  const all: any = [cand('claude'), cand('codex'), cand('antigravity')];
   for (const owner of ['core-implementer', 'spec-analyst', 'research-writer', 'Core-Implementer']) {
-    for (const ladder of [null, ['claude', 'codex'], ['claude', 'gemini', 'codex']]) {
+    for (const ladder of [null, ['claude', 'codex'], ['claude', 'antigravity', 'codex']]) {
       const r = select(all, { owner, fallback: fb({ mode: 'auto', ladder, exhausted: ['claude'] }) });
       assert.equal(r.mode, 'subagent', JSON.stringify(r));
       assert.notEqual(r.harness, 'claude');
@@ -105,7 +105,7 @@ test('106 IC-004: an exhausted harness is never chosen again, for any task and a
 });
 
 test('106 IC-004: with every rung exhausted the task holds ladder-exhausted in every mode, never sequential', () => {
-  const all: any = [cand('claude'), cand('codex'), cand('gemini', false)];
+  const all: any = [cand('claude'), cand('codex'), cand('antigravity', false)];
   for (const mode of ['off', 'ask', 'auto']) {
     const r = select(all, { owner: 'core-implementer', fallback: fb({ mode, exhausted: ['claude', 'codex'] }) });
     assert.deepEqual(r.hold, { reason: 'ladder-exhausted', from: 'claude', proposed: null }, mode);
@@ -116,7 +116,7 @@ test('106 IC-004: with every rung exhausted the task holds ladder-exhausted in e
 });
 
 test('106 IC-004: with nothing exhausted passed the selection equals the pre-106 one', () => {
-  const eligible: any = [cand('claude', false), cand('codex'), cand('gemini')];
+  const eligible: any = [cand('claude', false), cand('codex'), cand('antigravity')];
   const none: any = [cand('claude', false), cand('codex', false)];
   const pre = (candidates: any) => {
     const chosen = candidates.find((c: any) => c.eligible);
@@ -127,11 +127,11 @@ test('106 IC-004: with nothing exhausted passed the selection equals the pre-106
     assert.deepEqual(select(candidates), pre(candidates));
     for (const mode of ['off', 'ask', 'auto']) {
       assert.deepEqual(select(candidates, { fallback: fb({ mode }) }), pre(candidates), mode);
-      assert.deepEqual(select(candidates, { fallback: fb({ mode, exhausted: ['gemini'] }) }), pre(candidates), `${mode}: the exhausted rung is after the choice`);
+      assert.deepEqual(select(candidates, { fallback: fb({ mode, exhausted: ['antigravity'] }) }), pre(candidates), `${mode}: the exhausted rung is after the choice`);
     }
   }
   assert.deepEqual(select(eligible, { lastFailureClass: 'launch', fallback: fb({ mode: 'auto' }) }).mode, 'sequential');
-  assert.deepEqual(select(eligible, { lastFailureClass: 'launch', fallback: fb({ mode: 'auto', exhausted: ['gemini'] }) }).mode, 'sequential', 'C-3: no rung change, the launch rule');
+  assert.deepEqual(select(eligible, { lastFailureClass: 'launch', fallback: fb({ mode: 'auto', exhausted: ['antigravity'] }) }).mode, 'sequential', 'C-3: no rung change, the launch rule');
   assert.deepEqual(select(eligible, { policy: 'manual', fallback: fb({ mode: 'auto', exhausted: ['codex'] }) }).mode, 'manual');
   assert.deepEqual(select(eligible, { held: true, fallback: fb({ mode: 'auto', exhausted: ['codex'] }) }).mode, 'sequential');
 });
@@ -206,11 +206,11 @@ test('106 R-1: the parser keeps tier only on a line that carries one; the line h
 });
 
 test('106 R-2: an acceptance steps only to the accepted rung; another chosen rung holds with the new proposal', () => {
-  const all: any = [cand('claude'), cand('gemini', false), cand('opencode')];
+  const all: any = [cand('claude'), cand('antigravity', false), cand('opencode')];
   const last: any = { harness: 'claude', failureClass: 'quota', token: 1 };
-  const at = (mode: any, accepted: any) => select(all, { task: 'A.1', last, owner: 'core-implementer', fallback: fb({ mode, ladder: ['claude', 'gemini', 'opencode'], exhausted: ['claude'], accepted }) });
-  assert.deepEqual(at('ask', { 'A.1': 'gemini' }).hold, { reason: 'quota', from: 'claude', proposed: 'opencode' });
-  assert.deepEqual(at('off', { 'A.1': 'gemini' }).hold, { reason: 'quota', from: 'claude', proposed: null });
+  const at = (mode: any, accepted: any) => select(all, { task: 'A.1', last, owner: 'core-implementer', fallback: fb({ mode, ladder: ['claude', 'antigravity', 'opencode'], exhausted: ['claude'], accepted }) });
+  assert.deepEqual(at('ask', { 'A.1': 'antigravity' }).hold, { reason: 'quota', from: 'claude', proposed: 'opencode' });
+  assert.deepEqual(at('off', { 'A.1': 'antigravity' }).hold, { reason: 'quota', from: 'claude', proposed: null });
   assert.deepEqual(at('off', { 'A.1': null }).hold, { reason: 'quota', from: 'claude', proposed: null }, 'an off hold proposed nothing, so nothing can be accepted');
   assert.deepEqual(at('off', { 'A.1': 'opencode' }).hold, { reason: 'quota', from: 'claude', proposed: null }, 'off never steps on an acceptance');
   const ok = at('ask', { 'A.1': 'opencode' });
@@ -218,24 +218,24 @@ test('106 R-2: an acceptance steps only to the accepted rung; another chosen run
 });
 
 test('106 C-1: after a quota end any next harness is a change: frontier holds in every mode, others hold, propose or step from the quota-ed rung', () => {
-  const back: any = [cand('claude'), cand('gemini', false)];
-  const last: any = { harness: 'gemini', failureClass: 'quota', token: 1 };
-  const at = (owner: any, mode: any) => select(back, { task: 'A.1', last, owner, fallback: fb({ mode, ladder: ['claude', 'gemini'], exhausted: ['gemini'] }) });
+  const back: any = [cand('claude'), cand('antigravity', false)];
+  const last: any = { harness: 'antigravity', failureClass: 'quota', token: 1 };
+  const at = (owner: any, mode: any) => select(back, { task: 'A.1', last, owner, fallback: fb({ mode, ladder: ['claude', 'antigravity'], exhausted: ['antigravity'] }) });
   for (const mode of ['off', 'ask', 'auto']) {
-    assert.deepEqual(at('system-architect', mode).hold, { reason: 'frontier-no-step', from: 'gemini', proposed: null }, mode);
+    assert.deepEqual(at('system-architect', mode).hold, { reason: 'frontier-no-step', from: 'antigravity', proposed: null }, mode);
   }
-  assert.deepEqual(at('core-implementer', 'off').hold, { reason: 'quota', from: 'gemini', proposed: null });
-  assert.deepEqual(at('core-implementer', 'ask').hold, { reason: 'quota', from: 'gemini', proposed: 'claude' });
+  assert.deepEqual(at('core-implementer', 'off').hold, { reason: 'quota', from: 'antigravity', proposed: null });
+  assert.deepEqual(at('core-implementer', 'ask').hold, { reason: 'quota', from: 'antigravity', proposed: 'claude' });
   const auto = at('core-implementer', 'auto');
-  assert.deepEqual([auto.mode, auto.harness, auto.selection.fallback], ['subagent', 'claude', { kind: 'step', from: 'gemini', to: 'claude' }]);
+  assert.deepEqual([auto.mode, auto.harness, auto.selection.fallback], ['subagent', 'claude', { kind: 'step', from: 'antigravity', to: 'claude' }]);
   // A task that already runs on the chosen rung (an accepted step, then an ordinary failure) stays there.
-  const stays = select([cand('claude'), cand('gemini')], { task: 'A.1', last: { harness: 'gemini', failureClass: 'worker-failure', token: 2 }, owner: 'core-implementer', fallback: fb({ mode: 'ask', ladder: ['claude', 'gemini'], exhausted: ['claude'] }) });
-  assert.deepEqual([stays.hold, stays.mode, stays.harness, stays.selection.fallback], [undefined, 'subagent', 'gemini', undefined]);
+  const stays = select([cand('claude'), cand('antigravity')], { task: 'A.1', last: { harness: 'antigravity', failureClass: 'worker-failure', token: 2 }, owner: 'core-implementer', fallback: fb({ mode: 'ask', ladder: ['claude', 'antigravity'], exhausted: ['claude'] }) });
+  assert.deepEqual([stays.hold, stays.mode, stays.harness, stays.selection.fallback], [undefined, 'subagent', 'antigravity', undefined]);
 });
 
 test('106 C-3: lastFailure skips quota ends; launch then an exhausted ladder holds; a no-quota launch failure stays sequential without evaluating', () => {
   const ended = (token: any, failureClass: any, harness: any = 'claude') => ({ dispatchId: `d-00000000000${token}`, task: 'A.1', token, phase: 'ended', disposition: 'failed', failureClass, harness });
-  const s: any = { dispatches: { a: ended(1, 'launch'), b: ended(2, 'quota', 'gemini') } };
+  const s: any = { dispatches: { a: ended(1, 'launch'), b: ended(2, 'quota', 'antigravity') } };
   assert.equal(loop.lastFailure(s, 'A.1'), 'launch');
   assert.equal(loop.lastWorkerDispatch(s, 'A.1').token, 2);
   const held = select([cand('claude')], { task: 'A.1', lastFailureClass: 'launch', last: ended(1, 'launch'), owner: 'core-implementer', fallback: fb({ mode: 'ask', ladder: ['claude'], exhausted: ['claude'] }) });
@@ -280,7 +280,7 @@ async function project(t: any, { plan = 'budget', mode = 'auto', fallback, scena
   const { root } = sb;
   const env: any = { ...sb.env };
   const descriptors = structuredClone(sb.descriptors);
-  for (const h of ['gemini', 'opencode']) descriptors[h].isolatedEdit = { ...structuredClone(descriptors.claude.isolatedEdit), argv: [EDIT_ARGV[h]] };
+  for (const h of ['antigravity', 'opencode']) descriptors[h].isolatedEdit = { ...structuredClone(descriptors.claude.isolatedEdit), argv: [EDIT_ARGV[h]] };
   const ledgerFile = attempts.storeFile(root, SLUG);
   const common: any = { file: ledgerFile, fsImpl: fs, roots: [root], slug: SLUG, env, cwd: root };
   const started = attempts.start({ ...common, by: 'main' });
@@ -317,44 +317,44 @@ async function project(t: any, { plan = 'budget', mode = 'auto', fallback, scena
 
 const byToken = (s: any) => Object.values(s.dispatches).sort((a, b) => a.token - b.token);
 
-test('106 IC-003 / IC-004: auto mode releases the quota attempt, marks claude exhausted and steps once to gemini, one event and action each', POSIX, async (t) => {
-  const p: any = await project(t, { fallback: fb({ mode: 'auto', ladder: ['claude', 'gemini'] }) });
+test('106 IC-003 / IC-004: auto mode releases the quota attempt, marks claude exhausted and steps once to antigravity, one event and action each', POSIX, async (t) => {
+  const p: any = await project(t, { fallback: fb({ mode: 'auto', ladder: ['claude', 'antigravity'] }) });
   const r = await p.run();
   assert.equal(r.outcome, 'completed', JSON.stringify(r.last.blocked || r.last.actions));
   const s = p.read();
   const [first, second] = byToken(s);
   assert.deepEqual([first.harness, first.disposition, first.failureClass], ['claude', 'failed', 'quota']);
-  assert.deepEqual([second.harness, second.disposition], ['gemini', 'completed']);
+  assert.deepEqual([second.harness, second.disposition], ['antigravity', 'completed']);
   assert.deepEqual(p.ledger().tasks['A.1'].attempts.map((a: any) => [a.state, a.result ?? null]), [['released', null], ['finished', 'COMPLETED']]);
   assert.deepEqual(s.run.fallback.exhausted, ['claude']);
   assert.deepEqual(s.run.fallback.holds, {});
   const events = s.run.fallback.events;
   assert.deepEqual(events.map((e: any) => [e.kind, e.task, e.dispatchId, e.from, e.to, e.reason, e.mode, e.basis]), [
     ['quota', 'A.1', first.dispatchId, 'claude', null, QUOTA_TEXT, 'auto', 'unverified'],
-    ['step', 'A.1', second.dispatchId, 'claude', 'gemini', 'quota', 'auto', 'unverified'],
+    ['step', 'A.1', second.dispatchId, 'claude', 'antigravity', 'quota', 'auto', 'unverified'],
   ]);
   assert.deepEqual(first.fallback, [events[0]], 'the quota event is copied to its dispatch');
   assert.deepEqual(second.fallback, [events[1]], 'the step event is copied to its dispatch');
   assert.deepEqual(p.fallbackActions().map((a: any) => [a.dispatchId, a.reason]), [
     [first.dispatchId, line('quota', 'A.1', 'claude', null, QUOTA_TEXT, 'auto')],
-    [second.dispatchId, line('step', 'A.1', 'claude', 'gemini', 'quota', 'auto')],
+    [second.dispatchId, line('step', 'A.1', 'claude', 'antigravity', 'quota', 'auto')],
   ]);
-  assert.deepEqual(p.runs().length, 2, 'one claude run, one gemini run');
+  assert.deepEqual(p.runs().length, 2, 'one claude run, one antigravity run');
 });
 
-test('106 IC-004 / IC-005: ask holds with gemini proposed, the run blocks on cause quota, and resume --fallback auto steps it', POSIX, async (t) => {
-  const p: any = await project(t, { fallback: fb({ mode: 'ask', ladder: ['claude', 'gemini'] }) });
+test('106 IC-004 / IC-005: ask holds with antigravity proposed, the run blocks on cause quota, and resume --fallback auto steps it', POSIX, async (t) => {
+  const p: any = await project(t, { fallback: fb({ mode: 'ask', ladder: ['claude', 'antigravity'] }) });
   const r = await p.run();
   assert.equal(r.outcome, 'blocked', JSON.stringify(r.last.actions));
   assert.equal(r.last.blocked.cause, 'quota');
   const gap = r.last.blocked.gaps.find((g: any) => g.task === 'A.1');
-  assert.deepEqual([gap.kind, gap.cause, gap.reason], ['quota', 'quota', 'claude quota; proposed gemini']);
+  assert.deepEqual([gap.kind, gap.cause, gap.reason], ['quota', 'quota', 'claude quota; proposed antigravity']);
   let s = p.read();
   assert.deepEqual(Object.keys(s.run.fallback.holds), ['A.1']);
-  assert.deepEqual([s.run.fallback.holds['A.1'].reason, s.run.fallback.holds['A.1'].from, s.run.fallback.holds['A.1'].proposed], ['quota', 'claude', 'gemini']);
-  assert.deepEqual(s.run.fallback.events.map((e: any) => [e.kind, e.dispatchId === null, e.to]), [['quota', false, null], ['hold', true, 'gemini']]);
+  assert.deepEqual([s.run.fallback.holds['A.1'].reason, s.run.fallback.holds['A.1'].from, s.run.fallback.holds['A.1'].proposed], ['quota', 'claude', 'antigravity']);
+  assert.deepEqual(s.run.fallback.events.map((e: any) => [e.kind, e.dispatchId === null, e.to]), [['quota', false, null], ['hold', true, 'antigravity']]);
   assert.deepEqual(p.fallbackActions().map((a: any) => a.reason), [
-    line('quota', 'A.1', 'claude', null, QUOTA_TEXT, 'ask'), line('hold', 'A.1', 'claude', 'gemini', 'quota', 'ask'),
+    line('quota', 'A.1', 'claude', null, QUOTA_TEXT, 'ask'), line('hold', 'A.1', 'claude', 'antigravity', 'quota', 'ask'),
   ]);
   assert.equal(Object.keys(s.dispatches).length, 1, 'the held task is never admitted');
   const again = await loop.step(p.options());
@@ -367,29 +367,29 @@ test('106 IC-004 / IC-005: ask holds with gemini proposed, the run blocks on cau
   const resumed = await p.exec({ action: 'resume', ack: asked.body.digest, by: 'main', fallback: 'auto' });
   assert.equal(resumed.exit, 0, JSON.stringify(resumed.body));
   assert.deepEqual(resumed.body.fallback, { mode: 'ask', cleared: ['A.1'] }, 'C-14: one-shot; the run mode stays ask');
-  assert.deepEqual(p.read().run.fallback.accepted, { 'A.1': 'gemini' });
+  assert.deepEqual(p.read().run.fallback.accepted, { 'A.1': 'antigravity' });
   const done = await p.run();
   assert.equal(done.outcome, 'completed', JSON.stringify(done.last.blocked || done.last.actions));
   s = p.read();
-  assert.deepEqual(byToken(s).map((d) => [d.harness, d.disposition]), [['claude', 'failed'], ['gemini', 'completed']]);
+  assert.deepEqual(byToken(s).map((d) => [d.harness, d.disposition]), [['claude', 'failed'], ['antigravity', 'completed']]);
   assert.deepEqual(s.run.fallback.events.map((e: any) => [e.kind, e.reason, e.mode]), [['quota', QUOTA_TEXT, 'ask'], ['hold', 'quota', 'ask'], ['step', 'accepted', 'ask']]);
   assert.deepEqual([s.run.fallback.mode, s.run.fallback.accepted], ['ask', {}]);
 });
 
-test('106 IC-004: a frontier-tier task holds frontier-no-step in auto and never moves to gemini', POSIX, async (t) => {
-  const p: any = await project(t, { plan: FRONTIER_PLAN, fallback: fb({ mode: 'auto', ladder: ['claude', 'gemini'] }) });
+test('106 IC-004: a frontier-tier task holds frontier-no-step in auto and never moves to antigravity', POSIX, async (t) => {
+  const p: any = await project(t, { plan: FRONTIER_PLAN, fallback: fb({ mode: 'auto', ladder: ['claude', 'antigravity'] }) });
   const r = await p.run();
   assert.equal(r.outcome, 'blocked', JSON.stringify(r.last.actions));
   assert.equal(r.last.blocked.cause, 'quota');
   const hold = p.read().run.fallback.holds['A.1'];
   assert.deepEqual([hold.reason, hold.from, hold.proposed], ['frontier-no-step', 'claude', null]);
-  assert.deepEqual(p.runs().length, 1, 'gemini never ran');
+  assert.deepEqual(p.runs().length, 1, 'antigravity never ran');
   assert.deepEqual(r.last.blocked.gaps.find((g: any) => g.task === 'A.1').reason, 'claude quota; proposed none');
 });
 
 test('106 IC-027: a run blocked only by holds reports cause quota; a run started before 106 has no run.fallback and steps as before', POSIX, async (t) => {
   const holds: any = { 'A.1': { reason: 'ladder-exhausted', from: 'claude', proposed: null, at: '2026-10-21T00:00:00.000Z' } };
-  const p: any = await project(t, { fallback: fb({ exhausted: ['claude', 'gemini'], holds }), probe: false });
+  const p: any = await project(t, { fallback: fb({ exhausted: ['claude', 'antigravity'], holds }), probe: false });
   const r = await loop.step(p.options());
   assert.equal(r.outcome, 'blocked', JSON.stringify(r.actions));
   assert.equal(r.blocked.cause, 'quota');
@@ -406,7 +406,7 @@ test('106 IC-027: a run blocked only by holds reports cause quota; a run started
 test('106 IC-005: resume --fallback auto clears quota holds only; a run with no run.fallback gets one', POSIX, async (t) => {
   const at = '2026-10-21T00:00:00.000Z';
   const holds: any = {
-    'A.1': { reason: 'quota', from: 'claude', proposed: 'gemini', at },
+    'A.1': { reason: 'quota', from: 'claude', proposed: 'antigravity', at },
     'A.2': { reason: 'frontier-no-step', from: 'claude', proposed: null, at },
     'A.3': { reason: 'ladder-exhausted', from: 'claude', proposed: null, at },
   };
@@ -421,7 +421,7 @@ test('106 IC-005: resume --fallback auto clears quota holds only; a run with no 
   const auto = await resume('auto');
   assert.deepEqual(auto.body.fallback, { mode: 'ask', cleared: ['A.1'] });
   const f = p.read().run.fallback;
-  assert.deepEqual([f.mode, Object.keys(f.holds).sort(), f.exhausted, f.accepted], ['ask', ['A.2', 'A.3'], ['claude'], { 'A.1': 'gemini' }]);
+  assert.deepEqual([f.mode, Object.keys(f.holds).sort(), f.exhausted, f.accepted], ['ask', ['A.2', 'A.3'], ['claude'], { 'A.1': 'antigravity' }]);
   const inspected = await p.exec({ action: 'inspect' });
   assert.deepEqual(inspected.body.fallback, f, 'inspect shows run.fallback unchanged');
   // C-10: the text form prints one line per hold after IC-029's lines.
@@ -447,52 +447,52 @@ async function settled(p: any) {
 }
 
 const kinds = (p: any) => p.read().run.fallback.events.map((e: any) => e.kind);
-/** gemini quotas, claude edits and succeeds. */
-const BACK: any = quotaOn(['gemini'], 'claude');
+/** antigravity quotas, claude edits and succeeds. */
+const BACK: any = quotaOn(['antigravity'], 'claude');
 
 /**
- * Review BE-1 / C-1: ladder claude,gemini with claude not yet probed, so the task starts on gemini;
- * gemini ends on quota; the pass is interrupted right after collect; claude is probed; then `run`.
+ * Review BE-1 / C-1: ladder claude,antigravity with claude not yet probed, so the task starts on antigravity;
+ * antigravity ends on quota; the pass is interrupted right after collect; claude is probed; then `run`.
  */
 async function rungOneBack(t: any, owner: any, mode: any) {
-  const p: any = await project(t, { plan: planFor(owner), fallback: fb({ mode, ladder: ['claude', 'gemini'] }), scenario: BACK, probeOnly: 'gemini' });
+  const p: any = await project(t, { plan: planFor(owner), fallback: fb({ mode, ladder: ['claude', 'antigravity'] }), scenario: BACK, probeOnly: 'antigravity' });
   const first = await loop.step(p.options());
-  assert.ok(first.actions.some((a: any) => a.action === 'launch' && a.reason.startsWith('subagent:gemini')), JSON.stringify(first.actions));
+  assert.ok(first.actions.some((a: any) => a.action === 'launch' && a.reason.startsWith('subagent:antigravity')), JSON.stringify(first.actions));
   await settled(p);
   let phases = 0;
   await loop.step(p.options({ shouldStop: () => (phases += 1) >= 2 }));
   const [d] = Object.values(p.read().dispatches);
-  assert.deepEqual([d.harness, d.disposition, d.failureClass], ['gemini', 'failed', 'quota'], 'collected, nothing admitted yet');
+  assert.deepEqual([d.harness, d.disposition, d.failureClass], ['antigravity', 'failed', 'quota'], 'collected, nothing admitted yet');
   await p.probeNow('claude');
   return { p, r: await p.run() };
 }
 
-test('106 C-1: a frontier task whose quota-ed rung is gemini never moves back to an eligible claude, in off, ask and auto', POSIX, async (t) => {
+test('106 C-1: a frontier task whose quota-ed rung is antigravity never moves back to an eligible claude, in off, ask and auto', POSIX, async (t) => {
   for (const mode of ['off', 'ask', 'auto']) {
     const { p, r } = await rungOneBack(t, 'system-architect', mode);
     assert.equal(r.outcome, 'blocked', `${mode}: ${JSON.stringify(r.last.actions)}`);
     const hold = p.read().run.fallback.holds['A.1'];
-    assert.deepEqual([hold.reason, hold.from, hold.proposed], ['frontier-no-step', 'gemini', null], mode);
-    assert.deepEqual(p.ran(), ['gemini'], `${mode}: claude never launched`);
+    assert.deepEqual([hold.reason, hold.from, hold.proposed], ['frontier-no-step', 'antigravity', null], mode);
+    assert.deepEqual(p.ran(), ['antigravity'], `${mode}: claude never launched`);
     assert.deepEqual(kinds(p), ['quota', 'hold'], `${mode}: one hold event`);
   }
 });
 
-test('106 C-1: a standard task whose quota-ed rung is gemini holds proposing claude in ask and steps gemini -> claude in auto', POSIX, async (t) => {
+test('106 C-1: a standard task whose quota-ed rung is antigravity holds proposing claude in ask and steps antigravity -> claude in auto', POSIX, async (t) => {
   const ask = await rungOneBack(t, 'core-implementer', 'ask');
   assert.equal(ask.r.outcome, 'blocked');
   const hold = ask.p.read().run.fallback.holds['A.1'];
-  assert.deepEqual([hold.reason, hold.from, hold.proposed], ['quota', 'gemini', 'claude']);
-  assert.deepEqual(ask.p.ran(), ['gemini']);
+  assert.deepEqual([hold.reason, hold.from, hold.proposed], ['quota', 'antigravity', 'claude']);
+  assert.deepEqual(ask.p.ran(), ['antigravity']);
   const auto = await rungOneBack(t, 'core-implementer', 'auto');
   assert.equal(auto.r.outcome, 'completed', JSON.stringify(auto.r.last.blocked || auto.r.last.actions));
-  assert.deepEqual(auto.p.ran(), ['gemini', 'claude']);
+  assert.deepEqual(auto.p.ran(), ['antigravity', 'claude']);
   const steps = auto.p.read().run.fallback.events.filter((e: any) => e.kind === 'step');
-  assert.deepEqual(steps.map((e: any) => [e.from, e.to]), [['gemini', 'claude']], 'one step event');
+  assert.deepEqual(steps.map((e: any) => [e.from, e.to]), [['antigravity', 'claude']], 'one step event');
 });
 
 test('106 C-2, 118 IC-009: a reviewer (review) task in auto holds frontier-no-step and never launches rung 2', POSIX, async (t) => {
-  const p: any = await project(t, { plan: planFor('reviewer', 3, 'standard'), fallback: fb({ mode: 'auto', ladder: ['claude', 'gemini'] }) });
+  const p: any = await project(t, { plan: planFor('reviewer', 3, 'standard'), fallback: fb({ mode: 'auto', ladder: ['claude', 'antigravity'] }) });
   const r = await p.run();
   assert.equal(r.outcome, 'blocked', JSON.stringify(r.last.actions));
   const hold = p.read().run.fallback.holds['A.1'];
@@ -513,17 +513,17 @@ test('106 C-4: a held task finished outside dispatch is no gap and the run compl
 });
 
 test('106 C-5: a stepped dispatch that also ends on quota keeps [step, quota]', POSIX, async (t) => {
-  const p: any = await project(t, { plan: planFor('core-implementer', 3), fallback: fb({ mode: 'auto', ladder: ['claude', 'gemini'] }), scenario: quotaOn(['claude', 'gemini']) });
+  const p: any = await project(t, { plan: planFor('core-implementer', 3), fallback: fb({ mode: 'auto', ladder: ['claude', 'antigravity'] }), scenario: quotaOn(['claude', 'antigravity']) });
   const r = await p.run();
   assert.equal(r.outcome, 'blocked', JSON.stringify(r.last.actions));
   const [first, second] = byToken(p.read());
   assert.deepEqual([first.harness, (first.fallback || []).map((e: any) => e.kind)], ['claude', ['quota']]);
-  assert.deepEqual([second.harness, (second.fallback || []).map((e: any) => e.kind)], ['gemini', ['step', 'quota']]);
+  assert.deepEqual([second.harness, (second.fallback || []).map((e: any) => e.kind)], ['antigravity', ['step', 'quota']]);
   assert.deepEqual(kinds(p), ['quota', 'step', 'quota', 'hold']);
 });
 
 test('106 C-7: a quota release spends one 080 attempt: attempts=2 and two quotas is BLOCKED budget; attempts=1 never steps', POSIX, async (t) => {
-  const two: any = await project(t, { plan: 'budget', fallback: fb({ mode: 'auto', ladder: ['claude', 'gemini'] }), scenario: quotaOn(['claude', 'gemini']) });
+  const two: any = await project(t, { plan: 'budget', fallback: fb({ mode: 'auto', ladder: ['claude', 'antigravity'] }), scenario: quotaOn(['claude', 'antigravity']) });
   const r2 = await two.run();
   assert.equal(r2.outcome, 'blocked');
   assert.deepEqual(two.ledger().tasks['A.1'].attempts.map((a: any) => a.state), ['released', 'released']);
@@ -531,7 +531,7 @@ test('106 C-7: a quota release spends one 080 attempt: attempts=2 and two quotas
   assert.deepEqual([task.state, task.reason], ['BLOCKED', 'budget']);
   assert.equal(r2.last.blocked.cause, 'budget');
 
-  const one: any = await project(t, { plan: planFor('core-implementer', 1), fallback: fb({ mode: 'auto', ladder: ['claude', 'gemini'] }) });
+  const one: any = await project(t, { plan: planFor('core-implementer', 1), fallback: fb({ mode: 'auto', ladder: ['claude', 'antigravity'] }) });
   const r1 = await one.run();
   assert.equal(r1.outcome, 'blocked');
   assert.equal(r1.last.blocked.cause, 'budget');
@@ -540,23 +540,23 @@ test('106 C-7: a quota release spends one 080 attempt: attempts=2 and two quotas
 });
 
 test('106 C-14: resume --fallback auto accepts one proposal: one step, then the stepped rung quotas and holds again, mode stays ask', POSIX, async (t) => {
-  const p: any = await project(t, { plan: planFor('core-implementer', 3), fallback: fb({ mode: 'ask', ladder: ['claude', 'gemini', 'opencode'] }), scenario: quotaOn(['claude', 'gemini'], 'opencode') });
+  const p: any = await project(t, { plan: planFor('core-implementer', 3), fallback: fb({ mode: 'ask', ladder: ['claude', 'antigravity', 'opencode'] }), scenario: quotaOn(['claude', 'antigravity'], 'opencode') });
   const r = await p.run();
   assert.equal(r.outcome, 'blocked');
-  assert.equal(p.read().run.fallback.holds['A.1'].proposed, 'gemini');
+  assert.equal(p.read().run.fallback.holds['A.1'].proposed, 'antigravity');
   const asked = await p.exec({ action: 'resume' });
   const resumed = await p.exec({ action: 'resume', ack: asked.body.digest, by: 'main', fallback: 'auto' });
   assert.deepEqual(resumed.body.fallback, { mode: 'ask', cleared: ['A.1'] });
   const again = await p.run();
   assert.equal(again.outcome, 'blocked', JSON.stringify(again.last.actions));
   const f = p.read().run.fallback;
-  assert.deepEqual(p.ran(), ['claude', 'gemini'], 'one step, never a second');
-  assert.deepEqual([f.mode, f.accepted, f.holds['A.1'].reason, f.holds['A.1'].from, f.holds['A.1'].proposed], ['ask', {}, 'quota', 'gemini', 'opencode']);
+  assert.deepEqual(p.ran(), ['claude', 'antigravity'], 'one step, never a second');
+  assert.deepEqual([f.mode, f.accepted, f.holds['A.1'].reason, f.holds['A.1'].from, f.holds['A.1'].proposed], ['ask', {}, 'quota', 'antigravity', 'opencode']);
   assert.deepEqual(f.events.map((e: any) => `${e.kind}:${e.reason}`), ['quota:rate limit', 'hold:quota', 'step:accepted', 'quota:rate limit', 'hold:quota']);
 });
 
 test('106 R-1: a task line marked tier: frontier (owner core-implementer) holds frontier-no-step in auto and never launches rung 2', POSIX, async (t) => {
-  const p: any = await project(t, { plan: planFor('core-implementer', 3, 'frontier'), fallback: fb({ mode: 'auto', ladder: ['claude', 'gemini'] }) });
+  const p: any = await project(t, { plan: planFor('core-implementer', 3, 'frontier'), fallback: fb({ mode: 'auto', ladder: ['claude', 'antigravity'] }) });
   const r = await p.run();
   assert.equal(r.outcome, 'blocked', JSON.stringify(r.last.actions));
   const hold = p.read().run.fallback.holds['A.1'];
@@ -565,11 +565,11 @@ test('106 R-1: a task line marked tier: frontier (owner core-implementer) holds 
   assert.deepEqual(kinds(p), ['quota', 'hold']);
 });
 
-/** Holds A.1 proposing gemini (ask, ladder claude,gemini[,opencode]), then resume --fallback auto. */
+/** Holds A.1 proposing antigravity (ask, ladder claude,antigravity[,opencode]), then resume --fallback auto. */
 async function accepted(t: any, ladder: any, scenario: any) {
   const p: any = await project(t, { plan: planFor('core-implementer', 3), fallback: fb({ mode: 'ask', ladder }), scenario });
   assert.equal((await p.run()).outcome, 'blocked');
-  assert.equal(p.read().run.fallback.holds['A.1'].proposed, 'gemini');
+  assert.equal(p.read().run.fallback.holds['A.1'].proposed, 'antigravity');
   return p;
 }
 async function resumeWith(p: any, fallback: any) {
@@ -577,9 +577,9 @@ async function resumeWith(p: any, fallback: any) {
   return p.exec({ action: 'resume', ack: asked.body.digest, by: 'main', fallback });
 }
 
-test('106 R-2: an accepted gemini that is no longer ready is never replaced by opencode: held again proposing opencode', POSIX, async (t) => {
-  const p: any = await accepted(t, ['claude', 'gemini', 'opencode'], quotaOn(['claude'], 'opencode'));
-  fs.rmSync(path.join(p.root, '.doflow', 'state', 'worker-probes', 'gemini.json'));
+test('106 R-2: an accepted antigravity that is no longer ready is never replaced by opencode: held again proposing opencode', POSIX, async (t) => {
+  const p: any = await accepted(t, ['claude', 'antigravity', 'opencode'], quotaOn(['claude'], 'opencode'));
+  fs.rmSync(path.join(p.root, '.doflow', 'state', 'worker-probes', 'antigravity.json'));
   assert.deepEqual((await resumeWith(p, 'auto')).body.fallback, { mode: 'ask', cleared: ['A.1'] });
   const r = await p.run();
   assert.equal(r.outcome, 'blocked', JSON.stringify(r.last.actions));
@@ -590,9 +590,9 @@ test('106 R-2: an accepted gemini that is no longer ready is never replaced by o
 });
 
 test('106 R-2: resume --fallback off after an acceptance revokes it: no step, held', POSIX, async (t) => {
-  const p = await accepted(t, ['claude', 'gemini'], SCENARIO);
+  const p = await accepted(t, ['claude', 'antigravity'], SCENARIO);
   await resumeWith(p, 'auto');
-  assert.deepEqual(p.read().run.fallback.accepted, { 'A.1': 'gemini' });
+  assert.deepEqual(p.read().run.fallback.accepted, { 'A.1': 'antigravity' });
   const off = await resumeWith(p, 'off');
   assert.deepEqual(off.body.fallback, { mode: 'off', cleared: [] });
   assert.deepEqual(p.read().run.fallback.accepted, {});
@@ -634,14 +634,14 @@ test('106 FR-005: step and run print one fallback line per fallback event, in th
   const actions: any = [
     { action: 'admit', reason: 'admitted' },
     { action: 'fallback', reason: 'quota:A.1 claude -> none (rate limit; mode ask; signals unverified)' },
-    { action: 'fallback', reason: 'hold:A.1 claude -> gemini (quota; mode ask; signals unverified)' },
+    { action: 'fallback', reason: 'hold:A.1 claude -> antigravity (quota; mode ask; signals unverified)' },
   ];
   const stepped = summaryLines({ disposition: 'stepped', dispatchRunId: 'p-000000000000', step: 1, outcome: 'blocked', actions });
   assert.deepEqual(stepped.slice(1), [
     'fallback quota A.1 claude -> none (rate limit; mode ask; signals unverified)',
-    'fallback hold A.1 claude -> gemini (quota; mode ask; signals unverified)',
+    'fallback hold A.1 claude -> antigravity (quota; mode ask; signals unverified)',
   ]);
   const ran = summaryLines({ disposition: 'ran', dispatchRunId: 'p-000000000000', steps: 2, outcome: 'blocked', fallback: actions.slice(1) });
   assert.equal(ran.length, 3);
-  assert.equal(ran[2], 'fallback hold A.1 claude -> gemini (quota; mode ask; signals unverified)');
+  assert.equal(ran[2], 'fallback hold A.1 claude -> antigravity (quota; mode ask; signals unverified)');
 });

@@ -499,7 +499,7 @@ fast-search is done with C2 unmet: caching is out of scope
 
 - A merge git cannot show (a squash, a rebase, a fast-forward or a cherry-pick) is not detected as shipped. List the feature with `--feature <slug>` when you record the release, or confirm the merge with `doflow lifecycle --action merged --slug <slug> --reason "<line>"`.
 - Features created before the loop existed keep working as they did; their earlier follow-ups are not collected.
-- The loop runs on all eight harnesses, in every scope where the harness gets skills: installing any one of them projects the DoFlow runtime. `doflow doctor` shows which harnesses reach the runtime.
+- The loop runs on all seven harnesses, in every scope where the harness gets skills: installing any one of them projects the DoFlow runtime. `doflow doctor` shows which harnesses reach the runtime.
 
 ## Drive the roadmap one step at a time
 
@@ -638,9 +638,8 @@ cleanup entries with the locator and sha256 of every input they read.
 |---|---|---|
 | Claude Code | `/do` or a named skill | Native instructions, skills, hooks, and MCP after verification |
 | Codex | Read `AGENTS.md`, then use installed skills | Native settings/MCP/hook behavior requires trust and hook review |
-| Gemini CLI | Read `GEMINI.md`, then use installed skills | Skills and instructions are native; unavailable hooks/scripts/templates are reported, not emulated |
 | OpenCode · Pi · Copilot CLI · Kiro · Antigravity | Read the projected instruction file (`AGENTS.md`, steering files, or `.github/copilot-instructions.md`), then use installed skills | Each harness gets its documented native surfaces; everything else is guidance projection |
 
 The same shared sources drive every installation, but adapters render them into native target
-formats — eight of them today. Tool-specific behavior, activation prerequisites, and per-harness
+formats — seven of them today. Tool-specific behavior, activation prerequisites, and per-harness
 differences are in the [capability map](capability-map.md) and [Setup](setup.md).

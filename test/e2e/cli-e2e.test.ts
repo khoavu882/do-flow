@@ -406,14 +406,14 @@ test('Codex-native lifecycle supports isolated project dry-run, selected MCP upd
   assert.ok(status.codex.resources.some((resource: any) => resource.kind === 'mcp-server' && resource.identity === 'sequential-thinking'));
 });
 
-test('status --json reports the general per-harness hook-wiring status for claude, codex, gemini, and kiro', (t) => {
+test('status --json reports the general per-harness hook-wiring status for claude, codex, and kiro', (t) => {
   const home = tempDir(t, 'doflow-cli-e2e-');
   const project = tempDir(t, 'doflow-cli-e2e-project-');
 
-  let r = run(['install', project, '--force', '--target', 'claude,codex,gemini,kiro', '--mcp', 'context7'], { home });
+  let r = run(['install', project, '--force', '--target', 'claude,codex,kiro', '--mcp', 'context7'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
 
-  r = run(['status', project, '--target', 'claude,codex,gemini,kiro', '--json'], { home });
+  r = run(['status', project, '--target', 'claude,codex,kiro', '--json'], { home });
   assert.strictEqual(r.status, 0, r.stderr);
   const status = JSON.parse(r.stdout);
 
@@ -421,8 +421,6 @@ test('status --json reports the general per-harness hook-wiring status for claud
   assert.deepStrictEqual(status.context.kiro.hooks, { status: 'active', prerequisites: [] });
   assert.strictEqual(status.codex.hooks.status, 'installed-pending');
   assert.deepStrictEqual(status.codex.hooks.prerequisites, ['trusted-project', 'hook-review']);
-  assert.strictEqual(status.context.gemini.hooks.status, 'installed-pending');
-  assert.ok(status.context.gemini.hooks.prerequisites.length > 0);
 });
 
 test('Codex reconciliation preserves foreign config and fails closed on a conflicting managed key', (t) => {

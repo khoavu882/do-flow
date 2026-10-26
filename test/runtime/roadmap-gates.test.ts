@@ -380,7 +380,7 @@ test('D.4: gate-b findings-valid applies the authoring-identities fact (INV-8 eq
 
   // Independent author passes
   const independentAuthors = [
-    { kind: 'subagent', harness: 'gemini', model: 'flash', channel: 'observed' },
+    { kind: 'subagent', harness: 'antigravity', model: 'flash', channel: 'observed' },
   ];
   assert.deepEqual(reasons({ 'authoring-identities': independentAuthors }), []);
 

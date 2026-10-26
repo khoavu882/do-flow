@@ -225,14 +225,14 @@ function checkTupleFixtures(observations: any) {
 // --- G45.2: no node on a shell hook path --------------------------------------------------------
 
 const HOOK_ROOTS: any = ['core/harnesses/shared/hooks', 'core/harnesses/antigravity/hooks', 'core/harnesses/claude/hooks',
-  'core/harnesses/codex/hooks', 'core/harnesses/gemini/hooks', 'core/harnesses/kiro/hooks', 'core/harnesses/pi/extensions'];
+  'core/harnesses/codex/hooks', 'core/harnesses/kiro/hooks', 'core/harnesses/pi/extensions'];
 /** The only scripts that are node by nature: the shared runner, the Antigravity adapter, the Pi extension. */
 const PINNED_NODE_FILES: any = ['core/harnesses/pi/extensions/doflow-guard.js', 'core/harnesses/shared/hooks/adapters/antigravity.js', 'core/harnesses/shared/hooks/stream-hook-runner.js'];
 /** Front doors that hand the payload to the shared runner by design (`exec node .../stream-hook-runner.js`). */
 const PINNED_RUNNER_DOORS: any = ['core/harnesses/antigravity/hooks/pre-implementation-gate.sh', 'core/harnesses/antigravity/hooks/stop-check.sh'];
 /** Shell observation must remain covered by the same no-node scan as the pre-tool front doors. */
 const PINNED_SHELL_DOORS: any = [
-  ...['claude', 'codex', 'gemini', 'kiro'].map((harness) => `core/harnesses/${harness}/hooks/pre-bash-guard.sh`),
+  ...['claude', 'codex', 'kiro'].map((harness) => `core/harnesses/${harness}/hooks/pre-bash-guard.sh`),
   'core/harnesses/claude/hooks/post-shell-observe.sh',
 ];
 function checkPinnedShellDoors(files: any) {

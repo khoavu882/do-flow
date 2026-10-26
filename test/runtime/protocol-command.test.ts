@@ -59,9 +59,9 @@ test('resolve --kind review prints the enforcement line and carries the rows; a 
   const s = scratch(t);
   const res = s.cli(['--action', 'resolve', '--kind', 'review']);
   assert.equal(res.status, 0, res.stderr);
-  assert.match(res.stdout, /^protocol\.enforcement: reviewer native=claude,gemini,opencode,copilot,kiro unenforced=codex,pi,antigravity$/m);
+  assert.match(res.stdout, /^protocol\.enforcement: reviewer native=claude,opencode,copilot,kiro unenforced=codex,pi,antigravity$/m);
   const json = JSON.parse(s.cli(['--action', 'resolve', '--kind', 'review', '--json']).stdout);
-  assert.equal(json.protocol.enforcement.length, 8);
+  assert.equal(json.protocol.enforcement.length, 7);
   assert.deepEqual(json.protocol.enforcement.filter((row: any) => row.status === 'unenforced').map((row: any) => row.harness), ['codex', 'pi', 'antigravity']);
   const debate = JSON.parse(s.cli(['--action', 'resolve', '--kind', 'debate', '--json']).stdout);
   assert.deepEqual(debate.protocol.enforcement, []);

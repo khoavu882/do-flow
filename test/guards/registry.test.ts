@@ -99,7 +99,7 @@ test('G5: every unavailable event carries a note explaining why no equivalent ex
 // must keep. This is the regression fence — it catches "core" silently dropping below universal,
 // not the presence of harness-specific gaps in the 'enhanced' set, which are expected and fine.
 test('G5: every core-tier lifecycle policy is supported or different on every currently-integrated harness', () => {
-  const INTEGRATED_HARNESSES: any = ['claude', 'codex', 'gemini', 'kiro', 'antigravity'];
+  const INTEGRATED_HARNESSES: any = ['claude', 'codex', 'kiro', 'antigravity'];
   const offenders: any = [];
   for (const policy of registry.lifecycle) {
     if (policy.tier !== 'core') continue;
@@ -134,6 +134,11 @@ test('G5: every declared harness has an adapter module, exactly one contract, an
     if (!VALID.includes(harness.id)) {
       offenders.push(`${harness.id}: not in src/targets.js's VALID array, so '--target ${harness.id}' would be rejected`);
     }
+  }
+  // The reverse direction: a VALID id with no live registry harness (a retired one, row 127) would
+  // pass target validation and then throw inside the lifecycle instead of being refused up front.
+  for (const id of VALID) {
+    if (!registry.harnesses.some((harness: any) => harness.id === id)) offenders.push(`${id}: in VALID but not a live registry harness`);
   }
   assert.deepEqual(offenders, [], `harness declared without a full extension contract:\n  ${offenders.join('\n  ')}`);
 });

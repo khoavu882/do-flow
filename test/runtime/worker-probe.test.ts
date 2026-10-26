@@ -4,7 +4,7 @@
 //
 // No case starts a real harness (NFR-002): descriptors are the fake ones from
 // test/fixtures/worker/descriptors.json (plus four clones under the remaining registered ids, so
-// all eight are fakes), each child's PATH is a scratch bin/ holding only the fake CLI links plus
+// all seven are fakes), each child's PATH is a scratch bin/ holding only the fake CLI links plus
 // the directory of process.execPath, and every child env is built from nothing, so the five
 // DOFLOW_* identity variables are absent unless the probe itself sets them.
 const { test } = require('node:test');
@@ -25,8 +25,8 @@ const MARKER = FIXTURE.claude.guidanceProbe.marker;
 const FIXED: any = { run: 'probe0000aaaa', lineage: 'p0000aaaa' };
 const BINDING = `xdg/doflow/session-env/sessions/L.${FIXED.run}.${FIXED.lineage}.1/bound`;
 
-/** All eight registered harnesses as fakes: the fixture's four and claude clones for the rest. */
-function eightDescriptors() {
+/** All seven registered harnesses as fakes: the fixture's four and claude clones for the rest. */
+function sevenDescriptors() {
   const all = structuredClone(FIXTURE);
   for (const id of ['pi', 'copilot', 'kiro', 'antigravity']) {
     all[id] = structuredClone(FIXTURE.claude);
@@ -55,8 +55,8 @@ function setup(t: any, scenario: any, names: any) {
 
 const one = (result: any, harness: any) => result.harnesses.find((entry: any) => entry.harness === harness);
 
-test('discover: two fakes present with versions, six absent, no process beyond --version and nothing written', POSIX_ONLY, (t): any => {
-  const descriptors = eightDescriptors();
+test('discover: two fakes present with versions, five absent, no process beyond --version and nothing written', POSIX_ONLY, (t): any => {
+  const descriptors = sevenDescriptors();
   const errors: any = [];
   for (const id of Object.keys(descriptors)) validateWorker(descriptors[id], `harness '${id}'`, errors);
   assert.deepEqual(errors, []);
@@ -71,7 +71,7 @@ test('discover: two fakes present with versions, six absent, no process beyond -
   const result = discover({ descriptors, env: s.env, cwd: s.root });
   assert.equal(result.disposition, 'discovered');
   assert.match(result.at, ISO);
-  assert.equal(result.harnesses.length, 8);
+  assert.equal(result.harnesses.length, 7);
   const present = result.harnesses.filter((entry: any) => entry.present);
   assert.deepEqual(present.map((entry: any) => entry.harness), ['claude', 'codex']);
   assert.equal(one(result, 'claude').version, 'fake-claude 1.2.3');
@@ -297,16 +297,16 @@ test('freshness: a fact dated in the future (clock skew) is probe-stale, not fre
   assert.equal(effectiveFacts(record, current, Date.parse(at)).runnable.state, 'yes', 'age 0 is fresh');
 });
 
-test('NFR-005: eight fake harnesses probe within eight times PROBE_TIMEOUT_MS with no run or model check', POSIX_ONLY, async (t) => {
-  const descriptors = eightDescriptors();
+test('NFR-005: seven fake harnesses probe within seven times PROBE_TIMEOUT_MS with no run or model check', POSIX_ONLY, async (t) => {
+  const descriptors = sevenDescriptors();
   const names = Object.values(descriptors).map((worker) => worker.cli.binary);
   const s = setup(t, {}, names);
   const started = Date.now();
   const result = await probe({ descriptors, env: s.env, cwd: s.root });
   const elapsed = Date.now() - started;
-  t.diagnostic(`eight harnesses probed in ${elapsed} ms`);
-  assert.ok(elapsed < 8 * PROBE_TIMEOUT_MS, `took ${elapsed} ms`);
-  assert.equal(result.harnesses.length, 8);
+  t.diagnostic(`seven harnesses probed in ${elapsed} ms`);
+  assert.ok(elapsed < 7 * PROBE_TIMEOUT_MS, `took ${elapsed} ms`);
+  assert.equal(result.harnesses.length, 7);
   for (const entry of result.harnesses) {
     assert.equal(entry.facts.installed.state, 'yes', entry.harness);
     assert.ok(fs.existsSync(probeFile(s.root, entry.harness)), entry.harness);

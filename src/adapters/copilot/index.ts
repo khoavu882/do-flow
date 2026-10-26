@@ -8,7 +8,7 @@
 // agents, and MCP each live under a different path, split further by scope. Skills, agents and the
 // core guidance rules are trees materialised via the shared copy-tree engine in ../copy-tree.ts; the
 // single instruction pointer is a marker-merged section in a shared file, the same shape
-// opencode/pi/gemini already use; MCP servers are entries of one JSON map that DoFlow owns one at a
+// opencode/pi already use; MCP servers are entries of one JSON map that DoFlow owns one at a
 // time through ../mcp-entries.ts, never touching an entry it does not own.
 //
 // Native paths (see design.md §4's harness-native-surfaces table):
@@ -88,7 +88,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
   }
 
   /** Replace only the span between DoFlow's markers. A copilot-instructions.md that exists with no
-   * DoFlow section is refused rather than appended to — the same policy opencode/pi/gemini apply to
+   * DoFlow section is refused rather than appended to — the same policy opencode/pi apply to
    * their own shared instruction files, and for the same reason: where DoFlow's content belongs in a
    * file it doesn't fully own is a decision for the file's owner, not a guess for the installer. Add
    * an empty marker pair to opt in. */
@@ -145,7 +145,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
    * (https://docs.github.com/en/copilot/reference/custom-agents-configuration) requires the
    * `.agent.md` extension, while `core/shared/agent-specs/*.md` — already `name`/`description`
    * YAML-frontmatter files, the same shape `.agent.md` expects — carries a plain `.md` extension.
-   * This is the same class of shape mismatch Gemini/Antigravity's `dir-per-file:agent.md` layout in
+   * This is the same class of shape mismatch Antigravity's `dir-per-file:agent.md` layout in
    * copy-tree.ts already solves for a directory-per-agent requirement; here the mismatch is only the
    * extension, so a flat rename is enough and no directory restructuring is needed. Declared as a
    * function (rather than a name registered in copy-tree.ts's LAYOUTS) because it is specific to this
@@ -275,7 +275,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
   /** Copilot's MCP entry changes have no asset of their own in core/registry/assets.json (they are a
    * registration side-effect of the selected MCP servers, not a projected asset), so they piggyback
    * on a real asset id already routed to this harness — the same "pseudo-component" technique
-   * src/adapters/gemini/index.ts#hooksAssetId and src/adapters/kiro/index.ts#pseudoAssetId use. The
+   * src/adapters/kiro/index.ts#pseudoAssetId uses. The
    * lifecycle layer validates every change's assetId against the harness's actual asset list, so an
    * invented id like a literal 'copilot.mcp' string is rejected as unknown. */
   function pseudoAssetId(assets: any) {

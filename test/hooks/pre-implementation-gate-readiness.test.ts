@@ -76,7 +76,7 @@ fs.chmodSync(path.join(RESOLVER_HOME, '.doflow', 'scripts', 'doflow', 'bash', 'd
 function spawnEnv(extra: any = {}) {
   // Harness variables naming the developer's own config folders would let a real resolver in.
   return scratch.env({
-    GIT_CONFIG_GLOBAL: '/dev/null', CLAUDE_CONFIG_DIR: '', CLAUDE_PROJECT_DIR: '', CODEX_HOME: '', GEMINI_CONFIG_DIR: '', DOFLOW_PROJECT_DIR: '', ...extra,
+    GIT_CONFIG_GLOBAL: '/dev/null', CLAUDE_CONFIG_DIR: '', CLAUDE_PROJECT_DIR: '', CODEX_HOME: '', DOFLOW_PROJECT_DIR: '', ...extra,
   });
 }
 

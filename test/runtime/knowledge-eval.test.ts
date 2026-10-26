@@ -33,7 +33,7 @@ const CORPUS: any = {
   'hooks-trust.md': [
     '## Hook trust gating',
     '',
-    'Codex and Gemini gate hooks behind their own review step; DoFlow writes the configuration',
+    'Codex gates hooks behind its own review step; DoFlow writes the configuration',
     'but nothing executes until approved in that tool. Kiro hooks fire immediately with no gate.',
   ].join('\n'),
   'mcp-servers.md': [
@@ -116,7 +116,7 @@ test('hybrid RRF fusion eval: combines lexical and semantic rank lists with reci
     { path: 'mcp-servers.md:1', score: 2.0 },
   ];
   const semanticList: any = [
-    { locator: 'hooks-trust.md:12', text: 'Codex and Gemini gate hooks behind their own review' },
+    { locator: 'hooks-trust.md:12', text: 'Codex gates hooks behind its own review' },
     { locator: 'rollback.md:1', text: 'Restore with the backup id' },
     { locator: 'skills-standard.md:46', text: 'Skill authoring standard' },
   ];

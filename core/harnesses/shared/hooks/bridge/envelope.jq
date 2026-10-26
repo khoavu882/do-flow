@@ -20,14 +20,14 @@ def event_operation($e):
   elif $e == "Stop" or $e == "stop" then "stop"
   elif $e == "SubagentStart" then "subagent-start"
   elif $e == "SubagentStop" then "subagent-stop"
-  elif $e == "PreCompact" or $e == "PreCompress" then "compact"
-  elif $e == "PostToolUse" or $e == "AfterTool" then "post-tool"
+  elif $e == "PreCompact" then "compact"
+  elif $e == "PostToolUse" then "post-tool"
   else "tool" end;
 def canonical_tool($name; $harness):
   if ($name | type) != "string" then {operation:"tool"}
-  elif (($harness == "claude" or $harness == "codex" or $harness == "kiro") and ($name | test("^mcp__"))) or (($harness == "gemini" or $harness == "antigravity") and ($name | test("^mcp_"))) or ($harness == "pi" and ($name | test("^mcp__"))) then {operation:"mcp",tool:$name}
-  elif (($harness == "claude" or $harness == "codex" or $harness == "kiro") and (["Edit","Write","MultiEdit","apply_patch"] | index($name)) != null) or ($harness == "gemini" and (["write_file","replace"] | index($name)) != null) or ($harness == "antigravity" and (["write_to_file","replace_file_content","multi_replace_file_content","edit_file","write_file","create_file","replace_file","replace","Edit","Write","MultiEdit","apply_patch"] | index($name)) != null) or ($harness == "pi" and (["edit","write"] | index($name)) != null) then {operation:"edit",tool:$name}
-  elif (($harness == "claude" or $harness == "codex" or $harness == "kiro") and $name == "Bash") or ($harness == "gemini" and $name == "run_shell_command") or ($harness == "antigravity" and (["run_command","run_shell_command","Bash","bash"] | index($name)) != null) or ($harness == "pi" and $name == "bash") then {operation:"command",tool:$name}
+  elif (($harness == "claude" or $harness == "codex" or $harness == "kiro") and ($name | test("^mcp__"))) or ($harness == "antigravity" and ($name | test("^mcp_"))) or ($harness == "pi" and ($name | test("^mcp__"))) then {operation:"mcp",tool:$name}
+  elif (($harness == "claude" or $harness == "codex" or $harness == "kiro") and (["Edit","Write","MultiEdit","apply_patch"] | index($name)) != null) or ($harness == "antigravity" and (["write_to_file","replace_file_content","multi_replace_file_content","edit_file","write_file","create_file","replace_file","replace","Edit","Write","MultiEdit","apply_patch"] | index($name)) != null) or ($harness == "pi" and (["edit","write"] | index($name)) != null) then {operation:"edit",tool:$name}
+  elif (($harness == "claude" or $harness == "codex" or $harness == "kiro") and $name == "Bash") or ($harness == "antigravity" and (["run_command","run_shell_command","Bash","bash"] | index($name)) != null) or ($harness == "pi" and $name == "bash") then {operation:"command",tool:$name}
   else {operation:"tool",tool:$name} end;
 def decode_claude:
   (canonical_tool(.tool_name // ""; "claude")) as $t |
@@ -39,10 +39,6 @@ def decode_codex:
   (model_identity(.model)) as $model |
   (if .tool_name == "apply_patch" then $d + {patch:(string_value(.tool_input; ["command"]))} else $d end) |
   .identity += $model;
-def decode_gemini:
-  (canonical_tool(.tool_name // ""; "gemini")) as $t |
-  if .tool_name == null then {operation:event_operation($event),identity:session_identity(.session_id)}
-  else {operation:$t.operation,tool:$t.tool,paths:(if $t.operation == "edit" then path_values(.tool_input; ["file_path","path"]) else null end),command:(if $t.operation == "command" then string_value(.tool_input; ["command"]) else null end),identity:session_identity(.session_id)} end;
 def decode_kiro:
   (if ((.tool_name // "") | type) == "string" and ((.tool_name // "") | startswith("mcp_")) then {operation:"mcp",tool:.tool_name}
    elif ((.tool_name // "") | type) == "string" and ((.tool_name // "") | test("^@[^/]+/.+")) then
@@ -110,7 +106,7 @@ if ($ARGS.named.mode // "encode") == "minimal" then {doflow_event:{version:(1),h
   ($ENV.DOFLOW_LINEAGE_ID | nonempty(.)) as $lineage |
   ($ENV.DOFLOW_WORKTREE | nonempty(.)) as $worktree |
   (if $ENV.DOFLOW_SESSION_ROLE == "main" or $ENV.DOFLOW_SESSION_ROLE == "worker" then $ENV.DOFLOW_SESSION_ROLE else null end) as $role |
-  (if $harness == "claude" then decode_claude elif $harness == "codex" then decode_codex elif $harness == "gemini" then decode_gemini elif $harness == "kiro" then decode_kiro elif $harness == "antigravity" then decode_antigravity elif $harness == "pi" then decode_pi else {operation:"tool"} end) as $d |
+  (if $harness == "claude" then decode_claude elif $harness == "codex" then decode_codex elif $harness == "kiro" then decode_kiro elif $harness == "antigravity" then decode_antigravity elif $harness == "pi" then decode_pi else {operation:"tool"} end) as $d |
   if $ARGS.named.mode == "observe" then
     if $harness == "claude" and $d.operation == "command" and $native.hook_event_name == $event and
       ($event == "PostToolUse" or $event == "PostToolUseFailure")

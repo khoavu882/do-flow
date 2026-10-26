@@ -33,7 +33,6 @@ const STEM: any = { 'pre-implementation-gate': 'pre-implement-gate', 'pre-bash-g
 const FIXTURE: any = {
   claude: { 'pre-implementation-gate': 'claude/pre-implement-gate/deny.json', 'pre-bash-guard': 'claude/pre-bash-guard/deny.json', 'mcp-tool-guard': 'claude/mcp-tool-guard/deny.json' },
   codex: { 'pre-implementation-gate': 'codex/pre-implement-gate/deny.json', 'pre-bash-guard': 'codex/pre-bash-guard/deny.json', 'mcp-tool-guard': 'codex/mcp-tool-guard/deny.json' },
-  gemini: { 'pre-implementation-gate': 'gemini/pre-implement-gate/deny.json', 'pre-bash-guard': 'gemini/pre-bash-guard/deny.json', 'mcp-tool-guard': 'gemini/mcp-tool-guard/deny.json' },
   kiro: { 'pre-implementation-gate': 'kiro/pre-implement-gate/deny.json', 'pre-bash-guard': 'kiro/pre-bash-guard/deny.json', 'mcp-tool-guard': 'kiro/mcp-tool-guard/deny.json' },
   'kiro-agent': { 'pre-implementation-gate': 'kiro/pre-implement-gate/agent-deny.json', 'pre-bash-guard': 'kiro/pre-bash-guard/agent-deny.json', 'mcp-tool-guard': 'kiro/mcp-tool-guard/agent-deny.json' },
   antigravity: { 'pre-implementation-gate': 'antigravity/pre-implement-gate/deny-missing-design.json' },
@@ -41,7 +40,7 @@ const FIXTURE: any = {
 };
 
 // One pattern file per verdict. The deny lines match every harness's fixture tool or command
-// (claude/codex `mcp__blocked__write`, gemini `mcp_blocked_write`, kiro `@evil/drop` and
+// (claude/codex `mcp__blocked__write`, kiro `@evil/drop` and
 // `@evil/delete_repo`, pi `mcp__github__delete_issue`); the allow lines match nothing.
 const CONF: any = {
   'pre-bash-guard': {
@@ -138,7 +137,7 @@ function runShell(harness: any, policy: any, native: any, { project, mirror, scr
   let response: any = {};
   try { response = JSON.parse(result.stdout || '{}'); } catch { response = {}; }
   const denied = harness === 'kiro' ? result.status === 2
-    : harness === 'antigravity' || harness === 'gemini' ? response.decision === 'deny'
+    : harness === 'antigravity' ? response.decision === 'deny'
       : response.hookSpecificOutput?.permissionDecision === 'deny';
   if (!denied) assert.equal(result.status, 0, `${harness}/${policy}: allow exits 0 (${result.stderr})`);
   return denied;
@@ -197,8 +196,8 @@ function assertFresh(label: any, { observed, expected }: any) {
 }
 
 const COVERAGE = [
-  ...['claude', 'codex', 'gemini', 'kiro', 'antigravity', 'pi'].map((harness) => [harness, 'pre-implementation-gate']),
-  ...['claude', 'codex', 'gemini', 'kiro', 'pi'].flatMap((harness) => [[harness, 'pre-bash-guard'], [harness, 'mcp-tool-guard']]),
+  ...['claude', 'codex', 'kiro', 'antigravity', 'pi'].map((harness) => [harness, 'pre-implementation-gate']),
+  ...['claude', 'codex', 'kiro', 'pi'].flatMap((harness) => [[harness, 'pre-bash-guard'], [harness, 'mcp-tool-guard']]),
 ];
 
 for (const [harness, policy] of COVERAGE) {

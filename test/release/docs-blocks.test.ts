@@ -388,11 +388,11 @@ test('C-9: the llms.txt summary takes the harness names and the Node range from 
   const root = fixture(t);
   writeAll(root);
   const summary = fs.readFileSync(path.join(root, 'docs/llms.txt'), 'utf8').split('\n')[2];
-  assert.match(summary, /eight AI coding tools: Claude Code, Codex, .*, and Antigravity CLI\./);
+  assert.match(summary, /seven AI coding tools: Claude Code, Codex, .*, and Antigravity CLI\./);
   assert.match(summary, /Node\.js >=24\.22\.1;/);
   assert.match(summary, /npm run build:package/);
   assert.doesNotMatch(summary, /no build step/);
-  editJson(path.join(root, 'core/registry/harnesses.json'), (raw: any) => { raw.harnesses[6].displayName = 'Kiro IDE'; });
+  editJson(path.join(root, 'core/registry/harnesses.json'), (raw: any) => { raw.harnesses.find((h: any) => h.id === 'kiro').displayName = 'Kiro IDE'; });
   assert.ok(checkAll(root).some((f: any) => f.page === 'llms.txt' && f.kind === 'stale'), 'a renamed harness makes llms.txt stale');
   writeAll(root);
   editJson(path.join(root, 'package.json'), (raw: any) => { raw.engines.node = '>=26'; });

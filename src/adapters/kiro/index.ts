@@ -10,7 +10,7 @@
 // mirrors). Unlike every other harness in this codebase, Kiro receives DoFlow's guidance as
 // steering files rather than a single marker-wrapped pointer file plus a separately-copied tree
 // (design.md §4's "research decision D3"): there is no single-file instruction surface here at all,
-// so — unlike src/adapters/gemini or src/adapters/opencode — this adapter never renders a
+// so — unlike src/adapters/opencode — this adapter never renders a
 // marker-wrapped instruction file. Steering holds the core set only (DOFLOW_CORE.md and the files it
 // imports, selected by the `guidance-manifest` select); the full guidance tree remains under
 // `.doflow/guidance` through kiro.guidance-tree, where `retrieve` and the runtime read it.
@@ -211,8 +211,8 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
 
   /** Kiro has no hooks or mcp asset of its own in core/registry/assets.json (mcp servers come from
    * core/registry/mcp.json, not an asset), so an MCP entry change piggybacks on an asset id
-   * this harness actually receives — the same "pseudo-component" technique
-   * src/adapters/gemini/index.ts#hooksAssetId already uses for its own settings-only component. */
+   * this harness actually receives — the same "pseudo-component" technique the opencode and
+   * copilot adapters use for their settings-only changes. */
   function pseudoAssetId(assets: any) {
     return assets.find((asset: any) => asset.id === 'guidance.context-layer')?.id ?? assets[0]?.id;
   }

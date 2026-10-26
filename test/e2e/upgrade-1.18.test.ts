@@ -102,7 +102,7 @@ const USER_SERVER: any = { command: 'user-cmd', args: ['--user-owned'] };
 const BOTH: any = ['context7', 'sequential-thinking'];
 
 const TARGETS: any = {
-  'global-multi': ['-t', 'claude,codex,gemini,opencode,pi'],
+  'global-multi': ['-t', 'claude,codex,opencode,pi'],
   'global-kiro': ['-t', 'kiro'],
   'project-claude-copilot': ['-t', 'claude,copilot'],
 };
@@ -130,8 +130,10 @@ test('F1: update with no --mcp keeps every server and user entry on global-multi
   for (const id of [...BOTH, 'user-server']) assert.match(codexConfig, new RegExp(`\\[mcp_servers\\.${id}\\]`));
   assert.ok(codexConfig.includes('[mcp_servers.user-server]\ncommand = "user-cmd"\nargs = ["--user-owned"]'), 'the user block is byte for byte');
 
-  const { mcpSelections } = env.lock();
+  const { mcpSelections, targets } = env.lock();
   assert.deepStrictEqual(Object.keys(mcpSelections).sort(), ['claude', 'codex', 'opencode', 'pi']);
+  // The 1.18.0 lock pinned a gemini target; Gemini CLI is retired, so the rewritten lock no longer does.
+  assert.deepStrictEqual(targets.map((target: any) => target.harness).sort(), ['claude', 'codex', 'opencode', 'pi'], 'the lock holds no retired harness');
   for (const harness of Object.keys(mcpSelections)) assert.deepStrictEqual([...mcpSelections[harness]].sort(), BOTH, harness);
 });
 

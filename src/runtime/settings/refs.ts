@@ -179,6 +179,14 @@ function harnessesPrimaryIds(source: Source): string[] {
   return ['unknown', ...ids];
 }
 
+/** 127 IC-005: the retired harness ids (`id`, `replacement`) harnesses.json records; none when it records none. */
+function retiredHarnesses(source: Source): { id: string; replacement: string }[] {
+  const list = source(HARNESSES_FILE)?.retired;
+  return (Array.isArray(list) ? list : [])
+    .filter((entry: any) => typeof entry?.id === 'string' && typeof entry?.replacement === 'string')
+    .map((entry: any) => ({ id: entry.id, replacement: entry.replacement }));
+}
+
 /** IC-003: schema membership comes from the worker catalogue, loaded only on demand. */
 function workersIds(source: Source): string[] {
   const { knownWorkerIds } = require('../../registry/worker-ids.ts');
@@ -231,6 +239,8 @@ const RESOLVERS: Readonly<Record<string, (source: Source, deps: Deps, merged: Me
 });
 
 interface Refs {
+  /** 127 IC-005: the retired harness ids, with the id to use instead; throws when harnesses.json cannot be read. */
+  retired(): { id: string; replacement: string }[];
   /** The value of a named ref; throws on an unknown name or a source that cannot be read. */
   resolve(name: string, deps?: Deps): unknown;
 }
@@ -260,6 +270,7 @@ function createRefs({ repoRoot = REPO_ROOT, fsImpl = nodeFs, protocols, homeDir 
     return mergedRegistry;
   };
   return {
+    retired: () => retiredHarnesses(source),
     resolve(name, deps = {}) {
       if (!Object.hasOwn(RESOLVERS, name)) throw new Error(`unknown settings ref '${name}'`);
       return RESOLVERS[name](source, deps, merged, homeDir ?? os.homedir(), fsImpl);

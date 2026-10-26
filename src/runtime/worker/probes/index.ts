@@ -25,7 +25,6 @@ const DEFAULT_PROBE_TIMEOUT_MS = 3000;
 const RELOGIN_HINTS: Record<string, string> = {
   claude: 'claude login',
   codex: 'codex login',
-  gemini: 'gemini',
   opencode: 'opencode auth login <provider>',
   pi: 'pi',
   copilot: 'copilot login',
@@ -36,7 +35,6 @@ const RELOGIN_HINTS: Record<string, string> = {
 const HARNESS_BINARIES: Record<string, string> = {
   claude: 'claude',
   codex: 'codex',
-  gemini: 'gemini',
   opencode: 'opencode',
   pi: 'pi',
   copilot: 'copilot',
@@ -54,10 +52,6 @@ const DEFAULT_MODELS: Record<string, OfferedModel[]> = {
     { id: 'o3-mini', displayName: 'o3-mini', family: 'openai' },
     { id: 'o1', displayName: 'o1', family: 'openai' },
     { id: 'gpt-4o', displayName: 'GPT-4o', family: 'openai' },
-  ],
-  gemini: [
-    { id: 'gemini-2.5-pro', displayName: 'Gemini 2.5 Pro', family: 'gemini' },
-    { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash', family: 'gemini' },
   ],
   opencode: [
     { id: 'claude-3-7-sonnet', displayName: 'Claude 3.7 Sonnet', family: 'claude' },
@@ -301,87 +295,6 @@ const probeCodex: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
     detectedMode,
     derivedBilling,
     offeredModels: DEFAULT_MODELS.codex,
-    lastSyncedAt: new Date().toISOString(),
-  };
-};
-
-const probeGemini: HarnessProbeRunner = async (options: ProbeOptions = {}) => {
-  const env = options.env ?? process.env;
-  const fsImpl = options.fsImpl ?? fs;
-  const home = options.homeDir ?? os.homedir();
-  const binary = HARNESS_BINARIES.gemini;
-  const reloginHint = RELOGIN_HINTS.gemini;
-
-  const ver = await executeCommand(binary, ['--version'], options);
-  if (!ver.ok && (ver.code === 'ENOENT' || ver.stderr.includes('ENOENT') || ver.stderr.includes('not found'))) {
-    return {
-      harnessId: 'gemini',
-      binary,
-      installed: false,
-      version: null,
-      loginState: 'logged-out',
-      reloginHint,
-      detectedMode: 'unverified',
-      derivedBilling: 'unknown',
-      offeredModels: DEFAULT_MODELS.gemini,
-      lastSyncedAt: new Date().toISOString(),
-    };
-  }
-
-  const installed = true;
-  const version = ver.ok ? parseVersion(ver.stdout) : null;
-
-  if ((env.GEMINI_API_KEY && env.GEMINI_API_KEY.trim()) || (env.GOOGLE_API_KEY && env.GOOGLE_API_KEY.trim())) {
-    return {
-      harnessId: 'gemini',
-      binary,
-      installed,
-      version,
-      loginState: 'logged-in',
-      reloginHint: null,
-      detectedMode: 'api-key',
-      derivedBilling: 'metered',
-      offeredModels: DEFAULT_MODELS.gemini,
-      lastSyncedAt: new Date().toISOString(),
-    };
-  }
-
-  const geminiDir = path.join(home, '.gemini');
-  let hasOAuth = false;
-  try {
-    if (fsImpl.existsSync(geminiDir)) {
-      const files = fsImpl.readdirSync(geminiDir);
-      hasOAuth = files.some((f: string) => f.includes('token') || f.includes('oauth') || f.endsWith('.json'));
-    }
-  } catch {
-    // ignore
-  }
-
-  if (hasOAuth) {
-    return {
-      harnessId: 'gemini',
-      binary,
-      installed,
-      version,
-      loginState: 'logged-in',
-      reloginHint: null,
-      detectedMode: 'subscription',
-      derivedBilling: 'free',
-      offeredModels: DEFAULT_MODELS.gemini,
-      lastSyncedAt: new Date().toISOString(),
-    };
-  }
-
-  return {
-    harnessId: 'gemini',
-    binary,
-    installed,
-    version,
-    loginState: 'logged-out',
-    reloginHint,
-    detectedMode: 'unverified',
-    derivedBilling: 'unknown',
-    offeredModels: DEFAULT_MODELS.gemini,
     lastSyncedAt: new Date().toISOString(),
   };
 };
@@ -767,7 +680,6 @@ const probeAntigravity: HarnessProbeRunner = async (options: ProbeOptions = {}) 
 const PROBES: Record<string, HarnessProbeRunner> = {
   claude: probeClaude,
   codex: probeCodex,
-  gemini: probeGemini,
   opencode: probeOpencode,
   pi: probePi,
   copilot: probeCopilot,
@@ -784,7 +696,6 @@ module.exports = {
   DEFAULT_MODELS,
   probeClaude,
   probeCodex,
-  probeGemini,
   probeOpencode,
   probePi,
   probeCopilot,

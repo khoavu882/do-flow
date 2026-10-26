@@ -603,7 +603,7 @@ Scope (mutually exclusive — global wins if both given):
 Options:
   -t, --target <list>  Comma-separated: ${VALID_TARGETS.join(',')} (default: ${DEFAULT_TARGETS.join(',')})
       --mcp <list>     Comma-separated MCP server names, or all or none, for every targeted
-                       harness that takes MCP servers (all but gemini). Default: none, or the
+                       harness that takes MCP servers (all of them). Default: none, or the
                        selection a harness has recorded in doflow.lock, or the servers an
                        installed harness already has; a real terminal prompts on install.
                        Recorded per harness.
@@ -614,7 +614,7 @@ Options:
                        the file is still a conflict. For a tree installed before the neutral
                        ledger existed, which nothing else can re-adopt
       --no-backup      Skip backup (requires --force; ignored by rollback's safety snapshot)
-      --prune <N>      Keep the N newest backups after install or update (default 3; 0 keeps all)
+      --prune <N>      Keep the N newest backups after install, update or reconcile (default 3; 0 keeps all)
       --days <N>       Run-ledger window in calendar days (trace, stats, discover)
       --run <key|id>   trace spans, trace analyze, trace export: keep the traces of one run key or run id
       --emit evidence|followups

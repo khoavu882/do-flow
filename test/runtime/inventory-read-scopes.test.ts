@@ -244,7 +244,7 @@ test('targets default to every lifecycle harness, so an inventory covers the who
 test('the restriction bounds the resources, not only the plan: an unrequested harness is absent, not asserted current', () => {
   const homeDir = suiteTempDir('doflow-read-scopes-restrict-home-');
   const projectRoot = suiteTempDir('doflow-read-scopes-restrict-project-');
-  seedScope({ scope: 'global', scopeRoot: homeDir, assetId: 'both.harnesses', harnesses: ['claude', 'gemini'] });
+  seedScope({ scope: 'global', scopeRoot: homeDir, assetId: 'both.harnesses', harnesses: ['claude', 'codex'] });
 
   const { global } = read({ homeDir, projectRoot, targets: ['claude'] });
 
@@ -255,7 +255,7 @@ test('the restriction bounds the resources, not only the plan: an unrequested ha
     + 'a restriction, so a harness outside it is not part of what was asked)');
   assert.deepEqual(global.plan.targets.map((target: any) => target.harness), ['claude'],
     'the plan is restricted to the same set — resources and plan must not disagree about the subject');
-  assert.deepEqual(global.ledger.resources.map((resource: any) => resource.harness), ['claude', 'gemini'],
+  assert.deepEqual(global.ledger.resources.map((resource: any) => resource.harness), ['claude', 'codex'],
     'the ledger itself is passed through whole and unfiltered; only `resources` is restricted');
   assert.equal(global.recorded, true,
     '`recorded` describes the scope, not the restriction: this scope holds an install, and reporting '

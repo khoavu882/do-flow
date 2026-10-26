@@ -26,7 +26,7 @@ const CLI = path.join(REPO, 'bin', 'doflow.js');
 const SOURCE_DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 const { inheritedEnv } = require('../helper/scratch-env.ts');
 const { suiteTempDir } = require('../helper/tmp.ts');
-const ALL_HARNESSES: any = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+const ALL_HARNESSES: any = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
 const { IS_WIN, interpreterSpawn, samePath, msysArgConvGuards } = require('../helper-platform.ts');
 
 // A developer's PI_CODING_AGENT_DIR would send this file's global Pi MCP writes outside the scratch home.

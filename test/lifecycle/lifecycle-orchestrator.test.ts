@@ -271,20 +271,18 @@ test('remove deletes MCP_INDEX.md regardless of what selection would otherwise a
 
 // --- hookWiringStatus: the general per-harness hook-wiring status (task 006-D.2) ---
 // Real registry + real adapters, installed into a scratch project, exercising the actual
-// prerequisite declarations in core/registry/harnesses.json (Codex) and the live trust
-// computation in src/adapters/gemini/hooks.ts (Gemini) rather than a fake harness/adapter.
+// prerequisite declarations in core/registry/harnesses.json (Codex) rather than a fake harness/adapter.
 {
   const { verifyLifecycle, hookWiringStatus } = require('../../src/lifecycle/index.ts');
   const realClaude = require('../../src/adapters/claude/index.ts');
   const realCodex = require('../../src/adapters/codex/index.ts');
-  const { createGeminiAdapter } = require('../../src/adapters/gemini/index.ts');
   const { createKiroAdapter } = require('../../src/adapters/kiro/index.ts');
 
   function hookFixture(t: any, targets: any) {
     const project = tempDir(t, 'doflow-hook-wiring-');
     const realRegistry = loadRegistry({ repoRoot: REPO });
     const adapters = createAdapterRegistry({
-      claude: realClaude, codex: realCodex, gemini: createGeminiAdapter(), kiro: createKiroAdapter(),
+      claude: realClaude, codex: realCodex, kiro: createKiroAdapter(),
     });
     const context = {
       repoRoot: REPO, projectRoot: project, homeDir: project, sourceVersion: '2.4.4',
@@ -292,8 +290,6 @@ test('remove deletes MCP_INDEX.md regardless of what selection would otherwise a
       codexAgentsSourceDir: path.join(REPO, 'core', 'harnesses', 'codex', 'agents'),
       codexHooksSourceFile: path.join(REPO, 'core', 'harnesses', 'codex', 'hooks', 'hooks.json'),
       codexHooksSourceDir: path.join(REPO, 'core', 'harnesses', 'codex', 'hooks'),
-      geminiHooksSourceFile: path.join(REPO, 'core', 'harnesses', 'gemini', 'hooks', 'hooks.json'),
-      geminiHooksSourceDir: path.join(REPO, 'core', 'harnesses', 'gemini', 'hooks'),
     };
     const installPlan = planLifecycle({ registry: realRegistry, adapters, scope: 'project', scopeRoot: project, targets, context });
     const install = applyLifecycle({ plan: installPlan, registry: realRegistry, adapters, stateRoot: stateRootFor(project) });
@@ -332,20 +328,6 @@ test('remove deletes MCP_INDEX.md regardless of what selection would otherwise a
     const codexVerification = verification.verifications.find((item: any) => item.harness === 'codex');
     assert.equal(codexVerification.hookWiring.status, 'installed-pending');
     assert.deepEqual(codexVerification.hookWiring.prerequisites, ['trusted-project', 'hook-review']);
-  });
-
-  test('hookWiringStatus: Gemini reports installed-pending from its own live trust computation, not a static registry prerequisite', (t) => {
-    const fixture = hookFixture(t, ['gemini']);
-    // Gemini's registry capability declares no `prerequisites` field at all — confirms the
-    // installed-pending verdict below comes from src/adapters/gemini/hooks.ts's live trust check, not a
-    // static registry list (unlike Codex).
-    const geminiCapability = fixture.realRegistry.harnesses.find((h: any) => h.id === 'gemini').capabilities.hooks;
-    assert.equal(geminiCapability.prerequisites, undefined);
-
-    const verification = verifyInstalled({ ...fixture, targets: ['gemini'] });
-    const geminiVerification = verification.verifications.find((item: any) => item.harness === 'gemini');
-    assert.equal(geminiVerification.hookWiring.status, 'installed-pending');
-    assert.ok(geminiVerification.hookWiring.prerequisites.length > 0);
   });
 
   test('hookWiringStatus: a harness with no hooks resource installed reports absent', (t) => {

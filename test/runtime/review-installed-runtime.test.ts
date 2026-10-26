@@ -54,7 +54,7 @@ function setup() {
   return { scratch, shims, run };
 }
 
-/** The reviewer seat binding and its eight enforcement rows, as the checkout resolves them. */
+/** The reviewer seat binding and its seven enforcement rows, as the checkout resolves them. */
 function assertReviewerEnforcement(protocol: any, where: any) {
   assert.ok(protocol.seats.length > 0 && protocol.seats.every((seat: any) => seat.agent === 'reviewer'), `${where}: seats bind reviewer`);
   assert.deepEqual(protocol.enforcement.map((row: any) => row.harness), HARNESSES, `${where}: one row per harness`);
@@ -65,7 +65,7 @@ function assertReviewerEnforcement(protocol: any, where: any) {
 test('installed runtime: protocol resolve and review start work through every harness shim', { skip: SKIP }, () => {
   const { scratch, shims, run } = setup();
   try {
-    // One shim per harness, except gemini and antigravity, which share ~/.gemini/config/bin; copilot's is
+    // One shim per harness (antigravity's is ~/.gemini/config/bin); copilot's is
     // ~/.agents/bin. Plus the shared dispatcher the skills call.
     assert.deepEqual(shims, [
       '.agents/bin/doflow-run', '.claude/bin/doflow-run', '.codex/bin/doflow-run', '.config/opencode/bin/doflow-run',
@@ -86,6 +86,6 @@ test('installed runtime: protocol resolve and review start work through every ha
       assertReviewerEnforcement(review.protocol, `${shim} review start`);
     }
     const text = run(shims[0], ['protocol', '--action', 'resolve', '--kind', 'review']);
-    assert.match(text.stdout, /^protocol\.enforcement: reviewer native=claude,gemini,opencode,copilot,kiro unenforced=codex,pi,antigravity$/m);
+    assert.match(text.stdout, /^protocol\.enforcement: reviewer native=claude,opencode,copilot,kiro unenforced=codex,pi,antigravity$/m);
   } finally { scratch.remove(); }
 });

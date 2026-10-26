@@ -12,7 +12,7 @@ const { spawnSync } = require('node:child_process');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../../src/helper/harness-paths.ts');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
-const HOOK_HARNESSES = new Set(['claude', 'codex', 'gemini', 'kiro']);
+const HOOK_HARNESSES = new Set(['claude', 'codex', 'kiro']);
 
 function isToolInstalled(bin: string) {
   try {
@@ -32,7 +32,7 @@ function resolveInstalledHook(harness: string, homeDir: string, repoRoot = REPO_
   if (harness === 'claude') {
     return paths.configDir ? path.join(paths.configDir, 'hooks', 'session-start.sh') : null;
   }
-  if (harness === 'codex' || harness === 'gemini') {
+  if (harness === 'codex') {
     return paths.hooksDirectory ? path.join(paths.hooksDirectory, 'session-start.sh') : null;
   }
   if (harness === 'kiro') {

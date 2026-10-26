@@ -2,7 +2,7 @@ site_name: DoFlow
 site_description: >
   A configuration layer giving AI coding assistants persistent memory,
   specialist expertise, and production-grade safety guardrails —
-  across Claude Code, Codex, Gemini, OpenCode, Pi, Copilot CLI, Kiro,
+  across Claude Code, Codex, OpenCode, Pi, Copilot CLI, Kiro,
   and Antigravity.
 site_url: https://khoavu882.github.io/do-flow
 repo_url: https://github.com/khoavu882/do-flow

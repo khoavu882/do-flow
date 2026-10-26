@@ -30,7 +30,6 @@ const HINT = /doflow: no runtime found in any \.doflow\/ above .*nor at .*Run: n
 const PLACEMENT: any = {
   claude: { project: ['.claude/skills', '.claude/bin'], global: ['.claude/skills', '.claude/bin'] },
   codex: { project: ['.agents/skills', '.codex/bin'], global: ['.agents/skills', '.codex/bin'] },
-  gemini: { project: ['.agents/skills', '.agents/bin'], global: ['.gemini/config/skills', '.gemini/config/bin'] },
   opencode: { project: ['.opencode/skills', '.opencode/bin'], global: ['.config/opencode/skills', '.config/opencode/bin'] },
   pi: { project: ['.pi/skills', '.pi/bin'], global: ['.pi/agent/skills', '.pi/agent/bin'] },
   copilot: { project: ['.agents/skills', '.agents/bin'], global: ['.agents/skills', '.agents/bin'] },

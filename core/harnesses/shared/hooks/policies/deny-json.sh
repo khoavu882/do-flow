@@ -52,13 +52,3 @@ emit_pretooluse_deny_nested() {
     printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":%s}}\n' "$(_doflow_json_reason "$reason")"
   fi
 }
-
-# Gemini shape: flat {decision, reason} (packages/core/src/hooks/types.ts).
-emit_pretooluse_deny_flat() {
-  local reason="$1"
-  if command -v jq >/dev/null 2>&1; then
-    jq -n --arg reason "$reason" '{decision: "deny", reason: $reason}'
-  else
-    printf '{"decision":"deny","reason":%s}\n' "$(_doflow_json_reason "$reason")"
-  fi
-}

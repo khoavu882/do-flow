@@ -120,11 +120,11 @@ test('D.3 refuses unknown digests and changed sources before retention checks, r
   assert.equal(unknown.pack.delivery.deltaRefused, 'since-unknown');
 });
 
-test('D.3 refuses production profiles for all eight harnesses with full-pack parity', (t) => {
+test('D.3 refuses production profiles for all seven harnesses with full-pack parity', (t) => {
   const root = tempDir(t, 'doflow-delta-parity-');
   const profiles = fixtureProfiles({ unverified: 'values belong to 085 (A-19)', verifiedOn: '2026-10-13' });
   const ids = getRegisteredHarnessIds();
-  assert.equal(ids.length, 8);
+  assert.equal(ids.length, 7);
   const outputs: any = [];
   for (const id of ids) {
     const taskId = `T-${id}`;

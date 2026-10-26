@@ -10,7 +10,7 @@ const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts');
 
 const BIN = path.join(REPO_ROOT, 'bin/doflow.js');
-const TARGETS = 'claude,codex,gemini,antigravity,opencode,pi,copilot,kiro';
+const TARGETS = 'claude,codex,antigravity,opencode,pi,copilot,kiro';
 function run(scratch: any, args: any, cwd: any) {
   return spawnSync(process.execPath, [BIN, ...args], { cwd, env: scratch.env(), encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
 }

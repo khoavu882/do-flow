@@ -20,11 +20,14 @@ const none = (state: BillingRecord['state'], reason: string | null = null): Bill
  * layer only: a project file never decides it. Absent is no config home or no decided value. Invalid
  * is a resolution in the invalid state, any invalid candidate, an id that is not in `workerIds`
  * (reason `unknown-worker:<id>`) or any thrown error: the caller then counts no worker as free.
+ * A retired harness id (127 IC-005) is dropped by the resolver before this sees the value, with an
+ * advisory in the settings view's notes; it is never an unknown worker. `registry` is an optional
+ * loaded settings registry (tests); it defaults to the shipped one.
  */
-function readWorkerBilling(env: any = process.env, { workerIds = [] }: { workerIds?: string[] } = {}): BillingRecord {
+function readWorkerBilling(env: any = process.env, { workerIds = [], registry }: { workerIds?: string[]; registry?: any } = {}): BillingRecord {
   try {
     const { loadSettings } = require('./resolve.ts');
-    const resolution = loadSettings({ global: true, env: { ...env } }).get('workers.billing', 'global');
+    const resolution = loadSettings({ global: true, env: { ...env }, registry }).get('workers.billing', 'global');
     const bad = resolution.candidates.find((c: any) => c.status === 'invalid');
     if (bad || resolution.state === 'invalid') return none('invalid', (bad && bad.reason) || 'invalid');
     if (resolution.origin?.via === 'no-config-home') return none('absent');

@@ -4,10 +4,10 @@
 // claims (NFR-007).
 //
 // Several assets project to ONE destination for several harnesses: `scripts.doflow` is a single
-// `<project>/.doflow/scripts` tree for claude, codex and gemini, gemini and copilot both resolve to
+// `<project>/.doflow/scripts` tree for claude, codex and antigravity, antigravity and copilot both resolve to
 // `<root>/.agents` at project scope, and opencode and pi both merge into `<root>/AGENTS.md`.
-// Ownership, though, is recorded per harness. Before this file existed, `remove -t gemini` deleted
-// every file gemini's own ledger rows named — which took the shared runtime out from under claude
+// Ownership, though, is recorded per harness. Before this file existed, `remove -t antigravity` deleted
+// every file antigravity's own ledger rows named — which took the shared runtime out from under claude
 // and codex, left 78 of their rows pointing at files that no longer existed, and (with a global
 // install present) left claude's locator silently answering from a *different* install's registries
 // and state instead of failing.
@@ -220,12 +220,12 @@ test('a non-removal change is never annotated, and a plan with nothing shared is
 
 test('retentionSummary groups by harness and claimant set', () => {
   assert.deepEqual(retentionSummary([
-    { harness: 'gemini', target: '/a', retainedFor: ['claude', 'codex'] },
-    { harness: 'gemini', target: '/b', retainedFor: ['claude', 'codex'] },
-    { harness: 'gemini', target: '/c', retainedFor: ['copilot'] },
+    { harness: 'alpha', target: '/a', retainedFor: ['claude', 'codex'] },
+    { harness: 'alpha', target: '/b', retainedFor: ['claude', 'codex'] },
+    { harness: 'alpha', target: '/c', retainedFor: ['copilot'] },
   ]), [
-    'gemini: retained 2 shared resource(s) still claimed by claude, codex',
-    'gemini: retained 1 shared resource(s) still claimed by copilot',
+    'alpha: retained 2 shared resource(s) still claimed by claude, codex',
+    'alpha: retained 1 shared resource(s) still claimed by copilot',
   ]);
   assert.deepEqual(retentionSummary([]), []);
 });
@@ -411,20 +411,20 @@ test('CLI: removing one of three harnesses that share .doflow leaves the runtime
   const ledgerOf = () => JSON.parse(fs.readFileSync(path.join(root, '.doflow', 'state', 'ledger.json'), 'utf8'));
   const dispatcher = path.join(root, '.doflow', 'scripts', 'doflow', 'bin', 'doflow-run');
 
-  const installed = cli(['install', root, '-f', '--no-backup', '-t', 'claude,codex,gemini']);
+  const installed = cli(['install', root, '-f', '--no-backup', '-t', 'claude,codex,antigravity']);
   assert.equal(installed.status, 0, installed.stderr);
   assert.ok(fs.existsSync(dispatcher));
   assert.equal(ledgerOf().resources.filter((resource: any) => resource.target === dispatcher).length, 3,
     'the fixture only means something while all three claim the dispatcher');
 
-  const removed = cli(['remove', root, '-f', '-t', 'gemini']);
+  const removed = cli(['remove', root, '-f', '-t', 'antigravity']);
   assert.equal(removed.status, 0, removed.stderr);
-  assert.ok(fs.existsSync(dispatcher), 'gemini\'s removal must not take claude and codex\'s runtime with it');
-  assert.match(removed.stdout, /gemini: retained \d+ shared resource\(s\) still claimed by claude, codex/,
+  assert.ok(fs.existsSync(dispatcher), 'antigravity\'s removal must not take claude and codex\'s runtime with it');
+  assert.match(removed.stdout, /antigravity: retained \d+ shared resource\(s\) still claimed by claude, codex/,
     'a removal that keeps files must say so, not report a bare success');
 
   const after = ledgerOf();
-  assert.deepEqual(after.resources.filter((resource: any) => resource.harness === 'gemini'), []);
+  assert.deepEqual(after.resources.filter((resource: any) => resource.harness === 'antigravity'), []);
   assert.deepEqual(after.resources.filter((resource: any) => resource.target.startsWith(root) && !fs.existsSync(resource.target)), [],
     'a row pointing at a file that no longer exists is the dangling state this fix exists to prevent');
 

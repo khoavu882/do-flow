@@ -64,7 +64,7 @@ describe('pre-bash-guard patterns-missing', { skip: !HAS_JQ && 'jq is not instal
     ['an allowed command', bash('Bash', 'ls -la'), 0],
     ['a floor deny (rm -rf /)', bash('Bash', 'rm -rf /'), 2],
     ['a floor deny of the home directory', bash('Bash', 'rm -rf ~'), 2],
-    ['the run_shell_command tool name', bash('run_shell_command', 'echo hi', 'gemini'), 0],
+    ['the run_shell_command tool name', encodeEnvelope('antigravity', 'PreToolUse', 'pre-bash-guard', JSON.stringify({ toolCall: { name: 'run_shell_command', args: { CommandLine: 'echo hi' } } })), 0],
   ];
   for (const [name, stdin, status] of cases) {
     test(`${name}: recorded once; output and status identical with capture off`, () => {
@@ -183,8 +183,8 @@ describe('mcp-tool-guard policy-file-missing', { skip: !HAS_JQ && 'jq is not ins
     assert.equal(out.length, 1);
     assert.deepEqual([out[0].source, out[0].command, out[0].kind, out[0].message, out[0].frame, out[0].exit], ['hook', 'mcp-tool-guard', 'policy-file-missing', '', null, null]);
   });
-  test('the single-underscore Gemini spelling is recorded too', () => {
-    const { on } = pair('mcp-tool-guard.sh', encodeEnvelope('gemini', 'BeforeTool', 'mcp-tool-guard', JSON.stringify({ tool_name: 'mcp_srv_tool' })));
+  test('the single-underscore Antigravity spelling is recorded too', () => {
+    const { on } = pair('mcp-tool-guard.sh', encodeEnvelope('antigravity', 'PreToolUse', 'mcp-tool-guard', JSON.stringify({ toolCall: { name: 'mcp_srv_tool' } })));
     assert.equal(lines(on).length, 1);
   });
   for (const [name, stdin] of [['malformed stdin', '{not json'], ['empty stdin', ''], ['a non-MCP tool', encodeEnvelope('claude', 'PreToolUse', 'mcp-tool-guard', JSON.stringify({ tool_name: 'Bash' }))]]) {
