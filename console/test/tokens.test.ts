@@ -20,6 +20,8 @@ const TOKENS_FILE = path.join(__dirname, '..', 'web', 'tokens.css');
 
 // ---- the design system (section 2) -------------------------------------------------------------
 
+/** The six states that sit on --surface-3 (design-system 3, V8 additions). */
+const V8_STATES = ['running', 'done', 'failed', 'stale', 'unknown', 'awaiting'];
 const STATES = ['running', 'awaiting', 'done', 'rejected', 'failed', 'skipped', 'pending', 'stale', 'unknown'];
 const NEUTRALS = ['bg', 'surface', 'surface-2', 'surface-3', 'border', 'border-strong', 'text', 'text-muted', 'accent', 'accent-tint', 'on-accent', 'focus', 'skeleton', 'skeleton-shine', 'scrim'];
 
@@ -120,6 +122,11 @@ function pairs(): Array<[string, string, number]> {
     for (const on of ['--surface', '--bg', '--surface-2', tint]) list.push([mark, on, 3]);
     list.push(['--focus', tint, 3]);
   }
+  // V8 Fleet (V.9, design-system 3): the 768 sheet and the E.3 side panel put state words and glyphs on --surface-3.
+  for (const state of V8_STATES) {
+    list.push([`--state-${state}-fg`, '--surface-3', 4.5]);
+    list.push([`--state-${state}-mark`, '--surface-3', 3]);
+  }
   return list;
 }
 
@@ -170,8 +177,8 @@ function checkTokens(css: string): string[] {
 
 const shipped = fs.readFileSync(TOKENS_FILE, 'utf8');
 
-test('the shipped tokens.css conforms: every token, dark parity, and all 246 contrast pairs', () => {
-  assert.equal(pairs().length, 123, '123 pairs per theme (design-system 3, with the CD-B10 pair)');
+test('the shipped tokens.css conforms: every token, dark parity, and all 270 contrast pairs', () => {
+  assert.equal(pairs().length, 135, '135 pairs per theme (design-system 3, with the CD-B10 pair and the 12 V8 pairs on --surface-3)');
   assert.deepEqual(checkTokens(shipped), []);
 });
 
@@ -187,6 +194,25 @@ test('control: one pair lowered under its bar turns the check red', () => {
   assert.notEqual(lowered, shipped, 'the mutation applied');
   const errors = checkTokens(lowered);
   assert.ok(errors.some((e) => e.startsWith('contrast: light --text-muted on --surface')), errors.join('\n'));
+});
+
+test('control: the 24 V8 pairs are checked: --surface-3 moved to a mid grey turns each state word and mark on it red, in the dark theme', () => {
+  const [head, tail] = shipped.split('[data-theme="dark"] {');
+  const lowered = `${head}[data-theme="dark"] {${tail.replace('--surface-3: #212A36;', '--surface-3: #5A6475;')}`;
+  assert.notEqual(lowered, shipped);
+  const errors = checkTokens(lowered);
+  for (const state of V8_STATES) {
+    assert.ok(errors.some((e) => e.startsWith(`contrast: dark --state-${state}-fg on --surface-3`)), `${state} fg on --surface-3 is checked`);
+    assert.ok(errors.some((e) => e.startsWith(`contrast: dark --state-${state}-mark on --surface-3`)), `${state} mark on --surface-3 is checked`);
+  }
+  const pairList = pairs().filter(([fg, bg]) => bg === '--surface-3' && fg.startsWith('--state-'));
+  assert.equal(pairList.length * 2, 24, '12 pairs per theme, 24 in all');
+});
+
+test('control: a V8 pair lowered under its bar in the light theme turns the check red', () => {
+  const lowered = shipped.replace('--state-unknown-mark: #7D8797;', '--state-unknown-mark: #B5BCC8;');
+  assert.notEqual(lowered, shipped);
+  assert.ok(checkTokens(lowered).some((e) => e.startsWith('contrast: light --state-unknown-mark on --surface-3')));
 });
 
 test('control: a dark-theme pair lowered under its bar turns the check red', () => {
@@ -222,6 +248,21 @@ test('tokens.css styles no element', () => {
   for (const rule of parseRules(shipped)) {
     assert.ok(/^(?::root(?::not\(\[data-theme="light"\]\))?|\[data-theme="dark"\])$/.test(rule.selector), `unexpected selector ${rule.selector}`);
   }
+});
+
+test('the pair list equals the count design-system section 3 states (when that file can be found)', (t) => {
+  const relative = path.join('agent-docs', 'doflow', '093-console-web-ui', 'design', 'design-system.md');
+  const repo = path.join(__dirname, '..', '..');
+  const found = [path.join(repo, relative), path.join(repo, '..', 'do-flow', relative)].find((file) => fs.existsSync(file));
+  if (!found) {
+    t.skip('design/design-system.md is not reachable from this checkout (it lives in the ignored agent-docs/ tree)');
+    return;
+  }
+  const doc = fs.readFileSync(found, 'utf8');
+  const stated = /That is (\d+) pairs per theme, (\d+) in all/.exec(doc);
+  assert.ok(stated, 'section 3 states its pair count');
+  assert.equal(pairs().length, Number(stated![1]));
+  assert.equal(pairs().length * 2, Number(stated![2]));
 });
 
 test('the token list matches section 2 of design/design-system.md (when that file can be found)', (t) => {

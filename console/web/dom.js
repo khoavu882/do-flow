@@ -62,6 +62,11 @@ const ICONS = {
       ['M18.5 3.5a2 2 0 1 0 4 0a2 2 0 1 0-4 0', 'ov-forced'],
     ],
   },
+  // The Fleet view (V.10, design ui/V8.md 7b.7): a tool call, a masked value, a jump to the newest events, a selected node.
+  tool: { paths: [['M10.5 2.5a3 3 0 0 0-2.8 4.1L2.5 11.8a1.2 1.2 0 0 0 1.7 1.7l5.2-5.2a3 3 0 0 0 4.1-2.8l-1.8 1.8-1.8-.5-.5-1.8Z']] },
+  masked: { paths: [['M2 8s2.2-4 6-4 6 4 6 4-2.2 4-6 4-6-4-6-4Z'], ['M3 13 13 3']] },
+  'arrow-down': { paths: [['M8 3v10'], ['M4 9l4 4 4-4']] },
+  'chevron-right': { paths: [['M6 4l4 4-4 4']] },
   'empty-rail': {
     box: 24,
     paths: [
