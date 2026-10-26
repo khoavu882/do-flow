@@ -1,0 +1,249 @@
+/*
+ * DoFlow Console design tokens (feature 093, plan task D.1).
+ * Source of truth: agent-docs/doflow/093-console-web-ui/design/design-system.md section 2.
+ * console/test/tokens.test.ts (IC-017) keeps this file and that section equal and re-proves every
+ * contrast pair of section 3. Change a value in both places, never here alone.
+ *
+ * Layout of this file:
+ *   1. :root                      theme-invariant tokens, then the light theme (the default)
+ *   2. [data-theme="dark"]        the dark theme, chosen with the header toggle
+ *   3. prefers-color-scheme dark  the same dark values for "System" on a dark OS; the light override
+ *                                 ([data-theme="light"]) opts out of it through :not()
+ *   4. prefers-reduced-motion     every duration becomes 0ms
+ *   5. width breakpoints          gutter, header height and target size per layout band
+ * Blocks 2 and 3 hold the same names and values (IC-017 checks it). No selector here styles an
+ * element: this file declares custom properties and color-scheme only.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Type: system stacks only (no font files under the CSP). */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --type-xs: 500 12px/16px var(--font-sans);
+  --type-sm: 400 14px/20px var(--font-sans);
+  --type-md: 400 16px/24px var(--font-sans);
+  --type-lg: 600 20px/28px var(--font-sans);
+  --type-xl: 650 28px/36px var(--font-sans);
+  --type-display: 700 40px/48px var(--font-sans);
+  --tracking-tight: -0.011em;
+  --tracking-display: -0.022em;
+  --tracking-caps: 0.06em;
+
+  /* Space (4 px base). */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+  --space-8: 64px;
+
+  /* Radius. */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-pill: 999px;
+
+  /* Motion. Block 4 sets every duration to 0ms. */
+  --motion-fast: 120ms;
+  --motion-base: 200ms;
+  --motion-slow: 480ms;
+  --motion-flash: 600ms;
+  --motion-pulse: 1600ms;
+  --motion-march: 1200ms;
+  --motion-shimmer: 1400ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  --ease-settle: cubic-bezier(0.34, 1.4, 0.64, 1);
+
+  /* Layout. Block 5 changes the responsive ones per band. */
+  --content-max: 1440px;
+  --prose-max: 72ch;
+  --gutter: 16px;
+  --header-h: 56px;
+  --target: 44px;
+  --target-min: 24px;
+  --focus-width: 2px;
+  --focus-offset: 2px;
+  --z-banner: 5;
+  --z-header: 10;
+  --z-panel: 20;
+  --z-skip: 30;
+
+  /* Light theme: neutrals. */
+  --bg: #F6F7F9;
+  --surface: #FFFFFF;
+  --surface-2: #EEF1F5;
+  --surface-3: #FFFFFF;
+  --border: #C3CAD5;
+  --border-strong: #6E7887;
+  --text: #141A23;
+  --text-muted: #4A5463;
+  --accent: #5B2FD0;
+  --accent-tint: #EFE9FD;
+  --on-accent: #FFFFFF;
+  --focus: #5B2FD0;
+  --skeleton: #EEF1F5;
+  --skeleton-shine: #F8F9FB;
+  --scrim: rgb(20 26 35 / 0.40);
+
+  /* Light theme: elevation. */
+  --elev-1: 0 1px 2px rgb(16 24 40 / 0.06), 0 1px 3px rgb(16 24 40 / 0.08);
+  --elev-2: 0 4px 12px rgb(16 24 40 / 0.12), 0 2px 4px rgb(16 24 40 / 0.06);
+
+  /* Light theme: run states (fg = text and icons, tint = background, mark = fills and lines). */
+  --state-running-fg: #1E4FC2;
+  --state-running-tint: #E6EEFD;
+  --state-running-mark: #2F64E0;
+  --state-awaiting-fg: #8A3B07;
+  --state-awaiting-tint: #FDF0D2;
+  --state-awaiting-mark: #B45309;
+  --state-done-fg: #13622F;
+  --state-done-tint: #DDF5E4;
+  --state-done-mark: #1E7F43;
+  --state-rejected-fg: #3A4250;
+  --state-rejected-tint: #E7EAEF;
+  --state-rejected-mark: #5A6474;
+  --state-failed-fg: #A61B1B;
+  --state-failed-tint: #FDE4E4;
+  --state-failed-mark: #D12C2C;
+  --state-skipped-fg: #4A5463;
+  --state-skipped-tint: #EEF1F5;
+  --state-skipped-mark: #6E7887;
+  --state-pending-fg: #4A5463;
+  --state-pending-tint: #FFFFFF;
+  --state-pending-mark: #7D8797;
+  --state-stale-fg: #5C4F3F;
+  --state-stale-tint: #F2ECE4;
+  --state-stale-mark: #8A7660;
+  --state-unknown-fg: #4A5463;
+  --state-unknown-tint: #EEF1F5;
+  --state-unknown-mark: #7D8797;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0C1016;
+  --surface: #141A22;
+  --surface-2: #1C242E;
+  --surface-3: #212A36;
+  --border: #3A4452;
+  --border-strong: #7D8797;
+  --text: #E7EBF1;
+  --text-muted: #A6B0BE;
+  --accent: #B69CFF;
+  --accent-tint: #2A2148;
+  --on-accent: #0C1016;
+  --focus: #B69CFF;
+  --skeleton: #1C242E;
+  --skeleton-shine: #26303C;
+  --scrim: rgb(0 0 0 / 0.56);
+  --elev-1: 0 1px 2px rgb(0 0 0 / 0.50), inset 0 1px 0 rgb(255 255 255 / 0.04);
+  --elev-2: 0 8px 24px rgb(0 0 0 / 0.50), inset 0 1px 0 rgb(255 255 255 / 0.06);
+  --state-running-fg: #8DB4FF;
+  --state-running-tint: #14264A;
+  --state-running-mark: #5B8DF5;
+  --state-awaiting-fg: #F7C04A;
+  --state-awaiting-tint: #33260A;
+  --state-awaiting-mark: #E0A526;
+  --state-done-fg: #6EDB94;
+  --state-done-tint: #0F2C1A;
+  --state-done-mark: #3FBF6C;
+  --state-rejected-fg: #C8CED7;
+  --state-rejected-tint: #262D37;
+  --state-rejected-mark: #8E98A6;
+  --state-failed-fg: #FF8A8A;
+  --state-failed-tint: #3A1515;
+  --state-failed-mark: #F05252;
+  --state-skipped-fg: #A6B0BE;
+  --state-skipped-tint: #1C242E;
+  --state-skipped-mark: #7D8797;
+  --state-pending-fg: #A6B0BE;
+  --state-pending-tint: #141A22;
+  --state-pending-mark: #7D8797;
+  --state-stale-fg: #D6C6B0;
+  --state-stale-tint: #2A241D;
+  --state-stale-mark: #A08C72;
+  --state-unknown-fg: #A6B0BE;
+  --state-unknown-tint: #1C242E;
+  --state-unknown-mark: #7D8797;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0C1016;
+    --surface: #141A22;
+    --surface-2: #1C242E;
+    --surface-3: #212A36;
+    --border: #3A4452;
+    --border-strong: #7D8797;
+    --text: #E7EBF1;
+    --text-muted: #A6B0BE;
+    --accent: #B69CFF;
+    --accent-tint: #2A2148;
+    --on-accent: #0C1016;
+    --focus: #B69CFF;
+    --skeleton: #1C242E;
+    --skeleton-shine: #26303C;
+    --scrim: rgb(0 0 0 / 0.56);
+    --elev-1: 0 1px 2px rgb(0 0 0 / 0.50), inset 0 1px 0 rgb(255 255 255 / 0.04);
+    --elev-2: 0 8px 24px rgb(0 0 0 / 0.50), inset 0 1px 0 rgb(255 255 255 / 0.06);
+    --state-running-fg: #8DB4FF;
+    --state-running-tint: #14264A;
+    --state-running-mark: #5B8DF5;
+    --state-awaiting-fg: #F7C04A;
+    --state-awaiting-tint: #33260A;
+    --state-awaiting-mark: #E0A526;
+    --state-done-fg: #6EDB94;
+    --state-done-tint: #0F2C1A;
+    --state-done-mark: #3FBF6C;
+    --state-rejected-fg: #C8CED7;
+    --state-rejected-tint: #262D37;
+    --state-rejected-mark: #8E98A6;
+    --state-failed-fg: #FF8A8A;
+    --state-failed-tint: #3A1515;
+    --state-failed-mark: #F05252;
+    --state-skipped-fg: #A6B0BE;
+    --state-skipped-tint: #1C242E;
+    --state-skipped-mark: #7D8797;
+    --state-pending-fg: #A6B0BE;
+    --state-pending-tint: #141A22;
+    --state-pending-mark: #7D8797;
+    --state-stale-fg: #D6C6B0;
+    --state-stale-tint: #2A241D;
+    --state-stale-mark: #A08C72;
+    --state-unknown-fg: #A6B0BE;
+    --state-unknown-tint: #1C242E;
+    --state-unknown-mark: #7D8797;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-base: 0ms;
+    --motion-slow: 0ms;
+    --motion-flash: 0ms;
+    --motion-pulse: 0ms;
+    --motion-march: 0ms;
+    --motion-shimmer: 0ms;
+  }
+}
+
+@media (min-width: 768px) {
+  :root {
+    --gutter: 24px;
+    --header-h: 64px;
+  }
+}
+
+@media (min-width: 1280px) {
+  :root {
+    --gutter: 32px;
+    --target: 32px;
+  }
+}
