@@ -34,6 +34,12 @@ const ICONS = {
   },
   info: { paths: [['M2 8a6 6 0 1 0 12 0a6 6 0 1 0-12 0'], ['M8 7.25v3.5'], ['M8 5v.25']] },
   close: { paths: [['M4.5 4.5l7 7M11.5 4.5l-7 7']] },
+  // The replay bar (E.4): play, pause, one event back, one event on, and the replay banner's mark.
+  play: { paths: [['M5 3.5v9l7.5-4.5Z', 'f']] },
+  pause: { paths: [['M5.5 3.5v9M10.5 3.5v9']] },
+  'step-back': { paths: [['M4.5 3.5v9'], ['M12 3.5 6.5 8l5.5 4.5Z', 'f']] },
+  'step-forward': { paths: [['M11.5 3.5v9'], ['M4 3.5 9.5 8 4 12.5Z', 'f']] },
+  replay: { paths: [['M3 8a5 5 0 1 1 1.46 3.54'], ['M3 13v-3h3']] },
   // Gate glyphs of the stage rail (E.1 note section 11): a diamond for approval, a hexagon for clarification, at 12 px on
   // a 16 box (home rows) and at 24 px (run rail, with the overlays CSS shows by state).
   'gate-approval-12': { paths: [['M8 1.5 14.5 8 8 14.5 1.5 8Z', 'shape']] },

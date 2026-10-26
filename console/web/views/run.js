@@ -9,6 +9,7 @@ import { renderRunRail, tickRunRail, releaseRail, toneOf } from './rail.js';
 import { runToken, formatDuration, liveDuration, clockHM, sinceStamp, stateWord } from '../derive/rail.js';
 import { deriveActivity, clauseWords, attemptChanges, finishedCounts } from '../derive/activity.js';
 import { deriveTimeline, axisDomain, tickMarks, mergeMarkers, position, rowCopy } from '../derive/timeline.js';
+import { withReplay, isReplaying, releaseReplay } from './replay.js';
 
 /** A change mark lasts one poll interval (reduced motion shows it as an outline), or until its animation ends. */
 const CHANGED_MS = 3000;
@@ -428,12 +429,23 @@ function timelineCard(tl, memory, ctx) {
 // ---- the view ---------------------------------------------------------------------------------------------------
 
 /**
- * The run route body: the rail section of E.1, the activity slot and the timeline.
+ * The run route body: the rail section of E.1, the activity slot and the timeline, with the replay bar of E.4 below them
+ * (E.2 section 6 reserves its place). A scrubbed body is drawn by `renderRunBody` like a live one.
  * @param {any} data `{ run, timeline, tasks, workflow }`
  * @param {{ slug: string, taskId: string }} params
  * @param {any} local the view instance's own memory
  */
 function renderRun(data, params, local) {
+  return withReplay(data, local, (view) => renderRunBody(view, params, local), { place: 'below' });
+}
+
+/**
+ * The live body of the run view, or the body at one replayed event (same shape).
+ * @param {any} data `{ run, timeline, tasks, workflow }`
+ * @param {{ slug: string, taskId: string }} params
+ * @param {any} local the view instance's own memory
+ */
+function renderRunBody(data, params, local) {
   const nowMs = Date.now();
   const row = data.run;
   const before = local.railPrev;
@@ -486,6 +498,7 @@ function disconnectTimeline(local) {
 function releaseRun(local) {
   disconnectTimeline(local);
   releaseRail(local);
+  releaseReplay(local);
 }
 
 /**
@@ -496,6 +509,8 @@ function releaseRun(local) {
  * @param {any} local
  */
 function tickRun(root, nowMs, local) {
+  // A replayed moment does not move: nothing on the page ticks until the person is back to live.
+  if (isReplaying(local)) return;
   tickRunRail(root, nowMs, local);
   const memory = local && local.run;
   if (!memory) return;

@@ -2041,3 +2041,118 @@ test('E.3 hostile text: a task id, owner and attempt owner reach the page as tex
   assert.equal(text(page.main.querySelector('.graph__lanename')), hostile);
   assert.ok(text(page.main.querySelector('.gattempt__owner')).startsWith(hostile));
 });
+
+// ---- E.4: the replay bar on the run view and the task graph ---------------------------------------------------------
+
+const replayEvents = () => [ev(60, 'start', null), ev(50, 'complete-stage', 'discovery', { outcome: 'passed' }), ev(40, 'decide-gate', 'gate-0', { decision: 'approve' }), ev(30, 'complete-stage', 'design', { outcome: 'passed' }), ev(20, 'complete-stage', 'planning', { outcome: 'passed' })];
+const replayOf = (page: Page): any => ({
+  bar: page.main.querySelector('.replay'), range: page.main.querySelector('.replay__range'), banner: page.main.querySelector('.replay__banner'),
+  read: text(page.main.querySelector('.replay__read')), button: (label: string): any => page.main.querySelectorAll('.replay__btn').find((b: El) => b.getAttribute('aria-label') === label),
+});
+const scrubTo = (page: Page, index: number) => { const { range } = replayOf(page); range.value = String(index); range.fire('input'); };
+
+test('E.4 run view: the bar sits below the timeline; scrubbing draws the rail and the slot at that event, with a banner; a poll keeps the place; play runs to the end; Back to live clears it', async () => {
+  mods.home.resetHome();
+  // Run events at 60, 50, 40, 30 and 20 min ago plus A.2 claimed (50) and finished (40), A.1 claimed (12): ten events.
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBodyWith(frow('run-1', 4), replayEvents(), GRAPH_PLAN())) });
+  const kids = page.main.querySelector('.view-body').children.filter((c: any) => c instanceof El).map((c: El) => c.className.split(' ')[0]);
+  assert.ok(kids.indexOf('replay') > kids.indexOf('replay-host'), `the bar is after the run view: ${kids}`);
+  const hosted = page.main.querySelector('.replay-host').children.filter((c: any) => c instanceof El).map((c: El) => c.className.split(' ')[0]);
+  assert.equal(hosted[hosted.length - 1], 'timeline', `and the timeline is the last thing in it: ${hosted}`);
+  let r = replayOf(page);
+  assert.equal(r.bar.getAttribute('data-mode'), 'live');
+  assert.equal(r.banner.getAttribute('hidden'), '', 'no banner while live');
+  assert.equal(r.read, 'Live · 8 events');
+  assert.equal(r.range.getAttribute('max'), '7');
+  assert.equal(page.main.querySelectorAll('.replay__tick').length, 8, 'one tick per event');
+  assert.equal(text(page.main.querySelector('.activity__name')), 'Name of gate-a');
+  assert.ok(r.button('Next event').getAttribute('disabled') !== null, 'live is the last event: there is no next');
+
+  scrubTo(page, 1);
+  r = replayOf(page);
+  assert.equal(r.bar.getAttribute('data-mode'), 'replay');
+  assert.equal(r.banner.getAttribute('hidden'), null);
+  assert.match(text(r.banner), /^Replaying .+ · event 2 of 8: discovery completed, passed$/);
+  assert.equal(text(page.main.querySelector('.activity__name')), 'Name of gate-0', 'the slot shows the gate the run stood at then');
+  assert.equal(page.main.querySelectorAll('.rail__item').filter((b: El) => b.getAttribute('data-state') === 'done').length, 1);
+
+  r.button('Next event').fire('click');
+  assert.match(text(replayOf(page).banner), /event 3 of 8: A\.2 attempt 1 started by quality-guardian$/);
+  scrubTo(page, 0);
+  assert.ok(replayOf(page).button('Previous event').getAttribute('disabled') !== null, 'no previous before the first event');
+
+  await advance(3_000);
+  assert.equal(replayOf(page).range.value, '0', 'a poll that changes the body keeps the place');
+  assert.equal(replayOf(page).bar.getAttribute('data-mode'), 'replay');
+
+  page.main.querySelector('.replay__speed[data-speed="16"]').fire('click');
+  assert.equal(page.main.querySelector('.replay__speed[data-speed="16"]').getAttribute('aria-pressed'), 'true');
+  replayOf(page).button('Play').fire('click');
+  assert.ok(replayOf(page).button('Pause'), 'play turns into pause');
+  await advance(1_000);
+  r = replayOf(page);
+  assert.equal(r.range.value, '7', 'it played to the last event');
+  assert.ok(r.button('Play'), 'and paused there');
+  assert.equal(r.bar.getAttribute('data-mode'), 'replay', 'the last event is still replay: Back to live leaves it');
+
+  page.main.querySelector('.replay__live').fire('click');
+  r = replayOf(page);
+  assert.equal(r.bar.getAttribute('data-mode'), 'live');
+  assert.equal(r.banner.getAttribute('hidden'), '');
+  assert.equal(text(page.main.querySelector('.activity__name')), 'Name of gate-a');
+});
+
+test('E.4 the graph: the bar sits above the board; scrubbing redraws the cards and lanes as they stood, and nothing is drawn without a plan', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1/tasks', fetch: graphRoute(GRAPH_PLAN) });
+  let r = replayOf(page);
+  assert.equal(r.read, 'Live · 4 events');
+  const kids = page.main.querySelector('.view-body').children.filter((c: any) => c instanceof El).map((c: El) => c.className.split(' ')[0]);
+  assert.ok(kids.indexOf('replay') < kids.indexOf('replay-host'), `the bar is above the board: ${kids}`);
+  assert.ok(page.main.querySelector('.replay-host').querySelector('.graph'), 'the board is in the replayed part');
+  const lanes = () => page.main.querySelectorAll('.glane__name').map(text);
+  const stateOfCard = (id: string) => gcardOf(page, id).getAttribute('data-state');
+  assert.deepEqual(lanes(), ['worker-a1 task', 'quality-guardian2 tasks', 'core-implementer1 task', 'unassigned2 tasks']);
+  assert.equal(stateOfCard('A.2'), 'done');
+
+  scrubTo(page, 0);
+  assert.deepEqual(lanes(), ['core-implementer2 tasks', 'quality-guardian2 tasks', 'unassigned2 tasks'], 'before any attempt the lanes are the declared owners');
+  assert.equal(stateOfCard('A.2'), 'pending');
+  assert.match(text(replayOf(page).banner), /^Replaying .+ · event 1 of 4: Run started$/);
+  scrubTo(page, 2);
+  assert.equal(stateOfCard('A.2'), 'done', 'A.2 finished at its second event');
+  assert.equal(stateOfCard('A.1'), 'pending', 'A.1 had not started');
+  gcardOf(page, 'A.2').fire('click');
+  assert.equal(text(page.main.querySelector('.graph__paneltitle')), 'A.2');
+  scrubTo(page, 3);
+  assert.equal(page.main.querySelector('.graph__paneltitle') && text(page.main.querySelector('.graph__paneltitle')), 'A.2', 'the open task stays open while scrubbing');
+  assert.equal(stateOfCard('A.1'), 'running');
+
+  page.main.querySelector('.replay__live').fire('click');
+  assert.deepEqual(lanes(), ['worker-a1 task', 'quality-guardian2 tasks', 'core-implementer1 task', 'unassigned2 tasks']);
+  assert.equal(replayOf(page).bar.getAttribute('data-mode'), 'live');
+});
+
+test('E.4 the graph on an older plan has no replay bar', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1/tasks', fetch: runRoute(() => runBodyWith(frow('run-1', 3), [ev(60, 'start', null)], null, { tasksReason: 'legacy-plan' })) });
+  assert.equal(page.main.querySelector('.replay'), null, 'an older plan has no graph to replay');
+  assert.ok(page.main.querySelector('.graph--empty'));
+});
+
+test('E.4 a run with no recorded event has no replay bar', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBodyWith(frow('run-1', 0), [], null)) });
+  assert.equal(page.main.querySelector('.replay'), null);
+  assert.ok(page.main.querySelector('.timeline'));
+});
+
+test('E.4 hostile text: a task id and an owner in the replay banner reach the page as text only', async () => {
+  mods.home.resetHome();
+  const hostile = '<img src=x onerror=alert(1)><script>alert(2)</script>';
+  const tasks = () => graphTasks([gtask('A.1', [], hostile)], [gstate('A.1', 'RUNNING', 'active-attempt', att(1, hostile, 'active', 12))]);
+  const page = await start({ hash: '#/run/feat-a/run-1/tasks', fetch: graphRoute(tasks) });
+  scrubTo(page, 1);
+  assert.ok(text(replayOf(page).banner).includes(hostile));
+  assert.ok(!tags(page.main).includes('img') && !tags(page.main).includes('script'));
+});
