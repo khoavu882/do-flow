@@ -11,6 +11,9 @@ const { buildAdviceDoctor } = require('../../src/runtime/advice/doctor.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const BIN = path.join(REPO_ROOT, 'bin/doflow.js');
+// `doctor` runs `<harness> --version` for every harness it finds on PATH (seconds each for some); these
+// tests read the advice sections only, so the spawned doctor sees node and the system tools and no harness.
+const DOCTOR_PATH = `${path.dirname(process.execPath)}:/usr/bin:/bin`;
 const kinds = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core/registry/advice.json'), 'utf8')).kinds.map((kind: any) => kind.id);
 
 function fixture(t: any, setting?: any) {
@@ -25,7 +28,7 @@ function fixture(t: any, setting?: any) {
     scratch, project, settingFile,
     write: (file: any, text: any, mode?: any) => write(file, text, mode),
     run: (json: any = false) => spawnSync(process.execPath, [BIN, 'doctor', project, ...(json ? ['--json'] : [])], {
-      cwd: project, encoding: 'utf8', env: scratch.env({ DOFLOW_CLI: BIN }),
+      cwd: project, encoding: 'utf8', env: scratch.env({ DOFLOW_CLI: BIN, PATH: DOCTOR_PATH }),
     }),
     start: async (routes: any = {}) => {
       const server = await spawnFakeServer({ routes, dir: scratch.dir }); servers.push(server); return server;

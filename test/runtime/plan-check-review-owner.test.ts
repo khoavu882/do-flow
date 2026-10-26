@@ -31,7 +31,9 @@ function project(t: any, text: any) {
   const planFile = path.join(dir, 'agent-docs', 'doflow', SLUG, 'plan.md');
   fs.mkdirSync(path.dirname(planFile), { recursive: true });
   fs.writeFileSync(planFile, text);
-  const run = (verb: any, args: any) => spawnSync(process.execPath, [CLI, verb, ...args], { cwd: dir, env, encoding: 'utf8' });
+  // plan-check cuts its text line at 200 characters, and an absolute scratch path alone is ~130 of them
+  // (the margin was one character), so the plan is named relative to the project the CLI runs in.
+  const run = (verb: any, args: any) => spawnSync(process.execPath, [CLI, verb, ...args.map((arg: any) => (arg === planFile ? path.relative(dir, planFile) : arg))], { cwd: dir, env, encoding: 'utf8' });
   return { dir, planFile, run };
 }
 
