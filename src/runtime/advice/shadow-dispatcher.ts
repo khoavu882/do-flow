@@ -16,6 +16,36 @@ interface DecisionPointContext {
   server?: string;
   projectRoot?: string;
   options?: Record<string, any>;
+  /** The client question set (IC-001 of the advice client) and its registry; without them the advisor answers unavailable. */
+  questionSet?: any;
+  adviceRegistry?: any;
+  staticAnswer?: string | null;
+}
+
+/**
+ * The advisor's pick for this decision, or null when it is unavailable. The dispatcher records the pick
+ * itself (IC-003), so the client is asked not to record a second one.
+ */
+async function askAdvisor(context: DecisionPointContext, services?: { adviceClient?: any; fsImpl?: any; roots?: any }): Promise<string | null> {
+  try {
+    const client = services?.adviceClient || createAdviceClient({
+      adviceRegistry: context.adviceRegistry,
+      roots: services?.roots,
+      fsImpl: services?.fsImpl,
+    });
+    const res = await client.ask({
+      questionSet: context.questionSet,
+      kind: context.kind,
+      staticAnswer: context.staticAnswer ?? context.staticPick,
+      caller: context.caller,
+      taskId: context.taskId ?? null,
+      record: false,
+    });
+    const pick = res?.status === 'answered' ? res.answers?.[0]?.pick : null;
+    return typeof pick === 'string' && pick ? pick : null;
+  } catch {
+    return null;
+  }
 }
 
 interface DecisionPointResolution {
@@ -74,20 +104,7 @@ async function interceptDecisionPoint(
   if (mode === 'shadow') {
     const runShadowQuery = async () => {
       const startQuery = Date.now();
-      let advisorPick: string | null = null;
-      try {
-        const client =
-          services?.adviceClient ||
-          createAdviceClient({
-            projectRoot: context.projectRoot,
-            fsImpl: services?.fsImpl,
-            roots: services?.roots,
-          });
-        const res = await client.ask(context.kind, context.state, { model: config.model });
-        advisorPick = res?.answer?.pick || res?.pick || null;
-      } catch {
-        advisorPick = null;
-      }
+      const advisorPick = await askAdvisor(context, services);
       const durationMs = Date.now() - startQuery;
 
       recordPick(
@@ -143,20 +160,7 @@ async function interceptDecisionPoint(
   if (!barPassed) {
     const runDegradedShadow = async () => {
       const startQuery = Date.now();
-      let advisorPick: string | null = null;
-      try {
-        const client =
-          services?.adviceClient ||
-          createAdviceClient({
-            projectRoot: context.projectRoot,
-            fsImpl: services?.fsImpl,
-            roots: services?.roots,
-          });
-        const res = await client.ask(context.kind, context.state, { model: config.model });
-        advisorPick = res?.answer?.pick || res?.pick || null;
-      } catch {
-        advisorPick = null;
-      }
+      const advisorPick = await askAdvisor(context, services);
       const durationMs = Date.now() - startQuery;
 
       recordPick(
@@ -198,20 +202,7 @@ async function interceptDecisionPoint(
 
   // Bench bar passed: synchronously query advisor and apply Elevation Invariant
   const startQuery = Date.now();
-  let advisorPick: string | null = null;
-  try {
-    const client =
-      services?.adviceClient ||
-      createAdviceClient({
-        projectRoot: context.projectRoot,
-        fsImpl: services?.fsImpl,
-        roots: services?.roots,
-      });
-    const res = await client.ask(context.kind, context.state, { model: config.model });
-    advisorPick = res?.answer?.pick || res?.pick || null;
-  } catch {
-    advisorPick = null;
-  }
+  const advisorPick = await askAdvisor(context, services);
   const durationMs = Date.now() - startQuery;
 
   const { effectiveDecision, elevated } = applyElevationInvariant(

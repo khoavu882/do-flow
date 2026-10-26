@@ -97,11 +97,26 @@ async function evaluateBenchBar(
 
   for (const c of cases) {
     if (c.staticPick === c.expected) staticHits++;
-    const mPick = c.modelPicks?.[model] ?? c.expected;
+  }
+  const staticBaselineAccuracy = Number((staticHits / cases.length).toFixed(4));
+
+  for (const [index, c] of cases.entries()) {
+    const mPick = c.modelPicks?.[model];
+    if (typeof mPick !== 'string' || !mPick) {
+      return {
+        kind,
+        model,
+        passed: false,
+        accuracy: 0,
+        staticBaselineAccuracy,
+        margin: 0,
+        heldoutCases: cases.length,
+        reason: `Benchmark case ${index + 1} has no prediction for model '${model}'`,
+      };
+    }
     if (mPick === c.expected) modelHits++;
   }
 
-  const staticBaselineAccuracy = Number((staticHits / cases.length).toFixed(4));
   const accuracy = Number((modelHits / cases.length).toFixed(4));
   const margin = Number((accuracy - staticBaselineAccuracy).toFixed(4));
   const passed = accuracy >= staticBaselineAccuracy && margin >= minMargin;

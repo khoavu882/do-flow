@@ -412,6 +412,30 @@ describe('IC-004: evaluateBenchBar (Bench Bar Gate Evaluator)', () => {
     assert.equal(typeof res.margin, 'number');
   });
 
+  test('fails bench bar when a heldout case has no prediction for the model', async () => {
+    const { repoRoot } = setupBenchEnv('tier', [
+      { id: '1', split: 'heldout', state: 's1', staticPick: 'light', expected: 'standard', modelPicks: { 'm:1b': 'standard' } },
+      { id: '2', split: 'heldout', state: 's2', staticPick: 'light', expected: 'frontier' },
+    ]);
+    const res = await evaluateBenchBar('tier', 'm:1b', { repoRoot, minMargin: 0.05 });
+    assert.equal(res.passed, false);
+    assert.equal(res.accuracy, 0);
+    assert.equal(res.staticBaselineAccuracy, 0);
+    assert.equal(res.heldoutCases, 2);
+    assert.equal(res.reason, "Benchmark case 2 has no prediction for model 'm:1b'");
+  });
+
+  test('passes bench bar only on measured predictions that beat the static baseline', async () => {
+    const { repoRoot } = setupBenchEnv('tier', [
+      { id: '1', state: 's1', staticPick: 'light', expected: 'standard', modelPicks: { 'm:1b': 'standard' } },
+      { id: '2', state: 's2', staticPick: 'frontier', expected: 'frontier', modelPicks: { 'm:1b': 'frontier' } },
+    ]);
+    const res = await evaluateBenchBar('tier', 'm:1b', { repoRoot, minMargin: 0.05 });
+    assert.equal(res.passed, true);
+    assert.equal(res.accuracy, 1);
+    assert.equal(res.staticBaselineAccuracy, 0.5);
+  });
+
   test('fails bench bar when heldout benchmark corpus is missing', async () => {
     const repoRoot = path.join(suiteTempDir('doflow-test-bench-missing-'), 'repo');
     const res = await evaluateBenchBar('unknown-kind', 'test-model', { repoRoot });
@@ -505,15 +529,18 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
   });
 
   test('mode act queries advisor and applies elevation invariant when bench bar passes', async () => {
+    // The advice client's reply shape (client.ts ask): { status, answers: [{ pick, ... }] }.
     const mockAdviceClient = {
-      ask: async () => ({ pick: 'standard' }),
+      ask: async () => ({ status: 'answered', answers: [{ pick: 'standard' }] }),
     };
 
+    // The bench bar passes explicitly: the committed corpus carries no model predictions, so it fails every model.
     const mockShadowConfig = {
       resolve: () => ({
         kind: 'tier',
         mode: 'act',
         model: 'verified-model:7b',
+        benchBarPassed: true,
       }),
     };
 
@@ -566,5 +593,63 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     assert.equal(res.mode, 'shadow', 'mode must degrade to shadow when bench bar fails');
     assert.equal(res.effectiveDecision, 'light', 'effective decision remains staticPick on degradation');
     assert.match(res.warning as string, /BENCH_BAR_UNMET/);
+  });
+
+  test('the advisor is asked with the advice client call shape and its answer is read from answers[0]', async () => {
+    const calls: any[] = [];
+    const questionSet = { state: baseContext.state, questions: [{ name: 'tier' }] };
+    const mockAdviceClient = {
+      ask: async (...args: any[]) => {
+        calls.push(args);
+        return { status: 'answered', answers: [{ pick: 'frontier' }] };
+      },
+    };
+    const res = await interceptDecisionPoint(
+      { ...baseContext, questionSet, adviceRegistry: { kinds: [] } },
+      {
+        adviceClient: mockAdviceClient,
+        shadowConfig: { kind: 'tier', mode: 'act', model: 'm', benchBarPassed: true },
+        fsImpl: { writeFileSync: () => {}, appendFileSync: () => {}, mkdirSync: () => {}, existsSync: () => true },
+      },
+    );
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].length, 1, 'ask takes one options object');
+    assert.deepEqual(calls[0][0], {
+      questionSet, kind: 'tier', staticAnswer: 'light', caller: 'brief-tools', taskId: 'task-abc', record: false,
+    });
+    assert.equal(res.advisorPick, 'frontier');
+    assert.equal(res.effectiveDecision, 'frontier');
+  });
+
+  test('an answer that is not status answered is no advisor pick', async () => {
+    const res = await interceptDecisionPoint(baseContext, {
+      adviceClient: { ask: async () => ({ status: 'unavailable', reason: 'timeout', answers: [] }) },
+      shadowConfig: { kind: 'tier', mode: 'act', model: 'm', benchBarPassed: true },
+      fsImpl: { writeFileSync: () => {}, appendFileSync: () => {}, mkdirSync: () => {}, existsSync: () => true },
+    });
+    assert.equal(res.advisorPick, null);
+    assert.equal(res.effectiveDecision, 'light');
+    assert.equal(res.elevated, false);
+  });
+
+  test('mode act on a corpus with no model predictions degrades to shadow (the bar is not passed by default)', async () => {
+    const repoRoot = path.join(suiteTempDir('doflow-test-bench-unmeasured-'), 'repo');
+    const benchPath = path.join(repoRoot, 'bench', 'advice', 'tier.json');
+    fs.mkdirSync(path.dirname(benchPath), { recursive: true });
+    fs.writeFileSync(benchPath, JSON.stringify({ kind: 'tier', cases: [
+      { id: '1', state: 's1', staticPick: 'light', expected: 'standard' },
+      { id: '2', state: 's2', staticPick: 'light', expected: 'frontier' },
+    ] }), 'utf8');
+    let asked = false;
+    const res = await interceptDecisionPoint({ ...baseContext, projectRoot: repoRoot }, {
+      adviceClient: { ask: async () => { asked = true; return { status: 'answered', answers: [{ pick: 'frontier' }] }; } },
+      shadowConfig: { kind: 'tier', mode: 'act', model: 'never-benched:1b' },
+      fsImpl: { readFileSync: fs.readFileSync, existsSync: fs.existsSync, writeFileSync: () => {}, appendFileSync: () => {}, mkdirSync: () => {} },
+    });
+    assert.equal(res.mode, 'shadow');
+    assert.equal(res.effectiveDecision, 'light');
+    assert.match(res.warning as string, /BENCH_BAR_UNMET: Benchmark case 1 has no prediction for model 'never-benched:1b'/);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(asked, true, 'the degraded shadow query still runs in the background');
   });
 });
