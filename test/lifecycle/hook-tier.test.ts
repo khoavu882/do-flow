@@ -55,8 +55,8 @@ function cell(t: any) {
   const hooksOf = () => ({
     claude: fs.existsSync(at('.claude', 'hooks')) || 'hooks' in JSON.parse(fs.readFileSync(at('.claude', 'settings.json'), 'utf8')),
     codex: fs.existsSync(at('.codex', 'hooks.json')),
-    kiro: fs.readdirSync(at('.kiro', 'agents')).filter((name) => name.endsWith('.json'))
-      .some((name) => 'hooks' in JSON.parse(fs.readFileSync(at('.kiro', 'agents', name), 'utf8'))),
+    kiro: fs.readdirSync(at('.kiro', 'agents')).filter((name: string) => name.endsWith('.json'))
+      .some((name: string) => 'hooks' in JSON.parse(fs.readFileSync(at('.kiro', 'agents', name), 'utf8'))),
     pi: fs.existsSync(at('.pi', 'extensions', 'doflow-guard.js')),
     tree: fs.existsSync(at('.doflow', 'shared', 'hooks')),
   });
