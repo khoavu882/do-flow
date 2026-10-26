@@ -58,6 +58,7 @@ These are `doflow` CLI commands, plus one `doflow-run` shell verb (`render-diagr
 | `list-backups` | List available backups |
 | `self-update` | git pull + reinstall |
 | `tools` | Inspect or manage registered external tools |
+| `ui` | Run the DoFlow Console, a separately installed package \(--port N; exit 2 when it is not installed\) |
 | `capabilities` | Show registered abstract capabilities and resolved providers |
 | `enforcement` | Report lifecycle policy enforcement coverage \(--harness, --policy\) |
 | `doctor` | System health and capability smoke check diagnostics |

@@ -2,7 +2,7 @@
 // doflow CLI — argument parsing, the installer command table, and dispatch.
 //
 // bin/doflow.js is only a forwarder into main() here. This module owns: parseArgs (verbatim from
-// the pre-extraction monolith), the ONE table mapping the nine installer command names to their
+// the pre-extraction monolith), the ONE table mapping the ten installer command names to their
 // handlers under commands/, and the runtime verbs' forwarding via ./runtime-commands — whose
 // implementations stay one-per-module in src/runtime/. Adding an installer command means a new
 // file in src/cli/commands/, an entry in COMMANDS, and an edit to test/guards/cli-boundary.test.js,
@@ -12,7 +12,7 @@ const {
   handleCapabilitiesCommand, handleReadinessCommand, handleEvidenceCommand,
   EVIDENCE_SCORE_FIELDS, scoreFieldRefusal,
 } = require('../runtime/cli.ts');
-const { pkg } = require('./shared.ts');
+const { pkg, REPO_ROOT } = require('./shared.ts');
 const { VALID: VALID_TARGETS, DEFAULT_TARGETS } = require('../install/targets.ts');
 const { dispatchRuntimeCommand } = require('./runtime-commands.ts');
 const { usageError } = require('../runtime/cli-result.ts');
@@ -27,6 +27,7 @@ const cmdTools = require('./commands/tools.ts');
 const cmdListBackups = require('./commands/list-backups.ts');
 const cmdRollback = require('./commands/rollback.ts');
 const cmdSelfUpdate = require('./commands/self-update.ts');
+const cmdUi = require('./commands/ui.ts');
 
 /** The installer command surface, written down once. The runtime verbs are dispatched separately
  * (see ./runtime-commands) because their namespace is owned by the doflow-run verb table. */
@@ -40,6 +41,8 @@ const COMMANDS: Record<string, (o: any) => any> = {
   'list-backups': cmdListBackups,
   rollback: cmdRollback,
   'self-update': cmdSelfUpdate,
+  // The launcher takes the core root as an argument so it loads nothing but three built-ins (092 IC-008).
+  ui: (o: any) => cmdUi(o, REPO_ROOT),
 };
 
 /** "skip all backup protection" must be an explicit, deliberate choice, never a default combo. */
@@ -417,6 +420,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--dir', 'dir'],                   // package --action new: authored package target directory
   ['--name', 'name'],                  // slot: the slot's name, 1 to 64 characters of a-z, 0-9 and - (115 IC-008)
   ['--label', 'label'],                // slot --action run: the holder's label, at most 80 characters (115 IC-008)
+  ['--port', 'port'],                  // ui: the Console's port, 0 to 65535, checked in commands/ui.ts (092 IC-008)
 ]);
 
 /** Repeatable arguments — each occurrence appends rather than replaces. */
@@ -512,6 +516,7 @@ Commands:
   list-backups         List available backups
   self-update          git pull + reinstall
   tools                Inspect or manage registered external tools
+  ui [<project>]       Run the DoFlow Console, a separately installed package (--port N; exit 2 when it is not installed)
   capabilities         Show registered abstract capabilities and resolved providers
   enforcement          Report lifecycle policy enforcement coverage (--harness, --policy)
   doctor               System health and capability smoke check diagnostics

@@ -1249,7 +1249,7 @@ directories. A ratchet does not forbid a change; it makes the change edit the gu
 commit, so each structural shift is a reviewed decision. `test/guards/cli-boundary.test.ts` keeps
 `bin/doflow.js` a thin forwarder with no command handler and no argument parser, and requires the
 `COMMANDS` table in `src/cli/index.ts` and the files in `src/cli/commands/` to name exactly the
-nine installer commands.
+ten installer commands.
 
 ### Upstream format-drift watcher
 
