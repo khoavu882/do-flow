@@ -395,6 +395,36 @@ test('084 C-6: the same request with no profile chosen still shows the legacy an
   assert.equal(result.asks, 1);
 });
 
+// The settings layers come from the `env` the caller passes, never from this process's environment.
+async function classifyInProcess(f: any, env: any) {
+  const { handleClassifyCommand } = require('../../src/runtime/task-classifier.ts');
+  let printed = '';
+  const oldLog = console.log;
+  const savedExit = process.exitCode;
+  console.log = (text: any) => { printed += `${text}\n`; };
+  try {
+    await handleClassifyCommand({ taskClass: 'bug', callingSkill: 'do', request: 'A broken behavior needs a repair.', projectRoot: f.project, env, json: true });
+  } finally { console.log = oldLog; process.exitCode = savedExit; }
+  return JSON.parse(printed).secondOpinion;
+}
+
+test('084: the passed env decides the user settings layer for classify, not the process environment', async (t) => {
+  const f = fixture(t);
+  const server = await f.startServer();
+  f.enable(server.origin);
+  const other = path.join(f.scratch.dir, 'other-xdg');
+  fs.mkdirSync(path.join(other, 'doflow'), { recursive: true });
+  fs.writeFileSync(path.join(other, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'advice.kinds.task-class': 'act', 'advice.enabled': false }));
+  const saved = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = other;
+  t.after(() => { if (saved === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = saved; });
+  const opinion = await classifyInProcess(f, f.scratch.env());
+  assert.equal(opinion.status, 'answered', 'advice.kinds.task-class is unset in the passed env, so the client answers as on the legacy path');
+  // control: the same file in the passed env's config home turns the kind off
+  const control = await classifyInProcess(f, f.scratch.env({ XDG_CONFIG_HOME: other }));
+  assert.notEqual(control.status, 'answered');
+});
+
 // 084 C-10: a set kind consumes the dispatcher's mode and effectiveDecision, never advisorPick alone.
 async function classifyWithDispatcher(t: any, f: any, resolution: any) {
   const dispatcher = require('../../src/runtime/advice/shadow-dispatcher.ts');

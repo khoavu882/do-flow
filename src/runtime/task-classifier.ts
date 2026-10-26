@@ -471,7 +471,7 @@ function handleClassifyCommand({ taskClass, rationale, proposedBy, callingSkill,
       try {
         const advice = loadAdviceRegistry({ repoRoot: REPO_ROOT });
         const storage = loadStorageRegistry({ repoRoot: REPO_ROOT });
-        const roots = resolveRoots({ registry: storage, projectRoot: path.resolve(projectRoot || process.cwd()) });
+        const roots = resolveRoots({ registry: storage, projectRoot: path.resolve(projectRoot || process.cwd()), env });
         const source = (name: any) => JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core/registry', name), 'utf8'));
         const sources = { workflows: source('workflows.json') };
         const built = materializeKind('task-class', { adviceRegistry: advice.ok ? advice.registry : null, sources });

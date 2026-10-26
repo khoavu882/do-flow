@@ -22,7 +22,9 @@ function fixture(t: any) {
   const featureDir = path.join(project, 'agent-docs/doflow/001-feature');
   fs.mkdirSync(featureDir, { recursive: true });
   fs.writeFileSync(path.join(featureDir, 'plan.md'), PLAN);
-  t.after(() => scratch.remove());
+  // In-process calls see the scratch HOME and config home too, never the developer's ~/.config/doflow.
+  scratch.apply();
+  t.after(() => { scratch.restore(); scratch.remove(); });
   return {
     scratch, project,
     run(args: any) { return spawnSync(process.execPath, [CLI, 'brief-tools', '--owner', 'core-implementer', '--tier', 'frontier', '--slug', '001-feature', '--json', ...args], { cwd: project, env: scratch.env(), encoding: 'utf8', timeout: 10000 }); },
@@ -241,6 +243,25 @@ test('084 D3: advice.kinds.tier act with a passing bench file in the project sti
   assert.match(actual.record.advice.reason, /^BENCH_BAR_UNMET: /);
   assert.deepEqual(pickRecords(f).map(({ type, mode, pick, model }: any) => ({ type, mode, pick, model })),
     [{ type: 'pick', mode: 'shadow', pick: 'light', model: 'clef-flash' }]);
+});
+
+// The settings layers come from the `env` the caller passes, never from this process's environment.
+test('084: the passed env decides the user settings layer, not the process environment', async (t) => {
+  const f = fixture(t);
+  const other = path.join(f.scratch.dir, 'other-xdg');
+  fs.mkdirSync(path.join(other, 'doflow'), { recursive: true });
+  fs.writeFileSync(path.join(other, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'advice.kinds.tier': 'act', 'advice.enabled': false }));
+  const saved = process.env.XDG_CONFIG_HOME;
+  process.env.XDG_CONFIG_HOME = other;
+  t.after(() => { if (saved === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = saved; });
+  const { actual, calls } = await invokeCounted(f, {});
+  assert.equal(calls.length, 1, 'advice.kinds.tier is unset in the passed env, so the client is asked as on the legacy path');
+  assert.equal(calls[0].record, undefined, 'the client records, as on the legacy path');
+  assert.equal(actual.record.advice.status, 'answered');
+  // control: the same file in the passed env's config home is read, and its advice.enabled false asks nothing
+  const set = await invokeCounted(f, { env: { XDG_CONFIG_HOME: other } });
+  assert.equal(set.calls.length, 0, 'the passed config home turns advice off');
+  assert.notEqual(set.actual.record.advice?.status, 'answered');
 });
 
 // 085 H1 on the unset-kinds path: a chosen profile whose advisor is off skips the client call.

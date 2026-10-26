@@ -345,8 +345,8 @@ async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLeve
       try {
         const adviceRegistry = loadAdviceRegistry({ repoRoot });
         const storageRegistry = loadStorageRegistry({ repoRoot });
-        const roots = resolveRoots({ registry: storageRegistry, projectRoot: path.resolve(projectRoot) });
-        if (adviceRegistry.ok && (adviceClient || resolveSetting({ adviceRegistry: adviceRegistry.registry, roots }).state === 'on')) {
+        const roots = resolveRoots({ registry: storageRegistry, projectRoot: path.resolve(projectRoot), env });
+        if (adviceRegistry.ok && (adviceClient || resolveSetting({ adviceRegistry: adviceRegistry.registry, roots, env }).state === 'on')) {
           const lines = taskLinesForAdvice({ projectRoot, feature: stage?.feature || slug, tasks: taskIds });
           const built = materializeKind('tier', { adviceRegistry: adviceRegistry.registry });
           const client = adviceClient || createAdviceClient({ adviceRegistry: adviceRegistry.registry, roots });

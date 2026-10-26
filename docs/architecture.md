@@ -1097,7 +1097,8 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   lifecycle tests.
 - **G44** (`settings.test.ts`) — settings registry consumers and references resolve, the `Settings keys` table
   matches defaults, scopes and environment names, config-home and lexical copies stay within their
-  checked rules, and the settings files remain declared storage stores (086 IC-014/015). The later-key
+  checked rules, every key a source reads is registered, a settings reader never drops the `env` its
+  function was given, and the settings files remain declared storage stores (086 IC-014/015). The later-key
   registration contract is exercised by `test/settings/register-key.test.ts` (IC-016).
 - **G45** (`telemetry-contract.test.ts`) — `core/registry/telemetry.json` is well
   formed and its keys per kind equal the keys the `TelemetryWriter`, the bridge and observer `printf`

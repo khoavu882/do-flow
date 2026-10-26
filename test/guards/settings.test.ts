@@ -462,3 +462,61 @@ test('G44 S7 control: an unregistered key read by a settings-file reader, and a 
   assert.deepEqual(missingAdviceKindKeys(advice, keys.filter((key) => key !== 'advice.models.mcp-need')),
     [`${SETTINGS_FILE} does not register advice.models.mcp-need`]);
 });
+
+// A function that takes an `env` resolves the storage roots and the settings layers from it, never from this process's
+// environment: `resolveRoots` and the settings readers default `env` to process.env, so a dropped `env` reads the
+// developer's real config home under a caller (a test, a worker) that passed a scratch one.
+const ENV_READERS = ['resolveRoots', 'resolveSetting', 'resolveShadowConfig', 'profileAdvisorCap', 'loadSettings'];
+
+function balanced(text: string, open: number): string {
+  let depth = 0;
+  for (let i = open; i < text.length; i++) {
+    const c = text[i];
+    if (c === '(' || c === '{' || c === '[') depth++;
+    else if (c === ')' || c === '}' || c === ']') { depth--; if (depth === 0) return text.slice(open, i + 1); }
+  }
+  return '';
+}
+
+/** Whether any named function whose body holds `at` (the call itself or a closure around it) takes an `env` parameter. */
+function enclosingTakesEnv(text: string, at: number): boolean {
+  for (const header of text.slice(0, at).matchAll(/\bfunction\b[^(]*\(/g)) {
+    const open = header.index + header[0].length - 1;
+    const params = balanced(text, open);
+    const bodyStart = text.indexOf('{', open + params.length);
+    if (bodyStart < 0 || bodyStart > at || bodyStart + balanced(text, bodyStart).length < at) continue;
+    if (/\benv\b/.test(params)) return true;
+  }
+  return false;
+}
+
+function droppedEnv(sources: any) {
+  const errors: string[] = [];
+  const call = new RegExp(`\\b(${ENV_READERS.join('|')})\\(`, 'g');
+  for (const { file, text } of sources) {
+    if (!/\.ts$/.test(file) || file.startsWith('src/runtime/settings/')) continue;
+    for (const match of text.matchAll(call)) {
+      const args = balanced(text, match.index + match[0].length - 1);
+      if (!/^\(\s*(?:'[^']*',\s*)?\{/.test(args) || /\benv\b/.test(args)) continue;
+      if (enclosingTakesEnv(text, match.index)) errors.push(`${file}:${text.slice(0, match.index).split('\n').length} ${match[1]} drops the env its function was given`);
+    }
+  }
+  return errors;
+}
+
+test('G44 S8: a function given an env passes it to every roots and settings reader it calls', () => {
+  assert.deepEqual(droppedEnv(walkSourceFiles(REPO, 'src')), []);
+});
+
+test('G44 S8 control: a reader call without the env its function took is rejected, and one with it passes', () => {
+  const planted = (args: string) => ({
+    file: 'src/runtime/fake-env.ts',
+    text: `function run({ projectRoot, env = process.env }: any) {\n  const roots = resolveRoots({ registry, projectRoot${args} });\n  return resolveShadowConfig('tier', { projectRoot${args}, roots });\n}\nfunction other({ projectRoot }: any) { return resolveRoots({ registry, projectRoot }); }\nfunction outer({ env }: any) {\n  async function inner() { return resolveRoots({ registry }); }\n}\n`,
+  });
+  assert.deepEqual(droppedEnv([planted('')]), [
+    'src/runtime/fake-env.ts:2 resolveRoots drops the env its function was given',
+    'src/runtime/fake-env.ts:3 resolveShadowConfig drops the env its function was given',
+    'src/runtime/fake-env.ts:7 resolveRoots drops the env its function was given',
+  ]);
+  assert.deepEqual(droppedEnv([planted(', env')]), ['src/runtime/fake-env.ts:7 resolveRoots drops the env its function was given'], 'a closure inside a function given env counts too');
+});
