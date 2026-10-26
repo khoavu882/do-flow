@@ -4,7 +4,7 @@
 
 // OpenCode adapter.
 //
-// OpenCode gets its own copy of DoFlow's skills tree, the same as Claude, Codex, and Gemini: it
+// OpenCode gets its own copy of DoFlow's skills tree, the same as Claude and Codex: it
 // natively discovers skills under `.opencode/skills/` (project) and `~/.config/opencode/skills/`
 // (global) without any settings entry, so the shared copy-tree engine in ../copy-tree.ts
 // materialises `skills.doflow` there directly. What remains registration, rather than
@@ -20,8 +20,7 @@ const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDes
 const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries.ts');
 
 // Only the marker constants: marker-merge.js reads and writes files itself, which cannot be used
-// from plan(), whose contract is to compute changes without touching disk. The gemini adapter
-// solves this the same way, with a pure managedInstruction() over strings.
+// from plan(), whose contract is to compute changes without touching disk.
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
 const { destructiveCommandGlobs } = require('../../helper/guardrails.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
@@ -108,9 +107,8 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
   }
 
   /** Replace only the span between DoFlow's markers, leaving everything else byte-identical.
-   * An AGENTS.md that exists without a DoFlow section is refused rather than appended to — the same
-   * policy the gemini adapter applies to GEMINI.md, and for the same reason: AGENTS.md is a shared,
-   * cross-tool file, so where DoFlow's content belongs inside it is a decision for its owner, not a
+   * An AGENTS.md that exists without a DoFlow section is refused rather than appended to:
+   * AGENTS.md is a shared, cross-tool file, so where DoFlow's content belongs inside it is a decision for its owner, not a
    * guess for the installer. Add an empty marker pair to opt in. */
   /** Opt-in (--permissions) guardrail projection: DoFlow's destructive-command blocklist lands as
    * deny rules under permission.bash. Only keys this feature owns (each carries a matching
@@ -260,7 +258,7 @@ function createOpenCodeAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS]
   /** OpenCode's settings-merge change has no asset of its own in core/registry/assets.json (it's a
    * registration side-effect of the instructions/mcp assets, not a projected asset), so it piggybacks
    * on a real asset id already routed to this harness — the same "pseudo-component" technique
-   * src/adapters/gemini/index.ts#hooksAssetId and src/adapters/kiro/index.ts#pseudoAssetId use. The
+   * src/adapters/kiro/index.ts#pseudoAssetId uses. The
    * lifecycle layer validates every change's assetId against the harness's actual asset list, so an
    * invented id like the literal string 'opencode.config' is rejected as unknown. */
   function pseudoAssetId(assets: any) {

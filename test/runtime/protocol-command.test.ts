@@ -13,11 +13,15 @@ const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 
-function scratch(t: any) {
+function scratch(t: any, userSettings: any = null) {
   const dir = tempDir(t, 'doflow-protocol-cli-');
   const home = path.join(dir, 'home');
   const cwd = path.join(dir, 'work');
   fs.mkdirSync(home);
+  if (userSettings) {
+    fs.mkdirSync(path.join(home, '.config', 'doflow'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.config', 'doflow', 'settings.json'), JSON.stringify({ schema: 1, ...userSettings }));
+  }
   // A project that already keeps DoFlow state is where upkeep would write its ignore file and marker.
   fs.mkdirSync(path.join(cwd, '.doflow', 'state'), { recursive: true });
   const env: any = {
@@ -59,9 +63,9 @@ test('resolve --kind review prints the enforcement line and carries the rows; a 
   const s = scratch(t);
   const res = s.cli(['--action', 'resolve', '--kind', 'review']);
   assert.equal(res.status, 0, res.stderr);
-  assert.match(res.stdout, /^protocol\.enforcement: reviewer native=claude,gemini,opencode,copilot,kiro unenforced=codex,pi,antigravity$/m);
+  assert.match(res.stdout, /^protocol\.enforcement: reviewer native=claude,opencode,copilot,kiro unenforced=codex,pi,antigravity$/m);
   const json = JSON.parse(s.cli(['--action', 'resolve', '--kind', 'review', '--json']).stdout);
-  assert.equal(json.protocol.enforcement.length, 8);
+  assert.equal(json.protocol.enforcement.length, 7);
   assert.deepEqual(json.protocol.enforcement.filter((row: any) => row.status === 'unenforced').map((row: any) => row.harness), ['codex', 'pi', 'antigravity']);
   const debate = JSON.parse(s.cli(['--action', 'resolve', '--kind', 'debate', '--json']).stdout);
   assert.deepEqual(debate.protocol.enforcement, []);
@@ -111,14 +115,28 @@ test('resolve --kind debate --preset debate-3 prints three rounds and the verifi
   assert.equal(protocol.origins.id, 'run');
 });
 
-test('resolve --kind review has no diff, so the scope is unknown and the protocol is the deep one; --task-class sets the floor', (t) => {
+test('maint-thin: with the shipped settings resolve --kind review is review-single, also for a feature', (t) => {
   const s = scratch(t);
+  for (const args of [[], ['--task-class', 'feature']]) {
+    const got = JSON.parse(s.cli(['--action', 'resolve', '--kind', 'review', ...args, '--json']).stdout);
+    assert.equal(got.protocol.id, 'review-single');
+    assert.equal(got.protocol.seats.length, 1);
+    assert.equal(got.protocol.rounds, 1);
+  }
+});
+
+test('under a user auto, resolve --kind review has no diff, so the scope is unknown and the protocol is the deep one; autopilot on sets the floor', (t) => {
+  const s = scratch(t, { 'review.preset': 'auto', 'autopilot.enabled': 'on' });
   const plain = JSON.parse(s.cli(['--action', 'resolve', '--kind', 'review', '--json']).stdout);
   assert.equal(plain.protocol.id, 'review-deep');
   assert.equal(plain.protocol.origins.id, 'risk');
   const low = JSON.parse(s.cli(['--action', 'resolve', '--kind', 'review', '--risk', 'LOW', '--task-class', 'feature', '--json']).stdout);
   assert.equal(low.protocol.id, 'review-deep');
   assert.ok(low.protocol.seats.length >= 2);
+  const floor = scratch(t, { 'autopilot.enabled': 'on' });
+  const unattended = JSON.parse(floor.cli(['--action', 'resolve', '--kind', 'review', '--task-class', 'feature', '--json']).stdout);
+  assert.equal(unattended.protocol.id, 'review-deep');
+  assert.equal(unattended.protocol.origins.id, 'floor');
 });
 
 test('list --json names all four presets and INV-1..INV-7', (t) => {
@@ -136,7 +154,7 @@ test('list --json names all four presets and INV-1..INV-7', (t) => {
 });
 
 test('a looser preset than the protocol needs is refused with exit 1', (t) => {
-  const s = scratch(t);
+  const s = scratch(t, { 'review.preset': 'auto' });
   const res = s.cli(['--action', 'resolve', '--kind', 'review', '--task-class', 'feature', '--preset', 'review-single']);
   assert.equal(res.status, 1, res.stderr);
   assert.match(res.stdout, /preset-looser/);

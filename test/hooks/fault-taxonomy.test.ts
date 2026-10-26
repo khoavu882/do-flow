@@ -62,7 +62,6 @@ function faultPolicy(fault: any, policy: any, root: any) {
 const bridgeRows: any = [
   ['claude', 'PreToolUse', 'pre-implementation-gate'],
   ['codex', 'PreToolUse', 'pre-implementation-gate'],
-  ['gemini', 'BeforeTool', 'pre-implementation-gate'],
   ['kiro', 'PreToolUse', 'pre-implementation-gate'],
   ['antigravity', 'PreToolUse', 'pre-implementation-gate'],
   ['pi', 'tool_call', 'pre-implementation-gate'],
@@ -73,7 +72,6 @@ const bridgeRows: any = [
 const shellDoors: any = [
   ['claude', '.claude/hooks/pre-implement-gate.sh', { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: 'src/a.js' } }],
   ['codex', '.codex/hooks/pre-implement-gate.sh', { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: 'src/a.js' } }],
-  ['gemini', '.gemini/hooks/pre-implement-gate.sh', { hook_event_name: 'BeforeTool', tool_name: 'write_file', tool_input: { file_path: 'src/a.js' } }],
   ['kiro', '.kiro/hooks/pre-implement-gate.sh', { hook_event_name: 'PreToolUse', toolName: 'Write', input: { path: 'src/a.js' } }],
 ];
 
@@ -127,7 +125,7 @@ function pathWithoutJq(t: any) {
   return bin;
 }
 
-test('IC-011 fault taxonomy follows both profiles on all six bridge identities', async (t) => {
+test('IC-011 fault taxonomy follows both profiles on all five bridge identities', async (t) => {
   const cases: any = [
     ['crash exit 1', 'crash-exit-1', 'eval-error:exit-1'],
     ['exit 127', 'exit-127', 'eval-error:exit-127'],
@@ -155,7 +153,7 @@ test('IC-011 fault taxonomy follows both profiles on all six bridge identities',
           let compatEffect = 'proceed';
           if (fault === 'missing-policy') compatEffect = 'proceed';
           else if (fault === 'crash-exit-1' || fault === 'exit-127') {
-            if (['claude', 'codex', 'gemini', 'antigravity', 'pi'].includes(harness)) compatEffect = 'block';
+            if (['claude', 'codex', 'antigravity', 'pi'].includes(harness)) compatEffect = 'block';
           } else if (fault === 'syntax-error') compatEffect = 'block';
           const expectedEffect = profile === 'strict-1' && BLOCKING.has(policy) ? 'block' : compatEffect;
           assert.equal(decision.effect, expectedEffect, 'IC-011 fault effect');
@@ -199,11 +197,9 @@ test('installed front doors exercise every blocking policy and native Stop fault
   const blockingDoors: any = [
     ...shellDoors.flatMap(([harness]: any) => {
       const hookRoot = `.${harness}/hooks/`;
-      const inputFor = (tool: any) => harness === 'gemini'
-        ? { hook_event_name: 'BeforeTool', tool_name: tool === 'Bash' ? 'run_shell_command' : tool === 'MCP' ? 'mcp_search' : 'write_file', tool_input: { command: 'echo ok', file_path: 'src/a.js' } }
-        : harness === 'kiro'
-          ? { hook_event_name: 'PreToolUse', toolName: tool === 'Bash' ? 'Shell' : tool === 'MCP' ? 'MCP' : 'Write', input: { command: 'echo ok', path: 'src/a.js' } }
-          : { hook_event_name: 'PreToolUse', tool_name: tool === 'Bash' ? 'Bash' : tool === 'MCP' ? 'mcp__test__search' : 'Edit', tool_input: { command: 'echo ok', file_path: 'src/a.js' } };
+      const inputFor = (tool: any) => harness === 'kiro'
+        ? { hook_event_name: 'PreToolUse', toolName: tool === 'Bash' ? 'Shell' : tool === 'MCP' ? 'MCP' : 'Write', input: { command: 'echo ok', path: 'src/a.js' } }
+        : { hook_event_name: 'PreToolUse', tool_name: tool === 'Bash' ? 'Bash' : tool === 'MCP' ? 'mcp__test__search' : 'Edit', tool_input: { command: 'echo ok', file_path: 'src/a.js' } };
       return [
         ['pre-implementation-gate', `${hookRoot}pre-implement-gate.sh`, inputFor('Edit')],
         ['pre-bash-guard', `${hookRoot}pre-bash-guard.sh`, inputFor('Bash')],
@@ -380,7 +376,6 @@ test('context faults stay invisible at each installed harness surface', (t) => {
   const contextDoors: any = [
     ['claude', '.claude/hooks/session-start.sh', { hook_event_name: 'SessionStart', source: 'startup' }],
     ['codex', '.codex/hooks/session-start.sh', { hook_event_name: 'SessionStart', cwd: '/tmp/project' }],
-    ['gemini', '.gemini/hooks/session-start.sh', { hook_event_name: 'SessionStart', session_id: 's' }],
     ['kiro', '.kiro/hooks/session-start.sh', { hook_event_name: 'SessionStart', session_id: 's' }],
   ];
   for (const [harness, hook, input] of contextDoors) {

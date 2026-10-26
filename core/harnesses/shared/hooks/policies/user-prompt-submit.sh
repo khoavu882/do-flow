@@ -3,7 +3,7 @@ case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # user-prompt-submit.sh — Canonical Policy Library: UserPromptSubmit hook
 #
 # 022-hooks-remaining-duplication: claude and codex's UserPromptSubmit policies share the same
-# context-gathering behavior. Gemini has no UserPromptSubmit-equivalent event in its native hook set.
+# context-gathering behavior.
 #
 # Emission (078 IC-004): this policy reads the payload, records its decisions and runs the nudge
 # classifier; doflow_emit_prompt (emission.sh) decides and renders the response. On the first

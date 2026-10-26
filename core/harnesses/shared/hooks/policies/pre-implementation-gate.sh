@@ -27,7 +27,7 @@ case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # Canonical Policy Script Contract (design.md §4):
 #   env    DOFLOW_PROJECT_DIR (repo root, if the front door sets it),
 #          DOFLOW_AGENT (harness id, informational only here),
-#          CLAUDE_CONFIG_DIR / CLAUDE_PROJECT_DIR / GEMINI_CONFIG_DIR / CODEX_HOME
+#          CLAUDE_CONFIG_DIR / CLAUDE_PROJECT_DIR / CODEX_HOME
 #          (each already read by the harness-specific dispatcher this policy
 #          replaces — kept so an unmodified front door still resolves its own
 #          harness's do-paths.sh resolver)
@@ -35,7 +35,7 @@ case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 #   exit   exit 2 + doflow_decide deny = deny; other faults per IC-011. A front
 #          door translates this into its native response shape.
 #
-# Reconciliation note (022-normalize-hooks, Phase A): claude/gemini/codex/kiro
+# Reconciliation note (022-normalize-hooks, Phase A): claude/codex/kiro
 # each shipped a separately-adapted copy of this gate; antigravity's copy
 # additionally never depended on a do-paths.sh resolver at all — it computed
 # feature_dir itself from the current branch name and checked the three
@@ -139,13 +139,11 @@ RESOLVER_CANDIDATES=(
   "$ROOT/.doflow/scripts/doflow/bash/do-paths.sh"
   "$ROOT/.claude/scripts/doflow/bash/do-paths.sh"
   "$ROOT/.codex/scripts/doflow/bash/do-paths.sh"
-  "$ROOT/.gemini/scripts/doflow/bash/do-paths.sh"
   "$ROOT/.kiro/scripts/doflow/bash/do-paths.sh"
   "$HOME/.doflow/scripts/doflow/bash/do-paths.sh"
   "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-paths.sh"
   "${CLAUDE_PROJECT_DIR:-}/.claude/scripts/doflow/bash/do-paths.sh"
   "${CODEX_HOME:-$HOME/.codex}/scripts/doflow/bash/do-paths.sh"
-  "${GEMINI_CONFIG_DIR:-$HOME/.gemini}/scripts/doflow/bash/do-paths.sh"
   "$HOME/.kiro/scripts/doflow/bash/do-paths.sh"
 )
 
@@ -247,18 +245,30 @@ real_path() {
 repo_real=$(cd -P "$repo_root" 2>/dev/null && pwd) || repo_real="$repo_root"
 
 # Only source files inside this repo are gated: edits to doflow artifacts are
-# always allowed, and an absolute path elsewhere is not this repo's.
+# always allowed, an absolute path elsewhere is not this repo's, and neither is a
+# path git ignores.
 GATED=false
 while IFS= read -r file; do
   [ -z "$file" ] && continue
   case "$file" in *"/agent-docs/"*|agent-docs/*) continue ;; esac
+  check="$file"
   case "$file" in
     /*)
       real=$(real_path "$file") || real="$file"
       case "$real" in *"/agent-docs/"*) continue ;; esac
       case "$real" in "$repo_real"/*) ;; *) continue ;; esac
+      check="$real"
       ;;
+    *) real=$(real_path "$repo_root/$file") || real="$repo_root/$file" ;;
   esac
+  # A path git ignores (a local config file such as .mcp.json) is not source. check-ignore
+  # without --no-index answers "not ignored" for a tracked file, so tracked source stays gated.
+  # The skip never applies to DoFlow's own state or gate artifacts: .doflow/ is gitignored, and
+  # skipping it would let an edit forge a readiness record. Any `.doflow` or `agent-docs/doflow`
+  # segment of the real path, or of the path as written (a `..` the resolver could not fold), keeps it gated.
+  case "/$file/" in */.doflow/*|*/agent-docs/doflow/*|*/../*) GATED=true; break ;; esac
+  case "${real#"$repo_real"}/" in */.doflow/*|*/agent-docs/doflow/*) GATED=true; break ;; esac
+  git -C "$repo_root" check-ignore -q -- "$check" 2>/dev/null && continue
   GATED=true
   break
 done <<< "$FILES"

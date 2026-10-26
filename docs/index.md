@@ -10,7 +10,6 @@ guidance, and guardrails that stay close to the repository.
 flowchart LR
     D[DoFlow] --> C[Claude Code]
     D --> X[Codex]
-    D --> G[Gemini CLI]
     D --> A[Antigravity CLI]
     D --> O[OpenCode]
     D --> P[Pi Coding Agent]
@@ -18,7 +17,6 @@ flowchart LR
     D --> K[Kiro]
     C --> H[Hooks & MCP]
     X --> S[AGENTS.md & skills]
-    G --> R[GEMINI.md & skills]
 ```
 
 ## What you get
@@ -37,7 +35,6 @@ flowchart LR
     Core[core/\ncanonical content] --> Installer[doflow CLI\nbin/doflow.js, src/cli/]
     Installer --> Claude[Claude Code\nCLAUDE.md, hooks, MCP]
     Installer --> Codex[Codex\nAGENTS.md, skills]
-    Installer --> Gemini[Gemini CLI\nGEMINI.md, skills]
     Installer --> Anti[Antigravity CLI\nAGENTS.md, skills]
     Installer --> OpenCode[OpenCode\nAGENTS.md, skills]
     Installer --> Pi[Pi Coding Agent\nAGENTS.md, skills]

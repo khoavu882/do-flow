@@ -81,13 +81,13 @@ test('budget-resolve: cap precedence: override > profile > task-class', () => {
 
 test('budget-resolve: harness identity precedence: flag > env > unstated', () => {
   // 1. Flag source
-  const bFlag = resolveBudget({ harnessFlag: 'claude', env: { DOFLOW_AGENT: 'gemini' } });
+  const bFlag = resolveBudget({ harnessFlag: 'claude', env: { DOFLOW_AGENT: 'codex' } });
   assert.equal(bFlag.harness.id, 'claude');
   assert.equal(bFlag.harness.source, 'flag');
 
   // 2. Env source (registered)
-  const bEnv = resolveBudget({ env: { DOFLOW_AGENT: 'gemini' } });
-  assert.equal(bEnv.harness.id, 'gemini');
+  const bEnv = resolveBudget({ env: { DOFLOW_AGENT: 'codex' } });
+  assert.equal(bEnv.harness.id, 'codex');
   assert.equal(bEnv.harness.source, 'env');
 
   // 3. Env unregistered
@@ -124,19 +124,19 @@ test('budget-resolve: capacity basis: declared vs unknown', () => {
   // Harness declared with unverified profile
   const mockUnverified: any = [
     {
-      id: 'gemini',
+      id: 'antigravity',
       contextProfile: {
         capacityTokens: { unverified: 'values belong to 085', verifiedOn: '2026-10-13' },
       },
     },
   ];
-  const bUnverified = resolveBudget({ harnessFlag: 'gemini', profiles: mockUnverified });
+  const bUnverified = resolveBudget({ harnessFlag: 'antigravity', profiles: mockUnverified });
   assert.deepEqual(bUnverified.capacity, { value: null, basis: 'unknown:values belong to 085' });
 
   // Harness declared with verified profile
   const mockVerified: any = [
     {
-      id: 'gemini',
+      id: 'antigravity',
       contextProfile: {
         capacityTokens: { value: 1000000, source: 'spec', verifiedOn: '2026-10-13' },
         reserveTokens: { value: 20000, source: 'spec', verifiedOn: '2026-10-13' },
@@ -144,15 +144,15 @@ test('budget-resolve: capacity basis: declared vs unknown', () => {
       },
     },
   ];
-  const bVerified = resolveBudget({ harnessFlag: 'gemini', profiles: mockVerified });
+  const bVerified = resolveBudget({ harnessFlag: 'antigravity', profiles: mockVerified });
   assert.deepEqual(bVerified.capacity, { value: 1000000, basis: 'declared:spec' });
   assert.equal(bVerified.toolResultLimitBytes, 65536);
 
   const bDeclaredProfile = resolveBudget({
     taskClass: 'feature',
-    harnessFlag: 'gemini',
+    harnessFlag: 'antigravity',
     profiles: mockVerified,
-    budgetsJson: { startupContext: [{ harness: 'gemini', tokensEst: 2500 }] },
+    budgetsJson: { startupContext: [{ harness: 'antigravity', tokensEst: 2500 }] },
   });
   assert.equal(bDeclaredProfile.source, 'profile');
   assert.equal(bDeclaredProfile.maxBytes, (1000000 - 2500 - 20000) * 4);

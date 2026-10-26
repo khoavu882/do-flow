@@ -1,6 +1,6 @@
 'use strict';
 // targets.js — target validation + install-dir resolution.
-// PARITY: sync.sh is global-only — $HOME/.{claude,codex,gemini}, hardcoded, NOT CLAUDE_CONFIG_DIR.
+// PARITY: sync.sh is global-only — $HOME/.{claude,codex}, hardcoded, NOT CLAUDE_CONFIG_DIR.
 // doflow extends this with a second, DoFlow-only scope: project-local install (this repo's own
 // .claude/ is a real precedent — Claude Code, Codex, and Copilot all support project-scoped config
 // alongside global, see agent-docs/research/context-setup-claude-codex-copilot.md).
@@ -15,25 +15,43 @@
 const os = require('node:os');
 const path = require('node:path');
 
-const VALID = ['claude', 'codex', 'gemini', 'copilot', 'kiro', 'opencode', 'pi', 'antigravity'];
+const VALID = ['claude', 'codex', 'copilot', 'kiro', 'opencode', 'pi', 'antigravity'];
 
 /** The target used when `--target` is omitted. Deliberately one harness, not all of VALID: an
  * install with no flag should touch the one tool the user almost certainly has, not write
  * configuration into every harness DoFlow knows about — several of which may not be installed at
  * all. That mattered less when VALID was three entries and matters more as it grows. Ask for the
- * rest explicitly with `--target claude,codex,gemini`. */
+ * rest explicitly with `--target claude,codex,antigravity`. */
 const DEFAULT_TARGETS = ['claude'];
 
 const TARGET_ALIASES: Record<string, string> = {
   agy: 'antigravity',
 };
 
-/** Default to DEFAULT_TARGETS; validate any explicitly requested. */
-function resolveTargets(requested: string[] | undefined): string[] {
+/** The registry's retired record for `id`, or null. The registry is read only for an id outside
+ * VALID, and a registry that cannot be read leaves the id unknown rather than failing differently. */
+function retiredTarget(id: string, registry: any): any {
+  const { loadRegistry, retiredFor } = require('../registry/index.ts');
+  if (!registry) {
+    const { REPO_ROOT } = require('../helper/repo-root.ts');
+    try { registry = loadRegistry({ repoRoot: REPO_ROOT }); } catch { return null; }
+  }
+  return retiredFor(registry, id);
+}
+
+/** Default to DEFAULT_TARGETS; validate any explicitly requested. A retired id (row 127 IC-002) is
+ * refused like an unknown one, naming its replacement. `registry` is for tests; omitted, the
+ * shipped registry is read. */
+function resolveTargets(requested: string[] | undefined, { registry }: { registry?: any } = {}): string[] {
   const rawTargets = requested && requested.length ? requested : [...DEFAULT_TARGETS];
   const targets = rawTargets.map((t) => TARGET_ALIASES[t] || t);
   for (const t of targets) {
     if (!VALID.includes(t)) {
+      const retired = retiredTarget(t, registry);
+      if (retired) {
+        const alias = Object.keys(TARGET_ALIASES).find((key) => TARGET_ALIASES[key] === retired.replacement);
+        throw new Error(`Target '${t}' was retired on ${retired.retiredOn}; use '${retired.replacement}'${alias ? ` (alias ${alias})` : ''}. Its DoFlow files are released by the next 'doflow install' or 'doflow update' in that scope.`);
+      }
       throw new Error(`Unknown target: '${t}' (valid: ${VALID.join(', ')})`);
     }
   }
@@ -47,16 +65,14 @@ interface ToolDirsOptions {
 
 /**
  * Map tool -> install root.
- *   global=true         -> $HOME/.{claude,codex,gemini,copilot,kiro,pi}, $HOME/.config/opencode
- *                          (sync.sh parity for claude/codex/gemini; the four new harnesses follow
- *                          each one's own documented global root — see below)
- *   global=false (dflt) -> <resolved projectRoot>/.{claude,codex,kiro,opencode,pi}, but .agents for
- *     gemini and .github for copilot — both deliberately asymmetric with their own global-scope
- *     directory, for reasons native to each harness (see per-key notes below).
+ *   global=true         -> $HOME/.{claude,codex,copilot,kiro,pi}, $HOME/.config/opencode
+ *                          (sync.sh parity for claude/codex; the other harnesses follow each one's
+ *                          own documented global root — see below)
+ *   global=false (dflt) -> <resolved projectRoot>/.{claude,codex,kiro,opencode,pi}, but .github for
+ *     copilot — deliberately asymmetric with its own global-scope directory, for reasons native to
+ *     the harness (see per-key notes below). antigravity has no entry: its adapter resolves its
+ *     own paths from core/registry/harnesses.json.
  *
- *   gemini   -> project-scoped Gemini config follows the Antigravity customization convention, not
- *               `.gemini/`, so it is asymmetric with its own global directory and with the other
- *               targets.
  *   copilot  -> Copilot has no single native root the way Claude's `.claude` is one: instructions,
  *               skills, agents, and MCP each live under a different path (see design.md §4's
  *               native-surfaces table). `.github` is the project root DoFlow treats as Copilot's
@@ -67,7 +83,7 @@ interface ToolDirsOptions {
  *               the clean, symmetric case.
  *   opencode -> Global config is `~/.config/opencode`, NOT `~/.opencode/` — a path DoFlow's own
  *               docs asserted incorrectly for several releases (see src/adapters/opencode/index.ts).
- *               Project scope is `.opencode`, asymmetric with the global path the same way gemini's
+ *               Project scope is `.opencode`, asymmetric with the global path the same way copilot's
  *               is.
  *   pi       -> Global config is `~/.pi/agent` — note the `agent/` segment; `~/.pi/settings.json`
  *               is not a location Pi reads. Project scope is `.pi` (see
@@ -79,7 +95,6 @@ function toolDirs(opts: ToolDirsOptions = {}): Record<string, string> {
   return {
     claude: path.join(root, '.claude'),
     codex: path.join(root, '.codex'),
-    gemini: global ? path.join(root, '.gemini') : path.join(root, '.agents'),
     copilot: global ? path.join(root, '.copilot') : path.join(root, '.github'),
     kiro: path.join(root, '.kiro'),
     opencode: global ? path.join(root, '.config', 'opencode') : path.join(root, '.opencode'),

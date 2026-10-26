@@ -111,23 +111,33 @@ function settingsPick({ kind, pick, settingsView, registry }: { kind: string; pi
 }
 
 /**
- * IC-003, in this order: (1) the risk rule, (2) the preset setting, (3) the run preset (Q-A1: compared with the
+ * IC-003, in this order: (1) the start pick (the risk rule under `auto`, else the thin default), (2) the preset setting, (3) the run preset (Q-A1: compared with the
  * pick of steps 1-2; advice raises only when there is no run preset), (4) advice, (5) the seat floor, (6) the knobs
  * of a review. A setting is never a refusal: a looser preset setting is ignored and listed in `disagreements`.
  * Returns `{ ok: true, protocol }` or `{ ok: false, reason, field }`.
  */
-function resolveProtocol({ kind, taskClass, risk, paths, runPreset, advicePick, settingsView, gatePolicy, registry, riskPolicy, agentAccess, readOnlyLimits }: any):
+function resolveProtocol({ kind, taskClass, risk, paths, runPreset, advicePick, settingsView, gatePolicy, unattended, registry, riskPolicy, agentAccess, readOnlyLimits }: any):
   { ok: true; protocol: any } | Refusal {
   const order: string[] = presetIds(registry, kind);
   const disagreements: any[] = [];
   let id: string | undefined;
   let idOrigin: Origin = 'registry';
 
-  // Step 1: the risk rule picks the review preset (as the old decideDepth did); a debate starts at debate-2.
+  // Step 1 (maint-thin): a review starts thin. Only an effective `review.preset` of `auto` runs the risk rule (as the
+  // old decideDepth did); otherwise the pick starts at the default-layer preset (the registry default, review-single)
+  // or, with no entry at all, the loosest core preset, and step 2 raises it to a stricter preset a layer set. A preset
+  // id this install does not have never reaches here from a run: loadProtocolInputs refuses it (settings-unavailable),
+  // so the review is blocked, which fails closed. A debate starts at debate-2.
   if (kind === 'review') {
-    const single = pathScope(riskPolicy, paths) === 'light' && typeof risk === 'string' && riskPolicy.singleRisks.includes(risk);
-    id = idOfDepth(registry, single ? 'single' : 'deep');
-    idOrigin = 'risk';
+    const entry = settingsView?.['review.preset'];
+    if (entry?.value === 'auto') {
+      const single = pathScope(riskPolicy, paths) === 'light' && typeof risk === 'string' && riskPolicy.singleRisks.includes(risk);
+      id = idOfDepth(registry, single ? 'single' : 'deep');
+      idOrigin = 'risk';
+    } else {
+      const shipped = entry && !setBy(settingsView, 'review.preset') && typeof entry.value === 'string' && order.includes(entry.value) ? entry.value : undefined;
+      id = shipped ?? order[order.length - 1];
+    }
   } else id = DEBATE_DEFAULT;
   if (id === undefined || !order.includes(id)) return { ok: false, reason: 'registry-incomplete', field: 'registry' };
 
@@ -162,7 +172,9 @@ function resolveProtocol({ kind, taskClass, risk, paths, runPreset, advicePick, 
   // contributed pick with too few seats first falls back to the core pick of steps 1-2 (IC-014), with a disagreement.
   let seats: any[] = registry.presets[id].seats.map((seat: any) => structuredClone(seat));
   let seatsOrigin: Origin = 'registry';
-  const needed = kind === 'review' ? gateMinSeats(gatePolicy, taskClass) : 0;
+  // maint-thin: the class floor binds only a review nobody attends (`unattended`: the autopilot switch is on, so its
+  // policy gate-b may decide the merge); a person-attended review follows the preset. Omitted reads as unattended.
+  const needed = kind === 'review' && unattended !== false ? gateMinSeats(gatePolicy, taskClass) : 0;
   if (seats.length < needed && !order.includes(id)) {
     disagreements.push({ field: 'id', by: 'floor', value: id, reason: 'seat-floor' });
     id = corePick;

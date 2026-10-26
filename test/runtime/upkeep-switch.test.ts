@@ -128,7 +128,11 @@ function fileCount(dir: any) {
   return fs.readdirSync(dir).filter((name: any) => fs.statSync(path.join(dir, name)).isFile()).length;
 }
 
+// `doctor` runs `<harness> --version` for every harness found on PATH; the two doctor tests read one
+// line of its report, so they run it with node and the system tools only.
+const DOCTOR_PATH = `${path.dirname(process.execPath)}:/usr/bin:/bin`;
 function runCli(cwd: any, args: any, env: any) {
+  if (args[0] === 'doctor') env = { ...env, PATH: DOCTOR_PATH };
   return spawnSync(process.execPath, [CLI, ...args], { cwd, env, encoding: 'utf8' });
 }
 

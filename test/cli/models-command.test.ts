@@ -257,7 +257,7 @@ test('workerPoolDoctorView reports unsynced when catalogue is absent', (t: any) 
   assert.equal(view.state, 'unsynced');
   assert.equal(view.models.listedCount, 0);
   assert.ok(Array.isArray(view.harnesses));
-  assert.equal(view.harnesses.length, 8);
+  assert.equal(view.harnesses.length, 7);
   for (const h of view.harnesses) {
     assert.equal(h.loginState, 'uncalibrated');
   }

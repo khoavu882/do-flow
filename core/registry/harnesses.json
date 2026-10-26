@@ -928,422 +928,6 @@
       }
     },
     {
-      "id": "gemini",
-      "displayName": "Gemini CLI",
-      "adapter": "gemini",
-      "scopes": [
-        "project",
-        "user"
-      ],
-      "nativeTargets": {
-        "instructions": "GEMINI.md",
-        "agents": ".gemini/agents",
-        "hooks": "settings.json"
-      },
-      "paths": {
-        "configDir": {
-          "project": {
-            "base": "root",
-            "segments": [
-              ".agents"
-            ]
-          },
-          "user": {
-            "base": "root",
-            "segments": [
-              ".gemini",
-              "config"
-            ]
-          }
-        },
-        "instruction": {
-          "project": {
-            "base": "root",
-            "segments": [
-              "GEMINI.md"
-            ]
-          },
-          "user": {
-            "base": "root",
-            "segments": [
-              ".gemini",
-              "GEMINI.md"
-            ]
-          }
-        },
-        "settings": {
-          "base": "root",
-          "segments": [
-            ".gemini",
-            "settings.json"
-          ]
-        },
-        "hooksDirectory": {
-          "base": "root",
-          "segments": [
-            ".gemini",
-            "hooks"
-          ]
-        }
-      },
-      "capabilities": {
-        "instructions": {
-          "status": "supported",
-          "evidence": [
-            "https://geminicli.com/docs/cli/gemini-md/"
-          ],
-          "verification": "Confirm GEMINI.md is loaded by Gemini CLI."
-        },
-        "skills": {
-          "status": "supported",
-          "evidence": [
-            "https://geminicli.com/docs/cli/skills/"
-          ],
-          "verification": "Confirm the installed skill is discoverable."
-        },
-        "agents": {
-          "status": "supported",
-          "evidence": [
-            "https://geminicli.com/docs/core/subagents"
-          ],
-          "note": "Flat <name>.md files; frontmatter limited to Gemini's documented keys by the gemini-agents transform.",
-          "verification": "Confirm Gemini CLI lists the installed agents from .gemini/agents."
-        },
-        "scripts": {
-          "status": "supported",
-          "evidence": [
-            "https://geminicli.com/docs/reference/tools",
-            "https://geminicli.com/docs/cli/creating-skills"
-          ],
-          "verification": "Confirm run_shell_command executes an installed helper and that a bundled skill scripts/ directory is reachable."
-        },
-        "templates": {
-          "status": "supported",
-          "evidence": [
-            "https://geminicli.com/docs/cli/creating-skills",
-            "https://geminicli.com/docs/cli/skills-best-practices"
-          ],
-          "verification": "Confirm the installed template tree is readable by the agent."
-        },
-        "modes": {
-          "status": "different",
-          "evidence": [
-            "https://geminicli.com/docs/cli/gemini-md/"
-          ],
-          "verification": "Confirm mode guidance is available through instructions."
-        },
-        "settings": {
-          "status": "different",
-          "evidence": [
-            "https://geminicli.com/docs/cli/settings/"
-          ],
-          "verification": "Verify only adapter-supported native settings."
-        },
-        "hooks": {
-          "status": "supported",
-          "evidence": [
-            "https://geminicli.com/docs/hooks/"
-          ],
-          "verification": "Exercise one installed hook event.",
-          "events": {
-            "SessionStart": {
-              "status": "supported"
-            },
-            "SessionEnd": {
-              "status": "supported"
-            },
-            "BeforeTool": {
-              "status": "supported"
-            },
-            "AfterTool": {
-              "status": "supported"
-            },
-            "PreCompress": {
-              "status": "supported"
-            },
-            "UserPromptSubmit": {
-              "status": "unavailable",
-              "note": "No Gemini equivalent; the nearest native hook is BeforeAgent, which fires once before planning and can block the turn or inject context — not a per-prompt pre-submission gate. DoFlow's once-per-session `/do` suggestion is not hook-delivered here and reaches this harness through skill descriptions only."
-            },
-            "Stop": {
-              "status": "unavailable",
-              "note": "No exact match; AfterAgent fires at agent-loop end and can halt or retry the turn, which is coarser than Claude's Stop."
-            },
-            "SubagentStart": {
-              "status": "unavailable",
-              "note": "BeforeAgent/AfterAgent bracket the whole agent loop; they are not subagent lifecycle events."
-            },
-            "SubagentStop": {
-              "status": "unavailable",
-              "note": "BeforeAgent/AfterAgent bracket the whole agent loop; they are not subagent lifecycle events."
-            },
-            "PostToolUseFailure": {
-              "status": "unavailable",
-              "note": "AfterTool fires regardless of outcome; failure cannot be isolated."
-            },
-            "PermissionDenied": {
-              "status": "unavailable",
-              "note": "Gemini exposes no permission-decision event."
-            }
-          }
-        },
-        "mcp": {
-          "status": "different",
-          "evidence": [
-            "https://geminicli.com/docs/tools/mcp-server/"
-          ],
-          "verification": "Verify only adapter-supported MCP registration."
-        },
-        "plugin": {
-          "status": "different",
-          "evidence": [
-            "https://geminicli.com/docs/extensions/",
-            "https://geminicli.com/docs/extensions/reference",
-            "https://geminicli.com/docs/cli/settings/"
-          ],
-          "note": "Extensions (gemini-extension.json) now package skills, hooks, sub-agents, and MCP; security.blockGitExtensions/allowedExtensions can gate Git-sourced installs. Context: Google sunset Gemini CLI for consumer tiers on 2026-06-18 — enterprise/paid-API use only; Antigravity CLI (GA 2026-05-19, antigravity.google/docs/gcli-migration) is the successor surface carrying skills/hooks/subagents/plugins.",
-          "verification": "Verify extensions through the native host workflow."
-        }
-      },
-      "orchestration": {
-        "spawn": {
-          "status": "supported",
-          "evidence": [
-            "https://geminicli.com/docs/core/subagents → \"When the main agent calls the tool, it delegates the task to the subagent.\"",
-            "https://geminicli.com/docs/core/subagents → \"You can explicitly direct a task to a specific subagent by using the @ symbol followed by the subagent's name at the beginning of your prompt.\""
-          ],
-          "verification": "Prompt with @<subagent> and confirm the subagent runs.",
-          "verifiedOn": "2026-10-12"
-        },
-        "wait": {
-          "status": "supported",
-          "evidence": [
-            "https://geminicli.com/docs/core/subagents → \"Once the subagent completes its task, it reports back to the main agent with its findings.\""
-          ],
-          "verification": "Delegate a task and confirm the main agent continues from the subagent report.",
-          "verifiedOn": "2026-10-12"
-        },
-        "status": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Re-read https://geminicli.com/docs/core/subagents and the Gemini CLI changelog for a status operation.",
-          "verifiedOn": "2026-10-12",
-          "fallback": "sequential",
-          "reason": "https://geminicli.com/docs/core/subagents was read on 2026-10-12 and does not state a status operation; nothing is inferred from another harness or a model name."
-        },
-        "cancel": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Re-read https://geminicli.com/docs/core/subagents for a stop operation.",
-          "verifiedOn": "2026-10-12",
-          "fallback": "sequential",
-          "reason": "https://geminicli.com/docs/core/subagents was read on 2026-10-12 and does not state a cancel operation; nothing is inferred from another harness or a model name."
-        },
-        "resume": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Re-read https://geminicli.com/docs/core/subagents for a resume operation.",
-          "verifiedOn": "2026-10-12",
-          "fallback": "manual",
-          "reason": "https://geminicli.com/docs/core/subagents was read on 2026-10-12 and does not state a resume operation; nothing is inferred from another harness or a model name."
-        },
-        "nest": {
-          "status": "unsupported",
-          "evidence": [
-            "https://geminicli.com/docs/core/subagents → \"subagents cannot call other subagents.\""
-          ],
-          "verification": "Re-read https://geminicli.com/docs/core/subagents for whether the no-nesting rule still holds.",
-          "verifiedOn": "2026-10-23",
-          "fallback": "sequential"
-        }
-      },
-      "agentLimits": {
-        "readOnly": {
-          "status": "native",
-          "apply": {
-            "tools": [
-              "read_file",
-              "read_many_files",
-              "list_directory",
-              "glob",
-              "grep_search",
-              "run_shell_command",
-              "web_fetch",
-              "google_web_search"
-            ]
-          },
-          "evidence": [
-            "https://geminicli.com/docs/core/subagents"
-          ],
-          "checked": "docs",
-          "verifiedOn": "2026-10-23"
-        }
-      },
-      "worker": {
-        "profile": null,
-        "billing": "unknown",
-        "cli": {
-          "status": "supported",
-          "evidence": [
-            "bench/inventory/coverage.json → gemini --version → 0.55.1"
-          ],
-          "verification": "Run `gemini --version` and compare the output with bench/inventory/coverage.json.",
-          "verifiedOn": "2026-10-12",
-          "binary": "gemini",
-          "versionArgv": [
-            "--version"
-          ]
-        },
-        "oneShot": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for gemini: no free check has captured its one-shot headless flag or how it reads a prompt"
-        },
-        "structuredOutput": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no captured gemini transcript: its event schema has no parser, and a parser waits for a transcript from its own probe"
-        },
-        "readOnly": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
-        },
-        "spawnDenial": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no recorded evidence for gemini: no free check shows a flag that disables subagent spawning"
-        },
-        "runnableProbe": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
-        },
-        "hooksProbe": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
-        },
-        "guidanceProbe": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
-        },
-        "loginProbe": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
-        },
-        "persistentSession": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
-        },
-        "resume": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
-        },
-        "steering": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag and its source",
-          "verifiedOn": "2026-10-15",
-          "reason": "no in-repository evidence names this for gemini; nothing is inferred from another harness or a model name"
-        },
-        "isolatedEdit": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag that confines edits to the working directory and its source",
-          "verifiedOn": "2026-10-16",
-          "reason": "no recorded evidence for gemini: no free check shows a flag that confines edits to the working directory"
-        },
-        "model": {
-          "status": "unknown",
-          "evidence": [],
-          "verification": "Read gemini's headless CLI documentation and `gemini --help`; record the flag that selects the model and its source",
-          "verifiedOn": "2026-10-24",
-          "reason": "no recorded evidence for gemini: no free check shows a flag that selects the model"
-        },
-        "modelChecks": []
-      },
-      "contextProfile": {
-        "capacityTokens": {
-          "value": 1000000,
-          "source": "ai.google.dev/gemini-api/docs/models/gemini-1.5-pro",
-          "verifiedOn": "2026-10-20"
-        },
-        "reserveTokens": {
-          "value": 50000,
-          "source": "ai.google.dev/gemini-api/docs/models/gemini-1.5-pro",
-          "verifiedOn": "2026-10-20"
-        },
-        "tokenTelemetry": {
-          "value": "none",
-          "source": "delivery-store.ts:10",
-          "verifiedOn": "2026-10-20"
-        },
-        "toolResultLimitBytes": {
-          "value": 1048576,
-          "source": "gemini cli default execution buffer",
-          "verifiedOn": "2026-10-20"
-        },
-        "retention": {
-          "value": "unsupported",
-          "source": "src/adapters/gemini/hooks.ts:27-29 (no prompt hook mapped)",
-          "verifiedOn": "2026-10-20"
-        }
-      },
-      "scopePrecedence": {
-        "status": "established",
-        "order": [
-          "user",
-          "project"
-        ],
-        "evidence": [
-          "https://geminicli.com/docs/cli/gemini-md/"
-        ],
-        "note": "The CLI loads context files in the following order: (1) global context file at ~/.gemini/GEMINI.md, (2) environment/workspace context files (project directory and its parents), (3) just-in-time files read on demand from directories a tool touches. The page states this loading order but explicitly does not state a conflict-resolution rule -- contents are concatenated and sent to the model together. Order here reflects DoFlow's two tracked scopes; the documented third, finer-grained JIT tier is omitted. The load order is documented but the page explicitly states no conflict-resolution rule and describes contents being concatenated and sent together, so no copy can be said to win. Order established, winner not.",
-        "determinedOn": "2026-09-27",
-        "mode": "unestablished"
-      },
-      "primaryProbe": {
-        "model": "none",
-        "events": [],
-        "status": "unverified",
-        "evidence": [],
-        "verifiedOn": null,
-        "reason": "The hook payload carries no model; the declaration is the only source (declared-only)."
-      },
-      "nativeTelemetry": {
-        "signals": [],
-        "contentDefaults": "metadata-only",
-        "inboundTraceparent": "unsupported",
-        "joinKey": "session_id",
-        "verifiedOn": "2026-10-20"
-      }
-    },
-    {
       "id": "opencode",
       "displayName": "OpenCode",
       "adapter": "opencode",
@@ -2355,7 +1939,7 @@
             "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli",
             "https://docs.github.com/en/copilot/reference/custom-agents-configuration"
           ],
-          "note": "The on-disk agent file format is `.agent.md` with YAML frontmatter, confirmed against the custom-agents-configuration reference: a required `description`, optional `name`, `tools`, `model`, `target` (`vscode` or `github-copilot`), `disable-model-invocation`, `user-invocable`, `mcp-servers`, `metadata` and `include-custom-instructions` (follow repository custom instructions when run as a subagent) fields; `infer` is retired in favour of `disable-model-invocation` and `user-invocable`, with the Markdown body below the frontmatter as the agent's instructions. The adapter renames each core/shared/agent-specs/<name>.md file to <name>.agent.md via copy-tree's layout mechanism on the way out; unrecognized frontmatter keys pass through untouched, the same posture Claude/Codex/Gemini's agent projections already take.",
+          "note": "The on-disk agent file format is `.agent.md` with YAML frontmatter, confirmed against the custom-agents-configuration reference: a required `description`, optional `name`, `tools`, `model`, `target` (`vscode` or `github-copilot`), `disable-model-invocation`, `user-invocable`, `mcp-servers`, `metadata` and `include-custom-instructions` (follow repository custom instructions when run as a subagent) fields; `infer` is retired in favour of `disable-model-invocation` and `user-invocable`, with the Markdown body below the frontmatter as the agent's instructions. The adapter renames each core/shared/agent-specs/<name>.md file to <name>.agent.md via copy-tree's layout mechanism on the way out; unrecognized frontmatter keys pass through untouched, the same posture Claude/Codex's agent projections already take.",
           "verification": "Confirm an installed custom agent under ~/.copilot/agents or .github/agents is discoverable and selectable by Copilot CLI."
         },
         "scripts": {
@@ -3119,6 +2703,13 @@
             "segments": [
               "AGENTS.md"
             ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".gemini",
+              "GEMINI.md"
+            ]
           }
         },
         "mcpFile": {
@@ -3537,6 +3128,44 @@
         "inboundTraceparent": "unsupported",
         "joinKey": "session_id",
         "verifiedOn": "2026-10-20"
+      }
+    }
+  ],
+  "retired": [
+    {
+      "id": "gemini",
+      "displayName": "Gemini CLI",
+      "replacement": "antigravity",
+      "retiredOn": "2026-10-26",
+      "reason": "Gemini CLI was replaced upstream by Antigravity CLI on 2026-06-18 and is not optimized for Gemini 4 Argon.",
+      "evidence": [
+        "user statement 2026-10-26 (row 127)"
+      ],
+      "removal": {
+        "hookCommands": {
+          "renderer": "gemini-hooks",
+          "key": "hooks",
+          "commands": [
+            "bash \"$GEMINI_PROJECT_DIR/.gemini/hooks/session-start.sh\"",
+            "bash \"$GEMINI_PROJECT_DIR/.gemini/hooks/session-end.sh\"",
+            "bash \"$GEMINI_PROJECT_DIR/.gemini/hooks/pre-bash-guard.sh\"",
+            "bash \"$GEMINI_PROJECT_DIR/.gemini/hooks/mcp-tool-guard.sh\"",
+            "bash \"$GEMINI_PROJECT_DIR/.gemini/hooks/pre-implement-gate.sh\"",
+            "bash \"$GEMINI_PROJECT_DIR/.gemini/hooks/post-edit-lint.sh\"",
+            "bash \"$GEMINI_PROJECT_DIR/.gemini/hooks/pre-compact.sh\""
+          ]
+        },
+        "markerSectionRenderers": [
+          "gemini-instructions"
+        ],
+        "handover": [
+          {
+            "renderer": "gemini-instructions",
+            "scope": "global",
+            "to": "antigravity",
+            "surface": "instruction"
+          }
+        ]
       }
     }
   ]

@@ -26,6 +26,8 @@ function setup(t: any): any {
   const calls: any = [];
   const options: any = { root, artifactRoot, row, rows: [row], policy: loadPolicy(baseBytes).policy,
     developHead: PARENT, featureHead: HEAD,
+    // The gate-b review-settings fact reads the user settings layer: pin it to a scratch HOME, never the developer's.
+    env: { ...process.env, HOME: path.join(root, 'home'), XDG_CONFIG_HOME: path.join(root, 'xdg') },
     gitFacts: { developHead: PARENT, merges: [], branches: [], claims: [], unreadable: [] },
     execFileSync: (binary: any, vector: any) => {
       assert.equal(binary, 'git'); calls.push(vector);
@@ -153,12 +155,12 @@ test('D.3: gate-b gathers the project review.sameFamily as a review-settings fac
     converged: [{ id: 'C1', from: [], severity: 'blocker', locator: 'src/x.ts:1', status: 'fixed', fixedIn: PARENT }] };
   env.write(`agent-docs/doflow/${row.slug}/review/findings.json`, JSON.stringify(withFamilies));
   const absent = env.gather('gate-b', { env: sandbox });
-  assert.deepEqual(settingsFact(absent).value, { sameFamily: 'warn', preset: 'auto' });
+  assert.deepEqual(settingsFact(absent).value, { sameFamily: 'warn', preset: 'review-single' }, 'maint-thin: the shipped default');
   assert.equal(settingsFact(absent).unreadable, undefined);
   assert.equal(absent.find((f: any) => f.name === 'dispositions').value.schemaValid, true);
   env.write('.doflow/settings.json', JSON.stringify({ schema: 1, 'review.sameFamily': 'refuse' }));
   const refuse = env.gather('gate-b', { env: sandbox });
-  assert.deepEqual(settingsFact(refuse).value, { sameFamily: 'refuse', preset: 'auto' });
+  assert.deepEqual(settingsFact(refuse).value, { sameFamily: 'refuse', preset: 'review-single' });
   assert.equal(refuse.find((f: any) => f.name === 'dispositions').value.schemaValid, false);
   assert.ok(evaluate(env.options.policy, 'feature', 'gate-b', refuse).reasons.includes('findings-invalid'));
   assert.equal(env.gather('gate-0', { env: sandbox }).some((f: any) => f.name === 'review-settings'), false, 'read only when a findings predicate is in use');
@@ -383,7 +385,8 @@ test('verify-pass-on-head reads the run record where verify appends it: the main
   fs.writeFileSync(path.join(main, '.doflow/state/verification/runs', `${row.slug}.jsonl`), record);
   const policy = loadPolicy(baseBytes).policy; policy.classes.feature['gate-b'].predicates = ['verify-pass-on-head'];
   const input = gatherGateFacts({ root: feature, artifactRoot: path.join(feature, 'agent-docs/doflow', row.slug), row, rows: [row], policy,
-    gateId: 'gate-b', developHead: PARENT, featureHead: HEAD });
+    gateId: 'gate-b', developHead: PARENT, featureHead: HEAD,
+    env: { ...process.env, HOME: path.join(main, 'home'), XDG_CONFIG_HOME: path.join(main, 'xdg') } });
   assert.equal(evaluate(policy, 'feature', 'gate-b', input).decision, 'pass');
   assert.equal(fs.realpathSync(input.find((f: any) => f.name === 'verification').locator), fs.realpathSync(path.join(main, '.doflow/state/verification/runs', `${row.slug}.jsonl`)));
 });
@@ -411,7 +414,8 @@ test('git facts read the develop branch, never a tag named develop, and carry no
   assert.deepEqual(facts.merges.map((m: any) => m.rowTrailer), ['113']);
   assert.equal('claims' in facts, false);
   const policy = loadPolicy(baseBytes).policy; policy.classes.feature['gate-b'].predicates = ['verify-pass-on-head'];
-  const input = gatherGateFacts({ root, artifactRoot: path.join(root, 'agent-docs/doflow', row.slug), row, rows: [row], policy, gateId: 'gate-b', featureHead });
+  const input = gatherGateFacts({ root, artifactRoot: path.join(root, 'agent-docs/doflow', row.slug), row, rows: [row], policy, gateId: 'gate-b', featureHead,
+    env: { ...process.env, HOME: path.join(root, 'home'), XDG_CONFIG_HOME: path.join(root, 'xdg') } });
   assert.deepEqual(input.find((f: any) => f.name === 'heads').value, { developHead: branchHead, featureHead });
 });
 

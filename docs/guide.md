@@ -499,7 +499,7 @@ fast-search is done with C2 unmet: caching is out of scope
 
 - A merge git cannot show (a squash, a rebase, a fast-forward or a cherry-pick) is not detected as shipped. List the feature with `--feature <slug>` when you record the release, or confirm the merge with `doflow lifecycle --action merged --slug <slug> --reason "<line>"`.
 - Features created before the loop existed keep working as they did; their earlier follow-ups are not collected.
-- The loop runs on all eight harnesses, in every scope where the harness gets skills: installing any one of them projects the DoFlow runtime. `doflow doctor` shows which harnesses reach the runtime.
+- The loop runs on all seven harnesses, in every scope where the harness gets skills: installing any one of them projects the DoFlow runtime. `doflow doctor` shows which harnesses reach the runtime.
 
 ## Drive the roadmap one step at a time
 
@@ -515,9 +515,11 @@ lowercase letter or `-` and a capital, as in `085a` or `107-A`), `slug` (starts 
 `needs` (row ids that must be merged first), `writeSet` (repo-relative paths; a trailing
 `/` means the subtree), `requires` (capability ids that must have a healthy provider), `mergeCommit` (a
 merge from before the loop existed) and `hold` (one line, at most 120 characters: the row is skipped
-until you remove it). `layout.worktree` may set where a row's worktree goes; it must be a sibling of
+until you remove it) and `proposed` (see below). `layout.worktree` may set where a row's worktree goes; it must be a sibling of
 the main checkout. Never write a status: `status`, `phase` and `evidence` keys are rejected, because
 status comes from git.
+
+**Adding rows while autopilot runs.** `doflow roadmap seed --action apply|amend` writes the store whether or not autopilot is on. Unless you run it in your own terminal with autopilot verifiably off, every row it adds or replaces lands `proposed`: autopilot never picks it, steps it or approves its gates. A person makes it ready with `doflow roadmap promote <id...>`, typed in their own terminal: it refuses a run without an interactive terminal (`needs-person-tty`), runs only while autopilot is verifiably off (`autopilot.enabled` `off` or the `autopilot/off` file), and changes all named rows or none. Run from your terminal with autopilot off, seeded rows land ready. No wrapper script that turns autopilot off around the seed call (such as `~/bin/doflow-seed.sh`) is needed.
 
 ```bash
 doflow roadmap --action render --check   # exit 0: ROADMAP.md matches git and the seed; exit 1: findings
@@ -638,9 +640,8 @@ cleanup entries with the locator and sha256 of every input they read.
 |---|---|---|
 | Claude Code | `/do` or a named skill | Native instructions, skills, hooks, and MCP after verification |
 | Codex | Read `AGENTS.md`, then use installed skills | Native settings/MCP/hook behavior requires trust and hook review |
-| Gemini CLI | Read `GEMINI.md`, then use installed skills | Skills and instructions are native; unavailable hooks/scripts/templates are reported, not emulated |
 | OpenCode · Pi · Copilot CLI · Kiro · Antigravity | Read the projected instruction file (`AGENTS.md`, steering files, or `.github/copilot-instructions.md`), then use installed skills | Each harness gets its documented native surfaces; everything else is guidance projection |
 
 The same shared sources drive every installation, but adapters render them into native target
-formats — eight of them today. Tool-specific behavior, activation prerequisites, and per-harness
+formats — seven of them today. Tool-specific behavior, activation prerequisites, and per-harness
 differences are in the [capability map](capability-map.md) and [Setup](setup.md).

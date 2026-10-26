@@ -59,7 +59,7 @@ function project(t: any) {
   fs.writeFileSync(planFile, PLAN);
   fs.mkdirSync(path.join(dir, 'config'));
   const execWorktree = fs.realpathSync(gitRepo(t));
-  const childPath = linkBin(path.join(dir, 'bin'), ['fake-claude', 'fake-gemini']);
+  const childPath = linkBin(path.join(dir, 'bin'), ['fake-claude', 'fake-antigravity']);
   fs.symlinkSync(GIT, path.join(dir, 'bin', 'git'));
   const env: any = {
     PATH: childPath,

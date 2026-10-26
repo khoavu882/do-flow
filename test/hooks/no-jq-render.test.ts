@@ -79,7 +79,6 @@ test('jq-free strict-1 gate doors and bridge emit native denies; compat-1 stays 
     const shapes: any = [
       ['claude', 'PreToolUse', 'pre-implement-gate.sh', (json: any) => json.hookSpecificOutput.permissionDecision === 'deny' && json.hookSpecificOutput.permissionDecisionReason === reason],
       ['codex', 'PreToolUse', 'pre-implement-gate.sh', (json: any) => json.hookSpecificOutput.permissionDecision === 'deny' && json.hookSpecificOutput.permissionDecisionReason === reason],
-      ['gemini', 'BeforeTool', 'pre-implement-gate.sh', (json: any) => json.decision === 'deny' && json.reason === reason],
       ['pi', 'tool_call', null, (json: any) => json.block === true && json.reason === reason],
       ['antigravity', 'PreToolUse', null, (json: any) => json.decision === 'deny' && json.reason === reason],
       ['kiro', 'PreToolUse', 'pre-implement-gate.sh', (result: any) => result.status === 2 && result.stderr.includes(reason)],
@@ -104,10 +103,10 @@ test('jq-free strict-1 gate doors and bridge emit native denies; compat-1 stays 
       });
     }
 
-    for (const harness of ['claude', 'codex', 'gemini', 'pi', 'antigravity', 'kiro']) {
+    for (const harness of ['claude', 'codex', 'pi', 'antigravity', 'kiro']) {
       await t.test(`${harness} bridge strict-1 and compat-1`, () => {
         for (const profile of ['strict-1', 'compat-1']) {
-          const result = runBash('source "$1"; doflow_bridge "$2" "$3" pre-implementation-gate', [bridge, harness, harness === 'gemini' ? 'BeforeTool' : harness === 'pi' ? 'tool_call' : 'PreToolUse'], {
+          const result = runBash('source "$1"; doflow_bridge "$2" "$3" pre-implementation-gate', [bridge, harness, harness === 'pi' ? 'tool_call' : 'PreToolUse'], {
             pathDir, env: { DOFLOW_FAULT_PROFILE: profile, DOFLOW_PROJECT_DIR: root },
             input: JSON.stringify({ tool_name: 'Edit', tool_input: { file_path: 'src/a.js' }, cwd: root }),
           });

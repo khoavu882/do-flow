@@ -16,6 +16,11 @@ const { suiteTempDir, removeTree } = require('./tmp.ts');
 
 const DROPPED_ENV = ['DOFLOW_RETENTION_HOURS', 'PI_CODING_AGENT_DIR'];
 
+/** Every harness id the registry declares: the `hooks.harnesses` a test passes when it exercises the
+ * hooks of harnesses outside the shipped default (maint-hooks). */
+const ALL_HARNESS_IDS = Object.freeze(JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'registry', 'harnesses.json'), 'utf8'))
+  .harnesses.map((harness: any) => harness.id));
+
 /** This process's environment without DROPPED_ENV, for a spawn that builds its own environment. */
 function inheritedEnv() {
   const inherited = { ...process.env };
@@ -25,11 +30,12 @@ function inheritedEnv() {
 
 /**
  * @param {string} [prefix]
- * @param {{prune?: 'on'|'off'}} [options]
+ * @param {{prune?: 'on'|'off', hookHarnesses?: string[]}} [options] `hookHarnesses` writes the user layer's
+ *   `hooks.harnesses`; left out, the shipped default applies.
  * @returns {{dir: string, home: string, xdg: string, env: (extra?: Object) => Object, apply: () => void, restore: () => void, remove: () => void}}
  *   `dir` is a real path (macOS reaches the temp folder through a symlink, and git reports the real one).
  */
-function createScratch(prefix = 'doflow-lifecycle-', { prune = 'off' } = {}) {
+function createScratch(prefix = 'doflow-lifecycle-', { prune = 'off', hookHarnesses }: { prune?: string; hookHarnesses?: readonly string[] } = {}) {
   const dir = suiteTempDir(prefix);
   const home = path.join(dir, 'home');
   const xdg = path.join(dir, 'xdg');
@@ -37,6 +43,7 @@ function createScratch(prefix = 'doflow-lifecycle-', { prune = 'off' } = {}) {
   fs.mkdirSync(xdg);
   fs.mkdirSync(path.join(xdg, 'doflow'));
   fs.writeFileSync(path.join(xdg, 'doflow', 'prune'), prune === 'on' ? 'on\n' : 'off\n');
+  if (hookHarnesses) fs.writeFileSync(path.join(xdg, 'doflow', 'settings.json'), `${JSON.stringify({ schema: 1, 'hooks.harnesses': hookHarnesses })}\n`);
   const saved: any = {};
   return {
     dir,
@@ -84,4 +91,4 @@ function createScratch(prefix = 'doflow-lifecycle-', { prune = 'off' } = {}) {
   };
 }
 
-module.exports = { createScratch, inheritedEnv };
+module.exports = { createScratch, inheritedEnv, ALL_HARNESS_IDS };

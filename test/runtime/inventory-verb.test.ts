@@ -319,7 +319,7 @@ test('IC-001: a restriction reports only the named harness and claims nothing ab
 
   const both = fixture.report();
   assert.deepEqual(
-    both.assets.map((asset: any) => asset.harness).sort(), ['claude', 'gemini'],
+    both.assets.map((asset: any) => asset.harness).sort(), ['antigravity', 'claude'],
     'unrestricted, both seeded copies are reported — if this fails the seeded paths no longer match '
     + 'the plan\'s own keys and the assertions below would pass for the wrong reason'
   );
@@ -331,7 +331,7 @@ test('IC-001: a restriction reports only the named harness and claims nothing ab
   assert.deepEqual(
     claudeOnly.assets.flatMap((asset: any) => asset.copies).filter((copy: any) => copy.currency === 'matches'), [],
     'nothing may be reported as current here: the only copy in view is the drifted claude one, and the '
-    + 'gemini copy — which the claude plan never evaluated — must be absent rather than asserted current'
+    + 'antigravity copy — which the claude plan never evaluated — must be absent rather than asserted current'
   );
   assert.equal(claudeOnly.unidentified.length, 0);
   assert.deepEqual(claudeOnly.scopes.map((scope: any) => scope.resources), [1, 0],
@@ -344,13 +344,13 @@ test('IC-001: a restriction reports only the named harness and claims nothing ab
 test('IC-001: a restriction naming an installed-but-drifted harness still exits 1', () => {
   const fixture = restrictionFixture();
 
-  const geminiOnly = fixture.report(['gemini']);
+  const antigravityOnly = fixture.report(['antigravity']);
 
-  assert.equal(geminiOnly.status, 'FINDINGS');
-  assert.equal(geminiOnly.exitCode, 1, 'the named harness has a divergence, so this is exit 1 (IC-001)');
-  assert.deepEqual(geminiOnly.findings.map((finding: any) => [finding.kind, finding.harness]),
-    [[FINDING_KINDS.DIVERGENCE, 'gemini']]);
-  assert.deepEqual(geminiOnly.assets.flatMap((asset: any) => asset.copies).map((copy: any) => copy.currency), ['diverged'],
+  assert.equal(antigravityOnly.status, 'FINDINGS');
+  assert.equal(antigravityOnly.exitCode, 1, 'the named harness has a divergence, so this is exit 1 (IC-001)');
+  assert.deepEqual(antigravityOnly.findings.map((finding: any) => [finding.kind, finding.harness]),
+    [[FINDING_KINDS.DIVERGENCE, 'antigravity']]);
+  assert.deepEqual(antigravityOnly.assets.flatMap((asset: any) => asset.copies).map((copy: any) => copy.currency), ['diverged'],
     'the one copy in view is the drifted one; no copy of any other harness is present to be called current');
 });
 
@@ -456,7 +456,7 @@ function restrictionFixture() {
       target: path.join(home, '.claude', 'skills', 'do', 'SKILL.md'),
     },
     {
-      harness: 'gemini', ownershipIdentity: 'doflow:gemini:copy-tree:skills.doflow:do/SKILL.md',
+      harness: 'antigravity', ownershipIdentity: 'doflow:antigravity:copy-tree:skills.doflow:do/SKILL.md',
       target: path.join(home, '.gemini', 'config', 'skills', 'do', 'SKILL.md'),
     },
   ];
@@ -677,7 +677,7 @@ test('IC-002: a withheld verdict names no scope, and a shadow names the winning 
 
   const [entry] = report.assets;
   assert.equal(entry.verdict.shadowed, true);
-  assert.equal(entry.verdict.winner, null, 'gemini records an unestablished resolution mode, so no '
+  assert.equal(entry.verdict.winner, null, 'antigravity records an unestablished resolution mode, so no '
     + 'winner may be named — this fixture must reach the withheld branch');
   assert.equal(entry.copies[0].scope, 'global',
     'the copy that sorted first is the global one, which is the value the finding used to carry; the '
@@ -763,34 +763,34 @@ function siblingFixture(strayNames: any) {
   };
 }
 
-/** One gemini asset held at both scopes. gemini records an established consultation order with an
- * explicitly unestablished resolution mode (IC-003's second state), so the verdict is withheld —
- * which is the only way to reach the finding kind this fixture exists for. */
+/** One antigravity asset held at both scopes. antigravity records no consultation order and an
+ * unestablished resolution mode, so the verdict is withheld — which is the only way to reach the
+ * finding kind this fixture exists for. */
 function withheldFixture() {
   const home = suiteTempDir('doflow-inventory-withheld-home-');
   const project = suiteTempDir('doflow-inventory-withheld-project-');
-  const ownershipIdentity = 'doflow:gemini:copy-tree:skills.doflow:synthetic-041/SKILL.md';
+  const ownershipIdentity = 'doflow:antigravity:copy-tree:skills.doflow:synthetic-041/SKILL.md';
   const row = (scope: any, scopeRoot: any, native: any) => ({
-    harness: 'gemini', scope, assetId: 'skills.doflow', ownershipIdentity,
+    harness: 'antigravity', scope, assetId: 'skills.doflow', ownershipIdentity,
     target: path.join(scopeRoot, ...native, 'skills', 'synthetic-041', 'SKILL.md'),
     sourceVersion: 'test', fingerprint: 'sha256:0000000000000000',
     projection: {}, recoveryRef: null, selection: null,
   });
 
   seedScope({
-    scope: 'global', scopeRoot: home, harness: 'gemini',
+    scope: 'global', scopeRoot: home, harness: 'antigravity',
     resources: [row('global', home, ['.gemini', 'config'])],
   });
   seedScope({
-    scope: 'project', scopeRoot: project, harness: 'gemini',
+    scope: 'project', scopeRoot: project, harness: 'antigravity',
     resources: [row('project', project, ['.agents'])],
   });
 
   return withHomeDir(home, () => buildInventoryReport({
-    repoRoot: REPO, projectRoot: project, targets: ['gemini'],
+    repoRoot: REPO, projectRoot: project, targets: ['antigravity'],
     locks: {
-      global: { targets: [{ harness: 'gemini' }] },
-      project: { targets: [{ harness: 'gemini' }] },
+      global: { targets: [{ harness: 'antigravity' }] },
+      project: { targets: [{ harness: 'antigravity' }] },
     },
   }));
 }
@@ -849,11 +849,11 @@ test('IC-002: the report carries no inspected-but-not-reported count, in either 
  * `src/adapters/copy-tree.ts` treats a destination as a no-op only when the location, the disk bytes
  * and the recorded row all agree with the source, which is correct for planning a write that also
  * refreshes the row — so it emits `update` when only the row is stale. That is routine rather than
- * exotic: the shared hooks asset projects one destination for claude, codex, gemini, kiro and
+ * exotic: the shared hooks asset projects one destination for claude, codex, kiro and
  * antigravity while ownership is recorded per harness, so the first harness to install refreshes
  * bytes the others' rows still describe by their old hash. On the machine this task was validated
  * against, `~/.doflow/shared/hooks/policies/user-prompt-submit.sh` was byte-identical to its source
- * and reported `diverged` for claude, `matches` for codex and `diverged` for gemini — one file, three
+ * and reported `diverged` for claude, `matches` for codex and `diverged` for antigravity — one file, three
  * verdicts — with a remedy offering to "restore" a file that was already correct.
  *
  * `matches` is the value IC-002 assigns this, not `indeterminable`. The third value is defined as the

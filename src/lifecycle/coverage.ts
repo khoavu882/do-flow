@@ -3,11 +3,11 @@
 const crypto = require('node:crypto');
 const CLASS_ORDER = Object.freeze(['unknown', 'unsupported', 'observation', 'advisory', 'blocking']);
 const POLICY_ORDER = Object.freeze(['pre-implementation-gate', 'pre-bash-guard', 'session-context', 'mcp-tool-guard', 'stop-check']);
-const HARNESS_ORDER = Object.freeze(['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
+const HARNESS_ORDER = Object.freeze(['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
 const BEHAVIOUR_ORDER = Object.freeze(['context-authority', 'default-silence', 'summary-scope', 'summary-grant', 'identity', 'check-freshness']);
 const NEVER_BLOCKING_EVENTS = new Set([
   'pi\u0000tool_execution_start', 'antigravity\u0000PostToolUse', 'antigravity\u0000PreInvocation',
-  'antigravity\u0000PostInvocation', 'gemini\u0000AfterTool', 'claude\u0000PostToolUse', 'codex\u0000PostToolUse',
+  'antigravity\u0000PostInvocation', 'claude\u0000PostToolUse', 'codex\u0000PostToolUse',
 ]);
 function stable(value: any): string {
   if (Array.isArray(value)) return `[${value.map(stable).join(',')}]`;

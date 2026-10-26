@@ -54,6 +54,67 @@ const V1 = {
     legacy: [{ layer: 'user', kind: 'decision-model', path: 'decision-model.json', field: 'model' },
       { layer: 'project', kind: 'decision-model', path: 'decision-model.json', field: 'model' }],
     consumers: ['src/runtime/advice/config.ts'], description: 'Decision-model name; a project may choose it while advice is on.' },
+  // 084: per-kind advice mode and model, one pair per kind in core/registry/advice.json (guarded by G44 S7).
+  'advice.kinds.tier': { type: 'enum', values: ['off', 'shadow', 'act'], default: null,
+    scope: 'project-overridable', combine: 'override', securityRelevant: false, failSafe: 'off',
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/advice/shadow-config.ts'],
+    description: "Advice mode for the tier kind: off, shadow (record only) or act; unset keeps the kind's own path, the highest layer that sets it decides and an invalid value is off." },
+  'advice.kinds.task-class': { type: 'enum', values: ['off', 'shadow', 'act'], default: null,
+    scope: 'project-overridable', combine: 'override', securityRelevant: false, failSafe: 'off',
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/advice/shadow-config.ts'],
+    description: "Advice mode for the task-class kind: off, shadow (record only) or act; unset keeps the kind's own path, the highest layer that sets it decides and an invalid value is off." },
+  'advice.kinds.verify-risk': { type: 'enum', values: ['off', 'shadow', 'act'], default: null,
+    scope: 'project-overridable', combine: 'override', securityRelevant: false, failSafe: 'off',
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/advice/shadow-config.ts'],
+    description: "Advice mode for the verify-risk kind: off, shadow (record only) or act; unset keeps the kind's own path, the highest layer that sets it decides and an invalid value is off." },
+  'advice.kinds.review-depth': { type: 'enum', values: ['off', 'shadow', 'act'], default: null,
+    scope: 'project-overridable', combine: 'override', securityRelevant: false, failSafe: 'off',
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/advice/shadow-config.ts'],
+    description: "Advice mode for the review-depth kind: off, shadow (record only) or act; unset keeps the kind's own path, the highest layer that sets it decides and an invalid value is off." },
+  'advice.kinds.mcp-need': { type: 'enum', values: ['off', 'shadow', 'act'], default: null,
+    scope: 'project-overridable', combine: 'override', securityRelevant: false, failSafe: 'off',
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/advice/shadow-config.ts'],
+    description: "Advice mode for the mcp-need kind: off, shadow (record only) or act; unset keeps the kind's own path, the highest layer that sets it decides and an invalid value is off." },
+  'advice.kinds.followup-triage': { type: 'enum', values: ['off', 'shadow', 'act'], default: null,
+    scope: 'project-overridable', combine: 'override', securityRelevant: false, failSafe: 'off',
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/advice/shadow-config.ts'],
+    description: "Advice mode for the followup-triage kind: off, shadow (record only) or act; unset keeps the kind's own path, the highest layer that sets it decides and an invalid value is off." },
+  'advice.models.tier': { type: 'string', default: null,
+    scope: 'project-overridable', combine: 'override', securityRelevant: false,
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/advice/shadow-config.ts'],
+    description: 'Decision-model name for the tier kind; unset uses advice.model.' },
+  'advice.models.task-class': { type: 'string', default: null,
+    scope: 'project-overridable', combine: 'override', securityRelevant: false,
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/advice/shadow-config.ts'],
+    description: 'Decision-model name for the task-class kind; unset uses advice.model.' },
+  'advice.models.verify-risk': { type: 'string', default: null,
+    scope: 'project-overridable', combine: 'override', securityRelevant: false,
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/advice/shadow-config.ts'],
+    description: 'Decision-model name for the verify-risk kind; unset uses advice.model.' },
+  'advice.models.review-depth': { type: 'string', default: null,
+    scope: 'project-overridable', combine: 'override', securityRelevant: false,
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/advice/shadow-config.ts'],
+    description: 'Decision-model name for the review-depth kind; unset uses advice.model.' },
+  'advice.models.mcp-need': { type: 'string', default: null,
+    scope: 'project-overridable', combine: 'override', securityRelevant: false,
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/advice/shadow-config.ts'],
+    description: 'Decision-model name for the mcp-need kind; unset uses advice.model.' },
+  'advice.models.followup-triage': { type: 'string', default: null,
+    scope: 'project-overridable', combine: 'override', securityRelevant: false,
+    env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/runtime/advice/shadow-config.ts'],
+    description: 'Decision-model name for the followup-triage kind; unset uses advice.model.' },
   'storage.prune': { type: 'enum', values: ['off', 'on'], order: ['off', 'on'], default: 'on',
     scope: 'project-overridable', combine: 'override', views: ['project', 'global'], securityRelevant: false,
     failSafe: 'off', env: null, flag: null, shellRead: null, needsConfigHome: false,
@@ -82,6 +143,10 @@ const V1 = {
     securityRelevant: true, failSafe: { state: 'invalid' }, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
     consumers: ['src/runtime/worker/launch.ts'],
     description: 'Space-separated exact database names a worker session may DROP DATABASE; project layer only.' },
+  'hooks.harnesses': { type: 'string-list', valuesRef: 'harnesses.ids', maxItems: 16, maxLength: 32, default: ['claude', 'codex', 'antigravity', 'pi'],
+    scope: 'global-only', combine: 'override', securityRelevant: false, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/lifecycle/hook-tier.ts'],
+    description: "Harness ids that get DoFlow's hooks, gates and bridge; every other harness gets content only (guidance, skills, agents, MCP), and its DoFlow hooks are removed on the next install or update. An invalid list keeps the default." },
   'verify.reuse': { type: 'enum', values: ['off', 'on'], order: ['off', 'on'], default: 'off',
     scope: 'global-only', combine: 'override', securityRelevant: true, failSafe: 'off',
     env: { name: 'DOFLOW_VERIFY_REUSE', parse: 'off-words', direction: 'narrow' },
@@ -101,9 +166,9 @@ const V1 = {
     consumers: ['src/runtime/settings/worker-billing.ts'],
     description: 'Person-written billing record per headless worker id: free or metered, with the date asserted. Lets dispatch --billing-cap free launch a worker the registry lists as unknown; global-only.' },
   // 119 IC-006: the review and debate protocol keys the resolver reads (src/runtime/review/resolve-protocol.ts).
-  'review.preset': { type: 'enum', valuesRef: 'protocols.reviewPresetIds', orderRef: 'protocols.reviewPresetOrder', default: 'auto',
+  'review.preset': { type: 'enum', valuesRef: 'protocols.reviewPresetIds', orderRef: 'protocols.reviewPresetOrder', default: 'review-single',
     scope: 'narrow-only', combine: 'override', ...PROTOCOL_COMMON,
-    description: 'Review protocol preset for this project: auto follows the risk rule; a project may only pick a stricter preset.' },
+    description: 'Review protocol preset: review-single by default, 1 seat and 1 round; auto follows the risk rule; review-deep is 2 seats; a project may only pick a stricter preset than its user.' },
   'review.rounds': { type: 'integer', min: 1, max: 3, order: 'descending', default: null,
     scope: 'narrow-only', combine: 'override', ...PROTOCOL_COMMON,
     description: "Review rounds; unset uses the preset's rounds, a project may only choose more rounds than its user layer." },
@@ -181,11 +246,11 @@ const V1 = {
     min: 1,
     max: 8,
     order: 'ascending',
-    default: 2,
+    default: 1,
     scope: 'project-overridable',
     combine: 'override',
     securityRelevant: false,
-    failSafe: 2,
+    failSafe: 1,
     env: {
       name: 'DOFLOW_TEAM_WRITER_CAP',
       parse: 'positive-int',
@@ -196,7 +261,7 @@ const V1 = {
     needsConfigHome: false,
     legacy: [],
     consumers: ['src/runtime/team/admission.ts'],
-    description: 'Maximum number of concurrent mutating worker sessions permitted across the active task graph.',
+    description: 'Maximum number of concurrent mutating worker sessions across the active task graph; 1 by default, so writes run single-threaded and reads in parallel; the user may raise it.',
   },
   'team.maxAttempts': {
     type: 'integer',
@@ -289,7 +354,7 @@ test("the shipped registry pins base keys plus primary, worker and package setti
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 29);
+  assert.equal(Object.keys(SHIPPED.keys).length, 42);
 });
 
 test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {
@@ -331,7 +396,7 @@ test('defaultRef values equal advice.json defaultEndpoint and storage.json lifec
   assert.deepEqual(refs.resolve('workers.defaultRungs'), [...harnesses.harnesses.filter((h: any) => h.worker).map((h: any) => h.id), 'primary']);
   const models = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/models.json'), 'utf8'));
   assert.deepEqual(refs.resolve('models.tierIds'), models.dispatchTiers.tiers);
-  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'harnesses.primaryIds', 'models.tierIds', 'packages.ids', 'protocols.debatePresetIds', 'protocols.lensIds', 'protocols.reviewPresetIds', 'protocols.reviewPresetOrder', 'storage.lifecycleEventsDefaultHours', 'workers.defaultRungs', 'workers.ids']);
+  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'harnesses.ids', 'harnesses.primaryIds', 'models.tierIds', 'packages.ids', 'protocols.debatePresetIds', 'protocols.lensIds', 'protocols.reviewPresetIds', 'protocols.reviewPresetOrder', 'storage.lifecycleEventsDefaultHours', 'workers.defaultRungs', 'workers.ids']);
 });
 
 test('refs: an unknown name (including an inherited property name) and an unreadable source throw without file text', () => {
@@ -416,6 +481,8 @@ const BAD = [
   ['a missing required field', keyed({ scope: undefined }), "is missing 'scope'", 'storage.planted'],
   ['a bad key name', registryOf({ 'Storage.Planted': clone(GOOD) }), 'is not a valid key name', 'Storage.Planted'],
   ['a key with no namespace', registryOf({ planted: clone(GOOD) }), 'is not a valid key name', 'planted'],
+  ['a key segment ending in a hyphen', registryOf({ 'storage.planted-': clone(GOOD) }), 'is not a valid key name', 'storage.planted-'],
+  ['a key segment starting with a hyphen', registryOf({ 'storage.-planted': clone(GOOD) }), 'is not a valid key name', 'storage.-planted'],
   ['an unknown type', keyed({ type: 'float' }), 'type must be one of', 'storage.planted'],
   ['a bad shellRead', keyed({ shellRead: 'lexical-v9' }), "shellRead must be null or 'lexical-v1'", 'storage.planted'],
   ['an empty consumers list', keyed({ consumers: [] }), 'consumers must be a non-empty list', 'storage.planted'],
@@ -544,6 +611,7 @@ test('env names: DOFLOW_<KEY_UPPER_SNAKE> for new bindings, the two existing nam
   assert.equal(derivedEnvName('failure.capture'), 'DOFLOW_FAILURE_CAPTURE');
   assert.equal(derivedEnvName('storage.retentionHours'), 'DOFLOW_STORAGE_RETENTION_HOURS');
   assert.equal(derivedEnvName('advice.model'), 'DOFLOW_ADVICE_MODEL');
+  assert.equal(derivedEnvName('advice.kinds.task-class'), 'DOFLOW_ADVICE_KINDS_TASK_CLASS', 'a kebab-case segment derives underscores');
   const names = Object.values(SHIPPED.keys).filter((spec: any) => spec.env).map((spec: any) => spec.env.name).sort();
   assert.deepEqual(names, [
     'DOFLOW_AUTOPILOT_ENABLED',
@@ -582,6 +650,12 @@ test('every failSafe form of the shipped registry validates, and each form is re
     'advice.provider': { gate: 'advice.enabled' },
     'advice.endpoint': { gate: 'advice.enabled' },
     'advice.model': { gate: 'advice.enabled' },
+    'advice.kinds.tier': 'off',
+    'advice.kinds.task-class': 'off',
+    'advice.kinds.verify-risk': 'off',
+    'advice.kinds.review-depth': 'off',
+    'advice.kinds.mcp-need': 'off',
+    'advice.kinds.followup-triage': 'off',
     'storage.prune': 'off',
     'storage.retentionHours': { state: 'invalid' },
     'failure.capture': 'off',
@@ -594,7 +668,7 @@ test('every failSafe form of the shipped registry validates, and each form is re
     'workers.models': { state: 'invalid' },
     'packages.disabled': { state: 'invalid' },
     'rollout.profile': 'baseline',
-    'team.writerCap': 2,
+    'team.writerCap': 1,
     'team.maxAttempts': 3,
   });
   const wrongValue = clone(SHIPPED);

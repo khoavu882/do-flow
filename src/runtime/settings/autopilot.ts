@@ -80,6 +80,18 @@ function readSeedSwitch(env: any = process.env, fsImpl: any = fs): { enabled: bo
   }
 }
 
+/**
+ * maint-thin: whether a review is unattended, so the class seat floor binds. Fail closed: only a verifiably off
+ * switch (the seed reader: a resolved config home whose setting or sentinel says off) reads as attended. An uncertain
+ * switch, unreadable settings or no config home count as unattended. The one other attended case is an explicit,
+ * process-local `DOFLOW_AUTOPILOT_ENABLED=off`: a caller can always lower its own run that way, and that costs nothing,
+ * because roadmap gate-b judges the recorded seats against the class floor itself and denies too few.
+ */
+function reviewUnattended(env: any = process.env, fsImpl: any = fs): boolean {
+  if (env?.DOFLOW_AUTOPILOT_ENABLED === 'off') return false;
+  return readSeedSwitch(env, fsImpl).enabled !== false;
+}
+
 /** Tripwire (narrowing only): writes the kill-switch sentinel; only a person removes it. */
 function tripSentinel(env: any, line: string, fsImpl: any = fs): boolean {
   const file = sentinelFile(env);
@@ -91,4 +103,4 @@ function tripSentinel(env: any, line: string, fsImpl: any = fs): boolean {
   return true;
 }
 
-module.exports = { readKillSwitch, readSeedSwitch, tripSentinel };
+module.exports = { readKillSwitch, readSeedSwitch, reviewUnattended, tripSentinel };

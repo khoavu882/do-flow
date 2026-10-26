@@ -24,7 +24,6 @@ test('each source prints its word, and harnesses share a group only with the sam
     { harness: 'codex', mcpSelected: [] },
     { harness: 'opencode', mcpSelected: ['sequential-thinking'] },
     { harness: 'copilot', mcpSelected: [] },
-    { harness: 'gemini', mcpSelected: null },
     { harness: 'antigravity', skipped: true, mcpSelected: null },
   ]);
   const sources = { kiro: 'prompt', pi: 'prompt', claude: 'kept', codex: 'recorded', opencode: 'manifest', copilot: 'default' };
@@ -37,8 +36,8 @@ test('each source prints its word, and harnesses share a group only with the sam
 });
 
 test('with no target that takes servers, only an explicit --mcp is mentioned', () => {
-  const geminiOnly = view([{ harness: 'gemini', mcpSelected: null }]);
-  assert.deepEqual(linesOf(() => printMcpSelection(geminiOnly, {})), []);
-  assert.deepEqual(linesOf(() => printMcpSelection(geminiOnly, {}, { requested: ['context7'] })),
+  const noServers = view([{ harness: 'fake-other', mcpSelected: null }]);
+  assert.deepEqual(linesOf(() => printMcpSelection(noServers, {})), []);
+  assert.deepEqual(linesOf(() => printMcpSelection(noServers, {}, { requested: ['context7'] })),
     ['[INFO] MCP: no targeted harness takes MCP servers; --mcp has no effect.']);
 });

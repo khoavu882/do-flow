@@ -273,7 +273,7 @@ test('negative control: a version command that exits non-zero refuses even when 
 
 test('negative control: a checks file for another harness or binary is usage and starts no process', async (t) => {
   for (const [label, edit, pattern] of [
-    ['harness', (data: any) => { data.harness = 'gemini'; }, /harness 'gemini' does not match 'codex'/],
+    ['harness', (data: any) => { data.harness = 'antigravity'; }, /harness 'antigravity' does not match 'codex'/],
     ['binary', (data: any) => { data.binary = 'other'; }, /binary 'other' does not match harness 'codex' binary 'codex'/],
   ]) {
     const p = project(t);

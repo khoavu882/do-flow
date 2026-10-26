@@ -70,7 +70,7 @@ test("a state failSafe satisfies securityRelevant for worker-billing only: an in
 test('validateValue accepts a record of one to sixteen well-formed entries', () => {
   assert.equal(validateValue(SPEC, CLAUDE_FREE), null);
   assert.equal(validateValue(SPEC, { claude: { billing: 'metered', asserted: '2024-02-29', basis: 'pay per token' } }), null);
-  assert.equal(validateValue(SPEC, { 'gemini-cli': { billing: 'free', asserted: '2999-01-01' } }), null, 'a future date is stated, not judged');
+  assert.equal(validateValue(SPEC, { 'antigravity': { billing: 'free', asserted: '2999-01-01' } }), null, 'a future date is stated, not judged');
   assert.equal(validateValue(SPEC, { 'acme.coder': { billing: 'free', asserted: '2026-10-23' } }), null, 'IC-001 qualified worker grammar');
   const sixteen = Object.fromEntries(Array.from({ length: 16 }, (_, i) => [`w${i}`, { billing: 'free', asserted: '2026-10-23' }]));
   assert.equal(validateValue(SPEC, sixteen), null);

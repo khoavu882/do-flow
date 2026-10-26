@@ -23,7 +23,7 @@ assert.equal(built.status, 0, built.stderr);
 const HOOKS = path.join(mirror, '.kiro', 'hooks');
 
 function env(extra = {}) {
-  return scratch.env({ GIT_CONFIG_GLOBAL: '/dev/null', CLAUDE_CONFIG_DIR: '', CLAUDE_PROJECT_DIR: '', CODEX_HOME: '', GEMINI_CONFIG_DIR: '', DOFLOW_PROJECT_DIR: '', DOFLOW_AGENT: '', KIRO_SESSION_ID: '', ...extra });
+  return scratch.env({ GIT_CONFIG_GLOBAL: '/dev/null', CLAUDE_CONFIG_DIR: '', CLAUDE_PROJECT_DIR: '', CODEX_HOME: '', DOFLOW_PROJECT_DIR: '', DOFLOW_AGENT: '', KIRO_SESSION_ID: '', ...extra });
 }
 
 function git(cwd: any, ...args: any[]) {

@@ -8,7 +8,7 @@ const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
 const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts');
 const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
-const { appendPick, appendMiss, appendOutcome, readWindow, findPick } = require('../../src/runtime/advice/record.ts');
+const { appendPick, appendMiss, appendOutcome, readWindow, findPick, newPickId } = require('../../src/runtime/advice/record.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const STORAGE = loadStorageRegistry({ repoRoot: REPO });
@@ -193,4 +193,21 @@ test('IC-009: pick lookup searches project before user and returns its store', (
   assert.equal(user.file, userFile);
   assert.equal(user.pick.kind, 'task-class');
   assert.equal(findPick({ pickId: 'adv-1780279200002-abcdef', roots, now: NOW }), null);
+});
+
+test('084 C-7: dispatcher fields mode and elevated and a given pick id are kept; absent ones add nothing', (t) => {
+  const { roots } = fixture(t);
+  const given = 'adv-1780279200000-abcdef';
+  assert.equal(appendPick(pickInput(roots, { mode: 'shadow', elevated: false, pickId: given })).pickId, given);
+  const generated = appendPick(pickInput(roots, { pickId: '../not-an-id' })).pickId;
+  assert.match(generated, /^adv-[0-9]{13}-[0-9a-f]{6}$/);
+  assert.ok(appendMiss({ roots, now: NOW, kind: 'tier', caller: 'brief-tools', reason: 'timeout', mode: 'act' }));
+  const lines = readWindow({ roots, now: NOW }).records.map((entry: any) => entry.record);
+  assert.equal(lines[0].pickId, given);
+  assert.equal(lines[0].mode, 'shadow');
+  assert.equal(lines[0].elevated, false);
+  assert.equal(lines[1].pickId, generated);
+  assert.equal('mode' in lines[1] || 'elevated' in lines[1], false);
+  assert.deepEqual(lines[2], { schema: 1, type: 'miss', at: AT.toISOString(), kind: 'tier', caller: 'brief-tools', reason: 'timeout', model: null, durationMs: 0, mode: 'act' });
+  assert.match(newPickId(Date.parse('2026-06-01T02:00:00.000Z')), /^adv-1780279200000-[0-9a-f]{6}$/);
 });

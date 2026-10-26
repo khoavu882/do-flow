@@ -18,10 +18,6 @@ test('session-start-measure: drives counting code against test/fixtures/session-
   const codex = measureSessionStart('codex', { homeDir: FIXTURE_TREE });
   assert.equal(codex.stdoutBytes, 32);
   assert.equal(codex.stderrBytes, 0);
-
-  const gemini = measureSessionStart('gemini', { homeDir: FIXTURE_TREE });
-  assert.equal(gemini.stdoutBytes, 32);
-  assert.equal(gemini.stderrBytes, 0);
 });
 
 test('session-start-measure: counts stdout and stderr bytes separately', () => {

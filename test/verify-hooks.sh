@@ -41,7 +41,7 @@ section() { printf "\n[%s]\n" "$1"; }
 # into TEST_HOME, no git config from the machine, and the variables that steer which harness or
 # install a hook resolves removed. A test that needs one of them sets it in front of the array.
 SANDBOXED=(env -u DOFLOW_AGENT -u DOFLOW_PROJECT_DIR -u DOFLOW_FAILURE_CAPTURE -u CLAUDE_CONFIG_DIR \
-  -u CLAUDE_PROJECT_DIR -u CODEX_HOME -u GEMINI_CONFIG_DIR \
+  -u CLAUDE_PROJECT_DIR -u CODEX_HOME \
   "HOME=$TEST_HOME" "XDG_CONFIG_HOME=$TEST_HOME/.config" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1)
 
 # Run a hook with an isolated config root inside TEST_HOME

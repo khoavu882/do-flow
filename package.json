@@ -5,7 +5,6 @@
   "keywords": [
     "claude-code",
     "codex",
-    "gemini",
     "opencode",
     "ai-coding-agent",
     "skills",
@@ -30,6 +29,7 @@
   },
   "scripts": {
     "test": "node --test \"test/**/*.test.js\" \"test/**/*.test.ts\"",
+    "test:fast": "node test/helper/fast-tier.ts",
     "typecheck": "npx -y -p typescript@5.7.2 tsc -p tsconfig.json",
     "build:package": "node src/release/build-package.ts .pack",
     "bench": "node bench/runner.ts",

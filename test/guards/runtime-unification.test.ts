@@ -12,12 +12,10 @@
 // compute the answer from the registry rather than trusting either side's prose.
 //
 // Scope note: the *behaviour* of the locator once projected (lands inside the harness's own
-// directory, executable bit intact) is already asserted by test/adapters/gemini/gemini-adapter.test.js — 'the
-// runtime locator is projected into every harness, inside that harness own directory' and 'the
-// locator source is executable'. Those run the real adapter projection, which is the right place
-// for them, so this file deliberately does NOT duplicate them. What it adds is the declaration
-// side those tests take as given: that the registry claims all eight in a self-consistent way,
-// and that the path the locator searches for is the path the registry projects to.
+// directory, executable bit intact) is asserted at the end of this file through the real adapter
+// input projection. The rest adds the declaration side those tests take as given: that the
+// registry claims every harness in a self-consistent way, and that the path the locator searches
+// for is the path the registry projects to.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -122,7 +120,9 @@ function plannedChanges(scope: any, home: any) {
   const original = os.homedir;
   os.homedir = () => home;
   try {
-    return registryLifecycleView({ registry, repoRoot: REPO, targets: LIFECYCLE_HARNESSES, mcpSelections: {}, scope }).plan.changes;
+    // Every harness in the hook tier, so each harness's hook tree placement is planned and checked.
+    return registryLifecycleView({ registry, repoRoot: REPO, targets: LIFECYCLE_HARNESSES, mcpSelections: {}, scope,
+      hookHarnesses: registry.harnesses.map((harness: any) => harness.id) }).plan.changes;
   } finally { os.homedir = original; }
 }
 
@@ -719,4 +719,33 @@ test('G12: every failureClass in verification.json is a declared recovery class 
     'a tier naming a class recovery.js does not know produces no targeted recovery action — the '
     + `strategy table has no entry for it. Declared classes: ${FAILURE_CLASSES.join(', ')}.\n  `
     + problems.join('\n  '));
+});
+
+// The locator is projected per harness and must land INSIDE that harness's own directory — it is
+// the only thing a skill can name by a literal relative path, so a copy in the shared .doflow tree
+// could not be reached. Every registry harness is checked.
+test('the runtime locator is projected into every harness, inside that harness own directory', (t) => {
+  const { selectAssets, harnessFor } = require('../../src/registry/index.ts');
+  const { projectAdapterInput } = require('../../src/adapters/index.ts');
+  for (const { id } of registry.harnesses) {
+    const selected = selectAssets(registry, { harness: id, capability: 'scripts' }).filter((a: any) => a.id === 'locator.doflow');
+    assert.equal(selected.length, 1, `${id} must receive the runtime locator`);
+    const root = tempDir(t, 'doflow-locator-');
+    const input = projectAdapterInput({
+      registry, harness: harnessFor(registry, id), scope: 'global', scopeRoot: root, assets: selected,
+      context: { repoRoot: REPO, homeDir: root },
+    });
+    assert.equal(input.assets[0].renderer, 'copy-tree');
+    for (const target of input.assets[0].targets ?? []) {
+      assert.ok(!target.includes(`${path.sep}.doflow${path.sep}`), `${id} locator must not land in the shared .doflow tree, got ${target}`);
+    }
+  }
+});
+
+// The shim is exec'd directly by skill prose, and `applyTree` copies the source mode verbatim, so
+// the bit has to be right in the repo. A Windows checkout carries no exec bits; there only the
+// source's presence is pinned.
+test('the locator source is executable', () => {
+  assert.ok(fs.existsSync(LOCATOR), 'locator source is missing');
+  if (process.platform !== 'win32') assert.ok(fs.statSync(LOCATOR).mode & 0o111, 'locator must be executable — applyTree copies the source mode verbatim');
 });

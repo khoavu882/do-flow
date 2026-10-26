@@ -220,13 +220,14 @@ function loadEnforcementInputs(registry: any, { harnessesFile = path.join(REPO_R
 
 /**
  * The inputs `resolveProtocol` needs beyond the change facts: the project's settings as the plain `settingsView`
- * the resolver reads (`{ key: { value, layer } }`, 119 L-B8), the gate policy (the shipped gates.json narrowed by the
+ * the resolver reads (`{ key: { value, layer } }`, 119 L-B8), whether the review is `unattended` (autopilot is not
+ * is on, so the class seat floor binds; maint-thin), the gate policy (the shipped gates.json narrowed by the
  * project's `.doflow/gates.override.json`, read as roadmap gate-b reads it, 119 IC-005; null when there is no task class, so
  * no floor), the protocols registry and the enforcement inputs (`loadEnforcementInputs`). A base, override or registry the loaders reject is a refusal carrying the loader's
  * reason (and the override file). Shared with the `protocol` verb.
  */
 function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<string, string | undefined> = process.env):
-  { gatePolicy: any; registry: any; settingsView: Record<string, { value: unknown; layer: string }>; agentAccess: Record<string, string>; readOnlyLimits: any[] } | { error: string; message: string } {
+  { gatePolicy: any; unattended: boolean; registry: any; settingsView: Record<string, { value: unknown; layer: string }>; agentAccess: Record<string, string>; readOnlyLimits: any[] } | { error: string; message: string } {
   const settingsView: Record<string, { value: unknown; layer: string }> = {};
   try {
     const settings = require('../settings/resolve.ts').loadSettings({ projectRoot: path.resolve(cwd), env });
@@ -261,11 +262,14 @@ function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<s
   if (!protocols.ok) return { error: 'protocols-invalid', message: protocols.errors.join('; ') };
   const enforcement = loadEnforcementInputs(protocols.registry);
   if ('error' in enforcement) return enforcement;
-  return { gatePolicy, registry: protocols.registry, settingsView, ...enforcement };
+  // maint-thin: the class seat floor binds unless autopilot is verifiably off (its policy gate-b may decide the merge
+  // unattended); a person-attended review follows the preset. Uncertain reads as unattended (see reviewUnattended).
+  const unattended: boolean = require('../settings/autopilot.ts').reviewUnattended(env);
+  return { gatePolicy, unattended, registry: protocols.registry, settingsView, ...enforcement };
 }
 
 /** The decision model's opinion on the decided depth. Never throws: any failure is `unavailable`. */
-async function askAdvice({ decision, risk, taskClass, slug, files, cwd, env, adviceClient }: any): Promise<{ status: string; pick: string | null }> {
+async function askAdvice({ decision, risk, taskClass, slug, files, cwd, env, adviceClient }: any): Promise<{ status: string; pick: string | null; reason?: string | null }> {
   try {
     const { loadAdviceRegistry } = require('../advice/registry.ts');
     const { loadStorageRegistry } = require('../storage/registry.ts');
@@ -286,10 +290,12 @@ async function askAdvice({ decision, risk, taskClass, slug, files, cwd, env, adv
     const { resolveShadowConfig } = require('../advice/shadow-config.ts');
     const shadow = resolveShadowConfig('review-depth', { projectRoot: path.resolve(cwd), env, roots });
     if (!shadow.kindSet) {
-      // advice.kinds.review-depth unset: ask the client directly, as before the dispatcher, unless a chosen
-      // rollout profile turns the advisor off.
-      const { profileAdvisorCap } = require('../advice/shadow-dispatcher.ts');
-      if (profileAdvisorCap({ projectRoot: path.resolve(cwd), env }) === 'off') return { status: 'off', pick: null };
+      // advice.kinds.review-depth unset: ask the client directly, as before the dispatcher. A chosen rollout profile
+      // caps it: off asks nothing, and shadow asks nothing too, since a write-free verb could not record the answer.
+      const { profileAdvisorCap, unsetKindPath } = require('../advice/mode.ts');
+      const route = unsetKindPath(profileAdvisorCap({ projectRoot: path.resolve(cwd), env }));
+      if (route === 'off') return { status: 'off', pick: null };
+      if (route === 'shadow') return { status: 'shadow', pick: null, reason: null };
       const result = await client.ask({
         questionSet: { state, questions: [built.question] },
         kind: 'review-depth', staticAnswer: decision.depth, caller: 'review', taskId: slug, record: false,
@@ -304,8 +310,10 @@ async function askAdvice({ decision, risk, taskClass, slug, files, cwd, env, adv
       questionSet: { state, questions: [built.question] }, adviceRegistry: loaded.registry,
       taskId: slug, projectRoot: path.resolve(cwd), env, record: false,
     }, { adviceClient: client, roots, shadowConfig: shadow });
-    const pick = intercepted.advisorPick;
-    if (pick === 'single' || pick === 'deep') return { status: 'answered', pick };
+    // Only act applies a pick, and it is the decision after the raise-only rule.
+    const pick = intercepted.effectiveDecision;
+    if (intercepted.mode === 'act' && intercepted.advisorPick && (pick === 'single' || pick === 'deep')) return { status: 'answered', pick };
+    if (intercepted.mode === 'shadow') return { status: 'shadow', pick: null, reason: intercepted.warning || null };
     return { status: intercepted.mode === 'off' ? 'off' : 'unavailable', pick: null };
   } catch {
     return { status: 'unavailable', pick: null };
@@ -475,7 +483,7 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
       result.forbidden = forbidden;
     }
     const scope = pathScope(riskPolicy, paths);
-    const floor = gateMinSeats(inputs.gatePolicy, taskClass);
+    const floor = inputs.unattended ? gateMinSeats(inputs.gatePolicy, taskClass) : 0;
     const facts = { kind: 'review', taskClass, risk: result.risk, paths, runPreset: preset ?? null, ...inputs, riskPolicy };
     const REFUSALS: Record<string, string> = {
       'preset-unknown': `--preset '${preset}' is not a review preset`,

@@ -7,8 +7,8 @@
 //   every require/import in src/runtime/dispatch/*.ts names a `node:` built-in or a relative path
 //   that resolves inside src/.
 // - NFR-003: the 080 and 081 files plan §1 lists as unchanged are byte-identical to 0a474666
-//   (`git show`); of the eight real harnesses only codex is `isolatedEdit` supported (109 IC-008) and
-//   the other seven keep it unknown (IC-013).
+//   (`git show`); of the seven real harnesses only codex is `isolatedEdit` supported (109 IC-008) and
+//   the other six keep it unknown (IC-013).
 // - NFR-002 / DEC-052: `dispatch start` and `step` over the real registry, under `--mode auto`, in a
 //   sandbox whose scratch bin/ also holds a logging wrapper named after every binary
 //   core/registry/harnesses.json declares. The static gate refuses every harness from its declared
@@ -34,7 +34,7 @@ const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const SLUG = '082-dispatch-compat';
 const SKIP = process.platform === 'win32' ? 'tree cleanup is unverified on win32 (NFR-005)' : false;
 const HARNESSES = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'harnesses.json'), 'utf8')).harnesses;
-const REAL_IDS = Object.freeze(['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
+const REAL_IDS = Object.freeze(['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
 
 /** Plan §1: the 080 and 081 files no IC amends, byte-identical to 0a474666. */
 const UNCHANGED_FILES = Object.freeze([
@@ -45,7 +45,7 @@ const UNCHANGED_FILES = Object.freeze([
   // task-sources.ts: edited by FU-ev7r3g (an existing execWorktree is the only root read; IC-013 amended); no longer frozen at 0a474666
   // parsers.ts: edited by 109 A.2 (codex-exec-json-v1); no longer frozen at 0a474666
   'src/runtime/worker/process-tree.ts',
-  'src/lifecycle/coverage.ts',
+  // src/lifecycle/coverage.ts: edited by 127 (the retired harness left HARNESS_ORDER and NEVER_BLOCKING_EVENTS); no longer frozen at 0a474666
   // core/registry/lifecycle.json: 088 E.3 observer wiring moved configSource line windows and rowsDigest with docs/capability-map.md; no longer frozen at 0a474666
   // worker-adapter.e2e.test.js: edited by 118 A.2 (its be752d8 orchestration copy predates the `nest` operation); no longer frozen at 0a474666
   // worker-descriptors.test.js: edited by 109 B.2 (G41.4, codex evidence); no longer frozen at 0a474666
@@ -131,7 +131,7 @@ function unchangedPaths() {
 
 test(`NFR-003: every 080 and 081 file plan §1 lists is byte-identical to ${BASE}`, { skip: NO_BASE }, () => {
   const paths = unchangedPaths();
-  assert.ok(paths.length >= 2, 'unchanged paths list is non-empty');
+  assert.ok(paths.length >= 1, 'unchanged paths list is non-empty');
   const differ: any = [];
   for (const rel of paths) {
     const base = gitHere(['show', `${BASE}:${rel}`], 'buffer');
@@ -143,7 +143,7 @@ test(`NFR-003: every 080 and 081 file plan §1 lists is byte-identical to ${BASE
   assert.deepEqual(differ, [], `changed since ${BASE}: ${differ.join(', ')}`);
 });
 
-test('NFR-003 / IC-013 / 109 IC-008: codex is isolatedEdit supported on its recorded evidence, the other seven keep it unknown, so auto runs sequential', () => {
+test('NFR-003 / IC-013 / 109 IC-008: codex is isolatedEdit supported on its recorded evidence, the other six keep it unknown, so auto runs sequential', () => {
   assert.deepEqual(HARNESSES.map((h: any) => h.id).sort(), [...REAL_IDS].sort());
   for (const h of HARNESSES) {
     assert.ok(h.worker && h.worker.isolatedEdit, `${h.id} declares a worker isolatedEdit block`);
@@ -186,7 +186,7 @@ function writeWrappers(bin: any, log: any, names: any) {
 test('NFR-002 / DEC-052: a real-registry dispatch start and step under auto start no harness binary and look up only codex', { skip: SKIP }, (t) => {
   const box = makeDispatchSandbox(t, { plan: 'dependent', slug: SLUG });
   const binaries = declaredBinaries();
-  assert.deepEqual(binaries, ['agy', 'claude', 'codex', 'copilot', 'gemini', 'kiro-cli', 'opencode', 'pi']);
+  assert.deepEqual(binaries, ['agy', 'claude', 'codex', 'copilot', 'kiro-cli', 'opencode', 'pi']);
   const wrapperLog = path.join(box.dir, 'wrapper-log.jsonl');
   writeWrappers(box.bin, wrapperLog, binaries);
 

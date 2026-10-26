@@ -122,9 +122,9 @@ test('the shell cwdHash equals identity.ts cwdHash for the same path, a symlinke
   assert.equal(cwdHash(link), cwdHash(s.cwd));
 });
 
-test('negative control: a gemini payload carrying a model writes nothing', (t) => {
+test('negative control: a kiro payload carrying a model writes nothing', (t) => {
   const s = scratch(t);
-  const result = bridge(s, 'gemini');
+  const result = bridge(s, 'kiro');
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(files(s.store), []);
 });

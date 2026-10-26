@@ -540,7 +540,7 @@ test('row, plan and review text is data: nothing in it runs, and no secret or pr
 
 test('two harness descriptor environments give byte-equal decisions (NFR-005)', async (t) => {
   const runs: any = [];
-  for (const envExtra of [{ CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli' }, { CODEX_SANDBOX: 'seatbelt', CODEX_HOME: '/nowhere/codex', GEMINI_CLI: '1' }]) {
+  for (const envExtra of [{ CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli' }, { CODEX_SANDBOX: 'seatbelt', CODEX_HOME: '/nowhere/codex' }]) {
     const f = fixture(t, { envExtra });
     const lines: any = [];
     lines.push((await f.next({ run: RUN })).result);

@@ -22,9 +22,15 @@ const SLUG = '095b-review-depth';
 const REGISTRY = loadVerificationRegistry({ repoRoot: REPO_ROOT });
 const HEX_A = 'a'.repeat(40);
 
-function envFor(dir: any) {
+// maint-thin: the shipped default is review-single and the class seat floor binds only while autopilot is on. Most
+// tests here pin the risk rule and the floor, so their user layer opts in: review.preset auto and autopilot on.
+// `thin: true` leaves the user layer empty (the shipped default).
+const OPT_IN = { schema: 1, 'review.preset': 'auto', 'autopilot.enabled': 'on' };
+
+function envFor(dir: any, { thin = false }: any = {}) {
   const home = path.join(dir, 'home');
-  fs.mkdirSync(path.join(home, '.config'), { recursive: true });
+  fs.mkdirSync(path.join(home, '.config', 'doflow'), { recursive: true });
+  if (!thin) fs.writeFileSync(path.join(home, '.config', 'doflow', 'settings.json'), JSON.stringify(OPT_IN));
   return {
     PATH: process.env.PATH,
     HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'),
@@ -48,11 +54,11 @@ function put(root: any, rel: any, text: any) {
  * A scratch repository: one base commit, then one commit holding `files`. `.doflow/` is excluded from
  * git, as a real checkout does, so the run and record files do not make the tree dirty.
  */
-function repo(t: any, { taskClass = 'feature', files = { 'src/a.ts': 'export {};\n' }, run = true }: any = {}) {
+function repo(t: any, { taskClass = 'feature', files = { 'src/a.ts': 'export {};\n' }, run = true, thin = false }: any = {}) {
   const dir = tempDir(t, 'doflow-review-start-');
   const cwd = path.join(dir, 'work');
   fs.mkdirSync(cwd);
-  const env = envFor(dir);
+  const env = envFor(dir, { thin });
   git(cwd, env, ['init', '-q', '-b', 'main']);
   put(cwd, '.git/info/exclude', '.doflow/\n');
   put(cwd, 'README.md', 'base\n');
@@ -95,6 +101,42 @@ function tree(root: any, base: any = root, out: any = {}) {
 }
 
 // ---- IC-001: the verb --------------------------------------------------------------------------
+
+// maint-thin (user ruling 2026-10-26): with the shipped settings a person-attended feature review of a code change is
+// review-single, 1 seat, 1 round, floor 0. Turning autopilot on alone brings back the gate-b floor of 2 seats.
+test('maint-thin: the shipped default gives a feature code change 1 seat and 1 round; autopilot on restores the floor', async (t) => {
+  const r = repo(t, { thin: true });
+  r.lines([r.line()]);
+  const thin = await start(r);
+  assert.equal(thin.exitCode, 0);
+  assert.equal(thin.json.protocol.id, 'review-single');
+  assert.equal(thin.json.seats, 1);
+  assert.equal(thin.json.protocol.rounds, 1);
+  assert.equal(thin.json.depthBasis.floor, 0);
+  fs.writeFileSync(path.join(r.env.XDG_CONFIG_HOME, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'autopilot.enabled': 'on' }));
+  const unattended = await start(r);
+  assert.equal(unattended.exitCode, 0);
+  assert.equal(unattended.json.protocol.id, 'review-deep');
+  assert.equal(unattended.json.seats, 2);
+  assert.equal(unattended.json.depthBasis.floor, 2);
+  assert.equal(unattended.json.depthBasis.raisedBy, 'gate-floor');
+  // maint-thin P2: an uncertain switch (a value the settings reader rejects) is unattended, so the floor binds
+  fs.writeFileSync(path.join(r.env.XDG_CONFIG_HOME, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'autopilot.enabled': 'maybe' }));
+  const uncertain = await start(r);
+  assert.equal(uncertain.exitCode, 0, JSON.stringify(uncertain.json));
+  assert.equal(uncertain.json.seats, 2);
+  assert.equal(uncertain.json.depthBasis.floor, 2);
+  // an explicit process-local DOFLOW_AUTOPILOT_ENABLED=off is attended; gate-b still judges the seats itself
+  const local = await start({ ...r, env: { ...r.env, DOFLOW_AUTOPILOT_ENABLED: 'off' } });
+  assert.equal(local.exitCode, 0);
+  assert.equal(local.json.seats, 1);
+  assert.equal(local.json.depthBasis.floor, 0);
+  // maint-thin P2: a preset this install does not have blocks the review, never a silent thin run
+  fs.writeFileSync(path.join(r.env.XDG_CONFIG_HOME, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'review.preset': 'review-nope' }));
+  const missing = await start(r);
+  assert.notEqual(missing.exitCode, 0);
+  assert.match(JSON.stringify(missing.json), /settings-unavailable/);
+});
 
 test('PASS on a clean HEAD: exit 0, deep, 2 seats, risk from the default for a line without risk', async (t) => {
   const r = repo(t);
@@ -238,18 +280,18 @@ test('the text form prints the protocol lines after riskSource', async (t) => {
   assert.match(out[at + 1], /^protocol\.seats: seat-a\[/);
   assert.match(out[at + 2], /^protocol\.origins: id=risk /);
   assert.match(out[at + 3], /^protocol\.invariants: INV-1,/);
-  assert.equal(out[at + 4], 'protocol.enforcement: reviewer native=claude,gemini,opencode,copilot,kiro unenforced=codex,pi,antigravity');
+  assert.equal(out[at + 4], 'protocol.enforcement: reviewer native=claude,opencode,copilot,kiro unenforced=codex,pi,antigravity');
   assert.ok(out.some((line: any) => line.startsWith('depthBasis: ')));
 });
 
-test('the JSON protocol seats the reviewer agent and carries 8 enforcement rows', async (t) => {
+test('the JSON protocol seats the reviewer agent and carries 7 enforcement rows', async (t) => {
   const r = repo(t);
   r.lines([r.line()]);
   const { exitCode, json } = await start(r);
   assert.equal(exitCode, 0);
   assert.deepEqual(json.protocol.seats.map((seat: any) => seat.agent), ['reviewer', 'reviewer']);
   assert.deepEqual(json.protocol.enforcement.map((row: any) => `${row.agent}/${row.harness}/${row.status}`), [
-    'reviewer/claude/native', 'reviewer/codex/unenforced', 'reviewer/gemini/native', 'reviewer/opencode/native',
+    'reviewer/claude/native', 'reviewer/codex/unenforced', 'reviewer/opencode/native',
     'reviewer/pi/unenforced', 'reviewer/copilot/native', 'reviewer/kiro/native', 'reviewer/antigravity/unenforced',
   ]);
   assert.equal(json.protocol.enforcement[0].reason, null);
@@ -949,7 +991,7 @@ test('120 D.3: scratch dispatch store populates authors and forbidden (harness, 
         dispatchId: 'd-uncollected',
         seq: 2,
         mode: 'subagent',
-        harness: 'gemini',
+        harness: 'antigravity',
         phase: 'launched',
         model: { requested: 'gemini-2.0-flash' },
       },
@@ -1037,7 +1079,10 @@ test('120 D.3: preconditions run before primary check (preconditions and order u
 
 // ---- 084 H2: advice.kinds.review-depth routes the advice through the dispatcher only when it is set ----
 
-/** A decided-single review (bug, docs only, LOW risk) with advice on and `advice.kinds.review-depth` set. */
+/**
+ * A decided-single review (bug, docs only, LOW risk) with advice on and `advice.kinds.review-depth` set. `bench` adds a
+ * passing-looking project bench file, which the gate never reads (D3).
+ */
 function kindsRepo(t: any, mode: any, { bench = false }: any = {}) {
   const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'LOW' })]);
@@ -1067,29 +1112,40 @@ test('084 H2: advice.kinds.review-depth shadow keeps the decided depth and stays
   const client = fakeClient(answered('deep'));
   const { json } = await start(r, { adviceClient: client, base: r.base });
   assert.equal(json.depth, 'single');
-  assert.deepEqual(json.advice, { status: 'unavailable', pick: null });
+  assert.equal(json.depthBasis.raisedBy, null);
+  assert.deepEqual(json.advice, { status: 'shadow', pick: null, reason: null });
   await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(client.calls.length, 1, 'the shadow query runs in the background');
-  assert.equal(client.calls[0].record, false);
+  assert.equal(client.calls.length, 0, 'record: false could keep no answer, so no call is made');
   assert.equal(adviceStore(r), false, 'record: false: no pick is stored');
 });
 
-test('084 H2: advice.kinds.review-depth act without a passed bench bar keeps the decided depth', async (t) => {
+test('084 H2: advice.kinds.review-depth act without a passed bench bar keeps the decided depth and says why', async (t) => {
   const r = kindsRepo(t, 'act');
-  const { json } = await start(r, { adviceClient: fakeClient(answered('deep')), base: r.base });
+  const client = fakeClient(answered('deep'));
+  const { json } = await start(r, { adviceClient: client, base: r.base });
   assert.equal(json.depth, 'single');
-  assert.deepEqual(json.advice, { status: 'unavailable', pick: null });
+  assert.equal(json.depthBasis.raisedBy, null);
+  assert.equal(json.advice.status, 'shadow');
+  assert.equal(json.advice.pick, null);
+  assert.match(json.advice.reason, /^BENCH_BAR_UNMET: /);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(client.calls.length, 0, 'degraded to shadow with record: false, so no call is made');
+  assert.equal(adviceStore(r), false, 'record: false: no pick is stored');
+  const text = await start(r, { adviceClient: fakeClient(answered('deep')), base: r.base, json: false });
+  assert.ok(text.out.some((line: string) => /^advice: status=shadow reason=BENCH_BAR_UNMET: /.test(line)), text.out.join('\n'));
 });
 
-test('084 H2: advice.kinds.review-depth act with a passed bench bar raises the depth and stays write-free', async (t) => {
+test('084 D3: advice.kinds.review-depth act with a passing bench file in the project keeps the decided depth', async (t) => {
   const r = kindsRepo(t, 'act', { bench: true });
   const client = fakeClient(answered('deep'));
   const { json } = await start(r, { adviceClient: client, base: r.base });
-  assert.equal(client.calls.length, 1);
-  assert.equal(client.calls[0].record, false);
-  assert.equal(json.depth, 'deep');
-  assert.equal(json.depthBasis.raisedBy, 'advice');
-  assert.deepEqual(json.advice, { status: 'answered', pick: 'deep' });
+  assert.equal(json.depth, 'single');
+  assert.equal(json.depthBasis.raisedBy, null);
+  assert.equal(json.advice.status, 'shadow');
+  assert.equal(json.advice.pick, null);
+  assert.match(json.advice.reason, /^BENCH_BAR_UNMET: /);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(client.calls.length, 0);
   assert.equal(adviceStore(r), false, 'record: false: no pick is stored');
 });
 
@@ -1123,3 +1179,64 @@ for (const [name, c] of Object.entries(CHOSEN_OFF) as any) {
     assert.deepEqual(json.advice, { status: 'off', pick: null });
   });
 }
+
+// 084 C-6: on the unset-kinds path a shadow cap (canary, or staged per D2) never raises the depth, and the write-free
+// verb asks nothing, since it could not record the answer.
+const CHOSEN_SHADOW: any = {
+  'settings rollout.profile canary': { settings: { rollout: { profile: 'canary' } } },
+  'env DOFLOW_ROLLOUT_PROFILE=canary': { env: { DOFLOW_ROLLOUT_PROFILE: 'canary' } },
+  'settings rollout.profile staged': { settings: { rollout: { profile: 'staged' } } },
+};
+for (const [name, c] of Object.entries(CHOSEN_SHADOW) as any) {
+  test(`084 C-6: with advice.kinds unset, ${name} keeps a decided single when the model answers deep`, async (t) => {
+    const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+    r.lines([r.line({ risk: 'LOW' })]);
+    r.enableAdvice();
+    if (c.settings) put(r.cwd, '.doflow/settings.json', JSON.stringify(c.settings));
+    const client = fakeClient(answered('deep'));
+    const { json } = await start({ ...r, env: { ...r.env, ...(c.env || {}) } }, { adviceClient: client, base: r.base });
+    assert.equal(json.depth, 'single');
+    assert.equal(json.depthBasis.raisedBy, null);
+    assert.deepEqual(json.advice, { status: 'shadow', pick: null, reason: null });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(client.calls.length, 0, 'no call: the answer could be neither applied nor recorded');
+    assert.equal(fs.existsSync(path.join(r.cwd, '.doflow', 'state', 'advice')), false);
+  });
+}
+
+test('084 C-6: with advice.kinds unset and no profile chosen the legacy raise still applies', async (t) => {
+  const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  r.lines([r.line({ risk: 'LOW' })]);
+  r.enableAdvice();
+  const client = fakeClient(answered('deep'));
+  const { json } = await start(r, { adviceClient: client, base: r.base });
+  assert.equal(client.calls.length, 1);
+  assert.equal(client.calls[0].record, false);
+  assert.equal(json.depth, 'deep');
+  assert.equal(json.depthBasis.raisedBy, 'advice');
+  assert.deepEqual(json.advice, { status: 'answered', pick: 'deep' });
+});
+
+// 084 C-10: a set kind consumes the dispatcher's mode and effectiveDecision, never advisorPick alone.
+function stubDispatcher(t: any, resolution: any) {
+  const dispatcher = require('../../src/runtime/advice/shadow-dispatcher.ts');
+  const saved = dispatcher.interceptDecisionPoint;
+  t.after(() => { dispatcher.interceptDecisionPoint = saved; });
+  dispatcher.interceptDecisionPoint = async () => ({ kind: 'review-depth', staticPick: 'single', pickId: null, elevated: false, agreed: null, ...resolution });
+}
+
+test('084 C-10: a shadow result carrying a deep pick never raises the depth', async (t) => {
+  const r = kindsRepo(t, 'act');
+  stubDispatcher(t, { mode: 'shadow', advisorPick: 'deep', effectiveDecision: 'single' });
+  const { json } = await start(r, { adviceClient: fakeClient(answered('deep')), base: r.base });
+  assert.equal(json.depth, 'single');
+  assert.deepEqual(json.advice, { status: 'shadow', pick: null, reason: null });
+});
+
+test('084 C-10: an act result applies the effective decision, not the raw advisor pick', async (t) => {
+  const r = kindsRepo(t, 'act');
+  stubDispatcher(t, { mode: 'act', advisorPick: 'deep', effectiveDecision: 'single' });
+  const { json } = await start(r, { adviceClient: fakeClient(answered('deep')), base: r.base });
+  assert.equal(json.depth, 'single');
+  assert.deepEqual(json.advice, { status: 'answered', pick: 'single' });
+});

@@ -408,9 +408,9 @@ describe('IC-004: Configuration & Environment Overrides', () => {
     const doflowDir = path.join(root, '.doflow');
     fs.mkdirSync(doflowDir, { recursive: true });
 
-    // 1. Defaults: writerCap 2, maxAttempts 3
-    const c1 = new AdmissionController({ projectRoot: root });
-    assert.equal(c1.writerCap, 2);
+    // 1. Defaults: writerCap 1 (maint-thin: writes run single-threaded), maxAttempts 3
+    const c1 = new AdmissionController({ projectRoot: root, env: {} });
+    assert.equal(c1.writerCap, 1);
     assert.equal(c1.maxAttempts, 3);
 
     // 2. settings.json: writerCap 4, maxAttempts 5

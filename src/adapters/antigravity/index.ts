@@ -4,9 +4,9 @@
 
 // Antigravity CLI adapter (#8). Scope follows the surfaces verified against Antigravity's own
 // docs (antigravity.google/docs/cli/*):
-//   instructions — marker-managed section in PROJECT AGENTS.md only. Global memory is
-//     ~/.gemini/GEMINI.md, shared with the Gemini CLI harness; two adapters writing one file with
-//     one marker pair would fight, so global instructions are reported, never written.
+//   instructions — marker-managed section in project AGENTS.md and global ~/.gemini/GEMINI.md (left
+//     alone while another live harness declares it); a retired harness's span there is taken over in
+//     one write (row 127 IC-007), a person-edited file kept until --force. See instructionTarget.
 //   rules        — the core set (DOFLOW_CORE.md and the files it imports), flat, in project .agents/rules
 //     only; the full guidance tree stays in .doflow/guidance.
 //   skills       — folder-form copy-tree into project .agents/skills or user ~/.gemini/config/skills.
@@ -22,7 +22,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
+const { MARKER_START, MARKER_END, removeMarkedSection } = require('../../helper/marker-merge.ts');
 const { planTree, applyTree, removeTree, verifyTree, resolveTransform, copyTreeAssets, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor } = require('../copy-tree.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 const { renderGuidancePointer } = require('../guidance-pointer.ts');
@@ -139,8 +139,8 @@ function sha256File(fsImpl: any, file: any) {
 
 /** Native paths per scope, resolved from the declaration in core/registry/harnesses.json
  * ("paths"): project customization lives at <root>/.agents, global config at ~/.gemini/config
- * (the shared-customization root); instructions and skills are project-only surfaces, so no user
- * rule is declared for them and they resolve to null there. */
+ * (the shared-customization root); instructions are AGENTS.md in the project and ~/.gemini/GEMINI.md
+ * globally; the hook surfaces are project-only, so no user rule is declared and they resolve to null. */
 function resolveNativePaths(declaredPaths: any, { scope, scopeRoot, homeDir }: any = {}) {
   if (scope !== 'project' && scope !== 'global') throw new Error(`Unsupported Antigravity scope '${scope}'`);
   const resolved = resolveHarnessPaths(declaredPaths, { scope, scopeRoot, homeDir });
@@ -215,16 +215,25 @@ function render({ content = '' }: any = {}) {
   return `${MARKER_START}\n${String(content).trimEnd()}\n${MARKER_END}\n`;
 }
 
-function managedInstruction(existing: any, rendered: any) {
+const INSTRUCTIONS_IDENTITY = `doflow:${HARNESS}:instructions:managed-section`;
+/** The short start marker the retired harness wrote into ~/.gemini/GEMINI.md (row 127). It is read
+ * only in a file this adapter is taking over, never written: the span it opens is replaced with ours. */
+const PREDECESSOR_MARKER_START = '<!-- doflow:start -->';
+
+/** The file's content with `rendered` as its DoFlow span: created, appended to a file with none, or
+ * replacing the span in place. `predecessor` also accepts the retired harness's start marker, for a
+ * file being taken over. `name` is the file's name in the conflict. */
+function managedInstruction(existing: any, rendered: any, { name = 'AGENTS.md', predecessor = false }: any = {}) {
   if (existing === null) return { ok: true, operation: 'create', content: rendered };
-  const start = existing.indexOf(MARKER_START);
+  let start = existing.indexOf(MARKER_START);
+  if (start === -1 && predecessor) start = existing.indexOf(PREDECESSOR_MARKER_START);
   const end = existing.indexOf(MARKER_END);
   if (start === -1 && end === -1) {
     const separator = existing === '' || existing.endsWith('\n') ? '\n' : '\n\n';
     const content = `${existing}${separator}${rendered}`;
     return { ok: true, operation: 'merge', content };
   }
-  if (start === -1 || end === -1 || end < start) return { ok: false, conflict: 'AGENTS.md has malformed DoFlow managed-section markers' };
+  if (start === -1 || end === -1 || end < start) return { ok: false, conflict: `${name} has malformed DoFlow managed-section markers` };
   const content = `${existing.slice(0, start)}${rendered}${existing.slice(end + MARKER_END.length).replace(/^\n?/, '')}`;
   return { ok: true, operation: content === existing ? 'none' : 'merge', content };
 }
@@ -351,43 +360,82 @@ function runTreeChanges(changes: any, mode: any) {
 
 // ---- instructions component ----
 
-function planInstructions({ paths, assets, removing, repoRoot, fsImpl = fs }: any) {
-  if (scopeOf(paths) !== 'project') return { changes: [], conflicts: [] };
-  void repoRoot;
+/** The instruction file this run manages, or null: project AGENTS.md as ever; the global GEMINI.md
+ * only when the pointer asset is selected and no other live harness in `registry` declares that same
+ * file (until the harness that owned it retires, its adapter keeps it and this one stays out). */
+function instructionTarget({ paths, assets, registry }: any) {
+  if (!paths.instruction) return null;
+  if (scopeOf(paths) === 'project') return paths.instruction;
+  if (!(assets ?? []).some((asset: any) => asset.id === POINTER_ASSET_ID)) return null;
+  const declaredBy = (harness: any) => {
+    if (harness?.id === HARNESS || !harness?.paths?.instruction) return false;
+    try { return resolveHarnessPaths({ instruction: harness.paths.instruction }, { scope: 'global', scopeRoot: paths.root, homeDir: paths.root }).instruction === paths.instruction; } catch { return false; }
+  };
+  return (registry?.harnesses ?? []).some(declaredBy) ? null : paths.instruction;
+}
+
+/** How this run stands to a section it took over (IC-007): the lifecycle's handover verdict for the
+ * file, this harness's own row on it, and whether a person-edited file stays as it is (`retained`:
+ * edited before the handover, or kept since, and no --force). `predecessor` lets the retired
+ * harness's span count as the section to replace; `keptRow` is a row recorded as kept. A handover
+ * file whose DoFlow span already is this harness's render was written by DoFlow itself (a run that
+ * threw after that write and before its ledger write), so it does not count as edited. */
+function instructionState({ target, context, resources, paths, fsImpl = fs }: any) {
+  const handover = (context.handovers ?? []).find((item: any) => item.target === target) ?? null;
+  const ownRow = (resources ?? []).find((row: any) => row.harness === HARNESS && row.target === target && row.ownershipIdentity === INSTRUCTIONS_IDENTITY) ?? null;
+  const ownWrite = () => {
+    const rendered = renderedInstruction(paths, fsImpl);
+    if (rendered === null || !fsImpl.existsSync(target)) return false;
+    const outcome = managedInstruction(fsImpl.readFileSync(target, 'utf8'), rendered);
+    return outcome.ok && outcome.operation === 'none';
+  };
+  const edited = (handover?.edited === true && !ownWrite()) || ownRow?.retainedEdit === true;
+  return { predecessor: Boolean(handover) || ownRow?.retainedEdit === true, retained: edited && context.force !== true,
+    keptRow: ownRow?.retainedEdit === true };
+}
+
+function instructionsChange(target: any, fields: any) {
+  return { assetId: POINTER_ASSET_ID, target, ownershipIdentity: INSTRUCTIONS_IDENTITY,
+    kind: 'instructions-section', identity: path.basename(target), projection: { renderer: 'antigravity-instructions' }, ...fields };
+}
+
+function planInstructions({ paths, target, removing, state, fsImpl = fs }: any) {
+  const none = { changes: [], conflicts: [], notices: [] };
+  if (!target) return none;
   if (removing) {
     // Removal must strip the section DoFlow owns while leaving foreign bytes untouched — same
     // contract as the other AGENTS-style adapters.
-    if (!fsImpl.existsSync(paths.instruction)) return { changes: [], conflicts: [] };
-    const text = fsImpl.readFileSync(paths.instruction, 'utf8');
-    if (!text.includes(MARKER_START)) return { changes: [], conflicts: [] };
-    return {
-      changes: [{
-        assetId: POINTER_ASSET_ID, target: paths.instruction, operation: 'remove',
-        ownershipIdentity: `doflow:${HARNESS}:instructions:managed-section`,
-        kind: 'instructions-section', identity: 'AGENTS.md',
-        projection: { renderer: 'antigravity-instructions' },
-      }],
-      conflicts: [],
-    };
+    if (!fsImpl.existsSync(target)) return none;
+    const text = fsImpl.readFileSync(target, 'utf8');
+    // A kept edited file with no span left still carries this harness's row: the remove change
+    // releases the row, and apply finds no span to strip, so the person's file is not touched.
+    if (!text.includes(MARKER_START) && !state.keptRow) return none;
+    return { ...none, changes: [instructionsChange(target, { operation: 'remove' })] };
   }
-  const sourceText = pointerBody(fsImpl);
-  if (!sourceText) return { changes: [], conflicts: [] };
-  const pointer = renderGuidancePointer(sourceText, { scope: scopeOf(paths), scopeRoot: paths.root });
-  const existing = fsImpl.existsSync(paths.instruction) ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
-  const outcome = managedInstruction(existing, render({ content: pointer }));
-  if (!outcome.ok) return { changes: [], conflicts: [outcome.conflict] };
-  if (outcome.operation === 'none') return { changes: [], conflicts: [] };
+  if (state.retained) {
+    const shown = scopeOf(paths) === 'global' ? `~/${path.relative(paths.root, target)}` : path.relative(paths.root, target);
+    return { ...none, notices: [`kept ${shown}: changed before handover; --force replaces the DoFlow section`] };
+  }
+  const rendered = renderedInstruction(paths, fsImpl);
+  if (rendered === null) return none;
+  const existing = fsImpl.existsSync(target) ? fsImpl.readFileSync(target, 'utf8') : null;
+  const outcome = managedInstruction(existing, rendered, { name: path.basename(target), predecessor: state.predecessor });
+  if (!outcome.ok) return { ...none, conflicts: [outcome.conflict] };
+  if (outcome.operation === 'none') return none;
   return {
-    changes: [{
-      assetId: POINTER_ASSET_ID, target: paths.instruction, operation: existing === null ? 'create' : 'update',
-      ownershipIdentity: `doflow:${HARNESS}:instructions:managed-section`,
-      kind: 'instructions-section', identity: 'AGENTS.md',
+    ...none,
+    changes: [instructionsChange(target, {
+      operation: existing === null ? 'create' : 'update',
       afterFingerprint: fingerprint(outcome.content), sourceVersion: 'registry-v1',
-      projection: { renderer: 'antigravity-instructions' },
       _content: outcome.content,
-    }],
-    conflicts: [],
+    })],
   };
+}
+
+/** This scope's DoFlow section: the shared pointer rendered for the scope, inside the markers. */
+function renderedInstruction(paths: any, fsImpl: any) {
+  const sourceText = pointerBody(fsImpl);
+  return sourceText ? render({ content: renderGuidancePointer(sourceText, { scope: scopeOf(paths), scopeRoot: paths.root }) }) : null;
 }
 
 function pointerBody(fsImpl: any) {
@@ -440,13 +488,18 @@ function plan(options: any = {}, impl: any = {}) {
   const selectedServers = Array.isArray(options.mcp) ? options.mcp : [];
   const discovery = options.discovery ?? discover(options, impl);
 
-  const instructions = planInstructions({ paths, assets: options.assets, removing, repoRoot: context.repoRoot, fsImpl });
+  const instructionFile = instructionTarget({ paths, assets: options.assets, registry: options.registry });
+  const instructions = planInstructions({ paths, target: instructionFile, removing, fsImpl,
+    state: instructionState({ target: instructionFile, context, resources: neutralResources, paths, fsImpl }) });
   const trees = planTrees({ assets: options.assets, paths, scope, neutralResources, removing, repoRoot: context.repoRoot, force: context.force === true, fsImpl });
   const mcp = planMcpEntries({
     ...mcpEntriesInput({ paths, mcp: selectedServers, mcpAdoptable: options.mcpAdoptable, resources: neutralResources }),
     files: discovery.mcpSnapshot, removing,
   });
-  const hooksPlan = planHooks({ paths, scope, neutralResources, removing, repoRoot: context.repoRoot, fsImpl });
+  // Hook tiers (maint-hooks): outside `hooks.harnesses` this plan carries no hook change; the lifecycle
+  // plans the removal of what an earlier run wrote, from the ledger, against the full registry.
+  const hooksPlan = context.hooksOff === true && !removing ? { changes: [], conflicts: [] }
+    : planHooks({ paths, scope, neutralResources, removing, repoRoot: context.repoRoot, fsImpl });
 
   const changes = [...instructions.changes, ...trees.changes, ...mcp.changes, ...hooksPlan.changes];
   const conflicts = [...instructions.conflicts, ...trees.conflicts, ...mcp.conflicts, ...hooksPlan.conflicts];
@@ -455,7 +508,7 @@ function plan(options: any = {}, impl: any = {}) {
     conflicts,
     prerequisites: [],
     requiredNativeResources: changes,
-    notices: [...trees.notices, ...mcp.notices],
+    notices: [...instructions.notices, ...trees.notices, ...mcp.notices],
   };
 }
 
@@ -493,14 +546,26 @@ function apply(options: any = {}, impl: any = {}) {
 
   for (const change of changes.filter((c: any) => c.projection?.renderer === 'antigravity-instructions')) {
     if (change.operation === 'remove') {
-      // pi precedent: strip only the managed span; the file survives even when nothing remains.
       if (!fsImpl.existsSync(change.target)) continue;
+      // The global file is the person's: the span goes with the one newline put before it, so their
+      // bytes come back exactly (and a file that held only the span goes with it). A kept file taken
+      // over from the retired harness may still hold that harness's span, under its short marker.
+      if ((options.scope ?? 'project') === 'global') { removeMarkedSection(change.target, { startMarkers: [MARKER_START, PREDECESSOR_MARKER_START] }); continue; }
+      // pi precedent: strip only the managed span; the file survives even when nothing remains.
       const next = strippedInstruction(fsImpl.readFileSync(change.target, 'utf8'));
       if (next !== null) fsImpl.writeFileSync(change.target, next, 'utf8');
       continue;
     }
+    // One rename onto the file: no reader, and no failure, ever sees it without its DoFlow span.
     fsImpl.mkdirSync(path.dirname(change.target), { recursive: true });
-    fsImpl.writeFileSync(change.target, change._content ?? render({ content: '' }), 'utf8');
+    const tmp = `${change.target}.${process.pid}.tmp`;
+    try {
+      fsImpl.writeFileSync(tmp, change._content ?? render({ content: '' }), 'utf8');
+      fsImpl.renameSync(tmp, change.target);
+    } catch (error) {
+      fsImpl.rmSync(tmp, { force: true });
+      throw error;
+    }
   }
   for (const change of changes.filter((c: any) => c.projection?.renderer === 'antigravity-hooks')) {
     if (change.kind === 'copy-tree-file') continue;          // handled by runTreeChanges below
@@ -602,24 +667,28 @@ function verify(options: any = {}, impl: any = {}) {
   const statuses = [];
   const resources = [];
 
-  const instruction = paths.instruction && fsImpl.existsSync(paths.instruction)
-    ? fsImpl.readFileSync(paths.instruction, 'utf8') : null;
-  const managed = instruction !== null && instruction.includes(MARKER_START) && instruction.includes(MARKER_END);
-  if (paths.instruction) {
+  const instructionFile = instructionTarget({ paths, assets: options.assets, registry: options.registry });
+  const state = instructionState({ target: instructionFile, context, resources: ledgerResources(options), paths, fsImpl });
+  const instruction = instructionFile && fsImpl.existsSync(instructionFile)
+    ? fsImpl.readFileSync(instructionFile, 'utf8') : null;
+  const managed = instruction !== null && instruction.includes(MARKER_END)
+    && (instruction.includes(MARKER_START) || (state.predecessor && instruction.includes(PREDECESSOR_MARKER_START)));
+  // A kept, person-edited file (IC-007) is owned as it is now, markers or not: an edit can drop the
+  // span, and without its row the next run would see no owner and append the section unasked.
+  const kept = !removing && state.retained && instruction !== null;
+  if (instructionFile) {
     // Removal verification asks "did our section go away?"; install/update asks "is it managed?".
     statuses.push({
       assetId: POINTER_ASSET_ID, capability: 'instructions',
-      status: removing ? (managed ? 'retained' : 'absent') : (managed ? 'managed' : 'missing'),
-      target: paths.instruction,
+      status: removing ? (managed ? 'retained' : 'absent') : (managed ? 'managed' : (kept ? 'retained' : 'missing')),
+      target: instructionFile,
     });
-    if (managed && !removing) {
-      resources.push({
-        assetId: POINTER_ASSET_ID, target: paths.instruction,
-        ownershipIdentity: `doflow:${HARNESS}:instructions:managed-section`,
-        kind: 'instructions-section', identity: 'AGENTS.md',
+    if (!removing && (managed || kept)) {
+      // Recorded with the file as it is now; a kept one is flagged so later runs keep it until --force.
+      resources.push(instructionsChange(instructionFile, {
         fingerprint: fingerprint(instruction), sourceVersion: 'registry-v1',
-        projection: { renderer: 'antigravity-instructions' },
-      });
+        ...(state.retained ? { retainedEdit: true } : {}),
+      }));
     }
   }
 
@@ -650,7 +719,7 @@ function verify(options: any = {}, impl: any = {}) {
   resources.push(...mcp.resources);
 
   // Hooks projection (project scope): the shims' bytes and the registered groups.
-  if (scope === 'project') {
+  if (scope === 'project' && context.hooksOff !== true) {
     const hooks = verifyHooks({ options, paths, context, fsImpl });
     statuses.push(...hooks.statuses);
     resources.push(...hooks.resources);

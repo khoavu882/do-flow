@@ -20,6 +20,7 @@
  *   protocols.debatePresetIds             core/registry/protocols.json order.debate, then the contributed debate presets
  *   protocols.lensIds                     core/registry/protocols.json lenses[].id
  *   harnesses.primaryIds                  'unknown', then core/registry/harnesses.json harnesses[].id in order
+ *   harnesses.ids                         core/registry/harnesses.json harnesses[].id in order
  *   workers.ids                          known worker ids from core/registry/harnesses.json
  *   workers.defaultRungs                 shipped worker ids from that file, then 'primary'
  *   packages.ids                          'doflow' then the ids the global doflow.lock records under `packages`
@@ -78,6 +79,7 @@ const REF_META: Readonly<Record<string, RefMeta>> = Object.freeze({
   'protocols.debatePresetIds': { kind: 'values', dependsOn: [] },
   'protocols.lensIds': { kind: 'values', dependsOn: [] },
   'harnesses.primaryIds': { kind: 'values', dependsOn: [] },
+  'harnesses.ids': { kind: 'values', dependsOn: [] },
   'workers.ids': { kind: 'values', dependsOn: [] },
   'workers.defaultRungs': { kind: 'default', dependsOn: [] },
   'packages.ids': { kind: 'values', dependsOn: [] },
@@ -170,13 +172,25 @@ function protocolsLensIds(source: Source): string[] {
 }
 
 /** `primary.harness` may be `unknown` (undeclared) or any registry harness id. */
-function harnessesPrimaryIds(source: Source): string[] {
+function harnessesIds(source: Source): string[] {
   const list = source(HARNESSES_FILE)?.harnesses;
   const ids = Array.isArray(list) ? list.map((h: any) => h?.id) : [];
   if (ids.length === 0 || ids.some((id: unknown) => typeof id !== 'string' || !id)) {
     throw new Error(`${HARNESSES_FILE} harnesses[].id must be non-empty strings`);
   }
-  return ['unknown', ...ids];
+  return ids;
+}
+
+function harnessesPrimaryIds(source: Source): string[] {
+  return ['unknown', ...harnessesIds(source)];
+}
+
+/** 127 IC-005: the retired harness ids (`id`, `replacement`) harnesses.json records; none when it records none. */
+function retiredHarnesses(source: Source): { id: string; replacement: string }[] {
+  const list = source(HARNESSES_FILE)?.retired;
+  return (Array.isArray(list) ? list : [])
+    .filter((entry: any) => typeof entry?.id === 'string' && typeof entry?.replacement === 'string')
+    .map((entry: any) => ({ id: entry.id, replacement: entry.replacement }));
 }
 
 /** IC-003: schema membership comes from the worker catalogue, loaded only on demand. */
@@ -225,12 +239,15 @@ const RESOLVERS: Readonly<Record<string, (source: Source, deps: Deps, merged: Me
   'protocols.debatePresetIds': protocolsDebatePresetIds,
   'protocols.lensIds': protocolsLensIds,
   'harnesses.primaryIds': harnessesPrimaryIds,
+  'harnesses.ids': harnessesIds,
   'workers.ids': workersIds,
   'workers.defaultRungs': workersDefaultRungs,
   'packages.ids': packagesIds,
 });
 
 interface Refs {
+  /** 127 IC-005: the retired harness ids, with the id to use instead; throws when harnesses.json cannot be read. */
+  retired(): { id: string; replacement: string }[];
   /** The value of a named ref; throws on an unknown name or a source that cannot be read. */
   resolve(name: string, deps?: Deps): unknown;
 }
@@ -260,6 +277,7 @@ function createRefs({ repoRoot = REPO_ROOT, fsImpl = nodeFs, protocols, homeDir 
     return mergedRegistry;
   };
   return {
+    retired: () => retiredHarnesses(source),
     resolve(name, deps = {}) {
       if (!Object.hasOwn(RESOLVERS, name)) throw new Error(`unknown settings ref '${name}'`);
       return RESOLVERS[name](source, deps, merged, homeDir ?? os.homedir(), fsImpl);

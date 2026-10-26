@@ -16,6 +16,7 @@ const { spawn: spawnProcess, spawnSync } = require('node:child_process');
 const { resolverOf, filesUnder } = require('../helper/skill-resolver.ts');
 const { IS_WIN } = require('../helper-platform.ts');
 const { suiteTempDir } = require('../helper/tmp.ts');
+const { ALL_HARNESS_IDS } = require('../helper/scratch-env.ts');
 
 // A developer's PI_CODING_AGENT_DIR would send this file's global Pi MCP writes outside the scratch home.
 delete process.env.PI_CODING_AGENT_DIR;
@@ -30,7 +31,6 @@ const HINT = /doflow: no runtime found in any \.doflow\/ above .*nor at .*Run: n
 const PLACEMENT: any = {
   claude: { project: ['.claude/skills', '.claude/bin'], global: ['.claude/skills', '.claude/bin'] },
   codex: { project: ['.agents/skills', '.codex/bin'], global: ['.agents/skills', '.codex/bin'] },
-  gemini: { project: ['.agents/skills', '.agents/bin'], global: ['.gemini/config/skills', '.gemini/config/bin'] },
   opencode: { project: ['.opencode/skills', '.opencode/bin'], global: ['.config/opencode/skills', '.config/opencode/bin'] },
   pi: { project: ['.pi/skills', '.pi/bin'], global: ['.pi/agent/skills', '.pi/agent/bin'] },
   copilot: { project: ['.agents/skills', '.agents/bin'], global: ['.agents/skills', '.agents/bin'] },
@@ -57,6 +57,9 @@ function newCell(name: any) {
   const dir = path.join(base, `${name.replace(/[^a-z0-9]+/gi, '-')}-${(counter += 1)}`);
   const cell: any = { dir, home: path.join(dir, 'home'), xdg: path.join(dir, 'xdg'), proj: path.join(dir, 'proj'), elsewhere: path.join(dir, 'elsewhere') };
   for (const d of [cell.home, cell.xdg, path.join(cell.proj, 'sub'), cell.elsewhere]) fs.mkdirSync(d, { recursive: true });
+  // Every harness in the hook tier (maint-hooks): these cells reach each harness's hooks, Pi's included.
+  fs.mkdirSync(path.join(cell.xdg, 'doflow'));
+  fs.writeFileSync(path.join(cell.xdg, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'hooks.harnesses': ALL_HARNESS_IDS }));
   return cell;
 }
 

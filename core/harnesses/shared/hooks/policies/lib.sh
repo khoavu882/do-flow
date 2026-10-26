@@ -17,7 +17,7 @@ case ${BASH_SOURCE[0]} in */*) _DOFLOW_LIB_DIR=${BASH_SOURCE[0]%/*} ;; *) _DOFLO
 #
 # Consolidation note (022-normalize-hooks, Phase B): this is the single
 # canonical copy every front door's dispatched policy script sources — the
-# claude/gemini/kiro/codex copies it replaces were already byte-identical
+# claude/kiro/codex copies it replaces were already byte-identical
 # except for one Claude-only default (see DOFLOW_AGENT below), confirmed via
 # diff before consolidating.
 
@@ -49,7 +49,7 @@ PROJECTS_DIR="${STATE_DIR:+$STATE_DIR/projects}"
 SESSIONS_LOG="${DOFLOW_HOME:+$DOFLOW_HOME/sessions.log}"
 
 # Identifies which harness is running. A front door sets this before sourcing
-# this file (e.g. `export DOFLOW_AGENT=gemini; exec bash .../policies/...sh`);
+# this file (e.g. `export DOFLOW_AGENT=codex; exec bash .../policies/...sh`);
 # "unknown" here — not any one harness's name — is the honest fallback when a
 # front door omits it, since every prior per-harness copy of this file
 # defaulted to "claude-code" regardless of which harness actually shipped it.

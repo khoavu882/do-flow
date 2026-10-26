@@ -61,7 +61,6 @@ const MAX_VALUE_BYTES = 256;
 const SURFACES: any = {
   'claude:pre-bash-guard': { harness: 'claude', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.claude/hooks/pre-bash-guard.sh', fixture: 'claude/pre-bash-guard/perf.json' },
   'codex:pre-bash-guard': { harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.codex/hooks/pre-bash-guard.sh', fixture: 'codex/pre-bash-guard/perf.json' },
-  'gemini:pre-bash-guard': { harness: 'gemini', event: 'BeforeTool', policy: 'pre-bash-guard', door: '.gemini/hooks/pre-bash-guard.sh', fixture: 'gemini/pre-bash-guard/perf.json' },
   'kiro:pre-bash-guard': { harness: 'kiro', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.kiro/hooks/pre-bash-guard.sh', fixture: 'kiro/pre-bash-guard/perf.json' },
   'antigravity:pre-bash-guard': { harness: 'antigravity', event: 'PreToolUse', policy: 'pre-bash-guard', runner: true, fixture: 'antigravity/pre-bash-guard/perf.json' },
   'pi:pre-bash-guard': { harness: 'pi', event: 'tool_call', policy: 'pre-bash-guard', bridge: true, fixture: 'pi/tool_call/perf-bash.json' },
@@ -540,7 +539,7 @@ test('G-O2 canary run exercises verify (pass+fail), bridge hooks, task-run start
   assert.ok(telemetryFiles.length >= 1, 'at least one telemetry partition written');
   const writtenLines = telemetryFiles.flatMap((f: any) => fs.readFileSync(f.abs, 'utf8').trim().split('\n').map((l: any) => JSON.parse(l)));
   const hookLines = writtenLines.filter((l: any) => l.kind === 'hook');
-  assert.equal(hookLines.length, 11, '8 allowlisted surface calls + 3 MCP calls wrote 11 hook lines');
+  assert.equal(hookLines.length, 10, '7 allowlisted surface calls + 3 MCP calls wrote 10 hook lines');
   assert.equal(hookLines.filter((l: any) => l.policy === 'pre-bash-guard' && l.tool === null).length, 3, 'MCP tool calls record tool: null');
 
   // The package.verb lines: one per verb of the package producer, holding only the three declared T2 keys

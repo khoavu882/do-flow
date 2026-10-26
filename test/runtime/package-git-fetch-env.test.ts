@@ -9,6 +9,7 @@ const { tempDir } = require('../helper/tmp.ts');
 const { pinGit, fetchGit } = require('../../src/runtime/packages/fetch.ts');
 const { loadPoints } = require('../../src/runtime/packages/points.ts');
 const limits = loadPoints().registry.limits;
+const POSIX = process.platform !== 'win32';
 const sha = '1111111111111111111111111111111111111111';
 const KEYS = [
   'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
@@ -51,7 +52,7 @@ test('git fetch ignores caller GIT_DIR and GIT_WORK_TREE: the decoy repo is unto
 });
 
 for (const key of KEYS) {
-  test(`git subprocesses never receive ${key} from the caller env`, (t: any) => {
+  test(`git subprocesses never receive ${key} from the caller env`, { skip: !POSIX }, (t: any) => {
     const dir = tempDir(t, 'doflow-git-env-stub-');
     const out = path.join(dir, 'seen');
     fs.writeFileSync(path.join(dir, 'git'), `#!/bin/sh
@@ -76,3 +77,29 @@ exit 0
     assert.equal(seen.split('--\n').filter(Boolean).length, 5); // ls-remote, init, remote add, fetch, archive all ran
   });
 }
+
+test('a caller GIT_ALLOW_PROTOCOL cannot re-enable the file transport', (t: any) => {
+  const repo = tempDir(t, 'doflow-git-env-source-');
+  git(repo, 'init', '-q');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'a\n');
+  git(repo, 'add', 'a.txt'); git(repo, 'commit', '-q', '-m', 'source');
+  const commit = git(repo, 'rev-parse', 'HEAD').trim();
+  const env = { ...process.env, GIT_ALLOW_PROTOCOL: 'file' };
+  const result = fetchGit({ type: 'git', url: repo, commit }, { stagingDir: stage(t), env, limits });
+  assert.equal(result.ok, false);
+  assert.match(result.findings[0].message, /transport 'file' not allowed/u);
+});
+
+test('caller GIT_CONFIG_COUNT pairs reach git but cannot re-enable the file transport', (t: any) => {
+  const repo = tempDir(t, 'doflow-git-env-source-');
+  git(repo, 'init', '-q');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'a\n');
+  git(repo, 'add', 'a.txt'); git(repo, 'commit', '-q', '-m', 'source');
+  const commit = git(repo, 'rev-parse', 'HEAD').trim();
+  const env = {
+    ...process.env, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'protocol.file.allow', GIT_CONFIG_VALUE_0: 'always',
+  };
+  const result = fetchGit({ type: 'git', url: repo, commit }, { stagingDir: stage(t), env, limits });
+  assert.equal(result.ok, false);
+  assert.match(result.findings[0].message, /transport 'file' not allowed/u);
+});

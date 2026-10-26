@@ -129,7 +129,6 @@ const MODEL_PAYLOADS = {
   claude: { event: 'SessionStart', native: { hook_event_name: 'SessionStart', session_id: '<masked>', model: 'Claude Sonnet 4' } },
   antigravity: { event: 'PreToolUse', native: { hook_event_name: 'PreToolUse', conversationId: 'agy-conversation', modelName: 'Gemini 2.5 Pro' } },
   pi: { event: 'tool_call', native: { toolName: 'read', sessionId: 'pi-session', model: 'claude-sonnet-4', toolCallId: 'pi-call' } },
-  gemini: { event: 'BeforeTool', native: { hook_event_name: 'BeforeTool', session_id: '<masked>', model: 'Gemini 2.5 Pro' } },
   opencode: { event: 'tool.execute.before', native: { session_id: '<masked>', model: 'anthropic/claude-sonnet-4' } },
   copilot: { event: 'preToolUse', native: { session_id: '<masked>', model: 'claude-sonnet-4' } },
   kiro: { event: 'PreToolUse', native: { hook_event_name: 'PreToolUse', session_id: '<masked>', model: 'claude-sonnet-4' } },

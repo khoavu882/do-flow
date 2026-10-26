@@ -200,7 +200,7 @@ test('fake descriptors: registered harness ids, each block passes validateWorker
   for (const key of probes) assert.ok(Array.isArray(full[key].argv), `claude ${key} argv`);
   assert.equal(kindOf(DESCRIPTORS.codex.hooksProbe.argv), 'hooks');
   assert.ok(DESCRIPTORS.codex.hooksProbe.argv.includes('--skip-front-doors'));
-  assert.equal(DESCRIPTORS.gemini.readOnly.status, 'unknown');
+  assert.equal(DESCRIPTORS.antigravity.readOnly.status, 'unknown');
   assert.equal(DESCRIPTORS.opencode.modelChecks.length, 1);
   assert.equal(kindOf(DESCRIPTORS.opencode.modelChecks[0].argv), `model-check:${DESCRIPTORS.opencode.modelChecks[0].id}`);
   for (const block of Object.values(DESCRIPTORS)) {
@@ -209,11 +209,11 @@ test('fake descriptors: registered harness ids, each block passes validateWorker
 });
 
 test('fake descriptors: argv on an unknown entry fails validateWorker (negative control)', (): any => {
-  const copy = structuredClone(DESCRIPTORS.gemini);
+  const copy = structuredClone(DESCRIPTORS.antigravity);
   copy.readOnly.argv = ['--read-only'];
   const errors: any = [];
-  validateWorker(copy, "harness 'gemini'", errors);
-  assert.deepEqual(errors, ["harness 'gemini' worker 'readOnly': recipe field 'argv' is allowed only when status is supported"]);
+  validateWorker(copy, "harness 'antigravity'", errors);
+  assert.deepEqual(errors, ["harness 'antigravity' worker 'readOnly': recipe field 'argv' is allowed only when status is supported"]);
 });
 
 test('fake cli: the scratch bin holds only the links this test made (RK9)', POSIX_ONLY, (t) => {

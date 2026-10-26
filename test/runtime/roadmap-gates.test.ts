@@ -380,7 +380,7 @@ test('D.4: gate-b findings-valid applies the authoring-identities fact (INV-8 eq
 
   // Independent author passes
   const independentAuthors = [
-    { kind: 'subagent', harness: 'gemini', model: 'flash', channel: 'observed' },
+    { kind: 'subagent', harness: 'antigravity', model: 'flash', channel: 'observed' },
   ];
   assert.deepEqual(reasons({ 'authoring-identities': independentAuthors }), []);
 
@@ -412,7 +412,9 @@ test('C-2: gate-b findings-valid checks the recorded protocol against its preset
   // Closure fix (agent-docs/doflow/119-review-protocol/closure-fix-brief.md, item 1): omitting `protocol` must not skip the
   // check. A non-auto review.preset makes a record without one invalid (it was pinned valid before: the stale side).
   assert.deepEqual(reasons({ ...review(), rounds: 1 }, { sameFamily: 'warn', preset: 'review-deep' }), ['findings-invalid'], 'project review-deep, no protocol, rounds 1');
-  assert.deepEqual(reasons(review(), { sameFamily: 'warn', preset: 'review-single' }), ['findings-invalid'], 'any non-auto preset needs a protocol');
+  // maint-thin: review-single is now the shipped default and the loosest core preset, so it holds a record to nothing a
+  // missing protocol could hide (as auto did before); any stricter preset still needs one (review-deep above).
+  assert.deepEqual(reasons(review(), { sameFamily: 'warn', preset: 'review-single' }), [], 'the loosest preset needs no protocol');
   assert.deepEqual(reasons({ ...review(), rounds: 1 }, { sameFamily: 'warn', preset: 'auto' }), [], 'auto: a record without protocol stays valid');
   assert.deepEqual(reasons(review(), { sameFamily: 'warn' }), [], 'a fact without a preset: a record without protocol stays valid');
 });

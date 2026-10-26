@@ -16,7 +16,7 @@ const settings = require('../../src/runtime/settings/resolve.ts');
 const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
 
 const IDS = shippedWorkerIds(loadRegistry({ repoRoot: REPO }));
-const FAKES = { claude: DESCRIPTORS.claude, gemini: DESCRIPTORS.gemini };
+const FAKES = { claude: DESCRIPTORS.claude, antigravity: DESCRIPTORS.antigravity };
 const NOW = Date.parse('2026-10-24T00:00:00Z');
 const read = (f: any) => activeWorkers({ env: f.env(), projectRoot: f.project });
 const writeUser = (f: any, value: any) => f.writeUserSettings({ schema: 1, 'workers.enabled': value });
@@ -89,8 +89,8 @@ test('a user list sets workers in list order and gates every omitted worker', (t
   assert.equal(workerGate(active, 'codex'), null);
   assert.equal(inSessionGate(active), null);
 
-  writeUser(f, ['gemini', 'codex', 'primary']);
-  assert.deepEqual(read(f).workers, ['gemini', 'codex']);
+  writeUser(f, ['antigravity', 'codex', 'primary']);
+  assert.deepEqual(read(f).workers, ['antigravity', 'codex']);
 });
 
 test('dangling ids are reported and do not become usable workers', (t) => {
@@ -227,7 +227,7 @@ test('worker run refuses disabled and invalid lists before reading the prompt', 
 test('worker select filters disabled candidates while retaining known-harness usage checks', async (t) => {
   preserveExitCode(t);
   const f = createSettingsEnv(t);
-  writeUser(f, ['gemini']);
+  writeUser(f, ['antigravity']);
   const options = {
     action: 'select', descriptors: FAKES, env: f.env({ PATH: '' }),
     cwd: f.project, now: () => new Date(NOW),
@@ -235,7 +235,7 @@ test('worker select filters disabled candidates while retaining known-harness us
   const selected = await executeWorkerCommand(options);
   assert.equal(selected.exit, 1);
   assert.equal(selected.body.disposition, 'none-eligible');
-  assert.deepEqual(selected.body.candidates.map((item: any) => item.harness), ['gemini']);
+  assert.deepEqual(selected.body.candidates.map((item: any) => item.harness), ['antigravity']);
 
   const disabled = await executeWorkerCommand({ ...options, harness: 'claude' });
   assert.equal(disabled.exit, 1);
@@ -246,7 +246,7 @@ test('worker select filters disabled candidates while retaining known-harness us
   const unknown = await executeWorkerCommand({ ...options, harness: 'nope' });
   assert.equal(unknown.exit, 2);
   assert.equal(unknown.body.error, 'usage');
-  assert.equal(unknown.body.message, "unknown harness 'nope'; known: claude, gemini");
+  assert.equal(unknown.body.message, "unknown harness 'nope'; known: claude, antigravity");
 
   const described = await executeWorkerCommand({ ...options, action: 'describe', harness: 'claude' });
   assert.equal(described.exit, 0);

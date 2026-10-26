@@ -59,8 +59,8 @@ function cmdRemove(o: any): void {
       scope: codexScope(scope), scopeRoot: scope.global ? os.homedir() : path.resolve(scope.projectRoot),
       targets: lifecycleTargets, mcpAdoptable, retainedMcpIds, stateRoot: view.stateRoot, ledger: view.ledger,
       context: view.plan.targets[0].adapterInput.context });
-    // Shared destinations (one .doflow/scripts tree for claude/codex/gemini, one .agents for
-    // gemini/copilot) mean a removal can legitimately leave files standing. Saying only "removed"
+    // Shared destinations (one .doflow/scripts tree for claude/codex, one .agents for
+    // antigravity/copilot) mean a removal can legitimately leave files standing. Saying only "removed"
     // would be half the truth, so what was kept and who still claims it is printed, not implied.
     for (const line of retentionSummary(result.retained)) console.log(`[INFO] ${line}`);
     console.log(`[OK] Removed ${result.ledger.resources.length === 0 ? 'all' : 'eligible'} native resource(s) for ${lifecycleTargets.join(', ')}; ${result.ledger.resources.length} owned record(s) remain.`);

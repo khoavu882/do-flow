@@ -96,13 +96,6 @@ describe('IC-001: Harness Context Profiles (core/registry/harnesses.json)', () =
       toolResultLimitBytes: 1048576,
       retention: 'unsupported',
     },
-    gemini: {
-      capacityTokens: 1000000,
-      reserveTokens: 50000,
-      tokenTelemetry: 'none',
-      toolResultLimitBytes: 1048576,
-      retention: 'unsupported',
-    },
     antigravity: {
       capacityTokens: 1000000,
       reserveTokens: 50000,
@@ -140,13 +133,13 @@ describe('IC-001: Harness Context Profiles (core/registry/harnesses.json)', () =
     },
   };
 
-  test('registry declares exactly eight harnesses', () => {
-    assert.equal(harnesses.length, 8, 'Harness registry must contain exactly 8 harnesses');
+  test('registry declares exactly seven harnesses', () => {
+    assert.equal(harnesses.length, 7, 'Harness registry must contain exactly 7 harnesses');
     const ids = harnesses.map((h: any) => h.id).sort();
     assert.deepEqual(ids, Object.keys(EXPECTED_CONTEXT_PROFILES).sort());
   });
 
-  test('all eight harnesses declare contextProfile with zero unverified facts', () => {
+  test('all seven harnesses declare contextProfile with zero unverified facts', () => {
     const requiredFields = [
       'capacityTokens',
       'reserveTokens',
@@ -181,7 +174,7 @@ describe('IC-001: Harness Context Profiles (core/registry/harnesses.json)', () =
     }
   });
 
-  test('all eight harnesses match their empirical context profile values', () => {
+  test('all seven harnesses match their empirical context profile values', () => {
     for (const harness of harnesses) {
       const expected = EXPECTED_CONTEXT_PROFILES[harness.id];
       assert.ok(expected, `Unknown harness ${harness.id}`);
@@ -210,12 +203,6 @@ describe('IC-002: Harness Native Telemetry (core/registry/harnesses.json)', () =
     },
     codex: {
       signals: ['events'],
-      contentDefaults: 'metadata-only',
-      inboundTraceparent: 'unsupported',
-      joinKey: 'session_id',
-    },
-    gemini: {
-      signals: [],
       contentDefaults: 'metadata-only',
       inboundTraceparent: 'unsupported',
       joinKey: 'session_id',
@@ -252,7 +239,7 @@ describe('IC-002: Harness Native Telemetry (core/registry/harnesses.json)', () =
     },
   };
 
-  test('all eight harnesses declare nativeTelemetry capability block', () => {
+  test('all seven harnesses declare nativeTelemetry capability block', () => {
     for (const harness of harnesses) {
       assert.ok(harness.nativeTelemetry, `Harness ${harness.id} must declare nativeTelemetry`);
       const expected = EXPECTED_TELEMETRY[harness.id];
@@ -478,7 +465,7 @@ describe('IC-004: Instant Rollback Controller & Circuit Breaker (rollback.ts)', 
     assert.equal(profile.origin.detail, 'rollback-state-unavailable');
   });
 
-  test('checkRollbackState fails closed on a real state directory it may not read', { skip: process.getuid?.() === 0 ? 'root reads any file' : false }, () => {
+  test('checkRollbackState fails closed on a real state directory it may not read', { skip: process.platform === 'win32' ? 'no POSIX modes' : process.getuid?.() === 0 ? 'root reads any file' : false }, () => {
     const { projectRoot } = setupTestProject({ 'rollout.profile': 'full' });
     tripRollback({ reason: 'tripped before the permissions changed', projectRoot });
     const stateDir = path.join(projectRoot, '.doflow', 'state');

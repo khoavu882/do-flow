@@ -2,7 +2,7 @@
 
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 // lifecycle-view.js — CLI-facing view over the registry/lifecycle path: computes a plan across
-// every requested harness (claude/codex/gemini) from a loaded registry, a neutral ledger, and the
+// every requested harness (claude, codex, opencode, pi, copilot, kiro, antigravity) from a loaded registry, a neutral ledger, and the
 // Codex-native source locations under `repoRoot`, then renders/gates it for bin/doflow.js's
 // install/update/remove/status commands.
 const fs = require('node:fs');
@@ -13,13 +13,14 @@ const { createAdapterRegistry } = require('../adapters/index.ts');
 const { declaredHarnessPaths } = require('../helper/harness-paths.ts');
 const claudeAdapter = require('../adapters/claude/index.ts');
 const codexAdapter = require('../adapters/codex/index.ts');
-const { createGeminiAdapter } = require('../adapters/gemini/index.ts');
 const { createOpenCodeAdapter } = require('../adapters/opencode/index.ts');
 const { createPiAdapter } = require('../adapters/pi/index.ts');
 const { createCopilotAdapter } = require('../adapters/copilot/index.ts');
 const { createKiroAdapter } = require('../adapters/kiro/index.ts');
 const { createAntigravityAdapter } = require('../adapters/antigravity/index.ts');
 const { planLifecycle } = require('./index.ts');
+const { formatRetiredPlans } = require('./retired-harnesses.ts');
+const { resolveHookTier, hookTierWarnings } = require('./hook-tier.ts');
 const { stateRoot, readLedger, defaultLedger } = require('../state/index.ts');
 const { selectAssets } = require('../registry/index.ts');
 const { defaultLock, readLock, writeLock, diffLocks, removeLock, pinnedSelections, lockPackages } = require('../state/lockfile.ts');
@@ -48,17 +49,18 @@ function codexConfigResources(repoRoot: any, fsImpl: any) {
  * mutation path until every native adapter has CLI-level parity.
  * `registry` is loaded once per command (by the caller) and threaded through here rather than
  * reloaded — the same registry also resolves every harness's MCP selection for that command. */
-function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, mcpAdoptable = {}, retainedMcpIds = [], operation, repoRoot, force = false, adopt = false, permissions = false, statusline = false, fsImpl = fs }: any) {
+function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, mcpAdoptable = {}, retainedMcpIds = [], operation, repoRoot, force = false, adopt = false, permissions = false, statusline = false, hookHarnesses, fsImpl = fs }: any) {
   const lifecycleScope = codexScope(scope);
   const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
   const neutralStateRoot = stateRoot({ scope: lifecycleScope, projectRoot: scopeRoot, homeDir: scopeRoot });
   const ledger = readLedger(neutralStateRoot) ?? defaultLedger({ scope: lifecycleScope, scopeRoot });
+  const tier = hookHarnesses ? { harnesses: hookHarnesses, workers: null } : resolveHookTier();
   // Mirrors buildAdapterRegistry() in src/cli/shared.js — including the declared-paths wiring —
   // and is kept as a literal construction here because the registry guard pins every declared
   // harness into each adapter-registry call site by parsing it.
   const declared = declaredHarnessPaths();
   const adapters = createAdapterRegistry({ claude: claudeAdapter.createClaudeAdapter({ declaredPaths: declared.claude }),
-    codex: codexAdapter.createCodexAdapter({ declaredPaths: declared.codex }), gemini: createGeminiAdapter({ declaredPaths: declared.gemini }),
+    codex: codexAdapter.createCodexAdapter({ declaredPaths: declared.codex }),
     opencode: createOpenCodeAdapter({ declaredPaths: declared.opencode }), pi: createPiAdapter({ declaredPaths: declared.pi }),
     copilot: createCopilotAdapter({ declaredPaths: declared.copilot }), kiro: createKiroAdapter({ declaredPaths: declared.kiro }),
     antigravity: createAntigravityAdapter({ declaredPaths: declared.antigravity }) });
@@ -68,19 +70,21 @@ function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, m
     codexAgentsSourceDir: path.join(repoRoot, 'core', 'harnesses', 'codex', 'agents'),
     codexHooksSourceFile: path.join(repoRoot, 'core', 'harnesses', 'codex', 'hooks', 'hooks.json'),
     codexHooksSourceDir: path.join(repoRoot, 'core', 'harnesses', 'codex', 'hooks'),
-    geminiHooksSourceFile: path.join(repoRoot, 'core', 'harnesses', 'gemini', 'hooks', 'hooks.json'),
-    geminiHooksSourceDir: path.join(repoRoot, 'core', 'harnesses', 'gemini', 'hooks'),
     operation,
     force,
     adopt,
     permissions,
     statusline,
+    // maint-hooks: the person's hook tier (a caller may pass its own); every harness outside it gets content only.
+    hookHarnesses: tier.harnesses,
   } });
-  return { registry, stateRoot: neutralStateRoot, ledger, plan, adapters };
+  const hookWarnings = operation === 'remove' ? [] : hookTierWarnings(registry, plan.targets.filter((t: any) => !t.skipped).map((t: any) => t.harness), tier);
+  return { registry, stateRoot: neutralStateRoot, ledger, plan, adapters, hookWarnings };
 }
 
 function printRegistryLifecycle(view: any, prefix = '[PLAN]') {
   console.log(`${prefix} Registry lifecycle: ${view.plan.changes.length} native change(s), ${view.plan.conflicts.length} conflict(s), ${view.plan.prerequisites.length} prerequisite(s)`);
+  for (const warning of view.hookWarnings ?? []) console.log(`[WARN] ${warning}`);
   for (const target of view.plan.targets) {
     console.log(`${prefix}   ${target.harness}: ${target.changes.length} change(s)${target.conflicts.length ? `; conflicts: ${target.conflicts.join('; ')}` : ''}`);
     const hookChange = target.changes.find((change: any) => change.nativeComponent === 'hooks');
@@ -89,19 +93,29 @@ function printRegistryLifecycle(view: any, prefix = '[PLAN]') {
     }
     for (const notice of target.notices ?? []) console.log(`${prefix}   ${target.harness}: ${notice}`);
   }
+  printRetiredPlans(view);
   console.log(`${prefix} Neutral state: ${view.stateRoot}${readLedger(view.stateRoot) ? ' (existing ledger)' : ' (not yet created)'}`);
+}
+
+/** The retirement lines (row 127 IC-003), the same under --dry-run and after an apply: one
+ * `[RETIRED] <id> → <replacement>: deleted N, stripped N, released N, dropped N, deferred N, kept N`
+ * summary per retired harness the plan sweeps, then one line per kept or deferred item. Nothing
+ * when the ledger holds no retired row. */
+function printRetiredPlans(view: any) {
+  for (const line of formatRetiredPlans(view.plan.retiredHarnesses ?? [])) console.log(line);
 }
 
 /** Prints the plan's notices after a real run. Independent of whether anything changed: a no-op
  * reinstall of a harness that has a gap must still say so. */
 function printPlanNotices(view: any) {
+  for (const warning of view.hookWarnings ?? []) console.log(`[WARN] ${warning}`);
   for (const { harness, notice } of view.plan.notices) console.log(`[INFO] ${harness}: ${notice}`);
 }
 
 /** Harnesses whose native resources are reconciled through the registry/lifecycle path (all of
  * them, as of this wiring). Kept as an explicit list — rather than reusing VALID from
  * src/targets.js — so a future non-lifecycle target doesn't silently gain lifecycle behavior. */
-const LIFECYCLE_HARNESSES = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+const LIFECYCLE_HARNESSES = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
 
 function assertSafeRegistryPlan(view: any) {
   if (view.plan.safe) return;
@@ -120,11 +134,13 @@ function assertSafeRegistryPlan(view: any) {
  * included. Assets are recomputed from the registry for every pinned harness. The previous lock's
  * `packages` (122 IC-007) are not registry-derived, so they are carried forward unchanged, and a lock
  * that holds packages stays as `targets: []` once no harness is pinned. `null` when no harness stays
- * pinned and no package is recorded. */
+ * pinned and no package is recorded. Only live harnesses are pinned (row 127 IC-004): a previous pin
+ * of a retired id is dropped, even while the ledger still holds its rows. */
 function lockDocument({ registry, scope, scopeRoot, previous = null, ledger, plannedTargets = [], mcpSelections = {}, sourceVersion = pkg.version, now = new Date() }: any) {
   const held = new Set((ledger?.resources ?? []).map((resource: any) => resource?.harness));
+  const live = new Set(registry.harnesses.map((harness: any) => harness.id));
   const pinned = [...new Set([...(previous?.targets ?? []).map((entry: any) => entry.harness), ...plannedTargets])]
-    .filter((harness) => held.has(harness)).sort();
+    .filter((harness) => held.has(harness) && live.has(harness)).sort();
   const packages = lockPackages(previous);
   if (!pinned.length && !packages.length) return null;
   const assets = [];
@@ -174,6 +190,6 @@ function recordLock(scopeArgs: any, next: any, { fsImpl = fs }: any = {}) {
 }
 
 module.exports = {
-  codexScope, registryLifecycleView, printRegistryLifecycle, printPlanNotices, LIFECYCLE_HARNESSES, assertSafeRegistryPlan,
+  codexScope, registryLifecycleView, printRegistryLifecycle, printRetiredPlans, printPlanNotices, LIFECYCLE_HARNESSES, assertSafeRegistryPlan,
   lockDocument, lockDelta, recordLock,
 };

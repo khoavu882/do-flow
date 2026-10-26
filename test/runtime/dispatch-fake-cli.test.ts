@@ -127,7 +127,7 @@ test('edit descriptors: claude has a supported isolatedEdit and every block pass
   assert.equal(descriptors.claude.isolatedEdit.status, 'supported');
   assert.deepEqual(descriptors.claude.isolatedEdit.argv, ['--edit-in-cwd']);
   assert.deepEqual(EDIT_ARGV, ['--edit-in-cwd']);
-  assert.equal(Object.hasOwn(descriptors.gemini, 'isolatedEdit'), false, 'gemini declares none');
+  assert.equal(Object.hasOwn(descriptors.antigravity, 'isolatedEdit'), false, 'antigravity declares none');
   assert.notEqual(editDescriptors().claude, descriptors.claude, 'a fresh copy per call');
   // Negative control: a supported isolatedEdit without its argv recipe fails validation.
   const broken = editDescriptors().claude;
@@ -187,7 +187,7 @@ test('sandbox: PATH is one scratch bin holding only the expected links; no harne
   const entries = box.env.PATH.split(path.delimiter);
   // Checked by lookup before anything is spawned, so a PATH that reaches a real harness fails here
   // without starting it.
-  for (const name of ['codex', 'gemini', 'claude']) {
+  for (const name of ['codex', 'agy', 'claude']) {
     assert.deepEqual(entries.filter((dir: any) => fs.existsSync(path.join(dir, name))), [], `${name} is in no PATH entry`);
   }
   assert.deepEqual(entries, [box.bin], 'PATH is the scratch bin alone');
@@ -200,7 +200,7 @@ test('sandbox: PATH is one scratch bin holding only the expected links; no harne
   assert.equal(spawnSync('git', ['--version'], { env: box.env }).status, 0);
   for (const name of FAKE_BINARIES) assert.equal(run(box, name, ['--version']).status, 0, name);
   // No real harness binary resolves from a child with this env.
-  for (const name of ['codex', 'gemini', 'claude']) {
+  for (const name of ['codex', 'agy', 'claude']) {
     const r = spawnSync(name, ['--version'], { env: box.env, encoding: 'utf8', timeout: 5000 });
     assert.equal(r.error?.code, 'ENOENT', `${name} must not resolve`);
   }

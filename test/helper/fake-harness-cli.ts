@@ -9,7 +9,7 @@
 // bin/ alone, built by test/helper/dispatch-sandbox.js: the fake links, a `node` symlink to
 // process.execPath, a `git` symlink to the resolved git binary, and named system tools only when a
 // test asks for them (082 DEC-056, NFR-002). It never contains dirname(process.execPath): a node
-// install directory can hold real codex, gemini or claude binaries. The fake names are
+// install directory can hold real codex, antigravity or claude binaries. The fake names are
 // `fake-<harness>` so no real harness binary is ever hit. linkBin's returned PATH (bin/ plus the
 // node directory) is the 081 shape its existing callers assert; no new test uses it.
 //
@@ -69,7 +69,7 @@
 // `lastMessage` is omitted), unless `omitOutput` is set to model Codex producing no file.
 //
 // The fake descriptors: claude is fully supported (doflow-jsonl-v1, every probe argv, prompt in
-// argv); codex takes the prompt on stdin and its hooksProbe skips the front doors; gemini has
+// argv); codex takes the prompt on stdin and its hooksProbe skips the front doors; antigravity has
 // readOnly unknown; opencode has no free hooks probe and one model check, hooks-roundtrip.
 //
 // Required as a module it exports linkBin, writeScenario and readLog for tests.

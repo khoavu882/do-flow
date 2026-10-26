@@ -34,7 +34,6 @@ let homes = 0;
 const SURFACES: any = {
   'claude:pre-bash-guard': { harness: 'claude', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.claude/hooks/pre-bash-guard.sh', fixture: 'claude/pre-bash-guard/perf.json', tool: 'Bash' },
   'codex:pre-bash-guard': { harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.codex/hooks/pre-bash-guard.sh', fixture: 'codex/pre-bash-guard/perf.json', tool: 'Bash' },
-  'gemini:pre-bash-guard': { harness: 'gemini', event: 'BeforeTool', policy: 'pre-bash-guard', door: '.gemini/hooks/pre-bash-guard.sh', fixture: 'gemini/pre-bash-guard/perf.json', tool: 'run_shell_command' },
   'kiro:pre-bash-guard': { harness: 'kiro', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.kiro/hooks/pre-bash-guard.sh', fixture: 'kiro/pre-bash-guard/perf.json', tool: 'Bash' },
   'antigravity:pre-bash-guard': { harness: 'antigravity', event: 'PreToolUse', policy: 'pre-bash-guard', runner: true, fixture: 'antigravity/pre-bash-guard/perf.json', tool: 'run_command' },
   'pi:pre-bash-guard': { harness: 'pi', event: 'tool_call', policy: 'pre-bash-guard', bridge: true, fixture: 'pi/tool_call/perf-bash.json', tool: 'bash' },
@@ -376,7 +375,7 @@ test('a surface outside the allowlist writes nothing', () => {
   const root = project();
   const config = path.join(root, '.doflow');
   const bridge = path.join(root, '.doflow/shared/hooks/bridge/bridge.sh');
-  for (const [harness, event, policy] of [['claude', 'PreToolUse', 'mcp-tool-guard'], ['claude', 'PreToolUse', 'pre-implementation-gate'], ['gemini', 'BeforeTool', 'user-prompt-submit'], ['claude', 'Stop', 'pre-bash-guard'], ['opencode', 'PreToolUse', 'pre-bash-guard']]) {
+  for (const [harness, event, policy] of [['claude', 'PreToolUse', 'mcp-tool-guard'], ['claude', 'PreToolUse', 'pre-implementation-gate'], ['kiro', 'PreToolUse', 'user-prompt-submit'], ['claude', 'Stop', 'pre-bash-guard'], ['opencode', 'PreToolUse', 'pre-bash-guard']]) {
     const result = spawnSync(BASH, [bridge, harness, event, policy], { cwd: root, input: '{"hook_event_name":"PreToolUse","session_id":"s","tool_name":"Bash","tool_input":{"command":"ls"}}\n', encoding: 'utf8', env: baseEnv(root, {}) });
     assert.equal(result.error, undefined);
     assert.deepEqual(hookLines(config), [], `${harness}:${event}:${policy} writes nothing`);

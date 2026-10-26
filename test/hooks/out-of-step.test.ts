@@ -14,7 +14,6 @@ const QUIET: any = ['stop-check', 'session-context', 'subagent-audit', 'user-pro
 const OLD_DOORS: any = {
   claude: ['core/harnesses/claude/hooks/pre-implement-gate.sh', '.claude/hooks/pre-implement-gate.sh'],
   codex: ['core/harnesses/codex/hooks/pre-implement-gate.sh', '.codex/hooks/pre-implement-gate.sh'],
-  gemini: ['core/harnesses/gemini/hooks/pre-implement-gate.sh', '.gemini/hooks/pre-implement-gate.sh'],
   kiro: ['core/harnesses/kiro/hooks/pre-implement-gate.sh', '.kiro/hooks/pre-implement-gate.sh'],
 };
 
@@ -94,7 +93,6 @@ test('0fcd973 pre-tool doors turn native payloads into DEC-033 out-of-step denie
   const nativeByHarness: any = {
     claude: { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: 'src/a.js' } },
     codex: { hook_event_name: 'PreToolUse', tool_name: 'Edit', tool_input: { file_path: 'src/a.js' } },
-    gemini: { hook_event_name: 'BeforeTool', tool_name: 'Edit', tool_input: { file_path: 'src/a.js' } },
     kiro: { hook_event_name: 'PreToolUse', tool_name: 'write', tool_input: { path: 'src/a.js' } },
   };
   for (const harness of Object.keys(OLD_DOORS)) {
@@ -107,13 +105,8 @@ test('0fcd973 pre-tool doors turn native payloads into DEC-033 out-of-step denie
     } else {
       assert.equal(result.status, 0, `${harness} translated deny exit`);
       const response = JSON.parse(result.stdout);
-      if (harness === 'gemini') {
-        assert.equal(response.decision, 'deny');
-        assert.equal(response.reason, reason);
-      } else {
-        assert.equal(response.hookSpecificOutput.permissionDecision, 'deny');
-        assert.equal(response.hookSpecificOutput.permissionDecisionReason, reason);
-      }
+      assert.equal(response.hookSpecificOutput.permissionDecision, 'deny');
+      assert.equal(response.hookSpecificOutput.permissionDecisionReason, reason);
     }
   }
 });

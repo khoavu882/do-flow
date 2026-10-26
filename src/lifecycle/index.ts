@@ -8,17 +8,18 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { harnessFor, selectAssets, selectMcpServers, mcpCapable } = require('../registry/index.ts');
+const { harnessFor, selectAssets, selectMcpServers, mcpCapable, isRetired } = require('../registry/index.ts');
 const { defaultLedger, ownershipKey, writeLedger, writeRecoveryRecord, upgradeLedger, LEDGER_VERSION } = require('../state/index.ts');
 const { resolveAdapter, projectAdapterInput } = require('../adapters/index.ts');
 const { pruneEmptyAncestors, discoverTree, sameFileIndex, sharedTreeDestDir, walkRelFiles } = require('../adapters/copy-tree.ts');
 const { renderPolicies } = require('./policies.ts');
 const { renderMcpIndex } = require('./mcp-index.ts');
 const { hasBashCapableShell } = require('./bash-availability.ts');
-const { hookTrustFor: geminiHookTrustFor } = require('../adapters/gemini/index.ts');
 const { planHookCompanions } = require('./hook-step.ts');
+const { tieredRegistry, hookHoldersFromLedger, hooksTieredOff, withoutHookSources, planHookTierRemovals } = require('./hook-tier.ts');
 const { readLock, lockPackages } = require('../state/lockfile.ts');
 const { resolveRegistrySource } = require('../adapters/resolve-source.ts');
+const { planRetiredHarnesses, planHandovers, handoversFor, applyRetiredHarnesses, retiredReleaseKeys, claimKey } = require('./retired-harnesses.ts');
 
 const OPERATIONS = new Set(['create', 'merge', 'update', 'remove']);
 /** A harness's MCP selection meaning "the servers it owns now", read through its adapter's
@@ -201,12 +202,14 @@ function releasedOwnershipKeys(harnessPlans: any, scope: any) {
  * applied. Membership is decided per ROW, not per harness: a harness that is releasing its claim
  * on this file is not a claimant even if it is releasing nothing else, and a harness in the same
  * batch that keeps its row (an install that relocates one asset while a sibling's projection is
- * unchanged) still is. */
-function survivingClaimantsByTarget(ledger: any, releasedKeys: any) {
+ * unchanged) still is. A retired harness's row is never a claimant (row 127 IC-003): nothing will
+ * ever maintain the file for it, so it must not keep a live harness's removal from reclaiming it. */
+function survivingClaimantsByTarget(ledger: any, releasedKeys: any, registry: any) {
   const byTarget = new Map();
   for (const resource of ledger?.resources || []) {
     if (typeof resource?.target !== 'string' || typeof resource?.harness !== 'string') continue;
     if (releasedKeys.has(ownershipKey(resource))) continue;
+    if (isRetired(registry, resource.harness)) continue;
     const key = claimKey(resource);
     if (!byTarget.has(key)) byTarget.set(key, new Set());
     byTarget.get(key).add(resource.harness);
@@ -214,16 +217,10 @@ function survivingClaimantsByTarget(ledger: any, releasedKeys: any) {
   return byTarget;
 }
 
-/** What one claim covers: a whole file, except an MCP entry, which is claimed on its own because
- * several harnesses keep their servers side by side in one MCP file. */
-function claimKey(record: any) {
-  return record.kind === 'mcp-server' ? `${record.target}\u0000${record.identity}` : record.target;
-}
-
 /** NFR-007: a removal reclaims only what no other harness still claims.
  *
  * Several assets project to ONE destination for several harnesses — `scripts.doflow` is a single
- * `<project>/.doflow/scripts` tree for claude, codex and gemini, and gemini and copilot both
+ * `<project>/.doflow/scripts` tree for claude and codex, and antigravity and copilot both
  * resolve to `<root>/.agents` at project scope — while ownership is recorded per harness. A
  * removal that deleted every file its own rows named therefore took the shared runtime out from
  * under the harnesses that are still installed, leaving them with rows pointing at files that no
@@ -235,8 +232,19 @@ function claimKey(record: any) {
  * stays, and the last claimant's removal is the one that reclaims it. The neutral ledger is the
  * only thing consulted — it is already the record of who owns what, and a second ownership
  * registry would be one more thing to keep in sync. */
-function markRetainedRemovals(harnessPlans: any, ledger: any, scope: any) {
-  const claimants = survivingClaimantsByTarget(ledger, releasedOwnershipKeys(harnessPlans, scope));
+function markRetainedRemovals(harnessPlans: any, ledger: any, scope: any, registry?: any) {
+  const claimants = survivingClaimantsByTarget(ledger, releasedOwnershipKeys(harnessPlans, scope), registry);
+  // A harness this same plan writes a destination for claims it after the run (maint-hooks R-2: the
+  // hook tier moves from claude to kiro in one update, so the shared hooks tree must stay standing).
+  for (const target of harnessPlans) {
+    if (target.skipped) continue;
+    for (const change of target.changes || []) {
+      if (change.operation === 'remove' || typeof change.target !== 'string' || typeof change.harness !== 'string') continue;
+      const key = claimKey(change);
+      if (!claimants.has(key)) claimants.set(key, new Set());
+      claimants.get(key).add(change.harness);
+    }
+  }
   if (!claimants.size) return harnessPlans;
   return harnessPlans.map((target: any) => {
     if (target.skipped) return target;
@@ -257,10 +265,11 @@ function markRetainedRemovals(harnessPlans: any, ledger: any, scope: any) {
 }
 
 /** Whether this plan leaves no ownership row standing anywhere — the only case in which a shared,
- * install-wide artifact that no single harness owns is genuinely unclaimed. */
-function removalIsTotal(plan: any) {
+ * install-wide artifact that no single harness owns is genuinely unclaimed. A retired harness's row
+ * claims nothing (survivingClaimantsByTarget), so it does not count as standing. */
+function removalIsTotal(plan: any, registry?: any) {
   const released = releasedOwnershipKeys(plan.targets || [], plan.scope);
-  return (plan.ledger?.resources || []).every((resource: any) => released.has(ownershipKey(resource)));
+  return (plan.ledger?.resources || []).every((resource: any) => released.has(ownershipKey(resource)) || isRetired(registry, resource?.harness));
 }
 
 /** What a removal kept and why, ready to print. A command that says "removed" while silently
@@ -675,9 +684,22 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
   assertScope(scope);
   if (!registry) throw new Error('registry is required');
   const baseLedger = ledger ?? defaultLedger({ scope, scopeRoot });
+  // Hook tiers (maint-hooks): a harness outside `context.hookHarnesses` is planned against a registry
+  // in which its hooks capability is unavailable, so it gets content only; the hooks an earlier run
+  // wrote for it are removed in the same plan. No list (an in-process caller) keeps every harness's hooks.
+  const fullRegistry = registry;
+  // A removal takes the hooks the ledger records, whatever the setting says now (maint-hooks).
+  registry = tieredRegistry(registry, context.operation === 'remove' ? hookHoldersFromLedger(registry, baseLedger) : context.hookHarnesses);
   const harnesses = normalizeTargets(registry, targets);
   // `packagesOnly` (the package verbs): only the package targets, for a runtime that ships no DoFlow content to plan.
   const packagesOnly = context.packagesOnly === true;
+  // Row 127 rule 3a: a retired harness's file its replacement takes over is decided before any live
+  // plan, since the replacement plans that one write itself (`context.handovers`, IC-007).
+  const sweeping = context.operation !== 'remove' && !packagesOnly;
+  const handovers = sweeping
+    ? planHandovers({ registry, ledger: baseLedger, scope, scopeRoot, planned: harnesses.filter((harness: any) => harness.scopes.includes(registryScope(scope))).map((harness: any) => harness.id) })
+    : new Map();
+  const handedTo = handoversFor(handovers);
   const harnessPlans = packagesOnly ? [] : harnesses.map((harness) => {
     if (!harness.scopes.includes(registryScope(scope))) {
       return { harness: harness.id, assets: [], changes: [], conflicts: [`Harness '${harness.id}' does not support ${scope} scope`], prerequisites: [], notices: [], skipped: true, mcpSelected: null };
@@ -688,7 +710,9 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
     const policies = renderPolicies(registry, { harness: harness.id });
     const adoptable = capable ? selectMcpServers(registry, catalogIds(registry, mcpAdoptable[harness.id] ?? [])) : [];
     const adapter = resolveAdapter(adapters, harness);
-    const project = (mcp: any) => projectAdapterInput({ registry, harness, scope, scopeRoot, assets, mcp, mcpAdoptable: adoptable, policies, context });
+    const baseContext = handedTo.has(harness.id) ? { ...context, handovers: handedTo.get(harness.id) } : context;
+    const harnessContext = hooksTieredOff(harness) ? withoutHookSources(baseContext) : baseContext;
+    const project = (mcp: any) => projectAdapterInput({ registry, harness, scope, scopeRoot, assets, mcp, mcpAdoptable: adoptable, policies, context: harnessContext });
     // `keep` asks the adapter what it owns before the real projection: the probe carries no
     // selection, so discovery reads the files as they are.
     const ids = selection === MCP_KEEP
@@ -699,7 +723,10 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
     const input = { ...adapterInput, registry, ledger: baseLedger };
     const discovery = adapter.discover(input);
     const result = adapter.plan({ ...input, discovery });
-    return targetFromResult({ harness, assets, mcp, mcpSelected: capable ? mcp.map((server: any) => server.id) : null, policies, adapterInput, discovery, result });
+    const target = targetFromResult({ harness, assets, mcp, mcpSelected: capable ? mcp.map((server: any) => server.id) : null, policies, adapterInput, discovery, result });
+    return hooksTieredOff(harness)
+      ? planHookTierRemovals({ target, registry: fullRegistry, adapter, harness: harnessFor(fullRegistry, harness.id), scope, scopeRoot, ledger: baseLedger, context, normalizeChange, adapterConflicts })
+      : target;
   });
   // The MCP index names every server a harness of this scope uses: the selections planned here and
   // the recorded selections of the harnesses this run does not touch.
@@ -720,7 +747,7 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
     : harnessPlans.map((target: any) => (!target.skipped && packages.byHarness.has(target.harness) ? withPackageWork(target, packages.byHarness.get(target.harness)) : target));
   // Only once every harness's plan is known: whether a file may be deleted depends on the rows
   // the WHOLE plan leaves standing, which no single harness's plan can see.
-  const retained = markRetainedRemovals(withPackages, baseLedger, scope);
+  const retained = markRetainedRemovals(withPackages, baseLedger, scope, registry);
   const annotated = context.operation === 'remove' || packagesOnly ? retained
     : pruneRetiredRuntimeFiles(retained, baseLedger, { scopeRoot, repoRoot: context.repoRoot });
   // The shared hooks tree may have moved under harnesses this run does not name (IC-037): their
@@ -728,7 +755,13 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
   const companions = packagesOnly ? [] : planHookCompanions({ registry, adapters, scope, harnessScope: registryScope(scope), scopeRoot, ledger: baseLedger, context,
     targets: annotated, targetFromResult });
   const planned = [...annotated, ...companions];
-  const changes = planned.flatMap((item: any) => item.changes);
+  const liveChanges = planned.flatMap((item: any) => item.changes);
+  // Row 127 IC-003: what a retired harness left in this scope's ledger is released, deleted or
+  // stripped by the same run, once every live change is known (a row a live change already removes
+  // is that change's). Never on remove, which changes only what `-t` names, nor for package work.
+  const retiredHarnesses = sweeping
+    ? planRetiredHarnesses({ registry, ledger: baseLedger, scope, scopeRoot, livePlanChanges: liveChanges, handovers }) : [];
+  const changes = [...liveChanges, ...retiredHarnesses.flatMap((item: any) => item.changes)];
   const conflicts = planned.flatMap((item: any) => item.conflicts.map((reason: any) => ({ harness: item.harness, reason })));
   const prerequisites = planned.flatMap((item: any) => item.prerequisites.map((prerequisite: any) => ({ harness: item.harness, prerequisite })));
   const requiredNativeResources = planned.flatMap((item: any) => item.requiredNativeResources || []);
@@ -736,6 +769,7 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
     ...packages.warnings.map((item: any) => ({ harness: item.harness, notice: `warning: ${item.warning}` }))];
   return Object.freeze({ scope, scopeRoot, mcp: selectedMcp, ledger: baseLedger, targets: planned, changes, requiredNativeResources, conflicts, prerequisites, notices,
     retained: retainedChanges(changes), safe: conflicts.length === 0 && prerequisites.length === 0,
+    ...(retiredHarnesses.length ? { retiredHarnesses } : {}),
     ...(packagesOnly ? { packagesOnly: true } : {}), ...(packages.warnings.length ? { packageWarnings: packages.warnings } : {}) });
 }
 
@@ -794,11 +828,20 @@ function applyMcpIndex({ scopeRoot, selectedMcp, mode, retain = false, fsImpl = 
   fsImpl.writeFileSync(file, content);
 }
 
-function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recoveryRef, fsImpl = fs }: any) {
+function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recoveryRef, retiredHarnesses = [], fsImpl = fs }: any) {
   // upgradeLedger makes every written ledger v2-shaped (tombstone log present) while v1 inputs
   // stay readable — migration happens on write, never as a separate user-facing step.
   const next = JSON.parse(JSON.stringify(upgradeLedger(ledger ?? defaultLedger({ scope, scopeRoot }))));
   if (!Array.isArray(next.tombstones)) next.tombstones = [];
+  // A retired harness's rows leave in this write, whatever the sweep did with each file, and its
+  // `targets` entry goes once no (deferred) row of it remains.
+  const retiredKeys = retiredReleaseKeys(retiredHarnesses);
+  if (retiredKeys.size) {
+    next.resources = next.resources.filter((resource: any) => !retiredKeys.has(ownershipKey(resource)));
+    for (const { harness } of retiredHarnesses) {
+      if (!next.resources.some((resource: any) => resource.harness === harness)) delete next.targets[harness];
+    }
+  }
   // Snapshot pre-run claims by ownership identity (harness+asset+identity) so a re-verification
   // that relocates the same claim to a new target is detectable as a MOVE, not remove-plus-add.
   const priorByIdentity = new Map();
@@ -897,21 +940,23 @@ function verifyLifecycle({ plan, adapters, context = {} }: any) {
 function assertPlanApplicable(plan: any, stateRoot: any, acceptPrerequisites: any) {
   if (!plan.safe && !(acceptPrerequisites && plan.conflicts.length === 0)) throw new Error('Refusing to apply an unsafe lifecycle plan');
   if (!stateRoot) throw new Error('stateRoot is required before lifecycle mutation');
-  if (!plan.requiredNativeResources?.length || !plan.changes.length) throw new Error('Refusing to apply a lifecycle plan with no required native resources');
+  // A retirement is native work no live harness lists: a plan holding only that is applicable.
+  const retiring = (plan.retiredHarnesses ?? []).some((item: any) => item.changes.length);
+  if ((!plan.requiredNativeResources?.length && !retiring) || !plan.changes.length) throw new Error('Refusing to apply a lifecycle plan with no required native resources');
 }
 
 /** Registry-declared hooks assets (`kind: "hooks"` in core/registry/assets.json) this harness's
- * plan selected — currently only claude.hooks-scripts and kiro.hooks-scripts. Codex and Gemini
- * deploy hooks via their own bespoke code paths (see targetNeedsHooks below) rather than a
+ * plan selected — currently only claude.hooks-scripts and kiro.hooks-scripts. Codex deploys
+ * hooks via its own bespoke code path (see targetNeedsHooks below) rather than a
  * registered asset, so they never appear here. */
 function hookAssetIds(target: any) {
   return new Set((target.assets || []).filter((asset: any) => asset.kind === 'hooks').map((asset: any) => asset.id));
 }
 
 /** Whether this harness's plan includes at least one hooks-bearing change. Claude's hooks are a
- * registry-declared asset (`kind: "hooks"` in core/registry/assets.json); Codex and Gemini deploy
- * hooks via their own bespoke code paths and tag the resulting change with `nativeComponent:
- * 'hooks'` instead (see src/adapters/codex/index.ts and src/adapters/gemini/index.ts). Either
+ * registry-declared asset (`kind: "hooks"` in core/registry/assets.json); Codex deploys hooks
+ * via its own bespoke code path and tags the resulting change with `nativeComponent: 'hooks'`
+ * instead (see src/adapters/codex/index.ts). Either
  * signal is sufficient — this stays harness-agnostic on purpose. */
 function targetNeedsHooks(target: any) {
   const hookIds = hookAssetIds(target);
@@ -920,20 +965,10 @@ function targetNeedsHooks(target: any) {
 
 /** Whether a verified resource is the hooks resource this harness owns. A registry-declared hooks
  * asset (Claude, Kiro) is matched by assetId; Codex's bespoke hooks-file resource is matched by
- * `kind`; Gemini's bespoke hooks resource (a key inside settings.json, not a standalone file) is
- * matched by its `projection.renderer` tag — see src/adapters/codex/index.ts's
- * `lifecycleResource(..., kind: 'hooks-file', ...)` and src/adapters/gemini/index.ts's verify(),
- * which tags its hooks resource `projection: { renderer: 'gemini-hooks' }`. */
+ * `kind` — see src/adapters/codex/index.ts's `lifecycleResource(..., kind: 'hooks-file', ...)`. */
 function verificationOwnsHooks(verification: any, hookIds: any) {
   return (verification?.resources || []).some((resource: any) =>
-    hookIds.has(resource.assetId) || resource.kind === 'hooks-file' || resource.projection?.renderer === 'gemini-hooks');
-}
-
-/** Gemini's hooks trust, observed through the adapter's own API. How trust is computed — the
- * fingerprint semantics, which context fields matter — lives in src/adapters/gemini (review A3:
- * this file used to import planGeminiHooks and re-derive the plan itself). */
-function geminiHookTrust(target: any) {
-  return geminiHookTrustFor(target);
+    hookIds.has(resource.assetId) || resource.kind === 'hooks-file');
 }
 
 /** General, per-harness hook-wiring status — the one place install status distinguishes an
@@ -942,18 +977,12 @@ function geminiHookTrust(target: any) {
  *  - 'absent': this harness owns no hooks resource in the current verification (nothing installed).
  *  - 'installed-pending': a hooks resource is installed, but a prerequisite is unmet — Codex's
  *    static `capabilities.hooks.prerequisites` (`trusted-project`, `hook-review`), which DoFlow has
- *    no way to confirm a human satisfied, so it is reported unmet unconditionally; or Gemini's live
- *    trust computation via geminiHookTrust above.
+ *    no way to confirm a human satisfied, so it is reported unmet unconditionally.
  *  - 'active': installed with no unmet prerequisite (Claude and Kiro today, since neither declares
  *    any `capabilities.hooks.prerequisites` and Kiro hooks activate automatically per kiro.dev). */
 function hookWiringStatus(harness: any, target: any, verification: any) {
   if (!target || target.skipped) return { status: 'absent', prerequisites: [] };
   if (!verificationOwnsHooks(verification, hookAssetIds(target))) return { status: 'absent', prerequisites: [] };
-  if (harness.id === 'gemini') {
-    const trust = geminiHookTrust(target);
-    if (trust?.required && !trust.trusted) return { status: 'installed-pending', prerequisites: ['hook-trust'] };
-    return { status: 'active', prerequisites: [] };
-  }
   const prerequisites = harness.capabilities?.hooks?.prerequisites || [];
   return prerequisites.length
     ? { status: 'installed-pending', prerequisites: [...prerequisites] }
@@ -979,6 +1008,12 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
   const recovery = writeRecoveryRecordFn(stateRoot, { status: 'pending', changes: plan.changes });
   const completedHarnesses = [];
   try {
+    // The retirement first (IC-003): it touches only files no live harness claims, and a throw here
+    // leaves every live harness unapplied.
+    for (const retired of plan.retiredHarnesses ?? []) {
+      applyRetiredHarnesses([retired]);
+      completedHarnesses.push(`retired:${retired.harness}`);
+    }
     for (const target of plan.targets) {
       if (target.skipped || target.changes.length === 0) continue;
       // A retained change is a ledger release, not a native mutation: the adapter must never see
@@ -989,7 +1024,12 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
       if (!applicable.length) continue;
       const harness = harnessFor(registry, target.harness);
       const adapter = resolveAdapter(adapters, harness);
-      adapter[mode === 'remove' ? 'remove' : 'apply']({ ...target.adapterInput, registry, changes: applicable, ledger, recoveryRef: recovery.id });
+      // Hook-tier removals (maint-hooks) run through the adapter's own remove path, before the content
+      // apply, so a shared native file (Gemini's settings.json) is read by each step as the step before left it.
+      const tierRemovals = mode === 'remove' ? [] : applicable.filter((change: any) => change.hookTier === true);
+      if (tierRemovals.length) adapter.remove({ ...target.hookTierInput, registry, changes: tierRemovals, ledger, recoveryRef: recovery.id });
+      const rest = tierRemovals.length ? applicable.filter((change: any) => change.hookTier !== true) : applicable;
+      if (rest.length) adapter[mode === 'remove' ? 'remove' : 'apply']({ ...target.adapterInput, registry, changes: rest, ledger, recoveryRef: recovery.id });
       completedHarnesses.push(target.harness);
     }
   } catch (error: any) {
@@ -1008,7 +1048,7 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
   }
   try {
     // A package-only plan selects no MCP server; the index stays as the last install wrote it.
-    if (!plan.packagesOnly) applyMcpIndex({ scopeRoot: plan.scopeRoot, selectedMcp: plan.mcp, mode, retain: !removalIsTotal(plan) });
+    if (!plan.packagesOnly) applyMcpIndex({ scopeRoot: plan.scopeRoot, selectedMcp: plan.mcp, mode, retain: !removalIsTotal(plan, registry) });
   } catch (error: any) {
     // Same reasoning as the harness-loop catch above: every native resource already applied and
     // verified successfully by this point, so leaving the record at 'pending' on a failure here
@@ -1016,7 +1056,8 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
     writeRecoveryRecordFn(stateRoot, { ...recovery.record, status: 'failed', completedHarnesses, verification, error: error.message });
     throw error;
   }
-  const nextLedger = updateLedger({ ledger, scope: plan.scope, scopeRoot: plan.scopeRoot, verifications: verification.verifications, changes: plan.changes, recoveryRef: recovery.id });
+  const nextLedger = updateLedger({ ledger, scope: plan.scope, scopeRoot: plan.scopeRoot, verifications: verification.verifications, changes: plan.changes, recoveryRef: recovery.id,
+    retiredHarnesses: plan.retiredHarnesses ?? [] });
   writeLedgerFn(stateRoot, nextLedger);
   writeRecoveryRecordFn(stateRoot, { ...recovery.record, status: 'verified', verification });
   if (plan.scope === 'global' && plan.changes.some((change: any) => isPackageAsset(change.assetId))) {

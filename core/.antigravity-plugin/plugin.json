@@ -1,7 +1,7 @@
 {
   "name": "doflow",
   "version": "1.0.0",
-  "description": "Spec-driven engineering workflow engine, quality gates, and specialist agent personas for Google Antigravity and Gemini.",
+  "description": "Spec-driven engineering workflow engine, quality gates, and specialist agent personas for Google Antigravity.",
   "author": {
     "name": "DoFlow",
     "url": "https://github.com/khoavu882/do-flow"
@@ -11,7 +11,6 @@
   "license": "MIT",
   "keywords": [
     "antigravity",
-    "gemini",
     "engineering",
     "workflows",
     "quality-gates",

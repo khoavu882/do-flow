@@ -146,7 +146,7 @@ test('negative control: with no package, catalogue equals built-in harnesses', (
   const catalogue = workerCatalogue({ repoRoot: REPO_ROOT });
   assert.ok(catalogue.length > 0);
   assert.ok(catalogue.every((e: any) => e.origin === 'builtin'));
-  for (const id of ['claude', 'codex', 'gemini', 'antigravity', 'pi', 'opencode', 'copilot', 'kiro']) {
+  for (const id of ['claude', 'codex', 'antigravity', 'pi', 'opencode', 'copilot', 'kiro']) {
     assert.ok(catalogue.some((e: any) => e.id === id));
   }
 });

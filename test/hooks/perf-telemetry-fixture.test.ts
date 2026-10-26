@@ -15,7 +15,6 @@ const BASH = '/bin/bash';
 const SURFACES = [
   { id: 'claude:pre-bash-guard', harness: 'claude', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.claude/hooks/pre-bash-guard.sh', fixture: 'claude/pre-bash-guard/perf.json' },
   { id: 'codex:pre-bash-guard', harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.codex/hooks/pre-bash-guard.sh', fixture: 'codex/pre-bash-guard/perf.json' },
-  { id: 'gemini:pre-bash-guard', harness: 'gemini', event: 'BeforeTool', policy: 'pre-bash-guard', door: '.gemini/hooks/pre-bash-guard.sh', fixture: 'gemini/pre-bash-guard/perf.json' },
   { id: 'kiro:pre-bash-guard', harness: 'kiro', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.kiro/hooks/pre-bash-guard.sh', fixture: 'kiro/pre-bash-guard/perf.json' },
   { id: 'antigravity:pre-bash-guard', harness: 'antigravity', event: 'PreToolUse', policy: 'pre-bash-guard', runner: true, fixture: 'antigravity/pre-bash-guard/perf.json' },
   { id: 'pi:pre-bash-guard', harness: 'pi', event: 'tool_call', policy: 'pre-bash-guard', bridge: true, fixture: 'pi/tool_call/perf-bash.json' },
@@ -100,7 +99,7 @@ test('perf hook fixture seeds the runs/telemetry directory', () => {
   assert.equal(fs.statSync(path.join(telemetry, '.gitkeep')).isFile(), true);
 });
 
-test('perf hook fixture writes one ON line and zero OFF lines for the eight enumerated surfaces', (t) => {
+test('perf hook fixture writes one ON line and zero OFF lines for the seven enumerated surfaces', (t) => {
   const suite = tempDir(t, 'doflow-perf-telemetry-fixture-');
   const mirror = path.join(suite, 'mirror');
   buildInstallMirror(mirror);

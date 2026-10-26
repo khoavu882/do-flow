@@ -155,7 +155,6 @@ test('Slice A: syncHarness and syncAllHarnesses with mock probe runners', async 
     assert.equal(catalogue.version, 1);
     assert.ok(catalogue.harnesses.claude);
     assert.ok(catalogue.harnesses.codex);
-    assert.ok(catalogue.harnesses.gemini);
     assert.ok(catalogue.harnesses.opencode);
     assert.ok(catalogue.harnesses.pi);
     assert.ok(catalogue.harnesses.copilot);

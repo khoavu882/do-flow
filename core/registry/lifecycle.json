@@ -20,10 +20,6 @@
             "hook-review"
           ]
         },
-        "gemini": {
-          "event": "BeforeTool",
-          "status": "different"
-        },
         "opencode": {
           "status": "unavailable",
           "fallback": "guidance"
@@ -65,10 +61,6 @@
             "hook-review"
           ]
         },
-        "gemini": {
-          "event": "BeforeTool",
-          "status": "different"
-        },
         "opencode": {
           "status": "unavailable",
           "fallback": "guidance"
@@ -109,10 +101,6 @@
           "prerequisites": [
             "hook-review"
           ]
-        },
-        "gemini": {
-          "event": "SessionStart",
-          "status": "supported"
         },
         "opencode": {
           "status": "unavailable",
@@ -156,10 +144,6 @@
             "hook-review"
           ]
         },
-        "gemini": {
-          "event": "BeforeTool",
-          "status": "different"
-        },
         "opencode": {
           "status": "unavailable",
           "fallback": "guidance"
@@ -200,10 +184,6 @@
           "prerequisites": [
             "hook-review"
           ]
-        },
-        "gemini": {
-          "status": "unavailable",
-          "fallback": "guidance"
         },
         "opencode": {
           "status": "unavailable",
@@ -311,38 +291,6 @@
           {
             "kind": "fixture",
             "locator": "test/fixtures/hooks/codex/pre-implement-gate/deny.json",
-            "date": "2026-10-14"
-          }
-        ]
-      },
-      {
-        "policy": "pre-implementation-gate",
-        "harness": "gemini",
-        "event": "BeforeTool",
-        "timing": "pre-tool",
-        "profile": "any",
-        "wired": true,
-        "configSource": "core/harnesses/gemini/hooks/hooks.json:25",
-        "harnessVersion": {
-          "tested": "0.55.1"
-        },
-        "class": "blocking",
-        "verification": "verified",
-        "prerequisites": [],
-        "covers": [],
-        "doesNotCover": [
-          "writes via shell commands"
-        ],
-        "caveats": [],
-        "provenance": [
-          {
-            "kind": "doc",
-            "locator": "https://geminicli.com/docs/hooks/",
-            "date": "2026-10-12"
-          },
-          {
-            "kind": "fixture",
-            "locator": "test/fixtures/hooks/gemini/pre-implement-gate/deny.json",
             "date": "2026-10-14"
           }
         ]
@@ -1272,36 +1220,6 @@
       },
       {
         "policy": "pre-bash-guard",
-        "harness": "gemini",
-        "event": "BeforeTool",
-        "timing": "pre-tool",
-        "profile": "any",
-        "wired": true,
-        "configSource": "core/harnesses/gemini/hooks/hooks.json:25",
-        "harnessVersion": {
-          "tested": "0.55.1"
-        },
-        "class": "blocking",
-        "verification": "verified",
-        "prerequisites": [],
-        "covers": [],
-        "doesNotCover": [],
-        "caveats": [],
-        "provenance": [
-          {
-            "kind": "doc",
-            "locator": "https://geminicli.com/docs/hooks/",
-            "date": "2026-10-12"
-          },
-          {
-            "kind": "fixture",
-            "locator": "test/fixtures/hooks/gemini/pre-bash-guard/deny.json",
-            "date": "2026-10-14"
-          }
-        ]
-      },
-      {
-        "policy": "pre-bash-guard",
         "harness": "opencode",
         "event": "*",
         "timing": "pre-tool",
@@ -1551,33 +1469,6 @@
           {
             "kind": "doc",
             "locator": "https://learn.chatgpt.com/docs/hooks",
-            "date": "2026-10-12"
-          }
-        ]
-      },
-      {
-        "policy": "session-context",
-        "harness": "gemini",
-        "event": "SessionStart",
-        "timing": "session",
-        "profile": "any",
-        "wired": true,
-        "configSource": "core/harnesses/gemini/hooks/hooks.json:4",
-        "harnessVersion": {
-          "tested": "0.55.1"
-        },
-        "class": "unknown",
-        "verification": "unverified",
-        "prerequisites": [],
-        "covers": [],
-        "doesNotCover": [],
-        "caveats": [
-          "native event enforcement is not yet verified"
-        ],
-        "provenance": [
-          {
-            "kind": "doc",
-            "locator": "https://geminicli.com/docs/hooks/",
             "date": "2026-10-12"
           }
         ]
@@ -1914,36 +1805,6 @@
           {
             "kind": "fixture",
             "locator": "test/fixtures/hooks/codex/mcp-tool-guard/deny.json",
-            "date": "2026-10-14"
-          }
-        ]
-      },
-      {
-        "policy": "mcp-tool-guard",
-        "harness": "gemini",
-        "event": "BeforeTool",
-        "timing": "pre-tool",
-        "profile": "any",
-        "wired": true,
-        "configSource": "core/harnesses/gemini/hooks/hooks.json:25",
-        "harnessVersion": {
-          "tested": "0.55.1"
-        },
-        "class": "blocking",
-        "verification": "verified",
-        "prerequisites": [],
-        "covers": [],
-        "doesNotCover": [],
-        "caveats": [],
-        "provenance": [
-          {
-            "kind": "doc",
-            "locator": "https://geminicli.com/docs/hooks/",
-            "date": "2026-10-12"
-          },
-          {
-            "kind": "fixture",
-            "locator": "test/fixtures/hooks/gemini/mcp-tool-guard/deny.json",
             "date": "2026-10-14"
           }
         ]
@@ -2289,33 +2150,6 @@
           {
             "kind": "fixture",
             "locator": "test/fixtures/hooks/codex/stop-check/deny.json",
-            "date": "2026-10-14"
-          }
-        ]
-      },
-      {
-        "policy": "stop-check",
-        "harness": "gemini",
-        "event": "*",
-        "timing": "stop",
-        "profile": "any",
-        "wired": false,
-        "configSource": null,
-        "harnessVersion": {
-          "tested": "0.55.1"
-        },
-        "class": "unsupported",
-        "verification": "unverified",
-        "prerequisites": [],
-        "covers": [],
-        "doesNotCover": [],
-        "caveats": [
-          "not wired for this harness mapping"
-        ],
-        "provenance": [
-          {
-            "kind": "doc",
-            "locator": "core/registry/lifecycle.json: policy stop-check mapping for gemini",
             "date": "2026-10-14"
           }
         ]
@@ -2873,12 +2707,6 @@
         ]
       },
       {
-        "harness": "gemini",
-        "events": [],
-        "none": "no end-of-turn event is wired; SessionEnd and PreCompress are not end of turn",
-        "provenance": []
-      },
-      {
         "harness": "opencode",
         "events": [],
         "none": "no DoFlow hook bridge",
@@ -2960,12 +2788,6 @@
       },
       {
         "behaviour": "context-authority",
-        "harness": "gemini",
-        "status": "limitation",
-        "limitation": "no prompt hook wired; only PreCompress instructions, through the table"
-      },
-      {
-        "behaviour": "context-authority",
         "harness": "opencode",
         "status": "limitation",
         "limitation": "no DoFlow hook bridge"
@@ -3014,12 +2836,6 @@
       },
       {
         "behaviour": "default-silence",
-        "harness": "gemini",
-        "status": "limitation",
-        "limitation": "no prompt-time emission"
-      },
-      {
-        "behaviour": "default-silence",
         "harness": "opencode",
         "status": "limitation",
         "limitation": "no DoFlow hook bridge"
@@ -3065,12 +2881,6 @@
       },
       {
         "behaviour": "summary-scope",
-        "harness": "gemini",
-        "status": "limitation",
-        "limitation": "PreCompress carries no summary text"
-      },
-      {
-        "behaviour": "summary-scope",
         "harness": "opencode",
         "status": "limitation",
         "limitation": "no DoFlow hook bridge"
@@ -3118,12 +2928,6 @@
       },
       {
         "behaviour": "summary-grant",
-        "harness": "gemini",
-        "status": "limitation",
-        "limitation": "no prompt hook to deliver"
-      },
-      {
-        "behaviour": "summary-grant",
         "harness": "opencode",
         "status": "limitation",
         "limitation": "no DoFlow hook bridge"
@@ -3161,12 +2965,6 @@
       {
         "behaviour": "identity",
         "harness": "codex",
-        "status": "limitation",
-        "limitation": "launcher environment forwarding into hook processes is unverified until 081 (DEC-004)"
-      },
-      {
-        "behaviour": "identity",
-        "harness": "gemini",
         "status": "limitation",
         "limitation": "launcher environment forwarding into hook processes is unverified until 081 (DEC-004)"
       },
@@ -3211,14 +3009,6 @@
       {
         "behaviour": "check-freshness",
         "harness": "codex",
-        "status": "enforced",
-        "tests": [
-          "test/hooks/check-freshness.test.ts"
-        ]
-      },
-      {
-        "behaviour": "check-freshness",
-        "harness": "gemini",
         "status": "enforced",
         "tests": [
           "test/hooks/check-freshness.test.ts"
@@ -3261,6 +3051,6 @@
         ]
       }
     ],
-    "rowsDigest": "sha256:ff654d8bf2ceb65024bf5d7fb13825bc489969cca9158a6bead86c3a5533c328"
+    "rowsDigest": "sha256:85fd08c202fde50d224c81d5d283ef496c9a677a114eb9b73c223f11d0f2098b"
   }
 }

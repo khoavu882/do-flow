@@ -39,7 +39,7 @@ const LAYOUT = installLayout(path.join(scratch.dir, 'layout'));
 function env(agent: any, extra = {}) {
   // Harness variables naming the developer's own config folders must not reach the hook.
   return scratch.env({
-    DOFLOW_AGENT: agent, CLAUDE_CONFIG_DIR: '', CLAUDE_PROJECT_DIR: '', CODEX_HOME: '', GEMINI_CONFIG_DIR: '', DOFLOW_PROJECT_DIR: '', ...extra,
+    DOFLOW_AGENT: agent, CLAUDE_CONFIG_DIR: '', CLAUDE_PROJECT_DIR: '', CODEX_HOME: '', DOFLOW_PROJECT_DIR: '', ...extra,
   });
 }
 

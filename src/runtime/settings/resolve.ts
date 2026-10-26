@@ -45,6 +45,7 @@
 const nodeFs = require('node:fs');
 const path = require('node:path');
 const { isOffWord } = require('../off-words.ts');
+const { classifyWorkerId, retiredAdvisory } = require('../../registry/worker-ids.ts');
 
 function maskUrl(value: string): string {
   return require('./shared.ts').maskUrl(value);
@@ -75,6 +76,8 @@ interface SettingsNote { code: string; key: string | null; source: string | null
 interface Raw {
   layer: Layer; source: string; legacy: boolean; checkout: Checkout; display: string; value: unknown;
   fault: { code: string; reason: string; offset: number | null } | null; noEffect?: boolean;
+  /** 127 IC-005: the value names a retired harness id; the candidate is ignored with an advisory. */
+  retired?: { id: string; replacement: string };
 }
 
 const NEW_FILE = { user: 'settings.json', project: 'settings.json', local: 'settings.local.json' } as const;
@@ -334,6 +337,12 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
     return layer === 'user' ? path.join(home.dir, NEW_FILE.user) : path.join(layers.layersFrom as string, NEW_FILE.project);
   }
 
+  /** 127 IC-005: the retired record a `harnesses.primaryIds` enum value names, else null (any other id stays an enum fault). */
+  function retiredHarnessOf(spec: any, value: unknown): { id: string; replacement: string } | null {
+    if (spec.valuesRef !== 'harnesses.primaryIds' || typeof value !== 'string') return null;
+    return (registry.retired?.() ?? []).find((entry: any) => entry.id === value) ?? null;
+  }
+
   /** The candidates of one key in one view, lowest layer first (the env last). */
   function rawCandidates(key: string, spec: any, viewName: ViewName): Raw[] {
     const out: Raw[] = [];
@@ -385,6 +394,11 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
       }
       let entry = read.values.get(key);
       if (!entry) return;
+      const retired = entry.error?.code === 'enum' ? retiredHarnessOf(spec, entry.raw) : null;
+      if (retired) {
+        out.push({ ...base0, display: displayOf(spec, entry.raw), value: null, fault: null, retired });
+        return;
+      }
       if (spec.unknownMembers === 'warn' && entry.error?.code === 'enum') entry = keepUnknownMembers(key, spec, entry, file);
       out.push({ ...base0, display: displayOf(spec, entry.raw), value: entry.value, fault: entry.error ? { ...entry.error, offset: null } : null });
     };
@@ -409,7 +423,9 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         } else if (spec.env.parse === 'verbatim') {
           // 120 IC-002: taken as written and judged like any file value
           const fault = validateValue(spec, raw, registry.enumValues(key));
-          out.push({ ...base0, value: fault ? null : raw, fault: fault ? { ...fault, offset: null } : null });
+          const retired = fault?.code === 'enum' ? retiredHarnessOf(spec, raw) : null;
+          if (retired) out.push({ ...base0, value: null, fault: null, retired });
+          else out.push({ ...base0, value: fault ? null : raw, fault: fault ? { ...fault, offset: null } : null });
         } else if (isOffWord(raw)) {
           // 2.0 envSetting + OFF_VALUES (failure/home.ts): only an off word has an effect
           out.push({ ...base0, value: 'off', fault: null });
@@ -465,6 +481,12 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         Object.assign(c, { status: 'ignored-scope', value: null, reason: 'global-only: a project cannot set it' });
         continue;
       }
+      if (raw.retired) {
+        const reason = retiredAdvisory(key, raw.retired);
+        Object.assign(c, { status: 'no-effect', value: null, code: 'retired', reason });
+        if (once(`retired\0${key}\0${c.source}\0${raw.retired.id}`)) notes.push({ code: 'retired', key, source: c.source, text: reason });
+        continue;
+      }
       if (raw.fault) {
         Object.assign(c, { status: 'invalid', reason: raw.fault.reason, code: raw.fault.code });
         if (once(`error\0${key}\0${c.layer}\0${c.source}`)) {
@@ -488,14 +510,34 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         continue;
       }
       // IC-002, IC-004: report each dangling worker once per key, source and id, across both views.
-      if (spec.type === 'worker-list' || spec.type === 'worker-models') {
+      // 127 IC-005: a retired id is reported as retired and dropped from the value instead.
+      if (spec.type === 'worker-list' || spec.type === 'worker-models' || spec.type === 'worker-billing') {
         const known = registry.enumValues(key) ?? [];
-        const ids = spec.type === 'worker-models' ? Object.keys(c.value as Record<string, unknown>) : c.value as string[];
+        const retired = registry.retired?.() ?? [];
+        const isList = spec.type === 'worker-list';
+        const ids = isList ? c.value as string[] : Object.keys(c.value as Record<string, unknown>);
+        const gone = new Set<string>();
         for (const id of ids) {
-          if (id === 'primary' || known.includes(id)) continue;
-          if (once(`dangling-worker\0${key}\0${c.source}\0${id}`)) {
+          if (id === 'primary') continue;
+          const kind = classifyWorkerId(id, known, retired);
+          if (kind === 'retired') {
+            gone.add(id);
+            if (once(`retired\0${key}\0${c.source}\0${id}`)) {
+              notes.push({ code: 'retired', key, source: c.source, text: retiredAdvisory(key, retired.find((entry: any) => entry.id === id)) });
+            }
+          } else if (kind === 'dangling' && spec.type !== 'worker-billing' && once(`dangling-worker\0${key}\0${c.source}\0${id}`)) {
             notes.push({ code: 'dangling-worker', key, source: c.source, text: `${key}: worker '${id}' is not installed (ignored)` });
           }
+        }
+        if (gone.size > 0) {
+          const kept = isList
+            ? (c.value as string[]).filter((id) => !gone.has(id))
+            : Object.fromEntries(Object.entries(c.value as Record<string, unknown>).filter(([id]) => !gone.has(id)));
+          if ((isList ? (kept as string[]).length : Object.keys(kept).length) === 0) {
+            Object.assign(c, { status: 'no-effect', value: null, code: 'retired', reason: 'every worker it names is retired' });
+            continue;
+          }
+          c.value = kept;
         }
       }
       if (spec.combine === 'union') {

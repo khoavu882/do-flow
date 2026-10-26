@@ -42,7 +42,6 @@ const CONFIG_HOME_SHELL = {
   'policies/lib.sh': path.join(HOOKS, 'shared', 'hooks', 'policies', 'lib.sh'),
   'claude/hooks/lib.sh': path.join(HOOKS, 'claude', 'hooks', 'lib.sh'),
   'codex/hooks/lib.sh': path.join(HOOKS, 'codex', 'hooks', 'lib.sh'),
-  'gemini/hooks/lib.sh': path.join(HOOKS, 'gemini', 'hooks', 'lib.sh'),
   'kiro/hooks/lib.sh': path.join(HOOKS, 'kiro', 'hooks', 'lib.sh'),
 };
 const LEXICAL_SHELL = { 'doflow-run': DISPATCHER, 'policies/capture-failure.sh': POLICY_HELPER };

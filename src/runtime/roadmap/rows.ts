@@ -44,6 +44,8 @@ interface RoadmapRow {
   requires?: string[];
   mergeCommit?: string;
   hold?: string;
+  /** maint-thin: a row a seed write added or amended while autopilot was on; autopilot never acts on it until a person promotes it. */
+  proposed?: true;
   verifyArgv?: string[];
   intent?: string;
   acceptance?: string[];
@@ -71,7 +73,7 @@ interface GitFacts {
 
 interface RowStatusInfo {
   rowId: string;
-  status: 'merged' | 'in-flight' | 'not-started';
+  status: 'merged' | 'in-flight' | 'not-started' | 'proposed';
   evidence: {
     kind: 'trailer' | 'seeded';
     sha: string;
@@ -82,7 +84,7 @@ interface RowStatusInfo {
 
 interface DerivedStatusResult {
   statuses: Map<string, RowStatusInfo>;
-  rowStatus: Record<string, 'merged' | 'in-flight' | 'not-started'>;
+  rowStatus: Record<string, 'merged' | 'in-flight' | 'not-started' | 'proposed'>;
 }
 
 interface PickResult {
@@ -109,7 +111,8 @@ interface CheckFinding {
     | 'needs-cycle'
     | 'id-exists'
     | 'row-not-found'
-    | 'row-started';
+    | 'row-started'
+    | 'row-not-proposed';
   message: string;
   rowId?: string;
   rowIds?: string[];
@@ -137,6 +140,7 @@ const SEED_RULES = [
   'id-exists',
   'row-not-found',
   'row-started',
+  'row-not-proposed',
 ] as const;
 
 const TOP_KEYS: readonly string[] = ['schema', 'layout', 'rows'];
@@ -149,6 +153,7 @@ const ROW_KEYS: readonly string[] = [
   'writeSet',
   'requires',
   'hold',
+  'proposed',
   'verifyArgv',
   'mergeCommit',
   'intent',
@@ -362,6 +367,16 @@ function seedFindings(
         idx,
         'seed-invalid',
         `Row '${safeText(rowId ?? 'unknown')}' hold must be a non-empty single-line string of at most 120 characters`,
+        rowId
+      );
+    }
+
+    // proposed (maint-thin): only `true`; absent means ready
+    if (row.proposed !== undefined && row.proposed !== true) {
+      add(
+        idx,
+        'seed-invalid',
+        `Row '${safeText(rowId ?? 'unknown')}' proposed must be true when present`,
         rowId
       );
     }
@@ -642,7 +657,7 @@ function deriveStatus(
   gitFacts: GitFacts = {}
 ): DerivedStatusResult {
   const statuses = new Map<string, RowStatusInfo>();
-  const rowStatus: Record<string, 'merged' | 'in-flight' | 'not-started'> = {};
+  const rowStatus: Record<string, 'merged' | 'in-flight' | 'not-started' | 'proposed'> = {};
 
   // Group 2-parent first-parent merges on develop by DoFlow-Row trailer value
   const trailerMergesByRow = new Map<string, GitMergeCommit[]>();
@@ -655,7 +670,7 @@ function deriveStatus(
   }
 
   for (const row of rows) {
-    let status: 'merged' | 'in-flight' | 'not-started' = 'not-started';
+    let status: 'merged' | 'in-flight' | 'not-started' | 'proposed' = 'not-started';
     let evidence: { kind: 'trailer' | 'seeded'; sha: string; shortSha: string } | null = null;
     let holdReason: string | null = null;
 
@@ -690,6 +705,8 @@ function deriveStatus(
         (gitFacts.branches || []).includes(`refs/heads/${branchName}`);
 
       if (branchExists) status = 'in-flight';
+      // maint-thin: an unstarted row a seed write proposed waits for a person's promote.
+      else if (row.proposed === true) status = 'proposed';
     }
 
     // A seed-level hold is reported for unmerged rows.
@@ -747,6 +764,12 @@ function pick(
 
     const status = getStatus(row.id);
     if (status === 'merged' || status === 'in-flight') {
+      continue;
+    }
+
+    // maint-thin: autopilot never picks a proposed row; a person promotes it first.
+    if (row.proposed === true) {
+      skips[row.id] = 'row-proposed';
       continue;
     }
 

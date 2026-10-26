@@ -3,7 +3,7 @@ description: Which governance controls DoFlow installs and which only an organiz
 ---
 # Enterprise governance: what DoFlow installs, and what only your organization can enforce
 
-DoFlow installs guidance, skills, hooks and settings into eight AI coding harnesses. Some governance
+DoFlow installs guidance, skills, hooks and settings into seven AI coding harnesses. Some governance
 controls cannot be installed that way at all — not because DoFlow lacks the feature, but because the
 property that makes them enforceable is that they come from your organization rather than from a
 project. This page draws that line so you can tell which half DoFlow already gives you and which half
@@ -13,29 +13,22 @@ It is written for the person who has to answer "can we run this under our policy
 
 ## The structural point, and it holds for every harness
 
-DoFlow writes at **project scope or user scope**, for all eight harnesses. Every settings or config
+DoFlow writes at **project scope or user scope**, for all seven harnesses. Every settings or config
 path its registry declares is one or the other:
 
 | Harness | What DoFlow writes |
 |---|---|
 | Claude Code | `.claude/settings.json` (project), `~/.claude/settings.json` (user) |
 | Codex | `.codex/config.toml` (project), `~/.codex/config.toml` (user) |
-| Gemini | `.gemini/settings.json` (project), `~/.gemini/settings.json` (user) |
 | OpenCode | `opencode.json` (project), `~/.config/opencode/opencode.json` (user) |
 | Pi | nothing: the registry declares `.pi/settings.json` (project) and `~/.pi/agent/settings.json` (user), but the adapter leaves both untouched |
 | GitHub Copilot CLI | no settings file; only MCP config: `.mcp.json` (project), `~/.copilot/mcp-config.json` (user) |
 | Kiro | no settings file; only MCP config, `.kiro/settings/mcp.json` (project and user) |
-| Antigravity | no settings file; only MCP config, `.agents/mcp_config.json` (project) or `~/.gemini/config/mcp_config.json` (user), and `.agents/hooks.json` (project) |
+| Antigravity | no settings file; only MCP config, `.agents/mcp_config.json` (project) or `~/.gemini/config/mcp_config.json` (user), and `.agents/hooks.json` (project); its global instruction file is `~/.gemini/GEMINI.md` |
 
 For the last three DoFlow writes no harness settings file, so there is nothing there for a settings
 policy to reach in either direction — what it installs for them is instructions, skills, agents and
-MCP config, plus hooks for Kiro and Antigravity.
-
-Two rows share one surface: Gemini and Antigravity have the same config directory, `.agents` in the
-project and `~/.gemini/config` for the user, but differ in their instruction file, their settings
-file, and where their MCP and hook config is written. A policy you
-write against that directory therefore governs both, and a count of "seven tools" that merges them is
-counting products where this table counts adapters.
+MCP config, plus hooks for Kiro and Antigravity when `hooks.harnesses` names them.
 
 Nowhere in that table is a system-level or organization-level path, and that is the whole point. A
 harness that offers an organization-enforced tier puts it **above** project and user scope by design, so
@@ -91,6 +84,12 @@ hooks are deterministic and run on every matching action, which is why a blocked
 reason rather than a silent refusal.
 
 #### Worker exemptions and guard scoping
+
+The pre-bash guard is the only destructive-command guard a worker harness has, so a harness that
+runs DoFlow workers belongs in `hooks.harnesses` (default `claude`, `codex`, `antigravity`, `pi`).
+An install or update prints a `[WARN]` line when Claude or a harness named in `workers.enabled` is
+outside that list. A worker launched in such a harness has no DoFlow hook: a
+`blocking-hook:<policy>` readiness requirement then fails closed, because its hooks are not loaded.
 
 The pre-bash guard distinguishes between main interactive sessions and subagent worker sessions:
 

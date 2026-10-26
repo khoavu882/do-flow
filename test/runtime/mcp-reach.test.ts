@@ -56,6 +56,18 @@ function completeAdapters(...ids: any[]) {
   } };
 }
 
+/** The real registry with one harness's MCP capability set to unsupported: no shipped harness
+ * declares it today, so the not-taken branch is exercised on a copy. */
+function withUnsupportedMcp(id: any) {
+  return {
+    ...registry,
+    harnesses: registry.harnesses.map((harness: any) => (harness.id !== id ? harness : {
+      ...harness,
+      capabilities: { ...harness.capabilities, mcp: { status: 'unsupported', note: 'no adapter-supported MCP registration' } },
+    })),
+  };
+}
+
 function reach(f: any, extra: any = {}) {
   return mcpReach({ registry, projectRoot: f.proj, homeDir: f.home, adapters, ...extra });
 }
@@ -78,17 +90,19 @@ test('per-server states: selected, configured, unknown where absence is no proof
 
 test('a harness whose capabilities.mcp.status is not supported is not-taken and carries the note', (t) => {
   const f = fixture(t);
-  ledger(f.home, 'global', { harnesses: ['gemini'] });
-  const result = reach(f);
-  const row = rowOf(result, 'gemini', 'global');
+  const unsupported = { registry: withUnsupportedMcp('antigravity') };
+  const mcpFile = path.join(f.home, '.gemini', 'config', 'mcp_config.json');
+  ledger(f.home, 'global', { harnesses: ['antigravity'] });
+  const result = reach(f, unsupported);
+  const row = rowOf(result, 'antigravity', 'global');
   assert.equal(row.catalog, 'not-taken');
   assert.match(row.note, /adapter-supported MCP registration/);
-  assert.equal(row.servers[FIRST], 'unknown', 'no settings read: Gemini cannot say');
-  write(path.join(f.home, '.gemini', 'settings.json'), JSON.stringify({ mcpServers: {} }));
-  assert.equal(rowOf(reach(f), 'gemini', 'global').servers[FIRST], 'unknown', 'Gemini merges system settings and extensions DoFlow does not read');
-  assert.equal(rowOf(reach(f, { adapters: completeAdapters('gemini') }), 'gemini', 'global').servers[FIRST], 'not-taken');
-  write(path.join(f.home, '.gemini', 'settings.json'), JSON.stringify({ mcpServers: { [FIRST]: {} } }));
-  assert.equal(rowOf(reach(f), 'gemini', 'global').servers[FIRST], 'configured', 'a hand-configured server shows');
+  assert.equal(row.servers[FIRST], 'unknown', 'no MCP file read: the adapter cannot say');
+  write(mcpFile, JSON.stringify({ mcpServers: {} }));
+  assert.equal(rowOf(reach(f, unsupported), 'antigravity', 'global').servers[FIRST], 'unknown', 'the adapter claims no complete view, so absence is no proof');
+  assert.equal(rowOf(reach(f, { ...unsupported, adapters: completeAdapters('antigravity') }), 'antigravity', 'global').servers[FIRST], 'not-taken');
+  write(mcpFile, JSON.stringify({ mcpServers: { [FIRST]: {} } }));
+  assert.equal(rowOf(reach(f, unsupported), 'antigravity', 'global').servers[FIRST], 'configured', 'a hand-configured server shows');
 });
 
 test('unknown: nothing selected and the MCP file is absent', (t) => {
@@ -116,10 +130,10 @@ test('anyHarnessHas returns true, false and null (unknown)', (t) => {
 test('anyHarnessHas is false when every row is not-selected or not-taken', (t) => {
   const f = fixture(t);
   ledger(f.proj, 'project', { harnesses: ['claude'] });
-  ledger(f.home, 'global', { harnesses: ['gemini'] });
+  ledger(f.home, 'global', { harnesses: ['antigravity'] });
   write(path.join(f.proj, '.mcp.json'), JSON.stringify({ mcpServers: {} }));
-  write(path.join(f.home, '.gemini', 'settings.json'), JSON.stringify({ mcpServers: {} }));
-  assert.equal(reach(f, { adapters: completeAdapters('claude', 'gemini') }).anyHarnessHas(FIRST), false);
+  write(path.join(f.home, '.gemini', 'config', 'mcp_config.json'), JSON.stringify({ mcpServers: {} }));
+  assert.equal(reach(f, { adapters: completeAdapters('claude', 'antigravity'), registry: withUnsupportedMcp('antigravity') }).anyHarnessHas(FIRST), false);
   assert.equal(reach(f, { adapters: completeAdapters('claude') }).anyHarnessHas(FIRST), null, 'one row without a complete view keeps it unknown');
   assert.equal(reach(f).anyHarnessHas(FIRST), null);
 });
@@ -137,27 +151,16 @@ test('repro (062 X1): a Claude local-scope server in ~/.claude.json counts, and 
   assert.equal(result.anyHarnessHas(SECOND), null);
 });
 
-test('repro (062 X1): Gemini servers in ~/.gemini/settings.json with no project settings count, and an absent one is unknown', (t) => {
-  const f = fixture(t);
-  ledger(f.proj, 'project', { harnesses: ['gemini'] });
-  write(path.join(f.home, '.gemini', 'settings.json'), JSON.stringify({ mcpServers: { [FIRST]: {} } }));
-  const result = reach(f);
-  const row = rowOf(result, 'gemini', 'project');
-  assert.equal(row.servers[FIRST], 'configured');
-  assert.equal(row.servers[SECOND], 'unknown');
-  assert.equal(result.anyHarnessHas(SECOND), null);
-});
-
 test('addCommand: project and global scope, servers already selected in registry order, and a not-taken harness', (t) => {
   const f = fixture(t);
   ledger(f.proj, 'project', { harnesses: ['claude'], selected: { claude: [SECOND] } });
-  ledger(f.home, 'global', { harnesses: ['claude', 'gemini'], selected: { claude: [] } });
+  ledger(f.home, 'global', { harnesses: ['claude', 'antigravity'], selected: { claude: [] } });
   const result = reach(f);
   assert.equal(result.addCommand('claude', 'project', FIRST), `doflow install --target claude --mcp ${FIRST},${SECOND}`);
   assert.equal(result.addCommand('claude', 'project', SECOND), `doflow install --target claude --mcp ${SECOND}`);
   assert.equal(result.addCommand('claude', 'global', FIRST), `doflow install -g --target claude --mcp ${FIRST}`);
-  assert.equal(result.addCommand('gemini', 'global', FIRST),
-    "configure it in Gemini CLI's own MCP settings; DoFlow's catalog does not reach it");
+  assert.equal(reach(f, { registry: withUnsupportedMcp('antigravity') }).addCommand('antigravity', 'global', FIRST),
+    "configure it in Antigravity CLI's own MCP settings; DoFlow's catalog does not reach it");
   assert.match(result.addCommand('claude', 'project', 'semble'), /^configure it in Claude Code's own MCP settings/,
     'a server outside the catalog cannot be installed by DoFlow');
 });
@@ -187,7 +190,7 @@ test('a fixture registry with an extra server reaches the result with no code ch
 test('the same inputs twice give byte-identical JSON and the result is plain data', (t) => {
   const f = fixture(t);
   ledger(f.proj, 'project', { harnesses: ['claude'], selected: { claude: [FIRST] } });
-  ledger(f.home, 'global', { harnesses: ['gemini', 'codex'] });
+  ledger(f.home, 'global', { harnesses: ['antigravity', 'codex'] });
   const a = JSON.stringify(reach(f));
   assert.equal(a, JSON.stringify(reach(f)));
   assert.deepEqual(Object.keys(JSON.parse(a)).sort(), ['harnesses', 'unreadable']);

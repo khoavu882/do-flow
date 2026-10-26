@@ -14,7 +14,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env.ts');
+const { createScratch, ALL_HARNESS_IDS } = require('../helper/scratch-env.ts');
 const { suiteTempDir } = require('../helper/tmp.ts');
 const { IS_WIN } = require('../helper-platform.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
@@ -45,7 +45,7 @@ before(() => {
 
 /** A scratch directory with a `proj/` project and an empty HOME. */
 function cell(name: any) {
-  const scratch = createScratch(`doflow-hook-step-${name}-`);
+  const scratch = createScratch(`doflow-hook-step-${name}-`, { hookHarnesses: ALL_HARNESS_IDS });
   fs.mkdirSync(path.join(scratch.dir, 'proj'));
   const proj = path.join(scratch.dir, 'proj');
   // `answer` is what the child reads on stdin: update asks for a confirmation unless it is forced.
@@ -264,19 +264,13 @@ describe('IC-037: the installer keeps front doors in step with the shared hooks 
   });
 
   // Every hook front-door component of IC-037, one harness each: its door is made out of step in the
-  // way that harness's adapter can see (a missing file, or an absent `hooks` key for Gemini), the
+  // way that harness's adapter can see (a missing file), the
   // shared tree is made to change, and an update naming another harness has to bring the door back.
   const DOORS = [
     { harness: 'claude', via: 'pi', spoil: (p: any) => fs.rmSync(path.join(p, '.claude', 'hooks', 'pre-implement-gate.sh')),
       back: (p: any) => fs.existsSync(path.join(p, '.claude', 'hooks', 'pre-implement-gate.sh')) },
     { harness: 'codex', via: 'pi', spoil: (p: any) => fs.rmSync(path.join(p, '.codex', 'hooks.json')),
       back: (p: any) => fs.existsSync(path.join(p, '.codex', 'hooks.json')) },
-    { harness: 'gemini', via: 'pi', spoil: (p: any) => {
-      const file = path.join(p, '.gemini', 'settings.json');
-      const settings = JSON.parse(fs.readFileSync(file, 'utf8'));
-      delete settings.hooks;
-      fs.writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`);
-    }, back: (p: any) => Boolean(JSON.parse(fs.readFileSync(path.join(p, '.gemini', 'settings.json'), 'utf8')).hooks) },
     { harness: 'kiro', via: 'pi',
       spoil: (p: any) => { fs.rmSync(path.join(p, '.kiro', 'hooks', 'pre-implement-gate.sh')); fs.rmSync(path.join(p, '.kiro', 'agents', 'doflow.json')); },
       back: (p: any) => fs.existsSync(path.join(p, '.kiro', 'hooks', 'pre-implement-gate.sh')) && fs.existsSync(path.join(p, '.kiro', 'agents', 'doflow.json')) },

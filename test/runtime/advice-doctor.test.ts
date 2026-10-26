@@ -11,6 +11,9 @@ const { buildAdviceDoctor } = require('../../src/runtime/advice/doctor.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const BIN = path.join(REPO_ROOT, 'bin/doflow.js');
+// `doctor` runs `<harness> --version` for every harness it finds on PATH (seconds each for some); these
+// tests read the advice sections only, so the spawned doctor sees node and the system tools and no harness.
+const DOCTOR_PATH = `${path.dirname(process.execPath)}:/usr/bin:/bin`;
 const kinds = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core/registry/advice.json'), 'utf8')).kinds.map((kind: any) => kind.id);
 
 function fixture(t: any, setting?: any) {
@@ -25,7 +28,7 @@ function fixture(t: any, setting?: any) {
     scratch, project, settingFile,
     write: (file: any, text: any, mode?: any) => write(file, text, mode),
     run: (json: any = false) => spawnSync(process.execPath, [BIN, 'doctor', project, ...(json ? ['--json'] : [])], {
-      cwd: project, encoding: 'utf8', env: scratch.env({ DOFLOW_CLI: BIN }),
+      cwd: project, encoding: 'utf8', env: scratch.env({ DOFLOW_CLI: BIN, PATH: DOCTOR_PATH }),
     }),
     start: async (routes: any = {}) => {
       const server = await spawnFakeServer({ routes, dir: scratch.dir }); servers.push(server); return server;
@@ -265,4 +268,26 @@ test('doctor settings section joins the advice sections without affecting health
     .map((header) => text.stdout.indexOf(header)).filter((index) => index >= 0);
   assert.ok(text.stdout.includes('[Settings]'));
   assert.deepEqual(order, [...order].sort((a, b) => a - b));
+});
+
+test('084 C-4/C-7: doctor counts a dispatcher pick, its outcome and an unavailable call from the fields record.ts writes', async (t) => {
+  const { interceptDecisionPoint } = require('../../src/runtime/advice/shadow-dispatcher.ts');
+  const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts');
+  const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
+  const { appendOutcome, readWindow } = require('../../src/runtime/advice/record.ts');
+  const f = fixture(t);
+  const env = f.scratch.env();
+  const roots = resolveRoots({ registry: loadStorageRegistry({ repoRoot: REPO_ROOT }), projectRoot: f.project, env });
+  const questionSet = { state: 's', questions: [{ name: 'tier', type: 'choice', instructions: 'Choose.', options: { light: 'L', standard: 'S', frontier: 'F' } }] };
+  const context = { kind: 'tier', caller: 'brief-tools', state: 's', staticPick: 'light', questionSet, adviceRegistry: { timeoutMs: 1000 }, projectRoot: f.project, env };
+  const shadow = { kind: 'tier', mode: 'shadow', model: 'm' };
+  const answer = { status: 'answered', model: 'm', answers: [{ name: 'tier', type: 'choice', pick: 'standard', strength: { word: 'clear', between: null }, probabilities: {}, confidence: 0.9 }] };
+  const picked = await interceptDecisionPoint(context, { adviceClient: { ask: async () => answer }, roots, shadowConfig: shadow });
+  await interceptDecisionPoint(context, { adviceClient: { ask: async () => ({ status: 'unavailable', reason: 'timeout', answers: [] }) }, roots, shadowConfig: shadow });
+  const until = Date.now() + 1000;
+  while (readWindow({ roots }).records.length < 2 && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.ok(appendOutcome({ roots, pickId: picked.pickId, actual: 'standard', source: 'caller', store: 'project-state' }));
+  const report = await buildAdviceDoctor({ repoRoot: REPO_ROOT, projectRoot: f.project, env });
+  const tier = report.advice.kinds.find((row: any) => row.kind === 'tier');
+  assert.deepEqual(tier, { kind: 'tier', picks: 1, withOutcome: 1, matched: 1, unavailable: 1, outcomeSources: ['caller'] });
 });

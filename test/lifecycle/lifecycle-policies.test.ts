@@ -26,8 +26,8 @@ test('retains different Codex event semantics and reports review prerequisites',
   assert.deepEqual(policy.prerequisites, ['hook-review', 'trusted-project']);
 });
 
-test('reports unavailable Gemini policies with fallback guidance and no fabricated event', () => {
-  const policy = renderPolicies(registry, { harness: 'gemini', policyIds: ['stop-check'] })[0];
+test('reports unavailable Pi policies with fallback guidance and no fabricated event', () => {
+  const policy = renderPolicies(registry, { harness: 'pi', policyIds: ['stop-check'] })[0];
   assert.equal(policy.status, 'unavailable');
   assert.equal(policy.event, null);
   assert.equal(policy.renderable, false);

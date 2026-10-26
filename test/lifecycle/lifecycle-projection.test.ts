@@ -15,6 +15,15 @@ const { tempDir } = require('../helper/tmp.ts');
 
 const registry = loadRegistry({ repoRoot: path.resolve(__dirname, "../..") });
 
+/** The registry with `id`'s MCP capability unavailable: no live harness takes no servers, so the
+ * tests of that branch declare one that way (fixture `noMcp`). */
+function withoutMcp(id: string): any {
+  const copy = structuredClone(registry);
+  copy.harnesses.find((harness: any) => harness.id === id).capabilities.mcp.status = 'unavailable';
+  return copy;
+}
+const noMcp = withoutMcp('antigravity');
+
 test('Codex projection carries explicit asset, MCP, policy, and native-target inputs', () => {
   const harness = harnessFor(registry, 'codex');
   const projected = projectAdapterInput({
@@ -91,19 +100,19 @@ function recordingAdapter({ owned = [] as any[] }: any = {}) {
 }
 
 const planWith = (t: any, adapters: any, options: any) => planLifecycle({
-  registry, adapters: createAdapterRegistry(adapters), scope: 'project', scopeRoot: tempDir(t, 'doflow-selection-'), ...options,
+  registry: options.registry ?? registry, adapters: createAdapterRegistry(adapters), scope: 'project', scopeRoot: tempDir(t, 'doflow-selection-'), ...options,
 });
 
-test('P1: each harness plans with its own selection, and gemini with none', (t) => {
+test('P1: each harness plans with its own selection, and a harness with no MCP capability with none', (t) => {
   const adapter = recordingAdapter();
-  const plan = planWith(t, { claude: adapter, codex: adapter, kiro: adapter, gemini: adapter }, {
-    targets: ['claude', 'codex', 'kiro', 'gemini'],
+  const plan = planWith(t, { claude: adapter, codex: adapter, kiro: adapter, antigravity: adapter }, {
+    registry: noMcp, targets: ['claude', 'codex', 'kiro', 'antigravity'],
     mcpSelections: { claude: ['context7'], codex: ['sequential-thinking'], kiro: [] },
   });
   assert.deepEqual(adapter.calls.filter(([call]: any) => call === 'plan').map(([, harness, ids]: any) => [harness, ids]),
-    [['claude', ['context7']], ['codex', ['sequential-thinking']], ['kiro', []], ['gemini', []]]);
+    [['claude', ['context7']], ['codex', ['sequential-thinking']], ['kiro', []], ['antigravity', []]]);
   assert.deepEqual(plan.targets.map((target: any) => [target.harness, target.mcpSelected]),
-    [['claude', ['context7']], ['codex', ['sequential-thinking']], ['kiro', []], ['gemini', null]]);
+    [['claude', ['context7']], ['codex', ['sequential-thinking']], ['kiro', []], ['antigravity', null]]);
 });
 
 test('P2: keep resolves to the servers the adapter owns now, catalog-filtered and in registry order', (t) => {
@@ -126,14 +135,14 @@ test('P3: the MCP index serves the planned selections and the servers other harn
   assert.deepEqual(planWith(t, { codex: adapter }, { targets: ['codex'] }).mcp, [], 'no selection means no server, never the catalog');
 });
 
-test('P5: a selection that is neither ids nor keep is refused, and gemini takes no servers', (t) => {
+test('P5: a selection that is neither ids nor keep is refused, and a harness with no MCP capability takes no servers', (t) => {
   const adapter = recordingAdapter();
   assert.throws(() => planWith(t, { codex: adapter }, { targets: ['codex'], mcpSelections: { codex: 'all' } }),
     /^Error: MCP selection for 'codex' must be an array of server ids or 'keep'$/);
   assert.throws(() => planWith(t, { codex: adapter }, { targets: ['codex'], mcpSelections: { codex: [7] } }), /must be an array of server ids/);
-  assert.throws(() => planWith(t, { gemini: adapter }, { targets: ['gemini'], mcpSelections: { gemini: ['context7'] } }),
-    /^Error: Harness 'gemini' takes no MCP servers$/);
-  assert.deepEqual(planWith(t, { gemini: adapter }, { targets: ['gemini'], mcpSelections: { gemini: MCP_KEEP }, mcpAdoptable: { gemini: ['context7'] } })
+  assert.throws(() => planWith(t, { antigravity: adapter }, { registry: noMcp, targets: ['antigravity'], mcpSelections: { antigravity: ['context7'] } }),
+    /^Error: Harness 'antigravity' takes no MCP servers$/);
+  assert.deepEqual(planWith(t, { antigravity: adapter }, { registry: noMcp, targets: ['antigravity'], mcpSelections: { antigravity: MCP_KEEP }, mcpAdoptable: { antigravity: ['context7'] } })
     .targets[0].mcpSelected, null, 'keep and adoptable ids mean nothing to a harness that takes no servers');
 });
 

@@ -398,8 +398,7 @@ test('perf fixture-backed hook surfaces smoke through --surface without writing 
     'hook.claude.permission-audit', 'hook.claude.post-compact', 'hook.claude.post-edit-lint',
     'hook.claude.post-tool-failure', 'hook.claude.pre-compact', 'hook.claude.session-end',
     'hook.claude.skill-config-audit', 'hook.codex.post-edit-lint', 'hook.codex.pre-compact',
-    'hook.codex.session-end', 'hook.gemini.post-edit-lint', 'hook.gemini.pre-compact',
-    'hook.gemini.session-end', 'hook.shared.capture-failure', 'hook.shared.mcp-tool-guard',
+    'hook.codex.session-end', 'hook.shared.capture-failure', 'hook.shared.mcp-tool-guard',
     'hook.shared.pre-implementation-gate', 'hook.shared.session-context', 'hook.shared.stop-check',
     'hook.shared.subagent-audit',
   ];

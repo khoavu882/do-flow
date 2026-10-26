@@ -16,7 +16,6 @@ const REPO_ROOT = path.resolve(__dirname, '..', '..', '..');
 const HARNESS_CLI_MAP = Object.freeze({
   claude: 'claude',
   codex: 'codex',
-  gemini: 'gemini',
   opencode: 'opencode',
   pi: 'pi',
   copilot: 'copilot',

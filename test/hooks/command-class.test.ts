@@ -124,12 +124,12 @@ test('30 commands classify by the highest segment and telemetry contains classes
   }
 });
 
-test('all six harness decoders classify the same command; other policies and modes do not add a class', () => {
+test('all five harness decoders classify the same command; other policies and modes do not add a class', () => {
   const command = 'npm test';
-  for (const harness of ['claude', 'codex', 'gemini', 'kiro', 'antigravity', 'pi']) {
+  for (const harness of ['claude', 'codex', 'kiro', 'antigravity', 'pi']) {
     const payload = harness === 'pi' ? { toolName: 'bash', input: { command } }
       : harness === 'antigravity' ? { toolCall: { name: 'run_command', args: { CommandLine: command } } }
-        : { tool_name: harness === 'gemini' ? 'run_shell_command' : 'Bash', tool_input: { command } };
+        : { tool_name: 'Bash', tool_input: { command } };
     assert.equal(encode(payload, { harness })[0].test_class, 'test.full', harness);
   }
   const payload = native(command);

@@ -14,9 +14,9 @@ JavaScript built by `npm run build:package`, and its `bin/doflow.js` still check
 support, so the same Node range applies. Git, `bash` and
 `jq` are also needed for the hook scripts; [Setup](setup.md#prerequisites) lists every prerequisite.
 
-DoFlow installs into eight tools: Claude Code, Codex, Gemini CLI, OpenCode, Pi, GitHub Copilot CLI,
+DoFlow installs into seven tools: Claude Code, Codex, OpenCode, Pi, GitHub Copilot CLI,
 Kiro, and Antigravity. Preview the plan, then install only the tools you use (`--target` takes
-`claude`, `codex`, `gemini`, `opencode`, `pi`, `copilot`, `kiro` or `antigravity`):
+`claude`, `codex`, `opencode`, `pi`, `copilot`, `kiro` or `antigravity`):
 
 ```bash
 npx @khoavu882/doflow install --dry-run -g --target claude,codex

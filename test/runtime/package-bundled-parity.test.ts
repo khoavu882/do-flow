@@ -20,6 +20,7 @@ const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { loadProtocols, loadCoreProtocols, presetIds, contributedPresetIds } = require('../../src/runtime/review/protocols.ts');
 const { contributionsFor, firstPartyPresets } = require('../../src/runtime/packages/contributions.ts');
 const { packageView, resetPackageView } = require('../../src/runtime/packages/view.ts');
+const { loadRegistry, isRetired } = require('../../src/registry/index.ts');
 
 const FIXTURE = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'test', 'fixtures', 'packages', 'parity-070ad2c5.json'), 'utf8'));
 const REGISTRY = path.join(REPO_ROOT, 'core', 'registry');
@@ -46,6 +47,11 @@ function runner(t: any, root: string) {
   const cwd = path.join(dir, 'work');
   fs.mkdirSync(home);
   fs.mkdirSync(path.join(cwd, '.doflow', 'state'), { recursive: true });
+  // The recording predates maint-thin (2026-10-26), which made review-single the shipped review.preset and bound the
+  // gate-b seat floor only while autopilot is on. The user file restores the inputs the recording was taken under,
+  // so the comparison still measures the package move and nothing else.
+  fs.mkdirSync(path.join(home, '.config', 'doflow'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.config', 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'review.preset': 'auto', 'autopilot.enabled': 'on' }));
   const cli = path.join(root, 'bin', 'doflow.js');
   const env: any = {
     ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'),
@@ -58,7 +64,27 @@ function runner(t: any, root: string) {
     return { status: res.status, stdout: res.stdout };
   };
 }
-const diffs = (run: (key: string) => any, keys: string[]) => keys.filter((key: string) => JSON.stringify(run(key)) !== JSON.stringify(FIXTURE.runs[key]));
+
+// The fixture is frozen from before row 127 retired a harness; the harness-keyed enforcement rows it recorded
+// (a JSON row per harness, and the `protocol.enforcement:` text line's id lists) still name it. What the runtime
+// prints now is compared against the recorded output minus the rows of every harness the registry has retired.
+const HARNESS_REGISTRY = loadRegistry({ repoRoot: REPO_ROOT });
+/** A recorded run with the enforcement rows of retired harnesses removed; every other byte is the recording. */
+function withoutRetired(recorded: any, registry: any = HARNESS_REGISTRY) {
+  let stdout: string = recorded.stdout;
+  let json: any = null;
+  try { json = JSON.parse(stdout); } catch { /* a text run */ }
+  if (json) {
+    const rows = json.protocol?.enforcement;
+    if (Array.isArray(rows)) json.protocol.enforcement = rows.filter((row: any) => !isRetired(registry, row.harness));
+    stdout = `${JSON.stringify(json)}${stdout.endsWith('\n') ? '\n' : ''}`;
+  } else {
+    stdout = stdout.replace(/^(protocol\.enforcement: .*)$/m, (line: string) => line.replace(/(\w+)=([^ ]*)/g,
+      (_group: string, status: string, ids: string) => `${status}=${ids.split(',').filter((id) => !id || !isRetired(registry, id)).join(',')}`));
+  }
+  return { ...recorded, stdout };
+}
+const diffs = (run: (key: string) => any, keys: string[], runs: any = FIXTURE.runs) => keys.filter((key: string) => JSON.stringify(run(key)) !== JSON.stringify(withoutRetired(runs[key])));
 
 test('the fixture covers every kind, task class, risk level and preset of the pre-move registry', () => {
   assert.deepEqual(FIXTURE.kinds, ['review', 'debate']);
@@ -104,6 +130,32 @@ test('`doflow protocol --action list|resolve` prints what the pre-move base prin
   const keys = Object.keys(FIXTURE.runs);
   assert.equal(keys.length, 118);
   assert.deepEqual(diffs(runner(t, REPO_ROOT), keys), []);
+});
+
+test('retired filter: it removes the retired harness rows and no live harness row', () => {
+  const live = HARNESS_REGISTRY.harnesses.map((harness: any) => harness.id);
+  const key = '--action resolve --kind review --json';
+  const raw = JSON.parse(FIXTURE.runs[key].stdout).protocol.enforcement.map((row: any) => row.harness);
+  const kept = JSON.parse(withoutRetired(FIXTURE.runs[key]).stdout).protocol.enforcement.map((row: any) => row.harness);
+  const retired = HARNESS_REGISTRY.retired.map((entry: any) => entry.id);
+  assert.equal(retired.length > 0 && retired.every((id: string) => raw.includes(id)), true, 'the frozen recording still names the retired harness');
+  assert.deepEqual(kept, raw.filter((id: string) => !retired.includes(id)), 'only the retired rows went');
+  assert.deepEqual(kept, live, 'what is left is exactly the live harness order');
+  const text = withoutRetired(FIXTURE.runs['--action resolve --kind review']).stdout;
+  assert.match(text, /^protocol\.enforcement: reviewer native=claude,opencode,copilot,kiro unenforced=codex,pi,antigravity$/m);
+  for (const [runKey, recorded] of Object.entries<any>(FIXTURE.runs)) {
+    for (const id of retired) assert.equal(withoutRetired(recorded).stdout.includes(id), false, `${runKey} still names ${id} after the filter`);
+  }
+});
+
+test('retired filter control: a changed live harness row in an in-memory copy of the fixture turns the comparison red', (t: any) => {
+  const key = '--action resolve --kind review --json';
+  const altered: any = structuredClone(FIXTURE.runs);
+  const json = JSON.parse(altered[key].stdout);
+  json.protocol.enforcement.find((row: any) => row.harness === 'claude').status = 'unenforced';
+  altered[key].stdout = `${JSON.stringify(json)}\n`;
+  assert.deepEqual(diffs(runner(t, REPO_ROOT), [key], FIXTURE.runs), [], 'the unaltered recording is at parity');
+  assert.deepEqual(diffs(runner(t, REPO_ROOT), [key], altered), [key], 'one live row changed, so the run no longer matches');
 });
 
 test('revert control: one changed field in the bundled debate-3 turns the merged view and the output red', (t: any) => {

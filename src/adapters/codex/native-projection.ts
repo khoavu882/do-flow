@@ -19,11 +19,15 @@ function normalizeNativeProjection(registry: any, harness: any, mcp: any[], cont
   if (!override || typeof override !== 'object' || Array.isArray(override)) throw new Error(`Projection override for '${harness.id}' must be an object`);
   const trusted = override.hooks?.trusted;
   if (trusted !== undefined && typeof trusted !== 'boolean') throw new Error(`Projection override '${harness.id}.hooks.trusted' must be boolean`);
+  // Hook tiers (maint-hooks): Codex outside `hooks.harnesses` gets no hooks.json, no hook scripts and no
+  // `features.hooks` entry; the lifecycle removes what an earlier install wrote through the remove path.
+  const hooksOff = harness.capabilities?.hooks?.tiered === true;
+  const configResources = (declaration.config?.resources || []).filter((resource: any) => !(hooksOff && resource.identity === 'features.hooks'));
   return Object.freeze({
-    configResources: Object.freeze((declaration.config?.resources || []).map((resource: any) => Object.freeze({ ...resource }))),
+    configResources: Object.freeze(configResources.map((resource: any) => Object.freeze({ ...resource }))),
     mcp: Object.freeze({ catalog: Object.freeze(mcp.map((server: any) => Object.freeze({ ...server }))), selected: Object.freeze(mcp.map((server: any) => server.id)) }),
     agents: Object.freeze({ sourceDir: resolveRegistrySource(registry, declaration.agents?.source, `${harness.id} agents`) }),
-    hooks: Object.freeze({
+    hooks: hooksOff ? Object.freeze({}) : Object.freeze({
       sourceFile: resolveRegistrySource(registry, declaration.hooks?.configSource, `${harness.id} hooks config`),
       sourceHooksDir: resolveRegistrySource(registry, declaration.hooks?.scriptsSource, `${harness.id} hooks scripts`),
       trusted: trusted ?? declaration.hooks?.trusted,

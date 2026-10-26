@@ -6,7 +6,7 @@
 // restores per tool, as it always did.
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 const path = require('node:path');
-const { resolveTargets, toolDirs } = require('../../install/targets.ts');
+const { VALID, resolveTargets, toolDirs } = require('../../install/targets.ts');
 const { resolveContext, printContext } = require('../../install/context.ts');
 const {
   BackupError, createFileBackup, planRestore, executeRestore, listBackups, formatBytes,
@@ -59,9 +59,12 @@ function cmdRollback(o: any): void {
       fail(error);
     }
     // A per-file backup restores the harnesses it holds (only those in --target when given), so the
-    // banner and the install manifest name those, not the default target.
+    // banner and the install manifest name those, not the default target. A backup taken by a run
+    // that swept a retired harness (127 IC-003) holds that harness's files and rows too: they are
+    // restored like any other, but a retired id is no target, so the banner and manifest skip it.
     const restoredTools = plan.format === 2
-      ? [...new Set(plan.restore.flatMap((item: any) => item.harnesses))].filter((h) => !explicitTargets || targets.includes(h)).sort()
+      ? [...new Set(plan.restore.flatMap((item: any) => item.harnesses))]
+        .filter((h: any) => VALID.includes(h) && (!explicitTargets || targets.includes(h))).sort()
       : targets;
     printContext(resolveContext({ repoRoot: REPO_ROOT, targets: restoredTools, dirs, sourceCommit: commit, global: o.global, projectRoot: '.' }));
 

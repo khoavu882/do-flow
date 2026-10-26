@@ -308,9 +308,9 @@ test('identity.sh is the only definition of doflow_session_role and doflow_ident
   walk(path.join(REPO, 'core', 'harnesses'));
   // The harness copies carry only the IC-009 broken-install fallback, inside the else branch.
   assert.deepEqual(found.sort(), [
-    'core/harnesses/claude/hooks/lib.sh', 'core/harnesses/codex/hooks/lib.sh', 'core/harnesses/gemini/hooks/lib.sh',
+    'core/harnesses/claude/hooks/lib.sh', 'core/harnesses/codex/hooks/lib.sh',
     'core/harnesses/shared/hooks/policies/identity.sh']);
-  for (const h of ['claude', 'codex', 'gemini']) {
+  for (const h of ['claude', 'codex']) {
     const text = fs.readFileSync(path.join(REPO, 'core', 'harnesses', h, 'hooks', 'lib.sh'), 'utf8');
     assert.match(text, /^ {2}\. "\$\{BASH_SOURCE\[0\]%\/\*\}\/\.\.\/\.\.\/\.doflow\/shared\/hooks\/policies\/identity\.sh"$/m, h);
     assert.ok(!/DOFLOW_SESSION_ROLE/.test(text), `${h} lib.sh still reads DOFLOW_SESSION_ROLE itself`);
@@ -336,13 +336,13 @@ test('harness lib.sh uses identity.sh when installed, and falls back to worker w
   const role = (h: any) => spawnSync(BASH, ['-c', '. "$1"; doflow_session_role', 'post-compact.sh', path.join(mirror, `.${h}`, 'hooks', 'lib.sh')],
     { env: scratch.env({ ...CLEAR, DOFLOW_SESSION_ROLE: 'main' }), encoding: 'utf8' });
 
-  for (const h of ['claude', 'codex', 'gemini']) {
+  for (const h of ['claude', 'codex']) {
     const r = role(h);
     assert.equal(r.status, 0, r.stderr);
     assert.equal(r.stdout, 'main\n', h);
   }
   fs.rmSync(path.join(mirror, '.doflow', 'shared', 'hooks', 'policies', 'identity.sh'));
-  for (const h of ['claude', 'codex', 'gemini']) {
+  for (const h of ['claude', 'codex']) {
     clearFailures();
     const r = role(h);
     assert.equal(r.status, 0, r.stderr);

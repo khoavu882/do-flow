@@ -9,7 +9,7 @@ const shared = require('./hook-scripts.shared.ts');
 const { SKIP, olderCliPath, cell, sha, scriptNames, installed, staleScripts, gateDecision, ledgerRows } = shared;
 const notice = (harness: any) => `refreshed ${harness} hook front doors to match the shared hooks tree`;
 
-/** The cases of IC-037's script rule for `harness` (codex or gemini): both harnesses deploy a config
+/** The cases of IC-037's script rule for `harness` (codex): it deploys a config
  * plus a directory of scripts, and the config can be right while the scripts are not. */
 function defineHookScriptTests(harness: any) {
   const other = 'pi';

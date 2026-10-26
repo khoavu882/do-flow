@@ -76,6 +76,6 @@ test('G-B2: inventory ratchets — registry files and adapters', () => {
   // copy-tree engine and the contract validator live as siblings.
   const adapterDirs = fs.readdirSync(path.join(REPO, 'src', 'adapters'), { withFileTypes: true })
     .filter((e: any) => e.isDirectory()).map((e: any) => e.name);
-  assert.equal(adapterDirs.length, 8,
-    `expected 8 harness adapter directories, found: ${adapterDirs.join(', ')}`);
+  assert.equal(adapterDirs.length, 7,
+    `expected 7 harness adapter directories, found: ${adapterDirs.join(', ')}`);
 });

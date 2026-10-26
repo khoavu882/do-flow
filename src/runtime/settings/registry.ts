@@ -28,7 +28,8 @@ const { jsonFailure, validateValue } = require('./files.ts');
 
 const REGISTRY_FILE = 'core/registry/settings.json';
 
-const KEY_RE = /^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
+// A segment after the namespace is camelCase, or kebab-case when it names a registry id (`advice.kinds.task-class`).
+const KEY_RE = /^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*(-[a-z0-9]+)*)+$/;
 const TYPES = ['boolean', 'enum', 'integer', 'model-id', 'model-list', 'string', 'string-list', 'url', 'worker-billing', 'worker-list', 'worker-models'];
 const SCOPES = ['global-only', 'project-only', 'narrow-only', 'project-overridable'];
 const COMBINES = ['override', 'narrowest', 'union', 'subset'];
@@ -71,9 +72,9 @@ function has(object: object, field: string): boolean {
   return Object.hasOwn(object, field);
 }
 
-/** `DOFLOW_<KEY_UPPER_SNAKE>`: dots become underscores and a camelCase hump gets one. */
+/** `DOFLOW_<KEY_UPPER_SNAKE>`: dots and hyphens become underscores and a camelCase hump gets one. */
 function derivedEnvName(key: string): string {
-  return `DOFLOW_${key.replace(/\./g, '_').replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase()}`;
+  return `DOFLOW_${key.replace(/[.-]/g, '_').replace(/([a-z0-9])([A-Z])/g, '$1_$2').toUpperCase()}`;
 }
 
 function sameList(a: readonly unknown[], b: readonly unknown[]): boolean {
@@ -131,7 +132,7 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
 
   function validateKey(name: string, spec: any): void {
     const err = (message: string): void => { errors.push(`${name} ${message}`); };
-    if (!KEY_RE.test(name)) err('is not a valid key name (lowercase namespace, a dot, then a camelCase name)');
+    if (!KEY_RE.test(name)) err('is not a valid key name (lowercase namespace, a dot, then a camelCase or kebab-case name)');
     if (!isObject(spec)) { err('must be an object'); return; }
     for (const field of Object.keys(spec)) if (!SPEC_FIELDS.includes(field)) err(`has unknown field '${field}'`);
     for (const field of REQUIRED_FIELDS) if (!has(spec, field)) err(`is missing '${field}'`);
@@ -214,7 +215,12 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     const subsetList = workerList || modelList;
     if (spec.scope === 'narrow-only' && (free || keyed || multi)) err(`a ${type} key cannot be narrow-only: no order says which value is narrower`);
     if (keyed && spec.combine !== 'override') err(`a ${type} key must combine by 'override'`);
-    if (multi !== (spec.combine === 'union')) err(multi ? "a string-list key must combine by 'union'" : "combine 'union' is only for string-list keys");
+    // A global-only list has one layer that can set it, so an override is defined there: the person's list
+    // replaces the default whole, which is how a default list is ever narrowed (hooks.harnesses).
+    const overrideList = multi && spec.scope === 'global-only' && spec.combine === 'override';
+    if (multi !== (spec.combine === 'union') && !overrideList) {
+      err(multi ? "a string-list key must combine by 'union' (or 'override' when global-only)" : "combine 'union' is only for string-list keys");
+    }
     if (subsetList !== (spec.combine === 'subset')) err(subsetList ? `a ${type} key must combine by 'subset'` : "combine 'subset' is only for worker-list or model-list keys");
     const needsOrder = (spec.scope === 'narrow-only' && spec.combine !== 'subset') || spec.combine === 'narrowest';
     const ordered = has(spec, 'order') || has(spec, 'orderRef');
@@ -255,7 +261,8 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     const hasDefaultRef = has(spec, 'defaultRef');
     if (hasDefault === hasDefaultRef) err("needs exactly one of 'default' or 'defaultRef'");
     if (keyed && (!hasDefault || spec.default !== null)) err(`a ${type} key must default to null`);
-    if (hasDefault && !(spec.default === null && (free || keyed || type === 'integer'))) {
+    // A null default is unset: the consumer keeps its own unset path (an enum key such as advice.kinds.<kind>).
+    if (hasDefault && !(spec.default === null && (free || keyed || type === 'integer' || type === 'enum'))) {
       const fault = faultOf(spec.default);
       if (fault) err(`default is not valid: ${fault}`);
     }
@@ -445,6 +452,8 @@ interface SettingsRegistry {
   enumValues(key: string): string[] | null;
   /** The value of a named ref, lazily read from advice.json or storage.json. Throws when unreadable. */
   resolveRef(name: string, deps?: Record<string, unknown>): unknown;
+  /** 127 IC-005: the retired harness ids with their replacement; empty when none is recorded or harnesses.json is unreadable. */
+  retired(): { id: string; replacement: string }[];
 }
 type LoadResult = { ok: true; registry: SettingsRegistry } | { ok: false; reason: 'settings-registry-invalid'; detail: string; errors: string[] };
 
@@ -534,6 +543,9 @@ function loadSettingsRegistry({ repoRoot = REPO_ROOT, fsImpl, verifyRefs = false
       return list;
     },
     resolveRef: (name, deps) => refs.resolve(name, deps),
+    retired() {
+      try { return refs.retired(); } catch { return []; }
+    },
   };
   return done({ ok: true, registry });
 }

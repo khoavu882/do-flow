@@ -20,8 +20,8 @@ case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # Reconciliation note (022-normalize-hooks, Phase A / D1): this also absorbs
 # stream-hook-runner.js's inline DESTRUCTIVE_COMMAND_PATTERN
 # (`\brm\s+-rf\s+[/~]`, since narrowed to the recursive-rm-of-catastrophic-target
-# rule below), which was the only pre-bash-guard protection Gemini
-# and Antigravity sessions routed through that runner actually had — it
+# rule below), which was the only pre-bash-guard protection
+# Antigravity sessions routed through that runner actually had — it
 # duplicated, rather than delegated to, this policy's fuller
 # blocked-patterns.conf coverage (git force-push, git reset --hard, git clean
 # -fd, SQL DROP/DELETE/TRUNCATE, curl|wget-pipe-to-shell, chmod -R 777, dd
@@ -30,8 +30,8 @@ case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # only the hardcoded regex before this change does not lose even that
 # minimum floor of protection; once blocked-patterns.conf is present (the
 # normal case), the full config-driven pattern list applies as it already
-# does for claude/gemini/codex today, which is a real, intended widening of
-# coverage for Gemini/Antigravity once B.5 wires this policy for them (see
+# does for claude/codex today, which is a real, intended widening of
+# coverage for Antigravity once B.5 wires this policy for them (see
 # design.md R2/R3), not a silent side effect.
 
 set -uo pipefail

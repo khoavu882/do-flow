@@ -228,12 +228,16 @@ test('Claude and Pi retain the shared hooks tree until the last harness is remov
       fs.mkdirSync(project, { recursive: true });
       const sharedRoot = scope === 'project' ? project : home;
       const shared = path.join(sharedRoot, '.doflow/shared/hooks');
+      // Pi is outside the shipped hooks.harnesses default: this case opts both harnesses in.
+      const configHome = path.join(home, '.config');
+      fs.mkdirSync(path.join(configHome, 'doflow'), { recursive: true });
+      fs.writeFileSync(path.join(configHome, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'hooks.harnesses': ['claude', 'pi'] }));
       const run = (verb: any, harnesses: any) => {
         const args = verb === 'install'
           ? (scope === 'global' ? ['install', '-g', '-t', harnesses.join(','), '-f'] : ['install', project, '-t', harnesses.join(','), '-f'])
           : (scope === 'global' ? ['remove', '-g', '-t', harnesses.join(','), '-f'] : ['remove', project, '-t', harnesses.join(','), '-f']);
         const result = spawnSync(process.execPath, [path.join(ROOT, 'bin/doflow.js'), ...args], {
-          cwd: project, encoding: 'utf8', env: { ...process.env, HOME: home, DOFLOW_CONFIG_DIR: undefined },
+          cwd: project, encoding: 'utf8', env: { ...process.env, HOME: home, XDG_CONFIG_HOME: configHome, DOFLOW_CONFIG_DIR: undefined },
         });
         assert.equal(result.status, 0, `${scope} ${verb} ${harnesses}: ${result.stderr}`);
       };

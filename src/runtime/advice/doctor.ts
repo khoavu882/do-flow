@@ -10,7 +10,6 @@ const { resolveSetting } = require('./config.ts');
 const { createAdviceClient } = require('./client.ts');
 const { readWindow } = require('./record.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
-const { interceptDecisionPoint } = require('./shadow-dispatcher.ts');
 
 const WINDOW_DAYS = 90;
 const DONE_PHRASES: Record<string, string> = Object.freeze({
@@ -77,7 +76,7 @@ async function buildAdviceDoctor({ repoRoot = REPO_ROOT, projectRoot = process.c
     const registry = loaded.registry;
     const storage = suppliedStorage || loadStorageRegistry({ repoRoot: root, fsImpl });
     const roots = resolveRoots({ registry: storage, projectRoot, env });
-    const setting = loaded.ok ? resolveSetting({ adviceRegistry: registry, roots, fsImpl }) : {
+    const setting = loaded.ok ? resolveSetting({ adviceRegistry: registry, roots, env, fsImpl }) : {
       state: 'off', reason: 'config-invalid', decidedBy: { user: null, project: null }, modelFrom: null, notes: [loaded.detail],
     };
     const store = selectedStore(roots);
@@ -167,4 +166,4 @@ function printAdviceDoctor(report: any) {
   if (report.advice.unreadableLines) console.log(`  ${report.advice.unreadableLines} line(s) could not be read`);
 }
 
-module.exports = { buildAdviceDoctor, printAdviceDoctor, interceptDecisionPoint };
+module.exports = { buildAdviceDoctor, printAdviceDoctor };

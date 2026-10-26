@@ -64,12 +64,14 @@ test('project plan: instructions, skills, agents, locator, and MCP land where An
   assert.equal(second.changes.filter((c: any) => c.operation !== 'remove').length, 0, 'second plan is a no-op');
 });
 
-test('global scope: no instructions and nothing under ~/.agents; skills, agents and locator ride ~/.gemini/config', () => {
+test('global scope: instructions in ~/.gemini/GEMINI.md, nothing under ~/.agents; skills, agents and locator ride ~/.gemini/config', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   const home = scratch();
   const input = harnessInput(registry, { scope: 'global', scopeRoot: home });
   const planned = adapter.plan(input);
-  assert.ok(!planned.changes.some((c: any) => c.target.endsWith('AGENTS.md')), 'global instructions belong to Gemini CLI; never written');
+  assert.ok(!planned.changes.some((c: any) => c.target.endsWith('AGENTS.md')), 'AGENTS.md is a project-scope surface');
+  assert.ok(planned.changes.some((c: any) => c.target === path.join(home, '.gemini', 'GEMINI.md') && c.projection.renderer === 'antigravity-instructions'),
+    'global instructions are the DoFlow section in ~/.gemini/GEMINI.md (row 127 IC-007)');
   const agentsTree = path.join(home, '.agents') + path.sep;
   assert.ok(!planned.changes.some((c: any) => c.target.startsWith(agentsTree)), 'the .agents tree is project scope only');
   assert.ok(planned.changes.some((c: any) => c.assetId === 'skills.doflow'

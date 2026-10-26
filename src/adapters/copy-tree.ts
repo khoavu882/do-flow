@@ -5,9 +5,9 @@
 // Shared copy-tree engine — the generic "own a tree of files" implementation every asset
 // declaring `renderer: "copy-tree"` in core/registry/assets.json needs. Codex's adapter already
 // proved this per-file fingerprint/conflict model for agents and hooks (ownedRemovalPlan,
-// nativeManagedResources); this module generalizes it so Claude, Gemini, and Codex's own
+// nativeManagedResources); this module generalizes it so every adapter's
 // tree-shaped assets (skills, rules, agent-specs, templates, scripts, modes, references) share
-// one implementation instead of three adapter-specific copies.
+// one implementation instead of adapter-specific copies.
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -137,11 +137,6 @@ const TRANSFORMS: Record<string, (sourceRel: string, content: any) => any> = {
     void sourceRel;
     return Buffer.from(applyAgentLimits(content.toString('utf8'), 'antigravity'));
   },
-  /** Shared agent spec frontmatter -> only the keys Gemini CLI's subagent schema accepts, plus its read-only `tools` */
-  'gemini-agents': (sourceRel: string, content: any) => {
-    void sourceRel;
-    return Buffer.from(filterGeminiAgentFrontmatter(applyAgentLimits(content.toString('utf8'), 'gemini')));
-  },
   /** Shared agent spec frontmatter -> OpenCode's markdown-agent vocabulary */
   'opencode-agents': (sourceRel: string, content: any) => {
     void sourceRel;
@@ -151,6 +146,18 @@ const TRANSFORMS: Record<string, (sourceRel: string, content: any) => any> = {
   'kiro-agents': (sourceRel: string, content: any) => {
     void sourceRel;
     return Buffer.from(renderKiroAgent(content.toString('utf8')));
+  },
+  /** Hook tiers (maint-hooks): the same Kiro agent with no `hooks`, for Kiro outside `hooks.harnesses`. */
+  'kiro-agents-content': (sourceRel: string, content: any) => {
+    void sourceRel;
+    return Buffer.from(renderKiroAgent(content.toString('utf8'), { hooks: false }));
+  },
+  /** Hook tiers: an authored Kiro agent JSON (core/harnesses/kiro/agents) without its `hooks` key. */
+  'kiro-agent-content': (sourceRel: string, content: any) => {
+    if (!sourceRel.endsWith('.json')) return content;
+    const agent = JSON.parse(content.toString('utf8'));
+    delete agent.hooks;
+    return Buffer.from(`${JSON.stringify(agent, null, 2)}\n`);
   },
 };
 
@@ -218,25 +225,6 @@ function applyAgentLimits(text: string, harnessId: string): string {
   return `${text.slice(0, text.indexOf('\n') + 1)}${kept.join('')}${added.join('')}${text.slice(match[0].length - 3)}`;
 }
 
-/** The frontmatter keys Gemini CLI documents for a custom subagent (https://geminicli.com/docs/core/subagents, accessed 2026-10-06).
- * Its agent schema is strict, so a spec key outside this list (DoFlow's `effort`) would be rejected. */
-const GEMINI_AGENT_KEYS = new Set(['name', 'description', 'kind', 'tools', 'mcpServers', 'model', 'temperature', 'max_turns', 'timeout_mins']);
-
-/** Keep only Gemini's documented top-level frontmatter keys, with their indented continuation
- * lines, in source order. The body after the closing `---` passes through byte for byte, and a
- * file without frontmatter is returned unchanged. */
-function filterGeminiAgentFrontmatter(text: string): string {
-  const match = text.match(/^---\r?\n([\s\S]*?\r?\n)---(?=\r?\n|$)/);
-  if (!match) return text;
-  let keep = false;
-  const kept = match[1].split(/(?<=\n)/).filter((line: string) => {
-    const key = line.match(/^([A-Za-z][A-Za-z0-9_-]*):/);
-    if (key) keep = GEMINI_AGENT_KEYS.has(key[1]);
-    return keep;
-  });
-  return `${text.slice(0, text.indexOf('\n') + 1)}${kept.join('')}${text.slice(match[0].length - 3)}`;
-}
-
 /** The command a Kiro hook runs for one front-door script: the project copy when the git root
  * holds one, else the user-scope copy under $HOME. One builder, so the static `doflow` agent
  * (core/harnesses/kiro/agents/doflow.json) and every generated specialist share the exact string. */
@@ -267,7 +255,7 @@ function kiroPreToolUseHooks(): any[] {
 /** Map one core/shared agent-spec file onto a kiro-cli custom agent. Spec keys other than
  * name/description (model: inherit, effort) are dropped: Kiro inherits the session model. `access` is
  * never projected; a `read-only` spec replaces `tools: ["*"]` with the harness's `apply.tools`. */
-function renderKiroAgent(text: string): string {
+function renderKiroAgent(text: string, { hooks = true }: { hooks?: boolean } = {}): string {
   const fm: Record<string, string> = {};
   let body = text;
   if (text.startsWith('---')) {
@@ -285,7 +273,7 @@ function renderKiroAgent(text: string): string {
     name: fm.name || '', description: fm.description || '',
     prompt: `${body.replace(/\s+$/, '')}\n`,
     tools: limits?.tools ?? ['*'],
-    hooks: kiroPreToolUseHooks(),
+    ...(hooks ? { hooks: kiroPreToolUseHooks() } : {}),
   };
   return `${JSON.stringify(agent, null, 2)}\n`;
 }
@@ -447,7 +435,7 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
     // Untampered on removal means the same two signals the apply path below already accepts: the
     // bytes this harness last recorded, or the bytes the current source would write. The second
     // one matters because a destination tree can be claimed by several harnesses (scripts.doflow
-    // is one `<project>/.doflow/scripts` for claude, codex and gemini), so a sibling's update
+    // is one `<project>/.doflow/scripts` for claude, codex and others), so a sibling's update
     // legitimately rewrites files this harness's rows still describe — the same "a sibling
     // changed bytes my row still describes" case the apply path had to be taught, arriving here
     // as an un-releasable claim instead of a refused install. A hand edit matches neither and is
@@ -642,7 +630,7 @@ function verifyTree({ sourceDir, destDir, fsImpl = fs, layout, transform, select
   return { ok: conflicts.length === 0, resources, conflicts };
 }
 
-// ---- per-adapter copy-tree glue, shared so codex/claude/gemini don't each carry their own copy ----
+// ---- per-adapter copy-tree glue, shared so each adapter doesn't carry its own copy ----
 
 /** Filter a harness's asset list down to the ones this engine handles. */
 function copyTreeAssets(assets: any): any[] {

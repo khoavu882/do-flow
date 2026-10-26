@@ -117,7 +117,7 @@ test('remove strips only the managed section, preserving foreign content on both
   assert.doesNotMatch(remaining, new RegExp(MARKER_START));
 });
 
-// Unlike Gemini's dedicated removeManagedSection, this adapter's writeChange-based remove writes
+// This adapter's writeChange-based remove writes
 // back whatever strippedInstruction computed, including an empty string — it never independently
 // deletes the file. That is this adapter's existing, unmodified contract (shared verbatim with
 // OpenCode's), so an AGENTS.md that was nothing but the managed section ends up empty, not absent.
