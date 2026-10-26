@@ -28,14 +28,12 @@
 // The set is pinned both ways: a path in it that the gate starts denying breaks authoring, and a
 // path outside it that the gate starts allowing is the hole this guard exists for.
 //
-// KNOWN_GAPS is the one finding this guard was written with, pinned as a ratchet (like the
-// ALLOWED_GAPS of gate-vocabulary.test.ts): the in-repository resolver candidates of the harness
-// directories (.claude, .codex, .kiro) are NOT covered by the gate's `.doflow` / `agent-docs/doflow`
-// segment rule, so when a repository git-ignores those directories the gate's ignore skip lets an
-// Edit or Write of the resolver through. The gate runs that file and takes feature_dir and the
-// has_* answers from it, so rewriting an installed (executable) resolver can make the gate find no
-// feature and allow. Fixing it is a core/ change (extend the segment rule to the resolver paths);
-// this file only pins it: the list may only shrink, and a gap the gate now closes must be removed.
+// KNOWN_GAPS is empty and stays empty (a ratchet, like the ALLOWED_GAPS of gate-vocabulary.test.ts).
+// It was written with three entries: the in-repository resolver candidates of the harness directories
+// (.claude, .codex, .kiro) were allowed while their directory was git-ignored, because the gate's
+// ignore skip did not cover them. The gate now gates any path ending scripts/doflow/bash/do-paths.sh
+// before the ignore skip, by the written path and the real path. A gap added here must be removed by
+// a fix in the gate, never kept.
 //
 // Paths outside the repository (the $HOME and harness-config resolver candidates) are outside what
 // this gate decides: "edit target outside the repo -> allow" is in its header. They are classified
@@ -61,11 +59,7 @@ const SLUG = '900-demo';
 const TASK = 'T1';
 
 /** Feature artifacts and the register: written by the model through Edit/Write, so allowed. */
-const KNOWN_GAPS = Object.freeze([
-  '.claude/scripts/doflow/bash/do-paths.sh',
-  '.codex/scripts/doflow/bash/do-paths.sh',
-  '.kiro/scripts/doflow/bash/do-paths.sh',
-]);
+const KNOWN_GAPS: any = Object.freeze([]);
 const AUTHORING_SURFACE = Object.freeze(['intention/requirement.md', 'design/design.md', 'plan.md', 'requirement.md', 'design.md', 'decisions/register.json']);
 /** Resolver and registry candidates whose root is not the repository, by the expression the script writes. */
 const OUT_OF_REPO = Object.freeze([
@@ -239,12 +233,21 @@ HOOK_TEST('an Edit or Write to the gate\'s evidence is denied on a feature branc
   const unexpected = allowed.filter((entry: any) => !expected.includes(entry));
   const closed = expected.filter((entry: any) => !allowed.includes(entry));
   assert.deepEqual(unexpected, [], 'the gate lets through evidence that is neither an authored artifact nor a KNOWN_GAP: an exemption covers the gate\'s own evidence');
-  assert.deepEqual(closed, [], 'the gate now denies a path this guard lists as allowed: remove it from KNOWN_GAPS (a closed gap), or restore authoring of the artifact');
+  assert.deepEqual(closed, [], 'the gate now denies an authored artifact: restore authoring');
 });
 
-HOOK_TEST('KNOWN_GAPS are the git-ignore skip alone: the same paths are denied in a repository that tracks them', { timeout: 240_000 }, () => {
-  const root = makeRepo('tracked-repo', 'agent-docs/\n.doflow/\n');
-  assert.deepEqual(probe(REAL, root, new Map(KNOWN_GAPS.map((rel: any) => [rel, 'resolver candidate'])), ['Edit', 'Write']), []);
+HOOK_TEST('the harness resolver paths are denied when their directory is git-ignored, and KNOWN_GAPS stays empty', { timeout: 240_000 }, () => {
+  assert.deepEqual([...KNOWN_GAPS], [], 'KNOWN_GAPS only shrinks, and it is empty: fix the gate instead of adding to it');
+  const root = makeRepo('ignored-harness-dirs');
+  const ignored = fs.readFileSync(path.join(root, '.gitignore'), 'utf8').split('\n');
+  for (const dir of ['.claude/', '.codex/', '.kiro/']) assert.ok(ignored.includes(dir), `control: ${dir} is git-ignored in this repository`);
+  const resolvers = ['.claude', '.codex', '.kiro'].map((dir: any) => `${dir}/scripts/doflow/bash/do-paths.sh`);
+  for (const rel of resolvers) {
+    for (const tool of ['Edit', 'Write']) {
+      assert.equal(decide(REAL, root, tool, path.join(root, rel)).code, 2, `${tool} ${rel}`);
+      assert.equal(decide(REAL, root, tool, rel).code, 2, `${tool} ${rel} written relative`);
+    }
+  }
 });
 
 HOOK_TEST('the check goes red on a planted exemption for each kind of evidence', { timeout: 240_000 }, () => {
@@ -256,6 +259,7 @@ HOOK_TEST('the check goes red on a planted exemption for each kind of evidence',
     ['the readiness store', '  case "$file" in */.doflow/state/readiness/*) continue ;; esac\n', '.doflow/state/readiness/T1.json'],
     ['the run store', '  case "$file" in */.doflow/state/orchestration/*) continue ;; esac\n', '.doflow/state/orchestration/900-demo/T1.json'],
     ['a resolver candidate', '  case "$file" in */.doflow/scripts/*) continue ;; esac\n', '.doflow/scripts/doflow/bash/do-paths.sh'],
+    ['a harness-dir resolver candidate', '  case "$file" in */.claude/scripts/*) continue ;; esac\n', '.claude/scripts/doflow/bash/do-paths.sh'],
     ['the registry', '  case "$file" in */.doflow/runtime/*) continue ;; esac\n', '.doflow/runtime/core/registry/workflows.json'],
     ['a state file by name', '  case "$file" in *.json) continue ;; esac\n', '.doflow/state/readiness/T1.json'],
   ];
