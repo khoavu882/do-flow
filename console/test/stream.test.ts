@@ -221,6 +221,34 @@ test('transcript ticks: the first answer is sent even when empty (reader status)
   }
 });
 
+test('transcript ticks: none runs until this stream\'s first fleet read has answered, ok or not', async () => {
+  let release: (value: any) => void = () => {};
+  const held = new Promise((resolve) => { release = resolve; });
+  const calls: Array<string | null> = [];
+  const views = { fleet: () => held, transcript: async (_p: string, _a: string, cursor: string | null) => { calls.push(cursor); return good(transcriptBody(CURSOR_1, [event(0)])); } };
+  const { res } = open(views, { agent: AGENT });
+  try {
+    await advance(3 * TRANSCRIPT_MS);
+    assert.deepEqual(calls, [], 'no transcript read while the first fleet read is pending');
+    assert.deepEqual(named(res, 'error'), []);
+    assert.deepEqual(named(res, 'transcript'), []);
+    release(good(fleetBody([section(KEY_A)])));
+    await advance(TRANSCRIPT_MS);
+    assert.deepEqual(calls, [null], 'the first tick after the answer reads');
+    assert.deepEqual(named(res, 'transcript').map((frame) => frame.data.events.map((e: any) => e.seq)), [[0]]);
+  } finally {
+    done();
+  }
+  const failing = { fleet: async () => bad('core-error'), transcript: async () => good(transcriptBody(CURSOR_1, [event(0)])) };
+  const second = open(failing, { agent: AGENT });
+  try {
+    await advance(TRANSCRIPT_MS);
+    assert.equal(named(second.res, 'transcript').length, 1, 'a failed first fleet read still lets the transcript tick run');
+  } finally {
+    done();
+  }
+});
+
 test('keepalive: a comment every 15 s, with no id', async () => {
   const views = fakeViews([good(fleetBody([section(KEY_A)]))]);
   const { res } = open(views);
