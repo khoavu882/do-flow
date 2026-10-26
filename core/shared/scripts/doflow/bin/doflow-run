@@ -420,6 +420,8 @@ Workflow and evidence:
   review           validate a feature's review/findings.json, print counts and advisories (review-package assembles the payload)
   protocol         print the review and debate protocol presets, or the one a run would use (read-only)
   primary          resolve which harness and model the main session runs (read-only)
+  fleet            list the projects this machine knows (read-only)
+  transcript       read an agent's recent events, or the project's traffic (read-only)
   package          list the contribution points a package may fill, check a package directory, list/show packages (read-only), add/update a local package (a plan, then --plan applies it), or enable/disable/trust/exempt/revoke/verify/remove one
   slot             named machine-wide queue: run a command as its one holder, list or release
   models           synchronize, list, or inspect observed models across workers (--action sync|list|describe)
@@ -548,7 +550,7 @@ shell_helper_for() {
 is_node_verb() {
   case "$1" in
     classify|workflow|route|evidence|claim|readiness|context-pack|context-emit|context-grant|retrieval-plan|outcome|scaffold|decision|followup|lifecycle|goal|failure|verify|recover|leak-scan|\
-trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|config|orchestrate|research-request|task-attempt|worker|dispatch|retrieve|model-role|storage|brief-tools|advise|roadmap|plan-check|review|protocol|primary|package|slot|models) return 0 ;;
+trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|config|orchestrate|research-request|task-attempt|worker|dispatch|retrieve|model-role|storage|brief-tools|advise|roadmap|plan-check|review|protocol|primary|fleet|transcript|package|slot|models) return 0 ;;
     *) return 1 ;;
   esac
 }

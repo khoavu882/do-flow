@@ -284,6 +284,7 @@ registries](#installation-registries) for the same plain-JSON convention. Across
 | `core/registry/storage.json` | Every store DoFlow writes: its root, location, retention bound, rule kind and writer files, plus the pass budget, throttle and ignore-file text. `src/runtime/storage/` reads it and G26 checks it against the code and `docs/reference.md` |
 | `core/registry/settings.json` | Every runtime settings key, its types, defaults, scopes, bindings, legacy files and consumers. `src/runtime/settings/registry.ts` reads it; G44 checks its consumers, reference defaults and documentation |
 | `core/registry/advice.json` | Advice kinds, prompts and criteria, loaded by `src/runtime/advice/registry.ts`. It stays outside the general `REGISTRY_FILES` list in `src/registry`: IC-003 makes a load failure turn advice off, whereas the general registry loader would make every install command fail (DEC-025) |
+| `core/registry/transcripts.json` | Where each harness keeps its transcripts (093 IC-021): per harness the reader module id or `null`, `supported`/`events-only`/`unknown`, per-OS locations with a `{sessionId}`/`{cwdEncoded}` glob (a `win32` location carries `status: unknown`), the format, append-only, join key, required keys, evidence and `verifiedOn`. Loaded by `src/runtime/transcripts/registry.ts`, outside `REGISTRY_FILES` like `advice.json`: a bad file turns the transcript feature off, it does not fail an install command. The id guard is an exact set match with `harnesses.json`; `doctor` shows a `[Transcripts]` row for a `verifiedOn` older than 90 days or for drift, never as a finding |
 
 Two contracts follow from these files and should not be re-expressed as flags. Readiness is a
 four-state verdict — `READY`, `NEEDS_EVIDENCE`, `NEEDS_USER_DECISION`, `BLOCKED` — with the missing
@@ -1123,7 +1124,8 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   agent spec names `trace spans`, `trace export`, `trace analyze` or `verify-baseline` (G45.4); the
   package has no dependency map of any of the four kinds (`dependencies`, `optionalDependencies`,
   `peerDependencies`, `bundleDependencies`/`bundledDependencies`), no `files` entry that npm resolves
-  to `console/` (checked after normalising slashes, `..` and case), and
+  to `console/` (checked after normalising slashes, `..` and case), `console/package.json`
+  (when present) has none of those maps and no devDependency but an exact-pinned `pele`, and
   G30.2 is still enforced (G45.5); every telemetry store is a declared `runs/` subdirectory the ledger
   readers skip (G45.6); and the export block maps only closed descriptors and the analysis block is
   well formed (G45.7). The writer and contract are specified in `docs/specs/telemetry-contract.md`.
@@ -1265,7 +1267,7 @@ directories. A ratchet does not forbid a change; it makes the change edit the gu
 commit, so each structural shift is a reviewed decision. `test/guards/cli-boundary.test.ts` keeps
 `bin/doflow.js` a thin forwarder with no command handler and no argument parser, and requires the
 `COMMANDS` table in `src/cli/index.ts` and the files in `src/cli/commands/` to name exactly the
-nine installer commands.
+ten installer commands.
 
 ### Upstream format-drift watcher
 

@@ -1,0 +1,12 @@
+{"id":"ev1","parentId":null,"timestamp":"2026-01-01T00:00:01.000Z","type":"session.start","data":{"sessionId":"fa000000-0000-4000-8000-00000000f001","context":{"cwd":"/work/fixture-project"}}}
+{"id":"ev2","parentId":"ev1","timestamp":"2026-01-01T00:00:02.000Z","type":"user.message","data":{"content":"FIXTURE-USER-PROMPT-MARKER-91c2 pmain"}}
+{"id":"ev3","parentId":"ev2","timestamp":"2026-01-01T00:00:03.000Z","type":"assistant.message","data":{"content":"FIXTURE-REPLY-OK pmain the deploy note says password=fx-Secret-4471-reply and mail fixture.person@example.invalid","model":"copilot-fixture-1","reasoningText":"FIXTURE-THINKING-MARKER-7f3a pmain","encryptedContent":"RklYVFVSRQ=="}}
+{"id":"ev4","parentId":"ev3","timestamp":"2026-01-01T00:00:04.000Z","type":"tool.execution_start","data":{"toolCallId":"tc_fx_1","toolName":"bash","arguments":{"command":"echo password=fx-Secret-4471-args && echo '{\"token\":\"fx-Secret-4471-esc\"}'"},"model":"copilot-fixture-1"}}
+{"id":"ev5","parentId":"ev4","timestamp":"2026-01-01T00:00:05.000Z","type":"tool.execution_complete","data":{"toolCallId":"tc_fx_1","success":true,"result":{"content":"FIXTURE-TOOL-RESULT-TEXT-5e1d pmain"},"model":"copilot-fixture-1"}}
+{"id":"ev6","parentId":"ev5","timestamp":"2026-01-01T00:00:06.000Z","type":"subagent.started","agentId":"agent-fx-1","data":{"agentName":"fixture-agent","agentType":"fixture","model":"copilot-fixture-1","toolCallId":"tc_fx_1"}}
+{"id":"ev7","parentId":"ev6","timestamp":"2026-01-01T00:00:07.000Z","type":"session.usage_record","data":{"modelMetrics":{"copilot-fixture-1":{"usage":{"inputTokens":100,"outputTokens":50,"cacheReadTokens":10,"cacheWriteTokens":2,"reasoningTokens":5}}}}}
+{"id":"ev8","parentId":"ev7","timestamp":"2026-01-01T00:00:08.000Z","type":"session.usage_record","data":{"modelMetrics":{"copilot-fixture-1":{"usage":{"inputTokens":180,"outputTokens":90,"cacheReadTokens":10,"cacheWriteTokens":2,"reasoningTokens":5}}}}}
+{"id":"ev9","parentId":"ev8","timestamp":"2026-01-01T00:00:09.000Z","type":"session.context","data":{"userEmail":"fixture.attach@example.invalid"}}
+{"id":"ev10","parentId":"ev9","timestamp":"2026-01-01T00:00:10.000Z","type":"fixture-unknown-record-type","data":{"path":"/work/fixture-project/notes/private.txt"}}
+{"note":"fixture-missing-keys-record"}
+{"id":"ev11","parentId":"ev10","timestamp":"2026-01-01T00:00:11.000Z","type":"assistant.message","data":{"content":"FIXTURE-REPLY-DONE pmain","model":"copilot-fixture-1"}}

@@ -1,0 +1,142 @@
+{
+  "version": 1,
+  "entries": [
+    {
+      "harness": "claude",
+      "reader": "claude-jsonl",
+      "status": "supported",
+      "locations": [
+        { "os": "darwin", "base": "env:CLAUDE_CONFIG_DIR", "segments": ["projects"], "glob": "{cwdEncoded}/{sessionId}.jsonl" },
+        { "os": "linux", "base": "env:CLAUDE_CONFIG_DIR", "segments": ["projects"], "glob": "{cwdEncoded}/{sessionId}.jsonl" },
+        { "os": "darwin", "base": "home", "segments": [".claude", "projects"], "glob": "{cwdEncoded}/{sessionId}.jsonl" },
+        { "os": "linux", "base": "home", "segments": [".claude", "projects"], "glob": "{cwdEncoded}/{sessionId}.jsonl" },
+        { "os": "win32", "base": "home", "segments": [".claude", "projects"], "glob": "{cwdEncoded}/{sessionId}.jsonl", "status": "unknown" }
+      ],
+      "format": "jsonl",
+      "appendOnly": "yes",
+      "join": "session-id",
+      "requiredKeys": ["type", "timestamp", "sessionId"],
+      "evidence": [
+        "https://code.claude.com/docs/en/sessions",
+        "https://code.claude.com/docs/en/hooks"
+      ],
+      "verifiedOn": "2026-10-26",
+      "versions": null
+    },
+    {
+      "harness": "codex",
+      "reader": "codex-rollout",
+      "status": "supported",
+      "locations": [
+        { "os": "darwin", "base": "env:CODEX_HOME", "segments": ["sessions"], "glob": "*/*/*/rollout-*-{sessionId}.jsonl" },
+        { "os": "linux", "base": "env:CODEX_HOME", "segments": ["sessions"], "glob": "*/*/*/rollout-*-{sessionId}.jsonl" },
+        { "os": "darwin", "base": "home", "segments": [".codex", "sessions"], "glob": "*/*/*/rollout-*-{sessionId}.jsonl" },
+        { "os": "linux", "base": "home", "segments": [".codex", "sessions"], "glob": "*/*/*/rollout-*-{sessionId}.jsonl" }
+      ],
+      "format": "jsonl",
+      "appendOnly": "yes",
+      "join": "session-id",
+      "requiredKeys": ["timestamp", "type", "payload"],
+      "evidence": [
+        "https://raw.githubusercontent.com/openai/codex/main/codex-rs/rollout/src/recorder.rs",
+        "https://learn.chatgpt.com/docs/hooks"
+      ],
+      "verifiedOn": "2026-10-26",
+      "versions": null
+    },
+    {
+      "harness": "kiro",
+      "reader": "kiro-jsonl",
+      "status": "supported",
+      "locations": [
+        { "os": "darwin", "base": "home", "segments": [".kiro", "sessions", "cli"], "glob": "{sessionId}.jsonl" },
+        { "os": "linux", "base": "home", "segments": [".kiro", "sessions", "cli"], "glob": "{sessionId}.jsonl" }
+      ],
+      "format": "jsonl+json",
+      "appendOnly": "unknown",
+      "join": "session-id",
+      "requiredKeys": ["version", "kind", "data"],
+      "evidence": [
+        "https://kiro.dev/docs/cli/chat/session-management/"
+      ],
+      "verifiedOn": "2026-10-26",
+      "versions": null
+    },
+    {
+      "harness": "copilot",
+      "reader": "copilot-events",
+      "status": "supported",
+      "locations": [
+        { "os": "darwin", "base": "env:COPILOT_HOME", "segments": ["session-state"], "glob": "{sessionId}/events.jsonl" },
+        { "os": "linux", "base": "env:COPILOT_HOME", "segments": ["session-state"], "glob": "{sessionId}/events.jsonl" },
+        { "os": "darwin", "base": "home", "segments": [".copilot", "session-state"], "glob": "{sessionId}/events.jsonl" },
+        { "os": "linux", "base": "home", "segments": [".copilot", "session-state"], "glob": "{sessionId}/events.jsonl" }
+      ],
+      "format": "jsonl",
+      "appendOnly": "unknown",
+      "join": "session-id",
+      "requiredKeys": ["id", "timestamp", "type", "data"],
+      "evidence": [
+        "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference"
+      ],
+      "verifiedOn": "2026-10-26",
+      "versions": null
+    },
+    {
+      "harness": "pi",
+      "reader": "pi-jsonl",
+      "status": "supported",
+      "locations": [
+        { "os": "darwin", "base": "env:PI_CODING_AGENT_SESSION_DIR", "segments": [], "glob": "--{cwdEncoded}--/*.jsonl" },
+        { "os": "linux", "base": "env:PI_CODING_AGENT_SESSION_DIR", "segments": [], "glob": "--{cwdEncoded}--/*.jsonl" },
+        { "os": "darwin", "base": "home", "segments": [".pi", "agent", "sessions"], "glob": "--{cwdEncoded}--/*.jsonl" },
+        { "os": "linux", "base": "home", "segments": [".pi", "agent", "sessions"], "glob": "--{cwdEncoded}--/*.jsonl" }
+      ],
+      "format": "jsonl",
+      "appendOnly": "yes",
+      "join": "cwd",
+      "requiredKeys": ["type", "timestamp"],
+      "evidence": [
+        "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/coding-agent/docs/session-format.md"
+      ],
+      "verifiedOn": "2026-10-26",
+      "versions": null
+    },
+    {
+      "harness": "antigravity",
+      "reader": null,
+      "status": "events-only",
+      "locations": [
+        { "os": "darwin", "base": "home", "segments": [".gemini", "antigravity-cli", "brain"], "glob": "*/.system_generated/logs/transcript.jsonl" },
+        { "os": "linux", "base": "home", "segments": [".gemini", "antigravity-cli", "brain"], "glob": "*/.system_generated/logs/transcript.jsonl" }
+      ],
+      "format": "jsonl",
+      "appendOnly": "unknown",
+      "join": "none",
+      "requiredKeys": ["type", "created_at"],
+      "evidence": [
+        "https://antigravity.google/docs/hooks?tab=cli"
+      ],
+      "verifiedOn": "2026-10-26",
+      "versions": null
+    },
+    {
+      "harness": "opencode",
+      "reader": null,
+      "status": "events-only",
+      "locations": [
+        { "os": "darwin", "base": "xdg-data", "segments": ["opencode"], "glob": "opencode.db" },
+        { "os": "linux", "base": "xdg-data", "segments": ["opencode"], "glob": "opencode.db" }
+      ],
+      "format": "sqlite",
+      "appendOnly": "no",
+      "join": "cwd",
+      "requiredKeys": ["type", "data"],
+      "evidence": [
+        "https://opencode.ai/docs/troubleshooting/"
+      ],
+      "verifiedOn": "2026-10-26",
+      "versions": null
+    }
+  ]
+}

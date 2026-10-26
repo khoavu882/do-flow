@@ -7,7 +7,7 @@
  * `./slots.ts`; this file only maps flags to it and its results to exit codes.
  */
 
-const { runSlot, listSlots, releaseSlot } = require('./slots.ts');
+const { runSlot, listSlots, peekSlots, releaseSlot } = require('./slots.ts');
 const { finishRuntime } = require('./cli-result.ts');
 
 const TIMEOUT_MAX = 86400;
@@ -21,10 +21,10 @@ function refuse(message: string, json: boolean): number {
 async function handleSlotCommand({
   action, name, label, timeout, noWait = false, command, by, reason, positional = [], extraFlags = [], json = false, env = process.env, cwd = process.cwd(),
 }: any = {}): Promise<number> {
-  const usage = 'usage: slot --action run|list|release (see doflow --help)';
+  const usage = 'usage: slot --action run|list|peek|release (see doflow --help)';
   if (extraFlags.length > 0) return refuse(`unknown flag '${extraFlags[0]}'; ${usage}`, json);
   if (positional.length > 0) return refuse(`unexpected argument '${positional[0]}'; ${usage}`, json);
-  if (action !== 'run' && action !== 'list' && action !== 'release') return refuse(`--action must be run, list or release; ${usage}`, json);
+  if (action !== 'run' && action !== 'list' && action !== 'peek' && action !== 'release') return refuse(`--action must be run, list, peek or release; ${usage}`, json);
   try {
     if (action === 'run') {
       if (!Array.isArray(command)) return refuse('slot run needs the command after --, as in: slot --action run --name <name> -- <command> [args...]', json);
@@ -38,6 +38,22 @@ async function handleSlotCommand({
     if (action === 'list') {
       const listed = await listSlots({ env, json });
       console.log(listed.output);
+      return finishRuntime(0);
+    }
+    if (action === 'peek') {
+      // 093 IC-018 b: a read with no lock, sweep or mkdir; no pid, start or cwd in either form.
+      const peeked = await peekSlots({ env, cwd });
+      if (json) console.log(JSON.stringify(peeked));
+      else if (peeked.slots.length === 0) console.log('no slots held');
+      else {
+        for (const slot of peeked.slots) {
+          const head = slot.holder
+            ? `held (${slot.holder.label}) since ${slot.holder.since}, alive ${slot.holder.alive}${slot.holder.worktreeKey ? `, checkout ${slot.holder.worktreeKey}` : ', another directory'}`
+            : 'free';
+          console.log(`${slot.name}  ${head}; ${slot.waiters} waiting`);
+        }
+      }
+      if (!json && peeked.unreadable > 0) console.log(`unreadable: ${peeked.unreadable}`);
       return finishRuntime(0);
     }
     const released = await releaseSlot({ name, by, reason, env });

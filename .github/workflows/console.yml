@@ -1,0 +1,64 @@
+name: Console
+
+# Row 093: the Console (console/) is a read-only web UI over the doflow CLI. Its tests spawn this
+# checkout's own bin/doflow.js (console/test/helpers/core-fixture.ts resolves the core three levels
+# up from console/test/helpers, i.e. the repository root), so every run is against the branch's own
+# core, not a sibling checkout or an installed package.
+on:
+  pull_request:
+    paths:
+      - 'console/**'
+      # The core the console tests spawn or read: the CLI entry, the runtime (src/),
+      # the data under core/ (registry/*.json|yaml, shared, harnesses: the spawned CLI may read any of it), the ambient type
+      # declarations the console tsconfig includes (types/), and the package manifest the
+      # package-shape test compares against.
+      - 'bin/**'
+      - 'src/**'
+      - 'core/**'
+      - 'types/**'
+      - 'package.json'
+      - '.github/workflows/console.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'console/**'
+      - 'bin/**'
+      - 'src/**'
+      - 'core/**'
+      - 'types/**'
+      - 'package.json'
+      - '.github/workflows/console.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: console-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  console:
+    name: console (ubuntu, node 24.22.1)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      # Exactly the engines floor (>=24.22.1); a bare "24" can resolve to an older cached 24.x.
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24.22.1"
+
+      # console/ has no dependencies and no lockfile, so there is nothing to install: the tests use
+      # Node built-ins plus the repository's own core (which has no dependencies either).
+      - name: Console tests
+        working-directory: console
+        run: npm test
+
+      # The script fetches the pinned typescript@5.7.2 with npx (the only network use in this job).
+      - name: Console typecheck
+        working-directory: console
+        run: npm run typecheck

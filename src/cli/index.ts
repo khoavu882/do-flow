@@ -2,7 +2,7 @@
 // doflow CLI — argument parsing, the installer command table, and dispatch.
 //
 // bin/doflow.js is only a forwarder into main() here. This module owns: parseArgs (verbatim from
-// the pre-extraction monolith), the ONE table mapping the nine installer command names to their
+// the pre-extraction monolith), the ONE table mapping the ten installer command names to their
 // handlers under commands/, and the runtime verbs' forwarding via ./runtime-commands — whose
 // implementations stay one-per-module in src/runtime/. Adding an installer command means a new
 // file in src/cli/commands/, an entry in COMMANDS, and an edit to test/guards/cli-boundary.test.js,
@@ -12,7 +12,7 @@ const {
   handleCapabilitiesCommand, handleReadinessCommand, handleEvidenceCommand,
   EVIDENCE_SCORE_FIELDS, scoreFieldRefusal,
 } = require('../runtime/cli.ts');
-const { pkg } = require('./shared.ts');
+const { pkg, REPO_ROOT } = require('./shared.ts');
 const { VALID: VALID_TARGETS, DEFAULT_TARGETS } = require('../install/targets.ts');
 const { dispatchRuntimeCommand } = require('./runtime-commands.ts');
 const { usageError } = require('../runtime/cli-result.ts');
@@ -27,6 +27,7 @@ const cmdTools = require('./commands/tools.ts');
 const cmdListBackups = require('./commands/list-backups.ts');
 const cmdRollback = require('./commands/rollback.ts');
 const cmdSelfUpdate = require('./commands/self-update.ts');
+const cmdUi = require('./commands/ui.ts');
 
 /** The installer command surface, written down once. The runtime verbs are dispatched separately
  * (see ./runtime-commands) because their namespace is owned by the doflow-run verb table. */
@@ -40,6 +41,8 @@ const COMMANDS: Record<string, (o: any) => any> = {
   'list-backups': cmdListBackups,
   rollback: cmdRollback,
   'self-update': cmdSelfUpdate,
+  // The launcher takes the core root as an argument so it loads nothing but three built-ins (092 IC-008).
+  ui: (o: any) => cmdUi(o, REPO_ROOT),
 };
 
 /** "skip all backup protection" must be an explicit, deliberate choice, never a default combo. */
@@ -143,7 +146,7 @@ function parseArgs(argv: string[]): any {
       case '--action': {
         const val = argv[i + 1];
         // `review`, `protocol`, `config`, `primary` and `package` answer a missing value as usage, exit 2; other verbs keep exit 1.
-        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'review' || o.cmd === 'protocol' || o.cmd === 'config' || o.cmd === 'primary' || o.cmd === 'package' ? 2 : 1); }
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'review' || o.cmd === 'protocol' || o.cmd === 'config' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript' || o.cmd === 'package' ? 2 : 1); }
         o.action = val; o.actionGiven = true; i++; break;
       }
       case '--task-class': {
@@ -227,8 +230,8 @@ function parseArgs(argv: string[]): any {
         // its validation subtly wrong.
         const runtime = parseRuntimeFlag(a, argv, i, o);
         if (runtime !== null) { i = runtime; break; }
-        // slot and primary report an unknown flag as their own usage error (exit 2, 115 IC-008, 120 IC-008).
-        if (a.startsWith('-') && (o.cmd === 'slot' || o.cmd === 'primary')) (o.extraFlags = o.extraFlags || []).push(a);
+        // slot, primary, fleet and transcript report an unknown flag as their own usage error (exit 2, 115 IC-008, 120 IC-008).
+        if (a.startsWith('-') && (o.cmd === 'slot' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript')) (o.extraFlags = o.extraFlags || []).push(a);
         else if (a.startsWith('-') && o.cmd !== 'plan-check') { console.error(unknownFlagMessage(a)); process.exit(o.cmd === 'protocol' || o.cmd === 'config' ? 2 : 1); }
         else if (!o.cmd) o.cmd = a;
         else o.positional.push(a);
@@ -419,6 +422,10 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--dir', 'dir'],                   // package --action new: authored package target directory
   ['--name', 'name'],                  // slot: the slot's name, 1 to 64 characters of a-z, 0-9 and - (115 IC-008)
   ['--label', 'label'],                // slot --action run: the holder's label, at most 80 characters (115 IC-008)
+  ['--cursor', 'cursor'],              // transcript --action read: the cursor an earlier read returned (093 IC-022)
+  ['--limit', 'limit'],                // transcript --action read: at most this many events, validated in the verb (093 IC-022)
+  ['--window', 'window'],              // transcript --action stats: minutes, 1 to 60, validated in the verb (093 IC-023)
+  ['--port', 'port'],                  // ui: the Console's port, 0 to 65535, checked in commands/ui.ts (092 IC-008)
 ]);
 
 /** Repeatable arguments — each occurrence appends rather than replaces. */
@@ -514,6 +521,7 @@ Commands:
   list-backups         List available backups
   self-update          git pull + reinstall
   tools                Inspect or manage registered external tools
+  ui [<project>]       Run the DoFlow Console, a separately installed package (--port N; exit 2 when it is not installed)
   capabilities         Show registered abstract capabilities and resolved providers
   enforcement          Report lifecycle policy enforcement coverage (--harness, --policy)
   doctor               System health and capability smoke check diagnostics
@@ -573,6 +581,13 @@ Commands:
                        protocol --action resolve --kind review|debate [--task-class <id>] [--risk <level>] [--preset <id>] [--json]   (exit 0 resolved, 1 refused, 2 usage)
   primary              Resolve which harness and model the main session runs (read-only):
                        primary --action resolve [--json]   (exit 0, 1 refused, 2 usage)
+                       primary --action observed [--json]   checkouts and session hook records (exit 0, 1 cannot list checkouts, 2 usage)
+  fleet                List the projects this machine knows (read-only):
+                       fleet --action projects [--json]   from the user-state upkeep-roots and the hook project directories (exit 0, 1 cannot list projects, 2 usage)
+                       fleet --action tree [--json]   one project's agent hierarchy as nodes and edges (exit 0, 1 cannot list checkouts, 2 usage)
+  transcript           Read an agent's recent events, or the project's traffic (read-only, run in a project):
+                       transcript --action read --agent <key> [--cursor <c>] [--limit <n>] [--json]   masked events and DoFlow's record events (exit 0, 1 agent-not-in-project or session-not-in-project, 2 usage)
+                       transcript --action stats [--window <minutes 1..60>] [--json]   events per minute, tool calls, tokens, who works with whom (exit 0, 2 usage)
   package              List the contribution points a package may fill, check a package directory, show the packages, add and update a local package, or turn it on and off:
                        package --action points [--json]
                        package --action check --path <dir> [--json]   (read-only; exit 0 clean, 1 findings, 2 usage)
@@ -588,7 +603,7 @@ Commands:
                        package --action revoke --id <id> [--json]   (records a revocation in state.json; only a later trust line counts)
                        package --action remove --id <id> [--json]   (disables, deletes the store entry and lock row, records a revocation and a removed tombstone, then lists the settings, records and grant lines that still name the package and rewrites none; exit 0, 1 unknown id or the bundled package, 2 no --id)
                        package --action verify [--repair] [--json]   (re-hashes enabled third-party entries and records suspensions; exit 0 intact, 1 findings; --repair rewrites an unreadable state.json)
-  slot                 Named machine-wide queue, one holder at a time (--action run|list|release);
+  slot                 Named machine-wide queue, one holder at a time (--action run|list|peek|release);
                        slot --action run --name <name> [--label <text>] [--timeout <s>] [--no-wait] -- <command> [args...]
                        slot --action release --name <name> --by <who> --reason <text>
   models               Synchronize, list, or inspect observed models across workers (--action sync|list|describe)
@@ -641,11 +656,13 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        goal: add|item|check|link|list|done
                        failure: list|settle|capture
                        roadmap: render|status|next|audit (seed: check|apply|amend; promote <id...>)
-                       slot: run|list|release
+                       slot: run|list|peek|release
                        models: sync|list|describe
                        review: check|start
                        protocol: list|resolve
-                       primary: resolve
+                       primary: resolve|observed
+                       fleet: projects|tree
+                       transcript: read|stats
                        package: points|check|list|show|add|update|enable|disable|trust|exempt|revoke|verify|remove
       --task, --token, --owner, --mode,
       --result, --evidence-id, --reason     task-attempt (claim: --task --owner --mode manual|sequential|subagent
