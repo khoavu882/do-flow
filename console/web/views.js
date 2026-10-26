@@ -4,6 +4,9 @@
 
 import { h, icon } from './dom.js';
 import { skel, reltime } from './states.js';
+import { loadHome, renderHome, skeletonHome, homeKey, tickHome } from './views/home.js';
+import { renderRunRail, tickRunRail, releaseRail } from './views/rail.js';
+import { runStepCopy } from './derive/rail.js';
 
 /**
  * The core range this Console needs. IC-005 sends no range, so this is a client literal; client-core.test.ts
@@ -37,42 +40,39 @@ function badge(run, nowMs) {
   return h('span', { class: 'badge', dataset: { state: spec.token } }, [icon(spec.face, 12), spec.word]);
 }
 
-/** @param {any} options */
-function tile({ label, face, token, count, attention }) {
-  return h('div', { class: 'tile', dataset: { state: token, attention: attention ? 'true' : null } }, [
-    h('p', { class: 'tile__label' }, [icon(face, 12), label]),
-    h('p', { class: 'tile__count' }, String(count)),
+const awaitingCount = (/** @type {any} */ data) => data.runs.filter((/** @type {any} */ run) => run.state === 'AWAITING_GATE').length;
+
+/** The run head (CD-B8): crumb to Runs, the title with a muted task id, the meta line and the step counter. @param {any} params */
+function buildRunHead(params) {
+  const crumb = h('nav', { class: 'run-head__crumb', 'aria-label': 'Breadcrumb' }, [
+    h('a', { href: '#/' }, 'Runs'), h('span', { 'aria-hidden': 'true' }, ' / '), h('span', { class: 'mono' }, params.slug),
   ]);
+  const h1 = h('h1', { class: 'run-head__title', tabindex: '-1' }, [h('span', {}, params.slug), h('span', { class: 'run-head__task' }, ` / ${params.taskId}`)]);
+  const meta = h('div', { class: 'run-head__metawrap' });
+  const step = h('p', { class: 'run-head__step', hidden: true });
+  return { root: h('header', { class: 'view-head run-head' }, [crumb, h1, meta, step]), h1, meta, step };
 }
 
-const countOf = (/** @type {any[]} */ runs, /** @type {string[]} */ ...states) => runs.filter((run) => states.includes(run.state)).length;
-const awaitingCount = (/** @type {any} */ data) => countOf(data.runs, 'AWAITING_GATE');
-
-/** @param {any} data */
-function renderRuns(data) {
-  const needs = awaitingCount(data);
-  const unreadable = data.unreadableCount;
-  return [
-    h('div', { class: 'summary' }, [
-      tile({ label: 'Needs you', face: 'awaiting', token: 'awaiting', count: needs, attention: needs > 0 }),
-      tile({ label: 'Running', face: 'running', token: 'running', count: countOf(data.runs, 'RUNNING') }),
-      tile({ label: 'Finished', face: 'check', token: 'done', count: countOf(data.runs, 'COMPLETED', 'REJECTED') }),
-    ]),
-    unreadable > 0 ? h('p', { class: 'view-note' }, `${unreadable} ${unreadable === 1 ? 'run' : 'runs'} could not be read.`) : null,
-  ];
-}
-
-/** @param {any} params @param {any} data @param {any} nowMs */
+/** The meta line of the run head: badge, workflow name, started, revision, updated; one element per item. @param {any} params @param {any} data @param {any} nowMs */
 function runMeta(params, data, nowMs) {
   if (!data) return null;
   const { run } = data;
-  // One element per item: adjacent text nodes would merge into a single flex item with no gap between them.
-  return h('p', { class: 'view-head__meta' }, [
-    h('span', {}, run.taskClass),
+  const started = Date.parse(run.startedAt);
+  const items = [
     badge(run, nowMs),
+    h('span', {}, run.workflowName || (data.workflow && data.workflow.name) || run.taskClass),
+    Number.isFinite(started) ? h('span', {}, ['started ', reltime(run.startedAt, nowMs)]) : null,
     h('span', {}, `revision ${run.revision}`),
     h('span', {}, run.updatedAt ? ['Updated ', reltime(run.updatedAt, nowMs)] : 'Update time unknown'),
-  ]);
+  ].filter(Boolean);
+  // One element per item: adjacent text nodes would merge into a single flex item with no gap between them.
+  return h('p', { class: 'view-head__meta run-head__meta' }, items.flatMap((item, index) => (index === 0 ? [item] : [h('span', { class: 'run-head__sep', 'aria-hidden': 'true' }, '·'), item])));
+}
+
+/** The step counter of the run head, or null without progress. @param {any} params @param {any} data */
+function runStep(params, data) {
+  const copy = data ? runStepCopy(data.run) : null;
+  return copy === null ? null : [copy.lead, copy.n === null ? null : h('span', { class: 'run-head__step-n' }, String(copy.n)), copy.tail];
 }
 
 const note = (/** @type {string} */ text) => h('p', { class: 'view-note' }, text);
@@ -80,16 +80,10 @@ const slugTask = (/** @type {any} */ params) => `${params.slug} / ${params.taskI
 
 // ---- skeletons (6.1): the heights are binding for the views that fill them -------------------------
 
-const skeletonRuns = () => h('div', { class: 'skeleton' }, [
-  h('div', { class: 'summary' }, [skel('skel--tile'), skel('skel--tile'), skel('skel--tile')]),
-  h('div', { class: 'skel-rows' }, [skel('skel--row'), skel('skel--row'), skel('skel--row'), skel('skel--row')]),
-]);
-
-const skeletonRun = () => h('div', { class: 'skeleton' }, [
-  skel('skel--meta'),
-  h('div', { class: 'skel-rail' }, [skel('skel--step'), skel('skel--step'), skel('skel--step'), skel('skel--step')]),
-  skel('skel--slot'),
-]);
+// The crumb and the h1 are real text; the meta line and, below 768, a step line fill the head; the body holds the rail card and the slot (D.2 6.1 as amended).
+const skeletonRun = () => h('div', { class: 'skeleton skeleton--run' }, [skel('skel--railcard'), skel('skel--slot')]);
+// The meta and step blocks go inside the head, in the slots the loaded meta and step fill (R3-3), so the head keeps its height.
+const skeletonRunHead = () => ({ meta: skel('skel--meta'), step: skel('skel--stepline') });
 
 const skeletonBlock = () => h('div', { class: 'skeleton' }, skel('skel--block'));
 
@@ -98,21 +92,26 @@ const skeletonBlock = () => h('div', { class: 'skeleton' }, skel('skel--block'))
 /**
  * Each view: `id`; `noun` (error and loading copy); `shapes` (IC-003 ids it reads); `api(params)` the same-origin
  * path it reads, or null; `pollMs`; `wide`; `skeleton`; `head(params)` the h1; `meta(params, data, nowMs)`;
- * `render(data, params)`; `isEmpty(data)`; `empty`; `title(params, data)`.
+ * `render(data, params, local)` where `local` is the view instance's own memory; `isEmpty(data)`; `empty`;
+ * `title(params, data)`. Optional: `load(local, apiGet)` reads more than `api` names; `dataKey(data)` decides when
+ * the body is re-mounted; `tick(root, nowMs, local)` runs on the shell's 1 s timer.
  */
 /** @type {Record<string, any>} */
 const VIEWS = Object.freeze({
   runs: {
     id: 'runs',
     noun: 'runs',
-    shapes: ['list'],
+    shapes: ['list', 'workflow'],
     api: () => '/api/runs',
+    load: loadHome,
+    dataKey: homeKey,
+    tick: tickHome,
     pollMs: 5000,
     wide: false,
-    skeleton: skeletonRuns,
+    skeleton: skeletonHome,
     head: () => ({ text: 'Runs', mono: false }),
     meta: () => null,
-    render: renderRuns,
+    render: (/** @type {any} */ data, /** @type {any} */ params, /** @type {any} */ local) => renderHome(data, { badge, local }),
     isEmpty: (/** @type {any} */ data) => data.runs.length === 0,
     empty: {
       title: 'No runs yet',
@@ -130,9 +129,13 @@ const VIEWS = Object.freeze({
     pollMs: 3000,
     wide: false,
     skeleton: skeletonRun,
-    head: (/** @type {any} */ params) => ({ text: slugTask(params), mono: true }),
+    head: (/** @type {any} */ params) => ({ text: slugTask(params), mono: true, build: () => buildRunHead(params) }),
     meta: runMeta,
-    render: () => null,
+    step: runStep,
+    headSkeleton: skeletonRunHead,
+    tick: tickRunRail,
+    teardown: releaseRail,
+    render: renderRunRail,
     isEmpty: () => false,
     title: (/** @type {any} */ params) => slugTask(params),
   },

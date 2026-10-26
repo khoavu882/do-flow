@@ -105,14 +105,32 @@ test('index.html loads tokens.css, then app.css, then app.js as a module, and no
   assert.deepEqual(external, []);
 });
 
-test('every module the page loads is a file of the web root (no import leaves it)', () => {
-  const names = new Set(fs.readdirSync(WEB_ROOT));
-  for (const file of files(WEB_ROOT).filter((entry) => entry.endsWith('.js'))) {
-    for (const match of fs.readFileSync(file, 'utf8').matchAll(/from\s+'([^']+)'/g)) {
-      assert.match(match[1], /^\.\/[a-z-]+\.js$/, `${path.basename(file)} imports ${match[1]}`);
-      assert.ok(names.has(match[1].slice(2)), `${match[1]} exists`);
-    }
+/** Problems with the module imports of one file: not a relative .js path, leaving the web root, or naming no file. */
+function importProblems(root: string, file: string, source: string): string[] {
+  const problems: string[] = [];
+  for (const match of source.matchAll(/from\s+'([^']+)'/g)) {
+    const target = match[1];
+    const resolved = path.resolve(path.dirname(file), target);
+    if (!/^\.{1,2}\/(?:[a-z-]+\/)*[a-z-]+\.js$/.test(target)) problems.push(`${path.relative(root, file)} imports ${target}: not a relative .js path`);
+    else if (path.relative(root, resolved).startsWith('..')) problems.push(`${path.relative(root, file)} imports ${target}: leaves the web root`);
+    else if (!fs.existsSync(resolved)) problems.push(`${path.relative(root, file)} imports ${target}: no such file`);
   }
+  return problems;
+}
+
+test('every module the page loads is a file of the web root (no import leaves it)', () => {
+  const modules = files(WEB_ROOT).filter((entry) => entry.endsWith('.js'));
+  for (const name of ['derive/rail.js', 'views/rail.js', 'views/home.js']) assert.ok(modules.includes(path.join(WEB_ROOT, name)), `${name} is a module of the web root`);
+  assert.deepEqual(modules.flatMap((file) => importProblems(WEB_ROOT, file, fs.readFileSync(file, 'utf8'))), []);
+});
+
+test('control: an import that leaves the web root, names no file or is not relative .js is reported', () => {
+  const file = path.join(WEB_ROOT, 'views', 'x.js');
+  assert.deepEqual(importProblems(WEB_ROOT, file, "import { a } from '../dom.js';\nimport { b } from './rail.js';"), []);
+  assert.equal(importProblems(WEB_ROOT, file, "import a from '../../src/x.js';").length, 1);
+  assert.equal(importProblems(WEB_ROOT, file, "import a from '../missing.js';").length, 1);
+  assert.equal(importProblems(WEB_ROOT, file, "import a from 'node:fs';").length, 1);
+  assert.equal(importProblems(WEB_ROOT, file, "import a from 'https://x.invalid/a.js';").length, 1);
 });
 
 // ---- controls -----------------------------------------------------------------------------------
@@ -279,11 +297,12 @@ test('layout F1: the pill takes the free space from 768, so the theme control si
 
 test('layout F3: the summary stacks in one column below 768, and skeleton tiles are exactly the tile heights', () => {
   const rules = cssRules(appCss);
-  assert.equal(effective(rules, '.summary', 'grid-template-columns', 360), '1fr');
-  assert.equal(effective(rules, '.summary', 'grid-template-columns', 767), '1fr');
+  // CD-B4 replaces D.2's one-column strip (1fr) and its 62 px / 122 px tiles: one row of three 102 px tiles below 768, 150 px from 768.
+  assert.equal(effective(rules, '.summary', 'grid-template-columns', 360), 'repeat(3, minmax(0, 1fr))');
+  assert.equal(effective(rules, '.summary', 'grid-template-columns', 767), 'repeat(3, minmax(0, 1fr))');
   assert.equal(effective(rules, '.summary', 'grid-template-columns', 768), 'repeat(3, minmax(0, 1fr))');
-  assert.equal(effective(rules, '.tile', 'min-height', 360), '62px');
-  assert.equal(effective(rules, '.tile', 'min-height', 768), '122px');
+  assert.equal(effective(rules, '.tile', 'min-height', 360), '102px');
+  assert.equal(effective(rules, '.tile', 'min-height', 768), '150px');
   assert.equal(effective(rules, '.skel--tile', 'height', 360), effective(rules, '.tile', 'min-height', 360));
   assert.equal(effective(rules, '.skel--tile', 'height', 768), effective(rules, '.tile', 'min-height', 768));
   assert.equal(effective(rules, '.tile', 'box-sizing', 360), 'border-box');
@@ -310,4 +329,123 @@ test('layout F5: command blocks wrap below 768 and scroll inside themselves from
   assert.equal(effective(rules, '.cmd__text', 'white-space', 768), 'pre');
   assert.equal(effective(rules, '.cmd__text', 'overflow-x', 768), 'auto');
   assert.equal(effective(rules, '.cmd', 'align-items', 768), 'center');
+});
+
+// ---- E.1 review: the run row grid (F1, F2) and the gate glyph (F6) ------------------------------------
+
+test('layout E.1 F1/F2: the phone row gives the title a full line; from 768 rows are 76 px and the meta drops the workflow name until 1024', () => {
+  const rules = cssRules(appCss);
+  const areas = (width: number) => effective(rules, '.run-row', 'grid-template-areas', width);
+  // CD-B6 replaces F1's "title title" "state time" "rail rail" "meta meta" at 144 px with a 116 px phone row.
+  assert.equal(areas(360), '"title title title" "rail rail rail" "meta state time"');
+  assert.equal(effective(rules, '.run-row', 'min-height', 360), '116px');
+  assert.equal(areas(768), '"title rail state" "meta rail time"');
+  assert.equal(effective(rules, '.run-row', 'min-height', 768), '76px');
+  assert.equal(effective(rules, '.run-row', 'grid-template-columns', 768), 'minmax(0, 1fr) var(--rail-col) 9rem');
+  // CD-B2/CD-B3 replace the fixed rail column of 1024 and up with a stretching one and add the step column.
+  assert.equal(effective(rules, '.run-row', 'grid-template-columns', 1024), 'minmax(0, 1fr) minmax(var(--rail-col), 1fr) 4rem 10rem');
+  assert.equal(areas(1024), '"title rail step state" "meta rail step time"');
+  assert.equal(effective(rules, '.run-row', 'grid-template-columns', 1500), 'minmax(0, 1fr) minmax(var(--rail-col), 1fr) 4rem 10rem');
+  assert.equal(effective(rules, '.run-row__wf', 'display', 768), 'none');
+  assert.equal(effective(rules, '.run-row__wf', 'display', 1024), 'inline');
+  assert.equal(effective(rules, '.run-row__title', 'flex-wrap', 360), 'wrap');
+  assert.equal(effective(rules, '.run-row__title', 'flex-wrap', 768), 'nowrap');
+  assert.equal(effective(rules, '.skel--list', 'height', 360), '464px');
+  assert.equal(effective(rules, '.skel--list', 'height', 768), '304px');
+});
+
+test('layout CD-B2/B3/B4: the compact rail stretches with caps, the step column and the tile sublines show per band', () => {
+  const rules = cssRules(appCss);
+  const glyph = '.rail--compact .rail__glyph + .rail__glyph';
+  assert.equal(effective(rules, '.rail--compact', 'width', 360), '100%');
+  assert.equal(effective(rules, glyph, 'flex', 360), '1 1 auto');
+  assert.equal(effective(rules, `${glyph}::before`, 'flex', 360), '1 1 6px');
+  assert.equal(effective(rules, `${glyph}::before`, 'min-width', 360), '6px');
+  assert.equal(effective(rules, `${glyph}[data-type="stage"]`, 'max-width', 360), '68px');
+  assert.equal(effective(rules, `${glyph}[data-type="gate"]`, 'max-width', 360), '60px');
+  assert.equal(effective(rules, '.rail--lg .rail__glyph + .rail__glyph[data-type="stage"]', 'max-width', 360), '84px');
+  assert.equal(effective(rules, '.rail--lg .rail__glyph + .rail__glyph[data-type="gate"]', 'max-width', 360), '72px');
+  assert.equal(effective(rules, '.run-row__step', 'display', 768), 'none');
+  assert.equal(effective(rules, '.run-row__step', 'display', 1024), 'block');
+  assert.equal(effective(rules, '.run-row__sp', 'display', 360), 'inline');
+  assert.equal(effective(rules, '.run-row__sp', 'display', 768), 'none');
+  assert.equal(effective(rules, '.run-row__sp', 'display', 1024), 'inline');
+  assert.equal(effective(rules, '.run-row__st', 'display', 360), 'none');
+  assert.equal(effective(rules, '.run-row__st', 'display', 768), 'inline');
+  assert.equal(effective(rules, '.run-row__st', 'display', 1024), 'none');
+  assert.equal(effective(rules, '.run-row__frac', 'display', 360), 'inline');
+  assert.equal(effective(rules, '.run-row__frac', 'display', 768), 'none');
+  assert.equal(effective(rules, '.run-row__upd', 'display', 360), 'none');
+  assert.equal(effective(rules, '.run-row__upd', 'display', 768), 'inline');
+  assert.equal(effective(rules, '.tile__sub-long', 'display', 360), 'none');
+  assert.equal(effective(rules, '.tile__sub-long', 'display', 768), 'inline');
+  assert.equal(effective(rules, '.tile__sub-short', 'display', 360), 'inline');
+  assert.equal(effective(rules, '.tile__sub-short', 'display', 768), 'none');
+  assert.equal(effective(rules, '.tile', 'padding', 360), 'var(--space-3) var(--space-2)');
+  assert.equal(effective(rules, '.tile', 'padding', 768), 'var(--space-5)');
+});
+
+test('layout CD-B1/B8: gate cards are 1, 2 and 3 columns; the run head is one column, then title and step side by side; the rail card pads 16 then 24', () => {
+  const rules = cssRules(appCss);
+  assert.equal(effective(rules, '.gate-cards', 'grid-template-columns', 360), 'minmax(0, 1fr)');
+  assert.equal(effective(rules, '.gate-cards', 'grid-template-columns', 768), 'repeat(2, minmax(0, 1fr))');
+  assert.equal(effective(rules, '.gate-cards', 'grid-template-columns', 1280), 'repeat(3, minmax(0, 1fr))');
+  assert.equal(effective(rules, '.gate-card', 'border', 360), '1px solid var(--state-awaiting-mark)');
+  assert.equal(effective(rules, '.gate-card__head', 'min-height', 360), '52px');
+  assert.equal(effective(rules, '.run-head', 'grid-template-areas', 360), '"crumb" "title" "meta" "step"');
+  assert.equal(effective(rules, '.run-head', 'grid-template-areas', 768), '"crumb crumb" "title step" "meta step"');
+  assert.equal(effective(rules, '.run-head', 'grid-template-columns', 768), 'minmax(0, 1fr) auto');
+  assert.equal(effective(rules, '.run-rail', 'padding', 360), 'var(--space-4)');
+  assert.equal(effective(rules, '.run-rail', 'padding', 768), 'var(--space-5) var(--space-5) var(--space-4)');
+  assert.equal(effective(rules, '.rail__dur', 'top', 768), '56px');
+  assert.equal(effective(rules, '.rail--full', 'min-width', 768), '100%');
+});
+
+test('layout E.1 F6: only a stage glyph gets a dashed border; a gate keeps its dashed shape stroke', () => {
+  const dashed = cssRules(appCss).filter((rule) => rule.selector.includes('.rail__glyph') && rule.decls.get('border-style') === 'dashed');
+  assert.ok(dashed.length > 0);
+  for (const rule of dashed) assert.ok(rule.selector.includes('[data-type="stage"]'), rule.selector);
+});
+
+test('control: an unscoped dashed glyph rule is reported by the F6 check', () => {
+  const planted = `${appCss}\n@layer components { .rail__item[data-tone="skipped"] .rail__glyph { border-style: dashed; } }`;
+  const bad = cssRules(planted).filter((rule) => rule.selector.includes('.rail__glyph') && rule.decls.get('border-style') === 'dashed' && !rule.selector.includes('[data-type="stage"]'));
+  assert.equal(bad.length, 1);
+});
+
+test('layout E.1 r3: R3-9 no "·" ends a line at 360; R3-4 stage durations sit on the gate baseline; R3-1 the end labels are anchored to the node edge', () => {
+  const rules = cssRules(appCss);
+  assert.equal(effective(rules, '.run-head__sep', 'display', 360), 'none');
+  assert.equal(effective(rules, '.run-head__sep', 'display', 768), 'inline');
+  assert.equal(effective(rules, '.run-head__meta', 'row-gap', 360), 'var(--space-1)');
+  assert.equal(effective(rules, '.run-head__meta', 'column-gap', 360), 'var(--space-3)');
+  assert.equal(effective(rules, '.skel--meta', 'height', 360), '20px');
+  assert.equal(effective(rules, '.rail__item[data-type="stage"] .rail__dur', 'top', 768), 'calc(56px - 1.5px)');
+  const first = rules.find((rule) => rule.selector.includes(':first-child') && rule.selector.includes('.rail__dur'));
+  const last = rules.find((rule) => rule.selector.includes(':last-child') && rule.selector.includes('.rail__dur'));
+  assert.ok(first && last, 'the first and last item anchor their labels');
+  assert.equal(first!.decls.get('left'), '0');
+  assert.equal(last!.decls.get('right'), '0');
+  assert.equal(last!.decls.get('left'), 'auto');
+  assert.equal(last!.decls.get('transform'), 'none');
+});
+
+test('R3-2 forced colours draw pending and not-reached shapes with borders, never box-shadow or gradients', () => {
+  const forced = cssRules(appCss).filter((rule) => rule.media !== null && rule.media.min === Infinity && /Highlight|CanvasText|GrayText/.test([...rule.decls.values()].join(' ')));
+  const bad = forced.filter((rule) => /pending|not-reached|unknown/.test(rule.selector) && [...rule.decls.entries()].some(([prop, value]) => (prop === 'box-shadow' && value !== 'none') || /gradient/.test(value)));
+  assert.deepEqual(bad.map((rule) => rule.selector), []);
+  const pill = forced.find((rule) => rule.selector.includes('[data-type="stage"][data-state="pending"]::after'));
+  assert.ok(pill && /solid CanvasText/.test(pill.decls.get('border') ?? ''), 'a pending stage pill is a CanvasText border');
+  const joined = forced.filter((rule) => rule.selector.includes('.rail--full') && rule.selector.includes('[data-state="pending"]::before'));
+  assert.ok(joined.length > 0 && joined.every((rule) => /dashed GrayText/.test(`${rule.decls.get('border-top') ?? ''} ${rule.decls.get('border-inline-start') ?? ''}`)), 'pending full-rail connectors are dashed GrayText borders');
+  assert.ok(forced.some((rule) => rule.selector === '.rail--compact .rail__glyph[data-state="pending"]::before' && rule.decls.get('background') === 'GrayText'), 'compact pending connectors are GrayText');
+});
+
+test('layout E.1 r4: R4-4 the meta is one 20 px line so a badge row is 76 px; R3-8 the wide-only words show from 768 and the completed step part is hidden below it', () => {
+  const rules = cssRules(appCss);
+  assert.equal(effective(rules, '.run-row__meta', 'height', 360), '20px');
+  assert.equal(effective(rules, '.run-row__wide', 'display', 360), 'none');
+  assert.equal(effective(rules, '.run-row__wide', 'display', 768), 'inline');
+  assert.equal(effective(rules, '.run-row[data-state="COMPLETED"] .run-row__sp', 'display', 360), 'none');
+  assert.equal(effective(rules, '.run-row[data-state="COMPLETED"] .run-row__sp', 'display', 768), 'inline');
 });

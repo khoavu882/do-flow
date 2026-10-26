@@ -79,6 +79,7 @@
   .icon--12 { width: 12px; height: 12px; }
   .icon--16 { width: 16px; height: 16px; }
   .icon--20 { width: 20px; height: 20px; }
+  .icon--24 { width: 24px; height: 24px; }
   .icon--28 { width: 28px; height: 28px; }
   .icon--48 { width: 48px; height: 48px; }
   .icon--96 { width: 96px; height: 96px; stroke-width: 1; }
@@ -136,10 +137,10 @@
   }
   .view-note { margin-top: var(--space-4); font: var(--type-sm); color: var(--text-muted); }
 
-  /* Below 768 the strip is one column of compact rows: three columns of about 100 px cannot hold "Needs you". */
+  /* CD-B4: one row of three tiles at every width (the label shape is hidden below 768 so "NEEDS YOU" fits at 360). */
   .summary {
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--space-2);
   }
 
@@ -154,7 +155,7 @@
     .nav { margin-left: var(--space-5); }
     .page { padding-top: var(--space-6); }
     .grid { grid-template-columns: repeat(8, minmax(0, 1fr)); gap: var(--space-5); }
-    .summary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-5); }
+    .summary { gap: var(--space-5); }
   }
 
   @media (min-width: 1280px) {
@@ -328,15 +329,14 @@
   .tile {
     box-sizing: border-box;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: center;
-    column-gap: var(--space-3);
-    min-height: 62px;
+    gap: var(--space-1);
+    align-content: start;
+    min-height: 102px;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     box-shadow: var(--elev-1);
-    padding: var(--space-3) var(--space-4);
+    padding: var(--space-3) var(--space-2);
   }
   .tile__label {
     white-space: nowrap;
@@ -351,12 +351,21 @@
   .tile[data-state="awaiting"] .tile__label .icon { color: var(--state-awaiting-mark); }
   .tile[data-state="running"] .tile__label .icon { color: var(--state-running-mark); }
   .tile[data-state="done"] .tile__label .icon { color: var(--state-done-mark); }
+  .tile__label > .icon { display: none; }
   .tile__count { font: var(--type-xl); letter-spacing: var(--tracking-display); color: var(--text); }
+  .tile__sub { min-width: 0; font: var(--type-xs); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tile[data-state="awaiting"] .tile__sub { color: var(--state-awaiting-fg); }
+  .tile__sub-long { display: none; }
+  .tile__sub-short { display: inline; }
   .tile[data-attention="true"] { background: var(--state-awaiting-tint); border-color: var(--state-awaiting-mark); }
   .tile[data-attention="true"] .tile__count { color: var(--state-awaiting-fg); }
   @media (min-width: 768px) {
-    .tile { grid-template-columns: minmax(0, 1fr); align-items: start; align-content: start; row-gap: var(--space-2); padding: var(--space-5); min-height: 122px; }
+    .tile { gap: var(--space-2); padding: var(--space-5); min-height: 150px; }
+    .tile__label > .icon { display: block; }
     .tile__count { font: var(--type-display); letter-spacing: var(--tracking-display); }
+    .tile__sub { font: var(--type-sm); }
+    .tile__sub-long { display: inline; }
+    .tile__sub-short { display: none; }
   }
 
   /* Reltime: relative when fresh, absolute when the view is stale (see states). */
@@ -365,21 +374,20 @@
   /* Skeleton */
   .skeleton { display: grid; gap: var(--space-4); }
   .skel { background: var(--skeleton); border-radius: var(--radius-md); }
-  .skel--tile { height: 62px; }
-  .skel-rows { display: grid; gap: var(--space-3); margin-top: var(--space-6); }
-  .skel--row { height: 112px; }
+  .skel--tile { height: 102px; }
   .skel--meta { height: 20px; width: 100%; }
-  .skel-rail { display: grid; gap: var(--space-2); }
-  .skel--step { height: 44px; }
+  .skel--stepline { height: 28px; width: 120px; margin-top: var(--space-2); }
+  .skel--railcard { height: 210px; border-radius: var(--radius-lg); margin-top: var(--space-5); }
+  .skeleton--run { display: block; }
+  .skeleton--run .skel--slot { margin-top: var(--space-4); }
   .skel--slot { height: 200px; border-radius: var(--radius-lg); }
   .skel--block { height: 320px; width: 100%; border-radius: var(--radius-lg); }
   .skeleton > .summary { margin-bottom: 0; }
   @media (min-width: 768px) {
-    .skel--tile { height: 122px; }
-    .skel--row { height: 72px; }
+    .skel--tile { height: 150px; }
     .skel--meta { width: 320px; }
-    .skel-rail .skel--step:not(:first-child) { display: none; }
-    .skel-rail .skel--step { height: 64px; }
+    .skel--stepline { display: none; }
+    .skel--railcard { height: 126px; }
   }
 
   /* Empty-state panel */
@@ -450,6 +458,563 @@
     .banner { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
     .banner .btn { grid-column: auto; justify-self: auto; margin-left: auto; }
   }
+
+  /* ---- E.1: the runs home and the stage rail (design note design/ui/E.1.md) ----------------------- */
+
+  /* Summary tiles are the state filter: buttons that keep D.2's tile geometry. */
+  .tile { width: 100%; cursor: pointer; text-align: start; font: inherit; color: inherit; }
+  .tile:hover { box-shadow: var(--elev-2); }
+  .tile[aria-pressed="true"], .tile[aria-pressed="true"][data-attention="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent), var(--elev-1); }
+  .tile__check { display: inline-flex; flex: none; color: var(--accent); }
+  .tile[aria-pressed="true"] .tile__count .tile__check .icon { color: var(--accent); }
+  .tile__count { display: flex; align-items: center; gap: var(--space-2); }
+
+  .filter-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+    font: var(--type-sm);
+    color: var(--text-muted);
+  }
+
+  /* Sections and the run list. */
+  .run-section { margin-top: var(--space-6); }
+  .run-section__title {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+    margin: 0 0 var(--space-3);
+    font: var(--type-lg);
+    letter-spacing: var(--tracking-tight);
+  }
+  .run-section__count { font: var(--type-lg); font-weight: 400; color: var(--text-muted); }
+  .run-section__empty {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-4) 0 0;
+    font: var(--type-sm);
+    color: var(--text-muted);
+  }
+  .run-section__empty .icon--check { color: var(--state-done-mark); }
+  .run-section__empty .icon--pending { color: var(--state-pending-mark); }
+  .run-section__more { margin-top: var(--space-3); }
+  .view-note--unreadable { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-6); }
+  .view-note--unreadable .icon { color: var(--state-unknown-mark); }
+
+  .run-list {
+    --rail-col: 216px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--elev-1);
+    overflow: hidden;
+  }
+
+  /* One run row: a grid whose areas move with the band (CD-B2, CD-B3, CD-B5, CD-B6). */
+  .run-row {
+    position: relative;
+    display: grid;
+    box-sizing: border-box;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-areas: "title title title" "rail rail rail" "meta state time";
+    column-gap: var(--space-2);
+    row-gap: var(--space-2);
+    align-items: center;
+    min-height: 116px;
+    padding: var(--space-4);
+  }
+  .run-row + .run-row { box-shadow: inset 0 1px 0 var(--border); }
+  .run-row[data-openable="true"]:hover { background: var(--surface-2); }
+  .run-row:has(.run-row__link:focus-visible) { outline: var(--focus-width) solid var(--focus); outline-offset: calc(-1 * var(--focus-width)); }
+  .run-row__link:focus-visible { outline: none; }
+  .run-row__title { grid-area: title; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); min-width: 0; }
+  .run-row__rail { grid-area: rail; min-width: 0; }
+  .run-row__step { grid-area: step; display: none; align-self: center; justify-self: end; font: var(--type-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .run-row__step-n { font-weight: 600; color: var(--text); }
+  .run-row__step-of { color: var(--text-muted); }
+  .run-row__state { grid-area: state; justify-self: end; }
+  .run-row__meta { grid-area: meta; min-width: 0; height: 20px; }
+  .run-row__time { grid-area: time; justify-self: end; }
+  .run-row__link, .run-row__id {
+    min-width: 0;
+    font: var(--type-sm);
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: var(--text);
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .run-row__link { flex: 0 1 auto; max-width: 100%; }
+  .run-row__task { font-weight: 400; color: var(--text-muted); }
+  .run-row__link::after { content: ""; position: absolute; inset: 0; }
+  .run-row__meta, .run-row__time {
+    margin: 0;
+    font: var(--type-sm);
+    color: var(--text-muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .run-row__meta .mono { color: var(--text); }
+  .run-row__wf { display: none; }
+  .run-row__sp { display: inline; }
+  .run-row__wide { display: none; }
+  .run-row[data-state="COMPLETED"] .run-row__sp { display: none; }
+  .run-row__st { display: none; }
+  .run-row__frac { display: inline; font-variant-numeric: tabular-nums; }
+  .run-row__upd { display: none; }
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    flex: none;
+    height: 16px;
+    padding: 0 var(--space-1);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    font: var(--type-xs);
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  @media (min-width: 768px) {
+    .run-row {
+      grid-template-columns: minmax(0, 1fr) var(--rail-col) 9rem;
+      grid-template-areas: "title rail state" "meta rail time";
+      column-gap: var(--space-5);
+      row-gap: 0;
+      min-height: 76px;
+      padding: var(--space-4) var(--space-5);
+    }
+    .run-row__title { flex-wrap: nowrap; }
+    .run-row__rail { align-self: center; }
+    .run-row__sp { display: none; }
+    .run-row__wide { display: inline; }
+    .run-row[data-state="COMPLETED"] .run-row__sp { display: inline; }
+    .run-row__st { display: inline; }
+    .run-row__frac { display: none; }
+    .run-row__upd { display: inline; }
+  }
+  @media (min-width: 1024px) {
+    .run-row {
+      grid-template-columns: minmax(0, 1fr) minmax(var(--rail-col), 1fr) 4rem 10rem;
+      grid-template-areas: "title rail step state" "meta rail step time";
+    }
+    .run-row__step { display: block; }
+    .run-row__wf { display: inline; }
+    .run-row__sp { display: inline; }
+    .run-row__st { display: none; }
+  }
+
+  /* Needs you: one gate card per waiting run (CD-B1). */
+  .gate-cards {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-4);
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .gate-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: var(--surface);
+    border: 1px solid var(--state-awaiting-mark);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--elev-1);
+    overflow: hidden;
+  }
+  .gate-card[data-openable="true"]:hover { box-shadow: var(--elev-2); }
+  .gate-card[data-openable="true"]:hover .gate-card__link { text-decoration: underline; }
+  .gate-card:has(.gate-card__link:focus-visible) { outline: var(--focus-width) solid var(--focus); outline-offset: var(--focus-offset); overflow: visible; }
+  .gate-card__link:focus-visible { outline: none; }
+  .gate-card__head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 52px;
+    box-sizing: border-box;
+    padding: var(--space-3) var(--space-4);
+    background: var(--state-awaiting-tint);
+    color: var(--state-awaiting-fg);
+  }
+  .gate-card__glyph { display: inline-flex; flex: none; }
+  .gate-card__glyph .shape { fill: var(--state-awaiting-mark); stroke: none; }
+  .gate-card__kind { font: var(--type-xs); letter-spacing: var(--tracking-caps); text-transform: uppercase; white-space: nowrap; }
+  .gate-card__wait { margin-inline-start: auto; display: flex; align-items: baseline; gap: var(--space-1); white-space: nowrap; }
+  .gate-card__wait-word { font: var(--type-xs); }
+  .gate-card__wait-dur { font: var(--type-lg); font-variant-numeric: tabular-nums; }
+  .gate-card__wait-dur[data-unknown="true"] { font: var(--type-xs); }
+  .gate-card__body { display: flex; flex-direction: column; flex: 1 1 auto; padding: var(--space-4); }
+  .gate-card__name { margin: 0; font: var(--type-lg); letter-spacing: var(--tracking-tight); color: var(--text); overflow-wrap: anywhere; }
+  .gate-card__prompt {
+    margin: var(--space-1) 0 0;
+    font: var(--type-sm);
+    color: var(--text-muted);
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    overflow: hidden;
+  }
+  .gate-card__run { display: grid; gap: var(--space-2); margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+  .gate-card__id { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-2); margin: 0; min-width: 0; font: var(--type-sm); font-family: var(--font-mono); }
+  .gate-card__id .run-row__slug, .gate-card__id .run-row__id { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+  .gate-card__id .run-row__task { font-weight: 400; color: var(--text-muted); overflow-wrap: anywhere; }
+  .gate-card__meta { margin: 0; font: var(--type-sm); color: var(--text-muted); }
+  .gate-card__link {
+    align-self: flex-start;
+    margin-top: auto;
+    padding-top: var(--space-4);
+    display: inline-flex;
+    gap: var(--space-1);
+    font: var(--type-sm);
+    font-weight: 600;
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .gate-card__link::after { content: ""; position: absolute; inset: 0; }
+  .gate-card__note { margin: auto 0 0; padding-top: var(--space-4); font: var(--type-sm); color: var(--text-muted); }
+  @media (min-width: 768px) {
+    .gate-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-5); }
+  }
+  @media (min-width: 1280px) {
+    .gate-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  }
+
+  /* Row and skeleton blocks of the home. */
+  .skeleton--home { display: block; }
+  .skel--title { height: 20px; width: 120px; border-radius: var(--radius-sm); margin-top: var(--space-6); }
+  .skel--list { height: 464px; border-radius: var(--radius-lg); margin-top: var(--space-3); }
+  @media (min-width: 768px) {
+    .skel--list { height: 304px; }
+  }
+
+  /* Rail tones: each look is a set of three custom properties (tint, mark, fg) taken from the state tokens. */
+  .rail__glyph[data-state="done"], .rail__item[data-tone="done"] { --tint: var(--state-done-tint); --mark: var(--state-done-mark); --fg: var(--state-done-fg); }
+  .rail__glyph[data-state="running"], .rail__item[data-tone="running"] { --tint: var(--state-running-tint); --mark: var(--state-running-mark); --fg: var(--state-running-fg); }
+  .rail__glyph[data-state="stale"], .rail__item[data-tone="stale"] { --tint: var(--state-stale-tint); --mark: var(--state-stale-mark); --fg: var(--state-stale-fg); }
+  .rail__glyph[data-state="awaiting"], .rail__item[data-tone="awaiting"] { --tint: var(--state-awaiting-tint); --mark: var(--state-awaiting-mark); --fg: var(--state-awaiting-fg); }
+  .rail__glyph[data-state="rejected"], .rail__item[data-tone="rejected"] { --tint: var(--state-rejected-tint); --mark: var(--state-rejected-mark); --fg: var(--state-rejected-fg); }
+  .rail__item[data-tone="failed"] { --tint: var(--state-failed-tint); --mark: var(--state-failed-mark); --fg: var(--state-failed-fg); }
+  .rail__item[data-tone="unknown"] { --tint: var(--state-unknown-tint); --mark: var(--state-unknown-mark); --fg: var(--state-unknown-fg); }
+  .rail__item[data-tone="skipped"] { --tint: var(--state-skipped-tint); --mark: var(--state-skipped-mark); --fg: var(--state-skipped-fg); }
+  .rail__glyph[data-state="pending"], .rail__glyph[data-state="not-reached"], .rail__item[data-tone="pending"], .rail__item[data-tone="not-reached"] {
+    --tint: var(--state-pending-tint);
+    --mark: var(--state-pending-mark);
+    --fg: var(--state-pending-fg);
+  }
+  .rail__item[data-state="unknown"] { --tint: var(--state-unknown-tint); --mark: var(--state-unknown-mark); --fg: var(--state-unknown-fg); }
+
+  .rail { margin: 0; padding: 0; list-style: none; }
+
+  /* The compact rail: a still strip of glyphs, 24 px high. */
+  .rail--compact { display: flex; align-items: center; width: 100%; min-width: 0; height: 24px; }
+  .rail--compact .rail__glyph, .rail-fallback .rail__glyph { position: relative; display: flex; align-items: center; flex: none; }
+  /* CD-B2: every glyph after the first grows with its connector, capped at the glyph plus 48 px, so a strip fills its column. */
+  .rail--compact .rail__glyph + .rail__glyph { flex: 1 1 auto; min-width: 0; }
+  .rail--compact .rail__glyph + .rail__glyph[data-type="stage"] { max-width: 68px; }
+  .rail--compact .rail__glyph + .rail__glyph[data-type="gate"] { max-width: 60px; }
+  .rail--compact .rail__glyph + .rail__glyph::before {
+    content: "";
+    flex: 1 1 6px;
+    min-width: 6px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--border-strong);
+  }
+  .rail--compact .rail__glyph + .rail__glyph[data-state="stale"]::before { background: var(--state-stale-mark); }
+  .rail--lg .rail__glyph + .rail__glyph[data-type="stage"] { max-width: 84px; }
+  .rail--lg .rail__glyph + .rail__glyph[data-type="gate"] { max-width: 72px; }
+  .rail--lg .rail__glyph + .rail__glyph::before { flex-basis: 8px; min-width: 8px; }
+  .rail--lg .rail__glyph[data-type="stage"]::after { width: 28px; height: 12px; }
+  .rail--compact .rail__glyph[data-state="pending"]::before { background: var(--border); }
+  .rail--compact .rail__glyph[data-state="not-reached"]::before { background: transparent; }
+  .rail__glyph[data-type="stage"]::after {
+    content: "";
+    flex: none;
+    box-sizing: border-box;
+    width: 20px;
+    height: 8px;
+    border-radius: var(--radius-pill);
+    background: var(--mark);
+  }
+  .rail__glyph[data-type="stage"][data-state="pending"]::after, .rail__glyph[data-type="stage"][data-state="not-reached"]::after {
+    background: transparent;
+    box-shadow: inset 0 0 0 1.5px var(--mark);
+  }
+  .rail__glyph[data-type="gate"] .shape { fill: var(--mark); stroke: none; }
+  .rail__glyph[data-type="gate"][data-state="pending"] .shape, .rail__glyph[data-type="gate"][data-state="not-reached"] .shape {
+    fill: none;
+    stroke: var(--mark);
+    stroke-width: 1.5;
+  }
+  .rail-fallback {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: 24px;
+    font: var(--type-xs);
+    color: var(--text-muted);
+  }
+  .rail-fallback__text { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* The full rail, below 768: one row per node, connectors between the glyphs. */
+  /* The rail card (CD-B7) and the run head (CD-B8). */
+  .run-rail {
+    margin-top: var(--space-5);
+    padding: var(--space-4);
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--elev-1);
+  }
+  .run-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "crumb" "title" "meta" "step";
+    column-gap: var(--space-5);
+    row-gap: var(--space-2);
+  }
+  .run-head__crumb { grid-area: crumb; min-width: 0; font: var(--type-sm); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .run-head__crumb a { color: var(--accent); text-decoration: none; }
+  .run-head__crumb a:hover { text-decoration: underline; }
+  .run-head__title { grid-area: title; margin: 0; font: var(--type-xl); font-family: var(--font-mono); letter-spacing: var(--tracking-tight); color: var(--text); overflow-wrap: anywhere; }
+  .run-head__task { font-weight: 400; color: var(--text-muted); }
+  .run-head__metawrap { grid-area: meta; min-width: 0; }
+  .run-head__meta { margin-top: 0; column-gap: var(--space-3); row-gap: var(--space-1); }
+  .run-head__sep { display: none; color: var(--text-muted); }
+  .run-head__step { grid-area: step; align-self: end; margin: 0; font: var(--type-sm); color: var(--text-muted); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .run-head__step-n { font: var(--type-lg); color: var(--text); }
+  .rail--full .rail__item { position: relative; }
+  .rail--full .rail__item + .rail__item::before {
+    content: "";
+    display: block;
+    flex: none;
+    width: 2px;
+    height: 12px;
+    margin-inline-start: 11px;
+    background-color: var(--state-done-mark);
+  }
+  .rail--full .rail__item[data-state="running"]::before { background-color: var(--state-running-mark); }
+  .rail--full .rail__item[data-state="pending"]::before, .rail--full .rail__item[data-state="unknown"]::before {
+    background-color: transparent;
+    background-image: linear-gradient(180deg, var(--border-strong) 50%, transparent 0);
+    background-size: 2px 6px;
+  }
+  .rail--full .rail__item[data-state="not-reached"]::before {
+    background-color: transparent;
+    background-image: linear-gradient(180deg, var(--border) 50%, transparent 0);
+    background-size: 2px 6px;
+  }
+  .rail__node {
+    position: relative;
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr);
+    column-gap: var(--space-3);
+    align-items: center;
+    width: 100%;
+    min-height: 44px;
+    padding: var(--space-1) 0;
+    background: none;
+    border: 0;
+    border-radius: var(--radius-md);
+    text-align: start;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+  }
+  .rail__item[data-state="awaiting"] .rail__node { background: var(--state-awaiting-tint); }
+  .rail__node[data-selected="true"] { box-shadow: 0 2px 0 var(--accent); }
+  .rail__item[data-type="stage"] .rail__glyph {
+    display: grid;
+    place-items: center;
+    box-sizing: border-box;
+    width: 20px;
+    height: 20px;
+    margin-inline: 2px;
+    border: 1.5px solid var(--mark);
+    border-radius: 50%;
+    background: var(--tint);
+    color: var(--fg);
+  }
+  .rail__item[data-type="stage"][data-tone="skipped"] .rail__glyph, .rail__item[data-type="stage"][data-tone="not-reached"] .rail__glyph { border-style: dashed; }
+  .rail__item[data-type="stage"][data-tone="not-reached"] .rail__glyph { border-color: var(--border-strong); }
+  .rail__item[data-type="gate"] .rail__glyph { display: grid; place-items: center; width: 24px; height: 24px; }
+  .rail__item[data-type="gate"] .shape { fill: var(--surface); stroke: var(--mark); stroke-width: 1.5; }
+  .rail__item[data-state="done"] .shape, .rail__item[data-state="awaiting"] .shape, .rail__item[data-state="rejected"] .shape { fill: var(--mark); stroke: none; }
+  .rail__item[data-state="skipped"] .shape { stroke-dasharray: 3 2; }
+  .rail__item[data-state="not-reached"] .shape { stroke: var(--border-strong); stroke-dasharray: 3 2; }
+  .rail__item .ov-check, .rail__item .ov-cross, .rail__item .ov-forced { display: none; fill: none; stroke: var(--surface); stroke-width: 2; }
+  .rail__item .ov-forced { fill: var(--state-awaiting-mark); stroke: none; }
+  .rail__item[data-type="gate"][data-state="done"] .ov-check { display: inline; }
+  .rail__item[data-state="rejected"] .ov-cross { display: inline; }
+  .rail__item[data-forced="true"] .ov-forced { display: inline; }
+  .rail__text { display: grid; min-width: 0; }
+  .rail__line { display: flex; align-items: center; gap: var(--space-2); min-width: 0; }
+  .rail__id { font: var(--type-sm); font-family: var(--font-mono); font-weight: 500; color: var(--text); overflow-wrap: anywhere; }
+  .rail__tag { font: var(--type-xs); color: var(--text-muted); }
+  .rail__state { font: var(--type-xs); color: var(--text-muted); }
+  .rail__gate-label { display: none; }
+  .rail__dur { display: none; }
+  .rail__dur[data-tone="running"] { color: var(--state-running-fg); font-weight: 600; }
+  .rail__dur[data-tone="stale"] { color: var(--state-stale-fg); font-weight: 600; }
+  .rail__dur[data-tone="awaiting"] { color: var(--state-awaiting-fg); font-weight: 600; }
+  .rail__forced { margin-inline-start: var(--space-1); color: var(--state-awaiting-fg); }
+  .rail__unknown {
+    display: inline-flex;
+    align-items: center;
+    box-sizing: border-box;
+    width: 160px;
+    height: 32px;
+    padding-inline: var(--space-3);
+    border: 1.5px dashed var(--state-unknown-mark);
+    border-radius: var(--radius-pill);
+    background-image: repeating-linear-gradient(135deg, var(--state-unknown-tint) 0 4px, transparent 4px 8px);
+    font: var(--type-xs);
+    color: var(--state-unknown-fg);
+  }
+  .rail-note {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    font: var(--type-sm);
+    color: var(--text-muted);
+  }
+  .rail-note .icon { color: var(--state-unknown-mark); }
+
+  /* The full rail from 768: one row of pills and gates that scrolls inside itself. */
+  @media (min-width: 768px) {
+    .run-rail { padding: var(--space-5) var(--space-5) var(--space-4); }
+    .run-head__sep { display: inline; }
+    .run-head__meta { row-gap: var(--space-2); }
+    .run-head { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "crumb crumb" "title step" "meta step"; }
+    .rail-scroll {
+      position: relative;
+      overflow-x: auto;
+      overscroll-behavior-x: contain;
+      scrollbar-width: thin;
+      padding-block: var(--space-1) var(--space-2);
+    }
+    .rail-scroll[data-fade="start"] { mask-image: linear-gradient(to right, transparent 0, var(--text) var(--space-6)); }
+    .rail-scroll[data-fade="end"] { mask-image: linear-gradient(to right, var(--text) calc(100% - var(--space-6)), transparent 100%); }
+    .rail-scroll[data-fade="start end"] {
+      mask-image: linear-gradient(to right, transparent 0, var(--text) var(--space-6), var(--text) calc(100% - var(--space-6)), transparent 100%);
+    }
+    .rail--full { display: flex; align-items: flex-start; box-sizing: border-box; width: max-content; min-width: 100%; padding: 0 var(--space-1) 40px; }
+    .rail--full .rail__item { display: flex; align-items: flex-start; flex: none; }
+    .rail--full .rail__item + .rail__item::before { flex: 1 0 24px; width: auto; height: 2px; margin: 15px 0 0; }
+    /* Six nodes or more: the connectors share the spare width and the rail spans its card; fewer stay compact at 64 px. */
+    .rail--full:has(> li:nth-child(6)) > .rail__item + .rail__item { flex: 1 0 auto; }
+    .rail--full:not(:has(> li:nth-child(6))) { min-width: 0; }
+    .rail--full:not(:has(> li:nth-child(6))) > .rail__item + .rail__item::before { flex: 0 0 64px; }
+    .rail__dur {
+      display: block;
+      position: absolute;
+      top: 56px;
+      left: 50%;
+      transform: translateX(-50%);
+      font: var(--type-xs);
+      font-family: var(--font-mono);
+      font-weight: 400;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+    .rail__dur[data-tone="running"], .rail__dur[data-tone="stale"], .rail__dur[data-tone="awaiting"] { font-weight: 600; }
+    /* R3-4: the stage pill's 1.5 px border offsets the line, so stage and gate durations share one baseline. */
+    .rail__item[data-type="stage"] .rail__dur { top: calc(56px - 1.5px); }
+    /* R3-1: the first and last labels hang from the node edge, so they never overhang the list's 4 px end padding. */
+    .rail--full > .rail__item:first-child .rail__gate-label, .rail--full > .rail__item:first-child .rail__dur { left: 0; transform: none; }
+    .rail--full > .rail__item:last-child .rail__gate-label, .rail--full > .rail__item:last-child .rail__dur { left: auto; right: 0; transform: none; }
+    .rail--full .rail__item[data-state="pending"]::before, .rail--full .rail__item[data-state="unknown"]::before {
+      background-image: linear-gradient(90deg, var(--border-strong) 50%, transparent 0);
+      background-size: 6px 2px;
+    }
+    .rail--full .rail__item[data-state="not-reached"]::before {
+      background-image: linear-gradient(90deg, var(--border) 50%, transparent 0);
+      background-size: 6px 2px;
+    }
+    .rail__node {
+      display: inline-flex;
+      gap: var(--space-2);
+      width: auto;
+      min-height: 32px;
+      padding: 0 var(--space-3);
+      border: 1.5px solid var(--mark);
+      border-radius: var(--radius-pill);
+      background: var(--tint);
+      color: var(--fg);
+      font: var(--type-sm);
+      font-family: var(--font-mono);
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    .rail__item[data-type="stage"] .rail__glyph { display: inline-flex; width: auto; height: auto; margin: 0; border: 0; border-radius: 0; background: none; }
+    .rail__item[data-tone="skipped"] .rail__node, .rail__item[data-tone="not-reached"] .rail__node { border-style: dashed; }
+    .rail__item[data-tone="not-reached"] .rail__node { border-color: var(--border-strong); }
+    .rail__item[data-state="awaiting"] .rail__node { background: var(--tint); }
+    .rail__item[data-type="gate"] .rail__node {
+      display: grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      min-height: 0;
+      padding: 0;
+      border: 0;
+      border-radius: var(--radius-md);
+      background: none;
+    }
+    .rail__item[data-type="gate"] .rail__node[data-selected="true"] { box-shadow: none; }
+    .rail__item[data-type="gate"] .rail__node[data-selected="true"] .rail__gate-label { box-shadow: 0 2px 0 var(--accent); }
+    .rail__text { display: inline-flex; align-items: center; gap: var(--space-1); }
+    .rail__item[data-type="gate"] .rail__text, .rail__state { display: none; }
+    .rail__id { font: inherit; color: inherit; }
+    .rail__tag { margin-inline-start: var(--space-1); }
+    .rail__gate-label {
+      display: block;
+      position: absolute;
+      top: 36px;
+      left: 50%;
+      transform: translateX(-50%);
+      font: var(--type-xs);
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+  }
+  @media (min-width: 768px) and (max-width: 1279px) {
+    .rail__item[data-type="stage"] .rail__node::after { content: ""; position: absolute; inset: -6px 0; }
+    .rail__item[data-type="gate"] .rail__node::after { content: ""; position: absolute; inset: -6px; }
+  }
+
+  /* Node detail. */
+  .rail-detail {
+    margin-top: var(--space-4);
+    max-width: var(--prose-max);
+    padding: var(--space-4) var(--space-5);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--elev-1);
+  }
+  .rail-detail__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+  .rail-detail__title { margin: 0; font: var(--type-lg); font-family: var(--font-mono); }
+  .rail-detail__close { margin-inline-start: auto; min-width: var(--target); padding-inline: 0; }
+  .rail-detail__body { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2) var(--space-4); margin-top: var(--space-3); font: var(--type-sm); }
+  .rail-detail__body dt { color: var(--text-muted); }
+  .rail-detail__body dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+  .badge[data-state="failed"] { background: var(--state-failed-tint); color: var(--state-failed-fg); }
+  .badge[data-state="unknown"] { background: var(--state-unknown-tint); color: var(--state-unknown-fg); }
+  .badge[data-state="skipped"] { background: var(--state-skipped-tint); color: var(--state-skipped-fg); }
+  .badge[data-state="pending"], .badge[data-state="not-reached"] { background: var(--state-pending-tint); color: var(--state-pending-fg); box-shadow: inset 0 0 0 1px var(--state-pending-mark); }
 }
 
 /* ---- states -------------------------------------------------------------------------------------- */
@@ -457,6 +1022,10 @@
   /* Stale data is framed, not faded (design-system 1.4): times read absolute, nothing reads "Updated". */
   #main[data-stale="true"] .reltime__rel { display: none; }
   #main[data-stale="true"] .reltime__abs { display: inline; }
+
+  /* Stale data must not look alive: every loop of a rail stops (important, so it wins over the motion layer). */
+  #main[data-stale="true"] .rail, #main[data-stale="true"] .rail *, #main[data-stale="true"] .rail *::before, #main[data-stale="true"] .rail *::after,
+  #main[data-stale="true"] .rail-fallback *, #main[data-stale="true"] .rail-fallback *::after { animation: none !important; }
 }
 
 /* ---- motion -------------------------------------------------------------------------------------- */
@@ -488,6 +1057,85 @@
     .view-enter, .skel, .banner, .banner--leaving { animation-name: none; }
     .skel { background-image: none; }
   }
+
+  /* ---- E.1 motion: a still replacement exists for every loop (reduced motion), nothing moves on first paint ---- */
+  @keyframes pulse { from { transform: scale(0.85); opacity: 0.6; } to { transform: scale(1.25); opacity: 0; } }
+  @keyframes march-y { from { background-position-y: 0; } to { background-position-y: 8px; } }
+  @keyframes march-x { from { background-position-x: 0; } to { background-position-x: 8px; } }
+  @keyframes flash { 0%, 100% { box-shadow: 0 0 0 0 var(--tint); } 50% { box-shadow: 0 0 0 6px var(--tint); } }
+  @keyframes settle { from { transform: scale(0.9); } to { transform: none; } }
+  @keyframes draw { from { stroke-dashoffset: 20; } to { stroke-dashoffset: 0; } }
+
+  .tile, .gate-card { transition: box-shadow var(--motion-fast) var(--ease-standard); }
+  .run-row { transition: background-color var(--motion-fast) var(--ease-standard); }
+
+  /* The awaiting gate pulses: a ring around the glyph. */
+  .rail--compact .rail__glyph[data-type="gate"][data-state="awaiting"]::after, .rail-fallback .rail__glyph[data-type="gate"][data-state="awaiting"]::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border: 2px solid var(--state-awaiting-mark);
+    border-radius: 50%;
+    animation: pulse var(--motion-pulse) var(--ease-standard) infinite;
+  }
+  .rail__item[data-state="awaiting"] .rail__glyph { position: relative; }
+  .rail__item[data-state="awaiting"] .rail__glyph::after {
+    content: "";
+    position: absolute;
+    inset: -6px;
+    border: 2px solid var(--state-awaiting-mark);
+    border-radius: 50%;
+    animation: pulse var(--motion-pulse) var(--ease-standard) infinite;
+  }
+
+  /* The active connector marches into the running stage. */
+  .rail--full .rail__item[data-state="running"]::before {
+    background-image: linear-gradient(180deg, var(--state-running-mark) 50%, transparent 0);
+    background-size: 2px 8px;
+    animation: march-y var(--motion-march) linear infinite;
+  }
+  @media (min-width: 768px) {
+    .rail--full .rail__item[data-state="running"]::before {
+      background-image: linear-gradient(90deg, var(--state-running-mark) 50%, transparent 0);
+      background-size: 8px 2px;
+      animation: march-x var(--motion-march) linear infinite;
+    }
+  }
+
+  /* The arrowhead of the still connector: drawn only under reduced motion (content is set there). */
+  .rail--full .rail__item[data-state="running"]::after {
+    position: absolute;
+    left: 8px;
+    top: 6px;
+    width: 8px;
+    height: 6px;
+    background: var(--state-running-mark);
+    clip-path: polygon(0 0, 100% 0, 50% 100%);
+  }
+  @media (min-width: 768px) {
+    .rail--full .rail__item[data-state="running"]::after { left: 18px; top: 12px; width: 6px; height: 8px; clip-path: polygon(0 0, 100% 50%, 0 100%); }
+  }
+
+  /* A node that changed since the previous poll flashes once, in its own tint. */
+  .rail--compact .rail__glyph[data-changed="true"], .rail--full .rail__item[data-changed="true"] .rail__node { animation: flash var(--motion-flash) var(--ease-standard) both; }
+  .rail--full .rail__item[data-changed="true"][data-state="done"] .icon--check path, .rail--full .rail__item[data-changed="true"][data-state="done"] .ov-check { stroke-dasharray: 20; animation: draw var(--motion-slow) var(--ease-standard) both; }
+  .rail--full .rail__item[data-changed="true"][data-state="awaiting"] .rail__glyph { animation: settle var(--motion-base) var(--ease-settle) both; }
+  .rail--full .rail__item[data-changed="true"][data-state="awaiting"] .rail__glyph::after { animation-delay: var(--motion-base); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rail--compact .rail__glyph[data-type="gate"][data-state="awaiting"]::after, .rail-fallback .rail__glyph[data-type="gate"][data-state="awaiting"]::after { content: none; }
+    .rail__item[data-state="awaiting"] .rail__glyph::after { content: none; }
+    .rail--full .rail__item[data-changed="true"] .rail__node, .rail--full .rail__item[data-changed="true"] .rail__glyph,
+    .rail--compact .rail__glyph[data-changed="true"] { animation-name: none; }
+    .rail--full .rail__item[data-changed="true"][data-state="done"] .icon--check path, .rail--full .rail__item[data-changed="true"][data-state="done"] .ov-check { animation-name: none; stroke-dasharray: none; }
+    /* A still outline replaces the flash for one poll interval (a bar in the node's own mark would vanish on a filled glyph). */
+    .rail--compact .rail__glyph[data-changed="true"] { outline: 2px solid var(--text); outline-offset: 2px; }
+    .rail--full .rail__item[data-changed="true"] .rail__node { outline: 2px solid var(--text); outline-offset: 2px; }
+    /* The marching connector becomes a solid one with an arrowhead. */
+    .rail--full .rail__item[data-state="running"]::before { background-image: none; animation-name: none; }
+    .rail--full .rail__item[data-state="running"]::after { content: ""; }
+    .rail__item[data-type="gate"][data-state="awaiting"] .rail__node { outline: 3px solid var(--focus); outline-offset: 2px; }
+  }
 }
 
 /* ---- forced colours: a shape and a border carry what colour did ---------------------------------- */
@@ -495,4 +1143,42 @@
   .badge, .conn, .tile { border: 1px solid CanvasText; }
   .nav__link[aria-current="page"], .theme__opt[aria-checked="true"] { border: 2px solid Highlight; }
   .skel { border: 1px dashed CanvasText; }
+}
+
+/* ---- forced colours: the rail keeps its shapes in system colours ---- */
+@media (forced-colors: active) {
+  .gate-card, .run-rail { border: 1px solid CanvasText; }
+  .gate-card__head { border-bottom: 1px solid CanvasText; }
+  .tile[aria-pressed="true"] { border: 2px solid Highlight; }
+  .rail__glyph[data-type="stage"]::after { background: CanvasText; }
+  .rail__glyph[data-type="stage"][data-state="pending"]::after, .rail__glyph[data-type="stage"][data-state="not-reached"]::after { background: transparent; box-shadow: none; border: 1.5px solid CanvasText; box-sizing: border-box; }
+  .rail__glyph[data-type="stage"][data-state="not-reached"]::after { border-color: GrayText; }
+  .rail__glyph[data-state="not-reached"]::before { background: GrayText; }
+  .rail__glyph[data-type="gate"] .shape { fill: CanvasText; }
+  .rail__glyph[data-type="gate"][data-state="pending"] .shape, .rail__glyph[data-type="gate"][data-state="not-reached"] .shape { fill: none; stroke: CanvasText; }
+  .rail--compact .rail__glyph + .rail__glyph::before { background: CanvasText; }
+  .rail--compact .rail__glyph[data-state="pending"]::before { background: GrayText; }
+  .rail--compact .rail__glyph[data-state="not-reached"]::before { background: transparent; }
+  .rail__item .shape { fill: CanvasText; stroke: CanvasText; }
+  .rail__item[data-state="pending"] .shape, .rail__item[data-state="skipped"] .shape, .rail__item[data-state="not-reached"] .shape { fill: Canvas; stroke: CanvasText; }
+  .rail__item .ov-check, .rail__item .ov-cross { stroke: Canvas; }
+  .rail__item[data-state="awaiting"] .rail__node { outline: 2px solid Highlight; }
+  .rail--full .rail__item + .rail__item::before { background-color: CanvasText; }
+  .rail--full > .rail__item[data-state="pending"]::before, .rail--full > .rail__item[data-state="unknown"]::before, .rail--full > .rail__item[data-state="not-reached"]::before {
+    background: none;
+    width: 0;
+    border-inline-start: 2px dashed GrayText;
+  }
+  .rail__node { border-color: CanvasText; }
+  .rail__item[data-state="not-reached"] .rail__node { border-color: GrayText; }
+  .rail__glyph .icon { color: CanvasText; }
+}
+@media (forced-colors: active) and (min-width: 768px) {
+  .rail--full > .rail__item[data-state="pending"]::before, .rail--full > .rail__item[data-state="unknown"]::before, .rail--full > .rail__item[data-state="not-reached"]::before {
+    background: none;
+    width: auto;
+    height: 0;
+    border-inline-start: 0;
+    border-top: 2px dashed GrayText;
+  }
 }

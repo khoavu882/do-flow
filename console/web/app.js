@@ -154,6 +154,15 @@ function nowMs() {
   return Date.now();
 }
 
+/**
+ * The `data-focus-key` of the focused element or its nearest ancestor that has one, or null.
+ * @param {any} el
+ */
+function focusKeyOf(el) {
+  const owner = el && typeof el.closest === 'function' ? el.closest('[data-focus-key]') : null;
+  return owner && owner.dataset && typeof owner.dataset.focusKey === 'string' ? owner.dataset.focusKey : null;
+}
+
 /** @param {any} root */
 function headingOf(root) {
   return root ? root.querySelector('h1') : null;
@@ -178,10 +187,13 @@ function fullPageFor(view) {
 function buildRoot(view, animate) {
   const spec = view.route.view;
   const heading = spec.head(view.route.params);
-  view.h1 = h('h1', { class: heading.mono ? 'view-title mono' : 'view-title', tabindex: '-1' }, heading.text);
-  view.metaEl = h('div', { class: 'view-meta' });
+  // A view may build its own head (the run view: crumb, title, meta, step) and says which parts the shell updates.
+  const own = typeof heading.build === 'function' ? heading.build() : null;
+  view.h1 = own ? own.h1 : h('h1', { class: heading.mono ? 'view-title mono' : 'view-title', tabindex: '-1' }, heading.text);
+  view.metaEl = own ? own.meta : h('div', { class: 'view-meta' });
+  view.stepEl = own ? own.step : null;
   view.body = h('div', { class: 'view-body' });
-  view.root = h('div', { class: animate ? 'view view-enter' : 'view' }, [h('div', { class: 'view-head' }, [view.h1, view.metaEl]), view.body]);
+  view.root = h('div', { class: animate ? 'view view-enter' : 'view' }, [own ? own.root : h('div', { class: 'view-head' }, [view.h1, view.metaEl]), view.body]);
   view.painted = null;
   view.fullKey = null;
 }
@@ -190,6 +202,12 @@ function buildRoot(view, animate) {
 function updateMeta(view) {
   const spec = view.route.view;
   mount(view.metaEl, spec.meta(view.route.params, view.hasData ? view.data : null, nowMs()));
+  if (view.stepEl && spec.step) {
+    const content = spec.step(view.route.params, view.hasData ? view.data : null);
+    mount(view.stepEl, content);
+    if (content === null) view.stepEl.setAttribute('hidden', '');
+    else view.stepEl.removeAttribute('hidden');
+  }
 }
 
 /** @param {any} view */
@@ -212,7 +230,7 @@ function bodyContent(view) {
     return { key: `loading:${view.skeletonShown}`, nodes: () => renderLoading({ noun: spec.noun, skeleton: spec.skeleton, showSkeleton: view.skeletonShown }), busy: true };
   }
   if (spec.isEmpty(view.data)) return { key: 'empty', nodes: () => renderEmpty(spec.empty) };
-  return { key: `data:${view.dataText}`, nodes: () => spec.render(view.data, view.route.params) };
+  return { key: `data:${view.dataText}`, nodes: () => spec.render(view.data, view.route.params, view.local) };
 }
 
 /**
@@ -260,11 +278,23 @@ function paint(view) {
   else main.removeAttribute('aria-busy');
   if (view.painted !== next.key) {
     const hadFocus = view.body.contains(document.activeElement);
+    const focusKey = focusKeyOf(document.activeElement);
     mount(view.body, next.nodes());
     view.painted = next.key;
-    if (hadFocus && !view.body.contains(document.activeElement)) view.h1.focus({ preventScroll: true });
+    if (hadFocus && !view.body.contains(document.activeElement)) {
+      // E.1 8.4: the element with the same data-focus-key takes the focus back; the heading is the fallback.
+      const again = focusKey === null ? null : view.body.querySelector(`[data-focus-key="${focusKey}"]`);
+      (again ?? view.h1).focus({ preventScroll: true });
+    }
   }
   if (view.hasData) updateMeta(view);
+  else if (view.skeletonShown && view.route.view.headSkeleton && view.stepEl) {
+    // The loading skeleton of a view with its own head fills the head's slots, not the body (R3-3).
+    const blocks = view.route.view.headSkeleton();
+    mount(view.metaEl, blocks.meta);
+    mount(view.stepEl, blocks.step);
+    view.stepEl.removeAttribute('hidden');
+  }
   refreshStatus();
 }
 
@@ -331,6 +361,8 @@ function refreshStatus() {
   if (view) setStale(stale, view, now);
   if (view) updateCountdowns(view, now);
   refreshReltimes(mainEl(), now);
+  const spec = view && view.route.view;
+  if (spec && spec.tick && view.hasData && !app.fatal && view.painted === `data:${view.dataText}`) spec.tick(mainEl(), now, view.local);
 }
 
 function startTick() {
@@ -348,6 +380,7 @@ function stopTick() {
 function teardownView() {
   const view = app.view;
   if (!view) return;
+  if (view.route.view.teardown) view.route.view.teardown(view.local);
   if (view.poller) view.poller.stop();
   if (view.skeletonTimer) globalThis.clearTimeout(view.skeletonTimer);
   if (view.holdTimer) globalThis.clearTimeout(view.holdTimer);
@@ -388,6 +421,7 @@ function startView(route, { first = false, animate = false, focus = true } = {})
     holdUntil: null,
     holdTimer: null,
     announcedError: null,
+    local: {}, // the view's own memory (E.1): what its render, load and tick keep between polls
     root: null,
     painted: null,
     fullKey: null,
@@ -447,7 +481,7 @@ function startPoller(view, path, intervalMs, heartbeat) {
   if (view.poller) view.poller.stop();
   view.heartbeat = heartbeat;
   const poller = createPoller({
-    fetchOnce: () => apiGet(path),
+    fetchOnce: () => (!heartbeat && view.route.view.load ? view.route.view.load(view.local, apiGet) : apiGet(path)),
     intervalMs,
     onSuccess: (body) => onData(view, body, heartbeat),
     onFailure: (error) => onFail(view, error, heartbeat),
@@ -478,7 +512,8 @@ function onData(view, body, heartbeat) {
     refreshStatus();
     return;
   }
-  const text = JSON.stringify(body);
+  const keyOf = view.route.view.dataKey;
+  const text = keyOf ? keyOf(body) : JSON.stringify(body);
   const changed = text !== view.dataText;
   view.error = null;
   view.announcedError = null;
