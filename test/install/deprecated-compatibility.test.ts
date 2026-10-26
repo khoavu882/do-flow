@@ -10,7 +10,7 @@ const { LEGACY_MANIFEST_FILE_NAME, manifestPath, readManifest, writeManifest } =
 const REPO = path.resolve(__dirname, "../..");
 const DATE = new Date('2026-07-24T00:00:00Z');
 
-// Codex/Claude/Gemini native lifecycle surfaces are no longer generic copier mappings at all —
+// Codex/Claude native lifecycle surfaces are no longer generic copier mappings at all —
 // bin/mappings.conf and the copier that read it (src/copy.js, src/mappings.js, src/diff.js) were
 // deleted entirely in Phase I (012-legacy-surface-retirement) once every asset they used to copy
 // became adapter-owned via the registry/lifecycle path. This file's remaining tests cover a
@@ -23,9 +23,9 @@ test('legacy manifest bridge remains idempotent across registry migration-era wr
   assert.equal(path.basename(manifestPath(claudeDir)), LEGACY_MANIFEST_FILE_NAME);
   writeManifest({ claudeDir, scriptVersion: '2.4.4', operation: 'install', repoRoot: REPO, sourceCommit: 'test', tools: ['claude', 'codex'], date: DATE,
     managedResources: [{ target: 'codex', scope: 'project', kind: 'mcp-server', identity: 'context7' }] });
-  writeManifest({ claudeDir, scriptVersion: '2.4.4', operation: 'update', repoRoot: REPO, sourceCommit: 'test', tools: ['gemini'], date: new Date('2026-07-25T00:00:00Z') });
+  writeManifest({ claudeDir, scriptVersion: '2.4.4', operation: 'update', repoRoot: REPO, sourceCommit: 'test', tools: ['kiro'], date: new Date('2026-07-25T00:00:00Z') });
   const read = readManifest(claudeDir);
-  assert.deepEqual(Object.keys(read.tools).sort(), ['claude', 'codex', 'gemini']);
+  assert.deepEqual(Object.keys(read.tools).sort(), ['claude', 'codex', 'kiro']);
   assert.deepEqual(read.managedResources, [{ target: 'codex', scope: 'project', kind: 'mcp-server', identity: 'context7' }]);
 });
 

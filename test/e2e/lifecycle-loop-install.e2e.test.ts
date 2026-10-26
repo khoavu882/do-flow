@@ -116,7 +116,7 @@ describe('An installed runtime finds its bash helpers: the handoff line and the 
     assert.equal(tier.scope.bound.source, `agent-docs/doflow/${FEATURE}/plan.md`, label);
   }
 
-  for (const target of ['claude', 'codex', 'gemini']) {
+  for (const target of ['claude', 'codex']) {
     const dispatcherOf = (h: any) => path.join(h.home, '.doflow', 'scripts', 'doflow', 'bin', 'doflow-run');
     test(`${target}, global: the handoff line records a stage item for the branch's feature`, () => {
       const h = homeFor(`handoff-${target}`);

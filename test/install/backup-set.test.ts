@@ -1,6 +1,6 @@
 'use strict';
 // The backup set builder (src/install/backup-set.js): which files a run backs up. Plans are built by
-// hand for the rules, and by the real lifecycle planner for the Codex and Gemini hook scripts.
+// hand for the rules, and by the real lifecycle planner for the Codex hook scripts.
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -83,12 +83,12 @@ test('retained and released changes touch no file and are skipped', () => {
 test('a file whose every change is an MCP entry is excluded; one MCP change beside a file change is not', () => {
   const root = scratchDir();
   const claudeJson = write(path.join(root, '.claude.json'), '{}');
-  const settings = write(path.join(root, '.gemini', 'settings.json'), '{}');
+  const settings = write(path.join(root, '.other', 'settings.json'), '{}');
   const set = build(root, plan([
     change(claudeJson, { kind: 'mcp-server' }),
     change(claudeJson, { kind: 'mcp-server', assetId: 'mcp.b' }),
-    change(settings, { kind: 'mcp-server', harness: 'gemini' }),
-    change(settings, { kind: 'settings-entry', harness: 'gemini' }),
+    change(settings, { kind: 'mcp-server', harness: 'fake-other' }),
+    change(settings, { kind: 'settings-entry', harness: 'fake-other' }),
   ]));
   assert.deepStrictEqual(set.entries.map((e: any) => e.path), [settings]);
   assert.deepStrictEqual(set.excluded, [{ path: claudeJson, reason: 'mcp-entries-only' }]);
@@ -194,7 +194,7 @@ test('backupSetFromPaths builds a snapshot set with the same exclusions', () => 
   assert.deepStrictEqual([set.scope, set.count, set.bytes], ['project', 1, 3]);
 });
 
-for (const harness of ['codex', 'gemini']) {
+for (const harness of ['codex']) {
   test(`a real ${harness} plan's set holds every hook script the apply deploys, and building it writes nothing`, () => {
     const projectRoot = scratchDir();
     const before = listDir(projectRoot);

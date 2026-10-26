@@ -51,7 +51,7 @@ test('targetNeedsHooks is true for a Claude-shaped target (selected asset kind "
   assert.equal(targetNeedsHooks(target), true);
 });
 
-test('targetNeedsHooks is true for a Codex/Gemini-shaped target (change tagged nativeComponent: "hooks")', () => {
+test('targetNeedsHooks is true for a Codex-shaped target (change tagged nativeComponent: "hooks")', () => {
   const target = {
     assets: [{ id: 'codex.config', kind: 'settings' }],
     changes: [{ assetId: 'codex.config', operation: 'update', nativeComponent: 'hooks' }],

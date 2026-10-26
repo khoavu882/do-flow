@@ -26,7 +26,7 @@ describe('An installed runtime reads the git facts the lifecycle verbs need (glo
     assert.equal(release.status, 0, `${label}: ${release.stdout}${release.stderr}`);
   }
 
-  for (const target of ['claude', 'codex', 'gemini']) {
+  for (const target of ['claude', 'codex']) {
     test(`${target}, global: the projected dispatcher derives the release mode and the integration ref`, () => {
       const h = homeFor(`facts-${target}`);
       install(h, target);

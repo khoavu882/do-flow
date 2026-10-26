@@ -144,7 +144,7 @@ test('Kiro drops a core guidance file the user edited: the edited copy stays, it
 
 test('every harness: update removes what install projected from the dropped source, and leaves no copy no row names', { timeout: 8 * CASE_TIMEOUT_MS }, () => {
   const ids = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'harnesses.json'), 'utf8')).harnesses.map((harness: any) => harness.id);
-  assert.equal(ids.length, 8);
+  assert.equal(ids.length, 7);
   const homes = ids.map((id: any) => {
     const scratch = newScratch(id);
     runOk(scratch, ['install', '-g', '-t', id, '-f', '--mcp', 'none']);

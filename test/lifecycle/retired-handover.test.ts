@@ -5,7 +5,7 @@
 // the same plan and apply (one write, one ledger write), deferred while antigravity is installed but
 // not planned, and stripped when antigravity is absent or the file is project scope. The retired id
 // is a synthetic `oldtool` replaced by `antigravity` (plan.md T-127-A5); the registry is the shipped
-// one with that record retired and no other live harness declaring ~/.gemini/GEMINI.md.
+// one with that record retired.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -31,12 +31,10 @@ const LEGACY_START = '<!-- doflow:start -->';
 
 const sha = (bytes: any): string => crypto.createHash('sha256').update(bytes).digest('hex');
 
-/** The shipped registry, `oldtool` retired with the handover entry, and no live harness but
- * antigravity declaring the global GEMINI.md (once gemini is retired that is the shipped shape). */
+/** The shipped registry (antigravity is the only live harness declaring the global GEMINI.md) with
+ * `oldtool` retired with the handover entry. */
 function handoverRegistry() {
-  const shipped = loadRegistry({ repoRoot: REPO });
-  return { ...shipped, harnesses: shipped.harnesses.filter((harness: any) => harness.id !== 'gemini'),
-    retired: [retiredRecord({ handover: [HANDOVER] })] };
+  return { ...loadRegistry({ repoRoot: REPO }), retired: [retiredRecord({ handover: [HANDOVER] })] };
 }
 
 /** Antigravity's section as a global install renders it. */

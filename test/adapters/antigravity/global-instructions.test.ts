@@ -3,8 +3,8 @@
 // global-instructions.test.ts — row 127 IC-007: antigravity's marker-managed DoFlow section in the
 // global ~/.gemini/GEMINI.md. A global install appends it to the person's file (or creates the file),
 // verify reports it under its own row, and removal hands the person's bytes back exactly. While
-// another live harness declares the same file (gemini, until it is retired), antigravity leaves it
-// alone, so two adapters never write one marker pair.
+// another live harness declares the same file, antigravity leaves it alone, so two adapters never
+// write one marker pair; and over the shipped retired gemini install it takes the file's section over.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -14,9 +14,10 @@ const { projectAdapterInput } = require('../../../src/adapters/index.ts');
 const { renderGuidancePointer } = require('../../../src/adapters/guidance-pointer.ts');
 const { MARKER_START, MARKER_END } = require('../../../src/helper/marker-merge.ts');
 const { buildAdapterRegistry } = require('../../../src/cli/shared.ts');
-const { stateRoot, readLedger } = require('../../../src/state/index.ts');
+const { stateRoot, readLedger, writeLedger } = require('../../../src/state/index.ts');
 const { planLifecycle, applyLifecycle } = require('../../../src/lifecycle/index.ts');
 const adapter = require('../../../src/adapters/antigravity/index.ts');
+const { buildRetiredLedger, USER_TEXT } = require('../../helper/retired-ledger.ts');
 const { tempDir } = require('../../helper/tmp.ts');
 
 const REPO = path.resolve(__dirname, '..', '..', '..');
@@ -93,8 +94,9 @@ test('while another live harness declares the same GEMINI.md, antigravity plans,
   const home = tempDir(t, 'doflow-agy-global-');
   fs.mkdirSync(path.dirname(target(home)), { recursive: true });
   fs.writeFileSync(target(home), USER);
-  const registry = loadRegistry({ repoRoot: REPO });
-  assert.ok(registry.harnesses.some((harness: any) => harness.id === 'gemini'), 'precondition: gemini is live in the shipped registry');
+  const shipped = loadRegistry({ repoRoot: REPO });
+  const instruction = shipped.harnesses.find((harness: any) => harness.id === 'antigravity').paths.instruction;
+  const registry = { ...shipped, harnesses: [...shipped.harnesses, { id: 'fake-other', paths: { instruction } }] };
   const { planned, verified } = run(home, { registry });
   assert.deepEqual(sectionChanges(planned, home), []);
   assert.ok(!verified.statuses.some((status: any) => status.target === target(home)));
@@ -102,26 +104,32 @@ test('while another live harness declares the same GEMINI.md, antigravity plans,
   assert.deepEqual(sectionChanges(run(home, { registry, operation: 'remove' }).planned, home), []);
 });
 
-test('proof: a global install of gemini and antigravity together converges on one DoFlow section in GEMINI.md', (t) => {
+test('proof: a global install of antigravity over a retired gemini install converges on one DoFlow section in GEMINI.md', (t) => {
   const home = tempDir(t, 'doflow-agy-global-');
   const savedHome = process.env.HOME;
   process.env.HOME = home;
   t.after(() => { process.env.HOME = savedHome; });
   const registry = loadRegistry({ repoRoot: REPO });
+  assert.ok(registry.retired.some((record: any) => record.id === 'gemini'), 'precondition: gemini is retired in the shipped registry');
+  assert.ok(!registry.harnesses.some((harness: any) => harness.id === 'gemini'), 'precondition: gemini is not live');
   const adapters = buildAdapterRegistry();
   const state = stateRoot({ scope: 'global', homeDir: home });
-  const plan = () => planLifecycle({ registry, adapters, scope: 'global', scopeRoot: home, targets: ['gemini', 'antigravity'], ledger: readLedger(state) ?? undefined,
-    context: { repoRoot: REPO, projectRoot: home, homeDir: home, sourceVersion: 'test', operation: 'install' } });
+  const { ledger, targets } = buildRetiredLedger({ root: home, id: 'gemini', scope: 'global' });
+  assert.equal(targets.instructions, target(home), 'the fixture holds gemini\'s span in the global GEMINI.md');
+  writeLedger(state, ledger);
+  const plan = () => planLifecycle({ registry, adapters, scope: 'global', scopeRoot: home, targets: ['antigravity'], ledger: readLedger(state) ?? undefined,
+    context: { repoRoot: REPO, projectRoot: home, homeDir: home, sourceVersion: 'test', operation: 'update' } });
   for (let round = 0; round < 2; round += 1) {
     const p = plan();
     assert.deepEqual(p.conflicts, [], `round ${round}`);
-    if (p.changes.length) applyLifecycle({ plan: p, registry, adapters, stateRoot: state, hasBashCapableShellFn: () => true });
+    if (p.changes.length || p.retiredHarnesses) applyLifecycle({ plan: p, registry, adapters, stateRoot: state, ledger: p.ledger, hasBashCapableShellFn: () => true });
   }
   const third = plan();
   assert.deepEqual(third.conflicts, []);
   assert.deepEqual(third.changes.filter((change: any) => change.target === target(home)), [], 'converged: nobody rewrites GEMINI.md');
   const text = fs.readFileSync(target(home), 'utf8');
+  assert.equal(text, `${USER_TEXT}\n${section(home)}`, 'the person\'s text is intact and the section is antigravity\'s');
   assert.equal(text.split('doflow:start').length - 1, 1, 'exactly one DoFlow section');
   const owners = readLedger(state).resources.filter((row: any) => row.target === target(home)).map((row: any) => row.harness);
-  assert.deepEqual(owners, ['gemini'], 'one owner');
+  assert.deepEqual(owners, ['antigravity'], 'one owner');
 });

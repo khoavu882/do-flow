@@ -14,14 +14,14 @@ const { planLifecycle, applyLifecycle, removeLifecycle } = require('../../src/li
 const { stateRoot, readLedger, recoveryRoot } = require('../../src/state/index.ts');
 const claude = require('../../src/adapters/claude/index.ts');
 const codex = require('../../src/adapters/codex/index.ts');
-const { createGeminiAdapter } = require('../../src/adapters/gemini/index.ts');
+const antigravity = require('../../src/adapters/antigravity/index.ts');
 
 const REPO = path.resolve(__dirname, "../..");
 
 function fixture(t: any) {
   const project = tempDir(t, 'doflow-lifecycle-codex-e2e-');
   const registry = loadRegistry({ repoRoot: REPO });
-  const adapters = createAdapterRegistry({ claude, codex, gemini: createGeminiAdapter() });
+  const adapters = createAdapterRegistry({ claude, codex, antigravity });
   const context = { repoRoot: REPO, projectRoot: project, homeDir: project, sourceVersion: '2.4.4' };
   const root = stateRoot({ scope: 'project', projectRoot: project });
   return { project, registry, adapters, context, root };

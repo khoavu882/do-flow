@@ -22,7 +22,7 @@ const { tempDir } = require('../helper/tmp.ts');
 const REPO = path.resolve(__dirname, '..', '..');
 
 // The CLI commands below load the registry themselves; this file's process sees the shipped registry
-// with `oldtool` retired, which is the only way to reach them with a retired id while gemini is live.
+// with `oldtool` retired, which reaches them with a synthetic retired id.
 // Patched before any command module is required, since they destructure loadRegistry when loaded.
 const shippedLoadRegistry = registryModule.loadRegistry;
 registryModule.loadRegistry = (options: any) => ({ ...shippedLoadRegistry(options), retired: [retiredRecord()] });

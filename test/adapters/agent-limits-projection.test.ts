@@ -47,7 +47,7 @@ test('review fix C-3: reviewer is the only read-only spec; every other spec, the
 });
 
 test('every harness agents.shared applies to projects through a registered transform (no byte-copy path)', () => {
-  assert.ok(sharedAgents.appliesTo.length >= 7);
+  assert.ok(sharedAgents.appliesTo.length >= 6);
   for (const id of sharedAgents.appliesTo) {
     const transform = sharedAgents.projection[id].transform;
     assert.ok(transform && TRANSFORMS[transform], `${id}: agents.shared declares a registered transform`);
@@ -62,7 +62,7 @@ test('readOnlyApply returns the registry apply block, or null when the limit is 
   assert.throws(() => readOnlyApply('no-such-harness'), /unknown harness/);
 });
 
-for (const id of ['claude', 'gemini', 'copilot', 'antigravity']) {
+for (const id of ['claude', 'copilot', 'antigravity']) {
   test(`${id}: markdown agents carry the apply keys on read-only specs only, and never access`, () => {
     const apply = readOnlyApply(id);
     assert.equal(apply !== null, registry.harnesses.find((item: any) => item.id === id).agentLimits.readOnly.status === 'native', `${id}: apply exists exactly when native`);

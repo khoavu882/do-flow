@@ -17,15 +17,15 @@ test('codexScope maps {global} to Codex\'s "global"/"project" scope names', () =
   assert.equal(codexScope({ global: false }), 'project');
 });
 
-test('LIFECYCLE_HARNESSES names exactly the eight harnesses the registry/lifecycle path covers', () => {
-  assert.deepEqual(LIFECYCLE_HARNESSES, ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
+test('LIFECYCLE_HARNESSES names exactly the seven harnesses the registry/lifecycle path covers', () => {
+  assert.deepEqual(LIFECYCLE_HARNESSES, ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
 });
 
 test('registryLifecycleView computes a fresh-install plan for every requested harness from a real registry', (t) => {
   const registry = loadRegistry({ repoRoot: REPO });
   const projectRoot = scratchProject(t);
   const view = registryLifecycleView({
-    registry, repoRoot: REPO, scope: { global: false, projectRoot }, targets: ['claude', 'codex', 'gemini'],
+    registry, repoRoot: REPO, scope: { global: false, projectRoot }, targets: ['claude', 'codex', 'antigravity'],
   });
   assert.equal(view.registry, registry);
   assert.equal(typeof view.stateRoot, 'string');

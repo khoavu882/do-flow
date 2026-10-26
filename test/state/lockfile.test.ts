@@ -85,7 +85,7 @@ test('a 1.18.0-shaped lock validates and a non-array MCP row is rejected', (t) =
   const project = scratch(t);
   // 1.18.0 wrote rows only for claude and codex, and none for an empty selection.
   const legacy = sampleLock(project, {
-    targets: [{ harness: 'claude' }, { harness: 'codex' }, { harness: 'gemini' }],
+    targets: [{ harness: 'claude' }, { harness: 'codex' }, { harness: 'antigravity' }],
     mcpSelections: { claude: ['context7', 'sequential-thinking'], codex: ['context7'] },
   });
   assert.equal(validateLock(legacy), legacy);

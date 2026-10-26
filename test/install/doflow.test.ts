@@ -75,8 +75,8 @@ test('resolveTargets defaults to claude alone and validates', () => {
   assert.throws(() => resolveTargets(['bogus']), /Unknown target/);
 });
 
-test('VALID lists all eight harnesses', () => {
-  assert.deepStrictEqual(VALID, ['claude', 'codex', 'gemini', 'copilot', 'kiro', 'opencode', 'pi', 'antigravity']);
+test('VALID lists all seven harnesses', () => {
+  assert.deepStrictEqual(VALID, ['claude', 'codex', 'copilot', 'kiro', 'opencode', 'pi', 'antigravity']);
 });
 
 for (const target of ['copilot', 'kiro', 'opencode', 'pi']) {
@@ -101,7 +101,6 @@ test('toolDirs defaults to project scope rooted at projectRoot', () => {
   const dirs = toolDirs({ projectRoot: root });
   assert.strictEqual(dirs.claude, path.join(root, '.claude'));
   assert.strictEqual(dirs.codex, path.join(root, '.codex'));
-  assert.strictEqual(dirs.gemini, path.join(root, '.agents'));
   assert.strictEqual(dirs.copilot, path.join(root, '.github'));
   assert.strictEqual(dirs.kiro, path.join(root, '.kiro'));
   assert.strictEqual(dirs.opencode, path.join(root, '.opencode'));
@@ -117,7 +116,6 @@ test('toolDirs global:true resolves under $HOME', () => {
   const dirs = toolDirs({ global: true });
   assert.strictEqual(dirs.claude, path.join(os.homedir(), '.claude'));
   assert.strictEqual(dirs.codex, path.join(os.homedir(), '.codex'));
-  assert.strictEqual(dirs.gemini, path.join(os.homedir(), '.gemini'));
   assert.strictEqual(dirs.copilot, path.join(os.homedir(), '.copilot'));
   assert.strictEqual(dirs.kiro, path.join(os.homedir(), '.kiro'));
   assert.strictEqual(dirs.opencode, path.join(os.homedir(), '.config', 'opencode'));

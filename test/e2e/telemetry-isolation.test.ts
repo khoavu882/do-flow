@@ -323,7 +323,6 @@ function runNodeTrial(root: any, testCase: any, mode: any) {
 const SURFACES: any = {
   'claude:pre-bash-guard': { harness: 'claude', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.claude/hooks/pre-bash-guard.sh', fixture: 'claude/pre-bash-guard/perf.json', tool: 'Bash' },
   'codex:pre-bash-guard': { harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.codex/hooks/pre-bash-guard.sh', fixture: 'codex/pre-bash-guard/perf.json', tool: 'Bash' },
-  'gemini:pre-bash-guard': { harness: 'gemini', event: 'BeforeTool', policy: 'pre-bash-guard', door: '.gemini/hooks/pre-bash-guard.sh', fixture: 'gemini/pre-bash-guard/perf.json', tool: 'run_shell_command' },
   'kiro:pre-bash-guard': { harness: 'kiro', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.kiro/hooks/pre-bash-guard.sh', fixture: 'kiro/pre-bash-guard/perf.json', tool: 'Bash' },
   'antigravity:pre-bash-guard': { harness: 'antigravity', event: 'PreToolUse', policy: 'pre-bash-guard', runner: true, fixture: 'antigravity/pre-bash-guard/perf.json', tool: 'run_command' },
   'pi:pre-bash-guard': { harness: 'pi', event: 'tool_call', policy: 'pre-bash-guard', bridge: true, fixture: 'pi/tool_call/perf-bash.json', tool: 'bash' },
@@ -582,10 +581,10 @@ test('G-O3: CLI verbs and bridge hooks are byte-identical on, off and faulted', 
   runEncodeBypassNegativeControl();
 
   assert.equal(node.cases.length, 10, 'fixed Node verb list');
-  assert.equal(hooks.cases.length, 20, 'fixed hook list, including both guard profiles');
+  assert.equal(hooks.cases.length, 17, 'fixed hook list, including both guard profiles');
   assert.ok(Date.now() - started < MATRIX_TIMEOUT_MS, 'the complete matrix finishes inside its hang ceiling');
   assert.equal(node.comparisons, 60, '10 Node commands × on plus five faults');
-  assert.equal(hooks.comparisons, 120, '20 hook commands × on plus five faults');
+  assert.equal(hooks.comparisons, 102, '17 hook commands × on plus five faults');
   assert.equal(hookLines(hooks.root).length, 0, 'fault comparisons leave no telemetry line behind');
 });
 
