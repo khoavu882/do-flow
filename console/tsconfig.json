@@ -18,6 +18,6 @@
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": false
   },
-  "include": ["bin/**/*.js", "src/**/*.ts", "test/**/*.ts", "web/**/*.js", "../types/node-commonjs.d.ts"],
+  "include": ["bin/**/*.js", "src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "web/**/*.js", "../types/node-commonjs.d.ts"],
   "exclude": ["node_modules"]
 }
