@@ -49,7 +49,7 @@ const CLOSED_SETS = Object.freeze({
   /** src/runtime/capability-router.ts resolveCapability */
   capabilityStatuses: Object.freeze(['HEALTHY', 'FALLBACK', 'UNAVAILABLE']),
   /** core/registry/harnesses.json harness ids */
-  harnessIds: Object.freeze(['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']),
+  harnessIds: Object.freeze(['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']),
   /** src/runtime/worker/command.ts statusView states, with the end states of supervisor.ts and cancel.ts */
   workerStates: Object.freeze(['starting', 'running', 'unknown', 'exited', 'timed-out', 'cancelled']),
   /** src/runtime/worker/command.ts statusView reasons */
