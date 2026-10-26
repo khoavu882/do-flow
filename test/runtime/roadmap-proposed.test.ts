@@ -84,7 +84,7 @@ test('promote is person only: refused needs-person unless autopilot is verifiabl
   const dir = store(t, [row('130', { proposed: true })]);
   const before = fs.readFileSync(path.join(dir, 'agent-docs/roadmap/rows.json'), 'utf8');
   const out = capture();
-  assert.equal(handlePromoteCommand({ ids: ['130'], root: dir, json: true, gitFacts: FACTS, readSwitch: ON, out: out.fn, err: out.fn }), 1);
+  assert.equal(handlePromoteCommand({ isTTY: true, ids: ['130'], root: dir, json: true, gitFacts: FACTS, readSwitch: ON, out: out.fn, err: out.fn }), 1);
   const refused = JSON.parse(out.lines[0]);
   assert.equal(refused.reason, 'needs-person');
   assert.equal(refused.writes, 0);
@@ -94,7 +94,7 @@ test('promote is person only: refused needs-person unless autopilot is verifiabl
 test('promote with autopilot off drops the mark, so the row is picked; text output names the ids', (t) => {
   const dir = store(t, [row('130', { proposed: true }), row('131', { proposed: true })]);
   const out = capture();
-  assert.equal(handlePromoteCommand({ ids: ['130'], root: dir, gitFacts: FACTS, readSwitch: OFF, out: out.fn, err: out.fn }), 0);
+  assert.equal(handlePromoteCommand({ isTTY: true, ids: ['130'], root: dir, gitFacts: FACTS, readSwitch: OFF, out: out.fn, err: out.fn }), 0);
   assert.match(out.lines[0], /^roadmap promote: ok, 1 promoted: 130$/);
   const rows = rowsOf(dir);
   assert.equal(Object.hasOwn(rows[0], 'proposed'), false);
@@ -107,10 +107,28 @@ test('promote is all or nothing: an unknown, a ready or a repeated id is a findi
   const dir = store(t, [row('130', { proposed: true }), row('131')]);
   const before = fs.readFileSync(path.join(dir, 'agent-docs/roadmap/rows.json'), 'utf8');
   const out = capture();
-  assert.equal(handlePromoteCommand({ ids: ['130', '131', '199', '130'], root: dir, json: true, gitFacts: FACTS, readSwitch: OFF, out: out.fn, err: out.fn }), 1);
+  assert.equal(handlePromoteCommand({ isTTY: true, ids: ['130', '131', '199', '130'], root: dir, json: true, gitFacts: FACTS, readSwitch: OFF, out: out.fn, err: out.fn }), 1);
   assert.deepEqual(JSON.parse(out.lines[0]).findings.map((f: any) => [f.rule, f.rowId]),
     [['row-not-proposed', '131'], ['row-not-found', '199'], ['duplicate-id', '130']]);
   assert.equal(fs.readFileSync(path.join(dir, 'agent-docs/roadmap/rows.json'), 'utf8'), before);
-  assert.equal(handlePromoteCommand({ ids: [], root: dir, gitFacts: FACTS, readSwitch: OFF, out: () => {}, err: () => {} }), 2);
-  assert.equal(handlePromoteCommand({ ids: ['../x'], root: dir, gitFacts: FACTS, readSwitch: OFF, out: () => {}, err: () => {} }), 2);
+  assert.equal(handlePromoteCommand({ isTTY: true, ids: [], root: dir, gitFacts: FACTS, readSwitch: OFF, out: () => {}, err: () => {} }), 2);
+  assert.equal(handlePromoteCommand({ isTTY: true, ids: ['../x'], root: dir, gitFacts: FACTS, readSwitch: OFF, out: () => {}, err: () => {} }), 2);
+});
+
+test('maint-thin P1: promote without an interactive terminal is refused needs-person-tty even with autopilot off (an env redirect reads as off)', (t) => {
+  const dir = store(t, [row('130', { proposed: true })]);
+  const before = fs.readFileSync(path.join(dir, 'agent-docs/roadmap/rows.json'), 'utf8');
+  for (const isTTY of [false, undefined]) {
+    const out = capture();
+    const code = handlePromoteCommand({ ...(isTTY === undefined ? {} : { isTTY }), ids: ['130'], root: dir, json: true, gitFacts: FACTS, readSwitch: OFF, out: out.fn, err: out.fn });
+    assert.equal(code, 1);
+    assert.equal(JSON.parse(out.lines[0]).reason, 'needs-person-tty');
+    assert.equal(JSON.parse(out.lines[0]).writes, 0);
+  }
+  assert.equal(fs.readFileSync(path.join(dir, 'agent-docs/roadmap/rows.json'), 'utf8'), before);
+  // the switch stays a second check: a terminal with autopilot on is still refused needs-person
+  const on = capture();
+  assert.equal(handlePromoteCommand({ isTTY: true, ids: ['130'], root: dir, json: true, gitFacts: FACTS, readSwitch: ON, out: on.fn, err: on.fn }), 1);
+  assert.equal(JSON.parse(on.lines[0]).reason, 'needs-person');
+  assert.equal(fs.readFileSync(path.join(dir, 'agent-docs/roadmap/rows.json'), 'utf8'), before);
 });

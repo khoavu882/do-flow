@@ -220,7 +220,7 @@ function loadEnforcementInputs(registry: any, { harnessesFile = path.join(REPO_R
 
 /**
  * The inputs `resolveProtocol` needs beyond the change facts: the project's settings as the plain `settingsView`
- * the resolver reads (`{ key: { value, layer } }`, 119 L-B8), whether the review is `unattended` (the autopilot switch
+ * the resolver reads (`{ key: { value, layer } }`, 119 L-B8), whether the review is `unattended` (autopilot is not
  * is on, so the class seat floor binds; maint-thin), the gate policy (the shipped gates.json narrowed by the
  * project's `.doflow/gates.override.json`, read as roadmap gate-b reads it, 119 IC-005; null when there is no task class, so
  * no floor), the protocols registry and the enforcement inputs (`loadEnforcementInputs`). A base, override or registry the loaders reject is a refusal carrying the loader's
@@ -262,9 +262,9 @@ function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<s
   if (!protocols.ok) return { error: 'protocols-invalid', message: protocols.errors.join('; ') };
   const enforcement = loadEnforcementInputs(protocols.registry);
   if ('error' in enforcement) return enforcement;
-  // maint-thin: the class seat floor binds only while the autopilot switch is on (its policy gate-b may decide the
-  // merge unattended); a person-attended review follows the preset. Read fresh, like every other switch reader.
-  const unattended: boolean = require('../settings/autopilot.ts').readKillSwitch(env).enabled === true;
+  // maint-thin: the class seat floor binds unless autopilot is verifiably off (its policy gate-b may decide the merge
+  // unattended); a person-attended review follows the preset. Uncertain reads as unattended (see reviewUnattended).
+  const unattended: boolean = require('../settings/autopilot.ts').reviewUnattended(env);
   return { gatePolicy, unattended, registry: protocols.registry, settingsView, ...enforcement };
 }
 

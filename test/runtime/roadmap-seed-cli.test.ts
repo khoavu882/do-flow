@@ -182,7 +182,7 @@ test('C-7: relative --draft resolves against process cwd, not positional project
   assert.equal(fs.realpathSync(outNoPos.draft.path), fs.realpathSync(path.join(repo, 'draft.json')));
 });
 
-test('C-10 CLI (a): settings on lands an apply proposed; promote is refused until a person turns autopilot off', (t) => {
+test('C-10 CLI (a): settings on lands an apply proposed; promote from a spawned process is refused needs-person-tty', (t) => {
   // maint-thin (2026-10-26): gating moved from the write to the activation. The write lands proposed; promote needs a person.
   const home = tempDir(t, 'doflow-seed-cli-home-');
   const settingsDir = path.join(home, '.config', 'doflow');
@@ -201,17 +201,20 @@ test('C-10 CLI (a): settings on lands an apply proposed; promote is refused unti
   const rCheck = run(t, repo, ['roadmap', '--action', 'render', '--check'], { home });
   assert.equal(rCheck.status, 0, rCheck.stderr + rCheck.stdout);
 
+  // promote is person-only: a spawned CLI has no terminal on stdin, so it is refused needs-person-tty, and an
+  // empty or "off" config home (the env redirect a model controls) does not change that.
   const before = fs.readFileSync(storePath, 'utf8');
   const rRefused = run(t, repo, ['roadmap', 'promote', '114', '--json'], { home });
   assert.equal(rRefused.status, 1, rRefused.stderr + rRefused.stdout);
-  assert.equal(JSON.parse(rRefused.stdout).reason, 'needs-person');
-  assert.equal(fs.readFileSync(storePath, 'utf8'), before);
-
+  assert.equal(JSON.parse(rRefused.stdout).reason, 'needs-person-tty');
   fs.writeFileSync(settingsPath, JSON.stringify({ schema: 1, 'autopilot.enabled': 'off' }), 'utf8');
-  const rPromote = run(t, repo, ['roadmap', 'promote', '114'], { home });
-  assert.equal(rPromote.status, 0, rPromote.stderr + rPromote.stdout);
-  assert.match(rPromote.stdout, /roadmap promote: ok, 1 promoted: 114/);
-  assert.equal(Object.hasOwn(JSON.parse(fs.readFileSync(storePath, 'utf8')).rows.find((r: any) => r.id === '114'), 'proposed'), false);
+  const rOff = run(t, repo, ['roadmap', 'promote', '114', '--json'], { home });
+  assert.equal(rOff.status, 1, rOff.stderr + rOff.stdout);
+  assert.equal(JSON.parse(rOff.stdout).reason, 'needs-person-tty');
+  const rEmpty = run(t, repo, ['roadmap', 'promote', '114'], { home: tempDir(t, 'doflow-seed-cli-empty-home-') });
+  assert.equal(rEmpty.status, 1, rEmpty.stderr + rEmpty.stdout);
+  assert.match(rEmpty.stderr, /refused: needs-person-tty/);
+  assert.equal(fs.readFileSync(storePath, 'utf8'), before);
   const rCheck2 = run(t, repo, ['roadmap', '--action', 'render', '--check'], { home });
   assert.equal(rCheck2.status, 0, rCheck2.stderr + rCheck2.stdout);
 });

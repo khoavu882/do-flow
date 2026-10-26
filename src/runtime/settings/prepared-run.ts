@@ -214,7 +214,7 @@ function validatePrepared(doc: Record<string, any>, ctx: any): Entry[] {
     }
     if (kind !== 'review') continue;
     if (taskClass === null) continue;
-    // maint-thin: the seat floor binds only an unattended run (the autopilot switch is on), as in review start.
+    // maint-thin: the seat floor binds unless autopilot is verifiably off (reviewUnattended), as in review start.
     const floor: number = inputs().unattended === false ? 0 : gateMinSeats(inputs().gatePolicy, taskClass);
     const seats: number = protocols.presets[id].seats.length;
     if (seats < floor) { // the seat floor (L-E1); the E.1-control-floor mutation targets this line

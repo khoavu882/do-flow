@@ -519,7 +519,7 @@ until you remove it) and `proposed` (see below). `layout.worktree` may set where
 the main checkout. Never write a status: `status`, `phase` and `evidence` keys are rejected, because
 status comes from git.
 
-**Adding rows while autopilot runs.** `doflow roadmap seed --action apply|amend` writes the store whether or not autopilot is on. While autopilot is not verifiably off, every row it adds or replaces lands `proposed`: autopilot never picks it, steps it or approves its gates. A person makes it ready with `doflow roadmap promote <id...>`, which runs only while autopilot is verifiably off (`autopilot.enabled` `off` or the `autopilot/off` file) and changes all named rows or none. With autopilot off, seeded rows land ready. No wrapper script that turns autopilot off around the seed call (such as `~/bin/doflow-seed.sh`) is needed.
+**Adding rows while autopilot runs.** `doflow roadmap seed --action apply|amend` writes the store whether or not autopilot is on. While autopilot is not verifiably off, every row it adds or replaces lands `proposed`: autopilot never picks it, steps it or approves its gates. A person makes it ready with `doflow roadmap promote <id...>`, typed in their own terminal: it refuses a run without an interactive terminal (`needs-person-tty`), runs only while autopilot is verifiably off (`autopilot.enabled` `off` or the `autopilot/off` file), and changes all named rows or none. With autopilot off, seeded rows land ready. No wrapper script that turns autopilot off around the seed call (such as `~/bin/doflow-seed.sh`) is needed.
 
 ```bash
 doflow roadmap --action render --check   # exit 0: ROADMAP.md matches git and the seed; exit 1: findings

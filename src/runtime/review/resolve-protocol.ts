@@ -123,16 +123,14 @@ function resolveProtocol({ kind, taskClass, risk, paths, runPreset, advicePick, 
   let id: string | undefined;
   let idOrigin: Origin = 'registry';
 
-  // Step 1 (maint-thin): a review starts thin. Only an effective `review.preset` of `auto`, or one a layer set that is
-  // not available, runs the risk rule (as the old decideDepth did); otherwise the pick starts at the default-layer preset (the registry default, review-single)
-  // or, with no entry at all, the loosest core preset, and step 2 raises it to a stricter preset a layer set. A debate
-  // starts at debate-2.
+  // Step 1 (maint-thin): a review starts thin. Only an effective `review.preset` of `auto` runs the risk rule (as the
+  // old decideDepth did); otherwise the pick starts at the default-layer preset (the registry default, review-single)
+  // or, with no entry at all, the loosest core preset, and step 2 raises it to a stricter preset a layer set. A preset
+  // id this install does not have never reaches here from a run: loadProtocolInputs refuses it (settings-unavailable),
+  // so the review is blocked, which fails closed. A debate starts at debate-2.
   if (kind === 'review') {
     const entry = settingsView?.['review.preset'];
-    // A layer that names a preset this run cannot use (unknown, or its package off) asked for something stricter than
-    // the default: fail closed to the risk rule rather than to the thin start (step 2 still lists it as unavailable).
-    const unavailable = setBy(settingsView, 'review.preset') !== null && entry.value !== 'auto' && presetOf(registry, 'review', entry.value) === null;
-    if (entry?.value === 'auto' || unavailable) {
+    if (entry?.value === 'auto') {
       const single = pathScope(riskPolicy, paths) === 'light' && typeof risk === 'string' && riskPolicy.singleRisks.includes(risk);
       id = idOfDepth(registry, single ? 'single' : 'deep');
       idOrigin = 'risk';

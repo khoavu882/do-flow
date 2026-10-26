@@ -140,10 +140,8 @@ test('auto placement never holds a package preset; the value list does, so a per
 
 test('a project review.preset naming a disabled or unknown id is the disagreement unavailable, never a silent drop', () => {
   const disabled = view({ without: ['acme.strict', 'acme.lax'] });
-  // maint-thin: an unavailable stricter request fails closed to the risk rule (deep for this HIGH code change), not thin
+  // The resolver only lists it; a run never gets here, because review start refuses the id (settings-unavailable).
   const result = resolve({ registry: disabled, settingsView: preset('acme.strict', 'project') });
-  assert.equal(result.protocol.id, 'review-deep');
-  assert.equal(result.protocol.origins.id, 'risk');
   assert.deepEqual(result.protocol.disagreements, [{ field: 'id', by: 'project', value: 'acme.strict', reason: 'unavailable' }]);
   const unknown = resolve({ settingsView: preset('review-nope', 'project') });
   assert.deepEqual(unknown.protocol.disagreements, [{ field: 'id', by: 'project', value: 'review-nope', reason: 'unavailable' }]);

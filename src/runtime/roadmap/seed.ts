@@ -817,11 +817,15 @@ interface HandlePromoteCommandOptions {
   now?: () => Date;
   out?: (s: string) => void;
   err?: (s: string) => void;
+  isTTY?: boolean;
 }
 
 /**
- * maint-thin: `roadmap promote <id...>`, person only. It reads the switch with the fail-closed seed reader: unless
- * autopilot is verifiably off it refuses `needs-person` and writes nothing. Under the roadmap lease it drops the
+ * maint-thin: `roadmap promote <id...>`, person only. A model with a shell controls the environment, so an
+ * environment check alone cannot tell a person: pointing XDG_CONFIG_HOME at an empty folder reads as "off". The verb
+ * therefore first requires an interactive terminal on stdin (refused `needs-person-tty`, nothing written), then reads
+ * the switch with the fail-closed seed reader as a second check: unless autopilot is verifiably off it refuses
+ * `needs-person` and writes nothing. Under the roadmap lease it drops the
  * `proposed` mark of every named row, so autopilot may pick it. All or nothing: an unknown id, a row that is not
  * proposed, or a duplicate id is a finding and nothing is written. Exit 0 promoted, 1 refused or findings, 2 usage.
  */
@@ -840,6 +844,7 @@ function handlePromoteCommand(options: HandlePromoteCommandOptions = {}): number
     now,
     out = (s: string) => console.log(s),
     err = (s: string) => console.error(s),
+    isTTY = process.stdin.isTTY === true,
   } = options;
   const emit = (result: any, code: number, detail?: string): number => {
     if (json) out(JSON.stringify(result));
@@ -861,6 +866,10 @@ function handlePromoteCommand(options: HandlePromoteCommandOptions = {}): number
   const tablePath = path.join(root, 'agent-docs', 'roadmap', 'ROADMAP.md');
   const base = { schema: 1, action: 'promote', ok: false, ids, promoted: [] as string[], findings: [] as any[], reason: null as string | null, writes: 0 };
 
+  if (isTTY !== true) {
+    return emit({ ...base, reason: 'needs-person-tty' }, 1,
+      'promote runs only from an interactive terminal: a person runs doflow roadmap promote in their own shell');
+  }
   const switchReader = readSwitch || readSeedSwitch;
   if (switchReader(env, fsImpl).enabled !== false) {
     const { configHome } = require('../config-home.ts');

@@ -259,9 +259,15 @@ while IFS= read -r file; do
       case "$real" in "$repo_real"/*) ;; *) continue ;; esac
       check="$real"
       ;;
+    *) real=$(real_path "$repo_root/$file") || real="$repo_root/$file" ;;
   esac
   # A path git ignores (a local config file such as .mcp.json) is not source. check-ignore
   # without --no-index answers "not ignored" for a tracked file, so tracked source stays gated.
+  # The skip never applies to DoFlow's own state or gate artifacts: .doflow/ is gitignored, and
+  # skipping it would let an edit forge a readiness record. Any `.doflow` or `agent-docs/doflow`
+  # segment of the real path, or of the path as written (a `..` the resolver could not fold), keeps it gated.
+  case "/$file/" in */.doflow/*|*/agent-docs/doflow/*|*/../*) GATED=true; break ;; esac
+  case "${real#"$repo_real"}/" in */.doflow/*|*/agent-docs/doflow/*) GATED=true; break ;; esac
   git -C "$repo_root" check-ignore -q -- "$check" 2>/dev/null && continue
   GATED=true
   break

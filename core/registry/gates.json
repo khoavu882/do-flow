@@ -27,6 +27,6 @@
     "unresolved-clarifications", "markers-open", "protected-path", "plan-unparsable", "need-unmerged", "prerequisite-no-source", "capability-unreachable", "write-set-exceeded",
     "verify-missing", "verify-not-pass", "verify-flaky", "findings-missing", "findings-invalid", "review-stale-head", "seats-too-few", "finding-dropped", "refuted-without-evidence", "accepted-without-user-decision", "user-accepted-needs-person", "fixed-not-ancestor", "blockers-open",
     "lease-held", "lease-lost", "stage-not-performed", "report-changed", "pause-not-machine", "facts-unreadable", "autopilot-disabled",
-    "git-too-old", "merge-conflict", "develop-wrong-branch", "develop-dirty", "ff-running", "develop-moved", "head-moved", "no-develop-worktree", "plan-changed", "needs-person"
+    "git-too-old", "merge-conflict", "develop-wrong-branch", "develop-dirty", "ff-running", "develop-moved", "head-moved", "no-develop-worktree", "plan-changed", "needs-person", "needs-person-tty"
   ]
 }

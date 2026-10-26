@@ -120,6 +120,22 @@ test('maint-thin: the shipped default gives a feature code change 1 seat and 1 r
   assert.equal(unattended.json.seats, 2);
   assert.equal(unattended.json.depthBasis.floor, 2);
   assert.equal(unattended.json.depthBasis.raisedBy, 'gate-floor');
+  // maint-thin P2: an uncertain switch (a value the settings reader rejects) is unattended, so the floor binds
+  fs.writeFileSync(path.join(r.env.XDG_CONFIG_HOME, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'autopilot.enabled': 'maybe' }));
+  const uncertain = await start(r);
+  assert.equal(uncertain.exitCode, 0, JSON.stringify(uncertain.json));
+  assert.equal(uncertain.json.seats, 2);
+  assert.equal(uncertain.json.depthBasis.floor, 2);
+  // an explicit process-local DOFLOW_AUTOPILOT_ENABLED=off is attended; gate-b still judges the seats itself
+  const local = await start({ ...r, env: { ...r.env, DOFLOW_AUTOPILOT_ENABLED: 'off' } });
+  assert.equal(local.exitCode, 0);
+  assert.equal(local.json.seats, 1);
+  assert.equal(local.json.depthBasis.floor, 0);
+  // maint-thin P2: a preset this install does not have blocks the review, never a silent thin run
+  fs.writeFileSync(path.join(r.env.XDG_CONFIG_HOME, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'review.preset': 'review-nope' }));
+  const missing = await start(r);
+  assert.notEqual(missing.exitCode, 0);
+  assert.match(JSON.stringify(missing.json), /settings-unavailable/);
 });
 
 test('PASS on a clean HEAD: exit 0, deep, 2 seats, risk from the default for a line without risk', async (t) => {
