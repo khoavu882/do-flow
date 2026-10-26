@@ -69,8 +69,10 @@ test('G-B2: inventory ratchets — registry files and adapters', () => {
   // their tier and status, and the forbidden manifest fields. A separate file because the package loader reads it on its
   // own (a bad file disables only non-bundled packages), not through `loadRegistry`.
   // 20: `rules.json` (102 IC-001) is the rule ledger for always-loaded guidance rules and safety invariants.
-  assert.equal(registryEntries.length, 20,
-    `core/registry holds ${registryEntries.length} files; expected the ratcheted 20`);
+  // 21: `transcripts.json` (093 IC-021) is the transcript locator registry; like `advice.json` it has its own loader
+  // (`src/runtime/transcripts/registry.ts`) so a bad file turns the transcript feature off instead of failing installs.
+  assert.equal(registryEntries.length, 21,
+    `core/registry holds ${registryEntries.length} files; expected the ratcheted 21`);
 
   // Stage 3 makes adapters thinner but never fewer: one directory per harness, plus the shared
   // copy-tree engine and the contract validator live as siblings.

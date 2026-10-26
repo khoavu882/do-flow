@@ -29,6 +29,7 @@ const { OUTCOME_LABELS } = require('./mcp-consultations.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { readGrants, detectedProjectRoot } = require('./packages/grants.ts');
 const { readState, grantRevoked } = require('./packages/state.ts');
+const { transcriptsDoctorView } = require('./transcripts/registry.ts');
 
 /** Answered a probe. */
 const HEALTHY = 'HEALTHY';
@@ -721,6 +722,18 @@ function printPackagesSection(packages: any) {
 }
 
 /** Whether the text report shows `[Packages]`: only when there is something to say. */
+/** The `[Transcripts]` row (093 V.1): shown only when the registry is stale or drifted; never a finding. */
+function printTranscriptsSection(transcripts: any) {
+  if (transcripts.state === 'ok') return;
+  console.log('\n[Transcripts] — transcript locator registry; not blocking');
+  if (transcripts.state === 'drift') {
+    console.log('  transcripts.json  drift: the transcript feature is off');
+    for (const error of transcripts.errors) console.log(`    ${error}`);
+    return;
+  }
+  for (const item of transcripts.stale) console.log(`  ${item.harness.padEnd(18)}verifiedOn ${item.verifiedOn} (${item.ageDays} days ago): re-verify its locations`);
+}
+
 const packagesWorthShowing = (packages: any) => Boolean(packages.note || packages.grants.exists || packages.state.exists);
 
 const MCP_STATE_MARK: Record<string, any> = Object.freeze({
@@ -796,7 +809,7 @@ function nodeSecurityWarning(version: string): { kind: string, subject: string, 
   };
 }
 
-function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, execFileImpl, fsImpl = fs, detector, adapters, env = process.env, nodeVersion = process.version, homeDir, tmpDir }: any = {}) {
+function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, execFileImpl, fsImpl = fs, detector, adapters, env = process.env, nodeVersion = process.version, homeDir, tmpDir, now }: any = {}) {
   const root = repoRoot || REPO_ROOT;
   const registry = loadRegistry({ repoRoot: root });
   const activeRouter = router || new CapabilityRouter({ repoRoot: root, projectRoot });
@@ -901,6 +914,7 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
     project,
     mcp: mcpView({ registry, projectRoot, fsImpl, adapters }),
     packages: packagesView({ projectRoot, fsImpl, env, homeDir, tmpDir }),
+    transcripts: transcriptsDoctorView({ repoRoot: root, fsImpl, now }),
     findings,
     warnings,
     summary: {
@@ -1324,6 +1338,7 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
 
   printMcpSections(report.mcp);
   if (packagesWorthShowing(report.packages)) printPackagesSection(report.packages);
+  printTranscriptsSection(report.transcripts);
   printAdviceDoctor(adviceSections);
   printProfilesDoctor(profilesSection);
   printSettingsReport(settings);
