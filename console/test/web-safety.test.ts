@@ -449,3 +449,78 @@ test('layout E.1 r4: R4-4 the meta is one 20 px line so a badge row is 76 px; R3
   assert.equal(effective(rules, '.run-row[data-state="COMPLETED"] .run-row__sp', 'display', 360), 'none');
   assert.equal(effective(rules, '.run-row[data-state="COMPLETED"] .run-row__sp', 'display', 768), 'inline');
 });
+
+// ---- V.10: the Fleet files (IC-007, IC-026; design ui/V8.md) ---------------------------------------------------------
+
+/** The Fleet sources IC-026 names, plus the derivations that feed their words. */
+const FLEET_FILES = ['views/fleet.js', 'views/transcript.js', 'stream.js', 'derive/fleet.js'];
+const STATE_WORDS = /\b(active|online|idle)\b/i;
+const STORAGE_API = /\b(?:localStorage|sessionStorage|indexedDB|caches|CacheStorage|openDatabase)\b/;
+
+/** Findings of the Fleet copy and storage rules for one file's text, as `<file>:<line>: <rule>`. */
+function fleetFindings(file: string, source: string): string[] {
+  const found: string[] = [];
+  source.split('\n').forEach((line, index) => {
+    if (STATE_WORDS.test(line)) found.push(`${file}:${index + 1}: state-word`);
+    if (STORAGE_API.test(line)) found.push(`${file}:${index + 1}: storage-api`);
+  });
+  return found;
+}
+
+test('V.10: the Fleet files exist, pass IC-007, never say active, online or idle, and touch no storage API', () => {
+  for (const name of FLEET_FILES) assert.ok(fs.existsSync(path.join(WEB_ROOT, name)), `${name} exists`);
+  assert.deepEqual(scanDir(WEB_ROOT), [], 'IC-007 over the whole web root, the new files included');
+  for (const name of FLEET_FILES) assert.deepEqual(fleetFindings(name, fs.readFileSync(path.join(WEB_ROOT, name), 'utf8')), []);
+});
+
+test('V.10: the stream panel says its text is masked, best effort', () => {
+  const panel = fs.readFileSync(path.join(WEB_ROOT, 'views', 'transcript.js'), 'utf8');
+  assert.ok(panel.includes('masked, best effort'));
+});
+
+test('control: a planted state word, storage call or missing masked line turns the Fleet checks red', () => {
+  assert.deepEqual(fleetFindings('x.js', "mount(el, 'The agent is active');"), ['x.js:1: state-word']);
+  assert.deepEqual(fleetFindings('x.js', "h('p', {}, 'Online now');"), ['x.js:1: state-word']);
+  assert.deepEqual(fleetFindings('x.js', 'const idle = true;'), ['x.js:1: state-word']);
+  assert.deepEqual(fleetFindings('x.js', "globalThis.localStorage.setItem('t', text);"), ['x.js:1: storage-api']);
+  assert.deepEqual(fleetFindings('x.js', 'await caches.open("c");'), ['x.js:1: storage-api']);
+  assert.deepEqual(fleetFindings('x.js', "const text = 'a running process was seen at 10:41';"), []);
+  const panel = fs.readFileSync(path.join(WEB_ROOT, 'views', 'transcript.js'), 'utf8');
+  assert.ok(!panel.replaceAll('masked, best effort', 'masked').includes('masked, best effort'));
+  const copy = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-websafety-'));
+  tmp.push(copy);
+  fs.cpSync(WEB_ROOT, copy, { recursive: true });
+  fs.appendFileSync(path.join(copy, 'views', 'fleet.js'), "\nexport const bad = 'The agent is online';\nglobalThis.sessionStorage.setItem('t', 'x');\n");
+  assert.equal(fleetFindings('views/fleet.js', fs.readFileSync(path.join(copy, 'views', 'fleet.js'), 'utf8')).length, 2);
+});
+
+test('layout CD-B9 (V.10): below 768 the header is three rows with no menu: brand and pill, the nav across the width, the theme control; from 768 one row', () => {
+  const rules = cssRules(appCss);
+  assert.equal(effective(rules, '.site-header__inner', 'grid-template-areas', 360), '"brand conn" "nav nav" "theme theme"');
+  assert.equal(effective(rules, '.site-header__inner', 'grid-template-rows', 360), 'var(--header-h) auto 48px');
+  assert.equal(effective(rules, '.nav', 'justify-self', 360), 'stretch');
+  assert.equal(effective(rules, '.conn', 'justify-self', 360), 'end');
+  assert.equal(effective(rules, '.nav ul', 'flex-wrap', 359), 'wrap', 'the list may wrap as a fallback below 360');
+  assert.equal(effective(rules, '.site-header__inner', 'display', 768), 'flex');
+  assert.equal(effective(rules, '.nav ul', 'flex-wrap', 768), 'nowrap');
+  const html = fs.readFileSync(path.join(WEB_ROOT, 'index.html'), 'utf8');
+  assert.deepEqual([...html.matchAll(/class="nav__link" href="([^"]+)">([^<]+)</g)].map((m) => m[2]), ['Runs', 'Workflows', 'Sessions', 'Fleet']);
+  assert.ok(!/<button[^>]*menu/i.test(html), 'no menu button');
+});
+
+test('layout V.10: the project row, the Fleet grid and the sheet follow the bands of the design note', () => {
+  const rules = cssRules(appCss);
+  assert.equal(effective(rules, '.project-row', 'grid-template-areas', 360), '"name name" "agents agents" "models models" "traffic last"');
+  assert.equal(effective(rules, '.project-row', 'min-height', 360), '132px');
+  assert.equal(effective(rules, '.project-row', 'grid-template-areas', 768), '"name agents last" "models traffic last"');
+  assert.equal(effective(rules, '.project-row', 'min-height', 768), '76px');
+  assert.equal(effective(rules, '.project-row', 'grid-template-areas', 1280), '"name agents models traffic last"');
+  assert.equal(effective(rules, '.project-row', 'min-height', 1280), '64px');
+  assert.equal(effective(rules, '.fleet-grid', 'grid-template-columns', 360), 'minmax(0, 1fr)');
+  assert.equal(effective(rules, '.fleet-grid', 'grid-template-columns', 1280), 'repeat(12, minmax(0, 1fr))');
+  assert.equal(effective(rules, '.fleet-tree', 'grid-column', 1280), '1 / span 5');
+  assert.equal(effective(rules, '.fpanel', 'grid-column', 1280), '6 / span 7');
+  assert.equal(effective(rules, '.fleet-tree', 'grid-column', 1920), '1 / span 3');
+  assert.equal(effective(rules, '.fpanel', 'grid-column', 1920), '4 / span 6');
+  assert.equal(effective(rules, '.traffic__switch', 'display', 1920), 'none');
+});

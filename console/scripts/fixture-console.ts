@@ -6,7 +6,7 @@
 // on 127.0.0.1:0 against it, and prints the Console's one URL line on stdout. It is the only Console a
 // designer or a browser check may open. Everything else it says goes to stderr.
 //
-//   node console/scripts/fixture-console.ts --core <abs path to bin/doflow.js> [--empty] [--core-missing] [--keep] [--tick <seconds>]
+//   node console/scripts/fixture-console.ts --core <abs path to bin/doflow.js> [--empty] [--core-missing] [--keep] [--tick <seconds>] [--append <seconds>]
 //
 //   --empty          a project with no runs (the empty views)
 //   --core-missing   the Console boots against a symlink to the core so its handshake passes, and the
@@ -19,6 +19,8 @@
 //                    implementation). A line `tick` on stdin takes the same next step at once. The
 //                    steps end there: completing implementation needs a readiness record, which a
 //                    fixture does not make.
+//   --append <seconds> every <seconds> (and on a stdin line `append`), the appending writer adds a reply, a tool call and its
+//                    result to the Claude fixture transcript of the Fleet view; the Console shows them within a second.
 //
 // Ctrl-C (SIGINT) or SIGTERM stops the Console and removes the scratch directories (exact paths, all
 // under SCRATCH_ROOT) unless --keep.
@@ -28,6 +30,11 @@
 // (observe-model.sh through bridge.sh, session-context.sh) in the scratch HOME; a held slot with a dead holder, one
 // whose liveness is unknown and one held from a second project; a commit in the linked worktree newer than every
 // record there (outside DoFlow); and a second project whose sessions must never reach the Console.
+//
+// The Fleet view (V.10) has its own world, written into the same scratch HOME: a second DoFlow project (`beta`) next to the
+// Console's own, the synthetic transcript homes of V.2 (test/fixtures/transcripts/v8, one per harness, aimed at the Console's
+// project), hook sessions for four harnesses (claude with two subagents, codex, antigravity, opencode) and a one-file wrapper
+// around --core that lists the fixture projects (they sit under a temporary directory, which the real `fleet` verb hides).
 //
 // Two journal edits no verb can make, both through the record's own fields in the run's journal file:
 // the stale run's startedAt, updatedAt and history times are moved back 48 h (the core stamps the
@@ -52,7 +59,10 @@ const URL_LINE = /^doflow ui: http:\/\/127\.0\.0\.1:(\d+)\/#c=([0-9a-f]{64})\n/;
 const BOOT_MS = 30_000;
 const STOP_MS = 5_000;
 const HOUR = 60 * 60 * 1000;
-const USAGE = 'usage: fixture-console.ts --core <absolute path to bin/doflow.js> [--empty] [--core-missing] [--keep] [--tick <seconds>]';
+const USAGE = 'usage: fixture-console.ts --core <absolute path to bin/doflow.js> [--empty] [--core-missing] [--keep] [--tick <seconds>] [--append <seconds>]';
+const REPO = path.resolve(__dirname, '..', '..');
+/** The session ids of the V.2 transcript fixtures (test/fixtures/transcripts/v8): `<RAW>c001` is the Claude main session. */
+const RAW = 'fa000000-0000-4000-8000-00000000';
 
 /** Slug and task id of every run this script adds to the helper's five (SLUGS in core-fixture.ts). */
 const RUNS = Object.freeze({
@@ -128,6 +138,10 @@ type Handle = {
   scratch: string[],
   /** Takes the next step of the live run; the step's description, or null when none is left. */
   tick(): string | null,
+  /** The appending writer: adds a reply, a tool call and its result to the Claude fixture transcript; what it wrote, or null with no Fleet world. */
+  append(): string | null,
+  /** The Claude fixture transcript the writer appends to. */
+  transcript: string,
   stop(): Promise<void>,
 };
 
@@ -347,6 +361,93 @@ function addSessions(fixture: Fixture, core: string, call: (...args: string[]) =
   gitIn(fixture, linked, ['commit', '-q', '--allow-empty', '-m', 'outside doflow'], new Date(Date.now() + 60_000).toISOString());
 }
 
+const sha16 = (text: string): string => require('node:crypto').createHash('sha256').update(text).digest('hex').slice(0, 16);
+
+/** Text files under `dir` with `from` replaced by `to`; the OpenCode database files are left alone. */
+function retarget(dir: string, from: string, to: string) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) retarget(full, from, to);
+    else if (!entry.name.startsWith('opencode.db')) fs.writeFileSync(full, fs.readFileSync(full, 'utf8').split(from).join(to));
+  }
+}
+
+/** A session as the hooks leave it: a model observation at the checkout and a session directory with its git context. */
+function hookSession(store: string, harness: string, rawId: string, cwd: string) {
+  const top = fs.realpathSync(cwd);
+  const { cwdHash } = require(path.join(REPO, 'src', 'runtime', 'context', 'identity.ts'));
+  const dir = path.join(store, 'primary', cwdHash(top), harness);
+  fs.mkdirSync(dir, { recursive: true });
+  const observedAt = new Date(Date.now() - 60000).toISOString();
+  fs.writeFileSync(path.join(dir, `${sha16(rawId)}.json`), JSON.stringify({ schema: 1, harness, model: `${harness}-fixture-1`, event: 'SessionStart', observedAt, session: sha16(rawId) }));
+  const sessionDir = path.join(store, 'sessions', rawId);
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.writeFileSync(path.join(sessionDir, 'git-context.json'), JSON.stringify({ cwd: top, captured_at: observedAt, branch: 'main' }));
+}
+
+/**
+ * The Fleet world (V.10; IC-026): a second DoFlow project, one synthetic transcript home per harness aimed at the Console's
+ * project, hook sessions for four harnesses, and a wrapper core that lists the fixture projects. Only fixture files are read.
+ */
+function addFleet(fixture: Fixture, core: string) {
+  const { main } = fixture;
+  const alpha = fs.realpathSync(main);
+  const home = fixture.env.HOME;
+  const store = path.join(fixture.roots['config-home'], 'session-env');
+  const beta = path.join(fixture.dir, 'beta');
+  fs.mkdirSync(path.join(beta, '.doflow', 'state'), { recursive: true });
+  fs.writeFileSync(path.join(beta, 'README.md'), 'beta\n');
+  gitIn(fixture, beta, ['init', '-q', '-b', 'main']);
+  gitIn(fixture, beta, ['add', 'README.md']);
+  gitIn(fixture, beta, ['commit', '-q', '-m', 'fixture']);
+  // Both projects are listed by the hook-dir store.
+  for (const [name, cwd] of [['alpha', alpha], ['beta', fs.realpathSync(beta)]]) {
+    const dir = path.join(store, 'projects', sha16(name));
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({ cwd, last_active: new Date().toISOString() }));
+  }
+  const { V8_ROOT, LOCATION_ROOTS } = require(path.join(REPO, 'test', 'fixtures', 'transcripts', 'v8', 'scan.ts'));
+  for (const [harness, parts] of Object.entries(LOCATION_ROOTS) as Array<[string, string[]]>) {
+    const target = path.join(home, ...parts);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.cpSync(path.join(V8_ROOT, harness), target, { recursive: true });
+    retarget(target, '/work/fixture-project', alpha);
+  }
+  const piRoot = path.join(home, ...LOCATION_ROOTS.pi);
+  fs.renameSync(path.join(piRoot, '--work-fixture-project--'), path.join(piRoot, `--${alpha.replace(/^[\\/]/, '').replace(/[\\/:]/g, '-')}--`));
+  for (const [harness, suffix] of [['claude', 'c001'], ['codex', 'd001'], ['antigravity', 'b001'], ['opencode', '0c00']]) hookSession(store, harness, `${RAW}${suffix}`, alpha);
+  hookSession(store, 'claude', `${RAW}c0bb`, beta);
+
+  const wrapper = path.join(fixture.dir, 'fleet-core.js');
+  fs.writeFileSync(wrapper, [
+    "'use strict';",
+    'const argv = process.argv.slice(2);',
+    "if (argv[0] === 'fleet' && argv[1] === '--action' && argv[2] === 'projects') {",
+    `  const { handleFleetCommand } = require(${JSON.stringify(path.join(REPO, 'src', 'runtime', 'fleet', 'command.ts'))});`,
+    "  handleFleetCommand({ action: 'projects', json: argv.includes('--json'), flags: [], tempRoots: [] });",
+    '} else {',
+    `  require(${JSON.stringify(core)});`,
+    '}',
+    '',
+  ].join('\n'));
+
+  const transcript = path.join(home, ...LOCATION_ROOTS.claude, '-work-fixture-project', `${RAW}c001.jsonl`);
+  let appended = 0;
+  const append = () => {
+    appended += 1;
+    const at = () => new Date().toISOString();
+    const base = { sessionId: `${RAW}c001`, cwd: alpha };
+    const lines = [
+      { type: 'assistant', timestamp: at(), ...base, uuid: `fx-append-a${appended}`, message: { id: `msg_fx_append_${appended}`, role: 'assistant', model: 'claude-fixture-1', content: [{ type: 'text', text: `FIXTURE-APPEND-${appended} a reply written while the Console is open` }], usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } },
+      { type: 'assistant', timestamp: at(), ...base, uuid: `fx-append-b${appended}`, message: { id: `msg_fx_append_t${appended}`, role: 'assistant', model: 'claude-fixture-1', content: [{ type: 'tool_use', id: `toolu_fx_append_${appended}`, name: 'Read', input: { file_path: `notes-${appended}.txt` } }], usage: { input_tokens: 10, output_tokens: 5, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 } } },
+      { type: 'user', timestamp: at(), ...base, uuid: `fx-append-c${appended}`, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: `toolu_fx_append_${appended}`, content: 'FIXTURE-APPEND-RESULT', is_error: false }] } },
+    ];
+    fs.appendFileSync(transcript, lines.map((line) => JSON.stringify(line)).join('\n') + '\n');
+    return `FIXTURE-APPEND-${appended}`;
+  };
+  return { wrapper, transcript, append, env: { CLAUDE_CONFIG_DIR: '', CODEX_HOME: '', COPILOT_HOME: '', PI_CODING_AGENT_SESSION_DIR: '' } };
+}
+
 /** Zero runs: both stores the helper wrote to (the main checkout and its linked worktree) are emptied. */
 function dropRuns(fixture: Fixture) {
   for (const root of [fixture.main, fixture.linked]) fs.rmSync(path.join(root, '.doflow', 'state', 'orchestration'), { recursive: true, force: true });
@@ -379,10 +480,11 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
       steps = addRuns(fixture, options.core);
       fixture.runs.push(...Object.values(RUNS).map((run) => ({ taskId: run.taskId, slug: run.slug, state: '' })));
     }
+    const fleet = addFleet(fixture, options.core);
 
     // A symlink to the core, removed after boot: the handshake passes, the runner's file check then fails.
     let linkDir: string | null = null;
-    let corePath = options.core;
+    let corePath = fleet.wrapper;
     if (options.coreMissing) {
       linkDir = fs.mkdtempSync(path.join(SCRATCH_ROOT, 'doflow-ui-core-'));
       scratch.push(linkDir);
@@ -391,7 +493,7 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
       cleanups.push(() => fs.rmSync(linkDir as string, { recursive: true, force: true }));
     }
 
-    const child = spawn(process.execPath, [BIN, '--core', corePath, '--project', fixture.main, '--port', '0'], { cwd: fixture.main, env: fixture.env, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [BIN, '--core', corePath, '--project', fixture.main, '--port', '0'], { cwd: fixture.main, env: { ...fixture.env, ...fleet.env }, stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '';
     let err = '';
     const exited = new Promise<number | null>((resolve) => child.on('exit', (code: number | null) => resolve(code)));
@@ -419,6 +521,8 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
       env: fixture.env,
       runs: fixture.runs,
       scratch,
+      transcript: fleet.transcript,
+      append: () => fleet.append(),
       tick() {
         if (next >= steps.length) return null;
         const step = steps[next];
@@ -442,22 +546,22 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
   }
 }
 
-type Flags = { core: string, empty: boolean, coreMissing: boolean, keep: boolean, tick: number | null };
+type Flags = { core: string, empty: boolean, coreMissing: boolean, keep: boolean, tick: number | null, append: number | null };
 
 function parseFlags(argv: readonly string[]): Flags | { error: string } {
-  const flags: Flags = { core: '', empty: false, coreMissing: false, keep: false, tick: null };
+  const flags: Flags = { core: '', empty: false, coreMissing: false, keep: false, tick: null, append: null };
   for (let index = 0; index < argv.length; index += 1) {
     const name = argv[index];
     if (name === '--empty') flags.empty = true;
     else if (name === '--core-missing') flags.coreMissing = true;
     else if (name === '--keep') flags.keep = true;
-    else if (name === '--core' || name === '--tick') {
+    else if (name === '--core' || name === '--tick' || name === '--append') {
       const value = argv[index + 1];
       if (value === undefined) return { error: `${name} needs a value` };
       index += 1;
       if (name === '--core') flags.core = value;
-      else if (/^\d+(\.\d+)?$/.test(value) && Number(value) > 0) flags.tick = Number(value);
-      else return { error: '--tick needs a positive number of seconds' };
+      else if (/^\d+(\.\d+)?$/.test(value) && Number(value) > 0) flags[name === '--tick' ? 'tick' : 'append'] = Number(value);
+      else return { error: `${name} needs a positive number of seconds` };
     } else return { error: `unknown argument ${JSON.stringify(name)}` };
   }
   if (flags.core === '') return { error: '--core is required' };
@@ -494,10 +598,19 @@ async function main(argv: readonly string[]): Promise<number> {
   };
   const timer = flags.tick === null ? null : setInterval(() => { if (!tick()) clearInterval(timer as any); }, flags.tick * 1000);
   process.stdin.setEncoding('utf8');
-  process.stdin.on('data', (chunk: string) => { for (const line of chunk.split('\n')) if (line.trim() === 'tick') tick(); });
+  const appendOnce = () => {
+    try {
+      log(`appended ${app.append()}`);
+    } catch (error: any) {
+      log(`append failed: ${error && error.message ? error.message : error}`);
+    }
+  };
+  const writer = flags.append === null ? null : setInterval(appendOnce, flags.append * 1000);
+  process.stdin.on('data', (chunk: string) => { for (const line of chunk.split('\n')) { if (line.trim() === 'tick') tick(); else if (line.trim() === 'append') appendOnce(); } });
   return new Promise<number>((resolve) => {
     const shutdown = () => {
       if (timer !== null) clearInterval(timer);
+      if (writer !== null) clearInterval(writer);
       process.stdin.pause();
       app.stop().then(() => resolve(0), () => resolve(1));
     };

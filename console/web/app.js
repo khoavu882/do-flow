@@ -229,8 +229,21 @@ function bodyContent(view) {
   if (!view.hasData || holding) {
     return { key: `loading:${view.skeletonShown}`, nodes: () => renderLoading({ noun: spec.noun, skeleton: spec.skeleton, showSkeleton: view.skeletonShown }), busy: true };
   }
-  if (spec.isEmpty(view.data)) return { key: 'empty', nodes: () => renderEmpty(spec.empty) };
-  return { key: `data:${view.dataText}`, nodes: () => spec.render(view.data, view.route.params, view.local) };
+  if (spec.isEmpty(view.data, view.route.params)) {
+    // `empty` may be a function of the data (the Fleet list has two empty panels).
+    const empty = typeof spec.empty === 'function' ? spec.empty(view.data) : spec.empty;
+    return { key: typeof spec.empty === 'function' ? `empty:${empty.title}` : 'empty', nodes: () => renderEmpty(empty) };
+  }
+  return { key: loadedKey(view), nodes: () => spec.render(view.data, view.route.params, view.local) };
+}
+
+/**
+ * The paint key of a loaded body. A `live: true` view (V.10) has one key for as long as it is loaded: it is mounted once and
+ * every later change of its data reaches `spec.update`, so scroll, focus and open disclosures survive (V8 7b.2, N-6).
+ * @param {any} view
+ */
+function loadedKey(view) {
+  return view.route.view.live === true ? 'data:live' : `data:${view.dataText}`;
 }
 
 /**
@@ -362,7 +375,7 @@ function refreshStatus() {
   if (view) updateCountdowns(view, now);
   refreshReltimes(mainEl(), now);
   const spec = view && view.route.view;
-  if (spec && spec.tick && view.hasData && !app.fatal && view.painted === `data:${view.dataText}`) spec.tick(mainEl(), now, view.local);
+  if (spec && spec.tick && view.hasData && !app.fatal && view.painted === loadedKey(view)) spec.tick(mainEl(), now, view.local);
 }
 
 function startTick() {
@@ -430,7 +443,7 @@ function startView(route, { first = false, animate = false, focus = true } = {})
   app.view = view;
   globalThis.document.title = titleFor(route);
   const navHref = navFor(route);
-  setNav(navHref === null ? null : navHref === 'workflows' ? '#/workflows' : navHref === 'sessions' ? '#/sessions' : '#/');
+  setNav(navHref === null ? null : navHref === 'workflows' ? '#/workflows' : navHref === 'sessions' ? '#/sessions' : navHref === 'fleet' ? '#/fleet' : '#/');
   paint(view);
   if (!first && focus) {
     globalThis.scrollTo(0, 0);
@@ -480,6 +493,19 @@ function startHeartbeat(view) {
 function startPoller(view, path, intervalMs, heartbeat) {
   if (view.poller) view.poller.stop();
   view.heartbeat = heartbeat;
+  const spec = view.route.view;
+  if (!heartbeat && typeof spec.connect === 'function') {
+    // A live view reads through a stream of its own (stream.js) that answers the poller interface, so the pill, the stale
+    // banner and "Try again" work unchanged.
+    const stream = spec.connect(view.local, view.route.params, {
+      fetchJson: apiGet,
+      onData: (/** @type {any} */ body) => onData(view, body, false),
+      onFailure: (/** @type {any} */ error) => onFail(view, error, false),
+    });
+    view.poller = stream;
+    stream.start();
+    return;
+  }
   const poller = createPoller({
     fetchOnce: () => (!heartbeat && view.route.view.load ? view.route.view.load(view.local, apiGet) : apiGet(path)),
     intervalMs,
@@ -534,7 +560,13 @@ function onData(view, body, heartbeat) {
     view.skeletonTimer = null;
   }
   globalThis.document.title = titleFor(view.route, body);
-  if (changed) paint(view);
+  const spec = view.route.view;
+  if (changed && spec.live === true && view.painted === loadedKey(view) && view.root && mainEl().contains(view.root) && !spec.isEmpty(body, view.route.params)) {
+    // A live view is patched, never re-mounted (N-6).
+    spec.update(view.local, body, view.route.params);
+    updateMeta(view);
+    refreshStatus();
+  } else if (changed) paint(view);
   else refreshStatus();
 }
 
@@ -705,7 +737,22 @@ function boot() {
       });
     }
     renderPill(app.els.conn, { state: 'unknown', long: 'Connecting', short: 'Connecting' });
-    globalThis.addEventListener('hashchange', () => startView(parseRoute(globalThis.location.hash), { first: false, animate: true }));
+    globalThis.addEventListener('hashchange', () => {
+      const route = parseRoute(globalThis.location.hash);
+      const view = app.view;
+      const spec = route.view;
+      if (view && !app.fatal && view.hasData && typeof spec.reroute === 'function' && view.route.view === spec && view.painted === loadedKey(view)
+        && /** @type {any} */ (view.route.params).project === /** @type {any} */ (route.params).project) {
+        // Between two routes of one live view (the selected agent changed): the body is kept, so the focus stays.
+        view.route = route;
+        globalThis.document.title = titleFor(route, view.data);
+        spec.reroute(view.local, route.params, view.data);
+        updateMeta(view);
+        refreshStatus();
+        return;
+      }
+      startView(route, { first: false, animate: true });
+    });
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) stopTick();
       else {

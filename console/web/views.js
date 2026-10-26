@@ -12,6 +12,10 @@ import { renderWorkflows } from './views/workflows.js';
 import { deriveSessions } from './derive/sessions.js';
 import { runStepCopy } from './derive/rail.js';
 import { workflowsOf } from './derive/workflows.js';
+import {
+  connectFleet, tickFleet, teardownFleet, renderFleetList, updateFleetList, listMeta, listEmpty, buildProjectHead, renderProject, updateProject,
+  rerouteProject, projectMeta, projectTitle, skeletonFleetList, skeletonFleetProject,
+} from './views/fleet.js';
 
 /**
  * The core range this Console needs. IC-005 sends no range, so this is a client literal; client-core.test.ts
@@ -21,6 +25,9 @@ const CORE_RANGE = '>=2.0.0-beta.7 <3.0.0';
 
 /** IC-003's parameter pattern: a route parameter failing it is not-found before any fetch. */
 const PARAM_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** The Fleet keys of IC-019 and IC-020: 16 lower-case hex. */
+const KEY16 = /^[0-9a-f]{16}$/;
 
 const PRODUCT = 'DoFlow Console';
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -108,7 +115,10 @@ const sessionsKey = (data) => JSON.stringify([data, deriveSessions(data, Date.no
  * path it reads, or null; `pollMs`; `wide`; `skeleton`; `head(params)` the h1; `meta(params, data, nowMs)`;
  * `render(data, params, local)` where `local` is the view instance's own memory; `isEmpty(data)`; `empty`;
  * `title(params, data)`. Optional: `load(local, apiGet)` reads more than `api` names; `dataKey(data)` decides when
- * the body is re-mounted; `tick(root, nowMs, local)` runs on the shell's 1 s timer.
+ * the body is re-mounted; `tick(root, nowMs, local)` runs on the shell's 1 s timer. A `live: true` view (V.10, the Fleet
+ * views) is mounted once and then patched: `connect(local, params, hooks)` returns a poller-shaped object over a stream,
+ * `update(local, data, params)` patches the mounted body, `reroute(local, params, data)` moves between routes of one view
+ * without a re-mount (the selected agent changed), and `empty` may be a function of the data.
  */
 /** @type {Record<string, any>} */
 const VIEWS = Object.freeze({
@@ -205,6 +215,47 @@ const VIEWS = Object.freeze({
     },
     title: () => 'Workflows',
   },
+  fleet: {
+    id: 'fleet',
+    noun: 'projects',
+    // IC-025: the fleet body is built from these shapes by the server; each project section carries its own ok or code.
+    shapes: ['projects', 'tree', 'traffic'],
+    api: () => '/api/fleet',
+    live: true,
+    connect: connectFleet,
+    update: (/** @type {any} */ local, /** @type {any} */ data) => updateFleetList(local, data),
+    tick: tickFleet,
+    teardown: teardownFleet,
+    pollMs: 5000,
+    wide: true,
+    skeleton: skeletonFleetList,
+    head: () => ({ text: 'Fleet', mono: false }),
+    meta: listMeta,
+    render: renderFleetList,
+    isEmpty: (/** @type {any} */ data) => data.store === 'absent' || data.projects.length === 0,
+    empty: listEmpty,
+    title: () => 'Fleet',
+  },
+  'fleet-project': {
+    id: 'fleet-project',
+    noun: 'this project',
+    shapes: ['projects', 'tree', 'transcript', 'traffic'],
+    api: () => '/api/fleet',
+    live: true,
+    connect: connectFleet,
+    update: (/** @type {any} */ local, /** @type {any} */ data, /** @type {any} */ params) => updateProject(local, data, params),
+    reroute: rerouteProject,
+    tick: tickFleet,
+    teardown: teardownFleet,
+    pollMs: 5000,
+    wide: true,
+    skeleton: skeletonFleetProject,
+    head: (/** @type {any} */ params) => ({ text: 'Project', mono: true, build: () => buildProjectHead(params) }),
+    meta: projectMeta,
+    render: renderProject,
+    isEmpty: () => false,
+    title: projectTitle,
+  },
   'not-found': {
     id: 'not-found',
     noun: 'this page',
@@ -237,7 +288,13 @@ function parseRoute(hash) {
   if (path === '/') return { id: 'runs', params: {}, view: VIEWS.runs };
   if (path === '/workflows') return { id: 'workflows', params: {}, view: VIEWS.workflows };
   if (path === '/sessions') return { id: 'sessions', params: {}, view: VIEWS.sessions };
+  if (path === '/fleet') return { id: 'fleet', params: {}, view: VIEWS.fleet };
   const parts = path.split('/'); // ['', 'run', slug, taskId, 'tasks'?]
+  if (parts[1] === 'fleet') {
+    // '', 'fleet', project, agent?: the keys of IC-019 and IC-020, nothing else (no path, label or session id is ever in a URL).
+    if (parts.length < 3 || parts.length > 4 || !KEY16.test(parts[2]) || (parts.length === 4 && !KEY16.test(parts[3]))) return notFound;
+    return { id: 'fleet-project', params: parts.length === 4 ? { project: parts[2], agent: parts[3] } : { project: parts[2] }, view: VIEWS['fleet-project'] };
+  }
   if (parts[1] !== 'run' || parts.length < 4 || parts.length > 5) return notFound;
   const [slug, taskId] = [parts[2], parts[3]];
   if (!PARAM_PATTERN.test(slug) || !PARAM_PATTERN.test(taskId)) return notFound;
@@ -257,12 +314,14 @@ function titleFor(route, data = null) {
 }
 
 /**
- * Which nav link is current: Runs on `#/` and every `#/run/...`, Workflows on `#/workflows`, Sessions on `#/sessions`, else none.
+ * Which nav link is current: Runs on `#/` and every `#/run/...`, Workflows on `#/workflows`, Sessions on `#/sessions`, Fleet on
+ * every `#/fleet...`, else none.
  * @param {any} route
  */
 function navFor(route) {
   if (route.id === 'workflows' || route.id === 'sessions') return route.id;
+  if (route.id === 'fleet' || route.id === 'fleet-project') return 'fleet';
   return route.id === 'not-found' ? null : 'runs';
 }
 
-export { CORE_RANGE, PARAM_PATTERN, VIEWS, SHAPES_USED, parseRoute, titleFor, navFor, badge, awaitingCount };
+export { CORE_RANGE, PARAM_PATTERN, KEY16, VIEWS, SHAPES_USED, parseRoute, titleFor, navFor, badge, awaitingCount };

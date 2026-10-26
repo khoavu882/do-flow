@@ -151,7 +151,8 @@ test('the Sessions fixture: two checkouts, hook records from the real scripts, a
   assert.equal(codex.harness, 'codex');
   assert.equal(codex.startedAt, null, 'an observation with no session directory');
   assert.ok(sessions.some((entry: any) => entry.kind === 'launched' && entry.launched.run === 'run-two' && entry.launched.lineage === 'lin2'));
-  assert.equal(sessions.filter((entry: any) => entry.kind === 'hook').length, 2, 'the second project\'s session is not listed');
+  // Two Sessions hook sessions, and the four of the Fleet world (V.10: claude, codex, antigravity, opencode); the second projects' sessions are not listed.
+  assert.equal(sessions.filter((entry: any) => entry.kind === 'hook').length, 6, 'the other projects\' sessions are not listed');
   const text = JSON.stringify(reply.json);
   assert.ok(!text.includes(key('fixture-session-other-RAWID-3')) && !text.includes('RAWID'), 'no key of another project, no raw session id');
 
@@ -224,8 +225,8 @@ test('every scratch directory is made under SCRATCH_ROOT and is gone after stop'
 });
 
 test('--core must be an absolute path to an existing file', () => {
-  assert.deepEqual(Object.keys(parseFlags(['--core', CORE_CLI, '--empty', '--core-missing', '--keep', '--tick', '2'])).sort(), ['coreMissing', 'core', 'empty', 'keep', 'tick'].sort());
-  for (const argv of [[], ['--core', 'relative/doflow.js'], ['--core', path.join(path.dirname(CORE_CLI), 'no-such.js')], ['--core', CORE_CLI, '--bogus'], ['--core', CORE_CLI, '--tick', '0']]) {
+  assert.deepEqual(Object.keys(parseFlags(['--core', CORE_CLI, '--empty', '--core-missing', '--keep', '--tick', '2', '--append', '1'])).sort(), ['append', 'coreMissing', 'core', 'empty', 'keep', 'tick'].sort()); // V.10 adds --append
+  for (const argv of [[], ['--core', 'relative/doflow.js'], ['--core', path.join(path.dirname(CORE_CLI), 'no-such.js')], ['--core', CORE_CLI, '--bogus'], ['--core', CORE_CLI, '--tick', '0'], ['--core', CORE_CLI, '--append', '0']]) {
     assert.ok('error' in parseFlags(argv), `refused: ${argv.join(' ')}`);
   }
 });
@@ -246,4 +247,43 @@ test('each tick takes the next step of the live run, then reports none left', { 
   assert.equal(running.state, 'RUNNING');
   assert.equal(running.current.id, 'implementation');
   assert.equal(full.tick(), null);
+});
+
+test('the Fleet fixture (V.10): two projects, the harness homes, nodes with their transcript notes, and the appending writer', async () => {
+  const listed = await fullApi.get('/api/fleet');
+  assert.equal(listed.status, 200);
+  const body = listed.json;
+  assert.equal(body.store, 'present');
+  assert.deepEqual(body.projects.map((p: any) => [p.label, p.current]), [['main', true], ['beta', false]], 'the Console\'s project first, then the second');
+  assert.ok(body.excluded.notDoflow >= 1, 'the Sessions fixture\'s second repository has no DoFlow state and is counted');
+  const [alpha, beta] = body.projects;
+  assert.equal(alpha.tree.ok, true);
+  assert.equal(beta.tree.ok, true);
+  const nodes = alpha.tree.data.nodes;
+  const by = (harness: string) => nodes.filter((n: any) => n.harness === harness);
+  assert.ok(by('claude').length >= 3, 'the Claude main session and its two subagents');
+  assert.ok(nodes.some((n: any) => n.kind === 'harness-subagent' && n.harness === 'claude'));
+  assert.equal(by('opencode')[0].transcript.reason, 'no-reader');
+  assert.equal(by('antigravity')[0].transcript.reason, 'not-linked');
+  assert.ok(nodes.some((n: any) => n.transcript.linked), 'a transcript is linked');
+  assert.equal(beta.tree.data.nodes.length >= 1, true);
+  const text = JSON.stringify(body);
+  for (const marker of ['/work/fixture-project', 'fa000000', 'fx-Secret-4471', 'fixture.person@example.invalid', full.project, full.dir]) assert.ok(!text.includes(marker), `no ${marker} in the Fleet body`);
+
+  // The appending writer: a reply, a tool call and its result show in the transcript within one read.
+  const agent = nodes.find((n: any) => n.harness === 'claude' && n.kind === 'main-session' && n.transcript.linked);
+  assert.ok(agent, 'the Claude main session is linked to its transcript');
+  const url = `/api/transcript?project=${alpha.projectKey}&agent=${agent.agentKey}`;
+  const first = await fullApi.get(url);
+  assert.equal(first.status, 200);
+  const before = JSON.stringify(first.json.events);
+  assert.ok(!before.includes('FIXTURE-APPEND-1'));
+  const wrote = full.append();
+  assert.equal(wrote, 'FIXTURE-APPEND-1');
+  const second = await fullApi.get(`${url}&cursor=${encodeURIComponent(first.json.cursor)}`);
+  assert.equal(second.status, 200);
+  const replies = second.json.events.filter((e: any) => e.kind === 'reply').map((e: any) => e.text);
+  assert.ok(replies.some((t: string) => t.includes('FIXTURE-APPEND-1')), `the appended reply is read from the old cursor: ${JSON.stringify(replies)}`);
+  assert.ok(second.json.events.some((e: any) => e.kind === 'tool-call'));
+  assert.ok(!JSON.stringify(second.json).includes('FIXTURE-APPEND-RESULT'), 'tool-result text never arrives');
 });
