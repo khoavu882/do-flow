@@ -110,6 +110,7 @@ function pairs(): Array<[string, string, number]> {
     for (const fg of ['focus', 'border-strong']) list.push([`--${fg}`, `--${surface}`, 3]);
   }
   list.push(['--accent', '--accent-tint', 4.5], ['--text', '--accent-tint', 4.5], ['--on-accent', '--accent', 4.5]);
+  list.push(['--accent', '--state-awaiting-tint', 4.5]); // CD-B10: the links on the Sessions conflict bar
   for (const state of STATES) {
     const fg = `--state-${state}-fg`;
     const mark = `--state-${state}-mark`;
@@ -169,8 +170,8 @@ function checkTokens(css: string): string[] {
 
 const shipped = fs.readFileSync(TOKENS_FILE, 'utf8');
 
-test('the shipped tokens.css conforms: every token, dark parity, and all 244 contrast pairs', () => {
-  assert.equal(pairs().length, 122, '122 pairs per theme (design-system 3)');
+test('the shipped tokens.css conforms: every token, dark parity, and all 246 contrast pairs', () => {
+  assert.equal(pairs().length, 123, '123 pairs per theme (design-system 3, with the CD-B10 pair)');
   assert.deepEqual(checkTokens(shipped), []);
 });
 

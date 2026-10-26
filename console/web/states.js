@@ -7,12 +7,15 @@ import { h, mount, icon, announce } from './dom.js';
 // ---- time -------------------------------------------------------------------------------------------
 
 /**
- * Whole seconds under a minute, then whole minutes: "12 s", "3 min".
+ * Whole seconds under a minute, then whole minutes, then hours from 60 min and days from 24 h: "12 s", "3 min", "5 h", "2 d".
  * @param {any} ms
  */
 function ageUnits(ms) {
   const seconds = Math.max(0, Math.floor(ms / 1000));
-  return seconds < 60 ? `${seconds} s` : `${Math.floor(seconds / 60)} min`;
+  if (seconds < 60) return `${seconds} s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min`;
+  return minutes < 1440 ? `${Math.floor(minutes / 60)} h` : `${Math.floor(minutes / 1440)} d`;
 }
 
 /**

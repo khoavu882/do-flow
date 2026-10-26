@@ -36,6 +36,9 @@ before(async () => {
     poll: await import(url('poll.js')),
     states: await import(url('states.js')),
     views: await import(url('views.js')),
+    derive: await import(url('derive/rail.js')),
+    home: await import(url('views/home.js')),
+    railView: await import(url('views/rail.js')),
   };
 });
 after(() => { fs.rmSync(copy, { recursive: true, force: true }); });
@@ -149,6 +152,11 @@ class El {
     return out;
   }
   querySelector(selector: string) { return this.querySelectorAll(selector)[0] ?? null; }
+  closest(selector: string) {
+    const c = compound(selector);
+    for (let n: any = this; n; n = n.parent) if (n instanceof El && n.matches(c)) return n;
+    return null;
+  }
 }
 
 /** Every element and text node of the tree under `node`, tags only for elements. */
@@ -712,14 +720,17 @@ test('router: a route change sets the title and the current link, and moves focu
   assert.equal(page.calls.slice(before).filter((c) => c.url.startsWith('/api/runs')).length, 0, 'no fetch for an invalid parameter');
 });
 
-test('run head: the meta line holds one element per item, so no two texts merge into one flex item', async () => {
+test('run head (CD-B8 replaces the D.2 meta order): badge, workflow name, started, revision, updated, one element per item with separators between', async () => {
   const page = await start({ hash: '#/run/feat-a/run-1', fetch: (target, init) => (target === '/api/runs/feat-a/run-1'
     ? reply(200, { v: 1, run: { ...row('RUNNING'), revision: 5, updatedAt: null }, timeline: {}, tasks: null, workflow: {} }) : standard(target, init)) });
   const meta = page.main.querySelector('.view-head__meta');
   assert.ok(meta);
-  assert.deepEqual(meta.children.map((c: any) => c instanceof El), [true, true, true, true], 'no bare text node among the items');
-  assert.deepEqual(meta.children.map((c: any) => text(c)), ['feature', 'Running', 'revision 5', 'Update time unknown']);
-  assert.ok(meta.children[1].classList.contains('badge'));
+  assert.ok(meta.children.every((c: any) => c instanceof El), 'no bare text node among the items');
+  const items = meta.children.filter((c: El) => c.getAttribute('aria-hidden') !== 'true');
+  assert.deepEqual(items.map((c: any) => text(c)), ['Running', 'feature', 'revision 5', 'Update time unknown']);
+  assert.ok(items[0].classList.contains('badge'));
+  assert.equal(meta.children.length, items.length * 2 - 1, 'a separator sits between every two items');
+  assert.ok(meta.children.filter((c: El) => c.getAttribute('aria-hidden') === 'true').every((c: El) => text(c) === '·'));
 });
 
 test('router: the old view stops polling when the route changes', async () => {
@@ -928,4 +939,763 @@ test('safety: hostile strings from the API reach the page as text only', async (
     ? reply(200, { v: 1, run: { ...row('RUNNING'), taskClass: hostile, updatedAt: null }, timeline: {}, tasks: null, workflow: {} }) : standard(target, init)) });
   assert.match(text(page.main), /<img src=x onerror=alert\(1\)><script>alert\(2\)<\/script>/);
   assert.ok(!tags(page.main).includes('img') && !tags(page.main).includes('script'));
+});
+
+// ---- E.1: the runs home and the stage rail (design note E.1) --------------------------------------------------
+// Rows are built inside the fetch callbacks (`() => [...]`), after start() has put Date on mock time.
+
+/** Identity check that does not print the (cyclic) element tree when it fails. */
+const same = (a: unknown, b: unknown, message: string) => assert.ok(a === b, message);
+const MIN_MS = 60_000;
+const agoIso = (ms: number) => new Date(Date.now() - ms).toISOString();
+const stageDef = (id: string, gatesAfter: any[] = [], optional = false) => ({ id, kind: id, optional, skill: `do-${id}`, agent: 'delivery-lead', purpose: `Purpose of ${id}.`, gatesAfter });
+const gateDef = (id: string, kind: string) => ({ id, name: `Name of ${id}`, kind, trigger: kind === 'approval' ? 'always' : 'unresolved-clarifications', prompt: `Prompt of ${id}.` });
+// discovery, gate-0 (clarification), design, planning, gate-a (approval): five nodes
+const WF_FEATURE = { taskClass: 'feature', name: 'Feature Delivery', stages: [stageDef('discovery', [gateDef('gate-0', 'clarification')]), stageDef('design'), stageDef('planning', [gateDef('gate-a', 'approval')])] };
+const WF_DOC = { taskClass: 'documentation', name: 'Documentation', stages: [stageDef('authoring'), stageDef('verification', [], true), stageDef('review', [], true)] };
+const WORKFLOWS = { v: 1, workflows: [WF_FEATURE, WF_DOC] };
+const PROGRAM: Array<[string, string]> = [['stage', 'discovery'], ['gate', 'gate-0'], ['stage', 'design'], ['stage', 'planning'], ['gate', 'gate-a']];
+
+/** A feature run row with the cursor on node `cursor` (5 = COMPLETED). */
+function frow(taskId: string, cursor: number, over: any = {}) {
+  const done = cursor >= 5;
+  const [type, id] = done ? [null, null] : PROGRAM[cursor];
+  const state = done ? 'COMPLETED' : type === 'gate' ? 'AWAITING_GATE' : 'RUNNING';
+  return {
+    taskId, featureSlug: 'feat-a', taskClass: 'feature', workflowName: 'Feature Delivery', state,
+    current: done ? null : { type, id, kind: type === 'gate' ? (id === 'gate-0' ? 'clarification' : 'approval') : id },
+    awaitingGate: state === 'AWAITING_GATE' ? { gateId: id } : null, progress: { done: cursor, total: 5 },
+    revision: 1, startedAt: agoIso(3_600_000), updatedAt: agoIso(MIN_MS), origin: 'current', ...over,
+  };
+}
+const body = (runs: any[], unreadableCount = 0) => ({ v: 1, runs, unreadableCount });
+const rowsOf = (page: Page) => page.main.querySelectorAll('.run-row');
+const linkText = (r: El) => text(r.querySelector('.run-row__link') ?? r.querySelector('.run-row__id'));
+const rowOf = (page: Page, title: string) => rowsOf(page).find((r) => linkText(r) === title)!;
+const cardsOf = (page: Page) => page.main.querySelectorAll('.gate-card');
+const cardId = (c: El) => c.querySelector('.gate-card__id').children.filter((x: El) => !x.classList.contains('tag')).map(text).join('');
+const cardOf = (page: Page, title: string) => cardsOf(page).find((c) => cardId(c) === title)!;
+const homeFetch = (current: () => any, workflows: () => Reply = () => reply(200, WORKFLOWS)) => (target: string, init: any) => {
+  if (target === '/api/runs') return reply(200, current());
+  if (target === '/api/workflows') return workflows();
+  return standard(target, init);
+};
+
+test('E.1 home: Needs you first and oldest first, then Running and Finished newest first; flat and other-checkout rows are marked', async () => {
+  mods.home.resetHome();
+  const runs = () => [
+    frow('w-new', 4, { updatedAt: agoIso(10 * MIN_MS) }), frow('w-old', 1, { updatedAt: agoIso(30 * MIN_MS) }),
+    frow('r-old', 2, { updatedAt: agoIso(5 * MIN_MS) }), frow('r-new', 0, { updatedAt: agoIso(MIN_MS) }),
+    frow('f-1', 5, { updatedAt: agoIso(60 * MIN_MS) }), frow('f-2', 1, { state: 'REJECTED', updatedAt: agoIso(20 * MIN_MS) }),
+    frow('flat-1', 0, { featureSlug: null, updatedAt: agoIso(9 * MIN_MS) }), frow('other-1', 2, { origin: 'other', updatedAt: agoIso(7 * MIN_MS) }),
+  ];
+  const page = await start({ hash: '', fetch: homeFetch(() => body(runs(), 1)) });
+  const sections = page.main.querySelectorAll('.run-section');
+  assert.deepEqual(sections.map((s) => s.getAttribute('data-section')), ['needs', 'running', 'finished']);
+  assert.deepEqual(sections.map((s) => text(s.querySelector('.run-section__title'))), ['Needs you2', 'Running4', 'Finished2']);
+  const order = (section: El) => section.querySelectorAll('.run-row').map(linkText);
+  // CD-B1: the Needs you section is gate cards, not rows; the oldest wait is first.
+  assert.deepEqual(sections[0].querySelectorAll('.gate-card').map(cardId), ['feat-a / w-old', 'feat-a / w-new']);
+  assert.equal(sections[0].querySelectorAll('.run-row').length, 0);
+  assert.deepEqual(order(sections[1]), ['feat-a / r-new', 'feat-a / r-old', 'feat-a / other-1', 'flat-1']);
+  assert.deepEqual(order(sections[2]), ['feat-a / f-2', 'feat-a / f-1']);
+  const flat = rowOf(page, 'flat-1');
+  assert.equal(flat.getAttribute('data-openable'), 'false');
+  assert.equal(flat.querySelector('a'), null, 'a flat run is not a link and so not a tab stop');
+  assert.deepEqual(flat.querySelectorAll('.tag').map(text), ['No feature folder']);
+  assert.match(text(flat.querySelector('.run-row__desc')), /This run has no feature folder, so it cannot be opened here\.$/);
+  const other = rowOf(page, 'feat-a / other-1');
+  assert.deepEqual(other.querySelectorAll('.tag').map(text), ['Other checkout']);
+  assert.equal(other.querySelector('.run-row__link').getAttribute('href'), '#/run/feat-a/other-1');
+  assert.ok(rowsOf(page).every((r) => r.getAttribute('data-attention') === null), 'CD-B1 removed the left bar and data-attention from rows');
+  const note = page.main.querySelector('.view-note');
+  assert.equal(text(note), '1 run could not be read.');
+  assert.equal(note.parent.children.at(-1), note, 'the unreadable note comes after the last section');
+  assert.equal(page.doc.title, '(2) Runs · DoFlow Console');
+});
+
+test('E.1 home: each row draws a compact rail of its class, hidden from assistive technology, with the description read on focus', async () => {
+  mods.home.resetHome();
+  const runs = () => [frow('w1', 4), frow('d1', 1, { state: 'RUNNING', taskClass: 'documentation', workflowName: 'Documentation', progress: { done: 1, total: 3 }, current: { type: 'stage', id: 'verification', kind: 'verification' } })];
+  const page = await start({ hash: '', fetch: homeFetch(() => body(runs())) });
+  const rails = page.main.querySelectorAll('.rail--compact');
+  assert.deepEqual(rails.map((r) => r.children.length).sort(), [3, 5]);
+  assert.ok(rails.every((r) => r.getAttribute('aria-hidden') === 'true'));
+  const feature = cardOf(page, 'feat-a / w1').querySelector('.rail--compact');
+  assert.ok(feature.classList.contains('rail--lg'), 'the gate card draws the large variant');
+  assert.deepEqual(feature.children.map((g: El) => [g.getAttribute('data-type'), g.getAttribute('data-state')]), [['stage', 'done'], ['gate', 'done'], ['stage', 'done'], ['stage', 'done'], ['gate', 'awaiting']]);
+  assert.deepEqual(feature.children.filter((g: El) => g.getAttribute('data-type') === 'gate').map((g: El) => g.getAttribute('data-kind')), ['clarification', 'approval']);
+  assert.equal(page.main.querySelectorAll('[data-changed]').length, 0, 'nothing is marked on the first paint');
+  // CD-B1 replaces the needs-you row description with the card description (E.1 7.1).
+  const cardLink = cardOf(page, 'feat-a / w1').querySelector('.gate-card__link');
+  assert.match(text(page.doc.getElementById(cardLink.getAttribute('aria-describedby'))), /^Name of gate-a\. Approval gate\. Waiting for you for 1 min\. Feature Delivery, step 5 of 5\.$/);
+  assert.equal(cardLink.getAttribute('aria-label'), 'Open the run to decide: feat-a / w1');
+  assert.equal(cardLink.dataset.focusKey, 'run:feat-a/w1');
+  // CD-B5: the title has a slug and a muted task id; the meta carries the workflow name and the step part per band.
+  const doc = rowOf(page, 'feat-a / d1');
+  const link = doc.querySelector('.run-row__link');
+  assert.equal(link.getAttribute('title'), 'feat-a / d1');
+  assert.deepEqual([text(link.children[0]), text(link.children[1])], ['feat-a', ' / d1']);
+  assert.equal(link.dataset.focusKey, 'run:feat-a/d1');
+  assert.equal(text(doc.querySelector('.run-row__wf')), 'Documentation · ');
+  assert.equal(text(doc.querySelector('.run-row__sp')), 'verification');
+  assert.equal(text(doc.querySelector('.run-row__st')), 'Step 2 of 3 · verification');
+  assert.equal(text(doc.querySelector('.run-row__frac')), ' · 2/3');
+  assert.equal(text(doc.querySelector('.run-row__step')), '2 / 3');
+  assert.equal(doc.querySelector('.run-row__step').getAttribute('aria-hidden'), 'true');
+  assert.equal(text(doc.querySelector('.run-row__upd')), 'Updated ');
+});
+
+test('E.1 home: a degraded rail and an unavailable workflow show the one-line fallback, and the row stays openable', async () => {
+  mods.home.resetHome();
+  const runs = () => [
+    frow('shape', 2, { progress: { done: 2, total: 8 } }),
+    frow('cursor', 2, { progress: { done: 3, total: 5 } }),
+    frow('other-class', 0, { taskClass: 'operations', workflowName: 'Operations', progress: { done: 0, total: 4 }, current: { type: 'stage', id: 'state-check', kind: 'state-check' } }),
+  ];
+  const page = await start({ hash: '', fetch: homeFetch(() => body(runs())) });
+  const fallback = (id: string) => text(rowOf(page, `feat-a / ${id}`).querySelector('.rail-fallback'));
+  assert.equal(fallback('shape'), 'Step 3 of 8 · workflow changed');
+  assert.equal(fallback('cursor'), 'Step 4 of 5 · position unconfirmed');
+  assert.equal(fallback('other-class'), 'Step 1 of 4 · workflow unavailable');
+  assert.equal(page.main.querySelectorAll('.rail--compact').length, 0);
+  assert.ok(rowsOf(page).every((r) => r.getAttribute('data-openable') === 'true'));
+  const described = (id: string) => text(page.doc.getElementById(rowOf(page, `feat-a / ${id}`).querySelector('.run-row__link').getAttribute('aria-describedby')));
+  assert.match(described('shape'), /Workflow changed since this run started\.$/);
+  assert.match(described('cursor'), /Position not confirmed\.$/);
+  assert.match(described('other-class'), /Workflow unavailable\.$/);
+});
+
+test('E.1 home: a failed workflows fetch never fails the view; it is read again at most once a minute, and only when a row needs it', async () => {
+  mods.home.resetHome();
+  let workflowsUp = false;
+  const page = await start({ hash: '', fetch: homeFetch(() => body([frow('a', 0), frow('b', 4)]), () => (workflowsUp ? reply(200, WORKFLOWS) : errorReply(502, 'core-error'))) });
+  assert.equal(page.main.querySelectorAll('.tile').length, 3, 'the view is loaded');
+  assert.equal(page.main.querySelectorAll('.rail-fallback').length, 2);
+  assert.equal(page.slot.querySelectorAll('.banner').length, 0);
+  assert.equal(apiCalls(page, '/api/workflows').length, 1);
+  await advance(30_000);
+  assert.equal(apiCalls(page, '/api/workflows').length, 1, 'not again within a minute');
+  workflowsUp = true;
+  await advance(35_000);
+  assert.equal(apiCalls(page, '/api/workflows').length, 2, 'once the minute has passed, because a row has no workflow');
+  await advance(6_000);
+  assert.equal(page.main.querySelectorAll('.rail--compact').length, 2, 'the next poll draws the rails');
+  assert.equal(page.main.querySelectorAll('.rail-fallback').length, 0);
+  await advance(120_000);
+  assert.equal(apiCalls(page, '/api/workflows').length, 2, 'every class has a workflow now: no more reads');
+});
+
+test('E.1 home: the summary tiles are the state filter: one pressed at a time, a section only, and "Show all runs" returns focus to the tile', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '', fetch: homeFetch(() => body([frow('w1', 4), frow('r1', 0), frow('r2', 2), frow('f1', 5)])) });
+  const tiles = () => page.main.querySelectorAll('.tile');
+  assert.ok(tiles().every((t) => t.tagName.toLowerCase() === 'button'));
+  assert.deepEqual(tiles().map((t) => t.getAttribute('aria-pressed')), ['false', 'false', 'false']);
+  assert.equal(page.main.querySelector('.filter-status'), null);
+  tiles()[1].fire('click');
+  assert.deepEqual(tiles().map((t) => t.getAttribute('aria-pressed')), ['false', 'true', 'false']);
+  assert.deepEqual(page.main.querySelectorAll('.run-section').map((s) => s.getAttribute('data-section')), ['running']);
+  assert.equal(text(page.main.querySelector('.filter-status').children[0]), 'Showing only running runs.');
+  same(page.doc.activeElement, tiles()[1], 'focus stays on the pressed tile');
+  assert.equal(tiles()[1].querySelectorAll('.tile__check').length, 1, 'selection is never colour alone');
+  tiles()[0].fire('click');
+  assert.deepEqual(tiles().map((t) => t.getAttribute('aria-pressed')), ['true', 'false', 'false'], 'single select');
+  assert.equal(text(page.main.querySelector('.filter-status').children[0]), 'Showing only runs that need you.');
+  page.main.querySelector('[data-focus-key="filter-clear"]').fire('click');
+  assert.equal(page.main.querySelector('.filter-status'), null);
+  assert.equal(page.main.querySelectorAll('.run-section').length, 3);
+  same(page.doc.activeElement, tiles()[0], 'the clear button is gone: focus goes to the tile that was pressed');
+  tiles()[2].fire('click');
+  tiles()[2].fire('click');
+  assert.equal(page.main.querySelectorAll('.run-section').length, 3, 'pressing the pressed tile clears the filter');
+  tiles()[2].fire('click');
+  assert.equal(text(page.main.querySelector('.run-section__title')), 'Finished1');
+  // The filter lives for the tab: a route change and back keeps it.
+  page.location.hash = '#/workflows';
+  page.win.dispatch('hashchange');
+  page.location.hash = '#/';
+  page.win.dispatch('hashchange');
+  await settle();
+  assert.equal(page.main.querySelectorAll('.tile')[2].getAttribute('aria-pressed'), 'true');
+  mods.home.resetHome();
+});
+
+test('E.1 home: an empty section says so; the Finished list is capped at 10 and expands in place', async () => {
+  mods.home.resetHome();
+  const finished = () => Array.from({ length: 12 }, (_, i) => frow(`f${String(i).padStart(2, '0')}`, 5, { updatedAt: agoIso((i + 1) * MIN_MS) }));
+  const page = await start({ hash: '', fetch: homeFetch(() => body(finished())) });
+  assert.deepEqual(page.main.querySelectorAll('.run-section__empty').map(text), ['Nothing is waiting for you.', 'Nothing is running right now.']);
+  assert.equal(page.main.querySelectorAll('.run-row').length, 10);
+  const more = page.main.querySelector('.run-section__more');
+  assert.equal(text(more), 'Show all 12 finished runs');
+  assert.equal(more.getAttribute('aria-expanded'), 'false');
+  more.fire('click');
+  assert.equal(page.main.querySelectorAll('.run-row').length, 12);
+  const fewer = page.main.querySelector('.run-section__more');
+  assert.equal(text(fewer), 'Show fewer');
+  assert.equal(fewer.getAttribute('aria-expanded'), 'true');
+  same(page.doc.activeElement, fewer, 'focus stays on the button across the rebuild');
+  fewer.fire('click');
+  assert.equal(page.main.querySelectorAll('.run-row').length, 10);
+  mods.home.resetHome();
+});
+
+test('E.1 home: a run that begins to wait is announced once; the first poll announces nothing; changed glyphs are marked for one poll interval', async () => {
+  mods.home.resetHome();
+  let runs = () => [frow('a', 2), frow('b', 4)];
+  const page = await start({ hash: '', fetch: homeFetch(() => body(runs())) });
+  assert.equal(text(page.region), '', 'the first poll announces nothing, not even the run that already waits');
+  assert.equal(page.main.querySelectorAll('[data-changed]').length, 0);
+  runs = () => [frow('a', 4, { updatedAt: agoIso(0) }), frow('b', 4)];
+  await advance(5_000);
+  assert.equal(text(page.region), 'feat-a / a is waiting for you at gate-a.');
+  const marked = cardOf(page, 'feat-a / a').querySelectorAll('[data-changed]');
+  assert.deepEqual(marked.map((g) => g.getAttribute('data-state')), ['done', 'done', 'awaiting'], 'design and planning finished and the gate began to wait; discovery and gate-0 did not change');
+  assert.equal(page.main.querySelectorAll('[data-changed]').length, 3, 'the run that did not change has no mark');
+  runs = () => [frow('a', 4, { updatedAt: agoIso(0) }), frow('b', 4), frow('c', 4), frow('d', 1)];
+  await advance(5_000);
+  assert.equal(text(page.region), '2 runs are waiting for you.');
+  await advance(6_000);
+  assert.equal(page.main.querySelectorAll('[data-changed]').length, 0, 'the mark lasts one poll interval');
+  mods.home.resetHome();
+});
+
+test('E.1 home: focus stays on the same run link across a re-mount, because the key is the same', async () => {
+  mods.home.resetHome();
+  let runs = () => [frow('a', 2), frow('b', 2, { updatedAt: agoIso(2 * MIN_MS) })];
+  const page = await start({ hash: '', fetch: homeFetch(() => body(runs())) });
+  const linkOf = (id: string) => rowOf(page, `feat-a / ${id}`).querySelector('.run-row__link');
+  const before = linkOf('b');
+  before.focus();
+  same(page.doc.activeElement, before, 'focus');
+  runs = () => [frow('a', 4), frow('b', 2, { updatedAt: agoIso(2 * MIN_MS) })]; // a moves to Needs you; b stays
+  await advance(5_000);
+  const after = linkOf('b');
+  assert.ok(after !== before, 'the body was re-mounted');
+  same(page.doc.activeElement, after, 'focus is back on the run with the same key');
+  // A key that no longer exists falls back to the heading.
+  after.focus();
+  runs = () => [frow('a', 4)];
+  await advance(5_000);
+  same(page.doc.activeElement, heading(page), 'focus');
+});
+
+test('E.1 home: the row description follows the minute on the 1 s tick', async () => {
+  mods.home.resetHome();
+  let at: string | null = null;
+  const page = await start({ hash: '', fetch: homeFetch(() => { at ??= agoIso(10_000); return body([frow('a', 2, { updatedAt: at })]); }) });
+  const desc = () => text(page.main.querySelector('.run-row__desc'));
+  assert.match(desc(), /Updated less than a minute ago\.$/);
+  await advance(1_000);
+  assert.match(desc(), /Updated less than a minute ago\.$/);
+  await advance(3 * MIN_MS);
+  assert.match(desc(), /Updated 3 minutes ago\.$/);
+});
+
+test('E.1 home: the loading skeleton is the strip, a title block and a list block (no row skeletons)', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '', fetch: (target, init) => (target === '/api/runs' ? new Promise<Reply>(() => {}) : standard(target, init)) });
+  await advance(400);
+  assert.deepEqual(page.main.querySelectorAll('.skel').map((s) => s.className.replace('skel ', '')), ['skel--tile', 'skel--tile', 'skel--tile', 'skel--title', 'skel--list']);
+  assert.equal(page.main.querySelectorAll('.skel--row').length, 0);
+});
+
+test('E.1 views: the runs view reads list and workflow, the badge words equal the derivation words, and a body re-mount ignores the workflow bodies', () => {
+  const { VIEWS, SHAPES_USED, badge } = mods.views;
+  assert.deepEqual(VIEWS.runs.shapes, ['list', 'workflow']);
+  assert.ok(SHAPES_USED.includes('workflow') && SHAPES_USED.includes('list'));
+  assert.equal(typeof VIEWS.runs.load, 'function');
+  assert.equal(typeof VIEWS.runs.dataKey, 'function');
+  assert.equal(typeof VIEWS.run.render, 'function');
+  installPage({ fetch: () => reply(204) });
+  const now = 1_700_000_000_000 * 1.0;
+  for (const [state, updatedAt] of [['RUNNING', new Date(now).toISOString()], ['AWAITING_GATE', null], ['COMPLETED', null], ['REJECTED', null], ['RUNNING', new Date(now - 25 * 3_600_000).toISOString()]]) {
+    const run = { state, updatedAt };
+    assert.equal(text(badge(run, now)), mods.derive.runWord(run, now), `${state} ${updatedAt}`);
+  }
+  const base = { runs: [{ ...frow('a', 0), updatedAt: new Date(now).toISOString() }], unreadableCount: 0 };
+  const keyOf = VIEWS.runs.dataKey;
+  assert.equal(keyOf({ ...base, workflows: new Map([['feature', WF_FEATURE]]) }), keyOf({ ...base, workflows: new Map([['feature', { ...WF_FEATURE, name: 'Renamed' }]]) }), 'same classes, other registry text: no re-mount');
+  assert.notEqual(keyOf({ ...base, workflows: new Map() }), keyOf({ ...base, workflows: new Map([['feature', WF_FEATURE]]) }), 'a class gaining a workflow re-mounts');
+  uninstallPage();
+});
+
+// ---- E.1: the full rail on the run route --------------------------------------------------------------------------
+
+function runBody(row: any, workflow: any, events: any[] = []) {
+  return { v: 1, run: row, timeline: { v: 1, taskId: row.taskId, featureSlug: row.featureSlug, revision: 2, startedAt: agoIso(3_600_000), events }, tasks: null, workflow };
+}
+const ev = (minutesAgo: number, action: string, node: string | null, over: any = {}) => ({ at: agoIso(minutesAgo * MIN_MS), action, node, outcome: null, decision: null, forced: false, synthetic: false, ...over });
+const runRoute = (build: () => any) => (target: string, init: any) => (target === '/api/runs/feat-a/run-1' ? reply(200, build()) : standard(target, init));
+
+test('E.1 rail: the run route shows the full rail with one tab stop on the cursor node and a name per node', async () => {
+  mods.home.resetHome();
+  const events = () => [ev(60, 'start', null), ev(50, 'complete-stage', 'discovery', { outcome: 'passed' }), ev(40, 'decide-gate', 'gate-0', { decision: 'approve', forced: true }), ev(30, 'complete-stage', 'design', { outcome: 'passed' }), ev(20, 'complete-stage', 'planning', { outcome: 'unverified' })];
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(frow('run-1', 4), WF_FEATURE, events())) });
+  assert.equal(page.main.querySelector('.rail--full').getAttribute('aria-label'), 'Stages of feat-a / run-1');
+  const buttons = page.main.querySelectorAll('.rail__node');
+  assert.equal(buttons.length, 5);
+  assert.deepEqual(buttons.map((b) => b.getAttribute('tabindex')), ['-1', '-1', '-1', '-1', '0']);
+  assert.match(buttons[0].getAttribute('aria-label'), /^1 of 5\. discovery\. Stage\. Done, passed\. 10 min after the previous event\.$/);
+  assert.match(buttons[1].getAttribute('aria-label'), /^2 of 5\. gate-0\. Clarification gate\. Approved, forced\. 10 min after the previous event\.$/);
+  assert.match(buttons[3].getAttribute('aria-label'), /^4 of 5\. planning\. Stage\. Done, unverified\. 10 min after the previous event\.$/);
+  assert.match(buttons[4].getAttribute('aria-label'), /^5 of 5\. gate-a\. Approval gate\. Waiting for you for 20 min\.$/);
+  assert.equal(text(page.main.querySelectorAll('.rail__gate-label')[0]), 'gate-0forced');
+  assert.equal(page.main.querySelectorAll('.rail__item')[1].getAttribute('data-forced'), 'true');
+  assert.equal(page.main.querySelector('.rail-note'), null);
+});
+
+test('E.1 rail: arrows, Home and End move the single tab stop without wrapping; Enter opens the detail, Escape closes it and focus stays on the node', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(frow('run-1', 2), WF_FEATURE, [ev(30, 'start', null)])) });
+  const buttons = () => page.main.querySelectorAll('.rail__node');
+  const stops = () => buttons().map((b) => b.getAttribute('tabindex'));
+  assert.deepEqual(stops(), ['-1', '-1', '0', '-1', '-1']);
+  const key = (button: El, k: string) => button.fire('keydown', { key: k });
+  buttons()[2].focus();
+  key(buttons()[2], 'ArrowRight');
+  assert.deepEqual(stops(), ['-1', '-1', '-1', '0', '-1']);
+  same(page.doc.activeElement, buttons()[3], 'focus');
+  key(buttons()[3], 'End');
+  same(page.doc.activeElement, buttons()[4], 'focus');
+  key(buttons()[4], 'ArrowDown');
+  same(page.doc.activeElement, buttons()[4], 'no wrap at the end');
+  key(buttons()[4], 'Home');
+  same(page.doc.activeElement, buttons()[0], 'focus');
+  key(buttons()[0], 'ArrowLeft');
+  same(page.doc.activeElement, buttons()[0], 'no wrap at the start');
+  key(buttons()[0], 'ArrowUp');
+  assert.deepEqual(stops(), ['0', '-1', '-1', '-1', '-1']);
+  // Enter and Space reach a button as a click.
+  buttons()[3].fire('click');
+  const detail = page.main.querySelector('.rail-detail');
+  assert.ok(detail);
+  assert.equal(detail.getAttribute('role'), 'region');
+  assert.equal(detail.getAttribute('aria-labelledby'), 'rail-detail-title');
+  assert.equal(text(detail.querySelector('.rail-detail__title')), 'planning');
+  assert.deepEqual(detail.querySelectorAll('dt').map(text), ['Kind', 'Skill / Agent', 'Purpose', 'Recorded']);
+  assert.equal(text(detail.querySelectorAll('dd')[2]), 'Purpose of planning.');
+  assert.equal(text(detail.querySelectorAll('dd')[3]), 'Not yet');
+  assert.equal(buttons()[3].getAttribute('aria-expanded'), 'true');
+  assert.equal(buttons()[3].getAttribute('data-selected'), 'true');
+  assert.equal(buttons()[0].getAttribute('aria-expanded'), 'false');
+  buttons()[4].fire('click');
+  assert.equal(text(page.main.querySelector('.rail-detail__title')), 'gate-a', 'a second node switches the detail');
+  const gateDetail = page.main.querySelector('.rail-detail');
+  assert.deepEqual(gateDetail.querySelectorAll('dt').map(text), ['Kind', 'When asked', 'Asks', 'Recorded']);
+  assert.equal(text(gateDetail.querySelectorAll('dd')[1]), 'Every run');
+  buttons()[4].fire('click');
+  assert.equal(page.main.querySelector('.rail-detail'), null, 'the same node closes it');
+  buttons()[2].fire('click');
+  assert.ok(page.main.querySelector('.rail-detail'));
+  key(buttons()[2], 'Escape');
+  assert.equal(page.main.querySelector('.rail-detail'), null);
+  same(page.doc.activeElement, buttons()[2], 'focus stays on the node');
+  buttons()[2].fire('click');
+  const close = page.main.querySelector('[data-focus-key="rail-detail-close"]');
+  assert.equal(text(close), 'Close details');
+  close.fire('click');
+  assert.equal(page.main.querySelector('.rail-detail'), null);
+  same(page.doc.activeElement, buttons()[2], 'the Close button returns focus to its node');
+});
+
+test('E.1 rail: the open detail and the roving stop survive a poll, focus stays on the same node, and the detail closes when its node is gone', async () => {
+  mods.home.resetHome();
+  let row0 = () => frow('run-1', 2);
+  let workflow: any = WF_FEATURE;
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(row0(), workflow, [ev(30, 'start', null)])) });
+  const buttons = () => page.main.querySelectorAll('.rail__node');
+  buttons()[1].focus();
+  buttons()[1].fire('click');
+  assert.ok(page.main.querySelector('.rail-detail'));
+  const old = buttons()[1];
+  row0 = () => frow('run-1', 3);
+  await advance(3_000);
+  assert.ok(buttons()[1] !== old, 'the body was re-mounted');
+  assert.equal(text(page.main.querySelector('.rail-detail__title')), 'gate-0', 'the detail stays open');
+  same(page.doc.activeElement, buttons()[1], 'focus is restored by node key');
+  assert.deepEqual(buttons().map((b) => b.getAttribute('tabindex')), ['-1', '0', '-1', '-1', '-1'], 'the roving stop stays where the person put it');
+  workflow = { ...WF_FEATURE, stages: WF_FEATURE.stages.slice(1) };
+  row0 = () => frow('run-1', 3, { progress: { done: 3, total: 3 } });
+  await advance(3_000);
+  assert.equal(page.main.querySelector('.rail-detail'), null, 'its node no longer exists: the detail closes');
+});
+
+test('E.1 rail: a degraded run shows its current node, an unknown track and the note; a missing workflow is the same with its own note', async () => {
+  mods.home.resetHome();
+  const cases: Array<[() => any, RegExp, string]> = [
+    [() => runBody(frow('run-1', 2, { progress: { done: 2, total: 8 } }), WF_FEATURE), /^This run started on a different workflow version, so only its current step is shown\.$/, 'Step 3 of 8'],
+    [() => runBody(frow('run-1', 2, { progress: { done: 3, total: 5 } }), WF_FEATURE), /recorded position does not match its progress/, 'Step 4 of 5'],
+    [() => runBody(frow('run-1', 2), {}), /could not be read, so only its current step is shown/, 'Step 3 of 5'],
+  ];
+  for (const [build, note, step] of cases) {
+    const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(build) });
+    assert.equal(page.main.querySelectorAll('.rail__node').length, 1);
+    assert.equal(page.main.querySelector('.rail__node').getAttribute('tabindex'), '0');
+    assert.equal(text(page.main.querySelector('.rail__unknown')), step);
+    assert.match(text(page.main.querySelector('.rail-note')), note);
+    uninstallPage();
+    mock.timers.reset();
+  }
+});
+
+test('E.1 rail: the run route announces what moved: a gate waiting, a stage running and completion', async () => {
+  mods.home.resetHome();
+  let row0 = () => frow('run-1', 0);
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(row0(), WF_FEATURE, [ev(5, 'start', null)])) });
+  assert.equal(text(page.region), '', 'the first load announces nothing');
+  row0 = () => frow('run-1', 1);
+  await advance(3_000);
+  assert.equal(text(page.region), 'gate-0 is waiting for you.');
+  row0 = () => frow('run-1', 2);
+  await advance(3_000);
+  assert.equal(text(page.region), 'design running.');
+  row0 = () => frow('run-1', 5);
+  await advance(3_000);
+  assert.equal(text(page.region), 'Run completed.');
+});
+
+
+// ---- E.1 review fixes (F3, F4, F7, F8, F9, F11) ------------------------------------------------------------
+
+test('E.1 F4: ages over an hour read in hours and days, floored', () => {
+  const { ageUnits, ageText } = mods.states;
+  assert.equal(ageUnits(59 * 60_000 + 59_000), '59 min');
+  assert.equal(ageUnits(60 * 60_000), '1 h');
+  assert.equal(ageUnits(23 * 3_600_000 + 59 * 60_000), '23 h');
+  assert.equal(ageUnits(24 * 3_600_000), '1 d');
+  assert.equal(ageUnits(2881 * 60_000), '2 d');
+  assert.equal(ageText(2881 * 60_000), '2 d ago');
+  assert.equal(ageText(12_000), '12 s ago');
+});
+
+test('E.1 F3: the scroller math measures against the scroller, not the li the button sits in', () => {
+  const { ensureVisible, centerOn } = mods.railView;
+  // Rects say the node is at x 900..980 of a 100..820 scroller with scrollLeft 0; offsetLeft (relative to its li) says 12.
+  const make = (left: number, scrollLeft: number) => ({
+    scroller: { scrollLeft, clientWidth: 720, getBoundingClientRect: () => ({ left: 100 }) },
+    button: { offsetLeft: 12, offsetWidth: 80, getBoundingClientRect: () => ({ left, width: 80 }) },
+  });
+  let { scroller, button } = make(900, 0);
+  ensureVisible(scroller, button);
+  assert.equal(scroller.scrollLeft, 800 + 80 + 32 - 720, 'a node past the right edge is brought in with 32 px to spare');
+  ({ scroller, button } = make(120, 400));
+  ensureVisible(scroller, button);
+  assert.equal(scroller.scrollLeft, 400 + 20 - 32, 'a node before the left edge is brought in with 32 px to spare');
+  ({ scroller, button } = make(300, 50));
+  ensureVisible(scroller, button);
+  assert.equal(scroller.scrollLeft, 50, 'a visible node does not move the scroller');
+  ({ scroller, button } = make(900, 0));
+  centerOn(scroller, button);
+  assert.equal(scroller.scrollLeft, 800 + 40 - 360, 'the current node is centred');
+});
+
+test('E.1 F7: the roving tab stop follows focus, so a poll that moves the cursor leaves it on the focused node', async () => {
+  mods.home.resetHome();
+  let row0 = () => frow('run-1', 2);
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(row0(), WF_FEATURE, [ev(30, 'start', null)])) });
+  const buttons = () => page.main.querySelectorAll('.rail__node');
+  buttons()[0].focus();
+  buttons()[0].fire('focus');
+  assert.deepEqual(buttons().map((b) => b.getAttribute('tabindex')), ['0', '-1', '-1', '-1', '-1']);
+  row0 = () => frow('run-1', 3);
+  await advance(3_000);
+  assert.deepEqual(buttons().map((b) => b.getAttribute('tabindex')), ['0', '-1', '-1', '-1', '-1'], 'the focused node keeps the stop; the new cursor does not take it');
+  same(page.doc.activeElement, buttons()[0], 'focus restored');
+});
+
+test('E.1 F8a: Escape inside the detail closes it and puts focus on its node', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(frow('run-1', 2), WF_FEATURE, [ev(30, 'start', null)])) });
+  const buttons = () => page.main.querySelectorAll('.rail__node');
+  buttons()[3].fire('click');
+  const detail = page.main.querySelector('.rail-detail');
+  detail.fire('keydown', { key: 'Escape' });
+  assert.ok(page.main.querySelector('.rail-detail') === null, 'closed');
+  same(page.doc.activeElement, buttons()[3], 'focus is on the node');
+  buttons()[3].fire('click');
+  page.main.querySelector('.rail-detail').fire('keydown', { key: 'a' });
+  assert.ok(page.main.querySelector('.rail-detail'), 'another key leaves it open');
+});
+
+test('E.1 F9: a degraded node is named by the run record, with the reason', async () => {
+  mods.home.resetHome();
+  const cases: Array<[() => any, string]> = [
+    [() => runBody(frow('run-1', 2, { progress: { done: 2, total: 8 } }), WF_FEATURE), '3 of 8. design. Stage. Running. Workflow changed since this run started.'],
+    [() => runBody(frow('run-1', 2, { progress: { done: 3, total: 5 } }), WF_FEATURE), '4 of 5. design. Stage. Running. Position not confirmed.'],
+    [() => runBody(frow('run-1', 2), {}), '3 of 5. design. Stage. Running. Workflow unavailable.'],
+  ];
+  for (const [build, name] of cases) {
+    const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(build) });
+    assert.equal(page.main.querySelector('.rail__node').getAttribute('aria-label'), name);
+    uninstallPage();
+    mock.timers.reset();
+  }
+  assert.equal(mods.railView.NOTES['workflow-unavailable'], 'This run’s workflow could not be read, so only its current step is shown.');
+});
+
+test('E.1 F11: the description of an openable row is hidden (read once, through the link); a flat row keeps it visible to assistive technology', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '', fetch: homeFetch(() => body([frow('a', 2), frow('flat', 0, { featureSlug: null })])) });
+  const desc = (title: string) => rowOf(page, title).querySelector('.run-row__desc');
+  assert.equal(desc('feat-a / a').getAttribute('hidden'), '');
+  assert.ok(text(desc('feat-a / a')).length > 0, 'still readable through aria-describedby');
+  assert.equal(desc('flat').getAttribute('hidden'), null);
+});
+
+// ---- Claude Design pass (CD-B1 to CD-B8) ----------------------------------------------------------------------
+
+test('CD-B1 gate cards: one per waiting run, longest wait first, with the registry name and prompt, the kind, the wait and the link', async () => {
+  mods.home.resetHome();
+  const runs = () => [
+    frow('new', 4, { updatedAt: agoIso(2 * MIN_MS) }), frow('old', 1, { updatedAt: agoIso(134 * MIN_MS) }),
+    frow('far', 4, { origin: 'other', updatedAt: agoIso(20 * MIN_MS) }), frow('flat', 1, { featureSlug: null, updatedAt: agoIso(50 * MIN_MS) }),
+  ];
+  const page = await start({ hash: '', fetch: homeFetch(() => body(runs())) });
+  assert.deepEqual(cardsOf(page).map(cardId), ['feat-a / old', 'flat', 'feat-a / far', 'feat-a / new']);
+  const card = cardOf(page, 'feat-a / old');
+  assert.equal(card.getAttribute('data-kind'), 'clarification');
+  assert.equal(text(card.querySelector('.gate-card__kind')), 'Clarification gate');
+  assert.equal(text(card.querySelector('.gate-card__wait-word')), 'waiting');
+  assert.equal(text(card.querySelector('.gate-card__wait-dur')), '2 h 14 min');
+  assert.equal(text(card.querySelector('.gate-card__name')), 'Name of gate-0');
+  assert.equal(text(card.querySelector('.gate-card__prompt')), 'Prompt of gate-0.');
+  assert.equal(card.querySelector('.gate-card__head').getAttribute('aria-hidden'), 'true');
+  assert.equal(text(card.querySelector('.gate-card__meta')), 'Feature Delivery · step 2 of 5');
+  const link = card.querySelector('.gate-card__link');
+  assert.equal(link.getAttribute('href'), '#/run/feat-a/old');
+  assert.equal(link.getAttribute('aria-label'), 'Open the run to decide: feat-a / old');
+  assert.equal(card.getAttribute('data-openable'), 'true');
+  assert.equal(card.querySelector('.rail--lg').getAttribute('aria-hidden'), 'true');
+  assert.equal(cardOf(page, 'feat-a / new').getAttribute('data-kind'), 'approval');
+  assert.deepEqual(cardOf(page, 'feat-a / far').querySelectorAll('.tag').map(text), ['Other checkout']);
+  assert.match(text(page.doc.getElementById(cardOf(page, 'feat-a / far').querySelector('.gate-card__link').getAttribute('aria-describedby'))), /From another checkout\.$/);
+  const flat = cardOf(page, 'flat');
+  assert.equal(flat.getAttribute('data-openable'), 'false');
+  assert.equal(flat.querySelector('a'), null, 'a flat run has no link and so no tab stop');
+  assert.equal(text(flat.querySelector('.gate-card__note')), 'Decide in a terminal. This run has no feature folder, so it cannot be opened here.');
+  assert.deepEqual(flat.querySelectorAll('.tag').map(text), ['No feature folder']);
+});
+
+test('CD-B1 gate card fallback: no workflow gives the gate id as the name, no prompt, the fallback rail line and the short description', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '', fetch: homeFetch(() => body([frow('a', 4)]), () => errorReply(502, 'core-error')) });
+  const card = cardsOf(page)[0];
+  assert.equal(text(card.querySelector('.gate-card__name')), 'gate-a');
+  assert.ok(card.querySelector('.gate-card__name').querySelector('.mono'));
+  assert.equal(card.querySelector('.gate-card__prompt'), null);
+  assert.equal(text(card.querySelector('.rail-fallback')), 'Step 5 of 5 · workflow unavailable');
+  assert.equal(text(card.querySelector('.gate-card__kind')), 'Approval gate', 'the kind comes from the current node');
+  assert.equal(text(page.doc.getElementById(card.querySelector('.gate-card__link').getAttribute('aria-describedby'))), 'Gate gate-a. Waiting for you for 1 min. Feature Delivery, step 5 of 5.');
+});
+
+test('CD-B1 the wait on a card follows the 1 s tick', async () => {
+  mods.home.resetHome();
+  let at: string | null = null;
+  const page = await start({ hash: '', fetch: homeFetch(() => { at ??= agoIso(5 * MIN_MS); return body([frow('a', 4, { updatedAt: at })]); }) });
+  assert.equal(text(page.main.querySelector('.gate-card__wait-dur')), '5 min');
+  await advance(3 * MIN_MS);
+  assert.equal(text(page.main.querySelector('.gate-card__wait-dur')), '8 min');
+  assert.match(text(page.doc.getElementById(cardsOf(page)[0].querySelector('.gate-card__link').getAttribute('aria-describedby'))), /Waiting for you for 8 min\./);
+});
+
+test('CD-B3 rows: a badge only for exceptions (stale, and every Finished row), the step column, the muted task id', async () => {
+  mods.home.resetHome();
+  const runs = () => [
+    frow('live', 2), frow('silent', 2, { updatedAt: agoIso(30 * 3_600_000) }), frow('ok', 5), frow('no', 1, { state: 'REJECTED' }),
+  ];
+  const page = await start({ hash: '', fetch: homeFetch(() => body(runs())) });
+  const badgeOf = (id: string) => rowOf(page, `feat-a / ${id}`).querySelector('.run-row__state').children.map(text);
+  assert.deepEqual(badgeOf('live'), [], 'a running row with fresh data has no badge');
+  assert.deepEqual(badgeOf('silent'), ['Stale']);
+  assert.deepEqual(badgeOf('ok'), ['Completed']);
+  assert.deepEqual(badgeOf('no'), ['Rejected']);
+  assert.equal(text(rowOf(page, 'feat-a / live').querySelector('.run-row__step')), '3 / 5');
+  assert.deepEqual(rowOf(page, 'feat-a / live').querySelector('.run-row__step').children.map(text), ['3', ' / 5']);
+  assert.equal(text(rowOf(page, 'feat-a / ok').querySelector('.run-row__sp')), 'all steps done');
+  assert.equal(text(rowOf(page, 'feat-a / no').querySelector('.run-row__sp')), 'stopped at gate-0');
+  assert.match(text(page.doc.getElementById(rowOf(page, 'feat-a / live').querySelector('.run-row__link').getAttribute('aria-describedby'))), /^Feature Delivery\. Running\./, 'the description still says the state word');
+  assert.ok(rowOf(page, 'feat-a / live').querySelector('.run-row__task'));
+});
+
+test('CD-B4 tiles: one fact each, a long and a short form, in the accessible name; the check sits on the count line', async () => {
+  mods.home.resetHome();
+  const runs = () => [frow('w', 4, { updatedAt: agoIso(134 * MIN_MS) }), frow('r', 2), frow('s', 2, { updatedAt: agoIso(50 * 3_600_000) }), frow('c1', 5), frow('c2', 5), frow('x', 1, { state: 'REJECTED' })];
+  const page = await start({ hash: '', fetch: homeFetch(() => body(runs())) });
+  const tiles = page.main.querySelectorAll('.tile');
+  const sub = (t: El) => [text(t.querySelector('.tile__sub-long')), text(t.querySelector('.tile__sub-short'))];
+  assert.deepEqual(sub(tiles[0]), ['longest wait 2 h 14 min', 'longest wait 2 h 14 min']);
+  assert.equal(text(tiles[0].querySelector('.tile__sub-short').children[0]), 'longest wait ');
+  assert.equal(tiles[0].querySelector('.tile__sub-short').children[0].classList.contains('vh'), true);
+  assert.deepEqual(sub(tiles[1]), ['1 stale, no update for 2 d 2 h', '1 stale']);
+  assert.deepEqual(sub(tiles[2]), ['2 completed, 1 rejected', '1 rejected']);
+  tiles[0].fire('click');
+  const pressed = page.main.querySelector('.tile');
+  assert.ok(pressed.querySelector('.tile__count').querySelector('.tile__check'), 'the check is on the count line');
+  assert.equal(pressed.querySelector('.tile__label').querySelector('.tile__check'), null);
+  mods.home.resetHome();
+});
+
+test('CD-B4 tiles: the facts follow the tick', async () => {
+  mods.home.resetHome();
+  let at: string | null = null;
+  const page = await start({ hash: '', fetch: homeFetch(() => { at ??= agoIso(5 * MIN_MS); return body([frow('w', 4, { updatedAt: at })]); }) });
+  assert.equal(text(page.main.querySelector('.tile__sub-long')), 'longest wait 5 min');
+  await advance(2 * MIN_MS);
+  assert.equal(text(page.main.querySelector('.tile__sub-long')), 'longest wait 7 min');
+});
+
+test('CD-B8 run head: crumb to Runs, mono title with a muted task id, meta in order, and the step counter per run state', async () => {
+  mods.home.resetHome();
+  const cases: Array<[any, string, string]> = [
+    [frow('run-1', 4), 'step 5 of 5', '5'],
+    [frow('run-1', 5), 'all 5 steps done', ''],
+    [frow('run-1', 1, { state: 'REJECTED' }), 'stopped at step 2 of 5', '2'],
+  ];
+  for (const [r, copy, numeral] of cases) {
+    const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(r, WF_FEATURE, [ev(5, 'start', null)])) });
+    const crumb = page.main.querySelector('.run-head__crumb');
+    assert.equal(crumb.getAttribute('aria-label'), 'Breadcrumb');
+    assert.equal(crumb.querySelector('a').getAttribute('href'), '#/');
+    assert.equal(text(crumb.querySelector('a')), 'Runs');
+    assert.equal(text(crumb.querySelector('.mono')), 'feat-a');
+    const title = heading(page);
+    assert.equal(text(title), 'feat-a / run-1', 'the accessible text is slug / taskId');
+    assert.equal(text(title.querySelector('.run-head__task')), ' / run-1');
+    assert.equal(title.getAttribute('tabindex'), '-1');
+    const step = page.main.querySelector('.run-head__step');
+    assert.equal(text(step), copy);
+    assert.equal(text(step.querySelector('.run-head__step-n') ?? { textContent: '' }), numeral);
+    const items = page.main.querySelector('.run-head__meta').children.filter((c: El) => c.getAttribute('aria-hidden') !== 'true').map(text);
+    assert.match(items[1], /^Feature Delivery$/);
+    assert.match(items[2], /^started /);
+    assert.match(items[3], /^revision 1$/);
+    assert.match(items[4], /^Updated /);
+    uninstallPage();
+    mock.timers.reset();
+  }
+});
+
+test('CD-B7 the full rail names its duration under every node and keeps the words in the node name', async () => {
+  mods.home.resetHome();
+  let fixed: any[] | null = null;
+  const events = () => (fixed ??= [ev(60, 'start', null), ev(50, 'complete-stage', 'discovery', { outcome: 'passed' }), ev(40, 'decide-gate', 'gate-0', { decision: 'approve', forced: true }), ev(30, 'complete-stage', 'design', { outcome: 'passed' }), ev(20, 'complete-stage', 'planning', { outcome: 'passed' })]);
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(frow('run-1', 4, { updatedAt: fixed?.[0]?.at ?? agoIso(MIN_MS) }), WF_FEATURE, events())) });
+  const lines = page.main.querySelectorAll('.rail__dur');
+  assert.deepEqual(lines.map(text), ['10 min', '10 min', '10 min', '10 min', 'for 20 min']);
+  assert.ok(lines.every((l) => l.getAttribute('aria-hidden') === 'true'));
+  assert.equal(lines[4].getAttribute('data-tone'), 'awaiting');
+  assert.equal(lines[0].getAttribute('data-tone'), null);
+  await advance(5 * MIN_MS);
+  assert.equal(text(page.main.querySelectorAll('.rail__dur')[4]), 'for 25 min', 'the cursor duration follows the tick');
+});
+
+test('CD-B8 the run route loads with a real crumb and title, then meta, step, rail card and slot blocks', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: (target, init) => (target === '/api/runs/feat-a/run-1' ? new Promise<Reply>(() => {}) : standard(target, init)) });
+  assert.equal(text(heading(page)), 'feat-a / run-1', 'the title is real text from the route params');
+  assert.equal(text(page.main.querySelector('.run-head__crumb').querySelector('a')), 'Runs');
+  assert.ok(page.main.querySelector('.run-head__step').getAttribute('hidden') !== null, 'no step counter before data');
+  await advance(400);
+  assert.deepEqual(page.main.querySelectorAll('.skel').map((x) => x.className.replace('skel ', '')), ['skel--meta', 'skel--stepline', 'skel--railcard', 'skel--slot']);
+});
+
+
+// ---- E.1 review r3 -----------------------------------------------------------------------------------------------
+
+test('R3-7 stale data: the card wait, the Needs-you subline and the description stop counting and read "since"; they count again when fresh', async () => {
+  mods.home.resetHome();
+  let down = false;
+  let at: string | null = null;
+  const page = await start({ hash: '', fetch: (target, init) => (target === '/api/runs' && down ? errorReply(502, 'core-error') : homeFetch(() => { at ??= agoIso(10 * MIN_MS); return body([frow('a', 4, { updatedAt: at })]); })(target, init)) });
+  assert.equal(text(page.main.querySelector('.gate-card__wait-word')), 'waiting');
+  assert.match(text(page.main.querySelector('.gate-card__wait-dur')), /min$/);
+  down = true;
+  await advance(20_000);
+  assert.equal(page.main.getAttribute('data-stale'), 'true');
+  // R4-3: the day form off today's local date.
+  const hmOf = (iso: string) => {
+    const [a, b] = [new Date(iso), new Date()];
+    const clock = `${String(a.getHours()).padStart(2, '0')}:${String(a.getMinutes()).padStart(2, '0')}`;
+    const same = a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    return same ? clock : `${a.getDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][a.getMonth()]} ${clock}`;
+  };
+  assert.equal(text(page.main.querySelector('.gate-card__wait-word')), 'since');
+  assert.equal(text(page.main.querySelector('.gate-card__wait-dur')), hmOf(at!));
+  assert.equal(text(page.main.querySelector('.tile__sub-long')), `waiting since ${hmOf(at!)}`);
+  assert.match(text(page.doc.getElementById(cardsOf(page)[0].querySelector('.gate-card__link').getAttribute('aria-describedby'))), new RegExp(`Waiting for you since ${hmOf(at!)}\\.`));
+  const frozen = text(page.main.querySelector('.gate-card__wait-dur'));
+  await advance(5 * MIN_MS);
+  assert.equal(text(page.main.querySelector('.gate-card__wait-dur')), frozen, 'it does not grow while stale');
+});
+
+test('R3-8 below 768 a Finished row leaves the n/m fraction out; a running row keeps it', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '', fetch: homeFetch(() => body([frow('live', 2), frow('ok', 5), frow('no', 1, { state: 'REJECTED' })])) });
+  assert.equal(rowOf(page, 'feat-a / live').querySelector('.run-row__frac') !== null, true);
+  assert.equal(rowOf(page, 'feat-a / ok').querySelector('.run-row__frac'), null);
+  assert.equal(rowOf(page, 'feat-a / no').querySelector('.run-row__frac'), null);
+  assert.equal(text(rowOf(page, 'feat-a / ok').querySelector('.run-row__step')), '5 / 5', 'the step column is unchanged');
+});
+
+test('R3-3 the run skeleton fills the head slots, so the rail card block keeps its loaded place', async () => {
+  mods.home.resetHome();
+  let release: (r: Reply) => void = () => {};
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: (target, init) => (target === '/api/runs/feat-a/run-1' ? new Promise<Reply>((resolve) => { release = resolve; }) : standard(target, init)) });
+  await advance(400);
+  const metaSlot = page.main.querySelector('.run-head__metawrap');
+  const stepSlot = page.main.querySelector('.run-head__step');
+  assert.deepEqual(metaSlot.children.map((c: El) => c.className.replace('skel ', '')), ['skel--meta']);
+  assert.deepEqual(stepSlot.children.map((c: El) => c.className.replace('skel ', '')), ['skel--stepline']);
+  assert.equal(stepSlot.getAttribute('hidden'), null);
+  assert.deepEqual(page.main.querySelector('.view-body').querySelectorAll('.skel').map((c: El) => c.className.replace('skel ', '')), ['skel--railcard', 'skel--slot'], 'the body holds only the card and the slot');
+  release(runReply());
+  await advance(600);
+  assert.equal(page.main.querySelectorAll('.skel').length, 0);
+  assert.ok(page.main.querySelector('.run-head__meta'), 'the loaded meta replaced the skeleton');
+});
+
+
+test('R3-8 residual: below 768 a rejected row reads "at gate-a" with "stopped " in a wide-only span, and a completed row has no step part; the text is whole from 768', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '', fetch: homeFetch(() => body([frow('ok', 5), frow('no', 1, { state: 'REJECTED' })])) });
+  const sp = (id: string) => rowOf(page, `feat-a / ${id}`).querySelector('.run-row__sp');
+  assert.equal(text(sp('no')), 'stopped at gate-0', 'the whole text is there for the bands that show it');
+  assert.equal(text(sp('no').querySelector('.run-row__wide')), 'stopped ');
+  assert.equal(text(sp('ok')), 'all steps done');
+  assert.equal(rowOf(page, 'feat-a / ok').getAttribute('data-state'), 'COMPLETED', 'the CSS hides the completed step part by this state');
+});
+
+class FakeObserver {
+  static all: FakeObserver[] = [];
+  observed: any[] = [];
+  disconnected = false;
+  callback: () => void;
+  constructor(callback: () => void) { this.callback = callback; FakeObserver.all.push(this); }
+  observe(el: any) { this.observed.push(el); }
+  disconnect() { this.disconnected = true; }
+}
+
+test('R4-1 the rail scroller is watched for resizes; the observer goes when the rail is replaced and when the view unmounts', async () => {
+  mods.home.resetHome();
+  FakeObserver.all = [];
+  let row0 = () => frow('run-1', 2);
+  Object.defineProperty(globalThis, 'ResizeObserver', { value: FakeObserver, configurable: true, writable: true });
+  try {
+    const next = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(row0(), WF_FEATURE, [ev(5, 'start', null)])) });
+    assert.equal(FakeObserver.all.length, 1);
+    assert.ok(FakeObserver.all[0].observed[0].classList.contains('rail-scroll'), 'it observes the scroller');
+    row0 = () => frow('run-1', 3);
+    await advance(3_000);
+    assert.ok(FakeObserver.all[0].disconnected, 'the replaced scroller lets its observer go');
+    assert.equal(FakeObserver.all.length, 2);
+    assert.equal(FakeObserver.all[1].disconnected, false);
+    next.location.hash = '#/';
+    next.win.dispatch('hashchange');
+    assert.ok(FakeObserver.all[1].disconnected, 'leaving the view disconnects it');
+    await advance(300);
+  } finally {
+    delete (globalThis as any).ResizeObserver;
+  }
 });

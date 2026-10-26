@@ -32,6 +32,30 @@ const ICONS = {
       ['M17.75 12a2.25 2.25 0 1 0 4.5 0a2.25 2.25 0 1 0-4.5 0', 'brand-node'],
     ],
   },
+  info: { paths: [['M2 8a6 6 0 1 0 12 0a6 6 0 1 0-12 0'], ['M8 7.25v3.5'], ['M8 5v.25']] },
+  close: { paths: [['M4.5 4.5l7 7M11.5 4.5l-7 7']] },
+  // Gate glyphs of the stage rail (E.1 note section 11): a diamond for approval, a hexagon for clarification, at 12 px on
+  // a 16 box (home rows) and at 24 px (run rail, with the overlays CSS shows by state).
+  'gate-approval-12': { paths: [['M8 1.5 14.5 8 8 14.5 1.5 8Z', 'shape']] },
+  'gate-clarification-12': { paths: [['M4.75 2h6.5L14.5 8l-3.25 6h-6.5L1.5 8Z', 'shape']] },
+  'gate-approval-24': {
+    box: 24,
+    paths: [
+      ['M12 2.5 21.5 12 12 21.5 2.5 12Z', 'shape'],
+      ['M8.5 12.25l2.5 2.5 4.5-5', 'ov-check'],
+      ['M9.5 9.5l5 5M14.5 9.5l-5 5', 'ov-cross'],
+      ['M18.5 3.5a2 2 0 1 0 4 0a2 2 0 1 0-4 0', 'ov-forced'],
+    ],
+  },
+  'gate-clarification-24': {
+    box: 24,
+    paths: [
+      ['M7 3.5h10l5 8.5-5 8.5H7l-5-8.5Z', 'shape'],
+      ['M8.5 12.25l2.5 2.5 4.5-5', 'ov-check'],
+      ['M9.5 9.5l5 5M14.5 9.5l-5 5', 'ov-cross'],
+      ['M18.5 3.5a2 2 0 1 0 4 0a2 2 0 1 0-4 0', 'ov-forced'],
+    ],
+  },
   'empty-rail': {
     box: 24,
     paths: [
