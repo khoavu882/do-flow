@@ -285,6 +285,22 @@ test('labels: at most 64 characters of the label set, else the fixed text', () =
   assert.equal(project('list', list).body.runs[0].workflowName, WITHHELD);
 });
 
+test('labels: a path, a drive prefix or a label the mask would change is withheld; ordinary names stay', () => {
+  const owners = (owner: string) => {
+    const raw = clone(fixture('attempts'));
+    raw.graph.tasks[1].owner = owner;
+    raw.tasks[0].attempts[0].owner = owner;
+    const body = project('attempts', raw).body;
+    return [body.graph.tasks[1].owner, body.tasks[0].attempts[0].owner];
+  };
+  for (const bad of ['/Users/example/private', '~/notes', '/srv/app/x', 'D:/work/x', 'C:\\Users\\me', 'C:/Users/me', 'sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd', 'ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789']) {
+    assert.deepEqual(owners(bad), [WITHHELD, WITHHELD], `${bad} is withheld`);
+  }
+  for (const good of ['core-implementer', 'claude:opus', 'team@lead', 'a/b', 'C 1']) {
+    assert.deepEqual(owners(good), [good, good], `${good} stays`);
+  }
+});
+
 test('status: journalGateDiffers compares the journal gate with the registry, and no text leaves', () => {
   const workflow = workflowBody();
   const registryGate = workflow.stages[0].gatesAfter[0];
