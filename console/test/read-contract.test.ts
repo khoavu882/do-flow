@@ -214,11 +214,12 @@ test('the Console reads every route from the real core, leaks no free text, and 
   assert.equal(replies.get('/api/runs/..%2f/run-gate')!.status, 400);
   assert.deepEqual(body(replies, '/api/runs/..%2f/run-gate'), { error: { code: 'usage', verb: null, exit: null } });
 
-  // IC-018 e: every Sessions read is a read. The broken feature's plan fails `tasks` (and `workers`, built from it); the rest stay ok.
+  // IC-018 e: every Sessions read is a read. The broken feature's plan is skipped (no entry) and its run counted as not checked; every section stays ok.
   const sessions = body(replies, '/api/sessions');
   assert.deepEqual(Object.keys(sessions), ['v', 'sections', 'limits']);
-  assert.deepEqual(sessions.sections.tasks, { ok: false, code: 'core-error' });
-  assert.deepEqual(sessions.sections.workers, { ok: false, code: 'core-error' });
+  assert.deepEqual(sessions.sections.tasks.data.map((entry: any) => entry.slug).sort(), [SLUGS.graph, SLUGS.legacy]);
+  assert.deepEqual(sessions.sections.workers.data, [{ slug: SLUGS.graph, task: 'A.2', token: 2, worker: null }]);
+  assert.deepEqual(sessions.limits, { runsInspected: 3, runsNotChecked: 1, workersChecked: 1, workersNotChecked: 0 });
   assert.deepEqual(sessions.sections.roadmap, { ok: true, data: null }, 'the fixture has no roadmap seed');
   assert.deepEqual(sessions.sections.slots, { ok: true, data: { v: 1, slots: [], unreadable: 0 } });
   assert.deepEqual(sessions.sections.runs.data, list);

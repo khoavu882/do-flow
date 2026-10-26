@@ -233,8 +233,9 @@ const sectionOf = (result: Read): Section => {
 /**
  * `tasks`: one inspect per feature of a RUNNING or AWAITING_GATE run, at most SESSION_LIMITS.inspects;
  * a run counts as inspected when its feature was. A feature with no plan (`plan-unreadable`, as
- * runDetail reads it) holds nothing and has no entry. Any other failed inspect fails the section:
- * IC-018 e keeps each section whole or absent.
+ * runDetail reads it) holds nothing and has no entry. A feature whose plan the core calls
+ * `plan-malformed` has no entry either, and its runs count as not checked. Any other failed inspect
+ * fails the section: IC-018 e keeps each section whole or absent.
  */
 async function sessionTasks(runner: Runner, runs: any[]) {
   const live = runs.filter((row) => LIVE_RUN_STATES.includes(row.state) && row.featureSlug !== null);
@@ -250,6 +251,12 @@ async function sessionTasks(runner: Runner, runs: any[]) {
   for (const [index, result] of results.entries()) {
     if (!result.ok) {
       if (result.exit === 2 && result.errorId === 'plan-unreadable') continue;
+      if (result.exit === 2 && result.errorId === 'plan-malformed') {
+        const skipped = live.filter((row) => row.featureSlug === slugs[index]).length;
+        counts.runsInspected -= skipped;
+        counts.runsNotChecked += skipped;
+        continue;
+      }
       return { section: failedSection(failureStatus(result)[1]), counts };
     }
     const projected = project('attempts', result.json);

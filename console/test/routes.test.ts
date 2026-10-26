@@ -339,7 +339,7 @@ test('GET /api/sessions: one failing section leaves the others ok; tasks and wor
     [{ roadmap: () => ok({ ...SAMPLES.roadmap(), holds: 'x' }) }, { roadmap: 'core-contract-mismatch' }],
     [{ list: failure('core-error', 1, 'cannot-list-checkouts') }, { runs: 'cannot-list-checkouts', tasks: 'cannot-list-checkouts', workers: 'cannot-list-checkouts' }],
     [{ list: () => ok({ ...fixture('list'), v: 2 }) }, { runs: 'core-contract-mismatch', tasks: 'core-contract-mismatch', workers: 'core-contract-mismatch' }],
-    [{ attempts: failure('core-error', 2, 'plan-malformed') }, { tasks: 'core-error', workers: 'core-error' }],
+    [{ attempts: failure('core-error', 2, 'store-unreadable') }, { tasks: 'core-error', workers: 'core-error' }],
     [{ attempts: () => ok({ ...fixture('attempts'), tasks: null }) }, { tasks: 'core-contract-mismatch', workers: 'core-contract-mismatch' }],
     [{ 'worker-status': failure('core-error', 2) }, { workers: 'core-error' }],
     [{ 'worker-status': () => ok({ ...SAMPLES['worker-status'](), disposition: 'refused' }) }, { workers: 'core-contract-mismatch' }],
@@ -367,6 +367,21 @@ test('GET /api/sessions: no roadmap (usage, exit 2) is roadmap null; a feature w
   assert.deepEqual(sections.roadmap, { ok: true, data: null });
   assert.deepEqual(sections.tasks.data.map((entry: any) => entry.slug), ['060-write-set-completeness']);
   assert.deepEqual(limits, { runsInspected: 2, runsNotChecked: 0, workersChecked: 1, workersNotChecked: 0 });
+});
+
+test('GET /api/sessions: a malformed plan is skipped and its runs counted as not checked; any other failed inspect still fails tasks', async (t) => {
+  const list = () => ok({ v: 1, unreadable: [], runs: [liveRun('r1', 'bad-plan'), liveRun('r2', 'bad-plan', 'AWAITING_GATE'), liveRun('r3', '060-write-set-completeness')] });
+  const attempts = (errorId: string) => (p: any): Answer => (p.slug === 'bad-plan' ? { ok: false, code: 'core-error', exit: 2, errorId } : ok(fixture('attempts')));
+  const skipped = await harness(scripted({ list, attempts: attempts('plan-malformed') }), t);
+  const { sections, limits } = (await skipped.json('/api/sessions')).body;
+  assert.equal(sections.tasks.ok, true);
+  assert.deepEqual(sections.tasks.data.map((entry: any) => entry.slug), ['060-write-set-completeness']);
+  assert.equal(sections.workers.ok, true);
+  assert.deepEqual(limits, { runsInspected: 1, runsNotChecked: 2, workersChecked: 1, workersNotChecked: 0 });
+  const failed = await harness(scripted({ list, attempts: attempts('store-unreadable') }), t);
+  const reply = (await failed.json('/api/sessions')).body;
+  assert.deepEqual(reply.sections.tasks, { ok: false, code: 'core-error' });
+  assert.deepEqual(reply.sections.workers, { ok: false, code: 'core-error' });
 });
 
 test('GET /api/sessions: at most 20 inspects and 16 worker-status calls, the rest counted as not checked', async (t) => {
