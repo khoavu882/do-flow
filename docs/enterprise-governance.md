@@ -86,9 +86,10 @@ reason rather than a silent refusal.
 #### Worker exemptions and guard scoping
 
 The pre-bash guard is the only destructive-command guard a worker harness has, so a harness that
-runs DoFlow workers belongs in `hooks.harnesses` (default `claude`, `codex`, `antigravity`). A worker
-launched in a harness outside that list has no DoFlow hook: a `blocking-hook:<policy>` readiness
-requirement then fails closed, because its hooks are not loaded.
+runs DoFlow workers belongs in `hooks.harnesses` (default `claude`, `codex`, `antigravity`, `pi`).
+An install or update prints a `[WARN]` line when Claude or a harness named in `workers.enabled` is
+outside that list. A worker launched in such a harness has no DoFlow hook: a
+`blocking-hook:<policy>` readiness requirement then fails closed, because its hooks are not loaded.
 
 The pre-bash guard distinguishes between main interactive sessions and subagent worker sessions:
 

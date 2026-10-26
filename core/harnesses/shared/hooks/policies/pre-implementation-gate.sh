@@ -20,7 +20,6 @@ case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 #   - branch is a fix, bugfix, refactor, chore, release or hotfix branch
 #     (classes that cannot be a feature) -> no artifact check, run check only
 #   - edit target is under agent-docs/ -> allow (editing the artifacts themselves)
-#   - edit target is under .doflow/    -> allow (DoFlow's own state, not source)
 #   - edit target outside the repo     -> allow
 # It reads files with jq and lists checkouts with one git call; it never runs
 # the DoFlow runtime. Missing or malformed v1 input is denied as out of step; other faults follow IC-011.
@@ -245,17 +244,16 @@ real_path() {
 }
 repo_real=$(cd -P "$repo_root" 2>/dev/null && pwd) || repo_real="$repo_root"
 
-# Only source files inside this repo are gated: edits to doflow artifacts
-# (agent-docs/) and DoFlow's own state (.doflow/) are always allowed, and an
-# absolute path elsewhere is not this repo's.
+# Only source files inside this repo are gated: edits to doflow artifacts are
+# always allowed, and an absolute path elsewhere is not this repo's.
 GATED=false
 while IFS= read -r file; do
   [ -z "$file" ] && continue
-  case "$file" in *"/agent-docs/"*|agent-docs/*|*"/.doflow/"*|.doflow/*) continue ;; esac
+  case "$file" in *"/agent-docs/"*|agent-docs/*) continue ;; esac
   case "$file" in
     /*)
       real=$(real_path "$file") || real="$file"
-      case "$real" in *"/agent-docs/"*|*"/.doflow/"*) continue ;; esac
+      case "$real" in *"/agent-docs/"*) continue ;; esac
       case "$real" in "$repo_real"/*) ;; *) continue ;; esac
       ;;
   esac

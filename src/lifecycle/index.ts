@@ -234,6 +234,17 @@ function survivingClaimantsByTarget(ledger: any, releasedKeys: any, registry: an
  * registry would be one more thing to keep in sync. */
 function markRetainedRemovals(harnessPlans: any, ledger: any, scope: any, registry?: any) {
   const claimants = survivingClaimantsByTarget(ledger, releasedOwnershipKeys(harnessPlans, scope), registry);
+  // A harness this same plan writes a destination for claims it after the run (maint-hooks R-2: the
+  // hook tier moves from claude to kiro in one update, so the shared hooks tree must stay standing).
+  for (const target of harnessPlans) {
+    if (target.skipped) continue;
+    for (const change of target.changes || []) {
+      if (change.operation === 'remove' || typeof change.target !== 'string' || typeof change.harness !== 'string') continue;
+      const key = claimKey(change);
+      if (!claimants.has(key)) claimants.set(key, new Set());
+      claimants.get(key).add(change.harness);
+    }
+  }
   if (!claimants.size) return harnessPlans;
   return harnessPlans.map((target: any) => {
     if (target.skipped) return target;

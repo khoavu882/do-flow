@@ -20,7 +20,7 @@ const { createKiroAdapter } = require('../adapters/kiro/index.ts');
 const { createAntigravityAdapter } = require('../adapters/antigravity/index.ts');
 const { planLifecycle } = require('./index.ts');
 const { formatRetiredPlans } = require('./retired-harnesses.ts');
-const { resolveHookHarnesses } = require('./hook-tier.ts');
+const { resolveHookTier, hookTierWarnings } = require('./hook-tier.ts');
 const { stateRoot, readLedger, defaultLedger } = require('../state/index.ts');
 const { selectAssets } = require('../registry/index.ts');
 const { defaultLock, readLock, writeLock, diffLocks, removeLock, pinnedSelections, lockPackages } = require('../state/lockfile.ts');
@@ -54,6 +54,7 @@ function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, m
   const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
   const neutralStateRoot = stateRoot({ scope: lifecycleScope, projectRoot: scopeRoot, homeDir: scopeRoot });
   const ledger = readLedger(neutralStateRoot) ?? defaultLedger({ scope: lifecycleScope, scopeRoot });
+  const tier = hookHarnesses ? { harnesses: hookHarnesses, workers: null } : resolveHookTier();
   // Mirrors buildAdapterRegistry() in src/cli/shared.js — including the declared-paths wiring —
   // and is kept as a literal construction here because the registry guard pins every declared
   // harness into each adapter-registry call site by parsing it.
@@ -75,13 +76,15 @@ function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, m
     permissions,
     statusline,
     // maint-hooks: the person's hook tier (a caller may pass its own); every harness outside it gets content only.
-    hookHarnesses: hookHarnesses ?? resolveHookHarnesses(),
+    hookHarnesses: tier.harnesses,
   } });
-  return { registry, stateRoot: neutralStateRoot, ledger, plan, adapters };
+  const hookWarnings = operation === 'remove' ? [] : hookTierWarnings(registry, plan.targets.filter((t: any) => !t.skipped).map((t: any) => t.harness), tier);
+  return { registry, stateRoot: neutralStateRoot, ledger, plan, adapters, hookWarnings };
 }
 
 function printRegistryLifecycle(view: any, prefix = '[PLAN]') {
   console.log(`${prefix} Registry lifecycle: ${view.plan.changes.length} native change(s), ${view.plan.conflicts.length} conflict(s), ${view.plan.prerequisites.length} prerequisite(s)`);
+  for (const warning of view.hookWarnings ?? []) console.log(`[WARN] ${warning}`);
   for (const target of view.plan.targets) {
     console.log(`${prefix}   ${target.harness}: ${target.changes.length} change(s)${target.conflicts.length ? `; conflicts: ${target.conflicts.join('; ')}` : ''}`);
     const hookChange = target.changes.find((change: any) => change.nativeComponent === 'hooks');
@@ -105,6 +108,7 @@ function printRetiredPlans(view: any) {
 /** Prints the plan's notices after a real run. Independent of whether anything changed: a no-op
  * reinstall of a harness that has a gap must still say so. */
 function printPlanNotices(view: any) {
+  for (const warning of view.hookWarnings ?? []) console.log(`[WARN] ${warning}`);
   for (const { harness, notice } of view.plan.notices) console.log(`[INFO] ${harness}: ${notice}`);
 }
 

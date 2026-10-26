@@ -12,12 +12,19 @@
 
 const HOOKS_KEY = 'hooks.harnesses';
 const TIER_REASON = `not in ${HOOKS_KEY}`;
+const WORKERS_KEY = 'workers.enabled';
 
 /** The harness ids that get DoFlow's hooks: the person's `hooks.harnesses` (user layer only), else the
  * registry default. A settings fault keeps the default; only an unusable settings registry throws.
  * With no user settings file the default is read from the registry alone, so an install that has
  * nothing to resolve loads no settings module (the 086 hot-path budget). */
-function resolveHookHarnesses({ env = process.env, loadSettings }: { env?: Record<string, string | undefined>; loadSettings?: any } = {}): string[] {
+function resolveHookHarnesses(options: { env?: Record<string, string | undefined>; loadSettings?: any } = {}): string[] {
+  return resolveHookTier(options).harnesses;
+}
+
+/** The hook tier plus the worker harnesses the person configured (`workers.enabled` set in a settings
+ * file; null when it is the shipped default), for the run's warnings (maint-hooks R-4). */
+function resolveHookTier({ env = process.env, loadSettings }: { env?: Record<string, string | undefined>; loadSettings?: any } = {}): { harnesses: string[]; workers: string[] | null } {
   if (!loadSettings) {
     const fs = require('node:fs');
     const path = require('node:path');
@@ -25,12 +32,30 @@ function resolveHookHarnesses({ env = process.env, loadSettings }: { env?: Recor
     const dir = configHome(env).dir;
     if (!dir || !fs.existsSync(path.join(dir, 'settings.json'))) {
       const registry = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'registry', 'settings.json'), 'utf8'));
-      return [...registry.keys[HOOKS_KEY].default];
+      return { harnesses: [...registry.keys[HOOKS_KEY].default], workers: null };
     }
   }
   const load = loadSettings ?? require('../runtime/settings/resolve.ts').loadSettings;
-  const resolution = load({ global: true, env: { ...env }, only: [HOOKS_KEY] }).get(HOOKS_KEY, 'global');
-  return Array.isArray(resolution?.value) ? [...resolution.value] : [];
+  const view = load({ global: true, env: { ...env }, only: [HOOKS_KEY, WORKERS_KEY] });
+  const resolution = view.get(HOOKS_KEY, 'global');
+  const workers = view.get(WORKERS_KEY, 'global');
+  const configured = Array.isArray(workers?.value) && workers?.origin?.layer && workers.origin.layer !== 'default';
+  return {
+    harnesses: Array.isArray(resolution?.value) ? [...resolution.value] : [],
+    workers: configured ? workers.value.filter((id: any) => typeof id === 'string' && id !== 'primary').map((id: string) => id.split(/[:/]/)[0]) : null,
+  };
+}
+
+/** One WARN line per planned harness that gets no hooks although it is the primary session (claude)
+ * or a worker the person configured: there it runs without DoFlow's destructive-command guard. */
+function hookTierWarnings(registry: any, targets: string[], tier: { harnesses: string[]; workers: string[] | null }): string[] {
+  const warnings: string[] = [];
+  for (const harness of registry.harnesses) {
+    if (!targets.includes(harness.id) || tier.harnesses.includes(harness.id) || !getsHooks(registry, harness)) continue;
+    const role = harness.id === 'claude' ? 'the primary session' : tier.workers?.includes(harness.id) ? `a worker in ${WORKERS_KEY}` : null;
+    if (role) warnings.push(`${harness.id} is ${role} but not in ${HOOKS_KEY}: it runs without DoFlow's hooks, gates or destructive-command guard`);
+  }
+  return warnings;
 }
 
 /** Whether a harness is outside the hook tier. `hookHarnesses` undefined means no tier was resolved
@@ -140,4 +165,4 @@ function planHookTierRemovals({ target, registry, adapter, harness, scope, scope
   };
 }
 
-module.exports = { HOOKS_KEY, TIER_REASON, resolveHookHarnesses, outsideHookTier, tieredRegistry, hookHoldersFromLedger, hooksTieredOff, withoutHookSources, isHookResource, planHookTierRemovals };
+module.exports = { HOOKS_KEY, TIER_REASON, resolveHookHarnesses, resolveHookTier, hookTierWarnings, outsideHookTier, tieredRegistry, hookHoldersFromLedger, hooksTieredOff, withoutHookSources, isHookResource, planHookTierRemovals };

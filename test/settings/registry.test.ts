@@ -143,7 +143,7 @@ const V1 = {
     securityRelevant: true, failSafe: { state: 'invalid' }, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
     consumers: ['src/runtime/worker/launch.ts'],
     description: 'Space-separated exact database names a worker session may DROP DATABASE; project layer only.' },
-  'hooks.harnesses': { type: 'string-list', valuesRef: 'harnesses.ids', maxItems: 16, maxLength: 32, default: ['claude', 'codex', 'antigravity'],
+  'hooks.harnesses': { type: 'string-list', valuesRef: 'harnesses.ids', maxItems: 16, maxLength: 32, default: ['claude', 'codex', 'antigravity', 'pi'],
     scope: 'global-only', combine: 'override', securityRelevant: false, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
     consumers: ['src/lifecycle/hook-tier.ts'],
     description: "Harness ids that get DoFlow's hooks, gates and bridge; every other harness gets content only (guidance, skills, agents, MCP), and its DoFlow hooks are removed on the next install or update. An invalid list keeps the default." },

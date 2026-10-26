@@ -496,8 +496,10 @@ function plan(options: any = {}, impl: any = {}) {
     ...mcpEntriesInput({ paths, mcp: selectedServers, mcpAdoptable: options.mcpAdoptable, resources: neutralResources }),
     files: discovery.mcpSnapshot, removing,
   });
-  // Hook tiers (maint-hooks): outside `hooks.harnesses` the hooks are planned as a removal, which is ledger-driven.
-  const hooksPlan = planHooks({ paths, scope, neutralResources, removing: removing || context.hooksOff === true, repoRoot: context.repoRoot, fsImpl });
+  // Hook tiers (maint-hooks): outside `hooks.harnesses` this plan carries no hook change; the lifecycle
+  // plans the removal of what an earlier run wrote, from the ledger, against the full registry.
+  const hooksPlan = context.hooksOff === true && !removing ? { changes: [], conflicts: [] }
+    : planHooks({ paths, scope, neutralResources, removing, repoRoot: context.repoRoot, fsImpl });
 
   const changes = [...instructions.changes, ...trees.changes, ...mcp.changes, ...hooksPlan.changes];
   const conflicts = [...instructions.conflicts, ...trees.conflicts, ...mcp.conflicts, ...hooksPlan.conflicts];

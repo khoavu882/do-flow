@@ -117,8 +117,9 @@ Use `/do-flow "add a customer export"` to run the same sequence with its approva
 
 Content (guidance, skills, agents, MCP) goes to every harness; DoFlow's hooks, gates and bridge go
 only to the harnesses the user-layer setting `hooks.harnesses` names (default `claude`, `codex`,
-`antigravity`). A harness outside the list gets content only, and the next install or update removes
-the DoFlow hooks an earlier run wrote for it. Add `kiro` or `pi` to that list for their hooks.
+`antigravity`, `pi`). A harness outside the list gets content only, and the next install or update
+removes the DoFlow hooks an earlier run wrote for it; an install or update warns when Claude or a
+worker named in `workers.enabled` is left out. Add `kiro` to that list for its hooks.
 Codex hooks are installed as `hooks.json` but require review/trust in Codex before they run.
 Kiro's hooks are not in Kiro v3's
 untrusted-workspace exclusion list; an untrusted workspace asks before every shell command, and

@@ -130,14 +130,16 @@ execution adapter has a fourth:
 
 **Hook tiers (maint-hooks).** Content (guidance, skills, agents, MCP) goes to every harness; hooks,
 gates and the bridge go only to the harnesses the global-only setting `hooks.harnesses` names
-(default `claude`, `codex`, `antigravity`: the primary session, the edit worker, and the headless
-worker whose only guard is the hook). `src/lifecycle/hook-tier.ts` plans a harness outside the list
+(default `claude`, `codex`, `antigravity`, `pi`: the primary session and the harnesses that run
+workers, whose only destructive-command guard is the hook; a run warns when Claude or a harness in
+`workers.enabled` is left out). `src/lifecycle/hook-tier.ts` plans a harness outside the list
 against a registry copy whose `hooks` capability is `unavailable` (`tiered: true`), so asset
 selection, policy rendering and the shared-tree companions treat it as a harness without hooks,
 and adapters drop hook config that rides a content asset (Claude's `settings.json` block, Codex
 `features.hooks`, Kiro agent `hooks`) through `context.hooksOff`. The hooks an earlier run wrote
 are removed in the same plan, through the adapter's own remove path, from the ledger rows. A
-`remove` takes exactly the hooks the ledger records. OpenCode and Copilot get no hook either way.
+`remove` takes exactly the hooks the ledger records, and a shared hook file another harness writes in
+the same plan is retained, not deleted. OpenCode and Copilot get no hook either way.
 
 Policy rules—checks of artifacts, branch, run or readiness state, pattern files and MCP policy—live only in `core/harnesses/shared/hooks/policies/`. A bridge adds no model-visible text of its own except the fixed error reason and the native rendering of a policy's deny reason.
 
