@@ -23,6 +23,12 @@
 // Ctrl-C (SIGINT) or SIGTERM stops the Console and removes the scratch directories (exact paths, all
 // under SCRATCH_ROOT) unless --keep.
 //
+// The Sessions view (E.7) has its own run, feat-sessions: two overlapping tasks claimed by two runs and a 30 h claim
+// (the ledger's startedAt moved back, like the stale run's times); hook records written by the REAL hook scripts
+// (observe-model.sh through bridge.sh, session-context.sh) in the scratch HOME; a held slot with a dead holder, one
+// whose liveness is unknown and one held from a second project; a commit in the linked worktree newer than every
+// record there (outside DoFlow); and a second project whose sessions must never reach the Console.
+//
 // Two journal edits no verb can make, both through the record's own fields in the run's journal file:
 // the stale run's startedAt, updatedAt and history times are moved back 48 h (the core stamps the
 // clock and takes none), and the shape-mismatch run's `program` loses its `verification` node (a run
@@ -31,7 +37,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
-const { buildFixture } = require('../test/helpers/core-fixture.ts');
+const { buildFixture, SLUGS } = require('../test/helpers/core-fixture.ts');
 
 /**
  * Every directory this script makes is made directly under this root, and only those exact paths are
@@ -57,6 +63,7 @@ const RUNS = Object.freeze({
   rejected: { slug: 'feat-rejected', taskId: 'run-rejected' }, // REJECTED at gate-a
   stale: { slug: 'feat-stale', taskId: 'run-stale' }, // RUNNING, silent for 48 h
   shape: { slug: 'feat-shape', taskId: 'run-shape' }, // RUNNING, program one node short of the workflow
+  sessions: { slug: 'feat-sessions', taskId: 'run-sessions' }, // RUNNING in implementation; S.1 and S.2 overlap and are claimed by two runs, S.3 is a 30 h claim
 });
 
 const OWNERS = Object.freeze(['core-implementer', 'quality-guardian', 'system-architect']);
@@ -92,6 +99,26 @@ const APPROVAL_PLAN = [
   '',
 ].join('\n');
 
+/** Three tasks: S.1 and S.2 declare the same file (an overlap), S.3 is the long claim. */
+const SESSIONS_PLAN = [
+  '# Plan', '', '**Task graph:** v1', '', '## Tasks', '',
+  '### Phase A', '',
+  '- [ ] S.1 [P] first writer; owner: core-implementer; files: src/shared.js, src/s1.js',
+  '- [ ] S.2 [P] second writer; owner: quality-guardian; files: src/shared.js, src/s2.js',
+  '- [ ] S.3 [P] long claim; owner: system-architect; files: src/s3.js',
+  '',
+].join('\n');
+
+/**
+ * The helper's `feat-broken` run is live with a plan.md that has no tasks (plan-malformed). Sessions inspects every live
+ * run's plan and, by IC-018 e, a failed inspect fails the whole `tasks` section, so with that plan in place no claim or
+ * overlap would show. The full fixture mends it to a one-task graph plan; read-contract.test.ts keeps the helper's own.
+ */
+const MENDED_PLAN = ['# Plan', '', '**Task graph:** v1', '', '## Tasks', '', '### Phase A', '', '- [ ] A.1 only step; owner: core-implementer; files: src/broken.js', ''].join('\n');
+
+/** The second run of the overlap, and the launched unit that belongs to it (`L.<run>.<lineage>.<attempt>`). */
+const SECOND_RUN = Object.freeze({ run: 'run-two', lineage: 'lin2', attempt: '1' });
+
 type Options = { core: string, empty?: boolean, coreMissing?: boolean, keep?: boolean, log?: (line: string) => void };
 type Fixture = ReturnType<typeof buildFixture>;
 type Handle = {
@@ -105,8 +132,8 @@ type Handle = {
 };
 
 /** The fixture environment of the core's calls, with the upkeep switch on: building must not run upkeep. */
-function coreCaller(core: string, cwd: string, env: Record<string, string>) {
-  const buildEnv = { ...env, DOFLOW_UPKEEP: 'off' };
+function coreCaller(core: string, cwd: string, env: Record<string, string>, extra: Record<string, string> = {}) {
+  const buildEnv = { ...env, DOFLOW_UPKEEP: 'off', ...extra };
   return (...args: string[]): any => {
     const result = spawnSync(process.execPath, [core, ...args, '--json'], { cwd, env: buildEnv, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024 });
     if (result.status !== 0) throw new Error(`fixture-console: doflow ${args.join(' ')} exited ${result.status}\n${result.stdout}${result.stderr}`);
@@ -131,6 +158,7 @@ function addRuns(fixture: Fixture, core: string): Array<{ describe: string, args
   }
   fs.writeFileSync(path.join(main, 'agent-docs', 'doflow', RUNS.work.slug, 'plan.md'), WORK_PLAN);
   fs.writeFileSync(path.join(main, 'agent-docs', 'doflow', RUNS.approval.slug, 'plan.md'), APPROVAL_PLAN);
+  fs.writeFileSync(path.join(main, 'agent-docs', 'doflow', RUNS.sessions.slug, 'plan.md'), SESSIONS_PLAN);
 
   const start = (run: { slug: string, taskId: string }, taskClass: string) => orchestrate('--action', 'start', '--task-id', run.taskId, '--task-class', taskClass, '--slug', run.slug);
   const complete = (run: { slug: string, taskId: string }, stage: string) => orchestrate('--action', 'complete-stage', '--task-id', run.taskId, '--stage', stage, '--result', 'passed', '--slug', run.slug);
@@ -172,6 +200,11 @@ function addRuns(fixture: Fixture, core: string): Array<{ describe: string, args
   expectState(decide(RUNS.work, 'gate-a', 'approve'), 'RUNNING', RUNS.work.taskId);
   addAttempts(call, RUNS.work.slug);
 
+  // RUNNING in implementation with the Sessions plan; its claims, the hook records and the locks come after the runs.
+  toDesign(RUNS.sessions);
+  toGateA(RUNS.sessions);
+  expectState(decide(RUNS.sessions, 'gate-a', 'approve'), 'RUNNING', RUNS.sessions.taskId);
+
   // RUNNING in design: the live run (see the header).
   toDesign(RUNS.tick);
 
@@ -189,6 +222,8 @@ function addRuns(fixture: Fixture, core: string): Array<{ describe: string, args
   const shape = journalOf(main, RUNS.shape.slug, RUNS.shape.taskId);
   shape.record.program = shape.record.program.filter((node: any) => node.id !== 'verification');
   shape.write(shape.record);
+
+  addSessions(fixture, core, call);
 
   const live = RUNS.tick;
   return [
@@ -219,6 +254,97 @@ function addAttempts(call: (...args: string[]) => any, slug: string) {
   claim('B.1', 'core-implementer', 'subagent'); // active
   finish('B.2', claim('B.2', 'quality-guardian', 'manual').token, 'COMPLETED');
   claim('C.2', 'quality-guardian', 'sequential'); // active
+}
+
+/** `git` in a fixture repository, with the fixture identity and an optional committer date. */
+function gitIn(fixture: Fixture, cwd: string, args: string[], date?: string) {
+  const env = { ...fixture.env, ...(date ? { GIT_COMMITTER_DATE: date, GIT_AUTHOR_DATE: date } : {}) };
+  const result = spawnSync('git', ['-C', cwd, '-c', 'user.name=DoFlow UI Fixture', '-c', 'user.email=doflow-ui-fixture@example.test', ...args], { env, encoding: 'utf8' });
+  if (result.status !== 0) throw new Error(`fixture-console: git ${args.join(' ')} exited ${result.status}\n${result.stdout}${result.stderr}`);
+  return result.stdout.trim();
+}
+
+/**
+ * The Sessions fixture (design 7a): claims, hook records from the real scripts, locks, an outside-DoFlow commit and a
+ * second project. Everything is written into the scratch HOME, config home and user state of `fixture`.
+ */
+function addSessions(fixture: Fixture, core: string, call: (...args: string[]) => any) {
+  const { main, linked } = fixture;
+  const slug = RUNS.sessions.slug;
+  fs.writeFileSync(path.join(main, 'agent-docs', 'doflow', SLUGS.broken, 'plan.md'), MENDED_PLAN);
+
+  // Claims: S.1 from the main session's run, S.2 from a second run (the overlap is held by two runs), S.3 left long.
+  const second = coreCaller(core, main, fixture.env, { DOFLOW_RUN_ID: SECOND_RUN.run, DOFLOW_LINEAGE_ID: SECOND_RUN.lineage });
+  const attempt = (caller: (...args: string[]) => any, ...args: string[]) => caller('task-attempt', '--slug', slug, ...args);
+  attempt(call, '--action', 'start', '--by', 'orchestrator');
+  attempt(call, '--action', 'claim', '--task', 'S.1', '--owner', 'core-implementer', '--mode', 'subagent', '--epoch', '1');
+  attempt(second, '--action', 'start', '--by', 'orchestrator'); // a run key of its own needs its own start
+  attempt(second, '--action', 'claim', '--task', 'S.2', '--owner', 'quality-guardian', '--mode', 'subagent', '--epoch', '1');
+  const long = attempt(call, '--action', 'claim', '--task', 'S.3', '--owner', 'system-architect', '--mode', 'manual', '--epoch', '1');
+  // A 30 h claim: no verb takes a clock, so the ledger's startedAt of that attempt is moved back, as the stale run's times are.
+  const ledger = path.join(main, '.doflow', 'state', 'task-attempts', `${slug}.json`);
+  const record = JSON.parse(fs.readFileSync(ledger, 'utf8'));
+  let moved = 0;
+  for (const attempts of Object.values(record.tasks ?? {}).map((entry: any) => entry.attempts ?? [])) {
+    for (const entry of attempts as any[]) {
+      if (entry.token === long.token && entry.owner === 'system-architect') { entry.startedAt = new Date(Date.now() - 30 * HOUR).toISOString(); moved += 1; }
+    }
+  }
+  if (moved !== 1) throw new Error(`fixture-console: the S.3 claim was not found in ${ledger} (${moved})`);
+  fs.writeFileSync(ledger, `${JSON.stringify(record, null, 2)}\n`);
+
+  // A second project in the same config home: its sessions and its lock must never reach this Console's bodies.
+  const other = path.join(fixture.dir, 'other');
+  fs.mkdirSync(other, { recursive: true });
+  gitIn(fixture, other, ['init', '-q', '-b', 'main']);
+  fs.writeFileSync(path.join(other, 'a.txt'), 'a\n');
+  gitIn(fixture, other, ['add', '-A']);
+  gitIn(fixture, other, ['commit', '-q', '-m', 'first']);
+
+  // Hook records, written by the real scripts in the scratch HOME (observe-model.sh through bridge.sh; session-context.sh).
+  const hooks = path.resolve(path.dirname(core), '..', 'core', 'harnesses', 'shared', 'hooks');
+  const bridge = path.join(hooks, 'bridge', 'bridge.sh');
+  const envelopeJq = path.join(hooks, 'bridge', 'envelope.jq');
+  const sessionContext = path.join(hooks, 'policies', 'session-context.sh');
+  if (![bridge, envelopeJq, sessionContext].every((file) => fs.existsSync(file))) throw new Error(`fixture-console: the hook scripts are not beside --core (${hooks})`);
+  const hookEnv = { ...fixture.env, DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_UPKEEP: 'off', CLAUDE_CONFIG_DIR: '', CODEX_HOME: '', GEMINI_CONFIG_DIR: '', DOFLOW_PROJECT_DIR: '', DOFLOW_DECISION_FD: '', DOFLOW_BRIDGE_TRACE: '' };
+  const run = (command: string, args: string[], cwd: string, input: string, env = hookEnv) => {
+    const result = spawnSync(command, args, { cwd, env, input, encoding: 'utf8' });
+    if (result.status !== 0) throw new Error(`fixture-console: ${command} ${args.join(' ')} exited ${result.status}\n${result.stdout}${result.stderr}`);
+    return result.stdout;
+  };
+  const observe = (harness: string, event: string, sessionId: string, cwd: string, model: string) =>
+    run('bash', [bridge, harness, event, 'mcp-tool-guard'], cwd, JSON.stringify({ hook_event_name: event, session_id: sessionId, model, cwd }));
+  const sessionStart = (sessionId: string, cwd: string) => {
+    const envelope = run('jq', ['-c', '--arg', 'harness', 'claude', '--arg', 'event', 'SessionStart', '--arg', 'policy', 'session-context', '-f', envelopeJq], cwd, JSON.stringify({ session_id: sessionId, cwd, source: 'startup' })).trimEnd();
+    run('bash', [sessionContext], cwd, envelope, { ...hookEnv, DOFLOW_AGENT: 'claude' });
+  };
+  fs.mkdirSync(path.join(fixture.roots['config-home']), { recursive: true });
+  observe('claude', 'SessionStart', 'fixture-session-linked-RAWID-1', linked, 'claude-sonnet-4'); // both records: one lane
+  sessionStart('fixture-session-linked-RAWID-1', linked);
+  observe('codex', 'PreToolUse', 'fixture-session-main-RAWID-2', main, 'gpt-6-luna'); // an observation only
+  observe('claude', 'SessionStart', 'fixture-session-other-RAWID-3', other, 'claude-opus-4'); // the second project: never shown
+  sessionStart('fixture-session-other-RAWID-3', other);
+  const store = path.join(fixture.roots['config-home'], 'session-env');
+  if (!fs.existsSync(path.join(store, 'primary'))) throw new Error(`fixture-console: the hook records did not land under ${store}`);
+  // A launched unit of the second run, in the main checkout: it joins that run's lane.
+  const unit = path.join(store, 'sessions', `L.${SECOND_RUN.run}.${SECOND_RUN.lineage}.${SECOND_RUN.attempt}`);
+  fs.mkdirSync(unit, { recursive: true });
+  fs.writeFileSync(path.join(unit, 'git-context.json'), JSON.stringify({ branch: '', sha: '', cwd: path.join(main, 'src'), captured_at: new Date().toISOString() }));
+
+  // Locks (written as the core writes them; `slot --action peek` reads them without a lock): a dead holder in the linked
+  // worktree, a holder whose liveness cannot be proven in the main checkout, and a holder from the second project.
+  const slots = path.join(fixture.roots['user-state'], 'slots');
+  fs.mkdirSync(slots, { recursive: true });
+  const dead = spawnSync(process.execPath, ['-e', '']).pid;
+  const holder = (pid: number, start: string | null, label: string, since: number, cwd: string) => ({ pid, start, childPid: null, childStart: null, label, since: new Date(since).toISOString(), cwd });
+  const plant = (name: string, held: unknown) => fs.writeFileSync(path.join(slots, `${name}.json`), JSON.stringify({ name, holder: held, waiters: [], lastRelease: null }));
+  plant('build', holder(dead as number, 'x', 'build@linked', Date.now() - 2 * HOUR, linked));
+  plant('suite', holder(process.pid, null, 'suite@main', Date.now() - HOUR, main));
+  plant('other-suite', holder(process.pid, null, 'suite@other', Date.now() - HOUR, other));
+
+  // A commit in the linked worktree newer than every record there: outside DoFlow (a minute ahead, so it is after the records).
+  gitIn(fixture, linked, ['commit', '-q', '--allow-empty', '-m', 'outside doflow'], new Date(Date.now() + 60_000).toISOString());
 }
 
 /** Zero runs: both stores the helper wrote to (the main checkout and its linked worktree) are emptied. */

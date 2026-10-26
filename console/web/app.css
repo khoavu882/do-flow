@@ -1304,6 +1304,149 @@
   @media (min-width: 1280px) {
     .replay { padding: var(--space-4) var(--space-5); }
   }
+
+  /* ---- E.7: the Sessions view (design.md 7a V7): a row per checkout with its lanes, holds and last record; conflicts lead ---- */
+  /* CD-B9 with three nav items: tighter pills and header gap below 768 so Runs, Workflows and Sessions stay on row 1 at 360. */
+  .nav__link { padding-inline: var(--space-2); }
+  .site-header__inner { column-gap: var(--space-2); }
+  @media (min-width: 768px) {
+    .nav__link { padding-inline: var(--space-3); }
+    .site-header__inner { column-gap: var(--space-4); }
+  }
+
+  .sessions [hidden] { display: none; }
+  .sessions__top { display: grid; justify-items: start; gap: var(--space-3); margin-bottom: var(--space-4); }
+  .sessions__summary { font: var(--type-sm); color: var(--text-muted); }
+  .sessions__legend { max-width: var(--prose-max); font: var(--type-xs); color: var(--text-muted); }
+  .sessions__legend .slane__mark { display: inline-block; vertical-align: middle; color: var(--text); }
+  .snote { display: flex; align-items: flex-start; gap: var(--space-2); max-width: var(--prose-max); margin-bottom: var(--space-3); padding: var(--space-3) var(--space-4); font: var(--type-sm); color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-md); }
+  .snote .icon { flex: none; margin-top: 2px; color: var(--state-unknown-mark); }
+
+  .sfilter { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); }
+  .sfilter__opt { min-height: var(--target); padding-inline: var(--space-3); font: var(--type-sm); font-weight: 600; color: var(--text); cursor: pointer; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-pill); }
+  .sfilter__opt:hover { background: var(--surface-2); }
+  .sfilter__opt[aria-checked="true"] { color: var(--accent); background: var(--accent-tint); border-color: var(--accent); }
+
+  /* The conflict bar is pinned on top; below 768 it is a one-line summary that opens. */
+  .sbar { margin-bottom: var(--space-4); background: var(--state-awaiting-tint); border: 1px solid var(--state-awaiting-mark); border-radius: var(--radius-lg); }
+  .sbar__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-2) var(--space-4); }
+  .sbar__title { display: flex; align-items: center; gap: var(--space-2); font: var(--type-lg); letter-spacing: var(--tracking-tight); color: var(--state-awaiting-fg); }
+  .sbar__toggle { display: inline-flex; }
+  .sbar__list { display: grid; gap: var(--space-2); margin: 0; padding: 0 var(--space-4) var(--space-3); list-style: none; }
+  .sbar[data-open="false"] .sbar__list { display: none; }
+  .sbar__item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); font: var(--type-sm); color: var(--text); }
+  .sbar__text { flex: 1 1 14rem; min-width: 0; overflow-wrap: anywhere; }
+  .sbar__subject { font-weight: 600; }
+  .sbar__jump { min-height: var(--target); padding-inline: var(--space-2); font: var(--type-sm); font-weight: 600; color: var(--accent); text-decoration: underline; cursor: pointer; background: transparent; border: 0; }
+
+  .sessions__layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+  .sessions__rows { min-width: 0; }
+  .srows { display: grid; gap: var(--space-4); margin: 0; padding: 0; list-style: none; }
+  .srows__heads { display: none; }
+  .srows__empty { padding-block: var(--space-4); font: var(--type-sm); color: var(--text-muted); }
+  .srow { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--elev-1); }
+  .srow[data-conflict="true"] { background: var(--state-awaiting-tint); border-color: var(--state-awaiting-mark); }
+  .srow__title { margin: 0; font: inherit; }
+  .srow__head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-1) var(--space-3); width: 100%; min-height: var(--target); padding: var(--space-3) var(--space-4); text-align: start; font: inherit; color: var(--text); cursor: pointer; background: transparent; border: 0; border-radius: var(--radius-lg); }
+  .srow__head:hover { background: var(--surface-2); }
+  .srow__head:focus-visible { outline-offset: calc(-1 * var(--focus-width)); }
+  .srow__name { font: var(--type-lg); font-weight: 600; letter-spacing: var(--tracking-tight); overflow-wrap: anywhere; }
+  .srow__tag { padding: 0 var(--space-2); font: var(--type-xs); color: var(--accent); border: 1px solid var(--accent); border-radius: var(--radius-pill); }
+  .srow__role, .srow__commit, .srow__counts { font: var(--type-xs); color: var(--text-muted); }
+  .srow__head7 { font: var(--type-xs); font-family: var(--font-mono); color: var(--text-muted); }
+  .srow__body { display: grid; gap: var(--space-4); padding: 0 var(--space-4) var(--space-4); }
+  .srow__colhead { margin-bottom: var(--space-2); font: var(--type-xs); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--text-muted); }
+  .srow__none { font: var(--type-sm); color: var(--text-muted); }
+  .srow__last { font: var(--type-sm); color: var(--text); }
+  .srow__lanelist, .srow__holdlist, .slane-children { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
+  .slane-children { margin-top: var(--space-2); margin-inline-start: 20px; }
+  .shold { padding-inline-start: var(--space-3); font: var(--type-sm); color: var(--text); overflow-wrap: anywhere; border-inline-start: 2px solid var(--border-strong); }
+  .srow__conflicts { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; font: var(--type-sm); color: var(--text); }
+  .srow__conflict { overflow-wrap: anywhere; }
+  .srow__panel { margin: 0 var(--space-4) var(--space-4); padding: var(--space-4); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); }
+
+  /* A lane reuses the look of a task card (V4): a state-coloured left edge, the mark for what was checked. */
+  .slane {
+    display: grid;
+    grid-template-columns: 12px minmax(0, 1fr);
+    gap: var(--space-2);
+    width: 100%;
+    min-height: var(--target);
+    padding: var(--space-2) var(--space-3);
+    text-align: start;
+    font: inherit;
+    color: var(--text);
+    cursor: pointer;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-inline-start-width: 4px;
+    border-radius: var(--radius-md);
+    box-shadow: var(--elev-1);
+  }
+  .slane:hover { box-shadow: var(--elev-2); }
+  .slane[aria-expanded="true"] { box-shadow: inset 0 0 0 2px var(--accent), var(--elev-2); }
+  .slane[data-state="running"] { background: var(--state-running-tint); border-inline-start-color: var(--state-running-mark); }
+  .slane[data-state="awaiting"] { background: var(--state-awaiting-tint); border-inline-start-color: var(--state-awaiting-mark); }
+  .slane[data-state="done"] { background: var(--state-done-tint); border-inline-start-color: var(--state-done-mark); }
+  .slane[data-state="failed"] { background: var(--state-failed-tint); border-inline-start-color: var(--state-failed-mark); }
+  .slane[data-state="stale"] { background: var(--state-stale-tint); border-inline-start-color: var(--state-stale-mark); }
+  .slane[data-state="unknown"] { background: var(--state-unknown-tint); border-inline-start-color: var(--state-unknown-mark); }
+  .slane__mark { box-sizing: border-box; width: 10px; height: 10px; margin-top: 5px; background: currentColor; border-radius: 50%; }
+  .slane__mark[data-mark="recorded"] { background: transparent; border: 2px solid currentColor; }
+  .slane[data-state="running"] .slane__mark { color: var(--state-running-mark); }
+  .slane[data-state="done"] .slane__mark { color: var(--state-done-mark); }
+  .slane[data-state="failed"] .slane__mark { color: var(--state-failed-mark); }
+  .slane[data-state="stale"] .slane__mark { color: var(--state-stale-mark); }
+  .slane[data-state="unknown"] .slane__mark { color: var(--state-unknown-mark); }
+  .slane__main { display: grid; gap: 2px; min-width: 0; }
+  .slane__top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-1) var(--space-2); }
+  .slane__title { font: var(--type-sm); font-weight: 600; overflow-wrap: anywhere; }
+  .slane__state { display: inline-flex; flex: none; align-items: center; gap: var(--space-1); font: var(--type-xs); }
+  .slane__state[data-state="running"] { color: var(--state-running-fg); }
+  .slane__state[data-state="done"] { color: var(--state-done-fg); }
+  .slane__state[data-state="failed"] { color: var(--state-failed-fg); }
+  .slane__state[data-state="stale"] { color: var(--state-stale-fg); }
+  .slane__state[data-state="unknown"] { color: var(--state-unknown-fg); }
+  .slane__line { font: var(--type-xs); color: var(--text-muted); overflow-wrap: anywhere; }
+
+  .spanel { display: none; min-width: 0; padding: var(--space-4); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); box-shadow: var(--elev-2); }
+  .spanel__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-2); }
+  .spanel__title { min-width: 0; font: var(--type-lg); letter-spacing: var(--tracking-tight); overflow-wrap: anywhere; }
+  .spanel__close { flex: none; min-width: var(--target); padding-inline: 0; }
+  .spanel__facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-2) var(--space-4); margin-top: var(--space-3); font: var(--type-sm); }
+  .spanel__facts dt { color: var(--text-muted); }
+  .spanel__facts dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+  .spanel__more { margin-top: var(--space-4); font: var(--type-sm); color: var(--text-muted); }
+
+  .sfoot { display: grid; gap: var(--space-4); margin-top: var(--space-6); }
+  .sfoot__box { padding: var(--space-4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+  .sfoot__box--blind { border-style: dashed; border-color: var(--border-strong); }
+  .sfoot__title { font: var(--type-lg); letter-spacing: var(--tracking-tight); }
+  .sfoot__list { display: grid; gap: var(--space-2); margin: var(--space-2) 0 0; padding-inline-start: var(--space-4); font: var(--type-sm); color: var(--text); }
+  .empty__ways { display: grid; gap: var(--space-2); max-width: var(--prose-max); margin: 0 auto; padding-inline-start: var(--space-4); text-align: start; font: var(--type-sm); color: var(--text); }
+  .skel--srow { height: 112px; border-radius: var(--radius-lg); }
+
+  @media (min-width: 768px) {
+    .sbar { position: sticky; top: calc(var(--header-h) + var(--space-2)); z-index: var(--z-banner); }
+    .sbar[data-open="false"] .sbar__list { display: grid; }
+    .sbar__toggle { display: none; }
+    .srow__body { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; }
+    .srow__last, .srow__conflicts { grid-column: 1 / -1; }
+  }
+  @media (min-width: 1280px) {
+    .srows__heads { display: grid; grid-template-columns: 3fr 5fr 3fr 1fr; padding-inline: var(--space-4); margin-bottom: var(--space-2); font: var(--type-xs); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--text-muted); }
+    .srow { display: grid; grid-template-columns: 3fr 5fr 3fr 1fr; align-items: start; }
+    .srow__body { display: contents; }
+    .srow__colhead { display: none; }
+    .srow__lanes, .srow__holds, .srow__last { padding: var(--space-3) var(--space-3) var(--space-4) 0; }
+    .srow__conflicts { padding: 0 var(--space-4) var(--space-4); }
+    .srow__panel { grid-column: 1 / -1; }
+  }
+  @media (min-width: 1920px) {
+    .sessions[data-open="true"] .sessions__layout { grid-template-columns: minmax(0, 1fr) 420px; align-items: start; }
+    .spanel { display: block; position: sticky; top: calc(var(--header-h) + var(--space-4)); max-height: calc(100vh - var(--header-h) - 2 * var(--space-4)); overflow: auto; }
+    .srow__panel { display: none; }
+  }
 }
 
 /* ---- states -------------------------------------------------------------------------------------- */
@@ -1521,4 +1664,32 @@
   .replay__tick { background: CanvasText; }
   .replay__tick[data-untimed="true"] { background: transparent; border-inline-start-color: CanvasText; }
   .replay .btn[disabled] { color: GrayText; border-color: GrayText; opacity: 1; }
+}
+
+/* ---- E.7 states: stale data must not look alive, so a new-conflict flash stops ---- */
+@layer states {
+  #main[data-stale="true"] .srow { animation: none !important; }
+}
+
+/* ---- E.7 motion: a new or cleared conflict flashes its row once; reduced motion keeps a 2 px bar for the poll instead ---- */
+@layer motion {
+  .srow[data-fresh="true"] { --tint: var(--state-awaiting-mark); animation: flash var(--motion-flash) var(--ease-standard) both; }
+  .srow[data-cleared="true"] { --tint: var(--state-done-mark); animation: flash var(--motion-flash) var(--ease-standard) both; }
+  @media (prefers-reduced-motion: reduce) {
+    .srow[data-fresh="true"], .srow[data-cleared="true"] { animation-name: none; }
+    .srow[data-fresh="true"] { box-shadow: inset 2px 0 0 var(--state-awaiting-mark); }
+    .srow[data-cleared="true"] { box-shadow: inset 2px 0 0 var(--state-done-mark); }
+  }
+}
+
+/* ---- forced colours: the Sessions view keeps its shapes in system colours ---- */
+@media (forced-colors: active) {
+  .srow, .slane, .sbar, .spanel, .srow__panel, .sfoot__box, .snote, .sfilter__opt { border: 1px solid CanvasText; }
+  .slane { border-inline-start-width: 4px; }
+  .slane[aria-expanded="true"], .sfilter__opt[aria-checked="true"] { outline: 3px solid Highlight; outline-offset: 0; }
+  .slane__mark { background: CanvasText; }
+  .slane__mark[data-mark="recorded"] { background: Canvas; border-color: CanvasText; }
+  .sfoot__box--blind { border-style: dashed; }
+  .shold { border-inline-start-color: CanvasText; }
+  .srow[data-fresh="true"], .srow[data-cleared="true"] { outline: 2px solid Highlight; }
 }

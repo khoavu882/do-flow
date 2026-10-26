@@ -203,7 +203,7 @@ function installPage(opts: { hash?: string, stored?: string | null, throwStorage
   const link = (href: string, text: string) => el('a', { class: 'nav__link', href }, [text]);
   const radio = (choice: string) => el('button', { type: 'button', role: 'radio', class: 'theme__opt', 'aria-checked': 'false', tabindex: '-1', 'data-theme-choice': choice }, [el('span', { class: 'theme__label' }, [choice])]);
   const skip = el('a', { class: 'skip', href: '#main' }, ['Skip to content']);
-  const nav = [link('#/', 'Runs'), link('#/workflows', 'Workflows')];
+  const nav = [link('#/', 'Runs'), link('#/workflows', 'Workflows'), link('#/sessions', 'Sessions')]; // E.7: the fake page mirrors index.html's third link
   const radios = ['light', 'dark', 'system'].map(radio);
   const conn = el('p', { class: 'conn', id: 'conn', 'data-state': 'unknown' }, [el('span', { class: 'conn__long' }, ['Connecting']), el('span', { class: 'conn__short' }, ['Connecting'])]);
   const region = el('div', { class: 'vh', id: 'announcer' });
@@ -605,14 +605,14 @@ test('views: the router table maps hashes to views, and a bad parameter is not-f
   assert.equal(navFor(parseRoute('#/run/s/t/tasks')), 'runs');
   assert.equal(navFor(parseRoute('#/workflows')), 'workflows');
   assert.equal(navFor(parseRoute('#/x')), null);
-  assert.deepEqual(Object.keys(VIEWS).sort(), ['not-found', 'run', 'runs', 'tasks', 'workflows']);
+  assert.deepEqual(Object.keys(VIEWS).sort(), ['not-found', 'run', 'runs', 'sessions', 'tasks', 'workflows']); // E.7 adds the sessions view to this list
 });
 
 test('index.html provides the elements the shell needs', () => {
   const html = fs.readFileSync(path.join(WEB_ROOT, 'index.html'), 'utf8');
   for (const id of ['main', 'conn', 'core-version', 'banner-slot', 'announcer']) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(html, /aria-live="polite"/);
-  assert.deepEqual([...html.matchAll(/class="nav__link" href="([^"]+)"/g)].map((m) => m[1]), ['#/', '#/workflows']);
+  assert.deepEqual([...html.matchAll(/class="nav__link" href="([^"]+)"/g)].map((m) => m[1]), ['#/', '#/workflows', '#/sessions']); // E.7 adds the Sessions link
   assert.deepEqual([...html.matchAll(/data-theme-choice="([^"]+)"/g)].map((m) => m[1]), ['light', 'dark', 'system']);
   assert.match(html, /<html lang="en" class="booting">/);
   assert.match(html, /<main id="main" class="page" tabindex="-1">/);
@@ -2155,4 +2155,256 @@ test('E.4 hostile text: a task id and an owner in the replay banner reach the pa
   scrubTo(page, 1);
   assert.ok(text(replayOf(page).banner).includes(hostile));
   assert.ok(!tags(page.main).includes('img') && !tags(page.main).includes('script'));
+});
+
+// ---- E.7: the Sessions view (design.md 7a V7) -----------------------------------------------------------------------
+
+const sk = (n: number) => n.toString(16).padStart(16, '0');
+const sCheckout = (n: number, over: any = {}) => ({ worktreeKey: sk(n), role: n === 1 ? 'main' : 'linked', current: n === 1, branch: `feat-${n}`, head: 'abcdef012345', headCommittedAt: null, ...over });
+const sHook = (n: number, wk: number, over: any = {}) => ({
+  sessionKey: sk(100 + n), worktreeKey: sk(wk), kind: 'hook', harness: 'codex', model: 'gpt-6-luna', modelFirstSeenAt: agoIso(3 * 60 * MIN_MS), startedAt: agoIso(3 * 60 * MIN_MS),
+  branchAtStart: null, lastHookRecordAt: agoIso(60 * MIN_MS), launched: null, ...over,
+});
+const sAttempt = (token: number, task: string, over: any = {}) => ({ task, token, owner: 'core-implementer', mode: 'subagent', state: 'active', startedAt: agoIso(30 * MIN_MS), endedAt: null, result: null, worktreeKey: sk(1), run: 'local', lineage: 'main', ...over });
+const sOk = (data: any) => ({ ok: true, data });
+const sessionsBody = (parts: any = {}) => ({
+  v: 1,
+  sections: {
+    observed: sOk(parts.observed ?? { v: 1, store: 'present', checkouts: [sCheckout(1), sCheckout(2), sCheckout(3)], sessions: [], truncated: false, unreadable: 0 }),
+    slots: sOk(parts.slots ?? { v: 1, slots: [], unreadable: 0 }),
+    runs: sOk({ v: 1, runs: [], unreadableCount: 0 }),
+    tasks: sOk(parts.tasks ?? []),
+    workers: sOk([]),
+    roadmap: sOk(parts.roadmap ?? null),
+    ...(parts.sections ?? {}),
+  },
+  limits: { runsInspected: 2, runsNotChecked: 0, workersChecked: 1, workersNotChecked: 3 },
+});
+const sessionsRoute = (build: () => any) => (target: string, init: any) => (target === '/api/sessions' ? reply(200, build()) : standard(target, init));
+/** Two checkouts with records: a hook session in the main one, a dead lock and an overlap across two runs. */
+const BUSY = () => sessionsBody({
+  observed: { v: 1, store: 'present', checkouts: [sCheckout(1), sCheckout(2), sCheckout(3)], sessions: [sHook(1, 1), sHook(2, 2, { harness: null, model: null, modelFirstSeenAt: null })], truncated: false, unreadable: 0 },
+  slots: { v: 1, slots: [{ name: 'build', holder: { label: 'build@feat-2', since: agoIso(2 * 60 * MIN_MS), alive: false, worktreeKey: sk(2) }, waiters: 0 }], unreadable: 0 },
+  tasks: [{ slug: 'feat-a', revision: 1, overlaps: [{ a: 'A.4', b: 'A.6', fileCount: 2 }], active: [sAttempt(1, 'A.4'), sAttempt(1, 'A.6', { run: 'run-two', lineage: 'lin2' })] }],
+});
+const srowOf = (page: Page, label: string): any => page.main.querySelectorAll('.srow').find((r: El) => text(r.querySelector('.srow__name')) === label);
+const slaneOf = (page: Page, key: string): any => page.main.querySelectorAll('.slane').find((l: El) => l.getAttribute('data-lane-key') === key);
+const srowHeads = (page: Page) => page.main.querySelectorAll('.srow__head');
+
+test('E.7 sessions: the route, the title and the six shapes it reads', () => {
+  const { parseRoute, titleFor, navFor, VIEWS, SHAPES_USED } = mods.views;
+  assert.equal(parseRoute('#/sessions').id, 'sessions');
+  assert.equal(parseRoute('#/sessions/').id, 'not-found');
+  assert.equal(titleFor(parseRoute('#/sessions')), 'Sessions \u00b7 DoFlow Console');
+  assert.equal(navFor(parseRoute('#/sessions')), 'sessions');
+  assert.deepEqual(VIEWS.sessions.shapes, ['observed', 'slots', 'list', 'attempts', 'worker-status', 'roadmap']);
+  for (const shape of VIEWS.sessions.shapes) assert.ok(SHAPES_USED.includes(shape) && SHAPE_IDS.includes(shape), `${shape} is read and on the allow-list`);
+  assert.equal(VIEWS.sessions.api(), '/api/sessions');
+  assert.equal(VIEWS.sessions.pollMs, 10_000);
+});
+
+test('E.7 sessions: rows run current, conflict, records, none; conflicts lead in a bar; lanes, holds, footer and legend are on the page', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/sessions', fetch: sessionsRoute(BUSY) });
+  assert.equal(text(heading(page)), 'Sessions');
+  assert.deepEqual(current(page), ['Sessions'], 'the Sessions link is current on #/sessions');
+  assert.deepEqual(page.main.querySelectorAll('.srow').map((r: El) => [text(r.querySelector('.srow__name')), r.getAttribute('data-group')]), [['feat-1', 'current'], ['feat-2', 'conflict'], ['feat-3', 'none']]);
+  const bar = page.main.querySelector('.sbar');
+  assert.equal(text(bar.querySelector('.sbar__title')), '2 conflicts');
+  const sessions = page.main.querySelector('.sessions');
+  const order = sessions.children.map((c: El) => c.className);
+  assert.ok(order.indexOf('sbar') >= 0 && order.indexOf('sbar') < order.indexOf('sessions__layout'), 'the bar comes before the rows');
+  assert.deepEqual(bar.querySelectorAll('.sbar__item').map((i: El) => [i.getAttribute('data-code'), text(i.querySelector('.badge'))]), [['C1', 'Overlap'], ['C3', 'Dead lock holder']]);
+  assert.match(text(bar.querySelector('.sbar__text')), /^A\.4 and A\.6 A\.4 and A\.6 share 2 declared files, held by two runs$|^A\.4 and A\.6 share 2 declared files/);
+  // The conflict row is tinted by data, says "Conflict" in a word, and the current row has no conflict.
+  assert.equal(srowOf(page, 'feat-2').getAttribute('data-conflict'), 'true');
+  assert.equal(text(srowOf(page, 'feat-2').querySelector('.badge')), 'Conflict');
+  assert.equal(srowOf(page, 'feat-1').getAttribute('data-conflict'), 'true', 'the overlap is held in the main checkout too');
+  // Lanes: the hook session is recorded only, never live; the dead lock is stale with a word.
+  const hook = slaneOf(page, `hook:${sk(101)}`);
+  assert.match(hook.getAttribute('aria-label'), /^Hook session, codex, model gpt-6-luna, started \d\d:\d\d, last hook record \d\d:\d\d, holds nothing, checkout feat-1$/);
+  assert.equal(hook.getAttribute('data-state'), 'unknown');
+  assert.equal(hook.querySelector('.slane__mark').getAttribute('data-mark'), 'recorded');
+  assert.equal(text(hook.querySelector('.slane__state')), 'Recorded only');
+  assert.match(slaneOf(page, `hook:${sk(102)}`).getAttribute('aria-label'), /^Hook session, harness not recorded, model not recorded,/);
+  const lock = slaneOf(page, 'lock:build');
+  assert.equal(lock.getAttribute('data-state'), 'stale');
+  assert.equal(text(lock.querySelector('.slane__state')), 'Process gone');
+  assert.equal(lock.querySelector('.slane__mark').getAttribute('data-mark'), 'checked');
+  assert.match(text(srowOf(page, 'feat-1').querySelector('.srow__holdlist')), /A\.4 in feat-a by core-implementer/);
+  // The footer: what was checked and the three blind spots; the legend says what the marks mean.
+  assert.deepEqual(page.main.querySelectorAll('.sfoot__box')[0].querySelectorAll('li').map(text), ['2 runs checked', '1 worker checked, 3 not checked']);
+  assert.equal(text(page.main.querySelectorAll('.sfoot__title')[1]), 'What this view cannot see');
+  assert.equal(page.main.querySelectorAll('.sfoot__box')[1].querySelectorAll('li').length, 3);
+  assert.match(text(page.main.querySelector('.sessions__legend')), /a process was checked.*recorded only/);
+  assert.doesNotMatch(text(page.main), /\b(active|online|idle)\b/i, 'no copy claims a session is active, online or idle');
+});
+
+test('E.7 sessions: the Sessions nav link is current on #/sessions and only there', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/sessions', fetch: sessionsRoute(BUSY) });
+  assert.deepEqual(current(page), ['Sessions']);
+  page.location.hash = '#/workflows';
+  page.win.dispatch('hashchange');
+  assert.deepEqual(current(page), ['Workflows']);
+});
+
+test('E.7 sessions: one tab stop; Right enters the lanes, Down and Up walk them, Left comes back; Enter opens the panel with the command as text; Escape closes it and returns the focus', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/sessions', fetch: sessionsRoute(BUSY) });
+  const host = page.main.querySelector('.sessions__rows');
+  const press = (from: El, key: string) => host.fire('keydown', { key, target: from }).defaultPrevented;
+  assert.deepEqual(srowHeads(page).map((h: El) => h.getAttribute('tabindex')), ['0', '-1', '-1'], 'one tab stop down the rows');
+  assert.equal(press(srowHeads(page)[0], 'ArrowDown'), true);
+  assert.equal(page.doc.activeElement.getAttribute('data-focus-key'), `row:${sk(2)}`);
+  assert.deepEqual(srowHeads(page).map((h: El) => h.getAttribute('tabindex')), ['-1', '0', '-1']);
+  assert.equal(press(srowHeads(page)[2], 'ArrowDown'), false, 'the last row does not move and does not swallow the key');
+  assert.equal(press(srowHeads(page)[1], 'ArrowRight'), true);
+  assert.equal(page.doc.activeElement.getAttribute('data-focus-key'), `lane:${sk(102) === '' ? '' : `hook:${sk(102)}`}`);
+  assert.equal(press(page.doc.activeElement, 'ArrowDown'), true);
+  assert.equal(page.doc.activeElement.getAttribute('data-focus-key'), 'lane:lock:build');
+  assert.equal(press(page.doc.activeElement, 'ArrowDown'), false);
+  assert.equal(press(page.doc.activeElement, 'ArrowLeft'), true);
+  assert.equal(page.doc.activeElement.getAttribute('data-focus-key'), `row:${sk(2)}`);
+
+  const lock = slaneOf(page, 'lock:build');
+  const panel = page.main.querySelector('.spanel');
+  assert.equal(panel.getAttribute('hidden'), '');
+  lock.fire('click');
+  assert.equal(slaneOf(page, 'lock:build').getAttribute('aria-expanded'), 'true');
+  const open = page.main.querySelector('.spanel');
+  assert.equal(open.getAttribute('hidden'), null);
+  assert.equal(page.main.querySelector('.sessions').getAttribute('data-open'), 'true');
+  assert.equal(text(open.querySelector('.spanel__title')), 'Lock build');
+  assert.deepEqual(open.querySelectorAll('dt').map(text), ['Kind', 'Checkout', 'Label', 'Process', 'Held since', 'Waiting']);
+  assert.equal(text(open.querySelector('.cmd__text')), 'doflow slot --action peek --json', 'the command is text with a Copy button, never a button that runs it');
+  assert.equal(open.querySelectorAll('input, textarea, select').length, 0);
+  assert.ok(page.doc.activeElement === slaneOf(page, 'lock:build'), 'the lane keeps the focus after it opens');
+
+  page.main.querySelector('.sessions').fire('keydown', { key: 'Escape', target: open.querySelector('.spanel__close') });
+  assert.equal(page.main.querySelector('.spanel').getAttribute('hidden'), '');
+  assert.equal(slaneOf(page, 'lock:build').getAttribute('aria-expanded'), 'false');
+  assert.equal(page.doc.activeElement.getAttribute('data-focus-key'), 'lane:lock:build', 'the focus is back on the lane');
+});
+
+test('E.7 sessions: a row collapses, and the chips filter by conflicts, records or all as a radio group', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/sessions', fetch: sessionsRoute(BUSY) });
+  const chips = () => page.main.querySelectorAll('.sfilter__opt');
+  assert.deepEqual(chips().map((c: El) => [text(c), c.getAttribute('aria-checked'), c.getAttribute('tabindex')]), [['Conflicts', 'false', '-1'], ['With records', 'false', '-1'], ['All', 'true', '0']]);
+  chips()[0].fire('click');
+  assert.deepEqual(page.main.querySelectorAll('.srow').map((r: El) => text(r.querySelector('.srow__name'))), ['feat-1', 'feat-2']);
+  assert.equal(chips()[0].getAttribute('aria-checked'), 'true');
+  page.main.querySelector('.sfilter').fire('keydown', { key: 'ArrowRight', target: chips()[0] });
+  assert.equal(chips()[1].getAttribute('aria-checked'), 'true');
+  assert.deepEqual(page.main.querySelectorAll('.srow').map((r: El) => text(r.querySelector('.srow__name'))), ['feat-1', 'feat-2'], 'with records: the two rows with a lane or hold');
+  chips()[2].fire('click');
+  assert.equal(page.main.querySelectorAll('.srow').length, 3);
+  const head = srowHeads(page)[1];
+  assert.equal(head.getAttribute('aria-expanded'), 'true');
+  head.fire('click');
+  assert.equal(srowHeads(page)[1].getAttribute('aria-expanded'), 'false');
+  assert.equal(srowOf(page, 'feat-2').querySelector('.srow__body').getAttribute('hidden'), '');
+  chips()[0].fire('click');
+  assert.ok(srowOf(page, 'feat-2'), 'a collapsed row is still listed');
+});
+
+test('E.7 sessions: no config home, only this checkout, a failed section and a failed checkout list each say so in place', async () => {
+  mods.home.resetHome();
+  const absent = await start({ hash: '#/sessions', fetch: sessionsRoute(() => sessionsBody({ observed: { v: 1, store: 'absent', checkouts: [sCheckout(1), sCheckout(2)], sessions: [], truncated: false, unreadable: 0 } })) });
+  assert.match(text(absent.main.querySelector('.snote')), /Hook records are off on this machine: no config home/);
+  assert.equal(absent.main.querySelectorAll('.srow').length, 2, 'checkouts still list');
+  uninstallPage();
+  mock.timers.reset();
+
+  const empty = await start({ hash: '#/sessions', fetch: sessionsRoute(() => sessionsBody({ observed: { v: 1, store: 'present', checkouts: [sCheckout(1)], sessions: [], truncated: false, unreadable: 0 } })) });
+  assert.equal(text(empty.main.querySelector('.empty__title')), 'Only this checkout, and DoFlow has no session record here yet');
+  assert.equal(empty.main.querySelector('.empty__ways').children.length, 2, 'the two ways a session gets recorded');
+  assert.ok(empty.main.querySelector('.sfoot'), 'the footer stays');
+  assert.equal(empty.main.querySelector('.srow'), null);
+  uninstallPage();
+  mock.timers.reset();
+
+  const part = await start({ hash: '#/sessions', fetch: sessionsRoute(() => sessionsBody({ sections: { slots: { ok: false, code: 'core-error' } } })) });
+  assert.equal(text(part.main.querySelector('.snote')), 'Locks could not be read. DoFlow returned an error.');
+  assert.equal(part.main.querySelectorAll('.srow').length, 3, 'the other sections still render');
+  uninstallPage();
+  mock.timers.reset();
+
+  const none = await start({ hash: '#/sessions', fetch: sessionsRoute(() => sessionsBody({ sections: { observed: { ok: false, code: 'cannot-list-checkouts' } } })) });
+  assert.match(text(none.main.querySelector('.snote')), /^Checkouts and hook records could not be read\. Git did not answer for this project\.$/);
+  assert.equal(none.main.querySelector('.srow'), null);
+  assert.ok(none.main.querySelector('.sfoot'));
+});
+
+/** Runs `fn` against a fresh copy of the web modules: the shared announcer of dom.js keeps a timer from an earlier test's mocked clock, which would swallow every later announcement. */
+async function withFreshModules(fn: () => Promise<void>) {
+  const kept = copy;
+  const fresh = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-client-fresh-'));
+  fs.cpSync(WEB_ROOT, fresh, { recursive: true });
+  fs.writeFileSync(path.join(fresh, 'package.json'), '{"type":"module"}\n');
+  copy = fresh;
+  try { await fn(); } finally { copy = kept; fs.rmSync(fresh, { recursive: true, force: true }); }
+}
+
+test('E.7 sessions: a new conflict is announced once and flashes its row once; the first read announces nothing', async () => {
+  await withFreshModules(async () => {
+    mods.home.resetHome();
+    let withConflict = false;
+    const body = () => (withConflict
+      ? sessionsBody({ tasks: [{ slug: 'feat-a', revision: 1, overlaps: [{ a: 'A.4', b: 'A.6', fileCount: 2 }], active: [sAttempt(1, 'A.4'), sAttempt(1, 'A.6', { run: 'run-two', lineage: 'lin2' })] }] })
+      : sessionsBody());
+    const page = await start({ hash: '#/sessions', fetch: sessionsRoute(body) });
+    assert.equal(text(page.region), '', 'the first read announces nothing');
+    assert.equal(page.main.querySelector('.sbar'), null);
+    withConflict = true;
+    await advance(10_000);
+    assert.equal(text(page.region), 'New conflict: A.4 and A.6 overlap, held by two runs');
+    assert.equal(srowOf(page, 'feat-1').getAttribute('data-fresh'), 'true', 'the row of the new conflict is marked for one read');
+    assert.equal(text(page.main.querySelector('.sbar__title')), '1 conflict');
+    await advance(10_000);
+    assert.equal(srowOf(page, 'feat-1').getAttribute('data-fresh'), null, 'the mark lasts one read');
+    assert.equal(text(page.region), 'New conflict: A.4 and A.6 overlap, held by two runs', 'nothing new was said');
+    withConflict = false;
+    await advance(10_000);
+    assert.equal(page.main.querySelector('.sbar'), null);
+    assert.equal(srowOf(page, 'feat-1').getAttribute('data-cleared'), 'true', 'a cleared conflict marks its row once');
+  });
+});
+
+test('E.7 sessions: a poll keeps the selected lane, the open rows and the tab stop', async () => {
+  mods.home.resetHome();
+  let seed = 0;
+  const body = () => { seed += 1; const b = BUSY(); b.limits.runsInspected = 2 + seed; return b; };
+  const page = await start({ hash: '#/sessions', fetch: sessionsRoute(body) });
+  srowHeads(page)[2].fire('click');
+  slaneOf(page, 'lock:build').fire('click');
+  assert.equal(slaneOf(page, 'lock:build').getAttribute('aria-expanded'), 'true');
+  await advance(10_000);
+  assert.equal(slaneOf(page, 'lock:build').getAttribute('aria-expanded'), 'true', 'the selection survives the re-mount');
+  assert.equal(srowHeads(page)[2].getAttribute('aria-expanded'), 'false', 'the collapsed row stays collapsed');
+  assert.match(text(page.main.querySelectorAll('.sfoot__box')[0]), /4 runs checked/, 'the body did re-mount with the new figures');
+});
+
+test('E.7 sessions hostile text: a branch, a model, an owner and a lock label reach the page as text only', async () => {
+  mods.home.resetHome();
+  const hostile = '<img src=x onerror=alert(1)><script>alert(2)</script>';
+  const body = () => sessionsBody({
+    observed: { v: 1, store: 'present', checkouts: [sCheckout(1, { branch: hostile })], sessions: [sHook(1, 1, { model: hostile })], truncated: false, unreadable: 0 },
+    slots: { v: 1, slots: [{ name: 'build', holder: { label: hostile, since: agoIso(MIN_MS), alive: true, worktreeKey: sk(1) }, waiters: 0 }], unreadable: 0 },
+    tasks: [{ slug: 'feat-a', revision: 1, overlaps: [], active: [sAttempt(1, 'A.1', { owner: hostile })] }],
+  });
+  const page = await start({ hash: '#/sessions', fetch: sessionsRoute(body) });
+  slaneOf(page, 'lock:build').fire('click');
+  assert.ok(!tags(page.main).includes('img') && !tags(page.main).includes('script'));
+  assert.equal(text(srowOf(page, hostile).querySelector('.srow__name')), hostile);
+  assert.ok(text(page.main.querySelector('.spanel')).includes(hostile));
+});
+
+test('E.7 sessions: the loading skeleton is three checkout rows of the loaded rows\' height', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/sessions', fetch: (target, init) => (target === '/api/sessions' ? new Promise<Reply>(() => {}) : standard(target, init)) });
+  await advance(400);
+  assert.equal(page.main.querySelectorAll('.skel--srow').length, 3);
+  assert.equal(text(page.main.querySelector('.vh')), 'Loading sessions');
 });

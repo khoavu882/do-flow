@@ -7,6 +7,8 @@ import { skel, reltime } from './states.js';
 import { loadHome, renderHome, skeletonHome, homeKey, tickHome } from './views/home.js';
 import { renderRun, tickRun, releaseRun } from './views/run.js';
 import { renderGraph } from './views/graph.js';
+import { renderSessions } from './views/sessions.js';
+import { deriveSessions } from './derive/sessions.js';
 import { runStepCopy } from './derive/rail.js';
 
 /**
@@ -88,6 +90,16 @@ const skeletonRunHead = () => ({ meta: skel('skel--meta'), step: skel('skel--ste
 
 const skeletonBlock = () => h('div', { class: 'skeleton' }, skel('skel--block'));
 
+// Row skeletons of the Sessions view (E.7 7a): three checkout rows of the loaded rows' height.
+const skeletonSessions = () => h('div', { class: 'skeleton skeleton--sessions' }, [skel('skel--srow'), skel('skel--srow'), skel('skel--srow')]);
+
+/**
+ * The Sessions body is re-mounted when the body changes or when the set of conflicts does: C2 (a claim passing 24 h) and
+ * C4 depend on the clock, so a quiet body can still raise one.
+ * @param {any} data
+ */
+const sessionsKey = (data) => JSON.stringify([data, deriveSessions(data, Date.now()).conflicts.map((conflict) => conflict.id)]);
+
 // ---- the table --------------------------------------------------------------------------------------
 
 /**
@@ -156,6 +168,22 @@ const VIEWS = Object.freeze({
     isEmpty: () => false,
     title: (/** @type {any} */ params) => `Tasks · ${slugTask(params)}`,
   },
+  sessions: {
+    id: 'sessions',
+    noun: 'sessions',
+    // IC-018 e: the body is built from these six shapes by the server; each section carries its own ok or code.
+    shapes: ['observed', 'slots', 'list', 'attempts', 'worker-status', 'roadmap'],
+    api: () => '/api/sessions',
+    dataKey: sessionsKey,
+    pollMs: 10000,
+    wide: true,
+    skeleton: skeletonSessions,
+    head: () => ({ text: 'Sessions', mono: false }),
+    meta: () => h('p', { class: 'view-head__meta' }, 'Who is working where, what each holds, and where work collides.'),
+    render: renderSessions,
+    isEmpty: () => false,
+    title: () => 'Sessions',
+  },
   workflows: {
     id: 'workflows',
     noun: 'workflows',
@@ -201,6 +229,7 @@ function parseRoute(hash) {
   if (path === null) return notFound;
   if (path === '/') return { id: 'runs', params: {}, view: VIEWS.runs };
   if (path === '/workflows') return { id: 'workflows', params: {}, view: VIEWS.workflows };
+  if (path === '/sessions') return { id: 'sessions', params: {}, view: VIEWS.sessions };
   const parts = path.split('/'); // ['', 'run', slug, taskId, 'tasks'?]
   if (parts[1] !== 'run' || parts.length < 4 || parts.length > 5) return notFound;
   const [slug, taskId] = [parts[2], parts[3]];
@@ -221,11 +250,11 @@ function titleFor(route, data = null) {
 }
 
 /**
- * Which nav link is current: Runs on `#/` and every `#/run/...`, Workflows on `#/workflows`, else none.
+ * Which nav link is current: Runs on `#/` and every `#/run/...`, Workflows on `#/workflows`, Sessions on `#/sessions`, else none.
  * @param {any} route
  */
 function navFor(route) {
-  if (route.id === 'workflows') return 'workflows';
+  if (route.id === 'workflows' || route.id === 'sessions') return route.id;
   return route.id === 'not-found' ? null : 'runs';
 }
 
