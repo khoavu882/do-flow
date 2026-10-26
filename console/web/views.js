@@ -6,6 +6,7 @@ import { h, icon } from './dom.js';
 import { skel, reltime } from './states.js';
 import { loadHome, renderHome, skeletonHome, homeKey, tickHome } from './views/home.js';
 import { renderRun, tickRun, releaseRun } from './views/run.js';
+import { renderGraph } from './views/graph.js';
 import { runStepCopy } from './derive/rail.js';
 
 /**
@@ -142,14 +143,16 @@ const VIEWS = Object.freeze({
   tasks: {
     id: 'tasks',
     noun: 'tasks',
-    shapes: [],
-    api: () => null,
-    pollMs: 5000,
-    wide: false,
+    // The graph reads the same body as the run view (IC-005): only `tasks` and `tasksReason` draw it, so only they re-mount it.
+    shapes: ['status', 'timeline', 'attempts', 'workflow'],
+    api: (/** @type {any} */ params) => `/api/runs/${params.slug}/${params.taskId}`,
+    dataKey: (/** @type {any} */ data) => JSON.stringify([data && data.tasks, data && data.tasksReason]),
+    pollMs: 3000,
+    wide: true,
     skeleton: skeletonBlock,
     head: () => ({ text: 'Tasks', mono: false }),
     meta: (/** @type {any} */ params) => h('p', { class: 'view-head__meta mono' }, slugTask(params)),
-    render: () => note('Built in plan task E.3.'),
+    render: renderGraph,
     isEmpty: () => false,
     title: (/** @type {any} */ params) => `Tasks · ${slugTask(params)}`,
   },
