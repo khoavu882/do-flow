@@ -459,6 +459,39 @@ describe('IC-004: Instant Rollback Controller & Circuit Breaker (rollback.ts)', 
     assert.equal(state.targetProfile, 'baseline');
   });
 
+  test('checkRollbackState fails closed when the rollback sentinel cannot be read', () => {
+    const { projectRoot } = setupTestProject({ 'rollout.profile': 'full' });
+    const eacces = Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
+    // node:fs reports existsSync false for a path it may not stat; a tripped rollback must not read as inactive.
+    const unreadable = { existsSync: () => false, readFileSync: () => { throw eacces; } };
+    const state = checkRollbackState({ projectRoot, env: {}, fsImpl: unreadable });
+    assert.equal(state.active, true);
+    assert.equal(state.reason, 'rollback-state-unavailable');
+    assert.equal(state.targetProfile, 'baseline');
+
+    const throwing = { existsSync: () => { throw eacces; }, readFileSync: () => { throw eacces; } };
+    assert.equal(checkRollbackState({ projectRoot, env: {}, fsImpl: throwing }).active, true);
+
+    const profile = resolveRolloutProfile({ projectRoot, env: {}, fsImpl: unreadable });
+    assert.equal(profile.name, 'baseline');
+    assert.equal(profile.origin.source, 'sentinel');
+    assert.equal(profile.origin.detail, 'rollback-state-unavailable');
+  });
+
+  test('checkRollbackState fails closed on a real state directory it may not read', { skip: process.getuid?.() === 0 ? 'root reads any file' : false }, () => {
+    const { projectRoot } = setupTestProject({ 'rollout.profile': 'full' });
+    tripRollback({ reason: 'tripped before the permissions changed', projectRoot });
+    const stateDir = path.join(projectRoot, '.doflow', 'state');
+    fs.chmodSync(stateDir, 0o000);
+    try {
+      const state = checkRollbackState({ projectRoot, env: {} });
+      assert.equal(state.active, true);
+      assert.equal(state.reason, 'rollback-state-unavailable');
+    } finally {
+      fs.chmodSync(stateDir, 0o755);
+    }
+  });
+
   test('checkRollbackState detects env override DOFLOW_ROLLOUT_PROFILE=baseline', () => {
     const { projectRoot } = setupTestProject({ 'rollout.profile': 'full' });
     const state = checkRollbackState({ projectRoot, env: { DOFLOW_ROLLOUT_PROFILE: 'baseline' } });
