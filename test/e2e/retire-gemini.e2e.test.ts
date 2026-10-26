@@ -44,8 +44,8 @@ function cell({ ledger = true, antigravity = true }: any = {}) {
     delete built.ledger.targets.antigravity;
   }
   if (ledger) writeLedger(state, built.ledger);
-  const run = (args: string[]) => {
-    const done = spawnSync(process.execPath, [CLI, ...args], { cwd: scratch.dir, env: scratch.env(), input: '\n', encoding: 'utf8' });
+  const run = (args: string[], input = '\n') => {
+    const done = spawnSync(process.execPath, [CLI, ...args], { cwd: scratch.dir, env: scratch.env(), input, encoding: 'utf8' });
     return { status: done.status, stdout: done.stdout, stderr: done.stderr, output: `${done.stdout}\n${done.stderr}` };
   };
   const geminiDir = path.join(home, '.gemini');
@@ -187,4 +187,48 @@ test('(5) a second update -g prints no [RETIRED] line', () => {
   assert.equal(second.status, 0, second.output);
   assert.ok(!second.output.includes('[RETIRED]'), second.output);
   assert.deepEqual(digests(c.geminiDir), after, 'the second run changes no gemini file');
+});
+
+const KEPT = 'antigravity: kept ~/.gemini/GEMINI.md: changed before handover; --force replaces the DoFlow section';
+const REPLACED = '# Rewritten by me\n\nNo DoFlow here.\n';
+const sectionRows = (c: any) => c.ledger().resources.filter((row: any) => row.target === c.geminiMd);
+
+/** A gemini install whose global GEMINI.md the person (or a tool) rewrote with no DoFlow markers left. */
+function markerlessCell() {
+  const c = cell();
+  fs.writeFileSync(c.geminiMd, REPLACED);
+  return c;
+}
+
+test('(6) a GEMINI.md rewritten with no DoFlow markers is handed over as kept: two plain updates leave it byte-identical under a retainedEdit row, --force appends the section', () => {
+  const c = markerlessCell();
+  for (const round of [1, 2]) {
+    const plain = c.run(['update', '-g', '-t', 'antigravity'], 'y\n');
+    assert.equal(plain.status, 0, plain.output);
+    assert.ok(plain.stdout.includes(KEPT), `round ${round}: ${plain.stdout}`);
+    assert.equal(fs.readFileSync(c.geminiMd, 'utf8'), REPLACED, `round ${round}: the file is not written`);
+    const rows = sectionRows(c);
+    assert.deepEqual(rows.map((row: any) => [row.harness, row.ownershipIdentity, row.retainedEdit]),
+      [['antigravity', 'doflow:antigravity:instructions:managed-section', true]], `round ${round}: one antigravity row, retained`);
+    assert.equal(rows[0].fingerprint, sha(REPLACED), `round ${round}: the whole-file fingerprint`);
+  }
+  const forced = c.run(['update', '-g', '-f', '--no-backup', '-t', 'antigravity']);
+  assert.equal(forced.status, 0, forced.output);
+  const text = fs.readFileSync(c.geminiMd, 'utf8');
+  assert.equal(text.slice(0, text.indexOf(MARKER_START)), `${REPLACED}\n`, '--force appends the section after the person\'s text');
+  assert.ok(text.endsWith(`${MARKER_END}\n`));
+  const [row] = sectionRows(c);
+  assert.equal(row.retainedEdit, undefined, '--force clears the flag');
+  assert.equal(row.fingerprint, sha(text));
+});
+
+test('(7) remove -g -t antigravity of a kept GEMINI.md with no DoFlow markers leaves the file untouched', () => {
+  const c = markerlessCell();
+  const handover = c.run(['update', '-g', '-t', 'antigravity'], 'y\n');
+  assert.equal(handover.status, 0, handover.output);
+  assert.equal(sectionRows(c)[0]?.retainedEdit, true, 'precondition: the retained row is recorded');
+  const removed = c.run(['remove', '-g', '-f', '--no-backup', '-t', 'antigravity']);
+  assert.equal(removed.status, 0, removed.output);
+  assert.equal(fs.readFileSync(c.geminiMd, 'utf8'), REPLACED, 'byte-identical');
+  assert.deepEqual(sectionRows(c), [], 'no row is left on it');
 });

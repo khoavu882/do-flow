@@ -47,9 +47,10 @@ function antigravitySection(home: string): string {
  * A scratch HOME whose ~/.gemini/GEMINI.md holds the person's text around oldtool's span, and a
  * ledger holding oldtool's row on it (whole-file fingerprint, as the retired harness recorded it).
  * `installed` adds an antigravity row elsewhere (antigravity installed in the scope); `edited` changes
- * the person's text after the row was recorded; `legacy` uses the short marker pair.
+ * the person's text after the row was recorded; `markerless` replaces the whole file with the person's
+ * text alone (no DoFlow markers left); `legacy` uses the short marker pair.
  */
-function setup(t: any, { installed = false, edited = false, legacy = false, scope = 'global' }: any = {}) {
+function setup(t: any, { installed = false, edited = false, markerless = false, legacy = false, scope = 'global' }: any = {}) {
   const home = tempDir(t, 'doflow-handover-home-');
   const savedHome = process.env.HOME;
   process.env.HOME = home;
@@ -62,6 +63,7 @@ function setup(t: any, { installed = false, edited = false, legacy = false, scop
   const row = { harness: 'oldtool', scope, assetId: 'guidance.core', target, ownershipIdentity: 'oldtool:instructions',
     fingerprint: sha(fs.readFileSync(target)), sourceVersion: 'test', projection: { renderer: 'oldtool-instructions' } };
   if (edited) fs.writeFileSync(target, `${BEFORE}An edit of mine.\n${span}${AFTER}`);
+  if (markerless) fs.writeFileSync(target, `${BEFORE}${AFTER}`);
   const ledger = defaultLedger({ scope, scopeRoot: project });
   ledger.resources = [row];
   ledger.targets = { oldtool: { installed: true } };
@@ -206,6 +208,47 @@ test('control (b): a whole-file fingerprint mismatch keeps the span, marks the r
   assert.equal(instructionChanges(forced, s.target).length, 1);
   const third = s.apply(forced);
   assert.equal(fs.readFileSync(s.target, 'utf8'), `${BEFORE}An edit of mine.\n${antigravitySection(s.home)}${AFTER}`);
+  assert.equal(sectionRow(third.ledger, s.target).retainedEdit, undefined);
+  assert.deepEqual(instructionChanges(s.plan({ current: third.ledger }), s.target), [], 'converged after --force');
+});
+
+test('control (b, markerless): a person-edited GEMINI.md with no DoFlow markers left stays byte-identical across plain runs under a retainedEdit row, and only --force appends the section', (t) => {
+  const s = setup(t, { markerless: true });
+  const edited = fs.readFileSync(s.target);
+  const notice = 'kept ~/.gemini/GEMINI.md: changed before handover; --force replaces the DoFlow section';
+  const p = s.plan();
+  assert.deepEqual(p.retiredHarnesses[0].changes.map((change: any) => change.action), ['handover']);
+  assert.deepEqual(p.targets.find((target: any) => target.harness === 'antigravity').adapterInput.context.handovers,
+    [{ target: s.target, fromKey: ownershipKey(s.row), edited: true }]);
+  assert.deepEqual(instructionChanges(p, s.target), [], 'no write is planned');
+  assert.ok(p.notices.some((item: any) => item.harness === 'antigravity' && item.notice === notice), JSON.stringify(p.notices));
+  const first = s.apply(p);
+  assert.deepEqual(fs.readFileSync(s.target), edited, 'the file is not written');
+  assert.deepEqual(rowsOf(first.ledger, 'oldtool'), []);
+  const row = sectionRow(first.ledger, s.target);
+  assert.ok(row, 'antigravity owns the file under a retained row although it holds no DoFlow markers');
+  assert.equal(row.retainedEdit, true);
+  assert.equal(row.ownershipIdentity, 'doflow:antigravity:instructions:managed-section');
+  assert.equal(row.fingerprint, sha(edited), 'the row carries the current whole-file fingerprint');
+
+  // A plain run with no handover left keeps the file and the flag, and says so; it has other work (a
+  // deleted skill file), so verify records the kept row again.
+  const skill = first.ledger.resources.find((item: any) => item.harness === 'antigravity' && item.assetId === 'skills.doflow');
+  fs.rmSync(skill.target);
+  const next = s.plan({ current: first.ledger });
+  assert.equal(next.retiredHarnesses, undefined, 'nothing retired is left to sweep');
+  assert.deepEqual(instructionChanges(next, s.target), [], 'no handover and no --force: still no write');
+  assert.ok(next.changes.some((change: any) => change.target === skill.target), 'the run has other work');
+  assert.ok(next.notices.some((item: any) => item.notice === notice), JSON.stringify(next.notices));
+  const second = s.apply(next);
+  assert.deepEqual(fs.readFileSync(s.target), edited);
+  assert.equal(sectionRow(second.ledger, s.target).retainedEdit, true);
+
+  // --force appends the section after the person's text and clears the flag.
+  const forced = s.plan({ current: second.ledger, force: true });
+  assert.equal(instructionChanges(forced, s.target).length, 1);
+  const third = s.apply(forced);
+  assert.equal(fs.readFileSync(s.target, 'utf8'), `${BEFORE}${AFTER}\n${antigravitySection(s.home)}`);
   assert.equal(sectionRow(third.ledger, s.target).retainedEdit, undefined);
   assert.deepEqual(instructionChanges(s.plan({ current: third.ledger }), s.target), [], 'converged after --force');
 });

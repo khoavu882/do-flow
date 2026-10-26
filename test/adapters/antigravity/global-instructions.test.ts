@@ -19,6 +19,7 @@ const { planLifecycle, applyLifecycle } = require('../../../src/lifecycle/index.
 const adapter = require('../../../src/adapters/antigravity/index.ts');
 const { buildRetiredLedger, USER_TEXT } = require('../../helper/retired-ledger.ts');
 const { tempDir } = require('../../helper/tmp.ts');
+const crypto = require('node:crypto');
 
 const REPO = path.resolve(__dirname, '..', '..', '..');
 const USER = '# My global notes\n\nKeep this.\n';
@@ -29,12 +30,12 @@ function section(home: string): string {
 }
 
 /** One run the way the lifecycle drives the adapter: discover, plan, apply or remove, verify. */
-function run(home: string, { registry, operation = 'apply' }: any = {}) {
+function run(home: string, { registry, operation = 'apply', resources = [], context = {} }: any = {}) {
   const shipped = loadRegistry({ repoRoot: REPO });
   const harness = shipped.harnesses.find((item: any) => item.id === 'antigravity');
   const assets = selectAssets(shipped, { harness: 'antigravity' });
   const input = { ...projectAdapterInput({ registry: shipped, harness, scope: 'global', scopeRoot: home, assets, policies: [], context: {} }),
-    ...(registry ? { registry } : {}), ledger: { resources: [] }, context: { repoRoot: REPO, homeDir: home, operation } };
+    ...(registry ? { registry } : {}), ledger: { resources }, context: { repoRoot: REPO, homeDir: home, operation, ...context } };
   const discovery = adapter.discover(input);
   const planned = adapter.plan({ ...input, discovery });
   assert.deepEqual(planned.conflicts, []);
@@ -82,6 +83,40 @@ test('control (f): a fresh global install with no history and `remove -g -t anti
     else assert.equal(fs.readFileSync(target(home), 'utf8'), original, `byte-identical: ${JSON.stringify(original)}`);
     assert.ok(!verified.resources.some((item: any) => item.target === target(home)));
   }
+});
+
+test('IC-007: a handed-over GEMINI.md edited down to no DoFlow markers is kept under a retainedEdit row until --force; remove leaves it alone', (t) => {
+  const home = tempDir(t, 'doflow-agy-global-');
+  fs.mkdirSync(path.dirname(target(home)), { recursive: true });
+  fs.writeFileSync(target(home), USER);
+  const notice = 'kept ~/.gemini/GEMINI.md: changed before handover; --force replaces the DoFlow section';
+  const rowOf = (verified: any) => verified.resources.find((item: any) => item.target === target(home));
+  const handover = run(home, { context: { handovers: [{ target: target(home), fromKey: 'oldtool-row', edited: true }] } });
+  assert.deepEqual(sectionChanges(handover.planned, home), [], 'an edited handover is not written');
+  assert.ok(handover.planned.notices.includes(notice), JSON.stringify(handover.planned.notices));
+  assert.equal(fs.readFileSync(target(home), 'utf8'), USER);
+  const row = rowOf(handover.verified);
+  assert.ok(row, 'verify records the kept file although it holds no DoFlow markers');
+  assert.equal(row.retainedEdit, true);
+  assert.equal(row.ownershipIdentity, 'doflow:antigravity:instructions:managed-section');
+  assert.equal(row.fingerprint, crypto.createHash('sha256').update(USER).digest('hex'), 'the whole-file fingerprint');
+  const resources = [{ ...row, harness: 'antigravity' }];
+
+  const plain = run(home, { resources });
+  assert.deepEqual(sectionChanges(plain.planned, home), [], 'the retained row is not rewritten without --force');
+  assert.ok(plain.planned.notices.includes(notice));
+  assert.equal(rowOf(plain.verified).retainedEdit, true, 'the next run records it as kept again');
+  assert.equal(fs.readFileSync(target(home), 'utf8'), USER);
+
+  const removed = run(home, { resources, operation: 'remove' });
+  assert.deepEqual(sectionChanges(removed.planned, home).map((change: any) => change.operation), ['remove'], 'remove releases the kept row');
+  assert.equal(fs.readFileSync(target(home), 'utf8'), USER, 'remove leaves the person\'s file untouched');
+  assert.equal(rowOf(removed.verified), undefined, 'remove records nothing for it');
+
+  const forced = run(home, { resources, context: { force: true } });
+  assert.equal(sectionChanges(forced.planned, home).length, 1);
+  assert.equal(fs.readFileSync(target(home), 'utf8'), `${USER}\n${section(home)}`, '--force appends the section');
+  assert.equal(rowOf(forced.verified).retainedEdit, undefined, '--force clears the flag');
 });
 
 test('the global section is planned only when the pointer asset is selected', (t) => {

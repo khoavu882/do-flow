@@ -377,12 +377,13 @@ function instructionTarget({ paths, assets, registry }: any) {
 /** How this run stands to a section it took over (IC-007): the lifecycle's handover verdict for the
  * file, this harness's own row on it, and whether a person-edited file stays as it is (`retained`:
  * edited before the handover, or kept since, and no --force). `predecessor` lets the retired
- * harness's span count as the section to replace. */
+ * harness's span count as the section to replace; `keptRow` is a row recorded as kept. */
 function instructionState({ target, context, resources }: any) {
   const handover = (context.handovers ?? []).find((item: any) => item.target === target) ?? null;
   const ownRow = (resources ?? []).find((row: any) => row.harness === HARNESS && row.target === target && row.ownershipIdentity === INSTRUCTIONS_IDENTITY) ?? null;
   const edited = handover?.edited === true || ownRow?.retainedEdit === true;
-  return { predecessor: Boolean(handover) || ownRow?.retainedEdit === true, retained: edited && context.force !== true };
+  return { predecessor: Boolean(handover) || ownRow?.retainedEdit === true, retained: edited && context.force !== true,
+    keptRow: ownRow?.retainedEdit === true };
 }
 
 function instructionsChange(target: any, fields: any) {
@@ -398,7 +399,9 @@ function planInstructions({ paths, target, removing, state, fsImpl = fs }: any) 
     // contract as the other AGENTS-style adapters.
     if (!fsImpl.existsSync(target)) return none;
     const text = fsImpl.readFileSync(target, 'utf8');
-    if (!text.includes(MARKER_START)) return none;
+    // A kept edited file with no span left still carries this harness's row: the remove change
+    // releases the row, and apply finds no span to strip, so the person's file is not touched.
+    if (!text.includes(MARKER_START) && !state.keptRow) return none;
     return { ...none, changes: [instructionsChange(target, { operation: 'remove' })] };
   }
   if (state.retained) {
@@ -653,16 +656,18 @@ function verify(options: any = {}, impl: any = {}) {
     ? fsImpl.readFileSync(instructionFile, 'utf8') : null;
   const managed = instruction !== null && instruction.includes(MARKER_END)
     && (instruction.includes(MARKER_START) || (state.predecessor && instruction.includes(PREDECESSOR_MARKER_START)));
+  // A kept, person-edited file (IC-007) is owned as it is now, markers or not: an edit can drop the
+  // span, and without its row the next run would see no owner and append the section unasked.
+  const kept = !removing && state.retained && instruction !== null;
   if (instructionFile) {
     // Removal verification asks "did our section go away?"; install/update asks "is it managed?".
     statuses.push({
       assetId: POINTER_ASSET_ID, capability: 'instructions',
-      status: removing ? (managed ? 'retained' : 'absent') : (managed ? 'managed' : 'missing'),
+      status: removing ? (managed ? 'retained' : 'absent') : (managed ? 'managed' : (kept ? 'retained' : 'missing')),
       target: instructionFile,
     });
-    if (managed && !removing) {
-      // A kept, person-edited section is recorded with the file as it is now, flagged so later runs
-      // keep it until --force (IC-007).
+    if (!removing && (managed || kept)) {
+      // Recorded with the file as it is now; a kept one is flagged so later runs keep it until --force.
       resources.push(instructionsChange(instructionFile, {
         fingerprint: fingerprint(instruction), sourceVersion: 'registry-v1',
         ...(state.retained ? { retainedEdit: true } : {}),
