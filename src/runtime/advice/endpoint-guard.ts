@@ -68,19 +68,25 @@ function refuse(value: any, file?: string): { ok: false; message: string } {
   };
 }
 
-function lookupAll(host: string, lookup: any, timeoutMs?: number): Promise<any> {
+/** `signal`, when given, ends the lookup the way its timeout does; an already-aborted signal skips the lookup. */
+function lookupAll(host: string, lookup: any, timeoutMs?: number, signal?: any): Promise<any> {
   return new Promise((resolve, reject) => {
+    const aborted = () => Object.assign(new Error('decision model DNS validation aborted by the caller'), { code: 'ADVICE_TIMEOUT' });
+    if (signal?.aborted) { reject(aborted()); return; }
     let settled = false;
+    const onAbort = () => finish(aborted());
     const finish = (error: any, addresses?: any) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener?.('abort', onAbort);
       if (error) reject(error);
       else resolve(addresses);
     };
     const timer = Number.isFinite(timeoutMs) ? setTimeout(() => {
       finish(Object.assign(new Error('decision model DNS validation timed out'), { code: 'ADVICE_TIMEOUT' }));
     }, Math.max(0, timeoutMs as number)) : undefined;
+    signal?.addEventListener?.('abort', onAbort, { once: true });
     try {
       const returned = lookup(host, { all: true, verbatim: true }, finish);
       if (returned && typeof returned.then === 'function') returned.then((addresses: any) => finish(null, addresses), finish);
@@ -103,7 +109,7 @@ function pinnedLookup(address: string, family: number) {
   };
 }
 
-async function checkEndpoint(value: any, { lookup = dns.lookup, file, timeoutMs }: any = {}): Promise<any> {
+async function checkEndpoint(value: any, { lookup = dns.lookup, file, timeoutMs, signal }: any = {}): Promise<any> {
   const display = displayEndpoint(value);
   let url: any;
   try { url = new URL(display); } catch { return refuse(display, file); }
@@ -117,7 +123,7 @@ async function checkEndpoint(value: any, { lookup = dns.lookup, file, timeoutMs 
   }
 
   let addresses: any;
-  try { addresses = await lookupAll(host, lookup, timeoutMs); } catch (error: any) {
+  try { addresses = await lookupAll(host, lookup, timeoutMs, signal); } catch (error: any) {
     if (error?.code === 'ADVICE_TIMEOUT') return { ok: false, reason: 'timeout', message: error.message };
     return refuse(display, file);
   }

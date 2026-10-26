@@ -55,19 +55,18 @@ function checkRollbackState(options?: {
     const sentinelPath = resolveSentinelPath(options?.projectRoot);
 
     // 2. Tier 2: Sentinel State Fast-Path (.doflow/state/rollback.json)
-    if (fsImpl.existsSync(sentinelPath)) {
+    // Read it directly: existsSync reports false for an unreadable path (EACCES), which would hide a
+    // tripped rollback. Only a sentinel that is absent means no rollback; any other read error fails closed.
+    let raw: string | null = null;
+    try {
+      raw = fsImpl.readFileSync(sentinelPath, 'utf8');
+    } catch (error: any) {
+      if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw error;
+    }
+    if (raw !== null) {
+      let data: any;
       try {
-        const raw = fsImpl.readFileSync(sentinelPath, 'utf8');
-        const data = JSON.parse(raw);
-        if (data && data.active !== false) {
-          return {
-            active: true,
-            reason: data.reason || 'manual-sentinel',
-            triggeredAt: data.triggeredAt || null,
-            origin: data.origin === 'circuit-breaker' ? 'circuit-breaker' : 'sentinel',
-            targetProfile: 'baseline',
-          };
-        }
+        data = JSON.parse(raw);
       } catch {
         // Corrupt sentinel fails closed to active rollback
         return {
@@ -75,6 +74,15 @@ function checkRollbackState(options?: {
           reason: 'unparseable-rollback-sentinel',
           triggeredAt: null,
           origin: 'sentinel',
+          targetProfile: 'baseline',
+        };
+      }
+      if (data && data.active !== false) {
+        return {
+          active: true,
+          reason: data.reason || 'manual-sentinel',
+          triggeredAt: data.triggeredAt || null,
+          origin: data.origin === 'circuit-breaker' ? 'circuit-breaker' : 'sentinel',
           targetProfile: 'baseline',
         };
       }
@@ -88,11 +96,12 @@ function checkRollbackState(options?: {
       targetProfile: 'baseline',
     };
   } catch {
+    // The rollback state could not be read: fail closed, as for a corrupt sentinel.
     return {
-      active: false,
-      reason: null,
+      active: true,
+      reason: 'rollback-state-unavailable',
       triggeredAt: null,
-      origin: 'none',
+      origin: 'sentinel',
       targetProfile: 'baseline',
     };
   }

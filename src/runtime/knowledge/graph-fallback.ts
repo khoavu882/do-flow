@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { traverseGraphRelationships, clampBounds } = require('./graph-adapter.ts');
+const { resolveRolloutProfile } = require('../profiles/resolve.ts');
 
 type GraphFreshnessStatus = 'FRESH' | 'STALE' | 'MISSING' | 'CORRUPT';
 
@@ -44,7 +45,7 @@ interface RelationshipResolution {
   provider: 'graphify.query' | 'native.rg';
   status: 'HEALTHY' | 'FALLBACK' | 'UNAVAILABLE';
   freshness: GraphFreshnessStatus;
-  fallbackReason?: 'index-stale' | 'index-missing' | 'index-corrupt' | 'graph-empty';
+  fallbackReason?: 'index-stale' | 'index-missing' | 'index-corrupt' | 'graph-empty' | 'profile-disabled' | 'lexical-failed';
   candidates: ResolvedCandidate[];
   isAbsence: boolean;
   absenceReason?: string;
@@ -184,35 +185,43 @@ async function executeLexicalSearch(
   symbol: string,
   projectRoot: string,
   options?: { rgSearchImpl?: any }
-): Promise<Array<{ file: string; line: number; content: string }>> {
+): Promise<{ ok: boolean; matches: Array<{ file: string; line: number; content: string }>; reason?: string }> {
   if (options?.rgSearchImpl) {
-    return options.rgSearchImpl(symbol, projectRoot);
+    try {
+      const matches = await options.rgSearchImpl(symbol, projectRoot);
+      return Array.isArray(matches) ? { ok: true, matches } : { ok: false, matches: [], reason: 'lexical-search-returned-invalid-results' };
+    }
+    catch (error: any) { return { ok: false, matches: [], reason: error?.message || 'lexical-search-failed' }; }
   }
 
+  let stdout: string;
   try {
-    const stdout = execFileSync('rg', ['--no-heading', '-n', '-w', symbol, '.'], {
+    stdout = execFileSync('rg', ['--no-heading', '-n', '-w', symbol, '.'], {
       cwd: projectRoot,
       encoding: 'utf8',
       timeout: 3000,
       stdio: ['ignore', 'pipe', 'ignore'],
     });
-
-    const lines = stdout.trim().split('\n').filter(Boolean);
-    const results: Array<{ file: string; line: number; content: string }> = [];
-
-    for (const line of lines) {
-      const parts = line.split(':');
-      if (parts.length >= 3) {
-        const file = parts[0].replace(/^\.\//, '');
-        const lineNum = parseInt(parts[1], 10) || 1;
-        const content = parts.slice(2).join(':').trim();
-        results.push({ file, line: lineNum, content });
-      }
-    }
-    return results;
-  } catch {
-    return [];
+  } catch (error: any) {
+    if (error?.status === 1) return { ok: true, matches: [] };
+    // rg exits 2 when a path is unreadable even though it printed matches: keep them, fail only on empty output.
+    const partial = error?.status === 2 && typeof error.stdout === 'string' ? error.stdout : '';
+    if (!partial) return { ok: false, matches: [], reason: error?.message || error?.code || 'lexical-search-failed' };
+    stdout = partial;
   }
+
+  const lines = stdout.trim().split('\n').filter(Boolean);
+  const results: Array<{ file: string; line: number; content: string }> = [];
+  for (const line of lines) {
+    const parts = line.split(':');
+    if (parts.length >= 3) {
+      const file = parts[0].replace(/^\.\//, '');
+      const lineNum = parseInt(parts[1], 10) || 1;
+      const content = parts.slice(2).join(':').trim();
+      results.push({ file, line: lineNum, content });
+    }
+  }
+  return { ok: true, matches: results };
 }
 
 async function resolveRelationshipQuery(
@@ -223,10 +232,19 @@ async function resolveRelationshipQuery(
   const freshness = evaluateGraphFreshness(options.projectRoot, fsImpl);
   const allowStale = options.allowStale === true;
 
-  const isGraphUsable = freshness.status === 'FRESH' || (allowStale && freshness.status === 'STALE');
+  // The rollout profile turns the graph off only when one was chosen (env or settings), a rollback is active or
+  // the value is invalid; a project that sets no profile (origin registry-default) keeps the graph.
+  const profile = resolveRolloutProfile({
+    projectRoot: options.projectRoot, fsImpl: typeof fsImpl.readFileSync === 'function' ? fsImpl : undefined,
+  });
+  const profileChosen = !(profile.origin.source === 'default' && profile.origin.detail === 'registry-default');
+  const graphOff = profileChosen && profile.capabilities.graph === 'off';
+
+  const isGraphUsable = !graphOff
+    && (freshness.status === 'FRESH' || (allowStale && freshness.status === 'STALE'));
 
   if (isGraphUsable) {
-    const direction = options.intent === 'estimate-blast-radius' ? 'downstream' : 'both';
+    const direction = options.intent === 'estimate-blast-radius' ? 'upstream' : 'both';
     const traversal = await traverseGraphRelationships({
       projectRoot: options.projectRoot,
       seeds: [options.symbol],
@@ -266,9 +284,15 @@ async function resolveRelationshipQuery(
       };
     }
 
-    const lexMatches = await executeLexicalSearch(options.symbol, options.projectRoot, {
+    const lexical = await executeLexicalSearch(options.symbol, options.projectRoot, {
       rgSearchImpl: services?.rgSearchImpl,
     });
+    if (!lexical.ok) return {
+      query: options.symbol, intent: options.intent, provider: 'native.rg', status: 'UNAVAILABLE',
+      freshness: freshness.status, fallbackReason: 'lexical-failed', candidates: [], isAbsence: false,
+      absenceReason: `Lexical fallback failed: ${lexical.reason}`,
+    };
+    const lexMatches = lexical.matches;
 
     if (lexMatches.length > 0) {
       const candidates: ResolvedCandidate[] = lexMatches.slice(0, 50).map((match, index) => ({
@@ -307,16 +331,23 @@ async function resolveRelationshipQuery(
     };
   }
 
-  const fallbackReason: 'index-stale' | 'index-missing' | 'index-corrupt' =
-    freshness.status === 'STALE'
+  const fallbackReason: 'index-stale' | 'index-missing' | 'index-corrupt' | 'profile-disabled' = graphOff
+    ? 'profile-disabled'
+    : freshness.status === 'STALE'
       ? 'index-stale'
       : freshness.status === 'MISSING'
       ? 'index-missing'
       : 'index-corrupt';
 
-  const lexMatches = await executeLexicalSearch(options.symbol, options.projectRoot, {
+  const lexical = await executeLexicalSearch(options.symbol, options.projectRoot, {
     rgSearchImpl: services?.rgSearchImpl,
   });
+  if (!lexical.ok) return {
+    query: options.symbol, intent: options.intent, provider: 'native.rg', status: 'UNAVAILABLE',
+    freshness: freshness.status, fallbackReason: 'lexical-failed', candidates: [], isAbsence: false,
+    absenceReason: `Lexical fallback failed: ${lexical.reason}`,
+  };
+  const lexMatches = lexical.matches;
 
   if (lexMatches.length > 0) {
     const candidates: ResolvedCandidate[] = lexMatches.slice(0, 50).map((match, index) => ({
