@@ -194,31 +194,34 @@ async function executeLexicalSearch(
     catch (error: any) { return { ok: false, matches: [], reason: error?.message || 'lexical-search-failed' }; }
   }
 
+  let stdout: string;
   try {
-    const stdout = execFileSync('rg', ['--no-heading', '-n', '-w', symbol, '.'], {
+    stdout = execFileSync('rg', ['--no-heading', '-n', '-w', symbol, '.'], {
       cwd: projectRoot,
       encoding: 'utf8',
       timeout: 3000,
       stdio: ['ignore', 'pipe', 'ignore'],
     });
-
-    const lines = stdout.trim().split('\n').filter(Boolean);
-    const results: Array<{ file: string; line: number; content: string }> = [];
-
-    for (const line of lines) {
-      const parts = line.split(':');
-      if (parts.length >= 3) {
-        const file = parts[0].replace(/^\.\//, '');
-        const lineNum = parseInt(parts[1], 10) || 1;
-        const content = parts.slice(2).join(':').trim();
-        results.push({ file, line: lineNum, content });
-      }
-    }
-    return { ok: true, matches: results };
   } catch (error: any) {
-    if (error?.status === 1 || error?.code === 1) return { ok: true, matches: [] };
-    return { ok: false, matches: [], reason: error?.message || error?.code || 'lexical-search-failed' };
+    if (error?.status === 1) return { ok: true, matches: [] };
+    // rg exits 2 when a path is unreadable even though it printed matches: keep them, fail only on empty output.
+    const partial = error?.status === 2 && typeof error.stdout === 'string' ? error.stdout : '';
+    if (!partial) return { ok: false, matches: [], reason: error?.message || error?.code || 'lexical-search-failed' };
+    stdout = partial;
   }
+
+  const lines = stdout.trim().split('\n').filter(Boolean);
+  const results: Array<{ file: string; line: number; content: string }> = [];
+  for (const line of lines) {
+    const parts = line.split(':');
+    if (parts.length >= 3) {
+      const file = parts[0].replace(/^\.\//, '');
+      const lineNum = parseInt(parts[1], 10) || 1;
+      const content = parts.slice(2).join(':').trim();
+      results.push({ file, line: lineNum, content });
+    }
+  }
+  return { ok: true, matches: results };
 }
 
 async function resolveRelationshipQuery(

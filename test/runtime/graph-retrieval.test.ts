@@ -16,6 +16,7 @@ const {
 
 const {
   evaluateGraphFreshness,
+  executeLexicalSearch,
   resolveRelationshipQuery,
 } = require('../../src/runtime/knowledge/graph-fallback.ts');
 
@@ -387,6 +388,19 @@ describe('IC-002: evaluateGraphFreshness & resolveRelationshipQuery', () => {
     assert.equal(res.provider, 'native.rg');
     assert.equal(res.isAbsence, true);
     assert.deepEqual(res.candidates, []);
+  });
+
+  test('a lexical search that finds a match but meets an unreadable directory keeps the match', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async () => {
+    const root = setupProject('lexical-partial', { 'src/a.ts': 'export const partialMatchSymbol = 1;\n', 'locked/b.ts': 'x\n' });
+    const locked = path.join(root, 'locked');
+    fs.chmodSync(locked, 0o000);
+    try {
+      const res = await executeLexicalSearch('partialMatchSymbol', root);
+      assert.equal(res.ok, true);
+      assert.deepEqual(res.matches.map((m: any) => m.file), ['src/a.ts']);
+    } finally {
+      fs.chmodSync(locked, 0o755);
+    }
   });
 });
 
