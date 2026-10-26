@@ -28,10 +28,10 @@ test('the scan reads this machine\'s identity from the real account, not the scr
 
 test('control: the real home path planted in a copy turns the scan red', (t) => {
   const dir = copyOfFixtures(t);
-  const forbidden = { ...NONE, homeDirs: ['/Users/fixture-machine'] };
+  const forbidden = { ...NONE, homeDirs: ['/Users/example'] };
   assert.deepEqual(scanFixtures({ root: dir, forbidden }), []);
   const target = path.join(dir, FIXTURES.find((fx: any) => fx.kind === 'main' && fx.harness === 'claude').file);
-  fs.appendFileSync(target, '{"cwd":"/Users/fixture-machine/work"}\n');
+  fs.appendFileSync(target, '{"cwd":"/Users/example/work"}\n');
   assert.ok(scanFixtures({ root: dir, forbidden }).some((f: string) => /home path/.test(f)));
 });
 
