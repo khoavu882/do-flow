@@ -122,3 +122,78 @@ test('renderBriefTools remains synchronous (G29)', (t) => {
   assert.equal(typeof result.markdown, 'string');
   assert.equal(typeof result.record, 'object');
 });
+
+// ---- 084 H2: advice.kinds.tier routes brief-tools through the dispatcher only when it is set ----
+
+function setKinds(f: any, kinds: any) {
+  fs.mkdirSync(path.join(f.project, '.doflow'), { recursive: true });
+  fs.writeFileSync(path.join(f.project, '.doflow', 'settings.json'), JSON.stringify({ advice: { kinds } }));
+}
+function passBench(f: any, kind: any) {
+  fs.mkdirSync(path.join(f.project, 'bench', 'advice'), { recursive: true });
+  fs.writeFileSync(path.join(f.project, 'bench', 'advice', `${kind}.json`), JSON.stringify({
+    kind, models: { 'clef-flash': { accuracy: 0.9, staticBaselineAccuracy: 0.5, heldoutCases: 10 } },
+  }));
+}
+function pickRecords(f: any) {
+  const file = path.join(f.project, '.doflow', 'state', 'advice', 'picks', `${new Date().toISOString().slice(0, 10)}.jsonl`);
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').map((line: any) => JSON.parse(line)) : [];
+}
+
+test('084 H2: with advice.kinds.tier unset the client records the tier pick, as before the dispatcher', async (t) => {
+  const f = fixture(t);
+  const server = await f.startServer();
+  t.after(() => server.close());
+  f.enable(server.origin);
+  const actual = JSON.parse(f.run(['--tasks', 'A.1']).stdout);
+  assert.equal(actual.record.advice.status, 'answered');
+  const pick = pickRecords(f).find((record: any) => record.type === 'pick' && record.pickId === actual.record.advice.pickId);
+  assert.equal(pick.question, 'tier', 'the client pick record, not the dispatcher one');
+  assert.equal(Object.hasOwn(pick, 'mode'), false);
+});
+
+test('084 H2: advice.kinds.tier off adds no advice and records nothing', async (t) => {
+  const f = fixture(t);
+  const server = await f.startServer();
+  t.after(() => server.close());
+  f.enable(server.origin);
+  setKinds(f, { tier: 'off' });
+  const baseline = JSON.parse(f.run([]).stdout);
+  const actual = JSON.parse(f.run(['--tasks', 'A.1']).stdout);
+  assert.equal(actual.markdown, baseline.markdown);
+  assert.deepEqual(actual.record, baseline.record);
+  assert.deepEqual(pickRecords(f), []);
+});
+
+test('084 H2: advice.kinds.tier shadow leaves the block unchanged and records a shadow pick', async (t) => {
+  const f = fixture(t);
+  const server = await f.startServer();
+  t.after(() => server.close());
+  f.enable(server.origin);
+  setKinds(f, { tier: 'shadow' });
+  const baseline = JSON.parse(f.run([]).stdout);
+  const actual = JSON.parse(f.run(['--tasks', 'A.1']).stdout);
+  assert.equal(actual.markdown, baseline.markdown);
+  assert.equal(actual.record.advice.status, 'unavailable');
+  assert.deepEqual(pickRecords(f).map(({ type, mode, caller, static: s, pick }: any) => ({ type, mode, caller, static: s, pick })),
+    [{ type: 'pick', mode: 'shadow', caller: 'brief-tools', static: 'frontier', pick: 'light' }]);
+});
+
+test('084 H2: advice.kinds.tier act answers through the dispatcher with the pickId it recorded', async (t) => {
+  const f = fixture(t);
+  const server = await f.startServer();
+  t.after(() => server.close());
+  f.enable(server.origin);
+  setKinds(f, { tier: 'act' });
+  passBench(f, 'tier');
+  const actual = JSON.parse(f.run(['--tasks', 'A.1']).stdout);
+  assert.deepEqual(actual.record.advice, {
+    kind: 'tier', status: 'answered', pickId: actual.record.advice.pickId,
+    pick: 'light', strength: 'clear', between: null, agrees: false,
+  });
+  assert.match(actual.markdown, /Decision model: `light` \(clear\), advisory\./);
+  const picks = pickRecords(f).filter((record: any) => record.type === 'pick');
+  assert.equal(picks.length, 1);
+  assert.equal(picks[0].pickId, actual.record.advice.pickId);
+  assert.equal(picks[0].mode, 'act');
+});

@@ -12,6 +12,8 @@ type AdviceKindMode = 'off' | 'shadow' | 'act';
 interface KindShadowConfig {
   kind: string;
   mode: AdviceKindMode;
+  /** true when some settings layer sets `advice.kinds.<kind>`; callers route through the dispatcher only then. */
+  kindSet: boolean;
   model: string | null;
   provider: string;
   endpoint: string;
@@ -160,6 +162,7 @@ function resolveShadowConfig(
     }
   }
 
+  const kindSet = loadedCandidates.some(({ content }) => getSettingValue(content, `advice.kinds.${kind}`) !== undefined);
   let resolvedMode: AdviceKindMode = 'off';
   let modeDecidedBy: string | null = null;
 
@@ -215,6 +218,7 @@ function resolveShadowConfig(
   return {
     kind,
     mode: resolvedMode,
+    kindSet,
     model: resolvedModel,
     provider: defaultProvider,
     endpoint: defaultEndpoint,

@@ -10,6 +10,7 @@ const { finishRuntime } = require('./cli-result.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { loadAdviceRegistry } = require('./advice/registry.ts');
 const { createAdviceClient } = require('./advice/client.ts');
+const { resolveShadowConfig } = require('./advice/shadow-config.ts');
 const { materializeKind } = require('./advice/kinds.ts');
 const { appendOutcome, findPick } = require('./advice/record.ts');
 const { strengthWords } = require('./advice/strength.ts');
@@ -438,7 +439,7 @@ class TaskClassifier {
  * @param {boolean} [options.json=false]
  * @returns {number|Promise<number>} exit code; advisory calls are asynchronous
  */
-function handleClassifyCommand({ taskClass, rationale, proposedBy, callingSkill, request, requestFile, taskId, projectRoot, json = false }: any = {}) {
+function handleClassifyCommand({ taskClass, rationale, proposedBy, callingSkill, request, requestFile, taskId, projectRoot, env = process.env, json = false }: any = {}) {
   const classifier = new TaskClassifier({ repoRoot: REPO_ROOT });
   const decision = classifier.classify({ taskClass, rationale, proposedBy, callingSkill });
   const exitCode = decision.outcome === CLASSIFICATION_OUTCOMES.ACCEPTED
@@ -475,12 +476,31 @@ function handleClassifyCommand({ taskClass, rationale, proposedBy, callingSkill,
         const sources = { workflows: source('workflows.json') };
         const built = materializeKind('task-class', { adviceRegistry: advice.ok ? advice.registry : null, sources });
         const client = createAdviceClient({ adviceRegistry: advice.ok ? advice.registry : null, roots, sources });
-        const result = advice.ok && built.ok
-          ? await client.ask({
+        const resolvedRoot = path.resolve(projectRoot || process.cwd());
+        const shadow = resolveShadowConfig('task-class', { projectRoot: resolvedRoot, env, roots });
+        let result: any = { status: 'unavailable', reason: 'config-invalid', answers: [] };
+        if (advice.ok && built.ok && !shadow.kindSet) {
+          // advice.kinds.task-class unset: the client asks and records the pick itself, as before the dispatcher.
+          result = await client.ask({
             questionSet: { state, questions: [built.question] }, kind: 'task-class',
             staticAnswer: taskClass ?? null, caller: 'classify', taskId: taskId ?? null, record: true,
-          })
-          : { status: 'unavailable', reason: 'config-invalid', answers: [] };
+          });
+        } else if (advice.ok && built.ok) {
+          const { interceptDecisionPoint } = require('./advice/shadow-dispatcher.ts');
+          const intercepted = await interceptDecisionPoint({
+            kind: 'task-class', caller: 'classify', state, staticPick: taskClass || 'unknown',
+            staticAnswer: taskClass ?? null,
+            questionSet: { state, questions: [built.question] },
+            adviceRegistry: advice.registry, taskId: taskId ?? null, projectRoot: resolvedRoot, env,
+          }, { adviceClient: client, roots, shadowConfig: shadow });
+          // The dispatcher records the pick (IC-003); its pickId is the one findPick resolves below.
+          result = intercepted.advisorPick
+            ? { status: 'answered', model: intercepted.advisorAnswer.model, answers: [{
+              ...intercepted.advisorAnswer, pick: intercepted.advisorPick, pickId: intercepted.pickId,
+              agrees: intercepted.advisorPick === taskClass,
+            }] }
+            : { status: intercepted.mode === 'off' ? 'off' : 'unavailable', reason: intercepted.warning || null, answers: [] };
+        }
         opinion = secondOpinion(result, taskClass);
         if (decision.outcome === CLASSIFICATION_OUTCOMES.ACCEPTED && opinion.status === 'answered' && opinion.pickId) {
           const found = findPick({ pickId: opinion.pickId, roots });

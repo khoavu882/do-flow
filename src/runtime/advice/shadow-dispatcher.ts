@@ -15,18 +15,21 @@ interface DecisionPointContext {
   taskId?: string | null;
   server?: string;
   projectRoot?: string;
+  env?: Record<string, string | undefined>;
   options?: Record<string, any>;
   /** The client question set (IC-001 of the advice client) and its registry; without them the advisor answers unavailable. */
   questionSet?: any;
   adviceRegistry?: any;
   staticAnswer?: string | null;
+  /** false keeps the decision write-free: no pick is recorded. */
+  record?: boolean;
 }
 
 /**
  * The advisor's pick for this decision, or null when it is unavailable. The dispatcher records the pick
  * itself (IC-003), so the client is asked not to record a second one.
  */
-async function askAdvisor(context: DecisionPointContext, services?: { adviceClient?: any; fsImpl?: any; roots?: any }): Promise<string | null> {
+async function askAdvisor(context: DecisionPointContext, services?: { adviceClient?: any; fsImpl?: any; roots?: any }): Promise<{ pick: string | null; answer: any }> {
   try {
     const client = services?.adviceClient || createAdviceClient({
       adviceRegistry: context.adviceRegistry,
@@ -41,10 +44,13 @@ async function askAdvisor(context: DecisionPointContext, services?: { adviceClie
       taskId: context.taskId ?? null,
       record: false,
     });
-    const pick = res?.status === 'answered' ? res.answers?.[0]?.pick : null;
-    return typeof pick === 'string' && pick ? pick : null;
+    const first = res?.status === 'answered' ? res.answers?.[0] : null;
+    // The answer carries the model the client asked, so a caller can report it.
+    const answer = first ? { ...first, model: res.model ?? null } : null;
+    const pick = answer?.pick;
+    return typeof pick === 'string' && pick ? { pick, answer } : { pick: null, answer: null };
   } catch {
-    return null;
+    return { pick: null, answer: null };
   }
 }
 
@@ -54,6 +60,7 @@ interface DecisionPointResolution {
   mode: 'off' | 'shadow' | 'act';
   staticPick: string;
   advisorPick: string | null;
+  advisorAnswer?: any;
   pickId: string | null;
   elevated: boolean;
   agreed: boolean | null;
@@ -70,6 +77,7 @@ async function interceptDecisionPoint(
       : services?.shadowConfig) ||
     resolveShadowConfig(context.kind, {
       projectRoot: context.projectRoot,
+      env: context.env as Record<string, string> | undefined,
       fsImpl: services?.fsImpl,
       roots: services?.roots,
     });
@@ -104,10 +112,10 @@ async function interceptDecisionPoint(
   if (mode === 'shadow') {
     const runShadowQuery = async () => {
       const startQuery = Date.now();
-      const advisorPick = await askAdvisor(context, services);
+      const { pick: advisorPick } = await askAdvisor(context, services);
       const durationMs = Date.now() - startQuery;
 
-      recordPick(
+      if (context.record !== false) recordPick(
         {
           pickId,
           at: new Date(epoch).toISOString(),
@@ -160,10 +168,10 @@ async function interceptDecisionPoint(
   if (!barPassed) {
     const runDegradedShadow = async () => {
       const startQuery = Date.now();
-      const advisorPick = await askAdvisor(context, services);
+      const { pick: advisorPick } = await askAdvisor(context, services);
       const durationMs = Date.now() - startQuery;
 
-      recordPick(
+      if (context.record !== false) recordPick(
         {
           pickId,
           at: new Date(epoch).toISOString(),
@@ -202,7 +210,7 @@ async function interceptDecisionPoint(
 
   // Bench bar passed: synchronously query advisor and apply Elevation Invariant
   const startQuery = Date.now();
-  const advisorPick = await askAdvisor(context, services);
+  const { pick: advisorPick, answer: advisorAnswer } = await askAdvisor(context, services);
   const durationMs = Date.now() - startQuery;
 
   const { effectiveDecision, elevated } = applyElevationInvariant(
@@ -211,7 +219,7 @@ async function interceptDecisionPoint(
     advisorPick
   );
 
-  recordPick(
+  if (context.record !== false) recordPick(
     {
       pickId,
       at: new Date(epoch).toISOString(),
@@ -238,6 +246,7 @@ async function interceptDecisionPoint(
     mode: 'act',
     staticPick,
     advisorPick,
+    advisorAnswer,
     pickId,
     elevated,
     agreed: advisorPick !== null ? advisorPick === staticPick : null,

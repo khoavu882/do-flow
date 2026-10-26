@@ -283,13 +283,27 @@ async function askAdvice({ decision, risk, taskClass, slug, files, cwd, env, adv
     const state = [`task class: ${taskClass ?? 'none'}`, `risk: ${risk}`, `scope: ${decision.scope}`,
       `changed files: ${files ?? 'unknown'}`, `decided depth: ${decision.depth}`].join('\n');
     // record: false keeps the verb write-free (IC-001); the pick is not stored.
-    const result = await client.ask({
-      questionSet: { state, questions: [built.question] },
-      kind: 'review-depth', staticAnswer: decision.depth, caller: 'review', taskId: slug, record: false,
-    });
-    const pick = result?.answers?.[0]?.pick;
-    if (result?.status === 'answered' && (pick === 'single' || pick === 'deep')) return { status: 'answered', pick };
-    return { status: result?.status === 'off' ? 'off' : 'unavailable', pick: null };
+    const { resolveShadowConfig } = require('../advice/shadow-config.ts');
+    const shadow = resolveShadowConfig('review-depth', { projectRoot: path.resolve(cwd), env, roots });
+    if (!shadow.kindSet) {
+      // advice.kinds.review-depth unset: ask the client directly, as before the dispatcher.
+      const result = await client.ask({
+        questionSet: { state, questions: [built.question] },
+        kind: 'review-depth', staticAnswer: decision.depth, caller: 'review', taskId: slug, record: false,
+      });
+      const pick = result?.answers?.[0]?.pick;
+      if (result?.status === 'answered' && (pick === 'single' || pick === 'deep')) return { status: 'answered', pick };
+      return { status: result?.status === 'off' ? 'off' : 'unavailable', pick: null };
+    }
+    const { interceptDecisionPoint } = require('../advice/shadow-dispatcher.ts');
+    const intercepted = await interceptDecisionPoint({
+      kind: 'review-depth', caller: 'review', state, staticPick: decision.depth,
+      questionSet: { state, questions: [built.question] }, adviceRegistry: loaded.registry,
+      taskId: slug, projectRoot: path.resolve(cwd), env, record: false,
+    }, { adviceClient: client, roots, shadowConfig: shadow });
+    const pick = intercepted.advisorPick;
+    if (pick === 'single' || pick === 'deep') return { status: 'answered', pick };
+    return { status: intercepted.mode === 'off' ? 'off' : 'unavailable', pick: null };
   } catch {
     return { status: 'unavailable', pick: null };
   }

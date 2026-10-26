@@ -210,3 +210,97 @@ test('IC-010 preserves the accepted classifier verdict and records only an ACCEP
   assert.ok(rejectedPick);
   assert.equal(afterRejected.some((record: any) => record.type === 'outcome' && record.pickId === rejectedPick.pickId), false);
 });
+
+// ---- 084 H2: advice.kinds.task-class routes classify through the dispatcher only when it is set ----
+
+function setKinds(f: any, kinds: any) {
+  fs.mkdirSync(path.join(f.project, '.doflow'), { recursive: true });
+  fs.writeFileSync(path.join(f.project, '.doflow', 'settings.json'), JSON.stringify({ advice: { kinds } }));
+}
+function passBench(f: any, kind: any) {
+  fs.mkdirSync(path.join(f.project, 'bench', 'advice'), { recursive: true });
+  fs.writeFileSync(path.join(f.project, 'bench', 'advice', `${kind}.json`), JSON.stringify({
+    kind, models: { 'clef-flash': { accuracy: 0.9, staticBaselineAccuracy: 0.5, heldoutCases: 10 } },
+  }));
+}
+function pickRecords(f: any) {
+  const file = path.join(f.project, '.doflow', 'state', 'advice', 'picks', `${new Date().toISOString().slice(0, 10)}.jsonl`);
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').map((line: any) => JSON.parse(line)) : [];
+}
+const ACCEPTED_ARGS = ['--task-class', 'bug', '--calling-skill', 'do', '--request', 'A broken behavior needs a repair.', '--json'];
+
+test('084 H2: with advice.kinds.task-class unset the client records the pick, as before the dispatcher', async (t) => {
+  const f = fixture(t);
+  const server = await f.startServer();
+  f.enable(server.origin);
+  const result = f.run(ACCEPTED_ARGS);
+  assert.equal(result.status, 0, result.stderr);
+  const opinion = JSON.parse(result.stdout).secondOpinion;
+  assert.equal(opinion.status, 'answered');
+  assert.equal(opinion.model, 'clef-flash');
+  const pick = pickRecords(f).find((record: any) => record.type === 'pick' && record.pickId === opinion.pickId);
+  assert.equal(pick.question, 'task-class', 'the client pick record, not the dispatcher one');
+  assert.equal(Object.hasOwn(pick, 'mode'), false);
+});
+
+test('084 H2: advice.kinds.task-class off asks nothing and records nothing', async (t) => {
+  const f = fixture(t);
+  const server = await f.startServer();
+  f.enable(server.origin);
+  setKinds(f, { 'task-class': 'off' });
+  const result = f.run(ACCEPTED_ARGS);
+  assert.equal(result.status, 0, result.stderr);
+  const json = JSON.parse(result.stdout);
+  assert.equal(json.outcome, 'ACCEPTED');
+  assert.equal(json.secondOpinion.status, 'off');
+  assert.deepEqual(pickRecords(f), []);
+});
+
+test('084 H2: advice.kinds.task-class shadow keeps the verdict, shows no opinion and records a shadow pick', async (t) => {
+  const f = fixture(t);
+  const server = await f.startServer();
+  f.enable(server.origin);
+  setKinds(f, { 'task-class': 'shadow' });
+  const result = f.run(ACCEPTED_ARGS);
+  assert.equal(result.status, 0, result.stderr);
+  const json = JSON.parse(result.stdout);
+  assert.equal(json.outcome, 'ACCEPTED');
+  assert.equal(json.secondOpinion.status, 'unavailable');
+  const records = pickRecords(f);
+  assert.deepEqual(records.map(({ type, mode, caller, static: s, pick }: any) => ({ type, mode, caller, static: s, pick })),
+    [{ type: 'pick', mode: 'shadow', caller: 'classify', static: 'bug', pick: 'feature' }]);
+});
+
+test('084 H2: advice.kinds.task-class act answers through the dispatcher and the ACCEPTED outcome finds its pick', async (t) => {
+  const f = fixture(t);
+  const server = await f.startServer();
+  f.enable(server.origin);
+  setKinds(f, { 'task-class': 'act' });
+  passBench(f, 'task-class');
+  const result = f.run(ACCEPTED_ARGS);
+  assert.equal(result.status, 0, result.stderr);
+  const json = JSON.parse(result.stdout);
+  assert.equal(json.outcome, 'ACCEPTED');
+  assert.equal(json.taskClass, 'bug', 'validation alone decides the class');
+  assert.equal(json.secondOpinion.status, 'answered');
+  assert.equal(json.secondOpinion.pick, 'feature');
+  assert.equal(json.secondOpinion.model, 'clef-flash');
+  const records = pickRecords(f);
+  const pick = records.find((record: any) => record.type === 'pick' && record.pickId === json.secondOpinion.pickId);
+  assert.equal(pick.mode, 'act', 'the dispatcher recorded the pick classify reports');
+  assert.equal(records.filter((record: any) => record.type === 'pick').length, 1, 'one pick, not one per recorder');
+  const outcomes = records.filter((record: any) => record.type === 'outcome' && record.pickId === pick.pickId);
+  assert.deepEqual(outcomes.map(({ actual, source }: any) => ({ actual, source })), [{ actual: 'bug', source: 'classify-verdict' }]);
+});
+
+test('084 H2: advice.kinds.task-class act without a passed bench bar falls back to shadow', async (t) => {
+  const f = fixture(t);
+  const server = await f.startServer();
+  f.enable(server.origin);
+  setKinds(f, { 'task-class': 'act' });
+  const result = f.run(ACCEPTED_ARGS);
+  assert.equal(result.status, 0, result.stderr);
+  const json = JSON.parse(result.stdout);
+  assert.equal(json.secondOpinion.status, 'unavailable');
+  assert.match(json.secondOpinion.reason, /^BENCH_BAR_UNMET: /);
+});
