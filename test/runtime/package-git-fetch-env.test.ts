@@ -76,3 +76,15 @@ exit 0
     assert.equal(seen.split('--\n').filter(Boolean).length, 5); // ls-remote, init, remote add, fetch, archive all ran
   });
 }
+
+test('a caller GIT_ALLOW_PROTOCOL cannot re-enable the file transport', (t: any) => {
+  const repo = tempDir(t, 'doflow-git-env-source-');
+  git(repo, 'init', '-q');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'a\n');
+  git(repo, 'add', 'a.txt'); git(repo, 'commit', '-q', '-m', 'source');
+  const commit = git(repo, 'rev-parse', 'HEAD').trim();
+  const env = { ...process.env, GIT_ALLOW_PROTOCOL: 'file' };
+  const result = fetchGit({ type: 'git', url: repo, commit }, { stagingDir: stage(t), env, limits });
+  assert.equal(result.ok, false);
+  assert.match(result.findings[0].message, /transport 'file' not allowed/u);
+});

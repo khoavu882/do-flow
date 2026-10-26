@@ -16,9 +16,13 @@ const { loadPoints } = require('./points.ts');
 const { readTar } = require('./tar.ts');
 const { parseSemVer, compareSemVer } = require('../../helper/semver.ts');
 const INTEGRITY = /^sha512-[A-Za-z0-9+/]+={0,2}$/u;
+// The variables `git rev-parse --local-env-vars` lists (git 2.50), plus GIT_ALLOW_PROTOCOL, which overrides
+// `-c protocol.file.allow=never`. Hardcoded so no git process is spawned to compute it.
 const GIT_LOCATION_KEYS = Object.freeze([
-  'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
-  'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_CONFIG', 'GIT_CONFIG_PARAMETERS', 'GIT_CONFIG_COUNT',
+  'GIT_OBJECT_DIRECTORY', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_IMPLICIT_WORK_TREE', 'GIT_GRAFT_FILE',
+  'GIT_INDEX_FILE', 'GIT_NO_REPLACE_OBJECTS', 'GIT_REPLACE_REF_BASE', 'GIT_PREFIX', 'GIT_SHALLOW_FILE',
+  'GIT_COMMON_DIR', 'GIT_ALLOW_PROTOCOL',
 ]);
 
 function limits(): any {
