@@ -32,6 +32,7 @@ const CASES: any = {
   'active rollback sentinel': { sentinel: { active: true, reason: 'manual' }, expectAdvisor: 'off', expectGraph: false },
   'invalid profile value': { settings: { rollout: { profile: 'bogus' } }, expectAdvisor: 'off', expectGraph: false },
   'settings rollout.profile canary': { settings: { rollout: { profile: 'canary' } }, expectAdvisor: 'shadow', expectGraph: true },
+  'settings rollout.profile staged': { settings: { rollout: { profile: 'staged' } }, expectAdvisor: 'shadow', expectGraph: true },
   'settings rollout.profile full': { settings: { rollout: { profile: 'full' } }, expectAdvisor: 'act', expectGraph: true },
 };
 
@@ -44,7 +45,9 @@ for (const [name, c] of Object.entries(CASES) as any) {
       projectRoot: p.root, env: { ...p.env, ...(c.env || {}) }, record: false,
     }, {
       adviceClient: { ask: async () => { asked += 1; return { status: 'answered', answers: [{ pick: 'standard' }] }; } },
-      shadowConfig: { kind: 'tier', mode: 'act', model: 'm', benchBarPassed: true },
+      shadowConfig: { kind: 'tier', mode: 'act', model: 'm' },
+      // The bar passes here, so what the case tests is the profile cap, not the gate.
+      benchGate: async () => ({ passed: true, reason: 'test' }),
     });
     assert.equal(res.mode, c.expectAdvisor);
     if (c.expectAdvisor === 'act') {
@@ -55,7 +58,8 @@ for (const [name, c] of Object.entries(CASES) as any) {
       assert.equal(res.effectiveDecision, 'light', 'a capped advisor never changes the decision');
     }
     await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.equal(asked, c.expectAdvisor === 'off' ? 0 : 1, 'off asks the model nothing');
+    // Only act asks: off asks nothing, and shadow with record:false asks nothing since nothing could be kept.
+    assert.equal(asked, c.expectAdvisor === 'act' ? 1 : 0);
   });
 
   test(`085 H1 graph: ${name} ${c.expectGraph ? 'keeps' : 'turns off'} a fresh graph`, async (t) => {

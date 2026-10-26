@@ -118,7 +118,8 @@ function createAdviceClient({
   httpsModule = https,
   clock = () => new Date(),
 }: any = {}) {
-  async function ask({ questionSet, kind, staticAnswer, caller, taskId = null, record = true }: any = {}) {
+  /** `model`, when given, replaces the setting's model for this call: it is the model asked, recorded and reported. */
+  async function ask({ questionSet, kind, staticAnswer, caller, taskId = null, record = true, model }: any = {}) {
     const startedAt = Date.now();
     let setting: any = null;
     const effectiveKind = typeof kind === 'string' && kind ? kind : 'adhoc';
@@ -138,6 +139,7 @@ function createAdviceClient({
       if (setting.state !== 'on') {
         return emptyAdviceResult('off', setting.reason, setting.notes?.[0] || null, setting, durationSince(startedAt));
       }
+      if (typeof model === 'string' && model.trim()) setting = { ...setting, model: model.trim() };
 
       const provider = adviceRegistry?.providers?.find((entry: any) => entry.id === setting.provider);
       const adapter = provider && ADAPTERS[provider.adapter];

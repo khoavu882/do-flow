@@ -129,7 +129,8 @@ function setKinds(f: any, kinds: any) {
   fs.mkdirSync(path.join(f.project, '.doflow'), { recursive: true });
   fs.writeFileSync(path.join(f.project, '.doflow', 'settings.json'), JSON.stringify({ advice: { kinds } }));
 }
-function passBench(f: any, kind: any) {
+/** A passing-looking bench file in the project: the gate never reads it (D3), so it never unlocks act. */
+function projectBench(f: any, kind: any) {
   fs.mkdirSync(path.join(f.project, 'bench', 'advice'), { recursive: true });
   fs.writeFileSync(path.join(f.project, 'bench', 'advice', `${kind}.json`), JSON.stringify({
     kind, models: { 'clef-flash': { accuracy: 0.9, staticBaselineAccuracy: 0.5, heldoutCases: 10 } },
@@ -225,24 +226,21 @@ test('084 H2: advice.kinds.tier act without a passed bench bar falls back to sha
     [{ type: 'pick', mode: 'shadow', pick: 'light', model: 'clef-flash' }]);
 });
 
-test('084 H2: advice.kinds.tier act answers through the dispatcher with the pickId it recorded', async (t) => {
+test('084 D3: advice.kinds.tier act with a passing bench file in the project still falls back to shadow', async (t) => {
   const f = fixture(t);
   const server = await f.startServer();
   t.after(() => server.close());
   f.enable(server.origin);
   setKinds(f, { tier: 'act' });
-  passBench(f, 'tier');
+  projectBench(f, 'tier');
+  const baseline = JSON.parse(f.run([]).stdout);
   const actual = JSON.parse(f.run(['--tasks', 'A.1']).stdout);
-  // The model picks `light` under the static `frontier`; the raise-only rule keeps `frontier`, and that is what shows.
-  assert.deepEqual(actual.record.advice, {
-    kind: 'tier', status: 'answered', pickId: actual.record.advice.pickId,
-    pick: 'frontier', strength: 'clear', between: null, agrees: true,
-  });
-  assert.match(actual.markdown, /Decision model: `frontier` \(clear\), advisory\./);
-  const picks = pickRecords(f).filter((record: any) => record.type === 'pick');
-  assert.equal(picks.length, 1);
-  assert.equal(picks[0].pickId, actual.record.advice.pickId);
-  assert.equal(picks[0].mode, 'act');
+  assert.equal(actual.markdown, baseline.markdown, 'no pick is shown');
+  assert.doesNotMatch(actual.markdown, /Decision model:/);
+  assert.equal(actual.record.advice.status, 'shadow');
+  assert.match(actual.record.advice.reason, /^BENCH_BAR_UNMET: /);
+  assert.deepEqual(pickRecords(f).map(({ type, mode, pick, model }: any) => ({ type, mode, pick, model })),
+    [{ type: 'pick', mode: 'shadow', pick: 'light', model: 'clef-flash' }]);
 });
 
 // 085 H1 on the unset-kinds path: a chosen profile whose advisor is off skips the client call.

@@ -217,7 +217,8 @@ function setKinds(f: any, kinds: any) {
   fs.mkdirSync(path.join(f.project, '.doflow'), { recursive: true });
   fs.writeFileSync(path.join(f.project, '.doflow', 'settings.json'), JSON.stringify({ advice: { kinds } }));
 }
-function passBench(f: any, kind: any) {
+/** A passing-looking bench file in the project: the gate never reads it (D3), so it never unlocks act. */
+function projectBench(f: any, kind: any) {
   fs.mkdirSync(path.join(f.project, 'bench', 'advice'), { recursive: true });
   fs.writeFileSync(path.join(f.project, 'bench', 'advice', `${kind}.json`), JSON.stringify({
     kind, models: { 'clef-flash': { accuracy: 0.9, staticBaselineAccuracy: 0.5, heldoutCases: 10 } },
@@ -291,26 +292,22 @@ test('084 H2: advice.kinds.task-class shadow keeps the verdict, shows no opinion
     [{ type: 'pick', mode: 'shadow', caller: 'classify', static: 'bug', pick: 'feature', model: 'clef-flash' }]);
 });
 
-test('084 H2: advice.kinds.task-class act answers through the dispatcher and the ACCEPTED outcome finds its pick', async (t) => {
+test('084 D3: advice.kinds.task-class act with a passing bench file in the project still falls back to shadow', async (t) => {
   const f = fixture(t);
-  const server = await f.startServer();
-  f.enable(server.origin);
-  setKinds(f, { 'task-class': 'act' });
-  passBench(f, 'task-class');
-  const result = f.run(ACCEPTED_ARGS);
+  projectBench(f, 'task-class');
+  const result = await runCounted(t, f, ACCEPTED_ARGS, { settings: { advice: { kinds: { 'task-class': 'act' } } } });
   assert.equal(result.status, 0, result.stderr);
   const json = JSON.parse(result.stdout);
   assert.equal(json.outcome, 'ACCEPTED');
   assert.equal(json.taskClass, 'bug', 'validation alone decides the class');
-  assert.equal(json.secondOpinion.status, 'answered');
-  assert.equal(json.secondOpinion.pick, 'feature');
-  assert.equal(json.secondOpinion.model, 'clef-flash');
+  assert.equal(json.secondOpinion.status, 'shadow');
+  assert.equal(json.secondOpinion.pick, null);
+  assert.match(json.secondOpinion.reason, /^BENCH_BAR_UNMET: /);
+  assert.equal(result.asks, 1, 'the degraded shadow query runs');
   const records = pickRecords(f);
-  const pick = records.find((record: any) => record.type === 'pick' && record.pickId === json.secondOpinion.pickId);
-  assert.equal(pick.mode, 'act', 'the dispatcher recorded the pick classify reports');
-  assert.equal(records.filter((record: any) => record.type === 'pick').length, 1, 'one pick, not one per recorder');
-  const outcomes = records.filter((record: any) => record.type === 'outcome' && record.pickId === pick.pickId);
-  assert.deepEqual(outcomes.map(({ actual, source }: any) => ({ actual, source })), [{ actual: 'bug', source: 'classify-verdict' }]);
+  assert.deepEqual(records.map(({ type, mode, pick, model }: any) => ({ type, mode, pick, model })),
+    [{ type: 'pick', mode: 'shadow', pick: 'feature', model: 'clef-flash' }]);
+  assert.equal(records.some((record: any) => record.type === 'outcome'), false, 'no pick was shown, so no outcome is joined');
 });
 
 test('084 H2: advice.kinds.task-class act without a passed bench bar falls back to shadow', async (t) => {
@@ -329,18 +326,13 @@ test('084 H2: advice.kinds.task-class act without a passed bench bar falls back 
 
 test('085 H1: an explicit rollout.profile baseline turns a configured act off for classify', async (t) => {
   const f = fixture(t);
-  const server = await f.startServer();
-  f.enable(server.origin);
-  fs.mkdirSync(path.join(f.project, '.doflow'), { recursive: true });
-  fs.writeFileSync(path.join(f.project, '.doflow', 'settings.json'), JSON.stringify({
-    advice: { kinds: { 'task-class': 'act' } }, rollout: { profile: 'baseline' },
-  }));
-  passBench(f, 'task-class');
-  const result = f.run(ACCEPTED_ARGS);
+  projectBench(f, 'task-class');
+  const result = await runCounted(t, f, ACCEPTED_ARGS, { settings: { advice: { kinds: { 'task-class': 'act' } }, rollout: { profile: 'baseline' } } });
   assert.equal(result.status, 0, result.stderr);
   const json = JSON.parse(result.stdout);
   assert.equal(json.outcome, 'ACCEPTED');
   assert.equal(json.secondOpinion.status, 'off');
+  assert.equal(result.asks, 0);
   assert.deepEqual(pickRecords(f), []);
 });
 

@@ -10,7 +10,6 @@ const { resolveSetting } = require('./config.ts');
 const { createAdviceClient } = require('./client.ts');
 const { readWindow } = require('./record.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
-const { interceptDecisionPoint } = require('./shadow-dispatcher.ts');
 
 const WINDOW_DAYS = 90;
 const DONE_PHRASES: Record<string, string> = Object.freeze({
@@ -167,4 +166,4 @@ function printAdviceDoctor(report: any) {
   if (report.advice.unreadableLines) console.log(`  ${report.advice.unreadableLines} line(s) could not be read`);
 }
 
-module.exports = { buildAdviceDoctor, printAdviceDoctor, interceptDecisionPoint };
+module.exports = { buildAdviceDoctor, printAdviceDoctor };

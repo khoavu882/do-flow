@@ -328,3 +328,29 @@ test('fake decision server child writes a port file and binds only loopback', as
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { version: '0.40.2' });
 });
+
+test('084 C-3: a model override is the model asked, recorded and reported; unset keeps the setting model', async (t) => {
+  const server = await startFakeServer({ routes: { 'POST /v1/systemone': { status: 200, body: { answers: {
+    tier: { choice: 'standard', probabilities: { light: 0.1, standard: 0.8, frontier: 0.1 }, confidence: 0.7 },
+  } } } } });
+  onClose(t, server);
+  const { createClient, roots }: any = fixture(t, { endpoint: server.origin });
+  const overridden = await createClient().ask({ questionSet: CHOICE_SET, kind: 'tier', caller: 'advise', model: 'per-kind:1b' });
+  assert.equal(overridden.status, 'answered');
+  assert.equal(overridden.model, 'per-kind:1b');
+  assert.equal(server.requests[0].body.model, 'per-kind:1b');
+  const plain = await createClient().ask({ questionSet: CHOICE_SET, kind: 'tier', caller: 'advise' });
+  assert.equal(plain.model, 'clef-flash');
+  assert.equal(server.requests[1].body.model, 'clef-flash');
+  assert.deepEqual(records(roots).map((record: any) => record.model), ['per-kind:1b', 'clef-flash']);
+});
+
+test('084 C-3: a model override never turns an off setting on', async (t) => {
+  const server = await startFakeServer();
+  onClose(t, server);
+  const { createClient, roots }: any = fixture(t, { setting: false, lookup: loopbackLookup });
+  const result = await createClient().ask({ questionSet: CHOICE_SET, kind: 'tier', caller: 'advise', model: 'per-kind:1b' });
+  assert.equal(result.status, 'off');
+  assert.equal(server.requests.length, 0);
+  assert.equal(records(roots).length, 0);
+});

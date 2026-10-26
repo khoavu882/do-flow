@@ -1037,7 +1037,10 @@ test('120 D.3: preconditions run before primary check (preconditions and order u
 
 // ---- 084 H2: advice.kinds.review-depth routes the advice through the dispatcher only when it is set ----
 
-/** A decided-single review (bug, docs only, LOW risk) with advice on and `advice.kinds.review-depth` set. */
+/**
+ * A decided-single review (bug, docs only, LOW risk) with advice on and `advice.kinds.review-depth` set. `bench` adds a
+ * passing-looking project bench file, which the gate never reads (D3).
+ */
 function kindsRepo(t: any, mode: any, { bench = false }: any = {}) {
   const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'LOW' })]);
@@ -1070,8 +1073,7 @@ test('084 H2: advice.kinds.review-depth shadow keeps the decided depth and stays
   assert.equal(json.depthBasis.raisedBy, null);
   assert.deepEqual(json.advice, { status: 'shadow', pick: null, reason: null });
   await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(client.calls.length, 1, 'the shadow query runs in the background');
-  assert.equal(client.calls[0].record, false);
+  assert.equal(client.calls.length, 0, 'record: false could keep no answer, so no call is made');
   assert.equal(adviceStore(r), false, 'record: false: no pick is stored');
 });
 
@@ -1085,22 +1087,23 @@ test('084 H2: advice.kinds.review-depth act without a passed bench bar keeps the
   assert.equal(json.advice.pick, null);
   assert.match(json.advice.reason, /^BENCH_BAR_UNMET: /);
   await new Promise((resolve) => setTimeout(resolve, 20));
-  assert.equal(client.calls.length, 1, 'the degraded shadow query runs');
-  assert.equal(client.calls[0].record, false);
+  assert.equal(client.calls.length, 0, 'degraded to shadow with record: false, so no call is made');
   assert.equal(adviceStore(r), false, 'record: false: no pick is stored');
   const text = await start(r, { adviceClient: fakeClient(answered('deep')), base: r.base, json: false });
   assert.ok(text.out.some((line: string) => /^advice: status=shadow reason=BENCH_BAR_UNMET: /.test(line)), text.out.join('\n'));
 });
 
-test('084 H2: advice.kinds.review-depth act with a passed bench bar raises the depth and stays write-free', async (t) => {
+test('084 D3: advice.kinds.review-depth act with a passing bench file in the project keeps the decided depth', async (t) => {
   const r = kindsRepo(t, 'act', { bench: true });
   const client = fakeClient(answered('deep'));
   const { json } = await start(r, { adviceClient: client, base: r.base });
-  assert.equal(client.calls.length, 1);
-  assert.equal(client.calls[0].record, false);
-  assert.equal(json.depth, 'deep');
-  assert.equal(json.depthBasis.raisedBy, 'advice');
-  assert.deepEqual(json.advice, { status: 'answered', pick: 'deep' });
+  assert.equal(json.depth, 'single');
+  assert.equal(json.depthBasis.raisedBy, null);
+  assert.equal(json.advice.status, 'shadow');
+  assert.equal(json.advice.pick, null);
+  assert.match(json.advice.reason, /^BENCH_BAR_UNMET: /);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(client.calls.length, 0);
   assert.equal(adviceStore(r), false, 'record: false: no pick is stored');
 });
 

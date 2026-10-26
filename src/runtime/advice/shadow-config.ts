@@ -6,30 +6,36 @@ const { resolveSetting } = require('./config.ts');
 const { resolveRoots } = require('../storage/roots.ts');
 const { loadStorageRegistry } = require('../storage/registry.ts');
 const { configHome } = require('../config-home.ts');
+const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 type AdviceKindMode = 'off' | 'shadow' | 'act';
 
 interface KindShadowConfig {
   kind: string;
   mode: AdviceKindMode;
-  /** true when some settings layer sets `advice.kinds.<kind>`; callers route through the dispatcher only then. */
+  /**
+   * true when a settings layer has `advice.kinds.<kind>`, valid or not, or a layer could not be read; callers route
+   * through the dispatcher only then, so an unreadable config never takes the legacy ask.
+   */
   kindSet: boolean;
   model: string | null;
-  provider: string;
-  endpoint: string;
   decidedBy: {
     mode: string | null;
     model: string | null;
   };
+  /** Why the mode is off when a layer could not be read or held an invalid value; empty otherwise. */
+  diagnostics: string[];
 }
 
 interface ShadowConfigOptions {
   projectRoot?: string;
-  env?: Record<string, string>;
+  env?: Record<string, string | undefined>;
   fsImpl?: any;
-  roots?: any;
+  roots?: Record<string, string> | null;
   global?: boolean;
 }
+
+type LayerRead = { content: Record<string, unknown> } | { missing: true } | { error: string };
 
 function getSettingValue(obj: any, key: string): any {
   if (!obj || typeof obj !== 'object') return undefined;
@@ -52,12 +58,21 @@ function getSettingValue(obj: any, key: string): any {
   return cur;
 }
 
-function readJsonFile(filePath: string, fsImpl: any): any {
+/** An absent file is missing; an unreadable file, bad JSON or a non-object value is an error (fail closed). */
+function readJsonFile(filePath: string, fsImpl: any): LayerRead {
+  let text: string;
   try {
-    const text = fsImpl.readFileSync(filePath, 'utf8');
-    return JSON.parse(text);
+    text = fsImpl.readFileSync(filePath, 'utf8');
+  } catch (error: any) {
+    if (error?.code === 'ENOENT' || error?.code === 'ENOTDIR') return { missing: true };
+    return { error: `could not be read (${error?.code || error?.message || 'unknown error'})` };
+  }
+  try {
+    const content = JSON.parse(text);
+    if (!content || typeof content !== 'object' || Array.isArray(content)) return { error: 'is not a JSON object' };
+    return { content };
   } catch {
-    return null;
+    return { error: 'is not valid JSON' };
   }
 }
 
@@ -71,8 +86,7 @@ function resolveShadowConfig(
 
   let storageRegistry: any = null;
   try {
-    const loaded = loadStorageRegistry({ fsImpl });
-    if (loaded?.ok) storageRegistry = loaded.registry;
+    storageRegistry = loadStorageRegistry({ repoRoot: REPO_ROOT, fsImpl });
   } catch {
     // best-effort registry loading
   }
@@ -86,7 +100,7 @@ function resolveShadowConfig(
     }
   }
 
-  // 1. Resolve global advice setting (baseline defaults)
+  // 1. The advice setting's model is the fallback when no layer names one for this kind.
   let globalSetting: any = null;
   try {
     globalSetting = resolveSetting({
@@ -126,30 +140,13 @@ function resolveShadowConfig(
   }
 
   const loadedCandidates: Array<{ layer: string; filePath: string; content: any }> = [];
+  const diagnostics: string[] = [];
   for (const { layer, path: filePath } of candidateFiles) {
-    const content = readJsonFile(filePath, fsImpl);
-    if (content) {
-      loadedCandidates.push({ layer, filePath, content });
-    }
+    const read = readJsonFile(filePath, fsImpl);
+    if ('content' in read) loadedCandidates.push({ layer, filePath, content: read.content });
+    else if ('error' in read) diagnostics.push(`${layer} settings ${filePath} ${read.error}; advice.kinds.${kind} is off`);
   }
 
-  // Provider and endpoint: candidate files -> globalSetting -> defaults
-  let resolvedProvider: string | null = null;
-  let resolvedEndpoint: string | null = null;
-
-  for (const { content } of loadedCandidates) {
-    if (!resolvedProvider) {
-      const p = getSettingValue(content, 'advice.provider');
-      if (typeof p === 'string' && p.trim()) resolvedProvider = p.trim();
-    }
-    if (!resolvedEndpoint) {
-      const ep = getSettingValue(content, 'advice.endpoint');
-      if (typeof ep === 'string' && ep.trim()) resolvedEndpoint = ep.trim();
-    }
-  }
-
-  const defaultProvider = resolvedProvider || globalSetting?.provider || ['ol', 'lama'].join('');
-  const defaultEndpoint = resolvedEndpoint || globalSetting?.endpoint || 'http://127.0.0.1:11434';
   const defaultModel = globalSetting?.model || null;
 
   // 3. Check advice.enabled: if explicitly false in any candidate layer, force mode = 'off'
@@ -162,22 +159,23 @@ function resolveShadowConfig(
     }
   }
 
-  const kindSet = loadedCandidates.some(({ content }) => getSettingValue(content, `advice.kinds.${kind}`) !== undefined);
+  const kindSet = diagnostics.length > 0
+    || loadedCandidates.some(({ content }) => getSettingValue(content, `advice.kinds.${kind}`) !== undefined);
   let resolvedMode: AdviceKindMode = 'off';
   let modeDecidedBy: string | null = null;
 
   if (explicitDisabledBy) {
     resolvedMode = 'off';
     modeDecidedBy = explicitDisabledBy;
-  } else {
-    // Resolve mode: advice.kinds.<kind>
+  } else if (diagnostics.length === 0) {
+    // The first layer that has advice.kinds.<kind> decides; an invalid value there is off, never a lower layer's value.
     for (const { layer, filePath, content } of loadedCandidates) {
       const modeVal = getSettingValue(content, `advice.kinds.${kind}`);
-      if (modeVal === 'act' || modeVal === 'shadow' || modeVal === 'off') {
-        resolvedMode = modeVal as AdviceKindMode;
-        modeDecidedBy = `${layer}:${filePath}`;
-        break;
-      }
+      if (modeVal === undefined) continue;
+      modeDecidedBy = `${layer}:${filePath}`;
+      if (modeVal === 'act' || modeVal === 'shadow' || modeVal === 'off') resolvedMode = modeVal;
+      else diagnostics.push(`${layer} settings ${filePath} has invalid advice.kinds.${kind} ${JSON.stringify(modeVal)} (expected off, shadow or act); it is off`);
+      break;
     }
   }
 
@@ -220,12 +218,11 @@ function resolveShadowConfig(
     mode: resolvedMode,
     kindSet,
     model: resolvedModel,
-    provider: defaultProvider,
-    endpoint: defaultEndpoint,
     decidedBy: {
       mode: modeDecidedBy,
       model: modelDecidedBy,
     },
+    diagnostics,
   };
 }
 
