@@ -146,7 +146,7 @@ function parseArgs(argv: string[]): any {
       case '--action': {
         const val = argv[i + 1];
         // `review`, `protocol`, `config`, `primary` and `package` answer a missing value as usage, exit 2; other verbs keep exit 1.
-        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'review' || o.cmd === 'protocol' || o.cmd === 'config' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'package' ? 2 : 1); }
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'review' || o.cmd === 'protocol' || o.cmd === 'config' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript' || o.cmd === 'package' ? 2 : 1); }
         o.action = val; o.actionGiven = true; i++; break;
       }
       case '--task-class': {
@@ -230,8 +230,8 @@ function parseArgs(argv: string[]): any {
         // its validation subtly wrong.
         const runtime = parseRuntimeFlag(a, argv, i, o);
         if (runtime !== null) { i = runtime; break; }
-        // slot, primary and fleet report an unknown flag as their own usage error (exit 2, 115 IC-008, 120 IC-008).
-        if (a.startsWith('-') && (o.cmd === 'slot' || o.cmd === 'primary' || o.cmd === 'fleet')) (o.extraFlags = o.extraFlags || []).push(a);
+        // slot, primary, fleet and transcript report an unknown flag as their own usage error (exit 2, 115 IC-008, 120 IC-008).
+        if (a.startsWith('-') && (o.cmd === 'slot' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript')) (o.extraFlags = o.extraFlags || []).push(a);
         else if (a.startsWith('-') && o.cmd !== 'plan-check') { console.error(unknownFlagMessage(a)); process.exit(o.cmd === 'protocol' || o.cmd === 'config' ? 2 : 1); }
         else if (!o.cmd) o.cmd = a;
         else o.positional.push(a);
@@ -422,6 +422,9 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--dir', 'dir'],                   // package --action new: authored package target directory
   ['--name', 'name'],                  // slot: the slot's name, 1 to 64 characters of a-z, 0-9 and - (115 IC-008)
   ['--label', 'label'],                // slot --action run: the holder's label, at most 80 characters (115 IC-008)
+  ['--cursor', 'cursor'],              // transcript --action read: the cursor an earlier read returned (093 IC-022)
+  ['--limit', 'limit'],                // transcript --action read: at most this many events, validated in the verb (093 IC-022)
+  ['--window', 'window'],              // transcript --action stats: minutes, 1 to 60, validated in the verb (093 IC-023)
   ['--port', 'port'],                  // ui: the Console's port, 0 to 65535, checked in commands/ui.ts (092 IC-008)
 ]);
 
@@ -581,6 +584,10 @@ Commands:
                        primary --action observed [--json]   checkouts and session hook records (exit 0, 1 cannot list checkouts, 2 usage)
   fleet                List the projects this machine knows (read-only):
                        fleet --action projects [--json]   from the user-state upkeep-roots and the hook project directories (exit 0, 1 cannot list projects, 2 usage)
+                       fleet --action tree [--json]   one project's agent hierarchy as nodes and edges (exit 0, 1 cannot list checkouts, 2 usage)
+  transcript           Read an agent's recent events, or the project's traffic (read-only, run in a project):
+                       transcript --action read --agent <key> [--cursor <c>] [--limit <n>] [--json]   masked events and DoFlow's record events (exit 0, 1 agent-not-in-project or session-not-in-project, 2 usage)
+                       transcript --action stats [--window <minutes 1..60>] [--json]   events per minute, tool calls, tokens, who works with whom (exit 0, 2 usage)
   package              List the contribution points a package may fill, check a package directory, show the packages, add and update a local package, or turn it on and off:
                        package --action points [--json]
                        package --action check --path <dir> [--json]   (read-only; exit 0 clean, 1 findings, 2 usage)
@@ -654,7 +661,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        review: check|start
                        protocol: list|resolve
                        primary: resolve|observed
-                       fleet: projects
+                       fleet: projects|tree
+                       transcript: read|stats
                        package: points|check|list|show|add|update|enable|disable|trust|exempt|revoke|verify|remove
       --task, --token, --owner, --mode,
       --result, --evidence-id, --reason     task-attempt (claim: --task --owner --mode manual|sequential|subagent

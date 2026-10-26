@@ -162,7 +162,7 @@ function splitLines(buf: Buffer, base: number, skipFirst: boolean): { lines: Lin
  * The window one call reads. `lines` are the records to process; `prior()` returns the raw lines before the
  * window (Copilot differences its cumulative usage against them).
  */
-function openWindow(file: string, cursorText: any, maxBytes: number): any {
+function openWindow(file: string, cursorText: any, maxBytes: number, tailRecords: number = TAIL_RECORDS): any {
   const fd = fs.openSync(file, 'r');
   try {
     const st = fs.fstatSync(fd, { bigint: true });
@@ -177,7 +177,7 @@ function openWindow(file: string, cursorText: any, maxBytes: number): any {
     const buf = readRange(fd, base, Math.min(size, from + maxBytes));
     const split = splitLines(buf, base, skipFirst);
     let { lines } = split;
-    if (tail && lines.length > TAIL_RECORDS) lines = lines.slice(-TAIL_RECORDS);
+    if (tail && lines.length > tailRecords) lines = lines.slice(-tailRecords);
     const windowEnd = base + buf.length;
     // One line longer than the whole window: consume it as a single unparsable record.
     if (!skipFirst && lines.length === 0 && split.rest > 0 && windowEnd < size) {
@@ -260,13 +260,14 @@ function makeContext(mode: string, agentKey: any): any {
 
 /**
  * Runs one reader over one transcript file. `opts`: `file`, `mode` ('text' | 'metadata'), `cursor`, `limit`
- * (default 200, at most 500), `agentKey`, `companion` (Kiro's `.json`), `maxBytes` (default 256 KiB).
+ * (default 200, at most 500), `agentKey`, `companion` (Kiro's `.json`), `maxBytes` (default 256 KiB), `tailRecords`
+ * (records kept by a read with no cursor, default 64; the traffic stats read the whole 256 KiB tail).
  * Throws the fs error when the file cannot be opened; the caller maps it to `not-found`.
  */
 function readTranscript(spec: any, opts: any): any {
   const mode = opts.mode === 'metadata' ? 'metadata' : 'text';
   const limit = Math.min(MAX_LIMIT, Math.max(1, Number.isInteger(opts.limit) ? opts.limit : DEFAULT_LIMIT));
-  const win = openWindow(opts.file, opts.cursor, opts.maxBytes ?? MAX_READ_BYTES);
+  const win = openWindow(opts.file, opts.cursor, opts.maxBytes ?? MAX_READ_BYTES, opts.tailRecords ?? TAIL_RECORDS);
   const ctx = makeContext(mode, opts.agentKey ?? null);
   if (spec.init) ctx.state = spec.init(win, opts, ctx) ?? {};
 
