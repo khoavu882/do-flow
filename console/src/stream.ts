@@ -68,6 +68,8 @@ function createStreams(views: Views) {
     let cursor = params.cursor;
     let snapshotSent = false;
     let answered = false;
+    // The core finds a project's root only in the fleet read: a transcript read before the first one answers would be project-not-found, which ends the stream.
+    let fleetAnswered = false;
     // projectKey -> the JSON last sent for that section; `rest` is the JSON of everything else in the body.
     let sent = new Map<string, string>();
     let rest: string | null = null;
@@ -139,12 +141,13 @@ function createStreams(views: Views) {
       } catch {
         if (!closed) failed('fleet', { code: 'core-error', verb: null, exit: null });
       } finally {
+        fleetAnswered = true;
         busy.fleet = false;
       }
     }
 
     async function transcriptTick(): Promise<void> {
-      if (busy.transcript || closed || params.agent === null) return;
+      if (busy.transcript || closed || params.agent === null || !fleetAnswered) return;
       busy.transcript = true;
       try {
         const out = await views.transcript(params.project, params.agent, cursor);
