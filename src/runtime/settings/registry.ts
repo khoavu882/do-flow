@@ -445,6 +445,8 @@ interface SettingsRegistry {
   enumValues(key: string): string[] | null;
   /** The value of a named ref, lazily read from advice.json or storage.json. Throws when unreadable. */
   resolveRef(name: string, deps?: Record<string, unknown>): unknown;
+  /** 127 IC-005: the retired harness ids with their replacement; empty when none is recorded or harnesses.json is unreadable. */
+  retired(): { id: string; replacement: string }[];
 }
 type LoadResult = { ok: true; registry: SettingsRegistry } | { ok: false; reason: 'settings-registry-invalid'; detail: string; errors: string[] };
 
@@ -534,6 +536,9 @@ function loadSettingsRegistry({ repoRoot = REPO_ROOT, fsImpl, verifyRefs = false
       return list;
     },
     resolveRef: (name, deps) => refs.resolve(name, deps),
+    retired() {
+      try { return refs.retired(); } catch { return []; }
+    },
   };
   return done({ ok: true, registry });
 }
