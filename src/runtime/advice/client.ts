@@ -128,39 +128,6 @@ function createAdviceClient({
   httpsModule = https,
   clock = () => new Date(),
 }: any = {}) {
-  /** True only when the provider answers that the model is not loaded; any other outcome (no probe, no answer) is warm. */
-  async function probeCold({ adapter, setting, endpointCheck, signal }: any) {
-    if (!adapter.loadedRequest || !Number.isFinite(adviceRegistry.coldTimeoutMs)) return false;
-    try {
-      const response = await requestAction({
-        endpoint: setting.endpoint, action: adapter.loadedRequest(), pinnedLookup: endpointCheck.pinnedLookup,
-        timeoutMs: adviceRegistry.probeTimeoutMs, signal, httpModule, httpsModule,
-      });
-      return adapter.parseLoaded(response.status, response.bodyText, setting.model) === false;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Whether the configured model is cold right now (for a caller that wants to hand a slow call to the background).
-   * Never throws; any failure reads as warm.
-   */
-  async function isCold({ model, signal }: any = {}) {
-    try {
-      let setting: any = resolveSetting({ adviceRegistry, roots, fsImpl });
-      if (setting.state !== 'on') return false;
-      if (typeof model === 'string' && model.trim()) setting = { ...setting, model: model.trim() };
-      const provider = adviceRegistry?.providers?.find((entry: any) => entry.id === setting.provider);
-      const adapter = provider && ADAPTERS[provider.adapter];
-      if (!adapter) return false;
-      const endpointCheck = await checkEndpoint(setting.endpoint, { lookup, file: setting.decidedBy?.user || 'provider default', timeoutMs: adviceRegistry.probeTimeoutMs, signal });
-      return endpointCheck.ok ? await probeCold({ adapter, setting, endpointCheck, signal }) : false;
-    } catch {
-      return false;
-    }
-  }
-
   /**
    * `model`, when given, replaces the setting's model for this call: it is the model asked, recorded and reported.
    * `signal`, when given, ends the call early: an in-flight request is destroyed and the call is unavailable with 'timeout'.
@@ -223,12 +190,8 @@ function createAdviceClient({
         signal,
       });
       if (!endpointCheck.ok) return unavailable(endpointCheck.reason || 'non-loopback', endpointCheck.message);
-      // A model the provider reports as not loaded gets the cold wait; a warm one, or one the probe cannot place, the short one.
-      const cold = await probeCold({ adapter, setting, endpointCheck, signal });
-      const limitMs = cold ? adviceRegistry.coldTimeoutMs : adviceRegistry.timeoutMs;
-      const timeoutReason = cold ? 'timeout-cold' : 'timeout';
-      const remainingMs = limitMs - durationSince(startedAt);
-      if (remainingMs <= 0) return unavailable(timeoutReason, 'decision model request budget exhausted');
+      const remainingMs = adviceRegistry.timeoutMs - durationSince(startedAt);
+      if (remainingMs <= 0) return unavailable('timeout', 'decision model request budget exhausted');
       if (signal?.aborted) return unavailable('timeout', 'decision model request aborted by the caller');
 
       let response;
@@ -244,7 +207,7 @@ function createAdviceClient({
         });
       } catch (error: any) {
         const reason = networkReason(error);
-        return unavailable(reason === 'timeout' && cold ? timeoutReason : reason, error.message);
+        return unavailable(reason, error.message);
       }
 
       let parsed;
@@ -378,7 +341,7 @@ function createAdviceClient({
     }
   }
 
-  return { ask, inspect, isCold };
+  return { ask, inspect };
 }
 
 module.exports = { createAdviceClient, versionAtLeast };

@@ -659,7 +659,7 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     assert.ok(elapsed < 10000, `the process stayed open for ${elapsed}ms`);
     assert.equal(code, 0, stderr);
     assert.equal(stdout.trim(), 'shadow');
-    assert.ok(sockets.size >= 1, 'the client reached the stalled server (the cold probe may also have opened a socket)');
+    assert.equal(sockets.size, 1, 'the client reached the stalled server');
     assert.deepEqual(s.lines().map((line: any) => [line.type, line.reason]), [['miss', 'timeout']]);
   });
 

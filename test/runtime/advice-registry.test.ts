@@ -46,7 +46,7 @@ test('IC-003: shipped registry loads with the fixed limits, bands, providers and
   const result = loadAdviceRegistry({ repoRoot: REPO });
   assert.equal(result.ok, true, result.detail);
   const registry = result.registry;
-  assert.equal(registry.timeoutMs, 5000);
+  assert.equal(registry.timeoutMs, 15000);
   assert.equal(registry.probeTimeoutMs, 1500);
   assert.equal(registry.doctorBudgetMs, 6000);
   assert.deepEqual(registry.limits, EXPECTED_LIMITS);

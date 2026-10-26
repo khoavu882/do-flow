@@ -37,10 +37,6 @@ function validateAdviceRegistry(registry: any, { repoRoot = REPO_ROOT, models, f
       addError(errors, key, 'must be an integer from 100 to 30000');
     }
   }
-  // The wait for a model the provider reports as not loaded: a cold load takes far longer than a warm answer.
-  if (!Number.isInteger(registry.coldTimeoutMs) || registry.coldTimeoutMs < registry.timeoutMs || registry.coldTimeoutMs > 300000) {
-    addError(errors, 'coldTimeoutMs', 'must be an integer from timeoutMs to 300000');
-  }
   if (!Number.isInteger(registry.doctorBudgetMs) || registry.doctorBudgetMs <= 0) {
     addError(errors, 'doctorBudgetMs', 'must be a positive integer');
   }
