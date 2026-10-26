@@ -17,6 +17,7 @@ const path = require('node:path');
 const cp = require('node:child_process');
 const { createHash } = require('node:crypto');
 const { tempDir } = require('../helper/tmp.ts');
+const { repoFromTemplate } = require('../helper/repo-template.ts');
 const { next, handleRoadmapCommand } = require('../../src/runtime/roadmap/loop.ts');
 const { mergeRoadmapRow } = require('../../src/runtime/roadmap/merge.ts');
 const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
@@ -234,34 +235,49 @@ async function build(t: any, sc: any) {
 
   // base commit: policy at develop's head (or absent / invalid), a package.json, files two rows can touch
   const policyBytes = fs.readFileSync(path.join(REPO, 'core/registry/gates.json'), 'utf8');
-  git(root, 'init', '-q', '-b', 'main');
-  git(root, 'config', 'user.name', 'Fixture Owner');
-  git(root, 'config', 'user.email', 'owner@example.invalid');
-  git(root, 'config', 'core.hooksPath', '/dev/null');
-  write(path.join(root, '.gitignore'), '.doflow/\nagent-docs/\n');
-  write(path.join(root, 'package.json'), '{"name":"fixture","version":"1.0.0","scripts":{"test":"node --test"}}\n');
-  write(path.join(root, 'shared.txt'), 'base\n');
-  write(path.join(root, 'src/alpha/a.js'), 'base\n');
-  write(path.join(root, 'notes/owner-wip.md'), 'owner notes\n');
-  const policy = init.policy;
-  if (!policy || policy.presentAtDevelopHead !== false) write(path.join(root, 'core/registry/gates.json'), policy && policy.schemaValid === false ? '{"schema":1}\n' : policyBytes);
-  git(root, 'add', '.');
-  git(root, 'commit', '-qm', 'base');
-  const tree = git(root, 'rev-parse', 'HEAD^{tree}');
-  const commitTree = (parents: any, ...messages: any[]) => git(root, 'commit-tree', tree, ...parents.flatMap((p: any) => ['-p', p]), ...messages.flatMap((m) => ['-m', m]));
   const mergeMessage = (name: any, trailers: any) => [`merge ${name}`, ...(Object.keys(trailers || {}).length ? [Object.entries(trailers).map(([k, v]: any) => `${k}: ${v}`).join('\n')] : [])];
-  let head = git(root, 'rev-parse', 'HEAD');
-  for (const merge of init.git?.developFirstParentMerges ?? DEFAULT_MERGES) {
-    const side = commitTree([head], `side of ${merge.sha}`);
-    head = commitTree([head, side], ...mergeMessage(merge.sha, merge.trailers));
-    w.sym[merge.sha] = head;
-  }
-  for (const commit of init.git?.commits ?? []) {
-    head = commitTree([head], `commit ${commit.sha}`);
-    w.sym[commit.sha] = head;
-  }
+  // The base commit and the develop history are the same for every scenario that states the same policy
+  // file, merges and commits, so they are built once per process and copied (test/helper/repo-template.ts).
+  // A commit id is a function of its content, the fixed identity and the fixed date, so the copy is the
+  // repository the build made, and the symbolic names map to the same ids in every scenario.
+  const policy = init.policy;
+  const policyKind = policy && policy.presentAtDevelopHead === false ? 'absent' : policy && policy.schemaValid === false ? 'invalid' : 'valid';
+  const merges = init.git?.developFirstParentMerges ?? DEFAULT_MERGES;
+  const commits = init.git?.commits ?? [];
+  const history = repoFromTemplate(`g-l1:${JSON.stringify([policyKind, merges, commits])}`, root, (base: any) => {
+    git(base, 'init', '-q', '-b', 'main');
+    git(base, 'config', 'user.name', 'Fixture Owner');
+    git(base, 'config', 'user.email', 'owner@example.invalid');
+    git(base, 'config', 'core.hooksPath', '/dev/null');
+    write(path.join(base, '.gitignore'), '.doflow/\nagent-docs/\n');
+    write(path.join(base, 'package.json'), '{"name":"fixture","version":"1.0.0","scripts":{"test":"node --test"}}\n');
+    write(path.join(base, 'shared.txt'), 'base\n');
+    write(path.join(base, 'src/alpha/a.js'), 'base\n');
+    write(path.join(base, 'notes/owner-wip.md'), 'owner notes\n');
+    if (policyKind !== 'absent') write(path.join(base, 'core/registry/gates.json'), policyKind === 'invalid' ? '{"schema":1}\n' : policyBytes);
+    git(base, 'add', '.');
+    git(base, 'commit', '-qm', 'base');
+    const baseTree = git(base, 'rev-parse', 'HEAD^{tree}');
+    const make = (parents: any, ...messages: any[]) => git(base, 'commit-tree', baseTree, ...parents.flatMap((p: any) => ['-p', p]), ...messages.flatMap((m) => ['-m', m]));
+    const syms: any = {};
+    let tip = git(base, 'rev-parse', 'HEAD');
+    for (const merge of merges) {
+      const side = make([tip], `side of ${merge.sha}`);
+      tip = make([tip, side], ...mergeMessage(merge.sha, merge.trailers));
+      syms[merge.sha] = tip;
+    }
+    for (const commit of commits) {
+      tip = make([tip], `commit ${commit.sha}`);
+      syms[commit.sha] = tip;
+    }
+    git(base, 'update-ref', 'refs/heads/develop', tip);
+    return { tree: baseTree, head: tip, syms };
+  });
+  const tree = history.tree;
+  const commitTree = (parents: any, ...messages: any[]) => git(root, 'commit-tree', tree, ...parents.flatMap((p: any) => ['-p', p]), ...messages.flatMap((m) => ['-m', m]));
+  Object.assign(w.sym, history.syms);
+  const head = history.head;
   w.sym.D0 = head;
-  git(root, 'update-ref', 'refs/heads/develop', head);
   const remote = init.git?.remote;
   if (remote && remote.url) git(root, 'remote', 'add', remote.name || 'origin', remote.url);
   if (init.git?.developWorktree !== null) {
@@ -462,9 +478,15 @@ async function build(t: any, sc: any) {
   for (const entry of Object.values(w.fw)) {
     for (const d of entry.spec.featureWorktreeDirt ?? []) write(path.join(entry.wt, d.path), 'wip\n');
   }
-  w.heads = () => ({ develop: git(root, 'rev-parse', 'refs/heads/develop'),
-    features: Object.fromEntries(Object.values(w.fw).map((e) => [e.id, (() => { try { return git(root, 'rev-parse', `refs/heads/feat/${e.slug}`); } catch { return null; } })()])) });
-  w.branches = () => git(root, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/').split('\n').filter(Boolean);
+  // One for-each-ref answers every head the comparison reads: develop (which must exist) and each feature branch (null once gone).
+  const headRefs = () => new Map(git(root, 'for-each-ref', '--format=%(refname) %(objectname)', 'refs/heads/').split('\n').filter(Boolean).map((line: any) => line.split(' ')));
+  w.heads = () => {
+    const refs = headRefs();
+    if (!refs.has('refs/heads/develop')) throw new Error('fixture: refs/heads/develop is gone');
+    return { develop: refs.get('refs/heads/develop'),
+      features: Object.fromEntries(Object.values(w.fw).map((e) => [e.id, refs.get(`refs/heads/feat/${e.slug}`) ?? null])) };
+  };
+  w.branches = () => [...headRefs().keys()].map((ref: any) => ref.slice('refs/heads/'.length));
   w.before = w.heads();
   w.branchesBefore = w.branches();
   const developStatus = () => { try { return git(developDir, 'status', '--porcelain', '--untracked-files=all'); } catch { return null; } };
