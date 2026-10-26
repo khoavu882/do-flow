@@ -76,6 +76,8 @@ const runsUpkeep = (o: any): boolean => !NO_UPKEEP.has(o.cmd) || (o.cmd === 'pac
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
 // The seed validator loads only for `roadmap seed`, and only this file may require it (G54).
 function handleSeedCommand(options: any): any { return require('../runtime/roadmap/seed.ts').handleSeedCommand(options); }
+// maint-thin: `roadmap promote <id...>` lives in seed.ts too, so it stays out of every autopilot module (G54).
+function handlePromoteCommand(options: any): any { return require('../runtime/roadmap/seed.ts').handlePromoteCommand(options); }
 // Settings support is needed only when the config verb runs.
 function handleConfigCommand(options: any): any { return require('../runtime/settings/cli.ts').handleConfigCommand(options); }
 // The primary verb (row 120 A.4) needs the settings resolver only when it runs.
@@ -110,10 +112,12 @@ function traceViewRoot(o: any): string {
   return o.cmd === 'trace' && TRACE_VIEWS.has(o.positional[0]) && !o.global ? path.resolve(o.positional[1] || '.') : evidenceRoot(o);
 }
 
-/** `roadmap`: the runner, or the `seed` sub-verb (113 IC-001), which takes the first positional slot and sets the exit code itself. */
+/** `roadmap`: the runner, the `seed` sub-verb (113 IC-001), or the `promote` sub-verb (maint-thin), each taking the
+ * first positional slot and setting the exit code itself; `promote` runs on the main checkout of the working directory. */
 function handleRoadmapVerbCommand(o: any): number {
   const action = o.actionGiven ? o.action : undefined;
   if (o.positional[0] === 'seed') return finishRuntime(handleSeedCommand({ action, draft: o.draft, json: o.json, cwd: process.cwd(), root: resolveMainRoot(evidenceRoot(o)) }));
+  if (o.positional[0] === 'promote') return finishRuntime(handlePromoteCommand({ ids: o.positional.slice(1), json: o.json, root: resolveMainRoot(process.cwd()) }));
   return handleRoadmapCommand({ action, check: o.check, json: o.json, run: o.run, row: o.row, cwd: evidenceRoot(o) });
 }
 
@@ -337,7 +341,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // all this does: the handler names them back under `callerAsserted` so a stated input is
     // never mistaken for a measured one.
     case 'readiness': return handleReadinessCommand({ taskClass: requireTaskClass(o), taskId: requireTaskId(o), verificationPlan: o.verificationPlan, scopeClear: o.scope, invariants: o.invariants, userDecisionPending: o.userDecisionPending, mode: o.mode, slug: storeSlug, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot, sourceRoot: evidenceRoot(o) });
-    case 'evidence': return handleEvidenceCommand({ taskId: requireTaskId(o), action: o.action, item: evidenceItemFromFlags(o), batchPath: o.batchPath, evidenceId: o.evidenceId, replacedBy: o.replacedBy, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot, slug: storeSlug, sourceRoot: evidenceRoot(o), attemptRoot });
+    case 'evidence': return handleEvidenceCommand({ taskId: requireTaskId(o), action: o.action, item: evidenceItemFromFlags(o), batchPath: o.batchPath, evidenceId: o.evidenceId, replacedBy: o.replacedBy, stale: o.stale, json: o.json, repoRoot: REPO_ROOT, stateRoot: storeRoot, slug: storeSlug, sourceRoot: evidenceRoot(o), attemptRoot });
     // Run-ledger views. They resolve their own ledger the way the dispatcher does (nearest
     // `.doflow` walking up, or the global one) rather than assuming cwd is the project root, so
     // a view invoked from a subdirectory reads the runs that were actually recorded.

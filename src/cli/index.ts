@@ -115,6 +115,8 @@ function parseArgs(argv: string[]): any {
       // advise --action configure: these are deliberately presence-only switches.
       case '--off': o.off = true; break;
       case '--project': o.project = true; break;
+      // evidence --action retire: retire every item the ledger classes stale.
+      case '--stale': o.stale = true; break;
       // goal --action check: record the item as not met (evidence is still required, as the reason).
       case '--unmet': o.unmet = true; break;
       // goal --action link: move a feature that already serves another goal.
@@ -560,7 +562,8 @@ Commands:
   failure              List, settle or switch off the failures DoFlow captured on this machine (--action list|settle|capture)
                        (a value beginning with '-' must be written --flag=value)
   roadmap              Session-driven autopilot runner (--action render|status|next|audit [--check] [--row <id>] [--run <id>]);
-                       roadmap seed --action check|apply|amend --draft <path> [--json] validates and writes new rows
+                       roadmap seed --action check|apply|amend --draft <path> [--json] validates and writes new rows;
+                       rows written while autopilot is on land proposed; roadmap promote <id...> [--json] (person, autopilot off) makes them ready
   plan-check           Check a plan's task lines the way the task-attempt ledger reads them: plan-check <plan path> [--json]
   review               Validate a feature's review/findings.json; print errors, advisories and counts (exit 0 valid, 1 invalid, 2 usage):
                        review --action check [--slug <name> | --path <findings.json>] [--json]
@@ -627,7 +630,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --task-class     classify, workflow, readiness, context-pack, outcome --action record, protocol --action resolve
       --task-id        readiness, evidence, claim, context-pack, retrieval-plan, outcome, verify, advise, retrieve,
                        trace analyze --emit followups (the ledger read for evidence ids)
-      --action         claim: list|add|link|retract|supersede · evidence: list|add|supersede
+      --action         claim: list|add|link|retract|supersede · evidence: list|add|supersede|retire
                        verify: report|contract · retrieval-plan: declare|report|attempt
                        outcome: record|show · advise: ask|outcome|configure · tools: see above
                        followup: add|list|take|settle|promote|report
@@ -637,7 +640,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        lifecycle: overview|init|release|status|merged
                        goal: add|item|check|link|list|done
                        failure: list|settle|capture
-                       roadmap: render|status|next|audit (seed: check|apply|amend)
+                       roadmap: render|status|next|audit (seed: check|apply|amend; promote <id...>)
                        slot: run|list|release
                        models: sync|list|describe
                        review: check|start
@@ -677,6 +680,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --batch <file|->                      evidence --action add (a stage's JSON batch)
       --evidence-id, --replaced-by          evidence --action supersede (retire one item, point
                                             forward to the item that replaces it)
+      --stale                               evidence --action retire (retire every item the ledger
+                                            classes stale, with no replacement; fresh items stay)
       --verification-plan, --scope,
       --invariants,
       --user-decision-pending               readiness: inputs the caller states rather than

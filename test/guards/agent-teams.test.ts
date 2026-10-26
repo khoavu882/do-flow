@@ -52,8 +52,9 @@ describe('Guard G72: Settings Registry Declarations (IC-004)', () => {
     assert.equal(writerCap.type, 'integer');
     assert.equal(writerCap.min, 1);
     assert.equal(writerCap.max, 8);
-    assert.equal(writerCap.default, 2);
-    assert.equal(writerCap.failSafe, 2);
+    // maint-thin (user ruling 2026-10-26): writes run single-threaded by default; the user raises the cap.
+    assert.equal(writerCap.default, 1);
+    assert.equal(writerCap.failSafe, 1);
     assert.equal(writerCap.env?.name, 'DOFLOW_TEAM_WRITER_CAP');
     assert.equal(writerCap.env?.parse, 'positive-int');
     assert.ok(

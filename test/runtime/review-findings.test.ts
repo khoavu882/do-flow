@@ -289,7 +289,8 @@ test('C-2 closure: a record without protocol is held to a non-auto review.preset
   assert.deepEqual(validateFindings(record([open()], { rounds: 1 }), deep).errors, ['protocol-missing', 'protocol-rounds']);
   assert.deepEqual(validateFindings(oneSeat({ rounds: 2 }), deep).errors, ['protocol-missing', 'protocol-seats']);
   assert.deepEqual(validateFindings(record([open()], { rounds: 2 }), deep).errors, ['protocol-missing'], 'rounds and seats meet the preset; the missing protocol still refuses');
-  assert.deepEqual(validateFindings(record([open()], { rounds: 1 }), { preset: 'review-single' }).errors, ['protocol-missing']);
+  // maint-thin: review-single is the loosest core preset (the shipped default), so it makes the field optional
+  assert.deepEqual(validateFindings(record([open()], { rounds: 1 }), { preset: 'review-single' }).errors, []);
   for (const options of [undefined, { preset: 'auto' }]) {
     assert.deepEqual(validateFindings(record([open()], { rounds: 1 }), options).errors, [], 'auto or unset: unchanged');
   }

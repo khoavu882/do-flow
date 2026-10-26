@@ -139,6 +139,8 @@ function evaluate(policy: any, cls: string, gateId: string, facts: any[]): any {
   const source = (name: string): string => byName.get(name)?.locator || name;
   const row = get('row');
   if (unavailable('row') || !object(row) || !nonempty(row.id) || !nonempty(row.slug)) { reasons.push('row-unknown'); return result(); }
+  // maint-thin: a proposed row is not autopilot's until a person promotes it (roadmap promote).
+  if (row.proposed === true) { reasons.push('row-proposed'); return result(); }
   const findings = get('findings');
   const converged = Array.isArray(findings?.converged) ? findings.converged.filter(object) : [];
   const seats = Array.isArray(findings?.seats) ? findings.seats.filter(object) : [];

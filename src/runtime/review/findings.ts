@@ -106,6 +106,13 @@ function invalidPresetCandidate(resolution: any): { source: string; reason: stri
   return (resolution?.candidates ?? []).find((c: any) => ['user', 'project', 'local'].includes(c.layer) && c.status === 'invalid');
 }
 
+/** maint-thin: true when `presetId` is the last (loosest) id of the effective core review order; false on no readable view. */
+function loosestReviewPreset(presetId: any, registry: any = protocols()): boolean {
+  if (!registry) return false;
+  const order: string[] = require('./protocols.ts').presetIds(registry, 'review');
+  return order.length > 0 && order[order.length - 1] === presetId;
+}
+
 /** True when the record's protocol is looser than `presetId`, the project's `review.preset`: later in the strictest-first
  * core `order.review`, or, for a contributed id on either side, not dominating it (122 IC-014). `auto` needs the diff,
  * which gate-b does not read, so it never compares (C-2). Fails closed: an id outside the active set of `registry` (gate-b's
@@ -280,8 +287,8 @@ function identityFacts(data: any, sameFamily: Sameness, authors: any[] = []): { 
 
 /** Schema checks only. Git ancestry and register-channel backing are separate facts.
  * `sameFamily` (`warn` by default) is the project's `review.sameFamily`: under `refuse` a same-family seat is an error.
- * `preset` (`auto` by default) is the effective `review.preset`: when it is not `auto` a record without `protocol`
- * is an error (`protocol-missing`) and its rounds and seats are held to that preset (C-2 closure). */
+ * `preset` (`auto` by default) is the effective `review.preset`: when it is neither `auto` nor the loosest core preset
+ * a record without `protocol` is an error (`protocol-missing`) and its rounds and seats are held to that preset (C-2 closure). */
 function validateFindings(
   json: any,
   { sameFamily = 'warn', preset = 'auto', authors = [], protocols: registry }: { sameFamily?: Sameness; preset?: string; authors?: any[]; protocols?: any } = {}
@@ -327,7 +334,9 @@ function validateFindings(
   // C-2: the record is held to its own preset, not only to its shape; a record that omits `protocol` is held to the
   // project's non-auto `review.preset` instead (omitting the field must not skip the check).
   const recorded = Object.hasOwn(data, 'protocol');
-  if (!recorded && preset !== 'auto') errors.push('protocol-missing');
+  // maint-thin: the loosest core preset (the shipped default, review-single) constrains nothing a record could miss,
+  // so only a stricter one makes the field mandatory.
+  if (!recorded && preset !== 'auto' && !loosestReviewPreset(preset)) errors.push('protocol-missing');
   const held = recorded ? (protocolFault === null ? data.protocol.id : null) : (preset !== 'auto' ? preset : null);
   if (held && Array.isArray(data.seats) && reviewPresets(view())?.includes(held)) {
     const heldPreset = view().presets[held];

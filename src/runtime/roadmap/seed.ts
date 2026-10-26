@@ -53,6 +53,7 @@ interface HandleSeedCommandOptions {
   out?: (s: string) => void;
   err?: (s: string) => void;
   classes?: string[];
+  isTTY?: boolean;
 }
 
 function judgeDraft({
@@ -377,6 +378,9 @@ function printTextResult(
   let line1 = `roadmap seed ${op}: ${statusPart}, ${addCount} add, ${amendCount} amend, ${overlapCount} overlaps, ${aloneCount} alone`;
   if ((op === 'apply' || op === 'amend') && result.ok) {
     line1 += `, ${result.writes} files written`;
+    if (Array.isArray(result.proposed) && result.proposed.length > 0) {
+      line1 += `, ${result.proposed.length} proposed (no person verified, or autopilot is not verifiably off; a person runs in their terminal, with autopilot off: doflow roadmap promote ${result.proposed.map(safeText).join(' ')})`;
+    }
   }
   if (result.seed && result.seed.sha256 === null) {
     line1 += ', store absent';
@@ -476,6 +480,7 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
     out = (s: string) => console.log(s),
     err = (s: string) => console.error(s),
     classes,
+    isTTY = process.stdin.isTTY === true,
   } = options;
 
   const usage = (message: string): number => {
@@ -578,39 +583,13 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
   }
 
   // 4. Apply / Amend action
-  // (a) Kill switch check
+  // (a) maint-thin: a seed write is allowed whatever the switch says. Rows land as drafted (ready) only when BOTH
+  // autopilot is verifiably off (the fail-closed seed reader) AND stdin is an interactive terminal: a model with a
+  // shell controls the environment (an empty config home reads as off), so the switch alone cannot tell a person.
+  // Otherwise every row it adds or amends lands `proposed`, which autopilot never picks or advances until a person
+  // runs `roadmap promote`.
   const switchReader = readSwitch || readSeedSwitch;
-  const killSwitch = switchReader(env, fsImpl);
-  if (killSwitch.enabled) {
-    const result = {
-      schema: 1,
-      action: 'seed',
-      op: action,
-      ok: false,
-      draft: { path: absDraftPath, sha256: draftSha },
-      seed: { path: storePath, sha256: seedSha },
-      rows: [],
-      findings: [],
-      overlaps: [],
-      alone: [],
-      reason: 'needs-person',
-      switch: null,
-      writes: 0,
-      land: null,
-    };
-
-    if (json) {
-      out(JSON.stringify(result));
-    } else {
-      const { configHome } = require('../config-home.ts');
-      const home = configHome(env).dir;
-      const homeText = home ? safeText(home) : 'the config home (none resolves: set HOME or XDG_CONFIG_HOME)';
-      printTextResult(result, out, err, {
-        refusalDetail: `autopilot is not verifiably off for this config home; a person sets autopilot.enabled to off in ${homeText}/settings.json or creates ${homeText}/autopilot/off`,
-      });
-    }
-    return 1;
-  }
+  const landProposed = isTTY !== true || switchReader(env, fsImpl).enabled !== false;
 
   // (b) Acquire lease
   const leaseDir = path.join(root, '.doflow', 'state', 'roadmap');
@@ -737,6 +716,12 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
       throw new Error('Seed invariant failed after clean judgement: store rows must be an array');
     }
     const storeRows = parsedStore.rows;
+    const proposedIds: string[] = [];
+    const proposedIf = (row: any): any => {
+      if (!landProposed) return row;
+      proposedIds.push(row.id);
+      return { ...row, proposed: true };
+    };
     let newRows: any[];
     if (action === 'apply') {
       const draftAddRows: any[] = [];
@@ -746,7 +731,7 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
           draftAddRows.push(r);
         }
       }
-      newRows = [...storeRows, ...draftAddRows];
+      newRows = [...storeRows, ...draftAddRows.map(proposedIf)];
     } else {
       // amend
       const draftMap = new Map<string, any>();
@@ -758,7 +743,7 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
       }
       newRows = storeRows.map((r: any) => {
         if (r && typeof r === 'object' && draftMap.has(r.id)) {
-          return draftMap.get(r.id);
+          return proposedIf(draftMap.get(r.id));
         }
         return r;
       });
@@ -808,6 +793,7 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
       switch: null,
       writes,
       land: null,
+      proposed: proposedIds,
     };
 
     if (json) {
@@ -821,7 +807,140 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
   }
 }
 
+interface HandlePromoteCommandOptions {
+  ids?: string[];
+  json?: boolean;
+  root?: string;
+  fsImpl?: any;
+  gitFacts?: any;
+  readSwitch?: (env?: any, fsImpl?: any) => { enabled: boolean; switch: any };
+  alive?: (proc: any) => boolean | 'unknown';
+  env?: any;
+  pid?: number;
+  host?: string;
+  now?: () => Date;
+  out?: (s: string) => void;
+  err?: (s: string) => void;
+  isTTY?: boolean;
+}
+
+/**
+ * maint-thin: `roadmap promote <id...>`, person only. A model with a shell controls the environment, so an
+ * environment check alone cannot tell a person: pointing XDG_CONFIG_HOME at an empty folder reads as "off". The verb
+ * therefore first requires an interactive terminal on stdin (refused `needs-person-tty`, nothing written), then reads
+ * the switch with the fail-closed seed reader as a second check: unless autopilot is verifiably off it refuses
+ * `needs-person` and writes nothing. Under the roadmap lease it drops the
+ * `proposed` mark of every named row, so autopilot may pick it. All or nothing: an unknown id, a row that is not
+ * proposed, or a duplicate id is a finding and nothing is written. Exit 0 promoted, 1 refused or findings, 2 usage.
+ */
+function handlePromoteCommand(options: HandlePromoteCommandOptions = {}): number {
+  const {
+    ids = [],
+    json = false,
+    root = resolveMainRoot(process.cwd()),
+    fsImpl = fs,
+    gitFacts,
+    readSwitch,
+    alive,
+    env = process.env,
+    pid,
+    host,
+    now,
+    out = (s: string) => console.log(s),
+    err = (s: string) => console.error(s),
+    isTTY = process.stdin.isTTY === true,
+  } = options;
+  const emit = (result: any, code: number, detail?: string): number => {
+    if (json) out(JSON.stringify(result));
+    else {
+      const head = result.ok ? `roadmap promote: ok, ${result.promoted.length} promoted${result.promoted.length ? `: ${result.promoted.map(safeText).join(' ')}` : ''}`
+        : result.reason ? `roadmap promote: refused: ${safeText(result.reason)}` : `roadmap promote: ${result.findings.length} findings`;
+      (result.ok ? out : err)(head);
+      for (const f of result.findings || []) err(`  [${safeText(f.rule)}] ${safeText(f.rowId)}: ${f.message}`);
+      if (detail) err(`  ${detail}`);
+    }
+    return code;
+  };
+  if (!Array.isArray(ids) || ids.length === 0 || !ids.every((id) => typeof id === 'string' && /^[0-9]{3}([a-z]|-[A-Z])?$/.test(id))) {
+    if (json) out(JSON.stringify({ error: 'usage', detail: 'roadmap promote takes one or more row ids' }));
+    else err('doflow roadmap: error: roadmap promote takes one or more row ids (e.g. doflow roadmap promote 130 131)');
+    return 2;
+  }
+  const storePath = path.join(root, 'agent-docs', 'roadmap', 'rows.json');
+  const tablePath = path.join(root, 'agent-docs', 'roadmap', 'ROADMAP.md');
+  const base = { schema: 1, action: 'promote', ok: false, ids, promoted: [] as string[], findings: [] as any[], reason: null as string | null, writes: 0 };
+
+  if (isTTY !== true) {
+    return emit({ ...base, reason: 'needs-person-tty' }, 1,
+      'promote runs only from an interactive terminal: a person runs doflow roadmap promote in their own shell');
+  }
+  const switchReader = readSwitch || readSeedSwitch;
+  if (switchReader(env, fsImpl).enabled !== false) {
+    const { configHome } = require('../config-home.ts');
+    const home = configHome(env).dir;
+    const homeText = home ? safeText(home) : 'the config home (none resolves: set HOME or XDG_CONFIG_HOME)';
+    return emit({ ...base, reason: 'needs-person' }, 1,
+      `autopilot is not verifiably off for this config home; a person sets autopilot.enabled to off in ${homeText}/settings.json or creates ${homeText}/autopilot/off, then promotes`);
+  }
+
+  const leaseDir = path.join(root, '.doflow', 'state', 'roadmap');
+  const nowDate = (now ? now : () => new Date())();
+  const me = {
+    schema: 1,
+    pid: pid ?? process.pid,
+    start: new Date(Date.now() - (process as any).uptime() * 1000).toISOString(),
+    host: host ?? os.hostname(),
+    runId: null,
+    acquiredAt: nowDate.toISOString(),
+  };
+  const lease = acquireLease(leaseDir, me, alive || noPsAlive, fsImpl);
+  if (!lease.ok) return emit({ ...base, reason: 'lease-held' }, 1);
+  try {
+    let raw: string;
+    try { raw = fsImpl.readFileSync(storePath, 'utf8'); }
+    catch (error: any) { return emit({ ...base, findings: ids.map((id) => ({ rule: 'row-not-found', rowId: id, message: `no store at ${storePath}: ${safeText(error.message)}` })) }, 1); }
+    const storeFindings = seedFindings(raw);
+    if (storeFindings.length > 0) return emit({ ...base, findings: storeFindings }, 1);
+    const doc = JSON.parse(raw);
+    const findings: any[] = [];
+    const seen = new Set<string>();
+    for (const id of ids) {
+      const row = doc.rows.find((r: any) => r.id === id);
+      if (seen.has(id)) findings.push({ rule: 'duplicate-id', rowId: id, message: `Row '${safeText(id)}' is named twice` });
+      else if (!row) findings.push({ rule: 'row-not-found', rowId: id, message: `Row '${safeText(id)}' not found in store` });
+      else if (row.proposed !== true) findings.push({ rule: 'row-not-proposed', rowId: id, message: `Row '${safeText(id)}' is not proposed` });
+      seen.add(id);
+    }
+    if (findings.length > 0) return emit({ ...base, findings }, 1);
+    const rows = doc.rows.map((r: any) => {
+      if (!ids.includes(r.id)) return r;
+      const { proposed, ...ready } = r;
+      return ready;
+    });
+    const newRaw = JSON.stringify({ ...doc, rows }, null, 2) + '\n';
+    let writes = 0;
+    const tmp = path.join(path.dirname(storePath), `.tmp-rows-${pid ?? process.pid}-${Date.now()}`);
+    try {
+      fsImpl.writeFileSync(tmp, newRaw, 'utf8');
+      fsImpl.renameSync(tmp, storePath);
+    } catch (error) {
+      try { fsImpl.unlinkSync(tmp); } catch { /* ignore temp cleanup failure */ }
+      throw error;
+    }
+    writes += 1;
+    const facts = gitFacts || gatherGitFacts({ root });
+    if (!facts.unreadable || facts.unreadable.length === 0) {
+      const { statuses } = deriveStatus(rows, facts);
+      if (renderRoadmapFile({ roadmapPath: tablePath, content: render(rows, statuses), fsImpl }).written) writes += 1;
+    }
+    return emit({ ...base, ok: true, promoted: [...ids], writes }, 0);
+  } finally {
+    releaseLease(leaseDir, me, fsImpl);
+  }
+}
+
 module.exports = {
   judgeDraft,
   handleSeedCommand,
+  handlePromoteCommand,
 };

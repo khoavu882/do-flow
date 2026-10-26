@@ -68,9 +68,21 @@ function normalizePath(p: string): string {
   return path.normalize(p).replace(/\\/g, '/').replace(/^\.?\/+/, '');
 }
 
+/** A team key's shipped default from core/registry/settings.json; `fallback` (its fail-safe) when the registry is unreadable. */
+function shippedDefault(key: string, fallback: number): number {
+  try {
+    const loaded = require('../settings/registry.ts').loadSettingsRegistry();
+    const value = loaded.ok ? loaded.registry.keys.get(key)?.default : undefined;
+    return Number.isInteger(value) ? value : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function resolveTeamSettings(options?: AdmissionControllerOptions): { writerCap: number; maxAttempts: number } {
-  let writerCap = 2;
-  let maxAttempts = 3;
+  // maint-thin: the defaults come from the settings registry (writerCap 1: writes run single-threaded).
+  let writerCap = shippedDefault('team.writerCap', 1);
+  let maxAttempts = shippedDefault('team.maxAttempts', 3);
 
   // 1. Project settings files (.doflow/settings.json then .doflow/settings.local.json)
   const fsImpl = options?.fsImpl || fs;

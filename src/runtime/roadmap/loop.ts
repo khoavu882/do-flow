@@ -1220,6 +1220,8 @@ async function stepRow(ctx: any, row: any, worktrees: Map<string, string>): Prom
   if (row.class !== 'feature') return { skip: 'class-unsupported' };
   // A seed hold (decision C8) also stops autopilot from advancing a row already in flight.
   if (row.hold) return { skip: 'row-held' };
+  // maint-thin: so does a proposed row (a branch a person started by hand); a person promotes it first.
+  if (row.proposed === true) return { skip: 'row-proposed' };
   if (slot.paused?.reason === 'budget') delete slot.paused;
   const worktree = worktrees.get(`refs/heads/feat/${row.slug}`);
   if (!worktree) return { skip: 'no-worktree' };
@@ -1376,6 +1378,7 @@ async function underLease(ctx: any, options: any): Promise<any> {
     // C2: a seed hold set after the intent stops the merge before the fast-forward starts; from
     // ff-started on, mergeStep settles the row as under an off switch.
     if (row.hold && ['intent', 'built'].includes(intent.phase)) { skips[row.id] = 'row-held'; continue; }
+    if (row.proposed === true && ['intent', 'built'].includes(intent.phase)) { skips[row.id] = 'row-proposed'; continue; }
     // C16, C6: a hold on this intent (develop-moved, plan-changed) stands while the intent, develop's
     // head and the feature plan are unchanged.
     const slot = (record.rows[row.id] ||= {});

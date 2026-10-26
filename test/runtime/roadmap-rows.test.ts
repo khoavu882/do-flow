@@ -970,6 +970,7 @@ test('113 A.1: exports constants and registryClasses', () => {
     'id-exists',
     'row-not-found',
     'row-started',
+    'row-not-proposed',
   ]);
   assert.deepEqual(TOP_KEYS, ['schema', 'layout', 'rows']);
   assert.deepEqual(ROW_KEYS, [
@@ -981,6 +982,7 @@ test('113 A.1: exports constants and registryClasses', () => {
     'writeSet',
     'requires',
     'hold',
+    'proposed',
     'verifyArgv',
     'mergeCommit',
     'intent',

@@ -262,6 +262,27 @@ class EvidenceLedger {
   }
 
   /**
+   * Retires an item with no replacement: the same terminal `superseded` status `supersedeEvidence`
+   * sets, with `supersededBy` left null and the reason kept on the record. Nothing is deleted and
+   * the item's freshness stays as observed. Used for the bulk retire of stale items.
+   * @param {string} evidenceId
+   * @param {string} reason why it was retired
+   * @returns {string} the new status
+   */
+  retireEvidence(evidenceId: string, reason: string): string {
+    const item = this.evidenceMap.get(evidenceId);
+    if (!item) throw new Error(`Unknown evidence '${evidenceId}'`);
+    if (item.status === 'superseded') {
+      throw new Error(`Evidence '${evidenceId}' is already superseded and cannot be retired again`);
+    }
+    item.status = 'superseded';
+    item.supersededBy = null;
+    item.supersededAt = new Date().toISOString();
+    item.retiredReason = reason;
+    return item.status;
+  }
+
+  /**
    * Marks all evidence items referencing modified files as STALE.
    * @param {Array<string>} modifiedFiles
    * @returns {number} count of invalidated items

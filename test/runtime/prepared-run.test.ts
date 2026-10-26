@@ -95,12 +95,20 @@ test('an unknown task class is refused as taskClass enum, listing the registry c
 });
 
 test('presets.review review-single for taskClass feature is below the gate-b seat floor: not-narrower naming the floor', (t) => {
-  const { validate } = setup(t);
+  // maint-thin: the floor binds only an unattended gate-b, that is while autopilot is on
+  const { f, validate } = setup(t);
+  f.writeUserSettings({ schema: 1, 'autopilot.enabled': 'on' });
   const entry = entryFor(validate({ ...VALID(), presets: { review: 'review-single' } }), 'presets.review');
   assert.equal(entry.code, 'not-narrower');
   assert.equal(entry.layer, null);
   assert.match(entry.message, /\b2\b/, entry.message);
   assert.match(entry.message, /seat/, entry.message);
+});
+
+test('maint-thin: presets.review review-single for taskClass feature passes while autopilot is off (a person reads the review)', (t) => {
+  const { validate } = setup(t);
+  const result = validate({ ...VALID(), presets: { review: 'review-single' } });
+  assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
 });
 
 test('presets.review review-single passes for a class with no seat floor', (t) => {

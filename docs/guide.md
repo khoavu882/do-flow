@@ -515,9 +515,11 @@ lowercase letter or `-` and a capital, as in `085a` or `107-A`), `slug` (starts 
 `needs` (row ids that must be merged first), `writeSet` (repo-relative paths; a trailing
 `/` means the subtree), `requires` (capability ids that must have a healthy provider), `mergeCommit` (a
 merge from before the loop existed) and `hold` (one line, at most 120 characters: the row is skipped
-until you remove it). `layout.worktree` may set where a row's worktree goes; it must be a sibling of
+until you remove it) and `proposed` (see below). `layout.worktree` may set where a row's worktree goes; it must be a sibling of
 the main checkout. Never write a status: `status`, `phase` and `evidence` keys are rejected, because
 status comes from git.
+
+**Adding rows while autopilot runs.** `doflow roadmap seed --action apply|amend` writes the store whether or not autopilot is on. Unless you run it in your own terminal with autopilot verifiably off, every row it adds or replaces lands `proposed`: autopilot never picks it, steps it or approves its gates. A person makes it ready with `doflow roadmap promote <id...>`, typed in their own terminal: it refuses a run without an interactive terminal (`needs-person-tty`), runs only while autopilot is verifiably off (`autopilot.enabled` `off` or the `autopilot/off` file), and changes all named rows or none. Run from your terminal with autopilot off, seeded rows land ready. No wrapper script that turns autopilot off around the seed call (such as `~/bin/doflow-seed.sh`) is needed.
 
 ```bash
 doflow roadmap --action render --check   # exit 0: ROADMAP.md matches git and the seed; exit 1: findings

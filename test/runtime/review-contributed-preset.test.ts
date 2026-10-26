@@ -85,18 +85,21 @@ test('a user review.preset naming acme.strict resolves it (it dominates the pick
   }
 });
 
-test('acme.lax gives the disagreement not-dominant and keeps the pick; on a single pick it dominates and is taken', () => {
+test('maint-thin: acme.lax set by a layer dominates the thin start (review-single) and is taken', () => {
   const result = resolve({ settingsView: preset('acme.lax') });
-  assert.equal(result.protocol.id, 'review-deep');
-  assert.equal(result.protocol.origins.id, 'risk');
-  assert.deepEqual(result.protocol.disagreements, [{ field: 'id', by: 'user', value: 'acme.lax', reason: 'not-dominant' }]);
+  assert.equal(result.protocol.id, 'acme.lax');
+  assert.equal(result.protocol.origins.id, 'user');
+  assert.deepEqual(result.protocol.disagreements, []);
   const light = resolve({ risk: 'LOW', paths: LIGHT, settingsView: preset('acme.lax') });
   assert.equal(light.protocol.id, 'acme.lax');
   assert.deepEqual(light.protocol.disagreements, []);
 });
 
 test('a run --preset: a contributed one that does not dominate the pick is preset-looser; one that does is taken', () => {
-  assert.deepEqual(resolve({ runPreset: 'acme.lax' }), { ok: false, reason: 'preset-looser', field: 'preset' });
+  // under auto the pick of a HIGH code change is review-deep, which acme.lax does not dominate
+  assert.deepEqual(resolve({ runPreset: 'acme.lax', settingsView: preset('auto') }), { ok: false, reason: 'preset-looser', field: 'preset' });
+  // maint-thin: over the thin start it dominates and is taken
+  assert.equal(resolve({ runPreset: 'acme.lax' }).protocol.id, 'acme.lax');
   const strict = resolve({ runPreset: 'acme.strict' });
   assert.equal(strict.protocol.id, 'acme.strict');
   assert.equal(strict.protocol.origins.id, 'run');
@@ -106,7 +109,7 @@ test('a run --preset: a contributed one that does not dominate the pick is prese
 });
 
 test('the floor walk and order[0] never pick a package preset, though acme.strict has the seats', () => {
-  const result = resolve({ taskClass: 'feature', gatePolicy: floorOf(3) });
+  const result = resolve({ taskClass: 'feature', gatePolicy: floorOf(3), unattended: true });
   assert.equal(result.protocol.id, 'review-deep');
   assert.equal(result.protocol.origins.id, 'floor');
   assert.equal(result.protocol.origins.seats, 'floor');
@@ -114,13 +117,13 @@ test('the floor walk and order[0] never pick a package preset, though acme.stric
 });
 
 test('a contributed pick with too few seats falls back to the core pick of steps 1-2 and the core floor walk', () => {
-  const result = resolve({ taskClass: 'feature', gatePolicy: floorOf(4), settingsView: preset('acme.strict') });
+  const result = resolve({ taskClass: 'feature', gatePolicy: floorOf(4), settingsView: preset('acme.strict'), unattended: true });
   assert.equal(result.protocol.id, 'review-deep');
   assert.equal(result.protocol.origins.id, 'floor');
   assert.equal(result.protocol.seats.length, 4);
   assert.deepEqual(result.protocol.disagreements, [{ field: 'id', by: 'floor', value: 'acme.strict', reason: 'seat-floor' }]);
   // Enough seats for the core pick: it is taken as it is.
-  const enough = resolve({ taskClass: 'feature', gatePolicy: floorOf(2), risk: 'LOW', paths: LIGHT, settingsView: preset('acme.lax') });
+  const enough = resolve({ taskClass: 'feature', gatePolicy: floorOf(2), risk: 'LOW', paths: LIGHT, settingsView: preset('acme.lax'), unattended: true });
   assert.equal(enough.protocol.id, 'review-deep', 'the core floor walk from review-single');
   assert.equal(enough.protocol.origins.id, 'floor');
   assert.deepEqual(enough.protocol.disagreements, [{ field: 'id', by: 'floor', value: 'acme.lax', reason: 'seat-floor' }]);
@@ -137,8 +140,8 @@ test('auto placement never holds a package preset; the value list does, so a per
 
 test('a project review.preset naming a disabled or unknown id is the disagreement unavailable, never a silent drop', () => {
   const disabled = view({ without: ['acme.strict', 'acme.lax'] });
+  // The resolver only lists it; a run never gets here, because review start refuses the id (settings-unavailable).
   const result = resolve({ registry: disabled, settingsView: preset('acme.strict', 'project') });
-  assert.equal(result.protocol.id, 'review-deep');
   assert.deepEqual(result.protocol.disagreements, [{ field: 'id', by: 'project', value: 'acme.strict', reason: 'unavailable' }]);
   const unknown = resolve({ settingsView: preset('review-nope', 'project') });
   assert.deepEqual(unknown.protocol.disagreements, [{ field: 'id', by: 'project', value: 'review-nope', reason: 'unavailable' }]);

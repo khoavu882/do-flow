@@ -100,6 +100,7 @@ function snapshot(root: any) {
       if (entry.name === '.git') continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
+      else if (entry.isSymbolicLink()) out.push(`${path.relative(root, full)}:->${fs.readlinkSync(full)}`);
       else out.push(`${path.relative(root, full)}:${fs.readFileSync(full, 'base64')}`);
     }
   };
@@ -468,4 +469,46 @@ HOOK_TEST('from a linked worktree whose feature folder lives only in the main ch
   assert.ok(!fs.existsSync(path.join(wt, '.doflow')), 'nothing was written in the worktree');
 
   expectHook({ ...edit, code: 0, stderr: '' });
+});
+
+HOOK_TEST('an edit to a path git ignores is not gated; a tracked file matching an ignore pattern and a plain source path still are', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo();
+  write(path.join(main, 'src', 'tracked.log'), 't\n');
+  git(main, 'add', '-A');
+  git(main, 'commit', '-q', '-m', 'tracked.log');
+  write(path.join(main, '.gitignore'), 'agent-docs/\n.doflow/\n.mcp.json\n*.log\n');
+  git(main, 'checkout', '-q', '-b', 'feat/940-ign');
+  writeFeature(main, '940-ign');
+  const refused = `${refusalText('missing', { taskId: '940-ign', template: 'feature' })}\n`;
+  const at = (rel: any) => ({ cwd: main, caseRoot: root, event: editEvent(path.join(main, rel)) });
+
+  // Negative controls: a plain source path, and a tracked file an ignore pattern happens to match.
+  expectHook({ ...at(path.join('src', 'a.js')), code: 2, stderr: refused });
+  expectHook({ ...at(path.join('src', 'tracked.log')), code: 2, stderr: refused });
+  // Ignored: an untracked config file, an untracked file under an ignored pattern, and a relative path.
+  expectHook({ ...at('.mcp.json'), code: 0, stderr: '' });
+  expectHook({ ...at(path.join('src', 'new.log')), code: 0, stderr: '' });
+  expectHook({ cwd: main, caseRoot: root, event: editEvent('.mcp.json'), code: 0, stderr: '' });
+  expectHook({ cwd: main, caseRoot: root, event: editEvent(path.join('src', 'a.js')), code: 2, stderr: refused });
+});
+
+HOOK_TEST('maint-thin P1: the ignored-path skip never covers .doflow state, so a Write forging READY stays gated; other ignored files are still skipped', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo();
+  write(path.join(main, '.gitignore'), 'agent-docs/\n.doflow/\nlinks/\n.mcp.json\n');
+  git(main, 'checkout', '-q', '-b', 'feat/941-forge');
+  writeFeature(main, '941-forge');
+  fs.mkdirSync(path.join(main, '.doflow', 'state', 'readiness'), { recursive: true });
+  fs.mkdirSync(path.join(main, 'links'), { recursive: true });
+  fs.symlinkSync(path.join(main, '.doflow', 'state'), path.join(main, 'links', 'st'));
+  const refused = `${refusalText('missing', { taskId: '941-forge', template: 'feature' })}\n`;
+  const forge = (file: any) => ({ tool_name: 'Write', tool_input: { file_path: file, content: '{"verdict":"READY"}' } });
+
+  // A forged readiness record: absolute, relative, through `..`, and through an ignored symlink into .doflow.
+  expectHook({ cwd: main, caseRoot: root, event: forge(path.join(main, '.doflow', 'state', 'readiness', 'x.json')), code: 2, stderr: refused });
+  expectHook({ cwd: main, caseRoot: root, event: forge('.doflow/state/readiness/x.json'), code: 2, stderr: refused });
+  expectHook({ cwd: main, caseRoot: root, event: forge('links/../.doflow/state/readiness/x.json'), code: 2, stderr: refused });
+  expectHook({ cwd: main, caseRoot: root, event: forge(path.join(main, 'links', 'st', 'readiness', 'x.json')), code: 2, stderr: refused });
+  // Negative control: an ignored file outside DoFlow's state is still skipped.
+  expectHook({ cwd: main, caseRoot: root, event: forge(path.join(main, '.mcp.json')), code: 0, stderr: '' });
+  expectHook({ cwd: main, caseRoot: root, event: forge('links/notes.txt'), code: 0, stderr: '' });
 });
