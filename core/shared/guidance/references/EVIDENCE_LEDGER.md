@@ -60,6 +60,11 @@ its `status` becomes `superseded` and unresolvable readiness checks stop countin
 replacing item first: the replacement must already exist, the same rule `claim --action supersede`
 already applies.
 
+When every stale item is to go and none has a replacement, `evidence --action retire` with its stale
+selector (listed in the CLI help) retires all of them at once: the same `superseded` status with no forward
+pointer and the reason (`stale: ...`) kept on each item. It prints the count and ids, and leaves every
+item that is not stale untouched.
+
 ## Claims
 
 Each conclusion is added as a claim in the same pass and is stored as a `hypothesis`. It becomes

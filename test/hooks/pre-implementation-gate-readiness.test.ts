@@ -469,3 +469,24 @@ HOOK_TEST('from a linked worktree whose feature folder lives only in the main ch
 
   expectHook({ ...edit, code: 0, stderr: '' });
 });
+
+HOOK_TEST('an edit to a path git ignores is not gated; a tracked file matching an ignore pattern and a plain source path still are', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo();
+  write(path.join(main, 'src', 'tracked.log'), 't\n');
+  git(main, 'add', '-A');
+  git(main, 'commit', '-q', '-m', 'tracked.log');
+  write(path.join(main, '.gitignore'), 'agent-docs/\n.doflow/\n.mcp.json\n*.log\n');
+  git(main, 'checkout', '-q', '-b', 'feat/940-ign');
+  writeFeature(main, '940-ign');
+  const refused = `${refusalText('missing', { taskId: '940-ign', template: 'feature' })}\n`;
+  const at = (rel: any) => ({ cwd: main, caseRoot: root, event: editEvent(path.join(main, rel)) });
+
+  // Negative controls: a plain source path, and a tracked file an ignore pattern happens to match.
+  expectHook({ ...at(path.join('src', 'a.js')), code: 2, stderr: refused });
+  expectHook({ ...at(path.join('src', 'tracked.log')), code: 2, stderr: refused });
+  // Ignored: an untracked config file, an untracked file under an ignored pattern, and a relative path.
+  expectHook({ ...at('.mcp.json'), code: 0, stderr: '' });
+  expectHook({ ...at(path.join('src', 'new.log')), code: 0, stderr: '' });
+  expectHook({ cwd: main, caseRoot: root, event: editEvent('.mcp.json'), code: 0, stderr: '' });
+  expectHook({ cwd: main, caseRoot: root, event: editEvent(path.join('src', 'a.js')), code: 2, stderr: refused });
+});

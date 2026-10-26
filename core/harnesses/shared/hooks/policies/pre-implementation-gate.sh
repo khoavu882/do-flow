@@ -245,18 +245,24 @@ real_path() {
 repo_real=$(cd -P "$repo_root" 2>/dev/null && pwd) || repo_real="$repo_root"
 
 # Only source files inside this repo are gated: edits to doflow artifacts are
-# always allowed, and an absolute path elsewhere is not this repo's.
+# always allowed, an absolute path elsewhere is not this repo's, and neither is a
+# path git ignores.
 GATED=false
 while IFS= read -r file; do
   [ -z "$file" ] && continue
   case "$file" in *"/agent-docs/"*|agent-docs/*) continue ;; esac
+  check="$file"
   case "$file" in
     /*)
       real=$(real_path "$file") || real="$file"
       case "$real" in *"/agent-docs/"*) continue ;; esac
       case "$real" in "$repo_real"/*) ;; *) continue ;; esac
+      check="$real"
       ;;
   esac
+  # A path git ignores (a local config file such as .mcp.json) is not source. check-ignore
+  # without --no-index answers "not ignored" for a tracked file, so tracked source stays gated.
+  git -C "$repo_root" check-ignore -q -- "$check" 2>/dev/null && continue
   GATED=true
   break
 done <<< "$FILES"
