@@ -5,7 +5,7 @@
 // sleeps, fails or floods stdout as FAKE_CORE_MODE says. Timers run on an injected fake clock, so
 // no case waits 10 s or 30 s of real time.
 
-const { test, after } = require('node:test');
+const { test, after, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const childProcess = require('node:child_process');
 const fs = require('node:fs');
@@ -58,10 +58,27 @@ after(() => {
   for (const child of allChildren) if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
 });
 
+// The temp dirs the running case made, by the paths mkdtemp returned, and how many setup() calls made them.
+// After each case those exact paths are removed and checked gone; nothing else is deleted.
+const caseDirs: string[] = [];
+let caseSetups = 0;
+afterEach(() => {
+  const created = caseDirs.splice(0);
+  const setups = caseSetups;
+  caseSetups = 0;
+  for (const dir of created) fs.rmSync(dir, { recursive: true, force: true });
+  assert.equal(created.length, 2 * setups, 'each setup() made two temp dirs');
+  assert.deepEqual(created.filter((dir) => fs.existsSync(dir)), [], 'a temp dir of this case is still there');
+});
+
 /** A runner over the fake core, a spawn wrapper that records each child, and the start log. */
 function setup(mode: string, extraEnv: Record<string, string> = {}, options: any = {}) {
+  caseSetups += 1;
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-verb-runner-'));
-  const project = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-verb-project-')));
+  caseDirs.push(dir);
+  const projectMade = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-verb-project-'));
+  caseDirs.push(projectMade);
+  const project = fs.realpathSync(projectMade);
   const log = path.join(dir, 'starts.jsonl');
   const children: any[] = [];
   const spawnCalls: any[] = [];
@@ -108,6 +125,10 @@ const EXPECTED_SHAPES = {
   workflow: { argv: ['workflow', '--task-class', 'feature', '--json'], params: { taskClass: 'feature' } },
   capabilities: { argv: ['capabilities', '--json'], params: {} },
   version: { argv: ['--version', '--json'], params: {} },
+  observed: { argv: ['primary', '--action', 'observed', '--json'], params: {} },
+  slots: { argv: ['slot', '--action', 'peek', '--json'], params: {} },
+  'worker-status': { argv: ['worker', '--action', 'status', '--slug', 's.1', '--task', 'A.2', '--token', '2', '--json'], params: { slug: 's.1', task: 'A.2', token: '2' } },
+  roadmap: { argv: ['roadmap', '--action', 'status', '--json'], params: {} },
 };
 
 test('the allow-list is the frozen IC-003 table and nothing else', () => {
@@ -174,6 +195,21 @@ test('write verbs, flags, unknown shapes and bad parameters are refused as usage
     ['list', { forced: 'yes' }],
     ['attempts', { slug: '-g' }],
     ['workflow', { taskClass: '../x' }],
+    // IC-018: the writing and signalling actions of the Sessions verbs have no shape, and no parameter reaches the action.
+    ['slot', {}],
+    ['slot-list', {}],
+    ['slot-release', {}],
+    ['worker', {}],
+    ['worker-cancel', {}],
+    ['slots', { action: 'list' }],
+    ['slots', { action: 'release' }],
+    ['worker-status', { slug: 's.1', task: 'A.2', token: '2', action: 'cancel' }],
+    ['worker-status', { slug: 's.1', task: 'A.2' }],
+    ['worker-status', { slug: 's.1', task: 'A.2', token: '-1' }],
+    ['worker-status', { slug: 's.1', task: '--action=cancel', token: '2' }],
+    ['worker-status', { slug: 's.1', task: 'A.2', token: 2 }],
+    ['roadmap', { action: 'next' }],
+    ['observed', { action: 'resolve' }],
   ];
   for (const [shape, params] of refused) {
     const result = await runner.run(shape, params);
@@ -181,6 +217,16 @@ test('write verbs, flags, unknown shapes and bad parameters are refused as usage
   }
   assert.equal(spawnCalls.length, 0);
   assert.equal(starts().length, 0);
+});
+
+test('no shape is a write or signal action of the Sessions verbs: slot list and release, worker cancel', () => {
+  const actionOf = (argv: readonly unknown[]) => `${argv[0]} ${argv[argv.indexOf('--action') + 1]}`;
+  const actions = SHAPE_IDS.map((id: string) => actionOf(SHAPES[id].argv));
+  for (const refused of ['slot list', 'slot release', 'slot run', 'worker cancel', 'worker run', 'worker evidence']) {
+    assert.ok(!actions.includes(refused), `${refused} is on the allow-list`);
+  }
+  assert.deepEqual(actions.filter((action: string) => /^(slot|worker|roadmap|primary) /.test(action)).sort(),
+    ['primary observed', 'roadmap status', 'slot peek', 'worker status']);
 });
 
 test('the child environment has no DOFLOW_* but the four pass-throughs and DOFLOW_UPKEEP=off, and no identity variable', async () => {
@@ -309,6 +355,25 @@ test('cache lifetimes: 2 s for runs, 30 s for capabilities, process lifetime for
   await runner.run('workflow', { taskClass: 'bug' });
   await runner.run('version', {});
   assert.equal(starts().length, 7, 'version and workflow live for the process');
+});
+
+test('cache lifetimes of the IC-018 shapes: 5 s for observed, slots and worker-status, 10 s for roadmap', async () => {
+  const cases: Array<[string, any, number]> = [
+    ['observed', {}, 5_000],
+    ['slots', {}, 5_000],
+    ['worker-status', { slug: 's', task: 'A.1', token: '1' }, 5_000],
+    ['roadmap', {}, 10_000],
+  ];
+  for (const [shape, params, ttl] of cases) {
+    const { runner, clock, starts } = setup('echo');
+    await runner.run(shape, params);
+    clock.advance(ttl - 1);
+    await runner.run(shape, params);
+    assert.equal(starts().length, 1, `${shape} cached under ${ttl} ms`);
+    clock.advance(1);
+    await runner.run(shape, params);
+    assert.equal(starts().length, 2, `${shape} re-spawned at ${ttl} ms`);
+  }
 });
 
 test('workflow is keyed by the core version, and not cached when the version is unknown', async () => {

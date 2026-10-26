@@ -19,7 +19,18 @@ const { createVerbRunner } = require('../src/verb-runner.ts');
 
 const FIXTURES = path.join(__dirname, 'fixtures', 'core');
 const MARKER = 'ZZ-MARKER-7f3';
+const KEY = '0cc00ec6d2062bc0';
 const fixture = (name: string) => JSON.parse(fs.readFileSync(path.join(FIXTURES, `${name}.json`), 'utf8'));
+
+/** IC-018 core outputs with the marker in fields the projectors drop. */
+const SAMPLES: Record<string, () => any> = {
+  observed: () => ({ v: 1, store: 'present', truncated: false, unreadable: 0, sessions: [],
+    checkouts: [{ worktreeKey: KEY, role: 'main', current: true, branch: `x ${MARKER} <b>`, head: 'febd2cc99487', headCommittedAt: '2026-10-26T09:45:48.000Z' }] }),
+  slots: () => ({ v: 1, unreadable: 0, slots: [{ name: 'build', holder: { label: 'npm test', since: '2026-10-26T09:00:00.000Z', alive: false, worktreeKey: KEY, cwd: `/tmp/${MARKER}` }, waiters: 0 }] }),
+  'worker-status': () => ({ disposition: 'status', run: null, task: 'A.1', token: 1 }),
+  roadmap: () => ({ schema: 1, action: 'status', rowStatus: {}, rows: [], openIntents: [], run: null, holds: [],
+    lease: { pid: 4242, host: `host-${MARKER}`, runId: null, acquiredAt: '2026-10-26T08:00:00.000Z' } }),
+};
 const webRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-routes-'));
 after(() => fs.rmSync(webRoot, { recursive: true, force: true }));
 
@@ -35,6 +46,10 @@ const DEFAULTS: Record<string, () => Answer> = {
   timeline: () => ok(fixture('timeline')),
   attempts: () => ok(fixture('attempts')),
   workflow: () => ok(fixture('workflow')),
+  observed: () => ok(SAMPLES.observed()),
+  slots: () => ok(SAMPLES.slots()),
+  'worker-status': () => ok(SAMPLES['worker-status']()),
+  roadmap: () => ok(SAMPLES.roadmap()),
 };
 
 /** A runner that answers each shape from `overrides`, else from the fixtures, and records every call. */
@@ -92,13 +107,13 @@ test('route table: frozen, every route GET but the one POST /api/session, and ex
   assert.ok(Object.isFrozen(routes) && routes.every((route: any) => Object.isFrozen(route)));
   assert.deepEqual(routes.filter((route: any) => route.method !== 'GET').map((route: any) => `${route.method} ${route.path}`), ['POST /api/session']);
   assert.deepEqual(routes.filter((route: any) => route.method === 'GET').map((route: any) => route.path).sort(),
-    ['/*', '/api/info', '/api/runs', '/api/runs/:slug/:taskId', '/api/workflows', '/healthz']);
+    ['/*', '/api/info', '/api/runs', '/api/runs/:slug/:taskId', '/api/sessions', '/api/workflows', '/healthz']);
 });
 
 test('session: every read route is 401 without the cookie and no verb runs', async (t) => {
   const runner = scripted();
   const { get } = await harness(runner, t);
-  for (const target of ['/api/info', '/api/runs', '/api/runs/s1/t1', '/api/workflows']) {
+  for (const target of ['/api/info', '/api/runs', '/api/runs/s1/t1', '/api/workflows', '/api/sessions']) {
     const reply = await get(target, false);
     assert.equal(reply.status, 401, target);
     assert.deepEqual(JSON.parse(reply.body), errorBody('unauthenticated'), target);
@@ -261,4 +276,96 @@ test('runner hook: a failed call keeps only the core\'s JSON `error` id, when it
     ['array', JSON.stringify([{ error: 'usage' }])], ['prose', `[ERROR] ${message}`], ['none', '']]) {
     assert.deepEqual(await core(name, stdout, 2), { ok: false, code: 'core-error', exit: 2 }, name);
   }
+});
+
+// ---- IC-018 e: GET /api/sessions ----
+
+const SECTIONS = ['observed', 'slots', 'runs', 'tasks', 'workers', 'roadmap'];
+const liveRun = (taskId: string, slug: string | null, state = 'RUNNING') => ({ ...fixture('list').runs[0], taskId, featureSlug: slug, state });
+
+test('GET /api/sessions: every section ok from its own reads; tasks per live feature, workers per active attempt', async (t) => {
+  const runner = scripted();
+  const { json } = await harness(runner, t);
+  const reply = await json('/api/sessions');
+  assert.equal(reply.status, 200);
+  assert.deepEqual(Object.keys(reply.body), ['v', 'sections', 'limits']);
+  assert.deepEqual(Object.keys(reply.body.sections), SECTIONS);
+  for (const name of SECTIONS) assert.equal(reply.body.sections[name].ok, true, name);
+  const { observed, slots, runs, tasks, workers, roadmap } = reply.body.sections;
+  assert.equal(observed.data.checkouts[0].branch, '(withheld)');
+  assert.deepEqual(slots.data.slots[0].holder, { label: 'npm test', since: '2026-10-26T09:00:00.000Z', alive: false, worktreeKey: KEY });
+  assert.deepEqual(Object.keys(runs.data), ['v', 'runs', 'unreadableCount']);
+  // The list fixture has one RUNNING run with a feature, one COMPLETED and one AWAITING_GATE without a feature.
+  assert.deepEqual(runner.calls.filter((call) => call.shape === 'attempts').map((call) => call.params), [{ slug: '060-write-set-completeness' }]);
+  assert.deepEqual(tasks.data.map((entry: any) => Object.keys(entry)), [['slug', 'revision', 'overlaps', 'active']]);
+  assert.deepEqual(tasks.data[0].overlaps, [{ a: 'A.1', b: 'A.2', fileCount: 2 }]);
+  assert.deepEqual(tasks.data[0].active.map((a: any) => [a.task, a.state, a.worktreeKey, a.run, a.lineage]), [['A.1', 'active', KEY, 'local', 'main']]);
+  assert.deepEqual(runner.calls.filter((call) => call.shape === 'worker-status').map((call) => call.params),
+    [{ slug: '060-write-set-completeness', task: 'A.1', token: String(tasks.data[0].active[0].token) }]);
+  assert.deepEqual(workers.data, [{ slug: '060-write-set-completeness', task: 'A.1', token: tasks.data[0].active[0].token, worker: null }]);
+  assert.deepEqual(roadmap.data, { run: null, lease: { runId: null, acquiredAt: '2026-10-26T08:00:00.000Z' }, holds: [] });
+  assert.deepEqual(reply.body.limits, { runsInspected: 1, runsNotChecked: 0, workersChecked: 1, workersNotChecked: 0 });
+});
+
+test('GET /api/sessions: one failing section leaves the others ok; tasks and workers fail with the runs they are built from', async (t) => {
+  const failure = (code: string, exit: number | null, errorId?: string) => (): Answer => ({ ok: false, code, exit, ...(errorId ? { errorId } : {}) });
+  const cases: Array<[Record<string, (params: any) => Answer>, Record<string, string>]> = [
+    [{ observed: failure('core-error', 1, 'cannot-list-checkouts') }, { observed: 'cannot-list-checkouts' }],
+    [{ observed: () => ok({ ...SAMPLES.observed(), store: 'maybe' }) }, { observed: 'core-contract-mismatch' }],
+    [{ slots: failure('core-error', 1) }, { slots: 'core-error' }],
+    [{ slots: failure('core-unreachable', null) }, { slots: 'core-unreachable' }],
+    [{ roadmap: failure('core-error', 1, 'cannot-read-facts') }, { roadmap: 'core-error' }],
+    [{ roadmap: () => ok({ ...SAMPLES.roadmap(), holds: 'x' }) }, { roadmap: 'core-contract-mismatch' }],
+    [{ list: failure('core-error', 1, 'cannot-list-checkouts') }, { runs: 'cannot-list-checkouts', tasks: 'cannot-list-checkouts', workers: 'cannot-list-checkouts' }],
+    [{ list: () => ok({ ...fixture('list'), v: 2 }) }, { runs: 'core-contract-mismatch', tasks: 'core-contract-mismatch', workers: 'core-contract-mismatch' }],
+    [{ attempts: failure('core-error', 2, 'plan-malformed') }, { tasks: 'core-error', workers: 'core-error' }],
+    [{ attempts: () => ok({ ...fixture('attempts'), tasks: null }) }, { tasks: 'core-contract-mismatch', workers: 'core-contract-mismatch' }],
+    [{ 'worker-status': failure('core-error', 2) }, { workers: 'core-error' }],
+    [{ 'worker-status': () => ok({ ...SAMPLES['worker-status'](), disposition: 'refused' }) }, { workers: 'core-contract-mismatch' }],
+  ];
+  for (const [overrides, failed] of cases) {
+    const { json } = await harness(scripted(overrides), t);
+    const reply = await json('/api/sessions');
+    const label = Object.keys(overrides).join(', ');
+    assert.equal(reply.status, 200, label);
+    for (const name of SECTIONS) {
+      if (failed[name]) assert.deepEqual(reply.body.sections[name], { ok: false, code: failed[name] }, `${label}: ${name}`);
+      else assert.equal(reply.body.sections[name].ok, true, `${label}: ${name} stays ok`);
+    }
+  }
+});
+
+test('GET /api/sessions: no roadmap (usage, exit 2) is roadmap null; a feature with no plan has no tasks entry', async (t) => {
+  const runner = scripted({
+    roadmap: () => ({ ok: false, code: 'core-error', exit: 2, errorId: 'usage' }),
+    list: () => ok({ v: 1, unreadable: [], runs: [liveRun('r1', 'no-plan-yet'), liveRun('r2', '060-write-set-completeness', 'AWAITING_GATE')] }),
+    attempts: (p: any) => (p.slug === 'no-plan-yet' ? { ok: false, code: 'core-error', exit: 2, errorId: 'plan-unreadable' } : ok(fixture('attempts'))),
+  });
+  const { json } = await harness(runner, t);
+  const { sections, limits } = (await json('/api/sessions')).body;
+  assert.deepEqual(sections.roadmap, { ok: true, data: null });
+  assert.deepEqual(sections.tasks.data.map((entry: any) => entry.slug), ['060-write-set-completeness']);
+  assert.deepEqual(limits, { runsInspected: 2, runsNotChecked: 0, workersChecked: 1, workersNotChecked: 0 });
+});
+
+test('GET /api/sessions: at most 20 inspects and 16 worker-status calls, the rest counted as not checked', async (t) => {
+  // 25 live runs on 23 features (two share one), plus a completed run and a slug-less one, neither inspected.
+  const runs = Array.from({ length: 23 }, (_, i) => liveRun(`r${i}`, `f${i}`, i % 2 ? 'AWAITING_GATE' : 'RUNNING'));
+  runs.push(liveRun('r-again', 'f0'), liveRun('r-late', 'f22'), liveRun('r-done', 'f1', 'COMPLETED'), liveRun('r-flat', null));
+  const oneActive = (slug: string) => {
+    const body = fixture('attempts');
+    body.tasks[0].attempts[0].token = Number(slug.slice(1)) + 1;
+    return body;
+  };
+  const runner = scripted({ list: () => ok({ v: 1, unreadable: [], runs }), attempts: (p: any) => ok(oneActive(p.slug)) });
+  const { json } = await harness(runner, t);
+  const { sections, limits } = (await json('/api/sessions')).body;
+  const inspected = runner.calls.filter((call) => call.shape === 'attempts').map((call) => call.params.slug);
+  assert.deepEqual(inspected, Array.from({ length: 20 }, (_, i) => `f${i}`));
+  // r0..r19 and r-again (f0) are covered; r20, r21, r22 and r-late (f22) are not.
+  assert.deepEqual(limits, { runsInspected: 21, runsNotChecked: 4, workersChecked: 16, workersNotChecked: 4 });
+  assert.equal(sections.tasks.data.length, 20);
+  assert.equal(runner.calls.filter((call) => call.shape === 'worker-status').length, 16);
+  assert.equal(sections.workers.data.length, 16);
+  assert.deepEqual(sections.workers.data.map((w: any) => w.slug), Array.from({ length: 16 }, (_, i) => `f${i}`));
 });

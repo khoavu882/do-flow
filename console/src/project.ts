@@ -16,6 +16,11 @@ const LABEL = /^[A-Za-z0-9 ._:/@-]{1,64}$/;
 const WITHHELD = '(withheld)';
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
 const DIGEST = /^sha256:[0-9a-f]{64}$/;
+/** `cwdHash` (worktreeKey) and the bridge's session key: 16 lowercase hex. */
+const KEY16 = /^[0-9a-f]{16}$/;
+const HEAD12 = /^[0-9a-f]{12}$/;
+/** IC-018: a harness id outside the registry is shown as this fixed text. */
+const OTHER_HARNESS = '(other)';
 
 const CLOSED_SETS = Object.freeze({
   /** src/runtime/workflow-orchestrator.ts RUN_STATES */
@@ -43,6 +48,18 @@ const CLOSED_SETS = Object.freeze({
   attemptResults: Object.freeze(['COMPLETED', 'BLOCKED', 'ABANDONED', 'INCONCLUSIVE', 'FAILED']),
   /** src/runtime/capability-router.ts resolveCapability */
   capabilityStatuses: Object.freeze(['HEALTHY', 'FALLBACK', 'UNAVAILABLE']),
+  /** core/registry/harnesses.json harness ids */
+  harnessIds: Object.freeze(['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']),
+  /** src/runtime/worker/command.ts statusView states, with the end states of supervisor.ts and cancel.ts */
+  workerStates: Object.freeze(['starting', 'running', 'unknown', 'exited', 'timed-out', 'cancelled']),
+  /** src/runtime/worker/command.ts statusView reasons */
+  workerReasons: Object.freeze(['supervisor-lost', 'liveness-unknown', 'process-lost']),
+  /** src/runtime/roadmap/loop.ts operationalState hold states */
+  roadmapHoldStates: Object.freeze(['held', 'paused']),
+  /** IC-018 a */
+  checkoutRoles: Object.freeze(['main', 'linked']),
+  sessionKinds: Object.freeze(['hook', 'launched']),
+  observedStores: Object.freeze(['present', 'absent']),
 });
 
 type Check<T> = (value: unknown) => T;
@@ -65,6 +82,11 @@ const iso: Check<string> = (value) => (typeof value === 'string' && ISO.test(val
 const count: Check<number> = (value) => (Number.isInteger(value) && (value as number) >= 0 ? (value as number) : fail());
 const bool: Check<boolean> = (value) => (typeof value === 'boolean' ? value : fail());
 const one: Check<1> = (value) => (value === 1 ? 1 : fail());
+const key16: Check<string> = (value) => (typeof value === 'string' && KEY16.test(value) ? value : fail());
+const token: Check<number> = (value) => (Number.isInteger(value) && (value as number) >= 1 ? (value as number) : fail());
+const harness: Check<string> = (value) => (typeof value !== 'string' ? fail() : CLOSED_SETS.harnessIds.includes(value) ? value : OTHER_HARNESS);
+/** A field the core emits only in some states (worker `overdue`, `supervisorLost`): absent reads as null. */
+const optional = <T>(check: Check<T>): Check<T | null> => (value) => (value === undefined ? null : orNull(check)(value));
 
 /** The fields `status` and a `list` row share (snapshotRun in the core). */
 function runFields(row: Record<string, unknown>) {
@@ -155,18 +177,27 @@ const graphTask = (value: unknown) => {
   return { id: id(task.id), phase: id(task.phase), owner: orNull(label)(task.owner), taskDeps: each(id)(task.taskDeps), parallel: bool(task.parallel) };
 };
 
-/** IC-013: no reason text, evidence id, worktree, usage or trace. */
+/** IC-013: no reason text, evidence id, worktree, usage or trace; IC-018 c: the checkout key, run and lineage of its runKey. */
 const attempt = (value: unknown) => {
   const entry = record(value);
   return {
-    token: Number.isInteger(entry.token) && (entry.token as number) >= 1 ? (entry.token as number) : fail(),
+    token: token(entry.token),
     owner: label(entry.owner),
     mode: oneOf(CLOSED_SETS.attemptModes)(entry.mode),
     state: oneOf(CLOSED_SETS.attemptStates)(entry.state),
     startedAt: orNull(iso)(entry.startedAt),
     endedAt: orNull(iso)(entry.endedAt),
     result: orNull(oneOf(CLOSED_SETS.attemptResults))(entry.result),
+    worktreeKey: orNull(key16)(entry.worktreeKey),
+    run: orNull(id)(entry.run),
+    lineage: orNull(id)(entry.lineage),
   };
+};
+
+/** IC-018 d: a write-set overlap as its two task ids and a file count; the file names are dropped. */
+const overlap = (value: unknown) => {
+  const pair = record(value);
+  return { a: id(pair.a), b: id(pair.b), fileCount: each(text)(pair.files).length };
 };
 
 const taskRow = (value: unknown) => {
@@ -181,7 +212,7 @@ const taskRow = (value: unknown) => {
   };
 };
 
-/** Dropped: files, acceptance, warnings, overlaps, run, advisory (and slug, defaults, readiness). */
+/** Dropped: files, acceptance, warnings, overlaps[].files, run, advisory (and slug, defaults, readiness). */
 function attempts(value: unknown) {
   const body = record(value);
   const graph = record(body.graph);
@@ -191,6 +222,7 @@ function attempts(value: unknown) {
       digest: typeof graph.digest === 'string' && DIGEST.test(graph.digest) ? graph.digest : fail(),
       graphPlan: bool(graph.graphPlan),
       tasks: each(graphTask)(graph.tasks),
+      overlaps: each(overlap)(graph.overlaps),
     },
     tasks: each(taskRow)(body.tasks),
   };
@@ -228,11 +260,119 @@ function capabilities(value: unknown) {
   return { capabilities: each(capability)(record(value).capabilities) };
 }
 
+// ---- IC-018: the Sessions reads ----
+
+/** IC-018 a: checkouts with branch, HEAD and its commit time; hook and launched sessions by key. No path or raw id exists in the input. */
+function observed(value: unknown) {
+  const body = record(value);
+  const checkout = (item: unknown) => {
+    const entry = record(item);
+    return {
+      worktreeKey: key16(entry.worktreeKey),
+      role: oneOf(CLOSED_SETS.checkoutRoles)(entry.role),
+      current: bool(entry.current),
+      branch: orNull(label)(entry.branch),
+      head: orNull((v) => (typeof v === 'string' && HEAD12.test(v) ? v : fail()))(entry.head),
+      headCommittedAt: orNull(iso)(entry.headCommittedAt),
+    };
+  };
+  const session = (item: unknown) => {
+    const entry = record(item);
+    return {
+      sessionKey: key16(entry.sessionKey),
+      worktreeKey: key16(entry.worktreeKey),
+      kind: oneOf(CLOSED_SETS.sessionKinds)(entry.kind),
+      harness: orNull(harness)(entry.harness),
+      model: orNull(label)(entry.model),
+      modelFirstSeenAt: orNull(iso)(entry.modelFirstSeenAt),
+      startedAt: orNull(iso)(entry.startedAt),
+      branchAtStart: orNull(label)(entry.branchAtStart),
+      lastHookRecordAt: orNull(iso)(entry.lastHookRecordAt),
+      launched: orNull((v) => {
+        const unit = record(v);
+        return { run: id(unit.run), lineage: id(unit.lineage), attempt: id(unit.attempt) };
+      })(entry.launched),
+    };
+  };
+  return {
+    v: one(body.v),
+    store: oneOf(CLOSED_SETS.observedStores)(body.store),
+    checkouts: each(checkout)(body.checkouts),
+    sessions: each(session)(body.sessions),
+    truncated: bool(body.truncated),
+    unreadable: count(body.unreadable),
+  };
+}
+
+/** IC-018 b: slot holders and waiter counts; no pid, start, cwd or waiter detail exists in the input. */
+function slots(value: unknown) {
+  const body = record(value);
+  const holder = (item: unknown) => {
+    const entry = record(item);
+    const alive = entry.alive === true || entry.alive === false || entry.alive === 'unknown' ? entry.alive : fail();
+    return { label: orNull(label)(entry.label), since: orNull(iso)(entry.since), alive, worktreeKey: orNull(key16)(entry.worktreeKey) };
+  };
+  const slot = (item: unknown) => {
+    const entry = record(item);
+    return { name: id(entry.name), holder: orNull(holder)(entry.holder), waiters: count(entry.waiters) };
+  };
+  return { v: one(body.v), slots: each(slot)(body.slots), unreadable: count(body.unreadable) };
+}
+
+/**
+ * IC-018 d: one worker run's state and the process check. Dropped: identity, process, report, output,
+ * edit, isolation, cleanup, cancel, verified, withheld and the rest. The core's answer for an attempt
+ * with no worker run (`run: null`) projects to null.
+ */
+function workerStatus(value: unknown) {
+  const body = record(value);
+  if (body.disposition !== 'status') fail();
+  if (Object.hasOwn(body, 'run')) {
+    if (body.run !== null) fail();
+    id(body.task);
+    token(body.token);
+    return null;
+  }
+  return {
+    runId: id(body.runId),
+    task: id(body.task),
+    token: token(body.token),
+    harness: orNull(harness)(body.harness),
+    state: oneOf(CLOSED_SETS.workerStates)(body.state),
+    reason: orNull(oneOf(CLOSED_SETS.workerReasons))(body.reason),
+    startedAt: orNull(iso)(body.startedAt),
+    endedAt: orNull(iso)(body.endedAt),
+    overdue: optional(bool)(body.overdue),
+    supervisorLost: optional(bool)(body.supervisorLost),
+    attemptActive: bool(body.attemptActive),
+  };
+}
+
+/** IC-018 d: the open loop run, the lease's run id and time, and the holds. Dropped: pid, host, reason, rows, rowStatus, openIntents. */
+function roadmap(value: unknown) {
+  const body = record(value);
+  one(body.schema);
+  if (body.action !== 'status') fail();
+  const hold = (item: unknown) => {
+    const entry = record(item);
+    return { row: id(entry.row), state: oneOf(CLOSED_SETS.roadmapHoldStates)(entry.state), kind: orNull(id)(entry.kind) };
+  };
+  return {
+    run: orNull(id)(body.run),
+    lease: orNull((v) => {
+      const lease = record(v);
+      return { runId: orNull(id)(lease.runId), acquiredAt: orNull(iso)(lease.acquiredAt) };
+    })(body.lease),
+    holds: each(hold)(body.holds),
+  };
+}
+
 /** `version` is the trimmed `--version` line, not JSON. */
 const version = (value: unknown) => (isSemVer(value) ? value : fail());
 
 const PROJECTORS: Readonly<Record<string, (value: unknown, context?: any) => unknown>> = Object.freeze({
   list, status, timeline, attempts, workflow, capabilities, version,
+  observed, slots, 'worker-status': workerStatus, roadmap,
 });
 const PROJECTOR_IDS: readonly string[] = Object.freeze(Object.keys(PROJECTORS));
 
@@ -251,4 +391,4 @@ function project(shapeId: string, value: unknown, context?: { workflow?: unknown
   }
 }
 
-module.exports = { CLOSED_SETS, PROJECTOR_IDS, WITHHELD, project };
+module.exports = { CLOSED_SETS, OTHER_HARNESS, PROJECTOR_IDS, WITHHELD, project };

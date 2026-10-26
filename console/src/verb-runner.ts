@@ -47,6 +47,8 @@ const deepFreeze = <T>(value: T): T => {
 const TASK_ID: Param = { param: 'taskId' };
 const SLUG: Param = { param: 'slug' };
 const TASK_CLASS: Param = { param: 'taskClass' };
+const TASK: Param = { param: 'task' };
+const TOKEN: Param = { param: 'token' };
 
 /** IC-003, the whole allow-list. `--json` is appended to every shape. */
 const SHAPES: Readonly<Record<string, Shape>> = deepFreeze({
@@ -57,6 +59,11 @@ const SHAPES: Readonly<Record<string, Shape>> = deepFreeze({
   workflow: { argv: ['workflow', '--task-class', TASK_CLASS], ttl: Infinity, byCoreVersion: true },
   capabilities: { argv: ['capabilities'], ttl: 30_000 },
   version: { argv: ['--version'], ttl: Infinity, text: true },
+  // IC-018: the Sessions reads. `slot --action list`, `slot --action release` and `worker --action cancel` are not shapes.
+  observed: { argv: ['primary', '--action', 'observed'], ttl: 5_000 },
+  slots: { argv: ['slot', '--action', 'peek'], ttl: 5_000 },
+  'worker-status': { argv: ['worker', '--action', 'status', '--slug', SLUG, '--task', TASK, '--token', TOKEN], ttl: 5_000 },
+  roadmap: { argv: ['roadmap', '--action', 'status'], ttl: 10_000 },
 });
 const SHAPE_IDS: readonly string[] = Object.freeze(Object.keys(SHAPES));
 

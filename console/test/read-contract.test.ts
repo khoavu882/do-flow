@@ -1,7 +1,7 @@
 'use strict';
 
-// Read contract against the REAL core (feature 093, C.1; IC-002, IC-004, IC-005, IC-012, IC-013;
-// FR-003, NFR-003). bin/doflow-ui.js is booted as a child against this checkout's bin/doflow.js on a
+// Read contract against the REAL core (feature 093, C.1 and E.6; IC-002, IC-004, IC-005, IC-012,
+// IC-013, IC-018; FR-003, FR-016, NFR-003). bin/doflow-ui.js is booted as a child against this checkout's bin/doflow.js on a
 // fixture made with real verbs (helpers/core-fixture.ts). The test reads the URL line, exchanges the
 // launch code, reads every route, checks the bodies, checks that no planted free text and no path
 // reaches any of them, shuts the Console down with a signal, and compares the DoFlow trees byte for
@@ -99,6 +99,7 @@ async function readEverything(app: Booted): Promise<Map<string, Reply>> {
     if (row.featureSlug !== null) await get(`/api/runs/${row.featureSlug}/${row.taskId}`);
   }
   await get('/api/workflows');
+  await get('/api/sessions');
   await get(`/api/runs/${SLUGS.graph}/no-such-run`);
   await get('/api/runs/..%2f/run-gate');
   return replies;
@@ -212,6 +213,39 @@ test('the Console reads every route from the real core, leaks no free text, and 
   assert.deepEqual(body(replies, `/api/runs/${SLUGS.graph}/no-such-run`), { error: { code: 'run-not-found', verb: 'status', exit: 1 } });
   assert.equal(replies.get('/api/runs/..%2f/run-gate')!.status, 400);
   assert.deepEqual(body(replies, '/api/runs/..%2f/run-gate'), { error: { code: 'usage', verb: null, exit: null } });
+
+  // IC-018 e: every Sessions read is a read. The broken feature's plan fails `tasks` (and `workers`, built from it); the rest stay ok.
+  const sessions = body(replies, '/api/sessions');
+  assert.deepEqual(Object.keys(sessions), ['v', 'sections', 'limits']);
+  assert.deepEqual(sessions.sections.tasks, { ok: false, code: 'core-error' });
+  assert.deepEqual(sessions.sections.workers, { ok: false, code: 'core-error' });
+  assert.deepEqual(sessions.sections.roadmap, { ok: true, data: null }, 'the fixture has no roadmap seed');
+  assert.deepEqual(sessions.sections.slots, { ok: true, data: { v: 1, slots: [], unreadable: 0 } });
+  assert.deepEqual(sessions.sections.runs.data, list);
+  const observed = sessions.sections.observed.data;
+  assert.deepEqual(observed.checkouts.map((c: any) => [c.role, c.current, c.branch]), [['main', true, observed.checkouts[0].branch], ['linked', false, 'doflow-ui-fixture-linked']]);
+  for (const c of observed.checkouts) assert.match(c.worktreeKey, /^[0-9a-f]{16}$/);
+  assert.deepEqual(observed.sessions, []);
+
+  // With the broken plan repaired, `tasks` and `workers` come from real inspects and a real worker-status, still writing nothing.
+  fs.writeFileSync(path.join(f.main, 'agent-docs', 'doflow', SLUGS.broken, 'plan.md'),
+    ['# Plan', '', '**Task graph:** v1', '', '## Tasks', '', '### Phase A', '', '- [ ] A.1 one step; owner: core-implementer; files: a.js', ''].join('\n'));
+  const repairedBefore = snapshotTrees(f.roots);
+  const again = await boot(args, f.env, f.main);
+  const repaired = body(await readEverything(again), '/api/sessions');
+  await shutdown(again);
+  assert.deepEqual(snapshotTrees(f.roots), repairedBefore, 'reading /api/sessions changed a DoFlow tree');
+  for (const name of Object.keys(repaired.sections)) assert.equal(repaired.sections[name].ok, true, `${name} is ok`);
+  // feat-other has no plan (no entry); run-flat has no feature; run-gate, run-live and run-broken are live.
+  assert.deepEqual(repaired.sections.tasks.data.map((entry: any) => entry.slug).sort(), [SLUGS.broken, SLUGS.graph, SLUGS.legacy]);
+  const graphEntry = repaired.sections.tasks.data.find((entry: any) => entry.slug === SLUGS.graph);
+  assert.deepEqual(graphEntry.overlaps, []);
+  assert.deepEqual(graphEntry.active.map((a: any) => [a.task, a.token, a.owner, a.mode, a.worktreeKey, a.run, a.lineage]),
+    [['A.2', 2, 'quality-guardian', 'sequential', observed.checkouts[0].worktreeKey, 'local', 'main']]);
+  assert.deepEqual(repaired.sections.workers.data, [{ slug: SLUGS.graph, task: 'A.2', token: 2, worker: null }], 'no worker run serves the attempt');
+  assert.deepEqual(repaired.limits, { runsInspected: 4, runsNotChecked: 0, workersChecked: 1, workersNotChecked: 0 });
+  const repairedText = JSON.stringify(repaired);
+  assert.ok(!repairedText.includes(MARKER) && !repairedText.includes(f.dir), 'no marker or path in the repaired Sessions body');
 
   // Vacuity guard: the same boot and reads with the switch removed from every core child must write.
   const controlBefore = snapshotTrees(f.roots);
