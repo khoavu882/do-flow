@@ -115,23 +115,6 @@ describe('IC-001: resolveShadowConfig (Per-Kind Shadow Configuration)', () => {
     assert.equal(reviewCfg.model, 'global-default:7b', 'should fall back to global advice.model');
   });
 
-  test('supports legacy flat alias advice.model.<kind>', () => {
-    const { root, fsImpl, env } = setupConfigEnv({
-      advice: {
-        enabled: true,
-        kinds: {
-          tier: 'shadow',
-        },
-        model: {
-          tier: 'legacy-alias-model:1.5b',
-        },
-      },
-    });
-
-    const cfg = resolveShadowConfig('tier', { projectRoot: root, fsImpl, env });
-    assert.equal(cfg.model, 'legacy-alias-model:1.5b');
-  });
-
   test('advice.enabled = false strictly forces mode to off regardless of per-kind settings', () => {
     const { root, fsImpl, env } = setupConfigEnv({
       advice: {

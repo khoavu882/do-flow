@@ -179,15 +179,13 @@ function resolveShadowConfig(
     }
   }
 
-  // 4. Resolve model: advice.models.<kind> / advice.model.<kind> -> advice.model (string) -> defaultModel
+  // 4. Resolve model: advice.models.<kind> -> advice.model (string) -> defaultModel
   let resolvedModel: string | null = null;
   let modelDecidedBy: string | null = null;
 
   // Check per-kind model override
   for (const { layer, filePath, content } of loadedCandidates) {
-    const kindModel =
-      getSettingValue(content, `advice.models.${kind}`) ??
-      getSettingValue(content, `advice.model.${kind}`);
+    const kindModel = getSettingValue(content, `advice.models.${kind}`);
     if (typeof kindModel === 'string' && kindModel.trim()) {
       resolvedModel = kindModel.trim();
       modelDecidedBy = `${layer}:${filePath}`;
