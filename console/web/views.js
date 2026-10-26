@@ -8,8 +8,10 @@ import { loadHome, renderHome, skeletonHome, homeKey, tickHome } from './views/h
 import { renderRun, tickRun, releaseRun } from './views/run.js';
 import { renderGraph } from './views/graph.js';
 import { renderSessions } from './views/sessions.js';
+import { renderWorkflows } from './views/workflows.js';
 import { deriveSessions } from './derive/sessions.js';
 import { runStepCopy } from './derive/rail.js';
+import { workflowsOf } from './derive/workflows.js';
 
 /**
  * The core range this Console needs. IC-005 sends no range, so this is a client literal; client-core.test.ts
@@ -78,7 +80,6 @@ function runStep(params, data) {
   return copy === null ? null : [copy.lead, copy.n === null ? null : h('span', { class: 'run-head__step-n' }, String(copy.n)), copy.tail];
 }
 
-const note = (/** @type {string} */ text) => h('p', { class: 'view-note' }, text);
 const slugTask = (/** @type {any} */ params) => `${params.slug} / ${params.taskId}`;
 
 // ---- skeletons (6.1): the heights are binding for the views that fill them -------------------------
@@ -187,15 +188,21 @@ const VIEWS = Object.freeze({
   workflows: {
     id: 'workflows',
     noun: 'workflows',
-    shapes: [],
-    api: () => null,
-    pollMs: 5000,
-    wide: false,
+    // IC-005: one `workflow` read per registry class, answered as one body. The registry changes with the core, not by the minute.
+    shapes: ['workflow'],
+    api: () => '/api/workflows',
+    pollMs: 30000,
+    wide: true,
     skeleton: skeletonBlock,
     head: () => ({ text: 'Workflows', mono: false }),
-    meta: () => null,
-    render: () => note('Built in plan task F.2.'),
-    isEmpty: () => false,
+    meta: () => h('p', { class: 'view-head__meta' }, 'The steps each kind of work goes through, and the gates that stop for you.'),
+    render: renderWorkflows,
+    isEmpty: (/** @type {any} */ data) => workflowsOf(data).length === 0,
+    empty: {
+      title: 'No workflows listed',
+      sentence: 'The DoFlow core returned no workflow classes, so there is nothing to draw here.',
+      note: 'This list refreshes every 30 seconds while this tab is open.',
+    },
     title: () => 'Workflows',
   },
   'not-found': {

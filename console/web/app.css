@@ -1447,6 +1447,27 @@
     .spanel { display: block; position: sticky; top: calc(var(--header-h) + var(--space-4)); max-height: calc(100vh - var(--header-h) - 2 * var(--space-4)); overflow: auto; }
     .srow__panel { display: none; }
   }
+
+  /* ---- F.2: the Workflows view. One section per class: the diagram (scrolls inside its figure) and the ordered steps. ---- */
+  .wf-list { display: grid; gap: var(--space-6); }
+  .wf { display: grid; gap: var(--space-3); }
+  .wf__title { font: var(--type-lg); letter-spacing: var(--tracking-tight); }
+  .wf__class { margin-inline-start: var(--space-2); font: var(--type-sm); color: var(--text-muted); }
+  .wf__body { display: grid; gap: var(--space-4); min-width: 0; }
+  .wf__media { min-width: 0; }
+  .wf__figure { margin: 0; overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+  .wf__img { display: block; max-width: none; height: auto; }
+  .wf__fallback { margin: 0; padding: var(--space-4); font: var(--type-sm); color: var(--text-muted); background: var(--surface); border: 1px dashed var(--border-strong); border-radius: var(--radius-lg); }
+  .wf__steps { display: grid; gap: var(--space-2); margin: 0; padding-inline-start: var(--space-5); font: var(--type-sm); }
+  .wf__line { display: inline-flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .wf__id { font-weight: 600; }
+  .wf__tag { font: var(--type-xs); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--text-muted); }
+  .wf__detail { display: block; color: var(--text-muted); overflow-wrap: anywhere; }
+  .wf__step--gate .icon { color: var(--text-muted); }
+
+  @media (min-width: 1280px) {
+    .wf__body { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); align-items: start; }
+  }
 }
 
 /* ---- states -------------------------------------------------------------------------------------- */
@@ -1692,4 +1713,10 @@
   .sfoot__box--blind { border-style: dashed; }
   .shold { border-inline-start-color: CanvasText; }
   .srow[data-fresh="true"], .srow[data-cleared="true"] { outline: 2px solid Highlight; }
+}
+
+/* ---- forced colours: the Workflows view keeps its frames in system colours ---- */
+@media (forced-colors: active) {
+  .wf__figure, .wf__fallback { border: 1px solid CanvasText; }
+  .wf__fallback { border-style: dashed; }
 }
