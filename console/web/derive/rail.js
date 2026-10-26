@@ -9,6 +9,8 @@ const NODE_ACTIONS = Object.freeze({ stage: ['complete-stage', 'skip-stage'], ga
 const isObject = (/** @type {any} */ value) => value !== null && typeof value === 'object';
 const isCount = (/** @type {any} */ value) => Number.isInteger(value) && value >= 0;
 const timeOf = (/** @type {any} */ iso) => (typeof iso === 'string' ? Date.parse(iso) : Number.NaN);
+/** A note on a node: it adds text and moves nothing (E.2 Q1), so it never starts or ends an interval. */
+const isNote = (/** @type {any} */ event) => isObject(event) && event.action === 'annotate';
 const capital = (/** @type {string} */ text) => text.charAt(0).toUpperCase() + text.slice(1);
 
 /**
@@ -116,7 +118,10 @@ function deriveRail(workflow, row, timeline = null, nowMs = Date.now()) {
       if (at === -1) return;
       const event = events[at];
       node.at = typeof event.at === 'string' && Number.isFinite(Date.parse(event.at)) ? event.at : null;
-      const before = at > 0 && isObject(events[at - 1]) ? timeOf(events[at - 1].at) : Number.NaN;
+      // E.2 Q1: the interval runs from the previous progress event; a note (`annotate`) moves nothing and cuts nothing short.
+      let prior = at - 1;
+      while (prior >= 0 && isNote(events[prior])) prior -= 1;
+      const before = prior >= 0 && isObject(events[prior]) ? timeOf(events[prior].at) : Number.NaN;
       const own = timeOf(event.at);
       node.durationMs = Number.isFinite(own) && Number.isFinite(before) ? Math.max(0, own - before) : null;
       if (node.state === 'done' && (event.action === 'skip-stage' || event.action === 'skip-gate')) node.state = 'skipped';
@@ -128,7 +133,9 @@ function deriveRail(workflow, row, timeline = null, nowMs = Date.now()) {
         node.forced = event.forced === true;
       }
     });
-    const last = events[events.length - 1];
+    let lastAt = events.length - 1;
+    while (lastAt >= 0 && isNote(events[lastAt])) lastAt -= 1;
+    const last = lastAt >= 0 ? events[lastAt] : undefined;
     const cursorNode = nodes[cursor];
     if (cursorNode && isObject(last) && typeof last.at === 'string' && Number.isFinite(Date.parse(last.at))) cursorNode.since = last.at;
   }
