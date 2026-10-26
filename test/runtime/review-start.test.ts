@@ -1092,3 +1092,34 @@ test('084 H2: advice.kinds.review-depth act with a passed bench bar raises the d
   assert.deepEqual(json.advice, { status: 'answered', pick: 'deep' });
   assert.equal(adviceStore(r), false, 'record: false: no pick is stored');
 });
+
+test('085 H1: DOFLOW_ROLLOUT_PROFILE=baseline in the verb env turns a configured act off', async (t) => {
+  const r = kindsRepo(t, 'act', { bench: true });
+  const client = fakeClient(answered('deep'));
+  const { json } = await start({ ...r, env: { ...r.env, DOFLOW_ROLLOUT_PROFILE: 'baseline' } }, { adviceClient: client, base: r.base });
+  assert.equal(client.calls.length, 0);
+  assert.equal(json.depth, 'single');
+  assert.deepEqual(json.advice, { status: 'off', pick: null });
+});
+
+// 085 H1 on the unset-kinds path: a chosen profile whose advisor is off skips the client call.
+const CHOSEN_OFF: any = {
+  'settings rollout.profile baseline': { settings: { rollout: { profile: 'baseline' } } },
+  'env DOFLOW_ROLLOUT_PROFILE=baseline': { env: { DOFLOW_ROLLOUT_PROFILE: 'baseline' } },
+  'an active rollback sentinel': { sentinel: { active: true, reason: 'manual' } },
+  'an invalid profile value': { settings: { rollout: { profile: 'bogus' } } },
+};
+for (const [name, c] of Object.entries(CHOSEN_OFF) as any) {
+  test(`085 H1: with advice.kinds unset, ${name} makes review start ask nothing`, async (t) => {
+    const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+    r.lines([r.line({ risk: 'LOW' })]);
+    r.enableAdvice();
+    if (c.settings) put(r.cwd, '.doflow/settings.json', JSON.stringify(c.settings));
+    if (c.sentinel) put(r.cwd, '.doflow/state/rollback.json', JSON.stringify(c.sentinel));
+    const client = fakeClient(answered('deep'));
+    const { json } = await start({ ...r, env: { ...r.env, ...(c.env || {}) } }, { adviceClient: client, base: r.base });
+    assert.equal(client.calls.length, 0);
+    assert.equal(json.depth, 'single');
+    assert.deepEqual(json.advice, { status: 'off', pick: null });
+  });
+}

@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { traverseGraphRelationships, clampBounds } = require('./graph-adapter.ts');
+const { resolveRolloutProfile } = require('../profiles/resolve.ts');
 
 type GraphFreshnessStatus = 'FRESH' | 'STALE' | 'MISSING' | 'CORRUPT';
 
@@ -44,7 +45,7 @@ interface RelationshipResolution {
   provider: 'graphify.query' | 'native.rg';
   status: 'HEALTHY' | 'FALLBACK' | 'UNAVAILABLE';
   freshness: GraphFreshnessStatus;
-  fallbackReason?: 'index-stale' | 'index-missing' | 'index-corrupt' | 'graph-empty' | 'lexical-failed';
+  fallbackReason?: 'index-stale' | 'index-missing' | 'index-corrupt' | 'graph-empty' | 'profile-disabled' | 'lexical-failed';
   candidates: ResolvedCandidate[];
   isAbsence: boolean;
   absenceReason?: string;
@@ -228,7 +229,16 @@ async function resolveRelationshipQuery(
   const freshness = evaluateGraphFreshness(options.projectRoot, fsImpl);
   const allowStale = options.allowStale === true;
 
-  const isGraphUsable = freshness.status === 'FRESH' || (allowStale && freshness.status === 'STALE');
+  // The rollout profile turns the graph off only when one was chosen (env or settings), a rollback is active or
+  // the value is invalid; a project that sets no profile (origin registry-default) keeps the graph.
+  const profile = resolveRolloutProfile({
+    projectRoot: options.projectRoot, fsImpl: typeof fsImpl.readFileSync === 'function' ? fsImpl : undefined,
+  });
+  const profileChosen = !(profile.origin.source === 'default' && profile.origin.detail === 'registry-default');
+  const graphOff = profileChosen && profile.capabilities.graph === 'off';
+
+  const isGraphUsable = !graphOff
+    && (freshness.status === 'FRESH' || (allowStale && freshness.status === 'STALE'));
 
   if (isGraphUsable) {
     const direction = options.intent === 'estimate-blast-radius' ? 'upstream' : 'both';
@@ -318,8 +328,9 @@ async function resolveRelationshipQuery(
     };
   }
 
-  const fallbackReason: 'index-stale' | 'index-missing' | 'index-corrupt' =
-    freshness.status === 'STALE'
+  const fallbackReason: 'index-stale' | 'index-missing' | 'index-corrupt' | 'profile-disabled' = graphOff
+    ? 'profile-disabled'
+    : freshness.status === 'STALE'
       ? 'index-stale'
       : freshness.status === 'MISSING'
       ? 'index-missing'

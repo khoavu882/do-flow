@@ -197,3 +197,38 @@ test('084 H2: advice.kinds.tier act answers through the dispatcher with the pick
   assert.equal(picks[0].pickId, actual.record.advice.pickId);
   assert.equal(picks[0].mode, 'act');
 });
+
+// 085 H1 on the unset-kinds path: a chosen profile whose advisor is off skips the client call.
+const CHOSEN_OFF: any = {
+  'settings rollout.profile baseline': { settings: { rollout: { profile: 'baseline' } } },
+  'env DOFLOW_ROLLOUT_PROFILE=baseline': { env: { DOFLOW_ROLLOUT_PROFILE: 'baseline' } },
+  'an active rollback sentinel': { sentinel: { active: true, reason: 'manual' } },
+  'an invalid profile value': { settings: { rollout: { profile: 'bogus' } } },
+};
+for (const [name, c] of Object.entries(CHOSEN_OFF) as any) {
+  test(`085 H1: with advice.kinds unset, ${name} makes brief-tools ask nothing`, async (t) => {
+    const f = fixture(t);
+    fs.mkdirSync(path.join(f.project, '.doflow', 'state'), { recursive: true });
+    if (c.settings) fs.writeFileSync(path.join(f.project, '.doflow', 'settings.json'), JSON.stringify(c.settings));
+    if (c.sentinel) fs.writeFileSync(path.join(f.project, '.doflow', 'state', 'rollback.json'), JSON.stringify(c.sentinel));
+    const registry = loadRegistry({ repoRoot: REPO_ROOT });
+    const router: any = new CapabilityRouter({ repoRoot: REPO_ROOT, projectRoot: f.project });
+    let calls = 0;
+    const adviceClient: any = { ask: async () => { calls += 1; return { status: 'answered', answers: [{ pick: 'light', pickId: null }] }; } };
+    const fixed: any = { registry, router, probes: {}, reach: null, owner: 'core-implementer', tier: 'frontier', stage: { feature: '001-feature' }, slug: '001-feature', probe: () => ({}), env: { ...f.scratch.env(), ...(c.env || {}) } };
+    async function invoke(tasks: any) {
+      let printed = '';
+      const oldLog = console.log;
+      console.log = (text) => { printed += `${text}\n`; };
+      try {
+        await handleBriefToolsCommand({ ...fixed, tasks, json: true, projectRoot: f.project, repoRoot: REPO_ROOT, adviceClient });
+      } finally { console.log = oldLog; }
+      return JSON.parse(printed);
+    }
+    const baseline = await invoke(undefined);
+    const actual = await invoke(['A.1']);
+    assert.equal(calls, 0);
+    assert.equal(actual.markdown, baseline.markdown);
+    assert.deepEqual(actual.record, baseline.record, 'status off adds no advice record');
+  });
+}

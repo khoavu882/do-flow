@@ -304,3 +304,47 @@ test('084 H2: advice.kinds.task-class act without a passed bench bar falls back 
   assert.equal(json.secondOpinion.status, 'unavailable');
   assert.match(json.secondOpinion.reason, /^BENCH_BAR_UNMET: /);
 });
+
+test('085 H1: an explicit rollout.profile baseline turns a configured act off for classify', async (t) => {
+  const f = fixture(t);
+  const server = await f.startServer();
+  f.enable(server.origin);
+  fs.mkdirSync(path.join(f.project, '.doflow'), { recursive: true });
+  fs.writeFileSync(path.join(f.project, '.doflow', 'settings.json'), JSON.stringify({
+    advice: { kinds: { 'task-class': 'act' } }, rollout: { profile: 'baseline' },
+  }));
+  passBench(f, 'task-class');
+  const result = f.run(ACCEPTED_ARGS);
+  assert.equal(result.status, 0, result.stderr);
+  const json = JSON.parse(result.stdout);
+  assert.equal(json.outcome, 'ACCEPTED');
+  assert.equal(json.secondOpinion.status, 'off');
+  assert.deepEqual(pickRecords(f), []);
+});
+
+// 085 H1 on the unset-kinds path: a chosen profile whose advisor is off skips the client call.
+const CHOSEN_OFF: any = {
+  'settings rollout.profile baseline': { settings: { rollout: { profile: 'baseline' } } },
+  'env DOFLOW_ROLLOUT_PROFILE=baseline': { env: { DOFLOW_ROLLOUT_PROFILE: 'baseline' } },
+  'an active rollback sentinel': { sentinel: { active: true, reason: 'manual' } },
+  'an invalid profile value': { settings: { rollout: { profile: 'bogus' } } },
+};
+for (const [name, c] of Object.entries(CHOSEN_OFF) as any) {
+  test(`085 H1: with advice.kinds unset, ${name} makes classify ask nothing`, async (t) => {
+    const f = fixture(t);
+    const server = await f.startServer();
+    f.enable(server.origin);
+    fs.mkdirSync(path.join(f.project, '.doflow', 'state'), { recursive: true });
+    if (c.settings) fs.writeFileSync(path.join(f.project, '.doflow', 'settings.json'), JSON.stringify(c.settings));
+    if (c.sentinel) fs.writeFileSync(path.join(f.project, '.doflow', 'state', 'rollback.json'), JSON.stringify(c.sentinel));
+    const result = spawnSync('/bin/bash', [RUN, 'classify', ...ACCEPTED_ARGS], {
+      cwd: f.project, env: f.scratch.env({ DOFLOW_CLI: BIN, ...(c.env || {}) }), encoding: 'utf8',
+    });
+    assert.equal(result.status, 0, result.stderr);
+    const json = JSON.parse(result.stdout);
+    assert.equal(json.outcome, 'ACCEPTED');
+    assert.equal(json.secondOpinion.status, 'off');
+    assert.equal(json.secondOpinion.reason, null);
+    assert.deepEqual(pickRecords(f).filter((record: any) => record.type !== 'outcome'), []);
+  });
+}

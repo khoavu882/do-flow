@@ -6,6 +6,7 @@ const { applyElevationInvariant } = require('./elevation.ts');
 const { evaluateBenchBar } = require('./bench-gate.ts');
 const { recordPick } = require('./consequence-recorder.ts');
 const { createAdviceClient } = require('./client.ts');
+const { resolveRolloutProfile } = require('../profiles/resolve.ts');
 
 interface DecisionPointContext {
   kind: 'tier' | 'task-class' | 'verify-risk' | 'review-depth' | 'mcp-need' | 'followup-triage' | 'autopilot' | string;
@@ -67,6 +68,18 @@ interface DecisionPointResolution {
   warning?: string;
 }
 
+/**
+ * The rollout profile's advisor capability, or null when no profile was chosen. It caps advice only when a
+ * profile was chosen (env or settings), a rollback is active or the value is invalid; a project that sets no
+ * profile (origin registry-default) keeps advice as configured.
+ */
+function profileAdvisorCap({ projectRoot, env, fsImpl }: { projectRoot?: string; env?: Record<string, string | undefined>; fsImpl?: any } = {}): string | null {
+  const readable = typeof fsImpl?.readFileSync === 'function' ? fsImpl : undefined;
+  const profile = resolveRolloutProfile({ projectRoot, env, fsImpl: readable });
+  if (profile.origin.source === 'default' && profile.origin.detail === 'registry-default') return null;
+  return profile.capabilities.advisor;
+}
+
 async function interceptDecisionPoint(
   context: DecisionPointContext,
   services?: { adviceClient?: any; shadowConfig?: any; fsImpl?: any; benchGate?: any; roots?: any }
@@ -82,7 +95,10 @@ async function interceptDecisionPoint(
       roots: services?.roots,
     });
 
-  const mode = config.mode;
+  const cap = profileAdvisorCap({ projectRoot: context.projectRoot, env: context.env, fsImpl: services?.fsImpl });
+  let mode = config.mode;
+  if (cap === 'off') mode = 'off';
+  else if (cap === 'shadow' && mode === 'act') mode = 'shadow';
   const staticPick = context.staticPick;
 
   // 1. Mode 'off': zero model invocation, return static pick immediately
@@ -255,4 +271,5 @@ async function interceptDecisionPoint(
 
 module.exports = {
   interceptDecisionPoint,
+  profileAdvisorCap,
 };

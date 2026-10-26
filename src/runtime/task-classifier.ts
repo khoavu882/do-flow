@@ -480,11 +480,15 @@ function handleClassifyCommand({ taskClass, rationale, proposedBy, callingSkill,
         const shadow = resolveShadowConfig('task-class', { projectRoot: resolvedRoot, env, roots });
         let result: any = { status: 'unavailable', reason: 'config-invalid', answers: [] };
         if (advice.ok && built.ok && !shadow.kindSet) {
-          // advice.kinds.task-class unset: the client asks and records the pick itself, as before the dispatcher.
-          result = await client.ask({
-            questionSet: { state, questions: [built.question] }, kind: 'task-class',
-            staticAnswer: taskClass ?? null, caller: 'classify', taskId: taskId ?? null, record: true,
-          });
+          // advice.kinds.task-class unset: the client asks and records the pick itself, as before the dispatcher,
+          // unless a chosen rollout profile turns the advisor off.
+          const { profileAdvisorCap } = require('./advice/shadow-dispatcher.ts');
+          result = profileAdvisorCap({ projectRoot: resolvedRoot, env }) === 'off'
+            ? { status: 'off', reason: null, answers: [] }
+            : await client.ask({
+              questionSet: { state, questions: [built.question] }, kind: 'task-class',
+              staticAnswer: taskClass ?? null, caller: 'classify', taskId: taskId ?? null, record: true,
+            });
         } else if (advice.ok && built.ok) {
           const { interceptDecisionPoint } = require('./advice/shadow-dispatcher.ts');
           const intercepted = await interceptDecisionPoint({

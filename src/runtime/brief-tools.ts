@@ -353,11 +353,15 @@ async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLeve
           const shadow = resolveShadowConfig('tier', { projectRoot: path.resolve(projectRoot), env, roots });
           let result: any = { status: 'unavailable', reason: built.reason || 'config-invalid' };
           if (built.ok && !shadow.kindSet) {
-            // advice.kinds.tier unset: the client asks and records, as before the dispatcher.
-            result = await client.ask({
-              questionSet: { state, questions: [built.question] },
-              kind: 'tier', staticAnswer: record.tier, caller: 'brief-tools', taskId: stage?.feature || slug,
-            });
+            // advice.kinds.tier unset: the client asks and records, as before the dispatcher, unless a chosen
+            // rollout profile turns the advisor off.
+            const { profileAdvisorCap } = require('./advice/shadow-dispatcher.ts');
+            result = profileAdvisorCap({ projectRoot: path.resolve(projectRoot), env }) === 'off'
+              ? { status: 'off', reason: null }
+              : await client.ask({
+                questionSet: { state, questions: [built.question] },
+                kind: 'tier', staticAnswer: record.tier, caller: 'brief-tools', taskId: stage?.feature || slug,
+              });
           } else if (built.ok) {
             const { interceptDecisionPoint } = require('./advice/shadow-dispatcher.ts');
             const intercepted = await interceptDecisionPoint({

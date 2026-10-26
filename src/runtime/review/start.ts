@@ -286,7 +286,10 @@ async function askAdvice({ decision, risk, taskClass, slug, files, cwd, env, adv
     const { resolveShadowConfig } = require('../advice/shadow-config.ts');
     const shadow = resolveShadowConfig('review-depth', { projectRoot: path.resolve(cwd), env, roots });
     if (!shadow.kindSet) {
-      // advice.kinds.review-depth unset: ask the client directly, as before the dispatcher.
+      // advice.kinds.review-depth unset: ask the client directly, as before the dispatcher, unless a chosen
+      // rollout profile turns the advisor off.
+      const { profileAdvisorCap } = require('../advice/shadow-dispatcher.ts');
+      if (profileAdvisorCap({ projectRoot: path.resolve(cwd), env }) === 'off') return { status: 'off', pick: null };
       const result = await client.ask({
         questionSet: { state, questions: [built.question] },
         kind: 'review-depth', staticAnswer: decision.depth, caller: 'review', taskId: slug, record: false,
