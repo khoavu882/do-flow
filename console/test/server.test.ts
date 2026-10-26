@@ -180,7 +180,7 @@ test('methods: any non-GET to a path no route declares that method for is 405', 
       const reply = await request(method, target, { Origin: `http://127.0.0.1:${port}`, 'Content-Type': 'application/json' }, method === 'POST' ? '{}' : '');
       assert.equal(reply.status, 405, `${method} ${target}`);
       assert.equal(reply.body, '', `${method} ${target}`);
-      assert.equal(reply.headers.allow, 'GET', `${method} ${target}`);
+      assert.equal(reply.headers.allow, target === '/api/session' ? 'POST' : 'GET', `${method} ${target}`);
     }
   }
 });
