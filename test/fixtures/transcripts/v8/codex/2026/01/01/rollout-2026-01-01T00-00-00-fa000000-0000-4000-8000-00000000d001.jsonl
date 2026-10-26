@@ -1,0 +1,12 @@
+{"timestamp":"2026-01-01T00:00:01.000Z","type":"session_meta","payload":{"id":"fa000000-0000-4000-8000-00000000d001","cwd":"/work/fixture-project","source":"cli","cli_version":"0.0.0-fixture"}}
+{"timestamp":"2026-01-01T00:00:02.000Z","type":"turn_context","payload":{"model":"codex-fixture-1","cwd":"/work/fixture-project"}}
+{"timestamp":"2026-01-01T00:00:03.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"FIXTURE-USER-PROMPT-MARKER-91c2 xmain"}]}}
+{"timestamp":"2026-01-01T00:00:04.000Z","type":"response_item","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"FIXTURE-THINKING-MARKER-7f3a xmain"}],"encrypted_content":"RklYVFVSRQ=="}}
+{"timestamp":"2026-01-01T00:00:05.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"FIXTURE-REPLY-OK xmain the deploy note says password=fx-Secret-4471-reply and mail fixture.person@example.invalid"}]}}
+{"timestamp":"2026-01-01T00:00:06.000Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"bash\",\"-lc\",\"echo password=fx-Secret-4471-args && echo '{\\\"token\\\":\\\"fx-Secret-4471-esc\\\"}'\"]}","call_id":"call_fx_main_1"}}
+{"timestamp":"2026-01-01T00:00:07.000Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call_fx_main_1","output":"FIXTURE-TOOL-RESULT-TEXT-5e1d xmain"}}
+{"timestamp":"2026-01-01T00:00:08.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":80,"cached_input_tokens":20,"cache_write_input_tokens":5,"output_tokens":40,"reasoning_output_tokens":8,"total_tokens":120},"total_token_usage":{"input_tokens":80,"cached_input_tokens":20,"output_tokens":40,"reasoning_output_tokens":8,"total_tokens":120}}}}
+{"timestamp":"2026-01-01T00:00:09.000Z","type":"event_msg","payload":{"type":"fixture-context","userEmail":"fixture.attach@example.invalid"}}
+{"timestamp":"2026-01-01T00:00:10.000Z","type":"fixture-unknown-record-type","payload":{"path":"/work/fixture-project/notes/private.txt"}}
+{"note":"fixture-missing-keys-record"}
+{"timestamp":"2026-01-01T00:00:11.000Z","type":"event_msg","payload":{"type":"agent_message","message":"FIXTURE-REPLY-DONE xmain"}}

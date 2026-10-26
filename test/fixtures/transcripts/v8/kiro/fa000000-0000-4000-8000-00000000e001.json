@@ -1,0 +1,22 @@
+{
+  "session_id": "fa000000-0000-4000-8000-00000000e001",
+  "cwd": "/work/fixture-project",
+  "parent_session_id": null,
+  "rts_model_state": {
+    "model_info": {
+      "model_id": "kiro-fixture-1"
+    }
+  },
+  "user_turn_metadatas": [
+    {
+      "input_token_count": 90,
+      "output_token_count": 45,
+      "cache_read_token_count": 10,
+      "cache_write_token_count": 2,
+      "end_timestamp": "2026-01-01T00:00:09.000Z",
+      "turn_duration": 4200,
+      "builtin_tool_uses": 1,
+      "model": "kiro-fixture-1"
+    }
+  ]
+}
