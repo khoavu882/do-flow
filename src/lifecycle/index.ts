@@ -19,7 +19,7 @@ const { hookTrustFor: geminiHookTrustFor } = require('../adapters/gemini/index.t
 const { planHookCompanions } = require('./hook-step.ts');
 const { readLock, lockPackages } = require('../state/lockfile.ts');
 const { resolveRegistrySource } = require('../adapters/resolve-source.ts');
-const { planRetiredHarnesses, applyRetiredHarnesses, retiredReleaseKeys, claimKey } = require('./retired-harnesses.ts');
+const { planRetiredHarnesses, planHandovers, handoversFor, applyRetiredHarnesses, retiredReleaseKeys, claimKey } = require('./retired-harnesses.ts');
 
 const OPERATIONS = new Set(['create', 'merge', 'update', 'remove']);
 /** A harness's MCP selection meaning "the servers it owns now", read through its adapter's
@@ -676,6 +676,13 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
   const harnesses = normalizeTargets(registry, targets);
   // `packagesOnly` (the package verbs): only the package targets, for a runtime that ships no DoFlow content to plan.
   const packagesOnly = context.packagesOnly === true;
+  // Row 127 rule 3a: a retired harness's file its replacement takes over is decided before any live
+  // plan, since the replacement plans that one write itself (`context.handovers`, IC-007).
+  const sweeping = context.operation !== 'remove' && !packagesOnly;
+  const handovers = sweeping
+    ? planHandovers({ registry, ledger: baseLedger, scope, scopeRoot, planned: harnesses.filter((harness: any) => harness.scopes.includes(registryScope(scope))).map((harness: any) => harness.id) })
+    : new Map();
+  const handedTo = handoversFor(handovers);
   const harnessPlans = packagesOnly ? [] : harnesses.map((harness) => {
     if (!harness.scopes.includes(registryScope(scope))) {
       return { harness: harness.id, assets: [], changes: [], conflicts: [`Harness '${harness.id}' does not support ${scope} scope`], prerequisites: [], notices: [], skipped: true, mcpSelected: null };
@@ -686,7 +693,8 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
     const policies = renderPolicies(registry, { harness: harness.id });
     const adoptable = capable ? selectMcpServers(registry, catalogIds(registry, mcpAdoptable[harness.id] ?? [])) : [];
     const adapter = resolveAdapter(adapters, harness);
-    const project = (mcp: any) => projectAdapterInput({ registry, harness, scope, scopeRoot, assets, mcp, mcpAdoptable: adoptable, policies, context });
+    const harnessContext = handedTo.has(harness.id) ? { ...context, handovers: handedTo.get(harness.id) } : context;
+    const project = (mcp: any) => projectAdapterInput({ registry, harness, scope, scopeRoot, assets, mcp, mcpAdoptable: adoptable, policies, context: harnessContext });
     // `keep` asks the adapter what it owns before the real projection: the probe carries no
     // selection, so discovery reads the files as they are.
     const ids = selection === MCP_KEEP
@@ -730,8 +738,8 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
   // Row 127 IC-003: what a retired harness left in this scope's ledger is released, deleted or
   // stripped by the same run, once every live change is known (a row a live change already removes
   // is that change's). Never on remove, which changes only what `-t` names, nor for package work.
-  const retiredHarnesses = context.operation === 'remove' || packagesOnly ? []
-    : planRetiredHarnesses({ registry, ledger: baseLedger, scope, scopeRoot, livePlanChanges: liveChanges });
+  const retiredHarnesses = sweeping
+    ? planRetiredHarnesses({ registry, ledger: baseLedger, scope, scopeRoot, livePlanChanges: liveChanges, handovers }) : [];
   const changes = [...liveChanges, ...retiredHarnesses.flatMap((item: any) => item.changes)];
   const conflicts = planned.flatMap((item: any) => item.conflicts.map((reason: any) => ({ harness: item.harness, reason })));
   const prerequisites = planned.flatMap((item: any) => item.prerequisites.map((prerequisite: any) => ({ harness: item.harness, prerequisite })));

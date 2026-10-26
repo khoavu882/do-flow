@@ -3119,6 +3119,13 @@
             "segments": [
               "AGENTS.md"
             ]
+          },
+          "user": {
+            "base": "root",
+            "segments": [
+              ".gemini",
+              "GEMINI.md"
+            ]
           }
         },
         "mcpFile": {

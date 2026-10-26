@@ -10,6 +10,10 @@ const crypto = require('node:crypto');
 const { defaultLedger } = require('../../src/state/index.ts');
 const { MARKER_START, MARKER_END } = require('../../src/helper/marker-merge.ts');
 
+/** The start marker the retired gemini adapter wrote (src/adapters/gemini/index.ts @ c35f681b), which
+ * real retired sections carry; MARKER_START is the long one marker-merge writes for live harnesses. */
+const SHORT_MARKER_START = '<!-- doflow:start -->';
+
 const HOOK_SCRIPTS = ['session-start.sh', 'session-end.sh', 'pre-bash-guard.sh', 'mcp-tool-guard.sh', 'pre-implement-gate.sh', 'post-edit-lint.sh', 'pre-compact.sh'];
 
 const sha = (bytes: any): string => crypto.createHash('sha256').update(bytes).digest('hex');
@@ -47,11 +51,12 @@ function write(file: string, content: any): string {
  *  shared      <root>/.doflow/guidance/CORE.md   copy-tree-file, also claimed by `replacement` (release)
  *  agent       <root>/.<id>/agents/helper.md     copy-tree-file (agents.shared), unshared (delete)
  *  script      <root>/.<id>/hooks/<script>        hooks-script / <id>-hooks, one per HOOK_SCRIPTS (delete)
- *  instructions <root>/.<id>/<ID>.md             no kind / <id>-instructions, user text + span (strip-section)
+ *  instructions <root>/.<id>/<ID>.md             no kind / <id>-instructions, user text + span (strip-section);
+ *               the span opens with `markerStart`, by default the real retired pair's short marker
  *  settings    <root>/.<id>/settings.json         no kind / <id>-hooks, DoFlow + user handlers (strip-hooks)
  * Returns the ledger, a registry with the retired record, every target and the rows by name.
  */
-function buildRetiredLedger({ root, id = 'oldtool', replacement = 'antigravity', scope = 'global', handover = [] as any[] }: any): any {
+function buildRetiredLedger({ root, id = 'oldtool', replacement = 'antigravity', scope = 'global', handover = [] as any[], markerStart = SHORT_MARKER_START }: any): any {
   const dir = path.join(root, `.${id}`);
   const row = (fields: any) => ({ scope, sourceVersion: 'test', ...fields });
   const fileRow = (harness: string, assetId: string, target: string, identity: string) => row({
@@ -62,7 +67,7 @@ function buildRetiredLedger({ root, id = 'oldtool', replacement = 'antigravity',
   const shared = write(path.join(root, '.doflow', 'guidance', 'CORE.md'), '# core\n');
   const agent = write(path.join(dir, 'agents', 'helper.md'), '---\nname: helper\n---\nbody\n');
   const scripts = Object.fromEntries(HOOK_SCRIPTS.map((script) => [script, write(path.join(dir, 'hooks', script), `#!/bin/bash\n# ${script}\n`)]));
-  const instructions = write(path.join(dir, `${id.toUpperCase()}.md`), `${USER_TEXT}\n${MARKER_START}\nDoFlow pointer\n${MARKER_END}\n`);
+  const instructions = write(path.join(dir, `${id.toUpperCase()}.md`), `${USER_TEXT}\n${markerStart}\nDoFlow pointer\n${MARKER_END}\n`);
   const doflowHandler = (script: string) => ({ type: 'command', command: hookCommand(id, script) });
   const settingsDoc = {
     ...USER_KEYS,
@@ -95,4 +100,4 @@ function buildRetiredLedger({ root, id = 'oldtool', replacement = 'antigravity',
   return { ledger, registry, record, rows, targets: { shared, agent, scripts, instructions, settings }, settingsDoc };
 }
 
-module.exports = { buildRetiredLedger, retiredRecord, hookCommand, HOOK_SCRIPTS, USER_TEXT, USER_HANDLER, USER_KEYS, sha };
+module.exports = { buildRetiredLedger, retiredRecord, hookCommand, HOOK_SCRIPTS, SHORT_MARKER_START, MARKER_START, USER_TEXT, USER_HANDLER, USER_KEYS, sha };

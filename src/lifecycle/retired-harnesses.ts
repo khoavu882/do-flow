@@ -12,21 +12,26 @@
  *  2. a non-retired ledger row has the same claim key                  -> release (file stays)
  *  3. kind copy-tree-file | hooks-script: absent -> drop-row; bytes equal the row's fingerprint and the
  *     path resolves to itself -> delete; otherwise keep (named)
- *  3a. a `removal.handover` entry -> handover | defer (T-127-A5, see handoverAction)
- *  4. renderer in `markerSectionRenderers` -> strip-section; no markers -> drop-row; malformed -> keep
+ *  3a. a `removal.handover` entry (renderer + scope) at the replacement's own declared path: replacement
+ *     planned in this run -> handover (it rewrites the span itself); installed but not planned -> defer
+ *     (row and file stay, notice); otherwise on to rule 4. Decided by planHandovers before any live plan.
+ *  4. renderer in `markerSectionRenderers` -> strip-section (either start marker, see START_MARKERS); no
+ *     markers -> drop-row; malformed -> keep
  *  5. renderer = `hookCommands.renderer` -> strip-hooks (exact frozen commands only); unparseable -> keep;
  *     no matching command -> drop-row
  *  6. anything else -> keep, `unknown row shape <kind>/<renderer>`
  * Every action except `defer` gives the row up (retiredReleaseKeys). Actions that touch no file carry
- * `release: true`, which keeps them out of the backup set like any other release.
+ * `release: true`, which keeps them out of the backup set like any other release; a handed-over file
+ * is backed up through the replacement's own change, which is the one write it gets.
  */
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { isRetired } = require('../registry/index.ts');
+const { resolveHarnessPaths } = require('../helper/harness-paths.ts');
 const { ownershipKey, atomicJsonWrite } = require('../state/index.ts');
 const { removeTree, readJson } = require('../adapters/copy-tree.ts');
-const { removeMarkedSection, MARKER_START, MARKER_END } = require('../helper/marker-merge.ts');
+const { removeMarkedSection, markedSpan, MARKER_START } = require('../helper/marker-merge.ts');
 
 type RetiredAction = 'release' | 'handover' | 'defer' | 'delete' | 'strip-section' | 'strip-hooks' | 'drop-row' | 'keep';
 
@@ -49,7 +54,7 @@ interface Classification { action: RetiredAction; reason?: string; fingerprint?:
 
 const WHOLE_FILE_KINDS = new Set(['copy-tree-file', 'hooks-script']);
 /** Actions with no filesystem effect: the row is given up and nothing is written or deleted. */
-const NO_FS_EFFECT = new Set<RetiredAction>(['release', 'drop-row', 'keep']);
+const NO_FS_EFFECT = new Set<RetiredAction>(['release', 'handover', 'defer', 'drop-row', 'keep']);
 const COUNTED: Partial<Record<RetiredAction, keyof RetiredHarnessPlan['counts']>> = {
   delete: 'deleted', 'strip-section': 'stripped', 'strip-hooks': 'stripped', release: 'released', handover: 'released', keep: 'kept',
 };
@@ -110,21 +115,70 @@ function readHooksDoc(target: string, key: string, fsImpl: any): { absent?: true
   return { doc: value };
 }
 
-/** Marker state of a file, by the same rules removeMarkedSection applies. */
-function markerState(text: string): 'none' | 'ok' | 'malformed' {
-  const start = text.indexOf(MARKER_START);
-  if (start === -1) return 'none';
-  const end = text.indexOf(MARKER_END, start + MARKER_START.length);
-  if (end === -1 || text.indexOf(MARKER_START, end + MARKER_END.length) !== -1) return 'malformed';
-  return 'ok';
+/** The start markers a retired section may open with: marker-merge's, and the short one the retired
+ * gemini adapter wrote (src/adapters/gemini/index.ts @ c35f681b), which its real sections carry. Both
+ * close with MARKER_END. Only this sweep reads the short one; live harnesses never see it. */
+const START_MARKERS = [MARKER_START, '<!-- doflow:start -->'];
+
+/** Marker state of a file, by the rules removeMarkedSection applies with START_MARKERS. */
+function markerState(text: string): 'none' | 'ok' | 'malformed' { return markedSpan(text, START_MARKERS).state; }
+
+/** Rule 3a's verdict for one retired row (IC-003, IC-007, design D7). */
+interface HandoverDecision { action: 'handover' | 'defer'; to: string; target: string; fromKey: string; edited: boolean }
+
+/**
+ * Rule 3a, decided before the live harnesses plan, because the replacement needs the verdict to plan
+ * its own change: `context.handovers` for each `to`. A retired row qualifies when a `removal.handover`
+ * entry names its renderer and this scope, its file is still there in place, and the file is the one
+ * the replacement itself declares for that surface here. Then: `to` planned in this run -> handover,
+ * `edited` when the whole file no longer has the bytes the row recorded; `to` installed in the scope
+ * (a ledger row of it, or its `targets` entry; a lock pins only harnesses the ledger holds, IC-004)
+ * -> defer. Rules 2 and 3 come first, as in classify. Returns the decisions by ownership key.
+ */
+function planHandovers({ registry, ledger, scope, scopeRoot, planned = [], fsImpl = fs }: any): Map<string, HandoverDecision> {
+  const decisions = new Map<string, HandoverDecision>();
+  const retiredRecords = Array.isArray(registry?.retired) ? registry.retired : [];
+  if (!retiredRecords.length) return decisions;
+  const rows = (ledger?.resources ?? []).filter((row: any) => typeof row?.target === 'string' && typeof row?.harness === 'string');
+  const liveClaims = new Set<string>(rows.filter((row: any) => !isRetired(registry, row.harness)).map(claimKey));
+  const plannedIds = new Set<string>(planned);
+  for (const retired of retiredRecords) {
+    const entries = (retired.removal?.handover ?? []).filter((entry: any) => entry?.scope === scope);
+    if (!entries.length) continue;
+    for (const row of rows.filter((item: any) => item.harness === retired.id)) {
+      const entry = entries.find((item: any) => item.renderer === row.projection?.renderer);
+      if (!entry || liveClaims.has(claimKey(row)) || WHOLE_FILE_KINDS.has(row.kind)) continue;
+      const to = registry.harnesses?.find((harness: any) => harness.id === entry.to);
+      if (!to?.paths?.[entry.surface]) continue;
+      let declared: string | null = null;
+      try { declared = resolveHarnessPaths({ [entry.surface]: to.paths[entry.surface] }, { scope, scopeRoot, homeDir: scopeRoot })[entry.surface]; } catch { continue; }
+      if (declared !== row.target || !fsImpl.existsSync(row.target) || !resolvesInPlace(row.target, scopeRoot, fsImpl)) continue;
+      const base = { to: to.id, target: row.target, fromKey: ownershipKey(row) };
+      if (plannedIds.has(to.id)) {
+        decisions.set(base.fromKey, { action: 'handover', ...base, edited: sha256(fsImpl.readFileSync(row.target)) !== row.fingerprint });
+      } else if (rows.some((item: any) => item.harness === to.id) || ledger?.targets?.[to.id]) {
+        decisions.set(base.fromKey, { action: 'defer', ...base, edited: false });
+      }
+    }
+  }
+  return decisions;
 }
 
-/** Rule 3a (IC-003, design D7): a row the retired record lists under `removal.handover` (renderer +
- * scope) is handed to the replacement when it is planned in this run, or deferred when it is installed
- * in the scope but not planned. That decision is T-127-A5's; until it lands every row falls through
- * to rule 4. */
-function handoverAction(_row: any, _retired: any, _context: any): Classification | null {
-  return null;
+/** What the replacement is told about each handover in this run: `context.handovers` per harness id. */
+function handoversFor(decisions: Map<string, HandoverDecision>): Map<string, Array<{ target: string; fromKey: string; edited: boolean }>> {
+  const byHarness = new Map<string, Array<{ target: string; fromKey: string; edited: boolean }>>();
+  for (const { action, to, target, fromKey, edited } of decisions.values()) {
+    if (action !== 'handover') continue;
+    if (!byHarness.has(to)) byHarness.set(to, []);
+    byHarness.get(to)!.push({ target, fromKey, edited });
+  }
+  return byHarness;
+}
+
+/** Rule 3a in classify: the verdict planHandovers reached for this row before the live plans. */
+function handoverAction(row: any, _retired: any, context: any): Classification | null {
+  const decided = context.handovers?.get(ownershipKey(row));
+  return decided ? { action: decided.action } : null;
 }
 
 function classify(row: any, retired: any, context: any): Classification {
@@ -171,8 +225,9 @@ function classify(row: any, retired: any, context: any): Classification {
 }
 
 /** One plan per retired harness that still has rows in this scope's ledger, in registry order. A ledger
- * with no retired rows yields []. `livePlanChanges` are the live harnesses' planned changes. */
-function planRetiredHarnesses({ registry, ledger, scope, scopeRoot, livePlanChanges = [], fsImpl = fs }: any): RetiredHarnessPlan[] {
+ * with no retired rows yields []. `livePlanChanges` are the live harnesses' planned changes, and
+ * `handovers` planHandovers' decisions for this same run. */
+function planRetiredHarnesses({ registry, ledger, scope, scopeRoot, livePlanChanges = [], handovers = new Map(), fsImpl = fs }: any): RetiredHarnessPlan[] {
   const retiredRecords = Array.isArray(registry?.retired) ? registry.retired : [];
   if (!retiredRecords.length) return [];
   const rows = (ledger?.resources ?? []).filter((row: any) => typeof row?.target === 'string' && typeof row?.harness === 'string');
@@ -184,7 +239,7 @@ function planRetiredHarnesses({ registry, ledger, scope, scopeRoot, livePlanChan
     for (const key of change.supersedes ?? []) superseded.add(key);
   }
   const liveClaims = new Set<string>(rows.filter((row: any) => !isRetired(registry, row.harness)).map(claimKey));
-  const context = { registry, scope, scopeRoot, livePlanChanges, liveRemoved, superseded, liveClaims, fsImpl };
+  const context = { registry, scope, scopeRoot, livePlanChanges, liveRemoved, superseded, liveClaims, handovers, fsImpl };
 
   const plans: RetiredHarnessPlan[] = [];
   for (const retired of retiredRecords) {
@@ -208,6 +263,7 @@ function planRetiredHarnesses({ registry, ledger, scope, scopeRoot, livePlanChan
       const counted = COUNTED[action];
       if (counted) plan.counts[counted] += 1;
       if (action === 'keep') plan.notices.push(`kept ${path.relative(scopeRoot, row.target)}: ${reason}`);
+      if (action === 'defer') plan.notices.push(`${path.relative(scopeRoot, row.target)}: handed over on the next run that targets ${handovers.get(change.ownershipKey).to}`);
     }
     plans.push(plan);
   }
@@ -237,7 +293,7 @@ function applyRetiredHarnesses(plans: RetiredHarnessPlan[], { fsImpl = fs }: any
   for (const { change, scopeRoot } of all) {
     if (change.action !== 'strip-section') continue;
     guard(change, scopeRoot);
-    removeMarkedSection(change.target);
+    removeMarkedSection(change.target, { startMarkers: START_MARKERS });
   }
   const deletes = all.filter(({ change }) => change.action === 'delete');
   for (const { change, scopeRoot } of deletes) guard(change, scopeRoot);
@@ -258,4 +314,4 @@ function formatRetiredPlans(plans: RetiredHarnessPlan[]): string[] {
   ]);
 }
 
-module.exports = { planRetiredHarnesses, applyRetiredHarnesses, retiredReleaseKeys, formatRetiredPlans, claimKey };
+module.exports = { planRetiredHarnesses, planHandovers, handoversFor, applyRetiredHarnesses, retiredReleaseKeys, formatRetiredPlans, claimKey };

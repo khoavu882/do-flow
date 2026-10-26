@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { ownershipKey } = require('../../src/state/index.ts');
 const { planRetiredHarnesses, applyRetiredHarnesses, retiredReleaseKeys, formatRetiredPlans } = require('../../src/lifecycle/retired-harnesses.ts');
-const { buildRetiredLedger, hookCommand, USER_TEXT, USER_HANDLER, USER_KEYS, sha } = require('../helper/retired-ledger.ts');
+const { buildRetiredLedger, hookCommand, USER_TEXT, USER_HANDLER, USER_KEYS, sha, SHORT_MARKER_START, MARKER_START } = require('../helper/retired-ledger.ts');
 const { tempDir } = require('../helper/tmp.ts');
 
 function setup(t: any, options: any = {}) {
@@ -109,28 +109,57 @@ test('apply re-checks a whole file and refuses one changed after the plan', (t) 
   assert.match(fs.readFileSync(f.targets.agent, 'utf8'), /late edit/);
 });
 
-test('rule 4: a marker section is stripped and the person\'s text kept byte for byte', (t) => {
+// Rule 4 for both start markers: the short one the retired gemini adapter wrote (the fixture's
+// default, as real retired sections carry it) and marker-merge's long one.
+for (const [form, markerStart] of [['short', SHORT_MARKER_START], ['long', MARKER_START]]) {
+  for (const scope of ['global', 'project']) {
+    test(`rule 4 (${form} marker, ${scope}): a marker section is stripped and the person's text kept byte for byte`, (t) => {
+      const f = setup(t, { markerStart, scope });
+      assert.ok(fs.readFileSync(f.targets.instructions, 'utf8').includes(`\n${markerStart}\n`), 'precondition: the fixture wrote this form');
+      const plans = plan(f, { scope });
+      assert.equal(changeFor(plans, f.rows.instructions).action, 'strip-section');
+      applyRetiredHarnesses(plans);
+      assert.equal(fs.readFileSync(f.targets.instructions, 'utf8'), USER_TEXT);
+    });
+  }
+
+  test(`rule 4 (${form} marker): a file that held only the span is deleted, one with text after it keeps that text`, (t) => {
+    const f = setup(t, { markerStart });
+    fs.writeFileSync(f.targets.instructions, `${markerStart}\nDoFlow pointer\n<!-- doflow:end -->\n`);
+    applyRetiredHarnesses(plan(f));
+    assert.ok(!fs.existsSync(f.targets.instructions));
+    const g = setup(t, { markerStart });
+    fs.writeFileSync(g.targets.instructions, `${markerStart}\nDoFlow pointer\n<!-- doflow:end -->\nafter\n`);
+    applyRetiredHarnesses(plan(g));
+    assert.equal(fs.readFileSync(g.targets.instructions, 'utf8'), 'after\n');
+  });
+
+  test(`rule 4 (${form} marker): a file without markers is drop-row; control (d): malformed markers are kept and named`, (t) => {
+    const f = setup(t, { markerStart });
+    fs.writeFileSync(f.targets.instructions, USER_TEXT);
+    assert.equal(changeFor(plan(f), f.rows.instructions).action, 'drop-row');
+
+    const span = `${markerStart}\nDoFlow pointer\n<!-- doflow:end -->\n`;
+    for (const malformed of [`${USER_TEXT}${markerStart}\nno end\n`, `${USER_TEXT}${span}${span}`, `${USER_TEXT}${span}${SHORT_MARKER_START}\n${MARKER_START}\n`]) {
+      fs.writeFileSync(f.targets.instructions, malformed);
+      const plans = plan(f);
+      const change = changeFor(plans, f.rows.instructions);
+      assert.equal(change.action, 'keep', JSON.stringify(malformed));
+      assert.equal(change.reason, 'malformed DoFlow markers');
+      assert.ok(plans[0].notices.includes(`kept ${path.relative(f.root, f.targets.instructions)}: malformed DoFlow markers`));
+      applyRetiredHarnesses(plans);
+      assert.equal(fs.readFileSync(f.targets.instructions, 'utf8'), malformed);
+    }
+  });
+}
+
+test('rule 4: apply re-checks the markers and refuses a span that turned malformed after the plan', (t) => {
   const f = setup(t);
   const plans = plan(f);
-  assert.equal(changeFor(plans, f.rows.instructions).action, 'strip-section');
-  applyRetiredHarnesses(plans);
-  assert.equal(fs.readFileSync(f.targets.instructions, 'utf8'), USER_TEXT);
-});
-
-test('rule 4: a file without markers is drop-row; control (d): malformed markers are kept and named', (t) => {
-  const f = setup(t);
-  fs.writeFileSync(f.targets.instructions, USER_TEXT);
-  assert.equal(changeFor(plan(f), f.rows.instructions).action, 'drop-row');
-
-  const malformed = `${USER_TEXT}<!-- doflow:start — content below is managed by doflow install/update; edits here are overwritten on the next run -->\nno end\n`;
-  fs.writeFileSync(f.targets.instructions, malformed);
-  const plans = plan(f);
-  const change = changeFor(plans, f.rows.instructions);
-  assert.equal(change.action, 'keep');
-  assert.equal(change.reason, 'malformed DoFlow markers');
-  assert.ok(plans[0].notices.includes(`kept ${path.relative(f.root, f.targets.instructions)}: malformed DoFlow markers`));
-  applyRetiredHarnesses(plans);
-  assert.equal(fs.readFileSync(f.targets.instructions, 'utf8'), malformed);
+  fs.appendFileSync(f.targets.instructions, `${SHORT_MARKER_START}\n`);
+  const before = fs.readFileSync(f.targets.instructions, 'utf8');
+  assert.throws(() => applyRetiredHarnesses(plans), /malformed DoFlow markers/);
+  assert.equal(fs.readFileSync(f.targets.instructions, 'utf8'), before);
 });
 
 test('rule 5 / control (b): only the frozen commands leave the hooks key; user handlers and other keys stay byte-identical', (t) => {
