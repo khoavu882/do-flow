@@ -47,7 +47,7 @@ function writeFixtureStore(root: any, rows: any, layout: any = { worktree: '{mai
 
 function runSeedJson(options: any) {
   let output = '';
-  const exit = handleSeedCommand({
+  const exit = handleSeedCommand({ isTTY: true,
     ...options,
     json: true,
     out: (line: any) => { output += `${line}\n`; },
@@ -76,7 +76,7 @@ test('check: per-row add and amend classification', (t) => {
   );
 
   let outData = '';
-  const exit = handleSeedCommand({
+  const exit = handleSeedCommand({ isTTY: true,
     action: 'check',
     draft: draftPath,
     root: dir,
@@ -126,7 +126,7 @@ test('check: row-started for a trailer-merged row and for a row with feat/<slug>
   );
 
   let outData = '';
-  const exit = handleSeedCommand({
+  const exit = handleSeedCommand({ isTTY: true,
     action: 'check',
     draft: draftPath,
     root: dir,
@@ -167,7 +167,7 @@ test('check: overlaps and alone detection', (t) => {
   );
 
   let outData = '';
-  const exit = handleSeedCommand({
+  const exit = handleSeedCommand({ isTTY: true,
     action: 'check',
     draft: draftPath,
     root: dir,
@@ -202,7 +202,7 @@ test('check: IC-004 top-level key order via Object.keys deepEqual', (t) => {
   );
 
   let outData = '';
-  const exit = handleSeedCommand({
+  const exit = handleSeedCommand({ isTTY: true,
     action: 'check',
     draft: draftPath,
     root: dir,
@@ -250,7 +250,7 @@ test('check: IC-003 land reflects one clean change kind and is null for other ou
   assert.equal(addCheck.result.land, `doflow roadmap seed ${root} --action apply --draft ${addDraft}`);
 
   const textLines: any = [];
-  const textExit = handleSeedCommand({
+  const textExit = handleSeedCommand({ isTTY: true,
     action: 'check', draft: addDraft, root, gitFacts,
     out: (line: any) => textLines.push(line), err: (line: any) => textLines.push(line),
   });
@@ -347,7 +347,7 @@ test('C-1: (a) newline-named draft refuses land command and text stays within 12
   assert.equal(jsonResult.result.land, null);
 
   const textLines: any = [];
-  const textExit = handleSeedCommand({
+  const textExit = handleSeedCommand({ isTTY: true,
     action: 'check',
     draft: draftPath,
     root,
@@ -395,7 +395,7 @@ test('C-1: (b) newline-named root refuses land command and text stays within 12 
   assert.equal(jsonResult.result.land, null);
 
   const textLines: any = [];
-  const textExit = handleSeedCommand({
+  const textExit = handleSeedCommand({ isTTY: true,
     action: 'check',
     draft: draftPath,
     root,
@@ -449,7 +449,7 @@ test('C-1: (d) positive control: clean path prints land line and quote case roun
   assert.ok(result.land.startsWith('doflow roadmap seed '));
 
   const textLines: any = [];
-  const textExit = handleSeedCommand({
+  const textExit = handleSeedCommand({ isTTY: true,
     action: 'check',
     draft: cleanDraft,
     root,
@@ -519,7 +519,7 @@ test('missing store: check judges empty, reports null digest, marks text, and EA
   assert.equal(result.result.land, `doflow roadmap seed ${dir} --action apply --draft ${draftPath}`);
 
   const textLines: any = [];
-  const textExit = handleSeedCommand({
+  const textExit = handleSeedCommand({ isTTY: true,
     action: 'check', draft: draftPath, root: dir, fsImpl: missingFs,
     gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
     out: (line: any) => textLines.push(line), err: (line: any) => textLines.push(line),
@@ -677,14 +677,14 @@ test('check: double run byte-equal (--json and text)', (t) => {
 
   let json1 = '';
   let json2 = '';
-  handleSeedCommand({ action: 'check', draft: draftPath, root: dir, json: true, gitFacts, out: (s: any) => { json1 += s + '\n'; } });
-  handleSeedCommand({ action: 'check', draft: draftPath, root: dir, json: true, gitFacts, out: (s: any) => { json2 += s + '\n'; } });
+  handleSeedCommand({ isTTY: true, action: 'check', draft: draftPath, root: dir, json: true, gitFacts, out: (s: any) => { json1 += s + '\n'; } });
+  handleSeedCommand({ isTTY: true, action: 'check', draft: draftPath, root: dir, json: true, gitFacts, out: (s: any) => { json2 += s + '\n'; } });
   assert.equal(json1, json2);
 
   let text1 = '';
   let text2 = '';
-  handleSeedCommand({ action: 'check', draft: draftPath, root: dir, json: false, gitFacts, out: (s: any) => { text1 += s + '\n'; } });
-  handleSeedCommand({ action: 'check', draft: draftPath, root: dir, json: false, gitFacts, out: (s: any) => { text2 += s + '\n'; } });
+  handleSeedCommand({ isTTY: true, action: 'check', draft: draftPath, root: dir, json: false, gitFacts, out: (s: any) => { text1 += s + '\n'; } });
+  handleSeedCommand({ isTTY: true, action: 'check', draft: draftPath, root: dir, json: false, gitFacts, out: (s: any) => { text2 += s + '\n'; } });
   assert.equal(text1, text2);
 });
 
@@ -713,7 +713,7 @@ test('check: draft with five broken rules reports all five in IC-006 order (FR-0
   );
 
   let outData = '';
-  const exit = handleSeedCommand({
+  const exit = handleSeedCommand({ isTTY: true,
     action: 'check',
     draft: draftPath,
     root: dir,
@@ -750,7 +750,7 @@ test('apply: refuses an amend row with id-exists', (t) => {
   );
 
   let errData = '';
-  const exit = handleSeedCommand({
+  const exit = handleSeedCommand({ isTTY: true,
     action: 'apply',
     draft: draftPath,
     root: dir,
@@ -798,7 +798,7 @@ test('apply: appends in draft order, preserves schema/layout, re-renders table, 
   const gitFacts: any = { developHead: 'h', merges: [], branches: [], unreadable: [] };
 
   let outData = '';
-  const exit = handleSeedCommand({
+  const exit = handleSeedCommand({ isTTY: true,
     action: 'apply',
     draft: draftPath,
     root: dir,
@@ -830,7 +830,7 @@ test('apply: appends in draft order, preserves schema/layout, re-renders table, 
 
   // A no-op second apply refuses because ids 115 and 114 now exist
   let secondOut = '';
-  const secondExit = handleSeedCommand({
+  const secondExit = handleSeedCommand({ isTTY: true,
     action: 'apply',
     draft: draftPath,
     root: dir,
@@ -861,7 +861,7 @@ test('amend: refuses an add row with row-not-found', (t) => {
   );
 
   let outData = '';
-  const exit = handleSeedCommand({
+  const exit = handleSeedCommand({ isTTY: true,
     action: 'amend',
     draft: draftPath,
     root: dir,
@@ -909,7 +909,7 @@ test('amend: replaces in place, refuses merged/in-flight (row-started), keeps in
     'utf8'
   );
   let outMerged = '';
-  const exitMerged = handleSeedCommand({
+  const exitMerged = handleSeedCommand({ isTTY: true,
     action: 'amend',
     draft: draftMerged,
     root: dir,
@@ -932,7 +932,7 @@ test('amend: replaces in place, refuses merged/in-flight (row-started), keeps in
     'utf8'
   );
   let outInFlight = '';
-  const exitInFlight = handleSeedCommand({
+  const exitInFlight = handleSeedCommand({ isTTY: true,
     action: 'amend',
     draft: draftInFlight,
     root: dir,
@@ -966,7 +966,7 @@ test('amend: replaces in place, refuses merged/in-flight (row-started), keeps in
   );
 
   let outClean = '';
-  const exitClean = handleSeedCommand({
+  const exitClean = handleSeedCommand({ isTTY: true,
     action: 'amend',
     draft: draftClean,
     root: dir,
@@ -1007,7 +1007,7 @@ test('refusals: live lease gives lease-held; maint-thin: readSwitch enabled no l
   // G55 requires the quoted literal 'lease-held'. maint-thin: an enabled switch is not a refusal (no 'needs-person'
   // from seed); the added row lands proposed, the store row stays ready, and the table names it.
   let outProposedJson = '';
-  const exitProposed = handleSeedCommand({
+  const exitProposed = handleSeedCommand({ isTTY: true,
     action: 'apply',
     draft: draftPath,
     root: dir,
@@ -1044,7 +1044,7 @@ test('refusals: live lease gives lease-held; maint-thin: readSwitch enabled no l
 
   let outLeaseJson = '';
   let errLeaseText = '';
-  const exitLease = handleSeedCommand({
+  const exitLease = handleSeedCommand({ isTTY: true,
     action: 'apply',
     draft: draftPath,
     root: dir,
@@ -1069,7 +1069,7 @@ test('refusals: live lease gives lease-held; maint-thin: readSwitch enabled no l
 
   // Lease text detail names holder pid and host
   let textLeaseErr = '';
-  handleSeedCommand({
+  handleSeedCommand({ isTTY: true,
     action: 'apply',
     draft: draftPath,
     root: dir,
@@ -1085,7 +1085,7 @@ test('refusals: live lease gives lease-held; maint-thin: readSwitch enabled no l
 
   // 3. check runs even with switch enabled and held lease
   let outCheck = '';
-  const exitCheck = handleSeedCommand({
+  const exitCheck = handleSeedCommand({ isTTY: true,
     action: 'check',
     draft: draftPath,
     root: dir,
@@ -1109,7 +1109,7 @@ test('refusals: lease file is gone after successful apply AND after apply with f
   fs.writeFileSync(draftValid, JSON.stringify({ schema: 1, rows: [{ id: '114', slug: '114-add', title: 'Add', class: 'feature', needs: [] }] }));
 
   // 1. Success
-  const exit1 = handleSeedCommand({
+  const exit1 = handleSeedCommand({ isTTY: true,
     action: 'apply',
     draft: draftValid,
     root: dir,
@@ -1124,7 +1124,7 @@ test('refusals: lease file is gone after successful apply AND after apply with f
   const draftInvalid = path.join(dir, 'draft-invalid.json');
   fs.writeFileSync(draftInvalid, JSON.stringify({ schema: 1, rows: [{ id: '115', slug: '115-bad', title: 'Bad', class: 'bad-class', needs: [] }] }));
 
-  const exit2 = handleSeedCommand({
+  const exit2 = handleSeedCommand({ isTTY: true,
     action: 'apply',
     draft: draftInvalid,
     root: dir,
@@ -1147,7 +1147,7 @@ test('findings: store and table sha256 unchanged, writes: 0, no tmp files left i
   fs.writeFileSync(draftBad, JSON.stringify({ schema: 1, rows: [{ id: '114', slug: '114-bad', title: 'Bad', class: 'unknown-class', needs: [] }] }));
 
   let outData = '';
-  const exit = handleSeedCommand({
+  const exit = handleSeedCommand({ isTTY: true,
     action: 'apply',
     draft: draftBad,
     root: dir,
@@ -1195,7 +1195,7 @@ test('text cap: 200-row draft with 200 findings prints at most 12 lines, last li
   fs.writeFileSync(draftPath, JSON.stringify({ schema: 1, rows }));
 
   const lines: any = [];
-  const exit = handleSeedCommand({
+  const exit = handleSeedCommand({ isTTY: true,
     action: 'check',
     draft: draftPath,
     root: dir,
@@ -1236,7 +1236,7 @@ test('temp+rename seam: store and table written through temp file and renameSync
     },
   };
 
-  const exit = handleSeedCommand({
+  const exit = handleSeedCommand({ isTTY: true,
     action: 'apply',
     draft: draftPath,
     root: dir,
@@ -1275,25 +1275,25 @@ test('usage exits 2: missing action, unknown action, missing draft, unreadable d
 
   // Missing action
   errLines = [];
-  assert.equal(handleSeedCommand({ draft: draftPath, root: dir, err: captureErr }), 2);
+  assert.equal(handleSeedCommand({ isTTY: true, draft: draftPath, root: dir, err: captureErr }), 2);
   assert.ok(errLines.some((l: any) => l.includes('action')));
 
   // Unknown action
   errLines = [];
-  assert.equal(handleSeedCommand({ action: 'delete', draft: draftPath, root: dir, err: captureErr }), 2);
+  assert.equal(handleSeedCommand({ isTTY: true, action: 'delete', draft: draftPath, root: dir, err: captureErr }), 2);
 
   // Missing draft
   errLines = [];
-  assert.equal(handleSeedCommand({ action: 'check', root: dir, err: captureErr }), 2);
+  assert.equal(handleSeedCommand({ isTTY: true, action: 'check', root: dir, err: captureErr }), 2);
 
   // Unreadable draft file (does not exist)
   errLines = [];
-  assert.equal(handleSeedCommand({ action: 'check', draft: path.join(dir, 'non-existent.json'), root: dir, err: captureErr }), 2);
+  assert.equal(handleSeedCommand({ isTTY: true, action: 'check', draft: path.join(dir, 'non-existent.json'), root: dir, err: captureErr }), 2);
 
   // JSON usage output shape
   let jsonLines: any = [];
   const captureJson = (s: any) => jsonLines.push(s);
-  const code = handleSeedCommand({ action: 'bad', draft: draftPath, root: dir, json: true, out: captureJson });
+  const code = handleSeedCommand({ isTTY: true, action: 'bad', draft: draftPath, root: dir, json: true, out: captureJson });
   assert.equal(code, 2);
   const parsedUsage = JSON.parse(jsonLines[0]);
   assert.equal(parsedUsage.error, 'usage');
@@ -1303,7 +1303,7 @@ test('usage exits 2: missing action, unknown action, missing draft, unreadable d
   const unparsableDraft = path.join(dir, 'invalid-json.json');
   fs.writeFileSync(unparsableDraft, '{ not json');
   let unparsableOut = '';
-  const exitInvalid = handleSeedCommand({
+  const exitInvalid = handleSeedCommand({ isTTY: true,
     action: 'check',
     draft: unparsableDraft,
     root: dir,
@@ -1334,7 +1334,7 @@ test('real-git case (NFR-002): gatherGitFacts against real repository', (t) => {
   fs.writeFileSync(draftPath, JSON.stringify({ schema: 1, rows: [{ id: '114', slug: '114-add', title: 'Add', class: 'feature', needs: [] }] }));
 
   let outData = '';
-  const exit = handleSeedCommand({
+  const exit = handleSeedCommand({ isTTY: true,
     action: 'check',
     draft: draftPath,
     root: dir,
@@ -1384,7 +1384,7 @@ function seedApplyFixture(t: any, { setting = 'on', envOff = false, noHome = fal
 function runSeedApply(fixture: any, { json = true, fsImpl = fs }: any = {}) {
   let out = '';
   let err = '';
-  const exit = handleSeedCommand({
+  const exit = handleSeedCommand({ isTTY: true,
     action: 'apply', draft: fixture.draftPath, root: fixture.dir, env: fixture.env, json, fsImpl,
     gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
     out: (s: any) => { out += `${s}\n`; }, err: (s: any) => { err += `${s}\n`; },
@@ -1413,7 +1413,7 @@ test('C-1 malformed store rows are rejected by judgement and apply/amend leave b
     assert.ok(judgement.findings.some((f: any) => f.rule === 'seed-invalid' && f.rowId === undefined && f.rowIds === undefined));
     for (const action of ['apply', 'amend']) {
       let output = '';
-      const exit = handleSeedCommand({ action, draft: draftPath, root: dir, json: true,
+      const exit = handleSeedCommand({ isTTY: true, action, draft: draftPath, root: dir, json: true,
         gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
         readSwitch: () => ({ enabled: false, switch: null }), out: (s: any) => { output += `${s}\n`; } });
       assert.equal(exit, 1, `${label} ${action}`);
@@ -1450,7 +1450,7 @@ test('C-2 seed reader fails closed for env-off, invalid settings, no config home
   }
   const text = runSeedApply(seedApplyFixture(t, { setting: 'on' }), { json: false });
   assert.equal(text.exit, 0);
-  assert.match(text.out, /1 proposed \(autopilot is not verifiably off; with it off, a person runs: doflow roadmap promote 114\)/);
+  assert.match(text.out, /1 proposed \(no person verified, or autopilot is not verifiably off; a person runs in their terminal, with autopilot off: doflow roadmap promote 114\)/);
   assert.doesNotMatch(text.out, /DOFLOW_AUTOPILOT_ENABLED/);
 });
 
@@ -1495,7 +1495,7 @@ test('C-3 noncanonical writeSet paths are rejected by judgeDraft and apply', (t)
     assert.equal(judgement.ok, false, writePath);
     assert.ok(judgement.findings.some((f: any) => f.rule === 'seed-invalid'), writePath);
     let output = '';
-    const exit = handleSeedCommand({ action: 'apply', draft: draftPath, root: dir, json: true,
+    const exit = handleSeedCommand({ isTTY: true, action: 'apply', draft: draftPath, root: dir, json: true,
       gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
       readSwitch: () => ({ enabled: false, switch: null }), out: (s: any) => { output += `${s}\n`; } });
     assert.equal(exit, 1, writePath);
@@ -1526,7 +1526,7 @@ test('C-4 malformed writeSet values are findings, never overlap exceptions or wr
     assert.doesNotThrow(() => { judgement = judgeDraft({ draftRaw: draftBytes, seedRaw: jsonContent }); });
     assert.equal(judgement.ok, false, `writeSet ${index}`);
     let output = '';
-    const exit = handleSeedCommand({ action: 'apply', draft: draftPath, root: dir, json: true,
+    const exit = handleSeedCommand({ isTTY: true, action: 'apply', draft: draftPath, root: dir, json: true,
       gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
       readSwitch: () => ({ enabled: false, switch: null }), out: (s: any) => { output += `${s}\n`; } });
     assert.equal(exit, 1);
@@ -1584,7 +1584,7 @@ test('C-6 text output escapes adversarial values and stays within twelve lines',
   }] }));
   const stdout: any = [];
   const stderr: any = [];
-  const exit = handleSeedCommand({ action: 'check', draft: draftPath, root: dir, json: false,
+  const exit = handleSeedCommand({ isTTY: true, action: 'check', draft: draftPath, root: dir, json: false,
     gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
     out: (s: any) => stdout.push(s), err: (s: any) => stderr.push(s) });
   assert.equal(exit, 1);
@@ -1614,7 +1614,7 @@ test('C-10 rename faults clean temporary files and preserve the documented write
       if (renames === failAt) throw new Error(`rename ${failAt} failed`);
       return fs.renameSync(from, to);
     } };
-    assert.throws(() => handleSeedCommand({ action: 'apply', draft: draftPath, root: dir, fsImpl,
+    assert.throws(() => handleSeedCommand({ isTTY: true, action: 'apply', draft: draftPath, root: dir, fsImpl,
       gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
       readSwitch: () => ({ enabled: false, switch: null }), out: () => {} }), new RegExp(`rename ${failAt} failed`));
     const storeDir = path.join(dir, 'agent-docs', 'roadmap');
@@ -1649,7 +1649,7 @@ test('IC-003 text cap: land line plus many overlaps still prints at most twelve 
   const draftPath = path.join(dir, 'draft.json');
   fs.writeFileSync(draftPath, JSON.stringify({ schema: 1, rows }), 'utf8');
   const lines: any = [];
-  const exit = handleSeedCommand({ action: 'check', draft: draftPath, root: dir, json: false,
+  const exit = handleSeedCommand({ isTTY: true, action: 'check', draft: draftPath, root: dir, json: false,
     gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
     out: (s: any) => lines.push(s), err: (s: any) => lines.push(s) });
   assert.equal(exit, 0);

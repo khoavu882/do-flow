@@ -53,6 +53,7 @@ interface HandleSeedCommandOptions {
   out?: (s: string) => void;
   err?: (s: string) => void;
   classes?: string[];
+  isTTY?: boolean;
 }
 
 function judgeDraft({
@@ -378,7 +379,7 @@ function printTextResult(
   if ((op === 'apply' || op === 'amend') && result.ok) {
     line1 += `, ${result.writes} files written`;
     if (Array.isArray(result.proposed) && result.proposed.length > 0) {
-      line1 += `, ${result.proposed.length} proposed (autopilot is not verifiably off; with it off, a person runs: doflow roadmap promote ${result.proposed.map(safeText).join(' ')})`;
+      line1 += `, ${result.proposed.length} proposed (no person verified, or autopilot is not verifiably off; a person runs in their terminal, with autopilot off: doflow roadmap promote ${result.proposed.map(safeText).join(' ')})`;
     }
   }
   if (result.seed && result.seed.sha256 === null) {
@@ -479,6 +480,7 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
     out = (s: string) => console.log(s),
     err = (s: string) => console.error(s),
     classes,
+    isTTY = process.stdin.isTTY === true,
   } = options;
 
   const usage = (message: string): number => {
@@ -581,11 +583,13 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
   }
 
   // 4. Apply / Amend action
-  // (a) maint-thin: a seed write is allowed whatever the switch says; while autopilot is not verifiably off (the
-  // fail-closed seed reader), every row it adds or amends lands `proposed`, which autopilot never picks or advances
-  // until a person runs `roadmap promote`. While it is off, rows land as drafted (ready).
+  // (a) maint-thin: a seed write is allowed whatever the switch says. Rows land as drafted (ready) only when BOTH
+  // autopilot is verifiably off (the fail-closed seed reader) AND stdin is an interactive terminal: a model with a
+  // shell controls the environment (an empty config home reads as off), so the switch alone cannot tell a person.
+  // Otherwise every row it adds or amends lands `proposed`, which autopilot never picks or advances until a person
+  // runs `roadmap promote`.
   const switchReader = readSwitch || readSeedSwitch;
-  const landProposed = switchReader(env, fsImpl).enabled !== false;
+  const landProposed = isTTY !== true || switchReader(env, fsImpl).enabled !== false;
 
   // (b) Acquire lease
   const leaseDir = path.join(root, '.doflow', 'state', 'roadmap');

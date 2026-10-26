@@ -61,13 +61,13 @@ test('seed apply and amend while autopilot is on land the written rows proposed;
   const draft = path.join(dir, 'draft.json');
   fs.writeFileSync(draft, JSON.stringify({ schema: 1, rows: [row('131')] }));
   const on = capture();
-  assert.equal(handleSeedCommand({ action: 'apply', draft, root: dir, json: true, gitFacts: FACTS, readSwitch: ON, out: on.fn, err: on.fn }), 0);
+  assert.equal(handleSeedCommand({ isTTY: true, action: 'apply', draft, root: dir, json: true, gitFacts: FACTS, readSwitch: ON, out: on.fn, err: on.fn }), 0);
   assert.deepEqual(JSON.parse(on.lines[0]).proposed, ['131']);
   assert.deepEqual(rowsOf(dir).map((r: any) => [r.id, r.proposed ?? null]), [['130', null], ['131', true]]);
 
   // amend of the ready row 130 while on: it is proposed again (an unattended change to a ready row waits for a person)
   fs.writeFileSync(draft, JSON.stringify({ schema: 1, rows: [row('130', { title: 'Row 130 amended' })] }));
-  assert.equal(handleSeedCommand({ action: 'amend', draft, root: dir, json: true, gitFacts: FACTS, readSwitch: ON, out: () => {}, err: () => {} }), 0);
+  assert.equal(handleSeedCommand({ isTTY: true, action: 'amend', draft, root: dir, json: true, gitFacts: FACTS, readSwitch: ON, out: () => {}, err: () => {} }), 0);
   assert.equal(rowsOf(dir).find((r: any) => r.id === '130').proposed, true);
 
   // negative control: with autopilot verifiably off the same writes land ready
@@ -75,7 +75,7 @@ test('seed apply and amend while autopilot is on land the written rows proposed;
   const offDraft = path.join(offDir, 'draft.json');
   fs.writeFileSync(offDraft, JSON.stringify({ schema: 1, rows: [row('131')] }));
   const off = capture();
-  assert.equal(handleSeedCommand({ action: 'apply', draft: offDraft, root: offDir, json: true, gitFacts: FACTS, readSwitch: OFF, out: off.fn, err: off.fn }), 0);
+  assert.equal(handleSeedCommand({ isTTY: true, action: 'apply', draft: offDraft, root: offDir, json: true, gitFacts: FACTS, readSwitch: OFF, out: off.fn, err: off.fn }), 0);
   assert.deepEqual(JSON.parse(off.lines[0]).proposed, []);
   assert.deepEqual(rowsOf(offDir).map((r: any) => r.proposed ?? null), [null, null]);
 });
@@ -131,4 +131,22 @@ test('maint-thin P1: promote without an interactive terminal is refused needs-pe
   assert.equal(handlePromoteCommand({ isTTY: true, ids: ['130'], root: dir, json: true, gitFacts: FACTS, readSwitch: ON, out: on.fn, err: on.fn }), 1);
   assert.equal(JSON.parse(on.lines[0]).reason, 'needs-person');
   assert.equal(fs.readFileSync(path.join(dir, 'agent-docs/roadmap/rows.json'), 'utf8'), before);
+});
+
+test('maint-thin: seed lands rows ready only with a terminal AND autopilot verifiably off; otherwise proposed, never refused', (t) => {
+  const land = (isTTY: any, readSwitch: any) => {
+    const dir = store(t, [row('130')]);
+    const draft = path.join(dir, 'draft.json');
+    fs.writeFileSync(draft, JSON.stringify({ schema: 1, rows: [row('131')] }));
+    const out = capture();
+    const code = handleSeedCommand({ ...(isTTY === undefined ? {} : { isTTY }), action: 'apply', draft, root: dir, json: true, gitFacts: FACTS, readSwitch, out: out.fn, err: out.fn });
+    return { code, proposed: JSON.parse(out.lines[0]).proposed, stored: rowsOf(dir).find((r: any) => r.id === '131').proposed ?? null };
+  };
+  // no terminal, switch off: proposed (the redirect a model controls cannot land ready rows)
+  assert.deepEqual(land(false, OFF), { code: 0, proposed: ['131'], stored: true });
+  assert.deepEqual(land(undefined, OFF), { code: 0, proposed: ['131'], stored: true });
+  // terminal, switch on: proposed
+  assert.deepEqual(land(true, ON), { code: 0, proposed: ['131'], stored: true });
+  // terminal and switch verifiably off: ready
+  assert.deepEqual(land(true, OFF), { code: 0, proposed: [], stored: null });
 });

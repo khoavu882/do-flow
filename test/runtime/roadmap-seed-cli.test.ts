@@ -304,3 +304,14 @@ test('C-10 CLI (d): amend with settings on lands the amended row proposed', (t) 
   assert.equal(row.title, 'Amended toy row');
   assert.equal(row.proposed, true);
 });
+
+test('maint-thin: a spawned seed apply with an empty config home (reads as off) lands the row proposed, not ready', (t) => {
+  const home = tempDir(t, 'doflow-seed-cli-empty-home-');
+  const repo = makeRepo(t);
+  const draft = writeDraft(t, [cleanRow]);
+  const r = run(t, repo, ['roadmap', 'seed', '--action', 'apply', '--draft', draft, '--json'], { home });
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+  assert.deepEqual(JSON.parse(r.stdout).proposed, ['114']);
+  const stored = JSON.parse(fs.readFileSync(path.join(repo, 'agent-docs', 'roadmap', 'rows.json'), 'utf8')).rows.find((x: any) => x.id === '114');
+  assert.equal(stored.proposed, true);
+});
