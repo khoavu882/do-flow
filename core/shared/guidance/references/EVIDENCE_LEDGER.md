@@ -51,19 +51,13 @@ linking (below), not by a field on the item.
 
 ## Superseding a stale item
 
-An item's `freshness.status` can only move toward `STALE` — the file it named changed, and nothing
-un-changes it. Once a stale item stops mattering (a fresher item already covers the same ground),
-retire it rather than leaving it to block a task's readiness verdict forever: `evidence --action
-supersede --evidence-id <stale-id> --replaced-by <fresh-id>`, naming an id already recorded. Nothing
-is deleted or rewritten — the stale item's own content and locator stay exactly as observed, only
-its `status` becomes `superseded` and unresolvable readiness checks stop counting it. Record the
-replacing item first: the replacement must already exist, the same rule `claim --action supersede`
-already applies.
-
-When every stale item is to go and none has a replacement, `evidence --action retire` with its stale
-selector (listed in the CLI help) retires all of them at once: the same `superseded` status with no forward
-pointer and the reason (`stale: ...`) kept on each item. It prints the count and ids, and leaves every
-item that is not stale untouched.
+An item's `freshness.status` only moves toward `STALE` (the file it named changed). Once a stale
+item stops mattering, retire it rather than let it block readiness forever: `evidence --action
+supersede --evidence-id <stale-id> --replaced-by <fresh-id>`, the replacement recorded first (the
+rule `claim --action supersede` applies). Nothing is deleted: the item keeps its content and
+locator, its `status` becomes `superseded`, and readiness stops counting it. With no replacement,
+`evidence --action retire` with its stale selector (see the CLI help) retires every stale item the
+same way, keeping the reason on each.
 
 ## Claims
 

@@ -182,32 +182,38 @@ test('C-7: relative --draft resolves against process cwd, not positional project
   assert.equal(fs.realpathSync(outNoPos.draft.path), fs.realpathSync(path.join(repo, 'draft.json')));
 });
 
-test('C-10 CLI (a): settings on refuses apply with needs-person and preserves store byte-identical', (t) => {
+test('C-10 CLI (a): settings on lands an apply proposed; promote is refused until a person turns autopilot off', (t) => {
+  // maint-thin (2026-10-26): gating moved from the write to the activation. The write lands proposed; promote needs a person.
   const home = tempDir(t, 'doflow-seed-cli-home-');
   const settingsDir = path.join(home, '.config', 'doflow');
   fs.mkdirSync(settingsDir, { recursive: true });
-  fs.writeFileSync(path.join(settingsDir, 'settings.json'), JSON.stringify({ schema: 1, 'autopilot.enabled': 'on' }), 'utf8');
+  const settingsPath = path.join(settingsDir, 'settings.json');
+  fs.writeFileSync(settingsPath, JSON.stringify({ schema: 1, 'autopilot.enabled': 'on' }), 'utf8');
 
   const repo = makeRepo(t);
   const draft = writeDraft(t, [cleanRow]);
   const storePath = path.join(repo, 'agent-docs', 'roadmap', 'rows.json');
-  const tablePath = path.join(repo, 'agent-docs', 'roadmap', 'ROADMAP.md');
-  const origStore = fs.readFileSync(storePath, 'utf8');
-  const origTable = fs.readFileSync(tablePath, 'utf8');
 
   const rJson = run(t, repo, ['roadmap', 'seed', '--action', 'apply', '--draft', draft, '--json'], { home });
-  assert.equal(rJson.status, 1, rJson.stderr + rJson.stdout);
-  const out = JSON.parse(rJson.stdout);
-  assert.equal(out.reason, 'needs-person');
-  assert.equal(out.switch, null);
-  assert.equal(fs.readFileSync(storePath, 'utf8'), origStore);
-  assert.equal(fs.readFileSync(tablePath, 'utf8'), origTable);
+  assert.equal(rJson.status, 0, rJson.stderr + rJson.stdout);
+  assert.deepEqual(JSON.parse(rJson.stdout).proposed, ['114']);
+  assert.equal(JSON.parse(fs.readFileSync(storePath, 'utf8')).rows.find((r: any) => r.id === '114').proposed, true);
+  const rCheck = run(t, repo, ['roadmap', '--action', 'render', '--check'], { home });
+  assert.equal(rCheck.status, 0, rCheck.stderr + rCheck.stdout);
 
-  const rText = run(t, repo, ['roadmap', 'seed', '--action', 'apply', '--draft', draft], { home });
-  assert.equal(rText.status, 1, rText.stderr + rText.stdout);
-  assert.ok(!rText.stderr.includes('DOFLOW_AUTOPILOT_ENABLED'), `stderr must not contain DOFLOW_AUTOPILOT_ENABLED: ${rText.stderr}`);
-  assert.equal(fs.readFileSync(storePath, 'utf8'), origStore);
-  assert.equal(fs.readFileSync(tablePath, 'utf8'), origTable);
+  const before = fs.readFileSync(storePath, 'utf8');
+  const rRefused = run(t, repo, ['roadmap', 'promote', '114', '--json'], { home });
+  assert.equal(rRefused.status, 1, rRefused.stderr + rRefused.stdout);
+  assert.equal(JSON.parse(rRefused.stdout).reason, 'needs-person');
+  assert.equal(fs.readFileSync(storePath, 'utf8'), before);
+
+  fs.writeFileSync(settingsPath, JSON.stringify({ schema: 1, 'autopilot.enabled': 'off' }), 'utf8');
+  const rPromote = run(t, repo, ['roadmap', 'promote', '114'], { home });
+  assert.equal(rPromote.status, 0, rPromote.stderr + rPromote.stdout);
+  assert.match(rPromote.stdout, /roadmap promote: ok, 1 promoted: 114/);
+  assert.equal(Object.hasOwn(JSON.parse(fs.readFileSync(storePath, 'utf8')).rows.find((r: any) => r.id === '114'), 'proposed'), false);
+  const rCheck2 = run(t, repo, ['roadmap', '--action', 'render', '--check'], { home });
+  assert.equal(rCheck2.status, 0, rCheck2.stderr + rCheck2.stdout);
 });
 
 test('C-10 CLI (b): settings off allows apply and amend with writes: 2 and passes render --check', (t) => {
@@ -259,7 +265,7 @@ test('C-10 CLI (b): no settings file allows apply and amend with writes: 2 and p
   assert.equal(rCheck2.status, 0, rCheck2.stderr + rCheck2.stdout);
 });
 
-test('C-10 CLI (c): settings on + env DOFLOW_AUTOPILOT_ENABLED=off refuses apply with needs-person (closes C-2 end to end)', (t) => {
+test('C-10 CLI (c): settings on + env DOFLOW_AUTOPILOT_ENABLED=off still lands proposed (fail closed, closes C-2 end to end)', (t) => {
   const home = tempDir(t, 'doflow-seed-cli-home-');
   const settingsDir = path.join(home, '.config', 'doflow');
   fs.mkdirSync(settingsDir, { recursive: true });
@@ -268,23 +274,17 @@ test('C-10 CLI (c): settings on + env DOFLOW_AUTOPILOT_ENABLED=off refuses apply
   const repo = makeRepo(t);
   const draft = writeDraft(t, [cleanRow]);
   const storePath = path.join(repo, 'agent-docs', 'roadmap', 'rows.json');
-  const tablePath = path.join(repo, 'agent-docs', 'roadmap', 'ROADMAP.md');
-  const origStore = fs.readFileSync(storePath, 'utf8');
-  const origTable = fs.readFileSync(tablePath, 'utf8');
 
   const r = run(t, repo, ['roadmap', 'seed', '--action', 'apply', '--draft', draft, '--json'], {
     home,
     env: { DOFLOW_AUTOPILOT_ENABLED: 'off' },
   });
-  assert.equal(r.status, 1, r.stderr + r.stdout);
-  const out = JSON.parse(r.stdout);
-  assert.equal(out.reason, 'needs-person');
-  assert.equal(out.switch, null);
-  assert.equal(fs.readFileSync(storePath, 'utf8'), origStore);
-  assert.equal(fs.readFileSync(tablePath, 'utf8'), origTable);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+  assert.deepEqual(JSON.parse(r.stdout).proposed, ['114']);
+  assert.equal(JSON.parse(fs.readFileSync(storePath, 'utf8')).rows.find((x: any) => x.id === '114').proposed, true);
 });
 
-test('C-10 CLI (d): amend with settings on exits 1 needs-person', (t) => {
+test('C-10 CLI (d): amend with settings on lands the amended row proposed', (t) => {
   const home = tempDir(t, 'doflow-seed-cli-home-');
   const settingsDir = path.join(home, '.config', 'doflow');
   fs.mkdirSync(settingsDir, { recursive: true });
@@ -293,15 +293,11 @@ test('C-10 CLI (d): amend with settings on exits 1 needs-person', (t) => {
   const repo = makeRepo(t);
   const amendDraft = writeDraft(t, [{ id: '113', slug: '113-toy', title: 'Amended toy row', class: 'feature', needs: [], writeSet: ['src/toy/'] }]);
   const storePath = path.join(repo, 'agent-docs', 'roadmap', 'rows.json');
-  const tablePath = path.join(repo, 'agent-docs', 'roadmap', 'ROADMAP.md');
-  const origStore = fs.readFileSync(storePath, 'utf8');
-  const origTable = fs.readFileSync(tablePath, 'utf8');
 
   const r = run(t, repo, ['roadmap', 'seed', '--action', 'amend', '--draft', amendDraft, '--json'], { home });
-  assert.equal(r.status, 1, r.stderr + r.stdout);
-  const out = JSON.parse(r.stdout);
-  assert.equal(out.reason, 'needs-person');
-  assert.equal(out.switch, null);
-  assert.equal(fs.readFileSync(storePath, 'utf8'), origStore);
-  assert.equal(fs.readFileSync(tablePath, 'utf8'), origTable);
+  assert.equal(r.status, 0, r.stderr + r.stdout);
+  assert.deepEqual(JSON.parse(r.stdout).proposed, ['113']);
+  const row = JSON.parse(fs.readFileSync(storePath, 'utf8')).rows.find((x: any) => x.id === '113');
+  assert.equal(row.title, 'Amended toy row');
+  assert.equal(row.proposed, true);
 });

@@ -562,7 +562,8 @@ Commands:
   failure              List, settle or switch off the failures DoFlow captured on this machine (--action list|settle|capture)
                        (a value beginning with '-' must be written --flag=value)
   roadmap              Session-driven autopilot runner (--action render|status|next|audit [--check] [--row <id>] [--run <id>]);
-                       roadmap seed --action check|apply|amend --draft <path> [--json] validates and writes new rows
+                       roadmap seed --action check|apply|amend --draft <path> [--json] validates and writes new rows;
+                       rows written while autopilot is on land proposed; roadmap promote <id...> [--json] (person, autopilot off) makes them ready
   plan-check           Check a plan's task lines the way the task-attempt ledger reads them: plan-check <plan path> [--json]
   review               Validate a feature's review/findings.json; print errors, advisories and counts (exit 0 valid, 1 invalid, 2 usage):
                        review --action check [--slug <name> | --path <findings.json>] [--json]
@@ -639,7 +640,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        lifecycle: overview|init|release|status|merged
                        goal: add|item|check|link|list|done
                        failure: list|settle|capture
-                       roadmap: render|status|next|audit (seed: check|apply|amend)
+                       roadmap: render|status|next|audit (seed: check|apply|amend; promote <id...>)
                        slot: run|list|release
                        models: sync|list|describe
                        review: check|start

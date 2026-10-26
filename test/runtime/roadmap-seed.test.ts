@@ -989,7 +989,7 @@ test('amend: replaces in place, refuses merged/in-flight (row-started), keeps in
   assert.deepEqual(updatedStore.rows[2].acceptance, ['Criteria A', 'Criteria B']);
 });
 
-test('refusals: readSwitch enabled gives needs-person; live lease gives lease-held', (t) => {
+test('refusals: live lease gives lease-held; maint-thin: readSwitch enabled no longer refuses, it lands rows proposed', (t) => {
   const dir = tempDir(t, 'doflow-roadmap-seed-refusals-');
   const storeRows: any = [{ id: '113', slug: '113-toy', title: 'Toy', class: 'feature', needs: [] }];
   const { jsonContent, tableContent } = writeFixtureStore(dir, storeRows);
@@ -1004,47 +1004,29 @@ test('refusals: readSwitch enabled gives needs-person; live lease gives lease-he
     'utf8'
   );
 
-  // G55 requires quoted literals: 'needs-person' and 'lease-held'
-  // 1. needs-person
-  let outPersonJson = '';
-  let errPersonText = '';
-  const exitPerson = handleSeedCommand({
+  // G55 requires the quoted literal 'lease-held'. maint-thin: an enabled switch is not a refusal (no 'needs-person'
+  // from seed); the added row lands proposed, the store row stays ready, and the table names it.
+  let outProposedJson = '';
+  const exitProposed = handleSeedCommand({
     action: 'apply',
     draft: draftPath,
     root: dir,
     json: true,
     gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
     readSwitch: () => ({ enabled: true, switch: null }),
-    out: (s: any) => { outPersonJson += s + '\n'; },
-    err: (s: any) => { errPersonText += s + '\n'; },
+    out: (s: any) => { outProposedJson += s + '\n'; },
+    err: () => {},
   });
-  assert.equal(exitPerson, 1);
-  const personRes = JSON.parse(outPersonJson.trim());
-  assert.equal(personRes.ok, false);
-  assert.equal(personRes.reason, 'needs-person');
-  assert.equal(personRes.land, null);
-  assert.equal(personRes.writes, 0);
-  assert.deepEqual(personRes.rows, []);
-  assert.deepEqual(personRes.findings, []);
-
-  // Check text format for needs-person
-  let textPersonErr = '';
-  handleSeedCommand({
-    action: 'apply',
-    draft: draftPath,
-    root: dir,
-    json: false,
-    gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
-    readSwitch: () => ({ enabled: true, switch: null }),
-    err: (s: any) => { textPersonErr += s + '\n'; },
-  });
-  assert.ok(textPersonErr.includes('refused: needs-person'));
-  assert.ok(textPersonErr.includes('a person sets autopilot.enabled to off'));
-  assert.equal(personRes.switch, null);
-
-  // Store and table unchanged
-  assert.equal(fs.readFileSync(path.join(dir, 'agent-docs/roadmap/rows.json'), 'utf8'), jsonContent);
-  assert.equal(fs.readFileSync(path.join(dir, 'agent-docs/roadmap/ROADMAP.md'), 'utf8'), tableContent);
+  assert.equal(exitProposed, 0);
+  const proposedRes = JSON.parse(outProposedJson.trim());
+  assert.equal(proposedRes.ok, true);
+  assert.equal(proposedRes.reason, null);
+  assert.deepEqual(proposedRes.proposed, ['114']);
+  const storedRows = JSON.parse(fs.readFileSync(path.join(dir, 'agent-docs/roadmap/rows.json'), 'utf8')).rows;
+  assert.deepEqual(storedRows.map((r: any) => [r.id, r.proposed ?? null]), [['113', null], ['114', true]]);
+  assert.match(fs.readFileSync(path.join(dir, 'agent-docs/roadmap/ROADMAP.md'), 'utf8'), /\| 114 \| Add \| feature \| - \| proposed \| - \| row-proposed \|/);
+  assert.notEqual(fs.readFileSync(path.join(dir, 'agent-docs/roadmap/rows.json'), 'utf8'), jsonContent);
+  assert.notEqual(fs.readFileSync(path.join(dir, 'agent-docs/roadmap/ROADMAP.md'), 'utf8'), tableContent);
 
   // 2. lease-held
   const leaseDir = path.join(dir, '.doflow', 'state', 'roadmap');
@@ -1442,7 +1424,7 @@ test('C-1 malformed store rows are rejected by judgement and apply/amend leave b
   }
 });
 
-test('C-2 seed reader fails closed for env-off, invalid settings, no config home, and resolver faults', (t) => {
+test('C-2 seed reader fails closed for env-off, invalid settings, no config home, and resolver faults: maint-thin lands the rows proposed', (t) => {
   const settings = require('../../src/runtime/settings/resolve.ts');
   const cases: any = [
     ['settings on plus env off', { setting: 'on', envOff: true }],
@@ -1456,21 +1438,20 @@ test('C-2 seed reader fails closed for env-off, invalid settings, no config home
     try {
       if (options.resolverThrows) settings.loadSettings = () => { throw new Error('resolver failed'); };
       const { exit, result } = runSeedApply(fixture);
-      assert.equal(exit, 1, label);
-      assert.equal(result.reason, 'needs-person', label);
-      assert.equal(result.switch, null, label);
+      assert.equal(exit, 0, label);
+      assert.equal(result.ok, true, label);
+      assert.deepEqual(result.proposed, ['114'], label);
+      const stored = JSON.parse(fs.readFileSync(path.join(fixture.dir, 'agent-docs/roadmap/rows.json'), 'utf8'));
+      assert.equal(stored.rows.find((r: any) => r.id === '114').proposed, true, label);
+      assert.equal(stored.rows.find((r: any) => r.id === '113').proposed, undefined, `${label}: an untouched row stays ready`);
     } finally {
       settings.loadSettings = original;
     }
   }
   const text = runSeedApply(seedApplyFixture(t, { setting: 'on' }), { json: false });
-  assert.equal(text.exit, 1);
-  assert.match(text.err, /a person sets autopilot\.enabled to off/);
-  assert.doesNotMatch(text.err, /DOFLOW_AUTOPILOT_ENABLED/);
-  const noHomeText = runSeedApply(seedApplyFixture(t, { noHome: true }), { json: false });
-  assert.equal(noHomeText.exit, 1);
-  assert.match(noHomeText.err, /the config home \(none resolves: set HOME or XDG_CONFIG_HOME\)/);
-  assert.doesNotMatch(noHomeText.err, /DOFLOW_AUTOPILOT_ENABLED/);
+  assert.equal(text.exit, 0);
+  assert.match(text.out, /1 proposed \(autopilot is not verifiably off; with it off, a person runs: doflow roadmap promote 114\)/);
+  assert.doesNotMatch(text.out, /DOFLOW_AUTOPILOT_ENABLED/);
 });
 
 test('C-2 seed reader allows a durable off setting or sentinel', (t) => {
@@ -1481,6 +1462,7 @@ test('C-2 seed reader allows a durable off setting or sentinel', (t) => {
     assert.equal(exit, 0, label);
     assert.equal(result.ok, true, label);
     assert.equal(result.writes, 2, label);
+    assert.deepEqual(result.proposed, [], `${label}: a verified off lands rows ready (maint-thin negative control)`);
   }
   const unreadableSentinel = seedApplyFixture(t, { setting: 'on' });
   const fsImpl: any = { ...fs, statSync(file: any, ...args: any[]) {
@@ -1494,6 +1476,7 @@ test('C-2 seed reader allows a durable off setting or sentinel', (t) => {
   const result = runSeedApply(unreadableSentinel, { fsImpl });
   assert.equal(result.exit, 0, 'non-ENOENT sentinel stat error is present');
   assert.equal(result.result.writes, 2);
+  assert.deepEqual(result.result.proposed, []);
 });
 
 test('C-3 noncanonical writeSet paths are rejected by judgeDraft and apply', (t) => {
