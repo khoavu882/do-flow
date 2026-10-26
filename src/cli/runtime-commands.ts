@@ -70,8 +70,10 @@ const { handleModelsCommand } = require('../runtime/models/command.ts');
 // `protocol` only prints the registry and the resolved protocol (119 IC-004), so it has nothing to keep up.
 // `primary` only prints the resolved main session (120 IC-008) and writes nothing.
 // `package` stays here (122 IC-012): `new` writes only the target folder; `add --plan`, `update --plan` and `remove` write the store and lock and run upkeep (see `runsUpkeep`).
+// `slot` is not here: `run`, `list` and `release` write the slot files and run upkeep; only `slot --action peek` is read-only and skips it (093 IC-018 b, see `runsUpkeep`).
 const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review', 'protocol', 'primary', 'package', 'models']);
-const runsUpkeep = (o: any): boolean => !NO_UPKEEP.has(o.cmd) || (o.cmd === 'package' && ((typeof o.planId === 'string' && (o.action === 'add' || o.action === 'update')) || o.action === 'remove'));
+const runsUpkeep = (o: any): boolean => (!NO_UPKEEP.has(o.cmd) && !(o.cmd === 'slot' && o.actionGiven && o.action === 'peek'))
+  || (o.cmd === 'package' && ((typeof o.planId === 'string' && (o.action === 'add' || o.action === 'update')) || o.action === 'remove'));
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
 function handleFailureCommand(options: any): any { return require('../runtime/failure/cli.ts').handleFailureCommand(options); }
 // The seed validator loads only for `roadmap seed`, and only this file may require it (G54).

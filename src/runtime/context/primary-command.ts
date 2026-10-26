@@ -2,14 +2,15 @@
 
 /**
  * `doflow primary` (120 IC-008): the read-only view of which harness and model the main session runs.
- * `--action resolve` prints `resolvePrimary` (IC-007). It writes nothing: no state, no config home, no upkeep.
+ * `--action resolve` prints `resolvePrimary` (IC-007); `--action observed` prints `observedSessions`
+ * (093 IC-018 a). Neither writes anything: no state, no config home, no upkeep.
  * Loaded only when the verb, `status` or `doctor` prints the primary, never on an install path.
  */
 
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { loadRegistry } = require('../../registry/index.ts');
 const { finishRuntime, captureCaught } = require('../cli-result.ts');
-const { resolvePrimary } = require('./primary.ts');
+const { resolvePrimary, observedSessions } = require('./primary.ts');
 
 const ALLOWED_FLAGS = new Set(['--action', '--json']);
 
@@ -54,14 +55,46 @@ function primaryDoctorView({ primary, registry }: { primary: any; registry: any 
   return { state: primary.state, harness: primary.harness, model: primary.model, origin: primaryOrigin(primary), probe };
 }
 
+/** The text form of `observed`: the store, one line per checkout, one per session; no path or raw id. */
+function observedLines(body: any): string[] {
+  return [
+    `store: ${body.store}`,
+    ...body.checkouts.map((c: any) => `checkout ${c.worktreeKey} ${c.role}${c.current ? ' current' : ''} ${c.branch === null ? 'detached' : c.branch} ${dash(c.head)} ${dash(c.headCommittedAt)}`),
+    ...body.sessions.map((s: any) => {
+      const unit = s.launched ? ` L.${s.launched.run}.${s.launched.lineage}.${s.launched.attempt}` : '';
+      return `session ${s.sessionKey} ${s.worktreeKey} ${s.kind}${unit} harness ${dash(s.harness)} model ${dash(s.model)} started ${dash(s.startedAt)} last-hook-record ${dash(s.lastHookRecordAt)}`;
+    }),
+    ...(body.truncated ? ['truncated: true'] : []),
+    ...(body.unreadable > 0 ? [`unreadable: ${body.unreadable}`] : []),
+  ];
+}
+
 function handlePrimaryCommand({ action, json = false, flags = [], env = process.env, cwd = process.cwd(), registry, out = (line: string) => console.log(line) }: any = {}): number {
   const usage = (message: string): number => {
     out(json ? JSON.stringify({ ok: false, error: 'usage', message }) : `doflow primary: ${message}`);
     return finishRuntime(2);
   };
-  if (action !== 'resolve') return usage('action must be resolve');
+  if (action !== 'resolve' && action !== 'observed') return usage('action must be resolve');
   const extra = (flags as string[]).map((flag) => flag.split('=')[0]).find((flag) => !ALLOWED_FLAGS.has(flag));
   if (extra !== undefined) return usage(`unsupported flag ${extra}; only --action and --json apply`);
+
+  if (action === 'observed') {
+    try {
+      const observed = observedSessions({ env, cwd });
+      if (!observed.ok) {
+        if (json) out(JSON.stringify({ v: 1, error: observed.error }));
+        else console.error('[ERROR] primary: cannot list checkouts');
+        return finishRuntime(1);
+      }
+      if (json) out(JSON.stringify(observed.body));
+      else for (const line of observedLines(observed.body)) out(line);
+      return finishRuntime(0);
+    } catch (error: any) {
+      captureCaught(error, 'primary', 1);
+      console.error(`[ERROR] primary: ${error?.message || String(error)}`);
+      return finishRuntime(1);
+    }
+  }
 
   try {
     const primary = resolvePrimary({ env, projectRoot: cwd, registry });

@@ -27,7 +27,7 @@ function realOrNull(p: string, fsImpl: any): string | null {
 
 function failed(reason: string, detail: string): any {
   return {
-    ok: false, reason, detail, current: null, main: null, mainReason: null, others: [], isLinked: false, sandbox: false,
+    ok: false, reason, detail, current: null, main: null, mainReason: null, others: [], isLinked: false, sandbox: false, entries: [],
   };
 }
 
@@ -38,13 +38,16 @@ function failed(reason: string, detail: string): any {
  * DoFlow sandbox); `current` is the entry that is the longest real-path prefix of `cwd`, so a
  * sandbox nested under the main checkout is told apart from it. A sandbox (a checkout holding
  * `.doflow-worktree-base`) is never offered as another checkout and sees none itself: it exists
- * to be isolated. Writes nothing.
+ * to be isolated. `entries` is every non-bare checkout that exists, in porcelain order, with its
+ * branch (`refs/heads/` stripped; null when detached) and HEAD from the same porcelain; from a
+ * sandbox it is the sandbox alone. Writes nothing.
  * @param {Object} options
  * @param {string} options.cwd
  * @param {Function} [options.exec] spawnSync-compatible
  * @param {Object} [options.fsImpl]
  * @returns {{ok: boolean, reason: string|null, detail: string|null, current: string|null, main: string|null,
- *   mainReason: string|null, others: Array<string>, isLinked: boolean, sandbox: boolean}}
+ *   mainReason: string|null, others: Array<string>, isLinked: boolean, sandbox: boolean,
+ *   entries: Array<{path: string, branch: string|null, head: string|null, sandbox: boolean}>}}
  */
 function listCheckouts({ cwd, exec = spawnSync, fsImpl = fs }: { cwd: string; exec?: any; fsImpl?: any }): any {
   const realCwd = realOrNull(cwd, fsImpl) || path.resolve(cwd);
@@ -72,15 +75,23 @@ function listCheckouts({ cwd, exec = spawnSync, fsImpl = fs }: { cwd: string; ex
 }
 
 function fromPorcelain(stdout: string, realCwd: string, fsImpl: any): any {
-  const entries: Array<{ real: string | null; bare: boolean; sandbox: boolean }> = [];
+  const entries: Array<{ real: string | null; bare: boolean; sandbox: boolean; branch: string | null; head: string | null }> = [];
   for (const block of stdout.split(/\n\s*\n/)) {
     const lines = block.split('\n').filter(Boolean);
     if (lines.length === 0 || !lines[0].startsWith('worktree ')) continue;
     const real = realOrNull(lines[0].slice('worktree '.length), fsImpl);
+    const value = (prefix: string): string | null => {
+      const line = lines.find((l) => l.startsWith(prefix));
+      return line === undefined ? null : line.slice(prefix.length);
+    };
+    const ref = value('branch ');
+    const head = value('HEAD ');
     entries.push({
       real,
       bare: lines.includes('bare'),
       sandbox: real !== null && fsImpl.existsSync(path.join(real, BASE_FILE)),
+      branch: ref === null ? null : ref.replace(/^refs\/heads\//, ''),
+      head: head !== null && /^[0-9a-f]{40,64}$/.test(head) && !/^0+$/.test(head) ? head : null,
     });
   }
 
@@ -104,6 +115,10 @@ function fromPorcelain(stdout: string, realCwd: string, fsImpl: any): any {
     .filter((e) => e.real !== null && !e.bare && !e.sandbox && e !== current)
     .map((e) => e.real as string);
   const currentPath = current ? current.real : null;
+  const seen = new Set<string>();
+  const listed = (sandbox ? [current] : entries)
+    .filter((e: any) => e.real !== null && !e.bare && !seen.has(e.real) && seen.add(e.real))
+    .map((e: any) => ({ path: e.real as string, branch: e.branch, head: e.head, sandbox: e.sandbox }));
   return {
     ok: true,
     reason: null,
@@ -114,7 +129,23 @@ function fromPorcelain(stdout: string, realCwd: string, fsImpl: any): any {
     others: [...new Set(others)],
     isLinked: currentPath !== null && main !== null && currentPath !== main,
     sandbox,
+    entries: listed,
   };
+}
+
+/**
+ * The `listCheckouts` entry whose path is the longest real-path prefix of `p` (`p` itself when it
+ * cannot be resolved), or null. A sandbox entry can be the answer, so a caller tells a sandbox
+ * nested under a checkout apart from that checkout. Writes nothing.
+ */
+function checkoutContaining(entries: Array<{ path: string; sandbox: boolean }>, p: unknown, fsImpl: any = fs): any {
+  if (typeof p !== 'string' || !path.isAbsolute(p)) return null;
+  const real = realOrNull(p, fsImpl) || path.resolve(p);
+  let best: any = null;
+  for (const e of entries) {
+    if ((real === e.path || real.startsWith(e.path + path.sep)) && (best === null || e.path.length > best.path.length)) best = e;
+  }
+  return best;
 }
 
 /** Forgets every memoized `listCheckouts` result (tests that rebuild a repository in place). */
@@ -198,4 +229,4 @@ function findStateFile({ stateRoot, relPath, exec = spawnSync, fsImpl = fs }: { 
   return { status: 'found', file: matches[0].file, root: matches[0].root, origin: 'other', candidates: [] };
 }
 
-module.exports = { listCheckouts, findStateFile, clearCheckoutCache, mayBeLinked };
+module.exports = { listCheckouts, findStateFile, clearCheckoutCache, mayBeLinked, checkoutContaining };

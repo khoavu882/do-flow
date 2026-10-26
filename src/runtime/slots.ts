@@ -47,13 +47,19 @@ function checkName(name: any): string {
   return name;
 }
 
-/** The slots directory under the user-state root; never falls back to a real home. */
-function slotsDir(env: any, fsImpl: any): string {
+/** The slots directory's path under the user-state root, not created; never falls back to a real home. */
+function slotsPath(env: any, fsImpl: any): string {
   const registry = loadStorageRegistry({ repoRoot: REPO_ROOT });
   const roots = resolveRoots({ registry, env });
   if (!roots['user-state']) throw fail('no-home', 'HOME is not set to an absolute path, so the slot state directory cannot be resolved.');
   const dir = resolveStorePath({ store: { root: 'user-state', path: 'slots' }, roots, fsImpl });
   if (!dir) throw fail('slots-unsafe', `Refusing to use '${roots['user-state']}/slots': a DoFlow-owned path component is a link.`);
+  return dir;
+}
+
+/** The slots directory under the user-state root, created when absent. */
+function slotsDir(env: any, fsImpl: any): string {
+  const dir = slotsPath(env, fsImpl);
   fsImpl.mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -502,6 +508,62 @@ async function listSlots({ env = process.env, json = false, deps: injected }: an
 }
 
 /**
+ * 093 IC-018 b: every slot file read as it is on disk, with no lock, no sweep and no mkdir; a missing
+ * directory is an empty list and a file that cannot be read or parsed is counted in `unreadable`.
+ * A holder's `alive` is `holderState` (computed, never written); its `worktreeKey` is the `cwdHash`
+ * of the checkout its `cwd` lies in when that is one of the project's checkouts seen from `cwd`,
+ * else null. `waiters` counts the waiters not known to be dead. `pid`, `start`, `cwd` and waiter
+ * details are never returned.
+ */
+async function peekSlots({ env = process.env, cwd = process.cwd(), exec, deps: injected }: any = {}): Promise<any> {
+  const deps = resolveDeps(injected);
+  const dir = slotsPath(env, deps.fsImpl);
+  let names: string[];
+  try {
+    names = deps.fsImpl.readdirSync(dir).filter((entry: string) => SLOT_FILE.test(entry)).map((entry: string) => entry.slice(0, -5)).sort();
+  } catch (error: any) {
+    if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw error;
+    names = [];
+  }
+  let entries: any[] | null = null;
+  const checkoutKey = (holderCwd: unknown): string | null => {
+    const { listCheckouts, checkoutContaining } = require('./checkouts.ts');
+    if (entries === null) {
+      const listed = listCheckouts({ cwd, ...(exec ? { exec } : {}) });
+      entries = listed.ok ? listed.entries : [];
+    }
+    const at = checkoutContaining(entries as any[], holderCwd, deps.fsImpl);
+    if (!at || at.sandbox) return null;
+    return require('./context/identity.ts').cwdHash(at.path);
+  };
+  const slots: any[] = [];
+  let unreadable = 0;
+  for (const name of names) {
+    let state: any;
+    try {
+      const file = path.join(dir, `${name}.json`);
+      if (!deps.fsImpl.lstatSync(file).isFile()) { unreadable += 1; continue; }
+      const disk = JSON.parse(deps.fsImpl.readFileSync(file, 'utf8'));
+      if (disk === null || typeof disk !== 'object' || Array.isArray(disk)) { unreadable += 1; continue; }
+      state = shape(disk, name);
+    } catch {
+      unreadable += 1;
+      continue;
+    }
+    const waiters = state.waiters.filter((waiter: any) => deps.alive({ pid: waiter.pid, start: waiter.start ?? null }) !== false).length;
+    if (!state.holder && waiters === 0) continue;
+    const holder = state.holder ? {
+      label: typeof state.holder.label === 'string' ? state.holder.label : null,
+      since: typeof state.holder.since === 'string' ? state.holder.since : null,
+      alive: holderState(state.holder, deps.alive),
+      worktreeKey: checkoutKey(state.holder.cwd),
+    } : null;
+    slots.push({ name, holder, waiters });
+  }
+  return { v: 1, slots, unreadable };
+}
+
+/**
  * Removes the holder of `name` unless it is alive (`true`); never signals anything. Resolves with
  * `{ok, disposition, holder?}` as IC-008 spells it.
  */
@@ -527,4 +589,4 @@ async function releaseSlot({ name, by, reason, env = process.env, deps: injected
   return result;
 }
 
-module.exports = { runSlot, listSlots, releaseSlot, acquireSlotLock, SLOT_NAME, POLL_MS };
+module.exports = { runSlot, listSlots, peekSlots, releaseSlot, acquireSlotLock, SLOT_NAME, POLL_MS };
