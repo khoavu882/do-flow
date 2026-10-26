@@ -1,0 +1,108 @@
+{
+  "v": 1,
+  "runs": [
+    {
+      "taskId": "060-write-set-completeness",
+      "featureSlug": "060-write-set-completeness",
+      "taskClass": "feature",
+      "workflowName": "Feature Delivery",
+      "state": "RUNNING",
+      "current": {
+        "type": "stage",
+        "id": "design",
+        "kind": "design",
+        "agent": null,
+        "mutatesSource": false,
+        "readinessTemplate": null
+      },
+      "awaitingGate": null,
+      "progress": {
+        "done": 2,
+        "total": 9
+      },
+      "terminalStage": {
+        "id": "review",
+        "skill": "do-code-review",
+        "kind": "review"
+      },
+      "revision": 3,
+      "startedAt": "2026-10-09T16:02:05.111Z",
+      "updatedAt": "2026-10-09T16:02:11.778Z",
+      "origin": "current"
+    },
+    {
+      "taskId": "058-verify-readiness-enforcement",
+      "featureSlug": null,
+      "taskClass": "feature",
+      "workflowName": "Feature Delivery",
+      "state": "COMPLETED",
+      "current": null,
+      "awaitingGate": null,
+      "progress": {
+        "done": 9,
+        "total": 9
+      },
+      "terminalStage": {
+        "id": "review",
+        "skill": "do-code-review",
+        "kind": "review"
+      },
+      "revision": 10,
+      "startedAt": "2026-10-08T14:19:17.371Z",
+      "updatedAt": "2026-10-08T17:34:13.659Z",
+      "origin": "current"
+    },
+    {
+      "taskId": "t1",
+      "featureSlug": null,
+      "taskClass": "feature",
+      "workflowName": "Feature Delivery",
+      "state": "AWAITING_GATE",
+      "current": {
+        "type": "gate",
+        "id": "gate-0",
+        "kind": "clarification",
+        "agent": null,
+        "mutatesSource": null,
+        "readinessTemplate": null
+      },
+      "awaitingGate": {
+        "gateId": "gate-0",
+        "name": "Unresolved clarifications ZZ-MARKER-7f3"
+      },
+      "progress": {
+        "done": 1,
+        "total": 9
+      },
+      "terminalStage": {
+        "id": "review",
+        "skill": "ZZ-MARKER-7f3",
+        "kind": "review"
+      },
+      "revision": 2,
+      "startedAt": "2026-10-26T03:38:40.615Z",
+      "updatedAt": "2026-10-26T03:38:40.760Z",
+      "origin": "current"
+    }
+  ],
+  "unreadable": [
+    {
+      "taskId": "bad",
+      "featureSlug": null,
+      "origin": "current",
+      "reason": "id-mismatch"
+    },
+    {
+      "taskId": "broken",
+      "featureSlug": null,
+      "origin": "current",
+      "reason": "unparseable"
+    },
+    {
+      "taskId": "x1",
+      "featureSlug": null,
+      "origin": "other",
+      "reason": "unparseable ZZ-MARKER-7f3"
+    }
+  ]
+}

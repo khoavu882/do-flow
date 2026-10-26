@@ -1,0 +1,411 @@
+{
+  "slug": "092-console-api",
+  "revision": 0,
+  "graph": {
+    "digest": "sha256:5f2db42fa2c4c7d466c2f77a66c6b2707ace888c2ac9ce706e9f4ba8bc4819c3",
+    "graphPlan": true,
+    "warnings": [
+      {
+        "code": "plan-warning",
+        "message": "ZZ-MARKER-7f3"
+      }
+    ],
+    "tasks": [
+      {
+        "id": "A.1",
+        "phase": "A",
+        "owner": "core-implementer ZZ-MARKER-7f3 xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "taskDeps": [],
+        "parallel": true,
+        "acceptance": [
+          "FR-001",
+          "FR-002",
+          "FR-009",
+          "NFR-002",
+          "NFR-005",
+          "IC-001",
+          "IC-002",
+          "IC-003"
+        ],
+        "files": [
+          "src/runtime/implementation-gate.ts",
+          "src/runtime/workflow-orchestrator.ts",
+          "test/runtime/orchestrate-list.test.js",
+          "src/ZZ-MARKER-7f3.ts"
+        ]
+      },
+      {
+        "id": "A.2",
+        "phase": "A",
+        "owner": "core-implementer",
+        "taskDeps": [],
+        "parallel": true,
+        "acceptance": [
+          "FR-003",
+          "NFR-002",
+          "NFR-006",
+          "IC-004",
+          "IC-005",
+          "IC-006",
+          "ZZ-MARKER-7f3"
+        ],
+        "files": [
+          "src/runtime/storage/upkeep.ts",
+          "src/runtime/lifecycle/store-upkeep.ts",
+          "src/runtime/lifecycle/cli.ts",
+          "src/runtime/failure/cli.ts",
+          "src/runtime/health.ts",
+          "test/runtime/upkeep-switch.test.js"
+        ]
+      },
+      {
+        "id": "A.3",
+        "phase": "A",
+        "owner": "quality-guardian",
+        "taskDeps": [],
+        "parallel": true,
+        "acceptance": [
+          "FR-006",
+          "NFR-001",
+          "IC-007"
+        ],
+        "files": [
+          "test/guards/telemetry-contract.test.js"
+        ]
+      },
+      {
+        "id": "B.1",
+        "phase": "B",
+        "owner": "quality-guardian",
+        "taskDeps": [
+          "A.1",
+          "A.2"
+        ],
+        "parallel": false,
+        "acceptance": [
+          "FR-001",
+          "FR-002",
+          "FR-003",
+          "FR-009",
+          "IC-001",
+          "IC-003",
+          "IC-004"
+        ],
+        "files": [
+          "test/runtime/console-read-contract.test.js"
+        ]
+      },
+      {
+        "id": "C.1",
+        "phase": "C",
+        "owner": "research-writer",
+        "taskDeps": [
+          "A.3",
+          "B.1"
+        ],
+        "parallel": false,
+        "acceptance": [
+          "FR-001",
+          "FR-003",
+          "FR-006",
+          "IC-001",
+          "IC-002",
+          "IC-004",
+          "IC-005",
+          "IC-006",
+          "IC-007"
+        ],
+        "files": [
+          "docs/reference.md",
+          "docs/architecture.md",
+          "CHANGELOG.md"
+        ]
+      },
+      {
+        "id": "D.1",
+        "phase": "D",
+        "owner": "quality-guardian",
+        "taskDeps": [
+          "C.1"
+        ],
+        "parallel": false,
+        "acceptance": [
+          "FR-007",
+          "NFR-001",
+          "NFR-002",
+          "NFR-003",
+          "NFR-004",
+          "NFR-007"
+        ],
+        "files": [
+          "agent-docs/doflow/092-console-api/research/integration-gate.md"
+        ]
+      }
+    ],
+    "overlaps": [
+      {
+        "files": [
+          "ZZ-MARKER-7f3"
+        ],
+        "tasks": [
+          "A.1",
+          "A.2"
+        ]
+      }
+    ]
+  },
+  "tasks": [
+    {
+      "id": "A.1",
+      "phase": "A",
+      "derived": "running",
+      "state": "RUNNING",
+      "reason": "active-attempt",
+      "claimable": false,
+      "budget": {
+        "limit": 20,
+        "used": 1,
+        "source": "default"
+      },
+      "activeToken": 1,
+      "doneToken": null,
+      "active": {
+        "owner": "worker ZZ-MARKER-7f3",
+        "mode": "subagent",
+        "startedAt": "2026-10-26T01:00:00.000Z"
+      },
+      "readiness": {
+        "reason": "ready"
+      },
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "worker-a",
+          "mode": "subagent",
+          "state": "active",
+          "startedAt": "2026-10-26T01:00:00.000Z",
+          "endedAt": null,
+          "result": null,
+          "reason": "ZZ-MARKER-7f3",
+          "worktree": "/tmp/ZZ-MARKER-7f3"
+        }
+      ]
+    },
+    {
+      "id": "A.2",
+      "phase": "A",
+      "derived": "done",
+      "state": "SUCCEEDED",
+      "reason": "completed",
+      "claimable": false,
+      "budget": {
+        "limit": 20,
+        "used": 2,
+        "source": "default"
+      },
+      "activeToken": null,
+      "doneToken": 2,
+      "active": null,
+      "readiness": {
+        "reason": "ready"
+      },
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "worker-b",
+          "mode": "manual",
+          "state": "released",
+          "startedAt": "2026-10-26T01:00:00.000Z",
+          "endedAt": "2026-10-26T01:10:00.000Z",
+          "result": null,
+          "reason": "released ZZ-MARKER-7f3"
+        },
+        {
+          "token": 2,
+          "owner": "worker-b",
+          "mode": "manual",
+          "state": "finished",
+          "startedAt": "2026-10-26T01:20:00.000Z",
+          "endedAt": "2026-10-26T02:00:00.000Z",
+          "result": "COMPLETED",
+          "evidenceId": "ZZ-MARKER-7f3",
+          "usage": {
+            "tokens": 1,
+            "note": "ZZ-MARKER-7f3"
+          }
+        }
+      ]
+    },
+    {
+      "id": "A.3",
+      "phase": "A",
+      "derived": "ready",
+      "state": "READY",
+      "reason": "ready",
+      "claimable": true,
+      "budget": {
+        "limit": 20,
+        "used": 0,
+        "source": "default"
+      },
+      "activeToken": null,
+      "doneToken": null,
+      "active": null,
+      "readiness": {
+        "reason": "ready"
+      },
+      "attempts": []
+    },
+    {
+      "id": "B.1",
+      "phase": "B",
+      "derived": "pending",
+      "state": "PLANNED",
+      "reason": "unmet-dependency",
+      "claimable": false,
+      "budget": {
+        "limit": 20,
+        "used": 0,
+        "source": "default"
+      },
+      "unmet": [
+        "A.1",
+        "A.2"
+      ],
+      "activeToken": null,
+      "doneToken": null,
+      "active": null,
+      "readiness": {
+        "reason": "unmet-dependency",
+        "unmet": [
+          "A.1",
+          "A.2"
+        ],
+        "note": "ZZ-MARKER-7f3"
+      },
+      "attempts": []
+    },
+    {
+      "id": "C.1",
+      "phase": "C",
+      "derived": "pending",
+      "state": "PLANNED",
+      "reason": "unmet-dependency",
+      "claimable": false,
+      "budget": {
+        "limit": 20,
+        "used": 0,
+        "source": "default"
+      },
+      "unmet": [
+        "A.3",
+        "B.1"
+      ],
+      "activeToken": null,
+      "doneToken": null,
+      "active": null,
+      "readiness": {
+        "reason": "unmet-dependency",
+        "unmet": [
+          "A.3",
+          "B.1"
+        ]
+      },
+      "attempts": []
+    },
+    {
+      "id": "D.1",
+      "phase": "D",
+      "derived": "pending",
+      "state": "PLANNED",
+      "reason": "unmet-dependency",
+      "claimable": false,
+      "budget": {
+        "limit": 20,
+        "used": 0,
+        "source": "default"
+      },
+      "unmet": [
+        "C.1"
+      ],
+      "activeToken": null,
+      "doneToken": null,
+      "active": null,
+      "readiness": {
+        "reason": "unmet-dependency",
+        "unmet": [
+          "C.1"
+        ]
+      },
+      "attempts": []
+    }
+  ],
+  "run": {
+    "runKey": "7e47d9cb998afe26/local/main",
+    "exists": false,
+    "control": "none",
+    "epoch": null,
+    "budget": {
+      "attempts": 120,
+      "tokens": null,
+      "source": "default"
+    },
+    "totals": {
+      "attempts": 0,
+      "tokens": {
+        "measured": 0,
+        "estimated": 0,
+        "reserved": 0
+      },
+      "unreported": 0
+    },
+    "totalsMismatch": false,
+    "history": [
+      {
+        "action": "start",
+        "note": "ZZ-MARKER-7f3"
+      }
+    ]
+  },
+  "defaults": {
+    "runAttempts": true,
+    "tasks": [
+      "A.1",
+      "A.2",
+      "A.3",
+      "B.1",
+      "C.1",
+      "D.1"
+    ]
+  },
+  "advisory": {
+    "decomposition": {
+      "advisoryOnly": true,
+      "phases": [
+        {
+          "phase": "A",
+          "tasks": 3,
+          "parallel": 3
+        },
+        {
+          "phase": "B",
+          "tasks": 1,
+          "parallel": 0
+        },
+        {
+          "phase": "C",
+          "tasks": 1,
+          "parallel": 0
+        },
+        {
+          "phase": "D",
+          "tasks": 1,
+          "parallel": 0
+        }
+      ],
+      "maxTasksPerPhase": 3,
+      "maxParallelFanOut": 3,
+      "note": "ZZ-MARKER-7f3"
+    }
+  }
+}

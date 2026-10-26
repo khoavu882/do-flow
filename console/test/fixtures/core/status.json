@@ -1,0 +1,46 @@
+{
+  "taskId": "t1",
+  "taskClass": "feature",
+  "workflowName": "Feature Delivery",
+  "state": "AWAITING_GATE",
+  "current": {
+    "type": "gate",
+    "id": "gate-0",
+    "kind": "clarification",
+    "agent": null,
+    "mutatesSource": null,
+    "readinessTemplate": null
+  },
+  "awaitingGate": {
+    "gateId": "gate-0",
+    "name": "Unresolved clarifications",
+    "prompt": "requirement.md still carries unresolved [NEEDS CLARIFICATION] markers. Resolve each one before design starts. ZZ-MARKER-7f3"
+  },
+  "progress": {
+    "done": 1,
+    "total": 9
+  },
+  "terminalStage": {
+    "id": "review",
+    "skill": "do-code-review",
+    "agent": "reviewer",
+    "kind": "review",
+    "readinessTemplate": null,
+    "optional": false,
+    "purpose": "ZZ-MARKER-7f3",
+    "index": 5,
+    "mutatesSource": false,
+    "kindDescription": "Assess a change or a body of code and report findings; produces judgement, not edits.",
+    "gatesAfter": [
+      {
+        "id": "gate-b",
+        "name": "Before commit or merge",
+        "afterStage": "review",
+        "kind": "approval",
+        "trigger": "always",
+        "prompt": "Review is complete. Proceed to commit and merge?"
+      }
+    ]
+  },
+  "revision": 2
+}

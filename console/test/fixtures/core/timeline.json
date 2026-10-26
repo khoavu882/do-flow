@@ -1,0 +1,56 @@
+{
+  "v": 1,
+  "taskId": "t1",
+  "featureSlug": "093-console-web-ui",
+  "revision": 4,
+  "startedAt": "2026-10-26T03:38:40.615Z",
+  "events": [
+    {
+      "at": "2026-10-26T03:38:40.615Z",
+      "action": "start",
+      "node": null,
+      "outcome": null,
+      "decision": null,
+      "forced": false,
+      "synthetic": false,
+      "by": "ZZ-MARKER-7f3"
+    },
+    {
+      "at": "2026-10-26T03:38:40.760Z",
+      "action": "complete-stage",
+      "node": "discovery",
+      "outcome": "passed",
+      "decision": null,
+      "forced": false,
+      "synthetic": false,
+      "note": "journal note ZZ-MARKER-7f3",
+      "consultations": [
+        {
+          "server": "ZZ-MARKER-7f3"
+        }
+      ]
+    },
+    {
+      "at": "2026-10-26T04:00:00.000Z",
+      "action": "decide-gate",
+      "node": "gate-0",
+      "outcome": null,
+      "decision": "approve",
+      "forced": true,
+      "synthetic": false,
+      "detail": "approve ZZ-MARKER-7f3",
+      "traceId": "ZZ-MARKER-7f3"
+    },
+    {
+      "at": null,
+      "action": "skip-stage",
+      "node": "design",
+      "outcome": null,
+      "decision": null,
+      "forced": false,
+      "synthetic": true,
+      "note": "ZZ-MARKER-7f3"
+    }
+  ],
+  "otherEvents": 1
+}
