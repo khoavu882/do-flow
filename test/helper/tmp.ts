@@ -5,6 +5,29 @@ const os = require('node:os');
 const path = require('node:path');
 const TEMP_DIRS = new Set();
 
+// Every temp folder a test makes, and every one a spawned child makes, lives under one root named
+// `*.noindex`: macOS Spotlight skips such a folder, so thousands of short-lived scratch trees do not
+// feed mds. A single root also means one path to exclude or purge. TMPDIR is pointed at it so a
+// child process that calls os.tmpdir() lands there too (a child that already sees the root keeps it).
+// Node's compile cache lives in the same root: bin/doflow.js turns the cache on, but a spawn that
+// sets its own TMPDIR would otherwise start cold and strip every .ts module again.
+const ROOT_NAME = 'doflow-test.noindex';
+const TEST_ROOT = (() => {
+  const base = os.tmpdir();
+  // Kept in the spelling the platform gives (macOS reaches its temp folder through a symlink, and
+  // install/home-scope.test.ts checks that spelling); each folder made below is still a real path.
+  const root = path.basename(base) === ROOT_NAME ? base : path.join(base, ROOT_NAME);
+  fs.mkdirSync(root, { recursive: true });
+  return root;
+})();
+process.env.TMPDIR = TEST_ROOT;
+if (!process.env.NODE_COMPILE_CACHE && !process.env.NODE_DISABLE_COMPILE_CACHE) {
+  process.env.NODE_COMPILE_CACHE = path.join(TEST_ROOT, 'node-compile-cache');
+  // The variable above is read when a process starts, so it reaches every child but not this test
+  // file's own process; enabling the cache here covers the modules this process loads after the helper.
+  try { require('node:module').enableCompileCache(process.env.NODE_COMPILE_CACHE); } catch { /* best-effort */ }
+}
+
 function requirePrefix(prefix: any) {
   if (typeof prefix !== 'string' || !prefix.startsWith('doflow-')) {
     throw new Error("temporary directory prefix must start with 'doflow-'");
@@ -13,7 +36,7 @@ function requirePrefix(prefix: any) {
 
 function makeTempDir(prefix: any) {
   requirePrefix(prefix);
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(TEST_ROOT, prefix)));
   TEMP_DIRS.add(dir);
   return dir;
 }
@@ -91,4 +114,4 @@ function cleanupOnExit() {
 process.on('uncaughtExceptionMonitor', cleanupOnExit);
 process.on('exit', cleanupOnExit);
 
-module.exports = { tempDir, suiteTempDir, removeTree };
+module.exports = { tempDir, suiteTempDir, removeTree, TEST_ROOT };
