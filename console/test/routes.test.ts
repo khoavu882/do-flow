@@ -209,6 +209,28 @@ test('GET /api/runs/:slug/:taskId: tasks null with tasksReason no-plan (inspect 
   assert.deepEqual(Object.keys(old.body), ['v', 'run', 'timeline', 'tasks', 'workflow', 'tasksReason']);
 });
 
+test('GET /api/runs/:slug/:taskId: a timeline that cannot be read gives timeline null with timelineReason, never a failed route (E.2 Q4); run-not-found stays a 404', async (t) => {
+  const cases: Array<[Record<string, (params: any) => Answer>, string]> = [
+    [{ timeline: () => ({ ok: false, code: 'core-error', exit: 2 }) }, 'core-error'],
+    [{ timeline: () => ({ ok: false, code: 'core-unreachable', exit: null }) }, 'core-unreachable'],
+    [{ timeline: () => ok({ ...fixture('timeline'), v: 2 }) }, 'core-contract-mismatch'],
+  ];
+  for (const [overrides, reason] of cases) {
+    const { json } = await harness(scripted(overrides), t);
+    const reply = await json('/api/runs/s1/t1');
+    assert.equal(reply.status, 200, reason);
+    assert.deepEqual(Object.keys(reply.body), ['v', 'run', 'timeline', 'tasks', 'workflow', 'timelineReason'], reason);
+    assert.deepEqual([reply.body.timeline, reply.body.timelineReason], [null, reason]);
+    assert.equal(reply.body.run.taskId, 't1', 'the rest of the body is whole');
+    assert.equal(reply.body.tasks.graph.graphPlan, true);
+  }
+  const both = await harness(scripted({ timeline: () => ({ ok: false, code: 'core-error', exit: 2 }), attempts: () => ({ ok: false, code: 'core-error', exit: 2, errorId: 'plan-unreadable' }) }), t);
+  const bothBody = (await both.json('/api/runs/s1/t1')).body;
+  assert.deepEqual(Object.keys(bothBody), ['v', 'run', 'timeline', 'tasks', 'workflow', 'tasksReason', 'timelineReason']);
+  const gone = await harness(scripted({ timeline: () => ({ ok: false, code: 'core-error', exit: 1 }) }), t);
+  assert.deepEqual(await gone.json('/api/runs/s1/t1'), { status: 404, body: errorBody('run-not-found', 'timeline', 1) });
+});
+
 test('error mapping: runner and projector failures become the IC-005 codes with the shape id and exit', async (t) => {
   const cases: Array<[string, Record<string, (params: any) => Answer>, number, any]> = [
     ['/api/runs/s1/t1', { status: () => ({ ok: false, code: 'core-error', exit: 1 }) }, 404, errorBody('run-not-found', 'status', 1)],
@@ -217,7 +239,6 @@ test('error mapping: runner and projector failures become the IC-005 codes with 
     ['/api/runs/s1/t1', { status: () => ({ ok: false, code: 'core-unreachable', exit: null }) }, 503, errorBody('core-unreachable', 'status')],
     ['/api/runs/s1/t1', { status: () => ok({ ...fixture('status'), state: 'PAUSED' }) }, 502, errorBody('core-contract-mismatch', 'status', 0)],
     ['/api/runs/s1/t1', { status: () => ok({ ...fixture('status'), taskClass: '../x' }) }, 502, errorBody('core-contract-mismatch', 'status', 0)],
-    ['/api/runs/s1/t1', { timeline: () => ok({ ...fixture('timeline'), v: 2 }) }, 502, errorBody('core-contract-mismatch', 'timeline', 0)],
     ['/api/runs/s1/t1', { attempts: () => ok({ ...fixture('attempts'), tasks: null }) }, 502, errorBody('core-contract-mismatch', 'attempts', 0)],
     ['/api/runs/s1/t1', { attempts: () => ({ ok: false, code: 'core-error', exit: 1 }) }, 502, errorBody('core-error', 'attempts', 1)],
     // Only the core's plan-unreadable id is "no plan": a malformed plan, an unreadable store or a bare exit 2 is an error.

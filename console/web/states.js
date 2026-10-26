@@ -160,13 +160,15 @@ function selectContents(node) {
 }
 
 /**
- * The shared command block: the command, and a Copy button that confirms in place.
+ * The shared command block: the command, and a Copy button that confirms in place. With `name` the button's accessible
+ * name is "Copy <name>" (its visible label stays "Copy"), so two blocks on one page are told apart.
  * @param {any} text
+ * @param {string} [name]
  */
-function commandBlock(text) {
+function commandBlock(text, name) {
   const code = h('code', { class: 'cmd__text' }, text);
   const label = h('span', { class: 'cmd__label' }, 'Copy');
-  const button = h('button', { type: 'button', class: 'btn btn--ghost cmd__copy' }, [icon('copy', 16), label]);
+  const button = h('button', { type: 'button', class: 'btn btn--ghost cmd__copy', 'aria-label': name ? `Copy ${name}` : null }, [icon('copy', 16), label]);
   /** @type {any} */
   let restore = null;
   const rest = (/** @type {string} */ face, /** @type {string} */ name, /** @type {number} */ ms) => {

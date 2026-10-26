@@ -5,7 +5,7 @@
 import { h, icon } from './dom.js';
 import { skel, reltime } from './states.js';
 import { loadHome, renderHome, skeletonHome, homeKey, tickHome } from './views/home.js';
-import { renderRunRail, tickRunRail, releaseRail } from './views/rail.js';
+import { renderRun, tickRun, releaseRun } from './views/run.js';
 import { runStepCopy } from './derive/rail.js';
 
 /**
@@ -80,8 +80,8 @@ const slugTask = (/** @type {any} */ params) => `${params.slug} / ${params.taskI
 
 // ---- skeletons (6.1): the heights are binding for the views that fill them -------------------------
 
-// The crumb and the h1 are real text; the meta line and, below 768, a step line fill the head; the body holds the rail card and the slot (D.2 6.1 as amended).
-const skeletonRun = () => h('div', { class: 'skeleton skeleton--run' }, [skel('skel--railcard'), skel('skel--slot')]);
+// The crumb and the h1 are real text; the meta line and, below 768, a step line fill the head; the body holds the rail card, the slot and the timeline (D.2 6.1 as amended by E.2 10.2).
+const skeletonRun = () => h('div', { class: 'skeleton skeleton--run' }, [skel('skel--railcard'), skel('skel--slot'), skel('skel--timeline')]);
 // The meta and step blocks go inside the head, in the slots the loaded meta and step fill (R3-3), so the head keeps its height.
 const skeletonRunHead = () => ({ meta: skel('skel--meta'), step: skel('skel--stepline') });
 
@@ -133,9 +133,9 @@ const VIEWS = Object.freeze({
     meta: runMeta,
     step: runStep,
     headSkeleton: skeletonRunHead,
-    tick: tickRunRail,
-    teardown: releaseRail,
-    render: renderRunRail,
+    tick: tickRun,
+    teardown: releaseRun,
+    render: renderRun,
     isEmpty: () => false,
     title: (/** @type {any} */ params) => slugTask(params),
   },

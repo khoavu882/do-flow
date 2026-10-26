@@ -258,18 +258,27 @@ test('timeline: a skipped stage and a skipped gate become skipped; outcome, synt
   assert.deepEqual(states(model), ['done', 'done', 'skipped', 'skipped', 'running']);
   assert.equal(model.nodes[0].outcome, 'passed');
   assert.equal(model.nodes[0].synthetic, true);
-  assert.equal(model.nodes[0].durationMs, 4 * MIN, 'the interval from the previous event, whatever its action');
+  assert.equal(model.nodes[0].durationMs, 4 * MIN, 'the interval from the previous progress event');
   assert.equal(model.nodes[1].decision, 'approve');
   assert.equal(model.nodes[1].forced, true);
   assert.equal(model.nodes[1].durationMs, MIN);
   assert.equal(model.nodes[2].durationMs, 0);
   assert.equal(model.nodes[3].durationMs, MIN);
-  assert.equal(model.nodes[4].since, null, 'the last event has no time: the wait is unknown');
+  assert.equal(model.nodes[4].since, at(6), 'E.2 Q1: the untimed note at the end is not the last progress event, so the wait counts from the skipped gate');
   const timed = rail.deriveRail(WORKFLOW, row('RUNNING', stage('build'), 4), { events: events.slice(0, 5) }, NOW);
   assert.equal(timed.nodes[4].since, at(6));
   // A missing time on either side makes the duration unknown, never zero.
   const untimed = rail.deriveRail(WORKFLOW, row('RUNNING', stage('build'), 4), { events: [{ ...events[0], at: null }, events[1]] }, NOW);
   assert.equal(untimed.nodes[0].durationMs, null);
+});
+
+test('E.2 Q1: a note neither ends the interval before it nor resets the wait after it', () => {
+  const at = (minute: number) => new Date(NOW - (60 - minute) * MIN).toISOString();
+  const e = (minute: number, action: string, node: string | null, over: any = {}) => ({ at: at(minute), action, node, outcome: null, decision: null, forced: false, synthetic: false, ...over });
+  const events = [e(0, 'start', null), e(4, 'complete-stage', 'plan', { outcome: 'passed' }), e(5, 'annotate', 'plan'), e(9, 'decide-gate', 'gate-p', { decision: 'approve' }), e(12, 'annotate', 'build')];
+  const model = rail.deriveRail(WORKFLOW, row('RUNNING', stage('build'), 4), { events }, NOW);
+  assert.equal(model.nodes[1].durationMs, 5 * MIN, 'gate-p waited from the stage completion at 4, not from the note at 5');
+  assert.equal(model.nodes[4].since, at(9), 'the running stage counts from the last progress event, not from the note at 12');
 });
 
 test('the last event of a node wins, and an event of the other node type does not count', () => {

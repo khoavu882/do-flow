@@ -379,15 +379,17 @@
   .skel--stepline { height: 28px; width: 120px; margin-top: var(--space-2); }
   .skel--railcard { height: 210px; border-radius: var(--radius-lg); margin-top: var(--space-5); }
   .skeleton--run { display: block; }
-  .skeleton--run .skel--slot { margin-top: var(--space-4); }
+  .skeleton--run .skel--slot { margin-top: var(--space-5); }
   .skel--slot { height: 200px; border-radius: var(--radius-lg); }
   .skel--block { height: 320px; width: 100%; border-radius: var(--radius-lg); }
+  .skeleton--run .skel--timeline { height: 240px; margin-top: var(--space-5); border-radius: var(--radius-lg); }
   .skeleton > .summary { margin-bottom: 0; }
   @media (min-width: 768px) {
     .skel--tile { height: 150px; }
     .skel--meta { width: 320px; }
     .skel--stepline { display: none; }
     .skel--railcard { height: 126px; }
+    .skeleton--run .skel--timeline { height: 320px; }
   }
 
   /* Empty-state panel */
@@ -1015,6 +1017,151 @@
   .badge[data-state="unknown"] { background: var(--state-unknown-tint); color: var(--state-unknown-fg); }
   .badge[data-state="skipped"] { background: var(--state-skipped-tint); color: var(--state-skipped-fg); }
   .badge[data-state="pending"], .badge[data-state="not-reached"] { background: var(--state-pending-tint); color: var(--state-pending-fg); box-shadow: inset 0 0 0 1px var(--state-pending-mark); }
+
+  /* ---- E.2: the live run view (activity slot, timeline) ---- */
+  .activity {
+    margin-top: var(--space-5);
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--elev-2);
+    padding: var(--space-4);
+  }
+  .activity--stale { border-color: var(--state-stale-mark); }
+  .activity--rejected { border-color: var(--state-rejected-mark); }
+  .activity--gate { border-color: var(--state-awaiting-mark); }
+  .activity__grid { display: grid; gap: var(--space-4); }
+  .activity__eyebrow { font: var(--type-xs); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--state-running-fg); }
+  .activity--stale .activity__eyebrow { color: var(--state-stale-fg); }
+  .activity--done .activity__eyebrow { color: var(--state-done-fg); }
+  .activity--rejected .activity__eyebrow { color: var(--state-rejected-fg); }
+  .activity__id { margin-top: var(--space-2); font: var(--type-xl); font-family: var(--font-mono); letter-spacing: var(--tracking-tight); color: var(--text); overflow-wrap: anywhere; }
+  .activity__purpose, .activity__prompt { margin-top: var(--space-2); font: var(--type-md); color: var(--text); max-width: var(--prose-max); }
+  .activity__missing, .activity__foot, .activity__note, .activity__journal, .activity__other, .activity__tasks, .activity__idline { font: var(--type-xs); color: var(--text-muted); }
+  .activity__missing { margin-top: var(--space-2); font: var(--type-sm); }
+  .activity__facts { display: grid; grid-template-columns: minmax(0, 1fr); margin-top: var(--space-3); }
+  .activity__facts dt { margin-top: var(--space-2); font: var(--type-sm); color: var(--text-muted); }
+  .activity__facts dd { font: var(--type-sm); color: var(--text); overflow-wrap: anywhere; }
+  .activity__stale { display: flex; align-items: flex-start; gap: var(--space-2); margin-top: var(--space-3); font: var(--type-sm); color: var(--state-stale-fg); }
+  .activity__stale .icon { flex: none; margin-top: 2px; }
+  .activity__foot { margin-top: var(--space-3); }
+  .activity__side { background: var(--surface-2); border-radius: var(--radius-md); padding: var(--space-4); min-width: 0; }
+  .activity__sidehead { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+  .activity__sidehead h3 { font: var(--type-sm); font-weight: 600; color: var(--text); }
+  .activity__count { font: var(--type-sm); color: var(--text-muted); }
+  .attempts { margin: var(--space-2) 0 0; padding: 0; list-style: none; }
+  .attempt { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: var(--space-3); align-content: center; min-height: var(--target); padding: var(--space-1) 0; border-bottom: 1px solid var(--border); }
+  .attempt__task { font-weight: 600; color: var(--text); }
+  .attempt__owner { font: var(--type-sm); color: var(--text); overflow-wrap: anywhere; }
+  .attempt__meta { grid-column: 2; font: var(--type-xs); color: var(--text-muted); }
+  .attempts__empty, .attempts__more { margin-top: var(--space-2); font: var(--type-sm); color: var(--text-muted); }
+  .attempts__link { display: inline-flex; align-items: center; min-height: var(--target); margin-top: var(--space-2); font: var(--type-sm); font-weight: 600; color: var(--accent); }
+  .activity__head { display: flex; align-items: center; gap: var(--space-2); padding: var(--space-3) var(--space-4); background: var(--state-awaiting-tint); color: var(--state-awaiting-fg); border-radius: var(--radius-lg) var(--radius-lg) 0 0; }
+  .activity__gate { font: var(--type-xs); letter-spacing: var(--tracking-caps); text-transform: uppercase; }
+  .activity__wait { margin-inline-start: auto; font: var(--type-lg); font-variant-numeric: tabular-nums; }
+  .activity__body { display: grid; gap: var(--space-3); padding: var(--space-4); }
+  .activity__name, .activity__title { font: var(--type-lg); letter-spacing: var(--tracking-tight); color: var(--text); }
+  .activity__body .activity__prompt { margin-top: 0; }
+  .activity__journal, .activity__other { display: flex; align-items: flex-start; gap: var(--space-2); font: var(--type-xs); }
+  .activity__other { font: var(--type-sm); color: var(--text); }
+  .activity__journal .icon, .activity__other .icon { flex: none; }
+  .activity__lead { font: var(--type-sm); color: var(--text); }
+  .activity__cmds { display: grid; gap: var(--space-3); }
+  .activity__cmdlabel { margin-bottom: var(--space-1); font: var(--type-xs); font-weight: 600; color: var(--text-muted); }
+  .activity__note { font: var(--type-sm); }
+  .activity__tasks { font: var(--type-sm); }
+  .activity__tasks .attempts__link { margin-top: 0; min-height: 0; }
+  .activity--done .activity__title, .activity--rejected .activity__title { margin-top: var(--space-2); }
+  .activity--done .activity__summary, .activity--rejected .activity__summary, .activity__counts { margin-top: var(--space-2); font: var(--type-md); color: var(--text); }
+  .activity--done .activity__name, .activity--rejected .activity__name { margin-top: var(--space-1); font: var(--type-md); }
+  @media (min-width: 480px) {
+    .activity__facts { grid-template-columns: max-content minmax(0, 1fr); column-gap: var(--space-4); row-gap: var(--space-2); }
+    .activity__facts dt { margin-top: 0; }
+  }
+  @media (min-width: 768px) {
+    .activity { padding: var(--space-5); }
+    .activity__head { padding-inline: var(--space-5); }
+    .activity__body { padding: var(--space-5); }
+  }
+  @media (min-width: 1024px) {
+    .activity__grid { grid-template-columns: 1.4fr 1fr; column-gap: var(--space-5); }
+    .activity__side { align-self: start; }
+  }
+  /* The gate card has no padding of its own: its head bleeds to the border and its body pads itself (after the .activity rules, so it wins). */
+  .activity--gate { padding: 0; }
+
+  .timeline { margin-top: var(--space-5); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--elev-1); padding: var(--space-4); }
+  .timeline__head { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-3); }
+  .timeline__head h2 { font: var(--type-lg); letter-spacing: var(--tracking-tight); color: var(--text); }
+  .timeline__meta { font: var(--type-sm); color: var(--text-muted); }
+  .timeline__view { display: none; margin-inline-start: auto; }
+  .timeline__note, .timeline__listnote, .timeline__foot { margin-top: var(--space-3); font: var(--type-sm); color: var(--text-muted); }
+  .timeline__note { display: flex; align-items: flex-start; gap: var(--space-2); }
+  .timeline__note .icon { flex: none; margin-top: 2px; }
+  .timeline__listnote, .timeline__foot { font: var(--type-xs); }
+  .timeline__foot--chart { display: none; }
+  .timeline__chart { display: none; margin-top: var(--space-3); }
+  .timeline__more { margin-top: var(--space-2); }
+  @media (min-width: 768px) {
+    .timeline { padding: var(--space-5); }
+    .timeline__view { display: inline-flex; }
+    .timeline[data-view="chart"] .timeline__chart { display: block; }
+    .timeline[data-view="chart"] .timeline__list { display: none; }
+    .timeline[data-view="chart"] .timeline__foot--chart { display: block; }
+  }
+
+  .tl-list { margin: var(--space-2) 0 0; padding: 0; list-style: none; }
+  .tl-item { position: relative; display: grid; grid-template-columns: max-content minmax(0, 1fr) max-content; column-gap: var(--space-3); align-items: center; min-height: var(--target); padding-inline-start: var(--space-3); border-bottom: 1px solid var(--border); }
+  .tl-item::before { content: ""; position: absolute; inset-block: var(--space-2); inset-inline-start: 0; width: 4px; border-radius: var(--radius-sm); background: var(--text-muted); }
+  .tl-item[data-tone="done"]::before { background: var(--state-done-mark); }
+  .tl-item[data-tone="failed"]::before { background: var(--state-failed-mark); }
+  .tl-item[data-tone="unknown"]::before { background: var(--state-unknown-mark); }
+  .tl-item[data-tone="awaiting"]::before { background: var(--state-awaiting-mark); }
+  .tl-item[data-tone="rejected"]::before { background: var(--state-rejected-mark); }
+  .tl-item[data-tone="skipped"]::before { background: var(--state-skipped-mark); }
+  .tl-item__time, .tl-item__dur { font: var(--type-xs); font-family: var(--font-mono); color: var(--text-muted); }
+  .tl-item__words { font: var(--type-sm); color: var(--text); overflow-wrap: anywhere; }
+
+  /* The chart: three columns (name, track, duration) on one shared axis; positions are fractions of the track. */
+  .tl { --tl-start: 0; --tl-end: 0; --tl-at: 0; position: relative; isolation: isolate; }
+  .tl__axis, .tl__row { display: grid; grid-template-columns: 156px minmax(0, 1fr) 96px; column-gap: var(--space-3); align-items: center; }
+  .tl__axis { height: 24px; }
+  .tl__axistrack { position: relative; height: 24px; }
+  .tl__ticklabel, .tl__nowlabel { position: absolute; top: 4px; left: calc(var(--tl-at) * 100%); transform: translateX(-50%); font: var(--type-xs); font-family: var(--font-mono); white-space: nowrap; color: var(--text-muted); }
+  .tl__ticklabel[data-edge="first"] { transform: none; }
+  .tl__ticklabel[data-edge="last"] { transform: translateX(-100%); }
+  .tl__nowlabel { z-index: 2; background: var(--surface); color: var(--accent); }
+  .tl__overlay { position: absolute; top: 0; bottom: 0; left: calc(156px + var(--space-3)); right: calc(96px + var(--space-3)); pointer-events: none; }
+  .tl__tick, .tl__now { position: absolute; top: 0; bottom: 0; left: calc(var(--tl-at) * 100%); width: 1px; }
+  .tl__tick { background: var(--border); }
+  .tl__now { z-index: 2; background: var(--accent); }
+  .tl__row { min-height: 32px; border-top: 1px solid var(--border); }
+  .tl__name { display: flex; align-items: center; gap: var(--space-1); min-width: 0; }
+  .tl__row[data-type="gate"] .tl__name { padding-inline-start: var(--space-3); }
+  .tl__id { font: var(--type-sm); font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+  .tl__state { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-xs); color: var(--text-muted); }
+  .tl__track { position: relative; z-index: 1; height: 32px; }
+  .tl__dur { font: var(--type-xs); font-family: var(--font-mono); color: var(--text-muted); text-align: end; overflow-wrap: anywhere; }
+  .tl__bar { position: absolute; top: 9px; height: 14px; left: calc(var(--tl-start) * 100%); width: max(3px, calc((var(--tl-end) - var(--tl-start)) * 100%)); border-radius: var(--radius-sm); }
+  .tl__bar[data-kind="stage"][data-tone="done"] { background: var(--state-done-mark); }
+  .tl__bar[data-kind="stage"][data-tone="failed"] { background: var(--state-failed-mark); }
+  .tl__bar[data-kind="stage"][data-tone="unknown"] { background: var(--state-unknown-mark); }
+  .tl__bar[data-kind="stage"][data-imported="true"] { background-image: repeating-linear-gradient(90deg, transparent 0 4px, var(--surface) 4px 6px); }
+  .tl__bar[data-kind="wait"], .tl__bar[data-kind="live"][data-tone="awaiting"] {
+    border: 1px solid var(--state-awaiting-mark);
+    background: repeating-linear-gradient(135deg, var(--state-awaiting-mark) 0 2px, var(--state-awaiting-tint) 2px 6px);
+  }
+  .tl__bar[data-kind="wait"][data-tone="rejected"] {
+    border-color: var(--state-rejected-mark);
+    background: repeating-linear-gradient(135deg, var(--state-rejected-mark) 0 2px, var(--state-rejected-tint) 2px 6px);
+  }
+  .tl__bar[data-kind="wait"][data-forced="true"]::after { content: ""; position: absolute; inset-inline-end: -3px; top: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--state-done-mark); }
+  .tl__bar[data-kind="live"][data-tone="running"] { background: var(--state-running-mark); box-shadow: 0 0 0 3px var(--state-running-tint); }
+  .tl__bar[data-kind="live"][data-tone="awaiting"] { box-shadow: 0 0 0 3px var(--state-awaiting-tint); }
+  .tl__bar[data-kind="live"][data-tone="stale"] { background: transparent; border: 1.5px dashed var(--state-stale-mark); }
+  .tl__ring { position: absolute; top: 11px; left: calc(var(--tl-at) * 100% - 5px); width: 10px; height: 10px; box-sizing: border-box; border: 2px solid var(--state-skipped-mark); border-radius: 50%; background: var(--surface); }
+  .tl__mark { position: absolute; top: 5px; left: calc(var(--tl-at) * 100%); width: 2px; height: 22px; background: var(--text-muted); }
+  .tl__axistrack .tl__mark { top: 2px; height: 20px; }
 }
 
 /* ---- states -------------------------------------------------------------------------------------- */
@@ -1026,6 +1173,9 @@
   /* Stale data must not look alive: every loop of a rail stops (important, so it wins over the motion layer). */
   #main[data-stale="true"] .rail, #main[data-stale="true"] .rail *, #main[data-stale="true"] .rail *::before, #main[data-stale="true"] .rail *::after,
   #main[data-stale="true"] .rail-fallback *, #main[data-stale="true"] .rail-fallback *::after { animation: none !important; }
+
+  /* Stale data must not look alive: the run view's flashes stop. */
+  #main[data-stale="true"] .activity, #main[data-stale="true"] .activity *, #main[data-stale="true"] .tl-list *, #main[data-stale="true"] .tl * { animation: none !important; }
 }
 
 /* ---- motion -------------------------------------------------------------------------------------- */
@@ -1136,6 +1286,16 @@
     .rail--full .rail__item[data-state="running"]::after { content: ""; }
     .rail__item[data-type="gate"][data-state="awaiting"] .rail__node { outline: 3px solid var(--focus); outline-offset: 2px; }
   }
+
+  /* ---- E.2: a changed slot, attempt or list item flashes once in its own tint; nothing animates on first paint ---- */
+  .activity[data-changed="true"], .attempt[data-changed="true"], .tl-item[data-changed="true"] { --tint: var(--state-running-tint); animation: flash var(--motion-flash) var(--ease-standard) both; }
+  .activity--gate[data-changed="true"] { --tint: var(--state-awaiting-tint); }
+  .activity--done[data-changed="true"] { --tint: var(--state-done-tint); }
+  .activity--rejected[data-changed="true"] { --tint: var(--state-rejected-tint); }
+  .attempts__link, .timeline__view, .timeline__more { transition: color var(--motion-fast) var(--ease-standard), background-color var(--motion-fast) var(--ease-standard); }
+  @media (prefers-reduced-motion: reduce) {
+    .activity[data-changed="true"], .attempt[data-changed="true"], .tl-item[data-changed="true"] { animation-name: none; outline: 2px solid var(--text); outline-offset: 2px; }
+  }
 }
 
 /* ---- forced colours: a shape and a border carry what colour did ---------------------------------- */
@@ -1181,4 +1341,18 @@
     border-inline-start: 0;
     border-top: 2px dashed GrayText;
   }
+}
+
+/* ---- forced colours: the run view keeps its shapes in system colours ---- */
+@media (forced-colors: active) {
+  .activity, .timeline { border: 1px solid CanvasText; }
+  .activity__head { border-bottom: 1px solid CanvasText; }
+  .tl__bar { background: CanvasText; border: 0; }
+  .tl__bar[data-kind="wait"], .tl__bar[data-kind="live"][data-tone="awaiting"] { background: Canvas; border: 2px solid CanvasText; }
+  .tl__bar[data-kind="live"] { outline: 2px solid Highlight; }
+  .tl__bar[data-imported="true"], .tl__bar[data-kind="live"][data-tone="stale"] { background: Canvas; border: 1.5px dashed CanvasText; }
+  .tl__ring { border-color: CanvasText; }
+  .tl__mark { background: CanvasText; }
+  .tl__now { background: Highlight; }
+  .tl__tick { background: GrayText; }
 }

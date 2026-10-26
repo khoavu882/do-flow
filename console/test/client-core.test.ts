@@ -71,6 +71,8 @@ class El {
   children: any[] = [];
   attrs = new Map<string, string>();
   listeners = new Map<string, Function[]>();
+  /** `style` records custom properties only: the code under test may call nothing else on it (IC-007). */
+  style = { vars: new Map<string, string>(), setProperty(name: string, value: string) { this.vars.set(name, String(value)); }, getPropertyValue(name: string) { return this.vars.get(name) ?? ''; } };
   dataset: any;
   classList: any;
   tagName: string;
@@ -1598,7 +1600,7 @@ test('CD-B8 the run route loads with a real crumb and title, then meta, step, ra
   assert.equal(text(page.main.querySelector('.run-head__crumb').querySelector('a')), 'Runs');
   assert.ok(page.main.querySelector('.run-head__step').getAttribute('hidden') !== null, 'no step counter before data');
   await advance(400);
-  assert.deepEqual(page.main.querySelectorAll('.skel').map((x) => x.className.replace('skel ', '')), ['skel--meta', 'skel--stepline', 'skel--railcard', 'skel--slot']);
+  assert.deepEqual(page.main.querySelectorAll('.skel').map((x) => x.className.replace('skel ', '')), ['skel--meta', 'skel--stepline', 'skel--railcard', 'skel--slot', 'skel--timeline']);
 });
 
 
@@ -1649,7 +1651,7 @@ test('R3-3 the run skeleton fills the head slots, so the rail card block keeps i
   assert.deepEqual(metaSlot.children.map((c: El) => c.className.replace('skel ', '')), ['skel--meta']);
   assert.deepEqual(stepSlot.children.map((c: El) => c.className.replace('skel ', '')), ['skel--stepline']);
   assert.equal(stepSlot.getAttribute('hidden'), null);
-  assert.deepEqual(page.main.querySelector('.view-body').querySelectorAll('.skel').map((c: El) => c.className.replace('skel ', '')), ['skel--railcard', 'skel--slot'], 'the body holds only the card and the slot');
+  assert.deepEqual(page.main.querySelector('.view-body').querySelectorAll('.skel').map((c: El) => c.className.replace('skel ', '')), ['skel--railcard', 'skel--slot', 'skel--timeline'], 'the body holds the card, the slot and the timeline');
   release(runReply());
   await advance(600);
   assert.equal(page.main.querySelectorAll('.skel').length, 0);
@@ -1677,23 +1679,190 @@ class FakeObserver {
   disconnect() { this.disconnected = true; }
 }
 
+// ---- E.2: the live run view (slot, timeline, announcements) ---------------------------------------------------------
+
+const att = (token: number, owner: string, state: string, startedMinAgo: number, over: any = {}) => ({ token, owner, mode: 'sequential', state, startedAt: agoIso(startedMinAgo * MIN_MS), endedAt: null, result: null, ...over });
+const taskOf = (id: string, ...attempts: any[]) => ({ id, state: 'IN_PROGRESS', reason: null, budget: { used: attempts.length, limit: 20 }, attempts });
+const tasksBody = (...tasks: any[]) => ({ revision: 3, graph: { tasks: [] }, tasks });
+const runBodyWith = (row: any, events: any[], tasks: any = null, over: any = {}) => ({ ...runBody(row, WF_FEATURE, events), tasks, ...over });
+const hasAll = (el: El, names: string[]) => names.every((name) => el.querySelector(name) !== null);
+
+test('E.2 gate slot: registry name and prompt, two commands with their own Copy names, the read-only note, and a wait that counts from the last progress event', async () => {
+  mods.home.resetHome();
+  const events = () => [ev(60, 'start', null), ev(50, 'complete-stage', 'discovery', { outcome: 'passed' }), ev(40, 'decide-gate', 'gate-0', { decision: 'approve' }), ev(30, 'complete-stage', 'design', { outcome: 'passed' }), ev(20, 'complete-stage', 'planning', { outcome: 'passed' }), ev(5, 'annotate', 'planning')];
+  const journal = { gateId: 'gate-a', name: 'Journal name', prompt: 'Journal prompt' };
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBodyWith(frow('run-1', 4, { awaitingGate: journal, journalGateDiffers: true }), events(), tasksBody(taskOf('A.2', att(1, 'quality-guardian', 'active', 12))))) });
+  const slot = page.main.querySelector('.activity--gate');
+  assert.ok(slot, 'the gate slot is there');
+  assert.equal(slot.getAttribute('aria-labelledby'), 'activity-title');
+  assert.equal(text(slot.querySelector('.activity__gate')), 'Approval gate, waiting for you');
+  assert.equal(text(slot.querySelector('.activity__name')), 'Name of gate-a', 'the registry name, not the journal copy');
+  assert.equal(text(slot.querySelector('.activity__prompt')), 'Prompt of gate-a.');
+  assert.equal(text(slot.querySelector('.activity__wait')), 'waiting 20 min', 'from planning completing at 20 min ago, not from the note 5 min ago');
+  assert.equal(text(slot.querySelector('.activity__idline')), 'gate-a · after planning');
+  assert.ok(slot.querySelector('.activity__journal'));
+  assert.deepEqual(slot.querySelectorAll('.cmd__text').map(text), [
+    'doflow orchestrate --action decide-gate --task-id run-1 --gate gate-a --decision approve',
+    'doflow orchestrate --action decide-gate --task-id run-1 --gate gate-a --decision reject',
+  ]);
+  assert.deepEqual(slot.querySelectorAll('.cmd__copy').map((b: El) => b.getAttribute('aria-label')), ['Copy the approve command', 'Copy the reject command']);
+  assert.deepEqual(slot.querySelectorAll('.cmd__copy').map((b: El) => b.getAttribute('data-focus-key')), ['copy:approve', 'copy:reject']);
+  assert.equal(text(slot.querySelector('.activity__note')), 'The Console only reads. Deciding stays in the terminal.');
+  assert.match(text(slot.querySelector('.activity__tasks')), /^1 task attempt is still active\. Open the task graph →$/);
+  assert.equal(slot.querySelector('.attempts__link').getAttribute('href'), '#/run/feat-a/run-1/tasks');
+  assert.equal(slot.getAttribute('data-changed'), null, 'nothing flashes on first paint');
+  assert.equal(slot.querySelectorAll('button').length, 2, 'only the two Copy buttons: nothing decides');
+});
+
+test('E.2 stage slot: the registry stage, the active attempts oldest first, no plan copy; an attempt that starts is announced once and flashes only its row', async () => {
+  mods.home.resetHome();
+  let tasks: any = tasksBody(taskOf('A.3', att(1, 'system-architect', 'finished', 50, { result: 'FAILED', endedAt: agoIso(40 * MIN_MS) }), att(2, 'system-architect', 'active', 30)));
+  const events = () => [ev(60, 'start', null), ev(50, 'complete-stage', 'discovery', { outcome: 'passed' }), ev(40, 'decide-gate', 'gate-0', { decision: 'approve' }), ev(35, 'complete-stage', 'design', { outcome: 'passed' })];
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBodyWith(frow('run-1', 3), events(), tasks)) });
+  const slot = page.main.querySelector('.activity--stage');
+  assert.equal(text(slot.querySelector('.activity__eyebrow')), 'Now running · stage 3 of 3');
+  assert.equal(text(slot.querySelector('.activity__id')), 'planning');
+  assert.equal(text(slot.querySelector('.activity__purpose')), 'Purpose of planning.');
+  assert.deepEqual(slot.querySelectorAll('dt').map(text), ['Skill', 'Agent', 'Running since']);
+  assert.match(text(slot.querySelectorAll('dd')[2]), /^\d\d:\d\d \(35 min\), when design completed, passed$/);
+  assert.equal(text(slot.querySelector('.activity__count')), '1 active');
+  assert.equal(text(slot.querySelector('.attempt')), 'A.3system-architectsequential · attempt 2 · since ' + text(slot.querySelector('.attempt__meta')).split('since ')[1]);
+  assert.equal(slot.querySelector('.attempts__link').getAttribute('data-focus-key'), 'attempts-graph');
+  assert.equal(page.region.textContent, '');
+  tasks = tasksBody(taskOf('A.3', att(1, 'system-architect', 'finished', 50, { result: 'FAILED', endedAt: agoIso(40 * MIN_MS) }), att(2, 'system-architect', 'active', 30)), taskOf('B.1', att(1, 'core-implementer', 'active', 0)));
+  await advance(3_000);
+  assert.equal(text(page.region), 'B.1 started by core-implementer.');
+  const rows = page.main.querySelectorAll('.attempt');
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows.map((r: El) => r.getAttribute('data-changed')), [null, 'true'], 'only the new attempt is marked');
+  assert.equal(page.main.querySelector('.activity--stage').getAttribute('data-changed'), null, 'the slot did not change');
+  tasks = null;
+  await advance(3_000);
+  assert.equal(text(page.main.querySelector('.attempts__empty')), 'This run has no task plan, so there are no task attempts to show.');
+  assert.equal(page.main.querySelector('.attempts__link'), null, 'no plan, no link');
+});
+
+test('E.2 the slot flashes when the step changes, and the rail announcement keeps the poll', async () => {
+  mods.home.resetHome();
+  let cursor = 2;
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBodyWith(frow('run-1', cursor), [ev(60, 'start', null), ev(5, 'complete-stage', 'discovery', { outcome: 'passed' })])) });
+  assert.equal(page.main.querySelector('.activity--stage').getAttribute('data-changed'), null);
+  cursor = 4;
+  await advance(3_000);
+  assert.equal(page.main.querySelector('.activity--gate').getAttribute('data-changed'), 'true');
+  assert.equal(text(page.region), 'gate-a is waiting for you.');
+  await advance(3_500);
+  assert.equal(page.main.querySelector('.activity--gate').getAttribute('data-changed'), null, 'the mark lasts one poll interval');
+});
+
+test('E.2 finished and no-timeline slots: the run took, the counts; an unreadable timeline reads as not available and the card says why', async () => {
+  mods.home.resetHome();
+  const done = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBodyWith(frow('run-1', 5), [ev(60, 'start', null), ev(50, 'complete-stage', 'discovery', { outcome: 'passed' }), ev(40, 'decide-gate', 'gate-0', { decision: 'approve' }), ev(30, 'complete-stage', 'design', { outcome: 'passed' }), ev(20, 'complete-stage', 'planning', { outcome: 'passed' }), ev(15, 'decide-gate', 'gate-a', { decision: 'approve' }), ev(15, 'complete-run', null)])) });
+  const slot = done.main.querySelector('.activity--done');
+  assert.equal(text(slot.querySelector('.activity__title')), 'Run completed');
+  assert.match(text(slot.querySelector('.activity__summary')), /^Took 45 min, from \d\d:\d\d to \d\d:\d\d\.$/);
+  assert.equal(text(slot.querySelector('.activity__counts')), '5 steps: 3 passed, 2 approved.');
+  assert.equal(done.main.querySelector('.tl__now'), null, 'a finished run has no now line');
+  uninstallPage();
+  mock.timers.reset();
+  mods.home.resetHome();
+  const none = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBodyWith(frow('run-1', 2), [], null, { timeline: null, tasksReason: 'no-plan' })) });
+  const stage = none.main.querySelector('.activity--stage');
+  assert.deepEqual(stage.querySelectorAll('dd').map(text).slice(-2), ['not available', 'not available']);
+  assert.match(text(none.main.querySelector('.timeline__note')), /^The run’s event record could not be read just now\./);
+  assert.equal(none.main.querySelector('.tl'), null);
+});
+
+test('E.2 timeline: rows on one axis in program order, bars placed with custom properties only, a live bar and a now line, the list newest first, the toggle', async () => {
+  mods.home.resetHome();
+  const events = () => [ev(60, 'start', null), ev(50, 'complete-stage', 'discovery', { outcome: 'passed' }), ev(45, 'annotate', 'discovery'), ev(40, 'decide-gate', 'gate-0', { decision: 'approve', forced: true }), ev(30, 'complete-stage', 'design', { outcome: 'failed' })];
+  let frozen: any = null; // later in the test the body stops changing, so only the tick moves things
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => frozen ?? runBodyWith(frow('run-1', 3), events())) });
+  const rows = page.main.querySelectorAll('.tl__row');
+  assert.deepEqual(rows.map((r: El) => text(r.querySelector('.tl__id'))), ['discovery', 'gate-0', 'design', 'planning', 'gate-a']);
+  const bar = (row: El, kind: string) => row.querySelector(`.tl__bar[data-kind="${kind}"]`);
+  assert.equal(bar(rows[0], 'stage').getAttribute('data-tone'), 'done');
+  assert.equal(bar(rows[1], 'wait').getAttribute('data-forced'), 'true');
+  assert.equal(bar(rows[2], 'stage').getAttribute('data-tone'), 'failed');
+  assert.equal(bar(rows[3], 'live').getAttribute('data-tone'), 'running');
+  assert.equal(rows[4].querySelectorAll('.tl__bar').length, 0, 'a step not reached has no bar');
+  assert.equal(text(rows[1].querySelector('.tl__dur')), 'waited 10 min, forced');
+  const live = bar(rows[3], 'live');
+  const [start0, end0] = [Number(live.style.vars.get('--tl-start')), Number(live.style.vars.get('--tl-end'))];
+  assert.ok(start0 > 0 && end0 > start0 && end0 <= 1, 'fractions of the track');
+  assert.deepEqual([...live.attrs.keys()].filter((k) => k === 'style'), [], 'no style attribute: custom properties only');
+  assert.equal(rows[0].querySelector('.tl__mark') !== null, true, 'the note on discovery is a marker on its row');
+  const now = page.main.querySelector('.tl__now');
+  assert.ok(now);
+  assert.match(text(page.main.querySelector('.tl__nowlabel')), /^now \d\d:\d\d$/);
+  assert.equal(text(page.main.querySelector('ol.vh').querySelector('li')).startsWith('discovery. Stage. Done, passed.'), true, 'the accessible copy follows the drawing');
+  assert.deepEqual(page.main.querySelectorAll('.tl-item').map((i: El) => text(i.querySelector('.tl-item__words'))), ['design completed, failed', 'gate-0 approved, forced', 'Note added on discovery', 'discovery completed, passed', 'Run started']);
+  assert.equal(page.main.querySelector('.timeline').getAttribute('data-view'), 'chart');
+  const toggle = page.main.querySelector('.timeline__view');
+  assert.equal(text(toggle), 'Show as list');
+  toggle.fire('click');
+  assert.equal(page.main.querySelector('.timeline').getAttribute('data-view'), 'list');
+  assert.equal(text(page.main.querySelector('.timeline__view')), 'Show as chart');
+  await advance(3_000);
+  assert.equal(page.main.querySelector('.timeline').getAttribute('data-view'), 'list', 'the choice survives the poll');
+  frozen = runBodyWith(frow('run-1', 3), events());
+  await advance(3_000);
+  const before = Number(page.main.querySelector('.tl__bar[data-kind="live"]').style.vars.get('--tl-end'));
+  await advance(60_000);
+  assert.ok(Number(page.main.querySelector('.tl__bar[data-kind="live"]').style.vars.get('--tl-end')) > before, 'the tick moves the live bar');
+});
+
+test('E.2 stale data: no figure grows, durations read as stamps and the now line says the data is old', async () => {
+  mods.home.resetHome();
+  let down = false;
+  const events = () => [ev(60, 'start', null), ev(50, 'complete-stage', 'discovery', { outcome: 'passed' }), ev(40, 'decide-gate', 'gate-0', { decision: 'approve' }), ev(30, 'complete-stage', 'design', { outcome: 'passed' })];
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: (target, init) => (target === '/api/runs/feat-a/run-1' && down ? errorReply(502, 'core-error') : runRoute(() => runBodyWith(frow('run-1', 3), events()))(target, init)) });
+  assert.match(text(page.main.querySelector('.activity__since')), /^ \(30 min\)$/);
+  down = true;
+  await advance(20_000);
+  assert.equal(page.main.getAttribute('data-stale'), 'true');
+  assert.equal(text(page.main.querySelector('.activity__since')), '');
+  assert.match(text(page.main.querySelector('.tl__nowlabel')), /^data as of \d\d:\d\d:\d\d$/);
+  assert.match(text(page.main.querySelector('.tl__row[data-state="running"]').querySelector('.tl__dur')), /^since \d\d:\d\d$/);
+  const frozen = text(page.main.querySelector('.tl__nowlabel'));
+  await advance(5 * MIN_MS);
+  assert.equal(text(page.main.querySelector('.tl__nowlabel')), frozen, 'it does not move while stale');
+});
+
+test('E.2 the list keeps the 20 newest until asked, and the button keeps its place', async () => {
+  mods.home.resetHome();
+  const many = () => Array.from({ length: 30 }, (_, i) => ev(60 - i, 'annotate', 'discovery'));
+  const page = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBodyWith(frow('run-1', 0), [ev(61, 'start', null), ...many()])) });
+  assert.equal(page.main.querySelectorAll('.tl-item').length, 20);
+  const more = page.main.querySelector('.timeline__more');
+  assert.equal(text(more), 'Show all 31 events');
+  assert.equal(more.getAttribute('data-focus-key'), 'tl-more');
+  more.fire('click');
+  assert.equal(page.main.querySelectorAll('.tl-item').length, 31);
+  assert.equal(text(page.main.querySelector('.timeline__more')), 'Show the newest 20');
+});
+
 test('R4-1 the rail scroller is watched for resizes; the observer goes when the rail is replaced and when the view unmounts', async () => {
   mods.home.resetHome();
   FakeObserver.all = [];
+  // E.2 adds the timeline's observer beside the rail's: this test follows the rail's.
+  const rails = () => FakeObserver.all.filter((o) => o.observed[0] && o.observed[0].classList.contains('rail-scroll'));
+  const timelines = () => FakeObserver.all.filter((o) => o.observed[0] && o.observed[0].classList.contains('timeline__chart'));
   let row0 = () => frow('run-1', 2);
   Object.defineProperty(globalThis, 'ResizeObserver', { value: FakeObserver, configurable: true, writable: true });
   try {
     const next = await start({ hash: '#/run/feat-a/run-1', fetch: runRoute(() => runBody(row0(), WF_FEATURE, [ev(5, 'start', null)])) });
-    assert.equal(FakeObserver.all.length, 1);
-    assert.ok(FakeObserver.all[0].observed[0].classList.contains('rail-scroll'), 'it observes the scroller');
+    assert.equal(rails().length, 1);
+    assert.ok(rails()[0].observed[0].classList.contains('rail-scroll'), 'it observes the scroller');
     row0 = () => frow('run-1', 3);
     await advance(3_000);
-    assert.ok(FakeObserver.all[0].disconnected, 'the replaced scroller lets its observer go');
-    assert.equal(FakeObserver.all.length, 2);
-    assert.equal(FakeObserver.all[1].disconnected, false);
+    assert.ok(rails()[0].disconnected, 'the replaced scroller lets its observer go');
+    assert.equal(rails().length, 2);
+    assert.equal(rails()[1].disconnected, false);
     next.location.hash = '#/';
     next.win.dispatch('hashchange');
-    assert.ok(FakeObserver.all[1].disconnected, 'leaving the view disconnects it');
+    assert.ok(rails()[1].disconnected, 'leaving the view disconnects it');
+    assert.ok(timelines().length >= 2 && timelines().every((o) => o.disconnected), 'E.2: the timeline observer goes the same way');
     await advance(300);
   } finally {
     delete (globalThis as any).ResizeObserver;

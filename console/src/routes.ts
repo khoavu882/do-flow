@@ -199,7 +199,8 @@ async function runDetail(runner: Runner, slug: string, taskId: string): Promise<
   const run = project('status', status.json, { workflow: workflow.body });
   if (!run.ok) return errorReply(502, 'core-contract-mismatch', 'status', 0);
   const timeline = await timelineCall;
-  if (!timeline.ok) return timeline.exit === 1 ? errorReply(404, 'run-not-found', 'timeline', 1) : timeline.reply;
+  // E.2 Q4: only a run that is not there stops the route; any other timeline failure degrades to `timeline: null` with its code.
+  if (!timeline.ok && timeline.exit === 1) return errorReply(404, 'run-not-found', 'timeline', 1);
   const graph = await tasksCall;
   if (!graph.ok) return graph.reply;
   // `status` carries no slug, times or origin; the list row of the same id and slug does (null when none matches).
@@ -207,8 +208,9 @@ async function runDetail(runner: Runner, slug: string, taskId: string): Promise<
   if (!list.ok) return listFailure(list);
   const row = list.body.runs.find((entry: any) => entry.taskId === taskId && entry.featureSlug === slug);
   const head = { featureSlug: row ? row.featureSlug : null, startedAt: row ? row.startedAt : null, updatedAt: row ? row.updatedAt : null, origin: row ? row.origin : null };
-  const body: Record<string, unknown> = { v: 1, run: { ...run.body, ...head }, timeline: timeline.body, tasks: graph.tasks, workflow: workflow.body };
+  const body: Record<string, unknown> = { v: 1, run: { ...run.body, ...head }, timeline: timeline.ok ? timeline.body : null, tasks: graph.tasks, workflow: workflow.body };
   if (graph.tasks === null) body.tasksReason = graph.reason;
+  if (!timeline.ok) body.timelineReason = timeline.code;
   return jsonReply(200, body);
 }
 
