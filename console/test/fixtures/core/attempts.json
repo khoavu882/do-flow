@@ -144,12 +144,11 @@
     ],
     "overlaps": [
       {
+        "a": "A.1",
+        "b": "A.2",
         "files": [
-          "ZZ-MARKER-7f3"
-        ],
-        "tasks": [
-          "A.1",
-          "A.2"
+          "b.js",
+          "src/ZZ-MARKER-7f3.js"
         ]
       }
     ]
@@ -187,7 +186,10 @@
           "endedAt": null,
           "result": null,
           "reason": "ZZ-MARKER-7f3",
-          "worktree": "/tmp/ZZ-MARKER-7f3"
+          "worktree": "/tmp/ZZ-MARKER-7f3",
+          "worktreeKey": "0cc00ec6d2062bc0",
+          "run": "local",
+          "lineage": "main"
         }
       ]
     },
@@ -218,7 +220,10 @@
           "startedAt": "2026-10-26T01:00:00.000Z",
           "endedAt": "2026-10-26T01:10:00.000Z",
           "result": null,
-          "reason": "released ZZ-MARKER-7f3"
+          "reason": "released ZZ-MARKER-7f3",
+          "worktreeKey": null,
+          "run": null,
+          "lineage": null
         },
         {
           "token": 2,
@@ -232,7 +237,10 @@
           "usage": {
             "tokens": 1,
             "note": "ZZ-MARKER-7f3"
-          }
+          },
+          "worktreeKey": "0cc00ec6d2062bc0",
+          "run": "local",
+          "lineage": "main"
         }
       ]
     },

@@ -115,7 +115,7 @@ const ROUTES: readonly Route[] = buildRoutes(processSessions, [healthz, staticFa
 // ---- IC-005 read routes over the verb runner (A.6) and the projectors (A.7) ----
 
 type Runner = { run(shapeId: string, params?: Record<string, string>): Promise<any> };
-type Read = { ok: true, body: any, exit: number } | { ok: false, reply: Reply, exit: number | null, errorId?: string };
+type Read = { ok: true, body: any, exit: number } | { ok: false, reply: Reply, code: string, exit: number | null, errorId?: string };
 
 /**
  * The registry's task classes in registry order: a copy of the keys of `classes` in
@@ -125,19 +125,27 @@ type Read = { ok: true, body: any, exit: number } | { ok: false, reply: Reply, e
 const TASK_CLASSES: readonly string[] = Object.freeze(['feature', 'bug', 'refactor', 'review', 'research', 'documentation',
   'dependency-change', 'operations', 'trivial-edit']);
 
-/** IC-005's code for a runner failure; `exit` is the core's exit code when it ran. */
+/** IC-005's status and code for a runner failure. */
+function failureStatus(failure: { code: string }): [number, string] {
+  if (failure.code === 'core-unreachable') return [503, 'core-unreachable'];
+  if (failure.code === 'usage') return [400, 'usage'];
+  return [502, 'core-error'];
+}
+
+/** IC-005's error for a runner failure; `exit` is the core's exit code when it ran. */
 function failureReply(shapeId: string, failure: { code: string, exit: number | null }): Reply {
-  if (failure.code === 'core-unreachable') return errorReply(503, 'core-unreachable', shapeId, null);
-  if (failure.code === 'usage') return errorReply(400, 'usage', shapeId, null);
-  return errorReply(502, 'core-error', shapeId, failure.exit);
+  const [status, code] = failureStatus(failure);
+  return errorReply(status, code, shapeId, status === 502 ? failure.exit : null);
 }
 
 /** One allow-listed call, projected; a projector refusal is `core-contract-mismatch` (no partial body). */
 async function read(runner: Runner, shapeId: string, params: Record<string, string>, context?: unknown): Promise<Read> {
   const result = await runner.run(shapeId, params);
-  if (!result.ok) return { ok: false, reply: failureReply(shapeId, result), exit: result.exit, errorId: result.errorId };
+  if (!result.ok) return { ok: false, reply: failureReply(shapeId, result), code: failureStatus(result)[1], exit: result.exit, errorId: result.errorId };
   const projected = project(shapeId, result.json, context);
-  return projected.ok ? { ok: true, body: projected.body, exit: 0 } : { ok: false, reply: errorReply(502, 'core-contract-mismatch', shapeId, 0), exit: 0 };
+  return projected.ok
+    ? { ok: true, body: projected.body, exit: 0 }
+    : { ok: false, reply: errorReply(502, 'core-contract-mismatch', shapeId, 0), code: 'core-contract-mismatch', exit: 0 };
 }
 
 async function info(runner: Runner): Promise<Reply> {
@@ -204,6 +212,103 @@ async function runDetail(runner: Runner, slug: string, taskId: string): Promise<
   return jsonReply(200, body);
 }
 
+// ---- IC-018 e: GET /api/sessions ----
+
+/** IC-018 e's bounds: inspects per request and worker-status calls per request. */
+const SESSION_LIMITS = Object.freeze({ inspects: 20, workers: 16 });
+/** The run states whose feature's attempts are inspected. */
+const LIVE_RUN_STATES: readonly string[] = Object.freeze(['RUNNING', 'AWAITING_GATE']);
+
+type Section = { ok: true, data: any } | { ok: false, code: string };
+const failedSection = (code: string): Section => ({ ok: false, code });
+
+/** A failed read as its section: the code of its IC-005 error, `cannot-list-checkouts` (observed, list) included. */
+const sectionOf = (result: Read): Section => {
+  if (result.ok) return { ok: true, data: result.body };
+  return failedSection(result.errorId === 'cannot-list-checkouts' && result.code === 'core-error' ? 'cannot-list-checkouts' : result.code);
+};
+
+/**
+ * `tasks`: one inspect per feature of a RUNNING or AWAITING_GATE run, at most SESSION_LIMITS.inspects;
+ * a run counts as inspected when its feature was. A feature with no plan (`plan-unreadable`, as
+ * runDetail reads it) holds nothing and has no entry. Any other failed inspect fails the section:
+ * IC-018 e keeps each section whole or absent.
+ */
+async function sessionTasks(runner: Runner, runs: any[]) {
+  const live = runs.filter((row) => LIVE_RUN_STATES.includes(row.state) && row.featureSlug !== null);
+  const slugs: string[] = [];
+  let runsInspected = 0;
+  for (const row of live) {
+    if (!slugs.includes(row.featureSlug) && slugs.length < SESSION_LIMITS.inspects) slugs.push(row.featureSlug);
+    if (slugs.includes(row.featureSlug)) runsInspected += 1;
+  }
+  const counts = { runsInspected, runsNotChecked: live.length - runsInspected };
+  const results = await Promise.all(slugs.map((slug) => runner.run('attempts', { slug })));
+  const entries: any[] = [];
+  for (const [index, result] of results.entries()) {
+    if (!result.ok) {
+      if (result.exit === 2 && result.errorId === 'plan-unreadable') continue;
+      return { section: failedSection(failureStatus(result)[1]), counts };
+    }
+    const projected = project('attempts', result.json);
+    if (!projected.ok) return { section: failedSection('core-contract-mismatch'), counts };
+    const { revision, graph, tasks: rows } = projected.body;
+    const active = rows.flatMap((task: any) => task.attempts.filter((a: any) => a.state === 'active').map((a: any) => ({ task: task.id, ...a })));
+    entries.push({ slug: slugs[index], revision, overlaps: graph.overlaps, active });
+  }
+  return { section: { ok: true, data: entries } as Section, counts };
+}
+
+/** `workers`: one worker-status per active attempt, in `tasks` order, at most SESSION_LIMITS.workers. A failed call fails the section. */
+async function sessionWorkers(runner: Runner, tasks: any[]) {
+  const active = tasks.flatMap((entry: any) => entry.active.map((a: any) => ({ slug: entry.slug, task: a.task, token: a.token })));
+  const checked = active.slice(0, SESSION_LIMITS.workers);
+  const counts = { workersChecked: checked.length, workersNotChecked: active.length - checked.length };
+  const reads = await Promise.all(checked.map((a) => read(runner, 'worker-status', { slug: a.slug, task: a.task, token: String(a.token) })));
+  const failed = reads.find((entry) => !entry.ok);
+  if (failed) return { section: sectionOf(failed), counts };
+  return { section: { ok: true, data: checked.map((a, index) => ({ ...a, worker: (reads[index] as any).body })) } as Section, counts };
+}
+
+/**
+ * IC-018 e: every Sessions section from its own reads. A failed shape fails its section only (and the
+ * sections built from it: `tasks` and `workers` need `runs`, `workers` needs `tasks`). A project with
+ * no roadmap is `roadmap: null`. Ceiling: the core answers `usage` (exit 2) both for a missing seed
+ * and for an invalid one, so an invalid seed also reads as no roadmap.
+ */
+async function sessionsView(runner: Runner): Promise<Reply> {
+  const [observed, slots, list, roadmap] = await Promise.all([
+    read(runner, 'observed', {}), read(runner, 'slots', {}), read(runner, 'list', {}), read(runner, 'roadmap', {}),
+  ]);
+  const runsSection = sectionOf(list);
+  const limits = { runsInspected: 0, runsNotChecked: 0, workersChecked: 0, workersNotChecked: 0 };
+  let tasksSection = runsSection;
+  let workersSection = runsSection;
+  if (runsSection.ok) {
+    const tasks = await sessionTasks(runner, runsSection.data.runs);
+    Object.assign(limits, tasks.counts);
+    tasksSection = workersSection = tasks.section;
+    if (tasks.section.ok) {
+      const workers = await sessionWorkers(runner, tasks.section.data);
+      Object.assign(limits, workers.counts);
+      workersSection = workers.section;
+    }
+  }
+  const noRoadmap = !roadmap.ok && roadmap.code === 'core-error' && roadmap.exit === 2 && roadmap.errorId === 'usage';
+  return jsonReply(200, {
+    v: 1,
+    sections: {
+      observed: sectionOf(observed),
+      slots: sectionOf(slots),
+      runs: runsSection,
+      tasks: tasksSection,
+      workers: workersSection,
+      roadmap: noRoadmap ? { ok: true, data: null } : sectionOf(roadmap),
+    },
+    limits,
+  });
+}
+
 async function workflows(runner: Runner): Promise<Reply> {
   const reads = await Promise.all(TASK_CLASSES.map((taskClass) => read(runner, 'workflow', { taskClass })));
   const failed = reads.find((entry) => !entry.ok);
@@ -222,8 +327,9 @@ function consoleRoutes(runner: Runner, sessions: any = processSessions): readonl
     { method: 'GET', path: '/api/runs', handler: () => runs(runner) },
     { method: 'GET', path: '/api/runs/:slug/:taskId', handler: (ctx) => runDetail(runner, ctx.params.slug, ctx.params.taskId) },
     { method: 'GET', path: '/api/workflows', handler: () => workflows(runner) },
+    { method: 'GET', path: '/api/sessions', handler: () => sessionsView(runner) },
     staticFallback,
   ]);
 }
 
-module.exports = { ROUTES, TASK_CLASSES, buildRoutes, consoleRoutes, isApiPath, matchPath, jsonReply, errorReply, JSON_TYPE };
+module.exports = { ROUTES, SESSION_LIMITS, TASK_CLASSES, buildRoutes, consoleRoutes, isApiPath, matchPath, jsonReply, errorReply, JSON_TYPE };
