@@ -48,7 +48,7 @@ async function waitEnded(file: any, runId: any, ms: any = 15000) {
 async function project(t: any) {
   const sb = makeDispatchSandbox(t, { plan: 'disjoint', slug: SLUG, scenario: SLEEP, identity: { DOFLOW_ATTEMPT: undefined } });
   const { root, env } = sb;
-  const descriptors: any = { claude: sb.descriptors.claude, gemini: sb.descriptors.gemini };
+  const descriptors: any = { claude: sb.descriptors.claude, antigravity: sb.descriptors.antigravity };
   const ledger = attempts.storeFile(root, SLUG);
   const common: any = { file: ledger, fsImpl: fs, roots: [root], slug: SLUG, env, cwd: root };
   assert.equal(attempts.start({ ...common, by: 'main' }).disposition, 'started');

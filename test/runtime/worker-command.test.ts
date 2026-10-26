@@ -33,7 +33,7 @@ const POSIX: any = { skip: process.platform === 'win32' && 'worker process contr
 const PLAN = ['# Plan', '', '**Task graph:** v1', '', '## Tasks', '', '### Phase A', '',
   '- [ ] A.1 first task; owner: core-implementer; files: a.js', ''].join('\n');
 const SUCCESS: any = { type: 'result', status: 'success', summary: 'all done' };
-const FAKES: any = { claude: DESCRIPTORS.claude, gemini: DESCRIPTORS.gemini };
+const FAKES: any = { claude: DESCRIPTORS.claude, antigravity: DESCRIPTORS.antigravity };
 const GIT = (process.env.PATH || '').split(path.delimiter).map((dir) => path.join(dir, 'git'))
   .find((candidate) => { try { fs.accessSync(candidate, fs.constants.X_OK); return true; } catch { return false; } });
 
@@ -69,7 +69,7 @@ function project(t: any, { scenario = {}, mode = 'subagent', execWorktree: where
   let execWorktree = dir;
   if (where === 'own') execWorktree = fs.realpathSync(gitRepo(t));
   if (where === 'plain') execWorktree = fs.realpathSync(tempDir(t, 'doflow-worker-cmd-plain-'));
-  const childPath = linkBin(path.join(dir, 'bin'), ['fake-claude', 'fake-gemini']);
+  const childPath = linkBin(path.join(dir, 'bin'), ['fake-claude', 'fake-antigravity']);
   fs.symlinkSync(GIT, path.join(dir, 'bin', 'git'));
   const env: any = {
     PATH: childPath,
@@ -156,7 +156,7 @@ test('every IC-011 refusal comes in step order, exits 1 and writes nothing', POS
     ['token-mismatch', { token: p.token + 1 }],
     ['foreign-run', { env: { ...p.env, DOFLOW_RUN_ID: 'r2' } }],
     ['identity-collision', { env: { ...p.env, DOFLOW_ATTEMPT: String(p.token) } }],
-    ['harness-ineligible', { harness: 'gemini' }],
+    ['harness-ineligible', { harness: 'antigravity' }],
   ];
   for (const [reason, options] of cases) {
     const { exit, body } = await p.run(options);
@@ -168,7 +168,7 @@ test('every IC-011 refusal comes in step order, exits 1 and writes nothing', POS
   }
   const mismatch = await p.run({ token: p.token + 1 });
   assert.equal(mismatch.body.activeToken, p.token);
-  const ineligible = await p.run({ harness: 'gemini' });
+  const ineligible = await p.run({ harness: 'antigravity' });
   assert.ok(ineligible.body.gaps.some((gap: any) => gap.requirement === 'read-only'), JSON.stringify(ineligible.body.gaps));
 });
 
@@ -178,7 +178,7 @@ test('workers.enabled refuses a disabled worker without changing the run store o
   const p = project(t);
   const file = path.join(p.dir, 'config', 'doflow', 'settings.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify({ schema: 1, 'workers.enabled': ['gemini'] }));
+  fs.writeFileSync(file, JSON.stringify({ schema: 1, 'workers.enabled': ['antigravity'] }));
   const before = p.ledgerBytes();
   const { exit, body } = await p.run();
   assert.equal(exit, 1);
@@ -186,7 +186,7 @@ test('workers.enabled refuses a disabled worker without changing the run store o
     disposition: 'refused',
     reason: 'worker-disabled',
     harness: 'claude',
-    enabled: ['gemini'],
+    enabled: ['antigravity'],
     origin: { layer: 'user', source: file },
   });
   assert.equal(fs.existsSync(p.store), false);
@@ -218,8 +218,8 @@ test('token-out-of-range refuses a token above 9999', POSIX, async (t) => {
 
 test('mode-mismatch comes before harness eligibility for a sequential claim', POSIX, async (t) => {
   const p = project(t, { mode: 'sequential' });
-  // gemini is ineligible (readOnly unknown); the mode check must still answer first.
-  const { exit, body } = await p.run({ harness: 'gemini' });
+  // antigravity is ineligible (readOnly unknown); the mode check must still answer first.
+  const { exit, body } = await p.run({ harness: 'antigravity' });
   assert.equal(exit, 1);
   assert.deepEqual([body.reason, body.mode], ['mode-mismatch', 'sequential']);
   assert.equal(fs.existsSync(p.store), false);

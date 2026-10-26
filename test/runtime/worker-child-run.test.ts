@@ -49,7 +49,7 @@ async function project(t: any) {
   const { root, env } = sb;
   for (const key of ['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE']) assert.ok(env[key], `${key} is set`);
   assert.equal(Object.hasOwn(env, 'DOFLOW_ATTEMPT'), false, 'DOFLOW_ATTEMPT is deleted');
-  const descriptors: any = { claude: sb.descriptors.claude, gemini: sb.descriptors.gemini };
+  const descriptors: any = { claude: sb.descriptors.claude, antigravity: sb.descriptors.antigravity };
   const ledger = attempts.storeFile(root, SLUG);
   const common: any = { file: ledger, fsImpl: fs, roots: [root], slug: SLUG, env, cwd: root };
   assert.equal(attempts.start({ ...common, by: 'main' }).disposition, 'started');

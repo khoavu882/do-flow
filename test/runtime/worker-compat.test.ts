@@ -63,7 +63,9 @@ function withoutNest(block: any) { const { nest: _nest, ...rest } = block ?? {};
 function orchestrationFindings(registry: any, fixture: any) {
   const findings: any = [];
   const ids = registry.harnesses.map((h: any) => h.id);
-  for (const id of Object.keys(fixture)) if (!ids.includes(id)) findings.push(`fixture harness '${id}' is not registered`);
+  // The fixture is frozen at be752d8; a harness retired since (127) keeps its row there and is not a finding.
+  const retired = (registry.retired ?? []).map((entry: any) => entry.id);
+  for (const id of Object.keys(fixture)) if (!ids.includes(id) && !retired.includes(id)) findings.push(`fixture harness '${id}' is not registered`);
   for (const h of registry.harnesses) {
     if (!Object.hasOwn(fixture, h.id)) findings.push(`harness '${h.id}' has no be752d8 orchestration copy`);
     else if (!isDeepStrictEqual(withoutNest(h.orchestration), fixture[h.id])) findings.push(`harness '${h.id}' orchestration differs from be752d8`);
@@ -128,7 +130,8 @@ test('compat: require scan control, an in-memory module requiring undici is repo
 });
 
 test('compat: every harness orchestration block equals the be752d8 copy (FR-001)', () => {
-  assert.equal(Object.keys(ORCHESTRATION_BE752D8).length, HARNESSES.harnesses.length);
+  const retiredIds = HARNESSES.retired.map((entry: any) => entry.id);
+  assert.equal(Object.keys(ORCHESTRATION_BE752D8).filter((id) => !retiredIds.includes(id)).length, HARNESSES.harnesses.length);
   assert.deepEqual(orchestrationFindings(HARNESSES, ORCHESTRATION_BE752D8), []);
 });
 

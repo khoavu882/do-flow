@@ -14,7 +14,7 @@ const { workersDoctorView } = require('../../src/runtime/health.ts');
 const readiness = require('../../src/runtime/worker/readiness.ts');
 const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
 
-const FAKES = { claude: DESCRIPTORS.claude, gemini: DESCRIPTORS.gemini };
+const FAKES = { claude: DESCRIPTORS.claude, antigravity: DESCRIPTORS.antigravity };
 const NOW = Date.parse('2026-10-24T00:00:00Z');
 const writeUser = (f: any, value: any) => f.writeUserSettings({ schema: 1, 'workers.enabled': value });
 
@@ -77,7 +77,7 @@ function assertDoctor(f: any, expected: any) {
   for (const key of ['state', 'origin', 'inSession', 'reason', 'dangling']) {
     assert.deepEqual(view[key], active[key], key);
   }
-  assert.deepEqual(view.rows.map((row: any) => row.harness), ['claude', 'gemini']);
+  assert.deepEqual(view.rows.map((row: any) => row.harness), ['claude', 'antigravity']);
   assert.deepEqual(
     Object.fromEntries(view.rows.map((row: any) => [row.harness, row.enabled.state])),
     expected,
@@ -114,8 +114,8 @@ test('enabledOf follows IC-014 precedence and copies the origin', () => {
   const origin = { layer: 'user', source: '/fixture/settings.json' };
   const active = {
     state: 'set',
-    workers: ['gemini', 'claude'],
-    narrowedFrom: ['gemini', 'claude', 'codex', 'primary'],
+    workers: ['antigravity', 'claude'],
+    narrowedFrom: ['antigravity', 'claude', 'codex', 'primary'],
     origin,
   };
   assert.deepEqual(readiness.enabledOf(active, 'claude'), {
@@ -150,71 +150,71 @@ test('unset describe and doctor show default state with the default origin', asy
   assert.equal(body.active.state, 'unset');
   assert.equal(typeof body.primary.state, 'string');
   assertUnchanged(f, 'claude', body);
-  assertDoctor(f, { claude: 'default', gemini: 'default' });
+  assertDoctor(f, { claude: 'default', antigravity: 'default' });
 });
 
 test('enabled describe and doctor use effective worker order for positions', async (t) => {
   const f = createSettingsEnv(t);
-  const source = writeUser(f, ['gemini', 'claude', 'primary']);
+  const source = writeUser(f, ['antigravity', 'claude', 'primary']);
   const claude = await describeBody(t, f, 'claude');
-  const gemini = await describeBody(t, f, 'gemini');
+  const antigravity = await describeBody(t, f, 'antigravity');
   assert.deepEqual(claude.enabled, {
     state: 'enabled', position: 2, origin: { layer: 'user', source },
   });
-  assert.deepEqual(gemini.enabled, {
+  assert.deepEqual(antigravity.enabled, {
     state: 'enabled', position: 1, origin: { layer: 'user', source },
   });
   assert.equal(claude.active.inSession, true);
-  assert.deepEqual(claude.active.workers, ['gemini', 'claude']);
-  assertDoctor(f, { claude: 'enabled', gemini: 'enabled' });
+  assert.deepEqual(claude.active.workers, ['antigravity', 'claude']);
+  assertDoctor(f, { claude: 'enabled', antigravity: 'enabled' });
 });
 
 test('project and local narrowing show disabled without filtering eligibility', async (t) => {
   const f = createSettingsEnv(t);
-  const user = ['claude', 'gemini', 'primary'];
+  const user = ['claude', 'antigravity', 'primary'];
   writeUser(f, user);
   const source = f.writeProjectSettings({
-    schema: 1, 'workers.enabled': ['gemini', 'primary'],
+    schema: 1, 'workers.enabled': ['antigravity', 'primary'],
   });
   const claude = await describeBody(t, f, 'claude');
-  const gemini = await describeBody(t, f, 'gemini');
+  const antigravity = await describeBody(t, f, 'antigravity');
   assert.deepEqual(claude.enabled, {
     state: 'disabled', position: null, origin: { layer: 'project', source },
   });
-  assert.deepEqual(gemini.enabled, {
+  assert.deepEqual(antigravity.enabled, {
     state: 'enabled', position: 1, origin: { layer: 'project', source },
   });
   assert.deepEqual(claude.active.narrowedFrom, user);
   assertUnchanged(f, 'claude', claude);
-  assertDoctor(f, { claude: 'disabled', gemini: 'enabled' });
+  assertDoctor(f, { claude: 'disabled', antigravity: 'enabled' });
 
   const localSource = f.writeProjectLocal({
     schema: 1, 'workers.enabled': ['primary'],
   });
-  const local = await describeBody(t, f, 'gemini');
+  const local = await describeBody(t, f, 'antigravity');
   assert.deepEqual(local.enabled, {
     state: 'disabled', position: null, origin: { layer: 'local', source: localSource },
   });
   assert.deepEqual(local.active.narrowedFrom, user);
-  assertUnchanged(f, 'gemini', local);
-  assertDoctor(f, { claude: 'disabled', gemini: 'disabled' });
+  assertUnchanged(f, 'antigravity', local);
+  assertDoctor(f, { claude: 'disabled', antigravity: 'disabled' });
 });
 
 test('unlisted describe and doctor retain the user origin and original eligibility', async (t) => {
   const f = createSettingsEnv(t);
-  const source = writeUser(f, ['gemini']);
+  const source = writeUser(f, ['antigravity']);
   const body = await describeBody(t, f, 'claude');
   assert.deepEqual(body.enabled, {
     state: 'unlisted', position: null, origin: { layer: 'user', source },
   });
   assert.equal(body.active.inSession, false);
   assertUnchanged(f, 'claude', body);
-  assertDoctor(f, { claude: 'unlisted', gemini: 'enabled' });
+  assertDoctor(f, { claude: 'unlisted', antigravity: 'enabled' });
 });
 
 test('invalid lists show unlisted rows and a reason without echoing the invalid value', async (t) => {
   const f = createSettingsEnv(t);
-  const source = writeUser(f, ['gemini', 'held']);
+  const source = writeUser(f, ['antigravity', 'held']);
   const body = await describeBody(t, f, 'claude');
   assert.deepEqual(body.enabled, {
     state: 'unlisted', position: null, origin: { layer: 'user', source },
@@ -224,15 +224,15 @@ test('invalid lists show unlisted rows and a reason without echoing the invalid 
   assert.ok(body.active.reason.length > 0);
   assert.equal(body.active.reason.includes('held'), false);
   assertUnchanged(f, 'claude', body);
-  const view = assertDoctor(f, { claude: 'unlisted', gemini: 'unlisted' });
+  const view = assertDoctor(f, { claude: 'unlisted', antigravity: 'unlisted' });
   assert.equal(view.state, 'invalid');
   assert.equal(view.reason.includes('held'), false);
 });
 
 test('describe includes the declared primary and tolerates primary resolution failures', async (t) => {
   const f = createSettingsEnv(t);
-  const body = await describeBody(t, f, 'claude', { DOFLOW_PRIMARY_HARNESS: 'gemini' });
-  assert.equal(body.primary.harness, 'gemini');
+  const body = await describeBody(t, f, 'claude', { DOFLOW_PRIMARY_HARNESS: 'opencode' });
+  assert.equal(body.primary.harness, 'opencode');
   assert.equal(body.primary.state, 'declared-only');
 
   const primary = require('../../src/runtime/context/primary.ts');
@@ -251,7 +251,7 @@ test('readiness describe adds active and primary independently only when supplie
   const base = { ...options(f), harness: 'claude', root: f.project, now: () => NOW };
   const baseline = readiness.describe(base);
   const active = activeWorkers({ env: base.env, projectRoot: f.project });
-  const primary = { state: 'declared-only', harness: 'gemini' };
+  const primary = { state: 'declared-only', harness: 'opencode' };
 
   assert.deepEqual(readiness.describe({ ...base, active: undefined, primary: undefined }), baseline);
   const withActive = readiness.describe({ ...base, active });
@@ -269,17 +269,17 @@ test('readiness describe adds active and primary independently only when supplie
 
 test('dangling ids do not occupy positions and read-only views leave the fixture unchanged', async (t) => {
   const f = createSettingsEnv(t);
-  writeUser(f, ['gemini', 'agy', 'primary']);
+  writeUser(f, ['antigravity', 'agy', 'primary']);
   const before = snapshot(f.dir);
-  const body = await describeBody(t, f, 'gemini');
+  const body = await describeBody(t, f, 'antigravity');
   assert.equal(body.enabled.position, 1);
   assert.deepEqual(body.active.dangling, ['agy']);
-  const view = assertDoctor(f, { claude: 'unlisted', gemini: 'enabled' });
+  const view = assertDoctor(f, { claude: 'unlisted', antigravity: 'enabled' });
   assert.deepEqual(view.dangling, ['agy']);
   assert.deepEqual(snapshot(f.dir), before);
   assert.equal(fs.existsSync(f.userFile('session-env')), false);
 
-  writeUser(f, ['gemini', 'agy', 'claude', 'primary']);
+  writeUser(f, ['antigravity', 'agy', 'claude', 'primary']);
   assert.equal((await describeBody(t, f, 'claude')).enabled.position, 2);
 });
 
@@ -293,7 +293,7 @@ test('doctor text and JSON report workers beside the unchanged primary line with
     PATH: '',
     GIT_CONFIG_GLOBAL: path.join(f.dir, 'no-gitconfig'),
     GIT_CONFIG_NOSYSTEM: '1',
-    DOFLOW_PRIMARY_HARNESS: 'gemini',
+    DOFLOW_PRIMARY_HARNESS: 'opencode',
   };
   const cli = (args: any) => {
     const result = spawnSync(process.execPath, [CLI, ...args], {
@@ -310,7 +310,7 @@ test('doctor text and JSON report workers beside the unchanged primary line with
   assert.equal(text.split('\n').filter((line: any) => line === '  worker ghost: dangling (no registry or enabled package knows it)').length, 1);
   assert.equal(text.split('\n').filter((line: any) => line === "  note: workers.enabled: worker 'ghost' is not installed (ignored)").length, 1);
   assert.deepEqual(text.split('\n').filter((line: any) => /^\s*primary: /.test(line)), [
-    '  primary: declared-only gemini/- (env), probe declared-only',
+    '  primary: declared-only opencode/- (env), probe declared-only',
   ]);
 
   const report = JSON.parse(cli(['doctor', '--json']));
@@ -319,14 +319,14 @@ test('doctor text and JSON report workers beside the unchanged primary line with
   const claude = report.workers.rows.find((row: any) => row.harness === 'claude');
   assert.equal(claude.enabled.state, 'enabled');
   assert.equal(claude.enabled.position, 1);
-  assert.equal(report.primary.harness, 'gemini');
+  assert.equal(report.primary.harness, 'opencode');
   for (const row of report.workers.rows) {
     assert.equal(Object.hasOwn(row, 'bindings'), false);
     assert.deepEqual(row.bound, []);
   }
   assert.equal(fs.existsSync(f.userFile('session-env')), false);
 
-  writeUser(f, ['gemini', 'held']);
+  writeUser(f, ['antigravity', 'held']);
   const invalidText = cli(['doctor']);
   const workerLines = invalidText.split('\n').filter((line: any) => /^  workers? /.test(line) || /^  workers\.enabled: /.test(line));
   assert.match(workerLines[0], /^  workers\.enabled: invalid \(.+\)$/);

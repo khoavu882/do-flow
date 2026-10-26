@@ -71,7 +71,7 @@ async function project(t: any, { scenario = {} }: any = {}) {
   };
   for (const key of ['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE']) assert.ok(env[key], `${key} is set`);
   assert.equal(Object.hasOwn(env, 'DOFLOW_ATTEMPT'), false, 'DOFLOW_ATTEMPT is deleted');
-  const descriptors: any = { claude: sb.descriptors.claude, gemini: sb.descriptors.gemini };
+  const descriptors: any = { claude: sb.descriptors.claude, antigravity: sb.descriptors.antigravity };
   const ledger = attempts.storeFile(root, SLUG);
   const common: any = { file: ledger, fsImpl: fs, roots: [root], slug: SLUG, env, cwd: root };
   assert.equal(attempts.start({ ...common, by: 'main' }).disposition, 'started');
@@ -203,8 +203,8 @@ test('IC-014: a run without --edit records readOnly and no isolation', POSIX, as
 
 test('IC-013: describe and select take --edit', POSIX, async (t) => {
   const p = await project(t);
-  const cmd = (options: any) => executeWorkerCommand({ descriptors: { claude: p.sb.descriptors.claude, gemini: p.sb.descriptors.gemini }, env: p.env, cwd: p.root, ...options });
-  const described = await cmd({ action: 'describe', harness: 'gemini', edit: true });
+  const cmd = (options: any) => executeWorkerCommand({ descriptors: { claude: p.sb.descriptors.claude, antigravity: p.sb.descriptors.antigravity }, env: p.env, cwd: p.root, ...options });
+  const described = await cmd({ action: 'describe', harness: 'antigravity', edit: true });
   assert.equal(described.body.eligible, false);
   const gap = described.body.requirements.find((r: any) => r.requirement === 'isolated-edit');
   assert.deepEqual([gap.result, gap.reason], ['unknown', 'not-declared'], JSON.stringify(described.body.requirements));

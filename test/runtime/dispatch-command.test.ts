@@ -126,7 +126,7 @@ test('IC-001: each flag rule and a flag on the wrong action are exit 2 usage, de
     // 106 IC-005: --fallback and --ladder.
     { action: 'start', by: 'main', ladder: 'not-a-harness' },
     { action: 'start', by: 'main', ladder: 'claude,codex,claude' },
-    { action: 'start', by: 'main', ladder: 'claude,codex,gemini,opencode,pi,copilot,kiro,antigravity,claude' },
+    { action: 'start', by: 'main', ladder: 'claude,codex,opencode,pi,copilot,kiro,antigravity,claude' },
     { action: 'start', by: 'main', ladder: 'codex', harness: 'codex' },
     { action: 'start', by: 'main', ladder: ' , ' },
     { action: 'start', by: 'main', fallback: 'banana' },
@@ -440,9 +440,9 @@ test('FU-wdktxq: a run id that starts with e is not read as the argv element -e,
 
 test('106 IC-005: start stores run.fallback from --fallback and --ladder, else from the dispatch.fallback setting', POSIX, async (t) => {
   const p = project(t);
-  const r = await p.startWith({ fallback: 'auto', ladder: 'gemini, claude' });
+  const r = await p.startWith({ fallback: 'auto', ladder: 'antigravity, claude' });
   assert.equal(r.exit, 0, JSON.stringify(r.body));
-  assert.deepEqual(store.readDispatch(p.file).run.fallback, { mode: 'auto', ladder: ['gemini', 'claude'], exhausted: [], holds: {}, events: [], eventsDropped: 0 });
+  assert.deepEqual(store.readDispatch(p.file).run.fallback, { mode: 'auto', ladder: ['antigravity', 'claude'], exhausted: [], holds: {}, events: [], eventsDropped: 0 });
 
   const q = project(t);
   assert.equal((await q.startWith()).exit, 0);

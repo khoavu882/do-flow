@@ -27,11 +27,11 @@ const FRESH = Object.freeze({ installed: { state: 'yes', reason: 'found', at: nu
 
 const gapOf = (answer: any, harness: any, requirement: any) => answer.candidates.find((c: any) => c.harness === harness).gaps.find((g: any) => g.requirement === requirement);
 
-/** The sandbox with claude and gemini edit descriptors, both probed so their facts are fresh. */
+/** The sandbox with claude and antigravity edit descriptors, both probed so their facts are fresh. */
 async function probed(t: any) {
   const s = makeDispatchSandbox(t, { scenario: SCENARIO });
   for (const key of IDENTITY_VARS) assert.ok(key in s.env, `${key} is set in the child env`);
-  const descriptors: any = { claude: s.descriptors.claude, gemini: s.descriptors.gemini };
+  const descriptors: any = { claude: s.descriptors.claude, antigravity: s.descriptors.antigravity };
   await probe({ descriptors, env: s.env, cwd: s.root });
   return { s, descriptors, base: { descriptors, coverage: REAL.coverage, env: s.env, cwd: s.root } };
 }
@@ -46,7 +46,7 @@ test('capabilityRequirement: an absent isolatedEdit entry reads unknown, not-dec
   assert.deepEqual(capabilityRequirement('isolated-edit', editDescriptors().claude.isolatedEdit), { requirement: 'isolated-edit', result: 'met', reason: 'supported' });
 });
 
-test('edit: true with fresh facts: the claude fake is eligible, gemini is ineligible naming isolated-edit not-declared', POSIX_ONLY, async (t) => {
+test('edit: true with fresh facts: the claude fake is eligible, antigravity is ineligible naming isolated-edit not-declared', POSIX_ONLY, async (t) => {
   const { base } = await probed(t);
 
   const answer = select({ ...base, edit: true });
@@ -54,22 +54,22 @@ test('edit: true with fresh facts: the claude fake is eligible, gemini is inelig
   assert.equal(answer.harness, 'claude');
   assert.match(answer.reason, /met: installed, runnable, one-shot, structured-output, isolated-edit, spawn-denial;/);
   assert.deepEqual(answer.candidates.find((c: any) => c.harness === 'claude'), { harness: 'claude', eligible: true, gaps: [] });
-  assert.equal(answer.candidates.find((c: any) => c.harness === 'gemini').eligible, false);
-  assert.deepEqual(gapOf(answer, 'gemini', 'isolated-edit'), NOT_DECLARED);
-  assert.equal(gapOf(answer, 'gemini', 'read-only'), undefined, 'the edit baseline carries no read-only');
+  assert.equal(answer.candidates.find((c: any) => c.harness === 'antigravity').eligible, false);
+  assert.deepEqual(gapOf(answer, 'antigravity', 'isolated-edit'), NOT_DECLARED);
+  assert.equal(gapOf(answer, 'antigravity', 'read-only'), undefined, 'the edit baseline carries no read-only');
 
   const claude = describe({ ...base, harness: 'claude', edit: true });
   assert.equal(claude.eligible, true);
   assert.deepEqual(claude.requirements.map((item: any) => item.requirement), EDIT_BASELINE);
-  const gemini = describe({ ...base, harness: 'gemini', edit: true });
-  assert.equal(gemini.eligible, false);
-  assert.deepEqual(gemini.requirements.find((item: any) => item.requirement === 'isolated-edit'), NOT_DECLARED);
+  const antigravity = describe({ ...base, harness: 'antigravity', edit: true });
+  assert.equal(antigravity.eligible, false);
+  assert.deepEqual(antigravity.requirements.find((item: any) => item.requirement === 'isolated-edit'), NOT_DECLARED);
 });
 
 test('without edit: describe and select deep-equal the same call with the argument omitted', POSIX_ONLY, async (t) => {
   const { base } = await probed(t);
   const now = Date.now();
-  for (const harness of ['claude', 'gemini']) {
+  for (const harness of ['claude', 'antigravity']) {
     const omitted = describe({ ...base, harness, now });
     assert.deepEqual(describe({ ...base, harness, now, edit: false }), omitted, harness);
     assert.deepEqual(omitted.requirements.map((item: any) => item.requirement), BASELINE, harness);
@@ -80,7 +80,7 @@ test('without edit: describe and select deep-equal the same call with the argume
   assert.equal(omitted.harness, 'claude', 'the read-only baseline still selects claude');
 });
 
-test('the real registry with edit: true leaves every harness ineligible; seven name isolated-edit, codex only its discover-time gaps', (t) => {
+test('the real registry with edit: true leaves every harness ineligible; six name isolated-edit, codex only its discover-time gaps', (t) => {
   const dir = tempDir(t, 'doflow-edit-eligibility-real-');
   const emptyBin = path.join(dir, 'bin');
   fs.mkdirSync(emptyBin);

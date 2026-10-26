@@ -139,16 +139,16 @@ test('pi bridge observation confirms the payload model without a declaration', (
   assert.equal(primary.observed.sessions, 1);
 });
 
-test('gemini remains declared-only and writes no primary observation folder', (t) => {
+test('opencode remains declared-only and writes no primary observation folder', (t) => {
   const s = scratch(t);
-  const bridge = runBridge(s, 'gemini');
+  const bridge = runBridge(s, 'opencode');
   assert.equal(bridge.status, 0, bridge.stderr);
 
-  const result = resolvePrimary(s, 'gemini');
+  const result = resolvePrimary(s, 'opencode');
   const primary = resultOf(result);
   assert.equal(result.status, 0, result.stderr);
   assert.equal(primary.state, 'declared-only');
-  assert.equal(primary.harness, 'gemini');
+  assert.equal(primary.harness, 'opencode');
   assert.equal(primary.model, null);
   assert.equal(
     fs.existsSync(path.join(s.home, '.config', 'doflow', 'session-env', 'primary')),

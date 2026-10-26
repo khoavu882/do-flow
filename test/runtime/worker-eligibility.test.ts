@@ -175,11 +175,11 @@ test('needs: the policy set comes from coverage rows without *, and unknown ids 
 });
 
 test('select: three fakes with one eligible select it with its reason and write nothing', POSIX_ONLY, async (t) => {
-  const descriptors: any = { claude: clone('claude'), codex: clone('codex'), gemini: clone('gemini') };
+  const descriptors: any = { claude: clone('claude'), codex: clone('codex'), antigravity: clone('antigravity') };
   const s = setup(t, {
     version: [{ print: 'fake 1.0' }],
     byBinary: { 'fake-claude': { runnable: [{ exit: 3 }] } },
-  }, ['fake-claude', 'fake-codex', 'fake-gemini']);
+  }, ['fake-claude', 'fake-codex', 'fake-antigravity']);
   await probe({ descriptors, env: s.env, cwd: s.root });
 
   const before = snapshot(s.root);
@@ -188,18 +188,18 @@ test('select: three fakes with one eligible select it with its reason and write 
   assert.equal(answer.disposition, 'selected');
   assert.equal(answer.harness, 'codex');
   assert.match(answer.reason, /^first eligible harness in registry order; met: installed, runnable, one-shot, structured-output, read-only, spawn-denial; probed at \d{4}-/);
-  assert.deepEqual(answer.candidates.map((c: any) => [c.harness, c.eligible]), [['claude', false], ['codex', true], ['gemini', false]]);
+  assert.deepEqual(answer.candidates.map((c: any) => [c.harness, c.eligible]), [['claude', false], ['codex', true], ['antigravity', false]]);
   assert.deepEqual(gap(answer, 'claude', 'runnable'), { requirement: 'runnable', result: 'failed', reason: 'exit 3' });
-  assert.equal(gap(answer, 'gemini', 'read-only').result, 'unknown');
+  assert.equal(gap(answer, 'antigravity', 'read-only').result, 'unknown');
 
-  const only = select({ descriptors, coverage: REAL_COVERAGE, harness: 'gemini', env: s.env, cwd: s.root });
+  const only = select({ descriptors, coverage: REAL_COVERAGE, harness: 'antigravity', env: s.env, cwd: s.root });
   assert.equal(only.disposition, 'none-eligible');
-  assert.deepEqual(only.candidates.map((c: any) => c.harness), ['gemini']);
+  assert.deepEqual(only.candidates.map((c: any) => c.harness), ['antigravity']);
 });
 
 test('select: none eligible returns each gap and the fallback modes', POSIX_ONLY, async (t) => {
-  const descriptors: any = { claude: clone('claude'), codex: clone('codex'), gemini: clone('gemini') };
-  const s = setup(t, { version: [{ print: 'fake 1.0' }], runnable: [{ exit: 1 }] }, ['fake-claude', 'fake-codex', 'fake-gemini']);
+  const descriptors: any = { claude: clone('claude'), codex: clone('codex'), antigravity: clone('antigravity') };
+  const s = setup(t, { version: [{ print: 'fake 1.0' }], runnable: [{ exit: 1 }] }, ['fake-claude', 'fake-codex', 'fake-antigravity']);
   await probe({ descriptors, env: s.env, cwd: s.root });
   const before = snapshot(s.root);
   const answer = select({ descriptors, coverage: REAL_COVERAGE, env: s.env, cwd: s.root });
@@ -225,7 +225,7 @@ test('select: the real registry selects nothing when no harness is installed (DE
   const env: any = { PATH: emptyBin, HOME: path.join(dir, 'home') };
   const answer = select({ env, cwd: dir });
   assert.equal(answer.disposition, 'none-eligible');
-  assert.equal(answer.candidates.length, 8);
+  assert.equal(answer.candidates.length, 7);
   for (const candidate of answer.candidates) {
     assert.equal(candidate.eligible, false, candidate.harness);
     if (candidate.harness === 'codex') {

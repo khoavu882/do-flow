@@ -267,7 +267,7 @@
     },
     "modelChecks": []
   },
-  "gemini": {
+  "antigravity": {
     "profile": null,
     "billing": "unknown",
     "cli": {
@@ -277,7 +277,7 @@
       ],
       "verification": "Run the fake CLI under test/helper/fake-harness-cli.js with a scenario for version.",
       "verifiedOn": "2026-10-15",
-      "binary": "fake-gemini",
+      "binary": "fake-antigravity",
       "versionArgv": [
         "--version"
       ]

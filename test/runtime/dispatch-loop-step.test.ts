@@ -197,7 +197,7 @@ test('IC-022 / DEC-052: under auto with the real registry the discover spy recor
   assert.equal(d.mode, 'sequential');
   assert.equal(d.selection.policy, 'auto');
   assert.equal(d.selection.chosen, 'sequential');
-  assert.ok(d.selection.candidates.length >= 8, JSON.stringify(d.selection));
+  assert.ok(d.selection.candidates.length >= 7, JSON.stringify(d.selection));
   for (const c of d.selection.candidates) {
     assert.equal(c.eligible, false);
     if (c.harness === 'codex') {

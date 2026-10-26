@@ -49,7 +49,7 @@ const PLAN = [
 
 test('IC-012: resolveBinding and bindingGap implement every table row', () => {
   const base = { worker: 'claude', tier: 'standard', descriptor: SUP };
-  for (const bindings of [undefined, UNSET, set({}), set({ gemini: { standard: 'm' } }), set({ claude: { light: 'm' } })]) {
+  for (const bindings of [undefined, UNSET, set({}), set({ antigravity: { standard: 'm' } }), set({ claude: { light: 'm' } })]) {
     const result = resolveBinding({ ...base, bindings });
     assert.deepEqual(result, DEFAULT);
     assert.equal(bindingGap(result), null);
@@ -143,27 +143,27 @@ function select(candidates: any, extra = {}) {
   const before = structuredClone(cache.candidates);
   const choice = loop.selectMode({
     policy: 'auto', registry: REG, owner: 'core-implementer',
-    descriptors: { claude: SUP, gemini: DESCRIPTORS.gemini }, cache, ...extra,
+    descriptors: { claude: SUP, antigravity: DESCRIPTORS.antigravity }, cache, ...extra,
   });
   assert.deepEqual(cache.candidates, before, 'per-task binding gates must not mutate the cache');
   return choice;
 }
 
 test('IC-012: per-task bindings skip unevidenced rungs and retain exact gaps', () => {
-  const candidates = [cand('claude'), cand('gemini')];
+  const candidates = [cand('claude'), cand('antigravity')];
   assert.equal(select(candidates, { bindings: set({ claude: { standard: 'm' } }) }).harness, 'claude');
 
-  const geminiBound = select(candidates, { bindings: set({ gemini: { standard: 'm' } }) });
-  assert.equal(geminiBound.harness, 'claude');
-  assert.deepEqual(geminiBound.selection.candidates[1], {
-    harness: 'gemini', eligible: false, gaps: [GAP_FLAG],
+  const antigravityBound = select(candidates, { bindings: set({ antigravity: { standard: 'm' } }) });
+  assert.equal(antigravityBound.harness, 'claude');
+  assert.deepEqual(antigravityBound.selection.candidates[1], {
+    harness: 'antigravity', eligible: false, gaps: [GAP_FLAG],
   });
 
-  const both = set({ claude: { standard: 'm1' }, gemini: { standard: 'm2' } });
+  const both = set({ claude: { standard: 'm1' }, antigravity: { standard: 'm2' } });
   const next = select(candidates, {
-    bindings: both, descriptors: { claude: DESCRIPTORS.claude, gemini: SUP },
+    bindings: both, descriptors: { claude: DESCRIPTORS.claude, antigravity: SUP },
   });
-  assert.equal(next.harness, 'gemini');
+  assert.equal(next.harness, 'antigravity');
   assert.deepEqual(next.selection.candidates[0].gaps, [GAP_FLAG]);
 
   const invalid = select(candidates, { bindings: INVALID });
@@ -175,13 +175,13 @@ test('IC-012: per-task bindings skip unevidenced rungs and retain exact gaps', (
   assert.equal(frontier.harness, 'claude');
   assert.deepEqual(frontier.selection.candidates, candidates);
 
-  const alreadyFailed = [cand('claude', false), cand('gemini')];
+  const alreadyFailed = [cand('claude', false), cand('antigravity')];
   const gated = select(alreadyFailed, { bindings: INVALID });
   assert.deepEqual(gated.selection.candidates[0], alreadyFailed[0]);
 
   const reordered = select(candidates, {
-    bindings: both, descriptors: { claude: SUP, gemini: DESCRIPTORS.gemini },
-    fallback: { mode: 'auto', ladder: ['gemini', 'claude'], exhausted: [] },
+    bindings: both, descriptors: { claude: SUP, antigravity: DESCRIPTORS.antigravity },
+    fallback: { mode: 'auto', ladder: ['antigravity', 'claude'], exhausted: [] },
   });
   assert.equal(reordered.harness, 'claude');
   assert.deepEqual(reordered.selection.candidates[0].gaps, [GAP_FLAG]);
@@ -193,9 +193,9 @@ test('IC-012 negative control: absent workers.models preserves every selection',
   assert.deepEqual(bindings, UNSET);
   const variants: any[] = [{}, { tier: 'frontier' }, { policy: 'manual' }, { held: true }, { lastFailureClass: 'launch' }];
   for (const mode of ['off', 'ask', 'auto']) {
-    variants.push({ fallback: { mode, ladder: ['claude', 'gemini'], exhausted: ['claude'] } });
+    variants.push({ fallback: { mode, ladder: ['claude', 'antigravity'], exhausted: ['claude'] } });
   }
-  for (const candidates of [[cand('claude'), cand('gemini')], [cand('claude', false), cand('gemini', false)]]) {
+  for (const candidates of [[cand('claude'), cand('antigravity')], [cand('claude', false), cand('antigravity', false)]]) {
     for (const extra of variants) {
       assert.deepEqual(select(candidates, { ...extra, bindings }), select(candidates, extra));
     }
@@ -404,18 +404,18 @@ test('IC-014: doctor reports bound tiers and binding state without model ids', (
   const f = createSettingsEnv(t);
   const options = {
     env: f.env({ PATH: '' }), projectRoot: f.project, repoRoot: REPO,
-    descriptors: { claude: SUP, gemini: DESCRIPTORS.gemini }, now: NOW,
+    descriptors: { claude: SUP, antigravity: DESCRIPTORS.antigravity }, now: NOW,
   };
   const plain = workersDoctorView(options);
   assert.deepEqual(plain.bindings, { state: 'unset', reason: null });
   assert.ok(plain.rows.every((row: any) => row.bound.length === 0));
   f.writeUserSettings({
-    schema: 1, 'workers.models': { claude: { light: 'private-m1' }, gemini: { frontier: 'private-m2' } },
+    schema: 1, 'workers.models': { claude: { light: 'private-m1' }, antigravity: { frontier: 'private-m2' } },
   });
   const bound = workersDoctorView(options);
   assert.deepEqual(bound.bindings, { state: 'set', reason: null });
   assert.deepEqual(bound.rows.find((row: any) => row.harness === 'claude').bound, [{ tier: 'light', flag: 'supported' }]);
-  assert.deepEqual(bound.rows.find((row: any) => row.harness === 'gemini').bound, [{ tier: 'frontier', flag: 'unevidenced' }]);
+  assert.deepEqual(bound.rows.find((row: any) => row.harness === 'antigravity').bound, [{ tier: 'frontier', flag: 'unevidenced' }]);
   assert.equal(JSON.stringify(bound).includes('private-m1'), false);
   assert.equal(JSON.stringify(bound).includes('private-m2'), false);
   for (let i = 0; i < plain.rows.length; i += 1) {

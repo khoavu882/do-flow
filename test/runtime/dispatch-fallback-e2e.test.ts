@@ -37,12 +37,12 @@ function descriptorsFor({ secondSignals = false, firstSignals = true }: any = {}
     status: 'supported', evidence: ['dispatch-fallback-e2e.test.js fake worker'],
     verification: 'Run this test with the fake harness CLI.', verifiedOn: '2026-10-21', argv: ['--edit-in-cwd'],
   };
-  descriptors.gemini.structuredOutput = structuredClone(descriptors.claude.structuredOutput);
-  if (secondSignals) descriptors.gemini.structuredOutput.quotaSignals = { signals: [...SIGNALS], basis: 'unverified', evidence: [] };
-  else delete descriptors.gemini.structuredOutput.quotaSignals;
-  descriptors.gemini.isolatedEdit = {
+  descriptors.antigravity.structuredOutput = structuredClone(descriptors.claude.structuredOutput);
+  if (secondSignals) descriptors.antigravity.structuredOutput.quotaSignals = { signals: [...SIGNALS], basis: 'unverified', evidence: [] };
+  else delete descriptors.antigravity.structuredOutput.quotaSignals;
+  descriptors.antigravity.isolatedEdit = {
     status: 'supported', evidence: ['dispatch-fallback-e2e.test.js fake worker'],
-    verification: 'Run this test with the fake harness CLI.', verifiedOn: '2026-10-21', argv: ['--gemini-edit-in-cwd'],
+    verification: 'Run this test with the fake harness CLI.', verifiedOn: '2026-10-21', argv: ['--antigravity-edit-in-cwd'],
   };
   return descriptors;
 }
@@ -50,7 +50,7 @@ function descriptorsFor({ secondSignals = false, firstSignals = true }: any = {}
 function scenario(first: any = QUOTA, second: any = SUCCESS) {
   return { byBinary: {
     'fake-claude': { run: [{ sleep: 100 }, { emit: first }] },
-    'fake-gemini': { run: [{ write: { path: 'src/retry.js', content: '// stepped\n' } }, { sleep: 100 }, { emit: second }] },
+    'fake-antigravity': { run: [{ write: { path: 'src/retry.js', content: '// stepped\n' } }, { sleep: 100 }, { emit: second }] },
   } };
 }
 
@@ -61,7 +61,7 @@ async function project(t: any, { owner, fallback, secondSignals = false, firstSi
   assert.equal((await readiness.probe({ descriptors, env, cwd: sb.root })).disposition, 'probed');
   const started = await executeDispatchCommand({
     action: 'start', slug: SLUG, by: 'main', mode: 'auto', verifyArgv: JSON.stringify(sb.verifyArgv),
-    ladder: 'claude,gemini', ...(fallback ? { fallback } : {}), cwd: sb.root, env, descriptors,
+    ladder: 'claude,antigravity', ...(fallback ? { fallback } : {}), cwd: sb.root, env, descriptors,
   });
   assert.equal(started.exit, 0, JSON.stringify(started.body));
   const file = dispatchStore.storeFileFor(sb.root, SLUG);
@@ -70,7 +70,7 @@ async function project(t: any, { owner, fallback, secondSignals = false, firstSi
   const ledger = () => JSON.parse(fs.readFileSync(ledgerFile, 'utf8'));
   const run = () => loop.run({ slug: SLUG, env, cwd: sb.root, by: 'main', descriptors, maxSeconds: 60 });
   const inspect = () => executeDispatchCommand({ action: 'inspect', slug: SLUG, cwd: sb.root, env, descriptors });
-  const harnessRuns = () => readLog(sb.log).filter((entry: any) => entry.argv.some((arg: any) => ['--edit-in-cwd', '--gemini-edit-in-cwd'].includes(arg)));
+  const harnessRuns = () => readLog(sb.log).filter((entry: any) => entry.argv.some((arg: any) => ['--edit-in-cwd', '--antigravity-edit-in-cwd'].includes(arg)));
   return { sb, env, descriptors, read, ledger, run, inspect, harnessRuns };
 }
 
@@ -85,14 +85,14 @@ test('106 A.3: default ask releases quota attempt, holds proposed rung, exposes 
   const d = Object.values(s.dispatches)[0];
   assert.deepEqual([d.harness, d.disposition, d.failureClass], ['claude', 'failed', 'quota']);
   assert.deepEqual(p.ledger().tasks['A.1'].attempts.map((a: any) => [a.state, a.result ?? null]), [['released', null]]);
-  assert.deepEqual(s.run.fallback.holds['A.1'] && [s.run.fallback.holds['A.1'].reason, s.run.fallback.holds['A.1'].proposed], ['quota', 'gemini']);
+  assert.deepEqual(s.run.fallback.holds['A.1'] && [s.run.fallback.holds['A.1'].reason, s.run.fallback.holds['A.1'].proposed], ['quota', 'antigravity']);
   assert.deepEqual(s.run.fallback.events.map((e: any) => e.kind), ['quota', 'hold']);
   assert.deepEqual(fallbackActions(s).map((a: any) => a.reason), [
     'quota:A.1 claude -> none (usage limit; mode ask; signals unverified)',
-    'hold:A.1 claude -> gemini (quota; mode ask; signals unverified)',
+    'hold:A.1 claude -> antigravity (quota; mode ask; signals unverified)',
   ]);
   assert.deepEqual(r.last.blocked.gaps.find((g: any) => g.task === 'A.1')?.cause, 'quota');
-  assert.deepEqual(p.harnessRuns().map((entry: any) => entry.argv.includes('--gemini-edit-in-cwd')), [false]);
+  assert.deepEqual(p.harnessRuns().map((entry: any) => entry.argv.includes('--antigravity-edit-in-cwd')), [false]);
   const inspected = await p.inspect();
   assert.deepEqual(inspected.body.fallback, s.run.fallback);
 });
@@ -102,11 +102,11 @@ test('106 A.3: auto releases rung 1 quota attempt and completes on rung 2 with o
   const r = await p.run();
   assert.equal(r.outcome, 'completed', JSON.stringify(r.last));
   const s = p.read();
-  assert.deepEqual(Object.values(s.dispatches).map((d) => [d.harness, d.disposition]), [['claude', 'failed'], ['gemini', 'completed']]);
+  assert.deepEqual(Object.values(s.dispatches).map((d) => [d.harness, d.disposition]), [['claude', 'failed'], ['antigravity', 'completed']]);
   assert.deepEqual(p.ledger().tasks['A.1'].attempts.map((a: any) => a.state), ['released', 'finished']);
   assert.deepEqual(s.run.fallback.events.map((e: any) => e.kind), ['quota', 'step']);
   assert.equal(fallbackActions(s).length, 2);
-  assert.deepEqual(p.harnessRuns().map((entry: any) => entry.argv.includes('--gemini-edit-in-cwd')), [false, true]);
+  assert.deepEqual(p.harnessRuns().map((entry: any) => entry.argv.includes('--antigravity-edit-in-cwd')), [false, true]);
 });
 
 test('106 A.3: auto keeps a frontier owner at frontier-no-step and never launches rung 2', POSIX, async (t) => {
@@ -115,7 +115,7 @@ test('106 A.3: auto keeps a frontier owner at frontier-no-step and never launche
   assert.equal(r.outcome, 'blocked', JSON.stringify(r.last));
   const hold = p.read().run.fallback.holds['A.1'];
   assert.deepEqual([hold.reason, hold.proposed], ['frontier-no-step', null]);
-  assert.equal(p.harnessRuns().some((entry: any) => entry.argv.includes('--gemini-edit-in-cwd')), false);
+  assert.equal(p.harnessRuns().some((entry: any) => entry.argv.includes('--antigravity-edit-in-cwd')), false);
   assert.deepEqual(Object.values(p.read().dispatches).map((d) => d.harness), ['claude']);
 });
 
@@ -139,5 +139,5 @@ test('106 A.3: 401 authentication failure remains worker-failure and does not tr
   assert.ok(dispatches.every((d) => d.failureClass === 'worker-failure' && d.disposition === 'failed'));
   assert.deepEqual(p.read().run.fallback.events, []);
   assert.equal(fallbackActions(p.read()).length, 0);
-  assert.equal(p.harnessRuns().some((entry: any) => entry.argv.includes('--gemini-edit-in-cwd')), false);
+  assert.equal(p.harnessRuns().some((entry: any) => entry.argv.includes('--antigravity-edit-in-cwd')), false);
 });
