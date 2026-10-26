@@ -11,7 +11,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../../helper/scratch-env.ts');
+const { createScratch, ALL_HARNESS_IDS } = require('../../helper/scratch-env.ts');
 const { suiteTempDir } = require('../../helper/tmp.ts');
 const { IS_WIN } = require('../../helper-platform.ts');
 
@@ -41,7 +41,7 @@ function olderCliPath() {
 
 /** A scratch directory with a `proj/` project and an empty HOME. */
 function cell(name: any) {
-  const scratch = createScratch(`doflow-hook-scripts-${name}-`);
+  const scratch = createScratch(`doflow-hook-scripts-${name}-`, { hookHarnesses: ALL_HARNESS_IDS });
   const proj = path.join(scratch.dir, 'proj');
   fs.mkdirSync(proj);
   const run = (args: any, { cli = CLI, answer = 'y\n' } = {}) => {

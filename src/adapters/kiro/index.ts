@@ -39,6 +39,15 @@ const LEGACY_MCP_REGISTRATION = `${HARNESS}:mcp:registration`;
  * module-level exports delegate to a default-configured instance so direct callers keep their
  * historical shape.
  */
+/** Hook tiers (maint-hooks): with Kiro outside `hooks.harnesses` (`context.hooksOff`) its agents carry no
+ * `hooks`, so they never name a hook script DoFlow did not install. */
+const CONTENT_ONLY_TRANSFORMS: Readonly<Record<string, string>> = Object.freeze({ 'kiro-agents': 'kiro-agents-content' });
+function transformFor(asset: any, context: any): string | null {
+  if (context?.hooksOff !== true) return asset.transform || null;
+  if (asset.id === 'kiro.doflow-agent') return 'kiro-agent-content';
+  return CONTENT_ONLY_TRANSFORMS[asset.transform] ?? (asset.transform || null);
+}
+
 function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {}) {
   // Parity note: Kiro's historical nativePaths() derived even its user-scope root from scopeRoot
   // (the CLI passes $HOME there for -g installs), never from a separate homeDir argument — so the
@@ -100,7 +109,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
       const destDir = copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Kiro');
       const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, transform: asset.transform, select: asset.select, keepModified: !removing,
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, transform: transformFor(asset, context), select: asset.select, keepModified: !removing,
         // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
         // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
         // reason codex/index.ts states in full: force heals drift on apply, but a hand-edited file
@@ -117,7 +126,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
           ownershipIdentity: `doflow:${HARNESS}:copy-tree:${asset.id}:${change.relPath}`,
           kind: 'copy-tree-file', identity: change.relPath,
           afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: 'registry-v1',
-          transformName: asset.transform || null,
+          transformName: transformFor(asset, context),
           ...(change.kept ? { retained: true, retainedFor: [] } : {}),
           projection: { renderer: asset.renderer },
         });
@@ -155,7 +164,7 @@ function createKiroAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } =
     for (const asset of kiroTreeAssets(assets)) {
       const destDir = copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Kiro');
-      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, transform: asset.transform, select: asset.select, plannedWrites: context?.plannedWrites });
+      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, transform: transformFor(asset, context), select: asset.select, plannedWrites: context?.plannedWrites });
       conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       for (const resource of result.resources) {
         resources.push({

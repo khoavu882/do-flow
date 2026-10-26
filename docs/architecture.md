@@ -128,6 +128,19 @@ execution adapter has a fourth:
 | Harness execution adapter | Launches a harness for a task with a profile; 081 defines and builds it: `src/runtime/worker/` and `doflow-run worker` (discover, probe, describe, select, run, status, cancel, evidence) of a one-shot read-only worker on an 080 claim; 082 amends it three ways: an optional `isolatedEdit` worker capability with an `isolated-edit` eligibility requirement (IC-013), `worker run --edit` for an editing run in a leased attempt worktree (IC-014), and `worker run --child-of` for a granted read-only child run (IC-015) | 077 assigns it no implementation obligation; claim, finish or count budget on an attempt, or read credentials |
 | Dispatch and integration loop | Runs a feature's task graph through admission, worker dispatch, verification and integration; 082 defines and builds it: `src/runtime/dispatch/` and `doflow-run dispatch` (start, step, run, submit, spawn, pause, inspect, cancel, takeover, resume) | Write the user's checkout or branches, merge, push, edit `plan.md`, or signal a worker tree except through 081 `cancelRun` |
 
+**Hook tiers (maint-hooks).** Content (guidance, skills, agents, MCP) goes to every harness; hooks,
+gates and the bridge go only to the harnesses the global-only setting `hooks.harnesses` names
+(default `claude`, `codex`, `antigravity`, `pi`: the primary session and the harnesses that run
+workers, whose only destructive-command guard is the hook; a run warns when Claude or a harness in
+`workers.enabled` is left out). `src/lifecycle/hook-tier.ts` plans a harness outside the list
+against a registry copy whose `hooks` capability is `unavailable` (`tiered: true`), so asset
+selection, policy rendering and the shared-tree companions treat it as a harness without hooks,
+and adapters drop hook config that rides a content asset (Claude's `settings.json` block, Codex
+`features.hooks`, Kiro agent `hooks`) through `context.hooksOff`. The hooks an earlier run wrote
+are removed in the same plan, through the adapter's own remove path, from the ledger rows. A
+`remove` takes exactly the hooks the ledger records, and a shared hook file another harness writes in
+the same plan is retained, not deleted. OpenCode and Copilot get no hook either way.
+
 Policy rules—checks of artifacts, branch, run or readiness state, pattern files and MCP policy—live only in `core/harnesses/shared/hooks/policies/`. A bridge adds no model-visible text of its own except the fixed error reason and the native rendering of a policy's deny reason.
 
 The pre-bash guard policy (`pre-bash-guard.sh`) enforces destructive-command blocking against `blocked-patterns.conf`. The git, rm, and find rules use command-position anchors and prefix/wrapper handling (`_CMDPOS` and `_WRAP`), which covers path-qualified binaries such as `/usr/bin/git reset --hard`, assignments such as `FOO=1 rm -rf /`, and piped commands such as `x | git clean -fd`. The chmod, dd, and curl-to-shell rules keep their previous anchors. SQL text exceptions use a positive allow-list matched against the raw command; a non-match keeps the SQL rule's prior verdict. The accepted text-writing forms are listed in [Enterprise governance](enterprise-governance.md#worker-exemptions-and-guard-scoping).

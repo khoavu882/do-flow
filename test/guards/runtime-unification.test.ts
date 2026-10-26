@@ -120,7 +120,9 @@ function plannedChanges(scope: any, home: any) {
   const original = os.homedir;
   os.homedir = () => home;
   try {
-    return registryLifecycleView({ registry, repoRoot: REPO, targets: LIFECYCLE_HARNESSES, mcpSelections: {}, scope }).plan.changes;
+    // Every harness in the hook tier, so each harness's hook tree placement is planned and checked.
+    return registryLifecycleView({ registry, repoRoot: REPO, targets: LIFECYCLE_HARNESSES, mcpSelections: {}, scope,
+      hookHarnesses: registry.harnesses.map((harness: any) => harness.id) }).plan.changes;
   } finally { os.homedir = original; }
 }
 

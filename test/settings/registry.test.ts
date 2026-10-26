@@ -143,6 +143,10 @@ const V1 = {
     securityRelevant: true, failSafe: { state: 'invalid' }, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
     consumers: ['src/runtime/worker/launch.ts'],
     description: 'Space-separated exact database names a worker session may DROP DATABASE; project layer only.' },
+  'hooks.harnesses': { type: 'string-list', valuesRef: 'harnesses.ids', maxItems: 16, maxLength: 32, default: ['claude', 'codex', 'antigravity', 'pi'],
+    scope: 'global-only', combine: 'override', securityRelevant: false, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
+    consumers: ['src/lifecycle/hook-tier.ts'],
+    description: "Harness ids that get DoFlow's hooks, gates and bridge; every other harness gets content only (guidance, skills, agents, MCP), and its DoFlow hooks are removed on the next install or update. An invalid list keeps the default." },
   'verify.reuse': { type: 'enum', values: ['off', 'on'], order: ['off', 'on'], default: 'off',
     scope: 'global-only', combine: 'override', securityRelevant: true, failSafe: 'off',
     env: { name: 'DOFLOW_VERIFY_REUSE', parse: 'off-words', direction: 'narrow' },
@@ -350,7 +354,7 @@ test("the shipped registry pins base keys plus primary, worker and package setti
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 41);
+  assert.equal(Object.keys(SHIPPED.keys).length, 42);
 });
 
 test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {
@@ -392,7 +396,7 @@ test('defaultRef values equal advice.json defaultEndpoint and storage.json lifec
   assert.deepEqual(refs.resolve('workers.defaultRungs'), [...harnesses.harnesses.filter((h: any) => h.worker).map((h: any) => h.id), 'primary']);
   const models = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/models.json'), 'utf8'));
   assert.deepEqual(refs.resolve('models.tierIds'), models.dispatchTiers.tiers);
-  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'harnesses.primaryIds', 'models.tierIds', 'packages.ids', 'protocols.debatePresetIds', 'protocols.lensIds', 'protocols.reviewPresetIds', 'protocols.reviewPresetOrder', 'storage.lifecycleEventsDefaultHours', 'workers.defaultRungs', 'workers.ids']);
+  assert.deepEqual(Object.keys(REF_META).sort(), ['advice.providerDefaultEndpoint', 'advice.providerIds', 'harnesses.ids', 'harnesses.primaryIds', 'models.tierIds', 'packages.ids', 'protocols.debatePresetIds', 'protocols.lensIds', 'protocols.reviewPresetIds', 'protocols.reviewPresetOrder', 'storage.lifecycleEventsDefaultHours', 'workers.defaultRungs', 'workers.ids']);
 });
 
 test('refs: an unknown name (including an inherited property name) and an unreadable source throw without file text', () => {

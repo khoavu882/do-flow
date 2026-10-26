@@ -410,10 +410,20 @@ test('status --json reports the general per-harness hook-wiring status for claud
   const home = tempDir(t, 'doflow-cli-e2e-');
   const project = tempDir(t, 'doflow-cli-e2e-project-');
 
-  let r = run(['install', project, '--force', '--target', 'claude,codex,kiro', '--mcp', 'context7'], { home });
+  // Kiro is outside the shipped hooks.harnesses default (maint-hooks): absent until the user layer names it.
+  const xdg = tempDir(t, 'doflow-cli-e2e-xdg-');
+  const env = { XDG_CONFIG_HOME: xdg };
+  let r = run(['install', project, '--force', '--target', 'claude,codex,kiro', '--mcp', 'context7'], { home, env });
   assert.strictEqual(r.status, 0, r.stderr);
+  r = run(['status', project, '--target', 'kiro', '--json'], { home, env });
+  assert.strictEqual(r.status, 0, r.stderr);
+  assert.strictEqual(JSON.parse(r.stdout).context.kiro.hooks.status, 'absent');
 
-  r = run(['status', project, '--target', 'claude,codex,kiro', '--json'], { home });
+  fs.mkdirSync(path.join(xdg, 'doflow'), { recursive: true });
+  fs.writeFileSync(path.join(xdg, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'hooks.harnesses': ['claude', 'codex', 'kiro'] }));
+  r = run(['update', project, '--force', '--target', 'kiro'], { home, env });
+  assert.strictEqual(r.status, 0, r.stderr);
+  r = run(['status', project, '--target', 'claude,codex,kiro', '--json'], { home, env });
   assert.strictEqual(r.status, 0, r.stderr);
   const status = JSON.parse(r.stdout);
 

@@ -14,7 +14,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { createScratch } = require('../helper/scratch-env.ts');
+const { createScratch, ALL_HARNESS_IDS } = require('../helper/scratch-env.ts');
 const { suiteTempDir } = require('../helper/tmp.ts');
 const { IS_WIN } = require('../helper-platform.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
@@ -45,7 +45,7 @@ before(() => {
 
 /** A scratch directory with a `proj/` project and an empty HOME. */
 function cell(name: any) {
-  const scratch = createScratch(`doflow-hook-step-${name}-`);
+  const scratch = createScratch(`doflow-hook-step-${name}-`, { hookHarnesses: ALL_HARNESS_IDS });
   fs.mkdirSync(path.join(scratch.dir, 'proj'));
   const proj = path.join(scratch.dir, 'proj');
   // `answer` is what the child reads on stdin: update asks for a confirmation unless it is forced.
