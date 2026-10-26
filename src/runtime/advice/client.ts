@@ -182,10 +182,12 @@ function createAdviceClient({
         return unavailable('over-limit', `request body is ${bodyBytes} bytes; the limit is ${adviceRegistry.limits.maxBodyBytes} (core/registry/advice.json limits.maxBodyBytes)`);
       }
 
+      if (signal?.aborted) return unavailable('timeout', 'decision model request aborted by the caller');
       const endpointCheck = await checkEndpoint(setting.endpoint, {
         lookup,
         file: setting.decidedBy?.user || 'provider default',
         timeoutMs: Math.max(0, adviceRegistry.timeoutMs - durationSince(startedAt)),
+        signal,
       });
       if (!endpointCheck.ok) return unavailable(endpointCheck.reason || 'non-loopback', endpointCheck.message);
       const remainingMs = adviceRegistry.timeoutMs - durationSince(startedAt);

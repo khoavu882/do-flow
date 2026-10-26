@@ -630,14 +630,11 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     assert.ok(Date.now() - started < 10000, `the process stayed open for ${Date.now() - started}ms`);
   });
 
-  test('C-11: the dispatcher budget aborts the real client request, so a stalled server does not hold the process open', async (t) => {
-    const s = store(t);
-    const sockets = new Set<any>();
-    const server = require('node:http').createServer(() => { /* accept and never answer */ });
-    server.on('connection', (socket: any) => { sockets.add(socket); });
-    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
-    t.after(() => { for (const socket of sockets) socket.destroy(); server.close(); });
-    const endpoint = `http://127.0.0.1:${server.address().port}`;
+  /**
+   * Runs one shadow decision in a child process through a real advice client (budget 60000 ms) with a dispatcher
+   * budget of 300 ms, against `endpoint`; `lookupSource`, when given, is the client's DNS lookup as source text.
+   */
+  async function shadowChild(s: any, endpoint: string, lookupSource?: string) {
     const settingFile = path.join(s.roots['config-home'], 'decision-model.json');
     fs.mkdirSync(path.dirname(settingFile), { recursive: true });
     fs.writeFileSync(settingFile, JSON.stringify({ schema: 1, enabled: true, provider: 'ollama', endpoint, model: 'clef-flash' }));
@@ -650,7 +647,7 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
       const repoRoot = ${JSON.stringify(REPO_ROOT)};
       const roots = resolveRoots({ registry: loadStorageRegistry({ repoRoot }), projectRoot: ${JSON.stringify(s.projectRoot)}, env: ${JSON.stringify(s.env)} });
       const adviceRegistry = { ...loadAdviceRegistry({ repoRoot }).registry, timeoutMs: 60000 };
-      const adviceClient = createAdviceClient({ adviceRegistry, roots });
+      const adviceClient = createAdviceClient({ adviceRegistry, roots${lookupSource ? `, lookup: ${lookupSource}` : ''} });
       interceptDecisionPoint({ kind: 'tier', caller: 'brief-tools', state: ${JSON.stringify(QUESTION_SET.state)}, staticPick: 'light',
         questionSet: ${JSON.stringify(QUESTION_SET)}, adviceRegistry: { timeoutMs: 300 },
         projectRoot: ${JSON.stringify(s.projectRoot)}, env: ${JSON.stringify(s.env)} },
@@ -665,11 +662,30 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
     const killer = setTimeout(() => child.kill('SIGKILL'), 15000);
     const code = await new Promise((resolve) => child.on('close', resolve));
     clearTimeout(killer);
-    const elapsed = Date.now() - started;
+    return { elapsed: Date.now() - started, code, stdout, stderr };
+  }
+
+  test('C-11: the dispatcher budget aborts the real client request, so a stalled server does not hold the process open', async (t) => {
+    const s = store(t);
+    const sockets = new Set<any>();
+    const server = require('node:http').createServer(() => { /* accept and never answer */ });
+    server.on('connection', (socket: any) => { sockets.add(socket); });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+    t.after(() => { for (const socket of sockets) socket.destroy(); server.close(); });
+    const { elapsed, code, stdout, stderr } = await shadowChild(s, `http://127.0.0.1:${server.address().port}`);
     assert.ok(elapsed < 10000, `the process stayed open for ${elapsed}ms`);
     assert.equal(code, 0, stderr);
     assert.equal(stdout.trim(), 'shadow');
     assert.equal(sockets.size, 1, 'the client reached the stalled server');
+    assert.deepEqual(s.lines().map((line: any) => [line.type, line.reason]), [['miss', 'timeout']]);
+  });
+
+  test('C-11: the dispatcher budget aborts the real client DNS validation, so a stalled lookup does not hold the process open', async (t) => {
+    const s = store(t);
+    const { elapsed, code, stdout, stderr } = await shadowChild(s, 'http://localhost:11434', '() => { /* never answers */ }');
+    assert.ok(elapsed < 10000, `the process stayed open for ${elapsed}ms`);
+    assert.equal(code, 0, stderr);
+    assert.equal(stdout.trim(), 'shadow');
     assert.deepEqual(s.lines().map((line: any) => [line.type, line.reason]), [['miss', 'timeout']]);
   });
 });

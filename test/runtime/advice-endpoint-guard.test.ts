@@ -10,6 +10,37 @@ test('DNS validation abandons a lookup that never calls back', { timeout: 1000 }
   assert.equal(result.reason, 'timeout');
 });
 
+function timers() {
+  return (process as any).getActiveResourcesInfo().filter((name: string) => name === 'Timeout').length;
+}
+
+test('084 C-11: an already-aborted signal settles DNS validation at once, without a lookup or a timer', { timeout: 1000 }, async () => {
+  const calls: any[] = [];
+  const controller = new AbortController();
+  controller.abort();
+  const before = timers();
+  const started = Date.now();
+  const result = await checkEndpoint('http://localhost:11434', { lookup: (...args: any[]) => { calls.push(args); }, timeoutMs: 60000, signal: controller.signal });
+  assert.ok(Date.now() - started < 200, 'settles at once');
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'timeout');
+  assert.equal(calls.length, 0, 'the lookup is not called');
+  assert.equal(timers(), before, 'no DNS timer is left');
+});
+
+test('084 C-11: an abort during a stalled lookup settles DNS validation at once and clears its timer', { timeout: 1000 }, async () => {
+  const controller = new AbortController();
+  const before = timers();
+  const started = Date.now();
+  const pending = checkEndpoint('http://localhost:11434', { lookup: () => {}, timeoutMs: 60000, signal: controller.signal });
+  setTimeout(() => controller.abort(), 20);
+  const result = await pending;
+  assert.ok(Date.now() - started < 200, 'settles soon after the abort');
+  assert.equal(result.ok, false);
+  assert.equal(result.reason, 'timeout');
+  assert.equal(timers(), before, 'no DNS timer is left');
+});
+
 function fakeLookup(addresses: any, calls: any = []) {
   return (host: any, options: any, callback: any) => {
     calls.push({ host, options });
