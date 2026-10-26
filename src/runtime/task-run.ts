@@ -664,6 +664,22 @@ function withoutTrace(entry: any) {
   return rest;
 }
 
+/** 093 IC-013: a task's attempts in ledger order, metadata only (no reason text, evidence id,
+ * worktree, usage or trace). `endedAt` is `finishedAt` (finished; superseded, which is always a
+ * finished attempt), else `endedAt` (released), else `cancel.at` (cancelled); `result` is kept
+ * only when it is one of RESULTS. */
+function attemptsView(store: any, taskId: string) {
+  // Required here, not at the top: task-attempts.ts requires this module while it loads.
+  const { RESULTS } = require('./task-attempts.ts');
+  const entry = store && store.tasks ? store.tasks[taskId] : null;
+  const attempts: any[] = entry && Array.isArray(entry.attempts) ? entry.attempts : [];
+  return attempts.map((a: any) => ({
+    token: a.token, owner: a.owner ?? null, mode: a.mode ?? null, state: a.state,
+    startedAt: a.startedAt ?? null, endedAt: a.finishedAt ?? a.endedAt ?? (a.cancel && a.cancel.at) ?? null,
+    result: RESULTS.includes(a.result) ? a.result : null,
+  }));
+}
+
 /**
  * IC-016: the inspect view of the caller's run. `store` is a plain read (`readTaskState`);
  * `graph`, `hashes` and `warnings` come from `loadPlan`; `key` from `runKeyFor`. Pure: nothing is
@@ -702,7 +718,7 @@ function inspectRun(store: any, { slug, key, graph, hashes = null, warnings = []
       })),
       overlaps: overlaps(graph),
     },
-    tasks,
+    tasks: tasks.map((r: any) => ({ ...r, attempts: attemptsView(store, r.id) })),
     run: runView,
     defaults: {
       runAttempts: runView.budget.source === 'default',
