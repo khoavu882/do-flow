@@ -6,6 +6,7 @@
 
 import { h, icon, mount, SVG_NS } from '../dom.js';
 import { sinceStamp, formatDuration } from '../derive/rail.js';
+import { withReplay } from './replay.js';
 import {
   GEOMETRY, mergeTasks, attemptsByTask, layoutGraph, placeBoard, edgePath, moveFocus, stateFace, STATE_FACE, reasonWords, unresolvedWords, attemptList,
 } from '../derive/graph.js';
@@ -90,12 +91,22 @@ function detailBody(task, card, nowMs) {
 }
 
 /**
- * The task graph body: summary, board, lane list and panel.
+ * The task graph with the replay bar of E.4 above the board; a scrubbed body is drawn by `renderGraphBody` like a live one.
  * @param {any} data `{ run, timeline, tasks, workflow, tasksReason? }`
  * @param {{ slug: string, taskId: string }} params
  * @param {any} local the view instance's own memory
  */
 function renderGraph(data, params, local) {
+  return withReplay(data, local, (view) => renderGraphBody(view, params, local), { place: 'above', enabled: Boolean(data.tasks && data.tasks.graph) });
+}
+
+/**
+ * The task graph body: summary, board, lane list and panel.
+ * @param {any} data `{ run, timeline, tasks, workflow, tasksReason? }`
+ * @param {{ slug: string, taskId: string }} params
+ * @param {any} local the view instance's own memory
+ */
+function renderGraphBody(data, params, local) {
   const nowMs = Date.now();
   const memory = local.graph ?? (local.graph = { selected: null, focus: null, trigger: 'card' });
   const body = data.tasks === undefined ? null : data.tasks;
