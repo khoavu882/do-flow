@@ -29,7 +29,8 @@ export interface AdmissionDecision {
     | 'ADMITTED'
     | 'WRITE_SET_CONFLICT'
     | 'WRITER_CAP_EXCEEDED'
-    | 'MAX_ATTEMPTS_EXCEEDED';
+    | 'MAX_ATTEMPTS_EXCEEDED'
+    | 'TASK_ALREADY_ACTIVE';
   conflicts?: {
     conflictingTaskId: string;
     overlappingFiles: string[];
@@ -185,6 +186,10 @@ class AdmissionController {
       throw new TypeError('claimTask: request must contain a valid taskId');
     }
 
+    if (this.activeClaims.has(request.taskId)) {
+      return { admitted: false, reason: 'TASK_ALREADY_ACTIVE' };
+    }
+
     const currentAttempts = this.taskAttempts.get(request.taskId) || 0;
     const nextAttempt = currentAttempts + 1;
 
@@ -253,6 +258,8 @@ class AdmissionController {
    */
   releaseTask(request: TaskReleaseRequest): void {
     if (!request || !request.taskId) return;
+    const active = this.activeClaims.get(request.taskId);
+    if (!active || active.runKey !== request.runKey) return;
     this.activeClaims.delete(request.taskId);
   }
 
