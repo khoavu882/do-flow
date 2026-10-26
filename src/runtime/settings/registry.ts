@@ -215,7 +215,12 @@ function validateSettingsRegistry(raw: unknown, refs: RefsView = { meta: REF_MET
     const subsetList = workerList || modelList;
     if (spec.scope === 'narrow-only' && (free || keyed || multi)) err(`a ${type} key cannot be narrow-only: no order says which value is narrower`);
     if (keyed && spec.combine !== 'override') err(`a ${type} key must combine by 'override'`);
-    if (multi !== (spec.combine === 'union')) err(multi ? "a string-list key must combine by 'union'" : "combine 'union' is only for string-list keys");
+    // A global-only list has one layer that can set it, so an override is defined there: the person's list
+    // replaces the default whole, which is how a default list is ever narrowed (hooks.harnesses).
+    const overrideList = multi && spec.scope === 'global-only' && spec.combine === 'override';
+    if (multi !== (spec.combine === 'union') && !overrideList) {
+      err(multi ? "a string-list key must combine by 'union' (or 'override' when global-only)" : "combine 'union' is only for string-list keys");
+    }
     if (subsetList !== (spec.combine === 'subset')) err(subsetList ? `a ${type} key must combine by 'subset'` : "combine 'subset' is only for worker-list or model-list keys");
     const needsOrder = (spec.scope === 'narrow-only' && spec.combine !== 'subset') || spec.combine === 'narrowest';
     const ordered = has(spec, 'order') || has(spec, 'orderRef');

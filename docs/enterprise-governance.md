@@ -28,7 +28,7 @@ path its registry declares is one or the other:
 
 For the last three DoFlow writes no harness settings file, so there is nothing there for a settings
 policy to reach in either direction — what it installs for them is instructions, skills, agents and
-MCP config, plus hooks for Kiro and Antigravity.
+MCP config, plus hooks for Kiro and Antigravity when `hooks.harnesses` names them.
 
 Nowhere in that table is a system-level or organization-level path, and that is the whole point. A
 harness that offers an organization-enforced tier puts it **above** project and user scope by design, so
@@ -84,6 +84,11 @@ hooks are deterministic and run on every matching action, which is why a blocked
 reason rather than a silent refusal.
 
 #### Worker exemptions and guard scoping
+
+The pre-bash guard is the only destructive-command guard a worker harness has, so a harness that
+runs DoFlow workers belongs in `hooks.harnesses` (default `claude`, `codex`, `antigravity`). A worker
+launched in a harness outside that list has no DoFlow hook: a `blocking-hook:<policy>` readiness
+requirement then fails closed, because its hooks are not loaded.
 
 The pre-bash guard distinguishes between main interactive sessions and subagent worker sessions:
 

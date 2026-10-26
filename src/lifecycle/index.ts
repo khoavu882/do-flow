@@ -16,6 +16,7 @@ const { renderPolicies } = require('./policies.ts');
 const { renderMcpIndex } = require('./mcp-index.ts');
 const { hasBashCapableShell } = require('./bash-availability.ts');
 const { planHookCompanions } = require('./hook-step.ts');
+const { tieredRegistry, hookHoldersFromLedger, hooksTieredOff, withoutHookSources, planHookTierRemovals } = require('./hook-tier.ts');
 const { readLock, lockPackages } = require('../state/lockfile.ts');
 const { resolveRegistrySource } = require('../adapters/resolve-source.ts');
 const { planRetiredHarnesses, planHandovers, handoversFor, applyRetiredHarnesses, retiredReleaseKeys, claimKey } = require('./retired-harnesses.ts');
@@ -672,6 +673,12 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
   assertScope(scope);
   if (!registry) throw new Error('registry is required');
   const baseLedger = ledger ?? defaultLedger({ scope, scopeRoot });
+  // Hook tiers (maint-hooks): a harness outside `context.hookHarnesses` is planned against a registry
+  // in which its hooks capability is unavailable, so it gets content only; the hooks an earlier run
+  // wrote for it are removed in the same plan. No list (an in-process caller) keeps every harness's hooks.
+  const fullRegistry = registry;
+  // A removal takes the hooks the ledger records, whatever the setting says now (maint-hooks).
+  registry = tieredRegistry(registry, context.operation === 'remove' ? hookHoldersFromLedger(registry, baseLedger) : context.hookHarnesses);
   const harnesses = normalizeTargets(registry, targets);
   // `packagesOnly` (the package verbs): only the package targets, for a runtime that ships no DoFlow content to plan.
   const packagesOnly = context.packagesOnly === true;
@@ -692,7 +699,8 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
     const policies = renderPolicies(registry, { harness: harness.id });
     const adoptable = capable ? selectMcpServers(registry, catalogIds(registry, mcpAdoptable[harness.id] ?? [])) : [];
     const adapter = resolveAdapter(adapters, harness);
-    const harnessContext = handedTo.has(harness.id) ? { ...context, handovers: handedTo.get(harness.id) } : context;
+    const baseContext = handedTo.has(harness.id) ? { ...context, handovers: handedTo.get(harness.id) } : context;
+    const harnessContext = hooksTieredOff(harness) ? withoutHookSources(baseContext) : baseContext;
     const project = (mcp: any) => projectAdapterInput({ registry, harness, scope, scopeRoot, assets, mcp, mcpAdoptable: adoptable, policies, context: harnessContext });
     // `keep` asks the adapter what it owns before the real projection: the probe carries no
     // selection, so discovery reads the files as they are.
@@ -704,7 +712,10 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
     const input = { ...adapterInput, registry, ledger: baseLedger };
     const discovery = adapter.discover(input);
     const result = adapter.plan({ ...input, discovery });
-    return targetFromResult({ harness, assets, mcp, mcpSelected: capable ? mcp.map((server: any) => server.id) : null, policies, adapterInput, discovery, result });
+    const target = targetFromResult({ harness, assets, mcp, mcpSelected: capable ? mcp.map((server: any) => server.id) : null, policies, adapterInput, discovery, result });
+    return hooksTieredOff(harness)
+      ? planHookTierRemovals({ target, registry: fullRegistry, adapter, harness: harnessFor(fullRegistry, harness.id), scope, scopeRoot, ledger: baseLedger, context, normalizeChange, adapterConflicts })
+      : target;
   });
   // The MCP index names every server a harness of this scope uses: the selections planned here and
   // the recorded selections of the harnesses this run does not touch.
@@ -1002,7 +1013,12 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
       if (!applicable.length) continue;
       const harness = harnessFor(registry, target.harness);
       const adapter = resolveAdapter(adapters, harness);
-      adapter[mode === 'remove' ? 'remove' : 'apply']({ ...target.adapterInput, registry, changes: applicable, ledger, recoveryRef: recovery.id });
+      // Hook-tier removals (maint-hooks) run through the adapter's own remove path, before the content
+      // apply, so a shared native file (Gemini's settings.json) is read by each step as the step before left it.
+      const tierRemovals = mode === 'remove' ? [] : applicable.filter((change: any) => change.hookTier === true);
+      if (tierRemovals.length) adapter.remove({ ...target.hookTierInput, registry, changes: tierRemovals, ledger, recoveryRef: recovery.id });
+      const rest = tierRemovals.length ? applicable.filter((change: any) => change.hookTier !== true) : applicable;
+      if (rest.length) adapter[mode === 'remove' ? 'remove' : 'apply']({ ...target.adapterInput, registry, changes: rest, ledger, recoveryRef: recovery.id });
       completedHarnesses.push(target.harness);
     }
   } catch (error: any) {

@@ -496,7 +496,8 @@ function plan(options: any = {}, impl: any = {}) {
     ...mcpEntriesInput({ paths, mcp: selectedServers, mcpAdoptable: options.mcpAdoptable, resources: neutralResources }),
     files: discovery.mcpSnapshot, removing,
   });
-  const hooksPlan = planHooks({ paths, scope, neutralResources, removing, repoRoot: context.repoRoot, fsImpl });
+  // Hook tiers (maint-hooks): outside `hooks.harnesses` the hooks are planned as a removal, which is ledger-driven.
+  const hooksPlan = planHooks({ paths, scope, neutralResources, removing: removing || context.hooksOff === true, repoRoot: context.repoRoot, fsImpl });
 
   const changes = [...instructions.changes, ...trees.changes, ...mcp.changes, ...hooksPlan.changes];
   const conflicts = [...instructions.conflicts, ...trees.conflicts, ...mcp.conflicts, ...hooksPlan.conflicts];
@@ -716,7 +717,7 @@ function verify(options: any = {}, impl: any = {}) {
   resources.push(...mcp.resources);
 
   // Hooks projection (project scope): the shims' bytes and the registered groups.
-  if (scope === 'project') {
+  if (scope === 'project' && context.hooksOff !== true) {
     const hooks = verifyHooks({ options, paths, context, fsImpl });
     statuses.push(...hooks.statuses);
     resources.push(...hooks.resources);

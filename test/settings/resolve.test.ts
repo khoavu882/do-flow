@@ -588,6 +588,7 @@ test('an unparseable user file marks every key of that layer invalid and affects
     'autopilot.enabled',
     'debate.preset',
     'dispatch.fallback',
+    'hooks.harnesses',
     'models.enabled',
     'packages.disabled',
     'primary.harness',

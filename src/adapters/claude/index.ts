@@ -183,6 +183,24 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
   function settingsContent(fileName: any, raw: any, scope: any) {
     return fileName === 'settings.json' && scope !== 'global' ? raw.split(GLOBAL_HOOK_PREFIX).join(PROJECT_HOOK_PREFIX) : raw;
   }
+  /** Hook tiers (maint-hooks): with Claude outside `hooks.harnesses` the managed settings carry no
+   * `hooks` block. Returns the managed text to write and the hooks it left out, which a merge strips
+   * from the live file so an earlier install's entries do not stay behind. */
+  function tieredSettings(fileName: any, raw: any, context: any) {
+    if (fileName !== 'settings.json' || context?.hooksOff !== true) return { raw, droppedHooks: null };
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch { return { raw, droppedHooks: null }; }
+    if (!parsed || parsed.hooks === undefined) return { raw, droppedHooks: null };
+    const { hooks, ...rest } = parsed;
+    return { raw: serializeSettings(rest), droppedHooks: hooks };
+  }
+  /** The live settings without DoFlow's own entries of `hooks`; every other key is left alone. */
+  function withoutManagedHooks(current: any, hooks: any) {
+    if (!hooks || !current || typeof current !== 'object' || current.hooks === undefined) return current;
+    const { hooks: liveHooks, ...rest } = current;
+    const stripped = stripManagedSettings({ hooks: liveHooks, _: true }, { hooks });
+    return stripped?.hooks ? { ...rest, hooks: stripped.hooks } : rest;
+  }
   function settingsLedgerResources(ledger: any, assetId: any) {
     const byFile = new Map();
     for (const resource of ledger?.resources || []) {
@@ -242,7 +260,8 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     for (const fileName of SETTINGS_FILES) {
       const sourceAbs = path.join(sourceDir, fileName);
       if (!fs.existsSync(sourceAbs)) continue;
-      let managedRaw = settingsContent(fileName, fs.readFileSync(sourceAbs, 'utf8'), scope);
+      const tiered = tieredSettings(fileName, settingsContent(fileName, fs.readFileSync(sourceAbs, 'utf8'), scope), context);
+      let managedRaw = tiered.raw;
       if (fileName === 'settings.json' && context.statusline && !removing) {
         // --statusline: point Claude Code's statusLine key at the projected script. It rides the
         // same managed settings write as everything else this asset owns — one serialization, one
@@ -267,7 +286,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
         const currentRaw = fs.readFileSync(target, 'utf8');
         let merged;
         try {
-          merged = mergeSettings(JSON.parse(currentRaw), JSON.parse(managedRaw));
+          merged = mergeSettings(withoutManagedHooks(JSON.parse(currentRaw), tiered.droppedHooks), JSON.parse(managedRaw));
         } catch {
           conflicts.push(`${fileName} is not valid JSON and cannot be merged`);
           continue;
@@ -358,7 +377,8 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     for (const fileName of SETTINGS_FILES) {
       const sourceAbs = path.join(sourceDir, fileName);
       if (!fs.existsSync(sourceAbs)) continue;
-      const fingerprint = sha256(settingsContent(fileName, fs.readFileSync(sourceAbs, 'utf8'), scope));
+      const sourceText = tieredSettings(fileName, settingsContent(fileName, fs.readFileSync(sourceAbs, 'utf8'), scope), context).raw;
+      const fingerprint = sha256(sourceText);
       const target = settingsTarget(fileName, paths);
       // 'absent' (not 'missing') matches the same convention the instructions asset already uses
       // for "no file here" — 'missing' is reserved by the lifecycle layer's removal reconciliation
@@ -373,7 +393,7 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
       let managed;
       try {
         current = JSON.parse(fs.readFileSync(target, 'utf8'));
-        managed = JSON.parse(settingsContent(fileName, fs.readFileSync(sourceAbs, 'utf8'), scope));
+        managed = JSON.parse(sourceText);
       } catch {
         conflicts.push(`${fileName} is not valid JSON`);
         statuses.push({ assetId: asset.id, capability: 'settings', status: 'conflict', target });

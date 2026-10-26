@@ -147,6 +147,18 @@ const TRANSFORMS: Record<string, (sourceRel: string, content: any) => any> = {
     void sourceRel;
     return Buffer.from(renderKiroAgent(content.toString('utf8')));
   },
+  /** Hook tiers (maint-hooks): the same Kiro agent with no `hooks`, for Kiro outside `hooks.harnesses`. */
+  'kiro-agents-content': (sourceRel: string, content: any) => {
+    void sourceRel;
+    return Buffer.from(renderKiroAgent(content.toString('utf8'), { hooks: false }));
+  },
+  /** Hook tiers: an authored Kiro agent JSON (core/harnesses/kiro/agents) without its `hooks` key. */
+  'kiro-agent-content': (sourceRel: string, content: any) => {
+    if (!sourceRel.endsWith('.json')) return content;
+    const agent = JSON.parse(content.toString('utf8'));
+    delete agent.hooks;
+    return Buffer.from(`${JSON.stringify(agent, null, 2)}\n`);
+  },
 };
 
 function resolveTransform(name: any): ((sourceRel: string, content: any) => any) | null {
@@ -243,7 +255,7 @@ function kiroPreToolUseHooks(): any[] {
 /** Map one core/shared agent-spec file onto a kiro-cli custom agent. Spec keys other than
  * name/description (model: inherit, effort) are dropped: Kiro inherits the session model. `access` is
  * never projected; a `read-only` spec replaces `tools: ["*"]` with the harness's `apply.tools`. */
-function renderKiroAgent(text: string): string {
+function renderKiroAgent(text: string, { hooks = true }: { hooks?: boolean } = {}): string {
   const fm: Record<string, string> = {};
   let body = text;
   if (text.startsWith('---')) {
@@ -261,7 +273,7 @@ function renderKiroAgent(text: string): string {
     name: fm.name || '', description: fm.description || '',
     prompt: `${body.replace(/\s+$/, '')}\n`,
     tools: limits?.tools ?? ['*'],
-    hooks: kiroPreToolUseHooks(),
+    ...(hooks ? { hooks: kiroPreToolUseHooks() } : {}),
   };
   return `${JSON.stringify(agent, null, 2)}\n`;
 }

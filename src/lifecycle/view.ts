@@ -20,6 +20,7 @@ const { createKiroAdapter } = require('../adapters/kiro/index.ts');
 const { createAntigravityAdapter } = require('../adapters/antigravity/index.ts');
 const { planLifecycle } = require('./index.ts');
 const { formatRetiredPlans } = require('./retired-harnesses.ts');
+const { resolveHookHarnesses } = require('./hook-tier.ts');
 const { stateRoot, readLedger, defaultLedger } = require('../state/index.ts');
 const { selectAssets } = require('../registry/index.ts');
 const { defaultLock, readLock, writeLock, diffLocks, removeLock, pinnedSelections, lockPackages } = require('../state/lockfile.ts');
@@ -48,7 +49,7 @@ function codexConfigResources(repoRoot: any, fsImpl: any) {
  * mutation path until every native adapter has CLI-level parity.
  * `registry` is loaded once per command (by the caller) and threaded through here rather than
  * reloaded — the same registry also resolves every harness's MCP selection for that command. */
-function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, mcpAdoptable = {}, retainedMcpIds = [], operation, repoRoot, force = false, adopt = false, permissions = false, statusline = false, fsImpl = fs }: any) {
+function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, mcpAdoptable = {}, retainedMcpIds = [], operation, repoRoot, force = false, adopt = false, permissions = false, statusline = false, hookHarnesses, fsImpl = fs }: any) {
   const lifecycleScope = codexScope(scope);
   const scopeRoot = scope.global ? os.homedir() : path.resolve(scope.projectRoot);
   const neutralStateRoot = stateRoot({ scope: lifecycleScope, projectRoot: scopeRoot, homeDir: scopeRoot });
@@ -73,6 +74,8 @@ function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, m
     adopt,
     permissions,
     statusline,
+    // maint-hooks: the person's hook tier (a caller may pass its own); every harness outside it gets content only.
+    hookHarnesses: hookHarnesses ?? resolveHookHarnesses(),
   } });
   return { registry, stateRoot: neutralStateRoot, ledger, plan, adapters };
 }

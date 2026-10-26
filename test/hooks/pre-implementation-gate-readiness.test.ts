@@ -198,6 +198,8 @@ HOOK_TEST('a feature branch with a register and three artifacts needs a READY fe
   expectHook({ ...base, code: 2, stderr: `${refusalText('missing', { taskId: '900-demo', template: 'feature' })}\n` });
   expectHook({ ...base, event: envelopeEvent(main, path.join(main, 'src', 'a.js'), '900-demo'), code: 2, stderr: `${refusalText('missing', { taskId: '900-demo', template: 'feature' })}\n` });
   expectHook({ ...base, event: editEvent(path.join(main, 'agent-docs', 'doflow', '900-demo', 'plan.md')), code: 0, stderr: '' });
+  // maint-hooks: DoFlow's own state is not source; editing it is low-risk and never gated.
+  expectHook({ ...base, event: editEvent(path.join(main, '.doflow', 'settings.local.json')), code: 0, stderr: '' });
 
   // An envelope task id other than the slug names a namespaced record and the slug in the command.
   expectHook({
