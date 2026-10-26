@@ -1162,6 +1162,120 @@
   .tl__ring { position: absolute; top: 11px; left: calc(var(--tl-at) * 100% - 5px); width: 10px; height: 10px; box-sizing: border-box; border: 2px solid var(--state-skipped-mark); border-radius: 50%; background: var(--surface); }
   .tl__mark { position: absolute; top: 5px; left: calc(var(--tl-at) * 100%); width: 2px; height: 22px; background: var(--text-muted); }
   .tl__axistrack .tl__mark { top: 2px; height: 20px; }
+
+  /* ---- E.3: the task graph (design.md V4): a board from 768, a lane list below, a side panel for the selected task ---- */
+  .graph [hidden] { display: none; }
+  .graph__top { display: grid; justify-items: start; gap: var(--space-2); margin-bottom: var(--space-4); }
+  .graph__back { display: inline-flex; align-items: center; min-height: var(--target); font: var(--type-sm); font-weight: 600; color: var(--accent); }
+  .graph__summary { font: var(--type-sm); color: var(--text-muted); }
+  .graph__unresolved { display: flex; align-items: flex-start; gap: var(--space-2); max-width: var(--prose-max); font: var(--type-sm); color: var(--text); }
+  .graph__unresolved .icon { flex: none; margin-top: 2px; color: var(--state-unknown-mark); }
+  .graph--empty { padding: var(--space-5); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--elev-1); }
+  .graph__emptytitle { font: var(--type-lg); letter-spacing: var(--tracking-tight); color: var(--text); }
+  .graph__emptytext { max-width: var(--prose-max); margin-block: var(--space-2) var(--space-3); font: var(--type-md); color: var(--text-muted); }
+  .graph__layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); }
+  .graph__main { min-width: 0; }
+  .graph__scroll { display: none; overflow: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
+  .graph__board { position: relative; width: calc(var(--g-w) * 1px); height: calc(var(--g-h) * 1px); }
+  .graph__band { position: absolute; left: 0; top: calc(var(--g-y) * 1px); width: 100%; height: calc(var(--g-bh) * 1px); border-top: 1px solid var(--border); }
+  .graph__lanelabel { position: sticky; left: 0; z-index: 2; display: grid; align-content: center; gap: 2px; width: calc(var(--g-label-w) * 1px); height: 100%; padding-inline: var(--space-3); overflow: hidden; background: var(--surface-2); border-inline-end: 1px solid var(--border); }
+  .graph__lanename { font: var(--type-sm); font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+  .graph__lanecount { font: var(--type-xs); color: var(--text-muted); }
+  .graph__layerhead { position: absolute; top: 0; left: calc(var(--g-x) * 1px); display: flex; align-items: center; width: calc(var(--g-card-w) * 1px); height: calc(var(--g-head-h) * 1px); font: var(--type-xs); letter-spacing: var(--tracking-caps); text-transform: uppercase; color: var(--text-muted); }
+  .graph__edges { position: absolute; top: 0; left: 0; z-index: 0; overflow: visible; pointer-events: none; }
+  .graph__edge { fill: none; stroke: var(--border-strong); stroke-width: 1.5; }
+  .graph__edge[data-active="true"] { stroke: var(--accent); stroke-width: 2.5; }
+  .gcard {
+    position: absolute;
+    z-index: 1;
+    left: calc(var(--g-x) * 1px);
+    top: calc(var(--g-y) * 1px);
+    display: grid;
+    align-content: center;
+    gap: var(--space-1);
+    width: calc(var(--g-card-w) * 1px);
+    height: calc(var(--g-card-h) * 1px);
+    padding: var(--space-2) var(--space-3);
+    text-align: start;
+    font: inherit;
+    color: var(--text);
+    cursor: pointer;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-inline-start-width: 4px;
+    border-radius: var(--radius-md);
+    box-shadow: var(--elev-1);
+  }
+  .gcard:hover { box-shadow: var(--elev-2); }
+  .gcard[aria-expanded="true"] { box-shadow: inset 0 0 0 2px var(--accent), var(--elev-2); }
+  .gcard[data-unresolved="true"] { border-style: dashed; }
+  .gcard[data-state="running"] { background: var(--state-running-tint); border-inline-start-color: var(--state-running-mark); }
+  .gcard[data-state="awaiting"] { background: var(--state-awaiting-tint); border-inline-start-color: var(--state-awaiting-mark); }
+  .gcard[data-state="done"] { background: var(--state-done-tint); border-inline-start-color: var(--state-done-mark); }
+  .gcard[data-state="rejected"] { background: var(--state-rejected-tint); border-inline-start-color: var(--state-rejected-mark); }
+  .gcard[data-state="failed"] { background: var(--state-failed-tint); border-inline-start-color: var(--state-failed-mark); }
+  .gcard[data-state="pending"] { background: var(--state-pending-tint); border-inline-start-color: var(--state-pending-mark); }
+  .gcard[data-state="unknown"] { background: var(--state-unknown-tint); border-inline-start-color: var(--state-unknown-mark); }
+  .gcard__top { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-width: 0; }
+  .gcard__id { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-sm); font-family: var(--font-mono); font-weight: 600; }
+  .gcard__state { display: inline-flex; flex: none; align-items: center; gap: var(--space-1); font: var(--type-xs); }
+  .gcard[data-state="running"] .gcard__state { color: var(--state-running-fg); }
+  .gcard[data-state="awaiting"] .gcard__state { color: var(--state-awaiting-fg); }
+  .gcard[data-state="done"] .gcard__state { color: var(--state-done-fg); }
+  .gcard[data-state="rejected"] .gcard__state { color: var(--state-rejected-fg); }
+  .gcard[data-state="failed"] .gcard__state { color: var(--state-failed-fg); }
+  .gcard[data-state="pending"] .gcard__state { color: var(--state-pending-fg); }
+  .gcard[data-state="unknown"] .gcard__state { color: var(--state-unknown-fg); }
+  .gcard__line { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font: var(--type-xs); color: var(--text-muted); }
+  .gcard__line--why { font-weight: 600; color: var(--text); }
+
+  .graph__panel { display: none; min-width: 0; padding: var(--space-4); background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); box-shadow: var(--elev-2); }
+  .graph__panelhead { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-bottom: var(--space-2); }
+  .graph__paneltitle { min-width: 0; font: var(--type-lg); font-family: var(--font-mono); overflow-wrap: anywhere; }
+  .graph__close { flex: none; min-width: var(--target); padding-inline: 0; }
+  .gdetail__why { display: flex; align-items: flex-start; gap: var(--space-2); margin-top: var(--space-3); font: var(--type-sm); color: var(--text); }
+  .gdetail__why .icon { flex: none; margin-top: 2px; }
+  .gdetail__facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: var(--space-2) var(--space-4); margin-top: var(--space-3); font: var(--type-sm); }
+  .gdetail__facts dt { color: var(--text-muted); }
+  .gdetail__facts dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+  .gdetail__attempts { margin-top: var(--space-4); font: var(--type-sm); font-weight: 600; color: var(--text); }
+  .gdetail__none { margin-top: var(--space-2); font: var(--type-sm); color: var(--text-muted); }
+  .gattempts { margin: var(--space-2) 0 0; padding: 0; list-style: none; }
+  .gattempt { display: grid; grid-template-columns: max-content minmax(0, 1fr); column-gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--border); font: var(--type-sm); }
+  .gattempt__no { font-weight: 600; color: var(--text); }
+  .gattempt__owner { color: var(--text); overflow-wrap: anywhere; }
+  .gattempt__state, .gattempt__when { grid-column: 2; font: var(--type-xs); color: var(--text-muted); }
+
+  .graph__lanes { display: grid; gap: var(--space-4); }
+  .glane { overflow: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--elev-1); }
+  .glane__name { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); font: var(--type-sm); font-weight: 600; color: var(--text); background: var(--surface-2); overflow-wrap: anywhere; }
+  .glane__count { flex: none; font-weight: 400; color: var(--text-muted); }
+  .glane__list { margin: 0; padding: 0; list-style: none; }
+  .grow { border-top: 1px solid var(--border); }
+  .grow__btn { display: grid; gap: var(--space-1); width: 100%; min-height: var(--target); padding: var(--space-3) var(--space-4); text-align: start; font: inherit; color: inherit; cursor: pointer; background: transparent; border: 0; }
+  .grow__btn:hover { background: var(--surface-2); }
+  .grow__btn:focus-visible { outline-offset: calc(-1 * var(--focus-width)); }
+  .grow__btn[aria-expanded="true"] { box-shadow: inset 4px 0 0 var(--accent); }
+  .grow__top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+  .grow__id { font: var(--type-sm); font-family: var(--font-mono); font-weight: 600; }
+  .grow__layer { margin-inline-start: auto; font: var(--type-xs); color: var(--text-muted); }
+  .grow__line { font: var(--type-xs); color: var(--text-muted); overflow-wrap: anywhere; }
+  .grow__panel { padding: 0 var(--space-4) var(--space-4); }
+  .grow__panel .gdetail__facts { margin-top: var(--space-2); }
+
+  @media (min-width: 768px) {
+    .graph__scroll { display: block; max-height: 60vh; }
+    .graph__lanes { display: none; }
+    .graph__panel { display: block; }
+  }
+  @media (min-width: 1280px) {
+    .graph__scroll { max-height: none; }
+    .graph[data-open="true"] .graph__layout { grid-template-columns: minmax(0, 1fr) 360px; align-items: start; }
+    .graph__panel { position: sticky; top: calc(var(--header-h) + var(--space-4)); max-height: calc(100vh - var(--header-h) - 2 * var(--space-4)); overflow: auto; }
+  }
+  @media (min-width: 1920px) {
+    .graph[data-open="true"] .graph__layout { grid-template-columns: minmax(0, 1fr) 420px; }
+  }
 }
 
 /* ---- states -------------------------------------------------------------------------------------- */
@@ -1355,4 +1469,17 @@
   .tl__mark { background: CanvasText; }
   .tl__now { background: Highlight; }
   .tl__tick { background: GrayText; }
+}
+
+/* ---- forced colours: the task graph keeps its shapes in system colours ---- */
+@media (forced-colors: active) {
+  .gcard, .graph__panel, .glane, .graph__scroll, .graph--empty { border: 1px solid CanvasText; }
+  .gcard { border-inline-start-width: 4px; }
+  .gcard[aria-expanded="true"], .grow__btn[aria-expanded="true"] { outline: 3px solid Highlight; outline-offset: 0; }
+  .gcard[data-unresolved="true"] { border-style: dashed; }
+  .graph__edge { stroke: CanvasText; }
+  .graph__edge[data-active="true"] { stroke: Highlight; }
+  .graph__band { border-top-color: CanvasText; }
+  .graph__lanelabel { border-inline-end: 1px solid CanvasText; }
+  .grow { border-top-color: CanvasText; }
 }

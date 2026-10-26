@@ -59,7 +59,8 @@ function compound(selector: string): Compound {
   const out: Compound = { tag: null, classes: [], attrs: [] };
   const tag = /^[a-z0-9]+/i.exec(selector);
   if (tag) out.tag = tag[0].toLowerCase();
-  for (const m of selector.matchAll(/\.([\w-]+)/g)) out.classes.push(m[1]);
+  // Classes are read outside [attr="value"] brackets: a value such as card:B.1 holds a dot that is no class.
+  for (const m of selector.replace(/\[[^\]]*\]/g, '').matchAll(/\.([\w-]+)/g)) out.classes.push(m[1]);
   for (const m of selector.matchAll(/\[([\w-]+)(?:="([^"]*)")?\]/g)) out.attrs.push([m[1], m[2] ?? null]);
   const id = /#([\w-]+)/.exec(selector);
   if (id) out.attrs.push(['id', id[1]]);
@@ -1867,4 +1868,176 @@ test('R4-1 the rail scroller is watched for resizes; the observer goes when the 
   } finally {
     delete (globalThis as any).ResizeObserver;
   }
+});
+
+// ---- E.3: the task graph (board, lane list, panel, keyboard) -------------------------------------------------------
+
+const gtask = (id: string, deps: string[] = [], owner: string | null = 'core-implementer') => ({ id, phase: id.split('.')[0], owner, taskDeps: deps, parallel: false });
+const gstate = (id: string, state: string, reason: string, ...attempts: any[]) => ({ id, state, reason, budget: { used: attempts.length, limit: 20 }, attempts });
+const graphTasks = (graph: any[], rows: any[]) => ({ revision: 3, graph: { digest: `sha256:${'a'.repeat(64)}`, graphPlan: true, tasks: graph, overlaps: [] }, tasks: rows });
+// Two roots, one task behind both, one behind that in another lane, and a two-task cycle.
+const GRAPH_PLAN = () => graphTasks(
+  [gtask('A.1'), gtask('A.2', [], 'quality-guardian'), gtask('B.1', ['A.1', 'A.2']), gtask('C.1', ['B.1'], 'quality-guardian'), gtask('X.1', ['X.2'], null), gtask('X.2', ['X.1'], null)],
+  [gstate('A.1', 'RUNNING', 'active-attempt', att(1, 'worker-a', 'active', 12)), gstate('A.2', 'SUCCEEDED', 'completed', att(1, 'quality-guardian', 'finished', 50, { result: 'COMPLETED', endedAt: agoIso(40 * MIN_MS) })),
+    gstate('B.1', 'PLANNED', 'unmet-dependency'), gstate('C.1', 'PLANNED', 'unmet-dependency'), gstate('X.1', 'PLANNED', 'unmet-dependency'), gstate('X.2', 'PLANNED', 'unmet-dependency')],
+);
+const graphRoute = (tasks: () => any, over: () => any = () => ({})) => runRoute(() => runBodyWith(frow('run-1', 3), [ev(60, 'start', null)], tasks(), over()));
+const gcardOf = (page: Page, id: string): any => page.main.querySelectorAll('.gcard').find((c: El) => c.getAttribute('data-card') === id);
+const growOf = (page: Page, id: string): any => page.main.querySelectorAll('.grow__btn').find((c: El) => c.getAttribute('data-row') === id);
+
+test('E.3 board: one card per task in a lane by owner, an edge per dependency, a layer head per column, and a single tab stop', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1/tasks', fetch: graphRoute(GRAPH_PLAN) });
+  assert.equal(text(heading(page)), 'Tasks');
+  assert.equal(apiCalls(page, '/api/runs/feat-a/run-1').length >= 1, true, 'it reads the run route');
+  const board = page.main.querySelector('.graph__board');
+  assert.equal(board.getAttribute('role'), 'group');
+  assert.equal(board.getAttribute('aria-label'), 'Task board: 6 tasks in 4 lanes, laid out by dependency');
+  assert.deepEqual(page.main.querySelectorAll('.gcard').map((c: El) => c.getAttribute('data-card')), ['A.1', 'A.2', 'B.1', 'C.1', 'X.1', 'X.2']);
+  assert.deepEqual(page.main.querySelectorAll('.graph__lanename').map(text), ['worker-a', 'quality-guardian', 'core-implementer', 'unassigned'], 'lanes in order of first appearance: A.1 has an active attempt, B.1 declares core-implementer');
+  assert.deepEqual(page.main.querySelectorAll('.graph__layerhead').map(text), ['Layer 1', 'Layer 2', 'Layer 3', 'Unresolved']);
+  assert.equal(page.main.querySelectorAll('.graph__edge').length, 3, 'A.1>B.1, A.2>B.1, B.1>C.1; none inside the unresolved column');
+  assert.equal(text(page.main.querySelector('.graph__summary')), '6 tasks · 4 lanes · 1 running · 1 done · 4 planned');
+  assert.match(text(page.main.querySelector('.graph__unresolved')), /^2 tasks have no place in the layers/);
+  assert.equal(page.main.querySelectorAll('.gcard').filter((c: El) => c.getAttribute('tabindex') === '0').length, 1, 'one tab stop');
+  assert.equal(gcardOf(page, 'A.1').getAttribute('tabindex'), '0');
+  assert.equal(gcardOf(page, 'A.1').getAttribute('data-state'), 'running');
+  assert.equal(gcardOf(page, 'A.2').getAttribute('data-state'), 'done');
+  assert.equal(gcardOf(page, 'X.1').getAttribute('data-unresolved'), 'true');
+  assert.equal(text(gcardOf(page, 'A.1')), 'A.1Running1 of 20 attempts');
+  assert.match(gcardOf(page, 'B.1').getAttribute('aria-label'), /^B\.1, Planned, 0 of 20 attempts, lane core-implementer, layer 2, waits for A\.1, A\.2$/);
+  assert.equal(gcardOf(page, 'B.1').style.getPropertyValue('--g-x') !== '', true);
+  assert.equal(board.style.getPropertyValue('--g-w') !== '', true);
+  assert.equal(page.main.querySelectorAll('.glane').length, 4, 'the lane list has the same lanes');
+  assert.equal(page.main.querySelector('.graph[data-open]').getAttribute('data-open'), 'false');
+  assert.equal(page.main.querySelector('.graph__panel').getAttribute('hidden'), '');
+  assert.ok(!tags(page.main).includes('script'));
+});
+
+test('E.3 keys and panel: arrows walk the lane and the lanes, a click opens the panel with the attempts, Escape closes it and returns the focus', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1/tasks', fetch: graphRoute(GRAPH_PLAN) });
+  const board = page.main.querySelector('.graph__board');
+  const press = (from: string, key: string) => { const ev2 = board.fire('keydown', { key, target: gcardOf(page, from) }); return ev2.defaultPrevented; };
+  // lanes: worker-a [A.1] | quality-guardian [A.2, C.1] | core-implementer [B.1] | unassigned [X.1, X.2]
+  assert.equal(press('A.1', 'ArrowDown'), true);
+  assert.equal(page.doc.activeElement.getAttribute('data-card'), 'A.2');
+  assert.equal(gcardOf(page, 'A.2').getAttribute('tabindex'), '0');
+  assert.equal(gcardOf(page, 'A.1').getAttribute('tabindex'), '-1', 'the tab stop moves with the focus');
+  assert.equal(press('A.2', 'ArrowRight'), true);
+  assert.equal(page.doc.activeElement.getAttribute('data-card'), 'C.1');
+  assert.equal(press('C.1', 'ArrowRight'), false, 'the end of the lane does not move and does not swallow the key');
+  assert.equal(press('C.1', 'Home'), true);
+  assert.equal(page.doc.activeElement.getAttribute('data-card'), 'A.2');
+
+  const a1 = gcardOf(page, 'A.1');
+  assert.equal(a1.getAttribute('aria-expanded'), 'false');
+  a1.fire('click');
+  assert.equal(a1.getAttribute('aria-expanded'), 'true');
+  const panel = page.main.querySelector('.graph__panel');
+  assert.equal(panel.getAttribute('hidden'), null);
+  assert.equal(page.main.querySelector('.graph').getAttribute('data-open'), 'true');
+  assert.equal(text(panel.querySelector('.graph__paneltitle')), 'A.1');
+  assert.deepEqual(panel.querySelectorAll('dt').map(text), ['Phase', 'Lane', 'Planned owner', 'Attempts', 'Position', 'Waits for']);
+  assert.deepEqual(panel.querySelectorAll('dd').map(text), ['A', 'worker-a (running an attempt)', 'core-implementer', '1 of 20 attempts', 'Layer 1', 'nothing']);
+  assert.equal(text(panel.querySelector('.gdetail__why')), 'An attempt is running.');
+  assert.equal(panel.querySelectorAll('.gattempt').length, 1);
+  assert.match(text(panel.querySelector('.gattempt')), /^Attempt 1worker-a · sequentialactivesince \d\d:\d\d$/);
+  assert.equal(page.main.querySelectorAll('.graph__edge').filter((e: El) => e.getAttribute('data-active') === 'true').length, 1, 'the edge A.1>B.1 is marked');
+  assert.equal(panel.querySelector('.graph__close').getAttribute('aria-label'), 'Close the details of A.1');
+  assert.equal(panel.querySelectorAll('input, textarea, select').length, 0);
+
+  // Escape inside the panel closes it and puts the focus back on the card.
+  page.main.querySelector('.graph').fire('keydown', { key: 'Escape', target: panel.querySelector('.graph__close') });
+  assert.equal(panel.getAttribute('hidden'), '');
+  assert.equal(a1.getAttribute('aria-expanded'), 'false');
+  assert.ok(page.doc.activeElement === a1, 'the focus is back on the card');
+  // Escape with the focus on a card closes the panel and leaves the focus alone.
+  a1.fire('click');
+  assert.equal(a1.getAttribute('aria-expanded'), 'true');
+  page.doc.activeElement = gcardOf(page, 'B.1');
+  page.main.querySelector('.graph').fire('keydown', { key: 'Escape', target: gcardOf(page, 'B.1') });
+  assert.equal(a1.getAttribute('aria-expanded'), 'false');
+  assert.ok(page.doc.activeElement === gcardOf(page, 'B.1'), 'the focus stayed on B.1');
+  // The same control again closes it (aria-expanded is a toggle).
+  a1.fire('click');
+  a1.fire('click');
+  assert.equal(a1.getAttribute('aria-expanded'), 'false');
+});
+
+test('E.3 a poll that changes the tasks keeps the selected task open and the tab stop; one that changes only the timeline re-mounts nothing', async () => {
+  mods.home.resetHome();
+  let rows = GRAPH_PLAN();
+  let events = [ev(60, 'start', null)];
+  const page = await start({ hash: '#/run/feat-a/run-1/tasks', fetch: runRoute(() => runBodyWith(frow('run-1', 3), events, rows)) });
+  gcardOf(page, 'B.1').fire('click');
+  page.doc.activeElement = gcardOf(page, 'B.1');
+  const view = page.main.querySelector('.graph');
+  events = [...events, ev(1, 'annotate', 'planning')];
+  await advance(3_000);
+  assert.equal(page.main.querySelector('.graph'), view, 'a timeline-only change leaves the board in place');
+  rows = graphTasks(rows.graph.tasks, [...rows.tasks.slice(0, 2), gstate('B.1', 'RUNNING', 'active-attempt', att(1, 'worker-b', 'active', 1)), ...rows.tasks.slice(3)]);
+  await advance(3_000);
+  assert.notEqual(page.main.querySelector('.graph'), view, 'a task change re-mounts it');
+  assert.equal(gcardOf(page, 'B.1').getAttribute('aria-expanded'), 'true', 'B.1 is still open');
+  assert.equal(text(page.main.querySelector('.graph__paneltitle')), 'B.1');
+  assert.equal(text(page.main.querySelector('.graph__panel').querySelector('.badge')), 'Running');
+  assert.equal(page.doc.activeElement && page.doc.activeElement.getAttribute('data-card'), 'B.1', 'the focus came back to the card by its focus key');
+  assert.ok(page.doc.activeElement === gcardOf(page, 'B.1'), 'and it is the new card');
+  // A selected task that leaves the plan closes the panel.
+  rows = graphTasks(rows.graph.tasks.filter((t: any) => t.id !== 'B.1'), rows.tasks.filter((r: any) => r.id !== 'B.1'));
+  await advance(3_000);
+  assert.equal(page.main.querySelector('.graph').getAttribute('data-open'), 'false');
+});
+
+test('E.3 lane list: each lane is a section with its tasks in layer order, dependencies as text, and a row opens its attempts in place', async () => {
+  mods.home.resetHome();
+  const page = await start({ hash: '#/run/feat-a/run-1/tasks', fetch: graphRoute(GRAPH_PLAN) });
+  const lanes = page.main.querySelectorAll('.glane');
+  assert.deepEqual(lanes.map((l: El) => text(l.querySelector('.glane__name'))), ['worker-a1 task', 'quality-guardian2 tasks', 'core-implementer1 task', 'unassigned2 tasks']);
+  assert.deepEqual(lanes[1].querySelectorAll('.grow__id').map(text), ['A.2', 'C.1']);
+  assert.equal(text(growOf(page, 'C.1').querySelector('.grow__line')), 'Waits for B.1 · 0 of 20 attempts');
+  assert.equal(text(growOf(page, 'C.1').querySelector('.grow__layer')), 'Layer 3');
+  assert.equal(text(growOf(page, 'X.1').querySelector('.grow__layer')), 'No layer');
+  assert.equal(text(growOf(page, 'A.1').querySelector('.grow__line')), 'Waits for nothing · 1 of 20 attempts');
+  const row = growOf(page, 'A.2');
+  assert.equal(row.getAttribute('aria-expanded'), 'false');
+  row.fire('click');
+  assert.equal(row.getAttribute('aria-expanded'), 'true');
+  const slot = row.parent.querySelector('.grow__panel');
+  assert.equal(slot.getAttribute('hidden'), null);
+  assert.match(text(slot.querySelector('.gattempt')), /^Attempt 1quality-guardian · sequentialfinished, completed\d\d:\d\d to \d\d:\d\d \(10 min\)$/);
+  assert.equal(page.main.querySelectorAll('.grow__panel').filter((s: El) => s.getAttribute('hidden') === null).length, 1);
+  row.fire('click');
+  assert.equal(row.getAttribute('aria-expanded'), 'false');
+  assert.equal(slot.getAttribute('hidden'), '');
+});
+
+test('E.3 without a graph: no plan, an older plan and an empty plan each say so, with a way back to the run; nothing is drawn', async () => {
+  mods.home.resetHome();
+  let tasks: any = null;
+  let over: any = { tasksReason: 'no-plan' };
+  const page = await start({ hash: '#/run/feat-a/run-1/tasks', fetch: graphRoute(() => tasks, () => over) });
+  assert.equal(text(page.main.querySelector('.graph__emptytext')), 'This run has no task plan, so there is no task graph to show.');
+  assert.equal(page.main.querySelector('.graph__back').getAttribute('href'), '#/run/feat-a/run-1');
+  assert.equal(page.main.querySelector('.graph__board'), null);
+  over = { tasksReason: 'legacy-plan' };
+  await advance(3_000);
+  assert.equal(text(page.main.querySelector('.graph__emptytext')), 'This run’s plan is in an older format, so its task graph cannot be shown.');
+  tasks = graphTasks([], []);
+  over = {};
+  await advance(3_000);
+  assert.equal(text(page.main.querySelector('.graph__emptytitle')), 'No tasks');
+  assert.equal(page.main.querySelector('.gcard'), null);
+});
+
+test('E.3 hostile text: a task id, owner and attempt owner reach the page as text only', async () => {
+  mods.home.resetHome();
+  const hostile = '<img src=x onerror=alert(1)>';
+  const plan = () => graphTasks([gtask('A.1', [], hostile)], [gstate('A.1', 'RUNNING', 'active-attempt', att(1, hostile, 'active', 3))]);
+  const page = await start({ hash: '#/run/feat-a/run-1/tasks', fetch: graphRoute(plan) });
+  gcardOf(page, 'A.1').fire('click');
+  assert.ok(!tags(page.main).includes('img'));
+  assert.equal(text(page.main.querySelector('.graph__lanename')), hostile);
+  assert.ok(text(page.main.querySelector('.gattempt__owner')).startsWith(hostile));
 });
