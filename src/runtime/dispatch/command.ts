@@ -41,6 +41,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const attempts = require('../task-attempts.ts');
+const { withGitMemo } = require('../git-memo.ts');
 const { isGraphPlan } = require('../task-graph.ts');
 const { runKeyFor, identityRefusal } = require('../task-run.ts');
 const { isSafeSlug } = require('../task-scope.ts');
@@ -524,6 +525,11 @@ async function perform(action: string, o: any) {
  * `descriptors`, `registry`, `coverage`, `evaluateImpl`, `verify`, `sleep`. Prints nothing.
  */
 async function executeDispatchCommand(options: any = {}): Promise<{ exit: number; body: any }> {
+  // One call, one git memo scope (git-memo.ts): the project root and common directory are asked once.
+  return withGitMemo(() => runDispatchCommand(options));
+}
+
+async function runDispatchCommand(options: any): Promise<{ exit: number; body: any }> {
   const env: Env = options.env || process.env;
   const cwd = path.resolve(options.cwd || process.cwd());
   const now = options.now;

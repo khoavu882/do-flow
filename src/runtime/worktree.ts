@@ -27,6 +27,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
+const { memoGit } = require('./git-memo.ts');
 
 /** Worktree ids become branch names and directory names, so anything outside this set is a
  * potential argument-injection or path-traversal vector. Rejecting loudly beats sanitising
@@ -156,9 +157,14 @@ class WorktreeManager {
    * A locked record, or one whose `.git` file is still present, is left alone.
    */
   dropStaleRecord(wtPath: string): void {
-    const common = this.git(['rev-parse', '--git-common-dir'], this.repoRoot, { allowFailure: true });
-    if (!common.ok) return;
-    const admin = path.join(path.resolve(this.repoRoot, common.stdout.trim()), 'worktrees');
+    // The repository's common directory does not move while one call runs; a failed read is not kept.
+    const routing = this.gitBounds.env ?? process.env;
+    const common = memoGit(`commonDir:${this.repoRoot}:${routing.GIT_DIR ?? ''}:${routing.GIT_COMMON_DIR ?? ''}`, () => {
+      const res = this.git(['rev-parse', '--git-common-dir'], this.repoRoot, { allowFailure: true });
+      return res.ok ? res.stdout.trim() : undefined;
+    });
+    if (common === undefined) return;
+    const admin = path.join(path.resolve(this.repoRoot, common), 'worktrees');
     let names: string[];
     try {
       names = fs.readdirSync(admin);
