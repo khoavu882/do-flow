@@ -15,6 +15,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync: defaultExecFileSync } = require('node:child_process');
 const { listCheckouts } = require('../checkouts.ts');
+const { withGitMemo } = require('../git-memo.ts');
 const {
   parseSeed,
   deriveStatus,
@@ -559,6 +560,8 @@ function loopPolicy(ctx: any): any {
   let base: string | null = null;
   try {
     const head = String(execFileSync('git', ['-C', ctx.root, 'rev-parse', '--verify', 'refs/heads/develop'], ctx.gitOptions)).trim();
+    // Read again by gatherGitFacts in the same step: nothing between the two moves develop (file reads under the lease).
+    ctx.policyDevelopHead = head;
     if (/^[0-9a-f]{40}$/.test(head)) base = String(execFileSync('git', ['-C', ctx.root, 'show', '--no-textconv', `${head}:core/registry/gates.json`], ctx.gitOptions));
   } catch { /* no-policy */ }
   const { projectLayerSource } = require('../settings/project-layers.ts');
@@ -1342,7 +1345,7 @@ async function underLease(ctx: any, options: any): Promise<any> {
     }
     throw new Unreadable(['seed'], error.message);
   }
-  const facts = options.gitFacts || gatherGitFacts({ root: ctx.root });
+  const facts = options.gitFacts || gatherGitFacts({ root: ctx.root, developHead: ctx.policyDevelopHead });
   if (facts.unreadable?.length) throw new Unreadable(facts.unreadable, 'git facts');
   let intents: any[];
   try { intents = readOpenIntents({ root: ctx.root, fsImpl }); } catch (error: any) { throw new Unreadable(['merge-intents'], error.message); }
@@ -1433,6 +1436,11 @@ async function underLease(ctx: any, options: any): Promise<any> {
 
 /** One `next` (IC-001). Returns the exit code and the JSON line; never throws for a refusal. */
 async function next(options: any = {}): Promise<{ code: number; result: any }> {
+  // One call, one git memo scope (git-memo.ts): the project root and common directory are asked once.
+  return withGitMemo(() => nextInScope(options));
+}
+
+async function nextInScope(options: any): Promise<{ code: number; result: any }> {
   const fsImpl = options.fsImpl || fs;
   const env = options.env || process.env;
   const root = options.root || resolveMainRoot(options.cwd || process.cwd());

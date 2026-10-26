@@ -44,9 +44,12 @@ function qualifiedBranch(name: string): string {
 function gatherGitFacts({
   root,
   developBranch = 'develop',
+  developHead: knownDevelopHead,
 }: {
   root: string;
   developBranch?: string;
+  /** The tip of `developBranch` the caller read a moment ago with nothing moving it since; saves one read. */
+  developHead?: string;
 }): GatheredGitFacts {
   const execOptions = {
     cwd: root,
@@ -61,7 +64,8 @@ function gatherGitFacts({
   // Always the branch: an unqualified name resolves a tag of the same name first.
   const developRef = qualifiedBranch(developBranch);
   try {
-    developHead = execFileSync('git', ['-C', root, 'rev-parse', '--verify', developRef], execOptions).trim();
+    developHead = knownDevelopHead && /^[0-9a-f]{40}$/.test(knownDevelopHead) ? knownDevelopHead
+      : execFileSync('git', ['-C', root, 'rev-parse', '--verify', developRef], execOptions).trim();
     developBranchReadable = true;
   } catch {
     unreadable.push('develop-branch');
