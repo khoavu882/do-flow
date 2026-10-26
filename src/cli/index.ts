@@ -146,7 +146,7 @@ function parseArgs(argv: string[]): any {
       case '--action': {
         const val = argv[i + 1];
         // `review`, `protocol`, `config`, `primary` and `package` answer a missing value as usage, exit 2; other verbs keep exit 1.
-        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'review' || o.cmd === 'protocol' || o.cmd === 'config' || o.cmd === 'primary' || o.cmd === 'package' ? 2 : 1); }
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'review' || o.cmd === 'protocol' || o.cmd === 'config' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'package' ? 2 : 1); }
         o.action = val; o.actionGiven = true; i++; break;
       }
       case '--task-class': {
@@ -230,8 +230,8 @@ function parseArgs(argv: string[]): any {
         // its validation subtly wrong.
         const runtime = parseRuntimeFlag(a, argv, i, o);
         if (runtime !== null) { i = runtime; break; }
-        // slot and primary report an unknown flag as their own usage error (exit 2, 115 IC-008, 120 IC-008).
-        if (a.startsWith('-') && (o.cmd === 'slot' || o.cmd === 'primary')) (o.extraFlags = o.extraFlags || []).push(a);
+        // slot, primary and fleet report an unknown flag as their own usage error (exit 2, 115 IC-008, 120 IC-008).
+        if (a.startsWith('-') && (o.cmd === 'slot' || o.cmd === 'primary' || o.cmd === 'fleet')) (o.extraFlags = o.extraFlags || []).push(a);
         else if (a.startsWith('-') && o.cmd !== 'plan-check') { console.error(unknownFlagMessage(a)); process.exit(o.cmd === 'protocol' || o.cmd === 'config' ? 2 : 1); }
         else if (!o.cmd) o.cmd = a;
         else o.positional.push(a);
@@ -579,6 +579,8 @@ Commands:
   primary              Resolve which harness and model the main session runs (read-only):
                        primary --action resolve [--json]   (exit 0, 1 refused, 2 usage)
                        primary --action observed [--json]   checkouts and session hook records (exit 0, 1 cannot list checkouts, 2 usage)
+  fleet                List the projects this machine knows (read-only):
+                       fleet --action projects [--json]   from the user-state upkeep-roots and the hook project directories (exit 0, 1 cannot list projects, 2 usage)
   package              List the contribution points a package may fill, check a package directory, show the packages, add and update a local package, or turn it on and off:
                        package --action points [--json]
                        package --action check --path <dir> [--json]   (read-only; exit 0 clean, 1 findings, 2 usage)
@@ -652,6 +654,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        review: check|start
                        protocol: list|resolve
                        primary: resolve|observed
+                       fleet: projects
                        package: points|check|list|show|add|update|enable|disable|trust|exempt|revoke|verify|remove
       --task, --token, --owner, --mode,
       --result, --evidence-id, --reason     task-attempt (claim: --task --owner --mode manual|sequential|subagent

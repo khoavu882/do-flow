@@ -69,9 +69,10 @@ const { handleModelsCommand } = require('../runtime/models/command.ts');
 // `review` writes only its one telemetry line (095 IC-003).
 // `protocol` only prints the registry and the resolved protocol (119 IC-004), so it has nothing to keep up.
 // `primary` only prints the resolved main session (120 IC-008) and writes nothing.
+// `fleet` only lists the projects this machine knows from two read-only stores (093 IC-019) and writes nothing.
 // `package` stays here (122 IC-012): `new` writes only the target folder; `add --plan`, `update --plan` and `remove` write the store and lock and run upkeep (see `runsUpkeep`).
 // `slot` is not here: `run`, `list` and `release` write the slot files and run upkeep; only `slot --action peek` is read-only and skips it (093 IC-018 b, see `runsUpkeep`).
-const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review', 'protocol', 'primary', 'package', 'models']);
+const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review', 'protocol', 'primary', 'package', 'models', 'fleet']);
 const runsUpkeep = (o: any): boolean => (!NO_UPKEEP.has(o.cmd) && !(o.cmd === 'slot' && o.actionGiven && o.action === 'peek'))
   || (o.cmd === 'package' && ((typeof o.planId === 'string' && (o.action === 'add' || o.action === 'update')) || o.action === 'remove'));
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
@@ -84,6 +85,8 @@ function handlePromoteCommand(options: any): any { return require('../runtime/ro
 function handleConfigCommand(options: any): any { return require('../runtime/settings/cli.ts').handleConfigCommand(options); }
 // The primary verb (row 120 A.4) needs the settings resolver only when it runs.
 function handlePrimaryCommand(options: any): any { return require('../runtime/context/primary-command.ts').handlePrimaryCommand(options); }
+// The fleet verb (093 V.3) loads only when it runs.
+function handleFleetCommand(options: any): any { return require('../runtime/fleet/command.ts').handleFleetCommand(options); }
 const { handleInventoryCommand } = require('../runtime/inventory/index.ts');
 const { finishRuntime, usageError } = require('../runtime/cli-result.ts');
 const { setRecordSlug, callerFeatureSlug, invalidSlugRefusal, slugNamesNoFeature } = require('../runtime/task-scope.ts');
@@ -418,6 +421,7 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     case 'primary': return handlePrimaryCommand({ action: o.actionGiven ? o.action : undefined, json: o.json, flags: o.flagsGiven, env: process.env, cwd: process.cwd() });
     case 'package': return handlePackageCommand({ action: o.actionGiven ? o.action : undefined, path: o.paths?.length === 1 ? o.paths[0] : o.paths, id: o.id, source: o.source, index: o.index, packageVersion: o.packageVersion, plan: o.planId, repair: o.repair, points: o.points, dir: o.dir, json: o.json });
     case 'slot': return handleSlotCommand({ action: o.actionGiven ? o.action : undefined, name: o.name, label: o.label, timeout: o.timeout, noWait: Boolean(o.noWait), command: o.slotCommand, by: o.by, reason: o.reason, positional: o.positional, extraFlags: o.extraFlags, json: o.json, env: process.env, cwd: process.cwd() });
+    case 'fleet': return handleFleetCommand({ action: o.actionGiven ? o.action : undefined, json: o.json, flags: o.flagsGiven, env: process.env, cwd: process.cwd() });
     case 'models': return handleModelsCommand({ action: o.actionGiven ? o.action : (o.positional?.[0] || 'list'), positional: o.positional, harness: o.harness, model: o.model, json: o.json, projectRoot: evidenceRoot(o) });
     default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
   }
