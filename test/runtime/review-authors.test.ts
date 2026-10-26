@@ -130,7 +130,7 @@ test('authoringIdentities: extracts subagent dispatches that reached submit', (t
         dispatchId: 'd-4',
         seq: 0,
         mode: 'subagent',
-        harness: 'gemini',
+        harness: 'antigravity',
         phase: 'ended',
         disposition: 'stale',
         staleReason: 'epoch',

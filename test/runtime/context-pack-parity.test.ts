@@ -41,7 +41,7 @@ function runCli(options: any) {
 
 test('context-pack-parity: perf fixture preserves digest and exit for all registered harnesses across cap sweep', (t) => {
   const ids = getRegisteredHarnessIds();
-  assert.equal(ids.length, 8, 'registry harness set has eight ids');
+  assert.equal(ids.length, 7, 'registry harness set has seven ids');
   const root = prepareFixture(t);
   addEvidence(root, 'fx3-parity');
   const roomy = runFixture(root, ids[0], 50000);

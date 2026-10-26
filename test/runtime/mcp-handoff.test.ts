@@ -21,7 +21,7 @@ const QUIET: any = ['--mcp-outcome', 'context7=used', '--mcp-outcome', 'sequenti
 
 /** A git-backed scratch project holding one feature folder, with its own HOME and XDG folders. */
 /** Runs `fn` with HOME (and so `os.homedir()`) at `home`, so an in-process call never reads the
- * developer's real ~/.claude.json, ~/.gemini/settings.json or global ledger. */
+ * developer's real ~/.claude.json, ~/.gemini/config/mcp_config.json or global ledger. */
 function withHome(home: any, fn: any) {
   const saved: any = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
   process.env.HOME = home; process.env.USERPROFILE = home;

@@ -4,13 +4,14 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { resolveShadowVerdict } = require('../../src/runtime/inventory/precedence.ts');
 
-// Fixtures below are the actual `scopePrecedence` blocks recorded on `core/registry/harnesses.json`
-// for the named harness, trimmed to the fields this module reads (`mode`, `order`). Recorded there
+// Fixtures below are the `scopePrecedence` blocks recorded on `core/registry/harnesses.json`
+// for the named harness, trimmed to the fields this module reads (`mode`, `order`); ORDER_ONLY is
+// the one shape no shipped harness records today, kept because the resolver still has that state. Recorded there
 // under task A.2; reproduced here as literals rather than loaded from the registry, so this test
 // stays a pure unit test of the resolver and does not also assert the registry's current contents.
 const CLAUDE = { status: 'established', order: ['user', 'project'], mode: 'first-wins' };
 const CODEX = { status: 'established', order: ['user', 'project'], mode: 'last-wins' };
-const GEMINI = { status: 'established', order: ['user', 'project'], mode: 'unestablished' };
+const ORDER_ONLY = { status: 'established', order: ['user', 'project'], mode: 'unestablished' };
 const OPENCODE = { status: 'established', order: ['project', 'user'], mode: 'first-wins' };
 // PI and ANTIGRAVITY carry no `order` key at all in the registry — the absence is the fixture's
 // point, not an omission from trimming.
@@ -55,15 +56,15 @@ test('opencode and kiro: order=[project,user], first-wins -> winner is project',
   assert.equal(resolveShadowVerdict(['project', 'user'], KIRO).winner, 'project');
 });
 
-test('gemini: order established but mode unestablished -> withheld, and the reason says the order IS established', () => {
-  const verdict = resolveShadowVerdict(['user', 'project'], GEMINI);
+test('order-only record: order established but mode unestablished -> withheld, and the reason says the order IS established', () => {
+  const verdict = resolveShadowVerdict(['user', 'project'], ORDER_ONLY);
   assert.equal(verdict.shadowed, true);
   assert.equal(verdict.winner, null);
   assert.match(verdict.withheldReason, /consultation order is established/);
   assert.match(verdict.withheldReason, /user then project/,
-    "the reason names the order it does know, since that is what distinguishes gemini's state");
+    "the reason names the order it does know, since that is what distinguishes this state");
   assert.doesNotMatch(verdict.withheldReason, /order is unestablished/,
-    "gemini's order is documented; reporting it as unestablished collapses IC-003's second state "
+    "the order is documented; reporting it as unestablished collapses IC-003's second state "
     + 'into its third');
 });
 
@@ -78,17 +79,17 @@ test('pi and antigravity: no order recorded at all, mode unestablished -> withhe
 });
 
 // IC-003 §1: "Five states are distinguishable and all five are meaningful ... None of these may
-// collapse into another." gemini (order established, mode explicitly unestablished) and pi (order
+// collapse into another." an order-only record (order established, mode explicitly unestablished) and pi (order
 // sought and found undocumented) are the second and third of those states. Both withhold, both
 // name no winner — the reason is the only field left to tell them apart, so it must.
-test('gemini and pi both withhold but do not report identically — IC-003 states two and three stay distinct', () => {
-  const geminiVerdict = resolveShadowVerdict(['user', 'project'], GEMINI);
+test('an order-only record and pi both withhold but do not report identically — IC-003 states two and three stay distinct', () => {
+  const orderOnlyVerdict = resolveShadowVerdict(['user', 'project'], ORDER_ONLY);
   const piVerdict = resolveShadowVerdict(['user', 'project'], PI);
 
-  assert.notEqual(geminiVerdict.withheldReason, piVerdict.withheldReason,
+  assert.notEqual(orderOnlyVerdict.withheldReason, piVerdict.withheldReason,
     'a documented order with an undocumented winner must not read the same as an undocumented order');
 
-  for (const verdict of [geminiVerdict, piVerdict]) {
+  for (const verdict of [orderOnlyVerdict, piVerdict]) {
     assert.equal(verdict.winner, null, 'neither state names a winner');
     assert.equal(verdict.shadowed, true);
     assert.deepEqual(verdict.presentAt, ['user', 'project']);
@@ -99,7 +100,7 @@ test('gemini and pi both withhold but do not report identically — IC-003 state
 test('every withheld branch produces its own reason — no two of them are the same string', () => {
   const reasons = [
     resolveShadowVerdict(['user', 'project'], undefined).withheldReason, // no block recorded
-    resolveShadowVerdict(['user', 'project'], GEMINI).withheldReason, // order yes, mode no
+    resolveShadowVerdict(['user', 'project'], ORDER_ONLY).withheldReason, // order yes, mode no
     resolveShadowVerdict(['user', 'project'], PI).withheldReason, // order no, mode no
     resolveShadowVerdict(['user', 'project'], { status: 'established', order: ['user', 'project'], mode: 'merged' }).withheldReason,
     resolveShadowVerdict(['user', 'project'], { mode: 'first-wins' }).withheldReason, // mode, no order

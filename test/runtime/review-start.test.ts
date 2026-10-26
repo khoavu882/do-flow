@@ -238,18 +238,18 @@ test('the text form prints the protocol lines after riskSource', async (t) => {
   assert.match(out[at + 1], /^protocol\.seats: seat-a\[/);
   assert.match(out[at + 2], /^protocol\.origins: id=risk /);
   assert.match(out[at + 3], /^protocol\.invariants: INV-1,/);
-  assert.equal(out[at + 4], 'protocol.enforcement: reviewer native=claude,gemini,opencode,copilot,kiro unenforced=codex,pi,antigravity');
+  assert.equal(out[at + 4], 'protocol.enforcement: reviewer native=claude,opencode,copilot,kiro unenforced=codex,pi,antigravity');
   assert.ok(out.some((line: any) => line.startsWith('depthBasis: ')));
 });
 
-test('the JSON protocol seats the reviewer agent and carries 8 enforcement rows', async (t) => {
+test('the JSON protocol seats the reviewer agent and carries 7 enforcement rows', async (t) => {
   const r = repo(t);
   r.lines([r.line()]);
   const { exitCode, json } = await start(r);
   assert.equal(exitCode, 0);
   assert.deepEqual(json.protocol.seats.map((seat: any) => seat.agent), ['reviewer', 'reviewer']);
   assert.deepEqual(json.protocol.enforcement.map((row: any) => `${row.agent}/${row.harness}/${row.status}`), [
-    'reviewer/claude/native', 'reviewer/codex/unenforced', 'reviewer/gemini/native', 'reviewer/opencode/native',
+    'reviewer/claude/native', 'reviewer/codex/unenforced', 'reviewer/opencode/native',
     'reviewer/pi/unenforced', 'reviewer/copilot/native', 'reviewer/kiro/native', 'reviewer/antigravity/unenforced',
   ]);
   assert.equal(json.protocol.enforcement[0].reason, null);
@@ -949,7 +949,7 @@ test('120 D.3: scratch dispatch store populates authors and forbidden (harness, 
         dispatchId: 'd-uncollected',
         seq: 2,
         mode: 'subagent',
-        harness: 'gemini',
+        harness: 'antigravity',
         phase: 'launched',
         model: { requested: 'gemini-2.0-flash' },
       },

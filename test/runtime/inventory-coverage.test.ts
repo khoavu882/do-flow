@@ -23,7 +23,7 @@ function finding(harness: any, scope: any, id: any = `${harness}:${scope}`) {
 test('findings exceeding what the lock pins are partially repairable, with the counts stated', () => {
   // The measured asymmetry in miniature: the ledger produced findings for five harnesses at global
   // scope, the global lock pins only codex.
-  const findings = ['codex', 'claude', 'gemini', 'opencode', 'kiro'].map((harness) => finding(harness, 'global'));
+  const findings = ['codex', 'claude', 'pi', 'opencode', 'kiro'].map((harness) => finding(harness, 'global'));
   const coverage = repairCoverage({ findings, locks: { global: lockPinning('global', ['codex']) } });
 
   assert.equal(coverage.findings, 5);
@@ -86,7 +86,7 @@ test('a lock covering every finding yields full coverage', () => {
 
 test('a harness recorded in the ledger but absent from the lock is counted unrepairable', () => {
   const coverage = repairCoverage({
-    findings: [finding('gemini', 'global')],
+    findings: [finding('pi', 'global')],
     locks: { global: lockPinning('global', ['codex']) },
   });
   assert.equal(coverage.repairable, 0);
