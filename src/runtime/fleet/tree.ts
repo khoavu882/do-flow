@@ -9,7 +9,8 @@
  * Every edge names the record it comes from; two nodes merge only on a shared key (a runKey, a run id,
  * an agent key), never on a harness or a model. A label is the record's own role text, never invented.
  * A transcript is joined by session id alone (gate-a Q4 A); nothing is written, no path, pid or raw
- * session id is printed. `internal` (not part of the body) carries what V.6 needs to open a node's file.
+ * session id is printed. `internal` (not part of the body) carries what V.6 needs per node: the file to open, and
+ * `records` (DoFlow's own records of the agent: type, time, task, result) and `holds` (the tasks it is working on).
  * @returns {{ok: false, error: string} | {ok: true, body: Object, internal: Map<string, Object>}}
  */
 
@@ -26,6 +27,7 @@ const { readRuns } = require('../worker/run-store.ts');
 const processTree = require('../worker/process-tree.ts');
 const { loadTranscriptRegistry } = require('../transcripts/registry.ts');
 const { readJsonFile, label } = require('../transcripts/cursor.ts');
+const { isSafeSlug } = require('../task-scope.ts');
 
 const MAX_SESSIONS = 64;
 const MAX_NODES = 256;
@@ -130,13 +132,16 @@ function buildTree({
         ...fields,
       };
       nodes.set(agentKey, n);
-      internal.set(agentKey, { kind: fields.kind });
+      internal.set(agentKey, { kind: fields.kind, records: [], holds: [] });
     } else {
       for (const [key, value] of Object.entries(fields)) if (n[key] === null) n[key] = value;
     }
     Object.assign(internal.get(agentKey), intern ?? {});
     return n;
   };
+  /** One of DoFlow's own records of an agent (`records`) or a task it is working on (`holds`), kept for V.6. */
+  const note = (n: any, list: 'records' | 'holds', item: any): void => { if (n) internal.get(n.agentKey)[list].push(item); };
+  const slugOf = (store: any, name: string): string => (isSafeSlug(store?.slug) ? store.slug : name.replace(/\.json$/, ''));
   const edge = (from: string, to: string, basis: string): void => {
     if (from !== to) edges.set(`${from}|${to}|${basis}`, { from, to, basis }); // kept only when both ends are nodes, below
   };
@@ -207,7 +212,11 @@ function buildTree({
       startedAt: s.startedAt, lastRecordAt: (file && harness && lastAt(harness, file, companion)) || s.lastHookRecordAt,
       transcript: transcriptOf(harness, file),
     }, { harness, sessionId: rawId, file, companion });
-    if (n) mains.push({ n, harness, rawId, file });
+    if (n) {
+      mains.push({ n, harness, rawId, file });
+      if (s.startedAt) note(n, 'records', { type: 'hook-record', at: s.startedAt, task: null, result: null });
+      if (s.lastHookRecordAt && s.lastHookRecordAt !== s.startedAt) note(n, 'records', { type: 'hook-record', at: s.lastHookRecordAt, task: null, result: null });
+    }
   }
 
   // ---- harness sub-agent records (IC-020 sources), through the readers' header ---------------------------
@@ -287,7 +296,7 @@ function buildTree({
   };
   const attemptRuns = new Map<string, any>(); // `task#token` -> runKey of the attempt
   for (const checkout of checkouts) {
-    for (const [, store] of readStores(checkout, 'task-attempts', (file) => readTaskState(fsImpl, file))) {
+    for (const [name, store] of readStores(checkout, 'task-attempts', (file) => readTaskState(fsImpl, file))) {
       for (const [taskId, entry] of Object.entries(store.tasks ?? {}) as Array<[string, any]>) {
         for (const a of Array.isArray(entry?.attempts) ? entry.attempts : []) {
           if (typeof a.runKey !== 'string') continue;
@@ -298,6 +307,11 @@ function buildTree({
             if (typeof a.owner === 'string' && (n.label === null || (at ?? '') >= (n.lastRecordAt ?? ''))) n.label = label(a.owner);
             if (at && (n.lastRecordAt === null || at > n.lastRecordAt)) n.lastRecordAt = at;
             if (typeof a.startedAt === 'string' && (n.startedAt === null || a.startedAt < n.startedAt)) n.startedAt = a.startedAt;
+            const task = label(taskId);
+            if (typeof a.startedAt === 'string') note(n, 'records', { type: 'attempt-claim', at: a.startedAt, task, result: null });
+            const endedAt = [a.finishedAt, a.endedAt].find((v) => typeof v === 'string');
+            if (endedAt) note(n, 'records', { type: 'attempt-end', at: endedAt, task, result: typeof a.result === 'string' ? label(a.result) : null });
+            if (a.state === 'active') note(n, 'holds', { slug: slugOf(store, name), task: taskId });
           }
         }
       }
@@ -306,13 +320,13 @@ function buildTree({
 
   const runs = new Map<string, any>();
   for (const checkout of checkouts) {
-    for (const [, byId] of readStores(checkout, 'worker-runs', (file) => readRuns(file, fsImpl))) {
-      for (const [runId, run] of Object.entries(byId) as Array<[string, any]>) if (!runs.has(runId)) runs.set(runId, { run, checkout });
+    for (const [name, byId] of readStores(checkout, 'worker-runs', (file) => readRuns(file, fsImpl))) {
+      for (const [runId, run] of Object.entries(byId) as Array<[string, any]>) if (!runs.has(runId)) runs.set(runId, { run, checkout, slug: slugOf(null, name) });
     }
   }
   const ordered = [...runs.entries()].sort((a, b) => String(b[1].run.startedAt ?? b[1].run.createdAt ?? '').localeCompare(String(a[1].run.startedAt ?? a[1].run.createdAt ?? '')) || (a[0] < b[0] ? -1 : 1));
   const workerKey = (runId: string) => sha16(`worker:${runId}`);
-  for (const [runId, { run, checkout }] of ordered) {
+  for (const [runId, { run, checkout, slug }] of ordered) {
     const caller = run.caller && typeof run.caller.runKey === 'string' ? runNode(run.caller.runKey) : null;
     const harness = harnessOf(run.harness);
     const isChild = typeof run.childOf === 'string' && run.childOf !== '';
@@ -332,6 +346,11 @@ function buildTree({
       transcript: transcriptOf(harness, null),
     }, { harness, runId });
     if (!n) continue;
+    const task = label(run.task);
+    const startedAt = run.startedAt ?? run.createdAt;
+    if (typeof startedAt === 'string') note(n, 'records', { type: 'worker-run-start', at: startedAt, task, result: null });
+    if (run.end && typeof run.end.at === 'string') note(n, 'records', { type: 'worker-run-end', at: run.end.at, task, result: typeof run.end.state === 'string' ? label(run.end.state) : null });
+    if (run.phase !== 'ended' && typeof run.task === 'string') note(n, 'holds', { slug, task: run.task });
     if (isChild) edge(workerKey(run.childOf), n.agentKey, 'worker-childOf');
     else if (caller) edge(caller.agentKey, n.agentKey, 'worker-caller');
     else {
@@ -361,4 +380,4 @@ function buildTree({
   return { ok: true, body, internal };
 }
 
-module.exports = { buildTree, MAX_SESSIONS, MAX_NODES, MAX_CHECKS };
+module.exports = { buildTree, READERS, MAX_SESSIONS, MAX_NODES, MAX_CHECKS };
