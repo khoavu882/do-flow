@@ -9,6 +9,7 @@ const { tempDir } = require('../helper/tmp.ts');
 const { pinGit, fetchGit } = require('../../src/runtime/packages/fetch.ts');
 const { loadPoints } = require('../../src/runtime/packages/points.ts');
 const limits = loadPoints().registry.limits;
+const POSIX = process.platform !== 'win32';
 const sha = '1111111111111111111111111111111111111111';
 const KEYS = [
   'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY',
@@ -51,7 +52,7 @@ test('git fetch ignores caller GIT_DIR and GIT_WORK_TREE: the decoy repo is unto
 });
 
 for (const key of KEYS) {
-  test(`git subprocesses never receive ${key} from the caller env`, (t: any) => {
+  test(`git subprocesses never receive ${key} from the caller env`, { skip: !POSIX }, (t: any) => {
     const dir = tempDir(t, 'doflow-git-env-stub-');
     const out = path.join(dir, 'seen');
     fs.writeFileSync(path.join(dir, 'git'), `#!/bin/sh

@@ -478,7 +478,7 @@ describe('IC-004: Instant Rollback Controller & Circuit Breaker (rollback.ts)', 
     assert.equal(profile.origin.detail, 'rollback-state-unavailable');
   });
 
-  test('checkRollbackState fails closed on a real state directory it may not read', { skip: process.getuid?.() === 0 ? 'root reads any file' : false }, () => {
+  test('checkRollbackState fails closed on a real state directory it may not read', { skip: process.platform === 'win32' ? 'no POSIX modes' : process.getuid?.() === 0 ? 'root reads any file' : false }, () => {
     const { projectRoot } = setupTestProject({ 'rollout.profile': 'full' });
     tripRollback({ reason: 'tripped before the permissions changed', projectRoot });
     const stateDir = path.join(projectRoot, '.doflow', 'state');
