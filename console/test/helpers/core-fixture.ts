@@ -152,6 +152,109 @@ function buildFixture(cleanup: (fn: () => void) => void): Fixture {
   };
 }
 
+// ---- V.7: two projects with synthetic agent transcripts, for the Fleet shapes (IC-026) ----
+
+const RAW_ID = 'fa000000-0000-4000-8000-00000000';
+const sha16 = (text: string): string => crypto.createHash('sha256').update(text).digest('hex').slice(0, 16);
+/** Planted by the synthetic transcripts (test/fixtures/transcripts/v8/README.md) and by this world: none may reach a body. */
+const FLEET_FORBIDDEN = Object.freeze([
+  'fx-Secret-4471', 'fixture.person@example.invalid', 'FIXTURE-THINKING-MARKER-7f3a', 'FIXTURE-USER-PROMPT-MARKER-91c2', 'fixture.attach@example.invalid',
+  'fixture-unknown-record-type', '/work/fixture-project', '/work/other-project', 'FIXTURE-TOOL-RESULT-TEXT-5e1d', 'FIXTURE-OTHER-PROJECT-REPLY-2b8d', 'fa000000',
+  'fixture-missing-keys-record', MARKER,
+]);
+
+/** Text files under `dir` with `from` replaced by `to`; binary database files are left alone. */
+function retarget(dir: string, from: string, to: string): void {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) retarget(full, from, to);
+    else if (!entry.name.startsWith('opencode.db')) fs.writeFileSync(full, fs.readFileSync(full, 'utf8').split(from).join(to));
+  }
+}
+
+/** A session as the hooks leave it: a model observation at the checkout and a session directory with its git context. */
+function hookSession(store: string, harness: string, rawId: string, cwd: string): void {
+  const top = fs.realpathSync(cwd);
+  const dir = path.join(store, 'primary', cwdHashOf(top), harness);
+  fs.mkdirSync(dir, { recursive: true });
+  const observedAt = new Date(Date.now() - 60000).toISOString();
+  fs.writeFileSync(path.join(dir, `${sha16(rawId)}.json`), JSON.stringify({ schema: 1, harness, model: `${harness}-fixture-1`, event: 'SessionStart', observedAt, session: sha16(rawId) }));
+  const sessionDir = path.join(store, 'sessions', rawId);
+  fs.mkdirSync(sessionDir, { recursive: true });
+  fs.writeFileSync(path.join(sessionDir, 'git-context.json'), JSON.stringify({ cwd: top, captured_at: observedAt, branch: 'main' }));
+}
+
+function cwdHashOf(top: string): string {
+  return require(path.join(REPO, 'src', 'runtime', 'context', 'identity.ts')).cwdHash(top);
+}
+
+/**
+ * The C.1 fixture (project `alpha` = `main`, with runs, a linked worktree and attempts) plus a second DoFlow
+ * project `beta`, both listed through the hook-dir store; one synthetic transcript fixture per harness copied
+ * into the scratch HOME and aimed at alpha; alpha's seven harness sessions and a session with no file; beta's
+ * session that carries alpha's raw claude session id (so beta's tree joins to a file that belongs to alpha) and one
+ * with no file. Nothing outside the fixture directory is read.
+ *
+ * `core` is a one-file wrapper around the real core: `fleet --action projects` runs the real handler with an empty
+ * `tempRoots` (the shipped filter drops every project under a temp folder, which is where any test fixture lives);
+ * every other argv is the real `bin/doflow.js`, unchanged.
+ */
+function buildFleetWorld(cleanup: (fn: () => void) => void) {
+  const f = buildFixture(cleanup);
+  const home = path.join(f.dir, 'home');
+  const store = path.join(f.dir, 'xdg', 'doflow', 'session-env');
+  const env = { ...f.env, CLAUDE_CONFIG_DIR: '', CODEX_HOME: '', COPILOT_HOME: '', PI_CODING_AGENT_SESSION_DIR: '' };
+  const alpha = fs.realpathSync(f.main);
+  const beta = path.join(f.dir, 'beta');
+  fs.mkdirSync(path.join(beta, '.doflow', 'state'), { recursive: true });
+  fs.writeFileSync(path.join(beta, 'README.md'), 'beta\n');
+  const git = (...args: string[]) => execFileSync('git', ['-C', beta, ...args], { env, stdio: 'ignore' });
+  git('init', '-q');
+  git('config', 'user.email', 'doflow-ui-fixture@example.test');
+  git('config', 'user.name', 'DoFlow UI Fixture');
+  git('add', 'README.md');
+  git('commit', '-qm', 'fixture');
+
+  // Both projects are listed by the hook-dir store; `last_agent` and `branch` are planted and must never appear.
+  for (const [name, cwd] of [['alpha', alpha], ['beta', fs.realpathSync(beta)]]) {
+    const dir = path.join(store, 'projects', sha16(name));
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({ cwd, last_active: new Date().toISOString(), last_agent: `agent-${MARKER}`, branch: `branch-${MARKER}` }));
+  }
+
+  const { V8_ROOT, LOCATION_ROOTS } = require(path.join(REPO, 'test', 'fixtures', 'transcripts', 'v8', 'scan.ts'));
+  for (const [harness, parts] of Object.entries(LOCATION_ROOTS) as Array<[string, string[]]>) {
+    const target = path.join(home, ...parts);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.cpSync(path.join(V8_ROOT, harness), target, { recursive: true });
+    retarget(target, '/work/fixture-project', alpha);
+  }
+  const piRoot = path.join(home, ...LOCATION_ROOTS.pi);
+  fs.renameSync(path.join(piRoot, '--work-fixture-project--'), path.join(piRoot, `--${alpha.replace(/^[\\/]/, '').replace(/[\\/:]/g, '-')}--`));
+
+  for (const [harness, suffix] of [['claude', 'c001'], ['codex', 'd001'], ['pi', 'a001'], ['kiro', 'e001'], ['copilot', 'f001'], ['antigravity', 'b001'], ['opencode', '0c00'], ['claude', 'c0aa']]) {
+    hookSession(store, harness, `${RAW_ID}${suffix}`, alpha);
+  }
+  hookSession(store, 'claude', `${RAW_ID}c001`, beta);
+  hookSession(store, 'claude', `${RAW_ID}c0bb`, beta);
+
+  const core = path.join(f.dir, 'fleet-core.js');
+  fs.writeFileSync(core, [
+    "'use strict';",
+    `const path = require('node:path');`,
+    `const argv = process.argv.slice(2);`,
+    `if (argv[0] === 'fleet' && argv[1] === '--action' && argv[2] === 'projects') {`,
+    `  const { handleFleetCommand } = require(${JSON.stringify(path.join(REPO, 'src', 'runtime', 'fleet', 'command.ts'))});`,
+    `  handleFleetCommand({ action: 'projects', json: argv.includes('--json'), flags: [], tempRoots: [] });`,
+    `} else {`,
+    `  require(${JSON.stringify(CORE_CLI)});`,
+    `}`,
+    '',
+  ].join('\n'));
+
+  return { ...f, alpha, beta: fs.realpathSync(beta), home, store, env, core, roots: { ...f.roots, world: f.dir } as Record<string, string> };
+}
+
 /** Every entry under `root`: type, content hash, mtime (ns) and inode, so any write, touch or replace shows. */
 function treeSnapshot(root: string): Record<string, unknown> {
   const entries: Record<string, unknown> = {};
@@ -179,4 +282,4 @@ function snapshotTrees(roots: Record<string, string>): Record<string, Record<str
   return Object.fromEntries(Object.keys(roots).map((id) => [id, treeSnapshot(roots[id])]));
 }
 
-module.exports = { CORE_CLI, MARKER, SLUGS, TREE_IDS, buildFixture, snapshotTrees };
+module.exports = { CORE_CLI, FLEET_FORBIDDEN, MARKER, RAW_ID, SLUGS, TREE_IDS, buildFixture, buildFleetWorld, snapshotTrees };

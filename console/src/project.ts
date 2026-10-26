@@ -10,6 +10,7 @@
 // each one against its source file.
 
 const { isSemVer } = require('./handshake.ts');
+const { maskLite } = require('./mask-lite.ts');
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const LABEL = /^[A-Za-z0-9 ._:/@-]{1,64}$/;
@@ -60,7 +61,30 @@ const CLOSED_SETS = Object.freeze({
   checkoutRoles: Object.freeze(['main', 'linked']),
   sessionKinds: Object.freeze(['hook', 'launched']),
   observedStores: Object.freeze(['present', 'absent']),
+  /** src/runtime/fleet/projects.ts sources (IC-019) */
+  projectSources: Object.freeze(['upkeep-roots', 'hook-dirs']),
+  /** src/runtime/fleet/tree.ts node kinds, model bases, liveness and edge bases (IC-020) */
+  agentKinds: Object.freeze(['main-session', 'harness-subagent', 'doflow-run', 'worker-run', 'child-worker-run']),
+  modelBases: Object.freeze(['hook-observation', 'worker-binding', 'harness-record', 'dispatch-snapshot']),
+  livenessStates: Object.freeze(['process-seen', 'process-gone', 'not-checked']),
+  edgeBases: Object.freeze(['harness-subagent-record', 'worker-caller', 'worker-childOf', 'attempt-runKey', 'dispatch-claim']),
+  /** IC-020 `transcript.reason` and IC-022 */
+  transcriptReasons: Object.freeze(['no-reader', 'not-linked', 'not-found']),
+  /** IC-021 `status` */
+  readerStatuses: Object.freeze(['supported', 'events-only', 'unknown']),
+  /** IC-022 event kinds, tool statuses and `record.type` */
+  eventKinds: Object.freeze(['reply', 'tool-call', 'tool-result', 'usage', 'model-change', 'subagent-start', 'turn-end', 'record']),
+  toolStatuses: Object.freeze(['ok', 'error']),
+  recordTypes: Object.freeze(['worker-run-start', 'worker-run-end', 'attempt-claim', 'attempt-end', 'hook-record']),
+  /** IC-023 pair bases */
+  pairBases: Object.freeze(['same-model', 'same-task', 'overlap']),
 });
+
+/** IC-022: the byte caps of the two text fields, re-checked here after the second masking pass (IC-024). */
+const TEXT_CAP_BYTES = 4096;
+const ARGS_CAP_BYTES = 512;
+/** IC-022: a transcript cursor, `<inode>:<byteOffset>:<recordSeq>:<recordAtMs>`. */
+const CURSOR = /^[0-9]+:[0-9]+:[0-9]+:[0-9]+$/;
 
 type Check<T> = (value: unknown) => T;
 type Projected = { ok: true; body: any } | { ok: false; code: 'core-contract-mismatch' };
@@ -85,6 +109,19 @@ const one: Check<1> = (value) => (value === 1 ? 1 : fail());
 const key16: Check<string> = (value) => (typeof value === 'string' && KEY16.test(value) ? value : fail());
 const token: Check<number> = (value) => (Number.isInteger(value) && (value as number) >= 1 ? (value as number) : fail());
 const harness: Check<string> = (value) => (typeof value !== 'string' ? fail() : CLOSED_SETS.harnessIds.includes(value) ? value : OTHER_HARNESS);
+/** A non-negative finite number (a rate, or a sum the core rounded to two decimals). */
+const rate: Check<number> = (value) => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fail());
+const cursor: Check<string> = (value) => (typeof value === 'string' && CURSOR.test(value) ? value : fail());
+/**
+ * IC-024: a *text* field. The cap is checked on the bytes received, the text is masked a second time
+ * (mask-lite.ts), and the cap is checked again on the result: a field over its cap on either side is
+ * refused, never cut (a cut would need `cut` to say so, and the core owns that).
+ */
+const maskedText = (cap: number): Check<string> => (value) => {
+  if (typeof value !== 'string' || Buffer.byteLength(value, 'utf8') > cap) return fail();
+  const masked: string = maskLite(value);
+  return Buffer.byteLength(masked, 'utf8') > cap ? fail() : masked;
+};
 /** A field the core emits only in some states (worker `overdue`, `supervisorLost`): absent reads as null. */
 const optional = <T>(check: Check<T>): Check<T | null> => (value) => (value === undefined ? null : orNull(check)(value));
 
@@ -367,12 +404,189 @@ function roadmap(value: unknown) {
   };
 }
 
+// ---- IC-019..IC-023: the V8 Fleet reads ----
+
+/** IC-019. `root` (the main checkout path, for the Console server only) is never read: it cannot reach a body. */
+function projects(value: unknown) {
+  const body = record(value);
+  const entry = (item: unknown) => {
+    const p = record(item);
+    return {
+      projectKey: key16(p.projectKey),
+      label: label(p.label),
+      current: bool(p.current),
+      checkouts: count(p.checkouts),
+      sources: each(oneOf(CLOSED_SETS.projectSources))(p.sources),
+      lastRecordAt: orNull(iso)(p.lastRecordAt),
+    };
+  };
+  const excluded = record(body.excluded);
+  return {
+    v: one(body.v),
+    store: oneOf(CLOSED_SETS.observedStores)(body.store),
+    projects: each(entry)(body.projects),
+    excluded: { missing: count(excluded.missing), temp: count(excluded.temp), notDoflow: count(excluded.notDoflow), unreadable: count(excluded.unreadable) },
+    truncated: bool(body.truncated),
+  };
+}
+
+/** IC-020. No session id, file, pid or path exists in the input; `harness` outside the registry reads `(other)`. */
+function tree(value: unknown) {
+  const body = record(value);
+  const node = (item: unknown) => {
+    const n = record(item);
+    return {
+      agentKey: key16(n.agentKey),
+      kind: oneOf(CLOSED_SETS.agentKinds)(n.kind),
+      harness: orNull(harness)(n.harness),
+      model: orNull(label)(n.model),
+      modelBasis: orNull(oneOf(CLOSED_SETS.modelBases))(n.modelBasis),
+      label: orNull(label)(n.label),
+      depth: count(n.depth),
+      worktreeKey: key16(n.worktreeKey),
+      startedAt: orNull(iso)(n.startedAt),
+      lastRecordAt: orNull(iso)(n.lastRecordAt),
+      liveness: oneOf(CLOSED_SETS.livenessStates)(n.liveness),
+      ended: orNull((v) => {
+        const end = record(v);
+        return { at: iso(end.at), result: orNull(label)(end.result) };
+      })(n.ended),
+      transcript: ((t) => ({
+        reader: orNull(id)(t.reader),
+        linked: bool(t.linked),
+        reason: orNull(oneOf(CLOSED_SETS.transcriptReasons))(t.reason),
+      }))(record(n.transcript)),
+    };
+  };
+  const edge = (item: unknown) => {
+    const e = record(item);
+    return { from: key16(e.from), to: key16(e.to), basis: oneOf(CLOSED_SETS.edgeBases)(e.basis) };
+  };
+  const limits = record(body.limits);
+  return {
+    v: one(body.v),
+    projectKey: key16(body.projectKey),
+    nodes: each(node)(body.nodes),
+    edges: each(edge)(body.edges),
+    limits: { nodes: count(limits.nodes), notChecked: count(limits.notChecked) },
+    unreadable: count(body.unreadable),
+  };
+}
+
+/** A token record: a count or null per field (unknown is never zero). */
+const tokenCounts = (value: unknown) => {
+  const t = record(value);
+  return { input: orNull(count)(t.input), output: orNull(count)(t.output), cacheRead: orNull(count)(t.cacheRead), cacheWrite: orNull(count)(t.cacheWrite), reasoning: orNull(count)(t.reasoning) };
+};
+
+/**
+ * IC-022. Text only on `reply` (4 KiB) and arguments only on `tool-call` (512 B), each masked again;
+ * a tool result carries metadata only. Thinking, paths and ids are not fields of the input's copy.
+ */
+function transcript(value: unknown) {
+  const body = record(value);
+  const event = (item: unknown) => {
+    const e = record(item);
+    const kind = oneOf(CLOSED_SETS.eventKinds)(e.kind);
+    return {
+      seq: count(e.seq),
+      at: orNull(iso)(e.at),
+      kind,
+      agentKey: key16(e.agentKey),
+      model: orNull(label)(e.model),
+      tool: orNull((v) => {
+        const t = record(v);
+        return {
+          name: orNull(label)(t.name),
+          callKey: orNull(key16)(t.callKey),
+          status: orNull(oneOf(CLOSED_SETS.toolStatuses))(t.status),
+          bytes: orNull(count)(t.bytes),
+          durationMs: orNull(count)(t.durationMs),
+        };
+      })(e.tool),
+      text: kind === 'reply' ? orNull(maskedText(TEXT_CAP_BYTES))(e.text) : e.text === null ? null : fail(),
+      args: kind === 'tool-call' ? orNull(maskedText(ARGS_CAP_BYTES))(e.args) : e.args === null ? null : fail(),
+      cut: bool(e.cut),
+      tokens: orNull(tokenCounts)(e.tokens),
+      record: orNull((v) => {
+        const r = record(v);
+        return { type: oneOf(CLOSED_SETS.recordTypes)(r.type), task: orNull(id)(r.task), result: orNull(label)(r.result) };
+      })(e.record),
+    };
+  };
+  const reader = record(body.reader);
+  const linked = record(body.transcript);
+  return {
+    v: one(body.v),
+    agentKey: key16(body.agentKey),
+    harness: orNull(harness)(body.harness),
+    reader: { id: orNull(id)(reader.id), status: oneOf(CLOSED_SETS.readerStatuses)(reader.status) },
+    transcript: { linked: bool(linked.linked), reason: orNull(oneOf(CLOSED_SETS.transcriptReasons))(linked.reason) },
+    events: each(event)(body.events),
+    cursor: cursor(body.cursor),
+    reset: bool(body.reset),
+    eof: bool(body.eof),
+    otherRecords: count(body.otherRecords),
+    unparsable: count(body.unparsable),
+    masked: count(body.masked),
+    warnings: each(id)(body.warnings),
+  };
+}
+
+/** IC-023. A value the harness does not record is null, never 0; a window outside 1..60 is refused. */
+function traffic(value: unknown) {
+  const body = record(value);
+  const windowMin = count(body.windowMin);
+  if (windowMin < 1 || windowMin > 60) fail();
+  const agent = (item: unknown) => {
+    const a = record(item);
+    return {
+      agentKey: key16(a.agentKey),
+      harness: orNull(harness)(a.harness),
+      model: orNull(label)(a.model),
+      eventsPerMin: orNull(rate)(a.eventsPerMin),
+      toolCalls: orNull(count)(a.toolCalls),
+      toolErrors: orNull(count)(a.toolErrors),
+      toolDurationMs: orNull((v) => {
+        const d = record(v);
+        return { p50: count(d.p50), max: count(d.max), n: count(d.n) };
+      })(a.toolDurationMs),
+      tokens: orNull(tokenCounts)(a.tokens),
+      lastRecordAt: orNull(iso)(a.lastRecordAt),
+    };
+  };
+  const model = (item: unknown) => {
+    const m = record(item);
+    return { model: label(m.model), agents: count(m.agents), eventsPerMin: orNull(rate)(m.eventsPerMin), toolCalls: orNull(rate)(m.toolCalls), tokens: orNull(tokenCounts)(m.tokens) };
+  };
+  const pair = (item: unknown) => {
+    const p = record(item);
+    return {
+      a: key16(p.a),
+      b: key16(p.b),
+      basis: oneOf(CLOSED_SETS.pairBases)(p.basis),
+      task: orNull(id)(p.task),
+      tasks: orNull((v) => (Array.isArray(v) && v.length === 2 ? v.map((x) => id(x)) : fail()))(p.tasks),
+    };
+  };
+  return {
+    v: one(body.v),
+    projectKey: key16(body.projectKey),
+    windowMin,
+    agents: each(agent)(body.agents),
+    models: each(model)(body.models),
+    pairs: each(pair)(body.pairs),
+    notChecked: count(body.notChecked),
+  };
+}
+
 /** `version` is the trimmed `--version` line, not JSON. */
 const version = (value: unknown) => (isSemVer(value) ? value : fail());
 
 const PROJECTORS: Readonly<Record<string, (value: unknown, context?: any) => unknown>> = Object.freeze({
   list, status, timeline, attempts, workflow, capabilities, version,
   observed, slots, 'worker-status': workerStatus, roadmap,
+  projects, tree, transcript, traffic,
 });
 const PROJECTOR_IDS: readonly string[] = Object.freeze(Object.keys(PROJECTORS));
 
