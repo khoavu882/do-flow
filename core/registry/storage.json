@@ -493,8 +493,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/advice/record.ts",
-        "src/runtime/advice/consequence-recorder.ts"
+        "src/runtime/advice/record.ts"
       ]
     },
     {
@@ -512,8 +511,7 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/advice/record.ts",
-        "src/runtime/advice/consequence-recorder.ts"
+        "src/runtime/advice/record.ts"
       ]
     },
     {

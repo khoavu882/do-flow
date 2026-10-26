@@ -242,7 +242,25 @@ test('IC-003: the settings-keys block passes the G44 S2 column check and carries
   const loaded = loadSettingsRegistry({ repoRoot: REPO, verifyRefs: true });
   assert.equal(loaded.ok, true);
   assert.deepEqual(checkSettingsDocs(raw, `## Settings keys\n\n${block}\n`, loaded.registry), []);
-  for (const spec of Object.values(raw.keys as Record<string, any>)) assert.ok(block.includes(spec.description.replace(/\|/g, '\\|')));
+  assert.deepEqual(keysWithoutDescription(raw, block), []);
+});
+
+/** Registry keys whose description the block does not carry, escaped as the block's own cell text (`text()`). */
+function keysWithoutDescription(raw: any, block: string): string[] {
+  return Object.entries(raw.keys as Record<string, any>).filter(([, spec]) => !block.includes(text(spec.description))).map(([key]) => key);
+}
+
+test('IC-003 control: a description holding Markdown characters is found as escaped cell text, and a changed one is caught', (t) => {
+  const root = fixture(t);
+  const file = path.join(root, 'core/registry/settings.json');
+  const description = 'Planted (record only) *x* _y_ [z] `w` | v.';
+  editJson(file, (raw: any) => { raw.keys['storage.prune'].description = description; });
+  const planted = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const block = renderBlock('settings-keys', root);
+  assert.deepEqual(keysWithoutDescription(planted, block), []);
+  assert.equal(block.includes(description.replace(/\|/g, '\\|')), false, 'escaping only the pipe misses a description with ( ) * _ [ ] or `');
+  const shipped = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/settings.json'), 'utf8'));
+  assert.deepEqual(keysWithoutDescription(shipped, block), ['storage.prune']);
 });
 
 test('IC-001: any argv other than exactly --write or --check exits 2 with the usage line', (t) => {

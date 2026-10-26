@@ -402,3 +402,120 @@ test('G44 S6: settings files are declared as existing stores with matching write
   const errors = checkSettingsStores(control);
   assert.ok(errors.some((message: any) => message.includes('omits src/runtime/settings/write.ts')));
 });
+
+// A file outside src/runtime/settings/ that names a settings layer file may read keys straight from it, past the view
+// (which throws on an unregistered key). Every key literal it names in a registered namespace must be registered; a
+// `${...}` placeholder stands for one key segment.
+const LAYER_FILE_NAME = /settings(?:\.local)?\.json/;
+const KEY_LITERAL = /(['"`])([a-z][a-zA-Z0-9]*(?:\.(?:[a-zA-Z0-9-]+|\$\{[^}`'"]+\}))+)\1/g;
+const FILE_NAME_LITERAL = /\.(?:json|jsonl|md|ts|js|sh|ya?ml|txt|lock)$/;
+
+function unregisteredSettingsReads(sources: any, keys: string[]) {
+  const namespaces = new Set(keys.map((key) => key.split('.')[0]));
+  const escape = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const errors: string[] = [];
+  for (const { file, text } of sources) {
+    if (file.startsWith('src/runtime/settings/') || !LAYER_FILE_NAME.test(text)) continue;
+    for (const match of stripComments(text).matchAll(KEY_LITERAL)) {
+      const literal = match[2];
+      if (!namespaces.has(literal.split('.')[0]) || FILE_NAME_LITERAL.test(literal)) continue;
+      const pattern = new RegExp(`^${literal.split(/\$\{[^}]+\}/).map(escape).join('[a-z0-9-]+')}$`);
+      if (!keys.some((key) => pattern.test(key))) errors.push(`${file} reads ${literal}, which ${SETTINGS_FILE} does not register`);
+    }
+  }
+  return [...new Set(errors)];
+}
+
+/** Every advice kind in core/registry/advice.json has its per-kind mode and model keys. */
+function missingAdviceKindKeys(advice: any, keys: string[]) {
+  return advice.kinds.flatMap((kind: any) => [`advice.kinds.${kind.id}`, `advice.models.${kind.id}`])
+    .filter((key: string) => !keys.includes(key))
+    .map((key: string) => `${SETTINGS_FILE} does not register ${key}`);
+}
+
+test('G44 S7: every key a direct settings-file reader names is registered, and every advice kind has its keys', () => {
+  const keys = Object.keys(readJson(SETTINGS_FILE).keys);
+  assert.deepEqual(unregisteredSettingsReads(walkSourceFiles(REPO, 'src'), keys), []);
+  assert.deepEqual(missingAdviceKindKeys(readJson('core/registry/advice.json'), keys), []);
+});
+
+test('G44 S7 control: an unregistered key read by a settings-file reader, and a kind without keys, are rejected', () => {
+  const advice = readJson('core/registry/advice.json');
+  const kindKeys = advice.kinds.flatMap((kind: any) => [`advice.kinds.${kind.id}`, `advice.models.${kind.id}`]);
+  const keys = [...Object.keys(readJson(SETTINGS_FILE).keys), ...kindKeys];
+  const reader = {
+    file: 'src/runtime/fake-reader.ts',
+    text: "const file = path.join(root, '.doflow', 'settings.json');\nget(content, `advice.kinds.${kind}`);\nget(content, 'advice.planted');\nconst other = 'storage.json';",
+  };
+  assert.deepEqual(unregisteredSettingsReads([reader], keys), [
+    `src/runtime/fake-reader.ts reads advice.planted, which ${SETTINGS_FILE} does not register`,
+  ]);
+  const withoutKinds = keys.filter((key) => !key.startsWith('advice.kinds.'));
+  assert.deepEqual(unregisteredSettingsReads([reader], withoutKinds), [
+    `src/runtime/fake-reader.ts reads advice.kinds.\${kind}, which ${SETTINGS_FILE} does not register`,
+    `src/runtime/fake-reader.ts reads advice.planted, which ${SETTINGS_FILE} does not register`,
+  ]);
+  assert.deepEqual(unregisteredSettingsReads([{ ...reader, text: reader.text.replace('settings.json', 'other.json') }], withoutKinds), [],
+    'a file that names no settings layer file is not a direct reader');
+  assert.deepEqual(missingAdviceKindKeys(advice, keys), []);
+  assert.deepEqual(missingAdviceKindKeys(advice, keys.filter((key) => key !== 'advice.models.mcp-need')),
+    [`${SETTINGS_FILE} does not register advice.models.mcp-need`]);
+});
+
+// A function that takes an `env` resolves the storage roots and the settings layers from it, never from this process's
+// environment: `resolveRoots` and the settings readers default `env` to process.env, so a dropped `env` reads the
+// developer's real config home under a caller (a test, a worker) that passed a scratch one.
+const ENV_READERS = ['resolveRoots', 'resolveSetting', 'resolveShadowConfig', 'profileAdvisorCap', 'loadSettings'];
+
+function balanced(text: string, open: number): string {
+  let depth = 0;
+  for (let i = open; i < text.length; i++) {
+    const c = text[i];
+    if (c === '(' || c === '{' || c === '[') depth++;
+    else if (c === ')' || c === '}' || c === ']') { depth--; if (depth === 0) return text.slice(open, i + 1); }
+  }
+  return '';
+}
+
+/** Whether any named function whose body holds `at` (the call itself or a closure around it) takes an `env` parameter. */
+function enclosingTakesEnv(text: string, at: number): boolean {
+  for (const header of text.slice(0, at).matchAll(/\bfunction\b[^(]*\(/g)) {
+    const open = header.index + header[0].length - 1;
+    const params = balanced(text, open);
+    const bodyStart = text.indexOf('{', open + params.length);
+    if (bodyStart < 0 || bodyStart > at || bodyStart + balanced(text, bodyStart).length < at) continue;
+    if (/\benv\b/.test(params)) return true;
+  }
+  return false;
+}
+
+function droppedEnv(sources: any) {
+  const errors: string[] = [];
+  const call = new RegExp(`\\b(${ENV_READERS.join('|')})\\(`, 'g');
+  for (const { file, text } of sources) {
+    if (!/\.ts$/.test(file) || file.startsWith('src/runtime/settings/')) continue;
+    for (const match of text.matchAll(call)) {
+      const args = balanced(text, match.index + match[0].length - 1);
+      if (!/^\(\s*(?:'[^']*',\s*)?\{/.test(args) || /\benv\b/.test(args)) continue;
+      if (enclosingTakesEnv(text, match.index)) errors.push(`${file}:${text.slice(0, match.index).split('\n').length} ${match[1]} drops the env its function was given`);
+    }
+  }
+  return errors;
+}
+
+test('G44 S8: a function given an env passes it to every roots and settings reader it calls', () => {
+  assert.deepEqual(droppedEnv(walkSourceFiles(REPO, 'src')), []);
+});
+
+test('G44 S8 control: a reader call without the env its function took is rejected, and one with it passes', () => {
+  const planted = (args: string) => ({
+    file: 'src/runtime/fake-env.ts',
+    text: `function run({ projectRoot, env = process.env }: any) {\n  const roots = resolveRoots({ registry, projectRoot${args} });\n  return resolveShadowConfig('tier', { projectRoot${args}, roots });\n}\nfunction other({ projectRoot }: any) { return resolveRoots({ registry, projectRoot }); }\nfunction outer({ env }: any) {\n  async function inner() { return resolveRoots({ registry }); }\n}\n`,
+  });
+  assert.deepEqual(droppedEnv([planted('')]), [
+    'src/runtime/fake-env.ts:2 resolveRoots drops the env its function was given',
+    'src/runtime/fake-env.ts:3 resolveShadowConfig drops the env its function was given',
+    'src/runtime/fake-env.ts:7 resolveRoots drops the env its function was given',
+  ]);
+  assert.deepEqual(droppedEnv([planted(', env')]), ['src/runtime/fake-env.ts:7 resolveRoots drops the env its function was given'], 'a closure inside a function given env counts too');
+});

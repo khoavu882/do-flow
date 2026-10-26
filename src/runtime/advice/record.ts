@@ -40,16 +40,26 @@ function appendLine({ roots, at, line, fsImpl = fs, store }: any): { file: strin
   }
 }
 
+const PICK_ID = /^adv-[0-9]{13}-[0-9a-f]{6}$/;
+
+function newPickId(epoch: number = Date.now()): string {
+  return `adv-${String(epoch).padStart(13, '0')}-${crypto.randomBytes(3).toString('hex')}`;
+}
+
+/**
+ * `pickId` lets a caller that returned an id before the line is written (the shadow dispatcher) keep it; `mode`
+ * and `elevated` are the dispatcher's and are written only when given.
+ */
 function appendPick({
   roots, now = () => new Date(), fsImpl = fs, kind, answer, question,
   staticAnswer = null, provider = null, model = null, state, caller, taskId = null, durationMs = 0,
+  pickId: givenPickId, mode, elevated,
 }: any = {}): { pickId: string; file: string; store: string } | null {
   try {
     if (typeof state !== 'string' || !answer || !question) return null;
     const at = timestamp(now);
     if (!at) return null;
-    const epoch = Date.parse(at);
-    const pickId = `adv-${String(epoch).padStart(13, '0')}-${crypto.randomBytes(3).toString('hex')}`;
+    const pickId = typeof givenPickId === 'string' && PICK_ID.test(givenPickId) ? givenPickId : newPickId(Date.parse(at));
     const options = question.type === 'choice' ? Object.keys(question.options || {})
       : question.type === 'score' ? [...(question.criteria || [])] : ['no', 'yes'];
     const instructions = kind === 'adhoc' && typeof question.instructions === 'string'
@@ -78,6 +88,8 @@ function appendPick({
       taskId: taskId ?? null,
       durationMs: Number.isFinite(durationMs) ? durationMs : 0,
     };
+    if (mode !== undefined) line.mode = mode;
+    if (elevated !== undefined) line.elevated = elevated === true;
     if (answer.type === 'score') {
       line.criteria = [...(question.criteria || [])];
       line.pickIndex = answer.pickIndex;
@@ -90,15 +102,16 @@ function appendPick({
   }
 }
 
-function appendMiss({ roots, now = () => new Date(), fsImpl = fs, kind, caller, reason, model = null, durationMs = 0 }: any = {}): any {
+function appendMiss({ roots, now = () => new Date(), fsImpl = fs, kind, caller, reason, model = null, durationMs = 0, mode }: any = {}): any {
   try {
     const at = timestamp(now);
     if (!at) return null;
-    const line = {
+    const line: any = {
       schema: 1, type: 'miss', at, kind, caller, reason,
       model: model ?? null,
       durationMs: Number.isFinite(durationMs) ? durationMs : 0,
     };
+    if (mode !== undefined) line.mode = mode;
     return appendLine({ roots, at, line, fsImpl });
   } catch { return null; }
 }
@@ -163,4 +176,4 @@ function findPick({ pickId, roots, now = () => new Date(), fsImpl = fs }: any = 
   return found ? { pick: found.record, file: found.file, store: found.store } : null;
 }
 
-module.exports = { appendPick, appendMiss, appendOutcome, readWindow, findPick };
+module.exports = { appendPick, appendMiss, appendOutcome, readWindow, findPick, newPickId };

@@ -93,39 +93,43 @@ function assertMechanicalPreChecks(
   const root = projectRoot || process.cwd();
   const failures: string[] = [];
 
-  // 1. Check readiness record if available
+  // 1. Readiness evidence is a precondition, not an optional hint.
   try {
     const { readReadinessRecord } = require('../readiness-record.ts');
     const res = readReadinessRecord({ stateRoot: root, taskId, fsImpl });
-    if (res && res.status === 'found' && res.record) {
+    if (!res || res.status !== 'found' || !res.record || typeof res.record !== 'object') {
+      failures.push(`Task readiness evidence is ${res?.status || 'unavailable'}`);
+    } else {
       const rec = res.record;
-      if (rec.state && rec.state !== 'READY' && rec.state !== 'PASSED') {
-        const unmet = (rec.unmet || []).join(', ') || 'unmet requirements';
+      if (rec.state !== 'READY' && rec.state !== 'PASSED') {
+        const unmet = Array.isArray(rec.unmet) ? rec.unmet.join(', ') : '';
         failures.push(`Task readiness state is '${rec.state}' (${unmet})`);
+      } else if (rec.unmet !== undefined && (!Array.isArray(rec.unmet) || rec.unmet.length > 0)) {
+        failures.push('Task readiness evidence is malformed or still has unmet requirements');
       }
     }
-  } catch {
-    // best-effort readiness check
+  } catch (error: any) {
+    failures.push(`Task readiness evidence could not be read (${error?.message || 'read error'})`);
   }
 
-  // 2. Check team pre-checks state file if present (.doflow/state/team/pre-checks/<taskId>.json)
+  // 2. A missing or malformed mechanical-check record cannot establish a successful pre-check.
   const preCheckPath = path.join(root, '.doflow', 'state', 'team', 'pre-checks', `${taskId}.json`);
-  if (fsImpl.existsSync(preCheckPath)) {
-    try {
-      const text = fsImpl.readFileSync(preCheckPath, 'utf8');
-      const data = JSON.parse(text);
-      if (data && typeof data === 'object') {
-        if (data.passed === false) {
-          if (Array.isArray(data.failures) && data.failures.length > 0) {
-            failures.push(...data.failures);
-          } else {
-            failures.push(`Pre-check reported failure for ${taskId}`);
-          }
-        }
+  try {
+    if (!fsImpl.existsSync(preCheckPath)) {
+      failures.push(`Pre-check evidence is missing for ${taskId}`);
+    } else {
+      const data = JSON.parse(fsImpl.readFileSync(preCheckPath, 'utf8'));
+      if (!data || typeof data !== 'object' || Array.isArray(data) || typeof data.passed !== 'boolean'
+        || !Array.isArray(data.failures) || data.failures.some((failure: any) => typeof failure !== 'string')) {
+        failures.push(`Pre-check evidence is malformed for ${taskId}`);
+      } else if (data.passed === true && data.failures.length > 0) {
+        failures.push('Pre-check evidence reports failures while marked passed');
+      } else if (data.passed === false) {
+        failures.push(...(data.failures.length > 0 ? data.failures : [`Pre-check reported failure for ${taskId}`]));
       }
-    } catch {
-      // ignore parse errors
     }
+  } catch (error: any) {
+    failures.push(`Pre-check evidence could not be read for ${taskId} (${error?.message || 'read error'})`);
   }
 
   if (failures.length > 0) {

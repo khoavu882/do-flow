@@ -16,6 +16,16 @@ const { loadPoints } = require('./points.ts');
 const { readTar } = require('./tar.ts');
 const { parseSemVer, compareSemVer } = require('../../helper/semver.ts');
 const INTEGRITY = /^sha512-[A-Za-z0-9+/]+={0,2}$/u;
+// The location and repository variables of `git rev-parse --local-env-vars` (git 2.50), plus GIT_ALLOW_PROTOCOL,
+// which overrides `-c protocol.file.allow=never`. Hardcoded so no git process is spawned to compute it.
+// GIT_CONFIG, GIT_CONFIG_PARAMETERS and GIT_CONFIG_COUNT (with its KEY_n/VALUE_n pairs) are left out on purpose:
+// CI injects auth headers and `insteadOf` rewrites for private package hosts through them, and the `-c` guard
+// below still wins over them.
+const GIT_LOCATION_KEYS = Object.freeze([
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_OBJECT_DIRECTORY', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_IMPLICIT_WORK_TREE',
+  'GIT_GRAFT_FILE', 'GIT_INDEX_FILE', 'GIT_NO_REPLACE_OBJECTS', 'GIT_REPLACE_REF_BASE', 'GIT_PREFIX',
+  'GIT_SHALLOW_FILE', 'GIT_COMMON_DIR', 'GIT_ALLOW_PROTOCOL',
+]);
 
 function limits(): any {
   const loaded = loadPoints();
@@ -28,8 +38,10 @@ function finding(code: string, message: string): any {
 }
 
 function runGit(args: string[], { env, timeoutMs = 120000, cwd, maxBytes }: any): any {
+  const gitEnv = { ...env };
+  for (const key of GIT_LOCATION_KEYS) delete gitEnv[key];
   return spawnSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'protocol.file.allow=never', ...args], {
-    shell: false, cwd, env: { ...env, GIT_TERMINAL_PROMPT: '0' }, encoding: 'buffer',
+    shell: false, cwd, env: { ...gitEnv, GIT_TERMINAL_PROMPT: '0' }, encoding: 'buffer',
     timeout: timeoutMs, maxBuffer: 2 * maxBytes + 1048576,
   });
 }

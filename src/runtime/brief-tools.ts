@@ -29,6 +29,7 @@ const { resolveRoots } = require('./storage/roots.ts');
 const { resolveSetting } = require('./advice/config.ts');
 const { materializeKind } = require('./advice/kinds.ts');
 const { createAdviceClient } = require('./advice/client.ts');
+const { resolveShadowConfig } = require('./advice/shadow-config.ts');
 const { strengthWords } = require('./advice/strength.ts');
 const { resolveTier } = require('./worker/models.ts');
 
@@ -310,6 +311,7 @@ function adviceRecord(result: any) {
     };
   }
   if (result?.status === 'unavailable') return { kind: 'tier', status: 'unavailable', reason: result.reason || 'config-invalid' };
+  if (result?.status === 'shadow') return { kind: 'tier', status: 'shadow', reason: result.reason ?? null };
   return null;
 }
 
@@ -343,15 +345,44 @@ async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLeve
       try {
         const adviceRegistry = loadAdviceRegistry({ repoRoot });
         const storageRegistry = loadStorageRegistry({ repoRoot });
-        const roots = resolveRoots({ registry: storageRegistry, projectRoot: path.resolve(projectRoot) });
-        if (adviceRegistry.ok && (adviceClient || resolveSetting({ adviceRegistry: adviceRegistry.registry, roots }).state === 'on')) {
+        const roots = resolveRoots({ registry: storageRegistry, projectRoot: path.resolve(projectRoot), env });
+        if (adviceRegistry.ok && (adviceClient || resolveSetting({ adviceRegistry: adviceRegistry.registry, roots, env }).state === 'on')) {
           const lines = taskLinesForAdvice({ projectRoot, feature: stage?.feature || slug, tasks: taskIds });
           const built = materializeKind('tier', { adviceRegistry: adviceRegistry.registry });
           const client = adviceClient || createAdviceClient({ adviceRegistry: adviceRegistry.registry, roots });
-          const result = built.ok ? await client.ask({
-            questionSet: { state: `${owner}\n${lines.join('\n')}`, questions: [built.question] },
-            kind: 'tier', staticAnswer: record.tier, caller: 'brief-tools', taskId: stage?.feature || slug,
-          }) : { status: 'unavailable', reason: built.reason || 'config-invalid' };
+          const state = `${owner}\n${lines.join('\n')}`;
+          const shadow = resolveShadowConfig('tier', { projectRoot: path.resolve(projectRoot), env, roots });
+          let result: any = { status: 'unavailable', reason: built.reason || 'config-invalid' };
+          if (built.ok && !shadow.kindSet) {
+            // advice.kinds.tier unset: the client asks and records, as before the dispatcher. A chosen rollout
+            // profile caps it: off asks nothing; shadow records the pick and shows none.
+            const { profileAdvisorCap, unsetKindPath } = require('./advice/mode.ts');
+            const route = unsetKindPath(profileAdvisorCap({ projectRoot: path.resolve(projectRoot), env }));
+            if (route === 'off') result = { status: 'off', reason: null };
+            else {
+              result = await client.ask({
+                questionSet: { state, questions: [built.question] },
+                kind: 'tier', staticAnswer: record.tier, caller: 'brief-tools', taskId: stage?.feature || slug,
+              });
+              if (route === 'shadow' && result?.status === 'answered') result = { status: 'shadow', reason: null };
+            }
+          } else if (built.ok) {
+            const { interceptDecisionPoint } = require('./advice/shadow-dispatcher.ts');
+            const intercepted = await interceptDecisionPoint({
+              kind: 'tier', caller: 'brief-tools', state, staticPick: record.tier,
+              questionSet: { state, questions: [built.question] }, adviceRegistry: adviceRegistry.registry,
+              taskId: stage?.feature || slug, projectRoot: path.resolve(projectRoot), env,
+            }, { adviceClient: client, roots, shadowConfig: shadow });
+            // Only act shows a pick, and it is the decision after the raise-only rule.
+            if (intercepted.mode === 'act' && intercepted.advisorPick) {
+              result = { status: 'answered', answers: [{
+                ...intercepted.advisorAnswer, pick: intercepted.effectiveDecision, pickId: intercepted.pickId,
+                agrees: intercepted.effectiveDecision === record.tier,
+              }] };
+            } else if (intercepted.mode === 'shadow') result = { status: 'shadow', reason: intercepted.warning || null };
+            else if (intercepted.mode === 'off') result = { status: 'off', reason: null };
+            else result = { status: 'unavailable', reason: intercepted.warning || null };
+          }
           const added = adviceRecord(result);
           if (added) {
             record.advice = added;
