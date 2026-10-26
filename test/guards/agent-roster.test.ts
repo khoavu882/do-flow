@@ -338,9 +338,9 @@ test('G63 control (C-5): a partial restriction on a write spec, or a Kiro write 
   assert.match(controlFindings(() => {}, { render: narrowed }), /kiro projection of core-implementer: write spec tools is \["read"\], not \["\*"\]/);
   const foreign = (h: any, t: any, stem: any, text: any) => {
     const out = real(t, stem, text);
-    return h === 'gemini' && isWrite(text) ? out.replace(/^---\n/, '---\npermission:\n  edit: deny\n') : out;
+    return h === 'copilot' && isWrite(text) ? out.replace(/^---\n/, '---\npermission:\n  edit: deny\n') : out;
   };
-  assert.match(controlFindings(() => {}, { render: foreign }), /gemini projection of core-implementer: write spec carries permission/);
+  assert.match(controlFindings(() => {}, { render: foreign }), /copilot projection of core-implementer: write spec carries permission/);
 });
 
 test('G63 control: a name missing from, or unknown to, any list is red', () => {

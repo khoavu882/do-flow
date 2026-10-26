@@ -10,7 +10,7 @@ const {
 } = require('../../src/registry/index.ts');
 
 const REPO = path.resolve(__dirname, '../..');
-const IDS = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+const IDS = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
 
 /** A fresh copy of the shipped registry whose first harness is claude, with a mutation applied. */
 function mutated(mutate: any) {
@@ -26,7 +26,7 @@ function assertReports(result: any, pattern: any) {
 
 const readOnlyOf = (registry: any, id: any) => registry.harnesses.find((h: any) => h.id === id).agentLimits.readOnly;
 
-test('agentLimits: the shipped registry declares readOnly on all eight harnesses and validates', () => {
+test('agentLimits: the shipped registry declares readOnly on all seven harnesses and validates', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   assert.equal(registry.validation.ok, true, registry.validation.errors.join('\n'));
   assert.deepEqual(registry.harnesses.map((h: any) => h.id).sort(), [...IDS].sort());
@@ -40,12 +40,12 @@ test('agentLimits: the shipped statuses and apply values are the IC-003 table', 
   const registry = loadRegistry({ repoRoot: REPO });
   const status = Object.fromEntries(registry.harnesses.map((h: any) => [h.id, h.agentLimits.readOnly.status]));
   assert.deepEqual(status, {
-    claude: 'native', gemini: 'native', copilot: 'native', kiro: 'native', opencode: 'native',
+    claude: 'native', copilot: 'native', kiro: 'native', opencode: 'native',
     antigravity: 'unenforced', codex: 'unenforced', pi: 'unenforced',
   });
   assert.deepEqual(readOnlyOf(registry, 'claude').apply, { disallowedTools: 'Edit, Write, NotebookEdit' });
   assert.deepEqual(readOnlyOf(registry, 'opencode').apply, { permission: { edit: 'deny', bash: 'deny' } });
-  for (const id of ['gemini', 'copilot', 'kiro']) {
+  for (const id of ['copilot', 'kiro']) {
     assert.ok(Array.isArray(readOnlyOf(registry, id).apply.tools) && readOnlyOf(registry, id).apply.tools.length > 0, `${id} apply.tools`);
   }
   for (const harness of registry.harnesses) {

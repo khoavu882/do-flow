@@ -39,7 +39,7 @@ test('IC-017, IC-018: the shipped blocks load and validate, one entry per harnes
   assert.deepEqual(validate(coverage), []);
   assert.equal(coverage.revision, 3);
   assert.equal(base.coverage.endOfTurn.length, base.harnesses.length, 'the shipped registry loads with endOfTurn');
-  assert.equal(base.coverage.behaviours.length, 6 * base.harnesses.length, 'and with behaviours (48 pairs)');
+  assert.equal(base.coverage.behaviours.length, 6 * base.harnesses.length, 'and with behaviours (42 pairs)');
   for (const entry of coverage.behaviours.filter((item: any) => item.status === 'enforced')) {
     for (const file of entry.tests) assert.ok(fs.existsSync(path.join(ROOT, file)), `${entry.behaviour}/${entry.harness}: ${file} exists`);
   }
@@ -47,14 +47,14 @@ test('IC-017, IC-018: the shipped blocks load and validate, one entry per harnes
 });
 
 test('IC-017: a missing harness in endOfTurn is rejected', () => {
-  const coverage = shipped(); coverage.endOfTurn = coverage.endOfTurn.filter((item: any) => item.harness !== 'gemini');
-  assert.ok(validate(coverage).some((message) => message.includes('endOfTurn') && message.includes("harness 'gemini'")));
+  const coverage = shipped(); coverage.endOfTurn = coverage.endOfTurn.filter((item: any) => item.harness !== 'opencode');
+  assert.ok(validate(coverage).some((message) => message.includes('endOfTurn') && message.includes("harness 'opencode'")));
 });
 
 test('IC-017: a non-empty events without doc or types provenance is rejected, and empty events needs none', () => {
   const unsourced = shipped(); unsourced.endOfTurn.find((item: any) => item.harness === 'claude').provenance = [];
   assert.ok(validate(unsourced).some((message) => message.includes('endOfTurn[0].provenance') && message.includes('doc or types')));
-  const unexplained = shipped(); delete unexplained.endOfTurn.find((item: any) => item.harness === 'gemini').none;
+  const unexplained = shipped(); delete unexplained.endOfTurn.find((item: any) => item.harness === 'opencode').none;
   assert.ok(validate(unexplained).some((message) => message.includes('.none')));
 });
 

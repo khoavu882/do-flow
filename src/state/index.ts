@@ -174,7 +174,7 @@ function migrateLegacyManifest({ root, scope, scopeRoot, claudeDir, now = new Da
   for (const resource of resources) if (!existing.has(ownershipKey(resource))) current.resources.push(resource);
 
   // The legacy manifest's MCP selection was owned by Claude's config flow.  Do not infer an
-  // equivalent selection for Codex or Gemini merely because they happened to share the old file.
+  // equivalent selection for Codex merely because it happened to share the old file.
   if (Array.isArray(legacy.mcpServers) && !Object.hasOwn(current.mcpSelections, 'claude')) current.mcpSelections.claude = [...legacy.mcpServers];
   for (const [harness, status] of Object.entries(legacy.tools) as [string, any][]) {
     if (status?.installed && !current.targets[harness]) current.targets[harness] = { installed: true, lastUpdated: status.last_updated ?? null, imported: true };

@@ -633,8 +633,6 @@
         "core/harnesses/claude/hooks/skill-config-audit.sh",
         "core/harnesses/codex/hooks/lib.sh",
         "core/harnesses/codex/hooks/post-edit-lint.impl.sh",
-        "core/harnesses/gemini/hooks/lib.sh",
-        "core/harnesses/gemini/hooks/post-edit-lint.sh",
         "core/harnesses/kiro/hooks/lib.sh",
         "core/harnesses/shared/hooks/policies/emission.sh",
         "core/harnesses/shared/hooks/policies/identity.sh",
@@ -667,8 +665,6 @@
         "core/harnesses/claude/hooks/session-end.sh",
         "core/harnesses/codex/hooks/lib.sh",
         "core/harnesses/codex/hooks/session-end.impl.sh",
-        "core/harnesses/gemini/hooks/lib.sh",
-        "core/harnesses/gemini/hooks/session-end.impl.sh",
         "core/harnesses/kiro/hooks/lib.sh",
         "core/harnesses/shared/hooks/policies/lib.sh",
         "core/harnesses/shared/hooks/policies/session-context.sh",
@@ -836,8 +832,6 @@
         "core/harnesses/claude/hooks/session-end.sh",
         "core/harnesses/codex/hooks/lib.sh",
         "core/harnesses/codex/hooks/session-end.impl.sh",
-        "core/harnesses/gemini/hooks/lib.sh",
-        "core/harnesses/gemini/hooks/session-end.impl.sh",
         "core/harnesses/kiro/hooks/lib.sh",
         "core/harnesses/shared/hooks/policies/lib.sh",
         "core/harnesses/shared/hooks/policies/session-context.sh"
@@ -1638,14 +1632,6 @@
     },
     {
       "file": "src/adapters/copilot/index.ts",
-      "reason": "harness configuration/projection owned by the install ledger"
-    },
-    {
-      "file": "src/adapters/gemini/hooks.ts",
-      "reason": "harness configuration/projection owned by the install ledger"
-    },
-    {
-      "file": "src/adapters/gemini/index.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {

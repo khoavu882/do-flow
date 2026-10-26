@@ -25,7 +25,6 @@ const CONFIG_BLOCK_FILES: any = [
   'core/harnesses/shared/hooks/policies/lib.sh',
   'core/harnesses/claude/hooks/lib.sh',
   'core/harnesses/codex/hooks/lib.sh',
-  'core/harnesses/gemini/hooks/lib.sh',
   'core/harnesses/kiro/hooks/lib.sh',
   'core/harnesses/shared/hooks/stream-hook-runner.js',
   'core/harnesses/shared/hooks/policies/identity.sh',

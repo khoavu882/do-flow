@@ -28,7 +28,7 @@ test('LADDER_MAX equals 8 and bounds built-in worker count', () => {
 });
 
 test('--ladder with 9 ids exits 2 naming 8', async () => {
-  const nineIds = ['claude', 'codex', 'gemini', 'antigravity', 'pi', 'opencode', 'copilot', 'kiro', 'extra'].join(',');
+  const nineIds = ['claude', 'codex', 'fake-other', 'antigravity', 'pi', 'opencode', 'copilot', 'kiro', 'extra'].join(',');
   const res = await executeDispatchCommand({
     action: 'start',
     ladder: nineIds,

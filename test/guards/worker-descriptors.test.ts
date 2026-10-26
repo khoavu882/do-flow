@@ -30,7 +30,7 @@ const { PARSERS } = require('../../src/runtime/worker/parsers.ts');
 const { argvShape } = require('../../src/runtime/worker/launch.ts');
 const { tempDir } = require('../helper/tmp.ts');
 
-const HARNESS_COUNT = 8;
+const HARNESS_COUNT = 7;
 const WORKER_ERROR = " worker '";
 
 // ── Checks ──────────────────────────────────────────────────────────────────────────────────────
@@ -190,7 +190,7 @@ function shipped() {
 
 // ── Tests ───────────────────────────────────────────────────────────────────────────────────────
 
-test('G41.1: all eight harnesses carry a worker block and loadRegistry reports no worker error', () => {
+test('G41.1: all seven harnesses carry a worker block and loadRegistry reports no worker error', () => {
   const { registry, errors } = shipped();
   assert.deepEqual(errors.filter((message: any) => message.includes(WORKER_ERROR)), []);
   assert.ok(registry, `registry failed to load:\n- ${errors.join('\n- ')}`);
@@ -378,7 +378,7 @@ test('G41.4 control: a live-run record whose result was not offered or whose run
   assert.deepEqual(oneShot(), [], 'a successful run with its result offered does');
   codex.worker.oneShot.evidence = ['core/worker-evidence/codex/2026-10-18-missing.json'];
   assert.equal(oneShot().length, 1, 'a missing file does not establish');
-  codex.worker.oneShot.evidence = ['core/worker-evidence/gemini/2026-10-18-cli-check.json'];
+  codex.worker.oneShot.evidence = ['core/worker-evidence/antigravity/2026-10-18-cli-check.json'];
   assert.equal(oneShot().length, 1, 'another harness directory does not establish');
 });
 

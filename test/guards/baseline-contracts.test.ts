@@ -376,7 +376,7 @@ function k2OrchestrationProblems(registryModule: any) {
   const registry = registryModule.loadRegistry({ repoRoot: REPO });
   const p: any = [];
   const withBlock = registry.harnesses.filter((h: any) => h.orchestration !== undefined);
-  if (registry.harnesses.length !== 8 || withBlock.length !== 8) p.push(`core/registry/harnesses.json: ${withBlock.length} of ${registry.harnesses.length} harnesses carry the orchestration block, 8 expected`);
+  if (registry.harnesses.length !== 7 || withBlock.length !== 7) p.push(`core/registry/harnesses.json: ${withBlock.length} of ${registry.harnesses.length} harnesses carry the orchestration block, 7 expected`);
   const issues = registry.validation.errors.filter((e: any) => / orchestration/.test(e));
   return p.concat(issues.map((e: any) => `core/registry/harnesses.json: ${e}`));
 }
@@ -447,7 +447,7 @@ test('G33.13 control: a main row at 20000 stars, a small row above it and a seco
   assert.match(got, /list: only Serena may be excluded/);
 });
 
-test('G33.15: eight harnesses carry the orchestration block and loadRegistry reports no issue with it', () => {
+test('G33.15: seven harnesses carry the orchestration block and loadRegistry reports no issue with it', () => {
   assert.deepEqual(k2OrchestrationProblems(require(path.join(REPO, 'src/registry/index.ts'))), []);
 });
 test('G33.15 control: dropping one harness block or one operation is reported with the harness name', () => {
@@ -457,7 +457,7 @@ test('G33.15 control: dropping one harness block or one operation is reported wi
   delete registry.harnesses[2].orchestration.cancel;
   const errors = registryModule.validateRegistry(registry, { repoRoot: REPO }).errors.join('\n');
   assert.match(errors, /harness 'codex': orchestration block is required/);
-  assert.match(errors, /harness 'gemini': orchestration is missing operation 'cancel'/);
+  assert.match(errors, /harness 'opencode': orchestration is missing operation 'cancel'/);
 });
 
 test('G33.16: IC-027 headings and state rows, IC-028 headings and examples, and the score refusal hold', () => {

@@ -1,1 +1,0 @@
-{"native":{"hook_event_name":"AfterTool","session_id":"gemini-after-tool","tool_name":"write_file","tool_input":{"file_path":"src/a.js"}},"state":"none","fault":"none","expect":{"exit":0,"stdout":"","stderrIncludes":null,"decision":null,"envelope":null,"failurePoint":null,"taskStateUnchanged":true}}

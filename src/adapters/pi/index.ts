@@ -3,7 +3,7 @@
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 
 // Pi adapter — a marker-merged instruction file plus copy-tree materialisation, the same shape
-// Claude/Codex/Gemini already use for their own skills trees.
+// Claude/Codex already use for their own skills trees.
 //
 // Skills materialise into Pi's own directories (`~/.pi/agent/skills` global, `.pi/skills` project)
 // via the shared copy-tree engine, rather than pointing Pi's settings.json at DoFlow's already

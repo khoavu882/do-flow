@@ -27,7 +27,7 @@ const path = require('node:path');
 const { REPO } = require('./_shared.ts');
 const registryModule = require('../../src/registry/index.ts');
 
-const HARNESS_COUNT = 8;
+const HARNESS_COUNT = 7;
 const DISPATCH_DIR = 'src/runtime/dispatch';
 const escapeRe = (s: any) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const read = (rel: any) => fs.readFileSync(path.join(REPO, rel), 'utf8');

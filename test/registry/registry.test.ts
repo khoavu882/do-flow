@@ -14,12 +14,12 @@ const REPO = path.resolve(__dirname, "../..");
 
 test('loads and validates the complete multi-harness registry', () => {
   const registry = loadRegistry({ repoRoot: REPO });
-  assert.deepEqual(registry.harnesses.map((item: any) => item.id), ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
+  assert.deepEqual(registry.harnesses.map((item: any) => item.id), ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
   assert.deepEqual(Object.keys(REGISTRY_FILES), ['harnesses', 'assets', 'mcp', 'lifecycle', 'contracts', 'externalTools', 'models']);
   // contracts.json declares what each harness ACCEPTS, deliberately separate from harnesses.json's
   // what-DoFlow-SUPPORTS: nesting them would make the registry-truth guard validate the registry
   // against itself. Every harness must have exactly one contract.
-  assert.deepEqual(registry.contracts.map((c: any) => c.harness), ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
+  assert.deepEqual(registry.contracts.map((c: any) => c.harness), ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
   assert.equal(registry.validation.ok, true);
   assert.deepEqual(registry.harnesses.find((harness: any) => harness.id === 'codex').nativeProjection.config.resources,
     [{ kind: 'configuration-entry', identity: 'features.hooks', value: true }]);
@@ -117,7 +117,7 @@ test('selects the neutral MCP catalog and rejects unknown selections', () => {
   assert.throws(() => selectMcpServers(registry, ['unknown']), /Unknown registry MCP server/);
 });
 
-test('mcpCapable names every harness that takes the shared MCP catalog, and not gemini', () => {
+test('mcpCapable names every harness that takes the shared MCP catalog', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   assert.deepEqual(registry.harnesses.map((item: any) => item.id).filter((id: any) => mcpCapable(registry, id)),
     ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
@@ -127,26 +127,8 @@ test('mcpCapable names every harness that takes the shared MCP catalog, and not 
 test('generates capability-map records with evidence and explicit gaps', () => {
   const map = capabilityMapData(loadRegistry({ repoRoot: REPO }));
   const codexHooks = map.find((row: any) => row.harness === 'codex' && row.capability === 'hooks');
-  const geminiHooks = map.find((row: any) => row.harness === 'gemini' && row.capability === 'hooks');
   assert.equal(codexHooks.status, 'supported');
   assert.ok(codexHooks.evidence.every((url: any) => url.startsWith('https://')));
-  // Was asserted 'unavailable' — which pinned a factual error in the registry as expected
-  // behaviour and is exactly why the contradiction survived a green suite: DoFlow has shipped a
-  // Gemini hooks deployer, wired events, and a test file since v0.8.0. test/guards/registry.test.js
-  // now catches this class directly by comparing the declaration against what actually deploys.
-  assert.equal(geminiHooks.status, 'supported');
-  assert.ok(geminiHooks.evidence.every((url: any) => url.startsWith('https://')));
-  // Same class as the hooks entry above: declared 'unavailable' against a generic docs root while
-  // Gemini CLI documents both an executable skill `scripts/` directory and a shell-execution tool.
-  // The projection and the declaration must move together — validateRegistry refuses to render an
-  // unavailable capability, so a half-applied change cannot load at all.
-  for (const capability of ['scripts', 'templates']) {
-    const row = map.find((item: any) => item.harness === 'gemini' && item.capability === capability);
-    assert.equal(row.status, 'supported', `gemini.${capability} must not be declared unavailable while it deploys`);
-    assert.ok(row.evidence.length > 0 && row.evidence.every((url: any) => url.startsWith('https://')));
-    assert.ok(row.evidence.some((url: any) => url !== 'https://geminicli.com/docs/'),
-      `gemini.${capability} evidence must cite a specific page, not the docs root`);
-  }
 });
 
 test('fails closed for malformed JSON', (t) => {

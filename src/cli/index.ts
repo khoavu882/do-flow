@@ -603,7 +603,7 @@ Scope (mutually exclusive — global wins if both given):
 Options:
   -t, --target <list>  Comma-separated: ${VALID_TARGETS.join(',')} (default: ${DEFAULT_TARGETS.join(',')})
       --mcp <list>     Comma-separated MCP server names, or all or none, for every targeted
-                       harness that takes MCP servers (all but gemini). Default: none, or the
+                       harness that takes MCP servers (all of them). Default: none, or the
                        selection a harness has recorded in doflow.lock, or the servers an
                        installed harness already has; a real terminal prompts on install.
                        Recorded per harness.

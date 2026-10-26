@@ -21,7 +21,7 @@
  * first-match reading of that same order would get it backwards).
  *
  * A `merged` mode means the copies are combined rather than chosen between, so no single copy
- * "wins". An `unestablished` mode means the order may be documented (`gemini` documents one) or
+ * "wins". An `unestablished` mode means the order may be documented (no shipped harness does today) or
  * may not (`pi`, `antigravity` document neither), but either way the rule for choosing between
  * copies is not — so no winner is named. Those two cases are separate states under IC-003 and the
  * withheld reason says which: a documented order with an undocumented winner names the order it
@@ -96,7 +96,7 @@ function resolveShadowVerdict(presentScopes: any, precedence: any): any {
 
   if (mode === 'unestablished') {
     // IC-003 keeps these two states distinct: an order established with the mode explicitly
-    // unestablished (`gemini`) is not the same finding as an order sought and found undocumented
+    // unestablished is not the same finding as an order sought and found undocumented
     // (`pi`, `antigravity`). Both withhold the verdict; only one of them knows the reading order.
     const orderIsEstablished = Array.isArray(order) && order.length > 0;
     return {

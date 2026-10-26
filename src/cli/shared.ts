@@ -20,7 +20,6 @@ const { createAdapterRegistry } = require('../adapters/index.ts');
 const { declaredHarnessPaths } = require('../helper/harness-paths.ts');
 const claudeAdapter = require('../adapters/claude/index.ts');
 const codexAdapter = require('../adapters/codex/index.ts');
-const { createGeminiAdapter } = require('../adapters/gemini/index.ts');
 const { createOpenCodeAdapter } = require('../adapters/opencode/index.ts');
 const { createPiAdapter } = require('../adapters/pi/index.ts');
 const { createCopilotAdapter } = require('../adapters/copilot/index.ts');
@@ -55,7 +54,6 @@ function buildAdapterRegistry(): any {
   return createAdapterRegistry({
     claude: claudeAdapter.createClaudeAdapter({ declaredPaths: declared.claude }),
     codex: codexAdapter.createCodexAdapter({ declaredPaths: declared.codex }),
-    gemini: createGeminiAdapter({ declaredPaths: declared.gemini }),
     opencode: createOpenCodeAdapter({ declaredPaths: declared.opencode }),
     pi: createPiAdapter({ declaredPaths: declared.pi }),
     copilot: createCopilotAdapter({ declaredPaths: declared.copilot }),

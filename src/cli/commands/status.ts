@@ -54,7 +54,7 @@ function cmdStatus(o: any): void {
     // Hook-wiring status needs the same general per-harness verification every install/update run
     // already flows through (src/lifecycle's verifyLifecycle) rather than a Codex-only hardcode:
     // it is the one place that can tell 'installed and active' apart from 'installed but pending a
-    // prerequisite' (Codex's unreviewed trust, Gemini's live hook-trust check) from 'absent'.
+    // prerequisite' (Codex's unreviewed trust) from 'absent'.
     const verification = verifyLifecycle({ plan: registryView.plan, adapters: registryView.adapters, context: { registry } });
     const hooksFor = (harness: string) => verification.verifications.find((item: any) => item.harness === harness)?.hookWiring ?? null;
     const harnessStatus = (harness: string) => {

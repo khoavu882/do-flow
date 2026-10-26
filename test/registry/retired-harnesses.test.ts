@@ -1,12 +1,13 @@
 'use strict';
 // Row 127 IC-001: the `retired[]` list in core/registry/harnesses.json, its validator, and the
 // retiredFor/isRetired lookups. Fixtures retire a made-up 'oldtool' (replacement 'antigravity');
-// gemini stays a live harness until the record that retires it lands.
+// the shipped registry retires 'gemini' (replacement 'antigravity').
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { loadRegistry, validateRegistry, retiredFor, isRetired, harnessFor } = require('../../src/registry/index.ts');
+const { resolveTargets, VALID } = require('../../src/install/targets.ts');
 const { tempDir } = require('../helper/tmp.ts');
 
 const REPO = path.resolve(__dirname, '../..');
@@ -64,9 +65,38 @@ test('a registry with a valid retired[] loads and retiredFor/isRetired answer fr
   assert.equal(isRetired(registry, 'nope'), false);
 });
 
-test('the shipped registry declares an empty retired list and a registry without the key loads unchanged', (t: any) => {
-  const shipped = JSON.parse(fs.readFileSync(path.join(REGISTRY_DIR, 'harnesses.json'), 'utf8'));
-  assert.deepEqual(shipped.retired, []);
+/** The 7 hook commands of core/harnesses/gemini/hooks/hooks.json @ c35f681b, in file order. */
+const GEMINI_HOOK_COMMANDS = ['session-start', 'session-end', 'pre-bash-guard', 'mcp-tool-guard', 'pre-implement-gate', 'post-edit-lint', 'pre-compact']
+  .map((name) => `bash "$GEMINI_PROJECT_DIR/.gemini/hooks/${name}.sh"`);
+
+test('the shipped registry retires gemini for antigravity, with its handover entry, and keeps 7 live harnesses', () => {
+  const registry = loadRegistry({ repoRoot: REPO });
+  assert.equal(registry.validation.ok, true, registry.validation.errors.join('\n'));
+  assert.equal(registry.retired.length, 1);
+  const [gemini] = registry.retired;
+  assert.equal(gemini.id, 'gemini');
+  assert.equal(gemini.displayName, 'Gemini CLI');
+  assert.equal(gemini.replacement, 'antigravity');
+  assert.equal(gemini.retiredOn, '2026-10-26');
+  assert.deepEqual(gemini.removal.hookCommands, { renderer: 'gemini-hooks', key: 'hooks', commands: GEMINI_HOOK_COMMANDS });
+  assert.deepEqual(gemini.removal.markerSectionRenderers, ['gemini-instructions']);
+  assert.deepEqual(gemini.removal.handover, [{ renderer: 'gemini-instructions', scope: 'global', to: 'antigravity', surface: 'instruction' }]);
+  assert.deepEqual(registry.harnesses.map((h: any) => h.id), ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity']);
+  assert.equal(isRetired(registry, 'gemini'), true);
+  assert.throws(() => harnessFor(registry, 'gemini'), /Unknown registry harness 'gemini'/);
+});
+
+test('resolveTargets maps agy to antigravity and refuses gemini with the IC-002 message', () => {
+  assert.deepEqual(resolveTargets(['agy']), ['antigravity']);
+  assert.equal(VALID.includes('gemini'), false);
+  assert.throws(() => resolveTargets(['gemini']), (error: any) => {
+    assert.equal(Object.getPrototypeOf(error), Error.prototype);
+    assert.equal(error.message, "Target 'gemini' was retired on 2026-10-26; use 'antigravity' (alias agy). Its DoFlow files are released by the next 'doflow install' or 'doflow update' in that scope.");
+    return true;
+  });
+});
+
+test('a registry without the retired key loads unchanged', (t: any) => {
   const withKey = loadRegistry({ repoRoot: REPO });
   const withoutKey = loadRegistry({ repoRoot: REPO, dir: registryCopy(t, (raw) => { delete raw.retired; }) });
   assert.equal(withoutKey.validation.ok, true);

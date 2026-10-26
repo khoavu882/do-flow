@@ -15,7 +15,6 @@ const { pruneEmptyAncestors, discoverTree, sameFileIndex, sharedTreeDestDir, wal
 const { renderPolicies } = require('./policies.ts');
 const { renderMcpIndex } = require('./mcp-index.ts');
 const { hasBashCapableShell } = require('./bash-availability.ts');
-const { hookTrustFor: geminiHookTrustFor } = require('../adapters/gemini/index.ts');
 const { planHookCompanions } = require('./hook-step.ts');
 const { readLock, lockPackages } = require('../state/lockfile.ts');
 const { resolveRegistrySource } = require('../adapters/resolve-source.ts');
@@ -220,7 +219,7 @@ function survivingClaimantsByTarget(ledger: any, releasedKeys: any, registry: an
 /** NFR-007: a removal reclaims only what no other harness still claims.
  *
  * Several assets project to ONE destination for several harnesses — `scripts.doflow` is a single
- * `<project>/.doflow/scripts` tree for claude, codex and gemini, and gemini and copilot both
+ * `<project>/.doflow/scripts` tree for claude and codex, and antigravity and copilot both
  * resolve to `<root>/.agents` at project scope — while ownership is recorded per harness. A
  * removal that deleted every file its own rows named therefore took the shared runtime out from
  * under the harnesses that are still installed, leaving them with rows pointing at files that no
@@ -925,17 +924,17 @@ function assertPlanApplicable(plan: any, stateRoot: any, acceptPrerequisites: an
 }
 
 /** Registry-declared hooks assets (`kind: "hooks"` in core/registry/assets.json) this harness's
- * plan selected — currently only claude.hooks-scripts and kiro.hooks-scripts. Codex and Gemini
- * deploy hooks via their own bespoke code paths (see targetNeedsHooks below) rather than a
+ * plan selected — currently only claude.hooks-scripts and kiro.hooks-scripts. Codex deploys
+ * hooks via its own bespoke code path (see targetNeedsHooks below) rather than a
  * registered asset, so they never appear here. */
 function hookAssetIds(target: any) {
   return new Set((target.assets || []).filter((asset: any) => asset.kind === 'hooks').map((asset: any) => asset.id));
 }
 
 /** Whether this harness's plan includes at least one hooks-bearing change. Claude's hooks are a
- * registry-declared asset (`kind: "hooks"` in core/registry/assets.json); Codex and Gemini deploy
- * hooks via their own bespoke code paths and tag the resulting change with `nativeComponent:
- * 'hooks'` instead (see src/adapters/codex/index.ts and src/adapters/gemini/index.ts). Either
+ * registry-declared asset (`kind: "hooks"` in core/registry/assets.json); Codex deploys hooks
+ * via its own bespoke code path and tags the resulting change with `nativeComponent: 'hooks'`
+ * instead (see src/adapters/codex/index.ts). Either
  * signal is sufficient — this stays harness-agnostic on purpose. */
 function targetNeedsHooks(target: any) {
   const hookIds = hookAssetIds(target);
@@ -944,20 +943,10 @@ function targetNeedsHooks(target: any) {
 
 /** Whether a verified resource is the hooks resource this harness owns. A registry-declared hooks
  * asset (Claude, Kiro) is matched by assetId; Codex's bespoke hooks-file resource is matched by
- * `kind`; Gemini's bespoke hooks resource (a key inside settings.json, not a standalone file) is
- * matched by its `projection.renderer` tag — see src/adapters/codex/index.ts's
- * `lifecycleResource(..., kind: 'hooks-file', ...)` and src/adapters/gemini/index.ts's verify(),
- * which tags its hooks resource `projection: { renderer: 'gemini-hooks' }`. */
+ * `kind` — see src/adapters/codex/index.ts's `lifecycleResource(..., kind: 'hooks-file', ...)`. */
 function verificationOwnsHooks(verification: any, hookIds: any) {
   return (verification?.resources || []).some((resource: any) =>
-    hookIds.has(resource.assetId) || resource.kind === 'hooks-file' || resource.projection?.renderer === 'gemini-hooks');
-}
-
-/** Gemini's hooks trust, observed through the adapter's own API. How trust is computed — the
- * fingerprint semantics, which context fields matter — lives in src/adapters/gemini (review A3:
- * this file used to import planGeminiHooks and re-derive the plan itself). */
-function geminiHookTrust(target: any) {
-  return geminiHookTrustFor(target);
+    hookIds.has(resource.assetId) || resource.kind === 'hooks-file');
 }
 
 /** General, per-harness hook-wiring status — the one place install status distinguishes an
@@ -966,18 +955,12 @@ function geminiHookTrust(target: any) {
  *  - 'absent': this harness owns no hooks resource in the current verification (nothing installed).
  *  - 'installed-pending': a hooks resource is installed, but a prerequisite is unmet — Codex's
  *    static `capabilities.hooks.prerequisites` (`trusted-project`, `hook-review`), which DoFlow has
- *    no way to confirm a human satisfied, so it is reported unmet unconditionally; or Gemini's live
- *    trust computation via geminiHookTrust above.
+ *    no way to confirm a human satisfied, so it is reported unmet unconditionally.
  *  - 'active': installed with no unmet prerequisite (Claude and Kiro today, since neither declares
  *    any `capabilities.hooks.prerequisites` and Kiro hooks activate automatically per kiro.dev). */
 function hookWiringStatus(harness: any, target: any, verification: any) {
   if (!target || target.skipped) return { status: 'absent', prerequisites: [] };
   if (!verificationOwnsHooks(verification, hookAssetIds(target))) return { status: 'absent', prerequisites: [] };
-  if (harness.id === 'gemini') {
-    const trust = geminiHookTrust(target);
-    if (trust?.required && !trust.trusted) return { status: 'installed-pending', prerequisites: ['hook-trust'] };
-    return { status: 'active', prerequisites: [] };
-  }
   const prerequisites = harness.capabilities?.hooks?.prerequisites || [];
   return prerequisites.length
     ? { status: 'installed-pending', prerequisites: [...prerequisites] }

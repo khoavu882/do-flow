@@ -23,10 +23,10 @@ function assertReports(result: any, pattern: any) {
   assert.match(result.errors.join('\n'), pattern);
 }
 
-test('orchestration: the shipped registry declares the block on all eight harnesses and validates', () => {
+test('orchestration: the shipped registry declares the block on all seven harnesses and validates', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   assert.equal(registry.validation.ok, true, registry.validation.errors.join('\n'));
-  assert.equal(registry.harnesses.length, 8);
+  assert.equal(registry.harnesses.length, 7);
   for (const harness of registry.harnesses) {
     assert.deepEqual(Object.keys(harness.orchestration), ORCHESTRATION_OPS, `${harness.id} operation keys`);
   }
@@ -38,7 +38,7 @@ test('orchestration: nest (118 IC-004) carries the recorded status and fallback 
   const registry = loadRegistry({ repoRoot: REPO });
   const nest = Object.fromEntries(registry.harnesses.map((h: any) => [h.id, h.orchestration.nest]));
   for (const id of ['claude', 'antigravity', 'copilot']) assert.equal(nest[id].status, 'supported', `${id} nest`);
-  for (const id of ['gemini', 'pi']) {
+  for (const id of ['pi']) {
     assert.equal(nest[id].status, 'unsupported', `${id} nest`);
     assert.equal(nest[id].fallback, 'sequential', `${id} nest fallback`);
     assert.ok(nest[id].evidence.length > 0, `${id} nest evidence`);

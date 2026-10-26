@@ -299,7 +299,6 @@ function checkG38_2({ files, generated }: any) {
 const PRE_COMPACT_HOOKS: any = [
   'core/harnesses/claude/hooks/pre-compact.sh',
   'core/harnesses/codex/hooks/pre-compact.impl.sh',
-  'core/harnesses/gemini/hooks/pre-compact.sh',
 ];
 const G38_3_ALLOWED: any = new Set([`${POLICIES}/emission.jq`, `${POLICIES}/emission.sh`, ...PRE_COMPACT_HOOKS]);
 const CONTEXT_TOKEN = /\b(additionalContext|systemMessage|custom_instructions)\b/;

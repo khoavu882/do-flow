@@ -5,13 +5,13 @@
  *
  * `--force` was parsed (src/cli/index.js), threaded onto the lifecycle view (install.js) and into
  * its context (lifecycle/view.ts), and consulted by the conflict predicate (copy-tree.ts) — while
- * six of the eight adapters omitted it from their own `planTree` call. `planTree` declares
+ * six of the adapters omitted it from their own `planTree` call. `planTree` declares
  * `force = false` as a parameter default, so every one of those calls silently received `false`
  * instead of the user's flag. Nothing errored: a missing optional argument is legal JavaScript.
  *
  * The user-visible effect was that `doflow install --force` could not clear a single conflict on
  * claude, opencode, pi, kiro, copilot or antigravity, leaving no supported way to reinstall over a
- * drifted tree. Only codex and gemini honoured the flag, and that asymmetry is what made the cause
+ * drifted tree. Only codex and one since-retired adapter honoured the flag, and that asymmetry is what made the cause
  * findable: the two adapters whose conflict counts fell under `--force` were exactly the two that
  * forwarded it.
  *
@@ -78,7 +78,7 @@ test('G18: every adapter forwards force into planTree', () => {
     }
   }
 
-  assert.ok(checked.length >= 8,
+  assert.ok(checked.length >= 7,
     `expected a planTree call in every copy-tree adapter, found ${checked.length}: ${[...new Set(checked)].join(', ')}`);
   assert.deepEqual([...new Set(offenders)], [],
     'these adapters call planTree without forwarding force, so --force silently becomes planTree\'s '

@@ -2,7 +2,7 @@
 
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 // lifecycle-view.js — CLI-facing view over the registry/lifecycle path: computes a plan across
-// every requested harness (claude/codex/gemini) from a loaded registry, a neutral ledger, and the
+// every requested harness (claude, codex, opencode, pi, copilot, kiro, antigravity) from a loaded registry, a neutral ledger, and the
 // Codex-native source locations under `repoRoot`, then renders/gates it for bin/doflow.js's
 // install/update/remove/status commands.
 const fs = require('node:fs');
@@ -13,7 +13,6 @@ const { createAdapterRegistry } = require('../adapters/index.ts');
 const { declaredHarnessPaths } = require('../helper/harness-paths.ts');
 const claudeAdapter = require('../adapters/claude/index.ts');
 const codexAdapter = require('../adapters/codex/index.ts');
-const { createGeminiAdapter } = require('../adapters/gemini/index.ts');
 const { createOpenCodeAdapter } = require('../adapters/opencode/index.ts');
 const { createPiAdapter } = require('../adapters/pi/index.ts');
 const { createCopilotAdapter } = require('../adapters/copilot/index.ts');
@@ -59,7 +58,7 @@ function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, m
   // harness into each adapter-registry call site by parsing it.
   const declared = declaredHarnessPaths();
   const adapters = createAdapterRegistry({ claude: claudeAdapter.createClaudeAdapter({ declaredPaths: declared.claude }),
-    codex: codexAdapter.createCodexAdapter({ declaredPaths: declared.codex }), gemini: createGeminiAdapter({ declaredPaths: declared.gemini }),
+    codex: codexAdapter.createCodexAdapter({ declaredPaths: declared.codex }),
     opencode: createOpenCodeAdapter({ declaredPaths: declared.opencode }), pi: createPiAdapter({ declaredPaths: declared.pi }),
     copilot: createCopilotAdapter({ declaredPaths: declared.copilot }), kiro: createKiroAdapter({ declaredPaths: declared.kiro }),
     antigravity: createAntigravityAdapter({ declaredPaths: declared.antigravity }) });
@@ -69,8 +68,6 @@ function registryLifecycleView({ registry, scope, targets, mcpSelections = {}, m
     codexAgentsSourceDir: path.join(repoRoot, 'core', 'harnesses', 'codex', 'agents'),
     codexHooksSourceFile: path.join(repoRoot, 'core', 'harnesses', 'codex', 'hooks', 'hooks.json'),
     codexHooksSourceDir: path.join(repoRoot, 'core', 'harnesses', 'codex', 'hooks'),
-    geminiHooksSourceFile: path.join(repoRoot, 'core', 'harnesses', 'gemini', 'hooks', 'hooks.json'),
-    geminiHooksSourceDir: path.join(repoRoot, 'core', 'harnesses', 'gemini', 'hooks'),
     operation,
     force,
     adopt,
@@ -110,7 +107,7 @@ function printPlanNotices(view: any) {
 /** Harnesses whose native resources are reconciled through the registry/lifecycle path (all of
  * them, as of this wiring). Kept as an explicit list — rather than reusing VALID from
  * src/targets.js — so a future non-lifecycle target doesn't silently gain lifecycle behavior. */
-const LIFECYCLE_HARNESSES = ['claude', 'codex', 'gemini', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+const LIFECYCLE_HARNESSES = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
 
 function assertSafeRegistryPlan(view: any) {
   if (view.plan.safe) return;

@@ -2,10 +2,9 @@
 
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 
-// Shared hook-command verification — the one piece of codex/hooks.ts and gemini/hooks.ts that
-// proved byte-identical on inspection (unlike SUPPORTED_EVENTS, validateHooksConfig, and
-// classifyClaudeGuardrails, which encode genuine per-harness differences and stay in each
-// adapter). verifyHookCommands and the two private helpers it calls, commandScriptNames and
+// Hook-command verification, kept apart from codex/hooks.ts because it does not depend on the
+// harness (unlike SUPPORTED_EVENTS, validateHooksConfig, and classifyClaudeGuardrails, which
+// encode genuine per-harness differences and stay in each adapter). verifyHookCommands and the two private helpers it calls, commandScriptNames and
 // hookHandlers, check that a hook config's command handlers resolve to a real, executable script
 // in the harness's own hooks directory — that check does not vary by harness, so it lives once.
 const fs = require('node:fs');
@@ -23,12 +22,9 @@ function hookHandlers(config: any): { event: string, handler: any }[] {
       (Array.isArray(group?.hooks) ? group.hooks : []).map((handler: any) => ({ event, handler }))));
 }
 
-// On `trusted`: both harnesses gate hook execution behind their own trust prompt — Codex through
-// its config, Gemini by fingerprinting a hook's name and command and warning before running one
-// that changed (geminicli.com/docs/hooks/). DoFlow verifies neither gate live; doing so would need
-// a running CLI session. It reports trust as a prerequisite whose shape it observed, not one it
-// bypassed or assumed satisfied. That reading is identical for both harnesses, which is part of
-// why this function is shared.
+// On `trusted`: Codex gates hook execution behind its own trust prompt, through its config.
+// DoFlow does not verify that gate live; doing so would need a running CLI session. It reports
+// trust as a prerequisite whose shape it observed, not one it bypassed or assumed satisfied.
 // Windows carries no executable permission bits — statSync().mode always reports 0666/0444 and
 // chmodSync can only toggle the read-only flag — so the POSIX "not executable" failure mode
 // cannot exist there. Requiring the bit would refuse every hooks install on win32 (the scripts
