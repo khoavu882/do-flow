@@ -153,17 +153,20 @@ test('set text refusal is one line per error: config set: <key>: <code>: <messag
 
 test('set refuses a wider narrow-only value than the layers below, whichever layer holds the lower value', (t) => {
   const f = createSettingsEnv(t);
-  f.writeUserSettings({ schema: 1, 'review.rounds': 2 });
+  // maint-thin: the shipped review.preset is review-single, the loosest; a user who picked `auto` is the lower layer here.
+  f.writeUserSettings({ schema: 1, 'review.rounds': 2, 'review.preset': 'auto' });
   const rounds = refusal(f.run(['config', 'set', 'review.rounds', '1', '--layer', 'project', '--json']), 'review.rounds');
   assert.equal(rounds.code, 'not-narrower');
   assert.equal(rounds.layer, 'project');
   assert.equal(fs.existsSync(f.projectFile('settings.json')), false);
-  // the default `auto` is already below review-single in the preset order
+  // the user's `auto` is already below review-single in the preset order
   const preset = refusal(f.run(['config', 'set', 'review.preset', '"review-single"', '--layer', 'project', '--json']), 'review.preset');
   assert.equal(preset.code, 'not-narrower');
   // an equal or narrower value is accepted
   assert.equal(f.run(['config', 'set', 'review.rounds', '2', '--layer', 'project']).status, 0);
-  assert.equal(f.run(['config', 'set', 'review.preset', '"review-deep"', '--layer', 'project']).status, 0);
+  assert.equal(f.run(['config', 'set', 'review.preset', '"review-deep"', '--layer', 'project']).status, 0);  // control: over the shipped default alone, review-single at the project layer is not wider
+  const bare = createSettingsEnv(t);
+  assert.equal(bare.run(['config', 'set', 'review.preset', '"review-single"', '--layer', 'project']).status, 0);
 });
 
 // C-8: review.rounds below the rounds.min of the preset in force is a value the resolver would ignore.
@@ -199,6 +202,9 @@ test('set review.rounds is judged against the preset of a lower layer too, at th
 
 test('set review.rounds under preset auto is written with an advisory note in text and --json', (t) => {
   const f = createSettingsEnv(t);
+  f.writeUserSettings({ schema: 1, 'review.preset': 'auto' });
+  // control: under the shipped review-single nothing is ignored, so there is no note
+  assert.equal(createSettingsEnv(t).run(['config', 'set', 'review.rounds', '1', '--layer', 'project', '--json']).json.notes, undefined);
   const file = f.projectFile('settings.json');
   const text = f.run(['config', 'set', 'review.rounds', '1', '--layer', 'project']);
   assert.equal(text.status, 0, text.stderr);

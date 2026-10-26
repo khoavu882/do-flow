@@ -47,6 +47,11 @@ function runner(t: any, root: string) {
   const cwd = path.join(dir, 'work');
   fs.mkdirSync(home);
   fs.mkdirSync(path.join(cwd, '.doflow', 'state'), { recursive: true });
+  // The recording predates maint-thin (2026-10-26), which made review-single the shipped review.preset and bound the
+  // gate-b seat floor only while autopilot is on. The user file restores the inputs the recording was taken under,
+  // so the comparison still measures the package move and nothing else.
+  fs.mkdirSync(path.join(home, '.config', 'doflow'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.config', 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'review.preset': 'auto', 'autopilot.enabled': 'on' }));
   const cli = path.join(root, 'bin', 'doflow.js');
   const env: any = {
     ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'),
