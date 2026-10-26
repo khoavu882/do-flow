@@ -9,6 +9,9 @@
 
 const { readStatic } = require('./static.ts');
 const { processSessions, sessionCookie, readCookie, cookieName } = require('./session.ts');
+const { project } = require('./project.ts');
+const { handshake } = require('./handshake.ts');
+const { PARAM_PATTERN } = require('./verb-runner.ts');
 
 type Reply = { status: number, headers?: Record<string, string>, body?: string | Uint8Array };
 type RouteContext = { req: any, pathname: string, params: Record<string, string>, webRoot: string, port: number, session?: { scope: 'read' } };
@@ -103,9 +106,116 @@ function buildRoutes(sessions: any, table: readonly Route[]): readonly Route[] {
   return Object.freeze([sessionRoute(sessions), ...guarded].map((route) => Object.freeze({ ...route })));
 }
 
-const ROUTES: readonly Route[] = buildRoutes(processSessions, [
-  { method: 'GET', path: '/healthz', handler: () => jsonReply(200, { status: 'ok' }) },
-  { method: 'GET', path: '/*', handler: serveStatic },
-]);
+const healthz: Route = { method: 'GET', path: '/healthz', handler: () => jsonReply(200, { status: 'ok' }) };
+const staticFallback: Route = { method: 'GET', path: '/*', handler: serveStatic };
 
-module.exports = { ROUTES, buildRoutes, isApiPath, matchPath, jsonReply, errorReply, JSON_TYPE };
+// The boundary table with no core behind it (the server's default; server and session tests).
+const ROUTES: readonly Route[] = buildRoutes(processSessions, [healthz, staticFallback]);
+
+// ---- IC-005 read routes over the verb runner (A.6) and the projectors (A.7) ----
+
+type Runner = { run(shapeId: string, params?: Record<string, string>): Promise<any> };
+type Read = { ok: true, body: any, exit: number } | { ok: false, reply: Reply, exit: number | null, errorId?: string };
+
+/**
+ * The registry's task classes in registry order: a copy of the keys of `classes` in
+ * core/registry/workflows.json (this package ships without the core, and no allow-listed verb lists
+ * them on success). routes.test.ts checks it against the core's own `listClasses()`.
+ */
+const TASK_CLASSES: readonly string[] = Object.freeze(['feature', 'bug', 'refactor', 'review', 'research', 'documentation',
+  'dependency-change', 'operations', 'trivial-edit']);
+
+/** IC-005's code for a runner failure; `exit` is the core's exit code when it ran. */
+function failureReply(shapeId: string, failure: { code: string, exit: number | null }): Reply {
+  if (failure.code === 'core-unreachable') return errorReply(503, 'core-unreachable', shapeId, null);
+  if (failure.code === 'usage') return errorReply(400, 'usage', shapeId, null);
+  return errorReply(502, 'core-error', shapeId, failure.exit);
+}
+
+/** One allow-listed call, projected; a projector refusal is `core-contract-mismatch` (no partial body). */
+async function read(runner: Runner, shapeId: string, params: Record<string, string>, context?: unknown): Promise<Read> {
+  const result = await runner.run(shapeId, params);
+  if (!result.ok) return { ok: false, reply: failureReply(shapeId, result), exit: result.exit, errorId: result.errorId };
+  const projected = project(shapeId, result.json, context);
+  return projected.ok ? { ok: true, body: projected.body, exit: 0 } : { ok: false, reply: errorReply(502, 'core-contract-mismatch', shapeId, 0), exit: 0 };
+}
+
+async function info(runner: Runner): Promise<Reply> {
+  const [checked, capabilities] = await Promise.all([handshake(runner), read(runner, 'capabilities', {})]);
+  if (!checked.ok) return checked.code === 'core-contract-mismatch' ? errorReply(502, checked.code, 'version', 0) : failureReply('version', checked);
+  if (!capabilities.ok) return capabilities.reply;
+  return jsonReply(200, { v: 1, core: { version: checked.version, inRange: checked.inRange }, capabilities: capabilities.body.capabilities });
+}
+
+async function runs(runner: Runner): Promise<Reply> {
+  const list = await read(runner, 'list', {});
+  if (list.ok) return jsonReply(200, list.body);
+  // The core's own id for a checkout enumeration failure (workflow-orchestrator.ts listRuns); any other failure is core-error.
+  return list.errorId === 'cannot-list-checkouts' ? errorReply(502, 'cannot-list-checkouts', 'list', list.exit) : list.reply;
+}
+
+/**
+ * `tasks: null, tasksReason: 'no-plan'` only when inspect fails with the core's `plan-unreadable` id
+ * (task-attempts.ts loadPlan); `legacy-plan` when inspect succeeds on a plan without the task-graph
+ * header (`graph.graphPlan` false). Every other failure, `plan-malformed` and `store-unreadable`
+ * included, is IC-005's error. Ceiling: the core uses `plan-unreadable` both for a missing plan.md and
+ * for one it cannot read, so an unreadable plan file also shows as no-plan.
+ */
+async function tasks(runner: Runner, slug: string): Promise<{ ok: true, tasks: any, reason: string | null } | { ok: false, reply: Reply }> {
+  const result = await runner.run('attempts', { slug });
+  if (!result.ok) return result.exit === 2 && result.errorId === 'plan-unreadable' ? { ok: true, tasks: null, reason: 'no-plan' } : { ok: false, reply: failureReply('attempts', result) };
+  const raw = result.json;
+  if (raw && typeof raw === 'object' && raw.graph && typeof raw.graph === 'object' && raw.graph.graphPlan === false) {
+    return { ok: true, tasks: null, reason: 'legacy-plan' };
+  }
+  const projected = project('attempts', raw);
+  return projected.ok ? { ok: true, tasks: projected.body, reason: null } : { ok: false, reply: errorReply(502, 'core-contract-mismatch', 'attempts', 0) };
+}
+
+async function runDetail(runner: Runner, slug: string, taskId: string): Promise<Reply> {
+  if (!PARAM_PATTERN.test(slug) || !PARAM_PATTERN.test(taskId)) return errorReply(400, 'usage');
+  const statusCall = runner.run('status', { taskId, slug });
+  const timelineCall = read(runner, 'timeline', { taskId, slug });
+  const tasksCall = tasks(runner, slug);
+  const status = await statusCall;
+  // `status` and `timeline` exit 1 when no such run exists (092 N7: a listed row status cannot open).
+  if (!status.ok) return status.exit === 1 ? errorReply(404, 'run-not-found', 'status', 1) : failureReply('status', status);
+  // The class picks the registry workflow the status projector compares the journal's gate copy with.
+  const taskClass = status.json && typeof status.json === 'object' ? status.json.taskClass : undefined;
+  if (typeof taskClass !== 'string' || !PARAM_PATTERN.test(taskClass)) return errorReply(502, 'core-contract-mismatch', 'status', 0);
+  const workflow = await read(runner, 'workflow', { taskClass });
+  if (!workflow.ok) return workflow.reply;
+  const run = project('status', status.json, { workflow: workflow.body });
+  if (!run.ok) return errorReply(502, 'core-contract-mismatch', 'status', 0);
+  const timeline = await timelineCall;
+  if (!timeline.ok) return timeline.exit === 1 ? errorReply(404, 'run-not-found', 'timeline', 1) : timeline.reply;
+  const graph = await tasksCall;
+  if (!graph.ok) return graph.reply;
+  const body: Record<string, unknown> = { v: 1, run: run.body, timeline: timeline.body, tasks: graph.tasks, workflow: workflow.body };
+  if (graph.tasks === null) body.tasksReason = graph.reason;
+  return jsonReply(200, body);
+}
+
+async function workflows(runner: Runner): Promise<Reply> {
+  const reads = await Promise.all(TASK_CLASSES.map((taskClass) => read(runner, 'workflow', { taskClass })));
+  const failed = reads.find((entry) => !entry.ok);
+  if (failed && !failed.ok) return failed.reply;
+  return jsonReply(200, { v: 1, workflows: reads.map((entry) => (entry as any).body) });
+}
+
+/**
+ * The Console's table (IC-005) over `runner`: every /api route but the exchange is behind the session
+ * check (buildRoutes), every one is GET, and each answers `{v:1, ...}` or IC-005's error body.
+ */
+function consoleRoutes(runner: Runner, sessions: any = processSessions): readonly Route[] {
+  return buildRoutes(sessions, [
+    healthz,
+    { method: 'GET', path: '/api/info', handler: () => info(runner) },
+    { method: 'GET', path: '/api/runs', handler: () => runs(runner) },
+    { method: 'GET', path: '/api/runs/:slug/:taskId', handler: (ctx) => runDetail(runner, ctx.params.slug, ctx.params.taskId) },
+    { method: 'GET', path: '/api/workflows', handler: () => workflows(runner) },
+    staticFallback,
+  ]);
+}
+
+module.exports = { ROUTES, TASK_CLASSES, buildRoutes, consoleRoutes, isApiPath, matchPath, jsonReply, errorReply, JSON_TYPE };
