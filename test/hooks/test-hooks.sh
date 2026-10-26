@@ -325,23 +325,21 @@ assert_eq "run_with_timeout: never trusts a non-GNU 'timeout' shadowing PATH (e.
   "real-command-ran" "$RWT_FAKE_OUT"
 rm -rf "$RWT_FAKEBIN"
 
-# canonicalize_path / cwd_hash: must be byte-identical across the three
+# canonicalize_path / cwd_hash: must be byte-identical across the two
 # harnesses' lib.sh copies (with_file_lock/release_file_lock/run_with_timeout
 # are intentionally harness-specific and are NOT asserted here).
 CLAUDE_LIB="$HOOKS_DIR/lib.sh"
 CODEX_LIB="core/harnesses/codex/hooks/lib.sh"
-GEMINI_LIB="core/harnesses/gemini/hooks/lib.sh"
 
 for FN in canonicalize_path cwd_hash; do
   CLAUDE_FN=$(awk "/^${FN}\(\)/,/^}/" "$CLAUDE_LIB")
   CODEX_FN=$(awk "/^${FN}\(\)/,/^}/" "$CODEX_LIB")
-  GEMINI_FN=$(awk "/^${FN}\(\)/,/^}/" "$GEMINI_LIB")
-  if [[ -z "$CLAUDE_FN" || -z "$CODEX_FN" || -z "$GEMINI_FN" ]]; then
+  if [[ -z "$CLAUDE_FN" || -z "$CODEX_FN" ]]; then
     _fail "$FN(): could not extract function body from one or more lib.sh files"
-  elif [[ "$CLAUDE_FN" == "$CODEX_FN" && "$CLAUDE_FN" == "$GEMINI_FN" ]]; then
-    _pass "$FN(): byte-identical across claude/codex/gemini lib.sh"
+  elif [[ "$CLAUDE_FN" == "$CODEX_FN" ]]; then
+    _pass "$FN(): byte-identical across claude/codex lib.sh"
   else
-    _fail "$FN(): differs across claude/codex/gemini lib.sh (should be byte-identical)"
+    _fail "$FN(): differs across claude/codex lib.sh (should be byte-identical)"
   fi
 done
 

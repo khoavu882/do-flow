@@ -19,7 +19,6 @@ const POLICY = path.join(MIRROR, '.doflow/shared/hooks/policies/session-context.
 const SESSION_END = [
   path.join(MIRROR, '.claude/hooks/session-end.sh'),
   path.join(MIRROR, '.codex/hooks/session-end.impl.sh'),
-  path.join(MIRROR, '.gemini/hooks/session-end.impl.sh'),
 ];
 test.before(() => {
   const built = spawnSync('bash', [path.join(REPO, 'test/hooks/build-install-mirror.sh'), MIRROR], { encoding: 'utf8' });

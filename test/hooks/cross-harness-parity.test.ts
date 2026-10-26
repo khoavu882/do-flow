@@ -16,7 +16,6 @@ after(() => scratch.remove());
 const FRONT_DOOR: any = {
   claude: { 'pre-implementation-gate': 'pre-implement-gate' },
   codex: { 'pre-implementation-gate': 'pre-implement-gate' },
-  gemini: { 'pre-implementation-gate': 'pre-implement-gate' },
   kiro: { 'pre-implementation-gate': 'pre-implement-gate' },
 };
 const STEM_POLICY: any = {
@@ -159,8 +158,7 @@ function executeShell(harness: any, row: any, project: any, mirror: any, index: 
     : result.status === 2 || Boolean(result.stderr))
     : harness === 'kiro' ? result.status === 2
     : harness === 'antigravity' ? response.decision === 'deny'
-      : harness === 'gemini' ? response.decision === 'deny'
-        : response.hookSpecificOutput?.permissionDecision === 'deny';
+      : response.hookSpecificOutput?.permissionDecision === 'deny';
   return { denied, result, native, trace };
 }
 
@@ -202,7 +200,7 @@ const blockingRows = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/l
   .coverage.rows.filter((row: any) => row.class === 'blocking');
 
 test('FR-004: each native bridge denies a design-less edit and allows it once all three artifacts exist', async () => {
-  const harnesses: any = ['claude', 'codex', 'gemini', 'kiro', 'antigravity', 'pi'];
+  const harnesses: any = ['claude', 'codex', 'kiro', 'antigravity', 'pi'];
   const observed: any = [];
   for (const [index, harness] of harnesses.entries()) {
     const denyRow = fixtureFor(harness, 'pre-implementation-gate', true);
@@ -224,7 +222,7 @@ test('FR-004: each native bridge denies a design-less edit and allows it once al
     }
     assert.deepEqual(outcomes, [true, false], `${harness}: deny then allow`);
   }
-  assert.equal(observed.length, 12);
+  assert.equal(observed.length, harnesses.length * 2);
 });
 
 test('NFR-003: blocking pairs agree across harnesses for the same canonical deny and allow input/state', async () => {
@@ -273,7 +271,7 @@ test('negative control: skipping the envelope merge sends an out-of-step denial'
 
 test('Stop, turn-end and session-end fixtures plus Pi tool_call leave task state untouched', async () => {
   const relevant: any = [];
-  for (const harness of ['claude', 'codex', 'gemini', 'kiro', 'antigravity']) {
+  for (const harness of ['claude', 'codex', 'kiro', 'antigravity']) {
     const root = path.join(FIXTURES, harness);
     for (const stem of fs.readdirSync(root)) {
       const dir = path.join(root, stem);

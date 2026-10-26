@@ -75,7 +75,6 @@ BRIDGE_TEST('decode is fixture-backed, harness-scoped, and only emits operation 
     // Native payload examples are committed in these fixture-bearing tests.
     ['claude', 'PreToolUse', { tool_name: 'Edit', tool_input: { file_path: 'src/a.ts' }, session_id: 's', cwd: '/repo', doflow_event: { version: 99 } }, 'edit', ['src/a.ts'], 'test/hooks/kiro-bridge.test.ts'],
     ['codex', 'PreToolUse', { tool_name: 'apply_patch', tool_input: { command: '*** Begin Patch\n' }, cwd: '/repo' }, 'edit', [], 'test/hooks/stream-hook-runner.test.ts'],
-    ['gemini', 'BeforeTool', { tool_name: 'write_file', tool_input: { path: '/repo/a' } }, 'edit', ['/repo/a'], 'test/adapters/gemini/gemini-hooks.test.ts'],
     ['kiro', 'PreToolUse', { tool_name: 'Write', tool_input: { file_path: '/repo/a' }, session_id: 'k' }, 'edit', ['/repo/a'], 'test/hooks/kiro-bridge.test.ts'],
     ['kiro', 'PreToolUse', { tool_name: 'mcp_evil_drop', tool_input: {} }, 'mcp', [], 'test/hooks/kiro-bridge.test.ts (mcp-tool-guard evaluates a V3 `mcp_<server>_<tool>` ID against the policy)'],
     ['kiro', 'PreToolUse', { tool_name: '@evil/drop', tool_input: {} }, 'mcp', [], 'test/hooks/kiro-bridge.test.ts (mcp-tool-guard sees `@server/tool` as mcp__server__tool and lets built-in tools through)'],
@@ -97,12 +96,12 @@ BRIDGE_TEST('decode is fixture-backed, harness-scoped, and only emits operation 
     assert.equal('unknown_field' in value, false, harness);
     if (harness === 'codex') assert.equal(value.patch, '*** Begin Patch\n');
     if (harness === 'claude') assert.equal(value.version, 1, 'bridge envelope replaces native doflow_event');
-    const command = harness === 'pi' ? { toolName: 'bash', input: { command: 'npm test', path: 'wrong.ts' } } : { tool_name: harness === 'gemini' || harness === 'antigravity' ? 'run_shell_command' : 'Bash', tool_input: { command: 'npm test', file_path: 'wrong.ts' } };
+    const command = harness === 'pi' ? { toolName: 'bash', input: { command: 'npm test', path: 'wrong.ts' } } : { tool_name: harness === 'antigravity' ? 'run_shell_command' : 'Bash', tool_input: { command: 'npm test', file_path: 'wrong.ts' } };
     const cmd = spawnSync('jq', ['-c', '--arg', 'harness', harness, '--arg', 'event', event, '--arg', 'policy', 'session-context', '-f', path.join(dir, 'bridge/envelope.jq')], { input: JSON.stringify(command), encoding: 'utf8' });
     assert.equal(cmd.status, 0, cmd.stderr);
     const cmdEnv = JSON.parse(cmd.stdout).doflow_event;
-    assert.equal(cmdEnv.operation, ['claude','codex','gemini','kiro','pi'].includes(harness) ? 'command' : 'tool', harness);
-    assert.equal(cmdEnv.command, ['claude','codex','gemini','kiro','pi'].includes(harness) ? 'npm test' : undefined, harness);
+    assert.equal(cmdEnv.operation, ['claude','codex','kiro','pi'].includes(harness) ? 'command' : 'tool', harness);
+    assert.equal(cmdEnv.command, ['claude','codex','kiro','pi'].includes(harness) ? 'npm test' : undefined, harness);
     assert.equal(cmdEnv.paths, undefined, harness);
   }
 });
@@ -166,7 +165,7 @@ exit 0
 
 BRIDGE_TEST('IC-036 malformed and non-object stdin reaches every bridge as a minimal envelope', () => {
   const bridges: any = [
-    ['claude', 'PreToolUse'], ['codex', 'PreToolUse'], ['gemini', 'BeforeTool'],
+    ['claude', 'PreToolUse'], ['codex', 'PreToolUse'],
     ['kiro', 'PreToolUse'], ['antigravity', 'PreToolUse'], ['pi', 'tool_call'],
   ];
   const inputs: any = [['empty', ''], ['malformed', 'not json'], ['array', '[]'], ['string', '"s"'], ['null', 'null']];
@@ -191,7 +190,7 @@ BRIDGE_TEST('IC-036 malformed and non-object stdin reaches every bridge as a min
 
 BRIDGE_TEST('IC-036 encode fault preserves compat result and blocks strict blocking policies', () => {
   const bridges: any = [
-    ['claude', 'PreToolUse'], ['codex', 'PreToolUse'], ['gemini', 'BeforeTool'],
+    ['claude', 'PreToolUse'], ['codex', 'PreToolUse'],
     ['kiro', 'PreToolUse'], ['antigravity', 'PreToolUse'], ['pi', 'tool_call'],
   ];
   const blocking: any = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'stop-check'];
@@ -248,13 +247,13 @@ BRIDGE_TEST('IC-007 classifies signal names, ordinary exit 255, spawn failure, a
 BRIDGE_TEST('unsupported blocks under strict-1 with the fixed native reason; deny keeps its own reason', () => {
   const dir = makeTree();
   const p = path.join(dir,'policies/pre-implementation-gate.sh');
-  const rows: any = [['claude','PreToolUse'],['codex','PreToolUse'],['gemini','BeforeTool'],['kiro','PreToolUse'],['claude','Stop'],['codex','Stop'],['kiro','Stop'],['kiro','Stop',{DOFLOW_KIRO_ENGINE:'v3'}],['antigravity','PreToolUse'],['antigravity','Stop'],['pi','tool_call']];
+  const rows: any = [['claude','PreToolUse'],['codex','PreToolUse'],['kiro','PreToolUse'],['claude','Stop'],['codex','Stop'],['kiro','Stop'],['kiro','Stop',{DOFLOW_KIRO_ENGINE:'v3'}],['antigravity','PreToolUse'],['antigravity','Stop'],['pi','tool_call']];
   for (const [harness,event,env={}] of rows) {
     fs.writeFileSync(p, `#!/bin/bash\nprintf '\\036%s\\n' '{"outcome":"unsupported","code":"unsupported-test","policyVersion":1}' >&3\nprintf raw-secret >&2\nexit 0\n`);
     const result: any=run(dir,harness,event,'pre-implementation-gate',{},['--emit','native'],{DOFLOW_FAULT_PROFILE:'strict-1',...env});
     assert.equal((result.stdout+result.stderr).includes('raw-secret'),false,`${harness}:${event} hides stub stderr`);
     if ((harness === 'claude' && event === 'PreToolUse') || (harness === 'codex' && event === 'PreToolUse')) assert.equal(JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason,FIXED);
-    else if (harness === 'gemini' || harness === 'antigravity' || harness === 'pi') assert.equal(JSON.parse(result.stdout).reason,FIXED);
+    else if (harness === 'antigravity' || harness === 'pi') assert.equal(JSON.parse(result.stdout).reason,FIXED);
     else if (harness === 'kiro' && event === 'Stop' && env.DOFLOW_KIRO_ENGINE === 'v3') assert.equal(JSON.parse(result.stdout).reason,FIXED);
     else if (harness === 'codex' && event === 'Stop') { assert.equal(result.stdout.trim(),'{}'); assert.ok(result.stderr.includes(FIXED)); }
     else assert.ok(result.stderr.includes(FIXED));
@@ -271,10 +270,8 @@ BRIDGE_TEST('IC-011 full profile, harness, outcome grid including unknown-profil
     ['claude','PreToolUse','pre-implementation-gate','error','exit-9','block'],
     ['claude','PreToolUse','pre-implementation-gate','error','signal-SEGV','block'],
     ['codex','PreToolUse','pre-implementation-gate','error','exit-9','block'],
-    ['gemini','BeforeTool','pre-implementation-gate','error','signal-SEGV','block'],
     ['claude','PreToolUse','pre-implementation-gate','deny','denied','block'],
     ['codex','PreToolUse','pre-implementation-gate','deny','denied','block'],
-    ['gemini','BeforeTool','pre-implementation-gate','deny','denied','block'],
     ['kiro','PreToolUse','pre-implementation-gate','error','exit-9','proceed'],
     ['kiro','PreToolUse','pre-implementation-gate','error','signal-SEGV','proceed'],
     ['kiro','PreToolUse','pre-implementation-gate','unsupported','x','proceed'],
@@ -353,7 +350,6 @@ BRIDGE_TEST('IC-011 table-driven full effect grid for each bridge and both profi
   const bridges: any = [
     {h:'claude',e:'PreToolUse',p:'pre-implementation-gate',kind:'claude'},
     {h:'codex',e:'PreToolUse',p:'pre-implementation-gate',kind:'codex'},
-    {h:'gemini',e:'BeforeTool',p:'pre-implementation-gate',kind:'claude'},
     {h:'kiro',e:'PreToolUse',p:'pre-implementation-gate',kind:'kiro-tool'},
     {h:'claude',e:'Stop',p:'stop-check',kind:'claude-stop'},
     {h:'codex',e:'Stop',p:'stop-check',kind:'codex-stop'},
@@ -373,8 +369,8 @@ BRIDGE_TEST('IC-011 table-driven full effect grid for each bridge and both profi
         : profile === 'strict-1' && isBlocking && ['numeric','signal','recorded-error','unsupported','bridge-spawn'].includes(scenario) ? 'block'
         : scenario === 'bridge-spawn' ? (profile === 'strict-1' && isBlocking ? 'block' : 'proceed')
           : scenario === 'unsupported' || scenario === 'recorded-error' ? (profile === 'strict-1' && isBlocking ? 'block' : 'proceed')
-            : scenario === 'numeric' ? (['claude','codex','gemini','pi','antigravity'].includes(b.kind) ? 'block' : 'proceed')
-              : scenario === 'signal' ? (['claude','codex','gemini','pi'].includes(b.kind) ? 'block' : 'proceed')
+            : scenario === 'numeric' ? (['claude','codex','pi','antigravity'].includes(b.kind) ? 'block' : 'proceed')
+              : scenario === 'signal' ? (['claude','codex','pi'].includes(b.kind) ? 'block' : 'proceed')
                 : 'proceed';
       if (scenario === 'bridge-spawn') {
         const target = path.join(dir,'policies',`${b.p}.sh`);
@@ -429,7 +425,6 @@ BRIDGE_TEST('DEC-026 preserves door-specific policy streams for every allow/proc
   const bridges: any = [
     {h:'claude',e:'PreToolUse',p:'pre-implementation-gate',kind:'claude'},
     {h:'codex',e:'PreToolUse',p:'pre-implementation-gate',kind:'codex'},
-    {h:'gemini',e:'BeforeTool',p:'pre-implementation-gate',kind:'gemini'},
     {h:'kiro',e:'PreToolUse',p:'pre-implementation-gate',kind:'kiro-tool'},
     {h:'claude',e:'Stop',p:'stop-check',kind:'claude-stop'},
     {h:'codex',e:'Stop',p:'stop-check',kind:'codex-stop'},
@@ -451,8 +446,8 @@ BRIDGE_TEST('DEC-026 preserves door-specific policy streams for every allow/proc
         fs.writeFileSync(policy, `#!/bin/bash\nprintf 'policy stdout\\n'\nprintf 'policy stderr\\n\\n' >&2\n${record}exit ${status}\n`);
 
         const expectedEffect = profile === 'strict-1' && b.kind !== 'context' && scenario !== 'allow' ? 'block'
-          : scenario === 'numeric' ? (['claude','codex','gemini','antigravity-tool','antigravity-stop','pi'].includes(b.kind) ? 'block' : 'proceed')
-            : scenario === 'signal' ? (['claude','codex','gemini','pi'].includes(b.kind) ? 'block' : 'proceed')
+          : scenario === 'numeric' ? (['claude','codex','antigravity-tool','antigravity-stop','pi'].includes(b.kind) ? 'block' : 'proceed')
+            : scenario === 'signal' ? (['claude','codex','pi'].includes(b.kind) ? 'block' : 'proceed')
               : 'proceed';
         if (expectedEffect !== 'proceed') continue;
 
@@ -460,8 +455,8 @@ BRIDGE_TEST('DEC-026 preserves door-specific policy streams for every allow/proc
         const label = `${profile} ${b.h}:${b.e} ${scenario}`;
         const decision: any = run(dir,b.h,b.e,b.p,{},['--emit','decision'],{DOFLOW_FAULT_PROFILE:profile});
         assert.equal(JSON.parse(decision.stdout).effect,'proceed',`${label}: table cell proceeds`);
-        const dropToolStreams = ['claude','codex','gemini','kiro-tool','antigravity-tool','antigravity-stop','pi'].includes(b.kind) && ['pre-implementation-gate','pre-bash-guard','mcp-tool-guard'].includes(b.p);
-        const dropToolStderr = ['claude','codex','gemini','antigravity-tool','antigravity-stop','pi'].includes(b.kind) && ['pre-implementation-gate','pre-bash-guard','mcp-tool-guard'].includes(b.p);
+        const dropToolStreams = ['claude','codex','kiro-tool','antigravity-tool','antigravity-stop','pi'].includes(b.kind) && ['pre-implementation-gate','pre-bash-guard','mcp-tool-guard'].includes(b.p);
+        const dropToolStderr = ['claude','codex','antigravity-tool','antigravity-stop','pi'].includes(b.kind) && ['pre-implementation-gate','pre-bash-guard','mcp-tool-guard'].includes(b.p);
         const dropKiroStopStdout = b.kind === 'kiro-stop' && b.p === 'stop-check';
         if (b.kind === 'context' && scenario !== 'allow') {
           assert.equal(result.stderr,'',`${label}: context fault is silent`);
@@ -543,7 +538,7 @@ BRIDGE_TEST('unknown-profile fallback records fault-profile-unknown', () => {
 BRIDGE_TEST('--emit native renders blocking outcomes for every IC-012 native response and hides stub stderr', () => {
   const dir = makeTree();
   const cases: any = [
-    ['claude','PreToolUse',{}], ['codex','PreToolUse',{}], ['gemini','BeforeTool',{}],
+    ['claude','PreToolUse',{}], ['codex','PreToolUse',{}],
     ['kiro','PreToolUse',{}], ['antigravity','PreToolUse',{}], ['antigravity','Stop',{}],
     ['pi','tool_call',{}], ['claude','Stop',{}], ['codex','Stop',{}], ['kiro','Stop',{}], ['kiro','Stop',{}, {DOFLOW_KIRO_ENGINE:'v3'}],
   ];
@@ -555,7 +550,7 @@ BRIDGE_TEST('--emit native renders blocking outcomes for every IC-012 native res
     assert.equal((result.stdout + result.stderr).includes('raw-secret'), false, `${harness}:${event} hides policy stderr`);
     assert.ok(Buffer.byteLength(FIXED) <= 80);
     if ((harness === 'claude' && event === 'PreToolUse') || (harness === 'codex' && event === 'PreToolUse')) assert.equal(JSON.parse(result.stdout).hookSpecificOutput.permissionDecisionReason, FIXED);
-    else if (harness === 'gemini' || harness === 'antigravity') assert.equal(JSON.parse(result.stdout).reason, FIXED);
+    else if (harness === 'antigravity') assert.equal(JSON.parse(result.stdout).reason, FIXED);
     else if (harness === 'pi') assert.equal(JSON.parse(result.stdout).reason, FIXED);
     else if (harness === 'codex' && event === 'Stop') { assert.equal(result.stdout.trim(), '{}'); assert.ok(result.stderr.includes(FIXED)); }
     else if (harness === 'kiro' && event === 'Stop' && env.DOFLOW_KIRO_ENGINE === 'v3') assert.equal(JSON.parse(result.stdout).reason, FIXED);
@@ -575,7 +570,6 @@ BRIDGE_TEST('--emit native covers every IC-012 bridge row and Kiro engine', () =
     ['claude','SubagentStop','subagent-audit'], ['claude','Stop','stop-check'],
     ['codex','PreToolUse','pre-implementation-gate'], ['codex','PreToolUse','pre-bash-guard'], ['codex','PreToolUse','mcp-tool-guard'],
     ['codex','SessionStart','session-context'], ['codex','UserPromptSubmit','user-prompt-submit'], ['codex','SubagentStart','subagent-audit'], ['codex','SubagentStop','subagent-audit'], ['codex','Stop','stop-check'],
-    ['gemini','BeforeTool','pre-implementation-gate'], ['gemini','BeforeTool','pre-bash-guard'], ['gemini','BeforeTool','mcp-tool-guard'], ['gemini','SessionStart','session-context'],
     ['kiro','PreToolUse','pre-implementation-gate'], ['kiro','SessionStart','session-context'], ['kiro','agentSpawn','session-context'],
     ['kiro','Stop','stop-check'], ['kiro','Stop','stop-check',{DOFLOW_KIRO_ENGINE:'v3'}],
     ['antigravity','PreToolUse','pre-implementation-gate'], ['antigravity','PreToolUse','stop-check'], ['antigravity','Stop','pre-implementation-gate'], ['antigravity','Stop','stop-check'],
@@ -679,9 +673,9 @@ exit 0
   assert.match(noJqEvents, /"kind":"dependency-missing:jq"/);
 });
 
-BRIDGE_TEST('DEC-006 preserves a caller-set DOFLOW_AGENT across all six bridges', () => {
+BRIDGE_TEST('DEC-006 preserves a caller-set DOFLOW_AGENT across all five bridges', () => {
   const dir = makeTree(`#!/bin/bash\nprintf '%s' "$DOFLOW_AGENT" > "$AGENT_CAPTURE"\nprintf '\\036%s\\n' '{"v":1,"policy":"pre-implementation-gate","policyVersion":1,"outcome":"allow","code":"allow"}' >&3\nexit 0\n`);
-  const harnesses: any = ['claude', 'codex', 'gemini', 'kiro', 'antigravity', 'pi'];
+  const harnesses: any = ['claude', 'codex', 'kiro', 'antigravity', 'pi'];
   for (const harness of harnesses) {
     const capture = path.join(dir, `agent-${harness}`);
     const unset: any = run(dir, harness, 'PreToolUse', 'pre-implementation-gate', {}, ['--emit', 'decision'], { DOFLOW_AGENT: null, AGENT_CAPTURE: capture });

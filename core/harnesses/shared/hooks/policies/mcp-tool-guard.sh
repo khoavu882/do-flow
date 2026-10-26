@@ -20,7 +20,7 @@ case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 #
 # mcp-policy.conf's shape (TAB-separated regex<TAB>reason, '#'-comments,
 # blank lines skipped) is identical across every harness that ships one today
-# (claude/codex/gemini/kiro) — reconciliation found no divergence to resolve
+# (claude/codex/kiro) — reconciliation found no divergence to resolve
 # there.
 
 set -uo pipefail

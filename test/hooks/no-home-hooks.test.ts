@@ -35,7 +35,6 @@ function bash(t: any, args: any, extra: any = {}, { input = '', cwd = tempDir(t,
 const LIB_COPIES: any = [
   { name: 'shared policies', lib: path.join(POLICIES, 'lib.sh') },
   { name: 'claude', lib: path.join(HARNESSES, 'claude', 'hooks', 'lib.sh') },
-  { name: 'gemini', lib: path.join(HARNESSES, 'gemini', 'hooks', 'lib.sh') },
   { name: 'codex', lib: path.join(HARNESSES, 'codex', 'hooks', 'lib.sh') },
   { name: 'kiro', lib: path.join(HARNESSES, 'kiro', 'hooks', 'lib.sh') },
 ];
@@ -225,7 +224,7 @@ test('kiro pre-bash-guard (installed shape) with HOME unset still denies rm -rf 
 // Entry points run from the source tree with empty stdin: each that needs no session state exits as
 // it does with a HOME. The two session-end scripts append to SESSIONS_LOG before any session check.
 const ENTRY_POINTS: any = [
-  ['claude', 'pre-compact.sh'], ['gemini', 'pre-compact.sh'],
+  ['claude', 'pre-compact.sh'],
   ['kiro', 'session-start.sh'], ['kiro', 'stop-check.sh'], ['kiro', 'pre-bash-guard.sh'], ['kiro', 'mcp-tool-guard.sh'],
 ];
 for (const [harness, script] of ENTRY_POINTS) {
@@ -257,13 +256,11 @@ const STATE_HOOKS: any = [
   { door: '.claude/hooks/subagent-audit.sh', native: () => ({ session_id: 's1', hook_event_name: 'SubagentStart', agent_type: 'worker', agent_id: 'a1' }), wrote: `${SESSIONS}/subagent-audit.log` },
   { door: '.claude/hooks/session-end.sh', native: (cwd: any) => ({ session_id: 's1', cwd }), wrote: 'sessions.log' },
   { door: '.codex/hooks/session-end.impl.sh', native: (cwd: any) => ({ session_id: 's1', cwd }), wrote: 'sessions.log' },
-  { door: '.gemini/hooks/session-end.impl.sh', native: (cwd: any) => ({ session_id: 's1', cwd }), wrote: 'sessions.log' },
   { door: '.claude/hooks/post-compact.sh', native: (cwd: any) => ({ session_id: 's1', cwd, trigger: 'manual', compact_summary: 'the summary' }), wrote: 'session-env/summaries' },
   { door: '.claude/hooks/post-tool-failure.sh', native: () => ({ session_id: 's1', hook_event_name: 'PostToolUseFailure', tool_name: 'Bash', tool_response: { error: 'x' } }), wrote: `${SESSIONS}/tool-failures.log` },
   { door: '.claude/hooks/permission-audit.sh', native: () => ({ session_id: 's1', hook_event_name: 'PermissionRequest', tool_name: 'Bash' }), wrote: `${SESSIONS}/permission-audit.log` },
   { door: '.claude/hooks/skill-config-audit.sh', native: () => ({ session_id: 's1', hook_event_name: 'ConfigChange' }), wrote: `${SESSIONS}/skill-config-audit.log` },
   { door: '.claude/hooks/post-edit-lint.sh', native: () => ({ session_id: 's1', tool_name: 'Edit', tool_input: { file_path: '/tmp/doflow-no-home-a.js' } }), wrote: `${SESSIONS}/edited-files.txt` },
-  { door: '.gemini/hooks/post-edit-lint.sh', native: () => ({ session_id: 's1', tool_name: 'write_file', tool_input: { file_path: '/tmp/doflow-no-home-a.js' } }), wrote: `${SESSIONS}/edited-files.txt` },
   { door: '.codex/hooks/post-edit-lint.impl.sh', native: () => ({ session_id: 's1', tool_name: 'Edit', tool_input: { file_path: '/tmp/doflow-no-home-a.js' } }), wrote: `${SESSIONS}/edited-files.txt` },
 ];
 

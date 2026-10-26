@@ -28,7 +28,6 @@ doflow_render_response() {
   if [ "$outcome" = deny ]; then
     case "$harness:$event" in
       claude:PreToolUse|codex:PreToolUse) emit_pretooluse_deny_nested "$reason" || return $?; return 0 ;;
-      gemini:BeforeTool) emit_pretooluse_deny_flat "$reason"; return 0 ;;
       kiro:PreToolUse) printf '%s' "$reason" >&2; return 2 ;;
       antigravity:PreToolUse)
         if command -v jq >/dev/null 2>&1; then jq -cn --arg reason "$reason" '{decision:"deny",reason:$reason}'

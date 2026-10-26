@@ -44,7 +44,7 @@ function run(dir: any, harness: any, event: any, policy: any, input: any = {}, a
 }
 
 test('gate denies still run when TMPDIR is unusable on each shell door', async (t) => {
-  const rows: any = [['claude', 'PreToolUse'], ['codex', 'PreToolUse'], ['gemini', 'BeforeTool'], ['pi', 'tool_call']];
+  const rows: any = [['claude', 'PreToolUse'], ['codex', 'PreToolUse'], ['pi', 'tool_call']];
   for (const [harness, event] of rows) await t.test(`${harness}:${event}`, () => {
     const dir = makeTree(`#!/bin/bash\nprintf '\\036%s\\n' '{"outcome":"deny","code":"blocked","policyVersion":1}' >&3\necho blocked >&2\nexit 2\n`);
     const result = run(dir, harness, event, 'pre-implementation-gate', {}, [], { TMPDIR: '/nonexistent' });

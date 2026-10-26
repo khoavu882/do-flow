@@ -19,7 +19,7 @@ INPUT=$(cat)
 SESSION_ID=$(json_field "$INPUT" ".session_id")
 TOOL_NAME=$(json_field "$INPUT" ".tool_name")
 
-# Only handle Edit/Write (Claude, Gemini) and apply_patch (Codex's edit tool name)
+# Only handle Edit/Write (Claude) and apply_patch (Codex's edit tool name)
 [[ "$TOOL_NAME" != "Edit" && "$TOOL_NAME" != "Write" && "$TOOL_NAME" != "apply_patch" ]] && exit 0
 
 # Guard: if we can't determine the session, nothing to do
