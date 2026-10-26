@@ -7,6 +7,9 @@
 // reaches any of them, shuts the Console down with a signal, and compares the DoFlow trees byte for
 // byte (file list, contents, mtime, inode) with their state before boot.
 //
+// V.7 adds the Fleet shapes (IC-024, IC-026): the runner and the projectors, with no route yet (V.8), run against the real
+// core over two projects; see the last test of this file for what its fixture is.
+//
 // Vacuity guard: the same boot and reads with DOFLOW_UPKEEP=off taken out of every core child's
 // environment must change a tree, or the fixture proves nothing and the test fails. The switch is
 // removed by a test-only preload (helpers/drop-upkeep-switch.ts) given on the Console's own node command
@@ -21,7 +24,9 @@ const path = require('node:path');
 const http = require('node:http');
 const { spawn, spawnSync } = require('node:child_process');
 const { isDeepStrictEqual } = require('node:util');
-const { CORE_CLI, MARKER, SLUGS, TREE_IDS, buildFixture, snapshotTrees } = require('./helpers/core-fixture.ts');
+const { CORE_CLI, FLEET_FORBIDDEN, MARKER, SLUGS, TREE_IDS, buildFixture, buildFleetWorld, snapshotTrees } = require('./helpers/core-fixture.ts');
+const { createVerbRunner, fleetError } = require('../src/verb-runner.ts');
+const { project } = require('../src/project.ts');
 
 const BIN = path.join(__dirname, '..', 'bin', 'doflow-ui.js');
 const PRELOAD = path.join(__dirname, 'helpers', 'drop-upkeep-switch.ts');
@@ -257,6 +262,105 @@ test('the Console reads every route from the real core, leaks no free text, and 
   assert.ok(control.stderr().includes('drop-upkeep-switch: removed'), 'the control hook ran');
   const changed = TREE_IDS.filter((id: string) => !isDeepStrictEqual(controlBefore[id], controlAfter[id]));
   assert.ok(changed.length > 0, 'Fixture is vacuous: the reads without DOFLOW_UPKEEP=off changed none of the three trees');
+});
+
+test('Fleet shapes against the real core over two projects: nothing written, no planted marker or path in any body, errors as IC-005 names them', { timeout: 180_000 }, async (t: any) => {
+  const w = buildFleetWorld((fn: () => void) => t.after(fn));
+  const runner = createVerbRunner({ corePath: w.core, projectRoot: w.alpha, env: w.env });
+  t.after(() => runner.stop());
+  const before = snapshotTrees(w.roots);
+  const bodies: Array<[string, string]> = []; // [what, JSON of the projected body], scanned for planted text below
+  const read = async (shape: string, params: Record<string, string>) => {
+    const result = await runner.run(shape, params);
+    assert.equal(result.ok, true, `${shape} ${JSON.stringify(params)}: ${JSON.stringify(result)}`);
+    const projected = project(shape, result.json);
+    assert.equal(projected.ok, true, `${shape} projects: ${JSON.stringify(projected)}`);
+    bodies.push([`${shape} ${JSON.stringify(params)}`, JSON.stringify(projected.body)]);
+    return { raw: result.json, body: projected.body };
+  };
+
+  // The scan below is live: the planted text is in the transcripts the core reads.
+  const transcriptText = (dir: string): string => fs.readdirSync(dir, { withFileTypes: true }).map((e: any) =>
+    (e.isDirectory() ? transcriptText(path.join(dir, e.name)) : /\.jsonl$/.test(e.name) ? fs.readFileSync(path.join(dir, e.name), 'utf8') : '')).join('\n');
+  const planted = transcriptText(w.home);
+  for (const marker of ['fx-Secret-4471', 'FIXTURE-THINKING-MARKER-7f3a', 'FIXTURE-USER-PROMPT-MARKER-91c2', 'fixture.person@example.invalid', 'FIXTURE-OTHER-PROJECT-REPLY-2b8d']) {
+    assert.ok(planted.includes(marker), `${marker} is planted in the fixture transcripts`);
+  }
+
+  // projects: the core's body carries both roots (so the key map can be filled); the projected body carries neither.
+  const listed = await read('projects', {});
+  const rawText = JSON.stringify(listed.raw);
+  assert.ok(rawText.includes(w.alpha) && rawText.includes(w.beta), 'the raw core body carries the roots');
+  assert.ok(!JSON.stringify(listed.body).includes(w.dir) && !JSON.stringify(listed.body).includes('root'), 'the projected body carries no root');
+  assert.deepEqual(listed.body.projects.map((p: any) => [p.label, p.current, p.checkouts]), [['main', true, 2], ['beta', false, 1]]);
+  assert.deepEqual(listed.body.projects.map((p: any) => p.sources), [['hook-dirs'], ['hook-dirs']]);
+  const [keyA, keyB] = listed.body.projects.map((p: any) => p.projectKey);
+  assert.notEqual(keyA, keyB);
+  assert.equal(listed.body.excluded.temp, 0);
+
+  // tree, traffic and every agent's transcript, per project, from the key alone.
+  const trees: Record<string, any> = {};
+  for (const key of [keyA, keyB]) {
+    trees[key] = (await read('tree', { projectKey: key })).body;
+    assert.equal(trees[key].projectKey, key);
+    const stats = (await read('traffic', { projectKey: key })).body;
+    assert.equal(stats.projectKey, key);
+    assert.equal(stats.windowMin, 10);
+  }
+  const harnessOf = (node: any) => node.harness;
+  assert.deepEqual([...new Set(trees[keyA].nodes.map(harnessOf))].filter(Boolean).sort(), ['antigravity', 'claude', 'codex', 'copilot', 'kiro', 'opencode', 'pi']);
+  assert.deepEqual(trees[keyB].nodes.filter((n: any) => n.kind === 'main-session').map((n: any) => [n.harness, n.transcript.linked, n.transcript.reason]).sort(), [['claude', false, 'not-found'], ['claude', true, null]]);
+
+  const events: Record<string, any[]> = {};
+  const bodiesOfAlpha: any[] = [];
+  for (const node of trees[keyA].nodes) {
+    const first = (await read('transcript', { projectKey: keyA, agent: node.agentKey, limit: '500' })).body;
+    bodiesOfAlpha.push(first);
+    assert.equal(first.agentKey, node.agentKey);
+    // A second read from the returned cursor continues (a read-only cursor: it must not fail and must not repeat reader events).
+    const second = (await read('transcript', { projectKey: keyA, agent: node.agentKey, cursor: first.cursor, limit: '500' })).body;
+    assert.ok(second.events.every((e: any) => e.kind === 'record' || !first.events.some((x: any) => x.seq === e.seq && x.kind === e.kind && x.at === e.at && x.kind !== 'record')), `${node.agentKey}: no reader event repeated`);
+    events[`${node.harness}/${node.kind}`] = [...(events[`${node.harness}/${node.kind}`] ?? []), ...first.events];
+  }
+  const kindsOf = (id: string) => new Set((events[id] ?? []).map((e: any) => e.kind));
+  for (const id of ['claude/main-session', 'codex/main-session', 'pi/main-session', 'kiro/main-session', 'copilot/main-session']) assert.ok(kindsOf(id).has('reply'), `${id}: a reply was read`);
+  // Unavailable transcripts still read: record events only, with the reason in the body.
+  for (const harness of ['antigravity', 'opencode']) {
+    const node = trees[keyA].nodes.find((n: any) => n.harness === harness);
+    const body = bodiesOfAlpha.find((b: any) => b.agentKey === node.agentKey);
+    assert.equal(body.reader.status, 'events-only', harness);
+    assert.equal(body.transcript.reason, harness === 'antigravity' ? 'not-linked' : 'no-reader');
+    assert.ok(body.events.every((e: any) => e.kind === 'record'), harness);
+  }
+  // The second pass is live: the replies carry the markers the core wrote, and no secret came through.
+  const replies = Object.values(events).flat().filter((e: any) => e.kind === 'reply').map((e: any) => e.text).join('\n');
+  assert.ok(replies.includes('<masked>') && replies.includes('<email>'), `masked replies: ${replies.slice(0, 200)}`);
+  assert.ok(Object.values(events).flat().some((e: any) => e.kind === 'tool-call' && e.args !== null), 'tool arguments were read');
+
+  // Errors: an unknown agent, and an agent of another project (beta carries alpha's claude session id, so its tree joins a file whose cwd is alpha).
+  const unknown = await runner.run('transcript', { projectKey: keyA, agent: 'ffffffffffffffff', limit: '10' });
+  assert.deepEqual(unknown, { ok: false, code: 'core-error', exit: 1, errorId: 'agent-not-in-project' });
+  assert.deepEqual(fleetError('transcript', unknown), { status: 404, code: 'agent-not-in-project' });
+  const foreign = trees[keyB].nodes.find((n: any) => n.kind === 'main-session' && n.transcript.linked);
+  const crossed = await runner.run('transcript', { projectKey: keyB, agent: foreign.agentKey, limit: '10' });
+  assert.deepEqual(fleetError('transcript', crossed), { status: 404, code: 'session-not-in-project' });
+  assert.deepEqual(await runner.run('tree', { projectKey: 'cccccccccccccccc' }), { ok: false, code: 'project-not-found', exit: null });
+
+  // No planted marker, raw session id, fixture path or other project's reply in any projected body; every key a hex key.
+  for (const [what, text] of bodies) {
+    for (const marker of [...FLEET_FORBIDDEN, w.dir, w.alpha, w.beta]) assert.ok(!text.includes(marker), `${what}: ${marker}`);
+    assert.ok(!/"(?:cwd|path|file|sessionId|root|pid)"/.test(text), `${what}: a path-like field`);
+  }
+  assert.ok(trees[keyA].nodes.every((n: any) => /^[0-9a-f]{16}$/.test(n.agentKey)));
+
+  // Read-only: no tree changed, no file added or removed anywhere under the fixture (both projects, every harness home, the three DoFlow trees).
+  assert.deepEqual(snapshotTrees(w.roots), before, 'reading the Fleet shapes changed a tree');
+
+  // Vacuity guard: a verb that runs upkeep, without the switch, does write in this fixture.
+  const upkeep = spawnSync(process.execPath, [CORE_CLI, 'orchestrate', '--action', 'list', '--json'], { cwd: w.alpha, env: w.env, encoding: 'utf8' });
+  assert.equal(upkeep.status, 0, upkeep.stderr);
+  const changed = Object.keys(before).filter((id) => !isDeepStrictEqual(before[id], snapshotTrees(w.roots)[id]));
+  assert.ok(changed.length > 0, 'Fixture is vacuous: a verb with upkeep on changed no tree');
 });
 
 /** A stand-in core that prints only a version line, for the boot cases that need no real core. */

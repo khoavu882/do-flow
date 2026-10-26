@@ -25,6 +25,8 @@ const MISMATCH = { ok: false, code: 'core-contract-mismatch' };
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const KEY_MAIN = '0cc00ec6d2062bc0';
 const KEY_LINKED = '7654c73dc501aafe';
+const AGENT_A = 'a1b2c3d4e5f60718';
+const AGENT_B = '0f1e2d3c4b5a6978';
 
 /** IC-018 core outputs, as `primary --action observed`, `slot --action peek`, `worker --action status` and `roadmap --action status` print them. */
 const SAMPLES: Record<string, any> = {
@@ -70,6 +72,58 @@ const SAMPLES: Record<string, any> = {
     holds: [{ row: '093', state: 'held', kind: 'gate', reason: `needs ${MARKER}` }, { row: '107-B', state: 'paused', kind: null, reason: MARKER }],
     lease: { pid: 4242, host: `host-${MARKER}`, runId: 'rl-20261026-ab12', acquiredAt: '2026-10-26T08:00:00.000Z' },
   },
+  // IC-019..IC-023: the V8 Fleet reads, as the V.3/V.5/V.6 core prints them, with the fields the projectors drop carrying the marker.
+  projects: {
+    v: 1, store: 'present',
+    projects: [
+      { projectKey: KEY_MAIN, root: `/work/${MARKER}/main`, label: 'main', current: true, checkouts: 2, sources: ['upkeep-roots', 'hook-dirs'], lastRecordAt: '2026-10-26T09:45:48.000Z' },
+      { projectKey: KEY_LINKED, root: `/work/${MARKER}/other`, label: `odd ${MARKER} <b>`, current: false, checkouts: 1, sources: ['hook-dirs'], lastRecordAt: null },
+    ],
+    excluded: { missing: 1, temp: 2, notDoflow: 3, unreadable: 0 }, truncated: false,
+  },
+  tree: {
+    v: 1, projectKey: KEY_MAIN,
+    nodes: [
+      { agentKey: AGENT_A, kind: 'main-session', harness: 'claude', model: 'claude-opus-5-5', modelBasis: 'hook-observation', label: null, depth: 0, worktreeKey: KEY_MAIN,
+        startedAt: '2026-10-26T08:59:00.000Z', lastRecordAt: '2026-10-26T09:40:00.000Z', liveness: 'not-checked', ended: null,
+        transcript: { reader: 'claude-jsonl', linked: true, reason: null }, sessionId: `s-${MARKER}`, file: `/home/${MARKER}/t.jsonl` },
+      { agentKey: AGENT_B, kind: 'worker-run', harness: 'my-fork', model: `m ${MARKER} <x>`, modelBasis: 'worker-binding', label: 'core-implementer', depth: 1, worktreeKey: KEY_LINKED,
+        startedAt: null, lastRecordAt: null, liveness: 'process-gone', ended: { at: '2026-10-26T09:50:00.000Z', result: 'exited' },
+        transcript: { reader: null, linked: false, reason: 'no-reader' }, pid: 4242 },
+    ],
+    edges: [{ from: AGENT_A, to: AGENT_B, basis: 'worker-caller', evidence: MARKER }],
+    limits: { nodes: 256, notChecked: 0 }, unreadable: 1,
+  },
+  transcript: {
+    v: 1, agentKey: AGENT_A, harness: 'claude', reader: { id: 'claude-jsonl', status: 'supported' }, transcript: { linked: true, reason: null },
+    events: [
+      { seq: 0, at: '2026-10-26T09:00:00.000Z', kind: 'reply', agentKey: AGENT_A, model: 'claude-opus-5-5', tool: null, text: 'Done: wrote the file.', args: null, cut: false, tokens: null, record: null, thinking: MARKER },
+      { seq: 1, at: '2026-10-26T09:00:01.000Z', kind: 'tool-call', agentKey: AGENT_A, model: null, tool: { name: 'Bash', callKey: KEY_MAIN, status: null, bytes: null, durationMs: null },
+        text: null, args: '{"command":"ls"}', cut: false, tokens: null, record: null },
+      { seq: 2, at: null, kind: 'tool-result', agentKey: AGENT_A, model: null, tool: { name: 'Bash', callKey: KEY_MAIN, status: 'ok', bytes: 120, durationMs: 35 },
+        text: null, args: null, cut: false, tokens: null, record: null, output: MARKER },
+      { seq: 3, at: '2026-10-26T09:00:02.000Z', kind: 'usage', agentKey: AGENT_A, model: null, tool: null, text: null, args: null, cut: false,
+        tokens: { input: 10, output: 20, cacheRead: null, cacheWrite: 5, reasoning: null }, record: null },
+      { seq: 4, at: '2026-10-26T09:00:03.000Z', kind: 'record', agentKey: AGENT_A, model: null, tool: null, text: null, args: null, cut: false, tokens: null,
+        record: { type: 'attempt-claim', task: 'A.2', result: 'COMPLETED' } },
+    ],
+    cursor: '12345:6789:5:1790000000000', reset: false, eof: true, otherRecords: 2, unparsable: 0, masked: 1, warnings: ['format-unrecognized'], path: `/home/${MARKER}/t.jsonl`,
+  },
+  traffic: {
+    v: 1, projectKey: KEY_MAIN, windowMin: 10,
+    agents: [
+      { agentKey: AGENT_A, harness: 'claude', model: 'claude-opus-5-5', eventsPerMin: 1.5, toolCalls: 4, toolErrors: 1, toolDurationMs: { p50: 20, max: 90, n: 3 },
+        tokens: { input: 10, output: 20, cacheRead: null, cacheWrite: 5, reasoning: null }, lastRecordAt: '2026-10-26T09:40:00.000Z', session: MARKER },
+      { agentKey: AGENT_B, harness: null, model: null, eventsPerMin: null, toolCalls: null, toolErrors: null, toolDurationMs: null, tokens: null, lastRecordAt: null },
+    ],
+    models: [{ model: 'claude-opus-5-5', agents: 1, eventsPerMin: 1.5, toolCalls: 4, tokens: { input: 10, output: 20, cacheRead: null, cacheWrite: 5, reasoning: null } }],
+    pairs: [
+      { a: AGENT_A, b: AGENT_B, basis: 'same-task', task: 'A.2', tasks: null },
+      { a: AGENT_A, b: AGENT_B, basis: 'overlap', task: null, tasks: ['A.1', 'A.2'] },
+      { a: AGENT_A, b: AGENT_B, basis: 'same-model', task: null, tasks: null, why: MARKER },
+    ],
+    notChecked: 0, root: `/work/${MARKER}`,
+  },
 };
 
 /** The SAMPLES body, else the fixture file. */
@@ -110,10 +164,26 @@ const FIELD_SETS: Record<string, string[]> = {
   slots: ['.v', '.slots', '.unreadable', ...['name', 'holder', 'waiters', 'holder.label', 'holder.since', 'holder.alive', 'holder.worktreeKey'].map((k) => `.slots[].${k}`)],
   'worker-status': ['runId', 'task', 'token', 'harness', 'state', 'reason', 'startedAt', 'endedAt', 'overdue', 'supervisorLost', 'attemptActive'].map((k) => `.${k}`),
   roadmap: ['.run', '.lease', '.lease.runId', '.lease.acquiredAt', '.holds', ...['row', 'state', 'kind'].map((k) => `.holds[].${k}`)],
+  // IC-019..IC-023, with `root` dropped from projects (IC-024).
+  projects: ['.v', '.store', '.projects', '.truncated', '.excluded', ...['missing', 'temp', 'notDoflow', 'unreadable'].map((k) => `.excluded.${k}`),
+    ...['projectKey', 'label', 'current', 'checkouts', 'sources', 'sources[]', 'lastRecordAt'].map((k) => `.projects[].${k}`)],
+  tree: ['.v', '.projectKey', '.nodes', '.edges', '.limits', '.limits.nodes', '.limits.notChecked', '.unreadable',
+    ...['agentKey', 'kind', 'harness', 'model', 'modelBasis', 'label', 'depth', 'worktreeKey', 'startedAt', 'lastRecordAt', 'liveness', 'ended', 'ended.at', 'ended.result',
+      'transcript', 'transcript.reader', 'transcript.linked', 'transcript.reason'].map((k) => `.nodes[].${k}`),
+    ...['from', 'to', 'basis'].map((k) => `.edges[].${k}`)],
+  transcript: ['.v', '.agentKey', '.harness', '.reader', '.reader.id', '.reader.status', '.transcript', '.transcript.linked', '.transcript.reason', '.events', '.cursor', '.reset', '.eof',
+    '.otherRecords', '.unparsable', '.masked', '.warnings', '.warnings[]',
+    ...['seq', 'at', 'kind', 'agentKey', 'model', 'tool', 'text', 'args', 'cut', 'tokens', 'record', 'tool.name', 'tool.callKey', 'tool.status', 'tool.bytes', 'tool.durationMs',
+      'tokens.input', 'tokens.output', 'tokens.cacheRead', 'tokens.cacheWrite', 'tokens.reasoning', 'record.type', 'record.task', 'record.result'].map((k) => `.events[].${k}`)],
+  traffic: ['.v', '.projectKey', '.windowMin', '.agents', '.models', '.pairs', '.notChecked',
+    ...['agentKey', 'harness', 'model', 'eventsPerMin', 'toolCalls', 'toolErrors', 'toolDurationMs', 'toolDurationMs.p50', 'toolDurationMs.max', 'toolDurationMs.n', 'tokens', 'tokens.input',
+      'tokens.output', 'tokens.cacheRead', 'tokens.cacheWrite', 'tokens.reasoning', 'lastRecordAt'].map((k) => `.agents[].${k}`),
+    ...['model', 'agents', 'eventsPerMin', 'toolCalls', 'tokens', 'tokens.input', 'tokens.output', 'tokens.cacheRead', 'tokens.cacheWrite', 'tokens.reasoning'].map((k) => `.models[].${k}`),
+    ...['a', 'b', 'basis', 'task', 'tasks', 'tasks[]'].map((k) => `.pairs[].${k}`)],
 };
 
 const contextFor = (shape: string) => (shape === 'status' ? { workflow: workflowBody() } : undefined);
-const MARKED_SHAPES = ['list', 'status', 'timeline', 'attempts', 'workflow', 'capabilities', 'observed', 'slots', 'worker-status', 'roadmap'];
+const MARKED_SHAPES = ['list', 'status', 'timeline', 'attempts', 'workflow', 'capabilities', 'observed', 'slots', 'worker-status', 'roadmap', 'projects', 'tree', 'transcript', 'traffic'];
 
 /** The shapes whose projected fixture still holds the marker, for a given projector. */
 function leaks(projector: (shape: string, raw: unknown, context?: unknown) => any): string[] {
@@ -151,6 +221,12 @@ test('the planted markers are in every place the plan names, and none reaches a 
     ['worker-status', (f) => f.process],
     ['worker-status', (f) => [f.identity, f.output, f.edit, f.isolation, f.cleanup, f.cancel, f.withheld]],
     ['roadmap', (f) => [f.lease.host, f.holds[0].reason, f.rows, f.rowStatus, f.openIntents]],
+    ['projects', (f) => f.projects.map((p: any) => p.root)], // the project roots (IC-024: dropped before any body leaves)
+    ['projects', (f) => f.projects[1].label], // a label over the rule
+    ['tree', (f) => [f.nodes[0].sessionId, f.nodes[0].file, f.nodes[1].pid, f.edges[0].evidence]],
+    ['tree', (f) => f.nodes[1].model], // a model over the label rule
+    ['transcript', (f) => [f.path, f.events[0].thinking, f.events[2].output]],
+    ['traffic', (f) => [f.root, f.agents[0].session, f.pairs[2].why]],
   ];
   for (const [shape, pick] of where) assert.ok(JSON.stringify(pick(fixture(shape))).includes(MARKER), `${shape} fixture lacks the marker`);
   assert.equal(fixture('attempts').graph.tasks[0].owner.length, 200);
@@ -440,6 +516,73 @@ const MUTATIONS: Record<string, Array<[string, (raw: any) => void]>> = {
     ['status unknown', (r) => { r.capabilities[0].status = 'OK'; }],
     ['providerId missing', (r) => { delete r.capabilities[0].providerId; }],
   ],
+  projects: [
+    ['projects missing', (r) => { delete r.projects; }],
+    ['store unknown', (r) => { r.store = 'maybe'; }],
+    ['projectKey is a path', (r) => { r.projects[0].projectKey = r.projects[0].root; }],
+    ['projectKey not 16 hex', (r) => { r.projects[0].projectKey = 'ABCDEF0123456789'; }],
+    ['checkouts negative', (r) => { r.projects[0].checkouts = -1; }],
+    ['current a string', (r) => { r.projects[0].current = 'yes'; }],
+    ['sources unknown', (r) => { r.projects[0].sources = ['elsewhere']; }],
+    ['lastRecordAt not ISO', (r) => { r.projects[0].lastRecordAt = 'recently'; }],
+    ['excluded missing', (r) => { delete r.excluded; }],
+    ['excluded.temp fractional', (r) => { r.excluded.temp = 0.5; }],
+    ['truncated missing', (r) => { delete r.truncated; }],
+    ['label missing', (r) => { delete r.projects[0].label; }],
+  ],
+  tree: [
+    ['nodes missing', (r) => { delete r.nodes; }],
+    ['v is 2', (r) => { r.v = 2; }],
+    ['agentKey a session id', (r) => { r.nodes[0].agentKey = 'fa000000-0000-4000-8000-00000000c001'; }],
+    ['kind unknown', (r) => { r.nodes[0].kind = 'lead'; }],
+    ['modelBasis unknown', (r) => { r.nodes[0].modelBasis = 'guess'; }],
+    ['liveness unknown', (r) => { r.nodes[0].liveness = 'active'; }],
+    ['depth negative', (r) => { r.nodes[0].depth = -1; }],
+    ['worktreeKey a path', (r) => { r.nodes[0].worktreeKey = `/work/${MARKER}`; }],
+    ['transcript reason unknown', (r) => { r.nodes[1].transcript.reason = 'nope'; }],
+    ['transcript.linked missing', (r) => { delete r.nodes[0].transcript.linked; }],
+    ['ended.at not ISO', (r) => { r.nodes[1].ended.at = 'later'; }],
+    ['edge basis unknown', (r) => { r.edges[0].basis = 'guess'; }],
+    ['edge from a path', (r) => { r.edges[0].from = `/work/${MARKER}`; }],
+    ['limits missing', (r) => { delete r.limits; }],
+    ['unreadable missing', (r) => { delete r.unreadable; }],
+  ],
+  transcript: [
+    ['events missing', (r) => { delete r.events; }],
+    ['agentKey a path', (r) => { r.agentKey = `/work/${MARKER}`; }],
+    ['reader.status unknown', (r) => { r.reader.status = 'great'; }],
+    ['transcript.reason unknown', (r) => { r.transcript.reason = 'later'; }],
+    ['event kind unknown', (r) => { r.events[0].kind = 'thinking'; }],
+    ['seq negative', (r) => { r.events[0].seq = -1; }],
+    ['at not ISO', (r) => { r.events[0].at = 'noon'; }],
+    ['text a number', (r) => { r.events[0].text = 5; }],
+    ['text on a tool-result', (r) => { r.events[2].text = 'tool output'; }],
+    ['args on a reply', (r) => { r.events[0].args = '{}'; }],
+    ['tool.status unknown', (r) => { r.events[2].tool.status = 'meh'; }],
+    ['tool.callKey a raw id', (r) => { r.events[1].tool.callKey = 'toolu_01ABC'; }],
+    ['tokens.input a string', (r) => { r.events[3].tokens.input = '10'; }],
+    ['record.type unknown', (r) => { r.events[4].record.type = 'secret-note'; }],
+    ['cut missing', (r) => { delete r.events[0].cut; }],
+    ['cursor malformed', (r) => { r.cursor = '/path/to/file'; }],
+    ['eof missing', (r) => { delete r.eof; }],
+    ['warnings free text', (r) => { r.warnings = [`see ${MARKER} here`]; }],
+    ['otherRecords negative', (r) => { r.otherRecords = -2; }],
+  ],
+  traffic: [
+    ['agents missing', (r) => { delete r.agents; }],
+    ['windowMin zero', (r) => { r.windowMin = 0; }],
+    ['windowMin over 60', (r) => { r.windowMin = 61; }],
+    ['eventsPerMin a string', (r) => { r.agents[0].eventsPerMin = '1.5'; }],
+    ['eventsPerMin negative', (r) => { r.agents[0].eventsPerMin = -1; }],
+    ['toolDurationMs.p50 missing', (r) => { delete r.agents[0].toolDurationMs.p50; }],
+    ['tokens.output a string', (r) => { r.agents[0].tokens.output = 'many'; }],
+    ['agentKey a path', (r) => { r.agents[0].agentKey = `/work/${MARKER}`; }],
+    ['pair basis unknown', (r) => { r.pairs[0].basis = 'guess'; }],
+    ['pair tasks of three', (r) => { r.pairs[1].tasks = ['A.1', 'A.2', 'A.3']; }],
+    ['pair task not an id', (r) => { r.pairs[0].task = 'a b'; }],
+    ['model not a string', (r) => { r.models[0].model = 1; }],
+    ['notChecked missing', (r) => { delete r.notChecked; }],
+  ],
 };
 
 for (const [shape, cases] of Object.entries(MUTATIONS)) {
@@ -499,6 +642,78 @@ test('closed sets match the core source', () => {
   const loop = read('roadmap/loop.ts');
   const operational = loop.slice(loop.indexOf('function operationalState'), loop.indexOf('function loadRunRecord'));
   assert.deepEqual(sorted(CLOSED_SETS.roadmapHoldStates), literals(operational, /state: '([a-z]+)'/g));
+});
+
+// ---- V.7: the Fleet projectors (IC-024) ----
+
+test('projects: no root and no path in the body; the project key and label are all that identify a project', () => {
+  const result = project('projects', fixture('projects'));
+  assert.equal(result.ok, true);
+  const text = JSON.stringify(result.body);
+  assert.ok(!keyPaths(result.body).some((p) => p.includes('root')), 'no root field');
+  assert.ok(!text.includes('/work/') && !text.includes(MARKER), 'no root text');
+  assert.deepEqual(result.body.projects.map((p: any) => p.label), ['main', WITHHELD]);
+  // Control (plan V.7): the same check on a pass-through projector is red.
+  const leaky = (shape: string, raw: unknown) => ({ ok: true, body: raw });
+  const passed = leaky('projects', fixture('projects')).body;
+  assert.ok(JSON.stringify(passed).includes('/work/'), 'a pass-through projector carries the root');
+  assert.deepEqual(leaks((shape, raw, context) => (shape === 'projects' ? leaky(shape, raw) : project(shape, raw, context))), ['projects']);
+});
+
+test('tree: a harness outside the registry is (other); an unknown model is withheld; the node set carries labels and keys only', () => {
+  const body = project('tree', fixture('tree')).body;
+  assert.deepEqual(body.nodes.map((n: any) => n.harness), ['claude', OTHER_HARNESS]);
+  assert.equal(body.nodes[1].model, WITHHELD);
+  assert.deepEqual(body.nodes[1].ended, { at: '2026-10-26T09:50:00.000Z', result: 'exited' });
+  assert.deepEqual(body.edges, [{ from: AGENT_A, to: AGENT_B, basis: 'worker-caller' }]);
+});
+
+test('transcript: text and args are masked a second time and the cap is re-checked', () => {
+  const raw = fixture('transcript');
+  raw.events[0].text = 'ok ghp_abcdefghijklmnopqrstuvwxyz0123456789 and fx-person@example.invalid and password=hunter2x9 /Users/someone/code';
+  raw.events[1].args = '{"command":"echo","apiKey":"abcdef123456"}';
+  const body = project('transcript', raw).body;
+  assert.equal(body.events[0].text, 'ok <masked> and <email> and password=<masked> /Users/<masked>/code');
+  assert.ok(!body.events[1].args.includes('abcdef123456') && body.events[1].args.includes('<masked>'));
+  // Already-masked text is unchanged.
+  const again = fixture('transcript');
+  again.events[0].text = 'token=<masked> sent to <email> from <ip>';
+  assert.equal(project('transcript', again).body.events[0].text, 'token=<masked> sent to <email> from <ip>');
+
+  const cap = (text: string, field: 'text' | 'args', event: number) => { const r = fixture('transcript'); r.events[event][field] = text; return project('transcript', r); };
+  assert.equal(cap('a'.repeat(4096), 'text', 0).ok, true);
+  assert.deepEqual(cap('a'.repeat(4097), 'text', 0), MISMATCH);
+  assert.equal(cap('é'.repeat(2048), 'text', 0).ok, true, 'the cap counts bytes: 2048 two-byte characters are exactly 4 KiB');
+  assert.deepEqual(cap('é'.repeat(2049), 'text', 0), MISMATCH);
+  assert.equal(cap('b'.repeat(512), 'args', 1).ok, true);
+  assert.deepEqual(cap('b'.repeat(513), 'args', 1), MISMATCH);
+  // A text that fits only until the second pass grows it (a 6-character address becomes the 7-character marker) is refused, not cut.
+  assert.deepEqual(cap(`${'a'.repeat(4089)} a@b.co`, 'text', 0), MISMATCH);
+});
+
+test('traffic: unknown is null and stays null; zero stays zero', () => {
+  const body = project('traffic', fixture('traffic')).body;
+  assert.equal(body.agents[1].eventsPerMin, null);
+  assert.equal(body.agents[1].toolCalls, null);
+  const raw = fixture('traffic');
+  raw.agents[0].toolErrors = 0;
+  raw.agents[0].eventsPerMin = 0;
+  const zero = project('traffic', raw).body;
+  assert.equal(zero.agents[0].toolErrors, 0);
+  assert.equal(zero.agents[0].eventsPerMin, 0);
+});
+
+test('Fleet closed sets are literals of the core source', () => {
+  const dirText = (dir: string) => fs.readdirSync(path.join(CORE_SRC, dir), { withFileTypes: true })
+    .flatMap((e: any) => (e.isDirectory() ? [] : [fs.readFileSync(path.join(CORE_SRC, dir, e.name), 'utf8')])).join('\n');
+  const tree = dirText('fleet');
+  const transcripts = dirText('transcripts') + dirText('transcripts/readers');
+  const missing = (source: string, values: readonly string[]) => values.filter((v) => !source.includes(`'${v}'`));
+  assert.deepEqual(missing(tree, [...CLOSED_SETS.agentKinds, ...CLOSED_SETS.modelBases, ...CLOSED_SETS.livenessStates, ...CLOSED_SETS.edgeBases, ...CLOSED_SETS.projectSources]), []);
+  assert.deepEqual(missing(tree + transcripts, CLOSED_SETS.transcriptReasons), []);
+  // IC-022 lists `turn-end`; no reader emits it yet, so the source cannot confirm it.
+  assert.deepEqual(missing(transcripts, [...CLOSED_SETS.eventKinds.filter((kind: string) => kind !== 'turn-end'), ...CLOSED_SETS.readerStatuses, ...CLOSED_SETS.pairBases, ...CLOSED_SETS.toolStatuses]), []);
+  assert.deepEqual(missing(tree + transcripts, CLOSED_SETS.recordTypes), []);
 });
 
 test('handshake: the core version against doflowCore', async () => {
