@@ -20,6 +20,7 @@ const { createCopilotAdapter } = require('../adapters/copilot/index.ts');
 const { createKiroAdapter } = require('../adapters/kiro/index.ts');
 const { createAntigravityAdapter } = require('../adapters/antigravity/index.ts');
 const { planLifecycle } = require('./index.ts');
+const { formatRetiredPlans } = require('./retired-harnesses.ts');
 const { stateRoot, readLedger, defaultLedger } = require('../state/index.ts');
 const { selectAssets } = require('../registry/index.ts');
 const { defaultLock, readLock, writeLock, diffLocks, removeLock, pinnedSelections, lockPackages } = require('../state/lockfile.ts');
@@ -89,7 +90,15 @@ function printRegistryLifecycle(view: any, prefix = '[PLAN]') {
     }
     for (const notice of target.notices ?? []) console.log(`${prefix}   ${target.harness}: ${notice}`);
   }
+  printRetiredPlans(view);
   console.log(`${prefix} Neutral state: ${view.stateRoot}${readLedger(view.stateRoot) ? ' (existing ledger)' : ' (not yet created)'}`);
+}
+
+/** The retirement lines (row 127 IC-003), the same under --dry-run and after an apply: one
+ * `[RETIRED]` summary per retired harness the plan sweeps, then one line per kept item. Nothing
+ * when the ledger holds no retired row. */
+function printRetiredPlans(view: any) {
+  for (const line of formatRetiredPlans(view.plan.retiredHarnesses ?? [])) console.log(line);
 }
 
 /** Prints the plan's notices after a real run. Independent of whether anything changed: a no-op
@@ -120,11 +129,13 @@ function assertSafeRegistryPlan(view: any) {
  * included. Assets are recomputed from the registry for every pinned harness. The previous lock's
  * `packages` (122 IC-007) are not registry-derived, so they are carried forward unchanged, and a lock
  * that holds packages stays as `targets: []` once no harness is pinned. `null` when no harness stays
- * pinned and no package is recorded. */
+ * pinned and no package is recorded. Only live harnesses are pinned (row 127 IC-004): a previous pin
+ * of a retired id is dropped, even while the ledger still holds its rows. */
 function lockDocument({ registry, scope, scopeRoot, previous = null, ledger, plannedTargets = [], mcpSelections = {}, sourceVersion = pkg.version, now = new Date() }: any) {
   const held = new Set((ledger?.resources ?? []).map((resource: any) => resource?.harness));
+  const live = new Set(registry.harnesses.map((harness: any) => harness.id));
   const pinned = [...new Set([...(previous?.targets ?? []).map((entry: any) => entry.harness), ...plannedTargets])]
-    .filter((harness) => held.has(harness)).sort();
+    .filter((harness) => held.has(harness) && live.has(harness)).sort();
   const packages = lockPackages(previous);
   if (!pinned.length && !packages.length) return null;
   const assets = [];
@@ -174,6 +185,6 @@ function recordLock(scopeArgs: any, next: any, { fsImpl = fs }: any = {}) {
 }
 
 module.exports = {
-  codexScope, registryLifecycleView, printRegistryLifecycle, printPlanNotices, LIFECYCLE_HARNESSES, assertSafeRegistryPlan,
+  codexScope, registryLifecycleView, printRegistryLifecycle, printRetiredPlans, printPlanNotices, LIFECYCLE_HARNESSES, assertSafeRegistryPlan,
   lockDocument, lockDelta, recordLock,
 };

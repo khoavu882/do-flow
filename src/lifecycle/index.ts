@@ -8,7 +8,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { harnessFor, selectAssets, selectMcpServers, mcpCapable } = require('../registry/index.ts');
+const { harnessFor, selectAssets, selectMcpServers, mcpCapable, isRetired } = require('../registry/index.ts');
 const { defaultLedger, ownershipKey, writeLedger, writeRecoveryRecord, upgradeLedger, LEDGER_VERSION } = require('../state/index.ts');
 const { resolveAdapter, projectAdapterInput } = require('../adapters/index.ts');
 const { pruneEmptyAncestors, discoverTree, sameFileIndex, sharedTreeDestDir, walkRelFiles } = require('../adapters/copy-tree.ts');
@@ -19,6 +19,7 @@ const { hookTrustFor: geminiHookTrustFor } = require('../adapters/gemini/index.t
 const { planHookCompanions } = require('./hook-step.ts');
 const { readLock, lockPackages } = require('../state/lockfile.ts');
 const { resolveRegistrySource } = require('../adapters/resolve-source.ts');
+const { planRetiredHarnesses, applyRetiredHarnesses, retiredReleaseKeys, claimKey } = require('./retired-harnesses.ts');
 
 const OPERATIONS = new Set(['create', 'merge', 'update', 'remove']);
 /** A harness's MCP selection meaning "the servers it owns now", read through its adapter's
@@ -201,23 +202,19 @@ function releasedOwnershipKeys(harnessPlans: any, scope: any) {
  * applied. Membership is decided per ROW, not per harness: a harness that is releasing its claim
  * on this file is not a claimant even if it is releasing nothing else, and a harness in the same
  * batch that keeps its row (an install that relocates one asset while a sibling's projection is
- * unchanged) still is. */
-function survivingClaimantsByTarget(ledger: any, releasedKeys: any) {
+ * unchanged) still is. A retired harness's row is never a claimant (row 127 IC-003): nothing will
+ * ever maintain the file for it, so it must not keep a live harness's removal from reclaiming it. */
+function survivingClaimantsByTarget(ledger: any, releasedKeys: any, registry: any) {
   const byTarget = new Map();
   for (const resource of ledger?.resources || []) {
     if (typeof resource?.target !== 'string' || typeof resource?.harness !== 'string') continue;
     if (releasedKeys.has(ownershipKey(resource))) continue;
+    if (isRetired(registry, resource.harness)) continue;
     const key = claimKey(resource);
     if (!byTarget.has(key)) byTarget.set(key, new Set());
     byTarget.get(key).add(resource.harness);
   }
   return byTarget;
-}
-
-/** What one claim covers: a whole file, except an MCP entry, which is claimed on its own because
- * several harnesses keep their servers side by side in one MCP file. */
-function claimKey(record: any) {
-  return record.kind === 'mcp-server' ? `${record.target}\u0000${record.identity}` : record.target;
 }
 
 /** NFR-007: a removal reclaims only what no other harness still claims.
@@ -235,8 +232,8 @@ function claimKey(record: any) {
  * stays, and the last claimant's removal is the one that reclaims it. The neutral ledger is the
  * only thing consulted — it is already the record of who owns what, and a second ownership
  * registry would be one more thing to keep in sync. */
-function markRetainedRemovals(harnessPlans: any, ledger: any, scope: any) {
-  const claimants = survivingClaimantsByTarget(ledger, releasedOwnershipKeys(harnessPlans, scope));
+function markRetainedRemovals(harnessPlans: any, ledger: any, scope: any, registry?: any) {
+  const claimants = survivingClaimantsByTarget(ledger, releasedOwnershipKeys(harnessPlans, scope), registry);
   if (!claimants.size) return harnessPlans;
   return harnessPlans.map((target: any) => {
     if (target.skipped) return target;
@@ -257,10 +254,11 @@ function markRetainedRemovals(harnessPlans: any, ledger: any, scope: any) {
 }
 
 /** Whether this plan leaves no ownership row standing anywhere — the only case in which a shared,
- * install-wide artifact that no single harness owns is genuinely unclaimed. */
-function removalIsTotal(plan: any) {
+ * install-wide artifact that no single harness owns is genuinely unclaimed. A retired harness's row
+ * claims nothing (survivingClaimantsByTarget), so it does not count as standing. */
+function removalIsTotal(plan: any, registry?: any) {
   const released = releasedOwnershipKeys(plan.targets || [], plan.scope);
-  return (plan.ledger?.resources || []).every((resource: any) => released.has(ownershipKey(resource)));
+  return (plan.ledger?.resources || []).every((resource: any) => released.has(ownershipKey(resource)) || isRetired(registry, resource?.harness));
 }
 
 /** What a removal kept and why, ready to print. A command that says "removed" while silently
@@ -720,7 +718,7 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
     : harnessPlans.map((target: any) => (!target.skipped && packages.byHarness.has(target.harness) ? withPackageWork(target, packages.byHarness.get(target.harness)) : target));
   // Only once every harness's plan is known: whether a file may be deleted depends on the rows
   // the WHOLE plan leaves standing, which no single harness's plan can see.
-  const retained = markRetainedRemovals(withPackages, baseLedger, scope);
+  const retained = markRetainedRemovals(withPackages, baseLedger, scope, registry);
   const annotated = context.operation === 'remove' || packagesOnly ? retained
     : pruneRetiredRuntimeFiles(retained, baseLedger, { scopeRoot, repoRoot: context.repoRoot });
   // The shared hooks tree may have moved under harnesses this run does not name (IC-037): their
@@ -728,7 +726,13 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
   const companions = packagesOnly ? [] : planHookCompanions({ registry, adapters, scope, harnessScope: registryScope(scope), scopeRoot, ledger: baseLedger, context,
     targets: annotated, targetFromResult });
   const planned = [...annotated, ...companions];
-  const changes = planned.flatMap((item: any) => item.changes);
+  const liveChanges = planned.flatMap((item: any) => item.changes);
+  // Row 127 IC-003: what a retired harness left in this scope's ledger is released, deleted or
+  // stripped by the same run, once every live change is known (a row a live change already removes
+  // is that change's). Never on remove, which changes only what `-t` names, nor for package work.
+  const retiredHarnesses = context.operation === 'remove' || packagesOnly ? []
+    : planRetiredHarnesses({ registry, ledger: baseLedger, scope, scopeRoot, livePlanChanges: liveChanges });
+  const changes = [...liveChanges, ...retiredHarnesses.flatMap((item: any) => item.changes)];
   const conflicts = planned.flatMap((item: any) => item.conflicts.map((reason: any) => ({ harness: item.harness, reason })));
   const prerequisites = planned.flatMap((item: any) => item.prerequisites.map((prerequisite: any) => ({ harness: item.harness, prerequisite })));
   const requiredNativeResources = planned.flatMap((item: any) => item.requiredNativeResources || []);
@@ -736,6 +740,7 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
     ...packages.warnings.map((item: any) => ({ harness: item.harness, notice: `warning: ${item.warning}` }))];
   return Object.freeze({ scope, scopeRoot, mcp: selectedMcp, ledger: baseLedger, targets: planned, changes, requiredNativeResources, conflicts, prerequisites, notices,
     retained: retainedChanges(changes), safe: conflicts.length === 0 && prerequisites.length === 0,
+    ...(retiredHarnesses.length ? { retiredHarnesses } : {}),
     ...(packagesOnly ? { packagesOnly: true } : {}), ...(packages.warnings.length ? { packageWarnings: packages.warnings } : {}) });
 }
 
@@ -794,11 +799,20 @@ function applyMcpIndex({ scopeRoot, selectedMcp, mode, retain = false, fsImpl = 
   fsImpl.writeFileSync(file, content);
 }
 
-function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recoveryRef, fsImpl = fs }: any) {
+function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recoveryRef, retiredHarnesses = [], fsImpl = fs }: any) {
   // upgradeLedger makes every written ledger v2-shaped (tombstone log present) while v1 inputs
   // stay readable — migration happens on write, never as a separate user-facing step.
   const next = JSON.parse(JSON.stringify(upgradeLedger(ledger ?? defaultLedger({ scope, scopeRoot }))));
   if (!Array.isArray(next.tombstones)) next.tombstones = [];
+  // A retired harness's rows leave in this write, whatever the sweep did with each file, and its
+  // `targets` entry goes once no (deferred) row of it remains.
+  const retiredKeys = retiredReleaseKeys(retiredHarnesses);
+  if (retiredKeys.size) {
+    next.resources = next.resources.filter((resource: any) => !retiredKeys.has(ownershipKey(resource)));
+    for (const { harness } of retiredHarnesses) {
+      if (!next.resources.some((resource: any) => resource.harness === harness)) delete next.targets[harness];
+    }
+  }
   // Snapshot pre-run claims by ownership identity (harness+asset+identity) so a re-verification
   // that relocates the same claim to a new target is detectable as a MOVE, not remove-plus-add.
   const priorByIdentity = new Map();
@@ -897,7 +911,9 @@ function verifyLifecycle({ plan, adapters, context = {} }: any) {
 function assertPlanApplicable(plan: any, stateRoot: any, acceptPrerequisites: any) {
   if (!plan.safe && !(acceptPrerequisites && plan.conflicts.length === 0)) throw new Error('Refusing to apply an unsafe lifecycle plan');
   if (!stateRoot) throw new Error('stateRoot is required before lifecycle mutation');
-  if (!plan.requiredNativeResources?.length || !plan.changes.length) throw new Error('Refusing to apply a lifecycle plan with no required native resources');
+  // A retirement is native work no live harness lists: a plan holding only that is applicable.
+  const retiring = (plan.retiredHarnesses ?? []).some((item: any) => item.changes.length);
+  if ((!plan.requiredNativeResources?.length && !retiring) || !plan.changes.length) throw new Error('Refusing to apply a lifecycle plan with no required native resources');
 }
 
 /** Registry-declared hooks assets (`kind: "hooks"` in core/registry/assets.json) this harness's
@@ -979,6 +995,12 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
   const recovery = writeRecoveryRecordFn(stateRoot, { status: 'pending', changes: plan.changes });
   const completedHarnesses = [];
   try {
+    // The retirement first (IC-003): it touches only files no live harness claims, and a throw here
+    // leaves every live harness unapplied.
+    for (const retired of plan.retiredHarnesses ?? []) {
+      applyRetiredHarnesses([retired]);
+      completedHarnesses.push(`retired:${retired.harness}`);
+    }
     for (const target of plan.targets) {
       if (target.skipped || target.changes.length === 0) continue;
       // A retained change is a ledger release, not a native mutation: the adapter must never see
@@ -1008,7 +1030,7 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
   }
   try {
     // A package-only plan selects no MCP server; the index stays as the last install wrote it.
-    if (!plan.packagesOnly) applyMcpIndex({ scopeRoot: plan.scopeRoot, selectedMcp: plan.mcp, mode, retain: !removalIsTotal(plan) });
+    if (!plan.packagesOnly) applyMcpIndex({ scopeRoot: plan.scopeRoot, selectedMcp: plan.mcp, mode, retain: !removalIsTotal(plan, registry) });
   } catch (error: any) {
     // Same reasoning as the harness-loop catch above: every native resource already applied and
     // verified successfully by this point, so leaving the record at 'pending' on a failure here
@@ -1016,7 +1038,8 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
     writeRecoveryRecordFn(stateRoot, { ...recovery.record, status: 'failed', completedHarnesses, verification, error: error.message });
     throw error;
   }
-  const nextLedger = updateLedger({ ledger, scope: plan.scope, scopeRoot: plan.scopeRoot, verifications: verification.verifications, changes: plan.changes, recoveryRef: recovery.id });
+  const nextLedger = updateLedger({ ledger, scope: plan.scope, scopeRoot: plan.scopeRoot, verifications: verification.verifications, changes: plan.changes, recoveryRef: recovery.id,
+    retiredHarnesses: plan.retiredHarnesses ?? [] });
   writeLedgerFn(stateRoot, nextLedger);
   writeRecoveryRecordFn(stateRoot, { ...recovery.record, status: 'verified', verification });
   if (plan.scope === 'global' && plan.changes.some((change: any) => isPackageAsset(change.assetId))) {

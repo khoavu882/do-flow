@@ -28,12 +28,30 @@ const TARGET_ALIASES: Record<string, string> = {
   agy: 'antigravity',
 };
 
-/** Default to DEFAULT_TARGETS; validate any explicitly requested. */
-function resolveTargets(requested: string[] | undefined): string[] {
+/** The registry's retired record for `id`, or null. The registry is read only for an id outside
+ * VALID, and a registry that cannot be read leaves the id unknown rather than failing differently. */
+function retiredTarget(id: string, registry: any): any {
+  const { loadRegistry, retiredFor } = require('../registry/index.ts');
+  if (!registry) {
+    const { REPO_ROOT } = require('../helper/repo-root.ts');
+    try { registry = loadRegistry({ repoRoot: REPO_ROOT }); } catch { return null; }
+  }
+  return retiredFor(registry, id);
+}
+
+/** Default to DEFAULT_TARGETS; validate any explicitly requested. A retired id (row 127 IC-002) is
+ * refused like an unknown one, naming its replacement. `registry` is for tests; omitted, the
+ * shipped registry is read. */
+function resolveTargets(requested: string[] | undefined, { registry }: { registry?: any } = {}): string[] {
   const rawTargets = requested && requested.length ? requested : [...DEFAULT_TARGETS];
   const targets = rawTargets.map((t) => TARGET_ALIASES[t] || t);
   for (const t of targets) {
     if (!VALID.includes(t)) {
+      const retired = retiredTarget(t, registry);
+      if (retired) {
+        const alias = Object.keys(TARGET_ALIASES).find((key) => TARGET_ALIASES[key] === retired.replacement);
+        throw new Error(`Target '${t}' was retired on ${retired.retiredOn}; use '${retired.replacement}'${alias ? ` (alias ${alias})` : ''}. Its DoFlow files are released by the next 'doflow install' or 'doflow update' in that scope.`);
+      }
       throw new Error(`Unknown target: '${t}' (valid: ${VALID.join(', ')})`);
     }
   }

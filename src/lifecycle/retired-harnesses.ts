@@ -54,8 +54,9 @@ const COUNTED: Partial<Record<RetiredAction, keyof RetiredHarnessPlan['counts']>
   delete: 'deleted', 'strip-section': 'stripped', 'strip-hooks': 'stripped', release: 'released', handover: 'released', keep: 'kept',
 };
 
-/** Same claim key as src/lifecycle/index.ts claimKey (not exported there): a whole file, except an
- * MCP entry, which is claimed on its own. */
+/** What one claim covers: a whole file, except an MCP entry, which is claimed on its own because
+ * several harnesses keep their servers side by side in one MCP file. The one definition: the
+ * lifecycle (src/lifecycle/index.ts) imports it from here, since it requires this module. */
 function claimKey(record: any): string {
   return record.kind === 'mcp-server' ? `${record.target}\u0000${record.identity}` : record.target;
 }
@@ -257,4 +258,4 @@ function formatRetiredPlans(plans: RetiredHarnessPlan[]): string[] {
   ]);
 }
 
-module.exports = { planRetiredHarnesses, applyRetiredHarnesses, retiredReleaseKeys, formatRetiredPlans };
+module.exports = { planRetiredHarnesses, applyRetiredHarnesses, retiredReleaseKeys, formatRetiredPlans, claimKey };
