@@ -24,7 +24,7 @@ const { sourceCommit: gitSourceCommit } = require('../helper/git.ts');
 const {
   legacyBackupReadRoot, isLegacyBackupReadRoot, scopeRootFromCanonicalBackupRoot,
 } = require('./paths.ts');
-const { validateLedger } = require('../state/index.ts');
+const { validateLedger, ownershipKey } = require('../state/index.ts');
 
 /** Where a listed/restorable backup was found. 'current' = the canonical `.doflow/backups` root the
  * installer writes to; 'legacy' = the pre-7de6d5f `.claude/backups` root, readable only. Callers
@@ -519,6 +519,8 @@ function planRestore({ bid, backupRoot, scope, scopeRoot, targets, explicitTarge
     untargeted: 0,
     snapshot: [],
     v1: null,
+    // --target narrows the ledger with the files: the retired-harness rule of mergeRestoredLedger is off.
+    narrowed: Boolean(explicitTargets),
   };
   const wanted = new Set(targets);
 
@@ -581,13 +583,25 @@ function planRestore({ bid, backupRoot, scope, scopeRoot, targets, explicitTarge
  * the backup does not hold and rows of MCP entries (a file holding only MCP entries is never backed
  * up) stay as they are; restoring the whole old ledger would make DoFlow forget files and entries it
  * still has on disk. With no current ledger the backup's is taken whole.
+ *
+ * A harness in `retired` (retired in the registry now, row 127) is the exception: every row of it
+ * and its `targets` entry come back as the backup holds them. A sweep that retired it released some
+ * rows with no file effect (a file a live harness still claims), so no file of theirs is in the backup,
+ * yet the run dropped them. Only the sweep ever changes a retired row, so the backup's copy is never
+ * staler than the current one; a current row of it the backup lacks stays. A restored row whose file
+ * a live harness now claims is released by the next sweep (claim rule 2), file untouched.
  */
-function mergeRestoredLedger(backup: any, current: any, restored: Set<string>): any {
+function mergeRestoredLedger(backup: any, current: any, restored: Set<string>, retired: Set<string> = new Set()): any {
   if (!current) return backup;
   const at = (target: any) => typeof target === 'string' && restored.has(path.resolve(target));
+  const whole = (row: any) => retired.has(row?.harness);
+  const back = backup.resources.filter((r: any) => at(r.target) || whole(r));
+  const backKeys = new Set(back.filter(whole).map(ownershipKey));
+  const targets = Object.entries(backup.targets ?? {}).filter(([id]) => retired.has(id));
   return {
     ...current,
-    resources: [...current.resources.filter((r: any) => !at(r.target)), ...backup.resources.filter((r: any) => at(r.target))],
+    ...(targets.length ? { targets: { ...current.targets, ...Object.fromEntries(targets) } } : {}),
+    resources: [...current.resources.filter((r: any) => !at(r.target) && !(whole(r) && backKeys.has(ownershipKey(r)))), ...back],
     tombstones: [
       ...(current.tombstones ?? []).filter((t: any) => !at(t.fromTarget)),
       ...(backup.tombstones ?? []).filter((t: any) => at(t.fromTarget)),
@@ -595,21 +609,32 @@ function mergeRestoredLedger(backup: any, current: any, restored: Set<string>): 
   };
 }
 
+/** Ids the registry retires (row 127 IC-001): `registry` when a caller passes one, else the shipped
+ * registry. One that cannot be read retires nothing, which leaves the merge per restored file. */
+function retiredIds(registry: any): Set<string> {
+  if (registry === undefined) {
+    const { REPO_ROOT } = require('../helper/repo-root.ts');
+    try { registry = require('../registry/index.ts').loadRegistry({ repoRoot: REPO_ROOT }); } catch { registry = null; }
+  }
+  return new Set((Array.isArray(registry?.retired) ? registry.retired : []).map((entry: any) => entry?.id).filter((id: any) => typeof id === 'string'));
+}
+
 /** The bytes a ledger restore item writes: the backup's ledger merged onto the current one. */
-function restoredLedgerBytes(item: any, restored: Set<string>, fsImpl: any): Buffer {
+function restoredLedgerBytes(item: any, restored: Set<string>, retired: Set<string>, fsImpl: any): Buffer {
   const backup = validateLedger(JSON.parse(fsImpl.readFileSync(item.stored, 'utf8')));
   const current = fsImpl.existsSync(item.path) ? validateLedger(JSON.parse(fsImpl.readFileSync(item.path, 'utf8'))) : null;
-  return Buffer.from(`${JSON.stringify(validateLedger(mergeRestoredLedger(backup, current, restored)), null, 2)}\n`);
+  return Buffer.from(`${JSON.stringify(validateLedger(mergeRestoredLedger(backup, current, restored, retired)), null, 2)}\n`);
 }
 
 /**
  * Carry out a plan from planRestore. Format 2 writes each restore item through a temp file renamed
  * over the target (or straight through a symlinked target, which stays a link); a failed item is
  * reported and the rest continue. The ownership ledger goes last and restores only the rows of the
- * files written back before it (mergeRestoredLedger). It never deletes a file and never writes
+ * files written back before it, plus every row of a retired harness unless --target narrowed the
+ * restore (mergeRestoredLedger); `registry` is for tests, omitted the shipped one is read. It never deletes a file and never writes
  * outside `plan.restore`. A 1.19 plan goes through restoreBackup unchanged.
  */
-function executeRestore(plan: any, { backupRoot, dryRun = false, fsImpl = fs }: any): any {
+function executeRestore(plan: any, { backupRoot, dryRun = false, registry, fsImpl = fs }: any): any {
   if (plan.format !== 2) {
     const toolDirs = Object.fromEntries(plan.v1.tools.map((t: any) => [t.tool, t.dstDir]));
     restoreBackup({ bid: plan.bid, backupRoot, dirs: toolDirs, dryRun });
@@ -629,7 +654,7 @@ function executeRestore(plan: any, { backupRoot, dryRun = false, fsImpl = fs }: 
     try {
       const dir = path.dirname(item.path);
       fsImpl.mkdirSync(dir, { recursive: true });
-      const bytes = item.ledger ? restoredLedgerBytes(item, files, fsImpl) : fsImpl.readFileSync(item.stored);
+      const bytes = item.ledger ? restoredLedgerBytes(item, files, plan.narrowed ? new Set() : retiredIds(registry), fsImpl) : fsImpl.readFileSync(item.stored);
       let isLink = false;
       try {
         isLink = fsImpl.lstatSync(item.path).isSymbolicLink();

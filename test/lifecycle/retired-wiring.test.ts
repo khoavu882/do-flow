@@ -176,8 +176,8 @@ test('the backup set holds every deleted and stripped target, and rollback resto
   assert.deepEqual(outcome.failed, []);
   for (const [file, bytes] of before) assert.deepEqual(fs.readFileSync(file), bytes, `restored: ${file}`);
   const restoredRows = oldtoolRows(readLedger(s.state)).map(ownershipKey).sort();
-  const expected = oldtoolRows(s.fixture.ledger).filter((row: any) => backedUp.has(path.resolve(row.target))).map(ownershipKey).sort();
-  assert.deepEqual(restoredRows, expected, 'the rows of the restored files come back with them');
+  const expected = oldtoolRows(s.fixture.ledger).map(ownershipKey).sort();
+  assert.deepEqual(restoredRows, expected, 'every retired row comes back, the released ones (no file in the backup) included (FR-4)');
 });
 
 // ------------------------------------------------------------------ lock (IC-004)
@@ -283,7 +283,7 @@ test('rollback of a sweep backup restores the retired files and rows byte for by
   const { fixture } = addRetiredRows(s.project, s.state);
   const touched = [fixture.targets.agent, ...Object.values<string>(fixture.targets.scripts), fixture.targets.instructions, fixture.targets.settings];
   const before = new Map(touched.map((file) => [file, fs.readFileSync(file)]));
-  const rowsBefore = oldtoolRows(readLedger(s.state)).filter((row: any) => touched.includes(row.target)).map((row: any) => JSON.stringify(row)).sort();
+  const rowsBefore = oldtoolRows(readLedger(s.state)).map((row: any) => JSON.stringify(row)).sort();
   const paths = doflowPaths({ scopeRoot: s.project });
 
   cmdInstall(s.options({ targets: ['antigravity'], noBackup: false }));
@@ -300,7 +300,7 @@ test('rollback of a sweep backup restores the retired files and rows byte for by
 
   for (const [file, bytes] of before) assert.deepEqual(fs.readFileSync(file), bytes, `restored: ${file}`);
   const rowsAfter = oldtoolRows(readLedger(s.state)).map((row: any) => JSON.stringify(row)).sort();
-  assert.deepEqual(rowsAfter, rowsBefore, 'the rows of the restored files come back byte for byte');
+  assert.deepEqual(rowsAfter, rowsBefore, 'every retired row comes back byte for byte, the released ones included (FR-4)');
   const output = [...s.errors, ...s.lines].join('\n');
   assert.ok(!output.includes('undefined'), output);
   assert.ok(!output.includes('oldtool'), output);
