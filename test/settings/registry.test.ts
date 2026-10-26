@@ -166,9 +166,9 @@ const V1 = {
     consumers: ['src/runtime/settings/worker-billing.ts'],
     description: 'Person-written billing record per headless worker id: free or metered, with the date asserted. Lets dispatch --billing-cap free launch a worker the registry lists as unknown; global-only.' },
   // 119 IC-006: the review and debate protocol keys the resolver reads (src/runtime/review/resolve-protocol.ts).
-  'review.preset': { type: 'enum', valuesRef: 'protocols.reviewPresetIds', orderRef: 'protocols.reviewPresetOrder', default: 'auto',
+  'review.preset': { type: 'enum', valuesRef: 'protocols.reviewPresetIds', orderRef: 'protocols.reviewPresetOrder', default: 'review-single',
     scope: 'narrow-only', combine: 'override', ...PROTOCOL_COMMON,
-    description: 'Review protocol preset for this project: auto follows the risk rule; a project may only pick a stricter preset.' },
+    description: 'Review protocol preset: review-single by default, 1 seat and 1 round; auto follows the risk rule; review-deep is 2 seats; a project may only pick a stricter preset than its user.' },
   'review.rounds': { type: 'integer', min: 1, max: 3, order: 'descending', default: null,
     scope: 'narrow-only', combine: 'override', ...PROTOCOL_COMMON,
     description: "Review rounds; unset uses the preset's rounds, a project may only choose more rounds than its user layer." },
@@ -246,11 +246,11 @@ const V1 = {
     min: 1,
     max: 8,
     order: 'ascending',
-    default: 2,
+    default: 1,
     scope: 'project-overridable',
     combine: 'override',
     securityRelevant: false,
-    failSafe: 2,
+    failSafe: 1,
     env: {
       name: 'DOFLOW_TEAM_WRITER_CAP',
       parse: 'positive-int',
@@ -261,7 +261,7 @@ const V1 = {
     needsConfigHome: false,
     legacy: [],
     consumers: ['src/runtime/team/admission.ts'],
-    description: 'Maximum number of concurrent mutating worker sessions permitted across the active task graph.',
+    description: 'Maximum number of concurrent mutating worker sessions across the active task graph; 1 by default, so writes run single-threaded and reads in parallel; the user may raise it.',
   },
   'team.maxAttempts': {
     type: 'integer',
@@ -668,7 +668,7 @@ test('every failSafe form of the shipped registry validates, and each form is re
     'workers.models': { state: 'invalid' },
     'packages.disabled': { state: 'invalid' },
     'rollout.profile': 'baseline',
-    'team.writerCap': 2,
+    'team.writerCap': 1,
     'team.maxAttempts': 3,
   });
   const wrongValue = clone(SHIPPED);

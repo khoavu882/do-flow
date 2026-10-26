@@ -22,9 +22,15 @@ const SLUG = '095b-review-depth';
 const REGISTRY = loadVerificationRegistry({ repoRoot: REPO_ROOT });
 const HEX_A = 'a'.repeat(40);
 
-function envFor(dir: any) {
+// maint-thin: the shipped default is review-single and the class seat floor binds only while autopilot is on. Most
+// tests here pin the risk rule and the floor, so their user layer opts in: review.preset auto and autopilot on.
+// `thin: true` leaves the user layer empty (the shipped default).
+const OPT_IN = { schema: 1, 'review.preset': 'auto', 'autopilot.enabled': 'on' };
+
+function envFor(dir: any, { thin = false }: any = {}) {
   const home = path.join(dir, 'home');
-  fs.mkdirSync(path.join(home, '.config'), { recursive: true });
+  fs.mkdirSync(path.join(home, '.config', 'doflow'), { recursive: true });
+  if (!thin) fs.writeFileSync(path.join(home, '.config', 'doflow', 'settings.json'), JSON.stringify(OPT_IN));
   return {
     PATH: process.env.PATH,
     HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'),
@@ -48,11 +54,11 @@ function put(root: any, rel: any, text: any) {
  * A scratch repository: one base commit, then one commit holding `files`. `.doflow/` is excluded from
  * git, as a real checkout does, so the run and record files do not make the tree dirty.
  */
-function repo(t: any, { taskClass = 'feature', files = { 'src/a.ts': 'export {};\n' }, run = true }: any = {}) {
+function repo(t: any, { taskClass = 'feature', files = { 'src/a.ts': 'export {};\n' }, run = true, thin = false }: any = {}) {
   const dir = tempDir(t, 'doflow-review-start-');
   const cwd = path.join(dir, 'work');
   fs.mkdirSync(cwd);
-  const env = envFor(dir);
+  const env = envFor(dir, { thin });
   git(cwd, env, ['init', '-q', '-b', 'main']);
   put(cwd, '.git/info/exclude', '.doflow/\n');
   put(cwd, 'README.md', 'base\n');
@@ -95,6 +101,26 @@ function tree(root: any, base: any = root, out: any = {}) {
 }
 
 // ---- IC-001: the verb --------------------------------------------------------------------------
+
+// maint-thin (user ruling 2026-10-26): with the shipped settings a person-attended feature review of a code change is
+// review-single, 1 seat, 1 round, floor 0. Turning autopilot on alone brings back the gate-b floor of 2 seats.
+test('maint-thin: the shipped default gives a feature code change 1 seat and 1 round; autopilot on restores the floor', async (t) => {
+  const r = repo(t, { thin: true });
+  r.lines([r.line()]);
+  const thin = await start(r);
+  assert.equal(thin.exitCode, 0);
+  assert.equal(thin.json.protocol.id, 'review-single');
+  assert.equal(thin.json.seats, 1);
+  assert.equal(thin.json.protocol.rounds, 1);
+  assert.equal(thin.json.depthBasis.floor, 0);
+  fs.writeFileSync(path.join(r.env.XDG_CONFIG_HOME, 'doflow', 'settings.json'), JSON.stringify({ schema: 1, 'autopilot.enabled': 'on' }));
+  const unattended = await start(r);
+  assert.equal(unattended.exitCode, 0);
+  assert.equal(unattended.json.protocol.id, 'review-deep');
+  assert.equal(unattended.json.seats, 2);
+  assert.equal(unattended.json.depthBasis.floor, 2);
+  assert.equal(unattended.json.depthBasis.raisedBy, 'gate-floor');
+});
 
 test('PASS on a clean HEAD: exit 0, deep, 2 seats, risk from the default for a line without risk', async (t) => {
   const r = repo(t);

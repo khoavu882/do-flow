@@ -155,12 +155,12 @@ test('D.3: gate-b gathers the project review.sameFamily as a review-settings fac
     converged: [{ id: 'C1', from: [], severity: 'blocker', locator: 'src/x.ts:1', status: 'fixed', fixedIn: PARENT }] };
   env.write(`agent-docs/doflow/${row.slug}/review/findings.json`, JSON.stringify(withFamilies));
   const absent = env.gather('gate-b', { env: sandbox });
-  assert.deepEqual(settingsFact(absent).value, { sameFamily: 'warn', preset: 'auto' });
+  assert.deepEqual(settingsFact(absent).value, { sameFamily: 'warn', preset: 'review-single' }, 'maint-thin: the shipped default');
   assert.equal(settingsFact(absent).unreadable, undefined);
   assert.equal(absent.find((f: any) => f.name === 'dispositions').value.schemaValid, true);
   env.write('.doflow/settings.json', JSON.stringify({ schema: 1, 'review.sameFamily': 'refuse' }));
   const refuse = env.gather('gate-b', { env: sandbox });
-  assert.deepEqual(settingsFact(refuse).value, { sameFamily: 'refuse', preset: 'auto' });
+  assert.deepEqual(settingsFact(refuse).value, { sameFamily: 'refuse', preset: 'review-single' });
   assert.equal(refuse.find((f: any) => f.name === 'dispositions').value.schemaValid, false);
   assert.ok(evaluate(env.options.policy, 'feature', 'gate-b', refuse).reasons.includes('findings-invalid'));
   assert.equal(env.gather('gate-0', { env: sandbox }).some((f: any) => f.name === 'review-settings'), false, 'read only when a findings predicate is in use');

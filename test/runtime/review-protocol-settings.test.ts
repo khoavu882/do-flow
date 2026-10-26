@@ -28,46 +28,64 @@ const RISK_POLICY = JSON.parse(read('core/registry/verification.json')).reviewDe
 const LIGHT: any = ['docs/a.md', 'README.md'];
 const CODE: any = ['docs/a.md', 'src/x.ts'];
 
-function resolve(overrides: any = {}) {
+// maint-thin: the risk rule runs only under review.preset auto. The knob cases below pin the risk pick, so a view
+// that does not set review.preset gets auto on the user layer; `thin: true` passes the view as given.
+const AUTO: any = { 'review.preset': { value: 'auto', layer: 'user' } };
+function resolve({ thin = false, ...overrides }: any = {}) {
+  const view = overrides.settingsView ?? {};
+  const settingsView = thin || Object.hasOwn(view, 'review.preset') ? view : { ...AUTO, ...view };
   return resolveProtocol({
     kind: 'review', taskClass: 'bug', risk: 'LOW', paths: LIGHT, runPreset: null, advicePick: null,
-    settingsView: {}, gatePolicy: GATES.policy, registry: REGISTRY, riskPolicy: RISK_POLICY, ...overrides,
+    gatePolicy: GATES.policy, registry: REGISTRY, riskPolicy: RISK_POLICY, ...overrides, settingsView,
   });
 }
 const set = (key: any, value: any, layer: any) => ({ [key]: { value, layer } });
 
 // ---- step 2: the preset setting -----------------------------------------------------------------
 
-test('review.preset review-single on a single-eligible change: nothing changes, the risk keeps the origin, no refusal', () => {
+test('review.preset review-single on a single-eligible change: nothing changes, the thin start keeps the origin, no refusal', () => {
   const got = resolve({ settingsView: set('review.preset', 'review-single', 'user') });
   assert.equal(got.ok, true);
   assert.equal(got.protocol.id, 'review-single');
-  assert.equal(got.protocol.origins.id, 'risk');
+  assert.equal(got.protocol.origins.id, 'registry');
   assert.deepEqual(got.protocol.disagreements, []);
 });
 
-test('review.preset review-single on a code-scope change is looser: ignored, shown as a disagreement', () => {
+test('maint-thin: review.preset review-single on a code-scope change is taken: thin is the default, no disagreement', () => {
   const got = resolve({ paths: CODE, settingsView: set('review.preset', 'review-single', 'user') });
   assert.equal(got.ok, true);
-  assert.equal(got.protocol.id, 'review-deep');
-  assert.equal(got.protocol.origins.id, 'risk');
-  assert.deepEqual(got.protocol.disagreements, [{ field: 'id', by: 'user', value: 'review-single', reason: 'looser' }]);
-  assert.match(protocolLines(got.protocol).at(-1), /^protocol\.disagreements: field=id by=user value=review-single reason=looser$/);
+  assert.equal(got.protocol.id, 'review-single');
+  assert.equal(got.protocol.origins.id, 'registry');
+  assert.deepEqual(got.protocol.disagreements, []);
+  // under auto the same change is deep by the risk rule (negative control)
+  const auto = resolve({ paths: CODE, settingsView: set('review.preset', 'auto', 'user') });
+  assert.equal(auto.protocol.id, 'review-deep');
+  assert.equal(auto.protocol.origins.id, 'risk');
 });
 
-test('review.preset review-deep over a light LOW bug is taken with its layer as origin; auto and default change nothing', () => {
+test('review.preset review-deep over a light LOW bug is taken with its layer as origin; auto runs the risk rule; no setting is thin', () => {
   const got = resolve({ settingsView: set('review.preset', 'review-deep', 'project') });
   assert.equal(got.protocol.id, 'review-deep');
   assert.equal(got.protocol.origins.id, 'project');
   assert.deepEqual(got.protocol.disagreements, []);
-  for (const view of [set('review.preset', 'auto', 'project'), set('review.preset', 'review-deep', 'default'), {}]) {
-    const same = resolve({ settingsView: view });
-    assert.equal(same.protocol.id, 'review-single');
-    assert.equal(same.protocol.origins.id, 'risk');
+  const auto = resolve({ settingsView: set('review.preset', 'auto', 'project') });
+  assert.equal(auto.protocol.id, 'review-single');
+  assert.equal(auto.protocol.origins.id, 'risk');
+  for (const view of [{}, set('review.preset', 'review-single', 'default')]) {
+    const thin = resolve({ thin: true, paths: CODE, settingsView: view });
+    assert.equal(thin.protocol.id, 'review-single');
+    assert.equal(thin.protocol.origins.id, 'registry');
   }
-  const equal = resolve({ paths: CODE, settingsView: set('review.preset', 'review-deep', 'local') });
-  assert.equal(equal.protocol.origins.id, 'risk', 'an equal settings value never takes the origin');
-  assert.equal(protocolLines(equal.protocol).length, 5, 'the four base lines and the rules line, no disagreements line when there is none');
+  // a shipped default-layer value is the start pick, with origin registry
+  const shipped = resolve({ settingsView: set('review.preset', 'review-deep', 'default') });
+  assert.equal(shipped.protocol.id, 'review-deep');
+  assert.equal(shipped.protocol.origins.id, 'registry');
+  const equal = resolve({ paths: CODE, settingsView: { ...AUTO, ...set('review.preset', 'review-deep', 'local') } });
+  assert.equal(equal.protocol.id, 'review-deep');
+  assert.equal(equal.protocol.origins.id, 'local', 'a layer value replaces auto (one effective review.preset)');
+  const risk = resolve({ paths: CODE });
+  assert.equal(risk.protocol.origins.id, 'risk');
+  assert.equal(protocolLines(risk.protocol).length, 5, 'the four base lines and the rules line, no disagreements line when there is none');
 });
 
 test('debate.preset debate-3 on kind debate gives debate-3, three rounds, origin project', () => {
@@ -212,13 +230,14 @@ const run = (inputs: any, overrides: any = {}) => resolveProtocol({
   kind: 'review', taskClass: 'feature', risk: 'MEDIUM', paths: CODE, runPreset: null, advicePick: null, riskPolicy: RISK_POLICY, ...inputs, ...overrides,
 });
 
-test('settings: a project review.preset review-single on a feature is not-narrower and the protocol stays review-deep', (t) => {
+test('settings: under a user auto, a project review.preset review-single is not-narrower and the protocol stays review-deep', (t) => {
   const f = createSettingsEnv(t);
+  f.writeUserSettings({ schema: 1, 'review.preset': 'auto' });
   f.writeProjectSettings({ schema: 1, 'review.preset': 'review-single' });
   const candidate = loadSettings({ projectRoot: f.project, env: f.env() }).get('review.preset').candidates.find((c: any) => c.layer === 'project');
   assert.equal(candidate.status, 'not-narrower');
   const inputs = inputsFor(f);
-  assert.deepEqual(inputs.settingsView['review.preset'], { value: 'auto', layer: 'default' });
+  assert.deepEqual(inputs.settingsView['review.preset'], { value: 'auto', layer: 'user' });
   const got = run(inputs);
   assert.equal(got.protocol.id, 'review-deep');
   assert.deepEqual(got.protocol.disagreements, []);
@@ -251,7 +270,7 @@ test('settings: with a user review.rounds of 2 a project 1 is not-narrower and t
 
 test('settings: user and project review.extraLenses add up and both reach the protocol', (t) => {
   const f = createSettingsEnv(t);
-  f.writeUserSettings({ schema: 1, 'review.extraLenses': ['correctness'] });
+  f.writeUserSettings({ schema: 1, 'review.preset': 'auto', 'review.extraLenses': ['correctness'] });
   f.writeProjectSettings({ schema: 1, 'review.extraLenses': ['test-honesty'], 'review.blockerClauses': ['no new dependency'] });
   const inputs = inputsFor(f);
   assert.deepEqual(inputs.settingsView['review.extraLenses'], { value: ['correctness', 'test-honesty'], layer: 'project' });
@@ -264,6 +283,10 @@ test('settings: user and project review.extraLenses add up and both reach the pr
 test('settings: with no settings files every key is the default layer and the protocol equals the empty view', (t) => {
   const f = createSettingsEnv(t);
   const inputs = inputsFor(f);
+  // maint-thin: the shipped default is review-single and autopilot is off, so a feature code change is 1 seat
+  assert.deepEqual(inputs.settingsView['review.preset'], { value: 'review-single', layer: 'default' });
+  assert.equal(inputs.unattended, false);
+  assert.equal(run(inputs).protocol.id, 'review-single');
   assert.deepEqual(Object.keys(inputs.settingsView), ['review.preset', 'review.rounds', 'review.sameFamily', 'review.crossFamilyRereview',
     'review.extraLenses', 'review.blockerClauses', 'debate.preset']);
   for (const entry of Object.values(inputs.settingsView)) assert.equal(entry.layer, 'default');

@@ -35,7 +35,7 @@ DoFlow configuration layers resolve settings across registry defaults, environme
 | `verify.reuse` | enum | `off` | global-only | `DOFLOW_VERIFY_REUSE` | — | Reuse of a recorded PASS at L1/L2 when the check key is unchanged, off until the owner turns it on; the env can only turn it off. |
 | `dispatch.fallback` | enum | `ask` | narrow-only | — | — | Quota fallback ladder default for dispatch runs: ask holds and proposes, off holds without a proposal; auto exists only per run via --fallback. |
 | `workers.billing` | worker-billing | — | global-only | — | — | Person-written billing record per headless worker id: free or metered, with the date asserted. Lets dispatch --billing-cap free launch a worker the registry lists as unknown; global-only. |
-| `review.preset` | enum | `auto` | narrow-only | — | — | Review protocol preset for this project: auto follows the risk rule; a project may only pick a stricter preset. |
+| `review.preset` | enum | `review-single` | narrow-only | — | — | Review protocol preset: review-single by default, 1 seat and 1 round; auto follows the risk rule; review-deep is 2 seats; a project may only pick a stricter preset than its user. |
 | `review.rounds` | integer | — | narrow-only | — | — | Review rounds; unset uses the preset's rounds, a project may only choose more rounds than its user layer. |
 | `review.sameFamily` | enum | `warn` | narrow-only | — | — | Whether a reviewer seat from the author's model family is refused or only warned about; a project may only choose refuse. |
 | `review.crossFamilyRereview` | enum | `on` | narrow-only | — | — | Cross-family re-review of a changed record; a project may only keep it on. |
@@ -50,7 +50,7 @@ DoFlow configuration layers resolve settings across registry defaults, environme
 | `models.enabled` | model-list | `[]` | project-overridable | — | — | Allow-list of models permitted for task bindings and dispatch rungs. |
 | `packages.disabled` | string-list | `[]` | project-overridable | — | — | Package ids turned off for this view; lists from all layers add up, so a project can only turn packages off. |
 | `rollout.profile` | enum | `baseline` | project-overridable | `DOFLOW_ROLLOUT_PROFILE` | — | Active rollout profile governing retrieval, decision advisor, code graph, and verification automation. |
-| `team.writerCap` | integer | `2` | project-overridable | `DOFLOW_TEAM_WRITER_CAP` | — | Maximum number of concurrent mutating worker sessions permitted across the active task graph. |
+| `team.writerCap` | integer | `1` | project-overridable | `DOFLOW_TEAM_WRITER_CAP` | — | Maximum number of concurrent mutating worker sessions across the active task graph; 1 by default, so writes run single-threaded and reads in parallel; the user may raise it. |
 | `team.maxAttempts` | integer | `3` | project-overridable | `DOFLOW_TEAM_MAX_ATTEMPTS` | — | Maximum attempt count permitted for any single plan task before escalating to operator intervention. |
 <!-- END GENERATED:settings-keys -->
 

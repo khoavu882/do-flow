@@ -214,7 +214,8 @@ function validatePrepared(doc: Record<string, any>, ctx: any): Entry[] {
     }
     if (kind !== 'review') continue;
     if (taskClass === null) continue;
-    const floor: number = gateMinSeats(inputs().gatePolicy, taskClass);
+    // maint-thin: the seat floor binds only an unattended run (the autopilot switch is on), as in review start.
+    const floor: number = inputs().unattended === false ? 0 : gateMinSeats(inputs().gatePolicy, taskClass);
     const seats: number = protocols.presets[id].seats.length;
     if (seats < floor) { // the seat floor (L-E1); the E.1-control-floor mutation targets this line
       errors.push(entry(key, null, 'not-narrower', `${id} has ${seats} seat${seats === 1 ? '' : 's'}; the gate-b floor for ${taskClass} is ${floor} seats`));

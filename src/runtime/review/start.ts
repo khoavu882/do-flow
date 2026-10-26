@@ -220,13 +220,14 @@ function loadEnforcementInputs(registry: any, { harnessesFile = path.join(REPO_R
 
 /**
  * The inputs `resolveProtocol` needs beyond the change facts: the project's settings as the plain `settingsView`
- * the resolver reads (`{ key: { value, layer } }`, 119 L-B8), the gate policy (the shipped gates.json narrowed by the
+ * the resolver reads (`{ key: { value, layer } }`, 119 L-B8), whether the review is `unattended` (the autopilot switch
+ * is on, so the class seat floor binds; maint-thin), the gate policy (the shipped gates.json narrowed by the
  * project's `.doflow/gates.override.json`, read as roadmap gate-b reads it, 119 IC-005; null when there is no task class, so
  * no floor), the protocols registry and the enforcement inputs (`loadEnforcementInputs`). A base, override or registry the loaders reject is a refusal carrying the loader's
  * reason (and the override file). Shared with the `protocol` verb.
  */
 function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<string, string | undefined> = process.env):
-  { gatePolicy: any; registry: any; settingsView: Record<string, { value: unknown; layer: string }>; agentAccess: Record<string, string>; readOnlyLimits: any[] } | { error: string; message: string } {
+  { gatePolicy: any; unattended: boolean; registry: any; settingsView: Record<string, { value: unknown; layer: string }>; agentAccess: Record<string, string>; readOnlyLimits: any[] } | { error: string; message: string } {
   const settingsView: Record<string, { value: unknown; layer: string }> = {};
   try {
     const settings = require('../settings/resolve.ts').loadSettings({ projectRoot: path.resolve(cwd), env });
@@ -261,7 +262,10 @@ function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<s
   if (!protocols.ok) return { error: 'protocols-invalid', message: protocols.errors.join('; ') };
   const enforcement = loadEnforcementInputs(protocols.registry);
   if ('error' in enforcement) return enforcement;
-  return { gatePolicy, registry: protocols.registry, settingsView, ...enforcement };
+  // maint-thin: the class seat floor binds only while the autopilot switch is on (its policy gate-b may decide the
+  // merge unattended); a person-attended review follows the preset. Read fresh, like every other switch reader.
+  const unattended: boolean = require('../settings/autopilot.ts').readKillSwitch(env).enabled === true;
+  return { gatePolicy, unattended, registry: protocols.registry, settingsView, ...enforcement };
 }
 
 /** The decision model's opinion on the decided depth. Never throws: any failure is `unavailable`. */
@@ -479,7 +483,7 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
       result.forbidden = forbidden;
     }
     const scope = pathScope(riskPolicy, paths);
-    const floor = gateMinSeats(inputs.gatePolicy, taskClass);
+    const floor = inputs.unattended ? gateMinSeats(inputs.gatePolicy, taskClass) : 0;
     const facts = { kind: 'review', taskClass, risk: result.risk, paths, runPreset: preset ?? null, ...inputs, riskPolicy };
     const REFUSALS: Record<string, string> = {
       'preset-unknown': `--preset '${preset}' is not a review preset`,

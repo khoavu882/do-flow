@@ -34,11 +34,14 @@ const SCOPES: any = {
   unknown: [],
 };
 const FLOOR: any = { feature: 2 };
+// maint-thin: the risk rule runs only under `review.preset: auto`; the tables below pin that rule, so the helper
+// sets auto on the user layer. The thin default (no setting) has its own tests at the end of this file.
+const AUTO: any = { 'review.preset': { value: 'auto', layer: 'user' } };
 
 function resolve(overrides: any = {}) {
   return resolveProtocol({
     kind: 'review', taskClass: 'bug', risk: 'LOW', paths: SCOPES.light, runPreset: null, advicePick: null,
-    settingsView: {}, gatePolicy: GATE_POLICY, registry: REGISTRY, riskPolicy: RISK_POLICY, ...overrides,
+    settingsView: AUTO, gatePolicy: GATE_POLICY, registry: REGISTRY, riskPolicy: RISK_POLICY, ...overrides,
   });
 }
 
@@ -188,10 +191,10 @@ test('C-11: a debate whose preset a project or user layer set to the default nam
   assert.equal(untouched.protocol.origins.id, 'registry');
   const auto = resolve({ kind: 'debate', settingsView: { 'debate.preset': { value: 'auto', layer: 'project' } } });
   assert.equal(auto.protocol.origins.id, 'registry');
-  // review: an equal setting still leaves the risk step as origin
+  // review: an equal setting leaves the start pick's origin (maint-thin: the thin start, origin registry)
   const review = resolve({ taskClass: 'bug', settingsView: { 'review.preset': { value: 'review-single', layer: 'project' } } });
   assert.equal(review.protocol.id, 'review-single');
-  assert.equal(review.protocol.origins.id, 'risk');
+  assert.equal(review.protocol.origins.id, 'registry');
 });
 
 test('C-11: a debate lists only the invariants that apply to it; a review keeps INV-1..INV-7', () => {
@@ -229,7 +232,7 @@ test('the resolver does not modify its inputs, and its output shares nothing wit
   gatePolicy.classes.feature['gate-b'].minSeats = 3;
   const riskPolicy = structuredClone(RISK_POLICY);
   const paths: any = ['docs/a.md'];
-  const settingsView: any = {};
+  const settingsView: any = structuredClone(AUTO);
   const args: any = { kind: 'review', taskClass: 'feature', risk: 'LOW', paths, runPreset: null, advicePick: 'deep', settingsView, gatePolicy, registry, riskPolicy };
   const first = resolveProtocol(args);
   const second = resolveProtocol(args);
@@ -372,4 +375,46 @@ test('enforcement is part of the digest', () => {
   const withRows = resolve({ taskClass: 'feature', ...inputs }).protocol;
   const without = resolve({ taskClass: 'feature' }).protocol;
   assert.notEqual(protocolDigest(withRows), protocolDigest(without));
+});
+
+// maint-thin (user ruling 2026-10-26: "default thin"): with no review.preset setting, or the shipped default-layer
+// review-single, every change starts at review-single (1 seat, 1 round), whatever its risk and paths; a layer that
+// sets review-deep or auto raises it. The class seat floor binds only an unattended review.
+test('maint-thin: no setting, or the shipped default, gives review-single for any risk and scope', () => {
+  for (const settingsView of [{}, { 'review.preset': { value: 'review-single', layer: 'default' } }]) {
+    for (const risk of RISKS) {
+      for (const paths of Object.values(SCOPES)) {
+        const got = resolve({ taskClass: 'bug', risk, paths, settingsView, unattended: false });
+        assert.equal(got.ok, true);
+        assert.equal(got.protocol.id, 'review-single', JSON.stringify({ risk, paths, settingsView }));
+        assert.equal(got.protocol.seats.length, 1);
+        assert.equal(got.protocol.rounds, 1);
+        assert.equal(got.protocol.origins.id, 'registry');
+      }
+    }
+  }
+});
+
+test('maint-thin: a layer that sets review-deep or auto raises the thin start (negative control)', () => {
+  const deep = resolve({ taskClass: 'bug', paths: SCOPES.light, settingsView: { 'review.preset': { value: 'review-deep', layer: 'user' } }, unattended: false });
+  assert.equal(deep.protocol.id, 'review-deep');
+  assert.equal(deep.protocol.origins.id, 'user');
+  const auto = resolve({ taskClass: 'bug', paths: SCOPES.code, settingsView: AUTO, unattended: false });
+  assert.equal(auto.protocol.id, 'review-deep');
+  assert.equal(auto.protocol.origins.id, 'risk');
+  const rounds = resolve({ taskClass: 'bug', settingsView: { 'review.rounds': { value: 3, layer: 'user' } }, unattended: false });
+  assert.equal(rounds.protocol.id, 'review-single');
+  assert.equal(rounds.protocol.rounds, 3);
+});
+
+test('maint-thin: the feature seat floor binds an unattended review only', () => {
+  const attended = resolve({ taskClass: 'feature', paths: SCOPES.code, settingsView: {}, unattended: false });
+  assert.equal(attended.protocol.id, 'review-single');
+  assert.equal(attended.protocol.seats.length, 1);
+  const unattended = resolve({ taskClass: 'feature', paths: SCOPES.code, settingsView: {}, unattended: true });
+  assert.equal(unattended.protocol.id, 'review-deep');
+  assert.equal(unattended.protocol.seats.length, 2);
+  assert.equal(unattended.protocol.origins.id, 'floor');
+  // omitted reads as unattended: a caller that does not say keeps the floor (fail closed)
+  assert.equal(resolve({ taskClass: 'feature', settingsView: {} }).protocol.seats.length, 2);
 });

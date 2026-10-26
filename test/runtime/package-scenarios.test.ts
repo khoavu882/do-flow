@@ -276,6 +276,12 @@ test('--preset with a package preset: taken when it dominates the pick (protocol
   assert.equal(result.protocol.id, 'acme.strict');
   assert.equal(result.depthBasis.raisedBy, 'run');
 
+  // maint-thin: over the thin start (review-single) lax.loose dominates and is taken; under auto the pick of this code
+  // change is deep, which it does not dominate.
+  const thinLax = resolveReview(w, ['--preset', 'lax.loose']);
+  assert.equal(thinLax.status, 0, thinLax.stdout + thinLax.stderr);
+  assert.equal(w.json(thinLax).protocol.id, 'lax.loose');
+  fs.writeFileSync(w.settingsFile, JSON.stringify({ schema: 1, 'review.preset': 'auto' }));
   const looser = resolveReview(w, ['--preset', 'lax.loose']);
   assert.equal(looser.status, 1, looser.stdout + looser.stderr);
   assert.equal(w.json(looser).error, 'preset-looser');
@@ -408,12 +414,12 @@ test('faulty package isolated: a package whose range excludes the running host i
   assert.equal(w.cli(['protocol', '--action', 'list'], { runtime: future }).status, 0);
   const config = w.cli(['config', 'list'], { runtime: future });
   assert.equal(config.status, 0, config.stdout + config.stderr);
-  assert.match(config.stdout, /review\.preset = "auto"/);
+  assert.match(config.stdout, /review\.preset = "review-single"/);
   const started = w.review({ runtime: future });
   assert.equal(started.status, 0, started.stdout + started.stderr);
   const result = w.json(started);
   assert.equal(result.ok, true);
-  assert.equal(result.depth, 'deep');
+  assert.equal(result.depth, 'single', 'maint-thin: the shipped review.preset is review-single');
 });
 
 // ── removal (FR-012) ──────────────────────────────────────────────────────────────────────────────
