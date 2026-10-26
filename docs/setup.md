@@ -53,8 +53,11 @@ uses code modules rather than the shell commands DoFlow ships, so no OpenCode ho
 Pi now has a `tool_call` guard extension at user and project scope; the project extension runs only
 after the project is trusted. OpenCode's `opencode.json` merge remains supported; DoFlow does not write Pi's `settings.json`.
 Gemini CLI was retired in favour of Antigravity: `--target gemini` is refused, and an existing
-Gemini CLI install is released on the next `install` or `update`; see
-[Antigravity's global instructions file](#antigravity-global-instructions-file).
+Gemini CLI install is released on the next `install`, `update` or `reconcile`; see
+[Antigravity's global instructions file](#antigravity-global-instructions-file). Each of the three
+backs up the files the release changes before it applies it, so `doflow rollback` can undo it. The
+run prints one summary line:
+`[RETIRED] gemini → antigravity: deleted N, stripped N, released N, dropped N, deferred N, kept N`.
 
 ### Optional external tools
 
@@ -185,6 +188,8 @@ and a file with no DoFlow section gets one appended. A section left by an earlie
 taken over in one write on the next `install` or `update`; if that section was edited since, DoFlow
 keeps the file as it is until you re-run with `--force`. `remove -g -t antigravity` strips the section
 and leaves the rest of the file.
+Text a person wrote inside the Gemini CLI section's markers is removed with the section; it is backed
+up first.
 
 ## CLI lifecycle
 
@@ -236,7 +241,7 @@ describe what it restores and a later `update` or `remove` accepts them. It rest
 of the files it writes back (narrowed by `--target` with them): records of later runs, of other
 harnesses and of MCP entries stay as they are, so a later `remove` still finds everything DoFlow has
 on disk. Nothing else under `.doflow/state` (runs, evidence, recovery records), `doflow.lock` or the
-install manifest is copied. After each install or update the newest 3
+install manifest is copied. After each install or update (and after a reconcile that backed up a retirement sweep) the newest 3
 backups of that scope are kept: `--prune N` keeps N, and `--prune 0` keeps all. An update with
 nothing to change prunes nothing, so the first run after upgrading from 1.19 that prunes is an
 install, or an update that changes files; it removes the older DoFlow-written backups beyond the
@@ -275,6 +280,10 @@ For the harnesses the lock pins:
   recorded in the ledger's tombstone log and the stale copy is swept automatically — but only if
   its bytes still match what DoFlow last verified there. Files you edited stay, with an unswept
   tombstone saying so.
+- **A lock that pins only `gemini` makes reconcile do nothing.** Run `doflow update` in that scope to
+  release Gemini CLI's files.
+- **Reconcile replaces an edited `GEMINI.md` section.** It is always forced, so a DoFlow section in
+  `~/.gemini/GEMINI.md` that you edited is replaced; text outside the markers stays.
 
 ## Harness capabilities and activation
 
@@ -455,8 +464,9 @@ the explicit neutral-state importer still reads historical `.claude` metadata, a
 
 If a configuration update is wrong, restore the named backup with `doflow rollback`. Rollback
 restores the files the backup holds, leaves in place the files the run created and lists them, and
-exits 1 if a file cannot be restored. With no `--target` it restores the whole backup; `--target`
-restores only the files of the named harnesses. Before restoring, it snapshots only the files the
+exits 1 if a file cannot be restored. With no `--target` it restores the whole backup, including every
+released Gemini CLI row and `targets.gemini`; `--target` restores only the files of the named
+harnesses, and with them only the rows of the files it writes back. Before restoring, it snapshots only the files the
 restore will overwrite. Backups made by 1.19 restore as before. The reverse does not hold: DoFlow
 1.19's `rollback` of a newer backup takes a whole-home snapshot, restores nothing, and still reports
 success, so after downgrading do not rely on it for backups made since. `doflow list-backups` shows each
