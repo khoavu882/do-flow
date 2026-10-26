@@ -234,8 +234,8 @@ const ACCEPTED_ARGS = ['--task-class', 'bug', '--calling-skill', 'do', '--reques
  * Runs classify against an in-process fake server, so the model calls can be counted: `asks` is the number of
  * decision requests the verb made. The child runs asynchronously, which leaves the server free to answer.
  */
-async function runCounted(t: any, f: any, args: any, { settings, sentinel, env }: any = {}) {
-  const server: any = await startFakeServer();
+async function runCounted(t: any, f: any, args: any, { settings, sentinel, env, routes }: any = {}) {
+  const server: any = await startFakeServer({ routes });
   t.after(() => server.close());
   f.enable(server.origin);
   fs.mkdirSync(path.join(f.project, '.doflow', 'state'), { recursive: true });
@@ -246,9 +246,11 @@ async function runCounted(t: any, f: any, args: any, { settings, sentinel, env }
   let stderr = '';
   child.stdout.on('data', (chunk: any) => { stdout += chunk; });
   child.stderr.on('data', (chunk: any) => { stderr += chunk; });
+  const startedAt = Date.now();
   const status = await new Promise((resolve) => child.on('close', resolve));
+  const verbMs = Date.now() - startedAt;
   const asks = server.requests.filter((r: any) => r.method === 'POST' && r.pathname === '/v1/systemone').length;
-  return { status, stdout, stderr, asks };
+  return { status, stdout, stderr, asks, verbMs, server };
 }
 
 test('084 H2: with advice.kinds.task-class unset the client records the pick, as before the dispatcher', async (t) => {
@@ -290,6 +292,27 @@ test('084 H2: advice.kinds.task-class shadow keeps the verdict, shows no opinion
   const records = pickRecords(f);
   assert.deepEqual(records.map(({ type, mode, caller, static: s, pick, model }: any) => ({ type, mode, caller, static: s, pick, model })),
     [{ type: 'pick', mode: 'shadow', caller: 'classify', static: 'bug', pick: 'feature', model: 'clef-flash' }]);
+});
+
+test('a cold model: the verb returns before the load ends and the shadow pick is recorded by the background call', async (t) => {
+  const f = fixture(t);
+  const LOAD_MS = 2500;
+  const CLASSES = ['feature', 'bug', 'refactor', 'review', 'research', 'documentation', 'dependency-change', 'operations', 'trivial-edit'];
+  const routes: any = {
+    'GET /api/ps': { status: 200, body: { models: [] } },
+    'POST /v1/systemone': { delayMs: LOAD_MS, status: 200, body: { answers: { 'task-class': { choice: 'feature', confidence: 0.7, probabilities: Object.fromEntries(CLASSES.map((c: string) => [c, c === 'feature' ? 0.84 : 0.02])) } } } },
+  };
+  const result = await runCounted(t, f, ACCEPTED_ARGS, { settings: { advice: { kinds: { 'task-class': 'shadow' } } }, routes });
+  assert.equal(result.status, 0, result.stderr);
+  const json = JSON.parse(result.stdout);
+  assert.equal(json.outcome, 'ACCEPTED');
+  assert.equal(json.secondOpinion.status, 'shadow');
+  assert.ok(result.verbMs < LOAD_MS, `the cold load does not hold the verb (${result.verbMs} ms)`);
+  const deadline = Date.now() + 15000;
+  while (!pickRecords(f).length && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
+  const [record] = pickRecords(f);
+  assert.deepEqual({ type: record.type, mode: record.mode, caller: record.caller, static: record.static, pick: record.pick }, { type: 'pick', mode: 'shadow', caller: 'classify', static: 'bug', pick: 'feature' });
+  assert.ok(record.durationMs >= LOAD_MS - 200, 'the record covers the load');
 });
 
 test('084 D3: advice.kinds.task-class act with a passing bench file in the project still falls back to shadow', async (t) => {

@@ -6,6 +6,7 @@ const SYSTEMONE_PATH = '/v1/systemone';
 const VERSION_PATH = '/api/version';
 const TAGS_PATH = '/api/tags';
 const SHOW_PATH = '/api/show';
+const LOADED_PATH = '/api/ps';
 
 function parseJson(bodyText: any): any {
   if (typeof bodyText !== 'string') return null;
@@ -180,6 +181,17 @@ function parseList(status: number, bodyText: any): any[] {
     }));
 }
 
+function loadedRequest() {
+  return { method: 'GET', path: LOADED_PATH };
+}
+
+/** Whether `model` is loaded in memory now (Ollama /api/ps); null when the reply cannot say. */
+function parseLoaded(status: number, bodyText: any, model: any): boolean | null {
+  const parsed = status === 200 ? parseJson(bodyText) : null;
+  if (!Array.isArray(parsed?.models)) return null;
+  return parsed.models.some((entry: any) => modelMatches(model, entry?.name) || modelMatches(model, entry?.model));
+}
+
 function showRequest(name: string): { method: string; path: string; body: any } {
   return { method: 'POST', path: SHOW_PATH, body: { model: name } };
 }
@@ -205,5 +217,7 @@ module.exports = {
   parseList,
   showRequest,
   parseShow,
+  loadedRequest,
+  parseLoaded,
   modelMatches,
 };

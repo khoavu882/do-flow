@@ -10,6 +10,7 @@ const { loadStorageRegistry } = require('../storage/registry.ts');
 const { resolveRoots } = require('../storage/roots.ts');
 const { profileAdvisorCap, capMode } = require('./mode.ts');
 const { REPO_ROOT } = require('../../helper/repo-root.ts');
+const { runDetached: startDetached } = require('../detach.ts');
 
 /** The advice registry's kinds (core/registry/advice.json). */
 type AdviceKind = 'tier' | 'task-class' | 'verify-risk' | 'review-depth' | 'mcp-need' | 'followup-triage';
@@ -52,6 +53,8 @@ interface AskOptions {
 
 interface AdviceClient {
   ask(options: AskOptions): Promise<AdviceResult>;
+  /** True when the model is not loaded, so the call would wait on a load (client.ts isCold); absent on a client that cannot tell. */
+  isCold?(options?: { model?: string }): Promise<boolean>;
 }
 
 interface KindShadowConfig {
@@ -105,6 +108,8 @@ interface DecisionPointResolution {
   warning?: string;
 }
 
+const COLD_MARGIN_MS = 1000;
+
 /** One advisor call: the pick, or the reason there is none. `off` means the advice setting is off: nothing is recorded. */
 interface AdvisorCall {
   status: 'answered' | 'miss' | 'off';
@@ -116,17 +121,61 @@ interface AdvisorCall {
   durationMs: number;
 }
 
-/** The budget of one advisor call: the registry's timeoutMs (core/registry/advice.json), 0 (no call) when unknown. */
+/**
+ * The budget of one advisor call: the registry's longest wait (coldTimeoutMs when it has one, else timeoutMs; the
+ * client picks the short or the cold limit for itself) plus a margin so the client's own reason is the one recorded.
+ * 0 (no call) when unknown.
+ */
 function budgetMs(context: DecisionPointContext): number {
-  const own = context.adviceRegistry?.timeoutMs;
-  if (typeof own === 'number' && Number.isFinite(own) && own > 0) return own;
+  const longest = (registry: any): number => {
+    const warm = registry?.timeoutMs;
+    if (typeof warm !== 'number' || !Number.isFinite(warm) || warm <= 0) return 0;
+    const cold = registry?.coldTimeoutMs;
+    return typeof cold === 'number' && Number.isFinite(cold) && cold > warm ? cold + COLD_MARGIN_MS : warm;
+  };
+  const own = longest(context.adviceRegistry);
+  if (own > 0) return own;
   try {
     const loaded = loadAdviceRegistry({ repoRoot: REPO_ROOT });
-    const shipped = loaded.ok ? loaded.registry.timeoutMs : null;
-    return typeof shipped === 'number' && Number.isFinite(shipped) && shipped > 0 ? shipped : 0;
+    return loaded.ok ? longest(loaded.registry) : 0;
   } catch {
     return 0;
   }
+}
+
+function clientFor(context: DecisionPointContext, services: DispatcherServices): AdviceClient {
+  return services.adviceClient || createAdviceClient({
+    adviceRegistry: context.adviceRegistry,
+    roots: services.roots,
+    fsImpl: services.fsImpl,
+  });
+}
+
+/**
+ * Hands a call to a detached copy of this module when the model is cold, so the load (up to coldTimeoutMs) does not
+ * hold the verb, and so the user's turn, open. Returns false, and the caller asks in-process, when the client cannot
+ * tell, the model is warm, a test's file system is injected, or the process cannot be started.
+ */
+async function detachIfCold(context: DecisionPointContext, services: DispatcherServices, model: string | null, budget: number, pickId: string): Promise<boolean> {
+  try {
+    if (services.fsImpl) return false;
+    const client = clientFor(context, services);
+    if (typeof client.isCold !== 'function' || !(await client.isCold(model ? { model } : undefined))) return false;
+    // The child takes the caller's environment, so the payload leaves it out.
+    const { env: _env, ...rest } = context;
+    return startDetached(__filename, { context: rest, model, budget, pickId }, { cwd: context.projectRoot, env: context.env });
+  } catch {
+    return false;
+  }
+}
+
+/** The detached child's entry: one advisor call from the payload on stdin, recorded as a shadow pick or miss. */
+async function runDetached(): Promise<void> {
+  const payload = JSON.parse(require('node:fs').readFileSync(0, 'utf8'));
+  const context: DecisionPointContext = { ...payload.context, env: process.env };
+  const services: DispatcherServices = { roots: storeRoots(context, {}) ?? undefined };
+  const asked = await askAdvisor(context, services, payload.model, payload.budget);
+  recordCall(context, services, 'shadow', asked, payload.pickId, false);
 }
 
 /**
@@ -143,11 +192,7 @@ async function askAdvisor(context: DecisionPointContext, services: DispatcherSer
   let timer: ReturnType<typeof setTimeout> | undefined;
   const controller = new AbortController();
   try {
-    const client: AdviceClient = services.adviceClient || createAdviceClient({
-      adviceRegistry: context.adviceRegistry,
-      roots: services.roots,
-      fsImpl: services.fsImpl,
-    });
+    const client = clientFor(context, services);
     const options: AskOptions = {
       questionSet: context.questionSet,
       kind: context.kind,
@@ -233,8 +278,8 @@ async function interceptDecisionPoint(context: DecisionPointContext, services: D
 
   // Shadow: return the static pick now; the detached call records its pick or miss. With record:false nothing could be
   // kept, so no call is made.
-  const shadow = (warning?: string): DecisionPointResolution => {
-    if (context.record !== false) {
+  const shadow = async (warning?: string): Promise<DecisionPointResolution> => {
+    if (context.record !== false && !(await detachIfCold(context, services, model, budget, pickId))) {
       askAdvisor(context, services, model, budget)
         .then((asked) => recordCall(context, services, 'shadow', asked, pickId, false))
         .catch(() => {});
@@ -274,3 +319,5 @@ async function interceptDecisionPoint(context: DecisionPointContext, services: D
 module.exports = {
   interceptDecisionPoint,
 };
+
+if (require.main === module) runDetached().catch(() => {}).finally(() => process.exit(0));

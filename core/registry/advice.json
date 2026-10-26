@@ -1,6 +1,7 @@
 {
   "version": 1,
   "timeoutMs": 5000,
+  "coldTimeoutMs": 90000,
   "probeTimeoutMs": 1500,
   "doctorBudgetMs": 6000,
   "limits": {

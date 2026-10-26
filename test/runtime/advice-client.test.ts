@@ -82,7 +82,7 @@ test('score client retains numerical fields, criterion static agreement and scor
   assert.equal(saved.static, 'High');
   const invalid = await createClient().ask({ questionSet: SCORE_SET, staticAnswer: '2', record: false });
   assert.equal(invalid.reason, 'config-invalid');
-  assert.equal(server.requests.length, 1);
+  assert.equal(server.requests.filter((request: any) => request.pathname === '/v1/systemone').length, 1);
 });
 
 for (const scoreFirst of [false, true]) {
@@ -120,7 +120,7 @@ test('ask gives HTTP only the budget left after DNS', async (t) => {
   const result = await createClient().ask({ questionSet: CHOICE_SET, record: false });
   assert.equal(result.reason, 'timeout');
   assert.ok(Date.now() - started < 300, 'DNS must not add another full HTTP timeout');
-  assert.equal(server.requests.length, 1);
+  assert.equal(server.requests.filter((request: any) => request.pathname === '/v1/systemone').length, 1);
 });
 
 test('inspect includes stalled DNS in its total doctor budget', { timeout: 1000 }, async (t) => {
@@ -338,10 +338,10 @@ test('084 C-3: a model override is the model asked, recorded and reported; unset
   const overridden = await createClient().ask({ questionSet: CHOICE_SET, kind: 'tier', caller: 'advise', model: 'per-kind:1b' });
   assert.equal(overridden.status, 'answered');
   assert.equal(overridden.model, 'per-kind:1b');
-  assert.equal(server.requests[0].body.model, 'per-kind:1b');
+  assert.equal(server.requests.filter((request: any) => request.pathname === '/v1/systemone')[0].body.model, 'per-kind:1b');
   const plain = await createClient().ask({ questionSet: CHOICE_SET, kind: 'tier', caller: 'advise' });
   assert.equal(plain.model, 'clef-flash');
-  assert.equal(server.requests[1].body.model, 'clef-flash');
+  assert.equal(server.requests.filter((request: any) => request.pathname === '/v1/systemone')[1].body.model, 'clef-flash');
   assert.deepEqual(records(roots).map((record: any) => record.model), ['per-kind:1b', 'clef-flash']);
 });
 
@@ -354,4 +354,47 @@ test('084 C-3: a model override never turns an off setting on', async (t) => {
   assert.equal(result.status, 'off');
   assert.equal(requests, 0, 'no transport request is made');
   assert.equal(records(roots).length, 0);
+});
+
+// ---- a cold model gets the cold wait; a warm one the short wait ----
+
+const LOADED = { status: 200, body: { models: [{ name: 'clef-flash:latest', model: 'clef-flash:latest' }] } };
+const NOT_LOADED = { status: 200, body: { models: [] } };
+const ANSWER = (delayMs: number) => ({ delayMs, status: 200, body: { answers: { tier: { choice: 'light', probabilities: { light: 0.8, standard: 0.1, frontier: 0.1 }, confidence: 0.7 } } } });
+
+test('a cold model waits past timeoutMs for its load, a warm one does not', async (t) => {
+  const cold = await startFakeServer({ routes: { 'GET /api/ps': NOT_LOADED, 'POST /v1/systemone': ANSWER(300) } });
+  onClose(t, cold);
+  const a: any = fixture(t, { endpoint: cold.origin, lookup: loopbackLookup, adviceOverrides: { timeoutMs: 100, coldTimeoutMs: 2000 } });
+  const slowCold = await a.createClient().ask({ questionSet: CHOICE_SET, staticAnswer: 'light', caller: 'advise' });
+  assert.equal(slowCold.status, 'answered', 'the cold load is waited for');
+  assert.equal(records(a.roots).filter((r: any) => r.type === 'pick').length, 1, 'and the pick is recorded');
+
+  const warm = await startFakeServer({ routes: { 'GET /api/ps': LOADED, 'POST /v1/systemone': ANSWER(300) } });
+  onClose(t, warm);
+  const b: any = fixture(t, { endpoint: warm.origin, lookup: loopbackLookup, adviceOverrides: { timeoutMs: 100, coldTimeoutMs: 2000 } });
+  const slowWarm = await b.createClient().ask({ questionSet: CHOICE_SET, staticAnswer: 'light', caller: 'advise' });
+  assert.equal(slowWarm.status, 'unavailable');
+  assert.equal(slowWarm.reason, 'timeout');
+  assert.deepEqual(records(b.roots).filter((r: any) => r.type === 'miss').map((r: any) => r.reason), ['timeout']);
+});
+
+test('a cold model that never loads in time records timeout-cold, not silence', async (t) => {
+  const server = await startFakeServer({ routes: { 'GET /api/ps': NOT_LOADED, 'POST /v1/systemone': ANSWER(1000) } });
+  onClose(t, server);
+  const { createClient, roots }: any = fixture(t, { endpoint: server.origin, lookup: loopbackLookup, adviceOverrides: { timeoutMs: 100, coldTimeoutMs: 300 } });
+  const result = await createClient().ask({ questionSet: CHOICE_SET, staticAnswer: 'light', caller: 'advise' });
+  assert.equal(result.reason, 'timeout-cold');
+  assert.deepEqual(records(roots).filter((r: any) => r.type === 'miss').map((r: any) => r.reason), ['timeout-cold']);
+});
+
+test('isCold reads the provider, and a probe that cannot place the model reads as warm', async (t) => {
+  const cold = await startFakeServer({ routes: { 'GET /api/ps': NOT_LOADED } });
+  const warm = await startFakeServer({ routes: { 'GET /api/ps': LOADED } });
+  const unknown = await startFakeServer({});
+  for (const server of [cold, warm, unknown]) onClose(t, server);
+  const answer = async (server: any) => fixture(t, { endpoint: server.origin, lookup: loopbackLookup }).createClient().isCold();
+  assert.equal(await answer(cold), true);
+  assert.equal(await answer(warm), false);
+  assert.equal(await answer(unknown), false, '/api/ps missing: warm');
 });
