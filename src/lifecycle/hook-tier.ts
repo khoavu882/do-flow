@@ -14,8 +14,20 @@ const HOOKS_KEY = 'hooks.harnesses';
 const TIER_REASON = `not in ${HOOKS_KEY}`;
 
 /** The harness ids that get DoFlow's hooks: the person's `hooks.harnesses` (user layer only), else the
- * registry default. A settings fault keeps the default; only an unusable settings registry throws. */
+ * registry default. A settings fault keeps the default; only an unusable settings registry throws.
+ * With no user settings file the default is read from the registry alone, so an install that has
+ * nothing to resolve loads no settings module (the 086 hot-path budget). */
 function resolveHookHarnesses({ env = process.env, loadSettings }: { env?: Record<string, string | undefined>; loadSettings?: any } = {}): string[] {
+  if (!loadSettings) {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const { configHome } = require('../runtime/config-home.ts');
+    const dir = configHome(env).dir;
+    if (!dir || !fs.existsSync(path.join(dir, 'settings.json'))) {
+      const registry = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'registry', 'settings.json'), 'utf8'));
+      return [...registry.keys[HOOKS_KEY].default];
+    }
+  }
   const load = loadSettings ?? require('../runtime/settings/resolve.ts').loadSettings;
   const resolution = load({ global: true, env: { ...env }, only: [HOOKS_KEY] }).get(HOOKS_KEY, 'global');
   return Array.isArray(resolution?.value) ? [...resolution.value] : [];
