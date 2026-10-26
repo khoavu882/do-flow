@@ -305,10 +305,10 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
   }
   // 115 IC-006: every record left in the worktree's own store moves to the main checkout first, in one
   // locked sweep; a record held in both with different bytes refuses the call before the verb runs.
-  // 092 IC-001: the orchestrate reads (list, status) write nothing, so they never sweep: they read the
+  // 092 IC-001, 093 IC-012: the orchestrate reads (list, status, timeline) write nothing, so they never sweep: they read the
   // main checkout's store and see a record still left in this worktree as another checkout's
   // (`orchestrationRuns`, `findRunFile`). The next write verb from here sweeps it as before.
-  const orchestrateRead = o.cmd === 'orchestrate' && (o.action === 'list' || o.action === 'status');
+  const orchestrateRead = o.cmd === 'orchestrate' && (o.action === 'list' || o.action === 'status' || o.action === 'timeline');
   if (redirected && !orchestrateRead) {
     const sweep = sweepWorktreeRecords({ mainRoot: storeRoot, worktreeRoot: checkouts.current, recordSlug });
     if (!sweep.ok) {

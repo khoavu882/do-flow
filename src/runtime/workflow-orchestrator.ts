@@ -969,20 +969,73 @@ function compactAfterHandoff({ taskId, projectRoot }: any) {
  * IC-001: `orchestrate --action list`, every run the resolver can see as a prompt-free row plus the
  * records it could not read, by reason code only. Reads and prints; writes nothing.
  */
-function listRuns({ taskId, taskClass, gate, decision, policy, forced, note, reason, stage, node, verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, slug, dryRun, json, stateRoot }: any) {
-  const { finishRuntime, usageError } = require('./cli-result.ts');
+/**
+ * The first flag given that a read action does not take, or undefined. Every flag another action
+ * reads is refused before any read: a filter the read does not apply must not look applied, and an
+ * outcome nothing records must not look recorded. `takes` names the flags the action does read.
+ */
+function noEffectFlag({ taskId, taskClass, gate, decision, policy, forced, note, reason, stage, node, verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, slug, dryRun }: any, takes: string[] = []) {
   const supplied = (value: any) => value !== undefined && value !== null;
-  // Every flag another action reads is refused here, before any read: list takes no filter, so a
-  // `--slug` must not look like one, and an outcome nothing records must not look recorded.
-  const noEffect = [
+  const given = [
     ['--task-id', supplied(taskId)], ['--task-class', supplied(taskClass)], ['--gate', supplied(gate)],
     ['--decision', supplied(decision)], ['--policy', supplied(policy)],
     ['--forced', forced], ['--note', supplied(note)], ['--reason', supplied(reason)], ['--stage', supplied(stage)],
     ['--node', supplied(node)], ['--verification-plan', supplied(verificationPlan)], ['--scope', supplied(scope)],
     ['--invariants', supplied(invariants)], ['--result', supplied(result)], ['--mcp-outcome', supplied(mcpOutcome)],
     ['--calling-skill', supplied(callingSkill)], ['--slug', supplied(slug)], ['--dry-run', Boolean(dryRun)],
-  ].find(([, given]) => given);
-  if (noEffect) return usageError('orchestrate', `'${noEffect[0]}' has no effect on action 'list'`, json);
+  ].find(([flag, on]) => on && !takes.includes(flag as string));
+  return given ? given[0] as string : undefined;
+}
+
+/** A journal time as an ISO instant, else null, so no other journal text reaches a read's output. */
+const journalTime = (value: any) => typeof value === 'string'
+  && /^\d{4}-\d{2}-\d{2}T/.test(value) && !Number.isNaN(Date.parse(value)) ? value : null;
+
+/** The journal actions a timeline shows (093 IC-012); any other is counted in `otherEvents`. */
+const TIMELINE_ACTIONS = new Set(['start', 'complete-stage', 'skip-stage', 'skip-gate', 'decide-gate', 'annotate', 'complete-run']);
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * 093 IC-012: one run's history as closed values only. Each event copies the action, an id-shaped
+ * node, the stage outcome (complete-stage), the gate decision (decide-gate's `detail`), `forced`, and
+ * whether the entry records no work done (the indicators rule, trace/indicators.ts isSynthetic).
+ * Notes, detail text, deciders, policy inputs, consultations and trace ids are never read.
+ */
+function timelineOf(run: any, taskId: string, featureSlug: any) {
+  const at = (value: any) => journalTime(value) !== null && ISO_INSTANT.test(value) ? value : null;
+  const events: any[] = [];
+  let otherEvents = 0;
+  for (const entry of Array.isArray(run.history) ? run.history : []) {
+    if (!entry || typeof entry !== 'object' || !TIMELINE_ACTIONS.has(entry.action)) {
+      otherEvents += 1;
+      continue;
+    }
+    events.push({
+      at: at(entry.at),
+      action: entry.action,
+      node: typeof entry.node === 'string' && ID_PATTERN.test(entry.node) ? entry.node : null,
+      outcome: entry.action === 'complete-stage' && STAGE_OUTCOMES.has(entry.outcome) ? entry.outcome : null,
+      decision: entry.action === 'decide-gate' && GATE_DECISIONS.includes(entry.detail) ? entry.detail : null,
+      forced: entry.forced === true,
+      synthetic: Boolean(entry.backfilled) || Boolean(entry.executionStatus && entry.executionStatus !== 'completed'),
+    });
+  }
+  return {
+    v: 1,
+    taskId,
+    featureSlug: typeof featureSlug === 'string' && ID_PATTERN.test(featureSlug) ? featureSlug : null,
+    revision: Number.isInteger(run.revision) && run.revision >= 0 ? run.revision : 0,
+    startedAt: at(run.startedAt),
+    events,
+    otherEvents,
+  };
+}
+
+function listRuns({ json, stateRoot, ...flags }: any) {
+  const { finishRuntime, usageError } = require('./cli-result.ts');
+  // list takes no filter, so a `--slug` must not look like one.
+  const noEffect = noEffectFlag(flags);
+  if (noEffect) return usageError('orchestrate', `'${noEffect}' has no effect on action 'list'`, json);
 
   const resolverFailure = () => {
     if (json) console.log(JSON.stringify({ v: 1, error: 'cannot-list-checkouts' }, null, 2));
@@ -1008,9 +1061,6 @@ function listRuns({ taskId, taskClass, gate, decision, policy, forced, note, rea
       reason,
     });
   };
-  const journalTime = (value: any) => typeof value === 'string'
-    && /^\d{4}-\d{2}-\d{2}T/.test(value) && !Number.isNaN(Date.parse(value)) ? value : null;
-
   // One row per run, the copy status reads (C-2): a shadowed flat or another checkout's copy is dropped.
   for (const entry of selectRunEntries(resolved.entries)) {
     if (entry.error) {
@@ -1104,6 +1154,12 @@ function handleOrchestrateCommand({
   if (action === 'list') {
     return listRuns({ taskId, taskClass, gate, decision, policy, forced, note, reason, stage, node, verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, slug, dryRun, json, stateRoot });
   }
+  // 093 IC-012: timeline reads one run, so it takes the two flags that name it and refuses the rest.
+  if (action === 'timeline') {
+    const noEffect = noEffectFlag({ taskId, taskClass, gate, decision, policy, forced, note, reason, stage, node, verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, slug, dryRun }, ['--task-id', '--slug']);
+    if (noEffect) return usageError('orchestrate', `'${noEffect}' has no effect on action 'timeline'`, json);
+    if (!taskId) return usageError('orchestrate', 'timeline requires --task-id', json);
+  }
 
   const root = repoRoot || REPO_ROOT;
   // Same scope rule every other stateful command uses (evidenceRoot(o) in runtime-commands.js):
@@ -1124,9 +1180,10 @@ function handleOrchestrateCommand({
   // refuses nor satisfies it.
   let runRoot = state;
   if (safeId && action !== 'start') {
-    // `status` with no --slug opens the one run the list action shows for the id, whichever feature
-    // namespace holds it (FU-wrnnaq); more than one is refused until --slug names the feature.
-    const found = findRunFile({ stateRoot: state, taskId, slug: featureSlug, anyNamespace: action === 'status' && !slug });
+    // `status` (and `timeline`, which reads the same run) with no --slug opens the one run the list
+    // action shows for the id, whichever feature namespace holds it (FU-wrnnaq); more than one is
+    // refused until --slug names the feature.
+    const found = findRunFile({ stateRoot: state, taskId, slug: featureSlug, anyNamespace: (action === 'status' || action === 'timeline') && !slug });
     if (found.status === 'ambiguous') {
       console.error(found.byFeature
         ? `[ERROR] orchestrate: run '${taskId}' exists under more than one feature (${found.candidates.join(', ')}); pass --slug <feature> to name the one you mean. Nothing was changed.`
@@ -1233,8 +1290,21 @@ function handleOrchestrateCommand({
         if (!taskId) return usageError('orchestrate', 'status requires --task-id', json);
         snapshot = orchestrator.status(taskId);
         break;
+      case 'timeline': {
+        const run = orchestrator.requireRun(taskId);
+        const body = timelineOf(run, taskId, runSlugOf(run, runRoot) || featureSlug);
+        if (json) console.log(JSON.stringify(body, null, 2));
+        else {
+          console.log(`Timeline ${body.taskId} ${body.featureSlug || '-'} rev ${body.revision}`);
+          for (const e of body.events) {
+            console.log(`${e.at || '-'} ${e.action} ${e.node || '-'} ${e.outcome || e.decision || '-'}${e.forced ? ' forced' : ''}${e.synthetic ? ' synthetic' : ''}`);
+          }
+          if (body.otherEvents > 0) console.log(`other events: ${body.otherEvents}`);
+        }
+        return finishRuntime(0);
+      }
       default:
-        return usageError('orchestrate', `unknown action '${action}'; valid: start | status | list | handoff | catch-up | complete-stage | skip-stage | decide-gate | annotate`, json);
+        return usageError('orchestrate', `unknown action '${action}'; valid: start | status | list | timeline | handoff | catch-up | complete-stage | skip-stage | decide-gate | annotate`, json);
     }
     // Only a handoff that recorded work compacts; `deferred` and `standalone` recorded nothing.
     if (action === 'handoff' && (snapshot.disposition === 'completed' || snapshot.disposition === 'annotated')) {
