@@ -175,6 +175,9 @@ test('the Console reads every route from the real core, leaks no free text, and 
     assert.equal(detail.run.taskId, row.taskId);
     assert.equal(detail.run.state, row.state);
     assert.equal(detail.run.revision, row.revision, `${row.taskId}: list and status agree on the revision`);
+    // status carries no slug, times or origin: the run head takes them from the matching list row.
+    assert.ok(detail.run.updatedAt, `${row.taskId}: run.updatedAt is set`);
+    for (const key of ['featureSlug', 'startedAt', 'updatedAt', 'origin']) assert.equal(detail.run[key], row[key], `${row.taskId}: run.${key} is the list row's`);
     assert.equal(detail.run.journalGateDiffers, false, `${row.taskId}: the journal gate copy matches the registry`);
     assert.equal(detail.timeline.taskId, row.taskId);
     assert.equal(detail.timeline.revision, row.revision);
