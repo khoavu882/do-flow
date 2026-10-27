@@ -796,7 +796,7 @@ async function executeIteration(opts: any = {}) {
     }
 
     iterDir = path.join(runRoot, plan.iteration);
-    checkRunRoot({ runRoot, iterDir, repoRoot, defaultRoot: !opts.runRoot });
+    checkRunRoot({ runRoot, iterDir, repoRoot, defaultRoot: runRoot === defaultRunRoot(repoRoot) });
     // From here the iteration is ours: every check below reads its state under the lock.
     lock = lockIteration(runRoot, iterDir);
     const existing = plan.runs.filter((r: any) => fs.existsSync(r.runDir) || isLink(r.runDir)).map((r: any) => r.id);

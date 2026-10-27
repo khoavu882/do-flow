@@ -1024,6 +1024,21 @@ test('C-11: a symlinked run entry counts at maxTokensPerRun; a symlinked run roo
   assert.deepEqual(readDump(s), []);
 });
 
+test('FU-swkhgg: the default run root is checked for resolving outside the checkout even when the caller passes it explicitly', async () => {
+  const s = setup({ ownRepo: true });
+  const outside = path.join(s.dir, 'outside');
+  fs.mkdirSync(path.join(outside, 'agentic'), { recursive: true });
+  fs.mkdirSync(path.join(s.repoRoot, 'bench'), { recursive: true });
+  fs.symlinkSync(outside, path.join(s.repoRoot, 'bench', 'runs'));
+  git(s.repoRoot, 'add', '-A');
+  git(s.repoRoot, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'link runs');
+  s.opts.runRoot = path.join(s.repoRoot, 'bench', 'runs', 'agentic');
+  const refused = await execute.executeIteration({ ...s.opts, tasks: ['T1'] });
+  assert.equal(refused.exit, 2);
+  assert.equal(refused.reason, 'run-root-symlink');
+  assert.deepEqual(fs.readdirSync(path.join(outside, 'agentic')), []);
+});
+
 test('N-1, N-4: the version check runs in a scratch profile; the credential copy is mode 0600; iteration records the capture digest', async () => {
   const s = setup();
   const r = await execute.executeIteration({ ...s.opts, tasks: ['T1'] });
