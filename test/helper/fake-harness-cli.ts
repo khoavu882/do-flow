@@ -196,7 +196,7 @@ async function main() {
       fs.writeFileSync(target, spec.content ?? '');
     } else if (Object.hasOwn(step, 'commit')) {
       const message = String(step.commit?.message ?? 'fake commit');
-      const r = spawnSync('git', ['-c', 'user.name=fake', '-c', 'user.email=fake@invalid', 'commit', '-qam', message], { cwd, encoding: 'utf8' });
+      const r = spawnSync('git', ['-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'user.name=fake', '-c', 'user.email=fake@invalid', 'commit', '-qam', message], { cwd, encoding: 'utf8' });
       if (r.status !== 0) {
         fs.writeSync(2, `fake-harness-cli: commit failed: ${r.error?.code ?? r.stderr ?? ''}\n`);
         process.exitCode = typeof r.status === 'number' && r.status !== 0 ? r.status : NO_TOOL_EXIT;

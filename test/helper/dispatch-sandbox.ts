@@ -158,7 +158,7 @@ function makeDispatchSandbox(t: any, { plan = 'dependent', slug = '082-dispatch-
     }
     git(base, env, ['init', '-q', '-b', 'main']);
     git(base, env, ['add', '-A']);
-    git(base, env, ['-c', 'user.name=sandbox', '-c', 'user.email=sandbox@invalid', 'commit', '-qm', 'sandbox: initial']);
+    git(base, env, ['-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'user.name=sandbox', '-c', 'user.email=sandbox@invalid', 'commit', '-qm', 'sandbox: initial']);
   });
   const planFile = path.join(root, 'agent-docs', 'doflow', slug, 'plan.md');
 
