@@ -63,6 +63,15 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
   // Timestamp of a record with no start of its own (a tier with no check, an in-run duplicate):
   // the latest instant seen so far, so line timestamps never go backwards.
   let cursor = Number.isFinite(runStart) ? runStart : undefined;
+  // The latest timestamp written so far. A check's own start comes from the wall clock while the
+  // cursor advances by a rounded monotonic duration, so a later start can fall a millisecond short
+  // of a stamp already written; every stamp is held at or above this one.
+  let latest = cursor;
+  const stamp = (ms: number | undefined): number | undefined => {
+    if (ms === undefined) return latest;
+    latest = latest === undefined ? ms : Math.max(latest, ms);
+    return latest;
+  };
   let checksRun = 0;
   const body: any[] = [];
   const commandKeys = new Map<string, string | null>();
@@ -113,6 +122,7 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
         failedFirst = check.failedFirst ? (check.failedFirst.status === 'FAIL' ? 'fail' : 'pass') : 'none';
       }
       if (durationMs !== null) tierMs = (tierMs ?? 0) + durationMs;
+      at = stamp(at);
       if (tierStart === undefined) tierStart = at;
       checks.push({
         kind: 'verify.check',
@@ -135,7 +145,7 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
     const selection = tier.selection || {};
     body.push({
       kind: 'verify.tier',
-      timestamp: isoAt(tierStart ?? cursor),
+      timestamp: isoAt(tierStart ?? stamp(cursor)),
       verify_id: verifyId,
       tier: tier.id,
       status: tier.status,
