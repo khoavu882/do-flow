@@ -248,11 +248,11 @@ test('G13: controls — the overhead bound binds (a bound of 0 turns the real re
 // supports per-call model selection — stated so a tier is never claimed applied that the host could
 // not set, and kept in the reference (not the capped skill) so it costs the skill window nothing.
 const TASK_CONTEXT_RAILS: any = new Map([
-  ['feature', 231000], // E.1 raise: do-code-review review-findings contract, measured 230,329 B; 046 raise is new prose; 2026-10-12 raises are the archetype dispatch-tier table and the model-tier enforceability note; 080 raise is the task-graph claim/resume flow; 080 review adds report-usage and control refusals (DEC-024)
-  ['dependency-change', 92800], // E.1 raise: do-code-review review-findings contract, measured 85,445 B; 132 raise: do-document names ARTIFACT_VOICE.md (G13 counts it in full), measured 92,734 B
+  ['feature', 231600], // 131 raise: three skills' step detail moved into their own references/ (G13 counts each named reference in full, plus the pointer lines), measured 231,536 B. E.1 raise: do-code-review review-findings contract, measured 230,329 B; 046 raise is new prose; 2026-10-12 raises are the archetype dispatch-tier table and the model-tier enforceability note; 080 raise is the task-graph claim/resume flow; 080 review adds report-usage and control refusals (DEC-024)
+  ['dependency-change', 92850], // 131 raise: do-code-review's tools moved to references/tools.md (pointer line), measured 92,814 B. E.1 raise: do-code-review review-findings contract, measured 85,445 B; 132 raise: do-document names ARTIFACT_VOICE.md (G13 counts it in full), measured 92,734 B
   ['bug', 71000],
   ['refactor', 71000],
-  ['documentation', 62900], // 132 raise: do-document names ARTIFACT_VOICE.md (G13 counts it in full) and gains the rewrite clause, measured 62,802 B; before that under 57,000 B
+  ['documentation', 62950], // 131 raise: do-code-review's tools moved to references/tools.md (pointer line), measured 62,922 B. 132 raise: do-document names ARTIFACT_VOICE.md (G13 counts it in full) and gains the rewrite clause, measured 62,802 B; before that under 57,000 B
   ['operations', 52200], // 132 raise: do-document names ARTIFACT_VOICE.md (G13 counts it in full), measured 52,100 B; before that under 45,000 B
   ['review', 42000],
   // Pre-114 history, measured 2026-10-11: research 35,302 B after the IC-019 second-opinion text in do/SKILL.md (the 114 raise below supersedes it).
