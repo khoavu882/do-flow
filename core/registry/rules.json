@@ -212,6 +212,17 @@
       "ablationCandidate": true
     },
     {
+      "id": "rule-workflow-user-input-beats-detection",
+      "tag": "flags",
+      "statement": "What the user typed beats auto-detection.",
+      "sourceFile": "core/shared/guidance/rules/RULES.md",
+      "category": "workflow",
+      "enforcement": "advisory",
+      "enforcementRef": null,
+      "neverAblate": false,
+      "ablationCandidate": false
+    },
+    {
       "id": "rule-quality-naming-standards",
       "tag": "quality",
       "statement": "Naming: Follow language standards (camelCase JS, snake_case Python); no mixed conventions",

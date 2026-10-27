@@ -224,10 +224,10 @@ test('copy-tree assets (rules/skills/agents/templates/scripts/references) instal
   assert.ok(fs.existsSync(path.join(projectRoot, '.codex', 'agents', 'system-architect.md')), 'agents/system-architect.md must exist after install');
   // rules/ and references/ (guidance.context-layer) no longer duplicate into .codex/ — they land
   // in the shared .doflow/guidance/ tree, referenced by AGENTS.md's pointer instead of copied.
-  // PRINCIPLES.md/FLAGS.md sit at that tree's root (not a docs/ subdir), which is what makes
+  // PRINCIPLES.md sits at that tree's root (not a docs/ subdir), which is what makes
   // DOFLOW_CORE.md's root-relative @imports resolve.
   for (const rel of [path.join('rules', 'RULES.md'), path.join('references', 'DOFLOW_CHAIN.md'),
-    'PRINCIPLES.md', 'FLAGS.md', 'DOFLOW_CORE.md']) {
+    'PRINCIPLES.md', 'DOFLOW_CORE.md']) {
     assert.ok(fs.existsSync(path.join(projectRoot, '.doflow', 'guidance', rel)), `.doflow/guidance/${rel} must exist after install`);
   }
   assert.ok(!fs.existsSync(path.join(projectRoot, '.doflow', 'guidance', 'docs')), 'guidance/docs/ was flattened into the guidance root');

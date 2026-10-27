@@ -39,3 +39,7 @@ When no native interactive question tool (one that presents options and returns 
 - Do NOT generate `{stage}-questions.md` files or halt execution waiting for manual file edits.
 - Adopt the recommended default choice, record the adopted decision and rationale in the stage notes or artifact, and proceed with execution.
 - If no sensible default exists and execution cannot safely proceed without user input, report the specific ambiguity and halt.
+
+## Flags and runtime
+What the user typed beats auto-detection. A flag is declared in the `argument-hint` of every skill that consumes it; shared flags are `--depth` and `--type`.
+The runtime enforces readiness gating (a four-state verdict, never a number), recovery bounds (it sets the retry bound, not you), run tracing (where a run stopped is read from its record, never reconstructed) and capability routing (a provider healthy on this machine, not a habitual tool).

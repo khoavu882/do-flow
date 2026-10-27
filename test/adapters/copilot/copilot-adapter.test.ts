@@ -476,7 +476,7 @@ test('rules project as .github/instructions/*.instructions.md with applyTo heade
 
 // ---- the real registry: the core set as path-specific instructions, plus the pointer ----
 
-const CORE_INSTRUCTIONS = ['DOFLOW_CORE.instructions.md', 'FLAGS.instructions.md', 'PRINCIPLES.instructions.md', 'rules/RULES.instructions.md'];
+const CORE_INSTRUCTIONS = ['DOFLOW_CORE.instructions.md', 'PRINCIPLES.instructions.md', 'rules/RULES.instructions.md'];
 
 function filesUnder(dir: any) {
   return fs.existsSync(dir) ? fs.readdirSync(dir, { recursive: true, withFileTypes: true }).filter((entry: any) => entry.isFile())

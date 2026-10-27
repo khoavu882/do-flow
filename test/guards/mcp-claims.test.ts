@@ -71,7 +71,7 @@ function checkMcpClaims({ registry, capabilities, files, indexDocs = [] }: any) 
   const docs: any = new Set([...servers.map((s: any) => path.posix.basename(s.doc || '')), ...indexDocs].filter(Boolean));
   const fileMap: any = new Map(files.map((f: any) => [f.rel, f.text]));
   const scan = files.filter((f: any) => f.rel.endsWith('.md')
-    && /^core\/shared\/(skills|agent-specs|guidance)\//.test(f.rel) && path.posix.basename(f.rel) !== 'FLAGS.md');
+    && /^core\/shared\/(skills|agent-specs|guidance)\//.test(f.rel));
 
   for (const { rel, text } of scan) {
     for (const m of text.matchAll(/MCP `([^`\n]+)`/g)) {
@@ -296,11 +296,6 @@ test('G28 control: a network module in each of the three modules fails the offli
 test('G28 control: docs/setup.md missing a trigger sentence fails', () => {
   const r = run(replace(baseFiles(), SETUP_DOC, 'nothing here\n'));
   assert.ok(r.some((x: any) => /docs\/setup\.md: docs follow the registry: server context7/.test(x)), r.join('\n'));
-});
-
-test('G28 control: FLAGS.md is excluded from the scan set', () => {
-  const files: any = [...baseFiles(), f('core/shared/guidance/FLAGS.md', 'always context7 MCP `nope`\n')];
-  assert.deepEqual(run(files), []);
 });
 
 module.exports = { checkMcpClaims };

@@ -60,7 +60,7 @@ function filesUnder(dir: any) {
     .map((entry: any) => path.relative(dir, path.join(entry.parentPath, entry.name)).split(path.sep).join('/')).sort();
 }
 
-const CORE_STEERING = ['DOFLOW_CORE.md', 'FLAGS.md', 'PRINCIPLES.md', 'rules/RULES.md'];
+const CORE_STEERING = ['DOFLOW_CORE.md', 'PRINCIPLES.md', 'rules/RULES.md'];
 const EDITED = 'modes/MODE_Orchestration.md';
 
 test('updating an install made before the core-set projections migrates Kiro, Copilot and Antigravity', () => {
@@ -94,12 +94,12 @@ test('updating an install made before the core-set projections migrates Kiro, Co
 
   // Copilot: the rules moved under instructions/rules/, and the core files beside them.
   assert.deepEqual(filesUnder(copilotInstructions), [
-    'DOFLOW_CORE.instructions.md', 'FLAGS.instructions.md', 'PRINCIPLES.instructions.md',
+    'DOFLOW_CORE.instructions.md', 'PRINCIPLES.instructions.md',
     'rules/RULES.instructions.md',
   ]);
 
-  // Antigravity: the three core files joined the rules file, flat.
-  assert.deepEqual(filesUnder(rules), ['DOFLOW_CORE.md', 'FLAGS.md', 'PRINCIPLES.md', 'RULES.md']);
+  // Antigravity: DOFLOW_CORE.md and PRINCIPLES.md joined the rules file, flat.
+  assert.deepEqual(filesUnder(rules), ['DOFLOW_CORE.md', 'PRINCIPLES.md', 'RULES.md']);
   for (const name of filesUnder(rules)) {
     assert.ok(fs.readFileSync(path.join(rules, name), 'utf8').startsWith('---\ntrigger: always_on\n---\n\n'),
       `${name} gained the always_on front-matter, including the rules file the old install wrote bare`);

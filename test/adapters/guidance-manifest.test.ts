@@ -22,7 +22,6 @@ test('guidanceManifest returns the core set in breadth-first import order on the
     files: [
       'DOFLOW_CORE.md',
       'PRINCIPLES.md',
-      'FLAGS.md',
       'rules/RULES.md',
     ],
     generated: ['MCP_INDEX.md'],

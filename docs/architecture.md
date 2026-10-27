@@ -460,7 +460,7 @@ command does.
 
 - **G4** (`flags.test.ts`): `--stage` and `--statement` are the runtime `followup` verb's own
   arguments, quoted in `WORKFLOW_HANDOFF.md`, so they are on the `NOT_FRAMEWORK_FLAGS` list with that
-  reason. A new runtime-verb flag quoted in guidance goes on the same list; do not add it to `FLAGS.md`.
+  reason. A new runtime-verb flag quoted in guidance goes on the same list; do not add it to the always-loaded flags section of `rules/RULES.md`.
 - **G13** (`context-budget.test.ts`): the loaded-context rails of the `feature` and `documentation`
   classes were raised for the lifecycle lines in `do-brainstorm` and the follow-up line in
   `WORKFLOW_HANDOFF.md` (the `documentation` rail only for the second, which `do-test` and
@@ -505,12 +505,12 @@ declares target capability and ownership inputs, and is not itself a native conf
 
 | Content | Where it lives | Why it is shared |
 |---|---|---|
-| `DOFLOW_CORE.md`, `PRINCIPLES.md`, `FLAGS.md`, `VERSION`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | One `guidance.context-layer` copy-tree asset mirrors this whole tree, byte-for-byte, into `.doflow/guidance/` for every scope, on the harnesses its `appliesTo` names. Three projections carry only the core set (the `@` import walk of `DOFLOW_CORE.md`, computed by `src/adapters/guidance-manifest.ts` and selected with `select: guidance-manifest`): Kiro steering (`.kiro/steering/`, the same asset's Kiro projection, with a second Kiro-only `kiro.guidance-tree` asset mirroring the full tree into `.doflow/guidance/`), the Copilot `instructions.copilot` asset (`*.instructions.md` with an `applyTo: '**'` header) and the Antigravity `rules.antigravity` asset (`flat` layout into project `.agents/rules`, each file under a `trigger: always_on` header from the `antigravity-always-on-rules` transform). `.doflow/guidance/` stays the full mirror for on-demand reads and is never loaded as steering |
+| `DOFLOW_CORE.md`, `PRINCIPLES.md`, `VERSION`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | One `guidance.context-layer` copy-tree asset mirrors this whole tree, byte-for-byte, into `.doflow/guidance/` for every scope, on the harnesses its `appliesTo` names. Three projections carry only the core set (the `@` import walk of `DOFLOW_CORE.md`, computed by `src/adapters/guidance-manifest.ts` and selected with `select: guidance-manifest`): Kiro steering (`.kiro/steering/`, the same asset's Kiro projection, with a second Kiro-only `kiro.guidance-tree` asset mirroring the full tree into `.doflow/guidance/`), the Copilot `instructions.copilot` asset (`*.instructions.md` with an `applyTo: '**'` header) and the Antigravity `rules.antigravity` asset (`flat` layout into project `.agents/rules`, each file under a `trigger: always_on` header from the `antigravity-always-on-rules` transform). `.doflow/guidance/` stays the full mirror for on-demand reads and is never loaded as steering |
 | `MCP_INDEX.md` (`.doflow/guidance/` only, no `core/` source) | Written directly by `applyLifecycle` (`src/lifecycle/index.ts`) | The one file in `.doflow/guidance/` that varies per install (the resolved MCP selection) — deliberately outside `guidance.context-layer`'s copy-tree source so its per-install content never conflicts with that asset's byte-for-byte mirror; imported unconditionally from `DOFLOW_CORE.md` |
 
 > **Path anchor (load-bearing).** Every `@import` in `DOFLOW_CORE.md`, and every `doc` value in
 > `core/registry/mcp.json`, is relative to the **guidance root** (`.doflow/guidance/`). That is why
-> `PRINCIPLES.md`/`FLAGS.md`/`MCP_INDEX.md` sit at the root rather than in a subdirectory: writing
+> `PRINCIPLES.md`/`MCP_INDEX.md` sit at the root rather than in a subdirectory: writing
 > any of them one level deeper silently reinterprets those relative paths against that subdirectory
 > and breaks them without any error. `test/adapters/copy-tree.test.ts` and `test/install/mcp-index.test.ts` resolve
 > both sets of paths against the real tree to keep that anchor enforced rather than assumed.
@@ -831,7 +831,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   entry rather than a skill, and copy-tree'ing the guidance directory is not reachability — that is
   how an orphaned pointer shipped to five harnesses while naming a directory the install had
   flattened away.
-- **G4** (`flags.test.ts`) — `FLAGS.md` entries are wired to a real consumer and vice versa. A flag that is a runtime verb's own argument (such as `--stage` and `--statement` of `followup`) is listed with its reason rather than added to `FLAGS.md`. It also verifies flag ownership against skill frontmatter: the backticked `--flag` tokens on `FLAGS.md`'s shared-flags line equal the flags declared in at least two skills' `argument-hint`, and for every `**--flag ...**` entry, the backticked skill names after "Consumed by" equal exactly the skills whose `argument-hint` declares that flag.
+- **G4** (`flags.test.ts`) — the always-loaded flag vocabulary, the `## Flags and runtime` section of `rules/RULES.md`, names only the shared flags, and its shared-flags line's backticked `--flag` tokens equal the flags declared in at least two skills' `argument-hint`. A flag one skill consumes is owned by that skill's `argument-hint` (row 130 moved `--focus` out of the core into `do-diagnose`); the always-loaded set may name no other flag, and every flag the guidance tree names is either shared or declared by some skill. A flag that is a runtime verb's own argument (such as `--stage` and `--statement` of `followup`) is listed with its reason in `NOT_FRAMEWORK_FLAGS`. The always-loaded set names no MCP server; that advertisement belongs to the generated `MCP_INDEX.md`.
 - **G5** (`registry.test.ts`) — checks registry claims against what is actually implemented under
   `src/` and `core/harnesses/`, in both directions for `--target`: every live harness is accepted, and
   every accepted id is a live registry harness, so a retired id is refused up front.
@@ -995,7 +995,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
 
 - **G28** (`mcp-claims.test.ts`) — shipped text, the MCP registry and the code agree on which MCP
   servers exist and where they are used. Declared names are the `mcp.json` ids plus every
-  provider's `mcp.server`. Over the skills, agent specs and guidance (not `FLAGS.md`), ``MCP `<id>` ``,
+  provider's `mcp.server`. Over the skills, agent specs and guidance, ``MCP `<id>` ``,
   `mcp__<id>__` and `MCP_<Name>.md` must name a declared server or doc, and the ``MCP `<id>` `` marker
   appears only under `core/shared/skills/`; a sentence naming an `optional` server with "always",
   "no flag" or "unconditionally" fails; a sentence holding `ToolSearch(` must say "Claude Code". Each

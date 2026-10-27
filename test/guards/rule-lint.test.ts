@@ -53,7 +53,8 @@ function extractSubstantiveStatements(content: string, filePath: string): RuleSt
   const statements: RuleStatement[] = [];
   const baseName = path.basename(filePath, '.md');
   const ruleTagMatch = baseName.match(/^(RULE_\d+)/);
-  let ruleTag = ruleTagMatch ? ruleTagMatch[1] : baseName;
+  const fileTag = ruleTagMatch ? ruleTagMatch[1] : baseName;
+  let ruleTag = fileTag;
 
   let inFence = false;
   let currentLines: string[] = [];
@@ -108,10 +109,11 @@ function extractSubstantiveStatements(content: string, filePath: string): RuleSt
     if (inFence) continue;
 
     const trimmed = line.trim();
+    // A `## RULE_NN` section sets the tag; any other level-1 or level-2 heading ends it.
     const sectionTag = trimmed.match(/^#{1,6}\s+(RULE_\d+)\b/);
-    if (sectionTag) {
+    if (sectionTag || /^#{1,2}\s+/.test(trimmed)) {
       flushBlock();
-      ruleTag = sectionTag[1];
+      ruleTag = sectionTag ? sectionTag[1] : fileTag;
       continue;
     }
     if (!trimmed || trimmed.startsWith('<') || trimmed.startsWith('<!--') || /^#{1,6}\s+/.test(trimmed)) {
