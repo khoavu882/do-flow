@@ -82,7 +82,7 @@ function printProfilesDoctor(report: ProfileDoctorReport): void {
 
   const reg = report.registryVerified;
   const regStatus = reg.verifiedFacts && reg.nativeTelemetry ? 'PASS' : 'UNVERIFIED';
-  console.log(`  harness registry  ${reg.harnessCount}/8 harnesses verified (${regStatus})`);
+  console.log(`  harness registry  ${reg.harnessCount} harnesses checked (${regStatus})`);
 }
 
 module.exports = {
