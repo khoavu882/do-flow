@@ -109,6 +109,35 @@ function documentedFlags() {
   return [...new Set([...flagsText().matchAll(/`(--[a-z0-9-]+)`/g)].map((m) => m[1]))];
 }
 
+/** The flags the section's "shared" line names: the only flags no single skill owns. */
+function sharedLineFlags(text: any) {
+  const line = text.split('\n').find((l: any) => /\bshared\b/i.test(l)) ?? '';
+  return new Set([...line.matchAll(/`(--[a-z0-9-]+)`/g)].map((m) => m[1]));
+}
+
+/** G4 consumer check: pure function (files, declarations, shared) -> findings[]. Wherever a guidance
+ * or skill file says which skill consumes a flag ("Consumed by `skill`", the form FLAGS.md used),
+ * each named skill must declare that flag in its argument-hint, and for a flag that is not shared
+ * the named skills must be exactly the skills that declare it. */
+function checkFlagConsumers(files: any, declarations: any, shared: any) {
+  const findings: any = [];
+  const declarers = (flag: any) => [...declarations.entries()].filter(([, flags]: any) => flags.has(flag)).map(([skill]: any) => skill).sort();
+  for (const { rel, text } of files) {
+    for (const line of text.split('\n')) {
+      for (const m of line.matchAll(/(?<![\w-])(--[a-z][a-z0-9-]*)(?![\w-])[^\n]*?\bconsumed\s+by\b([^.\n]*)/gi)) {
+        const flag = m[1];
+        const named = [...m[2].matchAll(/`([a-z][a-z0-9-]*)`/g)].map((x) => x[1]).sort();
+        const expected = declarers(flag);
+        if (!named.length) { findings.push(`${rel}: ${flag} names no consuming skill after "Consumed by"`); continue; }
+        const undeclared = named.filter((skill) => !expected.includes(skill));
+        if (undeclared.length) findings.push(`${rel}: ${flag} consumers [${named.join(', ')}] include skills whose argument-hint does not declare it [${undeclared.join(', ')}]; declared by [${expected.join(', ')}]`);
+        else if (!shared.has(flag) && named.join() !== expected.join()) findings.push(`${rel}: ${flag} consumers [${named.join(', ')}] do not match skills declaring it in argument-hint [${expected.join(', ')}]`);
+      }
+    }
+  }
+  return findings;
+}
+
 /** Every flag some skill declares in its argument-hint: the owner of a skill-local flag. */
 function declaredFlags() {
   return new Set([...skillFlagDeclarations().values()].flatMap((flags: any) => [...flags]));
@@ -146,7 +175,7 @@ test('G4: the always-loaded set does not enumerate MCP servers', () => {
 // Without it, removing a flag leaves every mention of it behind as a pointer to something that no
 // longer exists — silently, because the forward check only ever looks at what is still listed.
 test('G4: every flag referenced in the guidance tree is shared or declared by a skill', () => {
-  const owned: any = new Set([...documentedFlags(), ...declaredFlags()]);
+  const owned: any = new Set([...sharedLineFlags(flagsText()), ...declaredFlags()]);
   const dangling: any = [];
   // Scoped to the guidance tree on purpose: hook scripts are full of ordinary CLI flags that this
   // guard has no business tracking.
@@ -161,8 +190,8 @@ test('G4: every flag referenced in the guidance tree is shared or declared by a 
     `flags referenced in guidance with no owner (shared line or a skill argument-hint):\n  ${[...new Set(dangling)].sort().join('\n  ')}`);
 });
 
-// What the consumer check used to police (a `**--flag**` entry naming the wrong skill) cannot recur
-// if the always-loaded set names no single-skill flag at all: that entry belongs in the skill.
+// A single-skill flag belongs in its skill, never in the always-loaded set: only the shared line's
+// flags may appear there.
 function coreSkillLocalFlags(files: any, shared: any) {
   return files.flatMap(({ rel, text }: any) => [...text.matchAll(/(?<![\w-])(--[a-z][a-z0-9-]{2,})(?![\w-])/g)]
     .map((m) => m[1]).filter((flag) => !shared.has(flag)).map((flag) => `${rel} -> ${flag}`));
@@ -170,8 +199,32 @@ function coreSkillLocalFlags(files: any, shared: any) {
 
 test('G4: the always-loaded set names no flag but the shared ones', () => {
   const files = alwaysLoaded().files.map(({ rel }: any) => ({ rel, text: fs.readFileSync(path.join(GUIDANCE, rel), 'utf8') }));
-  assert.deepEqual(coreSkillLocalFlags(files, new Set(documentedFlags())), [],
+  assert.deepEqual(coreSkillLocalFlags(files, sharedLineFlags(flagsText())), [],
     'a single-skill flag in the always-loaded set is context every session pays; document it in the skill');
+});
+
+const consumerFiles = () => coreTextFiles().filter(({ rel }: any) => /^core\/shared\/(guidance|skills)\/.*\.md$/.test(rel));
+
+test('G4: flag consumers — a skill named as a flag\'s consumer declares it in its argument-hint', () => {
+  const findings = checkFlagConsumers(consumerFiles(), skillFlagDeclarations(), sharedLineFlags(flagsText()));
+  assert.deepEqual(findings, [], `flag consumers that do not declare the flag:\n  ${findings.join('\n  ')}`);
+});
+
+test('G4: control — a backticked flag documented with the wrong consumer is red (the Sol plant)', () => {
+  const text = flagsText();
+  const decls = skillFlagDeclarations();
+  const shared = sharedLineFlags(text);
+  const planted = [{ rel: RULES_REL, text: `${text}\n\`--fix\` applies the fix in place. Consumed by \`do-plan\`.\n` }];
+  assert.deepEqual(checkFlagConsumers(planted, decls, shared),
+    [`${RULES_REL}: --fix consumers [do-plan] include skills whose argument-hint does not declare it [do-plan]; declared by [do-diagnose]`]);
+  // The same plant in the always-loaded set is also a single-skill flag there.
+  assert.deepEqual(coreSkillLocalFlags(planted.map(({ text: t }) => ({ rel: 'rules/RULES.md', text: t })), shared), ['rules/RULES.md -> --fix']);
+  // The right consumer passes; a missing consumer list does not.
+  assert.deepEqual(checkFlagConsumers([{ rel: 'x.md', text: '`--fix` applies it. Consumed by `do-diagnose`.' }], decls, shared), []);
+  assert.match(checkFlagConsumers([{ rel: 'x.md', text: '`--fix` is consumed by the diagnose skill.' }], decls, shared)[0], /names no consuming skill/);
+  // A shared flag may name any subset of its declarers, never a skill that does not declare it.
+  assert.deepEqual(checkFlagConsumers([{ rel: 'x.md', text: '`--depth`: consumed by `do-plan`.' }], decls, shared), []);
+  assert.equal(checkFlagConsumers([{ rel: 'x.md', text: '`--depth`: consumed by `do-git`.' }], decls, shared).length, 1);
 });
 
 test('G4: every BEHAVIOURAL_ONLY suppression names a flag that is still documented', () => {
@@ -209,7 +262,7 @@ test('G4: controls — shared-set and core-flag checks detect re-seeded faults a
 
   // Re-seed control: the --focus entry the retired FLAGS.md carried, planted back into the core
   const planted = [{ rel: 'rules/RULES.md', text: `${text}\n**--focus [quality|security]** — narrows analysis. Consumed by \`do-diagnose\`.\n` }];
-  assert.deepEqual(coreSkillLocalFlags(planted, new Set(documentedFlags())), ['rules/RULES.md -> --focus']);
+  assert.deepEqual(coreSkillLocalFlags(planted, sharedLineFlags(text)), ['rules/RULES.md -> --focus']);
 
   // Vacuity control: the section extractor finds nothing once the heading is gone
   assert.equal(flagsSection(text.replace(SECTION, '## Something else')), '');
