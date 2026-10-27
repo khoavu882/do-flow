@@ -88,4 +88,3 @@ python scripts/review_report_generator.py . \
 thresholds do. They are **declared, never applied**: they orient a reviewer reading a score, and
 nothing computes the verdict from one. A verdict may therefore disagree with the band a score falls
 in, provided the report says so and why.
-
