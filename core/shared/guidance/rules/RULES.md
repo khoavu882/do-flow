@@ -42,4 +42,4 @@ When no native interactive question tool (one that presents options and returns 
 
 ## Flags and runtime
 What the user typed beats auto-detection. A flag is declared in the `argument-hint` of every skill that consumes it; shared flags are `--depth` and `--type`.
-The runtime enforces readiness gating (a four-state verdict, never a number), recovery bounds (it sets the retry bound, not you), run tracing (where a run stopped is read from its record, never reconstructed) and capability routing (a provider healthy on this machine, not a habitual tool).
+The runtime grades a source-editing stage against its class contract first (four states, no score), classifies a failed verification and retries it under a bound it sets, records and reads back every call (never reconstructs a run), and routes a need to a provider healthy here, not a habitual tool.
