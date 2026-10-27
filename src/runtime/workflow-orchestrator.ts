@@ -1294,6 +1294,8 @@ function handleOrchestrateCommand({
     if (mcpOutcome !== undefined && action !== 'handoff') {
       return usageError('orchestrate', `'--mcp-outcome' has no effect on action '${action}' — only handoff records MCP outcomes`, json);
     }
+    // A catch-up on an absent run starts it implicitly, which counts as a run start for the pointer.
+    const absentBefore = action === 'catch-up' && taskId ? !orchestrator.readRun(taskId) : false;
     let snapshot;
     switch (action) {
       case 'handoff':
@@ -1344,6 +1346,13 @@ function handleOrchestrateCommand({
       }
       default:
         return usageError('orchestrate', `unknown action '${action}'; valid: start | status | list | timeline | handoff | catch-up | complete-stage | skip-stage | decide-gate | annotate`, json);
+    }
+    // Row 135: the feature pointer follows a `feature` run: set when it starts (`start`, or the `catch-up` that
+    // starts it), dropped once it completes.
+    if ((action === 'start' || absentBefore) && snapshot.taskClass === 'feature' && snapshot.state !== 'COMPLETED') {
+      require('./feature-pointer.ts').recordFeature({ storeRoot: state, cwd: source, slug: featureSlug, taskId });
+    } else if (action !== 'status' && snapshot.taskClass === 'feature' && snapshot.state === 'COMPLETED') {
+      require('./feature-pointer.ts').clearCheckout({ storeRoot: state, cwd: source, slug: featureSlug });
     }
     // Only a handoff that recorded work compacts; `deferred` and `standalone` recorded nothing.
     if (action === 'handoff' && (snapshot.disposition === 'completed' || snapshot.disposition === 'annotated')) {

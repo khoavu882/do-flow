@@ -4,7 +4,7 @@ description: "Read-only reviewer of a change it did not write: path:line defects
 model: inherit
 effort: high
 access: read-only
-tool-scope: all
+tool-scope: read, shell, web, mcp
 ---
 
 # reviewer
@@ -49,3 +49,4 @@ blocker so a gate passes.
 ## Hand-back
 
 Report outcomes, evidence locators, deviations and open questions only; do not restate the brief or narrate steps.
+End the report with one line `Status: <status>`, where the status is one of `done`, `done-with-concerns`, `needs-context`, `blocked`.

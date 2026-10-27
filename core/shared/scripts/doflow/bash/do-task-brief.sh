@@ -28,8 +28,9 @@
 # task line's `owner:` and `tier:`, calls the dispatcher once per brief and writes the block plus
 # the `*-brief.json` record (IC-018) beside the brief. It names no tool, provider, server or tier.
 # It fails open (IC-019): a missing dispatcher, a non-zero exit or output that is not the expected
-# JSON gives a "Not generated" line and a static report-format block, a `missing[]` note, no
-# record, and the exit status the brief would otherwise have had.
+# JSON gives a "Not generated" line, the must-carry rules (read from the rule ledger,
+# `core/registry/rules.json`, whatever the task line's owner) and a static report-format block, a
+# `missing[]` note, no record, and the exit status the brief would otherwise have had.
 #
 # Usage:
 #   do-task-brief.sh --task=<id> [--harness=<id>] [--slug=<slug>] [--json]
@@ -195,7 +196,7 @@ task_field() { # task_field <task line> <name>
 }
 
 # Sets bt_md and bt_record on success, bt_reason on every failure; never exits.
-bt_call() { # bt_call <owner> <tier> <heading level> <task ids>
+bt_verb() { # bt_verb <owner> <tier> <heading level> <task ids>
   bt_md=""; bt_record=""; bt_reason=""
   local dispatcher="$script_dir/../bin/doflow-run" out rc
   if [ -z "$1" ]; then bt_reason="the task line names no owner"; return 0; fi
@@ -213,7 +214,43 @@ bt_call() { # bt_call <owner> <tier> <heading level> <task ids>
   return 0
 }
 
-# The block for the brief: the verb's markdown, or the static fallback (no tool names).
+# The registry file `core/registry/<name>` of the runtime this script belongs to: next to the checkout or
+# projected runtime found above this script, else the global projected runtime. Empty when none exists.
+registry_file() { # registry_file <name>
+  local d="$script_dir" c
+  while [ -n "$d" ] && [ "$d" != "/" ]; do
+    for c in "$d/core/registry/$1" "$d/runtime/core/registry/$1"; do
+      if [ -f "$c" ]; then printf '%s' "$c"; return 0; fi
+    done
+    d="$(dirname "$d")"
+  done
+  c="${HOME:-}/.doflow/runtime/core/registry/$1"
+  if [ -f "$c" ]; then printf '%s' "$c"; fi
+  return 0
+}
+
+# Sets bt_rules to the "Rules that apply to you" block (the mustCarry lines of the rule ledger, as
+# src/runtime/brief-rules.ts renders them) when the verb did not produce the brief block, which
+# already carries it; names the reason in missing[] when the ledger cannot be read. Never exits.
+bt_rules_load() { # bt_rules_load <heading level>
+  bt_rules=""
+  [ -z "$bt_md" ] || return 0
+  local h="##" file lines
+  [ "$1" = "3" ] && h="###"
+  file="$(registry_file rules.json)"
+  if [ -z "$file" ]; then missing+=("brief-rules: core/registry/rules.json is missing"); return 0; fi
+  lines="$(jq -r 'if (.mustCarry | type) == "array" and (.mustCarry | length) > 0 and (.mustCarry | all(type == "string")) then .mustCarry[] | "- " + . else empty end' "$file" 2>/dev/null)"
+  if [ -z "$lines" ]; then missing+=("brief-rules: core/registry/rules.json has no mustCarry array"); return 0; fi
+  bt_rules="$(printf '%s Rules that apply to you\n\n%s\n' "$h" "$lines")"
+}
+
+# The tier and tools block, the rules and the report format the task line's owner and tier give.
+bt_call() { # bt_call <owner> <tier> <heading level> <task ids>
+  bt_verb "$@"
+  bt_rules_load "$3"
+}
+
+# The block for the brief: the verb's markdown, or the rules and the static fallback (no tool names).
 bt_emit() { # bt_emit <heading level>
   local h="##" who="your report"
   if [ "$1" = "3" ]; then h="###"; who="each task's report"; fi
@@ -221,9 +258,11 @@ bt_emit() { # bt_emit <heading level>
     printf '%s\n' "$bt_md"
     return 0
   fi
+  [ -z "$bt_rules" ] || printf '%s\n\n' "$bt_rules"
   printf '%s Tier and tools\n\nNot generated: %s. Name the tier and tools in the dispatch.\n\n' "$h" "$bt_reason"
-  printf '%s Report format\n\nEnd %s with one line naming every tool and MCP server you used:\n' "$h" "$who"
+  printf '%s Report format\n\nPut one line naming every tool and MCP server you used just before the final status line:\n' "$h"
   printf '%s\n' '`Tools used: <name>[=used|nothing-usable|unavailable|skipped:<reason>], ...`'
+  printf 'End %s with one line `Status: <status>`, where the status is one of `done`, `done-with-concerns`, `needs-context`, `blocked`.\n' "$who"
 }
 
 # Writes the record beside the brief with its tasks filled in; sets record_out to its path, or to ""

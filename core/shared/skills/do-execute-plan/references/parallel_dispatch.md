@@ -70,6 +70,7 @@ an ungrouped task are the same dispatch.
 Report paths come from the brief path the same call returned — the workspace is the directory
 holding it, and each task's report is `<workspace>/task-<ID>-report.md`. Each task writes its own
 report before the next one starts.
+Branch on each hand-back's status: `needs-context` resend with the missing context; `blocked` stop and surface it; `done-with-concerns` verify the concerns before accepting; `done` accept.
 
 Both verbs reject path traversal in group and task ids with exit 2. On any non-zero exit, stop and
 surface the error — do not proceed with a partial grouping.

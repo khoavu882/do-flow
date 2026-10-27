@@ -16,7 +16,7 @@ const { evaluateTaskReadiness } = require('./readiness.ts');
 const { writeReadinessRecord, readReadinessRecord } = require('./readiness-record.ts');
 const { resolveTaskScope } = require('./task-scope.ts');
 const { parseDeclaredScope } = require('./verification/scope-bound.ts');
-const { loadRegistry } = require('../registry/index.ts');
+const { loadRegistry, agentToolScopeView } = require('../registry/index.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 // One definition of the exit and usage helpers (design §4.2); `finish` is the local spelling of `finishRuntime`.
 const { finishRuntime: finish, usageError } = require('./cli-result.ts');
@@ -32,9 +32,10 @@ function handleCapabilitiesCommand({ json = false, check = false, repoRoot }: an
   const root = repoRoot || REPO_ROOT;
   const router = new CapabilityRouter({ repoRoot: root });
   const report = router.getAllCapabilitiesHealth(check);
+  const agentToolScope = agentToolScopeView(loadRegistry({ repoRoot: root, sources: 'skip' }));
 
   if (json) {
-    console.log(JSON.stringify({ capabilities: report }, null, 2));
+    console.log(JSON.stringify({ capabilities: report, agentToolScope }, null, 2));
     return;
   }
 
@@ -62,7 +63,10 @@ function handleCapabilitiesCommand({ json = false, check = false, repoRoot }: an
     );
   }
   console.log('═'.repeat(78));
-  console.log(`Mode: ${check ? 'Deep Smoke Check' : 'Fast Presence Check'} · Total Capabilities: ${report.length}\n`);
+  console.log(`Mode: ${check ? 'Deep Smoke Check' : 'Fast Presence Check'} · Total Capabilities: ${report.length}`);
+  console.log('\nAgent tool scope per harness (unenforced: no tool field is projected):');
+  for (const row of agentToolScope) console.log(`  ${row.harness.padEnd(14)}${row.status === 'native' ? `native      ${row.field}` : `unenforced  ${row.reason}`}`);
+  console.log('');
 }
 
 /**

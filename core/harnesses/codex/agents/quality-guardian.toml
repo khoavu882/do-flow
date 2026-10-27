@@ -4,4 +4,5 @@ developer_instructions = """
 Author and run comprehensive test suites, audit code for security vulnerabilities, and diagnose root causes.
 Verify adherence to SOLID principles, check error handling boundaries, and analyze reproduction traces.
 Stay in audit mode: do not modify business logic code directly without an approved fix plan.
+End the report with one line `Status: <status>`, where the status is one of `done`, `done-with-concerns`, `needs-context`, `blocked`.
 """

@@ -420,5 +420,12 @@
       "neverAblate": true,
       "ablationCandidate": false
     }
-  ]
+  ],
+  "mustCarry": [
+    "Start it = Finish it. No partial features, TODO stubs, mocks, or \"not implemented\" throws.",
+    "Build ONLY what's asked — no bonus features, no enterprise bloat (auth/monitoring/deployment unless requested).",
+    "No invented sources, figures, citations or quotes; leave out what you cannot trace; state \"untested/MVP/needs validation\" honestly",
+    "If you are not sure, say so plainly and name what is unknown; do not present a guess as established"
+  ],
+  "mustCarryNote": "Generated from the <!-- must-carry --> lines of core/shared/guidance/rules/RULES.md by src/runtime/brief-rules.ts --write; never edit by hand"
 }

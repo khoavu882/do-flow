@@ -339,7 +339,8 @@ test('G64 control: a broken quote, a continued description, a block scalar and a
   assert.match(plant(descLine, `${descLine}\ncontinued without indent`), /reviewer\.md: .*(multi-line description|not a key: value)/);
   assert.match(plant(descLine, 'description: >\n  folded text'), /reviewer\.md: .*multi-line description/);
   assert.match(plant('model: inherit', 'model inherit'), /reviewer\.md: .*not a key: value/);
-  assert.match(plant('tool-scope: all\n---', 'tool-scope: all'), /reviewer\.md: .*unterminated frontmatter|no closing/i);
+  const scopeLine = original.match(/^tool-scope: .*$/m)[0];
+  assert.match(plant(`${scopeLine}\n---`, scopeLine), /reviewer\.md: .*unterminated frontmatter|no closing/i);
   fs.writeFileSync(file, original);
   assert.deepEqual(specFrontmatterFindings(md), [], 'restoring the spec clears the findings');
 });
