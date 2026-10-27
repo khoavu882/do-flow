@@ -55,9 +55,10 @@ manifest lives at the first-checked location instead: `core/.plugin/plugin.json`
     Claude Code's agent model. Declaring them would install without activating.
     Source: <https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/plugins-creating>
     and the loading-order section of the plugin reference.
-  - `hooks` — DoFlow's hook scripts are Claude-payload-coupled (tool names, stdin fields, env
-    vars); this is already recorded as deliberately unprojected in `core/registry/harnesses.json`
-    (copilot → capabilities → hooks).
+  - `hooks` — DoFlow projects Copilot hooks through its adapter (`.github/hooks/doflow.json`
+    plus front doors that normalise Copilot's camelCase payloads), gated by `hooks.harnesses`;
+    a plugin declaration would bypass that gate (copilot → capabilities → hooks in
+    `core/registry/harnesses.json`).
   - `mcpServers` — MCP registration is installer-managed and opt-in (`--mcp context7,...`);
     a plugin declaration would force-enable servers for every plugin user.
 - Guard coverage: `test/install/doflow.test.ts` asserts the manifest name is `doflow`, its

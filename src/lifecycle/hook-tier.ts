@@ -57,7 +57,7 @@ function outsideHookTier(harnessId: string, hookHarnesses?: string[] | null): bo
 }
 
 /** Whether DoFlow installs any hook for a harness: its hooks are supported, or a hook asset applies
- * to it (Pi's guard extension). OpenCode and Copilot get none, so the tier leaves them as they are. */
+ * to it (Pi's guard extension). OpenCode gets none, so the tier leaves it as it is. */
 function getsHooks(registry: any, harness: any): boolean {
   const hooks = harness.capabilities?.hooks;
   if (!hooks || hooks.status === 'unavailable') return false;

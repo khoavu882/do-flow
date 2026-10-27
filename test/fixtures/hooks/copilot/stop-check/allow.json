@@ -1,0 +1,39 @@
+{
+  "event": "Stop",
+  "native": {
+    "sessionId": "copilot-stop-allow",
+    "timestamp": 1793090731778,
+    "cwd": "/tmp",
+    "transcriptPath": "<set by the runner>",
+    "stopReason": "end_turn",
+    "stop_hook_active": false
+  },
+  "state": "none",
+  "fault": "none",
+  "transcript": [
+    {
+      "type": "assistant.message",
+      "data": {
+        "content": "done"
+      }
+    }
+  ],
+  "expect": {
+    "exit": 0,
+    "stdout": "",
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "allow",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "copilot",
+      "event": "Stop",
+      "operation": "stop",
+      "identity": {
+        "session": "copilot-stop-allow"
+      }
+    }
+  }
+}

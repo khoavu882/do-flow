@@ -1,0 +1,31 @@
+{
+  "event": "PreToolUse",
+  "native": {
+    "sessionId": "copilot-gate-allow",
+    "timestamp": 1793090731778,
+    "cwd": "/tmp",
+    "toolName": "apply_patch",
+    "toolArgs": "*** Begin Patch\n*** Add File: agent-docs/doflow/021-copilot-parity/notes.md\n+x\n*** End Patch\n"
+  },
+  "state": "no-design",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": "",
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "allow",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "copilot",
+      "event": "PreToolUse",
+      "operation": "edit",
+      "tool": "apply_patch",
+      "identity": {
+        "session": "copilot-gate-allow"
+      }
+    }
+  }
+}

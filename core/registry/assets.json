@@ -589,6 +589,24 @@
       }
     },
     {
+      "id": "copilot.hooks-scripts",
+      "kind": "hooks",
+      "source": "core/harnesses/copilot/hooks",
+      "appliesTo": [
+        "copilot"
+      ],
+      "projection": {
+        "copilot": {
+          "renderer": "copilot-hooks",
+          "capability": "hooks"
+        }
+      },
+      "ownership": "managed-tree",
+      "nativeDir": {
+        "copilot": "hooks"
+      }
+    },
+    {
       "id": "claude.settings",
       "kind": "settings",
       "source": "core/harnesses/claude/settings",
@@ -710,6 +728,7 @@
         "codex",
         "pi",
         "kiro",
+        "copilot",
         "antigravity"
       ],
       "ownership": "managed-tree",
@@ -718,6 +737,7 @@
         "codex": "../.doflow/shared/hooks",
         "pi": "../.doflow/shared/hooks",
         "kiro": "../.doflow/shared/hooks",
+        "copilot": "../.doflow/shared/hooks",
         "antigravity": "../.doflow/shared/hooks"
       },
       "projection": {
@@ -734,6 +754,10 @@
           "capability": "hooks"
         },
         "kiro": {
+          "renderer": "copy-tree",
+          "capability": "hooks"
+        },
+        "copilot": {
           "renderer": "copy-tree",
           "capability": "hooks"
         },

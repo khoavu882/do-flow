@@ -22,11 +22,14 @@
 //   skills       -> ~/.agents/skills (global) / <projectRoot>/.agents/skills (project)
 //   agents       -> ~/.copilot/agents (global) / <projectRoot>/.github/agents (project)
 //   mcp          -> ~/.copilot/mcp-config.json (global) / <projectRoot>/.mcp.json (project)
+//   hooks        -> <projectRoot>/.github/hooks (project) / ~/.copilot/hooks (global): doflow.json plus the
+//                   doflow-*.sh front doors; the shared bridge tree lands in <root>/.doflow/shared/hooks
 //
 // Evidence: https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot,
 // https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills,
 // https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli,
-// https://docs.github.com/en/copilot/reference/custom-agents-configuration
+// https://docs.github.com/en/copilot/reference/custom-agents-configuration,
+// https://docs.github.com/en/copilot/reference/hooks-reference
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -306,13 +309,21 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     changes.push(...rules.changes);
     conflicts.push(...rules.conflicts);
 
+    // Hooks: DoFlow's own .github/hooks/doflow.json and doflow-*.sh front doors (renderer
+    // copilot-hooks, a flat tree beside any hook files the user keeps there), and the shared bridge
+    // tree under ../.doflow, which hooks.shared projects through the plain copy-tree renderer above.
+    // Outside `hooks.harnesses` the registry marks the capability unavailable and selects neither.
+    const hooks = planTreeAssets({ assets, renderer: 'copilot-hooks', scopeRoot, destRoot: found.paths.hooksConfigDir, layout: null, context, ledger, removing, fsImpl });
+    changes.push(...hooks.changes);
+    conflicts.push(...hooks.conflicts);
+
     const mcpPlan = planMcpEntries({
       ...mcpEntriesInput({ paths: found.paths, mcp, mcpAdoptable, ledger, assets }), files: found.mcpSnapshot, removing,
     });
     changes.push(...legacyRegistrationReleases(ledger), ...mcpPlan.changes);
     conflicts.push(...mcpPlan.conflicts);
 
-    return { changes, conflicts, notices: [...skills.notices, ...agents.notices, ...rules.notices, ...mcpPlan.notices], paths: found.paths };
+    return { changes, conflicts, notices: [...skills.notices, ...agents.notices, ...rules.notices, ...hooks.notices, ...mcpPlan.notices], paths: found.paths };
   }
 
   function writeChange(change: any, fsImpl: any) {
@@ -386,6 +397,11 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     resources.push(...rules.resources);
     statuses.push(...rules.statuses);
     conflicts.push(...rules.conflicts);
+
+    const hooks = verifyTreeAssets({ assets, renderer: 'copilot-hooks', destRoot: found.paths.hooksConfigDir, layout: null, context, fsImpl });
+    resources.push(...hooks.resources);
+    statuses.push(...hooks.statuses);
+    conflicts.push(...hooks.conflicts);
 
     const mcpResult = verifyMcpEntries({
       ...mcpEntriesInput({ paths: found.paths, mcp, mcpAdoptable, ledger, assets }), files: found.mcpSnapshot,

@@ -176,7 +176,7 @@ function enumerateHookSurfaces({
     if (harnessId === 'antigravity') continue;
     const entries = fs.readdirSync(hooksDir);
     for (const file of entries) {
-      if (!file.endsWith('.sh') || file === 'lib.sh' || file.endsWith('.impl.sh')) continue;
+      if (!file.endsWith('.sh') || file === 'lib.sh' || file === 'doflow-lib.sh' || file.endsWith('.impl.sh')) continue;
       const stem = file.slice(0, -3);
       const surfaceId = `hook.${harnessId}.${stem}`;
       const fixtureRel = path.join('bench', 'perf', 'fixtures', harnessId, `${stem}.json`);
@@ -189,7 +189,7 @@ function enumerateHookSurfaces({
       const surface: any = {
         id: surfaceId,
         kind: 'hook',
-        argv: ['bash', `{mirror}/.${harnessId}/hooks/${file}`, ...(observer ? ['PostToolUse'] : [])],
+        argv: ['bash', `{mirror}/${harnessId === 'copilot' ? '.github' : `.${harnessId}`}/hooks/${file}`, ...(observer ? ['PostToolUse'] : [])],
         harness: harnessId,
         intentClass: 'hook',
         enforced: false,

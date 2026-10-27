@@ -1,0 +1,36 @@
+{
+  "event": "PreToolUse",
+  "native": {
+    "sessionId": "copilot-mcp-deny",
+    "timestamp": 1793090731778,
+    "cwd": "/tmp",
+    "toolName": "mcp__evil__drop",
+    "toolArgs": {}
+  },
+  "state": "none",
+  "fault": "none",
+  "policyConfig": {
+    "file": "mcp-policy.conf",
+    "contents": "^mcp__evil__drop\tCopilot MCP test blocked\n"
+  },
+  "expect": {
+    "exit": 0,
+    "stdoutIncludes": "\"permissionDecision\":\"deny\"",
+    "stderrIncludes": null,
+    "modelVisibleBytesMax": 400,
+    "decision": {
+      "outcome": "deny",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "copilot",
+      "event": "PreToolUse",
+      "operation": "mcp",
+      "tool": "mcp__evil__drop",
+      "identity": {
+        "session": "copilot-mcp-deny"
+      }
+    }
+  }
+}
