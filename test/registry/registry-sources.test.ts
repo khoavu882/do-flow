@@ -79,7 +79,7 @@ test('runtime-shaped copy: fails in require mode with exactly the 25 missing-sou
   }
 
   const assetErrors = requireResult.errors.filter((e: any) => e.startsWith("asset '"));
-  assert.equal(assetErrors.length, 20);
+  assert.equal(assetErrors.length, 21);
 
   const projectionErrors = requireResult.errors.filter((e: any) => e.startsWith("harness 'codex' nativeProjection"));
   assert.equal(projectionErrors.length, 4);
