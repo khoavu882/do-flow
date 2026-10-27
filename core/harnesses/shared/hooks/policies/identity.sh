@@ -140,7 +140,11 @@ doflow_identity() {
     if [ -z "$sessions" ]; then
       case "${XDG_CONFIG_HOME:-}" in
         /*) sessions="$XDG_CONFIG_HOME/doflow/session-env/sessions" ;;
-        *) case "${HOME:-}" in /*) sessions="$HOME/.config/doflow/session-env/sessions" ;; esac ;;
+        [A-Za-z]:[\\/]*) case "${OSTYPE:-}" in msys*|cygwin*|win32*) sessions="$XDG_CONFIG_HOME/doflow/session-env/sessions" ;; esac ;;
+      esac
+      case "${HOME:-}" in
+        /*) [ -n "$sessions" ] || sessions="$HOME/.config/doflow/session-env/sessions" ;;
+        [A-Za-z]:[\\/]*) case "${OSTYPE:-}" in msys*|cygwin*|win32*) [ -n "$sessions" ] || sessions="$HOME/.config/doflow/session-env/sessions" ;; esac ;;
       esac
     fi
     dir="${sessions:+$sessions/$DF_ID_UNIT}"
