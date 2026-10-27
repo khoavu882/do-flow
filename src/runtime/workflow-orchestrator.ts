@@ -15,7 +15,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { WorkflowEngine } = require('./workflow-engine.ts');
 const { updateTaskState, readTaskState } = require('./task-state.ts');
-const { recordIn, isSafeSlug } = require('./task-scope.ts');
+const { recordIn, isSafeSlug, readRegularFileText } = require('./task-scope.ts');
 const { ResearchRequestStore } = require('./research-request.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { resolveActiveFeature } = require('./feature-resolve.ts');
@@ -84,6 +84,8 @@ const POLICY_GATE_STAGE: Record<string, string> = Object.freeze({ 'gate-0': 'dis
 /** What a completed stage established, separate from the fact it was walked past (review A1). */
 const STAGE_OUTCOMES = new Set(['passed', 'failed', 'unverified']);
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/** A context-pack delivery digest, as the delivery store keys it (`packDigest`). */
+const PACK_DIGEST = /^sha256:[0-9a-f]{64}$/;
 /** Why a handoff with no run and no class records nothing, as the result and the CLI line say. */
 const STANDALONE_REASON = 'no run exists for this task and no --task-class was given, so nothing was recorded and no readiness was required';
 
@@ -311,7 +313,7 @@ class WorkflowOrchestrator {
       const since = existing ? this.stageSince(taskId, positioned.caughtUpTo) : null;
       const mcp = this.resolveMcp({ taskId, stageId: positioned.caughtUpTo, skill: callingSkill, flags: mcpOutcomes, since });
       const consultations = mcp ? this.storeToolsUsed(mcp) : null;
-      const snapshot: any = this.completeStage({ taskId, stageId: positioned.caughtUpTo, note, outcome, consultations, now });
+      const snapshot: any = this.completeStage({ taskId, stageId: positioned.caughtUpTo, note, outcome, consultations, packsSince: since, now });
       return { ...snapshot, disposition: 'completed', recordedStage: positioned.caughtUpTo, consultations, mcpWarnings: mcp ? mcp.messages : [] };
     }
     if (positioned.reason.startsWith('already-completed:')) {
@@ -410,6 +412,58 @@ class WorkflowOrchestrator {
       }
       return run?.startedAt || history[0]?.at || null;
     } catch { return null; }
+  }
+
+  /**
+   * Issue #9 stage 3 (FU-7j3k84): the context packs delivered for this run's work inside
+   * `[since, until]`, read only from the 075 delivery store (`.doflow/state/delivery`): the run's own
+   * task file, plus every task file under its feature's namespace when the run is the feature's own
+   * (a plan task's pack, as do-execute-plan compiles one per task). One `{ taskId, digest }` per task,
+   * its latest delivery in the window, oldest first. The digest is the store's `packDigest`, so
+   * `context-pack --since <digest>` and `readDeliveryEntry` resolve it.
+   *
+   * Accepted ceilings: the store keeps a key's first delivery time only, so a byte-identical pack
+   * delivered again in a later stage is not seen there (that stage records none, never an older
+   * stage's pack); a `--no-record` pack leaves no entry; and the store has no session identity, so
+   * another session's pack for the same feature inside the window is counted. Any read fault is no
+   * pack, never an error.
+   * @returns {Array<{taskId: string, digest: string}>}
+   */
+  packsDelivered(run: any, since: string | null, until: string) {
+    try {
+      const base = path.join(this.projectRoot, '.doflow', 'state', 'delivery');
+      const slug = isSafeSlug(this.featureSlug) ? this.featureSlug : isSafeSlug(run.featureSlug) ? run.featureSlug : null;
+      const files = new Map<string, string>();
+      const add = (dir: string, name: string) => {
+        const taskId = name.slice(0, -'.json'.length);
+        if (name.endsWith('.json') && ID_PATTERN.test(taskId) && !files.has(taskId)) files.set(taskId, path.join(dir, name));
+      };
+      if (slug && run.taskId === slug) {
+        const dir = path.join(base, slug);
+        let names: string[] = [];
+        try { names = this.fsImpl.readdirSync(dir).sort(); } catch { names = []; }
+        for (const name of names) add(dir, name);
+      }
+      const ownDir = slug && run.taskId !== slug ? path.join(base, slug) : base;
+      add(ownDir, `${run.taskId}.json`);
+      const from = since === null || since === undefined ? -Infinity : Date.parse(since);
+      const to = Date.parse(until);
+      const found: Array<{ taskId: string; digest: string; at: number }> = [];
+      for (const [taskId, file] of files) {
+        let latest: { digest: string; at: number } | null = null;
+        try {
+          const text = readRegularFileText(file, this.fsImpl);
+          const disk = text === null ? null : JSON.parse(text);
+          for (const entry of Array.isArray(disk?.deliveries) ? disk.deliveries : []) {
+            const at = typeof entry?.firstAt === 'string' ? Date.parse(entry.firstAt) : NaN;
+            if (!PACK_DIGEST.test(entry?.packDigest) || !(at >= from && at <= to)) continue;
+            if (!latest || at >= latest.at) latest = { digest: entry.packDigest, at };
+          }
+        } catch { latest = null; }
+        if (latest) found.push({ taskId, ...latest });
+      }
+      return found.sort((a, b) => a.at - b.at || (a.taskId < b.taskId ? -1 : 1)).map(({ taskId, digest }) => ({ taskId, digest }));
+    } catch { return []; }
   }
 
   /** Record advice outcomes for the same brief records the IC-008 handoff pass consumes. This is
@@ -524,10 +578,15 @@ class WorkflowOrchestrator {
    * stage is always imported+unverified, whatever the caller says: catch-up importing history
    * cannot import a verification. A 'failed' outcome still advances — recording the failure
    * honestly beats refusing to record it, and a bug reproduction legitimately completes by
-   * observing the expected failure — but the record no longer reads as success. */
-  completeStage({ taskId, stageId, note, outcome, backfilled = false, consultations, now }: any = {}) {
+   * observing the expected failure — but the record no longer reads as success.
+   *
+   * Issue #9 stage 3: the entry names the context packs the stage was handed (`packs`), read from
+   * the delivery store over the stage's window (`packsSince`, default stageSince; null = no lower
+   * bound, for a run this handoff started). A stage with no recorded delivery gets no `packs`. */
+  completeStage({ taskId, stageId, note, outcome, backfilled = false, consultations, packsSince, now }: any = {}) {
     const run = this.requireRun(taskId);
     const node = this.expectOpenStage(run, stageId);
+    const packs = backfilled ? [] : this.packsDelivered(run, packsSince !== undefined ? packsSince : this.stageSince(taskId, node.id), iso(now));
     if (outcome !== undefined && !STAGE_OUTCOMES.has(outcome)) {
       throw new Error(`Unknown stage outcome '${outcome}'. Valid: ${[...STAGE_OUTCOMES].join(', ')} — omit the flag to record 'unverified'.`);
     }
@@ -545,6 +604,7 @@ class WorkflowOrchestrator {
       note: unledgered ? [note, NO_LEDGER_NOTE].filter(Boolean).join(' ') : (note ?? null),
       backfilled: Boolean(backfilled), executionStatus: node.executionStatus, outcome: node.outcome,
       ...(consultations ? { consultations } : {}),
+      ...(packs.length ? { packs } : {}),
     });
     this.advance(run, now);
     this.writeRun(run, now, () => {
