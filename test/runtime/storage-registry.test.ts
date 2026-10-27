@@ -117,7 +117,7 @@ test('IC-002: every shipped declaration has its approved id, root, path, rule, a
     ['packages-state', 'user-doflow', 'packages/state.json', 'existing', { text: 'narrowing facts only, rewritten atomically with mode 0600 and kept' }],
     ['authored-packages-project-doflow', 'project-doflow', 'package', 'existing', { text: "the person's authored package source: DoFlow never prunes, moves or removes it" }],
     ['authored-packages-staging-project-doflow', 'project-doflow', 'package', 'existing', { text: 'removed by the scaffold itself after 24 hours' }],
-    ['feature-pointer', 'project-state', 'feature.json', 'existing', { text: 'one file naming the feature per checkout, rewritten in place by the runtime and removed when no checkout names a feature' }],
+    ['feature-pointer', 'project-state', 'feature', 'existing', { text: 'one file per checkout naming its feature, rewritten in place by the runtime and removed when the feature finishes' }],
     ['project-models-catalogue', 'project-state', 'models/catalogue.json', 'existing', { text: 'one file, overwritten' }],
     ['user-models-catalogue', 'config-home', 'state/models-observed.json', 'existing', { text: 'one file, overwritten' }],
   ].map(([id, root, storePath, rule, bound]) => ({ id, root, path: storePath, rule, bound }));

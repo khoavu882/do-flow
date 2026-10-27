@@ -1,6 +1,6 @@
 'use strict';
 
-// Row 135 item 4: the runtime-written feature pointer (.doflow/state/feature.json), set by a feature
+// Row 135 item 4: the runtime-written feature pointer (.doflow/state/feature/<id>.json, one file per checkout), set by a feature
 // start, replaced by a switch, dropped on finish, and read back by `lifecycle --action status`.
 
 const test = require('node:test');
@@ -10,6 +10,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env.ts');
 const { makeRepo, featureBranch } = require('../helper/lifecycle-git-fixtures.ts');
+const pointer = require('../../src/runtime/feature-pointer.ts');
 
 const CLI = path.resolve(__dirname, '..', '..', 'bin', 'doflow.js');
 const scratch = createScratch('doflow-fptr-');
@@ -35,8 +36,8 @@ function run(cwd: any, args: any) {
   try { json = JSON.parse(r.stdout); } catch { /* human output */ }
   return { status: r.status, stdout: r.stdout, stderr: r.stderr, json };
 }
-const file = (repo: any) => path.join(repo.dir, '.doflow', 'state', 'feature.json');
-const entries = (repo: any) => JSON.parse(fs.readFileSync(file(repo), 'utf8')).checkouts;
+const file = (repo: any) => pointer.pointerFile(repo.dir, repo.dir);
+const entry = (repo: any) => JSON.parse(fs.readFileSync(file(repo), 'utf8'));
 const init = (repo: any, slug: any) => run(repo.dir, ['lifecycle', '--action', 'init', '--slug', slug, '--json']);
 const start = (repo: any, slug: any) => run(repo.dir, ['orchestrate', '--action', 'start', '--task-class', 'feature', '--task-id', slug, '--json']);
 const status = (repo: any) => run(repo.dir, ['lifecycle', '--action', 'status', '--json']);
@@ -54,9 +55,10 @@ test('none: a checkout with no entry answers exit 0 and says so', () => {
 test('start: lifecycle init writes the calling checkout entry and status agrees with the branch', () => {
   const repo = newRepo();
   assert.equal(init(repo, A).status, 0);
-  const entry = entries(repo)[repo.dir];
-  assert.deepEqual([entry.slug, entry.artifactDir, entry.branch, entry.taskId], [A, `agent-docs/doflow/${A}`, `feat/${A}`, null]);
-  assert.ok(!Number.isNaN(Date.parse(entry.updatedAt)));
+  const e = entry(repo);
+  assert.deepEqual([e.schema, e.checkout, e.slug, e.artifactDir, e.branch, e.taskId], [1, repo.dir, A, `agent-docs/doflow/${A}`, `feat/${A}`, null]);
+  assert.ok(!Number.isNaN(Date.parse(e.updatedAt)));
+  assert.match(path.basename(file(repo)), /^[0-9a-f]{16}\.json$/);
   const r = status(repo);
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual([r.json.active.state, r.json.active.slug, r.json.active.artifactDir, r.json.active.branch], ['agree', A, `agent-docs/doflow/${A}`, `feat/${A}`]);
@@ -70,20 +72,19 @@ test('start: orchestrate start for a feature run writes the entry with the task 
   assert.equal(fs.existsSync(file(repo)), false);
   const r = start(repo, A);
   assert.equal(r.status, 0, r.stderr);
-  const entry = entries(repo)[repo.dir];
-  assert.deepEqual([entry.slug, entry.taskId, entry.branch], [A, A, `feat/${A}`]);
+  const e = entry(repo);
+  assert.deepEqual([e.slug, e.taskId, e.branch], [A, A, `feat/${A}`]);
 });
 
 test('switch: a later start of another slug overwrites the checkout entry', () => {
   const repo = newRepo();
   init(repo, A);
   assert.equal(init(repo, B).status, 0);
-  const all = entries(repo);
-  assert.deepEqual(Object.keys(all), [repo.dir]);
-  assert.equal(all[repo.dir].slug, B);
+  assert.deepEqual(fs.readdirSync(path.dirname(file(repo))), [path.basename(file(repo))]);
+  assert.equal(entry(repo).slug, B);
 });
 
-test('finish: lifecycle merged clears the entry and the file goes when no entry is left', () => {
+test('finish: lifecycle merged removes the checkout file', () => {
   const repo = newRepo();
   init(repo, A);
   assert.ok(fs.existsSync(file(repo)), 'recorded first');
@@ -114,13 +115,12 @@ test('finish: a feature run that becomes COMPLETED clears its own entry only', (
   journal.cursor = 0;
   fs.writeFileSync(runFile, JSON.stringify(journal));
   // An entry for another checkout stays when this one completes.
-  const pointer = JSON.parse(fs.readFileSync(file(repo), 'utf8'));
-  pointer.checkouts['/elsewhere/other-checkout'] = { slug: B, artifactDir: null, branch: 'x', taskId: null, updatedAt: new Date().toISOString() };
-  fs.writeFileSync(file(repo), JSON.stringify(pointer));
+  const other = pointer.pointerFile(repo.dir, '/elsewhere/other-checkout');
+  fs.writeFileSync(other, JSON.stringify({ schema: 1, checkout: '/elsewhere/other-checkout', slug: B, artifactDir: null, branch: 'x', taskId: null, updatedAt: new Date().toISOString() }));
   const done = run(repo.dir, ['orchestrate', '--action', 'complete-stage', '--task-id', A, '--stage', 'last', '--json']);
   assert.equal(done.status, 0, done.stderr);
   assert.equal(done.json.state, 'COMPLETED');
-  assert.deepEqual(Object.keys(entries(repo)), ['/elsewhere/other-checkout']);
+  assert.deepEqual(fs.readdirSync(path.dirname(file(repo))), [path.basename(other)]);
 });
 
 test('mismatch: a pointer recorded on another branch is reported with both sides, slug null, exit 1', () => {
@@ -151,7 +151,7 @@ test('unreadable: corrupt JSON is exit 1 with the reason, and a record replaces 
   assert.equal(r.json.active.state, 'unreadable');
   assert.match(r.json.message, /not valid JSON/);
   assert.equal(init(repo, A).status, 0);
-  assert.equal(entries(repo)[repo.dir].slug, A);
+  assert.equal(entry(repo).slug, A);
 });
 
 test('--slug keeps the per-feature status and ignores the pointer', () => {
@@ -170,4 +170,48 @@ test('a pointer write that fails never fails the verb', () => {
   const r = init(repo, A);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stderr, /feature pointer not written/);
+});
+
+test('race: two checkouts recording interleaved both keep their entry', () => {
+  const a = newRepo();
+  const b = makeRepo(scratch, 'fptr-b');
+  b.dir = fs.realpathSync(b.dir);
+  featureBranch(b, B, 1);
+  const real = fs.writeFileSync;
+  let nested = false;
+  // Checkout A has read the pointer state and is about to write it; checkout B records in that window.
+  fs.writeFileSync = (...args: any[]) => {
+    if (!nested) {
+      nested = true;
+      fs.writeFileSync = real;
+      pointer.recordFeature({ storeRoot: a.dir, cwd: b.dir, slug: B });
+    }
+    return real(...args);
+  };
+  try { pointer.recordFeature({ storeRoot: a.dir, cwd: a.dir, slug: A }); } finally { fs.writeFileSync = real; }
+  assert.equal(nested, true, 'the interleaving happened');
+  assert.deepEqual(pointer.describeActive({ storeRoot: a.dir, cwd: a.dir }).slug, A);
+  assert.deepEqual(pointer.describeActive({ storeRoot: a.dir, cwd: b.dir }).slug, B);
+});
+
+test('clear: a clear by slug removes every checkout naming it and leaves the others', () => {
+  const a = newRepo();
+  const b = makeRepo(scratch, 'fptr-c');
+  b.dir = fs.realpathSync(b.dir);
+  featureBranch(b, B, 1);
+  pointer.recordFeature({ storeRoot: a.dir, cwd: a.dir, slug: A });
+  pointer.recordFeature({ storeRoot: a.dir, cwd: b.dir, slug: B });
+  pointer.clearSlug({ storeRoot: a.dir, slug: A });
+  assert.equal(pointer.describeActive({ storeRoot: a.dir, cwd: a.dir }).state, 'none');
+  assert.equal(pointer.describeActive({ storeRoot: a.dir, cwd: b.dir }).slug, B);
+});
+
+test('unreadable: another checkout\'s corrupt file does not disturb this checkout', () => {
+  const repo = newRepo();
+  init(repo, A);
+  fs.writeFileSync(pointer.pointerFile(repo.dir, '/elsewhere/broken'), '{not json');
+  const r = status(repo);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.json.active.state, 'agree');
+  assert.equal(init(repo, B).status, 0);
 });

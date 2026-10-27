@@ -1545,12 +1545,12 @@
     {
       "id": "feature-pointer",
       "root": "project-state",
-      "path": "feature.json",
+      "path": "feature",
       "entry": "file",
-      "match": "^feature\\.json(?:\\.[0-9]+\\.tmp)?$",
+      "match": "^[0-9a-f]{16}\\.json(?:\\.[0-9]+\\.tmp)?$",
       "rule": "existing",
       "bound": {
-        "text": "one file naming the feature per checkout, rewritten in place by the runtime and removed when no checkout names a feature"
+        "text": "one file per checkout naming its feature, rewritten in place by the runtime and removed when the feature finishes"
       },
       "protect": null,
       "moments": [],
@@ -1559,7 +1559,7 @@
       ],
       "source": {
         "file": "src/runtime/feature-pointer.ts",
-        "pattern": "feature.json"
+        "pattern": "'.doflow', 'state', 'feature'"
       }
     },
     {
