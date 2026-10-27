@@ -171,13 +171,15 @@ const SKILL_CONTRACTS = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 
 for (const contract of SKILL_CONTRACTS.contracts.filter((entry: any) => Array.isArray(entry.skillFields))) {
   const allowed = new Set<string>([...SKILL_CONTRACTS.agentSkillsSpec.skillFields, ...contract.skillFields]);
   TRANSFORMS[`skill-frontmatter-${contract.harness}`] = (sourceRel: string, content: any) => (
-    path.basename(sourceRel) === 'SKILL.md' ? Buffer.from(portableSkillFrontmatter(content.toString('utf8'), allowed)) : content);
+    path.basename(sourceRel) === 'SKILL.md' ? Buffer.from(portableSkillFrontmatter(content.toString('utf8'), allowed, sourceRel)) : content);
 }
 
 /** Move every top-level frontmatter key outside `allowed` under `metadata:`. A moved value is
  * written as a JSON string (valid YAML), a plain scalar's continuation lines joined with a space; a
- * nested map or a block scalar (`|`, `>`) is not handled, so it throws rather than guess. */
-function portableSkillFrontmatter(text: string, allowed: Set<string>): string {
+ * nested map or a block scalar (`|`, `>`) is not handled, so it throws rather than guess, and so does a
+ * flow-style `metadata` (`{...}` on the key's line), which block entries cannot be appended to without a
+ * YAML parser. `file` names the source in each error. */
+function portableSkillFrontmatter(text: string, allowed: Set<string>, file = 'SKILL.md'): string {
   const match = text.match(/^---\n([\s\S]*?\n)---(?=\n|$)/);
   if (!match) return text;
   const entries: { key: string | null, lines: string[] }[] = [];
@@ -186,11 +188,15 @@ function portableSkillFrontmatter(text: string, allowed: Set<string>): string {
     if (key || !entries.length) entries.push({ key, lines: [line] });
     else entries[entries.length - 1].lines.push(line);
   }
+  const metadataEntry = entries.find((entry) => entry.key === 'metadata');
+  if (metadataEntry && /^metadata:[ \t]*[^\s#]/.test(metadataEntry.lines[0])) {
+    throw new Error(`${file}: flow-style metadata cannot take moved keys; write metadata as a block map`);
+  }
   const moved = entries.filter((entry) => entry.key && entry.key !== 'metadata' && !allowed.has(entry.key));
   if (!moved.length) return text;
   const metadata = moved.map(({ key, lines }) => {
     const head = lines[0].slice((key as string).length + 1).trim();
-    if (!head || /^[|>][-+0-9]*$/.test(head)) throw new Error(`skill frontmatter: '${key}' has no scalar value to move under metadata`);
+    if (!head || /^[|>][-+0-9]*$/.test(head)) throw new Error(`${file}: '${key}' has no scalar value to move under metadata`);
     const value = [head, ...lines.slice(1).map((part) => part.trim())].join(' ').trim();
     const scalar = /^"(?:[^"\\]|\\.)*"$/.test(value) ? JSON.parse(value) : value.replace(/^'(.*)'$/, '$1');
     return `  ${key}: ${JSON.stringify(scalar)}`;

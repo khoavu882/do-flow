@@ -273,3 +273,19 @@ test('G22: controls — an unknown key, a contract without a source, and the met
   assert.equal(withMetadata, '---\nname: x\nmetadata:\n  author: me\n  effort: "low"\n---\n');
   assert.throws(() => portableSkillFrontmatter('---\nname: x\nhooks:\n  a: b\n---\n', new Set(['name'])), /no scalar value/);
 });
+
+/** `name: metadata is flow-style` for each SKILL.md whose metadata is written inline (`{...}`, `[...]`
+ * or any value on the key's own line): the projector appends block entries and refuses that shape. */
+function flowMetadataFindings(entries: any[]) {
+  return entries.filter(({ text }: any) => /^metadata:[ \t]*[^\s#]/m.test(text.match(/^---\n([\s\S]*?)\n---/)?.[1] ?? ''))
+    .map(({ name }: any) => `${name}: metadata is flow-style; write it as a block map`);
+}
+
+test('G22: no SKILL.md writes metadata flow-style, and the projector refuses one that does', () => {
+  assert.deepEqual(flowMetadataFindings(skillFiles().map(({ name, file }: any) => ({ name, text: fs.readFileSync(file, 'utf8') }))), []);
+  const flow = '---\nname: x\nmetadata: {author: me}\neffort: high\n---\n';
+  assert.deepEqual(flowMetadataFindings([{ name: 'x', text: flow }]), ['x: metadata is flow-style; write it as a block map']);
+  assert.deepEqual(flowMetadataFindings([{ name: 'x', text: '---\nname: x\nmetadata:\n  author: me\n---\n' }]), []);
+  const { TRANSFORMS } = require('../../src/adapters/copy-tree.ts');
+  assert.throws(() => TRANSFORMS['skill-frontmatter-codex']('do-x/SKILL.md', Buffer.from(flow)), /do-x\/SKILL\.md: .*flow-style metadata/);
+});
