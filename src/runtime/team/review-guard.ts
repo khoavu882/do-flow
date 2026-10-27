@@ -101,11 +101,16 @@ function assertMechanicalPreChecks(
       failures.push(`Task readiness evidence is ${res?.status || 'unavailable'}`);
     } else {
       const rec = res.record;
-      if (rec.state !== 'READY' && rec.state !== 'PASSED') {
+      if (rec.state !== 'READY') {
         const unmet = Array.isArray(rec.unmet) ? rec.unmet.join(', ') : '';
         failures.push(`Task readiness state is '${rec.state}' (${unmet})`);
       } else if (rec.unmet !== undefined && (!Array.isArray(rec.unmet) || rec.unmet.length > 0)) {
         failures.push('Task readiness evidence is malformed or still has unmet requirements');
+      } else {
+        // The edit gate's own reading of a record: a version this runtime does not read, a missing
+        // field or an evaluation dated in the future does not establish READY.
+        const unusable = require('../implementation-gate.ts').unusableDetail(rec, new Date());
+        if (unusable) failures.push(`Task readiness evidence is unusable (${unusable})`);
       }
     }
   } catch (error: any) {

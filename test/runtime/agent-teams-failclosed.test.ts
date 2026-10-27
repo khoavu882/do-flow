@@ -135,6 +135,17 @@ describe('IC-003: mechanical pre-checks fail closed without PASS evidence', () =
     refused(project({ readinessText: JSON.stringify({ version: 1, taskId: TASK }), preCheck: PASS }), /readiness state is 'undefined'/);
   });
 
+  const RECORD = { version: 1, taskId: TASK, taskClass: 'feature', state: 'READY', evaluatedAt: '2026-01-01T00:00:00.000Z' };
+
+  test('FU-avgfwf: a record the edit gate cannot read is refused, and PASSED is not READY', () => {
+    refused(project({ readinessText: JSON.stringify({ ...RECORD, state: 'PASSED' }), preCheck: PASS }), /readiness state is 'PASSED'/);
+    refused(project({ readinessText: JSON.stringify({ ...RECORD, version: 99 }), preCheck: PASS }), /readiness evidence is unusable \(version 99/);
+    refused(project({ readinessText: JSON.stringify({ ...RECORD, evaluatedAt: '2999-01-01T00:00:00.000Z' }), preCheck: PASS }), /readiness evidence is unusable \(evaluated at 2999/);
+    const { evaluatedAt: _omitted, ...noTime } = RECORD;
+    refused(project({ readinessText: JSON.stringify(noTime), preCheck: PASS }), /readiness evidence is unusable \(no evaluatedAt\)/);
+    assert.deepEqual(assertMechanicalPreChecks(TASK, project({ readinessText: JSON.stringify(RECORD), preCheck: PASS })), { passed: true, failures: [] });
+  });
+
   test('a READY record that still lists unmet requirements is refused', () => {
     refused(project({ readinessText: JSON.stringify({ version: 1, taskId: TASK, state: 'READY', unmet: ['R1'] }), preCheck: PASS }),
       /still has unmet requirements/);

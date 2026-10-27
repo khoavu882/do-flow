@@ -558,6 +558,7 @@ function verifyReadinessCheck({ stateRoot, taskId, slug = null, now = new Date()
 }
 
 module.exports = {
+  unusableDetail,
   gatedStage,
   heldClasses,
   refusalText,
