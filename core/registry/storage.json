@@ -1543,6 +1543,26 @@
       }
     },
     {
+      "id": "feature-pointer",
+      "root": "project-state",
+      "path": "feature.json",
+      "entry": "file",
+      "match": "^feature\\.json(?:\\.[0-9]+\\.tmp)?$",
+      "rule": "existing",
+      "bound": {
+        "text": "one file naming the feature per checkout, rewritten in place by the runtime and removed when no checkout names a feature"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/feature-pointer.ts"
+      ],
+      "source": {
+        "file": "src/runtime/feature-pointer.ts",
+        "pattern": "feature.json"
+      }
+    },
+    {
       "id": "project-models-catalogue",
       "root": "project-state",
       "path": "models/catalogue.json",

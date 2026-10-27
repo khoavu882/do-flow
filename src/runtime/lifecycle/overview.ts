@@ -16,6 +16,7 @@ const { withDerivedDone } = require('./fold.ts');
 const { appendEvents, readFold, readEvents } = require('./event-store.ts');
 const { deriveStatuses, bucketize, behindNote } = require('./status.ts');
 const { FollowupUsageError, parseIds } = require('./followup.ts');
+const { describeActive } = require('../feature-pointer.ts');
 
 /** The failure store, or null when its module cannot be loaded: the overview then reports no failures. */
 function failureStoreOrNull() {
@@ -289,4 +290,26 @@ function featureStatus({ root, slug, now = new Date(), fsImpl = nodeFs }: any) {
   return result;
 }
 
-module.exports = { buildOverview, initFeature, featureStatus, goalView, goalConflicts, goalConflictNext, DISCOVERY_SHOWN, MAINTAIN_SHOWN, FEATURES_SHOWN };
+/**
+ * `status` with no `--slug` (row 135): the feature the runtime recorded for this checkout, against the
+ * branch's. A mismatch or an unreadable pointer is a refusal (exit 1) that names both sides and picks
+ * neither; an agreeing pointer also carries the tracked feature's derived status, as `--slug` does.
+ */
+function activeFeature({ root, cwd, now = new Date(), fsImpl = nodeFs }: any) {
+  const active = describeActive({ storeRoot: root, cwd });
+  const here = `branch ${active.current.branch || 'unknown'}${active.current.slug ? `, branch feature ${active.current.slug}` : ''}`;
+  if (active.state === 'unreadable') {
+    return { ok: false, action: 'status', finding: 'feature-pointer-unreadable', message: `.doflow/state/feature.json cannot be read (${active.reason}); delete it to let the next feature start write it again.`, active };
+  }
+  if (active.state === 'mismatch') {
+    const p = active.pointer;
+    return { ok: false, action: 'status', finding: 'feature-mismatch', message: `the pointer names ${p.slug} on branch ${p.branch || 'unknown'}, but this checkout is on ${here}; neither is trusted, so check which feature you are on.`, active };
+  }
+  const result: any = { ok: true, action: 'status', active };
+  if (active.state === 'none') return { ...result, message: `no active feature is recorded for this checkout (${here}); pass --slug <slug> to ask about one.` };
+  // An untracked feature is refused by featureStatus; the pointer answer stands without status fields.
+  const derived = featureStatus({ root, slug: active.slug, now, fsImpl });
+  return derived.ok ? { ...derived, active } : result;
+}
+
+module.exports = { buildOverview, initFeature, featureStatus, activeFeature, goalView, goalConflicts, goalConflictNext, DISCOVERY_SHOWN, MAINTAIN_SHOWN, FEATURES_SHOWN };

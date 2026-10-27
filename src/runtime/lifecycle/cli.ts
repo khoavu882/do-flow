@@ -15,7 +15,8 @@ const followup = require('./followup.ts');
 const { StoreUnsafeError, StoreLockedError } = require('./event-store.ts');
 const { prepareStore } = require('./store-upkeep.ts');
 const { printSafe } = require('../mask.ts');
-const { buildOverview, initFeature, featureStatus } = require('./overview.ts');
+const { buildOverview, initFeature, featureStatus, activeFeature } = require('./overview.ts');
+const { recordFeature, clearSlug } = require('../feature-pointer.ts');
 const { releaseFeatures, recordMerged } = require('./release.ts');
 const goal = require('./goal.ts');
 
@@ -92,7 +93,9 @@ function releaseLines(r: any) {
 function lifecycleLines(result: any) {
   switch (result.action) {
     case 'init': return [`${result.slug}: tracked ${result.tracked}${result.taken.length ? `, took ${result.taken.join(', ')}` : ''}${result.goal ? `, serves ${result.goal}` : ''}`, ...result.next];
-    case 'status': return [`${result.slug}: ${result.status}${result.evidence ? ` (${result.evidence.kind}${result.evidence.ref ? ` ${result.evidence.ref}` : ''})` : ''}${result.release ? `, release ${result.release}` : ''}`, ...(result.note ? [`note: ${result.note}`] : [])];
+    case 'status':
+      if (result.active) return [result.slug ? `${result.slug}: ${result.status}${result.evidence ? ` (${result.evidence.kind}${result.evidence.ref ? ` ${result.evidence.ref}` : ''})` : ''}${result.release ? `, release ${result.release}` : ''}` : result.message, ...(result.active.state === 'agree' ? [`pointer agrees with branch ${result.active.branch}${result.active.artifactDir ? `, artifacts in ${result.active.artifactDir}` : ''}`] : [])];
+      return [`${result.slug}: ${result.status}${result.evidence ? ` (${result.evidence.kind}${result.evidence.ref ? ` ${result.evidence.ref}` : ''})` : ''}${result.release ? `, release ${result.release}` : ''}`, ...(result.note ? [`note: ${result.note}`] : [])];
     case 'release': return releaseLines(result);
     case 'merged': return [`${result.slug}: merge confirmed, now ${result.status}`];
     default: return result.mode ? overviewLines(result) : [];
@@ -233,10 +236,17 @@ function handleLifecycleCommand({ action, cwd, global = false, slug = null, json
     if (refusedStore) return emit(refusedStore, json, lifecycleLines);
     let result;
     if (act === 'overview') result = buildOverview({ root, maintain: Boolean(flags.maintain), since: flags.since });
-    else if (act === 'init') result = initFeature({ root, slug, take: flags.take, intent: flags.intent, goal: flags.goal });
-    else if (act === 'release') result = releaseFeatures({ root, tag: flags.tag, confirm: Boolean(flags.confirm), features: flags.feature, exclude: flags.exclude, channel: flags.channel });
-    else if (act === 'merged') result = recordMerged({ root, slug, reason: flags.reason, channel: flags.channel });
-    else result = featureStatus({ root, slug });
+    else if (act === 'init') {
+      result = initFeature({ root, slug, take: flags.take, intent: flags.intent, goal: flags.goal });
+      if (result.ok) recordFeature({ storeRoot: root, cwd: cwd || process.cwd(), slug });
+    }
+    else if (act === 'release') {
+      result = releaseFeatures({ root, tag: flags.tag, confirm: Boolean(flags.confirm), features: flags.feature, exclude: flags.exclude, channel: flags.channel });
+      if (result.ok && result.recorded) for (const shipped of [...result.candidates.map((c: any) => c.slug), ...result.added]) if (!result.excluded.includes(shipped)) clearSlug({ storeRoot: root, slug: shipped });
+    } else if (act === 'merged') {
+      result = recordMerged({ root, slug, reason: flags.reason, channel: flags.channel });
+      if (result.ok || result.finding === 'already-merged') clearSlug({ storeRoot: root, slug });
+    } else result = slug ? featureStatus({ root, slug }) : activeFeature({ root, cwd: cwd || process.cwd() });
     return emit(result, json, lifecycleLines);
   });
 }
