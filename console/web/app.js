@@ -516,6 +516,9 @@ function startPoller(view, path, intervalMs, heartbeat) {
       if (info.scope === 'session' || info.scope === 'runtime') return false;
       return heartbeat || view.hasData || info.auto;
     },
+    // Activity-aware refresh (feature 133): a heartbeat and a view without the hooks stay at the base interval.
+    isActive: () => heartbeat || !view.hasData || typeof spec.active !== 'function' || spec.active(view.data, nowMs()),
+    size: () => (heartbeat || !view.hasData || typeof spec.size !== 'function' ? 0 : spec.size(view.data)),
   });
   view.poller = poller;
   poller.start();
