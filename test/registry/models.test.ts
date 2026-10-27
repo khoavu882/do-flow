@@ -135,3 +135,15 @@ test('an enabled slot loads end-to-end through loadRegistry; malformed fails the
   fs.writeFileSync(modelsPath, JSON.stringify(models, null, 2));
   assert.throws(() => loadRegistry({ repoRoot: root }), /references unknown model provider 'not-declared'/);
 });
+
+test('a non-array models.slots fails loadRegistry instead of loading as no slots', (t) => {
+  const root = tempDir(t, 'doflow-model-slots-shape-');
+  for (const dir of ['core', 'src', 'bin']) fs.cpSync(path.join(REPO, dir), path.join(root, dir), { recursive: true });
+  const modelsPath = path.join(root, 'core', 'registry', 'models.json');
+  const models = JSON.parse(fs.readFileSync(modelsPath, 'utf8'));
+  for (const slots of [null, { id: 'dense' }, 'dense']) {
+    models.slots = slots;
+    fs.writeFileSync(modelsPath, JSON.stringify(models, null, 2));
+    assert.throws(() => loadRegistry({ repoRoot: root }), /models\.slots: must be an array when present/, JSON.stringify(slots));
+  }
+});
