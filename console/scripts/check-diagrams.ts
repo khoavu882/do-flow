@@ -115,7 +115,8 @@ function readNodes(svg: string): Node[] {
       for (let i = 0; i + 1 < n.length; i += 2) polygon.push([n[i] + dx, n[i + 1] + dy]);
     } else if (rect) {
       const [x, y, w, h] = ['x', 'y', 'width', 'height'].map((name) => Number(attr(rect[1], name) ?? 0));
-      polygon = [[x + dx, y + dy], [x + w + dx, y + dy], [x + w + dx, y + h + dy], [x + dx, y + h + dy]];
+      // A rect with no usable size stays an empty polygon, which is reported as an unrecognized shape.
+      if (w > 0 && h > 0) polygon = [[x + dx, y + dy], [x + w + dx, y + dy], [x + w + dx, y + h + dy], [x + dx, y + h + dy]];
     }
     return { id, polygon };
   });
@@ -165,9 +166,14 @@ function legibilityErrors(svgText: string): string[] {
   const errors: string[] = [];
   const nodes = readNodes(svgText);
   const edges = readEdges(svgText, nodes.map((node) => node.id));
+  // Fail closed: a parser that sees nothing, or a shape or path it cannot read, must not pass as legible.
+  if (nodes.length === 0) errors.push('no-nodes: no `pele-node` group was parsed (an empty SVG, or the structure changed)');
+  if (nodes.length >= 2 && edges.length === 0) errors.push('no-edges: two or more nodes but no `pele-edge` group was parsed');
+  for (const node of nodes) if (node.polygon.length < 3) errors.push(`node-shape: ${node.id}: not a rect or polygon with a size, so crossings cannot be checked`);
   if (nodes.length > MAX_NODES) errors.push(`nodes: ${nodes.length} nodes, the budget is ${MAX_NODES}`);
   if (edges.length > MAX_EDGES) errors.push(`edges: ${edges.length} edges, the budget is ${MAX_EDGES}`);
   for (const edge of edges) {
+    if (edge.points.length < 2) { errors.push(`edge-path: ${edge.id}: no parseable path`); continue; }
     if (edge.from === null || edge.to === null) { errors.push(`edge-ends: ${edge.id}: cannot tell which nodes it joins`); continue; }
     for (const node of nodes) {
       if (node.id === edge.from || node.id === edge.to || node.polygon.length < 3) continue;
@@ -182,13 +188,15 @@ function legibilityErrors(svgText: string): string[] {
 
 /** One line per diagram file of OUT_DIR, and whether every one passed. */
 function checkAll(dir: string = OUT_DIR): { lines: string[], ok: boolean } {
-  let ok = true;
-  const lines = fs.readdirSync(dir).filter((name: string) => name.endsWith('.svg')).sort().map((name: string) => {
+  const files = fs.readdirSync(dir).filter((name: string) => name.endsWith('.svg')).sort();
+  let ok = files.length > 0;
+  const lines = files.map((name: string) => {
     const text = fs.readFileSync(path.join(dir, name), 'utf8');
     const errors = legibilityErrors(text);
     if (errors.length > 0) ok = false;
     return `${errors.length === 0 ? 'ok  ' : 'FAIL'} ${name}${errors.length === 0 ? '' : `: ${errors.join('; ')}`}`;
   });
+  if (files.length === 0) lines.push(`FAIL no .svg files in ${dir}`);
   return { lines, ok };
 }
 

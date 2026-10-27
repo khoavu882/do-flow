@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { OUT_DIR } = require('../scripts/build-diagrams.ts');
-const { MAX_NODES, MAX_EDGES, legibilityErrors } = require('../scripts/check-diagrams.ts');
+const { MAX_NODES, MAX_EDGES, legibilityErrors, checkAll } = require('../scripts/check-diagrams.ts');
 
 const REPO = path.join(__dirname, '..', '..');
 /** The classes of the core's registry, read from the registry file itself, as diagrams.test.ts does. */
@@ -107,4 +107,46 @@ test('control: node ids with underscores (g0_0) are told apart from the edge-id 
 test('control: an edge whose ends are not nodes of the diagram is reported, not skipped', () => {
   const { boxes } = row(2);
   assert.match(legibilityErrors(svg([edge('s0', 'ghost', 'M150,50L250,50')], boxes))[0], /^edge-ends: L_s0_ghost_0/);
+});
+
+// ---- fail closed: a parser that sees nothing must not pass ---------------------------------------
+
+test('control: an empty SVG fails (no nodes parsed)', () => {
+  const errors = legibilityErrors('<svg xmlns="http://www.w3.org/2000/svg"></svg>');
+  assert.equal(errors.length > 0, true);
+  assert.match(errors.join('; '), /^no-nodes:/);
+});
+
+test('control: renamed Pele classes fail instead of parsing to nothing', () => {
+  const { boxes, edges } = row(4);
+  const renamed = svg(edges, boxes).replaceAll('pele-node', 'diagram-node').replaceAll('pele-edge', 'diagram-edge');
+  assert.match(legibilityErrors(renamed).join('; '), /no-nodes:/);
+});
+
+test('control: nodes without edges fail when there are two or more nodes', () => {
+  const { boxes } = row(3);
+  assert.match(legibilityErrors(svg([], boxes)).join('; '), /no-edges:/);
+});
+
+test('control: a node of an unknown shape fails (a circle is not understood)', () => {
+  const { boxes, edges } = row(3);
+  const bad = svg(edges, boxes).replace('<rect x="-50" y="-36" width="100" height="72" rx="12"/>', '<circle r="40"/>');
+  assert.match(legibilityErrors(bad).join('; '), /node-shape: s0/);
+});
+
+test('control: an edge without a parseable path fails', () => {
+  const { boxes, edges } = row(3);
+  const bad = svg([edges[0], edge('s1', 's2', '')], boxes);
+  assert.match(legibilityErrors(bad).join('; '), /edge-path: L_s1_s2_0/);
+  const noPath = svg(edges, boxes).replace(/<g class="pele-edge" data-id="L_s1_s2_0">.*?<\/g>/, '<g class="pele-edge" data-id="L_s1_s2_0"></g>');
+  assert.match(legibilityErrors(noPath).join('; '), /edge-path: L_s1_s2_0/);
+});
+
+test('control: a directory with no SVG files fails', () => {
+  const dir = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'doflow-diagrams-'));
+  try {
+    assert.equal(checkAll(dir).ok, false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
