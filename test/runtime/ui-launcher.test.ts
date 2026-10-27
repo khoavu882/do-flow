@@ -30,13 +30,16 @@ const RUNNER = [
 ].join('\n');
 
 // A fake Console bin: reports its argv, then exits with T_EXIT (or waits for SIGTERM in hold mode).
+// Hold mode arms its SIGTERM handler BEFORE it reports, so a test that signals the launcher on seeing
+// the report never reaches a Console that is not yet listening (a descheduled process would die of SIGTERM).
 const FAKE_BIN = [
   "'use strict';",
-  "process.stdout.write(JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + '\\n');",
   "if (process.env.T_HOLD) {",
   "  process.on('SIGTERM', () => { process.stdout.write('got SIGTERM\\n'); process.exit(5); });",
   "  setInterval(() => {}, 1000);",
-  "} else process.exit(Number(process.env.T_EXIT || 0));",
+  "}",
+  "process.stdout.write(JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + '\\n');",
+  "if (!process.env.T_HOLD) process.exit(Number(process.env.T_EXIT || 0));",
 ].join('\n');
 
 /** Writes a fake package (package.json + bin/doflow-ui.js) into `dir`; returns its bin path. */
