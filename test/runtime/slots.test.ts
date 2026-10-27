@@ -129,6 +129,25 @@ test('eight concurrent runSlot calls: one holder at a time, grants in arrival or
 // slow on a loaded host) ran inside the lock, and every waiter took the lock on every poll even while a
 // live holder held the slot, so the lock was never free for long.
 
+/** fs whose mkdirSync counts every slot lock directory made (one per critical section). */
+function countingFs() {
+  const counter = { locks: 0 };
+  const fsImpl = new Proxy(fs, {
+    get(target: any, key: any) {
+      if (key === 'mkdirSync') {
+        return (dir: any, ...rest: any[]) => {
+          const made = target.mkdirSync(dir, ...rest);
+          if (String(dir).endsWith('.json.lock')) counter.locks += 1;
+          return made;
+        };
+      }
+      const value = target[key];
+      return typeof value === 'function' ? value.bind(target) : value;
+    },
+  });
+  return { fsImpl, counter };
+}
+
 test('liveness is never probed while the caller holds the slot lock', async () => {
   const { env, home } = scratchEnv();
   const lockDir = `${slotFile(home, 'probe')}.lock`;
@@ -150,6 +169,22 @@ test('liveness is never probed while the caller holds the slot lock', async () =
   writeSlot(home, 'probe', { holder: holderRecord(4242), waiters: [waiterRecord(4243, 'w', '/x')] });
   await listSlots({ env, deps: { ...deps, pid: 1200, alive: aliveFor(1200) } });
   assert.deepEqual(underLock, [], 'a probe inside the lock makes every critical section as slow as `ps`');
+});
+
+test('a queued waiter does not take the slot lock while a live holder holds the slot', async () => {
+  const { env } = scratchEnv();
+  const { fsImpl, counter } = countingFs();
+  // Each holder's child runs for 60 event-loop turns; each waiter polls once per turn.
+  const { deps } = baseDeps({
+    fsImpl,
+    spawn: (command: any, args: any) => fakeChild(5200 + Number((command === 'sh' ? args.slice(3) : args)[1]), { ticks: 60 }),
+  });
+  const codes = await Promise.all(Array.from({ length: 8 }, (_, i) => runSlot({
+    name: 'quiet-queue', command: ['work', String(i)], env, cwd: '/work/a', deps: { ...deps, pid: 1300 + i },
+  })));
+  assert.deepEqual(codes, Array(8).fill(0));
+  // Per caller: join the queue, be granted, register the child, release; a few more for polls that race a change.
+  assert.ok(counter.locks <= 8 * 6, `the slot lock was taken ${counter.locks} times for 8 callers: waiters take it on every poll`);
 });
 
 test('real processes: eight runSlot callers never overlap', async () => {

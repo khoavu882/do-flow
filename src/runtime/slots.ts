@@ -308,7 +308,7 @@ const identity = (pid: any, start: any): string => `${pid}\0${start ?? ''}`;
  * or a missing file: nothing to probe); under the lock a probe (a `ps`, slow on a loaded host) made
  * every critical section that slow. The death of a (pid, start) identity is permanent, so a `false`
  * found here is still true under the lock; an identity not probed here is `unknown`, which counts as
- * alive, and is judged on the next look. `seen` is that read.
+ * alive, and is judged on the next look. `seen` is that read: a hint for skipping a look, never a decision.
  */
 function probeSlot(fsImpl: any, file: string, name: string, alive: (proc: any) => boolean | 'unknown') {
   let seen: any = null;
@@ -333,6 +333,19 @@ function probeSlot(fsImpl: any, file: string, name: string, alive: (proc: any) =
     judged: (proc: any): boolean | 'unknown' => verdicts.get(identity(proc.pid, proc.start)) ?? 'unknown',
     probed: (proc: any): boolean => verdicts.has(identity(proc.pid, proc.start)),
   };
+}
+
+/**
+ * True when the unlocked read shows `self` queued and its grant cannot change on this look: a holder
+ * not judged dead, or no holder and a waiter ahead of it, and no entry judged dead (a sweep is due).
+ * The grant is decided under the lock only; a stale read costs one poll.
+ */
+function queuedBehindLive(seen: any, judged: (proc: any) => boolean | 'unknown', self: any): boolean {
+  if (!seen) return false;
+  const at = seen.waiters.findIndex((waiter: any) => waiter.pid === self.pid && waiter.since === self.since);
+  if (at < 0 || seen.waiters.some((waiter: any) => judged(waiter) === false)) return false;
+  if (seen.holder) return holderState(seen.holder, judged) !== false;
+  return at > 0;
 }
 
 /** Drops dead waiters and a dead holder. Called only inside the lock, with `alive` from `probeSlot`. */
@@ -445,7 +458,10 @@ async function runSlot({
   try {
     let outcome: any;
     for (;;) {
-      const { judged } = probeSlot(deps.fsImpl, file, name, deps.alive);
+      const { seen, judged } = probeSlot(deps.fsImpl, file, name, deps.alive);
+      // A waiter whose grant cannot change leaves the lock to the holder and the waiter that can.
+      const due = timeoutSeconds && deps.now() - startedAt >= timeoutSeconds * 1000;
+      if (!received && !due && queuedBehindLive(seen, judged, self)) { await deps.sleep(deps.pollMs); continue; }
       locked(file, name, deps, (state) => {
         const clean = sweep(state, judged);
         const waited = deps.now() - startedAt;
