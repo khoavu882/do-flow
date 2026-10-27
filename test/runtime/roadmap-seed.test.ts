@@ -1658,3 +1658,25 @@ test('IC-003 text cap: land line plus many overlaps still prints at most twelve 
   assert.ok(all[1].startsWith('  land (person only): '));
   assert.ok(all.some((line: any) => /\.\.\. \d+ more/.test(line)), 'overflow summary present');
 });
+
+// FU-5f7dwt: `proposed` is a known row key. A store row may carry `proposed: true`; a draft may not set it (only apply writes it).
+test('proposed: a store row marked proposed is not flagged, and a draft cannot set the key', (t) => {
+  const dir = tempDir(t, 'doflow-roadmap-seed-proposed-');
+  const storeRows: any = [
+    { id: '113', slug: '113-toy', title: 'Toy row', class: 'feature', needs: [], writeSet: ['src/toy/'], proposed: true },
+  ];
+  writeFixtureStore(dir, storeRows);
+  assert.deepEqual(seedFindings(JSON.parse(fs.readFileSync(path.join(dir, 'agent-docs/roadmap/rows.json'), 'utf8'))), []);
+
+  const storeRaw = fs.readFileSync(path.join(dir, 'agent-docs/roadmap/rows.json'), 'utf8');
+  const clean = { schema: 1, rows: [{ id: '114', slug: '114-new', title: 'New row', class: 'feature', needs: [] }] };
+  assert.equal(judgeDraft({ draftRaw: JSON.stringify(clean), seedRaw: storeRaw, gitFacts: {}, op: 'check' }).ok, true);
+
+  for (const value of [true, false]) {
+    const draft = { schema: 1, rows: [{ ...clean.rows[0], proposed: value }] };
+    const judged = judgeDraft({ draftRaw: JSON.stringify(draft), seedRaw: storeRaw, gitFacts: {}, op: 'check' });
+    assert.equal(judged.ok, false, `proposed: ${value}`);
+    assert.ok(judged.findings.every((f: any) => f.rule === 'seed-invalid' && f.rowId === '114'), `proposed: ${value}`);
+    assert.ok(judged.findings.some((f: any) => /must not declare proposed/.test(f.message)), `proposed: ${value}`);
+  }
+});
