@@ -127,7 +127,7 @@ meant. Re-proposing the same class will be rejected the same way.
 
 ## The hard hook does not know about classes
 
-`pre-implement-gate.sh` keys on branch and artifact state (what it denies: `DOFLOW_CHAIN.md`): if the
+`pre-implement-gate.sh` keys on branch and artifact state (what it denies: SKILL.md step 7): if the
 current branch already carries a feature directory the gate rejects, it denies source edits
 regardless of the class in play — so a `bug` or `trivial-edit` workflow started on that branch will
 be blocked at its implementation stage. Surface the hook's message as written. Do not route around

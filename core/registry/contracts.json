@@ -1,5 +1,11 @@
 {
   "version": 1,
+  "agentSkillsSpec": {
+    "skillFields": ["name", "description", "license", "compatibility", "metadata", "allowed-tools"],
+    "source": "https://agentskills.io/specification",
+    "verifiedOn": "2026-10-27",
+    "note": "The Agent Skills standard's SKILL.md keys; metadata is a map of string keys to string values. A projected SKILL.md keeps these and its harness's skillFields at the top level and carries every other key under metadata (src/adapters/copy-tree.ts, skill-frontmatter-<harness>; G22). unknownSkillFields records what the vendor page says the harness does with a key it does not define."
+  },
   "contracts": [
     {
       "harness": "claude",
@@ -27,6 +33,9 @@
         "license",
         "compatibility"
       ],
+      "skillFieldsSource": "https://code.claude.com/docs/en/skills",
+      "skillFieldsVerifiedOn": "2026-10-27",
+      "unknownSkillFields": "ignored",
       "agentFields": [
         "name",
         "description",
@@ -93,7 +102,11 @@
     {
       "harness": "codex",
       "completeness": "lower-bound",
-      "note": "Frontmatter field lists are deliberately absent: shared skills and agent specs are byte-identical across harnesses, so a per-harness list could only restate a subset of claude's and would change no guard outcome \u2014 an inert declaration of exactly the kind these guards exist to remove. hookEvents IS per-harness and lists the events DoFlow actually wires; widen it only with an added evidence URL.",
+      "note": "skillFields lists the SKILL.md keys Codex documents; the projected SKILL.md keeps only those and the Agent Skills spec keys at the top level (row 131). agentFields is deliberately absent: shared agent specs are byte-identical across harnesses, so a per-harness list could only restate a subset of claude's and would change no guard outcome \u2014 an inert declaration of exactly the kind these guards exist to remove. hookEvents IS per-harness and lists the events DoFlow actually wires; widen it only with an added evidence URL.",
+      "skillFields": ["name", "description"],
+      "skillFieldsSource": "https://learn.chatgpt.com/docs/build-skills",
+      "skillFieldsVerifiedOn": "2026-10-27",
+      "unknownSkillFields": "not-documented",
       "hookEvents": [
         "SessionStart",
         "SessionEnd",
@@ -115,6 +128,10 @@
       "harness": "opencode",
       "completeness": "lower-bound",
       "note": "hookEvents is empty by design, not by omission: OpenCode implements lifecycle handlers as JavaScript/TypeScript plugin modules exporting named hooks such as tool.execute.before, while DoFlow ships shell scripts invoked by a command string. The events exist natively and are recorded under capabilities.hooks.events with status \"different\"; wiring them would mean shipping executable code into the user's agent, which is a distribution decision rather than a projection. Widen this list only alongside that decision and an added evidence URL. See https://opencode.ai/docs/plugins.",
+      "skillFields": ["name", "description", "license", "compatibility", "metadata"],
+      "skillFieldsSource": "https://opencode.ai/docs/skills",
+      "skillFieldsVerifiedOn": "2026-10-27",
+      "unknownSkillFields": "ignored",
       "hookEvents": [],
       "evidence": [
         "https://opencode.ai/docs/plugins",
@@ -126,6 +143,10 @@
       "harness": "pi",
       "completeness": "lower-bound",
       "note": "DoFlow installs a user- or project-scope extension that registers tool_call through pi.on() and invokes the shared lifecycle bridge. Project scope requires project trust. The handler can block before tools execute; tool_execution_start remains observation-only. See https://pi.dev/docs/latest/extensions.",
+      "skillFields": ["name", "description", "license", "compatibility", "metadata", "allowed-tools", "disable-model-invocation"],
+      "skillFieldsSource": "https://raw.githubusercontent.com/earendil-works/pi/main/packages/coding-agent/docs/skills.md",
+      "skillFieldsVerifiedOn": "2026-10-27",
+      "unknownSkillFields": "warned",
       "hookEvents": ["tool_call"],
       "evidence": [
         "https://pi.dev/docs/latest/extensions",
@@ -137,6 +158,10 @@
       "harness": "copilot",
       "completeness": "lower-bound",
       "note": "Copilot CLI now documents a full hook surface (use-hooks / hooks-reference, 2026): .github/hooks/*.json and ~/.copilot/hooks/, shape {version:1,hooks:{event:[entries]}} where the event name is camelCase (camelCase payload fields) or PascalCase (VS Code/Claude-compatible, snake_case payload fields). DoFlow wires none of it: the shipped scripts are Claude-payload-coupled (tool names, .session_id/.transcript_path stdin fields, CLAUDE_* envs) and Copilot's payload schemas are unverified here. hookEvents stays empty until that verification lands; widen only alongside it and an added evidence URL.",
+      "skillFields": ["name", "description", "license", "allowed-tools"],
+      "skillFieldsSource": "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills",
+      "skillFieldsVerifiedOn": "2026-10-27",
+      "unknownSkillFields": "not-documented",
       "hookEvents": [],
       "evidence": [
         "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills",
@@ -149,6 +174,10 @@
       "harness": "kiro",
       "completeness": "lower-bound",
       "note": "hookEvents lists only the events DoFlow actually installs a doflow.json entry for (session-context on SessionStart, pre-implementation-gate, pre-bash-guard and mcp-tool-guard all on PreToolUse \u2014 hence PreToolUse appearing once, not twice \u2014 and stop-check on Stop), not the full set of trigger names Kiro's docs confirm (SessionStart, Stop, PreToolUse, PostToolUse, UserPromptSubmit, PreTaskExec, PostTaskExec, PostFileSave, PostFileCreate, PostFileDelete, plus SessionEnd on CLI V3 only \u2014 see kiro.dev/docs/hooks/types/). Widen this list only when DoFlow wires a hook to one of the unused confirmed events, alongside an added evidence URL.",
+      "skillFields": ["name", "description", "license", "compatibility", "metadata"],
+      "skillFieldsSource": "https://kiro.dev/docs/skills/",
+      "skillFieldsVerifiedOn": "2026-10-27",
+      "unknownSkillFields": "not-documented",
       "hookEvents": [
         "SessionStart",
         "PreToolUse",
@@ -164,6 +193,10 @@
       "harness": "antigravity",
       "completeness": "lower-bound",
       "note": "hookEvents lists what DoFlow wires; widen only with added evidence. Antigravity documents six hook events (SessionStart added); DoFlow wires PreToolUse (pre-implementation gate) and Stop (stop check) today.",
+      "skillFields": ["name", "description"],
+      "skillFieldsSource": "https://www.antigravity.google/docs/skills",
+      "skillFieldsVerifiedOn": "2026-10-27",
+      "unknownSkillFields": "not-documented",
       "hookEvents": [
         "PreToolUse",
         "Stop"

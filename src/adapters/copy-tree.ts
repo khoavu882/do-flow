@@ -161,6 +161,66 @@ const TRANSFORMS: Record<string, (sourceRel: string, content: any) => any> = {
   },
 };
 
+/** Row 131: core/registry/contracts.json, read once. Its `agentSkillsSpec` holds the Agent Skills
+ * spec keys; each contract's `skillFields` the keys that harness documents. */
+const SKILL_CONTRACTS = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'contracts.json'), 'utf8'));
+
+/** One `skill-frontmatter-<harness>` transform per contract that lists skillFields: a SKILL.md keeps
+ * the spec keys and that harness's skillFields at the top level, and every other top-level key moves
+ * under `metadata` as a quoted string. Files other than SKILL.md pass through unchanged. */
+for (const contract of SKILL_CONTRACTS.contracts.filter((entry: any) => Array.isArray(entry.skillFields))) {
+  const allowed = new Set<string>([...SKILL_CONTRACTS.agentSkillsSpec.skillFields, ...contract.skillFields]);
+  TRANSFORMS[`skill-frontmatter-${contract.harness}`] = (sourceRel: string, content: any) => (
+    path.basename(sourceRel) === 'SKILL.md' ? Buffer.from(portableSkillFrontmatter(content.toString('utf8'), allowed, sourceRel)) : content);
+}
+
+/** A one-line YAML scalar's value. Single-quoted: `''` is one quote. Double-quoted: JSON's escapes
+ * (`\"`, `\\`, `\n`, `\t`, `\uXXXX`, ...), which YAML reads the same way; any other escape throws
+ * rather than be guessed. Anything else is plain and taken as written. */
+function yamlScalar(value: string, key: string, file: string): string {
+  const single = value.match(/^'((?:[^']|'')*)'$/);
+  if (single) return single[1].replace(/''/g, "'");
+  if (!/^"(?:[^"\\]|\\.)*"$/.test(value)) return value;
+  try { return JSON.parse(value); } catch {
+    throw new Error(`${file}: '${key}' has a double-quoted value with an escape this projector does not decode`);
+  }
+}
+
+/** Move every top-level frontmatter key outside `allowed` under `metadata:`. A moved value is
+ * written as a JSON string (valid YAML), a plain scalar's continuation lines joined with a space; a
+ * nested map or a block scalar (`|`, `>`) is not handled, so it throws rather than guess, and so does a
+ * flow-style `metadata` (`{...}` on the key's line), which block entries cannot be appended to without a
+ * YAML parser. `file` names the source in each error. */
+function portableSkillFrontmatter(text: string, allowed: Set<string>, file = 'SKILL.md'): string {
+  const match = text.match(/^---\n([\s\S]*?\n)---(?=\n|$)/);
+  if (!match) return text;
+  const entries: { key: string | null, prefix: number, lines: string[] }[] = [];
+  for (const line of match[1].replace(/\n$/, '').split('\n')) {
+    // A top-level key, bare or quoted (`"key":`, `'key':`); `prefix` is the length up to its colon.
+    const found = line.match(/^(?:"((?:[^"\\]|\\.)+)"|'((?:[^']|'')+)'|([A-Za-z][A-Za-z0-9_-]*))[ \t]*:/);
+    const key = found ? (found[1]?.replace(/\\(.)/g, '$1') ?? found[2]?.replace(/''/g, "'") ?? found[3]) : null;
+    if (key || !entries.length) entries.push({ key, prefix: found ? found[0].length : 0, lines: [line] });
+    else entries[entries.length - 1].lines.push(line);
+  }
+  const metadataEntry = entries.find((entry) => entry.key === 'metadata');
+  if (metadataEntry && /^[ \t]*[^\s#]/.test(metadataEntry.lines[0].slice(metadataEntry.prefix))) {
+    throw new Error(`${file}: flow-style metadata cannot take moved keys; write metadata as a block map`);
+  }
+  const moved = entries.filter((entry) => entry.key && entry.key !== 'metadata' && !allowed.has(entry.key));
+  if (!moved.length) return text;
+  const metadata = moved.map(({ key, prefix, lines }) => {
+    const head = lines[0].slice(prefix).trim();
+    if (!head || /^[|>][-+0-9]*$/.test(head)) throw new Error(`${file}: '${key}' has no scalar value to move under metadata`);
+    const value = [head, ...lines.slice(1).map((part) => part.trim())].join(' ').trim();
+    return `  ${/^[A-Za-z][A-Za-z0-9_-]*$/.test(key as string) ? key : JSON.stringify(key)}: ${JSON.stringify(yamlScalar(value, key as string, file))}`;
+  });
+  const kept = entries.filter((entry) => !moved.includes(entry));
+  const existing = kept.find((entry) => entry.key === 'metadata');
+  if (existing) existing.lines.push(...metadata);
+  else kept.push({ key: 'metadata', prefix: 9, lines: ['metadata:', ...metadata] });
+  return `---\n${kept.flatMap((entry) => entry.lines).join('\n')}\n${text.slice(match[0].length - 3)}`;
+}
+
 function resolveTransform(name: any): ((sourceRel: string, content: any) => any) | null {
   if (!name) return null;
   const transform = TRANSFORMS[name];
@@ -211,7 +271,7 @@ function yamlLines(key: string, value: any, indent: string = ''): string[] {
   return [`${indent}${key}: ${value}`];
 }
 
-/** Rewrite a shared agent spec's frontmatter for one harness: `access` is never projected, and a
+/** Rewrite a shared agent spec's frontmatter for one harness: `access` and `tool-scope` are never projected, and a
  * `read-only` spec gains the harness's `apply` keys (a `write` spec gains none). Body and every other
  * key pass through byte for byte; a file without frontmatter is returned unchanged. */
 function applyAgentLimits(text: string, harnessId: string): string {
@@ -221,7 +281,7 @@ function applyAgentLimits(text: string, harnessId: string): string {
   const readOnly = lines.some((line: string) => /^access:\s*read-only\s*$/.test(line));
   const apply = readOnly ? readOnlyApply(harnessId) : null;
   const added = apply ? Object.entries(apply).flatMap(([key, value]) => yamlLines(key, value)).map((line: string) => `${line}\n`) : [];
-  const kept = lines.filter((line: string) => !/^access:/.test(line));
+  const kept = lines.filter((line: string) => !/^(access|tool-scope):/.test(line));
   return `${text.slice(0, text.indexOf('\n') + 1)}${kept.join('')}${added.join('')}${text.slice(match[0].length - 3)}`;
 }
 
@@ -732,4 +792,4 @@ function ledgerFileResources(resources: any, harness: string, assetId: string): 
     .map((resource: any) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
 }
 
-module.exports = { readOnlyApply, kiroHook, kiroHookCommand, kiroPreToolUseHooks, walkRelFiles, discoverTree, sameFileIndex, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveSelect, SELECTORS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };
+module.exports = { readOnlyApply, kiroHook, kiroHookCommand, kiroPreToolUseHooks, walkRelFiles, discoverTree, sameFileIndex, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveSelect, SELECTORS, resolveTransform, TRANSFORMS, portableSkillFrontmatter, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };

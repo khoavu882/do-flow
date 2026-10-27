@@ -180,5 +180,7 @@ test('the do authoring route fits IC-027 and names no new reference file', () =>
   assert.match(route, /No evidence batch/);
   assert.match(route, /never write.*grants\.jsonl.*add remote sources.*create a feature folder/);
   const references = [...new Set([...text.matchAll(/references\/([A-Za-z0-9_./-]+\.md)/g)].map((match) => match[1]))].sort();
-  assert.deepEqual(references, ['EVIDENCE_LEDGER.md', 'advice_calls.md', 'estimation.md', 'pm_routing.md', 'program_mode.md', 'tool_matrix.md']);
+  // Row 131 (G75, one hop): SKILL.md names the guidance references pm_routing.md and program_mode.md
+  // point at, and do-document's deep_research.md; none is a new reference file.
+  assert.deepEqual(references, ['EVIDENCE_LEDGER.md', 'MODEL_SELECTION.md', 'ORCHESTRATION.md', 'advice_calls.md', 'deep_research.md', 'estimation.md', 'pm_routing.md', 'program_mode.md', 'tool_matrix.md']);
 });

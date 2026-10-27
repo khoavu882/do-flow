@@ -37,7 +37,8 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      decisions, deviations, and test verifications. Consult `references/implementation-flow.md` for
      what each section holds.
    - `index`: Whole-project architecture overview and knowledge base mapping. Consult `references/index_generator.md`.
-   - `research`: Evidence-based web research and synthesis with verified citations. Consult `references/deep_research.md`.
+   - `research`: Evidence-based web research and synthesis with verified citations. Consult `references/deep_research.md`,
+     and for what the research class does and does not configure, the guidance tree's `references/RESEARCH_CONFIG.md`.
 
 3. **Analysis & Synthesis**:
    - Extract interface shapes, doc comments, types, and architectural dependencies directly from the codebase.

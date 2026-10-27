@@ -140,11 +140,23 @@ function validateContract(value: any, location: string, errors: string[], harnes
   if (!CONTRACT_COMPLETENESS.has(value.completeness)) {
     issue(errors, location, 'completeness must be verified or lower-bound');
   }
-  // skillFields/agentFields are optional: shared skills and agent specs are byte-identical across
-  // harnesses, so a per-harness field list is necessarily a subset of the union and cannot change
-  // any guard outcome. Declaring one anyway would restate an unverified claim as fact — the exact
-  // shape of inert declaration these guards exist to remove. hookEvents is required because those
-  // genuinely differ per harness and G5 reads them.
+  // agentFields is optional: shared agent specs are byte-identical across harnesses, so a per-harness
+  // field list is necessarily a subset of the union and cannot change any guard outcome. Declaring one
+  // anyway would restate an unverified claim as fact — the exact shape of inert declaration these
+  // guards exist to remove. skillFields is per-harness since row 131: a projected SKILL.md keeps only
+  // the spec keys and its harness's skillFields at the top level, so a list needs its vendor page and
+  // the date it was read. hookEvents is required because those genuinely differ per harness and G5 reads them.
+  if (value.skillFields !== undefined) {
+    if (typeof value.skillFieldsSource !== 'string' || !/^https:\/\//.test(value.skillFieldsSource)) {
+      issue(errors, `${location}.skillFieldsSource`, 'must be the HTTPS vendor page skillFields was read from');
+    }
+    if (typeof value.skillFieldsVerifiedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value.skillFieldsVerifiedOn)) {
+      issue(errors, `${location}.skillFieldsVerifiedOn`, 'must be the YYYY-MM-DD date skillFields was read');
+    }
+    if (!['ignored', 'warned', 'rejected', 'not-documented'].includes(value.unknownSkillFields)) {
+      issue(errors, `${location}.unknownSkillFields`, 'must be ignored, warned, rejected or not-documented');
+    }
+  }
   for (const field of ['skillFields', 'agentFields']) {
     if (value[field] === undefined) continue;
     const list = value[field];

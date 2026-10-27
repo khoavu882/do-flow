@@ -14,5 +14,4 @@ Methodology for multi-hop evidence collection and cited reporting:
 **Stop when** every sub-question the contract names has an answer or a stated gap, **and** the last round produced no new sub-question. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
 
 ## Behavioral Posture
-For deep investigation protocols, consult the guidance tree's `modes/MODE_DeepResearch.md`; for what
-the research class does and does not configure, the guidance tree's `references/RESEARCH_CONFIG.md`.
+For deep investigation protocols, consult the guidance tree's `modes/MODE_DeepResearch.md`.

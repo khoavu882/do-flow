@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Vendor-documented size caps on always-loaded guidance, per harness. scope per-file-after-includes caps each projected always-on file after its includes are expanded; combined-chain caps everything a harness loads at startup together. cap_bytes is null when the vendor documents no byte cap; source_url is then the page checked. Never estimate a number. Read by test/guards/guidance-caps.test.ts (G74).",
+  "description": "Vendor-documented size caps on always-loaded guidance, per harness. scope per-file-after-includes caps each projected always-on file after its includes are expanded; combined-chain caps everything a harness loads at startup together. cap_bytes is null when the vendor documents no byte cap; source_url is then the page checked. Never estimate a number. Read by test/guards/guidance-caps.test.ts (G74). agent_description_caps (row 131) is the same record for the combined name and description text of the shared agent specs, in tokens estimated at 4 characters each; agent_description_ratchet is a growth ceiling, not a vendor cap, that applies where no vendor documents one. Read by test/guards/skill-structure.test.ts (G75).",
   "caps": [
     {"harness": "claude", "cap_bytes": 4194304, "scope": "per-file-after-includes", "source_url": "https://code.claude.com/docs/en/memory", "verified_on": "2026-10-27",
      "note": "4 MiB per CLAUDE.md file loaded at launch; a larger file is skipped entirely. The page's 200-line target is advice, not a cap."},
@@ -18,5 +18,23 @@
      "note": "Antigravity truncates any single rule file over 24,000 bytes after expanding @[label](path) includes."},
     {"harness": "antigravity", "cap_bytes": null, "scope": "combined-chain", "source_url": "https://antigravity.google/docs/rules", "verified_on": "2026-10-27",
      "note": "All active global and always_on rules share a 20,000-token budget; over it the largest are demoted to pointers. Tokens, not bytes, so no byte cap is recorded."}
-  ]
+  ],
+  "agent_description_caps": [
+    {"harness": "claude", "cap_tokens": 15000, "source_url": "https://code.claude.com/docs/en/sub-agents", "verified_on": "2026-10-27",
+     "note": "When the combined descriptions of the subagents, built-in ones excepted, pass 15,000 tokens, Claude Code warns at startup and still loads every subagent. Each agent counts its name plus its description."},
+    {"harness": "codex", "cap_tokens": null, "source_url": "https://learn.chatgpt.com/docs/agent-configuration/subagents", "verified_on": "2026-10-27",
+     "note": "No description cap documented; the only cap is agents.max_concurrent_threads_per_session, a thread count."},
+    {"harness": "opencode", "cap_tokens": null, "source_url": "https://opencode.ai/docs/agents", "verified_on": "2026-10-27",
+     "note": "No cap documented; the page asks for a brief description."},
+    {"harness": "pi", "cap_tokens": null, "source_url": "https://github.com/earendil-works/pi", "verified_on": "2026-10-27",
+     "note": "Pi has no subagent surface (its README says it skips sub-agents), so nothing lists agent descriptions."},
+    {"harness": "copilot", "cap_tokens": null, "source_url": "https://docs.github.com/en/copilot/reference/custom-agents-configuration", "verified_on": "2026-10-27",
+     "note": "No description cap documented; the agent prompt body is capped at 30,000 characters."},
+    {"harness": "kiro", "cap_tokens": null, "source_url": "https://kiro.dev/docs/custom-agents/configuration-reference/", "verified_on": "2026-10-27",
+     "note": "No description cap documented."},
+    {"harness": "antigravity", "cap_tokens": null, "source_url": "https://antigravity.google/docs/subagents", "verified_on": "2026-10-27",
+     "note": "No description cap documented."}
+  ],
+  "agent_description_ratchet": {"chars": 1040, "measured_on": "2026-10-27",
+    "note": "RATCHET, NOT A VENDOR CAP. The combined name and description characters of core/shared/agent-specs/*.md, measured at row 131. It holds the harnesses whose vendor documents no cap to the current size: raise it in its own commit with the new measurement when an added or longer description is deliberate."}
 }
