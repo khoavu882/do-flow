@@ -328,7 +328,7 @@ for (const [name, bytes, error, reason] of [
     assert.equal(json.applicable, null);
     assert.equal(json.error, error);
     assert.ok(json.message.includes(reason), json.message);
-    assert.ok(json.message.includes(OVERRIDE), json.message);
+    assert.ok(json.message.replace(/\\/g, '/').includes(OVERRIDE), json.message);
     assert.equal(json.depth, null);
     assert.equal(json.seats, null);
   });
@@ -651,6 +651,7 @@ function fifoRegression(name: any, error: any, place: any) {
     const r = repo(t);
     r.lines([r.line()]);
     const fifo = place(r);
+    if (process.platform === 'win32') return t.skip('a FIFO is not a filesystem entry on win32 (named pipes live in \\\\.\\pipe\\)');
     const made = spawnSync('mkfifo', [fifo]);
     if (made.status !== 0) return t.skip('mkfifo is not available');
     try {
@@ -716,6 +717,7 @@ for (const [name, place] of [
   }],
   ['a FIFO', (r: any) => {
     fs.mkdirSync(path.join(r.cwd, '.doflow/state/orchestration'), { recursive: true });
+    if (process.platform === 'win32') throw new Error('skip');
     const made = spawnSync('mkfifo', [path.join(r.cwd, '.doflow/state/orchestration', LEGACY)]);
     if (made.status !== 0) throw new Error('skip');
   }],

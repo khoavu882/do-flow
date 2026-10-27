@@ -9,6 +9,7 @@ const { bashPath } = require('../helper/bash-locator.ts');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env.ts');
@@ -84,7 +85,7 @@ function scope(wt: any, run: any = 'local', lineage: any = 'main') {
 function render(segment: any, action: any, file: any, maxBytes: any = 16384, summaryBytes?: any) {
   const plan: any = { actions: { [segment]: action }, maxBytes, mode: 'render' };
   if (summaryBytes !== undefined) plan.summaryBytes = summaryBytes;
-  const files: any = { git: '/dev/null', summary: '/dev/null', grant: '/dev/null', warning: '/dev/null' };
+  const files: any = { git: os.devNull, summary: os.devNull, grant: os.devNull, warning: os.devNull };
   files[segment] = file;
   const args: any = ['-n', '-f', EMISSION, '--argjson', 'plan', JSON.stringify(plan)];
   for (const [name, f] of Object.entries(files)) args.push('--rawfile', name, f);
@@ -143,7 +144,8 @@ test('write: the IC-010 record lands at summaries/<cwd_hash>/<run>/<lineage>/sum
   assert.match(w.id, SUMMARY_ID);
   assert.ok(w.id.startsWith('s-20261014T100000Z-'));
   const hash: any = ok('cwd_hash "$1"', [wt]).trim();
-  assert.equal(w.path, path.join(ENV_ROOT, 'summaries', hash, 'r-7', 'w-3', 'summary.md'));
+  // the store path is built in bash, so it may mix separators on Windows
+  assert.equal(path.normalize(w.path), path.join(ENV_ROOT, 'summaries', hash, 'r-7', 'w-3', 'summary.md'));
   assert.equal(fs.readFileSync(w.path, 'utf8'),
     `---\ncompacted_at: ${AT}\nsession_id: sess-a\ntrigger: auto\nbranch: topic\nrole: worker\nsummary_id: ${w.id}\nrun: r-7\nlineage: w-3\nattempt: 2\nworktree: ${wt}\n---\n\nthe body\n`);
   assert.deepEqual(fs.readdirSync(path.dirname(w.path)), ['summary.md']);
@@ -189,7 +191,7 @@ test('write then claim once: the claimed file renders through emission.jq; a sec
   const c: any = claim(wt);
   assert.equal(c.rc, '0');
   assert.equal(c.own, 'pending');
-  assert.equal(c.claimed, path.join(c.scope, '.claimed.sess-r'));
+  assert.equal(path.normalize(c.claimed), path.normalize(path.join(c.scope, '.claimed.sess-r')));
   assert.ok(!fs.existsSync(path.join(c.scope, 'summary.md')));
   const r = render('summary', 'truncate', c.claimed, 16384, Number(c.bytes));
   assert.equal(r.text, `[Prior session summary, compacted ${AT} on branch topic]\nline one\nline two`);
@@ -281,7 +283,7 @@ test('grant: the oldest by name is claimed first, then the next; the claimed cop
   assert.equal(first.rc, '0');
   assert.equal(first.grant, 'fits');
   assert.equal(first.id, older);
-  assert.equal(first.claimed, path.join(dir, `.claimed.L.r-7.w-3.1.${older}`));
+  assert.equal(path.normalize(first.claimed), path.join(dir, `.claimed.L.r-7.w-3.1.${older}`));
   assert.equal(first.bytes, String(Buffer.byteLength('older body')));
   assert.equal(render('grant', 'whole', first.claimed).text, '[Granted summary from lineage main, compacted 2026-10-14T10:00:00Z on branch topic]\nolder body');
   const second: any = grantClaim('r-7', 'w-3');

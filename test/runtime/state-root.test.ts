@@ -25,7 +25,7 @@ test('taskStateRoot: --global, a sandbox, the main checkout, no listing or a fai
   assert.deepEqual(taskStateRoot(o(), { ...linked, sandbox: true, main: null, mainReason: 'sandbox' }), { root: here, redirected: false });
   assert.deepEqual(taskStateRoot(o(), { ...linked, current: '/w/main', isLinked: false }), { root: here, redirected: false });
   assert.deepEqual(taskStateRoot(o(), null), { root: here, redirected: false });
-  assert.deepEqual(taskStateRoot(o({ positional: ['/p'] }), { ok: false, reason: 'not-a-git-repository', isLinked: false }), { root: '/p', redirected: false });
+  assert.deepEqual(taskStateRoot(o({ positional: ['/p'] }), { ok: false, reason: 'not-a-git-repository', isLinked: false }), { root: path.resolve('/p'), redirected: false });
 });
 
 test('adopted stores are the project-state stores that declare this module a writer in storage.json', () => {

@@ -130,6 +130,6 @@ test('config list prints both views generically for a registered 8th key', (t) =
   const output = listConfig(repoRoot, fixture);
   assert.match(output, /^verify\.shared \[project roots\] = "off"  \(project: .*settings\.json\)$/m);
   assert.match(output, /^verify\.shared \[user roots\] = "on"  \(user: .*settings\.json\)$/m);
-  assert.match(output, new RegExp(`    project ${fixture.project.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\/\.doflow\\/settings\\.json: "off" — decided`));
-  assert.match(output, new RegExp(`    user ${fixture.xdg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\/doflow\\/settings\\.json: "on" — decided`));
+  assert.match(output, new RegExp(`    project ${fixture.project.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\\\/]\\.doflow[\\\\/]settings\\.json: "off" — decided`));
+  assert.match(output, new RegExp(`    user ${fixture.xdg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[\\\\/]doflow[\\\\/]settings\\.json: "on" — decided`));
 });

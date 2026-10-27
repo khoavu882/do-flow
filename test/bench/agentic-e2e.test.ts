@@ -26,6 +26,7 @@ const noise = require('../../bench/noise.ts');
 // G60's own checker (recomputation of every scope, the overfit flag and the source-none rules).
 const { checkEvalNoise } = require('../guards/eval-noise.test.ts');
 
+const SKIP_WIN = process.platform === 'win32' && 'the executor finds tools by bare name and spawns the shebang fake worker directly (bench/agentic/execute.ts:424 findOnPath ignores PATHEXT, :567 spawn with shell:false), so it cannot run a stand-in harness on win32';
 const REPO = path.join(__dirname, '..', '..');
 const FAKE_WORKER = path.join(REPO, 'test', 'fixtures', 'agentic', 'fake-worker.js');
 const SCENARIOS = path.join(REPO, 'test', 'fixtures', 'agentic', 'scenarios');
@@ -229,7 +230,7 @@ function g60Findings(decision: any) {
 
 // --- the band ----------------------------------------------------------------------------------
 
-test('noise: three arm N iterations give a valid, usable 096 artifact over the six-task key list', async () => {
+test('noise: three arm N iterations give a valid, usable 096 artifact over the six-task key list', { skip: SKIP_WIN }, async () => {
   const { noise: n } = await setup();
   assert.equal(n.code, 0, n.err);
   const artifact = readJson(NOISE_FILE);
@@ -243,7 +244,7 @@ test('noise: three arm N iterations give a valid, usable 096 artifact over the s
   assert.match(n.out, /verdict: usable/);
 });
 
-test('noise: a leaked arm N run is excluded as source-unverified and counted, never scored', async () => {
+test('noise: a leaked arm N run is excluded as source-unverified and counted, never scored', { skip: SKIP_WIN }, async () => {
   const { leakNoise } = await setup();
   assert.equal(leakNoise.code, 1, leakNoise.err);
   const artifact = readJson(LEAK_NOISE_FILE);
@@ -265,7 +266,7 @@ test('noise: a leaked arm N run is excluded as source-unverified and counted, ne
 
 // --- the decision ------------------------------------------------------------------------------
 
-test('report: arm D that finds more gives gain-above-noise on corpus; the decision passes validateDecision and G60', async () => {
+test('report: arm D that finds more gives gain-above-noise on corpus; the decision passes validateDecision and G60', { skip: SKIP_WIN }, async () => {
   await setup();
   const { decision, out }: any = await decisionOf(D_SETS.gain, ['--noise', NOISE_FILE]);
   assert.deepEqual(noise.validateDecision(decision), []);
@@ -292,7 +293,7 @@ test('report: arm D that finds more gives gain-above-noise on corpus; the decisi
   assert.match(out, /ci95 \[/);
 });
 
-test('report: arm D that finds the same gives within-noise', async () => {
+test('report: arm D that finds the same gives within-noise', { skip: SKIP_WIN }, async () => {
   await setup();
   const { decision }: any = await decisionOf(D_SETS.same, ['--noise', NOISE_FILE]);
   assert.deepEqual(noise.validateDecision(decision), []);
@@ -302,7 +303,7 @@ test('report: arm D that finds the same gives within-noise', async () => {
   assert.deepEqual(g60Findings(decision).findings, []);
 });
 
-test('report: a gain on train only sets overfitSuspected', async () => {
+test('report: a gain on train only sets overfitSuspected', { skip: SKIP_WIN }, async () => {
   await setup();
   const { decision }: any = await decisionOf(D_SETS.trainOnly, ['--noise', NOISE_FILE]);
   assert.deepEqual(noise.validateDecision(decision), []);
@@ -312,7 +313,7 @@ test('report: a gain on train only sets overfitSuspected', async () => {
   assert.deepEqual(g60Findings(decision).findings, []);
 });
 
-test('report: without a noise file the decision is inconclusive with no-noise-band; the default results path is read when present', async () => {
+test('report: without a noise file the decision is inconclusive with no-noise-band; the default results path is read when present', { skip: SKIP_WIN }, async () => {
   await setup();
   const empty = path.join(TMP, 'results-empty');
   const none = await decisionOf(D_SETS.gain, [], { resultsDir: empty });
@@ -334,7 +335,7 @@ test('report: without a noise file the decision is inconclusive with no-noise-ba
   assert.equal(missing.code, 2, 'an explicit --noise that does not exist is refused');
 });
 
-test('report: an edited task (new key) gives noise-case-set-mismatch', async () => {
+test('report: an edited task (new key) gives noise-case-set-mismatch', { skip: SKIP_WIN }, async () => {
   await setup();
   const held = readJson(path.join(REPO, 'bench', 'agentic', 'tasks-heldout.json'));
   held.tasks[0].query = `${held.tasks[0].query} (edited)`;
@@ -349,7 +350,7 @@ test('report: an edited task (new key) gives noise-case-set-mismatch', async () 
   assert.deepEqual(noise.validateDecision(decision), []);
 });
 
-test('report: a different model label gives noise-model-mismatch', async () => {
+test('report: a different model label gives noise-model-mismatch', { skip: SKIP_WIN }, async () => {
   await setup();
   const { decision }: any = await decisionOf(D_SETS.gain, ['--noise', NOISE_FILE], { config: configWith('fake:e2e-model:high') });
   assert.equal(decision.precondition, 'noise-model-mismatch');
@@ -360,7 +361,7 @@ test('report: a different model label gives noise-model-mismatch', async () => {
 
 // --- the token report --------------------------------------------------------------------------
 
-test('report: the descriptive token report leaves an unknown-usage run out of the totals and counts it', async () => {
+test('report: the descriptive token report leaves an unknown-usage run out of the totals and counts it', { skip: SKIP_WIN }, async () => {
   await setup();
   const r = await cli(['report', '--iterations', D_SETS.gain.join(','), '--noise', NOISE_FILE, '--json']);
   assert.equal(r.code, 0, r.err);
@@ -388,7 +389,7 @@ test('report: the descriptive token report leaves an unknown-usage run out of th
   assert.equal(t.nTokenRange, null);
 });
 
-test('report: two runs are byte-equal (stdout and decision file)', async () => {
+test('report: two runs are byte-equal (stdout and decision file)', { skip: SKIP_WIN }, async () => {
   await setup();
   const file = path.join(TMP, 'decision-twice.json');
   const a: any = await decisionOf(D_SETS.gain, ['--noise', NOISE_FILE], {}, file);
@@ -404,7 +405,7 @@ test('report: two runs are byte-equal (stdout and decision file)', async () => {
 
 // --- refusals and the offline verbs ------------------------------------------------------------
 
-test('noise refuses arm D iterations, a mixed model or source, a missing task and a missing grading.json (exit 2)', async () => {
+test('noise refuses arm D iterations, a mixed model or source, a missing task and a missing grading.json (exit 2)', { skip: SKIP_WIN }, async () => {
   await setup();
   const armD = await cli(['noise', '--iterations', D_SETS.gain.join(',')]);
   assert.equal(armD.code, 2);
@@ -442,7 +443,7 @@ test('noise refuses arm D iterations, a mixed model or source, a missing task an
   assert.equal((await cli(['noise', '--iterations', 'n-r1,../x,n-r2'])).code, 2, 'an unsafe iteration name');
 });
 
-test('plan, grade, noise and report spawn nothing', async () => {
+test('plan, grade, noise and report spawn nothing', { skip: SKIP_WIN }, async () => {
   await setup();
   const { result, calls } = await noSpawn(async () => [
     await cli(['plan', '--iteration', 'dry', '--arm', 'N']),

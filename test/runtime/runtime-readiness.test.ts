@@ -625,7 +625,7 @@ test('readiness --json carries the record and the declared scope; no scope print
   assert.doesNotMatch(human.stdout, /Declared scope:|\nScope: /);
 });
 
-test('a state directory that cannot be written: the evaluation prints, the failure is named, exit 1', { skip: process.getuid && process.getuid() === 0 ? 'root ignores permissions' : false }, (t) => {
+test('a state directory that cannot be written: the evaluation prints, the failure is named, exit 1', { skip: process.platform === 'win32' ? 'a chmod cannot make a directory unwritable on win32' : process.getuid && process.getuid() === 0 ? 'root ignores permissions' : false }, (t) => {
   const { cwd, run } = readinessCli(t, []);
   fs.mkdirSync(path.join(cwd, '.doflow', 'state'), { recursive: true });
   fs.chmodSync(path.join(cwd, '.doflow', 'state'), 0o555);

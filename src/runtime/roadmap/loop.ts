@@ -580,7 +580,8 @@ function listWorktrees(ctx: any): Map<string, string> {
   const map = new Map<string, string>();
   for (const block of out.split('\0\0').filter(Boolean)) {
     const fields = block.split('\0');
-    const worktree = fields.find((s) => s.startsWith('worktree '))?.slice(9);
+    const listed = fields.find((s) => s.startsWith('worktree '))?.slice(9);
+    const worktree = listed === undefined ? listed : path.resolve(listed);
     const branch = fields.find((s) => s.startsWith('branch '))?.slice(7);
     if (worktree && branch) map.set(branch, worktree);
   }

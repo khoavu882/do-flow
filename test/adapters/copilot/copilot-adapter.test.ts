@@ -211,7 +211,7 @@ for (const force of [false, true]) {
     fs.appendFileSync(extra, 'my own notes\n');
     const update = adapter.plan({ scope: 'project', scopeRoot: root, assets: [asset], context: { ...context, force }, ledger });
     assert.deepEqual(update.conflicts, [], 'a hand-edited dropped file must not refuse the update');
-    assert.deepEqual(update.notices, ['kept hand-edited .agents/skills/do-analyze/extra.md; DoFlow no longer manages it']);
+    assert.deepEqual(update.notices.map((n: string) => n.replace(/\\/g, '/')), ['kept hand-edited .agents/skills/do-analyze/extra.md; DoFlow no longer manages it']);
     const [change] = update.changes;
     assert.equal(change.operation, 'remove');
     assert.equal(change.retained, true);

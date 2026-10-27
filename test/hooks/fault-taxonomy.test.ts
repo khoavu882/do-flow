@@ -114,6 +114,15 @@ function runPolicyDirect(root: any, policy: any, input: any, { pathValue = proce
 }
 
 function pathWithoutJq(t: any) {
+  if (process.platform === 'win32') {
+    // No symlinks to /bin tools on Windows: Git for Windows' usr/bin holds the same coreutils beside bash.exe
+    // (and no jq), so it is the minimal PATH that still lacks jq.
+    const git = bashPath({ quiet: true });
+    const usrBin = fs.existsSync(path.join(path.dirname(git), 'tr.exe')) ? path.dirname(git) : path.join(path.dirname(path.dirname(git)), 'usr', 'bin');
+    assert.ok(fs.existsSync(path.join(usrBin, 'tr.exe')), `Git usr/bin coreutils found beside ${git}`);
+    assert.ok(!fs.existsSync(path.join(usrBin, 'jq.exe')), 'the coreutils folder holds no jq, so it is a PATH without jq');
+    return usrBin;
+  }
   const bin = path.join(tempDir(t, 'doflow-no-jq-'), 'bin');
   fs.mkdirSync(bin, { recursive: true });
   for (const command of ['bash', 'tr', 'mkdir', 'dirname', 'sed', 'head', 'date', 'pwd']) {
@@ -571,12 +580,22 @@ test('Antigravity runner classifies bridge spawn and timeout faults under both p
   assert.equal(spawnFailure.status, 0, spawnFailure.stderr);
   assert.equal(JSON.parse(spawnFailure.stdout).effect, 'proceed', 'runner compat-1 spawn fault proceeds');
 
-  fs.writeFileSync(path.join(bin, 'bash'), '#!/bin/sh\n/bin/sleep 10\n');
-  fs.chmodSync(path.join(bin, 'bash'), 0o755);
+  // The runner spawns a bare `bash` that only an .exe can satisfy on Windows, so there the stand-in is a copy of node.exe
+  // named bash.exe whose preload (NODE_OPTIONS, applied only when the process is that copy) sleeps past the runner's 5 s timeout.
+  const slowEnv: any = {};
+  if (process.platform === 'win32') {
+    fs.copyFileSync(process.execPath, path.join(bin, 'bash.exe'));
+    const preload = path.join(bin, 'slow-bash.cjs');
+    fs.writeFileSync(preload, "if (/bash\\.exe$/i.test(process.execPath)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10000);\n");
+    slowEnv.NODE_OPTIONS = `--require ${preload.replace(/\\/g, '/')}`;
+  } else {
+    fs.writeFileSync(path.join(bin, 'bash'), '#!/bin/sh\n/bin/sleep 10\n');
+    fs.chmodSync(path.join(bin, 'bash'), 0o755);
+  }
   for (const profile of ['compat-1', 'strict-1']) {
     const result = spawnSync(process.execPath, ['-e', script], {
       cwd: dir, encoding: 'utf8', timeout: 7000,
-      env: { ...process.env, PATH: bin, DOFLOW_FAULT_PROFILE: profile, XDG_CONFIG_HOME: path.join(dir, `xdg-${profile}`), DOFLOW_FAILURE_CAPTURE: 'on' },
+      env: { ...process.env, ...slowEnv, PATH: bin, DOFLOW_FAULT_PROFILE: profile, XDG_CONFIG_HOME: path.join(dir, `xdg-${profile}`), DOFLOW_FAILURE_CAPTURE: 'on' },
     });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(JSON.parse(result.stdout).effect, profile === 'strict-1' ? 'block' : 'proceed', `runner ${profile} timeout effect`);

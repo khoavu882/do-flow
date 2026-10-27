@@ -68,7 +68,11 @@ function materialise(scenario: any, { installArgs, project }: any) {
   const install = doflow(['install', ...rootArgs, ...installArgs, '--mcp', 'none', '--force', '--no-backup'], { home });
   assert.strictEqual(install.status, 0, install.stderr);
 
-  const substitute = (text: any) => text.replaceAll('@ROOT@', root);
+  // Every fixture file is JSON, so on Windows the native root (backslashes) goes in JSON-escaped, and the
+  // path after it takes the native separators the product itself writes.
+  const substitute = (text: any) => (process.platform === 'win32'
+    ? text.replace(/@ROOT@([^"\n]*)/g, (_m: any, rest: any) => JSON.stringify(path.join(root, rest)).slice(1, -1))
+    : text.replaceAll('@ROOT@', root));
   for (const rel of fixtureFiles(scenario)) {
     const target = diskPath(root, rel);
     fs.mkdirSync(path.dirname(target), { recursive: true });

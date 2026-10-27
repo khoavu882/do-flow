@@ -63,7 +63,7 @@ test('knowledge-hybrid: fuseHybridResults fuses ranks with RRF and deduplicates 
 
 test('knowledge-hybrid: bounded live source reading populates snippets within line limits', () => {
   const fakeFs: any = {
-    existsSync: (p: any) => p.endsWith('src/service.js'),
+    existsSync: (p: any) => /src[\\/]service\.js$/.test(p),
     readFileSync: () => 'line 1\nline 2\nline 3\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10',
   };
 

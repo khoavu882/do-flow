@@ -60,7 +60,7 @@ test('gate-0 reads only its named artifact; every fact has a locator and byte di
   const marker = result.find((f: any) => f.name === 'markers:requirement');
   assert.equal(marker.value, 0);
   assert.equal(marker.sha256, sha256Digest('Ready.\n'));
-  assert.match(marker.locator, /intention\/requirement\.md$/);
+  assert.match(marker.locator.replace(/\\/g, '/'), /intention\/requirement\.md$/);
   assert.ok(result.every((f: any) => f.locator && /^sha256:[a-f0-9]{64}$/.test(f.sha256)));
   assert.equal(JSON.stringify(result), JSON.stringify(env.gather('gate-0')));
   assert.equal(evaluate(env.options.policy, 'feature', 'gate-0', result).decision, 'pass');
@@ -86,7 +86,7 @@ test('gate-a parses the real task graph and guards plan and seed paths', (t) => 
 
 test('requires-reachable uses CapabilityRouter with filesystem binary lookup and never spawns', (t) => {
   const env = setup(t);
-  const binary = env.write('bin/found-tool', 'unused'); fs.chmodSync(binary, 0o755);
+  const binary = env.write(process.platform === 'win32' ? 'bin/found-tool.exe' : 'bin/found-tool', 'unused'); fs.chmodSync(binary, 0o755);
   env.write('core/registry/capabilities.json', JSON.stringify({ capabilities: {
     'test.found': { providers: [{ id: 'found', kind: 'native', binary: 'found-tool' }] },
     'test.absent': { providers: [{ id: 'absent', kind: 'native', binary: 'absent-tool' }] } } }));
@@ -101,7 +101,7 @@ test('requires-reachable uses CapabilityRouter with filesystem binary lookup and
 
 test('a hard prerequisite is reachable only on a HEALTHY primary provider; a grep fallback denies', (t) => {
   const env = setup(t);
-  const rg = env.write('bin/rg', 'unused'); fs.chmodSync(rg, 0o755);
+  const rg = env.write(process.platform === 'win32' ? 'bin/rg.exe' : 'bin/rg', 'unused'); fs.chmodSync(rg, 0o755);
   env.write('core/registry/capabilities.json', JSON.stringify({ capabilities: {
     'code.semantic-search': { providers: [{ id: 'semble.search', kind: 'cli', binary: 'semble' }, { id: 'native.rg', kind: 'native', binary: 'rg' }] } } }));
   const policy = structuredClone(env.options.policy); policy.classes.feature['gate-a'].predicates = ['requires-reachable'];

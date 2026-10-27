@@ -12,6 +12,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
+const { bashPath } = require('../helper/bash-locator.ts');
 const { loadVerificationRegistry } = require('../../src/runtime/verification/registry.ts');
 const CR = require('../../src/runtime/verification/contract-runner.ts');
 const { VerificationEngine } = require('../../src/runtime/verification/engine.ts');
@@ -19,6 +20,17 @@ const { checkKeyV2 } = require('../../src/runtime/verification/check-key.ts');
 
 const REGISTRY = loadVerificationRegistry();
 const SH = '#!/bin/sh\n';
+
+/** The checks here are POSIX shell commands (printf, test, cat, chmod, /dev/null). The runner hands them to `shell: true`, which on
+ * win32 is cmd.exe, so win32 runs the same command text through Git Bash instead: still a real shell, never a spy. */
+function shellRun(command: any, options: any = {}) {
+  if (process.platform !== 'win32') return spawnSync(command, options);
+  const { shell: _shell, ...rest } = options;
+  return spawnSync(bashPath({ quiet: true }), ['-c', command], rest);
+}
+const SHELL_EXEC: any = process.platform === 'win32'
+  ? (command: any, argsOrOptions: any, options: any) => (Array.isArray(argsOrOptions) ? spawnSync(command, argsOrOptions, options) : shellRun(command, argsOrOptions))
+  : undefined;
 
 function git(cwd: any, ...args: any[]) {
   const res = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', ...args], { cwd, encoding: 'utf8' });
@@ -53,13 +65,13 @@ function scene(t: any, { files = {}, links = {}, inRepoConfig = false }: any = {
   const configDir = inRepoConfig ? path.join(root, '.doflow') : path.join(tempDir(t, 'doflow-stale-pass-cfg-'), '.doflow');
   return {
     root, configDir, stubDir, home,
-    env: { PATH: `${stubDir}${path.delimiter}${process.env.PATH}`, HOME: home, DOFLOW_TELEMETRY: 'off' },
+    env: { PATH: `${stubDir}${path.delimiter}${process.env.PATH}`, HOME: home, DOFLOW_TELEMETRY: 'off', ...(process.platform === 'win32' ? { USERPROFILE: home, SystemRoot: process.env.SystemRoot } : {}) },
   };
 }
 
 function newRunner(ctx: any, { reuse = true, risk = 'MEDIUM', exec }: any = {}) {
   return new CR.VerificationContractRunner({
-    cwd: ctx.root, env: ctx.env, logDir: path.join(ctx.configDir, 'logs'), ...(exec ? { exec } : {}),
+    cwd: ctx.root, env: ctx.env, logDir: path.join(ctx.configDir, 'logs'), ...((exec || SHELL_EXEC) ? { exec: exec || SHELL_EXEC } : {}),
     context: { v0: false, reuse, registry: REGISTRY, riskLevel: risk, configDir: ctx.configDir },
   });
 }
@@ -73,7 +85,7 @@ function runnerDriver(ctx: any, command: any, { reuse = true, risk = 'MEDIUM', t
 
 /** The same check through a fresh VerificationEngine, as the verify verb runs it. */
 function engineDriver(ctx: any, command: any, { reuse = true, risk = 'MEDIUM', timeoutMs = 60000, exec }: any = {}) {
-  const engine: any = new VerificationEngine({ cwd: ctx.root, configDir: ctx.configDir, v0: false, reuse, ...(exec ? { exec } : {}) });
+  const engine: any = new VerificationEngine({ cwd: ctx.root, configDir: ctx.configDir, v0: false, reuse, ...((exec || SHELL_EXEC) ? { exec: exec || SHELL_EXEC } : {}) });
   engine.runner.env = ctx.env;
   const report = engine.runContract({ version: 1, taskId: 'stale-pass', riskLevel: risk, tiers: [{
     id: 'broad-tests', name: 'Broad tests', kind: 'behavioral', required: true, resolution: 'RESOLVED',
@@ -146,7 +158,7 @@ test('C-1 control: a non-mutating PASS is still stored and hits, through the run
 test('C-1 control: with reuse off the runner spawns nothing beyond the check itself (no extra git read)', (t): any => {
   const ctx = scene(t, { files: { 'flag.txt': '0' } });
   const calls: any = [];
-  const exec = (command: any, options: any) => { calls.push(command); return spawnSync(command, options); };
+  const exec = (command: any, options: any) => { calls.push(command); return shellRun(command, options); };
   const env: any = { ...ctx.env };
   delete env.DOFLOW_TELEMETRY; // telemetry on: the key is still computed, from one tree read
   const runner: any = new CR.VerificationContractRunner({ cwd: ctx.root, env, exec,
@@ -201,7 +213,7 @@ for (const [name, drive] of DRIVERS) {
       const exec = (cmd: any, options: any) => {
         if (gate.mode === 'throw') throw new Error('spawn boom');
         if (gate.mode === 'error') return { error: Object.assign(new Error('spawn EACCES'), { code: 'EACCES' }), status: null, stdout: '', stderr: '' };
-        return spawnSync(cmd, options);
+        return shellRun(cmd, options);
       };
       assert.deepEqual([drive(ctx, command, { exec }).ran, drive(ctx, command, { exec }).ran], [true, false], `${mode}: stored`);
       gate.mode = mode;
@@ -342,7 +354,7 @@ for (const mode of ['timeout', 'error', 'throw']) {
         fs.chmodSync(index, 0o644);
         return { error: Object.assign(new Error('spawn EACCES'), { code: 'EACCES' }), status: null, stdout: '', stderr: '' };
       }
-      return spawnSync(cmd, options);
+      return shellRun(cmd, options);
     };
     const options: any = { exec, timeoutMs: 800 };
     assert.deepEqual([runnerDriver(ctx, command, options).ran, runnerDriver(ctx, command, options).ran], [true, false], 'PASS stored, then reused');

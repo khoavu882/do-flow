@@ -91,7 +91,7 @@ const duplicateKey = (grant: any): string => {
 };
 
 const realOf = (fsImpl: any, file: string): string => {
-  try { return fsImpl.realpathSync(file); } catch { return path.resolve(file); }
+  try { return (fsImpl.realpathSync.native ?? fsImpl.realpathSync)(file); } catch { return path.resolve(file); }
 };
 const within = (child: string, parent: string): boolean => {
   const rel = path.relative(parent, child);

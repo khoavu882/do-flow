@@ -8,6 +8,10 @@ const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
 const { runPolicy, encodeEnvelope, parseRecords } = require('../helper/hook-fixtures.ts');
 
+// The worker exemption takes only a POSIX /-rooted DOFLOW_WORKTREE (policies/pre-bash-guard.sh:143), so the
+// allow paths cannot be reached with a Windows drive path; dispatch workers are POSIX-only.
+const SKIP: any = process.platform === 'win32' && 'tree cleanup is unverified on win32 (NFR-005); worker worktree exemption requires a POSIX /-rooted DOFLOW_WORKTREE (policies/pre-bash-guard.sh:143)';
+
 function world(t: any) {
   const root = tempDir(t, 'doflow-dropdb-');
   const worktree = path.join(root, '.doflow/state/dispatch-worktrees/d-0123456789ab');
@@ -35,7 +39,7 @@ const ALLOW = [
   'mysql --host=localhost --port=3306 --user=tester -e "drop database other_test"',
   '\tpsql\t-c\t\' DROP DATABASE app_test; \'\t',
 ];
-for (const command of ALLOW) test(`worker dropdb allows only a listed name: ${command}`, (t) => {
+for (const command of ALLOW) test(`worker dropdb allows only a listed name: ${command}`, { skip: SKIP }, (t) => {
   const w = world(t);
   for (const cwd of [w.worktree, w.sub]) {
     const r = w.run(command, {}, cwd);
@@ -67,7 +71,7 @@ for (const command of DENY) test(`worker dropdb denies syntax/name control: ${co
   assert.equal(parseRecords(r.records).at(-1).outcome, 'deny');
 });
 
-test('worker dropdb fails closed on every malformed or absent launch snapshot', (t) => {
+test('worker dropdb fails closed on every malformed or absent launch snapshot', { skip: SKIP }, (t) => {
   const w = world(t);
   for (const value of [undefined, '', ' ', 'app_test BAD', 'app_test bad-name', '_app_test', 'app_test\nother_test',
     'app_test\tother_test', 'app_test\n', 'app_test  other_test', ' app_test', 'app_test ', 'app_test *',
@@ -90,7 +94,7 @@ test('worker dropdb fails closed on every malformed or absent launch snapshot', 
   assert.equal(w.run(`psql -c 'DROP DATABASE ${overlong}'`, { DOFLOW_GUARD_DROP_DATABASES: overlong }).status, 2);
 });
 
-test('dropdb shape strips exactly one terminal line ending', (t) => {
+test('dropdb shape strips exactly one terminal line ending', { skip: SKIP }, (t) => {
   const w = world(t);
   const command = "psql -c 'DROP DATABASE app_test'";
   for (const ending of ['\n', '\r\n']) {
@@ -100,7 +104,7 @@ test('dropdb shape strips exactly one terminal line ending', (t) => {
   }
 });
 
-test('worker dropdb shares all git exemption scope conditions', (t) => {
+test('worker dropdb shares all git exemption scope conditions', { skip: SKIP }, (t) => {
   const w = world(t);
   const command = "psql -c 'DROP DATABASE app_test'";
   for (const role of [undefined, '', 'main', 'Worker', 'intruder']) assert.equal(w.run(command, { DOFLOW_SESSION_ROLE: role }).status, 2, String(role));
@@ -125,7 +129,7 @@ test('worker dropdb shares all git exemption scope conditions', (t) => {
   assert.equal(w.run(command, { DOFLOW_GUARD_DROP_DATABASES: undefined }, w.worktree, 'codex').status, 2);
 });
 
-test('the hook reads no project or worker settings as an authorisation source', (t) => {
+test('the hook reads no project or worker settings as an authorisation source', { skip: SKIP }, (t) => {
   const w = world(t);
   const command = "psql -c 'DROP DATABASE app_test'";
   for (const root of [w.root, w.worktree]) {

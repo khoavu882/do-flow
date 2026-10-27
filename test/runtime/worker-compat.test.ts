@@ -36,7 +36,7 @@ function dependencyFindings(pkg: any) {
  */
 function requireFindings(text: any, file: any) {
   const findings: any = [];
-  const label = path.relative(REPO, file);
+  const label = path.relative(REPO, file).split(path.sep).join('/');
   for (const match of text.matchAll(/\brequire\s*\(\s*([^)]*?)\s*\)/g)) {
     const literal = /^(['"])([^'"`]+)\1$/.exec(match[1]);
     if (!literal) {

@@ -90,6 +90,8 @@ test('createFileBackup writes the format-2 manifest: keys, summary, excluded, mo
   const root = scratchDir();
   const scopeRoot = path.join(root, 'home');
   const kept = write(path.join(scopeRoot, '.claude', 'CLAUDE.md'), '12345', 0o640);
+  // Windows has no 0o640: chmod only toggles read-only, so the mode the file really reports is the one expected.
+  const keptMode = fs.statSync(kept).mode & 0o7777;
   const missing = path.join(scopeRoot, '.claude', 'skills', 'do', 'SKILL.md');
   const outside = write(path.join(root, 'opt', 'AGENTS.md'), 'abc');
   const set = handSet(scopeRoot, [
@@ -120,11 +122,11 @@ test('createFileBackup writes the format-2 manifest: keys, summary, excluded, mo
   assert.deepStrictEqual(manifest.summary, { files: 3, existed: 2, absent: 1, bytes: 8 });
   assert.deepStrictEqual(manifest.excluded, [{ path: '.claude.json', reason: 'mcp-entries-only' }]);
   assert.deepStrictEqual(manifest.files, [
-    { path: '.claude/CLAUDE.md', existed: true, size: 5, mode: 0o640, stored: 'files/.claude/CLAUDE.md', harnesses: ['claude'] },
+    { path: '.claude/CLAUDE.md', existed: true, size: 5, mode: keptMode, stored: 'files/.claude/CLAUDE.md', harnesses: ['claude'] },
     { path: '.claude/skills/do/SKILL.md', existed: false, harnesses: ['claude'] },
     { path: outside, outside: true, existed: true, size: 3, mode: manifest.files[2].mode, stored: 'external/0/AGENTS.md', harnesses: ['pi', 'codex'] },
   ]);
-  assert.ok(Number.isInteger(manifest.files[0].mode) && /"mode":416,/.test(text), 'mode is a decimal integer');
+  assert.ok(Number.isInteger(manifest.files[0].mode) && text.includes(`"mode":${keptMode},`), 'mode is a decimal integer');
   assert.ok(!('stored' in manifest.files[1]), 'an absent entry has no stored path');
   const elementLines = text.split('\n').filter((l: any) => /^ {4}\{"path":/.test(l));
   assert.strictEqual(elementLines.length, 4, 'each files and excluded element is one line');

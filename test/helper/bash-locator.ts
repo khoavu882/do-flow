@@ -42,7 +42,7 @@ function bashPath({ quiet = false } = {}): string {
   } else {
     cached = process.env.DOFLOW_TEST_BASH || (fs.existsSync('/bin/bash') ? '/bin/bash' : 'bash');
   }
-  return cached;
+  return cached as string;
 }
 
 let fd3Counter = 0;

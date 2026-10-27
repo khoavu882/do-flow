@@ -3,6 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { interpreterSpawn } = require('../helper-platform.ts');
 const { enforcementFor, renderEnforcementMatrix, rowsDigest, UnknownEnforcementTarget } = require('../../src/lifecycle/coverage.ts');
 const ROOT = path.resolve(__dirname, '../..');
 const row = (values: any = {}) => ({ policy: 'gate', harness: 'claude', event: 'PreToolUse', timing: 'pre-tool', profile: 'any', wired: true, class: 'blocking', verification: 'verified', prerequisites: [], covers: ['edit', 'write'], doesNotCover: ['shell'], caveats: [], ...values });
@@ -110,7 +111,11 @@ test('enforcement CLI returns exit 0 for an enforced synthetic registry answer',
 });
 
 test('enforcement CLI reports json, text, exit codes, errors and dispatcher pass-through', () => {
-  const run = (args: any, executable: any = path.join(ROOT, 'bin/doflow.js')) => spawnSync(executable.endsWith('.js') ? process.execPath : executable, executable.endsWith('.js') ? [executable, ...args] : args, { cwd: ROOT, encoding: 'utf8' });
+  // The doflow-run locator is a shebang script: win32 cannot exec it, so interpreterSpawn runs it through Git Bash there.
+  const run = (args: any, executable: any = path.join(ROOT, 'bin/doflow.js')) => {
+    const spawn = executable.endsWith('.js') ? { file: process.execPath, args: [executable, ...args] } : interpreterSpawn(executable, args);
+    return spawnSync(spawn.file, spawn.args, { cwd: ROOT, encoding: 'utf8' });
+  };
   let result = run(['enforcement', '--harness', 'opencode', '--policy', 'pre-implementation-gate', '--json']);
   assert.equal(result.status, 1); assert.equal(JSON.parse(result.stdout).class, 'unsupported');
   result = run(['enforcement', '--harness', 'claude', '--policy', 'pre-implementation-gate', '--json']);

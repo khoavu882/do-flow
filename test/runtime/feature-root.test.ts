@@ -10,6 +10,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { suiteTempDir } = require('../helper/tmp.ts');
+const { samePath } = require('../helper-platform.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const BASH = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash');
@@ -21,6 +22,11 @@ const SCRATCH = suiteTempDir('doflow-feature-root-');
 const HOME = path.join(SCRATCH, 'home');
 fs.mkdirSync(HOME, { recursive: true });
 let counter = 0;
+
+// git and the bash scripts print C:/x where Node holds C:\x; the same directory in either spelling is equal.
+function same(actual: any, expected: any) {
+  assert.ok(samePath(actual, expected), `${actual} is ${expected}`);
+}
 
 function env(extra: any = {}) {
   return {
@@ -50,7 +56,7 @@ function makeTree(slug: any = '115-scratch') {
   git(main, 'commit', '-q', '--allow-empty', '-m', 'init');
   const wt = path.join(SCRATCH, `wt-${counter++}`);
   git(main, 'worktree', 'add', '-q', '-b', `feat/${slug}`, wt);
-  return { main, wt: fs.realpathSync(wt), slug, rel: path.join('agent-docs', 'doflow', slug) };
+  return { main, wt: fs.realpathSync(wt), slug, rel: `agent-docs/doflow/${slug}` };
 }
 
 function paths(cwd: any, ...args: any[]) {
@@ -96,8 +102,8 @@ test('folder only in main: feature_root is the main checkout and repo_root stays
   const t = makeTree();
   mkFolder(t.main, t.rel);
   const out = paths(t.wt);
-  assert.equal(out.feature_root, t.main);
-  assert.equal(out.repo_root, t.wt);
+  same(out.feature_root, t.main);
+  same(out.repo_root, t.wt);
   assert.equal(out.feature_dir, t.rel);
 });
 
@@ -105,33 +111,33 @@ test('folder in both: feature_root is the worktree', () => {
   const t = makeTree();
   mkFolder(t.main, t.rel);
   mkFolder(t.wt, t.rel);
-  assert.equal(paths(t.wt).feature_root, t.wt);
+  same(paths(t.wt).feature_root, t.wt);
 });
 
 test('folder in neither (a new feature): feature_root is the worktree', () => {
   const t = makeTree();
-  assert.equal(paths(t.wt).feature_root, t.wt);
+  same(paths(t.wt).feature_root, t.wt);
 });
 
 test('the main checkout itself, a slug that names no feature, no slug and a non-git dir give repo_root', () => {
   const t = makeTree();
   mkFolder(t.main, t.rel);
-  assert.equal(paths(t.main, `--slug=${t.slug}`).feature_root, t.main);
-  assert.equal(paths(t.wt, '--slug=999-nothing').feature_root, t.wt);
+  same(paths(t.main, `--slug=${t.slug}`).feature_root, t.main);
+  same(paths(t.wt, '--slug=999-nothing').feature_root, t.wt);
   const trunk = paths(t.main);
   assert.equal(trunk.feature_slug, null);
-  assert.equal(trunk.feature_root, t.main);
+  same(trunk.feature_root, t.main);
   const plain = scratchDir('plain');
   const out = paths(plain);
   assert.equal(out.is_git_repo, false);
-  assert.equal(out.feature_root, plain);
+  same(out.feature_root, plain);
 });
 
 test('a DoFlow sandbox (.doflow-worktree-base at its root) never reads the main checkout', () => {
   const t = makeTree();
   mkFolder(t.main, t.rel);
   fs.writeFileSync(path.join(t.wt, '.doflow-worktree-base'), 'x\n');
-  assert.equal(paths(t.wt).feature_root, t.wt);
+  same(paths(t.wt).feature_root, t.wt);
 });
 
 test('every other key is unchanged: only feature_root and the artifact flags that follow it differ', () => {
@@ -141,8 +147,8 @@ test('every other key is unchanged: only feature_root and the artifact flags tha
   const emptyInMain = paths(t.wt);
   const { feature_root: a, ...restNeither } = neither;
   const { feature_root: b, ...restEmpty } = emptyInMain;
-  assert.equal(a, t.wt);
-  assert.equal(b, t.main);
+  same(a, t.wt);
+  same(b, t.main);
   assert.deepEqual(restEmpty, restNeither);
   assert.ok(Object.keys(neither).includes('feature_root'));
 });
@@ -157,14 +163,14 @@ test('layout, has_* flags and question-round counters follow feature_root; path 
   fs.mkdirSync(path.join(dir, 'decisions'), { recursive: true });
   fs.writeFileSync(path.join(dir, 'decisions', 'register.json'), '{}\n');
   const after = paths(t.wt);
-  assert.equal(after.feature_root, t.main);
+  same(after.feature_root, t.main);
   assert.equal(after.layout, 'structured');
   assert.equal(after.has_requirement, true);
   assert.equal(after.has_decisions, true);
   assert.equal(after.intention_next_round, 2);
   assert.equal(after.requirement, `${t.rel}/intention/requirement.md`);
   assert.equal(after.decisions_register, `${t.rel}/decisions/register.json`);
-  assert.equal(after.repo_root, t.wt);
+  same(after.repo_root, t.wt);
 });
 
 // ── decision verb ──────────────────────────────────────────────────────────────────────────────

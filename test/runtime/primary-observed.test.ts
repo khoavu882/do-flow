@@ -49,9 +49,16 @@ function treeSnapshot(root: string) {
   return entries;
 }
 
+// Windows: PATH is already the runner's (node and Git for Windows are on it) and uses ';', os.homedir() reads USERPROFILE,
+// and a spawn with a stripped environment still needs SystemRoot.
+const WIN = process.platform === 'win32';
+const toolPath = (posixTail: string) => (WIN ? (process.env.PATH ?? '') : `${path.dirname(process.execPath)}${posixTail}`);
+const homeEnv = (home: string): any => ({ HOME: home, ...(WIN ? { USERPROFILE: home } : {}) });
+const winSystemEnv = (): any => (WIN ? { SystemRoot: process.env.SystemRoot, windir: process.env.windir } : {});
+
 function baseEnv(f: any): any {
   return {
-    HOME: f.home, XDG_CONFIG_HOME: f.config, PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin`,
+    ...homeEnv(f.home), ...winSystemEnv(), XDG_CONFIG_HOME: f.config, PATH: toolPath(':/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin'),
     GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_TELEMETRY: 'off',
     CLAUDE_CONFIG_DIR: '', CODEX_HOME: '', DOFLOW_PROJECT_DIR: '', DOFLOW_DECISION_FD: '', DOFLOW_BRIDGE_TRACE: '',
   };
@@ -59,7 +66,7 @@ function baseEnv(f: any): any {
 
 function git(cwd: string, ...args: string[]) {
   const r = spawnSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
-    encoding: 'utf8', env: { PATH: process.env.PATH, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, GIT_COMMITTER_DATE: COMMIT_DATE, GIT_AUTHOR_DATE: COMMIT_DATE },
+    encoding: 'utf8', env: { PATH: process.env.PATH, ...winSystemEnv(), GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, GIT_COMMITTER_DATE: COMMIT_DATE, GIT_AUTHOR_DATE: COMMIT_DATE },
   });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout.trim();
@@ -196,7 +203,7 @@ test('no config home gives store absent, empty sessions, exit 0 (IC-018 a)', (t)
   const root = tempDir(t, 'doflow-primary-observed-nohome-');
   const main = path.join(root, 'proj');
   repo(main);
-  const env: any = { PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, HOME: 'relative-home' };
+  const env: any = { PATH: toolPath(':/usr/bin:/bin'), ...winSystemEnv(), GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, ...homeEnv('relative-home') };
   const before = treeSnapshot(root);
   const r = spawnSync(process.execPath, [CLI, 'primary', '--action', 'observed', '--json'], { cwd: main, env, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
@@ -210,7 +217,7 @@ test('no config home gives store absent, empty sessions, exit 0 (IC-018 a)', (t)
 
 test('git unable to list checkouts exits 1 with cannot-list-checkouts (IC-018 a)', (t) => {
   const root = tempDir(t, 'doflow-primary-observed-nogit-');
-  const env: any = { HOME: root, XDG_CONFIG_HOME: path.join(root, 'config'), PATH: path.join(root, 'no-bin') };
+  const env: any = { ...homeEnv(root), ...winSystemEnv(), XDG_CONFIG_HOME: path.join(root, 'config'), PATH: path.join(root, 'no-bin') };
   const r = spawnSync(process.execPath, [CLI, 'primary', '--action', 'observed', '--json'], { cwd: root, env, encoding: 'utf8' });
   assert.equal(r.status, 1, r.stderr);
   assert.deepEqual(JSON.parse(r.stdout), { v: 1, error: 'cannot-list-checkouts' });
@@ -218,7 +225,7 @@ test('git unable to list checkouts exits 1 with cannot-list-checkouts (IC-018 a)
 
 test('observed takes only --action and --json (IC-018 a)', (t) => {
   const root = tempDir(t, 'doflow-primary-observed-flags-');
-  const env: any = { HOME: root, XDG_CONFIG_HOME: path.join(root, 'config'), PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin` };
+  const env: any = { ...homeEnv(root), ...winSystemEnv(), XDG_CONFIG_HOME: path.join(root, 'config'), PATH: toolPath(':/usr/bin:/bin') };
   const r = spawnSync(process.execPath, [CLI, 'primary', '--action', 'observed', '--kind', 'review'], { cwd: root, env, encoding: 'utf8' });
   assert.equal(r.status, 2);
 });

@@ -118,13 +118,21 @@ test('adapter B: child env lacks DOFLOW_HOLDOUT_KEY and *_API_KEY', (t) => {
   const stubRg = path.join(bin, 'rg');
   fs.writeFileSync(stubRg, `#!/usr/bin/env node\nconst fs = require('fs');\nfs.writeFileSync(${JSON.stringify(envFile)}, JSON.stringify(process.env));\nconsole.log('src/a.ts:1:x');\n`);
   fs.chmodSync(stubRg, 0o755);
+  // Windows cannot exec a shebang script, so the stub never runs there: the same fact is asserted on
+  // the environment the adapter hands every spawn (childEnv, adapters-b.ts:25), without the spawn.
+  const captureEnv = () => {
+    if (process.platform !== 'win32') {
+      b.runB({ corpus: 'code', task: { query: 'q', literal: 'x' }, exportRoot: root, bins: { rg: stubRg }, hasFd: false });
+      return JSON.parse(fs.readFileSync(envFile, 'utf8'));
+    }
+    return require('../../bench/retrieval/runner.ts').childEnv({});
+  };
   const prevHoldout = process.env.DOFLOW_HOLDOUT_KEY;
   const prevApiKey = process.env.TEST_API_KEY;
   process.env.DOFLOW_HOLDOUT_KEY = 'secret-holdout-12345';
   process.env.TEST_API_KEY = 'secret-api-key';
   try {
-    b.runB({ corpus: 'code', task: { query: 'q', literal: 'x' }, exportRoot: root, bins: { rg: stubRg }, hasFd: false });
-    const captured = JSON.parse(fs.readFileSync(envFile, 'utf8'));
+    const captured = captureEnv();
     assert.equal('DOFLOW_HOLDOUT_KEY' in captured, false);
     assert.equal('TEST_API_KEY' in captured, false);
   } finally {

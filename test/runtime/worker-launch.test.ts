@@ -263,6 +263,10 @@ test('IC-012 a missing binary rejects with ENOENT', POSIX_ONLY, async (t) => {
   assert.deepEqual(readLog(w.log), []);
 });
 
+// launch.ts dropDatabases() matches the canonical worktree against a '/'-separated .doflow/state/dispatch-worktrees layout, and the
+// worker exemption in pre-bash-guard.sh requires a POSIX /-rooted DOFLOW_WORKTREE: the 112 snapshot is not produced on win32.
+const DROP_DB_POSIX: any = { skip: process.platform === 'win32' && 'the 112 drop-database snapshot needs a POSIX /-rooted worktree (launch.ts dropDatabases, pre-bash-guard.sh)' };
+
 function dispatchWorld(t: any) {
   const w: any = world(t);
   w.worktree = path.join(w.dir, '.doflow/state/dispatch-worktrees/d-0123456789ab');
@@ -274,7 +278,7 @@ function dispatchWorld(t: any) {
   return w;
 }
 
-test('112 launch snapshot resolves only the owning project, local before project, from the canonical dispatch path', (t) => {
+test('112 launch snapshot resolves only the owning project, local before project, from the canonical dispatch path', DROP_DB_POSIX, (t) => {
   const w: any = dispatchWorld(t);
   w.write('project_db app_test');
   assert.equal(w.resolve().env.DOFLOW_GUARD_DROP_DATABASES, 'project_db app_test');
@@ -292,7 +296,7 @@ test('112 launch snapshot resolves only the owning project, local before project
   }
 });
 
-test('112 absent, empty, invalid, wrong-type and oversized lists never set a snapshot (all-or-nothing)', (t) => {
+test('112 absent, empty, invalid, wrong-type and oversized lists never set a snapshot (all-or-nothing)', DROP_DB_POSIX, (t) => {
   const w: any = dispatchWorld(t);
   const absent: any = () => assert.equal(Object.hasOwn(w.resolve({ ...w.env, DOFLOW_GUARD_DROP_DATABASES: 'injected_db' }).env, 'DOFLOW_GUARD_DROP_DATABASES'), false);
   const max = [...Array(31).fill('a'.repeat(31)), 'a'.repeat(32)].join(' ');
@@ -325,7 +329,7 @@ test('112 absent, empty, invalid, wrong-type and oversized lists never set a sna
   absent();
 });
 
-test('112 user/global-only and worker-checkout lists cannot enable a snapshot, nor can caller or launcher env', (t) => {
+test('112 user/global-only and worker-checkout lists cannot enable a snapshot, nor can caller or launcher env', DROP_DB_POSIX, (t) => {
   const w: any = dispatchWorld(t);
   fs.mkdirSync(path.join(w.dir, 'config/doflow'), { recursive: true });
   w.write('global_db', path.join(w.dir, 'config/doflow/settings.json'));
@@ -347,7 +351,7 @@ test('112 user/global-only and worker-checkout lists cannot enable a snapshot, n
   }
 });
 
-test('112 the launcher does not inherit project settings from the owning linked checkout\'s main checkout', (t) => {
+test('112 the launcher does not inherit project settings from the owning linked checkout\'s main checkout', DROP_DB_POSIX, (t) => {
   const w: any = dispatchWorld(t);
   const main = path.join(w.dir, 'main');
   const gitdir = path.join(main, '.git/worktrees/owner');

@@ -52,6 +52,12 @@ function asFields(id: any) {
 
 const quiet = () => {};
 
+/** DOFLOW_WORKTREE is honoured only when it is a /-rooted existing directory (identity.ts readWorktree; the bash twin tests `/*`,
+ * and the worker worktree exemption in policies/pre-bash-guard.sh requires the same POSIX-rooted path). A Windows
+ * path (C:\\x) is not /-rooted, so a case that sets it to a placeholder directory cannot be expressed there. */
+const POSIX_ROOTED_ONLY = (env: any) => process.platform === 'win32' && Object.values(env ?? {}).some((v: any) => typeof v === 'string' && /\$WT/.test(v));
+const WIN_SKIP = 'DOFLOW_WORKTREE must be /-rooted (identity.ts readWorktree, policies/pre-bash-guard.sh): a Windows drive path is not honoured by design';
+
 /** The DEC-044 store setups a binding event may name (see the cases.json comment). */
 function applySetup(setup: any, sessions: any, unit: any, sessionId: any, root: any) {
   if (setup === undefined) return;
@@ -100,7 +106,7 @@ test('identity cases: the corpus covers every IC-007 row, inheritance and each i
 });
 
 for (const c of CASES.identity) {
-  test(`identity case: ${c.name}`, (t) => {
+  test(`identity case: ${c.name}`, { skip: POSIX_ROOTED_ONLY(c.env) && WIN_SKIP }, (t) => {
     const { root, places } = layout(t);
     const env: any = { XDG_CONFIG_HOME: path.join(root, 'config'), ...subAll(c.env, places) };
     const id = resolveIdentity(env, { cwd: sub(c.cwd, places), sessionId: c.sessionId, warn: quiet });
@@ -110,7 +116,7 @@ for (const c of CASES.identity) {
 }
 
 for (const s of CASES.binding) {
-  test(`binding sequence: ${s.name}`, (t) => {
+  test(`binding sequence: ${s.name}`, { skip: (POSIX_ROOTED_ONLY(s.env) || s.events.some((e: any) => POSIX_ROOTED_ONLY(e.env))) && WIN_SKIP }, (t) => {
     const { root, places } = layout(t);
     const config = path.join(root, 'config');
     const sessions = path.join(stateDir({ XDG_CONFIG_HOME: config }), 'sessions');
@@ -159,13 +165,15 @@ for (const r of ['boss', 'other', 'MAIN', 'boss']) resolveIdentity({ DOFLOW_SESS
 });
 
 test('store root matches policies/lib.sh STATE_DIR', () => {
-  assert.equal(stateDir({ XDG_CONFIG_HOME: '/x/cfg', HOME: '/h' }), '/x/cfg/doflow/session-env');
-  assert.equal(stateDir({ HOME: '/h' }), '/h/.config/doflow/session-env');
-  assert.equal(stateDir({ XDG_CONFIG_HOME: '', HOME: '/h' }), '/h/.config/doflow/session-env');
+  // stateDir joins with the platform separator; lib.sh always prints '/', so compare the two spellings of one path.
+  const slash = (p: string) => p.replace(/\\/g, '/');
+  assert.equal(slash(stateDir({ XDG_CONFIG_HOME: '/x/cfg', HOME: '/h' })), '/x/cfg/doflow/session-env');
+  assert.equal(slash(stateDir({ HOME: '/h' })), '/h/.config/doflow/session-env');
+  assert.equal(slash(stateDir({ XDG_CONFIG_HOME: '', HOME: '/h' })), '/h/.config/doflow/session-env');
   const r = spawnSync(bashPath(), ['-c', 'source "$1"; printf "%s" "$STATE_DIR"', 'x', LIB_SH],
     { env: { PATH: process.env.PATH, HOME: '/h', XDG_CONFIG_HOME: '' }, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout, stateDir({ HOME: '/h', XDG_CONFIG_HOME: '' }));
+  assert.equal(slash(r.stdout), slash(stateDir({ HOME: '/h', XDG_CONFIG_HOME: '' })));
 });
 
 for (const c of CASES.cwdHash) {

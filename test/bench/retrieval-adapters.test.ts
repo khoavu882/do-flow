@@ -7,6 +7,10 @@ const path = require('node:path');
 const dispatcher = require('../../bench/retrieval/lib/adapters.ts');
 const { tempDir } = require('../helper/tmp.ts');
 
+// git apply and git archive run under the runner's system core.autocrlf, so a Windows checkout of the
+// patched file may carry CRLF; the fact asserted is the content, so line endings are normalised there only.
+const lf = (text: string) => (process.platform === 'win32' ? text.replace(/\r\n/g, '\n') : text);
+
 function exportTree(t: any) {
   const root = path.join(tempDir(t, 'doflow-dispatch-'), 'tree');
   fs.mkdirSync(path.join(root, 'src'), { recursive: true });
@@ -55,9 +59,9 @@ test('a setup patch is applied to a per-task copy; the export and its index stay
   const root = exportTree(t);
   const seen: any = {};
   const impl: any = {
-    runB: ({ exportRoot }: any) => { seen.b = fs.readFileSync(path.join(exportRoot, 'src', 'x.ts'), 'utf8'); seen.bRoot = exportRoot; return ok([]); },
+    runB: ({ exportRoot }: any) => { seen.b = lf(fs.readFileSync(path.join(exportRoot, 'src', 'x.ts'), 'utf8')); seen.bRoot = exportRoot; return ok([]); },
     runA: ({ exportRoot, indexRoot }: any) => {
-      seen.a = fs.readFileSync(path.join(exportRoot, 'src', 'x.ts'), 'utf8');
+      seen.a = lf(fs.readFileSync(path.join(exportRoot, 'src', 'x.ts'), 'utf8'));
       seen.aCopy = exportRoot; seen.indexRoot = indexRoot; seen.copyHasIndex = fs.existsSync(path.join(exportRoot, 'graphify-out'));
       return ok([]);
     },
@@ -80,7 +84,7 @@ test('setup.patch (dev) is read from the repo; a patch that does not apply throw
   fs.mkdirSync(path.join(repo, 'bench', 'retrieval', 'fixtures'), { recursive: true });
   fs.writeFileSync(path.join(repo, 'bench', 'retrieval', 'fixtures', 'p.patch'), PATCH);
   let body;
-  const impl: any = { runB: ({ exportRoot }: any) => { body = fs.readFileSync(path.join(exportRoot, 'src', 'x.ts'), 'utf8'); return ok([]); } };
+  const impl: any = { runB: ({ exportRoot }: any) => { body = lf(fs.readFileSync(path.join(exportRoot, 'src', 'x.ts'), 'utf8')); return ok([]); } };
   dispatcher.runConfig({ config: 'B', corpus: 'code', task: { id: 'DC-002', class: 'stale-index', setup: { patch: 'bench/retrieval/fixtures/p.patch' } }, exportRoot: root, snapshot, repoRoot: repo, impl });
   assert.equal(body, 'a\nB\nc\n');
   assert.throws(() => dispatcher.runConfig({ config: 'B', corpus: 'code', task: { id: 'DC-003', class: 'dirty-tree', setup: { patchText: PATCH.replace('-b', '-zzz') } }, exportRoot: root, snapshot, impl }),

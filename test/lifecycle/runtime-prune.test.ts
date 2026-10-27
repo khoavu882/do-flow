@@ -127,7 +127,7 @@ function project(t: any, files: any, adapterOptions = {}, { assetOf, nativeDir }
   };
 }
 
-const noticesOf = (planned: any) => planned.notices.map((item: any) => `${item.harness}: ${item.notice}`);
+const noticesOf = (planned: any) => planned.notices.map((item: any) => `${item.harness}: ${item.notice}`.replace(/\\/g, '/'));
 const changesAt = (planned: any, file: any) => planned.changes.filter((change: any) => change.target === file);
 
 test('an update of one harness prunes a runtime file the source stopped shipping and releases the other harness\'s row with it', (t) => {

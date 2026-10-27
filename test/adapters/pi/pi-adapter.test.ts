@@ -83,7 +83,7 @@ test('renders per-scope guidance paths, preserves user text, and converges after
     adapter.apply({ changes: planned.changes });
 
     const entry = fs.readFileSync(target, 'utf8');
-    const expectedGuidance = scope === 'global' ? path.join(scopeRoot, '.doflow/guidance') : '.doflow/guidance';
+    const expectedGuidance = scope === 'global' ? path.join(scopeRoot, '.doflow/guidance').replace(/\\/g, '/') : '.doflow/guidance';
     assert.ok(entry.includes(`${expectedGuidance}/DOFLOW_CORE.md`));
     assert.ok(fs.existsSync(path.join(scopeRoot, '.doflow/guidance/DOFLOW_CORE.md')));
     assert.match(fs.readFileSync(path.join(scopeRoot, '.doflow/guidance/pointers/codex.md'), 'utf8'), /\{\{GUIDANCE\}\}/);

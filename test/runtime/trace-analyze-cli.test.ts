@@ -46,7 +46,7 @@ function seed(t: any, lines: any = FINDINGS) {
 }
 
 function env(home: any) {
-  return { HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), PATH: process.env.PATH, TMPDIR: process.env.TMPDIR || '/tmp', FORCE_COLOR: '0', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV };
+  return { HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, '.config'), PATH: process.env.PATH, TMPDIR: process.env.TMPDIR || '/tmp', FORCE_COLOR: '0', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV };
 }
 
 /** `node bin/doflow.js ...args` with cwd and HOME in temp dirs; `input` goes to stdin. */
@@ -61,7 +61,7 @@ function files(root: any): any {
     for (const name of fs.readdirSync(d).sort()) {
       const file = path.join(d, name);
       if (fs.statSync(file).isDirectory()) walk(file);
-      else out.push(path.relative(root, file));
+      else out.push(path.relative(root, file).split(path.sep).join('/'));
     }
   };
   walk(root);

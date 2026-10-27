@@ -140,7 +140,9 @@ test('initial run failure writes state file mode 0600 with sha16 cwd and files',
   assert.ok(fs.existsSync(stateFile), 'state file was created');
 
   const stat = fs.statSync(stateFile);
-  assert.equal(stat.mode & 0o777, 0o600, 'state file has mode 0600');
+  // fs modes are not meaningful on win32 (0o666 / 0o444): there the file is only required to be a non-empty regular file.
+  if (process.platform === 'win32') assert.ok(stat.isFile() && stat.size > 0, 'state file written');
+  else assert.equal(stat.mode & 0o777, 0o600, 'state file has mode 0600');
 
   const content = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
   assert.equal(content.v, 1);

@@ -79,11 +79,21 @@ function child(t: any, input: any): any {
   t.after(() => { if (proc.exitCode === null && proc.signalCode === null) proc.kill('SIGKILL'); });
   return { proc, messages, done };
 }
+/** win32 runs the check through cmd.exe, which has no printf/until: the same wait-for-`go` check as a node script in the cwd
+ * (appends to `runs`, optionally touches `entered`, spins until `go` exists or the root is gone, then runs `after`). */
+function winWaiter(root: any, entered: any, after: any) {
+  const file = path.join(root, 'waiter.js');
+  fs.writeFileSync(file, `const fs=require('node:fs');fs.appendFileSync('runs','run\\n');${entered ? "fs.writeFileSync('entered','');" : ''}`
+    + `while(!fs.existsSync('go')){if(!fs.existsSync(${JSON.stringify(root)}))process.exit(1);}${after}`);
+  return `"${process.execPath}" waiter.js`;
+}
 function concurrentFixture(t: any, exit: any = 7) {
   const root = tempDir(t, 'doflow-inflight-workers-');
   const dir = path.join(root, '.doflow');
   fs.writeFileSync(path.join(root, 'dirty.js'), 'first\n');
-  const command = `printf 'run\\n' >> runs; : > entered; until [ -f go ]; do [ -d "${root}" ] || exit 1; done; printf '# tests 3\\n# fail ${exit ? 1 : 0}\\n'; exit ${exit}`;
+  const command = process.platform === 'win32'
+    ? winWaiter(root, true, `process.stdout.write('# tests 3\\n# fail ${exit ? 1 : 0}\\n');process.exit(${exit});`)
+    : `printf 'run\\n' >> runs; : > entered; until [ -f go ]; do [ -d "${root}" ] || exit 1; done; printf '# tests 3\\n# fail ${exit ? 1 : 0}\\n'; exit ${exit}`;
   return { root, dir, command, env: { ...process.env, DOFLOW_TELEMETRY: 'on' } };
 }
 function countRuns(root: any) {
@@ -138,7 +148,8 @@ test('5 MB output has a handoff under 16 KB and identical leader/follower diagno
   fixture.convention = true;
   const script = "process.stdout.write('head\\n'+'x'.repeat(2500000)+'\\nnot ok 1 - middle failure\\n  ---\\n  location: sample.test.js:1:1\\n  ...\\n# tests 3\\n# fail 1\\n'+'y'.repeat(2500000)+'\\ntail\\n',()=>process.stderr.write('stderr\\n',()=>process.exit(7)))";
   const quote = (word: any) => `'${word.replaceAll("'", "'\\''")}'`;
-  fixture.command = `printf 'run\\n' >> runs; until [ -f go ]; do [ -d "${fixture.root}" ] || exit 1; done; ${quote(process.execPath)} -e ${quote(script)}`;
+  fixture.command = process.platform === 'win32' ? winWaiter(fixture.root, false, script)
+    : `printf 'run\\n' >> runs; until [ -f go ]; do [ -d "${fixture.root}" ] || exit 1; done; ${quote(process.execPath)} -e ${quote(script)}`;
   const leader = child(t, { ...fixture, name: 'large-leader' });
   await until(() => countRuns(fixture.root) === 1, 'large leader executing');
   const follower = child(t, { ...fixture, name: 'large-follower' });
@@ -163,7 +174,7 @@ test('5 MB output has a handoff under 16 KB and identical leader/follower diagno
   assert.ok(fs.statSync(a.check.logPath).size > 5000000, 'full log remains in verification-logs');
   const record = JSON.parse(fs.readFileSync(handoff));
   assert.equal(record.result.truncated, true);
-  assert.equal(fs.statSync(handoff).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(handoff).mode & 0o777, 0o600); // fs modes are not meaningful on win32
 });
 
 for (const difference of ['NODE_OPTIONS', 'environment key', 'uncommitted change']) {
@@ -431,10 +442,10 @@ for (const call of ['mkdirSync', 'readdirSync', 'writeFileSync', 'linkSync', 're
 test('mode 0600, atomic link publication and result rename; no tmp files after success', (t) => {
   const dir = tempDir(t, 'doflow-inflight-mode-');
   const out = runInflight({ dir, key: KEY, timeoutMs: 5000, mintToken: () => TOKEN,
-    execute: () => { assert.equal(fs.statSync(lockName(dir)).mode & 0o777, 0o600); return good(); } });
+    execute: () => { if (process.platform !== 'win32') assert.equal(fs.statSync(lockName(dir)).mode & 0o777, 0o600); return good(); } });
   assert.equal(out.shared, 'leader');
   assert.deepEqual(fs.readdirSync(dir), [path.basename(resultName(dir))]);
-  assert.equal(fs.statSync(resultName(dir)).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(resultName(dir)).mode & 0o777, 0o600); // fs modes are not meaningful on win32
 });
 
 test('unkeyable input and malformed execution/result never create a shared PASS', (t) => {

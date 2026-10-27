@@ -23,10 +23,12 @@ const RUN = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'bin', '
 const HARNESSES: any = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
 const ACTIONS: any = ['discover', 'probe', 'describe', 'select', 'run', 'status', 'cancel', 'evidence'];
 const DISPATCHER_TOOLS: any = ['dirname', 'date'];
+const WIN = process.platform === 'win32';
 
 /** The first executable named `name` on this process's PATH. */
 function onPath(name: any) {
-  return (process.env.PATH || '').split(path.delimiter).map((dir) => path.join(dir, name))
+  const file = process.platform === 'win32' ? `${name}.exe` : name;
+  return (process.env.PATH || '').split(path.delimiter).map((dir) => path.join(dir, file))
     .find((candidate) => { try { fs.accessSync(candidate, fs.constants.X_OK); return true; } catch { return false; } });
 }
 
@@ -38,19 +40,22 @@ function project(t: any, { dispatcher = false }: any = {}) {
   fs.mkdirSync(bin);
   fs.mkdirSync(home);
   fs.mkdirSync(work);
+  const toolDirs = new Set<string>();
   if (dispatcher) {
-    fs.symlinkSync(process.execPath, path.join(bin, 'node'));
+    fs.symlinkSync(process.execPath, path.join(bin, WIN ? 'node.exe' : 'node'));
     for (const tool of DISPATCHER_TOOLS) {
       const found = onPath(tool);
       assert.ok(found, `${tool} must be on the test runner's PATH`);
-      fs.symlinkSync(found, path.join(bin, tool));
+      // A Git for Windows tool needs the msys runtime beside it, so a link elsewhere would not start: its own directory joins the PATH.
+      if (WIN) toolDirs.add(path.dirname(found)); else fs.symlinkSync(found, path.join(bin, tool));
     }
   }
   const env: any = {
-    PATH: bin,
+    PATH: [bin, ...toolDirs].join(path.delimiter),
     HOME: home,
+    USERPROFILE: home,
     XDG_CONFIG_HOME: path.join(home, '.config'),
-    TMPDIR: process.env.TMPDIR || '/tmp',
+    TMPDIR: process.env.TMPDIR || (WIN ? require('node:os').tmpdir() : '/tmp'),
     DOFLOW_RUN_ID: 'r1',
     DOFLOW_LINEAGE_ID: 'main',
     DOFLOW_SESSION_ROLE: 'main',
@@ -88,7 +93,7 @@ test('worker --action discover --json reports all seven harnesses not-on-path (b
 
 test('worker --action discover --json reaches the CLI through the doflow-run dispatcher', (t) => {
   const p = project(t, { dispatcher: true });
-  assert.deepEqual(fs.readdirSync(p.bin).sort(), ['node', ...DISPATCHER_TOOLS].sort(), 'the scratch PATH holds only node and the dispatcher tools');
+  assert.deepEqual(fs.readdirSync(p.bin).sort(), WIN ? ['node.exe'] : ['node', ...DISPATCHER_TOOLS].sort(), 'the scratch PATH holds only node and the dispatcher tools');
   assertNotOnPath(p.run('--action', 'discover', '--json'));
 });
 

@@ -40,6 +40,10 @@ test('compareEnv lists differing node, os and arch without failing', () => {
   assert.deepEqual(env.compareEnv({ node: 'v2', os: 'linux', arch: 'arm64' }, current).differs, ['node', 'os']);
 });
 
+// git archive honours the runner's system core.autocrlf; the fact asserted is the content, so CRLF is
+// normalised on Windows only.
+const lf = (text: string) => (process.platform === 'win32' ? text.replace(/\r\n/g, '\n') : text);
+
 test('materialiseExport extracts the commit, drops everything outside the scopes and ignores the working tree', (t) => {
   const repo = tempDir(t, 'doflow-env-repo-');
   gitIn(repo, 'init', '-q');
@@ -57,10 +61,10 @@ test('materialiseExport extracts the commit, drops everything outside the scopes
 
   const tmp = path.join(tempDir(t, 'doflow-env-tmp-'), 'export');
   const out = env.materialiseExport(commit, tmp, snapshot, { repoRoot: repo });
-  assert.equal(fs.readFileSync(path.join(out.codeRoot, 'src/a.ts'), 'utf8'), 'committed\n');
+  assert.equal(lf(fs.readFileSync(path.join(out.codeRoot, 'src/a.ts'), 'utf8')), 'committed\n');
   assert.equal(fs.existsSync(path.join(out.codeRoot, 'src/untracked.ts')), false);
   for (const gone of ['bench', 'docs', 'README.md']) assert.equal(fs.existsSync(path.join(out.treeRoot, gone)), false, `${gone} is outside the scopes`);
-  assert.equal(fs.readFileSync(path.join(out.guidanceRoot, 'g.md'), 'utf8'), '# G\n');
+  assert.equal(lf(fs.readFileSync(path.join(out.guidanceRoot, 'g.md'), 'utf8')), '# G\n');
   assert.equal(out.guidanceRoot, path.join(out.treeRoot, 'core/shared/guidance'));
   out.cleanup();
   assert.equal(fs.existsSync(tmp), false, 'cleanup removes the export');

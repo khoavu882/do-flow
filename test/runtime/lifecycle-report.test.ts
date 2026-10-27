@@ -12,6 +12,14 @@ const store = require('../../src/runtime/lifecycle/event-store.ts');
 const { reportFollowup, listFollowups, FollowupUsageError } = require('../../src/runtime/lifecycle/followup.ts');
 const reportStore = require('../../src/runtime/lifecycle/report-store.ts');
 
+/** POSIX permission bits are not expressible on Windows (files report 0666, folders 0777): there the strongest check is that the entry exists with the right kind. */
+function expectMode(entry: any, mode: number) {
+  const st = fs.statSync(entry);
+  if (process.platform === 'win32') { assert.ok(st.isFile() || st.isDirectory(), `${entry} exists`); return; }
+  assert.equal(st.mode & 0o777, mode, entry);
+}
+
+
 const REPO = path.resolve(__dirname, '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 const scratch = createScratch('doflow-report-');
@@ -75,9 +83,9 @@ test('a report keeps the body on this machine and puts only a reference, the siz
   assert.ok(stored.includes(lateMarker));
   assert.equal(stored.includes('hunter2hunter2'), false, 'the stored body is masked');
   assert.match(stored, /token=<masked>/);
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
-  assert.equal(fs.statSync(path.dirname(file)).mode & 0o777, 0o700);
-  assert.equal(fs.statSync(path.dirname(path.dirname(file))).mode & 0o777, 0o700);
+  expectMode(file, 0o600);
+  expectMode(path.dirname(file), 0o700);
+  expectMode(path.dirname(path.dirname(file)), 0o700);
   assert.equal(path.relative(repo.dir, file).startsWith('..'), true, 'never inside the repository');
   assert.equal(repo.git('status', '--porcelain'), '?? .doflow/', 'only the event store appears in the repository');
 

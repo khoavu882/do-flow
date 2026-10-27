@@ -167,7 +167,7 @@ test('flat and namespaced records with the same task id remain separate entries 
 
   const result = orchestrationRuns({ stateRoot: root });
   assert.equal(result.ok, true);
-  assert.deepEqual(result.entries.map((entry: any) => [path.relative(storeAt(root), entry.file), entry.slug]), [
+  assert.deepEqual(result.entries.map((entry: any) => [path.relative(storeAt(root), entry.file).split(path.sep).join('/'), entry.slug]), [
     ['namespaced-feature/shared-id.json', 'namespaced-feature'],
     ['shared-id.json', 'flat-feature'],
   ]);

@@ -217,7 +217,9 @@ test('a starting run with no launchingAt is verified with no signal', async (t) 
   const runId = p.seed({ phase: 'starting' });
   const answer = await p.cancel(runId, { escalate: s.escalate });
   assert.equal(s.calls.escalate, 0);
-  assert.equal(answer.cleanup.status, 'verified');
+  // cancel.ts:107: tree cleanup is never verified on win32 (NFR-005); the cancel itself still lands.
+  if (process.platform === 'win32') assert.deepEqual(answer.cleanup, { status: 'unknown', reason: 'win32', survivors: [], zombies: [] });
+  else assert.equal(answer.cleanup.status, 'verified');
   assert.equal(answer.attemptCancelled, true);
   assert.equal(p.run(runId).end.state, 'cancelled');
 });
@@ -230,7 +232,7 @@ test('a starting run with launchingAt and no worker is unknown worker-unrecorded
   const runId = p.seed({ phase: 'starting', launchingAt: new Date().toISOString(), supervisor: gone });
   const answer = await p.cancel(runId, { escalate: s.escalate });
   assert.equal(s.calls.escalate, 0, 'a gone supervisor is not signalled');
-  assert.deepEqual(answer.cleanup, { status: 'unknown', reason: 'worker-unrecorded', survivors: [], zombies: [] });
+  assert.deepEqual(answer.cleanup, { status: 'unknown', reason: process.platform === 'win32' ? 'win32' : 'worker-unrecorded', survivors: [], zombies: [] }); // cancel.ts:107 answers win32 first
   assert.deepEqual(p.run(runId).cleanup, answer.cleanup);
 });
 

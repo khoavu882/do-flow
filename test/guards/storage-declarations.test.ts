@@ -371,7 +371,7 @@ assert.deepEqual(check.failedFiles,['test/g26.test.js']);
 const stateFile=path.join(configDir,'state','verification','v0','failed-first-g26-task.json');
 const state=JSON.parse(fs.readFileSync(stateFile,'utf8'));
 const sha16=text=>crypto.createHash('sha256').update(text).digest('hex').slice(0,16);
-assert.equal(fs.statSync(stateFile).mode&0o777,0o600);
+if(process.platform!=='win32')assert.equal(fs.statSync(stateFile).mode&0o777,0o600);
 assert.equal(state.v,1);
 assert.equal(state.cwd,sha16(fs.realpathSync(root)));
 assert.deepEqual(state.checks[check.name],{cmd:sha16(command),files:[sha16('test/g26.test.js')]});`;
@@ -385,7 +385,7 @@ if(out.shared!=='leader'||!fs.readdirSync(dir).some(n=>n.endsWith('.result.json'
 const { reuseDir, storeReuse } = require(${JSON.stringify(path.join(REPO, 'src/runtime/verification/reuse.ts'))});
 const dir=reuseDir({projectRoot:process.argv[1]});
 const out=storeReuse({dir,key:'0123456789abcdef',payloadDigest:'a'.repeat(64),level:'L2',result:{status:'PASS',exitCode:0,stdout:'',stderr:'',truncated:false},mintRef:()=> 'b'.repeat(32)});
-if(!out.stored||((fs.statSync(dir).mode&0o777)!==0o700)||!fs.existsSync(path.join(dir,'reuse-0123456789abcdef.json')))process.exit(1);`;
+if(!out.stored||(process.platform!=='win32'&&(fs.statSync(dir).mode&0o777)!==0o700)||!fs.existsSync(path.join(dir,'reuse-0123456789abcdef.json')))process.exit(1);`;
     // Exercise the production intent writer without any merge or external process.
     const writeRoadmap = `const path=require('node:path');
 const { writeIntent } = require(${JSON.stringify(path.join(REPO, 'src/runtime/roadmap/merge.ts'))});
@@ -821,13 +821,17 @@ test('G26 self-test: the scanner reads every file as text and tells bash writes 
 });
 
 test('G26 self-test: a path no declaration covers fails, naming the path and the step', () => {
-  const sandbox = '/sandbox';
-  const roots = resolveRoots({ registry, projectRoot: `${sandbox}/project`, env: { HOME: `${sandbox}/home`, XDG_CONFIG_HOME: `${sandbox}/xdg` } });
+  // A native absolute root (on Windows /sandbox alone is drive-relative), joined natively; the messages
+  // carry path.relative output, so they are compared slash-normalised.
+  const sandbox = path.resolve('/sandbox');
+  const at = (...parts: string[]) => path.join(sandbox, ...parts);
+  const roots = resolveRoots({ registry, projectRoot: at('project'), env: { HOME: at('home'), XDG_CONFIG_HOME: at('xdg') } });
   const mapped = [
-    `${sandbox}/xdg/doflow/sessions.log.lock.d`, `${sandbox}/xdg/doflow/sessions.log.ab12cd`, `${sandbox}/project/.doflow/state/evidence/t.json.lock`,
-    `${sandbox}/project/.doflow/state`, `${sandbox}/project/.doflow/state/verification`, `${sandbox}/project/.doflow/doflow.lock`,
+    at('xdg', 'doflow', 'sessions.log.lock.d'), at('xdg', 'doflow', 'sessions.log.ab12cd'), at('project', '.doflow', 'state', 'evidence', 't.json.lock'),
+    at('project', '.doflow', 'state'), at('project', '.doflow', 'state', 'verification'), at('project', '.doflow', 'doflow.lock'),
   ].map((file) => ({ file, step: 'fixture' }));
-  const errors = checkLocations(registry, roots, [...mapped, { file: `${sandbox}/project/.doflow/state/stray.dat`, step: 'fixture step' }], sandbox);
+  const errors = checkLocations(registry, roots, [...mapped, { file: at('project', '.doflow', 'state', 'stray.dat'), step: 'fixture step' }], sandbox)
+    .map((message: any) => String(message).replace(/\\/g, '/'));
   assert.ok(errors.includes('project/.doflow/state/stray.dat written by fixture step'), errors.join('\n'));
   assert.equal(errors.filter((message: any) => message.includes(' written by ')).length, 1, errors.join('\n'));
   assert.ok(errors.includes('store verification-logs not exercised'));

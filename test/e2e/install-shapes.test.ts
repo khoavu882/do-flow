@@ -66,7 +66,10 @@ function runtime(exe: any, args: any, { home, cwd, env = {} }: any = {}) {
 // A PATH keeping only POSIX coreutils plus node itself. Colon-separated and forward-slashed even
 // on win32, where its sole consumer IS a shell (the bash-spawned dispatcher resolving `command -v
 // node`); MSYS reads this form natively, mapping /usr/bin and /bin onto Git's own tools.
-const MINIMAL_PATH = `/usr/bin:/bin:${path.dirname(process.execPath).replace(/\\/g, '/')}`;
+// A drive path in that list must be in MSYS form (/c/...): bash splits PATH on every colon, so a
+// `C:/...` entry would be read as the two entries `C` and `/...` and node would never be found.
+const msysDir = (p: any) => String(p).replace(/\\/g, '/').replace(/^([A-Za-z]):\//, (_m: any, d: any) => `/${d.toLowerCase()}/`);
+const MINIMAL_PATH = `/usr/bin:/bin:${msysDir(path.dirname(process.execPath))}`;
 
 function walk(dir: any, out: any = []) {
   let entries;
@@ -101,7 +104,7 @@ function pathWithout(names: any) {
       let files;
       try { files = fs.readdirSync(entry); } catch { continue; }
       const polluted = files.some((file: any) => deny.test(file.replace(/\.(exe|bat|cmd|com)$/i, '')));
-      if (!polluted) keep.push(entry.replace(/\\/g, '/'));
+      if (!polluted) keep.push(msysDir(entry));
     }
     return keep.join(':');
   }

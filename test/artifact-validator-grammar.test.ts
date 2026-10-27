@@ -603,7 +603,8 @@ test('unknown: inert without a register, and active for a register holding no de
   assert.deepEqual(rules(validateIn(empty.repo, path.join(empty.feature, 'design', 'design.md'))), ['unknown DEC-001']);
 });
 
-test('history: a project path containing a backslash is read literally, not as an escape sequence', (t) => {
+// A backslash is the directory separator on Windows, so no directory can be named with a literal one there.
+test('history: a project path containing a backslash is read literally, not as an escape sequence', { skip: process.platform === 'win32' && 'a backslash cannot be part of a Windows directory name' }, (t) => {
   // A directory named with a literal "\t": awk -v would turn that into a tab and miss the archive.
   const { repo, feature } = featureRepo(t, 'bs\\tdir', CHAIN, {
     'design/specs.md': [
@@ -860,8 +861,10 @@ test('default targets resolve under feature_root, and under repo_root when the k
 
   const withKey = stubbedValidator('fr-with-key', { repo_root: here, feature_root: main, feature_slug: 's', design: 'f/design.md' });
   const viaMain = spawnSync(bashPath(), [withKey, '--json'], { encoding: 'utf8' });
-  assert.deepEqual(parseJson(viaMain, 'feature_root').findings.map((f: any) => [f.file, f.rule, f.id]),
-    [[path.join(main, 'f', 'design.md'), 'parity', 'D-1']]);
+  // The validator joins feature_root and the relative target with '/'; compare both sides slash-normalised.
+  const slashes = (p: string) => p.replace(/\\/g, '/');
+  assert.deepEqual(parseJson(viaMain, 'feature_root').findings.map((f: any) => [slashes(f.file), f.rule, f.id]),
+    [[slashes(path.join(main, 'f', 'design.md')), 'parity', 'D-1']]);
 
   const withoutKey = stubbedValidator('fr-without-key', { repo_root: here, feature_slug: 's', design: 'f/design.md' });
   const viaHere = spawnSync(bashPath(), [withoutKey, '--json'], { encoding: 'utf8' });
@@ -869,5 +872,5 @@ test('default targets resolve under feature_root, and under repo_root when the k
 
   fs.writeFileSync(path.join(here, 'f', 'design.md'), ORPHAN_DESIGN);
   const fallback = spawnSync(bashPath(), [withoutKey, '--json'], { encoding: 'utf8' });
-  assert.deepEqual(parseJson(fallback, 'repo_root fallback').findings.map((f: any) => f.file), [path.join(here, 'f', 'design.md')]);
+  assert.deepEqual(parseJson(fallback, 'repo_root fallback').findings.map((f: any) => slashes(f.file)), [slashes(path.join(here, 'f', 'design.md'))]);
 });

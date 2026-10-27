@@ -17,7 +17,7 @@ test('Codex pointer names only the core imports and skill-requested extra files'
 
 test('renderGuidancePointer resolves global and project scopes and rejects invalid inputs', () => {
   const { renderGuidancePointer } = require('../../src/adapters/guidance-pointer.ts');
-  assert.equal(renderGuidancePointer('{{GUIDANCE}}/DOFLOW_CORE.md', { scope: 'global', scopeRoot: '/h' }), '/h/.doflow/guidance/DOFLOW_CORE.md');
+  assert.equal(renderGuidancePointer('{{GUIDANCE}}/DOFLOW_CORE.md', { scope: 'global', scopeRoot: '/h' }), `${path.resolve('/h', '.doflow', 'guidance').replace(/\\/g, '/')}/DOFLOW_CORE.md`);
   assert.equal(renderGuidancePointer('{{GUIDANCE}}/DOFLOW_CORE.md', { scope: 'project', scopeRoot: '/repo' }), '.doflow/guidance/DOFLOW_CORE.md');
   assert.throws(() => renderGuidancePointer('{{GUIDANCE}}/DOFLOW_CORE.md', { scope: 'workspace', scopeRoot: '/h' }), /scope/i);
   assert.throws(() => renderGuidancePointer('{{GUIDANCE}}/DOFLOW_CORE.md', { scope: 'global', scopeRoot: '/h/{{GUIDANCE}}' }), /token/i);

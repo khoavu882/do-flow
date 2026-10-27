@@ -241,7 +241,8 @@ test('real process: SIGTERM sent to the runSlot process reaches the child (exit 
   while (!fs.existsSync(ready) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 25));
   assert.ok(fs.existsSync(ready), 'the command started');
   child.kill('SIGTERM');
-  assert.deepEqual(await exited, { code: 143, signal: null });
+  // win32 has no signal delivery: kill('SIGTERM') ends the runner outright, so the 143 translation cannot be observed.
+  assert.deepEqual(await exited, process.platform === 'win32' ? { code: null, signal: 'SIGTERM' } : { code: 143, signal: null });
 });
 
 test('a dead holder is reclaimed; an unknown or half-alive holder is not', async () => {

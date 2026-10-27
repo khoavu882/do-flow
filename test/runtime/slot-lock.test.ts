@@ -18,6 +18,8 @@ const { procStart, alive } = require('../../src/runtime/worker/process-tree.ts')
 const { updateTaskState } = require('../../src/runtime/task-state.ts');
 const { suiteTempDir } = require('../helper/tmp.ts');
 
+// procStart reads `ps -o lstart=` and alive() answers 'unknown' on win32 while the pid lives (process-tree.ts:135): no process start identity there.
+const PS_IDENTITY: any = { skip: process.platform === 'win32' && 'process start identity is unavailable on win32 (process-tree.ts:135)' };
 const ACTOR = path.join(__dirname, '..', 'helper', 'slot-lock-actor.ts');
 const DEAD = 2_000_000_000; // a pid no process has
 const hex = (text: any) => Buffer.from(text, 'utf8').toString('hex');
@@ -168,7 +170,7 @@ for (const [what, waiters, expected] of [
 
 // ── Liveness: kept from the 115 lock (C-4), now read from the entry name ─────────────────────────
 
-test('an older runtime\'s lock whose owner is alive is not reclaimed however old; its release frees it', () => {
+test('an older runtime\'s lock whose owner is alive is not reclaimed however old; its release frees it', PS_IDENTITY, () => {
   const { file, lockDir } = lockFile();
   fs.mkdirSync(lockDir);
   const token = path.join(lockDir, 'owner.json');
@@ -190,7 +192,7 @@ test('an older runtime\'s lock whose owner is alive is not reclaimed however old
   release();
 });
 
-test('an older runtime\'s lock whose owner is dead is reclaimed in place, and held once it was quiet 10 s', () => {
+test('an older runtime\'s lock whose owner is dead is reclaimed in place, and held once it was quiet 10 s', PS_IDENTITY, () => {
   const { file, lockDir } = lockFile();
   fs.mkdirSync(lockDir);
   fs.writeFileSync(path.join(lockDir, 'owner.json'), JSON.stringify({ pid: DEAD, start: null }));
@@ -215,7 +217,7 @@ test('an older runtime\'s lock whose owner is dead is reclaimed in place, and he
   assert.equal(fs.existsSync(lockDir), false);
 });
 
-test('an entry names its owner\'s pid and start, so a reused pid is judged dead without waiting out the 10 s age', () => {
+test('an entry names its owner\'s pid and start, so a reused pid is judged dead without waiting out the 10 s age', PS_IDENTITY, () => {
   const { file, lockDir } = lockFile();
   // quietMs 0: the judgement is under test; the quiet hold after every reclaim is tested above.
   const deps: any = { pid: process.pid, procStart, alive, fsImpl: fs, quietMs: 0 };
@@ -239,7 +241,7 @@ test('an entry names its owner\'s pid and start, so a reused pid is judged dead 
 
 const liveToken = () => JSON.stringify({ pid: process.pid, start: procStart(process.pid) });
 
-test('C-1: a dead token is not unlinked once an older runtime moved the lock aside and put its own token in a new one', () => {
+test('C-1: a dead token is not unlinked once an older runtime moved the lock aside and put its own token in a new one', PS_IDENTITY, () => {
   const { file, lockDir } = lockFile();
   fs.mkdirSync(lockDir);
   const token = path.join(lockDir, 'owner.json');

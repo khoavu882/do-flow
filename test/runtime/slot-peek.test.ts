@@ -68,7 +68,10 @@ function fixture(t: any) {
   f.slots = path.join(f.home, '.doflow', 'state', 'slots');
   f.dead = deadPid();
   f.env = {
-    HOME: f.home, XDG_CONFIG_HOME: path.join(f.home, '.config'), PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`,
+    HOME: f.home, USERPROFILE: f.home, XDG_CONFIG_HOME: path.join(f.home, '.config'),
+    // win32 has no /usr/bin: the git the product runs for the worktree key is found through the runner's own PATH.
+    PATH: process.platform === 'win32' ? process.env.PATH : `${path.dirname(process.execPath)}:/usr/bin:/bin`,
+    ...(process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot } : {}),
     GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, DOFLOW_UPKEEP: 'off', DOFLOW_TELEMETRY: 'off', DOFLOW_FAILURE_CAPTURE: 'off',
   };
   return f;

@@ -79,7 +79,11 @@ function retarget(dir: string, from: string, to: string) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) retarget(full, from, to);
-    else if (!e.name.startsWith('opencode.db')) fs.writeFileSync(full, fs.readFileSync(full, 'utf8').split(from).join(to));
+    else if (!e.name.startsWith('opencode.db')) {
+      // The fixtures are JSON text: a native Windows path must land as the escaped string, not as stray escapes.
+      const text = /\.jsonl?$/.test(e.name) ? to.replace(/\\/g, '\\\\') : to;
+      fs.writeFileSync(full, fs.readFileSync(full, 'utf8').split(from).join(text));
+    }
   }
 }
 

@@ -33,7 +33,8 @@ function scratch(t: any) {
 }
 
 function isolatedEnv(home: string): any {
-  const env: any = { ...process.env, HOME: home };
+  // os.homedir() reads USERPROFILE on Windows, so the bridge (bash, HOME) and the CLI (node) only share this scratch home when both are set.
+  const env: any = { ...process.env, HOME: home, ...(process.platform === 'win32' ? { USERPROFILE: home } : {}) };
   delete env.XDG_CONFIG_HOME;
   for (const name of IDENTITY_ENV) delete env[name];
   return env;

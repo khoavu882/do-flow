@@ -75,7 +75,12 @@ function canonicalizePath(p: string): string {
 
 /** `cwd_hash` from policies/lib.sh: first 16 hex chars of sha256 over the canonical path plus `echo`'s newline. */
 function cwdHash(p: string): string {
-  const canonical = physicalDir(p) ?? canonicalizePath(p);
+  let canonical = physicalDir(p) ?? canonicalizePath(p);
+  // bash hashes `pwd -P`, which Git Bash prints as /c/Users/x; hash the same spelling for a native C:\\Users\\x.
+  if (process.platform === 'win32') {
+    const drive = /^([A-Za-z]):[\\/]?(.*)$/.exec(canonical);
+    if (drive) canonical = `/${drive[1].toLowerCase()}${drive[2] ? `/${drive[2].replace(/\\/g, '/')}` : ''}`;
+  }
   return crypto.createHash('sha256').update(`${canonical}\n`).digest('hex').slice(0, 16);
 }
 

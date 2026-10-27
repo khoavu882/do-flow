@@ -110,7 +110,7 @@ test('the text overview prints at most ten slugs per bounded bucket and says how
   assert.equal(line('in progress'), `in progress: ${slugs.slice(12).join(', ')}`, 'the in-progress bucket is not bounded');
 });
 
-test('a git failure while deriving statuses still answers the overview: follow-ups listed, statuses unknown, gitError set', () => {
+test('a git failure while deriving statuses still answers the overview: follow-ups listed, statuses unknown, gitError set', { skip: process.platform === 'win32' && 'a PATH shim named git cannot be a script on win32: libuv resolves a spawned command only as .exe/.com, so the injected rev-list failure (test/helper/lifecycle-git-fixtures.ts failingGit) cannot run there; git-failure handling itself is covered on POSIX' }, () => {
   const { root, slugs } = trackedRepo('overview-git-fails', { merged: 2 });
   addFollowups({ root, cwd: root, items: [{ statement: 'still listed without git' }], defaults: { stage: 'review', slug: slugs[0] }, now: at(0) });
   const git = failingGit(scratch);

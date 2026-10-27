@@ -70,7 +70,7 @@ test('a codex payload writes one observation with exactly the six fields, mode 0
   assert.match(value.observedAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
   assert.ok(Math.abs(Date.parse(value.observedAt) - Date.now()) < 120000);
   assert.equal(value.session, key);
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600); // modes are not expressible on Windows
 });
 
 test('a repeated event with the same model does not rewrite the file; a changed model does', (t) => {

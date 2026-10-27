@@ -99,7 +99,7 @@ for (const legacy of [false, true]) {
     const [retired] = p.retiredHarnesses;
     assert.deepEqual(retired.changes.map((change: any) => change.action), ['handover']);
     assert.equal(retired.counts.released, 1, 'a handover counts as released');
-    assert.deepEqual(formatRetiredPlans(p.retiredHarnesses), ['[RETIRED] oldtool → antigravity: deleted 0, stripped 0, released 1, dropped 0, deferred 0, kept 0']);
+    assert.deepEqual(formatRetiredPlans(p.retiredHarnesses).map((line: string) => line.replace(/\\/g, '/')), ['[RETIRED] oldtool → antigravity: deleted 0, stripped 0, released 1, dropped 0, deferred 0, kept 0']);
     const agy = p.targets.find((target: any) => target.harness === 'antigravity');
     assert.deepEqual(agy.adapterInput.context.handovers, [{ target: s.target, fromKey: ownershipKey(s.row), edited: false }]);
     const [change] = instructionChanges(p, s.target);
@@ -210,7 +210,7 @@ test('control (b): a whole-file fingerprint mismatch keeps the span, marks the r
   assert.deepEqual(p.targets.find((target: any) => target.harness === 'antigravity').adapterInput.context.handovers,
     [{ target: s.target, fromKey: ownershipKey(s.row), edited: true }]);
   assert.deepEqual(instructionChanges(p, s.target), [], 'no write is planned');
-  assert.ok(p.notices.some((item: any) => item.harness === 'antigravity' && item.notice === notice), JSON.stringify(p.notices));
+  assert.ok(p.notices.some((item: any) => item.harness === 'antigravity' && String(item.notice).replace(/\\/g, '/') === notice), JSON.stringify(p.notices));
   const first = s.apply(p);
   assert.deepEqual(fs.readFileSync(s.target), edited, 'the span is not rewritten');
   assert.deepEqual(rowsOf(first.ledger, 'oldtool'), []);
@@ -224,7 +224,7 @@ test('control (b): a whole-file fingerprint mismatch keeps the span, marks the r
   const next = s.plan({ current: first.ledger });
   assert.deepEqual(instructionChanges(next, s.target), []);
   assert.ok(next.changes.some((change: any) => change.target === skill.target), 'the run has other work');
-  assert.ok(next.notices.some((item: any) => item.notice === notice));
+  assert.ok(next.notices.some((item: any) => String(item.notice).replace(/\\/g, '/') === notice));
   const second = s.apply(next);
   assert.deepEqual(fs.readFileSync(s.target), edited);
   assert.equal(sectionRow(second.ledger, s.target).retainedEdit, true);
@@ -247,7 +247,7 @@ test('control (b, markerless): a person-edited GEMINI.md with no DoFlow markers 
   assert.deepEqual(p.targets.find((target: any) => target.harness === 'antigravity').adapterInput.context.handovers,
     [{ target: s.target, fromKey: ownershipKey(s.row), edited: true }]);
   assert.deepEqual(instructionChanges(p, s.target), [], 'no write is planned');
-  assert.ok(p.notices.some((item: any) => item.harness === 'antigravity' && item.notice === notice), JSON.stringify(p.notices));
+  assert.ok(p.notices.some((item: any) => item.harness === 'antigravity' && String(item.notice).replace(/\\/g, '/') === notice), JSON.stringify(p.notices));
   const first = s.apply(p);
   assert.deepEqual(fs.readFileSync(s.target), edited, 'the file is not written');
   assert.deepEqual(rowsOf(first.ledger, 'oldtool'), []);
@@ -265,7 +265,7 @@ test('control (b, markerless): a person-edited GEMINI.md with no DoFlow markers 
   assert.equal(next.retiredHarnesses, undefined, 'nothing retired is left to sweep');
   assert.deepEqual(instructionChanges(next, s.target), [], 'no handover and no --force: still no write');
   assert.ok(next.changes.some((change: any) => change.target === skill.target), 'the run has other work');
-  assert.ok(next.notices.some((item: any) => item.notice === notice), JSON.stringify(next.notices));
+  assert.ok(next.notices.some((item: any) => String(item.notice).replace(/\\/g, '/') === notice), JSON.stringify(next.notices));
   const second = s.apply(next);
   assert.deepEqual(fs.readFileSync(s.target), edited);
   assert.equal(sectionRow(second.ledger, s.target).retainedEdit, true);
@@ -286,7 +286,7 @@ test('control (c): antigravity installed but not planned (update -g -t claude) d
   const p = s.plan({ targets: ['claude'] });
   const [retired] = p.retiredHarnesses;
   assert.deepEqual(retired.changes.map((change: any) => change.action), ['defer']);
-  assert.deepEqual(formatRetiredPlans(p.retiredHarnesses), [
+  assert.deepEqual(formatRetiredPlans(p.retiredHarnesses).map((line: string) => line.replace(/\\/g, '/')), [
     '[RETIRED] oldtool → antigravity: deleted 0, stripped 0, released 0, dropped 0, deferred 1, kept 0',
     '  .gemini/GEMINI.md: handed over on the next run that targets antigravity',
   ]);

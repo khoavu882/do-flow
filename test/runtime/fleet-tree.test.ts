@@ -39,9 +39,14 @@ function repo(dir: string) {
   git(dir, 'commit', '-q', '-m', 'first');
 }
 
+// Windows: PATH is already the runner's (node and Git for Windows are on it) and uses ';', os.homedir() reads USERPROFILE,
+// os.tmpdir() reads TEMP/TMP rather than TMPDIR, and a spawn with a stripped environment still needs SystemRoot.
+const WIN = process.platform === 'win32';
+const winEnv = (home: string, tmp?: string): any => (WIN ? { USERPROFILE: home, SystemRoot: process.env.SystemRoot, windir: process.env.windir, ...(tmp ? { TEMP: tmp, TMP: tmp } : {}) } : {});
+
 function env(f: any): any {
   return {
-    HOME: f.home, XDG_CONFIG_HOME: f.config, PATH: process.env.PATH, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
+    HOME: f.home, ...winEnv(f.home), XDG_CONFIG_HOME: f.config, PATH: process.env.PATH, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
     DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_TELEMETRY: 'off', CLAUDE_CONFIG_DIR: '', CODEX_HOME: '', COPILOT_HOME: '', PI_CODING_AGENT_SESSION_DIR: '',
   };
 }

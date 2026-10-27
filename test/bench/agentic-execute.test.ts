@@ -16,6 +16,7 @@ const execute = require('../../bench/agentic/execute.ts');
 const { UsageError, buildPrompt, promptSha256 } = require('../../bench/agentic/tasks.ts');
 const launch = require('../../src/runtime/worker/launch.ts');
 
+const SKIP_WIN = process.platform === 'win32' && 'the executor finds tools by bare name and spawns the shebang fake worker directly (bench/agentic/execute.ts:424 findOnPath ignores PATHEXT, :567 spawn with shell:false), so it cannot run a stand-in harness on win32';
 const REPO = path.join(__dirname, '..', '..');
 const SNAPSHOT = JSON.parse(fs.readFileSync(path.join(REPO, 'bench', 'retrieval', 'snapshot.json'), 'utf8'));
 const REAL_CONFIG = execute.loadConfig();
@@ -228,7 +229,7 @@ test('insertModelArgv: equals assembleArgv with the model argv right after the r
 
 // --- plan -------------------------------------------------------------------------------------
 
-test('planIteration: offline projection with the redacted argv, spawning nothing', () => {
+test('planIteration: offline projection with the redacted argv, spawning nothing', { skip: SKIP_WIN }, () => {
   const s = setup();
   const saved: any = { spawn: childProcess.spawn, spawnSync: childProcess.spawnSync };
   childProcess.spawn = childProcess.spawnSync = () => { throw new Error('plan must not spawn'); };
@@ -261,7 +262,7 @@ test('planIteration: offline projection with the redacted argv, spawning nothing
   assert.equal(fs.existsSync(s.runRoot), false, 'plan writes nothing');
 });
 
-test('planIteration: --tasks filters in task order; unknown ids and arms are refused', () => {
+test('planIteration: --tasks filters in task order; unknown ids and arms are refused', { skip: SKIP_WIN }, () => {
   const s = setup();
   assert.deepEqual(execute.planIteration({ ...s.opts, tasks: ['T3', 'T1'] }).runs.map((r: any) => r.id), ['T1', 'T3']);
   assert.deepEqual(execute.planIteration({ ...s.opts, tasks: 'T2' }).runs.map((r: any) => r.id), ['T2']);
@@ -271,7 +272,7 @@ test('planIteration: --tasks filters in task order; unknown ids and arms are ref
   assert.throws(() => execute.planIteration({ ...s.opts, iteration: '../x' }), (e: any) => e.reason === 'iteration-invalid');
 });
 
-test('planIteration: typicalTokens is runs times the median of recorded runs on the same model label only', () => {
+test('planIteration: typicalTokens is runs times the median of recorded runs on the same model label only', { skip: SKIP_WIN }, () => {
   const s = setup();
   const record = (iteration: any, model: any, tokensList: any) => {
     fs.mkdirSync(path.join(s.runRoot, iteration), { recursive: true });
@@ -292,7 +293,7 @@ test('planIteration: typicalTokens is runs times the median of recorded runs on 
 
 // --- execute: refusals ------------------------------------------------------------------------
 
-test('execute refuses with exit 2, zero runs and nothing written', async () => {
+test('execute refuses with exit 2, zero runs and nothing written', { skip: SKIP_WIN }, async () => {
   const caps: any = [undefined, null, 0, -5, 1.5, 'abc', ''];
   for (const cap of caps) {
     const s = setup();
@@ -327,7 +328,7 @@ test('execute refuses with exit 2, zero runs and nothing written', async () => {
   assertRefused(s, await execute.executeIteration(s.opts), 'tool-missing');
 });
 
-test('execute refuses a second invocation that disagrees with the existing iteration record', async () => {
+test('execute refuses a second invocation that disagrees with the existing iteration record', { skip: SKIP_WIN }, async () => {
   const s = setup();
   fs.mkdirSync(path.join(s.runRoot, 'it1'), { recursive: true });
   fs.writeFileSync(path.join(s.runRoot, 'it1', 'iteration.json'), JSON.stringify({ arm: 'D', model: 'fake:model', sourceAt: 'x', snapshot: 'deadbeef' }));
@@ -340,7 +341,7 @@ test('execute refuses a second invocation that disagrees with the existing itera
 
 // --- execute: a complete run ------------------------------------------------------------------
 
-test('execute: records iteration, launch, transcript, status and timing; the harness sees a fresh git workspace', async () => {
+test('execute: records iteration, launch, transcript, status and timing; the harness sees a fresh git workspace', { skip: SKIP_WIN }, async () => {
   const s = setup();
   const result = await execute.executeIteration({ ...s.opts, arm: 'D', tasks: ['T1'] });
   assert.equal(result.exit, 0, result.refusal);
@@ -409,7 +410,7 @@ test('execute: records iteration, launch, transcript, status and timing; the har
   assert.deepEqual(leftovers(s), []);
 });
 
-test('execute: both arms differ only in the paragraph and one PATH entry; env is the allowlist; shim and credentials as specified (FR-002, NFR-010)', async () => {
+test('execute: both arms differ only in the paragraph and one PATH entry; env is the allowlist; shim and credentials as specified (FR-002, NFR-010)', { skip: SKIP_WIN }, async () => {
   const s = setup();
   fs.writeFileSync(path.join(s.dir, 'srchome', '.fakehome', 'extra.txt'), 'must not be copied');
   await execute.executeIteration({ ...s.opts, iteration: 'it-n', arm: 'N', tasks: ['T1'] });
@@ -453,7 +454,7 @@ test('execute: both arms differ only in the paragraph and one PATH entry; env is
   assert.deepEqual(leftovers(s), []);
 });
 
-test('execute: the run PATH holds a per-run bin of symlinks, never a caller directory (one-tool contrast)', async () => {
+test('execute: the run PATH holds a per-run bin of symlinks, never a caller directory (one-tool contrast)', { skip: SKIP_WIN }, async () => {
   const s = setup({ config: testConfig((c: any) => { c.path = ['node', 'rg', 'git']; }) });
   // A caller directory that holds the tools AND the two programs that would break the contrast.
   const callerDir = path.join(s.dir, 'caller-bin');
@@ -492,7 +493,7 @@ test('execute: the run PATH holds a per-run bin of symlinks, never a caller dire
   assert.deepEqual(leftovers(s), []);
 });
 
-test('execute: a third arm added in a config runs without a code change; a missing credential file is recorded (FR-013)', async () => {
+test('execute: a third arm added in a config runs without a code change; a missing credential file is recorded (FR-013)', { skip: SKIP_WIN }, async () => {
   const config = testConfig((c: any) => { c.arms.X = { paragraph: 'Use only your shell tools, arm X.', pathAdd: [], leak: [] }; });
   const s = setup({ config, withCredential: false });
   const plan = execute.planIteration({ ...s.opts, arm: 'X', tasks: ['T1'] });
@@ -508,7 +509,7 @@ test('execute: a third arm added in a config runs without a code change; a missi
 
 // --- execute: outcomes and cleanup ------------------------------------------------------------
 
-test('execute: api-error, silent and unreported usage are recorded outcomes with cleanup, never exit codes', async () => {
+test('execute: api-error, silent and unreported usage are recorded outcomes with cleanup, never exit codes', { skip: SKIP_WIN }, async () => {
   const s = setup();
   const scenario = writeScenario(s, 'outcomes', {
     tasks: {
@@ -541,7 +542,7 @@ const reportedTurn = (s: any) => {
   return fs.existsSync(file) && fs.readFileSync(file, 'utf8').includes('turn.completed');
 };
 
-test('R-1: SIGINT after the worker reported 900000 tokens records the larger of the sum and maxTokensPerRun; the next command is stopped by the cap', { timeout: 30000 }, async () => {
+test('R-1: SIGINT after the worker reported 900000 tokens records the larger of the sum and maxTokensPerRun; the next command is stopped by the cap', { timeout: 30000, skip: SKIP_WIN }, async () => {
   const s = setup({ config: R1_CONFIG() });
   const scenario = writeScenario(s, 'overhang', oneTask({ behaviour: 'report-then-hang', tokens: 900000 }));
   const extraEnv: any = { ...s.extraEnv, AGENTIC_FAKE_SCENARIO: scenario };
@@ -561,7 +562,7 @@ test('R-1: SIGINT after the worker reported 900000 tokens records the larger of 
   assert.equal(runDump(s).length, 1, 'no second paid spawn');
 });
 
-test('R-1: SIGINT after a small reported usage still counts the run at maxTokensPerRun', { timeout: 30000 }, async () => {
+test('R-1: SIGINT after a small reported usage still counts the run at maxTokensPerRun', { timeout: 30000, skip: SKIP_WIN }, async () => {
   const s = setup({ config: R1_CONFIG() });
   const scenario = writeScenario(s, 'smallhang', oneTask({ behaviour: 'report-then-hang', tokens: 100 }));
   const extraEnv: any = { ...s.extraEnv, AGENTIC_FAKE_SCENARIO: scenario };
@@ -574,7 +575,7 @@ test('R-1: SIGINT after a small reported usage still counts the run at maxTokens
   assert.equal(next.spent, 250000, 'a turn may have been in flight: the run counts at maxTokensPerRun, not 100');
 });
 
-test('R-6: a timed-out run that reported a turn counts at the larger of its sum and maxTokensPerRun', async () => {
+test('R-6: a timed-out run that reported a turn counts at the larger of its sum and maxTokensPerRun', { skip: SKIP_WIN }, async () => {
   const s = setup({ config: testConfig((c: any) => { c.timeoutSeconds = 0.5; c.maxTokensPerRun = 250000; }) });
   const scenario = writeScenario(s, 'timeouthang', oneTask({ behaviour: 'report-then-hang', tokens: 100 }));
   const extraEnv: any = { ...s.extraEnv, AGENTIC_FAKE_SCENARIO: scenario };
@@ -584,7 +585,7 @@ test('R-6: a timed-out run that reported a turn counts at the larger of its sum 
   assert.equal(first.spent, 250000, 'counting the reported 100 would hide a turn in flight');
 });
 
-test('execute: a timeout ends the whole process tree, records it, and removes workspace and profile', async () => {
+test('execute: a timeout ends the whole process tree, records it, and removes workspace and profile', { skip: SKIP_WIN }, async () => {
   const config = testConfig((c: any) => { c.timeoutSeconds = 0.5; });
   const s = setup({ config });
   const pidfile = path.join(s.dir, 'sleeper.pid');
@@ -615,7 +616,7 @@ test('execute: a timeout ends the whole process tree, records it, and removes wo
   assert.deepEqual(leftovers(s), [], 'workspace and profile removed after a timeout');
 });
 
-test('FU-3d2p7y: a harness that exits on its own cannot leave a child of its process group running', async () => {
+test('FU-3d2p7y: a harness that exits on its own cannot leave a child of its process group running', { skip: SKIP_WIN }, async () => {
   const s = setup();
   const pidfile = path.join(s.dir, 'orphan.pid');
   const scenario = writeScenario(s, 'orphan', oneTask({ behaviour: 'ok', leaveChild: true }));
@@ -640,7 +641,7 @@ test('FU-3d2p7y: a harness that exits on its own cannot leave a child of its pro
 
 // --- execute: cap and stop rule ---------------------------------------------------------------
 
-test('execute: the stop rule halts before a run that could pass the cap, exit 3, and lists the undone ids', async () => {
+test('execute: the stop rule halts before a run that could pass the cap, exit 3, and lists the undone ids', { skip: SKIP_WIN }, async () => {
   const s = setup();
   const scenario = writeScenario(s, 'overshoot', { tasks: { T1: { match: 'widget is frobbed', N: { tokens: 1500 } } } });
   const result = await execute.executeIteration({ ...s.opts, tasks: ['T1', 'T2'], cap: 2000, extraEnv: { ...s.extraEnv, AGENTIC_FAKE_SCENARIO: scenario } });
@@ -652,7 +653,7 @@ test('execute: the stop rule halts before a run that could pass the cap, exit 3,
   assert.deepEqual(leftovers(s), []);
 });
 
-test('execute: spend counts earlier runs of the iteration, and a run with unknown usage at maxTokensPerRun', async () => {
+test('execute: spend counts earlier runs of the iteration, and a run with unknown usage at maxTokensPerRun', { skip: SKIP_WIN }, async () => {
   const s = setup();
   const head = git(s.repoRoot, 'rev-parse', 'HEAD');
   const seed = (name: any, timing: any) => {
@@ -751,7 +752,7 @@ function spawnDriver(s: any, overrides: any = {}) {
   return { child, done };
 }
 
-test('FU-j421p4: a signal that arrives during the synchronous setup of a run stops it before the paid spawn', { timeout: 30000 }, async () => {
+test('FU-j421p4: a signal that arrives during the synchronous setup of a run stops it before the paid spawn', { timeout: 30000, skip: SKIP_WIN }, async () => {
   const s = setup();
   const { done } = spawnDriver(s, { tasks: ['T1'], selfSignal: 'SIGINT' });
   const ended: any = await done;
@@ -792,7 +793,7 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   });
 }
 
-test('C-1: a fault after the credential copy (shim write) or in the workspace cleanup leaves no credential copy', async () => {
+test('C-1: a fault after the credential copy (shim write) or in the workspace cleanup leaves no credential copy', { skip: SKIP_WIN }, async () => {
   const real: any = { writeFileSync: fs.writeFileSync, rmSync: fs.rmSync };
   // (a) the arm D shim write fails after auth.json was copied: the profile is still removed.
   let s = setup();
@@ -834,7 +835,7 @@ test('C-1: a fault after the credential copy (shim write) or in the workspace cl
   assert.equal(fs.existsSync(path.join(s.runRoot, 'it1', 'T1', 'launch.json')), true);
 });
 
-test('C-2: two concurrent executors on one iteration spawn the task once; a second arm on a held iteration is refused', { timeout: 30000 }, async () => {
+test('C-2: two concurrent executors on one iteration spawn the task once; a second arm on a held iteration is refused', { timeout: 30000, skip: SKIP_WIN }, async () => {
   const s = setup({ config: testConfig((c: any) => { c.timeoutSeconds = 0.6; }) });
   const scenario = writeScenario(s, 'slow', oneTask({ behaviour: 'timeout' }));
   const extraEnv: any = { ...s.extraEnv, AGENTIC_FAKE_SCENARIO: scenario };
@@ -860,7 +861,7 @@ test('C-2: two concurrent executors on one iteration spawn the task once; a seco
   assert.equal(runDump(s2).length, 1);
 });
 
-test('R-2: a lock left by a dead executor is refused with the scratch profile it left and the instruction to delete it', async () => {
+test('R-2: a lock left by a dead executor is refused with the scratch profile it left and the instruction to delete it', { skip: SKIP_WIN }, async () => {
   const s = setup();
   const dead = childProcess.spawnSync(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' });
   const deadPid = Number(dead.stdout);
@@ -887,7 +888,7 @@ test('R-2: a lock left by a dead executor is refused with the scratch profile it
   assert.equal(fs.existsSync(profileRoot), true, 'the executor never deletes it on its own');
 });
 
-test('R-2: after SIGKILL of the executor the next execute names the live profile from launch.json (the known residual)', { timeout: 30000 }, async () => {
+test('R-2: after SIGKILL of the executor the next execute names the live profile from launch.json (the known residual)', { timeout: 30000, skip: SKIP_WIN }, async () => {
   const s = setup({ config: testConfig((c: any) => { c.timeoutSeconds = 60; }) });
   const pidfile = path.join(s.dir, 'sleeper.pid');
   const scenario = writeScenario(s, 'hangkill', oneTask({ behaviour: 'timeout' }));
@@ -912,7 +913,7 @@ test('R-2: after SIGKILL of the executor the next execute names the live profile
   }
 });
 
-test('C-3: an executor error after the spawn keeps the run record, counts it, and a rerun cannot spend again', async () => {
+test('C-3: an executor error after the spawn keeps the run record, counts it, and a rerun cannot spend again', { skip: SKIP_WIN }, async () => {
   const s = setup();
   const real = fs.writeFileSync;
   fs.writeFileSync = function patched(file: any, ...rest: any[]) {
@@ -939,7 +940,7 @@ test('C-3: an executor error after the spawn keeps the run record, counts it, an
   assert.deepEqual(leftovers(s), []);
 });
 
-test('C-4: no checkout path reaches the worker: argv, env, shim and launch.json; the shim runs a pruned export', async () => {
+test('C-4: no checkout path reaches the worker: argv, env, shim and launch.json; the shim runs a pruned export', { skip: SKIP_WIN }, async () => {
   const s = setup({ ownRepo: true });
   for (const [rel, text] of [['bin/doflow.js', '// cli\n'], ['src/x.js', '// x\n'], ['bench/agentic/tasks-heldout.json', '{"secret":1}\n'], ['package.json', '{}\n'], ['agent-docs/n.md', 'n\n']]) {
     fs.mkdirSync(path.dirname(path.join(s.repoRoot, rel)), { recursive: true });
@@ -972,7 +973,7 @@ test('C-4: no checkout path reaches the worker: argv, env, shim and launch.json;
   assert.deepEqual(leftovers(s), [], 'the shim export is removed too');
 });
 
-test('C-5: a run that passes the cap ends with exit 3 and the amount it was exceeded by', async () => {
+test('C-5: a run that passes the cap ends with exit 3 and the amount it was exceeded by', { skip: SKIP_WIN }, async () => {
   const s = setup();
   const scenario = writeScenario(s, 'over', { tasks: { T1: { match: 'widget is frobbed', N: { tokens: 1500 } } } });
   const result = await execute.executeIteration({ ...s.opts, tasks: ['T1'], cap: 1000, extraEnv: { ...s.extraEnv, AGENTIC_FAKE_SCENARIO: scenario } });
@@ -981,7 +982,7 @@ test('C-5: a run that passes the cap ends with exit 3 and the amount it was exce
   assert.equal(result.spent, 1500);
 });
 
-test('C-6: spend sums every turn and counts a run with a missing usage field at maxTokensPerRun', async () => {
+test('C-6: spend sums every turn and counts a run with a missing usage field at maxTokensPerRun', { skip: SKIP_WIN }, async () => {
   const s = setup();
   const scenario = writeScenario(s, 'usage', {
     tasks: {
@@ -1004,7 +1005,7 @@ test('C-6: spend sums every turn and counts a run with a missing usage field at 
   assert.equal(second.spent, 1901);
 });
 
-test('C-9: no turn end, a nonzero exit or a signal is recorded as truncated with the exit code and signal', async () => {
+test('C-9: no turn end, a nonzero exit or a signal is recorded as truncated with the exit code and signal', { skip: SKIP_WIN }, async () => {
   const s = setup();
   const scenario = writeScenario(s, 'abrupt', {
     tasks: {
@@ -1024,7 +1025,7 @@ test('C-9: no turn end, a nonzero exit or a signal is recorded as truncated with
   assert.equal(st('T3').exitCode, 0);
 });
 
-test('C-11: a symlinked run entry counts at maxTokensPerRun; a symlinked run root or iteration is refused', async () => {
+test('C-11: a symlinked run entry counts at maxTokensPerRun; a symlinked run root or iteration is refused', { skip: SKIP_WIN }, async () => {
   let s = setup();
   const head = git(s.repoRoot, 'rev-parse', 'HEAD');
   const ext = path.join(s.dir, 'ext', 'fake');
@@ -1058,7 +1059,7 @@ test('C-11: a symlinked run entry counts at maxTokensPerRun; a symlinked run roo
   assert.deepEqual(readDump(s), []);
 });
 
-test('FU-swkhgg: the default run root is checked for resolving outside the checkout even when the caller passes it explicitly', async () => {
+test('FU-swkhgg: the default run root is checked for resolving outside the checkout even when the caller passes it explicitly', { skip: SKIP_WIN }, async () => {
   const s = setup({ ownRepo: true });
   const outside = path.join(s.dir, 'outside');
   fs.mkdirSync(path.join(outside, 'agentic'), { recursive: true });
@@ -1073,7 +1074,7 @@ test('FU-swkhgg: the default run root is checked for resolving outside the check
   assert.deepEqual(fs.readdirSync(path.join(outside, 'agentic')), []);
 });
 
-test('FU-swkhgg: a spelling of the default run root with a trailing slash or a ./ is still the default', async () => {
+test('FU-swkhgg: a spelling of the default run root with a trailing slash or a ./ is still the default', { skip: SKIP_WIN }, async () => {
   for (const spell of [(d: string) => `${d}${path.sep}`, (d: string) => path.join(path.dirname(d), '.', path.basename(d)) + path.sep + '.']) {
     const s = setup({ ownRepo: true });
     const outside = path.join(s.dir, 'outside');
@@ -1089,7 +1090,7 @@ test('FU-swkhgg: a spelling of the default run root with a trailing slash or a .
   }
 });
 
-test('FU-swkhgg: the default run root is contained even when agentic/ does not exist yet', async () => {
+test('FU-swkhgg: the default run root is contained even when agentic/ does not exist yet', { skip: SKIP_WIN }, async () => {
   const s = setup({ ownRepo: true });
   const outside = path.join(s.dir, 'outside');
   fs.mkdirSync(outside);
@@ -1103,7 +1104,7 @@ test('FU-swkhgg: the default run root is contained even when agentic/ does not e
   assert.deepEqual(fs.readdirSync(outside), [], 'nothing was created outside the checkout');
 });
 
-test('N-1, N-4: the version check runs in a scratch profile; the credential copy is mode 0600; iteration records the capture digest', async () => {
+test('N-1, N-4: the version check runs in a scratch profile; the credential copy is mode 0600; iteration records the capture digest', { skip: SKIP_WIN }, async () => {
   const s = setup();
   const r = await execute.executeIteration({ ...s.opts, tasks: ['T1'] });
   assert.equal(r.exit, 0);
@@ -1124,7 +1125,7 @@ test('N-2: each rehearsal command authorizes one run, so stage R stays at two ru
   for (const line of stages.R) assert.match(line, / --cap 250000$/);
 });
 
-test('R-8: plan says the cap applies per execute command and gives each stage its end figure with the overshoots', async () => {
+test('R-8: plan says the cap applies per execute command and gives each stage its end figure with the overshoots', { skip: SKIP_WIN }, async () => {
   const runner = require('../../bench/agentic/runner.ts');
   const stages = runner.paidStages({ taskSet: { train: [{ id: 'DC-1' }], tasks: [{ id: 'DC-1' }, { id: 'DC-2' }] }, config: { maxTokensPerRun: 250000 }, k: 3 });
   assert.match(stages.capScope, /per execute command/);
@@ -1142,7 +1143,7 @@ test('R-8: plan says the cap applies per execute command and gives each stage it
   assert.ok(lines.some((l: any) => l.startsWith('stage figures: ') && /plus up to 3 one-run overshoots/.test(l)), lines.join('\n'));
 });
 
-test('C-5: plan states the one-run residual; the execute text names the amount the cap was exceeded by', async () => {
+test('C-5: plan states the one-run residual; the execute text names the amount the cap was exceeded by', { skip: SKIP_WIN }, async () => {
   const runner = require('../../bench/agentic/runner.ts');
   const s = setup();
   const lines: any = [];

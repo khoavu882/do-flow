@@ -140,7 +140,7 @@ test('X1: a server absent from the MCP files DoFlow reads is not stored unavaila
 test('X1 repro: a Claude local-scope server in ~/.claude.json is seen; an asserted unavailable is warned as contradicted, with no add command', (t) => {
   const p = project(t);
   installClaude(p, { other: {} });
-  fs.writeFileSync(path.join(p.scratch.home, '.claude.json'), JSON.stringify({ projects: { [p.dir]: { mcpServers: { context7: {} } } } }));
+  fs.writeFileSync(path.join(p.scratch.home, '.claude.json'), JSON.stringify({ projects: { [p.dir]: { mcpServers: { context7: {} } }, [p.dir.replace(/\\/g, '/')]: { mcpServers: { context7: {} } } } }));
   start(p);
   const res: any = handoff(p, 'do-brainstorm', ['--mcp-outcome', 'context7=unavailable', '--mcp-outcome', 'sequential-thinking=used']);
   assert.equal(res.status, 0, res.stdout + res.stderr);

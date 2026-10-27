@@ -135,7 +135,11 @@ test('IC-012: advice outcome leaves handoff output and stored consultations unch
   const baseline = handoff(withoutAdvice);
   const advised = handoff(withAdvice);
   assert.equal(advised.status, baseline.status);
-  const normalize = (p: any, text: any) => text.replace(fs.realpathSync(p.dir), '<project>');
+  // The path appears raw and, inside the JSON output, with its backslashes doubled.
+  const normalize = (p: any, text: any) => {
+    const real = fs.realpathSync(p.dir);
+    return text.split(JSON.stringify(real).slice(1, -1)).join('<project>').split(real).join('<project>');
+  };
   assert.equal(normalize(withAdvice, advised.stdout), normalize(withoutAdvice, baseline.stdout));
   assert.equal(advised.stderr, baseline.stderr);
   const baselineData = JSON.parse(baseline.stdout);
@@ -178,7 +182,11 @@ test('IC-012: a symlinked advice store is refused without changing handoff outpu
   const baseline = handoff(baselineProject);
   const linked = handoff(linkedProject);
   assert.equal(linked.status, baseline.status);
-  const normalize = (p: any, text: any) => text.replace(fs.realpathSync(p.dir), '<project>');
+  // The path appears raw and, inside the JSON output, with its backslashes doubled.
+  const normalize = (p: any, text: any) => {
+    const real = fs.realpathSync(p.dir);
+    return text.split(JSON.stringify(real).slice(1, -1)).join('<project>').split(real).join('<project>');
+  };
   assert.equal(normalize(linkedProject, linked.stdout), normalize(baselineProject, baseline.stdout));
   assert.equal(linked.stderr, baseline.stderr);
   assert.deepEqual(outcomes(targetDirectory), []);

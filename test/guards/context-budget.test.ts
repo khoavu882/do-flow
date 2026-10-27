@@ -202,7 +202,10 @@ test('G13 (C-7): the home-path length the bound tolerates is stated and derived 
   t.diagnostic(`global-scope home path: ${tokens} tokens, each character costs ${tokens} B per pointer row; the tightest pointer row has ${PROJECTION_OVERHEAD_MAX - tightest} B of headroom, so a home of up to ${limit} characters stays in bound`);
   assert.ok(limit >= 200, `homes of 200 characters must stay in bound (limit ${limit}); raise the bound or shrink the pointer, do not ignore the limit`);
   // The derivation holds against the real renderer: one more character costs `tokens` bytes.
-  const home = '/h'.padEnd(limit, 'x');
+  // The home is a native absolute path of `limit` characters: on Windows the root is `D:\`, which resolves
+  // to three characters, not the one POSIX '/' costs.
+  const rootPrefix = path.parse(path.resolve('/')).root;
+  const home = rootPrefix + 'h'.padEnd(limit - rootPrefix.length, 'x');
   assert.equal(bytesAt(`${home}x`) - bytesAt(home), tokens);
   assert.ok(bytesAt(home) - projectBytes <= PROJECTION_OVERHEAD_MAX - tightest, 'a home at the limit keeps the pointer rows inside the bound');
 });

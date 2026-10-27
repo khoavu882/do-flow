@@ -34,7 +34,7 @@ const PLAN = ['# Plan', '', '**Task graph:** v1', '', '## Tasks', '', '### Phase
   '- [ ] A.1 first task; owner: core-implementer; files: a.js', ''].join('\n');
 const SUCCESS: any = { type: 'result', status: 'success', summary: 'all done' };
 const FAKES: any = { claude: DESCRIPTORS.claude, antigravity: DESCRIPTORS.antigravity };
-const GIT = (process.env.PATH || '').split(path.delimiter).map((dir) => path.join(dir, 'git'))
+const GIT = (process.env.PATH || '').split(path.delimiter).map((dir) => path.join(dir, process.platform === 'win32' ? 'git.exe' : 'git'))
   .find((candidate) => { try { fs.accessSync(candidate, fs.constants.X_OK); return true; } catch { return false; } });
 
 function gitEnv() {
@@ -70,12 +70,14 @@ function project(t: any, { scenario = {}, mode = 'subagent', execWorktree: where
   if (where === 'own') execWorktree = fs.realpathSync(gitRepo(t));
   if (where === 'plain') execWorktree = fs.realpathSync(tempDir(t, 'doflow-worker-cmd-plain-'));
   const childPath = linkBin(path.join(dir, 'bin'), ['fake-claude', 'fake-antigravity']);
-  fs.symlinkSync(GIT, path.join(dir, 'bin', 'git'));
+  // A Git for Windows git.exe finds its runtime beside itself, so a link elsewhere would not work: put its own directory on the child PATH instead.
+  const gitPath = process.platform === 'win32' ? [childPath, path.dirname(GIT)].join(path.delimiter) : childPath;
+  if (process.platform !== 'win32') fs.symlinkSync(GIT, path.join(dir, 'bin', 'git'));
   const env: any = {
-    PATH: childPath,
+    PATH: gitPath,
     HOME: dir,
     XDG_CONFIG_HOME: path.join(dir, 'config'),
-    TMPDIR: process.env.TMPDIR || '/tmp',
+    TMPDIR: process.env.TMPDIR || (process.platform === 'win32' ? require('node:os').tmpdir() : '/tmp'),
     FAKE_HARNESS_SCENARIO: writeScenario(dir, scenario),
     DOFLOW_RUN_ID: 'r1',
     DOFLOW_LINEAGE_ID: 'main',

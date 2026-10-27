@@ -61,7 +61,7 @@ test('renders per-scope guidance pointers and verifies the rendered section fing
     apply({ ...input, changes: planned.changes });
 
     const entry = fs.readFileSync(instructionsPath, 'utf8');
-    const expectedGuidance = scope === 'global' ? path.join(scopeRoot, '.doflow/guidance') : '.doflow/guidance';
+    const expectedGuidance = scope === 'global' ? path.join(scopeRoot, '.doflow/guidance').replace(/\\/g, '/') : '.doflow/guidance';
     assert.ok(entry.includes(`${expectedGuidance}/DOFLOW_CORE.md`));
     assert.ok(fs.existsSync(path.join(scopeRoot, '.doflow/guidance/DOFLOW_CORE.md')));
     assert.match(fs.readFileSync(path.join(scopeRoot, '.doflow/guidance/pointers/codex.md'), 'utf8'), /\{\{GUIDANCE\}\}/);

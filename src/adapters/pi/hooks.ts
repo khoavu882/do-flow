@@ -93,7 +93,8 @@ function verifyPiHooks({ scope, scopeRoot, assets = [], ledger, context = {}, ad
   const plannedWrite = (context?.plannedWrites || []).includes(target);
   const bridgeMatches = !!content && content.includes(JSON.stringify(path.relative(path.dirname(target), bridgePath).split(path.sep).join('/')));
   const commandOnPath = (command: string) => String(pathEnv || '').split(path.delimiter)
-    .some((dir) => fsImpl.existsSync(path.join(dir, command)));
+    .some((dir) => [command, ...(process.platform === 'win32' ? ['.exe', '.cmd', '.bat'].map((ext) => command + ext) : [])]
+      .some((name) => fsImpl.existsSync(path.join(dir, name))));
   const status = present && !owned && !plannedWrite && !adopt ? 'conflict'
     : (present && (fingerprintMatches || plannedWrite) && bridgeMatches && commandOnPath('bash') && commandOnPath('jq') ? 'managed' : 'absent');
   const resources = status === 'managed' ? [{ assetId: ASSET_ID, target, ownershipIdentity: OWNERSHIP,

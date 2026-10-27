@@ -138,11 +138,13 @@ function shellQuote(value: any) {
 
 function executableOnPath(name: any) {
   for (const dir of (process.env.PATH || '').split(path.delimiter)) {
-    const candidate = path.join(dir || process.cwd(), name);
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      return candidate;
-    } catch { /* try the next PATH entry */ }
+    // Windows executables carry an extension (bash.exe, jq.exe): X_OK on the bare name finds nothing there.
+    for (const candidate of [path.join(dir || process.cwd(), name), ...(process.platform === 'win32' ? [path.join(dir || process.cwd(), `${name}.exe`)] : [])]) {
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
+      } catch { /* try the next PATH entry */ }
+    }
   }
   assert.fail(`cannot count ${name}: executable was not found on PATH`);
 }
@@ -404,7 +406,14 @@ test('no write without <config>/state, and no directory above runs/telemetry is 
 });
 
 test('no store above cwd: the bridge returns 0 without treating /state as a config', (t) => {
-  const cwd = tempDir(t, 'doflow-no-store-');
+  let cwd = tempDir(t, 'doflow-no-store-');
+  const hasStoreAbove = (start: any) => { for (let dir = start; ; dir = path.dirname(dir)) { if (fs.existsSync(path.join(dir, '.doflow'))) return true; if (dir === path.dirname(dir)) return false; } };
+  if (process.platform === 'win32' && hasStoreAbove(cwd)) {
+    // The Windows temp folder sits under the user profile, which can hold a real .doflow store; the premise
+    // (no store above cwd) is then arranged at the drive root instead of being assumed.
+    cwd = fs.mkdtempSync(path.join(path.parse(cwd).root, 'doflow-no-store-'));
+    t.after(() => fs.rmSync(cwd, { recursive: true, force: true }));
+  }
   for (let dir = cwd; ; dir = path.dirname(dir)) {
     assert.equal(fs.existsSync(path.join(dir, '.doflow')), false, `${dir} has no .doflow store`);
     if (dir === path.dirname(dir)) break;

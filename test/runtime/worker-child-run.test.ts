@@ -183,7 +183,7 @@ test('IC-015: a child timeout ends the child and leaves the granter attempt acti
   assert.equal(readRuns(p.runStore)[p.granter].phase, 'running');
 }));
 
-test('IC-015: --child-of flag rules are exit 2 usage', async (t) => {
+test('IC-015: --child-of flag rules are exit 2 usage', POSIX, async (t) => {
   const sb = makeDispatchSandbox(t, { slug: SLUG, identity: { DOFLOW_ATTEMPT: undefined } });
   const promptFile = path.join(sb.dir, 'prompt.md');
   fs.writeFileSync(promptFile, 'x');

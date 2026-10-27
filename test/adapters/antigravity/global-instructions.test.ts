@@ -60,7 +60,7 @@ test('IC-007: a global install appends the section to the person\'s GEMINI.md, v
   assert.equal(change.ownershipIdentity, 'doflow:antigravity:instructions:managed-section');
   assert.equal(change.projection.renderer, 'antigravity-instructions');
   assert.equal(fs.readFileSync(target(home), 'utf8'), `${USER}\n${section(home)}`);
-  assert.ok(section(home).includes(path.join(home, '.doflow', 'guidance')), 'the pointer names the absolute global guidance tree');
+  assert.ok(section(home).includes(path.join(home, '.doflow', 'guidance').replace(/\\/g, '/')), 'the pointer names the absolute global guidance tree');
   const resource = verified.resources.find((item: any) => item.target === target(home));
   assert.equal(resource.ownershipIdentity, 'doflow:antigravity:instructions:managed-section');
   assert.equal(resource.identity, 'GEMINI.md');
@@ -93,7 +93,7 @@ test('IC-007: a handed-over GEMINI.md edited down to no DoFlow markers is kept u
   const rowOf = (verified: any) => verified.resources.find((item: any) => item.target === target(home));
   const handover = run(home, { context: { handovers: [{ target: target(home), fromKey: 'oldtool-row', edited: true }] } });
   assert.deepEqual(sectionChanges(handover.planned, home), [], 'an edited handover is not written');
-  assert.ok(handover.planned.notices.includes(notice), JSON.stringify(handover.planned.notices));
+  assert.ok(handover.planned.notices.map((n: string) => n.replace(/\\/g, '/')).includes(notice), JSON.stringify(handover.planned.notices));
   assert.equal(fs.readFileSync(target(home), 'utf8'), USER);
   const row = rowOf(handover.verified);
   assert.ok(row, 'verify records the kept file although it holds no DoFlow markers');
@@ -104,7 +104,7 @@ test('IC-007: a handed-over GEMINI.md edited down to no DoFlow markers is kept u
 
   const plain = run(home, { resources });
   assert.deepEqual(sectionChanges(plain.planned, home), [], 'the retained row is not rewritten without --force');
-  assert.ok(plain.planned.notices.includes(notice));
+  assert.ok(plain.planned.notices.map((n: string) => n.replace(/\\/g, '/')).includes(notice));
   assert.equal(rowOf(plain.verified).retainedEdit, true, 'the next run records it as kept again');
   assert.equal(fs.readFileSync(target(home), 'utf8'), USER);
 

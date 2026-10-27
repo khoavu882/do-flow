@@ -135,7 +135,7 @@ for (const harness of Object.keys(SURFACES)) {
     const { on, out } = pair([
       [harness, session],
       [harness, session],
-      [harness, `${harness}-nohome-091`, { HOME: undefined, XDG_CONFIG_HOME: undefined }],
+      [harness, `${harness}-nohome-091`, { HOME: undefined, XDG_CONFIG_HOME: undefined, ...(process.platform === 'win32' ? { USERPROFILE: undefined, HOMEDRIVE: undefined, HOMEPATH: undefined } : {}) }],
       [harness, 'has space'],
     ], { setup: (w: any) => seedGit(w, session) });
     assert.deepEqual(out.map((line: any) => emitOf(line).emit_reason), ['emit', 'silent:already-bootstrapped', 'silent:no-home', 'fault:unit']);

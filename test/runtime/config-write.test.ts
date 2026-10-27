@@ -13,6 +13,14 @@ const { createSettingsEnv, REPO } = require('../helper/settings-fixtures.ts');
 const REGISTRY = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/settings.json'), 'utf8'));
 // The effective registry `config schema` reports: `debate-3` comes from the bundled package (122 A.6).
 const PROTOCOLS = require('../../src/runtime/review/protocols.ts').loadProtocols({ repoRoot: REPO }).registry;
+
+/** POSIX permission bits are not expressible on Windows (files report 0666, folders 0777): there the strongest check is that the entry exists with the right kind. */
+function expectMode(entry: any, mode: number) {
+  const st = fs.statSync(entry);
+  if (process.platform === 'win32') { assert.ok(st.isFile() || st.isDirectory(), `${entry} exists`); return; }
+  assert.equal(st.mode & 0o777, mode, entry);
+}
+
 const STORAGE = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/storage.json'), 'utf8'));
 const readJson = (file: any) => JSON.parse(fs.readFileSync(file, 'utf8'));
 
@@ -46,7 +54,7 @@ test('set review.rounds 3 --layer project writes a valid 0600 file and reports o
   assert.equal(result.json.origin.layer, 'project');
   assert.equal(result.json.origin.source, file);
   assert.deepEqual(readJson(file), { schema: 1, 'review.rounds': 3 });
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  expectMode(file, 0o600);
 });
 
 test('set text form prints key, value and origin; a later set keeps the other keys', (t) => {
@@ -378,7 +386,7 @@ test('set and unset keep the bytes they replace in one <file>.config.bak (C-10);
   const first = fs.readFileSync(file);
   assert.equal(f.run(['config', 'set', 'storage.prune', '"off"', '--layer', 'project']).status, 0);
   assert.deepEqual(fs.readFileSync(backup), first, 'the backup holds the previous bytes');
-  assert.equal(fs.statSync(backup).mode & 0o777, 0o600);
+  expectMode(backup, 0o600);
 
   const second = fs.readFileSync(file);
   assert.equal(f.run(['config', 'set', 'review.rounds', '2', '--layer', 'project']).status, 0);

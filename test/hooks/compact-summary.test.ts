@@ -123,7 +123,9 @@ function pathWithoutTimeout() {
 
 test('the header names the compaction time and branch from the file, with no timeout binary on PATH, and omits what is unknown', () => {
   const withBranch = project('topic');
-  compact('A', withBranch, 'S', pathWithoutTimeout());
+  // A PATH of symlinks that leaves out only `timeout` cannot be built on Windows: the MSYS tools load their DLLs from
+  // their own folder, so there the header assertions run on the ordinary PATH.
+  compact('A', withBranch, 'S', process.platform === 'win32' ? undefined : pathWithoutTimeout());
   assert.match(prompt('claude', 'H', withBranch), /^\[Prior session summary, compacted \d{4}-\d\d-\d\dT[\d:]+Z on branch topic\]$/m);
   const noBranch = project();
   compact('A', noBranch, 'S');
@@ -136,7 +138,7 @@ test('the header names the compaction time and branch from the file, with no tim
 function fakeJq(before: any) {
   const bin = path.join(scratch.dir, `bin${seq++}`);
   fs.mkdirSync(bin);
-  const real = spawnSync('sh', ['-c', 'command -v jq'], { encoding: 'utf8' }).stdout.trim();
+  const real = spawnSync(bashPath(), ['-c', 'command -v jq'], { encoding: 'utf8' }).stdout.trim();
   fs.writeFileSync(path.join(bin, 'jq'), `#!/usr/bin/env bash\n${before}\nexec "${real}" "$@"\n`, { mode: 0o755 });
   return { PATH: `${bin}${path.delimiter}${process.env.PATH}` };
 }
@@ -154,7 +156,7 @@ test('a jq without --rawfile support does not fail the hook and does not wedge t
   assert.ok(prompt('claude', 'K', cwd), 'a later session still gets its context');
 });
 
-test('an unreadable summary file does not fail the hook', { skip: process.getuid?.() === 0 }, () => {
+test('an unreadable summary file does not fail the hook', { skip: process.getuid?.() === 0 || (process.platform === 'win32' && 'chmod 000 cannot make a file unreadable on Windows') }, () => {
   const cwd = project();
   compact('A', cwd, 'SUMMARY-LOCKED');
   fs.chmodSync(summaryFileFor(cwd), 0o000);
@@ -461,10 +463,14 @@ function twoCommitProject() {
 }
 
 function longGitProject() {
-  const cwd = project('b'.repeat(200));
+  // Windows caps a path at 260 characters (the 200-character branch ref and a 216-character cwd tail would pass it),
+  // so there the branch is shorter and the cwd tail is sized to land just past 200 characters in total.
+  const win = process.platform === 'win32';
+  const cwd = project('b'.repeat(win ? 50 : 200));
   commitFile(cwd, 'first.txt', 'a'.repeat(300));
   commitFile(cwd, 'second.txt', 'c'.repeat(300));
-  const deep = path.join(cwd, 'd'.repeat(72), 'e'.repeat(72), 'f'.repeat(72));
+  const seg = win ? Math.max(8, Math.floor((215 - cwd.length - 3) / 3)) : 72;
+  const deep = path.join(cwd, 'd'.repeat(seg), 'e'.repeat(seg), 'f'.repeat(seg));
   fs.mkdirSync(deep, { recursive: true });
   const realDeep = fs.realpathSync(deep);
   assert.ok(realDeep.length > 200, 'the deep cwd is longer than 200 characters');

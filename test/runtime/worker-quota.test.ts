@@ -136,7 +136,7 @@ function fakeCodexProject(t: any, jsonl: any, quota: any = true) {
   return { root, env, store, runId, log: sb.log };
 }
 
-test('supervisor marks only masked failure summaries from a configured descriptor', async (t) => {
+test('supervisor marks only masked failure summaries from a configured descriptor', { skip: process.platform === 'win32' && 'tree cleanup is unverified on win32 (NFR-005)' }, async (t) => {
   const p = fakeCodexProject(t, [{ type: 'turn.failed', error: { message: 'You have hit your usage limit' } }]);
   const run = await superviseRun({ file: p.store, runId: p.runId, env: p.env, cwd: p.root });
   assert.equal(run.report.status, 'failure');

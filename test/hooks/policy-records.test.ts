@@ -9,6 +9,7 @@ const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
 const { createScratch, childEnv: scratchChildEnv } = require('../helper/scratch-env.ts');
 const { encodeEnvelope } = require('../helper/hook-fixtures.ts');
+const { msysArgConvGuards } = require('../helper-platform.ts');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const POLICY_DIR = path.join(ROOT, 'core/harnesses/shared/hooks/policies');
@@ -34,7 +35,7 @@ function run(policy: any, input: any, { records = false, configHome, policyDir =
   const options: any = {
     input: policyInput,
     encoding: 'utf8',
-    env: childEnv({ ...(records ? { DOFLOW_DECISION_FD: '3' } : {}), ...(configHome ? { XDG_CONFIG_HOME: configHome } : {}), ...env }),
+    env: childEnv({ ...msysArgConvGuards(), ...(records ? { DOFLOW_DECISION_FD: '3' } : {}), ...(configHome ? { XDG_CONFIG_HOME: configHome } : {}), ...env }),
   };
   const result = records ? require('../helper/bash-locator.ts').spawnWithFd3([path.join(policyDir, `${policy}.sh`)], options) : spawnSync(BASH, [path.join(policyDir, `${policy}.sh`)], options);
   return { status: result.status, stdout: result.stdout || '', stderr: result.stderr || '', records: result.output?.[3]?.toString() || '' };
@@ -136,7 +137,7 @@ describe('B.2 policy decision records', () => {
       stash_count: 0, is_git_repo: true,
     }));
     const input = fs.readFileSync(path.join(FIXTURE_DIR, 'user-prompt-submit/nudge/input.json'), 'utf8')
-      .replaceAll('{{ROOT}}', project);
+      .replaceAll('{{ROOT}}', JSON.stringify(project).slice(1, -1)); // JSON-escaped: a Windows path holds backslashes
     const expected = JSON.parse(fs.readFileSync(path.join(FIXTURE_DIR, 'user-prompt-submit/nudge/golden.json'), 'utf8'));
     const actual = run('user-prompt-submit', input, { records: true, configHome, env: { HOME: root, DOFLOW_AGENT: 'claude' } });
     assert.deepEqual({ status: actual.status, stdout: actual.stdout, stderr: actual.stderr }, expected);

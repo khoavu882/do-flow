@@ -18,9 +18,40 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { suiteTempDir, tempDir } = require('../helper/tmp.ts');
 const { createScratch } = require('../helper/scratch-env.ts');
+const { withinPath } = require('../helper-platform.ts');
 const { verifyStateRoot } = require('../../src/runtime/verification/engine.ts');
 
 const REPO = path.resolve(__dirname, '../..');
+
+/** fs that sees only `inside`: the walk-up climbs above the fixture, and on win32 the temp folder sits under the runner's real
+ * profile, whose own .doflow would otherwise be found as the store. Anything outside reads as absent. */
+function isolatedFs(inside: any) {
+  const roots = [inside, fs.realpathSync(inside)];
+  return new Proxy(fs, {
+    get(target: any, prop: any) {
+      const member = target[prop];
+      if (typeof member !== 'function' || prop === 'realpathSync') return member;
+      return (...args: any[]) => {
+        const first = args[0];
+        if (typeof first === 'string' && path.isAbsolute(first) && !roots.some((root) => withinPath(first, root))) {
+          if (prop === 'existsSync') return false;
+          throw Object.assign(new Error(`ENOENT: ${first}`), { code: 'ENOENT' });
+        }
+        return member.apply(target, args);
+      };
+    },
+  });
+}
+/** Whether an ancestor of the temp folder already holds a .doflow (the CI profile does: the install under test left one). */
+const TEMP_UNDER_STORE = (() => {
+  let dir = path.dirname(fs.realpathSync(require('node:os').tmpdir()));
+  for (;;) {
+    if (fs.existsSync(path.join(dir, '.doflow'))) return true;
+    const parent = path.dirname(dir);
+    if (parent === dir) return false;
+    dir = parent;
+  }
+})();
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 
 const scratch = createScratch('doflow-verify-state-root-', { prune: 'on' });
@@ -156,7 +187,7 @@ test('an explicit DOFLOW_CONFIG_DIR wins over a nearer .doflow that holds state/
   assert.ok(store.logs >= 1 && store.verifyRuns === 1 && store.upkeep >= 1, JSON.stringify(store));
 });
 
-test('a project with no store anywhere keeps the <cwd>/.doflow fallback', () => {
+test('a project with no store anywhere keeps the <cwd>/.doflow fallback', { skip: process.platform === 'win32' && TEMP_UNDER_STORE && 'an ancestor of the temp folder already holds a .doflow, which the walk-up finds as the store' }, () => {
   const p = project({ store: false });
   // Its own HOME: any earlier verb's user-state upkeep line creates `~/.doflow`, which is a store.
   const fresh = createScratch('doflow-verify-state-root-nostore-', { prune: 'on' });
@@ -174,7 +205,7 @@ test('verifyStateRoot order: DOFLOW_CONFIG_DIR, walk-up, the runtime install, an
   fs.mkdirSync(home, { recursive: true });
   fs.mkdirSync(cwd, { recursive: true });
   fs.mkdirSync(path.join(install, 'runtime'), { recursive: true });
-  const at = (env: any, installRoot: any) => verifyStateRoot({ start: cwd, env, homeDir: home, installRoot });
+  const at = (env: any, installRoot: any) => verifyStateRoot({ start: cwd, env, homeDir: home, installRoot, fsImpl: isolatedFs(base) });
 
   // Nothing anywhere: the cwd fallback, project root = cwd (today's behaviour).
   assert.deepEqual(at({}, path.join(base, 'checkout')), { configDir: path.join(cwd, '.doflow'), projectRoot: cwd });

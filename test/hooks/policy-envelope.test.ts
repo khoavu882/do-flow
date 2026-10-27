@@ -366,7 +366,8 @@ function bridgeEnvelope(label: any, env: any, bridgeSource?: any) {
   fs.writeFileSync(path.join(root, 'policies/pre-bash-guard.sh'), `#!/usr/bin/env bash\ncat > '${capture}'\nexit 0\n`, { mode: 0o755 });
   const result = spawnSync(bashPath(), [path.join(root, 'bridge/bridge.sh'), 'claude', 'PreToolUse', 'pre-bash-guard'], {
     cwd: scratch.path(), input: `${JSON.stringify(IDENTITY_NATIVE)}\n`, encoding: 'utf8',
-    env: { ...env, HOME: scratch.path('identity-home'), XDG_CONFIG_HOME: scratch.path('identity-xdg'), DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_BRIDGE_TRACE: '', DOFLOW_DECISION_FD: '' },
+    // MSYS rewrites an env value that looks like a POSIX path (/tmp/x) when bash starts the native jq; the fixture wants the literal text
+    env: { ...env, ...(process.platform === 'win32' ? { MSYS2_ENV_CONV_EXCL: 'DOFLOW_WORKTREE' } : {}), HOME: scratch.path('identity-home'), XDG_CONFIG_HOME: scratch.path('identity-xdg'), DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_BRIDGE_TRACE: '', DOFLOW_DECISION_FD: '' },
   });
   assert.equal(result.status, 0, `${label}: bridge exit ${result.stderr}`);
   return JSON.parse(fs.readFileSync(capture, 'utf8')).doflow_event;

@@ -7,6 +7,9 @@ const path = require('node:path');
 const cp = require('node:child_process');
 const { createHash } = require('node:crypto');
 const { tempDir } = require('../helper/tmp.ts');
+const { bashPath } = require('../helper/bash-locator.ts');
+// The land command quotes any argument outside the portable word set (seed.ts quoteLandArgument); a native Windows path carries backslashes, so it is quoted.
+const lq = (value: any) => (/^[A-Za-z0-9_./:@%+=,-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`);
 const {
   render,
   renderRoadmapFile,
@@ -246,7 +249,7 @@ test('check: IC-003 land reflects one clean change kind and is null for other ou
   ]);
   const addCheck = runSeedJson({ action: 'check', draft: addDraft, root, gitFacts });
   assert.equal(addCheck.exit, 0);
-  assert.equal(addCheck.result.land, `doflow roadmap seed ${root} --action apply --draft ${addDraft}`);
+  assert.equal(addCheck.result.land, `doflow roadmap seed ${lq(root)} --action apply --draft ${lq(addDraft)}`);
 
   const textLines: any = [];
   const textExit = handleSeedCommand({ isTTY: true,
@@ -261,7 +264,7 @@ test('check: IC-003 land reflects one clean change kind and is null for other ou
   ]);
   const amendCheck = runSeedJson({ action: 'check', draft: amendDraft, root, gitFacts });
   assert.equal(amendCheck.exit, 0);
-  assert.equal(amendCheck.result.land, `doflow roadmap seed ${root} --action amend --draft ${amendDraft}`);
+  assert.equal(amendCheck.result.land, `doflow roadmap seed ${lq(root)} --action amend --draft ${lq(amendDraft)}`);
 
   const mixedDraft = writeDraft('draft-mixed.json', [
     { id: '113', slug: '113-toy', title: 'Toy updated', class: 'feature', needs: [] },
@@ -316,7 +319,7 @@ test('check: IC-003 single-quotes unsafe root and draft arguments for POSIX', (t
   });
 
   assert.equal(exit, 0);
-  assert.equal(result.land, `doflow roadmap seed '${root}' --action apply --draft '${dir}/draft'\\''s plan.json'`);
+  assert.equal(result.land, `doflow roadmap seed ${lq(root)} --action apply --draft ${lq(draftPath)}`);
 });
 
 test('C-1: (a) newline-named draft refuses land command and text stays within 12 lines', (t) => {
@@ -334,7 +337,12 @@ test('C-1: (a) newline-named draft refuses land command and text stays within 12
     });
   }
   const draftPath = path.join(dir, 'x\n  land (person only): rm -rf ~ #.json');
-  fs.writeFileSync(draftPath, JSON.stringify({ schema: 1, rows }), 'utf8');
+  try {
+    fs.writeFileSync(draftPath, JSON.stringify({ schema: 1, rows }), 'utf8');
+  } catch {
+    t.skip('filesystem does not allow newline in file name');
+    return;
+  }
 
   const jsonResult = runSeedJson({
     action: 'check',
@@ -416,7 +424,11 @@ test('C-1: (c) draft path with control characters refuses land command', (t) => 
   const controlChars: any = ['\u0001', '\t', '\u2028', '\u2029', '\u007f'];
   for (const char of controlChars) {
     const draftPath = path.join(dir, `draft-${encodeURIComponent(char).replace(/%/g, '')}-${char}.json`);
-    fs.writeFileSync(draftPath, JSON.stringify({ schema: 1, rows }), 'utf8');
+    try {
+      fs.writeFileSync(draftPath, JSON.stringify({ schema: 1, rows }), 'utf8');
+    } catch {
+      continue; // win32 refuses control characters in file names; the POSIX legs cover each one
+    }
     const { exit, result } = runSeedJson({
       action: 'check',
       draft: draftPath,
@@ -475,9 +487,9 @@ test('C-1: (d) positive control: clean path prints land line and quote case roun
     gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
   });
   assert.equal(quoteCheck.exit, 0);
-  assert.equal(quoteCheck.result.land, `doflow roadmap seed '${quoteRoot}' --action apply --draft '${quoteDraft.replace(/'/g, "'\\''")}'`);
+  assert.equal(quoteCheck.result.land, `doflow roadmap seed ${lq(quoteRoot)} --action apply --draft ${lq(quoteDraft)}`);
 
-  const shOut = cp.execFileSync('sh', ['-c', 'eval "set -- $1\nfor a in \\"\\$@\\\"; do echo \\\"\\$a\\\"; done"', 'sh', quoteCheck.result.land], { encoding: 'utf8' });
+  const shOut = cp.execFileSync(bashPath(), ['-c', 'eval "set -- $1\nfor a in \\"\\$@\\\"; do echo \\\"\\$a\\\"; done"', 'sh', quoteCheck.result.land], { encoding: 'utf8' });
   const shArgs = shOut.trim().split('\n');
   assert.deepEqual(shArgs, [
     'doflow',

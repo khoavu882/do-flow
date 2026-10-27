@@ -67,7 +67,9 @@ function onOff(name: any, args: any, { env = {}, setup }: any = {}) {
   const b = dispatch(off, args, { env: { ...env, DOFLOW_FAILURE_CAPTURE: 'off' } });
   assert.equal(a.status, b.status, 'exit status differs');
   // The twin trees differ only in their scratch directory name, which messages quote.
-  const same = (text: any, t: any) => text.split(t.dir).join('<tree>');
+  // On Windows a message quotes the directory as bash sees it (/c/x), as git does (C:/x) or as Node does (C:\\x).
+  const spellings = (dir: any) => [...new Set([dir, dir.replace(/\\/g, '/'), dir.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_m: any, d: any) => `/${d.toLowerCase()}`)])];
+  const same = (text: any, t: any) => spellings(t.dir).reduce((acc: any, spelling: any) => acc.split(spelling).join('<tree>'), text);
   assert.equal(same(a.stdout, on), same(b.stdout, off), 'stdout differs');
   assert.equal(same(a.stderr, on), same(b.stderr, off), 'stderr differs');
   assert.equal(fs.existsSync(off.failures), false, 'capture off creates no folder');
@@ -249,13 +251,16 @@ describe('the line (IC-011)', () => {
   });
   test('a project path with quotes, backslashes, control characters and unicode stays one valid JSON line', () => {
     const t = tree('line-escape');
-    const nasty = path.join(t.dir, 'we"ird\\na\tme caf\u00e9 \u4e2d');
+    // Windows file names cannot hold a double quote or a control character, so there the name keeps the
+    // space and the non-ASCII letters; the backslashes of the Windows path itself still need escaping.
+    const WIN = process.platform === 'win32';
+    const nasty = path.join(t.dir, WIN ? 'we ird na me caf\u00e9 \u4e2d' : 'we"ird\\na\tme caf\u00e9 \u4e2d');
     fs.mkdirSync(nasty);
     withCrash(t, {}, { cwd: nasty });
     const raw: any = fs.readFileSync(t.events, 'utf8');
     assert.equal(raw.split('\n').filter(Boolean).length, 1);
     const [line] = lines(t);
-    assert.ok(line.project.includes('we"ird\\na me caf'));
+    assert.ok(line.project.includes(WIN ? 'we ird na me caf' : 'we"ird\\na me caf'));
     assert.ok(Buffer.byteLength(raw) <= 1000);
   });
   test('a very long project path is cut and the line stays within 1000 bytes', () => {

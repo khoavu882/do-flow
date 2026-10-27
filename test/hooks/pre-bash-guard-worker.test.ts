@@ -9,6 +9,9 @@ const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { encodeEnvelope, parseRecords, runPolicy } = require('../helper/hook-fixtures.ts');
 
 const POLICY = 'pre-bash-guard';
+// The worker worktree exemption takes only a POSIX /-rooted DOFLOW_WORKTREE (policies/pre-bash-guard.sh:143,
+// `case ${DOFLOW_WORKTREE:-} in /*)`), so a Windows drive path never earns it; dispatch workers are POSIX-only.
+const SKIP: any = process.platform === 'win32' && 'tree cleanup is unverified on win32 (NFR-005); worker worktree exemption requires a POSIX /-rooted DOFLOW_WORKTREE (policies/pre-bash-guard.sh:143)';
 const POLICY_PATH = process.env.DOFLOW_PRE_BASH_GUARD_TEST_POLICY;
 const UNSET = Symbol('unset');
 const RECORD_KEYS: any = ['code', 'outcome', 'policy', 'policyVersion', 'v'];
@@ -89,7 +92,7 @@ function git(cwd: any, ...args: any[]) {
   return result.stdout;
 }
 
-test('only an exact dispatch worker may reset or clean from its worktree', async (t) => {
+test('only an exact dispatch worker may reset or clean from its worktree', { skip: SKIP }, async (t) => {
   const root = tempDir(t, 'doflow-pre-bash-worker-');
   const worktree = makeWorktree(root);
   const subdir = path.join(worktree, 'src');
@@ -172,7 +175,7 @@ test('only an exact dispatch worker may reset or clean from its worktree', async
   }
 });
 
-test('one trailing LF or CRLF is allowed, with no second command', (t) => {
+test('one trailing LF or CRLF is allowed, with no second command', { skip: SKIP }, (t) => {
   const root = tempDir(t, 'doflow-worker-newline-');
   const worktree = makeWorktree(root);
   for (const ending of ['\n', '\r\n']) {
@@ -183,7 +186,7 @@ test('one trailing LF or CRLF is allowed, with no second command', (t) => {
   }
 });
 
-test('git exemptions verify the real repository and leave the parent HEAD/index untouched', (t) => {
+test('git exemptions verify the real repository and leave the parent HEAD/index untouched', { skip: SKIP }, (t) => {
   const root = tempDir(t, 'doflow-worker-repository-');
   const worktree = makeWorktree(root);
   const x = path.join(worktree, 'x');
@@ -243,7 +246,7 @@ test('git exemptions verify the real repository and leave the parent HEAD/index 
   denyBoth(sub);
 });
 
-test('a real worktree gitdir may have a numeric collision suffix', (t) => {
+test('a real worktree gitdir may have a numeric collision suffix', { skip: SKIP }, (t) => {
   const root = tempDir(t, 'doflow-worker-gitdir-collision-');
   const worktree = makeWorktree(root, 'd-0123456789ab', true);
   assert.match(git(worktree, 'rev-parse', '--git-dir').trim(), /\/d-0123456789ab[0-9]+$/);
@@ -254,7 +257,7 @@ test('a real worktree gitdir may have a numeric collision suffix', (t) => {
   }
 });
 
-test('decision records retain the v1 contract shape', (t) => {
+test('decision records retain the v1 contract shape', { skip: SKIP }, (t) => {
   const root = tempDir(t, 'doflow-pre-bash-worker-record-');
   const worktree = makeWorktree(root);
   const result = policyRun({ command: 'git reset --hard', cwd: worktree, worktree });

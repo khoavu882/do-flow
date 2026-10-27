@@ -277,7 +277,8 @@ function attemptLock(fsImpl: any, lockDir: string, me: Entry, options: LockOptio
   try {
     fsImpl.mkdirSync(lockDir);
   } catch (error: any) {
-    if (error.code !== 'EEXIST') throw error;
+    // Windows reports EPERM/EACCES for a lock folder another process is deleting at this moment.
+    if (error.code !== 'EEXIST' && !(process.platform === 'win32' && (error.code === 'EPERM' || error.code === 'EACCES'))) throw error;
     return reclaimIfStale(fsImpl, lockDir, me, options);
   }
   try {

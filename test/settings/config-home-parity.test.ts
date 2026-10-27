@@ -289,7 +289,7 @@ test('the 12 cases: configHome() gives the rule of IC-003 (anchor for the block 
     1: '', 2: '', 3: `${abs.h}/.config/doflow`, 4: '', 5: '', 6: `${abs.h}/.config/doflow`,
     7: '', 8: '', 9: `${abs.h}/.config/doflow`, 10: `${abs.x}/doflow`, 11: `${abs.x}/doflow`, 12: `${abs.x}/doflow`,
   };
-  for (const [n, xdg, home] of CASES) assert.equal(expectedDir(caseEnv(abs, xdg, home)), want[n as number], `case ${n}`);
+  for (const [n, xdg, home] of CASES) assert.equal(norm(expectedDir(caseEnv(abs, xdg, home))), norm(want[n as number]), `case ${n}`);
 });
 
 for (const [name, file] of Object.entries(CONFIG_HOME_SHELL)) {

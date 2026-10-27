@@ -128,9 +128,13 @@ function relativeTree() {
   fs.mkdirSync(path.join(base, 'relrepo', '.git'), { recursive: true });
   fs.mkdirSync(path.join(base, 'relrepo', 'src'), { recursive: true });
   fs.mkdirSync(path.join(base, 'nogit', 'sub'), { recursive: true });
-  fs.mkdirSync(path.join(base, 'C:', 'Work', 'dev', 'proj', '.git'), { recursive: true });
-  fs.mkdirSync(path.join(base, 'C:', 'Work', 'dev', 'proj', 'src'), { recursive: true });
-  fs.mkdirSync(path.join(base, 'C:', 'Work', 'dev', 'other'), { recursive: true });
+  // A folder named `C:` cannot exist on NTFS (the colon is reserved), so the drive-shaped tree is POSIX-only;
+  // on Windows a `C:` cwd is a real drive, not a relative path, and those cases below are left out.
+  if (process.platform !== 'win32') {
+    fs.mkdirSync(path.join(base, 'C:', 'Work', 'dev', 'proj', '.git'), { recursive: true });
+    fs.mkdirSync(path.join(base, 'C:', 'Work', 'dev', 'proj', 'src'), { recursive: true });
+    fs.mkdirSync(path.join(base, 'C:', 'Work', 'dev', 'other'), { recursive: true });
+  }
   return base;
 }
 
@@ -153,6 +157,7 @@ test('root walk: a cwd without a leading / ends, finds a .git ancestor on its ow
     ['', ''],
   ];
   for (const [cwd, root] of cases) {
+    if (process.platform === 'win32' && /^C:/.test(cwd)) continue;
     const r: any = callIn(base, 'nudge_repo_root', [cwd]);
     assert.equal(r.status, 0, `${JSON.stringify(cwd)}: ${r.stderr}`);
     assert.equal(r.stdout, root, `root of ${JSON.stringify(cwd)}`);
@@ -235,12 +240,16 @@ test('setting: an empty root consults only the user file', () => {
 test('safe ids: a UUID and plain names pass; empty, traversal, slash, space, newline and 129 characters fail', () => {
   const ok: any = ['9b6f2c1e-3a4d-4e5f-8a7b-0c1d2e3f4a5b', 'A', 'a.b_c-d', '0'.repeat(128)];
   const bad: any = ['', '../x', 'a/b', 'a b', '.hidden', '-lead', 'a\nb', 'a'.repeat(129), '_x'];
-  for (const id of ok) assert.equal(call('nudge_safe_id', [id]).status, 0, `accepts ${JSON.stringify(id)}`);
-  for (const id of bad) assert.notEqual(call('nudge_safe_id', [id]).status, 0, `rejects ${JSON.stringify(id)}`);
+  // The id travels in the environment: on Windows an argv word holding a newline is split by the MSYS
+  // runtime's command-line parsing, which would test the first half ('a') instead of the id.
+  const safeId = (id: any) => spawnSync(BASH, ['-c', 'source "$1"; nudge_safe_id "$DF_ID"', 'bash', LIB], { env: scratch.env({ DF_ID: id }), encoding: 'utf8' }).status;
+  for (const id of ok) assert.equal(safeId(id), 0, `accepts ${JSON.stringify(id)}`);
+  for (const id of bad) assert.notEqual(safeId(id), 0, `rejects ${JSON.stringify(id)}`);
 });
 
 test('marker file path is <state>/nudge/<id>', () => {
-  assert.equal(out('nudge_marker_file', ['abc-1']), path.join(NUDGE_DIR, 'abc-1'));
+  // the bash side appends '/'-joined segments to the native XDG folder
+  assert.equal(path.normalize(out('nudge_marker_file', ['abc-1'])), path.join(NUDGE_DIR, 'abc-1'));
 });
 
 test('exclusive create: first call wins, second fails and leaves the first content', () => {

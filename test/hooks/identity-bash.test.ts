@@ -11,6 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env.ts');
+const { IS_WIN } = require('../helper-platform.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const POLICIES = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies');
@@ -38,8 +39,18 @@ function sh(body: any, env: any = {}, args: any = [], policy: any = 'user-prompt
   return spawnSync(BASH, ['-c', script, policy, ...args], { env: scratch.env({ ...CLEAR, ...env }), encoding: 'utf8' });
 }
 
+// identity.sh takes a DOFLOW_WORKTREE only when it is /-rooted (policies/identity.sh `case "$worktree" in /*)`), so on
+// Windows the native drive path is handed over in its Git Bash spelling (/c/...) and the worktree it prints is mapped back.
+const toBashPath = (p: any) => (IS_WIN && typeof p === 'string' && /^[A-Za-z]:[\\/]/.test(p) ? p.replace(/^([A-Za-z]):/, (_m: any, d: any) => `/${d.toLowerCase()}`).replace(/\\/g, '/') : p);
+const fromBashPath = (p: any) => {
+  const drive = IS_WIN ? /^\/([A-Za-z])(\/.*)?$/.exec(p) : null;
+  return drive ? path.normalize(`${drive[1].toUpperCase()}:${drive[2] ?? '/'}`) : p;
+};
+
 /** doflow_identity <sid> <cwd> once; returns the DF_ID_* fields, stdout and stderr. */
-function identity(sid: any, cwd: any, env: any = {}) {
+function identity(sid: any, cwd: any, envIn: any = {}) {
+  const env: any = { ...envIn };
+  if (env.DOFLOW_WORKTREE) env.DOFLOW_WORKTREE = toBashPath(env.DOFLOW_WORKTREE);
   const print = FIELDS.map((f: any) => `printf '%s=%s\\n' ${f} "$DF_ID_${f}"`).join('\n');
   const r: any = sh(`doflow_identity "$1" "$2"\n${print}`, env, [sid, cwd]);
   assert.equal(r.status, 0, r.stderr);
@@ -48,6 +59,7 @@ function identity(sid: any, cwd: any, env: any = {}) {
     const at = line.indexOf('=');
     id[line.slice(0, at).toLowerCase()] = line.slice(at + 1);
   }
+  if (IS_WIN && id.worktree) id.worktree = fromBashPath(id.worktree);
   return { id, stderr: r.stderr };
 }
 
@@ -334,7 +346,7 @@ test('harness lib.sh uses identity.sh when installed, and falls back to worker w
   const mirror = path.join(scratch.dir, 'mirror');
   const built = spawnSync(bashPath(), [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), mirror], { encoding: 'utf8' });
   assert.equal(built.status, 0, built.stderr);
-  const role = (h: any) => spawnSync(BASH, ['-c', '. "$1"; doflow_session_role', 'post-compact.sh', path.join(mirror, `.${h}`, 'hooks', 'lib.sh')],
+  const role = (h: any) => spawnSync(BASH, ['-c', '. "$1"; doflow_session_role', 'post-compact.sh', path.join(mirror, `.${h}`, 'hooks', 'lib.sh').replace(/\\/g, '/')],
     { env: scratch.env({ ...CLEAR, DOFLOW_SESSION_ROLE: 'main' }), encoding: 'utf8' });
 
   for (const h of ['claude', 'codex']) {

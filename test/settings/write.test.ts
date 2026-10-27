@@ -81,7 +81,8 @@ test('writes schema first and owned keys in registry order, keeps foreign keys, 
   assert.equal(renames.length, 1);
   assert.equal(renames[0][1], file);
   assert.equal(path.dirname(renames[0][0]), path.dirname(file));
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  // file modes are not expressible on Windows (a writable file reports 0o666)
+  if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600);
   const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
   assert.deepEqual(Object.keys(parsed), [
     'schema', 'advice.enabled', 'advice.model', 'storage.prune', 'failure.capture', 'future.flag',
@@ -139,7 +140,7 @@ test('writer creates a missing config-home directory with private permissions', 
   const result = writeLayer({ file, set: { 'storage.prune': 'off' } });
 
   assert.equal(result.ok, true, result.detail);
-  assert.equal(fs.statSync(directory).mode & 0o777, 0o700);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(directory).mode & 0o777, 0o700);
 });
 
 test('refuses an invalid settings file unless force is set', (t: any) => {
