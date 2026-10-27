@@ -253,7 +253,8 @@ HOOK_TEST('the harness resolver paths are denied when their directory is git-ign
 HOOK_TEST('the check goes red on a planted exemption for each kind of evidence', { timeout: 240_000 }, () => {
   const root = makeRepo('plant-repo');
   const text = fs.readFileSync(POLICY, 'utf8');
-  const anchor = '  case "$file" in *"/agent-docs/"*|agent-docs/*) continue ;; esac\n';
+  // The agent-docs exemption is the case statement that ends at this `esac`; plants go right after it.
+  const anchor = '    *) case "$file" in *"/agent-docs/"*|agent-docs/*) continue ;; esac ;;\n  esac\n';
   assert.ok(text.includes(anchor), 'the plant anchors on the gate\'s agent-docs exemption; update the anchor when that line moves');
   const plants: any = [
     ['the readiness store', '  case "$file" in */.doflow/state/readiness/*) continue ;; esac\n', '.doflow/state/readiness/T1.json'],

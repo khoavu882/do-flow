@@ -269,10 +269,12 @@ next_free_prerelease() {
 
 # What a release tag looks like: vX.Y.Z with an optional pre-release. A tag such as vx or vnext also
 # matches `v*`, and under the version sort `vx` outranks every vN.N.N, so the base tag, the lifecycle
-# release_tags and the next-version proposal all filter with this one pattern.
-RELEASE_TAG_PATTERN='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+# release_tags and the next-version proposal all filter with this one pattern. A number has no
+# leading zero (v01.0.0 is not a release), as semver has it.
+RELEASE_TAG_PATTERN='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?$'
 
-# The newest release tag reachable from HEAD or from the production branch, by version order;
+# The newest release tag reachable from HEAD or from the production branch, by version order
+# (versionsort.suffix=- ranks a pre-release below its stable release, which plain version sort does not);
 # empty when there is none. do_next_version bases its proposal on it and the lifecycle output
 # reports it, so the two never disagree. The reasoning behind "newest by version" and "reachable
 # from production too" is in do_next_version's comments below.
@@ -285,7 +287,7 @@ find_base_tag() {
   done <<< "$(production_refs)"
   eligible="$(printf '%s\n' "$eligible" | sort -u | sed '/^$/d')"
   if [ -n "$eligible" ]; then
-    base_tag="$(git tag --list 'v*' --sort=-v:refname 2>/dev/null | grep -E "$RELEASE_TAG_PATTERN" | grep -Fx -f <(printf '%s\n' "$eligible") | head -1 || true)"
+    base_tag="$(git -c versionsort.suffix=- tag --list 'v*' --sort=-v:refname 2>/dev/null | grep -E "$RELEASE_TAG_PATTERN" | grep -Fx -f <(printf '%s\n' "$eligible") | head -1 || true)"
   fi
   printf '%s\n' "$base_tag"
 }

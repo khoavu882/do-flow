@@ -310,3 +310,24 @@ describe('real dispatcher', () => {
     assert.deepEqual(record.tasks, [{ id: 'A.1', report: `${EXEC}/task-A.1-report.md` }]);
   });
 });
+
+describe('component ids as the design template writes them', () => {
+  // design-template.md numbers components C1, C2; the brief generator also accepts CMP1.
+  const TEMPLATE_DESIGN = DESIGN.replace('CMP1', 'C1').replace('**CMP1**', '**C1**');
+  const use = (f: any) => fs.writeFileSync(path.join(f.project, 'agent-docs', 'doflow', FEATURE, 'design.md'), TEMPLATE_DESIGN);
+
+  test('single-task and group briefs trace a C1 component serving the FR', () => {
+    const f = fixture();
+    use(f);
+    const single = f.brief(['--task=A.1', `--slug=${FEATURE}`]);
+    assert.equal(single.status, 0, single.stderr);
+    assert.deepEqual(single.data.traced.components, ['C1']);
+    assert.match(f.read(`${EXEC}/task-A.1-brief.md`), /owns credential verification/);
+    const group = f.brief(['--group=A:core-implementer', '--tasks=A.1,A.2', `--slug=${FEATURE}`]);
+    assert.equal(group.status, 0, group.stderr);
+    assert.deepEqual(group.data.traced.components, ['C1']);
+    const multi = f.brief(['--group=A:core-implementer', '--tasks=A.1,A.2', `--slug=${FEATURE}`]);
+    assert.match(f.read(`${EXEC}/group-A-core-implementer-brief.md`), /owns credential verification/);
+    assert.deepEqual(multi.data.missing, []);
+  });
+});

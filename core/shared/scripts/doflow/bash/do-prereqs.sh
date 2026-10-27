@@ -48,7 +48,7 @@ if [ "$require_plan" = true ]; then
   if [ -z "$slug" ]; then
     if [ "$candidate_slugs" != "[]" ]; then
       echo "$json" | jq '{ok:false, error:"ambiguous-feature", candidate_slugs:.candidate_slugs,
-                          hint:"multiple agent-docs/doflow/ feature dirs exist and no git branch disambiguates them — ask which one via AskUserQuestion, then re-run do-prereqs.sh --require-plan --slug=<chosen>"}'
+                          hint:"multiple agent-docs/doflow/ feature dirs exist and no git branch disambiguates them — ask which one with the user question tool, then re-run do-prereqs.sh --require-plan --slug=<chosen>"}'
     else
       echo "$json" | jq '{ok:false, error:"no-active-feature", hint:"run /do-brainstorm to start a feature"}'
     fi

@@ -290,7 +290,7 @@ if [ "$mode" = "task" ]; then
   if [ -n "$frs" ] && [ -f "$des_abs" ]; then
     components="$(for fr in $frs; do
       section "$des_abs" '^## 3[.]' | awk -F'|' -v fr="$fr" '
-        /^\| *CMP/ { if ($5 ~ fr) { id = $2; gsub(/^[ \t]+|[ \t]+$/, "", id); print id } }'
+        /^\| *(CMP|C[0-9]+)/ { if ($5 ~ fr) { id = $2; gsub(/^[ \t]+|[ \t]+$/, "", id); print id } }'
     done | sort -u)"
   fi
 
@@ -461,7 +461,7 @@ else
   if [ -n "$all_frs" ] && [ -f "$des_abs" ]; then
     all_comps_raw="$(for fr in $all_frs; do
       section "$des_abs" '^## 3[.]' | awk -F'|' -v fr="$fr" '
-        /^\| *CMP/ { if ($5 ~ fr) { id = $2; gsub(/^[ \t]+|[ \t]+$/, "", id); print id } }'
+        /^\| *(CMP|C[0-9]+)/ { if ($5 ~ fr) { id = $2; gsub(/^[ \t]+|[ \t]+$/, "", id); print id } }'
     done | sort -u)"
   fi
 
@@ -494,7 +494,7 @@ else
     if [ -n "$t_frs" ] && [ -f "$des_abs" ]; then
       t_comps="$(for fr in $t_frs; do
         section "$des_abs" '^## 3[.]' | awk -F'|' -v fr="$fr" '
-          /^\| *CMP/ { if ($5 ~ fr) { id = $2; gsub(/^[ \t]+|[ \t]+$/, "", id); print id } }'
+          /^\| *(CMP|C[0-9]+)/ { if ($5 ~ fr) { id = $2; gsub(/^[ \t]+|[ \t]+$/, "", id); print id } }'
       done | sort -u)"
     fi
 

@@ -108,7 +108,8 @@ function loadRegistry({ repoRoot, dir, fsImpl = fs, sources }: { repoRoot?: stri
     externalTools: loaded.externalTools.tools,
     modelProviders: loaded.models.providers,
     modelRoles: loaded.models.roles,
-    retrievalSlots: Array.isArray(loaded.models.slots) ? loaded.models.slots : [],
+    // Absent is empty; anything else is passed on as written so validation can name a non-array.
+    retrievalSlots: loaded.models.slots === undefined ? [] : loaded.models.slots,
     dispatchTiers: loaded.models.dispatchTiers,
     capabilities,
     versions: Object.fromEntries((Object.entries(loaded) as [string, any][]).map(([name, value]) => [name, value.version])),

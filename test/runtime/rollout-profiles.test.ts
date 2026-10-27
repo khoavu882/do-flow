@@ -531,6 +531,24 @@ describe('IC-004: Instant Rollback Controller & Circuit Breaker (rollback.ts)', 
     assert.equal(profileAfter.origin.source, 'project');
   });
 
+  test('resetRollback reports ok:false when the sentinel cannot be removed, and ok:true when it is already gone', () => {
+    const { projectRoot } = setupTestProject({ 'rollout.profile': 'canary' });
+    tripRollback({ reason: 'Temporary pause', projectRoot });
+    const denied = {
+      ...fs,
+      unlinkSync(file: any) {
+        const error: any = new Error('EACCES: permission denied');
+        error.code = 'EACCES';
+        throw error;
+      },
+    };
+    assert.equal(resetRollback({ projectRoot, fsImpl: denied }).ok, false);
+    assert.equal(checkRollbackState({ projectRoot, env: {} }).active, true, 'the sentinel is still in force');
+
+    assert.equal(resetRollback({ projectRoot }).ok, true);
+    assert.equal(resetRollback({ projectRoot }).ok, true, 'nothing left to remove is still a success');
+  });
+
   test('recordProviderFailure trips breaker after 3 consecutive failures', () => {
     const { projectRoot } = setupTestProject({ 'rollout.profile': 'full' });
 

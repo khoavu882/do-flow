@@ -279,10 +279,10 @@ function remapSpanIds(traceId: string, entries: any[]): void {
   for (const e of entries) subtree(e, new Set());
 
   const done = new Map<any, string>();
-  const assign = (group: any[], parentId: string): void => {
+  const assign = (group: any[], parentId: string, pass = ''): void => {
     const bases = new Map<string, any[]>();
     for (const e of group) {
-      const base = `${traceId}\n${parentId}\n${e.content}`;
+      const base = `${traceId}\n${parentId}\n${e.content}${pass}`;
       if (!bases.has(base)) bases.set(base, []);
       bases.get(base)!.push(e);
     }
@@ -304,7 +304,9 @@ function remapSpanIds(traceId: string, entries: any[]): void {
   // Roots: no exported parent. Spans caught in a parent cycle are treated as roots.
   assign(entries.filter((e) => parentOf(e) === null), '');
   const rest = entries.filter((e) => !done.has(e));
-  if (rest.length) assign(rest, '');
+  // The pass is part of the id input: without it a cycle member equal in content to a root would
+  // restart the ordinal at 0 and take the root's id.
+  if (rest.length) assign(rest, '', '\ncycle');
 }
 
 /**

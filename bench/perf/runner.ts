@@ -53,6 +53,23 @@ function isToolInstalled(bin: any) {
   }
 }
 
+/**
+ * True when a `ps` command line is a node process running its test runner: argv[0] is node and a
+ * `--test` argument comes before any script path. A substring match would also hit a shell, editor
+ * or grep that merely mentions "node --test".
+ */
+function isNodeTestCommand(command: string): boolean {
+  const argv = command.trim().split(/\s+/);
+  if (path.basename(argv[0] || '').replace(/\.exe$/i, '') !== 'node') return false;
+  const VALUE_FLAGS = new Set(['-r', '--require', '--import', '--loader', '--experimental-loader', '--env-file', '-C', '--conditions']);
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--test') return true;
+    if (!arg.startsWith('-') && !VALUE_FLAGS.has(argv[i - 1])) return false;
+  }
+  return false;
+}
+
 function isAnotherNodeTestRunning({ excludePids = new Set([process.pid, process.ppid]) } = {}) {
   try {
     const out = execFileSync('ps', ['-A', '-o', 'pid,command'], { encoding: 'utf8' });
@@ -63,7 +80,7 @@ function isAnotherNodeTestRunning({ excludePids = new Set([process.pid, process.
       const pid = parseInt(match[1], 10);
       const cmd = match[2];
       if (excludePids.has(pid)) continue;
-      if (cmd.includes('node --test')) return true;
+      if (isNodeTestCommand(cmd)) return true;
     }
     return false;
   } catch {
@@ -367,6 +384,7 @@ function runSurfaceProcess(surface: any, repoRoot: string, tempHome: any, spawnS
       if (gitInit.status !== 0) throw new Error(`fixture git init failed: ${gitInit.stderr || gitInit.error?.message || gitInit.status}`);
     } else if (surface.setup && surface.setup.kind === 'copy-fixture-project') {
       tempProjectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-perf-fixture-'));
+      tempHookHomeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-perf-fixture-home-'));
       const fixtureSrc = path.isAbsolute(surface.setup.fixture)
         ? surface.setup.fixture
         : path.join(repoRoot, surface.setup.fixture);
@@ -418,6 +436,12 @@ function runSurfaceProcess(surface: any, repoRoot: string, tempHome: any, spawnS
           fs.writeFileSync(path.join(untrackedGeneratedDir.generatedDir, `f${i}.js`), `export const v${i} = ${i};\n`, 'utf8');
         }
       }
+    }
+
+    // A hook can record a failure under the config home of whoever runs it; a measurement must not
+    // write into the real user's (a surface with no setup of its own gets a scratch one too).
+    if (surface.kind === 'hook' && !tempHookHomeDir) {
+      tempHookHomeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-perf-hook-home-'));
     }
 
     const effectiveArgv = (tempProjectDir || tempMirrorDir)
@@ -1074,6 +1098,7 @@ if (require.main === module) {
 module.exports = {
   main,
   isAnotherNodeTestRunning,
+  isNodeTestCommand,
   isToolInstalled,
   getMachineId,
   computeCeilingMs,

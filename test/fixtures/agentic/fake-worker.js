@@ -150,6 +150,12 @@ function main(prompt) {
     return;
   }
 
+  if (spec.leaveChild) {
+    // A same-group child that outlives a normal exit: the executor must end the group after any exit.
+    const sleeper = childProcess.spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+    if (env.AGENTIC_FAKE_PIDFILE) fs.writeFileSync(env.AGENTIC_FAKE_PIDFILE, String(sleeper.pid));
+  }
+
   if (behaviour === 'report-then-hang') {
     const output = Math.min(spec.tokens, spec.outputTokens ?? 100);
     emit({ type: 'turn.completed', usage: { input_tokens: spec.tokens - output, output_tokens: output } });

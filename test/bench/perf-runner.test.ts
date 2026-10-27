@@ -762,3 +762,33 @@ test('perf runner: verb.context-pack surface runs against context-pack-project f
   assert.ok(dur > 0);
 });
 
+
+test('perf runner: isNodeTestCommand matches node argv, not any command line that mentions node --test', () => {
+  for (const yes of ['node --test test/', '/opt/homebrew/bin/node --import ./x.mjs --test "test/**/*.test.js"', 'node --test-reporter=spec --test test/a.test.ts']) {
+    assert.equal(runner.isNodeTestCommand(yes), true, yes);
+  }
+  for (const no of ['bash -c node --test test/', 'vim notes-node --test', 'grep "node --test" log.txt', 'node scripts/tool.js --test', 'node /repo/bin/doflow.js --test', 'nodemon --test']) {
+    assert.equal(runner.isNodeTestCommand(no), false, no);
+  }
+});
+
+test('perf runner: copy-fixture-project runs with a scratch HOME and XDG_CONFIG_HOME, removed afterwards', (t) => {
+  const dir = tempDir(t, 'doflow-test-perf-copy-home-');
+  const fixtureDir = path.join(dir, 'fixture');
+  fs.mkdirSync(fixtureDir, { recursive: true });
+  fs.writeFileSync(path.join(fixtureDir, 'sample.txt'), 'x\n', 'utf8');
+  const surface: any = {
+    id: 'stub.copy-fixture-home',
+    kind: 'cli',
+    setup: { kind: 'copy-fixture-project', fixture: fixtureDir, git: false },
+    argv: ['node', '-e', 'process.exit(0)'],
+    intentClass: 'verb',
+    enforced: false,
+  };
+  let seen: any = null;
+  const stub = (cmd: any, args: any, opts: any) => { seen = opts.env; return { status: 0 }; };
+  runner.runSurfaceProcess(surface, REPO_ROOT, undefined, stub);
+  assert.ok(seen.HOME && seen.HOME !== process.env.HOME, 'HOME is a scratch dir');
+  assert.equal(seen.XDG_CONFIG_HOME, path.join(seen.HOME, '.config'));
+  assert.equal(fs.existsSync(seen.HOME), false, 'scratch HOME is removed');
+});

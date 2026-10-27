@@ -590,6 +590,8 @@ async function spawnHarness({ binary, argv, cwd, env, prompt, viaStdin, timeoutM
 
   const result = await exited;
   clearTimeout(timer);
+  // A leader that exits on its own can leave children in its group; they are ended after any exit.
+  if (proc && !timedOut) ended = processTree.escalate({ proc });
   await ended;
   let drainTimer: any;
   await Promise.race([outClosed, new Promise((resolve) => { drainTimer = setTimeout(resolve, DRAIN_MS); })]);
@@ -648,10 +650,24 @@ function checkRunRoot({ runRoot, iterDir, repoRoot, defaultRoot }: { runRoot: st
   for (const p of [runRoot, iterDir]) {
     if (isLink(p)) throw new UsageError('run-root-symlink', `${p} is a symlink; the run records must live in a real directory`);
   }
-  if (defaultRoot && fs.existsSync(runRoot)) {
-    const real = fs.realpathSync(runRoot);
+  if (defaultRoot) {
+    // The root may not exist yet: resolve its nearest existing ancestor (a dangling link counts as
+    // existing and fails the resolution) and keep the rest, so the mkdir that follows cannot leave.
+    const present = (p: string) => { try { fs.lstatSync(p); return true; } catch { return false; } };
+    let ancestor = path.resolve(runRoot);
+    const rest: string[] = [];
+    while (!present(ancestor) && path.dirname(ancestor) !== ancestor) {
+      rest.unshift(path.basename(ancestor));
+      ancestor = path.dirname(ancestor);
+    }
+    let real: string;
+    try {
+      real = path.join(fs.realpathSync(ancestor), ...rest);
+    } catch {
+      throw new UsageError('run-root-symlink', `${runRoot} cannot be resolved inside the checkout; the run records must live in it`);
+    }
     const repo = fs.realpathSync(repoRoot);
-    if (real !== path.join(repo, path.relative(repoRoot, runRoot))) {
+    if (real !== path.join(repo, path.relative(path.resolve(repoRoot), path.resolve(runRoot)))) {
       throw new UsageError('run-root-symlink', `${runRoot} resolves outside the checkout (${real}); the run records must live in it`);
     }
   }
@@ -796,7 +812,7 @@ async function executeIteration(opts: any = {}) {
     }
 
     iterDir = path.join(runRoot, plan.iteration);
-    checkRunRoot({ runRoot, iterDir, repoRoot, defaultRoot: !opts.runRoot });
+    checkRunRoot({ runRoot, iterDir, repoRoot, defaultRoot: path.resolve(runRoot) === path.resolve(defaultRunRoot(repoRoot)) });
     // From here the iteration is ours: every check below reads its state under the lock.
     lock = lockIteration(runRoot, iterDir);
     const existing = plan.runs.filter((r: any) => fs.existsSync(r.runDir) || isLink(r.runDir)).map((r: any) => r.id);
@@ -936,6 +952,9 @@ async function executeIteration(opts: any = {}) {
         };
 
         const parser = parserFor(recipe.structuredOutput.parser).create();
+        // The profile and workspace work above is synchronous, so a signal that arrived during it is
+        // still queued: one turn of the event loop runs its handler before a paid run is spawned.
+        await new Promise((resolve) => setImmediate(resolve));
         if (state.interrupted) return halted();
         spawned = true; // from here the run may have spent: its directory is never removed
         const transcriptFile = path.join(run.runDir, RUN_FILES.transcript);

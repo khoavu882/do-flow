@@ -1161,6 +1161,9 @@ function handleOrchestrateCommand({
     if (!taskId) return usageError('orchestrate', 'timeline requires --task-id', json);
   }
 
+  // `start` writes the run; --dry-run would otherwise be ignored and a real run started.
+  if (action === 'start' && dryRun) return usageError('orchestrate', "'--dry-run' has no effect on action 'start'", json);
+
   const root = repoRoot || REPO_ROOT;
   // Same scope rule every other stateful command uses (evidenceRoot(o) in runtime-commands.js):
   // a bare `stateRoot: stateRoot || process.cwd()` silently ignored `--global`, so `orchestrate`

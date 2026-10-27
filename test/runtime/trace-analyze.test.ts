@@ -213,6 +213,29 @@ test('hotspots C-10: verify.tier latency finding carries derivedFrom when verify
   assert.equal(jTier.derivedFrom, 'verify.check');
 });
 
+test('hotspots FU-dzdn48: a verify.tier hotspot is derived only from a hotspot check of the same tier', (t) => {
+  const durs: any = [100, 100, 100, 100, 5000];
+  const hash = (v: any) => crypto.createHash('sha256').update(v).digest('hex').slice(0, 16);
+  const telemetry = durs.flatMap((dur: any, i: any) => {
+    const vId = hash(`v${i + 1}`);
+    const ts = sec(i + 1);
+    return [
+      // targeted-tests: a slow check explains the slow tier.
+      { timestamp: ts, kind: 'verify.check', verify_id: vId, tier: 'targeted-tests', status: 'PASS', duration_ms: dur, check_key: `ck-${i}` },
+      { timestamp: ts, kind: 'verify.tier', verify_id: vId, tier: 'targeted-tests', status: 'PASS', duration_ms: dur },
+      // smoke: the tier is slow on its own, its checks are not.
+      { timestamp: ts, kind: 'verify.check', verify_id: vId, tier: 'smoke', status: 'PASS', duration_ms: 100, check_key: `sk-${i}` },
+      { timestamp: ts, kind: 'verify.tier', verify_id: vId, tier: 'smoke', status: 'PASS', duration_ms: dur },
+    ];
+  });
+  const a = analyzeDir(seed(t, telemetry));
+  const d = detector(a, 'latency-hotspots');
+  const tierOf = (name: any) => d.findings.find((f: any) => f.measures.kind === 'verify.tier' && f.measures.name === name);
+  assert.ok(tierOf('targeted-tests') && tierOf('smoke'), 'both tier hotspots are found');
+  assert.equal(tierOf('targeted-tests').derivedFrom, 'verify.check');
+  assert.equal(tierOf('smoke').derivedFrom, undefined, 'no check of the smoke tier is a hotspot');
+});
+
 test('hotspots S-1: reused and follower checks (089) carry lookup time, so they never enter a latency group', (t) => {
   const reused: any = [2, 3, 2, 3].map((dur, i) => check({ key: null, dur, shared: i % 2 ? 'follower' : 'reused' }));
   const a: any = analyzeDir(seed(t, [...reused, check({ key: null, dur: 4000, shared: 'none' })]));

@@ -16,10 +16,12 @@ function fakeMaterialise(commit, dir) {
   const treeRoot = path.join(dir, 'tree');
   fs.mkdirSync(treeRoot, { recursive: true });
   fs.writeFileSync(path.join(treeRoot, 'README.md'), `snapshot ${commit}\n`);
+  // `selfSignal` in the options: a signal that arrives while the executor is in its synchronous setup.
+  if (selfSignal) process.kill(process.pid, selfSignal);
   return { treeRoot, cleanup() {} };
 }
 
-const opts = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
+const { selfSignal, ...opts } = JSON.parse(fs.readFileSync(process.argv[2], 'utf8'));
 execute.executeIteration({ ...opts, materialise: fakeMaterialise }).then((result) => {
   process.stdout.write(`${JSON.stringify(result)}\n`);
   process.exitCode = result.exit;

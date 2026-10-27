@@ -615,6 +615,29 @@ test('execute: a timeout ends the whole process tree, records it, and removes wo
   assert.deepEqual(leftovers(s), [], 'workspace and profile removed after a timeout');
 });
 
+test('FU-3d2p7y: a harness that exits on its own cannot leave a child of its process group running', async () => {
+  const s = setup();
+  const pidfile = path.join(s.dir, 'orphan.pid');
+  const scenario = writeScenario(s, 'orphan', oneTask({ behaviour: 'ok', leaveChild: true }));
+  const result = await execute.executeIteration({
+    ...s.opts, tasks: ['T1'], extraEnv: { ...s.extraEnv, AGENTIC_FAKE_SCENARIO: scenario, AGENTIC_FAKE_PIDFILE: pidfile },
+  });
+  assert.equal(result.exit, 0);
+  assert.equal(readJson(s.runRoot, 'it1', 'T1', 'run_status.json').status, 'completed');
+  const pid = Number(fs.readFileSync(pidfile, 'utf8'));
+  let alive = true;
+  for (let i = 0; i < 40 && alive; i++) {
+    try {
+      process.kill(pid, 0);
+      await sleep(50);
+    } catch {
+      alive = false;
+    }
+  }
+  if (alive) process.kill(pid, 'SIGKILL');
+  assert.equal(alive, false, 'the leftover child was ended after the leader exited');
+});
+
 // --- execute: cap and stop rule ---------------------------------------------------------------
 
 test('execute: the stop rule halts before a run that could pass the cap, exit 3, and lists the undone ids', async () => {
@@ -727,6 +750,17 @@ function spawnDriver(s: any, overrides: any = {}) {
   const done: any = new Promise((resolve) => child.once('exit', (code: any, signal: any) => resolve({ code, signal, stdout, stderr })));
   return { child, done };
 }
+
+test('FU-j421p4: a signal that arrives during the synchronous setup of a run stops it before the paid spawn', { timeout: 30000 }, async () => {
+  const s = setup();
+  const { done } = spawnDriver(s, { tasks: ['T1'], selfSignal: 'SIGINT' });
+  const ended: any = await done;
+  assert.equal(ended.signal, 'SIGINT', `the executor re-raises SIGINT (stdout: ${ended.stdout} stderr: ${ended.stderr})`);
+  assert.deepEqual(runDump(s), [], 'the worker never started');
+  // An interrupt that finds a spawned run records it as truncated; one that stops the run before the spawn records none.
+  assert.equal(fs.existsSync(path.join(s.runRoot, 'it1', 'T1', 'run_status.json')), false, 'no run was spawned');
+  assert.equal(fs.existsSync(path.join(s.runRoot, 'it1', 'T1', 'transcript.jsonl')), false, 'no transcript was opened');
+});
 
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   test(`C-1: ${sig} to the executor ends the worker group, removes profile and workspace, keeps the spend, and re-raises`, { timeout: 30000 }, async () => {
@@ -1022,6 +1056,51 @@ test('C-11: a symlinked run entry counts at maxTokensPerRun; a symlinked run roo
   const refusedIt = await execute.executeIteration({ ...s.opts, tasks: ['T1'] });
   assert.equal(refusedIt.reason, 'run-root-symlink');
   assert.deepEqual(readDump(s), []);
+});
+
+test('FU-swkhgg: the default run root is checked for resolving outside the checkout even when the caller passes it explicitly', async () => {
+  const s = setup({ ownRepo: true });
+  const outside = path.join(s.dir, 'outside');
+  fs.mkdirSync(path.join(outside, 'agentic'), { recursive: true });
+  fs.mkdirSync(path.join(s.repoRoot, 'bench'), { recursive: true });
+  fs.symlinkSync(outside, path.join(s.repoRoot, 'bench', 'runs'));
+  git(s.repoRoot, 'add', '-A');
+  git(s.repoRoot, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'link runs');
+  s.opts.runRoot = path.join(s.repoRoot, 'bench', 'runs', 'agentic');
+  const refused = await execute.executeIteration({ ...s.opts, tasks: ['T1'] });
+  assert.equal(refused.exit, 2);
+  assert.equal(refused.reason, 'run-root-symlink');
+  assert.deepEqual(fs.readdirSync(path.join(outside, 'agentic')), []);
+});
+
+test('FU-swkhgg: a spelling of the default run root with a trailing slash or a ./ is still the default', async () => {
+  for (const spell of [(d: string) => `${d}${path.sep}`, (d: string) => path.join(path.dirname(d), '.', path.basename(d)) + path.sep + '.']) {
+    const s = setup({ ownRepo: true });
+    const outside = path.join(s.dir, 'outside');
+    fs.mkdirSync(path.join(outside, 'agentic'), { recursive: true });
+    fs.mkdirSync(path.join(s.repoRoot, 'bench'), { recursive: true });
+    fs.symlinkSync(outside, path.join(s.repoRoot, 'bench', 'runs'));
+    git(s.repoRoot, 'add', '-A');
+    git(s.repoRoot, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'link runs');
+    s.opts.runRoot = spell(path.join(s.repoRoot, 'bench', 'runs', 'agentic'));
+    const refused = await execute.executeIteration({ ...s.opts, tasks: ['T1'] });
+    assert.equal(refused.reason, 'run-root-symlink', s.opts.runRoot);
+    assert.deepEqual(fs.readdirSync(path.join(outside, 'agentic')), []);
+  }
+});
+
+test('FU-swkhgg: the default run root is contained even when agentic/ does not exist yet', async () => {
+  const s = setup({ ownRepo: true });
+  const outside = path.join(s.dir, 'outside');
+  fs.mkdirSync(outside);
+  fs.mkdirSync(path.join(s.repoRoot, 'bench'), { recursive: true });
+  fs.symlinkSync(outside, path.join(s.repoRoot, 'bench', 'runs'));
+  git(s.repoRoot, 'add', '-A');
+  git(s.repoRoot, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'link runs');
+  s.opts.runRoot = path.join(s.repoRoot, 'bench', 'runs', 'agentic');
+  const refused = await execute.executeIteration({ ...s.opts, tasks: ['T1'] });
+  assert.equal(refused.reason, 'run-root-symlink');
+  assert.deepEqual(fs.readdirSync(outside), [], 'nothing was created outside the checkout');
 });
 
 test('N-1, N-4: the version check runs in a scratch profile; the credential copy is mode 0600; iteration records the capture digest', async () => {

@@ -89,7 +89,9 @@ function capMachine(name: any) {
 const capLines = (m: any) => (fs.existsSync(m.events) ? fs.readFileSync(m.events, 'utf8').split('\n').filter(Boolean).map((l: any) => JSON.parse(l)) : []);
 
 function runRunner(m: any, runner: any, args: any, stdin: any, { env = {}, dropHome = false }: any = {}) {
-  const full: any = { ...process.env, HOME: m.home, XDG_CONFIG_HOME: m.xdg, DOFLOW_FAILURE_CAPTURE: '', DOFLOW_AGENT: 'antigravity', ...env };
+  // An inherited FORCE_COLOR colours a child's warnings and would change the bytes under test.
+  const { FORCE_COLOR: _inheritedColor, ...inherited } = process.env;
+  const full: any = { ...inherited, HOME: m.home, XDG_CONFIG_HOME: m.xdg, DOFLOW_FAILURE_CAPTURE: '', DOFLOW_AGENT: 'antigravity', ...env };
   if (dropHome) { delete full.HOME; delete full.XDG_CONFIG_HOME; }
   const r = spawnSync(process.execPath, [runner, ...args], { cwd: m.cwd, env: full, input: stdin, encoding: 'utf8' });
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
@@ -416,4 +418,17 @@ test('stream-hook-runner capture: a runner line and a bash-style line with the s
   runnerModule.captureHookFailure({ command: 'pre-bash-guard', kind: 'patterns-missing' }, env);
   const [line] = capLines(m);
   assert.equal(fingerprint(line), fingerprint({ ...line, version: '0.0.1', project: '~/other', at: '2030-01-01T00:00:00.000Z' }));
+});
+
+test('stream-hook-runner: runRunner hands the child no FORCE_COLOR even when the test process has one', () => {
+  const dir = suiteTempDir('doflow-runner-color-');
+  const probe = path.join(dir, 'probe.js');
+  fs.writeFileSync(probe, "process.stdout.write(String(process.env.FORCE_COLOR));\n");
+  const before = process.env.FORCE_COLOR;
+  process.env.FORCE_COLOR = '1';
+  try {
+    assert.equal(runRunner(capMachine('color'), probe, [], '').stdout, 'undefined');
+  } finally {
+    if (before === undefined) delete process.env.FORCE_COLOR; else process.env.FORCE_COLOR = before;
+  }
 });

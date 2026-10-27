@@ -161,11 +161,14 @@ has_plan=""
 if [ -n "$RESOLVER" ]; then
   json=$("$RESOLVER" --json 2>/dev/null) || json=""
   if [ -n "$json" ]; then
-    feature_dir=$(printf '%s' "$json"     | jq -r '.feature_dir // empty' 2>/dev/null)
-    repo_root=$(printf '%s' "$json"       | jq -r '.repo_root // empty' 2>/dev/null)
-    has_requirement=$(printf '%s' "$json" | jq -r '.has_requirement // false' 2>/dev/null)
-    has_design=$(printf '%s' "$json"      | jq -r '.has_design // false' 2>/dev/null)
-    has_plan=$(printf '%s' "$json"        | jq -r '.has_plan // false' 2>/dev/null)
+    # One jq run for all five fields, one per line (none of them can hold a newline).
+    {
+      IFS= read -r feature_dir
+      IFS= read -r repo_root
+      IFS= read -r has_requirement
+      IFS= read -r has_design
+      IFS= read -r has_plan
+    } < <(printf '%s' "$json" | jq -r '(.feature_dir // ""), (.repo_root // ""), (.has_requirement // false), (.has_design // false), (.has_plan // false)' 2>/dev/null) || true
   fi
 fi
 
@@ -250,16 +253,25 @@ repo_real=$(cd -P "$repo_root" 2>/dev/null && pwd) || repo_real="$repo_root"
 GATED=false
 while IFS= read -r file; do
   [ -z "$file" ] && continue
-  case "$file" in *"/agent-docs/"*|agent-docs/*) continue ;; esac
+  # A ".." segment can lead out of agent-docs (agent-docs/../src/x), so such a path is judged by
+  # its real path below, never by the text before the "..".
+  case "/$file/" in
+    */../*) ;;
+    *) case "$file" in *"/agent-docs/"*|agent-docs/*) continue ;; esac ;;
+  esac
   check="$file"
   case "$file" in
     /*)
       real=$(real_path "$file") || real="$file"
-      case "$real" in *"/agent-docs/"*) continue ;; esac
+      case "/$real/" in */../*) ;; *) case "$real" in *"/agent-docs/"*) continue ;; esac ;; esac
       case "$real" in "$repo_real"/*) ;; *) continue ;; esac
       check="$real"
       ;;
-    *) real=$(real_path "$repo_root/$file") || real="$repo_root/$file" ;;
+    *)
+      real=$(real_path "$repo_root/$file") || real="$repo_root/$file"
+      # real_path folds a ".." only through directories that exist, so one left in it is not folded.
+      case "/$file/" in */../*) case "/$real/" in */../*) ;; *) case "${real#"$repo_real"}/" in */agent-docs/*) continue ;; esac ;; esac ;; esac
+      ;;
   esac
   # A path git ignores (a local config file such as .mcp.json) is not source. check-ignore
   # without --no-index answers "not ignored" for a tracked file, so tracked source stays gated.
