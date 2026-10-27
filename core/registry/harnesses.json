@@ -1392,7 +1392,6 @@
       ],
       "nativeTargets": {
         "instructions": "AGENTS.md",
-        "settings": ".pi/settings.json",
         "mcp": ".pi/mcp.json"
       },
       "paths": {
@@ -1408,23 +1407,6 @@
             "segments": [
               ".pi",
               "agent"
-            ]
-          }
-        },
-        "settings": {
-          "project": {
-            "base": "root",
-            "segments": [
-              ".pi",
-              "settings.json"
-            ]
-          },
-          "user": {
-            "base": "root",
-            "segments": [
-              ".pi",
-              "agent",
-              "settings.json"
             ]
           }
         },
@@ -1508,11 +1490,12 @@
           "verification": "Confirm mode guidance is available through instructions."
         },
         "settings": {
-          "status": "supported",
+          "status": "unavailable",
           "evidence": [
             "https://pi.dev/docs/latest/settings"
           ],
-          "verification": "Confirm ~/.pi/agent/settings.json (or .pi/settings.json) retains user keys and only DoFlow-owned entries change."
+          "verification": "Report the capability gap; DoFlow does not write Pi's settings file.",
+          "note": "Pi documents .pi/settings.json (and ~/.pi/agent/settings.json), but DoFlow writes no key in either: the adapter leaves them untouched and materialises the skills tree instead of registering it."
         },
         "hooks": {
           "status": "different",
@@ -1965,12 +1948,12 @@
           "verification": "Confirm mode guidance is available through instructions."
         },
         "settings": {
-          "status": "supported",
+          "status": "unavailable",
           "evidence": [
             "https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-config-dir-reference"
           ],
-          "note": "Copilot CLI documents a full settings stack (2026): ~/.copilot/settings.json (user), .github/copilot/settings.json (repo, committed) and .github/copilot/settings.local.json (personal), merged in that order. Documented keys include hooks, disableAllHooks, disabledMcpServers, enabledMcpServers, disabledSkills, skillDirectories, subagents.agents and enabledPlugins. DoFlow merges named keys it owns and never replaces the file, the same posture as its opencode.json merge.",
-          "verification": "Confirm .github/copilot/settings.json retains user keys and only DoFlow-owned keys change; run /settings inside Copilot CLI to confirm the file loaded."
+          "note": "Copilot CLI documents a settings stack (~/.copilot/settings.json, .github/copilot/settings.json, .github/copilot/settings.local.json), but DoFlow writes none of those files.",
+          "verification": "Report the capability gap; DoFlow does not write Copilot CLI's settings files."
         },
         "hooks": {
           "status": "different",

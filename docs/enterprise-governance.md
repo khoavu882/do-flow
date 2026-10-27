@@ -21,7 +21,7 @@ path its registry declares is one or the other:
 | Claude Code | `.claude/settings.json` (project), `~/.claude/settings.json` (user) |
 | Codex | `.codex/config.toml` (project), `~/.codex/config.toml` (user) |
 | OpenCode | `opencode.json` (project), `~/.config/opencode/opencode.json` (user) |
-| Pi | nothing: the registry declares `.pi/settings.json` (project) and `~/.pi/agent/settings.json` (user), but the adapter leaves both untouched |
+| Pi | no settings file; the adapter leaves `.pi/settings.json` (project) and `~/.pi/agent/settings.json` (user) untouched |
 | GitHub Copilot CLI | no settings file; only MCP config: `.mcp.json` (project), `~/.copilot/mcp-config.json` (user) |
 | Kiro | no settings file; only MCP config, `.kiro/settings/mcp.json` (project and user) |
 | Antigravity | no settings file; only MCP config, `.agents/mcp_config.json` (project) or `~/.gemini/config/mcp_config.json` (user), and `.agents/hooks.json` (project); its global instruction file is `~/.gemini/GEMINI.md` |

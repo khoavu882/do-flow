@@ -321,7 +321,7 @@ test('an MCP tool name is never recorded as the tool (canary)', () => {
 
 const WORKER_RUN = 'w-0123456789ab';
 const STRIP_KEYS = (source: any) => source
-  .replace(/,\n\s*role:\(if \$ENV\.DOFLOW_SESSION_ROLE[^\n]*\),\n\s*worker_run:\([^\n]*\)\}\) catch/, '}) catch');
+  .replace(/,\n\s*role:norm_role\(\$ENV\.DOFLOW_SESSION_ROLE\),\n\s*worker_run:\([^\n]*\)\}\) catch/, '}) catch');
 
 /** The role and worker_run assertions, shared by the production test and its negative control. */
 function assertRoleAndWorkerRun(root: any) {
@@ -345,14 +345,14 @@ test('negative control: a tuple without the role and worker_run keys fails the r
   assert.throws(() => assertRoleAndWorkerRun(root), assert.AssertionError);
 });
 
-test('a role outside main|worker and a worker_run outside ^w-[0-9a-f]{12}$ are written as null', () => {
+test('a role outside main|worker is written as worker (as identity.ts reads it) and a worker_run outside ^w-[0-9a-f]{12}$ as null', () => {
   const root = project();
   const surface = SURFACES['claude:pre-bash-guard'];
   const bad: any = ['W-0123456789AB', 'w-0123456789a', 'w-0123456789abc', 'w-0123456789ag', 'x-0123456789ab', 'free text', 'w-0123456789ab\n', '../etc/passwd'];
   for (const value of bad) run(root, surface, fixtureNative(surface), { env: { DOFLOW_SESSION_ROLE: 'intruder', DOFLOW_WORKER_RUN: value } });
   const lines = hookLines(path.join(root, '.doflow'));
   assert.equal(lines.length, bad.length);
-  for (const line of lines) assert.deepEqual([line.role, line.worker_run], [null, null]);
+  for (const line of lines) assert.deepEqual([line.role, line.worker_run], ['worker', null]);
   assert.ok(!JSON.stringify(lines).includes('intruder'));
 });
 
