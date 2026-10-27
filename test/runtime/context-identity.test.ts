@@ -1,0 +1,202 @@
+'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
+
+// 078 A.2 (IC-007): resolveIdentity() and cwdHash() against the shared identity corpus
+// test/fixtures/identity/cases.json, which policies/identity.sh must also satisfy (G38.6).
+
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const { tempDir } = require('../helper/tmp.ts');
+const { ID_PATTERN, UNKNOWN_ROLE_LINE, cwdHash, resolveIdentity, stateDir } = require('../../src/runtime/context/identity.ts');
+
+const REPO = path.resolve(__dirname, '../..');
+const LIB_SH = path.join(REPO, 'core/harnesses/shared/hooks/policies/lib.sh');
+const CASES = JSON.parse(fs.readFileSync(path.join(REPO, 'test/fixtures/identity/cases.json'), 'utf8'));
+const IDENTITY_VARS: any = ['DOFLOW_RUN_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_LINEAGE_ID', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE'];
+
+/** The placeholder directories every case refers to, under one temp root. */
+function layout(t: any) {
+  const root = tempDir(t, 'doflow-identity-');
+  const places: any = {
+    $CWD: path.join(root, 'cwd'),
+    $WT: path.join(root, 'wt'),
+    $WT_LINK: path.join(root, 'wt-link'),
+    $FILE: path.join(root, 'file.txt'),
+  };
+  fs.mkdirSync(places.$CWD);
+  fs.mkdirSync(places.$WT);
+  fs.symlinkSync(places.$WT, places.$WT_LINK);
+  fs.writeFileSync(places.$FILE, 'x\n');
+  return { root, places };
+}
+
+function sub(value: any, places: any) {
+  if (typeof value !== 'string') return value;
+  return value.replace(/\$(CWD|WT_LINK|WT|FILE)/g, (m) => places[m]);
+}
+
+function subAll(obj: any, places: any) {
+  return Object.fromEntries(Object.entries(obj).map(([k, v]) => [k, Array.isArray(v) ? v : sub(v, places)]));
+}
+
+/** IC-007's bash field names, so the comparison is the one G38.6 makes against identity.sh. */
+function asFields(id: any) {
+  return {
+    run: id.run, attempt: id.attempt, lineage: id.lineage, role: id.role,
+    worktree: id.worktree, kind: id.lineageKind, unit: id.unitId, diagnostics: id.diagnostics,
+  };
+}
+
+const quiet = () => {};
+
+/** DOFLOW_WORKTREE is honoured only when it is a /-rooted existing directory (identity.ts readWorktree; the bash twin tests `/*`,
+ * and the worker worktree exemption in policies/pre-bash-guard.sh requires the same POSIX-rooted path). A Windows
+ * path (C:\\x) is not /-rooted, so a case that sets it to a placeholder directory cannot be expressed there. */
+const POSIX_ROOTED_ONLY = (env: any) => process.platform === 'win32' && Object.values(env ?? {}).some((v: any) => typeof v === 'string' && /\$WT/.test(v));
+const WIN_SKIP = 'DOFLOW_WORKTREE must be /-rooted (identity.ts readWorktree, policies/pre-bash-guard.sh): a Windows drive path is not honoured by design';
+
+/** The DEC-044 store setups a binding event may name (see the cases.json comment). */
+function applySetup(setup: any, sessions: any, unit: any, sessionId: any, root: any) {
+  if (setup === undefined) return;
+  const bound = path.join(sessions, unit, 'bound');
+  if (setup === 'store-unwritable') {
+    fs.mkdirSync(path.dirname(sessions), { recursive: true });
+    fs.writeFileSync(sessions, '');
+  } else if (setup === 'bound-symlink') {
+    const target = path.join(root, `bound-target-${unit}`);
+    fs.writeFileSync(target, `${sessionId}\n`);
+    fs.mkdirSync(path.dirname(bound), { recursive: true });
+    fs.symlinkSync(target, bound);
+  } else if (setup === 'bound-empty') {
+    fs.mkdirSync(path.dirname(bound), { recursive: true });
+    fs.writeFileSync(bound, '');
+  } else {
+    throw new Error(`unknown binding setup ${setup}`);
+  }
+}
+
+/** Every bound file under sessions/, when sessions/ is a directory at all. */
+function boundFiles(sessions: any) {
+  if (!fs.existsSync(sessions) || !fs.statSync(sessions).isDirectory()) return [];
+  return fs.readdirSync(sessions, { recursive: true }).filter((f: any) => path.basename(f) === 'bound');
+}
+
+test('identity cases: the corpus covers every IC-007 row, inheritance and each invalid value', () => {
+  assert.equal(CASES.idPattern, ID_PATTERN.source);
+  const names = CASES.identity.map((c: any) => c.name).join('\n');
+  for (const needle of ['unset', 'case-insensitive', 'unknown role', 'launched', 'invalid run', 'invalid lineage',
+    'invalid attempt', 'worktree relative', 'worktree missing', 'run local explicit']) {
+    assert.ok(names.includes(needle), `no identity case mentions "${needle}"`);
+  }
+  for (const v of IDENTITY_VARS) {
+    assert.ok(CASES.identity.some((c: any) => v in c.env), `no case sets ${v}`);
+  }
+  assert.ok(CASES.binding.some((s: any) => s.events.some((e: any) => e.expect.diagnostics.includes('identity-inherited'))));
+  for (const kind of ['launched', 'default-main', 'solo']) {
+    assert.ok(CASES.identity.some((c: any) => c.expect.kind === kind), `no case expects kind ${kind}`);
+  }
+  const events = CASES.binding.flatMap((s: any) => s.events);
+  for (const setup of ['store-unwritable', 'bound-symlink', 'bound-empty']) {
+    assert.ok(events.some((e: any) => e.setup === setup), `no binding event pins ${setup}`);
+  }
+  assert.ok(events.some((e: any) => e.sessionId === ''), 'no binding event pins an empty session id');
+});
+
+for (const c of CASES.identity) {
+  test(`identity case: ${c.name}`, { skip: POSIX_ROOTED_ONLY(c.env) && WIN_SKIP }, (t) => {
+    const { root, places } = layout(t);
+    const env: any = { XDG_CONFIG_HOME: path.join(root, 'config'), ...subAll(c.env, places) };
+    const id = resolveIdentity(env, { cwd: sub(c.cwd, places), sessionId: c.sessionId, warn: quiet });
+    assert.deepEqual(asFields(id), subAll(c.expect, places));
+    assert.equal(id.session, c.sessionId);
+  });
+}
+
+for (const s of CASES.binding) {
+  test(`binding sequence: ${s.name}`, { skip: (POSIX_ROOTED_ONLY(s.env) || s.events.some((e: any) => POSIX_ROOTED_ONLY(e.env))) && WIN_SKIP }, (t) => {
+    const { root, places } = layout(t);
+    const config = path.join(root, 'config');
+    const sessions = path.join(stateDir({ XDG_CONFIG_HOME: config }), 'sessions');
+    for (const [i, e] of s.events.entries()) {
+      const env: any = { XDG_CONFIG_HOME: config, ...subAll(s.env, places), ...subAll(e.env || {}, places) };
+      const unit = `L.${env.DOFLOW_RUN_ID}.${env.DOFLOW_LINEAGE_ID}.${env.DOFLOW_ATTEMPT}`;
+      applySetup(e.setup, sessions, unit, e.sessionId, root);
+      const id = resolveIdentity(env, { cwd: sub(e.cwd, places), sessionId: e.sessionId, bind: true, warn: quiet });
+      assert.deepEqual(asFields(id), subAll(e.expect, places), `event ${i}`);
+      if (e.bound === null) {
+        assert.deepEqual(boundFiles(sessions), [], `event ${i}: no bound file expected`);
+      } else {
+        const text = fs.readFileSync(path.join(sessions, unit, 'bound'), 'utf8');
+        assert.equal(text.replace(/\n$/, ''), e.bound, `event ${i}`);
+      }
+    }
+  });
+}
+
+test('binding: bind false never touches the store', (t) => {
+  const { root, places } = layout(t);
+  const env: any = { XDG_CONFIG_HOME: path.join(root, 'config'), DOFLOW_RUN_ID: 'r', DOFLOW_ATTEMPT: '1', DOFLOW_LINEAGE_ID: 'l' };
+  const id = resolveIdentity(env, { cwd: places.$CWD, sessionId: 's' });
+  assert.equal(id.lineageKind, 'launched');
+  assert.equal(fs.existsSync(path.join(root, 'config')), false);
+});
+
+test('binding: a bound file written by bash without a trailing newline still matches', (t) => {
+  const { root, places } = layout(t);
+  const env: any = { XDG_CONFIG_HOME: path.join(root, 'config'), DOFLOW_RUN_ID: 'r', DOFLOW_ATTEMPT: '1', DOFLOW_LINEAGE_ID: 'l' };
+  const dir = path.join(stateDir(env), 'sessions', 'L.r.l.1');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'bound'), 's');
+  assert.equal(resolveIdentity(env, { cwd: places.$CWD, sessionId: 's', bind: true }).lineageKind, 'launched');
+  assert.equal(fs.readFileSync(path.join(dir, 'bound'), 'utf8'), 's');
+});
+
+test('role: the unknown-role line goes to stderr once per process, never stdout', () => {
+  const script = `const { resolveIdentity } = require(${JSON.stringify(path.join(REPO, 'src/runtime/context/identity.ts'))});
+for (const r of ['boss', 'other', 'MAIN', 'boss']) resolveIdentity({ DOFLOW_SESSION_ROLE: r }, { cwd: '/', sessionId: 's' });`;
+  const r = spawnSync(process.execPath, ['-e', script], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, '');
+  assert.equal(r.stderr, UNKNOWN_ROLE_LINE);
+  assert.equal(UNKNOWN_ROLE_LINE, '[doflow] unknown DOFLOW_SESSION_ROLE; treating session as worker\n');
+});
+
+test('store root matches policies/lib.sh STATE_DIR', () => {
+  // stateDir joins with the platform separator; lib.sh always prints '/', so compare the two spellings of one path.
+  const slash = (p: string) => p.replace(/\\/g, '/');
+  assert.equal(slash(stateDir({ XDG_CONFIG_HOME: '/x/cfg', HOME: '/h' })), '/x/cfg/doflow/session-env');
+  assert.equal(slash(stateDir({ HOME: '/h' })), '/h/.config/doflow/session-env');
+  assert.equal(slash(stateDir({ XDG_CONFIG_HOME: '', HOME: '/h' })), '/h/.config/doflow/session-env');
+  const r = spawnSync(bashPath(), ['-c', 'source "$1"; printf "%s" "$STATE_DIR"', 'x', LIB_SH],
+    { env: { PATH: process.env.PATH, HOME: '/h', XDG_CONFIG_HOME: '' }, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(slash(r.stdout), slash(stateDir({ HOME: '/h', XDG_CONFIG_HOME: '' })));
+});
+
+// "/" is the current drive's root to Node (identity.ts physicalDir) but the MSYS root, the Git install folder, to bash:
+// no native spelling hashes the same, so that one corpus entry has no win32 meaning.
+const ROOT_SKIP = 'the path "/" names the current drive root natively but the MSYS root in bash; the two cannot hash alike on win32';
+for (const c of CASES.cwdHash) {
+  test(`cwdHash corpus: ${JSON.stringify(c.path)}`, { skip: process.platform === 'win32' && c.path === '/' && ROOT_SKIP }, () => {
+    assert.equal(cwdHash(c.path), c.hash);
+  });
+}
+
+test('cwdHash equals bash cwd_hash on live paths: directory, symlinked directory, file, symlinked file, dangling link', (t) => {
+  const { root, places } = layout(t);
+  fs.symlinkSync(places.$FILE, path.join(root, 'file-link'));
+  fs.symlinkSync(path.join(root, 'gone'), path.join(root, 'dangling'));
+  const paths: any = [places.$CWD, places.$WT_LINK, `${places.$WT_LINK}/`, places.$FILE,
+    path.join(root, 'file-link'), path.join(root, 'dangling'), path.join(root, 'cwd', '..', 'wt')];
+  // bash hashes a path it cannot resolve (the dangling link) as given, and a native C:\\x is not the /c/x that cwdHash hashes
+  // for it on win32, so bash is handed the MSYS spelling of every path; the existing ones resolve to the same thing either way.
+  const forBash = (p: string) => (process.platform === 'win32'
+    ? p.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_m: string, d: string) => `/${d.toLowerCase()}`) : p);
+  const r = spawnSync(bashPath(), ['-c', 'source "$1"; shift; for p in "$@"; do cwd_hash "$p"; done', 'x', LIB_SH, ...paths.map(forBash)],
+    { env: { PATH: process.env.PATH, HOME: root }, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(paths.map(cwdHash), r.stdout.trim().split('\n'));
+});

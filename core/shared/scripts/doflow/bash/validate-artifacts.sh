@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # validate-artifacts.sh — advisory consistency checker for doflow chain artifacts.
 #
 # Checks that an artifact's index tables agree with the detail beside them. This is a CONSISTENCY
@@ -18,6 +19,9 @@
 #   unknown    a line outside History, comments and code fences cites a DEC-### that is not in the
 #              feature's decision register. Inert without a register.
 #   rollup     plan.md's phase rollup counts match its task checklist
+#   task-graph plan.md's task lines parse as the task-attempt ledger reads them: one finding per
+#              problem the read-only `plan-check` verb reports. Fail-soft: with the dispatcher,
+#              node or jq unavailable it prints one `note:` line on stderr and adds no finding.
 #
 # Grammar (see guidance/references/ARTIFACT_FORMAT.md) — deliberately prefix-agnostic, so
 # FR/NFR/C/D/A and any future prefix work with no change here:
@@ -81,10 +85,10 @@ refuse_invalid_slug() {
 }
 
 # ── locate targets ────────────────────────────────────────────────────────────────────────────
+script_dir="$(cd "$(dirname "$0")" && pwd)"
 if [ "${#targets[@]}" -eq 0 ]; then
   command -v jq >/dev/null 2>&1 || note "jq-absent"
 
-  script_dir="$(cd "$(dirname "$0")" && pwd)"
   RESOLVER="$script_dir/do-paths.sh"
   [ -f "$RESOLVER" ] || RESOLVER="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh}"
   [ -f "$RESOLVER" ] || note "resolver-absent"
@@ -95,7 +99,9 @@ if [ "${#targets[@]}" -eq 0 ]; then
   [ "$rc" -eq 2 ] && refuse_invalid_slug "$json"
   [ "$rc" -eq 0 ] || note "resolver-error"
 
-  root=$(printf '%s' "$json" | jq -r '.repo_root // empty')
+  # The feature folder's checkout: a linked worktree that has not yet got the folder reads it from
+  # main. Resolvers from before feature_root exist carry only repo_root, which is then the answer.
+  root=$(printf '%s' "$json" | jq -r '.feature_root // .repo_root // empty')
   [ -n "$(printf '%s' "$json" | jq -r '.feature_slug // empty')" ] || note "no-active-feature"
 
   # data-model.md is a default target only for a feature that has a decision register, so a folder
@@ -110,7 +116,6 @@ if [ "${#targets[@]}" -eq 0 ]; then
 elif command -v jq >/dev/null 2>&1; then
   # Explicit paths skip discovery, but the stale rule still needs the feature's register. Resolve
   # quietly: any failure here only leaves the rule inert, never changes what was asked for.
-  script_dir="$(cd "$(dirname "$0")" && pwd)"
   RESOLVER="$script_dir/do-paths.sh"
   [ -f "$RESOLVER" ] || RESOLVER="${DOFLOW_CONFIG_DIR:+$DOFLOW_CONFIG_DIR/scripts/doflow/bash/do-paths.sh}"
   json=""
@@ -121,7 +126,7 @@ elif command -v jq >/dev/null 2>&1; then
     [ "$rc" -eq 2 ] && refuse_invalid_slug "$json"
     [ "$rc" -eq 0 ] || json=""
   fi
-  root=$(printf '%s' "$json" | jq -r '.repo_root // empty' 2>/dev/null)
+  root=$(printf '%s' "$json" | jq -r '.feature_root // .repo_root // empty' 2>/dev/null)
 fi
 
 # ── decision register (stale rule) ──────────────────────────────────────────────────────────────
@@ -154,6 +159,41 @@ if [ -n "$feat_abs" ] && [ "$(printf '%s' "$json" | jq -r '.has_decisions // fal
     known_ids=""
   fi
 fi
+
+# ── task-graph rule ───────────────────────────────────────────────────────────────────────────
+# Asks the plan-check verb about one plan.md and leaves its problems in tg_out as
+# `rule<TAB>id<TAB>message` records, the shape awk's finding() prints. It sets a global rather than
+# printing, so the once-per-run note flag survives the call. A plan-check that cannot answer adds
+# no finding: it prints one `note:` line per run on stderr instead. `plan-unreadable` adds nothing
+# either; the unreadable-file finding already says the file was not checked.
+tg_noted=0
+tg_note() {
+  [ "$tg_noted" -eq 1 ] && return 0
+  tg_noted=1
+  printf 'note: plan-check unavailable (%s); the task-graph rule did not run\n' "$1" >&2
+}
+tg_out=""
+task_graph_findings() { # task_graph_findings <plan file>
+  local dispatcher="$script_dir/../bin/doflow-run" tg
+  tg_out=""
+  command -v jq >/dev/null 2>&1 || { tg_note "jq-absent"; return 0; }
+  [ -f "$dispatcher" ] || { tg_note "dispatcher-absent"; return 0; }
+  tg=$(bash "$dispatcher" plan-check "$1" --json </dev/null 2>/dev/null)
+  if ! printf '%s' "$tg" | jq -e 'type == "object" and has("ok")' >/dev/null 2>&1; then
+    tg_note "no-json-from-plan-check"; return 0
+  fi
+  [ "$(printf '%s' "$tg" | jq -r '.error // empty')" = "plan-unreadable" ] && return 0
+  # jq prints `id<TAB>message`; awk adds the rule through the same finding() shape the checks use.
+  tg_out=$(printf '%s' "$tg" | jq -r '
+    .problems[]?
+    | [(if (.ids // [] | length) > 0 then (.ids | join(",")) else "-" end),
+       (.kind
+        + (if has("value") then " '"'"'" + (.value | tostring) + "'"'"'"
+           elif (.via // [] | length) > 0 then " via " + (.via | join(", "))
+           else "" end))]
+    | map(gsub("[\t\r\n]"; " ")) | join("\t")' 2>/dev/null \
+    | awk -F'\t' 'function finding(rule, id, msg) { print rule "\t" id "\t" msg } { finding("task-graph", $1, $2) }') || tg_out=""
+}
 
 # ── check each target ─────────────────────────────────────────────────────────────────────────
 # Findings accumulate as: <file>\t<rule>\t<id>\t<message>
@@ -480,6 +520,10 @@ for f in "${targets[@]}"; do
   if [ "$awk_status" -ne 0 ]; then
     findings="${findings}${f}"$'\t'"io"$'\t'"-"$'\t'"could not be parsed (awk exit ${awk_status}) — this file was NOT checked"$'\n'
     continue
+  fi
+  if [ "$(basename "$f")" = "plan.md" ]; then
+    task_graph_findings "$f"
+    [ -n "$tg_out" ] && out="${out:+$out$'\n'}$tg_out"
   fi
   if [ -n "$out" ]; then
     while IFS= read -r line; do

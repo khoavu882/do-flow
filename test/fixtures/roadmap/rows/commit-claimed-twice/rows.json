@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "layout": {
+    "worktree": "{mainParent}/{mainName}-{id}",
+    "branch": "feat/{slug}"
+  },
+  "rows": [
+    {
+      "id": "096",
+      "slug": "096-trace-store",
+      "title": "Trace store",
+      "class": "feature",
+      "needs": [],
+      "mergeCommit": "a000000000000000000000000000000000000096"
+    },
+    {
+      "id": "102",
+      "slug": "102-other-store",
+      "title": "Other store",
+      "class": "feature",
+      "needs": [],
+      "mergeCommit": "a000000000000000000000000000000000000096"
+    }
+  ]
+}

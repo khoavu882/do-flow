@@ -9,6 +9,8 @@
 # Returns exit 0 if all tests pass, exit 1 if any fail.
 
 set -euo pipefail
+# Hook lines (088) are written to the .doflow found above the cwd; tests default them off.
+export DOFLOW_TELEMETRY="${DOFLOW_TELEMETRY:-off}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Front doors resolve the Canonical Policy Library via a path relative to their installed
@@ -39,7 +41,7 @@ section() { printf "\n[%s]\n" "$1"; }
 # into TEST_HOME, no git config from the machine, and the variables that steer which harness or
 # install a hook resolves removed. A test that needs one of them sets it in front of the array.
 SANDBOXED=(env -u DOFLOW_AGENT -u DOFLOW_PROJECT_DIR -u DOFLOW_FAILURE_CAPTURE -u CLAUDE_CONFIG_DIR \
-  -u CLAUDE_PROJECT_DIR -u CODEX_HOME -u GEMINI_CONFIG_DIR \
+  -u CLAUDE_PROJECT_DIR -u CODEX_HOME \
   "HOME=$TEST_HOME" "XDG_CONFIG_HOME=$TEST_HOME/.config" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1)
 
 # Run a hook with an isolated config root inside TEST_HOME
@@ -138,10 +140,13 @@ fi
 
 IS_GIT=$(jq -r '.is_git_repo' "$GIT_CTX" 2>/dev/null)
 BRANCH=$(jq -r '.branch' "$GIT_CTX" 2>/dev/null)
-if [[ "$IS_GIT" == "true" && -n "$BRANCH" ]]; then
-  pass "is_git_repo=true, branch='$BRANCH'"
+# A CI pull-request checkout is a detached HEAD, where git itself reports no current branch, so
+# the expected branch is git's own answer, not "any non-empty name".
+EXPECTED_BRANCH=$(git -C "$CWD" branch --show-current 2>/dev/null)
+if [[ "$IS_GIT" == "true" && "$BRANCH" == "$EXPECTED_BRANCH" ]]; then
+  pass "is_git_repo=true, branch='$BRANCH' (git reports '$EXPECTED_BRANCH')"
 else
-  fail "unexpected git fields: is_git_repo=$IS_GIT branch=$BRANCH"
+  fail "unexpected git fields: is_git_repo=$IS_GIT branch=$BRANCH (git reports '$EXPECTED_BRANCH')"
 fi
 
 # Check captured_at field
@@ -625,10 +630,10 @@ else
   fail "pre-compact.sh produced no output"
 fi
 
-if [[ $LEN -lt 500 ]]; then
-  pass "output is under 500 chars (got $LEN)"
+if [[ $LEN -le 490 ]]; then
+  pass "output is within the 490-character cap (got $LEN)"
 else
-  fail "output OVER 500 chars (got $LEN) — may be truncated by Claude Code"
+  fail "output OVER the 490-character cap of compact-text.sh (got $LEN)"
 fi
 
 if echo "$OUT_COMPACT" | grep -q "git branch:"; then
@@ -652,11 +657,11 @@ section "8. post-compact.sh"
 INPUT_POSTCOMPACT="{\"session_id\":\"$SESS\",\"cwd\":\"$CWD\",\"trigger\":\"manual\",\"compact_summary\":\"Verification session: implemented hooks system.\"}"
 "${SANDBOXED[@]}" bash "$HOOKS/post-compact.sh" <<< "$INPUT_POSTCOMPACT" > /dev/null 2>&1
 
-SUMMARY_FILE="$SESS_ENV/projects/$CWD_HASH/last-compact-summary.md"
+SUMMARY_FILE="$SESS_ENV/summaries/$CWD_HASH/local/main/summary.md"
 if [[ -f "$SUMMARY_FILE" ]]; then
-  pass "last-compact-summary.md created"
+  pass "summaries/<hash>/local/main/summary.md created"
 else
-  fail "last-compact-summary.md NOT created at $SUMMARY_FILE"
+  fail "summary.md NOT created at $SUMMARY_FILE"
 fi
 
 if grep -q "compacted_at:" "$SUMMARY_FILE" 2>/dev/null; then
@@ -672,7 +677,7 @@ else
 fi
 
 # Atomic write: verify no .tmp files left behind
-TMP_REMNANTS=$(find "$TEST_HOME" -name ".last-compact-summary.*" 2>/dev/null | wc -l)
+TMP_REMNANTS=$(find "$TEST_HOME" -name ".summary.*" 2>/dev/null | wc -l)
 if [[ "$TMP_REMNANTS" -eq 0 ]]; then
   pass "no tmp remnants from atomic write"
 else

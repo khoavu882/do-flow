@@ -20,6 +20,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { failureHome, captureSwitch, eventsPath } = require('./home.ts');
 const { printSafe } = require('../mask.ts');
+const { appendRegular } = require('./capture.ts');
 
 const ROTATED = /^events-\d{8}T\d{6}Z-\d+\.jsonl$/;
 const SETTLEMENTS = 'settlements.jsonl';
@@ -203,14 +204,18 @@ function loadEntries({ env = process.env } = {}): any {
 }
 
 /**
- * Appends one settlement line (IC-013). Only `failure --action settle` calls this.
+ * Appends one settlement line (IC-013). Only `failure --action settle` calls this. The line goes to a
+ * regular file only (`appendRegular`, shared with the capture writer): a FIFO at `settlements.jsonl`
+ * would block the open for ever, and a symlink or device is not a place to write.
  * @param {string} home
  * @param {{fp: string, as: string, reason?: string|null, followup?: string|null, now?: Date}} settlement
+ * @throws when the file cannot be appended to; it is left as it was
  */
 function appendSettlement(home: string, { fp, as, reason = null, followup = null, now = new Date() }: any): void {
   fs.mkdirSync(home, { recursive: true, mode: 0o700 });
   const line = JSON.stringify({ v: 1, at: now.toISOString(), fp, as, reason, followup });
-  fs.appendFileSync(settlementsPath(home), `${line}\n`, { flag: 'a', mode: 0o600 });
+  const written = appendRegular(settlementsPath(home), `${line}\n`);
+  if (!written) throw new Error(`${settlementsPath(home)} is not a regular file that can be appended to (a FIFO, a link, a device or a file without write access), so the settlement was not recorded. Nothing was written.`);
 }
 
 const DOFLOW_PACKAGE = '@khoavu882/doflow';

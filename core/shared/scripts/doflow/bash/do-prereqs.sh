@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # do-prereqs.sh — doflow implement-phase prerequisite gate (prompt-level PRIMARY).
 #
 # Called as step 1 of /do-execute-plan. With --require-plan it exits 2 (and prints an
@@ -48,7 +49,7 @@ if [ "$require_plan" = true ]; then
   if [ -z "$slug" ]; then
     if [ "$candidate_slugs" != "[]" ]; then
       echo "$json" | jq '{ok:false, error:"ambiguous-feature", candidate_slugs:.candidate_slugs,
-                          hint:"multiple agent-docs/doflow/ feature dirs exist and no git branch disambiguates them — ask which one via AskUserQuestion, then re-run do-prereqs.sh --require-plan --slug=<chosen>"}'
+                          hint:"multiple agent-docs/doflow/ feature dirs exist and no git branch disambiguates them — ask which one with the user question tool, then re-run do-prereqs.sh --require-plan --slug=<chosen>"}'
     else
       echo "$json" | jq '{ok:false, error:"no-active-feature", hint:"run /do-brainstorm to start a feature"}'
     fi

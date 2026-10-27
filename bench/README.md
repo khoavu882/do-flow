@@ -7,6 +7,9 @@ than corpus. `test/guards/evals.test.js` fails if the corpus stops being tracked
 behavior, use the separate [native-session corpus](native/README.md). It starts from ordinary user
 messages and reports task outcomes and usage separately; the by-path skill benchmark below measures
 a different surface.
+For the agentic retrieval baseline (does the `retrieve` command help a coding agent find files; paid
+stages, verdict-to-action mapping), use [`agentic/README.md`](agentic/README.md).
+For the review-miss suite (does a reviewer re-find defects that earlier reviews found and later fixes confirmed; offline verbs, no model call), use [`review-miss/README.md`](review-miss/README.md).
 
 Measures whether the shipped skills **trigger** on the right requests and **behave** correctly once
 triggered. Built for plan `008-doflow-runtime-unification`, whose Phase A captures a baseline of
@@ -109,7 +112,10 @@ runner.js baseline / report
 | `plan --iteration N [--skill S] [--split train\|heldout] [--arm without-skill]` | Emit the subagent dispatch plan as JSON: output paths, pinned model, sandbox commands, each run's skill path + expected hash, and the projected cost against the ceiling. Exit 2 when a known projection is over the ceiling | no |
 | `grade --iteration N` | Verify each run's skill provenance, evaluate programmatic assertions, read `timing.json`, write `grading.json` | no |
 | `baseline [--from N]` | Freeze an iteration as the committed baseline, recording the commit it was taken at, how many cases proved their skill source, each case's side and its usage | no |
-| `report --iteration N` | Per-case delta against the baseline, with a `source` column marking rows whose delta is unmeasured, pending rows, usage, the ceiling check and, when without-skill runs exist, the per-skill delta | no |
+| `report --iteration a[,b..] [--noise F] [--decision-out F]` | Per-case delta of a run (or candidate repeats) against the baseline, evaluated against the noise band with a decision block (`corpus`, `train`, `heldout`), pending rows, usage, ceiling check, and per-skill delta when without-skill runs exist. `--decision-out` writes standalone decision JSON | no |
+| `noise --iterations a,b[,c..] [--out F] [--json]` | Measure eval noise floor over k baseline repeats. Validates model, commit and case set, re-runs programmatic grading twice in memory for grader stability, and computes per-repeat means, noise, baseline mean, headroom and a noise-check verdict. `--out` writes the noise artifact | no |
+| `impact-replay [--rev <ref>] [--commits <n>] [--json] [--out F]` | Offline replay of the last `--commits` non-merge commits reachable from `--rev`: each is exported to a scratch directory (`git archive`), its co-changed tests are run, the changed non-test files are restored to their parent versions and the tests run again to find the detecting set (a lower bound), which is compared with `src/runtime/verification/impact.ts`'s selection. No model call. Prints `insufficient-data`, `keep-off` or `selection-candidate`; the verdict enables nothing, because `verify` does not use the selector. Defaults come from the `impactReplay` block of `config.json`; the report goes to `runs/impact-replay/<UTC stamp>.json` unless `--out` is given | no |
+| `review-miss <corpus\|lint\|grade\|noise\|report> [flags]` | The review-miss suite: `corpus` generates cases from the fixed findings of the review records, `lint` checks a corpus file, `grade` scores one iteration's findings, `noise` and `report` build the A/A band and a decision over `bench/noise.js`. Verbs, flags and exit codes: [`review-miss/README.md`](review-miss/README.md). Routed to `bench/review-miss/runner.js`, as `agentic` is | no |
 
 `--split` is accepted by `plan`, `list`, and `advice`; `--arm` by `plan` only. Any other command refuses
 either flag with exit 2, as it does an unknown option.
@@ -181,6 +187,7 @@ Into its `outputDir` from the plan. The orchestrating agent creates each sandbox
 | `routing.json` | run | with-skill, triggering cases | `{ "skill": "<skill>", "routed": true or false }`, the decision judged from the frontmatter |
 | `outputs/` | run | both | Every artifact the case produces, including any timing file the case itself makes |
 | `timing.json` | orchestrating agent | both | `total_tokens` (integer >= 0) and `duration_ms` (number >= 0) from the task notification. Written on arrival, since it is not persisted elsewhere; a value the notification did not report is omitted, never written as 0 |
+| `run_status.json` | orchestrating agent | both | `{status, evidence?}`; status `completed`, `timeout`, `api-error` or `truncated` from the task notification; omit for a completed run; an unknown value grades malformed and is excluded |
 
 For a with-skill run, `skill_source.json` is three fields, written after reading the skill:
 
@@ -316,6 +323,82 @@ Phase D rewrite; the harness exists to make it visible, not to gate it.
 The `source` column is the exception worth reading first. A row reading `unrecorded→unrecorded`
 carries a delta that is arithmetic, not evidence: neither side can prove which SKILL.md it measured.
 Runs captured before this provenance check existed all read that way, correctly.
+
+`report` appends a decision block evaluating candidate gains against the measured noise floor, and `--decision-out` writes this decision as standalone JSON (see [Noise floor and verdicts](#noise-floor-and-verdicts)).
+
+## Noise floor and verdicts
+
+Single-run deltas mix genuine skill changes with run-to-run evaluation variance. The eval harness
+measures this variance by running k baseline repeats and computing the noise floor as the A/A range
+across repeats.
+
+Repeats are dispatched using the existing `plan` command by specifying iterations named `<name>-r1..rk`
+(for example, `plan --iteration cap2-r1`, `plan --iteration cap2-r2`, `plan --iteration cap2-r3`). Each
+repeat produces its own run directory under `bench/runs/<name>-r<i>/`. Always grade with the config the
+run was planned with: `grade` stamps `model` into `iteration.json` if absent, and iterations evaluated
+together must share the same model and measured commit (`sourceAt`).
+
+The orchestrating agent writes `run_status.json` into each run directory beside `timing.json` upon
+receiving task completion notifications. It specifies `status` (`completed`, `timeout`, `api-error`,
+or `truncated`) and optional `evidence` (the harness error message, never model output or transcript
+text). A completed run may omit `run_status.json`. `no-output` is a derived infra class, not a
+`run_status` value: it applies when a completed or absent run has no `transcript.txt`, `routing.json`,
+or file under `outputs/`. Runs with infra failures or malformed records receive `pass_rate: null`.
+With-skill runs whose skill source is not `verified` are excluded as `source-unverified`, also with
+`pass_rate: null`. Exclusions are counted apart by class or mark.
+
+The words below are defined once, in `bench/noise.js`; guard G60 compares this table to that
+module's exports, row for row and value for value, in order.
+
+| Vocabulary | Values |
+|---|---|
+| Noise-check verdict | `inconclusive` · `grader-unstable` · `no-headroom` · `noise-exceeds-mde` · `usable` |
+| Decision verdict | `gain-above-noise` · `within-noise` · `regression` · `inconclusive` |
+| Recommendation | `merge-candidate` · `do-not-merge` |
+| Infra error class | `timeout` · `api-error` · `truncated` · `no-output` |
+| Run status | `completed` · `timeout` · `api-error` · `truncated` |
+| Noise method | `aa-range` |
+| Exclusion mark | `timeout` · `api-error` · `truncated` · `no-output` · `malformed` · `source-unverified` |
+
+`noise` measures the eval noise floor across k baseline repeats (default k=3 in `bench/config.json`):
+
+```bash
+node bench/runner.js noise --iterations <a,b[,c...]> [--out <file>] [--json]
+```
+
+It validates that iterations share the same model, commit, and case set, re-runs programmatic grading
+twice in memory to verify grader stability, and computes per-repeat means, noise (maximum difference
+between repeat means), headroom check, and a noise-check verdict (`usable`, `noise-exceeds-mde`,
+`no-headroom`, `grader-unstable`, or `inconclusive`). Exit 0 indicates `usable`; exit 1 indicates any
+other noise verdict; exit 2 indicates invalid configuration or inputs. `--out` writes the noise
+artifact to the supplied path and has no default. `report` reads `bench/baseline/noise.json` by
+default.
+
+`report` evaluates one or more candidate repeats against the baseline. The decision's baseline side
+comes from the noise artifact, which must match `baseline.json`'s model and case set. Its model must
+also match the configured and candidate models. Candidate iteration stamps must record both `model`
+and `sourceAt`; a missing value is refused with exit 2.
+
+```bash
+node bench/runner.js report --iteration <a[,b...]> [--noise <file>] [--decision-out <file>]
+```
+
+Per-case deltas are evaluated against the noise band `max(noise, mde)` with a 95% bootstrap confidence
+interval across `corpus`, `train`, and `heldout` scopes. Decisions yield `gain-above-noise` (recommending
+`merge-candidate`), `within-noise`, `regression`, or `inconclusive` (each recommending `do-not-merge`).
+`--decision-out` writes the decision as standalone JSON.
+
+Iterate against the `train` split only and use `heldout` solely to verify generalisation. When tuning
+or hill-climbing a skill, never paste failure content into a prompt or skill description: failure
+transcripts and error traces must not be leaked into instructions. If `train` achieves `gain-above-noise`
+while `heldout` is `within-noise` or `regression`, `report` flags `overfitSuspected: true`. An
+`inconclusive` heldout verdict gives `overfitSuspected: null`.
+
+When a split's baseline mean is at or above the headroom threshold (`headroom: 0.95`), no gain is
+detectable on that split (`headroomLimited: true`). In the baseline today, heldout sits at 1.000, so
+heldout may not show further quality gains; an inconclusive heldout result leaves overfit status unknown.
+
+No band is committed; every decision reads `inconclusive` until the paid k=3 capture runs (UD-3).
 
 ## Reusing skill-creator's tooling
 

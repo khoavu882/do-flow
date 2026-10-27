@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "timeoutMs": 5000,
+  "timeoutMs": 15000,
   "probeTimeoutMs": 1500,
   "doctorBudgetMs": 6000,
   "limits": {
@@ -72,8 +72,8 @@
         "single": "One frontier reviewer, different from the author",
         "deep": "Two independent frontier reviewers with different lenses"
       },
-      "staticFrom": "single",
-      "askedBy": []
+      "staticFrom": "the IC-002 rule: single only for a light-path change at a singleRisks risk, else deep; the gate-b floor can raise seats",
+      "askedBy": ["review"]
     },
     {
       "id": "mcp-need",

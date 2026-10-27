@@ -23,7 +23,7 @@ const path = require('node:path');
  *
  * **The bound on cost (R6).** Only the parent directories of assets already enumerated from the
  * ledger are read — one level, never recursed into. A managed tree that nests (Kiro's steering tree
- * mirrors `core/shared/guidance/`, `rules/` and `mcp/` included) is still covered completely
+ * mirrors the core set of `core/shared/guidance/`, `rules/` included) is still covered completely
  * without a walk, because every subdirectory holding a managed file is itself the parent of a
  * managed resource and so is inspected on its own account. `mcp-builder/` and `skill-creator/`
  * sitting beside a managed skills directory are never enumerated: neither is the parent of a
@@ -51,10 +51,12 @@ const path = require('node:path');
  *     *every* file it copies under an `applyTo: '**'` front-matter header, so every file landing in
  *     `.github/instructions/` is always applied. Asset `instructions.copilot`, native dir
  *     `instructions`.
- *   - `src/adapters/kiro/index.js` (header comment, lines 8-12) — "Kiro receives DoFlow's *full*
- *     guidance tree as steering files", with no single-file instruction surface at all. Asset
+ *   - `src/adapters/kiro/index.js` (header comment, lines 8-12) — Kiro has no single-file
+ *     instruction surface and loads every steering file without front-matter. DoFlow-produced
+ *     steering holds only the core set (selected via `guidance-manifest`), but the directory is
+ *     still loaded wholesale, so an unmanaged file there is operative. Asset
  *     `guidance.context-layer` for the `kiro` harness only, native dir `steering`; the same asset's
- *     `../.doflow/guidance` projection for claude/codex/gemini/antigravity is name-resolved by
+ *     `../.doflow/guidance` projection for the other harnesses is name-resolved by
  *     explicit import and is not in this set.
  *
  * This is the single place to change. If the registry later declares load semantics per projection,

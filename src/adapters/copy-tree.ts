@@ -5,12 +5,14 @@
 // Shared copy-tree engine — the generic "own a tree of files" implementation every asset
 // declaring `renderer: "copy-tree"` in core/registry/assets.json needs. Codex's adapter already
 // proved this per-file fingerprint/conflict model for agents and hooks (ownedRemovalPlan,
-// nativeManagedResources); this module generalizes it so Claude, Gemini, and Codex's own
+// nativeManagedResources); this module generalizes it so every adapter's
 // tree-shaped assets (skills, rules, agent-specs, templates, scripts, modes, references) share
-// one implementation instead of three adapter-specific copies.
+// one implementation instead of adapter-specific copies.
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { guidanceManifest } = require('./guidance-manifest.ts');
+const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 function sha256(buf: any): string {
   return crypto.createHash('sha256').update(buf).digest('hex');
@@ -39,7 +41,7 @@ const LAYOUTS: Record<string, (sourceRel: string) => string> = {
     const ext = path.extname(sourceRel);
     return path.join(sourceRel.slice(0, sourceRel.length - ext.length), `agent${ext || '.md'}`);
   },
-  /** `RULE_01_SAFETY.md` -> `RULE_01_SAFETY.instructions.md` — GitHub's path-specific
+  /** `RULES.md` -> `RULES.instructions.md` — GitHub's path-specific
    * instructions are discovered by their `.instructions.md` suffix. */
   'instructions-md': (sourceRel: string) => {
     const ext = path.extname(sourceRel);
@@ -59,6 +61,8 @@ const LAYOUTS: Record<string, (sourceRel: string) => string> = {
     const ext = path.extname(sourceRel);
     return `${sourceRel.slice(0, sourceRel.length - ext.length)}.json`;
   },
+  /** `rules/RULES.md` -> `RULES.md` for flat rule directories. */
+  flat: (sourceRel: string) => path.basename(sourceRel),
 };
 
 /** Resolve a declared layout name to its mapper. Unknown names fail loudly rather than silently
@@ -68,6 +72,25 @@ function resolveLayout(name: any): (sourceRel: string) => string {
   const layout = LAYOUTS[name];
   if (!layout) throw new Error(`Unknown copy-tree layout '${name}' (known: ${Object.keys(LAYOUTS).join(', ')})`);
   return layout;
+}
+
+/** Source-file selectors for projections that intentionally materialize only part of a tree. */
+const SELECTORS: Record<string, (sourceDir: string, fsImpl: any) => Set<string>> = {
+  // A dangling import that is not generated would install a core set missing a file the entry file
+  // names, silently; the selector fails instead (MCP_INDEX.md is generated and exempt) (107-B C-4).
+  'guidance-manifest': (sourceDir: string, fsImpl: any) => {
+    const { files, dangling } = guidanceManifest(sourceDir, fsImpl);
+    if (dangling.length) throw new Error(`guidance-manifest: DOFLOW_CORE.md imports files that do not exist under ${sourceDir}: ${dangling.join(', ')}`);
+    return new Set(files);
+  },
+};
+
+/** Resolve a declared selector name, or return null when a projection mirrors the whole tree. */
+function resolveSelect(name: any): ((sourceDir: string, fsImpl: any) => Set<string>) | null {
+  if (name == null) return null;
+  const selector = SELECTORS[name];
+  if (!selector) throw new Error(`Unknown copy-tree select '${name}' (known: ${Object.keys(SELECTORS).join(', ')})`);
+  return selector;
 }
 
 /** Destination content transforms. Where a harness reads a supported but different file FORMAT
@@ -87,10 +110,32 @@ const TRANSFORMS: Record<string, (sourceRel: string, content: any) => any> = {
     void sourceRel;
     return Buffer.from(`---\napplyTo: '**'\n---\n\n${stripFrontmatter(content.toString('utf8'))}`);
   },
-  /** Shared agent spec frontmatter -> only the keys Gemini CLI's subagent schema accepts */
-  'gemini-agents': (sourceRel: string, content: any) => {
+  /** `<rule>.md` -> the same body under Antigravity's `trigger: always_on` front-matter. Antigravity
+   * silently discards a `.agents/rules/*.md` file without valid front-matter, so the shared core
+   * files (which carry none) are loaded only through this header (107-B review C-2). */
+  'antigravity-always-on-rules': (sourceRel: string, content: any) => {
     void sourceRel;
-    return Buffer.from(filterGeminiAgentFrontmatter(content.toString('utf8')));
+    return Buffer.from(`---\ntrigger: always_on\n---\n\n${stripFrontmatter(content.toString('utf8'))}`);
+  },
+  /** Shared agent spec -> the same file without `access`, plus Claude's read-only limit keys (118 IC-005) */
+  'claude-agents': (sourceRel: string, content: any) => {
+    void sourceRel;
+    return Buffer.from(applyAgentLimits(content.toString('utf8'), 'claude'));
+  },
+  /** Shared agent spec -> the same file without `access`; Codex's limit is `unenforced` (the TOML carries it), so no keys are added */
+  'codex-agents': (sourceRel: string, content: any) => {
+    void sourceRel;
+    return Buffer.from(applyAgentLimits(content.toString('utf8'), 'codex'));
+  },
+  /** Shared agent spec -> the same file without `access`, plus Copilot's read-only limit keys (118 IC-005) */
+  'copilot-agents': (sourceRel: string, content: any) => {
+    void sourceRel;
+    return Buffer.from(applyAgentLimits(content.toString('utf8'), 'copilot'));
+  },
+  /** Shared agent spec -> the same file without `access`; Antigravity's limit is `unenforced`, so no keys are added */
+  'antigravity-agents': (sourceRel: string, content: any) => {
+    void sourceRel;
+    return Buffer.from(applyAgentLimits(content.toString('utf8'), 'antigravity'));
   },
   /** Shared agent spec frontmatter -> OpenCode's markdown-agent vocabulary */
   'opencode-agents': (sourceRel: string, content: any) => {
@@ -102,7 +147,79 @@ const TRANSFORMS: Record<string, (sourceRel: string, content: any) => any> = {
     void sourceRel;
     return Buffer.from(renderKiroAgent(content.toString('utf8')));
   },
+  /** Hook tiers (maint-hooks): the same Kiro agent with no `hooks`, for Kiro outside `hooks.harnesses`. */
+  'kiro-agents-content': (sourceRel: string, content: any) => {
+    void sourceRel;
+    return Buffer.from(renderKiroAgent(content.toString('utf8'), { hooks: false }));
+  },
+  /** Hook tiers: an authored Kiro agent JSON (core/harnesses/kiro/agents) without its `hooks` key. */
+  'kiro-agent-content': (sourceRel: string, content: any) => {
+    if (!sourceRel.endsWith('.json')) return content;
+    const agent = JSON.parse(content.toString('utf8'));
+    delete agent.hooks;
+    return Buffer.from(`${JSON.stringify(agent, null, 2)}\n`);
+  },
 };
+
+/** Row 131: core/registry/contracts.json, read once. Its `agentSkillsSpec` holds the Agent Skills
+ * spec keys; each contract's `skillFields` the keys that harness documents. */
+const SKILL_CONTRACTS = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'contracts.json'), 'utf8'));
+
+/** One `skill-frontmatter-<harness>` transform per contract that lists skillFields: a SKILL.md keeps
+ * the spec keys and that harness's skillFields at the top level, and every other top-level key moves
+ * under `metadata` as a quoted string. Files other than SKILL.md pass through unchanged. */
+for (const contract of SKILL_CONTRACTS.contracts.filter((entry: any) => Array.isArray(entry.skillFields))) {
+  const allowed = new Set<string>([...SKILL_CONTRACTS.agentSkillsSpec.skillFields, ...contract.skillFields]);
+  TRANSFORMS[`skill-frontmatter-${contract.harness}`] = (sourceRel: string, content: any) => (
+    path.basename(sourceRel) === 'SKILL.md' ? Buffer.from(portableSkillFrontmatter(content.toString('utf8'), allowed, sourceRel)) : content);
+}
+
+/** A one-line YAML scalar's value. Single-quoted: `''` is one quote. Double-quoted: JSON's escapes
+ * (`\"`, `\\`, `\n`, `\t`, `\uXXXX`, ...), which YAML reads the same way; any other escape throws
+ * rather than be guessed. Anything else is plain and taken as written. */
+function yamlScalar(value: string, key: string, file: string): string {
+  const single = value.match(/^'((?:[^']|'')*)'$/);
+  if (single) return single[1].replace(/''/g, "'");
+  if (!/^"(?:[^"\\]|\\.)*"$/.test(value)) return value;
+  try { return JSON.parse(value); } catch {
+    throw new Error(`${file}: '${key}' has a double-quoted value with an escape this projector does not decode`);
+  }
+}
+
+/** Move every top-level frontmatter key outside `allowed` under `metadata:`. A moved value is
+ * written as a JSON string (valid YAML), a plain scalar's continuation lines joined with a space; a
+ * nested map or a block scalar (`|`, `>`) is not handled, so it throws rather than guess, and so does a
+ * flow-style `metadata` (`{...}` on the key's line), which block entries cannot be appended to without a
+ * YAML parser. `file` names the source in each error. */
+function portableSkillFrontmatter(text: string, allowed: Set<string>, file = 'SKILL.md'): string {
+  const match = text.match(/^---\n([\s\S]*?\n)---(?=\n|$)/);
+  if (!match) return text;
+  const entries: { key: string | null, prefix: number, lines: string[] }[] = [];
+  for (const line of match[1].replace(/\n$/, '').split('\n')) {
+    // A top-level key, bare or quoted (`"key":`, `'key':`); `prefix` is the length up to its colon.
+    const found = line.match(/^(?:"((?:[^"\\]|\\.)+)"|'((?:[^']|'')+)'|([A-Za-z][A-Za-z0-9_-]*))[ \t]*:/);
+    const key = found ? (found[1]?.replace(/\\(.)/g, '$1') ?? found[2]?.replace(/''/g, "'") ?? found[3]) : null;
+    if (key || !entries.length) entries.push({ key, prefix: found ? found[0].length : 0, lines: [line] });
+    else entries[entries.length - 1].lines.push(line);
+  }
+  const metadataEntry = entries.find((entry) => entry.key === 'metadata');
+  if (metadataEntry && /^[ \t]*[^\s#]/.test(metadataEntry.lines[0].slice(metadataEntry.prefix))) {
+    throw new Error(`${file}: flow-style metadata cannot take moved keys; write metadata as a block map`);
+  }
+  const moved = entries.filter((entry) => entry.key && entry.key !== 'metadata' && !allowed.has(entry.key));
+  if (!moved.length) return text;
+  const metadata = moved.map(({ key, prefix, lines }) => {
+    const head = lines[0].slice(prefix).trim();
+    if (!head || /^[|>][-+0-9]*$/.test(head)) throw new Error(`${file}: '${key}' has no scalar value to move under metadata`);
+    const value = [head, ...lines.slice(1).map((part) => part.trim())].join(' ').trim();
+    return `  ${/^[A-Za-z][A-Za-z0-9_-]*$/.test(key as string) ? key : JSON.stringify(key)}: ${JSON.stringify(yamlScalar(value, key as string, file))}`;
+  });
+  const kept = entries.filter((entry) => !moved.includes(entry));
+  const existing = kept.find((entry) => entry.key === 'metadata');
+  if (existing) existing.lines.push(...metadata);
+  else kept.push({ key: 'metadata', prefix: 9, lines: ['metadata:', ...metadata] });
+  return `---\n${kept.flatMap((entry) => entry.lines).join('\n')}\n${text.slice(match[0].length - 3)}`;
+}
 
 function resolveTransform(name: any): ((sourceRel: string, content: any) => any) | null {
   if (!name) return null;
@@ -130,23 +247,113 @@ function renderClaudeOutputStyle(sourceRel: string, content: any): string {
   return ['---', `name: DoFlow: ${base}`, `description: ${JSON.stringify(description)}`, 'keep-coding-instructions: true', '---', '', text.replace(/\n*$/, ''), ''].join('\n');
 }
 
-/** The frontmatter keys Gemini CLI documents for a custom subagent (https://geminicli.com/docs/core/subagents, accessed 2026-10-06).
- * Its agent schema is strict, so a spec key outside this list (DoFlow's `effort`) would be rejected. */
-const GEMINI_AGENT_KEYS = new Set(['name', 'description', 'kind', 'tools', 'mcpServers', 'model', 'temperature', 'max_turns', 'timeout_mins']);
+/** One harness's `agentLimits` block from core/registry/harnesses.json, read once. */
+let harnessAgentLimits: any[] | null = null;
+function agentLimitsOf(harnessId: string): any {
+  if (!harnessAgentLimits) {
+    harnessAgentLimits = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'harnesses.json'), 'utf8')).harnesses;
+  }
+  const harness = (harnessAgentLimits as any[]).find((item: any) => item.id === harnessId);
+  if (!harness) throw new Error(`agentLimits: unknown harness '${harnessId}'`);
+  return harness.agentLimits || {};
+}
 
-/** Keep only Gemini's documented top-level frontmatter keys, with their indented continuation
- * lines, in source order. The body after the closing `---` passes through byte for byte, and a
- * file without frontmatter is returned unchanged. */
-function filterGeminiAgentFrontmatter(text: string): string {
+/** The `apply` keys a harness writes into the file of a `read-only` agent spec (118 IC-003), read from
+ * `agentLimits.readOnly`. `null` when the harness's limit is `unenforced`: nothing is written, and the
+ * registry says why. */
+function readOnlyApply(harnessId: string): Record<string, any> | null {
+  const entry = agentLimitsOf(harnessId).readOnly;
+  return entry?.status === 'native' ? entry.apply : null;
+}
+
+/** The MCP servers DoFlow's registry names, read once and sorted: every `core/registry/mcp.json`
+ * server (the ones an install writes) and every capability provider's `mcp.server` in
+ * capabilities.json (semble, graphify). All are retrieval servers, so a read-only agent keeps them. */
+let registryMcpServers: string[] | null = null;
+function approvedMcpServers(): string[] {
+  if (!registryMcpServers) {
+    const read = (file: string) => JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', file), 'utf8'));
+    const providers = Object.values(read('capabilities.json').capabilities || {}).flatMap((capability: any) => capability.providers || []);
+    registryMcpServers = [...new Set<string>([
+      ...read('mcp.json').servers.map((server: any) => server.id),
+      ...providers.map((provider: any) => provider.mcp?.server).filter(Boolean),
+    ])].sort();
+  }
+  return registryMcpServers as string[];
+}
+
+/** One category's tools on a harness: the `map` entry, or for `mcp` the selector of each approved server. */
+function categoryTools(entry: any, category: string): string[] {
+  return category === 'mcp' ? approvedMcpServers().map((server) => entry.mcpSelector.replace('{server}', server)) : entry.map[category];
+}
+
+/** The categories of a spec's `tool-scope` value (`read, shell, web`), or null when it declares none. */
+function scopeCategories(value: string | undefined): string[] | null {
+  if (value === undefined) return null;
+  return value.split(',').map((item: string) => item.trim()).filter(Boolean);
+}
+
+/** The keys a harness writes for a declared tool scope (row 135), from `agentLimits.toolScope`: the
+ * category tools as a comma string or a list, or a closed permission object (`"*": deny`, then an
+ * allow per declared tool). `null` when the spec declares no scope or the harness cannot express one
+ * (`unenforced`): then nothing is written, never a broader scope. */
+function toolScopeApply(harnessId: string, scope: string[] | null): Record<string, any> | null {
+  if (!scope) return null;
+  const entry = agentLimitsOf(harnessId).toolScope;
+  if (entry?.status !== 'native') return null;
+  for (const category of scope) {
+    if (category !== 'mcp' && !Object.hasOwn(entry.map, category)) throw new Error(`tool-scope: unknown category '${category}' for harness '${harnessId}'`);
+  }
+  const tools = scope.flatMap((category) => categoryTools(entry, category));
+  if (entry.form === 'closed') return { [entry.field]: { '*': 'deny', ...Object.fromEntries(tools.map((tool: string) => [tool, 'allow'])) } };
+  return { [entry.field]: entry.form === 'comma' ? tools.join(', ') : tools };
+}
+
+/** The keys an agent file gains: the scope keys, then the read-only keys. Where both write one key the
+ * narrower wins: two lists keep only the tools both name, plus the approved MCP selectors (retrieval
+ * servers a read-only agent keeps); two permission objects keep every `deny`. */
+function agentLimitKeys(harnessId: string, { readOnly, scope }: { readOnly: boolean, scope: string[] | null }): Record<string, any> | null {
+  const scoped = toolScopeApply(harnessId, scope);
+  const limits = readOnly ? readOnlyApply(harnessId) : null;
+  if (!scoped || !limits) return scoped || limits;
+  const merged: Record<string, any> = { ...scoped };
+  for (const [key, value] of Object.entries(limits)) {
+    const have = merged[key];
+    if (have === undefined) merged[key] = value;
+    else if (Array.isArray(have) && Array.isArray(value)) {
+      const mcp = scope?.includes('mcp') ? categoryTools(agentLimitsOf(harnessId).toolScope, 'mcp') : [];
+      merged[key] = have.filter((tool: string) => value.includes(tool) || mcp.includes(tool));
+    }
+    else if (have && value && typeof have === 'object' && typeof value === 'object') merged[key] = { ...have, ...value };
+    else throw new Error(`agentLimits: harness '${harnessId}' writes '${key}' from both the tool scope and the read-only limit`);
+  }
+  return merged;
+}
+
+/** One frontmatter key as YAML lines: a scalar inline, an array as a flow sequence, an object as an
+ * indented block. A key that is not a plain name (`*`, `context7_*`) is double-quoted. */
+function yamlLines(key: string, value: any, indent: string = ''): string[] {
+  const name = /^[A-Za-z0-9_-]+$/.test(key) ? key : JSON.stringify(key);
+  if (Array.isArray(value)) return [`${indent}${name}: ${JSON.stringify(value)}`];
+  if (value && typeof value === 'object') {
+    return [`${indent}${name}:`, ...Object.entries(value).flatMap(([k, v]) => yamlLines(k, v, `${indent}  `))];
+  }
+  return [`${indent}${name}: ${value}`];
+}
+
+/** Rewrite a shared agent spec's frontmatter for one harness: `access` and `tool-scope` are never projected under
+ * those names; the spec gains the harness's keys for its tool scope and, when `read-only`, its `apply` keys. Body and every other
+ * key pass through byte for byte; a file without frontmatter is returned unchanged. */
+function applyAgentLimits(text: string, harnessId: string): string {
   const match = text.match(/^---\r?\n([\s\S]*?\r?\n)---(?=\r?\n|$)/);
   if (!match) return text;
-  let keep = false;
-  const kept = match[1].split(/(?<=\n)/).filter((line: string) => {
-    const key = line.match(/^([A-Za-z][A-Za-z0-9_-]*):/);
-    if (key) keep = GEMINI_AGENT_KEYS.has(key[1]);
-    return keep;
-  });
-  return `${text.slice(0, text.indexOf('\n') + 1)}${kept.join('')}${text.slice(match[0].length - 3)}`;
+  const lines = match[1].split(/(?<=\n)/);
+  const readOnly = lines.some((line: string) => /^access:\s*read-only\s*$/.test(line));
+  const scopeLine = lines.find((line: string) => /^tool-scope:/.test(line));
+  const apply = agentLimitKeys(harnessId, { readOnly, scope: scopeCategories(scopeLine?.replace(/^tool-scope:/, '')) });
+  const added = apply ? Object.entries(apply).flatMap(([key, value]) => yamlLines(key, value)).map((line: string) => `${line}\n`) : [];
+  const kept = lines.filter((line: string) => !/^(access|tool-scope):/.test(line));
+  return `${text.slice(0, text.indexOf('\n') + 1)}${kept.join('')}${added.join('')}${text.slice(match[0].length - 3)}`;
 }
 
 /** The command a Kiro hook runs for one front-door script: the project copy when the git root
@@ -177,8 +384,9 @@ function kiroPreToolUseHooks(): any[] {
 }
 
 /** Map one core/shared agent-spec file onto a kiro-cli custom agent. Spec keys other than
- * name/description (model: inherit, effort) are dropped: Kiro inherits the session model. */
-function renderKiroAgent(text: string): string {
+ * name/description (model: inherit, effort) are dropped: Kiro inherits the session model. `access` is
+ * never projected; the spec's tool scope (narrowed by `apply.tools` when `read-only`) replaces `tools: ["*"]`. */
+function renderKiroAgent(text: string, { hooks = true }: { hooks?: boolean } = {}): string {
   const fm: Record<string, string> = {};
   let body = text;
   if (text.startsWith('---')) {
@@ -191,16 +399,15 @@ function renderKiroAgent(text: string): string {
       body = text.slice(end + 4).replace(/^\n+/, '');
     }
   }
+  const limits = agentLimitKeys('kiro', { readOnly: fm.access === 'read-only', scope: scopeCategories(fm['tool-scope']) });
   const agent = {
     name: fm.name || '', description: fm.description || '',
     prompt: `${body.replace(/\s+$/, '')}\n`,
-    tools: ['*'],
-    hooks: kiroPreToolUseHooks(),
+    tools: limits?.tools ?? ['*'],
+    ...(hooks ? { hooks: kiroPreToolUseHooks() } : {}),
   };
   return `${JSON.stringify(agent, null, 2)}\n`;
 }
-
-const OPENCODE_READONLY_AGENTS = new Set(['spec-analyst', 'system-architect', 'quality-guardian', 'research-writer']);
 
 /** Map one core/shared agent-spec file onto OpenCode's documented markdown-agent frontmatter
  * (description / mode / permission; model omitted because OpenCode has no 'inherit'). Unknown
@@ -222,9 +429,8 @@ function renderOpencodeAgent(text: string): string {
   const lines = ['---'];
   if (fm.description) lines.push(`description: ${JSON.stringify(fm.description)}`);
   lines.push('mode: subagent');
-  if (OPENCODE_READONLY_AGENTS.has(fm.name)) {
-    lines.push('permission:', '  edit: deny', '  bash: deny');
-  }
+  const limits = agentLimitKeys('opencode', { readOnly: fm.access === 'read-only', scope: scopeCategories(fm['tool-scope']) });
+  if (limits) lines.push(...Object.entries(limits).flatMap(([key, value]) => yamlLines(key, value)));
   lines.push('---', '', body.replace(/\n*$/, ''), '');
   return lines.join('\n');
 }
@@ -233,11 +439,15 @@ function renderOpencodeAgent(text: string): string {
  * the destination tree beyond checking existence. `relPath` is destination-relative and doubles as
  * the ledger identity, so a layout change relocates the recorded resource too — planTree's
  * relocation handling then removes the old path rather than orphaning it. */
-function discoverTree({ sourceDir, destDir, fsImpl = fs, layout, transform }: any): { files: any[] } {
+function discoverTree({ sourceDir, destDir, fsImpl = fs, layout, transform, select }: any): { files: any[] } {
   if (!fsImpl.existsSync(sourceDir)) throw new Error(`copy-tree source is missing: ${sourceDir}`);
   const mapRel = typeof layout === 'function' ? layout : resolveLayout(layout);
   const mapContent = typeof transform === 'function' ? transform : resolveTransform(transform);
-  const files = walkRelFiles(sourceDir, fsImpl).map((sourceRel) => {
+  const selected = resolveSelect(select)?.(sourceDir, fsImpl);
+  const files = walkRelFiles(sourceDir, fsImpl).filter((sourceRel) => {
+    if (!selected) return true;
+    return selected.has(sourceRel.split(path.sep).join('/'));
+  }).map((sourceRel) => {
     const relPath = mapRel(sourceRel);
     const sourceAbs = path.join(sourceDir, sourceRel);
     const destAbs = path.join(destDir, relPath);
@@ -245,6 +455,27 @@ function discoverTree({ sourceDir, destDir, fsImpl = fs, layout, transform }: an
     return { relPath, sourceAbs, destAbs, exists: fsImpl.existsSync(destAbs), fingerprint: sha256(mapContent ? mapContent(sourceRel, raw) : raw) };
   });
   return { files };
+}
+
+/** Selected files that map to one destination cannot both be installed safely. */
+function selectedDestinationCollisions(files: any[], sourceDir: string, destDir: string): { destinations: Set<string>, conflicts: string[] } {
+  const sourcesByDestination = new Map<string, any[]>();
+  for (const file of files) {
+    const key = path.resolve(file.destAbs);
+    const sources = sourcesByDestination.get(key) || [];
+    sources.push(file);
+    sourcesByDestination.set(key, sources);
+  }
+
+  const destinations = new Set<string>();
+  const conflicts: string[] = [];
+  for (const [destination, sources] of sourcesByDestination) {
+    if (sources.length < 2) continue;
+    destinations.add(destination);
+    const names = sources.map((file) => path.relative(sourceDir, file.sourceAbs).split(path.sep).join('/'));
+    conflicts.push(`selected files ${names.map((name) => `'${name}'`).join(' and ')} map to the same destination '${path.relative(destDir, destination).split(path.sep).join('/')}'`);
+  }
+  return { destinations, conflicts };
 }
 
 /** A file's identity on disk (device + inode), or null when the path does not resolve to one. */
@@ -292,7 +523,7 @@ function sameFileIndex(paths: string[], fsImpl: any = fs): (target: string) => s
  * `siblingReplaced` lists the harnesses whose recorded bytes this plan replaces: the file matches
  * neither the source nor this harness's own record, only a sibling's (forced or not).
  */
-function planTree({ sourceDir, destDir, previousResources = [], operation = 'apply', fsImpl = fs, layout, transform, force = false, keepModified = false, siblingFingerprints = new Map() }: any): any {
+function planTree({ sourceDir, destDir, previousResources = [], operation = 'apply', fsImpl = fs, layout, transform, select, force = false, keepModified = false, siblingFingerprints = new Map() }: any): any {
   const prevByPath = new Map<string, any>(previousResources.map((resource: any) => [resource.relPath, resource]));
   const changes: any[] = [];
   const conflicts: string[] = [];
@@ -307,7 +538,7 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
   const sourceFingerprint = (destAbs: string): string | undefined => {
     if (sourceByDest === undefined) {
       sourceByDest = sourceDir && fsImpl.existsSync(sourceDir)
-        ? new Map<string, string>(discoverTree({ sourceDir, destDir, fsImpl, layout, transform }).files.map((file): [string, string] => [file.destAbs, file.fingerprint]))
+        ? new Map<string, string>(discoverTree({ sourceDir, destDir, fsImpl, layout, transform, select }).files.map((file): [string, string] => [file.destAbs, file.fingerprint]))
         : new Map();
     }
     return sourceByDest.get(destAbs);
@@ -335,7 +566,7 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
     // Untampered on removal means the same two signals the apply path below already accepts: the
     // bytes this harness last recorded, or the bytes the current source would write. The second
     // one matters because a destination tree can be claimed by several harnesses (scripts.doflow
-    // is one `<project>/.doflow/scripts` for claude, codex and gemini), so a sibling's update
+    // is one `<project>/.doflow/scripts` for claude, codex and others), so a sibling's update
     // legitimately rewrites files this harness's rows still describe — the same "a sibling
     // changed bytes my row still describes" case the apply path had to be taught, arriving here
     // as an un-releasable claim instead of a refused install. A hand edit matches neither and is
@@ -366,10 +597,18 @@ function planTree({ sourceDir, destDir, previousResources = [], operation = 'app
     return { changes, conflicts, kept, siblingReplaced: [] };
   }
 
-  const { files } = discoverTree({ sourceDir, destDir, fsImpl, layout, transform });
+  const { files } = discoverTree({ sourceDir, destDir, fsImpl, layout, transform, select });
+  const collisions = select == null
+    ? { destinations: new Set<string>(), conflicts: [] }
+    : selectedDestinationCollisions(files, sourceDir, destDir);
+  conflicts.push(...collisions.conflicts);
   producedSameFile = sameFileIndex(files.map((file) => file.destAbs), fsImpl);
   const satisfiedAtSameLocation = new Set();
   for (const file of files) {
+    if (collisions.destinations.has(path.resolve(file.destAbs))) {
+      satisfiedAtSameLocation.add(file.relPath);
+      continue;
+    }
     const prev = prevByPath.get(file.relPath);
     // prev.target === undefined means "location unknown" (pre-this-fix ledger data, or a
     // caller-constructed previousResources entry) — treat as same-location, matching pre-fix
@@ -442,16 +681,18 @@ function applyTree({ changes = [], fsImpl = fs, transform }: any): { applied: nu
 /** Why a removal the runtime prune planned may no longer run, or null when it still may: the
  * prune's plan-time proof (src/lifecycle/index.ts pruneRetiredRuntimeFiles) re-run right before the
  * unlink, so a directory swapped for a symlink, or a file linked to a shipped one, after the plan was
- * made is not deleted through. `guard` is `{ root, source }`: the tree and the source it projects.
+ * made is not deleted through. `guard` is `{ root, source, scope }`: the tree, the source it projects
+ * and the scope root the tree must resolve inside (a tree linked out of its scope is refused).
  * One walk of the source and one stat per shipped path per tree per call, cached in `cache`. */
 function pruneGuardRefusal(change: any, cache: Map<string, any>, fsImpl: any): string | null {
-  const { root, source } = change.pruneGuard;
-  const key = `${root}\0${source}`;
+  const { root, source, scope } = change.pruneGuard;
+  const key = `${root}\0${source}\0${scope ?? ''}`;
   if (!cache.has(key)) {
     const produced = fsImpl.existsSync(source) ? discoverTree({ sourceDir: source, destDir: root, fsImpl }).files.map((file: any) => file.destAbs) : [];
-    cache.set(key, { realRoot: fsImpl.realpathSync(root), sameFile: sameFileIndex(produced, fsImpl) });
+    cache.set(key, { realRoot: fsImpl.realpathSync(root), realScope: scope ? fsImpl.realpathSync(scope) : null, sameFile: sameFileIndex(produced, fsImpl) });
   }
-  const { realRoot, sameFile } = cache.get(key);
+  const { realRoot, realScope, sameFile } = cache.get(key);
+  if (realScope && !realRoot.startsWith(`${realScope}${path.sep}`)) return `${root} resolves outside the scope root ${scope}`;
   if (!fsImpl.realpathSync(change.target).startsWith(`${realRoot}${path.sep}`)) return `it resolves outside ${root}`;
   const shipped = sameFile(change.target);
   return shipped ? `it is the same file as ${shipped}, which this version ships` : null;
@@ -500,12 +741,17 @@ function pruneEmptyAncestors(startDir: string, { fsImpl = fs }: { fsImpl?: any }
  * `plannedWrites` lists the destinations the run being verified wrote. An absent source file is
  * not reported in general, because a user may delete one, but an absent file this run wrote means
  * the run lost it (a case-only rename once deleted the file it had just written) and is a conflict. */
-function verifyTree({ sourceDir, destDir, fsImpl = fs, layout, transform, plannedWrites = [] }: any): { ok: boolean, resources: any[], conflicts: string[] } {
-  const { files } = discoverTree({ sourceDir, destDir, fsImpl, layout, transform });
+function verifyTree({ sourceDir, destDir, fsImpl = fs, layout, transform, select, plannedWrites = [] }: any): { ok: boolean, resources: any[], conflicts: string[] } {
+  const { files } = discoverTree({ sourceDir, destDir, fsImpl, layout, transform, select });
   const written = new Set(plannedWrites);
   const resources: any[] = [];
   const conflicts: string[] = [];
+  const collisions = select == null
+    ? { destinations: new Set<string>(), conflicts: [] }
+    : selectedDestinationCollisions(files, sourceDir, destDir);
+  conflicts.push(...collisions.conflicts);
   for (const file of files) {
+    if (collisions.destinations.has(path.resolve(file.destAbs))) continue;
     if (!file.exists) {
       if (written.has(file.destAbs)) conflicts.push(`${file.relPath} was written by this run but is missing`);
       continue;
@@ -517,7 +763,7 @@ function verifyTree({ sourceDir, destDir, fsImpl = fs, layout, transform, planne
   return { ok: conflicts.length === 0, resources, conflicts };
 }
 
-// ---- per-adapter copy-tree glue, shared so codex/claude/gemini don't each carry their own copy ----
+// ---- per-adapter copy-tree glue, shared so each adapter doesn't carry its own copy ----
 
 /** Filter a harness's asset list down to the ones this engine handles. */
 function copyTreeAssets(assets: any): any[] {
@@ -617,4 +863,4 @@ function ledgerFileResources(resources: any, harness: string, assetId: string): 
     .map((resource: any) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
 }
 
-module.exports = { kiroHook, kiroHookCommand, kiroPreToolUseHooks, walkRelFiles, discoverTree, sameFileIndex, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };
+module.exports = { readOnlyApply, toolScopeApply, approvedMcpServers, agentLimitKeys, kiroHook, kiroHookCommand, kiroPreToolUseHooks, walkRelFiles, discoverTree, sameFileIndex, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveSelect, SELECTORS, resolveTransform, TRANSFORMS, portableSkillFrontmatter, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };

@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "revision": 5,
+  "planPath": "agent-docs/doflow/f2-loop/plan.md",
+  "tasks": {
+    "A.1": {
+      "nextToken": 2,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "core-implementer",
+          "mode": "manual",
+          "startedAt": "2026-10-18T15:21:22.754Z",
+          "taskLineHash": "sha256:e6277a0514bf7ad65202ab69d27fac91da34a50b76beddfdd21123abb3206d1e",
+          "state": "finished",
+          "result": "COMPLETED",
+          "evidenceId": "ev_mvdz47cb_caa98dbb_1",
+          "reason": null,
+          "runKey": "5f8e3323f8ecc108/f2-loop/main",
+          "epoch": 1,
+          "execWorktree": "<scratch>/run-proj",
+          "sources": [
+            {
+              "file": "src/calc.js",
+              "kind": "file",
+              "fileHash": "sha256:14475da44a8ae64203ffd8f3505ed3104f03a9df3ec04c1c87bfbf2cde319427"
+            },
+            {
+              "file": "test/calc.test.js",
+              "kind": "file",
+              "fileHash": "sha256:37ce2ae6e65afacab634c5038a0542a6b8dcf1e9a736e59ab96942425f90dcb2"
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-18T15:21:45.665Z",
+          "finishedBy": {
+            "role": "main",
+            "lineage": "main",
+            "worktree": "<scratch>/run-proj"
+          },
+          "usage": null
+        }
+      ]
+    }
+  },
+  "runs": {
+    "5f8e3323f8ecc108/f2-loop/main": {
+      "runKey": "5f8e3323f8ecc108/f2-loop/main",
+      "worktreeKey": "5f8e3323f8ecc108",
+      "run": "f2-loop",
+      "lineage": "main",
+      "worktree": "<scratch>/run-proj",
+      "createdAt": "2026-10-18T15:21:22.547Z",
+      "control": "running",
+      "epoch": 1,
+      "budget": {
+        "attempts": 5,
+        "tokens": null
+      },
+      "totals": {
+        "attempts": 1,
+        "tokens": {
+          "measured": 0,
+          "estimated": 0,
+          "reserved": 0
+        },
+        "unreported": 1
+      },
+      "graphDigest": "sha256:6bb493467f7f245887ceea2c7f52eac06a93ff8deb5412344d8fa52bc73e5798",
+      "graphTasks": [
+        [
+          "A.1",
+          "A",
+          "core-implementer",
+          [],
+          false,
+          [],
+          null,
+          [
+            "src/calc.js",
+            "test/calc.test.js"
+          ]
+        ]
+      ],
+      "history": [
+        {
+          "at": "2026-10-18T15:21:22.547Z",
+          "action": "start",
+          "by": "orchestrator",
+          "reason": null,
+          "epoch": 1,
+          "traceId": "7dd7bc7144d5aed7feddb5289f6260a9"
+        }
+      ],
+      "traceId": "7dd7bc7144d5aed7feddb5289f6260a9"
+    }
+  }
+}

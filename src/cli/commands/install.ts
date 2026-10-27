@@ -20,7 +20,7 @@ const { loadRegistry } = require('../../registry/index.ts');
 const { storageAfterInstall } = require('../../runtime/storage/upkeep.ts');
 const { applyLifecycle, applyMcpIndex, recordMcpOwnership } = require('../../lifecycle/index.ts');
 const {
-  codexScope, registryLifecycleView, printRegistryLifecycle, printPlanNotices, assertSafeRegistryPlan,
+  codexScope, registryLifecycleView, printRegistryLifecycle, printRetiredPlans, printPlanNotices, assertSafeRegistryPlan,
   lockDocument, recordLock,
 } = require('../../lifecycle/view.ts');
 const {
@@ -120,6 +120,7 @@ function cmdInstall(o: any): void {
         const owned = result.ledger.resources.filter((resource: any) => resource.harness === target.harness).length;
         console.log(`[INFO] ${target.harness}: lifecycle verified (${owned} owned resource(s))`);
       }
+      printRetiredPlans(lifecycleView);
       ledgerAfter = result.ledger;
     } else {
       // MCP_INDEX.md is generated, not a tracked resource, so it never appears in plan.changes and

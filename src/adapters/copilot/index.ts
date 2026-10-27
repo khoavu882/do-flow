@@ -5,28 +5,37 @@
 // GitHub Copilot CLI adapter.
 //
 // Copilot has no single native root the way Claude's `.claude` is one — instructions, skills,
-// agents, and MCP each live under a different path, split further by scope. Skills and agents are
-// both trees materialised via the shared copy-tree engine in ../copy-tree.ts; the single instruction
-// pointer is a marker-merged section in a shared file, the same shape opencode/pi/gemini already use;
-// MCP servers are entries of one JSON map that DoFlow owns one at a time through ../mcp-entries.ts,
-// never touching an entry it does not own.
+// agents, and MCP each live under a different path, split further by scope. Skills, agents and the
+// core guidance rules are trees materialised via the shared copy-tree engine in ../copy-tree.ts; the
+// single instruction pointer is a marker-merged section in a shared file, the same shape
+// opencode/pi already use; MCP servers are entries of one JSON map that DoFlow owns one at a
+// time through ../mcp-entries.ts, never touching an entry it does not own.
 //
 // Native paths (see design.md §4's harness-native-surfaces table):
-//   instructions -> <projectRoot>/.github/copilot-instructions.md (project only — Copilot documents
-//                   no global instructions file, so global scope installs nothing for this asset)
+//   instructions -> <projectRoot>/.github/copilot-instructions.md, the pointer to .doflow/guidance
+//                   (project only — Copilot CLI also reads a user-level ~/.copilot/copilot-instructions.md,
+//                   but this adapter does not project a pointer there, so global scope writes none)
+//   rules        -> <projectRoot>/.github/instructions/ (project) / ~/.copilot/instructions/ (global):
+//                   the core set (DOFLOW_CORE.md and the files it imports) as `*.instructions.md`
+//                   with an `applyTo: '**'` header, under instructions/rules/ for the rule files;
+//                   the full guidance tree stays in .doflow/guidance
 //   skills       -> ~/.agents/skills (global) / <projectRoot>/.agents/skills (project)
 //   agents       -> ~/.copilot/agents (global) / <projectRoot>/.github/agents (project)
 //   mcp          -> ~/.copilot/mcp-config.json (global) / <projectRoot>/.mcp.json (project)
+//   hooks        -> <projectRoot>/.github/hooks (project) / ~/.copilot/hooks (global): doflow.json plus the
+//                   doflow-*.sh front doors; the shared bridge tree lands in <root>/.doflow/shared/hooks
 //
 // Evidence: https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot,
 // https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills,
 // https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli,
-// https://docs.github.com/en/copilot/reference/custom-agents-configuration
+// https://docs.github.com/en/copilot/reference/custom-agents-configuration,
+// https://docs.github.com/en/copilot/reference/hooks-reference
 const fs = require('node:fs');
 const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
 const { planTree, applyTree, removeTree, verifyTree, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, sourceDirFor, resolveTransform } = require('../copy-tree.ts');
+const { renderGuidancePointer } = require('../guidance-pointer.ts');
 const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 
@@ -49,18 +58,31 @@ const LEGACY_MCP_REGISTRATION = `${HARNESS}:mcp:registration`;
  *     list per https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills.
  *   - `agentsConfigDir` is genuinely asymmetric: `~/.copilot` globally, `.github` at project scope,
  *     because that is where Copilot's own custom-agents documentation places each.
- *   - `instruction` is project-only: Copilot documents no global instructions file, so no user-scope
- *     rule is declared and it resolves to null rather than inventing a path with no reader.
+ *   - `instruction` is project-only: Copilot CLI reads a user-level ~/.copilot/copilot-instructions.md,
+ *     but this adapter does not project a pointer there, so no user-scope rule is declared and it
+ *     resolves to null.
  * createCopilotAdapter({ declaredPaths }) is the injection point buildAdapterRegistry() uses;
  * module-level exports delegate to a default-configured instance so direct callers keep their
  * historical shape.
  */
-function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {}) {
+function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env = process.env }: any = {}) {
   // Parity note: Copilot's historical nativePaths() derived even its user-scope root from scopeRoot
   // (the CLI passes $HOME there for -g installs), never from a separate homeDir argument — so the
   // resolver is fed no homeDir and "root" keeps resolving exactly as before.
   function nativePaths({ scope, scopeRoot }: any = {}) {
-    return resolveHarnessPaths(declaredPaths, { scope, scopeRoot });
+    const paths = resolveHarnessPaths(declaredPaths, { scope, scopeRoot });
+    // Copilot CLI loads user hooks from $COPILOT_HOME/hooks when COPILOT_HOME is set (hooks reference,
+    // "Hook locations"), and DoFlow's generated commands read it too. The path schema has no
+    // environment base (src/helper/harness-paths.ts), so the override stays here, as Pi's agent dir
+    // does; skills, agents, instructions and MCP keep their declared locations.
+    if ((scope === 'user' || scope === 'global') && copilotHomeOverride()) paths.hooksConfigDir = copilotHomeOverride();
+    return paths;
+  }
+
+  /** $COPILOT_HOME when it is an absolute path, else null (a relative value would move with the cwd). */
+  function copilotHomeOverride() {
+    const home = typeof env.COPILOT_HOME === 'string' ? env.COPILOT_HOME.trim() : '';
+    return path.isAbsolute(home) ? path.resolve(home) : null;
   }
 
   /** Discovery keeps the MCP files as plan read them (`mcpSnapshot`), which verify compares against,
@@ -81,7 +103,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
   }
 
   /** Replace only the span between DoFlow's markers. A copilot-instructions.md that exists with no
-   * DoFlow section is refused rather than appended to — the same policy opencode/pi/gemini apply to
+   * DoFlow section is refused rather than appended to — the same policy opencode/pi apply to
    * their own shared instruction files, and for the same reason: where DoFlow's content belongs in a
    * file it doesn't fully own is a decision for the file's owner, not a guess for the installer. Add
    * an empty marker pair to opt in. */
@@ -108,9 +130,9 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
   }
 
   /** Plan the single instructions change (or none). Global scope always yields no change and no
-   * conflict — Copilot documents no global instructions file, so there is nothing to skip *to*,
-   * mirroring how other adapters skip a capability with no native equivalent for a given scope. */
-  function planInstructionsChange({ assets, found, context, removing, fsImpl }: any) {
+   * conflict — the user-level ~/.copilot/copilot-instructions.md is not projected, so there is no
+   * global target, the same way other adapters skip a capability they do not project at a scope. */
+  function planInstructionsChange({ assets, found, scope, scopeRoot, context, removing, fsImpl }: any) {
     if (!found.paths.instruction) return { changes: [], conflicts: [] };
     // The marker-managed instruction file is one specific asset: exclude tree-projected rule
     // assets (copilot-rule-instructions), whose `source` is a directory, not a file.
@@ -118,7 +140,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     if (!guidance) return { changes: [], conflicts: [] };
     const outcome = removing
       ? { ok: true, operation: 'remove', content: strippedInstruction(found.instruction) }
-      : managedInstruction(found.instruction, render({ content: fsImpl.readFileSync(path.resolve(context.repoRoot, guidance.source), 'utf8') }));
+      : managedInstruction(found.instruction, render({ content: renderGuidancePointer(fsImpl.readFileSync(path.resolve(context.repoRoot, guidance.source), 'utf8'), { scope, scopeRoot }) }));
     if (!outcome.ok) return { changes: [], conflicts: [outcome.conflict] };
     if (outcome.operation === 'none' || outcome.content === null) return { changes: [], conflicts: [] };
     return {
@@ -138,7 +160,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
    * (https://docs.github.com/en/copilot/reference/custom-agents-configuration) requires the
    * `.agent.md` extension, while `core/shared/agent-specs/*.md` — already `name`/`description`
    * YAML-frontmatter files, the same shape `.agent.md` expects — carries a plain `.md` extension.
-   * This is the same class of shape mismatch Gemini/Antigravity's `dir-per-file:agent.md` layout in
+   * This is the same class of shape mismatch Antigravity's `dir-per-file:agent.md` layout in
    * copy-tree.ts already solves for a directory-per-agent requirement; here the mismatch is only the
    * extension, so a flat rename is enough and no directory restructuring is needed. Declared as a
    * function (rather than a name registered in copy-tree.ts's LAYOUTS) because it is specific to this
@@ -160,7 +182,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
       const destDir = copyTreeDestDir(destRoot, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Copilot');
       const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: layout || asset.layout, transform: asset.transform, keepModified: !removing,
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: layout || asset.layout, transform: asset.transform, select: asset.select, keepModified: !removing,
         // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
         // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
         // reason codex/index.ts states in full: force heals drift on apply, but a hand-edited file
@@ -214,7 +236,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     for (const asset of treeAssetsFor(assets, renderer)) {
       const destDir = copyTreeDestDir(destRoot, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Copilot');
-      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: layout || asset.layout, transform: asset.transform, plannedWrites: context?.plannedWrites });
+      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: layout || asset.layout, transform: asset.transform, select: asset.select, plannedWrites: context?.plannedWrites });
       conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       for (const resource of result.resources) {
         resources.push({
@@ -268,7 +290,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
   /** Copilot's MCP entry changes have no asset of their own in core/registry/assets.json (they are a
    * registration side-effect of the selected MCP servers, not a projected asset), so they piggyback
    * on a real asset id already routed to this harness — the same "pseudo-component" technique
-   * src/adapters/gemini/index.ts#hooksAssetId and src/adapters/kiro/index.ts#pseudoAssetId use. The
+   * src/adapters/kiro/index.ts#pseudoAssetId uses. The
    * lifecycle layer validates every change's assetId against the harness's actual asset list, so an
    * invented id like a literal 'copilot.mcp' string is rejected as unknown. */
   function pseudoAssetId(assets: any) {
@@ -283,7 +305,7 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     const conflicts = [];
     const removing = context.operation === 'remove';
 
-    const instructions = planInstructionsChange({ assets, found, context, removing, fsImpl });
+    const instructions = planInstructionsChange({ assets, found, scope, scopeRoot, context, removing, fsImpl });
     changes.push(...instructions.changes);
     conflicts.push(...instructions.conflicts);
 
@@ -299,13 +321,21 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     changes.push(...rules.changes);
     conflicts.push(...rules.conflicts);
 
+    // Hooks: DoFlow's own .github/hooks/doflow.json and doflow-*.sh front doors (renderer
+    // copilot-hooks, a flat tree beside any hook files the user keeps there), and the shared bridge
+    // tree under ../.doflow, which hooks.shared projects through the plain copy-tree renderer above.
+    // Outside `hooks.harnesses` the registry marks the capability unavailable and selects neither.
+    const hooks = planTreeAssets({ assets, renderer: 'copilot-hooks', scopeRoot, destRoot: found.paths.hooksConfigDir, layout: null, context, ledger, removing, fsImpl });
+    changes.push(...hooks.changes);
+    conflicts.push(...hooks.conflicts);
+
     const mcpPlan = planMcpEntries({
       ...mcpEntriesInput({ paths: found.paths, mcp, mcpAdoptable, ledger, assets }), files: found.mcpSnapshot, removing,
     });
     changes.push(...legacyRegistrationReleases(ledger), ...mcpPlan.changes);
     conflicts.push(...mcpPlan.conflicts);
 
-    return { changes, conflicts, notices: [...skills.notices, ...agents.notices, ...rules.notices, ...mcpPlan.notices], paths: found.paths };
+    return { changes, conflicts, notices: [...skills.notices, ...agents.notices, ...rules.notices, ...hooks.notices, ...mcpPlan.notices], paths: found.paths };
   }
 
   function writeChange(change: any, fsImpl: any) {
@@ -379,6 +409,11 @@ function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] 
     resources.push(...rules.resources);
     statuses.push(...rules.statuses);
     conflicts.push(...rules.conflicts);
+
+    const hooks = verifyTreeAssets({ assets, renderer: 'copilot-hooks', destRoot: found.paths.hooksConfigDir, layout: null, context, fsImpl });
+    resources.push(...hooks.resources);
+    statuses.push(...hooks.statuses);
+    conflicts.push(...hooks.conflicts);
 
     const mcpResult = verifyMcpEntries({
       ...mcpEntriesInput({ paths: found.paths, mcp, mcpAdoptable, ledger, assets }), files: found.mcpSnapshot,

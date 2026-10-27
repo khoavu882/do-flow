@@ -10,6 +10,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { memoGit } = require('../git-memo.ts');
 
 interface WorktreeEntry { path: string; bare: boolean; prunable: boolean }
 
@@ -61,11 +62,18 @@ function showToplevel(cwd: string): string | null {
  * @returns {string} an absolute, real path
  */
 function projectRoot(cwd: string = process.cwd()): string {
+  // Inside a call scope (git-memo.ts) the answer git gave for this path is kept for the call. The
+  // fallback `real(cwd)` is not git's answer, so it is never kept: the path may become a repository.
+  return memoGit(`projectRoot:${path.resolve(cwd)}`, () => gitProjectRoot(cwd)) ?? real(cwd);
+}
+
+/** The root git names for `cwd`, or undefined when git names none (outside a repository). */
+function gitProjectRoot(cwd: string): string | undefined {
   let entries: WorktreeEntry[] = [];
   try { entries = worktreeEntries(git(cwd, ['worktree', 'list', '--porcelain'])); } catch { /* not a repository */ }
   const first = entries[0];
   if (first && !first.bare && isRealWorkTree(first)) return real(first.path);
-  return showToplevel(cwd) || real(cwd);
+  return showToplevel(cwd) || undefined;
 }
 
 module.exports = { projectRoot, worktreeEntries };

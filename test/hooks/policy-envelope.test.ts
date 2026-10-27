@@ -1,0 +1,407 @@
+'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
+
+const { test, after } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const { createScratch, createScratchGitRepo, encodeEnvelope, loadCorpus, parseRecords, runPolicy } = require('../helper/hook-fixtures.ts');
+
+const scratch = createScratch('doflow-policy-envelope-');
+after(() => scratch.remove());
+const baselineRoot = scratch.path('baseline');
+fs.mkdirSync(baselineRoot, { recursive: true });
+const baselineArchive = spawnSync('git', ['archive', '0fcd973', 'core/harnesses'], { cwd: path.resolve(__dirname, '../..') });
+if (baselineArchive.status !== 0) throw new Error(baselineArchive.stderr.toString());
+const baselineExtract = spawnSync('tar', ['-x', '-C', baselineRoot], { input: baselineArchive.stdout });
+if (baselineExtract.status !== 0) throw new Error(baselineExtract.stderr.toString());
+
+function runBaseline(policy: any, input: any, { cwd = path.resolve(__dirname, '../..'), env = {}, policyPath }: any = {}) {
+  const actual = spawnSync(bashPath(), [policyPath || path.join(baselineRoot, 'core/harnesses/shared/hooks/policies', `${policy}.sh`)], {
+    cwd, input, encoding: 'utf8',
+    env: { ...process.env, HOME: scratch.path('baseline-home'), XDG_CONFIG_HOME: scratch.path('baseline-xdg'), DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_DECISION_FD: '', DOFLOW_PROJECT_DIR: cwd, DOFLOW_AGENT: '', ...env },
+  });
+  return { status: actual.status, stdout: actual.stdout || '', stderr: actual.stderr || '' };
+}
+
+function encodeForPolicy(policy: any, input: any, { harness = 'claude', event = 'PreToolUse', env = {} } = {}) {
+  const native = JSON.parse(input);
+  return encodeEnvelope(harness, event, policy, JSON.stringify(native), env);
+}
+
+for (const policy of ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard']) {
+  test(`${policy}: v1 inputs preserve develop golden stdout, stderr and exit status`, () => {
+    let cwd = undefined;
+    if (policy === 'pre-implementation-gate') {
+      const repo = createScratchGitRepo(scratch, 'gate-golden');
+      repo.run('checkout', '-q', '-b', 'feat/missing-plan');
+      fs.mkdirSync(path.join(repo.root, 'agent-docs/doflow/missing-plan'), { recursive: true });
+      fs.writeFileSync(path.join(repo.root, 'agent-docs/doflow/missing-plan/requirement.md'), 'started\n');
+      cwd = repo.root;
+    }
+    for (const row of loadCorpus(policy)) {
+      if (policy === 'mcp-tool-guard' && row.name === 'pattern-deny') continue;
+      const baseline = runBaseline(policy, row.input, { cwd, env: cwd ? { DOFLOW_PROJECT_DIR: cwd, HOME: scratch.path('golden-home') } : {} });
+      assert.deepEqual(baseline, { status: row.status, stdout: row.stdout, stderr: row.stderr }, `${row.name} 0fcd973 bytes`);
+      let native;
+      try { native = JSON.parse(row.input); } catch { continue; }
+      if (!native || typeof native !== 'object' || Array.isArray(native)) continue;
+      const event = typeof native.hook_event_name === 'string' ? native.hook_event_name : 'PreToolUse';
+      const input = encodeForPolicy(policy, row.input, { event });
+      const result = runPolicy(policy, input, { cwd, env: cwd ? { DOFLOW_PROJECT_DIR: cwd, HOME: scratch.path('golden-home') } : {} });
+      assert.deepEqual({ status: result.status, stdout: result.stdout, stderr: result.stderr }, baseline, `${row.name} v1 parity`);
+    }
+  });
+}
+
+test('decision fd writes provisional allow before each deny record', () => {
+  const input = encodeEnvelope('claude', 'PreToolUse', 'pre-bash-guard', JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'rm -rf /' } }));
+  const result = runPolicy('pre-bash-guard', input, { decisionFd: true });
+  assert.equal(result.status, 2);
+  assert.match(result.stderr, /Catastrophic delete blocked/);
+  const records = parseRecords(result.records);
+  assert.deepEqual(records.map(({ outcome, code }: any) => [outcome, code]), [
+    ['allow', 'allow'], ['deny', 'blocked-pattern'],
+  ]);
+});
+
+test('decision fd records every gate deny site', () => {
+  const repo = createScratchGitRepo(scratch, 'gate-missing-artifacts');
+  repo.run('checkout', '-q', '-b', 'feat/missing-plan');
+  fs.mkdirSync(path.join(repo.root, 'agent-docs/doflow/missing-plan'), { recursive: true });
+  fs.writeFileSync(path.join(repo.root, 'agent-docs/doflow/missing-plan/requirement.md'), 'started\n');
+  const result = runPolicy('pre-implementation-gate', JSON.stringify({
+    doflow_event: { version: 1, operation: 'edit', paths: ['src/a.js'] },
+  }), { decisionFd: true, cwd: repo.root, env: { DOFLOW_PROJECT_DIR: repo.root, HOME: scratch.path('gate-home') } });
+  assert.equal(result.status, 2);
+  assert.deepEqual(parseRecords(result.records).map(({ outcome, code }: any) => [outcome, code]), [
+    ['allow', 'allow'], ['deny', 'missing-artifacts'],
+  ]);
+});
+
+test('decision fd records missing, not-ready and wrong-template readiness denies', () => {
+  const repo = createScratchGitRepo(scratch, 'gate-readiness-records');
+  repo.run('checkout', '-q', '-b', 'feat/readiness-records');
+  const feature = path.join(repo.root, 'agent-docs/doflow/readiness-records');
+  fs.mkdirSync(path.join(feature, 'intention'), { recursive: true });
+  fs.mkdirSync(path.join(feature, 'design'), { recursive: true });
+  fs.mkdirSync(path.join(feature, 'decisions'), { recursive: true });
+  fs.writeFileSync(path.join(feature, 'intention/requirement.md'), '# requirement\n');
+  fs.writeFileSync(path.join(feature, 'design/design.md'), '# design\n');
+  fs.writeFileSync(path.join(feature, 'plan.md'), '- [ ] A.1 [US1] demo — owner: x; files: src/a.js\n');
+  fs.writeFileSync(path.join(feature, 'decisions/register.json'), JSON.stringify({ version: 1, slug: 'readiness-records', nextId: 1, decisions: [] }));
+  for (const [state, taskClass, code] of [
+    ['', '', 'readiness-missing'], ['NEEDS_EVIDENCE', 'feature', 'readiness-not-ready'], ['READY', 'bug', 'readiness-wrong-template'],
+  ]) {
+    const readiness = path.join(repo.root, '.doflow/state/readiness/readiness-records.json');
+    fs.rmSync(readiness, { force: true });
+    if (state) {
+      fs.mkdirSync(path.dirname(readiness), { recursive: true });
+      fs.writeFileSync(readiness, JSON.stringify({ state, taskClass, evaluatedAt: '2026-01-01T00:00:00.000Z' }));
+    }
+    const result = runPolicy('pre-implementation-gate', JSON.stringify({
+      doflow_event: { version: 1, operation: 'edit', paths: ['src/a.js'] },
+    }), { decisionFd: true, cwd: repo.root, env: { DOFLOW_PROJECT_DIR: repo.root, HOME: scratch.path('readiness-home') } });
+    assert.equal(result.status, 2, code);
+    assert.equal(parseRecords(result.records).at(-1).code, code);
+  }
+});
+
+test('decision fd records all hardcoded floor deny sites when patterns are missing', () => {
+  const policyDir = scratch.path('floor-no-patterns');
+  fs.mkdirSync(policyDir, { recursive: true });
+  fs.copyFileSync(path.join(__dirname, '../../core/harnesses/shared/hooks/policies/pre-bash-guard.sh'), path.join(policyDir, 'pre-bash-guard.sh'));
+  fs.copyFileSync(path.join(__dirname, '../../core/harnesses/shared/hooks/policies/contract.sh'), path.join(policyDir, 'contract.sh'));
+  fs.copyFileSync(path.join(__dirname, '../../core/harnesses/shared/hooks/policies/capture-failure.sh'), path.join(policyDir, 'capture-failure.sh'));
+  for (const [command, expected] of [
+    ['rm -rf /', 'catastrophic-rm-root'], ['rm -rf ~', 'catastrophic-rm-home'], ['rm -rf /etc', 'catastrophic-rm-system'],
+  ]) {
+    const input = encodeEnvelope('claude', 'PreToolUse', 'pre-bash-guard', JSON.stringify({ tool_name: 'Bash', tool_input: { command } }));
+    const result = runPolicy('pre-bash-guard', input, {
+      decisionFd: true, policyPath: path.join(policyDir, 'pre-bash-guard.sh'),
+    });
+    assert.equal(result.status, 2, command);
+    assert.deepEqual(parseRecords(result.records).map(({ outcome, code }: any) => [outcome, code]), [
+      ['allow', 'allow'], ['error', 'patterns-missing'], ['deny', expected],
+    ], command);
+  }
+});
+
+test('MCP deny, patterns-missing and mcp-policy-missing sites write records', () => {
+  const policyDir = scratch.path('mcp-record-sites');
+  fs.mkdirSync(policyDir, { recursive: true });
+  for (const file of ['mcp-tool-guard.sh', 'contract.sh', 'capture-failure.sh']) {
+    fs.copyFileSync(path.join(__dirname, '../../core/harnesses/shared/hooks/policies', file), path.join(policyDir, file));
+  }
+  const denyFixture = loadCorpus('mcp-tool-guard').find((row: any) => row.name === 'pattern-deny');
+  fs.copyFileSync(path.join(__dirname, '../../test/fixtures/hooks/policy-golden/mcp-tool-guard/pattern-deny/mcp-policy.conf'), path.join(policyDir, 'mcp-policy.conf'));
+  const baselinePolicyDir = scratch.path('baseline-mcp-patterns');
+  fs.cpSync(path.join(baselineRoot, 'core/harnesses/shared/hooks/policies'), baselinePolicyDir, { recursive: true });
+  fs.copyFileSync(path.join(policyDir, 'mcp-policy.conf'), path.join(baselinePolicyDir, 'mcp-policy.conf'));
+  const denyInput = encodeForPolicy('mcp-tool-guard', denyFixture.input);
+  const denied = runPolicy('mcp-tool-guard', denyInput, { decisionFd: true, policyPath: path.join(policyDir, 'mcp-tool-guard.sh') });
+  const baselineDeny = runBaseline('mcp-tool-guard', denyFixture.input, { policyPath: path.join(baselinePolicyDir, 'mcp-tool-guard.sh') });
+  assert.equal(denied.status, 2);
+  assert.equal(denied.stdout, denyFixture.stdout);
+  assert.equal(denied.stderr, denyFixture.stderr);
+  assert.deepEqual(baselineDeny, { status: denyFixture.status, stdout: denyFixture.stdout, stderr: denyFixture.stderr });
+  assert.deepEqual(parseRecords(denied.records).map(({ outcome, code }: any) => [outcome, code]), [
+    ['allow', 'allow'], ['deny', 'blocked-pattern'],
+  ]);
+  fs.rmSync(path.join(policyDir, 'mcp-policy.conf'));
+    const missing = runPolicy('mcp-tool-guard', denyInput, { decisionFd: true, policyPath: path.join(policyDir, 'mcp-tool-guard.sh') });
+  assert.equal(missing.status, 0);
+  assert.deepEqual(parseRecords(missing.records).map(({ outcome, code }: any) => [outcome, code]), [
+    ['allow', 'allow'], ['error', 'mcp-policy-missing'],
+  ]);
+});
+
+test('v1 policy verdicts match develop native results for every legacy fixture input', () => {
+  const gateStatuses = new Set();
+  for (const row of loadCorpus('pre-implementation-gate')) {
+    let native;
+    try { native = JSON.parse(row.input); } catch { continue; }
+    if (!native || Array.isArray(native) || typeof native !== 'object') continue;
+    const event = typeof native.hook_event_name === 'string' ? native.hook_event_name : 'PreToolUse';
+    for (const scenario of [
+      { branch: 'feat', artifacts: 'missing' },
+      { branch: 'feat', artifacts: 'complete' },
+      { branch: 'main', artifacts: 'missing' },
+      { branch: 'main', artifacts: 'complete' },
+    ]) {
+      const slug = `${row.name}-${scenario.branch}-${scenario.artifacts}`;
+      const repo = createScratchGitRepo(scratch, `gate-v1-parity-${slug}`);
+      if (scenario.branch === 'feat') repo.run('checkout', '-q', '-b', `feat/${slug}`);
+      if (scenario.branch === 'feat') fs.mkdirSync(path.join(repo.root, 'agent-docs/doflow', slug), { recursive: true });
+      if (scenario.artifacts === 'complete') {
+        const featureDir = path.join(repo.root, 'agent-docs/doflow', slug);
+        fs.mkdirSync(featureDir, { recursive: true });
+        fs.writeFileSync(path.join(featureDir, 'requirement.md'), '# Requirement\n');
+        fs.writeFileSync(path.join(featureDir, 'design.md'), '# Design\n');
+        fs.writeFileSync(path.join(featureDir, 'plan.md'), '# Plan\n');
+      }
+      const env = { DOFLOW_PROJECT_DIR: repo.root, HOME: scratch.path(`gate-v1-home-${slug}`) };
+      const legacyResult = runBaseline('pre-implementation-gate', row.input, { cwd: repo.root, env });
+      const envelope = encodeEnvelope('claude', event, 'pre-implementation-gate', row.input);
+      const envelopeResult = runPolicy('pre-implementation-gate', envelope, { cwd: repo.root, env });
+      assert.equal(envelopeResult.status, legacyResult.status, `${slug} exit`);
+      assert.equal(envelopeResult.stdout, legacyResult.stdout, `${slug} stdout`);
+      assert.equal(envelopeResult.stderr, legacyResult.stderr, `${slug} stderr`);
+      gateStatuses.add(legacyResult.status);
+    }
+  }
+  assert.ok(gateStatuses.has(0), 'gate parity includes an allow on a non-feature branch');
+  assert.ok(gateStatuses.has(2), 'gate parity includes a deny on a feature branch');
+  for (const [policy, harness, fallbackEvent] of [
+    ['pre-bash-guard', 'claude', 'PreToolUse'],
+    ['mcp-tool-guard', 'claude', 'PreToolUse'],
+  ]) {
+    for (const row of loadCorpus(policy)) {
+      let native;
+      try { native = JSON.parse(row.input); } catch { continue; }
+      if (!native || Array.isArray(native) || typeof native !== 'object') continue;
+      const eventName = native.hook_event_name || fallbackEvent;
+      const envelope = encodeEnvelope(harness, eventName, policy, row.input);
+      const legacyResult = runBaseline(policy, row.input);
+      const envelopeResult = runPolicy(policy, envelope);
+      assert.equal(envelopeResult.status, legacyResult.status, row.name);
+      assert.equal(envelopeResult.stdout, legacyResult.stdout, row.name);
+      assert.equal(envelopeResult.stderr, legacyResult.stderr, row.name);
+    }
+  }
+});
+
+test('version 1 class follows IC-003 even when the optional native harness or event field is absent', () => {
+  for (const missing of ['harness', 'event']) {
+    const envelope: any = { version: 1, operation: 'tool' };
+    envelope[missing] = undefined;
+    const input = JSON.stringify({
+      doflow_event: envelope,
+      tool_name: 'Bash',
+      tool_input: { command: 'rm -rf /' },
+    });
+    for (const policy of ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard']) {
+      const result = runPolicy(policy, input, { decisionFd: true });
+      assert.equal(result.status, 0, `${policy} missing ${missing}`);
+      assert.equal(result.stderr, '', `${policy} missing ${missing}`);
+      assert.deepEqual(parseRecords(result.records).map(({ outcome, code }: any) => [outcome, code]), [
+        ['allow', 'allow'],
+      ], `${policy} missing ${missing}`);
+    }
+  }
+});
+
+test('v1 patch input uses the same path parser and gate decision as native apply_patch', () => {
+  const repo = createScratchGitRepo(scratch, 'gate-v1-patch');
+  repo.run('checkout', '-q', '-b', 'feat/patch-no-plan');
+  fs.mkdirSync(path.join(repo.root, 'agent-docs/doflow/patch-no-plan'), { recursive: true });
+  fs.writeFileSync(path.join(repo.root, 'agent-docs/doflow/patch-no-plan/requirement.md'), 'started\n');
+  const patch = '*** Begin Patch\n*** Update File: src/a.js\n@@\n-a\n+b\n*** End Patch';
+  const env = { DOFLOW_PROJECT_DIR: repo.root, HOME: scratch.path('patch-home') };
+  const native = { tool_name: 'apply_patch', tool_input: { command: patch } };
+  const baseline = runBaseline('pre-implementation-gate', JSON.stringify(native), { cwd: repo.root, env });
+  const input = encodeEnvelope('codex', 'PreToolUse', 'pre-implementation-gate', JSON.stringify(native));
+  const v1 = runPolicy('pre-implementation-gate', input, { decisionFd: true, cwd: repo.root, env });
+  assert.equal(baseline.status, 2);
+  assert.equal(v1.status, baseline.status);
+  assert.equal(v1.stderr, baseline.stderr);
+  assert.deepEqual(parseRecords(v1.records).map(({ outcome, code }: any) => [outcome, code]), [
+    ['allow', 'allow'], ['deny', 'missing-artifacts'],
+  ]);
+});
+
+test('v1 policies use envelope fields and unsupported versions do not evaluate native fields', () => {
+  const cases = [];
+  for (const version of [2, '1', null]) {
+    cases.push(
+      ['pre-implementation-gate', { doflow_event: { version, operation: 'edit' }, tool_name: 'Edit', tool_input: { file_path: 'src/a.js' } }],
+      ['pre-bash-guard', { doflow_event: { version, operation: 'command', command: 'rm -rf /' }, tool_name: 'Bash', tool_input: { command: 'rm -rf /' } }],
+      ['mcp-tool-guard', { doflow_event: { version, operation: 'mcp', tool: 'mcp__x__delete' }, tool_name: 'mcp__x__delete' }],
+    );
+  }
+  for (const [policy, payload] of cases) {
+    const result = runPolicy(policy, JSON.stringify(payload), { decisionFd: true });
+    assert.equal(result.status, 0, policy);
+    assert.equal(result.stdout, '', policy);
+    assert.equal(result.stderr, '', policy);
+    assert.deepEqual(parseRecords(result.records).map(({ outcome, code }: any) => [outcome, code]), [
+      ['allow', 'allow'], ['unsupported', 'envelope-version'],
+    ]);
+  }
+});
+
+test('v1 edit without a target is diagnosed; missing envelope takes the out-of-step rule', () => {
+  const v1 = runPolicy('pre-implementation-gate', JSON.stringify({ doflow_event: { version: 1, operation: 'edit' } }), { decisionFd: true });
+  assert.equal(v1.status, 0);
+  assert.deepEqual(parseRecords(v1.records).map(({ outcome, code }: any) => [outcome, code]), [
+    ['allow', 'allow'], ['unsupported', 'edit-without-target'],
+  ]);
+
+  const missing = runPolicy('pre-implementation-gate', JSON.stringify({ doflow_event: { operation: 'edit' } }), { decisionFd: true, env: { DOFLOW_AGENT: 'claude' } });
+  assert.equal(missing.status, 2);
+  assert.equal(missing.stderr, '[pre-implementation-gate] DoFlow hooks out of step; run: doflow update -t claude\n');
+  assert.deepEqual(parseRecords(missing.records).map(({ outcome, code }: any) => [outcome, code]), [
+    ['allow', 'allow'], ['deny', 'envelope-missing'],
+  ]);
+});
+
+test('all three policies remain safe when sourced under set -euo pipefail', () => {
+  for (const policy of ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard']) {
+    const script = `set -euo pipefail\nINPUT='{}'\nsource "${path.resolve(__dirname, '../../core/harnesses/shared/hooks/policies/contract.sh')}"\ndoflow_decision_init ${policy} 1\ndoflow_read_envelope\n`;
+    const result = require('node:child_process').spawnSync(bashPath(), ['-c', script], { encoding: 'utf8' });
+    assert.equal(result.status, 0, `${policy}: ${result.stderr}`);
+  }
+});
+
+test('jq missing records a fault and captures dependency-missing:jq while keeping today’s allow result', () => {
+  const bin = scratch.path('no-jq-bin');
+  fs.mkdirSync(bin, { recursive: true });
+  for (const [command, target] of Object.entries({
+    bash: bashPath(), cat: '/bin/cat', dirname: '/usr/bin/dirname', date: '/bin/date',
+    head: '/usr/bin/head', mkdir: '/bin/mkdir', sed: '/usr/bin/sed', tr: '/usr/bin/tr',
+  })) fs.symlinkSync(target, path.join(bin, command));
+  for (const policy of ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard']) {
+    const failureRoot = scratch.path(`jq-missing-${policy}`);
+    const result = runPolicy(policy, '{}', {
+      decisionFd: true,
+      env: { PATH: bin, XDG_CONFIG_HOME: failureRoot, DOFLOW_FAILURE_CAPTURE: '' },
+    });
+    assert.equal(result.status, 0, policy);
+    assert.equal(result.stdout, '', policy);
+    assert.equal(result.stderr, '', policy);
+    assert.deepEqual(parseRecords(result.records).map(({ outcome, code }: any) => [outcome, code]), [
+      ['allow', 'allow'], ['error', 'dependency-missing:jq'],
+    ]);
+    const failure = JSON.parse(fs.readFileSync(path.join(failureRoot, 'doflow/failures/events.jsonl'), 'utf8').trim());
+    assert.deepEqual([failure.command, failure.kind], [policy, 'dependency-missing:jq']);
+  }
+});
+
+test('contract missing takes the out-of-step rule and records contract-missing for every blocking policy', () => {
+  const cases = [
+    ['pre-implementation-gate', 'native-read'],
+    ['pre-bash-guard', 'native-safe-command'],
+    ['mcp-tool-guard', 'native-mcp-allow'],
+  ];
+  for (const [policy, fixture] of cases) {
+    const policyDir = scratch.path(`missing-contract/${policy}`);
+    fs.mkdirSync(path.dirname(policyDir), { recursive: true });
+    fs.cpSync(path.join(__dirname, '../../core/harnesses/shared/hooks/policies'), policyDir, { recursive: true });
+    fs.rmSync(path.join(policyDir, 'contract.sh'));
+    const row = loadCorpus(policy).find((item: any) => item.name === fixture);
+    const failureRoot = scratch.path(`missing-contract/${policy}/failures`);
+    const result = runPolicy(policy, row.input, {
+      policyPath: path.join(policyDir, `${policy}.sh`),
+      env: { XDG_CONFIG_HOME: failureRoot, DOFLOW_FAILURE_CAPTURE: '' },
+    });
+    assert.equal(result.status, 2, `${policy} exit`);
+    assert.equal(result.stdout, '', `${policy} stdout`);
+    assert.match(result.stderr, /^\[(pre-implementation-gate|pre-bash-guard|mcp-tool-guard)\] DoFlow hooks out of step; run: doflow update/);
+    const events = JSON.parse(fs.readFileSync(path.join(failureRoot, 'doflow/failures/events.jsonl'), 'utf8').trim());
+    assert.deepEqual([events.command, events.kind], [policy, 'contract-missing']);
+  }
+});
+
+// IC-008: the bridge copies DOFLOW_LINEAGE_ID and DOFLOW_WORKTREE into identity, never defaulted or derived.
+const IDENTITY_KEYS = ['DOFLOW_TASK_ID', 'DOFLOW_RUN_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_LINEAGE_ID', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE'];
+const IDENTITY_ENV = {
+  DOFLOW_TASK_ID: '078-identity', DOFLOW_RUN_ID: 'run-envelope-1', DOFLOW_ATTEMPT: '3',
+  DOFLOW_LINEAGE_ID: 'lineage-envelope-1', DOFLOW_SESSION_ROLE: 'worker', DOFLOW_WORKTREE: '/tmp/doflow-worktree-envelope',
+};
+const IDENTITY_NATIVE = { hook_event_name: 'PreToolUse', session_id: 'identity-session', cwd: '/tmp/identity-cwd', tool_name: 'Bash', tool_input: { command: 'printf safe' } };
+
+function envWithoutIdentity(extra = {}) {
+  const env = { ...process.env };
+  for (const key of IDENTITY_KEYS) delete env[key];
+  return { ...env, ...extra };
+}
+
+// Runs the real bridge.sh against a stub pre-bash-guard that captures the payload it receives.
+function bridgeEnvelope(label: any, env: any, bridgeSource?: any) {
+  const root = scratch.path(`identity-bridge/${label}`);
+  fs.cpSync(path.resolve(__dirname, '../../core/harnesses/shared/hooks'), root, { recursive: true });
+  if (bridgeSource) fs.writeFileSync(path.join(root, 'bridge/envelope.jq'), bridgeSource);
+  const capture = path.join(root, 'captured.json');
+  fs.writeFileSync(path.join(root, 'policies/pre-bash-guard.sh'), `#!/usr/bin/env bash\ncat > '${capture}'\nexit 0\n`, { mode: 0o755 });
+  const result = spawnSync(bashPath(), [path.join(root, 'bridge/bridge.sh'), 'claude', 'PreToolUse', 'pre-bash-guard'], {
+    cwd: scratch.path(), input: `${JSON.stringify(IDENTITY_NATIVE)}\n`, encoding: 'utf8',
+    // MSYS rewrites an env value that looks like a POSIX path (/tmp/x) when bash starts the native jq; the fixture wants the literal text
+    env: { ...env, ...(process.platform === 'win32' ? { MSYS2_ENV_CONV_EXCL: 'DOFLOW_WORKTREE' } : {}), HOME: scratch.path('identity-home'), XDG_CONFIG_HOME: scratch.path('identity-xdg'), DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_BRIDGE_TRACE: '', DOFLOW_DECISION_FD: '' },
+  });
+  assert.equal(result.status, 0, `${label}: bridge exit ${result.stderr}`);
+  return JSON.parse(fs.readFileSync(capture, 'utf8')).doflow_event;
+}
+
+function assertUnsetIdentity(envelope: any) {
+  assert.deepEqual(envelope.identity, { session: 'identity-session' }, 'unset identity carries only the harness session');
+  assert.equal(Object.hasOwn(envelope, 'taskId'), false, 'unset task id is absent');
+}
+
+test('IC-008: the bridge carries all six identity variables into the envelope', () => {
+  const envelope = bridgeEnvelope('six', envWithoutIdentity(IDENTITY_ENV));
+  assert.equal(envelope.taskId, '078-identity');
+  assert.deepEqual(envelope.identity, {
+    session: 'identity-session', run: 'run-envelope-1', attempt: 3,
+    lineage: 'lineage-envelope-1', role: 'worker', worktree: '/tmp/doflow-worktree-envelope',
+  });
+});
+
+test('IC-008: unset and empty lineage and worktree are absent, never defaulted or derived from cwd', () => {
+  assertUnsetIdentity(bridgeEnvelope('unset', envWithoutIdentity()));
+  assertUnsetIdentity(bridgeEnvelope('empty', envWithoutIdentity(Object.fromEntries(IDENTITY_KEYS.map((key) => [key, ''])))));
+});
+
+test('IC-008 negative control: an encoder that defaults lineage or derives worktree from cwd fails the unset case', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../../core/harnesses/shared/hooks/bridge/envelope.jq'), 'utf8');
+  const lineageLine = '($ENV.DOFLOW_LINEAGE_ID | nonempty(.)) as $lineage |';
+  const worktreeLine = '($ENV.DOFLOW_WORKTREE | nonempty(.)) as $worktree |';
+  for (const [label, from, to] of [
+    ['default-lineage', lineageLine, '(($ENV.DOFLOW_LINEAGE_ID | nonempty(.)) // "main") as $lineage |'],
+    ['cwd-worktree', worktreeLine, '(($ENV.DOFLOW_WORKTREE | nonempty(.)) // $native.cwd) as $worktree |'],
+  ]) {
+    assert.ok(source.includes(from), `${label}: production encoder line exists`);
+    const envelope = bridgeEnvelope(label, envWithoutIdentity(), source.replace(from, to));
+    assert.throws(() => assertUnsetIdentity(envelope), `${label}: defaulted identity is detected`);
+  }
+});

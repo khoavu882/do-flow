@@ -26,7 +26,44 @@
       "modelReviewIsPrimaryProof is false and is validated as false at load: a model-based tier may lower a verdict to FAIL but can never establish PASS on its own.",
       "Each tier declares the recovery failureClass its failure means. A tier declaration is structural evidence and outranks the keyword classifier reading an error string, the same precedence recovery.js already applies between check names and error prose.",
       "unresolvedDetectionFailureClass is CONTEXT_MISSING rather than ENVIRONMENT_FAILURE: what is missing is knowledge of the command, and the targeted action is to find it or declare it in plan.md, not to diagnose the machine."
-    ]
+    ],
+    "dedup": {
+      "envExclude": [
+        "DOFLOW_RUN_ID",
+        "DOFLOW_LINEAGE_ID",
+        "DOFLOW_ATTEMPT",
+        "DOFLOW_TASK_ID",
+        "DOFLOW_SESSION_ROLE",
+        "DOFLOW_WORKTREE",
+        "_",
+        "OLDPWD",
+        "PWD",
+        "SHLVL"
+      ]
+    },
+    "v0": {
+      "levels": [
+        "L1",
+        "L2"
+      ]
+    },
+    "reuse": {
+      "levels": [
+        "L1",
+        "L2"
+      ],
+      "maxAgeMs": 86400000,
+      "ignoredInputs": [
+        "node_modules/.package-lock.json",
+        "node_modules/.modules.yaml",
+        "node_modules/.yarn-state.yml",
+        ".pnp.cjs",
+        ".env",
+        ".env.local",
+        ".env.test",
+        ".venv/pyvenv.cfg"
+      ]
+    }
   },
   "tierStatuses": [
     "PASS",
@@ -254,5 +291,43 @@
       "advisoryTiers": [],
       "maxRecoveryIterations": 1
     }
+  },
+  "levels": {
+    "L0": {
+      "tiers": [
+        "parse",
+        "build"
+      ],
+      "standalone": false
+    },
+    "L1": {
+      "riskLevels": [
+        "LOW"
+      ]
+    },
+    "L2": {
+      "riskLevels": [
+        "MEDIUM"
+      ],
+      "note": "impacted = broad-tests until an impact-replay verdict and a recorded decision enable selection (089)"
+    },
+    "L3": {
+      "riskLevels": [
+        "HIGH",
+        "CRITICAL"
+      ],
+      "outsideVerb": "release and CI runs"
+    }
+  },
+  "reviewDepth": {
+    "description": "Review depth rule (single risks and light paths) read by doflow review --action start (feature 095b). The seat counts live in core/registry/protocols.json. Skill text names the verb, never these values.",
+    "singleRisks": [
+      "LOW"
+    ],
+    "lightPaths": [
+      "docs/",
+      "README.md",
+      "CHANGELOG.md"
+    ]
   }
 }

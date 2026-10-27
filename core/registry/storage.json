@@ -75,6 +75,67 @@
       ]
     },
     {
+      "id": "verification-runs",
+      "root": "project-state",
+      "path": "verification/runs",
+      "entry": "record",
+      "match": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.jsonl$",
+      "rule": "work",
+      "bound": {
+        "finishedDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verify",
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/verification/engine.ts"
+      ]
+    },
+    {
+      "id": "verification-v0",
+      "root": "project-state",
+      "path": "verification/v0",
+      "entry": "file",
+      "match": "^[A-Za-z0-9._-]+$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 40,
+        "maxAgeDays": 7
+      },
+      "protect": null,
+      "moments": [
+        "verify",
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/verification/engine.ts",
+        "src/runtime/verification/inflight.ts"
+      ]
+    },
+    {
+      "id": "verification-reuse",
+      "root": "project-state",
+      "path": "verification/reuse",
+      "entry": "file",
+      "match": "^reuse-[0-9a-f]{16}\\.json$|^reuse-[0-9a-f]{16}\\.[0-9a-f]{32}\\.tmp$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 400,
+        "maxAgeDays": 2,
+        "either": true
+      },
+      "protect": null,
+      "moments": [
+        "verify",
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/verification/reuse.ts"
+      ]
+    },
+    {
       "id": "task-evidence",
       "root": "project-state",
       "path": "evidence",
@@ -89,7 +150,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.ts"
+        "src/runtime/task-state.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -107,7 +169,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.ts"
+        "src/runtime/task-state.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -126,7 +189,8 @@
       ],
       "writers": [
         "src/runtime/readiness-record.ts",
-        "src/runtime/task-state.ts"
+        "src/runtime/task-state.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -144,7 +208,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/task-state.ts"
+        "src/runtime/task-state.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -162,7 +227,8 @@
         "verb"
       ],
       "writers": [
-        "src/runtime/outcome.ts"
+        "src/runtime/outcome.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -181,7 +247,8 @@
       ],
       "writers": [
         "src/runtime/task-state.ts",
-        "src/runtime/retrieval-record.ts"
+        "src/runtime/retrieval-record.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -203,6 +270,137 @@
       ]
     },
     {
+      "id": "worker-runs",
+      "root": "project-state",
+      "path": "worker-runs",
+      "entry": "record",
+      "match": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.json$",
+      "rule": "work",
+      "bound": {
+        "finishedDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/task-state.ts"
+      ]
+    },
+    {
+      "id": "worker-probes",
+      "root": "project-state",
+      "path": "worker-probes",
+      "entry": "file",
+      "match": "^[a-z][a-z0-9-]*\\.json$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 16,
+        "maxAgeDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/task-state.ts"
+      ]
+    },
+    {
+      "id": "worker-output",
+      "root": "project-state",
+      "path": "worker-output",
+      "entry": "file",
+      "match": "^w-[0-9a-f]{12}\\.(out|err|last)\\.log$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 200,
+        "maxAgeDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/worker/supervisor.ts"
+      ]
+    },
+    {
+      "id": "dispatch",
+      "root": "project-state",
+      "path": "dispatch",
+      "entry": "record",
+      "match": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.json$",
+      "rule": "work",
+      "bound": {
+        "finishedDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/task-state.ts"
+      ]
+    },
+    {
+      "id": "roadmap",
+      "root": "project-state",
+      "path": "roadmap",
+      "entry": "record",
+      "match": "^[A-Za-z0-9][A-Za-z0-9._-]*\\.json$",
+      "rule": "work",
+      "bound": {
+        "finishedDays": 30
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/roadmap/merge.ts",
+        "src/runtime/roadmap/loop.ts"
+      ]
+    },
+    {
+      "id": "dispatch-envelopes",
+      "root": "project-state",
+      "path": "dispatch-envelopes",
+      "entry": "file",
+      "match": "^d-[0-9a-f]{12}(?:\\.c[1-4])?\\.[a-z][a-z-]{0,31}\\.(?:json|txt)$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 400,
+        "maxAgeDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/dispatch/envelope.ts",
+        "src/runtime/dispatch/grants.ts"
+      ]
+    },
+    {
+      "id": "dispatch-worktrees",
+      "root": "project-state",
+      "path": "dispatch-worktrees",
+      "entry": "dir",
+      "match": "^[pd]-[0-9a-f]{12}(?:\\.c[1-4])?$",
+      "rule": "existing",
+      "bound": {
+        "text": "attempt worktrees removed by dispatch cleanup; the integration worktree stays for the user to merge"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/worktree.ts"
+      ],
+      "source": {
+        "file": "src/runtime/dispatch/integrate.ts",
+        "pattern": "removeVerified"
+      }
+    },
+    {
       "id": "task-orchestration",
       "root": "project-state",
       "path": "orchestration",
@@ -218,7 +416,8 @@
       ],
       "writers": [
         "src/runtime/task-state.ts",
-        "src/runtime/workflow-orchestrator.ts"
+        "src/runtime/workflow-orchestrator.ts",
+        "src/runtime/state-root.ts"
       ]
     },
     {
@@ -238,6 +437,26 @@
       "writers": [
         "core/shared/scripts/doflow/bin/doflow-run",
         "src/runtime/trace/ledger.ts"
+      ]
+    },
+    {
+      "id": "runs-telemetry",
+      "root": "project-state",
+      "path": "runs/telemetry",
+      "entry": "file",
+      "match": "^[0-9]{4}-[0-9]{2}-[0-9]{2}\\.jsonl$",
+      "rule": "date-partition",
+      "bound": {
+        "maxAgeDays": 180
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "core/harnesses/shared/hooks/bridge/bridge.sh",
+        "core/harnesses/claude/hooks/post-shell-observe.sh",
+        "src/runtime/trace/telemetry.ts"
       ]
     },
     {
@@ -293,6 +512,25 @@
       ],
       "writers": [
         "src/runtime/advice/record.ts"
+      ]
+    },
+    {
+      "id": "slots-user",
+      "root": "user-state",
+      "path": "slots",
+      "entry": "record",
+      "match": "^[a-z0-9][a-z0-9-]{0,63}\\.json$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 64,
+        "maxAgeDays": 30
+      },
+      "protect": null,
+      "moments": [
+        "verb"
+      ],
+      "writers": [
+        "src/runtime/slots.ts"
       ]
     },
     {
@@ -393,14 +631,15 @@
         "core/harnesses/claude/hooks/skill-config-audit.sh",
         "core/harnesses/codex/hooks/lib.sh",
         "core/harnesses/codex/hooks/post-edit-lint.impl.sh",
-        "core/harnesses/gemini/hooks/lib.sh",
-        "core/harnesses/gemini/hooks/post-edit-lint.sh",
         "core/harnesses/kiro/hooks/lib.sh",
+        "core/harnesses/shared/hooks/policies/emission.sh",
+        "core/harnesses/shared/hooks/policies/identity.sh",
         "core/harnesses/shared/hooks/policies/lib.sh",
         "core/harnesses/shared/hooks/policies/session-context.sh",
         "core/harnesses/shared/hooks/policies/stop-check.sh",
         "core/harnesses/shared/hooks/policies/subagent-audit.sh",
-        "core/harnesses/shared/hooks/policies/user-prompt-submit.sh"
+        "src/runtime/context/arbitrate.ts",
+        "src/runtime/context/identity.ts"
       ]
     },
     {
@@ -424,12 +663,90 @@
         "core/harnesses/claude/hooks/session-end.sh",
         "core/harnesses/codex/hooks/lib.sh",
         "core/harnesses/codex/hooks/session-end.impl.sh",
-        "core/harnesses/gemini/hooks/lib.sh",
-        "core/harnesses/gemini/hooks/session-end.impl.sh",
         "core/harnesses/kiro/hooks/lib.sh",
         "core/harnesses/shared/hooks/policies/lib.sh",
         "core/harnesses/shared/hooks/policies/session-context.sh",
-        "core/harnesses/shared/hooks/policies/user-prompt-submit.sh"
+        "src/runtime/context/arbitrate.ts"
+      ]
+    },
+    {
+      "id": "summary-scopes",
+      "root": "config-home",
+      "path": "session-env/summaries",
+      "entry": "dir",
+      "match": "^[0-9a-f]{16}$",
+      "rule": "age",
+      "bound": {
+        "maxAgeDays": 90
+      },
+      "protect": null,
+      "moments": [
+        "session",
+        "verb"
+      ],
+      "writers": [
+        "core/harnesses/shared/hooks/policies/summary-store.sh",
+        "src/runtime/context/summary-store.ts"
+      ]
+    },
+    {
+      "id": "summary-grants",
+      "root": "config-home",
+      "path": "session-env/grants",
+      "entry": "dir",
+      "match": "^[A-Za-z0-9][A-Za-z0-9_-]{0,55}$",
+      "rule": "age",
+      "bound": {
+        "maxAgeDays": 90
+      },
+      "protect": null,
+      "moments": [
+        "session",
+        "verb"
+      ],
+      "writers": [
+        "core/harnesses/shared/hooks/policies/summary-store.sh",
+        "src/runtime/context/summary-store.ts"
+      ]
+    },
+    {
+      "id": "model-observations",
+      "root": "config-home",
+      "path": "session-env/primary",
+      "entry": "dir",
+      "match": "^[0-9a-f]{16}$",
+      "rule": "age",
+      "bound": {
+        "maxAgeDays": 7
+      },
+      "protect": null,
+      "moments": [
+        "session",
+        "verb"
+      ],
+      "writers": [
+        "core/harnesses/shared/hooks/bridge/observe-model.sh"
+      ]
+    },
+    {
+      "id": "worker-model-observations",
+      "root": "config-home",
+      "path": "session-env/worker-model",
+      "entry": "file",
+      "match": "^L\\.[A-Za-z0-9][A-Za-z0-9_-]{0,55}\\.[A-Za-z0-9][A-Za-z0-9_-]{0,55}\\.[1-9][0-9]{0,3}\\.json$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 1000,
+        "maxAgeDays": 7,
+        "either": true
+      },
+      "protect": "unfinished-run",
+      "moments": [
+        "session",
+        "verb"
+      ],
+      "writers": [
+        "core/harnesses/shared/hooks/bridge/observe-model.sh"
       ]
     },
     {
@@ -513,8 +830,6 @@
         "core/harnesses/claude/hooks/session-end.sh",
         "core/harnesses/codex/hooks/lib.sh",
         "core/harnesses/codex/hooks/session-end.impl.sh",
-        "core/harnesses/gemini/hooks/lib.sh",
-        "core/harnesses/gemini/hooks/session-end.impl.sh",
         "core/harnesses/kiro/hooks/lib.sh",
         "core/harnesses/shared/hooks/policies/lib.sh",
         "core/harnesses/shared/hooks/policies/session-context.sh"
@@ -542,12 +857,52 @@
         "core/harnesses/shared/hooks/stream-hook-runner.js",
         "core/shared/scripts/doflow/bin/doflow-run",
         "src/runtime/failure/capture.ts",
-        "src/runtime/failure/cli.ts",
         "src/runtime/failure/store.ts"
       ],
       "source": {
         "file": "src/runtime/failure/capture.ts",
         "pattern": "KEEP_ROTATED = {value}"
+      }
+    },
+    {
+      "id": "autopilot-switch",
+      "root": "config-home",
+      "path": "autopilot",
+      "entry": "file",
+      "match": "^off$",
+      "rule": "existing",
+      "bound": {
+        "text": "one sentinel file; only a person removes it"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/settings/autopilot.ts"
+      ],
+      "source": {
+        "file": "src/runtime/settings/autopilot.ts",
+        "pattern": "path.join(home, 'autopilot', 'off')"
+      }
+    },
+    {
+      "id": "roadmap-audit",
+      "root": "project-state",
+      "path": "roadmap/audit.jsonl",
+      "entry": "file",
+      "match": "^audit\\.jsonl$",
+      "rule": "existing",
+      "bound": {
+        "value": 10000,
+        "text": "keep the last 10000 gate, merge, render and cleanup entries"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/roadmap/loop.ts"
+      ],
+      "source": {
+        "file": "src/runtime/roadmap/loop.ts",
+        "pattern": "AUDIT_LIMIT = {value}"
       }
     },
     {
@@ -619,7 +974,7 @@
       "rule": "existing",
       "bound": {
         "value": 10000,
-        "text": "removed on release; stale locks are broken"
+        "text": "removed on release; a stale lock is reclaimed in place"
       },
       "protect": null,
       "moments": [],
@@ -745,15 +1100,15 @@
       "root": "project-doflow",
       "path": "",
       "entry": "file",
-      "match": "^(?:prompt-nudge|prune|decision-model\\.json)$",
+      "match": "^(?:prompt-nudge|prune|decision-model\\.json|settings\\.json|settings\\.local\\.json)$",
       "rule": "existing",
       "bound": {
-        "text": "one line each, user-authored; decision-model.json is one JSON object, written by hand or by advise --action configure"
+        "text": "prompt-nudge and prune are one line each; decision-model.json, settings.json and settings.local.json are JSON objects; settings.json files are written atomically by settings writers"
       },
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/advice/config.ts"
+        "src/runtime/settings/write.ts"
       ],
       "source": {
         "file": "core/harnesses/shared/hooks/policies/lib.sh",
@@ -765,19 +1120,59 @@
       "root": "config-home",
       "path": "",
       "entry": "file",
-      "match": "^(?:prompt-nudge|prune|decision-model\\.json)$",
+      "match": "^(?:prompt-nudge|prune|decision-model\\.json|settings\\.json)$",
       "rule": "existing",
       "bound": {
-        "text": "one line each, user-authored; decision-model.json is one JSON object, written by hand or by advise --action configure"
+        "text": "prompt-nudge and prune are one line each; decision-model.json and settings.json are JSON objects; settings.json is written atomically by settings writers"
       },
       "protect": null,
       "moments": [],
       "writers": [
-        "src/runtime/advice/config.ts"
+        "src/runtime/settings/write.ts"
       ],
       "source": {
         "file": "core/harnesses/shared/hooks/policies/lib.sh",
         "pattern": "prompt-nudge"
+      }
+    },
+    {
+      "id": "settings-writer-project-doflow",
+      "root": "project-doflow",
+      "path": "",
+      "entry": "file",
+      "match": "^settings(?:\\.local)?\\.json\\.(?:lock|config\\.bak)$",
+      "rule": "existing",
+      "bound": {
+        "text": "a settings writer holds the file's .lock for one read-merge-rename and removes it; a lock is never removed automatically: a held lock of any age refuses the write, and a person removes the lock file when no writer is running; config set and unset keep the bytes they replace in one .config.bak beside the file, replaced on each write"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/settings/write.ts"
+      ],
+      "source": {
+        "file": "src/runtime/settings/write.ts",
+        "pattern": "config.bak"
+      }
+    },
+    {
+      "id": "settings-writer-config-home",
+      "root": "config-home",
+      "path": "",
+      "entry": "file",
+      "match": "^settings\\.json\\.(?:lock|config\\.bak)$",
+      "rule": "existing",
+      "bound": {
+        "text": "a settings writer holds the file's .lock for one read-merge-rename and removes it; a lock is never removed automatically: a held lock of any age refuses the write, and a person removes the lock file when no writer is running; config set and unset keep the bytes they replace in one .config.bak beside the file, replaced on each write"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/settings/write.ts"
+      ],
+      "source": {
+        "file": "src/runtime/settings/write.ts",
+        "pattern": "config.bak"
       }
     },
     {
@@ -977,6 +1372,235 @@
       "writers": [
         "src/state/run-lock.ts"
       ]
+    },
+    {
+      "id": "code-semantic-project",
+      "root": "project-doflow",
+      "path": "index/code",
+      "entry": "dir",
+      "match": "^semble$",
+      "rule": "existing",
+      "bound": {
+        "text": "Explicit bounded local semantic lifecycle; corpus/model manifests, ordinary mirror copies, provider cache, operation lock, in-progress marker and staging; query temporary stats/ sink capped at 64 KiB and library/ (provider grammar and library cache) capped at 128 MiB (libraryBytes), both removed in finally or on the next explicit operation; sourceReadBytes is an over-count of provider reads under Semble 0.7.0."
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/knowledge/semble-provider.ts",
+        "src/runtime/knowledge/semble-lifecycle.ts"
+      ],
+      "source": {
+        "file": "src/runtime/knowledge/semble-provider.ts",
+        "pattern": "semanticStatePaths"
+      }
+    },
+    {
+      "id": "packages-store",
+      "root": "user-doflow",
+      "path": "packages/store",
+      "entry": "dir",
+      "match": "^[a-z][a-z0-9-]*$",
+      "rule": "existing",
+      "bound": {
+        "text": "one directory per package id, kept until the package is removed"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/packages/store.ts"
+      ],
+      "source": {
+        "file": "src/runtime/packages/store.ts",
+        "pattern": ".installed-from.json"
+      }
+    },
+    {
+      "id": "packages-plans",
+      "root": "user-doflow",
+      "path": "packages/plans",
+      "entry": "file",
+      "match": "^[0-9a-f]{16}\\.json$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 256,
+        "maxAgeDays": 1,
+        "either": true
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/packages/store.ts"
+      ]
+    },
+    {
+      "id": "packages-staging",
+      "root": "user-doflow",
+      "path": "packages/store",
+      "entry": "dir",
+      "match": "^\\.staging-[0-9a-f]{16}$",
+      "rule": "age",
+      "bound": {
+        "maxAgeDays": 1
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/packages/store.ts"
+      ]
+    },
+    {
+      "id": "packages-fetched",
+      "root": "user-doflow",
+      "path": "packages/fetched",
+      "entry": "dir",
+      "match": "^[0-9a-f]{16}$",
+      "rule": "count-and-age",
+      "bound": {
+        "keepNewest": 256,
+        "maxAgeDays": 1,
+        "either": true
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/packages/store.ts"
+      ]
+    },
+    {
+      "id": "packages-fetch-staging",
+      "root": "user-doflow",
+      "path": "packages/fetched",
+      "entry": "dir",
+      "match": "^\\.staging-[0-9a-f]{16}$",
+      "rule": "age",
+      "bound": {
+        "maxAgeDays": 1
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/packages/store.ts"
+      ]
+    },
+    {
+      "id": "packages-state",
+      "root": "user-doflow",
+      "path": "packages/state.json",
+      "entry": "file",
+      "match": "^state\\.json$",
+      "rule": "existing",
+      "bound": {
+        "text": "narrowing facts only, rewritten atomically with mode 0600 and kept"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/state/index.ts"
+      ],
+      "source": {
+        "file": "src/runtime/packages/state.ts",
+        "pattern": "state.json"
+      }
+    },
+    {
+      "id": "authored-packages-project-doflow",
+      "root": "project-doflow",
+      "path": "package",
+      "entry": "dir",
+      "match": "^[a-z][a-z0-9-]{0,14}[a-z0-9]$",
+      "rule": "existing",
+      "bound": {
+        "text": "the person's authored package source: DoFlow never prunes, moves or removes it"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/packages/scaffold.ts"
+      ],
+      "source": {
+        "file": "src/runtime/packages/scaffold.ts",
+        "pattern": "'package'"
+      }
+    },
+    {
+      "id": "authored-packages-staging-project-doflow",
+      "root": "project-doflow",
+      "path": "package",
+      "entry": "dir",
+      "match": "^\\.staging-[a-z0-9-]+-[0-9a-f]{8}$",
+      "rule": "existing",
+      "bound": {
+        "text": "removed by the scaffold itself after 24 hours"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/packages/scaffold.ts"
+      ],
+      "source": {
+        "file": "src/runtime/packages/scaffold.ts",
+        "pattern": ".staging-"
+      }
+    },
+    {
+      "id": "feature-pointer",
+      "root": "project-state",
+      "path": "feature",
+      "entry": "file",
+      "match": "^[0-9a-f]{16}\\.json(?:\\.[0-9]+\\.tmp)?$",
+      "rule": "existing",
+      "bound": {
+        "text": "one file per checkout naming its feature, rewritten in place by the runtime and removed when the feature finishes"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/feature-pointer.ts"
+      ],
+      "source": {
+        "file": "src/runtime/feature-pointer.ts",
+        "pattern": "'.doflow', 'state', 'feature'"
+      }
+    },
+    {
+      "id": "project-models-catalogue",
+      "root": "project-state",
+      "path": "models/catalogue.json",
+      "entry": "file",
+      "match": "^catalogue\\.json$",
+      "rule": "existing",
+      "bound": {
+        "text": "one file, overwritten"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/models/catalogue.ts"
+      ],
+      "source": {
+        "file": "src/runtime/models/catalogue.ts",
+        "pattern": "catalogue.json"
+      }
+    },
+    {
+      "id": "user-models-catalogue",
+      "root": "config-home",
+      "path": "state/models-observed.json",
+      "entry": "file",
+      "match": "^models-observed\\.json$",
+      "rule": "existing",
+      "bound": {
+        "text": "one file, overwritten"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/models/catalogue.ts"
+      ],
+      "source": {
+        "file": "src/runtime/models/catalogue.ts",
+        "pattern": "models-observed.json"
+      }
     }
   ],
   "externalWriters": [
@@ -1029,14 +1653,6 @@
       "reason": "harness configuration/projection owned by the install ledger"
     },
     {
-      "file": "src/adapters/gemini/hooks.ts",
-      "reason": "harness configuration/projection owned by the install ledger"
-    },
-    {
-      "file": "src/adapters/gemini/index.ts",
-      "reason": "harness configuration/projection owned by the install ledger"
-    },
-    {
       "file": "src/adapters/mcp-entries.ts",
       "reason": "harness configuration/projection owned by the install ledger"
     },
@@ -1057,12 +1673,28 @@
       "reason": "harness instruction file managed block (CLAUDE.md, AGENTS.md, GEMINI.md), owned by the install ledger"
     },
     {
+      "file": "src/runtime/brief-rules.ts",
+      "reason": "maintainer generator (--write): rewrites the mustCarry key of core/registry/rules.json in the repo (no DoFlow root)"
+    },
+    {
       "file": "src/release/sync-plugin-versions.ts",
       "reason": "maintainer release tool: rewrites the repo plugin manifests (no DoFlow root)"
     },
     {
       "file": "src/release/build-package.ts",
       "reason": "maintainer release tool: writes the staged npm package directory (no DoFlow root)"
+    },
+    {
+      "file": "src/release/rehearse.ts",
+      "reason": "maintainer release tool: writes a scratch directory under os.tmpdir() (no DoFlow root)"
+    },
+    {
+      "file": "src/release/docs-blocks.ts",
+      "reason": "maintainer generator: --write rewrites the repo docs generated-block spans and docs/llms.txt; help capture uses a scratch HOME under os.tmpdir() (no DoFlow root)"
+    },
+    {
+      "file": "src/runtime/context/emission-rules.ts",
+      "reason": "maintainer generator: --write rewrites the repo emission table core/harnesses/shared/hooks/policies/emission-rules.sh (no DoFlow root)"
     },
     {
       "file": "src/runtime/decision-register.ts",
@@ -1077,8 +1709,24 @@
       "reason": "agent-docs deliverable (agent-docs/intent/*.md)"
     },
     {
+      "file": "src/runtime/roadmap/rows.ts",
+      "reason": "agent-docs deliverable (roadmap/ROADMAP.md, derived table written only when its bytes change)"
+    },
+    {
+      "file": "src/runtime/roadmap/seed.ts",
+      "reason": "agent-docs deliverable (roadmap/rows.json written by temp+rename under the loop lease, person-only apply and amend)"
+    },
+    {
       "file": "src/runtime/scaffold/generate.ts",
       "reason": "agent-docs deliverable (scaffold files and manifest)"
+    },
+    {
+      "file": "src/runtime/worker/evidence.ts",
+      "reason": "worker evidence record written to the caller-named --out path under core/worker-evidence/, not a DoFlow store"
+    },
+    {
+      "file": "src/runtime/profiles/rollback.ts",
+      "reason": "writes ephemeral rollback sentinel .doflow/state/rollback.json and circuit-breaker.json"
     }
   ]
 }

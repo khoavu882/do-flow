@@ -13,8 +13,9 @@ const { configPath, fingerprint: configFingerprint, parseToml, planCodexConfig, 
 const { renderServer, planCodexMcp, applyCodexMcp, ownedCodexMcpIds, userDefinedCodexMcpIds, serverTableText } = require('./mcp.ts');
 const { agentDirectory, discoverCodexAgents, planCodexAgents, applyCodexAgents } = require('./agents.ts');
 const { planCodexHooks, deployCodexHooks, removeCodexHookScripts, scriptFingerprint } = require('./hooks.ts');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices } = require('../copy-tree.ts');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveTransform } = require('../copy-tree.ts');
 const { mergeMarkedSection, removeMarkedSection, MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
+const { renderGuidancePointer } = require('../guidance-pointer.ts');
 const { nativeMcpCatalog } = require('../../registry/index.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 
@@ -275,6 +276,26 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
   }
   function sha256Text(text: any) { return crypto.createHash('sha256').update(text).digest('hex'); }
 
+  function instructionBody(content: any) {
+    if (typeof content !== 'string') return null;
+    const start = content.indexOf(MARKER_START);
+    if (start === -1) return null;
+    const bodyStart = start + MARKER_START.length;
+    const end = content.indexOf(MARKER_END, bodyStart);
+    if (end === -1 || content.indexOf(MARKER_START, end + MARKER_END.length) !== -1) return null;
+    let from = bodyStart;
+    if (content[from] === '\n') from += 1;
+    let to = end;
+    if (to > from && content[to - 1] === '\n') to -= 1;
+    return content.slice(from, to);
+  }
+
+  function renderedInstructionContent(asset: any, context: any, repoRoot: any) {
+    const source = sourceDirFor(asset, repoRoot);
+    const content = fs.readFileSync(source, 'utf8');
+    return renderGuidancePointer(content, { scope: context.scope, scopeRoot: context.paths.root }).replace(/\s+$/, '');
+  }
+
   function planInstructionsAsset({ assets, context, removing, repoRoot, claimedElsewhere = () => false }: any) {
     const asset = instructionsAsset(assets);
     const changes: any[] = [];
@@ -298,18 +319,19 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
       return { changes, conflicts };
     }
     const source = sourceDirFor(asset, repoRoot);
-    if (!mergeMarkedSection(source, target, { dryRun: true }).changed) return { changes, conflicts };
-    const content = fs.readFileSync(source, 'utf8').replace(/\s+$/, '');
+    const content = renderedInstructionContent(asset, context, repoRoot);
+    const merged = mergeMarkedSection(source, target, { dryRun: true, content });
+    if (!merged.changed) return { changes, conflicts };
     changes.push({ assetId: asset.id, target, source, operation: fs.existsSync(target) ? 'update' : 'create',
       ownershipIdentity: 'doflow:codex:instructions:managed-section', kind: 'instructions-section', identity: 'AGENTS.md',
-      afterFingerprint: sha256Text(content), sourceVersion: 'registry-v1', projection: { renderer: 'codex-agents' } });
+      afterFingerprint: sha256Text(content), renderedContent: content, sourceVersion: 'registry-v1', projection: { renderer: 'codex-agents' } });
     return { changes, conflicts };
   }
 
   function applyInstructionsAsset(changes: any) {
     for (const change of changes) {
       if (change.projection?.renderer !== 'codex-agents' || change.operation === 'remove') continue;
-      mergeMarkedSection(change.source, change.target);
+      mergeMarkedSection(change.source, change.target, { content: change.renderedContent });
     }
   }
 
@@ -325,11 +347,14 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     if (!asset) return { statuses, resources };
     const target = instructionsPath(context);
     const existing = fs.existsSync(target) ? fs.readFileSync(target, 'utf8') : null;
-    const managed = existing !== null && existing.includes(MARKER_START) && existing.includes(MARKER_END);
-    statuses.push({ assetId: asset.id, capability: asset.capability, status: managed ? 'managed' : 'absent', target });
+    const expected = renderedInstructionContent(asset, context, repoRoot);
+    const actual = instructionBody(existing);
+    const hasMarkers = existing !== null && existing.includes(MARKER_START) && existing.includes(MARKER_END);
+    const managed = actual !== null && actual === expected;
+    statuses.push({ assetId: asset.id, capability: asset.capability, status: managed ? 'managed' : (hasMarkers ? 'missing' : 'absent'), target });
     if (managed) {
       resources.push({ assetId: asset.id, target, ownershipIdentity: 'doflow:codex:instructions:managed-section',
-        kind: 'instructions-section', identity: 'AGENTS.md', fingerprint: sha256Text(existing), sourceVersion: 'registry-v1',
+        kind: 'instructions-section', identity: 'AGENTS.md', fingerprint: sha256Text(expected), sourceVersion: 'registry-v1',
         projection: { renderer: 'codex-agents' } });
     }
     return { statuses, resources };
@@ -344,7 +369,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
       const destDir = copyTreeDestDir(codexConfigDir(context), asset);
       const sourceDir = sourceDirFor(asset, repoRoot);
       const previousResources = ledgerFileResources(neutralResources, HARNESS, asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(neutralResources, HARNESS), operation: removing ? 'remove' : 'apply', layout: asset.layout, keepModified: !removing,
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(neutralResources, HARNESS), operation: removing ? 'remove' : 'apply', layout: asset.layout, transform: asset.transform, keepModified: !removing,
         // `force` is the CLI's --force reaching the one conflict class a plan can actually
         // downgrade: a ledger-owned destination whose bytes were edited underneath us. With force,
         // that is drift to heal rather than a refusal — exactly what `doflow reconcile` (always
@@ -362,6 +387,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
           ownershipIdentity: `doflow:codex:copy-tree:${asset.id}:${change.relPath}`,
           kind: 'copy-tree-file', identity: change.relPath,
           afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: sourceVersion ?? 'unknown',
+          transformName: asset.transform || null,
           ...(change.kept ? { retained: true, retainedFor: [] } : {}),
           projection: { renderer: 'copy-tree' },
         });
@@ -371,9 +397,18 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
   }
 
   function applyCopyTreeAssets(changes: any) {
-    const treeChanges = changes.filter((change: any) => change.projection?.renderer === 'copy-tree' && change.operation !== 'remove')
-      .map((change: any) => ({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint }));
-    return applyTree({ changes: treeChanges }).applied;
+    let applied = 0;
+    const grouped = new Map();
+    for (const change of changes) {
+      if (change.projection?.renderer !== 'copy-tree' || change.operation === 'remove') continue;
+      const key = change.transformName || null;
+      if (!grouped.has(key)) grouped.set(key, []);
+      grouped.get(key).push({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint });
+    }
+    for (const [transformName, treeChanges] of grouped) {
+      applied += applyTree({ changes: treeChanges, transform: resolveTransform(transformName) }).applied;
+    }
+    return applied;
   }
 
   function removeCopyTreeAssets(changes: any) {
@@ -389,7 +424,7 @@ function createCodexAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } 
     for (const asset of copyTreeAssets(assets)) {
       const destDir = copyTreeDestDir(codexConfigDir(context), asset);
       const sourceDir = sourceDirFor(asset, repoRoot);
-      const result = verifyTree({ sourceDir, destDir, layout: asset.layout, plannedWrites });
+      const result = verifyTree({ sourceDir, destDir, layout: asset.layout, transform: asset.transform, plannedWrites });
       conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       for (const resource of result.resources) {
         resources.push({

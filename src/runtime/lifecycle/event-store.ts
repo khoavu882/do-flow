@@ -39,12 +39,12 @@ const MAX_EVENT_BYTES = 256 * 1024;
 const MAX_JOURNAL_BYTES = 16 * 1024 * 1024;
 const READ_CHUNK = 64 * 1024;
 /** The decision register's channel vocabulary: who the caller says is acting. */
-const CHANNEL_BY: Record<string, string> = { question: 'user', gate: 'user', prompt: 'user', default: 'agent' };
+const CHANNEL_BY: Record<string, string> = { question: 'user', gate: 'user', prompt: 'user', default: 'agent', resolution: 'agent', policy: 'autopilot' };
 
 function eventsDir(root: string): string { return path.join(root, EVENTS_REL); }
 function lockTarget(root: string): string { return path.join(root, EVENTS_REL); }
 
-/** @param {string} [channel] defaults to `default` @returns {'user'|'agent'|null} null for an unknown channel */
+/** @param {string} [channel] defaults to `default` @returns {'user'|'agent'|'autopilot'|null} null for an unknown channel */
 function byFromChannel(channel: string = 'default'): string | null { return CHANNEL_BY[channel] ?? null; }
 
 /** `length` random characters of the lowercase Crockford base32 alphabet. */
@@ -235,13 +235,15 @@ function readEvents(root: string, { fsImpl = nodeFs, lockFallback = true, should
 }
 
 /**
- * Reads and folds the store.
+ * Reads and folds the store. With `DOFLOW_UPKEEP=off` in `env` the read never falls back to the
+ * store lock (it would make `events.lock`, a write the switch promises not to make): a journal that
+ * keeps moving during the read throws StoreLockedError instead.
  * @param {string} root the IC-001 root
- * @param {{hasBody?: Function, fsImpl?: Object}} [options]
+ * @param {{hasBody?: Function, fsImpl?: Object, now?: Date, env?: Object}} [options]
  * @returns {Object} the fold result (see fold.js) plus `unreadable`
  */
-function readFold(root: string, { fsImpl = nodeFs, hasBody, now = new Date() }: any = {}): any {
-  const { events, unreadable, reasons } = readEvents(root, { fsImpl });
+function readFold(root: string, { fsImpl = nodeFs, hasBody, now = new Date(), env = process.env }: any = {}): any {
+  const { events, unreadable, reasons } = readEvents(root, { fsImpl, lockFallback: env.DOFLOW_UPKEEP !== 'off' });
   return { ...finalize(foldInto(events, { now }), { hasBody }), unreadable, unreadableReasons: reasons };
 }
 

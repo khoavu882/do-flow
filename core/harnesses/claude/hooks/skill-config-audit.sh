@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # skill-config-audit.sh — ConfigChange(skills) hook (pure observability, no deny path)
 #
 # Logs skill-file mutations regardless of which tool made them (a subagent's Bash heredoc-to-file
@@ -26,6 +27,8 @@ SESSION_ID=$(json_field "$INPUT" ".session_id")
 
 # Guard: if we can't determine the session, nothing to do
 [[ -z "$SESSION_ID" ]] && exit 0
+# No config home (lib.sh leaves the state paths empty): no session store to write (086 IC-010).
+[[ -n "$SESSION_DIR" ]] || exit 0
 
 TIMESTAMP=$(date -u +%FT%TZ)
 SESSION_PATH=$(ensure_session_dir "$SESSION_ID")

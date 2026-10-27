@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
-case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
+_DOFLOW_SRC=${0//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_POLDIR=${_DOFLOW_SRC%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # subagent-audit.sh — Canonical Policy Library: SubagentStart + SubagentStop hook
 # (pure observability, no deny path)
 #
 # 022-hooks-remaining-duplication: claude and codex's copies were byte-identical — moved here as
-# the single canonical copy. Gemini has no SubagentStart/SubagentStop-equivalent event.
+# the single canonical copy.
 #
 # Appends {timestamp, session_id, event, agent_type, agent_id} to a session-scoped audit log.
 # Today there is zero record of which of the installed agents/ specialists actually run, how often, or
@@ -56,6 +57,8 @@ fi
 
 # Guard: if we can't determine the session, nothing to do
 [[ -z "$SESSION_ID" ]] && exit 0
+# No config home (lib.sh leaves the state paths empty): no session store to write (086 IC-010).
+[[ -n "$SESSION_DIR" ]] || exit 0
 
 EVENT=$(json_field "$INPUT" ".hook_event_name")
 AGENT_TYPE=$(json_field "$INPUT" ".agent_type")

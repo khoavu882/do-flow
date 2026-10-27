@@ -1,0 +1,594 @@
+'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
+
+// G8 — every executable surface DoFlow ships is reachable from something that ships with it.
+//
+// G3 already asserts this for documentation ("every mode and reference file has at least one skill
+// or rule consumer"). Nothing asserted it for *executables*, and that is precisely the hole three
+// features fell through: 723732a consolidated 28 skills into 12 and deleted subagent-driven/,
+// do-select-tool/, and confidence-check/ — the sole callers of feature 003's dispatch scripts, 004's
+// capability router, and 005's readiness engine. Every engine kept working and every test kept
+// passing, because unit tests exercise engines directly and never through the skill layer that is
+// supposed to invoke them. The features were simply unreachable by any documented interface.
+//
+// Reachability here means: named by a skill or by shipped guidance/docs, named *through the
+// dispatcher's verb table* by one of those, or called by another script that is itself reachable.
+// A script invoked only by another script is fine — that is composition, not orphaning — so the
+// transitive closure is what matters, not direct mention.
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const { REPO } = require('./_shared.ts');
+const { loadRegistry, capabilityMapData } = require('../../src/registry/index.ts');
+const { tempDir } = require('../helper/tmp.ts');
+
+const BASH_DIR = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash');
+const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
+const SKILLS_DIR = path.join(REPO, 'core', 'shared', 'skills');
+
+/** Everything that ships and could plausibly name an executable: skills, guidance, and user docs. */
+function consumerTexts() {
+  const out: any = [];
+  const roots: any = [
+    path.join(REPO, 'core', 'shared', 'skills'),
+    path.join(REPO, 'core', 'shared', 'guidance'),
+    path.join(REPO, 'docs'),
+  ];
+  for (const root of roots) {
+    if (!fs.existsSync(root)) continue;
+    (function walk(dir) {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) { walk(full); continue; }
+        if (!/\.(md|json|toml|yaml)$/.test(entry.name)) continue;
+        out.push({ rel: path.relative(REPO, full), text: fs.readFileSync(full, 'utf8') });
+      }
+    }(root));
+  }
+  out.push({ rel: 'README.md', text: fs.readFileSync(path.join(REPO, 'README.md'), 'utf8') });
+  return out;
+}
+
+function scriptTexts() {
+  return fs.readdirSync(BASH_DIR)
+    .filter((n: any) => n.endsWith('.sh'))
+    .map((n: any) => ({ name: n, text: fs.readFileSync(path.join(BASH_DIR, n), 'utf8') }));
+}
+
+/**
+ * verb -> helper, parsed out of the dispatcher's own `shell_helper_for()` case block.
+ *
+ * Since feature 008 a skill no longer names a helper: it calls `../../bin/doflow-run <verb>` and
+ * the dispatcher decides which helper serves that verb (design.md §4.2, FR-003/FR-004). Naming the
+ * helper is now the wrong thing for a skill to do, so requiring a direct mention would have turned
+ * this guard into pressure to re-inline the very paths that change removed. The indirection is
+ * real reachability and is modelled as such — but only as an *edge*, not as an amnesty: a helper
+ * still has to be reached, now by a consumer naming the verb that serves it.
+ *
+ * Parsed rather than restated so a verb added tomorrow is covered without editing this file.
+ */
+function verbTable() {
+  // `\r?\n` keeps the parser working on CRLF checkouts (Windows without eol=lf normalization).
+  const text = fs.readFileSync(DISPATCHER, 'utf8');
+  const block = text.match(/shell_helper_for\(\)\s*\{([\s\S]*?)\r?\n\}/);
+  assert.ok(block, 'shell_helper_for() is the dispatcher verb table and must be parseable');
+  const table: any = new Map([...block[1].matchAll(/^\s*([a-z][a-z-]*)\)\s*printf '([^']+)'/gm)]
+    .map(([, verb, helper]) => [verb, helper]));
+  assert.ok(table.size > 0, 'expected to parse at least one shell-backed verb from the dispatcher');
+  return table;
+}
+
+/**
+ * Every way a consumer can spell an invocation of the seam:
+ *   - `doflow-run <verb>`      — the dispatcher or a locator named by path
+ *   - `"$DOFLOW" <verb>`       — the resolved-once handle a skill reuses for its later verbs
+ * The second form exists because a skill resolves the runtime once in step 1 and keeps the result;
+ * without it, every verb a chain skill calls after the first would read as uninvoked here.
+ */
+const INVOCATION = /(?:doflow-run|\$\{?DOFLOW\}?"?)\s+([a-z][a-z-]*)/g;
+
+function undocumentedRuntimeCommands(commands: any, consumers: any) {
+  return commands
+    .filter((cmd: any) => !consumers.some((consumer: any) => consumer.text.includes(`doflow ${cmd}`)))
+    .sort();
+}
+
+/** Verbs a consumer actually invokes — `doflow-run <verb>`, however the seam is spelled. */
+function verbsNamedBy(consumers: any) {
+  const named: any = new Set();
+  for (const { text } of consumers) {
+    for (const [, verb] of text.matchAll(INVOCATION)) named.add(verb);
+  }
+  return named;
+}
+
+test('G8: every shipped shell script is reachable from a skill, doc, or another reachable script', () => {
+  const scripts = scriptTexts();
+  const consumers = consumerTexts();
+  const table = verbTable();
+  const invokedVerbs = verbsNamedBy(consumers);
+
+  const namedByDocs: any = new Set(
+    scripts.filter((s: any) => consumers.some((c: any) => c.text.includes(s.name))).map((s: any) => s.name),
+  );
+  // A helper whose verb a consumer invokes is named by that consumer, one indirection removed.
+  for (const [verb, helper] of table) {
+    if (invokedVerbs.has(verb)) namedByDocs.add(helper);
+  }
+
+  // Transitive closure: a script called by an already-reachable script is reachable too.
+  const reachable: any = new Set(namedByDocs);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const caller of scripts) {
+      if (!reachable.has(caller.name)) continue;
+      for (const callee of scripts) {
+        if (reachable.has(callee.name) || callee.name === caller.name) continue;
+        if (caller.text.includes(callee.name)) { reachable.add(callee.name); grew = true; }
+      }
+    }
+  }
+
+  const orphaned = scripts.map((s: any) => s.name).filter((n: any) => !reachable.has(n)).sort();
+  assert.deepEqual(orphaned, [],
+    'these scripts ship but nothing invokes them — directly, through a dispatcher verb a skill or '
+    + `doc calls, or from another reachable script:\n  ${orphaned.join('\n  ')}`);
+});
+
+test('G8: every verb a skill or doc invokes is a verb the dispatcher actually dispatches', () => {
+  // The other half of the indirection. Once reachability can be earned by naming a verb, a
+  // misspelled verb stops being a broken command a guard catches and becomes an unreachable helper
+  // instead — the failure surfaces as an unrelated orphan, or not at all if something else happens
+  // to reach the same helper. Checking the call side directly keeps the diagnosis at the typo.
+  const text = fs.readFileSync(DISPATCHER, 'utf8');
+  const nodeBlock = text.match(/is_node_verb\(\)\s*\{([\s\S]*?)\r?\n\}/);
+  assert.ok(nodeBlock, 'is_node_verb() is the node arm of the verb table and must be parseable');
+  const [, alternation] = nodeBlock[1].replace(/\\\r?\n/g, '').match(/^\s*([a-z|-]+)\)\s*return 0/m) || [];
+  assert.ok(alternation, 'the node verb alternation must be parseable');
+
+  // `--help`/`help` are the dispatcher's own arguments, not verbs, and answer before the table.
+  const dispatched: any = new Set([...verbTable().keys(), ...alternation.split('|'), 'help']);
+  const unknown: any = [];
+  for (const { rel, text: consumer } of consumerTexts()) {
+    for (const [, verb] of consumer.matchAll(INVOCATION)) {
+      if (!dispatched.has(verb)) unknown.push(`${rel} -> doflow-run ${verb}`);
+    }
+  }
+  const unique = [...new Set(unknown)].sort();
+  assert.deepEqual(unique, [],
+    `these calls would exit 2 with "unknown verb":\n  ${unique.join('\n  ')}`);
+});
+
+test('G8: every runtime CLI command is named by a skill or doc', () => {
+  // Parsed from the dispatch switch rather than hardcoded, so a new command is covered the moment
+  // it is wired up — the guard should not need editing to start guarding. Since Stage 2 the
+  // switch lives in src/cli/runtime-commands.js (bin/doflow.js only forwards into src/cli).
+  const cli = fs.readFileSync(path.join(REPO, 'src', 'cli', 'runtime-commands.ts'), 'utf8');
+  const commands = [...cli.matchAll(/case '([a-z-]+)': return handle[A-Za-z]+Command/g)].map((m) => m[1]);
+  assert.ok(commands.length > 0, 'expected to find runtime command handlers in src/cli/runtime-commands.js');
+
+  const consumers = consumerTexts();
+  const orphaned = undocumentedRuntimeCommands(commands, consumers);
+  assert.deepEqual(
+    orphaned,
+    [],
+    `these runtime commands ship but no skill or doc tells anyone to run them:\n  ${orphaned.join('\n  ')}`,
+  );
+});
+
+test('G8 control: a runtime command without a shipped caller is rejected', () => {
+  assert.deepEqual(undocumentedRuntimeCommands(['planted-command'], []), ['planted-command']);
+});
+
+test('G8: every flag docs/reference.md documents for a skill exists in that skill', () => {
+  // A v1 re-review of reference.md found four factual errors: /do-constitution documented a
+  // --init flag that has never existed, /do-plan advertised a `enterprise` strategy it does not
+  // accept, and --focus was written `perf` where the skill takes `performance`. Nothing checked
+  // this: G4 verifies the core flag vocabulary against core/, but docs/ was outside every guard, so the user-facing
+  // reference could describe a CLI surface that was never built.
+  const skillsRoot = path.join(REPO, 'core', 'shared', 'skills');
+  const ref = fs.readFileSync(path.join(REPO, 'docs', 'reference.md'), 'utf8');
+  const flagsOf = (text: any) => new Set([...text.matchAll(/--[a-z][a-z-]*/g)].map((m) => m[0]));
+
+  const mismatches: any = [];
+  for (const [, skill, args] of ref.matchAll(/^\| `\/(do[a-z-]*)((?:[^|`]|\\\|)*)`/gm)) {
+    const skillMd = path.join(skillsRoot, skill, 'SKILL.md');
+    if (!fs.existsSync(skillMd)) continue;                       // G6 already guards skill existence
+    const hint = fs.readFileSync(skillMd, 'utf8').match(/^argument-hint:\s*"?(.*?)"?\s*$/m)?.[1];
+    if (!hint) continue;                                          // no declared surface to check against
+    const declared = flagsOf(hint);
+    for (const flag of flagsOf(args)) {
+      if (!declared.has(flag)) mismatches.push(`${skill}: docs say ${flag}, argument-hint does not`);
+    }
+  }
+  assert.deepEqual(mismatches, [], `docs/reference.md documents flags that do not exist:\n  ${mismatches.join('\n  ')}`);
+});
+
+/**
+ * Of the given doc-spelled paths, the subset this repository itself declares as ignored output.
+ *
+ * G8 below reads every backticked repo path as a promise that the path exists. Two documented paths
+ * deliberately do not exist: `bench/runs/` and `bench/reports/`, which docs/architecture.md names
+ * precisely in order to say they are the ignored ones. So a correct sentence failed the guard — and
+ * only ever on a clean checkout, because a local bench run creates both directories. That is why it
+ * went unseen: it passed in every working tree that had ever run the harness.
+ *
+ * The exemption is derived rather than listed, so .gitignore stays the one place the answer lives.
+ * Two properties of that derivation are load-bearing:
+ *
+ * - The doc's own spelling goes to git verbatim, trailing slash included. `bench/runs/` is a
+ *   directory-only rule, so once the directory is absent `git check-ignore` answers "not ignored"
+ *   for the slash-less form. Normalizing before asking would make this exemption do nothing in
+ *   exactly the clean-checkout case it exists for. git answers with the slash stripped, so what is
+ *   sent and what is matched are deliberately different spellings of the same path.
+ * - Outside a git repository git exits 128 with no output, so nothing is exempted and the guard
+ *   keeps its original behavior. It fails closed, never open.
+ *
+ * One bound stated plainly: a path *inside* a declared-ignored directory is exempt as well, since
+ * that is what the ignore rule means. The guard stops checking within ignored output trees rather
+ * than checking them wrongly.
+ */
+function declaredIgnored(spelledPaths: any) {
+  if (spelledPaths.length === 0) return new Set();
+  const res = spawnSync('git', ['check-ignore', '--stdin'], {
+    cwd: REPO,
+    encoding: 'utf8',
+    input: spelledPaths.join('\n'),
+  });
+  if (res.error || typeof res.stdout !== 'string') return new Set();
+  return new Set(
+    res.stdout.split('\n').map((line: any) => line.trim().replace(/\/$/, '')).filter(Boolean),
+  );
+}
+
+test('G8: every repo path a doc names in backticks exists', () => {
+  // architecture.md's structure table listed `bin/doflow`; the file is bin/doflow.js. Harmless to
+  // read, wrong to copy — and the same class of error as a moved directory silently outliving its
+  // documentation. Only backticked paths rooted at a known top-level directory are checked, so
+  // prose and command examples are unaffected.
+  // `bench` joined the list once bench/ became tracked content: it is as repo-rooted as the others.
+  //
+  // `scripts` is deliberately NOT in this list and must not be added to it. The segment is ambiguous
+  // by design in three different places: a skill writes `scripts/code_quality_checker.py` meaning its
+  // own bundled directory, the guidance tree writes `scripts/doflow/bash/...` meaning the *installed*
+  // root, and only a docs page means this repository's `scripts/`. Adding it here reports all three,
+  // so the rule below narrows it to docs/ instead — where a relative reading is not available and a
+  // dangling path is therefore unambiguous. That gap is how `scripts/generate-capability-map.js`
+  // survived in refactor-plan.md after the generator was deleted.
+  const roots = 'core|src|bin|test|docs|bench';
+  const absent: any = [];
+  for (const { rel, text } of consumerTexts()) {
+    const pattern = rel.startsWith('docs/') || rel.startsWith(`docs${path.sep}`)
+      ? `\`((?:${roots}|scripts)/[A-Za-z0-9_./-]*)\``
+      : `\`((?:${roots})/[A-Za-z0-9_./-]*)\``;
+    for (const [, p] of text.matchAll(new RegExp(pattern, 'g'))) {
+      const clean = p.replace(/\/$/, '');
+      if (!fs.existsSync(path.join(REPO, clean))) absent.push({ rel, spelled: p, clean });
+    }
+  }
+  const ignored = declaredIgnored([...new Set(absent.map((a: any) => a.spelled))]);
+  const missing = absent
+    .filter((a: any) => !ignored.has(a.clean))
+    .map((a: any) => `${a.rel} -> ${a.spelled}`);
+  const unique = [...new Set(missing)].sort();
+  assert.deepEqual(unique, [], `these documented paths do not exist:\n  ${unique.join('\n  ')}`);
+});
+
+test('G8: the capability matrix agrees with the registry, cell for cell', () => {
+  // The byte-for-byte guard left with its generator when scripts/generate-capability-map.js was
+  // removed, and so did `npm run gen:capability-map`. What stayed behind were the
+  // `<!-- BEGIN GENERATED:capability-matrix -->` markers, which tell every reader the region is
+  // machine-written, and the prose below the table, which says a hand edit "will drift from it".
+  // Both were true of a mechanism that no longer existed: the region became hand-maintained with
+  // nothing comparing it to the registry, which is precisely the drift the generator was introduced
+  // to remove. This guard restores the comparison without restoring the generator — `capabilityMapData`
+  // is still the registry's own projection, so the table is checked against it rather than regenerated.
+  const CAPABILITY_LABELS: any = {
+    Instructions: 'instructions',
+    Skills: 'skills',
+    Agents: 'agents',
+    Scripts: 'scripts',
+    Templates: 'templates',
+    Modes: 'modes',
+    Settings: 'settings',
+    Hooks: 'hooks',
+    MCP: 'mcp',
+    'Plugin / extension': 'plugin',
+  };
+
+  const doc = fs.readFileSync(path.join(REPO, 'docs/capability-map.md'), 'utf8');
+  const region = doc.match(
+    /<!-- BEGIN GENERATED:capability-matrix -->\n([\s\S]*?)<!-- END GENERATED:capability-matrix -->/,
+  );
+  assert.ok(region, 'the capability-matrix markers must stay: they are what this guard anchors on');
+
+  const rows = region[1].trim().split('\n').map((l: any) => l.split('|').slice(1, -1).map((c: any) => c.trim()));
+  const harnessColumns = rows[0].slice(1);
+  const body = rows.slice(2); // row 1 is the |---| separator
+
+  const byDisplayAndCapability: any = new Map();
+  for (const record of capabilityMapData(loadRegistry({ repoRoot: REPO }))) {
+    byDisplayAndCapability.set(`${record.displayName}\0${record.capability}`, record);
+  }
+
+  const drift: any = [];
+  for (const row of body) {
+    const capability: any = CAPABILITY_LABELS[row[0]];
+    if (!capability) { drift.push(`row label "${row[0]}" maps to no registry capability`); continue; }
+    row.slice(1).forEach((cell: any, column: any) => {
+      const displayName = harnessColumns[column];
+      const record = byDisplayAndCapability.get(`${displayName}\0${capability}`);
+      if (!record) { drift.push(`no registry row for ${displayName} / ${capability}`); return; }
+
+      // A cell is "Status" or "Status — `nativeTarget`". Both halves are registry facts.
+      const status = cell.split('—')[0].trim().toLowerCase();
+      if (status !== record.status) {
+        drift.push(`${displayName}/${capability}: table says "${status}", registry says "${record.status}"`);
+      }
+      const backticked = cell.match(/`([^`]+)`/);
+      const target = backticked ? backticked[1] : null;
+      if (target !== record.nativeTarget) {
+        drift.push(`${displayName}/${capability}: table target ${JSON.stringify(target)}, registry ${JSON.stringify(record.nativeTarget)}`);
+      }
+    });
+  }
+
+  assert.equal(body.length * harnessColumns.length, byDisplayAndCapability.size,
+    'the table must cover every registry harness/capability pair, with no extra cells');
+  assert.deepEqual(drift, [],
+    'docs/capability-map.md has drifted from core/registry/harnesses.json:\n  ' + drift.join('\n  '));
+});
+
+test('G8: every docs page is reachable from the mkdocs nav', () => {
+  // capability-map.md shipped for several releases absent from nav, so it never appeared in the
+  // built site even though README linked to it — a page that exists but cannot be navigated to.
+  const nav = fs.readFileSync(path.join(REPO, 'mkdocs.yml'), 'utf8');
+  const pages = fs.readdirSync(path.join(REPO, 'docs')).filter((n: any) => n.endsWith('.md'));
+  const missing = pages.filter((p: any) => !nav.includes(p)).sort();
+  assert.deepEqual(missing, [], `these docs pages are not in the mkdocs nav:\n  ${missing.join('\n  ')}`);
+});
+
+test('G8: no doc claims a capability the registry does not declare', () => {
+  // tool_matrix.md was a hand-copied snapshot of the router and had drifted: it documented
+  // `docs.lookup` and `reasoning.structured`, both of which raise "Unknown capability". A table
+  // that names capabilities the router cannot resolve sends the model after tools that do not
+  // exist, which is worse than having no table.
+  const declared: any = new Set(Object.keys(
+    JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'capabilities.json'), 'utf8')).capabilities,
+  ));
+  const phantom: any = [];
+  for (const { rel, text } of consumerTexts()) {
+    // Capability ids are dotted lowercase tokens; only inspect backticked ones so prose is safe.
+    for (const [, id] of text.matchAll(/`([a-z]+\.[a-z-]+)`/g)) {
+      // Restrict to namespaces the registry actually owns, so unrelated dotted tokens
+      // (file.ext, package.json) are not mistaken for capability references.
+      if (!/^(code|history|behavior|command)\./.test(id)) continue;
+      if (!declared.has(id)) phantom.push(`${rel} -> ${id}`);
+    }
+  }
+  assert.deepEqual(
+    [...new Set(phantom)],
+    [],
+    `these docs name capabilities the registry does not declare:\n  ${[...new Set(phantom)].join('\n  ')}`,
+  );
+});
+
+test('G8: a `references/…` pointer resolves against one of the two roots that string can mean', () => {
+  // G3 checks a referenced file exists *somewhere* in the tree, which is weaker than it looks: it
+  // let parallel_dispatch.md point at `modes/MODE_Task_Management.md`, a real file living under the
+  // guidance tree rather than beside the skill reference that named it.
+  //
+  // `references/X.md` is genuinely overloaded in this repo — it means a sibling directory in
+  // do/references/tool_matrix.md, and the shared guidance tree in do-plan's
+  // references/DOFLOW_CHAIN.md. Both are established conventions, so both are accepted here; what
+  // this catches is a pointer resolving against *neither*, which is always a typo or a moved file.
+  // Paths like ./requirement.md are deliberately out of scope: those name feature artifacts created
+  // at runtime, not files that ship.
+  const skillsRoot = path.join(REPO, 'core', 'shared', 'skills');
+  const guidanceRefs = path.join(REPO, 'core', 'shared', 'guidance');
+  // do-code-review's assets/expected_outputs dirs intentionally hold malformed regression
+  // fixtures (deliberately dangling references included) to exercise its own checkers — not real
+  // prose, so they are excluded the same way consumers.test.js (G3) excludes them.
+  const FIXTURE_DIRS: any = new Set(['assets', 'expected_outputs']);
+  const broken: any = [];
+  (function walk(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { if (!FIXTURE_DIRS.has(entry.name)) walk(full); continue; }
+      if (!entry.name.endsWith('.md')) continue;
+      const text = fs.readFileSync(full, 'utf8');
+      for (const [, ref] of text.matchAll(/`(references\/[A-Za-z0-9_.-]+\.md)`/g)) {
+        const asSibling = path.resolve(path.dirname(full), ref);
+        const asGuidance = path.resolve(guidanceRefs, ref);
+        if (!fs.existsSync(asSibling) && !fs.existsSync(asGuidance)) {
+          broken.push(`${path.relative(REPO, full)} -> ${ref}`);
+        }
+      }
+    }
+  }(skillsRoot));
+  assert.deepEqual(broken, [], `these references resolve against neither root:\n  ${broken.join('\n  ')}`);
+});
+
+// ---------------------------------------------------------------------------------------------
+// The resolution snippets skills tell the model to run.
+//
+// C.4 (08bddf6) replaced six inlined resolvers with `../../bin/doflow-run <verb>` and claimed the
+// path resolved "relative to this skill's own directory". It does not: a relative path in a shell
+// command resolves against the *working directory*, and a skill runs with CWD at the user's project
+// root — so every one of those 27 call-sites resolved to <grandparent-of-project>/bin/doflow-run and
+// died with "No such file or directory". The task's own verification passed because it `cd`'d into
+// the skill directory first, which is the one place the caller never stands.
+//
+// So the guard's whole point is the working directory: it performs a real install and executes each
+// documented snippet with CWD at the project root and at a nested subdirectory, never in the skill
+// directory. A check that only read the text could not have caught this — the text was plausible.
+// ---------------------------------------------------------------------------------------------
+
+// Any bash block naming the seam by path. Deliberately wider than "blocks containing the *correct*
+// installed path": the broken relative form is `../../bin/doflow-run`, and a predicate that only
+// recognised the correct path would stop collecting a snippet at the moment it regressed — the
+// regression would read as "one fewer snippet" instead of "this snippet does not run".
+const SEAM_MARK = 'doflow-run';
+const INSTALLED_DISPATCHER = '.doflow/scripts/doflow/bin/doflow-run';
+
+/** Strip the list-item indentation a fenced block carries inside a numbered step. */
+function dedent(code: any) {
+  const lines = code.split('\n');
+  const indents = lines.filter((l: any) => l.trim()).map((l: any) => l.match(/^ */)[0].length);
+  const cut = indents.length ? Math.min(...indents) : 0;
+  return lines.map((l: any) => l.slice(cut)).join('\n');
+}
+
+/**
+ * Every fenced bash block in the skill tree that reaches the runtime by path. Discovered rather than
+ * listed, so a snippet added to a new skill tomorrow is executed by this guard without editing it.
+ * Blocks that only use an already-resolved `"$DOFLOW"` are out of scope here — they carry no path of
+ * their own, and their handle is set up by a block this does collect.
+ */
+function resolutionSnippets() {
+  const out: any = [];
+  (function walk(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { walk(full); continue; }
+      if (!entry.name.endsWith('.md')) continue;
+      const text = fs.readFileSync(full, 'utf8');
+      for (const [, block] of text.matchAll(/```bash\r?\n([\s\S]*?)```/g)) {
+        if (block.includes(SEAM_MARK)) out.push({ rel: path.relative(REPO, full), code: dedent(block) });
+      }
+    }
+  }(SKILLS_DIR));
+  return out;
+}
+
+test('G8: every documented runtime-resolution snippet resolves with CWD at the project root', (t) => {
+  const snippets = resolutionSnippets();
+  // The six chain skills plus parallel_dispatch.md. A floor, not an equality: the point is that the
+  // set is non-trivial, so an accidental change to RESOLVER_MARK cannot quietly test nothing.
+  assert.ok(snippets.length >= 7,
+    `expected the chain skills to document a resolution snippet each, found ${snippets.length}`);
+
+  const root = tempDir(t, 'doflow-resolve-');
+  // $HOME is scratch too: a global install of the developer's own must not be what makes this
+  // pass, and the not-installed branch must be reachable.
+  const home = path.join(root, 'home');
+  fs.mkdirSync(home);
+  // os.homedir() ignores HOME on Windows, so USERPROFILE must be redirected alongside it.
+  const homeRedirect = process.platform === 'win32' ? { HOME: home, USERPROFILE: home } : { HOME: home };
+  const install = spawnSync(
+    'node',
+    [path.join(REPO, 'bin', 'doflow.js'), 'install', root, '-f', '--no-backup', '-t', 'claude'],
+    { encoding: 'utf8', input: '\n', env: { ...process.env, ...homeRedirect } },
+  );
+  assert.equal(install.status, 0, `installer failed: ${install.stderr}`);
+  assert.ok(fs.existsSync(path.join(root, INSTALLED_DISPATCHER)), 'install did not place the dispatcher');
+
+  // Project root is where a skill actually runs; the subdirectory pins the walk-up, which is the
+  // second way the broken form failed.
+  const deep = path.join(root, 'src', 'a', 'b');
+  fs.mkdirSync(deep, { recursive: true });
+
+  const failures: any = [];
+  for (const { rel, code } of snippets) {
+    for (const cwd of [root, deep]) {
+      const where = path.relative(root, cwd) || '<project root>';
+      const run = spawnSync(bashPath(), ['-c', code], {
+        cwd,
+        encoding: 'utf8',
+        // A developer's exported override would resolve the runtime for reasons the snippet does
+        // not own, hiding exactly the defect under test.
+        env: { ...process.env, ...homeRedirect, DOFLOW_CONFIG_DIR: undefined },
+      });
+      if (run.status !== 0) {
+        failures.push(`${rel} (cwd=${where}): exit ${run.status} — ${(run.stderr || '').trim().split('\n')[0]}`);
+        continue;
+      }
+      // Resolving is not the same as reaching a runtime that answers: a snippet can exit 0
+      // having set $DOFLOW to a path that is present but broken. So drive one real verb through
+      // whatever the snippet resolved.
+      //
+      // This used to run only `if (code.includes('paths --json'))` — conditional on the skill's
+      // own prose happening to contain that string. D.3 moved the first verb call out of the
+      // canonical resolver block, and the condition silently stopped matching: 11 collected
+      // snippets, 0 containing it, assertion never fires, guard still green. Coverage that a
+      // prose edit can switch off is not coverage. The verb is appended here instead, so this
+      // check is a property of the guard rather than of what a skill happens to say.
+      const probe = spawnSync(bashPath(), ['-c', `{\n${code}\n} >/dev/null 2>&1\n"$DOFLOW" paths --json\n`], {
+        cwd,
+        encoding: 'utf8',
+        env: { ...process.env, ...homeRedirect, DOFLOW_CONFIG_DIR: undefined },
+      });
+      if (probe.status !== 0) {
+        failures.push(`${rel} (cwd=${where}): resolved, but the dispatcher it found exited ${probe.status} on 'paths --json'`);
+        continue;
+      }
+      let parsed;
+      try { parsed = JSON.parse(probe.stdout); } catch {
+        failures.push(`${rel} (cwd=${where}): resolved, but 'paths --json' through it emitted non-JSON`);
+        continue;
+      }
+      if (!parsed.repo_root) failures.push(`${rel} (cwd=${where}): 'paths --json' through it returned no repo_root`);
+    }
+  }
+  assert.deepEqual(failures, [],
+    'these documented snippets do not work from the directory a skill actually runs in:\n  '
+    + `${failures.join('\n  ')}`);
+});
+
+test('G8: no skill documents the known-broken `../../bin/doflow-run` relative call', (): any => {
+  // Belt to the execution test's braces, and a far better error message: this one names the file and
+  // line rather than reporting a bash exit code. The form is not merely discouraged, it cannot work
+  // from any directory a skill is invoked from, so its presence is always a defect.
+  const offenders: any = [];
+  (function walk(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) { walk(full); continue; }
+      if (!entry.name.endsWith('.md')) continue;
+      fs.readFileSync(full, 'utf8').split('\n').forEach((line: any, i: any) => {
+        if (line.includes('../../bin/doflow-run')) offenders.push(`${path.relative(REPO, full)}:${i + 1}`);
+      });
+    }
+  }(SKILLS_DIR));
+  assert.deepEqual(offenders, [],
+    'a relative path resolves against the working directory (the project root), not the skill '
+    + 'directory, so this call always fails. Inline the walk-up resolver instead:\n  '
+    + `${offenders.join('\n  ')}`);
+});
+
+test('G8: every npm script a CI workflow invokes is a script package.json declares', () => {
+  // The call side of the same indirection, for the one consumer no guard read: a GitHub workflow.
+  // This is not hypothetical. fc675ce deleted the whole scripts/ tree as collateral to an unrelated
+  // stage-entry-policy change, taking `scripts/check-format-drift.js` and the `drift` npm script
+  // with it, and left .github/workflows/drift.yml invoking `npm run drift`. Nothing noticed for
+  // three weeks of scheduled runs, because the suite reads skills, docs and src/ but never
+  // .github/.
+  //
+  // The failure was worse than a red job. npm exits 1 on a missing script, which is the same code
+  // drift.yml reads as DRIFTED, so the dead watcher took the issue-filing branch and opened a
+  // tracking issue (#58) claiming upstream drift with an empty claim list. A reference that cannot
+  // resolve does not reliably fail loudly — it can imitate a signal — which is why this is checked
+  // statically rather than left to the job's own exit code.
+  const WORKFLOWS = path.join(REPO, '.github', 'workflows');
+  const declared: any = new Set(Object.keys(JSON.parse(
+    fs.readFileSync(path.join(REPO, 'package.json'), 'utf8')).scripts || {}));
+
+  const dangling: any = [];
+  for (const entry of fs.existsSync(WORKFLOWS) ? fs.readdirSync(WORKFLOWS) : []) {
+    if (!/\.ya?ml$/.test(entry)) continue;
+    const text = fs.readFileSync(path.join(WORKFLOWS, entry), 'utf8');
+    // `npm run <script>` and `npm run <script> -- <args>`. Script names allow the `:` that npm
+    // conventionally uses for namespacing (`gen:capability-map`), so the class is deliberately
+    // wider than the names currently declared.
+    for (const [, script] of text.matchAll(/npm run ([A-Za-z0-9:_-]+)/g)) {
+      if (!declared.has(script)) dangling.push(`.github/workflows/${entry} -> npm run ${script}`);
+    }
+  }
+  const unique = [...new Set(dangling)].sort();
+  assert.deepEqual(unique, [],
+    'these workflow steps would fail with npm "Missing script", and a workflow that branches on '
+    + 'the exit code can read that 1 as a real signal:\n  ' + unique.join('\n  '));
+});

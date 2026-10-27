@@ -1,0 +1,708 @@
+{
+  "schemaVersion": 1,
+  "snapshotId": 1,
+  "generation": 3,
+  "corpus": "guidance",
+  "config": "A",
+  "sealPlaintextSha256": "40c9874319f815f753414a917fb4aaf400ff3889d3b913e73fc03cb0cdc5f3cc",
+  "thresholdsCommit": "d3d64623dffdccb6b72760b3dcf160fbe5c0e8d6",
+  "runAt": "2026-10-17T06:34:17.146Z",
+  "runIndex": 1,
+  "machineId": "6295d410c5bc",
+  "classes": {
+    "exact-lookup": {
+      "applicable": true,
+      "n": 14,
+      "underpowered": false,
+      "state": "measured",
+      "unreachedCount": 0,
+      "metrics": {
+        "falseAbsence": {
+          "value": 0,
+          "ci95": null,
+          "n": 14,
+          "count": 0
+        },
+        "fileRecallAt1": {
+          "value": 0.9166666666666666,
+          "ci95": [
+            0.75,
+            1
+          ],
+          "n": 12
+        },
+        "fileRecallAt3": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 12
+        },
+        "fileRecallAt5": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 12
+        },
+        "locatorValidity": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 12
+        },
+        "mrrAt5": {
+          "value": 0.9583333333333334,
+          "ci95": [
+            0.875,
+            1
+          ],
+          "n": 12
+        },
+        "recallAt1": {
+          "value": 0.9166666666666666,
+          "ci95": [
+            0.75,
+            1
+          ],
+          "n": 12
+        },
+        "recallAt3": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 12
+        },
+        "recallAt5": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 12
+        },
+        "statusMatch": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 14
+        },
+        "successAt1": {
+          "value": 0.9166666666666666,
+          "ci95": [
+            0.75,
+            1
+          ],
+          "n": 12
+        }
+      },
+      "graphMetrics": {
+        "mrrAt5": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 12
+        },
+        "recallAt1": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 12
+        },
+        "recallAt3": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 12
+        },
+        "recallAt5": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 12
+        }
+      },
+      "latency": {
+        "runs": 30,
+        "p50Ms": 3.386042,
+        "p95Ms": 3.63375,
+        "maxMs": 3.654292
+      },
+      "context": {
+        "payloadBytesP50": 921,
+        "payloadBytesP95": 1006,
+        "tokensEstP50": 231,
+        "tokensBasis": "estimated:bytes/4"
+      }
+    },
+    "conceptual-discovery": {
+      "applicable": true,
+      "n": 12,
+      "underpowered": false,
+      "state": "measured",
+      "unreachedCount": 0,
+      "metrics": {
+        "falseAbsence": {
+          "value": 0,
+          "ci95": null,
+          "n": 12,
+          "count": 0
+        },
+        "fileRecallAt1": {
+          "value": 0.3333333333333333,
+          "ci95": [
+            0.08333333333333333,
+            0.5833333333333334
+          ],
+          "n": 12
+        },
+        "fileRecallAt3": {
+          "value": 0.75,
+          "ci95": [
+            0.5,
+            1
+          ],
+          "n": 12
+        },
+        "fileRecallAt5": {
+          "value": 0.75,
+          "ci95": [
+            0.5,
+            1
+          ],
+          "n": 12
+        },
+        "locatorValidity": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 12
+        },
+        "mrrAt5": {
+          "value": 0.06944444444444443,
+          "ci95": [
+            0,
+            0.16666666666666666
+          ],
+          "n": 12
+        },
+        "recallAt1": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 12
+        },
+        "recallAt3": {
+          "value": 0.16666666666666666,
+          "ci95": [
+            0,
+            0.4166666666666667
+          ],
+          "n": 12
+        },
+        "recallAt5": {
+          "value": 0.16666666666666666,
+          "ci95": [
+            0,
+            0.4166666666666667
+          ],
+          "n": 12
+        },
+        "statusMatch": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 12
+        }
+      },
+      "graphMetrics": {
+        "mrrAt5": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 12
+        },
+        "recallAt1": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 12
+        },
+        "recallAt3": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 12
+        },
+        "recallAt5": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 12
+        }
+      },
+      "latency": {
+        "runs": 30,
+        "p50Ms": 3.499291,
+        "p95Ms": 3.716042,
+        "maxMs": 3.874291
+      },
+      "context": {
+        "payloadBytesP50": 906,
+        "payloadBytesP95": 1004,
+        "tokensEstP50": 227,
+        "tokensBasis": "estimated:bytes/4"
+      }
+    },
+    "impact-refactor": {
+      "applicable": false,
+      "reason": "ADR 3.2: guidance import graphs do not replace code dependency graphs"
+    },
+    "stale-index": {
+      "applicable": true,
+      "n": 3,
+      "underpowered": false,
+      "state": "measured",
+      "unreachedCount": 0,
+      "metrics": {
+        "falseAbsence": {
+          "value": 0,
+          "ci95": null,
+          "n": 3,
+          "count": 0
+        },
+        "fileRecallAt1": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 3
+        },
+        "fileRecallAt3": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 3
+        },
+        "fileRecallAt5": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 3
+        },
+        "locatorValidity": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 3
+        },
+        "mrrAt5": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 3
+        },
+        "recallAt1": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 3
+        },
+        "recallAt3": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 3
+        },
+        "recallAt5": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 3
+        },
+        "statusMatch": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 3
+        }
+      },
+      "graphMetrics": {
+        "mrrAt5": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 3
+        },
+        "recallAt1": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 3
+        },
+        "recallAt3": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 3
+        },
+        "recallAt5": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 3
+        }
+      },
+      "latency": {
+        "runs": 30,
+        "p50Ms": 5.092417,
+        "p95Ms": 5.617625,
+        "maxMs": 6.041917
+      },
+      "context": {
+        "payloadBytesP50": 732,
+        "payloadBytesP95": 756,
+        "tokensEstP50": 183,
+        "tokensBasis": "estimated:bytes/4"
+      }
+    },
+    "dirty-tree": {
+      "applicable": true,
+      "n": 3,
+      "underpowered": false,
+      "state": "measured",
+      "unreachedCount": 0,
+      "metrics": {
+        "falseAbsence": {
+          "value": 0,
+          "ci95": null,
+          "n": 3,
+          "count": 0
+        },
+        "fileRecallAt1": {
+          "value": 0.6666666666666666,
+          "ci95": [
+            0,
+            1
+          ],
+          "n": 3
+        },
+        "fileRecallAt3": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 3
+        },
+        "fileRecallAt5": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 3
+        },
+        "locatorValidity": {
+          "value": 0.9166666666666666,
+          "ci95": [
+            0.75,
+            1
+          ],
+          "n": 3
+        },
+        "mrrAt5": {
+          "value": 0.8333333333333334,
+          "ci95": [
+            0.5,
+            1
+          ],
+          "n": 3
+        },
+        "recallAt1": {
+          "value": 0.6666666666666666,
+          "ci95": [
+            0,
+            1
+          ],
+          "n": 3
+        },
+        "recallAt3": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 3
+        },
+        "recallAt5": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 3
+        },
+        "statusMatch": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 3
+        }
+      },
+      "graphMetrics": {
+        "mrrAt5": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 3
+        },
+        "recallAt1": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 3
+        },
+        "recallAt3": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 3
+        },
+        "recallAt5": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 3
+        }
+      },
+      "latency": {
+        "runs": 30,
+        "p50Ms": 5.1335,
+        "p95Ms": 5.66075,
+        "maxMs": 6.289084
+      },
+      "context": {
+        "payloadBytesP50": 761,
+        "payloadBytesP95": 852,
+        "tokensEstP50": 191,
+        "tokensBasis": "estimated:bytes/4"
+      }
+    },
+    "unavailable-provider": {
+      "applicable": false,
+      "reason": "Guidance BM25 is in-process with no external provider"
+    },
+    "oversized-context": {
+      "applicable": true,
+      "n": 3,
+      "underpowered": false,
+      "state": "measured",
+      "unreachedCount": 0,
+      "metrics": {
+        "falseAbsence": {
+          "value": 0,
+          "ci95": null,
+          "n": 3,
+          "count": 0
+        },
+        "fileRecallAt1": {
+          "value": 0.6666666666666666,
+          "ci95": [
+            0,
+            1
+          ],
+          "n": 3
+        },
+        "fileRecallAt3": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 3
+        },
+        "fileRecallAt5": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 3
+        },
+        "locatorValidity": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 3
+        },
+        "mrrAt5": {
+          "value": 0.27777777777777773,
+          "ci95": [
+            0,
+            0.5
+          ],
+          "n": 3
+        },
+        "mustIncludeMet": {
+          "value": 0.6666666666666666,
+          "ci95": [
+            0,
+            1
+          ],
+          "n": 3
+        },
+        "recallAt1": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 3
+        },
+        "recallAt3": {
+          "value": 0.6666666666666666,
+          "ci95": [
+            0,
+            1
+          ],
+          "n": 3
+        },
+        "recallAt5": {
+          "value": 0.6666666666666666,
+          "ci95": [
+            0,
+            1
+          ],
+          "n": 3
+        },
+        "statusMatch": {
+          "value": 1,
+          "ci95": [
+            1,
+            1
+          ],
+          "n": 3
+        }
+      },
+      "graphMetrics": {
+        "mrrAt5": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 3
+        },
+        "recallAt1": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 3
+        },
+        "recallAt3": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 3
+        },
+        "recallAt5": {
+          "value": 0,
+          "ci95": [
+            0,
+            0
+          ],
+          "n": 3
+        }
+      },
+      "latency": {
+        "runs": 30,
+        "p50Ms": 3.278917,
+        "p95Ms": 3.587625,
+        "maxMs": 3.616667
+      },
+      "context": {
+        "payloadBytesP50": 736,
+        "payloadBytesP95": 1004,
+        "tokensEstP50": 184,
+        "tokensBasis": "estimated:bytes/4"
+      }
+    },
+    "verification-failure": {
+      "applicable": false,
+      "reason": "No command runs against the guidance corpus"
+    }
+  },
+  "protocol": "hybrid-c-v1"
+}

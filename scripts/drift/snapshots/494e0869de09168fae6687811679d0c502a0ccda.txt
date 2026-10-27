@@ -1,0 +1,932 @@
+Copy Page
+Hooks
+Copy Page
+Run scripts or MCP tools during the Codex lifecycle
+Hooks are an extensibility framework for Codex. They let you run scripts or MCP
+tools during the agentic loop, enabling features such as:
+Send the chat to a custom logging/analytics engine
+Scan your team’s prompts to block accidentally pasting API keys
+Summarize chats to create persistent memories automatically
+Run a custom validation check when a chat turn stops, enforcing standards
+Customize prompting when in a certain directory
+How hooks run:
+Matching hooks from multiple files all run.
+Multiple matching command hooks for the same event are launched concurrently,
+so one hook can’t prevent another matching hook from starting.
+Non-managed hooks must be reviewed and trusted before they run.
+Hooks run at different points in a conversation:
+When
+Hooks
+During a turn
+PreToolUse
+,
+PermissionRequest
+,
+PostToolUse
+,
+PreCompact
+,
+PostCompact
+,
+UserPromptSubmit
+,
+SubagentStop
+,
+Stop
+When you interrupt an active turn
+Interrupt
+(doesn’t run for subagents)
+When a session or subagent starts
+SessionStart
+,
+SubagentStart
+When the main thread ends
+SessionEnd
+(doesn’t run for subagents)
+Where Codex looks for hooks
+Codex discovers hooks next to active config layers in either of these forms:
+hooks.json
+inline
+[hooks]
+tables inside
+config.toml
+Installed plugins can also bundle lifecycle config through their plugin
+manifest or a default
+hooks/hooks.json
+file. See
+Build
+plugins
+for the
+plugin packaging rules.
+In practice, the four most useful locations are:
+~/.codex/hooks.json
+~/.codex/config.toml
+<repo>/.codex/hooks.json
+<repo>/.codex/config.toml
+If more than one hook source exists, Codex loads all matching hooks.
+Higher-precedence config layers don’t replace lower-precedence hooks.
+If a single layer contains both
+hooks.json
+and inline
+[hooks]
+, Codex
+merges them and warns at startup. Prefer one representation per layer.
+Codex can also discover hooks bundled with enabled plugins. Plugin-bundled
+hooks load alongside other hook sources and use the same trust-review flow as
+other non-managed hooks.
+Project-local hooks load only when the project
+.codex/
+layer is trusted. In
+untrusted projects, Codex still loads user and system hooks from their own
+active config layers.
+Review and trust hooks
+Codex lists configured hooks before deciding which ones can run. Before a
+non-managed hook can run, Codex requires you to review and trust the exact hook
+definition. Codex records trust against the hook’s current hash, so new or
+changed hooks are marked for review and skipped until trusted.
+Use
+/hooks
+in the CLI to inspect hook sources, review new or changed hooks,
+trust hooks, or disable individual non-managed hooks. If hooks need review at
+startup, Codex prints a warning that tells you to open
+/hooks
+.
+Managed hooks from system, MDM, cloud, or
+requirements.toml
+sources are marked
+as managed, trusted by policy, and can’t be disabled from the user hook browser.
+For one-off automation that already vets hook sources outside Codex, pass
+--dangerously-bypass-hook-trust
+to run enabled hooks without requiring
+persisted hook trust for that invocation.
+Config shape
+Hooks are organized in three levels:
+A hook event such as
+PreToolUse
+,
+PostToolUse
+,
+PreCompact
+,
+SubagentStart
+, or
+Stop
+A matcher group that decides when that event matches
+One or more hook handlers that run when the matcher group matches
+{
+"description"
+:
+"Optional lifecycle hooks for this workspace."
+,
+"hooks"
+: {
+"SessionStart"
+: [
+{
+"matcher"
+:
+"startup|resume"
+,
+"hooks"
+: [
+{
+"type"
+:
+"command"
+,
+"command"
+:
+"python3 ~/.codex/hooks/session_start.py"
+,
+"statusMessage"
+:
+"Loading session notes"
+,
+"additionalContextLimit"
+:
+5000
+}
+]
+}
+],
+"SessionEnd"
+: [
+{
+"hooks"
+: [
+{
+"type"
+:
+"command"
+,
+"command"
+:
+"python3 ~/.codex/hooks/session_end.py"
+,
+"timeout"
+:
+3
+}
+]
+}
+],
+"PreToolUse"
+: [
+{
+"matcher"
+:
+"Bash"
+,
+"hooks"
+: [
+{
+"type"
+:
+"command"
+,
+"command"
+:
+"/usr/bin/python3
+\"
+$(git rev-parse --show-toplevel)/.codex/hooks/pre_tool_use_policy.py
+\"
+"
+,
+"statusMessage"
+:
+"Checking Bash command"
+}
+]
+}
+],
+"PermissionRequest"
+: [
+{
+"matcher"
+:
+"Bash"
+,
+"hooks"
+: [
+{
+"type"
+:
+"command"
+,
+"command"
+:
+"/usr/bin/python3
+\"
+$(git rev-parse --show-toplevel)/.codex/hooks/permission_request.py
+\"
+"
+,
+"statusMessage"
+:
+"Checking approval request"
+}
+]
+}
+],
+"PostToolUse"
+: [
+{
+"matcher"
+:
+"Bash"
+,
+"hooks"
+: [
+{
+"type"
+:
+"command"
+,
+"command"
+:
+"/usr/bin/python3
+\"
+$(git rev-parse --show-toplevel)/.codex/hooks/post_tool_use_review.py
+\"
+"
+,
+"statusMessage"
+:
+"Reviewing Bash output"
+}
+]
+}
+],
+"UserPromptSubmit"
+: [
+{
+"hooks"
+: [
+{
+"type"
+:
+"command"
+,
+"command"
+:
+"/usr/bin/python3
+\"
+$(git rev-parse --show-toplevel)/.codex/hooks/user_prompt_submit_data_flywheel.py
+\"
+"
+}
+]
+}
+],
+"Stop"
+: [
+{
+"hooks"
+: [
+{
+"type"
+:
+"command"
+,
+"command"
+:
+"/usr/bin/python3
+\"
+$(git rev-parse --show-toplevel)/.codex/hooks/stop_continue.py
+\"
+"
+,
+"timeout"
+:
+30
+}
+]
+}
+]
+}
+}
+Notes:
+description
+is optional top-level metadata for a
+hooks.json
+file. It
+doesn’t change which hooks run.
+timeout
+is in seconds.
+If
+timeout
+is omitted, Codex uses
+600
+seconds for most hooks.
+SessionEnd
+and
+Interrupt
+use
+1
+second by default and support up to
+3
+seconds.
+statusMessage
+is optional.
+additionalContextLimit
+sets how much
+additionalContext
+a command hook can
+send to the model before Codex saves the full text to disk and sends a shorter
+preview instead. See
+Large hook output
+.
+commandWindows
+is an optional Windows-only command override. In TOML, use
+command_windows
+or
+commandWindows
+.
+Set
+async
+to
+true
+to
+run a command hook in the
+background
+.
+command
+and
+mcp_tool
+handlers are supported.
+prompt
+and
+agent
+handlers are parsed but skipped.
+Commands run with the session
+cwd
+as their working directory.
+For repo-local hooks, prefer resolving from the git root instead of using a
+relative path such as
+.codex/hooks/...
+. Codex may be started from a
+subdirectory, and a git-root-based path keeps the hook location stable.
+Equivalent inline TOML in
+config.toml
+:
+[[
+hooks
+.
+SessionStart
+]]
+matcher =
+"^compact$"
+[[
+hooks
+.
+SessionStart
+.
+hooks
+]]
+type =
+"command"
+command =
+'/usr/bin/python3 "$(git rev-parse --show-toplevel)/.codex/hooks/session_start.py"'
+additionalContextLimit =
+5000
+[[
+hooks
+.
+PreToolUse
+]]
+matcher =
+"^Bash$"
+[[
+hooks
+.
+PreToolUse
+.
+hooks
+]]
+type =
+"command"
+command =
+'/usr/bin/python3 "$(git rev-parse --show-toplevel)/.codex/hooks/pre_tool_use_policy.py"'
+timeout =
+30
+statusMessage =
+"Checking Bash command"
+[[
+hooks
+.
+PostToolUse
+]]
+matcher =
+"^Bash$"
+[[
+hooks
+.
+PostToolUse
+.
+hooks
+]]
+type =
+"command"
+command =
+'/usr/bin/python3 "$(git rev-parse --show-toplevel)/.codex/hooks/post_tool_use_review.py"'
+timeout =
+30
+statusMessage =
+"Reviewing Bash output"
+MCP tool hooks
+An MCP tool hook lets a lifecycle event call a tool on an already-connected MCP
+server. It sends structured arguments directly to the tool and uses the same
+trust review and output contract as a command hook.
+Configure an MCP tool hook
+This hook asks the
+scanner
+MCP server to scan each patch after Codex writes or
+edits files:
+{
+"hooks"
+: {
+"PostToolUse"
+: [
+{
+"matcher"
+:
+"Write|Edit"
+,
+"hooks"
+: [
+{
+"type"
+:
+"mcp_tool"
+,
+"server"
+:
+"scanner"
+,
+"tool"
+:
+"scan_patch"
+,
+"input"
+: {
+"patch"
+:
+"${tool_input.command}"
+},
+"timeout"
+:
+30
+,
+"statusMessage"
+:
+"Scanning edited files"
+}
+]
+}
+]
+}
+}
+Field
+Meaning
+type
+Must be
+mcp_tool
+.
+server
+Required name of an already-connected MCP server.
+tool
+Required name of a tool exposed by that server.
+input
+Optional JSON object of argument templates. Defaults to
+{}
+.
+timeout
+Optional active execution timeout in seconds. Defaults to
+600
+.
+statusMessage
+Optional message shown while the hook runs.
+Expand arguments from the hook event
+Use
+${field.nested}
+to read a dotted field from the hook event. A placeholder
+that fills an entire value keeps its JSON type. A placeholder inside a larger
+string is rendered as text. Codex expands objects and arrays recursively.
+For an event containing
+{"tool_input":{"file_path":"src/main.rs","count":3}}
+,
+this argument template:
+{
+"path"
+:
+"${tool_input.file_path}"
+,
+"count"
+:
+"${tool_input.count}"
+,
+"message"
+:
+"Scanning ${tool_input.file_path}"
+}
+becomes:
+{
+"path"
+:
+"src/main.rs"
+,
+"count"
+:
+3
+,
+"message"
+:
+"Scanning src/main.rs"
+}
+Execution and lifecycle
+Hooks use an existing MCP connection. They don’t start or reconnect servers.
+A hook can block an operation when the tool returns a blocking decision.
+Errors, missing servers, and unavailable tools don’t block the operation.
+MCP tool hooks run synchronously. They don’t request tool approval or trigger
+other hooks.
+The shorter hook or server timeout applies. Time spent waiting for an MCP
+elicitation response doesn’t count against the timeout.
+SessionStart
+hooks can run before an MCP server is ready. If that happens,
+they don’t block the session.
+SessionEnd
+doesn’t support MCP tool hooks.
+Turn hooks off
+Hooks are enabled by default. To turn them off in
+config.toml
+, set:
+[
+features
+]
+hooks =
+false
+Use
+hooks
+as the feature key.
+codex_hooks
+still works as a
+deprecated alias. Admins can force hooks off the same way in
+requirements.toml
+with
+[features].hooks = false
+.
+Managed hooks from
+requirements.toml
+When managed policy and remote hooks are enabled, Work Cloud with local access and dots use admin-managed remote MCP hooks on the cloud orchestrator. Configure
+mcp_tool
+handlers in Global
+requirements.toml
+. Work Cloud without local access and personal accounts do not use these enterprise hooks. Command/shell, prompt, and agent handlers; hooks from local configuration, plugins, or local directories; environment-scoped hooks; and
+SessionEnd
+MCP hooks are not supported with cloud orchestration, even when tools execute locally. When both orchestration and execution are local, existing supported hooks continue to work in local-only Work and Codex threads. Admins can still configure supported managed hooks in Agent Security for those workflows.
+Before relying on these hooks, test callback connectivity, required events, and failure behavior. An explicit supported denial can block an action, but a
+PreToolUse
+callback error, timeout, or malformed response can fail the hook without blocking the tool. MCP hooks do not provide a complete Compliance API audit trail.
+The Codex instructions in this section still apply to supported Codex workflows. Before enabling Local computer access with Work Cloud, review any compatibility warning in the sync setting and
+Agent Security
+. See
+Managed configuration
+.
+In Codex, enterprise-managed requirements can define hooks inline under
+[hooks]
+.
+The command-hook example below applies only to Codex.
+This is useful when admins want to enforce the hook configuration while
+delivering the actual scripts through MDM or another device-management system.
+To enforce managed hooks even for users who disabled hooks locally, pin
+[features].hooks = true
+in
+requirements.toml
+alongside
+[hooks]
+. To ignore
+user, project, session, and plugin hooks while still allowing administrator
+managed hooks, set
+allow_managed_hooks_only = true
+.
+allow_managed_hooks_only =
+true
+[
+features
+]
+hooks =
+true
+[
+hooks
+]
+managed_dir =
+"/enterprise/hooks"
+windows_managed_dir =
+'C:\enterprise\hooks'
+[[
+hooks
+.
+PreToolUse
+]]
+matcher =
+"^Bash$"
+[[
+hooks
+.
+PreToolUse
+.
+hooks
+]]
+type =
+"command"
+command =
+"python3 /enterprise/hooks/pre_tool_use_policy.py"
+command_windows =
+'py -3 C:\enterprise\hooks\pre_tool_use_policy.py'
+timeout =
+30
+statusMessage =
+"Checking managed Bash command"
+Notes for managed hooks:
+managed_dir
+is used on macOS and Linux.
+windows_managed_dir
+is used on Windows.
+Codex doesn’t distribute the scripts in
+managed_dir
+; your enterprise
+tooling must install and update them separately.
+Managed hook commands should use absolute script paths under the configured
+managed directory.
+allow_managed_hooks_only = true
+skips hooks from user, project, session, and
+plugin sources, but still loads managed hooks from
+requirements.toml
+and
+other managed config layers.
+Plugin-bundled hooks
+When a plugin is enabled, Codex can load lifecycle hooks from that plugin
+alongside user, project, and managed hooks.
+By default, Codex looks for
+hooks/hooks.json
+inside the plugin root. A plugin
+manifest can override that default with a
+hooks
+entry in
+.codex-plugin/plugin.json
+. The manifest entry can be a
+./
+-prefixed path, an
+array of
+./
+-prefixed paths, an inline hooks object, or an array of inline
+hooks objects.
+{
+"name"
+:
+"repo-policy"
+,
+"hooks"
+:
+"./hooks/hooks.json"
+}
+Manifest hook paths are resolved relative to the plugin root and must stay
+inside that root. If a manifest defines
+hooks
+, Codex uses those manifest
+entries instead of the default
+hooks/hooks.json
+.
+Plugin hook commands receive these environment variables:
+PLUGIN_ROOT
+is a Codex-specific extension that points to the installed
+plugin root.
+PLUGIN_DATA
+is a Codex-specific extension that points to the plugin’s
+writable data directory.
+Codex also sets
+CLAUDE_PLUGIN_ROOT
+and
+CLAUDE_PLUGIN_DATA
+for
+compatibility with existing plugin hooks.
+Plugin hooks use the same event schema as other hooks. Installing or enabling a
+plugin doesn’t automatically trust its hooks; Codex skips plugin-bundled hooks
+until you review and trust the current hook definition.
+Matcher patterns
+The
+matcher
+field is a regex string that filters when hooks fire. Use
+"*"
+,
+""
+, or omit
+matcher
+entirely to match every occurrence of a supported
+event.
+Only some current Codex events honor
+matcher
+:
+Event
+What
+matcher
+filters
+Notes
+PermissionRequest
+tool name
+Support includes
+Bash
+,
+apply_patch
+*, and MCP tool names
+PostToolUse
+tool name
+See
+Tool coverage
+PostCompact
+compaction trigger
+Values are
+manual
+or
+auto
+PreCompact
+compaction trigger
+Values are
+manual
+or
+auto
+PreToolUse
+tool name
+See
+Tool coverage
+SessionEnd
+end reason
+Currently only
+other
+SessionStart
+start source
+Values are
+startup
+,
+resume
+,
+clear
+,
+compact
+, and
+fork
+SubagentStart
+subagent type
+Values depend on the subagent that starts
+SubagentStop
+subagent type
+Values depend on the subagent that stops
+UserPromptSubmit
+not supported
+Any configured
+matcher
+is ignored for this event
+Stop
+not supported
+Any configured
+matcher
+is ignored for this event
+Interrupt
+not supported
+Any configured
+matcher
+is ignored for this event
+*For
+apply_patch
+,
+matcher
+values can also use
+Edit
+or
+Write
+.
+Examples:
+Bash
+^apply_patch$
+Edit|Write
+mcp__filesystem__read_file
+mcp__filesystem__.*
+startup|resume|clear|compact|fork
+manual|auto
+Tool coverage
+PreToolUse
+and
+PostToolUse
+can observe more than shell and MCP calls. Most
+local function tools use the same hook path, so you can match their tool name,
+inspect their JSON arguments, and, for
+PreToolUse
+, block or rewrite the call.
+Tool path
+PreToolUse
+PostToolUse
+Notes
+Shell commands
+Yes
+Yes
+Match as
+Bash
+.
+Unified exec (
+exec_command
+)
+Yes
+Yes
+Match as
+Bash
+. A later
+write_stdin
+poll can deliver the original command’s
+PostToolUse
+when that command finishes.
+apply_patch
+Yes
+Yes
+Match as
+apply_patch
+,
+Edit
+, or
+Write
+.
+MCP tools
+Yes
+Yes
+Match the MCP tool name, such as
+mcp__filesystem__read_file
+.
+Other local function tools
+Yes
+Yes
+Match the function tool name, such as
+update_plan
+.
+spawn_agent
+also matches
+Agent
+.
+Hosted tools, such as
+WebSearch
+No
+No
+These don’t use the local function-tool hook path.
+write_stdin
+is transport for an existing unified-exec session. It doesn’t run
+PreToolUse
+again when it sends input or polls a command that already passed
+PreToolUse
+.
+Some specialized tool paths can opt out of the default hook path. Treat tool
+hooks as a useful guardrail, not a complete enforcement boundary.
+Common input fields
+Every command hook receives one JSON object on
+stdin
+.
+These are the shared fields you will usually use:
+Field
+Type
+Meaning
+session_id
+string
+Current Codex session id. Subagent hooks use the parent session id.
+transcript_path
+string | null
+Path to the session transcript file, if any
+cwd
+string
+Working directory for the session
+hook_event_name
+string
+Current hook event name
+model
+string
+Codex-specific extension. Active model slug
+Turn-scoped hooks list
+turn_id
+as a Codex-specific extension in their
+event-specific tables.
+SessionStart
+,
+PreToolUse
+,
+PermissionRequest
+,
+PostToolUse
+,
+UserPromptSubmit
+,
+SubagentStart
+,
+SubagentStop
+,
+Stop
+, and
+Interrupt
+also include
+permission_mode
+[snapshot truncated]

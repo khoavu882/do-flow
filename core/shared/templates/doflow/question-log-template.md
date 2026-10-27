@@ -4,12 +4,12 @@
 
 > The one recurring shape every `intention/*-question.md`, `design/*-question.md` and
 > `plan/*-question.md` file uses: the Socratic dialogue transcript for a single round of a chain
-> stage's `AskUserQuestion` loop. This is a dialogue transcript, not an ID-bearing normative
+> stage's question-tool loop. This is a dialogue transcript, not an ID-bearing normative
 > artifact — out of `references/ARTIFACT_FORMAT.md`'s index/detail scope, the same way that
 > reference's own intro already carves out `state.md`.
 >
 > Not to be confused with the differently-named `{stage}-questions.md` convention in
-> `rules/RULE_04_QUESTIONS.md`: that file is a *request for input*, written for a
+> RULE_04 of `rules/RULES.md`: that file is a *request for input*, written for a
 > non-interactive harness and awaiting a `[Answer]:` tag before the run can continue. This one is
 > the opposite direction — a completed *record* of a round that already happened, filed after the
 > user answered, never awaiting anything.
@@ -39,6 +39,18 @@
 - [option B]
 
 **Answer:** [verbatim]
+
+## Coverage
+
+<!-- One line per requirement area as it stands after this round, each Clear, Partial, Missing or
+     Deferred (spec-kit clarify's coverage map). Missing or Partial areas are the next round's
+     questions, or the stated gaps when the loop stops; Deferred names who deferred it. -->
+- Problem and outcome: [Clear|Partial|Missing|Deferred]
+- Users and stories: [Clear|Partial|Missing|Deferred]
+- Functional scope: [Clear|Partial|Missing|Deferred]
+- Non-functional: [Clear|Partial|Missing|Deferred]
+- Out of scope: [Clear|Partial|Missing|Deferred]
+- Acceptance: [Clear|Partial|Missing|Deferred]
 
 <!-- Repeat one "## Question N" block per question actually asked this round — omit blocks for
      questions that were not asked rather than leaving placeholders behind.

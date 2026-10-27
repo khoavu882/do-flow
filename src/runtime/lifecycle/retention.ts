@@ -9,18 +9,17 @@
  * joined by any event that names more than one, and a unit goes only as a whole: when every item in
  * it is settled in the fold (a follow-up done or dismissed, a goal done) and its newest event is
  * older than the window. A unit whose removal would change anything else the fold shows (another
- * item, a feature, a release, a conflict) is kept.
+ * item, a feature, a release, a conflict) is kept, and so is a unit that an event of a type this
+ * version does not know (written by a newer DoFlow) names by id.
  *
- * `parseWindow` remains pure. `retentionWindow` composes its unset case with the declared storage
- * default and the project's prune setting; explicit environment values retain their existing meaning.
+ * `parseWindow` remains pure. `retentionWindow` composes the resolver-owned default with the project's
+ * prune setting; explicit values retain their existing meaning while pruning is off.
  */
 
 const nodeFs = require('node:fs');
 const { isDeepStrictEqual } = require('node:util');
-const { REPO_ROOT } = require('../../helper/repo-root.ts');
-const { loadStorageRegistry } = require('../storage/registry.ts');
-const { resolveRoots, readPruneSetting } = require('../storage/roots.ts');
-const { foldInto, finalize } = require('./fold.ts');
+const { loadSettings } = require('../settings/resolve.ts');
+const { foldInto, finalize, EVENT_TYPES } = require('./fold.ts');
 
 const HOUR_MS = 3600000;
 
@@ -35,23 +34,46 @@ function parseWindow(env: Record<string, string | undefined> = process.env): { s
   return { state: 'invalid', raw: String(raw) };
 }
 
-/** Composes IC-013's explicit environment override with the declared lifecycle default. */
-function retentionWindow({ env = process.env, projectRoot, registry, fsImpl = nodeFs }: any = {}): any {
+function invalidRaw(resolved: any, env: Record<string, string | undefined>): string {
+  for (let i = resolved.candidates.length - 1; i >= 0; i -= 1) {
+    const candidate = resolved.candidates[i];
+    if (candidate.status !== 'invalid') continue;
+    if (candidate.layer === 'env') return String(env.DOFLOW_RETENTION_HOURS ?? '');
+    try {
+      const raw = JSON.parse(candidate.display);
+      if (typeof raw === 'string' || typeof raw === 'number') return String(raw);
+    } catch { /* a malformed whole-file candidate has no display value */ }
+    return candidate.display || candidate.reason || candidate.code || '';
+  }
+  return '';
+}
+
+/** Composes the retention setting and prune gate through the shared settings resolver. */
+function retentionWindow({ env = process.env, projectRoot, fsImpl = nodeFs }: any = {}): any {
   const parsed = parseWindow(env);
   if (parsed.state === 'invalid') return parsed;
-  if (parsed.state === 'on') return { ...parsed, source: 'env' };
-  let activeRegistry: any;
   try {
-    activeRegistry = registry || loadStorageRegistry({ repoRoot: REPO_ROOT, fsImpl });
+    let settingsRegistry;
+    if (fsImpl !== nodeFs) {
+      const { loadSettingsRegistry } = require('../settings/registry.ts');
+      const loaded = loadSettingsRegistry({ fsImpl });
+      if (!loaded.ok) throw new Error(loaded.detail);
+      settingsRegistry = loaded.registry;
+    }
+    const view = loadSettings({ projectRoot, env, fsImpl, ...(settingsRegistry ? { registry: settingsRegistry } : {}) });
+    const retention = view.get('storage.retentionHours', 'project');
+    if (retention.state === 'invalid') return { state: 'invalid', raw: invalidRaw(retention, env) };
+    if (retention.explicit) {
+      const hours = retention.value;
+      return { state: 'on', hours, ms: hours * HOUR_MS, source: retention.origin.layer };
+    }
+    if (view.get('storage.prune', 'project').value !== 'on') return { state: 'off' };
+    const hours = retention.value;
+    return { state: 'on', hours, ms: hours * HOUR_MS, source: 'default' };
   } catch {
-    return { state: 'off' };
+    // Preserve an explicit environment window when the resolver registry is unavailable.
+    return parsed.state === 'on' ? { ...parsed, source: 'env' } : { state: 'off' };
   }
-  const roots = resolveRoots({ registry: activeRegistry, projectRoot, env });
-  if (readPruneSetting({ registry: activeRegistry, roots, rootId: 'project-state', fsImpl }).setting !== 'on') return { state: 'off' };
-  const lifecycleStore = activeRegistry.stores.find((store: any) => store.id === 'lifecycle-events');
-  if (!lifecycleStore) throw new Error('Storage registry has no lifecycle-events store');
-  const hours = lifecycleStore.bound.defaultHours;
-  return { state: 'on', hours, ms: hours * HOUR_MS, source: 'default' };
 }
 
 function isText(value: any): boolean { return typeof value === 'string' && value.trim() !== ''; }
@@ -111,6 +133,34 @@ function unitsOf(events: any[], shouldStop?: () => boolean): any[] | null {
     unit.events.push(event);
   }
   return [...units.values()];
+}
+
+/**
+ * Every string value and every object key in the data of the events whose type this version's fold
+ * does not know (a newer DoFlow wrote them). The fold ignores them, so retention cannot tell what they change; a unit that
+ * one of them names by id is kept whole rather than deleted from under it. Exact matches only:
+ * keeping too little is a lost record, keeping too much only a file that stays.
+ * @returns {Set<string>|null} null when `shouldStop` fired
+ */
+function unknownTypeStrings(events: any[], shouldStop?: () => boolean): Set<string> | null {
+  const known = new Set<string>(EVENT_TYPES);
+  const found = new Set<string>();
+  for (const event of events) {
+    if (shouldStop?.()) return null;
+    if (known.has(event.type)) continue;
+    const pending: any[] = [event.data];
+    while (pending.length > 0) {
+      if (shouldStop?.()) return null;
+      const value = pending.pop();
+      if (typeof value === 'string') found.add(value);
+      else if (Array.isArray(value)) pending.push(...value);
+      else if (value && typeof value === 'object') {
+        for (const key of Object.keys(value)) found.add(key);
+        pending.push(...Object.values(value));
+      }
+    }
+  }
+  return found;
 }
 
 function isSettled(state: any, key: string): boolean {
@@ -173,6 +223,12 @@ function selectExpired(events: any[], { now, windowMs, shouldStop }: any = {}): 
   }
   const named = unitsOf(events, shouldStop);
   if (!named || shouldStop?.()) return incomplete();
+  const mentioned = unknownTypeStrings(events, shouldStop);
+  if (!mentioned || shouldStop?.()) return incomplete();
+  // Selected exactly as 5bc9407b did (every settled, expired, unserved unit is a candidate), and only
+  // then are the units an unknown-type event names dropped. Protection removes units from that
+  // selection; it never changes which of the others are picked, so what is deleted is always a subset
+  // of what base would delete on the same events.
   const candidates: any[] = [];
   for (const unit of named) {
     if (shouldStop?.()) return incomplete();
@@ -186,20 +242,28 @@ function selectExpired(events: any[], { now, windowMs, shouldStop }: any = {}): 
     if (eligible) candidates.push({ ...unit, newestAt: newest });
   }
   const full = finalize(state);
-  let selected = candidates;
-  const allSafe = refoldEqual(events, full, candidates, now, shouldStop);
-  if (allSafe === null || shouldStop?.()) return incomplete();
-  if (!allSafe) {
-    selected = [];
-    const ordered = [...candidates].sort((a: any, b: any) => Date.parse(a.newestAt) - Date.parse(b.newestAt));
-    if (shouldStop?.()) return incomplete();
+  /** The refold-safe subset of `list`: all of it when that holds, else the oldest-first greedy pass. */
+  const safeSubset = (list: any[]): any[] | null => {
+    const allSafe = refoldEqual(events, full, list, now, shouldStop);
+    if (allSafe === null || shouldStop?.()) return null;
+    if (allSafe) return list;
+    const chosen: any[] = [];
+    const ordered = [...list].sort((a: any, b: any) => Date.parse(a.newestAt) - Date.parse(b.newestAt));
+    if (shouldStop?.()) return null;
     for (const unit of ordered) {
-      if (shouldStop?.()) return incomplete();
-      const safe = refoldEqual(events, full, [...selected, unit], now, shouldStop);
-      if (safe === null) return incomplete();
-      if (safe) selected.push(unit);
+      if (shouldStop?.()) return null;
+      const safe = refoldEqual(events, full, [...chosen, unit], now, shouldStop);
+      if (safe === null) return null;
+      if (safe) chosen.push(unit);
     }
-  }
+    return chosen;
+  };
+  const baseSelected = safeSubset(candidates);
+  if (!baseSelected) return incomplete();
+  const unprotected = baseSelected.filter((unit: any) => ![...unit.items].some((key: string) => mentioned.has(key.slice(key.indexOf(':') + 1))));
+  // Dropping units can leave a set the refold no longer accepts; check it again, inside the subset.
+  const selected = unprotected.length === baseSelected.length ? baseSelected : safeSubset(unprotected);
+  if (!selected) return incomplete();
   const units: any[] = [];
   for (const unit of selected) {
     if (shouldStop?.()) return incomplete();

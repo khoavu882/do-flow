@@ -33,8 +33,8 @@ mechanical work. Fewer turns can cost less than a cheaper model that needs repea
 ## Reviews
 
 Reviews are read-only `frontier` work by an agent and model different from the author. Report if that
-tier is unavailable. Review once per phase or fix batch; re-review only an open blocker tests cannot
-settle, after asking. Deep reviews use two independent reviewers with different lenses.
+tier is unavailable. Review once per phase or fix batch; re-review after fixes is automatic, per
+`doflow review --action start`.
 
 ## Archetype dispatch tiers
 
@@ -46,9 +46,11 @@ settle, after asking. Deep reviews use two independent reviewers with different 
 |---|---|---|
 | `system-architect` | `frontier` | Architecture sets system shape: a consequential decision. |
 | `core-implementer` | `standard` | Routine coding against a settled spec. |
-| `quality-guardian` | `standard` | Its testing and evidence work; a review runs at `frontier` per-dispatch (`## Reviews`), not via `byOwner`. |
+| `quality-guardian` | `standard` | Testing and evidence work; review tasks belong to `reviewer`. |
 | `spec-analyst` | `standard` | Requirements analysis and routine research. |
 | `research-writer` | `standard` | Documentation and routine research. |
+| `delivery-lead` | `frontier` | Plans and orchestrates delivery; its records gate merges. |
+| `reviewer` | `frontier` | Review verdicts gate merges (`## Reviews`). |
 
 ## Briefs and inheritance
 

@@ -1,0 +1,613 @@
+Navigation
+On this page
+Create and load an extension
+Add it to Pi
+Understand the runtime lifecycle
+Choose an event by intent
+Choose an integration point
+Follow the extension contracts
+Events and concurrency
+Tools
+Tool exposure
+Activate tools dynamically
+Tool rendering
+MCP servers
+Context and session changes
+State
+UI and modes
+Errors and cleanup
+Examples and reference
+Documentation
+Get Started
+Overview
+Quickstart
+How Pi Works
+Guides
+Run Pi
+Use Pi in the Terminal
+Choose a Model
+Manage Sessions and Context
+Run Pi Safely
+Isolate Pi
+Run Local Models
+Run Local Models on NVIDIA RTX
+Configure Your Terminal
+Configure Shell Commands
+Run Pi in tmux
+Run Pi on Windows
+Run Pi on Android
+Customize Pi
+Configure Pi
+Create Prompt Templates
+Add Skills
+Create Themes
+Use Pi Packages
+Connect MCP Servers
+Build on Pi
+Build Extensions
+Add Custom Providers
+Route with Virtual Models
+Build Terminal UI Components
+Integrate with the CLI
+Use the SDK
+Reference
+CLI
+Codemode
+Slash Commands
+Settings
+Models Configuration
+Environment Variables
+Keybindings
+Providers
+Session File Format
+Compaction and Branch Summaries
+JSON Event Stream
+RPC Protocol
+RPC Commands
+RPC Extension UI
+Message Types
+Changelog
+Search documentation
+⌘ K
+Documentation
+Get Started
+Overview
+Quickstart
+How Pi Works
+Guides
+Run Pi
+Use Pi in the Terminal
+Choose a Model
+Manage Sessions and Context
+Run Pi Safely
+Isolate Pi
+Run Local Models
+Run Local Models on NVIDIA RTX
+Configure Your Terminal
+Configure Shell Commands
+Run Pi in tmux
+Run Pi on Windows
+Run Pi on Android
+Customize Pi
+Configure Pi
+Create Prompt Templates
+Add Skills
+Create Themes
+Use Pi Packages
+Connect MCP Servers
+Build on Pi
+Build Extensions
+Add Custom Providers
+Route with Virtual Models
+Build Terminal UI Components
+Integrate with the CLI
+Use the SDK
+Reference
+CLI
+Codemode
+Slash Commands
+Settings
+Models Configuration
+Environment Variables
+Keybindings
+Providers
+Session File Format
+Compaction and Branch Summaries
+JSON Event Stream
+RPC Protocol
+RPC Commands
+RPC Extension UI
+Message Types
+Changelog
+On this page
+Create and load an extension
+Add it to Pi
+Understand the runtime lifecycle
+Choose an event by intent
+Choose an integration point
+Follow the extension contracts
+Events and concurrency
+Tools
+Tool exposure
+Activate tools dynamically
+Tool rendering
+MCP servers
+Context and session changes
+State
+UI and modes
+Errors and cleanup
+Examples and reference
+On this page
+Create and load an extension
+Add it to Pi
+Understand the runtime lifecycle
+Choose an event by intent
+Choose an integration point
+Follow the extension contracts
+Events and concurrency
+Tools
+Tool exposure
+Activate tools dynamically
+Tool rendering
+MCP servers
+Context and session changes
+State
+UI and modes
+Errors and cleanup
+Examples and reference
+Extensions
+Latest
+·
+·
+Extensions are TypeScript modules that add executable behavior to Pi. Use one when a workflow needs tools, commands, event handlers, model providers, session state, or terminal UI rather than instructions alone.
+An extension runs inside the Pi process with the same operating-system permissions. It can inspect prompts, tool calls, files, credentials, and session history, so load extensions only from sources you trust.
+Typical extensions add an agent tool, protect paths, confirm dangerous commands, react to session events, modify context, expose a command, or display persistent status.
+Create and load an extension
+Copied
+An extension exports a default factory that receives
+ExtensionAPI
+. The factory registers capabilities for the current extension runtime.
+Create
+~/.pi/agent/extensions/hello.ts
+:
+import
+type
+{ ExtensionAPI }
+from
+"@earendil-works/pi-coding-agent"
+;
+export
+default
+function
+(
+pi
+:
+ExtensionAPI
+) {
+pi.
+registerCommand
+(
+"hello"
+, {
+description:
+"Show a greeting"
+,
+handler
+:
+async
+(
+name
+,
+ctx
+)
+=>
+{
+ctx.ui.
+notify
+(
+`Hello, ${
+name
+||
+"world"}!`
+,
+"info"
+);
+},
+});
+}
+Start Pi and run
+/hello
+. During development, load a file directly:
+pi
+--extension
+./hello.ts
+Pi uses
+jiti
+, so local TypeScript extensions do not need a separate compilation step. Use
+Pi packages
+for distributed extensions and dependencies.
+Add it to Pi
+Copied
+Place the extension in your user or project extensions directory. Pi loads direct TypeScript or JavaScript files and subdirectories containing an
+index.ts
+or
+index.js
+entry point.
+Use a single file for a small extension and a directory for a multi-file implementation. Put npm dependencies in a nearby
+package.json
+. See
+Configuration
+for conventional locations and
+Settings
+for additional paths.
+Reload replaces the extension runtime, so code after
+await ctx.reload()
+must not reuse state from the old runtime. Only personal and explicit command-line extensions can participate in the
+project_trust
+event that runs before project extensions load.
+Understand the runtime lifecycle
+Copied
+The factory can be synchronous or asynchronous. Pi waits for an asynchronous factory before startup continues, allowing it to fetch configuration or register providers needed during startup.
+Do not start processes, sockets, watchers, or timers in the factory because some invocations load extensions without starting a session.
+Start long-lived resources from
+session_start
+or from the command or tool that needs them.
+Close session-scoped resources from an idempotent
+session_shutdown
+handler.
+A normal prompt starts a run. The run repeats turns, then checks whether more work starts another low-level agent run:
+flowchart TD
+Input["input"] --> Before["before_agent_start"]
+Before --> AgentStart["agent_start"]
+AgentStart --> Turns[["turns"]]
+Turns --> AgentEnd["agent_end"]
+AgentEnd --> MoreRuns{"More work?"}
+MoreRuns -->|yes| AgentStart
+MoreRuns -->|no| BeforeSettle["agent_before_settle"]
+BeforeSettle --> Continue{"Continuation requested?"}
+Continue -->|yes| AgentStart
+Continue -->|no| Settled["agent_settled"]
+Mermaid diagram source:
+flowchart TD
+Input["input"] --> Before["before_agent_start"]
+Before --> AgentStart["agent_start"]
+AgentStart --> Turns[["turns"]]
+Turns --> AgentEnd["agent_end"]
+AgentEnd --> MoreRuns{"More work?"}
+MoreRuns -->|yes| AgentStart
+MoreRuns -->|no| BeforeSettle["agent_before_settle"]
+BeforeSettle --> Continue{"Continuation requested?"}
+Continue -->|yes| AgentStart
+Continue -->|no| Settled["agent_settled"]
+More work means a retry, recovery, compaction retry, or queued work.
+Each turn sends one model request and executes the tool calls in the assistant response:
+flowchart TD
+TurnStart["turn_start"] --> Request[["model request"]]
+Request --> ToolDecision{"Tool calls?"}
+ToolDecision -->|yes| Tools[["tool execution"]]
+Tools --> TurnEnd["turn_end"]
+ToolDecision -->|no| TurnEnd
+TurnEnd --> MoreTurns{"Another turn?"}
+MoreTurns -->|yes| TurnStart
+MoreTurns -->|no| AgentEnd(["agent_end"])
+Mermaid diagram source:
+flowchart TD
+TurnStart["turn_start"] --> Request[["model request"]]
+Request --> ToolDecision{"Tool calls?"}
+ToolDecision -->|yes| Tools[["tool execution"]]
+Tools --> TurnEnd["turn_end"]
+ToolDecision -->|no| TurnEnd
+TurnEnd --> MoreTurns{"Another turn?"}
+MoreTurns -->|yes| TurnStart
+MoreTurns -->|no| AgentEnd(["agent_end"])
+The model request runs these hooks in order:
+context
+context_with_system
+before_provider_headers
+before_provider_request
+after_provider_response
+provider_stream_event
+and assistant message events
+Tool execution runs these hooks in order for each tool call:
+tool_execution_start
+tool_call
+tool_execution_update
+while the tool executes
+tool_result
+tool_execution_end
+The lifecycle involves these event groups:
+Area
+Events
+Input preparation
+input
+,
+before_agent_start
+Agent run
+agent_start
+,
+agent_end
+Model turn
+turn_start
+,
+context
+,
+context_with_system
+,
+turn_end
+Provider call
+before_provider_headers
+,
+before_provider_request
+,
+after_provider_response
+,
+provider_stream_event
+Message lifecycle
+message_start
+,
+message_update
+,
+message_end
+Tool execution
+tool_execution_start
+,
+tool_call
+,
+tool_execution_update
+,
+tool_result
+,
+tool_execution_end
+Settlement
+agent_before_settle
+,
+agent_settled
+Pi counts as busy while a run starts, including the compaction check and
+before_agent_start
+, so messages sent meanwhile go into the starting run. Message lifecycle events also cover user and tool-result messages; the model request list places only the assistant stream where it occurs in each turn.
+Tool hooks run for each tool call, and one assistant response can start another turn by returning tool calls. Provider hooks run only when that transport exposes the corresponding stage. See the exported declarations in
+extensions/types.ts
+for exact event payloads and result types.
+Session startup and replacement follow a separate lifecycle:
+flowchart TD
+Startup["Process startup"] --> Trust["project_trust when needed"]
+Trust --> SessionStart["session_start"]
+Switch["/new or /resume"] --> BeforeSwitch["session_before_switch"]
+Fork["/fork or /clone"] --> BeforeFork["session_before_fork"]
+BeforeSwitch --> Shutdown["session_shutdown"]
+BeforeFork --> Shutdown
+Reload["reload"] --> Shutdown
+Shutdown --> Replacing{"Replacing the runtime?"}
+Replacing -->|yes| Replacement["load replacement extension runtime"]
+Replacement --> SessionStart
+Replacing -->|no| Stop["process exits"]
+SessionStart --> Discover["resources_discover"]
+Mermaid diagram source:
+flowchart TD
+Startup["Process startup"] --> Trust["project_trust when needed"]
+Trust --> SessionStart["session_start"]
+Switch["/new or /resume"] --> BeforeSwitch["session_before_switch"]
+Fork["/fork or /clone"] --> BeforeFork["session_before_fork"]
+BeforeSwitch --> Shutdown["session_shutdown"]
+BeforeFork --> Shutdown
+Reload["reload"] --> Shutdown
+Shutdown --> Replacing{"Replacing the runtime?"}
+Replacing -->|yes| Replacement["load replacement extension runtime"]
+Replacement --> SessionStart
+Replacing -->|no| Stop["process exits"]
+SessionStart --> Discover["resources_discover"]
+project_trust
+runs before trusted project resources load and can run again when session replacement enters a new working directory. Retries, recovery, compaction, and queued messages can start another agent run after
+agent_end
+, so
+agent_end
+is not a final-idle signal. Reload and session replacement invalidate the old runtime. Code after
+await ctx.reload()
+still belongs to the old runtime and must not reuse its session-bound state.
+Choose an event by intent
+Copied
+Goal
+Event
+Inspect, transform, or consume raw user input
+input
+Change prompt sections, active tools, or add context before a run
+before_agent_start
+Observe one low-level agent run
+agent_start
+,
+agent_end
+Act after one model response and its tool calls
+turn_end
+Filter conversation messages for one provider request
+context
+Transform the complete transcript, including system messages
+context_with_system
+Change request headers or the serialized provider payload
+before_provider_headers
+,
+before_provider_request
+Observe provider response metadata or parsed stream events
+after_provider_response
+,
+provider_stream_event
+Authorize or modify a tool call
+tool_call
+Redact, annotate, or replace a tool result
+tool_result
+Append final entries or request one last continuation
+agent_before_settle
+Run notification work after automatic processing has stopped
+agent_settled
+Initialize or release session-scoped resources
+session_start
+,
+session_shutdown
+Use
+agent_before_settle
+when an extension must append entries or request one final continuation. Use
+agent_settled
+for notification-only work that should run after Pi has no automatic continuation remaining.
+Choose an integration point
+Copied
+Capability
+Main API
+Observe or modify lifecycle behavior
+pi.on()
+Add a model-callable operation
+pi.registerTool()
+Add a
+/
+command
+pi.registerCommand()
+Add a shortcut or CLI flag
+pi.registerShortcut()
+or
+pi.registerFlag()
+Send user or custom messages
+pi.sendUserMessage()
+or
+pi.sendMessage()
+Persist non-context session data
+pi.appendEntry()
+Change active tools, model, or thinking level
+Session control methods on
+pi
+Add a model provider
+pi.registerProvider()
+Add an MCP server
+pi.registerMcpServer()
+Route each request to a model
+pi.registerVirtualModel()
+Add terminal rendering
+Renderer registration and
+ctx.ui
+Communicate with another extension
+pi.events
+Use the exported declarations in
+extensions/types.ts
+for exact event, context, tool, and result types.
+Follow the extension contracts
+Copied
+Events and concurrency
+Copied
+Handlers run in extension load and registration order.
+pi.on()
+returns a function that unsubscribes that registration; changes do not affect a dispatch already in progress.
+Some events notify; others transform data, replace results, or cancel an operation.
+Use each event’s declared result type rather than assuming every return value has an effect.
+Events cover resource discovery, sessions, agent and message lifecycle, providers, tools, and raw input.
+Understand handler composition
+Copied
+Pattern
+Behavior
+Notification
+Return values are ignored. Use the event for observation only.
+In-place mutation
+Later handlers see changes to values such as
+before_provider_headers.headers
+,
+before_agent_start.systemPromptOptions
+, and
+tool_call.input
+.
+Chained transformation
+Later handlers receive the value returned by earlier
+input
+,
+context
+,
+context_with_system
+,
+message_end
+,
+tool_result
+, and
+before_provider_request
+handlers.
+Gate
+A handled input, blocked tool call, cancelled session operation, or handled
+user_bash
+command stops that operation's normal fallback path.
+Actionable boundary
+Each
+turn_end
+or
+agent_before_settle
+handler sees the entries and continuation decision proposed so far.
+Last override
+The last
+cache_warming_decision
+handler that returns an action wins.
+Notification handlers should not perform slow work on a streaming event. Transform handlers should preserve fields they do not intentionally own, and gate handlers should fail closed when their safety decision cannot be made.
+before_agent_start
+exposes both the current prompt and its structured
+systemPromptOptions
+.
+event.messageType
+says what started the run:
+"user"
+for a prompt or
+pi.sendUserMessage()
+, with
+prompt
+and
+images
+;
+"custom"
+for
+pi.sendMessage(..., { triggerTurn: true })
+, with the starting
+message
+and no
+prompt
+. A returned
+message
+is added to either kind of run; check
+messageType
+to skip runs started by custom messages. Prefer changing prompt sections, selected tools, or guidelines so Pi can append a transcript delta. Returning
+systemPrompt
+, or setting
+forceSystemPrompt
+, replaces the whole prompt for that run while the transcript continues recording the structured sections. Providers receive the forced text as their leading system prompt.
+message_end
+can replace a finalized message while preserving its role.
+tool_call
+can mutate input or block execution.
+tool_result
+handlers compose, with each handler seeing prior changes.
+provider_stream_event
+fires for each parsed provider stream event before Pi normalizes it. The event identifies the provider, API, and model;
+event.data
+is the earliest structured value available to Pi, not necessarily the original HTTP bytes or SSE frame. Treat it as read-only because mutation can affect normalization. The event is notification-only and is not persisted.
+Handlers are awaited in stream order, so slow handlers delay stream consumption. Handler errors are reported without changing the provider response. See
+debug-provider.ts
+for an opt-in viewer that groups raw events by assistant message.
+context
+transforms conversation messages without prompt and tool system messages; Pi restores that state afterward. Use
+context_with_system
+only when a request-local transformation must own the complete transcript, and keep a system message at index zero.
+turn_end
+and
+agent_before_settle
+are actionable boundaries. Their handlers can chain proposed
+custom
+,
+custom_message
+,
+context_edit
+, or
+compaction
+entries and return
+continue: true
+for one next model request. Guard continuation conditions because an unconditional continuation can loop. Use the exported event declarations for the complete validation and ordering contract.
+cache_warming_decision
+can override an idle prompt-cache refresh with
+{ action: "warm" }
+or
+{ action: "stop" }
+. The last handler that returns an action wins.
+Tool calls from one assistant message can run in parallel.
+Do not assume a sibling call or result exists when another tool event runs.
+Use
+ctx.signal
+[snapshot truncated]

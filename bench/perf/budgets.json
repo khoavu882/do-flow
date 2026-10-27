@@ -430,6 +430,48 @@
       ]
     },
     {
+      "id": "verb.task-attempt-status",
+      "kind": "cli",
+      "intentClass": "verb",
+      "enforced": false,
+      "status": "proposed",
+      "note": "IC-022, NFR-004: status on the 30-task graph plan (three files per task, depends-on edges) against a ledger of two attempts per task.",
+      "setup": {
+        "kind": "copy-fixture-project",
+        "fixture": "bench/perf/fixtures/task-graph-project",
+        "git": true
+      },
+      "argv": [
+        "node",
+        "bin/doflow.js",
+        "task-attempt",
+        "{project}",
+        "--slug",
+        "080-perf",
+        "--action",
+        "status",
+        "--json"
+      ]
+    },
+    {
+      "id": "verb.task-attempt-claim",
+      "kind": "cli",
+      "intentClass": "verb",
+      "enforced": false,
+      "status": "proposed",
+      "note": "IC-022, NFR-004, plan RK1: measures the read and refusal path only. The header-less copy of the same 30-task plan is put in place of plan.md, and claim targets D.2, whose dependency C.2 holds an active attempt, so the claim runs steps 0 to 12 (including file hashing) and is refused unmet-dependency at step 12, writing nothing. A refused claim exits 1 and the runner accepts only exit 0, so the sample runs under sh, which also copies the plan; the sample passes only when that refusal is printed. The successful locked write is not measured.",
+      "setup": {
+        "kind": "copy-fixture-project",
+        "fixture": "bench/perf/fixtures/task-graph-project",
+        "git": true
+      },
+      "argv": [
+        "sh",
+        "-c",
+        "cp {project}/agent-docs/doflow/080-perf/plan-legacy.md {project}/agent-docs/doflow/080-perf/plan.md && node bin/doflow.js task-attempt {project} --slug 080-perf --action claim --task D.2 --owner core-implementer --mode sequential --json | grep -q '\"reason\": \"unmet-dependency\"'"
+      ]
+    },
+    {
       "id": "diag.doctor",
       "kind": "cli",
       "argv": [
@@ -483,7 +525,7 @@
       "argv": [
         "node",
         "--test",
-        "test/guards/context-budget.test.js"
+        "test/guards/context-budget.test.ts"
       ],
       "intentClass": "guardFile",
       "enforced": false
@@ -912,126 +954,6 @@
       "stdinField": "native"
     },
     {
-      "id": "hook.gemini.mcp-tool-guard",
-      "kind": "hook",
-      "argv": [
-        "bash",
-        "{mirror}/.gemini/hooks/mcp-tool-guard.sh"
-      ],
-      "harness": "gemini",
-      "intentClass": "hook",
-      "enforced": false,
-      "setup": {
-        "kind": "hook-install-mirror",
-        "fixture": "bench/perf/fixtures/hook-bridge-project",
-        "git": true
-      },
-      "stdinFixture": "test/fixtures/hooks/gemini/mcp-tool-guard/perf.json",
-      "stdinField": "native"
-    },
-    {
-      "id": "hook.gemini.post-edit-lint",
-      "kind": "hook",
-      "argv": [
-        "bash",
-        "{mirror}/.gemini/hooks/post-edit-lint.sh"
-      ],
-      "harness": "gemini",
-      "intentClass": "hook",
-      "enforced": false,
-      "setup": {
-        "kind": "hook-install-mirror",
-        "fixture": "bench/perf/fixtures/hook-bridge-project",
-        "git": true
-      }
-    },
-    {
-      "id": "hook.gemini.pre-bash-guard",
-      "kind": "hook",
-      "argv": [
-        "bash",
-        "{mirror}/.gemini/hooks/pre-bash-guard.sh"
-      ],
-      "harness": "gemini",
-      "intentClass": "hook",
-      "enforced": false,
-      "setup": {
-        "kind": "hook-install-mirror",
-        "fixture": "bench/perf/fixtures/hook-bridge-project",
-        "git": true
-      },
-      "stdinFixture": "test/fixtures/hooks/gemini/pre-bash-guard/perf.json",
-      "stdinField": "native"
-    },
-    {
-      "id": "hook.gemini.pre-compact",
-      "kind": "hook",
-      "argv": [
-        "bash",
-        "{mirror}/.gemini/hooks/pre-compact.sh"
-      ],
-      "harness": "gemini",
-      "intentClass": "hook",
-      "enforced": false,
-      "setup": {
-        "kind": "hook-install-mirror",
-        "fixture": "bench/perf/fixtures/hook-bridge-project",
-        "git": true
-      }
-    },
-    {
-      "id": "hook.gemini.pre-implement-gate",
-      "kind": "hook",
-      "argv": [
-        "bash",
-        "{mirror}/.gemini/hooks/pre-implement-gate.sh"
-      ],
-      "harness": "gemini",
-      "intentClass": "hook",
-      "enforced": false,
-      "setup": {
-        "kind": "hook-install-mirror",
-        "fixture": "bench/perf/fixtures/hook-bridge-project",
-        "git": true
-      },
-      "stdinFixture": "test/fixtures/hooks/gemini/pre-implement-gate/perf.json",
-      "stdinField": "native"
-    },
-    {
-      "id": "hook.gemini.session-end",
-      "kind": "hook",
-      "argv": [
-        "bash",
-        "{mirror}/.gemini/hooks/session-end.sh"
-      ],
-      "harness": "gemini",
-      "intentClass": "hook",
-      "enforced": false,
-      "setup": {
-        "kind": "hook-install-mirror",
-        "fixture": "bench/perf/fixtures/hook-bridge-project",
-        "git": true
-      }
-    },
-    {
-      "id": "hook.gemini.session-start",
-      "kind": "hook",
-      "argv": [
-        "bash",
-        "{mirror}/.gemini/hooks/session-start.sh"
-      ],
-      "harness": "gemini",
-      "intentClass": "hook",
-      "enforced": false,
-      "setup": {
-        "kind": "hook-install-mirror",
-        "fixture": "bench/perf/fixtures/hook-bridge-project",
-        "git": true
-      },
-      "stdinFixture": "test/fixtures/hooks/gemini/session-start/perf.json",
-      "stdinField": "native"
-    },
-    {
       "id": "hook.opencode",
       "kind": "hook",
       "argv": [],
@@ -1412,6 +1334,65 @@
       "intentClass": "hook",
       "stdinFixture": "bench/perf/fixtures/shared/subagent-audit.json",
       "enforced": false
+    },
+    {
+      "id": "hook.shared.emission",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/emission.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/emission.json",
+      "enforced": false
+    },
+    {
+      "id": "hook.shared.emission-rules",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/emission-rules.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/emission-rules.json",
+      "enforced": false
+    },
+    {
+      "id": "hook.shared.compact-text",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/compact-text.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "enforced": false
+    },
+    {
+      "id": "hook.shared.identity",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/identity.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/identity.json",
+      "enforced": false
+    },
+    {
+      "id": "hook.shared.summary-store",
+      "kind": "hook",
+      "argv": [
+        "bash",
+        "core/harnesses/shared/hooks/policies/summary-store.sh"
+      ],
+      "harness": "shared",
+      "intentClass": "hook",
+      "stdinFixture": "bench/perf/fixtures/shared/summary-store.json",
+      "enforced": false
     }
   ],
   "rows": [
@@ -1621,6 +1602,10 @@
       "unmeasured": "measurement deferred to V.2"
     },
     {
+      "surfaceId": "hook.claude.post-shell-observe",
+      "unmeasured": "088 E.4 measures it; a ceiling is a user approval and none is set here"
+    },
+    {
       "surfaceId": "hook.claude.post-tool-failure",
       "unmeasured": "measurement deferred to V.2"
     },
@@ -1701,39 +1686,7 @@
       "unmeasured": "measurement deferred to V.2"
     },
     {
-      "surfaceId": "hook.gemini.mcp-tool-guard",
-      "unmeasured": "measurement deferred to V.2"
-    },
-    {
-      "surfaceId": "hook.gemini.post-edit-lint",
-      "unmeasured": "measurement deferred to V.2"
-    },
-    {
-      "surfaceId": "hook.gemini.pre-bash-guard",
-      "unmeasured": "measurement deferred to V.2"
-    },
-    {
-      "surfaceId": "hook.gemini.pre-compact",
-      "unmeasured": "measurement deferred to V.2"
-    },
-    {
-      "surfaceId": "hook.gemini.pre-implement-gate",
-      "unmeasured": "measurement deferred to V.2"
-    },
-    {
-      "surfaceId": "hook.gemini.session-end",
-      "unmeasured": "measurement deferred to V.2"
-    },
-    {
-      "surfaceId": "hook.gemini.session-start",
-      "unmeasured": "measurement deferred to V.2"
-    },
-    {
       "surfaceId": "hook.opencode",
-      "unmeasured": "no hooks are projected"
-    },
-    {
-      "surfaceId": "hook.copilot",
       "unmeasured": "no hooks are projected"
     },
     {
@@ -1763,6 +1716,10 @@
     {
       "surfaceId": "hook.antigravity.stop-check",
       "unmeasured": "measurement deferred to V.2"
+    },
+    {
+      "surfaceId": "hook.antigravity.pre-bash-guard",
+      "unmeasured": "088 A.2 bridge surface; no measurement yet, measured in D.4"
     },
     {
       "surfaceId": "hook.shared.capture-failure",
@@ -2167,6 +2124,34 @@
     {
       "surfaceId": "hook.kiro.stop-check.agent-config",
       "unmeasured": "measurement deferred to V.2"
+    },
+    {
+      "surfaceId": "hook.copilot.doflow-mcp-tool-guard",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.copilot.doflow-pre-bash-guard",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.copilot.doflow-pre-implement-gate",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.copilot.doflow-session-start",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.copilot.doflow-stop-check",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.copilot.doflow-subagent-start",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.copilot.doflow-subagent-stop",
+      "unmeasured": "no fixture"
     },
     {
       "surfaceId": "hook.pi.tool-call-pre-implementation-gate",
@@ -2716,149 +2701,6 @@
       "approvedOn": "2026-10-14"
     },
     {
-      "surfaceId": "hook.gemini.mcp-tool-guard",
-      "platform": "darwin",
-      "arch": "arm64",
-      "machineId": "6295d410c5bc",
-      "measuredOn": "2026-10-14",
-      "runs": 30,
-      "warmups": 3,
-      "interleave": "seeded-shuffle-per-round",
-      "seed": 20261012,
-      "p50Ms": 27.47,
-      "p95Ms": 58.4,
-      "maxMs": 66.54,
-      "madMs": 2.02,
-      "controlP50Ms": 27.44,
-      "redos": 0,
-      "headroomMs": 14.6,
-      "ceilingMs": 73,
-      "status": "proposed"
-    },
-    {
-      "surfaceId": "hook.gemini.post-edit-lint",
-      "platform": "darwin",
-      "arch": "arm64",
-      "machineId": "6295d410c5bc",
-      "measuredOn": "2026-10-14",
-      "runs": 30,
-      "warmups": 3,
-      "interleave": "seeded-shuffle-per-round",
-      "seed": 20261012,
-      "p50Ms": 15.64,
-      "p95Ms": 19.79,
-      "maxMs": 22.04,
-      "madMs": 1.03,
-      "controlP50Ms": 27.44,
-      "redos": 0,
-      "headroomMs": 10,
-      "ceilingMs": 30,
-      "status": "proposed"
-    },
-    {
-      "surfaceId": "hook.gemini.pre-bash-guard",
-      "platform": "darwin",
-      "arch": "arm64",
-      "machineId": "6295d410c5bc",
-      "measuredOn": "2026-10-14",
-      "runs": 30,
-      "warmups": 3,
-      "interleave": "seeded-shuffle-per-round",
-      "seed": 20261012,
-      "p50Ms": 35.6,
-      "p95Ms": 57.26,
-      "maxMs": 83.42,
-      "madMs": 2.9,
-      "controlP50Ms": 27.44,
-      "redos": 0,
-      "headroomMs": 14.32,
-      "ceilingMs": 72,
-      "status": "approved",
-      "approvedOn": "2026-10-14"
-    },
-    {
-      "surfaceId": "hook.gemini.pre-compact",
-      "platform": "darwin",
-      "arch": "arm64",
-      "machineId": "6295d410c5bc",
-      "measuredOn": "2026-10-14",
-      "runs": 30,
-      "warmups": 3,
-      "interleave": "seeded-shuffle-per-round",
-      "seed": 20261012,
-      "p50Ms": 15.78,
-      "p95Ms": 19.37,
-      "maxMs": 33.06,
-      "madMs": 1.09,
-      "controlP50Ms": 27.44,
-      "redos": 0,
-      "headroomMs": 10,
-      "ceilingMs": 30,
-      "status": "proposed"
-    },
-    {
-      "surfaceId": "hook.gemini.pre-implement-gate",
-      "platform": "darwin",
-      "arch": "arm64",
-      "machineId": "6295d410c5bc",
-      "measuredOn": "2026-10-14",
-      "runs": 30,
-      "warmups": 3,
-      "interleave": "seeded-shuffle-per-round",
-      "seed": 20261012,
-      "p50Ms": 68.41,
-      "p95Ms": 100.28,
-      "maxMs": 106.46,
-      "madMs": 4.36,
-      "controlP50Ms": 27.44,
-      "redos": 0,
-      "headroomMs": 25.07,
-      "ceilingMs": 100,
-      "status": "approved",
-      "approvedOn": "2026-10-14"
-    },
-    {
-      "surfaceId": "hook.gemini.session-end",
-      "platform": "darwin",
-      "arch": "arm64",
-      "machineId": "6295d410c5bc",
-      "measuredOn": "2026-10-14",
-      "runs": 30,
-      "warmups": 3,
-      "interleave": "seeded-shuffle-per-round",
-      "seed": 20261012,
-      "p50Ms": 43.55,
-      "p95Ms": 102.42,
-      "maxMs": 103.48,
-      "madMs": 1.88,
-      "controlP50Ms": 27.44,
-      "redos": 0,
-      "headroomMs": 25.61,
-      "ceilingMs": 100,
-      "status": "proposed"
-    },
-    {
-      "surfaceId": "hook.gemini.session-start",
-      "platform": "darwin",
-      "arch": "arm64",
-      "machineId": "6295d410c5bc",
-      "measuredOn": "2026-10-14",
-      "runs": 30,
-      "warmups": 3,
-      "interleave": "seeded-shuffle-per-round",
-      "seed": 20261012,
-      "p50Ms": 86.01,
-      "p95Ms": 112.52,
-      "maxMs": 114.78,
-      "madMs": 5.51,
-      "controlP50Ms": 27.44,
-      "redos": 0,
-      "headroomMs": 28.13,
-      "ceilingMs": 100,
-      "status": "approved",
-      "approvedOn": "2026-10-14"
-    },
-    {
       "surfaceId": "hook.kiro.mcp-tool-guard",
       "platform": "darwin",
       "arch": "arm64",
@@ -3290,6 +3132,90 @@
       "ceilingMs": 44,
       "status": "approved",
       "approvedOn": "2026-10-14"
+    },
+    {
+      "surfaceId": "hook.shared.emission",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-15",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 2.66,
+      "p95Ms": 3.36,
+      "maxMs": 3.47,
+      "madMs": 0.19,
+      "controlP50Ms": 24.77,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 14,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.shared.emission-rules",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-15",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 2.35,
+      "p95Ms": 3.38,
+      "maxMs": 3.4,
+      "madMs": 0.21,
+      "controlP50Ms": 24.77,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 14,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.shared.compact-text",
+      "unmeasured": "116: sourced-only builder with no stdin fixture; not measured on 2026-10-20 because load average stayed 60-135 (FU-jeaba5 measures it on a quiet machine). The calling hooks hook.claude.pre-compact and hook.codex.pre-compact keep their measured rows"
+    },
+    {
+      "surfaceId": "hook.shared.identity",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-15",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 2.49,
+      "p95Ms": 3.11,
+      "maxMs": 3.21,
+      "madMs": 0.15,
+      "controlP50Ms": 24.77,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 14,
+      "status": "proposed"
+    },
+    {
+      "surfaceId": "hook.shared.summary-store",
+      "platform": "darwin",
+      "arch": "arm64",
+      "machineId": "6295d410c5bc",
+      "measuredOn": "2026-10-15",
+      "runs": 30,
+      "warmups": 3,
+      "interleave": "seeded-shuffle-per-round",
+      "seed": 20261012,
+      "p50Ms": 2.83,
+      "p95Ms": 3.41,
+      "maxMs": 4.04,
+      "madMs": 0.19,
+      "controlP50Ms": 24.77,
+      "redos": 0,
+      "headroomMs": 10,
+      "ceilingMs": 14,
+      "status": "proposed"
     }
   ],
   "startupContext": [
@@ -3322,22 +3248,6 @@
         "first": 144,
         "steady": 3,
         "basis": "measured:fixture test/fixtures/hooks/codex/user-prompt-submit/perf.json; project=bench/perf/fixtures/hook-bridge-project (feat/perf, all artifacts)"
-      },
-      "tokensEst": 2498,
-      "tokensBasis": "estimated:bytes/4",
-      "harnessNative": {
-        "unmeasured": "needs a model call (paid)"
-      }
-    },
-    {
-      "harness": "gemini",
-      "installedVersion": "0.55.1",
-      "doflowProjectedBytes": 9992,
-      "sessionStartStdoutBytes": 0,
-      "sessionStartStderrBytes": 0,
-      "sessionStartBasis": "measured:temp-home-install",
-      "perPromptStdoutBytes": {
-        "unmeasured": "no prompt hook: core/harnesses/gemini/hooks"
       },
       "tokensEst": 2498,
       "tokensBasis": "estimated:bytes/4",
@@ -3454,17 +3364,6 @@
     },
     {
       "harness": "codex",
-      "capacityTokens": null,
-      "capacityBasis": "unverified:values belong to 085 (A-19)",
-      "startupTokens": 2498,
-      "startupBasis": "estimated",
-      "reserveTokens": null,
-      "reserveBasis": "unverified:values belong to 085 (A-19)",
-      "availableTokens": null,
-      "availableBasis": "profile-required"
-    },
-    {
-      "harness": "gemini",
       "capacityTokens": null,
       "capacityBasis": "unverified:values belong to 085 (A-19)",
       "startupTokens": 2498,

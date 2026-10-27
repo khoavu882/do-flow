@@ -1,0 +1,18 @@
+{
+  "source": "088 E.1, Claude Code 2.1.292 PostToolUseFailure; sanitised shape, non-test command",
+  "native": {
+    "session_id": "session-088-observer",
+    "transcript_path": "/sanitised/transcript.jsonl",
+    "cwd": "/sanitised/project",
+    "prompt_id": "prompt-088",
+    "permission_mode": "default",
+    "hook_event_name": "PostToolUseFailure",
+    "tool_name": "Bash",
+    "tool_input": { "command": "false" },
+    "tool_use_id": "toolu_02XXXXXXXXXXXXXXXXXXXXXX",
+    "error": "Exit code 1",
+    "is_interrupt": false,
+    "duration_ms": 93
+  },
+  "expect": { "exit": 0, "stdout": "", "stderrIncludes": null, "records": 0 }
+}

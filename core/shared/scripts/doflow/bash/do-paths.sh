@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # do-paths.sh — deterministic path/feature resolver for the doflow chain.
 #
 # Emits a single JSON object describing the ACTIVE feature so doflow skills
@@ -34,6 +35,9 @@ mode="json"
 require=""
 slug_override=""
 prev=""
+# Shared argument rule: `--flag value` is read like `--flag=value` for the flags named here (do-args.sh).
+_da="$(dirname "$0")/do-args.sh"
+if [ -r "$_da" ]; then . "$_da"; doflow_normalize_args "--slug" "$@"; set -- ${DOFLOW_ARGS[@]+"${DOFLOW_ARGS[@]}"}; fi
 for arg in "$@"; do
   case "$arg" in
     --json)         mode="json" ;;
@@ -160,6 +164,31 @@ if [ -n "$feature_slug" ]; then
   fi
 fi
 
+# ── main checkout (IC-005) ────────────────────────────────────────────────────
+# Prints the main working tree's path when this checkout is a linked worktree of it, else nothing.
+# Same rule as the pre-implementation gate's checkouts(): the first `git worktree list --porcelain`
+# entry; a bare main, a main whose directory is gone and a DoFlow sandbox (.doflow-worktree-base at
+# the current checkout's root) never count. Read-only.
+main_checkout() {
+  [ "$is_git_repo" = true ] || return 0
+  [ -e "$repo_root/.doflow-worktree-base" ] && return 0
+  local list first bare=false line here main_real
+  list="$(git -C "$repo_root" worktree list --porcelain 2>/dev/null)" || return 0
+  first=""
+  while IFS= read -r line; do
+    case "$line" in
+      "worktree "*) [ -n "$first" ] && break; first="${line#worktree }" ;;
+      bare) bare=true ;;
+    esac
+  done <<< "$list"
+  [ -n "$first" ] && [ "$bare" = false ] || return 0
+  main_real="$(cd -P "$first" 2>/dev/null && pwd)" || return 0
+  here="$(cd -P "$repo_root" 2>/dev/null && pwd)" || return 0
+  [ "$main_real" = "$here" ] && return 0
+  printf '%s' "$main_real"
+}
+
+feature_root="$repo_root"
 feature_dir=""; requirement=""; design=""; specs=""; data_model=""; plan=""; state=""; audit=""
 decisions=""; decisions_register=""; has_decisions=false
 has_requirement=false; has_design=false; has_plan=false; has_specs=false; has_data_model=false
@@ -167,7 +196,14 @@ layout="legacy"
 intention_next_round=""; design_next_round=""; plan_next_round=""
 if [ -n "$feature_slug" ]; then
   feature_dir="$specs_rel/$feature_slug"
-  abs="$repo_root/$feature_dir"
+  # The checkout that holds the folder: this one when it has it, else the main checkout when a linked
+  # worktree does not, else this one (a new feature). The artifact flags and round scans below read
+  # that checkout; every emitted path stays relative to repo_root.
+  if [ ! -d "$repo_root/$feature_dir" ]; then
+    main_root="$(main_checkout)"
+    if [ -n "$main_root" ] && [ -d "$main_root/$feature_dir" ]; then feature_root="$main_root"; fi
+  fi
+  abs="$feature_root/$feature_dir"
   state="$feature_dir/state.md"; audit="$feature_dir/audit.md"
   decisions="$feature_dir/decisions.md"; decisions_register="$feature_dir/decisions/register.json"
   [ -f "$abs/decisions/register.json" ] && has_decisions=true
@@ -280,7 +316,7 @@ if [ "$require" = "feature" ] && [ -z "$feature_slug" ]; then
       '{error:"ambiguous-feature",
         branch:(if $branch=="" then null else $branch end),
         candidate_slugs:$candidate_slugs,
-        hint:"multiple agent-docs/doflow/ feature dirs exist and no git branch disambiguates them — ask which one via AskUserQuestion, then re-run with --slug=<chosen>"}'
+        hint:"multiple agent-docs/doflow/ feature dirs exist and no git branch disambiguates them — ask which one with the user question tool, then re-run with --slug=<chosen>"}'
   else
     jq -n --arg branch "$branch" \
       '{error:"no-active-feature",
@@ -293,6 +329,7 @@ fi
 # ── emit resolver JSON ────────────────────────────────────────────────────────
 jq -n \
   --arg repo_root "$repo_root" \
+  --arg feature_root "$feature_root" \
   --argjson is_git_repo "$is_git_repo" \
   --arg branch "$branch" \
   --arg feature_slug "$feature_slug" \
@@ -314,6 +351,7 @@ jq -n \
   --arg branch_class "$branch_class" \
   '{
     repo_root:          $repo_root,
+    feature_root:       $feature_root,
     is_git_repo:        $is_git_repo,
     branch:             (if $branch=="" then null else $branch end),
     feature_slug:       (if $feature_slug=="" then null else $feature_slug end),

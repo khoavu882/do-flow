@@ -7,11 +7,22 @@ on:
   push:
     tags: ["v*"]
 
-permissions:
-  contents: write        # create the GitHub Release
-  id-token: write        # npm provenance attestation
+permissions: {}
 
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.1
+      - run: npm run release:preflight -- --tag "$GITHUB_REF_NAME" --tag-pushed
+
   # Reuses the PR suite verbatim rather than restating it, so the two can never drift.
   test:
     uses: ./.github/workflows/cross-os-tests.yml
@@ -20,37 +31,20 @@ jobs:
       # soften the caller's conclusion, so the flaky windows leg must simply be absent from
       # the release gate (v1.1.0's first tag attempt was blocked by it).
       os_matrix: '["ubuntu-latest", "macos-latest"]'
+    permissions:
+      contents: read
 
-  verify-tag:
-    name: tag matches package.json
-    # Gate on every job the PR suite runs (the OS matrix plus the required shell-suites job),
-    # so a tag publishes exactly what a merge was gated on.
-    # `test` IS the called cross-os-tests workflow (shell-suites included); its conclusion
-    # propagates, so needs must name only jobs of THIS file. Reaching inside the reusable
-    # workflow's own jobs is invalid and fails workflow parsing on every push (seen as the
-    # instant-red Release runs on branch pushes).
-    needs: [test]
+  verify-artifact:
+    needs: [preflight, test]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
-
-      # A tag that disagrees with the manifest publishes a version nobody can trace back to a
-      # commit. Cheap to check, expensive to discover after the fact — npm versions are immutable.
-      - name: Compare tag to manifest version
-        run: |
-          tag="${GITHUB_REF_NAME#v}"
-          pkg=$(node -p "require('./package.json').version")
-          echo "tag=$tag manifest=$pkg"
-          if [ "$tag" != "$pkg" ]; then
-            echo "::error::tag v$tag does not match package.json version $pkg"
-            exit 1
-          fi
-
-      # test/guards/package.test.js asserts the source tree is clean; this asserts the artifact npm
-      # would actually upload is too, which is the thing users install.
-      - name: Build staged JavaScript package
-        run: npm run build:package
-
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.1
+      - run: npm run build:package
       - name: Fail if the tarball carries backup or editor artifacts
         run: |
           npm pack --dry-run .pack 2>&1 | tee /tmp/pack.txt
@@ -59,58 +53,138 @@ jobs:
             exit 1
           fi
 
-  publish:
-    name: publish to npm
-    needs: verify-tag
+  draft-release:
+    needs: [verify-artifact]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-          registry-url: "https://registry.npmjs.org"
-
-      # --provenance needs id-token: write above; publishConfig.access in package.json makes the
-      # scoped package public. Requires an NPM_TOKEN secret with publish rights on @khoavu882.
-      #
-      # A prerelease MUST NOT land on the `latest` dist-tag, which npm assigns by default — that
-      # would make `npx @khoavu882/doflow` resolve to a beta for every user. SemVer prerelease
-      # versions are exactly those containing a hyphen, so the tag name decides the dist-tag.
-      - name: Publish
-        run: |
-          npm run build:package
-          case "$GITHUB_REF_NAME" in
-            *-*) echo "prerelease → dist-tag beta"; npm publish .pack --provenance --tag beta ;;
-            *)   echo "stable → dist-tag latest";   npm publish .pack --provenance ;;
-          esac
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-  github-release:
-    name: create GitHub Release
-    needs: verify-tag
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: "22"
-
+          node-version: 24.22.1
       # `--generate-notes` lists merged pull requests; this repo merges locally, so it produced a
-      # bare compare link. The body is the tagged version's CHANGELOG.md section instead, and a
-      # tag with no (or an empty) section fails the job here rather than publishing a blank Release.
-      - name: Extract release notes from CHANGELOG.md
-        run: npm run release-notes --silent -- "$GITHUB_REF_NAME" > notes.md
-
-      - name: Create release
+      # bare compare link. The tagged version's CHANGELOG.md section supplies the release notes.
+      - run: npm run release-notes --silent -- "$GITHUB_REF_NAME" > notes.md
+      - name: Create draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           prerelease=""
           case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" \
+            --draft \
             --title "$GITHUB_REF_NAME" \
             --notes-file notes.md \
             $prerelease
+
+  publish:
+    needs: [draft-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.1
+          registry-url: https://registry.npmjs.org
+      # Publish prereleases under a candidate tag until verify-registry passes. Stable releases
+      # use the latest channel only when promote moves it after verification.
+      - name: Derive candidate channel
+        run: |
+          case "$GITHUB_REF_NAME" in
+            *-*) channel=beta ;;
+            *) channel=latest ;;
+          esac
+          echo "channel=$channel" >> "$GITHUB_ENV"
+      - run: npm run build:package
+      - name: Publish candidate to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish .pack --provenance --tag "${channel}-candidate"
+
+  verify-registry:
+    needs: [publish]
+    runs-on: ${{ matrix.os }}
+    permissions: {}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node: "24.22.1"
+          - os: macos-latest
+            node: "24.22.1"
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Wait for the published version
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          attempt=1
+          while [ "$attempt" -le 10 ]; do
+            if published="$(npm view "@khoavu882/doflow@$VER" version 2>/dev/null)" \
+              && [ "$published" = "$VER" ]; then
+              break
+            fi
+            if [ "$attempt" -eq 10 ]; then
+              echo "::error::@khoavu882/doflow@$VER did not appear on npm after 10 tries"
+              exit 1
+            fi
+            sleep 15
+            attempt=$((attempt + 1))
+          done
+          npm install --prefix "$RUNNER_TEMP/prefix" "@khoavu882/doflow@$VER"
+      - name: Verify installed package in an isolated HOME
+        env:
+          HOME: ${{ runner.temp }}/home
+          XDG_CONFIG_HOME: ${{ runner.temp }}/xdg
+        run: |
+          mkdir -p "$HOME" "$XDG_CONFIG_HOME"
+          export PATH="$RUNNER_TEMP/prefix/node_modules/.bin:$PATH"
+          VER="${GITHUB_REF_NAME#v}"
+          installed="$(doflow --version)"
+          if [ "$installed" != "$VER" ]; then
+            echo "::error::installed version $installed does not match tag version $VER"
+            exit 1
+          fi
+          doflow install -g -f --no-backup -t claude
+          bash "$HOME/.claude/bin/doflow-run" paths --json \
+            | node -e 'let input = ""; process.stdin.on("data", (chunk) => input += chunk); process.stdin.on("end", () => JSON.parse(input));'
+
+  promote:
+    needs: [verify-registry]
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24.22.1
+          registry-url: https://registry.npmjs.org
+      - name: Promote verified version
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          case "$GITHUB_REF_NAME" in
+            *-*) channel=beta ;;
+            *) channel=latest ;;
+          esac
+          npm dist-tag add "@khoavu882/doflow@$VER" "$channel"
+          npm dist-tag rm @khoavu882/doflow "${channel}-candidate"
+
+  publish-release:
+    needs: [promote]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --repo "$GITHUB_REPOSITORY"

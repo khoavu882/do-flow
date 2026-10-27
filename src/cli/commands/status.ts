@@ -42,6 +42,10 @@ function cmdStatus(o: any): void {
       ledgerPresent: Boolean(readLedger(registryView.stateRoot)),
       plan: { changes: registryView.plan.changes.length, conflicts: registryView.plan.conflicts, prerequisites: registryView.plan.prerequisites },
     };
+    // Row 127: a retired harness the ledger still holds rows of, which the next install or update
+    // releases. Absent when there is none, so the report is unchanged for every other ledger.
+    const retired = (registryView.plan.retiredHarnesses ?? []).map((item: any) => ({ harness: item.harness, replacement: item.replacement, rows: item.changes.length }));
+    if (retired.length) ctx.registry.retired = retired;
     // Per-harness status must derive from that harness's own plan target, not the flattened
     // registryView.plan.changes/conflicts across every target — otherwise, e.g., Codex having
     // pending changes when it isn't installed yet would make Claude's line falsely report
@@ -50,7 +54,7 @@ function cmdStatus(o: any): void {
     // Hook-wiring status needs the same general per-harness verification every install/update run
     // already flows through (src/lifecycle's verifyLifecycle) rather than a Codex-only hardcode:
     // it is the one place that can tell 'installed and active' apart from 'installed but pending a
-    // prerequisite' (Codex's unreviewed trust, Gemini's live hook-trust check) from 'absent'.
+    // prerequisite' (Codex's unreviewed trust) from 'absent'.
     const verification = verifyLifecycle({ plan: registryView.plan, adapters: registryView.adapters, context: { registry } });
     const hooksFor = (harness: string) => verification.verifications.find((item: any) => item.harness === harness)?.hookWiring ?? null;
     const harnessStatus = (harness: string) => {
@@ -80,8 +84,19 @@ function cmdStatus(o: any): void {
     ctx.registry = { status: 'invalid', error: error.message };
   }
 
+  // The primary is read on use only (row 120 A.4): a fault in resolving it never breaks status.
+  let primary: any = null;
+  let primaryText: string;
+  try {
+    const { primarySummary, resolveForReport } = require('../../runtime/context/primary-command.ts');
+    primary = resolveForReport({ env: process.env, projectRoot: path.resolve(scope.projectRoot) }).primary;
+    primaryText = primarySummary(primary);
+  } catch (error: any) {
+    primaryText = `unavailable (${error?.message || String(error)})`;
+  }
+
   if (o.json) {
-    console.log(JSON.stringify({ context: ctx, manifest, codex: ctx.codex ?? null, mcpSelections }, null, 2));
+    console.log(JSON.stringify({ context: ctx, manifest, codex: ctx.codex ?? null, mcpSelections, primary }, null, 2));
     return;
   }
 
@@ -92,6 +107,7 @@ function cmdStatus(o: any): void {
   };
 
   printContext(ctx);
+  console.log(`primary: ${primaryText}`);
   if (!manifest) {
     console.log("[WARN] No install manifest found — run 'doflow install' to get started");
     return;
@@ -126,6 +142,9 @@ function cmdStatus(o: any): void {
   if (ctx.registry) {
     console.log(`  Registry lifecycle:   ${ctx.registry.status === 'invalid' ? ctx.registry.error : `${ctx.registry.plan.changes} pending, ${ctx.registry.plan.conflicts.length} conflict(s)`}`);
     if (ctx.registry.status !== 'invalid') console.log(`  Neutral state:         ${ctx.registry.stateRoot}${ctx.registry.ledgerPresent ? ' (ledger present)' : ' (not yet created)'}`);
+    for (const item of ctx.registry.retired ?? []) {
+      console.log(`  Retired harness:      ${item.harness} (use ${item.replacement}): ${item.rows} ledger row(s); the next 'doflow install' or 'doflow update' in this scope releases them`);
+    }
   }
   console.log('\n  TOOL         STATUS         LAST UPDATED');
   for (const tool of LIFECYCLE_HARNESSES) {

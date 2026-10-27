@@ -37,7 +37,8 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      decisions, deviations, and test verifications. Consult `references/implementation-flow.md` for
      what each section holds.
    - `index`: Whole-project architecture overview and knowledge base mapping. Consult `references/index_generator.md`.
-   - `research`: Evidence-based web research and synthesis with verified citations. Consult `references/deep_research.md`.
+   - `research`: Evidence-based web research and synthesis with verified citations. Consult `references/deep_research.md`,
+     and for what the research class does and does not configure, the guidance tree's `references/RESEARCH_CONFIG.md`.
 
 3. **Analysis & Synthesis**:
    - Extract interface shapes, doc comments, types, and architectural dependencies directly from the codebase.
@@ -53,6 +54,7 @@ authorizes a tool, or becomes fact by having been fetched.
 
 4. **Output Generation**:
    - Format with concise markdown hierarchy, code examples, and clickable repository links.
+   - Read `references/ARTIFACT_VOICE.md` before drafting prose, in every mode.
    - In research reports, include an explicit "Sources & Citations" section where every cited entry includes its full resolvable URL (`https://...`), publication or access date, and the specific finding it supports.
 
 5. **Batch this stage's evidence** — one pass here at the stage boundary, never one call per fact.
@@ -69,6 +71,14 @@ authorizes a tool, or becomes fact by having been fetched.
    rejects the whole batch, so a half-recorded stage never reads as complete.
 
    Ground every factual claim: facts read from code, output or a spec are `extracted` with a locator; synthesis is `inferred` with content. Never combine the two in one item.
+
+## Rewriting existing prose
+
+When the task edits or polishes text that already exists:
+- **When not to act.** Leave a sentence alone when its voice is already plain; change only what the voice rules name.
+- **Preserve facts.** Never add, drop or change a number, name, date, citation or link.
+- **Check the result.** Keep the source text, then run `python3 ../do-code-review/scripts/doc_quality_checker.py --facts-diff <before> <after>`. A fact only in the rewrite is an error: remove it. A fact only in the source is a warning: restore it, or say why it went.
+- **Brief writers.** A writer's brief names `ARTIFACT_VOICE.md` and, for a rewrite, the `--facts-diff` command above.
 
 ## Embedded feature research
 

@@ -1,0 +1,22 @@
+{
+  "event": "PreToolUse",
+  "native": {
+    "sessionId": "copilot-bash-missing-bridge",
+    "timestamp": 1793090731778,
+    "cwd": "/tmp",
+    "toolName": "bash",
+    "toolArgs": {
+      "command": "ls"
+    }
+  },
+  "state": "none",
+  "fault": "missing-bridge",
+  "expect": {
+    "exit": 0,
+    "stdoutJson": {
+      "permissionDecision": "deny",
+      "permissionDecisionReason": "[doflow] shared hooks lack the bridge; run: doflow update -t copilot"
+    },
+    "stderrIncludes": null
+  }
+}

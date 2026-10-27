@@ -1,0 +1,221 @@
+'use strict';
+
+/**
+ * Verb-caller reachability guard (feature 011, plan task C.1, design component C8; FR-008).
+ *
+ * Asserts that every verb the dispatcher exposes is invoked by at least one skill under
+ * core/shared/skills/, or appears in an allowlist carrying an explicit, documented reason.
+ *
+ * This prevents unwired capabilities from silently accumulating in the runtime (the failure mode
+ * where a primitive is built, tested, and registered in the dispatcher but never called by any
+ * stage workflow).
+ *
+ * Static text scanning only, in the same shape as G16 (module-reachability.test.js) — no execution
+ * of the code under audit.
+ */
+
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { REPO, SKILLS } = require('./_shared.ts');
+
+const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
+
+/**
+ * Verbs that are deliberately caller-free today, with the rationale for each exemption.
+ *
+ * Storing the reason alongside each entry ensures that an exemption is a recorded decision
+ * rather than a silent loophole (design R1, plan RK3).
+ */
+const ALLOWLIST: any = new Map([
+  [
+    'render-diagrams',
+    'user-invoked by design (034 FR-011): renders a chain artifact\'s mermaid blocks to images on demand and must never run as part of a chain stage, so no skill can invoke it without breaking that requirement',
+  ],
+  [
+    'review-package',
+    'shell helper invoked by subagent/review orchestration scripts, not called directly as a top-level skill command',
+  ],
+  [
+    'retrieval-plan',
+    'foundation retrieval planning verb (design C1/R3) built in Phase B; stage retrieval declarations are wired as workflows adopt retrieval plans',
+  ],
+  [
+    'outcome',
+    'foundation terminal record verb (design C2/R3) built in Phase B; terminal stage records are wired as workflow terminal stages adopt outcome recording',
+  ],
+  [
+    'stats',
+    'CLI-only observability aggregation command (doflow stats) for operator inspection of local run ledger, not invoked by skill workflows',
+  ],
+  [
+    'indicators',
+    'CLI-only observability command (doflow indicators) for operator inspection of the local orchestration record: per-stage and per-gate intervals, stage outcomes and rerun counts, grouped by task class. Read-only and invoked by no skill workflow, for the same reason stats is not — it measures how a workflow progressed rather than participating in one',
+  ],
+  [
+    'inventory',
+    'CLI-only cross-scope install diagnostic (doflow inventory): reads both ownership ledgers in one invocation and reports shadowed assets, drift, withheld precedence verdicts and unmanaged contenders. Read-only and invoked by no skill workflow, for the same reason doctor is not — it answers a question about the install a user is standing in ("why did my edit have no effect"), not a question any chain stage asks. The one consumer a later feature may add is a session-start warning, which is explicitly out of scope for the feature that built it',
+  ],
+  ['enforcement', 'CLI-only lifecycle coverage query for people and scripts; the in-process enforcementFor API is consumed by a later feature'],
+  [
+    'storage',
+    'user-run report and hook-run upkeep; no skill calls it',
+  ],
+  [
+    'config',
+    'user-run diagnostic; no skill calls it',
+  ],
+  [
+    'doctor',
+    'CLI-only health diagnostic and smoke check command (doflow doctor) for human operators and environment setup, not invoked by skill workflows',
+  ],
+  [
+    'orchestrate',
+    'deterministic workflow-run state machine: skills execute stages themselves and assert completion via doflow-run orchestrate; no skill names it as a top-level command yet because stage adoption is per-class, so it is allowlisted until the first skill wires its own stage transitions',
+  ],
+  [
+    'retrieve',
+    'knowledge-fabric search verb: operator/diagnostic entry over the installed guidance index; skills adopt it through retrieval declarations rather than naming it directly, so it is allowlisted with that rationale',
+  ],
+  [
+    'brief-tools',
+    'called by do-task-brief.sh, never by a skill',
+  ],
+  ['worker', '081 builds the adapter; its caller is the 082 dispatcher, so no skill invokes it yet'],
+  ['dispatch', '082 builds the loop; skill text is unchanged in 082 (DEC-032), so no skill invokes it yet'],
+  ['context-emit', 'launcher entry for 081; no skill invokes it'],
+  ['context-grant', 'launcher entry for 081; no skill invokes it'],
+  [
+    'model-role',
+    'advisory model routing verb: resolves a role from models.json to availability-annotated provider candidates; consumed by skills and orchestration snapshots at adoption time rather than named directly by any skill today',
+  ],
+  [
+    'roadmap',
+    'roadmap loop verb (feature 108, plan gap §9-2): session-driven autopilot runner invoked by the operator or orchestrator session; no skill invokes it directly today',
+  ],
+  ['slot', 'orchestrator tool, no skill calls it'],
+  ['protocol', 'read-only protocol printer (119 IC-004) that a person or orchestrator runs, for example to embed a debate protocol in a brief; `review --action start` prints the review protocol itself, so no skill calls it'],
+  ['primary', 'read-only primary resolver (120 IC-008) that a person or orchestrator runs to see which harness and model the main session is taken to run; `status` and `doctor` print its summary line, so no skill calls it'],
+  ['fleet', 'read-only project lister for the Console Fleet view (093 IC-019); a person or the Console runs it, so no skill calls it'],
+  ['transcript', 'read-only agent transcript and traffic reader for the Console Fleet view (093 IC-022, IC-023); a person or the Console runs it, so no skill calls it'],
+  ['package', 'read-only contribution point listing (122 IC-012 `points`); no skill calls the package verb yet'],
+  ['models', 'CLI model catalogue sync and inspection verb; invoked via doflow models'],
+]);
+
+/** Parse all shell-backed verbs from shell_helper_for() in doflow-run. `\r?\n` keeps the parser
+ * working on CRLF checkouts (Windows without eol=lf normalization). */
+function parseShellVerbs() {
+  const text = fs.readFileSync(DISPATCHER, 'utf8');
+  const block = text.match(/shell_helper_for\(\)\s*\{([\s\S]*?)\r?\n\}/);
+  assert.ok(block, 'shell_helper_for() must be present and parseable in doflow-run');
+  const verbs = [...block[1].matchAll(/^\s*([a-z][a-z-]*)\)\s*printf/gm)].map(([, v]) => v);
+  assert.ok(verbs.length > 0, 'expected to parse at least one shell-backed verb');
+  return verbs;
+}
+
+/** Parse all Node-backed verbs from is_node_verb() in doflow-run. */
+function parseNodeVerbs() {
+  const text = fs.readFileSync(DISPATCHER, 'utf8');
+  const block = text.match(/is_node_verb\(\)\s*\{([\s\S]*?)\r?\n\}/);
+  assert.ok(block, 'is_node_verb() must be present and parseable in doflow-run');
+  const [, alternation] = block[1].replace(/\\\r?\n/g, '').match(/^\s*([a-z|-]+)\)\s*return 0/m) || [];
+  assert.ok(alternation, 'the node verb alternation must be parseable in doflow-run');
+  const verbs = alternation.split('|').map((verb: any) => verb.trim()).filter(Boolean);
+  assert.ok(verbs.length > 0, 'expected to parse at least one node-backed verb');
+  return verbs;
+}
+
+/** Returns all markdown files under core/shared/skills/. */
+function skillMarkdownFiles() {
+  const files: any = [];
+  (function walk(dir) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.name.endsWith('.md')) {
+        files.push({ rel: path.relative(REPO, full), text: fs.readFileSync(full, 'utf8') });
+      }
+    }
+  }(SKILLS));
+  return files;
+}
+
+/**
+ * Extracts verbs invoked in the skill tree.
+ * Matches invocations like:
+ *   "$DOFLOW" <verb>
+ *   $DOFLOW <verb>
+ *   doflow-run <verb>
+ *   doflow <verb>
+ */
+function findInvokedVerbs(skillFiles: any) {
+  const INVOCATION = /(?:doflow-run|\$\{?DOFLOW\}?"?|doflow)\s+([a-z][a-z-]*)/g;
+  const invoked: any = new Map();
+  for (const { rel, text } of skillFiles) {
+    for (const [, verb] of text.matchAll(INVOCATION)) {
+      if (!invoked.has(verb)) {
+        invoked.set(verb, []);
+      }
+      invoked.get(verb).push(rel);
+    }
+  }
+  return invoked;
+}
+
+test('G17: every verb the dispatcher exposes is invoked by at least one skill or explicitly allowlisted (FR-008)', () => {
+  const shellVerbs = parseShellVerbs();
+  const nodeVerbs = parseNodeVerbs();
+  const allDispatched = [...new Set([...shellVerbs, ...nodeVerbs])].sort();
+
+  const skillFiles = skillMarkdownFiles();
+  const invoked = findInvokedVerbs(skillFiles);
+
+  const unwired: any = [];
+  for (const verb of allDispatched) {
+    const hasCaller = invoked.has(verb) && invoked.get(verb).length > 0;
+    const isAllowlisted = ALLOWLIST.has(verb);
+    if (!hasCaller && !isAllowlisted) {
+      unwired.push(verb);
+    }
+  }
+
+  assert.deepEqual(
+    unwired,
+    [],
+    'these verbs are exposed by the dispatcher (doflow-run) but have no callers in core/shared/skills/ '
+    + 'and are not declared in ALLOWLIST with a stated rationale (FR-008):\n  '
+    + unwired.join('\n  ')
+  );
+});
+
+test('G17: every ALLOWLIST entry corresponds to an actual dispatcher verb and carries a rationale', () => {
+  const shellVerbs = parseShellVerbs();
+  const nodeVerbs = parseNodeVerbs();
+  const allDispatched: any = new Set([...shellVerbs, ...nodeVerbs]);
+
+  const stale: any = [];
+  const missingRationale: any = [];
+
+  for (const [verb, rationale] of ALLOWLIST.entries()) {
+    if (!allDispatched.has(verb)) {
+      stale.push(verb);
+    }
+    if (typeof rationale !== 'string' || rationale.trim() === '') {
+      missingRationale.push(verb);
+    }
+  }
+
+  assert.deepEqual(
+    stale,
+    [],
+    `ALLOWLIST contains verbs that do not exist in the dispatcher:\n  ${stale.join('\n  ')}`
+  );
+
+  assert.deepEqual(
+    missingRationale,
+    [],
+    `ALLOWLIST entries must carry a non-empty explanation string:\n  ${missingRationale.join('\n  ')}`
+  );
+});

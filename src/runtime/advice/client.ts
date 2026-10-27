@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const https = require('node:https');
 const { resolveSetting } = require('./config.ts');
+const { loadSettings } = require('../settings/resolve.ts');
 const { checkEndpoint } = require('./endpoint-guard.ts');
 const { strengthOf } = require('./strength.ts');
 const { validateQuestionSet, validateStaticAnswer } = require('./kinds.ts');
@@ -41,7 +42,14 @@ function networkReason(error: any) {
     ? 'timeout' : 'unreachable';
 }
 
-function requestAction({ endpoint, action, pinnedLookup, timeoutMs, httpModule = http, httpsModule = https }: any) {
+function timeoutError(message: string) {
+  const error: any = new Error(message);
+  error.code = 'ADVICE_TIMEOUT';
+  return error;
+}
+
+/** `signal`, when given, aborts the request the way its own timeout does: the request is destroyed and the timer cleared. */
+function requestAction({ endpoint, action, pinnedLookup, timeoutMs, signal, httpModule = http, httpsModule = https }: any) {
   return new Promise<any>((resolve, reject) => {
     let request: any;
     let settled = false;
@@ -49,15 +57,18 @@ function requestAction({ endpoint, action, pinnedLookup, timeoutMs, httpModule =
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      signal?.removeEventListener?.('abort', onAbort);
       if (error) reject(error);
       else resolve(response);
     };
-    const timer = setTimeout(() => {
-      const error: any = new Error(`decision model request timed out after ${timeoutMs}ms`);
-      error.code = 'ADVICE_TIMEOUT';
+    const stop = (error: any) => {
       request?.destroy(error);
       finish(error);
-    }, timeoutMs);
+    };
+    const onAbort = () => stop(timeoutError('decision model request aborted by the caller'));
+    const timer = setTimeout(() => stop(timeoutError(`decision model request timed out after ${timeoutMs}ms`)), timeoutMs);
+    if (signal?.aborted) { onAbort(); return; }
+    signal?.addEventListener?.('abort', onAbort, { once: true });
 
     try {
       const url = new URL(endpoint);
@@ -117,7 +128,11 @@ function createAdviceClient({
   httpsModule = https,
   clock = () => new Date(),
 }: any = {}) {
-  async function ask({ questionSet, kind, staticAnswer, caller, taskId = null, record = true }: any = {}) {
+  /**
+   * `model`, when given, replaces the setting's model for this call: it is the model asked, recorded and reported.
+   * `signal`, when given, ends the call early: an in-flight request is destroyed and the call is unavailable with 'timeout'.
+   */
+  async function ask({ questionSet, kind, staticAnswer, caller, taskId = null, record = true, model, signal }: any = {}) {
     const startedAt = Date.now();
     let setting: any = null;
     const effectiveKind = typeof kind === 'string' && kind ? kind : 'adhoc';
@@ -137,6 +152,7 @@ function createAdviceClient({
       if (setting.state !== 'on') {
         return emptyAdviceResult('off', setting.reason, setting.notes?.[0] || null, setting, durationSince(startedAt));
       }
+      if (typeof model === 'string' && model.trim()) setting = { ...setting, model: model.trim() };
 
       const provider = adviceRegistry?.providers?.find((entry: any) => entry.id === setting.provider);
       const adapter = provider && ADAPTERS[provider.adapter];
@@ -166,14 +182,17 @@ function createAdviceClient({
         return unavailable('over-limit', `request body is ${bodyBytes} bytes; the limit is ${adviceRegistry.limits.maxBodyBytes} (core/registry/advice.json limits.maxBodyBytes)`);
       }
 
+      if (signal?.aborted) return unavailable('timeout', 'decision model request aborted by the caller');
       const endpointCheck = await checkEndpoint(setting.endpoint, {
         lookup,
         file: setting.decidedBy?.user || 'provider default',
         timeoutMs: Math.max(0, adviceRegistry.timeoutMs - durationSince(startedAt)),
+        signal,
       });
       if (!endpointCheck.ok) return unavailable(endpointCheck.reason || 'non-loopback', endpointCheck.message);
       const remainingMs = adviceRegistry.timeoutMs - durationSince(startedAt);
       if (remainingMs <= 0) return unavailable('timeout', 'decision model request budget exhausted');
+      if (signal?.aborted) return unavailable('timeout', 'decision model request aborted by the caller');
 
       let response;
       try {
@@ -182,6 +201,7 @@ function createAdviceClient({
           action: request,
           pinnedLookup: endpointCheck.pinnedLookup,
           timeoutMs: remainingMs,
+          signal,
           httpModule,
           httpsModule,
         });
@@ -242,16 +262,19 @@ function createAdviceClient({
     }
   }
 
-  async function inspect({ endpoint, model, provider: providerId = 'ollama', file, minVersion, timeoutMs }: any = {}) {
+  async function inspect({ endpoint, model, provider: providerId, file, minVersion, timeoutMs }: any = {}) {
     const unavailable = (state: any, message: any, version: any = null, versionOk = false) => ({
       endpoint: { state, version, versionOk, message: message ?? null },
       models: [],
       model: { installed: false, decisionCapable: false },
     });
     try {
-      const provider = adviceRegistry?.providers?.find((entry: any) => entry.id === providerId);
+      const effectiveProviderId = providerId
+        ?? resolveSetting({ adviceRegistry, roots, fsImpl }).provider
+        ?? loadSettings({ global: true, env: {}, fsImpl }).get('advice.provider', 'global').value;
+      const provider = adviceRegistry?.providers?.find((entry: any) => entry.id === effectiveProviderId);
       const adapter = provider && ADAPTERS[provider.adapter];
-      if (!provider || !adapter) return unavailable('refused', `provider '${providerId}' is unavailable`);
+      if (!provider || !adapter) return unavailable('refused', `provider '${effectiveProviderId}' is unavailable`);
       const probeLimit = Number.isFinite(timeoutMs) ? timeoutMs : adviceRegistry.probeTimeoutMs;
       const budgetMs = Number.isFinite(adviceRegistry.doctorBudgetMs) ? adviceRegistry.doctorBudgetMs : probeLimit * 4;
       const startedAt = Date.now();

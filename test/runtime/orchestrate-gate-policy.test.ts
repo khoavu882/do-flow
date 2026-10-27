@@ -1,0 +1,400 @@
+'use strict';
+
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { createHash } = require('node:crypto');
+const { deflateSync } = require('node:zlib');
+const { spawnSync } = require('node:child_process');
+const { tempDir } = require('../helper/tmp.ts');
+const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
+const { initRegister, readRegister, addDecisions } = require('../../src/runtime/decision-register.ts');
+
+const REPO = path.resolve(__dirname, '../..');
+const SLUG = '001-policy';
+const FIXED: any = new Date('2026-10-19T00:00:00.000Z');
+const digest = (bytes: any) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+const write = (file: any, bytes: any) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, bytes); };
+
+// Loose objects make a real, read-only Git fixture without running a Git write command.
+function object(root: any, type: any, body: any) {
+  const bytes = Buffer.from(body);
+  const raw = Buffer.concat([Buffer.from(`${type} ${bytes.length}\0`), bytes]);
+  const sha = createHash('sha1').update(raw).digest('hex');
+  write(path.join(root, '.git/objects', sha.slice(0, 2), sha.slice(2)), deflateSync(raw));
+  return sha;
+}
+function commit(root: any, files: any, parent?: any) {
+  function tree(entries: any): any {
+    const dirs: any = new Map();
+    const records: any = [];
+    for (const [file, bytes] of entries) {
+      const [name, ...rest] = file.split('/');
+      if (rest.length) { if (!dirs.has(name)) dirs.set(name, []); dirs.get(name).push([rest.join('/'), bytes]); }
+      else records.push({ name, mode: '100644', sha: object(root, 'blob', bytes) });
+    }
+    for (const [name, children] of dirs) records.push({ name, mode: '40000', sha: tree(children) });
+    records.sort((a: any, b: any) => `${a.name}${a.mode === '40000' ? '/' : ''}`.localeCompare(`${b.name}${b.mode === '40000' ? '/' : ''}`));
+    return object(root, 'tree', Buffer.concat(records.map((r: any) => Buffer.concat([Buffer.from(`${r.mode} ${r.name}\0`), Buffer.from(r.sha, 'hex')]))));
+  }
+  return object(root, 'commit', `tree ${tree(Object.entries(files))}\n${parent ? `parent ${parent}\n` : ''}author Test <test@example.com> 1760832000 +0000\ncommitter Test <test@example.com> 1760832000 +0000\n\nfixture\n`);
+}
+// Decision C9: decide-gate --policy honours the autopilot switch, so each fixture owns a config home
+// that turns it on; no inherited switch variable reaches the fixture.
+function switchEnv(root: any) {
+  const env: any = { ...process.env, HOME: root, XDG_CONFIG_HOME: path.join(root, '.config'), FORCE_COLOR: '' };
+  delete env.DOFLOW_AUTOPILOT_ENABLED;
+  return env;
+}
+function switchOn(root: any) { write(path.join(root, '.config/doflow/settings.json'), JSON.stringify({ schema: 1, 'autopilot.enabled': 'on' })); }
+function fixture(t: any, { mode = 'approve', missing = false, markers = false, gateId = 'gate-0', protect = false, predicates = null }: any = {}) {
+  const root = tempDir(t, 'doflow-gate-policy-');
+  switchOn(root);
+  const policy = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/gates.json'), 'utf8'));
+  // Keep each gate independently passable while exercising the real fact gatherer.
+  for (const gate of Object.values(policy.classes.feature)) { gate.autopilot = mode; gate.predicates = predicates || (protect ? ['protected-paths'] : ['markers-zero:requirement']); }
+  const baseBytes = JSON.stringify(policy);
+  const pkg = protect ? { 'package.json': '{}' } : {};
+  const developHead = commit(root, missing ? {} : { ...pkg, 'core/registry/gates.json': baseBytes });
+  const weak = structuredClone(policy);
+  for (const gate of Object.values(weak.classes.feature)) gate.autopilot = 'approve';
+  const featureBytes = JSON.stringify(weak) + (protect ? '\n' : '');
+  const featureHead = commit(root, { ...pkg, 'core/registry/gates.json': featureBytes }, developHead);
+  write(path.join(root, '.git/HEAD'), `ref: refs/heads/feat/${SLUG}\n`);
+  write(path.join(root, '.git/refs/heads/develop'), `${developHead}\n`);
+  write(path.join(root, '.git/refs/heads/feat', SLUG), `${featureHead}\n`);
+  write(path.join(root, '.git/config'), '[core]\nrepositoryformatversion = 0\nbare = false\n');
+  write(path.join(root, 'core/registry/gates.json'), featureBytes);
+  write(path.join(root, 'agent-docs/roadmap/rows.json'), JSON.stringify({ schema: 1, rows: [{ id: '001', slug: SLUG, title: 'Policy', class: 'feature', needs: [] }] }));
+  const featureDir = path.join(root, 'agent-docs/doflow', SLUG);
+  initRegister({ featureDir, slug: SLUG });
+  write(path.join(featureDir, 'intention/requirement.md'), markers ? '[NEEDS CLARIFICATION: choice]\n' : '# Settled\n');
+  const orch: any = new WorkflowOrchestrator({ repoRoot: REPO, projectRoot: root, readinessEvaluate: () => 'READY', env: switchEnv(root) });
+  orch.start({ taskId: SLUG, taskClass: 'feature', now: FIXED });
+  // Stage work is outside this task: put the real compiled run at the requested gate.
+  const run = orch.readRun(SLUG);
+  run.cursor = run.program.findIndex((n: any) => n.id === gateId);
+  for (const node of run.program.slice(0, run.cursor)) node.status = node.type === 'gate' ? 'approved' : 'completed';
+  run.state = 'AWAITING_GATE';
+  orch.writeRun(run, FIXED);
+  return { root, featureDir, orch, baseBytes, developHead, gateId };
+}
+const decide = (f: any) => f.orch.decideGate({ taskId: SLUG, gateId: f.gateId, policy: f.gateId, now: FIXED });
+function cli(f: any, extra: any = []) {
+  return spawnSync(process.execPath, [path.join(REPO, 'bin/doflow.js'), 'orchestrate', '--action', 'decide-gate', '--task-id', SLUG, '--gate', f.gateId, '--policy', f.gateId, ...extra, '--json'], {
+    cwd: f.root, encoding: 'utf8', env: switchEnv(f.root),
+  });
+}
+
+for (const [gateId, stage] of [['gate-0', 'discovery'], ['gate-a', 'planning'], ['gate-b', 'review']]) {
+  test(`policy pass at ${gateId} records autopilot, digest, inputs and ${stage}`, t => {
+    const f = fixture(t, { gateId });
+    const result = decide(f);
+    assert.equal(result.decision, 'pass');
+    assert.notEqual(result.state, 'AWAITING_GATE');
+    const run = f.orch.readRun(SLUG);
+    assert.equal(run.program.find((n: any) => n.id === gateId).status, 'approved');
+    const entry = run.history.at(-1);
+    assert.equal(entry.action, 'decide-gate');
+    assert.equal(entry.detail, 'approve');
+    assert.equal(entry.by, 'autopilot');
+    assert.deepEqual(entry.policy, { id: gateId, digest: digest(f.baseBytes) });
+    const input = entry.inputs.find((i: any) => i.locator.replace(/\\/g, '/').endsWith('intention/requirement.md'));
+    assert.equal(input.sha256, digest('# Settled\n'));
+    assert.deepEqual(entry.inputs, result.inputs);
+    assert.equal(entry.note, `approved by policy ${gateId}@${digest(f.baseBytes)} (${entry.inputs.length} inputs)`);
+    assert.equal(entry.forced, false);
+    const [decision] = readRegister(f.featureDir).decisions;
+    assert.equal(decision.decidedBy, 'autopilot');
+    assert.equal(decision.channel, 'policy');
+    assert.equal(decision.stage, stage);
+    assert.equal(decision.source, `git:${f.developHead}:core/registry/gates.json`);
+  });
+}
+
+test('no caller names the decider, with or without --policy', t => {
+  const f = fixture(t);
+  const before = fs.readFileSync(f.orch.runFile(SLUG));
+  assert.throws(() => f.orch.decideGate({ taskId: SLUG, gateId: 'gate-0', decision: 'approve', by: 'autopilot' }), /no decider/);
+  assert.deepEqual(fs.readFileSync(f.orch.runFile(SLUG)), before);
+});
+
+for (const [name, options, reason] of [
+  ['develop never beats a feature branch weakened to approve', { mode: 'never' }, 'policy-never'],
+  ['absent develop policy beats the feature copy', { missing: true }, 'no-policy'],
+  ['unresolved facts deny without rejecting', { markers: true }, 'unresolved-clarifications'],
+] as [string, any, string][]) {
+  test(name, (t: any) => {
+    const f: any = fixture(t, options);
+    const before = fs.readFileSync(f.orch.runFile(SLUG));
+    const register = fs.readFileSync(path.join(f.featureDir, 'decisions/register.json'));
+    const result = decide(f);
+    assert.equal(result.decision, 'deny');
+    assert.deepEqual(result.reasons, [reason]);
+    assert.equal(result.state, 'AWAITING_GATE');
+    assert.deepEqual(fs.readFileSync(f.orch.runFile(SLUG)), before);
+    assert.deepEqual(fs.readFileSync(path.join(f.featureDir, 'decisions/register.json')), register);
+    assert.equal(f.orch.readRun(SLUG).history.some((h: any) => h.detail === 'reject'), false);
+  });
+}
+
+test('override narrows the develop policy and binds its bytes', t => {
+  const f = fixture(t);
+  const bytes = JSON.stringify({ loop: { maxSteps: 1 } });
+  write(path.join(f.root, '.doflow/gates.override.json'), bytes);
+  const result = decide(f);
+  assert.equal(result.decision, 'pass');
+  assert.equal(result.policy.digest, `${digest(f.baseBytes)}+${digest(bytes)}`);
+});
+
+test('a widening override denies atomically', t => {
+  const f = fixture(t);
+  write(path.join(f.root, '.doflow/gates.override.json'), '{"loop":{"wip":999}}');
+  const result = decide(f);
+  assert.equal(result.decision, 'deny');
+  assert.deepEqual(result.reasons, ['policy-override-widens:loop.wip']);
+  assert.equal(readRegister(f.featureDir).decisions.length, 0);
+});
+
+// C23: unreadable bytes reach loadPolicy as '' and malformed JSON is not a widening of anything.
+for (const [name, arrange] of [
+  ['a malformed', (file: any) => write(file, '{')],
+  ['an unreadable', (file: any) => fs.mkdirSync(file, { recursive: true })],
+] as [string, (file: any) => any][]) {
+  test(`${name} override denies policy-override-invalid and records nothing`, t => {
+    const f = fixture(t);
+    (arrange as any)(path.join(f.root, '.doflow/gates.override.json'));
+    const before = fs.readFileSync(f.orch.runFile(SLUG));
+    const result = decide(f);
+    assert.equal(result.decision, 'deny');
+    assert.deepEqual(result.reasons, ['policy-override-invalid']);
+    assert.deepEqual(fs.readFileSync(f.orch.runFile(SLUG)), before);
+    assert.equal(readRegister(f.featureDir).decisions.length, 0);
+  });
+}
+
+test('C5: a blocker user-accepted on a question-channel decision denies autopilot gate-b; a person still decides it', t => {
+  const f: any = fixture(t, { gateId: 'gate-b', predicates: ['dispositions-backed', 'blockers-zero'] });
+  // Any session can add a question-channel entry: the register write below needs no person.
+  const added = addDecisions({ featureDir: f.featureDir, slug: SLUG, now: FIXED, items: [{ topic: 'accept-blocker',
+    statement: 'Accept C1.', channel: 'question', stage: 'review', rationale: 'Written by the reviewed session.' }] });
+  assert.equal(added.finding, undefined, JSON.stringify(added));
+  const [decision] = readRegister(f.featureDir).decisions;
+  write(path.join(f.featureDir, 'review/findings.json'), JSON.stringify({ schema: 1, row: '001', slug: SLUG, reviewedHead: 'a'.repeat(40),
+    seats: [], converged: [{ id: 'C1', from: [], severity: 'blocker', locator: 'src/x.ts:1', status: 'user-accepted', decision: decision.id }] }));
+  const before = fs.readFileSync(f.orch.runFile(SLUG));
+  const denied = decide(f);
+  assert.equal(denied.decision, 'deny');
+  assert.deepEqual(denied.reasons, ['user-accepted-needs-person:C1']);
+  assert.equal(denied.state, 'AWAITING_GATE');
+  assert.deepEqual(fs.readFileSync(f.orch.runFile(SLUG)), before);
+  assert.equal(readRegister(f.featureDir).decisions.length, 1, 'no policy approval was registered');
+  // Control: the person decide-gate path runs no predicate and approves the same run.
+  const person = f.orch.decideGate({ taskId: SLUG, gateId: 'gate-b', decision: 'approve', now: FIXED });
+  assert.notEqual(person.state, 'AWAITING_GATE');
+  assert.equal(f.orch.readRun(SLUG).program.find((n: any) => n.id === 'gate-b').status, 'approved');
+  assert.equal(f.orch.readRun(SLUG).history.at(-1).by, undefined);
+});
+
+test('unknown seed row cannot be approved by policy', t => {
+  const f = fixture(t);
+  write(path.join(f.root, 'agent-docs/roadmap/rows.json'), '{"schema":1,"rows":[]}');
+  assert.deepEqual(decide(f).reasons, ['row-unknown']);
+});
+
+test('typed seed status cannot authorize a gate', t => {
+  const f = fixture(t);
+  const file = path.join(f.root, 'agent-docs/roadmap/rows.json');
+  const seed = JSON.parse(fs.readFileSync(file));
+  seed.rows[0].status = 'merged';
+  write(file, JSON.stringify(seed));
+  assert.deepEqual(decide(f).reasons, ['seed-typed-status']);
+  assert.equal(readRegister(f.featureDir).decisions.length, 0);
+});
+
+test('a deny is reevaluated from current artifact bytes on retry', t => {
+  const f = fixture(t, { markers: true });
+  assert.equal(decide(f).decision, 'deny');
+  write(path.join(f.featureDir, 'intention/requirement.md'), '# Resolved on retry\n');
+  const result = decide(f);
+  assert.equal(result.decision, 'pass');
+  assert.equal(result.inputs.find((i: any) => i.locator.endsWith('requirement.md')).sha256, digest('# Resolved on retry\n'));
+  assert.equal(readRegister(f.featureDir).decisions.length, 1);
+});
+
+test('a missing register prevents policy approval and leaves the journal untouched', t => {
+  const f = fixture(t);
+  fs.rmSync(path.join(f.featureDir, 'decisions/register.json'));
+  const before = fs.readFileSync(f.orch.runFile(SLUG));
+  assert.throws(() => decide(f), /no-register/);
+  assert.deepEqual(fs.readFileSync(f.orch.runFile(SLUG)), before);
+});
+
+test('linked checkout uses the main seed and override, even when the run lives on main', t => {
+  const f = fixture(t);
+  const linked = tempDir(t, 'doflow-policy-linked-');
+  const admin = path.join(f.root, '.git/worktrees/policy');
+  write(path.join(f.root, '.git/HEAD'), 'ref: refs/heads/develop\n');
+  write(path.join(admin, 'HEAD'), `ref: refs/heads/feat/${SLUG}\n`);
+  write(path.join(admin, 'gitdir'), `${linked}/.git\n`);
+  write(path.join(admin, 'commondir'), '../..\n');
+  write(path.join(linked, '.git'), `gitdir: ${admin}\n`);
+  write(path.join(linked, 'agent-docs/roadmap/rows.json'), '{"schema":1,"rows":[]}');
+  write(path.join(f.root, '.doflow/gates.override.json'), '{"classes":{"feature":{"gate-0":{"autopilot":"never"}}}}');
+  write(path.join(linked, '.doflow/gates.override.json'), '{"loop":{"wip":999}}');
+  f.orch = new WorkflowOrchestrator({ repoRoot: REPO, projectRoot: f.root, sourceRoot: linked, env: switchEnv(f.root) });
+  const result = decide(f);
+  assert.deepEqual(result.reasons, ['policy-never']);
+  assert.equal(result.state, 'AWAITING_GATE');
+  assert.equal(readRegister(f.featureDir).decisions.length, 0);
+  const narrowed = '{"loop":{"maxSteps":1}}';
+  write(path.join(f.root, '.doflow/gates.override.json'), narrowed);
+  const pass = decide(f);
+  assert.equal(pass.decision, 'pass', `the main seed row and main artifacts are visible from the linked checkout: ${JSON.stringify(pass)}`);
+  assert.equal(pass.policy.digest, `${digest(f.baseBytes)}+${digest(narrowed)}`);
+});
+
+test('the feature head is the feature branch, so a run from the main checkout on develop still sees the protected change', t => {
+  const f = fixture(t, { protect: true });
+  const linked = tempDir(t, 'doflow-policy-linked-');
+  const admin = path.join(f.root, '.git/worktrees/policy');
+  write(path.join(f.root, '.git/HEAD'), 'ref: refs/heads/develop\n');
+  write(path.join(admin, 'HEAD'), `ref: refs/heads/feat/${SLUG}\n`);
+  write(path.join(admin, 'gitdir'), `${linked}/.git\n`);
+  write(path.join(admin, 'commondir'), '../..\n');
+  write(path.join(linked, '.git'), `gitdir: ${admin}\n`);
+  const result = decide(f);
+  assert.equal(result.decision, 'deny', `a develop-vs-develop diff must not approve: ${JSON.stringify(result.reasons)}`);
+  assert.ok(result.reasons.includes('protected-path:core/registry/gates.json'), JSON.stringify(result.reasons));
+  assert.equal(result.state, 'AWAITING_GATE');
+  assert.equal(readRegister(f.featureDir).decisions.length, 0);
+  const heads = result.inputs.find((i: any) => i.locator.endsWith(`#diff:${f.developHead}...${fs.readFileSync(path.join(f.root, '.git/refs/heads/feat', SLUG), 'utf8').trim()}`));
+  assert.ok(heads, 'the diff input is bound to develop...feature-branch');
+});
+
+test('a feature branch that does not exist denies instead of falling back to HEAD', t => {
+  const f = fixture(t, { protect: true });
+  write(path.join(f.root, '.git/HEAD'), 'ref: refs/heads/develop\n');
+  fs.rmSync(path.join(f.root, '.git/refs/heads/feat'), { recursive: true });
+  const result = decide(f);
+  assert.equal(result.decision, 'deny');
+  assert.equal(result.state, 'AWAITING_GATE');
+  assert.equal(readRegister(f.featureDir).decisions.length, 0);
+});
+
+for (const extra of [{ decision: 'approve' }, { decision: 'reject' }, { forced: true, note: 'override' }, { by: 'autopilot' }, { policy: 'gate-b' }]) {
+  test(`policy refuses competing arguments ${JSON.stringify(extra)}`, t => {
+    const f = fixture(t);
+    const before = fs.readFileSync(f.orch.runFile(SLUG));
+    assert.throws(() => f.orch.decideGate({ taskId: SLUG, gateId: 'gate-0', policy: 'gate-0', ...extra }), /policy/);
+    assert.deepEqual(fs.readFileSync(f.orch.runFile(SLUG)), before);
+  });
+}
+
+test('CLI forwards policy and reports an attributable approval', t => {
+  const f = fixture(t);
+  const result = cli(f);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).decision, 'pass');
+  assert.equal(f.orch.readRun(SLUG).history.at(-1).by, 'autopilot');
+});
+
+for (const args of [['--decision', 'approve'], ['--forced', '--note', 'override'], ['--by', 'autopilot']]) {
+  test(`CLI refuses policy with ${args[0]}`, t => {
+    const f = fixture(t);
+    const before = fs.readFileSync(f.orch.runFile(SLUG));
+    const result: any = cli(f, args);
+    assert.equal(result.status, 2, result.stderr);
+    assert.deepEqual(fs.readFileSync(f.orch.runFile(SLUG)), before);
+  });
+}
+
+// Decision C9: every layer of the kill switch denies a policy decision before any fact is read.
+for (const [name, arrange, layer] of [
+  ['the shipped default (no setting) is off', (f: any) => fs.rmSync(path.join(f.root, '.config/doflow/settings.json')), 'setting'],
+  ['an explicit off setting', (f: any) => write(path.join(f.root, '.config/doflow/settings.json'), JSON.stringify({ schema: 1, 'autopilot.enabled': 'off' })), 'setting'],
+  ['an unreadable setting fails safe to off', (f: any) => write(path.join(f.root, '.config/doflow/settings.json'), '{not json'), 'setting'],
+  ['the sentinel in the config home', (f: any) => write(path.join(f.root, '.config/doflow/autopilot/off'), ''), 'sentinel'],
+  ['the environment', (f: any) => { f.orch.env = { ...switchEnv(f.root), DOFLOW_AUTOPILOT_ENABLED: 'off' }; }, 'env'],
+] as [string, (f: any) => any, string][]) {
+  test(`C9: ${name} denies autopilot-disabled and records nothing`, t => {
+    const f = fixture(t);
+    (arrange as any)(f);
+    const before = fs.readFileSync(f.orch.runFile(SLUG));
+    const register = fs.readFileSync(path.join(f.featureDir, 'decisions/register.json'));
+    const result = decide(f);
+    assert.equal(result.decision, 'deny');
+    assert.deepEqual(result.reasons, ['autopilot-disabled']);
+    assert.equal(result.annotations.switch, layer);
+    assert.deepEqual(result.inputs, [], 'no fact is gathered while the switch is off');
+    assert.equal(result.state, 'AWAITING_GATE');
+    assert.deepEqual(fs.readFileSync(f.orch.runFile(SLUG)), before);
+    assert.deepEqual(fs.readFileSync(path.join(f.featureDir, 'decisions/register.json')), register);
+  });
+}
+
+test('C9: autopilot-disabled is in the closed deny list, and the same fixture passes once the switch is on', t => {
+  const policy = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/gates.json'), 'utf8'));
+  assert.ok(policy.denyReasons.includes('autopilot-disabled'));
+  const f = fixture(t);
+  write(path.join(f.root, '.config/doflow/autopilot/off'), '');
+  assert.deepEqual(decide(f).reasons, ['autopilot-disabled']);
+  fs.rmSync(path.join(f.root, '.config/doflow/autopilot/off'));
+  assert.equal(decide(f).decision, 'pass', 'the switch is read on every decision, not once');
+});
+
+test('C9: the CLI denies with the switch off and exits 0 with the run unchanged', t => {
+  const f = fixture(t);
+  fs.rmSync(path.join(f.root, '.config/doflow/settings.json'));
+  const before = fs.readFileSync(f.orch.runFile(SLUG));
+  const result = cli(f);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout).reasons, ['autopilot-disabled']);
+  assert.deepEqual(fs.readFileSync(f.orch.runFile(SLUG)), before);
+});
+
+for (const gateId of ['gate-a', 'gate-b']) {
+  test(`C6: a plan carrying a doflow-verification block denies ${gateId} by policy; the same plan without it passes`, t => {
+    const f: any = fixture(t, { gateId, predicates: ['plan-verification-absent'] });
+    const plan = path.join(f.featureDir, 'plan.md');
+    write(plan, '# Plan\n\n```doflow-verification\n{"test":"true"}\n```\n');
+    const before = fs.readFileSync(f.orch.runFile(SLUG));
+    const denied = decide(f);
+    assert.deepEqual([denied.decision, denied.reasons], ['deny', ['protected-path:plan-verification']]);
+    assert.deepEqual(fs.readFileSync(f.orch.runFile(SLUG)), before);
+    write(plan, '# Plan\n');
+    const passed = decide(f);
+    assert.equal(passed.decision, 'pass');
+    assert.ok(passed.inputs.some((i: any) => i.locator === plan && i.sha256 === digest('# Plan\n')), 'the approval binds the plan bytes');
+  });
+}
+
+test('C15: a loop-bound feature head is kept in the gate-b entry only when the gate evaluated that same head', t => {
+  const f: any = fixture(t, { gateId: 'gate-b', predicates: ['dispositions-backed'] });
+  const featureHead = fs.readFileSync(path.join(f.root, '.git/refs/heads/feat', SLUG), 'utf8').trim();
+  assert.throws(() => f.orch.decideGate({ taskId: SLUG, gateId: 'gate-b', decision: 'approve', bindHead: featureHead, now: FIXED }), /bindHead/);
+  const result = f.orch.decideGate({ taskId: SLUG, gateId: 'gate-b', policy: 'gate-b', bindHead: featureHead, now: FIXED });
+  assert.equal(result.decision, 'pass');
+  const entry = f.orch.readRun(SLUG).history.at(-1);
+  assert.deepEqual([entry.by, entry.approvedHead], ['autopilot', featureHead]);
+  // A head the gate did not evaluate is never recorded, and the CLI (outside the loop) records none.
+  const other: any = fixture(t, { gateId: 'gate-b', predicates: ['dispositions-backed'] });
+  assert.equal(other.orch.decideGate({ taskId: SLUG, gateId: 'gate-b', policy: 'gate-b', bindHead: 'c'.repeat(40), now: FIXED }).decision, 'pass');
+  assert.equal(Object.hasOwn(other.orch.readRun(SLUG).history.at(-1), 'approvedHead'), false);
+  const viaCli: any = fixture(t, { gateId: 'gate-b', predicates: ['dispositions-backed'] });
+  assert.equal(cli(viaCli).status, 0);
+  assert.equal(Object.hasOwn(viaCli.orch.readRun(SLUG).history.at(-1), 'approvedHead'), false);
+});
+
+test('C20: the orchestrator reads the kill switch from settings/autopilot.ts and loads no roadmap module that loads it back', () => {
+  const read = (rel: any) => fs.readFileSync(path.join(REPO, rel), 'utf8');
+  const requires = (text: any) => [...text.matchAll(/\brequire\(\s*'([^']+)'\s*\)/g)].map(m => m[1]);
+  const orchestrator = requires(read('src/runtime/workflow-orchestrator.ts'));
+  assert.ok(orchestrator.includes('./settings/autopilot.ts'));
+  assert.equal(orchestrator.some(spec => spec.startsWith('./roadmap/') && !['./roadmap/rows.ts', './roadmap/gates.ts', './roadmap/facts.ts'].includes(spec)), false,
+    'only the pure policy modules (rows, gates, facts), never the loop shell');
+  for (const rel of ['src/runtime/roadmap/rows.ts', 'src/runtime/roadmap/gates.ts', 'src/runtime/roadmap/facts.ts', 'src/runtime/settings/autopilot.ts']) {
+    assert.equal(requires(read(rel)).some(spec => /workflow-orchestrator|roadmap\/loop|\.\/loop\.ts/.test(spec)), false, `${rel} does not load the orchestrator or the loop`);
+  }
+});

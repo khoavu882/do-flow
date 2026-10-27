@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
+_DOFLOW_SRC=${0//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_POLDIR=${_DOFLOW_SRC%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # mcp-tool-guard.sh — Canonical Policy Library: PreToolUse(mcp_*) hook
 #
 # Intercepts every MCP tool call and blocks matches against mcp-policy.conf, the
@@ -20,7 +21,7 @@ case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 #
 # mcp-policy.conf's shape (TAB-separated regex<TAB>reason, '#'-comments,
 # blank lines skipped) is identical across every harness that ships one today
-# (claude/codex/gemini/kiro) — reconciliation found no divergence to resolve
+# (claude/codex/kiro) — reconciliation found no divergence to resolve
 # there.
 
 set -uo pipefail

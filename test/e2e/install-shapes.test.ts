@@ -1,0 +1,612 @@
+'use strict';
+
+// install-shapes.test.js — real installs into temp directories, driving the real bin/doflow.js and
+// then executing the real projected locator and dispatcher. No mocks: the defects this file exists
+// to catch are all "the pieces are individually correct and do not join up", which a mock cannot
+// express.
+//
+// Three shapes matter and behave differently:
+//   source checkout  — the dispatcher sits in this repo, beside its helpers and a package.json
+//   project-local    — <project>/.doflow/, reached by walking up from the working directory
+//   global           — $HOME/.doflow/, reached only after the walk-up finds nothing
+// The global shape is the one that was broken: `doflow.sh` derived its root with
+// `$SCRIPT_DIR/../../../..`, which from ~/.doflow/scripts/doflow/ resolves to /Users, and every
+// Node-backed verb died with "Cannot find module '/Users/bin/doflow.js'". Symmetry between the
+// shapes is therefore asserted, not assumed (plan RK7).
+//
+// Serves FR-001, FR-002, FR-003, NFR-001, NFR-002, NFR-005, NFR-007.
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+const REPO = path.resolve(__dirname, "../..");
+const CLI = path.join(REPO, 'bin', 'doflow.js');
+const SOURCE_DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
+const { inheritedEnv } = require('../helper/scratch-env.ts');
+const { suiteTempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
+const ALL_HARNESSES: any = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
+const { IS_WIN, interpreterSpawn, samePath } = require('../helper-platform.ts');
+
+// A developer's PI_CODING_AGENT_DIR would send this file's global Pi MCP writes outside the scratch home.
+delete process.env.PI_CODING_AGENT_DIR;
+
+function scratch(tag: any) { return suiteTempDir(`doflow-install-shapes-${tag}-`); }
+
+/** os.homedir() ignores HOME on Windows and reads USERPROFILE instead, so a scratch home must
+ * redirect both or -g installs would land in the real profile. */
+function homeEnv(home: any) {
+  return process.platform === 'win32' ? { HOME: home, USERPROFILE: home } : { HOME: home };
+}
+
+/** Run the installer CLI. `home` is always a scratch directory so a global install can never touch
+ *  the developer's real ~/.doflow. */
+function cli(args: any, { home, cwd = REPO, env = {} }: any = {}) {
+  return spawnSync('node', [CLI, ...args], {
+    cwd, encoding: 'utf8', input: '\n',
+    env: { ...inheritedEnv(), ...homeEnv(home), ...env },
+  });
+}
+
+/** Execute a locator or the dispatcher itself, exactly as a skill would. The entrypoints are POSIX
+ * scripts, so on win32 they run through Git Bash (interpreterSpawn) rather than being skipped:
+ * CreateProcess can neither honor a shebang nor consult exec bits, and "the pieces join up" is
+ * precisely the behavior under test. */
+function runtime(exe: any, args: any, { home, cwd, env = {} }: any = {}) {
+  const { file, args: argv } = interpreterSpawn(exe, args);
+  return spawnSync(file, argv, {
+    cwd, encoding: 'utf8',
+    // A developer's own exported DOFLOW_CONFIG_DIR / DOFLOW_CLI would silently redirect the
+    // resolution these tests exist to exercise, so they are cleared unless a case sets them.
+    // MSYS path conversion stays ON: the dispatcher hands bash-form /c/... script paths to a native node.
+    env: { ...inheritedEnv(), DOFLOW_CONFIG_DIR: undefined, DOFLOW_CLI: undefined, ...homeEnv(home), ...env },
+  });
+}
+
+// A PATH keeping only POSIX coreutils plus node itself. Colon-separated and forward-slashed even
+// on win32, where its sole consumer IS a shell (the bash-spawned dispatcher resolving `command -v
+// node`); MSYS reads this form natively, mapping /usr/bin and /bin onto Git's own tools.
+// A drive path in that list must be in MSYS form (/c/...): bash splits PATH on every colon, so a
+// `C:/...` entry would be read as the two entries `C` and `/...` and node would never be found.
+const msysDir = (p: any) => String(p).replace(/\\/g, '/').replace(/^([A-Za-z]):\//, (_m: any, d: any) => `/${d.toLowerCase()}/`);
+const MINIMAL_PATH = `/usr/bin:/bin:${msysDir(path.dirname(process.execPath))}`;
+
+function walk(dir: any, out: any = []) {
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
+  for (const entry of entries) {
+    const full: any = path.join(dir, entry.name);
+    if (entry.isDirectory()) walk(full, out);
+    else out.push(full);
+  }
+  return out;
+}
+
+function ledgerOf(root: any) {
+  return JSON.parse(fs.readFileSync(path.join(root, '.doflow', 'state', 'ledger.json'), 'utf8'));
+}
+
+// A PATH built by mirroring the real one minus the optional providers, rather than a hand-picked
+// minimal PATH: stripping PATH down to a few entries removes coreutils too, so every bash helper
+// fails with 127 and the run proves nothing about python3's absence specifically.
+//
+// win32 cannot mirror: fs.symlinkSync needs privileges there and deny names arrive as
+// `python3.exe`. Instead whole directories are dropped — any directory CONTAINING a denied tool
+// (extension-stripped before matching) leaves the PATH entirely. That preserves this fixture's
+// intent just as faithfully on Windows, where an optional provider never shares a directory with
+// the POSIX coreutils the dispatcher needs (those ride Git's /usr/bin via MINIMAL_PATH).
+let sanitizedPath;
+function pathWithout(names: any) {
+  const deny: any = new RegExp(`^(${names.join('|')})$`);
+  if (IS_WIN) {
+    const keep: any = [];
+    for (const entry of (process.env.PATH || '').split(path.delimiter)) {
+      let files;
+      try { files = fs.readdirSync(entry); } catch { continue; }
+      const polluted = files.some((file: any) => deny.test(file.replace(/\.(exe|bat|cmd|com)$/i, '')));
+      if (!polluted) keep.push(msysDir(entry));
+    }
+    return keep.join(':');
+  }
+  const dir = scratch('nopath');
+  for (const entry of (process.env.PATH || '').split(path.delimiter)) {
+    let files;
+    try { files = fs.readdirSync(entry); } catch { continue; }
+    for (const file of files) {
+      if (deny.test(file)) continue;
+      const link = path.join(dir, file);
+      if (fs.existsSync(link)) continue;
+      try { fs.symlinkSync(path.join(entry, file), link); } catch { /* unreadable entry */ }
+    }
+  }
+  return dir;
+}
+
+// ------------------------------------------------------------------ FR-001: the three shapes
+
+test('FR-001: the dispatcher answers from the source checkout', () => {
+  const cwd = scratch('src');
+  const r = runtime(SOURCE_DISPATCHER, ['paths', '--json'], { home: scratch('srch'), cwd });
+  assert.equal(r.status, 0, r.stderr);
+  // do-paths.sh echoes `pwd`/`git rev-parse` verbatim, which under Git Bash is /c/... MSYS form;
+  // samePath() compares that against realpath()'s native form without weakening either platform.
+  assert.ok(samePath(JSON.parse(r.stdout).repo_root, fs.realpathSync(cwd)),
+    `repo_root ${JSON.parse(r.stdout).repo_root} != cwd ${fs.realpathSync(cwd)}`);
+});
+
+test('FR-001/FR-002: harness locator -> dispatcher -> shell verb works in a project-local install', () => {
+  const root = scratch('proj');
+  const home = path.join(root, 'home');
+  const installed = cli(['install', root, '-f', '--no-backup', '-t', ALL_HARNESSES.join(',')], { home });
+  assert.equal(installed.status, 0, installed.stderr);
+
+  // Every harness's own locator must reach the one dispatcher — this is the only asset that reaches
+  // opencode, pi, copilot and kiro at all, so all seven are exercised rather than claude alone.
+  for (const locator of walk(root).filter((f: any) => path.basename(f) === 'doflow-run' && !f.includes(`${path.sep}.doflow${path.sep}`))) {
+    const r = runtime(locator, ['paths', '--json'], { home, cwd: root });
+    assert.equal(r.status, 0, `${path.relative(root, locator)}: ${r.stderr}`);
+    assert.ok(samePath(JSON.parse(r.stdout).repo_root, fs.realpathSync(root)),
+      `${locator}: repo_root ${JSON.parse(r.stdout).repo_root} != root ${fs.realpathSync(root)}`);
+  }
+});
+
+test('FR-001: a global install answers from a working directory that has no project install', () => {
+  const home = scratch('globalhome');
+  const installed = cli(['install', '-g', '-f', '--no-backup', '-t', ALL_HARNESSES.join(',')], { home });
+  assert.equal(installed.status, 0, installed.stderr);
+
+  // Deliberately outside $HOME: inside it, the walk-up would find ~/.doflow at resolution step 2
+  // and the global fallback (step 3) would never be exercised.
+  const cwd = scratch('elsewhere');
+  const locator = path.join(home, '.claude', 'bin', 'doflow-run');
+  const r = runtime(locator, ['paths', '--json'], { home, cwd });
+  assert.equal(r.status, 0, `global locator failed: ${r.stderr}`);
+  assert.ok(samePath(JSON.parse(r.stdout).repo_root, fs.realpathSync(cwd)),
+    `repo_root ${JSON.parse(r.stdout).repo_root} != cwd ${fs.realpathSync(cwd)}`);
+
+  // The old `doflow.sh` computed its root as /Users here. State proves where the dispatcher decided
+  // it lives: both install's storage upkeep and the later paths invocation land under the global
+  // install, in their actual append order, rather than under a truncated path.
+  const runs = path.join(home, '.doflow', 'state', 'runs');
+  const files = walk(runs);
+  assert.ok(files.length > 0, `no run record under ${runs} — the dispatcher resolved a different root`);
+  const records = files.flatMap((file: any) => fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((line: any) => JSON.parse(line)));
+  const storageIndex = records.findIndex((event: any) => event.verb === 'storage');
+  const pathsIndex = records.findIndex((event: any) => event.verb === 'paths');
+  assert.notEqual(storageIndex, -1, 'global install records its required storage upkeep telemetry');
+  assert.notEqual(pathsIndex, -1, 'the global dispatcher records the paths invocation');
+  assert.ok(storageIndex < pathsIndex, 'install upkeep telemetry precedes the later paths event');
+  assert.equal(records[pathsIndex].exit_code, 0);
+});
+
+// ---------------------------------------------------------------- FR-003: the uniform contract
+
+test('FR-003: exit codes and --json hold at the dispatcher boundary in an installed shape', () => {
+  const home = scratch('contract');
+  assert.equal(cli(['install', '-g', '-f', '--no-backup', '-t', 'claude'], { home }).status, 0);
+  const cwd = scratch('contractcwd');
+  const locator = path.join(home, '.claude', 'bin', 'doflow-run');
+
+  const help = runtime(locator, ['--help'], { home, cwd });
+  assert.equal(help.status, 0, help.stderr);
+
+  const unknown = runtime(locator, ['not-a-verb', '--json'], { home, cwd });
+  assert.equal(unknown.status, 2, 'an unknown verb is a resolution error, not a finding');
+  assert.equal(JSON.parse(unknown.stderr).error, 'unknown-verb');
+
+  // A Node-backed verb must WORK here. This block previously asserted the opposite — that such a
+  // verb "is the one case that cannot be served" — and so encoded a defect as intended design:
+  // after `npx @khoavu882/doflow install`, npx leaves no package, the install is not inside a
+  // checkout, and nothing lands on PATH, so eleven verbs (readiness, evidence, claim, verify,
+  // classify, workflow, scaffold, route, trace, capabilities, discover) answered `cli-not-found`
+  // for every real user while every test passed. Tests run inside a checkout; users do not.
+  // The `runtime.*` assets project bin/, src/ and core/registry/ into `.doflow/runtime/`, and this
+  // is the assertion that keeps them projected.
+  const noPath: any = { PATH: MINIMAL_PATH };
+  const served = runtime(locator, ['capabilities', '--json'], { home, cwd, env: noPath });
+  assert.equal(served.status, 0,
+    `a Node-backed verb must be served by the projected runtime with no package on PATH: ${served.stderr}`);
+  assert.ok(JSON.parse(served.stdout).capabilities, 'capabilities answered but returned no capability list');
+
+  // The unservable case still has to answer in the caller's shape rather than emit a raw
+  // "Cannot find module" from node. Provoked by removing the projected runtime, which is now the
+  // only way to reach it — that is the point.
+  const projected = path.join(home, '.doflow', 'runtime');
+  assert.ok(fs.existsSync(projected), `install did not project the runtime to ${projected}`);
+  fs.renameSync(projected, `${projected}.moved`);
+  try {
+    const noCli = runtime(locator, ['capabilities', '--json'], { home, cwd, env: noPath });
+    assert.equal(noCli.status, 2);
+    const reported = JSON.parse(noCli.stderr);
+    assert.equal(reported.error, 'cli-not-found');
+    assert.match(reported.message, /DOFLOW_CLI/);
+
+    // ...and the documented escape hatch works, so the exit 2 above is a resolution result rather
+    // than a broken verb.
+    const withCli = runtime(locator, ['capabilities', '--json'], { home, cwd, env: { ...noPath, DOFLOW_CLI: CLI } });
+    assert.equal(withCli.status, 0, withCli.stderr);
+    assert.ok(JSON.parse(withCli.stdout));
+  } finally {
+    fs.renameSync(`${projected}.moved`, projected);
+  }
+});
+
+// ------------------------------- 009-unlinked-checkout: resolution fallbacks & diagnostics
+//
+// Feature 009 (agent-docs/doflow/009-unlinked-checkout-cli-resolution). CH3 in that feature's
+// plan.md names these five assertions exactly; the naming below is prefixed `009-unlinked-checkout`
+// rather than reusing this file's own `FR-00x` numbers, which already belong to a different,
+// unrelated feature's requirements. Every scenario here uses an *installed* locator whose own
+// $SCRIPT_DIR sits outside any checkout (as FR-001's global-install test above does) — the source
+// dispatcher would always resolve via its own $SCRIPT_DIR walk-up first and never exercise these
+// fallbacks (design.md R4).
+
+test('009-unlinked-checkout: assertion 1 — a partial local .doflow/ resolves a Node verb via the new $PWD walk-up', () => {
+  const cwd = scratch('pwd-walkup');
+  // A minimal but genuinely working checkout: the same bin/ + src/ + core/registry/ content the
+  // `runtime.*` assets project (copied directly, not produced by an install) plus a package.json
+  // naming doflow — together exactly what `is_package_root` requires.
+  fs.cpSync(path.join(REPO, 'bin'), path.join(cwd, 'bin'), { recursive: true });
+  fs.cpSync(path.join(REPO, 'src'), path.join(cwd, 'src'), { recursive: true });
+  fs.mkdirSync(path.join(cwd, 'core', 'registry'), { recursive: true });
+  fs.cpSync(path.join(REPO, 'core', 'registry'), path.join(cwd, 'core', 'registry'), { recursive: true });
+  fs.writeFileSync(path.join(cwd, 'package.json'), JSON.stringify({ name: '@khoavu882/doflow' }));
+  // A partial local `.doflow/`: only state/ and worktrees/ — no scripts/, no runtime/ — proves the
+  // new $PWD walk-up resolves the checkout itself rather than depending on a runtime/ projection
+  // existing at this same location.
+  fs.mkdirSync(path.join(cwd, '.doflow', 'state'), { recursive: true });
+  fs.mkdirSync(path.join(cwd, '.doflow', 'worktrees'), { recursive: true });
+
+  const home = scratch('pwd-walkup-home');
+  assert.equal(cli(['install', '-g', '-f', '--no-backup', '-t', 'claude'], { home }).status, 0);
+  const locator = path.join(home, '.claude', 'bin', 'doflow-run');
+
+  const noPath: any = { PATH: MINIMAL_PATH };
+  const r = runtime(locator, ['capabilities', '--json'], { home, cwd, env: noPath });
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(JSON.parse(r.stdout).capabilities, 'capabilities answered but returned no capability list');
+});
+
+test('009-unlinked-checkout: assertion 2 — a partial local .doflow/ with no own checkout falls back to $HOME/.doflow/runtime', () => {
+  const cwd = scratch('global-fallback-cwd');
+  // No bin/doflow.js and no package.json anywhere in `cwd` — the $PWD walk-up cannot resolve — but
+  // a `.doflow/state/` exists, so CONFIG_DIR resolves to `cwd/.doflow`, which is NOT the same path
+  // as `$HOME/.doflow`. This is what forces resolution past the existing `$CONFIG_DIR/runtime`
+  // check (which has nothing to find here) into the new `$HOME/.doflow/runtime` fallback.
+  fs.mkdirSync(path.join(cwd, '.doflow', 'state'), { recursive: true });
+
+  const home = scratch('global-fallback-home');
+  assert.equal(cli(['install', '-g', '-f', '--no-backup', '-t', 'claude'], { home }).status, 0);
+  const locator = path.join(home, '.claude', 'bin', 'doflow-run');
+
+  const noPath: any = { PATH: MINIMAL_PATH };
+  const r = runtime(locator, ['capabilities', '--json'], { home, cwd, env: noPath });
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(JSON.parse(r.stdout).capabilities, 'capabilities answered but returned no capability list');
+
+  // Proves CONFIG_DIR really did resolve to `cwd/.doflow` (not `home/.doflow`), i.e. that the run
+  // above genuinely reached the new fallback rather than the pre-existing `$CONFIG_DIR/runtime`
+  // check happening to already point at the same place.
+  const runsUnderCwd = walk(path.join(cwd, '.doflow', 'state', 'runs'));
+  assert.ok(runsUnderCwd.length > 0, 'the run record must land under cwd/.doflow, proving CONFIG_DIR resolved there');
+});
+
+test('009-unlinked-checkout: assertion 3 — a runtime/-sourced Node verb that hits the registry validator reports stale-runtime', () => {
+  const cwd = scratch('stale-runtime-cwd');
+  const home = scratch('stale-runtime-home');
+  assert.equal(cli(['install', '-g', '-f', '--no-backup', '-t', 'claude'], { home }).status, 0);
+  const locator = path.join(home, '.claude', 'bin', 'doflow-run');
+
+  const noPath: any = { PATH: MINIMAL_PATH };
+
+  // Positive assertion (FR-001, FU-tz5h0m): the unmodified projected runtime serves a registry-backed verb.
+  const served = runtime(locator, ['worker', '--action', 'discover', '--json'], { home, cwd, env: noPath });
+  assert.equal(served.status, 0, `unmodified projected runtime must serve worker discover: ${served.stderr}`);
+
+  // Trigger stale-runtime by deleting codex's worker block from the projected harnesses.json (DEC-001, DEC-003).
+  const harnessesPath = path.join(home, '.doflow', 'runtime', 'core', 'registry', 'harnesses.json');
+  const harnesses = JSON.parse(fs.readFileSync(harnessesPath, 'utf8'));
+  const codex = harnesses.harnesses.find((entry: any) => entry.id === 'codex');
+  delete codex.worker;
+  fs.writeFileSync(harnessesPath, JSON.stringify(harnesses, null, 2));
+
+  // FR-003: `doctor` lets the loader error reach stderr; `worker --json` catches it and reports a
+  // `registry-invalid` body on stdout. Both must end as the same stale-runtime report.
+  for (const argv of [['doctor', '--json'], ['worker', '--action', 'discover', '--json']]) {
+    const r = runtime(locator, argv, { home, cwd, env: noPath });
+    assert.equal(r.status, 2, `${argv[0]}: expected a resolution-class failure, got stdout: ${r.stdout}`);
+    const reported = JSON.parse(r.stderr);
+    assert.equal(reported.error, 'stale-runtime', argv[0]);
+    assert.match(reported.message, new RegExp(`verb '${argv[0]}' failed`), `${argv[0]}: message must name the verb`);
+    assert.match(reported.message, /runtime[\\/]core[\\/]registry/, `${argv[0]}: message must name the resolved runtime path`);
+    assert.match(reported.message, /worker block is required/);
+    assert.doesNotMatch(reported.message, /appears out of date/);
+    assert.doesNotMatch(reported.message, /^\[ERROR\]/, 'the raw CLI error text must be replaced, not merely echoed');
+    assert.doesNotMatch(r.stdout, /registry-invalid/, `${argv[0]}: the raw registry-invalid body must not be printed`);
+  }
+});
+
+test('009-unlinked-checkout: assertion 4 — a bare bin/doflow.js with no package.json reports unlinked-checkout, naming npm link', () => {
+  const cwd = scratch('unlinked-checkout-cwd');
+  fs.mkdirSync(path.join(cwd, 'bin'), { recursive: true });
+  fs.writeFileSync(path.join(cwd, 'bin', 'doflow.js'), '// not a real package — no package.json anywhere near this file\n');
+
+  // A global install first (for a working locator), then its projected runtime/ is removed — the
+  // marker heuristic must be the ONLY thing that fires, not the `$HOME/.doflow/runtime` fallback.
+  const home = scratch('unlinked-checkout-home');
+  assert.equal(cli(['install', '-g', '-f', '--no-backup', '-t', 'claude'], { home }).status, 0);
+  const locator = path.join(home, '.claude', 'bin', 'doflow-run');
+  fs.rmSync(path.join(home, '.doflow', 'runtime'), { recursive: true, force: true });
+
+  const noPath: any = { PATH: MINIMAL_PATH };
+  const r = runtime(locator, ['capabilities', '--json'], { home, cwd, env: noPath });
+  assert.equal(r.status, 2, `expected a resolution-class failure, got stdout: ${r.stdout}`);
+  const reported = JSON.parse(r.stderr);
+  assert.equal(reported.error, 'unlinked-checkout');
+  assert.match(reported.message, /npm link/);
+  assert.match(reported.message, /bin[\\/]doflow\.js/, 'message must name the detected marker path');
+});
+
+test('009-unlinked-checkout: assertion 5 — the generic cli-not-found diagnosis is unchanged when no marker and no runtime resolve', () => {
+  // This is the exact case test/e2e/install-shapes.test.js's own `FR-003` block above already pins
+  // (scratch cwd outside any checkout, projected runtime removed) — repeated here, independently,
+  // under this feature's own name, specifically to confirm CH2's new marker check does not widen
+  // `cli-not-found`'s firing conditions (design.md §4, FR-005). If this ever needs to change, that
+  // `FR-003` assertion needs to change with it.
+  const cwd = scratch('cli-not-found-cwd');
+  const home = scratch('cli-not-found-home');
+  assert.equal(cli(['install', '-g', '-f', '--no-backup', '-t', 'claude'], { home }).status, 0);
+  const locator = path.join(home, '.claude', 'bin', 'doflow-run');
+  fs.rmSync(path.join(home, '.doflow', 'runtime'), { recursive: true, force: true });
+
+  const noPath: any = { PATH: MINIMAL_PATH };
+  const r = runtime(locator, ['capabilities', '--json'], { home, cwd, env: noPath });
+  assert.equal(r.status, 2, `expected a resolution-class failure, got stdout: ${r.stdout}`);
+  const reported = JSON.parse(r.stderr);
+  assert.equal(reported.error, 'cli-not-found');
+  assert.match(reported.message, /DOFLOW_CLI/);
+});
+
+// -------------------------------------------------------------------- NFR-007: remove reclaims
+
+test('NFR-007: remove reclaims the locator on every harness and leaves user files untouched', () => {
+  const root = scratch('reclaim');
+  const home = path.join(root, 'home');
+  const mine = path.join(root, 'notes.md');
+  fs.writeFileSync(mine, '# mine\n');
+
+  assert.equal(cli(['install', root, '-f', '--no-backup', '-t', ALL_HARNESSES.join(',')], { home }).status, 0);
+  const projected = walk(root)
+    .filter((f: any) => path.basename(f) === 'doflow-run' && !f.startsWith(path.join(root, 'home')));
+  assert.ok(projected.length >= 2, 'the install must have projected locators to reclaim');
+  const claimed = ledgerOf(root).resources.filter((r: any) => r.assetId === 'locator.doflow');
+  assert.equal(claimed.length, ALL_HARNESSES.length, 'every harness must record ownership of its locator');
+
+  const removed = cli(['remove', root, '-f', '-t', ALL_HARNESSES.join(',')], { home });
+  assert.equal(removed.status, 0, removed.stderr);
+
+  const leftover = walk(root)
+    .filter((f: any) => path.basename(f) === 'doflow-run' && !f.startsWith(path.join(root, 'home')))
+    .map((f: any) => path.relative(root, f));
+  assert.deepEqual(leftover, [], `remove left runtime entrypoints behind: ${leftover.join(', ')}`);
+  assert.deepEqual(ledgerOf(root).resources.filter((r: any) => r.assetId === 'locator.doflow'), [],
+    'a reclaimed file that is still recorded as owned makes the next update believe it exists');
+  assert.equal(fs.readFileSync(mine, 'utf8'), '# mine\n', 'remove must never touch user-owned content');
+});
+
+// ------------------------------------------------------- NFR-005: ownership survives the upgrade
+
+test('NFR-005: an ownership ledger written before this feature updates without losing track', () => {
+  const root = scratch('upgrade');
+  const home = path.join(root, 'home');
+  const targets = ALL_HARNESSES.join(',');
+  assert.equal(cli(['install', root, '-f', '--no-backup', '-t', targets], { home }).status, 0);
+
+  // Rewind the install to its pre-008 shape: the locator asset did not exist, so neither its files
+  // nor its ownership records did. Everything else — 675-odd resources across seven harnesses — is
+  // exactly what a real pre-feature install carries, which is why this rewinds a real ledger rather
+  // than hand-building a fixture (test/state/state-ledger.test.js already covers hand-built legacy
+  // imports; the risk here is the opposite one, a large real ledger being reset).
+  const ledgerFile = path.join(root, '.doflow', 'state', 'ledger.json');
+  const before = JSON.parse(fs.readFileSync(ledgerFile, 'utf8'));
+  const preFeature = before.resources.filter((r: any) => r.assetId !== 'locator.doflow');
+  for (const r of before.resources) {
+    if (r.assetId === 'locator.doflow') fs.rmSync(r.target, { force: true });
+  }
+  fs.writeFileSync(ledgerFile, JSON.stringify({ ...before, resources: preFeature }, null, 2));
+
+  // A narrow update first, targeting one harness. This is the discriminating case: the other six
+  // harnesses' ownership is carried forward by merge, not by re-verification, so a lifecycle that
+  // rebuilt the ledger from the current run instead of merging into it would silently drop them —
+  // and `remove` would then leave those six harnesses' files behind forever.
+  const narrow = cli(['update', root, '-f', '--no-backup', '-t', 'claude'], { home });
+  assert.equal(narrow.status, 0, narrow.stderr);
+
+  const key = (r: any) => `${r.harness}|${r.assetId}|${r.target}`;
+  const kept: any = new Set(ledgerOf(root).resources.map(key));
+  const lost = preFeature.filter((r: any) => !kept.has(key(r))).map(key);
+  assert.deepEqual(lost, [],
+    `update dropped ownership of pre-existing resources — remove and rollback can no longer reclaim them:\n  ${lost.slice(0, 10).join('\n  ')}`);
+
+  // Then the full upgrade: the new asset has to actually arrive and be recorded on all seven.
+  const full = cli(['update', root, '-f', '--no-backup', '-t', targets], { home });
+  assert.equal(full.status, 0, full.stderr);
+  const after = ledgerOf(root);
+  assert.equal(after.resources.filter((r: any) => r.assetId === 'locator.doflow').length, ALL_HARNESSES.length,
+    'the upgrade must also add and record the new locator on every harness');
+  const stillLost = preFeature.filter((r: any) => !new Set(after.resources.map(key)).has(key(r))).map(key);
+  assert.deepEqual(stillLost, [], 'the full upgrade must not drop what the narrow one preserved');
+});
+
+// --------------------------------------------- NFR-001 / NFR-002: no python3, no optional tools
+
+test('NFR-001/NFR-002: install and dispatch succeed with python3 and every optional provider absent', () => {
+  sanitizedPath ??= pathWithout(['python', 'python3', 'python3\\.[0-9]+', 'semble', 'graphify', 'rtk', 'uv', 'uvx']);
+  // The sanitized PATH alone cannot run the dispatcher's internals on win32 (no coreutils in the
+  // surviving directories), so there — as on POSIX, where /usr/bin holds no python3 either — the
+  // minimal core set rides along. Colon-separated MSYS-readable form; see MINIMAL_PATH.
+  const env: any = { PATH: IS_WIN ? `${sanitizedPath}:${MINIMAL_PATH}` : sanitizedPath };
+
+  // Prove the sanitation actually bit; otherwise this test passes for the wrong reason on a machine
+  // that never had the tools in the first place. The probe needs a shell: sh is a given on POSIX,
+  // and Git Bash provides bash where the dispatcher itself will run on win32.
+  for (const tool of ['python3', 'semble', 'graphify', 'rtk']) {
+    const found = spawnSync(IS_WIN ? 'bash' : 'sh', ['-c', `command -v ${tool}`], { env: { ...process.env, ...env }, encoding: 'utf8' });
+    assert.notEqual(found.status, 0, `${tool} is still reachable — the sanitized PATH is not sanitizing`);
+  }
+
+  const root = scratch('nopy');
+  const home = path.join(root, 'home');
+  const installed = cli(['install', root, '-f', '--no-backup', '-t', ALL_HARNESSES.join(',')], { home, env });
+  assert.equal(installed.status, 0, installed.stderr);
+
+  const locator = path.join(root, '.claude', 'bin', 'doflow-run');
+  for (const verb of ['paths', 'git-state']) {
+    const r = runtime(locator, [verb, '--json'], { home, cwd: root, env });
+    assert.equal(r.status, 0, `${verb} under a python-less PATH: ${r.stderr}`);
+  }
+  // A Node verb too: capability routing must degrade to what is present, not fail because a
+  // preferred provider is missing (NFR-002).
+  const routed = runtime(locator, ['capabilities', '--json'], { home, cwd: root, env: { ...env, DOFLOW_CLI: CLI } });
+  assert.equal(routed.status, 0, routed.stderr);
+
+  // Pinned to the install's own root, so reach is judged there and not at whatever the cwd holds.
+  const doctor = cli(['doctor', root, '--json'], { home, env });
+  assert.equal(doctor.status, 0, `doctor must report degraded capability, not exit non-zero:\n${doctor.stderr}${doctor.stdout}`);
+  for (const harness of JSON.parse(doctor.stdout).harnesses) {
+    const row = harness.reach.find((entry: any) => entry.scope === 'project');
+    assert.equal(row?.state, 'REACHED', `${harness.id}: the project install must be reachable`);
+    assert.ok(samePath(row.root, path.join(fs.realpathSync(root), '.doflow')), `${harness.id}: reached through ${row.root}`);
+  }
+});
+
+// ----------------------------------------- 046: promote reaches the same file in every shape
+//
+// `followup --action promote` is the one lifecycle verb that writes a file a person then opens (an
+// intent under agent-docs/intent/), and it is served by the Node runtime through the dispatcher. The
+// defect class this file exists to catch applies to it directly: the verb is correct in a checkout,
+// and a project-local or global install must project everything it needs to write the same file.
+// Each shape runs add, add, promote and list through its own locator and dispatcher, and the intent
+// file, once ids and the date are normalised, must be the same text in all three.
+
+/** Keeps the lifecycle verbs off the developer's own config and git setup, whatever the shape. */
+function lifecycleEnv(home: any) {
+  return { XDG_CONFIG_HOME: path.join(home, 'xdg'), GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, DOFLOW_FAILURE_CAPTURE: '' };
+}
+
+const PROMOTE_STATEMENTS: any = ['Cart total ignores a removed discount', 'Cart badge counts removed lines'];
+
+/** add, add, promote through `exe` in `cwd`; returns the intent's path and text as the verb wrote them. */
+function promoteThrough(exe: any, { home, cwd }: any) {
+  const env = lifecycleEnv(home);
+  const verb = (args: any) => {
+    const r = runtime(exe, ['followup', ...args, '--json'], { home, cwd, env });
+    assert.equal(r.status, 0, `followup ${args.join(' ')} -> ${r.status}\n${r.stdout}${r.stderr}`);
+    return JSON.parse(r.stdout);
+  };
+  const ids = PROMOTE_STATEMENTS.map((statement: any) => verb(['--action', 'add', '--stage', 'review', '--slug', '046-shapes', '--statement', statement]).created[0].id);
+  const promoted = verb(['--action', 'promote', '--ids', ids.join(','), '--title', 'Cart robustness', '--channel', 'question']);
+  assert.equal(promoted.intent, 'agent-docs/intent/cart-robustness.md', 'the intent is under the project, named from the title');
+  assert.deepEqual(promoted.ids.slice().sort(), ids.slice().sort());
+
+  const file = path.join(cwd, promoted.intent);
+  assert.ok(fs.existsSync(file), `no intent file at ${file}`);
+  const text = fs.readFileSync(file, 'utf8');
+  for (const [i, id] of ids.entries()) assert.ok(text.includes(`- ${id}: ${PROMOTE_STATEMENTS[i]}`), `the intent names ${id}`);
+
+  // The follow-ups are settled: each shows the intent it went to, and stays open.
+  const listed = verb(['--action', 'list']);
+  assert.deepEqual(listed.items.map((i: any) => [i.id, i.state, i.intent]).sort(), ids.map((id: any) => [id, 'open', promoted.intent]).sort());
+  assert.equal(fs.readdirSync(path.join(cwd, '.doflow', 'state', 'lifecycle', 'events')).length, 3, 'two additions and one promotion are events in the project');
+  return { text: text.replace(/FU-[0-9a-z]{6}/g, 'FU-ID').replace(/\*\*Date:\*\* \d{4}-\d\d-\d\d/, '**Date:** DATE'), ids };
+}
+
+const intentByShape: any = {};
+/** A scratch directory these cases share the file's lifetime with. */
+function promoteScratch(tag: any) { return scratch(tag); }
+
+test('046: promote writes the intent from a source checkout', () => {
+  const cwd = promoteScratch('promote-src');
+  intentByShape.checkout = promoteThrough(SOURCE_DISPATCHER, { home: promoteScratch('promote-srch'), cwd }).text;
+  assert.match(intentByShape.checkout, /^# Intent: Cart robustness/);
+});
+
+test('046: promote writes the same intent from a project-local install, through its projected locator', () => {
+  const root = promoteScratch('promote-proj');
+  const home = path.join(root, 'home');
+  const installed = cli(['install', root, '-f', '--no-backup', '-t', 'claude'], { home, env: lifecycleEnv(home) });
+  assert.equal(installed.status, 0, installed.stderr);
+  const locator = path.join(root, '.claude', 'bin', 'doflow-run');
+  intentByShape.project = promoteThrough(locator, { home, cwd: root }).text;
+  assert.equal(intentByShape.project, intentByShape.checkout, 'a project-local install writes the checkout\'s intent');
+});
+
+test('046: promote writes the same intent from a global install, from a directory with no project install', () => {
+  const home = promoteScratch('promote-globalhome');
+  const installed = cli(['install', '-g', '-f', '--no-backup', '-t', 'claude'], { home, env: lifecycleEnv(home) });
+  assert.equal(installed.status, 0, installed.stderr);
+  // Outside $HOME, so the walk-up finds no project install and the global fallback is what answers.
+  const cwd = promoteScratch('promote-elsewhere');
+  const locator = path.join(home, '.claude', 'bin', 'doflow-run');
+  intentByShape.global = promoteThrough(locator, { home, cwd }).text;
+  assert.equal(intentByShape.global, intentByShape.checkout, 'a global install writes the checkout\'s intent');
+});
+
+test('DOFLOW_RETENTION_HOURS=soon in the shell does not reach a dispatched lifecycle verb', () => {
+  const saved = process.env.DOFLOW_RETENTION_HOURS;
+  process.env.DOFLOW_RETENTION_HOURS = 'soon';
+  try {
+    const home = promoteScratch('retention-shell-home');
+    const cwd = promoteScratch('retention-shell');
+    const r = runtime(SOURCE_DISPATCHER, ['followup', '--action', 'list', '--json'], { home, cwd, env: lifecycleEnv(home) });
+    assert.equal(r.status, 0, r.stderr);
+    assert.doesNotMatch(r.stderr, /DOFLOW_RETENTION_HOURS/);
+  } finally {
+    if (saved === undefined) delete process.env.DOFLOW_RETENTION_HOURS; else process.env.DOFLOW_RETENTION_HOURS = saved;
+  }
+});
+
+// ----------------------------------------- 048: removing one claimant keeps what another still owns
+//
+// Harnesses at one scope root record the same target paths for the shared tree. Removing one
+// claimant releases its own rows and deletes a file only when no surviving row claims it, so the other harness keeps a working runtime until it is removed too (NFR-002).
+
+const SHARED_TREE_FILES: any = [
+  ['.doflow', 'runtime', 'bin', 'doflow.js'],
+  ['.doflow', 'scripts', 'doflow', 'bin', 'doflow-run'],
+  ['.doflow', 'guidance', 'DOFLOW_CORE.md'],
+];
+
+/** Installs `first` then `second`, removes `second` and then `first`, and checks the shared tree at each step. */
+function assertRemovalKeepsClaimedFiles({ tag, scope, first, second }: any) {
+  const root = scratch(tag);
+  const home = path.join(root, 'home');
+  const treeRoot = scope === 'global' ? home : root;
+  const place = scope === 'global' ? ['-g'] : [root];
+  const run = (verb: any, target: any) => cli([verb, ...place, '-f', '--no-backup', '-t', target], { home, env: lifecycleEnv(home) });
+  const present = (parts: any) => fs.existsSync(path.join(treeRoot, ...parts));
+
+  for (const target of [first, second]) {
+    const installed = run('install', target);
+    assert.equal(installed.status, 0, `install -t ${target}: ${installed.stderr}`);
+  }
+  for (const parts of SHARED_TREE_FILES) assert.ok(present(parts), `${parts.join('/')} is installed`);
+
+  const removedSecond = run('remove', second);
+  assert.equal(removedSecond.status, 0, removedSecond.stderr);
+  assert.match(removedSecond.stdout, new RegExp(`${second}: retained \\d+ shared resource\\(s\\) still claimed by ${first}`));
+  for (const parts of SHARED_TREE_FILES) assert.ok(present(parts), `${parts.join('/')} is kept while ${first} still claims it`);
+
+  const removedFirst = run('remove', first);
+  assert.equal(removedFirst.status, 0, removedFirst.stderr);
+  for (const parts of SHARED_TREE_FILES) assert.equal(present(parts), false, `${parts.join('/')} is removed with the last claimant`);
+}
+
+test('048: project scope, removing pi keeps the shared tree codex still claims, and removing codex reclaims it', () => {
+  assertRemovalKeepsClaimedFiles({ tag: 'retain-proj', scope: 'project', first: 'codex', second: 'pi' });
+});
+
+test('048: global scope, removing pi keeps the shared tree claude still claims, and removing claude reclaims it', () => {
+  assertRemovalKeepsClaimedFiles({ tag: 'retain-global', scope: 'global', first: 'claude', second: 'pi' });
+});

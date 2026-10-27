@@ -1,0 +1,77 @@
+'use strict';
+
+// Regression fixture for the real Codex lifecycle sequence. Keep this test at
+// the orchestration boundary: unit tests of individual reconcilers pass, while
+// this sequence currently exposes a remove-time verification mismatch.
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const { tempDir } = require('../helper/tmp.ts');
+const { loadRegistry } = require('../../src/registry/index.ts');
+const { createAdapterRegistry } = require('../../src/adapters/index.ts');
+const { planLifecycle, applyLifecycle, removeLifecycle } = require('../../src/lifecycle/index.ts');
+const { stateRoot, readLedger, recoveryRoot } = require('../../src/state/index.ts');
+const claude = require('../../src/adapters/claude/index.ts');
+const codex = require('../../src/adapters/codex/index.ts');
+const antigravity = require('../../src/adapters/antigravity/index.ts');
+
+const REPO = path.resolve(__dirname, "../..");
+
+function fixture(t: any) {
+  const project = tempDir(t, 'doflow-lifecycle-codex-e2e-');
+  const registry = loadRegistry({ repoRoot: REPO });
+  const adapters = createAdapterRegistry({ claude, codex, antigravity });
+  const context = { repoRoot: REPO, projectRoot: project, homeDir: project, sourceVersion: '2.4.4' };
+  const root = stateRoot({ scope: 'project', projectRoot: project });
+  return { project, registry, adapters, context, root };
+}
+
+function plan({ registry, adapters, project, context, ledger, selection }: any) {
+  return planLifecycle({ registry, adapters, scope: 'project', scopeRoot: project,
+    targets: ['codex'], mcpSelections: { codex: selection }, ledger, context });
+}
+
+function diagnostics(root: any, project: any) {
+  const recoveries = fs.existsSync(recoveryRoot(root))
+    ? fs.readdirSync(recoveryRoot(root)).sort().map((file: any) => JSON.parse(fs.readFileSync(path.join(recoveryRoot(root), file), 'utf8')))
+    : [];
+  const config = path.join(project, '.codex', 'config.toml');
+  return {
+    ledger: readLedger(root),
+    config: fs.existsSync(config) ? fs.readFileSync(config, 'utf8') : null,
+    recoveries: recoveries.map((record: any) => ({ id: record.id, status: record.status, verification: record.verification })),
+  };
+}
+
+test('Codex lifecycle install -> MCP update -> guarded user edit -> remove verifies and updates the ledger', (t) => {
+  const run = fixture(t);
+  let current = plan({ ...run, selection: ['context7'] });
+  assert.equal(current.safe, true, JSON.stringify(current.conflicts));
+  applyLifecycle({ plan: current, registry: run.registry, adapters: run.adapters, stateRoot: run.root });
+
+  let ledger = readLedger(run.root);
+  current = plan({ ...run, ledger, selection: ['sequential-thinking'] });
+  assert.equal(current.safe, true, JSON.stringify(current.conflicts));
+  applyLifecycle({ plan: current, registry: run.registry, adapters: run.adapters, stateRoot: run.root, ledger });
+  ledger = readLedger(run.root);
+
+  const config = path.join(run.project, '.codex', 'config.toml');
+  fs.writeFileSync(config, fs.readFileSync(config, 'utf8').replace('hooks = true', 'hooks = false'));
+  const conflict = plan({ ...run, ledger, selection: ['sequential-thinking'] });
+  assert.equal(conflict.safe, false, 'a user-modified managed key must block lifecycle mutation');
+  assert.match(JSON.stringify(conflict.conflicts), /modified outside DoFlow/);
+  fs.writeFileSync(config, fs.readFileSync(config, 'utf8').replace('hooks = false', 'hooks = true'));
+
+  let removed;
+  let failure: any;
+  try {
+    removed = removeLifecycle({ registry: run.registry, adapters: run.adapters, scope: 'project', scopeRoot: run.project,
+      targets: ['codex'], stateRoot: run.root, ledger, context: run.context });
+  } catch (error) {
+    failure = error;
+  }
+  assert.ifError(failure && new Error(`${failure.message}\n${JSON.stringify(diagnostics(run.root, run.project), null, 2)}`));
+  assert.equal(removed.ledger.resources.length, 0);
+  assert.ok(diagnostics(run.root, run.project).recoveries.every((record: any) => record.status === 'verified'));
+});

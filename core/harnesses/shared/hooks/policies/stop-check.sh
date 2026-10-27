@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
+_DOFLOW_SRC=${0//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_POLDIR=${_DOFLOW_SRC%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # stop-check.sh — Canonical Policy Library: Stop hook
 #
 # Two responsibilities:
@@ -84,7 +85,8 @@ TRANSCRIPT_PATH=$(json_field "$INPUT" ".transcript_path")
 
 # ── 1. Lint dispatch (only when we have a session-scoped edited-files queue) ──
 
-if [ -n "$SESSION_ID" ]; then
+# With no config home (SESSION_DIR empty) there is no queue to read; the stub check below still runs.
+if [ -n "$SESSION_ID" ] && [ -n "$SESSION_DIR" ]; then
   SESSION_PATH=$(ensure_session_dir "$SESSION_ID")
   EDITED_FILES="$SESSION_PATH/edited-files.txt"
   PROC_FILE="$SESSION_PATH/edited-files.txt.proc"
@@ -104,12 +106,14 @@ if [ -n "$SESSION_ID" ]; then
     # The resolver for the leak-scan verb. Absent install -> the scan is
     # skipped, like every other tool below: this hook has never required
     # anything to be present.
+    # HOME may be unset (an absolute XDG_CONFIG_HOME alone gives a config home): its candidates drop out.
     DOFLOW_RUN=""
+    claude_dir="${CLAUDE_CONFIG_DIR:-${HOME:+$HOME/.claude}}"
     for candidate in \
-      "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bin/doflow-run" \
-      "$HOME/.doflow/scripts/doflow/bin/doflow-run"
+      "${claude_dir:+$claude_dir/scripts/doflow/bin/doflow-run}" \
+      "${HOME:+$HOME/.doflow/scripts/doflow/bin/doflow-run}"
     do
-      [ -x "$candidate" ] && { DOFLOW_RUN="$candidate"; break; }
+      [ -n "$candidate" ] && [ -x "$candidate" ] && { DOFLOW_RUN="$candidate"; break; }
     done
 
     while IFS= read -r path; do
@@ -187,9 +191,10 @@ fi
 
 # The payload's own last_assistant_message is the response being stopped on. A present key
 # (even null or empty) is authoritative: the transcript is only read when the key is absent.
-# jq filter for the transcript fallback: one JSON object per line, assistant text from three
+# jq filter for the transcript fallback: one JSON object per line, assistant text from four
 # shapes — Claude Code (.message with text blocks), Codex rollout (response_item .payload with
-# output_text blocks) and the flat {role,content} line. A partial or foreign line yields "".
+# output_text blocks), Copilot CLI events.jsonl (type assistant.message, .data.content a string) and
+# the flat {role,content} line. A partial or foreign line yields "".
 read -r -d '' LAST_ASSISTANT_JQ <<'JQ' || true
 def text: if type == "string" then .
   elif type == "array" then [ .[]? | objects | select(.type == "text" or .type == "output_text") | .text | strings ] | join("\n")
@@ -197,6 +202,7 @@ def text: if type == "string" then .
 [ inputs | fromjson? | objects
   | if ((.message | objects | .role) // null) == "assistant" then .message.content
     elif .type == "response_item" and ((.payload | objects | .role) // null) == "assistant" then .payload.content
+    elif .type == "assistant.message" then .data.content
     elif .role == "assistant" then .content
     else empty end
   | text | select(length > 0) ] | last // ""
@@ -274,10 +280,15 @@ if grep -qiE -- "$STUB_PATTERN" <<<"$STUB_TEXT" 2>/dev/null; then
   # Block a given message once: the continuation that follows is judged on new text, and a
   # harness with no stop_hook_active would otherwise be blocked on this one forever. State is
   # per session, or per transcript when the harness sends no session_id; any failure here
-  # leaves the block in force only for this call.
+  # leaves the block in force only for this call. With no config home there is no state store, so
+  # this policy cannot remember a block and allows the stop.
+  [ -n "$SESSION_DIR" ] || exit 0
   GUARD_KEY="$SESSION_ID"
   [ -z "$GUARD_KEY" ] && GUARD_KEY="t$(printf '%s' "$TRANSCRIPT_PATH" | cksum | cut -d' ' -f1)"
-  GUARD_FILE="$(ensure_session_dir "$GUARD_KEY" 2>/dev/null)/stop-last-blocked" || GUARD_FILE=""
+  GUARD_FILE=""
+  if [ -n "$SESSION_DIR" ]; then
+    GUARD_FILE="$(ensure_session_dir "$GUARD_KEY" 2>/dev/null)/stop-last-blocked" || GUARD_FILE=""
+  fi
   MESSAGE_SUM=$(printf '%s' "$LAST_ASSISTANT_CONTENT" | cksum 2>/dev/null) || MESSAGE_SUM=""
   if [ -n "$MESSAGE_SUM" ] && [ -n "$GUARD_FILE" ] && [ "$(cat "$GUARD_FILE" 2>/dev/null)" = "$MESSAGE_SUM" ]; then
     exit 0

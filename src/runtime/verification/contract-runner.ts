@@ -28,6 +28,12 @@
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
+const { telemetryOff } = require('../trace/telemetry.ts');
+const { checkKeyV2, headCommit, treeState } = require('./check-key.ts');
+const { runInflight } = require('./inflight.ts');
+const { levelOf, reuseApplies, v0Applies } = require('./registry.ts');
+const { evictReuse, lookupReuse, reuseDir, storeReuse } = require('./reuse.ts');
+const { resolveTestsImportingHelper } = require('./impact.ts');
 
 /** A failing check whose name contains one of these aborts the remaining checks: once the build is
  * broken, every later result describes the broken build rather than the change. */
@@ -88,6 +94,216 @@ function extractFailedTests(text: string): string[] {
   return [...seen];
 }
 
+/** The monotonic clock in nanoseconds, or null when it cannot be read. */
+function monotonicNs(): bigint | null {
+  try {
+    return process.hrtime.bigint();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Test output counts parser (088 E.2, IC-007).
+ * Parses full stdout+stderr for TAP (# tests N / # fail N) or spec (ℹ tests N / ℹ fail N).
+ * Pytest and unparseable outputs return { tests: null, testsFailed: null }.
+ * @param {unknown} text
+ * @returns {{ tests: number | null, testsFailed: number | null }}
+ */
+function parseTestCounts(text: unknown): { tests: number | null; testsFailed: number | null } {
+  if (typeof text !== 'string') return { tests: null, testsFailed: null };
+  const tapTests = text.match(/^# tests (\d+)/m);
+  if (tapTests) {
+    const tapFail = text.match(/^# fail (\d+)/m);
+    return {
+      tests: parseInt(tapTests[1], 10),
+      testsFailed: tapFail ? parseInt(tapFail[1], 10) : 0,
+    };
+  }
+  const specTests = text.match(/^ℹ tests (\d+)/m);
+  if (specTests) {
+    const specFail = text.match(/^ℹ fail (\d+)/m);
+    return {
+      tests: parseInt(specTests[1], 10),
+      testsFailed: specFail ? parseInt(specFail[1], 10) : 0,
+    };
+  }
+  return { tests: null, testsFailed: null };
+}
+
+/**
+ * Reads child cpu ticks from /proc/self/stat on Linux (088 E.2, IC-008).
+ * Returns cutime + cstime as a number, or null on non-Linux or read fault.
+ * @param {Object} [fsImpl=fs]
+ * @param {string} [platform=process.platform]
+ * @returns {number | null}
+ */
+function childCpuTicks(fsImpl: any = fs, platform: string = process.platform): number | null {
+  if (platform !== 'linux') return null;
+  try {
+    const statText = fsImpl.readFileSync('/proc/self/stat', 'utf8');
+    const lastParen = statText.lastIndexOf(')');
+    if (lastParen === -1) return null;
+    const rest = statText.slice(lastParen + 1).trim();
+    const tokens = rest.split(/\s+/);
+    // After the last ')', field 3 (state) is index 0.
+    // field 16 (cutime) is index 13, field 17 (cstime) is index 14.
+    const cutime = parseInt(tokens[13], 10);
+    const cstime = parseInt(tokens[14], 10);
+    if (!Number.isFinite(cutime) || !Number.isFinite(cstime)) return null;
+    return cutime + cstime;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Test output failing files parser (088 G.3, IC-007).
+ * Extracts sorted unique repo-relative test file paths from TAP, spec, or pytest output.
+ * Drops non-test files, non-regular files (directories), files outside root, or parse faults.
+ * @param {unknown} text
+ * @param {Object} options
+ * @param {string} options.root project root
+ * @param {Object} options.convention convention object with isTest(path)
+ * @param {Object} [options.fsImpl=fs]
+ * @returns {Array<string>} sorted unique repo-relative paths
+ */
+function extractFailedFiles(
+  text: unknown,
+  {
+    root,
+    convention,
+    found,
+    fsImpl = fs,
+  }: {
+    root?: string;
+    convention?: { isTest?: (file: string) => boolean; roots?: string[]; found?: any };
+    found?: any;
+    fsImpl?: any;
+  } = {},
+): string[] {
+  if (typeof text !== 'string' || !root || !convention || typeof convention.isTest !== 'function') {
+    return [];
+  }
+
+  let realRoot: string;
+  try {
+    realRoot = fsImpl.realpathSync(root);
+  } catch {
+    realRoot = path.resolve(root);
+  }
+
+  const rawPaths = new Set<string>();
+
+  // 1. TAP: in a YAML block that follows a `not ok` line, ^\s*location:\s*'(.+):\d+:\d+'\s*$ (absolute, made relative to realpath(root))
+  const lines = text.split('\n');
+  let inNotOk = false;
+  let inYaml = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^\s*not ok\b/.test(line)) {
+      inNotOk = true;
+      inYaml = false;
+    } else if (/^\s*ok\b/.test(line)) {
+      inNotOk = false;
+      inYaml = false;
+    } else if (inNotOk && /^\s*---\s*$/.test(line)) {
+      inYaml = true;
+    } else if (inYaml && /^\s*\.\.\.\s*$/.test(line)) {
+      inYaml = false;
+      inNotOk = false;
+    } else if (inNotOk && inYaml) {
+      const match = line.match(/^\s*location:\s*['"]?(.+?):\d+:\d+['"]?\s*$/);
+      if (match) {
+        rawPaths.add(match[1]);
+      }
+    }
+  }
+
+  // 2. Spec: after the `✖ failing tests:` line, ^\s*test at (.+):\d+:\d+\s*$ (relative to root)
+  let afterFailingTests = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (/✖ failing tests:/.test(line)) {
+      afterFailingTests = true;
+      continue;
+    }
+    if (afterFailingTests) {
+      const match = line.match(/^\s*test at (.+?):\d+:\d+\s*$/);
+      if (match) {
+        rawPaths.add(match[1]);
+      }
+    }
+  }
+
+  // 3. Pytest: ^FAILED (\S+?)::
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const match = line.match(/^FAILED (\S+?)::/);
+    if (match) {
+      rawPaths.add(match[1]);
+    }
+  }
+
+  const validFiles = new Set<string>();
+
+  for (const raw of rawPaths) {
+    let relPath: string;
+    if (path.isAbsolute(raw)) {
+      relPath = path.relative(realRoot, raw);
+    } else {
+      relPath = path.normalize(raw);
+    }
+    if (path.isAbsolute(relPath) || relPath.startsWith('..')) {
+      continue;
+    }
+    const normalized = relPath.replace(/\\/g, '/');
+    const fullPath = path.join(realRoot, normalized);
+
+    let st: any;
+    try {
+      st = fsImpl.statSync(fullPath);
+    } catch {
+      continue;
+    }
+    if (!st || !st.isFile() || st.isDirectory()) {
+      continue;
+    }
+    if (convention.isTest(normalized)) {
+      validFiles.add(normalized);
+      continue;
+    }
+    // IC-004: when location is a non-test helper under convention.roots, map to importing .test.* files
+    const underRoots = Array.isArray(convention.roots)
+      ? convention.roots.some((r: string) => normalized === r || normalized.startsWith(`${r}/`))
+      : normalized.startsWith('test/');
+    if (underRoots) {
+      const targetFound = found || convention.found || { source: 'package.json', testDirs: convention.roots || ['test'] };
+      const importing = resolveTestsImportingHelper({
+        root: realRoot,
+        found: targetFound,
+        helperFiles: [normalized],
+        fsImpl,
+      });
+      for (const t of importing) {
+        validFiles.add(t);
+      }
+    }
+  }
+
+  return [...validFiles].sort();
+}
+
+/** What one status read says (089 IC-001); `ignored`, `gitRoot` and `links` are null when it faulted. */
+interface TreeContext {
+  head: string | null;
+  tree: string | null;
+  ignored: string | null;
+  gitRoot: string | null;
+  links: string | null;
+}
+
 class VerificationContractRunner {
   cwd: string;
   defaultTimeoutMs: number;
@@ -95,6 +311,20 @@ class VerificationContractRunner {
   fsImpl: any;
   logDir: string;
   logWriteWarned?: boolean;
+  platform: string;
+  env: Record<string, string | undefined>;
+  convention?: any;
+  configDir?: string;
+  inflightContext?: { enabled: boolean; dir: string };
+  /** 089 IC-005: lookup of recorded PASSes, set only at the levels `policy.reuse.levels` lists. */
+  reuseContext?: { enabled: boolean; dir: string; maxAgeMs: number; level: string };
+  /** 089 IC-005: where an executed PASS is stored while reuse is on, at every level (L3 store-only). */
+  reuseStore?: { dir: string; level: string };
+  /** One `git status` per contract (089 IC-001): `ignored` and `gitRoot` are null when it faulted. */
+  _treeContext?: TreeContext;
+  /** Check result → `{ startedAt, startedMonoMs, durationMs, tests, testsFailed, cpuMs, resourceBasis, checkKey, shared, failedFirst }`
+   * for every executed or reused check; an in-run duplicate and a check with no command have no entry. */
+  metrics: WeakMap<object, any>;
 
   /**
    * @param {Object|string} [options] a string is accepted for parity with the Python's positional
@@ -102,6 +332,10 @@ class VerificationContractRunner {
    * @param {string} [options.cwd] directory the checks run in; defaults to the current one
    * @param {number} [options.defaultTimeoutMs=60000]
    * @param {Function} [options.exec] injection seam for tests; same contract as `spawnSync`
+   * @param {string} [options.logDir] where full check logs go; the verify verb passes its resolved
+   *   store's (engine.ts `verifyStateRoot`), so `<cwd>/.doflow` is only the unconfigured default
+   * @param {string} [options.platform=process.platform]
+   * @param {Object} [options.env=process.env]
    */
   constructor(options: any = {}) {
     const opts = typeof options === 'string' ? { cwd: options } : options;
@@ -110,6 +344,155 @@ class VerificationContractRunner {
     this.exec = opts.exec || spawnSync;
     this.fsImpl = opts.fsImpl || fs;
     this.logDir = opts.logDir || path.join(this.cwd, '.doflow', 'state', 'verification', 'logs');
+    this.platform = opts.platform || process.platform;
+    this.env = opts.env || process.env;
+    this.convention = opts.convention || null;
+    this._treeContext = undefined;
+    this.metrics = new WeakMap();
+    if (opts.context) this.beginContract(opts.context);
+  }
+
+  /** Explicit engine seam: call once per active V0 or reuse evaluation, including retries.
+   * No execution policy is inferred from the environment or leaked into compiled contracts.
+   * 089 IC-005: `reuse === true` stores every executed PASS at a known level; lookup is enabled only
+   * where `reuseApplies` (L1/L2), so an L3 PASS may serve a later L2 run but L3 always executes. */
+  beginContract({ v0, reuse, registry, riskLevel, configDir }: any): void {
+    this._treeContext = undefined;
+    this.inflightContext = undefined;
+    this.reuseContext = undefined;
+    this.reuseStore = undefined;
+    this.configDir = configDir;
+    if (v0 === true && v0Applies(registry, riskLevel) && typeof configDir === 'string') {
+      this.inflightContext = { enabled: true, dir: path.join(configDir, 'state', 'verification', 'v0') };
+    }
+    if (reuse === true && typeof configDir === 'string') {
+      const level = levelOf(registry, riskLevel);
+      const dir = level ? reuseDir({ configDir, env: this.env, fsImpl: this.fsImpl }) : null;
+      if (level && typeof dir === 'string') {
+        this.reuseStore = { dir, level };
+        const maxAgeMs = registry?.policy?.reuse?.maxAgeMs;
+        if (reuseApplies(registry, riskLevel) && Number.isSafeInteger(maxAgeMs) && maxAgeMs > 0) {
+          this.reuseContext = { enabled: true, dir, maxAgeMs, level };
+        }
+      }
+    }
+  }
+
+  /**
+   * One read of the working tree: HEAD, the status call's tree, ignored set and git root, and (only
+   * while reuse is on, where something reads it) the tracked symlinks' out-of-repo targets.
+   */
+  readTreeContext(): TreeContext {
+    const head = headCommit(this.cwd);
+    const state = treeState(this.cwd, { fsImpl: this.fsImpl, configDir: this.configDir, links: Boolean(this.reuseStore) });
+    return state
+      ? { head, tree: state.tree, ignored: state.ignored, gitRoot: state.gitRoot, links: state.links }
+      : { head, tree: null, ignored: null, gitRoot: null, links: null };
+  }
+
+  /**
+   * 089 IC-004 (review C-1): after a check ran with reuse on, read the tree again. The cached
+   * context is replaced when it moved, so later checks key on the tree they actually run on.
+   * Returns `unchanged` true only when the check's own payload digest is unchanged, i.e. its inputs
+   * did not move during the run and a PASS may be stored under the key it was looked up with, and
+   * `key`, the key of the tree the check ran on (null when the read faulted or cannot be keyed).
+   * FU-kerery: a FAIL whose pre-run key was null evicts by this post-run key.
+   */
+  rereadAfterRun(command: string, timeoutMs: number, payloadDigest: string | null): { unchanged: boolean; key: string | null } {
+    const none = { unchanged: false, key: null };
+    if (!this.reuseStore) return none;
+    try {
+      const before = this._treeContext;
+      const after = this.readTreeContext();
+      if (after.tree === null) {
+        // 089 re-review N-a: a faulted read is not cached; the next check reads the tree again
+        // instead of keying null (and evicting nothing) for the rest of the contract.
+        this._treeContext = undefined;
+        return none;
+      }
+      if (!before || before.head !== after.head || before.tree !== after.tree || before.ignored !== after.ignored
+        || before.gitRoot !== after.gitRoot || before.links !== after.links) {
+        this._treeContext = after;
+      }
+      if (typeof after.ignored !== 'string') return none;
+      const keyed = checkKeyV2({ command, timeoutMs, cwd: this.cwd, head: after.head, tree: after.tree,
+        ignored: after.ignored, gitRoot: after.gitRoot, links: after.links, configDir: this.configDir,
+        env: this.env, fsImpl: this.fsImpl });
+      return { unchanged: Boolean(payloadDigest) && keyed?.payloadDigest === payloadDigest, key: keyed?.key ?? null };
+    } catch {
+      this._treeContext = undefined; // unknown state: the next check reads it afresh
+      return none;
+    }
+  }
+
+  /** 089 IC-003 (review C-2): an executed non-PASS removes the key's stored PASS, at every level. */
+  evictFailed(key: string | null): void {
+    if (!this.reuseStore || !key) return;
+    evictReuse({ dir: this.reuseStore.dir, key, fsImpl: this.fsImpl });
+  }
+
+  /**
+   * 089 IC-004: the recorded PASS for this key, as a check result labelled `reused`, or null. Its
+   * metrics entry says `shared: "reused"` with the record's ref; `durationMs` is the lookup time,
+   * and no cpu was spent. Lookup faults are misses (IC-003 never throws).
+   */
+  lookupReused(checkName: string, command: string, key: string | null, payloadDigest: string | null, startedAt: number): any {
+    if (!this.reuseContext?.enabled || !key || !payloadDigest) return null;
+    const t0 = monotonicNs();
+    const found = lookupReuse({ dir: this.reuseContext.dir, key, payloadDigest, maxAgeMs: this.reuseContext.maxAgeMs, fsImpl: this.fsImpl });
+    if (!found || found.hit !== true) return null;
+    const t1 = monotonicNs();
+    const record = found.record;
+    const result = {
+      name: checkName,
+      command,
+      status: 'PASS',
+      exitCode: 0,
+      stdout: record.result.stdout,
+      stderr: record.result.stderr,
+      reused: { ref: record.ref, recordedAt: record.recordedAt },
+    };
+    this.metrics.set(result, {
+      startedAt,
+      durationMs: t0 !== null && t1 !== null ? Number(t1 - t0) / 1e6 : null,
+      tests: record.result.tests ?? null,
+      testsFailed: record.result.testsFailed ?? null,
+      cpuMs: null,
+      resourceBasis: null,
+      checkKey: key,
+      shared: 'reused',
+      sharedRef: record.ref,
+      failedFirst: 'none',
+    });
+    return result;
+  }
+
+  /**
+   * 089 IC-002/IC-004: store an executed PASS while reuse is on. The stored result is the excerpt
+   * the report carries, elision marker included (the record bound leaves room for it), so a reused
+   * check shows exactly what the executed one showed.
+   */
+  storeReused(result: any, key: string | null, payloadDigest: string | null, res: any): void {
+    if (!this.reuseStore || !key || !payloadDigest || result.status !== 'PASS' || result.exitCode !== 0) return;
+    if (typeof result.stdout !== 'string' || typeof result.stderr !== 'string') return;
+    const counts = res?.bounded === true ? res : parseTestCounts(`${res?.stdout || ''}\n${res?.stderr || ''}`);
+    storeReuse({
+      dir: this.reuseStore.dir,
+      key,
+      payloadDigest,
+      level: this.reuseStore.level,
+      result: {
+        status: 'PASS',
+        exitCode: 0,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        truncated: res?.bounded === true ? res.truncated === true
+          : (res?.stdout || '').length > MAX_STREAM_CHARS || (res?.stderr || '').length > MAX_STREAM_CHARS,
+        tests: counts.tests ?? null,
+        testsFailed: counts.testsFailed ?? null,
+      },
+      fsImpl: this.fsImpl,
+    });
   }
 
   /**
@@ -154,16 +537,52 @@ class VerificationContractRunner {
    * @param {string} [stdout]
    * @param {string} [stderr]
    */
-  decorate(result: any, command: string, stdout?: string, stderr?: string): void {
+  decorate(result: any, command: string, stdout?: string, stderr?: string, execution?: any): void {
+    if (execution?.bounded === true) {
+      for (const field of ['failedTests', 'failedFiles', 'logPath']) {
+        if (Object.hasOwn(execution, field)) result[field] = execution[field];
+      }
+      return;
+    }
     const full = `${stdout || ''}\n${stderr || ''}`;
     if (result.status === 'FAIL') {
       const failedTests = extractFailedTests(full);
       if (failedTests.length > 0) result.failedTests = failedTests;
+      if (this.convention) {
+        const failedFiles = extractFailedFiles(full, {
+          root: this.cwd,
+          convention: this.convention,
+          found: (this.convention as any).found || (this as any).found,
+          fsImpl: this.fsImpl,
+        });
+        if (failedFiles.length > 0) result.failedFiles = failedFiles;
+      }
     }
     const truncated = (stdout || '').length > MAX_STREAM_CHARS || (stderr || '').length > MAX_STREAM_CHARS;
     if ((result.status === 'FAIL' || truncated) && full.trim() !== '') {
       result.logPath = this.persistLog(result.name, command, stdout as string, stderr as string);
     }
+  }
+
+  /** Parse the full streams and write their log once, before publishing a bounded handoff.
+   * Keep the runner's existing head/tail excerpt so a follower reports the same diagnostics. */
+  summarizeExecution(res: any, name: string, command: string): any {
+    const diagnostics: any = { name, status: res.error || res.status !== 0 ? 'FAIL' : 'PASS' };
+    this.decorate(diagnostics, command, res.stdout, res.stderr);
+    const counts = parseTestCounts(`${res.stdout || ''}\n${res.stderr || ''}`);
+    return {
+      status: res.status,
+      signal: res.signal ?? null,
+      ...(res.error ? { error: { message: res.error.message, code: res.error.code ?? null } } : {}),
+      stdout: truncate(res.stdout),
+      stderr: truncate(res.stderr),
+      truncated: (res.stdout || '').length > MAX_STREAM_CHARS || (res.stderr || '').length > MAX_STREAM_CHARS,
+      bounded: true,
+      ...counts,
+      ...(diagnostics.failedTests ? { failedTests: diagnostics.failedTests } : {}),
+      ...(diagnostics.failedFiles ? { failedFiles: diagnostics.failedFiles } : {}),
+      ...(Object.hasOwn(diagnostics, 'logPath') ? { logPath: diagnostics.logPath } : {}),
+    };
   }
 
   /**
@@ -196,16 +615,103 @@ class VerificationContractRunner {
     if (dedupeCache && dedupeCache.has(dedupeKey)) {
       return { ...dedupeCache.get(dedupeKey), name: checkName, deduplicated: true };
     }
+    // Timing for telemetry (088 C.1, IC-006; 088 E.2, IC-007..IC-009) lives in `this.metrics`,
+    // never in the result, so the report is the same with telemetry on or off.
+    const startedAt = Date.now();
+    const t0 = monotonicNs();
+    const t0Cpu = childCpuTicks(this.fsImpl, this.platform);
+    let checkKeyVal: string | null = null;
+    let payloadDigest: string | null = null;
+    try {
+      if (!telemetryOff(this.env) || this.inflightContext?.enabled || this.reuseStore) {
+        if (this._treeContext === undefined) {
+          // 089 IC-001: one status call per contract yields the tree, the ignored set and the git
+          // root; when it faults all three are null and the key is null (never a partial key).
+          this._treeContext = this.readTreeContext();
+        }
+        const keyed = checkKeyV2({
+          command,
+          timeoutMs,
+          cwd: this.cwd,
+          head: this._treeContext.head,
+          tree: this._treeContext.tree,
+          ignored: this._treeContext.ignored,
+          gitRoot: this._treeContext.gitRoot,
+          links: this._treeContext.links,
+          configDir: this.configDir,
+          env: this.env,
+          fsImpl: this.fsImpl,
+        });
+        checkKeyVal = keyed?.key ?? null;
+        // Reuse trusts only a key whose ignored set came from this contract's own status call.
+        payloadDigest = typeof this._treeContext.ignored === 'string' ? keyed?.payloadDigest ?? null : null;
+      }
+    } catch {
+      checkKeyVal = null;
+      payloadDigest = null;
+    }
+
+    // 089 IC-004: after the in-run cache and the key, before in-flight sharing or execution.
+    const reusedResult = this.lookupReused(checkName, command, checkKeyVal, payloadDigest, startedAt);
+    if (reusedResult) {
+      if (dedupeCache) dedupeCache.set(dedupeKey, reusedResult);
+      return reusedResult;
+    }
+
+    let sharing: any = { shared: 'none', sharedRef: null };
+    let timing: any = null;
     const remember = (result: any) => {
+      if (sharing.shared === 'follower') result.shared = { from: sharing.sharedRef };
+      if (timing) {
+        if (sharing.shared === 'follower') {
+          timing.durationMs = sharing.durationMs;
+          timing.cpuMs = null;
+          timing.resourceBasis = null;
+        }
+        this.metrics.set(result, timing);
+      }
       if (dedupeCache) dedupeCache.set(dedupeKey, result);
       return result;
+    };
+    const stop = (res?: any) => {
+      const t1 = monotonicNs();
+      const t1Cpu = childCpuTicks(this.fsImpl, this.platform);
+      let cpuMs: number | null = null;
+      let resourceBasis: string | null = null;
+      if (this.platform !== 'linux') {
+        cpuMs = null;
+        resourceBasis = 'unreached-platform';
+      } else if (t0Cpu === null || t1Cpu === null) {
+        cpuMs = null;
+        resourceBasis = 'unreached-read';
+      } else {
+        cpuMs = Math.max(0, (t1Cpu - t0Cpu) * 10);
+        resourceBasis = 'proc-children';
+      }
+      const full = `${res ? res.stdout || '' : ''}\n${res ? res.stderr || '' : ''}`;
+      const { tests, testsFailed } = res?.bounded === true ? res : parseTestCounts(full);
+      timing = {
+        startedAt,
+        startedMonoMs: t0 !== null ? Number(t0) / 1e6 : null,
+        durationMs: t0 !== null && t1 !== null ? Number(t1 - t0) / 1e6 : null,
+        tests,
+        testsFailed,
+        cpuMs,
+        resourceBasis,
+        checkKey: checkKeyVal,
+        shared: sharing.shared,
+        sharedRef: sharing.sharedRef,
+        failedFirst: 'none',
+      };
     };
 
     let res: any;
     try {
-      res = this.exec(command, {
+      const execute = () => this.exec(command, {
         shell: true,
         cwd: this.cwd,
+        // The key hashed this.env; with sharing or reuse on the command runs in exactly that env.
+        ...(this.inflightContext?.enabled || this.reuseStore ? { env: this.env } : {}),
         encoding: 'utf8',
         timeout: timeoutMs,
         killSignal: 'SIGKILL',
@@ -214,7 +720,17 @@ class VerificationContractRunner {
         // past anything a check legitimately prints. Only the first 2,000 chars are ever kept.
         maxBuffer: 64 * 1024 * 1024,
       });
+      if (this.inflightContext?.enabled && checkKeyVal) {
+        sharing = runInflight({ dir: this.inflightContext.dir, key: checkKeyVal, timeoutMs,
+          execute, summarize: (result: any) => this.summarizeExecution(result, checkName, command), fsImpl: this.fsImpl });
+        res = sharing.result;
+      } else {
+        res = execute();
+      }
     } catch (error: any) {
+      stop();
+      const reread = this.rereadAfterRun(command, timeoutMs, payloadDigest);
+      this.evictFailed(checkKeyVal ?? reread.key);
       // Mirrors the Python's bare `except Exception` arm: an unspawnable command is a FAIL, not a
       // thrown error that aborts the whole contract.
       return remember({
@@ -225,35 +741,46 @@ class VerificationContractRunner {
         error: error.message,
       });
     }
+    stop(res);
+    // Reuse on: the check may have changed what the key hashed. Read again before anything is stored.
+    const reread = this.rereadAfterRun(command, timeoutMs, payloadDigest);
+    const unchanged = reread.unchanged;
+    // FU-kerery: a FAIL evicts by the key read before the run, or by the key of the tree it ran on
+    // when that read faulted (null).
+    const failedKey = checkKeyVal ?? reread.key;
+    const stdout = res.bounded === true ? res.stdout : truncate(res.stdout);
+    const stderr = res.bounded === true ? res.stderr : truncate(res.stderr);
 
     // Defect fix (2): the Python's TimeoutExpired arm returned neither stdout nor stderr, so a
     // check that hung after printing its first failure told you only that it hung. Whatever the
     // process produced before the kill is exactly what a reader needs.
     if (res.error && res.error.code === 'ETIMEDOUT') {
+      this.evictFailed(failedKey);
       const result = {
         name: checkName,
         command,
         status: 'FAIL',
         exitCode: TIMEOUT_EXIT_CODE,
         error: 'TimeoutExpired',
-        stdout: truncate(res.stdout),
-        stderr: truncate(res.stderr),
+        stdout,
+        stderr,
       };
-      this.decorate(result, command, res.stdout, res.stderr);
+      this.decorate(result, command, res.stdout, res.stderr, res);
       return remember(result);
     }
 
     if (res.error) {
+      this.evictFailed(failedKey);
       const result = {
         name: checkName,
         command,
         status: 'FAIL',
         exitCode: 1,
         error: res.error.message,
-        stdout: truncate(res.stdout),
-        stderr: truncate(res.stderr),
+        stdout,
+        stderr,
       };
-      this.decorate(result, command, res.stdout, res.stderr);
+      this.decorate(result, command, res.stdout, res.stderr, res);
       return remember(result);
     }
 
@@ -268,13 +795,18 @@ class VerificationContractRunner {
       command,
       status: passed ? 'PASS' : 'FAIL',
       exitCode,
-      stdout: truncate(res.stdout),
-      stderr: truncate(res.stderr),
+      stdout,
+      stderr,
     };
     if (res.signal) {
       result.error = `Terminated by signal ${res.signal}`;
     }
-    this.decorate(result, command, res.stdout, res.stderr);
+    this.decorate(result, command, res.stdout, res.stderr, res);
+    if (passed) {
+      if (unchanged) this.storeReused(result, checkKeyVal, payloadDigest, res);
+    } else {
+      this.evictFailed(failedKey);
+    }
     return remember(result);
   }
 
@@ -338,4 +870,7 @@ module.exports = {
   MAX_STREAM_CHARS,
   MAX_FAILED_TESTS,
   extractFailedTests,
+  extractFailedFiles,
+  parseTestCounts,
+  childCpuTicks,
 };

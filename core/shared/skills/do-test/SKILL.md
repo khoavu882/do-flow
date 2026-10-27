@@ -43,14 +43,17 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 ```
 
    When `status` is `answered` and `agrees` is `false`, say so in one line and keep or change the level
-   by your own judgement. Record the level used with `"$DOFLOW" advise --action outcome --pick-id
-   "<pickId>" --actual "<level>"`. Skip both calls when `status` is not `answered`.
+   by your own judgement. Record the level used, and skip both calls when `status` is not `answered`:
+
+```bash
+"$DOFLOW" advise --action outcome --pick-id "<pickId>" --actual "<level>"
+```
 
 ```bash
 "$DOFLOW" verify --task-id "<task id>" --risk "<LOW|MEDIUM|HIGH|CRITICAL>" --action contract --json
 ```
 
-   Report, before a single tier runs:
+   Report, before any tier runs:
    - the compiled `tiers[]` in the order returned — that list, and nothing else, is what will run;
    - the `riskLevel` it compiled at and the `maxRecoveryIterations` it carries;
    - `detection.absent` — the command roles the runtime could not find in this repo's manifests

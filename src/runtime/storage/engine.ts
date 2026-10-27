@@ -7,7 +7,7 @@ const path = require('node:path');
 const { randomBytes } = require('node:crypto');
 const { formatBound } = require('./registry.ts');
 const { resolveStorePath } = require('./roots.ts');
-const { selectCandidates, recordStillCandidate, protectedLogs, removableRules, ruleOrder, projectRoot } = require('./rules.ts');
+const { selectCandidates, recordStillCandidate, protectedLogs, unfinishedRuns, removableRules, ruleOrder, projectRoot } = require('./rules.ts');
 const { retainLocked } = require('../lifecycle/store-upkeep.ts');
 const { parseWindow, selectExpired } = require('../lifecycle/retention.ts');
 const { readEvents } = require('../lifecycle/event-store.ts');
@@ -192,7 +192,7 @@ function runPass({registry,roots,stores,mode,setting={},now=Date.now(),budgetMs,
           row.selected=selection.files.map((name: any)=>({name,reason:'settled',bytes:stat(fsImpl,path.join(location,name))?.size || 0}));
         } else {
           let output;
-          try { output=retainLocked(project,{fsImpl,now:new Date(now),window,maxFiles:Math.max(0,cap-removals),shouldStop}); }
+          try { output=retainLocked(project,{fsImpl,now:new Date(now),window,maxFiles:Math.max(0,cap-removals),shouldStop,staleTmpMs:registry.settings.staleTmpHours*3600000}); }
           catch(error: any) { row.failed.push({name:store.id,code:error.code || 'EIO'}); continue; }
           row.selected=output.selected.map(({name,bytes}: any)=>({name,reason:'settled',bytes}));
           row.removed=output.removed; removals+=row.removed;
@@ -221,6 +221,13 @@ function runPass({registry,roots,stores,mode,setting={},now=Date.now(),budgetMs,
       }
       row.protected=candidates.filter((c: any)=>protectedSet.has(c.name)).length;
       candidates=candidates.filter((c: any)=>!protectedSet.has(c.name));
+    }
+    if (store.protect==='unfinished-run' && candidates.length) {
+      // Fails closed: a file whose run cannot be shown terminal is kept, never reported as a failure.
+      const kept=unfinishedRuns({roots,fsImpl,names:candidates.map((c: any)=>c.name),shouldStop});
+      if (kept.incomplete) { result.partial=true; break; }
+      row.protected=candidates.filter((c: any)=>kept.names.has(c.name)).length;
+      candidates=candidates.filter((c: any)=>!kept.names.has(c.name));
     }
     const orderedCandidates=store.entry==='record' ? removalOrder(candidates)
       : [...candidates].sort((a,b)=>a.mtimeMs-b.mtimeMs || a.name.localeCompare(b.name));

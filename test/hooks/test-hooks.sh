@@ -11,6 +11,8 @@
 # Run from repository root. Requires: bash 3.2+, jq, POSIX ERE grep (no PCRE needed).
 
 set -uo pipefail
+# Hook lines (088) are written to the .doflow found above the cwd; tests default them off.
+export DOFLOW_TELEMETRY="${DOFLOW_TELEMETRY:-off}"
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # Front doors resolve the Canonical Policy Library via a path relative to their installed
@@ -323,23 +325,21 @@ assert_eq "run_with_timeout: never trusts a non-GNU 'timeout' shadowing PATH (e.
   "real-command-ran" "$RWT_FAKE_OUT"
 rm -rf "$RWT_FAKEBIN"
 
-# canonicalize_path / cwd_hash: must be byte-identical across the three
+# canonicalize_path / cwd_hash: must be byte-identical across the two
 # harnesses' lib.sh copies (with_file_lock/release_file_lock/run_with_timeout
 # are intentionally harness-specific and are NOT asserted here).
 CLAUDE_LIB="$HOOKS_DIR/lib.sh"
 CODEX_LIB="core/harnesses/codex/hooks/lib.sh"
-GEMINI_LIB="core/harnesses/gemini/hooks/lib.sh"
 
 for FN in canonicalize_path cwd_hash; do
   CLAUDE_FN=$(awk "/^${FN}\(\)/,/^}/" "$CLAUDE_LIB")
   CODEX_FN=$(awk "/^${FN}\(\)/,/^}/" "$CODEX_LIB")
-  GEMINI_FN=$(awk "/^${FN}\(\)/,/^}/" "$GEMINI_LIB")
-  if [[ -z "$CLAUDE_FN" || -z "$CODEX_FN" || -z "$GEMINI_FN" ]]; then
+  if [[ -z "$CLAUDE_FN" || -z "$CODEX_FN" ]]; then
     _fail "$FN(): could not extract function body from one or more lib.sh files"
-  elif [[ "$CLAUDE_FN" == "$CODEX_FN" && "$CLAUDE_FN" == "$GEMINI_FN" ]]; then
-    _pass "$FN(): byte-identical across claude/codex/gemini lib.sh"
+  elif [[ "$CLAUDE_FN" == "$CODEX_FN" ]]; then
+    _pass "$FN(): byte-identical across claude/codex lib.sh"
   else
-    _fail "$FN(): differs across claude/codex/gemini lib.sh (should be byte-identical)"
+    _fail "$FN(): differs across claude/codex lib.sh (should be byte-identical)"
   fi
 done
 
@@ -445,7 +445,7 @@ echo ""
 echo "2b. pre-bash-guard policy — rm targets, quoted text (conf + floor modes)"
 echo "──────────────────────────────────────────────────────────────────────"
 
-POLICY_DIR="$REPO_ROOT/core/harnesses/shared/hooks/policies"
+POLICY_DIR="${DOFLOW_TEST_POLICY_DIR:-$REPO_ROOT/core/harnesses/shared/hooks/policies}"
 FLOOR_DIR=$(mktemp -d)
 cp "$POLICY_DIR/pre-bash-guard.sh" "$FLOOR_DIR/pre-bash-guard.sh"
 cp "$POLICY_DIR/contract.sh" "$FLOOR_DIR/contract.sh"
@@ -633,6 +633,10 @@ done
 check_policy conf "$P" deny  'git -C x reset --hard' "Destructive reset"
 check_policy conf "$P" allow 'git -C x reset --soft HEAD~1'
 check_policy conf "$P" deny  'git -C x clean -fd' "Irreversible clean"
+check_policy conf "$P" deny  'x | git clean -fd' "Irreversible clean"
+check_policy conf "$P" deny  '/usr/bin/git reset --hard' "Destructive reset"
+check_policy conf "$P" deny  'FOO=1 rm -rf /' "root"
+check_policy floor "$FLOOR_DIR/pre-bash-guard.sh" deny 'FOO=1 rm -rf /' "root"
 # find with -delete straight off a catastrophic start path; a filtered find or a project path stays allowed
 for c in 'find / -delete' 'find ~ -delete' 'find $HOME -delete' 'find /etc -depth -delete' 'find -P / -delete' \
          'find . /home -delete' 'sudo find / -delete' 'ls && find /Users -mindepth 1 -delete' \
@@ -661,6 +665,19 @@ check_policy conf "$P" deny  "psql -c 'TRUNCATE TABLE users'" "Irreversible trun
 # SQL patterns read the raw text, so a heredoc body is still caught
 check_policy conf "$P" deny  $'psql <<EOF\nDROP TABLE x;\nEOF' "Destructive DDL"
 check_policy conf "$P" deny  'echo "$(git reset --hard)"' "Destructive reset"
+# SQL words in text-only shell commands are documentation, not executable SQL.
+check_policy conf "$P" allow $'cat > notes.md <<\'EOF\'\nThis documents why DROP TABLE x must not run here.\nEOF'
+check_policy conf "$P" allow "echo 'Never DROP DATABASE prod from this example.'"
+check_policy conf "$P" allow 'git commit -m "docs: explain DROP SCHEMA public"'
+check_policy conf "$P" allow $'git commit -m "$(cat <<\'EOF\'\nExplain DROP TABLE x\nEOF\n)"'
+check_policy conf "$P" allow "gh pr create --body 'Explain TRUNCATE TABLE users'"
+check_policy conf "$P" deny "echo 'DROP TABLE x' > .git/hooks/pre-commit" "Destructive DDL"
+check_policy conf "$P" deny $'echo ${x/<<y/}\npsql -c \'DROP TABLE users\'\ny' "Destructive DDL"
+# Piped, substituted, or shell-wrapped SQL remains executable input.
+check_policy conf "$P" deny  $'cat <<EOF | psql\nDROP TABLE x;\nEOF' "Destructive DDL"
+check_policy conf "$P" deny  "echo 'DROP TABLE t' | sqlite3 x.db" "Destructive DDL"
+check_policy conf "$P" deny  "psql -c \"\$(printf 'DROP TABLE t')\"" "Destructive DDL"
+check_policy conf "$P" deny  "sh -c 'psql -c \"DROP TABLE users\"'" "Destructive DDL"
 
 # Scrubber speed: it must stay linear. Generous bound so it never flakes; the
 # implementation runs these in well under 300 ms.

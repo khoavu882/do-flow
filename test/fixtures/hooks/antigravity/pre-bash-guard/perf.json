@@ -1,0 +1,18 @@
+{
+  "native": {
+    "toolCall": { "name": "run_command", "args": { "CommandLine": "printf safe" } },
+    "workspacePaths": ["<project>"]
+  },
+  "env": { "DOFLOW_FAULT_PROFILE": "compat-1" },
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": "{\"decision\":\"allow\"}\n",
+    "stderrIncludes": null,
+    "decision": { "harness": "antigravity", "event": "PreToolUse", "policy": "pre-bash-guard", "outcome": "allow", "effect": "proceed" },
+    "envelope": { "version": 1, "harness": "antigravity", "event": "PreToolUse", "operation": "command", "tool": "run_command", "command": "printf safe" },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}

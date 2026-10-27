@@ -1,0 +1,333 @@
+{
+  "classes": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"], "run_status": { "status": "timeout", "evidence": "fixture timeout" } },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"], "run_status": { "status": "api-error", "evidence": "fixture API error" } },
+    "alpha/3": { "routing": { "routed": true } },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"], "run_status": { "status": "truncated", "evidence": "fixture truncation" } },
+    "beta/2": { "noOutput": true },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "malformed": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"], "run_status": { "status": "oom" } },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"], "run_status": "not valid json" },
+    "alpha/3": { "routing": { "routed": true } },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"], "run_status": "[]" },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "clean": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "usable-r1": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["fail-token"] },
+    "beta/4": { "transcriptTokens": ["fail-token"] }
+  },
+  "usable-r2": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["fail-token"] },
+    "beta/4": { "transcriptTokens": ["fail-token"] }
+  },
+  "usable-r3": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["fail-token"] },
+    "beta/4": { "transcriptTokens": ["fail-token"] }
+  },
+  "noise-exceeds-mde-r1": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["fail-token"] },
+    "beta/4": { "transcriptTokens": ["fail-token"] }
+  },
+  "noise-exceeds-mde-r2": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["fail-token"] },
+    "beta/3": { "transcriptTokens": ["fail-token"] },
+    "beta/4": { "transcriptTokens": ["fail-token"] }
+  },
+  "noise-exceeds-mde-r3": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["fail-token"] },
+    "beta/4": { "transcriptTokens": ["fail-token"] }
+  },
+  "no-headroom-r1": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "no-headroom-r2": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "no-headroom-r3": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "inconclusive-r1": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"], "run_status": { "status": "timeout", "evidence": "fixture timeout" } },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["fail-token"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["fail-token"] },
+    "beta/4": { "transcriptTokens": ["fail-token"] }
+  },
+  "inconclusive-r2": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"], "run_status": { "status": "timeout", "evidence": "fixture timeout" } },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["fail-token"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["fail-token"] },
+    "beta/4": { "transcriptTokens": ["fail-token"] }
+  },
+  "inconclusive-r3": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"], "run_status": { "status": "timeout", "evidence": "fixture timeout" } },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["fail-token"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["fail-token"] },
+    "beta/4": { "transcriptTokens": ["fail-token"] }
+  },
+  "grader-unstable-r1": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["fail-token"] },
+    "beta/4": { "transcriptTokens": ["fail-token"] }
+  },
+  "grader-unstable-r2": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["fail-token"] },
+    "beta/4": { "transcriptTokens": ["fail-token"] }
+  },
+  "grader-unstable-r3": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["fail-token"] },
+    "beta/4": { "transcriptTokens": ["fail-token"] }
+  },
+  "banded-base-r1": {
+    "alpha/1": { "transcriptTokens": ["fail-token"] },
+    "alpha/2": { "transcriptTokens": ["fail-token"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["fail-token"] },
+    "beta/2": { "transcriptTokens": ["fail-token"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "banded-base-r2": {
+    "alpha/1": { "transcriptTokens": ["fail-token"] },
+    "alpha/2": { "transcriptTokens": ["fail-token"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["fail-token"] },
+    "beta/2": { "transcriptTokens": ["fail-token"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "banded-base-r3": {
+    "alpha/1": { "transcriptTokens": ["fail-token"] },
+    "alpha/2": { "transcriptTokens": ["fail-token"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["fail-token"] },
+    "beta/2": { "transcriptTokens": ["fail-token"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "banded-cand-r1": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "banded-cand-r2": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "banded-cand-r3": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "candidate-infra": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"], "run_status": { "status": "timeout", "evidence": "fixture timeout" } },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "candidate-missing": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] }
+  },
+  "candidate-differ-r1": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] },
+    "beta/1": { "transcriptTokens": ["beta-one-output"] },
+    "beta/2": { "transcriptTokens": ["beta-two-output"] },
+    "beta/3": { "transcriptTokens": ["beta-three-output"] },
+    "beta/4": { "transcriptTokens": ["beta-four-output"] }
+  },
+  "candidate-differ-r2": {
+    "alpha/1": { "transcriptTokens": ["alpha-one-output"] },
+    "alpha/2": { "transcriptTokens": ["alpha-two-output"] },
+    "alpha/3": { "transcriptTokens": ["alpha-three-output"] },
+    "alpha/4": { "transcriptTokens": ["alpha-four-output"] }
+  },
+  "scenarios": {
+    "usable": {
+      "iterations": ["usable-r1", "usable-r2", "usable-r3"],
+      "expected": {
+        "repeatMeans": [0.75, 0.75, 0.75],
+        "noise": 0.0,
+        "baselineMean": 0.75,
+        "verdict": "usable"
+      }
+    },
+    "noise-exceeds-mde": {
+      "iterations": ["noise-exceeds-mde-r1", "noise-exceeds-mde-r2", "noise-exceeds-mde-r3"],
+      "expected": {
+        "repeatMeans": [0.75, 0.625, 0.75],
+        "noise": 0.125,
+        "baselineMean": 0.7083333333333334,
+        "verdict": "noise-exceeds-mde"
+      }
+    },
+    "no-headroom": {
+      "iterations": ["no-headroom-r1", "no-headroom-r2", "no-headroom-r3"],
+      "expected": {
+        "repeatMeans": [1.0, 1.0, 1.0],
+        "noise": 0.0,
+        "baselineMean": 1.0,
+        "verdict": "no-headroom"
+      }
+    },
+    "inconclusive": {
+      "iterations": ["inconclusive-r1", "inconclusive-r2", "inconclusive-r3"],
+      "expected": {
+        "repeatMeans": [0.5714285714285714, 0.5714285714285714, 0.5714285714285714],
+        "noise": 0.0,
+        "baselineMean": 0.5714285714285714,
+        "verdict": "inconclusive"
+      }
+    },
+    "grader-unstable": {
+      "iterations": ["grader-unstable-r1", "grader-unstable-r2", "grader-unstable-r3"],
+      "expected": {
+        "repeatMeans": [0.75, 0.75, 0.75],
+        "noise": 0.0,
+        "baselineMean": 0.75,
+        "verdict": "grader-unstable"
+      }
+    },
+    "banded-base": {
+      "iterations": ["banded-base-r1", "banded-base-r2", "banded-base-r3"],
+      "expected": {
+        "repeatMeans": [0.5, 0.5, 0.5],
+        "noise": 0.0,
+        "baselineMean": 0.5,
+        "verdict": "usable"
+      }
+    }
+  }
+}

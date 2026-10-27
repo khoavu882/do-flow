@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # do-review-package.sh — write one commit range's review package to a file.
 #
 # Commit list, stat summary, and the diff with extended context, in one file a
@@ -25,6 +26,9 @@
 set -uo pipefail
 
 task_id=""; base=""; head_ref=""; slug_override=""
+# Shared argument rule: `--flag value` is read like `--flag=value` for the flags named here (do-args.sh).
+_da="$(dirname "$0")/do-args.sh"
+if [ -r "$_da" ]; then . "$_da"; doflow_normalize_args "--task --base --head --slug" "$@"; set -- ${DOFLOW_ARGS[@]+"${DOFLOW_ARGS[@]}"}; fi
 for arg in "$@"; do
   case "$arg" in
     --task=*) task_id="${arg#--task=}" ;;

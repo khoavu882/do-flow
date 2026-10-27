@@ -1,0 +1,211 @@
+{
+  "070-task-attempt-ledger": {},
+  "076-evidence-attempts": {
+    "A.1": {
+      "description": "Shared score-field module and ledger refusal (IC-007, IC-008). - Create `src/runtime/evidence-fields.ts` by moving `EVIDENCE_SCORE_FIELDS`, `scoreFieldRefusal` and `assertNoScoreFields` unchanged from `src/runtime/cli.ts:229-250`. `cli.ts` requires and re-exports all three from its `module.exports` (`src/runtime/cli.ts:664-676`), which is the module's first consumer (G16). - Switch `src/runtime/outcome.ts:58` to the new module. `src/runtime/retrieval-plan.ts:50` switches in B.1. - Add `assertNoScoreFields(item, '')` as the first statement after the object check in `EvidenceLedger.addEvidence` (`src/runtime/evidence-ledger.ts:128-131`). `load` stays unchanged.",
+      "taskLineHash": "sha256:2fc141cdaa89650f0b7baf543d5afb22f6d68af5b8546c5beecc3e64e07a9917"
+    },
+    "A.2": {
+      "description": "Plan record module with locked writes (IC-020). This task changes how a store is written, so it carries the full coupled-file list. - Create `src/runtime/retrieval-record.ts`: - `planPath`, moved from `src/runtime/retrieval-plan.ts:122-125` - `readPlan`, through `readTaskState` (`src/runtime/task-state.ts:126-141`) - `updatePlan`, through `updateTaskState` with the default `acquireLock` - `mintPlanId` - Delete `writePlan` (`src/runtime/retrieval-plan.ts:148-153`). Route the declare and report writes through `updatePlan`; report recomputes its derived fields inside `build` from the disk copy. `retrieval-plan.ts` is the first consumer. - Coupled",
+      "taskLineHash": "sha256:1bb2cdf030dab7c278f29bcdc27666ec1bc08b28480b1a14323a6fb3a09f9533"
+    },
+    "A.3": {
+      "description": "Claims rule (IC-017, DEC-016, DEC-019). Replace `src/runtime/claims.ts:195-226` with IC-017's five-step derivation. Terminal statuses stay untouched (`src/runtime/claims.ts:185-187`).",
+      "taskLineHash": "sha256:9ef1d11f4729ba1ef097ec8f73959f898ea38c0b948d4f5c9fd16b56d8a6f926"
+    },
+    "A.4": {
+      "description": "CLI flags, dispatch and help (IC-021). - Add the boolean `--absence` switch case and the `--status` entry to `RUNTIME_STRING_FLAGS` (option key `attemptStatus`) in `src/cli/index.ts`. - Pass `provider`, `attemptStatus`, `reason` and `note` in the retrieval-plan dispatch (`src/cli/runtime-commands.ts:264`). - Add `attempt` to the help lines at `src/cli/index.ts:396` and `:456`, and add both flags to the flag list. - `evidenceItemFromFlags` is not changed here; C.2 and C.3 change it.",
+      "taskLineHash": "sha256:0e851670d1366d7c2dc6e22c73dd46aff42ab7fb1089b25d0e1980028206a953"
+    },
+    "A.5": {
+      "description": "Source version and tree fingerprint (IC-004, DEC-013, DEC-017, DEC-020). Depends A.1, since both edit `src/runtime/cli.ts`. - Create `src/runtime/source-version.ts` with `measureTreeState` and `sourceVersionFor`: - one `git status --porcelain=v2 --branch -z --untracked-files=all` call per root per process, with a 2000 ms timeout - `prefix` found by filesystem walk - per-file `isDirty` - the fingerprint over `branch.oid` plus sorted entries, each with the dirty path's size and `mtimeMs` from `fs.statSync` - Replace `headCommit` (`src/runtime/cli.ts:439-447`) and its call at `:519` with it, and add `isDirty` to the freshness written at `:527`. `cli.ts` is the first consumer.",
+      "taskLineHash": "sha256:4e70cf004ba36d5f141078449b16b18e31f0cb1c2e3b160410797eb57aa205a7"
+    },
+    "B.1": {
+      "description": "Plan id, queryRefs and plan attemptRef at declare (IC-010, IC-011, IC-005 declare half). Depends A.1, A.2. - In `src/runtime/retrieval-record.ts`, add `resolveNeed` and `activeAttemptRef`. The latter reads `storeFile` (`src/runtime/task-attempts.ts:51-53`) and `activeAttempt`, which this task adds to the `module.exports` of `src/runtime/task-attempts.ts:410-413`; no other change is made to that file. - Declare writes `planId`, `binding: \"query\"`, `attemptRef` and `needs[].queryRef`. It prints a `QueryRef` column and includes the fields in the JSON output. - Switch `src/runtime/retrieval-plan.ts:50` to import from `src/runtime/evidence-fields.ts`.",
+      "taskLineHash": "sha256:64eb583870a1921756538b10ad1b355c538cdbed947117a9f0c282f20314624d"
+    },
+    "C.1": {
+      "description": "Candidate bridge `toEvidence` (IC-009, DEC-003, DEC-014). Depends A.5. - Create `src/runtime/candidate.ts` with `CANDIDATE_FIELDS` and `toEvidence`: - given `{ candidate }`, it strips rank and score and refuses a hash mismatch with the IC-009 message - given `{ item }`, it runs `validateEvidenceItem`, which refuses score keys rather than stripping them - Route every item built by `addEvidence` (`src/runtime/cli.ts:486-541`) through `toEvidence`. That route is the module's first consumer.",
+      "taskLineHash": "sha256:f2992635bf9db0b04b815173610035eeceef287fc1a833efea431264adbe42be"
+    },
+    "C.2": {
+      "description": "`--need` binding, refusals, attemptRef and ledger filters (IC-001, IC-002, IC-003, IC-005, DEC-011, DEC-015). Depends C.1, B.1. - `evidenceItemFromFlags` (`src/cli/runtime-commands.ts:107-125`) adds `need`, and a batch item accepts `\"need\"`. - The bridge resolves the need through `resolveNeed` and stamps `source.queryRef`, and `source.attemptRef` from `activeAttemptRef`. - Add the IC-002 entries to `EVIDENCE_REFUSED_FIELDS` (`src/runtime/cli.ts:214-221`) and the new `EVIDENCE_REFUSED_SOURCE_FIELDS`, checked before `src/runtime/cli.ts:339-343`, with every IC-002 message exactly. - `queryEvidence` gains `queryRef` and `attemptRef` filters (`src/runtime/evidence-ledger.ts:202-214`).",
+      "taskLineHash": "sha256:b02e1473cd3a4774bcb1c0f579af3f4cb7f78dff989526dba22aea75d3b490a8"
+    },
+    "C.3": {
+      "description": "Absence record (IC-006, DEC-009, DEC-010, DEC-018, DEC-019). Depends C.2. - `--absence` (`evidenceItemFromFlags`, batch `\"absence\": true`) writes `result: \"EMPTY\"`. - Apply the four IC-002 absence refusals. - Exempt the absence item from `src/runtime/cli.ts:353-356` and `:362-368`. - Re-probe with `freshnessEntry` once per distinct provider in the write, and map the result through the IC-006 table, including the outside-git row that gives UNKNOWN. - Store `freshness.treeFingerprint` from A.5.",
+      "taskLineHash": "sha256:c4b752e401dcbdfd5053772049669519d3ca07942279dd26df56070fb972824a"
+    },
+    "D.1": {
+      "description": "`retrieval-plan --action attempt` (IC-012, IC-013, DEC-002, DEC-012). Depends B.1, A.4. Its files are disjoint from Phase C, so it may run beside C.1 to C.3. - Append one attempt under `updatePlan`: `n` is the disk length plus one, and `role` is computed. - Re-probe `indexState`, and map EMPTY through `resultForEmptyAnswer` (`src/runtime/retrieval-plan.ts:99-108`). - Every IC-012 refusal exits 2 with its exact message. The declared fields are never written.",
+      "taskLineHash": "sha256:032c66cd0e60291d49c9a874c1f6cd82281b6f29530dd0666625541cde679cfe"
+    },
+    "D.2": {
+      "description": "Binding rule, derived attempts, precedence and report output (IC-014, IC-015, DEC-011, DEC-019). Depends D.1, C.3. - Add `bindEvidence` and `deriveOutcome` to `src/runtime/retrieval-record.ts`. Unbound items carry the causes `no-query-ref`, `replaced-plan` and `other-attempt`. - Derived attempts are appended once per (provider, status), and the precedence order and `resolvedBy`/`viaFallback` follow IC-014. - Report output gains the IC-015 JSON fields and the conditional text attempt lines, and `unbound` lists at most five ids plus the total. - The legacy branch keeps `src/runtime/retrieval-plan.ts:251-259` and `:400-405`. - Freeze a legacy plan and ledger from develop 6ae3de7 under `test/runtime/fixtures/retrieval-legacy/`.",
+      "taskLineHash": "sha256:7b28a2195e8032150a520c238d4e6d7f3b0d3f04a208bbd0efd36d8d7133e68b"
+    },
+    "E.1": {
+      "description": "Absence staleness in the freshness validator (IC-016, DEC-017, DEC-018, DEC-020). Depends A.5, C.3. - Add the absence branch before `src/runtime/freshness.ts:125-127`. `validateLedgerFreshness` (`:155-170`) computes `measureTreeState(root).fingerprint` once per pass. - A different fingerprint gives STALE `tree-changed-since-recorded`. A missing or unmeasurable fingerprint gives STALE `tree-unverifiable`.",
+      "taskLineHash": "sha256:9ab28c977cc22bc001a34e13ca61fe0bf45d954913bb6f0851c41a3a35b1c2bd"
+    },
+    "E.2": {
+      "description": "Readiness reason codes (IC-018, IC-019, DEC-006, DEC-011, DEC-015). Depends D.2, C.3. - FRESH absence items qualify. - A STALE or UNKNOWN absence for an unsatisfied requirement sets `reasonCode: \"stale-absence-unverified\"` with the IC-018 message, and the report gains `staleAbsence`. Absence items are kept out of `staleEvidence` (`src/runtime/readiness.ts:227-229`). - In a query-bound plan (read through `readPlan`), unbound items do not qualify. The result gets `unbound-retrieval-evidence` with the IC-019 message, and the report gains `unboundEvidence`. - Precedence follows IC-018. A requirement result without a code carries `reasonCode: null`.",
+      "taskLineHash": "sha256:f235f4950168b1e28688bddd6d5a9d2c74cfb74afceaa5bbb9ef5d1115c13d83"
+    },
+    "F.1": {
+      "description": "Coupled docs and G26 rows (IC-022). Depends D.2, E.1, E.2. - The G26 sandbox scenario (`test/guards/storage-declarations.test.js:304`) gains rows for `retrieval-plan --action attempt` and `evidence --action add --absence --need`. - `docs/reference.md:45` and `:66` document `--need`, `--absence`, `attempt`, `planId`, queryRefs, attempts and the precedence. The storage row at `:160` stays unchanged. - `docs/specs/candidate-evidence-boundary.md` states that binding is implemented (`:46-50`). Example `invalid-stale-absence` takes the IC-006 shape with the same id, and the headings stay unchanged. - `core/shared/skills/do-execute-plan/references/readiness_gate.md` gains one line: an absence is recorded with `--absence --need`, and a positive item never states one.",
+      "taskLineHash": "sha256:be58ed3f5457a1f7cefaa2c15847931850300f985078b1eafc472cd59b338b94"
+    },
+    "F.2": {
+      "description": "Perf surfaces, status `proposed` (IC-024). Depends D.2, E.2, and the 075 merge into develop with 076 rebased onto it (DEC-021). - Add the six IC-024 surfaces to `bench/perf/budgets.json`, each with `enforced: false`. Each uses the `setup: { kind: \"copy-fixture-project\", git: true }` form and the `{project}` placeholder that 075 adds to the runner. - Add the fixture project `bench/perf/fixtures/evidence-attempts-project/`, with a declared plan and one index-backed provider layout. - The 4000-file variant generates its files at setup instead of committing them. - No measurement runs here, and no test asserts wall-clock time.",
+      "taskLineHash": "sha256:af5b0631c488431d357418388fa9f96fa9c0551b89de795de76ae3068c5264cc"
+    },
+    "F.3": {
+      "description": "End-to-end property check through the real CLI. Depends D.2, E.1, E.2.",
+      "taskLineHash": "sha256:fbd7c916beb639e9cf120b9943038a7f547b72d8afdc8a5af7a508ab1ed57afa"
+    },
+    "G.1": {
+      "description": "Negative-control audit (IC-023). Depends F.1, F.3. - For every IC-023 row and every control named in A.1 to F.3, revert the named production line in a scratch export, run that row's test, confirm that it fails, and restore. - Report one table row per control: contract, mutation, test, failing assertion. - A control that does not fail is fixed in its test file only, and the fix is re-proved.",
+      "taskLineHash": "sha256:06ff73b5dc37b7a3ebdbc1e6d05de671adb7ee74804d075949daa69787ea2ad0"
+    },
+    "VX.1": {
+      "description": "Linked-worktree routing and the tree root (closes L1-1, L1-1d, L1-13, L2-14 lazy part; IC-004, IC-006, IC-009, IC-016, DEC-030). No dependencies. - `src/cli/runtime-commands.ts:136`: add `'retrieval-plan'` to `FEATURE_STORE_VERBS`. At `:267` pass `slug: storeSlug, stateRoot: storeRoot, sourceRoot: evidenceRoot(o)`. At `:217` and `:218` add `sourceRoot: evidenceRoot(o)`. VX.7 consumes the retrieval-plan `sourceRoot`. - `src/runtime/cli.ts`: `handleEvidenceCommand` (`:376`) and `addEvidence` (`:249-320`) take `sourceRoot`, defaulting to `root`. When the batch holds an absence and `path.resolve(sourceRoot) !== path.resolve(root)`, compute `absenceTreeState = measureTreeState(sourceRoot)` and pass `ctx.absenceTreeState` and `ctx.probeRoot = sourceRoot` into `toEvidence`. At `:318` print \"not measured\" when `treeState.prefix !== null` and `gitCommit` is null, and \"not a git worktree\" only when prefix is null. `handleReadinessCommand` (`:92`) takes `sourceRoot` and passes `treeRoot: sourceRoot` to `evaluateTaskReadiness`. - `src/runtime/candidate.ts` absence branch (`:452-476`): use `ctx.absenceTreeState || treeState` and `getProviderFreshness(provider, ctx.probeRoot || root, ctx)`. In the candidate path (`:413-423`) set `rawItem.absence = candidate.absence ?? ctx.absence` when either is defined (L1-13). - `src/runtime/freshness.ts`: the `FreshnessValidator` constructor accepts `treeRoot` (default `repoRoot`), and `:130` and `:179` measure on `treeRoot`. `:179` becomes lazy: measure on the first FRESH `result: 'EMPTY'` item, at most once per pass (L2-14). At `:183-185`, when a check returns STALE, also set `item.freshness.staleReason = check.reason`, in memory only. - `src/runtime/readiness.ts`, `evaluateTaskReadiness` only (`:458-474`): `new FreshnessValidator({ repoRoot: projectRoot, treeRoot })`, with `treeRoot` from the function args. No other line of that file changes here.",
+      "taskLineHash": "sha256:ea5d0ddb7eb72369b6b04adb2c7063477fe609dfeba6ac37b82cd6f4dc701fc7"
+    },
+    "VX.2": {
+      "description": "Source-version robustness and fingerprint coverage (closes L2-2, L2-12, L1-15, L1-5, L2-1; IC-004, DEC-027, DEC-028). No dependencies. - `defaultGitRunner` (`src/runtime/source-version.ts:53-64`): add `maxBuffer` of 256 MiB; the timeout stays 2000 ms (DEC-028). - `measureTreeState` (`:87-99`): when `status` returns null and `workTreeTop` exists, run `rev-parse HEAD` through the same runner and keep its `gitCommit`, with `dirty` and `fingerprint` null. - `:147-157`: leave entries whose path starts with `prefix + '.doflow/state/'` out of `entryRecords` (they still go into `dirty`). - `sourceVersionFor` (`:211-213`): `path.posix.normalize(prefix + file-in-posix)` with a leading `./` stripped. An absolute locator gets `isDirty: null`. - DEC-027: fold each `S` entry (including `S.M.`) and each `? <dir>/` entry holding a `.git` into the fingerprint through filesystem reads only (inner `HEAD` and index `mtimeMs`, no extra spawn). A project root below the work-tree top that its parent repo ignores gives `fingerprint: null`. - New `test/runtime/source-version-spawns.test.js`: patch `child_process.execFileSync` with a counter before requiring `src/runtime/candidate.ts`, call `clearTreeStateCache()`, then call `toEvidence` for 3 file items.",
+      "taskLineHash": "sha256:d713361b9b0600b0f252e8ac919581bcb8b1fd67aa83fbe81f134567df0f1f5b"
+    },
+    "VX.3": {
+      "description": "Plan record and attempt correctness (closes L1-3, L1-12, L1-10, L2-10, L2-11, L1-2, L2-6; IC-013, IC-014, IC-020, DEC-024, DEC-026). No dependencies. - L1-3: `declaredIntentList(plan, sep = ', ')`. In the command text of `resolveNeed` (`src/runtime/retrieval-record.ts:94`, `:105`) use `sep = ','`. Update the expected string at `test/runtime/runtime-retrieval-plan.test.js:544`. - L1-12: in `attemptPlan` (`src/runtime/retrieval-plan.ts`), a missing `--status` gives \"--status is required: EMPTY, UNREACHED or UNVERIFIED\". After `:632`, refuse when the reason is not allowed for the status, naming the allowed codes (IC-013). At `:671-676` map indexState STALE to `index-stale`, as UNKNOWN is mapped. - L1-10: in the report grouping (`:404`, `:412`, `:415`), encode \"no provider\" as a sentinel rather than `''`. The derived attempt gets `provider: null, role: 'primary'`. - L2-10: before `updatePlan` (`:387`), collect the providers of bound positive items missing from `record.providers` and probe them outside the lock, through `module.exports._probe`. Inside `build`, only merge the results. - L2-11: in the `build` closures (`:388`, `:683`), when `disk` is null throw \"the retrieval plan for task X was removed during the update; re-declare it\". Extract the closures as exported pure `applyReport(disk, ...)` and `applyAttempt(disk, ...)`. - L1-2 (DEC-024): in `deriveOutcome` (`src/runtime/retrieval-record.ts:180-182`) drop every derived attempt whose `evidenceIds` is empty unless it has `basis === 'report-need'`. The legacy `report --need` attempt (`retrieval-plan.ts:409-413`, `:437-444`) is written with `basis: 'report-need'`, and the `:409` condition `need.attempts.length === 0` becomes \"no counted attempt\". - L2-6 (DEC-026): give `updatePlan` an optional `prepare`, passed through to `updateTaskState`. `declarePlan` passes a `prepare` that, under the lock, tries `JSON.parse` on the existing file and on a parse error renames it to `<file>.corrupt-<ISO>` and prints a note. A `version` other than 1 is still refused.",
+      "taskLineHash": "sha256:fef471528f56701dc1c65b3d762b99b4b72263c51302637d9c2d7a3603666f4a"
+    },
+    "VX.4": {
+      "description": "Readiness on an unreadable plan and message accuracy (closes L1-4, L1-8, L1-9, L2-9; IC-018, IC-019, DEC-026). Depends VX.1, which sets `staleReason` and edits another range of `src/runtime/readiness.ts`. - `src/runtime/readiness.ts:216`: wrap `readPlan` and catch `code === 'store-unreadable'`. Treat the plan as absent and add a top-level `retrievalPlan: { unreadable: true, reason }`. - `:255-257`: skip `unboundIds` when `queryBound`. - `:353-356`: branch on `item.freshness.staleReason`. `tree-changed-since-recorded` or `tree-unverifiable` gives \"the working tree changed since it was recorded; re-run the lookup and record the absence again\". `freshness.gitCommit === null` gives \"absence cannot be established outside a git work tree; record a positive item\". Otherwise the current text. - `:362-364`: use `unboundQualifying.length` and its ids.",
+      "taskLineHash": "sha256:009fe031da4ecc81e57c5a43e8f197b972980ebd06f348cd4be033f9406c6355"
+    },
+    "VX.5": {
+      "description": "Help text (closes L1-17, L2-16; IC-021). No dependencies. - `src/cli/index.ts:476-491`: list `--need` on the evidence-add help line. - `core/shared/scripts/doflow/bin/doflow-run:363`: the usage line names `attempt` among the retrieval-plan actions.",
+      "taskLineHash": "sha256:382207185e565f3b7b1419c2fe452ff65cf8b3c011d710884f4e7d3f8f3864d5"
+    },
+    "VX.6": {
+      "description": "Test and fixture truth, plus a perf row (closes L1-6, L1-7, L2-14 row; IC-023, IC-024). No dependencies. - Remove `revision` from `test/runtime/fixtures/retrieval-legacy/plan.json` and stop stripping it at `test/e2e/evidence-attempts.e2e.test.js:152`. The e2e must still pass. - `test/runtime/retrieval-concurrency.test.js`: add a mixed `attempt` and `report` two-child test (K each). Assert all K caller attempts are present and `revision` is 1 + 2K. - `bench/perf/runner.js`: add a `generate.untracked: true` option (generate after `git add`). `bench/perf/budgets.json`: add a `proposed` row `verb.evidence-add-untracked`. Run `npm run bench -- parity` only, never measure.",
+      "taskLineHash": "sha256:6feff1708f1ec5c93029ae70039263d141f4ccc2d665011d29eca84cdb68684a"
+    },
+    "VX.7": {
+      "description": "Report rechecks absences (closes L2-3, L1-11; IC-014, IC-015, DEC-025). Depends VX.1, VX.3. - `src/runtime/retrieval-plan.ts`: `handleRetrievalPlanCommand` (`:780-870`) takes `sourceRoot` (default `projectRoot`) and uses it for every `freshnessEntry` call (`:272`, `:428`, `:665`). - After `ledger.load` (`:375`) in `reportPlan`, run `new FreshnessValidator({ repoRoot: projectRoot, treeRoot: sourceRoot }).validateLedgerFreshness(ledger)`, in memory and never saved. - Key absent groups (`:404`) and match derived attempts (`:416-417`) by provider, status and `item.freshness.status`. A STALE group appends a derived `EMPTY` / `index-stale` / `STALE` attempt, and the emptied FRESH one stops counting through VX.3.",
+      "taskLineHash": "sha256:8f14b295d1072393c64a4ec8d8239d2c84b868db723910849f72946dd7072ff7"
+    },
+    "V.1": {
+      "description": "Full verification by the orchestrator (`exclusive`; never dispatched). Depends G.1. After phase VX it reruns in full on the new branch head, and VX.7 is a further dependency.",
+      "taskLineHash": "sha256:b20e234ddbc6aff14b71b6dd10a94e3eebcb4e2895aec1f7c8853bb81d5edabe"
+    },
+    "V.2": {
+      "description": "One two-lens Opus review (read-only; never the author). Depends V.1. - Lens 1: contracts and tests against specs IC-001 to IC-024 and the FR/NFR map in §7. - Lens 2: failure modes, concurrency, legacy compatibility, cross-harness parity and the false-absence residual (design R2). - Findings went to a fresh fix dispatch, recorded as phase VX in this plan (DEC-024 to DEC-030), and V.1 reruns after VX.",
+      "taskLineHash": "sha256:5ea7796b628126d77c0ea649f5c316483cde9a1364bf0c88f515b3e83b0ed9c4"
+    }
+  },
+  "078-scoped-context-arbitration": {
+    "H.1": {
+      "description": "Latency baseline on develop 468e77b per IC-023 (NFR-001, DEC-005).",
+      "taskLineHash": "sha256:a9f031227dfceb280ea54ccb75002512672830a5f583f4f03e466363b1543cc9"
+    },
+    "H.2": {
+      "description": "After-change latency per IC-023 (NFR-001).",
+      "taskLineHash": "sha256:d5d457828d8abb8b087244517bf4c65619eac781e8346c207bc6442f38221fc4"
+    },
+    "A.1": {
+      "description": "One bash identity source `policies/identity.sh` and the harness `lib.sh` copies (IC-007, IC-009, DEC-008, DEC-009, DEC-010, DEC-011).",
+      "taskLineHash": "sha256:e820c43ecde4c63094341475ae3a4fdd8406907a336450e2b2bdefb36ef0faac"
+    },
+    "A.2": {
+      "description": "TypeScript identity reader and the shared identity cases (IC-007, IC-020 G38.6 corpus, DEC-008, DEC-009, DEC-010).",
+      "taskLineHash": "sha256:c0ea6924d2e9b7883bfd6b524beaae4eedc4bec452515ad9170e265c54fd865f"
+    },
+    "A.3": {
+      "description": "Envelope v1 identity additions (IC-008).",
+      "taskLineHash": "sha256:9b754891c99adddfbca1979981fdba678ab4276f63c50fcd57b992f5207199be"
+    },
+    "B.1": {
+      "description": "Rules, `arbitrate()` and the TypeScript renderer, with the render corpus (IC-001 decision half, IC-002, IC-022 corpus, DEC-005, DEC-007, DEC-015, DEC-016, DEC-022).",
+      "taskLineHash": "sha256:064fc6e5984b534677e8c02f4c9f17698df15dc58e0ed596681450056d4f0c81"
+    },
+    "B.2": {
+      "description": "Rule compiler and generated `emission-rules.sh` (IC-003, DEC-005).",
+      "taskLineHash": "sha256:023f943cacdbf09f014a85379e4364cbdaaa09fee228fdb8afb73ffaa5e57976"
+    },
+    "B.3": {
+      "description": "One-pass hook renderer `emission.jq` and the jq half of renderer parity (IC-002 templates, IC-004 step 7, IC-022, DEC-006, DEC-022).",
+      "taskLineHash": "sha256:6c687fd37c330c30a34e197b0cbc4352a721a50712eb3a78cea9a4ad3fa4a34d"
+    },
+    "C.1": {
+      "description": "Bash summary store, grant claim and legacy adopter `policies/summary-store.sh` (IC-010, IC-011 store write, IC-012, IC-014, DEC-003, DEC-012, DEC-014).",
+      "taskLineHash": "sha256:da386a09ca84d769415bc8b113f589e499749036659d48f75394f22644c93f83"
+    },
+    "C.2": {
+      "description": "TypeScript store and `grantSummary()` (IC-010, IC-012, IC-013 in-process, DEC-002, DEC-012).",
+      "taskLineHash": "sha256:c152f6b66543ff17f328e103719e350e7a8411fc3df7483d55137b821af3ab53"
+    },
+    "C.3": {
+      "description": "Compaction hooks on the rules and the store (IC-011, DEC-013, DEC-020, DEC-023).",
+      "taskLineHash": "sha256:b846ecf3b6d51e944b5c994a5a875e62e72120bdb75c0416dfa1e9fd00a49e20"
+    },
+    "D.1": {
+      "description": "Hook emission adapter `policies/emission.sh` and the ledger (IC-004, IC-015, DEC-015, DEC-016, DEC-017).",
+      "taskLineHash": "sha256:5eba177fa236c476905f3279b470b08dd89dbf9821e2bf24b516ca5ac31602c5"
+    },
+    "D.2": {
+      "description": "Prompt-policy rewire `user-prompt-submit.sh` (IC-004, IC-014 on prompt, IC-016, DEC-007, DEC-022).",
+      "taskLineHash": "sha256:a959a9671047ac07301510fbabfc109e491ead3ea1cbaaf9098569640f0d032c"
+    },
+    "D.3": {
+      "description": "Checks are never deduplicated (IC-016, IC-022, DEC-017).",
+      "taskLineHash": "sha256:747a13243c6f014557091afb8017778ae9b64bfbc95d0bd6f156027031649df7"
+    },
+    "D.4": {
+      "description": "Scope, grant, carry-over and cross-harness emission tests (IC-012, IC-014, IC-022).",
+      "taskLineHash": "sha256:f484300d19d4425d81bbb1bb334fde75bc5b1fd0dd87f2c8324bddf32924ef30"
+    },
+    "E.1": {
+      "description": "`emitContext()` with the launcher-side claims and ledger (IC-001 emit half, IC-012 TypeScript claim, IC-015, DEC-001, DEC-007).",
+      "taskLineHash": "sha256:7fa2c068b1e15b5b60988db2fa0ba7252f4f9a8b460218180f74d28d38e48881"
+    },
+    "E.2": {
+      "description": "`doflow-run context-emit` and `context-grant` verbs (IC-005, IC-013 verb, DEC-021).",
+      "taskLineHash": "sha256:31a7792b59ad4ae900fee5b4b59e30d5492a45cd30dccb732eda611692baf7b0"
+    },
+    "E.3": {
+      "description": "Launcher stand-in and the authority scenarios (IC-006, IC-022, DEC-001).",
+      "taskLineHash": "sha256:69c4b0f67dc22505863c34affaa5b2fcc0c0e4560c370ce89ec4a349a2bdb463"
+    },
+    "F.1": {
+      "description": "`coverage.endOfTurn` and `coverage.behaviours` with validation (IC-017, IC-018, DEC-004, DEC-018).",
+      "taskLineHash": "sha256:5ca757169e83d1ee8e0052bd6b300106f010d5006607da6bcc45945c54a00757"
+    },
+    "F.2": {
+      "description": "Rendered behaviour block (IC-019).",
+      "taskLineHash": "sha256:ec92bfa52c692c03a607a33e07370d1fd5cb8b59715c416a9bbd8660542719c5"
+    },
+    "G.1": {
+      "description": "Guard G38 context authority (IC-020, DEC-019).",
+      "taskLineHash": "sha256:166f9b6da5bca5997d1d15fffbe3645bef6dab0c14a6162119be9bd79f5fd775"
+    },
+    "G.2": {
+      "description": "Guard G39 coverage semantics (IC-021, DEC-019).",
+      "taskLineHash": "sha256:0cafb4b7d2e2b67bab5336684dbce9419ca5a8d11e4b0b4773beb92cb8c65d6c"
+    },
+    "G.3": {
+      "description": "Guard inventory entries in `docs/architecture.md` (IC-020, IC-021).",
+      "taskLineHash": "sha256:3938fef60425fdb5a06a62e2799e1ee906394dae7ef797031353d38ff3cdb6e2"
+    },
+    "V.1": {
+      "description": "One integration run after the last merge (IC-022, IC-024, NFR-002, NFR-004).",
+      "taskLineHash": "sha256:7f6b0d53fcaeaafbe767f62ad23ee29974f90272ae28f827856738fbe7970532"
+    },
+    "V.2": {
+      "description": "Two-lens review and a separate synthesizer.",
+      "taskLineHash": "sha256:3d5786e0869311d5f90009188ea239d748bbd02bce2443ec3f9b65753e8c52a1"
+    }
+  }
+}

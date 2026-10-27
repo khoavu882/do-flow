@@ -9,7 +9,7 @@ Markdown is not treated as a `languages/*.md` entry. The language files' require
 (Security, Async, Resource Management, Exception Handling, Performance) describe code-execution
 concerns that do not translate to prose — forcing markdown through that template would produce
 empty or fabricated sections, which is exactly the "invented metrics" problem that
-the guidance tree's `rules/RULE_03_QUALITY.md` warns against under "Professional Honesty". This file documents a
+the guidance tree's `rules/RULES.md` (RULE_03) warns against under "Professional Honesty". This file documents a
 content-type-specific set of checks instead, run by `scripts/doc_quality_checker.py`.
 
 Load this file when the reviewed path is a `.md` file. There is no `rules/universal.md`
@@ -26,11 +26,17 @@ python scripts/doc_quality_checker.py <path>
 
 # JSON output — same finding-list shape as code_quality_checker.py --json
 python scripts/doc_quality_checker.py <path> --json
+
+# Also report voice tells (check 7, advisory, off by default)
+python scripts/doc_quality_checker.py <path> --voice
+
+# After a rewrite: compare the numbers, names, dates, URLs and citations of two versions
+python scripts/doc_quality_checker.py --facts-diff <before> <after>
 ```
 
 Every check below is deterministic and cite-the-match: a finding names the exact line, phrase,
 or reference that triggered it. There is no aggregate "quality score" — per "Professional Honesty"
-in the guidance tree's `rules/RULE_03_QUALITY.md`, an invented single-number score would claim more
+in the guidance tree's `rules/RULES.md` (RULE_03), an invented single-number score would claim more
 precision than a pattern match can support. Treat every finding as "here is the specific thing to
 look at," not as a verdict; confirm it against the actual file before editing (the same
 manual-verification discipline this feature's own audit applies to its own tooling).
@@ -118,6 +124,22 @@ words like "deprecated" produces false positives against files that quote the wo
 target rather than describing themselves as stale. Confirm the matched sentence actually describes
 the file's own content as outdated before treating it as a real finding; if it is a rule
 description quoting the word, it is not a defect.
+
+### 6. Uncited vendor claims
+
+**Applies to:** any `.md` file under the reviewed path.
+
+Flags sentences asserting specific behavior or interfaces of a named library, framework, runtime, SDK, or package without an authoritative citation (Context7 or resolvable HTTP/HTTPS URL) or an explicit `UNVERIFIED` marker.
+
+**Interpretation:** advisory warning (`severity: "low"`, exit code 0). Verify claims via Context7, cite primary documentation with an HTTPS URL, or tag as `UNVERIFIED`.
+
+### 7. Voice tells (opt-in: `--voice`)
+
+**Applies to:** prose in any `.md` file; fenced and inline code, block quotes, YAML front matter and link targets are skipped.
+
+Flags overused and sales words, chatbot residue, knowledge-limit phrases, "serves as", dash and curly-quote habits, Title Case headings, bold density and repeated sentence openers, quoting each match. A weak tell (one dash, one bold word, "key") is shown only when two other tells share its paragraph.
+
+**Interpretation:** advisory (`severity: "low"`, no score, exit code unchanged). The prose rules are the guidance tree's `references/ARTIFACT_VOICE.md`; confirm each match against the sentence before rewriting.
 
 ---
 

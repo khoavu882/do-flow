@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # lib.sh — shared constants and helpers for the Canonical Policy Library
 #
 # Usage: source "<policy-dir>/lib.sh"
@@ -9,7 +10,7 @@
 #   3. capture stdin once: INPUT=$(cat)
 #   4. use: json_field "$INPUT" ".field_name"
 
-case ${BASH_SOURCE[0]} in */*) _DOFLOW_LIB_DIR=${BASH_SOURCE[0]%/*} ;; *) _DOFLOW_LIB_DIR=. ;; esac
+_DOFLOW_SRC=${BASH_SOURCE[0]//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_LIB_DIR=${_DOFLOW_SRC%/*} ;; *) _DOFLOW_LIB_DIR=. ;; esac
 #
 # Deployment:
 #   This file is installed by the doflow CLI and overwritten on update — do
@@ -17,7 +18,7 @@ case ${BASH_SOURCE[0]} in */*) _DOFLOW_LIB_DIR=${BASH_SOURCE[0]%/*} ;; *) _DOFLO
 #
 # Consolidation note (022-normalize-hooks, Phase B): this is the single
 # canonical copy every front door's dispatched policy script sources — the
-# claude/gemini/kiro/codex copies it replaces were already byte-identical
+# claude/kiro/codex copies it replaces were already byte-identical
 # except for one Claude-only default (see DOFLOW_AGENT below), confirmed via
 # diff before consolidating.
 
@@ -25,16 +26,33 @@ set -euo pipefail
 
 # ── State directories ────────────────────────────────────────────────────────
 
-# XDG-compliant, agent-agnostic store shared by every harness DoFlow supports.
-DOFLOW_HOME="${XDG_CONFIG_HOME:-$HOME/.config}/doflow"
-STATE_DIR="$DOFLOW_HOME/session-env"
-SESSION_DIR="$STATE_DIR/sessions"
-PROJECTS_DIR="$STATE_DIR/projects"
+# XDG-compliant, agent-agnostic store shared by every harness DoFlow supports, under the config home
+# (doflow_config_home: an absolute XDG_CONFIG_HOME, else an absolute HOME + /.config, else none). With
+# no config home every state path below is empty, sourcing this file still never exits, and each state
+# function returns 0 at once: session work is skipped and a guard reaches its own decision (086 IC-010).
+# BEGIN doflow-config-home v1 (rule: src/runtime/config-home.ts; checked by test/guards/settings.test.js)
+doflow_config_home() {
+  DOFLOW_HOME=""
+  case "${XDG_CONFIG_HOME:-}" in
+    /*) DOFLOW_HOME="${XDG_CONFIG_HOME}/doflow"; return 0 ;;
+    [A-Za-z]:[\\/]*) case "${OSTYPE:-}" in msys*|cygwin*|win32*) DOFLOW_HOME="${XDG_CONFIG_HOME}/doflow"; return 0 ;; esac ;;
+  esac
+  case "${HOME:-}" in
+    /*) DOFLOW_HOME="${HOME}/.config/doflow" ;;
+    [A-Za-z]:[\\/]*) case "${OSTYPE:-}" in msys*|cygwin*|win32*) DOFLOW_HOME="${HOME}/.config/doflow" ;; esac ;;
+  esac
+  return 0
+}
+# END doflow-config-home v1
+doflow_config_home
+STATE_DIR="${DOFLOW_HOME:+$DOFLOW_HOME/session-env}"
+SESSION_DIR="${STATE_DIR:+$STATE_DIR/sessions}"
+PROJECTS_DIR="${STATE_DIR:+$STATE_DIR/projects}"
 # shellcheck disable=SC2034  # used by session-context.sh and stop-check.sh which source this file
-SESSIONS_LOG="$DOFLOW_HOME/sessions.log"
+SESSIONS_LOG="${DOFLOW_HOME:+$DOFLOW_HOME/sessions.log}"
 
 # Identifies which harness is running. A front door sets this before sourcing
-# this file (e.g. `export DOFLOW_AGENT=gemini; exec bash .../policies/...sh`);
+# this file (e.g. `export DOFLOW_AGENT=codex; exec bash .../policies/...sh`);
 # "unknown" here — not any one harness's name — is the honest fallback when a
 # front door omits it, since every prior per-harness copy of this file
 # defaulted to "claude-code" regardless of which harness actually shipped it.
@@ -253,18 +271,22 @@ has_uncommitted_changes() {
 # ── Directory helpers ─────────────────────────────────────────────────────────
 
 # Create and return the session-scoped state directory for a given session_id.
-# Safe to call multiple times (mkdir -p is idempotent).
+# Safe to call multiple times (mkdir -p is idempotent). Prints nothing and creates nothing when
+# there is no config home (SESSION_DIR empty).
 ensure_session_dir() {
   local session_id="$1"
+  [ -n "$SESSION_DIR" ] || return 0
   mkdir -p "$SESSION_DIR/$session_id"
   echo "$SESSION_DIR/$session_id"
 }
 
 # Create and return the project-scoped state directory for a given cwd.
-# Shared across all sessions in the same directory.
+# Shared across all sessions in the same directory. Prints nothing and creates nothing when there
+# is no config home (PROJECTS_DIR empty).
 ensure_project_dir() {
   local cwd="$1"
   local hash
+  [ -n "$PROJECTS_DIR" ] || return 0
   hash=$(cwd_hash "$cwd")
   mkdir -p "$PROJECTS_DIR/$hash"
   echo "$PROJECTS_DIR/$hash"
@@ -293,30 +315,16 @@ require_jq() {
   fi
 }
 
-# ── Session role ──────────────────────────────────────────────────────────────
+# ── Session role and identity ─────────────────────────────────────────────────
 
-# Print `main` or `worker` for this session, read from DOFLOW_SESSION_ROLE (matched
-# case-insensitively). Unset or empty is `main`; a value that is neither `main` nor
-# `worker` is `worker` and writes one line to stderr. A worker never writes or claims the
-# project's compact summary or warning. Always returns 0. bash 3.2 safe (no ${var,,}).
-doflow_session_role() {
-  local role
-  role=$(printf '%s' "${DOFLOW_SESSION_ROLE:-}" | tr '[:upper:]' '[:lower:]') || role=""
-  case "$role" in
-    ""|main) printf 'main\n' ;;
-    worker) printf 'worker\n' ;;
-    *)
-      echo "[doflow] unknown DOFLOW_SESSION_ROLE; treating session as worker" >&2
-      printf 'worker\n'
-      ;;
-  esac
-  return 0
-}
+# doflow_session_role and doflow_identity live in identity.sh, their only definition (IC-009).
+. "$_DOFLOW_LIB_DIR/identity.sh"
 
 # Start storage cleanup without changing the hook's output, status, or latency.
 storage_upkeep_async() {
-  local cwd="${1:-}" root run home config_dir
+  local cwd="${1:-}" root run home config_dir detach=""
   [ -n "$cwd" ] || return 0
+  command -v setsid >/dev/null 2>&1 && detach="setsid"
   home="${HOME:-}"
   config_dir="${CLAUDE_CONFIG_DIR:-$home/.claude}"
   root=$(nudge_repo_root "$cwd" 2>/dev/null) || root="$cwd"
@@ -329,7 +337,9 @@ storage_upkeep_async() {
     # Background the fully redirected subshell; an inner `&` leaves this shell
     # holding the hook's captured stdout open until the dispatcher exits. The
     # storage verb takes its project from the working directory: run it at the root.
-    ( cd "$root" 2>/dev/null && nohup "$run" storage --action upkeep </dev/null >/dev/null 2>&1 ) >/dev/null 2>&1 3>&- 5>&- &
+    # setsid (absent on macOS) moves the upkeep out of the hook's session, so a harness that
+    # signals the hook's process group when the hook exits does not take the upkeep with it.
+    ( cd "$root" 2>/dev/null && nohup $detach "$run" storage --action upkeep </dev/null >/dev/null 2>&1 ) >/dev/null 2>&1 3>&- 5>&- &
     return 0
   done
   return 0
@@ -379,7 +389,7 @@ nudge_repo_root() {
 # file that cannot be read, is empty or holds anything else is `off`.
 nudge_setting() {
   local root="${1:-}" file line=""
-  for file in "${root:+$root/.doflow/prompt-nudge}" "$DOFLOW_HOME/prompt-nudge"; do
+  for file in "${root:+$root/.doflow/prompt-nudge}" "${DOFLOW_HOME:+$DOFLOW_HOME/prompt-nudge}"; do
     [ -n "$file" ] && [ -e "$file" ] || continue
     line=""
     { IFS= read -r line || true; } 2>/dev/null < "$file" || line=""
@@ -406,17 +416,20 @@ nudge_safe_id() {
   return 0
 }
 
-# Print the marker path for a session id. The caller checks nudge_safe_id first.
+# Print the marker path for a session id. The caller checks nudge_safe_id first. With no config
+# home there is no marker path and nothing is printed.
 nudge_marker_file() {
+  [ -n "$STATE_DIR" ] || return 0
   printf '%s\n' "$STATE_DIR/nudge/$1"
 }
 
 # Create the marker for <id> holding <nudged|suppressed>. Succeeds only when this call
 # created it: the create is exclusive, so a second call for the same id fails and
 # leaves the first content. After a create, markers untouched for over 30 days are
-# removed. Silent on every failure.
+# removed. Silent on every failure. With no config home it creates nothing and returns 0 at once.
 nudge_mark() {
-  local id="${1:-}" word="${2:-}" dir="$STATE_DIR/nudge" file
+  local id="${1:-}" word="${2:-}" dir="${STATE_DIR:+$STATE_DIR/nudge}" file
+  [ -n "$dir" ] || return 0
   nudge_safe_id "$id" || return 1
   case "$word" in nudged|suppressed) ;; *) return 1 ;; esac
   file="$dir/$id"
@@ -452,7 +465,8 @@ nudge_feature_active() {
 # S3: succeed when a `/do-*` skill already ran this session, read from the run ledger:
 # the lexically last <config>/state/runs/*.jsonl, whose last line's timestamp is not
 # earlier than the session's captured_at (both YYYY-MM-DDTHH:MM:SSZ). Config dir:
-# $DOFLOW_CONFIG_DIR, else the nearest `.doflow` at or above <cwd>, else $HOME/.doflow.
+# $DOFLOW_CONFIG_DIR, else the nearest non-nested `.doflow` at or above <cwd>, else $HOME/.doflow
+# (none when HOME is unset or empty).
 # Without a captured_at the ledger counts when it is named for today's UTC date; a last
 # line without a usable timestamp counts too. No ledger, or an empty one, does not.
 nudge_ledger_active() {
@@ -462,10 +476,19 @@ nudge_ledger_active() {
   if [ -n "${DOFLOW_CONFIG_DIR:-}" ]; then
     config="$DOFLOW_CONFIG_DIR"
   else
-    config="$HOME/.doflow"
+    config="${HOME:+$HOME/.doflow}"
     # The ancestor in the walk's own spelling (`\` read as `/`), the form its test succeeded on.
-    if dir=$(nudge_find_up "$cwd" .doflow -d); then config="${dir//\\//}/.doflow"; fi
+    if dir=$(nudge_find_up "$cwd" .doflow -d); then
+      while :; do
+        dir="${dir//\\//}"
+        case "$dir/" in
+          */.doflow/*) dir=$(nudge_find_up "${dir%/*}" .doflow -d) || break ;;
+          *) config="$dir/.doflow"; break ;;
+        esac
+      done
+    fi
   fi
+  [ -n "$config" ] || return 1
   for f in "$config"/state/runs/*.jsonl; do
     [ -f "$f" ] && ledger="$f"
   done
@@ -493,7 +516,7 @@ nudge_registry() {
     "${policy_dir:+$policy_dir/../../../runtime/core/registry/workflows.json}" \
     "${policy_dir:+$policy_dir/../../../../registry/workflows.json}" \
     "${root:+$root/.doflow/runtime/core/registry/workflows.json}" \
-    "$HOME/.doflow/runtime/core/registry/workflows.json"; do
+    "${HOME:+$HOME/.doflow/runtime/core/registry/workflows.json}"; do
     if [ -n "$candidate" ] && [ -f "$candidate" ]; then
       printf '%s\n' "$candidate"
       return 0

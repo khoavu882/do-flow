@@ -1,10 +1,11 @@
 # DoFlow Chain — Spec-Driven Delivery
 
 A spec-kit-style, phase-gated delivery loop (`do-brainstorm → do-design → do-plan →
-do-execute-plan → do-test → do-code-review`) on top of the rest of the `/do-*` skills and the five
-specialist agents (`core-implementer`, `quality-guardian`, `research-writer`, `spec-analyst`,
-`system-architect`). Discipline borrowed from spec-kit; enforcement done with the harness's real
-hooks rather than a prompt-read registry. The implement-gate hook is registered in
+do-execute-plan → do-test → do-code-review`) on top of the rest of the `/do-*` skills and the seven
+specialist agents (`core-implementer`, `delivery-lead`, `quality-guardian`,
+`research-writer`, `reviewer`, `spec-analyst`, `system-architect`). Discipline borrowed from
+spec-kit; enforcement done with the harness's real hooks rather than a prompt-read registry.
+The implement-gate hook is registered in
 `settings.json`. `do-constitution` sits outside the numbered chain — a standalone,
 still-invocable skill that maintains the persistent rules every phase inherits, not a phase
 itself. `do-implement` sits outside the numbered chain too, for the opposite reason: it is the
@@ -18,13 +19,11 @@ remains the chain's own implementation phase.
 |------|-------|
 | `skills/` | Chain skills: `do-brainstorm` (also creates the feature branch/dir, writes `requirement.md`, optionally captures a PBI/ticket ID), `do-design` (writes `design.md`), `do-plan` (also writes the dependency-ordered task checklist inside `plan.md`, plus a Repo Branch Plan for multi-repo features), `do-execute-plan` (also supports `--scaffold` to emit a reviewable code scaffold under the feature dir — the source layout, signatures and test stubs the three artifacts imply, plus a per-dependency-service contract frame — and lazily creates/tracks each repo's branch as it's first touched; a non-local dependency with a `external-contract:` field gets a frame generated from that doc instead of the default silent skip), `do-test`, `do-code-review`. `do-constitution` is standalone, not part of the numbered chain. |
 | `scripts/doflow/` | The runtime seam. Skills call `bin/doflow-run <verb>` and never name a helper: the dispatcher decides which `bash/*.sh` helper or Node command serves each verb. The dispatcher owns the verb namespace and is the only place it is written down — an inventory here is the drift this row used to produce. |
-| `hooks/`               | `pre-implement-gate.sh` — PreToolUse(Edit\|Write) backstop for the one hard gate |
-| `templates/doflow/`    | `requirement-template.md` (optional `**Ticket:**` header field) / `design-template.md` / `plan-template.md` (its own "Tasks" subsection folds in what used to be a separate tasks template, supports optional `depends-on:` and `external-contract:` fields per task, and a Repo Branch Plan table for multi-repo features) / `state-template.md` (Repo Branch Status table) / `constitution-template.md` / `external-contract-template.md` (pinned structure for a `external-contract:` target — a documented external dependency `--scaffold` can generate a mechanical frame from) — seeded into each feature dir. A shared pool across skills, not per-skill `assets/` — see note below. |
-| `references/`          | `CONSTITUTION_BASE.md` — tier-1 global constitution base |
+| `shared/hooks/policies/` | `mcp-tool-guard.sh`: MCP policy; `pre-bash-guard.sh`: command denials; `pre-implementation-gate.sh`: artifact/readiness edit gate; `stop-check.sh`: blocks stopping on unfinished-work markers. Harnesses with hook support call these; support differs per harness. |
+| `templates/doflow/` | `constitution-template.md` (tier-2); `data-model-template.md`; `design-template.md`; `external-contract-template.md`; `intent-template.md`; `plan-template.md`; `question-log-template.md`; `requirement-template.md`; `specs-template.md`; `state-template.md`. Chain skills seed feature dirs from a shared pool, not per-skill `assets/`. |
+| `guidance/references/` | `ARTIFACT_FORMAT.md`, `ARTIFACT_VOICE.md`, `CONSTITUTION_BASE.md` (global tier-1), `DIAGRAM_GUIDE.md`, `DOFLOW_CHAIN.md`, `EVIDENCE_LEDGER.md`, `MODEL_SELECTION.md`, `ORCHESTRATION.md`, `RESEARCH_CONFIG.md`, `WORKFLOW_HANDOFF.md`. |
 
-> Paths above are relative to the installed root (`${CLAUDE_CONFIG_DIR:-$HOME/.claude}` globally,
-> or a project's own `.claude/` in project scope). Chain skills' resolver lookups check the global
-> config dir first, then walk upward from `$PWD` for a project-scoped `.claude/` install.
+> Except `skills/`, use resolver roots: `.doflow/` at/above `$PWD`, then `$HOME/.doflow/`; skills install per harness in its skills dir.
 
 ## Core design rules
 
@@ -37,7 +36,7 @@ remains the chain's own implementation phase.
   Outside a git repo (e.g. doflow installed at a multi-service container root, above the actual
   git sub-repos), `do-paths.sh` falls back to scanning `agent-docs/doflow/` directly — one
   candidate auto-selects, 2+ candidates surface via `candidate_slugs` for the calling skill to
-  disambiguate using the platform-specific `RULE_04_QUESTIONS.md` mechanism. Artifacts live in
+  disambiguate using the platform-specific RULE_04 mechanism in `rules/RULES.md`. Artifacts live in
   `<repo>/agent-docs/doflow/NNN-slug/`
   either way.
 - **Pre-chain intent — an input, not a phase.** An idea that has not been committed to yet goes in
@@ -53,13 +52,11 @@ remains the chain's own implementation phase.
   `requirement.md`'s `**Intent:**` field — the argument that does so is declared in `/do-brainstorm`'s
   own `argument-hint`, which is where a single-skill argument is owned. Discovery without an intent is
   unchanged and is the ordinary case.
-- **One hard gate:** source edits are blocked when a feature is started but `requirement.md`,
-  `design.md`, or `plan.md` is missing. Every other gate is advisory/skippable (solo,
-  low-ceremony).
+- **Implement gate (hard):** Denies source edits for started features missing `requirement.md`/`design.md`/`plan.md` (`missing-artifacts`), or held tasks without READY at their workflow's first source-mutating stage (`readiness-missing`, `readiness-not-ready`, `readiness-wrong-template`, or `readiness-store-conflict` when a linked worktree's copy differs from the main checkout's). Other blockers: `shared/hooks/policies/`, and the planning stage's exit, which refuses a constitution MUST conflict ("Two-tier constitution" below); all other chain gates are advisory/skippable.
 - **Two-tier constitution — what is computed vs. what is convention.**
   `references/CONSTITUTION_BASE.md` (tier-1, global) is overlaid by
   `<repo>/agent-docs/constitution.md` (tier-2, per-repo), and tier-2 takes precedence. **That
-  overlay is performed by the chain skill reading both files — no component merges them.** This is
+  overlay is performed by the chain skill reading both files — no component writes a merged file.** This is
   the canonical statement; other places point here rather than restating it.
 
   | Step | What happens | Guarantee |
@@ -67,14 +64,15 @@ remains the chain's own implementation phase.
   | Locate tier-1 | `do-paths.sh` searches two candidates, first hit wins; `null` if none | **computed** |
   | Locate tier-2 | `do-paths.sh` emits the path plus `has_constitution_local` | **computed** |
   | Read both files | the chain skill opens them | agent-performed |
-  | Overlay; tier-2 takes precedence on conflict | the chain skill reconciles them in its own reasoning | **convention** |
+  | Overlay; tier-2 takes precedence on conflict | the chain skill reconciles them; the exit check overlays them by principle id | **convention**; **computed** for the check |
   | "Tier-2 may not weaken P1 (Safety)" | a rule stated to the agent | **convention, unvalidated** |
-  | Constitution Check verdict | recorded in `plan.md` §2 "Constitution Check" | **advisory — blocks nothing** |
+  | Constitution Check verdict | one PASS/FAIL row per principle in `plan.md` §2; the `do-plan` stage's handoff refuses a MUST marked FAIL or without a row | **computed — blocks the planning exit** |
   | Propagate pointer to the agent context file | `sync-context.sh` writes a marker block | **computed** |
 
   Both path lookups run unconditionally, whether or not `do-constitution` has ever been invoked.
-  Nothing detects a conflict between the tiers, and nothing validates the P1 rule — so avoid
-  describing this model as *resolved* (there is no merged artifact) or *enforced* (nothing blocks).
+  The model judges each principle; the runtime enforces only the record, MUST unless a principle
+  says `**Tier:** SHOULD`, with no waiver. Nothing validates the P1 rule, and no merged artifact
+  exists, so avoid describing the overlay as *resolved*.
   The convention is still load-bearing: it is how the rules actually reach a feature's planning.
 - **`templates/doflow/` is a shared template pool, not the Agent Skills standard's
   `references/`/`assets/` pattern.** The standard nests bundled resources one level inside their

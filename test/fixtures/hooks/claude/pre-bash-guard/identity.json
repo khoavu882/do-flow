@@ -1,0 +1,49 @@
+{
+  "native": {
+    "hook_event_name": "PreToolUse",
+    "session_id": "claude-bash-identity",
+    "tool_name": "Bash",
+    "tool_input": {
+      "command": "printf safe"
+    }
+  },
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "compat-1",
+    "DOFLOW_TASK_ID": "078-claude-identity",
+    "DOFLOW_RUN_ID": "run-claude-1",
+    "DOFLOW_ATTEMPT": "2",
+    "DOFLOW_LINEAGE_ID": "lineage-claude-1",
+    "DOFLOW_SESSION_ROLE": "worker",
+    "DOFLOW_WORKTREE": "/tmp/doflow-worktree-claude"
+  },
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": null,
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "allow",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "claude",
+      "event": "PreToolUse",
+      "operation": "command",
+      "tool": "Bash",
+      "command": "printf safe",
+      "taskId": "078-claude-identity",
+      "identity": {
+        "session": "claude-bash-identity",
+        "run": "run-claude-1",
+        "attempt": 2,
+        "lineage": "lineage-claude-1",
+        "role": "worker",
+        "worktree": "/tmp/doflow-worktree-claude"
+      }
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}

@@ -9,7 +9,7 @@ const { REPO_ROOT } = require('../../helper/repo-root.ts');
 const { loadStorageRegistry } = require('./registry.ts');
 const { resolveRoots, readPruneSetting } = require('./roots.ts');
 const engine = require('./engine.ts');
-const { RunLedger } = require('../trace/ledger.ts');
+const { RunLedger, outerProjectRoot } = require('../trace/ledger.ts');
 
 // Load once: a not-due moment only reads the three small markers, never the catalogue again.
 let registry: any;
@@ -147,7 +147,10 @@ function passForRoot({ roots, rootId, stores, now, env, fsImpl, throttled = fals
 
 /** IC-009: silent throttled upkeep after a verb, using that verb's resolved store root. */
 function upkeepAfterVerb({ projectRoot, now = Date.now(), env = process.env, fsImpl = fs }: any = {}) {
+  // IC-004: the read switch, exact `off` like DOFLOW_TELEMETRY; nothing at all is written.
+  if (env.DOFLOW_UPKEEP === 'off') return;
   return silently(() => {
+    projectRoot = projectRoot && outerProjectRoot(projectRoot);
     const roots = resolveRoots({ registry, projectRoot, env });
     for (const rootId of ['project-state', 'user-state']) {
       try { ensureIgnore({ roots, rootId, projectRoot, fsImpl }); } catch { /* continue other roots */ }
@@ -165,14 +168,19 @@ function upkeepAfterVerb({ projectRoot, now = Date.now(), env = process.env, fsI
 
 /** IC-010: the verify moment is project-only and unthrottled. Wiring belongs to D.3. */
 function upkeepAfterVerify({ projectRoot, now = Date.now(), env = process.env, fsImpl = fs }: any = {}) {
+  // IC-004: the switch covers every upkeep moment, so `off` prunes, locks and writes nothing here either.
+  if (env.DOFLOW_UPKEEP === 'off') return;
   return silently(() => {
+    projectRoot = projectRoot && outerProjectRoot(projectRoot);
     const roots = resolveRoots({ registry, projectRoot, env });
-    return passForRoot({ roots, rootId: 'project-state', stores: ['verification-logs'], now, env, fsImpl });
+    return passForRoot({ roots, rootId: 'project-state', stores: ['verification-logs', 'verification-reuse'], now, env, fsImpl });
   });
 }
 
 /** IC-011: only this scope's recovery store; install/update call sites belong to D.4. */
 function storageAfterInstall({ scope, scopeRoot, now = Date.now(), env = process.env, fsImpl = fs }: any = {}) {
+  // IC-004: no ignore file, prune pass or lock at install time under the switch either.
+  if (env.DOFLOW_UPKEEP === 'off') return;
   return silently(() => {
     if (!['project', 'global'].includes(scope)) return;
     const global = scope === 'global';

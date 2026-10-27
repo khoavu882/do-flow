@@ -1,0 +1,56 @@
+{
+  "schema": 1,
+  "row": "113",
+  "slug": "113-goal-order",
+  "reviewedHead": "0123456789abcdef0123456789abcdef01234567",
+  "seats": [
+    {
+      "id": "backend-expert",
+      "findings": [
+        {
+          "id": "A1",
+          "severity": "blocker",
+          "locator": "src/x.ts:40",
+          "summary": "Unchecked error in worker loop"
+        }
+      ]
+    },
+    {
+      "id": "principle-software-engineer",
+      "findings": [
+        {
+          "id": "B1",
+          "severity": "should-fix",
+          "locator": "src/y.ts:9",
+          "summary": "Missing type annotation"
+        }
+      ]
+    }
+  ],
+  "converged": [
+    {
+      "id": "C1",
+      "from": ["A1"],
+      "severity": "blocker",
+      "locator": "src/x.ts:40",
+      "status": "fixed",
+      "fixedIn": "fedcba9876543210fedcba9876543210fedcba98"
+    },
+    {
+      "id": "C2",
+      "from": ["B1"],
+      "severity": "should-fix",
+      "locator": "src/y.ts:9",
+      "status": "refuted",
+      "evidence": "test/y.test.js:22"
+    },
+    {
+      "id": "C3",
+      "from": [],
+      "severity": "blocker",
+      "locator": "src/z.ts:3",
+      "status": "user-accepted",
+      "decision": "DEC-004"
+    }
+  ]
+}

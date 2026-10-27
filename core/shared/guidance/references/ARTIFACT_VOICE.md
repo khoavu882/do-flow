@@ -2,7 +2,8 @@
 
 How a chain artifact reads, sentence by sentence. Structure lives in `ARTIFACT_FORMAT.md`; this file
 covers only the writing. Read on demand by `do-brainstorm`, `do-design` and `do-plan` when
-filling a template, and never loaded into a session by default.
+filling a template, and by `do-document` and `research-writer` when drafting prose. Never loaded
+into a session by default.
 
 ## 1. The rules
 

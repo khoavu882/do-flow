@@ -4,6 +4,18 @@ The gate-state dispatch behind `/do-execute-plan`'s step 3. The step's own purpo
 stands before this stage, and why this skill is where it gets answered — stays in `SKILL.md`; what
 follows is the call that positions the run and every branch off its response.
 
+## The expected gate id (SKILL.md step 2)
+
+- Also derive `<expected gate id>`: among `gates[]`, the one entry whose `afterStage` equals the
+  stage immediately preceding this skill's own stage in `stageIds[]` (`gate-a` in `feature`, since
+  `gate-a`'s `afterStage` is `planning`, the stage right before `implementation`) — `null` if no
+  gate is anchored there. No shipped workflow anchors two gates to the same stage, so this is
+  always at most one entry; do not hardcode `gate-a`, derive it this way so a differently-shaped
+  workflow's own gate is found the same way. Step 3 needs this to tell "the gate that belongs to
+  this stage" apart from any other gate `catch-up` might stop on.
+
+## The catch-up call (SKILL.md step 3)
+
 - `<slug>` is step 1's `feature_slug`; `<class>` is the class step 2's `classify` call accepted;
   `<stage id>` is the id of the entry in that call's `workflow.stages[]` whose `skill` is
   `do-execute-plan` (`implementation` in the `feature` workflow) — read it off that response,
@@ -19,7 +31,7 @@ follows is the call that positions the run and every branch off its response.
 - Branch on the response's `caughtUpTo` / `reason`, not on the exit code:
 - **`reason` is `awaiting-gate:<gate id>`** — **first check `<gate id>` against step 2's
   `<expected gate id>`.** They match in the ordinary case (`gate-a`, standing immediately before
-  this stage) — present `awaitingGate.prompt` to the user through `AskUserQuestion` as a plain
+  this stage) — present `awaitingGate.prompt` to the user through the question tool as a plain
   go/no-go, the same way step 1's prerequisite gate stops and asks rather than assuming. On yes:
   ```bash
   "$DOFLOW" orchestrate --action decide-gate --task-id "<slug>" --gate "<awaitingGate.gateId>" --decision approve --note "<the user's own answer, one line>" --json

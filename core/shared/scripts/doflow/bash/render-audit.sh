@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # render-audit.sh — projects the orchestrator's own journal into a human-readable audit.md.
 #
 # audit.md is generated, never hand-authored: this script deterministically OVERWRITES it in full
@@ -76,13 +77,36 @@ fi
 [ "$rc" -eq 0 ] || note "resolver-error"
 
 repo_root=$(printf '%s' "$resolved_json" | jq -r '.repo_root // empty')
+feature_root=$(printf '%s' "$resolved_json" | jq -r '.feature_root // empty')
+[ -n "$feature_root" ] || feature_root="$repo_root"
 feature_slug=$(printf '%s' "$resolved_json" | jq -r '.feature_slug // empty')
 audit_rel=$(printf '%s' "$resolved_json" | jq -r '.audit // empty')
 [ -n "$feature_slug" ] || note "no-active-feature"
 
 # WorkflowOrchestrator's own stateDir/runFile convention (workflow-orchestrator.ts):
 #   stateDir = <root>/.doflow/state/orchestration ; runFile = <stateDir>/<taskId>.json
-journal_file="$repo_root/.doflow/state/orchestration/$feature_slug.json"
+#
+# The run is read from the MAIN checkout first (IC-004): a linked worktree's task records live there.
+# Main is the first `git worktree list --porcelain` entry, the pre-implementation gate's rule: a bare
+# main, a vanished main and a DoFlow sandbox (.doflow-worktree-base at this checkout's root) do not
+# count. Main holding no copy, or this being the main checkout, falls back to this checkout's own.
+main_checkout() {
+  [ -e "$repo_root/.doflow-worktree-base" ] && return 0
+  local list first="" is_bare=false line
+  list="$(git -C "$repo_root" worktree list --porcelain 2>/dev/null)" || return 0
+  while IFS= read -r line; do
+    case "$line" in
+      "worktree "*) [ -n "$first" ] && break; first="${line#worktree }" ;;
+      bare) is_bare=true ;;
+    esac
+  done <<< "$list"
+  [ -n "$first" ] && [ "$is_bare" = false ] && cd -P "$first" 2>/dev/null && pwd
+  return 0
+}
+journal_rel=".doflow/state/orchestration/$feature_slug.json"
+journal_file="$repo_root/$journal_rel"
+main_root="$(main_checkout)"
+if [ -n "$main_root" ] && [ -f "$main_root/$journal_rel" ]; then journal_file="$main_root/$journal_rel"; fi
 [ -f "$journal_file" ] || note "no orchestration run recorded yet"
 
 jq -e '.history | type == "array"' "$journal_file" >/dev/null 2>&1 || note "journal-unreadable"
@@ -93,7 +117,7 @@ jq -e '.history | type == "array"' "$journal_file" >/dev/null 2>&1 || note "jour
 # reading it from the resolver rather than recomputing it here still means a future resolver change
 # has one place to land, not two that can drift apart.
 [ -n "$audit_rel" ] || note "resolver-missing-audit-path"
-audit_file="$repo_root/$audit_rel"
+audit_file="$feature_root/$audit_rel"
 
 # Render to a temp file first, then move it into place. `>"$audit_file"` truncates the target
 # before the group runs, and with no `-e` a mid-stream jq abort (a malformed or hand-corrupted

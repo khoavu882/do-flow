@@ -1,0 +1,11 @@
+{
+  "template": 1,
+  "path": "providers/{{local}}.json",
+  "programs": [
+    {
+      "id": "{{local}}",
+      "binary": "{{local}}",
+      "argv": "capability-cli"
+    }
+  ]
+}

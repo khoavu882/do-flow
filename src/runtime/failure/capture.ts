@@ -95,7 +95,9 @@ function doflowFrame(error: any): string | null {
   for (const line of stack.split('\n')) {
     const match = /^\s*at (?:async )?(?:(.+?) \()?(.+?):\d+:\d+\)?$/.exec(line);
     if (!match) continue;
-    const file = match[2].replace(/^file:\/\//, '');
+    const file = process.platform === 'win32' && /^file:\/\/\/[A-Za-z]:/.test(match[2])
+      ? path.normalize(match[2].slice('file:///'.length))
+      : match[2].replace(/^file:\/\//, '');
     if (!file.startsWith(root) || file.includes(`${path.sep}node_modules${path.sep}`)) continue;
     const fn = (match[1] || '').replace(/^new /, '').split('.').pop()!.replace(/\s.*$/, '') || '<anonymous>';
     return `${path.relative(REPO_ROOT, file).split(path.sep).join('/')}:${fn}`;

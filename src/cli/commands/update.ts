@@ -19,7 +19,7 @@ const { loadRegistry } = require('../../registry/index.ts');
 const { storageAfterInstall } = require('../../runtime/storage/upkeep.ts');
 const { applyLifecycle, recordMcpOwnership, retentionSummary } = require('../../lifecycle/index.ts');
 const {
-  codexScope, registryLifecycleView, printRegistryLifecycle, printPlanNotices, assertSafeRegistryPlan,
+  codexScope, registryLifecycleView, printRegistryLifecycle, printRetiredPlans, printPlanNotices, assertSafeRegistryPlan,
   lockDocument, lockDelta, recordLock,
 } = require('../../lifecycle/view.ts');
 const {
@@ -139,6 +139,7 @@ function cmdUpdate(o: any): void {
       const owned = result.ledger.resources.filter((resource: any) => resource.harness === target.harness).length;
       console.log(`[INFO] ${target.harness}: lifecycle verified (${owned} owned resource(s))`);
     }
+    printRetiredPlans(lifecycleView);
     printPlanNotices(lifecycleView);
     // As remove does: a file this update leaves standing because a harness outside the run still
     // claims it is said, not implied. The per-file prune and keep lines are the plan notices above.

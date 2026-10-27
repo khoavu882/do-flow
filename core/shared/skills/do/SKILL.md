@@ -18,7 +18,7 @@ Universal command dispatcher, task decomposer, capability router, and developmen
 
 1. **Session & Command Dispatch**:
    - If invoked with no arguments or `--help`, announce DoFlow session status and display the core command reference.
-   - If `$1` matches a known `/do-*` skill (`do-flow`, `do-brainstorm`, `do-design`, `do-plan`, `do-execute-plan`, `do-test`, `do-code-review`, `do-git`, `do-constitution`, `do-diagnose`, `do-document`, `do-implement`), forward to that skill directly.
+   - If `$1` matches a `/do-*` skill in the Core Command Reference table below, forward to that skill directly.
    - Otherwise, resolve the runtime seam **once** and reuse `$DOFLOW` for every later call here:
 
 ```bash
@@ -38,14 +38,18 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      `doflow-run lifecycle --action overview --maintain --since T --json` (`doflow-run` is the
      `$DOFLOW` resolved above), and settle each pending item with the question tool through the
      `doflow-run followup`, `doflow-run goal` or `doflow-run failure` command its `next` lines give.
+     Advice on a follow-up: `references/advice_calls.md`, followup-triage.
      Rerun with the same `--since T` until nothing is pending. A product problem the user reports
      goes to `doflow-run followup --action report`; a large goal they state, to
      `doflow-run goal --action add`. It edits no source file.
+   - `/do program <goal>`, or an ask larger than one feature: follow `references/program_mode.md`, researching per
+     `../do-document/references/deep_research.md` at the tiers the guidance tree's `references/MODEL_SELECTION.md` gives.
+   - `/do package <idea>` or "make this a DoFlow extension/package/plugin": run `"$DOFLOW" package --action points --json`; stop if a needed point is not open. Ask up to 3 questions (what/why, id, points) via the question tool; run `"$DOFLOW" package --action new --id <id> --points <point[:local],...>`; follow `next` lines. No evidence batch; never write `grants.jsonl`, add remote sources or create a feature folder.
 
 2. **Multi-Part / Ambiguous Request Routing (`--depth`)**:
    - When a request bundles 2+ unrelated asks across different files or domains, verify referenced files exist first.
    - Decompose into independent or sequenced work packages, then propose **one task class per
-     package** and let the runtime validate each: `"$DOFLOW" classify --task-class "<proposed>" --calling-skill do [--request <shell-escaped argument> | --request-file <file>] --json`. Prefer `--request-file`: create a temporary UTF-8 file with `mktemp`, write the verbatim request as the body of a single-quoted heredoc whose delimiter does not occur on any request line, pass only its path, and install cleanup traps plus explicit removal. Never interpolate raw request text into a shell command or word; use `--request` only as one safely shell-escaped argument, and omit the optional opinion if safe transport is unavailable. The flags are mutually exclusive.
+     package** and let the runtime validate each: `"$DOFLOW" classify --task-class "<proposed>" --calling-skill do (--request-file <file> | --request <shell-escaped argument>) --json`. Always pass the request. Prefer `--request-file`: create a temporary UTF-8 file with `mktemp`, write the verbatim request as the body of a single-quoted heredoc whose delimiter does not occur on any request line, pass only its path, and install cleanup traps plus explicit removal. Never interpolate raw request text into a shell command or word; use `--request` only as one safely shell-escaped argument, and omit the optional opinion if safe transport is unavailable. The flags are mutually exclusive.
 
      When the JSON carries `secondOpinion.status: "answered"` with `agrees: false`, tell the user the decision model picked a different class, in one line naming both; the verdict stands, and no other action follows from it.
 
@@ -64,17 +68,14 @@ Route each package to the accepted workflow's first stage. A workflow whose `sta
 that does the package's work is a misclassification — re-propose the class rather than routing the
 package under one the runtime accepted for a different kind of task.
 
+   Advice on a worker's tier: `references/advice_calls.md`, tier.
+
    - For detailed decomposition and dependency graph formatting, consult this skill's own
-     `references/pm_routing.md`.
+     `references/pm_routing.md`; before dispatching agents, read the guidance tree's
+     `references/ORCHESTRATION.md` and `references/MODEL_SELECTION.md`.
 
 3. **Capability & Tool Selection**:
-   - Before routing, check what recorded runs already show — run `"$DOFLOW" discover --json`
-     (reuse `$DOFLOW` resolved in step 1). **It exits 1 when there is a finding — that is signal,
-     not failure; never treat that exit code as an error.** When the analysis cannot be settled
-     from the recorded metadata, `discover` reports `UNKNOWN` rather than "clear"; surface `UNKNOWN`
-     as undetermined and never round it up to "no missed opportunities". `do` surfaces the finding
-     to the user — it takes no automatic action on it, and no finding is ever rendered as a number,
-     a percentage, or a confidence.
+   - Before routing, run `"$DOFLOW" discover --json` to check recorded runs. Exit 1 signals a finding, not an error. When metadata cannot settle the analysis, surface `UNKNOWN` as undetermined, never clear. Show findings to the user; take no automatic action. Never render findings as a number, percentage or confidence.
    - Routing an information need to a tool is unconditional, not a mode this skill can be asked
      for: whenever a search, graph, or testing need arises, query the Capability Router — run `"$DOFLOW" capabilities` (add `--json` to parse, `--check` for a deep
      smoke check), or `"$DOFLOW" route --intent <intent> --json` to resolve one need end to end. It
@@ -82,6 +83,7 @@ package under one the runtime accepted for a different kind of task.
      Ripgrep when absent, and a static table cannot know that.
    - Consult this skill's own `references/tool_matrix.md` for the intent→capability map and the two
      fallback layers. Treat the router's output as authoritative when the two disagree.
+   - Advice on an MCP server's trigger: `references/advice_calls.md`, mcp-need.
 
 4. **Scope & Effort Estimation (`--estimate`)**:
    - When asked for sizing, complexity, or timeline estimates, produce a range anchored against git history and file scope, stating the assumptions that set its width and the unknowns that would narrow it. Never attach a numeric or percentage certainty to the range — the assumptions are the honest expression of what is not yet known.

@@ -1,0 +1,918 @@
+Permissions - Features - Docs - Kiro
+Loading image...
+Product
+About Kiro
+Agents
+IDE
+CLI
+Web
+Mobile
+Crew
+Pricing
+Downloads
+For
+Enterprise
+Startups
+Students
+Community
+Overview
+Ambassadors
+Case studies
+Discord
+Events
+Powers
+Shop
+Showcase
+Resources
+Docs
+Blog
+Changelog
+FAQs
+Videos
+Report a bug
+Suggest an idea
+Billing support
+Social
+English
+Site Terms
+License
+Responsible AI Policy
+Legal
+Privacy Policy
+Cookie Preferences
+English
+Loading image...
+Agents
+Apps
+Enterprise
+Pricing
+Docs
+Community
+Resources
+SIGN IN
+DOWNLOADS
+Loading image...
+Get Started
+Installation
+Authentication
+Your first project
+Models
+Overview
+Available models
+Reasoning effort
+AWS GovCloud (US) models
+Features
+How Kiro works
+Local command sandbox
+ACP integrations
+Specs
+Steering
+Hooks
+MCP
+Permissions
+Custom agents
+Workflows
+Agent Skills
+Powers
+Cloud sessions
+Memory
+Compaction
+Kiroignore
+Checkpoints and rewind
+Built-in tools
+Configuration scopes
+IDE 1.x
+What&#x27;s new in 1.0
+Setup & First Run
+Editor
+Chat
+Experimental
+Troubleshooting
+0.x reference
+CLI
+What&#x27;s new in V3
+Setup & First Run
+Terminal UI
+Chat
+Fullscreen mode
+Voice mode
+Headless mode
+ACP
+Auto complete
+Experimental
+2.x reference
+Crew
+Quick start
+Installation
+Running 24/7
+Chat
+Agent Capabilities
+Features
+Interfaces
+Apps
+System & storage
+Configuration
+Security
+Troubleshooting
+Web
+Setup & First Run
+Identity Center
+Connect your repositories
+Working with the agent
+Autonomous mode
+Schedule
+Configuration Sync
+Sandbox
+Mobile - Preview
+Overview
+Commands and Reference
+CLI commands
+Slash commands
+Built-in tools
+Exit codes
+Settings
+Billing
+Overview
+Managing your subscription
+Upgrading your plan
+Downgrading your plan
+Cancelling your plan
+Purchasing add-on credits
+Managing your payments
+Managing usage notifications
+Managing your taxes
+Contacting billing support
+Deleting your account
+Related questions
+Enterprise
+Concepts
+Onboarding quickstart
+Connecting your identity provider
+Deployment options
+Subscribe your team
+Manage subscriptions
+Governance
+Monitor and track
+Settings
+Managed updates
+Billing
+IAM
+Supported regions
+AWS GovCloud (US)
+Privacy and Security
+Overview
+Data protection
+Code references
+Compliance validation
+Infrastructure security
+IAM permissions
+Firewalls, proxies, and data perimeters
+VPC endpoints (AWS PrivateLink)
+Guides
+Overview
+Running Kiro in the cloud
+Language support
+Learn by playing
+Migration
+Migrating from Q Developer
+Migrating from VSCode
+Upgrading from Q CLI
+Docs
+Features
+Permissions
+Copy page
+View as Markdown
+Permissions
+Copy page
+View as Markdown
+Kiro uses a capability-based permissions system that gives you fine-grained, declarative control over what the agent can do. You define rules per capability with match patterns and explicit effects, replacing older binary trust models.
+Capability
+IDE
+CLI
+Web
+Mobile
+Permissions YAML configuration
+✓
+✓
+N/A
+—
+Interactive approval prompts
+✓
+✓
+N/A
+—
+Global + workspace scopes
+✓
+✓
+N/A
+—
+Managed cloud sandbox instead of permission prompts
+N/A
+N/A
+✓
+—
+On Web, the
+permissions.yaml
+model and interactive approvals do not apply: the agent runs inside an isolated
+cloud sandbox
+instead of prompting per action, so those rows are marked N/A rather than unsupported.
+How it works
+The permissions system is built around three core concepts:
+Concept
+Description
+Capabilities
+fs_read
+,
+fs_write
+,
+shell
+,
+web_fetch
+,
+web_search
+,
+mcp
+,
+subagent
+,
+skill
+,
+power
+,
+context
+,
+diagnostics
+,
+sandbox_network
+. Meta-capabilities expand:
+all
+(every capability except
+sandbox_network
+),
+builtin
+(all built-in tools),
+filesystem
+(
+fs_read
++
+fs_write
+)
+Effects
+deny
+(block always),
+ask
+(prompt you),
+allow
+(proceed silently)
+Priority
+deny > ask > allow - a deny rule always wins regardless of scope.
+sandbox_network
+host rules are the exception; see
+Sandbox network rules
+Additional rule properties:
+Property
+Description
+Match patterns
+Glob patterns scoping the rule (file paths for fs, command prefixes for shell, server/tool names for MCP)
+Exclude
+Optional glob patterns that must NOT match - enables "allow everything except X"
+Sandbox network rules
+The
+sandbox_network
+capability applies only when the
+local command sandbox
+is active. Its
+allow
+and
+deny
+rules name the hosts that sandboxed shell commands can reach, and your
+fs_read
+and
+fs_write
+rules shape which paths those commands can see and write. It is excluded from the
+all
+meta-capability.
+Host filtering does not use deny-overrides.
+sandbox_network
+rules are applied in order and the first rule that matches the host decides, so a specific
+deny
+must come before a broader wildcard
+allow
+that also matches. Deny-overrides still governs whether the agent may run a tool action. See
+Local command sandbox
+for host patterns and network modes.
+Defining rules
+Permissions are defined in YAML files at two levels:
+User-scoped
+(
+~/.kiro/settings/permissions.yaml
+) - applies across all projects. Use to pre-approve trusted operations:
+yaml
+rules
+:
+-
+capability
+:
+shell
+match
+:
+[
+"git *"
+,
+"npm *"
+,
+"npx *"
+]
+effect
+:
+allow
+-
+capability
+:
+fs_write
+match
+:
+[
+"src/**"
+,
+"tests/**"
+]
+effect
+:
+allow
+-
+capability
+:
+fs_read
+effect
+:
+allow
+-
+capability
+:
+mcp
+match
+:
+[
+"my-server/*"
+]
+effect
+:
+allow
+Workspace-scoped
+(
+~/.kiro/workspace-roots/<hash>/permissions.yaml
+) - applies only to a specific project. Use to scope rules to one codebase:
+yaml
+rules
+:
+-
+capability
+:
+fs_write
+match
+:
+[
+"*.env"
+,
+"*.pem"
+,
+"*.key"
+]
+effect
+:
+deny
+-
+capability
+:
+shell
+match
+:
+[
+"rm -rf *"
+,
+"sudo *"
+]
+effect
+:
+deny
+Both scopes support all effects (
+deny
+,
+ask
+,
+allow
+).
+Info
+Workspace permissions are stored
+per-user outside the repository
+at
+~/.kiro/workspace-roots/<hash(workspaceRoot)>/
+. A cloned repo cannot inject permission rules - trust is something you configure on your own machine.
+Exclude syntax
+Rules support an
+exclude
+field for "allow everything except" patterns:
+yaml
+rules
+:
+-
+capability
+:
+mcp
+match
+:
+[
+"my-server/*"
+]
+exclude
+:
+[
+"my-server/dangerous-tool"
+]
+effect
+:
+allow
+Pattern matching
+Rules use glob patterns. The syntax differs by capability type:
+Filesystem patterns
+(
+fs_read
+,
+fs_write
+):
+*
+matches within a single path component
+**
+matches across path separators
+{a,b}
+brace expansion and
+[abc]
+character classes are supported
+Patterns without wildcards implicitly match children:
+~/temp
+matches
+~/temp/child
+Shell, web, and MCP patterns:
+*
+matches any sequence of characters
+**
+,
+?
+, and character classes are not supported
+yaml
+rules
+:
+# Allow npm commands except npm publish
+-
+capability
+:
+shell
+effect
+:
+allow
+match
+:
+-
+"npm *"
+exclude
+:
+-
+"npm publish*"
+# Deny reads to secrets at any depth
+-
+capability
+:
+fs_read
+effect
+:
+deny
+match
+:
+-
+"**/.env"
+-
+"**/.env.*"
+-
+"secrets/**"
+-
+"**/*.pem"
+Shell command parsing
+Shell commands are parsed before pattern matching. Compound commands (using
+;
+,
+&&
+,
+||
+,
+|
+) are split and each sub-command is evaluated independently. This prevents a rule for
+npm test *
+from accidentally matching
+npm test ; curl attacker.com
+.
+The parser evaluates flags inside combined short options, so a command such as
+grep -iP
+still prompts when one of its flags requires approval. Options that can launch another program are never treated as read-only:
+tar --use-compress-program
+and
+tar --to-command
+require approval even when the base
+tar
+command is trusted.
+Scopes
+Permissions are evaluated across multiple scopes.
+Scope
+Location
+Allowed effects
+Kiro
+Hardcoded security invariants (cannot be changed by configuration)
+deny, ask
+administration
+Enterprise permission policies
+in
+managed-settings.json
+deny, ask
+user
+~/.kiro/settings/permissions.yaml
+deny, ask, allow
+workspace
+~/.kiro/workspace-roots/<hash>/permissions.yaml
+deny, ask, allow
+agent
+Embedded in agent profile (
+permissions
+field)
+deny, ask, allow
+session
+In-memory rules from consent decisions during the session
+deny, ask, allow
+Rules are evaluated using a deny-overrides algorithm: deny > ask > allow. There is no precedence between scopes - the most restrictive effect wins regardless of which scope it came from.
+sandbox_network
+host filtering is the exception: it applies rules first-match, as described in
+Sandbox network rules
+.
+Warning
+A
+deny
+rule in any scope blocks the action regardless of
+allow
+rules elsewhere. Be deliberate with deny rules, since no
+allow
+rule can override them. For
+sandbox_network
+host rules, order decides instead; see
+Sandbox network rules
+.
+Policy presets
+Policy presets are named, composable sets of session-scope
+allow
+rules. Any ACP client, including Kiro&#x27;s own surfaces and compatible third-party integrations such as editor integrations, review bots, and CI harnesses, can use them to seed a session with a well-defined capability profile without writing individual rules from scratch.
+How presets are applied
+Presets are requested by an ACP client in the
+_meta.kiro.policyPreset
+field of a
+session/new
+or
+session/load
+request. Multiple presets can be combined; their rules are merged as a union.
+json
+{
+"_meta"
+:
+{
+"kiro"
+:
+{
+"policyPreset"
+:
+[
+"edit-workspace"
+,
+"dev-shell"
+]
+}
+}
+}
+Preset rules are seeded into the session when the client opens it, separately from the rules you configured in
+permissions.yaml
+. This is why a session&#x27;s active rules can include entries you never wrote.
+Requesting an unknown preset ID rejects the session request. There is no silent fallback to a default policy.
+Info
+Preset rules are session-scope and held in memory only. On a cold session load (a full restart), the client must re-assert the preset. A session that resumes without a full restart keeps its already-seeded rules.
+Available presets
+Preset ID
+What it allows
+allow-all
+Every capability except
+sandbox_network
+(equivalent to
+capability: all, effect: allow
+)
+edit-workspace
+fs_read
+and
+fs_write
+within
+./**
+only
+read-workspace
+fs_read
+within
+./**
+only
+read-all
+fs_read
+anywhere, plus
+web_fetch
+and
+web_search
+read-only-shell
+Read-only shell commands: system info plus
+git
+,
+cargo
+,
+npm
+,
+docker
+,
+kubectl
+, and
+rustup
+queries
+dev-shell
+Read-only shell commands (the
+read-only-shell
+set) plus git write commands; build tools
+cargo
+,
+npm
+,
+bun
+,
+yarn
+; workspace ops
+mkdir
+,
+touch
+,
+mv
+,
+cp
+; inspection commands
+ls
+,
+cat
+,
+grep
+,
+echo
+Choosing presets for a session
+Presets are allow-only profiles: they remove prompts for the operations a session is meant to perform, and everything else keeps the default of asking for approval. Pick the narrowest profile that matches the session&#x27;s job.
+Session profile
+Presets
+What you get
+Code review or audit
+read-workspace
+Workspace files are read silently. Writes and shell commands still ask, so the session prompts before any change.
+Investigation and research
+read-all
+File reads anywhere on disk, plus
+web_fetch
+and
+web_search
+, for sessions that trace an issue across code and external documentation without needing write access.
+Diagnostics and triage
+read-workspace
++
+read-only-shell
+The agent reads workspace files and queries git, docker, kubectl, and other tool state. Nothing grants a write, so every change still asks.
+Autonomous build-and-test loop
+edit-workspace
++
+dev-shell
+The agent edits workspace files, runs git write commands and the standard build tools, and creates or moves files in the workspace without a prompt per action. Writes outside the workspace and unlisted commands still ask.
+Disposable sandbox
+allow-all
+Every capability is allowed. Use it where the environment itself is the boundary, such as a container that is discarded after the run.
+Each profile is requested the same way: the preset IDs go in the
+policyPreset
+array of the session request. A code review bot opens its session with:
+json
+{
+"_meta"
+:
+{
+"kiro"
+:
+{
+"policyPreset"
+:
+[
+"read-workspace"
+]
+}
+}
+}
+A diagnostics session pairs workspace reads with read-only shell queries:
+json
+{
+"_meta"
+:
+{
+"kiro"
+:
+{
+"policyPreset"
+:
+[
+"read-workspace"
+,
+"read-only-shell"
+]
+}
+}
+}
+A CI harness that edits, builds, and tests combines the two write-capable presets:
+json
+{
+"_meta"
+:
+{
+"kiro"
+:
+{
+"policyPreset"
+:
+[
+"edit-workspace"
+,
+"dev-shell"
+]
+}
+}
+}
+deny
+rules and the Kiro scope invariants below still apply regardless of which profile is active.
+Presets in embedded and headless clients
+The same profiles map onto common integration patterns. An editor integration that embeds Kiro typically requests
+edit-workspace
+so in-workspace file edits do not prompt. A code review bot requests
+read-workspace
+and nothing more. A CI or evaluation harness driving the agent programmatically combines
+edit-workspace
+with
+dev-shell
+, then adds its own
+deny
+rules for anything the pipeline must never touch.
+Warning
+Headless execution raises the stakes: when no interactive client is available, every
+ask
+is treated as a deny, because the runtime has no interactive channel to deliver the prompt. A headless session can only perform operations that are explicitly allowed, so the presets it requests, plus any configured
+allow
+rules, define its entire grant surface.
+Trust invariants
+Presets extend what a session is allowed to do, but they cannot override higher-precedence rules. The deny-overrides algorithm described in the Scopes section above still applies in full:
+Kiro-scope hard denies (writes to
+~/.kiro/settings/
+,
+.kiro/settings/
+,
+~/.kiro/workspace-roots/
+,
+.kiroignore
+, and the other stores listed under
+Default behavior
+) block the action regardless of any preset.
+Kiro-scope ask rules (
+.git/**
+,
+.vscode/**
+,
+**/*.code-workspace
+, and the
+agents
+,
+hooks
+,
+workflows
+, and
+powers
+directories under
+.kiro
+and
+~/.kiro
+) still prompt, even when a preset grants broad write access.
+Any
+deny
+rule you have configured at the user, workspace, or administration scope wins over a preset
+allow
+.
+The
+sandbox_network
+capability is not part of the
+all
+meta-capability, so no preset, including
+allow-all
+, changes sandbox network gating.
+Subagents inherit the parent session&#x27;s full rule set via deny-wins intersection: every allow, deny, and ask from the parent applies, so a more restrictive rule on either side always wins.
+Default behavior
+Without any
+permissions.yaml
+configured, the default agent policy allows:
+fs_read
+on
+./**
+- read any workspace file silently
+shell
+for common git read-only commands -
+git status
+,
+git log
+,
+git diff
+,
+git branch
+, and similar
+shell
+for system info commands -
+pwd
+,
+whoami
+,
+uname
+, and similar
+Utility tools (diagnostics, knowledge, and similar)
+The Kiro scope (hardcoded, not changeable by configuration) enforces:
+Always denied:
+writes to
+~/.kiro/settings/
+,
+.kiro/settings/
+, and
+~/.kiro/workspace-roots/
+(prevents the agent from modifying its own permission files), to
+.kiroignore
+at any depth (it defines the agent&#x27;s own read boundary), to the MCP configuration of an installed Power (
+~/.kiro/powers/installed/<name>/mcp.json
+), and to Kiro&#x27;s own state stores (
+~/.kiro/sandbox-state/
+,
+~/.kiro/web-session/
+,
+~/.kiro/cloud-cache/
+,
+~/.kiro/sandbox-curl/
+)
+Always asks:
+writes to
+.git/**
+,
+.vscode/**
+,
+**/*.code-workspace
+, and the
+agents
+,
+hooks
+,
+workflows
+, and
+powers
+directories of both the workspace
+.kiro
+and
+~/.kiro
+. These ask in trusted and untrusted workspaces alike, and no
+allow
+rule from any scope removes the prompt, with one exception inside the managed cloud sandbox described under
+Workspace trust
+.
+Asks while the workspace is untrusted:
+writes to
+.kiro/steering
+,
+.kiro/skills
+,
+.kiro/extensions
+, the
+.kiro/specs
+directory itself, and any
+.kiro
+directory Kiro does not declare, even when a saved rule allows the write. See
+Workspace trust
+.
+Everything else prompts for approval. Creating a
+permissions.yaml
+adds to these defaults; it does not replace them.
+Workspace trust
+Some agent inputs live inside the repository you open: custom agent profiles in
+.kiro/agents/
+, Steering files in
+.kiro/steering/
+, workspace MCP server configuration, Skills, and Workflow files. A cloned repository could use them to change how the agent behaves, so Kiro treats a workspace as untrusted until you trust it. Your decision is stored outside the workspace, so a repository cannot change its own trust status.
+Until you trust a workspace, Kiro:
+Does not load the workspace&#x27;s custom agents, Steering files, MCP server configuration, or Skills.
+[snapshot truncated]

@@ -115,6 +115,18 @@
           "sourceMode": "live"
         }
       ]
+    },
+    "document.extract": {
+      "description": "Extract plain text or structured key-value data from documents or images.",
+      "providers": []
+    },
+    "media.transcribe": {
+      "description": "Convert audio/media recording into text transcription with optional timestamps.",
+      "providers": []
+    },
+    "text.compress": {
+      "description": "Perform context-preserving semantic text compression.",
+      "providers": []
     }
   }
 }

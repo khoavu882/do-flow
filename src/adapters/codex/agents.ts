@@ -9,18 +9,12 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { atomicWrite } = require('./config.ts');
+const { REPO_ROOT } = require('../../helper/repo-root.ts');
 
 const AGENT_DIRECTORY = 'agents';
 const AGENT_KIND = 'custom-agent';
 const REQUIRED_FIELDS = ['name', 'description', 'developer_instructions'];
-const READ_ONLY_ROLES = new Set([
-  'backend-architect', 'deep-research-agent', 'devops-architect', 'frontend-architect',
-  'quality-engineer', 'requirements-analyst', 'root-cause-analyst', 'security-engineer',
-  'system-architect', 'technical-writer',
-]);
-const IMPLEMENTATION_ROLES = new Set([
-  'performance-engineer', 'pm-agent', 'python-expert', 'refactoring-expert',
-]);
+const SPEC_DIRECTORY = path.join(REPO_ROOT, 'core', 'shared', 'agent-specs');
 const ALLOWED_FIELDS = new Set([...REQUIRED_FIELDS, 'sandbox_mode']);
 
 function fingerprint(content: string): string {
@@ -85,7 +79,21 @@ function parseAgentToml(source: any, { fileName }: { fileName?: string } = {}): 
   return values;
 }
 
-function validateAgentContract(source: any, { fileName }: { fileName?: string } = {}): any {
+/** `access` of every shared agent spec by name (118 IC-002). A TOML whose name has no spec is the
+ * user's own agent and is not tied to any access. */
+function specAccess(specDir: string = SPEC_DIRECTORY, fsImpl: any = fs): Map<string, string> {
+  const access = new Map<string, string>();
+  if (!fsImpl.existsSync(specDir)) return access;
+  for (const entry of fsImpl.readdirSync(specDir)) {
+    if (!entry.endsWith('.md')) continue;
+    const frontmatter = fsImpl.readFileSync(path.join(specDir, entry), 'utf8').match(/^---\r?\n([\s\S]*?)\r?\n---/);
+    const value = frontmatter?.[1].match(/^access:\s*(\S+)\s*$/m)?.[1];
+    if (value) access.set(entry.slice(0, -'.md'.length), value);
+  }
+  return access;
+}
+
+function validateAgentContract(source: any, { fileName, access = specAccess() }: { fileName?: string, access?: Map<string, string> } = {}): any {
   const agent = parseAgentToml(source, { fileName });
   for (const field of REQUIRED_FIELDS) {
     if (typeof agent[field] !== 'string' || !agent[field].trim()) throw new Error(`Agent is missing required '${field}'`);
@@ -97,11 +105,12 @@ function validateAgentContract(source: any, { fileName }: { fileName?: string } 
   if (agent.sandbox_mode !== undefined && !['read-only', 'workspace-write', 'danger-full-access'].includes(agent.sandbox_mode)) {
     throw new Error(`Agent '${agent.name}' has an unsupported sandbox_mode`);
   }
-  if (READ_ONLY_ROLES.has(agent.name) && agent.sandbox_mode !== 'read-only') {
-    throw new Error(`Analysis role '${agent.name}' must use sandbox_mode = "read-only"`);
+  const specAccessValue = access.get(agent.name);
+  if (specAccessValue === 'read-only' && agent.sandbox_mode !== 'read-only') {
+    throw new Error(`Agent '${agent.name}' has access: read-only and must use sandbox_mode = "read-only"`);
   }
-  if (IMPLEMENTATION_ROLES.has(agent.name) && agent.sandbox_mode !== undefined) {
-    throw new Error(`Implementation role '${agent.name}' must inherit its parent sandbox`);
+  if (specAccessValue === 'write' && agent.sandbox_mode !== undefined) {
+    throw new Error(`Agent '${agent.name}' has access: write and must inherit its parent sandbox`);
   }
   return Object.freeze({ ...agent, fileName: filenameFor(agent.name) });
 }
@@ -134,12 +143,13 @@ function discoverCodexAgents(sourceDir: any, fsImpl: any = fs): any[] {
   const directory = path.resolve(sourceDir);
   if (!fsImpl.existsSync(directory)) throw new Error(`Codex agent source directory does not exist: ${sourceDir}`);
   const agents: any[] = [];
+  const access = specAccess();
   for (const entry of fsImpl.readdirSync(directory, { withFileTypes: true }).sort((a: any, b: any) => a.name.localeCompare(b.name))) {
     if (!entry.name.endsWith('.toml')) continue;
     if (!entry.isFile()) throw new Error(`Codex agent source '${entry.name}' must be a regular file`);
     const name = expectedName(entry.name);
     const source = fsImpl.readFileSync(path.join(directory, entry.name), 'utf8');
-    agents.push({ ...validateAgentContract(source, { fileName: entry.name }), name, source, fingerprint: fingerprint(source) });
+    agents.push({ ...validateAgentContract(source, { fileName: entry.name, access }), name, source, fingerprint: fingerprint(source) });
   }
   if (!agents.length) throw new Error(`No Codex agent TOML contracts found in ${sourceDir}`);
   return agents;
@@ -202,7 +212,7 @@ function reconcileCodexAgents(options: any): any {
 }
 
 module.exports = {
-  AGENT_DIRECTORY, AGENT_KIND, READ_ONLY_ROLES, IMPLEMENTATION_ROLES, fingerprint,
+  AGENT_DIRECTORY, AGENT_KIND, fingerprint, specAccess,
   parseAgentToml, validateAgentContract, agentDirectory, destinationFor, discoverCodexAgents,
   planCodexAgents, applyCodexAgents, reconcileCodexAgents,
 };

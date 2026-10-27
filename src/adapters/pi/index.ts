@@ -3,7 +3,7 @@
 // TypeScript migration (agent-docs/BRIEF_GOAL_DOFLOW.md): run directly by Node native type-stripping.
 
 // Pi adapter — a marker-merged instruction file plus copy-tree materialisation, the same shape
-// Claude/Codex/Gemini already use for their own skills trees.
+// Claude/Codex already use for their own skills trees.
 //
 // Skills materialise into Pi's own directories (`~/.pi/agent/skills` global, `.pi/skills` project)
 // via the shared copy-tree engine, rather than pointing Pi's settings.json at DoFlow's already
@@ -22,10 +22,11 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const { MARKER_START, MARKER_END } = require('../../helper/marker-merge.ts');
-const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, sourceDirFor } = require('../copy-tree.ts');
+const { planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, sourceDirFor, resolveTransform } = require('../copy-tree.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 const { mcpRows, discoverPiMcp, ownedPiMcpIds, planPiMcp, applyPiMcp, verifyPiMcp } = require('./mcp.ts');
 const { planPiHooks, verifyPiHooks, removePiHooks } = require('./hooks.ts');
+const { renderGuidancePointer } = require('../guidance-pointer.ts');
 
 const HARNESS = 'pi';
 const AGENT_DIR_MCP_NOTICE = 'PI_CODING_AGENT_DIR is set: Pi reads its whole agent dir from it, but DoFlow moves only mcp.json there; skills and AGENTS.md stay in ~/.pi/agent.';
@@ -105,7 +106,7 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
       const destDir = sharedTreeDestDir(paths.root, asset.nativeDir) ?? copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Pi');
       const previousResources = ledgerFileResources(ledger?.resources, HARNESS, asset.id);
-      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, keepModified: !removing,
+      const result = planTree({ sourceDir, destDir, previousResources, siblingFingerprints: ledgerSiblingFingerprints(ledger?.resources, HARNESS), operation: removing ? 'remove' : 'apply', fsImpl, layout: asset.layout, transform: asset.transform, keepModified: !removing,
         // Forwarded so the CLI's --force reaches planTree's conflict check; omitting it let
         // planTree's own `force = false` default stand in silently. Gated on `!removing` for the
         // reason codex/index.ts states in full: force heals drift on apply, but a hand-edited file
@@ -123,6 +124,7 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
           kind: 'copy-tree-file', identity: change.relPath,
           afterFingerprint: change.fingerprint, fingerprint: change.fingerprint, sourceVersion: 'registry-v1',
           ...(change.kept ? { retained: true, retainedFor: [] } : {}),
+          transformName: asset.transform || null,
           projection: { renderer: 'copy-tree' },
         });
       }
@@ -132,8 +134,12 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
 
   function applyCopyTreeAssets(changes: any, { fsImpl = fs }: any = {}) {
     const treeChanges = changes.filter((change: any) => change.projection?.renderer === 'copy-tree' && change.operation !== 'remove')
-      .map((change: any) => ({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint }));
-    return applyTree({ changes: treeChanges, fsImpl }).applied;
+      .map((change: any) => ({ relPath: change.identity, target: change.target, source: change.source, operation: change.operation, fingerprint: change.fingerprint, transformName: change.transformName || null }));
+    const grouped = new Map<string | null, any[]>();
+    for (const change of treeChanges) grouped.set(change.transformName, [...(grouped.get(change.transformName) || []), change]);
+    let applied = 0;
+    for (const [transformName, group] of grouped) applied += applyTree({ changes: group, fsImpl, transform: resolveTransform(transformName) }).applied;
+    return applied;
   }
 
   function removeCopyTreeAssets(changes: any, { fsImpl = fs }: any = {}) {
@@ -150,7 +156,7 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
     for (const asset of copyTreeAssets(assets)) {
       const destDir = sharedTreeDestDir(paths.root, asset.nativeDir) ?? copyTreeDestDir(paths.configDir, asset);
       const sourceDir = sourceDirFor(asset, context, fsImpl, 'Pi');
-      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, plannedWrites: context?.plannedWrites });
+      const result = verifyTree({ sourceDir, destDir, fsImpl, layout: asset.layout, transform: asset.transform, plannedWrites: context?.plannedWrites });
       conflicts.push(...result.conflicts.map((reason: any) => `${asset.id}: ${reason}`));
       for (const resource of result.resources) {
         resources.push({
@@ -175,7 +181,8 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
 
     const guidance = assets.find((asset: any) => asset.capability === 'instructions');
     if (guidance) {
-      const rendered = render({ content: fsImpl.readFileSync(path.resolve(context.repoRoot, guidance.source), 'utf8') });
+      const pointer = renderGuidancePointer(fsImpl.readFileSync(path.resolve(context.repoRoot, guidance.source), 'utf8'), { scope, scopeRoot });
+      const rendered = render({ content: pointer });
       const outcome = removing
         ? { ok: true, operation: 'remove', content: strippedInstruction(found.instruction) }
         : managedInstruction(found.instruction, rendered);

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # deny-json.sh — shared PreToolUse deny-JSON emitters for front-door dispatchers.
 #
 # Deliberately carries no `set` directive (unlike lib.sh, which sets -euo
@@ -10,7 +11,7 @@
 #
 # Usage: source "<policy-dir>/deny-json.sh"
 
-case ${BASH_SOURCE[0]} in */*) _DOFLOW_DENY_JSON_DIR=${BASH_SOURCE[0]%/*} ;; *) _DOFLOW_DENY_JSON_DIR=. ;; esac
+_DOFLOW_SRC=${BASH_SOURCE[0]//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_DENY_JSON_DIR=${_DOFLOW_SRC%/*} ;; *) _DOFLOW_DENY_JSON_DIR=. ;; esac
 
 # Escape a string as a JSON string body without external tools. Work bytewise so
 # every control byte is handled the same way regardless of the caller's locale.
@@ -50,15 +51,5 @@ emit_pretooluse_deny_nested() {
     }'
   else
     printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":%s}}\n' "$(_doflow_json_reason "$reason")"
-  fi
-}
-
-# Gemini shape: flat {decision, reason} (packages/core/src/hooks/types.ts).
-emit_pretooluse_deny_flat() {
-  local reason="$1"
-  if command -v jq >/dev/null 2>&1; then
-    jq -n --arg reason "$reason" '{decision: "deny", reason: $reason}'
-  else
-    printf '{"decision":"deny","reason":%s}\n' "$(_doflow_json_reason "$reason")"
   fi
 }

@@ -6,6 +6,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { validatePathsSection } = require('../helper/harness-paths.ts');
+const { BUILTIN_WORKER_ID_RE, RESERVED_WORKER_IDS } = require('./worker-ids.ts');
 
 const REGISTRY_FILES = Object.freeze({
   harnesses: 'harnesses.json',
@@ -17,10 +18,16 @@ const REGISTRY_FILES = Object.freeze({
   models: 'models.json',
 });
 const CAPABILITY_STATUS = new Set(['supported', 'different', 'unavailable']);
+// Kept local to avoid a registry -> adapter import cycle; registry.test.js ties this list to SELECTORS.
+const COPY_TREE_SELECTS = new Set(['guidance-manifest']);
+// Renderers that materialize through the copy-tree engine and so may carry a `select`: the generic one and
+// Copilot's rule renderer, which differs only by its transform and layout.
+const COPY_TREE_SELECT_RENDERERS = new Set(['copy-tree', 'copilot-rule-instructions']);
 /** The orchestration block's own status vocabulary (074 IC-026): whether a harness exposes a
  * primitive, kept apart from CAPABILITY_STATUS because "unknown" is a recorded state here, not a gap. */
 const ORCHESTRATION_STATUS = new Set(['supported', 'unsupported', 'unknown']);
-const ORCHESTRATION_OPS = ['spawn', 'wait', 'status', 'cancel', 'resume'];
+// `nest` (118 IC-004): a subagent can start a subagent.
+const ORCHESTRATION_OPS = ['spawn', 'wait', 'status', 'cancel', 'resume', 'nest'];
 const ORCHESTRATION_FALLBACK = new Set(['sequential', 'manual']);
 // 'core' = must be supported/different (never unavailable) on every currently-integrated harness;
 // 'enhanced' = best-effort, wired wherever a harness's native surface allows. Optional field —
@@ -37,6 +44,7 @@ const EXTERNAL_TOOL_ACTIONS = new Set(['install', 'update', 'uninstall']);
 const MODEL_KINDS = new Set(['hosted', 'local']);
 const MODEL_SLOT_IDS = new Set(['dense', 'rerank']);
 const MCP_STEP_KEYS = new Set(['skill', 'file', 'expectedWhen']);
+const MCP_EXPECTED_WHENS = Object.freeze(new Set(['research-request', 'dependency-change', 'manifest-review']));
 const MCP_NAME = /^[A-Za-z0-9_.-]+$/;
 /** How a capability provider answers: from the current files or commands (`live`), or from a built
  * artifact that can lag the source (`index`). Required on every provider (068). */
@@ -65,7 +73,17 @@ function parseRegistryFile(file: string, fsImpl: any = fs): any {
 
 function registryDir(repoRoot: string): string { return path.join(path.resolve(repoRoot), 'core', 'registry'); }
 
-function loadRegistry({ repoRoot, dir, fsImpl = fs }: { repoRoot?: string, dir?: string, fsImpl?: any } = {}): any {
+type SourceMode = 'require' | 'skip';
+
+function registrySourceMode(repoRoot: string, fsImpl: any = fs): SourceMode {
+  if (typeof repoRoot !== 'string' || !repoRoot.trim()) return 'skip';
+  return fsImpl.existsSync(path.join(path.resolve(repoRoot), 'package.json')) ? 'require' : 'skip';
+}
+
+function loadRegistry({ repoRoot, dir, fsImpl = fs, sources }: { repoRoot?: string, dir?: string, fsImpl?: any, sources?: SourceMode } = {}): any {
+  if (sources !== undefined && sources !== 'require' && sources !== 'skip') {
+    throw new TypeError(`sources must be 'require' or 'skip', got ${JSON.stringify(sources)}`);
+  }
   if (!repoRoot && !dir) throw new Error('loadRegistry requires repoRoot or dir');
   const base = dir ? path.resolve(dir) : registryDir(repoRoot as string);
   const loaded: any = {};
@@ -80,6 +98,8 @@ function loadRegistry({ repoRoot, dir, fsImpl = fs }: { repoRoot?: string, dir?:
     directory: base,
     repoRoot: repoRoot ? path.resolve(repoRoot) : path.resolve(base, '..', '..'),
     harnesses: loaded.harnesses.harnesses,
+    // Optional in the file; an absent list is an empty one. Anything present is validated as written.
+    retired: loaded.harnesses.retired === undefined ? [] : loaded.harnesses.retired,
     assets: loaded.assets.assets,
     mcp: loaded.mcp.servers,
     lifecycle: loaded.lifecycle.policies,
@@ -88,12 +108,14 @@ function loadRegistry({ repoRoot, dir, fsImpl = fs }: { repoRoot?: string, dir?:
     externalTools: loaded.externalTools.tools,
     modelProviders: loaded.models.providers,
     modelRoles: loaded.models.roles,
-    retrievalSlots: Array.isArray(loaded.models.slots) ? loaded.models.slots : [],
+    // Absent is empty; anything else is passed on as written so validation can name a non-array.
+    retrievalSlots: loaded.models.slots === undefined ? [] : loaded.models.slots,
     dispatchTiers: loaded.models.dispatchTiers,
     capabilities,
     versions: Object.fromEntries((Object.entries(loaded) as [string, any][]).map(([name, value]) => [name, value.version])),
   };
-  const validation = validateRegistry(registry, { repoRoot: registry.repoRoot, fsImpl });
+  const sourceMode: SourceMode = sources ?? registrySourceMode(registry.repoRoot, fsImpl);
+  const validation = validateRegistry(registry, { repoRoot: registry.repoRoot, fsImpl, sources: sourceMode });
   if (!validation.ok) {
     const error: any = new Error(`Invalid DoFlow registry:\n- ${validation.errors.join('\n- ')}`);
     error.validation = validation;
@@ -118,11 +140,23 @@ function validateContract(value: any, location: string, errors: string[], harnes
   if (!CONTRACT_COMPLETENESS.has(value.completeness)) {
     issue(errors, location, 'completeness must be verified or lower-bound');
   }
-  // skillFields/agentFields are optional: shared skills and agent specs are byte-identical across
-  // harnesses, so a per-harness field list is necessarily a subset of the union and cannot change
-  // any guard outcome. Declaring one anyway would restate an unverified claim as fact — the exact
-  // shape of inert declaration these guards exist to remove. hookEvents is required because those
-  // genuinely differ per harness and G5 reads them.
+  // agentFields is optional: shared agent specs are byte-identical across harnesses, so a per-harness
+  // field list is necessarily a subset of the union and cannot change any guard outcome. Declaring one
+  // anyway would restate an unverified claim as fact — the exact shape of inert declaration these
+  // guards exist to remove. skillFields is per-harness since row 131: a projected SKILL.md keeps only
+  // the spec keys and its harness's skillFields at the top level, so a list needs its vendor page and
+  // the date it was read. hookEvents is required because those genuinely differ per harness and G5 reads them.
+  if (value.skillFields !== undefined) {
+    if (typeof value.skillFieldsSource !== 'string' || !/^https:\/\//.test(value.skillFieldsSource)) {
+      issue(errors, `${location}.skillFieldsSource`, 'must be the HTTPS vendor page skillFields was read from');
+    }
+    if (typeof value.skillFieldsVerifiedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value.skillFieldsVerifiedOn)) {
+      issue(errors, `${location}.skillFieldsVerifiedOn`, 'must be the YYYY-MM-DD date skillFields was read');
+    }
+    if (!['ignored', 'warned', 'rejected', 'not-documented'].includes(value.unknownSkillFields)) {
+      issue(errors, `${location}.unknownSkillFields`, 'must be ignored, warned, rejected or not-documented');
+    }
+  }
   for (const field of ['skillFields', 'agentFields']) {
     if (value[field] === undefined) continue;
     const list = value[field];
@@ -191,22 +225,24 @@ function validateCapability(value: any, location: string, errors: string[]): voi
   }
 }
 
-function validateSource(repoRoot: any, source: any, location: string, errors: string[], fsImpl: any, expected: string = 'any'): void {
+function validateSource(repoRoot: any, source: any, location: string, errors: string[], fsImpl: any, expected: string = 'any', sources: SourceMode = 'require'): void {
   if (typeof source !== 'string' || !source.trim()) { issue(errors, location, 'requires a repository-relative source'); return; }
   const root = path.resolve(repoRoot);
   const resolved = path.resolve(root, source);
-  if (!resolved.startsWith(`${root}${path.sep}`) || !fsImpl.existsSync(resolved)) { issue(errors, location, `source does not exist inside repository: ${source}`); return; }
+  if (!resolved.startsWith(`${root}${path.sep}`)) { issue(errors, location, `source does not exist inside repository: ${source}`); return; }
+  if (sources === 'skip') return;
+  if (!fsImpl.existsSync(resolved)) { issue(errors, location, `source does not exist inside repository: ${source}`); return; }
   if (expected === 'file' && !fsImpl.statSync(resolved).isFile()) issue(errors, location, `source must be a file: ${source}`);
   if (expected === 'directory' && !fsImpl.statSync(resolved).isDirectory()) issue(errors, location, `source must be a directory: ${source}`);
 }
 
-function validateNativeProjection(projection: any, harness: any, { repoRoot, fsImpl }: { repoRoot: any, fsImpl: any }, errors: string[]): void {
+function validateNativeProjection(projection: any, harness: any, { repoRoot, fsImpl, sources }: { repoRoot: any, fsImpl: any, sources?: SourceMode }, errors: string[]): void {
   const at = `harness '${harness.id}' nativeProjection`;
   if (!object(projection)) { issue(errors, at, 'must be an object'); return; }
   const config = projection.config;
   if (!object(config)) issue(errors, at, 'requires config declaration');
   else {
-    validateSource(repoRoot, config.source, `${at} config`, errors, fsImpl, 'file');
+    validateSource(repoRoot, config.source, `${at} config`, errors, fsImpl, 'file', sources);
     if (!Array.isArray(config.resources) || !config.resources.length) issue(errors, `${at} config`, 'requires non-empty resources');
     for (const resource of config.resources || []) {
       if (!object(resource) || resource.kind !== 'configuration-entry' || typeof resource.identity !== 'string' || !/^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)+$/.test(resource.identity) || !Object.hasOwn(resource, 'value')) {
@@ -218,12 +254,12 @@ function validateNativeProjection(projection: any, harness: any, { repoRoot, fsI
   if (!object(mcp) || mcp.catalog !== 'registry.mcp' || !['optional', 'required'].includes(mcp.selection)) issue(errors, `${at} mcp`, 'requires catalog registry.mcp and optional/required selection');
   const agents = projection.agents;
   if (!object(agents)) issue(errors, `${at} agents`, 'requires agents declaration');
-  else validateSource(repoRoot, agents.source, `${at} agents`, errors, fsImpl, 'directory');
+  else validateSource(repoRoot, agents.source, `${at} agents`, errors, fsImpl, 'directory', sources);
   const hooks = projection.hooks;
   if (!object(hooks)) issue(errors, `${at} hooks`, 'requires hooks declaration');
   else {
-    validateSource(repoRoot, hooks.configSource, `${at} hooks`, errors, fsImpl, 'file');
-    validateSource(repoRoot, hooks.scriptsSource, `${at} hooks`, errors, fsImpl, 'directory');
+    validateSource(repoRoot, hooks.configSource, `${at} hooks`, errors, fsImpl, 'file', sources);
+    validateSource(repoRoot, hooks.scriptsSource, `${at} hooks`, errors, fsImpl, 'directory', sources);
     if (typeof hooks.trusted !== 'boolean') issue(errors, `${at} hooks`, 'trusted must be boolean');
   }
 }
@@ -282,6 +318,12 @@ function validateModelProvider(value: any, location: string, errors: string[]): 
   if (typeof value.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(value.id)) issue(errors, location, 'id must be a lowercase identifier');
   if (typeof value.displayName !== 'string' || !value.displayName.trim()) issue(errors, location, 'requires displayName');
   if (!MODEL_KINDS.has(value.kind)) issue(errors, location, `kind must be one of: ${[...MODEL_KINDS].join(', ')}`);
+  if (!Array.isArray(value.families) || value.families.length === 0
+    || value.families.some((family: any) => typeof family !== 'string' || !/^[a-z][a-z0-9-]*$/.test(family))) {
+    issue(errors, location, 'families must be a non-empty array of lowercase identifiers');
+  } else if (new Set(value.families).size !== value.families.length) {
+    issue(errors, location, 'families must not contain duplicate identifiers');
+  }
   if (!Array.isArray(value.evidence) || value.evidence.length === 0
     || value.evidence.some((url: any) => typeof url !== 'string' || !/^https:\/\//.test(url))) {
     issue(errors, location, 'must include one or more HTTPS evidence URLs');
@@ -337,8 +379,10 @@ function validateMcpStageUse(server: any, at: string, errors: string[]): void {
     if (typeof step.file !== 'string' || !step.file.trim() || path.isAbsolute(step.file) || step.file.split(/[\\/]/).includes('..')) {
       issue(errors, at, `${where}.file must be a path relative to the skill directory`);
     }
-    if (step.expectedWhen !== undefined && step.expectedWhen !== 'research-request') issue(errors, at, `${where}.expectedWhen must be 'research-request' when present`);
-    const key = `${step.skill}\u0000${step.file}`;
+    if (step.expectedWhen !== undefined && !MCP_EXPECTED_WHENS.has(step.expectedWhen)) {
+      issue(errors, at, `${where}.expectedWhen must be one of: ${[...MCP_EXPECTED_WHENS].join(', ')} when present`);
+    }
+    const key = `${step.skill}\u0000${step.file}\u0000${step.expectedWhen ?? ''}`;
     if (seen.has(key)) issue(errors, at, `${where} duplicates skill '${step.skill}' and file '${step.file}'`);
     seen.add(key);
   });
@@ -410,6 +454,295 @@ function validateOrchestration(value: any, location: string, errors: string[]): 
       issue(errors, at, 'requires a reason when status is unknown');
     }
   }
+}
+
+/** The `agentLimits.readOnly` status vocabulary (118 IC-003): `native` = the harness enforces the
+ * limit from keys DoFlow writes into the agent file; `unenforced` = it does not, and says why. */
+const AGENT_LIMIT_STATUS = new Set(['native', 'unenforced']);
+const AGENT_LIMIT_KEYS = ['readOnly', 'toolScope'];
+/** The abstract tool categories an agent spec's `tool-scope` names (row 135); `toolScope.map` gives
+ * each built-in category's tools on a harness, and `mcpSelector` (a template holding `{server}`)
+ * writes the `mcp` category, one selector per MCP server DoFlow's registry names. `form` is how the
+ * adapter writes them: `comma` a comma-separated string, `list` an array, `closed` a permission
+ * object that denies `*` first and then allows only the declared tools. */
+const TOOL_SCOPE_CATEGORIES = ['read', 'edit', 'shell', 'web', 'agents', 'mcp'];
+const TOOL_SCOPE_MAPPED = TOOL_SCOPE_CATEGORIES.filter((category) => category !== 'mcp');
+const TOOL_SCOPE_FORMS = new Set(['comma', 'list', 'closed']);
+const TOOL_SCOPE_ENTRY_KEYS = new Set(['status', 'field', 'form', 'map', 'mcpSelector', 'evidence', 'checked', 'verifiedOn', 'reason']);
+const AGENT_LIMIT_ENTRY_KEYS = new Set(['status', 'apply', 'evidence', 'checked', 'verifiedOn', 'reason']);
+
+/** True when `value` is a non-blank string that parses as an http: or https: URL. */
+function isHttpUrl(value: string): boolean {
+  if (!value.trim()) return false;
+  try { return ['http:', 'https:'].includes(new URL(value).protocol); } catch { return false; }
+}
+
+/** Validates one harness's `agentLimits` block (118 IC-003): how a `read-only` agent spec is limited
+ * on that harness. Declared, never inferred; the adapters read `apply` and nothing else. */
+/** One row per harness for doctor and capabilities (135): how it writes an agent's tool scope, or why
+ * it writes none. An unenforced harness projects no tool field, so its agents keep every tool. */
+function agentToolScopeView(registry: any): Array<{ harness: string, status: string, field?: string, reason?: string }> {
+  return registry.harnesses.map((h: any) => {
+    const entry = h.agentLimits?.toolScope || {};
+    return entry.status === 'native'
+      ? { harness: h.id, status: 'native', field: entry.field }
+      : { harness: h.id, status: entry.status || 'unenforced', reason: entry.reason || 'not declared' };
+  });
+}
+
+function validateAgentLimits(value: any, location: string, errors: string[]): void {
+  if (!object(value)) { issue(errors, location, 'agentLimits block is required and must be an object'); return; }
+  for (const key of AGENT_LIMIT_KEYS) {
+    if (!Object.hasOwn(value, key)) issue(errors, location, `agentLimits is missing '${key}'`);
+  }
+  for (const key of Object.keys(value)) {
+    if (!AGENT_LIMIT_KEYS.includes(key)) issue(errors, location, `agentLimits has unknown key '${key}'`);
+  }
+  if (Object.hasOwn(value, 'toolScope')) validateToolScope(value.toolScope, `${location} agentLimits toolScope`, errors);
+  if (!Object.hasOwn(value, 'readOnly')) return;
+  const at = `${location} agentLimits readOnly`;
+  const entry = value.readOnly;
+  if (!object(entry)) { issue(errors, at, 'must be an object'); return; }
+  for (const key of Object.keys(entry)) {
+    if (!AGENT_LIMIT_ENTRY_KEYS.has(key)) issue(errors, at, `has unknown key '${key}'`);
+  }
+  if (!AGENT_LIMIT_STATUS.has(entry.status)) { issue(errors, at, 'status must be native or unenforced'); return; }
+  const evidenceOk = Array.isArray(entry.evidence) && entry.evidence.every((item: any) => typeof item === 'string');
+  if (!evidenceOk) issue(errors, at, 'evidence must be an array of strings');
+  else for (const item of entry.evidence) if (!isHttpUrl(item)) issue(errors, at, `evidence entry ${JSON.stringify(item)} must be an http(s) URL`);
+  if (typeof entry.verifiedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(entry.verifiedOn)) issue(errors, at, 'requires verifiedOn as an ISO date (YYYY-MM-DD)');
+  if (entry.status === 'native') {
+    if (!object(entry.apply) || Object.keys(entry.apply).length === 0) issue(errors, at, 'native requires apply as a non-empty object');
+    if (evidenceOk && entry.evidence.length === 0) issue(errors, at, 'native requires non-empty evidence');
+    if (entry.checked !== 'docs' && entry.checked !== 'live') issue(errors, at, 'native requires checked as docs or live');
+    return;
+  }
+  if (entry.apply !== undefined) issue(errors, at, 'unenforced must not carry apply');
+  if (typeof entry.reason !== 'string' || !entry.reason.trim()) { issue(errors, at, 'unenforced requires a reason'); return; }
+  if (evidenceOk && entry.evidence.length === 0 && entry.reason.trim().toLowerCase() !== 'no agent surface') {
+    issue(errors, at, 'unenforced requires non-empty evidence unless the reason is "no agent surface"');
+  }
+}
+
+/** Validates one harness's `agentLimits.toolScope` (row 135): how an agent spec's `tool-scope` is
+ * written on that harness, or why it is not. A `native` map names every category with at least one tool. */
+function validateToolScope(entry: any, at: string, errors: string[]): void {
+  if (!object(entry)) { issue(errors, at, 'must be an object'); return; }
+  for (const key of Object.keys(entry)) if (!TOOL_SCOPE_ENTRY_KEYS.has(key)) issue(errors, at, `has unknown key '${key}'`);
+  if (!AGENT_LIMIT_STATUS.has(entry.status)) { issue(errors, at, 'status must be native or unenforced'); return; }
+  const evidenceOk = Array.isArray(entry.evidence) && entry.evidence.every((item: any) => typeof item === 'string' && isHttpUrl(item));
+  if (!evidenceOk) issue(errors, at, 'evidence must be an array of http(s) URLs');
+  if (typeof entry.verifiedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(entry.verifiedOn)) issue(errors, at, 'requires verifiedOn as an ISO date (YYYY-MM-DD)');
+  if (entry.status === 'unenforced') {
+    for (const key of ['field', 'form', 'map', 'mcpSelector']) if (entry[key] !== undefined) issue(errors, at, `unenforced must not carry ${key}`);
+    if (typeof entry.reason !== 'string' || !entry.reason.trim()) issue(errors, at, 'unenforced requires a reason');
+    else if (evidenceOk && entry.evidence.length === 0 && entry.reason.trim().toLowerCase() !== 'no agent surface') issue(errors, at, 'unenforced requires non-empty evidence unless the reason is "no agent surface"');
+    return;
+  }
+  if (typeof entry.field !== 'string' || !entry.field.trim()) issue(errors, at, 'native requires field');
+  if (!TOOL_SCOPE_FORMS.has(entry.form)) issue(errors, at, `form must be one of ${[...TOOL_SCOPE_FORMS].join(', ')}`);
+  if (entry.checked !== 'docs' && entry.checked !== 'live') issue(errors, at, 'native requires checked as docs or live');
+  if (evidenceOk && entry.evidence.length === 0) issue(errors, at, 'native requires non-empty evidence');
+  // A selector names one server: no wildcard may stand before `{server}`, and the server is not the whole selector.
+  if (typeof entry.mcpSelector !== 'string' || !entry.mcpSelector.includes('{server}') || entry.mcpSelector === '{server}' || /[*?].*\{server\}/.test(entry.mcpSelector)) {
+    issue(errors, at, 'native requires mcpSelector, a template naming one {server} with no wildcard before it');
+  }
+  if (!object(entry.map)) { issue(errors, at, 'native requires map'); return; }
+  for (const key of Object.keys(entry.map)) if (!TOOL_SCOPE_MAPPED.includes(key)) issue(errors, at, `map has unknown category '${key}'`);
+  for (const category of TOOL_SCOPE_MAPPED) {
+    const tools = entry.map[category];
+    if (!Array.isArray(tools) || tools.length === 0 || tools.some((tool: any) => typeof tool !== 'string' || !tool.trim())) issue(errors, at, `map.${category} must be a non-empty array of tool names`);
+  }
+}
+
+/** Keys of a harness's `worker` block (081 IC-001) and the recipe fields each capability entry may
+ * carry when, and only when, its status is `supported`. `required` lists the fields a `supported`
+ * entry must carry. The last three are declared, not implemented, so they take no recipe field. */
+const WORKER_CAPABILITIES: Record<string, { allowed: string[], required: string[] }> = Object.freeze({
+  cli: { allowed: ['binary', 'versionArgv'], required: ['binary', 'versionArgv'] },
+  oneShot: { allowed: ['argv', 'promptVia'], required: ['argv', 'promptVia'] },
+  structuredOutput: { allowed: ['argv', 'parser', 'quotaSignals'], required: ['parser'] },
+  readOnly: { allowed: ['argv'], required: ['argv'] },
+  spawnDenial: { allowed: ['argv'], required: ['argv'] },
+  runnableProbe: { allowed: ['argv'], required: ['argv'] },
+  hooksProbe: { allowed: ['argv'], required: ['argv'] },
+  guidanceProbe: { allowed: ['argv', 'marker'], required: ['argv'] },
+  loginProbe: { allowed: ['argv'], required: ['argv'] },
+  persistentSession: { allowed: [], required: [] },
+  resume: { allowed: [], required: [] },
+  steering: { allowed: [], required: [] },
+});
+/** Capability entries a `worker` block may carry but need not (082 IC-013, DEC-020; 120 IC-011).
+ * Absent reads as `unknown`; present, the entry takes every IC-001 capability-entry rule. */
+const WORKER_OPTIONAL_CAPABILITIES: Record<string, { allowed: string[], required: string[] }> = Object.freeze({
+  isolatedEdit: { allowed: ['argv'], required: ['argv'] },
+  model: { allowed: ['argv'], required: ['argv'] },
+});
+const WORKER_BILLING = new Set(['free', 'metered', 'unknown']);
+const WORKER_KEYS = Object.freeze(['profile', 'billing', ...Object.keys(WORKER_CAPABILITIES), 'modelChecks']);
+const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER_OPTIONAL_CAPABILITIES), 'family']);
+const WORKER_ENTRY_FIELDS = new Set(['status', 'evidence', 'verification', 'verifiedOn', 'reason']);
+const WORKER_RECIPE_FIELDS = new Set(['binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'marker', 'quotaSignals']);
+const WORKER_QUOTA_SIGNALS_FIELDS = new Set(['signals', 'basis', 'evidence']);
+const WORKER_FACTS = new Set(['hooksLoaded', 'identityForwarded', 'guidanceLoaded', 'login']);
+const WORKER_MODEL_CHECK_FIELDS = new Set(['id', 'argv', 'establishes', 'estimateTokens', 'timeoutSeconds']);
+const WORKER_ARGV_MAX = 32;
+const WORKER_ARG_MAX_CHARS = 200;
+
+/** A worker argv: an array of 0 to 32 strings, each at most 200 characters and free of NUL. */
+function workerArgvProblem(value: any): string | null {
+  if (!Array.isArray(value) || value.some((item: any) => typeof item !== 'string')) return 'argv must be an array of strings';
+  if (value.length > WORKER_ARGV_MAX) return `argv must have at most ${WORKER_ARGV_MAX} elements`;
+  if (value.some((item: string) => item.length > WORKER_ARG_MAX_CHARS)) return `argv elements must be at most ${WORKER_ARG_MAX_CHARS} characters`;
+  if (value.some((item: string) => item.includes('\0'))) return 'argv elements must not contain NUL';
+  return null;
+}
+
+/** Validates one harness's `worker` block (081 IC-001): the external-worker capabilities and launch
+ * recipe beside `orchestration`. Every message reads `harness '<id>' worker '<key>': ...` and never
+ * contains ` orchestration`, so G33.15's orchestration filter reads none of them. Membership of
+ * `structuredOutput.parser` in the parser table is checked where that table lives (G41.3, IC-008),
+ * not here, so the registry does not require a runtime module. */
+function validateWorker(value: any, location: string, errors: string[]): void {
+  const fail = (key: string, message: string) => issue(errors, `${location} worker '${key}'`, message);
+  if (!object(value)) { fail('*', 'worker block is required and must be an object'); return; }
+  for (const key of WORKER_KEYS) if (!Object.hasOwn(value, key)) fail(key, 'is missing');
+  for (const key of Object.keys(value)) if (!WORKER_ALLOWED_KEYS.includes(key)) fail(key, 'is not a worker key');
+
+  if (Object.hasOwn(value, 'profile') && value.profile !== null && !COVERAGE_PROFILES.has(value.profile)) {
+    fail('profile', 'must be a lifecycle coverage profile or null');
+  }
+  if (Object.hasOwn(value, 'billing') && !WORKER_BILLING.has(value.billing)) {
+    fail('billing', 'must be free, metered, or unknown');
+  }
+  if (Object.hasOwn(value, 'family') && (typeof value.family !== 'string' || !value.family.trim())) {
+    fail('family', 'must be a non-empty string');
+  }
+
+  for (const [key, rule] of [...Object.entries(WORKER_CAPABILITIES), ...Object.entries(WORKER_OPTIONAL_CAPABILITIES)]) {
+    if (!Object.hasOwn(value, key)) continue;
+    const entry = value[key];
+    if (!object(entry)) { fail(key, 'must be a capability entry object'); continue; }
+    if (!ORCHESTRATION_STATUS.has(entry.status)) fail(key, 'status must be supported, unsupported, or unknown');
+    if (!Array.isArray(entry.evidence) || entry.evidence.some((item: any) => typeof item !== 'string')) {
+      fail(key, 'evidence must be an array of strings');
+    } else if (entry.evidence.length === 0 && (entry.status === 'supported' || entry.status === 'unsupported')) {
+      fail(key, `evidence must not be empty when status is ${entry.status}`);
+    }
+    if (typeof entry.verification !== 'string' || !entry.verification.trim()) fail(key, 'requires a verification instruction');
+    if (typeof entry.verifiedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(entry.verifiedOn)) fail(key, 'requires verifiedOn as an ISO date (YYYY-MM-DD)');
+    if (entry.status === 'unknown' && (typeof entry.reason !== 'string' || !entry.reason.trim())) fail(key, 'requires a reason when status is unknown');
+    if (Object.hasOwn(entry, 'reason') && entry.status !== 'unknown' && (typeof entry.reason !== 'string' || !entry.reason.trim())) fail(key, 'reason must be a non-empty string');
+
+    for (const field of Object.keys(entry)) {
+      if (WORKER_ENTRY_FIELDS.has(field)) continue;
+      if (!WORKER_RECIPE_FIELDS.has(field) || !rule.allowed.includes(field)) { fail(key, `has unknown field '${field}'`); continue; }
+      if (entry.status !== 'supported') fail(key, `recipe field '${field}' is allowed only when status is supported`);
+    }
+    if (entry.status !== 'supported') continue;
+    for (const field of rule.required) if (!Object.hasOwn(entry, field)) fail(key, `requires recipe field '${field}' when status is supported`);
+
+    if (Object.hasOwn(entry, 'binary') && (typeof entry.binary !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(entry.binary))) {
+      fail(key, 'binary must be a bare command name');
+    }
+    for (const field of ['versionArgv', 'argv']) {
+      if (!Object.hasOwn(entry, field)) continue;
+      const problem = workerArgvProblem(entry[field]);
+      if (problem) {
+        fail(key, problem.replace(/^argv/, field));
+      } else {
+        // 120 IC-011: only model.argv carries one whole model placeholder.
+        if (key === 'model' && field === 'argv') {
+          const count = entry.argv.filter((item: string) => item === '{model}').length;
+          if (count !== 1 || entry.argv.some((item: string) => item.includes('{model}') && item !== '{model}')) {
+            fail(key, "argv must contain the element '{model}' exactly once, as a whole element");
+          }
+        } else if (entry[field].some((item: string) => item.includes('{model}'))) {
+          fail(key, `${field} must not contain '{model}' outside model.argv`);
+        }
+        // DEC-066: only oneShot.argv carries the prompt; a second placeholder would duplicate it.
+        if (!(key === 'oneShot' && field === 'argv') && entry[field].includes('{prompt}')) {
+          fail(key, `${field} must not contain '{prompt}' outside oneShot.argv`);
+        }
+        if (key === 'structuredOutput' && field === 'argv') {
+          const count = entry.argv.filter((item: any) => item === '{lastMessageFile}').length;
+          if (count > 1) {
+            fail(key, "argv must contain '{lastMessageFile}' only once and only in structuredOutput.argv");
+          }
+        } else if (entry[field].includes('{lastMessageFile}')) {
+          fail(key, "argv must contain '{lastMessageFile}' only once and only in structuredOutput.argv");
+        }
+      }
+    }
+    if (Object.hasOwn(entry, 'parser') && (typeof entry.parser !== 'string' || !entry.parser.trim())) fail(key, 'parser must be a parser id');
+    if (key === 'structuredOutput' && Object.hasOwn(entry, 'quotaSignals')) {
+      const quota = entry.quotaSignals;
+      if (!object(quota)) fail(key, 'quotaSignals must be an object');
+      else {
+        for (const field of Object.keys(quota)) if (!WORKER_QUOTA_SIGNALS_FIELDS.has(field)) fail(key, `quotaSignals has unknown field '${field}'`);
+        if (!Array.isArray(quota.signals) || quota.signals.length < 1 || quota.signals.length > 16) fail(key, 'quotaSignals.signals must contain 1 to 16 signals');
+        else for (const signal of quota.signals) {
+          if (typeof signal !== 'string' || signal !== signal.trim() || signal.length < 3 || signal.length > 64 || /[\u0000-\u001f\u007f]/.test(signal)) {
+            fail(key, 'quotaSignals.signals must be trimmed strings of 3 to 64 characters without control characters');
+            break;
+          }
+        }
+        if (quota.basis !== 'unverified' && quota.basis !== 'transcript') fail(key, "quotaSignals.basis must be 'unverified' or 'transcript'");
+        if (!Array.isArray(quota.evidence) || quota.evidence.some((item: any) => typeof item !== 'string')) fail(key, 'quotaSignals.evidence must be an array of strings');
+        else if (quota.basis === 'transcript' && quota.evidence.length === 0) fail(key, 'quotaSignals transcript basis requires evidence');
+        else if (quota.basis === 'unverified' && quota.evidence.length !== 0) fail(key, 'quotaSignals unverified basis requires empty evidence');
+        else if (quota.basis === 'transcript') {
+          const harnessMatch = location.match(/^harness '([^']+)'/);
+          for (const item of quota.evidence) {
+            if (path.isAbsolute(item) || item.split(/[\\/]/).includes('..')) {
+              fail(key, 'quotaSignals transcript evidence must be under its harness worker-evidence directory');
+            } else if (harnessMatch) {
+              const prefix = `core/worker-evidence/${harnessMatch[1]}/`;
+              if (!item.startsWith(prefix)) fail(key, 'quotaSignals transcript evidence must be under its harness worker-evidence directory');
+            }
+          }
+        }
+      }
+    }
+    if (Object.hasOwn(entry, 'marker') && (typeof entry.marker !== 'string' || entry.marker.length < 1 || entry.marker.length > 200)) {
+      fail(key, 'marker must be 1 to 200 characters');
+    }
+    if (key === 'oneShot' && Object.hasOwn(entry, 'promptVia')) {
+      const count = Array.isArray(entry.argv) ? entry.argv.filter((item: any) => item === '{prompt}').length : 0;
+      if (entry.promptVia === 'argv') {
+        if (count !== 1) fail(key, "argv must contain the element '{prompt}' exactly once when promptVia is argv");
+      } else if (entry.promptVia === 'stdin') {
+        if (count !== 0) fail(key, "argv must not contain '{prompt}' when promptVia is stdin");
+      } else {
+        fail(key, 'promptVia must be argv or stdin');
+      }
+    }
+  }
+
+  if (!Object.hasOwn(value, 'modelChecks')) return;
+  if (!Array.isArray(value.modelChecks)) { fail('modelChecks', 'must be an array'); return; }
+  const seen = new Set<string>();
+  value.modelChecks.forEach((check: any, index: number) => {
+    const key = `modelChecks[${index}]`;
+    if (!object(check)) { fail(key, 'must be an object'); return; }
+    for (const field of Object.keys(check)) if (!WORKER_MODEL_CHECK_FIELDS.has(field)) fail(key, `has unknown field '${field}'`);
+    if (typeof check.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(check.id)) fail(key, 'id must be a lowercase identifier');
+    else if (seen.has(check.id)) fail(key, `duplicate id '${check.id}'`);
+    else seen.add(check.id);
+    const problem = workerArgvProblem(check.argv);
+    if (problem) {
+      fail(key, problem);
+    } else {
+      if (check.argv.some((item: string) => item.includes('{model}'))) fail(key, "argv must not contain '{model}' outside model.argv");
+      if (check.argv.includes('{prompt}')) fail(key, "argv must not contain '{prompt}' outside oneShot.argv");
+      if (check.argv.includes('{lastMessageFile}')) fail(key, "argv must contain '{lastMessageFile}' only once and only in structuredOutput.argv");
+    }
+    if (!Array.isArray(check.establishes) || check.establishes.length === 0 || check.establishes.some((fact: any) => !WORKER_FACTS.has(fact))) {
+      fail(key, `establishes must be a non-empty subset of ${[...WORKER_FACTS].join(', ')}`);
+    }
+    if (!Number.isInteger(check.estimateTokens) || check.estimateTokens < 1) fail(key, 'estimateTokens must be an integer of at least 1');
+    if (!Number.isInteger(check.timeoutSeconds) || check.timeoutSeconds < 1 || check.timeoutSeconds > 600) fail(key, 'timeoutSeconds must be an integer from 1 to 600');
+  });
 }
 
 const CONTEXT_PROFILE_FIELDS = Object.freeze([
@@ -500,7 +833,62 @@ function validateContextProfile(value: any, location: string, errors: string[]):
   }
 }
 
-function validateRegistry(registry: any, { repoRoot, fsImpl = fs }: { repoRoot?: string, fsImpl?: any } = {}): { ok: boolean, errors: string[] } {
+/** Validates the IC-006 primary model probe declaration for one harness. */
+function validatePrimaryProbe(probe: any, harnessId: string, at: string, errors: string[]): void {
+  const location = `${at} primaryProbe`;
+  const fields = ['model', 'events', 'status', 'evidence', 'verifiedOn', 'reason'];
+  if (!object(probe)) {
+    issue(errors, location, 'must be an object');
+    return;
+  }
+  for (const key of Object.keys(probe)) {
+    if (!fields.includes(key)) issue(errors, location, `has an unknown key '${key}'`);
+  }
+  for (const field of fields) {
+    if (!Object.prototype.hasOwnProperty.call(probe, field)) issue(errors, location, `is missing field '${field}'`);
+  }
+  if (probe.model !== 'payload' && probe.model !== 'none') issue(errors, location, "model must be 'payload' or 'none'");
+  if (!Array.isArray(probe.events)) {
+    issue(errors, location, 'events must be an array of distinct non-empty strings');
+  } else {
+    if (probe.events.some((event: any) => typeof event !== 'string' || !event.trim())) {
+      issue(errors, location, 'events must contain only non-empty strings');
+    }
+    if (new Set(probe.events).size !== probe.events.length) issue(errors, location, 'events must contain distinct strings');
+    if (probe.model === 'payload' && probe.events.length === 0) issue(errors, location, "events must be non-empty when model is 'payload'");
+    if (probe.model === 'none' && probe.events.length !== 0) issue(errors, location, "events must be empty when model is 'none'");
+  }
+  if (probe.status !== 'supported' && probe.status !== 'unverified') issue(errors, location, "status must be 'supported' or 'unverified'");
+  if (!Array.isArray(probe.evidence) || probe.evidence.some((item: any) => typeof item !== 'string')) {
+    issue(errors, location, 'evidence must be an array of strings');
+  }
+  if (probe.verifiedOn !== null && (typeof probe.verifiedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(probe.verifiedOn))) {
+    issue(errors, location, 'verifiedOn must be null or a YYYY-MM-DD string');
+  }
+  if (typeof probe.reason !== 'string' || !probe.reason.trim()) {
+    issue(errors, location, 'reason must be a non-empty line');
+  } else if (/[\r\n]/.test(probe.reason)) {
+    issue(errors, location, 'reason must be a non-empty line');
+  }
+  if (probe.status === 'supported') {
+    if (probe.model !== 'payload') issue(errors, location, "status 'supported' requires model 'payload'");
+    const prefix = `core/worker-evidence/${harnessId}/primary-probe/`;
+    if (!Array.isArray(probe.evidence) || !probe.evidence.some((item: any) => typeof item === 'string' && item.startsWith(prefix) && item.length > prefix.length)) {
+      issue(errors, location, `status 'supported' requires evidence under '${prefix}'`);
+    }
+    if (typeof probe.verifiedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(probe.verifiedOn)) {
+      issue(errors, location, "status 'supported' requires a verifiedOn date");
+    }
+  }
+}
+
+function validateRegistry(
+  registry: any,
+  { repoRoot, fsImpl = fs, sources = 'require' }: { repoRoot?: string, fsImpl?: any, sources?: SourceMode } = {},
+): { ok: boolean, errors: string[], sources: SourceMode } {
+  if (sources !== 'require' && sources !== 'skip') {
+    throw new TypeError(`sources must be 'require' or 'skip', got ${JSON.stringify(sources)}`);
+  }
   const errors: string[] = [];
   const harnesses = Array.isArray(registry?.harnesses) ? registry.harnesses : null;
   const assets = Array.isArray(registry?.assets) ? registry.assets : null;
@@ -522,7 +910,8 @@ function validateRegistry(registry: any, { repoRoot, fsImpl = fs }: { repoRoot?:
   for (const harness of harnesses || []) {
     const at = `harness '${harness?.id ?? '?'}'`;
     if (!object(harness)) { issue(errors, 'harnesses', 'entries must be objects'); continue; }
-    if (typeof harness.id !== 'string' || !/^[a-z][a-z0-9-]*$/.test(harness.id)) issue(errors, at, 'id must be a lowercase identifier');
+    if (typeof harness.id !== 'string' || !BUILTIN_WORKER_ID_RE.test(harness.id)) issue(errors, at, 'id must be a lowercase identifier');
+    else if (RESERVED_WORKER_IDS.includes(harness.id)) issue(errors, at, `id '${harness.id}' is a reserved worker id`);
     if (typeof harness.displayName !== 'string' || !harness.displayName.trim()) issue(errors, at, 'requires displayName');
     if (typeof harness.adapter !== 'string' || !harness.adapter.trim()) issue(errors, at, 'requires adapter');
     if (!Array.isArray(harness.scopes) || harness.scopes.length === 0 || harness.scopes.some((scope: any) => !SCOPES.has(scope))) issue(errors, at, 'scopes must contain project and/or user');
@@ -539,9 +928,22 @@ function validateRegistry(registry: any, { repoRoot, fsImpl = fs }: { repoRoot?:
       validateCapability(declaration, `${at} capability '${capability}'`, errors);
     }
     validateOrchestration(harness.orchestration, at, errors);
+    validateAgentLimits(harness.agentLimits, at, errors);
+    validateWorker(harness.worker, at, errors);
+    const quota = harness.worker?.structuredOutput?.quotaSignals;
+    if (object(quota) && quota.basis === 'transcript' && Array.isArray(quota.evidence) && typeof repoRoot === 'string') {
+      for (const evidence of quota.evidence) {
+        if (typeof evidence === 'string' && !fsImpl.existsSync(path.resolve(repoRoot, evidence))) {
+          issue(errors, `${at} worker 'structuredOutput'`, `quotaSignals transcript evidence '${evidence}' does not exist`);
+        }
+      }
+    }
     validateContextProfile(harness.contextProfile, at, errors);
-    if (harness.id === 'codex') validateNativeProjection(harness.nativeProjection, harness, { repoRoot, fsImpl }, errors);
+    validatePrimaryProbe(harness.primaryProbe, typeof harness.id === 'string' ? harness.id : '?', at, errors);
+    if (harness.id === 'codex') validateNativeProjection(harness.nativeProjection, harness, { repoRoot, fsImpl, sources }, errors);
   }
+
+  validateRetired(registry?.retired, harnessIds, errors);
 
   const contractHarnesses = new Set();
   for (const contract of contracts || []) {
@@ -563,7 +965,8 @@ function validateRegistry(registry: any, { repoRoot, fsImpl = fs }: { repoRoot?:
     for (const field of ['id', 'kind', 'source', 'ownership']) if (typeof asset[field] !== 'string' || !asset[field].trim()) issue(errors, at, `requires ${field}`);
     if (typeof asset.source === 'string' && repoRoot) {
       const source = path.resolve(repoRoot, asset.source);
-      if (!source.startsWith(`${path.resolve(repoRoot)}${path.sep}`) || !fsImpl.existsSync(source)) issue(errors, at, `source does not exist inside repository: ${asset.source}`);
+      const outside = !source.startsWith(`${path.resolve(repoRoot)}${path.sep}`);
+      if (outside || (sources === 'require' && !fsImpl.existsSync(source))) issue(errors, at, `source does not exist inside repository: ${asset.source}`);
     }
     if (!Array.isArray(asset.appliesTo) || asset.appliesTo.length === 0) issue(errors, at, 'appliesTo must be a non-empty array');
     if (!object(asset.projection)) issue(errors, at, 'projection must be an object');
@@ -577,6 +980,12 @@ function validateRegistry(registry: any, { repoRoot, fsImpl = fs }: { repoRoot?:
       const capability = harness?.capabilities?.[projection.capability];
       if (!capability) issue(errors, at, `projection '${harnessId}' references unknown capability '${projection.capability}'`);
       else if (capability.status === 'unavailable') issue(errors, at, `projection '${harnessId}' cannot render unavailable capability '${projection.capability}'`);
+      if (projection.select !== undefined) {
+        if (!COPY_TREE_SELECT_RENDERERS.has(projection.renderer)) issue(errors, at, `projection '${harnessId}' select is only valid for ${[...COPY_TREE_SELECT_RENDERERS].map((name) => `'${name}'`).join(' and ')}`);
+        if (typeof projection.select !== 'string' || !COPY_TREE_SELECTS.has(projection.select)) {
+          issue(errors, at, `projection '${harnessId}' has unknown select '${projection.select}' (known: ${[...COPY_TREE_SELECTS].join(', ')})`);
+        }
+      }
     }
   }
 
@@ -633,7 +1042,7 @@ function validateRegistry(registry: any, { repoRoot, fsImpl = fs }: { repoRoot?:
     const providerIds = new Set((modelProviders || []).filter(object).map((item: any) => item.id));
     for (const slot of modelSlots) validateModelSlot(slot, `model slot '${slot?.id ?? '?'}'`, errors, providerIds);
   }
-  return { ok: errors.length === 0, errors };
+  return { ok: errors.length === 0, errors, sources };
 }
 
 const COVERAGE_CLASSES = new Set(['blocking', 'observation', 'advisory', 'unsupported', 'unknown']);
@@ -650,6 +1059,8 @@ function validateCoverage(value: any, lifecycle: any[], harnessIds: Set<string>,
   if (typeof value.rowsDigest !== 'string' || !/^sha256:[a-f0-9]{64}$/.test(value.rowsDigest)) issue(errors, `${at}.rowsDigest`, 'must be sha256 followed by 64 lowercase hex characters');
   if (!object(value.refresh) || typeof value.refresh.trigger !== 'string' || !value.refresh.trigger.trim() || typeof value.refresh.owner !== 'string' || !value.refresh.owner.trim()) issue(errors, `${at}.refresh`, 'requires non-empty trigger and owner');
   if (!object(value.profiles) || [...COVERAGE_PROFILES].some((profile) => typeof value.profiles?.[profile] !== 'string' || !value.profiles[profile].trim())) issue(errors, `${at}.profiles`, 'must define every supported profile with a non-empty meaning');
+  if (value.endOfTurn !== undefined) validateEndOfTurn(value.endOfTurn, `${at}.endOfTurn`, harnessIds, errors);
+  if (value.behaviours !== undefined) validateBehaviours(value.behaviours, `${at}.behaviours`, harnessIds, errors);
   if (!Array.isArray(value.rows)) { issue(errors, `${at}.rows`, 'must be an array'); return; }
   const keys = new Set<string>();
   for (const [index, row] of value.rows.entries()) {
@@ -673,6 +1084,120 @@ function validateCoverage(value: any, lifecycle: any[], harnessIds: Set<string>,
     keys.add(key);
   }
 }
+
+const nonEmptyString = (item: any): boolean => typeof item === 'string' && item.trim() !== '';
+const provenanceItemOk = (item: any): boolean => object(item) && COVERAGE_KINDS.has(item.kind) && nonEmptyString(item.locator)
+  && (!['doc', 'types', 'live'].includes(item.kind) || (typeof item.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.date)));
+
+/** Each registry harness appears exactly once under `key`; reports missing, unknown and duplicate entries. */
+function oncePerHarness(entries: any[], at: string, harnessIds: Set<string>, key: (entry: any) => string, label: (entry: any) => string, groups: string[], errors: string[]): void {
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    if (!object(entry)) continue;
+    const id = key(entry);
+    if (seen.has(id)) issue(errors, at, `duplicates ${label(entry)}`);
+    seen.add(id);
+  }
+  for (const group of groups) for (const harness of harnessIds) if (!seen.has(JSON.stringify([group, harness]))) issue(errors, at, `missing an entry for ${group ? `${group} × ` : ''}harness '${harness}'`);
+}
+
+/** IC-017: one end-of-turn entry per harness; `none` when no event, provenance when any. */
+function validateEndOfTurn(value: any, at: string, harnessIds: Set<string>, errors: string[]): void {
+  if (!Array.isArray(value)) { issue(errors, at, 'must be an array'); return; }
+  for (const [index, entry] of value.entries()) {
+    const entryAt = `${at}[${index}]`;
+    if (!object(entry)) { issue(errors, entryAt, 'must be an object'); continue; }
+    if (!harnessIds.has(entry.harness)) issue(errors, `${entryAt}.harness`, 'must name a registry harness');
+    if (!Array.isArray(entry.events) || !entry.events.every(nonEmptyString)) { issue(errors, `${entryAt}.events`, 'must be an array of event names'); continue; }
+    if (!Array.isArray(entry.provenance) || !entry.provenance.every(provenanceItemOk)) issue(errors, `${entryAt}.provenance`, 'must be an array of well-formed provenance items');
+    if (entry.events.length === 0 && !nonEmptyString(entry.none)) issue(errors, `${entryAt}.none`, 'is required, non-empty, when events is empty');
+    if (entry.events.length > 0 && !(Array.isArray(entry.provenance) && entry.provenance.some((item: any) => object(item) && ['doc', 'types'].includes(item.kind)))) issue(errors, `${entryAt}.provenance`, 'needs a doc or types item when events is non-empty');
+  }
+  oncePerHarness(value, at, harnessIds, (entry) => JSON.stringify(['', entry.harness]), (entry) => `harness '${entry.harness}'`, [''], errors);
+}
+
+const COVERAGE_BEHAVIOURS = Object.freeze(['context-authority', 'default-silence', 'summary-scope', 'summary-grant', 'identity', 'check-freshness']);
+
+/** IC-018: one entry per behaviour × harness; `enforced` names tests, `limitation` states its reason. */
+function validateBehaviours(value: any, at: string, harnessIds: Set<string>, errors: string[]): void {
+  if (!Array.isArray(value)) { issue(errors, at, 'must be an array'); return; }
+  for (const [index, entry] of value.entries()) {
+    const entryAt = `${at}[${index}]`;
+    if (!object(entry)) { issue(errors, entryAt, 'must be an object'); continue; }
+    if (!COVERAGE_BEHAVIOURS.includes(entry.behaviour)) issue(errors, `${entryAt}.behaviour`, `must be one of ${COVERAGE_BEHAVIOURS.join(', ')}`);
+    if (!harnessIds.has(entry.harness)) issue(errors, `${entryAt}.harness`, 'must name a registry harness');
+    if (entry.status === 'enforced') {
+      if (!Array.isArray(entry.tests) || entry.tests.length === 0 || !entry.tests.every(nonEmptyString)) issue(errors, `${entryAt}.tests`, 'must be a non-empty array of test paths when enforced');
+    } else if (entry.status === 'limitation') {
+      if (!nonEmptyString(entry.limitation)) issue(errors, `${entryAt}.limitation`, 'must be non-empty when status is limitation');
+    } else issue(errors, `${entryAt}.status`, 'must be enforced or limitation');
+  }
+  oncePerHarness(value, at, harnessIds, (entry) => JSON.stringify([entry.behaviour, entry.harness]), (entry) => `behaviour '${entry.behaviour}' × harness '${entry.harness}'`, [...COVERAGE_BEHAVIOURS], errors);
+}
+
+const RETIRED_ID_RE = /^[a-z][a-z0-9-]*$/;
+const HANDOVER_SCOPES = new Set(['global', 'project']);
+
+/** A harness DoFlow no longer supports, with what replaces it and how its installed files are
+ * released (row 127 IC-001; `removal.handover` is IC-007). */
+interface RetiredHarness {
+  id: string; displayName: string; replacement: string; retiredOn: string; reason: string; evidence: string[];
+  removal: {
+    hookCommands: { renderer: string; key: string; commands: string[] };
+    markerSectionRenderers: string[];
+    handover: Array<{ renderer: string; scope: 'global' | 'project'; to: string; surface: string }>;
+  };
+}
+
+function isCalendarDate(value: any): boolean {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+/** Validates harnesses.json `retired[]`: optional; every entry fully typed; ids unique and disjoint
+ * from the live harness ids; `replacement` and every `removal.handover[].to` name a live harness. */
+function validateRetired(value: any, harnessIds: Set<string>, errors: string[]): void {
+  if (value === undefined) return;
+  if (!Array.isArray(value)) { issue(errors, 'retired', 'must be an array when present'); return; }
+  idsUnique(value, 'retired', errors);
+  const strings = (items: any, allowEmpty: boolean): boolean => Array.isArray(items) && (allowEmpty || items.length > 0) && items.every(nonEmptyString);
+  for (const [index, entry] of value.entries()) {
+    if (!object(entry)) { issue(errors, `retired[${index}]`, 'must be an object'); continue; }
+    const at = `retired harness '${typeof entry.id === 'string' ? entry.id : `#${index}`}'`;
+    if (typeof entry.id !== 'string' || !RETIRED_ID_RE.test(entry.id)) issue(errors, at, `id must match ${RETIRED_ID_RE}`);
+    else if (harnessIds.has(entry.id)) issue(errors, at, `id collides with live harness '${entry.id}'; an id is either live or retired`);
+    for (const field of ['displayName', 'replacement', 'reason']) if (!nonEmptyString(entry[field])) issue(errors, at, `${field} must be a non-empty string`);
+    if (nonEmptyString(entry.replacement) && !harnessIds.has(entry.replacement)) issue(errors, at, `replacement '${entry.replacement}' is not a live harness`);
+    if (!isCalendarDate(entry.retiredOn)) issue(errors, at, 'retiredOn must be a YYYY-MM-DD date');
+    if (!strings(entry.evidence, false)) issue(errors, at, 'evidence must be a non-empty array of non-empty strings');
+    const removal = entry.removal;
+    if (!object(removal)) { issue(errors, at, 'removal must be an object'); continue; }
+    const hooks = removal.hookCommands;
+    if (!object(hooks)) issue(errors, at, 'removal.hookCommands must be an object');
+    else {
+      for (const field of ['renderer', 'key']) if (!nonEmptyString(hooks[field])) issue(errors, at, `removal.hookCommands.${field} must be a non-empty string`);
+      if (!strings(hooks.commands, false)) issue(errors, at, 'removal.hookCommands.commands must be a non-empty array of non-empty strings');
+    }
+    if (!strings(removal.markerSectionRenderers, true)) issue(errors, at, 'removal.markerSectionRenderers must be an array of non-empty strings');
+    if (!Array.isArray(removal.handover)) { issue(errors, at, 'removal.handover must be an array'); continue; }
+    for (const [h, handover] of removal.handover.entries()) {
+      const hat = `removal.handover[${h}]`;
+      if (!object(handover)) { issue(errors, at, `${hat} must be an object`); continue; }
+      for (const field of ['renderer', 'to', 'surface']) if (!nonEmptyString(handover[field])) issue(errors, at, `${hat}.${field} must be a non-empty string`);
+      if (!HANDOVER_SCOPES.has(handover.scope)) issue(errors, at, `${hat}.scope must be global or project`);
+      if (nonEmptyString(handover.to) && !harnessIds.has(handover.to)) issue(errors, at, `${hat}.to '${handover.to}' is not a live harness`);
+    }
+  }
+}
+
+/** The retired record for `id`, or null when `id` is live or unknown. */
+function retiredFor(registry: any, id: string): RetiredHarness | null {
+  const retired = Array.isArray(registry?.retired) ? registry.retired : [];
+  return retired.find((entry: any) => entry?.id === id) ?? null;
+}
+
+function isRetired(registry: any, id: string): boolean { return retiredFor(registry, id) !== null; }
 
 function harnessFor(registry: any, id: string): any {
   const harness = registry.harnesses.find((item: any) => item.id === id);
@@ -734,7 +1259,7 @@ function capabilityMapData(registry: any): any[] {
 }
 
 module.exports = {
-  REGISTRY_FILES, CAPABILITY_STATUS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, CONTEXT_PROFILE_FIELDS, validateContextProfile, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS, validateCoverage,
-  parseRegistryFile, registryDir, loadRegistry, validateRegistry,
-  harnessFor, selectAssets, selectMcpServers, mcpCapable, nativeMcpCatalog, capabilityMapData,
+  REGISTRY_FILES, CAPABILITY_STATUS, COPY_TREE_SELECTS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, AGENT_LIMIT_STATUS, validateAgentLimits, TOOL_SCOPE_CATEGORIES, agentToolScopeView, WORKER_KEYS, WORKER_CAPABILITIES, WORKER_OPTIONAL_CAPABILITIES, validateWorker, CONTEXT_PROFILE_FIELDS, validateContextProfile, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS, validateCoverage,
+  parseRegistryFile, registryDir, loadRegistry, validateRegistry, registrySourceMode,
+  harnessFor, retiredFor, isRetired, selectAssets, selectMcpServers, mcpCapable, nativeMcpCatalog, capabilityMapData,
 };

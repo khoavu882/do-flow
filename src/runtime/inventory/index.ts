@@ -162,7 +162,7 @@ function planBasis(snapshot: any): any {
  * source fingerprint, **and** the recorded ledger row equal to it too — which is right for its own
  * purpose, planning a write that also refreshes the row. It means a change is emitted whenever the
  * row alone is stale, and that happens routinely: the shared hooks asset projects one destination for
- * claude, codex, gemini, kiro and antigravity while ownership is recorded per harness, so a sibling's
+ * claude, codex, pi, kiro and antigravity while ownership is recorded per harness, so a sibling's
  * install legitimately refreshes bytes the other harnesses' rows still describe by their old hash.
  * Reading such a change as divergence reported one file, identical bytes, under contradictory
  * verdicts per harness, with a remedy offering to "restore" a file that was already correct.

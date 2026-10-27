@@ -1,0 +1,30 @@
+{
+  "event": "SessionStart",
+  "native": {
+    "sessionId": "copilot-session-error",
+    "timestamp": 1793090731778,
+    "cwd": "/tmp",
+    "source": "new"
+  },
+  "state": "none",
+  "fault": "crash-exit-1",
+  "expect": {
+    "exit": 1,
+    "stdout": "",
+    "modelVisibleBytesMax": 0,
+    "decision": {
+      "outcome": "error",
+      "code": "exit-1",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "copilot",
+      "event": "SessionStart",
+      "operation": "session-start",
+      "identity": {
+        "session": "copilot-session-error"
+      }
+    }
+  }
+}

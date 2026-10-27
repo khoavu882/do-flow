@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # contract.sh — shared decision and envelope contract for canonical policies.
 #
 # This file is sourced by policy scripts. It sets no shell options, installs no traps, reads no
@@ -43,6 +44,7 @@ doflow_read_envelope() {
     DF_ENV_TOOL=
     DF_ENV_PATHS=
     DF_ENV_COMMAND=
+    DF_ENV_CWD=
     DF_ENV_PATCH=
     DF_ENV_ROOT=
     DF_ENV_TASK=
@@ -67,6 +69,7 @@ doflow_read_envelope() {
      shellvar("DF_ENV_TOOL"; field("tool")),
      shellvar("DF_ENV_PATHS"; ([$fields.paths[]? | select(type == "string")] | join("\n"))),
      shellvar("DF_ENV_COMMAND"; field("command")),
+     shellvar("DF_ENV_CWD"; ($object.cwd // "") | if type=="string" then . else "" end),
      shellvar("DF_ENV_PATCH"; field("patch")),
      shellvar("DF_ENV_ROOT"; field("projectRoot")),
      shellvar("DF_ENV_TASK"; field("taskId"))][]

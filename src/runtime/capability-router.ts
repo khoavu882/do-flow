@@ -84,6 +84,38 @@ class CapabilityRouter {
       throw new Error(`Invalid registry file '${capsPath}':\n- ${providerErrors.join('\n- ')}`);
     }
     this.routes = routesData.routes || {};
+
+    try {
+      const { contributionsFor } = require('./packages/contributions.ts');
+      const packageContribs = contributionsFor('capability-provider', 1, {
+        repoRoot: this.repoRoot,
+        fsImpl: this.fsImpl,
+        projectRoot: this.projectRoot,
+      });
+      for (const contrib of packageContribs) {
+        const data = contrib.data;
+        if (data && typeof data === 'object' && data.capability) {
+          if (!this.capabilities[data.capability]) {
+            this.capabilities[data.capability] = {
+              description: data.name || data.capability,
+              providers: [],
+            };
+          }
+          this.capabilities[data.capability].providers.push({
+            id: contrib.qualifiedId,
+            name: data.name,
+            kind: data.kind,
+            sourceMode: data.sourceMode || 'live',
+            costTier: data.costTier || 'free',
+            timeoutMs: data.timeoutMs || 10000,
+            ...data,
+            packageId: contrib.packageId,
+          });
+        }
+      }
+    } catch {
+      // best effort if package contributions cannot be queried
+    }
   }
 
   /**
@@ -179,11 +211,36 @@ class CapabilityRouter {
       return { status: 'HEALTHY', facts };
     }
 
-    if (provider.binary) {
-      const available = this.isBinaryAvailable(provider.binary);
+    if (provider.kind === 'http' || provider.endpoint) {
+      const { validateLoopbackUrl } = require('./capabilities/loopback.ts');
+      const valid = validateLoopbackUrl(provider.endpoint);
+      if (!valid.ok) {
+        facts.installed = false;
+        facts.responsive = false;
+        return { status: 'UNAVAILABLE', details: `Disallowed endpoint: ${valid.reason}`, facts };
+      }
+      facts.installed = true;
+      if (deepCheck) {
+        if (provider.checkCommand) {
+          const smoke = this.executeSmokeCheck(provider.checkCommand);
+          facts.responsive = smoke.ok;
+          if (!smoke.ok) {
+            return { status: 'UNAVAILABLE', details: `Smoke check failed: ${smoke.error}`, facts };
+          }
+          return { status: 'HEALTHY', facts };
+        }
+        facts.responsive = false;
+        return { status: 'UNAVAILABLE', details: 'HTTP provider reachability cannot be confirmed without checkCommand', facts };
+      }
+      return { status: 'HEALTHY', facts };
+    }
+
+    const binary = provider.binary || provider.program;
+    if (binary) {
+      const available = this.isBinaryAvailable(binary);
       facts.installed = available;
       if (!available) {
-        return { status: 'UNAVAILABLE', details: `Tool binary '${provider.binary}' not found`, facts };
+        return { status: 'UNAVAILABLE', details: `Tool binary '${binary}' not found`, facts };
       }
       if (deepCheck && provider.checkCommand) {
         const smoke = this.executeSmokeCheck(provider.checkCommand);
@@ -329,6 +386,18 @@ class CapabilityRouter {
       });
     }
 
+    if (provider.kind === 'http' || provider.endpoint) {
+      const method = provider.method || 'POST';
+      return {
+        cliCommand: null,
+        argv: null,
+        httpEndpoint: provider.endpoint,
+        method,
+        args: params,
+        display: `HTTP ${method} ${provider.endpoint}`,
+      };
+    }
+
     return withDisplay({
       argv: [provider.binary || provider.id, query],
       args: params,
@@ -431,6 +500,69 @@ class CapabilityRouter {
       });
     }
     return report;
+  }
+
+  async executeCapability(
+    capabilityId: string,
+    input: any = {},
+    options: any = {}
+  ): Promise<any> {
+    const { LocalCapabilityExecutor } = require('./capabilities/executor.ts');
+    const executor = new LocalCapabilityExecutor({
+      fsImpl: this.fsImpl,
+      fetchImpl: options.fetchImpl,
+      execFileImpl: options.execFileImpl,
+      maxBufferBytes: options.maxBufferBytes,
+    });
+
+    let targetCapId = capabilityId;
+    let fallbackCaps: string[] = [];
+    if (this.routes[capabilityId]) {
+      targetCapId = this.routes[capabilityId].capability;
+      fallbackCaps = this.routes[capabilityId].fallback || [];
+    } else {
+      const matchingRoute = Object.values(this.routes).find((r: any) => r.capability === capabilityId);
+      if (matchingRoute) fallbackCaps = matchingRoute.fallback || [];
+    }
+
+    const capsToTry = [targetCapId, ...fallbackCaps];
+    for (let c = 0; c < capsToTry.length; c++) {
+      const curCap = capsToTry[c];
+      const capDef = this.capabilities[curCap];
+      if (!capDef || !Array.isArray(capDef.providers) || capDef.providers.length === 0) continue;
+
+      for (const provider of capDef.providers) {
+        const res = await executor.execute(curCap, provider, input, options);
+        if (res.ok) {
+          return {
+            ...res,
+            status: c === 0 ? 'HEALTHY' : 'FALLBACK',
+          };
+        }
+        if (
+          res.status === 'ERROR' ||
+          (res.error && (
+            res.error.includes('DECISION_INJECTION_REFUSED') ||
+            res.error.includes('DISALLOWED_REMOTE_ENDPOINT') ||
+            res.error.includes('exceeded buffer limit')
+          ))
+        ) {
+          return {
+            ...res,
+            status: 'ERROR',
+          };
+        }
+      }
+    }
+
+    return {
+      ok: false,
+      capabilityId,
+      providerId: null,
+      status: 'UNAVAILABLE',
+      data: null,
+      error: 'No available healthy providers found for capability',
+    };
   }
 }
 

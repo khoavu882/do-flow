@@ -18,6 +18,9 @@ const RULES: Map<string, string[]> = new Map([
   ['existing', []],
   ['control', []],
 ]);
+// open-work keeps logs an unfinished task's record names; unfinished-run keeps a worker-model file
+// while its worker run or dispatch is not terminal or cannot be resolved (row 120 IC-005).
+const PROTECTS = new Set(['open-work', 'unfinished-run']);
 const MOMENTS = new Set(['verb', 'session', 'verify', 'install', 'lifecycle-verb', 'uninstall']);
 const STORE_ID = /^[a-z][a-z0-9-]*$/;
 
@@ -70,8 +73,18 @@ function validateStorageRegistry(registry: any): { ok: boolean; errors: string[]
         for (const field of RULES.get(store.rule) || []) if (!positiveInteger(store.bound[field])) error(errors, `${where}.bound.${field}`, 'must be a positive integer');
         if (['existing', 'control'].includes(store.rule) && (typeof store.bound.text !== 'string' || !store.bound.text)) error(errors, `${where}.bound.text`, 'must be a non-empty string');
         if (store.rule === 'existing' && store.bound.value !== undefined && !positiveInteger(store.bound.value)) error(errors, `${where}.bound.value`, 'must be a positive integer when present');
+        if (store.rule === 'count-and-age' && store.bound.either !== undefined && typeof store.bound.either !== 'boolean') error(errors, `${where}.bound.either`, 'must be a boolean when present');
+        const allowed = new Set([
+          ...(RULES.get(store.rule) || []),
+          ...(['existing', 'control'].includes(store.rule) ? ['text'] : []),
+          ...(store.rule === 'existing' ? ['value'] : []),
+          ...(store.rule === 'count-and-age' ? ['either'] : []),
+        ]);
+        for (const key of Object.keys(store.bound)) {
+          if (!allowed.has(key)) error(errors, `${where}.bound`, `unknown key '${key}'`);
+        }
       }
-      if (store.protect !== null && store.protect !== 'open-work') error(errors, `${where}.protect`, 'must be open-work or null');
+      if (store.protect !== null && !PROTECTS.has(store.protect)) error(errors, `${where}.protect`, 'must be open-work, unfinished-run or null');
       if (!Array.isArray(store.moments) || store.moments.some((moment: any) => !MOMENTS.has(moment)) || new Set(store.moments).size !== store.moments.length) error(errors, `${where}.moments`, 'must be a unique subset of known moments');
       if (store.rule === 'existing' && store.moments?.length) error(errors, `${where}.moments`, 'must be empty for existing stores');
       if (!Array.isArray(store.writers) || store.writers.some((writer: any) => typeof writer !== 'string' || !writer)) error(errors, `${where}.writers`, 'must be an array of repository-relative paths');

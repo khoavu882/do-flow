@@ -1,0 +1,6 @@
+{
+  "note": "Live proof, Copilot CLI 1.0.103, 2026-10-27 (agent-docs/maintain/issue-21 session C): a preToolUse command hook that prints this JSON and exits 0 blocked `echo hi` before it ran. Copilot's answer: \"The shell command `echo hi` was blocked by a pre-tool-use hook (doflow capture test). It did not run, so there was no `hi` output.\"",
+  "hookStdout": { "permissionDecision": "deny", "permissionDecisionReason": "doflow capture test" },
+  "hookExit": 0,
+  "toolRan": false
+}

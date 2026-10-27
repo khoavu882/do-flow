@@ -14,8 +14,12 @@
 #
 # Usage: doflow-run <verb> [args...]
 #   enforcement --harness <id> --policy <id> [--profile <id>] [--json]
+#   context-emit --event launch|prompt|delta --cwd <dir> [--session <id>] [--harness <id>]
+#     [--nudge nudge|suppress|none] [--max-bytes <n>] [--task-id <id>] [--slug <slug>] [--peek] [--json]
+#   context-grant --summary <summaryId|pending> --to-run <id> --to-lineage <id>
+#     [--from-worktree <dir>] [--from-run <id>] [--from-lineage <id>] [--max-bytes <n>] [--json]
 #   Every verb accepts --json. Exit 0 = success, 1 = an actionable finding, 2 = usage or
-#   resolution error, 3 = context-pack overflow. Arguments, stdin and exit status pass through the
+#   resolution error, 3 = context-pack overflow or context-emit refusal. Arguments, stdin and exit status pass through the
 #   dispatcher unmodified —
 #   `sync-context` reads its block body from stdin, so anything that buffered or consumed it here
 #   would break that verb rather than merely inconvenience it.
@@ -30,29 +34,61 @@ set -euo pipefail
 # `set -euo pipefail` never stops on it; nothing in it can reach the dispatcher's own options or
 # variables. Appends one JSON line of at most 1000 bytes (longer appends from concurrent writers can
 # interleave) and never rotates: rotation is done by the Node writers only (IC-015, DEC-019). It is
-# a no-op when no failure home can be resolved (HOME unset, or XDG_CONFIG_HOME relative) and while
-# capture is off (the `off` sentinel file wins; DOFLOW_FAILURE_CAPTURE=off|0|false|no also turns it
-# off). The line carries only names from DoFlow's own tables and the working directory: never an
-# argument, stdin or the environment.
+# a no-op when there is no config home (neither XDG_CONFIG_HOME nor HOME is set to an absolute path;
+# doflow_config_home below, the rule of src/runtime/config-home.ts) and while capture is off
+# (DOFLOW_FAILURE_CAPTURE=off|0|false|no, the `off` sentinel file, or a `failure.capture` value other
+# than "on" in <config home>/settings.json, read by doflow_lex_capture below). The line carries only
+# names from DoFlow's own tables and the working directory: never an argument, stdin or the
+# environment.
 #   capture_failure <command> <kind> <exit status>
 CAPTURE_VERB=""
+
+# BEGIN doflow-config-home v1 (rule: src/runtime/config-home.ts; checked by test/guards/settings.test.js)
+doflow_config_home() {
+  DOFLOW_HOME=""
+  case "${XDG_CONFIG_HOME:-}" in
+    /*) DOFLOW_HOME="${XDG_CONFIG_HOME}/doflow"; return 0 ;;
+    [A-Za-z]:[\\/]*) case "${OSTYPE:-}" in msys*|cygwin*|win32*) DOFLOW_HOME="${XDG_CONFIG_HOME}/doflow"; return 0 ;; esac ;;
+  esac
+  case "${HOME:-}" in
+    /*) DOFLOW_HOME="${HOME}/.config/doflow" ;;
+    [A-Za-z]:[\\/]*) case "${OSTYPE:-}" in msys*|cygwin*|win32*) DOFLOW_HOME="${HOME}/.config/doflow" ;; esac ;;
+  esac
+  return 0
+}
+# END doflow-config-home v1
+
+# BEGIN doflow-settings-lexical v1 (rule: src/runtime/settings/lexical.ts; checked by test/guards/settings.test.js)
+doflow_lex_capture() {
+  local f="${1:-}" text="" rest="" d=""
+  local re='"failure\.capture"[[:space:]]*:[[:space:]]*("[^"]*"|[^,}"[:space:]]*)'
+  DOFLOW_LEX_CAPTURE=""
+  if [ ! -e "$f" ]; then
+    # Missing is no setting, unless the folder holding it cannot be searched (Node: EACCES is off).
+    d="${f%/*}"
+    if [ -n "$d" ] && [ "$d" != "$f" ] && [ -d "$d" ] && [ ! -x "$d" ]; then DOFLOW_LEX_CAPTURE="off"; fi
+    return 0
+  fi
+  if [ ! -f "$f" ] || [ ! -r "$f" ]; then DOFLOW_LEX_CAPTURE="off"; return 0; fi
+  IFS= read -r -d '' text < "$f" || true
+  rest="$text"
+  while [[ $rest =~ $re ]]; do
+    if [ "${BASH_REMATCH[1]}" = '"on"' ]; then DOFLOW_LEX_CAPTURE="${DOFLOW_LEX_CAPTURE:-on}"; else DOFLOW_LEX_CAPTURE="off"; fi
+    rest="${rest#*"${BASH_REMATCH[0]}"}"
+  done
+  return 0
+}
+# END doflow-settings-lexical v1
+
 
 capture_failure_write() {
   local command="${1:-}" kind="${2:-}" status="${3:-}"
   local home="" setting="" version="" candidate="" project="" harness="" at="" line="" cwd="" hp=""
   export LC_ALL=C
 
-  if [ -n "${XDG_CONFIG_HOME:-}" ]; then
-    case "$XDG_CONFIG_HOME" in
-      /*) home="$XDG_CONFIG_HOME/doflow/failures" ;;
-      *) return 0 ;;
-    esac
-  else
-    case "${HOME:-}" in
-      /*) home="$HOME/.config/doflow/failures" ;;
-      *) return 0 ;;
-    esac
-  fi
+  doflow_config_home
+  [ -n "$DOFLOW_HOME" ] || return 0
+  home="$DOFLOW_HOME/failures"
 
   # Case-insensitive, whitespace trimmed at the ends only: the same reading the Node writer has.
   setting="$(printf '%s' "${DOFLOW_FAILURE_CAPTURE:-}" | tr '[:upper:]' '[:lower:]')" || return 0
@@ -62,6 +98,8 @@ capture_failure_write() {
     off|0|false|no) return 0 ;;
   esac
   [ -f "$home/off" ] && return 0
+  doflow_lex_capture "$DOFLOW_HOME/settings.json"
+  [ "$DOFLOW_LEX_CAPTURE" = off ] && return 0
 
   # The command is a verb the dispatcher has already matched against its own tables, or `dispatcher`.
   [[ "$command" =~ ^[a-z][a-z0-9-]{0,39}$ ]] || command="dispatcher"
@@ -114,14 +152,15 @@ capture_failure() {
 
 # After a verb ran: a status outside {0, 1, 2} is a crash worth recording (a signal, a runtime that
 # died), minus what is not DoFlow's fault (DEC-031): 127 (command not found), 130, 141 and 143
-# (interrupted, broken pipe, terminated), task-not-found status 3 of `task-brief`, and overflow
-# status 3 of `context-pack`. A Node crash exits 1 and is recorded by the CLI itself, so it is
+# (interrupted, broken pipe, terminated), task-not-found status 3 of `task-brief`, overflow
+# status 3 of `context-pack`, refused status 3 of `context-emit`, and over-budget status 3 of
+# `context-grant`. A Node crash exits 1 and is recorded by the CLI itself, so it is
 # never counted twice.
 capture_exit_status() {
   local verb="${1:-}" status="${2:-0}"
   case "$status" in
     0|1|2|127|130|141|143) return 0 ;;
-    3) case "$verb" in task-brief|context-pack) return 0 ;; esac ;;
+    3) case "$verb" in task-brief|context-pack|context-emit|context-grant) return 0 ;; esac ;;
   esac
   capture_failure "$verb" "exit-$status" "$status"
   return 0
@@ -165,8 +204,13 @@ resolve_config_dir() {
   dir="$(pwd -P 2>/dev/null || pwd)"
   while [ -n "$dir" ] && [ "$dir" != "/" ]; do
     if [ -d "$dir/.doflow" ]; then
-      printf '%s' "$dir/.doflow"
-      return 0
+      case "$dir/" in
+        */.doflow/*) ;;
+        *)
+          printf '%s' "$dir/.doflow"
+          return 0
+          ;;
+      esac
     fi
     dir="$(dirname "$dir")"
   done
@@ -353,7 +397,9 @@ Workflow and evidence:
   workflow         resolve stages, dependencies and gates for a class
   orchestrate      start/resume a run: complete stages, skip optional ones, decide gates
   research-request  open, list or resolve a feature-stage research question
-  task-attempt     claim, finish, release or read the attempts on a plan's tasks
+  task-attempt     claim, finish, release, start, pause, cancel, resume, inspect, reopen or report-usage on a plan's task attempts
+  worker           discover, probe, describe, select, run, status or cancel an external headless worker on a claimed task
+  dispatch         run a feature's task graph: start, step, run, submit, spawn, pause, inspect, cancel, takeover or resume
   retrieve         BM25 search over the installed guidance tree (auto-refreshing index)
   model-role       resolve an abstract model role to ranked, availability-annotated providers
   route            resolve an information need to a healthy provider
@@ -361,6 +407,8 @@ Workflow and evidence:
   claim            record or update a claim and its support state
   readiness        evaluate readiness; return state and missing items
   context-pack     emit the compiled context pack for a stage
+  context-emit     decide and render one launch, prompt or delta emission (launcher entry)
+  context-grant    grant one compacted summary to a launched run and lineage
   retrieval-plan   declare the needs a stage will resolve, attempt each need, then report every declared item
   outcome          record a task's terminal state with its basis, or show what was recorded
   scaffold         emit the code scaffold the active feature's artifacts imply
@@ -369,6 +417,16 @@ Workflow and evidence:
   lifecycle        overview, init, status, release or merged: follow-ups and feature tracking for the project
   goal             add, check, link, list or close a goal and its checklist
   failure          list, settle or switch off the failures DoFlow captured on this machine
+  roadmap          session-driven autopilot runner: render or status the roadmap table
+  plan-check       check a plan's task lines the way the task-attempt ledger reads them
+  review           validate a feature's review/findings.json, print counts and advisories (review-package assembles the payload)
+  protocol         print the review and debate protocol presets, or the one a run would use (read-only)
+  primary          resolve which harness and model the main session runs (read-only)
+  fleet            list the projects this machine knows (read-only)
+  transcript       read an agent's recent events, or the project's traffic (read-only)
+  package          list the contribution points a package may fill, check a package directory, list/show packages (read-only), add/update a local package (a plan, then --plan applies it), or enable/disable/trust/exempt/revoke/verify/remove one
+  slot             named machine-wide queue: run a command as its one holder, list or release
+  models           synchronize, list, or inspect observed models across workers (--action sync|list|describe)
 
 Verification and recovery:
   verify           compile the contract, run checks, emit the report
@@ -376,7 +434,7 @@ Verification and recovery:
   leak-scan        report DoFlow-internal identifiers in shipped files
 
 Observability:
-  trace            current run trajectory
+  trace            current run trajectory; trace spans: the span view; trace analyze: its detectors; trace export: OTLP/HTTP export
   stats            aggregate run usage
   indicators       per-stage and per-gate timings from the orchestration record
   discover         missed opportunities in recorded runs
@@ -384,6 +442,7 @@ Observability:
   capabilities     provider resolution
   enforcement      verified lifecycle policy coverage
   doctor           installation and provider health
+  config           list effective settings and their origins
   storage          report stored data and its retention bounds
 EOF
 }
@@ -439,12 +498,23 @@ now_ms() {
 #
 # Tracing never changes what a verb returned. Every step is failure-tolerant and the function
 # always succeeds: an unwritable state directory degrades observability, not the run.
+#
+# Session identity (082 IC-035, DEC-012, DEC-031, DEC-042): `run`, `lineage` and `attempt` come
+# from the environment only, each written quoted when it matches identity.ts's pattern (ERE, held in
+# a variable so `[[ =~ ]]` reads it unquoted, which bash 3.2 supports) and `null` otherwise. A value
+# that passes holds no quote, backslash or control character, so quoting it cannot break the line.
+# `[[ ]]` is a builtin: the trace starts no process beyond `mkdir` and `date` (NFR-007).
 trace_run() {
   local verb="$1" code="$2" duration="$3" argc="$4" started_at="$5"
   local runs_dir="$CONFIG_DIR/state/runs"
+  local id_re='^[A-Za-z0-9][A-Za-z0-9_-]{0,55}$' attempt_re='^[1-9][0-9]{0,3}$'
+  local run_v=null lineage_v=null attempt_v=null
+  if [[ "${DOFLOW_RUN_ID:-}" =~ $id_re && "${DOFLOW_RUN_ID}" != local ]]; then run_v="\"${DOFLOW_RUN_ID}\""; fi
+  if [[ "${DOFLOW_LINEAGE_ID:-}" =~ $id_re ]]; then lineage_v="\"${DOFLOW_LINEAGE_ID}\""; fi
+  if [[ "${DOFLOW_ATTEMPT:-}" =~ $attempt_re ]]; then attempt_v="\"${DOFLOW_ATTEMPT}\""; fi
   mkdir -p "$runs_dir" 2>/dev/null || return 0
-  printf '{"timestamp":"%s","verb":"%s","exit_code":%s,"duration_ms":%s,"arg_count":%s}\n' \
-    "$started_at" "$verb" "$code" "$duration" "$argc" \
+  printf '{"timestamp":"%s","verb":"%s","exit_code":%s,"duration_ms":%s,"arg_count":%s,"run":%s,"lineage":%s,"attempt":%s}\n' \
+    "$started_at" "$verb" "$code" "$duration" "$argc" "$run_v" "$lineage_v" "$attempt_v" \
     >>"$runs_dir/$(date -u +%Y-%m-%d).jsonl" 2>/dev/null || return 0
   return 0
 }
@@ -481,8 +551,8 @@ shell_helper_for() {
 # command list; an unbuilt verb is dispatched and the CLI answers for itself.
 is_node_verb() {
   case "$1" in
-    classify|workflow|route|evidence|claim|readiness|context-pack|retrieval-plan|outcome|scaffold|decision|followup|lifecycle|goal|failure|verify|recover|leak-scan|\
-trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|orchestrate|research-request|task-attempt|retrieve|model-role|storage|brief-tools|advise) return 0 ;;
+    classify|workflow|route|evidence|claim|readiness|context-pack|context-emit|context-grant|retrieval-plan|outcome|scaffold|decision|followup|lifecycle|goal|failure|verify|recover|leak-scan|\
+trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|config|orchestrate|research-request|task-attempt|worker|dispatch|retrieve|model-role|storage|brief-tools|advise|roadmap|plan-check|review|protocol|primary|fleet|transcript|package|slot|models) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -502,7 +572,7 @@ dispatch_shell() {
 
 dispatch_node() {
   local verb="$1"; shift
-  local marker tmpfile rc first_line
+  local marker tmpfile outfile registry_msg rc first_line runtime_root second_line trimmed_second first_val total_errs more
   if ! resolve_node_cli; then
     if marker="$(has_doflow_marker_nearby)"; then
       fail 2 "unlinked-checkout" \
@@ -514,17 +584,40 @@ dispatch_node() {
   if [ "$NODE_CLI_KIND" = "script" ]; then
     command -v node >/dev/null 2>&1 || fail 2 "node-not-found" \
       "verb '$verb' needs node on PATH to run $NODE_CLI_PATH"
-    case "$NODE_CLI_SOURCE" in
-      project-runtime|global-runtime)
+    case "$NODE_CLI_SOURCE:$verb" in
+      # `slot run` streams its command's output and holds the queue for as long as the command
+      # runs, so its stderr is never held back for the stale-runtime check below.
+      *:slot)
+        node "$NODE_CLI_PATH" "$verb" "$@"
+        ;;
+      project-runtime:*|global-runtime:*)
         # These two sources are a *projected copy* of the runtime, not the checkout itself, so
         # they can drift out of sync with the working tree's registry. Stdout still streams
         # directly; only stderr is captured, so a version-drift crash can be told apart from a
         # verb legitimately reporting a finding (e.g. readiness's NEEDS_EVIDENCE) before either
         # reaches the caller.
         tmpfile="$(mktemp)"
-        trap 'rm -f "$tmpfile" 2>/dev/null || true' EXIT
+        outfile=""
+        # `worker` and `dispatch` catch the registry error themselves and, under --json, report it as
+        # a JSON body on stdout (error "registry-invalid") with nothing on stderr; the other verbs let
+        # it reach stderr. Only those two have stdout held back (their --json body is a single
+        # document written at the end), so the same stale-runtime report can be built for them.
+        case "$verb" in
+          worker|dispatch) if [ "$wants_json" = true ]; then outfile="$(mktemp)"; fi ;;
+        esac
+        trap 'rm -f "$tmpfile" "$outfile" 2>/dev/null || true' EXIT
         rc=0
-        node "$NODE_CLI_PATH" "$verb" "$@" 2>"$tmpfile" || rc=$?
+        if [ -n "$outfile" ]; then
+          node "$NODE_CLI_PATH" "$verb" "$@" >"$outfile" 2>"$tmpfile" || rc=$?
+          if [ "$rc" -eq 2 ]; then
+            registry_msg="$(node -e 'try{const o=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));if(o&&o.error==="registry-invalid"&&typeof o.message==="string")process.stdout.write(o.message)}catch{}' "$outfile" 2>/dev/null)" || registry_msg=""
+            if [ -n "$registry_msg" ]; then
+              printf '[ERROR] %s\n' "$registry_msg" >"$tmpfile"
+            fi
+          fi
+        else
+          node "$NODE_CLI_PATH" "$verb" "$@" 2>"$tmpfile" || rc=$?
+        fi
         if [ "$rc" -ne 0 ]; then
           first_line=""
           IFS= read -r first_line <"$tmpfile" || true
@@ -533,13 +626,34 @@ dispatch_node() {
           # anchored match against the registry loader's raw prefix never fires in practice.
           case "$first_line" in
             *"Invalid DoFlow registry:"*)
+              runtime_root="$(dirname "$(dirname "$NODE_CLI_PATH")")"
+              second_line=""
+              {
+                read -r _
+                IFS= read -r second_line || true
+              } <"$tmpfile"
+              second_line="${second_line%$'\r'}"
+              trimmed_second="${second_line#"${second_line%%[![:space:]]*}"}"
+              first_val="${trimmed_second#- }"
+              if [ -z "$first_val" ]; then
+                first_val="${first_line#*Invalid DoFlow registry:}"
+                first_val="${first_val#"${first_val%%[![:space:]]*}"}"
+              fi
+              first_val="${first_val%$'\r'}"
+              total_errs="$(grep -c '^[[:space:]]*- ' "$tmpfile" || true)"
+              case "$total_errs" in *[!0-9]*|"") total_errs=0 ;; esac
+              more=""
+              if [ "$total_errs" -gt 1 ]; then
+                more=" ($(( total_errs - 1 )) more)"
+              fi
               fail 2 "stale-runtime" \
-                "verb '$verb' failed against $NODE_CLI_PATH, which appears out of date relative to the working checkout; reinstall or re-run the doflow installer to refresh it"
+                "verb '$verb' failed: the registry at $runtime_root/core/registry is invalid: $first_val$more; reinstall DoFlow if this runtime was projected from another version"
               ;;
           esac
         fi
+        if [ -n "$outfile" ]; then cat "$outfile"; fi
         cat "$tmpfile" >&2
-        rm -f "$tmpfile"
+        rm -f "$tmpfile" "$outfile"
         trap - EXIT
         return "$rc"
         ;;

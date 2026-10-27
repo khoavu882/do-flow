@@ -1,1 +1,0 @@
-{"native":{"hook_event_name":"SessionEnd","session_id":"gemini-session-end","cwd":"/tmp/project"},"state":"none","fault":"none","expect":{"exit":0,"stdout":"","stderrIncludes":null,"decision":null,"envelope":null,"failurePoint":null,"taskStateUnchanged":true}}

@@ -22,11 +22,14 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { CapabilityRouter } = require('./capability-router.ts');
-const { loadRegistry } = require('../registry/index.ts');
+const { loadRegistry, agentToolScopeView } = require('../registry/index.ts');
 const { evaluateReach } = require('./reach.ts');
 const { mcpReach } = require('./mcp-reach.ts');
 const { OUTCOME_LABELS } = require('./mcp-consultations.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
+const { readGrants, detectedProjectRoot } = require('./packages/grants.ts');
+const { readState, grantRevoked } = require('./packages/state.ts');
+const { transcriptsDoctorView } = require('./transcripts/registry.ts');
 
 /** Answered a probe. */
 const HEALTHY = 'HEALTHY';
@@ -243,6 +246,95 @@ function probeFreshness(providerId: any, { root = process.cwd(), homeDir = os.ho
   };
 }
 
+async function probeLocalProvider(
+  provider: any,
+  options: { timeoutMs?: number; fetchImpl?: any; execFileImpl?: any; router?: any } = {}
+): Promise<any> {
+  const timeoutMs = options.timeoutMs ?? 1500;
+
+  if (provider.kind === 'http') {
+    const targetUrl = provider.healthEndpoint || provider.endpoint;
+    const { probeHttpEndpoint } = require('./capabilities/executor.ts');
+    const probeRes = await probeHttpEndpoint(targetUrl, {
+      timeoutMs,
+      fetchImpl: options.fetchImpl,
+    });
+    if (probeRes.ok) {
+      return {
+        id: provider.id,
+        name: provider.name || provider.id,
+        kind: 'http',
+        status: 'HEALTHY',
+        endpoint: targetUrl,
+        answered: true,
+        durationMs: probeRes.durationMs,
+        detail: `HTTP ${probeRes.status}`,
+      };
+    }
+    if (probeRes.isUnavailable) {
+      return {
+        id: provider.id,
+        name: provider.name || provider.id,
+        kind: 'http',
+        status: 'UNAVAILABLE',
+        endpoint: targetUrl,
+        answered: false,
+        durationMs: probeRes.durationMs,
+        detail: `Local server at ${targetUrl} is not running`,
+      };
+    }
+    return {
+      id: provider.id,
+      name: provider.name || provider.id,
+      kind: 'http',
+      status: 'UNHEALTHY',
+      endpoint: targetUrl,
+      answered: probeRes.status !== undefined,
+      durationMs: probeRes.durationMs,
+      detail: probeRes.status ? `HTTP status ${probeRes.status}` : (probeRes.error || 'HTTP request failed'),
+    };
+  }
+
+  if (provider.kind === 'cli') {
+    const binary = provider.binary || provider.program;
+    const isAvail = options.router ? options.router.isBinaryAvailable(binary) : true;
+    if (!isAvail) {
+      return {
+        id: provider.id,
+        name: provider.name || provider.id,
+        kind: 'cli',
+        status: 'UNAVAILABLE',
+        binary,
+        answered: false,
+        durationMs: null,
+        detail: `Binary '${binary}' not found on PATH`,
+      };
+    }
+    const checkCommand = provider.checkCommand || [binary, '--version'];
+    const probe = runProbe(checkCommand, { execFileImpl: options.execFileImpl, timeoutMs });
+    return {
+      id: provider.id,
+      name: provider.name || provider.id,
+      kind: 'cli',
+      status: probe.ok ? 'HEALTHY' : 'UNHEALTHY',
+      binary,
+      answered: probe.ok,
+      durationMs: probe.durationMs,
+      detail: probe.ok ? banner(probe.output) : probe.error,
+    };
+  }
+
+  return {
+    id: provider.id,
+    name: provider.name || provider.id,
+    kind: provider.kind || 'native',
+    status: 'UNVERIFIED',
+    answered: false,
+    durationMs: null,
+    detail: 'unsupported probe kind',
+  };
+}
+
 /**
  * Probes one provider declared in `capabilities.json`.
  * @param {Object} provider
@@ -257,10 +349,11 @@ function probeProvider(provider: any, { router, projectRoot = process.cwd(), exe
   if (!provider || !provider.id) {
     return { id: null, status: UNVERIFIED, detail: 'no provider declared' };
   }
+  const binary = provider.binary || provider.program || null;
   const result: any = {
     id: provider.id,
     name: provider.name || provider.id,
-    binary: provider.binary || null,
+    binary,
     present: null,
     answered: false,
     status: UNVERIFIED,
@@ -270,22 +363,32 @@ function probeProvider(provider: any, { router, projectRoot = process.cwd(), exe
     freshness: null,
   };
 
-  if (provider.binary) {
-    result.present = router.isBinaryAvailable(provider.binary);
+  if (binary) {
+    result.present = router ? router.isBinaryAvailable(binary) : false;
     if (!result.present) {
       result.status = ABSENT;
-      result.detail = `binary '${provider.binary}' is not on PATH`;
+      result.detail = `binary '${binary}' is not on PATH`;
+      return result;
+    }
+  }
+
+  if (provider.kind === 'http' || provider.endpoint) {
+    const { validateLoopbackUrl } = require('./capabilities/loopback.ts');
+    const valid = validateLoopbackUrl(provider.endpoint);
+    if (!valid.ok) {
+      result.status = UNHEALTHY;
+      result.detail = `Disallowed endpoint: ${valid.reason}`;
       return result;
     }
   }
 
   const command = Array.isArray(provider.checkCommand) && provider.checkCommand.length
     ? provider.checkCommand
-    : null;
+    : (provider.kind === 'cli' && binary ? [binary, '--version'] : null);
   if (!command) {
     result.status = UNVERIFIED;
-    result.detail = provider.binary
-      ? `binary '${provider.binary}' is present but the registry declares no probe command, so DoFlow cannot establish that it answers`
+    result.detail = binary
+      ? `binary '${binary}' is present but the registry declares no probe command, so DoFlow cannot establish that it answers`
       : 'declares neither a binary nor a probe command, so its function depends entirely on the project (see the project commands section)';
     return result;
   }
@@ -500,13 +603,29 @@ const byText = (a: any, b: any) => (a < b ? -1 : a > b ? 1 : 0);
  */
 function mcpConsultationsView({ projectRoot, fsImpl }: any) {
   const dir = path.join(projectRoot, '.doflow', 'state', 'orchestration');
-  let files = [];
-  try { files = fsImpl.readdirSync(dir).filter((name: any) => name.endsWith('.json')).sort(); } catch { files = []; }
+  // Runs live flat or in `<slug>/` (115: a task id other than its feature's slug is namespaced).
+  const listed: Array<{ rel: string; name: string; namespace: string; run: any }> = [];
+  const readRunFile = (rel: string, name: string, namespace: string): void => {
+    let run;
+    try { run = JSON.parse(fsImpl.readFileSync(path.join(dir, rel), 'utf8')); } catch { run = null; }
+    listed.push({ rel, name, namespace, run });
+  };
+  let entries: any[] = [];
+  try { entries = fsImpl.readdirSync(dir, { withFileTypes: true }); } catch { entries = []; }
+  for (const entry of entries) if (entry.name.endsWith('.json') && !entry.isDirectory()) readRunFile(entry.name, entry.name, '');
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(entry.name) || entry.name.endsWith('.lock')) continue;
+    let inner: any[] = [];
+    try { inner = fsImpl.readdirSync(path.join(dir, entry.name), { withFileTypes: true }); } catch { inner = []; }
+    for (const file of inner) if (file.name.endsWith('.json') && !file.isDirectory()) readRunFile(`${entry.name}/${file.name}`, file.name, entry.name);
+  }
+  listed.sort((a, b) => byText(a.rel, b.rel));
+  // A flat run whose namespaced copy exists is that copy's seed, not a second run.
+  const files = listed.filter((one) => one.namespace !== '' || !listed.some((other) => other.namespace !== '' && other.name === one.name
+    && (typeof one.run?.featureSlug !== 'string' || one.run.featureSlug === other.namespace)));
   let unreadableRuns = 0;
   const bySkill = new Map();
-  for (const name of files) {
-    let run;
-    try { run = JSON.parse(fsImpl.readFileSync(path.join(dir, name), 'utf8')); } catch { run = null; }
+  for (const { name, run } of files) {
     if (!run || typeof run !== 'object' || Array.isArray(run)) { unreadableRuns += 1; continue; }
     for (const item of Array.isArray(run.history) ? run.history : []) {
       const record = item && item.consultations;
@@ -555,6 +674,68 @@ function mcpView({ registry, projectRoot, fsImpl, adapters }: any) {
   return { servers, ...(serversNote ? { serversNote } : {}), consultations: mcpConsultationsView({ projectRoot, fsImpl }) };
 }
 
+/**
+ * The doctor's `packages` block (122 IC-008, IC-009): the grants file path and mtime, every grant with its state,
+ * and the counts held in `state.json`. A trust or exempt grant a revocation covers (or any, when `state.json` is
+ * unreadable) is listed `revoked`. Read-only and not blocking; a failure degrades to a note.
+ */
+function packagesView({ projectRoot, fsImpl, env, homeDir, tmpDir }: any) {
+  try {
+    // The trust root is the project detected from the directory reported on, never that directory itself (IC-008).
+    const home = homeDir ?? (typeof env?.HOME === 'string' && path.isAbsolute(env.HOME) ? env.HOME : os.homedir());
+    const grants = readGrants({ env, fsImpl, projectRoot: detectedProjectRoot({ cwd: projectRoot, homeDir: home, fsImpl }), tmpDir });
+    const state = readState({ homeDir, fsImpl });
+    const rows = grants.entries.map((entry: any) => {
+      const revoked = entry.state === 'valid' && entry.grant !== 'fetch' && grantRevoked(state, entry);
+      const target = entry.grant === 'fetch' ? (entry.source.url || entry.source.name) : `${entry.package}@${entry.version}`;
+      return { line: entry.line, grant: entry.grant, target, state: revoked ? 'revoked' : entry.state, ...(revoked ? { reason: state.unreadable ? 'state-unreadable' : 'revoked' } : entry.reason ? { reason: entry.reason } : {}) };
+    });
+    return {
+      grants: { path: grants.path, noConfigHome: grants.noConfigHome, exists: grants.exists, mtime: grants.mtime, rows, findings: grants.findings },
+      suspendedProjected: state.state.suspended.filter((item: any) => item.projected).map((item: any) => item.package).sort(),
+      state: {
+        path: state.path, exists: state.exists, unreadable: state.unreadable, findings: state.findings,
+        revoked: state.state.revoked.length, suspended: state.state.suspended.length, removed: state.state.removed.length,
+      },
+    };
+  } catch (error: any) {
+    return { note: `package grants unavailable: ${error.message}` };
+  }
+}
+
+function printPackagesSection(packages: any) {
+  console.log('\n[Packages] — person grants and DoFlow state; not blocking');
+  if (packages.note) { console.log(`  ${packages.note}`); return; }
+  const { grants, state } = packages;
+  if (grants.noConfigHome) console.log('  grants            no config home (HOME and XDG_CONFIG_HOME unset): no grant can exist');
+  else if (!grants.exists) console.log(`  grants            none (no file at ${grants.path})`);
+  else {
+    console.log(`  grants            ${grants.path} (modified ${grants.mtime})`);
+    for (const row of grants.rows) console.log(`    line ${String(row.line).padEnd(5)}${row.grant.padEnd(8)}${row.target.padEnd(28)}${row.state}${row.reason ? ` (${row.reason})` : ''}`);
+    for (const item of grants.findings) console.log(`    ${item.code}: ${item.message}`);
+  }
+  if (state.unreadable) console.log(`  state             ${state.path} is unreadable: every package counts as revoked (run: doflow package --action verify --repair)`);
+  else if (state.revoked || state.suspended || state.removed) console.log(`  state             ${state.revoked} revoked, ${state.suspended} suspended, ${state.removed} removed (${state.path})`);
+  for (const id of packages.suspendedProjected ?? []) {
+    console.log(`  suspended         ${id} still has projected files (run: doflow package --action verify)`);
+  }
+}
+
+/** Whether the text report shows `[Packages]`: only when there is something to say. */
+/** The `[Transcripts]` row (093 V.1): shown only when the registry is stale or drifted; never a finding. */
+function printTranscriptsSection(transcripts: any) {
+  if (transcripts.state === 'ok') return;
+  console.log('\n[Transcripts] — transcript locator registry; not blocking');
+  if (transcripts.state === 'drift') {
+    console.log('  transcripts.json  drift: the transcript feature is off');
+    for (const error of transcripts.errors) console.log(`    ${error}`);
+    return;
+  }
+  for (const item of transcripts.stale) console.log(`  ${item.harness.padEnd(18)}verifiedOn ${item.verifiedOn} (${item.ageDays} days ago): re-verify its locations`);
+}
+
+const packagesWorthShowing = (packages: any) => Boolean(packages.note || packages.grants.exists || packages.state.exists);
+
 const MCP_STATE_MARK: Record<string, any> = Object.freeze({
   selected: '✓ selected',
   configured: '✓ configured',
@@ -602,7 +783,33 @@ function printMcpSections(mcp: any) {
   if (unreadableRuns) console.log(`  ${unreadableRuns} run file(s) could not be read`);
 }
 
-function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, execFileImpl, fsImpl = fs, detector, adapters }: any = {}) {
+/** The first release of each Node line that carries the 2026-10-21 security fix (CVE-2026-111497). */
+const NODE_PATCHED_RELEASE: Record<number, number[]> = Object.freeze({ 24: [24, 22, 1], 26: [26, 12, 1] });
+
+/**
+ * A warning when `version` (a `process.version` string) is a release of a Node line below that
+ * line's patched release; null for a patched release and for a line this table does not know.
+ * The floor in `bin/doflow.js` already refuses anything under 24.22.1, so in practice this fires for
+ * a Node 26 below 26.12.1; the 24 entry keeps the table complete for a caller that bypasses the bin. A line with no entry (25, 27) gets no warning. A prerelease of the
+ * patched release (26.12.1-rc.1) counts as below it.
+ */
+function nodeSecurityWarning(version: string): { kind: string, subject: string, detail: string } | null {
+  const parts = /^v?(\d+)\.(\d+)\.(\d+)(-.*)?$/.exec(String(version));
+  if (!parts) return null;
+  const running = [Number(parts[1]), Number(parts[2]), Number(parts[3])];
+  const patched = NODE_PATCHED_RELEASE[running[0]];
+  if (!patched) return null;
+  const order = patched.reduce((result, part, i) => result || Math.sign(running[i] - part), 0);
+  const below = order < 0 || (order === 0 && Boolean(parts[4])); // a prerelease of the patched release sorts below it
+  if (!below) return null;
+  return {
+    kind: 'node-security-release',
+    subject: 'node',
+    detail: `Node ${String(version).replace(/^v/, '')} is below ${patched.join('.')}, the first ${running[0]}.x release with the fix for CVE-2026-111497 (2026-10-21 security release); upgrade Node`,
+  };
+}
+
+function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, execFileImpl, fsImpl = fs, detector, adapters, env = process.env, nodeVersion = process.version, homeDir, tmpDir, now }: any = {}) {
   const root = repoRoot || REPO_ROOT;
   const registry = loadRegistry({ repoRoot: root });
   const activeRouter = router || new CapabilityRouter({ repoRoot: root, projectRoot });
@@ -665,7 +872,9 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
       .filter((row: any) => row.state === 'NO-REACH')
       .map((row: any) => ({ kind: 'runtime-no-reach', subject: `${row.harness}:${row.scope}`, detail: `${row.reason}; fix: ${row.fix}` })),
   ];
+  const nodeWarning = nodeSecurityWarning(nodeVersion);
   const warnings = [
+    ...(nodeWarning ? [nodeWarning] : []),
     ...freshness
       .filter((item) => item.state === 'STALE')
       .map((item) => ({ kind: 'index-stale', subject: item.providerId, detail: `${item.label} is behind the working tree; refresh with: ${item.refresh}` })),
@@ -704,6 +913,8 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
     freshness,
     project,
     mcp: mcpView({ registry, projectRoot, fsImpl, adapters }),
+    packages: packagesView({ projectRoot, fsImpl, env, homeDir, tmpDir }),
+    transcripts: transcriptsDoctorView({ repoRoot: root, fsImpl, now }),
     findings,
     warnings,
     summary: {
@@ -713,6 +924,8 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
       absent: Object.values(probes).filter((probe) => probe.status === ABSENT).length,
       unverified: Object.values(probes).filter((probe) => probe.status === UNVERIFIED).length,
     },
+    // IC-006: the read switch of doctor's own environment, only when set (additive key).
+    ...(env.DOFLOW_UPKEEP === 'off' ? { upkeepSwitch: 'off' } : {}),
   };
 }
 
@@ -755,6 +968,121 @@ const FRESHNESS_MARK: Record<string, any> = Object.freeze({
   UNKNOWN: '? UNKNOWN',
 });
 
+/** IC-014: read enabled state, bound tiers and unfiltered eligibility without writing or running worker probes. */
+function workersDoctorView({
+  env = process.env, projectRoot, repoRoot = REPO_ROOT, descriptors, now,
+}: any = {}) {
+  const reg = loadRegistry({ repoRoot });
+  const root = require('./lifecycle/root.ts').projectRoot(projectRoot);
+  const { activeWorkers } = require('./worker/active.ts');
+  // Readiness already requires health.ts; load it only after this module has initialized.
+  const { select, enabledOf, workerDescriptors } = require('./worker/readiness.ts');
+  const { readBindings, resolveBinding } = require('./worker/models.ts');
+  const active = activeWorkers({ registry: reg, env, projectRoot: root });
+  const bindings = readBindings({ env, projectRoot: root });
+  const entries = workerDescriptors({ descriptors, registry: reg });
+  const tiers = reg.dispatchTiers?.tiers ?? [];
+  const selection = select({
+    descriptors, registry: reg, env, cwd: projectRoot, root, now, needs: [], includeDisabled: true,
+  });
+  const rows = selection.candidates.map(({ harness, eligible, gaps }: any) => {
+    const gap = gaps[0];
+    const descriptor = entries.find((entry: any) => entry.harness === harness)?.worker;
+    const bound = tiers.flatMap((tier: string) => {
+      const resolved = resolveBinding({ worker: harness, tier, bindings, descriptor });
+      return resolved.source === 'binding' ? [{ tier, flag: resolved.flag }] : [];
+    });
+    return {
+      harness,
+      enabled: enabledOf(active, harness),
+      eligible,
+      firstGap: gap ? { requirement: gap.requirement, result: gap.result, reason: gap.reason } : null,
+      bound,
+    };
+  });
+  return {
+    state: active.state,
+    origin: active.origin,
+    inSession: active.inSession,
+    reason: active.reason,
+    dangling: active.dangling,
+    bindings: { state: bindings.state, reason: bindings.reason },
+    rows,
+  };
+}
+
+/** IC-005: read observed catalogue, login states, derived billing and enabled models without running probes. */
+function workerPoolDoctorView({
+  env = process.env, projectRoot, repoRoot = REPO_ROOT,
+}: any = {}) {
+  const { readCatalogue } = require('./models/catalogue.ts');
+  const { readAllowedModels } = require('./worker/models.ts');
+  const { readWorkerBilling, effectiveBilling } = require('./settings/worker-billing.ts');
+  const { HARNESS_IDS } = require('./worker/probes/index.ts');
+  const reg = loadRegistry({ repoRoot });
+  const root = require('./lifecycle/root.ts').projectRoot(projectRoot);
+
+  const catalogue = readCatalogue(root);
+  const allowed = readAllowedModels({ projectRoot: root }) || [];
+  const workerIds = reg.harnesses.map((h: any) => h.id);
+  const billingRecord = readWorkerBilling(env, { workerIds });
+
+  const observedModelIds = new Set<string>();
+  const harnesses: any[] = [];
+  const allHarnessIds = Array.from(new Set([...HARNESS_IDS, ...Object.keys(catalogue?.harnesses || {})]));
+
+  for (const id of allHarnessIds) {
+    const catEntry = catalogue?.harnesses?.[id];
+    const regEntry = reg.harnesses.find((h: any) => h.id === id);
+    const descBilling = regEntry?.worker?.billing ?? 'unknown';
+
+    if (catEntry) {
+      for (const m of catEntry.offeredModels || []) {
+        if (m && m.id) observedModelIds.add(m.id);
+      }
+      const effBilling = effectiveBilling(descBilling, id, billingRecord, catalogue);
+      harnesses.push({
+        harness: id,
+        binary: catEntry.binary || id,
+        installed: Boolean(catEntry.installed),
+        loginState: catEntry.loginState,
+        reloginHint: catEntry.reloginHint || null,
+        detectedMode: catEntry.detectedMode,
+        effectiveBilling: effBilling,
+        offeredCount: (catEntry.offeredModels || []).length,
+      });
+    } else {
+      const effBilling = effectiveBilling(descBilling, id, billingRecord, null);
+      harnesses.push({
+        harness: id,
+        binary: id,
+        installed: false,
+        loginState: 'uncalibrated',
+        reloginHint: null,
+        detectedMode: 'unverified',
+        effectiveBilling: effBilling,
+        offeredCount: 0,
+      });
+    }
+  }
+
+  let enabledCount = 0;
+  for (const mId of observedModelIds) {
+    if (allowed.includes(mId)) enabledCount++;
+  }
+
+  return {
+    state: catalogue ? 'synced' : 'unsynced',
+    syncedAt: catalogue?.syncedAt || null,
+    harnesses,
+    models: {
+      enabledCount,
+      listedCount: observedModelIds.size,
+      enabled: allowed,
+    },
+  };
+}
+
 /**
  * Handles `doflow doctor` — installation and capability health.
  * @param {Object} options
@@ -765,11 +1093,159 @@ const FRESHNESS_MARK: Record<string, any> = Object.freeze({
  *   installed harness's skills cannot reach a runtime
  */
 async function handleDoctorCommand({ json = false, repoRoot, projectRoot = process.cwd(), ...rest }: any = {}) {
-  const report: any = buildHealthReport({ repoRoot, projectRoot, ...rest });
+  const root = repoRoot || REPO_ROOT;
+  const activeRouter = rest.router || new CapabilityRouter({ repoRoot: root, projectRoot });
+  const report: any = buildHealthReport({ repoRoot: root, projectRoot, router: activeRouter, ...rest });
+
+  // Probe local capability providers asynchronously (REV-1)
+  for (const capability of Object.values<any>(activeRouter.capabilities || {})) {
+    for (const provider of capability.providers || []) {
+      if (!provider || !provider.id) continue;
+      if (provider.kind === 'http' || provider.kind === 'cli') {
+        const localRes = await probeLocalProvider(provider, {
+          router: activeRouter,
+          execFileImpl: rest.execFileImpl,
+          fetchImpl: rest.fetchImpl,
+        });
+        const provIdx = report.providers.findIndex((p: any) => p.id === provider.id);
+        if (provIdx !== -1) {
+          report.providers[provIdx] = { ...report.providers[provIdx], ...localRes };
+        } else {
+          report.providers.push(localRes);
+        }
+      }
+    }
+  }
+
+  // Refresh report.capabilities with updated probe states
+  const probeMap: Record<string, any> = {};
+  for (const p of report.providers) {
+    probeMap[p.id] = p;
+  }
+  for (const cap of report.capabilities) {
+    const capDef = activeRouter.capabilities[cap.capability];
+    if (capDef && Array.isArray(capDef.providers)) {
+      const declared = capDef.providers.map((p: any) => probeMap[p.id]).filter(Boolean);
+      const rolled = capabilityStatus(declared);
+      cap.status = rolled.status;
+      cap.activeProvider = rolled.activeProvider;
+      cap.providers = declared.map((p: any) => ({ id: p.id, status: p.status, detail: p.detail }));
+    }
+  }
+
+  // Refresh summary, findings, warnings, and effective identity
+  report.summary.healthy = report.providers.filter((p: any) => p.status === HEALTHY).length;
+  report.summary.unhealthy = report.providers.filter((p: any) => p.status === UNHEALTHY).length;
+  report.summary.absent = report.providers.filter((p: any) => p.status === ABSENT).length;
+  report.summary.unverified = report.providers.filter((p: any) => p.status === UNVERIFIED).length;
+  report.summary.probed = report.providers.length;
+
+  const nonProviderFindings = report.findings.filter(
+    (f: any) => f.kind !== 'provider-unhealthy' && f.kind !== 'capability-degraded'
+  );
+  report.findings = [
+    ...nonProviderFindings,
+    ...report.providers
+      .filter((p: any) => p.status === UNHEALTHY)
+      .map((p: any) => ({ kind: 'provider-unhealthy', subject: p.id, detail: p.detail })),
+    ...report.capabilities
+      .filter((c: any) => c.status === 'DEGRADED')
+      .map((c: any) => ({ kind: 'capability-degraded', subject: c.capability, detail: 'every installed provider for this capability failed its probe' })),
+  ];
+
+  const nonProviderWarnings = report.warnings.filter(
+    (w: any) => w.kind !== 'provider-unverified'
+  );
+  report.warnings = [
+    ...nonProviderWarnings,
+    ...report.providers
+      .filter((p: any) => p.status === UNVERIFIED)
+      .map((p: any) => ({ kind: 'provider-unverified', subject: p.id, detail: p.detail })),
+  ];
+
+  report.identity.connectedCapabilities = report.capabilities
+    .filter((c: any) => c.activeProvider)
+    .map((c: any) => c.capability);
+
   const { buildAdviceDoctor, printAdviceDoctor } = require('./advice/doctor.ts');
+  const { buildSettingsReport, printSettingsReport } = require('./settings/cli.ts');
   const adviceSections = await buildAdviceDoctor({ repoRoot, projectRoot, fsImpl: rest.fsImpl });
+  const settings = buildSettingsReport({ repoRoot, projectRoot, env: rest.env, fsImpl: rest.fsImpl });
   report.decisionModel = adviceSections.decisionModel;
   report.advice = adviceSections.advice;
+  report.settings = settings;
+  const { buildProfilesDoctor, printProfilesDoctor } = require('./profiles/doctor.ts');
+  const profilesSection = buildProfilesDoctor({ repoRoot, projectRoot, env: rest.env, fsImpl: rest.fsImpl });
+  report.rolloutProfile = profilesSection;
+  try {
+    const { loadRuleLedger, getAblationCandidates } = require('./guidance/ablation.ts');
+    const ledger = loadRuleLedger({ repoRoot, fsImpl: rest.fsImpl });
+    const candidates = getAblationCandidates(ledger);
+    const neverAblateCount = ledger.rules.filter((r: any) => r.neverAblate).length;
+    report.guidance = {
+      rulesCount: ledger.rules.length,
+      neverAblateCount,
+      candidateCount: candidates.length,
+    };
+  } catch (error: any) {
+    report.guidance = { state: 'unavailable', message: error?.message || String(error) };
+  }
+  try {
+    const { AdmissionController, AdmissionError, resolveTeamSettings } = require('./team/admission.ts');
+    const { validateTaskBrief, validateTaskHandBack, quarantineInput, formatTaskBriefPrompt, EnvelopeError } = require('./team/envelope.ts');
+    const { assertReviewerSeparation, assertMechanicalPreChecks, ReviewGuardError, NeverReviewOwnCodeError, MechanicalPreChecksIncompleteError } = require('./team/review-guard.ts');
+    const teamController = new AdmissionController({ projectRoot, fsImpl: rest.fsImpl });
+    const activeClaims = teamController.getActiveClaims();
+    report.team = {
+      state: 'ready',
+      activeClaimsCount: activeClaims.length,
+      writerCap: teamController.writerCap,
+      maxAttempts: teamController.maxAttempts,
+      _symbols: [
+        AdmissionController,
+        AdmissionError,
+        resolveTeamSettings,
+        validateTaskBrief,
+        validateTaskHandBack,
+        quarantineInput,
+        formatTaskBriefPrompt,
+        EnvelopeError,
+        assertReviewerSeparation,
+        assertMechanicalPreChecks,
+        ReviewGuardError,
+        NeverReviewOwnCodeError,
+        MechanicalPreChecksIncompleteError,
+      ],
+    };
+  } catch (error: any) {
+    report.team = { state: 'unavailable', message: error?.message || String(error) };
+  }
+  try {
+    report.agentToolScope = agentToolScopeView(loadRegistry({ repoRoot, sources: 'skip' }));
+  } catch (error: any) {
+    report.agentToolScope = { state: 'unavailable', message: error?.message || String(error) };
+  }
+  // Read on use (row 120 A.4): no probe runs, nothing is written, and a fault never breaks the report.
+  let primaryText: string;
+  try {
+    const { primaryDoctorView, resolveForReport } = require('./context/primary-command.ts');
+    const resolved = resolveForReport({ env: rest.env ?? process.env, projectRoot, repoRoot });
+    report.primary = primaryDoctorView(resolved);
+    primaryText = `${report.primary.state} ${report.primary.harness ?? '-'}/${report.primary.model ?? '-'} (${report.primary.origin}), probe ${report.primary.probe}`;
+  } catch (error: any) {
+    report.primary = { state: 'unavailable', message: error?.message || String(error) };
+    primaryText = `unavailable (${report.primary.message})`;
+  }
+  try {
+    report.workers = workersDoctorView({ env: rest.env ?? process.env, projectRoot, repoRoot });
+  } catch (error: any) {
+    report.workers = { state: 'unavailable', message: error?.message || String(error) };
+  }
+  try {
+    report.workerPool = workerPoolDoctorView({ env: rest.env ?? process.env, projectRoot, repoRoot });
+  } catch (error: any) {
+    report.workerPool = { state: 'unavailable', message: error?.message || String(error) };
+  }
 
   if (json) {
     console.log(JSON.stringify(report, null, 2));
@@ -779,6 +1255,7 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   console.log('\nDoFlow System Diagnostics (doflow doctor)');
   console.log('═'.repeat(72));
   console.log('Health means a provider answered a probe, not that a binary exists on PATH.');
+  if (report.upkeepSwitch === 'off') console.log('note: DOFLOW_UPKEEP=off in this environment: upkeep and lifecycle retention are skipped');
 
   console.log('\n[Effective Identity]');
   const identity = report.identity;
@@ -788,6 +1265,11 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
 
   console.log('\n[Harness Adapters]');
   for (const harness of report.harnesses) console.log(`  ${harness.displayName.padEnd(28)} adapter PASS`);
+
+  console.log('\n[Agent Tool Scope]');
+  if (Array.isArray(report.agentToolScope)) {
+    for (const row of report.agentToolScope) console.log(`  ${row.harness.padEnd(14)}${row.status === 'native' ? `native      ${row.field}` : `unenforced  projects no tool field: ${row.reason}`}`);
+  } else console.log(`  unavailable (${report.agentToolScope.message})`);
 
   console.log('\n[Runtime Reach]');
   const reachLines = report.harnesses.flatMap((harness: any) => harness.reach.map((row: any) => {
@@ -826,11 +1308,69 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   console.log(`  test              ${commandLine(commands.test)}`);
   if (commands.reason) console.log(`  note              ${commands.reason}`);
 
+  console.log('\n[Primary and Workers]');
+  console.log(`  primary: ${primaryText}`);
+  if (report.workers.state === 'unavailable') {
+    console.log(`  worker: unavailable (${report.workers.message})`);
+  } else {
+    if (report.workers.bindings.state === 'invalid') {
+      console.log(`  workers.models: invalid (${report.workers.bindings.reason})`);
+    }
+    if (report.workers.state === 'invalid') {
+      console.log(`  workers.enabled: invalid (${report.workers.reason})`);
+    }
+    for (const row of report.workers.rows) {
+      const position = row.enabled.position === null ? '' : ` #${row.enabled.position}`;
+      const eligibility = row.eligible ? 'eligible' : `ineligible (${row.firstGap.requirement})`;
+      const bound = row.bound.map((item: any) => `${item.tier}(${item.flag})`).join(', ') || 'none';
+      console.log(`  worker ${row.harness}: ${row.enabled.state}${position}, ${eligibility}; bound tiers: ${bound}`);
+    }
+    for (const id of report.workers.dangling) {
+      console.log(`  worker ${id}: dangling (no registry or enabled package knows it)`);
+    }
+  }
+
+  console.log('\n[Worker Pool & Models]');
+  if (report.workerPool.state === 'unavailable') {
+    console.log(`  worker pool: unavailable (${report.workerPool.message})`);
+  } else if (report.workerPool.state === 'unsynced') {
+    console.log('  No observed catalogue. Run `doflow models --action sync` to probe worker pool.');
+    console.log(`  Models: ${report.workerPool.models.enabledCount} enabled, ${report.workerPool.models.listedCount} listed`);
+  } else {
+    for (const h of report.workerPool.harnesses) {
+      const binStatus = h.installed ? 'installed' : (h.loginState === 'uncalibrated' ? 'unknown' : 'missing');
+      const hint = h.loginState === 'logged-out' && h.reloginHint ? ` (re-login: ${h.reloginHint})` : '';
+      const billSource = h.effectiveBilling.source ? ` (${h.effectiveBilling.source})` : '';
+      console.log(`  ${h.harness.padEnd(14)} binary: ${binStatus.padEnd(10)} ${h.loginState.padEnd(12)} mode: ${h.detectedMode.padEnd(14)} billing: ${h.effectiveBilling.value}${billSource}${hint}`);
+    }
+    console.log(`  Models: ${report.workerPool.models.enabledCount} enabled, ${report.workerPool.models.listedCount} listed`);
+  }
+
   printMcpSections(report.mcp);
+  if (packagesWorthShowing(report.packages)) printPackagesSection(report.packages);
+  printTranscriptsSection(report.transcripts);
   printAdviceDoctor(adviceSections);
+  printProfilesDoctor(profilesSection);
+  printSettingsReport(settings);
+  if (report.guidance) {
+    console.log('\n[Guidance Rules]');
+    if (report.guidance.state === 'unavailable') {
+      console.log(`  guidance: unavailable (${report.guidance.message})`);
+    } else {
+      console.log(`  ${report.guidance.rulesCount} registered rules (${report.guidance.neverAblateCount} protected invariants, ${report.guidance.candidateCount} ablation candidates)`);
+    }
+  }
+  if (report.team) {
+    console.log('\n[Agent Teams & Coordination]');
+    if (report.team.state === 'unavailable') {
+      console.log(`  team: unavailable (${report.team.message})`);
+    } else {
+      console.log(`  writer cap: ${report.team.writerCap}, max attempts: ${report.team.maxAttempts}, active claims: ${report.team.activeClaimsCount}`);
+    }
+  }
 
   if (report.warnings.length) {
-    console.log('\n[Warnings] — not blocking; a stale or unprobeable provider still degrades cleanly');
+    console.log('\n[Warnings] — not blocking; a stale or unprobeable provider still degrades cleanly, and a Node below the security release of its line is named here');
     for (const warning of report.warnings) console.log(`  ${warning.subject.padEnd(18)}${warning.detail}`);
   }
 
@@ -853,11 +1393,15 @@ module.exports = {
   runProbe,
   probeProvider,
   probeProviders,
+  probeLocalProvider,
   probeFreshness,
   PROVIDER_ARTIFACTS,
   newestSourceMtime,
   detectProjectCommands,
   buildHealthReport,
+  nodeSecurityWarning,
+  workersDoctorView,
+  workerPoolDoctorView,
   handleDoctorCommand,
   PROBE_TIMEOUT_MS,
 };

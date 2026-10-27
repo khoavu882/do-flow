@@ -46,7 +46,7 @@ function printContext(ctx: any): void {
     '[CONTEXT] Resolved install context',
     `  scope         : ${ctx.scope}  (root: ${ctx.scopeRoot})`,
     `  targets       : ${ctx.targets.join(', ')}`,
-    ...ctx.targets.map((t: string) => `    ${t.padEnd(7)}-> ${ctx.dirs[t]}`),
+    ...ctx.targets.map((t: string) => `    ${t.padEnd(7)}-> ${ctx.dirs[t] ?? '(resolved by adapter)'}`),
     `  repo root     : ${ctx.repoRoot}`,
     `  source commit : ${ctx.sourceCommit}`,
     `  node          : ${ctx.nodeVersion}`,

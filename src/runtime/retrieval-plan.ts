@@ -42,7 +42,7 @@ const { CapabilityRouter } = require('./capability-router.ts');
 const { EvidenceLedger, assertSafeTaskId } = require('./evidence-ledger.ts');
 const { FreshnessValidator } = require('./freshness.ts');
 const { probeFreshness } = require('./health.ts');
-const { planPath, readPlan, updatePlan, moveCorruptPlanAside, mintPlanId, activeAttemptRef, resolveNeed, bindEvidence, deriveOutcome } = require('./retrieval-record.ts');
+const { planPath, readPlan, updatePlan, moveCorruptPlanAside, mintPlanId, activeAttemptRef, resolveNeed, appendRetrievalAttempt, bindEvidence, deriveOutcome } = require('./retrieval-record.ts');
 // One definition of the score refusal, applied at a second boundary. See the note on
 // EVIDENCE_SCORE_FIELDS in src/runtime/evidence-fields.ts: relevance is a property of a search, not of a fact, and a plan
 // that recorded one would hand the next worker a confidence dressed as a measurement.
@@ -387,7 +387,7 @@ function reportPlan({ projectRoot, sourceRoot, taskId, reached, json, slug, repo
   } catch (error: any) {
     return usageError('retrieval-plan', error.message, json, error);
   }
-  new FreshnessValidator({ repoRoot: projectRoot, treeRoot: sourceRoot }).validateLedgerFreshness(ledger);
+  new FreshnessValidator({ repoRoot: projectRoot, treeRoot: sourceRoot, sourceRoot }).validateLedgerFreshness(ledger);
   const items = ledger.queryEvidence({ taskId });
 
   const isQueryBound = Boolean(record.planId);
@@ -730,35 +730,15 @@ function attemptPlan({
   let savedAttempt: any = null;
   let file: string;
   try {
-    file = updatePlan(projectRoot, taskId, slug, (disk: any) => {
-      const current = requirePlanForUpdate(disk, taskId);
-      const targetNeed = current.needs ? current.needs.find((n: any) => n.intent === intent) : null;
-      if (!targetNeed) {
-        throw new Error(`need '${intent}' missing from disk plan during update`);
-      }
-      if (!Array.isArray(targetNeed.attempts)) {
-        targetNeed.attempts = [];
-      }
-      const n = targetNeed.attempts.length + 1;
-      const role = provider === targetNeed.provider ? 'primary' : 'fallback';
-      const attempt = {
-        n,
-        provider,
-        capability: targetNeed.capability,
-        role,
-        status: finalStatus,
-        reason: finalReason,
-        note: note !== undefined && note !== null ? String(note) : null,
-        indexState,
-        attemptRef: activeRef,
-        evidenceIds: [],
-        recordedAt: new Date().toISOString(),
-        recordedBy: 'caller',
-      };
-      targetNeed.attempts.push(attempt);
-      savedAttempt = attempt;
-      return current;
+    const appended = appendRetrievalAttempt({
+      projectRoot, taskId, intent, provider, status: finalStatus, reason: finalReason,
+      note, indexState, slug, attemptRef: activeRef,
+      expectedCapability: declaredNeed.capability,
+      expectedPrimaryProvider: declaredNeed.provider,
+      registeredProviders,
     });
+    file = appended.file;
+    savedAttempt = appended.attempt;
   } catch (error: any) {
     return usageError('retrieval-plan', error.message, json, error);
   }

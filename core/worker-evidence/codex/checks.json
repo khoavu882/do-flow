@@ -1,0 +1,38 @@
+{
+  "schema": "doflow-worker-checks-v1",
+  "harness": "codex",
+  "binary": "codex",
+  "version": { "argv": ["--version"], "expect": "^codex-cli \\d+\\.\\d+\\.\\d+" },
+  "checks": [
+    {
+      "id": "exec-one-shot",
+      "argv": ["exec", "--help"],
+      "expect": ["^Usage: codex exec \\[OPTIONS\\] \\[PROMPT\\]", "instructions are read from stdin"],
+      "establishes": ["runnableProbe", "oneShot"]
+    },
+    {
+      "id": "exec-json",
+      "argv": ["exec", "--help"],
+      "expect": ["^\\s+--json$", "Print events to stdout as JSONL", "-o, --output-last-message"],
+      "establishes": ["structuredOutput"]
+    },
+    {
+      "id": "exec-sandbox",
+      "argv": ["exec", "--help"],
+      "expect": ["-s, --sandbox <SANDBOX_MODE>", "read-only, workspace-write"],
+      "establishes": ["readOnly", "isolatedEdit"]
+    },
+    {
+      "id": "spawn-denial",
+      "argv": ["features", "list", "--disable", "multi_agent", "--disable", "multi_agent_v2"],
+      "expect": ["^multi_agent\\s+\\S+\\s+false$", "^multi_agent_v2\\s+\\S+\\s+false$"],
+      "establishes": ["spawnDenial"]
+    },
+    {
+      "id": "exec-model",
+      "argv": ["exec", "--help"],
+      "expect": ["^\\s+-m, --model <MODEL>$"],
+      "establishes": ["model"]
+    }
+  ]
+}

@@ -1,0 +1,2345 @@
+{
+  "version": 1,
+  "revision": 120,
+  "planPath": "agent-docs/doflow/080-perf/plan.md",
+  "tasks": {
+    "A.1": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "quality-guardian",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:00:00.000Z",
+          "taskLineHash": "sha256:fe74f5fb9a05f86e5eb27a0d6ac5077bab0411de85b5744a2d70a4ce8aec3d34",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/1-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/1-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T08:01:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "quality-guardian",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:02:00.000Z",
+          "taskLineHash": "sha256:fe74f5fb9a05f86e5eb27a0d6ac5077bab0411de85b5744a2d70a4ce8aec3d34",
+          "state": "finished",
+          "result": "COMPLETED",
+          "evidenceId": "ev-A-1",
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/1-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/1-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T08:03:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "A.2": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "research-writer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:04:00.000Z",
+          "taskLineHash": "sha256:58a3249e40432fa80a4cbea2a7d7c3b11bbe830814c38d51861d953e8b4a9252",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/2-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/2-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T08:05:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "research-writer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:06:00.000Z",
+          "taskLineHash": "sha256:58a3249e40432fa80a4cbea2a7d7c3b11bbe830814c38d51861d953e8b4a9252",
+          "state": "finished",
+          "result": "COMPLETED",
+          "evidenceId": "ev-A-2",
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/2-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/2-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T08:07:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "A.3": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:08:00.000Z",
+          "taskLineHash": "sha256:33096e8374f2ebbf7f57b33e6efc5ab2cd08d2f3b10b03673dd616cc3a612602",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/3-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/3-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T08:09:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:10:00.000Z",
+          "taskLineHash": "sha256:33096e8374f2ebbf7f57b33e6efc5ab2cd08d2f3b10b03673dd616cc3a612602",
+          "state": "finished",
+          "result": "COMPLETED",
+          "evidenceId": "ev-A-3",
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/3-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/3-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T08:11:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "A.4": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "quality-guardian",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:12:00.000Z",
+          "taskLineHash": "sha256:10ffcaa80b01231b76e9bea53e6ccf536f84e956c22034437f87234863cc6066",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/4-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/4-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T08:13:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "quality-guardian",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:14:00.000Z",
+          "taskLineHash": "sha256:10ffcaa80b01231b76e9bea53e6ccf536f84e956c22034437f87234863cc6066",
+          "state": "finished",
+          "result": "COMPLETED",
+          "evidenceId": "ev-A-4",
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/4-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/4-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T08:15:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "A.5": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "research-writer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:16:00.000Z",
+          "taskLineHash": "sha256:ebc168b3dbd7874cc13f012c7cc5d2037b21cff836cae8d0b6776718b5526d78",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/5-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/5-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T08:17:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "research-writer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:18:00.000Z",
+          "taskLineHash": "sha256:ebc168b3dbd7874cc13f012c7cc5d2037b21cff836cae8d0b6776718b5526d78",
+          "state": "finished",
+          "result": "COMPLETED",
+          "evidenceId": "ev-A-5",
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/5-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/5-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T08:19:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "A.6": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:20:00.000Z",
+          "taskLineHash": "sha256:a97bfe91890b940a28fbcac54fb4eeffa97cf3d44bc3da3faff1c6f5a9cca15d",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/6-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/6-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T08:21:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:22:00.000Z",
+          "taskLineHash": "sha256:a97bfe91890b940a28fbcac54fb4eeffa97cf3d44bc3da3faff1c6f5a9cca15d",
+          "state": "finished",
+          "result": "COMPLETED",
+          "evidenceId": "ev-A-6",
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/6-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/a/6-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T08:23:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "B.1": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "research-writer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:24:00.000Z",
+          "taskLineHash": "sha256:8d604c37ff85f0d214336179f7713188aa62954b8c03b33639034827f44a8701",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/1-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/1-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T08:25:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "research-writer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:26:00.000Z",
+          "taskLineHash": "sha256:8d604c37ff85f0d214336179f7713188aa62954b8c03b33639034827f44a8701",
+          "state": "finished",
+          "result": "COMPLETED",
+          "evidenceId": "ev-B-1",
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/1-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/1-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T08:27:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "B.2": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:28:00.000Z",
+          "taskLineHash": "sha256:c18df103e6bf489337c6605de53b9f894fd2aa321c3c6f5332a8fe746169c5ee",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/2-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/2-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T08:29:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:30:00.000Z",
+          "taskLineHash": "sha256:c18df103e6bf489337c6605de53b9f894fd2aa321c3c6f5332a8fe746169c5ee",
+          "state": "finished",
+          "result": "COMPLETED",
+          "evidenceId": "ev-B-2",
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/2-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/2-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T08:31:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "B.3": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "quality-guardian",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:32:00.000Z",
+          "taskLineHash": "sha256:bfbdaf4a6ffaefccdb8b6eba940939307fdaf69009526255041f7e23ea63b076",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/3-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/3-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T08:33:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "quality-guardian",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:34:00.000Z",
+          "taskLineHash": "sha256:bfbdaf4a6ffaefccdb8b6eba940939307fdaf69009526255041f7e23ea63b076",
+          "state": "finished",
+          "result": "COMPLETED",
+          "evidenceId": "ev-B-3",
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/3-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/3-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T08:35:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "B.4": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "research-writer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:36:00.000Z",
+          "taskLineHash": "sha256:e62c046ccaefe6ae133f20b978e8c178a651a7d41fdb0dfd2bec2e31af1605ec",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/4-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/4-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T08:37:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "research-writer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:38:00.000Z",
+          "taskLineHash": "sha256:e62c046ccaefe6ae133f20b978e8c178a651a7d41fdb0dfd2bec2e31af1605ec",
+          "state": "finished",
+          "result": "COMPLETED",
+          "evidenceId": "ev-B-4",
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/4-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/4-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T08:39:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "B.5": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:40:00.000Z",
+          "taskLineHash": "sha256:1d2fd8e6425dd0f8a07133a4ddf767991f174fc3fe93fe0268c0ba25db641a70",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/5-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/5-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T08:41:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:42:00.000Z",
+          "taskLineHash": "sha256:1d2fd8e6425dd0f8a07133a4ddf767991f174fc3fe93fe0268c0ba25db641a70",
+          "state": "finished",
+          "result": "COMPLETED",
+          "evidenceId": "ev-B-5",
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/5-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/5-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T08:43:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "B.6": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "quality-guardian",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:44:00.000Z",
+          "taskLineHash": "sha256:46e56181041aa3e40f6ea416eac237aa4e0baf41e4bc443de5f32086a3a692ca",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/6-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/6-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T08:45:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "quality-guardian",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:46:00.000Z",
+          "taskLineHash": "sha256:46e56181041aa3e40f6ea416eac237aa4e0baf41e4bc443de5f32086a3a692ca",
+          "state": "finished",
+          "result": "COMPLETED",
+          "evidenceId": "ev-B-6",
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/6-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/b/6-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T08:47:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "C.1": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:48:00.000Z",
+          "taskLineHash": "sha256:0fe04729cdcb367f0b3f91f0e0f362902c14272dbdcdad2f74ed3db028f0fdff",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/1-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/1-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T08:49:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:50:00.000Z",
+          "taskLineHash": "sha256:0fe04729cdcb367f0b3f91f0e0f362902c14272dbdcdad2f74ed3db028f0fdff",
+          "state": "finished",
+          "result": "COMPLETED",
+          "evidenceId": "ev-C-1",
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/1-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/1-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T08:51:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "C.2": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "quality-guardian",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:52:00.000Z",
+          "taskLineHash": "sha256:96231657e362918f2f44bdda4f0db900a53a68aa38df1077fe385349e37beee5",
+          "state": "finished",
+          "result": "FAILED",
+          "evidenceId": null,
+          "reason": "Benchmark failure before retry.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/2-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/2-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "usage": null,
+          "finishedAt": "2026-10-13T08:55:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          }
+        },
+        {
+          "token": 2,
+          "owner": "quality-guardian",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:54:00.000Z",
+          "taskLineHash": "sha256:96231657e362918f2f44bdda4f0db900a53a68aa38df1077fe385349e37beee5",
+          "state": "active",
+          "result": null,
+          "evidenceId": null,
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/2-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/2-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false
+        }
+      ]
+    },
+    "C.3": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "research-writer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:56:00.000Z",
+          "taskLineHash": "sha256:5b79a6149e78e87d397fb6ea9bb551db89bd85307cf3ed824d2209e1e0243494",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/3-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/3-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T08:57:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "research-writer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T08:58:00.000Z",
+          "taskLineHash": "sha256:5b79a6149e78e87d397fb6ea9bb551db89bd85307cf3ed824d2209e1e0243494",
+          "state": "finished",
+          "result": "COMPLETED",
+          "evidenceId": "ev-C-3",
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/3-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/3-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T08:59:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "C.4": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:00:00.000Z",
+          "taskLineHash": "sha256:53bd8672f2a41a00283e93e8bd315fe00291b2b8557171ee3ba1d69f7a925e21",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/4-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/4-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T09:01:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:02:00.000Z",
+          "taskLineHash": "sha256:53bd8672f2a41a00283e93e8bd315fe00291b2b8557171ee3ba1d69f7a925e21",
+          "state": "finished",
+          "result": "COMPLETED",
+          "evidenceId": "ev-C-4",
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/4-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/4-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T09:03:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "C.5": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "quality-guardian",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:04:00.000Z",
+          "taskLineHash": "sha256:80b6f8937aa6e247fcd50e21e22458d122f7be10141c48033d87f716cb16d88e",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/5-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/5-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T09:05:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "quality-guardian",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:06:00.000Z",
+          "taskLineHash": "sha256:80b6f8937aa6e247fcd50e21e22458d122f7be10141c48033d87f716cb16d88e",
+          "state": "finished",
+          "result": "COMPLETED",
+          "evidenceId": "ev-C-5",
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/5-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/5-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T09:07:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "C.6": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "research-writer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:08:00.000Z",
+          "taskLineHash": "sha256:79a16564bdd8d24ea3018125f12c6975eb2517d0aca682d56b6e0ca6f59623a8",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/6-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/6-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T09:09:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "research-writer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:10:00.000Z",
+          "taskLineHash": "sha256:79a16564bdd8d24ea3018125f12c6975eb2517d0aca682d56b6e0ca6f59623a8",
+          "state": "finished",
+          "result": "COMPLETED",
+          "evidenceId": "ev-C-6",
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/6-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/c/6-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T09:11:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "D.1": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "quality-guardian",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:12:00.000Z",
+          "taskLineHash": "sha256:7232e54ab95231c100a7bd66688c40b9e7fea2de98d32d3b741748aed6ca8614",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/1-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/1-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T09:13:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "quality-guardian",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:14:00.000Z",
+          "taskLineHash": "sha256:7232e54ab95231c100a7bd66688c40b9e7fea2de98d32d3b741748aed6ca8614",
+          "state": "finished",
+          "result": "INCONCLUSIVE",
+          "evidenceId": null,
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/1-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/1-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T09:15:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "D.2": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "research-writer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:16:00.000Z",
+          "taskLineHash": "sha256:28094f14b33bb2e26371bc2db7184eaabcc720c31d72e525daa88d1510b8127a",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/2-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/2-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T09:17:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "research-writer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:18:00.000Z",
+          "taskLineHash": "sha256:28094f14b33bb2e26371bc2db7184eaabcc720c31d72e525daa88d1510b8127a",
+          "state": "finished",
+          "result": "ABANDONED",
+          "evidenceId": null,
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/2-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/2-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T09:19:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "D.3": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:20:00.000Z",
+          "taskLineHash": "sha256:0e8c358f514bf9438e737cdddcdf7af8d42cbb1f4310e38a30d2b3a68958e36d",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/3-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/3-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T09:21:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:22:00.000Z",
+          "taskLineHash": "sha256:0e8c358f514bf9438e737cdddcdf7af8d42cbb1f4310e38a30d2b3a68958e36d",
+          "state": "finished",
+          "result": "ABANDONED",
+          "evidenceId": null,
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/3-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/3-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T09:23:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "D.4": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "quality-guardian",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:24:00.000Z",
+          "taskLineHash": "sha256:d2afa2bc6b8f04425364734c12bc79068f866e77be76c4ae6d135eefc3c502ac",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/4-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/4-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T09:25:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "quality-guardian",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:26:00.000Z",
+          "taskLineHash": "sha256:d2afa2bc6b8f04425364734c12bc79068f866e77be76c4ae6d135eefc3c502ac",
+          "state": "finished",
+          "result": "ABANDONED",
+          "evidenceId": null,
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/4-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/4-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T09:27:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "D.5": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "research-writer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:28:00.000Z",
+          "taskLineHash": "sha256:12dadd824080641e003bfa947c228979603b867b4956ee36c3db4fe8b262179d",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/5-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/5-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T09:29:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "research-writer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:30:00.000Z",
+          "taskLineHash": "sha256:12dadd824080641e003bfa947c228979603b867b4956ee36c3db4fe8b262179d",
+          "state": "finished",
+          "result": "ABANDONED",
+          "evidenceId": null,
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/5-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/5-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T09:31:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "D.6": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:32:00.000Z",
+          "taskLineHash": "sha256:070886bbaf17386f9e7f718edb51377ea7034dc4957f95fac27214c5a4aa94f8",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/6-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/6-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T09:33:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:34:00.000Z",
+          "taskLineHash": "sha256:070886bbaf17386f9e7f718edb51377ea7034dc4957f95fac27214c5a4aa94f8",
+          "state": "finished",
+          "result": "ABANDONED",
+          "evidenceId": null,
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/6-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/d/6-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T09:35:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "E.1": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "research-writer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:36:00.000Z",
+          "taskLineHash": "sha256:ab07425712daac1d83c11ad07bbcbe125e87fe88204a31442fc10a359d11b3da",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/1-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/1-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T09:37:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "research-writer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:38:00.000Z",
+          "taskLineHash": "sha256:ab07425712daac1d83c11ad07bbcbe125e87fe88204a31442fc10a359d11b3da",
+          "state": "finished",
+          "result": "INCONCLUSIVE",
+          "evidenceId": null,
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/1-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/1-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T09:39:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "E.2": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:40:00.000Z",
+          "taskLineHash": "sha256:cf36a9b8d2b078f40717ef696d222cbb4693d5e4122f1f32f2168102ea9f9600",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/2-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/2-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T09:41:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:42:00.000Z",
+          "taskLineHash": "sha256:cf36a9b8d2b078f40717ef696d222cbb4693d5e4122f1f32f2168102ea9f9600",
+          "state": "finished",
+          "result": "ABANDONED",
+          "evidenceId": null,
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/2-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/2-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T09:43:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "E.3": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "quality-guardian",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:44:00.000Z",
+          "taskLineHash": "sha256:134e05d53af86c66af64b43b364fe547641748aa4e0b0320f7802cac3a243fe8",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/3-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/3-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T09:45:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "quality-guardian",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:46:00.000Z",
+          "taskLineHash": "sha256:134e05d53af86c66af64b43b364fe547641748aa4e0b0320f7802cac3a243fe8",
+          "state": "finished",
+          "result": "ABANDONED",
+          "evidenceId": null,
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/3-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/3-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T09:47:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "E.4": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "research-writer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:48:00.000Z",
+          "taskLineHash": "sha256:3b2b72f189ac77e94dc45b950912a9038a3d49c4a7ff3454116179ea151184cc",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/4-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/4-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T09:49:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "research-writer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:50:00.000Z",
+          "taskLineHash": "sha256:3b2b72f189ac77e94dc45b950912a9038a3d49c4a7ff3454116179ea151184cc",
+          "state": "finished",
+          "result": "ABANDONED",
+          "evidenceId": null,
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/4-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/4-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T09:51:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "E.5": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:52:00.000Z",
+          "taskLineHash": "sha256:a4fdc47bfbbf9e70e479cd3553e81755794cdf7b95ddaa283d54bc9e8e49c6b4",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/5-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/5-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T09:53:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "core-implementer",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:54:00.000Z",
+          "taskLineHash": "sha256:a4fdc47bfbbf9e70e479cd3553e81755794cdf7b95ddaa283d54bc9e8e49c6b4",
+          "state": "finished",
+          "result": "ABANDONED",
+          "evidenceId": null,
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/5-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/5-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T09:55:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    },
+    "E.6": {
+      "nextToken": 3,
+      "attempts": [
+        {
+          "token": 1,
+          "owner": "quality-guardian",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:56:00.000Z",
+          "taskLineHash": "sha256:52f8b0593177cc322d5e9c85ec60661e498529d0a45f0399e979fa0f993317ff",
+          "state": "released",
+          "result": null,
+          "evidenceId": null,
+          "reason": "Handed back for a narrower brief.",
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/6-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/6-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "endedAt": "2026-10-13T09:57:00.000Z",
+          "usage": null
+        },
+        {
+          "token": 2,
+          "owner": "quality-guardian",
+          "mode": "sequential",
+          "startedAt": "2026-10-13T09:58:00.000Z",
+          "taskLineHash": "sha256:52f8b0593177cc322d5e9c85ec60661e498529d0a45f0399e979fa0f993317ff",
+          "state": "finished",
+          "result": "ABANDONED",
+          "evidenceId": null,
+          "reason": null,
+          "runKey": "perf0000fixture/perf-run/perf-lineage",
+          "epoch": 0,
+          "execWorktree": "/perf/task-graph-project",
+          "sources": [
+            {
+              "file": "src/index.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/6-a.js",
+              "kind": "absent",
+              "fileHash": null
+            },
+            {
+              "file": "src/e/6-b.js",
+              "kind": "absent",
+              "fileHash": null
+            }
+          ],
+          "sourcesTruncated": false,
+          "finishedAt": "2026-10-13T09:59:00.000Z",
+          "finishedBy": {
+            "role": "orchestrator",
+            "lineage": "perf-lineage",
+            "worktree": "/perf/task-graph-project"
+          },
+          "usage": null
+        }
+      ]
+    }
+  }
+}

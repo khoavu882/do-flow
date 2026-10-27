@@ -1,3 +1,6 @@
+---
+description: The declared execution procedure, the nine task classes, gates, and readiness contracts.
+---
 # How DoFlow works
 
 DoFlow gives an AI coding agent a **declared procedure** for a piece of work, instead of letting it
@@ -35,20 +38,22 @@ refused for a class that is perfectly correct, because that class does not route
 Declared in `core/registry/workflows.json`. Stages name skills that already exist; the registry adds
 none.
 
+<!-- BEGIN GENERATED:task-classes -->
 | Class | Stages | Gates | Readiness |
 |---|---|---|---|
 | `feature` | discovery → design → planning → implementation → verification → review | 3 | `feature` |
 | `bug` | reproduction → root-cause → implementation → regression-verification → review | — | `bug` |
 | `refactor` | architecture-mapping → baseline-verification → implementation → verification → review | — | `refactor` |
-| `dependency-change` | release-evidence → usage-impact → implementation → verification → review | — | `dependency-change` |
-| `trivial-edit` | implementation → verification | — | `trivial-edit` |
-| `documentation` | authoring → verification → review | — | — |
-| `operations` | state-check → preflight → execution → record | — | — |
 | `review` | verification → review | — | — |
 | `research` | scoping → synthesis | — | — |
+| `documentation` | authoring → verification → review | — | — |
+| `dependency-change` | release-evidence → usage-impact → implementation → verification → review | — | `dependency-change` |
+| `operations` | state-check → preflight → execution → record | — | — |
+| `trivial-edit` | implementation → verification | — | `trivial-edit` |
+<!-- END GENERATED:task-classes -->
 
-The differences between them are the point. `feature` is the only class with a discovery stage, and
-the only one that demands three artifacts before an edit. `refactor` has no discovery stage at all —
+The differences between them are the point. `feature` is the only class with a required discovery stage
+(`research` opens with an optional `scoping` stage of kind `discovery`), and the only one that demands three artifacts before an edit. `refactor` has no discovery stage at all —
 refactoring starts from code that already exists, so its first stage *maps* the system rather than
 eliciting requirements. `refactor` also has no planning stage. `review` has no implementation stage
 by construction, and `research` requires no implementation readiness, because neither authors source.
@@ -58,16 +63,20 @@ there is no source edit for a contract to gate.
 
 ## Stages have kinds
 
-Every stage declares a `kind`, and the kind decides what the stage may do.
+Every stage declares a `kind`, and the kind decides what the stage may do; it also names the `agent` that leads it.
 
 | Kind | What it does | Mutates source |
 |---|---|---|
 | `discovery` | Elicit requirements through dialogue | no |
+| `reproduction` | Establish the reported behaviour as an observed fact before explaining it | no |
 | `analysis` | Map existing structure, behaviour, root cause, or blast radius | no |
+| `retrieval` | Gather external evidence: release notes, upstream documentation, prior art | no |
 | `design` / `planning` | Decide system shape, then decompose into ordered tasks | no |
 | `implementation` | Author or modify source | **yes** |
 | `verification` | Run builds, suites and coverage against the tree as it stands | no |
 | `review` | Assess a change and report findings; produces judgement, not edits | no |
+| `synthesis` | Produce a written deliverable (a report, reference or record) as the terminal output | no |
+| `operation` | Run a branch, release or merge action that changes repository state without authoring source | no |
 
 `implementation` is the only kind that mutates the tree, and therefore the only kind a readiness
 template can gate.
@@ -86,7 +95,8 @@ A gate pauses the run between stages. Only `feature` declares any:
 edits until its three artifacts exist — regardless of which skill is doing the editing.
 
 Outside any class, the per-prompt hook on Claude Code and Codex can add one advisory note per
-session suggesting `/do` when the first prompt reads as a plain code-change request. It is not a gate:
+session suggesting `/do` on the first prompt of the session that reads as a plain code-change request,
+which can be a later prompt. It is not a gate:
 it never blocks a prompt, and it stays silent once work is already under DoFlow. On both harnesses the
 hook now returns its output in one nested `hookSpecificOutput` object, the shape Claude Code honours,
 so the first-prompt Git context and the session title reach Claude Code as well. The other harnesses
@@ -109,15 +119,15 @@ The engine fails closed: a requirement it cannot evaluate reads as unmet.
 
 Each evaluation is recorded under `.doflow/state/readiness/`, so a later step can ask whether the task
 was `READY` before its work began instead of evaluating again with whatever it is handed then. The
-runtime asks it on all eight harnesses: `orchestrate` `handoff` and `complete-stage` of the gated
+runtime asks it on all seven harnesses: `orchestrate` `handoff` and `complete-stage` of the gated
 `implementation` stage refuse without a `READY` record of the stage's template made before the call,
 and name the `readiness` command that clears the refusal; `verify` reports `INCONCLUSIVE` in place
-of `PASS` while a run with that stage pending has no such record. Six harnesses have a hook layer
-(Claude Code, Codex once its hooks are reviewed, Gemini CLI, Pi, Antigravity and Kiro), and there the
+of `PASS` while a run with that stage pending has no such record. Five harnesses have a hook layer
+(Claude Code, Codex once its hooks are reviewed, Pi, Antigravity, Kiro and Copilot CLI), and there the
 same check also refuses a source edit with the same text: on a feature branch whose three artifacts
 and decision register exist, and while a `feature`, `bug`, `refactor` or `dependency-change` run is
 open with its implementation stage pending (the run is the one named by the host's task id, else by
-the branch's slug). OpenCode and Copilot CLI have no hook layer, so the handoff and `verify` are
+the branch's slug). OpenCode has no hook layer, so the handoff and `verify` are
 their only checks. Pi has a `tool_call` guard extension. Its pre-implementation gate blocks only for the live-observed
 `cli-extension` row; project-interactive and user-interactive coverage remains unknown, including
 interactive loading and project-trust behavior. The handoff and `verify` still apply there. `trivial-edit` opts out of the edit-time check on every harness: it is held at

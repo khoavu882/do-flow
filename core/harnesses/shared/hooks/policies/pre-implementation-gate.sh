@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
+_DOFLOW_SRC=${0//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_POLDIR=${_DOFLOW_SRC%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # pre-implementation-gate.sh — Canonical Policy Library: PreToolUse(Edit|Write|...)
 # backstop for the doflow implement gate. The HARD half of the one enforced
 # gate (the other half is the prompt-level do-prereqs.sh inside
@@ -27,7 +28,7 @@ case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # Canonical Policy Script Contract (design.md §4):
 #   env    DOFLOW_PROJECT_DIR (repo root, if the front door sets it),
 #          DOFLOW_AGENT (harness id, informational only here),
-#          CLAUDE_CONFIG_DIR / CLAUDE_PROJECT_DIR / GEMINI_CONFIG_DIR / CODEX_HOME
+#          CLAUDE_CONFIG_DIR / CLAUDE_PROJECT_DIR / CODEX_HOME
 #          (each already read by the harness-specific dispatcher this policy
 #          replaces — kept so an unmodified front door still resolves its own
 #          harness's do-paths.sh resolver)
@@ -35,7 +36,7 @@ case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 #   exit   exit 2 + doflow_decide deny = deny; other faults per IC-011. A front
 #          door translates this into its native response shape.
 #
-# Reconciliation note (022-normalize-hooks, Phase A): claude/gemini/codex/kiro
+# Reconciliation note (022-normalize-hooks, Phase A): claude/codex/kiro
 # each shipped a separately-adapted copy of this gate; antigravity's copy
 # additionally never depended on a do-paths.sh resolver at all — it computed
 # feature_dir itself from the current branch name and checked the three
@@ -139,13 +140,11 @@ RESOLVER_CANDIDATES=(
   "$ROOT/.doflow/scripts/doflow/bash/do-paths.sh"
   "$ROOT/.claude/scripts/doflow/bash/do-paths.sh"
   "$ROOT/.codex/scripts/doflow/bash/do-paths.sh"
-  "$ROOT/.gemini/scripts/doflow/bash/do-paths.sh"
   "$ROOT/.kiro/scripts/doflow/bash/do-paths.sh"
   "$HOME/.doflow/scripts/doflow/bash/do-paths.sh"
   "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/scripts/doflow/bash/do-paths.sh"
   "${CLAUDE_PROJECT_DIR:-}/.claude/scripts/doflow/bash/do-paths.sh"
   "${CODEX_HOME:-$HOME/.codex}/scripts/doflow/bash/do-paths.sh"
-  "${GEMINI_CONFIG_DIR:-$HOME/.gemini}/scripts/doflow/bash/do-paths.sh"
   "$HOME/.kiro/scripts/doflow/bash/do-paths.sh"
 )
 
@@ -163,11 +162,14 @@ has_plan=""
 if [ -n "$RESOLVER" ]; then
   json=$("$RESOLVER" --json 2>/dev/null) || json=""
   if [ -n "$json" ]; then
-    feature_dir=$(printf '%s' "$json"     | jq -r '.feature_dir // empty' 2>/dev/null)
-    repo_root=$(printf '%s' "$json"       | jq -r '.repo_root // empty' 2>/dev/null)
-    has_requirement=$(printf '%s' "$json" | jq -r '.has_requirement // false' 2>/dev/null)
-    has_design=$(printf '%s' "$json"      | jq -r '.has_design // false' 2>/dev/null)
-    has_plan=$(printf '%s' "$json"        | jq -r '.has_plan // false' 2>/dev/null)
+    # One jq run for all five fields, one per line (none of them can hold a newline).
+    {
+      IFS= read -r feature_dir
+      IFS= read -r repo_root
+      IFS= read -r has_requirement
+      IFS= read -r has_design
+      IFS= read -r has_plan
+    } < <(printf '%s' "$json" | jq -r '(.feature_dir // ""), (.repo_root // ""), (.has_requirement // false), (.has_design // false), (.has_plan // false)' 2>/dev/null) || true
   fi
 fi
 
@@ -247,18 +249,41 @@ real_path() {
 repo_real=$(cd -P "$repo_root" 2>/dev/null && pwd) || repo_real="$repo_root"
 
 # Only source files inside this repo are gated: edits to doflow artifacts are
-# always allowed, and an absolute path elsewhere is not this repo's.
+# always allowed, an absolute path elsewhere is not this repo's, and neither is a
+# path git ignores.
 GATED=false
 while IFS= read -r file; do
   [ -z "$file" ] && continue
-  case "$file" in *"/agent-docs/"*|agent-docs/*) continue ;; esac
+  # A ".." segment can lead out of agent-docs (agent-docs/../src/x), so such a path is judged by
+  # its real path below, never by the text before the "..".
+  case "/$file/" in
+    */../*) ;;
+    *) case "$file" in *"/agent-docs/"*|agent-docs/*) continue ;; esac ;;
+  esac
+  check="$file"
   case "$file" in
     /*)
       real=$(real_path "$file") || real="$file"
-      case "$real" in *"/agent-docs/"*) continue ;; esac
+      case "/$real/" in */../*) ;; *) case "$real" in *"/agent-docs/"*) continue ;; esac ;; esac
       case "$real" in "$repo_real"/*) ;; *) continue ;; esac
+      check="$real"
+      ;;
+    *)
+      real=$(real_path "$repo_root/$file") || real="$repo_root/$file"
+      # real_path folds a ".." only through directories that exist, so one left in it is not folded.
+      case "/$file/" in */../*) case "/$real/" in */../*) ;; *) case "${real#"$repo_real"}/" in */agent-docs/*) continue ;; esac ;; esac ;; esac
       ;;
   esac
+  # A path git ignores (a local config file such as .mcp.json) is not source. check-ignore
+  # without --no-index answers "not ignored" for a tracked file, so tracked source stays gated.
+  # The skip never applies to DoFlow's own state or gate artifacts: .doflow/ is gitignored, and
+  # skipping it would let an edit forge a readiness record. Any `.doflow` or `agent-docs/doflow`
+  # segment of the real path, or of the path as written (a `..` the resolver could not fold), keeps it gated.
+  # The same holds for the do-paths.sh resolver the gate runs (any RESOLVER_CANDIDATES path, whichever
+  # harness directory holds it, ignored or not): rewriting it can make the gate find no feature.
+  case "/$file/" in */.doflow/*|*/agent-docs/doflow/*|*/../*|*/scripts/doflow/bash/do-paths.sh/) GATED=true; break ;; esac
+  case "${real#"$repo_real"}/" in */.doflow/*|*/agent-docs/doflow/*|*/scripts/doflow/bash/do-paths.sh/) GATED=true; break ;; esac
+  git -C "$repo_root" check-ignore -q -- "$check" 2>/dev/null && continue
   GATED=true
   break
 done <<< "$FILES"
@@ -304,25 +329,71 @@ checkouts() {
   return 0
 }
 
-# A state file under this checkout, else under exactly one other checkout, at
-# the first of the given paths that exists in each; held in two or more others,
-# it cannot be told which is meant -> allow.
+# Whether two files hold the same bytes.
+same_bytes() {
+  if command -v cmp >/dev/null 2>&1; then cmp -s "$1" "$2"; else [ "$(cat "$1")" = "$(cat "$2")" ]; fi
+}
+
+# Whether the flat record $1 of a namespaced task may be read as feature $2's
+# (115 D-3): it names that feature (featureSlug on a run, slug on a readiness
+# record) or none. A file that does not parse names nobody.
+flat_is_ours() {
+  local named
+  named=$(jq -r '[.featureSlug, .slug] | map(select(type == "string" and . != "")) | first // empty' "$1" 2>/dev/null) || return 1
+  [ -z "$named" ] || [ "$named" = "$2" ]
+}
+
+# The task's record of store $2 (readiness | orchestration) under checkout $1,
+# keyed by feature $3 as the runtime keys it (115 C-1): <store>/<feature>/<id>.json
+# for a task id other than the feature's slug, else the flat file; the flat file
+# of a namespaced task only when it is this feature's or names none. Sets HIT.
+HIT=""
+record_in() {
+  local store="$1/.doflow/state/$2"
+  HIT=""
+  if [ -n "$3" ] && [ "$3" != "$task_id" ]; then
+    if [ -f "$store/$3/$task_id.json" ]; then HIT="$store/$3/$task_id.json"; return 0; fi
+    [ -f "$store/$task_id.json" ] && flat_is_ours "$store/$task_id.json" "$3" && HIT="$store/$task_id.json"
+    return 0
+  fi
+  [ -f "$store/$task_id.json" ] && HIT="$store/$task_id.json"
+  return 0
+}
+
+# The task's readiness record, keyed by feature $1. From a linked worktree the
+# main checkout's comes first, since every record lives there (115 IC-004), and
+# a copy at the same path here with other bytes refuses (C-3). Else this
+# checkout's, else exactly one other checkout's; held in two or more others it
+# cannot be told which is meant -> allow.
 FOUND=""
 find_state() {
-  local rel root count=0 hit
+  local root count=0 copy
   FOUND=""
-  for rel in "$@"; do
-    if [ -f "$repo_root/$rel" ]; then FOUND="$repo_root/$rel"; return 0; fi
-  done
+  if [ -f "$repo_root/.git" ]; then
+    checkouts
+    if [ -n "$MAIN" ]; then
+      record_in "$MAIN" readiness "$1"
+      if [ -n "$HIT" ]; then
+        copy="$repo_root${HIT#"$MAIN"}"
+        if [ -f "$copy" ] && ! same_bytes "$copy" "$HIT"; then
+          printf "doflow gate readiness-before-implementation: task '%s' has a readiness record in this worktree (%s) that differs from the main checkout's (%s). Next: keep one of the two and remove the other, then re-run. Nothing was changed.\n" "$task_id" "$copy" "$HIT" >&2
+          doflow_decide deny readiness-store-conflict
+          exit 2
+        fi
+        FOUND="$HIT"
+        return 0
+      fi
+    fi
+  fi
+  record_in "$repo_root" readiness "$1"
+  if [ -n "$HIT" ]; then FOUND="$HIT"; return 0; fi
   checkouts
   for root in ${OTHERS[@]+"${OTHERS[@]}"}; do
-    hit=""
-    for rel in "$@"; do
-      [ -f "$root/$rel" ] && { hit="$root/$rel"; break; }
-    done
-    [ -n "$hit" ] || continue
+    [ "$root" = "$MAIN" ] && continue
+    record_in "$root" readiness "$1"
+    [ -n "$HIT" ] || continue
     count=$((count + 1))
-    FOUND="$hit"
+    FOUND="$HIT"
   done
   [ "$count" -le 1 ] || exit 0
 }
@@ -338,18 +409,26 @@ run_feature() {
   return 0
 }
 
+# The feature the task's records are keyed by, as the runtime keys them
+# (featureSlugFor): a task id that names a feature folder in this checkout is
+# its own feature, else the branch's.
+run_key="$slug"
+[ -d "$repo_root/agent-docs/doflow/$task_id" ] && run_key="$task_id"
+
 # The task's run: this checkout's, else the one other checkout's run of the same
 # feature. A run with the same id for another feature is a different task.
 find_run() {
-  local rel=".doflow/state/orchestration/$task_id.json" root count=0
+  local root count=0
   FOUND=""
-  if [ -f "$repo_root/$rel" ]; then FOUND="$repo_root/$rel"; return 0; fi
+  record_in "$repo_root" orchestration "$run_key"
+  if [ -n "$HIT" ]; then FOUND="$HIT"; return 0; fi
   checkouts
   for root in ${OTHERS[@]+"${OTHERS[@]}"}; do
-    [ -f "$root/$rel" ] || continue
-    [ "$(run_feature "$root/$rel")" = "$slug" ] || continue
+    record_in "$root" orchestration "$run_key"
+    [ -n "$HIT" ] || continue
+    [ "$(run_feature "$HIT")" = "$run_key" ] || continue
     count=$((count + 1))
-    FOUND="$root/$rel"
+    FOUND="$HIT"
   done
   [ "$count" -le 1 ] || exit 0
 }
@@ -443,13 +522,10 @@ if [ -n "$RUN" ]; then
 fi
 
 # The record, where the runtime looks: under the feature's namespace (the run's
-# own feature when it recorded one), then flat; this checkout first.
-record_slug="${run_slug:-$slug}"
-if [ -n "$record_slug" ] && [ "$record_slug" != "$task_id" ]; then
-  find_state ".doflow/state/readiness/$record_slug/$task_id.json" ".doflow/state/readiness/$task_id.json"
-else
-  find_state ".doflow/state/readiness/$task_id.json"
-fi
+# own feature when it recorded one), then flat; the main checkout first from a
+# linked worktree, else this checkout first.
+record_slug="${run_slug:-$run_key}"
+find_state "$record_slug"
 record_state=""; record_class=""; record_at=""
 if [ -n "$FOUND" ]; then
   record_info=$(jq -r '(.state // ""), (.taskClass // ""), (.evaluatedAt // "")' "$FOUND" 2>/dev/null) || exit 0

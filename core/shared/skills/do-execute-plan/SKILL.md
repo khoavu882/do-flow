@@ -1,6 +1,6 @@
 ---
 name: do-execute-plan
-description: "Execute plan.md's task checklist: subagent-driven orchestration over named specialist archetypes (system-architect, core-implementer, quality-guardian) with prerequisite gates, readiness contracts, and parallel execution. Use whenever requirement.md, design.md, and plan.md exist and the next step is building the plan's tasks through subagents, or when the user says 'execute the plan', 'run the plan', 'start building', or 'implement phase N'. Always activate this skill to orchestrate multi-task implementation plans with write-set isolation."
+description: "Run plan.md's task checklist through subagents. Use when requirement.md, design.md and plan.md exist and the next step is building the plan's tasks, or when the user says 'execute the plan', 'run the plan', 'start building' or 'implement phase N'. Skip it while plan.md is missing (/do-plan comes first) and for one-off fixes, which go to /do-implement."
 argument-hint: "[--scope next|phase:N|all|resume] [--review] [--scaffold]"
 effort: high
 ---
@@ -60,13 +60,8 @@ Branch on the returned `outcome` field, not the exit code.
      `hasImplementationStage` off the returned object rather than recalling which classes those are
      — this skill is the wrong tool for that class. Say so and stop rather than executing tasks the
      workflow never declared.
-   - Also derive `<expected gate id>`: among `gates[]`, the one entry whose `afterStage` equals the
-     stage immediately preceding this skill's own stage in `stageIds[]` (`gate-a` in `feature`, since
-     `gate-a`'s `afterStage` is `planning`, the stage right before `implementation`) — `null` if no
-     gate is anchored there. No shipped workflow anchors two gates to the same stage, so this is
-     always at most one entry; do not hardcode `gate-a`, derive it this way so a differently-shaped
-     workflow's own gate is found the same way. Step 3 needs this to tell "the gate that belongs to
-     this stage" apart from any other gate `catch-up` might stop on.
+   - Also derive `<expected gate id>`, the gate standing directly before this stage, as
+     `references/run_position.md` says; step 3 needs it.
 
 3. **Position the Run, and Resolve the Approval Gate Standing Before This Stage**:
    - This stage is the one the accepted workflow anchors an `approval`-kind gate directly *before*
@@ -89,22 +84,10 @@ Branch on the returned `outcome` field, not the exit code.
      "$DOFLOW" readiness --task-class "<template from step 2>" --task-id "<task id>" --mode workflow --json
      "$DOFLOW" evidence --task-id "<task id>" --json
      ```
-   - **Both `--task-class` and `--task-id` are required.** Omitting either exits 2 and names the
-     valid set. Pass them explicitly rather than letting anything default: a verdict computed for
-     another task, or against another class's contract, is worse than no verdict.
-   - **Act on `stageEntry.decision`, not the exit code and not your own reading of `state`.** The
-     entry policy is the runtime's: `ENTER` → dispatch the task; `GATHER_FIRST` → gather the named
-     requirements before dispatching; `ASK_USER` → ask the owed decision and wait; `STOP` → stop
-     and surface the conflicted claim. The four underlying states remain the entire state
-     vocabulary — `READY`, `NEEDS_EVIDENCE`, `NEEDS_USER_DECISION`, `BLOCKED` — and none of them is
-     ever reported as a number, a percentage, or a confidence.
-   - Only `bug`, `feature`, `refactor`, `trivial-edit` and `dependency-change` have templates. On
-     any other class the verb exits 1 and lists the valid keys; that is the correct answer, not a
-     gap to route around.
-   - All four states are reachable, so a verdict is about this task rather than about the runtime.
-     Dispatch no task until the run's record, below, is `READY`. `BLOCKED` is a claim whose evidence contradicts itself, and `NEEDS_USER_DECISION`
-     is what `--user-decision-pending` returns. A first call on a task with nothing recorded grades
-     an empty ledger — that is a checklist, not a defect.
+   - **Both `--task-class` and `--task-id` are required; act on `stageEntry.decision`, never on the exit
+     code or your own reading of `state`.** The rest of acting on a verdict, the four states, and which
+     classes have templates: `references/readiness_gate.md`. Dispatch no task until the run's record,
+     below, is `READY`.
    - **The run's record comes first.** The handoff, `verify` and the edit hook read the record
      keyed on the feature slug (the run's task id), so before the first dispatch record the
      `affected_components` evidence, then evaluate with the plan's stated inputs:
@@ -119,12 +102,6 @@ Branch on the returned `outcome` field, not the exit code.
      lists (schema: the guidance tree's `references/EVIDENCE_LEDGER.md`). `scope_clear` and
      `verification_plan` come from the two stated inputs; `--scope` as a path list is also what
      `verify` bounds the change by. A refusal names the command to run again.
-   - `readiness` also accepts `--verification-plan`, `--scope` and `--invariants` — the verb's own
-     arguments, unrelated to this skill's `--scope`. Those are inputs
-     you **state**, not evidence the gate measured: the report lists them back as `callerAsserted`
-     in JSON and `Caller-stated:` in the human report, and a requirement satisfied that way links
-     no evidence. Pass them when they are true, and when you report the verdict say which part of
-     it rests on a statement rather than on a record. Never pass one to move a state.
    - Do not recall the contract from memory — the templates are versioned and the command reads
      them. This skill's own `references/readiness_gate.md` carries the per-class requirements, what each state
      means, and exactly which input produces it. Read it before acting on a verdict, and never
@@ -165,20 +142,10 @@ Branch on the returned `outcome` field, not the exit code.
      ```
      **Exit 1 means the pack came back empty; exit 3 means overflow: the pack is complete, act on
      `overflowAction.message` and report the gap.**
-     This call sits right at subagent dispatch — proceeding as though nothing happened is the defect
-     this feature removes. An empty pack here can still be legitimate: step 4 lets a task reach
-     `READY` on `callerAsserted` inputs alone, which link no evidence. Do not withhold dispatch on
-     this alone — readiness already governs whether the task may be worked. Instead, carry the empty
-     result into the group's brief itself: state in the dispatch, next to the task-brief output, that
-     no prior evidence or claims were compiled for this task, so the subagent works from the
-     plan/design text `task-brief` already supplies without assuming a grounding evidence base that
-     isn't there. A non-empty pack is included in the brief as the subagent's prior context, same
-     handoff.
-   - Claim each task before dispatch and finish it with evidence: `references/task_attempts.md`.
-   - Dispatch tasks to appropriate specialist archetypes:
-     - Architecture & Schema $\rightarrow$ `system-architect`
-     - Code Implementation & Refactoring $\rightarrow$ `core-implementer`
-     - Test Automation & Quality $\rightarrow$ `quality-guardian`
+     An empty pack does not withhold dispatch; what the brief must then say: `references/parallel_dispatch.md`.
+   - Claim each task before dispatch and finish it with evidence: `references/task_attempts.md`
+     (the evidence item schema: the guidance tree's `references/EVIDENCE_LEDGER.md`).
+   - Dispatch each task to its plan `owner` (an agent spec).
    - Name a model tier on every dispatch — an omitted tier inherits the session's model. Pass the
      tier from task-brief's `record.tier` as the dispatch model; for review passes and the limit
      where a harness honors only `model: inherit`, see `references/MODEL_SELECTION.md`.
@@ -211,15 +178,8 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
      exactly as the resolver returns it) — `state.md` and `plan.md` both sit at the feature dir's
      own root under both layouts, the same single shared location, and the resolver's own field is
      what confirms it rather than a hand-computed guess.
-   - Every checkpoint: append the finished task(s) to the Task Ledger (`Commits` as the actual
-     `[base7]..[head7]` range once committed, or `uncommitted (working tree)` when this run doesn't
-     commit on its own), move them from **In Progress** to **Completed**, and rewrite **Status**,
-     **Blocked**, **Findings** and **Next Action** (the next pending task) in place, deleting a
-     blocker or finding that no longer applies, so a resumed session (or a different one) can pick up
-     from this file and `git log` alone, never from conversation memory. A `Findings` entry records
-     a review finding deliberately left unfixed (rare); write "None." otherwise, never omit it.
-   - This is bookkeeping, not a gate: a write failure here degrades resumability, not correctness —
-     report it and continue rather than treating it as a task failure.
+   - Every checkpoint updates the Task Ledger and rewrites the status sections in place, per
+     `references/state_checkpoint.md`; a write failure there is reported, never a task failure.
 
 9. **Phase Quality Review** (`--review`, opt-in):
    - Off by default. With `--review`, review each phase on completion for spec compliance before
@@ -229,10 +189,7 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
 10. **Record the Handoff**:
     - Before recording it, follow the decision step in the guidance tree's
       `references/WORKFLOW_HANDOFF.md`.
-    - Once per `/do-execute-plan` invocation, at the last `state.md` checkpoint this run writes —
-      not once per phase, since the stage hands off once however many phases it executed. The stage
-      id is step 3's `caughtUpTo`, which the run is already positioned on; there is no second
-      `catch-up` call and no `status` call to make here.
+    - Once per invocation, at the last `state.md` checkpoint, on step 3's `caughtUpTo` (`references/handoff_record.md`).
     - **First: is this run a completion or a checkpoint?** Count `plan.md`'s still-unchecked task
       lines with `grep -cE '^- \[ \] [A-Z]+\.[0-9]+'`. The task-id prefix is load-bearing: a bare
       `^- \[ \]` also matches the plan's own `- [ ] All tasks checked` completion-criteria line, so

@@ -17,6 +17,8 @@ const { loadRegistry } = require('../registry/index.ts');
 const { CapabilityRouter } = require('./capability-router.ts');
 const { probeProviders, HEALTHY, UNVERIFIED } = require('./health.ts');
 const { mcpReach } = require('./mcp-reach.ts');
+const { touchesManifest } = require('./mcp-consultations.ts');
+const { loadBriefRules } = require('./brief-rules.ts');
 const { WorkflowOrchestrator } = require('./workflow-orchestrator.ts');
 const { resolveActiveFeature } = require('./feature-resolve.ts');
 const { finishRuntime, usageError, captureCaught } = require('./cli-result.ts');
@@ -28,7 +30,9 @@ const { resolveRoots } = require('./storage/roots.ts');
 const { resolveSetting } = require('./advice/config.ts');
 const { materializeKind } = require('./advice/kinds.ts');
 const { createAdviceClient } = require('./advice/client.ts');
+const { resolveShadowConfig } = require('./advice/shadow-config.ts');
 const { strengthWords } = require('./advice/strength.ts');
+const { resolveTier } = require('./worker/models.ts');
 
 const SCHEMA = 1;
 const REACHABLE = new Set(['selected', 'configured']);
@@ -49,35 +53,26 @@ function hasServer(reach: any, harnessId: any, server: any) {
   return harnessId ? REACHABLE.has(stateOn(reach, harnessId, server)) : reach.harnesses.some((row: any) => REACHABLE.has(row.servers[server]));
 }
 
-/** The target harness: a registry id named by the caller, else the one harness installed at the
- * project scope (the global scope when the project has none), else none. */
-function chooseTarget({ registry, reach, harness, missing }: any) {
+/** IC-017: the resolved primary harness when it is a registry id and its state permits targeting. */
+function primaryHarnessOf(primary: any, registry: any) {
+  if (!primary || ['unknown', 'refused', 'not-primary'].includes(primary.state)) return null;
+  return registry.harnesses.some((item: any) => item.id === primary.harness) ? primary.harness : null;
+}
+
+/** The target harness: a registry id named by the caller, else the resolved primary, else the one
+ * harness installed at the project scope (the global scope when the project has none), else none. */
+function chooseTarget({ registry, reach, harness, primaryHarness, missing }: any) {
   if (harness) {
     if (registry.harnesses.some((item: any) => item.id === harness)) return harness;
     missing.push(`harness '${harness}' is not a registry harness; ignored`);
   }
+  if (primaryHarness) return primaryHarness;
   const rows = reach?.harnesses || [];
   for (const scope of ['project', 'global']) {
     const ids = [...new Set(rows.filter((row: any) => row.scope === scope).map((row: any) => row.id))];
     if (ids.length) return ids.length === 1 ? ids[0] : null;
   }
   return null;
-}
-
-/** Tier for a dispatch: the task line's tier when valid, else the owner's, else the default (IC-004).
- * A registry without `dispatchTiers` (the key is optional) gives `standard` with a note. */
-function resolveTier({ dispatchTiers, owner, tier, missing }: any) {
-  if (!dispatchTiers) {
-    missing.push('models.json has no dispatchTiers; tier standard assumed');
-    return { tier: 'standard', source: 'default', note: 'models.json has no dispatchTiers' };
-  }
-  if (tier !== undefined && tier !== null && tier !== '') {
-    if (dispatchTiers.tiers.includes(tier)) return { tier, source: 'task' };
-    missing.push(`tier '${tier}' is not in dispatchTiers.tiers; ignored`);
-  }
-  if (Object.hasOwn(dispatchTiers.byOwner, owner)) return { tier: dispatchTiers.byOwner[owner], source: 'owner' };
-  missing.push(`owner '${owner}' has no tier in models.json dispatchTiers`);
-  return { tier: dispatchTiers.default, source: 'default' };
 }
 
 /** The first provider of a capability whose probe status is `status`, in registry order, or null. */
@@ -102,6 +97,9 @@ function resolveRoute(router: any, route: any, probes: any) {
 }
 
 const cell = (text: any) => String(text).replace(/\|/g, '\\|').replace(/\s+/g, ' ');
+// The hand-back status ids, in the order of core/registry/workflows.json agents.handback.statuses;
+// G76 holds this text, the fallback in do-task-brief.sh and every spec/TOML status line to that list.
+const HANDBACK_IDS = ['done', 'done-with-concerns', 'needs-context', 'blocked'];
 const trigger = (server: any) => server.trigger.replace(/\.$/, '');
 
 /**
@@ -113,16 +111,34 @@ const trigger = (server: any) => server.trigger.replace(/\.$/, '');
  * @param {string} input.owner
  * @param {string} [input.tier] the task line's tier
  * @param {string} [input.harness] target harness id
+ * @param {Object} [input.primary] resolved primary result (IC-017)
+ * @param {Object} [input.bindings] workers.models bindings result (IC-017)
  * @param {2|3} [input.headingLevel]
+ * @param {string} [input.repoRoot] where `core/registry/rules.json` is read from
  * @param {{feature:?string, runTaskId:?string, stageId:?string, skill:?string}|null} [input.stage]
- * @returns {{markdown: string, record: Object}} the record is IC-018 without `tasks`
+ * @returns {{markdown: string, record: Object}} the IC-018 record, including model (IC-017), without `tasks`
  */
-function renderBriefTools({ registry, router, probes, reach, owner, tier, harness, headingLevel = 2, stage = null }: any) {
+function renderBriefTools({ registry, router, probes, reach, owner, tier, harness, primary = null, bindings = null, headingLevel = 2, stage = null, repoRoot = REPO_ROOT }: any) {
   const missing: any = [];
   const hashes = '#'.repeat(Number(headingLevel) === 3 ? 3 : 2);
-  const target = chooseTarget({ registry, reach, harness, missing });
+  const primaryHarness = primaryHarnessOf(primary, registry);
+  const target = chooseTarget({ registry, reach, harness, primaryHarness, missing });
   const targetHarness = target ? registry.harnesses.find((item: any) => item.id === target) : null;
   const resolved = resolveTier({ dispatchTiers: registry.dispatchTiers, owner, tier, missing });
+  const lineHarness = registry.harnesses.some((item: any) => item.id === harness) ? harness : primaryHarness;
+  const lineHarnessEntry = lineHarness ? registry.harnesses.find((item: any) => item.id === lineHarness) : null;
+  let model = null;
+  if (lineHarness) {
+    const { resolveBinding } = require('./worker/models.ts');
+    const binding = resolveBinding({ worker: lineHarness, tier: resolved.tier, bindings, descriptor: lineHarnessEntry?.worker });
+    if (binding.source === 'invalid') {
+      model = { harness: lineHarness, id: null, source: 'invalid' };
+    } else if (binding.source === 'binding') {
+      model = { harness: lineHarness, id: binding.model, source: 'binding' };
+    } else {
+      model = { harness: lineHarness, id: null, source: 'harness-default' };
+    }
+  }
   const sourceText = resolved.source === 'owner' ? `owner ${owner}`
     : resolved.source === 'task' ? 'task line' : `default; ${resolved.note || `owner ${owner} has no tier`}`;
 
@@ -162,8 +178,18 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
   }
 
   const skill = stage?.skill || null;
+  const taskClass = stage?.taskClass || null;
+  const diffFiles = stage?.diffFiles || [];
+
   const expectedServers = skill
-    ? registry.mcp.filter((server: any) => (server.steps || []).some((step: any) => step.skill === skill && !step.expectedWhen)) : [];
+    ? registry.mcp.filter((server: any) => (server.steps || []).some((step: any) => {
+        if (step.skill !== skill) return false;
+        if (!step.expectedWhen) return true;
+        if (step.expectedWhen === 'dependency-change') return taskClass === 'dependency-change';
+        if (step.expectedWhen === 'manifest-review') return touchesManifest(diffFiles);
+        return false;
+      }))
+    : [];
   const expectedIds = new Set(expectedServers.map((server: any) => server.id));
   const expected = expectedServers.map((server: any) => {
     let state;
@@ -177,11 +203,20 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
   const list = (servers: any) => (servers.length ? servers.map((server: any) => `\`${server.id}\` (${trigger(server)})`).join('; ') : 'none');
   const targetName = targetHarness ? targetHarness.displayName || targetHarness.id : 'any installed harness';
 
+  const carried = loadBriefRules(repoRoot);
+  if ('reason' in carried) missing.push(`brief-rules: ${carried.reason}`);
+
   const lines = [
+    ...('lines' in carried ? [`${hashes} Rules that apply to you`, '', ...carried.lines.map((line: string) => `- ${line}`), ''] : []),
     `${hashes} Tier and tools`,
     '',
     `Tier: \`${resolved.tier}\` (${sourceText}), per`,
     '`references/MODEL_SELECTION.md`.',
+    ...(model ? [model.source === 'invalid'
+      ? `Model: binding unreadable on \`${model.harness}\`; harness default.`
+      : model.source === 'binding'
+        ? `Model: \`${model.id}\` on \`${model.harness}\` (binding, user layer).`
+        : `Model: harness default on \`${model.harness}\`.`] : []),
     '',
     'Tools this machine answers with, per information need. Searching with them before reading whole',
     'files is recommended where it saves reading; it is not required.',
@@ -199,12 +234,18 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
     if (item.reach === 'unreachable') lines.push(`\`${item.server}\` is not reachable on ${targetName}; report it as \`${item.server}=unavailable\`.`);
     else if (item.reach === 'unknown') lines.push(`\`${item.server}\` may not be reachable on ${targetName}; if no tool answers, report \`${item.server}=unavailable\`.`);
   }
+  for (const s of expectedServers) {
+    if (typeof s.trigger === 'string' && s.trigger.toLowerCase().includes('library')) {
+      lines.push(`Vendor/library facts: \`${s.id}\` first, else a URL, else UNVERIFIED.`);
+    }
+  }
   lines.push(
     '',
     `${hashes} Report format`,
     '',
-    `End ${Number(headingLevel) === 3 ? "each task's report" : 'your report'} with one line naming every tool and MCP server you used:`,
+    'Put one line naming every tool and MCP server you used just before the final status line:',
     '`Tools used: <name>[=used|nothing-usable|unavailable|skipped:<reason>], ...`',
+    `End ${Number(headingLevel) === 3 ? "each task's report" : 'your report'} with one line \`Status: <status>\`, where the status is one of ${HANDBACK_IDS.map((id) => `\`${id}\``).join(', ')}.`,
   );
 
   const record = {
@@ -217,6 +258,7 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
     tier: resolved.tier,
     tierSource: resolved.source,
     harness: target,
+    model: model ?? null,
     expected,
     optional: also.map((server: any) => server.id),
     tools,
@@ -230,7 +272,7 @@ function currentStageOf({ repoRoot = REPO_ROOT, projectRoot, taskId }: any) {
   try {
     const run = new WorkflowOrchestrator({ repoRoot, projectRoot }).readRun(taskId);
     const node = run && run.cursor < run.program.length ? run.program[run.cursor] : null;
-    return node && node.type === 'stage' ? { stageId: node.id, skill: node.skill } : null;
+    return node && node.type === 'stage' ? { stageId: node.id, skill: node.skill, taskClass: run.taskClass ?? null } : null;
   } catch { return null; }
 }
 
@@ -279,13 +321,14 @@ function adviceRecord(result: any) {
     };
   }
   if (result?.status === 'unavailable') return { kind: 'tier', status: 'unavailable', reason: result.reason || 'config-invalid' };
+  if (result?.status === 'shadow') return { kind: 'tier', status: 'shadow', reason: result.reason ?? null };
   return null;
 }
 
 /**
  * The tier renderer remains synchronous/pure; optional local advice is requested afterward.
  */
-async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLevel, tasks, json = false, repoRoot = REPO_ROOT, projectRoot = process.cwd(), buildAdapters = null, probe = probeProviders, adviceClient = null }: any = {}) {
+async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLevel, tasks, json = false, repoRoot = REPO_ROOT, projectRoot = process.cwd(), env = process.env, buildAdapters = null, probe = probeProviders, adviceClient = null }: any = {}) {
   if (!owner) return usageError('brief-tools', '--owner is required (the agent type the brief is for)', json);
   const level = headingLevel === undefined ? 2 : Number(headingLevel);
   if (level !== 2 && level !== 3) return usageError('brief-tools', `--heading-level must be 2 or 3, got '${headingLevel}'`, json);
@@ -297,7 +340,12 @@ async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLeve
     let reach = null;
     try { reach = mcpReach({ registry, projectRoot, adapters: buildAdapters ? buildAdapters() : undefined }); } catch { notes.push('install facts unavailable; MCP reach unknown'); }
     const stage = stageFor({ repoRoot, projectRoot, slug, missing: notes });
-    const rendered = renderBriefTools({ registry, router, probes, reach, owner, tier, harness, headingLevel: level, stage });
+    let primary = null;
+    const { readBindings } = require('./worker/models.ts');
+    const { resolvePrimary } = require('./context/primary.ts');
+    try { primary = resolvePrimary({ env, projectRoot, registry }); } catch { notes.push('primary unresolved; default target unchanged'); }
+    const bindings = readBindings({ env, projectRoot });
+    const rendered = renderBriefTools({ registry, router, probes, reach, owner, tier, harness, primary, bindings, headingLevel: level, stage, repoRoot });
     let markdown = rendered.markdown;
     const record: any = rendered.record;
     record.missing.push(...notes);
@@ -307,21 +355,50 @@ async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLeve
       try {
         const adviceRegistry = loadAdviceRegistry({ repoRoot });
         const storageRegistry = loadStorageRegistry({ repoRoot });
-        const roots = resolveRoots({ registry: storageRegistry, projectRoot: path.resolve(projectRoot) });
-        if (adviceRegistry.ok && (adviceClient || resolveSetting({ adviceRegistry: adviceRegistry.registry, roots }).state === 'on')) {
+        const roots = resolveRoots({ registry: storageRegistry, projectRoot: path.resolve(projectRoot), env });
+        if (adviceRegistry.ok && (adviceClient || resolveSetting({ adviceRegistry: adviceRegistry.registry, roots, env }).state === 'on')) {
           const lines = taskLinesForAdvice({ projectRoot, feature: stage?.feature || slug, tasks: taskIds });
           const built = materializeKind('tier', { adviceRegistry: adviceRegistry.registry });
           const client = adviceClient || createAdviceClient({ adviceRegistry: adviceRegistry.registry, roots });
-          const result = built.ok ? await client.ask({
-            questionSet: { state: `${owner}\n${lines.join('\n')}`, questions: [built.question] },
-            kind: 'tier', staticAnswer: record.tier, caller: 'brief-tools', taskId: stage?.feature || slug,
-          }) : { status: 'unavailable', reason: built.reason || 'config-invalid' };
+          const state = `${owner}\n${lines.join('\n')}`;
+          const shadow = resolveShadowConfig('tier', { projectRoot: path.resolve(projectRoot), env, roots });
+          let result: any = { status: 'unavailable', reason: built.reason || 'config-invalid' };
+          if (built.ok && !shadow.kindSet) {
+            // advice.kinds.tier unset: the client asks and records, as before the dispatcher. A chosen rollout
+            // profile caps it: off asks nothing; shadow records the pick and shows none.
+            const { profileAdvisorCap, unsetKindPath } = require('./advice/mode.ts');
+            const route = unsetKindPath(profileAdvisorCap({ projectRoot: path.resolve(projectRoot), env }));
+            if (route === 'off') result = { status: 'off', reason: null };
+            else {
+              result = await client.ask({
+                questionSet: { state, questions: [built.question] },
+                kind: 'tier', staticAnswer: record.tier, caller: 'brief-tools', taskId: stage?.feature || slug,
+              });
+              if (route === 'shadow' && result?.status === 'answered') result = { status: 'shadow', reason: null };
+            }
+          } else if (built.ok) {
+            const { interceptDecisionPoint } = require('./advice/shadow-dispatcher.ts');
+            const intercepted = await interceptDecisionPoint({
+              kind: 'tier', caller: 'brief-tools', state, staticPick: record.tier,
+              questionSet: { state, questions: [built.question] }, adviceRegistry: adviceRegistry.registry,
+              taskId: stage?.feature || slug, projectRoot: path.resolve(projectRoot), env,
+            }, { adviceClient: client, roots, shadowConfig: shadow });
+            // Only act shows a pick, and it is the decision after the raise-only rule.
+            if (intercepted.mode === 'act' && intercepted.advisorPick) {
+              result = { status: 'answered', answers: [{
+                ...intercepted.advisorAnswer, pick: intercepted.effectiveDecision, pickId: intercepted.pickId,
+                agrees: intercepted.effectiveDecision === record.tier,
+              }] };
+            } else if (intercepted.mode === 'shadow') result = { status: 'shadow', reason: intercepted.warning || null };
+            else if (intercepted.mode === 'off') result = { status: 'off', reason: null };
+            else result = { status: 'unavailable', reason: intercepted.warning || null };
+          }
           const added = adviceRecord(result);
           if (added) {
             record.advice = added;
             if (added.status === 'answered') {
               const line = `Decision model: \`${added.pick}\` (${strengthWords({ word: added.strength, between: added.between })}), advisory. The tier above stands unless you change it.`;
-              markdown = markdown.replace(/(Tier: `[^`]+`[^\n]*\n`references\/MODEL_SELECTION\.md`\.)\n\n/, `$1\n${line}\n\n`);
+              markdown = markdown.replace(/(Tier: `[^`]+`[^\n]*\n`references\/MODEL_SELECTION\.md`\.(?:\nModel: [^\n]*)?)\n\n/, `$1\n${line}\n\n`);
             }
           }
         }

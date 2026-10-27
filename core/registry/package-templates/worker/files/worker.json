@@ -1,0 +1,92 @@
+{
+  "profile": null,
+  "billing": "unknown",
+  "cli": {
+    "status": "supported",
+    "evidence": ["template"],
+    "verification": "Run {{local}} --version",
+    "verifiedOn": "2026-10-24",
+    "binary": "{{local}}",
+    "versionArgv": ["--version"]
+  },
+  "oneShot": {
+    "status": "supported",
+    "evidence": ["template"],
+    "verification": "Run {{local}} with prompt",
+    "verifiedOn": "2026-10-24",
+    "argv": ["{prompt}"],
+    "promptVia": "argv"
+  },
+  "structuredOutput": {
+    "status": "supported",
+    "evidence": ["template"],
+    "verification": "Check structured output",
+    "verifiedOn": "2026-10-24",
+    "argv": [],
+    "parser": "doflow-jsonl-v1"
+  },
+  "readOnly": {
+    "status": "unknown",
+    "evidence": [],
+    "verification": "Check read-only enforcement",
+    "verifiedOn": "2026-10-24",
+    "reason": "template"
+  },
+  "spawnDenial": {
+    "status": "unknown",
+    "evidence": [],
+    "verification": "Check spawn denial handling",
+    "verifiedOn": "2026-10-24",
+    "reason": "template"
+  },
+  "runnableProbe": {
+    "status": "unknown",
+    "evidence": [],
+    "verification": "Check runnable probe",
+    "verifiedOn": "2026-10-24",
+    "reason": "template"
+  },
+  "hooksProbe": {
+    "status": "unknown",
+    "evidence": [],
+    "verification": "Check hooks probe",
+    "verifiedOn": "2026-10-24",
+    "reason": "template"
+  },
+  "guidanceProbe": {
+    "status": "unknown",
+    "evidence": [],
+    "verification": "Check guidance probe",
+    "verifiedOn": "2026-10-24",
+    "reason": "template"
+  },
+  "loginProbe": {
+    "status": "unknown",
+    "evidence": [],
+    "verification": "Check login probe",
+    "verifiedOn": "2026-10-24",
+    "reason": "template"
+  },
+  "persistentSession": {
+    "status": "unknown",
+    "evidence": [],
+    "verification": "Check persistent session capability",
+    "verifiedOn": "2026-10-24",
+    "reason": "template"
+  },
+  "resume": {
+    "status": "unknown",
+    "evidence": [],
+    "verification": "Check resume capability",
+    "verifiedOn": "2026-10-24",
+    "reason": "template"
+  },
+  "steering": {
+    "status": "unknown",
+    "evidence": [],
+    "verification": "Check steering capability",
+    "verifiedOn": "2026-10-24",
+    "reason": "template"
+  },
+  "modelChecks": []
+}

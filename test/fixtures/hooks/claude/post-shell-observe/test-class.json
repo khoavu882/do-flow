@@ -1,0 +1,17 @@
+{
+  "source": "088 E.1, Claude Code 2.1.292 PostToolUse; sanitised passing capture",
+  "native": {
+    "session_id": "session-088-observer",
+    "transcript_path": "/sanitised/transcript.jsonl",
+    "cwd": "/sanitised/project",
+    "prompt_id": "prompt-088",
+    "permission_mode": "default",
+    "hook_event_name": "PostToolUse",
+    "tool_name": "Bash",
+    "tool_input": { "command": "node --test pass.test.js" },
+    "tool_response": { "stdout": "✔ passes (0.3255ms)\nℹ tests 1\nℹ suites 0\nℹ pass 1\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 40.016917", "stderr": "", "interrupted": false, "isImage": false, "noOutputExpected": false },
+    "tool_use_id": "toolu_01XXXXXXXXXXXXXXXXXXXXXX",
+    "duration_ms": 1118
+  },
+  "expect": { "exit": 0, "stdout": "", "stderrIncludes": null, "records": 1, "test_class": "test.scoped", "duration_ms": null, "tool_duration_ms": 1118 }
+}

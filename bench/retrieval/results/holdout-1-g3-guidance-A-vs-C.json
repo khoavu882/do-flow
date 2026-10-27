@@ -1,0 +1,191 @@
+{
+  "schemaVersion": 1,
+  "snapshotId": 1,
+  "generation": 3,
+  "corpus": "guidance",
+  "comparisons": [
+    {
+      "metric": "recallAt1",
+      "class": "exact-lookup",
+      "a": "A",
+      "b": "C",
+      "n": 12,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "recallAt3",
+      "class": "exact-lookup",
+      "a": "A",
+      "b": "C",
+      "n": 12,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "recallAt5",
+      "class": "exact-lookup",
+      "a": "A",
+      "b": "C",
+      "n": 12,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "mrrAt5",
+      "class": "exact-lookup",
+      "a": "A",
+      "b": "C",
+      "n": 12,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "successAt1",
+      "class": "exact-lookup",
+      "a": "A",
+      "b": "C",
+      "n": 12,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "recallAt1",
+      "class": "conceptual-discovery",
+      "a": "A",
+      "b": "C",
+      "n": 12,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "recallAt3",
+      "class": "conceptual-discovery",
+      "a": "A",
+      "b": "C",
+      "n": 12,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "recallAt5",
+      "class": "conceptual-discovery",
+      "a": "A",
+      "b": "C",
+      "n": 12,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "mrrAt5",
+      "class": "conceptual-discovery",
+      "a": "A",
+      "b": "C",
+      "n": 12,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "fileRecallAt5",
+      "class": "conceptual-discovery",
+      "a": "A",
+      "b": "C",
+      "n": 12,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "statusMatch",
+      "class": "stale-index",
+      "a": "A",
+      "b": "C",
+      "n": 3,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "statusMatch",
+      "class": "dirty-tree",
+      "a": "A",
+      "b": "C",
+      "n": 3,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "statusMatch",
+      "class": "oversized-context",
+      "a": "A",
+      "b": "C",
+      "n": 3,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    },
+    {
+      "metric": "mustIncludeMet",
+      "class": "oversized-context",
+      "a": "A",
+      "b": "C",
+      "n": 3,
+      "diff": 0,
+      "ci95": [
+        0,
+        0
+      ],
+      "pRandomization": 1
+    }
+  ],
+  "protocol": "hybrid-c-v1"
+}

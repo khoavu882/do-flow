@@ -20,7 +20,7 @@ const nodeFs = require('node:fs');
 /** The guard lane of a `node --test` repository: structural checks that run with every selection. */
 const GUARD_DIR = 'test/guards';
 
-const NODE_TEST_FILE = /\.test\.(?:js|mjs|cjs)$/;
+const NODE_TEST_FILE = /\.test\.(?:js|mjs|cjs|ts)$/;
 const PYTEST_FILE = /(?:^|\/)(?:test_[^/]*|[^/]*_test)\.py$/;
 
 const SKIPPED_DIRS = new Set(['node_modules', '.git', '.venv', 'venv', '__pycache__']);
@@ -97,12 +97,35 @@ function conventionFor(found: any): any {
       roots,
       isTest: (file: string) => NODE_TEST_FILE.test(file) && underRoot(file),
       guardDir: roots.some((r: string) => GUARD_DIR === r || GUARD_DIR.startsWith(`${r}/`)) ? GUARD_DIR : null,
+      found,
     };
   }
   if (found && found.source === 'pyproject.toml') {
-    return { basis: 'changed-test-files', roots: ['.'], isTest: (file: string) => PYTEST_FILE.test(file), guardDir: null };
+    return { basis: 'changed-test-files', roots: ['.'], isTest: (file: string) => PYTEST_FILE.test(file), guardDir: null, found };
   }
   return null;
+}
+
+/**
+ * Walks the test files for the toolchain described by `found`.
+ * Returns sorted unique repo-relative paths of regular files that satisfy `convention.isTest`.
+ * @param {Object} found the detected `testTargeted` entry
+ * @param {string} root project root
+ * @param {Object} [fsImpl]
+ * @returns {Array<string>}
+ */
+function testFilesFor(found: any, root: string, fsImpl: any = nodeFs): string[] {
+  const convention = conventionFor(found);
+  if (!convention) return [];
+  const files = new Set<string>();
+  for (const r of convention.roots) {
+    for (const file of walkFiles(fsImpl, root, r)) {
+      if (convention.isTest(file) && statOf(fsImpl, path.join(root, file))?.isFile()) {
+        files.add(file);
+      }
+    }
+  }
+  return [...files].sort();
 }
 
 /**
@@ -126,10 +149,7 @@ function selectChangedTests({ found, observation, root, fsImpl = nodeFs, platfor
   const convention = conventionFor(found);
   if (!convention) return null;
 
-  const total = new Set<string>();
-  for (const r of convention.roots) {
-    for (const file of walkFiles(fsImpl, root, r)) if (convention.isTest(file)) total.add(file);
-  }
+  const total = new Set<string>(testFilesFor(found, root, fsImpl));
   const totalCount = total.size;
   const fallback = (reason: string, selectedCount: number | null = 0) => ({
     pattern: null,
@@ -169,4 +189,44 @@ function selectChangedTests({ found, observation, root, fsImpl = nodeFs, platfor
   };
 }
 
-module.exports = { selectChangedTests, quotePath, GUARD_DIR };
+/**
+ * Formats a sorted list of selected test files into a shell-quoted command argument pattern (IC-003).
+ * When guardDir is present and files under guardDir are included in selectedTests, they are replaced
+ * by a single quoted `${guardDir}/` token.
+ *
+ * @param {Object} input
+ * @param {Array<string>} input.selectedTests repo-relative test paths
+ * @param {string|null} [input.guardDir] optional guard directory (e.g. 'test/guards')
+ * @param {string} [input.platform] platform for path quoting
+ * @returns {string} shell-quoted argument string
+ */
+function formatSelectedTestPattern({
+  selectedTests = [],
+  guardDir = null,
+  platform = process.platform,
+}: {
+  selectedTests?: string[];
+  guardDir?: string | null;
+  platform?: string;
+}): string {
+  const underGuard = (file: string) => Boolean(guardDir && (file === guardDir || file.startsWith(`${guardDir}/`)));
+  const nonGuard = [...new Set(selectedTests.map(normalize))]
+    .filter((f: string) => !underGuard(f))
+    .sort();
+  const asArgument = (file: string) => (file.startsWith('-') ? `./${file}` : file);
+  const words = nonGuard.map((file: string) => quotePath(asArgument(file), platform));
+  const hasGuard = Boolean(guardDir && (selectedTests.some(underGuard) || selectedTests.length === 0));
+  if (hasGuard) {
+    words.push(quotePath(`${guardDir}/`, platform));
+  }
+  return words.join(' ');
+}
+
+module.exports = {
+  selectChangedTests,
+  formatSelectedTestPattern,
+  quotePath,
+  GUARD_DIR,
+  testFilesFor,
+  conventionFor,
+};

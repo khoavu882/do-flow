@@ -30,7 +30,12 @@ const REF_RE = /^[A-Za-z]+-?[0-9]+$/;
 const DEC_RE = /^DEC-[0-9]{3,}$/;
 const STAGES = ['discovery', 'design', 'planning', 'implementation', 'verification', 'review'];
 /** Channel -> who decided. The caller names the channel; `decidedBy` follows from it. */
-const CHANNEL_DECIDED_BY: Record<string, string> = { question: 'user', gate: 'user', prompt: 'user', default: 'agent', resolution: 'agent' };
+const CHANNEL_DECIDED_BY: Record<string, string> = { question: 'user', gate: 'user', prompt: 'user', default: 'agent', resolution: 'agent', policy: 'autopilot' };
+/** IC-005: `policy` records an evaluated gate, never a caller's claimed identity, so only the
+ * in-process `orchestrate decide-gate --policy` path writes it; every caller-facing path refuses it. */
+const RESERVED_CHANNEL = 'policy';
+const CHANNEL_RESERVED = `channel-reserved: ${RESERVED_CHANNEL} is set only by orchestrate decide-gate --policy`;
+const isReservedChannel = (channel: any): boolean => typeof channel === 'string' && channel.trim() === RESERVED_CHANNEL;
 const ITEM_KEYS = ['topic', 'statement', 'channel', 'stage', 'rationale', 'supersedes', 'refs', 'source'];
 const REQUIRED_KEYS = ['topic', 'statement', 'channel', 'stage', 'rationale'];
 
@@ -204,7 +209,7 @@ function normalizeItem(raw: any, label: string): any {
   }
   const channel = raw.channel.trim();
   if (!Object.prototype.hasOwnProperty.call(CHANNEL_DECIDED_BY, channel)) {
-    throw new DecisionUsageError(`${label}: channel '${channel}' must be one of ${Object.keys(CHANNEL_DECIDED_BY).join(', ')}`);
+    throw new DecisionUsageError(`${label}: channel '${channel}' must be one of ${Object.keys(CHANNEL_DECIDED_BY).filter((c) => c !== RESERVED_CHANNEL).join(', ')}`);
   }
   const stage = raw.stage.trim();
   if (!STAGES.includes(stage)) throw new DecisionUsageError(`${label}: stage '${stage}' must be one of ${STAGES.join(', ')}`);
@@ -406,16 +411,17 @@ function runDecision({ action = 'list', projectRoot, slug = null, flags = {}, no
   let resolved: any = null;
   try {
     if (!VALID_ACTIONS.includes(act)) throw new DecisionUsageError(`unknown --action '${action}'. Valid: ${VALID_ACTIONS.join(', ')}`);
+    if (isReservedChannel(flags.channel)) throw new DecisionUsageError(CHANNEL_RESERVED);
     const feature = resolveActiveFeature({ projectRoot, slug });
     if (feature.error) throw new DecisionUsageError(feature.message);
-    resolved = { featureDir: feature.featureDir, slug: feature.paths.feature_slug };
+    resolved = { featureDir: feature.featureFolder, slug: feature.paths.feature_slug };
     let result: any;
     if (act === 'init') {
       result = initRegister({ ...resolved, fsImpl });
     } else if (act === 'list') {
       result = listDecisions({ ...resolved, all: Boolean(flags.all), fsImpl });
     } else if (act === 'compact') {
-      result = compactDecisions({ ...resolved, repoRoot: feature.repoRoot, paths: feature.paths, now, fsImpl });
+      result = compactDecisions({ ...resolved, repoRoot: feature.featureRoot, paths: feature.paths, now, fsImpl });
     } else {
       let items: any;
       if (flags.batch) {
@@ -430,6 +436,7 @@ function runDecision({ action = 'list', projectRoot, slug = null, flags = {}, no
         }
         items = [single];
       }
+      if (Array.isArray(items) && items.some((item: any) => isReservedChannel(item?.channel))) throw new DecisionUsageError(CHANNEL_RESERVED);
       result = addDecisions({ ...resolved, items, now, fsImpl });
     }
     return { exitCode: result.finding ? 1 : 0, result };
@@ -489,5 +496,7 @@ module.exports = {
   archiveFile,
   STAGES,
   CHANNEL_DECIDED_BY,
+  CHANNEL_RESERVED,
+  isReservedChannel,
   STATEMENT_MAX,
 };

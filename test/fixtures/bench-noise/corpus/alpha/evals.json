@@ -1,0 +1,33 @@
+{
+  "skill_name": "alpha",
+  "evals": [
+    {
+      "id": 1,
+      "kind": "triggering",
+      "split": "train",
+      "name": "timeout-run",
+      "assertions": [{ "text": "alpha one output is present", "type": "output_matches", "pattern": "alpha-one-output" }]
+    },
+    {
+      "id": 2,
+      "kind": "behavioral",
+      "split": "train",
+      "name": "api-error-run",
+      "assertions": [{ "text": "alpha two output is present", "type": "output_matches", "pattern": "alpha-two-output" }]
+    },
+    {
+      "id": 3,
+      "kind": "triggering",
+      "split": "heldout",
+      "name": "routing-only-run",
+      "assertions": [{ "text": "alpha three output is present", "type": "output_matches", "pattern": "alpha-three-output" }]
+    },
+    {
+      "id": 4,
+      "kind": "behavioral",
+      "split": "heldout",
+      "name": "completed-run",
+      "assertions": [{ "text": "alpha four output is present", "type": "output_matches", "pattern": "alpha-four-output" }]
+    }
+  ]
+}

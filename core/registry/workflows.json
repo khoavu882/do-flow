@@ -71,6 +71,27 @@
       "reason": "Repository governance. No workflow declares a governance stage and none should: the constitution is what workflows are checked against, not a step inside one. A classify call from here is a routing mistake rather than a class mistake, and is rejected as such."
     }
   },
+  "agents": {
+    "description": "The `access` of every agent spec in core/shared/agent-specs/, for the runtime: an installed runtime ships core/registry but not core/shared, so `review --action start` and `protocol` read a seat agent's access here. test/guards/agent-roster.test.js (G63) holds it equal to each spec's frontmatter `access`; edit the spec and this entry together.",
+    "access": {
+      "core-implementer": "write",
+      "delivery-lead": "write",
+      "quality-guardian": "write",
+      "research-writer": "write",
+      "reviewer": "read-only",
+      "spec-analyst": "write",
+      "system-architect": "write"
+    },
+    "handback": {
+      "description": "The hand-back status enum (row 135): every agent spec ends its report with `Status: <id>`, and a caller that consumes a hand-back branches on it. Defined only here; test/guards/handback-status.test.ts (G76) holds each spec's status line and each consumer's branch line to this list.",
+      "statuses": [
+        { "id": "done", "meaning": "complete; the evidence is in the report", "caller": "accept after checking the evidence" },
+        { "id": "done-with-concerns", "meaning": "complete, with doubts the report lists", "caller": "verify the concerns before accepting" },
+        { "id": "needs-context", "meaning": "cannot finish without information the brief lacks; the report names it", "caller": "resend with the missing context" },
+        { "id": "blocked", "meaning": "cannot proceed for a reason only the caller can resolve: a denied permission, a broken environment or an open decision", "caller": "stop and surface it" }
+      ]
+    }
+  },
   "classes": {
     "feature": {
       "name": "Feature Delivery",
@@ -81,6 +102,7 @@
         {
           "id": "discovery",
           "skill": "do-brainstorm",
+          "agent": "spec-analyst",
           "kind": "discovery",
           "readinessTemplate": null,
           "optional": false,
@@ -89,6 +111,7 @@
         {
           "id": "design",
           "skill": "do-design",
+          "agent": "system-architect",
           "kind": "design",
           "readinessTemplate": null,
           "optional": false,
@@ -97,6 +120,7 @@
         {
           "id": "planning",
           "skill": "do-plan",
+          "agent": "delivery-lead",
           "kind": "planning",
           "readinessTemplate": null,
           "optional": false,
@@ -105,6 +129,7 @@
         {
           "id": "implementation",
           "skill": "do-execute-plan",
+          "agent": "delivery-lead",
           "kind": "implementation",
           "readinessTemplate": "feature",
           "optional": false,
@@ -113,6 +138,7 @@
         {
           "id": "verification",
           "skill": "do-test",
+          "agent": "quality-guardian",
           "kind": "verification",
           "readinessTemplate": null,
           "optional": false,
@@ -121,6 +147,7 @@
         {
           "id": "review",
           "skill": "do-code-review",
+          "agent": "reviewer",
           "kind": "review",
           "readinessTemplate": null,
           "optional": false,
@@ -163,6 +190,7 @@
         {
           "id": "reproduction",
           "skill": "do-test",
+          "agent": "quality-guardian",
           "kind": "reproduction",
           "readinessTemplate": null,
           "optional": false,
@@ -171,6 +199,7 @@
         {
           "id": "root-cause",
           "skill": "do-diagnose",
+          "agent": "quality-guardian",
           "kind": "analysis",
           "readinessTemplate": null,
           "optional": false,
@@ -179,6 +208,7 @@
         {
           "id": "implementation",
           "skill": "do-implement",
+          "agent": "core-implementer",
           "kind": "implementation",
           "readinessTemplate": "bug",
           "optional": false,
@@ -187,6 +217,7 @@
         {
           "id": "regression-verification",
           "skill": "do-test",
+          "agent": "quality-guardian",
           "kind": "verification",
           "readinessTemplate": null,
           "optional": false,
@@ -195,6 +226,7 @@
         {
           "id": "review",
           "skill": "do-code-review",
+          "agent": "reviewer",
           "kind": "review",
           "readinessTemplate": null,
           "optional": true,
@@ -212,6 +244,7 @@
         {
           "id": "architecture-mapping",
           "skill": "do-diagnose",
+          "agent": "system-architect",
           "kind": "analysis",
           "readinessTemplate": null,
           "optional": false,
@@ -220,6 +253,7 @@
         {
           "id": "baseline-verification",
           "skill": "do-test",
+          "agent": "quality-guardian",
           "kind": "verification",
           "readinessTemplate": null,
           "optional": false,
@@ -228,6 +262,7 @@
         {
           "id": "implementation",
           "skill": "do-implement",
+          "agent": "core-implementer",
           "kind": "implementation",
           "readinessTemplate": "refactor",
           "optional": false,
@@ -236,6 +271,7 @@
         {
           "id": "verification",
           "skill": "do-test",
+          "agent": "quality-guardian",
           "kind": "verification",
           "readinessTemplate": null,
           "optional": false,
@@ -244,6 +280,7 @@
         {
           "id": "review",
           "skill": "do-code-review",
+          "agent": "reviewer",
           "kind": "review",
           "readinessTemplate": null,
           "optional": false,
@@ -261,6 +298,7 @@
         {
           "id": "verification",
           "skill": "do-test",
+          "agent": "quality-guardian",
           "kind": "verification",
           "readinessTemplate": null,
           "optional": true,
@@ -269,6 +307,7 @@
         {
           "id": "review",
           "skill": "do-code-review",
+          "agent": "reviewer",
           "kind": "review",
           "readinessTemplate": null,
           "optional": false,
@@ -286,6 +325,7 @@
         {
           "id": "scoping",
           "skill": "do",
+          "agent": "research-writer",
           "kind": "discovery",
           "readinessTemplate": null,
           "optional": true,
@@ -294,6 +334,7 @@
         {
           "id": "synthesis",
           "skill": "do-document",
+          "agent": "research-writer",
           "kind": "synthesis",
           "readinessTemplate": null,
           "optional": false,
@@ -311,6 +352,7 @@
         {
           "id": "authoring",
           "skill": "do-document",
+          "agent": "research-writer",
           "kind": "synthesis",
           "readinessTemplate": null,
           "optional": false,
@@ -319,6 +361,7 @@
         {
           "id": "verification",
           "skill": "do-test",
+          "agent": "quality-guardian",
           "kind": "verification",
           "readinessTemplate": null,
           "optional": true,
@@ -327,6 +370,7 @@
         {
           "id": "review",
           "skill": "do-code-review",
+          "agent": "reviewer",
           "kind": "review",
           "readinessTemplate": null,
           "optional": true,
@@ -344,6 +388,7 @@
         {
           "id": "release-evidence",
           "skill": "do-document",
+          "agent": "research-writer",
           "kind": "retrieval",
           "readinessTemplate": null,
           "optional": false,
@@ -352,6 +397,7 @@
         {
           "id": "usage-impact",
           "skill": "do-diagnose",
+          "agent": "system-architect",
           "kind": "analysis",
           "readinessTemplate": null,
           "optional": false,
@@ -360,6 +406,7 @@
         {
           "id": "implementation",
           "skill": "do-implement",
+          "agent": "core-implementer",
           "kind": "implementation",
           "readinessTemplate": "dependency-change",
           "optional": false,
@@ -368,6 +415,7 @@
         {
           "id": "verification",
           "skill": "do-test",
+          "agent": "quality-guardian",
           "kind": "verification",
           "readinessTemplate": null,
           "optional": false,
@@ -376,6 +424,7 @@
         {
           "id": "review",
           "skill": "do-code-review",
+          "agent": "reviewer",
           "kind": "review",
           "readinessTemplate": null,
           "optional": true,
@@ -393,6 +442,7 @@
         {
           "id": "state-check",
           "skill": "do-git",
+          "agent": "delivery-lead",
           "kind": "analysis",
           "readinessTemplate": null,
           "optional": false,
@@ -401,6 +451,7 @@
         {
           "id": "preflight",
           "skill": "do-test",
+          "agent": "quality-guardian",
           "kind": "verification",
           "readinessTemplate": null,
           "optional": false,
@@ -409,6 +460,7 @@
         {
           "id": "execution",
           "skill": "do-git",
+          "agent": "delivery-lead",
           "kind": "operation",
           "readinessTemplate": null,
           "optional": false,
@@ -417,6 +469,7 @@
         {
           "id": "record",
           "skill": "do-document",
+          "agent": "research-writer",
           "kind": "synthesis",
           "readinessTemplate": null,
           "optional": true,
@@ -434,6 +487,7 @@
         {
           "id": "implementation",
           "skill": "do-implement",
+          "agent": "core-implementer",
           "kind": "implementation",
           "readinessTemplate": "trivial-edit",
           "editTimeGate": false,
@@ -443,6 +497,7 @@
         {
           "id": "verification",
           "skill": "do-test",
+          "agent": "quality-guardian",
           "kind": "verification",
           "readinessTemplate": null,
           "optional": true,

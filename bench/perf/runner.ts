@@ -1,0 +1,1110 @@
+#!/usr/bin/env node
+'use strict';
+
+/**
+ * Performance benchmark runner (074 IC-018): `npm run bench -- perf <measure|check> [flags]`.
+ * Measures command and hook latency, verifies latency ceilings against intent budgets,
+ * and maintains bench/perf/budgets.json.
+ */
+
+const fs = require('node:fs');
+const path = require('node:path');
+const os = require('node:os');
+const crypto = require('node:crypto');
+const { execFileSync, spawnSync } = require('node:child_process');
+const stats = require('../retrieval/lib/stats.ts');
+
+const REPO_ROOT = path.resolve(__dirname, '..', '..');
+const DEFAULT_BUDGETS_PATH = path.join(__dirname, 'budgets.json');
+const DEFAULT_SEED = 20261012;
+const DEFAULT_RUNS = 30;
+const DEFAULT_WARMUPS = 3;
+
+const DEFAULT_INTENT_BUDGETS_MS = Object.freeze({
+  help: 100,
+  verb: 150,
+  diagnostic: 500,
+  install: 200,
+  hook: 100,
+  guardFile: 250,
+});
+
+const DEFAULT_HEADROOM = Object.freeze({ minMs: 10, pct: 25 });
+
+const HARNESS_CLI_MAP = Object.freeze({
+  claude: 'claude',
+  codex: 'codex',
+  opencode: 'opencode',
+  pi: 'pi',
+  copilot: 'copilot',
+  kiro: 'kiro-cli',
+  antigravity: 'agy',
+});
+
+class UsageError extends Error {}
+
+function isToolInstalled(bin: any) {
+  try {
+    const cmd = process.platform === 'win32' ? 'where' : 'which';
+    const res = spawnSync(cmd, [bin], { stdio: 'ignore' });
+    return res.status === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when a `ps` command line is a node process running its test runner: argv[0] is node and a
+ * `--test` argument comes before any script path. A substring match would also hit a shell, editor
+ * or grep that merely mentions "node --test".
+ */
+function isNodeTestCommand(command: string): boolean {
+  const argv = command.trim().split(/\s+/);
+  if (path.basename(argv[0] || '').replace(/\.exe$/i, '') !== 'node') return false;
+  const VALUE_FLAGS = new Set(['-r', '--require', '--import', '--loader', '--experimental-loader', '--env-file', '-C', '--conditions']);
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--test') return true;
+    if (!arg.startsWith('-') && !VALUE_FLAGS.has(argv[i - 1])) return false;
+  }
+  return false;
+}
+
+function isAnotherNodeTestRunning({ excludePids = new Set([process.pid, process.ppid]) } = {}) {
+  try {
+    const out = execFileSync('ps', ['-A', '-o', 'pid,command'], { encoding: 'utf8' });
+    const lines = out.split('\n');
+    for (const line of lines) {
+      const match = line.trim().match(/^(\d+)\s+(.*)$/);
+      if (!match) continue;
+      const pid = parseInt(match[1], 10);
+      const cmd = match[2];
+      if (excludePids.has(pid)) continue;
+      if (isNodeTestCommand(cmd)) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/** First 12 hex of SHA-256 of hostname|cpu model|cpu count|total memory (IC-015, IC-019). */
+function getMachineId({
+  hostname = os.hostname(),
+  cpus = os.cpus(),
+  totalmem = os.totalmem(),
+} = {}) {
+  const model = cpus.length > 0 ? cpus[0].model : '';
+  return crypto
+    .createHash('sha256')
+    .update(`${hostname}|${model}|${cpus.length}|${totalmem}`)
+    .digest('hex')
+    .slice(0, 12);
+}
+
+function computeCeilingMs(p95Ms: any, headroom: any, intentBudget?: any) {
+  const minMs = headroom && typeof headroom.minMs === 'number' ? headroom.minMs : DEFAULT_HEADROOM.minMs;
+  const pct = headroom && typeof headroom.pct === 'number' ? headroom.pct : DEFAULT_HEADROOM.pct;
+  const headroomMs = Math.max(minMs, (p95Ms * pct) / 100);
+  const rawCeiling = Math.ceil(p95Ms + headroomMs);
+  if (intentBudget != null && Number.isFinite(intentBudget)) {
+    return Math.min(intentBudget, rawCeiling);
+  }
+  return rawCeiling;
+}
+
+/**
+ * Enumerate hook surfaces from filesystem and determine unmeasured reasons (IC-018).
+ */
+function enumerateHookSurfaces({
+  repoRoot = REPO_ROOT,
+  isToolInstalledFn = isToolInstalled,
+} = {}) {
+  const surfaces = [];
+  const unmeasuredRows = [];
+
+  const harnessesRegistryPath = path.join(repoRoot, 'core', 'registry', 'harnesses.json');
+  let harnessesList = [];
+  if (fs.existsSync(harnessesRegistryPath)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(harnessesRegistryPath, 'utf8'));
+      harnessesList = data.harnesses || [];
+    } catch {
+      // ignored
+    }
+  }
+
+  for (const h of harnessesList) {
+    const harnessId = h.id;
+    const cliName = (HARNESS_CLI_MAP as Record<string, string>)[harnessId] || harnessId;
+    if (!isToolInstalledFn(cliName)) {
+      const id = `hook.${harnessId}`;
+      surfaces.push({
+        id,
+        kind: 'hook',
+        argv: [],
+        harness: harnessId,
+        intentClass: 'hook',
+        enforced: false,
+      });
+      unmeasuredRows.push({
+        surfaceId: id,
+        unmeasured: 'harness not installed',
+      });
+      continue;
+    }
+
+    const hooksDir = path.join(repoRoot, 'core', 'harnesses', harnessId, 'hooks');
+    if (!fs.existsSync(hooksDir) || !fs.statSync(hooksDir).isDirectory()) {
+      if (harnessId === 'pi') continue;
+      const id = `hook.${harnessId}`;
+      surfaces.push({
+        id,
+        kind: 'hook',
+        argv: [],
+        harness: harnessId,
+        intentClass: 'hook',
+        enforced: false,
+      });
+      unmeasuredRows.push({
+        surfaceId: id,
+        unmeasured: 'no hooks are projected',
+      });
+      continue;
+    }
+
+    if (harnessId === 'antigravity') continue;
+    const entries = fs.readdirSync(hooksDir);
+    for (const file of entries) {
+      if (!file.endsWith('.sh') || file === 'lib.sh' || file === 'doflow-lib.sh' || file.endsWith('.impl.sh')) continue;
+      const stem = file.slice(0, -3);
+      const surfaceId = `hook.${harnessId}.${stem}`;
+      const fixtureRel = path.join('bench', 'perf', 'fixtures', harnessId, `${stem}.json`);
+      const fixtureAbs = path.join(repoRoot, fixtureRel);
+      const observer = harnessId === 'claude' && stem === 'post-shell-observe';
+      const corpusRel = path.join('test', 'fixtures', 'hooks', harnessId, stem, observer ? 'fast-exit.json' : 'perf.json');
+      const corpusAbs = path.join(repoRoot, corpusRel);
+      const hasFixture = fs.existsSync(fixtureAbs) || fs.existsSync(corpusAbs);
+
+      const surface: any = {
+        id: surfaceId,
+        kind: 'hook',
+        argv: ['bash', `{mirror}/${harnessId === 'copilot' ? '.github' : `.${harnessId}`}/hooks/${file}`, ...(observer ? ['PostToolUse'] : [])],
+        harness: harnessId,
+        intentClass: 'hook',
+        enforced: false,
+        setup: { kind: 'hook-install-mirror', fixture: 'bench/perf/fixtures/hook-bridge-project', git: true },
+      };
+      if (hasFixture) {
+        if (fs.existsSync(fixtureAbs)) {
+          surface.stdinFixture = fixtureRel;
+        } else {
+          surface.stdinFixture = corpusRel;
+          surface.stdinField = 'native';
+        }
+      }
+      surfaces.push(surface);
+
+      if (observer) {
+        surfaces.push({
+          ...surface,
+          id: `${surfaceId}.test-class`,
+          variant: 'test-class',
+          budgeted: false,
+          stdinFixture: path.join('test', 'fixtures', 'hooks', harnessId, stem, 'test-class.json'),
+          stdinField: 'native',
+        });
+      }
+
+      // Kiro exposes the same front door from two config sources; keep both observable.
+      const agentFixtureRel = path.join('test', 'fixtures', 'hooks', harnessId, stem, 'agent-perf.json');
+      if (harnessId === 'kiro' && fs.existsSync(path.join(repoRoot, agentFixtureRel))) {
+        surfaces.push({
+          ...surface,
+          id: `${surfaceId}.agent-config`,
+          stdinFixture: agentFixtureRel,
+          stdinField: 'native',
+        });
+      }
+
+      if (!hasFixture) {
+        unmeasuredRows.push({
+          surfaceId,
+          unmeasured: 'no fixture',
+        });
+      }
+
+      if (harnessId === 'claude' && stem === 'pre-bash-guard') {
+        surfaces.push({
+          ...surface,
+          id: `${surfaceId}.first-write`,
+          variant: 'first-write',
+          budgeted: false,
+          setup: { ...surface.setup, omit: ['.doflow/state/runs/telemetry'] },
+        });
+      }
+    }
+  }
+
+  // Antigravity's bridge front door is the stream runner, not a shell hook file.
+  const antigravityRunner = path.join(repoRoot, 'core', 'harnesses', 'shared', 'hooks', 'stream-hook-runner.js');
+  if (fs.existsSync(antigravityRunner)) {
+    for (const [stem, fixtureStem, event, fixtureFile] of [
+      ['pre-implementation-gate', 'pre-implement-gate', 'PreToolUse', 'allow-perf.json'],
+      ['stop-check', 'stop-check', 'Stop', 'allow-perf.json'],
+      ['pre-bash-guard', 'pre-bash-guard', 'PreToolUse', 'perf.json'],
+    ]) {
+      const fixtureRel = path.join('test', 'fixtures', 'hooks', 'antigravity', fixtureStem, fixtureFile);
+      const id = `hook.antigravity.${stem}`;
+      surfaces.push({
+        id,
+        kind: 'hook',
+        argv: ['node', path.join('core', 'harnesses', 'shared', 'hooks', 'stream-hook-runner.js'), event],
+        harness: 'antigravity',
+        intentClass: 'hook',
+        enforced: false,
+        stdinFixture: fixtureRel,
+        stdinField: 'native',
+        setup: { kind: 'copy-fixture-project', fixture: 'bench/perf/fixtures/hook-bridge-project', git: true, branch: 'feat/perf', cwdProject: true },
+      });
+    }
+  }
+
+  // Pi has no shell front door; measure the shared bridge policy entry points directly.
+  const piExtension = path.join(repoRoot, 'core', 'harnesses', 'pi', 'extensions', 'doflow-guard.js');
+  const piFixtureDir = path.join(repoRoot, 'test', 'fixtures', 'hooks', 'pi', 'tool_call');
+  if (fs.existsSync(piExtension)) {
+    for (const policy of ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard']) {
+      const id = `hook.pi.tool-call-${policy}`;
+      surfaces.push({
+        id,
+        kind: 'hook',
+        argv: ['bash', path.join('core', 'harnesses', 'shared', 'hooks', 'bridge', 'bridge.sh'), 'pi', 'tool_call', policy],
+        harness: 'pi',
+        intentClass: 'hook',
+        enforced: false,
+        note: 'excludes the in-process extension spawn',
+        stdinFixture: path.join('test', 'fixtures', 'hooks', 'pi', 'tool_call', `${policy === 'pre-implementation-gate' ? 'perf-edit' : policy === 'pre-bash-guard' ? 'perf-bash' : 'perf-mcp'}.json`),
+        stdinField: 'native',
+        setup: { kind: 'copy-fixture-project', fixture: 'bench/perf/fixtures/hook-bridge-project', git: true, branch: 'feat/perf', cwdProject: true },
+      });
+      if (!fs.existsSync(piFixtureDir)) unmeasuredRows.push({ surfaceId: id, unmeasured: 'no fixture' });
+    }
+  }
+
+  // Enumerate shared policy hooks
+  const sharedPoliciesDir = path.join(repoRoot, 'core', 'harnesses', 'shared', 'hooks', 'policies');
+  if (fs.existsSync(sharedPoliciesDir) && fs.statSync(sharedPoliciesDir).isDirectory()) {
+    const entries = fs.readdirSync(sharedPoliciesDir);
+    for (const file of entries) {
+      if (!file.endsWith('.sh') || file === 'lib.sh' || file === 'deny-json.sh' || file === 'contract.sh') continue;
+      const stem = file.slice(0, -3);
+      const surfaceId = `hook.shared.${stem}`;
+      const fixtureRel = path.join('bench', 'perf', 'fixtures', 'shared', `${stem}.json`);
+      const fixtureAbs = path.join(repoRoot, fixtureRel);
+      const hasFixture = fs.existsSync(fixtureAbs);
+      const enforced = stem === 'pre-bash-guard' || stem === 'user-prompt-submit';
+
+      const surface: any = {
+        id: surfaceId,
+        kind: 'hook',
+        argv: ['bash', path.join('core', 'harnesses', 'shared', 'hooks', 'policies', file)],
+        harness: 'shared',
+        intentClass: 'hook',
+        enforced,
+      };
+      if (hasFixture) {
+        surface.stdinFixture = fixtureRel;
+      }
+      surfaces.push(surface);
+
+      if (!hasFixture) {
+        unmeasuredRows.push({
+          surfaceId,
+          unmeasured: 'no fixture',
+        });
+      }
+    }
+  }
+
+  return { surfaces, unmeasuredRows };
+}
+
+function parseFlags(args: string[], allowed: Record<string, string>) {
+  const out: Record<string, any> = {};
+  const rest: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (!arg.startsWith('--')) {
+      rest.push(arg);
+      continue;
+    }
+    const eq = arg.indexOf('=');
+    const name = arg.slice(2, eq === -1 ? undefined : eq);
+    const kind = allowed[name];
+    if (!kind) throw new UsageError(`unknown flag --${name}`);
+    if (kind === 'bool') {
+      if (eq !== -1) throw new UsageError(`--${name} takes no value`);
+      out[name] = true;
+    } else {
+      const value = eq !== -1 ? arg.slice(eq + 1) : args[++i];
+      if (value === undefined || (eq === -1 && value.startsWith('--'))) {
+        throw new UsageError(`--${name} needs a value`);
+      }
+      out[name] = value;
+    }
+  }
+  return { flags: out, rest };
+}
+
+function runSurfaceProcess(surface: any, repoRoot: string, tempHome: any, spawnSyncFn: any = spawnSync) {
+  const argv = surface.argv || [];
+  if (argv.length === 0) return 0;
+
+  let tempProjectDir: any = null;
+  let tempMirrorDir: any = null;
+  let tempHookHomeDir: any = null;
+  try {
+    if (surface.setup && surface.setup.kind === 'hook-install-mirror') {
+      tempMirrorDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-perf-mirror-'));
+      const buildMirror = spawnSync('bash', [path.join(repoRoot, 'test', 'hooks', 'build-install-mirror.sh'), tempMirrorDir], {
+        cwd: repoRoot,
+        encoding: 'utf8',
+      });
+      if (buildMirror.status !== 0) throw new Error(`install mirror failed: ${buildMirror.stderr || buildMirror.error?.message || buildMirror.status}`);
+      tempProjectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-perf-project-'));
+      tempHookHomeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-perf-hook-home-'));
+      const fixtureSrc = path.isAbsolute(surface.setup.fixture)
+        ? surface.setup.fixture
+        : path.join(repoRoot, surface.setup.fixture);
+      if (!fs.existsSync(fixtureSrc)) throw new Error(`missing fixture directory: ${surface.setup.fixture}`);
+      fs.cpSync(fixtureSrc, tempProjectDir, { recursive: true });
+      omitSetupPaths(tempProjectDir, surface.setup.omit);
+      const gitInit = spawnSync('git', ['init', '-q', '-b', 'feat/perf'], { cwd: tempProjectDir, encoding: 'utf8' });
+      if (gitInit.status !== 0) throw new Error(`fixture git init failed: ${gitInit.stderr || gitInit.error?.message || gitInit.status}`);
+    } else if (surface.setup && surface.setup.kind === 'copy-fixture-project') {
+      tempProjectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-perf-fixture-'));
+      tempHookHomeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-perf-fixture-home-'));
+      const fixtureSrc = path.isAbsolute(surface.setup.fixture)
+        ? surface.setup.fixture
+        : path.join(repoRoot, surface.setup.fixture);
+      if (!fs.existsSync(fixtureSrc)) {
+        throw new Error(`missing fixture directory: ${surface.setup.fixture}`);
+      }
+      fs.cpSync(fixtureSrc, tempProjectDir, { recursive: true });
+      omitSetupPaths(tempProjectDir, surface.setup.omit);
+      let untrackedGeneratedDir = null;
+      if (surface.setup.generate !== undefined) {
+        const { dir, count } = surface.setup.generate || {};
+        if (typeof dir !== 'string' || !dir || path.isAbsolute(dir)
+          || !Number.isInteger(count) || count < 1 || count > 10000) {
+          throw new Error('copy-fixture-project setup generate needs a relative dir and a positive integer count no greater than 10000');
+        }
+        const generatedDir = path.resolve(tempProjectDir, dir);
+        const relativeDir = path.relative(tempProjectDir, generatedDir);
+        if (relativeDir === '..' || relativeDir.startsWith(`..${path.sep}`)) {
+          throw new Error('copy-fixture-project setup generate dir must stay inside the project');
+        }
+        if (surface.setup.generate.untracked === true) {
+          untrackedGeneratedDir = { generatedDir, count };
+        } else {
+          fs.mkdirSync(generatedDir, { recursive: true });
+          for (let i = 0; i < count; i++) {
+            fs.writeFileSync(path.join(generatedDir, `f${i}.js`), `export const v${i} = ${i};\n`, 'utf8');
+          }
+        }
+      }
+      if (surface.setup.git !== false) {
+        const gitArgs = ['init', '-q'];
+        if (surface.setup.branch) gitArgs.push('-b', surface.setup.branch);
+        spawnSync('git', gitArgs, { cwd: tempProjectDir });
+        spawnSync('git', ['add', '-A'], { cwd: tempProjectDir });
+        spawnSync(
+          'git',
+          [
+            '-c', 'user.name=DoFlow Perf',
+            '-c', 'user.email=perf@doflow.dev',
+            'commit', '-q', '-m', 'fixture',
+            '--date=2026-10-13T00:00:00Z',
+          ],
+          { cwd: tempProjectDir }
+        );
+      }
+      if (untrackedGeneratedDir) {
+        fs.mkdirSync(untrackedGeneratedDir.generatedDir, { recursive: true });
+        for (let i = 0; i < untrackedGeneratedDir.count; i++) {
+          fs.writeFileSync(path.join(untrackedGeneratedDir.generatedDir, `f${i}.js`), `export const v${i} = ${i};\n`, 'utf8');
+        }
+      }
+    }
+
+    // A hook can record a failure under the config home of whoever runs it; a measurement must not
+    // write into the real user's (a surface with no setup of its own gets a scratch one too).
+    if (surface.kind === 'hook' && !tempHookHomeDir) {
+      tempHookHomeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-perf-hook-home-'));
+    }
+
+    const effectiveArgv = (tempProjectDir || tempMirrorDir)
+      ? argv.map((a: any) => {
+        if (typeof a !== 'string') return a;
+        const substituted = a.replace(/\{project\}/g, tempProjectDir || '').replace(/\{mirror\}/g, tempMirrorDir || '');
+        return tempProjectDir && substituted.startsWith(`core${path.sep}harnesses${path.sep}`)
+          ? path.join(repoRoot, substituted)
+          : substituted;
+      })
+      : argv;
+
+    let [cmd, ...args] = effectiveArgv;
+    if (cmd === 'node') {
+      cmd = process.execPath;
+    }
+    const env: Record<string, any> = { ...process.env, DOFLOW_QUIET: '1' };
+    // Paired variants (IC-013): a string sets the variable, null removes it.
+    for (const [name, value] of Object.entries(surface.envOverlay || {})) {
+      if (value === null) delete env[name];
+      else env[name] = value;
+    }
+    if (surface.kind === 'install' || surface.intentClass === 'install' || surface.id === 'install.dry-run') {
+      if (tempHome) env.HOME = tempHome;
+    } else if (tempHookHomeDir) {
+      env.HOME = tempHookHomeDir;
+      env.XDG_CONFIG_HOME = path.join(tempHookHomeDir, '.config');
+    }
+    const timeoutMs = surface.timeoutMs != null
+      ? surface.timeoutMs
+      : (surface.timeout != null ? surface.timeout : 30000);
+    const spawnOpts: any = {
+      cwd: tempProjectDir && (surface.setup?.kind === 'hook-install-mirror' || surface.setup?.cwdProject)
+        ? tempProjectDir
+        : repoRoot,
+      env,
+      encoding: 'utf8',
+      timeout: timeoutMs,
+    };
+    if (surface.stdinFixture) {
+      const fixturePath = path.isAbsolute(surface.stdinFixture)
+        ? surface.stdinFixture
+        : path.join(repoRoot, surface.stdinFixture);
+      if (!fs.existsSync(fixturePath)) {
+        throw new Error(`missing stdin fixture: ${surface.stdinFixture}`);
+      }
+      const fixtureText = fs.readFileSync(fixturePath, 'utf8');
+      if (surface.stdinField) {
+        const fixture = JSON.parse(fixtureText);
+        if (!Object.hasOwn(fixture, surface.stdinField)) {
+          throw new Error(`missing ${surface.stdinField} in stdin fixture: ${surface.stdinFixture}`);
+        }
+        let payload = JSON.stringify(fixture[surface.stdinField]);
+        if (tempProjectDir) payload = payload.replace(/<project>/g, tempProjectDir);
+        spawnOpts.input = payload;
+      } else {
+        spawnOpts.input = fixtureText;
+      }
+    }
+    const start = process.hrtime.bigint();
+    const res = spawnSyncFn(cmd, args, spawnOpts);
+    const end = process.hrtime.bigint();
+    // A surface may exit before spawnSync finishes writing its stdin payload.
+    if (res.error && res.error.code !== 'EPIPE') {
+      if (res.error.code === 'ETIMEDOUT') {
+        throw new Error(`timed out after ${spawnOpts.timeout / 1000}s`);
+      }
+      throw new Error(`process error: ${res.error.message}`);
+    }
+    if (res.status !== 0) {
+      throw new Error(`process exited with status ${res.status}`);
+    }
+    return Number(end - start) / 1_000_000;
+  } finally {
+    if (tempProjectDir) {
+      try {
+        fs.rmSync(tempProjectDir, { recursive: true, force: true });
+      } catch {
+        // ignored
+      }
+    }
+    if (tempMirrorDir) {
+      try { fs.rmSync(tempMirrorDir, { recursive: true, force: true }); } catch { /* ignored */ }
+    }
+    if (tempHookHomeDir) {
+      try { fs.rmSync(tempHookHomeDir, { recursive: true, force: true }); } catch { /* ignored */ }
+    }
+  }
+}
+
+/** Removes named, project-relative paths from a copied fixture for explicit benchmark variants. */
+function omitSetupPaths(projectDir: string, omitted: any) {
+  if (omitted === undefined) return;
+  if (!Array.isArray(omitted)) throw new Error('fixture setup omit must be an array of relative paths');
+  for (const relativePath of omitted) {
+    if (typeof relativePath !== 'string' || relativePath === '' || path.isAbsolute(relativePath)) {
+      throw new Error('fixture setup omit paths must be non-empty relative paths');
+    }
+    const target = path.resolve(projectDir, relativePath);
+    const relative = path.relative(projectDir, target);
+    if (relative === '' || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new Error('fixture setup omit paths must stay inside the project');
+    }
+    fs.rmSync(target, { recursive: true, force: true });
+  }
+}
+
+const PAIRED_ENV_PATTERN = /^([A-Z_][A-Z0-9_]*)=(.*)$/s;
+
+/** NFR-003 bound for one off/on pair: p50 within max(2 ms, 5 %), p95 within max(5 ms, 10 %). */
+const PAIRED_BOUND = Object.freeze({ p50: { minMs: 2, pct: 5 }, p95: { minMs: 5, pct: 10 } });
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** `NAME=VALUE` -> { name, value }; anything else is a usage error. */
+function parsePairedEnv(raw: any) {
+  const match = typeof raw === 'string' ? PAIRED_ENV_PATTERN.exec(raw) : null;
+  if (!match) throw new UsageError('--paired-env must look like NAME=VALUE (NAME matches [A-Z_][A-Z0-9_]*)');
+  return { name: match[1], value: match[2] };
+}
+
+/** Each surface becomes `<id>#off` (NAME=VALUE) and `<id>#on` (NAME removed); both keep the one setup. */
+function expandPaired(surfaces: any[], { name, value }: { name: string; value: any }) {
+  return surfaces.flatMap((surface: any) => [
+    { ...surface, id: `${surface.id}#off`, envOverlay: { ...surface.envOverlay, [name]: value } },
+    { ...surface, id: `${surface.id}#on`, envOverlay: { ...surface.envOverlay, [name]: null } },
+  ]);
+}
+
+function pairedRow(id: string, offSamples: number[], onSamples: number[]) {
+  const side = (samples: number[]) => ({
+    p50: round2(stats.median(samples)),
+    p95: round2(stats.percentile(samples, 0.95)),
+    n: samples.length,
+  });
+  const off = side(offSamples);
+  const on = side(onSamples);
+  const delta: any = { p50Ms: round2(on.p50 - off.p50), p95Ms: round2(on.p95 - off.p95) };
+  delta.p50Pct = off.p50 > 0 ? round2((delta.p50Ms / off.p50) * 100) : null;
+  delta.p95Pct = off.p95 > 0 ? round2((delta.p95Ms / off.p95) * 100) : null;
+  const bound = {
+    p50Ms: round2(Math.max(PAIRED_BOUND.p50.minMs, (off.p50 * PAIRED_BOUND.p50.pct) / 100)),
+    p95Ms: round2(Math.max(PAIRED_BOUND.p95.minMs, (off.p95 * PAIRED_BOUND.p95.pct) / 100)),
+  };
+  return { id, off, on, delta, bound, pass: delta.p50Ms <= bound.p50Ms && delta.p95Ms <= bound.p95Ms };
+}
+
+function bashVersion() {
+  const res = spawnSync('bash', ['-c', 'printf %s "$BASH_VERSION"'], { encoding: 'utf8' });
+  return res.status === 0 && res.stdout ? res.stdout : null;
+}
+
+function cmdMeasure(flags: any, options: any = {}) {
+  const {
+    repoRoot = REPO_ROOT,
+    budgetsPath = flags.budgets ? path.resolve(flags.budgets) : DEFAULT_BUDGETS_PATH,
+    isAnotherNodeTestRunningFn = isAnotherNodeTestRunning,
+    runSurfaceFn = runSurfaceProcess,
+    pairedOutDir = __dirname,
+    bashVersionFn = bashVersion,
+    log = (m: any) => process.stdout.write(`${m}\n`),
+    err = (m: any) => process.stderr.write(`${m}\n`),
+  } = options;
+
+  const paired = flags['paired-env'] !== undefined ? parsePairedEnv(flags['paired-env']) : null;
+  if (paired && flags.write) throw new UsageError('--paired-env never writes budgets.json; drop --write');
+
+  // 1. Refuse with exit 2 while another node --test process is running
+  if (isAnotherNodeTestRunningFn()) {
+    err('perf measure: another node --test process is running; exclusive execution required');
+    return { exitCode: 2, error: 'another node --test process is running' };
+  }
+
+  const runs = flags.runs ? parseInt(flags.runs, 10) : DEFAULT_RUNS;
+  if (!Number.isInteger(runs) || runs <= 0) {
+    throw new UsageError('--runs must be a positive integer');
+  }
+  const warmups = flags.warmups ? parseInt(flags.warmups, 10) : DEFAULT_WARMUPS;
+  if (!Number.isInteger(warmups) || warmups < 0) {
+    throw new UsageError('--warmups must be a non-negative integer');
+  }
+  const seed = flags.seed ? parseInt(flags.seed, 10) : DEFAULT_SEED;
+
+  // Load budgets.json if it exists
+  let budgets: any = null;
+  if (fs.existsSync(budgetsPath)) {
+    try {
+      budgets = JSON.parse(fs.readFileSync(budgetsPath, 'utf8'));
+    } catch {
+      // ignored
+    }
+  }
+
+  const intentBudgetsMs = budgets && budgets.intentBudgetsMs ? budgets.intentBudgetsMs : DEFAULT_INTENT_BUDGETS_MS;
+  const headroom = budgets && budgets.headroom ? budgets.headroom : DEFAULT_HEADROOM;
+
+  // Enumerate hook surfaces
+  const { surfaces: hookSurfaces, unmeasuredRows: hookUnmeasured } = enumerateHookSurfaces({ repoRoot });
+
+  // Surfaces pool
+  let allSurfaces: any[] = [];
+  if (options.surfaces) {
+    allSurfaces = options.surfaces;
+  } else if (budgets && Array.isArray(budgets.surfaces) && budgets.surfaces.length > 0) {
+    const knownIds = new Set(budgets.surfaces.map((s: any) => s.id));
+    allSurfaces = [...budgets.surfaces];
+    for (const hs of hookSurfaces) {
+      if (!knownIds.has(hs.id)) {
+        allSurfaces.push(hs);
+        knownIds.add(hs.id);
+      }
+    }
+  } else {
+    allSurfaces = [...hookSurfaces];
+  }
+
+  // Filter if --surface was supplied
+  let selectedSurfaces = allSurfaces;
+  if (flags.surface) {
+    const selectedIds = new Set(flags.surface.split(',').map((s: string) => s.trim()));
+    selectedSurfaces = allSurfaces.filter((s: any) => selectedIds.has(s.id));
+  }
+
+  const unmeasuredMap = new Map();
+  for (const u of hookUnmeasured) {
+    unmeasuredMap.set(u.surfaceId, u.unmeasured);
+  }
+
+  const measurableBase = [];
+  const unmeasuredRows = [];
+
+  for (const s of selectedSurfaces) {
+    if (unmeasuredMap.has(s.id)) {
+      unmeasuredRows.push({ surfaceId: s.id, unmeasured: unmeasuredMap.get(s.id) });
+    } else if (!s.argv || s.argv.length === 0) {
+      unmeasuredRows.push({ surfaceId: s.id, unmeasured: 'no executable command' });
+    } else {
+      measurableBase.push(s);
+    }
+  }
+  const measurableSurfaces = paired ? expandPaired(measurableBase, paired) : measurableBase;
+
+  // Run warm-ups
+  let tempHomeDir = null;
+  const hasInstall = measurableSurfaces.some(
+    (s: any) => s.kind === 'install' || s.intentClass === 'install' || s.id === 'install.dry-run'
+  );
+  if (hasInstall) {
+    tempHomeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-perf-home-'));
+  }
+
+  try {
+    const failedSurfaces = new Map();
+    const tryRunSurface = (surface: any) => {
+      try {
+        const res = runSurfaceFn(surface, repoRoot, tempHomeDir);
+        if (typeof res === 'object' && res !== null && res.error) {
+          throw new Error(res.error);
+        }
+        return { ok: true, durMs: Number(res) };
+      } catch (e: any) {
+        return { ok: false, error: e.message };
+      }
+    };
+
+    for (const surface of measurableSurfaces) {
+      for (let w = 0; w < warmups; w++) {
+        const outcome = tryRunSurface(surface);
+        if (!outcome.ok) {
+          failedSurfaces.set(surface.id, outcome.error);
+          break;
+        }
+      }
+    }
+
+    // Initialize round measurements
+    const surfaceSamples = new Map();
+    for (const s of measurableSurfaces) {
+      if (!failedSurfaces.has(s.id)) {
+        surfaceSamples.set(s.id, []);
+      }
+    }
+
+    let redos = 0;
+    const controlSamples = [];
+    const rng = stats.mulberry32(seed);
+
+    for (let r = 0; r < runs; r++) {
+      let accepted = false;
+      while (!accepted) {
+        // Control: node -e 0
+        const cStart = process.hrtime.bigint();
+        spawnSync(process.execPath, ['-e', '0'], { cwd: repoRoot, env: { ...process.env, DOFLOW_QUIET: '1' } });
+        const cEnd = process.hrtime.bigint();
+        const cMs = Number(cEnd - cStart) / 1_000_000;
+
+        const runningMedian = controlSamples.length > 0 ? stats.median(controlSamples) : cMs;
+        if (controlSamples.length > 0 && cMs > 2 * runningMedian && redos < 10) {
+          redos++;
+          continue;
+        }
+
+        controlSamples.push(cMs);
+        accepted = true;
+
+        const shuffled = stats.shuffle(measurableSurfaces, rng);
+        for (const surface of shuffled) {
+          if (failedSurfaces.has(surface.id)) continue;
+          const outcome = tryRunSurface(surface);
+          if (!outcome.ok) {
+            failedSurfaces.set(surface.id, outcome.error);
+            surfaceSamples.delete(surface.id);
+          } else {
+            surfaceSamples.get(surface.id).push(outcome.durMs);
+          }
+        }
+      }
+    }
+
+    for (const [id, reason] of failedSurfaces.entries()) {
+      err(`perf measure: surface ${id} failed: ${reason}`);
+    }
+
+    if (paired) {
+      const rows = measurableBase
+        .filter((s) => surfaceSamples.has(`${s.id}#off`) && surfaceSamples.has(`${s.id}#on`))
+        .map((s) => pairedRow(s.id, surfaceSamples.get(`${s.id}#off`), surfaceSamples.get(`${s.id}#on`)));
+      const report = {
+        v: 1,
+        pairedEnv: flags['paired-env'],
+        seed,
+        runs,
+        platform: process.platform,
+        node: process.version,
+        bash: bashVersionFn(),
+        surfaces: rows,
+        ...(unmeasuredRows.length > 0 ? { unmeasured: unmeasuredRows } : {}),
+        ...(failedSurfaces.size > 0 ? { failed: [...failedSurfaces.entries()].map(([id, reason]) => ({ surfaceId: id, reason })) } : {}),
+      };
+      const outFile = path.join(pairedOutDir, `paired-${new Date().toISOString().slice(0, 10)}.json`);
+      fs.mkdirSync(pairedOutDir, { recursive: true });
+      fs.writeFileSync(outFile, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+      if (flags.json) {
+        log(JSON.stringify(report, null, 2));
+      } else {
+        log(`perf measure --paired-env ${flags['paired-env']}: ${rows.length} paired, ${unmeasuredRows.length} unmeasured${failedSurfaces.size > 0 ? `, ${failedSurfaces.size} failed` : ''} -> ${outFile}`);
+        for (const r of rows) {
+          log(`  ${r.id.padEnd(40)} off p50=${r.off.p50} p95=${r.off.p95}  on p50=${r.on.p50} p95=${r.on.p95}  delta p50=${r.delta.p50Ms}ms p95=${r.delta.p95Ms}ms  ${r.pass ? 'pass' : 'FAIL'}`);
+        }
+      }
+      return { exitCode: failedSurfaces.size > 0 ? 1 : 0, report, outFile };
+    }
+
+    const successfullyMeasuredSurfaces = measurableSurfaces.filter((s: any) => !failedSurfaces.has(s.id));
+    const machine = getMachineId();
+    const measuredOn = new Date().toISOString().slice(0, 10);
+    const controlP50Ms = controlSamples.length > 0 ? stats.median(controlSamples) : 0;
+
+    const measuredRows = successfullyMeasuredSurfaces.map((surface: any) => {
+      const samples = surfaceSamples.get(surface.id);
+      const p50Ms = stats.median(samples);
+      const p95Ms = stats.percentile(samples, 0.95);
+      const maxMs = Math.max(...samples);
+      const madMs = stats.mad(samples);
+      const roundedP95Ms = Math.round(p95Ms * 100) / 100;
+      const intent = surface.intentClass && surface.intentClass !== 'none' ? intentBudgetsMs[surface.intentClass] : null;
+      const minMs = headroom.minMs ?? DEFAULT_HEADROOM.minMs;
+      const pct = headroom.pct ?? DEFAULT_HEADROOM.pct;
+      const headroomMs = Math.max(minMs, (roundedP95Ms * pct) / 100);
+      const ceilingMs = computeCeilingMs(roundedP95Ms, headroom, intent);
+
+      return {
+        surfaceId: surface.id,
+        platform: process.platform,
+        arch: process.arch,
+        machineId: machine,
+        measuredOn,
+        runs: samples.length,
+        warmups,
+        interleave: 'seeded-shuffle-per-round',
+        seed,
+        p50Ms: Math.round(p50Ms * 100) / 100,
+        p95Ms: roundedP95Ms,
+        maxMs: Math.round(maxMs * 100) / 100,
+        madMs: Math.round(madMs * 100) / 100,
+        controlP50Ms: Math.round(controlP50Ms * 100) / 100,
+        redos,
+        headroomMs: Math.round(headroomMs * 100) / 100,
+        ceilingMs,
+        status: 'proposed',
+      };
+    });
+
+    const allOutputRows = [...measuredRows, ...unmeasuredRows];
+
+    if (flags.write && failedSurfaces.size === 0) {
+      if (!budgets) {
+        budgets = {
+          schemaVersion: 1,
+          intentBudgetsMs,
+          headroom,
+          machines: [],
+          surfaces: allSurfaces,
+          rows: [],
+        };
+      }
+      if (!Array.isArray(budgets.machines)) budgets.machines = [];
+      if (!Array.isArray(budgets.rows)) budgets.rows = [];
+
+      // Upsert machine
+      const mIdx = budgets.machines.findIndex((m: any) => m.machineId === machine);
+      const machineRecord = {
+        machineId: machine,
+        os: process.platform,
+        arch: process.arch,
+        cpuModel: os.cpus().length > 0 ? os.cpus()[0].model : '',
+        cpuCount: os.cpus().length,
+        totalMemMB: Math.round(os.totalmem() / (1024 * 1024)),
+        node: process.version,
+      };
+      if (mIdx >= 0) budgets.machines[mIdx] = machineRecord;
+      else budgets.machines.push(machineRecord);
+
+      // Upsert rows
+      for (const row of measuredRows) {
+        const idx = budgets.rows.findIndex(
+          (r: any) =>
+            r.surfaceId === row.surfaceId &&
+            r.platform === row.platform &&
+            r.arch === row.arch &&
+            r.machineId === row.machineId
+        );
+        if (idx >= 0) budgets.rows[idx] = row;
+        else budgets.rows.push(row);
+      }
+      for (const u of unmeasuredRows) {
+        const idx = budgets.rows.findIndex((r: any) => r.surfaceId === u.surfaceId && r.unmeasured);
+        if (idx >= 0) budgets.rows[idx] = u;
+        else budgets.rows.push(u);
+      }
+
+      // Try populating context library if available
+      try {
+        const contextLibPath = path.join(__dirname, 'lib', 'context.ts');
+        if (fs.existsSync(contextLibPath)) {
+          const contextLib = require('./lib/context.ts');
+          if (typeof contextLib.computeStartupContext === 'function') {
+            budgets.startupContext = contextLib.computeStartupContext({ repoRoot });
+          }
+          if (typeof contextLib.computeContextBudgets === 'function') {
+            budgets.contextBudgets = contextLib.computeContextBudgets({ repoRoot });
+          }
+          if (typeof contextLib.computePointerCost === 'function') {
+            budgets.pointerCost = contextLib.computePointerCost({ repoRoot });
+          }
+        }
+      } catch {
+        // ignored
+      }
+
+      fs.mkdirSync(path.dirname(budgetsPath), { recursive: true });
+      fs.writeFileSync(budgetsPath, `${JSON.stringify(budgets, null, 2)}\n`, 'utf8');
+    }
+
+    const exitCode = failedSurfaces.size > 0 ? 1 : 0;
+
+    if (flags.json) {
+      log(
+        JSON.stringify(
+          {
+            verb: 'measure',
+            ok: exitCode === 0,
+            exitCode,
+            runs,
+            warmups,
+            seed,
+            rows: allOutputRows,
+            ...(failedSurfaces.size > 0 ? { failed: [...failedSurfaces.entries()].map(([id, reason]) => ({ surfaceId: id, reason })) } : {}),
+          },
+          null,
+          2
+        )
+      );
+    } else {
+      log(`perf measure: ${measuredRows.length} measured, ${unmeasuredRows.length} unmeasured${failedSurfaces.size > 0 ? `, ${failedSurfaces.size} failed` : ''} (redos=${redos})`);
+      for (const r of measuredRows) {
+        log(`  ${r.surfaceId.padEnd(30)} p50=${r.p50Ms}ms p95=${r.p95Ms}ms ceiling=${r.ceilingMs}ms`);
+      }
+      for (const u of unmeasuredRows) {
+        log(`  ${u.surfaceId.padEnd(30)} unmeasured: ${u.unmeasured}`);
+      }
+      for (const [id, reason] of failedSurfaces.entries()) {
+        log(`  ${id.padEnd(30)} failed: ${reason}`);
+      }
+    }
+
+    return { exitCode, rows: allOutputRows };
+  } finally {
+    if (tempHomeDir) {
+      try {
+        fs.rmSync(tempHomeDir, { recursive: true, force: true });
+      } catch {
+        // ignored
+      }
+    }
+  }
+}
+
+function cmdCheck(flags: any, options: any = {}) {
+  const {
+    budgetsPath = flags.budgets ? path.resolve(flags.budgets) : DEFAULT_BUDGETS_PATH,
+    log = (m: any) => process.stdout.write(`${m}\n`),
+    err = (m: any) => process.stderr.write(`${m}\n`),
+  } = options;
+
+  if (!fs.existsSync(budgetsPath)) {
+    if (flags.json) {
+      log(JSON.stringify({ verb: 'check', ok: true, exitCode: 0, findings: [], rowsChecked: 0 }));
+    }
+    return { exitCode: 0, findings: [] };
+  }
+
+  let budgets: any;
+  try {
+    budgets = JSON.parse(fs.readFileSync(budgetsPath, 'utf8'));
+  } catch (e: any) {
+    err(`perf check: unreadable budgets file at ${budgetsPath}: ${e.message}`);
+    return { exitCode: 1, findings: [`unreadable budgets file: ${e.message}`] };
+  }
+
+  const rows = budgets.rows || [];
+  const surfaces = budgets.surfaces || [];
+  const intentBudgetsMs = budgets.intentBudgetsMs || DEFAULT_INTENT_BUDGETS_MS;
+  const headroom = budgets.headroom || DEFAULT_HEADROOM;
+
+  const findings = [];
+  let checkedCount = 0;
+
+  for (const row of rows) {
+    if (row.unmeasured) continue;
+    checkedCount++;
+
+    // Check minimum runs (must be >= 30)
+    if (typeof row.runs !== 'number' || row.runs < 30) {
+      findings.push(`surface ${row.surfaceId} has ${row.runs} runs (fewer than 30)`);
+    }
+
+    const surface = surfaces.find((s: any) => s.id === row.surfaceId);
+    const intent =
+      surface && surface.intentClass && surface.intentClass !== 'none'
+        ? intentBudgetsMs[surface.intentClass]
+        : null;
+
+    const expectedCeiling = computeCeilingMs(row.p95Ms, headroom, intent);
+    if (row.ceilingMs !== expectedCeiling) {
+      findings.push(
+        `surface ${row.surfaceId} stored ceiling ${row.ceilingMs} differs from expected ${expectedCeiling}`
+      );
+    }
+
+    if (intent != null && row.ceilingMs > intent) {
+      findings.push(`surface ${row.surfaceId} ceiling ${row.ceilingMs} exceeds intent budget ${intent}`);
+    }
+  }
+
+  const ok = findings.length === 0;
+  const exitCode = ok ? 0 : 1;
+
+  if (flags.json) {
+    log(
+      JSON.stringify(
+        {
+          verb: 'check',
+          ok,
+          exitCode,
+          rowsChecked: checkedCount,
+          findings,
+        },
+        null,
+        2
+      )
+    );
+  } else if (!ok) {
+    err(`perf check failed with ${findings.length} finding(s):`);
+    for (const f of findings) err(`  - ${f}`);
+  } else {
+    log(`perf check: ok (${checkedCount} rows checked)`);
+  }
+
+  return { exitCode, findings };
+}
+
+function main(args: string[] = process.argv.slice(2), options: any = {}) {
+  const log = options.out || ((m: any) => process.stdout.write(`${m}\n`));
+  const err = options.err || ((m: any) => process.stderr.write(`${m}\n`));
+
+  const verb = args[0] && !args[0].startsWith('--') ? args[0] : null;
+  if (!verb) {
+    err('usage: bench perf <measure|check> [flags]');
+    return 2;
+  }
+
+  if (verb !== 'measure' && verb !== 'check') {
+    err(`perf: unknown command "${verb}" (expected measure or check)`);
+    return 2;
+  }
+
+  const allowedFlags = {
+    surface: 'value',
+    runs: 'value',
+    warmups: 'value',
+    seed: 'value',
+    write: 'bool',
+    json: 'bool',
+    budgets: 'value',
+    'paired-env': 'value',
+  };
+
+  let parsed: any;
+  try {
+    parsed = parseFlags(args.slice(1), allowedFlags);
+  } catch (e: any) {
+    err(`perf ${verb}: ${e.message}`);
+    return 2;
+  }
+
+  if (parsed.rest.length > 0) {
+    err(`perf ${verb}: unexpected argument "${parsed.rest[0]}"`);
+    return 2;
+  }
+
+  const runnerOpts = { ...options, log, err };
+  try {
+    if (verb === 'measure') {
+      const res = cmdMeasure(parsed.flags, runnerOpts);
+      return res.exitCode;
+    }
+    if (verb === 'check') {
+      const res = cmdCheck(parsed.flags, runnerOpts);
+      return res.exitCode;
+    }
+  } catch (e: any) {
+    err(`perf ${verb}: ${e.message}`);
+    return 2;
+  }
+
+  return 0;
+}
+
+if (require.main === module) {
+  process.exitCode = main(process.argv.slice(2));
+}
+
+module.exports = {
+  main,
+  isAnotherNodeTestRunning,
+  isNodeTestCommand,
+  isToolInstalled,
+  getMachineId,
+  computeCeilingMs,
+  enumerateHookSurfaces,
+  runSurfaceProcess,
+  HARNESS_CLI_MAP,
+  DEFAULT_INTENT_BUDGETS_MS,
+  DEFAULT_HEADROOM,
+};

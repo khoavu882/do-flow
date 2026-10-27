@@ -1,0 +1,88 @@
+{
+  "schema": 1,
+  "row": "113",
+  "slug": "113-goal-order",
+  "reviewedHead": "0123456789abcdef0123456789abcdef01234567",
+  "rounds": 2,
+  "seats": [
+    {
+      "id": "backend-expert",
+      "findings": [
+        {
+          "id": "A1",
+          "severity": "blocker",
+          "locator": "src/x.ts:40",
+          "summary": "Unchecked error in worker loop"
+        },
+        {
+          "id": "A2",
+          "severity": "should-fix",
+          "locator": "src/w.ts:12",
+          "summary": "Retry loop has no upper bound"
+        }
+      ]
+    },
+    {
+      "id": "principle-software-engineer",
+      "findings": [
+        {
+          "id": "B1",
+          "severity": "should-fix",
+          "locator": "src/y.ts:9",
+          "summary": "Missing type annotation"
+        },
+        {
+          "id": "B2",
+          "severity": "note",
+          "locator": "src/v.ts:5",
+          "summary": "Helper name does not say what it returns"
+        }
+      ]
+    }
+  ],
+  "converged": [
+    {
+      "id": "C1",
+      "from": ["A1"],
+      "severity": "blocker",
+      "locator": "src/x.ts:40",
+      "status": "fixed",
+      "fixedIn": "fedcba9876543210fedcba9876543210fedcba98",
+      "origin": "pre-existing",
+      "preExistingAt": "00112233445566778899aabbccddeeff00112233",
+      "escapedFrom": "108",
+      "verification": "confirmed",
+      "verifiedBy": "principle-software-engineer",
+      "bugClass": "unchecked error return",
+      "sweep": "rg -n 'await [a-z]+\\(' src/"
+    },
+    {
+      "id": "C2",
+      "from": ["B1"],
+      "severity": "should-fix",
+      "locator": "src/y.ts:9",
+      "status": "refuted",
+      "evidence": "test/y.test.js:22",
+      "origin": "introduced",
+      "verification": "plausible"
+    },
+    {
+      "id": "C3",
+      "from": ["A2"],
+      "severity": "should-fix",
+      "locator": "src/w.ts:12",
+      "status": "user-accepted",
+      "decision": "DEC-004",
+      "acceptedAs": "intentional"
+    },
+    {
+      "id": "C4",
+      "from": ["B2"],
+      "severity": "note",
+      "locator": "src/v.ts:5",
+      "status": "user-accepted",
+      "decision": "DEC-005",
+      "acceptedAs": "not-worth-fixing"
+    }
+  ]
+}

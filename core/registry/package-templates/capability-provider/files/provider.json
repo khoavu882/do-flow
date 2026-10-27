@@ -1,0 +1,9 @@
+{
+  "capability": "text.compress",
+  "name": "{{local}} provider",
+  "kind": "cli",
+  "program": "{{local}}",
+  "sourceMode": "live",
+  "costTier": "free",
+  "timeoutMs": 10000
+}

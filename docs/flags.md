@@ -1,3 +1,6 @@
+---
+description: A flag-first index of every skill option and CLI verb flag.
+---
 # Flag Index
 
 A flag-first index of every flag declared in a skill's `argument-hint`, one row per (skill, flag)
@@ -6,15 +9,15 @@ bottom does the same for the `doflow` CLI's verb-local flags, which come from th
 from any skill's frontmatter. This complements, rather than duplicates, two other references:
 
 - [`reference.md`](./reference.md)'s "Full Skill Reference" table is organized **by skill** — one
-  row per skill, its full `argument-hint` verbatim — and is kept in sync with each skill's
-  frontmatter by `test/guards/reachability.test.js` (G8).
-- `core/shared/guidance/FLAGS.md` (in the repository, not on this site) is the always-loaded statement of what the runtime
-  now does unconditionally. The only flag it still documents is `--focus`, the one flag that is not
-  skill-local; it deliberately excludes the rest, like `--depth` or `--type` (see its guard,
-  `test/guards/flags.test.js`, "G4", and that guard's `NOT_FRAMEWORK_FLAGS` map).
+  row per skill, its full `argument-hint` verbatim; `test/guards/reachability.test.ts` (G8) fails
+  when it documents a flag that the skill's `argument-hint` does not declare.
+- The `## Flags and runtime` section of `core/shared/guidance/rules/RULES.md` (in the repository, not on this site) is the
+  always-loaded statement of what the runtime does unconditionally. It names the shared flags
+  `--depth` and `--type` (G4 in `test/guards/flags.test.ts` requires that line to list every flag
+  declared by two or more skills) and no single-skill flag; `--focus` is documented in `do-diagnose`.
 
 This file owns exactly the gap between the two: every skill-local flag, organized **by flag**
-rather than by skill, so a reader can see every place a given flag name is used without reading 13
+rather than by skill, so a reader can see every place a given flag name is used without reading 12
 separate `argument-hint` strings — and so that inconsistent reuse of the same flag name (different
 allowed values across skills) is visible side by side instead of hidden in separate rows of
 `reference.md`. A mismatch surfaced here is a content judgment to resolve in a later remediation
@@ -53,7 +56,7 @@ appear here; the full per-verb contracts are in [`reference.md`](./reference.md)
 Diagnostics Commands" table.
 
 The flag column is backticked and the verb column is not a skill name, which is what keeps
-`test/guards/flag-index.test.js` (G10) from reading these rows as stale skill rows — G10 owns the
+`test/guards/flag-index.test.ts` (G10) from reading these rows as stale skill rows — G10 owns the
 skill table above and deliberately says nothing about this one.
 
 | Flag | Verb | Values | Purpose |

@@ -1,0 +1,1793 @@
+{
+  "schema": 1,
+  "feature": "108-roadmap-loop",
+  "oracle": "G-L1",
+  "comparison": {
+    "nextCalls": "Each `next` call is compared on outcome, step, row, reason (exact strings or null), and on `skips` when the expected entry has it (map of not-started row id -> skip reason; must be equal as a map). `annotations` are for humans and are not compared.",
+    "otherActions": "status/render/render --check calls are compared on the keys present in the expected entry.",
+    "final": "Final facts are checked after the last call of the scenario.",
+    "stepConvention": "`step` is one of pick|gate|merge|render|cleanup when the output concerns one of those steps (acted, gate denies, merge denies, a stop inside S8), else null (perform, idle, lease-held, stops at step start, blocked rows, loop denies). This convention is an assumption (IC-001 names `step` values only for `acted`).",
+    "rowConvention": "`row` is the seed row id the output concerns, null for idle, stops at step start and lease-held."
+  },
+  "invariants": {
+    "allScenarios": {
+      "pushes": 0,
+      "tagsCreated": 0,
+      "publishes": 0,
+      "globalInstalls": 0,
+      "remoteRefsChanged": false,
+      "paidRunsLaunched": 0,
+      "permissionRuleEdits": 0,
+      "modelTokensSpentByMechanicalSteps": 0,
+      "canaryInLoopRecords": false,
+      "everyDeniedBlockedStoppedHasCheckpoint": true,
+      "exitCodes": {
+        "acted": 0,
+        "perform": 0,
+        "idle": 0,
+        "denied": 1,
+        "blocked": 1,
+        "stopped": 1
+      },
+      "everyReasonInClosedVocabulary": "section 4 list plus IC-002 seed-typed-status (see conflict C4); stop reason pending C1"
+    },
+    "autopilotRecords": "every automatic gate approval is in the register with decider autopilot, channel policy, policy id and sha256; no `reject` by policy"
+  },
+  "scenarios": {
+    "S01-happy-path-full-cycle": {
+      "calls": [
+        {
+          "outcome": "acted",
+          "step": "pick",
+          "row": "110",
+          "reason": null
+        },
+        {
+          "outcome": "perform",
+          "step": null,
+          "row": "110",
+          "reason": null,
+          "annotations": {
+            "stage": "discovery"
+          }
+        },
+        {
+          "outcome": "acted",
+          "step": "gate",
+          "row": "110",
+          "reason": null,
+          "annotations": {
+            "gate": "gate-0"
+          }
+        },
+        {
+          "outcome": "perform",
+          "step": null,
+          "row": "110",
+          "reason": null,
+          "annotations": {
+            "stage": "design"
+          }
+        },
+        {
+          "outcome": "perform",
+          "step": null,
+          "row": "110",
+          "reason": null,
+          "annotations": {
+            "stage": "planning"
+          }
+        },
+        {
+          "outcome": "acted",
+          "step": "gate",
+          "row": "110",
+          "reason": null,
+          "annotations": {
+            "gate": "gate-a"
+          }
+        },
+        {
+          "outcome": "perform",
+          "step": null,
+          "row": "110",
+          "reason": null,
+          "annotations": {
+            "stage": "implementation",
+            "after": "dispatch --action start --slug 110-alpha --billing-cap free, then dispatch --action run"
+          }
+        },
+        {
+          "outcome": "perform",
+          "step": null,
+          "row": "110",
+          "reason": null,
+          "annotations": {
+            "stage": "verification"
+          }
+        },
+        {
+          "outcome": "perform",
+          "step": null,
+          "row": "110",
+          "reason": null,
+          "annotations": {
+            "stage": "review"
+          }
+        },
+        {
+          "outcome": "acted",
+          "step": "gate",
+          "row": "110",
+          "reason": null,
+          "annotations": {
+            "gate": "gate-b"
+          }
+        },
+        {
+          "outcome": "acted",
+          "step": "merge",
+          "row": "110",
+          "reason": null
+        },
+        {
+          "outcome": "acted",
+          "step": "render",
+          "row": "110",
+          "reason": null
+        },
+        {
+          "outcome": "acted",
+          "step": "cleanup",
+          "row": "110",
+          "reason": null
+        },
+        {
+          "outcome": "acted",
+          "step": "pick",
+          "row": "112",
+          "reason": null
+        }
+      ],
+      "final": {
+        "rowStatus": {
+          "096": "merged",
+          "110": "merged",
+          "112": "in-flight"
+        },
+        "developHead": {
+          "parents": 2,
+          "firstParent": "D0",
+          "secondParent": "F110",
+          "trailers": {
+            "DoFlow-Row": "110"
+          },
+          "author": "Fixture Owner <owner@example.invalid>",
+          "committer": "Fixture Owner <owner@example.invalid>"
+        },
+        "mergesWithTrailer110": 1,
+        "audit": [
+          {
+            "row": "110",
+            "gate": "gate-0",
+            "by": "autopilot",
+            "policyDigest": "present",
+            "rule": "present",
+            "evidence": "present"
+          },
+          {
+            "row": "110",
+            "gate": "gate-a",
+            "by": "autopilot",
+            "policyDigest": "present",
+            "rule": "present",
+            "evidence": "present"
+          },
+          {
+            "row": "110",
+            "gate": "gate-b",
+            "by": "autopilot",
+            "policyDigest": "present",
+            "rule": "present",
+            "evidence": "present"
+          }
+        ],
+        "auditLineSaysByAutopilot": true,
+        "registerUserAgentEntriesUnchanged": true,
+        "renderCheckExit": 0,
+        "tableRow110": {
+          "status": "merged",
+          "evidence": "short merge sha + trailer"
+        },
+        "featureWorktree110": "removed (non-force)",
+        "featureBranch110": "deleted with branch -d",
+        "remoteRefsChanged": false,
+        "tagsCreated": 0,
+        "pushes": 0,
+        "publishes": 0,
+        "globalInstalls": 0,
+        "modelTokensForMechanicalSteps": 0,
+        "canaryInRecords": false,
+        "networkUsed": false
+      }
+    },
+    "S02-pick-wip-full": {
+      "calls": [
+        {
+          "outcome": "idle",
+          "step": null,
+          "row": null,
+          "reason": null,
+          "skips": {
+            "115": "wip-full"
+          }
+        }
+      ],
+      "final": {
+        "rowStatus": {
+          "110": "in-flight",
+          "111": "in-flight",
+          "115": "not-started"
+        },
+        "branchesCreated": 0
+      }
+    },
+    "S03-pick-skip-reasons": {
+      "calls": [
+        {
+          "outcome": "idle",
+          "step": null,
+          "row": null,
+          "reason": null,
+          "skips": {
+            "112": "need-unmerged",
+            "113": "write-set-overlap:110",
+            "114": "needs-exclusive",
+            "116": "class-unsupported"
+          }
+        }
+      ],
+      "final": {
+        "branchesCreated": 0
+      }
+    },
+    "S04-pick-exclusive-in-flight": {
+      "calls": [
+        {
+          "outcome": "idle",
+          "step": null,
+          "row": null,
+          "reason": null,
+          "skips": {
+            "110": "exclusive-row-in-flight"
+          }
+        }
+      ],
+      "final": {
+        "branchesCreated": 0
+      }
+    },
+    "S05-pick-one-per-call-wip-two": {
+      "calls": [
+        {
+          "outcome": "acted",
+          "step": "pick",
+          "row": "110",
+          "reason": null
+        },
+        {
+          "outcome": "acted",
+          "step": "pick",
+          "row": "111",
+          "reason": null
+        },
+        {
+          "outcome": "idle",
+          "step": null,
+          "row": null,
+          "reason": null,
+          "skips": {}
+        }
+      ],
+      "final": {
+        "rowStatus": {
+          "110": "in-flight",
+          "111": "in-flight"
+        },
+        "claims": {
+          "110": "branch feat/110-alpha at develop head D0",
+          "111": "branch feat/111-beta at develop head D0"
+        }
+      }
+    },
+    "S06-gate0-marker-deny-then-pass": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "unresolved-clarifications",
+          "annotations": {
+            "gate": "gate-0"
+          }
+        },
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "unresolved-clarifications",
+          "annotations": {
+            "gate": "gate-0"
+          }
+        },
+        {
+          "outcome": "acted",
+          "step": "gate",
+          "row": "110",
+          "reason": null,
+          "annotations": {
+            "gate": "gate-0"
+          }
+        }
+      ],
+      "final": {
+        "denyOutputsByteEqualExceptRunCounter": true,
+        "checkpointAfterDeny": "exists and survives process exit",
+        "gate0": "approved by autopilot after call 3; pending (not rejected) after calls 1-2",
+        "registerRejectEntries": 0,
+        "auditLineSaysByAutopilot": true,
+        "prompts": 0
+      }
+    },
+    "S07-gatea-plan-unparsable": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "plan-unparsable",
+          "annotations": {
+            "gate": "gate-a"
+          }
+        }
+      ],
+      "final": {
+        "gateA": "pending with checkpoint",
+        "auditLineSaysByAutopilot": false
+      }
+    },
+    "S08-gatea-prerequisite-no-source": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "115",
+          "reason": "prerequisite-no-source:code.no-such-capability",
+          "annotations": {
+            "gate": "gate-a"
+          }
+        }
+      ],
+      "final": {
+        "gateA": "pending with checkpoint",
+        "auditLineSaysByAutopilot": false
+      }
+    },
+    "S09-gatea-need-unmerged": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "117",
+          "reason": "need-unmerged:112",
+          "annotations": {
+            "gate": "gate-a"
+          }
+        }
+      ],
+      "final": {
+        "gateA": "pending with checkpoint",
+        "auditLineSaysByAutopilot": false
+      }
+    },
+    "S10-gatea-capability-unreachable": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "115",
+          "reason": "capability-unreachable:code.semantic-search",
+          "annotations": {
+            "gate": "gate-a"
+          }
+        }
+      ],
+      "final": {
+        "gateA": "pending with checkpoint",
+        "auditLineSaysByAutopilot": false
+      }
+    },
+    "S11-gatea-markers-open": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "markers-open:plan.md",
+          "annotations": {
+            "gate": "gate-a"
+          }
+        }
+      ],
+      "final": {
+        "gateA": "pending with checkpoint",
+        "auditLineSaysByAutopilot": false
+      }
+    },
+    "S12-gatea-pass": {
+      "calls": [
+        {
+          "outcome": "acted",
+          "step": "gate",
+          "row": "115",
+          "reason": null,
+          "annotations": {
+            "gate": "gate-a"
+          }
+        }
+      ],
+      "final": {
+        "gateA": "approved by autopilot",
+        "auditLineSaysByAutopilot": true
+      }
+    },
+    "S13-gateb-verify-missing": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "verify-missing",
+          "annotations": {
+            "gate": "gate-b"
+          }
+        }
+      ],
+      "final": {
+        "gateB": "pending with checkpoint",
+        "developHead": "D0",
+        "merges": 0,
+        "auditLineSaysByAutopilot": false
+      }
+    },
+    "S14-gateb-verify-flaky": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "verify-flaky",
+          "annotations": {
+            "gate": "gate-b"
+          }
+        }
+      ],
+      "final": {
+        "gateB": "pending with checkpoint",
+        "developHead": "D0",
+        "merges": 0,
+        "auditLineSaysByAutopilot": false,
+        "verifyLogLines": 2,
+        "verifyRerunsLaunched": 0
+      }
+    },
+    "S15-gateb-verify-inconclusive": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "verify-not-pass",
+          "annotations": {
+            "gate": "gate-b"
+          }
+        }
+      ],
+      "final": {
+        "gateB": "pending with checkpoint",
+        "developHead": "D0",
+        "merges": 0,
+        "auditLineSaysByAutopilot": false
+      }
+    },
+    "S16-gateb-verify-fail": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "verify-not-pass",
+          "annotations": {
+            "gate": "gate-b"
+          }
+        }
+      ],
+      "final": {
+        "gateB": "pending with checkpoint",
+        "developHead": "D0",
+        "merges": 0,
+        "auditLineSaysByAutopilot": false
+      }
+    },
+    "S17-gateb-findings-missing": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "findings-missing",
+          "annotations": {
+            "gate": "gate-b"
+          }
+        }
+      ],
+      "final": {
+        "gateB": "pending with checkpoint",
+        "developHead": "D0",
+        "merges": 0,
+        "auditLineSaysByAutopilot": false
+      }
+    },
+    "S18-gateb-findings-invalid": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "findings-invalid",
+          "annotations": {
+            "gate": "gate-b"
+          }
+        }
+      ],
+      "final": {
+        "gateB": "pending with checkpoint",
+        "developHead": "D0",
+        "merges": 0,
+        "auditLineSaysByAutopilot": false
+      }
+    },
+    "S19-gateb-review-stale-head": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "review-stale-head",
+          "annotations": {
+            "gate": "gate-b"
+          }
+        }
+      ],
+      "final": {
+        "gateB": "pending with checkpoint",
+        "developHead": "D0",
+        "merges": 0,
+        "auditLineSaysByAutopilot": false
+      }
+    },
+    "S20-gateb-seats-too-few": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "seats-too-few",
+          "annotations": {
+            "gate": "gate-b"
+          }
+        }
+      ],
+      "final": {
+        "gateB": "pending with checkpoint",
+        "developHead": "D0",
+        "merges": 0,
+        "auditLineSaysByAutopilot": false
+      }
+    },
+    "S21-gateb-finding-dropped": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "finding-dropped:F2",
+          "annotations": {
+            "gate": "gate-b"
+          }
+        }
+      ],
+      "final": {
+        "gateB": "pending with checkpoint",
+        "developHead": "D0",
+        "merges": 0,
+        "auditLineSaysByAutopilot": false
+      }
+    },
+    "S22-gateb-refuted-without-evidence": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "refuted-without-evidence:C3",
+          "annotations": {
+            "gate": "gate-b"
+          }
+        }
+      ],
+      "final": {
+        "gateB": "pending with checkpoint",
+        "developHead": "D0",
+        "merges": 0,
+        "auditLineSaysByAutopilot": false
+      }
+    },
+    "S23-gateb-accepted-without-user-decision": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "accepted-without-user-decision:C4",
+          "annotations": {
+            "gate": "gate-b"
+          }
+        }
+      ],
+      "final": {
+        "gateB": "pending with checkpoint",
+        "developHead": "D0",
+        "merges": 0,
+        "auditLineSaysByAutopilot": false
+      }
+    },
+    "S24-gateb-fixed-not-ancestor": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "fixed-not-ancestor:C5",
+          "annotations": {
+            "gate": "gate-b"
+          }
+        }
+      ],
+      "final": {
+        "gateB": "pending with checkpoint",
+        "developHead": "D0",
+        "merges": 0,
+        "auditLineSaysByAutopilot": false
+      }
+    },
+    "S25-gateb-blockers-open": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "blockers-open",
+          "annotations": {
+            "gate": "gate-b"
+          }
+        }
+      ],
+      "final": {
+        "gateB": "pending with checkpoint",
+        "developHead": "D0",
+        "merges": 0,
+        "auditLineSaysByAutopilot": false,
+        "prompts": 0,
+        "registerRejectEntries": 0
+      }
+    },
+    "S26-gateb-row-id-mismatch": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "findings-invalid",
+          "annotations": {
+            "gate": "gate-b"
+          }
+        }
+      ],
+      "final": {
+        "gateB": "pending with checkpoint",
+        "developHead": "D0",
+        "merges": 0,
+        "auditLineSaysByAutopilot": false
+      }
+    },
+    "S27-gateb-pass-two-seats": {
+      "calls": [
+        {
+          "outcome": "acted",
+          "step": "gate",
+          "row": "110",
+          "reason": null,
+          "annotations": {
+            "gate": "gate-b"
+          }
+        }
+      ],
+      "final": {
+        "gateB": "approved by autopilot",
+        "developHead": "D0",
+        "merges": 0,
+        "auditLineSaysByAutopilot": true,
+        "registerEntry": {
+          "gate": "gate-b",
+          "by": "autopilot",
+          "channel": "policy",
+          "policyDigest": "sha256 present"
+        }
+      }
+    },
+    "S28-policy-absent": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "no-policy",
+          "annotations": {
+            "gate": "gate-b"
+          }
+        }
+      ],
+      "final": {
+        "gateB": "pending with checkpoint",
+        "developHead": "D0",
+        "merges": 0,
+        "auditLineSaysByAutopilot": false
+      }
+    },
+    "S29-policy-invalid": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "policy-invalid",
+          "annotations": {
+            "gate": "gate-b"
+          }
+        }
+      ],
+      "final": {
+        "gateB": "pending with checkpoint",
+        "developHead": "D0",
+        "merges": 0,
+        "auditLineSaysByAutopilot": false
+      }
+    },
+    "S30-policy-override-widens": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "policy-override-widens:minSeats",
+          "annotations": {
+            "gate": "gate-b"
+          }
+        }
+      ],
+      "final": {
+        "gateB": "pending with checkpoint",
+        "developHead": "D0",
+        "merges": 0,
+        "auditLineSaysByAutopilot": false,
+        "overrideApplied": false
+      }
+    },
+    "S31-policy-override-narrows-never": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "policy-never",
+          "annotations": {
+            "gate": "gate-b"
+          }
+        }
+      ],
+      "final": {
+        "gateB": "pending with checkpoint",
+        "developHead": "D0",
+        "merges": 0,
+        "auditLineSaysByAutopilot": false,
+        "overrideApplied": true,
+        "prompts": 0
+      }
+    },
+    "S32-policy-override-narrows-seats": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": "110",
+          "reason": "seats-too-few",
+          "annotations": {
+            "gate": "gate-b"
+          }
+        }
+      ],
+      "final": {
+        "gateB": "pending with checkpoint",
+        "developHead": "D0",
+        "merges": 0,
+        "auditLineSaysByAutopilot": false,
+        "overrideApplied": true
+      }
+    },
+    "S33-policy-row-unknown": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "gate",
+          "row": null,
+          "reason": "row-unknown",
+          "annotations": {
+            "gate": "gate-0",
+            "slug": "130-orphan"
+          }
+        }
+      ],
+      "final": {
+        "gate0For130": "pending",
+        "auditLineSaysByAutopilot": false
+      }
+    },
+    "S34-merge-develop-dirty": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "merge",
+          "row": "110",
+          "reason": "develop-dirty"
+        }
+      ],
+      "final": {
+        "developHeadBeforeEqualsAfter": true,
+        "featureHeadBeforeEqualsAfter": true,
+        "developWorktreeStatusByteEqual": true,
+        "mergeStarted": false,
+        "MERGE_HEAD": "absent",
+        "destructiveGitCommandsRun": [],
+        "rowStatus": {
+          "110": "in-flight"
+        },
+        "ownerFilesByteEqual": true,
+        "forbiddenInLoopCommandLog": [
+          "reset",
+          "stash",
+          "checkout",
+          "restore",
+          "clean"
+        ]
+      }
+    },
+    "S35-merge-develop-wrong-branch": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "merge",
+          "row": "110",
+          "reason": "develop-wrong-branch"
+        }
+      ],
+      "final": {
+        "developHeadBeforeEqualsAfter": true,
+        "featureHeadBeforeEqualsAfter": true,
+        "developWorktreeStatusByteEqual": true,
+        "mergeStarted": false,
+        "MERGE_HEAD": "absent",
+        "destructiveGitCommandsRun": [],
+        "rowStatus": {
+          "110": "in-flight"
+        }
+      }
+    },
+    "S36-merge-git-too-old": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "merge",
+          "row": "110",
+          "reason": "git-too-old"
+        }
+      ],
+      "final": {
+        "developHeadBeforeEqualsAfter": true,
+        "featureHeadBeforeEqualsAfter": true,
+        "developWorktreeStatusByteEqual": true,
+        "mergeStarted": false,
+        "MERGE_HEAD": "absent",
+        "destructiveGitCommandsRun": [],
+        "rowStatus": {
+          "110": "in-flight"
+        }
+      }
+    },
+    "S37-merge-no-develop-worktree": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "merge",
+          "row": "110",
+          "reason": "no-develop-worktree"
+        }
+      ],
+      "final": {
+        "developHeadBeforeEqualsAfter": true,
+        "featureHeadBeforeEqualsAfter": true,
+        "developWorktreeStatusByteEqual": true,
+        "mergeStarted": false,
+        "MERGE_HEAD": "absent",
+        "destructiveGitCommandsRun": [],
+        "rowStatus": {
+          "110": "in-flight"
+        }
+      }
+    },
+    "S38-merge-conflict": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "merge",
+          "row": "110",
+          "reason": "merge-conflict"
+        }
+      ],
+      "final": {
+        "developHeadBeforeEqualsAfter": true,
+        "featureHeadBeforeEqualsAfter": true,
+        "developWorktreeStatusByteEqual": true,
+        "mergeStarted": false,
+        "MERGE_HEAD": "absent",
+        "destructiveGitCommandsRun": [],
+        "rowStatus": {
+          "110": "in-flight"
+        },
+        "sideTaken": false,
+        "conflictMarkersWrittenAnywhere": false,
+        "denyRecorded": true
+      }
+    },
+    "S39-merge-head-moved": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "merge",
+          "row": "110",
+          "reason": "head-moved"
+        }
+      ],
+      "final": {
+        "developHeadBeforeEqualsAfter": true,
+        "featureHeadBeforeEqualsAfter": true,
+        "developWorktreeStatusByteEqual": true,
+        "mergeStarted": false,
+        "MERGE_HEAD": "absent",
+        "destructiveGitCommandsRun": [],
+        "rowStatus": {
+          "110": "in-flight"
+        }
+      }
+    },
+    "S40-merge-develop-moved": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": "merge",
+          "row": "110",
+          "reason": "develop-moved"
+        }
+      ],
+      "final": {
+        "developHeadBeforeEqualsAfter": true,
+        "featureHeadBeforeEqualsAfter": true,
+        "developWorktreeStatusByteEqual": true,
+        "mergeStarted": false,
+        "MERGE_HEAD": "absent",
+        "destructiveGitCommandsRun": [],
+        "rowStatus": {
+          "110": "in-flight"
+        },
+        "developHead": "D1"
+      }
+    },
+    "S41-crash-cp1-after-intent": {
+      "calls": [
+        {
+          "outcome": "acted",
+          "step": "merge",
+          "row": "110",
+          "reason": null
+        },
+        {
+          "outcome": "acted",
+          "step": "render",
+          "row": "110",
+          "reason": null
+        },
+        {
+          "outcome": "acted",
+          "step": "cleanup",
+          "row": "110",
+          "reason": null
+        }
+      ],
+      "final": {
+        "rowStatus": {
+          "110": "merged"
+        },
+        "mergesWithTrailer110": 1,
+        "developHeadParents": 2,
+        "remoteRefsChanged": false,
+        "tagsCreated": 0,
+        "mergeShaEqualsShaComputedFromIntent": true,
+        "tableRowWrites": 1
+      }
+    },
+    "S42-crash-cp2-after-commit-tree": {
+      "calls": [
+        {
+          "outcome": "acted",
+          "step": "merge",
+          "row": "110",
+          "reason": null
+        },
+        {
+          "outcome": "acted",
+          "step": "render",
+          "row": "110",
+          "reason": null
+        },
+        {
+          "outcome": "acted",
+          "step": "cleanup",
+          "row": "110",
+          "reason": null
+        }
+      ],
+      "final": {
+        "rowStatus": {
+          "110": "merged"
+        },
+        "mergesWithTrailer110": 1,
+        "developHeadParents": 2,
+        "remoteRefsChanged": false,
+        "tagsCreated": 0,
+        "developHead": "MX110",
+        "mergeShaEqualsPreCrashObject": true,
+        "tableRowWrites": 1
+      }
+    },
+    "S43-crash-cp3-after-ff": {
+      "calls": [
+        {
+          "outcome": "acted",
+          "step": "render",
+          "row": "110",
+          "reason": null
+        },
+        {
+          "outcome": "acted",
+          "step": "cleanup",
+          "row": "110",
+          "reason": null
+        }
+      ],
+      "final": {
+        "rowStatus": {
+          "110": "merged"
+        },
+        "mergesWithTrailer110": 1,
+        "developHeadParents": 2,
+        "remoteRefsChanged": false,
+        "tagsCreated": 0,
+        "developHead": "MX110",
+        "secondMergeCreated": false,
+        "tableRowWrites": 1,
+        "worktreeAndBranchPresentBeforeRerun": true,
+        "intentRecord": "closed"
+      }
+    },
+    "S44-crash-cp4-after-render": {
+      "calls": [
+        {
+          "outcome": "acted",
+          "step": "cleanup",
+          "row": "110",
+          "reason": null
+        },
+        {
+          "outcome": "acted",
+          "step": "pick",
+          "row": "112",
+          "reason": null
+        }
+      ],
+      "final": {
+        "rowStatus": {
+          "110": "merged"
+        },
+        "mergesWithTrailer110": 1,
+        "developHeadParents": 2,
+        "remoteRefsChanged": false,
+        "tagsCreated": 0,
+        "developHead": "MX110",
+        "tableRowWrites": 0,
+        "renderFileWritesOnRerun": 0
+      }
+    },
+    "S45-crash-cp5-mid-cleanup": {
+      "calls": [
+        {
+          "outcome": "acted",
+          "step": "cleanup",
+          "row": "110",
+          "reason": null
+        },
+        {
+          "outcome": "acted",
+          "step": "pick",
+          "row": "112",
+          "reason": null
+        }
+      ],
+      "final": {
+        "rowStatus": {
+          "110": "merged"
+        },
+        "mergesWithTrailer110": 1,
+        "developHeadParents": 2,
+        "remoteRefsChanged": false,
+        "tagsCreated": 0,
+        "developHead": "MX110",
+        "featureBranch110": "deleted with branch -d",
+        "forceFlagsUsed": false,
+        "tableRowWrites": 0
+      }
+    },
+    "S46-cleanup-dirty-feature-worktree": {
+      "calls": [
+        {
+          "outcome": "acted",
+          "step": "cleanup",
+          "row": "110",
+          "reason": "cleanup-kept"
+        }
+      ],
+      "final": {
+        "featureWorktree110": "kept",
+        "untrackedFileByteEqual": true,
+        "featureBranch110": "kept",
+        "forceFlagsUsed": false,
+        "rowStatus": {
+          "110": "merged"
+        }
+      }
+    },
+    "S47-kill-env": {
+      "calls": [
+        {
+          "outcome": "stopped",
+          "step": null,
+          "row": null,
+          "reason": null,
+          "annotations": {
+            "switch": "DOFLOW_AUTOPILOT"
+          }
+        }
+      ],
+      "final": {
+        "stepsTaken": 0,
+        "branchesCreated": 0,
+        "checkpoint": "exists",
+        "outputNamesSwitch": "DOFLOW_AUTOPILOT"
+      }
+    },
+    "S48-kill-settings": {
+      "calls": [
+        {
+          "outcome": "stopped",
+          "step": null,
+          "row": null,
+          "reason": null,
+          "annotations": {
+            "switch": "autopilot.enabled"
+          }
+        }
+      ],
+      "final": {
+        "stepsTaken": 0,
+        "branchesCreated": 0,
+        "checkpoint": "exists",
+        "outputNamesSwitch": "autopilot.enabled"
+      }
+    },
+    "S49-kill-sentinel": {
+      "calls": [
+        {
+          "outcome": "stopped",
+          "step": null,
+          "row": null,
+          "reason": null,
+          "annotations": {
+            "switch": "autopilot/off"
+          }
+        }
+      ],
+      "final": {
+        "stepsTaken": 0,
+        "branchesCreated": 0,
+        "checkpoint": "exists",
+        "outputNamesSwitch": "autopilot/off"
+      }
+    },
+    "S50-kill-settings-absent": {
+      "calls": [
+        {
+          "outcome": "stopped",
+          "step": null,
+          "row": null,
+          "reason": null,
+          "annotations": {
+            "switch": "autopilot.enabled"
+          }
+        }
+      ],
+      "final": {
+        "stepsTaken": 0,
+        "branchesCreated": 0,
+        "checkpoint": "exists",
+        "outputNamesSwitch": "autopilot.enabled"
+      }
+    },
+    "S51-kill-mid-run": {
+      "calls": [
+        {
+          "outcome": "acted",
+          "step": "pick",
+          "row": "110",
+          "reason": null
+        },
+        {
+          "outcome": "stopped",
+          "step": null,
+          "row": null,
+          "reason": null,
+          "annotations": {
+            "switch": "DOFLOW_AUTOPILOT"
+          }
+        },
+        {
+          "outcome": "perform",
+          "step": null,
+          "row": "110",
+          "reason": null,
+          "annotations": {
+            "stage": "discovery"
+          }
+        }
+      ],
+      "final": {
+        "stepsAfterSwitchSet": 0,
+        "rowStatus": {
+          "110": "in-flight",
+          "111": "not-started"
+        }
+      }
+    },
+    "S52-kill-mid-merge": {
+      "calls": [
+        {
+          "outcome": "stopped",
+          "step": "merge",
+          "row": "110",
+          "reason": null,
+          "annotations": {
+            "switch": "autopilot/off"
+          }
+        },
+        {
+          "outcome": "acted",
+          "step": "merge",
+          "row": "110",
+          "reason": null
+        }
+      ],
+      "final": {
+        "developHeadAfterCall1": "D0",
+        "intentAfterCall1": "open",
+        "mergeShaCall2EqualsShaPinnedByIntent": true,
+        "mergesWithTrailer110": 1,
+        "rowStatus": {
+          "110": "merged"
+        }
+      }
+    },
+    "S53-lease-held-live": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": null,
+          "row": null,
+          "reason": "lease-held",
+          "annotations": {
+            "holder": "pid 4242 / rl-20261019-AAAA"
+          }
+        }
+      ],
+      "final": {
+        "exitCode": 1,
+        "outputNamesHolder": true,
+        "stepsTaken": 0,
+        "leaseUnchanged": true
+      }
+    },
+    "S54-lease-dead-holder-takeover": {
+      "calls": [
+        {
+          "outcome": "acted",
+          "step": "pick",
+          "row": "110",
+          "reason": null
+        }
+      ],
+      "final": {
+        "leaseTakenOver": true,
+        "rowStatus": {
+          "110": "in-flight"
+        }
+      }
+    },
+    "S55-lease-unknown-liveness": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": null,
+          "row": null,
+          "reason": "lease-held",
+          "annotations": {
+            "holder": "pid 4244 / rl-20261019-CCCC"
+          }
+        }
+      ],
+      "final": {
+        "exitCode": 1,
+        "stepsTaken": 0,
+        "leaseUnchanged": true
+      }
+    },
+    "S56-budget-iteration-cap": {
+      "calls": [
+        {
+          "outcome": "acted",
+          "step": "pick",
+          "row": "110",
+          "reason": null
+        },
+        {
+          "outcome": "blocked",
+          "step": null,
+          "row": "110",
+          "reason": "budget"
+        }
+      ],
+      "final": {
+        "rowStatus": {
+          "110": "blocked: budget"
+        },
+        "checkpoint": "exists",
+        "exitCodeCall2": 1
+      }
+    },
+    "S57-budget-attempts-exhausted": {
+      "calls": [
+        {
+          "outcome": "blocked",
+          "step": null,
+          "row": "110",
+          "reason": "budget"
+        }
+      ],
+      "final": {
+        "rowStatus": {
+          "110": "blocked: budget"
+        },
+        "launches": 0
+      }
+    },
+    "S58-stuck-dispatch-blocked": {
+      "calls": [
+        {
+          "outcome": "blocked",
+          "step": null,
+          "row": "110",
+          "reason": "stuck"
+        },
+        {
+          "outcome": "idle",
+          "step": null,
+          "row": null,
+          "reason": null,
+          "skips": {}
+        }
+      ],
+      "final": {
+        "rowStatus": {
+          "110": "blocked: stuck"
+        },
+        "launches": 0,
+        "checkpoint": "exists"
+      }
+    },
+    "S59-stuck-repeated-failure-class": {
+      "calls": [
+        {
+          "outcome": "blocked",
+          "step": null,
+          "row": "110",
+          "reason": "stuck"
+        }
+      ],
+      "final": {
+        "rowStatus": {
+          "110": "blocked: stuck"
+        },
+        "launches": 0
+      }
+    },
+    "S60-quota-paused": {
+      "calls": [
+        {
+          "outcome": "blocked",
+          "step": null,
+          "row": "110",
+          "reason": "quota"
+        },
+        {
+          "outcome": "idle",
+          "step": null,
+          "row": null,
+          "reason": null,
+          "skips": {}
+        }
+      ],
+      "final": {
+        "rowStatus": {
+          "110": "paused: quota"
+        },
+        "launches": 0,
+        "meteredWorkerSelected": false,
+        "dispatchReasonCarriedVerbatim": true
+      }
+    },
+    "S61-billing-no-free-worker": {
+      "calls": [
+        {
+          "outcome": "perform",
+          "step": null,
+          "row": "110",
+          "reason": null,
+          "annotations": {
+            "stage": "implementation",
+            "after": "dispatch --billing-cap free"
+          }
+        }
+      ],
+      "final": {
+        "launches": 0,
+        "dispatchMode": "sequential",
+        "selection": "no-eligible-worker",
+        "candidateGaps": {
+          "codex": "billing:unknown",
+          "gemini": "billing:metered"
+        },
+        "paidRuns": 0,
+        "staticCheck": "a worker descriptor without `billing` fails a guard"
+      }
+    },
+    "S62-billing-free-worker": {
+      "calls": [
+        {
+          "outcome": "perform",
+          "step": null,
+          "row": "110",
+          "reason": null,
+          "annotations": {
+            "stage": "implementation",
+            "after": "dispatch --billing-cap free"
+          }
+        }
+      ],
+      "final": {
+        "launchedWorkers": [
+          "codex"
+        ],
+        "meteredWorkerLaunched": false,
+        "paidRuns": 0
+      }
+    },
+    "S63-resume-ack-then-report-changed": {
+      "calls": [
+        {
+          "outcome": "perform",
+          "step": null,
+          "row": "110",
+          "reason": null,
+          "annotations": {
+            "stage": "implementation",
+            "ack": "sha256 of R-v1"
+          }
+        },
+        {
+          "outcome": "denied",
+          "step": null,
+          "row": "110",
+          "reason": "report-changed"
+        }
+      ],
+      "final": {
+        "ackDigestCall1": "sha256(R-v1)",
+        "launchesAfterCall2": 0,
+        "checkpoint": "exists"
+      }
+    },
+    "S64-resume-pause-not-machine": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": null,
+          "row": "110",
+          "reason": "pause-not-machine"
+        }
+      ],
+      "final": {
+        "launches": 0
+      }
+    },
+    "S65-stage-not-performed": {
+      "calls": [
+        {
+          "outcome": "perform",
+          "step": null,
+          "row": "110",
+          "reason": null,
+          "annotations": {
+            "stage": "design"
+          }
+        },
+        {
+          "outcome": "denied",
+          "step": null,
+          "row": "110",
+          "reason": "stage-not-performed",
+          "annotations": {
+            "stage": "design"
+          }
+        }
+      ],
+      "final": {
+        "envelopeCall2EqualsEnvelopeCall1": true,
+        "designMdUnchanged": true,
+        "modelTokensSpentByLoop": 0
+      }
+    },
+    "S66-seed-typed-status": {
+      "calls": [
+        {
+          "outcome": "denied",
+          "step": null,
+          "row": "118",
+          "reason": "seed-typed-status"
+        }
+      ],
+      "final": {
+        "branchesCreated": 0,
+        "rowStatus": {
+          "118": "not-started"
+        }
+      }
+    },
+    "S67-status-derived-from-git": {
+      "calls": [
+        {
+          "action": "status",
+          "rowStatus": {
+            "096": "merged",
+            "110": "in-flight",
+            "112": "not-started"
+          }
+        },
+        {
+          "action": "status",
+          "rowStatus": {
+            "096": "merged",
+            "110": "merged",
+            "112": "not-started"
+          }
+        },
+        {
+          "action": "render",
+          "fileWrites": 1
+        },
+        {
+          "action": "render",
+          "fileWrites": 0,
+          "outputByteEqualToPrevious": true
+        },
+        {
+          "action": "render --check",
+          "exit": 0
+        }
+      ],
+      "final": {
+        "seedFileEdits": 0
+      }
+    },
+    "S68-check-unresolved-need-and-duplicate-id": {
+      "calls": [
+        {
+          "action": "render --check",
+          "exit": 1,
+          "offendingRowIds": [
+            "110",
+            "119"
+          ]
+        }
+      ],
+      "final": {
+        "tableWritten": false
+      }
+    },
+    "S69-check-duplicate-merge": {
+      "calls": [
+        {
+          "action": "render --check",
+          "exit": 1,
+          "offendingRowIds": [
+            "110"
+          ]
+        }
+      ],
+      "final": {
+        "tableWritten": false
+      }
+    },
+    "S70-check-trailer-unknown-row": {
+      "calls": [
+        {
+          "action": "render --check",
+          "exit": 1,
+          "offendingRowIds": [
+            "999"
+          ]
+        }
+      ],
+      "final": {
+        "tableWritten": false
+      }
+    },
+    "S71-check-commit-claimed-twice": {
+      "calls": [
+        {
+          "action": "render --check",
+          "exit": 1,
+          "offendingRowIds": [
+            "096",
+            "102"
+          ]
+        }
+      ],
+      "final": {
+        "tableWritten": false
+      }
+    },
+    "S72-check-trailered-and-seeded": {
+      "calls": [
+        {
+          "action": "render --check",
+          "exit": 1,
+          "offendingRowIds": [
+            "101"
+          ]
+        }
+      ],
+      "final": {
+        "tableWritten": false
+      }
+    },
+    "S73-check-pointer-not-merge": {
+      "calls": [
+        {
+          "action": "render --check",
+          "exit": 1,
+          "offendingRowIds": [
+            "096"
+          ]
+        }
+      ],
+      "final": {
+        "tableWritten": false
+      }
+    },
+    "S74-harness-neutral": {
+      "calls": [
+        {
+          "outcome": "acted",
+          "step": "gate",
+          "row": "115",
+          "reason": null,
+          "annotations": {
+            "gate": "gate-a"
+          }
+        },
+        {
+          "outcome": "perform",
+          "step": null,
+          "row": "115",
+          "reason": null,
+          "annotations": {
+            "stage": "implementation"
+          }
+        }
+      ],
+      "final": {
+        "callsIdenticalAcrossVariants": true,
+        "onlyPerformerDiffers": true
+      }
+    },
+    "S75-no-forbidden-verbs-with-remote": {
+      "calls": [
+        {
+          "outcome": "acted",
+          "step": "merge",
+          "row": "110",
+          "reason": null
+        },
+        {
+          "outcome": "acted",
+          "step": "render",
+          "row": "110",
+          "reason": null
+        },
+        {
+          "outcome": "acted",
+          "step": "cleanup",
+          "row": "110",
+          "reason": null
+        }
+      ],
+      "final": {
+        "remoteRefsBeforeEqualsAfter": true,
+        "tagsCreated": 0,
+        "pushes": 0,
+        "publishes": 0,
+        "globalInstalls": 0,
+        "permissionRuleEdits": 0,
+        "settingsWrites": 0,
+        "loopCommandLogVerbs": "only git subcommands; none of push, tag, publish, npm install -g",
+        "staticCheck": "forbidden-verb guard over the loop's command set is green"
+      }
+    }
+  }
+}

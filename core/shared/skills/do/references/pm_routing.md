@@ -7,8 +7,7 @@ Decomposition depth guidelines when `/do` processes multi-part, cross-domain req
   Produce a flat table: Part | Domain | Target Skill / Agent | Completion Gate
 - `--depth normal` (Shared context or sequence dependencies):
   Produce the shallow table plus an explicit dependency check (e.g., API contract before UI binding).
-- `--depth deep` (Multi-service / complex initiatives):
-  Full Epic $\rightarrow$ Story $\rightarrow$ Task hierarchy ready for `/do-plan`.
+- `--depth deep` (programme-sized: more than one feature): program mode, `program_mode.md`.
 
 ## Delegation Matrix
 - Feature discovery $\rightarrow$ `/do-brainstorm`

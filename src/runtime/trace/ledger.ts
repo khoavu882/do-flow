@@ -13,6 +13,7 @@ const {
   buildDiscover,
   PROVIDER,
 } = require('./views.ts');
+const { identityFields } = require('../context/identity.ts');
 const {
   shortTime,
   formatMs,
@@ -23,138 +24,10 @@ const {
 } = require('./render.ts');
 
 /**
- * Task-run telemetry — the JavaScript port of
- * `core/shared/scripts/doflow/evaluation/telemetry.py` (plan task B.3, component C9).
- *
- * Records a task's span: the events that happened inside it, how long it took, how many tokens it
- * consumed. Ported from observed behaviour (plan decision D3): the event record shape, the trace
- * key names, the six-decimal cost rounding and the default per-token rates are unchanged.
- *
- * Plan task C.3 added the second half of this file: the date-partitioned run ledger (FR-011) and
- * its three inspection views (FR-012). `TaskRunTelemetry` captures one *task's* span in memory;
- * `RunLedger` is the on-disk record of *dispatched runs*, written by `doflow-run` and by any
- * runtime call that names the capability it used.
- *
- * Three defects are fixed rather than reproduced, each explained at its site:
- *   1. Duration came from `time.time()`, a wall clock that an NTP step or a DST change can move
- *      backwards mid-run, producing negative or inflated durations.
- *   2. `estimated_cost_usd` was computed from two hard-coded rates regardless of which model the
- *      trace named, so the number was presented as measured cost for models it did not price.
- *   3. `export_trace` returned the live `events` array, so a caller mutating the exported trace
- *      silently rewrote the recorder's history.
+ * The date-partitioned run ledger (FR-011) and its three inspection views (FR-012). `RunLedger` is
+ * the on-disk record of *dispatched runs*, written by `doflow-run` and by any runtime call that
+ * names the capability it used.
  */
-
-/**
- * The Python's literal rates, kept as the default so an existing caller sees the same number.
- * They price one specific model; a trace naming a different one gets a cost only if the caller
- * supplies its rates, because inventing a price for an unpriced model is inventing a metric.
- */
-const DEFAULT_TOKEN_RATES: Readonly<{ inputPerToken: number; outputPerToken: number }> = Object.freeze({
-  inputPerToken: 0.000003,
-  outputPerToken: 0.000015,
-});
-
-const COST_DECIMALS = 6;
-
-/**
- * @param {number} value
- * @returns {number} rounded to six decimals, matching the Python's `round(x, 6)`
- */
-function roundCost(value: number): number {
-  const factor = 10 ** COST_DECIMALS;
-  return Math.round(value * factor) / factor;
-}
-
-class TaskRunTelemetry {
-  taskId: string;
-  agent: string;
-  model: string;
-  rates: { inputPerToken: number; outputPerToken: number } | null;
-  events: any[];
-  clock: () => number;
-  startedAtMs: number;
-  startedAt: string;
-
-  /**
-   * @param {string} taskId
-   * @param {Object|string} [options] a string is accepted for parity with the Python's positional
-   *   `agent` argument
-   * @param {string} [options.agent='codex']
-   * @param {string} [options.model='default']
-   * @param {{inputPerToken: number, outputPerToken: number}|null} [options.rates]
-   * @param {Function} [options.clock] injection seam for tests; returns elapsed milliseconds
-   */
-  constructor(taskId: string, options: any = {}) {
-    const opts = typeof options === 'string' ? { agent: options } : options;
-    this.taskId = taskId;
-    this.agent = opts.agent || 'codex';
-    this.model = opts.model || 'default';
-    this.rates = opts.rates === undefined ? DEFAULT_TOKEN_RATES : opts.rates;
-    this.events = [];
-
-    // Defect fix (1): a monotonic source. `Date.now()` (like Python's `time.time()`) can step
-    // backwards, and a negative duration in a benchmark record is worse than no duration.
-    this.clock = opts.clock || (() => Number(process.hrtime.bigint() / 1000000n));
-    this.startedAtMs = this.clock();
-    this.startedAt = new Date().toISOString();
-  }
-
-  /**
-   * Appends a structured event to the span.
-   * @param {string} eventType
-   * @param {Object} [details={}]
-   * @returns {Object} the recorded event
-   */
-  recordEvent(eventType: string, details: any = {}): any {
-    const event = {
-      timestamp: new Date().toISOString(),
-      type: eventType,
-      details,
-    };
-    this.events.push(event);
-    return event;
-  }
-
-  /**
-   * Milliseconds elapsed since the recorder was constructed.
-   * @returns {number}
-   */
-  elapsedMs(): number {
-    return Math.max(0, this.clock() - this.startedAtMs);
-  }
-
-  /**
-   * Compiles the run's trace record.
-   * @param {boolean} success
-   * @param {number} [inputTokens=0]
-   * @param {number} [outputTokens=0]
-   * @returns {Object} trace record
-   */
-  exportTrace(success: boolean, inputTokens: number = 0, outputTokens: number = 0): any {
-    // Defect fix (2): cost is only reported when rates are known for this run. The default rates
-    // reproduce the Python's number exactly; a caller that clears them (`rates: null`) gets `null`
-    // rather than a confident figure derived from another model's price list.
-    const estimatedCostUsd = this.rates
-      ? roundCost(inputTokens * this.rates.inputPerToken + outputTokens * this.rates.outputPerToken)
-      : null;
-
-    return {
-      taskId: this.taskId,
-      agent: this.agent,
-      model: this.model,
-      success: Boolean(success),
-      startedAt: this.startedAt,
-      durationMs: this.elapsedMs(),
-      inputTokens,
-      outputTokens,
-      estimatedCostUsd,
-      eventCount: this.events.length,
-      // Defect fix (3): a copy. The Python handed out its internal list, so an exported trace and
-      // the recorder aliased the same array.
-      events: this.events.map((e) => ({ ...e })),
-    };
-  }
-}
 
 // ---------------------------------------------------------------------------------- run ledger
 //
@@ -197,7 +70,14 @@ const RUN_FIELDS: Readonly<Array<{ key: string; wire: string; type: string }>> =
   { key: 'inputBytes', wire: 'input_bytes', type: 'uint' },
   { key: 'outputBytes', wire: 'output_bytes', type: 'uint' },
   { key: 'retryCount', wire: 'retry_count', type: 'uint' },
+  // Session identity (082 IC-034): filled by RunLedger#append from the environment only.
+  { key: 'run', wire: 'run', type: 'token' },
+  { key: 'lineage', wire: 'lineage', type: 'token' },
+  { key: 'attempt', wire: 'attempt', type: 'token' },
 ]);
+
+/** The identity keys a caller may not supply: the environment is their one source (DEC-042). */
+const IDENTITY_KEYS = Object.freeze(['run', 'lineage', 'attempt']);
 
 /**
  * Identifiers only. No space, no quote, no slash, no dot-dot — a capability id (`code.exact-search`)
@@ -217,6 +97,26 @@ const ISO_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?$/;
  */
 function runsDir(configDir: string): string {
   return path.join(configDir, 'state', RUNS_DIRNAME);
+}
+
+/**
+ * Returns the path before the first `.doflow` segment, else `dir`.
+ * @param {string} dir
+ * @returns {string}
+ */
+function outerProjectRoot(dir: any): any {
+  if (!dir || typeof dir !== 'string') return dir;
+  const segments = dir.split(/[/\\]/);
+  const idx = segments.indexOf('.doflow');
+  if (idx === -1) return dir;
+  const before = segments.slice(0, idx);
+  if (before.length === 1 && before[0] === '') return dir.startsWith('\\') ? '\\' : '/';
+  if (before.length === 1 && /^[A-Za-z]:$/.test(before[0])) {
+    const sep = dir.length > 2 && dir[2] === '/' ? '/' : '\\';
+    return before[0] + sep;
+  }
+  const sep = dir.includes('\\') && !dir.includes('/') ? '\\' : dir.includes('/') ? '/' : path.sep;
+  return before.join(sep) || '.';
 }
 
 /**
@@ -250,10 +150,12 @@ function resolveRunsLocation({ start, global: forceGlobal = false, env = process
     const candidate = path.join(dir, '.doflow');
     searched.push(candidate);
     let found = false;
-    try {
-      found = fsImpl.statSync(path.join(candidate, containing)).isDirectory();
-    } catch {
-      found = false; // Not readable is the same as not there for a lookup that must not throw.
+    if (!dir.split(/[/\\]/).includes('.doflow')) {
+      try {
+        found = fsImpl.statSync(path.join(candidate, containing)).isDirectory();
+      } catch {
+        found = false; // Not readable is the same as not there for a lookup that must not throw.
+      }
     }
     if (found) return { dir: runsDir(candidate), configDir: candidate, origin: 'project', searched };
     const parent = path.dirname(dir);
@@ -340,6 +242,7 @@ class RunLedger {
   fsImpl: any;
   clock: () => Date;
   dir: string;
+  env: Record<string, string | undefined>;
 
   /**
    * @param {Object} [options]
@@ -347,10 +250,12 @@ class RunLedger {
    * @param {string} [options.configDir] an install root (`<project>/.doflow`)
    * @param {Object} [options.fsImpl=fs]
    * @param {Function} [options.clock] returns the current Date; injection seam for tests
+   * @param {Object} [options.env=process.env] the one source of `run`, `lineage` and `attempt`
    */
-  constructor({ dir, configDir, fsImpl = fs, clock = () => new Date() }: any = {}) {
+  constructor({ dir, configDir, fsImpl = fs, clock = () => new Date(), env = process.env }: any = {}) {
     this.fsImpl = fsImpl;
     this.clock = clock;
+    this.env = env;
     if (dir) this.dir = path.resolve(dir);
     else if (configDir) this.dir = runsDir(path.resolve(configDir));
     else this.dir = resolveRunsLocation({ fsImpl }).dir;
@@ -358,15 +263,34 @@ class RunLedger {
 
   /**
    * Appends one metadata record. Always succeeds: an unwritable state directory degrades
-   * observability, never the run being observed.
+   * observability, never the run being observed. `run`, `lineage` and `attempt` come from
+   * `this.env` only; a caller-supplied value is dropped and named in `dropped` (IC-034).
    * @param {Object} event
    * @returns {{written: boolean, file?: string, record?: Object, dropped: string[], reason?: string}}
    */
   append(event: any): any {
-    const { record, dropped, reason } = sanitizeRunEvent(event, { now: this.clock() });
+    let input = event;
+    const supplied: string[] = [];
+    if (event && typeof event === 'object' && !Array.isArray(event)) {
+      input = { ...event };
+      for (const key of IDENTITY_KEYS) {
+        if (Object.prototype.hasOwnProperty.call(input, key)) { supplied.push(key); delete input[key]; }
+      }
+      Object.assign(input, identityFields(this.env));
+    }
+    const sanitized = sanitizeRunEvent(input, { now: this.clock() });
+    const { record, reason } = sanitized;
+    const dropped = [...supplied, ...sanitized.dropped];
     if (!record) return { written: false, dropped, reason };
     try {
       this.fsImpl.mkdirSync(this.dir, { recursive: true });
+      // Warm the hook telemetry store while the Node side already has the project state writable.
+      // The hook retains its own mkdir fallback; a telemetry directory fault must not affect the
+      // run-ledger append or the command being observed.
+      try {
+        const { telemetryOff } = require('./telemetry.ts');
+        if (!telemetryOff(this.env)) this.fsImpl.mkdirSync(path.join(this.dir, 'telemetry'));
+      } catch { /* best effort */ }
       const file = path.join(this.dir, `${record.timestamp.slice(0, 10)}.jsonl`);
       this.fsImpl.appendFileSync(file, `${JSON.stringify(record)}\n`, 'utf8');
       return { written: true, file, record, dropped };
@@ -607,11 +531,10 @@ function handleDiscoverCommand({ json = false, days = null, global: useGlobal = 
 }
 
 module.exports = {
-  TaskRunTelemetry,
-  DEFAULT_TOKEN_RATES,
   RunLedger,
   runsDir,
   resolveRunsLocation,
+  outerProjectRoot,
   sanitizeRunEvent,
   normalizeRunRecord,
   groupSessions,

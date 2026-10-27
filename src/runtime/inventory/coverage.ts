@@ -8,7 +8,7 @@
  * States which of the report's findings the existing repair path can actually act on. That set is
  * narrower than the set of findings, and the difference is not self-evident:
  *
- *   $ doflow status -g          → 321 pending changes across 8 harnesses
+ *   $ doflow status -g          → 321 pending changes across several harnesses
  *   $ doflow reconcile -g --dry-run → 10 drifts for 1 harness
  *
  * Both numbers are internally consistent. `status` reads the ledger, which records what DoFlow

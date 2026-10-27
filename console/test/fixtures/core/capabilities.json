@@ -1,0 +1,84 @@
+{
+  "capabilities": [
+    {
+      "capability": "code.exact-search",
+      "description": "ZZ-MARKER-7f3",
+      "status": "HEALTHY",
+      "activeProvider": "ZZ-MARKER-7f3",
+      "providerId": "native.rg",
+      "totalProviders": 1
+    },
+    {
+      "capability": "code.semantic-search",
+      "description": "Find code by natural language concept, behavior, or intent.",
+      "status": "HEALTHY",
+      "activeProvider": "Semble Semantic Search",
+      "providerId": "semble.search",
+      "totalProviders": 2
+    },
+    {
+      "capability": "code.relationships",
+      "description": "Query structural call graphs, caller/callee trees, and dependencies.",
+      "status": "HEALTHY",
+      "activeProvider": "Graphify Knowledge Graph",
+      "providerId": "graphify.query",
+      "totalProviders": 2
+    },
+    {
+      "capability": "code.impact-analysis",
+      "description": "Determine blast radius and affected dependents of a symbol or component.",
+      "status": "HEALTHY",
+      "activeProvider": "Graphify Blast Radius",
+      "providerId": "graphify.query",
+      "totalProviders": 1
+    },
+    {
+      "capability": "history.search",
+      "description": "Inspect git commit history, commit rationale, diffs, and blame.",
+      "status": "HEALTHY",
+      "activeProvider": "Git CLI",
+      "providerId": "git.native",
+      "totalProviders": 1
+    },
+    {
+      "capability": "behavior.verify",
+      "description": "Execute automated test suites and behavioral assertions.",
+      "status": "HEALTHY",
+      "activeProvider": "Project Test Runner",
+      "providerId": "native.test",
+      "totalProviders": 1
+    },
+    {
+      "capability": "command.compress",
+      "description": "Preserve agent context by compressing CLI stdout/stderr.",
+      "status": "HEALTHY",
+      "activeProvider": "Rust Token Killer",
+      "providerId": "rtk",
+      "totalProviders": 1
+    },
+    {
+      "capability": "document.extract",
+      "description": "Extract plain text or structured key-value data from documents or images.",
+      "status": "UNAVAILABLE",
+      "activeProvider": "None",
+      "providerId": null,
+      "totalProviders": 0
+    },
+    {
+      "capability": "media.transcribe",
+      "description": "Convert audio/media recording into text transcription with optional timestamps.",
+      "status": "UNAVAILABLE",
+      "activeProvider": "None",
+      "providerId": null,
+      "totalProviders": 0
+    },
+    {
+      "capability": "text.compress",
+      "description": "Perform context-preserving semantic text compression.",
+      "status": "UNAVAILABLE",
+      "activeProvider": "None",
+      "providerId": null,
+      "totalProviders": 0
+    }
+  ]
+}

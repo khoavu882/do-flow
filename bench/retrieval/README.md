@@ -15,6 +15,29 @@ Evaluation tracks configurations A through F per ADR §6. Feature 074 evaluates 
 | E | D + selective rerank | Feature 083 | Not run in 074 |
 | F | best validated configuration + local advisor | Feature 084 | Not run in 074 |
 
+## Hybrid C protocol (079)
+
+Configuration C is opt-in through the distinct `hybrid-c-v1` protocol. It runs A, B and C against
+both corpora in one invocation; A/B code discovery is restricted to the pinned code manifest, and
+C calls the production code retrieval coordinator. The protocol does not rewrite the historical
+A/B baseline, thresholds, qrels or G33 checks. The legacy runner remains on its original A/B
+protocol when `hybrid-c-v1` is not selected.
+
+The C holdout invocation reserves all six prospective aggregate result slots atomically before
+decrypting either corpus. Once evaluation begins, a failure consumes the reserved slots. Only a
+failed pre-evaluation check may release the reservation, with an audit record. Holdout outputs
+contain aggregate metrics and fixed causes only; task ids, queries, qrels, snippets and decrypted
+content do not enter result files or the gate report. Comparisons are computed from aggregate files
+and consume no additional result slot.
+
+For development comparisons, prepare an isolated export of the pinned snapshot, a local Semble
+0.7.0 Python environment with its required dependencies, and a compatible model already on disk.
+Set `SEMBLE_MODEL_PATH` to that model directory before choosing the development run. The adapter
+does not install packages or fetch models. Hybrid stays opt-in, and the promotion record remains
+incomplete until repeated provider conformance and every required gate are established; paid
+T-005/T-006 are unreached without separate authorization. See [Guide: code retrieval](../../docs/guide.md#retrieve-code-from-the-project)
+for the runtime's explicit build, refresh and repair workflow.
+
 ## Corpora
 
 The benchmark evaluates retrieval against two distinct corpora pinned in `bench/retrieval/snapshot.json` (commit `3fc988bc519cd7ac289f6db64dfa15b78457cf1b`, seed `20261012`) per IC-011:
@@ -43,15 +66,9 @@ Orchestration evaluation measures multi-task and multi-agent coordination for fe
 - Detection of integration failures, retries, and automated replanning.
 - Aggregate token and latency cost tracking under resource caps.
 
-## Task success (paid, run per approval)
+## Task success
 
-Task success evaluation measures end-to-end task outcomes in a throwaway git worktree:
-
-- **Outcome evaluation**: Each task is evaluated using a fail-to-pass plus pass-to-pass test suite executed by the automated grader in an isolated worktree.
-- **Sampling**: 3 runs per task and configuration, reporting success rate and pass^3 consistency.
-- **Accounting**: Resource usage is recorded in `bench/README.md` `timing.json` shape, where unknown usage is never zero.
-- **Cost ceiling**: Total token consumption is capped at `tasks × configurations × 3 × costCaps.maxTokensPerRun`.
-- **User approval**: Nothing runs without explicit user approval prior to execution.
+The agentic baseline measures file localization by a coding agent, using `fileRecallAt10` over the agent's answer; it does not measure end-to-end task success. See [`bench/agentic/README.md`](../agentic/README.md) for the protocol, cost ceilings and what each result triggers.
 
 ## Holdout
 

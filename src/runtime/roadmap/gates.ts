@@ -1,0 +1,264 @@
+'use strict';
+
+// IC-004 / IC-006: byte-bound policy and pure, ordered gate evaluation. No filesystem or git I/O.
+const { createHash } = require('node:crypto');
+const PREDICATES = new Set(['markers-zero:requirement', 'markers-zero:design', 'markers-zero:plan',
+  'protected-paths', 'plan-verification-absent', 'plan-parses', 'needs-merged', 'requires-reachable', 'plan-within-write-set',
+  'verify-pass-on-head', 'findings-valid', 'no-dropped-findings', 'dispositions-backed', 'blockers-zero']);
+// The review record's validator and the shape helpers it shares with this file (feature 095, IC-002).
+const { HEX_HEAD, object, nonempty, strings, validPath, evidenceLocator, validateFindings, protocolLooserThanPreset } = require('../review/findings.ts');
+const USER_CHANNELS = new Set(['question', 'gate', 'prompt']);
+const positive = (x: any): boolean => Number.isSafeInteger(x) && x > 0;
+const digest = (bytes: string | Buffer): string => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+
+/** The effective `review.preset` of the review-settings fact (`auto` when absent or not a string). */
+const reviewPreset = (fact: any): string => (typeof fact?.preset === 'string' ? fact.preset : 'auto');
+
+function covers(parent: string, child: string): boolean {
+  return parent === child || (parent.endsWith('/') && child.startsWith(parent));
+}
+
+function canonical(value: any): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
+  if (object(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
+  return JSON.stringify(value);
+}
+
+function policyValid(policy: any): boolean {
+  if (!object(policy) || policy.schema !== 1 || !object(policy.classes) || !object(policy.protected)
+    || !object(policy.loop) || !object(policy.merge) || !strings(policy.denyReasons)) return false;
+  if (!strings(policy.protected.paths) || !policy.protected.paths.every(validPath) || !validPath(policy.protected.guardDir)
+    || !policy.protected.guardDir.endsWith('/') || !strings(policy.protected.packageJsonKeys)
+    || !positive(policy.loop.maxSteps) || !positive(policy.loop.wip) || !positive(policy.merge.staleLockSeconds)
+    || !Array.isArray(policy.merge.extraTrailers) || !policy.merge.extraTrailers.every(nonempty)) return false;
+  const maps = Object.values(policy.classes);
+  return maps.length > 0 && maps.every((gates: any) => object(gates) && Object.values(gates).every((gate: any) =>
+    object(gate) && ['approve', 'never'].includes(gate.autopilot) && strings(gate.predicates) && gate.predicates.length > 0
+    && gate.predicates.every((predicate: string) => PREDICATES.has(predicate))
+    && (gate.minSeats === undefined || positive(gate.minSeats))));
+}
+
+/** Only the five explicitly permitted override operations are accepted, atomically. */
+function narrow(base: any, override: any): { policy: any; key: string | null } {
+  const policy = JSON.parse(JSON.stringify(base));
+  const reject = (key: string) => ({ policy: null, key });
+  for (const key of Object.keys(override)) {
+    const value = override[key];
+    if (key === 'loop' && object(value)) {
+      for (const limit of Object.keys(value)) {
+        if (!['maxSteps', 'wip'].includes(limit) || !positive(value[limit]) || value[limit] > base.loop[limit]) return reject(`loop.${limit}`);
+        policy.loop[limit] = value[limit];
+      }
+    } else if (key === 'protected' && object(value)) {
+      for (const protectedKey of Object.keys(value)) {
+        if (protectedKey !== 'paths' || !strings(value.paths) || !value.paths.every(validPath)
+          || !base.protected.paths.every((entry: string) => value.paths.includes(entry))) return reject(`protected.${protectedKey}`);
+        policy.protected.paths = [...value.paths];
+      }
+    } else if (key === 'classes' && object(value)) {
+      for (const cls of Object.keys(value)) {
+        if (!Object.hasOwn(base.classes, cls) || !object(value[cls])) return reject(`classes.${cls}`);
+        for (const gateId of Object.keys(value[cls])) {
+          const gate = Object.hasOwn(base.classes[cls], gateId) ? base.classes[cls][gateId] : null;
+          const change = value[cls][gateId];
+          if (!gate || !object(change)) return reject(`classes.${cls}.${gateId}`);
+          for (const field of Object.keys(change)) {
+            const at = `classes.${cls}.${gateId}.${field}`;
+            if (field === 'autopilot') {
+              if (change[field] !== gate.autopilot && !(gate.autopilot === 'approve' && change[field] === 'never')) return reject(at);
+            } else if (field === 'minSeats') {
+              if (!positive(change[field]) || change[field] < (gate.minSeats || 0)) return reject(at);
+            } else return reject(at);
+            policy.classes[cls][gateId][field] = change[field];
+          }
+        }
+      }
+    } else return reject(key);
+  }
+  return { policy, key: null };
+}
+
+/** Base bytes must come from develop. This pure function never selects or reads a branch. */
+function loadPolicy(baseBytes: string | Buffer | null | undefined, overrideBytes?: string | Buffer | null): any {
+  const denied = (reason: string) => ({ ok: false, policy: null, digest: null, reason, reasons: [reason] });
+  if (baseBytes === null || baseBytes === undefined) return denied('no-policy');
+  let base: any;
+  try { base = JSON.parse(String(baseBytes)); } catch { return denied('policy-invalid'); }
+  if (!policyValid(base)) return denied('policy-invalid');
+  let policy = base;
+  let policyDigest = digest(baseBytes);
+  if (overrideBytes !== null && overrideBytes !== undefined) {
+    let override: any;
+    try { override = JSON.parse(String(overrideBytes)); } catch { override = undefined; }
+    // Unreadable bytes (the caller passes '') or anything but a JSON object is not a widening.
+    if (!object(override)) return denied('policy-override-invalid');
+    const narrowed = narrow(base, override);
+    if (narrowed.key) return denied(`policy-override-widens:${narrowed.key}`);
+    policy = narrowed.policy;
+    policyDigest += `+${digest(overrideBytes)}`;
+  }
+  return { ok: true, policy, digest: policyDigest, reason: null, reasons: [] };
+}
+
+/**
+ * C20: the one verify-record rule (IC-007, D12), shared by gate-b's verify-pass-on-head and the loop's
+ * post-merge check. Only lines for `taskId` on `head` from a clean tree count: none is verify-missing;
+ * the last must be a PASS and every one schema 1 (else verify-not-pass); a FAIL that a later PASS
+ * would hide is verify-flaky. An empty list passes.
+ */
+function verifyRecordReasons(records: any, head: any, taskId: any): string[] {
+  const runs = Array.isArray(records) && HEX_HEAD.test(head) && nonempty(taskId)
+    ? records.filter((run: any) => object(run) && run.head === head && run.taskId === taskId && run.clean === true) : [];
+  if (runs.length === 0) return ['verify-missing'];
+  const found: string[] = [];
+  if (runs[runs.length - 1].verdict !== 'PASS' || runs.some((run: any) => run.schema !== 1)) found.push('verify-not-pass');
+  if (runs.some((run: any, i: number) => run.verdict === 'FAIL' && runs.slice(i + 1).some((later: any) => later.verdict === 'PASS'))) found.push('verify-flaky');
+  return found;
+}
+
+/** All predicates run; the first failing predicate owns rule. Facts are data, never executable. */
+function evaluate(policy: any, cls: string, gateId: string, facts: any[]): any {
+  const reasons: string[] = [];
+  let rule = `${gateId}/policy`;
+  const inputs = (Array.isArray(facts) ? facts : []).map((f) => ({ locator: f.locator, sha256: f.sha256 }))
+    .sort((a, b) => a.locator < b.locator ? -1 : a.locator > b.locator ? 1 : a.sha256 < b.sha256 ? -1 : a.sha256 > b.sha256 ? 1 : 0);
+  const result = () => ({ decision: reasons.length ? 'deny' : 'pass', reason: reasons[0] || null, reasons, rule, inputs, inputsDigest: digest(JSON.stringify(inputs)) });
+  if (!policy) { reasons.push('no-policy'); return result(); }
+  if (!policyValid(policy)) { reasons.push('policy-invalid'); return result(); }
+  const gate = Object.hasOwn(policy.classes, cls) && Object.hasOwn(policy.classes[cls], gateId) ? policy.classes[cls][gateId] : null;
+  if (!gate) { reasons.push('class-unsupported'); return result(); }
+  if (gate.autopilot === 'never') { reasons.push('policy-never'); return result(); }
+  const byName = new Map<string, any>();
+  for (const fact of facts || []) {
+    // Duplicate or unbound facts cannot silently overwrite an earlier source.
+    if (byName.has(fact.name) || !nonempty(fact.locator) || !/^sha256:[0-9a-f]{64}$/.test(fact.sha256)) byName.set(fact.name, { ...fact, unreadable: 'invalid-fact' });
+    else byName.set(fact.name, fact);
+  }
+  const get = (name: string): any => byName.get(name)?.value;
+  const unavailable = (name: string): boolean => !byName.has(name) || Boolean(byName.get(name).unreadable);
+  const source = (name: string): string => byName.get(name)?.locator || name;
+  const row = get('row');
+  if (unavailable('row') || !object(row) || !nonempty(row.id) || !nonempty(row.slug)) { reasons.push('row-unknown'); return result(); }
+  // maint-thin: a proposed row is not autopilot's until a person promotes it (roadmap promote).
+  if (row.proposed === true) { reasons.push('row-proposed'); return result(); }
+  const findings = get('findings');
+  const converged = Array.isArray(findings?.converged) ? findings.converged.filter(object) : [];
+  const seats = Array.isArray(findings?.seats) ? findings.seats.filter(object) : [];
+  const head = get('heads')?.featureHead;
+  for (const predicate of gate.predicates) {
+    const start = reasons.length;
+    const requireFact = (name: string, failure: string): boolean => {
+      if (unavailable(name)) { reasons.push(`${failure}:${source(name)}`); return false; }
+      return true;
+    };
+    if (predicate.startsWith('markers-zero:')) {
+      const artifact = predicate.slice('markers-zero:'.length);
+      const name = `markers:${artifact}`;
+      const failure = gateId === 'gate-0' ? 'unresolved-clarifications' : 'markers-open';
+      if (requireFact(name, failure)) {
+        if (!Number.isSafeInteger(get(name)) || get(name) < 0) reasons.push(`${failure}:${source(name)}`);
+        else if (get(name) !== 0) reasons.push(gateId === 'gate-0' ? failure : `${failure}:${artifact === 'design' ? 'design/design.md' : `${artifact}.md`}`);
+      }
+    } else if (predicate === 'protected-paths') {
+      if (requireFact(predicate, 'protected-path')) {
+        const data = get(predicate);
+        if (!object(data) || !Array.isArray(data.changes) || !object(data.packages?.base) || !object(data.packages?.head)) reasons.push(`protected-path:${source(predicate)}`);
+        else {
+          const denied = new Set<string>();
+          const protectedCovers = (parent: string, child: string) => covers(parent.toLowerCase(), child.toLowerCase());
+          const checkPath = (file: string, status: string, declaration = false) => {
+            if (!validPath(file) || policy.protected.paths.some((p: string) => protectedCovers(p, file) || (declaration && protectedCovers(file, p)))
+              || ((covers(policy.protected.guardDir, file) || (declaration && covers(file, policy.protected.guardDir))) && status !== 'A')) denied.add(file);
+          };
+          for (const change of data.changes) {
+            checkPath(change.path, change.status);
+            if (change.oldPath) checkPath(change.oldPath, 'D');
+          }
+          if (gateId === 'gate-a') for (const file of [...(data.writeSet || []), ...(data.planFiles || [])]) {
+            const addition = data.changes.some((c: any) => c.path === file && c.status === 'A') || (data.addedGuards || []).includes(file);
+            checkPath(file, addition ? 'A' : 'M', true);
+          }
+          if (policy.protected.packageJsonKeys.some((key: string) => {
+            const before = Object.hasOwn(data.packages.base, key) ? data.packages.base[key] : {};
+            const after = Object.hasOwn(data.packages.head, key) ? data.packages.head[key] : {};
+            return !object(before) || !object(after) || canonical(before) !== canonical(after);
+          })) denied.add('package.json');
+          reasons.push(...[...denied].map((file) => `protected-path:${file}`));
+        }
+      }
+    } else if (predicate === 'plan-verification-absent') {
+      // C6: a plan.md `doflow-verification` block replaces the post-merge verify commands, so the judged
+      // session would write its own check. An absent, unreadable or malformed fact denies.
+      if (requireFact('plan-verification-block', 'protected-path')) {
+        const present = get('plan-verification-block')?.present;
+        if (typeof present !== 'boolean') reasons.push(`protected-path:${source('plan-verification-block')}`);
+        else if (present) reasons.push('protected-path:plan-verification');
+      }
+    } else if (predicate === 'plan-parses') {
+      if (requireFact('plan', 'plan-unparsable') && get('plan')?.ok !== true) reasons.push('plan-unparsable');
+    } else if (predicate === 'needs-merged' || predicate === 'requires-reachable') {
+      const name = predicate === 'needs-merged' ? 'needs' : 'requires';
+      const failure = name === 'needs' ? 'need-unmerged' : 'capability-unreachable';
+      if (requireFact(name, failure)) {
+        if (!Array.isArray(get(name))) reasons.push(`${failure}:${source(name)}`);
+        else for (const item of get(name)) {
+          if (name === 'needs' && item.status !== 'merged') reasons.push(`need-unmerged:${item.id}`);
+          if (name === 'requires' && item.declared !== true) reasons.push(`prerequisite-no-source:${item.id}`);
+          else if (name === 'requires' && item.reachable !== true) reasons.push(`capability-unreachable:${item.id}`);
+        }
+      }
+    } else if (predicate === 'plan-within-write-set') {
+      if (requireFact('plan', 'write-set-exceeded')) {
+        const files = get('plan')?.files;
+        if (!Array.isArray(files)) reasons.push(`write-set-exceeded:${source('plan')}`);
+        else for (const file of files) if (!validPath(file) || (row.writeSet?.length && !row.writeSet.some((p: string) => validPath(p) && covers(p, file)))) reasons.push(`write-set-exceeded:${file}`);
+      }
+    } else if (predicate === 'verify-pass-on-head') {
+      if (requireFact('verification', 'verify-missing') && requireFact('heads', 'verify-missing')) reasons.push(...verifyRecordReasons(get('verification'), head, row.slug));
+    } else if (predicate === 'findings-valid') {
+      // 119 L-D3b: an absent review-settings fact (gathered before it existed) warns; an unreadable one fails closed.
+      // C-2: a recorded protocol looser than the project's non-auto review.preset is invalid, and so is a record without one.
+      // 120 D.4: an absent authoring-identities fact warns; an unreadable one fails closed.
+      if (requireFact('findings', 'findings-invalid')
+        && (!byName.has('review-settings') || requireFact('review-settings', 'findings-invalid'))
+        && (!byName.has('authoring-identities') || requireFact('authoring-identities', 'findings-invalid'))) {
+        if (findings === null || findings === undefined) reasons.push('findings-missing');
+        else if (!validateFindings(findings, {
+          sameFamily: get('review-settings')?.sameFamily === 'refuse' ? 'refuse' : 'warn',
+          preset: reviewPreset(get('review-settings')),
+          authors: get('authoring-identities'),
+        }).ok || findings.row !== row.id || findings.slug !== row.slug
+          || protocolLooserThanPreset(findings.protocol, get('review-settings')?.preset)) reasons.push('findings-invalid');
+        else {
+          if (unavailable('heads') || !HEX_HEAD.test(head) || findings.reviewedHead !== head) reasons.push('review-stale-head');
+          if (seats.length < (gate.minSeats || 0)) reasons.push('seats-too-few');
+        }
+      }
+    } else if (predicate === 'no-dropped-findings') {
+      if (requireFact('findings', 'findings-invalid')) {
+        const covered = new Set(converged.flatMap((f: any) => Array.isArray(f?.from) ? f.from : []));
+        for (const seat of seats) for (const finding of Array.isArray(seat.findings) ? seat.findings.filter(object) : []) if (finding.severity === 'blocker' && !covered.has(finding.id)) reasons.push(`finding-dropped:${finding.id}`);
+      }
+    } else if (predicate === 'dispositions-backed') {
+      if (requireFact('findings', 'findings-invalid') && requireFact('dispositions', 'findings-invalid')) {
+        const backing = get('dispositions');
+        const decisions = Array.isArray(backing?.decisions) ? backing.decisions.filter(object) : [];
+        for (const finding of converged) {
+          if (finding.status === 'refuted' && !evidenceLocator(finding.evidence)) reasons.push(`refuted-without-evidence:${finding.id}`);
+          if (finding.status === 'user-accepted' && !decisions.some((d: any) => d.id === finding.decision && USER_CHANNELS.has(d.channel))) reasons.push(`accepted-without-user-decision:${finding.id}`);
+          // C5: any session can add a question-channel register entry, so channel membership is not a
+          // person. Policy evaluation never accepts a user-accepted disposition; a person decides that gate.
+          if (finding.status === 'user-accepted') reasons.push(`user-accepted-needs-person:${finding.id}`);
+          if (finding.status === 'fixed' && backing?.ancestors?.[finding.fixedIn] !== true) reasons.push(`fixed-not-ancestor:${finding.id}`);
+        }
+      }
+    } else if (predicate === 'blockers-zero') {
+      if (requireFact('findings', 'findings-invalid') && converged.some((f: any) => f.severity === 'blocker' && f.status === 'open')) reasons.push('blockers-open');
+    }
+    if (start === 0 && reasons.length > start) rule = `${gateId}/${predicate}`;
+  }
+  if (reasons.length === 0) rule = `${gateId}/pass`;
+  return result();
+}
+
+module.exports = { loadPolicy, evaluate, validateFindings, verifyRecordReasons };

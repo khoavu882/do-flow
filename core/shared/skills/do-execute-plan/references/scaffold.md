@@ -1,6 +1,14 @@
 # `--scaffold` — turning the plan into a reviewable code scaffold
 
-Read this file only when `/do-execute-plan --scaffold` is the active invocation. It is step 3 of
+## Contents
+
+- What it produces
+- Two cases, one output tree
+- Part 1 — in-scope scaffold from the three artifacts
+- Part 2 — external dependencies (cross-service contract frames)
+- Constraints (carried from the design — do not relax these)
+
+Read this file only when `/do-execute-plan --scaffold` is the active invocation. It is step 5 of
 `do-execute-plan`'s Behavioral Flow, factored out here per Anthropic's progressive-disclosure
 guidance so the other invocation modes (`--scope next|phase:N|all|resume`, and the `--review`
 modifier) don't pay the token cost of this algorithm on every invocation.
@@ -80,7 +88,7 @@ do not restate its counts from memory or re-derive them by reading the tree.
 Run it from the project root: the verb resolves which feature is active exactly the way `paths`
 does, from the working directory. The one case worth knowing about is a non-git root holding more
 than one feature directory — there the resolver cannot choose, and exits 2 naming every candidate.
-Ask the user which one via `AskUserQuestion` and re-run as `"$DOFLOW" scaffold --slug=<chosen>
+Ask the user which one via the question tool and re-run as `"$DOFLOW" scaffold --slug=<chosen>
 --json`; do not pick for them.
 
 Exit codes follow the runtime's uniform contract: `0` complete, `1` a finding you must report to the
@@ -397,7 +405,7 @@ rather than restated as prose.
 - Never write outside `agent-docs/doflow/<slug>/scaffold/` — not into the source tree, and not
   into a target service's own repo (including the dependency service scanned for language
   inference in Part 2 step 4 — read-only). This is the one property the whole artifact rests on, and
-  `test/guards/scaffold.test.js` enforces it by running the generator against a filesystem that can
+  `test/guards/scaffold.test.ts` enforces it by running the generator against a filesystem that can
   only reach the feature directory.
 - `code/`/`data/`/`mock/` content is pinned, not freeform: signatures and type/data shapes only,
   zero implementation logic — in the inferred language, or the pinned generic-pseudocode grammar
@@ -422,9 +430,9 @@ rather than restated as prose.
   generated `code/`/`data/`/`mock/`/`default/` output directory — still not a write outside
   `agent-docs/doflow/<slug>/scaffold/` (the first Constraint above still holds), but visually
   confusing; not auto-detected or renamed.
-- The one hard gate is `do-execute-plan` step 1 (`"$DOFLOW" prereqs --require-plan`) — neither Part
-  of this file adds a gate of its own. The advisory notice Part 2 raises for a dependency it cannot
-  resolve is non-blocking, and Part 1's non-zero exit is a finding to report, not a stop.
+- The gates are the chain's own: `pre-implement-gate.sh` and step 1's
+  `"$DOFLOW" prereqs --require-plan`. Neither Part adds gates. Part 2 unresolved dependencies do
+  not block; Part 1 non-zero exits are reportable, not stops.
 - A `depends-on:` value whose starting directory does not exist on disk at all is excluded from
   service-identity derivation *entirely* (Part 2 step 1) — it never reaches Part 2 step 5's local
   generation path. It gets a frame only if the same task also carries an `external-contract:` field

@@ -1,7 +1,6 @@
 # Orchestration
 
-Use `references/MODEL_SELECTION.md`; follow `PRINCIPLES.md`, `rules/RULE_02_WORKFLOW.md`, and
-`rules/RULE_04_QUESTIONS.md`.
+Use `references/MODEL_SELECTION.md`; follow `PRINCIPLES.md` and `rules/RULES.md` (RULE_02, RULE_04).
 
 ## Role and handoff
 

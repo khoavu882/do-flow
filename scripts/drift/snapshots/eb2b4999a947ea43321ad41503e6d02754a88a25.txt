@@ -1,0 +1,623 @@
+On this page
+Back to top
+What you can do with MCP
+Find and build MCP servers
+Installing MCP servers
+Option 1: Add a remote HTTP server
+Option 2: Add a remote SSE server
+Option 3: Add a local stdio server
+How Claude Code stops a stdio server
+Option 4: Add a remote WebSocket server
+Add a server from setup instructions written for another client
+Add a server from a URL
+Add a server from an npx, uvx, or binary command
+Add a server from an mcpServers JSON block
+Managing your servers
+Server status
+Project server approvals and workspace trust
+Server status detail
+Configuration warnings
+Tool availability
+Disable a server without removing it
+MCP client runtimes
+Dynamic tool updates
+Notification streams on the v2 runtime
+Automatic reconnection
+Mid-session drops of a remote server
+Failed first connections
+Stdio servers that exit or fail to start
+Failed discovery requests
+Retry failed servers yourself
+How Claude learns that a server failed
+Push messages with channels
+Time limits on MCP tool calls
+Automatic backgrounding of long tool calls
+MCP tasks that run on the server
+Stop an MCP task or get its result
+Answer a question from an MCP task
+Exit, clear, or resume while an MCP task runs
+What a call needs to become an MCP task
+Status messages on an MCP task
+Time limits on MCP tasks
+Make Claude wait for the result of an MCP task
+MCP tasks for server authors
+Answer the call with a task
+Report status, results, and questions
+Plugin-provided MCP servers
+MCP installation scopes
+Local scope
+Project scope
+User scope
+Scope hierarchy and precedence
+Environment variable expansion in .mcp.json
+Supported syntax
+Expansion locations
+Example with variable expansion
+Unset variables without a default
+Credential variables that read as empty
+How references appear in /mcp and CLI output
+Practical examples
+Example: Connect to GitHub for code reviews
+Example: Query your PostgreSQL database
+Authenticate with remote MCP servers
+Authenticate from the command line
+Use a fixed OAuth callback port
+Use pre-configured OAuth credentials
+Override OAuth metadata discovery
+Restrict OAuth scopes
+Use dynamic headers for custom authentication
+Where the helper runs
+Which variables a helper can read
+Trust a folder before its headersHelper runs
+Sign in to an MCP server behind a gateway that requires a header
+Add MCP servers from JSON configuration
+Import MCP servers from Claude Desktop
+Use MCP servers from claude.ai
+How connectors reach Claude Code
+Organization controls on connector tools
+Disable claude.ai connectors
+Use Claude Code as an MCP server
+Read a background command’s output as an MCP client
+MCP output limits and warnings
+Raise the limit for a specific tool
+Images in tool results
+Tool input schemas with a root-level combinator
+Tools with invalid input schemas
+Tools with names longer than 128 characters
+Require approval for a specific tool
+Mark tools that are safe to call twice
+Respond to MCP elicitation requests
+Elicitation modes Claude Code declares
+Use MCP resources
+Reference MCP resources
+Scale with MCP tool search
+Tool search for MCP server authors
+Mark a tool to load upfront or stay deferred
+Configure tool search
+Tool search through an LLM gateway
+Tools that stay deferred below the ENABLE_TOOL_SEARCH=auto threshold
+Exempt a server from deferral
+Defer a server’s tools
+Use MCP prompts as commands
+Execute MCP prompts
+Managed MCP configuration
+MCP
+Connect Claude Code to tools via MCP
+Copy page
+Copy page
+Learn how to connect Claude Code to your tools with the Model Context Protocol.
+Copy page
+Copy page
+Claude Code can connect to hundreds of external tools and data sources through the
+Model Context Protocol (MCP)
+, an open source standard for AI-tool integrations. MCP servers give Claude Code access to your tools, databases, and APIs.
+Connect a server when you find yourself copying data into chat from another tool, like an issue tracker or a monitoring dashboard. Once connected, Claude can read and act on that system directly instead of working from what you paste.
+If you’re connecting your first server, start with the
+MCP quickstart
+for a step-by-step walkthrough. This page is the full reference.
+​
+What you can do with MCP
+With MCP servers connected, you can ask Claude Code to:
+Implement features from issue trackers
+: “Add the feature described in JIRA issue ENG-4521 and create a PR on GitHub.”
+Analyze monitoring data
+: “Check Sentry and Statsig to check the usage of the feature described in ENG-4521.”
+Query databases
+: “Find emails of 10 random users who used feature ENG-4521, based on our PostgreSQL database.”
+Integrate designs
+: “Update our standard email template based on the new Figma designs that were posted in Slack”
+Automate workflows
+: “Create Gmail drafts inviting these 10 users to a feedback session about the new feature.”
+React to external events
+: an MCP server can also act as a
+channel
+that pushes messages into your session, so Claude reacts to Telegram messages, Discord chats, or webhook events while you’re away.
+​
+Find and build MCP servers
+Browse reviewed connectors in the
+Anthropic Directory
+. Directory connectors use the same MCP infrastructure as Claude Code, so you can add any remote server listed there with
+claude mcp add
+.
+Verify you trust each server before connecting it. Servers that fetch external content can expose you to
+prompt injection risk
+.
+To build your own server, see the
+MCP server guide
+for protocol fundamentals and the
+Claude connector building docs
+for authentication, testing, and Directory submission.
+You can also have Claude scaffold a server for you with the official
+mcp-server-dev
+plugin
+.
+1
+Install the plugin
+In the VS Code extension or the desktop app, follow
+Install a plugin
+instead of this step. In a terminal, start Claude Code by running
+claude
+, then enter this at its prompt:
+/plugin install mcp-server-dev@claude-plugins-official
+If the install fails, match the message Claude Code reports:
+Marketplace "claude-plugins-official" not found
+: add the marketplace with
+/plugin marketplace add anthropics/claude-plugins-official
+, then retry the install.
+Plugin "<name>" not found in marketplace "claude-plugins-official"
+: your local copy of the marketplace catalog may be out of date. Refresh it with
+/plugin marketplace update claude-plugins-official
+, then retry the install. If the retry prints the same message, see
+Plugin not found in marketplace
+.
+If the install summary reports
+Run /reload-plugins to apply.
+, Claude Code then runs that reload for you. If the reload warns that your next message would re-read the conversation, run
+/reload-plugins --force
+.
+2
+Run the build skill
+/mcp-server-dev:build-mcp-server
+Claude asks about your use case and scaffolds a remote HTTP or local stdio server.
+​
+Installing MCP servers
+MCP servers can be configured in several ways depending on your needs:
+​
+Option 1: Add a remote HTTP server
+HTTP servers are the recommended option for connecting to remote MCP servers. This is the most widely supported transport for cloud-based services.
+# Basic syntax
+claude
+mcp
+add
+--transport
+http
+<
+nam
+e
+>
+<
+ur
+l
+>
+# Real example: Connect to Notion
+claude
+mcp
+add
+--transport
+http
+notion
+https://mcp.notion.com/mcp
+# Example with Bearer token
+claude
+mcp
+add
+--transport
+http
+secure-api
+https://api.example.com/mcp
+\
+--header
+"Authorization: Bearer your-token"
+When configuring MCP servers via JSON in
+.mcp.json
+,
+~/.claude.json
+, or
+claude mcp add-json
+, the
+type
+field accepts
+streamable-http
+as an alias for
+http
+. The MCP specification uses the name
+streamable-http
+for this transport, so configurations copied from server documentation work without modification.
+A JSON entry that has a
+url
+but no
+type
+is a configuration error, because Claude Code reads an entry with no
+type
+as a stdio server. Claude Code skips that server and reports
+MCP server "<name>" has a "url" but no "type"; add "type": "http" (or "sse" / "ws") to this entry
+.
+Only an SDK host application, such as an
+Agent SDK
+application or the
+desktop app
+, can register an in-process
+"type": "sdk"
+server. Claude Code skips a
+"type": "sdk"
+entry in
+.mcp.json
+,
+~/.claude.json
+, or settings and reports
+Skipped — MCP server "<name>" declares type "sdk", which only an SDK host application can register
+.
+In
+--output-format stream-json
+runs, Claude Code also reports a skipped
+--mcp-config
+entry in the
+system/init
+event’s
+mcp_server_errors
+field
+, so scripts can detect that the server never loaded. This requires Claude Code v2.1.219 or later.
+​
+Option 2: Add a remote SSE server
+The SSE (Server-Sent Events) transport is deprecated. Use HTTP servers instead, where available.
+Some services still expose only an SSE endpoint. Add these with the same
+claude mcp add --transport http <name> <url>
+command as
+an HTTP server
+. Claude Code tries the HTTP transport first and switches to SSE when the server doesn’t accept it. The automatic switch requires Claude Code v2.1.265 or later.
+On an earlier version, or to connect over SSE directly, pass
+--transport sse
+instead:
+# Basic syntax
+claude
+mcp
+add
+--transport
+sse
+<
+nam
+e
+>
+<
+ur
+l
+>
+# Real example: Connect to Asana
+claude
+mcp
+add
+--transport
+sse
+asana
+https://mcp.asana.com/sse
+# Example with authentication header
+claude
+mcp
+add
+--transport
+sse
+private-api
+https://api.company.com/sse
+\
+--header
+"X-API-Key: your-key-here"
+​
+Option 3: Add a local stdio server
+Stdio servers run as local processes on your machine. They’re ideal for tools that need direct system access or custom scripts.
+Claude Code sets
+CLAUDE_PROJECT_DIR
+in the spawned server’s environment to the project root, so your server can resolve project-relative paths without depending on the working directory. This is the same directory hooks receive in their
+CLAUDE_PROJECT_DIR
+variable. Read it from inside your server process, for example
+process.env.CLAUDE_PROJECT_DIR
+in Node or
+os.environ["CLAUDE_PROJECT_DIR"]
+in Python.
+CLAUDE_PROJECT_DIR
+is the stable project root and doesn’t change when you add or remove working directories mid-session. A server that limits its own filesystem access to a set of allowed directories should implement the MCP
+roots/list
+request instead. Claude Code answers
+roots/list
+with the session’s launch directory plus every
+additional working directory
+you’ve granted with
+--add-dir
+,
+/add-dir
+, or the
+additionalDirectories
+setting. Claude Code sends
+notifications/roots/list_changed
+when that set changes.
+This variable is set in the server’s environment, not in Claude Code’s own environment, so referencing it via
+${VAR}
+expansion in the
+command
+or
+args
+of a project-scoped
+.mcp.json
+entry or a local- or user-scoped server entry in
+~/.claude.json
+requires a default such as
+${CLAUDE_PROJECT_DIR:-.}
+. Plugin-provided MCP configurations substitute
+${CLAUDE_PROJECT_DIR}
+directly and don’t need the default.
+# Basic syntax
+claude
+mcp
+add
+[options]
+<
+name
+>
+--
+<
+command
+>
+[args...]
+# Real example: Add Airtable server
+claude
+mcp
+add
+--env
+AIRTABLE_API_KEY=YOUR_KEY
+--transport
+stdio
+airtable
+\
+--
+npx
+-y
+airtable-mcp-server
+For stdio servers, the
+--
+(double dash) separates Claude’s own options, such as
+--transport
+,
+--env
+, and
+--scope
+, from the command and arguments that run the server. Everything after
+--
+is passed to the server untouched.
+For example:
+claude mcp add --transport stdio myserver -- npx server
+→ runs
+npx server
+claude mcp add --env KEY=value --transport stdio myserver -- python server.py --port 8080
+→ runs
+python server.py --port 8080
+with
+KEY=value
+in environment
+Without
+--
+, Claude Code would try to parse the server’s flags, like
+--port
+above, as its own options.
+--env
+accepts multiple
+KEY=value
+pairs. If the server name comes directly after
+--env
+, the CLI reads the name as another pair and rejects it, so place at least one other option, such as
+--transport stdio
+, between
+--env
+and the server name.
+​
+How Claude Code stops a stdio server
+When Claude Code disconnects a stdio server, for example when your session ends, it signals the server process and waits briefly for it to exit before forcing it to stop. If your server saves state or removes lock files at shutdown, handle the signal for your platform and finish within that time:
+On macOS and Linux
+: Claude Code sends
+SIGINT
+, then
+SIGTERM
+if the process is still running 100 milliseconds later, then
+SIGKILL
+after a further 400 milliseconds.
+On Windows
+: Claude Code closes the server’s stdin, then ends the server’s process tree if the process is still running 300 milliseconds later.
+Before v2.1.296, Claude Code on Windows ended the server’s process tree at once, without closing stdin first or waiting.
+​
+Option 4: Add a remote WebSocket server
+WebSocket servers hold a persistent bidirectional connection, which suits remote MCP servers that push events to Claude unprompted. Use HTTP instead when your server only responds to requests, since HTTP supports OAuth and the
+claude mcp add --transport
+flag, while WebSocket supports neither.
+Configure WebSocket servers in
+.mcp.json
+or with
+claude mcp add-json
+:
+claude
+mcp
+add-json
+events-server
+\
+&#x27;{"type":"ws","url":"wss://mcp.example.com/socket","headers":{"Authorization":"Bearer YOUR_TOKEN"}}&#x27;
+The
+type: "ws"
+entry accepts the same
+url
+,
+headers
+,
+headersHelper
+,
+timeout
+, and
+alwaysLoad
+fields as
+http
+. Authentication is header-only, so pass a static token in
+headers
+or generate one at connect time with
+headersHelper
+. The
+claude mcp add --transport
+flag doesn’t accept
+ws
+.
+​
+Add a server from setup instructions written for another client
+MCP servers aren’t specific to Claude Code, so a server’s setup instructions may be written for Claude Desktop, Cursor, or another MCP client and give no
+claude mcp add
+command. To add the server anyway, look in those instructions for a URL, a launch command, or a JSON block:
+A URL
+such as
+https://mcp.example.com/mcp
+: the server is remote.
+A launch command
+such as
+npx -y @example/mcp-server
+: the server runs on your machine.
+An
+mcpServers
+JSON block
+: configuration written for another client’s settings file.
+Each is one of the inputs the four options in
+Installing MCP servers
+take. Find the shape you have below to turn it into the command Claude Code accepts. Each command writes to
+local scope
+unless you add
+--scope project
+or
+--scope user
+.
+​
+Add a server from a URL
+A URL means the server is remote. For an
+https://
+endpoint, add it with
+--transport http
+, or follow
+Option 2
+when the instructions say the endpoint uses SSE. For a
+wss://
+endpoint, use
+Option 4
+instead, since
+--transport
+doesn’t accept
+ws
+:
+claude
+mcp
+add
+--transport
+http
+example
+https://mcp.example.com/mcp
+If the instructions also give an API key or token header, pass it with
+--header
+as shown in
+Option 1
+.
+​
+Add a server from an
+npx
+,
+uvx
+, or binary command
+A launch command means the server runs as a local stdio process. Put the whole command after
+--
+, so Claude Code passes flags such as
+-y
+to the command that starts the server instead of reading them as its own options. Pass any environment variables the instructions ask for with
+--env
+, after the server name and before
+--
+:
+claude
+mcp
+add
+example
+--env
+API_KEY=your-key
+--
+npx
+-y
+@example/mcp-server
+Option 3
+covers the
+--
+separator in full.
+​
+Add a server from an
+mcpServers
+JSON block
+An
+mcpServers
+block written for another MCP client, such as Claude Desktop, uses the wrapper key and entry shape Claude Code reads. Pass
+claude mcp add-json
+the object inside
+mcpServers
+, not the wrapper. Two entries need a repair first:
+A
+url
+with no
+type
+: add
+"type": "http"
+,
+"type": "sse"
+, or
+"type": "ws"
+to match the endpoint. Claude Code reads an entry with no
+type
+as a stdio server, so a
+url
+entry without a
+type
+fails.
+A key with characters other than letters, numbers, hyphens, and underscores
+: pick a server name that uses only those characters. Otherwise the key is the server name.
+For example, this block:
+{
+"mcpServers"
+: {
+"example"
+: {
+"command"
+:
+"npx"
+,
+"args"
+: [
+"-y"
+,
+"@example/mcp-server"
+]
+}
+}
+}
+becomes this command:
+claude
+mcp
+add-json
+example
+&#x27;{"command":"npx","args":["-y","@example/mcp-server"]}&#x27;
+Add MCP servers from JSON configuration
+covers shell escaping and the
+--scope
+flag for
+add-json
+. To share the server with your team instead, add
+--scope project
+, or add the entry under
+mcpServers
+in
+.mcp.json
+[snapshot truncated]

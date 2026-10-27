@@ -1,0 +1,52 @@
+{
+  "native": {
+    "type": "tool_call",
+    "toolName": "bash",
+    "toolCallId": "bash-identity",
+    "input": {
+      "command": "printf ok"
+    }
+  },
+  "policy": "pre-bash-guard",
+  "state": "none",
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "compat-1",
+    "DOFLOW_TASK_ID": "078-pi-identity",
+    "DOFLOW_RUN_ID": "run-pi-1",
+    "DOFLOW_ATTEMPT": "2",
+    "DOFLOW_LINEAGE_ID": "lineage-pi-1",
+    "DOFLOW_SESSION_ROLE": "worker",
+    "DOFLOW_WORKTREE": "/tmp/doflow-worktree-pi"
+  },
+  "fault": "none",
+  "expect": {
+    "result": null,
+    "decision": {
+      "outcome": "allow",
+      "code": "allow",
+      "effect": "proceed"
+    },
+    "modelVisibleBytesMax": 0,
+    "exit": 0,
+    "failurePoint": null,
+    "envelope": {
+      "version": 1,
+      "harness": "pi",
+      "event": "tool_call",
+      "operation": "command",
+      "tool": "bash",
+      "command": "printf ok",
+      "taskId": "078-pi-identity",
+      "identity": {
+        "run": "run-pi-1",
+        "attempt": 2,
+        "lineage": "lineage-pi-1",
+        "role": "worker",
+        "worktree": "/tmp/doflow-worktree-pi"
+      },
+      "correlation": {
+        "toolCallId": "bash-identity"
+      }
+    }
+  }
+}

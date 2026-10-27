@@ -1,0 +1,26 @@
+Customize GitHub Copilot CLI
+Learn how to customize Copilot CLI to maximize its usefulness when working on a specific project.
+Overview of customizing GitHub Copilot CLI
+Copilot CLI works best when customized for your specific project and workflow.
+Adding custom instructions for GitHub Copilot CLI
+Give Copilot additional context on how to understand your project and how to build, test and validate its changes.
+Changing settings with the /settings command
+View and change your personal settings for GitHub Copilot CLI with the
+/settings
+slash command.
+Using hooks with GitHub Copilot CLI
+Extend GitHub Copilot agent behavior with custom shell commands at key points during agent execution.
+Adding agent skills for GitHub Copilot CLI
+Modify Copilot&#x27;s behavior and abilities when it works on particular tasks.
+Adding MCP servers for GitHub Copilot CLI
+Extend Copilot&#x27;s capabilities by connecting Model Context Protocol (MCP) servers to provide additional tools and context.
+Creating and using custom agents for GitHub Copilot CLI
+Create specialized agents with tailored expertise for specific development tasks.
+Adding LLM models to GitHub Copilot CLI
+Use a model from an external provider of your choice in Copilot by supplying your own API key.
+Finding and installing plugins for GitHub Copilot CLI
+Extend Copilot&#x27;s functionality by installing plugins created by the community or by your team.
+Creating a plugin for GitHub Copilot CLI
+Create a plugin to share customizations in an easy-to-install package.
+Creating a plugin marketplace for GitHub Copilot CLI
+You can make CLI plugins that you&#x27;ve created easy to install by adding them to a marketplace.

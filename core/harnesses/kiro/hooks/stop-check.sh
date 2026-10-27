@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # Kiro Stop front door: translate the native payload, then render the bridge verdict for its engine.
 set -uo pipefail
 export DOFLOW_AGENT="${DOFLOW_AGENT:-kiro}"

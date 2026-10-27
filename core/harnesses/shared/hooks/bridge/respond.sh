@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # Native hook response renderers for the shared lifecycle bridge.
-case ${BASH_SOURCE[0]} in */*) _DOFLOW_RESPOND_DIR=${BASH_SOURCE[0]%/*} ;; *) _DOFLOW_RESPOND_DIR=. ;; esac
+_DOFLOW_SRC=${BASH_SOURCE[0]//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_RESPOND_DIR=${_DOFLOW_SRC%/*} ;; *) _DOFLOW_RESPOND_DIR=. ;; esac
 . "$_DOFLOW_RESPOND_DIR/../policies/deny-json.sh"
 
 doflow_bridge_native_event_var() {
@@ -28,7 +29,6 @@ doflow_render_response() {
   if [ "$outcome" = deny ]; then
     case "$harness:$event" in
       claude:PreToolUse|codex:PreToolUse) emit_pretooluse_deny_nested "$reason" || return $?; return 0 ;;
-      gemini:BeforeTool) emit_pretooluse_deny_flat "$reason"; return 0 ;;
       kiro:PreToolUse) printf '%s' "$reason" >&2; return 2 ;;
       antigravity:PreToolUse)
         if command -v jq >/dev/null 2>&1; then jq -cn --arg reason "$reason" '{decision:"deny",reason:$reason}'
@@ -37,6 +37,14 @@ doflow_render_response() {
       antigravity:Stop)
         if command -v jq >/dev/null 2>&1; then jq -cn --arg reason "$reason" '{decision:"continue",reason:$reason}'
         else printf '{"decision":"continue","reason":%s}\n' "$( _doflow_json_reason "$reason" )"; fi
+        return $? ;;
+      copilot:PreToolUse)
+        if command -v jq >/dev/null 2>&1; then jq -cn --arg reason "$reason" '{permissionDecision:"deny",permissionDecisionReason:$reason}'
+        else printf '{"permissionDecision":"deny","permissionDecisionReason":%s}\n' "$( _doflow_json_reason "$reason" )"; fi
+        return $? ;;
+      copilot:Stop)
+        if command -v jq >/dev/null 2>&1; then jq -cn --arg reason "$reason" '{decision:"block",reason:$reason}'
+        else printf '{"decision":"block","reason":%s}\n' "$( _doflow_json_reason "$reason" )"; fi
         return $? ;;
       pi:tool_call)
         if command -v jq >/dev/null 2>&1; then jq -cn --arg reason "$reason" '{block:true,reason:$reason}'

@@ -1,0 +1,7 @@
+{
+  "kind": "review-miss",
+  "severities": ["blocker", "should-fix"],
+  "tolerance": 3,
+  "maxSpan": 60,
+  "heldoutBelow": "3"
+}

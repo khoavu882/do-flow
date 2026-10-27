@@ -70,6 +70,7 @@ an ungrouped task are the same dispatch.
 Report paths come from the brief path the same call returned — the workspace is the directory
 holding it, and each task's report is `<workspace>/task-<ID>-report.md`. Each task writes its own
 report before the next one starts.
+Branch on each hand-back's status: `needs-context` resend with the missing context; `blocked` stop and surface it; `done-with-concerns` verify the concerns before accepting; `done` accept.
 
 Both verbs reject path traversal in group and task ids with exit 2. On any non-zero exit, stop and
 surface the error — do not proceed with a partial grouping.
@@ -90,3 +91,15 @@ For complex multi-step orchestration and execution checkpoints, consult the Task
 the installed guidance tree: `<config-dir>/guidance/modes/MODE_Task_Management.md` (for example
 `~/.doflow/guidance/modes/MODE_Task_Management.md`). It sits under the DoFlow config directory, not
 beside this file.
+
+## An empty context pack (SKILL.md step 6)
+
+     This call sits right at subagent dispatch — proceeding as though nothing happened is the defect
+     this feature removes. An empty pack here can still be legitimate: step 4 lets a task reach
+     `READY` on `callerAsserted` inputs alone, which link no evidence. Do not withhold dispatch on
+     this alone — readiness already governs whether the task may be worked. Instead, carry the empty
+     result into the group's brief itself: state in the dispatch, next to the task-brief output, that
+     no prior evidence or claims were compiled for this task, so the subagent works from the
+     plan/design text `task-brief` already supplies without assuming a grounding evidence base that
+     isn't there. A non-empty pack is included in the brief as the subagent's prior context, same
+     handoff.

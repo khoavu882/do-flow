@@ -1,0 +1,14 @@
+[
+  {"name":"absent policy", "base":null, "reason":"no-policy"},
+  {"name":"malformed policy", "base":"{", "reason":"policy-invalid"},
+  {"name":"wrong schema", "base":"{\"schema\":2}", "reason":"policy-invalid"},
+  {"name":"wip widening", "override":{"loop":{"wip":3}}, "reason":"policy-override-widens:loop.wip"},
+  {"name":"steps widening", "override":{"loop":{"maxSteps":201}}, "reason":"policy-override-widens:loop.maxSteps"},
+  {"name":"seats widening", "override":{"classes":{"feature":{"gate-b":{"minSeats":1}}}}, "reason":"policy-override-widens:classes.feature.gate-b.minSeats"},
+  {"name":"protected removal", "override":{"protected":{"paths":[]}}, "reason":"policy-override-widens:protected.paths"},
+  {"name":"predicate replacement", "override":{"classes":{"feature":{"gate-a":{"predicates":[]}}}}, "reason":"policy-override-widens:classes.feature.gate-a.predicates"},
+  {"name":"unknown key", "override":{"merge":{"staleLockSeconds":999}}, "reason":"policy-override-widens:merge"},
+  {"name":"never policy", "mode":"never", "reason":"policy-never"},
+  {"name":"unknown class", "class":"bug", "reason":"class-unsupported"},
+  {"name":"unknown row", "row":null, "reason":"row-unknown"}
+]

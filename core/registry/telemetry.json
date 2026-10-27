@@ -1,0 +1,236 @@
+{
+  "version": 1,
+  "description": "Telemetry contract v1: every key a DoFlow telemetry line may carry, its privacy class and type, and the closed vocabularies. Prose: docs/specs/telemetry-contract.md. Changes are additive; version stays 1.",
+  "keyPrefix": "doflow.",
+  "classes": {
+    "T0": "identifier",
+    "T1": "measure",
+    "T2": "descriptor",
+    "T2-local": "descriptor, never exported",
+    "T4": "content, never recorded"
+  },
+  "common": ["timestamp", "kind", "run", "lineage", "attempt"],
+  "commonClasses": {
+    "timestamp": "T1",
+    "kind": "T2",
+    "run": "T0",
+    "lineage": "T0",
+    "attempt": "T0"
+  },
+  "kinds": {
+    "hook": {
+      "store": "runs-telemetry",
+      "writers": [
+        "core/harnesses/shared/hooks/bridge/bridge.sh",
+        "core/harnesses/claude/hooks/post-shell-observe.sh"
+      ],
+      "fields": {
+        "harness": { "name": "doflow.hook.harness", "class": "T2", "type": "enum:harness", "phase": "P2" },
+        "event": { "name": "doflow.hook.event", "class": "T2", "type": "enum:event", "phase": "P2" },
+        "policy": { "name": "doflow.hook.policy", "class": "T2", "type": "enum:policy", "phase": "P2" },
+        "verdict": { "name": "doflow.hook.verdict", "class": "T2", "type": "enum:verdict", "phase": "P2" },
+        "duration_ms": { "name": "doflow.hook.duration_ms", "class": "T1", "type": "uint|null", "phase": "P2" },
+        "tool_duration_ms": { "name": "doflow.hook.tool_duration_ms", "class": "T1", "type": "uint|null", "phase": "P3" },
+        "session": { "name": "doflow.hook.session", "class": "T0", "type": "token|null", "phase": "P2" },
+        "tool": { "name": "doflow.hook.tool", "class": "T2", "type": "token|null", "phase": "P2" },
+        "tool_call_id": { "name": "doflow.hook.tool_call_id", "class": "T0", "type": "token|null", "phase": "P2" },
+        "role": { "name": "doflow.hook.role", "class": "T2", "type": "enum:role|null", "phase": "P2" },
+        "worker_run": { "name": "doflow.hook.worker_run", "class": "T0", "type": "token|null", "phase": "P2" },
+        "test_class": { "name": "doflow.hook.test_class", "class": "T2", "type": "enum:test_class|null", "phase": "P3" },
+        "emit_reason": { "name": "doflow.hook.emit_reason", "class": "T2", "type": "enum:emit_reason|null", "phase": "P6" },
+        "emit_bytes": { "name": "doflow.hook.emit_bytes", "class": "T1", "type": "uint|null", "phase": "P6" },
+        "emit_digest": { "name": "doflow.hook.emit_digest", "class": "T0", "type": "token|null", "phase": "P6" }
+      }
+    },
+    "verify.run": {
+      "store": "runs-telemetry",
+      "writers": ["src/runtime/trace/telemetry.ts"],
+      "fields": {
+        "verify_id": { "name": "doflow.verify.run.verify_id", "class": "T0", "type": "hex16", "phase": "P2" },
+        "source": { "name": "doflow.verify.run.source", "class": "T2", "type": "enum:source", "phase": "P2" },
+        "task": { "name": "doflow.verify.run.task", "class": "T0", "type": "token|null", "phase": "P2" },
+        "dispatch_run": { "name": "doflow.verify.run.dispatch_run", "class": "T0", "type": "token|null", "phase": "P2" },
+        "risk": { "name": "doflow.verify.run.risk", "class": "T2", "type": "enum:risk|null", "phase": "P2" },
+        "level": { "name": "doflow.verify.run.level", "class": "T2", "type": "enum:level|null", "phase": "P5.1" },
+        "status": { "name": "doflow.verify.run.status", "class": "T2", "type": "enum:status|null", "phase": "P2" },
+        "exit_code": { "name": "doflow.verify.run.exit_code", "class": "T1", "type": "uint|null", "phase": "P3" },
+        "duration_ms": { "name": "doflow.verify.run.duration_ms", "class": "T1", "type": "uint|null", "phase": "P3" },
+        "checks_run": { "name": "doflow.verify.run.checks_run", "class": "T1", "type": "uint|null", "phase": "P3" },
+        "v0": { "name": "doflow.verify.run.v0", "class": "T2", "type": "enum:v0|null", "phase": "P5.2" }
+      }
+    },
+    "verify.tier": {
+      "store": "runs-telemetry",
+      "writers": ["src/runtime/trace/telemetry.ts"],
+      "fields": {
+        "verify_id": { "name": "doflow.verify.tier.verify_id", "class": "T0", "type": "hex16", "phase": "P2" },
+        "tier": { "name": "doflow.verify.tier.tier", "class": "T2", "type": "token|null", "phase": "P2" },
+        "status": { "name": "doflow.verify.tier.status", "class": "T2", "type": "enum:status|null", "phase": "P2" },
+        "selection_basis": { "name": "doflow.verify.tier.selection_basis", "class": "T2", "type": "enum:selection_basis|null", "phase": "P2" },
+        "selected": { "name": "doflow.verify.tier.selected", "class": "T1", "type": "uint|null", "phase": "P2" },
+        "total": { "name": "doflow.verify.tier.total", "class": "T1", "type": "uint|null", "phase": "P2" },
+        "fallback": { "name": "doflow.verify.tier.fallback", "class": "T2", "type": "enum:fallback|null", "phase": "P2" },
+        "duration_ms": { "name": "doflow.verify.tier.duration_ms", "class": "T1", "type": "uint|null", "basis": "derived-sum", "phase": "P3" }
+      }
+    },
+    "verify.check": {
+      "store": "runs-telemetry",
+      "writers": ["src/runtime/trace/telemetry.ts"],
+      "fields": {
+        "verify_id": { "name": "doflow.verify.check.verify_id", "class": "T0", "type": "hex16", "phase": "P2" },
+        "tier": { "name": "doflow.verify.check.tier", "class": "T2", "type": "token|null", "phase": "P2" },
+        "status": { "name": "doflow.verify.check.status", "class": "T2", "type": "enum:status|null", "phase": "P2" },
+        "exit_code": { "name": "doflow.verify.check.exit_code", "class": "T1", "type": "uint|null", "phase": "P3" },
+        "duration_ms": { "name": "doflow.verify.check.duration_ms", "class": "T1", "type": "uint|null", "phase": "P3" },
+        "tests": { "name": "doflow.verify.check.tests", "class": "T1", "type": "uint|null", "phase": "P3" },
+        "tests_failed": { "name": "doflow.verify.check.tests_failed", "class": "T1", "type": "uint|null", "phase": "P3" },
+        "cpu_ms": { "name": "doflow.verify.check.cpu_ms", "class": "T1", "type": "uint|null", "phase": "P3" },
+        "resource_basis": { "name": "doflow.verify.check.resource_basis", "class": "T2", "type": "enum:resource_basis|null", "phase": "P3" },
+        "check_key": { "name": "doflow.verify.check.check_key", "class": "T0", "type": "hex16|null", "phase": "P3" },
+        "shared": { "name": "doflow.verify.check.shared", "class": "T2", "type": "enum:shared|null", "phase": "P3" },
+        "shared_ref": { "name": "doflow.verify.check.shared_ref", "class": "T0", "type": "hex32|null", "phase": "P5.4" },
+        "failed_first": { "name": "doflow.verify.check.failed_first", "class": "T2", "type": "enum:failed_first|null", "phase": "P5.3" }
+      }
+    },
+    "review.run": {
+      "store": "runs-telemetry",
+      "writers": ["src/runtime/trace/telemetry.ts"],
+      "fields": {
+        "task": { "name": "doflow.review.run.task", "class": "T0", "type": "token|null", "phase": "P7" },
+        "depth": { "name": "doflow.review.run.depth", "class": "T2", "type": "enum:depth|null", "phase": "P7" },
+        "risk": { "name": "doflow.review.run.risk", "class": "T2", "type": "enum:risk|null", "phase": "P7" },
+        "protocol": { "name": "doflow.review.run.protocol", "class": "T2", "type": "enum:protocol|null", "phase": "P7" },
+        "head": { "name": "doflow.review.run.head", "class": "T0", "type": "token|null", "phase": "P7" },
+        "rounds": { "name": "doflow.review.run.rounds", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "seats": { "name": "doflow.review.run.seats", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "seat_findings": { "name": "doflow.review.run.seat_findings", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "converged": { "name": "doflow.review.run.converged", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "blocker": { "name": "doflow.review.run.blocker", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "should_fix": { "name": "doflow.review.run.should_fix", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "note": { "name": "doflow.review.run.note", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "open": { "name": "doflow.review.run.open", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "fixed": { "name": "doflow.review.run.fixed", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "refuted": { "name": "doflow.review.run.refuted", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "user_accepted": { "name": "doflow.review.run.user_accepted", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "pre_existing": { "name": "doflow.review.run.pre_existing", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "escaped": { "name": "doflow.review.run.escaped", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "confirmed": { "name": "doflow.review.run.confirmed", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "plausible": { "name": "doflow.review.run.plausible", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "unverified_blockers": { "name": "doflow.review.run.unverified_blockers", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "bug_classes": { "name": "doflow.review.run.bug_classes", "class": "T1", "type": "uint|null", "phase": "P7" },
+        "advisories": { "name": "doflow.review.run.advisories", "class": "T1", "type": "uint", "phase": "P7" },
+        "errors": { "name": "doflow.review.run.errors", "class": "T1", "type": "uint", "phase": "P7" }
+      }
+    },
+    "package.verb": {
+      "store": "runs-telemetry",
+      "writers": ["src/runtime/trace/telemetry.ts"],
+      "fields": {
+        "action": { "name": "doflow.package.verb.action", "class": "T2", "type": "enum:package_action", "phase": "P8" },
+        "result": { "name": "doflow.package.verb.result", "class": "T2", "type": "enum:package_result", "phase": "P8" },
+        "tier_max": { "name": "doflow.package.verb.tier_max", "class": "T2", "type": "enum:package_tier|null", "phase": "P8" }
+      }
+    }
+  },
+  "recordFields": {
+    "task-run.run.traceId": { "class": "T0", "type": "hex32" },
+    "task-run.history.traceId": { "class": "T0", "type": "hex32" },
+    "task-run.history.traceLink": { "class": "T0", "type": "hex32|null" },
+    "orchestration.run.runKey": { "class": "T0", "type": "runkey" },
+    "orchestration.run.traceId": { "class": "T0", "type": "hex32" }
+  },
+  "vocabularies": {
+    "kind": ["hook", "verify.run", "verify.tier", "verify.check", "review.run", "package.verb"],
+    "harness": ["claude", "codex", "opencode", "pi", "copilot", "kiro", "antigravity"],
+    "event": ["PreToolUse", "tool_call", "UserPromptSubmit", "PostToolUse", "PostToolUseFailure"],
+    "policy": ["pre-bash-guard", "user-prompt-submit", "post-shell-observe"],
+    "verdict": ["allow", "deny", "advisory", "error", "unsupported", "observe"],
+    "source": ["verb", "dispatch"],
+    "status": ["PASS", "FAIL", "UNRESOLVED", "SUBSUMED", "NOT_APPLICABLE", "SKIPPED", "NOT_RUN"],
+    "risk": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+    "role": ["main", "worker"],
+    "level": ["L0", "L1", "L2", "L3"],
+    "selection_basis": ["changed-test-files", "explicit-pattern", "none"],
+    "fallback": ["change-scope-unavailable", "no-changed-tests", "unsafe-path", "not-scopable"],
+    "test_class": ["test.full", "test.scoped", "test.other", "verify.verb", "none"],
+    "shared": ["none", "in-run", "leader", "follower", "reused"],
+    "failed_first": ["none", "pass", "fail"],
+    "resource_basis": ["proc-children", "unreached-platform", "unreached-read"],
+    "v0": ["on", "off"],
+    "package_action": ["enable", "disable", "trust", "exempt", "revoke", "verify", "remove", "new"],
+    "package_result": ["ok", "refused", "usage"],
+    "package_tier": ["inert", "instruction", "executable"],
+    "tool": ["Bash"],
+    "emit_reason": ["emit", "refused:mandatory-over-budget", "silent:already-bootstrapped", "silent:unchanged", "silent:no-home", "fault:deps", "fault:unit", "fault:slot", "fault:summary", "fault:grant", "fault:warning", "fault:render"]
+  },
+  "analysis": {
+    "minSamples": 5,
+    "tailRatio": 4,
+    "minTailMs": 1000,
+    "retryRun": 2
+  },
+  "export": {
+    "semconv": {
+      "repo": "open-telemetry/semantic-conventions-genai",
+      "commit": "547934afa90a34298441caf80c43b27255c3a292",
+      "schemaUrl": "https://opentelemetry.io/schemas/gen-ai-dev/1.42.0-dev"
+    },
+    "resource": {
+      "service.name": "doflow"
+    },
+    "spans": {
+      "hook": { "name": "execute_tool {tool}", "operation": "execute_tool" },
+      "test": { "name": "execute_tool {tool}", "operation": "execute_tool" },
+      "worker": { "name": "invoke_agent {harness}", "operation": "invoke_agent" },
+      "run": { "name": "invoke_workflow", "operation": "invoke_workflow" },
+      "*": { "name": "doflow.{kind} {name}" }
+    },
+    "names": {
+      "verb": "cli-commands",
+      "stage": "workflow-stages",
+      "task_class": "workflow-classes"
+    },
+    "attributes": {
+      "tool": { "export": "gen_ai.tool.name", "vocabulary": "tool" },
+      "tool_call_id": { "export": "gen_ai.tool.call.id", "id": true },
+      "harness": { "export": "gen_ai.agent.name", "vocabulary": "harness" },
+      "event": { "vocabulary": "event" },
+      "policy": { "vocabulary": "policy" },
+      "verdict": { "vocabulary": "verdict" },
+      "role": { "vocabulary": "role" },
+      "test_class": { "vocabulary": "test_class" },
+      "source": { "vocabulary": "source" },
+      "risk": { "vocabulary": "risk" },
+      "level": { "vocabulary": "level" },
+      "status": { "vocabulary": "status" },
+      "v0": { "vocabulary": "v0" },
+      "selection_basis": { "vocabulary": "selection_basis" },
+      "fallback": { "vocabulary": "fallback" },
+      "resource_basis": { "vocabulary": "resource_basis" },
+      "shared": { "vocabulary": "shared" },
+      "failed_first": { "vocabulary": "failed_first" },
+      "verb": { "vocabulary": "cli-commands" },
+      "stage": { "vocabulary": "workflow-stages" },
+      "task_class": { "vocabulary": "workflow-classes" },
+      "duration_ms": { "measure": true },
+      "tool_duration_ms": { "measure": true },
+      "exit_code": { "measure": true },
+      "checks_run": { "measure": true },
+      "selected": { "measure": true },
+      "total": { "measure": true },
+      "tests": { "measure": true },
+      "tests_failed": { "measure": true },
+      "cpu_ms": { "measure": true }
+    }
+  },
+  "excludedStores": [
+    {
+      "store": "verification-v0",
+      "reason": "coordination state excluded from telemetry: digests, transient pid and token in a mode-0600 lock deleted after use (U-1), and bounded output excerpts with a short TTL"
+    },
+    {
+      "store": "verification-reuse",
+      "reason": "reuse records excluded from telemetry: key and payload digests, a random ref and bounded output excerpts of passing checks in mode-0600 files, usable for 24 hours (089 IC-002); lines carry only the ref"
+    }
+  ]
+}

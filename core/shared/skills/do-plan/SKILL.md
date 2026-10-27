@@ -70,10 +70,10 @@ not have.
    **Exit 1 means the pack came back empty; exit 3 means overflow: the pack is complete, act on
    `overflowAction.message` and report the gap.** By this point `do-design` should have batched
    evidence and claims (step 8), so an empty pack carries weight: either the batch never ran or the
-   task id mismatched. Treat it as advisory rather than blocking — plan's hard gate is artifact
-   existence only — but note it in this stage's report and `plan.md` §3 "Research & Decisions": a
-   decision written straight from prose without a compiled pack must not claim prior evidence. When
-   non-empty, read it alongside `requirement.md`, `design.md`, and the constitution.
+   task id mismatched. Empty packs are advisory; prerequisites check artifact existence only. Report
+   them in this stage's report and `plan.md` §3 "Research & Decisions"; prose without a compiled
+   pack cannot claim prior evidence. When non-empty, read it alongside `requirement.md`,
+   `design.md`, and the constitution.
    **Also read `specs.md` when step 1's `has_specs` is true** — use that flag, never a filesystem
    check of your own, and read the `specs` path the resolver returned. `/do-design` moves the
    interface and data-model contracts out of `design.md` into `specs.md` §1 as numbered `IC-###`
@@ -115,15 +115,17 @@ Filling §8's task dependency graph, read the guidance tree's `references/DIAGRA
    Read `references/ARTIFACT_VOICE.md` at the same point: it carries the prose rules the artifact's sentences follow, and the carve-outs where one of those rules meets a construct the checker parses.
    This stage fills the plan from requirement + design + constitution rather than by eliciting, so
    it writes no dialogue log — its sibling stages' `intention/`/`design/` question files have no
-   counterpart here. Should a future revision of this skill add an `AskUserQuestion` clarification
+   counterpart here. Should a future revision of this skill add a question-tool clarification
    loop, each of its rounds logs to `plan-<NN>-question.md` at the feature root exactly as
    `/do-brainstorm` and `/do-design` log theirs to their own subdirectories, numbered from step 1's
    `plan_next_round`.
-6. **Constitution Check (advisory gate)** — evaluate the plan against both tiers as reconciled in
-   step 4. On a violation, STOP and revise the approach before continuing, then record PASS/FAIL in
-   the plan. The verdict is **advisory**: it is recorded in `plan.md` §2 "Constitution Check" and nothing downstream
-   blocks on it — the chain's one hard gate covers artifact existence only. Stopping on a violation
-   is a discipline this skill observes, not something a hook enforces.
+6. **Constitution Check (exit gate)** — evaluate the plan against both tiers as reconciled in step
+   4. Record one row per principle in `plan.md` §2: its id, its tier (MUST unless it says `**Tier:**
+   SHOULD`) and PASS/FAIL; a base MUST that tier-2 makes SHOULD names that overlay version in its
+   row. On a violation, revise the approach first. A MUST marked FAIL or left
+   without a row refuses step 11's handoff; a SHOULD FAIL is a note. That refusal is the runtime's,
+   beside the hard hook that covers artifact existence (`references/DOFLOW_CHAIN.md` scopes both).
+   There is no waiver: revise the plan, or a person amends the constitution with `/do-constitution`.
 7. **Decompose into Tasks (section 8)** — dependency-ordered, `[US#]`-traced to the requirement's
    user stories, owner+files named per task, with checkpoints and completion criteria.
    Read the guidance tree's `references/ORCHESTRATION.md` and
@@ -131,7 +133,7 @@ Filling §8's task dependency graph, read the guidance tree's `references/DIAGRA
    `--depth shallow|normal|deep` is the single granularity knob: it sets how finely a phase is
    split into tasks and how much detail each task carries. Default `normal`.
    **Why explicit task scoping and `[P]` markers**: Specifying concrete file paths (`files: [...]`)
-   and named specialist owners (`system-architect`, `core-implementer`, `quality-guardian`) per task
+   and agent-spec owners (review tasks name `reviewer`) per task
    enables `/do-execute-plan` to compute write-set isolation (`parallel-check`). Tasks with disjoint
    file sets run concurrently without merge conflicts, while overlapping tasks are safely serialized.
    **Mark `[P]` by default:** parallel execution is the framework default, so apply `[P]` to every
@@ -159,8 +161,13 @@ Filling §8's task dependency graph, read the guidance tree's `references/DIAGRA
    table: `primary` if it owns a task via `files:`, `dependency-only` if it's only ever reached via
    `depends-on:`. A single-repo result → `N/A: single-repo feature`. Derivation only — no branch is
    created here (`/do-execute-plan`'s job, lazily, per repo).
-9. **Validate** — run the advisory consistency check and surface any findings verbatim:
+9. **Self-review, then validate** — reread the plan against itself and fix it inline: every
+   requirement id and `[US#]` story is traced to a task or a §7 row, no TBD/TODO/"later" placeholder
+   is left, and no task is coarser than `--depth` sets (split one that is). `plan-check` scans the
+   first two and prints each one as a `findings` entry with its `path:line`. Fix every entry, then run
+   the advisory consistency check and surface its findings verbatim:
    ```bash
+   "$DOFLOW" plan-check "<plan path>" --json
    "$DOFLOW" validate "<plan path>"
    ```
    This also verifies each `### Task Summary` rollup row against the `- [ ]` lines under its
@@ -194,6 +201,10 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
 
 12. **Stop** — report the plan path, Constitution Check result, the task count (`[P]`/sequential),
    and the derived branch name/repo count when the Repo Branch Plan is populated.
+
+### Planning Efficiency Invariants
+- Identify concurrent versus sequential operations across disjoint write sets.
+- Map explicit dependencies between tasks; batch tool calls; maximize parallel execution gains.
 
 ## Embedded feature research
 

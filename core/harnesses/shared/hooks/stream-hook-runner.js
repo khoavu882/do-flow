@@ -70,19 +70,58 @@ function isProgrammingError(error) {
   }
 }
 
-/** IC-011: `$XDG_CONFIG_HOME/doflow/failures` when absolute, else `$HOME/.config/doflow/failures` when HOME is absolute, else null. */
-function failureHome(env) {
+// The config home and the lexical failure.capture rule, copied from src/runtime/config-home.ts and
+// src/runtime/settings/lexical.ts (086 IC-003, IC-004); the marked text is the same in every reader.
+// BEGIN doflow-config-home v1 (rule: src/runtime/config-home.ts; checked by test/guards/settings.test.js)
+function doflowConfigHome(env) {
   const xdg = env.XDG_CONFIG_HOME;
-  if (typeof xdg === 'string' && xdg !== '') return path.isAbsolute(xdg) ? path.join(xdg, 'doflow', 'failures') : null;
+  if (typeof xdg === 'string' && xdg !== '' && path.isAbsolute(xdg)) return path.join(xdg, 'doflow');
   const home = env.HOME;
-  return typeof home === 'string' && path.isAbsolute(home) ? path.join(home, '.config', 'doflow', 'failures') : null;
+  if (typeof home === 'string' && home !== '' && path.isAbsolute(home)) return path.join(home, '.config', 'doflow');
+  return null;
+}
+// END doflow-config-home v1
+
+// BEGIN doflow-settings-lexical v1 (rule: src/runtime/settings/lexical.ts; checked by test/guards/settings.test.js)
+const WS = '[ \\t\\n\\v\\f\\r]';
+const CAPTURE_RE = new RegExp(`"failure\\.capture"${WS}*:${WS}*("[^"]*"|[^,}" \\t\\n\\v\\f\\r]*)`, 'g');
+function lexicalCapture(text) {
+  let out = null;
+  for (const m of text.split('\0', 1)[0].matchAll(CAPTURE_RE)) out = m[1] === '"on"' ? (out ?? 'on') : 'off';
+  return out;
+}
+function readLexicalCapture(file) {
+  try {
+    if (!fs.statSync(file).isFile()) return 'off';
+  } catch (error) {
+    const code = error && error.code;
+    if (code === 'ENOENT' || code === 'ELOOP' || code === 'ENOTDIR') return null;
+    if (code === 'EACCES') {
+      try {
+        const parent = path.dirname(file);
+        if (!fs.statSync(parent).isDirectory()) return null;
+        try { fs.accessSync(parent, fs.constants.X_OK); return null; }
+        catch (accessError) { return accessError && accessError.code === 'EACCES' ? 'off' : null; }
+      } catch { return null; }
+    }
+    return 'off';
+  }
+  try { return lexicalCapture(fs.readFileSync(file, 'latin1')); } catch { return 'off'; }
+}
+// END doflow-settings-lexical v1
+
+/** IC-011: `<config home>/failures`, or null with no config home. */
+function failureHome(env) {
+  const dir = doflowConfigHome(env);
+  return dir === null ? null : path.join(dir, 'failures');
 }
 
-/** IC-014: the environment first, then one stat of the sentinel file. */
+/** IC-014, IC-005: the environment first, then one stat of the sentinel file, then settings.json beside the failure home. */
 function captureIsOff(home, env) {
   const setting = env.DOFLOW_FAILURE_CAPTURE;
   if (typeof setting === 'string' && CAPTURE_OFF_VALUES.includes(setting.trim().toLowerCase())) return true;
-  try { return fs.statSync(path.join(home, 'off')).isFile(); } catch { return false; }
+  try { if (fs.statSync(path.join(home, 'off')).isFile()) return true; } catch { /* no sentinel */ }
+  return readLexicalCapture(path.join(path.dirname(home), 'settings.json')) === 'off';
 }
 
 /** The first stack frame inside this hooks folder as `<path relative to it>:<function>`, no line number. */
@@ -356,9 +395,9 @@ function delegateToPolicy(projectRoot, agent, event, policyId, nativeRaw) {
     captureHookFailure({ command: policyId, kind: 'bridge-timeout' });
     return faultDecision('bridge-timeout');
   }
-  // A bridge that exits before spawnSync finishes writing its stdin reports EPIPE although it ran to
+  // A bridge that exits before spawnSync finishes writing its stdin reports EPIPE (EOF on Windows) although it ran to
   // completion; its exit status and answer are judged below, like any other run.
-  const completed = result.error && result.error.code === 'EPIPE' && result.status !== null;
+  const completed = result.error && (result.error.code === 'EPIPE' || result.error.code === 'EOF') && result.status !== null;
   if ((result.error && !completed) || result.status === null) {
     if (result.signal && !['SIGTERM', 'SIGINT', 'SIGPIPE'].includes(result.signal)) {
       captureHookFailure({ command: policyId, kind: `bridge-exec-fault:${result.signal}` });

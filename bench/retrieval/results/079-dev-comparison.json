@@ -1,0 +1,2391 @@
+{
+  "schemaVersion": 1,
+  "kind": "079-dev-comparison",
+  "provenance": {
+    "decision": "079 D.1c final dev measurement on the tree to be frozen; no tuning, no source change, no workaround (tuning freeze applies to this exact SHA)",
+    "measuredTreeSha": "05eb0deafdc5b43caf2f7ff530294e87f6e0f3c5",
+    "treeStatus": "clean (git status --short empty before and after)",
+    "snapshotId": 1,
+    "pinnedCommit": "3fc988bc519cd7ac289f6db64dfa15b78457cf1b",
+    "protocol": "hybrid-c-v1",
+    "split": "dev",
+    "tasksSha256": "54cd15ffd5d4051dc08b900d99eb7496e34a7187521d1fa5879b9c9d9a5a601e",
+    "tools": {
+      "semble": "0.7.0",
+      "rtk": "1.0.1",
+      "graphify": "0.9.92"
+    },
+    "command": "SEMBLE_MODEL_PATH=~/.cache/huggingface/hub/models--minishlab--potion-code-16M-v2/snapshots/e9d2a44ca6a05ac6685f3b23709ea57eb7352d5b HF_HUB_OFFLINE=1 /usr/bin/time -l node bench/runner.js retrieval hybrid-c --out <scratch>/dev-raw.json (unmodified snapshot.json)",
+    "deviations": [],
+    "harnessWall": {
+      "note": "noisy",
+      "realSeconds": 255.39,
+      "maxRssBytesOfNodeProcess": 386236416
+    }
+  },
+  "comparisons": {
+    "code": [
+      {
+        "metric": "recallAt1",
+        "class": "exact-lookup",
+        "a": "A",
+        "b": "B",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt1",
+        "class": "exact-lookup",
+        "a": "A",
+        "b": "C",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt1",
+        "class": "exact-lookup",
+        "a": "B",
+        "b": "C",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt5",
+        "class": "exact-lookup",
+        "a": "A",
+        "b": "B",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt5",
+        "class": "exact-lookup",
+        "a": "A",
+        "b": "C",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt5",
+        "class": "exact-lookup",
+        "a": "B",
+        "b": "C",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt10",
+        "class": "exact-lookup",
+        "a": "A",
+        "b": "B",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt10",
+        "class": "exact-lookup",
+        "a": "A",
+        "b": "C",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt10",
+        "class": "exact-lookup",
+        "a": "B",
+        "b": "C",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mrrAt10",
+        "class": "exact-lookup",
+        "a": "A",
+        "b": "B",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mrrAt10",
+        "class": "exact-lookup",
+        "a": "A",
+        "b": "C",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mrrAt10",
+        "class": "exact-lookup",
+        "a": "B",
+        "b": "C",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "successAt1",
+        "class": "exact-lookup",
+        "a": "A",
+        "b": "B",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "successAt1",
+        "class": "exact-lookup",
+        "a": "A",
+        "b": "C",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "successAt1",
+        "class": "exact-lookup",
+        "a": "B",
+        "b": "C",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt1",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "B",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt1",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt1",
+        "class": "conceptual-discovery",
+        "a": "B",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt5",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "B",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt5",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt5",
+        "class": "conceptual-discovery",
+        "a": "B",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt10",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "B",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt10",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt10",
+        "class": "conceptual-discovery",
+        "a": "B",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mrrAt10",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "B",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mrrAt10",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mrrAt10",
+        "class": "conceptual-discovery",
+        "a": "B",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "fileRecallAt10",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "B",
+        "n": 10,
+        "diff": 0.3,
+        "ci95": [
+          0,
+          0.6
+        ],
+        "pRandomization": 0.24077592240775922
+      },
+      {
+        "metric": "fileRecallAt10",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "C",
+        "n": 10,
+        "diff": 0.2,
+        "ci95": [
+          0,
+          0.5
+        ],
+        "pRandomization": 0.48785121487851213
+      },
+      {
+        "metric": "fileRecallAt10",
+        "class": "conceptual-discovery",
+        "a": "B",
+        "b": "C",
+        "n": 10,
+        "diff": -0.1,
+        "ci95": [
+          -0.3,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt1",
+        "class": "impact-refactor",
+        "a": "A",
+        "b": "B",
+        "n": 10,
+        "diff": -0.2,
+        "ci95": [
+          -0.5,
+          0
+        ],
+        "pRandomization": 0.4971502849715029
+      },
+      {
+        "metric": "recallAt1",
+        "class": "impact-refactor",
+        "a": "A",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt1",
+        "class": "impact-refactor",
+        "a": "B",
+        "b": "C",
+        "n": 10,
+        "diff": 0.2,
+        "ci95": [
+          0,
+          0.5
+        ],
+        "pRandomization": 0.4971502849715029
+      },
+      {
+        "metric": "recallAt5",
+        "class": "impact-refactor",
+        "a": "A",
+        "b": "B",
+        "n": 10,
+        "diff": -0.2,
+        "ci95": [
+          -0.5,
+          0
+        ],
+        "pRandomization": 0.5035496450354965
+      },
+      {
+        "metric": "recallAt5",
+        "class": "impact-refactor",
+        "a": "A",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt5",
+        "class": "impact-refactor",
+        "a": "B",
+        "b": "C",
+        "n": 10,
+        "diff": 0.2,
+        "ci95": [
+          0,
+          0.5
+        ],
+        "pRandomization": 0.5035496450354965
+      },
+      {
+        "metric": "recallAt10",
+        "class": "impact-refactor",
+        "a": "A",
+        "b": "B",
+        "n": 10,
+        "diff": -0.5,
+        "ci95": [
+          -0.8,
+          -0.2
+        ],
+        "pRandomization": 0.06729327067293271
+      },
+      {
+        "metric": "recallAt10",
+        "class": "impact-refactor",
+        "a": "A",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt10",
+        "class": "impact-refactor",
+        "a": "B",
+        "b": "C",
+        "n": 10,
+        "diff": 0.5,
+        "ci95": [
+          0.2,
+          0.8
+        ],
+        "pRandomization": 0.06729327067293271
+      },
+      {
+        "metric": "mrrAt10",
+        "class": "impact-refactor",
+        "a": "A",
+        "b": "B",
+        "n": 10,
+        "diff": -0.2353968253968254,
+        "ci95": [
+          -0.5111111111111111,
+          -0.03222222222222222
+        ],
+        "pRandomization": 0.06829317068293171
+      },
+      {
+        "metric": "mrrAt10",
+        "class": "impact-refactor",
+        "a": "A",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mrrAt10",
+        "class": "impact-refactor",
+        "a": "B",
+        "b": "C",
+        "n": 10,
+        "diff": 0.2353968253968254,
+        "ci95": [
+          0.03222222222222222,
+          0.5111111111111111
+        ],
+        "pRandomization": 0.06829317068293171
+      },
+      {
+        "metric": "missedDependencies",
+        "class": "impact-refactor",
+        "a": "A",
+        "b": "B",
+        "n": 10,
+        "diff": -0.7,
+        "ci95": [
+          -0.9,
+          -0.5
+        ],
+        "pRandomization": 0.0037996200379962005
+      },
+      {
+        "metric": "missedDependencies",
+        "class": "impact-refactor",
+        "a": "A",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "missedDependencies",
+        "class": "impact-refactor",
+        "a": "B",
+        "b": "C",
+        "n": 10,
+        "diff": 0.7,
+        "ci95": [
+          0.5,
+          0.9
+        ],
+        "pRandomization": 0.0037996200379962005
+      },
+      {
+        "metric": "statusMatch",
+        "class": "stale-index",
+        "a": "A",
+        "b": "B",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "stale-index",
+        "a": "A",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "stale-index",
+        "a": "B",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "dirty-tree",
+        "a": "A",
+        "b": "B",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "dirty-tree",
+        "a": "A",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "dirty-tree",
+        "a": "B",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "unavailable-provider",
+        "a": "A",
+        "b": "B",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "unavailable-provider",
+        "a": "A",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "unavailable-provider",
+        "a": "B",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "oversized-context",
+        "a": "A",
+        "b": "B",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "oversized-context",
+        "a": "A",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "oversized-context",
+        "a": "B",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mustIncludeMet",
+        "class": "oversized-context",
+        "a": "A",
+        "b": "B",
+        "n": 3,
+        "diff": -0.3333333333333333,
+        "ci95": [
+          -1,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mustIncludeMet",
+        "class": "oversized-context",
+        "a": "A",
+        "b": "C",
+        "n": 3,
+        "diff": -0.3333333333333333,
+        "ci95": [
+          -1,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mustIncludeMet",
+        "class": "oversized-context",
+        "a": "B",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "verification-failure",
+        "a": "A",
+        "b": "B",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "verification-failure",
+        "a": "A",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "verification-failure",
+        "a": "B",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mustSurviveMet",
+        "class": "verification-failure",
+        "a": "A",
+        "b": "B",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mustSurviveMet",
+        "class": "verification-failure",
+        "a": "A",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mustSurviveMet",
+        "class": "verification-failure",
+        "a": "B",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      }
+    ],
+    "guidance": [
+      {
+        "metric": "recallAt1",
+        "class": "exact-lookup",
+        "a": "A",
+        "b": "B",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt1",
+        "class": "exact-lookup",
+        "a": "A",
+        "b": "C",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt1",
+        "class": "exact-lookup",
+        "a": "B",
+        "b": "C",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt3",
+        "class": "exact-lookup",
+        "a": "A",
+        "b": "B",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt3",
+        "class": "exact-lookup",
+        "a": "A",
+        "b": "C",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt3",
+        "class": "exact-lookup",
+        "a": "B",
+        "b": "C",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt5",
+        "class": "exact-lookup",
+        "a": "A",
+        "b": "B",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt5",
+        "class": "exact-lookup",
+        "a": "A",
+        "b": "C",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt5",
+        "class": "exact-lookup",
+        "a": "B",
+        "b": "C",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mrrAt5",
+        "class": "exact-lookup",
+        "a": "A",
+        "b": "B",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mrrAt5",
+        "class": "exact-lookup",
+        "a": "A",
+        "b": "C",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mrrAt5",
+        "class": "exact-lookup",
+        "a": "B",
+        "b": "C",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "successAt1",
+        "class": "exact-lookup",
+        "a": "A",
+        "b": "B",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "successAt1",
+        "class": "exact-lookup",
+        "a": "A",
+        "b": "C",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "successAt1",
+        "class": "exact-lookup",
+        "a": "B",
+        "b": "C",
+        "n": 8,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt1",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "B",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt1",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt1",
+        "class": "conceptual-discovery",
+        "a": "B",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt3",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "B",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt3",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt3",
+        "class": "conceptual-discovery",
+        "a": "B",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt5",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "B",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt5",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "recallAt5",
+        "class": "conceptual-discovery",
+        "a": "B",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mrrAt5",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "B",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mrrAt5",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mrrAt5",
+        "class": "conceptual-discovery",
+        "a": "B",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "fileRecallAt5",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "B",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "fileRecallAt5",
+        "class": "conceptual-discovery",
+        "a": "A",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "fileRecallAt5",
+        "class": "conceptual-discovery",
+        "a": "B",
+        "b": "C",
+        "n": 10,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "stale-index",
+        "a": "A",
+        "b": "B",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "stale-index",
+        "a": "A",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "stale-index",
+        "a": "B",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "dirty-tree",
+        "a": "A",
+        "b": "B",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "dirty-tree",
+        "a": "A",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "dirty-tree",
+        "a": "B",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "oversized-context",
+        "a": "A",
+        "b": "B",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "oversized-context",
+        "a": "A",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "statusMatch",
+        "class": "oversized-context",
+        "a": "B",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mustIncludeMet",
+        "class": "oversized-context",
+        "a": "A",
+        "b": "B",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mustIncludeMet",
+        "class": "oversized-context",
+        "a": "A",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      },
+      {
+        "metric": "mustIncludeMet",
+        "class": "oversized-context",
+        "a": "B",
+        "b": "C",
+        "n": 3,
+        "diff": 0,
+        "ci95": [
+          0,
+          0
+        ],
+        "pRandomization": 1
+      }
+    ]
+  },
+  "summaryRows": [
+    {
+      "corpus": "code",
+      "config": "A",
+      "class": "exact-lookup",
+      "n": 10,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.75,
+      "recallAt10": 1,
+      "fileRecallAt10": 1,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 21,
+      "latencyMs": {
+        "p50": 26.5005,
+        "p95": 28.376125,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "A",
+      "class": "conceptual-discovery",
+      "n": 10,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0,
+      "recallAt10": 0,
+      "fileRecallAt10": 0.6,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 1292,
+      "latencyMs": {
+        "p50": 430.270667,
+        "p95": 469.417167,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "A",
+      "class": "impact-refactor",
+      "n": 10,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0,
+      "recallAt10": 0,
+      "fileRecallAt10": 1,
+      "locatorValidity": 1,
+      "allDependenciesFound": 0.5,
+      "rawValidity": null,
+      "tokensEstP50": 147,
+      "latencyMs": {
+        "p50": 209.629959,
+        "p95": 231.267709,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "A",
+      "class": "stale-index",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.6666666666666666,
+      "recallAt10": 0.6666666666666666,
+      "fileRecallAt10": 1,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 1211,
+      "latencyMs": {
+        "p50": 428.980209,
+        "p95": 479.539875,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "A",
+      "class": "dirty-tree",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.6666666666666666,
+      "recallAt10": 0.6666666666666666,
+      "fileRecallAt10": 1,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 1106,
+      "latencyMs": {
+        "p50": 446.017167,
+        "p95": 500.555041,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "A",
+      "class": "unavailable-provider",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 1,
+      "recallAt1": 0.3333333333333333,
+      "recallAt10": 0.6666666666666666,
+      "fileRecallAt10": 0.6666666666666666,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 223,
+      "latencyMs": {
+        "p50": 64.236542,
+        "p95": 81.869458,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "A",
+      "class": "oversized-context",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.3333333333333333,
+      "recallAt10": 1,
+      "fileRecallAt10": 1,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 1312,
+      "latencyMs": {
+        "p50": 423.159625,
+        "p95": 467.206667,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "A",
+      "class": "verification-failure",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0,
+      "recallAt10": 0,
+      "fileRecallAt10": 0,
+      "locatorValidity": null,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 11,
+      "latencyMs": {
+        "p50": 38.709708,
+        "p95": 41.842292,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "B",
+      "class": "exact-lookup",
+      "n": 10,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.75,
+      "recallAt10": 1,
+      "fileRecallAt10": 1,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 21,
+      "latencyMs": {
+        "p50": 18.366,
+        "p95": 20.337916,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "B",
+      "class": "conceptual-discovery",
+      "n": 10,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0,
+      "recallAt10": 0,
+      "fileRecallAt10": 0.3,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 228,
+      "latencyMs": {
+        "p50": 123.129959,
+        "p95": 153.463875,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "B",
+      "class": "impact-refactor",
+      "n": 10,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.2,
+      "recallAt10": 0.5,
+      "fileRecallAt10": 0.6,
+      "locatorValidity": 1,
+      "allDependenciesFound": 0,
+      "rawValidity": null,
+      "tokensEstP50": 231,
+      "latencyMs": {
+        "p50": 53.865,
+        "p95": 86.877166,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "B",
+      "class": "stale-index",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.3333333333333333,
+      "recallAt10": 0.6666666666666666,
+      "fileRecallAt10": 1,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 233,
+      "latencyMs": {
+        "p50": 62.006833,
+        "p95": 78.382541,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "B",
+      "class": "dirty-tree",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.6666666666666666,
+      "recallAt10": 0.6666666666666666,
+      "fileRecallAt10": 1,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 356,
+      "latencyMs": {
+        "p50": 72.055334,
+        "p95": 75.636833,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "B",
+      "class": "unavailable-provider",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.3333333333333333,
+      "recallAt10": 0.6666666666666666,
+      "fileRecallAt10": 0.6666666666666666,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 223,
+      "latencyMs": {
+        "p50": 67.274708,
+        "p95": 72.304959,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "B",
+      "class": "oversized-context",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.3333333333333333,
+      "recallAt10": 0.6666666666666666,
+      "fileRecallAt10": 1,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 194,
+      "latencyMs": {
+        "p50": 97.686041,
+        "p95": 108.578208,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "B",
+      "class": "verification-failure",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0,
+      "recallAt10": 0,
+      "fileRecallAt10": 0,
+      "locatorValidity": null,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 11,
+      "latencyMs": {
+        "p50": 30.267625,
+        "p95": 33.239334,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "C",
+      "class": "exact-lookup",
+      "n": 10,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.75,
+      "recallAt10": 1,
+      "fileRecallAt10": 1,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": {
+        "tasks": 10,
+        "raw": 31,
+        "rejected": 0,
+        "delivered": 31
+      },
+      "tokensEstP50": 21,
+      "latencyMs": {
+        "p50": 107.855167,
+        "p95": 122.252583,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "C",
+      "class": "conceptual-discovery",
+      "n": 10,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0,
+      "recallAt10": 0,
+      "fileRecallAt10": 0.4,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": {
+        "tasks": 10,
+        "raw": 100,
+        "rejected": 0,
+        "delivered": 100
+      },
+      "tokensEstP50": 800,
+      "latencyMs": {
+        "p50": 929.448583,
+        "p95": 985.764666,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "C",
+      "class": "impact-refactor",
+      "n": 10,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0,
+      "recallAt10": 0,
+      "fileRecallAt10": 1,
+      "locatorValidity": 1,
+      "allDependenciesFound": 0.5,
+      "rawValidity": null,
+      "tokensEstP50": 147,
+      "latencyMs": {
+        "p50": 212.064208,
+        "p95": 226.428167,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "C",
+      "class": "stale-index",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.3333333333333333,
+      "recallAt10": 0.6666666666666666,
+      "fileRecallAt10": 1,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 233,
+      "latencyMs": {
+        "p50": 61.513375,
+        "p95": 78.282041,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "C",
+      "class": "dirty-tree",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.6666666666666666,
+      "recallAt10": 0.6666666666666666,
+      "fileRecallAt10": 1,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 356,
+      "latencyMs": {
+        "p50": 72.856375,
+        "p95": 79.991417,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "C",
+      "class": "unavailable-provider",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.3333333333333333,
+      "recallAt10": 0.6666666666666666,
+      "fileRecallAt10": 0.6666666666666666,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 223,
+      "latencyMs": {
+        "p50": 67.013875,
+        "p95": 74.275917,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "C",
+      "class": "oversized-context",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.3333333333333333,
+      "recallAt10": 0.6666666666666666,
+      "fileRecallAt10": 1,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 194,
+      "latencyMs": {
+        "p50": 97.263875,
+        "p95": 107.678,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "code",
+      "config": "C",
+      "class": "verification-failure",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0,
+      "recallAt10": 0,
+      "fileRecallAt10": 0,
+      "locatorValidity": null,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 11,
+      "latencyMs": {
+        "p50": 39.014542,
+        "p95": 42.777917,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "guidance",
+      "config": "A",
+      "class": "exact-lookup",
+      "n": 10,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.875,
+      "recallAt10": null,
+      "fileRecallAt10": null,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 234,
+      "latencyMs": {
+        "p50": 3.506667,
+        "p95": 4.152333,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "guidance",
+      "config": "A",
+      "class": "conceptual-discovery",
+      "n": 10,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.1,
+      "recallAt10": null,
+      "fileRecallAt10": null,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 235,
+      "latencyMs": {
+        "p50": 3.390333,
+        "p95": 4.100916,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "guidance",
+      "config": "A",
+      "class": "stale-index",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 1,
+      "recallAt10": null,
+      "fileRecallAt10": null,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 241,
+      "latencyMs": {
+        "p50": 5.463125,
+        "p95": 8.091958,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "guidance",
+      "config": "A",
+      "class": "dirty-tree",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.6666666666666666,
+      "recallAt10": null,
+      "fileRecallAt10": null,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 232,
+      "latencyMs": {
+        "p50": 5.640833,
+        "p95": 6.689792,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "guidance",
+      "config": "A",
+      "class": "oversized-context",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 1,
+      "recallAt10": null,
+      "fileRecallAt10": null,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 251,
+      "latencyMs": {
+        "p50": 3.64675,
+        "p95": 4.119791,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "guidance",
+      "config": "B",
+      "class": "exact-lookup",
+      "n": 10,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.875,
+      "recallAt10": null,
+      "fileRecallAt10": null,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 234,
+      "latencyMs": {
+        "p50": 3.506667,
+        "p95": 4.152333,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "guidance",
+      "config": "B",
+      "class": "conceptual-discovery",
+      "n": 10,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.1,
+      "recallAt10": null,
+      "fileRecallAt10": null,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 235,
+      "latencyMs": {
+        "p50": 3.390333,
+        "p95": 4.100916,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "guidance",
+      "config": "B",
+      "class": "stale-index",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 1,
+      "recallAt10": null,
+      "fileRecallAt10": null,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 241,
+      "latencyMs": {
+        "p50": 5.463125,
+        "p95": 8.091958,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "guidance",
+      "config": "B",
+      "class": "dirty-tree",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.6666666666666666,
+      "recallAt10": null,
+      "fileRecallAt10": null,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 232,
+      "latencyMs": {
+        "p50": 5.640833,
+        "p95": 6.689792,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "guidance",
+      "config": "B",
+      "class": "oversized-context",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 1,
+      "recallAt10": null,
+      "fileRecallAt10": null,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 251,
+      "latencyMs": {
+        "p50": 3.64675,
+        "p95": 4.119791,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "guidance",
+      "config": "C",
+      "class": "exact-lookup",
+      "n": 10,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.875,
+      "recallAt10": null,
+      "fileRecallAt10": null,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 234,
+      "latencyMs": {
+        "p50": 3.474625,
+        "p95": 3.861958,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "guidance",
+      "config": "C",
+      "class": "conceptual-discovery",
+      "n": 10,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.1,
+      "recallAt10": null,
+      "fileRecallAt10": null,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 235,
+      "latencyMs": {
+        "p50": 3.349583,
+        "p95": 3.801709,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "guidance",
+      "config": "C",
+      "class": "stale-index",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 1,
+      "recallAt10": null,
+      "fileRecallAt10": null,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 241,
+      "latencyMs": {
+        "p50": 5.655916,
+        "p95": 6.391292,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "guidance",
+      "config": "C",
+      "class": "dirty-tree",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 0.6666666666666666,
+      "recallAt10": null,
+      "fileRecallAt10": null,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 232,
+      "latencyMs": {
+        "p50": 5.690458,
+        "p95": 7.201958,
+        "noisy": true
+      }
+    },
+    {
+      "corpus": "guidance",
+      "config": "C",
+      "class": "oversized-context",
+      "n": 3,
+      "state": "measured",
+      "unreachedCount": 0,
+      "recallAt1": 1,
+      "recallAt10": null,
+      "fileRecallAt10": null,
+      "locatorValidity": 1,
+      "allDependenciesFound": null,
+      "rawValidity": null,
+      "tokensEstP50": 251,
+      "latencyMs": {
+        "p50": 3.610917,
+        "p95": 4.023583,
+        "noisy": true
+      }
+    }
+  ],
+  "componentsByConfig": {
+    "code": {
+      "A": [
+        {
+          "id": "fd",
+          "version": null,
+          "state": "unreached",
+          "cause": "manifest-scoped filename search"
+        },
+        {
+          "id": "graphify.query",
+          "version": "graphify 0.9.92",
+          "state": "reached"
+        },
+        {
+          "id": "native.rg",
+          "version": "ripgrep 15.2.0",
+          "state": "reached"
+        },
+        {
+          "id": "rtk",
+          "version": "rtk 1.0.1",
+          "state": "reached"
+        },
+        {
+          "id": "semble.search",
+          "version": "0.7.0",
+          "state": "reached"
+        },
+        {
+          "id": "setup.command",
+          "version": null,
+          "state": "reached"
+        }
+      ],
+      "B": [
+        {
+          "id": "fd",
+          "version": null,
+          "state": "unreached",
+          "cause": "manifest-scoped filename search"
+        },
+        {
+          "id": "native.rg",
+          "version": "ripgrep 15.2.0",
+          "state": "reached"
+        },
+        {
+          "id": "setup.command",
+          "version": null,
+          "state": "reached"
+        }
+      ],
+      "C": [
+        {
+          "id": "fd",
+          "version": null,
+          "state": "unreached",
+          "cause": "manifest-scoped filename search"
+        },
+        {
+          "id": "graphify.query",
+          "version": "graphify 0.9.92",
+          "state": "reached"
+        },
+        {
+          "id": "native.rg",
+          "version": "ripgrep 15.2.0",
+          "state": "reached"
+        },
+        {
+          "id": "rtk",
+          "version": "rtk 1.0.1",
+          "state": "reached"
+        },
+        {
+          "id": "semble.search",
+          "version": "0.7.0",
+          "state": "reached"
+        },
+        {
+          "id": "setup.command",
+          "version": null,
+          "state": "reached"
+        }
+      ]
+    },
+    "guidance": {
+      "A": [
+        {
+          "id": "guidance.bm25",
+          "version": null,
+          "state": "reached"
+        }
+      ],
+      "B": [
+        {
+          "id": "guidance.bm25",
+          "version": null,
+          "state": "reached"
+        }
+      ],
+      "C": [
+        {
+          "id": "guidance.bm25",
+          "version": null,
+          "state": "reached"
+        }
+      ]
+    }
+  },
+  "indexCostsFromRun": {
+    "codeA": {
+      "buildMs": 5613.239165999999,
+      "incrementalMs": 4458.685167,
+      "diskBytes": 7413210,
+      "peakRssMB": 314.703125
+    },
+    "codeC": {
+      "state": "reached",
+      "buildMs": 3886,
+      "chunks": 10547,
+      "diskBytes": 23532515,
+      "peakRssMB": {
+        "unmeasured": "the index builder reports no resident-set size"
+      },
+      "freshness": "FRESH"
+    }
+  },
+  "cSideMeasurements": {
+    "note": "Own scripts outside the repo, /usr/bin/time -l, NOISY, node-process RSS only (child python RSS not separately reported). Export = harness materialiseExport of the pinned commit, scopes = manifest code paths.",
+    "build": {
+      "wallMs": 4635,
+      "chunks": 10547,
+      "maxRssBytes": 309362688,
+      "peakFootprintBytes": 166534992
+    },
+    "queries20": {
+      "n": 20,
+      "tasks": "first 20 dev code exact+conceptual, warm index",
+      "p50Ms": 808,
+      "p95Ms": 841,
+      "maxMs": 852,
+      "maxRssBytes": 308232192,
+      "peakFootprintBytes": 262028456
+    },
+    "cli": {
+      "command": "node bin/doflow.js retrieve --scope code --query validateCapabilityProviders --json",
+      "runs": 30,
+      "nonzeroExit": 0,
+      "p50Ms": 140,
+      "p95Ms": 154,
+      "minMs": 136,
+      "maxMs": 161,
+      "noisy": true,
+      "note": "process wall incl. node start, one fixed query, lexical-only effective profile"
+    }
+  },
+  "impactRefactorInvestigation": {
+    "result": "reached for A, B and C (10/10 each); no graphify No unique node match in the harness run",
+    "evidence": "R4 isolates C index tree from A graph tree. Historic cause (run order: C mirror copies polluting A graph) still reproducible with the old order in scratchpad d1c/graphrepro.js on the current tree: A-first 10/10 reached, 7944 nodes, 0 .doflow/index refs; C-first 0/10 unreached, 15715 nodes, 26191 refs.",
+    "fixApplied": false
+  }
+}

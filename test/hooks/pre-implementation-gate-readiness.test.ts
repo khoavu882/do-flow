@@ -1,0 +1,552 @@
+'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
+// pre-implementation-gate-readiness.test.js — the edit hook holds a task to a READY readiness
+// record: on a feature branch whose folder has a register and all three artifacts, and on any
+// branch whose run has its gated stage pending. It reads the main checkout's folder, records and
+// runs from a linked worktree, prints the runtime's refusal texts byte for byte, holds a run
+// started before DoFlow 1.22.0 like any other, and allows whenever it cannot decide.
+//
+// The policy is copied into a scratch install layout (<x>/shared/hooks/policies/ beside
+// <x>/runtime/core/registry/workflows.json) and run with bash in scratch git repositories under a
+// scratch HOME; runs are written by the real bin/doflow.js.
+const { test, after } = require('node:test');
+const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+
+const REPO = path.resolve(__dirname, '../..');
+const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
+const POLICY = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'pre-implementation-gate.sh');
+const REGISTRY = path.join(REPO, 'core', 'registry', 'workflows.json');
+const RESOLVER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash', 'do-paths.sh');
+const POLICY_CONTRACT = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'contract.sh');
+const BRIDGE = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'bridge');
+const { refusalText } = require('../../src/runtime/implementation-gate.ts');
+const { createScratch } = require('../helper/scratch-env.ts');
+const { encodeEnvelope } = require('../helper/hook-fixtures.ts');
+
+const HOOK_TEST = process.platform !== 'win32' ? test : test.skip; // GUARD: needs bash + jq
+const GIT_IDENTITY: any = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
+const CASE_TIMEOUT_MS = 240_000;
+const ARTIFACT_MESSAGE = '[pre-implementation-gate] doflow gate: feature agent-docs/doflow/900-demo is missing requirement.md, design.md, or plan.md — run /do-brainstorm, /do-design, then /do-plan before editing source. (Edits under agent-docs/ are always allowed; skip the flow by removing the feature dir.)\n';
+const EVALUATED_AT = '2026-01-01T00:00:00.000Z';
+
+const scratch = createScratch('doflow-gate-readiness-');
+after(() => scratch.remove());
+
+function write(file: any, text: any) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, text);
+}
+
+/** A copy of the policy at `<dir>/shared/hooks/policies/` beside `<dir>/runtime/core/registry/`. */
+function installLayout(dir: any, registryText: any) {
+  const policy = path.join(dir, 'shared', 'hooks', 'policies', 'pre-implementation-gate.sh');
+  write(policy, fs.readFileSync(POLICY, 'utf8'));
+  write(path.join(path.dirname(policy), 'contract.sh'), fs.readFileSync(POLICY_CONTRACT, 'utf8'));
+  fs.cpSync(BRIDGE, path.join(dir, 'shared', 'hooks', 'bridge'), { recursive: true });
+  write(path.join(dir, 'runtime', 'core', 'registry', 'workflows.json'), registryText);
+  return policy;
+}
+
+const LAYOUT_POLICY = installLayout(path.join(scratch.dir, 'layout'), fs.readFileSync(REGISTRY, 'utf8'));
+
+/** The shipped registry with every readiness template removed. */
+const NO_TEMPLATE_POLICY = (() => {
+  const doc = JSON.parse(fs.readFileSync(REGISTRY, 'utf8'));
+  for (const cls of Object.values(doc.classes)) for (const stage of cls.stages) stage.readinessTemplate = null;
+  return installLayout(path.join(scratch.dir, 'layout-no-template'), JSON.stringify(doc));
+})();
+
+/** The policy alone, deep enough that no registry candidate exists beside it. */
+const ALONE_POLICY = (() => {
+  const policy = path.join(scratch.dir, 'alone', 'a', 'b', 'c', 'pre-implementation-gate.sh');
+  write(policy, fs.readFileSync(POLICY, 'utf8'));
+  write(path.join(path.dirname(policy), 'contract.sh'), fs.readFileSync(POLICY_CONTRACT, 'utf8'));
+  fs.cpSync(BRIDGE, path.join(path.dirname(policy), 'bridge'), { recursive: true });
+  return policy;
+})();
+
+// Two HOMEs: an empty one (no resolver installed: the policy's branch fallback) and one with
+// do-paths.sh installed where the policy looks first. Every hook case runs under both.
+const RESOLVER_HOME = path.join(scratch.dir, 'home-resolver');
+write(path.join(RESOLVER_HOME, '.doflow', 'scripts', 'doflow', 'bash', 'do-paths.sh'), fs.readFileSync(RESOLVER, 'utf8'));
+fs.chmodSync(path.join(RESOLVER_HOME, '.doflow', 'scripts', 'doflow', 'bash', 'do-paths.sh'), 0o755);
+
+function spawnEnv(extra: any = {}) {
+  // Harness variables naming the developer's own config folders would let a real resolver in.
+  return scratch.env({
+    GIT_CONFIG_GLOBAL: '/dev/null', CLAUDE_CONFIG_DIR: '', CLAUDE_PROJECT_DIR: '', CODEX_HOME: '', DOFLOW_PROJECT_DIR: '', ...extra,
+  });
+}
+
+function git(cwd: any, ...args: any[]) {
+  const result = spawnSync('git', [...GIT_IDENTITY, ...args], { cwd, env: spawnEnv(), encoding: 'utf8' });
+  assert.strictEqual(result.status, 0, `git ${args.join(' ')} failed: ${result.stderr}`);
+  return result.stdout;
+}
+
+function doflow(cwd: any, args: any) {
+  const result = spawnSync(process.execPath, [DOFLOW, ...args], { cwd, env: spawnEnv(), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 16 * 1024 * 1024 });
+  assert.strictEqual(result.status, 0, `doflow ${args.join(' ')}: ${result.stdout}\n${result.stderr}`);
+  return result;
+}
+
+/** Every file under `root` but .git, with its bytes, so a hook call can be shown to write nothing. */
+function snapshot(root: any) {
+  const out: any = [];
+  const walk = (dir: any) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === '.git') continue;
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isSymbolicLink()) out.push(`${path.relative(root, full)}:->${fs.readlinkSync(full)}`);
+      else out.push(`${path.relative(root, full)}:${fs.readFileSync(full, 'base64')}`);
+    }
+  };
+  walk(root);
+  return out.sort();
+}
+
+const editEvent = (file: any) => ({ tool_name: 'Edit', tool_input: { file_path: file } });
+const envelopeEvent = (root: any, file: any, taskId: any) => JSON.parse(encodeEnvelope(
+  'claude', 'PreToolUse', 'pre-implementation-gate', JSON.stringify(editEvent(file)),
+  { DOFLOW_PROJECT_DIR: root, DOFLOW_TASK_ID: taskId },
+));
+
+/**
+ * Runs the policy on `event` from `cwd`, once without a resolver and once with one, and asserts
+ * both give `code` and, when given, exactly `stderr`. Nothing under `caseRoot` may change.
+ */
+function expectHook({ cwd, caseRoot, event, code, stderr, policy = LAYOUT_POLICY, resolver = true }: any) {
+  const input = event.doflow_event?.version === 1 ? JSON.stringify(event) : encodeEnvelope('claude', 'PreToolUse', 'pre-implementation-gate', JSON.stringify(event), { DOFLOW_PROJECT_DIR: cwd });
+  const homes = resolver ? [scratch.home, RESOLVER_HOME] : [scratch.home];
+  for (const home of homes) {
+    const before = snapshot(caseRoot);
+    const result = spawnSync(bashPath(), [policy], { cwd, input, env: spawnEnv({ HOME: home, DOFLOW_PROJECT_DIR: cwd }), encoding: 'utf8' });
+    const label = home === RESOLVER_HOME ? 'with resolver' : 'no resolver';
+    assert.strictEqual(result.status, code, `${label}: exit ${result.status}, stderr: ${result.stderr}`);
+    if (stderr !== undefined) assert.strictEqual(result.stderr, stderr, label);
+    assert.deepStrictEqual(snapshot(caseRoot), before, `${label}: the hook writes nothing`);
+  }
+}
+
+let rootCounter = 0;
+/** A repository `m` with committed src/a.js, `agent-docs/` and `.doflow/` ignored, on `branch`. */
+function makeRepo(branch?: any) {
+  const root = path.join(scratch.dir, `case-${rootCounter += 1}`);
+  const main = path.join(root, 'm');
+  fs.mkdirSync(main, { recursive: true });
+  git(main, 'init', '-q', '-b', 'main');
+  write(path.join(main, 'src', 'a.js'), 'a\n');
+  write(path.join(main, '.gitignore'), 'agent-docs/\n.doflow/\n');
+  git(main, 'add', '-A');
+  git(main, 'commit', '-q', '-m', 'init');
+  if (branch) git(main, 'checkout', '-q', '-b', branch);
+  return { root, main: fs.realpathSync(main) };
+}
+
+/** The feature folder `slug` under `checkout`: the three artifacts and, unless told not to, a register. */
+function writeFeature(checkout: any, slug: any, { register = true, design = true }: any = {}) {
+  const folder = path.join(checkout, 'agent-docs', 'doflow', slug);
+  write(path.join(folder, 'intention', 'requirement.md'), '# requirement\n');
+  if (design) write(path.join(folder, 'design', 'design.md'), '# design\n');
+  // Row 134: catch-up backfills the planning stage, which needs a passing Constitution Check.
+  write(path.join(folder, 'plan.md'), '## 2. Constitution Check\n\n| Principle | Tier | Result | How |\n|---|---|---|---|\n'
+    + ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'].map((id) => `| ${id} | MUST | PASS | demo |\n`).join('') + '\n- [ ] A.1 [US1] demo — owner: x; files: src/a.js\n');
+  if (register) write(path.join(folder, 'decisions', 'register.json'), `${JSON.stringify({ version: 1, slug, nextId: 1, decisions: [] })}\n`);
+}
+
+const recordPath = (checkout: any, rel: any) => path.join(checkout, '.doflow', 'state', 'readiness', rel);
+
+/** A readiness record as the runtime writes it, at `.doflow/state/readiness/<rel>`. */
+function writeRecord(checkout: any, rel: any, { taskId, taskClass, state }: any) {
+  write(recordPath(checkout, rel), `${JSON.stringify({
+    version: 1, taskId, slug: null, taskClass, templateName: taskClass, state, stageEntry: 'ENTER', executionMode: 'workflow',
+    inputs: {}, declaredScope: null, unmet: [], evidenceCount: 1, evaluatedAt: EVALUATED_AT,
+  }, null, 2)}\n`);
+}
+
+const runFile = (checkout: any, taskId: any) => path.join(checkout, '.doflow', 'state', 'orchestration', `${taskId}.json`);
+
+/** Starts a run for `taskId` as `cls` and approves gates until the current stage is `stage`. */
+function walkTo(cwd: any, taskId: any, cls: any, stage: any) {
+  const catchUp = () => doflow(cwd, ['orchestrate', '--action', 'catch-up', '--task-id', taskId, '--task-class', cls, '--stage', stage, '--json']);
+  let snapshotJson = JSON.parse(catchUp().stdout);
+  for (let step = 0; step < 6; step += 1) {
+    if (snapshotJson.current && snapshotJson.current.id === stage) return;
+    assert.ok(snapshotJson.awaitingGate, `walk stopped at ${JSON.stringify(snapshotJson.current)} with no gate to decide`);
+    doflow(cwd, ['orchestrate', '--action', 'decide-gate', '--task-id', taskId, '--gate', snapshotJson.awaitingGate.gateId, '--decision', 'approve', '--note', 'test', '--json']);
+    snapshotJson = JSON.parse(catchUp().stdout);
+  }
+  throw new Error(`never reached stage ${stage}`);
+}
+
+/** Makes the run file one from before DoFlow 1.22.0 (`present` false: no `readinessFloor` key) or
+ * one written by 1.22.x (`present` true: the key it carried, which nothing reads now). */
+function setFloor(file: any, present: any) {
+  const run = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.strictEqual(typeof run.startedAt, 'string');
+  if (present) run.readinessFloor = 1;
+  else delete run.readinessFloor;
+  fs.writeFileSync(file, `${JSON.stringify(run, null, 2)}\n`);
+}
+
+HOOK_TEST('a feature branch with a register and three artifacts needs a READY feature record; the texts are the runtime\'s', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo('feat/900-demo');
+  writeFeature(main, '900-demo');
+  const edit = editEvent(path.join(main, 'src', 'a.js'));
+  const base: any = { cwd: main, caseRoot: root, event: edit };
+
+  expectHook({ ...base, code: 2, stderr: `${refusalText('missing', { taskId: '900-demo', template: 'feature' })}\n` });
+  expectHook({ ...base, event: envelopeEvent(main, path.join(main, 'src', 'a.js'), '900-demo'), code: 2, stderr: `${refusalText('missing', { taskId: '900-demo', template: 'feature' })}\n` });
+  expectHook({ ...base, event: editEvent(path.join(main, 'agent-docs', 'doflow', '900-demo', 'plan.md')), code: 0, stderr: '' });
+  // A model write to DoFlow's own state is gated like source: a forged readiness record must not open the gate.
+  expectHook({ ...base, event: { tool_name: 'Write', tool_input: { file_path: path.join(main, '.doflow', 'state', 'readiness', 'x.json'), content: '{"state":"READY"}' } },
+    code: 2, stderr: `${refusalText('missing', { taskId: '900-demo', template: 'feature' })}\n` });
+
+  // An envelope task id other than the slug names a namespaced record and the slug in the command.
+  expectHook({
+    ...base, event: envelopeEvent(main, path.join(main, 'src', 'a.js'), 'A.1'), code: 2,
+    stderr: `${refusalText('missing', { taskId: 'A.1', slug: '900-demo', template: 'feature' })}\n`,
+  });
+  writeRecord(main, path.join('900-demo', 'A.1.json'), { taskId: 'A.1', taskClass: 'feature', state: 'READY' });
+  expectHook({ ...base, event: envelopeEvent(main, path.join(main, 'src', 'a.js'), 'A.1'), code: 0, stderr: '' });
+
+  // DEC-033: this v1-only input has no legacy tool fields; the copy that skips v1 takes the out-of-step block.
+  const noV1Policy = path.join(scratch.dir, 'no-v1', 'pre-implementation-gate.sh');
+  const policyText = fs.readFileSync(POLICY, 'utf8');
+  assert.ok(policyText.includes('if [ "$DF_ENV_CLASS" = v1 ]; then'), 'the v1 branch is present');
+  write(noV1Policy, policyText.replace('if [ "$DF_ENV_CLASS" = v1 ]; then', 'if false; then'));
+  write(path.join(path.dirname(noV1Policy), 'contract.sh'), fs.readFileSync(POLICY_CONTRACT, 'utf8'));
+  fs.cpSync(BRIDGE, path.join(path.dirname(noV1Policy), 'bridge'), { recursive: true });
+  fs.chmodSync(noV1Policy, 0o755);
+  const envelopeOnly = envelopeEvent(main, path.join(main, 'src', 'a.js'), '900-demo');
+  delete envelopeOnly.tool_name;
+  delete envelopeOnly.tool_input;
+  expectHook({
+    ...base, event: envelopeOnly, code: 2,
+    stderr: `${refusalText('missing', { taskId: '900-demo', template: 'feature' })}\n`,
+  });
+  expectHook({ ...base, policy: noV1Policy, event: envelopeOnly, code: 2, stderr: '[pre-implementation-gate] DoFlow hooks out of step; run: doflow update\n' });
+
+  writeRecord(main, '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'NEEDS_EVIDENCE' });
+  expectHook({
+    ...base, code: 2,
+    stderr: `${refusalText('not-ready', { taskId: '900-demo', template: 'feature', record: { state: 'NEEDS_EVIDENCE', evaluatedAt: EVALUATED_AT } })}\n`,
+  });
+
+  writeRecord(main, '900-demo.json', { taskId: '900-demo', taskClass: 'bug', state: 'READY' });
+  expectHook({ ...base, code: 2, stderr: `${refusalText('wrong-template', { taskId: '900-demo', template: 'feature', record: { taskClass: 'bug' } })}\n` });
+
+  write(recordPath(main, '900-demo.json'), '{ not json');
+  expectHook({ ...base, code: 0, stderr: '' });
+  write(recordPath(main, '900-demo.json'), '{"version": 1, "taskClass": "feature"}\n');
+  expectHook({ ...base, code: 0, stderr: '' });
+  fs.rmSync(recordPath(main, '900-demo.json'));
+
+  // The registry decides which class is held: none held, or none found, allows.
+  expectHook({ ...base, policy: NO_TEMPLATE_POLICY, code: 0, stderr: '' });
+  expectHook({ ...base, policy: ALONE_POLICY, resolver: false, code: 0, stderr: '' });
+
+  // A READY record written by the runtime itself is where the hook reads it.
+  doflow(main, ['evidence', '--task-id', '900-demo', '--slug=900-demo', '--action', 'add', '--kind', 'structural', '--provenance', 'extracted',
+    '--provider', 'graph', '--capability', 'code.structural', '--locator', 'agent-docs/doflow/900-demo/plan.md', '--content', 'plan lists src/a.js',
+    '--establishes', 'affected_components', '--json']);
+  const ready = doflow(main, ['readiness', '--task-class', 'feature', '--task-id', '900-demo', '--slug=900-demo', '--scope', 'src/a.js', '--verification-plan', 'node -e 0']);
+  assert.ok(ready.stdout.includes('READY') && ready.stdout.includes('Recorded:'), ready.stdout);
+  expectHook({ ...base, code: 0, stderr: '' });
+  expectHook({ ...base, event: envelopeEvent(main, path.join(main, 'src', 'a.js'), '900-demo'), code: 0, stderr: '' });
+});
+
+HOOK_TEST('a feature folder from before the register is not held to a record', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo('feat/910-old');
+  writeFeature(main, '910-old', { register: false });
+  expectHook({ cwd: main, caseRoot: root, event: editEvent(path.join(main, 'src', 'a.js')), code: 0, stderr: '' });
+});
+
+HOOK_TEST('a feature run is held while its implementation stage is pending, and not once it is completed', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo('feat/900-demo');
+  writeFeature(main, '900-demo');
+  const base: any = { cwd: main, caseRoot: root, event: editEvent(path.join(main, 'src', 'a.js')) };
+  const missing = `${refusalText('missing', { taskId: '900-demo', template: 'feature' })}\n`;
+
+  walkTo(main, '900-demo', 'feature', 'implementation');
+  expectHook({ ...base, code: 2, stderr: missing });
+
+  // A run file from before DoFlow 1.22.0, or from 1.22.x, is held the same way.
+  const started = fs.readFileSync(runFile(main, '900-demo'));
+  setFloor(runFile(main, '900-demo'), false);
+  expectHook({ ...base, code: 2, stderr: missing });
+  setFloor(runFile(main, '900-demo'), true);
+  expectHook({ ...base, code: 2, stderr: missing });
+  fs.writeFileSync(runFile(main, '900-demo'), started);
+
+  // Completing the stage needs a READY record; once past it the run is not held, record or not.
+  writeRecord(main, '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'READY' });
+  doflow(main, ['orchestrate', '--action', 'complete-stage', '--task-id', '900-demo', '--stage', 'implementation', '--task-class', 'feature', '--note', 'test']);
+  fs.rmSync(recordPath(main, '900-demo.json'));
+  expectHook({ ...base, code: 0, stderr: '' });
+  setFloor(runFile(main, '900-demo'), false);
+  expectHook({ ...base, code: 0, stderr: '' });
+});
+
+HOOK_TEST('an exempt branch is held only by its run: bug held, a bug run from before DoFlow 1.22.0 too, trivial-edit not', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo('fix/901-bug');
+  const base: any = { cwd: main, caseRoot: root, event: editEvent(path.join(main, 'src', 'a.js')) };
+
+  expectHook({ ...base, code: 0, stderr: '' });
+  walkTo(main, '901-bug', 'bug', 'implementation');
+  expectHook({ ...base, code: 2, stderr: `${refusalText('missing', { taskId: '901-bug', template: 'bug' })}\n` });
+  setFloor(runFile(main, '901-bug'), false);
+  expectHook({ ...base, code: 2, stderr: `${refusalText('missing', { taskId: '901-bug', template: 'bug' })}\n` });
+
+  git(main, 'checkout', '-q', '-b', 'fix/903-trivial', 'main');
+  walkTo(main, '903-trivial', 'trivial-edit', 'implementation');
+  expectHook({ ...base, code: 0, stderr: '' });
+});
+
+HOOK_TEST('a linked worktree reads the main checkout\'s feature folder, run and records', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo();
+  writeFeature(main, '900-demo', { design: false });
+  git(main, 'worktree', 'add', '-q', '-b', 'feat/900-demo', path.join(root, 'wt'));
+  const wt = fs.realpathSync(path.join(root, 'wt'));
+  const base: any = { cwd: wt, caseRoot: root, event: editEvent(path.join(wt, 'src', 'a.js')) };
+
+  expectHook({ ...base, code: 2, stderr: ARTIFACT_MESSAGE });
+
+  // A run, from before DoFlow 1.22.0 or since, leaves the artifact check as it is.
+  walkTo(main, '900-demo', 'feature', 'discovery');
+  setFloor(runFile(main, '900-demo'), false);
+  expectHook({ ...base, code: 2, stderr: ARTIFACT_MESSAGE });
+  fs.rmSync(runFile(main, '900-demo'));
+
+  write(path.join(main, 'agent-docs', 'doflow', '900-demo', 'design', 'design.md'), '# design\n');
+  expectHook({ ...base, code: 2, stderr: `${refusalText('missing', { taskId: '900-demo', template: 'feature' })}\n` });
+  writeRecord(main, '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'READY' });
+  expectHook({ ...base, code: 0, stderr: '' });
+
+  // The main checkout's record decides (115 C-3: every record lives there), even when another
+  // worktree holds one too; with none in the main checkout, a record in exactly one other checkout
+  // decides, and in two others the hook cannot tell which is meant.
+  const notReady = `${refusalText('not-ready', { taskId: '900-demo', template: 'feature', record: { state: 'NEEDS_EVIDENCE', evaluatedAt: EVALUATED_AT } })}\n`;
+  writeRecord(main, '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'NEEDS_EVIDENCE' });
+  expectHook({ ...base, code: 2, stderr: notReady });
+  git(main, 'worktree', 'add', '-q', '-b', 'feat/920-other', path.join(root, 'wt2'));
+  writeRecord(fs.realpathSync(path.join(root, 'wt2')), '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'READY' });
+  expectHook({ ...base, code: 2, stderr: notReady });
+  fs.rmSync(recordPath(main, '900-demo.json'));
+  writeRecord(fs.realpathSync(path.join(root, 'wt2')), '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'NEEDS_EVIDENCE' });
+  expectHook({ ...base, code: 2, stderr: notReady });
+  git(main, 'worktree', 'add', '-q', '-b', 'feat/921-third', path.join(root, 'wt3'));
+  writeRecord(fs.realpathSync(path.join(root, 'wt3')), '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'NEEDS_EVIDENCE' });
+  expectHook({ ...base, code: 0, stderr: '' });
+
+  // A DoFlow sandbox sees no other checkout, so the main checkout's folder does not hold it.
+  write(path.join(wt, '.doflow-worktree-base'), 'base\n');
+  expectHook({ ...base, code: 0, stderr: '' });
+});
+
+HOOK_TEST('the hook reads records where the runtime does, and another feature\'s run with the same id is not this task\'s', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo('feat/900-demo');
+  writeFeature(main, '900-demo');
+  const envelope = envelopeEvent(main, path.join(main, 'src', 'a.js'), 'A.1');
+  // `readiness` on a branch with no feature writes the record flat; the namespaced path is read
+  // first and the flat one after, by the runtime and the hook alike.
+  writeRecord(main, 'A.1.json', { taskId: 'A.1', taskClass: 'feature', state: 'READY' });
+  expectHook({ cwd: main, caseRoot: root, event: envelope, code: 0, stderr: '' });
+
+  const other = makeRepo('fix/901-bug');
+  git(other.main, 'worktree', 'add', '-q', '-b', 'fix/other', path.join(other.root, 'w1'));
+  const w1 = fs.realpathSync(path.join(other.root, 'w1'));
+  walkTo(w1, '901-bug', 'bug', 'implementation');
+  // 115 C-1: the worktree's run is kept in the main checkout, under its own feature's namespace, so
+  // the main checkout's task `901-bug` (feature `901-bug`) is not held by it.
+  const theirs = path.join(other.main, '.doflow', 'state', 'orchestration', 'other', '901-bug.json');
+  assert.strictEqual(JSON.parse(fs.readFileSync(theirs, 'utf8')).featureSlug, 'other');
+  assert.ok(!fs.existsSync(runFile(other.main, '901-bug')) && !fs.existsSync(runFile(w1, '901-bug')));
+  expectHook({ cwd: other.main, caseRoot: other.root, event: editEvent(path.join(other.main, 'src', 'a.js')), code: 0, stderr: '' });
+});
+
+HOOK_TEST('O6: a run an earlier version left in a worktree\'s own store holds its feature\'s task, and no other', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo('fix/901-bug');
+  git(main, 'worktree', 'add', '-q', '-b', 'fix/other', path.join(root, 'w1'));
+  const w1 = fs.realpathSync(path.join(root, 'w1'));
+  // Written as a version before 115 wrote it: the main checkout's feature's run, left in the worktree.
+  walkTo(main, '901-bug', 'bug', 'implementation');
+  write(runFile(w1, '901-bug'), fs.readFileSync(runFile(main, '901-bug'), 'utf8'));
+  fs.rmSync(runFile(main, '901-bug'));
+  const base: any = { cwd: main, caseRoot: root, event: editEvent(path.join(main, 'src', 'a.js')) };
+  expectHook({ ...base, code: 2, stderr: `${refusalText('missing', { taskId: '901-bug', template: 'bug' })}\n` });
+  const run = JSON.parse(fs.readFileSync(runFile(w1, '901-bug'), 'utf8'));
+  write(runFile(w1, '901-bug'), JSON.stringify({ ...run, featureSlug: 'other' }));
+  expectHook({ ...base, code: 0, stderr: '' });
+});
+
+HOOK_TEST('from a linked worktree a readiness copy that differs from the main checkout\'s refuses, as the runtime does', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo();
+  writeFeature(main, '900-demo');
+  git(main, 'worktree', 'add', '-q', '-b', 'feat/900-demo', path.join(root, 'wt'));
+  const wt = fs.realpathSync(path.join(root, 'wt'));
+  const base: any = { cwd: wt, caseRoot: root, event: editEvent(path.join(wt, 'src', 'a.js')) };
+  writeRecord(main, '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'NEEDS_EVIDENCE' });
+  writeRecord(wt, '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'READY' });
+  expectHook({
+    ...base, code: 2,
+    stderr: `${refusalText('store-conflict', { taskId: '900-demo', template: 'feature', candidates: [recordPath(wt, '900-demo.json'), recordPath(main, '900-demo.json')] })}\n`,
+  });
+  // The same bytes in both are one record.
+  writeRecord(wt, '900-demo.json', { taskId: '900-demo', taskClass: 'feature', state: 'NEEDS_EVIDENCE' });
+  expectHook({
+    ...base, code: 2,
+    stderr: `${refusalText('not-ready', { taskId: '900-demo', template: 'feature', record: { state: 'NEEDS_EVIDENCE', evaluatedAt: EVALUATED_AT } })}\n`,
+  });
+});
+
+HOOK_TEST('the hook and the runtime print the same refusal for the same task, slug or none', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo('fix/77-thing');
+  walkTo(main, 'T1', 'bug', 'implementation');
+  const handoff = spawnSync(process.execPath, [DOFLOW, 'orchestrate', '--action', 'handoff', '--task-id', 'T1', '--calling-skill', 'do-implement', '--note', 'n'],
+    { cwd: main, env: spawnEnv(), encoding: 'utf8' });
+  assert.strictEqual(handoff.status, 1, handoff.stdout);
+  const runtime = handoff.stderr.replace(/^\[ERROR\] orchestrate: /, '').replace(/ Edit-time check: .*$/s, '');
+  assert.ok(runtime.startsWith("doflow gate readiness-before-implementation: task 'T1' has no readiness record for the 'bug' template."), runtime);
+  // No feature folder for `77-thing`: neither side names a slug a readiness run could not resolve.
+  expectHook({ cwd: main, caseRoot: root, event: envelopeEvent(main, path.join(main, 'src', 'a.js'), 'T1'), code: 2, stderr: `${runtime}\n` });
+
+  const feature = makeRepo('feat/900-demo');
+  writeFeature(feature.main, '900-demo');
+  walkTo(feature.main, 'A.1', 'bug', 'implementation');
+  const held = spawnSync(process.execPath, [DOFLOW, 'orchestrate', '--action', 'handoff', '--task-id', 'A.1', '--calling-skill', 'do-implement', '--note', 'n'],
+    { cwd: feature.main, env: spawnEnv(), encoding: 'utf8' });
+  const named = held.stderr.replace(/^\[ERROR\] orchestrate: /, '').replace(/ Edit-time check: .*$/s, '');
+  assert.ok(named.includes('--task-id A.1 --slug=900-demo,'), named);
+  expectHook({ cwd: feature.main, caseRoot: feature.root, event: envelopeEvent(feature.main, path.join(feature.main, 'src', 'a.js'), 'A.1'), code: 2, stderr: `${named}\n` });
+});
+
+HOOK_TEST('a run whose program lacks the gated stage is not judged: the hook allows, as verify does', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo('fix/901-bug');
+  walkTo(main, '901-bug', 'bug', 'implementation');
+  const run = JSON.parse(fs.readFileSync(runFile(main, '901-bug'), 'utf8'));
+  delete run.program;
+  fs.writeFileSync(runFile(main, '901-bug'), JSON.stringify(run));
+  expectHook({ cwd: main, caseRoot: root, event: editEvent(path.join(main, 'src', 'a.js')), code: 0, stderr: '' });
+  const verify = spawnSync(process.execPath, [DOFLOW, 'verify', '--task-id', '901-bug', '--action', 'report', '--json'], { cwd: main, env: spawnEnv(), encoding: 'utf8' });
+  assert.deepStrictEqual(JSON.parse(verify.stdout).readiness, { applies: false, reason: 'no-gated-stage' });
+});
+
+HOOK_TEST('a file reached through a symlinked project path is gated like its real path', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo('feat/900-demo');
+  writeFeature(main, '900-demo');
+  const link = path.join(scratch.dir, `link-${path.basename(root)}`);   // outside the snapshot root
+  fs.symlinkSync(main, link);
+  const missing = `${refusalText('missing', { taskId: '900-demo', template: 'feature' })}\n`;
+  expectHook({ cwd: link, caseRoot: root, event: editEvent(path.join(link, 'src', 'a.js')), code: 2, stderr: missing });
+  expectHook({ cwd: main, caseRoot: root, event: editEvent(path.join(link, 'src', 'new', 'b.js')), code: 2, stderr: missing });
+  expectHook({ cwd: main, caseRoot: root, event: editEvent(path.join(link, 'agent-docs', 'doflow', '900-demo', 'plan.md')), code: 0, stderr: '' });
+});
+
+HOOK_TEST('from a linked worktree whose feature folder lives only in the main checkout, the refused task reaches READY and the edit is allowed', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo();
+  writeFeature(main, '930-wt');
+  git(main, 'worktree', 'add', '-q', '-b', 'feat/930-wt', path.join(root, 'wt'));
+  const wt = fs.realpathSync(path.join(root, 'wt'));
+  const edit: any = { cwd: wt, caseRoot: root, event: editEvent(path.join(wt, 'src', 'a.js')) };
+  const missing = refusalText('missing', { taskId: '930-wt', template: 'feature' });
+  expectHook({ ...edit, code: 2, stderr: `${missing}\n` });
+
+  // Every step is run where the refusal was printed, the worktree, as the refusal's next command says.
+  const evidence = spawnSync(process.execPath, [DOFLOW, 'evidence', '--task-id', '930-wt', '--slug=930-wt', '--action', 'add', '--kind', 'structural',
+    '--provenance', 'extracted', '--provider', 'graph', '--capability', 'code.structural', '--locator', 'agent-docs/doflow/930-wt/plan.md',
+    '--content', 'plan lists src/a.js', '--establishes', 'affected_components', '--json'], { cwd: wt, env: spawnEnv(), encoding: 'utf8' });
+  assert.strictEqual(evidence.status, 0, `${evidence.stdout}\n${evidence.stderr}`);
+  assert.ok(evidence.stderr.includes(`records are kept in the main checkout ${main}`), evidence.stderr);
+  assert.ok(!evidence.stderr.includes('names no feature'), evidence.stderr);
+
+  const next = missing.match(/Next: (doflow-run readiness [^,]+),/)[1].replace(/^doflow-run /, '').split(' ');
+  const ready = spawnSync(process.execPath, [DOFLOW, ...next, '--scope', 'src/a.js', '--verification-plan', 'node -e 0'], { cwd: wt, env: spawnEnv(), encoding: 'utf8' });
+  assert.strictEqual(ready.status, 0, `${ready.stdout}\n${ready.stderr}`);
+  assert.ok(ready.stdout.includes('✓ READY'), ready.stdout);
+  assert.ok(fs.existsSync(recordPath(main, '930-wt.json')), 'the record sits beside the feature folder, in the main checkout');
+  assert.ok(!fs.existsSync(path.join(wt, '.doflow')), 'nothing was written in the worktree');
+
+  expectHook({ ...edit, code: 0, stderr: '' });
+});
+
+HOOK_TEST('an edit to a path git ignores is not gated; a tracked file matching an ignore pattern and a plain source path still are', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo();
+  write(path.join(main, 'src', 'tracked.log'), 't\n');
+  git(main, 'add', '-A');
+  git(main, 'commit', '-q', '-m', 'tracked.log');
+  write(path.join(main, '.gitignore'), 'agent-docs/\n.doflow/\n.mcp.json\n*.log\n');
+  git(main, 'checkout', '-q', '-b', 'feat/940-ign');
+  writeFeature(main, '940-ign');
+  const refused = `${refusalText('missing', { taskId: '940-ign', template: 'feature' })}\n`;
+  const at = (rel: any) => ({ cwd: main, caseRoot: root, event: editEvent(path.join(main, rel)) });
+
+  // Negative controls: a plain source path, and a tracked file an ignore pattern happens to match.
+  expectHook({ ...at(path.join('src', 'a.js')), code: 2, stderr: refused });
+  expectHook({ ...at(path.join('src', 'tracked.log')), code: 2, stderr: refused });
+  // Ignored: an untracked config file, an untracked file under an ignored pattern, and a relative path.
+  expectHook({ ...at('.mcp.json'), code: 0, stderr: '' });
+  expectHook({ ...at(path.join('src', 'new.log')), code: 0, stderr: '' });
+  expectHook({ cwd: main, caseRoot: root, event: editEvent('.mcp.json'), code: 0, stderr: '' });
+  expectHook({ cwd: main, caseRoot: root, event: editEvent(path.join('src', 'a.js')), code: 2, stderr: refused });
+});
+
+HOOK_TEST('maint-thin P1: the ignored-path skip never covers .doflow state, so a Write forging READY stays gated; other ignored files are still skipped', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo();
+  write(path.join(main, '.gitignore'), 'agent-docs/\n.doflow/\nlinks/\n.mcp.json\n');
+  git(main, 'checkout', '-q', '-b', 'feat/941-forge');
+  writeFeature(main, '941-forge');
+  fs.mkdirSync(path.join(main, '.doflow', 'state', 'readiness'), { recursive: true });
+  fs.mkdirSync(path.join(main, 'links'), { recursive: true });
+  fs.symlinkSync(path.join(main, '.doflow', 'state'), path.join(main, 'links', 'st'));
+  const refused = `${refusalText('missing', { taskId: '941-forge', template: 'feature' })}\n`;
+  const forge = (file: any) => ({ tool_name: 'Write', tool_input: { file_path: file, content: '{"verdict":"READY"}' } });
+
+  // A forged readiness record: absolute, relative, through `..`, and through an ignored symlink into .doflow.
+  expectHook({ cwd: main, caseRoot: root, event: forge(path.join(main, '.doflow', 'state', 'readiness', 'x.json')), code: 2, stderr: refused });
+  expectHook({ cwd: main, caseRoot: root, event: forge('.doflow/state/readiness/x.json'), code: 2, stderr: refused });
+  expectHook({ cwd: main, caseRoot: root, event: forge('links/../.doflow/state/readiness/x.json'), code: 2, stderr: refused });
+  expectHook({ cwd: main, caseRoot: root, event: forge(path.join(main, 'links', 'st', 'readiness', 'x.json')), code: 2, stderr: refused });
+  // Negative control: an ignored file outside DoFlow's state is still skipped.
+  expectHook({ cwd: main, caseRoot: root, event: forge(path.join(main, '.mcp.json')), code: 0, stderr: '' });
+  expectHook({ cwd: main, caseRoot: root, event: forge('links/notes.txt'), code: 0, stderr: '' });
+});
+
+HOOK_TEST('FU-n2mvpr: a path that climbs out of agent-docs with ".." is judged by where it lands, not by its prefix', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo('feat/900-demo');
+  writeFeature(main, '900-demo');
+  const refused = `${refusalText('missing', { taskId: '900-demo', template: 'feature' })}\n`;
+  const edit = (file: any) => ({ tool_name: 'Edit', tool_input: { file_path: file } });
+
+  // Source reached through agent-docs/.. stays gated, relative and absolute (the raw string: path.join would fold the "..").
+  expectHook({ cwd: main, caseRoot: root, event: edit('agent-docs/../src/a.js'), code: 2, stderr: refused });
+  expectHook({ cwd: main, caseRoot: root, event: edit(`${main}/agent-docs/../src/a.js`), code: 2, stderr: refused });
+  expectHook({ cwd: main, caseRoot: root, event: edit('docs/agent-docs/../../src/a.js'), code: 2, stderr: refused });
+  // Negative controls: a real agent-docs file is allowed, also when it is spelled with "..".
+  expectHook({ cwd: main, caseRoot: root, event: edit('agent-docs/notes.md'), code: 0, stderr: '' });
+  expectHook({ cwd: main, caseRoot: root, event: edit('agent-docs/../agent-docs/notes.md'), code: 0, stderr: '' });
+});
+
+HOOK_TEST('FU-12882d: the gate reads the resolver JSON with one jq run, and still refuses on its fields', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo('feat/900-demo');
+  writeFeature(main, '900-demo');
+  const realJq = spawnSync(bashPath(), ['-c', 'command -v jq'], { encoding: 'utf8' }).stdout.trim();
+  const shimDir = path.join(root, 'shim');
+  const log = path.join(root, 'jq-calls.log');
+  write(path.join(shimDir, 'jq'), `#!/bin/bash\nprintf '%s\\n' "$*" >> '${log}'\nexec '${realJq}' "$@"\n`);
+  fs.chmodSync(path.join(shimDir, 'jq'), 0o755);
+  const input = encodeEnvelope('claude', 'PreToolUse', 'pre-implementation-gate', JSON.stringify(editEvent(path.join(main, 'src', 'a.js'))), { DOFLOW_PROJECT_DIR: main });
+  const result = spawnSync(bashPath(), [LAYOUT_POLICY], {
+    cwd: main, input, encoding: 'utf8',
+    env: spawnEnv({ HOME: RESOLVER_HOME, DOFLOW_PROJECT_DIR: main, PATH: `${shimDir}${path.delimiter}${process.env.PATH}` }),
+  });
+  assert.strictEqual(result.status, 2, result.stderr);
+  assert.strictEqual(result.stderr, `${refusalText('missing', { taskId: '900-demo', template: 'feature' })}\n`);
+  const calls = fs.readFileSync(log, 'utf8').split('\n').filter((line: any) => line.startsWith('-r ') && (line.includes('.feature_dir') || line.includes('.has_plan')));
+  assert.strictEqual(calls.length, 1, `the resolver JSON is read by one jq run, saw:\n${calls.join('\n')}`);
+  assert.ok(calls[0].includes('feature_dir') && calls[0].includes('has_plan'));
+});

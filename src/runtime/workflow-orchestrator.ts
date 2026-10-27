@@ -12,22 +12,27 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { WorkflowEngine } = require('./workflow-engine.ts');
-const { updateTaskState, readTaskState } = require('./task-state.ts');
+const { updateTaskState, readTaskState, boundedAcquire } = require('./task-state.ts');
+const { recordIn, isSafeSlug } = require('./task-scope.ts');
 const { ResearchRequestStore } = require('./research-request.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { resolveActiveFeature } = require('./feature-resolve.ts');
-const { compactDecisions } = require('./decision-register.ts');
+const { compactDecisions, addDecisions } = require('./decision-register.ts');
 const { EvidenceLedger } = require('./evidence-ledger.ts');
 const { resolveConsultations } = require('./mcp-consultations.ts');
 const { mcpReach } = require('./mcp-reach.ts');
 const { loadRegistry } = require('../registry/index.ts');
 const { loadStorageRegistry } = require('./storage/registry.ts');
 const { resolveRoots, resolveStorePath } = require('./storage/roots.ts');
-const { checkCompletion: checkTaskAttemptCompletion } = require('./task-attempts.ts');
+const { checkCompletion: checkTaskAttemptCompletion, storeFile: taskAttemptStoreFile } = require('./task-attempts.ts');
+const { runKeyFor, refuseSolo } = require('./task-run.ts');
+const { projectRoot: lifecycleProjectRoot } = require('./lifecycle/root.ts');
 const { appendOutcome, findPick, readWindow } = require('./advice/record.ts');
 const {
-  checkReadiness, harnessHookNote, featureSlugFor, runSlugOf, findRunFile,
+  checkReadiness, harnessHookNote, featureSlugFor, runSlugOf, findRunFile, orchestrationRuns, selectRunEntries,
+  RUN_STORE_REL, runStoreDir, readRunRecord,
 } = require('./implementation-gate.ts');
 
 /** Appended to the note of an implementation stage completed with no task-attempt ledger (FR-006). */
@@ -56,10 +61,31 @@ function runState(state: any) {
   return state;
 }
 
+/** The stable status shape shared by the status action and the read-only list action. */
+function snapshotRun(run: any) {
+  const current = run.cursor < run.program.length ? run.program[run.cursor] : null;
+  const done = run.program.filter((n: any) => n.status === 'completed' || n.status === 'skipped' || n.status === 'approved').length;
+  return {
+    taskId: run.taskId,
+    taskClass: run.taskClass,
+    workflowName: run.workflowName,
+    state: run.state,
+    current: current ? { type: current.type, id: current.id, kind: current.kind ?? null, agent: current.agent ?? null, mutatesSource: current.mutatesSource ?? null, readinessTemplate: current.readinessTemplate ?? null } : null,
+    awaitingGate: run.state === 'AWAITING_GATE' && current ? { gateId: current.id, name: current.name, prompt: current.prompt } : null,
+    progress: { done, total: run.program.length },
+    terminalStage: run.terminalStage,
+    revision: Number.isInteger(run.revision) ? run.revision : 0,
+  };
+}
+
 const GATE_DECISIONS = Object.freeze(['approve', 'reject']);
+/** IC-005: the register stage a policy approval of each gate is recorded under. */
+const POLICY_GATE_STAGE: Record<string, string> = Object.freeze({ 'gate-0': 'discovery', 'gate-a': 'planning', 'gate-b': 'review' });
 /** What a completed stage established, separate from the fact it was walked past (review A1). */
 const STAGE_OUTCOMES = new Set(['passed', 'failed', 'unverified']);
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+/** A context-pack delivery digest, as the delivery store keys it (`packDigest`). */
+const PACK_DIGEST = /^sha256:[0-9a-f]{64}$/;
 /** Why a handoff with no run and no class records nothing, as the result and the CLI line say. */
 const STANDALONE_REASON = 'no run exists for this task and no --task-class was given, so nothing was recorded and no readiness was required';
 
@@ -70,6 +96,70 @@ function assertSafeId(value: any, label: any) {
 
 function iso(now: any) { return (now ?? new Date()).toISOString(); }
 
+/** The well-formed `{ taskId, digest }` items of a node's `packs`, in delivery order. */
+function stagePacks(packs: any): Array<{ taskId: string; digest: string }> {
+  return (Array.isArray(packs) ? packs : [])
+    .filter((p: any) => p && ID_PATTERN.test(String(p.taskId ?? '')) && PACK_DIGEST.test(String(p.digest ?? '')))
+    .map((p: any) => ({ taskId: p.taskId, digest: p.digest }));
+}
+
+/**
+ * Issue #9 stage 3 (FU-7j3k84): record, on the run's own record, that a context pack was handed to
+ * the stage active at this moment. Called by the context-pack verb after it records a delivery.
+ *
+ * The run is the pack task's own run, else its feature's run: the feature named by `slug`, else by
+ * this checkout's feature pointer (row 135) while the checkout is still on the branch it recorded. Only runs
+ * under `stateRoot` are read; the branch name alone never picks one. The first run that exists
+ * decides: when it is RUNNING with a stage under its cursor, that stage's node gets
+ * `packs: [{ taskId, digest }]`, one item per pack task (its latest delivery, moved last). Anything
+ * else (no run, a gate, a finished run, an unreadable or locked record) records nothing: unknown,
+ * never a guess. A delivery the node already ends with writes nothing, so a repeat leaves the
+ * run's revision alone. Never throws.
+ * @returns {{ runTaskId: string, stage: string }|null} where the pack was recorded
+ */
+function recordStagePack({ stateRoot, sourceRoot = stateRoot, taskId, slug = null, digest, fsImpl = fs }: any): any {
+  try {
+    if (!ID_PATTERN.test(String(taskId ?? '')) || !PACK_DIGEST.test(String(digest ?? ''))) return null;
+    const storeDir = runStoreDir(stateRoot);
+    const locate = (runTaskId: string, feature: string | null) => {
+      const { file, read } = recordIn({ base: storeDir, namespace: feature && feature !== runTaskId ? feature : null, name: `${runTaskId}.json`, fsImpl });
+      return read === file && fsImpl.existsSync(file) ? { runTaskId, file } : null;
+    };
+    let found = locate(taskId, isSafeSlug(slug) ? slug : null);
+    if (!found) {
+      let feature = isSafeSlug(slug) ? slug : null;
+      let featureRun = feature;
+      if (!feature) {
+        const active = require('./feature-pointer.ts').activeEntry({ storeRoot: stateRoot, cwd: sourceRoot });
+        if (active && isSafeSlug(active.slug)) {
+          feature = active.slug;
+          featureRun = ID_PATTERN.test(String(active.taskId ?? '')) ? active.taskId : active.slug;
+          found = locate(taskId, feature);
+        }
+      }
+      if (!found && featureRun) found = locate(featureRun, feature);
+    }
+    if (!found) return null;
+    readRunRecord(fsImpl, found.file, storeDir); // the run store's guarded read: a link or FIFO is refused here
+    let stage: string | null = null;
+    updateTaskState({
+      fsImpl, file: found.file, acquire: (impl: any, target: string) => boundedAcquire(impl, target, { retries: 3, waitMs: 5 }),
+      build(disk: any) {
+        const program = Array.isArray(disk?.program) ? disk.program : [];
+        const node = disk?.state === 'RUNNING' && Number.isInteger(disk.cursor) ? program[disk.cursor] : null;
+        if (!node || node.type !== 'stage') return null;
+        const prior = stagePacks(node.packs);
+        const last = prior[prior.length - 1];
+        if (last && last.taskId === taskId && last.digest === digest) return null;
+        node.packs = [...prior.filter((p) => p.taskId !== taskId), { taskId, digest }];
+        stage = node.id;
+        return disk;
+      },
+    });
+    return stage ? { runTaskId: found.runTaskId, stage } : null;
+  } catch { return null; }
+}
+
 /** Interleave stages with their gates: each gate sits immediately after the stage named by its
  * `afterStage`. A gate anchored to an unknown stage is a compile error here, not a silent orphan. */
 function compileProgram(workflow: any) {
@@ -78,6 +168,7 @@ function compileProgram(workflow: any) {
   for (const stage of workflow.stages || []) {
     nodes.push({
       type: 'stage', id: stage.id, skill: stage.skill, kind: stage.kind,
+      agent: stage.agent,
       mutatesSource: Boolean(stage.mutatesSource),
       readinessTemplate: stage.readinessTemplate ?? null,
       optional: Boolean(stage.optional),
@@ -106,8 +197,12 @@ class WorkflowOrchestrator {
   declare stateDir: any;
   declare readinessEvaluate: any;
   declare taskAttemptCheck: any;
+  declare planExitCheck: any;
   declare featureSlug: any;
   declare buildAdapters: any;
+  declare env: any;
+  declare cwd: any;
+  declare sourceRoot: string;
   /**
    * @param {Object} [options]
    * @param {string} [options.repoRoot] install root owning core/registry + default state dir.
@@ -123,39 +218,56 @@ class WorkflowOrchestrator {
    *   `none` (no ledger) records the stage as `unverified` whatever outcome was supplied. Unwired
    *   means the stage is not checked, which only a unit test that builds the orchestrator by hand
    *   relies on: the CLI always wires the real one.
+   * @param {(node: object, run: object) => {refusals: Array<{path: string, line: number, message: string}>, advisories: Array<object>}} [options.planExitCheck]
+   *   row 134 gate for the do-plan planning stage: every refusal (a constitution MUST marked FAIL or
+   *   without a row) refuses completion. Unwired means the stage is not checked, as for taskAttemptCheck.
    * @param {object} [options.fsImpl]
    * @param {string|null} [options.featureSlug] the feature a run started here belongs to
+   * @param {object} [options.env] the environment `start` reads the caller's identity and the telemetry switch from
+   * @param {string} [options.cwd] the directory `start` resolves the caller's run key and the 080 store from
    * @param {() => object} [options.buildAdapters] builds the adapter registry `mcpReach` reads installs
    *   through; without it install facts are unknown and no outcome is inferred from them
    */
-  constructor({ repoRoot = REPO_ROOT, projectRoot, stateDir, engine, readinessEvaluate, taskAttemptCheck, fsImpl, featureSlug = null, buildAdapters = null }: any = {}) {
+  constructor({ repoRoot = REPO_ROOT, projectRoot, sourceRoot, stateDir, engine, readinessEvaluate, taskAttemptCheck, planExitCheck, fsImpl, featureSlug = null, buildAdapters = null, env = process.env, cwd = process.cwd() }: any = {}) {
     this.fsImpl = fsImpl || fs;
     this.repoRoot = repoRoot;
-    this.projectRoot = projectRoot || (stateDir?.endsWith(path.join('.doflow', 'state', 'orchestration'))
+    this.projectRoot = projectRoot || (stateDir?.endsWith(RUN_STORE_REL)
       ? path.resolve(stateDir, '../../..') : repoRoot);
+    this.sourceRoot = sourceRoot || this.projectRoot;
     this.engine = engine || new WorkflowEngine({ repoRoot });
-    this.stateDir = stateDir || path.join(this.projectRoot, '.doflow', 'state', 'orchestration');
+    this.stateDir = stateDir || runStoreDir(this.projectRoot);
     this.readinessEvaluate = readinessEvaluate || null;
     this.taskAttemptCheck = taskAttemptCheck || null;
+    this.planExitCheck = planExitCheck || null;
     this.featureSlug = featureSlug;
     this.buildAdapters = buildAdapters;
+    this.env = env;
+    this.cwd = cwd;
+  }
+
+  /** The task's run (115 C-1): `<stateDir>/<featureSlug>/<taskId>.json` for a task id other than its
+   * feature's slug, else `<stateDir>/<taskId>.json`; a flat run of a namespaced id is read, and copied
+   * into the namespace on its next write, only when it is this feature's or names none (D-3). */
+  runRecord(taskId: any) {
+    const id = assertSafeId(taskId, 'taskId');
+    const namespace = isSafeSlug(this.featureSlug) && this.featureSlug !== id ? this.featureSlug : null;
+    return recordIn({ base: this.stateDir, namespace, name: `${id}.json`, fsImpl: this.fsImpl, refuseUnsafeFlat: true });
   }
 
   runFile(taskId: any) {
-    return path.join(this.stateDir, `${assertSafeId(taskId, 'taskId')}.json`);
+    return this.runRecord(taskId).file;
   }
 
   readRun(taskId: any) {
-    const file = this.runFile(taskId);
-    if (!this.fsImpl.existsSync(file)) return null;
-    return readTaskState(this.fsImpl, file);
+    return readRunRecord(this.fsImpl, this.runRecord(taskId).read, this.stateDir);
   }
 
   writeRun(run: any, now: any, beforeWrite?: any) {
     run.updatedAt = iso(now);
-    this.fsImpl.mkdirSync(this.stateDir, { recursive: true });
+    const { file, seed } = this.runRecord(run.taskId);
+    this.fsImpl.mkdirSync(path.dirname(file), { recursive: true });
     const expectedRevision = run.revision || 0;
-    updateTaskState({ file: this.runFile(run.taskId), fsImpl: this.fsImpl, build: (disk: any) => {
+    updateTaskState({ file, fsImpl: this.fsImpl, prepare: seed, build: (disk: any) => {
       if ((disk?.revision || 0) !== expectedRevision) {
         throw new Error(`Concurrent workflow update for '${run.taskId}'; reload the run before retrying. Nothing was written.`);
       }
@@ -185,24 +297,35 @@ class WorkflowOrchestrator {
       startedAt: iso(now),
       // The feature the run belongs to, so another checkout can tell it from a run with the same id.
       ...(this.featureSlug ? { featureSlug: this.featureSlug } : {}),
+      ...this.traceFields(),
     };
     this.writeRun(run, now);
     return this.snapshot(run);
   }
 
+  /**
+   * 088 IC-010 / DD-5: the caller's 080 run key and, when the 080 store already holds that run with
+   * a trace id, a copy of the id. Empty with telemetry off, for a solo lineage, or on any fault:
+   * nothing here can fail or change a start. No id is minted here and no action is added.
+   */
+  traceFields(): { runKey?: string; traceId?: string } {
+    try {
+      const key = runKeyFor(this.env, this.cwd);
+      if (!key.traceIds || refuseSolo(key.identity)) return {};
+      const out: { runKey?: string; traceId?: string } = { runKey: key.runKey };
+      if (this.featureSlug) {
+        try {
+          const store = readTaskState(this.fsImpl, taskAttemptStoreFile(lifecycleProjectRoot(this.cwd), this.featureSlug));
+          const record = store && store.runs && Object.hasOwn(store.runs, key.runKey) ? store.runs[key.runKey] : null;
+          if (record && typeof record.traceId === 'string' && /^[0-9a-f]{32}$/.test(record.traceId)) out.traceId = record.traceId;
+        } catch { /* an unreadable 080 store means no copy */ }
+      }
+      return out;
+    } catch { return {}; }
+  }
+
   snapshot(run: any) {
-    const current = run.cursor < run.program.length ? run.program[run.cursor] : null;
-    const done = run.program.filter((n: any) => n.status === 'completed' || n.status === 'skipped' || n.status === 'approved').length;
-    return {
-      taskId: run.taskId,
-      taskClass: run.taskClass,
-      workflowName: run.workflowName,
-      state: run.state,
-      current: current ? { type: current.type, id: current.id, kind: current.kind ?? null, mutatesSource: current.mutatesSource ?? null, readinessTemplate: current.readinessTemplate ?? null } : null,
-      awaitingGate: run.state === 'AWAITING_GATE' && current ? { gateId: current.id, name: current.name, prompt: current.prompt } : null,
-      progress: { done, total: run.program.length },
-      terminalStage: run.terminalStage,
-    };
+    return snapshotRun(run);
   }
 
   status(taskId: any) {
@@ -244,7 +367,10 @@ class WorkflowOrchestrator {
     }
     // The ledger is checked here too, before catch-up writes anything, so a refused implementation
     // handoff leaves no backfilled stage behind.
-    if (preview.reason === 'reached-candidate') this.assertTaskAttempts(preview.node, existing || { taskId, taskClass: resolvedClass });
+    if (preview.reason === 'reached-candidate') {
+      this.assertTaskAttempts(preview.node, existing || { taskId, taskClass: resolvedClass });
+      this.assertPlanExit(preview.node, existing || { taskId, taskClass: resolvedClass });
+    }
     const positioned = this.catchUp({ taskId, taskClass: resolvedClass, candidateStageIds: candidates, note, now });
     if (positioned.reason === 'reached-candidate') {
       // A run this handoff started has no earlier stage: every evidence item counts.
@@ -295,8 +421,9 @@ class WorkflowOrchestrator {
       const harness = (registry.harnesses || []).find((item: any) => item.id === id);
       return harness ? harness.displayName || harness.id : id;
     };
-    const { briefRecords, repoRoot } = stageId ? this.readBriefRecords(taskId) : { briefRecords: [], repoRoot: this.projectRoot };
-    if (stageId) this.recordBriefTierAdvice({ briefRecords, taskId, stageId, repoRoot });
+    const { briefRecords, repoRoot } = stageId ? this.readBriefRecords(taskId) : { briefRecords: [], repoRoot: this.sourceRoot };
+    // Advice picks are project state, kept with the run's records, not in the feature folder's checkout.
+    if (stageId) this.recordBriefTierAdvice({ briefRecords, taskId, stageId, repoRoot: this.projectRoot });
     try {
       const result = resolveConsultations({
         taskId, stageId, skill, flags, registry, ledger: {
@@ -305,7 +432,7 @@ class WorkflowOrchestrator {
             return ledger.queryEvidence({ taskId: id });
           },
         },
-        requests: new ResearchRequestStore({ projectRoot: this.projectRoot, fsImpl: this.fsImpl, slug: this.featureSlug }),
+        requests: new ResearchRequestStore({ projectRoot: this.projectRoot, sourceRoot: this.sourceRoot, fsImpl: this.fsImpl, slug: this.featureSlug }),
         briefRecords,
         readReport: (file: any) => {
           const target = path.resolve(repoRoot, file);
@@ -389,28 +516,28 @@ class WorkflowOrchestrator {
   }
 
   /** The brief records (`*-brief.json`) of the feature this run belongs to, parsed; unreadable ones
-   * are left out. Resolving the feature spawns the resolver, so it is only done where a feature
-   * folder exists above the project. */
+   * are left out. They are feature-folder files, so they are resolved from the checkout the verb runs
+   * in with the resolver's `feature_root` (that checkout's folder, else the main checkout's), never
+   * from the state root (115 C-10). Resolving the feature spawns the resolver, so it is only done
+   * where a feature folder exists above one of the two. */
   readBriefRecords(taskId: any) {
-    const none = { briefRecords: [], repoRoot: this.projectRoot };
+    const none = { briefRecords: [], repoRoot: this.sourceRoot };
     try {
-      let dir = path.resolve(this.projectRoot);
-      let hasFolder = false;
-      for (;;) {
-        if (this.fsImpl.existsSync(path.join(dir, 'agent-docs', 'doflow'))) { hasFolder = true; break; }
-        const parent = path.dirname(dir);
-        if (parent === dir) break;
-        dir = parent;
-      }
+      const hasFolder = [this.sourceRoot, this.projectRoot].some((root) => {
+        for (let dir = path.resolve(root); ; dir = path.dirname(dir)) {
+          if (this.fsImpl.existsSync(path.join(dir, 'agent-docs', 'doflow'))) return true;
+          if (path.dirname(dir) === dir) return false;
+        }
+      });
       if (!hasFolder) return none;
-      const feature = resolveActiveFeature({ projectRoot: this.projectRoot, slug: taskId });
+      const feature = resolveActiveFeature({ projectRoot: this.sourceRoot, slug: taskId });
       if (feature.error) return none;
-      const exec = path.join(feature.featureDir, 'exec');
+      const exec = path.join(feature.featureFolder, 'exec');
       const briefRecords = [];
       for (const name of this.fsImpl.readdirSync(exec).filter((entry: any) => entry.endsWith('-brief.json')).sort()) {
         try { briefRecords.push(JSON.parse(this.fsImpl.readFileSync(path.join(exec, name), 'utf8'))); } catch { /* an unreadable record contributes nothing */ }
       }
-      return { briefRecords, repoRoot: feature.repoRoot };
+      return { briefRecords, repoRoot: feature.featureRoot };
     } catch { return none; }
   }
 
@@ -463,15 +590,21 @@ class WorkflowOrchestrator {
    * stage is always imported+unverified, whatever the caller says: catch-up importing history
    * cannot import a verification. A 'failed' outcome still advances — recording the failure
    * honestly beats refusing to record it, and a bug reproduction legitimately completes by
-   * observing the expected failure — but the record no longer reads as success. */
+   * observing the expected failure — but the record no longer reads as success.
+   *
+   * Issue #9 stage 3: the entry names the context packs the stage was handed (`packs`), copied from
+   * what `recordStagePack` wrote on this node while it was the run's active stage. A stage handed
+   * none gets no `packs`; a malformed item is left out, never an error. */
   completeStage({ taskId, stageId, note, outcome, backfilled = false, consultations, now }: any = {}) {
     const run = this.requireRun(taskId);
     const node = this.expectOpenStage(run, stageId);
+    const packs = stagePacks(node.packs);
     if (outcome !== undefined && !STAGE_OUTCOMES.has(outcome)) {
       throw new Error(`Unknown stage outcome '${outcome}'. Valid: ${[...STAGE_OUTCOMES].join(', ')} — omit the flag to record 'unverified'.`);
     }
     if (node.mutatesSource && node.readinessTemplate) this.assertReady(node, run);
     const attempts = backfilled ? null : this.assertTaskAttempts(node, run);
+    this.assertPlanExit(node, run);
     // No ledger for the feature: the stage is recorded, but nothing verified its tasks, and the
     // record says so whatever outcome the caller supplied (FR-006).
     const unledgered = attempts?.state === 'none';
@@ -483,11 +616,12 @@ class WorkflowOrchestrator {
       note: unledgered ? [note, NO_LEDGER_NOTE].filter(Boolean).join(' ') : (note ?? null),
       backfilled: Boolean(backfilled), executionStatus: node.executionStatus, outcome: node.outcome,
       ...(consultations ? { consultations } : {}),
+      ...(packs.length ? { packs } : {}),
     });
     this.advance(run, now);
     this.writeRun(run, now, () => {
       if (run.taskClass !== 'feature') return;
-      const request = new ResearchRequestStore({ projectRoot: this.projectRoot, fsImpl: this.fsImpl })
+      const request = new ResearchRequestStore({ projectRoot: this.projectRoot, sourceRoot: this.sourceRoot, fsImpl: this.fsImpl })
         .blockingGap(taskId, stageId);
       if (request) throw new Error(`Research request '${request.id}' blocks stage '${stageId}': ${request.failureReason || request.gap || request.status}`);
     });
@@ -640,15 +774,22 @@ class WorkflowOrchestrator {
    * `forced` decision (e.g. approving despite unresolved clarification markers) requires an
    * explicit `note` reason — never a silent override — and is flagged in history for
    * `render-audit.sh` to distinguish from a routine handoff. */
-  decideGate({ taskId, gateId, decision, note, forced = false, now }: any = {}) {
+  decideGate({ taskId, gateId, decision, policy, by, note, forced = false, now, bindHead }: any = {}) {
     assertSafeId(gateId, 'gateId');
-    if (!GATE_DECISIONS.includes(decision)) throw new Error(`Invalid gate decision '${decision}'; valid: ${GATE_DECISIONS.join(', ')}`);
+    if (bindHead !== undefined && (policy === undefined || !/^[0-9a-f]{40}$/.test(String(bindHead)))) throw new Error('bindHead is a 40-hex feature head and needs --policy');
+    // IC-005: the decider is derived, never named by a caller; `autopilot` is recorded only by --policy.
+    if (by !== undefined) throw new Error('decide-gate takes no decider (by); only --policy records autopilot');
+    if (policy !== undefined) {
+      if (policy !== gateId) throw new Error('--policy must name the gate being decided');
+      if (decision !== undefined || forced) throw new Error('--policy refuses --decision and --forced');
+    } else if (!GATE_DECISIONS.includes(decision)) throw new Error(`Invalid gate decision '${decision}'; valid: ${GATE_DECISIONS.join(', ')}`);
     if (forced && (!note || !String(note).trim())) throw new Error('A forced gate decision requires a --note reason');
     const run = this.requireRun(taskId);
     if (run.state !== 'AWAITING_GATE') throw new Error(`Run '${run.taskId}' is not awaiting a gate (state=${run.state})`);
     const node = this.currentNode(run);
     if (!node || node.type !== 'gate') throw new Error('Run state says AWAITING_GATE but no gate is at the cursor');
     if (node.id !== gateId) throw new Error(`Expected gate '${node.id}' next, got '${gateId}'`);
+    if (policy !== undefined) return this.decideGateByPolicy(run, node, policy, now, bindHead);
     node.status = decision === 'approve' ? 'approved' : 'rejected';
     node.decision = decision;
     run.history.push({ at: iso(now), action: 'decide-gate', node: node.id, detail: decision, note: note ?? null, forced: Boolean(forced) });
@@ -661,6 +802,94 @@ class WorkflowOrchestrator {
     }
     this.writeRun(run, now);
     return this.snapshot(run);
+  }
+
+  /** IC-005: the feature checkout cannot grant itself a weaker gate policy. Denies write nothing. */
+  decideGateByPolicy(run: any, node: any, policyId: string, now: any, bindHead?: string) {
+    // Decision C9: the autopilot kill switch binds every policy decision, not only the loop's. Off on
+    // any layer (env, sentinel, settings; an unreadable setting fails safe to off) denies before any
+    // fact is read, and records nothing.
+    const { readKillSwitch } = require('./settings/autopilot.ts');
+    const killSwitch = readKillSwitch(this.env);
+    if (!killSwitch.enabled) {
+      return { ...this.snapshot(run), decision: 'deny', reason: 'autopilot-disabled', reasons: ['autopilot-disabled'],
+        rule: `${node.id}/autopilot`, policy: { id: policyId, digest: null }, inputs: [], annotations: { switch: killSwitch.switch } };
+    }
+    // Loaded here, not at module top: every other orchestrator path (and a dry-run install) must not import them.
+    const { projectLayerSource } = require('./settings/project-layers.ts');
+    const { parseSeed } = require('./roadmap/rows.ts');
+    const { loadPolicy, evaluate } = require('./roadmap/gates.ts');
+    const { gatherGateFacts } = require('./roadmap/facts.ts');
+    const root = this.sourceRoot;
+    const mainRoot = mainCheckoutOf(root);
+    const execOptions = { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] };
+    let developHead: string | undefined;
+    let baseBytes: string | null = null;
+    // The base policy is develop's committed blob, never the worktree or the feature branch: a
+    // branch that weakens `never` to `approve` must not approve itself. No textconv filter applies.
+    try {
+      const head: string = execFileSync('git', ['rev-parse', '--verify', 'refs/heads/develop'], execOptions).trim();
+      developHead = head;
+      if (/^[0-9a-f]{40}$/.test(head)) {
+        baseBytes = execFileSync('git', ['show', '--no-textconv', `${head}:core/registry/gates.json`], execOptions);
+      }
+    } catch { /* loadPolicy returns no-policy; never fall back to the feature copy. */ }
+    const layers = projectLayerSource(mainRoot, this.fsImpl);
+    let overrideBytes: string | null = null;
+    if (layers.layersFrom) {
+      try { overrideBytes = this.fsImpl.readFileSync(path.join(layers.layersFrom, 'gates.override.json'), 'utf8'); }
+      catch (error: any) { if (error.code !== 'ENOENT') overrideBytes = ''; }
+    }
+    const loaded = loadPolicy(baseBytes, overrideBytes);
+    const policy = { id: policyId, digest: loaded.digest };
+    if (!loaded.ok) return { ...this.snapshot(run), decision: 'deny', reasons: loaded.reasons, reason: loaded.reason, policy, inputs: [] };
+
+    const slug = runSlugOf(run, root) || this.featureSlug || run.taskId;
+    let seed: any = null;
+    let row: any = null;
+    try {
+      seed = parseSeed(this.fsImpl.readFileSync(path.join(mainRoot, 'agent-docs/roadmap/rows.json'), 'utf8'));
+      row = seed.rows.find((entry: any) => entry.slug === slug && entry.class === run.taskClass) || null;
+    } catch (error: any) {
+      if (error.code === 'seed-typed-status') return { ...this.snapshot(run), decision: 'deny', reason: error.code, reasons: [error.code], policy, inputs: [] };
+      // Invalid or unreadable seed means no trustworthy row; evaluate returns row-unknown.
+    }
+    // The feature folder follows the feature-store rule (resolveFeatureInStore): a linked worktree
+    // without the folder would otherwise read no artifacts (a false `unresolved-clarifications`) and
+    // register into a missing folder.
+    const feature = resolveFeatureInStore({ root, slug });
+    if (feature.error) throw new Error(`Cannot resolve policy gate artifacts: ${feature.message}`);
+    const facts = gatherGateFacts({ root, mainRoot, registryRoot: this.repoRoot, artifactRoot: feature.featureDir,
+      gateId: node.id, policy: loaded.policy, row, rows: seed?.rows, developHead, featureBranch: `feat/${slug}`, fsImpl: this.fsImpl, env: this.env });
+    const evaluation = evaluate(loaded.policy, run.taskClass, node.id, facts);
+    // A deny changes nothing: the run stays AWAITING_GATE and autopilot never rejects.
+    if (evaluation.decision === 'deny') return { ...this.snapshot(run), ...evaluation, policy };
+
+    const audit = `approved by policy ${policyId}@${loaded.digest} (${evaluation.inputs.length} inputs)`;
+    node.status = 'approved';
+    node.decision = 'approve';
+    // `policy.digest` and every fact's {locator, sha256} let a later reader re-derive this decision.
+    // C15: the roadmap loop names the feature head it read before deciding (bindHead). The entry keeps
+    // it as `approvedHead` only when the gate's own heads fact evaluated that same head, so the merge
+    // binds to it across loop runs; an approval without it falls back to the both-heads digest.
+    const heads = facts.find((fact: any) => fact.name === 'heads' && !fact.unreadable)?.value;
+    const approvedHead = bindHead && heads?.featureHead === bindHead ? { approvedHead: bindHead } : {};
+    run.history.push({ at: iso(now), action: 'decide-gate', node: node.id, detail: 'approve', by: 'autopilot',
+      policy, inputs: evaluation.inputs, ...approvedHead, note: audit, forced: false });
+    run.state = runState('RUNNING');
+    run.cursor += 1;
+    this.settleCursor(run);
+    // The optimistic revision check runs before registering a decision, so a stale run cannot
+    // leave a forged approval. A register refusal likewise prevents the journal from advancing.
+    this.writeRun(run, now, () => {
+      const registered = addDecisions({ featureDir: feature.featureDir, slug, now: now ?? new Date(), fsImpl: this.fsImpl, items: [{
+        topic: node.id, statement: `${node.id} ${audit}.`, channel: 'policy', stage: POLICY_GATE_STAGE[node.id],
+        rationale: `Every predicate of ${node.id} passed on the inputs digest ${evaluation.inputsDigest}.`,
+        source: `git:${developHead}:core/registry/gates.json`,
+      }] });
+      if (registered.finding) throw new Error(`Cannot register policy approval: ${registered.finding}: ${registered.message}`);
+    });
+    return { ...this.snapshot(run), ...evaluation, policy };
   }
 
   /** Append a pure audit-trail entry — a stage re-run after its own handoff, or an artifact
@@ -731,6 +960,20 @@ class WorkflowOrchestrator {
     return answer;
   }
 
+  /** Row 134: the planning stage (the `do-plan` stage) cannot complete while the plan's
+   * Constitution Check leaves a MUST principle marked FAIL or without a row. There is no waiver:
+   * the plan is revised, or a person amends the constitution. A stage catch-up backfills is checked
+   * too, so a refused plan is never imported as complete. */
+  assertPlanExit(node: any, run: any) {
+    if (!this.planExitCheck || node.skill !== 'do-plan') return null;
+    const answer = this.planExitCheck(node, run);
+    if (!answer || !Array.isArray(answer.refusals)) throw new Error(`Plan exit check returned no usable answer for stage '${node.id}'`);
+    if (answer.refusals.length) {
+      throw new Error(`Stage '${node.id}' cannot be completed: ${answer.refusals.map((f: any) => `${f.path}:${f.line} ${f.message}`).join('; ')}`);
+    }
+    return answer;
+  }
+
   /** Where `catchUp` would stop for these candidates, worked out on a copy of the run's program (or
    * of a fresh run's) without writing anything. Same stop rules and reason vocabulary as `catchUp`;
    * `stageId` is what `catchUp` reports as `caughtUpTo`, and `node` the program node it stops on.
@@ -768,6 +1011,26 @@ class WorkflowOrchestrator {
   }
 }
 
+/** The project's main checkout, or `root` itself when the checkouts cannot be listed. Loaded here, not at
+ * module top: every other orchestrator path (and a dry-run install) must not import the resolver. */
+function mainCheckoutOf(root: string): string {
+  const { listCheckouts } = require('./checkouts.ts');
+  const checkouts = listCheckouts({ cwd: root });
+  return checkouts.ok && checkouts.main ? checkouts.main : root;
+}
+
+/**
+ * The feature folder follows the feature-store rule, which the feature resolver already applies: the
+ * calling checkout's own folder, else the main checkout's when a linked worktree holds none
+ * (`featureFolder` under `featureRoot`). `featureDir` and `repoRoot` of the result name that folder and
+ * checkout, as `decision --action compact` reads them, so a caller never looks in the wrong checkout.
+ */
+function resolveFeatureInStore({ root, slug }: { root: string; slug: string }) {
+  const feature = resolveActiveFeature({ projectRoot: root, slug });
+  if (feature.error) return feature;
+  return { ...feature, featureDir: feature.featureFolder, repoRoot: feature.featureRoot };
+}
+
 /**
  * IC-013: fold the finished stage's History into the feature's archive. The task id is the feature
  * slug. This is housekeeping after a recorded handoff, so it reports and never throws: the
@@ -777,7 +1040,7 @@ class WorkflowOrchestrator {
  */
 function compactAfterHandoff({ taskId, projectRoot }: any) {
   try {
-    const feature = resolveActiveFeature({ projectRoot, slug: taskId });
+    const feature = resolveFeatureInStore({ root: projectRoot, slug: taskId });
     if (feature.error) return { status: 'skipped', reason: feature.message };
     // A task id such as a plan task (`B.1`) resolves on a feature branch to a folder that was
     // never created; say that, rather than blaming a missing register.
@@ -797,15 +1060,204 @@ function compactAfterHandoff({ taskId, projectRoot }: any) {
   }
 }
 
+/**
+ * IC-001: `orchestrate --action list`, every run the resolver can see as a prompt-free row plus the
+ * records it could not read, by reason code only. Reads and prints; writes nothing.
+ */
+/**
+ * The first flag given that a read action does not take, or undefined. Every flag another action
+ * reads is refused before any read: a filter the read does not apply must not look applied, and an
+ * outcome nothing records must not look recorded. `takes` names the flags the action does read.
+ */
+function noEffectFlag({ taskId, taskClass, gate, decision, policy, forced, note, reason, stage, node, verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, slug, dryRun }: any, takes: string[] = []) {
+  const supplied = (value: any) => value !== undefined && value !== null;
+  const given = [
+    ['--task-id', supplied(taskId)], ['--task-class', supplied(taskClass)], ['--gate', supplied(gate)],
+    ['--decision', supplied(decision)], ['--policy', supplied(policy)],
+    ['--forced', forced], ['--note', supplied(note)], ['--reason', supplied(reason)], ['--stage', supplied(stage)],
+    ['--node', supplied(node)], ['--verification-plan', supplied(verificationPlan)], ['--scope', supplied(scope)],
+    ['--invariants', supplied(invariants)], ['--result', supplied(result)], ['--mcp-outcome', supplied(mcpOutcome)],
+    ['--calling-skill', supplied(callingSkill)], ['--slug', supplied(slug)], ['--dry-run', Boolean(dryRun)],
+  ].find(([flag, on]) => on && !takes.includes(flag as string));
+  return given ? given[0] as string : undefined;
+}
+
+/** A journal time as an ISO instant, else null, so no other journal text reaches a read's output. */
+const journalTime = (value: any) => typeof value === 'string'
+  && /^\d{4}-\d{2}-\d{2}T/.test(value) && !Number.isNaN(Date.parse(value)) ? value : null;
+
+/** The journal actions a timeline shows (093 IC-012); any other is counted in `otherEvents`. */
+const TIMELINE_ACTIONS = new Set(['start', 'complete-stage', 'skip-stage', 'skip-gate', 'decide-gate', 'annotate', 'complete-run']);
+const ISO_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+/**
+ * 093 IC-012: one run's history as closed values only. Each event copies the action, an id-shaped
+ * node, the stage outcome (complete-stage), the gate decision (decide-gate's `detail`), `forced`, and
+ * whether the entry records no work done (the indicators rule, trace/indicators.ts isSynthetic).
+ * Notes, detail text, deciders, policy inputs, consultations and trace ids are never read.
+ */
+function timelineOf(run: any, taskId: string, featureSlug: any) {
+  const at = (value: any) => journalTime(value) !== null && ISO_INSTANT.test(value) ? value : null;
+  const events: any[] = [];
+  let otherEvents = 0;
+  for (const entry of Array.isArray(run.history) ? run.history : []) {
+    if (!entry || typeof entry !== 'object' || !TIMELINE_ACTIONS.has(entry.action)) {
+      otherEvents += 1;
+      continue;
+    }
+    events.push({
+      at: at(entry.at),
+      action: entry.action,
+      node: typeof entry.node === 'string' && ID_PATTERN.test(entry.node) ? entry.node : null,
+      outcome: entry.action === 'complete-stage' && STAGE_OUTCOMES.has(entry.outcome) ? entry.outcome : null,
+      decision: entry.action === 'decide-gate' && GATE_DECISIONS.includes(entry.detail) ? entry.detail : null,
+      forced: entry.forced === true,
+      synthetic: Boolean(entry.backfilled) || Boolean(entry.executionStatus && entry.executionStatus !== 'completed'),
+    });
+  }
+  return {
+    v: 1,
+    taskId,
+    featureSlug: typeof featureSlug === 'string' && ID_PATTERN.test(featureSlug) ? featureSlug : null,
+    revision: Number.isInteger(run.revision) && run.revision >= 0 ? run.revision : 0,
+    startedAt: at(run.startedAt),
+    events,
+    otherEvents,
+  };
+}
+
+function listRuns({ json, stateRoot, ...flags }: any) {
+  const { finishRuntime, usageError } = require('./cli-result.ts');
+  // list takes no filter, so a `--slug` must not look like one.
+  const noEffect = noEffectFlag(flags);
+  if (noEffect) return usageError('orchestrate', `'${noEffect}' has no effect on action 'list'`, json);
+
+  const resolverFailure = () => {
+    if (json) console.log(JSON.stringify({ v: 1, error: 'cannot-list-checkouts' }, null, 2));
+    else console.error('[ERROR] orchestrate: cannot list checkouts');
+    return finishRuntime(1);
+  };
+  let resolved: any;
+  try { resolved = orchestrationRuns({ stateRoot: stateRoot || process.cwd() }); } catch { return resolverFailure(); }
+  if (!resolved.ok) return resolverFailure();
+
+  const runs: any[] = [];
+  const unreadable: any[] = [];
+  const textCompare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
+  const slugCompare = (a: string|null, b: string|null) => a === null ? (b === null ? 0 : -1)
+    : b === null ? 1 : textCompare(a, b);
+  const addUnreadable = (entry: any, reason: string) => {
+    const relative = path.relative(runStoreDir(entry.root), entry.file);
+    const parts = relative.split(path.sep);
+    unreadable.push({
+      taskId: path.basename(entry.file, '.json'),
+      featureSlug: parts.length > 1 ? parts[0] : null,
+      origin: entry.origin,
+      reason,
+    });
+  };
+  // One row per run, the copy status reads (C-2): a shadowed flat or another checkout's copy is dropped.
+  for (const entry of selectRunEntries(resolved.entries)) {
+    if (entry.error) {
+      addUnreadable(entry, entry.error);
+      continue;
+    }
+    const record = entry.record;
+    if (!record || typeof record !== 'object' || Array.isArray(record)) {
+      addUnreadable(entry, 'shape');
+      continue;
+    }
+    if (record.version !== 1) {
+      addUnreadable(entry, 'schema-version');
+      continue;
+    }
+    const relative = path.relative(runStoreDir(entry.root), entry.file);
+    const parts = relative.split(path.sep);
+    const folderSlug = parts.length > 1 ? parts[0] : null;
+    const stem = path.basename(entry.file, '.json');
+    // Every id a row prints is checked, so no newline or escape byte from a record reaches the text form.
+    if (typeof record.taskId !== 'string' || !ID_PATTERN.test(record.taskId) || record.taskId !== stem
+      || (folderSlug && typeof record.featureSlug === 'string' && record.featureSlug !== folderSlug)
+      || (entry.slug !== null && entry.slug !== undefined && !(typeof entry.slug === 'string' && ID_PATTERN.test(entry.slug)))) {
+      addUnreadable(entry, 'id-mismatch');
+      continue;
+    }
+    if (!RUN_STATES.includes(record.state)) {
+      addUnreadable(entry, 'shape');
+      continue;
+    }
+    let snapshot: any;
+    try { snapshot = snapshotRun(record); } catch {
+      addUnreadable(entry, 'shape');
+      continue;
+    }
+    if (snapshot.current && !(typeof snapshot.current.id === 'string' && ID_PATTERN.test(snapshot.current.id))) {
+      addUnreadable(entry, 'shape');
+      continue;
+    }
+    const terminal = snapshot.terminalStage;
+    runs.push({
+      taskId: snapshot.taskId,
+      featureSlug: entry.slug,
+      taskClass: snapshot.taskClass,
+      workflowName: snapshot.workflowName,
+      state: snapshot.state,
+      current: snapshot.current,
+      awaitingGate: snapshot.awaitingGate ? { gateId: snapshot.awaitingGate.gateId, name: snapshot.awaitingGate.name } : null,
+      progress: snapshot.progress,
+      // IC-001: the stage's identity only; its gate list (and the prompts in it) stays in status.
+      terminalStage: terminal && typeof terminal === 'object'
+        ? { id: terminal.id ?? null, skill: terminal.skill ?? null, kind: terminal.kind ?? null } : null,
+      revision: snapshot.revision,
+      startedAt: journalTime(record.startedAt),
+      updatedAt: journalTime(record.updatedAt),
+      origin: entry.origin,
+    });
+  }
+
+  runs.sort((a, b) => {
+    if (a.updatedAt === null && b.updatedAt !== null) return 1;
+    if (a.updatedAt !== null && b.updatedAt === null) return -1;
+    if (a.updatedAt !== null && b.updatedAt !== null) {
+      const byTime = Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
+      if (byTime !== 0) return byTime;
+    }
+    return slugCompare(a.featureSlug, b.featureSlug) || textCompare(a.taskId, b.taskId);
+  });
+  unreadable.sort((a, b) => textCompare(a.origin, b.origin)
+    || slugCompare(a.featureSlug, b.featureSlug) || textCompare(a.taskId, b.taskId));
+
+  if (json) {
+    console.log(JSON.stringify({ v: 1, runs, unreadable }, null, 2));
+  } else {
+    for (const row of runs) console.log(`${row.state} ${row.featureSlug || '-'} ${row.taskId} ${row.current ? row.current.id : '-'} rev ${row.revision}`);
+    if (unreadable.length > 0) console.log(`unreadable: ${unreadable.length}`);
+  }
+  return finishRuntime(0);
+}
+
 /** CLI handler for `doflow orchestrate`. The run journal lives in the CALLER's project state
  * (like evidence), while templates come from this install — same two-roots split readiness uses.
  * Completing a source-mutating gated stage needs a READY readiness record of the stage's template,
  * made by `doflow readiness` before this call; nothing is evaluated here. */
 function handleOrchestrateCommand({
-  action = 'status', taskId, taskClass, stage, gate, node, decision, note, reason, forced = false,
-  verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, json = false, repoRoot, stateRoot, slug = null, buildAdapters = null,
+  action = 'status', taskId, taskClass, stage, gate, node, decision, policy, note, reason, forced = false,
+  verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, json = false, repoRoot, stateRoot, sourceRoot, slug = null, recordSlug, buildAdapters = null, dryRun = false,
 }: any = {}) {
   const { finishRuntime, usageError } = require('./cli-result.ts');
+
+  if (action === 'list') {
+    return listRuns({ taskId, taskClass, gate, decision, policy, forced, note, reason, stage, node, verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, slug, dryRun, json, stateRoot });
+  }
+  // 093 IC-012: timeline reads one run, so it takes the two flags that name it and refuses the rest.
+  if (action === 'timeline') {
+    const noEffect = noEffectFlag({ taskId, taskClass, gate, decision, policy, forced, note, reason, stage, node, verificationPlan, scope, invariants, result, mcpOutcome, callingSkill, slug, dryRun }, ['--task-id', '--slug']);
+    if (noEffect) return usageError('orchestrate', `'${noEffect}' has no effect on action 'timeline'`, json);
+    if (!taskId) return usageError('orchestrate', 'timeline requires --task-id', json);
+  }
+
+  // `start` writes the run; --dry-run would otherwise be ignored and a real run started.
+  if (action === 'start' && dryRun) return usageError('orchestrate', "'--dry-run' has no effect on action 'start'", json);
 
   const root = repoRoot || REPO_ROOT;
   // Same scope rule every other stateful command uses (evidenceRoot(o) in runtime-commands.js):
@@ -813,25 +1265,37 @@ function handleOrchestrateCommand({
   // wrote its journal to $PWD while a `--global` `evidence`/`readiness` call on the same task read
   // and wrote $HOME — two roots disagreeing about where one task's state lives.
   const state = stateRoot || process.cwd();
+  // The checkout the verb runs in: its branch and feature folder name the feature; `state` (the main
+  // checkout for a linked worktree, 115 IC-004) holds the records.
+  const source = sourceRoot || state;
   const safeId = ID_PATTERN.test(String(taskId ?? ''));
-  // The feature this task belongs to: recorded on a run this command starts, matched against a run
-  // found in another checkout, and the namespace its readiness record is read from.
-  const featureSlug = safeId ? featureSlugFor({ projectRoot: state, taskId, slug }) : slug;
+  // The feature this task belongs to: recorded on a run this command starts, the namespace its run
+  // and readiness record live under (115 C-1), and matched against a run found in another checkout.
+  // The dispatcher passes the call's record slug, computed once for every store the call touches.
+  let featureSlug = recordSlug !== undefined ? recordSlug : safeId ? featureSlugFor({ projectRoot: source, taskId, slug }) : slug;
   // A run started in another checkout of this repository for the same feature is read and updated
   // where it is. `start` is always local: an unrelated run with the same id elsewhere neither
   // refuses nor satisfies it.
   let runRoot = state;
   if (safeId && action !== 'start') {
-    const found = findRunFile({ stateRoot: state, taskId, slug: featureSlug });
+    // `status` (and `timeline`, which reads the same run) with no --slug opens the one run the list
+    // action shows for the id, whichever feature namespace holds it (FU-wrnnaq); more than one is
+    // refused until --slug names the feature.
+    const found = findRunFile({ stateRoot: state, taskId, slug: featureSlug, anyNamespace: (action === 'status' || action === 'timeline') && !slug });
     if (found.status === 'ambiguous') {
-      console.error(`[ERROR] orchestrate: run '${taskId}' exists in more than one other checkout (${found.candidates.join(', ')}); run the command from the checkout that holds the run you mean. Nothing was changed.`);
+      console.error(found.byFeature
+        ? `[ERROR] orchestrate: run '${taskId}' exists under more than one feature (${found.candidates.join(', ')}); pass --slug <feature> to name the one you mean. Nothing was changed.`
+        : `[ERROR] orchestrate: run '${taskId}' exists in more than one other checkout (${found.candidates.join(', ')}); run the command from the checkout that holds the run you mean. Nothing was changed.`);
       return finishRuntime(1);
     }
-    if (found.status === 'found') runRoot = found.root;
+    if (found.status === 'found') {
+      runRoot = found.root;
+      if (found.slug !== undefined) featureSlug = found.slug;
+    }
   }
   const orchestrator = new WorkflowOrchestrator({
-    repoRoot: root, projectRoot: runRoot,
-    stateDir: path.join(runRoot, '.doflow', 'state', 'orchestration'),
+    repoRoot: root, projectRoot: runRoot, sourceRoot: source,
+    stateDir: runStoreDir(runRoot),
     featureSlug, buildAdapters,
   });
   orchestrator.readinessEvaluate = (node: any, run: any) => {
@@ -865,12 +1329,28 @@ function handleOrchestrateCommand({
     slug: runSlugOf(run, runRoot) || featureSlug, cwd: state,
   });
 
+  // Row 134. The plan is read in the checkout the verb runs in first, then where the run lives; a
+  // SHOULD principle marked FAIL is one note, printed once although the check runs twice.
+  let planAdvised = false;
+  orchestrator.planExitCheck = (node: any, run: any) => {
+    const { planStageExit } = require('./plan-content.ts');
+    const answer = planStageExit({ roots: [...new Set([source, runRoot])], slug: runSlugOf(run, runRoot) || featureSlug });
+    if (!planAdvised) {
+      planAdvised = true;
+      for (const f of answer.advisories) console.error(`orchestrate: note: ${f.path}:${f.line} ${f.message}`);
+    }
+    return answer;
+  };
+
   if ((action === 'handoff' || action === 'complete-stage')
     && [verificationPlan, scope, invariants].some((v) => typeof v === 'string' && v.trim() !== '')) {
     console.error(`orchestrate: note: --verification-plan, --scope and --invariants are inputs to doflow-run readiness; this ${action} did not read them.`);
   }
 
   try {
+    if (policy !== undefined && (action !== 'decide-gate' || decision !== undefined || forced || policy !== gate)) {
+      return usageError('orchestrate', '--policy requires decide-gate with the matching --gate and refuses --decision and --forced', json);
+    }
     // `--forced` is only read by the two actions that can override a decision. Accepting it
     // silently on any other action lets an operator believe a stage completion or skip was
     // recorded as forced when nothing recorded it — refuse instead of dropping the flag.
@@ -886,6 +1366,8 @@ function handleOrchestrateCommand({
     if (mcpOutcome !== undefined && action !== 'handoff') {
       return usageError('orchestrate', `'--mcp-outcome' has no effect on action '${action}' — only handoff records MCP outcomes`, json);
     }
+    // A catch-up on an absent run starts it implicitly, which counts as a run start for the pointer.
+    const absentBefore = action === 'catch-up' && taskId ? !orchestrator.readRun(taskId) : false;
     let snapshot;
     switch (action) {
       case 'handoff':
@@ -910,8 +1392,8 @@ function handleOrchestrateCommand({
         snapshot = orchestrator.skipStage({ taskId, stageId: stage, reason: reason ?? note });
         break;
       case 'decide-gate':
-        if (!taskId || !gate || !decision) return usageError('orchestrate', 'decide-gate requires --task-id, --gate and --decision approve|reject', json);
-        snapshot = orchestrator.decideGate({ taskId, gateId: gate, decision, note, forced });
+        if (!taskId || !gate || (policy === undefined && !decision)) return usageError('orchestrate', 'decide-gate requires --task-id, --gate and --decision approve|reject or --policy <gateId>', json);
+        snapshot = orchestrator.decideGate({ taskId, gateId: gate, decision, policy, note, forced });
         break;
       case 'annotate':
         if (!taskId || !node || !note) return usageError('orchestrate', 'annotate requires --task-id, --node and --note', json);
@@ -921,18 +1403,43 @@ function handleOrchestrateCommand({
         if (!taskId) return usageError('orchestrate', 'status requires --task-id', json);
         snapshot = orchestrator.status(taskId);
         break;
+      case 'timeline': {
+        const run = orchestrator.requireRun(taskId);
+        const body = timelineOf(run, taskId, runSlugOf(run, runRoot) || featureSlug);
+        if (json) console.log(JSON.stringify(body, null, 2));
+        else {
+          console.log(`Timeline ${body.taskId} ${body.featureSlug || '-'} rev ${body.revision}`);
+          for (const e of body.events) {
+            console.log(`${e.at || '-'} ${e.action} ${e.node || '-'} ${e.outcome || e.decision || '-'}${e.forced ? ' forced' : ''}${e.synthetic ? ' synthetic' : ''}`);
+          }
+          if (body.otherEvents > 0) console.log(`other events: ${body.otherEvents}`);
+        }
+        return finishRuntime(0);
+      }
       default:
-        return usageError('orchestrate', `unknown action '${action}'; valid: start | status | handoff | catch-up | complete-stage | skip-stage | decide-gate | annotate`, json);
+        return usageError('orchestrate', `unknown action '${action}'; valid: start | status | list | timeline | handoff | catch-up | complete-stage | skip-stage | decide-gate | annotate`, json);
+    }
+    // Row 135: the feature pointer follows a `feature` run: set when it starts (`start`, or the `catch-up` that
+    // starts it), dropped once it completes.
+    if ((action === 'start' || absentBefore) && snapshot.taskClass === 'feature' && snapshot.state !== 'COMPLETED') {
+      require('./feature-pointer.ts').recordFeature({ storeRoot: state, cwd: source, slug: featureSlug, taskId });
+    } else if (action !== 'status' && snapshot.taskClass === 'feature' && snapshot.state === 'COMPLETED') {
+      require('./feature-pointer.ts').clearCheckout({ storeRoot: state, cwd: source, slug: featureSlug });
     }
     // Only a handoff that recorded work compacts; `deferred` and `standalone` recorded nothing.
     if (action === 'handoff' && (snapshot.disposition === 'completed' || snapshot.disposition === 'annotated')) {
-      snapshot = { ...snapshot, compaction: compactAfterHandoff({ taskId, projectRoot: state }) };
+      snapshot = { ...snapshot, compaction: compactAfterHandoff({ taskId, projectRoot: source }) };
     }
     if (json) { console.log(JSON.stringify(snapshot, null, 2)); return finishRuntime(0); }
     console.log(`Workflow ${snapshot.taskId} [${snapshot.taskClass}] — ${snapshot.state}`);
+    // `status` with no --slug opens the one run of the id under any feature (FU-wrnnaq): say whose it is.
+    if (action === 'status' && featureSlug) console.log(`Feature: ${featureSlug}`);
     if (snapshot.disposition === 'standalone') console.log(`Handoff: standalone (${snapshot.reason})`);
     else if (snapshot.disposition) console.log(`Handoff: ${snapshot.disposition}`);
     if (snapshot.compaction) console.log(`Compaction: ${snapshot.compaction.status}${snapshot.compaction.reason ? ` — ${snapshot.compaction.reason}` : ''}`);
+    if (snapshot.policy) console.log(snapshot.decision === 'pass'
+      ? `${gate} ${snapshot.taskId} approved by policy ${snapshot.policy.id}@${snapshot.policy.digest} (${snapshot.inputs.length} inputs)`
+      : `${gate} ${snapshot.taskId} denied by policy: ${snapshot.reasons.join(', ')}`);
     if (snapshot.progress) console.log(`Progress: ${snapshot.progress.done}/${snapshot.progress.total}`);
     if (snapshot.current) {
       console.log(snapshot.awaitingGate
@@ -950,4 +1457,4 @@ function handleOrchestrateCommand({
   }
 }
 
-module.exports = { WorkflowOrchestrator, RUN_STATES, GATE_DECISIONS, STAGE_OUTCOMES, handleOrchestrateCommand };
+module.exports = { WorkflowOrchestrator, RUN_STATES, GATE_DECISIONS, STAGE_OUTCOMES, handleOrchestrateCommand, recordStagePack };

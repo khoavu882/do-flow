@@ -1,0 +1,104 @@
+name: Release
+on:
+  push:
+    tags: ["v*"]
+permissions: {}
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v7.1.0
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@0123456789abcdef0123456789abcdef01234567 # v7.1.0
+        with:
+          node-version: 24.22.1
+      - run: npm run release:preflight -- --tag "$GITHUB_REF_NAME" --tag-pushed
+  test:
+    uses: ./.github/workflows/cross-os-tests.yml
+    with:
+      os_matrix: linux, macos, windows
+    permissions:
+      contents: read
+  verify-artifact:
+    needs: [preflight, test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v7.1.0
+      - uses: actions/setup-node@0123456789abcdef0123456789abcdef01234567 # v7.1.0
+        with:
+          node-version: 24.22.1
+      - run: npm run build:package
+      - run: npm pack --dry-run .pack
+  draft-release:
+    needs: [verify-artifact]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@0123456789abcdef0123456789abcdef01234567 # v7.1.0
+        with:
+          fetch-depth: 0
+      - run: gh release create "$GITHUB_REF_NAME" --draft --title "Release" --notes-file notes.md
+  publish:
+    needs: [draft-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@0123456789abcdef0123456789abcdef01234567 # v7.1.0
+      - name: Derive channel
+        run: |
+          case "$GITHUB_REF_NAME" in
+            *-*) channel=beta ;;
+            *) channel=latest ;;
+          esac
+      - run: npm run build:package
+      - run: npm publish .pack --provenance --tag "${channel}-candidate"
+  verify-registry:
+    needs: [publish]
+    runs-on: ${{ matrix.os }}
+    permissions: {}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            node: "24.22.1"
+          - os: macos-latest
+            node: "24.22.1"
+    steps:
+      - uses: actions/setup-node@0123456789abcdef0123456789abcdef01234567 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+      - run: |
+          VER="${GITHUB_REF_NAME#v}"
+          npm install --prefix "$RUNNER_TEMP/prefix" "@khoavu882/doflow@$VER"
+  promote:
+    needs: [verify-registry]
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - uses: actions/setup-node@0123456789abcdef0123456789abcdef01234567 # v7.1.0
+      - name: Derive channel
+        run: |
+          case "$GITHUB_REF_NAME" in
+            *-*) channel=beta ;;
+            *) channel=latest ;;
+          esac
+      - run: |
+          VER="${GITHUB_REF_NAME#v}"
+          npm dist-tag add "@khoavu882/doflow@$VER" "$channel"
+          npm dist-tag rm @khoavu882/doflow "${channel}-candidate"
+  publish-release:
+    needs: [promote]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - run: gh release edit "$GITHUB_REF_NAME" --draft=false

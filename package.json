@@ -1,11 +1,10 @@
 {
   "name": "@khoavu882/doflow",
-  "version": "2.0.0",
+  "version": "2.0.0-beta.7",
   "description": "DoFlow config installer — npx CLI for the registry-driven multi-harness install/update/remove lifecycle",
   "keywords": [
     "claude-code",
     "codex",
-    "gemini",
     "opencode",
     "ai-coding-agent",
     "skills",
@@ -26,16 +25,21 @@
     "doflow": "bin/doflow.js"
   },
   "engines": {
-    "node": "^22.18.0 || >=24.3.0"
+    "node": ">=24.22.1"
   },
   "scripts": {
-    "test": "node --test \"test/**/*.test.js\"",
+    "test": "node --test \"test/**/*.test.js\" \"test/**/*.test.ts\"",
+    "test:fast": "node test/helper/fast-tier.ts",
     "typecheck": "npx -y -p typescript@5.7.2 tsc -p tsconfig.json",
     "build:package": "node src/release/build-package.ts .pack",
-    "bench": "node bench/runner.js",
+    "bench": "node bench/runner.ts",
     "drift": "node scripts/check-format-drift.js",
+    "emission-rules": "node src/runtime/context/emission-rules.ts --check",
     "release-notes": "node src/release/changelog-section.ts",
-    "version": "node src/release/sync-plugin-versions.ts && git add core/.codex-plugin/plugin.json core/.claude-plugin/plugin.json core/.plugin/plugin.json"
+    "docs:blocks": "node src/release/docs-blocks.ts --check",
+    "release:preflight": "node src/release/preflight.ts",
+    "release:rehearse": "node src/release/rehearse.ts",
+    "version": "node src/release/sync-plugin-versions.ts && git add core/.codex-plugin/plugin.json core/.claude-plugin/plugin.json core/.plugin/plugin.json core/registry/packages/doflow/doflow-package.json core/registry/contribution-points.json"
   },
   "files": [
     "bin/",

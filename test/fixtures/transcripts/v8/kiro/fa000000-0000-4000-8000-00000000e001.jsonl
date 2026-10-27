@@ -1,0 +1,8 @@
+{"version":"v1","kind":"Prompt","data":{"content":[{"kind":"text","data":{"text":"FIXTURE-USER-PROMPT-MARKER-91c2 kmain"}}]}}
+{"version":"v1","kind":"AssistantMessage","data":{"message_id":"kmsg1","content":[{"kind":"thinking","data":{"text":"FIXTURE-THINKING-MARKER-7f3a kmain","modelId":"kiro-fixture-1"}},{"kind":"text","data":{"text":"FIXTURE-REPLY-OK kmain the deploy note says password=fx-Secret-4471-reply and mail fixture.person@example.invalid","modelId":"kiro-fixture-1"}},{"kind":"toolUse","data":{"toolUseId":"tu_fx_k1","name":"execute_bash","input":{"command":"echo password=fx-Secret-4471-args && echo '{\"token\":\"fx-Secret-4471-esc\"}'"},"modelId":"kiro-fixture-1"}}]}}
+{"version":"v1","kind":"ToolResults","data":{"content":[{"kind":"toolResult","data":{"toolUseId":"tu_fx_k1","status":"success","content":[{"kind":"text","data":"FIXTURE-TOOL-RESULT-TEXT-5e1d kmain"}]}}]}}
+{"version":"v1","kind":"Context","data":{"userEmail":"fixture.attach@example.invalid"}}
+{"version":"v1","kind":"fixture-unknown-record-type","data":{"path":"/work/fixture-project/notes/private.txt"}}
+{"note":"fixture-missing-keys-record"}
+{"version":"v1","kind":"AssistantMessage","data":{"message_id":"kmsg2","content":[{"kind":"text","data":{"text":"FIXTURE-REPLY-DONE kmain","modelId":"kiro-fixture-1"}}]}}
+{"version":"v1","kind":"Clear","data":{}}

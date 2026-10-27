@@ -7,6 +7,7 @@ const path = require('node:path');
 const { parseYamlFile } = require('./capability-router.ts');
 const { resolveLocator, describeResolution } = require('./locator-resolve.ts');
 const { readPlan, bindEvidence, declaredIntentList } = require('./retrieval-record.ts');
+const { fileRootFor } = require('./freshness.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 const READINESS_STATES = new Set([
@@ -64,6 +65,7 @@ class ReadinessEngine {
   declare fsImpl: any;
   declare repoRoot: any;
   declare projectRoot: any;
+  declare sourceRoot: any;
   declare templatePath: any;
   declare templates: any;
   /**
@@ -72,6 +74,8 @@ class ReadinessEngine {
    * @param {string} [options.projectRoot] the repository under work, which evidence locators name.
    *   Distinct from repoRoot on purpose: when the CLI runs inside another project, the templates
    *   come from the install and the locators must be resolved against that project, not the install.
+   * @param {string} [options.sourceRoot] the checkout the verb runs in, where a relative locator's file
+   *   is read (IC-007, `fileRootFor`); differs from projectRoot in a linked worktree. Defaults to projectRoot.
    * @param {string} [options.templatePath]
    * @param {Object} [options.templates]
    * @param {Object} [options.fsImpl]
@@ -80,6 +84,7 @@ class ReadinessEngine {
     this.fsImpl = options.fsImpl || fs;
     this.repoRoot = options.repoRoot || REPO_ROOT;
     this.projectRoot = options.projectRoot || process.cwd();
+    this.sourceRoot = options.sourceRoot || this.projectRoot;
     this.templatePath = options.templatePath || path.join(this.repoRoot, 'core', 'registry', 'readiness-templates.json');
 
     if (options.templates) {
@@ -132,6 +137,22 @@ class ReadinessEngine {
         intent: 'verify-runtime-behavior',
         capability: 'behavior.verify',
         action: 'Execute automated tests or record runtime observation reproducing the behavior.',
+      };
+    }
+    // These are satisfied by what the caller states, not by retrieved evidence (evaluateReadiness),
+    // so the action names the flag that states it (--scope / --invariants, cli/index.ts).
+    if (reqId === 'scope_clear' || reqId === 'scope_verified') {
+      return {
+        intent: 'locate-concept',
+        capability: 'code.semantic-search',
+        action: `State the scope boundary for requirement '${reqId}' (${reqDef.description}): pass --scope "<boundary>" when evaluating readiness.`,
+      };
+    }
+    if (reqId === 'invariants_captured') {
+      return {
+        intent: 'locate-concept',
+        capability: 'code.semantic-search',
+        action: `State the invariants the change must preserve for requirement '${reqId}' (${reqDef.description}): pass --invariants "<invariants>" when evaluating readiness.`,
       };
     }
     return {
@@ -224,7 +245,10 @@ class ReadinessEngine {
     const queryBound = Boolean(plan?.planId);
     const binding = queryBound ? bindEvidence(plan, allTaskEvidence) : null;
     const unboundIds = new Set(binding ? binding.unbound.map((item: any) => item.id) : []);
+    // A superseded item is retired: it neither satisfies a requirement nor can it be unresolvable
+    // (the stale check below already skips it), so nothing else can be left that clears it.
     const taskEvidence = allTaskEvidence.filter((item: any) => item.freshness?.status === 'FRESH'
+      && item.status !== 'superseded'
       && (!queryBound || !unboundIds.has(item.id)));
 
     // An item accepted before FR-004 existed, or one whose target file has since shrunk, can be
@@ -246,7 +270,7 @@ class ReadinessEngine {
     const unresolvableEvidence = [];
     for (const item of taskEvidence) {
       if (item.provenance !== 'extracted' || !item.locator || !item.locator.file) continue;
-      const resolution = resolveLocator({ locator: item.locator, repoRoot: this.projectRoot });
+      const resolution = resolveLocator({ locator: item.locator, repoRoot: fileRootFor(this.sourceRoot, this.projectRoot, item.locator) });
       if (!resolution.resolved) {
         unresolvableEvidence.push({
           evidenceId: item.id,
@@ -296,7 +320,18 @@ class ReadinessEngine {
       // not by any supported claim the task happens to hold (review R1 — a supported claim about an
       // unrelated invariant satisfied the bug template's root-cause requirement).
       else if (reqDef.requiresClaimStatus) {
-        let matchingClaims = taskClaims.filter((c: any) => c.status === reqDef.requiresClaimStatus);
+        // A `supported` claim counts only while at least one of its supporting items is live
+        // (active, FRESH, bound) in `taskEvidence`: support that was superseded, went stale or is
+        // unbound no longer backs it (107-B review C-1). Other statuses are not evidence-backed.
+        const liveEvidenceIds = new Set(taskEvidence.map((item: any) => item.id));
+        const statusMatched = taskClaims.filter((c: any) => c.status === reqDef.requiresClaimStatus);
+        const hasLiveSupport = (c: any) => reqDef.requiresClaimStatus !== 'supported'
+          || (c.supportingEvidence || []).some((id: string) => liveEvidenceIds.has(id));
+        // A claim whose stored status still reads `supported` but whose support was retired is
+        // named as such, so the user is not told to add a supported claim they can already see.
+        const retired = statusMatched.filter((c: any) => !hasLiveSupport(c)
+          && (!reqDef.requiresClaimRole || c.role === reqDef.requiresClaimRole));
+        let matchingClaims = statusMatched.filter(hasLiveSupport);
         if (reqDef.requiresClaimRole) {
           const withRole = matchingClaims.filter((c: any) => c.role === reqDef.requiresClaimRole);
           if (withRole.length === 0 && matchingClaims.length > 0) {
@@ -309,6 +344,12 @@ class ReadinessEngine {
         if (matchingClaims.length > 0) {
           isSatisfied = true;
           matchedEvidenceIds = matchingClaims.flatMap((c: any) => c.supportingEvidence);
+        } else if (!reason && retired.length > 0) {
+          reasonCode = 'claim-support-retired';
+          reason = `${retired.length} claim(s) with status '${reqDef.requiresClaimStatus}'`
+            + `${reqDef.requiresClaimRole ? ` and role '${reqDef.requiresClaimRole}'` : ''} have no live supporting `
+            + `evidence (${retired.slice(0, 5).map((c: any) => c.id).join(', ')}): each supporting item was superseded, `
+            + 'went stale or is not bound to the task plan. Link a fresh item with `claim --action link` and re-evaluate.';
         } else if (!reason) {
           reason = `Requires at least one claim with status '${reqDef.requiresClaimStatus}'`
             + `${reqDef.requiresClaimRole ? ` and role '${reqDef.requiresClaimRole}'` : ''}.`;
@@ -476,7 +517,7 @@ class ReadinessEngine {
 /** One live snapshot for readiness inspection and orchestration transitions. Reads never persist
  * derived freshness or claim status; every invocation evaluates the current project again.
  * `mode` defaults to 'workflow' — fail closed: the standalone exemption must be declared. */
-function evaluateTaskReadiness({ taskProfile, repoRoot = REPO_ROOT, projectRoot = process.cwd(), treeRoot = projectRoot, mode = 'workflow' }: any) {
+function evaluateTaskReadiness({ taskProfile, repoRoot = REPO_ROOT, projectRoot = process.cwd(), treeRoot = projectRoot, sourceRoot = projectRoot, mode = 'workflow' }: any) {
   // Validated before any ledger work, not just inside stageEntryFor at the end — an invalid mode
   // used to pay a full freshness/claims evaluation before erroring (review suggestion, 026).
   if (!EXECUTION_MODES.has(mode)) {
@@ -487,11 +528,11 @@ function evaluateTaskReadiness({ taskProfile, repoRoot = REPO_ROOT, projectRoot 
   const { FreshnessValidator } = require('./freshness.ts');
   const ledger = new EvidenceLedger({ repoRoot: projectRoot });
   ledger.load(taskProfile.taskId);
-  new FreshnessValidator({ repoRoot: projectRoot, treeRoot }).validateLedgerFreshness(ledger);
+  new FreshnessValidator({ repoRoot: projectRoot, treeRoot, sourceRoot }).validateLedgerFreshness(ledger);
   const claims = new ClaimsManager({ evidenceLedger: ledger, repoRoot: projectRoot });
   claims.load(taskProfile.taskId);
   claims.evaluateAll();
-  const report = new ReadinessEngine({ repoRoot, projectRoot }).evaluateReadiness(taskProfile, ledger, claims);
+  const report = new ReadinessEngine({ repoRoot, projectRoot, sourceRoot }).evaluateReadiness(taskProfile, ledger, claims);
   return { ...report, executionMode: mode, stageEntry: stageEntryFor(report.state, mode) };
 }
 

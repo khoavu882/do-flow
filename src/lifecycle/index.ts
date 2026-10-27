@@ -8,15 +8,18 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { harnessFor, selectAssets, selectMcpServers, mcpCapable } = require('../registry/index.ts');
+const { harnessFor, selectAssets, selectMcpServers, mcpCapable, isRetired } = require('../registry/index.ts');
 const { defaultLedger, ownershipKey, writeLedger, writeRecoveryRecord, upgradeLedger, LEDGER_VERSION } = require('../state/index.ts');
 const { resolveAdapter, projectAdapterInput } = require('../adapters/index.ts');
 const { pruneEmptyAncestors, discoverTree, sameFileIndex, sharedTreeDestDir, walkRelFiles } = require('../adapters/copy-tree.ts');
 const { renderPolicies } = require('./policies.ts');
 const { renderMcpIndex } = require('./mcp-index.ts');
 const { hasBashCapableShell } = require('./bash-availability.ts');
-const { hookTrustFor: geminiHookTrustFor } = require('../adapters/gemini/index.ts');
 const { planHookCompanions } = require('./hook-step.ts');
+const { tieredRegistry, hookHoldersFromLedger, hooksTieredOff, withoutHookSources, planHookTierRemovals } = require('./hook-tier.ts');
+const { readLock, lockPackages } = require('../state/lockfile.ts');
+const { resolveRegistrySource } = require('../adapters/resolve-source.ts');
+const { planRetiredHarnesses, planHandovers, handoversFor, applyRetiredHarnesses, retiredReleaseKeys, claimKey } = require('./retired-harnesses.ts');
 
 const OPERATIONS = new Set(['create', 'merge', 'update', 'remove']);
 /** A harness's MCP selection meaning "the servers it owns now", read through its adapter's
@@ -199,12 +202,14 @@ function releasedOwnershipKeys(harnessPlans: any, scope: any) {
  * applied. Membership is decided per ROW, not per harness: a harness that is releasing its claim
  * on this file is not a claimant even if it is releasing nothing else, and a harness in the same
  * batch that keeps its row (an install that relocates one asset while a sibling's projection is
- * unchanged) still is. */
-function survivingClaimantsByTarget(ledger: any, releasedKeys: any) {
+ * unchanged) still is. A retired harness's row is never a claimant (row 127 IC-003): nothing will
+ * ever maintain the file for it, so it must not keep a live harness's removal from reclaiming it. */
+function survivingClaimantsByTarget(ledger: any, releasedKeys: any, registry: any) {
   const byTarget = new Map();
   for (const resource of ledger?.resources || []) {
     if (typeof resource?.target !== 'string' || typeof resource?.harness !== 'string') continue;
     if (releasedKeys.has(ownershipKey(resource))) continue;
+    if (isRetired(registry, resource.harness)) continue;
     const key = claimKey(resource);
     if (!byTarget.has(key)) byTarget.set(key, new Set());
     byTarget.get(key).add(resource.harness);
@@ -212,16 +217,10 @@ function survivingClaimantsByTarget(ledger: any, releasedKeys: any) {
   return byTarget;
 }
 
-/** What one claim covers: a whole file, except an MCP entry, which is claimed on its own because
- * several harnesses keep their servers side by side in one MCP file. */
-function claimKey(record: any) {
-  return record.kind === 'mcp-server' ? `${record.target}\u0000${record.identity}` : record.target;
-}
-
 /** NFR-007: a removal reclaims only what no other harness still claims.
  *
  * Several assets project to ONE destination for several harnesses — `scripts.doflow` is a single
- * `<project>/.doflow/scripts` tree for claude, codex and gemini, and gemini and copilot both
+ * `<project>/.doflow/scripts` tree for claude and codex, and antigravity and copilot both
  * resolve to `<root>/.agents` at project scope — while ownership is recorded per harness. A
  * removal that deleted every file its own rows named therefore took the shared runtime out from
  * under the harnesses that are still installed, leaving them with rows pointing at files that no
@@ -233,8 +232,19 @@ function claimKey(record: any) {
  * stays, and the last claimant's removal is the one that reclaims it. The neutral ledger is the
  * only thing consulted — it is already the record of who owns what, and a second ownership
  * registry would be one more thing to keep in sync. */
-function markRetainedRemovals(harnessPlans: any, ledger: any, scope: any) {
-  const claimants = survivingClaimantsByTarget(ledger, releasedOwnershipKeys(harnessPlans, scope));
+function markRetainedRemovals(harnessPlans: any, ledger: any, scope: any, registry?: any) {
+  const claimants = survivingClaimantsByTarget(ledger, releasedOwnershipKeys(harnessPlans, scope), registry);
+  // A harness this same plan writes a destination for claims it after the run (maint-hooks R-2: the
+  // hook tier moves from claude to kiro in one update, so the shared hooks tree must stay standing).
+  for (const target of harnessPlans) {
+    if (target.skipped) continue;
+    for (const change of target.changes || []) {
+      if (change.operation === 'remove' || typeof change.target !== 'string' || typeof change.harness !== 'string') continue;
+      const key = claimKey(change);
+      if (!claimants.has(key)) claimants.set(key, new Set());
+      claimants.get(key).add(change.harness);
+    }
+  }
   if (!claimants.size) return harnessPlans;
   return harnessPlans.map((target: any) => {
     if (target.skipped) return target;
@@ -255,10 +265,11 @@ function markRetainedRemovals(harnessPlans: any, ledger: any, scope: any) {
 }
 
 /** Whether this plan leaves no ownership row standing anywhere — the only case in which a shared,
- * install-wide artifact that no single harness owns is genuinely unclaimed. */
-function removalIsTotal(plan: any) {
+ * install-wide artifact that no single harness owns is genuinely unclaimed. A retired harness's row
+ * claims nothing (survivingClaimantsByTarget), so it does not count as standing. */
+function removalIsTotal(plan: any, registry?: any) {
   const released = releasedOwnershipKeys(plan.targets || [], plan.scope);
-  return (plan.ledger?.resources || []).every((resource: any) => released.has(ownershipKey(resource)));
+  return (plan.ledger?.resources || []).every((resource: any) => released.has(ownershipKey(resource)) || isRetired(registry, resource?.harness));
 }
 
 /** What a removal kept and why, ready to print. A command that says "removed" while silently
@@ -308,13 +319,17 @@ function harnessMcpSelection(registry: any, harness: any, raw: any) {
   return [];
 }
 
-/** The runtime trees: each one source directory projected to one `<scopeRoot>/.doflow/runtime/...`
- * tree for every harness, with no layout and no transform (test/guards/runtime-tree.test.js pins
- * that). Nothing but the shared scripts reaches into them, so a file the current source no longer
- * ships is dead for every harness at once. Guidance and scripts are not here: a harness this run
- * does not update names files in those trees from its own native files, so NFR-007 retention is
- * right for them. */
-const RUNTIME_TREE_ASSETS = ['runtime.cli', 'runtime.lib', 'runtime.registry'];
+/** The shared trees the orphan prune judges, each a group of the assets that project it. Each tree
+ * is one source directory projected to one `<scopeRoot>/.doflow/...` tree for every harness, with
+ * no layout and no transform (test/guards/runtime-tree.test.js pins that), so a file the current
+ * source no longer ships is dead for every harness at once. The guidance tree is two assets: Kiro
+ * projects it through kiro.guidance-tree, every other harness through guidance.context-layer. A
+ * harness's own native files name only DOFLOW_CORE.md in it, which every source ships. The scripts
+ * tree is not here: a harness this run does not update calls those scripts by name from its own
+ * native files, so NFR-007 retention is right for it. */
+const PRUNED_TREES: string[][] = [['runtime.cli'], ['runtime.lib'], ['runtime.registry'], ['guidance.context-layer', 'kiro.guidance-tree']];
+/** Generated in the guidance tree per install, never a ledger row (mcpIndexPath): not an orphan. */
+const PRUNE_EXEMPT = new Set(['MCP_INDEX.md']);
 
 function sha256File(file: string, fsImpl: any): string {
   return crypto.createHash('sha256').update(fsImpl.readFileSync(file)).digest('hex');
@@ -364,12 +379,22 @@ function pruneRetiredRuntimeFiles(harnessPlans: any[], ledger: any, { scopeRoot,
   const recorded = new Set(rows.map((row: any) => row.target));
   const shown = (file: string) => path.relative(scopeRoot, file);
 
-  for (const assetId of RUNTIME_TREE_ASSETS) {
-    const executor = planned.find((target: any) => target.assets.some((asset: any) => asset.id === assetId));
+  const sharedDest = (target: any, asset: any) => {
+    const nativeDir = typeof asset.nativeDir === 'string' ? asset.nativeDir : asset.nativeDir?.[target.harness];
+    return sharedTreeDestDir(scopeRoot, nativeDir);
+  };
+  for (const group of PRUNED_TREES) {
+    // The first planned harness projecting this group into a shared tree (Kiro's guidance.context-layer
+    // projects to its own steering directory, so its kiro.guidance-tree is the one that counts).
+    let executor: any = null;
+    let asset: any = null;
+    for (const target of planned) {
+      asset = target.assets.find((item: any) => group.includes(item.id) && sharedDest(target, item));
+      if (asset) { executor = target; break; }
+    }
     if (!executor) continue;
-    const asset = executor.assets.find((item: any) => item.id === assetId);
-    const nativeDir = typeof asset.nativeDir === 'string' ? asset.nativeDir : asset.nativeDir?.[executor.harness];
-    const destDir = sharedTreeDestDir(scopeRoot, nativeDir);
+    const assetId = asset.id;
+    const destDir = sharedDest(executor, asset);
     const sourceDir = path.resolve(repoRoot, asset.source);
     if (!destDir || !fsImpl.existsSync(sourceDir) || !fsImpl.existsSync(destDir)) continue;
     const produced = discoverTree({ sourceDir, destDir, fsImpl }).files.map((file: any) => file.destAbs);
@@ -386,7 +411,7 @@ function pruneRetiredRuntimeFiles(harnessPlans: any[], ledger: any, { scopeRoot,
     const removalsAt = new Map<string, any[]>();
     for (const target of planned) {
       for (const change of target.changes) {
-        if (change.operation !== 'remove' || change.assetId !== assetId || !isUnder(change.target, destDir) || producedSet.has(change.target)) continue;
+        if (change.operation !== 'remove' || !group.includes(change.assetId) || !isUnder(change.target, destDir) || producedSet.has(change.target)) continue;
         if (!removalsAt.has(change.target)) removalsAt.set(change.target, []);
         removalsAt.get(change.target)!.push(change);
       }
@@ -397,11 +422,19 @@ function pruneRetiredRuntimeFiles(harnessPlans: any[], ledger: any, { scopeRoot,
         if (!change.retained) replaced.get(change.harness)!.set(change, Object.freeze({ ...change, retained: true, retainedFor: [] }));
       }
     };
+    // The tree itself, or any directory above it, may be a link out of the scope (a project's
+    // .doflow/guidance pointing at ~/.doflow/guidance). realpath resolves every component, so the
+    // whole tree is then left alone: nothing in it is pruned, and no planned removal runs.
+    if (!isUnder(realRoot, fsImpl.realpathSync(scopeRoot))) {
+      for (const file of removalsAt.keys()) keepFile(file);
+      notices.get(executor.harness)!.push(`kept ${shown(destDir)}: it resolves outside the scope root, so no file in it is pruned`);
+      continue;
+    }
 
     for (const file of new Set([...rowsAt.keys(), ...removalsAt.keys()])) {
       const fileRows = rowsAt.get(file) ?? [];
       // Another asset's live row on this path is a claim this pass does not judge.
-      if (fileRows.some((row: any) => row.assetId !== assetId)) continue;
+      if (fileRows.some((row: any) => !group.includes(row.assetId))) continue;
       const removals = removalsAt.get(file) ?? [];
       const identity = path.relative(destDir, file);
       // The rows no planned removal of this file releases on its own.
@@ -424,14 +457,25 @@ function pruneRetiredRuntimeFiles(harnessPlans: any[], ledger: any, { scopeRoot,
       }
       if (sameFile(file)) { keepFile(file); continue; }   // the produced file under an old spelling
       const current = sha256File(file, fsImpl);
-      if (!fileRows.some((row: any) => row.fingerprint === current)) {
+      // Each row is its harness's latest record of this path, and every row in this scope's ledger
+      // counts, not only the run's harnesses. Only bytes equal to ALL of them prove the file is
+      // DoFlow's last write: a match with one claimant's older record (a user restoring v1 after
+      // another harness wrote v2) authorizes nothing.
+      const stale = fileRows.filter((row: any) => row.fingerprint !== current);
+      if (stale.length === fileRows.length) {
         // A planned removal here was already kept by planTree, and its adapter named it.
         if (!removals.length) notices.get(executor.harness)!.push(`kept ${shown(file)}: no longer shipped, changed since DoFlow wrote it`);
         continue;
       }
+      if (stale.length) {
+        keepFile(file);
+        const who = [...new Set(stale.map((row: any) => row.harness))].sort().join(', ');
+        notices.get(executor.harness)!.push(`kept ${shown(file)}: no longer shipped, and its bytes differ from what ${who} last recorded`);
+        continue;
+      }
       notices.get(executor.harness)!.push(`prune ${shown(file)}: no longer shipped, unchanged since DoFlow wrote it`);
       // removeTree re-runs containment and the same-file check from this right before the unlink.
-      const pruneGuard = { root: destDir, source: sourceDir };
+      const pruneGuard = { root: destDir, source: sourceDir, scope: scopeRoot };
       if (!removals.length) {
         added.get(executor.harness)!.push(synthetic({ fingerprint: current, supersedes: superseded, pruneGuard }));
         continue;
@@ -446,7 +490,7 @@ function pruneRetiredRuntimeFiles(harnessPlans: any[], ledger: any, { scopeRoot,
     // Files no row names and the source does not produce: never DoFlow's to delete, but named.
     for (const rel of walkRelFiles(destDir, fsImpl)) {
       const file = path.join(destDir, rel);
-      if (producedSet.has(file) || recorded.has(file) || sameFile(file)) continue;
+      if (producedSet.has(file) || recorded.has(file) || sameFile(file) || PRUNE_EXEMPT.has(rel)) continue;
       notices.get(executor.harness)!.push(`kept ${shown(file)}: not shipped by this version and not recorded as DoFlow's`);
     }
   }
@@ -466,11 +510,230 @@ function targetFromResult({ harness, assets, mcp, mcpSelected, policies, adapter
   return { harness: harness.id, adapter: harness.adapter, assets, mcp, mcpSelected, policies, adapterInput, discovery, changes, requiredNativeResources, conflicts, prerequisites, notices: adapterNotices(result), skipped: false };
 }
 
+// ── package skills and agents (122 IC-017) ──────────────────────────────────────────────────────────
+
+/** A package contribution's asset id is `pkg.<qualified id>`; no registry asset id starts with `pkg.`. */
+const PACKAGE_ASSET_PREFIX = 'pkg.';
+const isPackageAsset = (id: any): boolean => typeof id === 'string' && id.startsWith(PACKAGE_ASSET_PREFIX);
+
+/** IC-017's ownership identity: the harness, the qualified id and the path inside the projected tree. It names no
+ * scope and no destination, as G20 requires of every identity. */
+function packageIdentity(harness: string, assetId: string, relPath: string): string {
+  return `doflow:${harness}:package:${assetId.slice(PACKAGE_ASSET_PREFIX.length)}:${relPath}`;
+}
+
+/** Whether an adapter's conflict line or status belongs to one of `ids` (copy-tree prefixes each with `<asset id>: `). */
+const namesAsset = (reason: any, ids: Set<string>): boolean => [...ids].some((id) => String(reason).includes(`${id}: `));
+
+/**
+ * The active third-party packages with skill or agent contributions, read from `context.packageView` when given (a
+ * test seam, and the verbs' own view) or else from the package view of the global lock under `scopeRoot`. Nothing is
+ * read when the lock records no third-party package. The view is taken with no `packages.disabled` applied: harness
+ * files are machine-wide, so only the lock bit, the trust grant and the store's integrity decide them.
+ */
+function activePackageEntries(registry: any, scopeRoot: string, context: any): any[] {
+  let view = context.packageView;
+  if (!view) {
+    let rows: any[];
+    try { rows = lockPackages(readLock({ scope: 'global', homeDir: scopeRoot })); } catch { return []; }
+    if (!rows.some((row: any) => row?.source?.type !== 'bundled')) return [];
+    view = require('../runtime/packages/view.ts').packageView({ repoRoot: registry.repoRoot, homeDir: scopeRoot, settingsView: {} });
+  }
+  const { instructionEntries } = require('../runtime/packages/store.ts');
+  const out: any[] = [];
+  for (const pkg of view.packages ?? []) {
+    if (pkg.firstParty || pkg.state !== 'active' || typeof pkg.storeDir !== 'string') continue;
+    let manifest: any;
+    try { manifest = JSON.parse(fs.readFileSync(path.join(pkg.storeDir, 'doflow-package.json'), 'utf8')); } catch { continue; }
+    const entries = instructionEntries(manifest);
+    if (entries.length) out.push({ id: pkg.id, storeDir: pkg.storeDir, entries });
+  }
+  return out;
+}
+
+/** The registry-shaped asset for one contribution on one harness, or `{ warning }` when it cannot be projected there.
+ * The source resolves inside the store entry with real paths on both sides (`resolveRegistrySource` with a source
+ * root); a skill lands in its own directory under the borrowed asset's destination, an agent beside DoFlow's. */
+function packageAsset(registry: any, harnessId: string, pkg: any, entry: any, realRoot: string): any {
+  const { projectionReach } = require('../runtime/packages/store.ts');
+  const reach = projectionReach(registry, harnessId, entry.point);
+  if (!reach.ok) return { warning: `${harnessId} cannot take ${entry.point} ${entry.qualifiedId}: ${reach.reason}` };
+  let real: string;
+  try { real = resolveRegistrySource(registry, entry.path, `package ${entry.qualifiedId}`, pkg.storeDir); } catch (error: any) {
+    return { warning: `${entry.point} ${entry.qualifiedId} is not projected: ${error.message}` };
+  }
+  let sourceDir = real;
+  let nativeDir = reach.nativeDir ? `${reach.nativeDir}/${entry.name}` : entry.name;
+  if (entry.point === 'agent') {
+    // The adapters project a whole source directory, so an agent file is projected only from a directory of its own.
+    sourceDir = path.dirname(real);
+    nativeDir = reach.nativeDir;
+    const others = fs.readdirSync(sourceDir).filter((name: string) => name !== path.basename(real));
+    if (others.length) return { warning: `agent ${entry.qualifiedId} is not projected: its directory ${path.relative(realRoot, sourceDir) || '.'} holds other entries (${others.slice(0, 3).join(', ')}); give the agent file a directory of its own` };
+  }
+  return {
+    asset: { id: `${PACKAGE_ASSET_PREFIX}${entry.qualifiedId}`, kind: entry.point, source: path.relative(realRoot, sourceDir), ownership: 'managed-tree',
+      projection: { [harnessId]: reach.projection }, nativeDir: { [harnessId]: nativeDir } },
+  };
+}
+
+/** What one harness's adapter plans for one package's assets alone, with every other component's output dropped and
+ * the identities rewritten to IC-017's: `{ part, changes, notices }`, or `{ warnings }` when it cannot be planned. The
+ * part (assets, adapter input, discovery) is what verification re-reads after the apply. */
+function planPackagePart({ registry, adapters, harness, scope, scopeRoot, ledger, context, pkg, assets }: any): any {
+  const realRoot = fs.realpathSync(pkg.storeDir);
+  // The native projection (codex's TOML agents and hooks) is DoFlow's own, never a package's: it is left out, so the
+  // adapter plans the package's tree assets and nothing that reads the DoFlow checkout.
+  const adapterInput = projectAdapterInput({ registry, harness: { ...harness, nativeProjection: undefined }, scope, scopeRoot, assets, mcp: [], mcpAdoptable: [], policies: [],
+    context: { repoRoot: realRoot, homeDir: context.homeDir ?? scopeRoot, projectRoot: scopeRoot, sourceVersion: context.sourceVersion, operation: context.operation } });
+  const adapter = resolveAdapter(adapters, harness);
+  const ids = new Set<string>(assets.map((asset: any) => asset.id));
+  let discovery: any;
+  let result: any;
+  try {
+    discovery = adapter.discover({ ...adapterInput, registry, ledger });
+    result = adapter.plan({ ...adapterInput, registry, ledger, discovery });
+  } catch (error: any) {
+    return { warnings: [`package ${pkg.id} is not projected into ${harness.id}: ${error.message}`] };
+  }
+  const conflicts = adapterConflicts(result, harness).filter((reason: any) => namesAsset(reason, ids));
+  if (conflicts.length) return { warnings: conflicts.map((reason: any) => `package ${pkg.id} is not projected into ${harness.id}: ${reason}`) };
+  const changes = (result.changes || []).filter((change: any) => ids.has(change.assetId))
+    .map((change: any) => normalizeChange({ ...change, ownershipIdentity: packageIdentity(harness.id, change.assetId, change.identity ?? path.basename(change.target)) }, { harness, assets }));
+  const notices = adapterNotices(result).filter((notice: string) => notice.startsWith('kept hand-edited '));
+  return { part: { packageId: pkg.id, assets, adapterInput, discovery }, changes, notices };
+}
+
+/** The removals of a package's recorded rows on one harness (IC-017 unprojection), planned from the ledger alone, so a
+ * store entry that is gone or changed is no obstacle: a file whose bytes are still DoFlow's is removed, a file a person
+ * edited is kept and only its row released (named in a notice), a file already gone only releases its row. The change
+ * shape is the one every adapter's copy-tree removal reads (`kind`, `projection.renderer`), as the runtime prune's. */
+function packageRemovals({ harness, scopeRoot, rows }: any): { changes: any[]; notices: string[] } {
+  const notices: string[] = [];
+  const changes = rows.map((row: any) => {
+    const base = { harness: harness.id, assetId: row.assetId, target: row.target, operation: 'remove', kind: 'copy-tree-file', identity: row.identity,
+      ownershipIdentity: row.ownershipIdentity, projection: { renderer: 'copy-tree' } };
+    if (!fs.existsSync(row.target)) return Object.freeze({ ...base, fingerprint: null, retained: true, retainedFor: [] });
+    const current = sha256File(row.target, fs);
+    if (current !== row.fingerprint) {
+      notices.push(`kept person-edited ${path.relative(scopeRoot, row.target)}; DoFlow no longer manages it`);
+      return Object.freeze({ ...base, fingerprint: current, retained: true, retainedFor: [] });
+    }
+    return Object.freeze({ ...base, fingerprint: current });
+  });
+  return { changes, notices };
+}
+
+/**
+ * The package work of a global-scope plan (IC-017), per harness: the changes that project each active package's skills
+ * and agents through the harness's own adapter (one `part` per package, for verification), and the removals of every
+ * recorded row that no longer belongs to an active, reachable contribution (disabled, revoked, removed, suspended,
+ * re-digested, or a `remove` run). A package fault never makes the plan unsafe (FR-009): it becomes a warning, and that
+ * package's files on that harness stay as they are. Nothing happens at project scope (NFR-005), and nothing is read
+ * when no package is recorded.
+ */
+function planPackageWork({ registry, adapters, scope, scopeRoot, harnesses, ledger, context }: any): { byHarness: Map<string, any>; warnings: any[] } {
+  const byHarness = new Map<string, any>();
+  const warnings: any[] = [];
+  if (scope !== 'global' || !harnesses.length) return { byHarness, warnings };
+  const recorded = (ledger?.resources ?? []).filter((row: any) => isPackageAsset(row.assetId) && typeof row.target === 'string');
+  const active = context.operation === 'remove' ? [] : activePackageEntries(registry, scopeRoot, context);
+  if (!active.length && !recorded.length) return { byHarness, warnings };
+  for (const harness of harnesses) {
+    const work = { changes: [] as any[], notices: [] as string[], parts: [] as any[] };
+    const wanted = new Set<string>();
+    for (const pkg of active) {
+      const realRoot = fs.realpathSync(pkg.storeDir);
+      const assets: any[] = [];
+      for (const entry of pkg.entries) {
+        const made = packageAsset(registry, harness.id, pkg, entry, realRoot);
+        if (made.warning) warnings.push({ harness: harness.id, packageId: pkg.id, warning: made.warning });
+        else { assets.push(made.asset); wanted.add(made.asset.id); }
+      }
+      if (!assets.length) continue;
+      const planned = planPackagePart({ registry, adapters, harness, scope, scopeRoot, ledger, context, pkg, assets });
+      for (const warning of planned.warnings ?? []) warnings.push({ harness: harness.id, packageId: pkg.id, warning });
+      if (!planned.part) continue;
+      work.parts.push(planned.part);
+      work.changes.push(...planned.changes);
+      work.notices.push(...planned.notices);
+    }
+    const removals = packageRemovals({ harness, scopeRoot, rows: recorded.filter((row: any) => row.harness === harness.id && !wanted.has(row.assetId)) });
+    work.changes.push(...removals.changes);
+    work.notices.push(...removals.notices);
+    if (work.parts.length || work.changes.length || work.notices.length) byHarness.set(harness.id, work);
+  }
+  return { byHarness, warnings };
+}
+
+/** A harness's plan entry with its package work added, `requiredNativeResources` kept in step as withChanges does. */
+function withPackageWork(target: any, work: any) {
+  const changes = [...target.changes, ...work.changes];
+  const requiredNativeResources = target.requiredNativeResources === target.changes ? changes
+    : [...target.requiredNativeResources, ...work.changes.map((change: any) => ({ harness: change.harness, component: 'package', target: change.target, operation: change.operation, identity: change.identity }))];
+  return { ...target, changes, requiredNativeResources, notices: [...target.notices, ...work.notices], packageParts: work.parts };
+}
+
+/** The plan entry of a package-only plan for one harness: no DoFlow asset, only the package work. */
+function packageHostTarget({ registry, harness, scope, scopeRoot, context, work }: any) {
+  const adapterInput = projectAdapterInput({ registry, harness: { ...harness, nativeProjection: undefined }, scope, scopeRoot, assets: [], mcp: [], mcpAdoptable: [], policies: [],
+    context: { repoRoot: registry.repoRoot, homeDir: context.homeDir ?? scopeRoot, projectRoot: scopeRoot, operation: context.operation } });
+  return { harness: harness.id, adapter: harness.adapter, assets: [], mcp: [], mcpSelected: null, policies: [], adapterInput, discovery: null,
+    changes: work.changes, requiredNativeResources: work.changes, conflicts: [], prerequisites: [], notices: work.notices, skipped: false,
+    packagesOnly: true, packageParts: work.parts };
+}
+
+/** The verification of one package part: the adapter's verify of that package's assets, filtered to them, with the
+ * identities rewritten as the plan wrote them. A throw is a conflict, so the run stops before the ledger is written. */
+function verifyPackagePart({ part, adapter, harness, plan, context, operation, plannedWrites }: any): any {
+  const ids = new Set<string>(part.assets.map((asset: any) => asset.id));
+  let raw: any;
+  try {
+    raw = normalizeVerification(adapter.verify({ ...part.adapterInput, registry: context.registry ?? plan.registry, discovery: part.discovery, ledger: plan.ledger,
+      operation, context: { ...part.adapterInput.context, operation, ...(plannedWrites ? { plannedWrites } : {}) } }), harness);
+  } catch (error: any) {
+    return { ok: false, statuses: [], resources: [], conflicts: [`package ${part.packageId}: ${error.message}`] };
+  }
+  const conflicts = (raw.conflicts || []).filter((reason: any) => namesAsset(reason, ids));
+  const statuses = raw.statuses.filter((status: any) => ids.has(status?.assetId));
+  const resources = raw.resources.filter((resource: any) => ids.has(resource?.assetId))
+    .map((resource: any) => ({ ...resource, ownershipIdentity: packageIdentity(harness.id, resource.assetId, resource.identity ?? path.basename(resource.target)) }));
+  const failed = statuses.some((status: any) => ['missing', 'conflict', 'error', 'invalid'].includes(status?.status));
+  return { ok: conflicts.length === 0 && !failed, statuses, resources, conflicts };
+}
+
+/** A harness's verification with its package parts' verifications merged in, so each harness keeps one entry. */
+function withPackageVerification(verification: any, target: any, options: any) {
+  let merged = verification;
+  for (const part of target.packageParts ?? []) {
+    const one = verifyPackagePart({ ...options, part });
+    merged = { ...merged, statuses: [...merged.statuses, ...one.statuses], resources: [...merged.resources, ...one.resources],
+      conflicts: [...(merged.conflicts || []), ...one.conflicts], ok: merged.ok !== false && one.ok };
+  }
+  return merged;
+}
+
 function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelections = {}, mcpAdoptable = {}, retainedMcpIds = [], ledger, context = {} }: any) {
   assertScope(scope);
   if (!registry) throw new Error('registry is required');
   const baseLedger = ledger ?? defaultLedger({ scope, scopeRoot });
-  const harnessPlans = normalizeTargets(registry, targets).map((harness) => {
+  // Hook tiers (maint-hooks): a harness outside `context.hookHarnesses` is planned against a registry
+  // in which its hooks capability is unavailable, so it gets content only; the hooks an earlier run
+  // wrote for it are removed in the same plan. No list (an in-process caller) keeps every harness's hooks.
+  const fullRegistry = registry;
+  // A removal takes the hooks the ledger records, whatever the setting says now (maint-hooks).
+  registry = tieredRegistry(registry, context.operation === 'remove' ? hookHoldersFromLedger(registry, baseLedger) : context.hookHarnesses);
+  const harnesses = normalizeTargets(registry, targets);
+  // `packagesOnly` (the package verbs): only the package targets, for a runtime that ships no DoFlow content to plan.
+  const packagesOnly = context.packagesOnly === true;
+  // Row 127 rule 3a: a retired harness's file its replacement takes over is decided before any live
+  // plan, since the replacement plans that one write itself (`context.handovers`, IC-007).
+  const sweeping = context.operation !== 'remove' && !packagesOnly;
+  const handovers = sweeping
+    ? planHandovers({ registry, ledger: baseLedger, scope, scopeRoot, planned: harnesses.filter((harness: any) => harness.scopes.includes(registryScope(scope))).map((harness: any) => harness.id) })
+    : new Map();
+  const handedTo = handoversFor(handovers);
+  const harnessPlans = packagesOnly ? [] : harnesses.map((harness) => {
     if (!harness.scopes.includes(registryScope(scope))) {
       return { harness: harness.id, assets: [], changes: [], conflicts: [`Harness '${harness.id}' does not support ${scope} scope`], prerequisites: [], notices: [], skipped: true, mcpSelected: null };
     }
@@ -480,7 +743,9 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
     const policies = renderPolicies(registry, { harness: harness.id });
     const adoptable = capable ? selectMcpServers(registry, catalogIds(registry, mcpAdoptable[harness.id] ?? [])) : [];
     const adapter = resolveAdapter(adapters, harness);
-    const project = (mcp: any) => projectAdapterInput({ registry, harness, scope, scopeRoot, assets, mcp, mcpAdoptable: adoptable, policies, context });
+    const baseContext = handedTo.has(harness.id) ? { ...context, handovers: handedTo.get(harness.id) } : context;
+    const harnessContext = hooksTieredOff(harness) ? withoutHookSources(baseContext) : baseContext;
+    const project = (mcp: any) => projectAdapterInput({ registry, harness, scope, scopeRoot, assets, mcp, mcpAdoptable: adoptable, policies, context: harnessContext });
     // `keep` asks the adapter what it owns before the real projection: the probe carries no
     // selection, so discovery reads the files as they are.
     const ids = selection === MCP_KEEP
@@ -491,29 +756,54 @@ function planLifecycle({ registry, adapters, scope, scopeRoot, targets, mcpSelec
     const input = { ...adapterInput, registry, ledger: baseLedger };
     const discovery = adapter.discover(input);
     const result = adapter.plan({ ...input, discovery });
-    return targetFromResult({ harness, assets, mcp, mcpSelected: capable ? mcp.map((server: any) => server.id) : null, policies, adapterInput, discovery, result });
+    const target = targetFromResult({ harness, assets, mcp, mcpSelected: capable ? mcp.map((server: any) => server.id) : null, policies, adapterInput, discovery, result });
+    return hooksTieredOff(harness)
+      ? planHookTierRemovals({ target, registry: fullRegistry, adapter, harness: harnessFor(fullRegistry, harness.id), scope, scopeRoot, ledger: baseLedger, context, normalizeChange, adapterConflicts })
+      : target;
   });
   // The MCP index names every server a harness of this scope uses: the selections planned here and
   // the recorded selections of the harnesses this run does not touch.
   const selectedMcp = selectMcpServers(registry, catalogIds(registry,
     [...retainedMcpIds, ...harnessPlans.flatMap((item) => (item.skipped ? [] : item.mcpSelected ?? []))]));
+  // Package skills and agents ride the same plan, at global scope only (IC-017), for the harnesses it plans; each
+  // harness keeps one plan entry, its package work added to it.
+  let packages: { byHarness: Map<string, any>; warnings: any[] };
+  try {
+    packages = planPackageWork({ registry, adapters, scope, scopeRoot, ledger: baseLedger, context,
+      harnesses: harnesses.filter((harness: any) => harness.scopes.includes(registryScope(scope))) });
+  } catch (error: any) {
+    packages = { byHarness: new Map(), warnings: [{ harness: null, packageId: null, warning: `package skills and agents are not projected: ${error.message}` }] };
+  }
+  const withPackages = packagesOnly
+    ? harnesses.filter((harness: any) => packages.byHarness.has(harness.id))
+      .map((harness: any) => packageHostTarget({ registry, harness, scope, scopeRoot, context, work: packages.byHarness.get(harness.id) }))
+    : harnessPlans.map((target: any) => (!target.skipped && packages.byHarness.has(target.harness) ? withPackageWork(target, packages.byHarness.get(target.harness)) : target));
   // Only once every harness's plan is known: whether a file may be deleted depends on the rows
   // the WHOLE plan leaves standing, which no single harness's plan can see.
-  const retained = markRetainedRemovals(harnessPlans, baseLedger, scope);
-  const annotated = context.operation === 'remove' ? retained
+  const retained = markRetainedRemovals(withPackages, baseLedger, scope, registry);
+  const annotated = context.operation === 'remove' || packagesOnly ? retained
     : pruneRetiredRuntimeFiles(retained, baseLedger, { scopeRoot, repoRoot: context.repoRoot });
   // The shared hooks tree may have moved under harnesses this run does not name (IC-037): their
   // front doors come along, as targets of this same plan.
-  const companions = planHookCompanions({ registry, adapters, scope, harnessScope: registryScope(scope), scopeRoot, ledger: baseLedger, context,
+  const companions = packagesOnly ? [] : planHookCompanions({ registry, adapters, scope, harnessScope: registryScope(scope), scopeRoot, ledger: baseLedger, context,
     targets: annotated, targetFromResult });
   const planned = [...annotated, ...companions];
-  const changes = planned.flatMap((item: any) => item.changes);
+  const liveChanges = planned.flatMap((item: any) => item.changes);
+  // Row 127 IC-003: what a retired harness left in this scope's ledger is released, deleted or
+  // stripped by the same run, once every live change is known (a row a live change already removes
+  // is that change's). Never on remove, which changes only what `-t` names, nor for package work.
+  const retiredHarnesses = sweeping
+    ? planRetiredHarnesses({ registry, ledger: baseLedger, scope, scopeRoot, livePlanChanges: liveChanges, handovers }) : [];
+  const changes = [...liveChanges, ...retiredHarnesses.flatMap((item: any) => item.changes)];
   const conflicts = planned.flatMap((item: any) => item.conflicts.map((reason: any) => ({ harness: item.harness, reason })));
   const prerequisites = planned.flatMap((item: any) => item.prerequisites.map((prerequisite: any) => ({ harness: item.harness, prerequisite })));
   const requiredNativeResources = planned.flatMap((item: any) => item.requiredNativeResources || []);
-  const notices = planned.flatMap((item: any) => item.notices.map((notice: any) => ({ harness: item.harness, notice })));
+  const notices = [...planned.flatMap((item: any) => item.notices.map((notice: any) => ({ harness: item.harness, notice }))),
+    ...packages.warnings.map((item: any) => ({ harness: item.harness, notice: `warning: ${item.warning}` }))];
   return Object.freeze({ scope, scopeRoot, mcp: selectedMcp, ledger: baseLedger, targets: planned, changes, requiredNativeResources, conflicts, prerequisites, notices,
-    retained: retainedChanges(changes), safe: conflicts.length === 0 && prerequisites.length === 0 });
+    retained: retainedChanges(changes), safe: conflicts.length === 0 && prerequisites.length === 0,
+    ...(retiredHarnesses.length ? { retiredHarnesses } : {}),
+    ...(packagesOnly ? { packagesOnly: true } : {}), ...(packages.warnings.length ? { packageWarnings: packages.warnings } : {}) });
 }
 
 function verificationResources(verification: any, changes: any, scope: any, recoveryRef: any) {
@@ -571,11 +861,20 @@ function applyMcpIndex({ scopeRoot, selectedMcp, mode, retain = false, fsImpl = 
   fsImpl.writeFileSync(file, content);
 }
 
-function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recoveryRef, fsImpl = fs }: any) {
+function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recoveryRef, retiredHarnesses = [], fsImpl = fs }: any) {
   // upgradeLedger makes every written ledger v2-shaped (tombstone log present) while v1 inputs
   // stay readable — migration happens on write, never as a separate user-facing step.
   const next = JSON.parse(JSON.stringify(upgradeLedger(ledger ?? defaultLedger({ scope, scopeRoot }))));
   if (!Array.isArray(next.tombstones)) next.tombstones = [];
+  // A retired harness's rows leave in this write, whatever the sweep did with each file, and its
+  // `targets` entry goes once no (deferred) row of it remains.
+  const retiredKeys = retiredReleaseKeys(retiredHarnesses);
+  if (retiredKeys.size) {
+    next.resources = next.resources.filter((resource: any) => !retiredKeys.has(ownershipKey(resource)));
+    for (const { harness } of retiredHarnesses) {
+      if (!next.resources.some((resource: any) => resource.harness === harness)) delete next.targets[harness];
+    }
+  }
   // Snapshot pre-run claims by ownership identity (harness+asset+identity) so a re-verification
   // that relocates the same claim to a new target is detectable as a MOVE, not remove-plus-add.
   const priorByIdentity = new Map();
@@ -657,10 +956,13 @@ function verifyLifecycle({ plan, adapters, context = {} }: any) {
       ? target.changes.filter((change: any) => !change.retained && (change.operation === 'create' || change.operation === 'update')).map((change: any) => change.target)
       : undefined;
     // A hook-front-door companion (IC-037) is verified for its doors alone: the rest of that
-    // harness is not part of this run and may legitimately trail the current source.
-    let verification = normalizeVerification(adapter[target.hookDoorsOnly ? 'verifyHookDoors' : 'verify']({ ...target.adapterInput,
-      registry: context.registry ?? plan.registry, discovery: target.discovery, ledger: plan.ledger,
-      operation, context: { ...target.adapterInput.context, operation, ...(plannedWrites ? { plannedWrites } : {}) } }), harness);
+    // harness is not part of this run and may legitimately trail the current source. A package-only entry has no
+    // DoFlow asset to verify, only its package parts (IC-017).
+    let verification = target.packagesOnly ? { harness: target.harness, ok: true, statuses: [], resources: [], conflicts: [] }
+      : normalizeVerification(adapter[target.hookDoorsOnly ? 'verifyHookDoors' : 'verify']({ ...target.adapterInput,
+        registry: context.registry ?? plan.registry, discovery: target.discovery, ledger: plan.ledger,
+        operation, context: { ...target.adapterInput.context, operation, ...(plannedWrites ? { plannedWrites } : {}) } }), harness);
+    verification = withPackageVerification(verification, target, { adapter, harness, plan, context, operation, plannedWrites });
     if (operation === 'remove') verification = normalizeRemovalVerification(verification, target.changes, plan.ledger);
     verifications.push({ ...verification, hookWiring: hookWiringStatus(harness, target, verification) });
   }
@@ -671,21 +973,23 @@ function verifyLifecycle({ plan, adapters, context = {} }: any) {
 function assertPlanApplicable(plan: any, stateRoot: any, acceptPrerequisites: any) {
   if (!plan.safe && !(acceptPrerequisites && plan.conflicts.length === 0)) throw new Error('Refusing to apply an unsafe lifecycle plan');
   if (!stateRoot) throw new Error('stateRoot is required before lifecycle mutation');
-  if (!plan.requiredNativeResources?.length || !plan.changes.length) throw new Error('Refusing to apply a lifecycle plan with no required native resources');
+  // A retirement is native work no live harness lists: a plan holding only that is applicable.
+  const retiring = (plan.retiredHarnesses ?? []).some((item: any) => item.changes.length);
+  if ((!plan.requiredNativeResources?.length && !retiring) || !plan.changes.length) throw new Error('Refusing to apply a lifecycle plan with no required native resources');
 }
 
 /** Registry-declared hooks assets (`kind: "hooks"` in core/registry/assets.json) this harness's
- * plan selected — currently only claude.hooks-scripts and kiro.hooks-scripts. Codex and Gemini
- * deploy hooks via their own bespoke code paths (see targetNeedsHooks below) rather than a
+ * plan selected — currently only claude.hooks-scripts and kiro.hooks-scripts. Codex deploys
+ * hooks via its own bespoke code path (see targetNeedsHooks below) rather than a
  * registered asset, so they never appear here. */
 function hookAssetIds(target: any) {
   return new Set((target.assets || []).filter((asset: any) => asset.kind === 'hooks').map((asset: any) => asset.id));
 }
 
 /** Whether this harness's plan includes at least one hooks-bearing change. Claude's hooks are a
- * registry-declared asset (`kind: "hooks"` in core/registry/assets.json); Codex and Gemini deploy
- * hooks via their own bespoke code paths and tag the resulting change with `nativeComponent:
- * 'hooks'` instead (see src/adapters/codex/index.ts and src/adapters/gemini/index.ts). Either
+ * registry-declared asset (`kind: "hooks"` in core/registry/assets.json); Codex deploys hooks
+ * via its own bespoke code path and tags the resulting change with `nativeComponent: 'hooks'`
+ * instead (see src/adapters/codex/index.ts). Either
  * signal is sufficient — this stays harness-agnostic on purpose. */
 function targetNeedsHooks(target: any) {
   const hookIds = hookAssetIds(target);
@@ -694,20 +998,10 @@ function targetNeedsHooks(target: any) {
 
 /** Whether a verified resource is the hooks resource this harness owns. A registry-declared hooks
  * asset (Claude, Kiro) is matched by assetId; Codex's bespoke hooks-file resource is matched by
- * `kind`; Gemini's bespoke hooks resource (a key inside settings.json, not a standalone file) is
- * matched by its `projection.renderer` tag — see src/adapters/codex/index.ts's
- * `lifecycleResource(..., kind: 'hooks-file', ...)` and src/adapters/gemini/index.ts's verify(),
- * which tags its hooks resource `projection: { renderer: 'gemini-hooks' }`. */
+ * `kind` — see src/adapters/codex/index.ts's `lifecycleResource(..., kind: 'hooks-file', ...)`. */
 function verificationOwnsHooks(verification: any, hookIds: any) {
   return (verification?.resources || []).some((resource: any) =>
-    hookIds.has(resource.assetId) || resource.kind === 'hooks-file' || resource.projection?.renderer === 'gemini-hooks');
-}
-
-/** Gemini's hooks trust, observed through the adapter's own API. How trust is computed — the
- * fingerprint semantics, which context fields matter — lives in src/adapters/gemini (review A3:
- * this file used to import planGeminiHooks and re-derive the plan itself). */
-function geminiHookTrust(target: any) {
-  return geminiHookTrustFor(target);
+    hookIds.has(resource.assetId) || resource.kind === 'hooks-file');
 }
 
 /** General, per-harness hook-wiring status — the one place install status distinguishes an
@@ -716,18 +1010,12 @@ function geminiHookTrust(target: any) {
  *  - 'absent': this harness owns no hooks resource in the current verification (nothing installed).
  *  - 'installed-pending': a hooks resource is installed, but a prerequisite is unmet — Codex's
  *    static `capabilities.hooks.prerequisites` (`trusted-project`, `hook-review`), which DoFlow has
- *    no way to confirm a human satisfied, so it is reported unmet unconditionally; or Gemini's live
- *    trust computation via geminiHookTrust above.
+ *    no way to confirm a human satisfied, so it is reported unmet unconditionally.
  *  - 'active': installed with no unmet prerequisite (Claude and Kiro today, since neither declares
  *    any `capabilities.hooks.prerequisites` and Kiro hooks activate automatically per kiro.dev). */
 function hookWiringStatus(harness: any, target: any, verification: any) {
   if (!target || target.skipped) return { status: 'absent', prerequisites: [] };
   if (!verificationOwnsHooks(verification, hookAssetIds(target))) return { status: 'absent', prerequisites: [] };
-  if (harness.id === 'gemini') {
-    const trust = geminiHookTrust(target);
-    if (trust?.required && !trust.trusted) return { status: 'installed-pending', prerequisites: ['hook-trust'] };
-    return { status: 'active', prerequisites: [] };
-  }
   const prerequisites = harness.capabilities?.hooks?.prerequisites || [];
   return prerequisites.length
     ? { status: 'installed-pending', prerequisites: [...prerequisites] }
@@ -753,6 +1041,12 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
   const recovery = writeRecoveryRecordFn(stateRoot, { status: 'pending', changes: plan.changes });
   const completedHarnesses = [];
   try {
+    // The retirement first (IC-003): it touches only files no live harness claims, and a throw here
+    // leaves every live harness unapplied.
+    for (const retired of plan.retiredHarnesses ?? []) {
+      applyRetiredHarnesses([retired]);
+      completedHarnesses.push(`retired:${retired.harness}`);
+    }
     for (const target of plan.targets) {
       if (target.skipped || target.changes.length === 0) continue;
       // A retained change is a ledger release, not a native mutation: the adapter must never see
@@ -763,7 +1057,12 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
       if (!applicable.length) continue;
       const harness = harnessFor(registry, target.harness);
       const adapter = resolveAdapter(adapters, harness);
-      adapter[mode === 'remove' ? 'remove' : 'apply']({ ...target.adapterInput, registry, changes: applicable, ledger, recoveryRef: recovery.id });
+      // Hook-tier removals (maint-hooks) run through the adapter's own remove path, before the content
+      // apply, so a shared native file is read by each step as the step before left it.
+      const tierRemovals = mode === 'remove' ? [] : applicable.filter((change: any) => change.hookTier === true);
+      if (tierRemovals.length) adapter.remove({ ...target.hookTierInput, registry, changes: tierRemovals, ledger, recoveryRef: recovery.id });
+      const rest = tierRemovals.length ? applicable.filter((change: any) => change.hookTier !== true) : applicable;
+      if (rest.length) adapter[mode === 'remove' ? 'remove' : 'apply']({ ...target.adapterInput, registry, changes: rest, ledger, recoveryRef: recovery.id });
       completedHarnesses.push(target.harness);
     }
   } catch (error: any) {
@@ -781,7 +1080,8 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
     throw new Error('Lifecycle verification failed; ledger was not updated');
   }
   try {
-    applyMcpIndex({ scopeRoot: plan.scopeRoot, selectedMcp: plan.mcp, mode, retain: !removalIsTotal(plan) });
+    // A package-only plan selects no MCP server; the index stays as the last install wrote it.
+    if (!plan.packagesOnly) applyMcpIndex({ scopeRoot: plan.scopeRoot, selectedMcp: plan.mcp, mode, retain: !removalIsTotal(plan, registry) });
   } catch (error: any) {
     // Same reasoning as the harness-loop catch above: every native resource already applied and
     // verified successfully by this point, so leaving the record at 'pending' on a failure here
@@ -789,9 +1089,13 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
     writeRecoveryRecordFn(stateRoot, { ...recovery.record, status: 'failed', completedHarnesses, verification, error: error.message });
     throw error;
   }
-  const nextLedger = updateLedger({ ledger, scope: plan.scope, scopeRoot: plan.scopeRoot, verifications: verification.verifications, changes: plan.changes, recoveryRef: recovery.id });
+  const nextLedger = updateLedger({ ledger, scope: plan.scope, scopeRoot: plan.scopeRoot, verifications: verification.verifications, changes: plan.changes, recoveryRef: recovery.id,
+    retiredHarnesses: plan.retiredHarnesses ?? [] });
   writeLedgerFn(stateRoot, nextLedger);
   writeRecoveryRecordFn(stateRoot, { ...recovery.record, status: 'verified', verification });
+  if (plan.scope === 'global' && plan.changes.some((change: any) => isPackageAsset(change.assetId))) {
+    settleSuspendedProjection({ homeDir: plan.scopeRoot });
+  }
   return { recovery, verification, ledger: nextLedger, retained: plan.retained ?? [] };
 }
 
@@ -818,9 +1122,33 @@ function recordMcpOwnership({ plan, registry, adapters, stateRoot, ledger = plan
   return { ledger: next, recorded };
 }
 
+function settleSuspendedProjection({ homeDir }: any): void {
+  try {
+    const { readState, recordSuspension } = require('../runtime/packages/state.ts');
+    const { stateRoot, readLedger } = require('../state/index.ts');
+    const root = stateRoot({ scope: 'global', projectRoot: homeDir, homeDir });
+    const ledger = readLedger(root);
+    const read = readState({ homeDir });
+    if (!ledger || read.unreadable) return;
+    for (const suspension of read.state.suspended) {
+      if (!suspension.projected) continue;
+      const prefix = `pkg.${suspension.package}.`;
+      const stillProjected = ledger.resources.some((row: any) =>
+        typeof row.assetId === 'string' && row.assetId.startsWith(prefix));
+      if (!stillProjected) {
+        recordSuspension({ homeDir }, {
+          packageId: suspension.package, reason: suspension.reason, since: suspension.since, projected: false,
+        });
+      }
+    }
+  } catch {
+    // Settlement is best-effort and never blocks the verb that removed package rows.
+  }
+}
+
 function removeLifecycle(options: any) {
   const plan = planLifecycle({ ...options, context: { ...(options.context || {}), operation: 'remove' } });
   return applyLifecycle({ ...options, plan, mode: 'remove', acceptPrerequisites: options.acceptPrerequisites });
 }
 
-module.exports = { OPERATIONS, MCP_KEEP, recordMcpOwnership, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks, hookWiringStatus, markRetainedRemovals, retentionSummary, RUNTIME_TREE_ASSETS };
+module.exports = { OPERATIONS, MCP_KEEP, recordMcpOwnership, isPackageAsset, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks, hookWiringStatus, markRetainedRemovals, retentionSummary, PRUNED_TREES, settleSuspendedProjection };

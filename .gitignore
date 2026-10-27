@@ -26,6 +26,8 @@ tasks/
 # Benchmark ground-truth task definitions under bench/retrieval/tasks/ are tracked
 !bench/retrieval/tasks/
 telemetry/
+# 088: committed telemetry contract fixtures (G45.1 reads them)
+!test/fixtures/telemetry/
 todos/
 
 # IDE integration (machine-specific)
@@ -34,6 +36,7 @@ ide/
 # User-specific project memories & plans
 projects/
 plans/
+!test/fixtures/plans/
 
 # Plugins (installed separately per machine)
 plugins/
@@ -51,6 +54,12 @@ downloads/
 .codex
 .claude
 .doflow
+# Keep the empty telemetry store in the committed hook benchmark fixture.
+!bench/perf/fixtures/hook-bridge-project/.doflow/
+!bench/perf/fixtures/hook-bridge-project/.doflow/state/
+!bench/perf/fixtures/hook-bridge-project/.doflow/state/runs/
+!bench/perf/fixtures/hook-bridge-project/.doflow/state/runs/telemetry/
+!bench/perf/fixtures/hook-bridge-project/.doflow/state/runs/telemetry/.gitkeep
 .gemini
 .kiro
 .opencode

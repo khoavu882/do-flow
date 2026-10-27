@@ -73,12 +73,11 @@ declares no analysis stage is not a workflow to diagnose under: say so and re-pr
    - Confirm root cause with concrete evidence before proposing any changes.
    - Resolve each retrieval need through the router rather than reaching for a habitual tool:
      `"$DOFLOW" route --intent <locate-known-symbol|locate-concept|trace-dependency|estimate-blast-radius|inspect-history|verify-runtime-behavior> --json`.
+   - MCP `context7`: when diagnosing library or dependency behavior, verify interface claims per `MCP_Context7.md`.
 
-**Discovery first.** One broad pass over the whole reported scope to find the terminology, the surfaces involved, and the competing readings — do not conclude here. Only then, one targeted pass per named sub-question.
+**Discovery first.** A broad pass over reported scope to find terminology, surfaces, and competing readings before concluding. Then targeted passes per question.
 
-Name the competing hypotheses the discovery pass turned up before you test any of them, and say
-what observation would falsify each. A hypothesis that nothing could falsify is not one to spend a
-retrieval on.
+Name competing hypotheses from discovery before testing; state what falsifies each. Hypotheses that cannot be falsified warrant no retrieval.
 
 **Stop when** every hypothesis the contract names has an answer or a stated gap, **and** the last round produced no new hypothesis. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
 
@@ -146,6 +145,17 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
      call, which always runs. There is no separate opt-in for it.
    - Every runtime call above is recorded in the run ledger as it happens; `"$DOFLOW" trace` reads it
      back. Nothing needs to be switched on for that.
+
+### Failure Investigation Invariants
+- Root cause always — understand WHY, not just THAT; fix the cause, not the symptom.
+- Never skip, disable, or comment-out tests or validation checks to pass builds.
+
+### Red Flags
+Rows come only from recorded bench failures (case id in brackets).
+
+| Rationalization | Reality | Required action |
+|---|---|---|
+| "It's a slow-suite report, so `--focus performance` settles it; what to measure can wait." | [do-diagnose/1] routed the report but never named the repo's test command as the thing to measure. | Name the repo's own test command (its `package.json` script or CI command) and time it as the baseline before any hypothesis. |
 
 ## Boundaries
 **Will:** Propose a task class and have the runtime validate it, reproduce active issues, perform

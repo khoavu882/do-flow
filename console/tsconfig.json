@@ -1,0 +1,23 @@
+{
+  "//": "Type-CHECK only, like the core: server code is .ts run by Node type stripping, web code is .js ES modules checked with checkJs. No emit. Node built-ins come from the core's ambient declarations (no @types/node).",
+  "compilerOptions": {
+    "noEmit": true,
+    "checkJs": true,
+    "allowJs": true,
+    "strict": true,
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2023",
+    "lib": ["es2023", "dom"],
+    "types": [],
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": false,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": false
+  },
+  "include": ["bin/**/*.js", "src/**/*.ts", "scripts/**/*.ts", "test/**/*.ts", "web/**/*.js", "../types/node-commonjs.d.ts"],
+  "exclude": ["node_modules"]
+}
