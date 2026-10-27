@@ -147,7 +147,7 @@ function findCrossRuleDuplicates(rulesDir: string, extraFiles: string[] = []): C
     return [];
   }
 
-  const seenStatements = new Map<string, { file: string; line: number }>();
+  const seenStatements = new Map<string, { file: string; line: number; ruleTag: string }>();
   const duplicates: CrossRuleDuplicateFinding[] = [];
 
   for (const fullPath of [...ruleFiles, ...extraFiles]) {
@@ -158,15 +158,17 @@ function findCrossRuleDuplicates(rulesDir: string, extraFiles: string[] = []): C
       const key = stmt.text.replace(/[*`_]/g, '').toLowerCase();
       const existing = seenStatements.get(key);
       if (existing) {
-        if (existing.file !== stmt.file) {
+        // Another file, or another `## RULE_NN` section of the same file (the rules share one
+        // RULES.md since row 130, so a repeat there is the old cross-file duplicate).
+        if (existing.file !== stmt.file || existing.ruleTag !== stmt.ruleTag) {
           duplicates.push({
             statement: stmt.text,
-            first: existing,
+            first: { file: existing.file, line: existing.line },
             duplicate: { file: stmt.file, line: stmt.line },
           });
         }
       } else {
-        seenStatements.set(key, { file: stmt.file, line: stmt.line });
+        seenStatements.set(key, { file: stmt.file, line: stmt.line, ruleTag: stmt.ruleTag });
       }
     }
   }
@@ -304,6 +306,16 @@ describe('G70 negative controls', () => {
     const duplicates = findCrossRuleDuplicates(rulesDir, [principles]);
     assert.equal(duplicates.length >= 1, true);
     assert.equal(duplicates[0].duplicate.file, principles);
+  });
+
+  test('detects a rule statement repeated across two RULE_NN sections of one RULES.md', () => {
+    const tempDir = suiteTempDir('doflow-rulelint-same-file-ctrl-');
+    const statement = 'Start it = Finish it. No partial features, TODO stubs, mocks, or "not implemented" throws.';
+    const file = path.join(tempDir, 'RULES.md');
+    fs.writeFileSync(file, `# Rules\n\n## RULE_02 Workflow\n- ${statement}\n\n## RULE_03 Quality\n- ${statement}\n`);
+    const duplicates = findCrossRuleDuplicates(tempDir);
+    assert.ok(duplicates.length >= 1, 'the repeat is a duplicate');
+    for (const finding of duplicates) assert.deepEqual([finding.first, finding.duplicate], [{ file, line: 4 }, { file, line: 7 }]);
   });
 
   test('a statement in one RULES.md takes its tag from its RULE_NN section heading', () => {
