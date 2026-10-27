@@ -519,9 +519,9 @@ HOOK_TEST('FU-n2mvpr: a path that climbs out of agent-docs with ".." is judged b
   const refused = `${refusalText('missing', { taskId: '900-demo', template: 'feature' })}\n`;
   const edit = (file: any) => ({ tool_name: 'Edit', tool_input: { file_path: file } });
 
-  // Source reached through agent-docs/.. stays gated, relative and absolute.
+  // Source reached through agent-docs/.. stays gated, relative and absolute (the raw string: path.join would fold the "..").
   expectHook({ cwd: main, caseRoot: root, event: edit('agent-docs/../src/a.js'), code: 2, stderr: refused });
-  expectHook({ cwd: main, caseRoot: root, event: edit(path.join(main, 'agent-docs', '..', 'src', 'a.js')), code: 2, stderr: refused });
+  expectHook({ cwd: main, caseRoot: root, event: edit(`${main}/agent-docs/../src/a.js`), code: 2, stderr: refused });
   expectHook({ cwd: main, caseRoot: root, event: edit('docs/agent-docs/../../src/a.js'), code: 2, stderr: refused });
   // Negative controls: a real agent-docs file is allowed, also when it is spelled with "..".
   expectHook({ cwd: main, caseRoot: root, event: edit('agent-docs/notes.md'), code: 0, stderr: '' });
