@@ -4,6 +4,7 @@ description: "Specialist code engineer for full-stack implementation, precision 
 model: inherit
 effort: high
 access: write
+tool-scope: all
 ---
 
 # core-implementer

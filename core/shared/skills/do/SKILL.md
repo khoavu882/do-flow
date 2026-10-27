@@ -42,7 +42,8 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      Rerun with the same `--since T` until nothing is pending. A product problem the user reports
      goes to `doflow-run followup --action report`; a large goal they state, to
      `doflow-run goal --action add`. It edits no source file.
-   - `/do program <goal>`, or an ask larger than one feature: follow `references/program_mode.md`.
+   - `/do program <goal>`, or an ask larger than one feature: follow `references/program_mode.md`, researching per
+     `../do-document/references/deep_research.md` at the tiers the guidance tree's `references/MODEL_SELECTION.md` gives.
    - `/do package <idea>` or "make this a DoFlow extension/package/plugin": run `"$DOFLOW" package --action points --json`; stop if a needed point is not open. Ask up to 3 questions (what/why, id, points) via the question tool; run `"$DOFLOW" package --action new --id <id> --points <point[:local],...>`; follow `next` lines. No evidence batch; never write `grants.jsonl`, add remote sources or create a feature folder.
 
 2. **Multi-Part / Ambiguous Request Routing (`--depth`)**:
@@ -70,7 +71,8 @@ package under one the runtime accepted for a different kind of task.
    Advice on a worker's tier: `references/advice_calls.md`, tier.
 
    - For detailed decomposition and dependency graph formatting, consult this skill's own
-     `references/pm_routing.md`.
+     `references/pm_routing.md`; before dispatching agents, read the guidance tree's
+     `references/ORCHESTRATION.md` and `references/MODEL_SELECTION.md`.
 
 3. **Capability & Tool Selection**:
    - Before routing, run `"$DOFLOW" discover --json` to check recorded runs. Exit 1 signals a finding, not an error. When metadata cannot settle the analysis, surface `UNKNOWN` as undetermined, never clear. Show findings to the user; take no automatic action. Never render findings as a number, percentage or confidence.

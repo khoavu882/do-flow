@@ -69,6 +69,7 @@ for (const id of ['claude', 'copilot', 'antigravity']) {
     for (const spec of specs) {
       const out = render(id, spec);
       assert.ok(!keyLines(out).some((line: any) => line.startsWith('access:')), `${id}/${spec.name}: no access key`);
+      assert.ok(!keyLines(out).some((line: any) => line.startsWith('tool-scope:')), `${id}/${spec.name}: no tool-scope key`);
       const keys = keyLines(out).map((line: any) => line.slice(0, line.indexOf(':')));
       for (const key of Object.keys(apply || {})) {
         if (spec.access === 'read-only') {
@@ -86,17 +87,17 @@ for (const id of ['claude', 'copilot', 'antigravity']) {
   });
 }
 
-test('antigravity: the limit is unenforced, so the output is the spec minus access and nothing added', () => {
+test('antigravity: the limit is unenforced, so the output is the spec minus access and tool-scope and nothing added', () => {
   assert.equal(readOnlyApply('antigravity'), null);
   for (const spec of specs) {
-    assert.equal(render('antigravity', spec), spec.text.replace(/^access:.*\n/m, ''), spec.name);
+    assert.equal(render('antigravity', spec), spec.text.replace(/^access:.*\n/m, '').replace(/^tool-scope:.*\n/m, ''), spec.name);
   }
 });
 
 test('opencode: permission block on read-only specs only, byte-identical to the pre-118 renderer', () => {
   for (const spec of specs) {
     const out = render('opencode', spec);
-    assert.ok(!/^access:/m.test(out), `${spec.name}: no access key`);
+    assert.ok(!/^(access|tool-scope):/m.test(out), `${spec.name}: no access or tool-scope key`);
     const fm = Object.fromEntries(frontmatter(spec.text).split('\n').map((line: any) => line.match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/)).filter(Boolean).map((m: any) => [m[1], m[2].trim().replace(/^"|"$/g, '')]));
     const body = spec.text.slice(spec.text.indexOf('\n---', 3) + 4).replace(/^\n+/, '');
     const base = ['---', `description: ${JSON.stringify(fm.description)}`, 'mode: subagent',
@@ -111,7 +112,7 @@ test('kiro: tools list replaces ["*"] on read-only specs only, and access is nev
   const apply = readOnlyApply('kiro');
   for (const spec of specs) {
     const out = render('kiro', spec);
-    assert.ok(!/access/.test(Object.keys(JSON.parse(out)).join(',')), `${spec.name}: no access key`);
+    assert.ok(!/access|tool-scope/.test(Object.keys(JSON.parse(out)).join(',')), `${spec.name}: no access or tool-scope key`);
     assert.deepEqual(JSON.parse(out).tools, spec.access === 'read-only' ? apply.tools : ['*'], spec.name);
   }
 });
@@ -140,9 +141,9 @@ test('codex: the Markdown agent copies in ~/.codex/agents carry no access key, t
   assert.deepEqual(mdFiles, specs.map((spec: any) => spec.file), 'one Markdown copy per spec');
   for (const spec of specs) {
     const out = fs.readFileSync(path.join(agentsDir, spec.file), 'utf8');
-    assert.ok(!/^access:/m.test(out), `codex/${spec.name}: no access key in the projected Markdown`);
-    // Codex's limit is unenforced, so the output is the spec minus the access line and nothing added.
-    assert.equal(out, spec.text.replace(/^access:.*\n/m, ''), `codex/${spec.name}: spec minus access`);
+    assert.ok(!/^(access|tool-scope):/m.test(out), `codex/${spec.name}: no access or tool-scope key in the projected Markdown`);
+    // Codex's limit is unenforced, so the output is the spec minus the two DoFlow-internal lines and nothing added.
+    assert.equal(out, spec.text.replace(/^access:.*\n/m, '').replace(/^tool-scope:.*\n/m, ''), `codex/${spec.name}: spec minus access and tool-scope`);
   }
   // The TOMLs are a separate asset and stay byte for byte what the repo ships.
   for (const file of written.filter((name: any) => name.endsWith('.toml'))) {

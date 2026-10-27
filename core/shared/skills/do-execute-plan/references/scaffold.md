@@ -1,6 +1,14 @@
 # `--scaffold` — turning the plan into a reviewable code scaffold
 
-Read this file only when `/do-execute-plan --scaffold` is the active invocation. It is step 3 of
+## Contents
+
+- What it produces
+- Two cases, one output tree
+- Part 1 — in-scope scaffold from the three artifacts
+- Part 2 — external dependencies (cross-service contract frames)
+- Constraints (carried from the design — do not relax these)
+
+Read this file only when `/do-execute-plan --scaffold` is the active invocation. It is step 5 of
 `do-execute-plan`'s Behavioral Flow, factored out here per Anthropic's progressive-disclosure
 guidance so the other invocation modes (`--scope next|phase:N|all|resume`, and the `--review`
 modifier) don't pay the token cost of this algorithm on every invocation.
@@ -422,7 +430,7 @@ rather than restated as prose.
   generated `code/`/`data/`/`mock/`/`default/` output directory — still not a write outside
   `agent-docs/doflow/<slug>/scaffold/` (the first Constraint above still holds), but visually
   confusing; not auto-detected or renamed.
-- Only hard-gate hook: `references/DOFLOW_CHAIN.md`; step 1:
+- The gates are the chain's own: `pre-implement-gate.sh` and step 1's
   `"$DOFLOW" prereqs --require-plan`. Neither Part adds gates. Part 2 unresolved dependencies do
   not block; Part 1 non-zero exits are reportable, not stops.
 - A `depends-on:` value whose starting directory does not exist on disk at all is excluded from

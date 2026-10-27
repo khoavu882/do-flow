@@ -2,7 +2,7 @@
 
 The procedural detail behind `/do-execute-plan`'s step 10. `SKILL.md` carries when the step runs
 and the completion-vs-checkpoint decision it turns on; what follows is how each branch is carried
-out. `readiness_gate.md`, referenced below, sits beside this file.
+out.
 
 - Once per `/do-execute-plan` invocation, at the last `state.md` checkpoint this run writes —
   not once per phase, since the stage hands off once however many phases it executed. The stage
@@ -27,7 +27,7 @@ out. `readiness_gate.md`, referenced below, sits beside this file.
   Only when zero such lines remain does the completion flow below run.
 - **Then: confirm the readiness record before completing.** This stage is the workflow's
   `mutatesSource` stage, so the handoff reads the record `readiness` wrote and refuses without a
-  `READY` one made before the call; it evaluates nothing itself (`readiness_gate.md`).
+  `READY` one made before the call; it evaluates nothing itself (`SKILL.md` step 4).
   1. The `affected_components` evidence batch and the `READY` readiness call, both under the
      feature slug, happen before Phase 1 is dispatched (`SKILL.md` step 4), not here. A refusal names the `readiness` command to run:
      run it, gather what it lists until it reports `READY`, then repeat the handoff.

@@ -252,7 +252,7 @@ function yamlLines(key: string, value: any, indent: string = ''): string[] {
   return [`${indent}${key}: ${value}`];
 }
 
-/** Rewrite a shared agent spec's frontmatter for one harness: `access` is never projected, and a
+/** Rewrite a shared agent spec's frontmatter for one harness: `access` and `tool-scope` are never projected, and a
  * `read-only` spec gains the harness's `apply` keys (a `write` spec gains none). Body and every other
  * key pass through byte for byte; a file without frontmatter is returned unchanged. */
 function applyAgentLimits(text: string, harnessId: string): string {
@@ -262,7 +262,7 @@ function applyAgentLimits(text: string, harnessId: string): string {
   const readOnly = lines.some((line: string) => /^access:\s*read-only\s*$/.test(line));
   const apply = readOnly ? readOnlyApply(harnessId) : null;
   const added = apply ? Object.entries(apply).flatMap(([key, value]) => yamlLines(key, value)).map((line: string) => `${line}\n`) : [];
-  const kept = lines.filter((line: string) => !/^access:/.test(line));
+  const kept = lines.filter((line: string) => !/^(access|tool-scope):/.test(line));
   return `${text.slice(0, text.indexOf('\n') + 1)}${kept.join('')}${added.join('')}${text.slice(match[0].length - 3)}`;
 }
 

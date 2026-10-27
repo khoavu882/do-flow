@@ -68,7 +68,7 @@ const BASELINE_GATE_A_SCOPE = [
   '     here).',
 ].join('\n');
 const FIXED_TASK_CLASSES_SCOPE = [
-  '`pre-implement-gate.sh` keys on branch and artifact state (what it denies: `DOFLOW_CHAIN.md`): if the',
+  '`pre-implement-gate.sh` keys on branch and artifact state (what it denies: SKILL.md step 7): if the',
   'current branch already carries a feature directory the gate rejects, it denies source edits',
   'regardless of the class in play — so a `bug` or `trivial-edit` workflow started on that branch will',
   'be blocked at its implementation stage.',

@@ -143,7 +143,8 @@ Branch on the returned `outcome` field, not the exit code.
      **Exit 1 means the pack came back empty; exit 3 means overflow: the pack is complete, act on
      `overflowAction.message` and report the gap.**
      An empty pack does not withhold dispatch; what the brief must then say: `references/parallel_dispatch.md`.
-   - Claim each task before dispatch and finish it with evidence: `references/task_attempts.md`.
+   - Claim each task before dispatch and finish it with evidence: `references/task_attempts.md`
+     (the evidence item schema: the guidance tree's `references/EVIDENCE_LEDGER.md`).
    - Dispatch each task to its plan `owner` (an agent spec).
    - Name a model tier on every dispatch — an omitted tier inherits the session's model. Pass the
      tier from task-brief's `record.tier` as the dispatch model; for review passes and the limit

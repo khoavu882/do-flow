@@ -62,7 +62,7 @@ run with a token limit `--reserve-tokens <n>` on every claim:
 --token <n> --tokens <n> --tokens-basis …`) or `aggregate-exhausted`.
 
 **After the agent returns**, verify in the parent run, record evidence after the claim (`--kind
-test-result --observed-command "<cmd>" --observed-exit <n>`; schema in `references/EVIDENCE_LEDGER.md`),
+test-result --observed-command "<cmd>" --observed-exit <n>`; item schema: SKILL.md step 6),
 and finish with the returned evidence id:
 
 ```bash
