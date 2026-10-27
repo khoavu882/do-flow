@@ -94,7 +94,7 @@ function lifecycleLines(result: any) {
   switch (result.action) {
     case 'init': return [`${result.slug}: tracked ${result.tracked}${result.taken.length ? `, took ${result.taken.join(', ')}` : ''}${result.goal ? `, serves ${result.goal}` : ''}`, ...result.next];
     case 'status':
-      if (result.active) return [result.slug ? `${result.slug}: ${result.status}${result.evidence ? ` (${result.evidence.kind}${result.evidence.ref ? ` ${result.evidence.ref}` : ''})` : ''}${result.release ? `, release ${result.release}` : ''}` : result.message, ...(result.active.state === 'agree' ? [`pointer agrees with branch ${result.active.branch}${result.active.artifactDir ? `, artifacts in ${result.active.artifactDir}` : ''}`] : [])];
+      if (result.active) return [result.slug && result.status ? `${result.slug}: ${result.status}${result.evidence ? ` (${result.evidence.kind}${result.evidence.ref ? ` ${result.evidence.ref}` : ''})` : ''}${result.release ? `, release ${result.release}` : ''}` : result.message, ...(result.active.state === 'agree' ? [`pointer agrees with branch ${result.active.branch}${result.active.artifactDir ? `, artifacts in ${result.active.artifactDir}` : ''}`] : [])];
       return [`${result.slug}: ${result.status}${result.evidence ? ` (${result.evidence.kind}${result.evidence.ref ? ` ${result.evidence.ref}` : ''})` : ''}${result.release ? `, release ${result.release}` : ''}`, ...(result.note ? [`note: ${result.note}`] : [])];
     case 'release': return releaseLines(result);
     case 'merged': return [`${result.slug}: merge confirmed, now ${result.status}`];

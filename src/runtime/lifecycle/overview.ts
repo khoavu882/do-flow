@@ -299,7 +299,7 @@ function activeFeature({ root, cwd, now = new Date(), fsImpl = nodeFs }: any) {
   const active = describeActive({ storeRoot: root, cwd });
   const here = `branch ${active.current.branch || 'unknown'}${active.current.slug ? `, branch feature ${active.current.slug}` : ''}`;
   if (active.state === 'unreadable') {
-    return { ok: false, action: 'status', finding: 'feature-pointer-unreadable', message: `.doflow/state/feature.json cannot be read (${active.reason}); delete it to let the next feature start write it again.`, active };
+    return { ok: false, action: 'status', finding: 'feature-pointer-unreadable', message: `${active.file} cannot be read (${active.reason}); delete it to let the next feature start write it again.`, active };
   }
   if (active.state === 'mismatch') {
     const p = active.pointer;
@@ -307,9 +307,9 @@ function activeFeature({ root, cwd, now = new Date(), fsImpl = nodeFs }: any) {
   }
   const result: any = { ok: true, action: 'status', active };
   if (active.state === 'none') return { ...result, message: `no active feature is recorded for this checkout (${here}); pass --slug <slug> to ask about one.` };
-  // An untracked feature is refused by featureStatus; the pointer answer stands without status fields.
+  // An untracked feature is refused by featureStatus; the pointer answer stands, named, without status fields.
   const derived = featureStatus({ root, slug: active.slug, now, fsImpl });
-  return derived.ok ? { ...derived, active } : result;
+  return derived.ok ? { ...derived, active } : { ...result, slug: active.slug, message: `${active.slug} is tracked by its run only; \`lifecycle --action init\` to track it.` };
 }
 
 module.exports = { buildOverview, initFeature, featureStatus, activeFeature, goalView, goalConflicts, goalConflictNext, DISCOVERY_SHOWN, MAINTAIN_SHOWN, FEATURES_SHOWN };

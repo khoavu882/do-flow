@@ -228,3 +228,15 @@ test('start: catch-up that begins a feature run records the pointer', () => {
   assert.equal(again.status, 0, again.stderr);
   assert.equal(fs.existsSync(file(repo)), false);
 });
+test('status: an agreeing pointer for a feature with no lifecycle tracking names it, never prints undefined', () => {
+  const repo = newRepo();
+  assert.equal(start(repo, A).status, 0);
+  const json = status(repo);
+  assert.equal(json.status, 0, json.stderr);
+  assert.equal(json.json.slug, A);
+  assert.match(json.json.message, /tracked by its run only.*lifecycle --action init/);
+  const text = run(repo.dir, ['lifecycle', '--action', 'status']);
+  assert.equal(text.status, 0, text.stderr);
+  assert.doesNotMatch(text.stdout, /undefined/);
+  assert.match(text.stdout, new RegExp(`${A}.*tracked by its run only`));
+});
