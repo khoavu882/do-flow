@@ -31,7 +31,15 @@ const FILES: any = {
   chain: 'core/shared/guidance/references/DOFLOW_CHAIN.md',
   setup: 'docs/setup.md',
   reference: 'docs/reference.md',
+  readme: 'README.md',
 };
+
+/** Prose that states the roster size: README.md plus every .md under these roots that the tree holds. */
+const COUNT_ROOTS = ['README.md', 'docs', 'core/shared/guidance', 'core/shared/skills'];
+const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
+/** "seven archetypes", "7 specialist agent archetypes", "seven specialists", "7 agents —": a number
+ * stated for the roster. Bare "two agents" is left alone; it counts something else (a fleet, a debate). */
+const COUNT_RE = new RegExp(String.raw`\b(\d+|${NUMBER_WORDS.join('|')})\s+(?:(?:specialist\s+)?(?:agent\s+)?archetypes|specialist agents?|specialists|agents\s+—)`, 'gi');
 
 const readJson = (root: any, rel: any) => JSON.parse(fs.readFileSync(path.join(root, rel), 'utf8'));
 const readText = (root: any, rel: any) => fs.readFileSync(path.join(root, rel), 'utf8');
@@ -216,6 +224,26 @@ function check(root: any, { render }: any = {}) {
       if (mode !== expected) out.push(`${FILES.reference}: ${name} mode is '${mode}', its spec access '${access[name]}' means '${expected}'`);
     }
   }
+
+  // 8: every stated roster size in the prose equals the number of specs. The count is never written here.
+  const walk = (rel: any): any => {
+    const abs = path.join(root, rel);
+    if (!fs.existsSync(abs)) return [];
+    if (!fs.statSync(abs).isDirectory()) return rel.endsWith('.md') ? [rel] : [];
+    return fs.readdirSync(abs).flatMap((name: any) => walk(`${rel}/${name}`));
+  };
+  let stated = 0;
+  for (const rel of COUNT_ROOTS.flatMap(walk)) {
+    readText(root, rel).split(/\r?\n/).forEach((line: any, i: any) => {
+      for (const m of line.matchAll(COUNT_RE)) {
+        stated += 1;
+        const word = m[1].toLowerCase();
+        const n = /^\d+$/.test(word) ? Number(word) : NUMBER_WORDS.indexOf(word);
+        if (n !== stems.length) out.push(`${rel}:${i + 1}: states '${m[0]}', but ${FILES.specs} holds ${stems.length} specs`);
+      }
+    });
+  }
+  if (!stated) out.push(`${FILES.readme}: no stated roster size found (the count pattern stopped matching)`);
   return out;
 }
 
@@ -357,4 +385,14 @@ test('G63 control: a name missing from, or unknown to, any list is red', () => {
 test('G63 control: a reference.md mode that disagrees with access is red', () => {
   const found = controlFindings(({ edit }: any) => edit(FILES.reference, (s: any) => s.replace(/^(\| `core-implementer` \|.*\|\s*)Workspace-write(\s*\|)$/m, '$1Read-only$2')));
   assert.match(found, /core-implementer mode is 'Read-only'/);
+});
+
+test('G63 control: a stated roster size that differs from the spec count is red', () => {
+  const found = controlFindings(({ edit }: any) => edit(FILES.readme, (s: any) => s.replace(/\b\d+ agents —/, '5 agents —')));
+  assert.match(found, /README\.md:\d+: states '5 agents —', but core\/shared\/agent-specs holds \d+ specs/);
+  const word = controlFindings(({ edit }: any) => edit(FILES.reference, (s: any) => s.replace(/\bseven archetypes/, 'five archetypes')));
+  assert.match(word, /docs\/reference\.md:\d+: states 'five archetypes'/);
+  const strip = (t: any) => t.replace(/\b(\d+|seven) (agents —|archetypes|specialists)/gi, 'the $2');
+  const gone = controlFindings(({ edit }: any) => [FILES.readme, FILES.reference, FILES.setup].forEach((rel) => edit(rel, strip)));
+  assert.match(gone, /README\.md: no stated roster size found/);
 });

@@ -1195,7 +1195,9 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   `read-only` spec and none for a `write` one; and the four name lists (Kiro's role list, `DOFLOW_CHAIN.md`,
   `docs/setup.md`, the `docs/reference.md` agent table with its mode against `access`) equal the spec set;
   `workflows.json` `agents.access` names exactly the specs, each with its spec's `access` (the runtime reads
-  it there: an installed runtime ships `core/registry`, not `core/shared`).
+  it there: an installed runtime ships `core/registry`, not `core/shared`); and every roster size the
+  prose states ("seven archetypes", "7 agents —", in `README.md`, `docs/`, `core/shared/guidance/` and
+  `core/shared/skills/`) equals the number of specs, with at least one such statement found.
   Each clause re-seeds its fault on a scratch copy of only the files it reads.
 - **G64** (`agent-budget.test.ts`) — the roster is a standing context cost, so it is capped: at most 7
   specs, each `description` at most 160 characters, all together at most 1,000, and every spec declares
