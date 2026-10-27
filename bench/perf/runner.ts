@@ -384,6 +384,7 @@ function runSurfaceProcess(surface: any, repoRoot: string, tempHome: any, spawnS
       if (gitInit.status !== 0) throw new Error(`fixture git init failed: ${gitInit.stderr || gitInit.error?.message || gitInit.status}`);
     } else if (surface.setup && surface.setup.kind === 'copy-fixture-project') {
       tempProjectDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-perf-fixture-'));
+      tempHookHomeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-perf-fixture-home-'));
       const fixtureSrc = path.isAbsolute(surface.setup.fixture)
         ? surface.setup.fixture
         : path.join(repoRoot, surface.setup.fixture);
