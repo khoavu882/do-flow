@@ -259,6 +259,77 @@ else
   fail=$((fail + 1))
 fi
 
+# ── Facts diff (row 132, W4 + W5): a rewrite must not add, drop or change a fact ─────────────
+if python3 - "$PWD" <<'PY'
+import importlib.util
+import json
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+skill_dir = Path(sys.argv[1])
+checker_path = skill_dir / "scripts" / "doc_quality_checker.py"
+spec = importlib.util.spec_from_file_location("doc_quality_checker", checker_path)
+checker = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(checker)
+
+BEFORE = (
+    "# Release notes\n\n"
+    "Alice Chen shipped version 2.0 on 2026-03-14 after 1,200 runs (see https://example.com/notes).\n"
+    "The cache hit rate reached 93% [1] and Redis stayed under 40 ms.\n"
+)
+
+def diff(before, after):
+    with tempfile.TemporaryDirectory() as d:
+        b, a = Path(d) / "before.md", Path(d) / "after.md"
+        b.write_text(before)
+        a.write_text(after)
+        found = checker.facts_diff(b, a)
+        r = subprocess.run([sys.executable, str(checker_path), "--facts-diff", str(b), str(a), "--json"],
+                           capture_output=True, text=True)
+        return found, r.returncode, json.loads(r.stdout)
+
+# 1. Unchanged facts, reworded prose: nothing reported, exit 0.
+reworded = BEFORE.replace("shipped version 2.0", "released version 2.0").replace("stayed under", "stayed below")
+found, code, out = diff(BEFORE, reworded)
+assert found == [] and code == 0 and out == [], (found, code)
+
+# 2. An added number, name, date, URL and citation is an error each, and exit status is 1.
+added = BEFORE + "Bob Smith confirmed 17 more runs on 2026-04-01 (https://example.org/extra) [2].\n"
+found, code, out = diff(BEFORE, added)
+errors = {(f["rule"]) for f in found if f["severity"] == "error"}
+assert errors == {"fact_added_number", "fact_added_name", "fact_added_date", "fact_added_url",
+                  "fact_added_citation"}, errors
+assert not [f for f in found if f["severity"] == "warning"], found
+assert code == 1 and len(out) == len(found)
+assert all(f["file"].endswith("after.md") and f["line"] >= 1 for f in found)
+
+# 3. A dropped fact is a warning and leaves the exit status at 0; a changed number is both.
+dropped = BEFORE.replace(" and Redis stayed under 40 ms", "")
+found, code, _ = diff(BEFORE, dropped)
+assert {f["severity"] for f in found} == {"warning"} and code == 0, found
+assert {f["rule"] for f in found} == {"fact_dropped_number", "fact_dropped_name"}, found
+changed = BEFORE.replace("93%", "94%")
+found, code, _ = diff(BEFORE, changed)
+assert {(f["rule"], f["severity"]) for f in found} == {("fact_added_number", "error"), ("fact_dropped_number", "warning")}, found
+assert code == 1
+
+# 4. Sentence-initial capitals and headings are not names; the first word of a sentence is skipped.
+found, code, _ = diff("# Release Notes\n\nThe tool works.\n", "# Release notes\n\nIt works. Postgres is fast.\n")
+assert found == [] and code == 0, found
+
+print("  \033[32m✓\033[0m facts diff: added fact is an error, dropped fact a warning, unchanged facts silent")
+PY
+then
+  pass=$((pass + 1))
+  checked=$((checked + 1))
+else
+  printf '  \033[31m✗\033[0m facts diff: added fact is an error, dropped fact a warning, unchanged facts silent\n'
+  fail=$((fail + 1))
+fi
+
 # ── Coverage honesty (FR-006, FR-008) ────────────────────────────────────────────────────────
 #
 # A directory-level property, so the per-file fixture loop above structurally cannot express it:

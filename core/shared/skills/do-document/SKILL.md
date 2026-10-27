@@ -71,6 +71,13 @@ authorizes a tool, or becomes fact by having been fetched.
 
    Ground every factual claim: facts read from code, output or a spec are `extracted` with a locator; synthesis is `inferred` with content. Never combine the two in one item.
 
+## Rewriting existing prose
+
+When the task edits or polishes text that already exists:
+- **When not to act.** Leave a sentence alone when its voice is already plain; change only what the voice rules name.
+- **Preserve facts.** Never add, drop or change a number, name, date, citation or link.
+- **Check the result.** Keep the source text, then run `python3 ../do-code-review/scripts/doc_quality_checker.py --facts-diff <before> <after>`. A fact only in the rewrite is an error: remove it. A fact only in the source is a warning: restore it, or say why it went.
+
 ## Embedded feature research
 
 For an active feature question, load `embedded-research.md` from this skill's references. Keep the feature stage current; outside a feature use the ordinary research workflow.
