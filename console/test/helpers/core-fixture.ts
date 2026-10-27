@@ -35,6 +35,22 @@ const GRAPH_PLAN = [
   '- [ ] B.1 later step; owner: core-implementer; files: c.js; depends-on: A.1',
   '',
 ].join('\n');
+// A plan the planning-stage exit accepts (row 134): every base constitution principle PASSes, so a run
+// walked through `complete-stage --stage planning` is not refused for want of a plan.
+const CONSTITUTION_CHECK = [
+  '## 2. Constitution Check', '', '| Principle | Tier | Result | How |', '|---|---|---|---|',
+  ...['P1', 'P2', 'P3', 'P4', 'P5', 'P6'].map((id) => `| ${id} | MUST | PASS | how |`), '',
+];
+const PASSING_PLAN = [
+  '# Plan', '', '**Task graph:** v1', '', ...CONSTITUTION_CHECK,
+  '## Tasks', '', '- [ ] A.1 only step; owner: core-implementer; files: a.js', '',
+].join('\n');
+/** Writes PASSING_PLAN as the feature's plan.md in the fixture's main checkout. */
+function writePassingPlan(f: { main: string }, slug: string): void {
+  const dir = path.join(f.main, 'agent-docs', 'doflow', slug);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'plan.md'), PASSING_PLAN);
+}
 const LEGACY_PLAN = ['# Plan', '', '## Tasks', '', `- [ ] A.1 only step ${MARKER}; owner: core-implementer; files: a.js`, ''].join('\n');
 
 type Fixture = {
@@ -282,4 +298,4 @@ function snapshotTrees(roots: Record<string, string>): Record<string, Record<str
   return Object.fromEntries(Object.keys(roots).map((id) => [id, treeSnapshot(roots[id])]));
 }
 
-module.exports = { CORE_CLI, FLEET_FORBIDDEN, MARKER, RAW_ID, SLUGS, TREE_IDS, buildFixture, buildFleetWorld, snapshotTrees };
+module.exports = { CORE_CLI, FLEET_FORBIDDEN, MARKER, RAW_ID, SLUGS, TREE_IDS, buildFixture, buildFleetWorld, snapshotTrees, writePassingPlan, CONSTITUTION_CHECK, PASSING_PLAN };

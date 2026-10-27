@@ -44,7 +44,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawn, spawnSync } = require('node:child_process');
-const { buildFixture, SLUGS } = require('../test/helpers/core-fixture.ts');
+const { buildFixture, SLUGS, CONSTITUTION_CHECK, PASSING_PLAN } = require('../test/helpers/core-fixture.ts');
 
 /**
  * Every directory this script makes is made directly under this root, and only those exact paths are
@@ -80,7 +80,7 @@ const OWNERS = Object.freeze(['core-implementer', 'quality-guardian', 'system-ar
 
 /** 12 tasks over 3 owners, three phases; the declared owner is the lane of a task with no active attempt. */
 const WORK_PLAN = [
-  '# Plan', '', '**Task graph:** v1', '', '## Tasks', '',
+  '# Plan', '', '**Task graph:** v1', '', ...CONSTITUTION_CHECK, '## Tasks', '',
   '### Phase A', '',
   '- [ ] A.1 [P] first step; owner: core-implementer; files: src/a1.js',
   '- [ ] A.2 [P] second step; owner: quality-guardian; files: src/a2.js',
@@ -101,7 +101,7 @@ const WORK_PLAN = [
 
 /** Three tasks in a graph plan; the run that uses it has no attempts ("a plan without attempts"). */
 const APPROVAL_PLAN = [
-  '# Plan', '', '**Task graph:** v1', '', '## Tasks', '',
+  '# Plan', '', '**Task graph:** v1', '', ...CONSTITUTION_CHECK, '## Tasks', '',
   '### Phase A', '',
   '- [ ] A.1 [P] first step; owner: core-implementer; files: src/p1.js',
   '- [ ] A.2 [P] second step; owner: quality-guardian; files: src/p2.js',
@@ -111,7 +111,7 @@ const APPROVAL_PLAN = [
 
 /** Three tasks: S.1 and S.2 declare the same file (an overlap), S.3 is the long claim. */
 const SESSIONS_PLAN = [
-  '# Plan', '', '**Task graph:** v1', '', '## Tasks', '',
+  '# Plan', '', '**Task graph:** v1', '', ...CONSTITUTION_CHECK, '## Tasks', '',
   '### Phase A', '',
   '- [ ] S.1 [P] first writer; owner: core-implementer; files: src/shared.js, src/s1.js',
   '- [ ] S.2 [P] second writer; owner: quality-guardian; files: src/shared.js, src/s2.js',
@@ -162,7 +162,7 @@ function journalOf(main: string, slug: string, taskId: string) {
 }
 
 /** The runs and attempts of the full fixture, on top of the helper's five runs. Returns the live run's steps. */
-function addRuns(fixture: Fixture, core: string): Array<{ describe: string, args: string[] }> {
+function addRuns(fixture: Fixture, core: string): Array<{ describe: string, args: string[], before?: () => void }> {
   const { main } = fixture;
   const call = coreCaller(core, main, fixture.env);
   const orchestrate = (...args: string[]) => call('orchestrate', ...args);
@@ -173,6 +173,7 @@ function addRuns(fixture: Fixture, core: string): Array<{ describe: string, args
   fs.writeFileSync(path.join(main, 'agent-docs', 'doflow', RUNS.work.slug, 'plan.md'), WORK_PLAN);
   fs.writeFileSync(path.join(main, 'agent-docs', 'doflow', RUNS.approval.slug, 'plan.md'), APPROVAL_PLAN);
   fs.writeFileSync(path.join(main, 'agent-docs', 'doflow', RUNS.sessions.slug, 'plan.md'), SESSIONS_PLAN);
+  fs.writeFileSync(path.join(main, 'agent-docs', 'doflow', RUNS.rejected.slug, 'plan.md'), PASSING_PLAN); // the planning exit (row 134) needs a plan
 
   const start = (run: { slug: string, taskId: string }, taskClass: string) => orchestrate('--action', 'start', '--task-id', run.taskId, '--task-class', taskClass, '--slug', run.slug);
   const complete = (run: { slug: string, taskId: string }, stage: string) => orchestrate('--action', 'complete-stage', '--task-id', run.taskId, '--stage', stage, '--result', 'passed', '--slug', run.slug);
@@ -242,7 +243,7 @@ function addRuns(fixture: Fixture, core: string): Array<{ describe: string, args
   const live = RUNS.tick;
   return [
     { describe: `${live.taskId}: design completed`, args: ['orchestrate', '--action', 'complete-stage', '--task-id', live.taskId, '--stage', 'design', '--result', 'passed', '--slug', live.slug] },
-    { describe: `${live.taskId}: planning completed, awaiting gate-a`, args: ['orchestrate', '--action', 'complete-stage', '--task-id', live.taskId, '--stage', 'planning', '--result', 'passed', '--slug', live.slug] },
+    { describe: `${live.taskId}: planning completed, awaiting gate-a`, before: () => fs.writeFileSync(path.join(main, 'agent-docs', 'doflow', live.slug, 'plan.md'), PASSING_PLAN), args: ['orchestrate', '--action', 'complete-stage', '--task-id', live.taskId, '--stage', 'planning', '--result', 'passed', '--slug', live.slug] },
     { describe: `${live.taskId}: gate-a approved, implementation running`, args: ['orchestrate', '--action', 'decide-gate', '--task-id', live.taskId, '--gate', 'gate-a', '--decision', 'approve', '--slug', live.slug] },
   ];
 }
@@ -473,7 +474,7 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
     else process.env.TMPDIR = tmpdir;
   }
   const scratch = [fixture.dir];
-  let steps: Array<{ describe: string, args: string[] }> = [];
+  let steps: Array<{ describe: string, args: string[], before?: () => void }> = [];
   try {
     if (options.empty) dropRuns(fixture);
     else {
@@ -527,6 +528,7 @@ async function startFixtureConsole(options: Options): Promise<Handle> {
         if (next >= steps.length) return null;
         const step = steps[next];
         next += 1;
+        step.before?.(); // the planning exit (row 134) refuses a run with no plan
         call(...step.args);
         return step.describe;
       },
