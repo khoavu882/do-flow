@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Shared lifecycle bridge. Sourcing defines functions only; it sets no shell options or traps.
-case ${BASH_SOURCE[0]} in */*) _DOFLOW_BRIDGE_DIR=${BASH_SOURCE[0]%/*} ;; *) _DOFLOW_BRIDGE_DIR=. ;; esac
+_DOFLOW_SRC=${BASH_SOURCE[0]//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_BRIDGE_DIR=${_DOFLOW_SRC%/*} ;; *) _DOFLOW_BRIDGE_DIR=. ;; esac
 
 doflow_bridge_failure() {
   local policy="$1" point="$2"

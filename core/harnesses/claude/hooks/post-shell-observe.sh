@@ -9,7 +9,7 @@ IFS= read -r -d '' payload || true
 case "$payload" in *test*|*jest*|*mocha*) ;; *) exit 0 ;; esac
 
 # Source definitions only; no lifecycle policy, failure capture or native response runs here.
-case ${BASH_SOURCE[0]} in */*) hook_dir=${BASH_SOURCE[0]%/*} ;; *) hook_dir=. ;; esac
+_DOFLOW_SRC=${BASH_SOURCE[0]//\\//}; case $_DOFLOW_SRC in */*) hook_dir=${_DOFLOW_SRC%/*} ;; *) hook_dir=. ;; esac
 . "$hook_dir/../../.doflow/shared/hooks/bridge/bridge.sh" || exit 0
 
 # Same project-store resolution as bridge.sh, including nested dispatch delivery directories.

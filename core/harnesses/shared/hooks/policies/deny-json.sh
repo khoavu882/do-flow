@@ -10,7 +10,7 @@
 #
 # Usage: source "<policy-dir>/deny-json.sh"
 
-case ${BASH_SOURCE[0]} in */*) _DOFLOW_DENY_JSON_DIR=${BASH_SOURCE[0]%/*} ;; *) _DOFLOW_DENY_JSON_DIR=. ;; esac
+_DOFLOW_SRC=${BASH_SOURCE[0]//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_DENY_JSON_DIR=${_DOFLOW_SRC%/*} ;; *) _DOFLOW_DENY_JSON_DIR=. ;; esac
 
 # Escape a string as a JSON string body without external tools. Work bytewise so
 # every control byte is handled the same way regardless of the caller's locale.

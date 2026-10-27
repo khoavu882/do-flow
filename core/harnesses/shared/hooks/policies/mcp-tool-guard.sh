@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
+_DOFLOW_SRC=${0//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_POLDIR=${_DOFLOW_SRC%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # mcp-tool-guard.sh — Canonical Policy Library: PreToolUse(mcp_*) hook
 #
 # Intercepts every MCP tool call and blocks matches against mcp-policy.conf, the

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
+_DOFLOW_SRC=${0//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_POLDIR=${_DOFLOW_SRC%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # pre-implementation-gate.sh — Canonical Policy Library: PreToolUse(Edit|Write|...)
 # backstop for the doflow implement gate. The HARD half of the one enforced
 # gate (the other half is the prompt-level do-prereqs.sh inside

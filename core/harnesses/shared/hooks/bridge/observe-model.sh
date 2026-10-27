@@ -21,7 +21,7 @@
 # rename, mode 0600. With no config home, no sha256 tool or a link in place of the file, nothing.
 # The storage stores model-observations and worker-model-observations bound both folders.
 
-case ${BASH_SOURCE[0]} in */*) _DOFLOW_OBSERVE_DIR=${BASH_SOURCE[0]%/*} ;; *) _DOFLOW_OBSERVE_DIR=. ;; esac
+_DOFLOW_SRC=${BASH_SOURCE[0]//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_OBSERVE_DIR=${_DOFLOW_SRC%/*} ;; *) _DOFLOW_OBSERVE_DIR=. ;; esac
 
 doflow_observe_model() {
   local harness="${1:-}" envelope="${2:-}" fields="" model="" model_json="" session="" cwd="" event="" now=""

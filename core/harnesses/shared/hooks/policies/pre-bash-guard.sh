@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
+_DOFLOW_SRC=${0//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_POLDIR=${_DOFLOW_SRC%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # pre-bash-guard.sh — Canonical Policy Library: PreToolUse(shell-command) hook
 #
 # Intercepts every shell-command tool call and blocks dangerous commands by
