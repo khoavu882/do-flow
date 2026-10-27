@@ -457,9 +457,20 @@ function pruneRetiredRuntimeFiles(harnessPlans: any[], ledger: any, { scopeRoot,
       }
       if (sameFile(file)) { keepFile(file); continue; }   // the produced file under an old spelling
       const current = sha256File(file, fsImpl);
-      if (!fileRows.some((row: any) => row.fingerprint === current)) {
+      // Each row is its harness's latest record of this path, and every row in this scope's ledger
+      // counts, not only the run's harnesses. Only bytes equal to ALL of them prove the file is
+      // DoFlow's last write: a match with one claimant's older record (a user restoring v1 after
+      // another harness wrote v2) authorizes nothing.
+      const stale = fileRows.filter((row: any) => row.fingerprint !== current);
+      if (stale.length === fileRows.length) {
         // A planned removal here was already kept by planTree, and its adapter named it.
         if (!removals.length) notices.get(executor.harness)!.push(`kept ${shown(file)}: no longer shipped, changed since DoFlow wrote it`);
+        continue;
+      }
+      if (stale.length) {
+        keepFile(file);
+        const who = [...new Set(stale.map((row: any) => row.harness))].sort().join(', ');
+        notices.get(executor.harness)!.push(`kept ${shown(file)}: no longer shipped, and its bytes differ from what ${who} last recorded`);
         continue;
       }
       notices.get(executor.harness)!.push(`prune ${shown(file)}: no longer shipped, unchanged since DoFlow wrote it`);

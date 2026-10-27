@@ -173,22 +173,33 @@ test('a harness with no row on the orphan prunes it through a synthetic removal 
   assert.deepEqual(p.rowsAt('helper/git.js'), []);
 });
 
-test('an orphan a sibling rewrote last is pruned on the sibling\'s record, not kept under a false hand-edited label', (t) => {
+test('negative control: an orphan whose bytes differ from any claimant\'s latest record is kept and named, even when another claimant\'s matches', (t) => {
   const p = project(t, { 'a.js': 'v1\n' });
   p.ship({ 'a.js': 'v1.1\n' });
   p.apply(p.plan(['beta']));   // beta's row now says v1.1, alpha's still says v1, the disk holds v1.1
   p.ship({ 'a.ts': 'v2\n' });
 
-  const planned = p.plan(['alpha']);
-  assert.deepEqual(noticesOf(planned), ['alpha: prune .doflow/runtime/src/a.js: no longer shipped, unchanged since DoFlow wrote it']);
-  p.apply(planned);
-  assert.equal(fs.existsSync(path.join(p.dest, 'a.js')), false);
-  assert.deepEqual(p.rowsAt('a.js'), []);
+  const planned = p.apply(p.plan(['alpha']));
+  assert.ok(noticesOf(planned).includes('alpha: kept .doflow/runtime/src/a.js: no longer shipped, and its bytes differ from what alpha last recorded'), noticesOf(planned).join('\n'));
+  assert.equal(fs.readFileSync(path.join(p.dest, 'a.js'), 'utf8'), 'v1.1\n', 'one stale claimant is enough to keep it');
 });
 
-// Sol's reproducer (row 130 review of the guidance prune), for the guidance tree and a runtime tree
-// alike: both go through the same prune.
+// Sol's reproducers (row 130 review of the guidance prune), for the guidance tree and a runtime
+// tree alike: both go through the same prune.
 for (const [label, tree, file] of [['guidance', GUIDANCE_TREE, 'FLAGS.md'], ['runtime', RUNTIME_TREE, 'old.js']] as any) {
+  test(`negative control (${label}): a user-restored older version is kept when another claimant recorded a newer one`, (t) => {
+    const p = project(t, { [file]: 'v1\n', keep: 'keep\n' }, {}, tree);   // alpha and beta record v1
+    p.ship({ [file]: 'v2\n', keep: 'keep\n' });
+    p.apply(p.plan(['beta']));                                         // beta writes v2 and records it
+    fs.writeFileSync(path.join(p.dest, file), 'v1\n');                // the user restores v1
+    p.ship({ keep: 'keep\n' });                                       // the next release drops the file
+
+    const planned = p.apply(p.plan(['alpha']));
+    assert.equal(fs.readFileSync(path.join(p.dest, file), 'utf8'), 'v1\n', 'a match against alpha\'s older record does not authorize the delete');
+    const shown = path.relative(p.scopeRoot, path.join(p.dest, file));
+    assert.ok(noticesOf(planned).includes(`alpha: kept ${shown}: no longer shipped, and its bytes differ from what beta last recorded`), noticesOf(planned).join('\n'));
+  });
+
   test(`negative control (${label}): a tree swapped for a link out of the scope between plan and apply is refused at delete time`, (t) => {
     const p = project(t, { [file]: 'v1\n', keep: 'keep\n' }, {}, tree);
     p.ship({ keep: 'keep\n' });
