@@ -40,6 +40,9 @@ All notable changes to DoFlow are documented here. Format follows
 ### Removed
 - **Gemini CLI harness (feature 127):** Gemini CLI was replaced upstream by Antigravity CLI, so the `gemini` harness, its adapter, hooks, probe and `--target gemini` are gone and DoFlow now projects into seven harnesses. The registry records `gemini` as retired with Antigravity as its replacement: `-t gemini` and `--target gemini` are refused with that pointer, and `workers.enabled`, `workers.models`, `workers.billing` and `primary.harness` report a retired id as an advisory and ignore it. An existing Gemini CLI install is released on the next `doflow install` or `doflow update` in that scope; files you edited are kept. At global scope Antigravity now writes its guidance-pointer section into `~/.gemini/GEMINI.md` and takes over the section a Gemini CLI install left there in one write; a file edited since is kept until `--force`. `install`, `update` and `reconcile` back up the files the release changes before applying it. `reconcile` is always forced, so it replaces an edited `GEMINI.md` DoFlow section (text outside the markers stays), and text a person wrote inside Gemini CLI's section is removed with it. The run's summary line reads `[RETIRED] gemini → antigravity: deleted N, stripped N, released N, dropped N, deferred N, kept N`. A full `rollback` restores every released Gemini CLI row and `targets.gemini`; `rollback -t <harness>` restores only the rows of the files it writes back. A lock that pins only `gemini` makes `reconcile` do nothing; run `doflow update` in that scope to release Gemini CLI's files.
 
+### Fixed
+- **maint-patch (FU-aeyx13):** `doflow orchestrate --action start --dry-run` now exits 2 with a usage error. Before, the flag was silently ignored and a real start ran.
+
 ## [2.0.0-beta.7] - 2026-10-24
 
 ### Added
