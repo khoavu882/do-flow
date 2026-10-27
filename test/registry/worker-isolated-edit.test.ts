@@ -48,7 +48,7 @@ test('isolatedEdit: exported as an optional capability, WORKER_KEYS unchanged', 
   assert.ok(!WORKER_KEYS.includes('isolatedEdit'));
 });
 
-test('isolatedEdit: the real registry loads; codex is supported on its recorded evidence, the other seven stay unknown with a reason', () => {
+test('isolatedEdit: the real registry loads; codex is supported on its recorded evidence, the other harnesses stay unknown with a reason', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   assert.deepEqual(registry.validation.errors.filter((line: any) => line.includes(" worker 'isolatedEdit'")), []);
   assert.equal(registry.validation.ok, true, registry.validation.errors.join('\n'));

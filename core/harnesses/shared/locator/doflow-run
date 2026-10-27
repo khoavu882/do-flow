@@ -1,5 +1,5 @@
 #!/bin/sh
-# DoFlow locator shim — projected to all eight harnesses by the `locator.doflow` asset in
+# DoFlow locator shim — projected to every harness by the `locator.doflow` asset in
 # core/registry/assets.json (design.md §3 C2, §4.1).
 #
 # Its ONLY job is to find the single dispatcher (at $REL below, under the config dir) and exec it
@@ -40,8 +40,7 @@
 
 # The dispatcher ships inside the `scripts.doflow` asset (`core/shared/scripts`), so it sits at
 # `scripts/doflow/bin/doflow-run` under the shared tree. Every harness projects that tree to its
-# scope root (`<project>/.doflow` or `$HOME/.doflow`), so this one path holds for all eight,
-# Antigravity at global scope excepted (it projects no runtime there).
+# scope root (`<project>/.doflow` or `$HOME/.doflow`), so this one path holds for every harness.
 REL='scripts/doflow/bin/doflow-run'
 dispatcher=''
 

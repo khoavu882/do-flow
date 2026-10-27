@@ -151,9 +151,9 @@ OS-level isolation closes gaps a permission list cannot. DoFlow does not ship a 
 suits a given toolchain breaks another, and an installer-supplied profile would be wrong more often than
 right. Configure it per project.
 
-## The other seven harnesses
+## The other harnesses
 
-This page verifies Claude Code's surface and no other. For the remaining seven, what is established
+This page verifies Claude Code's surface and no other. For the remaining harnesses, what is established
 here is only what the table above states: DoFlow writes at project or user scope, or writes no settings
 file at all. Whether that harness offers an organization-enforced tier, what it is called and how it is
 delivered is **not established here** — read that vendor's own documentation, and expect the same shape

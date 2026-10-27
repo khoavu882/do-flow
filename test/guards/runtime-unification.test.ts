@@ -88,7 +88,7 @@ test('G12: exactly one dispatcher and one locator exist, and the retired entrypo
 
 test('G12: the locator asset claims every harness, consistently, inside each harness own directory', () => {
   const locator = assetById('locator.doflow');
-  assert.ok(locator, 'the locator.doflow asset is what puts a runtime entrypoint on all eight harnesses');
+  assert.ok(locator, 'the locator.doflow asset is what puts a runtime entrypoint on every harness');
 
   const allHarnesses = registry.harnesses.map((h: any) => h.id).sort();
   assert.deepEqual([...locator.appliesTo].sort(), allHarnesses,
