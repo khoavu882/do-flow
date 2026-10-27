@@ -53,6 +53,23 @@ function isToolInstalled(bin: any) {
   }
 }
 
+/**
+ * True when a `ps` command line is a node process running its test runner: argv[0] is node and a
+ * `--test` argument comes before any script path. A substring match would also hit a shell, editor
+ * or grep that merely mentions "node --test".
+ */
+function isNodeTestCommand(command: string): boolean {
+  const argv = command.trim().split(/\s+/);
+  if (path.basename(argv[0] || '').replace(/\.exe$/i, '') !== 'node') return false;
+  const VALUE_FLAGS = new Set(['-r', '--require', '--import', '--loader', '--experimental-loader', '--env-file', '-C', '--conditions']);
+  for (let i = 1; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--test') return true;
+    if (!arg.startsWith('-') && !VALUE_FLAGS.has(argv[i - 1])) return false;
+  }
+  return false;
+}
+
 function isAnotherNodeTestRunning({ excludePids = new Set([process.pid, process.ppid]) } = {}) {
   try {
     const out = execFileSync('ps', ['-A', '-o', 'pid,command'], { encoding: 'utf8' });
@@ -63,7 +80,7 @@ function isAnotherNodeTestRunning({ excludePids = new Set([process.pid, process.
       const pid = parseInt(match[1], 10);
       const cmd = match[2];
       if (excludePids.has(pid)) continue;
-      if (cmd.includes('node --test')) return true;
+      if (isNodeTestCommand(cmd)) return true;
     }
     return false;
   } catch {
@@ -1074,6 +1091,7 @@ if (require.main === module) {
 module.exports = {
   main,
   isAnotherNodeTestRunning,
+  isNodeTestCommand,
   isToolInstalled,
   getMachineId,
   computeCeilingMs,

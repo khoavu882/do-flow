@@ -762,3 +762,12 @@ test('perf runner: verb.context-pack surface runs against context-pack-project f
   assert.ok(dur > 0);
 });
 
+
+test('perf runner: isNodeTestCommand matches node argv, not any command line that mentions node --test', () => {
+  for (const yes of ['node --test test/', '/opt/homebrew/bin/node --import ./x.mjs --test "test/**/*.test.js"', 'node --test-reporter=spec --test test/a.test.ts']) {
+    assert.equal(runner.isNodeTestCommand(yes), true, yes);
+  }
+  for (const no of ['bash -c node --test test/', 'vim notes-node --test', 'grep "node --test" log.txt', 'node scripts/tool.js --test', 'node /repo/bin/doflow.js --test', 'nodemon --test']) {
+    assert.equal(runner.isNodeTestCommand(no), false, no);
+  }
+});
