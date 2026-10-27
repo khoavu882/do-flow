@@ -23,6 +23,7 @@
       "event": "PreToolUse",
       "operation": "edit",
       "tool": "apply_patch",
+      "patch": "*** Begin Patch\n*** Add File: agent-docs/doflow/021-copilot-parity/notes.md\n+x\n*** End Patch\n",
       "identity": {
         "session": "copilot-gate-allow"
       }

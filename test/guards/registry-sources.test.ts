@@ -60,7 +60,7 @@ test('G48: a runtime-shaped copy fails in require mode with missing-source lines
   const result = validateRegistry(registry, { repoRoot: runtimeRoot, sources: 'require' });
   assert.equal(result.ok, false);
   assert.equal(result.sources, 'require');
-  assert.equal(result.errors.length, 24);
+  assert.equal(result.errors.length, 25);
 
   for (const error of result.errors) {
     assert.match(error, /source does not exist inside repository: /);
@@ -73,7 +73,7 @@ test('G48: a runtime-shaped copy fails in require mode with missing-source lines
       assert.match(err.message, /^Invalid DoFlow registry:\n- /);
       assert.equal(err.validation.ok, false);
       assert.equal(err.validation.sources, 'require');
-      assert.equal(err.validation.errors.length, 24);
+      assert.equal(err.validation.errors.length, 25);
       return true;
     },
   );

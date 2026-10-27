@@ -10,6 +10,7 @@ const TEMPLATE_PATHS = [
   'core/harnesses/codex/hooks/hooks.json',
   'core/harnesses/kiro/hooks/doflow.json',
   'core/harnesses/kiro/agents/doflow.json',
+  'core/harnesses/copilot/hooks/doflow.json',
 ];
 
 function trackedFiles(root: any) {
@@ -37,7 +38,7 @@ function addTemplateRoots(root: any, files: any, reachable: any, errors: any) {
     if (!fs.existsSync(path.join(root, template))) { errors.push(`missing hook wiring template ${template}`); continue; }
     const text = read(root, template);
     if (isShipped(template)) reachable.add(template);
-    const harness = template.includes('/claude/') ? 'claude' : template.includes('/codex/') ? 'codex' : 'kiro';
+    const harness = template.includes('/claude/') ? 'claude' : template.includes('/codex/') ? 'codex' : template.includes('/copilot/') ? 'copilot' : 'kiro';
     for (const match of text.matchAll(/[A-Za-z0-9_-]+\.sh\b/g)) addDoor(harness, match[0], template);
   }
   const registryPath = 'core/registry/harnesses.json';
