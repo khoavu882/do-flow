@@ -20,7 +20,6 @@ const HOOK_TEST = process.platform !== 'win32' ? test : test.skip;
 function underCanary(t: any, fn: (canary: { home: string; xdg: string }) => void) {
   const home = tempDir(t, 'doflow-real-home-canary-');
   const xdg = path.join(home, '.config');
-  fs.mkdirSync(xdg);
   // Capture is forced on: an inherited DOFLOW_FAILURE_CAPTURE=off would make the guard pass vacuously.
   const saved: any = { HOME: process.env.HOME, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, DOFLOW_FAILURE_CAPTURE: process.env.DOFLOW_FAILURE_CAPTURE };
   process.env.HOME = home;
@@ -35,8 +34,12 @@ function underCanary(t: any, fn: (canary: { home: string; xdg: string }) => void
   }
 }
 
-const filesUnder = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true })
-  .flatMap((entry: any) => (entry.isDirectory() ? filesUnder(path.join(dir, entry.name)) : [path.join(dir, entry.name)]));
+/** Every file and every directory under `dir`: an empty directory is a write too. */
+const entriesUnder = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true })
+  .flatMap((entry: any) => {
+    const full = path.join(dir, entry.name);
+    return entry.isDirectory() ? [full, ...entriesUnder(full)] : [full];
+  });
 
 const SURFACES = ['hook.antigravity.stop-check', 'hook.shared.stop-check'];
 const surfaceOf = (id: string) => {
@@ -56,7 +59,7 @@ for (const id of SURFACES) {
       } catch (error: any) {
         if (!/^process exited with status \d+$/.test(error.message)) throw error;
       }
-      assert.deepEqual(filesUnder(home), [], 'the perf run left no file under the real HOME or XDG_CONFIG_HOME');
+      assert.deepEqual(entriesUnder(home), [], 'the perf run left no file or directory under the real HOME or XDG_CONFIG_HOME');
     });
   });
 }
@@ -70,7 +73,14 @@ for (const id of SURFACES) {
         cwd: REPO_ROOT, input: '', encoding: 'utf8', timeout: 60000,
         env: { ...process.env, HOME: home, XDG_CONFIG_HOME: xdg, DOFLOW_FAILURE_CAPTURE: 'on' },
       });
-      assert.notDeepEqual(filesUnder(home), [], 'the guard can see a write: this surface records its fault under the config home');
+      assert.notDeepEqual(entriesUnder(home), [], 'the guard can see a write: this surface records its fault under the config home');
     });
   });
 }
+
+HOOK_TEST('perf runner: the guard counts a directory created under the real HOME or XDG_CONFIG_HOME', (t) => {
+  underCanary(t, ({ xdg }) => {
+    spawnSync(process.execPath, ['-e', "require('node:fs').mkdirSync(process.env.XDG_CONFIG_HOME + '/doflow', { recursive: true })"], { env: process.env });
+    assert.deepEqual(entriesUnder(path.dirname(xdg)), [xdg, path.join(xdg, 'doflow')]);
+  });
+});
