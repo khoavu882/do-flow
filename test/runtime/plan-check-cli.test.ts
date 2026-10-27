@@ -62,7 +62,7 @@ test('a clean plan exits 0 with the one-line text and the verdict JSON', (t) => 
   assert.equal(text.stdout, 'plan-check: plan.md: ok, 2 tasks\n');
   const json = s.cli(['plan.md', '--json']);
   assert.equal(json.status, 0, json.stderr);
-  assert.deepEqual(JSON.parse(json.stdout), { ok: true, tasks: 2, problems: [], warnings: [], file: 'plan.md' });
+  assert.deepEqual(JSON.parse(json.stdout), { ok: true, tasks: 2, problems: [], warnings: [], findings: [], file: 'plan.md' });
 });
 
 for (const kind of KINDS) {
@@ -169,5 +169,5 @@ test('plan-check p.md --json alone exits 0 as before', (t) => {
   s.write('plan.md', CLEAN);
   const json = s.cli(['plan.md', '--json']);
   assert.equal(json.status, 0, json.stderr);
-  assert.deepEqual(JSON.parse(json.stdout), { ok: true, tasks: 2, problems: [], warnings: [], file: 'plan.md' });
+  assert.deepEqual(JSON.parse(json.stdout), { ok: true, tasks: 2, problems: [], warnings: [], findings: [], file: 'plan.md' });
 });

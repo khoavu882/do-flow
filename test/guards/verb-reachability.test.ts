@@ -94,7 +94,6 @@ const ALLOWLIST: any = new Map([
     'roadmap',
     'roadmap loop verb (feature 108, plan gap §9-2): session-driven autopilot runner invoked by the operator or orchestrator session; no skill invokes it directly today',
   ],
-  ['plan-check', 'called by validate-artifacts.sh, no skill calls it'],
   ['slot', 'orchestrator tool, no skill calls it'],
   ['protocol', 'read-only protocol printer (119 IC-004) that a person or orchestrator runs, for example to embed a debate protocol in a brief; `review --action start` prints the review protocol itself, so no skill calls it'],
   ['primary', 'read-only primary resolver (120 IC-008) that a person or orchestrator runs to see which harness and model the main session is taken to run; `status` and `doctor` print its summary line, so no skill calls it'],

@@ -159,8 +159,13 @@ Filling §8's task dependency graph, read the guidance tree's `references/DIAGRA
    table: `primary` if it owns a task via `files:`, `dependency-only` if it's only ever reached via
    `depends-on:`. A single-repo result → `N/A: single-repo feature`. Derivation only — no branch is
    created here (`/do-execute-plan`'s job, lazily, per repo).
-9. **Validate** — run the advisory consistency check and surface any findings verbatim:
+9. **Self-review, then validate** — reread the plan against itself and fix it inline: every
+   requirement id and `[US#]` story is traced to a task or a §7 row, no TBD/TODO/"later" placeholder
+   is left, and no task is coarser than `--depth` sets (split one that is). `plan-check` scans the
+   first two and prints each one as a `findings` entry with its `path:line`. Fix every entry, then run
+   the advisory consistency check and surface its findings verbatim:
    ```bash
+   "$DOFLOW" plan-check "<plan path>" --json
    "$DOFLOW" validate "<plan path>"
    ```
    This also verifies each `### Task Summary` rollup row against the `- [ ]` lines under its
