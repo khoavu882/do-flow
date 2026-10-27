@@ -22,7 +22,7 @@ installation; do not infer activation from this table alone.
 | Scripts | Supported | Supported | Supported | Supported | Supported | Supported | Supported |
 | Templates | Supported | Supported | Supported | Supported | Supported | Supported | Different |
 | Modes | Supported | Unavailable | Different | Different | Different | Different | Different |
-| Settings | Supported — `settings.json` | Different — `.codex/config.toml` | Supported — `opencode.json` | Supported — `.pi/settings.json` | Supported | Unavailable | Unavailable |
+| Settings | Supported — `settings.json` | Different — `.codex/config.toml` | Supported — `opencode.json` | Unavailable | Unavailable | Unavailable | Unavailable |
 | Hooks | Supported — `settings.json` | Supported — `.codex/hooks.json` | Different | Different | Different | Supported — `.kiro/hooks` | Supported |
 | MCP | Supported — `.mcp.json` | Supported — `.codex/config.toml` | Supported — `opencode.json` | Supported — `.pi/mcp.json` | Supported — `.mcp.json` | Supported — `.kiro/settings/mcp.json` | Supported — `.agents/mcp_config.json` |
 | Plugin / extension | Supported | Supported | Different | Different | Different | Unavailable | Different |
@@ -39,17 +39,17 @@ gap and offers guidance instead of installing a non-functional approximation.
 For OpenCode, the rows reading “Different” are Modes, Hooks and Plugin / extension. OpenCode gets its
 own copy of DoFlow's skills tree (`.opencode/skills/` or `~/.config/opencode/skills/`); what DoFlow
 registers rather than copies is `AGENTS.md` in `opencode.json`'s `instructions[]` and its MCP entries.
-Pi's skills are copied into `.pi/skills/` or `~/.pi/agent/skills/`; `settings.json` is Pi's supported
-settings surface, but DoFlow writes no key in it. Pi's installed
+Pi's skills are copied into `.pi/skills/` or `~/.pi/agent/skills/`; Pi documents a `settings.json`, but
+DoFlow writes no key in it, so the Settings row reads “Unavailable”. Pi's installed
 user- and project-scope extensions register `tool_call` and invoke the shared lifecycle bridge;
 project-scope installs require project trust.
 
 Kiro reads “Unavailable” for two rows for a different reason than OpenCode/Pi's
 “Different”: no documented native surface exists at all for those capabilities — no general settings
 file separate from its MCP config, and no plugin/extension marketplace documented in its steering,
-hooks, or MCP sources. GitHub Copilot CLI's rows read Supported or Different instead: upstream now
-documents a settings stack, hook surface, and plugin mechanism, so the matrix records those
-capabilities per their evidence even though DoFlow projects none of them yet (the hook-event notes
+hooks, or MCP sources. GitHub Copilot CLI's Settings row reads “Unavailable” because DoFlow writes none
+of its settings files, although upstream now documents a settings stack; its hook and plugin rows read
+Different, recorded per their evidence even though DoFlow projects neither yet (the hook-event notes
 below say what blocks each projection).
 
 ## Runtime seam projection
@@ -290,7 +290,7 @@ is covered in [Runtime seam projection](#runtime-seam-projection) instead of rep
 | Codex | Confirm managed `AGENTS.md`, discover a skill, exercise an approved hook, and connect selected MCP servers. | Settings and hooks require a trusted project; hooks require review; plugin enablement remains user-controlled. |
 | OpenCode | Confirm `AGENTS.md` loads, skills are discovered in `.opencode/skills/` (project) or `~/.config/opencode/skills/` (global), and MCP servers connect via `opencode.json`. | Native JSON configuration with progressive skill discovery. Global config lives under `~/.config/opencode/`, not `~/.opencode/`. |
 | Pi Coding Agent | Confirm `AGENTS.md` loads, skills discover in `.pi/skills/` (project) or `~/.pi/agent/skills/` (global), and selected MCP servers appear in `.pi/mcp.json` (project) or `~/.pi/agent/mcp.json` (global, or `$PI_CODING_AGENT_DIR/mcp.json`) and connect via `/mcp`. | Minimalist terminal harness. MCP uses Pi's built-in support (Pi 0.99.0 or later; a project entry replaces a user entry with the same name, and from 1.0.1 a project entry without `command` or `url` overrides only `enabled`, `exposure` and `toolExposure`), which reads stdio entries from the `mcpServers` map. Pi reads `.pi/mcp.json` only after the project is trusted, and DoFlow does not grant trust. An installed extension that registers `/mcp`, such as `pi-mcp-adapter`, replaces the built-in, and Pi then does not read `mcp.json`. DoFlow never overwrites or deletes a user's own entries. |
-| GitHub Copilot CLI | Confirm the core-set `*.instructions.md` files (each with an `applyTo: '**'` header) load from `.github/instructions/` (project) or `~/.copilot/instructions/` (global), `.github/copilot-instructions.md` (project only) holds the guidance pointer, a skill is discoverable from `.agents/skills` (project) or `~/.agents/skills` (global), a custom agent under `.github/agents` (or `~/.copilot/agents`) is selectable, and selected MCP servers appear via `.mcp.json` (project) or `~/.copilot/mcp-config.json` (global). | Settings (`~/.copilot/settings.json`, `.github/copilot/settings.json`), hooks (`.github/hooks/`, `~/.copilot/hooks/`), and a plugin marketplace are now documented upstream; DoFlow projects none of them — those three capabilities are recorded as unprojected rather than as host gaps. |
+| GitHub Copilot CLI | Confirm the core-set `*.instructions.md` files (each with an `applyTo: '**'` header) load from `.github/instructions/` (project) or `~/.copilot/instructions/` (global), `.github/copilot-instructions.md` (project only) holds the guidance pointer, a skill is discoverable from `.agents/skills` (project) or `~/.agents/skills` (global), a custom agent under `.github/agents` (or `~/.copilot/agents`) is selectable, and selected MCP servers appear via `.mcp.json` (project) or `~/.copilot/mcp-config.json` (global). | Settings (`~/.copilot/settings.json`, `.github/copilot/settings.json`), hooks (`.github/hooks/`, `~/.copilot/hooks/`), and a plugin marketplace are now documented upstream; DoFlow projects none of them — settings is recorded as Unavailable because DoFlow writes no settings file, hooks and plugin as Different. |
 | Kiro | Confirm the DoFlow core set (`DOFLOW_CORE.md` and the files it imports) is discoverable as steering files under `.kiro/steering/` (workspace) or `~/.kiro/steering/` (global), a skill is discoverable under `.kiro/skills/`, a custom agent under `.kiro/agents` is discoverable, kiro-cli reads hooks from the agent config JSON `hooks` (installed `.kiro/agents/doflow.json` and the specialist agents) with the expected trigger names, in a CLI 2.x agent config a preToolUse hook blocks only on exit 2 (any other non-zero exit warns and allows), `.kiro/hooks/doflow.json` is the Kiro IDE and CLI V3 surface (any non-zero exit blocks Pre Tool Use there), and selected MCP servers appear in `.kiro/settings/mcp.json`. | No general Kiro settings file exists separate from `.kiro/settings/mcp.json`, so the `settings` capability is a recorded gap; no plugin/extension marketplace is documented either. |
 | Antigravity | Confirm the managed section in `AGENTS.md` (the guidance pointer) loads, the core set is present in `.agents/rules/` (project scope, each file opening with `trigger: always_on`), a skill is discoverable under `.agents/skills/`, a shared agent under `.agents/agents/` is selectable, the runtime locator exists in the harness `bin/`, and selected MCP servers appear in `.agents/mcp_config.json` (project) or `~/.gemini/config/mcp_config.json` (global). | A global install writes skills (`~/.gemini/config/skills`), agents, the locator and the runtime, and a marker-managed guidance-pointer section in the global `~/.gemini/GEMINI.md` (user text outside the markers is never touched); it writes no rules. Gemini CLI was retired, and an older install's section in that file is taken over in one write on the next install or update; a file edited since is kept until `--force`. |
 

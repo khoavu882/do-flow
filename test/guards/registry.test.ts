@@ -69,6 +69,23 @@ test('G5: a capability marked unavailable has no deployer contradicting it', () 
     `declared unavailable while a deployer ships — the capability map publishes this as fact:\n  ${offenders.join('\n  ')}`);
 });
 
+// The one capability where "supported but we ship nothing" is NOT legitimate: the capability map
+// shows `Supported` for Settings as DoFlow merging keys into the harness's settings file. A harness
+// declared `settings: supported` therefore needs an adapter that reports on a settings file
+// (`capability: 'settings'`); Pi and Copilot once claimed it with no settings write at all.
+test('G5: a harness declaring settings supported has an adapter that writes a settings file', () => {
+  const offenders: any = [];
+  for (const harness of registry.harnesses) {
+    if (harness.capabilities?.settings?.status !== 'supported') continue;
+    const dir = path.join(REPO, 'src', 'adapters', harness.adapter);
+    const sources = fs.existsSync(dir) ? fs.readdirSync(dir).filter((name: any) => name.endsWith('.ts')) : [];
+    const writes = sources.some((name: any) => /capability: 'settings'/.test(fs.readFileSync(path.join(dir, name), 'utf8')));
+    if (!writes) offenders.push(`${harness.id} (src/adapters/${harness.adapter})`);
+  }
+  assert.deepEqual(offenders, [],
+    `declared settings supported but the adapter writes no settings file — the capability map publishes this as fact:\n  ${offenders.join('\n  ')}`);
+});
+
 // Only `supported` entries must exist in the harness contract. An `unavailable` entry names an
 // event the harness deliberately does NOT have — recording that gap explicitly is the point, and
 // requiring it to also be in the contract would make a gap impossible to express.
