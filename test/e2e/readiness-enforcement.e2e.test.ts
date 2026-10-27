@@ -271,6 +271,11 @@ test('final verify with no record is INCONCLUSIVE and exits 1; the contract acti
   assert.strictEqual(report.status, 'INCONCLUSIVE');
   assert.ok(report.reason.startsWith(GATE), report.reason);
 
+  // The plain-text report names the held readiness on its own line.
+  const text = doflow(main, ['verify', '--task-id', '904-demo', '--slug=904-demo']);
+  assert.strictEqual(text.status, 1, `${text.stdout}\n${text.stderr}`);
+  assert.ok(text.stdout.split('\n').includes(`readiness: ${report.readiness.message}`), text.stdout);
+
   const contract = doflow(main, ['verify', '--task-id', '904-demo', '--slug=904-demo', '--action', 'contract']);
   assert.strictEqual(contract.status, 0, `${contract.stdout}\n${contract.stderr}`);
 });
