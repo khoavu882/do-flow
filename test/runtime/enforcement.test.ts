@@ -126,6 +126,8 @@ test('enforcement CLI reports json, text, exit codes, errors and dispatcher pass
     assert.equal(result.status, 1);
     assert.ok(['unsupported', 'unknown'].includes(JSON.parse(result.stdout).class));
   }
+  result = run(['enforcement', '--harness', 'copilot', '--policy', 'pre-implementation-gate', '--json']);
+  assert.equal(result.status, 0); assert.equal(JSON.parse(result.stdout).class, 'blocking'); assert.equal(JSON.parse(result.stdout).enforced, true);
   result = run(['enforcement', '--harness', 'copilot', '--policy', 'pre-bash-guard', '--json']);
   assert.equal(result.status, 0); assert.equal(JSON.parse(result.stdout).enforced, true);
   result = run(['enforcement', '--harness', 'claude', '--policy', 'missing', '--json']);
