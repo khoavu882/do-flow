@@ -676,16 +676,32 @@ def check_voice(path: Path, lines: List[str]) -> List[Dict]:
 #
 # Extracts numbers, capitalised names, dates, URLs and citation markers from two versions of a
 # file. A fact only in AFTER is an error (the rewrite added it); a fact only in BEFORE is a
-# warning (the rewrite dropped or changed it). Presence is compared, not counts. Names are a
-# heuristic: a single capitalised word that opens a sentence is ignored unless it has an inner
-# capital, so "Postgres" at a sentence start is not seen but "PostgreSQL" is.
+# warning (the rewrite dropped or changed it). Presence is compared, not counts. Dates are
+# compared as ISO dates ("March 14, 2026" and "14 March 2026" are one fact). Lines wrapped
+# inside a paragraph are joined first, so a name split over two lines is one name.
+#
+# Names are a heuristic. A run of capitalised words is a name. A single capitalised word that
+# opens a sentence is a name only when the same word is capitalised mid-sentence in either
+# version, or has an inner capital or digit ("PostgreSQL"): so a name that moves to or from a
+# sentence start still matches itself, and "Run" turned into "Execute" is not an added fact.
+# Words in `_F_STOP_START` are never names.
 
 _MONTHS = (r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|"
            r"Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?")
+_MONTH_NUMBER = {m: n for n, m in enumerate(
+    "jan feb mar apr may jun jul aug sep oct nov dec".split(), 1)}
 _F_URL_RE = re.compile(r"https?://[^\s)>\]\"'`]+")
 _F_DATE_RE = re.compile(
     rf"\b\d{{4}}-\d{{2}}-\d{{2}}\b|\b{_MONTHS}\s+\d{{1,2}}(?:st|nd|rd|th)?,?\s+\d{{4}}\b|"
     rf"\b\d{{1,2}}(?:st|nd|rd|th)?\s+{_MONTHS}\s+\d{{4}}\b|\b{_MONTHS}\s+\d{{4}}\b")
+_F_DATE_FORMS = [
+    (re.compile(r"(\d{4})-(\d{2})-(\d{2})"), lambda g: f"{g[0]}-{g[1]}-{g[2]}"),
+    (re.compile(rf"({_MONTHS})\s+(\d{{1,2}})(?:st|nd|rd|th)?,?\s+(\d{{4}})"),
+     lambda g: f"{g[2]}-{_month(g[0]):02d}-{int(g[1]):02d}"),
+    (re.compile(rf"(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MONTHS})\s+(\d{{4}})"),
+     lambda g: f"{g[2]}-{_month(g[1]):02d}-{int(g[0]):02d}"),
+    (re.compile(rf"({_MONTHS})\s+(\d{{4}})"), lambda g: f"{g[1]}-{_month(g[0]):02d}"),
+]
 _F_CITE_RE = re.compile(
     r"\[\^[^\]\s]+\]|\[@[^\]\s]+\]|\[\d+(?:\s*[,–-]\s*\d+)*\]|"
     r"\([A-Z][A-Za-z-]+(?: et al\.| (?:and|&) [A-Z][A-Za-z-]+)?,? \d{4}[a-z]?\)")
@@ -700,11 +716,40 @@ _F_STOP_START = {
 }
 _F_NAME_RUN_RE = re.compile(r"[A-Z][\w'-]*(?:[ \t]+[A-Z][\w'-]*)*")
 _F_LAYOUT_PREFIX_RE = re.compile(r"[\s\-+*>|]*(?:\d+[.)])?[\s\-+*>|]*")
+_F_BLOCK_START_RE = re.compile(r"^\s*(?:[-*+>|#]|\d+[.)]|`{3,}|~{3,})")
 
 
-def _extract_facts(text: str) -> List[Tuple[str, str, int]]:
-    """Return (kind, normalised value, 1-based line) for every fact found in `text`."""
+def _month(name: str) -> int:
+    return _MONTH_NUMBER[name.lower()[:3]]
+
+
+def _iso_date(text: str) -> str:
+    for rx, fmt in _F_DATE_FORMS:
+        m = rx.fullmatch(text)
+        if m:
+            return fmt(m.groups())
+    return text
+
+
+def _join_wrapped(text: str) -> str:
+    """Replace the line break inside a paragraph with a space (same length, so offsets hold)."""
+    lines = text.split("\n")
+    out = []
+    for idx, line in enumerate(lines):
+        out.append(line)
+        if idx < len(lines) - 1:
+            nxt = lines[idx + 1]
+            joinable = bool(line.strip() and nxt.strip() and not _F_BLOCK_START_RE.match(nxt)
+                            and not line.lstrip().startswith(("|", "```", "~~~")))
+            out.append(" " if joinable else "\n")
+    return "".join(out)
+
+
+def _extract_facts(text: str) -> Tuple[List[Tuple[str, str, int]], List[Tuple[str, int]]]:
+    """Return (facts, initials). facts are (kind, normalised value, 1-based line); initials are
+    the single capitalised words that open a sentence, which `facts_diff` resolves."""
     facts: List[Tuple[str, str, int]] = []
+    initials: List[Tuple[str, int]] = []
     line_starts: List[int] = []
     pos = 0
     for line in text.split("\n"):
@@ -730,41 +775,43 @@ def _extract_facts(text: str) -> List[Tuple[str, str, int]]:
                 value = value.rstrip(".,;:!?")
             facts.append((kind, norm(value), line_of(m.start())))
             for k in range(m.start(), m.end()):
-                work[k] = " "
+                if work[k] != "\n":
+                    work[k] = " "
 
     take(_F_URL_RE, "url")
-    take(_F_DATE_RE, "date", lambda s: " ".join(s.lower().replace(",", "").split()))
+    take(_F_DATE_RE, "date", lambda s: _iso_date(" ".join(s.split())))
     take(_F_CITE_RE, "citation", lambda s: re.sub(r"\s+", "", s))
-    # ordered-list markers and heading text are layout, not facts
-    body = "".join(work)
-    layout = re.compile(r"(?m)^(\s*)(\d+[.)])(\s)")
-    body = layout.sub(lambda m: m.group(1) + " " * len(m.group(2)) + m.group(3), body)
-    work = list(body)
+    # ordered-list markers are layout, not facts
+    body = re.sub(r"(?m)^(\s*)(\d+[.)])(\s)", lambda m: m.group(1) + " " * len(m.group(2)) + m.group(3),
+                  "".join(work))
     for m in _F_NUM_RE.finditer(body):
         facts.append(("number", m.group(0).replace(",", ""), line_of(m.start())))
-    name_body = "\n".join("" if re.match(r"^\s{0,3}#{1,6}\s", l) else l for l in body.split("\n"))
-    name_body = _INLINE_CODE_RE.sub(_blank, name_body)
+    # headings are layout for names; blank them in place so later offsets keep their lines
+    name_body = "\n".join(" " * len(l) if re.match(r"^\s{0,3}#{1,6}\s", l) else l for l in body.split("\n"))
+    name_body = _join_wrapped(_INLINE_CODE_RE.sub(lambda m: _spaces(m.group(0)), name_body))
     for m in _F_NAME_RUN_RE.finditer(name_body):
         words = m.group(0).split()
         while words and words[0] in _F_STOP_START:
             words.pop(0)
-        if not words:
+        if not words or (len(words) == 1 and len(words[0]) < 2):
             continue
         prefix = name_body[name_body.rfind("\n", 0, m.start()) + 1:m.start()]
         opener = prefix.rstrip(" \t*_\"'([")
         sentence_start = bool(_F_LAYOUT_PREFIX_RE.fullmatch(prefix)) or opener == "" or opener[-1] in ".!?:"
         if len(words) == 1 and sentence_start and not re.search(r"[A-Z].*[A-Z]|[a-z]\d|\d", words[0]):
-            continue
-        if len(words) == 1 and len(words[0]) < 2:
+            initials.append((words[0], line_of(m.start())))
             continue
         facts.append(("name", " ".join(words), line_of(m.start())))
-    return facts
+    return facts, initials
 
 
 def facts_diff(before: Path, after: Path) -> List[Dict]:
     """Compare the facts of two versions. Added facts are errors, dropped ones warnings."""
-    b = _extract_facts(read_file_content(before))
-    a = _extract_facts(read_file_content(after))
+    b, b_initials = _extract_facts(read_file_content(before))
+    a, a_initials = _extract_facts(read_file_content(after))
+    confirmed = {v for k, v, _ in b + a if k == "name"}
+    b += [("name", w, ln) for w, ln in b_initials if w in confirmed]
+    a += [("name", w, ln) for w, ln in a_initials if w in confirmed]
     b_keys = {(k, v) for k, v, _ in b}
     a_keys = {(k, v) for k, v, _ in a}
     findings: List[Dict] = []
