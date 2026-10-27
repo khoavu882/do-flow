@@ -89,7 +89,9 @@ function observe(root: any, payload: any, { event = payload?.hook_event_name, ex
   const result = spawnSync('/bin/bash', [path.join(root, '.claude/hooks/post-shell-observe.sh'), ...(event === undefined ? [] : [event])], {
     cwd, input: input === undefined ? JSON.stringify(payload) : input, encoding: 'utf8', timeout: 5000, env: env(root, extra),
   });
-  assert.equal(result.error, undefined, result.error?.message);
+  // The observer may exit before it reads stdin (malformed or irrelevant input needs none of it), which closes the
+  // pipe under spawnSync's writer: EPIPE then says only that the input went unread, and the exit status still speaks.
+  if (result.error?.code !== 'EPIPE') assert.equal(result.error, undefined, result.error?.message);
   assert.deepEqual([result.status, result.stdout, result.stderr], [0, '', '']);
 }
 function lines(root: any) {
