@@ -53,7 +53,10 @@ function snapshotState(root: any) {
 
 function call(command: any, { cwd, input, env }: any) {
   const result = spawnSync(command[0], command.slice(1), { cwd, input, env, encoding: 'utf8' });
-  assert.equal(result.error, undefined, result.error?.message);
+  // A hook may exit before it reads stdin (the fast-exit fixtures need none of it), which closes the pipe under
+  // spawnSync's writer: EPIPE then says only that the input went unread. It is accepted only when the child ran and
+  // exited (status set); its status and output are still returned for the caller to assert.
+  if (!(result.error?.code === 'EPIPE' && result.status !== null)) assert.equal(result.error, undefined, result.error?.message);
   return { status: result.status, stdout: result.stdout || '', stderr: result.stderr || '' };
 }
 
