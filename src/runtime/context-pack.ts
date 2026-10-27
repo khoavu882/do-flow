@@ -1045,6 +1045,12 @@ function handleContextPackCommand({
     root, source, taskId, slug, effectiveTaskClass, objective, mandatory, budget, harness, parsedMaxBytes, bare, noRecord,
     json, reason, since, sinceEntry, deltaRefused, deltaExpansions, expand, retention, feature,
   });
+  // Issue #9 stage 3: a recorded delivery is named on the run stage active now (best effort, never fails the verb).
+  if (pack.delivery?.recorded === true) {
+    try {
+      require('./workflow-orchestrator.ts').recordStagePack({ stateRoot: root, sourceRoot: source, taskId, slug: slug || null, digest: pack.delivery.packDigest });
+    } catch { /* an unrecorded link is unknown, not a failure */ }
+  }
   if (console.log !== nativeConsoleLog) {
     console.log(output);
   } else {

@@ -152,4 +152,17 @@ function describeActive({ storeRoot, cwd }: { storeRoot: string; cwd: string }):
   return { state: 'agree', slug: entry.slug, artifactDir: entry.artifactDir ?? null, branch: entry.branch ?? null, pointer: entry, current };
 }
 
-module.exports = { recordFeature, clearCheckout, clearSlug, describeActive, pointerFile, POINTER_DIR };
+/**
+ * The calling checkout's pointer entry when its recorded branch is the checkout's branch, else null
+ * (no repository, no entry, unreadable, or a branch switch since). Unlike `describeActive` it does
+ * not run the feature resolver: a caller on a hot path (the context-pack verb, issue #9) needs the
+ * runtime's own record, not a second derivation from the branch.
+ */
+function activeEntry({ storeRoot, cwd }: { storeRoot: string; cwd: string }): PointerEntry | null {
+  const here = checkoutOf(cwd);
+  if (!here) return null;
+  const read = readEntry(pointerFile(storeRoot, here.key));
+  return read.status === 'ok' && read.data!.branch === here.branch ? read.data! : null;
+}
+
+module.exports = { recordFeature, clearCheckout, clearSlug, describeActive, activeEntry, pointerFile, POINTER_DIR };

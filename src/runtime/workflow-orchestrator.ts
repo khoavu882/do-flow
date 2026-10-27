@@ -14,8 +14,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { WorkflowEngine } = require('./workflow-engine.ts');
-const { updateTaskState, readTaskState } = require('./task-state.ts');
-const { recordIn, isSafeSlug, readRegularFileText } = require('./task-scope.ts');
+const { updateTaskState, readTaskState, boundedAcquire } = require('./task-state.ts');
+const { recordIn, isSafeSlug } = require('./task-scope.ts');
 const { ResearchRequestStore } = require('./research-request.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { resolveActiveFeature } = require('./feature-resolve.ts');
@@ -95,6 +95,70 @@ function assertSafeId(value: any, label: any) {
 }
 
 function iso(now: any) { return (now ?? new Date()).toISOString(); }
+
+/** The well-formed `{ taskId, digest }` items of a node's `packs`, in delivery order. */
+function stagePacks(packs: any): Array<{ taskId: string; digest: string }> {
+  return (Array.isArray(packs) ? packs : [])
+    .filter((p: any) => p && ID_PATTERN.test(String(p.taskId ?? '')) && PACK_DIGEST.test(String(p.digest ?? '')))
+    .map((p: any) => ({ taskId: p.taskId, digest: p.digest }));
+}
+
+/**
+ * Issue #9 stage 3 (FU-7j3k84): record, on the run's own record, that a context pack was handed to
+ * the stage active at this moment. Called by the context-pack verb after it records a delivery.
+ *
+ * The run is the pack task's own run, else its feature's run: the feature named by `slug`, else by
+ * this checkout's feature pointer (row 135) while the checkout is still on the branch it recorded. Only runs
+ * under `stateRoot` are read; the branch name alone never picks one. The first run that exists
+ * decides: when it is RUNNING with a stage under its cursor, that stage's node gets
+ * `packs: [{ taskId, digest }]`, one item per pack task (its latest delivery, moved last). Anything
+ * else (no run, a gate, a finished run, an unreadable or locked record) records nothing: unknown,
+ * never a guess. A delivery the node already ends with writes nothing, so a repeat leaves the
+ * run's revision alone. Never throws.
+ * @returns {{ runTaskId: string, stage: string }|null} where the pack was recorded
+ */
+function recordStagePack({ stateRoot, sourceRoot = stateRoot, taskId, slug = null, digest, fsImpl = fs }: any): any {
+  try {
+    if (!ID_PATTERN.test(String(taskId ?? '')) || !PACK_DIGEST.test(String(digest ?? ''))) return null;
+    const storeDir = runStoreDir(stateRoot);
+    const locate = (runTaskId: string, feature: string | null) => {
+      const { file, read } = recordIn({ base: storeDir, namespace: feature && feature !== runTaskId ? feature : null, name: `${runTaskId}.json`, fsImpl });
+      return read === file && fsImpl.existsSync(file) ? { runTaskId, file } : null;
+    };
+    let found = locate(taskId, isSafeSlug(slug) ? slug : null);
+    if (!found) {
+      let feature = isSafeSlug(slug) ? slug : null;
+      let featureRun = feature;
+      if (!feature) {
+        const active = require('./feature-pointer.ts').activeEntry({ storeRoot: stateRoot, cwd: sourceRoot });
+        if (active && isSafeSlug(active.slug)) {
+          feature = active.slug;
+          featureRun = ID_PATTERN.test(String(active.taskId ?? '')) ? active.taskId : active.slug;
+          found = locate(taskId, feature);
+        }
+      }
+      if (!found && featureRun) found = locate(featureRun, feature);
+    }
+    if (!found) return null;
+    readRunRecord(fsImpl, found.file, storeDir); // the run store's guarded read: a link or FIFO is refused here
+    let stage: string | null = null;
+    updateTaskState({
+      fsImpl, file: found.file, acquire: (impl: any, target: string) => boundedAcquire(impl, target, { retries: 3, waitMs: 5 }),
+      build(disk: any) {
+        const program = Array.isArray(disk?.program) ? disk.program : [];
+        const node = disk?.state === 'RUNNING' && Number.isInteger(disk.cursor) ? program[disk.cursor] : null;
+        if (!node || node.type !== 'stage') return null;
+        const prior = stagePacks(node.packs);
+        const last = prior[prior.length - 1];
+        if (last && last.taskId === taskId && last.digest === digest) return null;
+        node.packs = [...prior.filter((p) => p.taskId !== taskId), { taskId, digest }];
+        stage = node.id;
+        return disk;
+      },
+    });
+    return stage ? { runTaskId: found.runTaskId, stage } : null;
+  } catch { return null; }
+}
 
 /** Interleave stages with their gates: each gate sits immediately after the stage named by its
  * `afterStage`. A gate anchored to an unknown stage is a compile error here, not a silent orphan. */
@@ -313,7 +377,7 @@ class WorkflowOrchestrator {
       const since = existing ? this.stageSince(taskId, positioned.caughtUpTo) : null;
       const mcp = this.resolveMcp({ taskId, stageId: positioned.caughtUpTo, skill: callingSkill, flags: mcpOutcomes, since });
       const consultations = mcp ? this.storeToolsUsed(mcp) : null;
-      const snapshot: any = this.completeStage({ taskId, stageId: positioned.caughtUpTo, note, outcome, consultations, packsSince: since, now });
+      const snapshot: any = this.completeStage({ taskId, stageId: positioned.caughtUpTo, note, outcome, consultations, now });
       return { ...snapshot, disposition: 'completed', recordedStage: positioned.caughtUpTo, consultations, mcpWarnings: mcp ? mcp.messages : [] };
     }
     if (positioned.reason.startsWith('already-completed:')) {
@@ -412,58 +476,6 @@ class WorkflowOrchestrator {
       }
       return run?.startedAt || history[0]?.at || null;
     } catch { return null; }
-  }
-
-  /**
-   * Issue #9 stage 3 (FU-7j3k84): the context packs delivered for this run's work inside
-   * `[since, until]`, read only from the 075 delivery store (`.doflow/state/delivery`): the run's own
-   * task file, plus every task file under its feature's namespace when the run is the feature's own
-   * (a plan task's pack, as do-execute-plan compiles one per task). One `{ taskId, digest }` per task,
-   * its latest delivery in the window, oldest first. The digest is the store's `packDigest`, so
-   * `context-pack --since <digest>` and `readDeliveryEntry` resolve it.
-   *
-   * Accepted ceilings: the store keeps a key's first delivery time only, so a byte-identical pack
-   * delivered again in a later stage is not seen there (that stage records none, never an older
-   * stage's pack); a `--no-record` pack leaves no entry; and the store has no session identity, so
-   * another session's pack for the same feature inside the window is counted. Any read fault is no
-   * pack, never an error.
-   * @returns {Array<{taskId: string, digest: string}>}
-   */
-  packsDelivered(run: any, since: string | null, until: string) {
-    try {
-      const base = path.join(this.projectRoot, '.doflow', 'state', 'delivery');
-      const slug = isSafeSlug(this.featureSlug) ? this.featureSlug : isSafeSlug(run.featureSlug) ? run.featureSlug : null;
-      const files = new Map<string, string>();
-      const add = (dir: string, name: string) => {
-        const taskId = name.slice(0, -'.json'.length);
-        if (name.endsWith('.json') && ID_PATTERN.test(taskId) && !files.has(taskId)) files.set(taskId, path.join(dir, name));
-      };
-      if (slug && run.taskId === slug) {
-        const dir = path.join(base, slug);
-        let names: string[] = [];
-        try { names = this.fsImpl.readdirSync(dir).sort(); } catch { names = []; }
-        for (const name of names) add(dir, name);
-      }
-      const ownDir = slug && run.taskId !== slug ? path.join(base, slug) : base;
-      add(ownDir, `${run.taskId}.json`);
-      const from = since === null || since === undefined ? -Infinity : Date.parse(since);
-      const to = Date.parse(until);
-      const found: Array<{ taskId: string; digest: string; at: number }> = [];
-      for (const [taskId, file] of files) {
-        let latest: { digest: string; at: number } | null = null;
-        try {
-          const text = readRegularFileText(file, this.fsImpl);
-          const disk = text === null ? null : JSON.parse(text);
-          for (const entry of Array.isArray(disk?.deliveries) ? disk.deliveries : []) {
-            const at = typeof entry?.firstAt === 'string' ? Date.parse(entry.firstAt) : NaN;
-            if (!PACK_DIGEST.test(entry?.packDigest) || !(at >= from && at <= to)) continue;
-            if (!latest || at >= latest.at) latest = { digest: entry.packDigest, at };
-          }
-        } catch { latest = null; }
-        if (latest) found.push({ taskId, ...latest });
-      }
-      return found.sort((a, b) => a.at - b.at || (a.taskId < b.taskId ? -1 : 1)).map(({ taskId, digest }) => ({ taskId, digest }));
-    } catch { return []; }
   }
 
   /** Record advice outcomes for the same brief records the IC-008 handoff pass consumes. This is
@@ -580,13 +592,13 @@ class WorkflowOrchestrator {
    * honestly beats refusing to record it, and a bug reproduction legitimately completes by
    * observing the expected failure — but the record no longer reads as success.
    *
-   * Issue #9 stage 3: the entry names the context packs the stage was handed (`packs`), read from
-   * the delivery store over the stage's window (`packsSince`, default stageSince; null = no lower
-   * bound, for a run this handoff started). A stage with no recorded delivery gets no `packs`. */
-  completeStage({ taskId, stageId, note, outcome, backfilled = false, consultations, packsSince, now }: any = {}) {
+   * Issue #9 stage 3: the entry names the context packs the stage was handed (`packs`), copied from
+   * what `recordStagePack` wrote on this node while it was the run's active stage. A stage handed
+   * none gets no `packs`; a malformed item is left out, never an error. */
+  completeStage({ taskId, stageId, note, outcome, backfilled = false, consultations, now }: any = {}) {
     const run = this.requireRun(taskId);
     const node = this.expectOpenStage(run, stageId);
-    const packs = backfilled ? [] : this.packsDelivered(run, packsSince !== undefined ? packsSince : this.stageSince(taskId, node.id), iso(now));
+    const packs = stagePacks(node.packs);
     if (outcome !== undefined && !STAGE_OUTCOMES.has(outcome)) {
       throw new Error(`Unknown stage outcome '${outcome}'. Valid: ${[...STAGE_OUTCOMES].join(', ')} — omit the flag to record 'unverified'.`);
     }
@@ -1445,4 +1457,4 @@ function handleOrchestrateCommand({
   }
 }
 
-module.exports = { WorkflowOrchestrator, RUN_STATES, GATE_DECISIONS, STAGE_OUTCOMES, handleOrchestrateCommand };
+module.exports = { WorkflowOrchestrator, RUN_STATES, GATE_DECISIONS, STAGE_OUTCOMES, handleOrchestrateCommand, recordStagePack };
