@@ -642,7 +642,7 @@ function onData(view, body, heartbeat) {
   } finally {
     if (resync) muteAnnouncements(false);
   }
-  if (resync && changed) notice('resynced');
+  if (resync) notice('resynced');
 }
 
 /** @param {any} view @param {any} error @param {any} heartbeat */

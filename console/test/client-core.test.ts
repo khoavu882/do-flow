@@ -3357,3 +3357,14 @@ test('133 pause: a paused view that is offline says so in the pill', async () =>
     assert.match(text(page.conn.querySelector('.conn__long')), /^Paused \u00b7 (Offline|Retrying)/);
   });
 });
+
+test('133 reconnect: a resume or a long absence says Reconnected even when the data is unchanged', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    page.pause.fire('click');
+    await advance(5000);
+    page.pause.fire('click');
+    await advance(3000); // the announcer speaks one message per 2 s: "Updates resumed." first
+    assert.equal(text(page.region), 'Reconnected. The view was refreshed in full.');
+  });
+});
