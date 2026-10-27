@@ -527,3 +527,23 @@ HOOK_TEST('FU-n2mvpr: a path that climbs out of agent-docs with ".." is judged b
   expectHook({ cwd: main, caseRoot: root, event: edit('agent-docs/notes.md'), code: 0, stderr: '' });
   expectHook({ cwd: main, caseRoot: root, event: edit('agent-docs/../agent-docs/notes.md'), code: 0, stderr: '' });
 });
+
+HOOK_TEST('FU-12882d: the gate reads the resolver JSON with one jq run, and still refuses on its fields', { timeout: CASE_TIMEOUT_MS }, () => {
+  const { root, main } = makeRepo('feat/900-demo');
+  writeFeature(main, '900-demo');
+  const realJq = spawnSync('bash', ['-c', 'command -v jq'], { encoding: 'utf8' }).stdout.trim();
+  const shimDir = path.join(root, 'shim');
+  const log = path.join(root, 'jq-calls.log');
+  write(path.join(shimDir, 'jq'), `#!/bin/bash\nprintf '%s\\n' "$*" >> '${log}'\nexec '${realJq}' "$@"\n`);
+  fs.chmodSync(path.join(shimDir, 'jq'), 0o755);
+  const input = encodeEnvelope('claude', 'PreToolUse', 'pre-implementation-gate', JSON.stringify(editEvent(path.join(main, 'src', 'a.js'))), { DOFLOW_PROJECT_DIR: main });
+  const result = spawnSync('bash', [LAYOUT_POLICY], {
+    cwd: main, input, encoding: 'utf8',
+    env: spawnEnv({ HOME: RESOLVER_HOME, DOFLOW_PROJECT_DIR: main, PATH: `${shimDir}${path.delimiter}${process.env.PATH}` }),
+  });
+  assert.strictEqual(result.status, 2, result.stderr);
+  assert.strictEqual(result.stderr, `${refusalText('missing', { taskId: '900-demo', template: 'feature' })}\n`);
+  const calls = fs.readFileSync(log, 'utf8').split('\n').filter((line: any) => line.startsWith('-r ') && (line.includes('.feature_dir') || line.includes('.has_plan')));
+  assert.strictEqual(calls.length, 1, `the resolver JSON is read by one jq run, saw:\n${calls.join('\n')}`);
+  assert.ok(calls[0].includes('feature_dir') && calls[0].includes('has_plan'));
+});

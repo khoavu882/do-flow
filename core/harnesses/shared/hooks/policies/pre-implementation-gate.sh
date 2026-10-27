@@ -161,11 +161,14 @@ has_plan=""
 if [ -n "$RESOLVER" ]; then
   json=$("$RESOLVER" --json 2>/dev/null) || json=""
   if [ -n "$json" ]; then
-    feature_dir=$(printf '%s' "$json"     | jq -r '.feature_dir // empty' 2>/dev/null)
-    repo_root=$(printf '%s' "$json"       | jq -r '.repo_root // empty' 2>/dev/null)
-    has_requirement=$(printf '%s' "$json" | jq -r '.has_requirement // false' 2>/dev/null)
-    has_design=$(printf '%s' "$json"      | jq -r '.has_design // false' 2>/dev/null)
-    has_plan=$(printf '%s' "$json"        | jq -r '.has_plan // false' 2>/dev/null)
+    # One jq run for all five fields, one per line (none of them can hold a newline).
+    {
+      IFS= read -r feature_dir
+      IFS= read -r repo_root
+      IFS= read -r has_requirement
+      IFS= read -r has_design
+      IFS= read -r has_plan
+    } < <(printf '%s' "$json" | jq -r '(.feature_dir // ""), (.repo_root // ""), (.has_requirement // false), (.has_design // false), (.has_plan // false)' 2>/dev/null) || true
   fi
 fi
 
