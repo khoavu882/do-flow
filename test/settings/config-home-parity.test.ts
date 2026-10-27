@@ -46,16 +46,18 @@ const CONFIG_HOME_SHELL = {
 };
 const LEXICAL_SHELL = { 'doflow-run': DISPATCHER, 'policies/capture-failure.sh': POLICY_HELPER };
 
-// ── the canonical text (design/specs.md IC-003 and IC-004) ─────────────────────────────────────
+// ── the canonical text (design/specs.md IC-003 and IC-004; the [A-Za-z]: arms are the Windows drive-path extension of issue #11) ─────────────────────────────────────
 
 const CANON_CONFIG_HOME = `# BEGIN doflow-config-home v1 (rule: src/runtime/config-home.ts; checked by test/guards/settings.test.js)
 doflow_config_home() {
   DOFLOW_HOME=""
   case "\${XDG_CONFIG_HOME:-}" in
     /*) DOFLOW_HOME="\${XDG_CONFIG_HOME}/doflow"; return 0 ;;
+    [A-Za-z]:[\\\\/]*) case "\${OSTYPE:-}" in msys*|cygwin*|win32*) DOFLOW_HOME="\${XDG_CONFIG_HOME}/doflow"; return 0 ;; esac ;;
   esac
   case "\${HOME:-}" in
     /*) DOFLOW_HOME="\${HOME}/.config/doflow" ;;
+    [A-Za-z]:[\\\\/]*) case "\${OSTYPE:-}" in msys*|cygwin*|win32*) DOFLOW_HOME="\${HOME}/.config/doflow" ;; esac ;;
   esac
   return 0
 }
