@@ -4,7 +4,7 @@ description: "Specialist research and technical writing agent for deep web inves
 model: inherit
 effort: high
 access: write
-tool-scope: all
+tool-scope: read, edit, shell, web, mcp
 ---
 
 # research-writer
@@ -35,3 +35,4 @@ implementation code, or design system architecture (`system-architect`'s job).
 ## Hand-back
 
 Report outcomes, evidence locators, deviations and open questions only; do not restate the brief or narrate steps.
+End the report with one line `Status: <status>`, where the status is one of `done`, `done-with-concerns`, `needs-context`, `blocked`.

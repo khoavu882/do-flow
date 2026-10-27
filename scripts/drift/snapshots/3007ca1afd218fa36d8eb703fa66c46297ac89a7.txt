@@ -1,4 +1,5 @@
 On this page
+Back to top
 Settings files and who they affect
 Compare the scope of each settings file
 Find or create your settings files
@@ -460,6 +461,4 @@ apiKeyHelper
 .claude/
 folder, it loads the file even when you create the folder in the same session.
 The reload covers user, project, local, and managed settings, and Claude Code runs the
-ConfigChange
-hook
 [snapshot truncated]

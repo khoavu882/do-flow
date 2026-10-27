@@ -1,7 +1,7 @@
 Copy Page
 Customization
-How to customize Codex with project guidance, skills, MCP, and subagents
 Copy Page
+How to customize Codex with project guidance, skills, MCP, and subagents
 Customization is how you make Codex work the way your team works.
 In Codex, customization comes from a few layers that work together:
 Project guidance (

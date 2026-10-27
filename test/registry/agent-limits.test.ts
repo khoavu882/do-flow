@@ -31,7 +31,7 @@ test('agentLimits: the shipped registry declares readOnly on all seven harnesses
   assert.equal(registry.validation.ok, true, registry.validation.errors.join('\n'));
   assert.deepEqual(registry.harnesses.map((h: any) => h.id).sort(), [...IDS].sort());
   for (const harness of registry.harnesses) {
-    assert.deepEqual(Object.keys(harness.agentLimits), ['readOnly'], `${harness.id} agentLimits keys`);
+    assert.deepEqual(Object.keys(harness.agentLimits), ['readOnly', 'toolScope'], `${harness.id} agentLimits keys`);
   }
   assert.deepEqual([...AGENT_LIMIT_STATUS], ['native', 'unenforced']);
 });
@@ -129,4 +129,22 @@ test('agentLimits: validateAgentLimits reports a non-object block without throwi
   const errors: any = [];
   validateAgentLimits('nope', "harness 'x'", errors);
   assert.deepEqual(errors, ["harness 'x': agentLimits block is required and must be an object"]);
+});
+
+// 135: `agentLimits.toolScope`, the per-harness mapping of the abstract tool-scope categories.
+const scoped = (mutate: any) => mutated((_entry: any, harness: any) => mutate(harness.agentLimits.toolScope));
+
+test('agentLimits toolScope: a native map must cover every category with tool names, and no other', () => {
+  assertReports(scoped((entry: any) => { delete entry.map.web; }), /toolScope.*map\.web must be a non-empty array of tool names/);
+  assertReports(scoped((entry: any) => { entry.map.mcp = ['x']; }), /toolScope.*map has unknown category 'mcp'/);
+  assertReports(scoped((entry: any) => { entry.form = 'csv'; }), /toolScope.*form must be one of comma, list, closed/);
+  assertReports(scoped((entry: any) => { entry.mcpSelector = '*'; }), /toolScope.*native requires mcpSelector/);
+  assertReports(scoped((entry: any) => { entry.mcpSelector = 'mcp__*{server}__*'; }), /toolScope.*native requires mcpSelector/);
+  assertReports(scoped((entry: any) => { delete entry.mcpSelector; }), /toolScope.*native requires mcpSelector/);
+  assertReports(scoped((entry: any) => { entry.evidence = []; }), /toolScope.*native requires non-empty evidence/);
+});
+
+test('agentLimits toolScope: unenforced needs a reason and may not carry a field, form or map', () => {
+  assertReports(scoped((entry: any) => { entry.status = 'unenforced'; }), /toolScope.*unenforced must not carry field/);
+  assertReports(scoped((entry: any) => { entry.status = 'unenforced'; delete entry.field; delete entry.form; delete entry.map; delete entry.mcpSelector; delete entry.checked; }), /toolScope.*unenforced requires a reason/);
 });

@@ -1,4 +1,5 @@
 On this page
+Back to top
 Hook lifecycle
 How a hook resolves
 Configuration
@@ -27,6 +28,7 @@ Timeouts
 Hooks that start a background process
 Block the action when a hook fails
 Failed hooks on Windows without Git Bash
+PowerShell started no program
 Exit code 2 behavior per event
 HTTP response handling
 JSON output
@@ -46,6 +48,7 @@ InstructionsLoaded
 InstructionsLoaded input
 InstructionsLoaded decision control
 UserPromptSubmit
+Esc during a prompt check
 UserPromptSubmit input
 UserPromptSubmit decision control
 What a blocked prompt leaves behind
@@ -152,6 +155,7 @@ Disclaimer
 Workspace trust
 Security best practices
 Windows PowerShell tool
+Reference scripts by path in PowerShell hooks
 Debug hooks
 Reference
 Hooks reference
@@ -758,6 +762,4 @@ The
 HTTP hook allowlists
 apply to hooks from every source, including managed policy settings:
 allowedHttpHookUrls
-: when defined at any settings level, Claude Code runs an HTTP hook handler only if its URL matches the merged allowlist
-httpHookAllowedEnvVars
 [snapshot truncated]

@@ -4,4 +4,5 @@ developer_instructions = """
 Elicit requirements through Socratic dialogue focusing on user value and business goals.
 Decompose initiatives into user stories with testable acceptance criteria and estimate effort.
 Stay in planning mode: do not implement code or modify workspace files.
+End the report with one line `Status: <status>`, where the status is one of `done`, `done-with-concerns`, `needs-context`, `blocked`.
 """

@@ -1,4 +1,5 @@
 On this page
+Back to top
 Built-in subagents
 Quickstart: create your first subagent
 Configure subagents
@@ -495,5 +496,4 @@ background
 omitClaudeMd
 , and
 isolation
-.
 [snapshot truncated]

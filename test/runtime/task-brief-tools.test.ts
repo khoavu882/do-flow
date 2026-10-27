@@ -86,6 +86,9 @@ function fixture({ dispatcher = 'fake' }: any = {}) {
   fs.mkdirSync(bash, { recursive: true });
   fs.mkdirSync(project, { recursive: true });
   for (const helper of HELPERS) fs.copyFileSync(path.join(SCRIPTS, 'bash', helper), path.join(bash, helper));
+  // The rule ledger the generator reads for the fallback's rules block, where a projected runtime keeps it.
+  fs.mkdirSync(path.join(dir, 'tree', 'core', 'registry'), { recursive: true });
+  fs.copyFileSync(path.join(SCRIPTS, '..', '..', '..', 'registry', 'rules.json'), path.join(dir, 'tree', 'core', 'registry', 'rules.json'));
   const log = path.join(dir, 'calls.log');
   if (dispatcher === 'fake') {
     fs.mkdirSync(bin, { recursive: true });

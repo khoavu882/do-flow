@@ -1,9 +1,9 @@
 ChatGPT desktop app
 Copy Page
 Model Context Protocol
+Copy Page
 Connect ChatGPT and Codex to your tools and information.
 ChatGPT desktop app
-Copy Page
 Model Context Protocol (MCP) lets ChatGPT and Codex use tools and information from other systems. An MCP server describes the available tools and handles their requests—for example, looking up a ticket or retrieving documentation.
 Choose the path that fits your task:
 Build a connection:
