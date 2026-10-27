@@ -3273,3 +3273,54 @@ test('133 reconnect: a short absence keeps the per-item announcements', async ()
   assert.match(text(page.region), /is waiting for you/);
   });
 });
+
+const keydownOn = (page: Page, key: string, extra: any = {}) => {
+  const event = { type: 'keydown', key, target: page.doc.activeElement ?? page.doc.body, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...extra };
+  for (const fn of page.doc.listeners.get('keydown') ?? []) fn(event);
+  return event;
+};
+
+test('133 shortcuts: p pauses, g then w navigates, ? opens the list with focus inside and Esc closes it and restores focus', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    keydownOn(page, 'p');
+    assert.equal(page.pause.getAttribute('aria-pressed'), 'true');
+    keydownOn(page, 'p');
+    assert.equal(page.pause.getAttribute('aria-pressed'), 'false');
+    keydownOn(page, 'g');
+    keydownOn(page, 'w');
+    assert.equal(page.location.hash, '#/workflows');
+    page.pause.focus();
+    const open = keydownOn(page, '?');
+    assert.equal(open.defaultPrevented, true);
+    const help = page.doc.getElementById('help');
+    assert.equal(help.getAttribute('hidden'), null);
+    assert.equal(help.getAttribute('role'), 'dialog');
+    assert.equal(help.getAttribute('aria-modal'), 'true');
+    assert.equal(page.doc.activeElement.className.includes('help__close'), true, 'focus moves into the dialog');
+    assert.match(text(help), /Go to Runs/);
+    keydownOn(page, 'p');
+    assert.equal(page.pause.getAttribute('aria-pressed'), 'false', 'a modal dialog keeps the page keys off');
+    const tab = keydownOn(page, 'Tab');
+    assert.equal(tab.defaultPrevented, true);
+    keydownOn(page, 'Escape');
+    assert.notEqual(help.getAttribute('hidden'), null);
+    assert.equal(page.doc.activeElement, page.pause, 'focus returns to the opener');
+  });
+});
+
+test('133 shortcuts: typing in a field and held modifiers never trigger one; a chord times out', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    const field = page.doc.createElement('input');
+    keydownOn(page, 'p', { target: field });
+    assert.equal(page.pause.getAttribute('aria-pressed'), 'false');
+    keydownOn(page, 'p', { ctrlKey: true });
+    keydownOn(page, 'p', { metaKey: true });
+    assert.equal(page.pause.getAttribute('aria-pressed'), 'false');
+    keydownOn(page, 'g');
+    await advance(2000);
+    keydownOn(page, 'w');
+    assert.notEqual(page.location.hash, '#/workflows', 'the second key came too late');
+  });
+});

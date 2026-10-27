@@ -5,6 +5,7 @@
 
 import { h, mount, icon, announce, muteAnnouncements } from './dom.js';
 import { notice } from './notices.js';
+import { installShortcuts } from './keys.js';
 import { createPoller, BACKOFF_MS } from './poll.js';
 import {
   classify, clockTime, refreshReltimes, renderLoading, renderEmpty, renderError, renderFullPage, renderPill, createStaleBanner, errorTitle,
@@ -99,6 +100,7 @@ const app = /** @type {any} */ ({
   recovery: null, // the poller on /api/info that ends a no-runtime page
   banner: null, // the stale banner while the current view's data is stale
   tick: null,
+  shortcuts: null, // the keys.js handle
   hiddenAt: null, // when the tab was last hidden, or null
   wasFull: false, // #main last held a full page (focus moves to the heading when a view replaces it)
 });
@@ -800,6 +802,12 @@ function boot() {
     if (brand && !brand.querySelector('.icon')) brand.prepend(icon('brand', 28));
     setupThemeControl(document.querySelector('.theme'));
     if (app.els.pause) app.els.pause.addEventListener('click', () => togglePause());
+    // The one shortcut registry (keys.js) binds the document once; each entry's action is a plain call into the shell.
+    const go = (/** @type {string} */ hash) => () => { globalThis.location.hash = hash; };
+    app.shortcuts = installShortcuts({
+      doc: document,
+      actions: { pause: () => { togglePause(); }, 'go.runs': go('#/'), 'go.workflows': go('#/workflows'), 'go.sessions': go('#/sessions'), 'go.fleet': go('#/fleet') },
+    });
     const skip = document.querySelector('.skip');
     if (skip) {
       skip.addEventListener('click', (event) => {

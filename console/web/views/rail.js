@@ -2,6 +2,7 @@
 // the full rail of the run route with its keyboard walk, node detail, edge fades and change marks. Elements are built
 // with `h`, `icon` and `mount` only; every string from the API reaches the page as text.
 
+import { isKey } from '../keys.js';
 import { h, icon, mount, announce } from '../dom.js';
 import { clockTime } from '../states.js';
 import {
@@ -136,7 +137,7 @@ function railDetail(node, workflow, { onClose, onEscape = onClose }) {
     icon('close', 16), h('span', { class: 'vh' }, 'Close details'),
   ]);
   const keydown = (/** @type {any} */ event) => {
-    if (event.key !== 'Escape') return;
+    if (!isKey(event, 'close')) return;
     event.preventDefault();
     onEscape();
   };
@@ -300,7 +301,7 @@ function renderRunRail(data, params, local) {
       const last = nodes.length - 1;
       /** @type {Record<string, number>} */
       const moves = { ArrowRight: Math.min(index + 1, last), ArrowDown: Math.min(index + 1, last), ArrowLeft: Math.max(index - 1, 0), ArrowUp: Math.max(index - 1, 0), Home: 0, End: last };
-      if (event.key === 'Escape') {
+      if (isKey(event, 'close')) {
         if (local.openId !== null) {
           event.preventDefault();
           close(true);

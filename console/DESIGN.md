@@ -158,15 +158,15 @@ Generated list of the top-level class blocks in `app.css` (elements are `block__
 `.fleet-footer`, `.fleet-grid`, `.fleet-head`, `.fleet-limits`, `.fleet-scrim`, `.fleet-title`
 `.fleet-transport`, `.fleet-tree`, `.fnode`, `.fpanel`, `.ftransport`, `.ftree`, `.full-state`
 `.gate`, `.gate-card`, `.gate-cards`, `.gattempt`, `.gattempts`, `.gcard`, `.gdetail`, `.glane`
-`.graph`, `.grid`, `.grow`, `.hint`, `.icon`, `.masked`, `.model-chip`, `.mono`, `.nav`, `.noscript`
-`.num`, `.ov-check`, `.ov-cross`, `.ov-forced`, `.page`, `.pause`, `.pr`, `.project-list`
-`.project-row`, `.rail`, `.rail-detail`, `.rail-fallback`, `.rail-note`, `.rail-scroll`, `.reltime`
-`.replay`, `.replay-host`, `.run-head`, `.run-list`, `.run-rail`, `.run-row`, `.run-section`
-`.sbar`, `.segmented`, `.sessions`, `.sfilter`, `.sfoot`, `.shape`, `.shold`, `.site-header`
-`.skel`, `.skeleton`, `.skip`, `.slane`, `.slane-children`, `.snote`, `.spanel`, `.srow`, `.srows`
-`.state-panel`, `.stream`, `.summary`, `.tag`, `.theme`, `.tile`, `.timeline`, `.tl`, `.tl-item`
-`.tl-list`, `.together`, `.traffic`, `.ttable`, `.vh`, `.view-enter`, `.view-head`, `.view-note`
-`.view-title`, `.wf`, `.wf-list`
+`.graph`, `.grid`, `.grow`, `.help`, `.hint`, `.icon`, `.masked`, `.model-chip`, `.mono`, `.nav`
+`.noscript`, `.num`, `.ov-check`, `.ov-cross`, `.ov-forced`, `.page`, `.pause`, `.pr`
+`.project-list`, `.project-row`, `.rail`, `.rail-detail`, `.rail-fallback`, `.rail-note`
+`.rail-scroll`, `.reltime`, `.replay`, `.replay-host`, `.run-head`, `.run-list`, `.run-rail`
+`.run-row`, `.run-section`, `.sbar`, `.segmented`, `.sessions`, `.sfilter`, `.sfoot`, `.shape`
+`.shold`, `.site-header`, `.skel`, `.skeleton`, `.skip`, `.slane`, `.slane-children`, `.snote`
+`.spanel`, `.srow`, `.srows`, `.state-panel`, `.stream`, `.summary`, `.tag`, `.theme`, `.tile`
+`.timeline`, `.tl`, `.tl-item`, `.tl-list`, `.together`, `.traffic`, `.ttable`, `.vh`, `.view-enter`
+`.view-head`, `.view-note`, `.view-title`, `.wf`, `.wf-list`
 <!-- /generated -->
 
 What an agent most often touches:
@@ -209,6 +209,7 @@ Every view has these edges designed; a view is not finished until its worst stat
 - Build DOM with the `h()` helper in `web/dom.js` and set server-provided strings as text nodes only. No `innerHTML`, `outerHTML` or `insertAdjacentHTML` (`web-safety.test.ts` scans for them).
 - Use real buttons and links, `:focus-visible` rings, a roving tabindex for composite widgets (tree, rail, radio groups), `aria-labelledby` on sections, and the polite live region for changes. Keep hit targets at `--target`, never below `--target-min`.
 - Voice: short and plain, second person for actions, past tense for records, units on numbers, ids in mono. An error says what failed and what to do, never an apology. Say "process seen", "recorded", "started" or "last record" for an agent.
+- Bind keys only through `web/keys.js`: add the entry to `SHORTCUTS` (the `?` list `.help` is built from it), and ask `isKey(event, id)` in a view instead of comparing `event.key` to a literal. Arrow groups keep their roving tabindex in the widget.
 - Change a token in `tokens.css`, regenerate with `node console/scripts/build-design-md.ts --write`, and keep `tokens.test.ts` and `design-md.test.ts` green.
 
 ## Don't

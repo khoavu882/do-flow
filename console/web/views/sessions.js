@@ -5,6 +5,7 @@
 // the open rows, the selected lane, the element that holds the tab stop, which conflicts were seen) lives in `local.sessions`.
 // No main session has a heartbeat, so nothing here says a session is active, online or idle: it says what was recorded.
 
+import { isKey } from '../keys.js';
 import { h, icon, mount, announce } from '../dom.js';
 import { clockTime, reltime, commandBlock } from '../states.js';
 import {
@@ -372,7 +373,7 @@ function renderSessions(data, params, local) {
     /** @type {any} */ (next).focus();
   });
   root.addEventListener('keydown', (/** @type {any} */ event) => {
-    if (event.key !== 'Escape' || memory.selected === null) return;
+    if (!isKey(event, 'close') || memory.selected === null) return;
     event.preventDefault();
     const target = event.target;
     // The focus goes back to the lane only when it was inside a panel; on a lane it stays where it is.

@@ -2015,3 +2015,44 @@
   .bar__track { fill: GrayText; }
   .chip[aria-pressed="true"], .chip[aria-checked="true"], .segmented__opt[aria-checked="true"] { outline: 2px solid Highlight; }
 }
+
+/* The shortcut help (feature 133, FR-6): a modal list built from the registry in keys.js. */
+@layer components {
+  .help {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-skip);
+    display: grid;
+    place-items: center;
+    padding: var(--space-4);
+    background: var(--scrim);
+  }
+  .help[hidden] { display: none; }
+  .help__panel {
+    box-sizing: border-box;
+    width: min(100%, 560px);
+    max-height: 100%;
+    overflow: auto;
+    padding: var(--space-4);
+    background: var(--surface-3);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--elev-2);
+  }
+  .help__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+  .help__title { margin: 0; font: var(--type-lg); }
+  .help__note { margin: var(--space-2) 0 var(--space-3); font: var(--type-sm); color: var(--text-muted); }
+  .help__group-title { margin: var(--space-3) 0 var(--space-2); font: var(--type-sm); font-weight: 600; color: var(--text-muted); }
+  .help__list { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-2) var(--space-4); margin: 0; }
+  .help__keys { display: flex; flex-wrap: wrap; gap: var(--space-1); margin: 0; }
+  .help__label { margin: 0; font: var(--type-sm); }
+  .help__key {
+    padding: 0 var(--space-2);
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-sm);
+    font: var(--type-xs);
+    font-family: var(--font-mono);
+  }
+}

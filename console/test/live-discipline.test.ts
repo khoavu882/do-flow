@@ -20,7 +20,7 @@ before(async () => {
   copy = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-live-'));
   fs.cpSync(WEB_ROOT, copy, { recursive: true });
   fs.writeFileSync(path.join(copy, 'package.json'), '{"type":"module"}\n');
-  mods = { poll: await import(url('poll.js')), views: await import(url('views.js')), stream: await import(url('stream.js')), notices: await import(url('notices.js')) };
+  mods = { poll: await import(url('poll.js')), views: await import(url('views.js')), stream: await import(url('stream.js')), notices: await import(url('notices.js')), keys: await import(url('keys.js')) };
 });
 after(() => { fs.rmSync(copy, { recursive: true, force: true }); });
 
@@ -276,4 +276,54 @@ test('stream: pause closes the source; resume opens a new one whose snapshot is 
   assert.deepEqual(events, ['snapshot', 'resync', 'snapshot']);
   FakeSource.all[1].emit('fleet', { projects: [], gone: [] });
   assert.deepEqual(events, ['snapshot', 'resync', 'snapshot', 'fleet'], 'a delta on the open stream is not a resync');
+});
+
+
+// ---- FR-6: the shortcut registry -------------------------------------------------------------------------
+
+test('keys: ids are unique, every entry has a label, chords have two keys, and the help rows list every entry once', () => {
+  const { SHORTCUTS, helpRows } = mods.keys;
+  const ids = SHORTCUTS.map((item: any) => item.id);
+  assert.equal(new Set(ids).size, ids.length);
+  for (const item of SHORTCUTS) {
+    assert.ok(item.label.length > 0);
+    assert.ok(['global', 'view', 'widget'].includes(item.scope));
+    if (item.chord) assert.equal(item.keys.length, 2);
+  }
+  const listed = helpRows().flatMap((group: any) => group.items.map((item: any) => item.id));
+  assert.deepEqual([...listed].sort(), [...ids].sort());
+});
+
+test('keys: isKey reads the table, so a view asks for "close" and not for Escape', () => {
+  const { isKey } = mods.keys;
+  assert.equal(isKey({ key: 'Escape' }, 'close'), true);
+  assert.equal(isKey({ key: 'Enter' }, 'close'), false);
+  assert.equal(isKey({ key: 'g' }, 'go.runs'), false, 'a chord is not a single key');
+  assert.equal(isKey({ key: 'Escape' }, 'unknown'), false);
+});
+
+test('keys: the web modules bind no key literal that the registry owns (Escape lives in keys.js only)', () => {
+  const offenders: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith('.js') && entry.name !== 'keys.js' && /['"]Escape['"]/.test(fs.readFileSync(full, 'utf8').replace(/^\s*\/\/.*$/gm, ''))) offenders.push(path.relative(WEB_ROOT, full));
+    }
+  };
+  walk(WEB_ROOT);
+  assert.deepEqual(offenders, []);
+});
+
+test('keys: every document-level keydown listener of the web modules is installed by keys.js', () => {
+  const offenders: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.name.endsWith('.js') && entry.name !== 'keys.js' && /document\.addEventListener\(\s*['"]keydown['"]/.test(fs.readFileSync(full, 'utf8'))) offenders.push(path.relative(WEB_ROOT, full));
+    }
+  };
+  walk(WEB_ROOT);
+  assert.deepEqual(offenders, []);
 });

@@ -8,6 +8,7 @@
 // reading position of the stream all survive a tick. Every string from the Console is a text node (IC-007); the only
 // dynamic geometry is an SVG `width` attribute. No path, session id or label other than the record's own reaches the page.
 
+import { isKey } from '../keys.js';
 import { h, mount, icon, announce, SVG_NS } from '../dom.js';
 import { reltime, clockTime, skel } from '../states.js';
 import { createFleetStream } from '../stream.js';
@@ -862,7 +863,7 @@ function onPanelKey(local, event) {
     }
     return;
   }
-  if (event.key !== 'Escape' || !local.params.agent) return;
+  if (!isKey(event, 'close') || !local.params.agent) return;
   const node = local.nodes.get(local.params.agent);
   if (isSheet()) {
     event.preventDefault();
