@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "description": "Vendor-documented size caps on always-loaded guidance, per harness. scope per-file-after-includes caps each projected always-on file after its includes are expanded; combined-chain caps everything a harness loads at startup together. cap_bytes is null when the vendor documents no byte cap; source_url is then the page checked. Never estimate a number. Read by test/guards/guidance-caps.test.ts (G74).",
+  "caps": [
+    {"harness": "claude", "cap_bytes": 4194304, "scope": "per-file-after-includes", "source_url": "https://code.claude.com/docs/en/memory", "verified_on": "2026-10-27",
+     "note": "4 MiB per CLAUDE.md file loaded at launch; a larger file is skipped entirely. The page's 200-line target is advice, not a cap."},
+    {"harness": "codex", "cap_bytes": 32768, "scope": "combined-chain", "source_url": "https://learn.chatgpt.com/docs/agent-configuration/agents-md", "verified_on": "2026-10-27",
+     "note": "project_doc_max_bytes, 32 KiB by default: Codex stops adding AGENTS.md files once the combined size reaches it."},
+    {"harness": "opencode", "cap_bytes": null, "scope": "combined-chain", "source_url": "https://opencode.ai/docs/rules", "verified_on": "2026-10-27",
+     "note": "No size cap documented."},
+    {"harness": "pi", "cap_bytes": null, "scope": "combined-chain", "source_url": "https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/configuration.md", "verified_on": "2026-10-27",
+     "note": "No cap documented; the context-file loader reads each file whole."},
+    {"harness": "copilot", "cap_bytes": null, "scope": "per-file-after-includes", "source_url": "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-custom-instructions", "verified_on": "2026-10-27",
+     "note": "No cap documented for the CLI. A 4,000-character limit for code review only is cited secondhand and is not in the current docs."},
+    {"harness": "kiro", "cap_bytes": null, "scope": "per-file-after-includes", "source_url": "https://kiro.dev/docs/steering/", "verified_on": "2026-10-27",
+     "note": "No size cap documented for steering files."},
+    {"harness": "antigravity", "cap_bytes": 24000, "scope": "per-file-after-includes", "source_url": "https://antigravity.google/docs/rules", "verified_on": "2026-10-27",
+     "note": "Antigravity truncates any single rule file over 24,000 bytes after expanding @[label](path) includes."},
+    {"harness": "antigravity", "cap_bytes": null, "scope": "combined-chain", "source_url": "https://antigravity.google/docs/rules", "verified_on": "2026-10-27",
+     "note": "All active global and always_on rules share a 20,000-token budget; over it the largest are demoted to pointers. Tokens, not bytes, so no byte cap is recorded."}
+  ]
+}
