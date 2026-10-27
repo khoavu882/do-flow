@@ -843,3 +843,25 @@ test('C-4: no exported id equals a local id or sha16(traceId + locator); parents
   const sortedBy = [...spans].sort((x, y) => (BigInt(x.startTimeUnixNano) < BigInt(y.startTimeUnixNano) ? -1 : BigInt(x.startTimeUnixNano) > BigInt(y.startTimeUnixNano) ? 1 : x.spanId < y.spanId ? -1 : 1));
   assert.deepEqual(spans.map((s: any) => s.spanId), sortedBy.map((s) => s.spanId), 'spans are ordered by start then exported id');
 });
+
+test('FU-bwyg91: a span in a parent cycle never takes the id of a root with the same content', () => {
+  const span = (spanId: any, parentSpanId: any): any => ({
+    spanId, parentSpanId, kind: 'run', name: 'run', start: '2026-10-20T10:00:00.123Z', end: '2026-10-20T10:01:00.123Z',
+    durationMs: 60000, basis: 'recorded', locator: `file#${spanId}`, attrs: {},
+  });
+  const view: any = {
+    v: 1,
+    traces: [{
+      traceId: '0123456789abcdef0123456789abcdef', traceLink: null, runKey: 'k/r/l', epoch: '2026-10-20T00:00:00Z',
+      window: { from: '2026-10-20T10:00:00.000Z', to: '2026-10-20T10:01:00.000Z' },
+      // a is a root; b and c name each other as parent, so neither is reachable from a root.
+      spans: [span('aaaaaaaaaaaaaaaa', null), span('bbbbbbbbbbbbbbbb', 'cccccccccccccccc'), span('cccccccccccccccc', 'bbbbbbbbbbbbbbbb')],
+    }],
+    ungrouped: [],
+    gaps: [],
+  };
+  const { requests } = buildOtlpRequests(view, registry, DEFAULT_META);
+  const ids = requests[0].resourceSpans[0].scopeSpans[0].spans.map((s: any) => s.spanId);
+  assert.equal(ids.length, 3);
+  assert.equal(new Set(ids).size, 3, `span ids are distinct: ${ids.join(', ')}`);
+});
