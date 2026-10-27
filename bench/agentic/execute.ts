@@ -650,10 +650,24 @@ function checkRunRoot({ runRoot, iterDir, repoRoot, defaultRoot }: { runRoot: st
   for (const p of [runRoot, iterDir]) {
     if (isLink(p)) throw new UsageError('run-root-symlink', `${p} is a symlink; the run records must live in a real directory`);
   }
-  if (defaultRoot && fs.existsSync(runRoot)) {
-    const real = fs.realpathSync(runRoot);
+  if (defaultRoot) {
+    // The root may not exist yet: resolve its nearest existing ancestor (a dangling link counts as
+    // existing and fails the resolution) and keep the rest, so the mkdir that follows cannot leave.
+    const present = (p: string) => { try { fs.lstatSync(p); return true; } catch { return false; } };
+    let ancestor = path.resolve(runRoot);
+    const rest: string[] = [];
+    while (!present(ancestor) && path.dirname(ancestor) !== ancestor) {
+      rest.unshift(path.basename(ancestor));
+      ancestor = path.dirname(ancestor);
+    }
+    let real: string;
+    try {
+      real = path.join(fs.realpathSync(ancestor), ...rest);
+    } catch {
+      throw new UsageError('run-root-symlink', `${runRoot} cannot be resolved inside the checkout; the run records must live in it`);
+    }
     const repo = fs.realpathSync(repoRoot);
-    if (real !== path.join(repo, path.relative(repoRoot, runRoot))) {
+    if (real !== path.join(repo, path.relative(path.resolve(repoRoot), path.resolve(runRoot)))) {
       throw new UsageError('run-root-symlink', `${runRoot} resolves outside the checkout (${real}); the run records must live in it`);
     }
   }
