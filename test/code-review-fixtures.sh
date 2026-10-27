@@ -169,6 +169,96 @@ else
   fail=$((fail + 1))
 fi
 
+# ── Voice tells (row 132, W2 + W3): opt-in `--voice`, advisory, no score ─────────────────────
+if python3 - "$PWD" <<'PY'
+import importlib.util
+import json
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+skill_dir = Path(sys.argv[1])
+checker_path = skill_dir / "scripts" / "doc_quality_checker.py"
+spec = importlib.util.spec_from_file_location("doc_quality_checker", checker_path)
+checker = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(checker)
+
+def voice(text):
+    return checker.check_voice(Path("t.md"), text.split("\n"))
+
+def kinds(text):
+    return sorted({f["rule"] for f in voice(text)})
+
+# 1. Clean prose gives no findings.
+clean = "# Install the tool\n\nRun the installer from the project root. It writes one file.\n\nThe config lives in `doflow.json`.\n"
+assert voice(clean) == [], voice(clean)
+
+# 2. Each tell kind is caught, with path:line data and the quoted text. The curly quote is a
+#    weak tell, so it sits in a paragraph that carries two strong ones.
+tells = {
+    "voice_overused_word": "We delve into the storage layer.",
+    "voice_sales_word": "The cache boasts a seamless design.",
+    "voice_chatbot_residue": "I hope this helps with the setup.",
+    "voice_knowledge_limit": "As of my last update the API had two routes.",
+    "voice_serves_as": "The file serves as the entry point.",
+    "voice_dash_habit": "The first step — reading the file — is quick.",
+    "voice_bold_density": "Use **one** and **two** and **three** together.",
+    "voice_repeated_opener": "The tool reads. The tool writes. The tool exits.",
+}
+for rule, line in tells.items():
+    found = [f for f in voice("# Notes\n\n" + line + "\n") if f["rule"] == rule]
+    assert found, f"{rule} not caught in: {line}"
+    assert found[0]["line"] == 3 and found[0]["file"].endswith("t.md"), found[0]
+    assert '"' in found[0]["message"], found[0]
+tc = [f for f in voice("# Design Risks And Alternatives Considered\n\nText.\n") if f["rule"] == "voice_title_case_heading"]
+assert tc and tc[0]["line"] == 1 and "Design Risks" in tc[0]["message"], tc
+assert not voice("# Design risks and alternatives\n\nText.\n")
+cq = [f for f in voice("We delve into it and it serves as a “hub”.\n") if f["rule"] == "voice_curly_quote"]
+assert cq, "curly quote not caught beside two other tells"
+
+# 3. Code, quotes, YAML and link targets inside an otherwise clean file are not flagged.
+exempt = "\n".join([
+    "---", "title: Delve into a seamless tapestry", "---", "",
+    "# Setup", "",
+    "Run the tool, then read the result.", "",
+    "```", "we delve into the pivotal tapestry that serves as a testament", "```", "",
+    "Call `delve()` and `seamless` and `serves as` from the shell.", "",
+    "> I hope this helps. As of my last update it boasts a seamless tapestry.", "",
+    "See [the guide](https://example.com/delve-pivotal-tapestry-seamless) for more.", "",
+])
+assert voice(exempt) == [], voice(exempt)
+
+# 4. A lone weak tell is not flagged; weak tells with two others are.
+assert voice("# Notes\n\nThe key step is to read the file.\n") == []
+assert voice("# Notes\n\nThe first step — reading the file is quick.\n") == []
+assert voice("# Notes\n\nUse **this** carefully.\n") == []
+weak = [f for f in voice("# Notes\n\nWe delve into the key step, which serves as the entry point.\n") if "key" in f["message"]]
+assert weak, "weak tell with two strong tells was not reported"
+
+# 5. No aggregate score anywhere, the default output is unchanged without --voice, and
+#    --voice never changes the exit status.
+assert all(set(f) == {"file", "line", "rule", "severity", "message"} for f in voice("We delve in.\n"))
+with tempfile.TemporaryDirectory() as d:
+    f = Path(d) / "x.md"
+    f.write_text("# Notes\n\nWe delve into it. It serves as a hub.\n")
+    assert not [x for x in checker.analyze_file(f) if x["rule"].startswith("voice_")]
+    r = subprocess.run([sys.executable, str(checker_path), str(f), "--voice", "--json"], capture_output=True, text=True)
+    out = json.loads(r.stdout)
+    assert r.returncode == 0 and any(x["rule"].startswith("voice_") for x in out), r
+    assert isinstance(out, list) and not any("score" in x for x in out)
+
+print("  \033[32m✓\033[0m voice check: tells caught, exempt regions skipped, weak tells gated, no score")
+PY
+then
+  pass=$((pass + 1))
+  checked=$((checked + 1))
+else
+  printf '  \033[31m✗\033[0m voice check: tells caught, exempt regions skipped, weak tells gated, no score\n'
+  fail=$((fail + 1))
+fi
+
 # ── Coverage honesty (FR-006, FR-008) ────────────────────────────────────────────────────────
 #
 # A directory-level property, so the per-file fixture loop above structurally cannot express it:
