@@ -105,7 +105,9 @@ function createFleetStream(options) {
   let project = options.project;
   let agent = options.agent;
   let running = false;
-  let paused = false; // the person paused the view: it is treated like a hidden tab until `resume`
+  let paused = false;
+  let staleAtPause = false; // the stale rule's answer when the person paused: a pause neither hides nor creates it
+  let keepStale = false; // resumed from a stale pause: stale until data arrives // the person paused the view: it is treated like a hidden tab until `resume`
   let ended = false; // the target is gone: nothing more is opened
   let generation = 0;
   /** @type {any} */
@@ -186,6 +188,7 @@ function createFleetStream(options) {
     // A frame after an earlier one while the connection was not pushing: the snapshot that follows is a full refetch.
     if (lastFrameAt !== null && (resuming || dropped || mode !== 'push' || trial) && handlers.resync) handlers.resync();
     dropped = false;
+    keepStale = false;
     lastFrameAt = clock.now();
     resuming = false;
     errors = 0;
@@ -349,6 +352,7 @@ function createFleetStream(options) {
         misses = 0;
         lastFailure = null;
         if (resuming && lastFrameAt !== null && handlers.resync) handlers.resync();
+        keepStale = false;
         lastFrameAt = clock.now();
         resuming = false;
         handlers.snapshot(body);
@@ -452,6 +456,13 @@ function createFleetStream(options) {
     transcriptBusy = false;
   }
 
+  /** The stale rule itself. */
+  function rawStale() {
+    if (hidden() || resuming || lastFrameAt === null) return false;
+    if (polling()) return misses >= STALE_MISSES;
+    return brokenSince !== null && clock.now() - brokenSince > STALE_PUSH_MS;
+  }
+
   function onVisibility() {
     if (!running) return;
     if (hidden()) {
@@ -489,6 +500,7 @@ function createFleetStream(options) {
     /** The person pauses the view: the stream closes and nothing is polled. */
     pause() {
       if (!running || paused) return;
+      staleAtPause = rawStale();
       paused = true;
       suspend();
     },
@@ -496,6 +508,8 @@ function createFleetStream(options) {
     resume() {
       if (!running || !paused) return;
       paused = false;
+      keepStale = staleAtPause;
+      staleAtPause = false;
       if (visibility.hidden()) return;
       onVisibility();
     },
@@ -535,9 +549,10 @@ function createFleetStream(options) {
     },
     /** The stale rule of 7b.6: under push the connection has been broken for 20 s; under polling 3 polls in a row missed. */
     isStale() {
-      if (!running || hidden() || resuming || lastFrameAt === null) return false;
-      if (polling()) return misses >= STALE_MISSES;
-      return brokenSince !== null && clock.now() - brokenSince > STALE_PUSH_MS;
+      if (!running) return false;
+      if (paused) return staleAtPause;
+      if (keepStale) return true;
+      return rawStale();
     },
     get running() { return running; },
     get paused() { return paused; },

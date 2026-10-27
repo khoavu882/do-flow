@@ -328,12 +328,16 @@ function pillFor(view, now) {
   }
   const poller = view && view.poller;
   if (!app.ready || !poller) return { state: 'unknown', long: 'Connecting', short: 'Connecting' };
+  const stale = poller.isStale();
+  const offline = poller.lastFailure !== null && classify(poller.lastFailure, ctx()).scope === 'offline';
   if (view.paused) {
+    // A pause never hides a known failure: the pill names it next to Paused until a fetch succeeds.
+    if (stale) return { state: 'stale', long: `Paused · Stale · ${clockTime(poller.lastSuccessAt)}`, short: 'Paused · Stale' };
+    if (offline) return { state: 'unknown', long: 'Paused · Offline', short: 'Paused · Offline' };
+    if (poller.lastFailure !== null) return { state: 'unknown', long: 'Paused · Retrying', short: 'Paused · Retrying' };
     const at = poller.lastSuccessAt;
     return { state: 'paused', long: at === null ? 'Paused' : `Paused · ${clockTime(at)}`, short: 'Paused' };
   }
-  const stale = poller.isStale();
-  const offline = poller.lastFailure !== null && classify(poller.lastFailure, ctx()).scope === 'offline';
   if (offline && (!view.hasData || stale)) return { state: 'unknown', long: 'Offline', short: 'Offline' };
   if (stale) return { state: 'stale', long: `Stale · ${clockTime(poller.lastSuccessAt)}`, short: 'Stale' };
   if (poller.lastFailure !== null) return { state: 'unknown', long: 'Retrying', short: 'Retrying' };
@@ -424,7 +428,7 @@ function refreshStatus() {
   const view = app.view;
   const now = nowMs();
   renderPill(app.els.conn, pillFor(view, now));
-  const stale = Boolean(view && view.poller && !app.fatal && !view.paused && view.poller.isStale());
+  const stale = Boolean(view && view.poller && !app.fatal && view.poller.isStale());
   if (view) setStale(stale, view, now);
   syncPauseControl(view);
   if (view) updateCountdowns(view, now);

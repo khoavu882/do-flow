@@ -3324,3 +3324,36 @@ test('133 shortcuts: typing in a field and held modifiers never trigger one; a c
     assert.notEqual(page.location.hash, '#/workflows', 'the second key came too late');
   });
 });
+
+test('133 pause: a known outage is not hidden by pausing; the pill shows it with Paused, and only a successful fetch clears the banner', async () => {
+  await withFreshModules(async () => {
+    let down = false;
+    const page = await start({ hash: '#/run/feat-a/run-1', fetch: (target, init) => (target === '/api/runs/feat-a/run-1' ? (down ? errorReply(502, 'core-error') : runReply()) : standard(target, init)) });
+    down = true;
+    await advance(17_000);
+    assert.equal(page.slot.querySelectorAll('.banner').length, 1, 'stale before the pause');
+    page.pause.fire('click');
+    await advance(5000);
+    assert.equal(page.slot.querySelectorAll('.banner').length, 1, 'the banner survives the pause');
+    assert.equal(page.main.getAttribute('data-stale'), 'true');
+    assert.match(text(page.conn.querySelector('.conn__long')), /^Paused \u00b7 Stale/);
+    assert.equal(page.conn.getAttribute('data-state'), 'stale');
+    page.pause.fire('click'); // resume while the core still fails
+    await advance(100);
+    assert.equal(page.slot.querySelectorAll('.banner').length, 1, 'a failed refetch does not clear it');
+    down = false;
+    await advance(40_000);
+    assert.equal(page.slot.querySelectorAll('.banner').length, 0, 'a successful fetch clears it');
+  });
+});
+
+test('133 pause: a paused view that is offline says so in the pill', async () => {
+  await withFreshModules(async () => {
+    let down = false;
+    const page = await start({ hash: '#/run/feat-a/run-1', fetch: (target, init) => (target === '/api/runs/feat-a/run-1' ? (down ? 'network' : runReply()) : standard(target, init)) });
+    down = true;
+    await advance(4000);
+    page.pause.fire('click');
+    assert.match(text(page.conn.querySelector('.conn__long')), /^Paused \u00b7 (Offline|Retrying)/);
+  });
+});

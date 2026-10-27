@@ -48,6 +48,8 @@ function createPoller(options) {
 
   let running = false;
   let paused = false;
+  let staleAtPause = false; // the stale rule's answer when the person paused: a pause neither hides nor creates it
+  let keepStale = false; // resumed from a stale pause: stale until a fetch succeeds
   let inFlight = false;
   let resuming = false;
   /** @type {any} */
@@ -115,6 +117,7 @@ function createPoller(options) {
     inFlight = false;
     resuming = false;
     if (ok) {
+      keepStale = false;
       misses = 0;
       backoffStep = 0;
       lastFailure = null;
@@ -135,6 +138,12 @@ function createPoller(options) {
       schedule(delay);
     }
     onFailure(value);
+  }
+
+  /** The stale rule itself. */
+  function rawStale() {
+    if (visibility.hidden() || resuming || lastSuccessAt === null) return false;
+    return misses >= STALE_MISSES || clock.now() - lastSuccessAt > STALE_AGE_MS + extraWaitMs;
   }
 
   function onVisibility() {
@@ -173,6 +182,7 @@ function createPoller(options) {
     /** The person pauses polling: nothing is scheduled; a fetch in flight settles and is kept. An explicit `refreshNow` still fetches once. */
     pause() {
       if (!running || paused) return;
+      staleAtPause = rawStale();
       paused = true;
       clearTimer();
     },
@@ -180,8 +190,10 @@ function createPoller(options) {
     resume() {
       if (!running || !paused) return;
       paused = false;
+      keepStale = staleAtPause;
+      staleAtPause = false;
       if (inFlight || visibility.hidden()) return;
-      resuming = true;
+      resuming = !keepStale;
       pollNow();
     },
     /** "Try again" / "Try now" / "Check now": fetch at once and restart the backoff. False when busy or stopped. */
@@ -193,8 +205,10 @@ function createPoller(options) {
     },
     /** The stale rule of 6.4. Not evaluated while the tab is hidden or the poll after a return is in flight. */
     isStale() {
-      if (!running || paused || visibility.hidden() || resuming || lastSuccessAt === null) return false;
-      return misses >= STALE_MISSES || clock.now() - lastSuccessAt > STALE_AGE_MS + extraWaitMs;
+      if (!running) return false;
+      if (paused) return staleAtPause;
+      if (keepStale) return true;
+      return rawStale();
     },
     get active() { return running; },
     get paused() { return paused; },
