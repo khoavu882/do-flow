@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 // prompt-nudge-process.test.js — `per-session`: relative cwd, no node/doflow-run process, NFR-002 prompt-size bound, and the Claude front door through an install mirror.
 const { describe, after } = require('node:test');
 const assert = require('node:assert');
@@ -98,14 +99,14 @@ describe('per-session', () => {
 
   CASE('the Claude front door nudges through an install-shaped mirror', () => {
     const mirror = path.join(scratch.dir, 'mirror');
-    const built = spawnSync('bash', [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), mirror], { env: scratch.env(), encoding: 'utf8' });
+    const built = spawnSync(bashPath(), [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), mirror], { env: scratch.env(), encoding: 'utf8' });
     assert.equal(built.status, 0, built.stderr);
     const registry = path.join(scratch.home, '.doflow', 'runtime', 'core', 'registry', 'workflows.json'); // IC-006 candidate 4
     write(registry, fs.readFileSync(REGISTRY, 'utf8'));
     const { dir } = repo();
     const id = 'ps-front-door';
     const run = (script: any, payload: any) => {
-      const r = spawnSync('bash', [path.join(mirror, '.claude', 'hooks', script)], { input: JSON.stringify(payload), env: scratch.env({ CLAUDE_CONFIG_DIR: '', CLAUDE_PROJECT_DIR: '' }), encoding: 'utf8' });
+      const r = spawnSync(bashPath(), [path.join(mirror, '.claude', 'hooks', script)], { input: JSON.stringify(payload), env: scratch.env({ CLAUDE_CONFIG_DIR: '', CLAUDE_PROJECT_DIR: '' }), encoding: 'utf8' });
       assert.equal(r.status, 0, r.stderr);
       return r.stdout;
     };

@@ -8,6 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
 const { spawnBash } = require('../helper/home-less-bash.ts');
+const { IS_WIN, samePath } = require('../helper-platform.ts');
 const { loadSettingsRegistry, validateSettingsRegistry } = require('../../src/runtime/settings/registry.ts');
 const { configHome } = require('../../src/runtime/config-home.ts');
 const { lexicalCapture } = require('../../src/runtime/settings/lexical.ts');
@@ -154,11 +155,20 @@ function checkConfigBlocks(blocks: any, dir: any) {
     const run = block.inline
       ? (value: any, env: any) => runIdentityInlineConfigHome(value, env, dir)
       : /\.js$/.test(block.file) ? runJsConfigHome : (value: any, env: any) => runBashConfigHome(value, env, dir);
+    const viaBash = block.inline || !/\.js$/.test(block.file);
     for (const { number, env } of cases) {
+      // Git Bash (MSYS) fills in HOME before the script runs, from the Windows profile when it is absent and
+      // as an absolute path when it is relative, so a bash block cannot see those inputs on win32. The cases
+      // with an absolute HOME (3, 6, 9, 10-12) still run there.
+      if (IS_WIN && viaBash && (env.HOME === undefined || !path.isAbsolute(env.HOME))) continue;
       const configDir = configHome(env).dir ?? '';
       const expected = block.inline && configDir ? path.join(configDir, 'session-env', 'sessions') : configDir;
       const actual = run(block.text, env);
-      if ((actual ? path.normalize(actual) : '') !== (expected ? path.normalize(expected) : '')) {
+      // Bash reports a Windows path as /c/..., so on win32 the two are compared as the same location.
+      const same = IS_WIN && viaBash && actual && expected
+        ? samePath(actual, expected)
+        : (actual ? path.normalize(actual) : '') === (expected ? path.normalize(expected) : '');
+      if (!same) {
         errors.push(`${block.file} config-home case ${number}: expected '${expected}', got '${actual}'`);
       }
     }
@@ -213,7 +223,9 @@ function runJsLexical(block: any) {
 function runBashLexical(block: any, file: any, cwd: any) {
   const script = `set -euo pipefail\n${block}\ndoflow_lex_capture "$1"\nprintf '%s' "$DOFLOW_LEX_CAPTURE"`;
   const result = spawnBash(['-c', script, 'x', file], {
-    cwd, env: { PATH: process.env.PATH }, encoding: 'utf8',
+    // LC_ALL=C pins the byte semantics POSIX gets from an empty environment; Git Bash otherwise picks a locale
+    // from the Windows code page, in which byte 0xA0 is a space and the NBSP controls would not hold.
+    cwd, env: { PATH: process.env.PATH, LC_ALL: 'C' }, encoding: 'utf8',
   });
   assert.equal(result.status, 0, `bash exits 0: ${result.stderr}`);
   assert.equal(result.stderr, '', 'lexical block is silent');

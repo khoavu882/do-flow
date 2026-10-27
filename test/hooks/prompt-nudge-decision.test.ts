@@ -1,4 +1,5 @@
 'use strict';
+const JQ_B = process.platform === 'win32' ? ['-b'] : []; // native jq.exe ends lines with CRLF unless -b
 
 // The prompt-nudge decision program (IC-005): one jq run over the hook payload that prints `nudge`,
 // `suppress` or an empty line, reading its rules from the registry's `promptNudge` object. Each case
@@ -25,7 +26,7 @@ test.after(() => scratch.remove());
 
 /** Runs IC-005's invocation: payload on stdin, registry slurped as $R. */
 function run(payload: any, registry = REGISTRY) {
-  return spawnSync('jq', ['-r', '--slurpfile', 'R', registry, '-f', PROGRAM], {
+  return spawnSync('jq', [...JQ_B, '-r', '--slurpfile', 'R', registry, '-f', PROGRAM], {
     input: typeof payload === 'string' ? payload : JSON.stringify(payload),
     env: scratch.env(),
     encoding: 'utf8',
@@ -411,7 +412,7 @@ const SHAPES: any = {
 
 /** One jq run over many payloads (one decision line each); the status must be 0. */
 function decideAll(program: any, prompts: any) {
-  const r = spawnSync('jq', ['-r', '--slurpfile', 'R', REGISTRY, '-f', program], {
+  const r = spawnSync('jq', [...JQ_B, '-r', '--slurpfile', 'R', REGISTRY, '-f', program], {
     input: prompts.map((prompt: any) => JSON.stringify({ session_id: 's1', cwd: '/tmp', prompt })).join('\n'),
     env: scratch.env(), encoding: 'utf8', maxBuffer: 1 << 26,
   });

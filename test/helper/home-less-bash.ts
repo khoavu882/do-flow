@@ -16,7 +16,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
-const BASH = process.env.DOFLOW_TEST_BASH || '/bin/bash';
+const { bashPath } = require('./bash-locator.ts');
+
+const BASH = bashPath();
 const HOMEBREW_DIR = /(^|\/)opt\/homebrew(\/|$)|(^|\/)usr\/local\/Homebrew(\/|$)|(^|\/)home\/linuxbrew(\/|$)/;
 const HOOK_TOOLS = ['jq', 'shasum', 'git', 'sed', 'awk', 'grep', 'date', 'mktemp'];
 

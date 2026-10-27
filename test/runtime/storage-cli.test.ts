@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -213,7 +214,7 @@ test('storage rejects invalid actions and the dispatcher recognizes storage', { 
     const invalid = run(['--action', 'unknown'], project, scratch.env());
     assert.equal(invalid.status, 2);
     const dispatcher = path.join(REPO_ROOT, 'core/shared/scripts/doflow/bin/doflow-run');
-    const result = spawnSync('/bin/bash', [dispatcher, 'storage', '--action', 'upkeep'], { cwd: project, env: scratch.env(), encoding: 'utf8' });
+    const result = spawnSync(bashPath(), [dispatcher, 'storage', '--action', 'upkeep'], { cwd: project, env: scratch.env(), encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(result.stdout, '');
   } finally { scratch.remove(); }

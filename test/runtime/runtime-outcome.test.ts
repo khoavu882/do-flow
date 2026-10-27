@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 // runtime-outcome.test.js — the task's terminal record and the closed vocabulary it draws from
 // (feature 011, plan task B.2, design component C2; FR-011, NFR-001).
 //
@@ -299,13 +300,13 @@ test('a score-shaped flag is refused by name (NFR-001)', () => {
 
 test('the verb dispatches through the shell seam, not only through the entrypoint', () => {
   const cwd = project('dispatch');
-  const show = spawnSync('bash', [DISPATCHER, 'outcome', '--task-id', 'p1', '--json'], {
+  const show = spawnSync(bashPath(), [DISPATCHER, 'outcome', '--task-id', 'p1', '--json'], {
     cwd, env: { ...process.env, HOME: cwd }, encoding: 'utf8',
   });
   assert.equal(show.status, 1, 'the verb exit code is the dispatcher exit code');
   assert.equal(JSON.parse(show.stdout).state, null);
 
-  const record = spawnSync('bash', [DISPATCHER, 'outcome', '--task-id', 'p1', '--action', 'record',
+  const record = spawnSync(bashPath(), [DISPATCHER, 'outcome', '--task-id', 'p1', '--action', 'record',
     '--task-class', 'bug', '--state', 'ABANDONED', '--json'], {
     cwd, env: { ...process.env, HOME: cwd }, encoding: 'utf8',
   });
@@ -314,7 +315,7 @@ test('the verb dispatches through the shell seam, not only through the entrypoin
 });
 
 test('the dispatcher help lists the verb it now dispatches', () => {
-  const help = spawnSync('bash', [DISPATCHER, '--help'], { env: createScratch('doflow-runtime-outcome-home-').env(), encoding: 'utf8' });
+  const help = spawnSync(bashPath(), [DISPATCHER, '--help'], { env: createScratch('doflow-runtime-outcome-home-').env(), encoding: 'utf8' });
   assert.equal(help.status, 0);
   assert.match(help.stdout, /^ {2}outcome {2,}\S/m,
     'G12 reads this list as the only verb inventory a user ever sees');

@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // G8 — every executable surface DoFlow ships is reachable from something that ships with it.
 //
@@ -494,7 +495,7 @@ test('G8: every documented runtime-resolution snippet resolves with CWD at the p
   for (const { rel, code } of snippets) {
     for (const cwd of [root, deep]) {
       const where = path.relative(root, cwd) || '<project root>';
-      const run = spawnSync('bash', ['-c', code], {
+      const run = spawnSync(bashPath(), ['-c', code], {
         cwd,
         encoding: 'utf8',
         // A developer's exported override would resolve the runtime for reasons the snippet does
@@ -515,7 +516,7 @@ test('G8: every documented runtime-resolution snippet resolves with CWD at the p
       // snippets, 0 containing it, assertion never fires, guard still green. Coverage that a
       // prose edit can switch off is not coverage. The verb is appended here instead, so this
       // check is a property of the guard rather than of what a skill happens to say.
-      const probe = spawnSync('bash', ['-c', `{\n${code}\n} >/dev/null 2>&1\n"$DOFLOW" paths --json\n`], {
+      const probe = spawnSync(bashPath(), ['-c', `{\n${code}\n} >/dev/null 2>&1\n"$DOFLOW" paths --json\n`], {
         cwd,
         encoding: 'utf8',
         env: { ...process.env, ...homeRedirect, DOFLOW_CONFIG_DIR: undefined },

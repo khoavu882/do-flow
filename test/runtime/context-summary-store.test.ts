@@ -1,4 +1,6 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
+const { samePath } = require('../helper-platform.ts');
 
 // 078 C.2 (IC-010, IC-012, IC-013 in process): the TypeScript summary store and grantSummary(), and
 // its parity with the bash store policies/summary-store.sh: a bash-written summary claimed by
@@ -21,7 +23,7 @@ const REPO = path.resolve(__dirname, '..', '..');
 const POLICIES = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies');
 const LIB = path.join(POLICIES, 'lib.sh');
 const STORE = path.join(POLICIES, 'summary-store.sh');
-const BASH = process.platform === 'darwin' ? '/bin/bash' : 'bash';
+const BASH = bashPath();
 const AT = '2026-10-14T10:00:00Z';
 
 const scratch = createScratch('doflow-ts-summary-store-');
@@ -197,7 +199,7 @@ test('parity: a bash-written summary is claimed by TypeScript', () => {
   const wt = worktree();
   const out: any = bash('doflow_summary_write "$@"\nprintf "id=%s\\npath=%s\\n" "$DF_SUMMARY_ID" "$DF_SUMMARY_PATH"',
     [wt, 'r-1', 'w-1', '3', AT, 'sess-b', 'auto', 'topic', 'worker', 'bash body']);
-  assert.equal(out.path, path.join(summaryScope(wt, 'r-1', 'w-1', ENV), 'summary.md'));
+  assert.ok(samePath(out.path, path.join(summaryScope(wt, 'r-1', 'w-1', ENV), 'summary.md')), `${out.path} is the TypeScript store path`);
   assert.equal(peekSummary(wt, 'r-1', 'w-1', 'sess-b', ENV).own, 'own-write');
   const claimed = claimSummary(wt, 'r-1', 'w-1', 'L.r-1.w-1.3', 'sess-t', ENV);
   assert.equal(claimed.own, 'pending');

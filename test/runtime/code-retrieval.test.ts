@@ -239,7 +239,7 @@ test('R5 control: a file changed after the exact pass is rejected by live valida
   assert.ok(run.response.gaps.some((g: any) => g.source === 'live-validation' && g.reason === 'source-changed'));
 });
 
-test('R5 control: a directory swapped for a symlink during the exact pass drops what was read under it', (t) => {
+test('R5 control: a directory swapped for a symlink during the exact pass drops what was read under it', { skip: process.platform === 'win32' && 'the swap cannot happen on win32: renaming a directory that holds an open file is refused (EBUSY/EPERM), so the race this guards has no Windows form' }, (t) => {
   const root = exactWorld(t);
   const inventory = admitCodeCorpus({ root, hashFiles: false, verifyDirsOnce: true });
   let swapped = false;

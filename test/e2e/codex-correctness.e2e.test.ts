@@ -40,7 +40,12 @@ function setup(prefix: any) {
     fs.writeFileSync(config, text);
     fs.chmodSync(config, mode);
   };
-  const mode = () => fs.statSync(config).mode & 0o7777;
+  // Windows reports only writable (0o666) or read-only (0o444); the owner-write bit is the one fact it expresses,
+  // so there a writable file stands for the 0o600 a POSIX run asserts and a read-only one for 0o400.
+  const mode = () => {
+    const bits = fs.statSync(config).mode & 0o7777;
+    return process.platform === 'win32' ? (bits & 0o200 ? 0o600 : 0o400) : bits;
+  };
   const text = () => fs.readFileSync(config, 'utf8');
   const readLedger = () => JSON.parse(fs.readFileSync(ledger, 'utf8'));
   const mcpRows = () => readLedger().resources.filter((row: any) => row.harness === 'codex' && row.kind === 'mcp-server');

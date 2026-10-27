@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -21,7 +22,7 @@ function write(file: any, contents: any, mode = 0o644) {
 }
 
 function runDoor(name: any, payload: any, project: any, extraEnv = {}) {
-  const result = spawnSync('bash', [path.join(mirror, '.claude/hooks', `${name}.sh`)], {
+  const result = spawnSync(bashPath(), [path.join(mirror, '.claude/hooks', `${name}.sh`)], {
     cwd: project,
     input: `${JSON.stringify(payload)}\n`,
     env: scratch.env({ DOFLOW_PROJECT_DIR: project, ...extraEnv }),
@@ -31,9 +32,9 @@ function runDoor(name: any, payload: any, project: any, extraEnv = {}) {
   return result;
 }
 
-function assertPromptReturn(result: any, startedAt: any, label: any) {
+function assertPromptReturn(result: any, startedAt: any, label: any, limitMs = 1500) {
   assert.equal(result.status, 0, `${label}: bridge/front door exits successfully (${result.stderr})`);
-  assert.ok(performance.now() - startedAt < 1500, `${label}: returned before background worker finished`);
+  assert.ok(performance.now() - startedAt < limitMs, `${label}: returned before background worker finished`);
 }
 
 test('Claude Stop returns while its background eslint fixer is still running', () => {
@@ -46,7 +47,7 @@ test('Claude Stop returns while its background eslint fixer is still running', (
   write(path.join(bin, 'eslint'), '#!/usr/bin/env bash\nsleep 3\n', 0o755);
   const startedAt = performance.now();
   const result = runDoor('stop-check', { session_id: sessionId, cwd: project }, project, {
-    PATH: `${bin}:${process.env.PATH}`,
+    PATH: `${bin}${path.delimiter}${process.env.PATH}`,
   });
   assertPromptReturn(result, startedAt, 'Claude Stop with queued JavaScript');
 });
@@ -54,8 +55,11 @@ test('Claude Stop returns while its background eslint fixer is still running', (
 test('Claude SessionStart returns while storage upkeep is still running', () => {
   const project = createScratchGitRepo(fixtures, 'session-project').root;
   const runner = path.join(project, '.doflow/scripts/doflow/bin/doflow-run');
-  write(runner, '#!/usr/bin/env bash\nsleep 3\n', 0o755);
+  // Git Bash needs several seconds more than a POSIX shell to start the hook chain, so on Windows the background worker
+  // sleeps longer and the return budget grows with it; the worker still outlives the budget, which is what the test proves.
+  const win = process.platform === 'win32';
+  write(runner, `#!/usr/bin/env bash\nsleep ${win ? 12 : 3}\n`, 0o755);
   const startedAt = performance.now();
   const result = runDoor('session-start', { session_id: 'background-session', cwd: project }, project);
-  assertPromptReturn(result, startedAt, 'Claude SessionStart storage upkeep');
+  assertPromptReturn(result, startedAt, 'Claude SessionStart storage upkeep', win ? 8000 : 1500);
 });

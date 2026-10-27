@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const { test, after }: any = require('node:test');
 const assert = require('node:assert/strict');
@@ -21,7 +22,7 @@ const SESSION_END = [
   path.join(MIRROR, '.codex/hooks/session-end.impl.sh'),
 ];
 test.before(() => {
-  const built = spawnSync('bash', [path.join(REPO, 'test/hooks/build-install-mirror.sh'), MIRROR], { encoding: 'utf8' });
+  const built = spawnSync(bashPath(), [path.join(REPO, 'test/hooks/build-install-mirror.sh'), MIRROR], { encoding: 'utf8' });
   assert.equal(built.status, 0, built.stderr);
 });
 after(() => scratch.remove());
@@ -54,7 +55,7 @@ test('session hooks launch asynchronous storage upkeep through the first availab
   const payload = (sessionId: any) => encodeEnvelope('claude', 'SessionStart', 'session-context', JSON.stringify({ session_id: sessionId, cwd: project, source: 'startup' }));
   function runHook(script: any, sessionId: any, env = scratch.env({ STORAGE_TEST_RECORD: record })) {
     const started = Date.now();
-    const result = spawnSync('/bin/bash', [script], { input: payload(sessionId), cwd: project, env, encoding: 'utf8' });
+    const result = spawnSync(bashPath(), [script], { input: payload(sessionId), cwd: project, env, encoding: 'utf8' });
     return { ...result, elapsedMs: Date.now() - started };
   }
   async function awaitRecord() {
@@ -90,7 +91,7 @@ test('session hooks launch asynchronous storage upkeep through the first availab
       fs.renameSync(projectDispatcher, disabledProjectDispatcher);
       let base;
       try {
-        base = spawnSync('/bin/bash', [script], { input: payload(`baseline-${index}`), cwd: project, env: baselineEnv(), encoding: 'utf8' });
+        base = spawnSync(bashPath(), [script], { input: payload(`baseline-${index}`), cwd: project, env: baselineEnv(), encoding: 'utf8' });
       } finally { fs.renameSync(disabledProjectDispatcher, projectDispatcher); }
       try {
         const result = runHook(script, `active-${index}`);
@@ -131,11 +132,11 @@ test('session hooks launch asynchronous storage upkeep through the first availab
     const env = scratch.env({ HOME: noCandidate, XDG_CONFIG_HOME: path.join(scratch.dir, 'empty-xdg'), STORAGE_TEST_RECORD: record });
     fs.mkdirSync(env.XDG_CONFIG_HOME, { recursive: true });
     const native = payload('no-candidate');
-    const result = spawnSync('/bin/bash', [POLICY], { input: encodeEnvelope('claude', 'SessionStart', 'session-context', native), cwd: project, env, encoding: 'utf8' });
+    const result = spawnSync(bashPath(), [POLICY], { input: encodeEnvelope('claude', 'SessionStart', 'session-context', native), cwd: project, env, encoding: 'utf8' });
     assert.equal(result.status, 0, result.stderr); assert.equal(result.stdout, ''); assert.equal(result.stderr, '');
     assert.equal(fs.existsSync(record), false);
 
-    const source = spawnSync('/bin/bash', ['-c', 'source "$1"', 'bash', LIB], { env, encoding: 'utf8' });
+    const source = spawnSync(bashPath(), ['-c', 'source "$1"', 'bash', LIB], { env, encoding: 'utf8' });
     assert.equal(source.status, 0, source.stderr); assert.equal(source.stdout, ''); assert.equal(source.stderr, '');
 
     const codexStart = path.join(MIRROR, '.codex/hooks/session-start.sh');
@@ -168,7 +169,7 @@ test('a session started in a subdirectory runs upkeep from the project root (G.3
   fs.mkdirSync(path.dirname(dispatcher), { recursive: true });
   fs.writeFileSync(dispatcher, `#!/bin/bash\nprintf '%s\\n' "$PWD" > "$STORAGE_TEST_RECORD.tmp.$$"\nmv -f "$STORAGE_TEST_RECORD.tmp.$$" "$STORAGE_TEST_RECORD"\n`);   // atomic, as above
   fs.chmodSync(dispatcher, 0o755);
-  const result = spawnSync('/bin/bash', [POLICY], {
+  const result = spawnSync(bashPath(), [POLICY], {
     input: encodeEnvelope('claude', 'SessionStart', 'session-context', JSON.stringify({ session_id: 'subdir', cwd: sub, source: 'startup' })), cwd: sub,
     env: scratch.env({ STORAGE_TEST_RECORD: record }), encoding: 'utf8',
   });
@@ -181,7 +182,7 @@ test('a session started in a subdirectory runs upkeep from the project root (G.3
 // FU-0rgk31: the detached upkeep leaves the hook's session when setsid exists, so a harness that
 // kills the hook's process group on exit does not take the upkeep with it. macOS has no setsid.
 function sourceUpkeep(extraPath: any, projectDir: any, record: any) {
-  return spawnSync('/bin/bash', ['-c', 'source "$1" && storage_upkeep_async "$2"', 'bash', LIB, projectDir], {
+  return spawnSync(bashPath(), ['-c', 'source "$1" && storage_upkeep_async "$2"', 'bash', LIB, projectDir], {
     env: scratch.env({ PATH: `${extraPath}${extraPath ? path.delimiter : ''}${process.env.PATH}`, STORAGE_TEST_RECORD: record }), encoding: 'utf8',
   });
 }
@@ -212,7 +213,7 @@ test('detached upkeep runs under setsid when setsid is on PATH', { skip: process
   assert.equal(fs.readFileSync(record, 'utf8').trim(), 'storage --action upkeep');
 });
 
-test('detached upkeep still runs when setsid is absent', { skip: process.platform === 'win32' || spawnSync('bash', ['-c', 'command -v setsid']).status === 0 }, async () => {
+test('detached upkeep still runs when setsid is absent', { skip: process.platform === 'win32' || spawnSync(bashPath(), ['-c', 'command -v setsid']).status === 0 }, async () => {
   const { project, record } = upkeepFixture('setsid-absent');
   const result = sourceUpkeep('', project, record);
   assert.equal(result.status, 0, result.stderr);

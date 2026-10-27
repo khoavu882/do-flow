@@ -1,4 +1,5 @@
 'use strict';
+const JQ_B = process.platform === 'win32' ? ['-b'] : []; // native jq.exe ends lines with CRLF unless -b
 
 // G67 — primary harness, worker catalogue, model bindings and probe consistency (feature 120, design C12, D9).
 //
@@ -222,7 +223,7 @@ const MODEL_FIXTURES: readonly string[] = Object.freeze([
 
 /** (5b) Evaluates model validity via jq's valid_model_id definition in envelope.jq. */
 function evaluateJqModelValidity(validModelIdDef: string, fixture: string): boolean {
-  const result = spawnSync('jq', ['-n', '--arg', 'v', fixture, `${validModelIdDef} valid_model_id($v)`], {
+  const result = spawnSync('jq', [...JQ_B, '-n', '--arg', 'v', fixture, `${validModelIdDef} valid_model_id($v)`], {
     encoding: 'utf8',
   });
   if (result.status !== 0) {

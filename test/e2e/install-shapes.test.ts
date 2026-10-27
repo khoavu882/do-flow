@@ -27,7 +27,7 @@ const SOURCE_DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow',
 const { inheritedEnv } = require('../helper/scratch-env.ts');
 const { suiteTempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const ALL_HARNESSES: any = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
-const { IS_WIN, interpreterSpawn, samePath, msysArgConvGuards } = require('../helper-platform.ts');
+const { IS_WIN, interpreterSpawn, samePath } = require('../helper-platform.ts');
 
 // A developer's PI_CODING_AGENT_DIR would send this file's global Pi MCP writes outside the scratch home.
 delete process.env.PI_CODING_AGENT_DIR;
@@ -59,14 +59,18 @@ function runtime(exe: any, args: any, { home, cwd, env = {} }: any = {}) {
     cwd, encoding: 'utf8',
     // A developer's own exported DOFLOW_CONFIG_DIR / DOFLOW_CLI would silently redirect the
     // resolution these tests exist to exercise, so they are cleared unless a case sets them.
-    env: { ...inheritedEnv(), DOFLOW_CONFIG_DIR: undefined, DOFLOW_CLI: undefined, ...msysArgConvGuards(), ...homeEnv(home), ...env },
+    // MSYS path conversion stays ON: the dispatcher hands bash-form /c/... script paths to a native node.
+    env: { ...inheritedEnv(), DOFLOW_CONFIG_DIR: undefined, DOFLOW_CLI: undefined, ...homeEnv(home), ...env },
   });
 }
 
 // A PATH keeping only POSIX coreutils plus node itself. Colon-separated and forward-slashed even
 // on win32, where its sole consumer IS a shell (the bash-spawned dispatcher resolving `command -v
 // node`); MSYS reads this form natively, mapping /usr/bin and /bin onto Git's own tools.
-const MINIMAL_PATH = `/usr/bin:/bin:${path.dirname(process.execPath).replace(/\\/g, '/')}`;
+// A drive path in that list must be in MSYS form (/c/...): bash splits PATH on every colon, so a
+// `C:/...` entry would be read as the two entries `C` and `/...` and node would never be found.
+const msysDir = (p: any) => String(p).replace(/\\/g, '/').replace(/^([A-Za-z]):\//, (_m: any, d: any) => `/${d.toLowerCase()}/`);
+const MINIMAL_PATH = `/usr/bin:/bin:${msysDir(path.dirname(process.execPath))}`;
 
 function walk(dir: any, out: any = []) {
   let entries;
@@ -101,7 +105,7 @@ function pathWithout(names: any) {
       let files;
       try { files = fs.readdirSync(entry); } catch { continue; }
       const polluted = files.some((file: any) => deny.test(file.replace(/\.(exe|bat|cmd|com)$/i, '')));
-      if (!polluted) keep.push(entry.replace(/\\/g, '/'));
+      if (!polluted) keep.push(msysDir(entry));
     }
     return keep.join(':');
   }

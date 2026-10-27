@@ -12,6 +12,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
+const { bashPath } = require('../helper/bash-locator.ts');
 const { loadVerificationRegistry } = require('../../src/runtime/verification/registry.ts');
 const CR = require('../../src/runtime/verification/contract-runner.ts');
 const { VerificationEngine } = require('../../src/runtime/verification/engine.ts');
@@ -19,6 +20,17 @@ const { checkKeyV2 } = require('../../src/runtime/verification/check-key.ts');
 
 const REGISTRY = loadVerificationRegistry();
 const SH = '#!/bin/sh\n';
+
+/** The checks here are POSIX shell commands (printf, test, cat, chmod, /dev/null). The runner hands them to `shell: true`, which on
+ * win32 is cmd.exe, so win32 runs the same command text through Git Bash instead: still a real shell, never a spy. */
+function shellRun(command: any, options: any = {}) {
+  if (process.platform !== 'win32') return spawnSync(command, options);
+  const { shell: _shell, ...rest } = options;
+  return spawnSync(bashPath({ quiet: true }), ['-c', command], rest);
+}
+const SHELL_EXEC: any = process.platform === 'win32'
+  ? (command: any, argsOrOptions: any, options: any) => (Array.isArray(argsOrOptions) ? spawnSync(command, argsOrOptions, options) : shellRun(command, argsOrOptions))
+  : undefined;
 
 function git(cwd: any, ...args: any[]) {
   const res = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', ...args], { cwd, encoding: 'utf8' });
@@ -53,13 +65,13 @@ function scene(t: any, { files = {}, links = {}, inRepoConfig = false }: any = {
   const configDir = inRepoConfig ? path.join(root, '.doflow') : path.join(tempDir(t, 'doflow-stale-pass-cfg-'), '.doflow');
   return {
     root, configDir, stubDir, home,
-    env: { PATH: `${stubDir}${path.delimiter}${process.env.PATH}`, HOME: home, DOFLOW_TELEMETRY: 'off' },
+    env: { PATH: `${stubDir}${path.delimiter}${process.env.PATH}`, HOME: home, DOFLOW_TELEMETRY: 'off', ...(process.platform === 'win32' ? { USERPROFILE: home, SystemRoot: process.env.SystemRoot } : {}) },
   };
 }
 
 function newRunner(ctx: any, { reuse = true, risk = 'MEDIUM', exec }: any = {}) {
   return new CR.VerificationContractRunner({
-    cwd: ctx.root, env: ctx.env, logDir: path.join(ctx.configDir, 'logs'), ...(exec ? { exec } : {}),
+    cwd: ctx.root, env: ctx.env, logDir: path.join(ctx.configDir, 'logs'), ...((exec || SHELL_EXEC) ? { exec: exec || SHELL_EXEC } : {}),
     context: { v0: false, reuse, registry: REGISTRY, riskLevel: risk, configDir: ctx.configDir },
   });
 }
@@ -73,7 +85,7 @@ function runnerDriver(ctx: any, command: any, { reuse = true, risk = 'MEDIUM', t
 
 /** The same check through a fresh VerificationEngine, as the verify verb runs it. */
 function engineDriver(ctx: any, command: any, { reuse = true, risk = 'MEDIUM', timeoutMs = 60000, exec }: any = {}) {
-  const engine: any = new VerificationEngine({ cwd: ctx.root, configDir: ctx.configDir, v0: false, reuse, ...(exec ? { exec } : {}) });
+  const engine: any = new VerificationEngine({ cwd: ctx.root, configDir: ctx.configDir, v0: false, reuse, ...((exec || SHELL_EXEC) ? { exec: exec || SHELL_EXEC } : {}) });
   engine.runner.env = ctx.env;
   const report = engine.runContract({ version: 1, taskId: 'stale-pass', riskLevel: risk, tiers: [{
     id: 'broad-tests', name: 'Broad tests', kind: 'behavioral', required: true, resolution: 'RESOLVED',
@@ -146,7 +158,7 @@ test('C-1 control: a non-mutating PASS is still stored and hits, through the run
 test('C-1 control: with reuse off the runner spawns nothing beyond the check itself (no extra git read)', (t): any => {
   const ctx = scene(t, { files: { 'flag.txt': '0' } });
   const calls: any = [];
-  const exec = (command: any, options: any) => { calls.push(command); return spawnSync(command, options); };
+  const exec = (command: any, options: any) => { calls.push(command); return shellRun(command, options); };
   const env: any = { ...ctx.env };
   delete env.DOFLOW_TELEMETRY; // telemetry on: the key is still computed, from one tree read
   const runner: any = new CR.VerificationContractRunner({ cwd: ctx.root, env, exec,
@@ -201,7 +213,7 @@ for (const [name, drive] of DRIVERS) {
       const exec = (cmd: any, options: any) => {
         if (gate.mode === 'throw') throw new Error('spawn boom');
         if (gate.mode === 'error') return { error: Object.assign(new Error('spawn EACCES'), { code: 'EACCES' }), status: null, stdout: '', stderr: '' };
-        return spawnSync(cmd, options);
+        return shellRun(cmd, options);
       };
       assert.deepEqual([drive(ctx, command, { exec }).ran, drive(ctx, command, { exec }).ran], [true, false], `${mode}: stored`);
       gate.mode = mode;
@@ -342,7 +354,7 @@ for (const mode of ['timeout', 'error', 'throw']) {
         fs.chmodSync(index, 0o644);
         return { error: Object.assign(new Error('spawn EACCES'), { code: 'EACCES' }), status: null, stdout: '', stderr: '' };
       }
-      return spawnSync(cmd, options);
+      return shellRun(cmd, options);
     };
     const options: any = { exec, timeoutMs: 800 };
     assert.deepEqual([runnerDriver(ctx, command, options).ran, runnerDriver(ctx, command, options).ran], [true, false], 'PASS stored, then reused');
@@ -412,6 +424,12 @@ test('C-3 real shell: a dangling out-of-repo symlink is keyed as absent and move
 
 // ── C-4: a first word the parser cannot trust ────────────────────────────────────────────────────
 
+/** A path spelled for a command line that Git Bash runs: a native C:\\x would lose its backslashes to the shell, while C:/x
+ * is still a path Node can stat (the reuse key reads the tool's bytes). */
+const posix = (p: string) => (process.platform === 'win32' ? p.replace(/\\/g, '/') : p);
+/** The MSYS spelling (/c/x), for a colon-separated PATH list where C:/x would read as two entries. */
+const msys = (p: string) => (process.platform === 'win32' ? posix(p).replace(/^([A-Za-z]):/, (_m: string, d: string) => `/${d.toLowerCase()}`) : p);
+
 function toolDir(t: any, prefix: any = 'doflow-stale-pass-tool-') {
   const dir = tempDir(t, prefix);
   put(dir, 'tool', `${SH}exit 0\n`, 0o755);
@@ -423,17 +441,17 @@ const changeTool = (file: any) => put(path.dirname(file), path.basename(file), `
 const UNPARSEABLE: any = [
   ['a quoted path with a space', (ctx: any, dir: any, t: any) => {
     const spaced = toolDir(t, 'doflow-stale-pass-tool dir-');
-    return { command: `"${spaced}/tool" x`, tool: `${spaced}/tool` };
+    return { command: `"${posix(spaced)}/tool" x`, tool: `${spaced}/tool` };
   }],
   ['an escaped space', (ctx: any, dir: any, t: any) => {
     const spaced = toolDir(t, 'doflow-stale-pass-tool dir-');
-    return { command: `${spaced.replace(/ /g, '\\ ')}/tool x`, tool: `${spaced}/tool` };
+    return { command: `${posix(spaced).replace(/ /g, '\\ ')}/tool x`, tool: `${spaced}/tool` };
   }],
-  ['a variable path ($DIR/tool)', (ctx: any, dir: any, t: any) => { ctx.env.DIR = dir; return { command: '$DIR/tool x', tool: `${dir}/tool` }; }],
-  ['a backtick form', (ctx: any, dir: any, t: any) => ({ command: `\`echo '${dir}/tool'\` x`, tool: `${dir}/tool` })],
+  ['a variable path ($DIR/tool)', (ctx: any, dir: any, t: any) => { ctx.env.DIR = posix(dir); return { command: '$DIR/tool x', tool: `${dir}/tool` }; }],
+  ['a backtick form', (ctx: any, dir: any, t: any) => ({ command: `\`echo '${posix(dir)}/tool'\` x`, tool: `${dir}/tool` })],
   ['an inline PATH= assignment', (ctx: any, dir: any, t: any) => {
     put(dir, 'mytool', `${SH}exit 0\n`, 0o755);
-    return { command: `PATH='${dir}':$PATH mytool`, tool: `${dir}/mytool` };
+    return { command: `PATH='${msys(dir)}':$PATH mytool`, tool: `${dir}/mytool` };
   }],
   ['a tilde path (~/tool)', (ctx: any, dir: any, t: any) => {
     const home = tempDir(t, 'doflow-stale-pass-tilde-');
@@ -441,7 +459,7 @@ const UNPARSEABLE: any = [
     put(home, 'tool', `${SH}exit 0\n`, 0o755);
     return { command: '~/tool x', tool: `${home}/tool` };
   }],
-  ['a glob first word', (ctx: any, dir: any, t: any) => ({ command: `${dir}/to*l x`, tool: `${dir}/tool` })],
+  ['a glob first word', (ctx: any, dir: any, t: any) => ({ command: `${posix(dir)}/to*l x`, tool: `${dir}/tool` })],
 ];
 
 for (const [label, build] of UNPARSEABLE) {
@@ -469,7 +487,7 @@ test('C-4 control: LABEL=ok tool, npm test and node --test x stay reusable', (t)
 test('C-4 control: a simple unquoted absolute tool path hits when unchanged and executes after a content change', (t) => {
   const ctx = scene(t, { files: { 'a.txt': 'x\n' } });
   const dir = toolDir(t, 'doflow-stale-pass-abs-');
-  const command = `${dir}/tool x`;
+  const command = `${posix(dir)}/tool x`;
   assert.deepEqual([runnerDriver(ctx, command).ran, runnerDriver(ctx, command).ran], [true, false]);
   changeTool(`${dir}/tool`);
   const changed = runnerDriver(ctx, command);

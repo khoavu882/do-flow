@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Row 120 IC-005 Writer: the shared bridge step `observe-model` records `identity.model` in an
 // observation file under the config home, and never changes the bridge's output or exit code.
@@ -30,7 +31,7 @@ function bridge(s: any, harness: string, { native, event, env = {}, cwd = s.cwd 
   const fixture = MODEL_PAYLOADS[harness];
   const childEnv: any = { ...process.env, HOME: s.home, DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_TELEMETRY: 'off', DOFLOW_DECISION_FD: '', DOFLOW_BRIDGE_TRACE: '' };
   for (const name of ['XDG_CONFIG_HOME', 'DOFLOW_SESSION_ROLE', 'DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_WORKTREE', 'DOFLOW_TASK_ID']) delete childEnv[name];
-  const result = spawnSync('bash', [BRIDGE, harness, event || fixture.event, POLICY], {
+  const result = spawnSync(bashPath(), [BRIDGE, harness, event || fixture.event, POLICY], {
     cwd, env: { ...childEnv, ...env }, input: JSON.stringify(native || fixture.native), encoding: 'utf8',
   });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
@@ -69,7 +70,7 @@ test('a codex payload writes one observation with exactly the six fields, mode 0
   assert.match(value.observedAt, /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/);
   assert.ok(Math.abs(Date.parse(value.observedAt) - Date.now()) < 120000);
   assert.equal(value.session, key);
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600); // modes are not expressible on Windows
 });
 
 test('a repeated event with the same model does not rewrite the file; a changed model does', (t) => {
@@ -93,10 +94,14 @@ test('a read-only store leaves stdout, stderr and the exit code identical and wr
   assert.equal(files(writable.store).length, 1);
   const locked = scratch(t);
   fs.mkdirSync(locked.store, { recursive: true });
-  fs.chmodSync(locked.store, 0o500); // tempDir's removal restores owner write permission
+  // Windows has no directory permission bits: there the two directories the writer would create are
+  // regular files instead, which equally leaves nothing writable beneath them.
+  const blockers = ['primary', 'worker-model'];
+  if (process.platform === 'win32') for (const name of blockers) fs.writeFileSync(path.join(locked.store, name), '');
+  else fs.chmodSync(locked.store, 0o500); // tempDir's removal restores owner write permission
   const denied = bridge(locked, 'codex');
   assert.deepEqual(denied, open);
-  assert.deepEqual(files(locked.store), []);
+  assert.deepEqual(files(locked.store), process.platform === 'win32' ? blockers : []);
   const noHome = bridge(locked, 'codex', { env: { HOME: '' } });
   assert.deepEqual(noHome, open, 'with no config home nothing is written and nothing changes');
 });

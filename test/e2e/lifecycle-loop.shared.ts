@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 // lifecycle-loop.shared.js — the dispatcher runner, scratch repositories and fault preload the
 // lifecycle-loop e2e test files share (feature 046). Not a test file. Every spawn runs under a scratch
 // HOME and XDG_CONFIG_HOME with no global git config (DEC-041); each test file removes its own scratch.
@@ -43,7 +44,7 @@ const WORKFLOW_ARGS = ['workflow', '--task-class', 'feature', '--json'];
 
 /** Runs the dispatcher in `cwd`. `xdg` gives a run its own machine-wide failure home. */
 function rt(cwd: any, args: any, { env = {}, xdg = scratch.xdg, input = '' } = {}) {
-  const result = spawnSync('bash', [RUN, ...args], {
+  const result = spawnSync(bashPath(), [RUN, ...args], {
     cwd, input, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
     env: scratch.env({
       XDG_CONFIG_HOME: xdg, DOFLOW_CONFIG_DIR: CONFIG,

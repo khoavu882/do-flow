@@ -20,6 +20,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir, suiteTempDir } = require('../helper/tmp.ts');
 const { spawnSync, execFileSync } = require('node:child_process');
+const { samePath } = require('../helper-platform.ts');
+const FIFO_SKIP = process.platform === 'win32' ? 'a FIFO is not a filesystem entry on win32' : false;
 
 const REPO = path.resolve(__dirname, '..', '..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
@@ -41,7 +43,7 @@ function project(t?: any) {
 function run(cwd: any, args: any, { home }: any = {}) {
   const res = spawnSync('node', [DOFLOW, ...args], {
     cwd,
-    env: { ...process.env, HOME: home ?? cwd },
+    env: { ...process.env, HOME: home ?? cwd, USERPROFILE: home ?? cwd },
     encoding: 'utf8',
   });
   return { status: res.status, stdout: res.stdout, stderr: res.stderr };
@@ -521,7 +523,7 @@ test('C-10: a run\'s brief records are read from the checkout the verb runs in, 
   const orchestrator: any = new WorkflowOrchestrator({ projectRoot: cwd, sourceRoot: fs.realpathSync(wt), featureSlug: '950-brief' });
   const { briefRecords, repoRoot } = orchestrator.readBriefRecords('950-brief');
   assert.deepEqual(briefRecords, [{ runTaskId: '950-brief', stage: 'discovery', tier: 'sonnet' }]);
-  assert.equal(repoRoot, fs.realpathSync(wt), 'report paths resolve in the checkout that holds the folder');
+  assert.ok(samePath(repoRoot, fs.realpathSync(wt)), `report paths resolve in the checkout that holds the folder (${repoRoot})`);
 });
 
 // ─────────────────────────────── FU-16c2wz / FU-wrnnaq / FU-mtjqt9 C-13: what `status` reads
@@ -530,12 +532,12 @@ const storeOf = (cwd: any) => path.join(cwd, '.doflow', 'state', 'orchestration'
 /** `status` with a time limit, so a read that blocks fails the test instead of hanging the file. */
 function statusWithin(cwd: any, args: any, timeout: any = 20000) {
   const res = spawnSync('node', [DOFLOW, 'orchestrate', '--action', 'status', ...args], {
-    cwd, env: { ...process.env, HOME: cwd }, encoding: 'utf8', timeout, killSignal: 'SIGKILL',
+    cwd, env: { ...process.env, HOME: cwd, USERPROFILE: cwd }, encoding: 'utf8', timeout, killSignal: 'SIGKILL',
   });
   return { status: res.status, signal: res.signal, error: res.error, stdout: res.stdout, stderr: res.stderr };
 }
 
-test('FU-16c2wz: a FIFO as the run file makes status fail fast, naming the file, not hang', (t) => {
+test('FU-16c2wz: a FIFO as the run file makes status fail fast, naming the file, not hang', { skip: FIFO_SKIP }, (t) => {
   const cwd = project(t);
   fs.mkdirSync(storeOf(cwd), { recursive: true });
   const fifo = path.join(storeOf(cwd), 'ZZ.json');
@@ -547,7 +549,7 @@ test('FU-16c2wz: a FIFO as the run file makes status fail fast, naming the file,
   assert.ok(res.stderr.includes(fifo), res.stderr);
 });
 
-test('FU-16c2wz: a FIFO as a namespaced run file makes status fail fast too', (t) => {
+test('FU-16c2wz: a FIFO as a namespaced run file makes status fail fast too', { skip: FIFO_SKIP }, (t) => {
   const cwd = project(t);
   fs.mkdirSync(path.join(storeOf(cwd), 'feat-a'), { recursive: true });
   assert.equal(spawnSync('mkfifo', [path.join(storeOf(cwd), 'feat-a', 'ZZ.json')]).status, 0);

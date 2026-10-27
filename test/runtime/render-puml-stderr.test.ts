@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 // render-puml.sh splices the projector's stdout into authored design.md prose. A projector that also
 // writes to stderr (Node prints an ExperimentalWarning there on 23.6 to 24.2) must not leak into it.
 const { test } = require('node:test');
@@ -45,7 +46,7 @@ function stubPlantumlDir() {
   return dir;
 }
 
-const run = (root: any) => spawnSync('bash', [SCRIPT], {
+const run = (root: any) => spawnSync(bashPath(), [SCRIPT], {
   cwd: root,
   encoding: 'utf8',
   env: { ...process.env, PATH: `${stubPlantumlDir()}${path.delimiter}${process.env.PATH}` },

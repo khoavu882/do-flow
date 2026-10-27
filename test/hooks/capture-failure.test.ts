@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // B.5 — the hook capture helper and its two calls inside the fail-open branches of the guard
 // policies (IC-018, DEC-018, DEC-032). The real policy folder is copied into a scratch directory so
@@ -17,7 +18,7 @@ const { encodeEnvelope } = require('../helper/hook-fixtures.ts');
 
 const POLICIES = path.resolve(__dirname, '..', '..', 'core', 'harnesses', 'shared', 'hooks', 'policies');
 const HAS_JQ = spawnSync('jq', ['--version']).status === 0;
-const BASH = fs.existsSync('/bin/bash') ? '/bin/bash' : 'bash';
+const BASH = bashPath();
 const scratch = createScratch('doflow-hook-capture-');
 after(() => scratch.remove());
 
@@ -275,17 +276,20 @@ describe('the helper (IC-018)', () => {
   });
   test('a working directory with quotes, backslashes, control characters and unicode stays one valid JSON line, within 1000 bytes', () => {
     const m: any = machine('h-escape', { patterns: false });
-    const nasty = path.join(m.dir, 'we"ird\\na\tme caf\u00e9 \u4e2d');
+    // NTFS forbids a double quote and control characters in a name (and a backslash is its separator), so on
+    // Windows the name keeps the unicode and the apostrophe; the backslashes of the path itself still reach the JSON escape.
+    const win = process.platform === 'win32';
+    const nasty = path.join(m.dir, win ? "we'ird na me caf\u00e9 \u4e2d" : 'we"ird\\na\tme caf\u00e9 \u4e2d');
     fs.mkdirSync(nasty);
     call(m, ['pre-bash-guard', 'patterns-missing'], { cwd: nasty });
     const raw = fs.readFileSync(m.events, 'utf8');
     assert.equal(raw.split('\n').filter(Boolean).length, 1);
-    assert.ok(lines(m)[0].project.includes('we"ird\\na me caf'));
+    assert.ok(lines(m)[0].project.includes(win ? "we'ird na me caf" : 'we"ird\\na me caf'));
     assert.ok(Buffer.byteLength(raw) <= 1000);
   });
   test('a very long working directory is cut and the line stays within 1000 bytes', () => {
     const m: any = machine('h-long', { patterns: false });
-    const long = path.join(m.dir, 'q"'.repeat(60));
+    const long = path.join(m.dir, (process.platform === 'win32' ? "q'" : 'q"').repeat(60)); // a double quote is not a legal NTFS name character
     fs.mkdirSync(long, { recursive: true });
     call(m, ['pre-bash-guard', 'patterns-missing'], { cwd: long, env: { DOFLOW_AGENT: 'a'.repeat(40) } });
     assert.ok(Buffer.byteLength(fs.readFileSync(m.events, 'utf8')) <= 1000);

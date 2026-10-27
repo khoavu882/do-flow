@@ -38,7 +38,8 @@ function machine(root: any, options: { home: string; xdg: string; cwd: string })
   const env = { ...process.env };
   for (const key of Object.keys(env)) if (key.startsWith('DOFLOW_') || key === 'PI_CODING_AGENT_DIR') delete env[key];
   Object.assign(env, {
-    HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: xdg, TMPDIR: tmp, DOFLOW_TELEMETRY: 'off', DOFLOW_UPKEEP: 'off',
+    // the temp folder comes from TEMP/TMP on win32, not TMPDIR
+    HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: xdg, TMPDIR: tmp, TEMP: tmp, TMP: tmp, DOFLOW_TELEMETRY: 'off', DOFLOW_UPKEEP: 'off',
     GIT_CONFIG_GLOBAL: path.join(root, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
   });
   const pkg = (...args: any[]) => spawnSync(process.execPath, [CLI, 'package', '--action', ...args], { cwd, env, encoding: 'utf8', timeout: 60000 });

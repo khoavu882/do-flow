@@ -201,8 +201,14 @@ function installedProject(t: any) {
   const home = tempDir(t, 'doflow-retired-home-');
   const project = tempDir(t, 'doflow-retired-project-');
   const savedHome = process.env.HOME;
+  const savedProfile = process.env.USERPROFILE;
   process.env.HOME = home;
-  t.after(() => { process.env.HOME = savedHome; });
+  // os.homedir() ignores HOME on Windows and reads USERPROFILE
+  if (process.platform === 'win32') process.env.USERPROFILE = home;
+  t.after(() => {
+    process.env.HOME = savedHome;
+    if (process.platform === 'win32') { if (savedProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = savedProfile; }
+  });
   const lines: string[] = [];
   const errors: string[] = [];
   t.mock.method(console, 'log', (...args: any[]) => { lines.push(args.join(' ')); });
@@ -293,10 +299,10 @@ test('rollback of a sweep backup restores the retired files and rows byte for by
 
   const cwd = process.cwd();
   process.chdir(s.project);
-  t.after(() => process.chdir(cwd));
   s.errors.length = 0;
   s.lines.length = 0;
-  cmdRollback({ positional: [backup.id], targets: [], dryRun: false, force: true, global: false });
+  // Back out of the project before the test ends: Windows cannot remove a directory that is the cwd.
+  try { cmdRollback({ positional: [backup.id], targets: [], dryRun: false, force: true, global: false }); } finally { process.chdir(cwd); }
 
   for (const [file, bytes] of before) assert.deepEqual(fs.readFileSync(file), bytes, `restored: ${file}`);
   const rowsAfter = oldtoolRows(readLedger(s.state)).map((row: any) => JSON.stringify(row)).sort();

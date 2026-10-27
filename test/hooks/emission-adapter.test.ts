@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // 078 D.1 — the hook emission adapter policies/emission.sh and the IC-015 ledger (IC-004, IC-015;
 // DEC-015, DEC-016, DEC-017). The adapter is driven directly under /bin/bash (3.2 on macOS) with a
@@ -14,8 +15,9 @@ const { tempDir } = require('../helper/tmp.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const POLICIES = path.join(REPO, 'core/harnesses/shared/hooks/policies');
-const BASH = '/bin/bash';
-const REAL_JQ = spawnSync('/bin/sh', ['-c', 'command -v jq'], { encoding: 'utf8' }).stdout.trim();
+const BASH = bashPath();
+// asked of the bash under test: on Windows jq is found through Git Bash's PATH view, and /bin/sh is no native path
+const REAL_JQ = spawnSync(BASH, ['-c', 'command -v jq'], { encoding: 'utf8' }).stdout.trim();
 const GRANT_ID = 's-20261014T100000Z-Ab12Cd';
 const REFUSAL = 'refused:mandatory-over-budget';
 const GIT = { is_git_repo: true, branch: 'topic', sha: 'abc1234', commits: ['one', 'two'], uncommitted_count: 0, stash_count: 0 };
@@ -82,8 +84,9 @@ function run(w: any, sid: any, env = {}) {
     env: {
       HOME: w.home,
       XDG_CONFIG_HOME: w.xdg,
-      PATH: `${w.bin}:${process.env.PATH}`,
+      PATH: `${w.bin}${path.delimiter}${process.env.PATH}`,
       TMPDIR: process.env.TMPDIR || '/tmp',
+      ...(process.platform === 'win32' && process.env.SYSTEMROOT ? { SYSTEMROOT: process.env.SYSTEMROOT } : {}),
       EM_ROOT: w.root,
       EM_SID: sid,
       EM_CWD: w.cwd,
@@ -141,7 +144,7 @@ const LAUNCHED_MAIN = { DOFLOW_RUN_ID: 'r1', DOFLOW_LINEAGE_ID: 'l1', DOFLOW_ATT
 test('the PATH shim records a node or doflow-run call (positive control for the no-process checks)', (t) => {
   const w = world(t);
   const r = spawnSync(BASH, ['-c', 'node -e 1; doflow-run x; true'], {
-    env: { PATH: `${w.bin}:${process.env.PATH}`, EM_ROOT: w.root }, encoding: 'utf8',
+    env: { PATH: `${w.bin}${path.delimiter}${process.env.PATH}`, EM_ROOT: w.root, ...(process.platform === 'win32' && process.env.SYSTEMROOT ? { SYSTEMROOT: process.env.SYSTEMROOT } : {}) }, encoding: 'utf8',
   });
   assert.equal(r.status, 0);
   assert.equal(fs.readFileSync(path.join(w.root, 'spawned'), 'utf8'), 'node\ndoflow-run\n');

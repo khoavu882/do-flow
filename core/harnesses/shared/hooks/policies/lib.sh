@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # lib.sh — shared constants and helpers for the Canonical Policy Library
 #
 # Usage: source "<policy-dir>/lib.sh"
@@ -9,7 +10,7 @@
 #   3. capture stdin once: INPUT=$(cat)
 #   4. use: json_field "$INPUT" ".field_name"
 
-case ${BASH_SOURCE[0]} in */*) _DOFLOW_LIB_DIR=${BASH_SOURCE[0]%/*} ;; *) _DOFLOW_LIB_DIR=. ;; esac
+_DOFLOW_SRC=${BASH_SOURCE[0]//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_LIB_DIR=${_DOFLOW_SRC%/*} ;; *) _DOFLOW_LIB_DIR=. ;; esac
 #
 # Deployment:
 #   This file is installed by the doflow CLI and overwritten on update — do
@@ -34,9 +35,11 @@ doflow_config_home() {
   DOFLOW_HOME=""
   case "${XDG_CONFIG_HOME:-}" in
     /*) DOFLOW_HOME="${XDG_CONFIG_HOME}/doflow"; return 0 ;;
+    [A-Za-z]:[\\/]*) case "${OSTYPE:-}" in msys*|cygwin*|win32*) DOFLOW_HOME="${XDG_CONFIG_HOME}/doflow"; return 0 ;; esac ;;
   esac
   case "${HOME:-}" in
     /*) DOFLOW_HOME="${HOME}/.config/doflow" ;;
+    [A-Za-z]:[\\/]*) case "${OSTYPE:-}" in msys*|cygwin*|win32*) DOFLOW_HOME="${HOME}/.config/doflow" ;; esac ;;
   esac
   return 0
 }

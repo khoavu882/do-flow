@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('./helper/bash-locator.ts');
 
 // IC-002: the detail-entry grammar of validate-artifacts.sh accepts two forms — the "- **<ID>"
 // bullet and the "#### <ID>: <text>" heading — and the heading counts only when its ID is also a
@@ -25,7 +26,7 @@ const scratch = suiteTempDir('doflow-artifact-grammar-');
 function check(name: any, body: any) {
   const file = path.join(scratch, name);
   fs.writeFileSync(file, body.endsWith('\n') ? body : `${body}\n`);
-  const run = spawnSync('bash', [VALIDATOR, '--json', file], { encoding: 'utf8' });
+  const run = spawnSync(bashPath(), [VALIDATOR, '--json', file], { encoding: 'utf8' });
   assert.equal(run.error, undefined, `validator failed to spawn: ${run.error && run.error.message}`);
   const parsed = parseJson(run, name);
   assert.equal(parsed.note, undefined, `validator fell open with note "${parsed.note}" instead of checking ${name}`);
@@ -246,7 +247,7 @@ test('a named file that cannot be read is a finding, not a clean result', () => 
   // The heading rule must not have widened the fail-open surface: an unreadable target still exits
   // 1 and says so.
   const missing = path.join(scratch, 'absent.md');
-  const run = spawnSync('bash', [VALIDATOR, '--json', missing], { encoding: 'utf8' });
+  const run = spawnSync(bashPath(), [VALIDATOR, '--json', missing], { encoding: 'utf8' });
   assert.equal(run.error, undefined, `validator failed to spawn: ${run.error && run.error.message}`);
   const parsed = parseJson(run, 'absent.md');
   assert.equal(parsed.ok, false);
@@ -352,7 +353,7 @@ function featureRepo(t: any, name: any, register: any, files: any, { vcs = true 
 
 function validateIn(repo: any, ...args: any[]) {
   // PWD is set so a symlinked `repo` is seen logically, as an interactive shell would see it.
-  const run = spawnSync('bash', [VALIDATOR, '--json', ...args], { cwd: repo, encoding: 'utf8', env: { ...process.env, PWD: repo }, timeout: 20000 });
+  const run = spawnSync(bashPath(), [VALIDATOR, '--json', ...args], { cwd: repo, encoding: 'utf8', env: { ...process.env, PWD: repo }, timeout: 20000 });
   assert.equal(run.error, undefined);
   return { ...parseJson(run, args.join(' ')), status: run.status };
 }
@@ -602,7 +603,8 @@ test('unknown: inert without a register, and active for a register holding no de
   assert.deepEqual(rules(validateIn(empty.repo, path.join(empty.feature, 'design', 'design.md'))), ['unknown DEC-001']);
 });
 
-test('history: a project path containing a backslash is read literally, not as an escape sequence', (t) => {
+// A backslash is the directory separator on Windows, so no directory can be named with a literal one there.
+test('history: a project path containing a backslash is read literally, not as an escape sequence', { skip: process.platform === 'win32' && 'a backslash cannot be part of a Windows directory name' }, (t) => {
   // A directory named with a literal "\t": awk -v would turn that into a tab and miss the archive.
   const { repo, feature } = featureRepo(t, 'bs\\tdir', CHAIN, {
     'design/specs.md': [
@@ -755,7 +757,7 @@ function checkIn(dir: any, name: any, body: any, { validator = VALIDATOR, ...opt
   fs.mkdirSync(folder, { recursive: true });
   const file = path.join(folder, name);
   fs.writeFileSync(file, body);
-  const run = spawnSync('bash', [validator, '--json', file], { encoding: 'utf8', ...options });
+  const run = spawnSync(bashPath(), [validator, '--json', file], { encoding: 'utf8', ...options });
   assert.equal(run.error, undefined, `validator failed to spawn: ${run.error && run.error.message}`);
   return { run, file, result: parseJson(run, `${dir}/${name}`) };
 }
@@ -796,7 +798,7 @@ test('task-graph: only a file named plan.md is asked about', () => {
 
 test('task-graph: a plan.md that cannot be read is the one io finding, with no task-graph finding', () => {
   const missing = path.join(scratch, 'task-graph-absent', 'plan.md');
-  const run = spawnSync('bash', [VALIDATOR, '--json', missing], { encoding: 'utf8' });
+  const run = spawnSync(bashPath(), [VALIDATOR, '--json', missing], { encoding: 'utf8' });
   const parsed = parseJson(run, 'absent plan.md');
   assert.deepEqual(parsed.findings.map((f: any) => f.rule), ['io']);
   assert.equal(run.status, 1);
@@ -814,7 +816,7 @@ test('task-graph: the dispatcher missing prints one note on stderr and adds no f
   fs.mkdirSync(two, { recursive: true });
   fs.writeFileSync(path.join(one, 'plan.md'), taskPlan([]));
   fs.writeFileSync(path.join(two, 'plan.md'), taskPlan([]));
-  const run = spawnSync('bash', [copy, '--json', path.join(one, 'plan.md'), path.join(two, 'plan.md')], { encoding: 'utf8' });
+  const run = spawnSync(bashPath(), [copy, '--json', path.join(one, 'plan.md'), path.join(two, 'plan.md')], { encoding: 'utf8' });
   assert.deepEqual(parseJson(run, 'no dispatcher'), { ok: true, findings: [] });
   assert.equal(run.status, 0);
   const notes = run.stderr.split('\n').filter((l: any) => l.startsWith('note:'));
@@ -826,7 +828,7 @@ test('task-graph: Node missing from PATH prints one note and adds no finding', (
   // A PATH holding only the tools the checker itself needs, not node, which the dispatcher needs.
   const bin = tempDir(t, 'doflow-artifact-grammar-nonode-');
   for (const tool of ['bash', 'env', 'dirname', 'basename', 'awk', 'sed', 'jq', 'cat', 'grep', 'tr', 'head', 'sort', 'uname', 'rm', 'mkdir', 'mktemp', 'sh']) {
-    const found = spawnSync('bash', ['-c', `command -v ${tool}`], { encoding: 'utf8' }).stdout.trim();
+    const found = spawnSync(bashPath(), ['-c', `command -v ${tool}`], { encoding: 'utf8' }).stdout.trim();
     if (found) fs.symlinkSync(found, path.join(bin, tool));
   }
   const { run, result } = checkIn('task-graph-no-node', 'plan.md', taskPlan([]), {
@@ -858,15 +860,17 @@ test('default targets resolve under feature_root, and under repo_root when the k
   fs.writeFileSync(path.join(main, 'f', 'design.md'), ORPHAN_DESIGN);
 
   const withKey = stubbedValidator('fr-with-key', { repo_root: here, feature_root: main, feature_slug: 's', design: 'f/design.md' });
-  const viaMain = spawnSync('bash', [withKey, '--json'], { encoding: 'utf8' });
-  assert.deepEqual(parseJson(viaMain, 'feature_root').findings.map((f: any) => [f.file, f.rule, f.id]),
-    [[path.join(main, 'f', 'design.md'), 'parity', 'D-1']]);
+  const viaMain = spawnSync(bashPath(), [withKey, '--json'], { encoding: 'utf8' });
+  // The validator joins feature_root and the relative target with '/'; compare both sides slash-normalised.
+  const slashes = (p: string) => p.replace(/\\/g, '/');
+  assert.deepEqual(parseJson(viaMain, 'feature_root').findings.map((f: any) => [slashes(f.file), f.rule, f.id]),
+    [[slashes(path.join(main, 'f', 'design.md')), 'parity', 'D-1']]);
 
   const withoutKey = stubbedValidator('fr-without-key', { repo_root: here, feature_slug: 's', design: 'f/design.md' });
-  const viaHere = spawnSync('bash', [withoutKey, '--json'], { encoding: 'utf8' });
+  const viaHere = spawnSync(bashPath(), [withoutKey, '--json'], { encoding: 'utf8' });
   assert.equal(parseJson(viaHere, 'repo_root fallback').note, 'no-artifacts-present');
 
   fs.writeFileSync(path.join(here, 'f', 'design.md'), ORPHAN_DESIGN);
-  const fallback = spawnSync('bash', [withoutKey, '--json'], { encoding: 'utf8' });
-  assert.deepEqual(parseJson(fallback, 'repo_root fallback').findings.map((f: any) => f.file), [path.join(here, 'f', 'design.md')]);
+  const fallback = spawnSync(bashPath(), [withoutKey, '--json'], { encoding: 'utf8' });
+  assert.deepEqual(parseJson(fallback, 'repo_root fallback').findings.map((f: any) => slashes(f.file)), [slashes(path.join(here, 'f', 'design.md'))]);
 });

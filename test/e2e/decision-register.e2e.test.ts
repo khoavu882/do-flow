@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 // decision-register.e2e.test.js — feature 044 acceptance scenarios (requirement §6), driven through
 // the real dispatcher `doflow-run` (what every harness calls) against scratch git repos. Needs no
 // model, no network and no ~/.doflow: HOME is redirected to a scratch directory and every feature
@@ -48,7 +49,7 @@ function makeRepo(slug: any = '044-scratch') {
 
 /** Runs doflow-run with cwd = the scratch repo. Parses stdout as JSON when it is. */
 function run(repo: any, args: any, { input }: any = {}) {
-  const r = spawnSync('bash', [DOFLOW_RUN, ...args], {
+  const r = spawnSync(bashPath(), [DOFLOW_RUN, ...args], {
     cwd: repo,
     env: { ...baseEnv(), DOFLOW_CONFIG_DIR: path.join(repo, '.doflow') },
     input: input ?? '',

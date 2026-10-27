@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 088 D.2 (IC-018, IC-001, IC-003, IC-004, IC-006, IC-010, IC-011; FR-001, FR-003, FR-004,
 // FR-005, FR-006, NFR-004; G-O2): committed end-to-end canary privacy test.
@@ -55,7 +56,7 @@ const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 const FIXTURES = path.join(REPO, 'test/fixtures/hooks');
 const PROTOCOLS = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/protocols.json'), 'utf8'));
 const REGISTRY = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/telemetry.json'), 'utf8'));
-const BASH = '/bin/bash';
+const BASH = bashPath();
 const MAX_VALUE_BYTES = 256;
 
 const SURFACES: any = {

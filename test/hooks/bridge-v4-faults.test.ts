@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -35,7 +36,7 @@ function makeTree(policyBody?: any) {
 
 function run(dir: any, harness: any, event: any, policy: any, input: any = {}, args: any = [], env: any = {}) {
   const childEnv: any = { ...process.env, DOFLOW_FAILURE_CAPTURE: 'off', ...env };
-  return spawnSync('bash', [path.join(dir, 'bridge/bridge.sh'), harness, event, policy, ...args], {
+  return spawnSync(bashPath(), [path.join(dir, 'bridge/bridge.sh'), harness, event, policy, ...args], {
     cwd: dir,
     encoding: 'utf8',
     input: typeof input === 'string' ? input : JSON.stringify(input),
@@ -74,7 +75,7 @@ test('Kiro set-e session-start has no stderr temp artifact', () => {
   const tmp = path.join(dir, 'tmp');
   fs.mkdirSync(tmp);
   const bridge = path.join(dir, 'bridge/bridge.sh');
-  const result = spawnSync('bash', ['-c', 'set -e; . "$1"; doflow_bridge kiro SessionStart session-context', 'test-caller', bridge], {
+  const result = spawnSync(bashPath(), ['-c', 'set -e; . "$1"; doflow_bridge kiro SessionStart session-context', 'test-caller', bridge], {
     cwd: dir, encoding: 'utf8', input: '{}', env: { ...process.env, TMPDIR: tmp, DOFLOW_FAILURE_CAPTURE: 'off' },
   });
   assert.equal(result.status, 1, result.stderr, 'set -e caller observes the native policy error exit');

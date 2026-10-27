@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 091 B.3, rider R1 (CH10; FR-014, NFR-001): the UserPromptSubmit hook line carries the
 // emission metadata `emit_reason`, `emit_bytes` and `emit_digest`, which the policy hands to the
@@ -13,7 +14,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { buildInstallMirror, createScratch } = require('../helper/hook-fixtures.ts');
 
-const BASH = '/bin/bash';
+const BASH = bashPath();
 const REASONS = new Set(['emit', 'refused:mandatory-over-budget', 'silent:already-bootstrapped', 'silent:unchanged',
   'silent:no-home', 'fault:deps', 'fault:unit', 'fault:slot', 'fault:summary', 'fault:grant', 'fault:warning', 'fault:render']);
 const PROMPT = 'canary091prompt please refactor src/canary091path.js';
@@ -131,13 +132,16 @@ for (const harness of Object.keys(SURFACES)) {
 
   test(`${harness}: emit, silent, no-home and fault runs are byte-equal to telemetry off and write the reason`, () => {
     const session = `${harness}-pair-091`;
+    // Git Bash on Windows fills in an absent HOME from the Windows profile before any script runs, so a
+    // home-less hook cannot be arranged there (and both worlds would then share the real profile's state).
+    const noHome = process.platform !== 'win32';
     const { on, out } = pair([
       [harness, session],
       [harness, session],
-      [harness, `${harness}-nohome-091`, { HOME: undefined, XDG_CONFIG_HOME: undefined }],
+      ...(noHome ? [[harness, `${harness}-nohome-091`, { HOME: undefined, XDG_CONFIG_HOME: undefined }]] : []),
       [harness, 'has space'],
     ], { setup: (w: any) => seedGit(w, session) });
-    assert.deepEqual(out.map((line: any) => emitOf(line).emit_reason), ['emit', 'silent:already-bootstrapped', 'silent:no-home', 'fault:unit']);
+    assert.deepEqual(out.map((line: any) => emitOf(line).emit_reason), ['emit', 'silent:already-bootstrapped', ...(noHome ? ['silent:no-home'] : []), 'fault:unit']);
     for (const line of out) {
       const value = emitOf(line);
       assert.ok(REASONS.has(value.emit_reason));

@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -29,7 +30,7 @@ function makeBridgeTree(t: any) {
 
 function runBridge(root: any, harness: any, event: any, policy: any, profile: any, input: any) {
   const xdg = path.join(root, `xdg-${harness}-${policy}-${profile}`);
-  const result = spawnSync('bash', [path.join(root, 'bridge/bridge.sh'), harness, event, policy, '--emit', 'decision'], {
+  const result = spawnSync(bashPath(), [path.join(root, 'bridge/bridge.sh'), harness, event, policy, '--emit', 'decision'], {
     cwd: root,
     input,
     encoding: 'utf8',
@@ -58,7 +59,7 @@ function baselinePolicies(t: any) {
 
 function runBaselinePolicy(policyDir: any, policy: any, input: any) {
   const root = path.dirname(path.dirname(policyDir));
-  const result = spawnSync('bash', [path.join(policyDir, `${policy}.sh`)], {
+  const result = spawnSync(bashPath(), [path.join(policyDir, `${policy}.sh`)], {
     cwd: root,
     input,
     encoding: 'utf8',

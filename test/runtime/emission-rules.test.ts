@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // 078 B.2 (IC-003): the rule compiler and the committed hook table it generates.
 
@@ -14,7 +15,7 @@ const { TABLE_REL, compileArms, compileEmissionTable } = require('../../src/runt
 const REPO = path.resolve(__dirname, '../..');
 const GENERATOR_REL = 'src/runtime/context/emission-rules.ts';
 const TABLE = path.join(REPO, TABLE_REL);
-const BASH = '/bin/bash';
+const BASH = bashPath();
 const SILENCE_TOKENS: any = ['context-pack', 'delivery/', 'omissions', 'packEnd', '[end of pack]'];
 
 function runGenerator(root: any, ...args: any[]) {

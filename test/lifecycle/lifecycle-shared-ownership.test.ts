@@ -438,7 +438,9 @@ test('CLI: removing one of three harnesses that share .doflow leaves the runtime
   assert.equal(paths.status, 0, paths.stderr);
   // constitution_base echoes `pwd` from inside the script, which under Git Bash is /c/... MSYS
   // form; withinPath() compares that against realpath()'s native form portably.
-  assert.ok(withinPath(JSON.parse(paths.stdout).constitution_base, fs.realpathSync(root)),
+  // withinPath() does not map the /c/... form itself, so the drive spelling is restored here first.
+  const nativeBase = JSON.parse(paths.stdout).constitution_base.replace(/^\/([A-Za-z])(\/|$)/, (_m: any, d: any, rest: any) => (process.platform === 'win32' ? `${d.toUpperCase()}:${rest || '/'}` : _m));
+  assert.ok(withinPath(nativeBase, fs.realpathSync(root)),
     `constitution_base ${JSON.parse(paths.stdout).constitution_base} is not inside ${fs.realpathSync(root)} — the locator must reach this project's runtime, not another install's`);
 
   const last = cli(['remove', root, '-f', '-t', 'claude,codex']);

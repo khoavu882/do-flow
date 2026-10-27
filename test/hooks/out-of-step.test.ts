@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -32,7 +33,7 @@ function installOldDoors(mirror: any) {
 
 function runOldDoor(harness: any, mirror: any, project: any, input: any) {
   const [, installed] = OLD_DOORS[harness];
-  const result = spawnSync('bash', [path.join(mirror, installed)], {
+  const result = spawnSync(bashPath(), [path.join(mirror, installed)], {
     cwd: project,
     input: `${JSON.stringify(input)}\n`,
     encoding: 'utf8',
@@ -147,7 +148,7 @@ test('0fcd973 Claude and Codex Stop and SessionStart doors stay silent against t
     const installed = path.join(mirror, `.${harness}/hooks/${name}`);
     write(installed, contents);
     fs.chmodSync(installed, 0o755);
-    const result = spawnSync('bash', [installed], {
+    const result = spawnSync(bashPath(), [installed], {
       cwd: project, input: `${JSON.stringify(input)}\n`, encoding: 'utf8',
       env: { ...process.env, DOFLOW_AGENT: harness, DOFLOW_PROJECT_DIR: project, DOFLOW_FAILURE_CAPTURE: 'off' },
     });

@@ -6,7 +6,14 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
+const os = require('node:os');
 const { tempDir } = require('../helper/tmp.ts');
+const { bashPath } = require('../helper/bash-locator.ts');
+
+// The extension spawns a bare `bash`; on Windows that must be Git for Windows' bash, not WSL's System32 launcher.
+if (process.platform === 'win32') process.env.PATH = `${path.dirname(bashPath({ quiet: true }))}${path.delimiter}${process.env.PATH}`;
+// A directory every platform has; '/tmp' is no directory on Windows, where a spawn with it as cwd fails.
+const CWD = process.platform === 'win32' ? (process.env.TEMP as string) : '/tmp';
 
 const ROOT = path.resolve(__dirname, '../..');
 const TEMPLATE = path.join(ROOT, 'core/harnesses/pi/extensions/doflow-guard.js');
@@ -163,7 +170,7 @@ test('corpus fixtures route through the extension and preserve the serialized ca
     const handler = await loadExtension(t, shim);
     const input = deepFreeze(row.native.input);
     const event = Object.freeze({ ...row.native, input });
-    const result = await handler(event, context('/tmp'));
+    const result = await handler(event, context(CWD));
     assert.equal(result, undefined, `${name} route-only shim has no response`);
     if (row.policy) assert.equal(fs.readFileSync(argFile, 'utf8').trim(), `pi tool_call ${row.policy}`, `${name} bridge route`);
     else assert.equal(row.expect.spawn, false, `${name} stays local`);
@@ -174,7 +181,7 @@ test('corpus fixtures route through the extension and preserve the serialized ca
         toolCallId: row.native.toolCallId,
         ...(row.native.parentToolCallId ? { parentToolCallId: row.native.parentToolCallId } : {}),
         input: row.native.input,
-        cwd: '/tmp',
+        cwd: CWD,
         sessionId: 'pi-session',
       }, `${name} serialized payload`);
     }
@@ -230,7 +237,7 @@ test('frozen event input, including nested calls, is never changed', async (t) =
   const input = deepFreeze({ path: 'src/a.js', content: 'x', metadata: { nested: ['unchanged'] } });
   const event = Object.freeze({ type: 'tool_call', toolName: 'edit', toolCallId: 'outer/1', parentToolCallId: 'outer', input });
   const before = JSON.stringify(event);
-  await handler(event, context('/tmp'));
+  await handler(event, context(CWD));
   assert.equal(fs.readFileSync(argFile, 'utf8').trim(), 'pi tool_call pre-implementation-gate');
   assert.equal(JSON.stringify(event), before);
 });
@@ -239,12 +246,12 @@ test('simulated Pi dispatch stops at the first block and treats thrown handlers 
   const handler = await loadExtension(t, bridgeShim(t, { stdout: '{"block":true,"reason":"denied"}' }));
   let laterHandlerCalls = 0;
   const event: any = { type: 'tool_call', toolName: 'bash', toolCallId: 'dispatch', input: { command: 'true' } };
-  assert.deepEqual(await emitToolCall([handler, async () => { laterHandlerCalls += 1; }], event, context('/tmp')), {
+  assert.deepEqual(await emitToolCall([handler, async () => { laterHandlerCalls += 1; }], event, context(CWD)), {
     block: true,
     reason: 'denied',
   });
   assert.equal(laterHandlerCalls, 0);
-  assert.deepEqual(await emitToolCall([async () => { throw new Error('handler failed'); }], event, context('/tmp')), {
+  assert.deepEqual(await emitToolCall([async () => { throw new Error('handler failed'); }], event, context(CWD)), {
     block: true,
     reason: 'handler failed',
   });
@@ -255,7 +262,7 @@ test('read, grep, find, ls, powershell and non-string tool names do not spawn a 
   const args = path.join(dir, 'args');
   const handler = await loadExtension(t, bridgeShim(t, { recordArgs: args, root: dir }));
   for (const [index, toolName] of ['read', 'grep', 'find', 'ls', 'powershell', 42].entries()) {
-    assert.equal(await handler({ type: 'tool_call', toolName, toolCallId: `unrouted-${index}`, input: {} }, context('/tmp')), undefined, toolName);
+    assert.equal(await handler({ type: 'tool_call', toolName, toolCallId: `unrouted-${index}`, input: {} }, context(CWD)), undefined, toolName);
   }
   assert.equal(fs.existsSync(args), false);
 });
@@ -273,7 +280,7 @@ test('spawn errors and timeout proceed and request detached failure capture', as
   const missing = path.join(bridgeDir, 'bridge.sh');
   fs.writeFileSync(missing, 'exit 7\n');
   const handler = await loadExtension(t, missing);
-  assert.equal(await handler({ type: 'tool_call', toolName: 'bash', toolCallId: 'spawn', input: { command: 'true' } }, context('/tmp')), undefined);
+  assert.equal(await handler({ type: 'tool_call', toolName: 'bash', toolCallId: 'spawn', input: { command: 'true' } }, context(CWD)), undefined);
   assert.equal(await handler({ type: 'tool_call', toolName: 'bash', toolCallId: 'sync-spawn', input: { command: 'true' } }, context(42)), undefined);
   let captureContents = '';
   for (let attempt = 0; attempt < 100; attempt += 1) {
@@ -286,7 +293,7 @@ test('spawn errors and timeout proceed and request detached failure capture', as
 
   const slow = bridgeShim(t, { delay: 10, root: bridgeDir });
   const timeoutHandler = await loadExtension(t, slow);
-  assert.equal(await timeoutHandler({ type: 'tool_call', toolName: 'bash', toolCallId: 'timeout', input: { command: 'true' } }, context('/tmp')), undefined);
+  assert.equal(await timeoutHandler({ type: 'tool_call', toolName: 'bash', toolCallId: 'timeout', input: { command: 'true' } }, context(CWD)), undefined);
   for (let attempt = 0; attempt < 100 && !fs.readFileSync(captureLog, 'utf8').includes('bridge-timeout'); attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
   assert.match(fs.readFileSync(captureLog, 'utf8'), /pre-bash-guard bridge-timeout/);
 });
@@ -296,7 +303,7 @@ test('a missing bridge blocks routed tool calls and captures bridge-missing', as
   const captureLog = captureRecorder(root);
   const missing = path.join(root, 'bridge', 'bridge.sh');
   const handler = await loadExtension(t, missing);
-  assert.deepEqual(await handler({ type: 'tool_call', toolName: 'edit', toolCallId: 'missing', input: {} }, context('/tmp')), {
+  assert.deepEqual(await handler({ type: 'tool_call', toolName: 'edit', toolCallId: 'missing', input: {} }, context(CWD)), {
     block: true,
     reason: '[doflow] shared hooks lack the bridge; run: doflow update -t pi',
   });
@@ -318,7 +325,7 @@ test('output overflow, non-zero exit and malformed bridge answer allow with one 
       fs.mkdirSync(bridgeDir);
       const bridge: any = bridgeShim(subtest, { ...options, root: bridgeDir });
       const handler = await loadExtension(subtest, bridge);
-      const result = await handler({ type: 'tool_call', toolName: 'bash', toolCallId: name, input: { command: 'true' } }, context('/tmp'));
+      const result = await handler({ type: 'tool_call', toolName: 'bash', toolCallId: name, input: { command: 'true' } }, context(CWD));
       assert.equal(result, undefined, 'compat-1 allows bridge faults');
       await waitForText(captureLog, `pre-bash-guard ${point}`);
       assert.deepEqual(fs.readFileSync(captureLog, 'utf8').trim().split('\n'), [`pre-bash-guard ${point}`]);
@@ -333,7 +340,7 @@ test('strict-1 blocks a bridge spawn failure with the fixed reason', async (t) =
   const missing = path.join(tempDir(t, 'doflow-pi-strict-'), 'absent.sh');
   fs.writeFileSync(missing, 'exit 7\n');
   const handler = await loadExtension(t, missing);
-  assert.deepEqual(await handler({ type: 'tool_call', toolName: 'bash', toolCallId: 'strict', input: { command: 'true' } }, context('/tmp')), {
+  assert.deepEqual(await handler({ type: 'tool_call', toolName: 'bash', toolCallId: 'strict', input: { command: 'true' } }, context(CWD)), {
     block: true,
     reason: '[pre-bash-guard] DoFlow policy error; details: doflow-run failure list',
   });
@@ -348,7 +355,7 @@ test('an abort signal kills the active child process', async (t) => {
   const shim = bridgeShim(t, { delay: 10, backgroundPid: pidFile, root: bridgeDir });
   const handler = await loadExtension(t, shim);
   const controller: any = new AbortController();
-  const running = handler({ type: 'tool_call', toolName: 'bash', toolCallId: 'abort', input: { command: 'true' } }, context('/tmp', controller.signal));
+  const running = handler({ type: 'tool_call', toolName: 'bash', toolCallId: 'abort', input: { command: 'true' } }, context(CWD, controller.signal));
   let pidContents = '';
   for (let attempt = 0; attempt < 100; attempt += 1) {
     if (fs.existsSync(pidFile)) pidContents = fs.readFileSync(pidFile, 'utf8');

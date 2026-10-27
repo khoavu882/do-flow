@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // The gate helpers the prompt nudge hook uses (IC-006, IC-008, IC-009): repository root walk, the
 // opt-out setting, the marker file, the feature-folder and run-ledger probes, and the registry lookup.
@@ -10,15 +11,23 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env.ts');
+const { IS_WIN, samePath } = require('../helper-platform.ts');
+// bash reports a Windows path as /c/..., which realpath would read as a path on the current drive.
+const nativeOf = (p: any) => {
+  const text = String(p).trim();
+  const drive = IS_WIN ? /^\/([A-Za-z])(\/.*)?$/.exec(text) : null;
+  return drive ? `${drive[1].toUpperCase()}:${drive[2] ?? '/'}` : text;
+};
 
 const REPO = path.resolve(__dirname, '..', '..');
 const LIB = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'lib.sh');
-const BASH = process.platform === 'darwin' ? '/bin/bash' : 'bash';
+const BASH = bashPath();
 const scratch = createScratch('doflow-nudge-gates-');
 const NUDGE_DIR = path.join(scratch.xdg, 'doflow', 'session-env', 'nudge');
 const USER_SETTING = path.join(scratch.xdg, 'doflow', 'prompt-nudge');
 
-test.after(() => scratch.remove());
+const extraDirs: any[] = [];
+test.after(() => { scratch.remove(); for (const dir of extraDirs) fs.rmSync(dir, { recursive: true, force: true }); });
 
 let seq = 0;
 function fresh(name: any = 'd') {
@@ -127,9 +136,13 @@ function relativeTree() {
   fs.mkdirSync(path.join(base, 'relrepo', '.git'), { recursive: true });
   fs.mkdirSync(path.join(base, 'relrepo', 'src'), { recursive: true });
   fs.mkdirSync(path.join(base, 'nogit', 'sub'), { recursive: true });
-  fs.mkdirSync(path.join(base, 'C:', 'Work', 'dev', 'proj', '.git'), { recursive: true });
-  fs.mkdirSync(path.join(base, 'C:', 'Work', 'dev', 'proj', 'src'), { recursive: true });
-  fs.mkdirSync(path.join(base, 'C:', 'Work', 'dev', 'other'), { recursive: true });
+  // A folder named `C:` cannot exist on NTFS (the colon is reserved), so the drive-shaped tree is POSIX-only;
+  // on Windows a `C:` cwd is a real drive, not a relative path, and those cases below are left out.
+  if (process.platform !== 'win32') {
+    fs.mkdirSync(path.join(base, 'C:', 'Work', 'dev', 'proj', '.git'), { recursive: true });
+    fs.mkdirSync(path.join(base, 'C:', 'Work', 'dev', 'proj', 'src'), { recursive: true });
+    fs.mkdirSync(path.join(base, 'C:', 'Work', 'dev', 'other'), { recursive: true });
+  }
   return base;
 }
 
@@ -152,6 +165,7 @@ test('root walk: a cwd without a leading / ends, finds a .git ancestor on its ow
     ['', ''],
   ];
   for (const [cwd, root] of cases) {
+    if (process.platform === 'win32' && /^C:/.test(cwd)) continue;
     const r: any = callIn(base, 'nudge_repo_root', [cwd]);
     assert.equal(r.status, 0, `${JSON.stringify(cwd)}: ${r.stderr}`);
     assert.equal(r.stdout, root, `root of ${JSON.stringify(cwd)}`);
@@ -234,12 +248,16 @@ test('setting: an empty root consults only the user file', () => {
 test('safe ids: a UUID and plain names pass; empty, traversal, slash, space, newline and 129 characters fail', () => {
   const ok: any = ['9b6f2c1e-3a4d-4e5f-8a7b-0c1d2e3f4a5b', 'A', 'a.b_c-d', '0'.repeat(128)];
   const bad: any = ['', '../x', 'a/b', 'a b', '.hidden', '-lead', 'a\nb', 'a'.repeat(129), '_x'];
-  for (const id of ok) assert.equal(call('nudge_safe_id', [id]).status, 0, `accepts ${JSON.stringify(id)}`);
-  for (const id of bad) assert.notEqual(call('nudge_safe_id', [id]).status, 0, `rejects ${JSON.stringify(id)}`);
+  // The id travels in the environment: on Windows an argv word holding a newline is split by the MSYS
+  // runtime's command-line parsing, which would test the first half ('a') instead of the id.
+  const safeId = (id: any) => spawnSync(BASH, ['-c', 'source "$1"; nudge_safe_id "$DF_ID"', 'bash', LIB], { env: scratch.env({ DF_ID: id }), encoding: 'utf8' }).status;
+  for (const id of ok) assert.equal(safeId(id), 0, `accepts ${JSON.stringify(id)}`);
+  for (const id of bad) assert.notEqual(safeId(id), 0, `rejects ${JSON.stringify(id)}`);
 });
 
 test('marker file path is <state>/nudge/<id>', () => {
-  assert.equal(out('nudge_marker_file', ['abc-1']), path.join(NUDGE_DIR, 'abc-1'));
+  // the bash side appends '/'-joined segments to the native XDG folder
+  assert.equal(path.normalize(out('nudge_marker_file', ['abc-1'])), path.join(NUDGE_DIR, 'abc-1'));
 });
 
 test('exclusive create: first call wins, second fails and leaves the first content', () => {
@@ -437,7 +455,14 @@ test('ledger probe: config dir from DOFLOW_CONFIG_DIR, then the nearest .doflow 
   assert.equal(fires(sub, { DOFLOW_CONFIG_DIR: path.join(other, '.doflow') }), true);
 
   // no .doflow above cwd: HOME/.doflow
-  const bare = fresh('bare');
+  let bare = fresh('bare');
+  const storeAbove = (start: any) => { for (let d = start; ; d = path.dirname(d)) { if (fs.existsSync(path.join(d, '.doflow'))) return true; if (d === path.dirname(d)) return false; } };
+  if (process.platform === 'win32' && storeAbove(bare)) {
+    // The Windows temp folder sits under the user profile, which can hold a real .doflow store; the premise
+    // (no .doflow above cwd) is then arranged at the drive root instead of being assumed.
+    bare = fs.mkdtempSync(path.join(path.parse(bare).root, 'doflow-bare-'));
+    extraDirs.push(bare);
+  }
   fs.rmSync(path.join(scratch.home, '.doflow'), { recursive: true, force: true });
   assert.equal(fires(bare, {}), false);
   write(path.join(scratch.home, '.doflow', 'state', 'runs', '2026-10-09.jsonl'), rec('2026-10-09T10:07:00Z'));
@@ -465,12 +490,14 @@ test('ledger probe: a cwd without a leading / ends the walk and finds a .doflow 
   const session: any = fresh('session');
   write(path.join(session, 'git-context.json'), JSON.stringify({ captured_at: '2026-10-09T10:00:00Z' }));
   write(path.join(base, 'relrepo', '.doflow', 'state', 'runs', '2026-10-09.jsonl'), rec('2026-10-09T10:05:00Z'));
-  write(path.join(base, 'C:', 'Work', 'dev', 'proj', '.doflow', 'state', 'runs', '2026-10-09.jsonl'), rec('2026-10-09T10:05:00Z'));
+  // A `C:` folder cannot exist on NTFS and a `C:` cwd is a real drive there: the drive-shaped cases are POSIX-only.
+  const driveShaped = process.platform !== 'win32';
+  if (driveShaped) write(path.join(base, 'C:', 'Work', 'dev', 'proj', '.doflow', 'state', 'runs', '2026-10-09.jsonl'), rec('2026-10-09T10:05:00Z'));
   fs.rmSync(path.join(scratch.home, '.doflow'), { recursive: true, force: true });
-  for (const cwd of ['relrepo/src', 'C:/Work/dev/proj/src', 'C:\\Work\\dev\\proj\\src']) {
+  for (const cwd of ['relrepo/src', ...(driveShaped ? ['C:/Work/dev/proj/src', 'C:\\Work\\dev\\proj\\src'] : [])]) {
     assert.equal(callIn(base, 'nudge_ledger_active', [cwd, session]).status, 0, `${cwd} finds its ledger`);
   }
-  for (const cwd of ['relative/dir', 'nogit', 'C:', 'C:/Work/dev/other', 'C:\\Work\\dev\\other', '.', '..', '']) {
+  for (const cwd of ['relative/dir', 'nogit', ...(driveShaped ? ['C:', 'C:/Work/dev/other', 'C:\\Work\\dev\\other'] : []), '.', '..', '']) {
     assert.notEqual(callIn(base, 'nudge_ledger_active', [cwd, session]).status, 0, `${JSON.stringify(cwd)} has no ledger`);
   }
 });
@@ -488,7 +515,7 @@ test('registry lookup follows IC-006 order and fails when no candidate exists', 
   const c4 = path.join(scratch.home, '.doflow', 'runtime', 'core', 'registry', 'workflows.json');
   const resolve = () => {
     const r: any = call('nudge_registry', [policy, root]);
-    return r.status === 0 ? fs.realpathSync(r.stdout.trim()) : null;
+    return r.status === 0 ? fs.realpathSync(nativeOf(r.stdout)) : null;
   };
   fs.rmSync(path.join(scratch.home, '.doflow'), { recursive: true, force: true });
   assert.equal(resolve(), null);
@@ -505,7 +532,7 @@ test('registry lookup follows IC-006 order and fails when no candidate exists', 
   write(path.join(base, 'core', 'registry', 'workflows.json'), '{}');
   const r2: any = call('nudge_registry', [srcPolicy, root]);
   assert.equal(r2.status, 0);
-  assert.equal(fs.realpathSync(r2.stdout.trim()), fs.realpathSync(path.join(base, 'core', 'registry', 'workflows.json')));
+  assert.equal(fs.realpathSync(nativeOf(r2.stdout)), fs.realpathSync(path.join(base, 'core', 'registry', 'workflows.json')));
 
   write(c1, '{}');
   assert.equal(resolve(), fs.realpathSync(c1));
@@ -521,7 +548,7 @@ test('registry lookup skips a directory candidate and an empty policy folder arg
   write(file, '{}');
   const r: any = call('nudge_registry', ['', root]);
   assert.equal(r.status, 0);
-  assert.equal(r.stdout.trim(), file);
+  assert.ok(samePath(r.stdout.trim(), file), `${r.stdout.trim()} is ${file}`);
   fs.rmSync(path.join(scratch.home, '.doflow'), { recursive: true, force: true });
 });
 
@@ -530,5 +557,5 @@ test('the shipped source tree resolves its own registry through candidate 2', ()
   fs.rmSync(path.join(scratch.home, '.doflow'), { recursive: true, force: true });
   const r: any = call('nudge_registry', [policy, fresh('project')]);
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(fs.realpathSync(r.stdout.trim()), path.join(REPO, 'core', 'registry', 'workflows.json'));
+  assert.equal(fs.realpathSync(nativeOf(r.stdout)), path.join(REPO, 'core', 'registry', 'workflows.json'));
 });

@@ -70,9 +70,9 @@ test('config list text names effective settings, origins, candidates, and deprec
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, new RegExp(`config home: ${f.xdg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
   assert.match(result.stdout, /project: .*\((?:own|main|project)/);
-  assert.match(result.stdout, /storage\.prune \[project roots\] = "on"\s+\(project: .*\.doflow\/prune\)/);
-  assert.match(result.stdout, /storage\.prune \[user roots\] = "off"\s+\(user: .*\/doflow\/prune\)/);
-  assert.match(result.stdout, /    project .*\.doflow\/prune: "on" — decided/);
+  assert.match(result.stdout, /storage\.prune \[project roots\] = "on"\s+\(project: .*\.doflow[\\/]prune\)/);
+  assert.match(result.stdout, /storage\.prune \[user roots\] = "off"\s+\(user: .*[\\/]doflow[\\/]prune\)/);
+  assert.match(result.stdout, /    project .*\.doflow[\\/]prune: "on" — decided/);
   assert.match(result.stdout, /note: .*prune is deprecated/);
 });
 

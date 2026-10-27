@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -28,7 +29,7 @@ function nativeFixture(relativePath: any) {
 
 test('every current front door renders its IC-036 fallback with the bridge removed', (t) => {
   const mirror = tempDir(t, 'doflow-bridge-missing-');
-  execFileSync('bash', [path.join(__dirname, 'build-install-mirror.sh'), mirror]);
+  execFileSync(bashPath(), [path.join(__dirname, 'build-install-mirror.sh'), mirror]);
   fs.rmSync(path.join(mirror, '.doflow/shared/hooks/bridge'), { recursive: true, force: true });
 
   const doors = [
@@ -66,7 +67,7 @@ test('every current front door renders its IC-036 fallback with the bridge remov
   for (const row of doors) {
     const input = JSON.stringify(nativeFixture(row.fixture));
     const script = path.join(mirror, `.${row.harness}/hooks`, row.door);
-    const result = spawnSync('bash', [script], {
+    const result = spawnSync(bashPath(), [script], {
       input,
       encoding: 'utf8',
       env: childEnv(),

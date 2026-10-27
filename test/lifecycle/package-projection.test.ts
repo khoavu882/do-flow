@@ -156,7 +156,7 @@ test('trust plus enable projects the skill and the agent into claude and kiro; d
   const tmp = path.join(w.scratch.dir, 'tmp');
   fs.mkdirSync(tmp);
   const reinstall = spawnSync(process.execPath, [path.join(REPO_ROOT, 'bin', 'doflow.js'), 'install', '-g', '-f', '--no-backup', '-t', 'claude,kiro'],
-    { cwd: path.join(w.scratch.dir, 'work'), env: w.scratch.env({ TMPDIR: tmp, DOFLOW_CONFIG_DIR: '', DOFLOW_CLI: '', DOFLOW_AGENT: '', DOFLOW_FAILURE_CAPTURE: '' }), encoding: 'utf8', input: '\n' });
+    { cwd: path.join(w.scratch.dir, 'work'), env: w.scratch.env({ TMPDIR: tmp, TEMP: tmp, TMP: tmp, DOFLOW_CONFIG_DIR: '', DOFLOW_CLI: '', DOFLOW_AGENT: '', DOFLOW_FAILURE_CAPTURE: '' }), encoding: 'utf8', input: '\n' });
   assert.equal(reinstall.status, 0, reinstall.stdout + reinstall.stderr);
   for (const file of [...skillFiles, ...agentFiles]) assert.equal(fs.existsSync(file), true, file);
   assert.equal(w.ledgerRows().length, 4, 'the install keeps the package rows');

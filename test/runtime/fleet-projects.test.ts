@@ -56,9 +56,14 @@ function treeSnapshot(root: string) {
   return entries;
 }
 
+// Windows: PATH is already the runner's (node and Git for Windows are on it) and uses ';', os.homedir() reads USERPROFILE,
+// the temp folder comes from TEMP/TMP rather than TMPDIR, and a spawn with a stripped environment still needs SystemRoot.
+const WIN = process.platform === 'win32';
+const winEnv = (home: string, tmp?: string): any => (WIN ? { USERPROFILE: home, SystemRoot: process.env.SystemRoot, windir: process.env.windir, ...(tmp ? { TEMP: tmp, TMP: tmp } : {}) } : {});
+
 function env(f: any): any {
   return {
-    HOME: f.home, XDG_CONFIG_HOME: f.config, TMPDIR: process.env.TMPDIR, PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin`,
+    HOME: f.home, XDG_CONFIG_HOME: f.config, TMPDIR: process.env.TMPDIR, ...winEnv(f.home, process.env.TMPDIR), PATH: WIN ? (process.env.PATH ?? '') : `${path.dirname(process.execPath)}:/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin`,
     GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_TELEMETRY: 'off',
   };
 }

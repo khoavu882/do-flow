@@ -22,7 +22,22 @@ const FORCE_BASH = process.env.DOFLOW_TEST_SPAWN_VIA_BASH === '1';
  * script rather than a skip. Returns the spawnSync/spawn leading arguments. */
 function interpreterSpawn(exe: any, args: any) {
   if (!IS_WIN && !FORCE_BASH) return { file: exe, args };
-  return { file: 'bash', args: [exe, ...args] };
+  return { file: require('./helper/bash-locator.ts').bashPath(), args: [exe, ...args] };
+}
+
+/** A Git Bash path (/c/x, or /tmp/x under the MSYS root) as the native Windows spelling; any other path is returned as given. */
+function msysToNative(p: any) {
+  if (!IS_WIN || typeof p !== 'string' || !/^\/(?!\/)/.test(p)) return p;
+  const drive = /^\/([a-zA-Z])(\/.*)?$/.exec(p);
+  if (drive) return `${drive[1].toUpperCase()}:${drive[2] ?? '/'}`;
+  const r = require('node:child_process').spawnSync(require('./helper/bash-locator.ts').bashPath({ quiet: true }), ['-c', 'cygpath -m "$1"', 'x', p], { encoding: 'utf8' });
+  return r.status === 0 ? r.stdout.trim() : p;
+}
+
+/** The real path (long names, not 8.3 short ones) when the path exists, else the normalized path. */
+function nativeRealPath(p: any) {
+  if (!IS_WIN) return path.normalize(p);
+  try { return require('node:fs').realpathSync.native(p); } catch { return path.normalize(p); }
 }
 
 /** True when `a` and `b` are the same directory/file, tolerating the three spellings one path can
@@ -30,7 +45,7 @@ function interpreterSpawn(exe: any, args: any) {
  * scripts running under MSYS/Git Bash report `/c/...` POSIX form, and git prints `C:/...`.
  * Comparison is case-insensitive only on win32, where paths are case-insensitive. */
 function samePath(a: any, b: any) {
-  const canonical = (p: any) => path.normalize(p).replace(/\\/g, '/').replace(/\/+$/, '');
+  const canonical = (p: any) => nativeRealPath(msysToNative(p)).replace(/\\/g, '/').replace(/\/+$/, '');
   const left = canonical(a);
   const right = canonical(b);
   return IS_WIN ? left.toLowerCase() === right.toLowerCase() : left === right;

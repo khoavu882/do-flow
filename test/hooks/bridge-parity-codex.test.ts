@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -94,7 +95,7 @@ function run(row: any, index: any) {
     write(policyPath, "#!/usr/bin/env bash\ncat >/dev/null\nprintf 'private policy stderr' >&2\nexit 1\n");
     fs.chmodSync(policyPath, 0o755);
   }
-  const result = spawnSync('bash', [script], { cwd: projectRoot, env, input: `${JSON.stringify(native)}\n`, encoding: 'utf8' });
+  const result = spawnSync(bashPath(), [script], { cwd: projectRoot, env, input: `${JSON.stringify(native)}\n`, encoding: 'utf8' });
   if (policyBackup) fs.writeFileSync(policyPath, policyBackup);
   assert.equal(result.error, undefined, `${row.fixturePath}: ${result.error?.message || ''}`);
   assert.equal(result.status, row.fixture.expect.exit, `${row.fixturePath}: exit`);

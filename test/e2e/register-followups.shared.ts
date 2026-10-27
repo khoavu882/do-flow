@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 // register-followups.shared.js — scratch repositories, the dispatcher runner and the v1.12.0 comparison helpers the
 // register-followups e2e files share (feature 045). Not a test file. HOME is redirected to a scratch directory and
 // DOFLOW_CONFIG_DIR points into each scratch repo; the shared temp helper removes the scratch at process exit.
@@ -54,7 +55,7 @@ function makeRepo({ base = 'main', branch = null, seed = {} } = {}) {
 
 /** Runs doflow-run with cwd = the scratch repo. Parses stdout as JSON when it is. */
 function run(repo: any, args: any, { input }: any = {}) {
-  const r = spawnSync('bash', [DOFLOW_RUN, ...args], {
+  const r = spawnSync(bashPath(), [DOFLOW_RUN, ...args], {
     cwd: repo, env: { ...baseEnv(), DOFLOW_CONFIG_DIR: path.join(repo, '.doflow') },
     input: input ?? '', encoding: 'utf8',
   });
@@ -128,7 +129,7 @@ function v1120Validate(repo: any) {
   fs.writeFileSync(path.join(dir, 'validate-artifacts.sh'),
     gitShow('v1.12.0', 'core/shared/scripts/doflow/bash/validate-artifacts.sh'));
   fs.copyFileSync(path.join(bash, 'do-paths.sh'), path.join(dir, 'do-paths.sh'));
-  const r = spawnSync('bash', [path.join(dir, 'validate-artifacts.sh'), '--json'], {
+  const r = spawnSync(bashPath(), [path.join(dir, 'validate-artifacts.sh'), '--json'], {
     cwd: repo, env: { ...baseEnv(), DOFLOW_CONFIG_DIR: path.join(repo, '.doflow') }, encoding: 'utf8',
   });
   return r.stdout;

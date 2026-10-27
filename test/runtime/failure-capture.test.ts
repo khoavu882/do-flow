@@ -21,6 +21,8 @@ let n = 0;
 after(() => scratch.remove());
 
 const homeOf = (env: any) => failureHome(env);
+// failureHome joins with the platform separator; the literals below are the same paths spelled with '/'.
+const slashed = (p: any) => (typeof p === 'string' ? p.replace(/\\/g, '/') : p);
 const readLines = (home: any) => fs.readFileSync(path.join(home, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map((l: any) => JSON.parse(l));
 
 function freshEnv(name: any, extra: any = {}) {
@@ -81,26 +83,26 @@ describe('classifier (IC-010)', () => {
 
 describe('failure home (IC-011)', () => {
   test('XDG_CONFIG_HOME wins when absolute', () => {
-    assert.equal(failureHome({ XDG_CONFIG_HOME: '/x/cfg', HOME: '/h' }), '/x/cfg/doflow/failures');
+    assert.equal(slashed(failureHome({ XDG_CONFIG_HOME: '/x/cfg', HOME: '/h' })), '/x/cfg/doflow/failures');
   });
   test('HOME/.config when XDG_CONFIG_HOME is unset or empty', () => {
-    assert.equal(failureHome({ HOME: '/h' }), '/h/.config/doflow/failures');
-    assert.equal(failureHome({ XDG_CONFIG_HOME: '', HOME: '/h' }), '/h/.config/doflow/failures');
+    assert.equal(slashed(failureHome({ HOME: '/h' })), '/h/.config/doflow/failures');
+    assert.equal(slashed(failureHome({ XDG_CONFIG_HOME: '', HOME: '/h' })), '/h/.config/doflow/failures');
   });
   test('a relative XDG_CONFIG_HOME is ignored and a usable HOME supplies the home (086 DD-7)', () => {
-    assert.equal(failureHome({ XDG_CONFIG_HOME: 'cfg', HOME: '/h' }), '/h/.config/doflow/failures');
+    assert.equal(slashed(failureHome({ XDG_CONFIG_HOME: 'cfg', HOME: '/h' })), '/h/.config/doflow/failures');
   });
   test('a relative XDG_CONFIG_HOME with no usable HOME skips capture', () => {
-    assert.equal(failureHome({ XDG_CONFIG_HOME: 'cfg' }), null);
-    assert.equal(failureHome({ XDG_CONFIG_HOME: 'cfg', HOME: 'rel/h' }), null);
+    assert.equal(slashed(failureHome({ XDG_CONFIG_HOME: 'cfg' })), null);
+    assert.equal(slashed(failureHome({ XDG_CONFIG_HOME: 'cfg', HOME: 'rel/h' })), null);
   });
   test('an unset, empty or relative HOME skips capture', () => {
-    assert.equal(failureHome({}), null);
-    assert.equal(failureHome({ HOME: '' }), null);
-    assert.equal(failureHome({ HOME: 'rel/h' }), null);
+    assert.equal(slashed(failureHome({})), null);
+    assert.equal(slashed(failureHome({ HOME: '' })), null);
+    assert.equal(slashed(failureHome({ HOME: 'rel/h' })), null);
   });
   test('Node reads the HOME variable, not os.homedir()', () => {
-    assert.equal(failureHome({ HOME: '/only-this' }), '/only-this/.config/doflow/failures');
+    assert.equal(slashed(failureHome({ HOME: '/only-this' })), '/only-this/.config/doflow/failures');
   });
 });
 

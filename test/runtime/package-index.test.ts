@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const zlib = require('node:zlib');
+const { shPath } = require('../helper/tool-stub.ts');
 const { tempDir } = require('../helper/tmp.ts');
 const { readIndex, pickVersion } = require('../../src/runtime/packages/index-file.ts');
 const { handlePackageCommand } = require('../../src/runtime/packages/command.ts');
@@ -100,8 +101,8 @@ exit 0
   const env: any = {
     ...process.env, HOME: homeDir, XDG_CONFIG_HOME: path.join(homeDir, '.config'), TMPDIR: tmpDir,
     PATH: `${bin}${path.delimiter}${process.env.PATH}`, DOFLOW_UPKEEP: 'off',
-    FIXTURE_LOG: log, FIXTURE_SHA: SHA, FIXTURE_GIT_TAR: gitTar,
-    FIXTURE_NPM_TAR: npmTar, FIXTURE_VIEW: viewFile,
+    FIXTURE_LOG: shPath(log), FIXTURE_SHA: SHA, FIXTURE_GIT_TAR: shPath(gitTar),
+    FIXTURE_NPM_TAR: shPath(npmTar), FIXTURE_VIEW: shPath(viewFile),
   };
   return { root, homeDir, projectRoot, tmpDir, env, log, files, integrity };
 }

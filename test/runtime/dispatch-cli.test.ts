@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 082 C.6 (IC-001, IC-038 wiring, DEC-032, DEC-055): the `dispatch` verb and worker's 082
 // flags wired through `bin/doflow.js` and the `doflow-run` dispatcher, against the real registry.
@@ -31,7 +32,7 @@ function project(t: any) {
   return {
     box,
     cli: (...args: any[]) => spawn(process.execPath, [CLI, ...args]),
-    run: (...args: any[]) => spawn('/bin/bash', [RUN, ...args], { DOFLOW_CLI: CLI, DOFLOW_CONFIG_DIR: path.join(box.dir, 'config') }),
+    run: (...args: any[]) => spawn(bashPath(), [RUN, ...args], { DOFLOW_CLI: CLI, DOFLOW_CONFIG_DIR: path.join(box.dir, 'config') }),
   };
 }
 

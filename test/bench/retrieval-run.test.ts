@@ -226,7 +226,8 @@ test('holdout: results are aggregates only, written to results files, never to -
   }), { now: new Date('2026-10-12T00:00:00Z') });
   assert.equal(out.exitCode, 0);
   assert.deepEqual(seen, [['args', 'env', 'home', 'repoRoot', 'sealMeta', 'snapshot', 'thresholds']]);
-  assert.deepEqual(out.results.sort(), [
+  // The result paths are printed as path.relative output, so Windows separators are normalised on the actual side.
+  assert.deepEqual(out.results.map((r: string) => r.replace(/\\/g, '/')).sort(), [
     'bench/retrieval/results/holdout-1-g1-code-A-vs-B.json', 'bench/retrieval/results/holdout-1-g1-code-A.json', 'bench/retrieval/results/holdout-1-g1-code-B.json',
   ]);
   const dir = path.join(w.outDir, 'results');

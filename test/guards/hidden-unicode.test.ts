@@ -133,10 +133,22 @@ function nulFindings(rel: any, buffer: any): any {
 
 /** Every file git tracks in the repository, repo-relative. */
 function allTracked(root: any) {
-  return execFileSync('git', ['ls-files', '-z'], {
-    cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-    env: { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV },
-  }).split('\0').filter(Boolean);
+  try {
+    return execFileSync('git', ['ls-files', '-z'], {
+      cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+      env: { ...process.env, GIT_CONFIG_GLOBAL: os.devNull, GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV },
+    }).split('\0').filter(Boolean);
+  } catch {
+    // git refuses the checkout when it cannot be listed (on a Windows runner the scratch global config hides
+    // safe.directory, so ls-files exits 128). Like scanTargets, fall back to walking the working tree, minus
+    // the folders git never tracks.
+    const walk = (dir: string): string[] => fs.readdirSync(path.join(root, dir), { withFileTypes: true }).flatMap((entry: any) => {
+      const rel = dir ? `${dir}/${entry.name}` : entry.name;
+      if (entry.isDirectory()) return ['.git', 'node_modules'].includes(entry.name) ? [] : walk(rel);
+      return entry.isFile() ? [rel] : [];
+    });
+    return walk('');
+  }
 }
 
 /** Every regular file under `dir` (repo-relative, forward slashes); a symlink, dangling or not, is not one. */

@@ -128,7 +128,7 @@ function constitutionBaseFile(runtimeRoot: string = REPO_ROOT): string | null {
   return constitutionBaseCandidates(runtimeRoot).find((file) => fs.existsSync(file)) || null;
 }
 const CONSTITUTION_BASE = constitutionBaseFile() || constitutionBaseCandidates()[0];
-const CONSTITUTION_LOCAL = path.join('agent-docs', 'constitution.md');
+const CONSTITUTION_LOCAL = 'agent-docs/constitution.md';
 const UNBLOCK = 'revise the plan until it passes and record its row, or have a person amend the constitution with /do-constitution; there is no waiver';
 
 type Principle = { id: string; tier: 'MUST' | 'SHOULD'; source: string; line: number };

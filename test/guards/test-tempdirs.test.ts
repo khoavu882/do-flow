@@ -30,6 +30,12 @@ const CALLS: any = [`${MK}Sync(`, `${MK}(`, `${TMP}()`];
 const EXEMPT: any = new Map([
   ['test/install/home-scope.test.ts',
     "its subject is the OS temp folder's symlinked spelling versus its real path; it reads the platform temp folder and creates nothing"],
+  ['test/hooks/bridge-hook-line.test.ts',
+    'on win32 only, a self-removing folder at the drive root arranges the "no store above cwd" premise that the runner profile (which holds a .doflow store) breaks'],
+  ['test/hooks/prompt-nudge-gates.test.ts',
+    'on win32 only, a self-removing folder at the drive root arranges the "no .doflow above cwd" premise that the runner profile breaks'],
+  ['test/helper/bash-locator.ts',
+    'spawnWithFd3 on win32 places a one-shot side file for the child to open as fd 3 and unlinks it before returning; it is a file, not a folder, and cleans itself'],
   ['test/install/backup-manifest.test.ts',
     'the match is the text of a test name describing the shared temp folder the fix avoids; no call exists'],
 ]);

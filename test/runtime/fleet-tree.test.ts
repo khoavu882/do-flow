@@ -39,9 +39,14 @@ function repo(dir: string) {
   git(dir, 'commit', '-q', '-m', 'first');
 }
 
+// Windows: PATH is already the runner's (node and Git for Windows are on it) and uses ';', os.homedir() reads USERPROFILE,
+// the temp folder comes from TEMP/TMP rather than TMPDIR, and a spawn with a stripped environment still needs SystemRoot.
+const WIN = process.platform === 'win32';
+const winEnv = (home: string, tmp?: string): any => (WIN ? { USERPROFILE: home, SystemRoot: process.env.SystemRoot, windir: process.env.windir, ...(tmp ? { TEMP: tmp, TMP: tmp } : {}) } : {});
+
 function env(f: any): any {
   return {
-    HOME: f.home, XDG_CONFIG_HOME: f.config, PATH: process.env.PATH, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
+    HOME: f.home, ...winEnv(f.home), XDG_CONFIG_HOME: f.config, PATH: process.env.PATH, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
     DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_TELEMETRY: 'off', CLAUDE_CONFIG_DIR: '', CODEX_HOME: '', COPILOT_HOME: '', PI_CODING_AGENT_SESSION_DIR: '',
   };
 }
@@ -113,9 +118,12 @@ function snapshot(root: string): Record<string, string> {
   return out;
 }
 
+// core/registry/transcripts.json keeps every win32 location at status "unknown" (R28), and the tree skips those (tree.ts:83),
+// so on win32 the fixtures are read through the linux locations, which spell the same paths under the scratch home.
+const TRANSCRIPT_PLATFORM = WIN ? 'linux' : process.platform;
 const tree = (f: any, opts: any = {}) => {
   clearCheckoutCache();
-  const built = buildTree({ env: env(f), cwd: f.main, ...opts });
+  const built = buildTree({ env: env(f), cwd: f.main, platform: TRANSCRIPT_PLATFORM, ...opts });
   assert.equal(built.ok, true);
   return built.body;
 };
@@ -292,7 +300,8 @@ test('the read set is byte-identical after the tree (verb and module), and the C
   const ok = run(['--action', 'tree', '--json']);
   assert.equal(ok.status, 0, ok.stderr);
   const parsed = JSON.parse(ok.stdout);
-  assert.equal(parsed.nodes.length, tree(f).nodes.length);
+  // the CLI runs on the native platform, so does the module it is compared with
+  assert.equal(parsed.nodes.length, tree(f, { platform: process.platform }).nodes.length);
   for (const needle of ['fa000000', f.root, 'FIXTURE-']) assert.ok(!ok.stdout.includes(needle), needle);
   assert.equal(run(['--action', 'tree', '--bogus']).status, 2);
   assert.equal(run(['--action', 'nope']).status, 2);

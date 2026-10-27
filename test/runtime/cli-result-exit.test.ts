@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -9,7 +10,7 @@ const { suiteTempDir } = require('../helper/tmp.ts');
 const { EXIT, usageError } = require('../../src/runtime/cli-result.ts');
 
 const DISPATCHER = path.resolve(__dirname, '..', '..', 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
-const BASH = fs.existsSync('/bin/bash') ? '/bin/bash' : 'bash';
+const BASH = bashPath();
 
 test('cli-result-exit: EXIT defines frozen status constants per IC-002', () => {
   assert.equal(EXIT.OK, 0);

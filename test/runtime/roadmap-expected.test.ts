@@ -14,8 +14,11 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const cp = require('node:child_process');
 const { createHash } = require('node:crypto');
+const { shPath } = require('../helper/tool-stub.ts');
+const { systemPath } = require('../helper/system-path.ts');
 const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { repoFromTemplate } = require('../helper/repo-template.ts');
 const { next, handleRoadmapCommand } = require('../../src/runtime/roadmap/loop.ts');
@@ -168,8 +171,10 @@ const KNOWN_MISMATCHES: any = {
 
 function which(binary: any) {
   for (const dir of String(process.env.PATH || '').split(path.delimiter)) {
-    const file = path.join(dir, binary);
-    try { fs.accessSync(file, fs.constants.X_OK); if (fs.statSync(file).isFile()) return file; } catch { /* next */ }
+    for (const ext of process.platform === 'win32' ? ['.exe', ''] : ['']) {
+      const file = path.join(dir, binary + ext);
+      try { fs.accessSync(file, fs.constants.X_OK); if (fs.statSync(file).isFile()) return file; } catch { /* next */ }
+    }
   }
   throw new Error(`${binary} not found on PATH`);
 }
@@ -206,24 +211,26 @@ async function build(t: any, sc: any) {
   const developDir = path.join(dir, 'fx-dev');
   for (const d of [root, home, bin]) fs.mkdirSync(d, { recursive: true });
   const gitVersion = init.git?.version;
-  write(path.join(bin, 'git'), `#!/bin/sh\n${gitVersion ? `if [ "$1" = "--version" ]; then echo "git version ${gitVersion}"; exit 0; fi\n` : ''}exec "${REAL_GIT}" "$@"\n`);
+  write(path.join(bin, 'git'), `#!/bin/sh\n${gitVersion ? `if [ "$1" = "--version" ]; then echo "git version ${gitVersion}"; exit 0; fi\n` : ''}exec "${shPath(REAL_GIT)}" "$@"\n`);
   fs.chmodSync(path.join(bin, 'git'), 0o755);
   // The feature resolver is a bash script: link the shell and the coreutils it needs, and nothing that
   // could answer a capability probe (no rg, no semble unless the scenario says a provider is healthy).
-  for (const tool of ['bash', 'sh', 'env', 'cat', 'sed', 'awk', 'grep', 'dirname', 'basename', 'ls', 'tr', 'head', 'tail', 'sort', 'date', 'mkdir', 'readlink', 'realpath', 'cut', 'wc', 'uname', 'pwd', 'rm', 'mktemp', 'cp', 'mv', 'tee', 'xargs', 'find', 'printf', 'expr', 'id', 'whoami', 'hostname', 'jq', 'sleep', 'true', 'false', 'test', 'touch', 'chmod', 'stat', 'od', 'uniq', 'diff']) {
+  // win32 cannot spawn a symlink named without .exe: the sandbox is the stubs plus Git for Windows' own tools (no rg, no semble).
+  if (process.platform !== 'win32') for (const tool of ['bash', 'sh', 'env', 'cat', 'sed', 'awk', 'grep', 'dirname', 'basename', 'ls', 'tr', 'head', 'tail', 'sort', 'date', 'mkdir', 'readlink', 'realpath', 'cut', 'wc', 'uname', 'pwd', 'rm', 'mktemp', 'cp', 'mv', 'tee', 'xargs', 'find', 'printf', 'expr', 'id', 'whoami', 'hostname', 'jq', 'sleep', 'true', 'false', 'test', 'touch', 'chmod', 'stat', 'od', 'uniq', 'diff']) {
     try { fs.symlinkSync(which(tool), path.join(bin, tool)); } catch { /* absent on this system */ }
   }
   const probe = init.capabilitiesRegistry?.['code.semantic-search'];
   if (probe?.healthyProvider) { write(path.join(bin, 'semble'), '#!/bin/sh\nexit 0\n'); fs.chmodSync(path.join(bin, 'semble'), 0o755); }
 
-  const env: any = { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), FORCE_COLOR: '', PATH: bin,
-    GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 'Fixture Owner', GIT_AUTHOR_EMAIL: 'owner@example.invalid',
+  const toolPath = process.platform === 'win32' ? systemPath(bin) : bin;
+  const env: any = { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), FORCE_COLOR: '', PATH: toolPath,
+    GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, GIT_CONFIG_GLOBAL: os.devNull, GIT_AUTHOR_NAME: 'Fixture Owner', GIT_AUTHOR_EMAIL: 'owner@example.invalid',
     GIT_COMMITTER_NAME: 'Fixture Owner', GIT_COMMITTER_EMAIL: 'owner@example.invalid', GIT_AUTHOR_DATE: '1792400000 +0000',
     GIT_COMMITTER_DATE: '1792400000 +0000', DOFLOW_FIXTURE_CANARY: 'canary-7f3a9-do-not-log' };
   delete env[SWITCH_ENV];
   const git = (cwd: any, ...args: any[]) => cp.execFileSync(REAL_GIT, ['-C', cwd, ...args], { env, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
   let clock = Date.parse('2026-10-19T00:00:00.000Z');
-  const w: any = { dir, root, home, bin, env, git, sc, sym: {}, fw: {}, dispatch: {}, lastPerform: null, lastCode: null,
+  const w: any = { dir, root, home, bin: toolPath, env, git, sc, sym: {}, fw: {}, dispatch: {}, lastPerform: null, lastCode: null,
     tick: () => new Date(clock += 1000), developDir, seedBefore: null };
   const sym = (name: any) => {
     if (name === undefined || name === null) return null;

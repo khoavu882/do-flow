@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 088 B.2 (IC-003, IC-004; FR-002, FR-004, NFR-005, NFR-008): the shared bridge writes one
 // hook line per allowlisted invocation to <config>/state/runs/telemetry/<UTC date>.jsonl, from the
@@ -19,7 +20,7 @@ const REPO = path.resolve(__dirname, '../..');
 const FIXTURES = path.join(REPO, 'test/fixtures/hooks');
 const HOOK_FIXTURE = path.join(REPO, 'test/fixtures/telemetry/hook.jsonl');
 const ENVELOPE = '.doflow/shared/hooks/bridge/envelope.jq';
-const BASH = '/bin/bash';
+const BASH = bashPath();
 // The bridge times a hook only with EPOCHREALTIME (bash 5+); /bin/bash 3.2 on macOS leaves duration_ms null.
 const BASH_MAJOR = Number(spawnSync(BASH, ['-c', 'printf %s "${BASH_VERSINFO[0]}"'], { encoding: 'utf8' }).stdout);
 const expectedDuration = (value: any) => BASH_MAJOR < 5 ? null : (Number.isInteger(value) && value >= 0 ? value : 'not-a-duration');
@@ -75,6 +76,8 @@ function baseEnv(root: any, extra: any) {
   for (const key of Object.keys(env)) if (key.startsWith('DOFLOW_') || key === 'EPOCHREALTIME') delete env[key];
   const home = scratch.path(`home-${homes += 1}`); // fresh per run: session-scoped policy state never carries over
   fs.mkdirSync(home, { recursive: true });
+  // Windows names the variable `Path`; a second `PATH` key would leave the child with two spellings of one variable.
+  if (process.platform === 'win32') for (const key of Object.keys(extra || {})) for (const twin of Object.keys(env)) if (twin !== key && twin.toUpperCase() === key.toUpperCase()) delete env[twin];
   return { ...env, HOME: home, XDG_CONFIG_HOME: path.join(home, 'xdg'), DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_TELEMETRY: 'on', GIT_CONFIG_GLOBAL: '/dev/null', ...extra };
 }
 
@@ -137,11 +140,13 @@ function shellQuote(value: any) {
 
 function executableOnPath(name: any) {
   for (const dir of (process.env.PATH || '').split(path.delimiter)) {
-    const candidate = path.join(dir || process.cwd(), name);
-    try {
-      fs.accessSync(candidate, fs.constants.X_OK);
-      return candidate;
-    } catch { /* try the next PATH entry */ }
+    // Windows executables carry an extension (bash.exe, jq.exe): X_OK on the bare name finds nothing there.
+    for (const candidate of [path.join(dir || process.cwd(), name), ...(process.platform === 'win32' ? [path.join(dir || process.cwd(), `${name}.exe`)] : [])]) {
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
+      } catch { /* try the next PATH entry */ }
+    }
   }
   assert.fail(`cannot count ${name}: executable was not found on PATH`);
 }
@@ -154,6 +159,10 @@ function commandShims() {
     const script = `#!/bin/bash\nprintf '%s\\n' ${shellQuote(name)} >> "$DOFLOW_FORK_LOG"\nexec ${shellQuote(target)} "$@"\n`;
     fs.writeFileSync(path.join(dir, name), script, { mode: 0o755 });
   }
+  // Git Bash puts its own /usr/bin ahead of the inherited PATH, so a shim dir at the front of PATH never
+  // wins for cat, dirname, mkdir, date or bash. BASH_ENV (runCounted) sources this file, which puts the
+  // shim dir back in front inside every non-interactive bash the hook starts. win32 only.
+  if (process.platform === 'win32') fs.writeFileSync(path.join(dir, 'shim-first.sh'), 'PATH="${BASH_SOURCE[0]%/*}:$PATH"\n');
   return dir;
 }
 
@@ -165,6 +174,7 @@ function runCounted(root: any, surface: any, native: any, mode: any, shimDir: an
       DOFLOW_TELEMETRY: mode,
       DOFLOW_FORK_LOG: log,
       PATH: `${shimDir}${path.delimiter}${process.env.PATH}`,
+      ...(process.platform === 'win32' ? { BASH_ENV: path.join(shimDir, 'shim-first.sh').replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_m: any, d: any) => `/${d.toLowerCase()}`) } : {}),
     },
   });
   return {
@@ -403,7 +413,14 @@ test('no write without <config>/state, and no directory above runs/telemetry is 
 });
 
 test('no store above cwd: the bridge returns 0 without treating /state as a config', (t) => {
-  const cwd = tempDir(t, 'doflow-no-store-');
+  let cwd = tempDir(t, 'doflow-no-store-');
+  const hasStoreAbove = (start: any) => { for (let dir = start; ; dir = path.dirname(dir)) { if (fs.existsSync(path.join(dir, '.doflow'))) return true; if (dir === path.dirname(dir)) return false; } };
+  if (process.platform === 'win32' && hasStoreAbove(cwd)) {
+    // The Windows temp folder sits under the user profile, which can hold a real .doflow store; the premise
+    // (no store above cwd) is then arranged at the drive root instead of being assumed.
+    cwd = fs.mkdtempSync(path.join(path.parse(cwd).root, 'doflow-no-store-'));
+    t.after(() => fs.rmSync(cwd, { recursive: true, force: true }));
+  }
   for (let dir = cwd; ; dir = path.dirname(dir)) {
     assert.equal(fs.existsSync(path.join(dir, '.doflow')), false, `${dir} has no .doflow store`);
     if (dir === path.dirname(dir)) break;

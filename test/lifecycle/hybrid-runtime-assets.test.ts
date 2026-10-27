@@ -25,7 +25,7 @@ test('runtime.lib projects the Semble bridge into every harness runtime tree', (
   const destDir = sharedTreeDestDir(project, asset.nativeDir[harnessIds[0]]);
   const plan = planTree({ sourceDir: path.join(REPO, asset.source), destDir });
   assert.deepEqual(plan.conflicts, []);
-  assert.ok(plan.changes.some((change: any) => change.relPath === 'runtime/knowledge/semble-bridge.py'));
+  assert.ok(plan.changes.some((change: any) => String(change.relPath).replace(/\\/g, '/') === 'runtime/knowledge/semble-bridge.py'));
   applyTree({ changes: plan.changes });
 
   const source = path.join(REPO, 'src/runtime/knowledge/semble-bridge.py');

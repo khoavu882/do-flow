@@ -115,7 +115,7 @@ function outerProjectRoot(dir: any): any {
     const sep = dir.length > 2 && dir[2] === '/' ? '/' : '\\';
     return before[0] + sep;
   }
-  const sep = dir.includes('\\') && !dir.includes('/') ? '\\' : path.sep;
+  const sep = dir.includes('\\') && !dir.includes('/') ? '\\' : dir.includes('/') ? '/' : path.sep;
   return before.join(sep) || '.';
 }
 

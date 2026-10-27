@@ -168,7 +168,7 @@ test('F2: files vanishing mid-walk are skipped only on live sinks, never mapped 
   }
 });
 
-test('interpreter discovery: the semble launcher shebang names the bridge interpreter, no PATH wrapper needed', async t => {
+test('interpreter discovery: the semble launcher shebang names the bridge interpreter, no PATH wrapper needed', { skip: process.platform === 'win32' && 'the launcher shebang must be a plain absolute POSIX path (semble-provider.ts:19 ceiling); a Windows python.exe path is never one' }, async t => {
   const f = fixture(t); const { resolveSembleInterpreter } = require('../../src/runtime/knowledge/semble-provider.ts');
   const python = execFileSync('python3', ['-c', 'import sys; print(sys.executable)'], { encoding: 'utf8' }).trim();
   const bin = path.join(f.base, 'bin'); fs.mkdirSync(bin);
@@ -193,7 +193,7 @@ test('interpreter discovery negative controls: missing launcher, env shebang, mi
   assert.match(cause({ PATH: bin }), /^provider-unavailable: no semble launcher/);
   fs.writeFileSync(path.join(bin, 'semble'), '#!/usr/bin/env python3\n', { mode: 0o755 });
   assert.match(cause({ PATH: bin }), /^provider-unavailable: .* does not name an absolute interpreter/);
-  fs.writeFileSync(path.join(bin, 'semble'), `#!${path.join(f.base, 'gone', 'python3')}\n`, { mode: 0o755 });
+  fs.writeFileSync(path.join(bin, 'semble'), `#!${process.platform === 'win32' ? '/gone/python3' : path.join(f.base, 'gone', 'python3')}\n`, { mode: 0o755 });
   assert.match(cause({ PATH: bin }), /^provider-unavailable: interpreter .* is not executable/);
   // A missing launcher fails the lifecycle before any lock or mutation.
   const { python: _explicit, ...options } = f.options;

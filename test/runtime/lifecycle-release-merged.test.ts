@@ -196,7 +196,7 @@ function withEnv(extra: any, fn: any) {
   }
 }
 
-test('a git failure while reading the history of X, or of the integration ref, refuses the preview with git-state-failed', () => {
+test('a git failure while reading the history of X, or of the integration ref, refuses the preview with git-state-failed', { skip: process.platform === 'win32' && 'a PATH shim named git cannot be a script on win32: libuv resolves a spawned command only as .exe/.com, so the injected rev-list failure (test/helper/lifecycle-git-fixtures.ts failingGit) cannot run there; git-failure handling itself is covered on POSIX' }, () => {
   const { repo } = FIXTURES.mergeCommit(scratch);
   repo.dir = fs.realpathSync(repo.dir);
   track(repo, SLUG);

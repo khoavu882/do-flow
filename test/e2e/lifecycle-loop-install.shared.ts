@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 // lifecycle-loop-install.shared.js — scratch homes, the real `doflow install` runner and the projected-locator
 // runner the lifecycle-loop-install e2e files share. Not a test file. Every spawn runs under a scratch HOME and
 // XDG_CONFIG_HOME and with no global git config (DEC-041); each test file removes its own scratch.
@@ -45,7 +46,7 @@ function install(h: any, target: any) {
 }
 
 function run(h: any, cwd: any, locator: any, args: any, { input = '' } = {}) {
-  const r = spawnSync('bash', [locator, ...args], { cwd, input, encoding: 'utf8', env: envFor(h) });
+  const r = spawnSync(bashPath(), [locator, ...args], { cwd, input, encoding: 'utf8', env: envFor(h) });
   let json = null;
   try { json = JSON.parse(r.stdout); } catch { /* human output */ }
   return { status: r.status, stdout: r.stdout, stderr: r.stderr, json };

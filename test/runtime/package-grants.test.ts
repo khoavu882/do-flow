@@ -15,6 +15,14 @@ const { readGrants } = require('../../src/runtime/packages/grants.ts');
 const state = require('../../src/runtime/packages/state.ts');
 const { buildHealthReport, handleDoctorCommand } = require('../../src/runtime/health.ts');
 
+/** POSIX permission bits are not expressible on Windows (files report 0666, folders 0777): there the strongest check is that the entry exists with the right kind. */
+function expectMode(entry: any, mode: number) {
+  const st = fs.statSync(entry);
+  if (process.platform === 'win32') { assert.ok(st.isFile() || st.isDirectory(), `${entry} exists`); return; }
+  assert.equal(st.mode & 0o777, mode, entry);
+}
+
+
 const NO_TMP = path.join(path.parse(__dirname).root, 'doflow-no-such-system-tmp');
 const D1 = 'a'.repeat(64);
 const D2 = 'b'.repeat(64);
@@ -153,7 +161,7 @@ test('state: a missing file is empty, writes are atomic 0600, and the audit keep
   assert.equal(read.state.audit[0].result, 'ok-6');
   state.clearSuspension(o, { packageId: 'acme' });
   assert.deepEqual(state.readState(o).state.suspended, []);
-  assert.equal(fs.statSync(read.path).mode & 0o777, 0o600);
+  expectMode(read.path, 0o600);
   assert.deepEqual(fs.readdirSync(path.dirname(read.path)), ['state.json'], 'no temp file is left behind');
 });
 
@@ -190,7 +198,7 @@ test('state repair writes one revocation per grant line present and never widens
   assert.deepEqual(written.revoked.map((r: any) => [r.package, r.contentDigest, r.at]), [['acme', D1, repairAt], ['beta', D2, repairAt], ['gamma', D1, repairAt]]);
   const read = state.readState(o);
   assert.equal(read.unreadable, false);
-  assert.equal(fs.statSync(read.path).mode & 0o777, 0o600);
+  expectMode(read.path, 0o600);
   assert.equal(read.state.audit.length, 1);
   // every grant read before the repair stays void; a line printed after it counts
   for (const entry of w.read().grants.filter((g: any) => g.grant !== 'fetch')) assert.equal(state.grantRevoked(read, entry), true, `line ${entry.line}`);
@@ -258,7 +266,7 @@ test('grep guard: the detector flags every write API on a file that names grants
 });
 
 test('no src file that names grants.jsonl writes, renames or deletes', () => {
-  const sources = Object.fromEntries(srcFiles(path.join(REPO_ROOT, 'src')).map((file: string) => [path.relative(REPO_ROOT, file), fs.readFileSync(file, 'utf8')]));
+  const sources = Object.fromEntries(srcFiles(path.join(REPO_ROOT, 'src')).map((file: string) => [path.relative(REPO_ROOT, file).split(path.sep).join('/'), fs.readFileSync(file, 'utf8')]));
   assert.ok(sources['src/runtime/packages/grants.ts'], 'the reader is scanned');
   assert.deepEqual(writersOf(sources), []);
 });

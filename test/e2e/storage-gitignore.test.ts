@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -27,7 +28,7 @@ test('IC-016: git add -A stages only ledger.json under state, but stages setting
     const file = path.join(project, name); fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, text);
   }
   const exclude = fs.readFileSync(path.join(project, '.git/info/exclude'), 'utf8');
-  const result = spawnSync('/bin/bash', [RUN, 'evidence', '--action', 'list', '--task-id', 'idle', '--json'], { cwd: project, env, encoding: 'utf8' });
+  const result = spawnSync(bashPath(), [RUN, 'evidence', '--action', 'list', '--task-id', 'idle', '--json'], { cwd: project, env, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stdout + result.stderr);
   const ignore = path.join(project, '.doflow/state/.gitignore');
   assert.equal(fs.readFileSync(ignore, 'utf8'), `${registry.settings.ignoreFile.lines.join('\n')}\n`);

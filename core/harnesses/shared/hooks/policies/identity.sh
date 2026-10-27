@@ -45,7 +45,7 @@ _doflow_identity_capture() {
   policy="${policy%.sh}"
   policy="${policy%.impl}"
   # Inside a function, BASH_SOURCE[0] is the file that defined it: this file's directory.
-  case ${BASH_SOURCE[0]} in */*) dir=${BASH_SOURCE[0]%/*} ;; *) dir=. ;; esac
+  _DOFLOW_SRC=${BASH_SOURCE[0]//\\//}; case $_DOFLOW_SRC in */*) dir=${_DOFLOW_SRC%/*} ;; *) dir=. ;; esac
   if declare -F doflow_capture_failure >/dev/null 2>&1; then
     ( doflow_capture_failure "$policy" "$point" ) >/dev/null 2>&1 || true
   else
@@ -140,7 +140,11 @@ doflow_identity() {
     if [ -z "$sessions" ]; then
       case "${XDG_CONFIG_HOME:-}" in
         /*) sessions="$XDG_CONFIG_HOME/doflow/session-env/sessions" ;;
-        *) case "${HOME:-}" in /*) sessions="$HOME/.config/doflow/session-env/sessions" ;; esac ;;
+        [A-Za-z]:[\\/]*) case "${OSTYPE:-}" in msys*|cygwin*|win32*) sessions="$XDG_CONFIG_HOME/doflow/session-env/sessions" ;; esac ;;
+      esac
+      case "${HOME:-}" in
+        /*) [ -n "$sessions" ] || sessions="$HOME/.config/doflow/session-env/sessions" ;;
+        [A-Za-z]:[\\/]*) case "${OSTYPE:-}" in msys*|cygwin*|win32*) [ -n "$sessions" ] || sessions="$HOME/.config/doflow/session-env/sessions" ;; esac ;;
       esac
     fi
     dir="${sessions:+$sessions/$DF_ID_UNIT}"

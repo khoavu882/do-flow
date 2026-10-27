@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 // task-attempts.test.js — the task-attempt ledger (feature 070; FR-001..FR-007, NFR-001).
 //
 // A subprocess suite for the verb, for the reason runtime-outcome.test.js gives: the contract is
@@ -334,7 +335,7 @@ test('a plan with a duplicate task id is malformed input (design A-001)', (t) =>
 
 test('the dispatcher serves the verb (doflow-run task-attempt)', (t) => {
   const p = project(t);
-  const done = spawnSync('bash', [DISPATCHER, 'task-attempt', '--action', 'status', '--slug', SLUG, '--json'], {
+  const done = spawnSync(bashPath(), [DISPATCHER, 'task-attempt', '--action', 'status', '--slug', SLUG, '--json'], {
     cwd: p.dir, env: p.scratch.env({ DOFLOW_CLI: CLI }), encoding: 'utf8',
   });
   assert.equal(done.status, 0, done.stderr);

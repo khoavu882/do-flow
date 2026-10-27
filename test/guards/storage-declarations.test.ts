@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // G26 — storage declarations (feature 061, IC-020; FR-021, FR-022, FR-023, NFR-001).
 //
@@ -262,7 +263,7 @@ function runScenario() {
   fs.mkdirSync(project);
   fs.writeFileSync(observer, OBSERVER_SOURCE);
   try {
-    const built = spawnSync('bash', [path.join(REPO, 'test/hooks/build-install-mirror.sh'), mirror], { encoding: 'utf8' });
+    const built = spawnSync(bashPath(), [path.join(REPO, 'test/hooks/build-install-mirror.sh'), mirror], { encoding: 'utf8' });
     assert.equal(built.status, 0, built.stderr);
     const env = scratch.env({ DOFLOW_TELEMETRY: 'on', DOFLOW_CLI, NODE_OPTIONS: `--require=${observer}`, G26_OBSERVED: observed });
     const git = spawnSync('git', ['init', '-q'], { cwd: project, env, encoding: 'utf8' });
@@ -287,11 +288,11 @@ function runScenario() {
     const registry = loadStorageRegistry({ repoRoot: REPO });
     const roots = resolveRoots({ registry, projectRoot: project, env });
     const sessionPayload: any = { session_id: 'g26-session', cwd: project, source: 'startup' };
-    const verb = (...args: any[]) => ({ cmd: '/bin/bash', args: [DOFLOW_RUN, ...args] });
+    const verb = (...args: any[]) => ({ cmd: bashPath(), args: [DOFLOW_RUN, ...args] });
     const cli = (...args: any[]) => ({ cmd: process.execPath, args: [DOFLOW_CLI, ...args] });
     const node = (...args: any[]) => ({ cmd: process.execPath, args });
     const hook = (script: any, payload: any) => ({
-      cmd: '/bin/bash', args: [script],
+      cmd: bashPath(), args: [script],
       input: script.endsWith('/session-context.sh')
         ? encodeEnvelope('claude', 'SessionStart', 'session-context', JSON.stringify(payload))
         : JSON.stringify(payload),
@@ -303,7 +304,7 @@ function runScenario() {
     // The bash summary store (feature 078): a scoped summary write and its owner claim, then a grant
     // seeded where grantSummary() would write it and claimed by rename.
     const summaryStore = (script: any) => ({
-      cmd: '/bin/bash',
+      cmd: bashPath(),
       args: ['-c', `set -euo pipefail\n. "$1/lib.sh"\n. "$1/summary-store.sh"\n${script}`, 'summary-store.sh', path.join(mirror, '.doflow/shared/hooks/policies'), project],
     });
     const summaryWriteClaim = 'doflow_summary_write "$2" local main "" 2026-10-14T10:00:00Z g26-writer auto main main "a summary"\ndoflow_summary_claim "$2" local main g26-session g26-session\nrm -f "$DF_SUMMARY_CLAIMED"';
@@ -370,7 +371,7 @@ assert.deepEqual(check.failedFiles,['test/g26.test.js']);
 const stateFile=path.join(configDir,'state','verification','v0','failed-first-g26-task.json');
 const state=JSON.parse(fs.readFileSync(stateFile,'utf8'));
 const sha16=text=>crypto.createHash('sha256').update(text).digest('hex').slice(0,16);
-assert.equal(fs.statSync(stateFile).mode&0o777,0o600);
+if(process.platform!=='win32')assert.equal(fs.statSync(stateFile).mode&0o777,0o600);
 assert.equal(state.v,1);
 assert.equal(state.cwd,sha16(fs.realpathSync(root)));
 assert.deepEqual(state.checks[check.name],{cmd:sha16(command),files:[sha16('test/g26.test.js')]});`;
@@ -384,7 +385,7 @@ if(out.shared!=='leader'||!fs.readdirSync(dir).some(n=>n.endsWith('.result.json'
 const { reuseDir, storeReuse } = require(${JSON.stringify(path.join(REPO, 'src/runtime/verification/reuse.ts'))});
 const dir=reuseDir({projectRoot:process.argv[1]});
 const out=storeReuse({dir,key:'0123456789abcdef',payloadDigest:'a'.repeat(64),level:'L2',result:{status:'PASS',exitCode:0,stdout:'',stderr:'',truncated:false},mintRef:()=> 'b'.repeat(32)});
-if(!out.stored||((fs.statSync(dir).mode&0o777)!==0o700)||!fs.existsSync(path.join(dir,'reuse-0123456789abcdef.json')))process.exit(1);`;
+if(!out.stored||(process.platform!=='win32'&&(fs.statSync(dir).mode&0o777)!==0o700)||!fs.existsSync(path.join(dir,'reuse-0123456789abcdef.json')))process.exit(1);`;
     // Exercise the production intent writer without any merge or external process.
     const writeRoadmap = `const path=require('node:path');
 const { writeIntent } = require(${JSON.stringify(path.join(REPO, 'src/runtime/roadmap/merge.ts'))});
@@ -442,8 +443,8 @@ if(!applied.ok){console.error(JSON.stringify(applied.findings));process.exit(1);
       ['post-edit-lint.sh', hook(path.join(mirror, '.claude/hooks/post-edit-lint.sh'), { ...sessionPayload, tool_name: 'Edit', tool_input: { file_path: path.join(project, 'f.js') } }), 0],
       // The shared bridge's observe-model step (row 120 IC-005): a codex payload naming a model, once as
       // the main session and once as a launched worker, writes one file in each observation store.
-      ['bridge observe-model main', { cmd: '/bin/bash', args: [bridge, 'codex', 'PreToolUse', 'mcp-tool-guard'], input: modelPayload }, 0],
-      ['bridge observe-model worker', { cmd: '/usr/bin/env', args: ['DOFLOW_SESSION_ROLE=worker', 'DOFLOW_RUN_ID=g26', 'DOFLOW_LINEAGE_ID=w', 'DOFLOW_ATTEMPT=1', '/bin/bash', bridge, 'codex', 'PreToolUse', 'mcp-tool-guard'], input: modelPayload }, 0],
+      ['bridge observe-model main', { cmd: bashPath(), args: [bridge, 'codex', 'PreToolUse', 'mcp-tool-guard'], input: modelPayload }, 0],
+      ['bridge observe-model worker', { cmd: bashPath(), args: [bridge, 'codex', 'PreToolUse', 'mcp-tool-guard'], envPatch: { DOFLOW_SESSION_ROLE: 'worker', DOFLOW_RUN_ID: 'g26', DOFLOW_LINEAGE_ID: 'w', DOFLOW_ATTEMPT: '1' }, input: modelPayload }, 0],
       ['project install', cli('install', project, ...target, '--mcp', 'none'), 0],
       ['project update', cli('update', project, ...target), 0],
       ['global install', cli('install', '-g', ...target, '--mcp', 'none'), 0],
@@ -451,11 +452,11 @@ if(!applied.ok){console.error(JSON.stringify(applied.findings));process.exit(1);
       ['seed old advice partitions', node('-e', seedOldAdvice, roots['project-state'], roots['user-state']), 0],
       ['seed worker run and output', node('-e', seedWorkerRun, roots['project-state']), 0],
       // `empty-bin` does not exist, so every harness is `not-on-path` and no process but Node starts:
-      // no real harness binary runs (081 IC-031, IC-032). `/usr/bin/env` is absent on win32 (RK8).
-      ['worker probe (empty PATH)', { cmd: '/usr/bin/env', args: [`PATH=${path.join(scratch.dir, 'empty-bin')}`, process.execPath, DOFLOW_CLI, 'worker', '--action', 'probe', '--json'] }, 0],
+      // no real harness binary runs (081 IC-031, IC-032). The environment is patched on the spawn itself: `/usr/bin/env` is absent on win32 (RK8).
+      ['worker probe (empty PATH)', { cmd: process.execPath, args: [DOFLOW_CLI, 'worker', '--action', 'probe', '--json'], envPatch: { PATH: path.join(scratch.dir, 'empty-bin') } }, 0],
       // In process with an empty PATH and no identity variables: the seed spawns nothing and looks up
       // no binary, and no harness is reachable even by accident (NFR-002, DEC-056).
-      ['seed dispatch record, envelope and worktree layout', { cmd: '/usr/bin/env', args: [...['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE'].flatMap((name) => ['-u', name]), `PATH=${path.join(scratch.dir, 'empty-bin')}`, process.execPath, '-e', seedDispatch, roots['project-state']] }, 0],
+      ['seed dispatch record, envelope and worktree layout', { cmd: process.execPath, args: ['-e', seedDispatch, roots['project-state']], envPatch: { DOFLOW_RUN_ID: undefined, DOFLOW_LINEAGE_ID: undefined, DOFLOW_ATTEMPT: undefined, DOFLOW_SESSION_ROLE: undefined, DOFLOW_WORKTREE: undefined, PATH: path.join(scratch.dir, 'empty-bin') } }, 0],
       ['storage --action prune', cli('storage', '--action', 'prune'), 0],
       ['project remove', cli('remove', project, ...target), 0],
       ['global remove', cli('remove', '-g', ...target), 0],
@@ -465,10 +466,15 @@ if(!applied.ok){console.error(JSON.stringify(applied.findings));process.exit(1);
     const observations: any = [];
     const failures: any = [];
     let known = snapshot();
-    for (const [step, { cmd, args, input }, expected] of steps as any[]) {
+    for (const [step, { cmd, args, input, envPatch }, expected] of steps as any[]) {
       fs.rmSync(observed, { force: true });
-      const result = spawnSync(cmd, args, { cwd: project, env, input, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-      if (result.status !== expected) failures.push(`${step}: exit ${result.status}, expected ${expected}: ${result.stderr || result.stdout}`);
+      const stepEnv: any = { ...env };
+      // Windows environment names are case-insensitive: drop a differently-cased twin (Path) before patching PATH.
+      for (const name of Object.keys(envPatch ?? {})) for (const twin of Object.keys(stepEnv)) if (process.platform === 'win32' && twin.toUpperCase() === name.toUpperCase()) delete stepEnv[twin];
+      Object.assign(stepEnv, envPatch ?? {});
+      for (const name of Object.keys(stepEnv)) if (stepEnv[name] === undefined) delete stepEnv[name];
+      const result = spawnSync(cmd, args, { cwd: project, env: stepEnv, input, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+      if (result.status !== expected) failures.push(`${step}: exit ${result.status}, expected ${expected}: ${result.stderr || result.stdout || result.error}`);
       const after = snapshot();
       const touched: any = new Set([...after].filter((file) => !known.has(file)));
       if (fs.existsSync(observed)) {
@@ -820,13 +826,17 @@ test('G26 self-test: the scanner reads every file as text and tells bash writes 
 });
 
 test('G26 self-test: a path no declaration covers fails, naming the path and the step', () => {
-  const sandbox = '/sandbox';
-  const roots = resolveRoots({ registry, projectRoot: `${sandbox}/project`, env: { HOME: `${sandbox}/home`, XDG_CONFIG_HOME: `${sandbox}/xdg` } });
+  // A native absolute root (on Windows /sandbox alone is drive-relative), joined natively; the messages
+  // carry path.relative output, so they are compared slash-normalised.
+  const sandbox = path.resolve('/sandbox');
+  const at = (...parts: string[]) => path.join(sandbox, ...parts);
+  const roots = resolveRoots({ registry, projectRoot: at('project'), env: { HOME: at('home'), XDG_CONFIG_HOME: at('xdg') } });
   const mapped = [
-    `${sandbox}/xdg/doflow/sessions.log.lock.d`, `${sandbox}/xdg/doflow/sessions.log.ab12cd`, `${sandbox}/project/.doflow/state/evidence/t.json.lock`,
-    `${sandbox}/project/.doflow/state`, `${sandbox}/project/.doflow/state/verification`, `${sandbox}/project/.doflow/doflow.lock`,
+    at('xdg', 'doflow', 'sessions.log.lock.d'), at('xdg', 'doflow', 'sessions.log.ab12cd'), at('project', '.doflow', 'state', 'evidence', 't.json.lock'),
+    at('project', '.doflow', 'state'), at('project', '.doflow', 'state', 'verification'), at('project', '.doflow', 'doflow.lock'),
   ].map((file) => ({ file, step: 'fixture' }));
-  const errors = checkLocations(registry, roots, [...mapped, { file: `${sandbox}/project/.doflow/state/stray.dat`, step: 'fixture step' }], sandbox);
+  const errors = checkLocations(registry, roots, [...mapped, { file: at('project', '.doflow', 'state', 'stray.dat'), step: 'fixture step' }], sandbox)
+    .map((message: any) => String(message).replace(/\\/g, '/'));
   assert.ok(errors.includes('project/.doflow/state/stray.dat written by fixture step'), errors.join('\n'));
   assert.equal(errors.filter((message: any) => message.includes(' written by ')).length, 1, errors.join('\n'));
   assert.ok(errors.includes('store verification-logs not exercised'));

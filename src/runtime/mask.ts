@@ -153,8 +153,8 @@ function escapeRegExp(text: string): string { return text.replace(/[.*+?^${}()|[
 /** The home directory to abbreviate: an absolute path other than the file system root. */
 function homeOf(options?: any): string | null {
   const raw = options && 'home' in options ? options.home : process.env.HOME;
-  if (typeof raw !== 'string' || !raw.startsWith('/')) return null;
-  const home = raw.replace(/\/+$/, '');
+  if (typeof raw !== 'string' || !(raw.startsWith('/') || /^[A-Za-z]:[\\/]/.test(raw))) return null;
+  const home = raw.replace(/[\\/]+$/, '');
   return home.length > 1 ? home : null;
 }
 

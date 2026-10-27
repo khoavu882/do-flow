@@ -120,8 +120,8 @@ function runFrontDoors(spec: any, cwd: any) {
   const sessionId = spec.sessionId ?? `fake-${process.pid}`;
   const hooks = path.join(spec.mirror, `.${spec.harness ?? 'claude'}`, 'hooks');
   // The child PATH is a scratch bin/ that holds bash only when a test names it, so bash is taken
-  // from /bin when there.
-  const bash = fs.existsSync('/bin/bash') ? '/bin/bash' : 'bash';
+  // from /bin when there (on win32, Git for Windows' bash.exe).
+  const bash = require('./bash-locator.ts').bashPath({ quiet: true });
   const door = (script: any, payload: any) => {
     const r = spawnSync(bash, [path.join(hooks, script)], { cwd, env, input: `${JSON.stringify(payload)}\n`, encoding: 'utf8' });
     return { status: r.status, stdout: r.stdout ?? '' };

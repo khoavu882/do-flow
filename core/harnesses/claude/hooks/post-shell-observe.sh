@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # IC-005, E.1 (Claude Code 2.1.292): event gives status; duration_ms is numeric on both
 # post events. Neither has a numeric exit code. Never inspect or record output/error text.
 [ "${DOFLOW_TELEMETRY:-}" != off ] || exit 0
@@ -9,7 +10,7 @@ IFS= read -r -d '' payload || true
 case "$payload" in *test*|*jest*|*mocha*) ;; *) exit 0 ;; esac
 
 # Source definitions only; no lifecycle policy, failure capture or native response runs here.
-case ${BASH_SOURCE[0]} in */*) hook_dir=${BASH_SOURCE[0]%/*} ;; *) hook_dir=. ;; esac
+_DOFLOW_SRC=${BASH_SOURCE[0]//\\//}; case $_DOFLOW_SRC in */*) hook_dir=${_DOFLOW_SRC%/*} ;; *) hook_dir=. ;; esac
 . "$hook_dir/../../.doflow/shared/hooks/bridge/bridge.sh" || exit 0
 
 # Same project-store resolution as bridge.sh, including nested dispatch delivery directories.

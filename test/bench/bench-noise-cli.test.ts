@@ -446,7 +446,8 @@ test('C.1: --out writes valid noise artifact, two runs are byte-equal, and --jso
     out: outFile1,
   }));
   assert.equal(run1.status, 0);
-  assert.match(run1.out, new RegExp(`noise: ${path.relative(REPO_ROOT, outFile1)}`));
+  // A literal substring: on Windows the path holds backslashes (or a drive-qualified absolute path) that a RegExp would read as escapes.
+  assert.ok(run1.out.includes(`noise: ${path.relative(REPO_ROOT, outFile1)}`), run1.out);
   assert.ok(fs.existsSync(outFile1), 'outFile1 was created');
 
   const artifact1 = JSON.parse(fs.readFileSync(outFile1, 'utf8'));

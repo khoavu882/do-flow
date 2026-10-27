@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -10,10 +11,19 @@ const { tempDir } = require('../helper/tmp.ts');
 
 const REPO_ROOT = path.resolve(__dirname, '../..');
 
+// npm is a .cmd shim on Windows, which Node cannot spawn without a shell; its entry script sits beside node.exe.
+function npmEntry(): string | undefined {
+  if (process.env.npm_execpath) return process.env.npm_execpath;
+  if (process.platform !== 'win32') return undefined;
+  const bundled = path.join(path.dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  return fs.existsSync(bundled) ? bundled : undefined;
+}
+
 function npm(args: any, options = {}) {
   const { npmCache, ...spawnOptions }: any = options;
-  return spawnSync(process.env.npm_execpath ? process.execPath : 'npm',
-    process.env.npm_execpath ? [process.env.npm_execpath, ...args] : args,
+  const entry = npmEntry();
+  return spawnSync(entry ? process.execPath : 'npm',
+    entry ? [entry, ...args] : args,
     { encoding: 'utf8', ...spawnOptions,
       env: { ...process.env, ...(npmCache ? { npm_config_cache: npmCache } : {}), ...spawnOptions.env } });
 }
@@ -68,7 +78,7 @@ test('packed package installs and runs its CLI and installed runtime offline', (
   assert.equal(install.status, 0, `doflow install failed\n${install.stdout}\n${install.stderr}`);
 
   const dispatcher = path.join(home, '.claude', 'bin', 'doflow-run');
-  const paths = spawnSync('bash', [dispatcher, 'paths', '--json'], { cwd: repo, encoding: 'utf8', env });
+  const paths = spawnSync(bashPath(), [dispatcher, 'paths', '--json'], { cwd: repo, encoding: 'utf8', env });
   assert.equal(paths.status, 0, `${paths.stdout}\n${paths.stderr}`);
   assert.ok(JSON.parse(paths.stdout), 'installed paths verb returned invalid JSON');
 

@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // bash-args.test.js — FU-r4ff7s. The helper scripts' argument loops read only `--flag=value`; a
 // space-separated `--slug x` fell through the `*) ;;` arm and the call resolved the ACTIVE feature
@@ -41,7 +42,7 @@ function project() {
 }
 
 function run(name: any, args: any, cwd: any) {
-  const res = spawnSync('bash', [script(name), ...args], { cwd, encoding: 'utf8', env: scratch.env(), timeout: 120000 });
+  const res = spawnSync(bashPath(), [script(name), ...args], { cwd, encoding: 'utf8', env: scratch.env(), timeout: 120000 });
   let data = null;
   try { data = JSON.parse(res.stdout); } catch { /* asserted by the caller */ }
   return { status: res.status, data, stdout: res.stdout, stderr: res.stderr };
@@ -153,7 +154,7 @@ describe('calls that worked before are unchanged', () => {
 
 describe('the shared rule (do-args.sh)', () => {
   const normalize = (flags: any, ...args: any[]) => {
-    const res = spawnSync('bash', ['-c', 'set -u; . "$1"; shift; flags="$1"; shift; doflow_normalize_args "$flags" "$@"; for a in ${DOFLOW_ARGS[@]+"${DOFLOW_ARGS[@]}"}; do printf "%s\\0" "$a"; done', 'x', script('do-args.sh'), flags, ...args],
+    const res = spawnSync(bashPath(), ['-c', 'set -u; . "$1"; shift; flags="$1"; shift; doflow_normalize_args "$flags" "$@"; for a in ${DOFLOW_ARGS[@]+"${DOFLOW_ARGS[@]}"}; do printf "%s\\0" "$a"; done', 'x', script('do-args.sh'), flags, ...args],
       { encoding: 'utf8', env: scratch.env() });
     assert.equal(res.status, 0, res.stderr);
     return res.stdout.split('\0').slice(0, -1);

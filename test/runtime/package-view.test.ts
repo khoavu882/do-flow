@@ -54,15 +54,17 @@ const view = (root: any, extra = {}) => { resetPackageView(); return packageView
 function runList(t: any, root: any, args: any = {}, { seedHome }: any = {}) {
   const bin = path.join(tempDir(t, 'doflow-pkgbin-'), 'bin');
   fs.mkdirSync(bin);
-  fs.symlinkSync(process.execPath, path.join(bin, 'node'));
+  const nodeName = process.platform === 'win32' ? 'node.exe' : 'node';
+  fs.symlinkSync(process.execPath, path.join(bin, nodeName));
   const home = tempDir(t, 'doflow-pkghome-');
   if (seedHome) seedHome(home);
   const script = `const { handlePackageCommand } = require(${JSON.stringify(COMMAND)});
     const lines = [];
     const code = handlePackageCommand({ ...${JSON.stringify(args)}, repoRoot: ${JSON.stringify(root)}, out: (l) => lines.push(l) });
     process.stdout.write(JSON.stringify({ code, lines }));`;
-  const result = spawnSync(path.join(bin, 'node'), ['-e', script], {
-    cwd: home, encoding: 'utf8', env: { PATH: bin, HOME: home, DOFLOW_TELEMETRY: 'off' },
+  const result = spawnSync(path.join(bin, nodeName), ['-e', script], {
+    // win32: os.homedir() reads USERPROFILE, and a node without SystemRoot cannot start its crypto/network layer.
+    cwd: home, encoding: 'utf8', env: { PATH: bin, HOME: home, DOFLOW_TELEMETRY: 'off', ...(process.platform === 'win32' ? { USERPROFILE: home, SystemRoot: process.env.SystemRoot } : {}) },
   });
   const parsed = JSON.parse(result.stdout || 'null') ?? assert.fail(result.stderr);
   assert.equal(result.status, parsed.code, 'the handler code is the process exit code');

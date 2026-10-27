@@ -812,11 +812,13 @@ test('F4: in a real sandbox the removed skill files are skip-worktree, so git st
   // A scratch clone stands in for the checkout: the create command makes a worktree under .doflow/
   // of whatever directory it runs in, and this test must not make one beside the developer's work.
   const clone = path.join(scratch.dir, 'create-clone');
-  const cloned = spawnSync('git', ['clone', '-q', '--no-hardlinks', path.resolve(__dirname, '../..'), clone], { encoding: 'utf8', env: scratch.env() });
+  // The sandbox worktree nests a full checkout under a long temp path; Git for Windows needs core.longpaths for that.
+  const gitEnv = () => scratch.env(process.platform === 'win32' ? { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'core.longpaths', GIT_CONFIG_VALUE_0: 'true' } : {});
+  const cloned = spawnSync('git', ['clone', '-q', '--no-hardlinks', path.resolve(__dirname, '../..'), clone], { encoding: 'utf8', env: gitEnv() });
   assert.equal(cloned.status, 0, cloned.stderr);
   const plan = runner.buildPlan(runner.loadConfig(), { iteration: 'fixture', skill: 'do-git', arm: 'without-skill' });
   const { create, workingDir } = plan.runs.find((r: any) => r.arm === 'without-skill').sandbox;
-  const made = spawnSync('sh', ['-c', create], { cwd: clone, encoding: 'utf8', env: scratch.env() });
+  const made = spawnSync('sh', ['-c', create], { cwd: clone, encoding: 'utf8', env: gitEnv() });
   assert.equal(made.status, 0, made.stderr);
   assert.match(made.stdout, /withheld=do-git/);
   const sandbox = path.join(clone, workingDir);
@@ -827,7 +829,7 @@ test('F4: in a real sandbox the removed skill files are skip-worktree, so git st
   assert.equal('do-git' in manifest.skills, false);
   assert.equal('do-plan' in manifest.skills, true);
   assert.doesNotMatch(JSON.stringify(manifest.skills), /do-git/);
-  const git = (...args: any[]) => spawnSync('git', args, { cwd: sandbox, encoding: 'utf8', env: scratch.env() }).stdout;
+  const git = (...args: any[]) => spawnSync('git', args, { cwd: sandbox, encoding: 'utf8', env: gitEnv() }).stdout;
   const seen = [git('status', '--short'), git('diff'), git('diff', 'HEAD')].join('\n');
   assert.doesNotMatch(seen, /do-git/);
   // The other skills are still there, so the hiding is not a blanket one.
@@ -840,7 +842,7 @@ test('F4: in a real sandbox the removed skill files are skip-worktree, so git st
   // Without the marking, the same removal is what git status prints, and it grades leaked.
   const files = git('ls-files', '-v').split('\n').filter((l: any) => l.startsWith('S ')).map((l: any) => l.slice(2)).join('\n');
   assert.ok(files.includes('core/shared/skills/do-git/SKILL.md'));
-  spawnSync('git', ['update-index', '--no-skip-worktree', '--stdin'], { cwd: sandbox, input: files, env: scratch.env() });
+  spawnSync('git', ['update-index', '--no-skip-worktree', '--stdin'], { cwd: sandbox, input: files, env: gitEnv() });
   fs.writeFileSync(path.join(dir, 'transcript.txt'), git('status', '--short'));
   assert.equal(runner.classifyWithheld('do-git', runner.loadRunContext(dir)).status, 'leaked');
 });

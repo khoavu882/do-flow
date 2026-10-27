@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -27,7 +28,7 @@ function fixture(t: any) {
     project,
     userFile: path.join(scratch.xdg, 'doflow', 'decision-model.json'),
     env: scratch.env({ DOFLOW_CLI: BIN }),
-    run: (args: any) => spawnSync('/bin/bash', [RUN, 'classify', ...args], {
+    run: (args: any) => spawnSync(bashPath(), [RUN, 'classify', ...args], {
       cwd: project, env: scratch.env({ DOFLOW_CLI: BIN }), encoding: 'utf8',
     }),
     startServer: async () => {
@@ -241,7 +242,7 @@ async function runCounted(t: any, f: any, args: any, { settings, sentinel, env }
   fs.mkdirSync(path.join(f.project, '.doflow', 'state'), { recursive: true });
   if (settings) fs.writeFileSync(path.join(f.project, '.doflow', 'settings.json'), JSON.stringify(settings));
   if (sentinel) fs.writeFileSync(path.join(f.project, '.doflow', 'state', 'rollback.json'), JSON.stringify(sentinel));
-  const child = spawn('/bin/bash', [RUN, 'classify', ...args], { cwd: f.project, env: f.scratch.env({ DOFLOW_CLI: BIN, ...(env || {}) }) });
+  const child = spawn(bashPath(), [RUN, 'classify', ...args], { cwd: f.project, env: f.scratch.env({ DOFLOW_CLI: BIN, ...(env || {}) }) });
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', (chunk: any) => { stdout += chunk; });

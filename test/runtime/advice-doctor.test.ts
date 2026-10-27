@@ -6,6 +6,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env.ts');
+const { tempDirOutsideProfile } = require('../helper/outside-profile.ts');
+const { systemPath } = require('../helper/system-path.ts');
 const { startFakeServer, spawnFakeServer } = require('../helper/fake-decision-server.ts');
 const { buildAdviceDoctor } = require('../../src/runtime/advice/doctor.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
@@ -13,12 +15,13 @@ const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const BIN = path.join(REPO_ROOT, 'bin/doflow.js');
 // `doctor` runs `<harness> --version` for every harness it finds on PATH (seconds each for some); these
 // tests read the advice sections only, so the spawned doctor sees node and the system tools and no harness.
-const DOCTOR_PATH = `${path.dirname(process.execPath)}:/usr/bin:/bin`;
+const DOCTOR_PATH = systemPath(path.dirname(process.execPath));
 const kinds = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core/registry/advice.json'), 'utf8')).kinds.map((kind: any) => kind.id);
 
 function fixture(t: any, setting?: any) {
   const scratch = createScratch('doflow-advice-doctor-');
-  const project = path.join(scratch.dir, 'project');
+  // outside the account profile on win32: the doctor walks up from the project to any `.doflow/` store
+  const project = path.join(tempDirOutsideProfile(t, 'doflow-advice-doctor-proj-'), 'project');
   fs.mkdirSync(project);
   const settingFile = path.join(scratch.xdg, 'doflow/decision-model.json');
   if (setting !== undefined) write(settingFile, typeof setting === 'string' ? setting : JSON.stringify(setting));

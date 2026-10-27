@@ -811,7 +811,7 @@ test('legacy.ts is not loaded without a stat hit on a legacy path, and is loaded
   const script = `
     const { loadSettings } = require(repo + '/src/runtime/settings/resolve.ts');
     loadSettings({ projectRoot: process.cwd() }).report();
-    const loaded = (name) => Object.keys(require.cache).some((p) => p.endsWith('/settings/' + name));
+    const loaded = (name) => Object.keys(require.cache).some((p) => p.replace(/\\\\/g, '/').endsWith('/settings/' + name));
     process.stdout.write(JSON.stringify({ legacy: loaded('legacy.ts'), lexical: loaded('lexical.ts') }));`;
   f.writeUserSettings({ schema: 1, 'storage.prune': 'off' });
   assert.deepEqual(nodeIn(f, script), { legacy: false, lexical: true });
@@ -820,7 +820,7 @@ test('legacy.ts is not loaded without a stat hit on a legacy path, and is loaded
   const prune = `
     const { loadSettings } = require(repo + '/src/runtime/settings/resolve.ts');
     loadSettings({ projectRoot: process.cwd() }).get('storage.retentionHours');
-    process.stdout.write(JSON.stringify(Object.keys(require.cache).some((p) => p.endsWith('/settings/legacy.ts') || p.endsWith('/settings/lexical.ts'))));`;
+    process.stdout.write(JSON.stringify(Object.keys(require.cache).some((p) => p.replace(/\\\\/g, '/').endsWith('/settings/legacy.ts') || p.replace(/\\\\/g, '/').endsWith('/settings/lexical.ts'))));`;
   assert.equal(nodeIn(f, prune), false, 'retention alone loads neither');
 });
 

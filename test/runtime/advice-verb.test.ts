@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -30,7 +31,7 @@ function fixture(t: any, { setting = null }: any = {}) {
   return {
     scratch, project, userFile, projectFile, userSettingsFile, projectSettingsFile,
     env: () => scratch.env({ DOFLOW_CLI: BIN }),
-    run: (args: any, { cwd = project }: any = {}) => spawnSync('/bin/bash', [RUN, 'advise', ...args], { cwd, env: scratch.env({ DOFLOW_CLI: BIN }), encoding: 'utf8' }),
+    run: (args: any, { cwd = project }: any = {}) => spawnSync(bashPath(), [RUN, 'advise', ...args], { cwd, env: scratch.env({ DOFLOW_CLI: BIN }), encoding: 'utf8' }),
     startServer: async (routes: any = {}) => {
       const server = await spawnFakeServer({ routes, dir: scratch.dir });
       servers.push(server);

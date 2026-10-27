@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { tempDir, suiteTempDir } = require('../helper/tmp.ts');
+const { samePath } = require('../helper-platform.ts');
 const { resolveActiveFeature, PATHS_HELPER } = require('../../src/runtime/feature-resolve.ts');
 
 function git(cwd: any, ...args: any[]) {
@@ -30,8 +31,8 @@ test('a feat/ branch resolves its feature folder and returns the resolver JSON',
   fs.writeFileSync(path.join(root, 'agent-docs/doflow/001-demo/intention/requirement.md'), '# r\n');
   const result = resolveActiveFeature({ projectRoot: root });
   assert.equal(result.error, undefined);
-  assert.equal(result.repoRoot, root);
-  assert.equal(result.featureDir, path.join(root, 'agent-docs/doflow/001-demo'));
+  assert.ok(samePath(result.repoRoot, root), `${result.repoRoot} is ${root}`);
+  assert.ok(samePath(result.featureDir, path.join(root, 'agent-docs/doflow/001-demo')), result.featureDir);
   assert.equal(result.paths.feature_slug, '001-demo');
   assert.equal(result.paths.layout, 'structured');
   assert.equal(result.paths.requirement, 'agent-docs/doflow/001-demo/intention/requirement.md');
@@ -43,7 +44,7 @@ test('--slug overrides the branch', () => {
   const root = tempRepo('feat/001-demo');
   fs.mkdirSync(path.join(root, 'agent-docs/doflow/002-other'), { recursive: true });
   const result = resolveActiveFeature({ projectRoot: root, slug: '002-other' });
-  assert.equal(result.featureDir, path.join(root, 'agent-docs/doflow/002-other'));
+  assert.ok(samePath(result.featureDir, path.join(root, 'agent-docs/doflow/002-other')), result.featureDir);
   assert.equal(result.paths.feature_slug, '002-other');
 });
 

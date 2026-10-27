@@ -169,10 +169,11 @@ test('a malformed gitdir line keeps the worktree own, and never throws', (t) => 
   const own = { layersFrom: path.join(linked, '.doflow'), checkout: 'own', files: filesOf(linked) };
   for (const bad of ['', 'garbage\n', 'gitdir:\n', 'gitdir:    \n', 'gitdir /x\n', `gitdir: ${path.join(linked, 'nope')}\n`,
     'gitdir: /a\0b\n', `gitdir: /${'x'.repeat(5000)}\n`, 'gitdir: /a\ngitdir: /b\n']) {
-    fs.writeFileSync(git, bad);
+    // git for Windows marks .git hidden, and opening a hidden file for write fails EPERM: replace it instead.
+    fs.rmSync(git, { force: true }); fs.writeFileSync(git, bad);
     assert.deepEqual(projectLayerSource(linked), own, JSON.stringify(bad.slice(0, 20)));
   }
-  fs.writeFileSync(git, original);
+  fs.rmSync(git, { force: true }); fs.writeFileSync(git, original);
   assert.equal(projectLayerSource(linked).checkout, 'main', 'restored');
 });
 

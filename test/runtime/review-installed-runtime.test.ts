@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // `review --action start` and `protocol --action resolve` through every harness's `doflow-run` shim after a real
 // `doflow install -g` of every harness into a scratch HOME (FU-nnmpc9). The installed runtime
@@ -50,7 +51,7 @@ function setup() {
   }
   // The shared dispatcher under ~/.doflow/scripts is the shim the skills call, so it is run too.
   const shims = shimsUnder(scratch.home);
-  const run = (shim: any, args: any) => spawnSync('bash', [path.join(scratch.home, shim), ...args], { cwd: repo, env, encoding: 'utf8' });
+  const run = (shim: any, args: any) => spawnSync(bashPath(), [path.join(scratch.home, shim), ...args], { cwd: repo, env, encoding: 'utf8' });
   return { scratch, shims, run };
 }
 

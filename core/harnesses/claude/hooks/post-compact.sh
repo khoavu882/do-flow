@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # post-compact.sh — PostCompact hook (IC-011)
 #
 # Records the AI-generated compact_summary (from stdin JSON) in the summary scope of the session

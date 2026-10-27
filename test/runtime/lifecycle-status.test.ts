@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -312,7 +313,7 @@ test('git-state --lifecycle reports the base tag the release ritual uses', () =>
   repo.git('tag', 'v1.0.0', firstCommit(repo));
   repo.tag('v1.1.0');
   repo.tag('1.9.9');
-  const out = JSON.parse(execFileSync('bash', [path.join(__dirname, '../../core/shared/scripts/doflow/bash/do-git-state.sh'), '--lifecycle'], { cwd: repo.dir, encoding: 'utf8', env: scratch.env() }));
+  const out = JSON.parse(execFileSync(bashPath(), [path.join(__dirname, '../../core/shared/scripts/doflow/bash/do-git-state.sh'), '--lifecycle'], { cwd: repo.dir, encoding: 'utf8', env: scratch.env() }));
   assert.equal(out.base_tag, 'v1.1.0');
   assert.deepEqual(out.release_tags, ['v1.0.0', 'v1.1.0']);
   assert.deepEqual(out.feature_prefixes, ['feat', 'feature']);

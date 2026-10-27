@@ -103,12 +103,14 @@ async function mergeRoadmapRow(options: any): Promise<any> {
   const checkouts = String(execFileSync('git', ['-C', root, 'worktree', 'list', '--porcelain', '-z'], execOptions))
     .split('\0\0').filter(Boolean).map((block) => {
       const fields = block.split('\0');
-      return { worktree: fields.find((s) => s.startsWith('worktree '))?.slice(9),
+      const listed = fields.find((s) => s.startsWith('worktree '))?.slice(9);
+      // git prints C:/x on Windows; the caller holds C:\x
+      return { worktree: listed === undefined ? listed : path.resolve(listed),
         branch: fields.find((s) => s.startsWith('branch '))?.slice(7) };
     });
   const develop = intent?.developWorktree || options.developWorktree
     || checkouts.find((entry) => entry.branch === 'refs/heads/develop')?.worktree;
-  if (!develop || !fsImpl.existsSync(develop) || !checkouts.some((entry) => entry.worktree === develop)) return deny('no-develop-worktree');
+  if (!develop || !fsImpl.existsSync(develop) || !checkouts.some((entry) => entry.worktree === path.resolve(develop))) return deny('no-develop-worktree');
   let currentBranch: string;
   try { currentBranch = String(execFileSync('git', ['-C', develop, 'symbolic-ref', '-q', 'HEAD'], execOptions)).trim(); }
   catch (error: any) { if (error.status === 1) return deny('develop-wrong-branch'); throw error; }

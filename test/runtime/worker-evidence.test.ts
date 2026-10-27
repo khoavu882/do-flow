@@ -8,6 +8,8 @@ const { tempDir } = require('../helper/tmp.ts');
 const { storeFileFor } = require('../../src/runtime/worker/run-store.ts');
 const { executeWorkerCommand } = require('../../src/runtime/worker/command.ts');
 
+// The fake codex is a #!/bin/sh script and evidence.ts:132 spawns the binary directly (shell: false), which win32 cannot execute.
+const FAKE_CLI: any = { skip: process.platform === 'win32' && 'the fake CLI is a POSIX shell script spawned without a shell' };
 const SLUG = 'feat-worker-evidence';
 const RUN_ID = 'w-0123456789ab';
 const NOW: any = new Date('2026-10-18T12:00:00.000Z');
@@ -128,7 +130,7 @@ async function evidence(p: any, flags: any = {}) {
   });
 }
 
-test('CLI-check evidence runs a fake version and checks every expect, masks matched lines, and sorts keys', async (t) => {
+test('CLI-check evidence runs a fake version and checks every expect, masks matched lines, and sorts keys', FAKE_CLI, async (t) => {
   const p = project(t);
   const result = await evidence(p);
   assert.equal(result.exit, 0);
@@ -155,7 +157,7 @@ test('CLI-check evidence runs a fake version and checks every expect, masks matc
   assert.equal(record.run, null);
 });
 
-test('a mismatched version refuses without writing, and one missing expect fails its check', async (t) => {
+test('a mismatched version refuses without writing, and one missing expect fails its check', FAKE_CLI, async (t) => {
   const versionProject = project(t);
   versionProject.env.FAKE_VERSION_FAIL = '1';
   const versionResult = await evidence(versionProject);
@@ -247,7 +249,7 @@ test('offered read-only and edit runs establish their capabilities without promp
   assert.ok(!JSON.stringify(withheldRecord).includes('WITHHELD FAILURE SUMMARY'));
 });
 
-test('negative control: a check that exits non-zero fails even when its expected lines are all printed', async (t) => {
+test('negative control: a check that exits non-zero fails even when its expected lines are all printed', FAKE_CLI, async (t) => {
   const p = project(t);
   rewriteChecks(p, (data: any) => {
     data.checks = [{ id: 'exits-nonzero', argv: ['failexit', '--help'], expect: ['^Usage: codex exec'], establishes: ['oneShot'] }];
@@ -261,7 +263,7 @@ test('negative control: a check that exits non-zero fails even when its expected
   assert.deepEqual(record.establishes, []);
 });
 
-test('negative control: a version command that exits non-zero refuses even when its output matches', async (t) => {
+test('negative control: a version command that exits non-zero refuses even when its output matches', FAKE_CLI, async (t) => {
   const p: any = project(t);
   p.env.FAKE_VERSION_EXIT = '1';
   const result = await evidence(p);
@@ -299,7 +301,7 @@ test('negative control: a check may not establish cli', async (t) => {
   assert.deepEqual(fakeCalls(p), []);
 });
 
-test('negative control: a secret in the version line is masked in cliVersion', async (t) => {
+test('negative control: a secret in the version line is masked in cliVersion', FAKE_CLI, async (t) => {
   const p: any = project(t);
   p.env.FAKE_VERSION_SECRET = '1';
   const result = await evidence(p);
@@ -333,7 +335,7 @@ test('negative control: a checks file argv that could start a model session is r
   assert.deepEqual(fakeCalls(p), []);
 });
 
-test('the shipped codex checks file still validates and runs only free commands', async (t) => {
+test('the shipped codex checks file still validates and runs only free commands', FAKE_CLI, async (t) => {
   const p = project(t);
   p.checks = path.join(__dirname, '..', '..', 'core', 'worker-evidence', 'codex', 'checks.json');
   const result = await evidence(p);
@@ -346,7 +348,7 @@ test('the shipped codex checks file still validates and runs only free commands'
   }
 });
 
-test('CLI checks whose output is on stderr pass when expectations match (FU-4v8871)', async (t) => {
+test('CLI checks whose output is on stderr pass when expectations match (FU-4v8871)', FAKE_CLI, async (t) => {
   const p = project(t);
   const bin = path.join(p.dir, 'bin', 'codex');
   fs.writeFileSync(bin, `#!/bin/sh

@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 122 C.4 (IC-017, IC-009): a suspension keeps its projection marker until a write removes
 // the package files, SessionStart checks recorded packages in the background, and doctor reports
@@ -11,6 +12,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env.ts');
 const { tempDir } = require('../helper/tmp.ts');
+const { systemPath } = require('../helper/system-path.ts');
 const { encodeEnvelope } = require('../helper/hook-fixtures.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { handlePackageCommand } = require('../../src/runtime/packages/command.ts');
@@ -160,9 +162,9 @@ test('SessionStart package verification is silent and skips a lock with no packa
   fs.writeFileSync(dispatcher, '#!/bin/bash\nnode "$@"\n');
   fs.chmodSync(dispatcher, 0o755);
 
-  const runHook = () => spawnSync('/bin/bash', [hook], {
+  const runHook = () => spawnSync(bashPath(), [hook], {
     cwd: project,
-    env: { ...process.env, HOME: home, XDG_CONFIG_HOME: xdg, PATH: `${bin}:/usr/bin:/bin`, HOOK_NODE_LOG: log },
+    env: { ...process.env, HOME: home, XDG_CONFIG_HOME: xdg, PATH: systemPath(bin), HOOK_NODE_LOG: log },
     input: encodeEnvelope('claude', 'SessionStart', 'session-context',
       JSON.stringify({ session_id: '<masked>', cwd: project, source: 'startup' })),
     encoding: 'utf8', timeout: 5000,

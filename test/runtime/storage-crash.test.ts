@@ -220,7 +220,7 @@ test('claims precede their evidence regardless of mtime; orchestration outlives 
   put(evidence, 'task.json', '{}', 80); put(evidence, 'task_claims.json', '{}', 40);
   put(path.join(f.roots['project-state'], 'research'), 'task.json');
   put(path.join(f.roots['project-state'], 'orchestration'), 'task.json', '{"state":"COMPLETED"}', 90);
-  const removed: any = [], fsImpl = injected({ unlinkSync(file: any) { removed.push(path.relative(f.roots['project-state'], file)); fs.unlinkSync(file); } });
+  const removed: any = [], fsImpl = injected({ unlinkSync(file: any) { removed.push(path.relative(f.roots['project-state'], file).split(path.sep).join('/')); fs.unlinkSync(file); } });
   f.pass(['task-orchestration', 'task-research', 'task-evidence'], { fsImpl });
   assert.deepEqual(removed, ['evidence/task_claims.json', 'evidence/task.json', 'research/task.json', 'orchestration/task.json']);
 });

@@ -1,4 +1,5 @@
 'use strict';
+const JQ_B = process.platform === 'win32' ? ['-b'] : []; // native jq.exe ends lines with CRLF unless -b
 // prompt-nudge.test.js — the UserPromptSubmit policy's output (design CH5, CH6).
 //
 // `envelope`: the existing first-prompt context leaves in one nested envelope for Claude and Codex
@@ -95,7 +96,7 @@ function loadCorpus() {
 
 /** IC-005's invocation for one prompt; returns the spawn result. */
 function decideCorpusCase(prompt: any) {
-  return spawnSync('jq', ['-r', '--slurpfile', 'R', REGISTRY, '-f', PROGRAM], {
+  return spawnSync('jq', [...JQ_B, '-r', '--slurpfile', 'R', REGISTRY, '-f', PROGRAM], {
     input: JSON.stringify({ session_id: 'corpus', cwd: '/tmp', hook_event_name: 'UserPromptSubmit', prompt }),
     env: scratch.env(),
     encoding: 'utf8',

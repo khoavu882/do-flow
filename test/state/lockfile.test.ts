@@ -148,6 +148,8 @@ const DEVELOP_V1_SHA256 = '4ea11b999454dac71f8a817b9893aae869c252ac2de33527ff47a
 function developFixtureLock() {
   return {
     ...defaultLock({ scope: 'global', scopeRoot: '/home/fixture' }),
+    // defaultLock() resolves the root, which on Windows prefixes a drive; the pinned digest is of the literal POSIX root
+    scopeRoot: '/home/fixture',
     generatedAt: '2026-08-22T00:00:00.000Z', sourceVersion: 'registry-v1',
     targets: [{ harness: 'codex' }, { harness: 'claude' }],
     assets: [{ id: 'skills.doflow', kind: 'skill', nativeDir: '../.agents/skills' }, { id: 'agents.shared', kind: 'agent', nativeDir: 'agents' }],

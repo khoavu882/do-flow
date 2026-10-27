@@ -11,10 +11,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
 const {
-  runKeyFor, refuseSolo, refuseWorker, createRun, computeTotals, effectiveLimits,
+  runKeyFor: runKeyForNative, refuseSolo, refuseWorker, createRun, computeTotals, effectiveLimits,
   aggregateRefusal, controlRefusal, epochRefusal, nextEpoch,
 } = require('../../src/runtime/task-run.ts');
 const { DEFAULT_TASK_ATTEMPTS } = require('../../src/runtime/task-graph.ts');
+
+// context/identity.ts:97 honours DOFLOW_WORKTREE only when it starts with '/', so a Windows drive path is ignored and the
+// payload cwd decides. On win32 these tests hand the same worktree as that payload cwd instead of the placeholder '/'.
+const runKeyFor = (env: any, cwd: string) => runKeyForNative(env,
+  process.platform === 'win32' && cwd === '/' && env.DOFLOW_WORKTREE ? env.DOFLOW_WORKTREE : cwd);
 
 function env(worktree: any, { run = 'r1', lineage = 'main', role = 'main' }: any = {}) {
   return {

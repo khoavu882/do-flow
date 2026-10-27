@@ -57,9 +57,12 @@ async function until(check: any, ms: any) {
 }
 /** Live pids among `pids`, a zombie counted dead (a blocked parent cannot reap its killed children). */
 const running = (pids: any) => {
+  // no `ps` contract on Windows (and no zombies there): process liveness is the signal-0 probe
+  if (process.platform === 'win32') return pids.filter(isAlive).length;
   try { return execFileSync('ps', ['-o', 'stat=', '-p', pids.join(',')], { encoding: 'utf8' }).split('\n').filter((s: any) => s.trim() && !s.trim().startsWith('Z')).length; } catch { return 0; }
 };
 const psOf = (pids: any) => {
+  if (process.platform === 'win32') return pids.filter(isAlive).join(',') || '(none)';
   try { return execFileSync('ps', ['-o', 'pid=,ppid=,command=', '-p', pids.join(',')], { encoding: 'utf8' }).trim(); } catch { return '(none)'; }
 };
 
@@ -308,7 +311,7 @@ after(() => { for (const fn of cleanups.reverse()) fn(); });
 
 test('parent death: a hung actor outside waitGrant does not outlive its parent, nor its fixture dir', { concurrency: true }, async (t) => {
   await Promise.all([
-    t.test('SIGTERM to the parent alone: abortAll() in its handler kills the actors and removes the dir', async (t2: any) => {
+    t.test('SIGTERM to the parent alone: abortAll() in its handler kills the actors and removes the dir', { skip: process.platform === 'win32' && 'Windows delivers no SIGTERM to a handler: kill() is TerminateProcess, so no handler can run' }, async (t2: any) => {
       const r = await orphanCase(t2, { signal: 'SIGTERM', deadlineMs: 20000, waitMs: 2000 });
       assert.ok(r.gone, `after ${r.ms} ms; dir left: ${fs.existsSync(r.dir)}; live: ${psOf(r.pids)}`);
       assert.equal(r.driverExit, 3);
@@ -316,8 +319,9 @@ test('parent death: a hung actor outside waitGrant does not outlive its parent, 
       assert.match(r.out, /^ABORT \[\{"killed":3,"removed":1\},\{"killed":0,"removed":0\}\]$/m);
     }),
     t.test('SIGKILL to the parent (no handler runs): the watchdog sees stdin close and cleans up long before its timer', async (t2: any) => {
-      // The watchdog's timer is 21 s away: only the stdin-EOF path can end the actors within 1.5 s.
-      const r = await orphanCase(t2, { signal: 'SIGKILL', deadlineMs: 20000, waitMs: 1500 });
+      // The watchdog's timer is 21 s away: only the stdin-EOF path can end the actors within 1.5 s (10 s on
+      // Windows, where process start-up is slower; still well short of the timer).
+      const r = await orphanCase(t2, { signal: 'SIGKILL', deadlineMs: 20000, waitMs: process.platform === 'win32' ? 10000 : 1500 });
       assert.ok(r.gone, `after ${r.ms} ms; dir left: ${fs.existsSync(r.dir)}; live: ${psOf(r.pids)}`);
       assert.equal(r.driverExit, 'SIGKILL');
     }),

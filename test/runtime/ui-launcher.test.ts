@@ -168,6 +168,11 @@ test('ui-launcher: SIGINT to the launcher reaches the Console as SIGTERM and its
   });
   child.kill('SIGINT');
   const { code, signal } = await exited;
+  if (process.platform === 'win32') {
+    // win32 has no signal delivery: kill('SIGINT') ends the launcher outright, so the SIGTERM forwarding and exit-code return cannot be observed.
+    assert.equal(signal, 'SIGINT');
+    return;
+  }
   assert.equal(signal, null, 'the launcher stays up until the Console exits');
   assert.equal(code, 5);
   assert.match(out, /got SIGTERM/);

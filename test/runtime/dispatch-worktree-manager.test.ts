@@ -167,7 +167,7 @@ test('dropStaleRecord resolves a relative gitdir against its record directory (F
   const [name] = fs.readdirSync(admin);
   const record = path.join(admin, name);
   // git with worktree.useRelativePaths writes the link relative to the record directory.
-  fs.writeFileSync(path.join(record, 'gitdir'), `${path.relative(record, path.join(wt, '.git'))}\n`);
+  fs.writeFileSync(path.join(record, 'gitdir'), `${path.relative(record, path.join(wt, '.git')).split(path.sep).join('/')}\n`);
   assert.ok(mgr.isRegistered(wt), 'setup: still registered through the relative link');
   fs.rmSync(wt, { recursive: true, force: true });
   mgr.dropStaleRecord(wt);

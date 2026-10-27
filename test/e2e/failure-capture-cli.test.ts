@@ -286,7 +286,8 @@ describe('what capture must never change', () => {
     const file = path.join(result.xdg, 'doflow', 'settings.json');
     const backup = `${file}.bak.1`;
     assert.equal(fs.readFileSync(backup, 'utf8'), '{"schema":1,}\n');
-    assert.equal(fs.statSync(backup).mode & 0o777, 0o600);
+    // Windows reports 0o666 for any writable file, so the owner-only mode is asserted off-Windows only.
+    if (process.platform !== 'win32') assert.equal(fs.statSync(backup).mode & 0o777, 0o600);
     assert.equal(fs.readFileSync(`${file}.bak`, 'utf8'), 'older backup\n', 'an existing backup is never overwritten');
     assert.ok(result.stderr.includes(backup), `stderr names the preserved backup: ${result.stderr}`);
     assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')),
@@ -325,7 +326,7 @@ describe('what capture must never change', () => {
     });
     assert.equal(result.status, 0, result.stderr);
     assert.equal(JSON.parse(result.stdout).effective, 'off');
-    assert.match(result.stderr, /note: .*failures\/off is deprecated; set "failure\.capture" in .*settings\.json \(read through 2\.x\)/);
+    assert.match(result.stderr, /note: .*failures[\\/]off is deprecated; set "failure\.capture" in .*settings\.json \(read through 2\.x\)/);
     assert.doesNotMatch(result.stdout, /is deprecated/);
 
     const current = run(['failure', '--action', 'capture', '--json']);

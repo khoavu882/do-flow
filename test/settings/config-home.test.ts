@@ -38,6 +38,9 @@ const CASES = [
   [12, '/x', '/h', '/x/doflow'],
 ];
 
+// configHome() joins with path.join, so on Windows '/h/.config/doflow' is spelled '\\h\\.config\\doflow'; both sides are normalized.
+const norm = (v: any) => (typeof v === 'string' ? path.normalize(v) : v);
+
 const envOf = (xdg: any, home: any) => {
   const env: any = {};
   if (xdg !== U) env.XDG_CONFIG_HOME = xdg;
@@ -56,15 +59,15 @@ for (const [n, xdg, home, dir] of CASES) {
     const homedir = noAccountHome(t);
     const env = envOf(xdg, home);
     const got = configHome(env);
-    assert.equal(got.dir, dir);
-    assert.equal(got.base, dir === null ? null : path.dirname(dir));
+    assert.equal(norm(got.dir), norm(dir));
+    assert.equal(norm(got.base), dir === null ? null : norm(path.dirname(dir)));
     assert.equal(homedir.mock.callCount(), 0, 'os.homedir() was not called');
     // The sites that build a config-home path agree with the helper.
-    assert.equal(failureHome(env), dir === null ? null : `${dir}/failures`);
-    assert.equal(reportsHome(env), dir === null ? null : `${dir}/reports`);
-    assert.equal(stateDir(env), dir === null ? null : `${dir}/session-env`);
+    assert.equal(norm(failureHome(env)), dir === null ? null : norm(`${dir}/failures`));
+    assert.equal(norm(reportsHome(env)), dir === null ? null : norm(`${dir}/reports`));
+    assert.equal(norm(stateDir(env)), dir === null ? null : norm(`${dir}/session-env`));
     const roots = resolveRoots({ registry: loadStorageRegistry({ repoRoot: REPO }), projectRoot: '/p', env });
-    assert.equal(roots['config-home'], dir);
+    assert.equal(norm(roots['config-home']), norm(dir));
     // The home base is the HOME variable alone: nothing falls back to the account home.
     assert.equal(roots['user-state'], home !== U && path.isAbsolute(home) ? path.join(home, '.doflow', 'state') : null);
     assert.equal(homedir.mock.callCount(), 0, 'no site consulted os.homedir()');
@@ -83,8 +86,8 @@ test('ignored lists each variable that is set non-empty but relative', () => {
 test('negative control: a non-empty XDG check (instead of absolute) disagrees with the table on case 9', () => {
   const relaxed = (env: any) => (env.XDG_CONFIG_HOME ? `${env.XDG_CONFIG_HOME}/doflow` : null);
   const case9 = CASES[8];
-  assert.notEqual(relaxed(envOf(case9[1], case9[2])), case9[3]);
-  assert.equal(configHome(envOf(case9[1], case9[2])).dir, case9[3]);
+  assert.notEqual(norm(relaxed(envOf(case9[1], case9[2]))), norm(case9[3]));
+  assert.equal(norm(configHome(envOf(case9[1], case9[2])).dir), norm(case9[3]));
 });
 
 test('with no argument it reads process.env, and HOME unset yields none without a home lookup', (t) => {
@@ -95,7 +98,7 @@ test('with no argument it reads process.env, and HOME unset yields none without 
     delete process.env.XDG_CONFIG_HOME;
     assert.deepEqual(configHome(), { base: null, dir: null, ignored: [] });
     process.env.HOME = '/h';
-    assert.equal(configHome().dir, '/h/.config/doflow');
+    assert.equal(norm(configHome().dir), norm('/h/.config/doflow'));
   } finally {
     if (saved.HOME === undefined) delete process.env.HOME; else process.env.HOME = saved.HOME;
     if (saved.XDG === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = saved.XDG;

@@ -93,6 +93,11 @@ function runRunner(m: any, runner: any, args: any, stdin: any, { env = {}, dropH
   const { FORCE_COLOR: _inheritedColor, ...inherited } = process.env;
   const full: any = { ...inherited, HOME: m.home, XDG_CONFIG_HOME: m.xdg, DOFLOW_FAILURE_CAPTURE: '', DOFLOW_AGENT: 'antigravity', ...env };
   if (dropHome) { delete full.HOME; delete full.XDG_CONFIG_HOME; }
+  if (process.platform === 'win32') {
+    // The runner spawns a bare `bash`; make it Git for Windows' bash rather than WSL's System32 launcher.
+    const key = Object.keys(full).find((k) => k.toUpperCase() === 'PATH') || 'PATH';
+    full[key] = `${path.dirname(require('../helper/bash-locator.ts').bashPath({ quiet: true }))}${path.delimiter}${full[key] ?? ''}`;
+  }
   const r = spawnSync(process.execPath, [runner, ...args], { cwd: m.cwd, env: full, input: stdin, encoding: 'utf8' });
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }

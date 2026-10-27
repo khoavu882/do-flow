@@ -8,9 +8,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDirOutsideProfile } = require('../helper/outside-profile.ts');
+const { systemPath } = require('../helper/system-path.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { REACH_DISPATCHER_REL, REACH_RUNTIME_REL } = require('../../src/runtime/reach.ts');
 const { buildHealthReport } = require('../../src/runtime/health.ts');
@@ -36,7 +38,7 @@ function withHome(home: any, fn: any) {
 }
 
 function fixture(testContext: any) {
-  const dir = tempDir(testContext, 'doflow-doctor-mcp-');
+  const dir = tempDirOutsideProfile(testContext, 'doflow-doctor-mcp-');
   const home = path.join(dir, 'home');
   const proj = path.join(dir, 'proj');
   fs.mkdirSync(home);
@@ -83,8 +85,9 @@ function doctor(t: any, args: any) {
       HOME: t.home,
       USERPROFILE: t.home,
       XDG_CONFIG_HOME: path.join(t.dir, 'xdg'),
-      PATH: `${stubBin(t.dir)}:${path.dirname(process.execPath)}:/usr/bin:/bin`,
-      GIT_CONFIG_GLOBAL: '/dev/null',
+      PATH: systemPath(stubBin(t.dir), path.dirname(process.execPath)),
+      GIT_CONFIG_GLOBAL: os.devNull,
+      ...(process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot } : {}),
     },
   });
 }

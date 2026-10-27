@@ -237,7 +237,7 @@ test('Claude and Pi retain the shared hooks tree until the last harness is remov
           ? (scope === 'global' ? ['install', '-g', '-t', harnesses.join(','), '-f'] : ['install', project, '-t', harnesses.join(','), '-f'])
           : (scope === 'global' ? ['remove', '-g', '-t', harnesses.join(','), '-f'] : ['remove', project, '-t', harnesses.join(','), '-f']);
         const result = spawnSync(process.execPath, [path.join(ROOT, 'bin/doflow.js'), ...args], {
-          cwd: project, encoding: 'utf8', env: { ...process.env, HOME: home, XDG_CONFIG_HOME: configHome, DOFLOW_CONFIG_DIR: undefined },
+          cwd: project, encoding: 'utf8', env: { ...process.env, HOME: home, ...(process.platform === 'win32' ? { USERPROFILE: home } : {}), XDG_CONFIG_HOME: configHome, DOFLOW_CONFIG_DIR: undefined }, // os.homedir() reads USERPROFILE on Windows
         });
         assert.equal(result.status, 0, `${scope} ${verb} ${harnesses}: ${result.stderr}`);
       };

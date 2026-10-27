@@ -100,7 +100,7 @@ for (const [gateId, stage] of [['gate-0', 'discovery'], ['gate-a', 'planning'], 
     assert.equal(entry.detail, 'approve');
     assert.equal(entry.by, 'autopilot');
     assert.deepEqual(entry.policy, { id: gateId, digest: digest(f.baseBytes) });
-    const input = entry.inputs.find((i: any) => i.locator.endsWith('intention/requirement.md'));
+    const input = entry.inputs.find((i: any) => i.locator.replace(/\\/g, '/').endsWith('intention/requirement.md'));
     assert.equal(input.sha256, digest('# Settled\n'));
     assert.deepEqual(entry.inputs, result.inputs);
     assert.equal(entry.note, `approved by policy ${gateId}@${digest(f.baseBytes)} (${entry.inputs.length} inputs)`);

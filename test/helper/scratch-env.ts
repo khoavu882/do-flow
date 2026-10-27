@@ -52,7 +52,10 @@ function createScratch(prefix = 'doflow-lifecycle-', { prune = 'off', hookHarnes
     home,
     xdg,
     env(extra = {}) {
-      return {
+      // os.homedir() reads USERPROFILE, not HOME, on Windows: a scratch HOME alone leaves the spawned
+      // node process on the runner's real home. USERPROFILE follows the HOME the spawn ends up with;
+      // POSIX environments are unchanged.
+      const env: any = {
         ...inheritedEnv(),
         HOME: home,
         XDG_CONFIG_HOME: xdg,
@@ -67,6 +70,10 @@ function createScratch(prefix = 'doflow-lifecycle-', { prune = 'off', hookHarnes
         DOFLOW_TELEMETRY: 'off',
         ...extra,
       };
+      if (process.platform === 'win32' && !('USERPROFILE' in extra)) {
+        if (env.HOME === undefined) delete env.USERPROFILE; else env.USERPROFILE = env.HOME;
+      }
+      return env;
     },
     /** Puts the scratch environment into this process, for tests that call services in-process: a
      * service that spawns git or bash inherits it, so it never reads the developer's HOME, XDG

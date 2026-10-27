@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // F.3 / IC-027: the idea-to-package loop through a real global claude install.
 // Only the test, standing in for the person, writes the printed grant lines.
@@ -47,7 +48,7 @@ test('idea to package through the installed front door', { skip: SKIP }, async (
   });
 
   const run = (args: string[]): string => {
-    const result = spawnSync('bash', [shim, ...args], {
+    const result = spawnSync(bashPath(), [shim, ...args], {
       cwd: project, env, encoding: 'utf8', input: '', timeout: 60000,
     });
     assert.equal(result.status, 0, args.join(' ') + '\n' + result.stdout + result.stderr);

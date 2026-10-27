@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # lib.sh — shared constants and helpers for session lifecycle hooks
 #
 # Usage: source "$(dirname "$0")/lib.sh"
@@ -26,9 +27,11 @@ doflow_config_home() {
   DOFLOW_HOME=""
   case "${XDG_CONFIG_HOME:-}" in
     /*) DOFLOW_HOME="${XDG_CONFIG_HOME}/doflow"; return 0 ;;
+    [A-Za-z]:[\\/]*) case "${OSTYPE:-}" in msys*|cygwin*|win32*) DOFLOW_HOME="${XDG_CONFIG_HOME}/doflow"; return 0 ;; esac ;;
   esac
   case "${HOME:-}" in
     /*) DOFLOW_HOME="${HOME}/.config/doflow" ;;
+    [A-Za-z]:[\\/]*) case "${OSTYPE:-}" in msys*|cygwin*|win32*) DOFLOW_HOME="${HOME}/.config/doflow" ;; esac ;;
   esac
   return 0
 }

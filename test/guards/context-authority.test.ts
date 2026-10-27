@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // G38 — context authority (078 IC-020, DEC-019). Six checks, each a pure function over injected
 // file contents (or, for G38.6, injected identity results), run once on the shipped tree and once
@@ -522,7 +523,7 @@ function checkG38_5({ files }: any) {
 const CASES_REL = 'test/fixtures/identity/cases.json';
 const CASES = JSON.parse(fs.readFileSync(path.join(REPO, CASES_REL), 'utf8'));
 const FIELDS: any = ['RUN', 'ATTEMPT', 'LINEAGE', 'ROLE', 'WORKTREE', 'KIND', 'UNIT'];
-const BASH = process.platform === 'darwin' ? '/bin/bash' : 'bash';
+const BASH = bashPath();
 const UNKNOWN_ROLE = '[doflow] unknown DOFLOW_SESSION_ROLE; treating session as worker\n';
 // The five identity variables only. DOFLOW_WORKER_RUN (110) is a sixth launch variable; DOFLOW_GUARD_DROP_DATABASES
 // (112) is an optional seventh. Neither is identity: the tests after G38.6 pin that both sides ignore them.

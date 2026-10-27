@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -37,7 +38,7 @@ for (const args of [ ['evidence', '--action', 'list', '--task-id', 'idle'], ['tr
     // Observe the real pass result without adding a production test seam or installing hooks.
     const output = path.join(scratch.dir, 'passes.jsonl'), preload = path.join(scratch.dir, 'observe.cjs');
     fs.writeFileSync(preload, `const fs = require('node:fs');\nconst engine = require(${JSON.stringify(path.join(REPO, 'src/runtime/storage/engine.ts'))});\nconst runPass = engine.runPass;\nengine.runPass = options => { const result = runPass(options); fs.appendFileSync(${JSON.stringify(output)}, JSON.stringify(result) + '\\n'); return result; };\n`);
-    const result = spawnSync('/bin/bash', [RUN, ...args, '--json'], {
+    const result = spawnSync(bashPath(), [RUN, ...args, '--json'], {
       cwd: projectRoot, env: { ...env, NODE_OPTIONS: `--require=${preload}` }, encoding: 'utf8',
     });
     assert.equal(result.status, 0, result.stdout + result.stderr);
@@ -57,7 +58,7 @@ test('IC-009: trace from a subdirectory uses the ledger root it resolved', { ski
   const state = path.join(project, '.doflow/state'); fs.mkdirSync(nested, { recursive: true });
   const old = path.join(state, 'verification/logs', `${Date.now() - 31 * DAY}-expired.log`);
   fs.mkdirSync(path.dirname(old), { recursive: true }); fs.writeFileSync(old, 'old');
-  const result = spawnSync('/bin/bash', [RUN, 'trace', '--json'], { cwd: nested,
+  const result = spawnSync(bashPath(), [RUN, 'trace', '--json'], { cwd: nested,
     env: scratch.env({ DOFLOW_CLI: CLI, DOFLOW_CONFIG_DIR: path.join(project, '.doflow') }), encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(fs.existsSync(old), false);
@@ -82,7 +83,7 @@ test('IC-008/009: a verb exitCode and returned value survive post-verb upkeep', 
 test('IC-009: early process.exit usage error runs no upkeep moment', { skip: process.platform === 'win32' }, t => {
   const scratch = createScratch('doflow-verb-usage-', { prune: 'on' }); t.after(() => scratch.remove());
   const project = path.join(scratch.dir, 'project'); fs.mkdirSync(path.join(project, '.doflow/state'), { recursive: true });
-  const result = spawnSync('/bin/bash', [RUN, 'evidence', '--action', 'list', '--json'], {
+  const result = spawnSync(bashPath(), [RUN, 'evidence', '--action', 'list', '--json'], {
     cwd: project, env: scratch.env({ DOFLOW_CLI: CLI, DOFLOW_CONFIG_DIR: path.join(project, '.doflow') }), encoding: 'utf8' });
   assert.equal(result.status, 2);
   assert.equal(fs.existsSync(path.join(project, '.doflow/state/.gitignore')), false);

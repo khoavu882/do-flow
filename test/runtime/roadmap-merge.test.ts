@@ -165,7 +165,8 @@ test('intent records keep only declared gate fields and never copy caller text o
   const raw = fs.readFileSync(file, 'utf8');
   assert.doesNotMatch(raw, /CHAT-CANARY/);
   assert.deepEqual(JSON.parse(raw).gate, f.options.gate);
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  // win32 reports 0o666 for every writable file; owner-only bits cannot be expressed there
+  assert.equal(fs.statSync(file).mode & 0o777, process.platform === 'win32' ? 0o666 : 0o600);
 });
 
 test('kill switch is re-read before commit, ff, render and cleanup; a recorded ff-started never spawns once off', async (t) => {

@@ -49,21 +49,22 @@ function reciprocalRankFusion(rankedLists: any[][], { k = 60, fullPrecision = fa
  * @param {string} [projectRoot]
  * @returns {{ file: string, line?: number, endLine?: number }}
  */
+const slashed = (p: string): string => p.split(path.sep).join('/');
 function normalizeLocator(raw: any, projectRoot: string = process.cwd()): { file: string; line?: number; endLine?: number } {
   if (!raw) return { file: '' };
   if (typeof raw === 'string') {
     const match = raw.match(/^([^:]+)(?::(\d+))?(?::(\d+))?$/);
     if (match) {
-      const relFile = path.isAbsolute(match[1]) ? path.relative(projectRoot, match[1]) : match[1];
+      const relFile = slashed(path.isAbsolute(match[1]) ? path.relative(projectRoot, match[1]) : match[1]);
       return {
         file: relFile,
         ...(match[2] ? { line: parseInt(match[2], 10) } : {}),
       };
     }
-    return { file: path.isAbsolute(raw) ? path.relative(projectRoot, raw) : raw };
+    return { file: slashed(path.isAbsolute(raw) ? path.relative(projectRoot, raw) : raw) };
   }
   if (typeof raw === 'object' && raw.file) {
-    const relFile = path.isAbsolute(raw.file) ? path.relative(projectRoot, raw.file) : raw.file;
+    const relFile = slashed(path.isAbsolute(raw.file) ? path.relative(projectRoot, raw.file) : raw.file);
     return {
       file: relFile,
       ...(raw.line ? { line: raw.line } : {}),

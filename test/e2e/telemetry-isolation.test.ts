@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // 088 D.3 (G-O3, FR-002, NFR-005, IC-004, IC-006): compare real CLI and shared-bridge hook
 // outcomes as raw bytes with telemetry on, off and faulted. The loops keep all harness variants on
@@ -18,7 +19,7 @@ const REPO = path.resolve(__dirname, '../..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 const HOOK_FIXTURES = path.join(REPO, 'test/fixtures/hooks');
 const MIRROR_SCRIPT = path.join(REPO, 'test/hooks/build-install-mirror.sh');
-const BASH = '/bin/bash';
+const BASH = bashPath();
 const SLUG = 'feat-isolation';
 const FIXED_MS = 1792000000000;
 const FIXED_DATE = new Date(FIXED_MS).toISOString().slice(0, 10);
@@ -30,7 +31,21 @@ const PRELOAD_FAULT = path.join(SCRATCH, 'telemetry-clock-fault.js');
 const PRELOAD_FAULT_STABLE_DATE = path.join(SCRATCH, 'telemetry-clock-fault-stable-date.js');
 const INJECT_FROM = 'session:dft_token($d.identity.session)';
 const INJECT_TO = 'session:error("x")';
-const FS_FAULTS: any = ['telemetry-dir-unwritable', 'fifo-target', 'directory-target', 'runs-unwritable'];
+// A FIFO cannot be made on Windows (no mkfifo), so that fault is POSIX-only.
+const FS_FAULTS: any = ['telemetry-dir-unwritable', 'fifo-target', 'directory-target', 'runs-unwritable'].filter((fault) => !(process.platform === 'win32' && fault === 'fifo-target'));
+
+// "Unwritable directory": chmod 0o500 on POSIX. Windows ignores directory modes, so the directory is
+// replaced by a regular file there, which equally keeps anything from being written beneath it.
+function blockDir(dir: any) {
+  if (process.platform !== 'win32') { fs.mkdirSync(dir, { recursive: true }); fs.chmodSync(dir, 0o500); return; }
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.mkdirSync(path.dirname(dir), { recursive: true });
+  fs.writeFileSync(dir, '');
+}
+function unblockDir(dir: any) {
+  if (process.platform !== 'win32') { if (fs.existsSync(dir)) fs.chmodSync(dir, 0o700); return; }
+  if (fs.existsSync(dir) && fs.statSync(dir).isFile()) fs.rmSync(dir, { force: true });
+}
 const PROFILES: any = ['compat-1', 'strict-1'];
 // Hang guards, not performance budgets: one CLI or hook call takes about 0.2 s and the whole G-O3
 // matrix about 40 s on a quiet machine, and a loaded one multiplies both. A spawnSync timeout has no
@@ -94,6 +109,7 @@ const nodeEnv = (root: any, telemetry: any, extra: any = {}) => {
   return {
     ...env,
     HOME: home,
+    ...(process.platform === 'win32' ? { USERPROFILE: home } : {}),
     XDG_CONFIG_HOME: path.join(home, 'xdg'),
     PATH: `${TEST_BIN}${path.delimiter}${process.env.PATH || ''}`,
     TMPDIR: SCRATCH,
@@ -157,7 +173,8 @@ function telemetryDir(root: any) {
 
 function regularTelemetryFiles(root: any) {
   const dir = telemetryDir(root);
-  if (!fs.existsSync(dir)) return [];
+  // On win32 a blocked telemetry dir is a regular file (see blockDir): it holds no telemetry files.
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return [];
   return fs.readdirSync(dir).sort().flatMap((name: any) => {
     const file = path.join(dir, name);
     if (!fs.lstatSync(file).isFile()) return [];
@@ -270,8 +287,7 @@ function prepareNodeFault(root: any, fault: any) {
   const tel = telemetryDir(root);
   const runs = path.join(root, '.doflow', 'state', 'runs');
   if (fault === 'telemetry-dir-unwritable') {
-    fs.mkdirSync(tel, { recursive: true });
-    fs.chmodSync(tel, 0o500);
+    blockDir(tel);
   } else if (fault === 'fifo-target') {
     fs.mkdirSync(tel, { recursive: true });
     const made = spawnSync('mkfifo', [fixedDateTarget(root)]);
@@ -279,16 +295,13 @@ function prepareNodeFault(root: any, fault: any) {
   } else if (fault === 'directory-target') {
     fs.mkdirSync(fixedDateTarget(root), { recursive: true });
   } else if (fault === 'runs-unwritable') {
-    fs.chmodSync(runs, 0o500);
+    blockDir(runs);
   }
 }
 
 function restoreNodeFault(root: any, fault: any) {
-  if (fault === 'telemetry-dir-unwritable') {
-    const tel = telemetryDir(root);
-    if (fs.existsSync(tel)) fs.chmodSync(tel, 0o700);
-  }
-  if (fault === 'runs-unwritable') fs.chmodSync(path.join(root, '.doflow', 'state', 'runs'), 0o700);
+  if (fault === 'telemetry-dir-unwritable') unblockDir(telemetryDir(root));
+  if (fault === 'runs-unwritable') unblockDir(path.join(root, '.doflow', 'state', 'runs'));
 }
 
 function runNodeTrial(root: any, testCase: any, mode: any) {
@@ -381,16 +394,13 @@ function prepareHookFault(root: any, fault: any) {
   } else if (fault === 'directory-target') {
     for (const date of utcTargetDates()) fs.mkdirSync(path.join(tel, `${date}.jsonl`), { recursive: true });
   } else if (fault === 'runs-unwritable') {
-    fs.chmodSync(runs, 0o500);
+    blockDir(runs);
   }
 }
 
 function restoreHookFault(root: any, fault: any) {
-  if (fault === 'telemetry-dir-unwritable') {
-    const tel = telemetryDir(root);
-    if (fs.existsSync(tel)) fs.chmodSync(tel, 0o700);
-  }
-  if (fault === 'runs-unwritable') fs.chmodSync(path.join(root, '.doflow', 'state', 'runs'), 0o700);
+  if (fault === 'telemetry-dir-unwritable') unblockDir(telemetryDir(root));
+  if (fault === 'runs-unwritable') unblockDir(path.join(root, '.doflow', 'state', 'runs'));
 }
 
 function hookEnv(root: any, surface: any, telemetry: any, profile: any) {
@@ -400,6 +410,7 @@ function hookEnv(root: any, surface: any, telemetry: any, profile: any) {
   return {
     ...env,
     HOME: home,
+    ...(process.platform === 'win32' ? { USERPROFILE: home } : {}),
     XDG_CONFIG_HOME: path.join(home, 'xdg'),
     PATH: `${TEST_BIN}${path.delimiter}${process.env.PATH || ''}`,
     TMPDIR: SCRATCH,

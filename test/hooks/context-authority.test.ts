@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 078, IC-006 and IC-022 (DEC-001, DEC-034): one emission authority behind the prompt hook
 // and the launcher. The hook runs from an install mirror (test/helper/hook-fixtures
@@ -143,7 +144,7 @@ for (const harness of ['claude', 'codex']) {
       state.prepare(w);
       const env = { ...w.env, ...state.env };
       // SessionStart writes the git capture; the state is copied after it, so both copies hold it.
-      spawnSync('bash', [path.join(mirror, `.${harness}`, 'hooks', 'session-start.sh')], {
+      spawnSync(bashPath(), [path.join(mirror, `.${harness}`, 'hooks', 'session-start.sh')], {
         cwd: w.repo, input: `${JSON.stringify({ session_id: sid, cwd: w.repo, hook_event_name: 'SessionStart', source: 'startup' })}\n`, env, encoding: 'utf8',
       });
       if (state.pre) state.pre(w, sid);
@@ -272,7 +273,7 @@ test('FR-004: an over-budget context-grant exits 3 through doflow-run and leaves
   pending(w, 'x'.repeat(4000));
   const env = { ...w.env };
   delete env.DOFLOW_FAILURE_CAPTURE;
-  const r = spawnSync('/bin/bash', [DISPATCHER, 'context-grant', '--summary', 'pending', '--to-run', 'r5', '--to-lineage', 'w5',
+  const r = spawnSync(bashPath(), [DISPATCHER, 'context-grant', '--summary', 'pending', '--to-run', 'r5', '--to-lineage', 'w5',
     '--from-worktree', w.repo, '--from-run', 'local', '--from-lineage', 'main', '--max-bytes', '1000', '--json'], { cwd: w.repo, env, encoding: 'utf8' });
   assert.equal(r.status, 3, r.stderr);
   assert.equal(JSON.parse(r.stdout).error, 'over-budget');

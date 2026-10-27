@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # render-diagrams.sh — renders a chain artifact's fenced mermaid blocks to image files.
 #
 # A FAITHFUL render: the same nodes, the same edges, the same labels. The committed markdown is the

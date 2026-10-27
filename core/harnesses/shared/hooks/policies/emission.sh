@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # emission.sh — Canonical Policy Library: the hook emission adapter and the emission ledger
 # (feature 078, IC-004, IC-015; DEC-015, DEC-016, DEC-017).
 #
@@ -33,7 +34,7 @@
 # _doflow_em_capture <point>: one failure-capture line, never on stdout or stderr.
 _doflow_em_capture() {
   local dir
-  case ${BASH_SOURCE[0]} in */*) dir=${BASH_SOURCE[0]%/*} ;; *) dir=. ;; esac
+  _DOFLOW_SRC=${BASH_SOURCE[0]//\\//}; case $_DOFLOW_SRC in */*) dir=${_DOFLOW_SRC%/*} ;; *) dir=. ;; esac
   if declare -F doflow_capture_failure >/dev/null 2>&1; then
     ( doflow_capture_failure user-prompt-submit "emission-$1" ) >/dev/null 2>&1 || true
   else
@@ -162,7 +163,7 @@ doflow_emit_prompt() {
     _doflow_em_silent deps
     return 0
   fi
-  case ${BASH_SOURCE[0]} in */*) here=${BASH_SOURCE[0]%/*} ;; *) here=. ;; esac
+  _DOFLOW_SRC=${BASH_SOURCE[0]//\\//}; case $_DOFLOW_SRC in */*) here=${_DOFLOW_SRC%/*} ;; *) here=. ;; esac
   # The renderer beside the entry policy when it set _DOFLOW_POLDIR, else beside this file.
   renderer=$here/emission.jq
   [ -z "${_DOFLOW_POLDIR:-}" ] || [ ! -f "$_DOFLOW_POLDIR/emission.jq" ] || renderer=$_DOFLOW_POLDIR/emission.jq

@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // runtime-reach.e2e.test.js: after a standalone install, every harness reaches the runtime verbs.
 //
@@ -287,7 +288,7 @@ describe('Runtime reach after a standalone install', { skip: SKIP, concurrency: 
     assert.ok(fs.readFileSync(door).equals(fs.readFileSync(path.join(REPO, 'core', 'harnesses', 'claude', 'hooks', 'pre-implement-gate.sh'))), 'the claude gate door equals the source after `update -t pi`');
     // And the refreshed door works against the refreshed tree: a source edit with no design.md is denied natively.
     const gated = noDesignProject(cell);
-    const gate = spawnSync('bash', [door], { cwd: gated, encoding: 'utf8',
+    const gate = spawnSync(bashPath(), [door], { cwd: gated, encoding: 'utf8',
       env: { ...emptyEnv(cell), PATH: process.env.PATH, DOFLOW_PROJECT_DIR: gated, DOFLOW_AGENT: 'claude', CLAUDE_CONFIG_DIR: '', CLAUDE_PROJECT_DIR: '' },
       input: `${JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'reach', tool_name: 'Edit', tool_input: { file_path: 'src/a.js' } })}\n` });
     assert.equal(gate.status, 0, gate.stderr);

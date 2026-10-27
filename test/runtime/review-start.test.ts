@@ -328,7 +328,7 @@ for (const [name, bytes, error, reason] of [
     assert.equal(json.applicable, null);
     assert.equal(json.error, error);
     assert.ok(json.message.includes(reason), json.message);
-    assert.ok(json.message.includes(OVERRIDE), json.message);
+    assert.ok(json.message.replace(/\\/g, '/').includes(OVERRIDE), json.message);
     assert.equal(json.depth, null);
     assert.equal(json.seats, null);
   });
@@ -651,6 +651,7 @@ function fifoRegression(name: any, error: any, place: any) {
     const r = repo(t);
     r.lines([r.line()]);
     const fifo = place(r);
+    if (process.platform === 'win32') return t.skip('a FIFO is not a filesystem entry on win32 (named pipes live in \\\\.\\pipe\\)');
     const made = spawnSync('mkfifo', [fifo]);
     if (made.status !== 0) return t.skip('mkfifo is not available');
     try {
@@ -685,7 +686,8 @@ function chmodRegression(name: any, place: any) {
     putRecords(r, FIX, [r.line({ taskId: FIX, verdict: 'FAIL' })]);
     put(r.cwd, 'src/uncommitted.ts', 'x\n');
     const dir = place(r);
-    fs.chmodSync(dir, 0o000);
+    // win32 has no directory modes: a file where the folder was makes the listing fail with ENOTDIR, not ENOENT.
+    if (process.platform === 'win32') { fs.rmSync(dir, { recursive: true, force: true }); fs.writeFileSync(dir, 'not a directory\n'); } else fs.chmodSync(dir, 0o000);
     try {
       const res = spawnSync(process.execPath, [CLI, 'review', '--action', 'start', '--slug', SLUG, '--json'],
         { cwd: r.cwd, env: { ...r.env, DOFLOW_CLI: CLI }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20000 });
@@ -696,7 +698,7 @@ function chmodRegression(name: any, place: any) {
       assert.equal(json.seats, null);
       assert.equal(json.notApplicable, null);
     } finally {
-      fs.chmodSync(dir, 0o755);
+      if (process.platform !== 'win32') fs.chmodSync(dir, 0o755);
     }
   });
 }
@@ -716,6 +718,7 @@ for (const [name, place] of [
   }],
   ['a FIFO', (r: any) => {
     fs.mkdirSync(path.join(r.cwd, '.doflow/state/orchestration'), { recursive: true });
+    if (process.platform === 'win32') throw new Error('skip');
     const made = spawnSync('mkfifo', [path.join(r.cwd, '.doflow/state/orchestration', LEGACY)]);
     if (made.status !== 0) throw new Error('skip');
   }],

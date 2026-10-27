@@ -165,13 +165,14 @@ test('FR-003: without a guard directory only the changed test files are selected
 
 test('FR-003: a path with a space or a quote reaches the shell as one word', () => {
   assert.equal(quotePath('test/plain.test.js'), 'test/plain.test.js');
-  assert.equal(quotePath('test/my file.test.js'), "'test/my file.test.js'");
-  assert.equal(quotePath("test/it's.test.js"), `'test/it'\\''s.test.js'`);
+  assert.equal(quotePath('test/my file.test.js', 'linux'), "'test/my file.test.js'");
+  assert.equal(quotePath("test/it's.test.js", 'linux'), `'test/it'\\''s.test.js'`);
   assert.equal(quotePath('test/my file.test.js', 'win32'), '"test/my file.test.js"');
 
   const root = project({ files: { 'test/my file.test.js': '' } });
   const { tier }: any = compile(root, { changedFiles: ['test/my file.test.js'], exec: fakeExec().exec });
-  assert.equal(tier('targeted-tests').checks[0].command, "node --test 'test/my file.test.js'");
+  // The engine quotes for the platform it runs on: cmd.exe words on win32, POSIX words elsewhere.
+  assert.equal(tier('targeted-tests').checks[0].command, process.platform === 'win32' ? 'node --test "test/my file.test.js"' : "node --test 'test/my file.test.js'");
 });
 
 test('FR-003 / FR-004: no changed test file runs the broad command and records `no-changed-tests`', () => {
@@ -334,7 +335,9 @@ test('review 1: an untracked directory of tests and a non-ASCII test name are bo
     taskId: 'A.1', riskLevel: 'LOW', projectRoot: root, scope: { allowedPaths: ['src/', 'test/'] },
   });
   const command = contract.tiers.find((t: any) => t.id === 'targeted-tests').checks[0].command;
-  assert.equal(command, "node --test test/newdir/new.test.js 'test/t\u00e9st.test.js' test/guards/");
+  // test-selection.ts quotes a path with double quotes on win32 and single quotes elsewhere
+  const q = process.platform === 'win32' ? '"' : "'";
+  assert.equal(command, `node --test test/newdir/new.test.js ${q}test/t\u00e9st.test.js${q} test/guards/`);
 });
 
 test('review 2: a declared `node --test` script carrying a flag is not given the targeted form', () => {

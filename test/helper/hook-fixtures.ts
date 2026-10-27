@@ -1,4 +1,5 @@
 'use strict';
+const JQ_B = process.platform === 'win32' ? ['-b'] : []; // native jq.exe ends lines with CRLF unless -b
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -30,8 +31,9 @@ function loadCorpus(policy: any) {
 }
 
 function runPolicy(policy: any, input: any, { decisionFd = false, cwd = REPO, env = {}, policyPath }: any = {}) {
-  const stdio = decisionFd ? ['pipe', 'pipe', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe'];
-  const child = spawnSync('bash', [policyPath || path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', `${policy}.sh`)], {
+  const { bashPath, spawnWithFd3 } = require('./bash-locator.ts');
+  const script = policyPath || path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', `${policy}.sh`);
+  const options = {
     cwd,
     env: {
       ...process.env,
@@ -46,8 +48,8 @@ function runPolicy(policy: any, input: any, { decisionFd = false, cwd = REPO, en
     },
     input,
     encoding: 'utf8',
-    stdio,
-  });
+  };
+  const child = decisionFd ? spawnWithFd3([script], options) : spawnSync(bashPath({ quiet: true }), [script], options);
   return {
     status: child.status,
     stdout: child.stdout || '',
@@ -62,7 +64,7 @@ function runPolicyV1(policy: any, native: any, { harness, event, ...options }: a
 }
 
 function buildInstallMirror(target: any) {
-  const result = spawnSync('bash', [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), target], { encoding: 'utf8' });
+  const result = spawnSync(require('./bash-locator.ts').bashPath({ quiet: true }), [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), target], { encoding: 'utf8' });
   if (result.status !== 0) throw new Error(result.stderr || 'install mirror build failed');
   return target;
 }
@@ -110,13 +112,13 @@ function createScratch(name = 'doflow-hook-fixtures-') {
 }
 
 function jqSorted(value: any) {
-  const result = spawnSync('jq', ['-S', '.'], { input: `${JSON.stringify(value)}\n`, encoding: 'utf8' });
+  const result = spawnSync('jq', [...JQ_B, '-S', '.'], { input: `${JSON.stringify(value)}\n`, encoding: 'utf8' });
   if (result.status !== 0) throw new Error(result.stderr || 'jq -S failed');
   return result.stdout;
 }
 
 function encodeEnvelope(harness: any, event: any, policy: any, nativeInput: any, env = {}) {
-  const result = spawnSync('jq', [
+  const result = spawnSync('jq', [...JQ_B, 
     '-c', '--arg', 'harness', harness, '--arg', 'event', event, '--arg', 'policy', policy,
     '-f', path.join(REPO, 'core/harnesses/shared/hooks/bridge/envelope.jq'),
   ], { input: nativeInput, env: { ...process.env, ...env }, encoding: 'utf8' });

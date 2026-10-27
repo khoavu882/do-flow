@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 086: the four readers of `failure.capture` agree. Capture is read by four separate pieces
 // of code: the bash dispatcher (bin/doflow-run, capture_failure_write), the bash policy helper
@@ -31,7 +32,7 @@ const { readLexicalCapture }: any = require('../../src/runtime/settings/lexical.
 const POSIX = process.platform !== 'win32';
 const ROOT = POSIX && typeof process.getuid === 'function' && process.getuid() === 0;
 // Keep macOS's Bash 3.2 as the default, but let this test file be exercised with another host Bash.
-const BASH = process.env.DOFLOW_TEST_BASH || '/bin/bash';
+const BASH = bashPath();
 const BASH_MAJOR = (() => {
   const result = spawnSync(BASH, ['--version'], { encoding: 'utf8' });
   const match = `${result.stdout || ''}\n${result.stderr || ''}`.match(/\bversion\s+(\d+)\./i);

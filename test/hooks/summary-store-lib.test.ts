@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // The bash summary store policies/summary-store.sh (feature 078, IC-010, IC-011 store write, IC-012,
 // IC-014; DEC-003, DEC-012, DEC-014): the scoped write, the owner claim by rename, grant selection
@@ -8,6 +9,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env.ts');
@@ -17,7 +19,7 @@ const POLICIES = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'polici
 const STORE = path.join(POLICIES, 'summary-store.sh');
 const LIB = path.join(POLICIES, 'lib.sh');
 const EMISSION = path.join(POLICIES, 'emission.jq');
-const BASH = process.platform === 'darwin' ? '/bin/bash' : 'bash';
+const BASH = bashPath();
 const SUMMARY_ID = /^s-[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{6}$/;
 const AT = '2026-10-14T10:00:00Z';
 
@@ -33,14 +35,14 @@ function worktree() {
 }
 
 /** Runs `body` after sourcing lib.sh (cwd_hash, STATE_DIR) and summary-store.sh, under set -euo pipefail. */
-function sh(body: any, args: any = []) {
+function sh(body: any, args: any = [], env: any = {}) {
   const script = `set -euo pipefail\n. "${LIB}"\n. "${STORE}"\n${body}`;
-  const r = spawnSync(BASH, ['-c', script, 'user-prompt-submit.sh', ...args], { env: scratch.env(), encoding: 'utf8' });
+  const r = spawnSync(BASH, ['-c', script, 'user-prompt-submit.sh', ...args], { env: scratch.env(env), encoding: 'utf8' });
   return r;
 }
 
-function ok(body: any, args: any = []) {
-  const r = sh(body, args);
+function ok(body: any, args: any = [], env: any = {}) {
+  const r = sh(body, args, env);
   assert.equal(r.status, 0, r.stderr);
   return r.stdout;
 }
@@ -58,8 +60,13 @@ const PRINT_SUMMARY = 'printf "rc=%s\\nown=%s\\nclaimed=%s\\nbytes=%s\\nscope=%s
 const PRINT_GRANT = 'printf "rc=%s\\ngrant=%s\\nfile=%s\\nid=%s\\nbytes=%s\\nclaimed=%s\\n" "$rc" "$DF_GRANT" "$DF_GRANT_FILE" "$DF_GRANT_ID" "$DF_GRANT_BYTES" "${DF_GRANT_CLAIMED:-}"';
 
 function write(wt: any, { run = 'local', lineage = 'main', attempt = '', session = 'sess-w', branch = 'topic', role = 'main', body = 'the body', at = AT }: any = {}) {
-  const out: any = vars(ok('rc=0; doflow_summary_write "$@" || rc=$?\nprintf "rc=%s\\nid=%s\\npath=%s\\n" "$rc" "$DF_SUMMARY_ID" "$DF_SUMMARY_PATH"',
-    [wt, run, lineage, attempt, at, session, 'auto', branch, role, body]));
+  // A body too large for one command-line word (Windows caps the whole command line near 32 KB) travels in a file.
+  const viaFile = body.length > 8000;
+  let bodyFile = '';
+  if (viaFile) { bodyFile = path.join(scratch.dir, `body-${seq++}`); fs.writeFileSync(bodyFile, body); }
+  const out: any = vars(ok(`rc=0; doflow_summary_write "$@" || rc=$?\nprintf "rc=%s\\nid=%s\\npath=%s\\n" "$rc" "$DF_SUMMARY_ID" "$DF_SUMMARY_PATH"`.replace('"$@"', viaFile ? '"${@:1:9}" "$(cat "$DF_BODY_FILE")"' : '"$@"'),
+    viaFile ? [wt, run, lineage, attempt, at, session, 'auto', branch, role] : [wt, run, lineage, attempt, at, session, 'auto', branch, role, body],
+    viaFile ? { DF_BODY_FILE: bodyFile } : {}));
   return out;
 }
 
@@ -83,12 +90,12 @@ function scope(wt: any, run: any = 'local', lineage: any = 'main') {
 function render(segment: any, action: any, file: any, maxBytes: any = 16384, summaryBytes?: any) {
   const plan: any = { actions: { [segment]: action }, maxBytes, mode: 'render' };
   if (summaryBytes !== undefined) plan.summaryBytes = summaryBytes;
-  const files: any = { git: '/dev/null', summary: '/dev/null', grant: '/dev/null', warning: '/dev/null' };
+  const files: any = { git: os.devNull, summary: os.devNull, grant: os.devNull, warning: os.devNull };
   files[segment] = file;
   const args: any = ['-n', '-f', EMISSION, '--argjson', 'plan', JSON.stringify(plan)];
   for (const [name, f] of Object.entries(files)) args.push('--rawfile', name, f);
   args.push('--arg', 'nudge', '');
-  const r = spawnSync('jq', args, { encoding: 'utf8' });
+  const r = spawnSync('jq', process.platform === 'win32' ? ['-b', ...args] : args, { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   return JSON.parse(r.stdout);
 }
@@ -142,7 +149,8 @@ test('write: the IC-010 record lands at summaries/<cwd_hash>/<run>/<lineage>/sum
   assert.match(w.id, SUMMARY_ID);
   assert.ok(w.id.startsWith('s-20261014T100000Z-'));
   const hash: any = ok('cwd_hash "$1"', [wt]).trim();
-  assert.equal(w.path, path.join(ENV_ROOT, 'summaries', hash, 'r-7', 'w-3', 'summary.md'));
+  // the store path is built in bash, so it may mix separators on Windows
+  assert.equal(path.normalize(w.path), path.join(ENV_ROOT, 'summaries', hash, 'r-7', 'w-3', 'summary.md'));
   assert.equal(fs.readFileSync(w.path, 'utf8'),
     `---\ncompacted_at: ${AT}\nsession_id: sess-a\ntrigger: auto\nbranch: topic\nrole: worker\nsummary_id: ${w.id}\nrun: r-7\nlineage: w-3\nattempt: 2\nworktree: ${wt}\n---\n\nthe body\n`);
   assert.deepEqual(fs.readdirSync(path.dirname(w.path)), ['summary.md']);
@@ -188,7 +196,7 @@ test('write then claim once: the claimed file renders through emission.jq; a sec
   const c: any = claim(wt);
   assert.equal(c.rc, '0');
   assert.equal(c.own, 'pending');
-  assert.equal(c.claimed, path.join(c.scope, '.claimed.sess-r'));
+  assert.equal(path.normalize(c.claimed), path.normalize(path.join(c.scope, '.claimed.sess-r')));
   assert.ok(!fs.existsSync(path.join(c.scope, 'summary.md')));
   const r = render('summary', 'truncate', c.claimed, 16384, Number(c.bytes));
   assert.equal(r.text, `[Prior session summary, compacted ${AT} on branch topic]\nline one\nline two`);
@@ -280,7 +288,7 @@ test('grant: the oldest by name is claimed first, then the next; the claimed cop
   assert.equal(first.rc, '0');
   assert.equal(first.grant, 'fits');
   assert.equal(first.id, older);
-  assert.equal(first.claimed, path.join(dir, `.claimed.L.r-7.w-3.1.${older}`));
+  assert.equal(path.normalize(first.claimed), path.join(dir, `.claimed.L.r-7.w-3.1.${older}`));
   assert.equal(first.bytes, String(Buffer.byteLength('older body')));
   assert.equal(render('grant', 'whole', first.claimed).text, '[Granted summary from lineage main, compacted 2026-10-14T10:00:00Z on branch topic]\nolder body');
   const second: any = grantClaim('r-7', 'w-3');

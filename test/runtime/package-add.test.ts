@@ -82,7 +82,7 @@ function tree(root: string, base: string = root, out: string[] = []): string[] {
   if (!fs.existsSync(root)) return out;
   for (const e of fs.readdirSync(root, { withFileTypes: true })) {
     const full = path.join(root, e.name);
-    out.push(path.relative(base, full) + (e.isDirectory() ? '/' : ''));
+    out.push(path.relative(base, full).split(path.sep).join('/') + (e.isDirectory() ? '/' : ''));
     if (e.isDirectory()) tree(full, base, out);
   }
   return out.sort();

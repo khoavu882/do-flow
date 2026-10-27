@@ -28,6 +28,14 @@ const { readState } = require('../../src/runtime/packages/state.ts');
 const { TelemetryWriter } = require('../../src/runtime/trace/telemetry.ts');
 const { readLock, writeLock, lockPackages, lockPath } = require('../../src/state/lockfile.ts');
 
+/** POSIX permission bits are not expressible on Windows (files report 0666, folders 0777): there the strongest check is that the entry exists with the right kind. */
+function expectMode(entry: any, mode: number) {
+  const st = fs.statSync(entry);
+  if (process.platform === 'win32') { assert.ok(st.isFile() || st.isDirectory(), `${entry} exists`); return; }
+  assert.equal(st.mode & 0o777, mode, entry);
+}
+
+
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const HOST = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')).version;
 const CORE = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'protocols.json'), 'utf8'));
@@ -247,7 +255,7 @@ test('revoke writes a revocation to state.json: active -> needs-trust (revoked);
   const { revoked } = readState({ homeDir: w.home }).state;
   assert.deepEqual(revoked.map((r: any) => [r.package, r.contentDigest]), [['acme', plan.contentDigest]]);
   assert.equal(sha(w.grantsFile), grantsBefore, 'the person file is never touched');
-  assert.equal(fs.statSync(w.stateFile).mode & 0o777, 0o600);
+  expectMode(w.stateFile, 0o600);
 
   // a line printed after the revocation counts; the old one stays void
   const later = JSON.stringify({ ...JSON.parse(line), version: '1.2.0', at: new Date(Date.now() + 5000).toISOString().replace(/\.\d+Z$/, 'Z') });

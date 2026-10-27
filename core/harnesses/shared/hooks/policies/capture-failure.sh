@@ -16,7 +16,7 @@
 #   - never rotates the file (rotation is done by the Node writers only, DEC-019);
 #   - never blocks, never changes the policy's decision, and swallows every error.
 
-case ${BASH_SOURCE[0]} in */*) _DOFLOW_CAPTURE_FAILURE_DIR=${BASH_SOURCE[0]%/*} ;; *) _DOFLOW_CAPTURE_FAILURE_DIR=. ;; esac
+_DOFLOW_SRC=${BASH_SOURCE[0]//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_CAPTURE_FAILURE_DIR=${_DOFLOW_SRC%/*} ;; *) _DOFLOW_CAPTURE_FAILURE_DIR=. ;; esac
 # The line holds only the policy name and the point name from DoFlow's own code, the working
 # directory, the harness name and the install version: never the tool call, its arguments or stdin.
 # It is a no-op when there is no config home (neither XDG_CONFIG_HOME nor HOME is set to an absolute
@@ -30,9 +30,11 @@ doflow_config_home() {
   DOFLOW_HOME=""
   case "${XDG_CONFIG_HOME:-}" in
     /*) DOFLOW_HOME="${XDG_CONFIG_HOME}/doflow"; return 0 ;;
+    [A-Za-z]:[\\/]*) case "${OSTYPE:-}" in msys*|cygwin*|win32*) DOFLOW_HOME="${XDG_CONFIG_HOME}/doflow"; return 0 ;; esac ;;
   esac
   case "${HOME:-}" in
     /*) DOFLOW_HOME="${HOME}/.config/doflow" ;;
+    [A-Za-z]:[\\/]*) case "${OSTYPE:-}" in msys*|cygwin*|win32*) DOFLOW_HOME="${HOME}/.config/doflow" ;; esac ;;
   esac
   return 0
 }

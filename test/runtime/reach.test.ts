@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp.ts');
+const { withinPath } = require('../helper-platform.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { evaluateReach, REACH_DISPATCHER_REL, REACH_RUNTIME_REL } = require('../../src/runtime/reach.ts');
@@ -17,7 +18,27 @@ function fixture() {
   const proj = path.join(dir, 'proj');
   fs.mkdirSync(home);
   fs.mkdirSync(path.join(proj, 'sub'), { recursive: true });
-  return { home, proj, sub: path.join(proj, 'sub') };
+  return { dir, home, proj, sub: path.join(proj, 'sub') };
+}
+
+/** fs that sees only the fixture tree: the project walk climbs above it, and on win32 the temp folder sits under the runner's real
+ * profile, whose own DoFlow install would otherwise join the answer. Anything outside the fixture reads as absent. */
+function isolatedFs(dir: any) {
+  const inside = [dir, fs.realpathSync(dir)];
+  return new Proxy(fs, {
+    get(target: any, prop: any) {
+      const member = target[prop];
+      if (typeof member !== 'function' || prop === 'realpathSync') return member;
+      return (...args: any[]) => {
+        const first = args[0];
+        if (typeof first === 'string' && path.isAbsolute(first) && !inside.some((root) => withinPath(first, root))) {
+          if (prop === 'existsSync') return false;
+          throw Object.assign(new Error(`ENOENT: ${first}`), { code: 'ENOENT' });
+        }
+        return member.apply(target, args);
+      };
+    },
+  });
 }
 
 function write(file: any, text: any = '', mode?: any) {
@@ -41,7 +62,7 @@ function install(root: any, { runtime = true }: any = {}) {
   if (runtime) write(path.join(root, '.doflow', REACH_RUNTIME_REL), '');
 }
 
-const reach = ({ proj, home }: any, projectRoot: any = proj) => evaluateReach({ registry, projectRoot, homeDir: home });
+const reach = ({ dir, proj, home }: any, projectRoot: any = proj) => evaluateReach({ registry, projectRoot, homeDir: home, fsImpl: isolatedFs(dir) });
 
 test('a project install with a dispatcher and a runtime is REACHED at the install root', () => {
   const t = fixture();

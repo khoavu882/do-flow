@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 115 B.1 (IC-008): the `slot` verb through `bin/doflow.js` and the doflow-run dispatcher,
 // in a scratch HOME. Every background process started here is this test's own child.
@@ -27,7 +28,7 @@ function scratch(t: any) {
     const originalLoad = Module._load;
     Module._load = function(request, parent, isMain) {
       const loaded = originalLoad.call(this, request, parent, isMain);
-      if (request.endsWith('process-tree.ts') && parent && parent.filename.endsWith('/src/runtime/slots.ts')) {
+      if (request.endsWith('process-tree.ts') && parent && parent.filename.replace(/\\\\/g, '/').endsWith('/src/runtime/slots.ts')) {
         return { ...loaded,
           procStart(pid) { return Number.isInteger(pid) && pid > 0 ? 'test-' + pid : null; },
           alive(proc) {
@@ -42,7 +43,7 @@ function scratch(t: any) {
   `);
   const env: any = {
     ...process.env,
-    HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'),
+    HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, '.config'),
     GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
     DOFLOW_CLI: CLI,
     NODE_OPTIONS: `--require=${livenessPreload}`,
@@ -50,7 +51,7 @@ function scratch(t: any) {
   delete env.DOFLOW_SLOT;
   delete env.FORCE_COLOR;
   const cli = (args: any, cwd: any = cwdA) => spawnSync(process.execPath, [CLI, 'slot', ...args], { cwd, env, encoding: 'utf8' });
-  const dispatcher = (args: any, cwd: any = cwdA) => spawnSync('/bin/bash', [RUN, 'slot', ...args], { cwd, env, encoding: 'utf8' });
+  const dispatcher = (args: any, cwd: any = cwdA) => spawnSync(bashPath(), [RUN, 'slot', ...args], { cwd, env, encoding: 'utf8' });
   const list = (cwd: any = cwdA) => {
     const done = cli(['--action', 'list', '--json'], cwd);
     assert.equal(done.status, 0, done.stderr);
@@ -185,8 +186,13 @@ test('list on an empty machine, then a live holder, is visible from two director
 
   bg.child.kill('SIGTERM');
   const ended: any = await bg.exited;
-  assert.equal(ended.code, 143);
-  assert.deepEqual(s.list().slots, []);
+  if (process.platform === 'win32') {
+    // win32 has no SIGTERM: kill() ends the process abruptly, so neither the 143 exit nor the slot cleanup of its handler runs.
+    assert.notEqual(ended.code, 0);
+  } else {
+    assert.equal(ended.code, 143);
+    assert.deepEqual(s.list().slots, []);
+  }
 });
 
 test('the doflow-run dispatcher forwards -- and every following argument unchanged', (t) => {
@@ -202,7 +208,7 @@ test('the doflow-run dispatcher forwards -- and every following argument unchang
   assert.equal(listed.stdout, 'no slots held\n');
 });
 
-test('SIGKILL between spawn and registration keeps the gated command from running; the next caller is granted', async (t) => {
+test('SIGKILL between spawn and registration keeps the gated command from running; the next caller is granted', { skip: process.platform === 'win32' && 'the go gate exists only off win32 (slots.ts:446)' }, async (t) => {
   const s = scratch(t);
   const dir = path.dirname(s.home);
   const runnerScript = path.join(dir, 'paused-slot-runner.cjs');
@@ -233,6 +239,7 @@ test('SIGKILL between spawn and registration keeps the gated command from runnin
   const runEnv: any = {
     ...s.env,
     HOME: s.home,
+    USERPROFILE: s.home,
     XDG_CONFIG_HOME: path.join(s.home, '.config'),
     SLOT_PAUSE_FILE: pauseFile,
     PAUSE_ON_CHILD: '1',

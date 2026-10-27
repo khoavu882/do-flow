@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
+_DOFLOW_SRC=${0//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_POLDIR=${_DOFLOW_SRC%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # pre-bash-guard.sh — Canonical Policy Library: PreToolUse(shell-command) hook
 #
 # Intercepts every shell-command tool call and blocks dangerous commands by

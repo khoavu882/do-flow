@@ -7,6 +7,10 @@ const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
 const { RUNNER_TOOLS, parseArgs, ciEnv, stagePlan, runRehearse } = require('../../src/release/rehearse.ts');
 
+// The rehearsal is a maintainer tool for the ubuntu and macOS runner images: its child PATH is the POSIX system path
+// (src/release/rehearse.ts:23 SYSTEM_PATH), its tool list is justified only by those images (rehearse.ts:13-19), and
+// it links PATH shims with symlinks (rehearse.ts:220, :230). The argv, env and usage tests above run everywhere.
+const WIN_SKIP: any = process.platform === 'win32' && 'release rehearsal is POSIX-only by design: it targets the ubuntu and macOS runner images (src/release/rehearse.ts:13-23)';
 const VERSION = '2.0.0-beta.6';
 const FLOOR = '24.22.1';
 const NODE = '/fake/node24/bin/node';
@@ -97,9 +101,9 @@ test('ciEnv builds the environment from nothing and keeps every path under scrat
     'XDG_DATA_HOME', 'XDG_STATE_HOME', 'npm_config_audit', 'npm_config_cache', 'npm_config_fund',
     'npm_config_update_notifier', 'npm_execpath',
   ]);
-  assert.equal(env.PATH, '/n24/bin:/scratch/rehearse/bin:/usr/bin:/bin:/usr/sbin:/sbin');
+  assert.equal(env.PATH, ['/n24/bin', '/scratch/rehearse/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(path.delimiter));
   for (const key of ['HOME', 'USERPROFILE', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'npm_config_cache']) {
-    assert.ok(env[key].startsWith(`${scratch}/`), `${key}=${env[key]}`);
+    assert.ok(env[key].startsWith(`${path.normalize(scratch)}${path.sep}`), `${key}=${env[key]}`);
   }
   assert.equal(env.TMPDIR, '/var/tmp/x');
   assert.equal(env.LANG, 'en_US.UTF-8');
@@ -130,7 +134,7 @@ test('the forbidden-argv check flags publish, dist-tag, push and tag (negative c
   assert.ok(!forbidden('git', ['-C', '/x', 'checkout', '--detach']));
 });
 
-test('a clean run passes every stage in order, spawns the documented argv and removes the scratch', (t) => {
+test('a clean run passes every stage in order, spawns the documented argv and removes the scratch', { skip: WIN_SKIP }, (t) => {
   const { result, calls, scratchRoot, baseEnv, npmCli } = fixture(t);
   assert.equal(result.exitCode, 0, result.lines.join('\n'));
   assert.deepEqual(stageLines(result).map((l: any) => l.split(':')[0]), ['env', ...ORDER].map((id) => `PASS ${id}`));
@@ -178,12 +182,12 @@ test('a clean run passes every stage in order, spawns the documented argv and re
   assert.ok(children.every((c: any) => c.options.timeout > 0), 'every non-env stage has a timeout');
 });
 
-test('--registry lets the preflight stage query npm', (t) => {
+test('--registry lets the preflight stage query npm', { skip: WIN_SKIP }, (t) => {
   const { calls } = fixture(t, { registry: true });
   assert.deepEqual(calls.find((c: any) => c.args[0] === 'src/release/preflight.ts').args, ['src/release/preflight.ts']);
 });
 
-test('the chain stops at the first failure, prints the last 40 lines and later SKIP lines, and keeps the scratch', (t) => {
+test('the chain stops at the first failure, prints the last 40 lines and later SKIP lines, and keeps the scratch', { skip: WIN_SKIP }, (t) => {
   const output = Array.from({ length: 50 }, (_, i) => `line ${i + 1}`).join('\n') + '\n';
   const { result } = fixture(t, {
     override: (command: any, args: any) => (args.includes('pack') ? { status: 1, stdout: output } : undefined),
@@ -200,7 +204,7 @@ test('the chain stops at the first failure, prints the last 40 lines and later S
   assert.ok(fs.existsSync(scratchOf(result)), 'scratch kept on exit 1');
 });
 
-test('a preflight FAIL does not stop the chain and the run exits 1', (t) => {
+test('a preflight FAIL does not stop the chain and the run exits 1', { skip: WIN_SKIP }, (t) => {
   const { result } = fixture(t, {
     override: (command: any, args: any) => (args[0] === 'src/release/preflight.ts' ? { status: 1, stdout: 'FAIL clean-tree: dirty\n' } : undefined),
   });
@@ -211,7 +215,7 @@ test('a preflight FAIL does not stop the chain and the run exits 1', (t) => {
     ['env', 'clone', 'suite', 'smoke', 'build', 'pack', 'install', 'version', 'install-g', 'verb']);
 });
 
-test('a stage timeout is a FAIL that says so', (t) => {
+test('a stage timeout is a FAIL that says so', { skip: WIN_SKIP }, (t) => {
   const { result } = fixture(t, {
     override: (command: any, args: any) => (args[0] === '--test' && command === NODE ? { status: null, error: Object.assign(new Error('spawnSync ETIMEDOUT'), { code: 'ETIMEDOUT' }) } : undefined),
   });
@@ -220,7 +224,7 @@ test('a stage timeout is a FAIL that says so', (t) => {
   assert.ok(result.lines.includes('FAIL suite: test suite: timed out after 45 min'));
 });
 
-test('the version stage fails when the installed CLI prints another version', (t) => {
+test('the version stage fails when the installed CLI prints another version', { skip: WIN_SKIP }, (t) => {
   const { result } = fixture(t, {
     override: (command: any, args: any) => (command.endsWith('/.bin/doflow') && args[0] === '--version' ? { stdout: '1.0.0\n' } : undefined),
   });
@@ -229,7 +233,7 @@ test('the version stage fails when the installed CLI prints another version', (t
   assert.match(result.lines.find((l: any) => l.startsWith('FAIL version:')), /expected 2\.0\.0-beta\.6/);
 });
 
-test('seed plantuml: reverts the commit, runs only the render test, exits 0 when it fails', (t) => {
+test('seed plantuml: reverts the commit, runs only the render test, exits 0 when it fails', { skip: WIN_SKIP }, (t) => {
   const { result, calls, scratchRoot } = fixture(t, {
     seed: 'plantuml',
     override: (command: any, args: any) => (args[0] === '--test' ? { status: 1, stdout: PLANTUML_SIGNATURE } : undefined),
@@ -245,7 +249,7 @@ test('seed plantuml: reverts the commit, runs only the render test, exits 0 when
   }
 });
 
-test('seed plantuml: the render test failing for another reason is not a reproduction', (t) => {
+test('seed plantuml: the render test failing for another reason is not a reproduction', { skip: WIN_SKIP }, (t) => {
   const { result } = fixture(t, {
     seed: 'plantuml',
     override: (command: any, args: any) => (args[0] === '--test' ? { status: 1, stdout: 'not ok\n' } : undefined),
@@ -261,7 +265,7 @@ test('seed plantuml: the render test failing for another reason is not a reprodu
   assert.equal(half.result.exitCode, 1, 'the test name alone, without the design.md-kept-old-block assertion, is not enough');
 });
 
-test('a Node folder that holds other tools never reaches a child PATH, so the plantuml seed reproduces', (t) => {
+test('a Node folder that holds other tools never reaches a child PATH, so the plantuml seed reproduces', { skip: WIN_SKIP }, (t) => {
   const nodeFolder = tempDir(t, 'doflow-rehearse-nodedir-');
   fs.writeFileSync(path.join(nodeFolder, 'node'), '');
   fs.writeFileSync(path.join(nodeFolder, 'plantuml'), '#!/bin/sh\nexit 0\n');
@@ -290,14 +294,14 @@ test('a Node folder that holds other tools never reaches a child PATH, so the pl
   assert.equal(fs.readlinkSync(path.join(floorShim, 'node')), nodeBin);
 });
 
-test('seed plantuml: a passing render test means the seed was not reproduced (exit 1)', (t) => {
+test('seed plantuml: a passing render test means the seed was not reproduced (exit 1)', { skip: WIN_SKIP }, (t) => {
   const { result } = fixture(t, { seed: 'plantuml' });
   t.after(() => fs.rmSync(scratchOf(result), { recursive: true, force: true }));
   assert.equal(result.exitCode, 1);
   assert.ok(result.lines.includes('SEED not reproduced: plantuml expected suite, got PASS'));
 });
 
-test('seed plantuml: a revert that does not apply exits 3 and names the commit', (t) => {
+test('seed plantuml: a revert that does not apply exits 3 and names the commit', { skip: WIN_SKIP }, (t) => {
   const { result } = fixture(t, {
     seed: 'plantuml',
     override: (command: any, args: any) => (args[0] === 'revert' ? { status: 1, stderr: 'conflict\n' } : undefined),
@@ -308,7 +312,7 @@ test('seed plantuml: a revert that does not apply exits 3 and names the commit',
   assert.ok(result.lines.includes('SKIP suite: after seed failed'));
 });
 
-test('suite failure output prints failing test names and summary counts (FU-xhbah7)', (t) => {
+test('suite failure output prints failing test names and summary counts (FU-xhbah7)', { skip: WIN_SKIP }, (t) => {
   const suiteFailureOutput = [
     '✔ test 1 (1ms)',
     '✖ test 2 failed (2ms)',
@@ -338,7 +342,7 @@ test('suite failure output prints failing test names and summary counts (FU-xhba
   assert.ok(log.includes('[SUMMARY] ℹ fail 2'), 'must include suite fail count');
 });
 
-test('seed raw-ts: packs the raw clone, expects the type-stripping error and exits 0', (t) => {
+test('seed raw-ts: packs the raw clone, expects the type-stripping error and exits 0', { skip: WIN_SKIP }, (t) => {
   const { result, calls, scratchRoot } = fixture(t, {
     seed: 'raw-ts',
     override: (command: any, args: any) => (command.endsWith('/.bin/doflow')
@@ -353,7 +357,7 @@ test('seed raw-ts: packs the raw clone, expects the type-stripping error and exi
   assert.deepEqual(fs.readdirSync(scratchRoot), []);
 });
 
-test('seed raw-ts: a version failure without the signature, or a pass, is not reproduced', (t) => {
+test('seed raw-ts: a version failure without the signature, or a pass, is not reproduced', { skip: WIN_SKIP }, (t) => {
   const plain = fixture(t, {
     seed: 'raw-ts',
     override: (command: any) => (command.endsWith('/.bin/doflow') ? { status: 1, stderr: 'some other error\n' } : undefined),
@@ -376,7 +380,7 @@ test('seed raw-ts: a version failure without the signature, or a pass, is not re
   assert.ok(early.result.lines.includes('SEED not reproduced: raw-ts expected version, got FAIL at install'));
 });
 
-test('env failures exit 3 before any scratch directory exists', (t) => {
+test('env failures exit 3 before any scratch directory exists', { skip: WIN_SKIP }, (t) => {
   const wrong = fixture(t, {
     override: (command: any, args: any) => (command === NODE && args[0] === '--version' ? { stdout: 'v26.8.1\n' } : undefined),
   });
@@ -400,7 +404,7 @@ test('env failures exit 3 before any scratch directory exists', (t) => {
   assert.equal(badRef.result.exitCode, 3);
 });
 
-test('the default floor Node is the invoking one, and a mismatch exits 3 (negative control for the hint)', (t) => {
+test('the default floor Node is the invoking one, and a mismatch exits 3 (negative control for the hint)', { skip: WIN_SKIP }, (t) => {
   const { result } = fixture(t, {
     node: null,
     override: (command: any, args: any) => (args[0] === '--version' && command.endsWith('/node') ? { stdout: 'v26.8.1\n' } : undefined),
@@ -409,7 +413,7 @@ test('the default floor Node is the invoking one, and a mismatch exits 3 (negati
   assert.match(result.lines[0], /^FAIL env: need Node v24\.22\.1 but \/fake\/node26\/bin\/node is v26\.8\.1/);
 });
 
-test('--keep keeps the scratch after exit 0, with the npm shim and a linked runner tool', (t) => {
+test('--keep keeps the scratch after exit 0, with the npm shim and a linked runner tool', { skip: WIN_SKIP }, (t) => {
   const toolDir = tempDir(t, 'doflow-rehearse-tools-');
   const toolName = 'doflow-rehearse-fake-tool';
   fs.writeFileSync(path.join(toolDir, toolName), '');

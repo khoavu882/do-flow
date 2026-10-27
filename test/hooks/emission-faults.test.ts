@@ -136,7 +136,7 @@ test('L1-01: a grant lost between peek and claim still bootstraps with git conte
   assert.equal(run(w, 'sess-1', LAUNCHED).out, '{}\n');
 });
 
-test('L1-01: an unwritable scope gives {} with no slot left, and the next writable prompt bootstraps', { skip: AS_ROOT && 'root writes any folder' }, (t) => {
+test('L1-01: an unwritable scope gives {} with no slot left, and the next writable prompt bootstraps', { skip: (AS_ROOT && 'root writes any folder') || (process.platform === 'win32' && 'a folder cannot be made unwritable by chmod on Windows (read-only is a file flag only)') }, (t) => {
   const w: any = world(t);
   writeGit(w, 'sess-1');
   run(w, 'seed', { EM_CALL: SUMMARY() });
@@ -154,7 +154,7 @@ test('L1-01: an unwritable scope gives {} with no slot left, and the next writab
   assert.equal(ctx(next.out), `${GIT_TEXT}\n\n[Prior session summary, compacted 2026-10-14T09:00:00Z on branch topic]\nPrior work body`);
 });
 
-test('L1-03: an unreadable warning renders no empty warning and writes nothing to stderr', { skip: AS_ROOT && 'root reads any file' }, (t) => {
+test('L1-03: an unreadable warning renders no empty warning and writes nothing to stderr', { skip: (AS_ROOT && 'root reads any file') || (process.platform === 'win32' && 'chmod 000 cannot make a file unreadable on Windows') }, (t) => {
   const w: any = world(t);
   writeGit(w, 'sess-1');
   const lock = WARNING + 'chmod 000 "$p/uncommitted-warning.txt"\n';
@@ -252,5 +252,5 @@ test('L1-11: the truncated copy of a claimed summary is 0600', (t) => {
   assert.equal(r.err, '');
   const claimed = fs.readFileSync(path.join(w.root, 'claimed'), 'utf8');
   assert.equal(fs.statSync(claimed).size, 65536);
-  assert.equal(fs.statSync(claimed).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(claimed).mode & 0o777, 0o600); // modes are not expressible on Windows
 });

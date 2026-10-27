@@ -1,4 +1,5 @@
 'use strict';
+const JQ_B = process.platform === 'win32' ? ['-b'] : []; // native jq.exe ends lines with CRLF unless -b
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -117,7 +118,7 @@ function run(row: any, index: any) {
       return;
     }
     const encoder = path.join(mirror, '.doflow/shared/hooks/bridge/envelope.jq');
-    const encoded = spawnSync('jq', ['-c', '--arg', 'harness', 'antigravity', '--arg', 'event', event,
+    const encoded = spawnSync('jq', [...JQ_B, '-c', '--arg', 'harness', 'antigravity', '--arg', 'event', event,
       '--arg', 'policy', decision.policy, '-f', encoder], {
       cwd: project,
       input: native === null ? 'null\n' : `${JSON.stringify(native)}\n`,

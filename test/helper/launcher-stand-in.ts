@@ -46,7 +46,7 @@ function launch({ mirror, env = {}, cwd, run, lineage, attempt = '1', role = 'wo
 
 /** One front door from the mirror; a non-zero exit is an error, since hooks always exit 0. */
 function frontDoor(mirror: any, harness: any, script: any, payload: any, cwd: any, env: any) {
-  const r = spawnSync('bash', [path.join(mirror, `.${harness}`, 'hooks', script)], {
+  const r = spawnSync(require('./bash-locator.ts').bashPath({ quiet: true }), [path.join(mirror, `.${harness}`, 'hooks', script)], {
     cwd, input: `${JSON.stringify(payload)}\n`, env, encoding: 'utf8',
   });
   if (r.status !== 0) throw new Error(`${harness}/${script} exited ${r.status}: ${r.stderr}`);

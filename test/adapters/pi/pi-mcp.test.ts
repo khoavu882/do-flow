@@ -490,10 +490,10 @@ test('P15: a private mcp.json keeps its mode through install and remove', { skip
   writeFile(file, USER_TEXT);
   fs.chmodSync(file, 0o600);
   const first = run({ root });
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600); // modes are not expressible on Windows
   run({ root, mcp: [], ledger: first.ledger, operation: 'remove' });
   assert.equal(fs.readFileSync(file, 'utf8'), USER_TEXT);
-  assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(file).mode & 0o777, 0o600); // modes are not expressible on Windows
 });
 
 test('P15: a symlinked mcp.json is written through to its target and stays a link', { skip: process.platform === 'win32' && 'symlinks need privileges' }, () => {

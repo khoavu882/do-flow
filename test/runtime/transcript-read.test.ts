@@ -48,8 +48,16 @@ function repo(dir: string) {
   git(dir, 'commit', '-q', '-m', 'first');
 }
 
+// core/registry/transcripts.json keeps every win32 location at status "unknown" (R28) and the reader skips those
+// (fleet/tree.ts:83): on win32 a module call reads the fixtures through the linux locations (the `platform` option),
+// while the CLI, which cannot take that option, finds no transcript there.
+const WIN = process.platform === 'win32';
+const TRANSCRIPT_PLATFORM = WIN ? 'linux' : undefined;
+
 function env(f: any): any {
   return {
+    // os.homedir() reads USERPROFILE on win32, and a spawn with a stripped environment still needs SystemRoot
+    ...(WIN ? { USERPROFILE: f.home, SystemRoot: process.env.SystemRoot, windir: process.env.windir } : {}),
     HOME: f.home, XDG_CONFIG_HOME: f.config, PATH: process.env.PATH, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
     DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_TELEMETRY: 'off', CLAUDE_CONFIG_DIR: '', CODEX_HOME: '', COPILOT_HOME: '', PI_CODING_AGENT_SESSION_DIR: '',
     TMPDIR: process.env.TMPDIR,
@@ -79,7 +87,11 @@ function retarget(dir: string, from: string, to: string) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, e.name);
     if (e.isDirectory()) retarget(full, from, to);
-    else if (!e.name.startsWith('opencode.db')) fs.writeFileSync(full, fs.readFileSync(full, 'utf8').split(from).join(to));
+    else if (!e.name.startsWith('opencode.db')) {
+      // The fixtures are JSON text: a native Windows path must land as the escaped string, not as stray escapes.
+      const text = /\.jsonl?$/.test(e.name) ? to.replace(/\\/g, '\\\\') : to;
+      fs.writeFileSync(full, fs.readFileSync(full, 'utf8').split(from).join(text));
+    }
   }
 }
 
@@ -132,7 +144,7 @@ function snapshot(root: string): Record<string, string> {
 const unknown = () => 'unknown';
 const read = (f: any, agent: string, opts: any = {}) => {
   clearCheckoutCache();
-  return readAgent({ env: env(f), cwd: f.main, agent, alive: unknown, ...opts });
+  return readAgent({ env: env(f), cwd: f.main, agent, alive: unknown, ...(TRANSCRIPT_PLATFORM ? { platform: TRANSCRIPT_PLATFORM } : {}), ...opts });
 };
 const ok = (f: any, agent: string, opts: any = {}) => {
   const r = read(f, agent, opts);
@@ -328,7 +340,8 @@ test('usage errors exit 2, and a limit past 500 is capped, not refused', (t) => 
   assert.equal(capped.status, 0, capped.stderr);
   const text = cli(f, ['--action', 'read', '--agent', key]);
   assert.equal(text.status, 0, text.stderr);
-  assert.ok(text.stdout.includes('reply') && !text.stdout.includes(f.root));
+  if (!WIN) assert.ok(text.stdout.includes('reply'), 'the transcript is read'); // win32: R28, no located transcript through the CLI
+  assert.ok(!text.stdout.includes(f.root));
   for (const needle of FORBIDDEN) assert.ok(!text.stdout.includes(needle) && !capped.stdout.includes(needle), needle);
 });
 
@@ -340,7 +353,7 @@ test('handleTranscriptCommand: usage, the text form and a refusal through the mo
   const lines: string[] = [];
   const out = (l: string) => lines.push(l);
   assert.equal(handleTranscriptCommand({ action: 'read', agent: AK('codex', `${ID}d001`), json: false, flags: ['--action', '--agent'], env: env(f), cwd: f.main, alive: unknown, out }), 0);
-  assert.ok(lines.length > 5 && lines.every((l) => !l.includes(f.root)));
+  assert.ok(lines.length > (WIN ? 0 : 5) && lines.every((l) => !l.includes(f.root)));
   lines.length = 0;
   assert.equal(handleTranscriptCommand({ action: 'read', agent: AK('codex', `${ID}d001`), json: false, flags: ['--stuff'], env: env(f), cwd: f.main, out }), 2);
   assert.equal(handleTranscriptCommand({ action: 'read', agent: '0123456789abcdef', json: true, flags: [], env: env(f), cwd: f.main, alive: unknown, out }), 1);

@@ -165,7 +165,8 @@ test('a special file, a hidden segment, too many files and too many bytes are tr
   small.limits = { files: 3, bytes: 100, fileBytes: 262144, pathLength: 200 };
   const result = checkPackage(dir, { ...OPTIONS, pointsRegistry: small });
   const found = codes(result.findings);
-  if (fifo.status === 0) assert.ok(found.includes('special-file'));
+  // Windows has no FIFO node kind (an MSYS mkfifo makes a plain file or fails), so only POSIX can make a special file.
+  if (fifo.status === 0 && process.platform !== 'win32') assert.ok(found.includes('special-file'));
   assert.ok(found.includes('too-many-files'));
   assert.equal(result.findings.filter((f: any) => f.code === 'bad-type' && f.field.startsWith('tree.')).length >= 1, true);
   const fields = result.findings.map((f: any) => f.field);
@@ -311,8 +312,10 @@ test('contentDigest follows the IC-005 construction exactly', (t: any) => {
   fs.writeFileSync(path.join(dir, 'b.txt'), 'bee');
   fs.writeFileSync(path.join(dir, 'sub', 'a.txt'), 'ay');
   fs.writeFileSync(path.join(dir, 'run.sh'), '#!/bin/sh\n', { mode: 0o755 });
+  // The execute flag is the file's POSIX mode bit; Windows reports 0666 for every file, so run.sh reads 0 there.
+  const exec = process.platform === 'win32' ? 0 : 1;
   const expected = sha(`doflow-package-content-v1\nb.txt\u00000\u0000${sha('bee')}\n`
-    + `run.sh\u00001\u0000${sha('#!/bin/sh\n')}\nsub/a.txt\u00000\u0000${sha('ay')}\n`);
+    + `run.sh\u0000${exec}\u0000${sha('#!/bin/sh\n')}\nsub/a.txt\u00000\u0000${sha('ay')}\n`);
   assert.equal(contentDigest(dir), expected);
 });
 
@@ -335,9 +338,11 @@ test('contentDigest is stable across creation order and mtime, and flips on one 
   assert.notEqual(contentDigest(b), base, 'one changed byte');
   fs.writeFileSync(path.join(b, 'two.txt'), 'second');
   assert.equal(contentDigest(b), base);
-  fs.chmodSync(path.join(b, 'two.txt'), 0o755);
-  assert.notEqual(contentDigest(b), base, 'an execute bit');
-  fs.chmodSync(path.join(b, 'two.txt'), 0o644);
+  if (process.platform !== 'win32') { // Windows has no execute bit to flip
+    fs.chmodSync(path.join(b, 'two.txt'), 0o755);
+    assert.notEqual(contentDigest(b), base, 'an execute bit');
+    fs.chmodSync(path.join(b, 'two.txt'), 0o644);
+  }
   fs.writeFileSync(path.join(b, 'extra.txt'), 'x');
   assert.notEqual(contentDigest(b), base, 'a new file');
 });

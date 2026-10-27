@@ -110,7 +110,8 @@ function fsyncCopy(fsImpl: any, file: any) {
 function fsyncFolder(fsImpl: any, dir: any) {
   let fd;
   try { fd = fsImpl.openSync(dir, 'r'); } catch { return; }
-  try { fsImpl.fsyncSync(fd); } finally { fsImpl.closeSync(fd); }
+  // Windows opens a folder but refuses to flush it (EPERM); there is nothing to flush there.
+  try { fsImpl.fsyncSync(fd); } catch (error: any) { if (!['EPERM', 'EINVAL', 'EISDIR', 'ENOTSUP'].includes(error?.code)) throw error; } finally { fsImpl.closeSync(fd); }
 }
 
 const migrationFailed = (code: any) => ({

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # do-paths.sh — deterministic path/feature resolver for the doflow chain.
 #
 # Emits a single JSON object describing the ACTIVE feature so doflow skills

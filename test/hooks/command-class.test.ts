@@ -1,4 +1,6 @@
 'use strict';
+const JQ_B = process.platform === 'win32' ? ['-b'] : []; // native jq.exe ends lines with CRLF unless -b
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // 088 E.3, IC-003/IC-005. Native fixtures follow the E.1 captures from Claude Code 2.1.292.
 const { test } = require('node:test');
@@ -61,7 +63,7 @@ function native(command: any, event: any = EVENTS[0]) {
   return { ...payload, tool_input: { command } };
 }
 function encode(payload: any, { root = REPO, mode = 'encode', harness = 'claude', policy = 'pre-bash-guard' }: any = {}) {
-  const result = spawnSync('jq', ['-c', '--arg', 'harness', harness, '--arg', 'event', payload.hook_event_name || 'PreToolUse', '--arg', 'policy', policy,
+  const result = spawnSync('jq', [...JQ_B, '-c', '--arg', 'harness', harness, '--arg', 'event', payload.hook_event_name || 'PreToolUse', '--arg', 'policy', policy,
     ...(mode === null ? [] : ['--arg', 'mode', mode]), '-f', path.join(root, BRIDGE, 'envelope.jq')], {
     input: JSON.stringify(payload), encoding: 'utf8', env: env(root), timeout: 5000,
   });
@@ -86,7 +88,7 @@ function project(t: any, { state = true, mutate }: any = {}) {
   return root;
 }
 function observe(root: any, payload: any, { event = payload?.hook_event_name, extra = {}, input, cwd = root }: any = {}) {
-  const result = spawnSync('/bin/bash', [path.join(root, '.claude/hooks/post-shell-observe.sh'), ...(event === undefined ? [] : [event])], {
+  const result = spawnSync(bashPath(), [path.join(root, '.claude/hooks/post-shell-observe.sh'), ...(event === undefined ? [] : [event])], {
     cwd, input: input === undefined ? JSON.stringify(payload) : input, encoding: 'utf8', timeout: 5000, env: env(root, extra),
   });
   // The observer may exit before it reads stdin (malformed or irrelevant input needs none of it), which closes the
@@ -243,7 +245,7 @@ test('observer exits silently on malformed, irrelevant, missing-bridge, missing-
 
 test('telemetry off exits without waiting for stdin or touching dependencies or state', async (t) => {
   const root = project(t, { state: false });
-  const child = spawn('/bin/bash', [path.join(root, '.claude/hooks/post-shell-observe.sh'), EVENTS[0]], {
+  const child = spawn(bashPath(), [path.join(root, '.claude/hooks/post-shell-observe.sh'), EVENTS[0]], {
     cwd: root, env: env(root, { DOFLOW_TELEMETRY: 'off', PATH: '/nonexistent' }), stdio: ['pipe', 'pipe', 'pipe'],
   });
   let stdout = ''; let stderr = '';
@@ -290,7 +292,7 @@ test('negative control: emitting the raw command instead of class makes the SAME
   noContent([records[0]]);
   // The scratch encoder is installed beneath .doflow; invoke it without executing any command.
   const scratchEncoder = path.join(root, '.doflow/shared/hooks/bridge/envelope.jq');
-  const result = spawnSync('jq', ['-c', '--arg', 'harness', 'claude', '--arg', 'event', 'PreToolUse', '--arg', 'policy', 'pre-bash-guard', '--arg', 'mode', 'encode', '-f', scratchEncoder], {
+  const result = spawnSync('jq', [...JQ_B, '-c', '--arg', 'harness', 'claude', '--arg', 'event', 'PreToolUse', '--arg', 'policy', 'pre-bash-guard', '--arg', 'mode', 'encode', '-f', scratchEncoder], {
     input: JSON.stringify(payload), encoding: 'utf8', env: env(root),
   });
   assert.equal(result.status, 0, result.stderr);

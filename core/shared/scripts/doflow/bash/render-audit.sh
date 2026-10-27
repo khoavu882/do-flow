@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # render-audit.sh — projects the orchestrator's own journal into a human-readable audit.md.
 #
 # audit.md is generated, never hand-authored: this script deterministically OVERWRITES it in full

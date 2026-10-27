@@ -6,6 +6,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
+// seed.ts quoteLandArgument single-quotes any argument outside the portable word set, so a native Windows path (backslashes) is quoted.
+const lq = (value: any) => (/^[A-Za-z0-9_./:@%+=,-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`);
 const { deriveStatus, render, renderRoadmapFile } = require('../../src/runtime/roadmap/rows.ts');
 
 const BIN = path.join(__dirname, '..', '..', 'bin', 'doflow.js');
@@ -100,7 +102,7 @@ test('seed check: missing roadmap store is empty and returns the person-only lan
   const out = JSON.parse(r.stdout);
   assert.equal(out.ok, true);
   assert.equal(out.seed.sha256, null);
-  assert.equal(out.land, `doflow roadmap seed ${repo} --action apply --draft ${draft}`);
+  assert.equal(out.land, `doflow roadmap seed ${lq(repo)} --action apply --draft ${lq(draft)}`);
   assert.equal(fs.existsSync(storeDir), false, 'check does not create the missing store');
 });
 

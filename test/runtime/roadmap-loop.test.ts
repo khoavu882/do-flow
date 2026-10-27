@@ -162,7 +162,7 @@ test('a skill stage is a perform envelope; only changed bytes plus a newer hando
   handoff(f);
   const gate = await f.next();
   assert.deepEqual([gate.result.outcome, gate.result.step, gate.result.row, gate.result.rule], ['acted', 'gate', '113', 'gate-0/pass']);
-  assert.ok(gate.result.evidence.some((e: any) => e.locator.endsWith('intention/requirement.md') && e.sha256 === digest('# Settled\n')));
+  assert.ok(gate.result.evidence.some((e: any) => e.locator.replace(/\\/g, '/').endsWith('intention/requirement.md') && e.sha256 === digest('# Settled\n')));
   const last = f.orch().readRun('113-toy').history.at(-1);
   assert.deepEqual([last.action, last.by, last.node], ['decide-gate', 'autopilot', 'gate-0']);
 });
@@ -192,7 +192,7 @@ test('a gate deny carries reason, rule and evidence, and holds the row until its
   assert.deepEqual([denied.result.outcome, denied.result.step, denied.result.reason, denied.result.rule], ['denied', 'gate', 'unresolved-clarifications', 'gate-0/markers-zero:requirement']);
   assert.deepEqual(f.record(denied.result.runId).log.at(-1).step, 'gate', 'the run-record log carries the step too');
   assert.deepEqual(denied.result.reasons, ['unresolved-clarifications']);
-  assert.ok(denied.result.evidence.some((e: any) => e.locator.endsWith('intention/requirement.md')));
+  assert.ok(denied.result.evidence.some((e: any) => e.locator.replace(/\\/g, '/').endsWith('intention/requirement.md')));
   assert.equal(f.orch().readRun('113-toy').state, 'AWAITING_GATE', 'autopilot never rejects');
   const steps = f.record(denied.result.runId).steps;
 
@@ -584,7 +584,9 @@ test('two harness descriptor environments give byte-equal decisions (NFR-005)', 
     lines.push((await f.next({ run: RUN })).result);
     placeRun(f, 'implementation');
     lines.push((await f.next({ run: RUN })).result);
-    runs.push(JSON.stringify(lines).split(f.dir).join('<dir>'));
+    // the scratch directory as JSON spells it (backslashes doubled on win32), as native text, and with forward slashes
+    const spellings = [JSON.stringify(f.dir).slice(1, -1), f.dir, f.dir.replace(/\\/g, '/')];
+    runs.push(spellings.reduce((text: string, spelling: string) => text.split(spelling).join('<dir>'), JSON.stringify(lines)));
   }
   assert.equal(runs[0], runs[1]);
   assert.match(runs[0], /"outcome":"acted","step":"gate"/);

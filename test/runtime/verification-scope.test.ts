@@ -10,6 +10,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp.ts');
+const { samePath } = require('../helper-platform.ts');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env.ts');
 
@@ -306,9 +307,11 @@ test('IC-003: a linked worktree with no folder of its own takes the main checkou
   assert.equal(r.slug, DEMO);
   assert.equal(r.folderRel, `agent-docs/doflow/${DEMO}/`);
   assert.equal(r.hasRegister, true);
-  assert.deepEqual(r.searched, [
-    { place: `this checkout ${wt}`, result: `no agent-docs/doflow/${DEMO}/` },
-    { place: `main checkout ${m}`, result: `agent-docs/doflow/${DEMO}/ found` },
+  // git reports the linked checkout as C:/x and the main one is resolved as C:\x on win32: one spelling for both sides
+  const slashes = (s: string) => s.replace(/\\/g, '/');
+  assert.deepEqual(r.searched.map((row: any) => ({ ...row, place: slashes(row.place) })), [
+    { place: slashes(`this checkout ${wt}`), result: `no agent-docs/doflow/${DEMO}/` },
+    { place: slashes(`main checkout ${m}`), result: `agent-docs/doflow/${DEMO}/ found` },
   ]);
   assert.equal(fs.existsSync(path.join(wt, 'agent-docs')), false, 'nothing is copied into the worktree');
 });
@@ -318,7 +321,7 @@ test('IC-003: the current checkout\'s folder wins over the main checkout\'s', ()
   feature(wt, DEMO, { plan: '- [ ] A.1 t — owner: x; files: src/b.js\n' });
   const r = resolvePlanSource({ projectRoot: wt });
   assert.equal(r.origin, 'current-checkout');
-  assert.equal(r.root, wt);
+  assert.ok(samePath(r.root, wt), `${r.root} is ${wt}`); // git spells it C:/x on win32
   assert.equal(r.searched.length, 1, 'the first folder that exists stops the search');
   assert.deepEqual(resolveScopeBound({ projectRoot: wt }).bound.allowedPaths, ['src/b.js', `agent-docs/doflow/${DEMO}/`]);
 });

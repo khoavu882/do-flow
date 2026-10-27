@@ -135,6 +135,13 @@ test('lookup rejects symlinks, group-writable files, and records owned by anothe
   fs.symlinkSync(source, recordFile(links));
   assert.deepEqual(lookup(links), { hit: false, reason: 'untrusted' });
 
+  if (process.platform === 'win32') {
+    // reuse.ts:81 skips the mode and uid trust checks on win32 (no mode bits, no uid): a record there is trusted by location.
+    fs.chmodSync(source, 0o620);
+    assert.equal(lookup(path.dirname(source)).hit, true);
+    assert.equal(lookup(path.dirname(source), { uid: UID + 1 }).hit, true);
+    return;
+  }
   fs.chmodSync(source, 0o620);
   assert.deepEqual(lookup(path.dirname(source)), { hit: false, reason: 'untrusted' });
   fs.chmodSync(source, 0o600);
@@ -177,9 +184,11 @@ test('store writes a truncated owner-only record atomically into a 0700 director
   });
   const result: any = { status: 'PASS', exitCode: 0, stdout: 's'.repeat(2205), stderr: 'e'.repeat(2203), truncated: false, tests: 4393, testsFailed: 0 };
   assert.deepEqual(storeReuse({ dir, key: KEY, payloadDigest: DIGEST, level: 'L2', result, now: () => NOW, fsImpl, mintRef: () => REF }), { stored: true, ref: REF });
-  assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
   const finalFile = recordFile(dir);
-  assert.equal(fs.statSync(finalFile).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') { // fs modes are not meaningful on win32 (0o666 / 0o444)
+    assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
+    assert.equal(fs.statSync(finalFile).mode & 0o777, 0o600);
+  }
   assert.equal(writes.length, 1);
   assert.equal(writes[0].options.flag, 'wx');
   assert.equal(writes[0].options.mode, 0o600);
