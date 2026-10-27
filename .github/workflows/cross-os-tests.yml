@@ -40,7 +40,8 @@ jobs:
       matrix:
         # `inputs` (and its default) exists only for workflow_call; on pull_request/push it is
         # empty. PRs skip the non-blocking Windows leg; a push to main still runs it.
-        os: ${{ fromJSON(inputs.os_matrix || (github.event_name == 'pull_request' && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest","macos-latest","windows-latest"]')) }}
+        # TEMP-ISSUE-11: windows-latest added to the PR list for the fix/issue-11-windows PR only; remove before merge.
+        os: ${{ fromJSON(inputs.os_matrix || (github.event_name == 'pull_request' && '["ubuntu-latest","macos-latest","windows-latest"]' || '["ubuntu-latest","macos-latest","windows-latest"]')) }}
         # engines.node is >=24.22.1 and bin/doflow.js refuses anything older, so every leg runs exactly the floor.
         # A bare "24" resolves to the runner's cached 24.x, which can be older than the floor.
         node: ["24.22.1"]
