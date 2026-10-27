@@ -159,11 +159,11 @@ Generated list of the top-level class blocks in `app.css` (elements are `block__
 `.fleet-transport`, `.fleet-tree`, `.fnode`, `.fpanel`, `.ftransport`, `.ftree`, `.full-state`
 `.gate`, `.gate-card`, `.gate-cards`, `.gattempt`, `.gattempts`, `.gcard`, `.gdetail`, `.glane`
 `.graph`, `.grid`, `.grow`, `.hint`, `.icon`, `.masked`, `.model-chip`, `.mono`, `.nav`, `.noscript`
-`.num`, `.ov-check`, `.ov-cross`, `.ov-forced`, `.page`, `.pr`, `.project-list`, `.project-row`
-`.rail`, `.rail-detail`, `.rail-fallback`, `.rail-note`, `.rail-scroll`, `.reltime`, `.replay`
-`.replay-host`, `.run-head`, `.run-list`, `.run-rail`, `.run-row`, `.run-section`, `.sbar`
-`.segmented`, `.sessions`, `.sfilter`, `.sfoot`, `.shape`, `.shold`, `.site-header`, `.skel`
-`.skeleton`, `.skip`, `.slane`, `.slane-children`, `.snote`, `.spanel`, `.srow`, `.srows`
+`.num`, `.ov-check`, `.ov-cross`, `.ov-forced`, `.page`, `.pause`, `.pr`, `.project-list`
+`.project-row`, `.rail`, `.rail-detail`, `.rail-fallback`, `.rail-note`, `.rail-scroll`, `.reltime`
+`.replay`, `.replay-host`, `.run-head`, `.run-list`, `.run-rail`, `.run-row`, `.run-section`
+`.sbar`, `.segmented`, `.sessions`, `.sfilter`, `.sfoot`, `.shape`, `.shold`, `.site-header`
+`.skel`, `.skeleton`, `.skip`, `.slane`, `.slane-children`, `.snote`, `.spanel`, `.srow`, `.srows`
 `.state-panel`, `.stream`, `.summary`, `.tag`, `.theme`, `.tile`, `.timeline`, `.tl`, `.tl-item`
 `.tl-list`, `.together`, `.traffic`, `.ttable`, `.vh`, `.view-enter`, `.view-head`, `.view-note`
 `.view-title`, `.wf`, `.wf-list`
@@ -188,7 +188,7 @@ What an agent most often touches:
 
 ## States
 
-Every view has these edges designed; a view is not finished until its worst state looks deliberate. Paused is not a state of this Console.
+Every view has these edges designed; a view is not finished until its worst state looks deliberate. Paused is a state the person chooses: the `.pause` control (`aria-pressed`) stops polling for the view, the `.conn` pill reads "Paused" (`data-state="paused"`), and no stale banner is raised while paused.
 
 | State | Component and signal |
 |---|---|
@@ -198,6 +198,7 @@ Every view has these edges designed; a view is not finished until its worst stat
 | Stale | `.banner` `data-kind="stale"` and `.conn` `data-state="stale"`; times switch from relative ("3 min ago", `.reltime__rel`) to absolute ("at 14:02:10", `.reltime__abs`) on `#main[data-stale]`, so stale data never reads "ago" |
 | No runtime or session | `.full-state` (a full page) with a countdown and a "Check now" button |
 | Unknown, unreached | the `unknown` / `pending` marks: hatched or empty outline plus the word, never zero |
+| Paused | `.pause` pressed, `.conn` `data-state="paused"`; nothing is fetched until resume, which refetches the full state and says one "Reconnected" summary instead of each change |
 | Changed since last poll | `data-changed="true"` flashes once in the item's own tint; first paint is still |
 
 ## Do

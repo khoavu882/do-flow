@@ -20,7 +20,7 @@ before(async () => {
   copy = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-live-'));
   fs.cpSync(WEB_ROOT, copy, { recursive: true });
   fs.writeFileSync(path.join(copy, 'package.json'), '{"type":"module"}\n');
-  mods = { poll: await import(url('poll.js')), views: await import(url('views.js')) };
+  mods = { poll: await import(url('poll.js')), views: await import(url('views.js')), stream: await import(url('stream.js')), notices: await import(url('notices.js')) };
 });
 after(() => { fs.rmSync(copy, { recursive: true, force: true }); });
 
@@ -178,4 +178,102 @@ test('poller: the stale age allows for the deliberate idle wait, so a quiet view
   base.instance.stop();
   base.instance.start(60_000);
   assert.equal(base.instance.isStale(), false);
+});
+
+
+// ---- FR-2: pause and resume ------------------------------------------------------------------------------
+
+test('poller: pause schedules nothing, resume fetches at once, the stale rule is silent while paused', async () => {
+  const p = poller({});
+  p.instance.start();
+  await p.clock.advance(1);
+  p.instance.pause();
+  assert.equal(p.instance.paused, true);
+  assert.equal(p.instance.nextAt, null);
+  await p.clock.advance(120_000);
+  assert.deepEqual(p.fetched, [0]);
+  assert.equal(p.instance.isStale(), false, 'a deliberate pause is not stale');
+  p.instance.resume();
+  await p.clock.advance(1);
+  assert.equal(p.fetched.length, 2);
+  assert.equal(p.fetched[1], 120_001);
+  assert.equal(p.instance.paused, false);
+});
+
+test('poller: a fetch in flight when paused settles without scheduling; a tab return while paused does not fetch', async () => {
+  let release: () => void = () => {};
+  const p = poller({ fetchOnce: () => new Promise((resolve) => { release = () => resolve(1); }) });
+  p.instance.start();
+  p.instance.pause();
+  release();
+  await p.clock.advance(60_000);
+  assert.equal(p.instance.nextAt, null);
+  p.setHidden(true);
+  p.setHidden(false);
+  await p.clock.advance(1);
+  assert.equal(p.instance.inFlight, false, 'the visibility return did not start a fetch');
+});
+
+// ---- FR-3: the notice set -------------------------------------------------------------------------------
+
+test('notices: a fixed set, unknown keys are dropped, a system notice is not repeated within 10 s, the person\'s own always is', () => {
+  const { notice, resetNotices, NOTICES, NOTICE_GAP_MS } = mods.notices;
+  const spoken: string[] = [];
+  (globalThis as any).document = { getElementById: () => ({ set textContent(value: string) { if (value) spoken.push(value); } }) };
+  resetNotices();
+  assert.deepEqual(Object.keys(NOTICES).sort(), ['core-back', 'fresh', 'paused', 'push-back', 'push-lost', 'resumed', 'resynced', 'stale']);
+  assert.equal(notice('nope', '', 0), false);
+  assert.equal(notice('resynced', '', 1000), true);
+  assert.equal(notice('resynced', '', 1000 + NOTICE_GAP_MS - 1), false, 'no second reconnect message in a storm');
+  assert.equal(notice('resynced', '', 1000 + NOTICE_GAP_MS), true);
+  assert.equal(notice('paused', '', 2000), true);
+  assert.equal(notice('paused', '', 2001), true);
+});
+
+// ---- stream: pause, resume, resync ----------------------------------------------------------------------
+
+class FakeSource {
+  static all: FakeSource[] = [];
+  readyState = 1;
+  listeners = new Map<string, Function[]>();
+  closed = false;
+  url: string;
+  constructor(url: string) { this.url = url; FakeSource.all.push(this); }
+  addEventListener(type: string, fn: Function) { this.listeners.set(type, [...(this.listeners.get(type) ?? []), fn]); }
+  close() { this.closed = true; this.readyState = 2; }
+  emit(type: string, body: unknown) { for (const fn of this.listeners.get(type) ?? []) fn({ data: JSON.stringify(body) }); }
+}
+
+function streamRig() {
+  FakeSource.all = [];
+  const clock = fakeClock();
+  const events: string[] = [];
+  const stream = mods.stream.createFleetStream({
+    project: 'p1', agent: null, EventSource: FakeSource, clock,
+    visibility: { hidden: () => false, subscribe: () => () => {} },
+    fetchJson: async () => ({ projects: [] }),
+    handlers: {
+      resync: () => events.push('resync'),
+      snapshot: () => events.push('snapshot'), fleet: () => events.push('fleet'), transcript: () => events.push('transcript'),
+      streamError: () => {}, mode: () => {}, failure: () => {},
+    },
+  });
+  return { stream, clock, events };
+}
+
+test('stream: pause closes the source; resume opens a new one whose snapshot is reported as a resync', async () => {
+  const { stream, events } = streamRig();
+  stream.start();
+  FakeSource.all[0].emit('snapshot', { projects: [] });
+  assert.deepEqual(events, ['snapshot'], 'the first snapshot is not a resync');
+  stream.pause();
+  assert.equal(stream.paused, true);
+  assert.equal(FakeSource.all[0].closed, true);
+  assert.equal(stream.isStale(), false);
+  stream.resume();
+  assert.equal(FakeSource.all.length, 2, 'a new stream is opened');
+  FakeSource.all[1].emit('snapshot', { projects: [] });
+  assert.deepEqual(events, ['snapshot', 'resync', 'snapshot']);
+  FakeSource.all[1].emit('fleet', { projects: [], gone: [] });
+  assert.deepEqual(events, ['snapshot', 'resync', 'snapshot', 'fleet'], 'a delta on the open stream is not a resync');
 });

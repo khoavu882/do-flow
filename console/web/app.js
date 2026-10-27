@@ -3,7 +3,8 @@
 // over the poller, the global states (session, no-runtime, offline, stale), the connection pill and the
 // theme control. The imported modules have no side effects; everything starts in the body below.
 
-import { h, mount, icon, announce } from './dom.js';
+import { h, mount, icon, announce, muteAnnouncements } from './dom.js';
+import { notice } from './notices.js';
 import { createPoller, BACKOFF_MS } from './poll.js';
 import {
   classify, clockTime, refreshReltimes, renderLoading, renderEmpty, renderError, renderFullPage, renderPill, createStaleBanner, errorTitle,
@@ -98,11 +99,14 @@ const app = /** @type {any} */ ({
   recovery: null, // the poller on /api/info that ends a no-runtime page
   banner: null, // the stale banner while the current view's data is stale
   tick: null,
+  hiddenAt: null, // when the tab was last hidden, or null
   wasFull: false, // #main last held a full page (focus moves to the heading when a view replaces it)
 });
 let viewSeq = 0;
 
 const MIN_SKELETON_MS = 300;
+/** A tab hidden longer than this refetches in full and says so once. */
+const RESYNC_AFTER_MS = 30000;
 
 /**
  * A failed call as `{ status, code, network }`; stays a plain object so classify() reads it.
@@ -322,6 +326,10 @@ function pillFor(view, now) {
   }
   const poller = view && view.poller;
   if (!app.ready || !poller) return { state: 'unknown', long: 'Connecting', short: 'Connecting' };
+  if (view.paused) {
+    const at = poller.lastSuccessAt;
+    return { state: 'paused', long: at === null ? 'Paused' : `Paused · ${clockTime(at)}`, short: 'Paused' };
+  }
   const stale = poller.isStale();
   const offline = poller.lastFailure !== null && classify(poller.lastFailure, ctx()).scope === 'offline';
   if (offline && (!view.hasData || stale)) return { state: 'unknown', long: 'Offline', short: 'Offline' };
@@ -341,18 +349,62 @@ function setStale(on, view, now) {
     app.banner = createStaleBanner({ sinceMs: since, onTry: () => view.poller && view.poller.refreshNow() });
     app.els.bannerSlot.append(app.banner.node);
     main.dataset.stale = 'true';
-    announce(`Data is out of date. Last updated ${clockTime(since)}.`);
+    notice('stale', clockTime(since));
   } else if (!on && app.banner !== null) {
     app.banner.leave();
     app.banner = null;
     delete main.dataset.stale;
-    announce('Up to date again.');
+    if (!view.paused) notice('fresh');
   }
   if (on && app.banner) {
     const failure = view.poller.lastFailure;
     const why = failure === null ? 'slow' : classify(failure, ctx()).scope === 'offline' ? 'offline' : 'error';
     app.banner.update(now, why);
   }
+}
+
+// ---- 4b. the pause control (feature 133, FR-2) ----
+
+/** Whether the person can pause this view: it reads through a data poller or stream, not the heartbeat of a static page. @param {any} view */
+const pausable = (view) => Boolean(view && view.poller && !view.heartbeat && !app.fatal && view.route.id !== 'not-found');
+
+/** Shows, hides and labels the control to match the view. @param {any} view */
+function syncPauseControl(view) {
+  const button = app.els.pause;
+  if (!button) return;
+  const show = pausable(view);
+  if (show) button.removeAttribute('hidden');
+  else button.setAttribute('hidden', '');
+  const on = show && view.paused === true;
+  button.setAttribute('aria-pressed', on ? 'true' : 'false');
+  const label = button.querySelector('.pause__label');
+  const text = on ? 'Resume updates' : 'Pause updates';
+  if (label && label.textContent !== text) label.textContent = text;
+  const mark = on ? 'play' : 'pause';
+  if (button.dataset.mark !== mark) {
+    button.dataset.mark = mark;
+    const old = button.querySelector('.icon');
+    if (old) old.remove();
+    button.prepend(icon(mark, 16));
+  }
+}
+
+/** Pauses or resumes the current view; false when it cannot be paused. */
+function togglePause() {
+  const view = app.view;
+  if (!pausable(view)) return false;
+  if (view.paused) {
+    view.paused = false;
+    view.resync = true; // the refetch that follows is a full state, not a stream of changes
+    view.poller.resume();
+    notice('resumed');
+  } else {
+    view.paused = true;
+    view.poller.pause();
+    notice('paused');
+  }
+  refreshStatus();
+  return true;
 }
 
 /** @param {any} view @param {any} now */
@@ -370,8 +422,9 @@ function refreshStatus() {
   const view = app.view;
   const now = nowMs();
   renderPill(app.els.conn, pillFor(view, now));
-  const stale = Boolean(view && view.poller && !app.fatal && view.poller.isStale());
+  const stale = Boolean(view && view.poller && !app.fatal && !view.paused && view.poller.isStale());
   if (view) setStale(stale, view, now);
+  syncPauseControl(view);
   if (view) updateCountdowns(view, now);
   refreshReltimes(mainEl(), now);
   const spec = view && view.route.view;
@@ -493,6 +546,7 @@ function startHeartbeat(view) {
 function startPoller(view, path, intervalMs, heartbeat) {
   if (view.poller) view.poller.stop();
   view.heartbeat = heartbeat;
+  view.paused = false;
   const spec = view.route.view;
   if (!heartbeat && typeof spec.connect === 'function') {
     // A live view reads through a stream of its own (stream.js) that answers the poller interface, so the pill, the stale
@@ -501,6 +555,7 @@ function startPoller(view, path, intervalMs, heartbeat) {
       fetchJson: apiGet,
       onData: (/** @type {any} */ body) => onData(view, body, false),
       onFailure: (/** @type {any} */ error) => onFail(view, error, false),
+      onResync: () => { view.resync = true; },
     });
     view.poller = stream;
     stream.start();
@@ -555,6 +610,7 @@ function onData(view, body, heartbeat) {
       paint(view);
     }, wait);
   }
+  const hadData = view.hasData;
   view.hasData = true;
   view.data = body;
   view.dataText = text;
@@ -564,13 +620,23 @@ function onData(view, body, heartbeat) {
   }
   globalThis.document.title = titleFor(view.route, body);
   const spec = view.route.view;
-  if (changed && spec.live === true && view.painted === loadedKey(view) && view.root && mainEl().contains(view.root) && !spec.isEmpty(body, view.route.params)) {
-    // A live view is patched, never re-mounted (N-6).
-    spec.update(view.local, body, view.route.params);
-    updateMeta(view);
-    refreshStatus();
-  } else if (changed) paint(view);
-  else refreshStatus();
+  // The first data after a reconnect or a resume is a full refetch: what it shows as changed is not news, so the per-item
+  // announcements are held and one summary is said instead (feature 133, FR-3).
+  const resync = view.resync === true && hadData;
+  view.resync = false;
+  if (resync) muteAnnouncements(true);
+  try {
+    if (changed && spec.live === true && view.painted === loadedKey(view) && view.root && mainEl().contains(view.root) && !spec.isEmpty(body, view.route.params)) {
+      // A live view is patched, never re-mounted (N-6).
+      spec.update(view.local, body, view.route.params);
+      updateMeta(view);
+      refreshStatus();
+    } else if (changed) paint(view);
+    else refreshStatus();
+  } finally {
+    if (resync) muteAnnouncements(false);
+  }
+  if (resync && changed) notice('resynced');
 }
 
 /** @param {any} view @param {any} error @param {any} heartbeat */
@@ -665,7 +731,7 @@ function recover(body) {
   app.info = body;
   app.sessionWorked = true;
   showCoreVersion();
-  announce('DoFlow is reachable again.');
+  notice('core-back');
   if (app.view) startView(app.view.route, { first: false, animate: false, focus: false });
 }
 
@@ -727,11 +793,13 @@ function boot() {
       conn: document.getElementById('conn'),
       coreVersion: document.getElementById('core-version'),
       bannerSlot: document.getElementById('banner-slot'),
+      pause: document.getElementById('pause'),
       navLinks: Array.from(document.querySelectorAll('.nav__link')),
     };
     const brand = document.querySelector('.brand');
     if (brand && !brand.querySelector('.icon')) brand.prepend(icon('brand', 28));
     setupThemeControl(document.querySelector('.theme'));
+    if (app.els.pause) app.els.pause.addEventListener('click', () => togglePause());
     const skip = document.querySelector('.skip');
     if (skip) {
       skip.addEventListener('click', (event) => {
@@ -757,8 +825,13 @@ function boot() {
       startView(route, { first: false, animate: true });
     });
     document.addEventListener('visibilitychange', () => {
-      if (document.hidden) stopTick();
-      else {
+      if (document.hidden) {
+        app.hiddenAt = nowMs();
+        stopTick();
+      } else {
+        // A long absence ends in a full refetch whose per-item changes are not announced one by one (FR-3).
+        if (app.view && app.hiddenAt !== null && nowMs() - app.hiddenAt > RESYNC_AFTER_MS) app.view.resync = true;
+        app.hiddenAt = null;
         startTick();
         // After the poller's own listener has marked its resume poll, so a return never flashes stale.
         Promise.resolve().then(refreshStatus);

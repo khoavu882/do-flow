@@ -87,7 +87,7 @@ async function defaultFetchJson(path) {
  * @param {object} options
  * @param {string | null} options.project the project key of the route, or null on the project list
  * @param {string | null} options.agent the selected agent key, or null
- * @param {{ snapshot(body: any): void, fleet(delta: any): void, transcript(body: any, meta: { resumed: boolean }): void, streamError(info: any): void, mode(state: { mode: string, reason: string | null, at: number }): void, failure(error: any): void }} options.handlers
+ * @param {{ resync?(): void, snapshot(body: any): void, fleet(delta: any): void, transcript(body: any, meta: { resumed: boolean }): void, streamError(info: any): void, mode(state: { mode: string, reason: string | null, at: number }): void, failure(error: any): void }} options.handlers
  * @param {any} [options.EventSource] the constructor (default: the page's)
  * @param {(path: string) => Promise<any>} [options.fetchJson] rejects with `{ status, code, network }`
  * @param {(url: string) => Promise<{ status: number, code: string | null }>} [options.probe]
@@ -105,6 +105,7 @@ function createFleetStream(options) {
   let project = options.project;
   let agent = options.agent;
   let running = false;
+  let paused = false; // the person paused the view: it is treated like a hidden tab until `resume`
   let ended = false; // the target is gone: nothing more is opened
   let generation = 0;
   /** @type {any} */
@@ -142,7 +143,7 @@ function createFleetStream(options) {
 
   const urlKey = () => project ?? discovered;
   const streamUrl = () => `/api/stream?project=${urlKey()}${agent ? `&agent=${agent}` : ''}`;
-  const hidden = () => visibility.hidden();
+  const hidden = () => visibility.hidden() || paused;
   /** The page polls: in fallback, under the stream limit, or while it waits for a project key to open a stream on. */
   const polling = () => mode === 'fallback' || mode === 'limit' || reason === 'no-project';
 
@@ -181,6 +182,8 @@ function createFleetStream(options) {
 
   /** A frame (a data event) arrived: the connection is alive. */
   function frame() {
+    // A frame after an earlier one while the connection was not pushing: the snapshot that follows is a full refetch.
+    if (lastFrameAt !== null && (resuming || mode !== 'push' || trial) && handlers.resync) handlers.resync();
     lastFrameAt = clock.now();
     resuming = false;
     errors = 0;
@@ -342,6 +345,7 @@ function createFleetStream(options) {
         fleetBusy = false;
         misses = 0;
         lastFailure = null;
+        if (resuming && lastFrameAt !== null && handlers.resync) handlers.resync();
         lastFrameAt = clock.now();
         resuming = false;
         handlers.snapshot(body);
@@ -435,16 +439,20 @@ function createFleetStream(options) {
     openSource(false);
   }
 
+  /** Nothing open, nothing scheduled (a hidden tab, or the person's pause). */
+  function suspend() {
+    generation += 1;
+    closeSource();
+    clearPolls();
+    clearRetry();
+    fleetBusy = false;
+    transcriptBusy = false;
+  }
+
   function onVisibility() {
     if (!running) return;
     if (hidden()) {
-      // Hidden: nothing open, nothing scheduled.
-      generation += 1;
-      closeSource();
-      clearPolls();
-      clearRetry();
-      fleetBusy = false;
-      transcriptBusy = false;
+      suspend();
       return;
     }
     // Back: the next transcript batch may start from the transcript's last records, so the panel drops what it already holds.
@@ -474,6 +482,19 @@ function createFleetStream(options) {
       resuming = false;
       if (unsubscribe) unsubscribe();
       unsubscribe = null;
+    },
+    /** The person pauses the view: the stream closes and nothing is polled. */
+    pause() {
+      if (!running || paused) return;
+      paused = true;
+      suspend();
+    },
+    /** The person resumes: the state is refetched in full (a new stream starts with a snapshot; polling reads /api/fleet at once). */
+    resume() {
+      if (!running || !paused) return;
+      paused = false;
+      if (visibility.hidden()) return;
+      onVisibility();
     },
     /** Selects another agent (or none): the stream is closed and a new one opened for it; the panel starts from the transcript's last records. */
     retarget(/** @type {string | null} */ next, /** @type {string | null} */ nextProject = project) {
@@ -516,6 +537,7 @@ function createFleetStream(options) {
       return brokenSince !== null && clock.now() - brokenSince > STALE_PUSH_MS;
     },
     get running() { return running; },
+    get paused() { return paused; },
     get inFlight() { return fleetBusy || transcriptBusy; },
     get misses() { return misses; },
     /** The last time the data was known to be current: now while the stream is open (the Console pushes within 5 s), else the last frame. */
