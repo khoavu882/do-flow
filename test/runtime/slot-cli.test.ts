@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 115 B.1 (IC-008): the `slot` verb through `bin/doflow.js` and the doflow-run dispatcher,
 // in a scratch HOME. Every background process started here is this test's own child.
@@ -50,7 +51,7 @@ function scratch(t: any) {
   delete env.DOFLOW_SLOT;
   delete env.FORCE_COLOR;
   const cli = (args: any, cwd: any = cwdA) => spawnSync(process.execPath, [CLI, 'slot', ...args], { cwd, env, encoding: 'utf8' });
-  const dispatcher = (args: any, cwd: any = cwdA) => spawnSync('/bin/bash', [RUN, 'slot', ...args], { cwd, env, encoding: 'utf8' });
+  const dispatcher = (args: any, cwd: any = cwdA) => spawnSync(bashPath(), [RUN, 'slot', ...args], { cwd, env, encoding: 'utf8' });
   const list = (cwd: any = cwdA) => {
     const done = cli(['--action', 'list', '--json'], cwd);
     assert.equal(done.status, 0, done.stderr);

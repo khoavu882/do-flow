@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // The bash identity source policies/identity.sh (feature 078, IC-007, IC-009): every IC-007 row,
 // the unknown-role diagnostic, binding and inheritance, invalid ids, what sourcing the file does, and
@@ -14,7 +15,7 @@ const { createScratch } = require('../helper/scratch-env.ts');
 const REPO = path.resolve(__dirname, '..', '..');
 const POLICIES = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies');
 const IDENTITY = path.join(POLICIES, 'identity.sh');
-const BASH = process.platform === 'darwin' ? '/bin/bash' : 'bash';
+const BASH = bashPath();
 const DIAGNOSTIC = '[doflow] unknown DOFLOW_SESSION_ROLE; treating session as worker';
 const FIELDS: any = ['RUN', 'ATTEMPT', 'LINEAGE', 'ROLE', 'WORKTREE', 'KIND', 'UNIT'];
 const CLEAR: any = { DOFLOW_RUN_ID: '', DOFLOW_ATTEMPT: '', DOFLOW_LINEAGE_ID: '', DOFLOW_SESSION_ROLE: '', DOFLOW_WORKTREE: '', DOFLOW_FAILURE_CAPTURE: '' };
@@ -331,7 +332,7 @@ test('policies/lib.sh provides both functions through identity.sh', () => {
 
 test('harness lib.sh uses identity.sh when installed, and falls back to worker with identity-missing when it is absent', () => {
   const mirror = path.join(scratch.dir, 'mirror');
-  const built = spawnSync('bash', [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), mirror], { encoding: 'utf8' });
+  const built = spawnSync(bashPath(), [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), mirror], { encoding: 'utf8' });
   assert.equal(built.status, 0, built.stderr);
   const role = (h: any) => spawnSync(BASH, ['-c', '. "$1"; doflow_session_role', 'post-compact.sh', path.join(mirror, `.${h}`, 'hooks', 'lib.sh')],
     { env: scratch.env({ ...CLEAR, DOFLOW_SESSION_ROLE: 'main' }), encoding: 'utf8' });

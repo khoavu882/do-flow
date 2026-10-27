@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // 088 E.3, IC-003/IC-005. Native fixtures follow the E.1 captures from Claude Code 2.1.292.
 const { test } = require('node:test');
@@ -86,7 +87,7 @@ function project(t: any, { state = true, mutate }: any = {}) {
   return root;
 }
 function observe(root: any, payload: any, { event = payload?.hook_event_name, extra = {}, input, cwd = root }: any = {}) {
-  const result = spawnSync('/bin/bash', [path.join(root, '.claude/hooks/post-shell-observe.sh'), ...(event === undefined ? [] : [event])], {
+  const result = spawnSync(bashPath(), [path.join(root, '.claude/hooks/post-shell-observe.sh'), ...(event === undefined ? [] : [event])], {
     cwd, input: input === undefined ? JSON.stringify(payload) : input, encoding: 'utf8', timeout: 5000, env: env(root, extra),
   });
   // The observer may exit before it reads stdin (malformed or irrelevant input needs none of it), which closes the
@@ -243,7 +244,7 @@ test('observer exits silently on malformed, irrelevant, missing-bridge, missing-
 
 test('telemetry off exits without waiting for stdin or touching dependencies or state', async (t) => {
   const root = project(t, { state: false });
-  const child = spawn('/bin/bash', [path.join(root, '.claude/hooks/post-shell-observe.sh'), EVENTS[0]], {
+  const child = spawn(bashPath(), [path.join(root, '.claude/hooks/post-shell-observe.sh'), EVENTS[0]], {
     cwd: root, env: env(root, { DOFLOW_TELEMETRY: 'off', PATH: '/nonexistent' }), stdio: ['pipe', 'pipe', 'pipe'],
   });
   let stdout = ''; let stderr = '';

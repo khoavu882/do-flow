@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../../helper/bash-locator.ts');
 const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
@@ -436,12 +437,12 @@ const { execFileSync } = require('node:child_process');
 // Front doors resolve the Canonical Policy Library via a path relative to their installed
 // location, not their source location — see build-install-mirror.sh for why this mirror exists.
 const HOOKS_MIRROR = path.join(REPO, 'tmp', 'hooks-mirror');
-execFileSync('bash', [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), HOOKS_MIRROR]);
+execFileSync(bashPath(), [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), HOOKS_MIRROR]);
 const GATE_SHIM = path.join(HOOKS_MIRROR, '.antigravity', 'hooks', 'pre-implementation-gate.sh');
 
 function runGateShim(payload: any) {
   try {
-    const stdout = execFileSync('bash', [GATE_SHIM], {
+    const stdout = execFileSync(bashPath(), [GATE_SHIM], {
       input: typeof payload === 'string' ? payload : JSON.stringify(payload),
       stdio: ['pipe', 'pipe', 'pipe'],
       encoding: 'utf8',
@@ -492,7 +493,7 @@ const STOP_SHIM = path.join(HOOKS_MIRROR, '.antigravity', 'hooks', 'stop-check.s
 function runStopShim(payload: any) {
   const { execFileSync } = require('node:child_process');
   try {
-    const stdout = execFileSync('bash', [STOP_SHIM], {
+    const stdout = execFileSync(bashPath(), [STOP_SHIM], {
       input: typeof payload === 'string' ? payload : JSON.stringify(payload),
       stdio: ['pipe', 'pipe', 'pipe'],
       encoding: 'utf8',

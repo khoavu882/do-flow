@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Row 120 IC-005 Writer: the shared bridge step `observe-model` records `identity.model` in an
 // observation file under the config home, and never changes the bridge's output or exit code.
@@ -30,7 +31,7 @@ function bridge(s: any, harness: string, { native, event, env = {}, cwd = s.cwd 
   const fixture = MODEL_PAYLOADS[harness];
   const childEnv: any = { ...process.env, HOME: s.home, DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_TELEMETRY: 'off', DOFLOW_DECISION_FD: '', DOFLOW_BRIDGE_TRACE: '' };
   for (const name of ['XDG_CONFIG_HOME', 'DOFLOW_SESSION_ROLE', 'DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_WORKTREE', 'DOFLOW_TASK_ID']) delete childEnv[name];
-  const result = spawnSync('bash', [BRIDGE, harness, event || fixture.event, POLICY], {
+  const result = spawnSync(bashPath(), [BRIDGE, harness, event || fixture.event, POLICY], {
     cwd, env: { ...childEnv, ...env }, input: JSON.stringify(native || fixture.native), encoding: 'utf8',
   });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };

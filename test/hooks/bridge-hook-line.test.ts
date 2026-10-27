@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 088 B.2 (IC-003, IC-004; FR-002, FR-004, NFR-005, NFR-008): the shared bridge writes one
 // hook line per allowlisted invocation to <config>/state/runs/telemetry/<UTC date>.jsonl, from the
@@ -19,7 +20,7 @@ const REPO = path.resolve(__dirname, '../..');
 const FIXTURES = path.join(REPO, 'test/fixtures/hooks');
 const HOOK_FIXTURE = path.join(REPO, 'test/fixtures/telemetry/hook.jsonl');
 const ENVELOPE = '.doflow/shared/hooks/bridge/envelope.jq';
-const BASH = '/bin/bash';
+const BASH = bashPath();
 // The bridge times a hook only with EPOCHREALTIME (bash 5+); /bin/bash 3.2 on macOS leaves duration_ms null.
 const BASH_MAJOR = Number(spawnSync(BASH, ['-c', 'printf %s "${BASH_VERSINFO[0]}"'], { encoding: 'utf8' }).stdout);
 const expectedDuration = (value: any) => BASH_MAJOR < 5 ? null : (Number.isInteger(value) && value >= 0 ? value : 'not-a-duration');

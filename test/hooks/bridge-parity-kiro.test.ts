@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -97,7 +98,7 @@ function runFixture({ stem, fixturePath, fixture }: any, index: any) {
   assert.equal(decision.event, event, `${label}: decision event`);
   assert.equal(decision.policy, policy, `${label}: decision policy`);
   for (const [key, value] of Object.entries(fixture.expect.decision)) assert.equal(decision[key], value, `${label}: decision.${key}`);
-  const payloadInput = spawnSync('bash', ['-c', `source "${path.join(mirror, '.kiro/hooks/lib.sh')}"; kiro_bridge_payload`], {
+  const payloadInput = spawnSync(bashPath(), ['-c', `source "${path.join(mirror, '.kiro/hooks/lib.sh')}"; kiro_bridge_payload`], {
     cwd: project, input: `${JSON.stringify(fixture.native)}\n`, env, encoding: 'utf8',
   });
   assert.equal(payloadInput.status, 0, `${label}: Kiro payload translator`);

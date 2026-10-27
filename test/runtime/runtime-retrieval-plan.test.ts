@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 // runtime-retrieval-plan.test.js — the declare-then-report contract for retrieval
 // (feature 011, plan task B.1, design component C1; FR-010, FR-013, FR-014, FR-015, NFR-001).
 //
@@ -421,14 +422,14 @@ test('reporting a plan that was never declared is a resolution error, not an emp
 
 test('the verb dispatches through the shell seam, not only through the entrypoint', () => {
   const cwd = project('dispatch');
-  const declare = spawnSync('bash', [DISPATCHER, 'retrieval-plan', '--task-id', 'p1',
+  const declare = spawnSync(bashPath(), [DISPATCHER, 'retrieval-plan', '--task-id', 'p1',
     '--action', 'declare', '--need', 'inspect-history', '--json'], {
     cwd, env: { ...process.env, HOME: cwd }, encoding: 'utf8',
   });
   assert.equal(declare.status, 0, declare.stderr);
   assert.equal(JSON.parse(declare.stdout).action, 'declare');
 
-  const report = spawnSync('bash', [DISPATCHER, 'retrieval-plan', '--task-id', 'p1', '--json'], {
+  const report = spawnSync(bashPath(), [DISPATCHER, 'retrieval-plan', '--task-id', 'p1', '--json'], {
     cwd, env: { ...process.env, HOME: cwd }, encoding: 'utf8',
   });
   assert.equal(report.status, 1, 'the verb exit code is the dispatcher exit code');
@@ -436,7 +437,7 @@ test('the verb dispatches through the shell seam, not only through the entrypoin
 });
 
 test('the dispatcher help lists the verb it now dispatches', () => {
-  const help = spawnSync('bash', [DISPATCHER, '--help'], { env: createScratch('doflow-runtime-retrieval-plan-home-').env(), encoding: 'utf8' });
+  const help = spawnSync(bashPath(), [DISPATCHER, '--help'], { env: createScratch('doflow-runtime-retrieval-plan-home-').env(), encoding: 'utf8' });
   assert.equal(help.status, 0);
   assert.match(help.stdout, /^ {2}retrieval-plan {2,}\S/m,
     'G12 reads this list as the only verb inventory a user ever sees');

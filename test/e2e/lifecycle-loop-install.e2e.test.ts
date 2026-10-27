@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 // lifecycle-loop-install.e2e.test.js: the lifecycle verbs reached the way a Codex user reaches
 // them, and the documented behaviour when nothing is installed.
 //
@@ -61,7 +62,7 @@ describe('Codex target: the lifecycle verbs run through the codex-projected disp
 
   test("the installed do skill's resolver finds that same dispatcher", () => {
     const resolver = resolverOf(installedSkill(h, 'do'));
-    const r = spawnSync('bash', ['-c', `${resolver}\nprintf '%s' "$DOFLOW"`], { cwd: project.dir, encoding: 'utf8', env: envFor(h) });
+    const r = spawnSync(bashPath(), ['-c', `${resolver}\nprintf '%s' "$DOFLOW"`], { cwd: project.dir, encoding: 'utf8', env: envFor(h) });
     assert.equal(r.status, 0, r.stderr);
     assert.equal(fs.realpathSync(r.stdout), fs.realpathSync(path.join(h.home, '.doflow', 'scripts', 'doflow', 'bin', 'doflow-run')));
   });
@@ -152,7 +153,7 @@ describe('No install anywhere: the skill stops at its resolver, before any lifec
     const resolver = resolverOf(path.join(REPO, 'core', 'shared', 'skills', 'do', 'SKILL.md'));
     // What the skill does after its resolver: the lifecycle verb. It must never be reached.
     const script = `${resolver}\necho VERB-REACHED\n"$DOFLOW" lifecycle --action overview --json\n`;
-    const r = spawnSync('bash', ['-c', script], { cwd: project.dir, encoding: 'utf8', env: envFor(h) });
+    const r = spawnSync(bashPath(), ['-c', script], { cwd: project.dir, encoding: 'utf8', env: envFor(h) });
     assert.equal(r.status, 2, `${r.stdout}${r.stderr}`);
     assert.match(r.stderr, /doflow: no runtime found in any \.doflow\/ above .*nor at .*Run: npx @khoavu882\/doflow install -t <harness>$/m);
     assert.equal(r.stdout, '', 'no verb ran, so nothing was printed');

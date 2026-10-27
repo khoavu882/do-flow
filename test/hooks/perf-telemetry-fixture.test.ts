@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -11,7 +12,7 @@ const { buildInstallMirror } = require('../helper/hook-fixtures.ts');
 const REPO = path.resolve(__dirname, '../..');
 const BENCH_FIXTURE = path.join(REPO, 'bench/perf/fixtures/hook-bridge-project');
 const TELEMETRY = '.doflow/state/runs/telemetry';
-const BASH = '/bin/bash';
+const BASH = bashPath();
 const SURFACES = [
   { id: 'claude:pre-bash-guard', harness: 'claude', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.claude/hooks/pre-bash-guard.sh', fixture: 'claude/pre-bash-guard/perf.json' },
   { id: 'codex:pre-bash-guard', harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.codex/hooks/pre-bash-guard.sh', fixture: 'codex/pre-bash-guard/perf.json' },

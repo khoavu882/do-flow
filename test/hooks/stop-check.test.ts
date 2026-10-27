@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // The Stop policy reads the payload's last_assistant_message, falls back to the transcript in the
 // shapes Claude Code, Codex and the flat {role,content} fixture write, and blocks (exit 2) on an
@@ -17,14 +18,14 @@ const scratch = createScratch('doflow-stop-check-');
 const mirror = path.join(scratch.dir, 'mirror');
 
 test.before(() => {
-  const built = spawnSync('bash', [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), mirror], { encoding: 'utf8' });
+  const built = spawnSync(bashPath(), [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), mirror], { encoding: 'utf8' });
   assert.equal(built.status, 0, built.stderr);
 });
 test.after(() => scratch.remove());
 
 /** Runs a harness's installed stop-check front door; payload is an object or a raw string. */
 function stop(harness: any, payload: any) {
-  const r = spawnSync('bash', [path.join(mirror, `.${harness}`, 'hooks', 'stop-check.sh')], {
+  const r = spawnSync(bashPath(), [path.join(mirror, `.${harness}`, 'hooks', 'stop-check.sh')], {
     input: typeof payload === 'string' ? payload : JSON.stringify(payload),
     env: scratch.env(),
     encoding: 'utf8',
@@ -157,7 +158,7 @@ test('linter output reaches the caller on stderr, so a Codex Stop prints only {}
   const queueDir = path.join(scratch.xdg, 'doflow', 'session-env', 'sessions', session);
   fs.mkdirSync(queueDir, { recursive: true });
   fs.writeFileSync(path.join(queueDir, 'edited-files.txt'), 'a.py\nb.go\n');
-  const r = spawnSync('bash', [path.join(mirror, '.codex', 'hooks', 'stop-check.sh')], {
+  const r = spawnSync(bashPath(), [path.join(mirror, '.codex', 'hooks', 'stop-check.sh')], {
     input: JSON.stringify({ session_id: session }),
     env: scratch.env({ PATH: `${bin}${path.delimiter}${process.env.PATH}` }),
     encoding: 'utf8',

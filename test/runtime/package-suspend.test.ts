@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 122 C.4 (IC-017, IC-009): a suspension keeps its projection marker until a write removes
 // the package files, SessionStart checks recorded packages in the background, and doctor reports
@@ -160,7 +161,7 @@ test('SessionStart package verification is silent and skips a lock with no packa
   fs.writeFileSync(dispatcher, '#!/bin/bash\nnode "$@"\n');
   fs.chmodSync(dispatcher, 0o755);
 
-  const runHook = () => spawnSync('/bin/bash', [hook], {
+  const runHook = () => spawnSync(bashPath(), [hook], {
     cwd: project,
     env: { ...process.env, HOME: home, XDG_CONFIG_HOME: xdg, PATH: `${bin}:/usr/bin:/bin`, HOOK_NODE_LOG: log },
     input: encodeEnvelope('claude', 'SessionStart', 'session-context',

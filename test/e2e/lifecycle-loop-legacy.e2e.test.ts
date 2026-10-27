@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 // lifecycle-loop-legacy.e2e.test.js: feature 046 NFR-001 scenarios, the chain verbs compared with the v1.13.0 runtime,
 // older features untouched, and reads that create no store. Helpers: lifecycle-loop.shared.js.
 const { test, describe, after } = require('node:test');
@@ -41,7 +42,7 @@ function legacyRuntime() {
 const dispatcherOf = (root: any) => path.join(root, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 
 function rtWith(root: any, cwd: any, args: any, { input = '' }: any = {}) {
-  const result = spawnSync('bash', [dispatcherOf(root), ...args], {
+  const result = spawnSync(bashPath(), [dispatcherOf(root), ...args], {
     cwd, input, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
     env: scratch.env({
       DOFLOW_CONFIG_DIR: path.join(scratch.dir, `config-${path.basename(cwd)}`),

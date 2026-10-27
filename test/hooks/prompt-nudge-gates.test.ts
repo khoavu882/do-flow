@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // The gate helpers the prompt nudge hook uses (IC-006, IC-008, IC-009): repository root walk, the
 // opt-out setting, the marker file, the feature-folder and run-ledger probes, and the registry lookup.
@@ -13,7 +14,7 @@ const { createScratch } = require('../helper/scratch-env.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const LIB = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'lib.sh');
-const BASH = process.platform === 'darwin' ? '/bin/bash' : 'bash';
+const BASH = bashPath();
 const scratch = createScratch('doflow-nudge-gates-');
 const NUDGE_DIR = path.join(scratch.xdg, 'doflow', 'session-env', 'nudge');
 const USER_SETTING = path.join(scratch.xdg, 'doflow', 'prompt-nudge');

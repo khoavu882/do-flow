@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -32,7 +33,7 @@ function installPolicy(root: any, policy: any, body: any) {
 
 function runBridge(root: any, harness: any, event: any, policy: any, profile: any, { input = {}, env = {}, args = ['--emit', 'decision'] }: any = {}) {
   const xdg = path.join(root, `xdg-${harness}-${profile}`);
-  const result = spawnSync('bash', [path.join(root, 'bridge/bridge.sh'), harness, event, policy, ...args], {
+  const result = spawnSync(bashPath(), [path.join(root, 'bridge/bridge.sh'), harness, event, policy, ...args], {
     cwd: root,
     input: typeof input === 'string' ? input : JSON.stringify(input),
     encoding: 'utf8',
@@ -85,7 +86,7 @@ function runInstalledDoor(t: any, harness: any, hook: any, input: any, profile: 
     fs.chmodSync(policyPath, 0o755);
   }
   const xdg = path.join(root, `xdg-${profile}`);
-  const result = spawnSync('bash', [path.join(root, hook)], {
+  const result = spawnSync(bashPath(), [path.join(root, hook)], {
     cwd: root, input: JSON.stringify(input), encoding: 'utf8',
     env: { ...process.env, HOME: path.join(root, 'home'), XDG_CONFIG_HOME: xdg,
       DOFLOW_FAILURE_CAPTURE: 'on', DOFLOW_FAULT_PROFILE: profile, DOFLOW_PROJECT_DIR: root },
@@ -101,7 +102,7 @@ function failureKinds(result: any) {
 
 function runPolicyDirect(root: any, policy: any, input: any, { pathValue = process.env.PATH, env = {} }: any = {}) {
   const policyPath = path.join(root, 'policies', `${policy}.sh`);
-  const child = spawnSync('bash', [policyPath], {
+  const child = spawnSync(bashPath(), [policyPath], {
     cwd: root,
     input: JSON.stringify(input),
     encoding: 'utf8',

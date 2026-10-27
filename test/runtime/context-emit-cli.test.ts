@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // 078 E.2 — the `context-emit` and `context-grant` verbs (IC-005, IC-013 verb, DEC-021), run as
 // a launcher would run them: through bin/doflow.js and through the doflow-run dispatcher, with a
@@ -33,7 +34,7 @@ function world(t: any) {
 
 /** One run of the verb; `via` is 'cli' (node bin/doflow.js) or 'run' (the doflow-run dispatcher). */
 function run(w: any, args: any, { env = LAUNCHED, via = 'cli' }: any = {}) {
-  const [cmd, argv] = via === 'cli' ? [process.execPath, [CLI, ...args]] : ['/bin/bash', [DISPATCHER, ...args]];
+  const [cmd, argv] = via === 'cli' ? [process.execPath, [CLI, ...args]] : [bashPath(), [DISPATCHER, ...args]];
   const r = spawnSync(cmd, argv, { cwd: w.cwd, encoding: 'utf8', env: { ...w.base, ...env } });
   return { code: r.status, stdout: r.stdout || '', stderr: r.stderr || '' };
 }

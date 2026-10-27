@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // 078 D.1 — the hook emission adapter policies/emission.sh and the IC-015 ledger (IC-004, IC-015;
 // DEC-015, DEC-016, DEC-017). The adapter is driven directly under /bin/bash (3.2 on macOS) with a
@@ -14,7 +15,7 @@ const { tempDir } = require('../helper/tmp.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const POLICIES = path.join(REPO, 'core/harnesses/shared/hooks/policies');
-const BASH = '/bin/bash';
+const BASH = bashPath();
 const REAL_JQ = spawnSync('/bin/sh', ['-c', 'command -v jq'], { encoding: 'utf8' }).stdout.trim();
 const GRANT_ID = 's-20261014T100000Z-Ab12Cd';
 const REFUSAL = 'refused:mandatory-over-budget';

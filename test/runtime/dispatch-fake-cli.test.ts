@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 // 082 IC-041 fixtures (DEC-010, DEC-056): the fake CLI's dispatch steps, the edit-capable fake
 // descriptors, the graph-plan fixtures and the dispatch sandbox. No case starts a real harness
 // (NFR-002): every child PATH is the sandbox's scratch bin/ alone, and every child env sets the five
@@ -209,7 +210,7 @@ test('sandbox: PATH is one scratch bin holding only the expected links; no harne
 test('sandbox: named system tools only, and a harness name is refused', POSIX_ONLY, (t) => {
   const box = makeDispatchSandbox(t, { systemTools: ['bash'], fakes: ['fake-claude'] });
   assert.deepEqual(fs.readdirSync(box.bin).sort(), ['bash', 'fake-claude', 'git', 'node']);
-  assert.equal(spawnSync('bash', ['-c', 'exit 0'], { env: box.env }).status, 0);
+  assert.equal(spawnSync(bashPath(), ['-c', 'exit 0'], { env: box.env }).status, 0);
   for (const name of ['codex', 'claude', 'node', '../bash']) {
     assert.throws(() => makeDispatchSandbox(t, { systemTools: [name] }), /not a linkable system tool/, name);
   }

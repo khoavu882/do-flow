@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -43,7 +44,7 @@ function makeTree(policyBody?: any) {
 }
 
 function run(dir: any, harness: any, event: any, policy: any, input: any = {}, args: any = [], env: any = []) {
-  return spawnSync('bash', [path.join(dir, 'bridge/bridge.sh'), harness, event, policy, ...args], {
+  return spawnSync(bashPath(), [path.join(dir, 'bridge/bridge.sh'), harness, event, policy, ...args], {
     cwd: dir, encoding: 'utf8', input: typeof input === 'string' ? input : JSON.stringify(input),
     env: childEnv({ DOFLOW_FAILURE_CAPTURE: 'off', ...env }),
   });
@@ -612,7 +613,7 @@ BRIDGE_TEST('Kiro agent camelCase events share IDE effects and rendering while t
 BRIDGE_TEST('sourced bridge survives set -euo pipefail; jq and node process counts, trace and decode edge cases', () => {
   const dir = makeTree();
   const errorDir = makeTree('#!/bin/bash\nprintf raw-secret >&2\nexit 2\n');
-  const sourced = spawnSync('bash', ['-c', `set -euo pipefail; . "${path.join(errorDir, 'bridge/bridge.sh')}"; if doflow_bridge claude PreToolUse pre-implementation-gate </dev/null; then code=0; else code=$?; fi; printf 'AFTER:%s' "$code"`], { encoding: 'utf8', env: childEnv() });
+  const sourced = spawnSync(bashPath(), ['-c', `set -euo pipefail; . "${path.join(errorDir, 'bridge/bridge.sh')}"; if doflow_bridge claude PreToolUse pre-implementation-gate </dev/null; then code=0; else code=$?; fi; printf 'AFTER:%s' "$code"`], { encoding: 'utf8', env: childEnv() });
   assert.equal(sourced.status, 0, sourced.stderr);
   assert.match(sourced.stdout, /permissionDecisionReason/);
   assert.match(sourced.stdout, /AFTER:0/);
@@ -647,7 +648,7 @@ exit 0
     fs.symlinkSync(executable,path.join(noJqBin,cmd));
   }
   const config=path.join(noJqTree,'config');
-  const noJq=spawnSync('bash',[path.join(noJqTree,'bridge/bridge.sh'),'claude','PreToolUse','pre-implementation-gate'],{
+  const noJq=spawnSync(bashPath(),[path.join(noJqTree,'bridge/bridge.sh'),'claude','PreToolUse','pre-implementation-gate'],{
     cwd:noJqTree,encoding:'utf8',input:'{}',env:childEnv({PATH:noJqBin,DOFLOW_FAILURE_CAPTURE:'on',XDG_CONFIG_HOME:config}),
   });
   assert.equal(noJq.status,0,noJq.stderr);

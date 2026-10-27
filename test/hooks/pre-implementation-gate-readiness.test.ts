@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 // pre-implementation-gate-readiness.test.js — the edit hook holds a task to a READY readiness
 // record: on a feature branch whose folder has a register and all three artifacts, and on any
 // branch whose run has its gated stage pending. It reads the main checkout's folder, records and
@@ -123,7 +124,7 @@ function expectHook({ cwd, caseRoot, event, code, stderr, policy = LAYOUT_POLICY
   const homes = resolver ? [scratch.home, RESOLVER_HOME] : [scratch.home];
   for (const home of homes) {
     const before = snapshot(caseRoot);
-    const result = spawnSync('bash', [policy], { cwd, input, env: spawnEnv({ HOME: home, DOFLOW_PROJECT_DIR: cwd }), encoding: 'utf8' });
+    const result = spawnSync(bashPath(), [policy], { cwd, input, env: spawnEnv({ HOME: home, DOFLOW_PROJECT_DIR: cwd }), encoding: 'utf8' });
     const label = home === RESOLVER_HOME ? 'with resolver' : 'no resolver';
     assert.strictEqual(result.status, code, `${label}: exit ${result.status}, stderr: ${result.stderr}`);
     if (stderr !== undefined) assert.strictEqual(result.stderr, stderr, label);
@@ -533,13 +534,13 @@ HOOK_TEST('FU-n2mvpr: a path that climbs out of agent-docs with ".." is judged b
 HOOK_TEST('FU-12882d: the gate reads the resolver JSON with one jq run, and still refuses on its fields', { timeout: CASE_TIMEOUT_MS }, () => {
   const { root, main } = makeRepo('feat/900-demo');
   writeFeature(main, '900-demo');
-  const realJq = spawnSync('bash', ['-c', 'command -v jq'], { encoding: 'utf8' }).stdout.trim();
+  const realJq = spawnSync(bashPath(), ['-c', 'command -v jq'], { encoding: 'utf8' }).stdout.trim();
   const shimDir = path.join(root, 'shim');
   const log = path.join(root, 'jq-calls.log');
   write(path.join(shimDir, 'jq'), `#!/bin/bash\nprintf '%s\\n' "$*" >> '${log}'\nexec '${realJq}' "$@"\n`);
   fs.chmodSync(path.join(shimDir, 'jq'), 0o755);
   const input = encodeEnvelope('claude', 'PreToolUse', 'pre-implementation-gate', JSON.stringify(editEvent(path.join(main, 'src', 'a.js'))), { DOFLOW_PROJECT_DIR: main });
-  const result = spawnSync('bash', [LAYOUT_POLICY], {
+  const result = spawnSync(bashPath(), [LAYOUT_POLICY], {
     cwd: main, input, encoding: 'utf8',
     env: spawnEnv({ HOME: RESOLVER_HOME, DOFLOW_PROJECT_DIR: main, PATH: `${shimDir}${path.delimiter}${process.env.PATH}` }),
   });

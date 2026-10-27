@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Row 120 IC-005, IC-006 and IC-007: confirm primary model resolution through the shared bridge.
 
@@ -45,7 +46,7 @@ function runBridge(s: any, harness: string) {
   env.DOFLOW_TELEMETRY = 'off';
   env.DOFLOW_DECISION_FD = '';
   env.DOFLOW_BRIDGE_TRACE = '';
-  return spawnSync('bash', [BRIDGE, harness, fixture.event, POLICY], {
+  return spawnSync(bashPath(), [BRIDGE, harness, fixture.event, POLICY], {
     cwd: s.cwd,
     env,
     input: JSON.stringify(fixture.native),

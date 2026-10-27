@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 095 B.1 (IC-003): the `review --action check` verb through `bin/doflow.js` and the
 // doflow-run dispatcher, in a scratch HOME and a scratch working directory.
@@ -35,7 +36,7 @@ function scratch(t: any, { telemetry = false }: any = {}) {
     return name;
   };
   const cli = (args: any) => spawnSync(process.execPath, [CLI, 'review', ...args], { cwd, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-  const dispatcher = (args: any) => spawnSync('/bin/bash', [RUN, 'review', ...args], { cwd, env, encoding: 'utf8' });
+  const dispatcher = (args: any) => spawnSync(bashPath(), [RUN, 'review', ...args], { cwd, env, encoding: 'utf8' });
   const git = (args: any) => spawnSync('git', args, { cwd, env: gitEnv(env), encoding: 'utf8' });
   return { root: dir, cwd, env, write, cli, dispatcher, git };
 }

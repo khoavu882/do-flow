@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 // feature-root.test.js — feature 115 (FR-011, IC-004 render-audit half, IC-005): `paths --json` names the
 // checkout that holds the feature folder, render-audit writes audit.md there and reads the orchestration
 // record from the main checkout, and the `decision` verb resolves its folder through the same key.
@@ -53,7 +54,7 @@ function makeTree(slug: any = '115-scratch') {
 }
 
 function paths(cwd: any, ...args: any[]) {
-  const r = spawnSync('bash', [PATHS, '--json', ...args], { cwd, encoding: 'utf8', env: env() });
+  const r = spawnSync(bashPath(), [PATHS, '--json', ...args], { cwd, encoding: 'utf8', env: env() });
   assert.equal(r.status, 0, r.stderr);
   return JSON.parse(r.stdout);
 }
@@ -69,7 +70,7 @@ function mkFolder(root: any, rel: any, withRequirement: any = false) {
 }
 
 function runDoflow(cwd: any, args: any) {
-  const r = spawnSync('bash', [DOFLOW_RUN, ...args], {
+  const r = spawnSync(bashPath(), [DOFLOW_RUN, ...args], {
     cwd, encoding: 'utf8', input: '',
     env: env({ DOFLOW_CONFIG_DIR: path.join(cwd, '.doflow') }),
   });
@@ -190,7 +191,7 @@ test('decision --action init in a worktree that has its own folder still writes 
 // ── render-audit ───────────────────────────────────────────────────────────────────────────────
 
 function renderAudit(cwd: any, slug: any) {
-  const r = spawnSync('bash', [RENDER_AUDIT, '--json', `--slug=${slug}`], { cwd, encoding: 'utf8', env: env() });
+  const r = spawnSync(bashPath(), [RENDER_AUDIT, '--json', `--slug=${slug}`], { cwd, encoding: 'utf8', env: env() });
   let json = null;
   try { json = JSON.parse(r.stdout); } catch { /* asserted by the caller */ }
   return { status: r.status, json, stdout: r.stdout, stderr: r.stderr };

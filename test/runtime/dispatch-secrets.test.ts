@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 082 D.4 (IC-040 leak scan, NFR-006; FR-006, FR-007; DEC-005, DEC-024, DEC-027, DEC-058):
 // planted secrets never reach a dispatch record, envelope, step record, ledger line, evidence item,
@@ -184,7 +185,7 @@ async function project(t: any, { mode, scenario = {}, identity = {}, probe = fal
   };
   const config = path.join(sb.dir, 'config');
   /** The command through the `doflow-run` dispatcher, which appends a run ledger line. */
-  const dispatcher = (...args: any[]) => spawnSync('/bin/bash', [RUN, 'dispatch', ...args], {
+  const dispatcher = (...args: any[]) => spawnSync(bashPath(), [RUN, 'dispatch', ...args], {
     cwd: sb.root, env: { ...env, DOFLOW_CLI: CLI, DOFLOW_CONFIG_DIR: config }, encoding: 'utf8',
   });
   const started = await command({

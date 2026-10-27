@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // 062 D.1 — the brief generator's tier, tools and report-format block (CH8, IC-018, IC-019).
 // do-task-brief.sh runs in a scratch feature with a plan, a requirement and a design. Most cases put a
@@ -102,7 +103,7 @@ function fixture({ dispatcher = 'fake' }: any = {}) {
   fs.writeFileSync(path.join(featureDir, 'design.md'), DESIGN);
 
   const brief = (args: any, env: any = {}) => {
-    const res = spawnSync('bash', [path.join(bash, 'do-task-brief.sh'), ...args], {
+    const res = spawnSync(bashPath(), [path.join(bash, 'do-task-brief.sh'), ...args], {
       cwd: project, encoding: 'utf8', timeout: 120000, env: scratch.env({ FAKE_LOG: log, ...env }),
     });
     let data = null;
@@ -290,7 +291,7 @@ describe('real dispatcher', () => {
     // The helpers stay in the repo tree so "$script_dir/../bin/doflow-run" is the shipped dispatcher.
     const f = fixture({ dispatcher: 'none' });
     const real = path.join(SCRIPTS, 'bash', 'do-task-brief.sh');
-    const res = spawnSync('bash', [real, '--task=A.1', '--harness=claude', `--slug=${FEATURE}`], {
+    const res = spawnSync(bashPath(), [real, '--task=A.1', '--harness=claude', `--slug=${FEATURE}`], {
       cwd: f.project, encoding: 'utf8', timeout: 300000, env: scratch.env({ DOFLOW_CLI: path.resolve(__dirname, '..', '..', 'bin', 'doflow.js') }),
     });
     assert.equal(res.status, 0, res.stderr);

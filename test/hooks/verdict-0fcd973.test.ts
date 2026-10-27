@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -59,7 +60,7 @@ function corpusCases() {
 }
 
 function runPolicy(policyDir: any, policy: any, input: any, cwd: any, env: any) {
-  const result = spawnSync('bash', [path.join(policyDir, `${policy}.sh`)], {
+  const result = spawnSync(bashPath(), [path.join(policyDir, `${policy}.sh`)], {
     cwd, input, encoding: 'utf8', env,
   });
   assert.equal(result.error, undefined, result.error?.message);
@@ -86,7 +87,7 @@ function projectFor(scratch: any, name: any, state: any) {
 function encodeNative(harness: any, event: any, policy: any, native: any, env: any) {
   let input = JSON.stringify(native);
   if (harness === 'kiro') {
-    const translated = spawnSync('/bin/bash', ['-c', `. '${path.join(REPO, 'core/harnesses/kiro/hooks/lib.sh')}'; kiro_bridge_payload`], {
+    const translated = spawnSync(bashPath(), ['-c', `. '${path.join(REPO, 'core/harnesses/kiro/hooks/lib.sh')}'; kiro_bridge_payload`], {
       input, encoding: 'utf8', env,
     });
     assert.equal(translated.status, 0, translated.stderr);
@@ -101,7 +102,7 @@ function legacyNative(baseline: any, harness: any, event: any, native: any, env:
     return JSON.stringify(adapter.toCanonical(event, native));
   }
   if (harness === 'kiro') {
-    const translated = spawnSync('/bin/bash', ['-c', `. '${path.join(REPO, 'core/harnesses/kiro/hooks/lib.sh')}'; kiro_bridge_payload`], {
+    const translated = spawnSync(bashPath(), ['-c', `. '${path.join(REPO, 'core/harnesses/kiro/hooks/lib.sh')}'; kiro_bridge_payload`], {
       input: JSON.stringify(native), encoding: 'utf8', env,
     });
     assert.equal(translated.status, 0, translated.stderr);

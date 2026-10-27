@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -68,7 +69,7 @@ test('packed package installs and runs its CLI and installed runtime offline', (
   assert.equal(install.status, 0, `doflow install failed\n${install.stdout}\n${install.stderr}`);
 
   const dispatcher = path.join(home, '.claude', 'bin', 'doflow-run');
-  const paths = spawnSync('bash', [dispatcher, 'paths', '--json'], { cwd: repo, encoding: 'utf8', env });
+  const paths = spawnSync(bashPath(), [dispatcher, 'paths', '--json'], { cwd: repo, encoding: 'utf8', env });
   assert.equal(paths.status, 0, `${paths.stdout}\n${paths.stderr}`);
   assert.ok(JSON.parse(paths.stdout), 'installed paths verb returned invalid JSON');
 

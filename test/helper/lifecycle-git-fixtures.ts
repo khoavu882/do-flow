@@ -272,7 +272,7 @@ function historyBuilder({ initial = 'develop', start = '2026-10-01T08:00:00.000Z
  * @returns {{dir: string, env: (fail: string) => Object}} `env(fail)` is the PATH and switch to set
  */
 function failingGit(scratch: any) {
-  const real = execFileSync('bash', ['-c', 'command -v git'], { encoding: 'utf8', env: scratch.env() }).trim();
+  const real = execFileSync(require('./bash-locator.ts').bashPath({ quiet: true }), ['-c', 'command -v git'], { encoding: 'utf8', env: scratch.env() }).trim();
   const dir = path.join(scratch.dir, 'failing-git');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'git'), `#!/usr/bin/env bash

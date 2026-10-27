@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 082 C.6 (IC-035; DEC-012, DEC-031, DEC-042): the dispatcher's `trace_run` rider writes
 // the session identity from the environment only, quoted when it matches identity.ts's pattern and
@@ -19,7 +20,7 @@ const { IDENTITY_VARS } = require('../helper/fake-harness-cli.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
 const RUN = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
-const BASH = '/bin/bash';
+const BASH = bashPath();
 const SKIP = process.platform === 'win32' ? 'tree cleanup is unverified on win32 (NFR-005)' : false;
 
 function harness(t: any) {

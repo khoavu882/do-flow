@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
@@ -9,7 +10,7 @@ const { tempDir } = require('../helper/tmp.ts');
 const { encodeEnvelope, loadCorpus } = require('../helper/hook-fixtures.ts');
 
 const CONTRACT = path.resolve(__dirname, '..', '..', 'core/harnesses/shared/hooks/policies/contract.sh');
-const BASH = '/bin/bash';
+const BASH = bashPath();
 const HAS_JQ = spawnSync('jq', ['--version']).status === 0;
 
 function withRecordPipe(body: any, { fd = '3', pathEnv = process.env.PATH, stdin = '' }: any = {}) {

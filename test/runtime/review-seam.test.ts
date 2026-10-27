@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 095 C-5 (IC-003, NFR-002): `review --action check` through the doflow-run seam. The only
 // writes allowed are IC-004's telemetry line (never when telemetry is off, never on a usage error)
@@ -45,7 +46,7 @@ function seam(t: any, { telemetry, record, args }: any) {
   const name = `findings-${CANARY}.json`;
   fs.writeFileSync(path.join(project, name), JSON.stringify(record));
   const before = snapshot(dir);
-  const res = spawnSync('/bin/bash', [RUN, 'review', ...args(name)], { cwd: project, env, encoding: 'utf8' });
+  const res = spawnSync(bashPath(), [RUN, 'review', ...args(name)], { cwd: project, env, encoding: 'utf8' });
   const after = snapshot(dir);
   const added = Object.keys(after).filter((rel) => !(rel in before)).sort();
   const changed: any = Object.keys(after).filter((rel) => rel in before && before[rel] !== after[rel]);

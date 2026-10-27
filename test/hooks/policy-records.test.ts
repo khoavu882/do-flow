@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
@@ -13,7 +14,7 @@ const ROOT = path.resolve(__dirname, '..', '..');
 const POLICY_DIR = path.join(ROOT, 'core/harnesses/shared/hooks/policies');
 const FIXTURE_DIR = path.join(ROOT, 'test/fixtures/hooks/policy-golden');
 const POLICIES: any = ['stop-check', 'session-context', 'user-prompt-submit', 'subagent-audit'];
-const BASH = '/bin/bash';
+const BASH = bashPath();
 
 // 086 B.2b: every child process runs under a scratch HOME and XDG_CONFIG_HOME (explicit env), so no
 // hook it starts can append to the developer's ~/.config/doflow. childEnv builds that env and fails

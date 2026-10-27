@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // IC-024 — recurring harness surfaces must stay unaware of context-pack delivery state.
 const { test } = require('node:test');
@@ -47,7 +48,7 @@ function filesUnder(relativeRoot: any) {
 }
 
 function runPolicy(script: any, input: any, env: any, cwd: any) {
-  const result = spawnSync('bash', [path.join(REPO, script)], {
+  const result = spawnSync(bashPath(), [path.join(REPO, script)], {
     cwd, env, input, encoding: 'utf8', timeout: 5000,
   });
   assert.equal(result.error, undefined, `${script}: ${result.error?.message ?? ''}`);

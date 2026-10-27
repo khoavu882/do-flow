@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 // The Kiro front doors (core/harnesses/kiro/hooks/*.sh) translate a Kiro payload into the canonical
 // one before running the shared policies, which stay untouched. Each case runs the front door from
 // an install-shaped mirror (test/hooks/build-install-mirror.sh) under a scratch HOME and
@@ -18,7 +19,7 @@ const scratch = createScratch('doflow-kiro-bridge-');
 after(() => scratch.remove());
 
 const mirror = path.join(scratch.dir, 'mirror');
-const built = spawnSync('bash', [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), mirror], { encoding: 'utf8' });
+const built = spawnSync(bashPath(), [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), mirror], { encoding: 'utf8' });
 assert.equal(built.status, 0, built.stderr);
 const HOOKS = path.join(mirror, '.kiro', 'hooks');
 
@@ -34,7 +35,7 @@ function git(cwd: any, ...args: any[]) {
 /** Runs one front door with `payload` on stdin. */
 function runDoor(door: any, payload: any, { cwd = scratch.dir, extra = {}, errexit = false } = {}) {
   const input = typeof payload === 'string' ? payload : JSON.stringify(payload);
-  const result = spawnSync('bash', [...(errexit ? ['-euo', 'pipefail'] : []), path.join(HOOKS, door)], { cwd, env: env(extra), input, encoding: 'utf8' });
+  const result = spawnSync(bashPath(), [...(errexit ? ['-euo', 'pipefail'] : []), path.join(HOOKS, door)], { cwd, env: env(extra), input, encoding: 'utf8' });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
@@ -125,7 +126,7 @@ HOOK_TEST('session-start prefers the payload session_id over KIRO_SESSION_ID', (
 
 /** The bridge function on its own, through a shell that sources the shipped lib.sh. */
 function bridge(payload: any, extra = {}) {
-  const result = spawnSync('bash', ['-c', `source "${path.join(HOOKS, 'lib.sh')}"; kiro_bridge_payload`], { env: env(extra), input: payload, encoding: 'utf8' });
+  const result = spawnSync(bashPath(), ['-c', `source "${path.join(HOOKS, 'lib.sh')}"; kiro_bridge_payload`], { env: env(extra), input: payload, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout;
 }

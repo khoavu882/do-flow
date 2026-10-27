@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 078 FR-001 parity for the states a plain peek cannot reach (review L1-10, L2-04): the
 // prompt hook (from an install mirror) and emitContext({event: 'prompt'}) committing over a byte
@@ -145,7 +146,7 @@ function compare(harness: any, state: any, root = mirror) {
   const sid = `race-${harness}-${seq}`;
   state.prepare(w);
   const env = { ...w.env, ...state.env };
-  spawnSync('bash', [path.join(root, `.${harness}`, 'hooks', 'session-start.sh')], {
+  spawnSync(bashPath(), [path.join(root, `.${harness}`, 'hooks', 'session-start.sh')], {
     cwd: w.repo, input: `${JSON.stringify({ session_id: sid, cwd: w.repo, hook_event_name: 'SessionStart', source: 'startup' })}\n`, env, encoding: 'utf8',
   });
   const copy = copyOf(w);

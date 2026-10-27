@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // 088 D.3 (G-O3, FR-002, NFR-005, IC-004, IC-006): compare real CLI and shared-bridge hook
 // outcomes as raw bytes with telemetry on, off and faulted. The loops keep all harness variants on
@@ -18,7 +19,7 @@ const REPO = path.resolve(__dirname, '../..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 const HOOK_FIXTURES = path.join(REPO, 'test/fixtures/hooks');
 const MIRROR_SCRIPT = path.join(REPO, 'test/hooks/build-install-mirror.sh');
-const BASH = '/bin/bash';
+const BASH = bashPath();
 const SLUG = 'feat-isolation';
 const FIXED_MS = 1792000000000;
 const FIXED_DATE = new Date(FIXED_MS).toISOString().slice(0, 10);

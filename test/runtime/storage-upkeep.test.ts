@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -340,7 +341,7 @@ test('IC-008: expired entry under read-only parent stays; triggering verb equals
   const f = fixture(t, ['project-state', 'config-home']);
   const logDir = path.join(f.roots['project-state'], 'verification/logs');
   const log = put(logDir, `${Date.now() - 31 * DAY}-expired.log`);
-  const run = () => spawnSync('/bin/bash', [RUN, 'evidence', '--action', 'list', '--task-id', 'idle', '--json'], {
+  const run = () => spawnSync(bashPath(), [RUN, 'evidence', '--action', 'list', '--task-id', 'idle', '--json'], {
     cwd: f.projectRoot, env: { ...f.env, DOFLOW_CLI: path.join(REPO, 'bin/doflow.js'), DOFLOW_CONFIG_DIR: f.roots['project-doflow'] }, encoding: 'utf8',
   });
   put(f.roots['config-home'], 'prune', 'off\n');

@@ -31,7 +31,7 @@ function loadCorpus(policy: any) {
 
 function runPolicy(policy: any, input: any, { decisionFd = false, cwd = REPO, env = {}, policyPath }: any = {}) {
   const stdio = decisionFd ? ['pipe', 'pipe', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe'];
-  const child = spawnSync('bash', [policyPath || path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', `${policy}.sh`)], {
+  const child = spawnSync(require('./bash-locator.ts').bashPath({ quiet: true }), [policyPath || path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', `${policy}.sh`)], {
     cwd,
     env: {
       ...process.env,
@@ -62,7 +62,7 @@ function runPolicyV1(policy: any, native: any, { harness, event, ...options }: a
 }
 
 function buildInstallMirror(target: any) {
-  const result = spawnSync('bash', [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), target], { encoding: 'utf8' });
+  const result = spawnSync(require('./bash-locator.ts').bashPath({ quiet: true }), [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), target], { encoding: 'utf8' });
   if (result.status !== 0) throw new Error(result.stderr || 'install mirror build failed');
   return target;
 }

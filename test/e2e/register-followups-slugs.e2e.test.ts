@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 // register-followups-slugs.e2e.test.js — feature 045 US6 (unsafe feature name refused) and RK5 (slugs that work today
 // are still accepted), driven through the checkout's own dispatcher against scratch git repos.
 // Helpers: register-followups.shared.js.
@@ -112,7 +113,7 @@ describe('RK5: slugs that work today are still accepted', { skip: SKIP }, () => 
     const scanFeatures = path.join(scanRoot, 'agent-docs', 'doflow');
     fs.cpSync(fixtureRoot, scanFeatures, { recursive: true });
     const helper = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash', 'do-paths.sh');
-    const scanned = spawnSync('bash', [helper, '--json'], {
+    const scanned = spawnSync(bashPath(), [helper, '--json'], {
       cwd: scanRoot,
       env: { ...baseEnv(), DOFLOW_CONFIG_DIR: path.join(scanRoot, '.doflow') },
       encoding: 'utf8',

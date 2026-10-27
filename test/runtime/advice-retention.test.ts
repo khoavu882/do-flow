@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -36,7 +37,7 @@ test('IC-013 advice partitions older than 90 days expire after an ordinary verb'
     fs.writeFileSync(path.join(dir, `${today}.jsonl`), '{"type":"pick"}\n');
   }
 
-  const result = spawnSync('/bin/bash', [DOFLOW_RUN, 'trace'], { cwd: project, env, encoding: 'utf8' });
+  const result = spawnSync(bashPath(), [DOFLOW_RUN, 'trace'], { cwd: project, env, encoding: 'utf8' });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   for (const { root, store } of partitions) {
     const dir = path.join(root, 'advice', 'picks');

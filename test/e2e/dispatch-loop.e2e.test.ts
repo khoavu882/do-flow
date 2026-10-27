@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 082 D.3 (IC-040, requirement §6; DEC-010, DEC-011, DEC-014, DEC-046, DEC-058): the
 // three-mode acceptance suite and the cleanup check.
@@ -740,7 +741,7 @@ scenario('identity-joins', 'records under a launcher identity carry run key, tas
   const traced = (over: any) => {
     fs.rmSync(runsDir, { recursive: true, force: true });
     const env: any = { ...p.env, ...over, DOFLOW_CLI: CLI, DOFLOW_CONFIG_DIR: config, DOFLOW_FAILURE_CAPTURE: 'off' };
-    const r = spawnSync('/bin/bash', [RUN, 'dispatch', '--action', 'inspect', '--slug', SLUG, '--json'], { cwd: p.root, env, encoding: 'utf8' });
+    const r = spawnSync(bashPath(), [RUN, 'dispatch', '--action', 'inspect', '--slug', SLUG, '--json'], { cwd: p.root, env, encoding: 'utf8' });
     const lines = fs.existsSync(runsDir) ? fs.readdirSync(runsDir).flatMap((f: any) => fs.readFileSync(path.join(runsDir, f), 'utf8').split('\n').filter(Boolean)) : [];
     assert.equal(r.status, 0, r.stderr);
     assert.equal(lines.length, 1, JSON.stringify(lines));

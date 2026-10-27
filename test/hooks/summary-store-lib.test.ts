@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // The bash summary store policies/summary-store.sh (feature 078, IC-010, IC-011 store write, IC-012,
 // IC-014; DEC-003, DEC-012, DEC-014): the scoped write, the owner claim by rename, grant selection
@@ -17,7 +18,7 @@ const POLICIES = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'polici
 const STORE = path.join(POLICIES, 'summary-store.sh');
 const LIB = path.join(POLICIES, 'lib.sh');
 const EMISSION = path.join(POLICIES, 'emission.jq');
-const BASH = process.platform === 'darwin' ? '/bin/bash' : 'bash';
+const BASH = bashPath();
 const SUMMARY_ID = /^s-[0-9]{8}T[0-9]{6}Z-[A-Za-z0-9]{6}$/;
 const AT = '2026-10-14T10:00:00Z';
 

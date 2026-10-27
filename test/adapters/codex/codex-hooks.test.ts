@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../../helper/bash-locator.ts');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -194,7 +195,7 @@ test('post-edit-lint.impl.sh extracts every file path from a multi-file apply_pa
   ].join('\n');
   const sessionId = `test-apply-patch-${process.pid}-${Date.now()}`;
   const stateDir = suiteTempDir('doflow-codex-post-edit-lint-');
-  execFileSync('bash', [path.join(CODEX_HOOKS_DIR, 'post-edit-lint.impl.sh')], {
+  execFileSync(bashPath(), [path.join(CODEX_HOOKS_DIR, 'post-edit-lint.impl.sh')], {
     input: JSON.stringify({ session_id: sessionId, tool_name: 'apply_patch', tool_input: { command: patch } }),
     env: { ...process.env, XDG_CONFIG_HOME: stateDir },
   });
@@ -205,7 +206,7 @@ test('post-edit-lint.impl.sh extracts every file path from a multi-file apply_pa
 test('pre-compact.impl.sh emits valid JSON with only Codex-accepted universal fields', () => {
   // Regression test: Codex's PreCompact output schema is JSON-only (deny_unknown_fields on
   // HookUniversalOutputWire) — Claude's plain-string custom_instructions output would not parse.
-  const out = execFileSync('bash', [path.join(CODEX_HOOKS_DIR, 'pre-compact.impl.sh')], {
+  const out = execFileSync(bashPath(), [path.join(CODEX_HOOKS_DIR, 'pre-compact.impl.sh')], {
     input: JSON.stringify({ cwd: process.cwd() }),
   }).toString('utf8');
   const parsed = JSON.parse(out); // throws if not valid JSON

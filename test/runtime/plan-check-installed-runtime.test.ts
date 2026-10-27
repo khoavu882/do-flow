@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Row 134 (Sol review P1): the constitution exit check from an installed runtime. `doflow install -g`
 // into a scratch HOME leaves `~/.doflow/runtime` with no core/shared, so the base constitution must be
@@ -35,7 +36,7 @@ test('installed runtime: plan-check reads the base constitution from the project
     assert.equal(spawnSync('git', ['init', '-q'], { cwd: repo, env }).status, 0);
     const file = path.join(repo, 'agent-docs', 'doflow', 'f', 'plan.md');
     const check = () => {
-      const res = spawnSync('bash', [path.join(scratch.home, '.doflow', 'scripts', 'doflow', 'bin', 'doflow-run'), 'plan-check', file, '--json'],
+      const res = spawnSync(bashPath(), [path.join(scratch.home, '.doflow', 'scripts', 'doflow', 'bin', 'doflow-run'), 'plan-check', file, '--json'],
         { cwd: repo, env, encoding: 'utf8' });
       assert.equal(res.status, 0, res.stdout + res.stderr);
       return JSON.parse(res.stdout).findings.filter((f: any) => f.rule.startsWith('constitution-')).map((f: any) => `${f.rule} ${f.id || ''}`.trim());

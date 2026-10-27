@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 // slug-safety.test.js — a feature slug becomes a directory name and a state key, so the resolver and
 // the branch-name verb refuse one that could name a path (feature 045, IC-009; FR-013).
 const { test } = require('node:test');
@@ -22,7 +23,7 @@ function repo(branch: any = 'main') {
 }
 
 function run(script: any, args: any, cwd: any) {
-  const res = spawnSync('bash', [script, ...args], { cwd, encoding: 'utf8' });
+  const res = spawnSync(bashPath(), [script, ...args], { cwd, encoding: 'utf8' });
   let data = null;
   try { data = JSON.parse(res.stdout); } catch { /* asserted by the caller */ }
   return { status: res.status, data, stdout: res.stdout };
@@ -162,7 +163,7 @@ test('validate refuses an unsafe --slug with exit 2, with and without explicit p
     const json = run(VALIDATE, ['--json', ...args], root);
     assert.equal(json.status, 2, args.join(' '));
     assert.equal(json.data.error, 'invalid-slug');
-    const plain = spawnSync('bash', [VALIDATE, ...args], { cwd: root, encoding: 'utf8' });
+    const plain = spawnSync(bashPath(), [VALIDATE, ...args], { cwd: root, encoding: 'utf8' });
     assert.equal(plain.status, 2);
     assert.match(plain.stderr, /not a valid feature slug/);
   }
@@ -192,7 +193,7 @@ test('every bash caller of do-paths refuses an unsafe --slug with exit 2 and the
       assert.equal(res.data.error, 'invalid-slug', script);
       assert.match(res.data.message, /not a valid feature slug/);
     }
-    const plain = spawnSync('bash', [path.join(BASH, script), ...extra, '--slug=../../x'], { cwd: root, encoding: 'utf8' });
+    const plain = spawnSync(bashPath(), [path.join(BASH, script), ...extra, '--slug=../../x'], { cwd: root, encoding: 'utf8' });
     assert.equal(plain.status, 2, `${script} without --json`);
   }
   assert.deepEqual(tree(root), before, 'nothing was written');
@@ -215,6 +216,6 @@ test('a refused slug that came from the branch names the branch; a typed one nam
   const typed = run(PATHS, ['--json', '--slug=café'], root);
   assert.match(typed.data.message, /^slug "café" is not a valid feature slug: /);
   // The ASCII rule holds under a UTF-8 locale too.
-  const utf8 = spawnSync('bash', [PATHS, '--json', '--slug=café'], { cwd: root, encoding: 'utf8', env: { ...process.env, LC_ALL: 'en_US.UTF-8' } });
+  const utf8 = spawnSync(bashPath(), [PATHS, '--json', '--slug=café'], { cwd: root, encoding: 'utf8', env: { ...process.env, LC_ALL: 'en_US.UTF-8' } });
   assert.equal(utf8.status, 2);
 });

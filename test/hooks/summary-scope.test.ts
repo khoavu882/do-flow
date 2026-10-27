@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 078, IC-012 and IC-014 through the installed front doors: compact summaries are scoped by
 // (worktree, run, lineage), a worker claims nothing it was not granted, a grant is delivered once,
@@ -32,7 +33,7 @@ function worktree(name = 'wt') {
 }
 
 function hashOf(dir: any) {
-  const r = spawnSync('bash', ['-c', 'source "$1"; cwd_hash "$2"', 'bash', LIB, dir], { env: scratch.env(), encoding: 'utf8' });
+  const r = spawnSync(bashPath(), ['-c', 'source "$1"; cwd_hash "$2"', 'bash', LIB, dir], { env: scratch.env(), encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout.trim();
 }
@@ -40,7 +41,7 @@ const scopeFile = (dir: any, run = 'local', lineage = 'main') => path.join(STORE
 const legacyFile = (dir: any) => path.join(STORE, 'projects', hashOf(dir), 'last-compact-summary.md');
 
 function hook(root: any, harness: any, script: any, payload: any, env = {}) {
-  const r = spawnSync('bash', [path.join(root, `.${harness}`, 'hooks', script)], {
+  const r = spawnSync(bashPath(), [path.join(root, `.${harness}`, 'hooks', script)], {
     input: JSON.stringify(payload), env: scratch.env(env), encoding: 'utf8',
   });
   assert.equal(r.status, 0, r.stderr);
@@ -218,7 +219,7 @@ test('IC-013: a grant to local/solo is refused in-process and through doflow-run
   const options = { summary: 'pending', toRun: 'local', toLineage: 'solo', fromWorktree: dir, fromRun: 'local', fromLineage: 'main', env: scratch.env() };
   assert.throws(() => grantSummary(options), (error: any) => error.code === 'usage' || /solo is not a launched recipient/.test(error.message));
   const dispatcher = path.join(REPO, 'core/shared/scripts/doflow/bin/doflow-run');
-  const r = spawnSync('/bin/bash', [dispatcher, 'context-grant', '--summary', 'pending', '--to-run', 'local', '--to-lineage', 'solo',
+  const r = spawnSync(bashPath(), [dispatcher, 'context-grant', '--summary', 'pending', '--to-run', 'local', '--to-lineage', 'solo',
     '--from-worktree', dir, '--from-run', 'local', '--from-lineage', 'main', '--json'], { cwd: dir, env: scratch.env({ DOFLOW_FAILURE_CAPTURE: 'off' }), encoding: 'utf8' });
   assert.equal(r.status, 2, r.stdout + r.stderr);
   assert.equal(fs.existsSync(path.join(STORE, 'grants', 'local', 'solo')), false, 'no grant directory for local/solo');

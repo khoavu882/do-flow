@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 081 C.4 (IC-025, IC-026; DEC-032): the `worker` verb wired through `bin/doflow.js` and
 // the `doflow-run` dispatcher, against the real registry.
@@ -65,7 +66,7 @@ function project(t: any, { dispatcher = false }: any = {}) {
   return {
     bin,
     cli: (...args: any[]) => spawn(process.execPath, [CLI, 'worker', ...args]),
-    run: (...args: any[]) => spawn('/bin/bash', [RUN, 'worker', ...args]),
+    run: (...args: any[]) => spawn(bashPath(), [RUN, 'worker', ...args]),
   };
 }
 

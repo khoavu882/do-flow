@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -29,7 +30,7 @@ function noJqPath(t: any) {
 }
 
 function runBash(script: any, args: any, { env = {}, input = '', pathDir }: any = {}) {
-  return spawnSync('/bin/bash', ['-c', script, 'test', ...args], {
+  return spawnSync(bashPath(), ['-c', script, 'test', ...args], {
     encoding: 'utf8', input,
     env: { ...process.env, ...env, ...(pathDir ? { PATH: pathDir } : {}) },
   });

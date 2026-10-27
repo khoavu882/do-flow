@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -12,7 +13,7 @@ const POLICY_DIR = path.join(REPO, 'core/harnesses/shared/hooks/policies');
 const scratch = createScratch('doflow-bare-policy-name-');
 after(() => scratch.remove());
 
-const BASH = fs.existsSync('/bin/bash') ? '/bin/bash' : 'bash';
+const BASH = bashPath();
 
 function execute(policyDir: any, policy: any, bare: any, input: any) {
   const script = bare ? policy : path.join(policyDir, policy);

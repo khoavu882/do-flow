@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // G73 — no exemption of the pre-implementation gate covers the gate's own evidence (maint-testdiet).
 //
@@ -179,7 +180,7 @@ function makeRepo(name: any, ignore: any = 'agent-docs/\n.doflow/\n.claude/\n.co
 function decide(policy: any, root: any, tool: any, file: any) {
   const event = JSON.stringify({ tool_name: tool, tool_input: { file_path: file } });
   const input = encodeEnvelope('claude', 'PreToolUse', 'pre-implementation-gate', event, { DOFLOW_PROJECT_DIR: root });
-  const result = spawnSync('bash', [policy], { cwd: root, input, env: env({ DOFLOW_PROJECT_DIR: root }), encoding: 'utf8' });
+  const result = spawnSync(bashPath(), [policy], { cwd: root, input, env: env({ DOFLOW_PROJECT_DIR: root }), encoding: 'utf8' });
   return { code: result.status, stderr: result.stderr };
 }
 

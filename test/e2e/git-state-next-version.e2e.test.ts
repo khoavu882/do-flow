@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 // git-state-next-version.e2e.test.js: do-git-state.sh --next-version in a scratch repository. The base tag
 // is JSON null (never the string "null") when no release tag exists, and a v* tag that is not a release
 // version (vx, vnext) never wins the version sort.
@@ -22,7 +23,7 @@ function repo() {
   git('init', '-q', '-b', 'develop');
   git('commit', '-q', '--allow-empty', '-m', 'chore: init');
   const nextVersion = () => {
-    const r = spawnSync('bash', [SCRIPT, '--next-version'], { cwd: dir, encoding: 'utf8', env });
+    const r = spawnSync(bashPath(), [SCRIPT, '--next-version'], { cwd: dir, encoding: 'utf8', env });
     assert.equal(r.status, 0, r.stderr);
     return JSON.parse(r.stdout);
   };

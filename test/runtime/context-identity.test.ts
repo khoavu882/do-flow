@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // 078 A.2 (IC-007): resolveIdentity() and cwdHash() against the shared identity corpus
 // test/fixtures/identity/cases.json, which policies/identity.sh must also satisfy (G38.6).
@@ -161,7 +162,7 @@ test('store root matches policies/lib.sh STATE_DIR', () => {
   assert.equal(stateDir({ XDG_CONFIG_HOME: '/x/cfg', HOME: '/h' }), '/x/cfg/doflow/session-env');
   assert.equal(stateDir({ HOME: '/h' }), '/h/.config/doflow/session-env');
   assert.equal(stateDir({ XDG_CONFIG_HOME: '', HOME: '/h' }), '/h/.config/doflow/session-env');
-  const r = spawnSync('/bin/bash', ['-c', 'source "$1"; printf "%s" "$STATE_DIR"', 'x', LIB_SH],
+  const r = spawnSync(bashPath(), ['-c', 'source "$1"; printf "%s" "$STATE_DIR"', 'x', LIB_SH],
     { env: { PATH: process.env.PATH, HOME: '/h', XDG_CONFIG_HOME: '' }, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout, stateDir({ HOME: '/h', XDG_CONFIG_HOME: '' }));
@@ -179,7 +180,7 @@ test('cwdHash equals bash cwd_hash on live paths: directory, symlinked directory
   fs.symlinkSync(path.join(root, 'gone'), path.join(root, 'dangling'));
   const paths: any = [places.$CWD, places.$WT_LINK, `${places.$WT_LINK}/`, places.$FILE,
     path.join(root, 'file-link'), path.join(root, 'dangling'), path.join(root, 'cwd', '..', 'wt')];
-  const r = spawnSync('/bin/bash', ['-c', 'source "$1"; shift; for p in "$@"; do cwd_hash "$p"; done', 'x', LIB_SH, ...paths],
+  const r = spawnSync(bashPath(), ['-c', 'source "$1"; shift; for p in "$@"; do cwd_hash "$p"; done', 'x', LIB_SH, ...paths],
     { env: { PATH: process.env.PATH, HOME: root }, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(paths.map(cwdHash), r.stdout.trim().split('\n'));

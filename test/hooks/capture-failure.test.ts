@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // B.5 — the hook capture helper and its two calls inside the fail-open branches of the guard
 // policies (IC-018, DEC-018, DEC-032). The real policy folder is copied into a scratch directory so
@@ -17,7 +18,7 @@ const { encodeEnvelope } = require('../helper/hook-fixtures.ts');
 
 const POLICIES = path.resolve(__dirname, '..', '..', 'core', 'harnesses', 'shared', 'hooks', 'policies');
 const HAS_JQ = spawnSync('jq', ['--version']).status === 0;
-const BASH = fs.existsSync('/bin/bash') ? '/bin/bash' : 'bash';
+const BASH = bashPath();
 const scratch = createScratch('doflow-hook-capture-');
 after(() => scratch.remove());
 

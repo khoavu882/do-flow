@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Row 093 E.5 (IC-018 a): `doflow primary --action observed` lists the project's checkouts and the
 // hook records of sessions that worked in them, joined by session key. A scratch HOME, config home
@@ -76,7 +77,7 @@ function repo(dir: string) {
 /** The real observe-model step, through bridge.sh, for one main session. */
 function observe(f: any, sessionId: string, cwd: string, model = 'claude-sonnet-4') {
   const native = { hook_event_name: 'SessionStart', session_id: sessionId, model, cwd };
-  const r = spawnSync('bash', [BRIDGE, 'claude', 'SessionStart', 'mcp-tool-guard'], { cwd, env: baseEnv(f), input: JSON.stringify(native), encoding: 'utf8' });
+  const r = spawnSync(bashPath(), [BRIDGE, 'claude', 'SessionStart', 'mcp-tool-guard'], { cwd, env: baseEnv(f), input: JSON.stringify(native), encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
 }
 
@@ -84,7 +85,7 @@ function observe(f: any, sessionId: string, cwd: string, model = 'claude-sonnet-
 function sessionStart(f: any, sessionId: string, cwd: string) {
   const env = { ...baseEnv(f), DOFLOW_AGENT: 'claude' };
   const input = encodeEnvelope('claude', 'SessionStart', 'session-context', JSON.stringify({ session_id: sessionId, cwd, source: 'startup' }), env);
-  const r = spawnSync('bash', [SESSION_CONTEXT], { cwd, env, input, encoding: 'utf8' });
+  const r = spawnSync(bashPath(), [SESSION_CONTEXT], { cwd, env, input, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
 }
 

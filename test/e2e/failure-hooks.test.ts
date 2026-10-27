@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // The failure and permission paths get their OWN handlers rather than reusing an existing hook.
 // An earlier attempt bound them to post-edit-lint.sh and subagent-audit.sh, which are written for
@@ -20,7 +21,7 @@ function run(t: any, script: any, payload: any) {
   const userHome = tempDir(t, 'doflow-failure-hooks-home-');
   const status = { code: 0 };
   try {
-    execFileSync('bash', [path.join(HOOKS, script)], {
+    execFileSync(bashPath(), [path.join(HOOKS, script)], {
       input: typeof payload === 'string' ? payload : JSON.stringify(payload),
       // Without the MSYS guards, Git Bash rewrites a payload path like /x/y.js into X:/y.js when
       // it hands it to native jq.exe ("/x/" reads as drive X:) — a fixture artifact, not hook

@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // 078 C.2 (IC-010, IC-012, IC-013 in process): the TypeScript summary store and grantSummary(), and
 // its parity with the bash store policies/summary-store.sh: a bash-written summary claimed by
@@ -21,7 +22,7 @@ const REPO = path.resolve(__dirname, '..', '..');
 const POLICIES = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies');
 const LIB = path.join(POLICIES, 'lib.sh');
 const STORE = path.join(POLICIES, 'summary-store.sh');
-const BASH = process.platform === 'darwin' ? '/bin/bash' : 'bash';
+const BASH = bashPath();
 const AT = '2026-10-14T10:00:00Z';
 
 const scratch = createScratch('doflow-ts-summary-store-');

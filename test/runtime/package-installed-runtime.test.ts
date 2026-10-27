@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // `package --action list` and `package --action check --path` through every harness's `doflow-run` shim after a real
 // `doflow install -g` of every harness into a scratch HOME (FU-sf76tw). The installed runtime (`~/.doflow/runtime`)
@@ -60,7 +61,7 @@ function setup() {
   writePackage(pkg);
   const cwd = path.join(scratch.dir, 'work');
   fs.mkdirSync(cwd);
-  const run = (shim: string, args: string[]) => spawnSync('bash', [path.join(scratch.home, shim), ...args], { cwd, env, encoding: 'utf8' });
+  const run = (shim: string, args: string[]) => spawnSync(bashPath(), [path.join(scratch.home, shim), ...args], { cwd, env, encoding: 'utf8' });
   return { scratch, shims: shimsUnder(scratch.home), pkg, run };
 }
 

@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
@@ -17,7 +18,7 @@ const baselineExtract = spawnSync('tar', ['-x', '-C', baselineRoot], { input: ba
 if (baselineExtract.status !== 0) throw new Error(baselineExtract.stderr.toString());
 
 function runBaseline(policy: any, input: any, { cwd = path.resolve(__dirname, '../..'), env = {}, policyPath }: any = {}) {
-  const actual = spawnSync('bash', [policyPath || path.join(baselineRoot, 'core/harnesses/shared/hooks/policies', `${policy}.sh`)], {
+  const actual = spawnSync(bashPath(), [policyPath || path.join(baselineRoot, 'core/harnesses/shared/hooks/policies', `${policy}.sh`)], {
     cwd, input, encoding: 'utf8',
     env: { ...process.env, HOME: scratch.path('baseline-home'), XDG_CONFIG_HOME: scratch.path('baseline-xdg'), DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_DECISION_FD: '', DOFLOW_PROJECT_DIR: cwd, DOFLOW_AGENT: '', ...env },
   });
@@ -288,7 +289,7 @@ test('v1 edit without a target is diagnosed; missing envelope takes the out-of-s
 test('all three policies remain safe when sourced under set -euo pipefail', () => {
   for (const policy of ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard']) {
     const script = `set -euo pipefail\nINPUT='{}'\nsource "${path.resolve(__dirname, '../../core/harnesses/shared/hooks/policies/contract.sh')}"\ndoflow_decision_init ${policy} 1\ndoflow_read_envelope\n`;
-    const result = require('node:child_process').spawnSync('bash', ['-c', script], { encoding: 'utf8' });
+    const result = require('node:child_process').spawnSync(bashPath(), ['-c', script], { encoding: 'utf8' });
     assert.equal(result.status, 0, `${policy}: ${result.stderr}`);
   }
 });
@@ -297,7 +298,7 @@ test('jq missing records a fault and captures dependency-missing:jq while keepin
   const bin = scratch.path('no-jq-bin');
   fs.mkdirSync(bin, { recursive: true });
   for (const [command, target] of Object.entries({
-    bash: '/bin/bash', cat: '/bin/cat', dirname: '/usr/bin/dirname', date: '/bin/date',
+    bash: bashPath(), cat: '/bin/cat', dirname: '/usr/bin/dirname', date: '/bin/date',
     head: '/usr/bin/head', mkdir: '/bin/mkdir', sed: '/usr/bin/sed', tr: '/usr/bin/tr',
   })) fs.symlinkSync(target, path.join(bin, command));
   for (const policy of ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard']) {
@@ -363,7 +364,7 @@ function bridgeEnvelope(label: any, env: any, bridgeSource?: any) {
   if (bridgeSource) fs.writeFileSync(path.join(root, 'bridge/envelope.jq'), bridgeSource);
   const capture = path.join(root, 'captured.json');
   fs.writeFileSync(path.join(root, 'policies/pre-bash-guard.sh'), `#!/usr/bin/env bash\ncat > '${capture}'\nexit 0\n`, { mode: 0o755 });
-  const result = spawnSync('bash', [path.join(root, 'bridge/bridge.sh'), 'claude', 'PreToolUse', 'pre-bash-guard'], {
+  const result = spawnSync(bashPath(), [path.join(root, 'bridge/bridge.sh'), 'claude', 'PreToolUse', 'pre-bash-guard'], {
     cwd: scratch.path(), input: `${JSON.stringify(IDENTITY_NATIVE)}\n`, encoding: 'utf8',
     env: { ...env, HOME: scratch.path('identity-home'), XDG_CONFIG_HOME: scratch.path('identity-xdg'), DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_BRIDGE_TRACE: '', DOFLOW_DECISION_FD: '' },
   });

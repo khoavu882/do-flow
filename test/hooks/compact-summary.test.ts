@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // post-compact.sh saves the summary for the session that follows a compaction; the first prompt of
 // that session injects it once, bounded, and consumes the file. Runs the installed front doors of an
@@ -18,7 +19,7 @@ const SUMMARY_DIR = path.join(scratch.xdg, 'doflow', 'session-env', 'projects');
 const SCOPE_DIR = path.join(scratch.xdg, 'doflow', 'session-env', 'summaries');
 
 test.before(() => {
-  const built = spawnSync('bash', [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), mirror], { encoding: 'utf8' });
+  const built = spawnSync(bashPath(), [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), mirror], { encoding: 'utf8' });
   assert.equal(built.status, 0, built.stderr);
 });
 test.after(() => scratch.remove());
@@ -36,7 +37,7 @@ function project(branch?: any) {
 }
 
 function hook(harness: any, script: any, payload: any, env = {}) {
-  const r = spawnSync('bash', [path.join(mirror, `.${harness}`, 'hooks', script)], {
+  const r = spawnSync(bashPath(), [path.join(mirror, `.${harness}`, 'hooks', script)], {
     input: JSON.stringify(payload), env: scratch.env(env), encoding: 'utf8',
   });
   assert.equal(r.status, 0, r.stderr);
@@ -45,7 +46,7 @@ function hook(harness: any, script: any, payload: any, env = {}) {
 
 function preCompact(root: any, harness: any, cwd: any, env = {}) {
   const payload = { session_id: 'PRECOMPACT', ...(cwd === undefined ? {} : { cwd }) };
-  const r = spawnSync('bash', [path.join(root, `.${harness}`, 'hooks', 'pre-compact.sh')], {
+  const r = spawnSync(bashPath(), [path.join(root, `.${harness}`, 'hooks', 'pre-compact.sh')], {
     input: JSON.stringify(payload), env: scratch.env(env), encoding: 'utf8',
   });
   assert.equal(r.status, 0, r.stderr);
@@ -66,7 +67,7 @@ function prompt(harness: any, sessionId: any, cwd: any, { first = true, env }: a
 /** The saved summary for a project directory, or undefined once it has been consumed. */
 function summaryFileFor(cwd: any) {
   const lib = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'lib.sh');
-  const hash = spawnSync('bash', ['-c', 'source "$1"; cwd_hash "$2"', 'bash', lib, cwd], { env: scratch.env(), encoding: 'utf8' }).stdout.trim();
+  const hash = spawnSync(bashPath(), ['-c', 'source "$1"; cwd_hash "$2"', 'bash', lib, cwd], { env: scratch.env(), encoding: 'utf8' }).stdout.trim();
   const file = path.join(SCOPE_DIR, hash, 'local', 'main', 'summary.md');
   return fs.existsSync(file) ? file : undefined;
 }
@@ -203,7 +204,7 @@ test('an oversized summary file is read in bounded form and cut to the cap', () 
 
 /** Like hook(), but returns stderr too, for the cases that assert on the diagnostic line. */
 function hookRaw(harness: any, script: any, payload: any, env = {}) {
-  const r = spawnSync('bash', [path.join(mirror, `.${harness}`, 'hooks', script)], {
+  const r = spawnSync(bashPath(), [path.join(mirror, `.${harness}`, 'hooks', script)], {
     input: JSON.stringify(payload), env: scratch.env(env), encoding: 'utf8',
   });
   assert.equal(r.status, 0, r.stderr);
@@ -213,7 +214,7 @@ function hookRaw(harness: any, script: any, payload: any, env = {}) {
 /** The project state directory for a working directory, whether or not anything is saved in it yet. */
 function projectDirFor(cwd: any) {
   const lib = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'lib.sh');
-  const hash = spawnSync('bash', ['-c', 'source "$1"; cwd_hash "$2"', 'bash', lib, cwd], { env: scratch.env(), encoding: 'utf8' }).stdout.trim();
+  const hash = spawnSync(bashPath(), ['-c', 'source "$1"; cwd_hash "$2"', 'bash', lib, cwd], { env: scratch.env(), encoding: 'utf8' }).stdout.trim();
   const dir = path.join(SUMMARY_DIR, hash);
   fs.mkdirSync(dir, { recursive: true });
   return dir;
@@ -382,7 +383,7 @@ test('a worker session end still logs the end marker', () => {
 /** The hash directory name for a working directory, as every hook computes it. */
 function hashOf(cwd: any) {
   const lib = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'lib.sh');
-  return spawnSync('bash', ['-c', 'source "$1"; cwd_hash "$2"', 'bash', lib, cwd], { env: scratch.env(), encoding: 'utf8' }).stdout.trim();
+  return spawnSync(bashPath(), ['-c', 'source "$1"; cwd_hash "$2"', 'bash', lib, cwd], { env: scratch.env(), encoding: 'utf8' }).stdout.trim();
 }
 const LEGACY_FILE = (cwd: any) => path.join(SUMMARY_DIR, hashOf(cwd), 'last-compact-summary.md');
 const SCOPE_FILE = (cwd: any, run: any, lineage: any) => path.join(SCOPE_DIR, hashOf(cwd), run, lineage, 'summary.md');
@@ -551,7 +552,7 @@ test('PreCompact cap keeps preserve line first and later git context', () => {
 const strictUtf8 = new TextDecoder('utf-8', { fatal: true });
 
 function preCompactBytes(harness: any, cwd: any, env: any) {
-  const r = spawnSync('bash', [path.join(mirror, `.${harness}`, 'hooks', 'pre-compact.sh')], {
+  const r = spawnSync(bashPath(), [path.join(mirror, `.${harness}`, 'hooks', 'pre-compact.sh')], {
     input: JSON.stringify({ session_id: 'PRECOMPACT', cwd }), env: scratch.env(env), cwd: scratch.dir,
   });
   assert.equal(r.status, 0, String(r.stderr));
@@ -564,7 +565,7 @@ const CUT_CHARACTERS = [['U+00E9 (2 bytes)', 'é'], ['U+20AC (3 bytes)', '€'],
  * bytes; a locale that is not installed makes bash fall back to C, so it is proved active here, not assumed. */
 function installedUtf8Locale() {
   for (const locale of ['en_US.UTF-8', 'C.UTF-8', 'en_US.utf8', 'C.utf8']) {
-    const r = spawnSync('bash', ['-c', 's=$(printf "\\303\\251"); echo ${#s}'], { env: scratch.env({ LC_ALL: locale }), encoding: 'utf8' });
+    const r = spawnSync(bashPath(), ['-c', 's=$(printf "\\303\\251"); echo ${#s}'], { env: scratch.env({ LC_ALL: locale }), encoding: 'utf8' });
     if (r.status === 0 && r.stdout.trim() === '1') return locale;
   }
   return null;
@@ -621,7 +622,7 @@ test('PreCompact cut gives valid UTF-8 whatever form the shell prints a byte abo
           'builtin printf "%s" "$DF_COMPACT_TEXT"',
         ].join('\n');
         const cwd = `${'x'.repeat(prefix)}${character.repeat(300)}`;
-        const r = spawnSync('bash', ['-c', script, 'bash', cwd], { env: scratch.env({ LC_ALL: 'C' }) });
+        const r = spawnSync(bashPath(), ['-c', script, 'bash', cwd], { env: scratch.env({ LC_ALL: 'C' }) });
         const where = `${form} ${label} prefix ${prefix}`;
         assert.equal(r.status, 0, `${where}: ${r.stderr}`);
         assert.ok(r.stdout.length <= 490, `${where}: ${r.stdout.length} bytes`);

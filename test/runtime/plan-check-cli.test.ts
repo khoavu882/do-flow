@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 115 B.1 (IC-001): the `plan-check` verb through `bin/doflow.js` and the doflow-run
 // dispatcher, in a scratch HOME and a scratch working directory.
@@ -55,7 +56,7 @@ function scratch(t: any) {
   };
   const write = (name: any, text: any) => { fs.writeFileSync(path.join(cwd, name), text); return name; };
   const cli = (args: any) => spawnSync(process.execPath, [CLI, 'plan-check', ...args], { cwd, env, encoding: 'utf8' });
-  const dispatcher = (args: any) => spawnSync('/bin/bash', [RUN, 'plan-check', ...args], { cwd, env, encoding: 'utf8' });
+  const dispatcher = (args: any) => spawnSync(bashPath(), [RUN, 'plan-check', ...args], { cwd, env, encoding: 'utf8' });
   return { cwd, home, write, cli, dispatcher };
 }
 

@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -21,7 +22,7 @@ function write(file: any, contents: any, mode = 0o644) {
 }
 
 function runDoor(name: any, payload: any, project: any, extraEnv = {}) {
-  const result = spawnSync('bash', [path.join(mirror, '.claude/hooks', `${name}.sh`)], {
+  const result = spawnSync(bashPath(), [path.join(mirror, '.claude/hooks', `${name}.sh`)], {
     cwd: project,
     input: `${JSON.stringify(payload)}\n`,
     env: scratch.env({ DOFLOW_PROJECT_DIR: project, ...extraEnv }),

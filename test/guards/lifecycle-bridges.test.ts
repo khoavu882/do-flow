@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // G34/G35 — lifecycle bridge boundaries and the envelope/decision contract (IC-030).
 const { test } = require('node:test');
@@ -76,7 +77,7 @@ function bridgeEnv(extra: any = {}) {
 
 function bridgeInput(harness: any, native: any, fixtureEnv: any = {}) {
   if (harness !== 'kiro') return JSON.stringify(native);
-  const translated = spawnSync('/bin/bash', ['-c', `. '${path.join(REPO, 'core/harnesses/kiro/hooks/lib.sh')}'; kiro_bridge_payload`], {
+  const translated = spawnSync(bashPath(), ['-c', `. '${path.join(REPO, 'core/harnesses/kiro/hooks/lib.sh')}'; kiro_bridge_payload`], {
     input: JSON.stringify(native), encoding: 'utf8', env: bridgeEnv(fixtureEnv),
   });
   assert.equal(translated.status, 0, translated.stderr);
@@ -92,7 +93,7 @@ function encodeFixture(harness: any, event: any, policy: any, native: any, envel
 }
 
 function contractClass(input: any) {
-  const result = spawnSync('/bin/bash', ['-c', `. '${path.join(POLICY_DIR, 'contract.sh')}'; INPUT=$(cat); doflow_read_envelope; printf '%s' "$DF_ENV_CLASS"`], {
+  const result = spawnSync(bashPath(), ['-c', `. '${path.join(POLICY_DIR, 'contract.sh')}'; INPUT=$(cat); doflow_read_envelope; printf '%s' "$DF_ENV_CLASS"`], {
     input, encoding: 'utf8', env: bridgeEnv({ DOFLOW_DECISION_FD: '' }),
   });
   assert.equal(result.status, 0, result.stderr);
@@ -110,7 +111,7 @@ function syntaxErrorTree(root: any, syntaxError: any = true) {
 }
 
 function bridgeRun(tree: any, harness: any, event: any, policy: any) {
-  return spawnSync('bash', [path.join(tree, 'bridge/bridge.sh'), harness, event, policy, '--emit', 'native'], {
+  return spawnSync(bashPath(), [path.join(tree, 'bridge/bridge.sh'), harness, event, policy, '--emit', 'native'], {
     cwd: tree, encoding: 'utf8', input: '{}', env: { ...process.env, DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_DECISION_FD: '' },
   });
 }

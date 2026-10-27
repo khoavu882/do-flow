@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // 078 E.1 — emitContext(), the launcher-side claims and the IC-015 ledger (IC-001 emit half,
 // IC-012 TypeScript claim, IC-015; DEC-001, DEC-007). emitContext() runs in process against a temp
@@ -80,7 +81,7 @@ function count(text: any, needle: any) {
 function hookPrompt(w: any, sid: any) {
   const driver = path.join(w.root, 'driver.sh');
   fs.writeFileSync(driver, DRIVER);
-  const r = spawnSync('/bin/bash', [driver, POLICIES], {
+  const r = spawnSync(bashPath(), [driver, POLICIES], {
     cwd: w.cwd,
     encoding: 'utf8',
     env: { ...w.env, EM_ROOT: w.root, EM_SID: sid, EM_CWD: w.cwd, DOFLOW_AGENT: 'claude' },

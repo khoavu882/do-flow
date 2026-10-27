@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // B.4 — dispatcher failure capture (IC-017, IC-011, IC-014). core/shared/scripts/doflow/bin/doflow-run
 // is copied into a scratch tree with fake shell helpers and a fake Node CLI, so each capture point and
@@ -17,7 +18,7 @@ const { suiteTempDir } = require('../helper/tmp.ts');
 const { captureIsOff } = require('../../src/runtime/failure/home.ts');
 
 const DISPATCHER = path.resolve(__dirname, '..', '..', 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
-const BASH = fs.existsSync('/bin/bash') ? '/bin/bash' : 'bash';
+const BASH = bashPath();
 const scratch = createScratch('doflow-dispatcher-capture-');
 after(() => scratch.remove());
 

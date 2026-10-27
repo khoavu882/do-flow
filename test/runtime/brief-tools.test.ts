@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // The tier, tools and report-format block of a generated brief (062 CH7, IC-016 to IC-018).
 // `renderBriefTools` is driven with injected probe results and an injected reach object, so no
@@ -422,7 +423,7 @@ function cli(t: any, args: any, { viaRun = false }: any = {}) {
   const { proj, env } = cleanEnv(t);
   fs.mkdirSync(path.join(proj, '.doflow', 'state'), { recursive: true });
   const result = viaRun
-    ? spawnSync('bash', [RUN, 'brief-tools', ...args], { cwd: proj, env, encoding: 'utf8' })
+    ? spawnSync(bashPath(), [RUN, 'brief-tools', ...args], { cwd: proj, env, encoding: 'utf8' })
     : spawnSync(process.execPath, [CLI, 'brief-tools', ...args], { cwd: proj, env, encoding: 'utf8' });
   return result;
 }

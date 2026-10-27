@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../../helper/bash-locator.ts');
 
 // Shared by codex-hook-scripts.test.js: a real install into a scratch
 // HOME and project, and the helpers to read what the hook scripts beside the config did. "Older"
@@ -75,7 +76,7 @@ function gateDecision(c: any, harness: any) {
   }
   const trace = path.join(c.scratch.dir, `trace-${harness}.jsonl`);
   fs.rmSync(trace, { force: true });
-  const ran = spawnSync('bash', [installed(c, harness, 'pre-implement-gate.sh')], { cwd: root, encoding: 'utf8', input: `${JSON.stringify(HARNESSES[harness].payload)}\n`,
+  const ran = spawnSync(bashPath(), [installed(c, harness, 'pre-implement-gate.sh')], { cwd: root, encoding: 'utf8', input: `${JSON.stringify(HARNESSES[harness].payload)}\n`,
     env: c.scratch.env({ DOFLOW_PROJECT_DIR: root, DOFLOW_BRIDGE_TRACE: trace, DOFLOW_FAILURE_CAPTURE: 'off' }) });
   return { status: ran.status, stderr: ran.stderr, decision: fs.existsSync(trace) ? JSON.parse(fs.readFileSync(trace, 'utf8').trim().split('\n').pop()) : null };
 }

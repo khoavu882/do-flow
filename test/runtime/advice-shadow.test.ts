@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // Feature 084 — advisor shadowing: IC-001 (shadow-config), IC-002 (shadow-dispatcher, recording through
 // record.ts) and IC-004 (elevation). The bench gate has its own file (advice-bench-gate.test.ts).
@@ -544,7 +545,7 @@ describe('IC-002: interceptDecisionPoint (Decision Interception & Shadowing)', (
       adviceClient: client(answered('frontier')), roots, shadowConfig: { kind: 'tier', mode: 'shadow', model: 'm' },
     });
     await waitFor(() => readWindow({ roots }).records.length);
-    const run = spawnSync('/bin/bash', [path.join(REPO_ROOT, 'core/shared/scripts/doflow/bin/doflow-run'), 'advise',
+    const run = spawnSync(bashPath(), [path.join(REPO_ROOT, 'core/shared/scripts/doflow/bin/doflow-run'), 'advise',
       '--action', 'outcome', '--pick-id', res.pickId, '--actual', 'standard', '--json'], {
       cwd: projectRoot, env: scratch.env({ DOFLOW_CLI: path.join(REPO_ROOT, 'bin/doflow.js') }), encoding: 'utf8',
     });

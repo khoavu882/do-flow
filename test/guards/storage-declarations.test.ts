@@ -1,4 +1,5 @@
 'use strict';
+const { bashPath } = require('../helper/bash-locator.ts');
 
 // G26 — storage declarations (feature 061, IC-020; FR-021, FR-022, FR-023, NFR-001).
 //
@@ -262,7 +263,7 @@ function runScenario() {
   fs.mkdirSync(project);
   fs.writeFileSync(observer, OBSERVER_SOURCE);
   try {
-    const built = spawnSync('bash', [path.join(REPO, 'test/hooks/build-install-mirror.sh'), mirror], { encoding: 'utf8' });
+    const built = spawnSync(bashPath(), [path.join(REPO, 'test/hooks/build-install-mirror.sh'), mirror], { encoding: 'utf8' });
     assert.equal(built.status, 0, built.stderr);
     const env = scratch.env({ DOFLOW_TELEMETRY: 'on', DOFLOW_CLI, NODE_OPTIONS: `--require=${observer}`, G26_OBSERVED: observed });
     const git = spawnSync('git', ['init', '-q'], { cwd: project, env, encoding: 'utf8' });
@@ -287,11 +288,11 @@ function runScenario() {
     const registry = loadStorageRegistry({ repoRoot: REPO });
     const roots = resolveRoots({ registry, projectRoot: project, env });
     const sessionPayload: any = { session_id: 'g26-session', cwd: project, source: 'startup' };
-    const verb = (...args: any[]) => ({ cmd: '/bin/bash', args: [DOFLOW_RUN, ...args] });
+    const verb = (...args: any[]) => ({ cmd: bashPath(), args: [DOFLOW_RUN, ...args] });
     const cli = (...args: any[]) => ({ cmd: process.execPath, args: [DOFLOW_CLI, ...args] });
     const node = (...args: any[]) => ({ cmd: process.execPath, args });
     const hook = (script: any, payload: any) => ({
-      cmd: '/bin/bash', args: [script],
+      cmd: bashPath(), args: [script],
       input: script.endsWith('/session-context.sh')
         ? encodeEnvelope('claude', 'SessionStart', 'session-context', JSON.stringify(payload))
         : JSON.stringify(payload),
@@ -303,7 +304,7 @@ function runScenario() {
     // The bash summary store (feature 078): a scoped summary write and its owner claim, then a grant
     // seeded where grantSummary() would write it and claimed by rename.
     const summaryStore = (script: any) => ({
-      cmd: '/bin/bash',
+      cmd: bashPath(),
       args: ['-c', `set -euo pipefail\n. "$1/lib.sh"\n. "$1/summary-store.sh"\n${script}`, 'summary-store.sh', path.join(mirror, '.doflow/shared/hooks/policies'), project],
     });
     const summaryWriteClaim = 'doflow_summary_write "$2" local main "" 2026-10-14T10:00:00Z g26-writer auto main main "a summary"\ndoflow_summary_claim "$2" local main g26-session g26-session\nrm -f "$DF_SUMMARY_CLAIMED"';
@@ -442,8 +443,8 @@ if(!applied.ok){console.error(JSON.stringify(applied.findings));process.exit(1);
       ['post-edit-lint.sh', hook(path.join(mirror, '.claude/hooks/post-edit-lint.sh'), { ...sessionPayload, tool_name: 'Edit', tool_input: { file_path: path.join(project, 'f.js') } }), 0],
       // The shared bridge's observe-model step (row 120 IC-005): a codex payload naming a model, once as
       // the main session and once as a launched worker, writes one file in each observation store.
-      ['bridge observe-model main', { cmd: '/bin/bash', args: [bridge, 'codex', 'PreToolUse', 'mcp-tool-guard'], input: modelPayload }, 0],
-      ['bridge observe-model worker', { cmd: '/usr/bin/env', args: ['DOFLOW_SESSION_ROLE=worker', 'DOFLOW_RUN_ID=g26', 'DOFLOW_LINEAGE_ID=w', 'DOFLOW_ATTEMPT=1', '/bin/bash', bridge, 'codex', 'PreToolUse', 'mcp-tool-guard'], input: modelPayload }, 0],
+      ['bridge observe-model main', { cmd: bashPath(), args: [bridge, 'codex', 'PreToolUse', 'mcp-tool-guard'], input: modelPayload }, 0],
+      ['bridge observe-model worker', { cmd: '/usr/bin/env', args: ['DOFLOW_SESSION_ROLE=worker', 'DOFLOW_RUN_ID=g26', 'DOFLOW_LINEAGE_ID=w', 'DOFLOW_ATTEMPT=1', bashPath(), bridge, 'codex', 'PreToolUse', 'mcp-tool-guard'], input: modelPayload }, 0],
       ['project install', cli('install', project, ...target, '--mcp', 'none'), 0],
       ['project update', cli('update', project, ...target), 0],
       ['global install', cli('install', '-g', ...target, '--mcp', 'none'), 0],
