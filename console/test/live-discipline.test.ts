@@ -327,3 +327,16 @@ test('keys: every document-level keydown listener of the web modules is installe
   walk(WEB_ROOT);
   assert.deepEqual(offenders, []);
 });
+
+test('stream: a browser reconnect that keeps the mode at push still reports the next snapshot as a resync', async () => {
+  const { stream, events } = streamRig();
+  stream.start();
+  FakeSource.all[0].emit('snapshot', { projects: [] });
+  FakeSource.all[0].readyState = 0; // the browser is reconnecting on its own
+  for (const fn of FakeSource.all[0].listeners.get('error') ?? []) fn({});
+  FakeSource.all[0].readyState = 1;
+  FakeSource.all[0].emit('snapshot', { projects: [] });
+  assert.deepEqual(events, ['snapshot', 'resync', 'snapshot']);
+  FakeSource.all[0].emit('fleet', { projects: [], gone: [] });
+  assert.deepEqual(events, ['snapshot', 'resync', 'snapshot', 'fleet'], 'a delta on the recovered stream is not a resync');
+});

@@ -126,6 +126,7 @@ function createFleetStream(options) {
   let cursor = null;
   let resumed = false;
   let resuming = false;
+  let dropped = false; // the connection broke after frames arrived: the next frame follows a reconnect, whatever `mode` says
   /** @type {string | null} */
   let discovered = null;
   let fleetBusy = false;
@@ -183,7 +184,8 @@ function createFleetStream(options) {
   /** A frame (a data event) arrived: the connection is alive. */
   function frame() {
     // A frame after an earlier one while the connection was not pushing: the snapshot that follows is a full refetch.
-    if (lastFrameAt !== null && (resuming || mode !== 'push' || trial) && handlers.resync) handlers.resync();
+    if (lastFrameAt !== null && (resuming || dropped || mode !== 'push' || trial) && handlers.resync) handlers.resync();
+    dropped = false;
     lastFrameAt = clock.now();
     resuming = false;
     errors = 0;
@@ -267,6 +269,7 @@ function createFleetStream(options) {
       return;
     }
     if (brokenSince === null) brokenSince = clock.now();
+    dropped = true;
     if (es.readyState === CLOSED) {
       // The browser gave up (a refusal, not a dropped connection): ask once whether it was the stream limit.
       closeSource();
