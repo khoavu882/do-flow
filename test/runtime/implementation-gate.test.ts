@@ -132,8 +132,8 @@ test('every refusal text, with and without a slug in the next command', () => {
 
 test('the harness note names who runs the gate, who needs a prerequisite and who has no hook layer, from the gate\'s lifecycle mapping', () => {
   assert.equal(harnessHookNote({ repoRoot: REPO }),
-    'Edit-time check: claude, pi, kiro, antigravity run this check before each source edit; codex runs it only after hook-review; '
-    + 'opencode, copilot have no hook layer, so this refusal is their first check.');
+    'Edit-time check: claude, pi, copilot, kiro, antigravity run this check before each source edit; codex runs it only after hook-review; '
+    + 'opencode has no hook layer, so this refusal is its first check.');
   // The gate's own mapping decides, not a harness's general hook support.
   const repoRoot = dir();
   fs.mkdirSync(path.join(repoRoot, 'core', 'registry'), { recursive: true });

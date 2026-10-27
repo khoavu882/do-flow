@@ -65,7 +65,7 @@ test('matrix rendering sorts policy, harness, event and profile independent of r
 test('shipped coverage digest and every-row IC-022 caveats are correct', () => {
   const lifecycle = require('../../core/registry/lifecycle.json');
   assert.equal(lifecycle.coverage.rowsDigest, rowsDigest(lifecycle.coverage.rows));
-  for (const harness of ['copilot', 'opencode']) {
+  for (const harness of ['opencode']) {
     for (const policy of lifecycle.policies.map((item: any) => item.id)) {
       assert.ok(lifecycle.coverage.rows.some((item: any) => item.harness === harness && item.policy === policy && item.class === 'unsupported'));
     }
@@ -121,11 +121,13 @@ test('enforcement CLI reports json, text, exit codes, errors and dispatcher pass
   assert.match(result.stdout, /does not cover: writes via shell commands/);
   result = run(['enforcement', '--harness', 'unknown', '--policy', 'pre-implementation-gate', '--json']);
   assert.equal(result.status, 2); assert.deepEqual(JSON.parse(result.stdout).error, 'unknown-harness');
-  for (const harness of ['copilot', 'opencode']) {
+  for (const harness of ['opencode']) {
     result = run(['enforcement', '--harness', harness, '--policy', 'pre-implementation-gate', '--json']);
     assert.equal(result.status, 1);
     assert.ok(['unsupported', 'unknown'].includes(JSON.parse(result.stdout).class));
   }
+  result = run(['enforcement', '--harness', 'copilot', '--policy', 'pre-bash-guard', '--json']);
+  assert.equal(result.status, 0); assert.equal(JSON.parse(result.stdout).enforced, true);
   result = run(['enforcement', '--harness', 'claude', '--policy', 'missing', '--json']);
   assert.equal(result.status, 2);
   assert.deepEqual(JSON.parse(result.stdout), { error: 'unknown-policy', detail: "Unknown policy 'missing'" });

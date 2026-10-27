@@ -17,6 +17,7 @@ const FRONT_DOOR: any = {
   claude: { 'pre-implementation-gate': 'pre-implement-gate' },
   codex: { 'pre-implementation-gate': 'pre-implement-gate' },
   kiro: { 'pre-implementation-gate': 'pre-implement-gate' },
+  copilot: { 'pre-implementation-gate': 'pre-implement-gate' },
 };
 const STEM_POLICY: any = {
   'pre-implement-gate': 'pre-implementation-gate',
@@ -139,7 +140,7 @@ function executeShell(harness: any, row: any, project: any, mirror: any, index: 
   } else {
     const stem = FRONT_DOOR[harness][row.policy] || row.stem;
     command = 'bash';
-    args = [path.join(mirror, `.${harness}/hooks/${stem}.sh`)];
+    args = [path.join(mirror, harness === 'copilot' ? `.github/hooks/doflow-${stem}.sh` : `.${harness}/hooks/${stem}.sh`)];
   }
   const result = call(command, args, {
     cwd: project,
@@ -157,6 +158,7 @@ function executeShell(harness: any, row: any, project: any, mirror: any, index: 
     ? response.decision === 'continue'
     : result.status === 2 || Boolean(result.stderr))
     : harness === 'kiro' ? result.status === 2
+    : harness === 'copilot' ? response.permissionDecision === 'deny'
     : harness === 'antigravity' ? response.decision === 'deny'
       : response.hookSpecificOutput?.permissionDecision === 'deny';
   return { denied, result, native, trace };
@@ -200,7 +202,7 @@ const blockingRows = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/l
   .coverage.rows.filter((row: any) => row.class === 'blocking');
 
 test('FR-004: each native bridge denies a design-less edit and allows it once all three artifacts exist', async () => {
-  const harnesses: any = ['claude', 'codex', 'kiro', 'antigravity', 'pi'];
+  const harnesses: any = ['claude', 'codex', 'kiro', 'copilot', 'antigravity', 'pi'];
   const observed: any = [];
   for (const [index, harness] of harnesses.entries()) {
     const denyRow = fixtureFor(harness, 'pre-implementation-gate', true);

@@ -20,7 +20,7 @@ const PLAN_TEXT = '## 2. Constitution Check\n\n| Principle | Tier | Result | How
 const GIT_IDENTITY: any = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
 const CASE_TIMEOUT_MS = 240_000;
 const GATE = 'doflow gate readiness-before-implementation';
-const HOOKLESS_NOTE = 'opencode, copilot have no hook layer';
+const HOOKLESS_NOTE = 'opencode has no hook layer';
 
 const scratch = createScratch('doflow-readiness-enforcement-');
 after(() => scratch.remove());

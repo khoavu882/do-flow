@@ -134,7 +134,7 @@ test('each canonical corpus v1 policy verdict matches its 0fcd973 native verdict
   const excludedHarnesses = [...new Set(cases.map(({ harness }: any) => harness))]
     .filter((harness) => !fs.existsSync(path.join(baselineArchive.root, harness, 'hooks')))
     .sort();
-  assert.deepEqual(excludedHarnesses, ['pi'], 'only Pi lacks a 0fcd973 front door');
+  assert.deepEqual(excludedHarnesses, ['copilot', 'pi'], 'only Pi and Copilot CLI lack a 0fcd973 front door');
 
   cases.filter(({ harness }: any) => !excludedHarnesses.includes(harness)).forEach(({ file, fixture, harness, event, policy }: any, index: any) => {
     const label = path.relative(FIXTURE_ROOT, file).split(path.sep).join('/');

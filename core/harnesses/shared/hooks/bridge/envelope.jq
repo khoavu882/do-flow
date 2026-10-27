@@ -41,6 +41,12 @@ def decode_codex:
   (model_identity(.model)) as $model |
   (if .tool_name == "apply_patch" then $d + {patch:(string_value(.tool_input; ["command"]))} else $d end) |
   .identity += $model;
+# Copilot CLI payloads (normalised to the Claude shape by the front door) carry no model, so the
+# envelope names none, whatever a payload happens to hold under .model.
+def decode_copilot:
+  decode_claude as $d |
+  (if .tool_name == "apply_patch" then $d + {patch:(string_value(.tool_input; ["command"]))} else $d end) |
+  .identity |= del(.model, .modelUnparsed);
 def decode_kiro:
   (if ((.tool_name // "") | type) == "string" and ((.tool_name // "") | startswith("mcp_")) then {operation:"mcp",tool:.tool_name}
    elif ((.tool_name // "") | type) == "string" and ((.tool_name // "") | test("^@[^/]+/.+")) then
@@ -108,7 +114,7 @@ if ($ARGS.named.mode // "encode") == "minimal" then {doflow_event:{version:(1),h
   ($ENV.DOFLOW_LINEAGE_ID | nonempty(.)) as $lineage |
   ($ENV.DOFLOW_WORKTREE | nonempty(.)) as $worktree |
   norm_role($ENV.DOFLOW_SESSION_ROLE) as $role |
-  (if $harness == "claude" then decode_claude elif $harness == "codex" then decode_codex elif $harness == "kiro" then decode_kiro elif $harness == "copilot" then decode_codex elif $harness == "antigravity" then decode_antigravity elif $harness == "pi" then decode_pi else {operation:"tool"} end) as $d |
+  (if $harness == "claude" then decode_claude elif $harness == "codex" then decode_codex elif $harness == "kiro" then decode_kiro elif $harness == "copilot" then decode_copilot elif $harness == "antigravity" then decode_antigravity elif $harness == "pi" then decode_pi else {operation:"tool"} end) as $d |
   if $ARGS.named.mode == "observe" then
     if $harness == "claude" and $d.operation == "command" and $native.hook_event_name == $event and
       ($event == "PostToolUse" or $event == "PostToolUseFailure")
