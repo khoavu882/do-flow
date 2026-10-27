@@ -1680,3 +1680,31 @@ test('proposed: a store row marked proposed is not flagged, and a draft cannot s
     assert.ok(judged.findings.some((f: any) => /must not declare proposed/.test(f.message)), `proposed: ${value}`);
   }
 });
+
+// An amend replaces a row whole; it must not clear a live `proposed` (only `roadmap promote` does), even when the
+// amend itself would land ready (interactive terminal, autopilot verifiably off).
+test('amend: a live proposed row stays proposed after an unmarked draft replaces it', (t) => {
+  const dir = tempDir(t, 'doflow-roadmap-seed-amend-proposed-');
+  writeFixtureStore(dir, [
+    { id: '113', slug: '113-toy', title: 'Toy row', class: 'feature', needs: [], writeSet: ['src/toy/'], proposed: true },
+    { id: '114', slug: '114-two', title: 'Two', class: 'feature', needs: [], writeSet: ['src/two/'] },
+  ]);
+  const draftPath = path.join(dir, 'draft.json');
+  fs.writeFileSync(draftPath, JSON.stringify({
+    schema: 1,
+    rows: [
+      { id: '113', slug: '113-toy', title: 'Toy row, reworded', class: 'feature', needs: [], writeSet: ['src/toy/'] },
+      { id: '114', slug: '114-two', title: 'Two, reworded', class: 'feature', needs: [], writeSet: ['src/two/'] },
+    ],
+  }), 'utf8');
+  const { exit, result } = runSeedJson({
+    action: 'amend', draft: draftPath, root: dir, isTTY: true,
+    gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+    readSwitch: () => ({ enabled: false, switch: null }),
+    err: () => {},
+  });
+  assert.equal(exit, 0);
+  assert.deepEqual(result.proposed, ['113']);
+  const rows = JSON.parse(fs.readFileSync(path.join(dir, 'agent-docs/roadmap/rows.json'), 'utf8')).rows;
+  assert.deepEqual(rows.map((r: any) => [r.id, r.title, r.proposed ?? null]), [['113', 'Toy row, reworded', true], ['114', 'Two, reworded', null]]);
+});
