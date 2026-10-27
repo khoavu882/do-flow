@@ -323,3 +323,11 @@ test('IC-012: timeline writes nothing, here or from a linked worktree, under DOF
   assert.ok(fs.existsSync(left));
   assert.equal(fs.existsSync(path.join(main, STORE, 'feat-x', 'w2.json')), false);
 });
+
+test('FU-aeyx13: start refuses --dry-run instead of ignoring it and starting a real run', (t) => {
+  const root = project(t);
+  const result = runCli(root, ['orchestrate', '--action', 'start', '--task-id', 'dry-run-start', '--task-class', 'bug', '--dry-run', '--json']);
+  assert.equal(result.status, 2, `${result.stdout}${result.stderr}`);
+  assert.match(result.stderr + result.stdout, /'--dry-run' has no effect on action 'start'/);
+  assert.equal(fs.existsSync(path.join(root, STORE)), false, 'no run was written');
+});
