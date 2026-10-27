@@ -422,6 +422,14 @@ function pruneRetiredRuntimeFiles(harnessPlans: any[], ledger: any, { scopeRoot,
         if (!change.retained) replaced.get(change.harness)!.set(change, Object.freeze({ ...change, retained: true, retainedFor: [] }));
       }
     };
+    // The tree itself, or any directory above it, may be a link out of the scope (a project's
+    // .doflow/guidance pointing at ~/.doflow/guidance). realpath resolves every component, so the
+    // whole tree is then left alone: nothing in it is pruned, and no planned removal runs.
+    if (!isUnder(realRoot, fsImpl.realpathSync(scopeRoot))) {
+      for (const file of removalsAt.keys()) keepFile(file);
+      notices.get(executor.harness)!.push(`kept ${shown(destDir)}: it resolves outside the scope root, so no file in it is pruned`);
+      continue;
+    }
 
     for (const file of new Set([...rowsAt.keys(), ...removalsAt.keys()])) {
       const fileRows = rowsAt.get(file) ?? [];
@@ -456,7 +464,7 @@ function pruneRetiredRuntimeFiles(harnessPlans: any[], ledger: any, { scopeRoot,
       }
       notices.get(executor.harness)!.push(`prune ${shown(file)}: no longer shipped, unchanged since DoFlow wrote it`);
       // removeTree re-runs containment and the same-file check from this right before the unlink.
-      const pruneGuard = { root: destDir, source: sourceDir };
+      const pruneGuard = { root: destDir, source: sourceDir, scope: scopeRoot };
       if (!removals.length) {
         added.get(executor.harness)!.push(synthetic({ fingerprint: current, supersedes: superseded, pruneGuard }));
         continue;

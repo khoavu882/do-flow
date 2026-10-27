@@ -186,6 +186,48 @@ test('an orphan a sibling rewrote last is pruned on the sibling\'s record, not k
   assert.deepEqual(p.rowsAt('a.js'), []);
 });
 
+// Sol's reproducer (row 130 review of the guidance prune), for the guidance tree and a runtime tree
+// alike: both go through the same prune.
+for (const [label, tree, file] of [['guidance', GUIDANCE_TREE, 'FLAGS.md'], ['runtime', RUNTIME_TREE, 'old.js']] as any) {
+  test(`negative control (${label}): a tree swapped for a link out of the scope between plan and apply is refused at delete time`, (t) => {
+    const p = project(t, { [file]: 'v1\n', keep: 'keep\n' }, {}, tree);
+    p.ship({ keep: 'keep\n' });
+    const planned = p.plan(['alpha']);
+    assert.ok(changesAt(planned, path.join(p.dest, file)).some((change: any) => !change.retained), 'fixture: at plan time the orphan is pruned');
+    const outside = path.join(path.dirname(p.scopeRoot), 'global-tree');
+    fs.renameSync(p.dest, outside);
+    fs.symlinkSync(outside, p.dest, 'dir');
+    assert.throws(() => p.apply(planned), /resolves outside the scope root/);
+    assert.equal(fs.readFileSync(path.join(outside, file), 'utf8'), 'v1\n');
+  });
+
+  test(`negative control (${label}): a tree whose directory links outside the scope root is not pruned, and is named once`, (t) => {
+    const p = project(t, { [file]: 'v1\n', keep: 'keep\n' }, {}, tree);
+    const outside = path.join(path.dirname(p.scopeRoot), 'global-tree');  // e.g. ~/.doflow/guidance
+    fs.renameSync(p.dest, outside);
+    fs.symlinkSync(outside, p.dest, 'dir');
+    p.ship({ keep: 'keep\n' });
+
+    const planned = p.apply(p.plan(['alpha']));
+    assert.equal(fs.readFileSync(path.join(outside, file), 'utf8'), 'v1\n', 'the file outside the scope is untouched');
+    const shownTree = path.relative(p.scopeRoot, p.dest);
+    assert.deepEqual(noticesOf(planned).filter((n: any) => n.includes('outside')), [`alpha: kept ${shownTree}: it resolves outside the scope root, so no file in it is pruned`]);
+  });
+
+  test(`negative control (${label}): a parent directory linked outside the scope root keeps the tree too`, (t) => {
+    const p = project(t, { [file]: 'v1\n', keep: 'keep\n' }, {}, tree);
+    const doflow = path.join(p.scopeRoot, '.doflow');
+    const outside = path.join(path.dirname(p.scopeRoot), 'global-doflow');   // e.g. ~/.doflow
+    fs.renameSync(doflow, outside);
+    fs.symlinkSync(outside, doflow, 'dir');
+    p.ship({ keep: 'keep\n' });
+
+    const planned = p.apply(p.plan(['alpha']));
+    assert.equal(fs.readFileSync(path.join(outside, path.relative(doflow, p.dest), file), 'utf8'), 'v1\n');
+    assert.equal(noticesOf(planned).filter((n: any) => n.includes('resolves outside the scope root')).length, 1);
+  });
+}
+
 test('negative control: an orphan edited after DoFlow wrote it is kept and named, and its rows are not released by the prune', (t) => {
   const p = project(t, { 'a.js': 'v1\n', 'b.js': 'v1 b\n' });
   p.ledger = { ...p.ledger, resources: p.ledger.resources.filter((row: any) => !(row.harness === 'alpha' && row.identity === 'b.js')) };

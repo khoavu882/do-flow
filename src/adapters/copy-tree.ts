@@ -550,16 +550,18 @@ function applyTree({ changes = [], fsImpl = fs, transform }: any): { applied: nu
 /** Why a removal the runtime prune planned may no longer run, or null when it still may: the
  * prune's plan-time proof (src/lifecycle/index.ts pruneRetiredRuntimeFiles) re-run right before the
  * unlink, so a directory swapped for a symlink, or a file linked to a shipped one, after the plan was
- * made is not deleted through. `guard` is `{ root, source }`: the tree and the source it projects.
+ * made is not deleted through. `guard` is `{ root, source, scope }`: the tree, the source it projects
+ * and the scope root the tree must resolve inside (a tree linked out of its scope is refused).
  * One walk of the source and one stat per shipped path per tree per call, cached in `cache`. */
 function pruneGuardRefusal(change: any, cache: Map<string, any>, fsImpl: any): string | null {
-  const { root, source } = change.pruneGuard;
-  const key = `${root}\0${source}`;
+  const { root, source, scope } = change.pruneGuard;
+  const key = `${root}\0${source}\0${scope ?? ''}`;
   if (!cache.has(key)) {
     const produced = fsImpl.existsSync(source) ? discoverTree({ sourceDir: source, destDir: root, fsImpl }).files.map((file: any) => file.destAbs) : [];
-    cache.set(key, { realRoot: fsImpl.realpathSync(root), sameFile: sameFileIndex(produced, fsImpl) });
+    cache.set(key, { realRoot: fsImpl.realpathSync(root), realScope: scope ? fsImpl.realpathSync(scope) : null, sameFile: sameFileIndex(produced, fsImpl) });
   }
-  const { realRoot, sameFile } = cache.get(key);
+  const { realRoot, realScope, sameFile } = cache.get(key);
+  if (realScope && !realRoot.startsWith(`${realScope}${path.sep}`)) return `${root} resolves outside the scope root ${scope}`;
   if (!fsImpl.realpathSync(change.target).startsWith(`${realRoot}${path.sep}`)) return `it resolves outside ${root}`;
   const shipped = sameFile(change.target);
   return shipped ? `it is the same file as ${shipped}, which this version ships` : null;
