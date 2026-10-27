@@ -97,6 +97,9 @@ function resolveRoute(router: any, route: any, probes: any) {
 }
 
 const cell = (text: any) => String(text).replace(/\|/g, '\\|').replace(/\s+/g, ' ');
+// The hand-back status ids, in the order of core/registry/workflows.json agents.handback.statuses;
+// G76 holds this text, the fallback in do-task-brief.sh and every spec/TOML status line to that list.
+const HANDBACK_IDS = ['done', 'done-with-concerns', 'needs-context', 'blocked'];
 const trigger = (server: any) => server.trigger.replace(/\.$/, '');
 
 /**
@@ -240,8 +243,9 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
     '',
     `${hashes} Report format`,
     '',
-    `End ${Number(headingLevel) === 3 ? "each task's report" : 'your report'} with one line naming every tool and MCP server you used:`,
+    'Put one line naming every tool and MCP server you used just before the final status line:',
     '`Tools used: <name>[=used|nothing-usable|unavailable|skipped:<reason>], ...`',
+    `End ${Number(headingLevel) === 3 ? "each task's report" : 'your report'} with one line \`Status: <status>\`, where the status is one of ${HANDBACK_IDS.map((id) => `\`${id}\``).join(', ')}.`,
   );
 
   const record = {
