@@ -108,6 +108,20 @@ function pick(source: any, pairs: Array<[string, string]>): any {
 }
 const same = (keys: string[]): Array<[string, string]> => keys.map((k) => [k, k]);
 
+const PACK_DIGEST = /^sha256:[0-9a-f]{64}$/;
+/**
+ * Issue #9 stage 3: a stage span's pack reference, from its `complete-stage` entry's `packs`
+ * (oldest first): how many packs the stage was handed, and the task id and digest of the latest.
+ * A record written before `packs` existed, or a malformed item, adds nothing: absent is unknown.
+ */
+function packAttrs(packs: any): any {
+  const valid = (Array.isArray(packs) ? packs : []).filter((p: any) => p && typeof p === 'object'
+    && typeof p.taskId === 'string' && SAFE_TOKEN.test(p.taskId) && typeof p.digest === 'string' && PACK_DIGEST.test(p.digest));
+  if (!valid.length) return {};
+  const last = valid[valid.length - 1];
+  return { pack_count: valid.length, pack_task: last.taskId, pack_digest: last.digest };
+}
+
 /** A span in the making: output fields plus where it is placed and what it may parent to. */
 function item(kind: string, name: any, locator: string, { start = null, end = null, durationMs = null, basis = 'recorded', attrs = {}, place = { type: 'none' }, session = null, link = {} }: any = {}): any {
   let stop = end;
@@ -367,6 +381,7 @@ function buildSpans({ stateDir, run = null, fsImpl = nodeFs }: any): any {
       const attrs = pick(entry, same(['action', 'node', 'outcome', 'executionStatus']));
       const locator = `${file}#${runKey ?? '-'}/${i}`;
       if (entry.action === 'complete-stage') {
+        Object.assign(attrs, packAttrs(entry.packs));
         items.push(item('stage', entry.node, locator, { start: stageStart, end: at, basis: 'derived', attrs, place }));
         stageStart = at;
       } else {

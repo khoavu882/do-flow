@@ -29,8 +29,8 @@
           "status": "different"
         },
         "copilot": {
-          "status": "unavailable",
-          "fallback": "guidance"
+          "event": "PreToolUse",
+          "status": "supported"
         },
         "kiro": {
           "event": "PreToolUse",
@@ -70,8 +70,8 @@
           "status": "different"
         },
         "copilot": {
-          "status": "unavailable",
-          "fallback": "guidance"
+          "event": "PreToolUse",
+          "status": "supported"
         },
         "kiro": {
           "event": "PreToolUse",
@@ -111,8 +111,8 @@
           "fallback": "guidance"
         },
         "copilot": {
-          "status": "unavailable",
-          "fallback": "guidance"
+          "event": "SessionStart",
+          "status": "supported"
         },
         "kiro": {
           "event": "SessionStart",
@@ -153,8 +153,8 @@
           "status": "different"
         },
         "copilot": {
-          "status": "unavailable",
-          "fallback": "guidance"
+          "event": "PreToolUse",
+          "status": "supported"
         },
         "kiro": {
           "event": "PreToolUse",
@@ -194,8 +194,8 @@
           "fallback": "guidance"
         },
         "copilot": {
-          "status": "unavailable",
-          "fallback": "guidance"
+          "event": "Stop",
+          "status": "supported"
         },
         "kiro": {
           "event": "Stop",
@@ -943,56 +943,42 @@
         "event": "PreToolUse",
         "timing": "pre-tool",
         "profile": "any",
-        "wired": false,
-        "configSource": null,
+        "wired": true,
+        "configSource": "core/harnesses/copilot/hooks/doflow.json:12",
         "harnessVersion": {
-          "tested": "GitHub Copilot CLI 1.0.78"
+          "tested": "GitHub Copilot CLI 1.0.103"
         },
-        "class": "unknown",
-        "verification": "unverified",
+        "class": "blocking",
+        "verification": "verified",
         "prerequisites": [],
         "covers": [],
         "doesNotCover": [
           "writes via shell commands"
         ],
         "caveats": [
-          "fixture-pending",
-          "version-drift:GitHub Copilot CLI 1.0.78."
+          "live-verified: the preToolUse deny shape (a shell command was blocked) and the apply_patch payload; the edit and create tool arguments are not captured, so their path field is assumed to be `path` or `file_path`",
+          "version-drift:GitHub Copilot CLI 1.0.104."
         ],
         "provenance": [
           {
             "kind": "doc",
-            "locator": "core/registry/contracts.json: Copilot documented event inventory",
-            "date": "2026-10-14"
-          }
-        ]
-      },
-      {
-        "policy": "pre-implementation-gate",
-        "harness": "copilot",
-        "event": "*",
-        "timing": "pre-tool",
-        "profile": "any",
-        "wired": false,
-        "configSource": null,
-        "harnessVersion": {
-          "tested": "GitHub Copilot CLI 1.0.78"
-        },
-        "class": "unsupported",
-        "verification": "unverified",
-        "prerequisites": [],
-        "covers": [],
-        "doesNotCover": [
-          "writes via shell commands"
-        ],
-        "caveats": [
-          "version-drift:GitHub Copilot CLI 1.0.78."
-        ],
-        "provenance": [
+            "locator": "https://docs.github.com/en/copilot/reference/hooks-reference",
+            "date": "2026-10-27"
+          },
           {
-            "kind": "doc",
-            "locator": "core/registry/harnesses.json: copilot harness; core/registry/contracts.json: unavailable hook mapping",
-            "date": "2026-10-12"
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/copilot/pre-implement-gate/apply_patch-deny.json",
+            "date": "2026-10-27"
+          },
+          {
+            "kind": "live",
+            "locator": "test/fixtures/hooks/copilot/live/deny-proof-2026-10-27.json",
+            "date": "2026-10-27"
+          },
+          {
+            "kind": "live",
+            "locator": "test/fixtures/hooks/copilot/live/capture-2026-10-27.jsonl",
+            "date": "2026-10-27"
           }
         ]
       },
@@ -1239,33 +1225,6 @@
           {
             "kind": "doc",
             "locator": "core/registry/harnesses.json: opencode harness; core/registry/contracts.json: unavailable hook mapping",
-            "date": "2026-10-12"
-          }
-        ]
-      },
-      {
-        "policy": "pre-bash-guard",
-        "harness": "copilot",
-        "event": "*",
-        "timing": "pre-tool",
-        "profile": "any",
-        "wired": false,
-        "configSource": null,
-        "harnessVersion": {
-          "tested": "GitHub Copilot CLI 1.0.78"
-        },
-        "class": "unsupported",
-        "verification": "unverified",
-        "prerequisites": [],
-        "covers": [],
-        "doesNotCover": [],
-        "caveats": [
-          "version-drift:GitHub Copilot CLI 1.0.78."
-        ],
-        "provenance": [
-          {
-            "kind": "doc",
-            "locator": "core/registry/harnesses.json: copilot harness; core/registry/contracts.json: unavailable hook mapping",
             "date": "2026-10-12"
           }
         ]
@@ -1560,10 +1519,10 @@
         "event": "SessionStart",
         "timing": "session",
         "profile": "any",
-        "wired": false,
-        "configSource": null,
+        "wired": true,
+        "configSource": "core/harnesses/copilot/hooks/doflow.json:4",
         "harnessVersion": {
-          "tested": "GitHub Copilot CLI 1.0.78"
+          "tested": "GitHub Copilot CLI 1.0.103"
         },
         "class": "unknown",
         "verification": "unverified",
@@ -1571,14 +1530,24 @@
         "covers": [],
         "doesNotCover": [],
         "caveats": [
-          "fixture-pending",
-          "version-drift:GitHub Copilot CLI 1.0.78."
+          "native event enforcement is not yet verified; the policy writes session state and prints nothing",
+          "version-drift:GitHub Copilot CLI 1.0.104."
         ],
         "provenance": [
           {
             "kind": "doc",
-            "locator": "core/registry/contracts.json: Copilot documented event inventory",
-            "date": "2026-10-14"
+            "locator": "https://docs.github.com/en/copilot/reference/hooks-reference",
+            "date": "2026-10-27"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/copilot/session-start/start.json",
+            "date": "2026-10-27"
+          },
+          {
+            "kind": "live",
+            "locator": "test/fixtures/hooks/copilot/live/capture-2026-10-27.jsonl",
+            "date": "2026-10-27"
           }
         ]
       },
@@ -1635,33 +1604,6 @@
             "kind": "doc",
             "locator": "core/registry/contracts.json: Copilot documented event inventory",
             "date": "2026-10-14"
-          }
-        ]
-      },
-      {
-        "policy": "session-context",
-        "harness": "copilot",
-        "event": "*",
-        "timing": "session",
-        "profile": "any",
-        "wired": false,
-        "configSource": null,
-        "harnessVersion": {
-          "tested": "GitHub Copilot CLI 1.0.78"
-        },
-        "class": "unsupported",
-        "verification": "unverified",
-        "prerequisites": [],
-        "covers": [],
-        "doesNotCover": [],
-        "caveats": [
-          "version-drift:GitHub Copilot CLI 1.0.78."
-        ],
-        "provenance": [
-          {
-            "kind": "doc",
-            "locator": "core/registry/harnesses.json: copilot harness; core/registry/contracts.json: unavailable hook mapping",
-            "date": "2026-10-12"
           }
         ]
       },
@@ -1921,27 +1863,33 @@
       {
         "policy": "mcp-tool-guard",
         "harness": "copilot",
-        "event": "*",
+        "event": "PreToolUse",
         "timing": "pre-tool",
         "profile": "any",
-        "wired": false,
-        "configSource": null,
+        "wired": true,
+        "configSource": "core/harnesses/copilot/hooks/doflow.json:12",
         "harnessVersion": {
-          "tested": "GitHub Copilot CLI 1.0.78"
+          "tested": "GitHub Copilot CLI 1.0.103"
         },
-        "class": "unsupported",
+        "class": "unknown",
         "verification": "unverified",
         "prerequisites": [],
         "covers": [],
         "doesNotCover": [],
         "caveats": [
-          "version-drift:GitHub Copilot CLI 1.0.78."
+          "the MCP tool-name form on preToolUse was not captured: the guard matches the mcp__<server>__<tool> and mcp_ prefixes, so an MCP call under another name is allowed",
+          "version-drift:GitHub Copilot CLI 1.0.104."
         ],
         "provenance": [
           {
             "kind": "doc",
-            "locator": "core/registry/harnesses.json: copilot harness; core/registry/contracts.json: unavailable hook mapping",
-            "date": "2026-10-12"
+            "locator": "https://docs.github.com/en/copilot/reference/hooks-reference",
+            "date": "2026-10-27"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/copilot/mcp-tool-guard/deny.json",
+            "date": "2026-10-27"
           }
         ]
       },
@@ -2185,10 +2133,10 @@
         "event": "Stop",
         "timing": "stop",
         "profile": "any",
-        "wired": false,
-        "configSource": null,
+        "wired": true,
+        "configSource": "core/harnesses/copilot/hooks/doflow.json:32",
         "harnessVersion": {
-          "tested": "GitHub Copilot CLI 1.0.78"
+          "tested": "GitHub Copilot CLI 1.0.103"
         },
         "class": "unknown",
         "verification": "unverified",
@@ -2196,41 +2144,68 @@
         "covers": [],
         "doesNotCover": [],
         "caveats": [
-          "fixture-pending",
-          "version-drift:GitHub Copilot CLI 1.0.78."
+          "the {decision:\"block\"} output is documented but not exercised live",
+          "the last assistant message is read from the events.jsonl transcript, and whether agentStop fires after it is written is unverified; a subagent's own agentStop is skipped",
+          "version-drift:GitHub Copilot CLI 1.0.104."
         ],
         "provenance": [
           {
             "kind": "doc",
-            "locator": "core/registry/contracts.json: Copilot documented event inventory",
-            "date": "2026-10-14"
+            "locator": "https://docs.github.com/en/copilot/reference/hooks-reference",
+            "date": "2026-10-27"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/copilot/stop-check/deny.json",
+            "date": "2026-10-27"
+          },
+          {
+            "kind": "live",
+            "locator": "test/fixtures/hooks/copilot/live/capture-2026-10-27.jsonl",
+            "date": "2026-10-27"
           }
         ]
       },
       {
-        "policy": "stop-check",
+        "policy": "pre-bash-guard",
         "harness": "copilot",
-        "event": "*",
-        "timing": "stop",
+        "event": "PreToolUse",
+        "timing": "pre-tool",
         "profile": "any",
-        "wired": false,
-        "configSource": null,
+        "wired": true,
+        "configSource": "core/harnesses/copilot/hooks/doflow.json:12",
         "harnessVersion": {
-          "tested": "GitHub Copilot CLI 1.0.78"
+          "tested": "GitHub Copilot CLI 1.0.103"
         },
-        "class": "unsupported",
-        "verification": "unverified",
+        "class": "blocking",
+        "verification": "verified",
         "prerequisites": [],
         "covers": [],
         "doesNotCover": [],
         "caveats": [
-          "version-drift:GitHub Copilot CLI 1.0.78."
+          "live-verified: the deny output blocked a shell command; Copilot command hooks are fail-closed on a non-zero exit and fail open on a timeout",
+          "version-drift:GitHub Copilot CLI 1.0.104."
         ],
         "provenance": [
           {
             "kind": "doc",
-            "locator": "core/registry/harnesses.json: copilot harness; core/registry/contracts.json: unavailable hook mapping",
-            "date": "2026-10-12"
+            "locator": "https://docs.github.com/en/copilot/reference/hooks-reference",
+            "date": "2026-10-27"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/fixtures/hooks/copilot/pre-bash-guard/deny.json",
+            "date": "2026-10-27"
+          },
+          {
+            "kind": "live",
+            "locator": "test/fixtures/hooks/copilot/live/deny-proof-2026-10-27.json",
+            "date": "2026-10-27"
+          },
+          {
+            "kind": "live",
+            "locator": "test/fixtures/hooks/copilot/live/capture-2026-10-27.jsonl",
+            "date": "2026-10-27"
           }
         ]
       },
@@ -2802,7 +2777,7 @@
         "behaviour": "context-authority",
         "harness": "copilot",
         "status": "limitation",
-        "limitation": "no DoFlow hook bridge"
+        "limitation": "no prompt hook wired; SessionStart emits no context"
       },
       {
         "behaviour": "context-authority",
@@ -2850,7 +2825,7 @@
         "behaviour": "default-silence",
         "harness": "copilot",
         "status": "limitation",
-        "limitation": "no DoFlow hook bridge"
+        "limitation": "no prompt-time emission"
       },
       {
         "behaviour": "default-silence",
@@ -2895,7 +2870,7 @@
         "behaviour": "summary-scope",
         "harness": "copilot",
         "status": "limitation",
-        "limitation": "no DoFlow hook bridge"
+        "limitation": "no compaction hook wired"
       },
       {
         "behaviour": "summary-scope",
@@ -2942,7 +2917,7 @@
         "behaviour": "summary-grant",
         "harness": "copilot",
         "status": "limitation",
-        "limitation": "no DoFlow hook bridge"
+        "limitation": "no prompt hook to deliver"
       },
       {
         "behaviour": "summary-grant",
@@ -2984,7 +2959,7 @@
         "behaviour": "identity",
         "harness": "copilot",
         "status": "limitation",
-        "limitation": "no DoFlow hook bridge"
+        "limitation": "launcher environment forwarding into hook processes is unverified until 081 (DEC-004)"
       },
       {
         "behaviour": "identity",
@@ -3032,7 +3007,7 @@
         "behaviour": "check-freshness",
         "harness": "copilot",
         "status": "limitation",
-        "limitation": "no pre-edit or pre-command gate"
+        "limitation": "pre-tool gate and shell guard are wired; check-freshness is not exercised against Copilot payloads"
       },
       {
         "behaviour": "check-freshness",
@@ -3051,6 +3026,6 @@
         ]
       }
     ],
-    "rowsDigest": "sha256:85fd08c202fde50d224c81d5d283ef496c9a677a114eb9b73c223f11d0f2098b"
+    "rowsDigest": "sha256:d8fdf93bb4a556f0ba91d5a8eb74e5857c29fe7ea87e2731a39afb955d50bb59"
   }
 }

@@ -1690,10 +1690,6 @@
       "unmeasured": "no hooks are projected"
     },
     {
-      "surfaceId": "hook.copilot",
-      "unmeasured": "no hooks are projected"
-    },
-    {
       "surfaceId": "hook.kiro.mcp-tool-guard",
       "unmeasured": "measurement deferred to V.2"
     },
@@ -2128,6 +2124,34 @@
     {
       "surfaceId": "hook.kiro.stop-check.agent-config",
       "unmeasured": "measurement deferred to V.2"
+    },
+    {
+      "surfaceId": "hook.copilot.doflow-mcp-tool-guard",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.copilot.doflow-pre-bash-guard",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.copilot.doflow-pre-implement-gate",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.copilot.doflow-session-start",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.copilot.doflow-stop-check",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.copilot.doflow-subagent-start",
+      "unmeasured": "no fixture"
+    },
+    {
+      "surfaceId": "hook.copilot.doflow-subagent-stop",
+      "unmeasured": "no fixture"
     },
     {
       "surfaceId": "hook.pi.tool-call-pre-implementation-gate",

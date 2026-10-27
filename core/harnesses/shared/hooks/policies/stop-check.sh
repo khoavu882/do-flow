@@ -191,9 +191,10 @@ fi
 
 # The payload's own last_assistant_message is the response being stopped on. A present key
 # (even null or empty) is authoritative: the transcript is only read when the key is absent.
-# jq filter for the transcript fallback: one JSON object per line, assistant text from three
+# jq filter for the transcript fallback: one JSON object per line, assistant text from four
 # shapes — Claude Code (.message with text blocks), Codex rollout (response_item .payload with
-# output_text blocks) and the flat {role,content} line. A partial or foreign line yields "".
+# output_text blocks), Copilot CLI events.jsonl (type assistant.message, .data.content a string) and
+# the flat {role,content} line. A partial or foreign line yields "".
 read -r -d '' LAST_ASSISTANT_JQ <<'JQ' || true
 def text: if type == "string" then .
   elif type == "array" then [ .[]? | objects | select(.type == "text" or .type == "output_text") | .text | strings ] | join("\n")
@@ -201,6 +202,7 @@ def text: if type == "string" then .
 [ inputs | fromjson? | objects
   | if ((.message | objects | .role) // null) == "assistant" then .message.content
     elif .type == "response_item" and ((.payload | objects | .role) // null) == "assistant" then .payload.content
+    elif .type == "assistant.message" then .data.content
     elif .role == "assistant" then .content
     else empty end
   | text | select(length > 0) ] | last // ""

@@ -139,7 +139,7 @@ and adapters drop hook config that rides a content asset (Claude's `settings.jso
 `features.hooks`, Kiro agent `hooks`) through `context.hooksOff`. The hooks an earlier run wrote
 are removed in the same plan, through the adapter's own remove path, from the ledger rows. A
 `remove` takes exactly the hooks the ledger records, and a shared hook file another harness writes in
-the same plan is retained, not deleted. OpenCode and Copilot get no hook either way.
+the same plan is retained, not deleted. OpenCode gets no hook either way.
 
 Policy rules—checks of artifacts, branch, run or readiness state, pattern files and MCP policy—live only in `core/harnesses/shared/hooks/policies/`. A bridge adds no model-visible text of its own except the fixed error reason and the native rendering of a policy's deny reason.
 

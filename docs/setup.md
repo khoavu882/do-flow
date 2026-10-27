@@ -46,9 +46,9 @@ Codex gates hook execution behind its own trust/review step — DoFlow writes th
 configuration, but Codex runs no hook until you approve it in that tool. Kiro's hooks are
 not in Kiro v3's untrusted-workspace exclusion list (custom agents, steering, MCP configuration,
 skills, workflows); an untrusted workspace asks before every shell command, and whether that covers
-hook commands is undocumented. Copilot CLI now documents hooks (`.github/hooks/`,
-`~/.copilot/hooks/`), settings files, and a plugin-marketplace system upstream; DoFlow projects
-none of them yet, so its Copilot adapter stops at instructions, skills, agents, and MCP. OpenCode
+hook commands is undocumented. Copilot CLI hooks are projected from `.github/hooks/doflow.json` (project) or
+`$COPILOT_HOME/hooks/doflow.json`, default `~/.copilot/hooks/doflow.json` (user), once `copilot` is in `hooks.harnesses`; DoFlow writes no
+Copilot settings file and no plugin. OpenCode
 uses code modules rather than the shell commands DoFlow ships, so no OpenCode hook is installed.
 Pi now has a `tool_call` guard extension at user and project scope; the project extension runs only
 after the project is trusted. OpenCode's `opencode.json` merge remains supported; DoFlow does not write Pi's `settings.json`.

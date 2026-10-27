@@ -1,0 +1,34 @@
+{
+  "event": "PreToolUse",
+  "native": {
+    "sessionId": "copilot-gate-no-policy",
+    "timestamp": 1793090731778,
+    "cwd": "/tmp",
+    "toolName": "apply_patch",
+    "toolArgs": "*** Begin Patch\n*** Add File: src/a.js\n+x\n*** End Patch\n"
+  },
+  "state": "none",
+  "fault": "missing-policy",
+  "expect": {
+    "exit": 0,
+    "stdoutIncludes": "\"permissionDecision\":\"deny\"",
+    "stderrIncludes": null,
+    "modelVisibleBytesMax": 400,
+    "decision": {
+      "outcome": "error",
+      "code": "bridge-spawn",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "copilot",
+      "event": "PreToolUse",
+      "operation": "edit",
+      "tool": "apply_patch",
+      "patch": "*** Begin Patch\n*** Add File: src/a.js\n+x\n*** End Patch\n",
+      "identity": {
+        "session": "copilot-gate-no-policy"
+      }
+    }
+  }
+}

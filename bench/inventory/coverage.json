@@ -917,21 +917,62 @@
     {
       "harness": "copilot",
       "installedVersion": {
-        "value": "GitHub Copilot CLI 1.0.78.",
-        "source": "copilot --version → GitHub Copilot CLI 1.0.78.",
-        "verifiedOn": "2026-10-12"
+        "value": "GitHub Copilot CLI 1.0.104.",
+        "source": "copilot --version → GitHub Copilot CLI 1.0.104.",
+        "verifiedOn": "2026-10-27"
       },
       "executionMode": "unknown",
-      "event": "*",
-      "wired": false,
-      "wiredSource": "core/registry/harnesses.json:1455: the registry records that DoFlow wires none of the documented Copilot hooks",
-      "registryClaim": "different",
+      "event": "SessionStart",
+      "wired": true,
+      "wiredSource": "core/harnesses/copilot/hooks/doflow.json:4",
+      "registryClaim": "supported",
       "observedSemantics": {
-        "value": "documented, not exercised in a live session: hooks load from .github/hooks/*.json and user, policy and plugin sources; event names are camelCase (sessionStart, sessionEnd, userPromptSubmitted, preToolUse, postToolUse, agentStop, subagentStart, subagentStop, preCompact and others); \"Prompt hooks fire only for new interactive sessions\" and not in non-interactive prompt mode (-p)",
-        "source": "https://docs.github.com/en/copilot/reference/hooks-reference",
-        "verifiedOn": "2026-10-12"
+        "value": "observed in a live session (headless `copilot -p`): sessionStart fires once per session with sessionId, timestamp, cwd, source and initialPrompt",
+        "source": "test/fixtures/hooks/copilot/live/capture-2026-10-27.jsonl",
+        "verifiedOn": "2026-10-27"
       },
-      "sameNameNotAssumed": true
+      "sameNameNotAssumed": true,
+      "caveat": "DoFlow wires the camelCase name (sessionStart); the capture was taken on Copilot CLI 1.0.103"
+    },
+    {
+      "harness": "copilot",
+      "installedVersion": {
+        "value": "GitHub Copilot CLI 1.0.104.",
+        "source": "copilot --version → GitHub Copilot CLI 1.0.104.",
+        "verifiedOn": "2026-10-27"
+      },
+      "executionMode": "unknown",
+      "event": "PreToolUse",
+      "wired": true,
+      "wiredSource": "core/harnesses/copilot/hooks/doflow.json:12",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "observed in a live session: preToolUse fires per tool call with sessionId, toolName (bash, apply_patch, skill, task) and toolArgs (an object, or a raw patch string for apply_patch); a printed {permissionDecision:\"deny\"} blocked a shell command",
+        "source": "test/fixtures/hooks/copilot/live/capture-2026-10-27.jsonl",
+        "verifiedOn": "2026-10-27"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "DoFlow wires the camelCase name (preToolUse); the capture was taken on Copilot CLI 1.0.103"
+    },
+    {
+      "harness": "copilot",
+      "installedVersion": {
+        "value": "GitHub Copilot CLI 1.0.104.",
+        "source": "copilot --version → GitHub Copilot CLI 1.0.104.",
+        "verifiedOn": "2026-10-27"
+      },
+      "executionMode": "unknown",
+      "event": "Stop",
+      "wired": true,
+      "wiredSource": "core/harnesses/copilot/hooks/doflow.json:32",
+      "registryClaim": "supported",
+      "observedSemantics": {
+        "value": "observed in a live session: agentStop fires at the end of each turn, and once for a subagent (with agentId), with transcriptPath, stopReason and stop_hook_active; the block output was not exercised",
+        "source": "test/fixtures/hooks/copilot/live/capture-2026-10-27.jsonl",
+        "verifiedOn": "2026-10-27"
+      },
+      "sameNameNotAssumed": true,
+      "caveat": "DoFlow wires the camelCase name (agentStop); the capture was taken on Copilot CLI 1.0.103"
     },
     {
       "harness": "kiro",

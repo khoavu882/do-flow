@@ -1,0 +1,30 @@
+{
+  "event": "SessionStart",
+  "native": {
+    "sessionId": "9d0d2ed1-a58d-439d-a064-558a87984f31",
+    "timestamp": 1793090731778,
+    "cwd": "/tmp",
+    "source": "new",
+    "initialPrompt": "Create notes.txt containing the word hello"
+  },
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": "",
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "allow",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "copilot",
+      "event": "SessionStart",
+      "operation": "session-start",
+      "identity": {
+        "session": "9d0d2ed1-a58d-439d-a064-558a87984f31"
+      }
+    }
+  }
+}

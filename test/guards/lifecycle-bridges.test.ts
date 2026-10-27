@@ -76,7 +76,14 @@ function bridgeEnv(extra: any = {}) {
   return { ...env, ...extra };
 }
 
-function bridgeInput(harness: any, native: any, fixtureEnv: any = {}) {
+function bridgeInput(harness: any, native: any, fixtureEnv: any = {}, event: any = '') {
+  if (harness === 'copilot') {
+    const translated = spawnSync('/bin/bash', ['-c', `. '${path.join(REPO, 'core/harnesses/copilot/hooks/doflow-lib.sh')}'; copilot_bridge_payload '${event}'`], {
+      input: JSON.stringify(native), encoding: 'utf8', env: bridgeEnv(fixtureEnv),
+    });
+    assert.equal(translated.status, 0, translated.stderr);
+    return translated.stdout;
+  }
   if (harness !== 'kiro') return JSON.stringify(native);
   const translated = spawnSync(bashPath(), ['-c', `. '${path.join(REPO, 'core/harnesses/kiro/hooks/lib.sh')}'; kiro_bridge_payload`], {
     input: JSON.stringify(native), encoding: 'utf8', env: bridgeEnv(fixtureEnv),
@@ -87,7 +94,7 @@ function bridgeInput(harness: any, native: any, fixtureEnv: any = {}) {
 
 function encodeFixture(harness: any, event: any, policy: any, native: any, envelopePath: any = path.join(BRIDGE_DIR, 'envelope.jq'), fixtureEnv: any = {}) {
   const result = spawnSync('jq', [...JQ_B, '-c', '--arg', 'harness', harness, '--arg', 'event', event, '--arg', 'policy', policy, '-f', envelopePath], {
-    input: bridgeInput(harness, native, fixtureEnv), encoding: 'utf8', env: bridgeEnv(fixtureEnv),
+    input: bridgeInput(harness, native, fixtureEnv, event), encoding: 'utf8', env: bridgeEnv(fixtureEnv),
   });
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout).doflow_event;
@@ -407,6 +414,10 @@ function corpusShapeFindings(files: any) {
   }
   return errors;
 }
+// Copilot CLI's native (camelCase) event names in doflow.json, under the names the registry uses.
+const COPILOT_TEMPLATE = 'core/harnesses/copilot/hooks/doflow.json';
+const COPILOT_EVENTS: any = { sessionStart: 'SessionStart', preToolUse: 'PreToolUse', agentStop: 'Stop', subagentStart: 'SubagentStart', subagentStop: 'SubagentStop' };
+const COPILOT_NATIVE: any = Object.fromEntries(Object.entries(COPILOT_EVENTS).map(([native, event]) => [event, native]));
 function templateEntries(root: any = REPO) {
   const entries: any = [];
   const policies: any = new Set(JSON.parse(fs.readFileSync(path.join(root,'core/registry/lifecycle.json'),'utf8')).policies.map((p: any)=>p.id));
@@ -429,6 +440,11 @@ function templateEntries(root: any = REPO) {
     for (const hook of config.hooks) {
       const policy = policyFor(hook.action?.command); if (policy) entries.push({harness,event:hook.trigger === 'preToolUse' ? 'PreToolUse' : hook.trigger === 'stop' ? 'Stop' : hook.trigger === 'agentSpawn' ? 'SessionStart' : hook.trigger,policy});
     }
+  }
+  const copilot = JSON.parse(fs.readFileSync(path.join(root, COPILOT_TEMPLATE), 'utf8'));
+  for (const [native, groups] of Object.entries(copilot.hooks)) for (const hook of groups as any) {
+    const policy = policyFor(String(hook.bash || '').replace(/doflow-/g, ''));
+    if (policy) entries.push({harness:'copilot',event:COPILOT_EVENTS[native] || native,policy});
   }
   const antigravity = fs.readFileSync(path.join(root,'src/adapters/antigravity/index.ts'),'utf8');
   if (antigravity.includes('pre-implementation-gate.sh')) entries.push({harness:'antigravity',event:'PreToolUse',policy:'pre-implementation-gate'});
@@ -463,6 +479,7 @@ function wiredTemplateFindings(coverage: any, lifecycle: any, root: any = REPO) 
     const base = harness === 'antigravity' && policy === 'pre-implementation-gate' ? 'pre-implementation-gate' : doorName;
     if (harness === 'pi') { const text=fs.readFileSync(path.join(root,'core/harnesses/pi/extensions/doflow-guard.js'),'utf8'); return text.includes(`policy: '${policy}'`) || text.includes(`'${policy}'`); }
     if (harness === 'antigravity') return fs.readFileSync(path.join(root,'src/adapters/antigravity/index.ts'),'utf8').includes(`${base}.sh`);
+    if (harness === 'copilot') return (JSON.parse(fs.readFileSync(path.join(root, COPILOT_TEMPLATE), 'utf8')).hooks[COPILOT_NATIVE[event]] || []).some((h: any) => String(h.bash).includes(`doflow-${base}.sh`));
     if (harness === 'kiro') {
       const filename = coverage.rows.some((r: any) => r.harness==='kiro'&&r.policy===policy&&r.event===event&&r.profile==='cli-v3-agent'&&r.configSource?.includes('/agents/')) || (event.toLowerCase() === 'stop' && coverage.rows.some((r: any) => r.harness==='kiro'&&r.policy===policy&&r.profile==='cli-2x-agent')) ? 'core/harnesses/kiro/agents/doflow.json' : 'core/harnesses/kiro/hooks/doflow.json';
       const config = JSON.parse(fs.readFileSync(path.join(root,filename),'utf8'));
@@ -485,14 +502,14 @@ function wiredTemplateFindings(coverage: any, lifecycle: any, root: any = REPO) 
     const policy = lifecycle.policies.find((p: any) => p.id === row.policy);
     const sourcePolicy = row.policy === 'pre-implementation-gate' ? 'pre-implement-gate' : row.policy;
     const doflowName = row.policy === 'pre-implementation-gate' ? 'pre-implementation-gate' : sourcePolicy;
-    const eventToken = row.harness === 'kiro' && relative.includes('/agents/') ? (row.event === 'PreToolUse' ? 'preToolUse' : row.event === 'Stop' ? 'stop' : row.policy === 'session-context' && row.event === 'SessionStart' ? 'agentSpawn' : row.event) : row.event;
+    const eventToken = row.harness === 'copilot' ? COPILOT_NATIVE[row.event] : row.harness === 'kiro' && relative.includes('/agents/') ? (row.event === 'PreToolUse' ? 'preToolUse' : row.event === 'Stop' ? 'stop' : row.policy === 'session-context' && row.event === 'SessionStart' ? 'agentSpawn' : row.event) : row.event;
     const door = row.policy === 'pre-implementation-gate' ? 'pre-implement-gate' : row.policy;
     const hasDoor = doorReferences(row.harness, row.event, row.policy);
     if (!nearby.includes(eventToken) || !hasDoor) errors.push(`${rowKey(row)} configSource line window lacks event/door`);
   }
   // Canonical mappings in the registry must have rows, and direct hook templates must expose each mapped door.
   for (const policy of lifecycle.policies) for (const [harness, mapping] of Object.entries(policy.mappings)) {
-    if (!['supported','different'].includes(mapping.status) || !mapping.event || ['opencode','copilot'].includes(harness)) continue;
+    if (!['supported','different'].includes(mapping.status) || !mapping.event || ['opencode'].includes(harness)) continue;
     if (!coverage.rows.some((r: any) => r.policy === policy.id && r.harness === harness && r.event === mapping.event)) errors.push(`${policy.id}/${harness}/${mapping.event} missing row`);
   }
   for (const entry of templateEntries(root)) if (!coverage.rows.some((r: any) => r.harness===entry.harness && r.event===entry.event && r.policy===entry.policy && r.wired)) errors.push(`${entry.harness}/${entry.event}/${entry.policy} template missing wired row`);

@@ -157,12 +157,18 @@
     {
       "harness": "copilot",
       "completeness": "lower-bound",
-      "note": "Copilot CLI now documents a full hook surface (use-hooks / hooks-reference, 2026): .github/hooks/*.json and ~/.copilot/hooks/, shape {version:1,hooks:{event:[entries]}} where the event name is camelCase (camelCase payload fields) or PascalCase (VS Code/Claude-compatible, snake_case payload fields). DoFlow wires none of it: the shipped scripts are Claude-payload-coupled (tool names, .session_id/.transcript_path stdin fields, CLAUDE_* envs) and Copilot's payload schemas are unverified here. hookEvents stays empty until that verification lands; widen only alongside it and an added evidence URL.",
+      "note": "hookEvents lists the events DoFlow wires through .github/hooks/doflow.json, under the PascalCase names the lifecycle registry uses: SessionStart (native sessionStart), PreToolUse (preToolUse), Stop (agentStop), SubagentStart (subagentStart) and SubagentStop (subagentStop). Event surface, payloads and the deny shape were read from https://docs.github.com/en/copilot/reference/hooks-reference and checked against a live Copilot CLI 1.0.103 capture on 2026-10-27 (verified_on 2026-10-27); where they disagree the capture wins (toolArgs is a JSON object, or a raw string for apply_patch, not the documented JSON string). Widen only alongside an added evidence URL.",
       "skillFields": ["name", "description", "license", "allowed-tools"],
       "skillFieldsSource": "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills",
       "skillFieldsVerifiedOn": "2026-10-27",
       "unknownSkillFields": "not-documented",
-      "hookEvents": [],
+      "hookEvents": [
+        "SessionStart",
+        "PreToolUse",
+        "Stop",
+        "SubagentStart",
+        "SubagentStop"
+      ],
       "evidence": [
         "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-skills",
         "https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli",

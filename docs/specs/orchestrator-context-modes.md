@@ -117,7 +117,7 @@ This replaces and retires the earlier proposal of downgrading context modes acro
 
 ## 8. The four stages of issue #9
 
-Issue #9 tracked four stages of orchestrator refinement. None is open: one is superseded, one is replaced by existing records with one named gap, and two are retired. The principles that survive are kept in the last list of this section.
+Issue #9 tracked four stages of orchestrator refinement. None is open: one is superseded, one is replaced by existing records, and two are retired. The principles that survive are kept in the last list of this section.
 
 **Stage 1, modes as data (per-edge `contextMode` in `core/registry/workflows.json`): retired.**
 - Item-level delivery (section 2) already decides what a stage receives, per item and from recorded evidence, so an edge-level default would be a second, coarser switch over the same choice.
@@ -126,14 +126,25 @@ Issue #9 tracked four stages of orchestrator refinement. None is open: one is su
 
 **Stage 2, budget downgrade: superseded by feature 075.** Delivery is per item (section 2): `full`, `delta` (dormant, section 6), `pointer`, `bare` and `expand`. When mandatory content exceeds the cap, the pack is still emitted whole and the verb exits 3 (section 5); nothing is traded away. The implementation is `handleContextPackCommand` in `src/runtime/context-pack.ts`, the classification and linear fit in `src/runtime/context/compose.ts`, budget resolution in `src/runtime/context/budget.ts`, and the delivery store in `src/runtime/context/delivery-store.ts` (its lock in `src/runtime/task-state.ts`). The verb is `doflow context-pack` (see the [reference](../reference.md)).
 
-**Stage 3, handoff events (a proposed append-only `.doflow/state/events.jsonl` bus at the dispatcher seam, never created): replaced by existing records, with one gap.**
-- Covered, by the run ledger and the offline `trace spans` projection (feature 088):
+**Stage 3, handoff events (a proposed append-only `.doflow/state/events.jsonl` bus at the dispatcher seam, never created): replaced by existing records.**
+- The run ledger and the offline `trace spans` projection (feature 088):
   - Every dispatched verb, `context-pack` and `orchestrate` included, appends a metadata record to the date-partitioned run ledger (`runs/*.jsonl`, `src/runtime/trace/ledger.ts`).
   - Every stage handoff is a history entry in the orchestration record (`orchestration/*.json`, written by `src/runtime/workflow-orchestrator.ts`; actions such as `complete-stage`, `skip-stage`, `decide-gate`, `annotate` and `complete-run`). `trace spans` (`src/runtime/trace/spans.ts`) turns these into `stage` and `orchestration` spans with the stage id, outcome and execution status, placed inside the run's trace. Spans are projected offline; there is no span store and no second write path.
-- Not covered:
-  - There is no link between a stage handoff and the context pack that stage was handed. The delivery store (section 6, `.doflow/state/delivery/<feature-ns>/<taskId>.json`) records pack digest, form and harness per task, keeps at most 5 entries, and is not read by `trace spans`. The ledger line for a `context-pack` call carries the verb, exit code, duration, argument count and run identity (`trace_run` in `core/shared/scripts/doflow/bin/doflow-run`), but no pack digest, form or task id, and the span for a stage handoff carries no pack reference. The question "which pack did stage X receive" therefore cannot be answered from the records. `context-emit` also records pack digests (`ledgerAdd` in `src/runtime/context/arbitrate.ts`), but keyed by run and lineage, not read by `trace spans`, and with no stage id. Tracked as followup FU-7j3k84.
-  - The proposed `.doflow/state/events.jsonl` was never created. The only `events.jsonl` is the machine-wide failure-capture stream at `<config home>/failures/events.jsonl` (`src/runtime/failure/home.ts:22-28`), a different thing, and not a handoff bus.
-- A separate append-only bus would duplicate the ledger and the orchestration history. The gap is closed by adding the pack reference to those records, not by a new store.
+- The pack a stage was handed (FU-7j3k84):
+  - The link is recorded when the pack is delivered, not inferred later. After the `context-pack` verb records a delivery, `recordStagePack` (`src/runtime/workflow-orchestrator.ts`) writes `{ taskId, digest }` onto the stage node that is active in the run at that moment, under the node's `packs`. `digest` is the delivery store's own `packDigest` (section 6), so `context-pack --since <digest>` resolves it; no second hash exists.
+  - The run is the pack task's own run when one exists. Otherwise it is the run of the task's feature. The feature is named by `--slug`, or by the checkout's feature pointer (row 135) while the checkout is still on the branch the pointer recorded. The branch name alone never selects a run. Only runs under the verb's state root are read.
+  - The first run found decides. If it is `RUNNING` with a stage under its cursor, that stage's node gets the pack. Each pack task keeps one item, its latest delivery, moved to the end. Anything else records nothing: no run, a run waiting at a gate or finished, an unreadable record, or a record locked past a bounded retry. Absent means unknown, never a guess.
+  - The write is per delivery, so a byte-identical pack delivered again in a later stage is recorded for that stage. The delivery store's first-writer and revision behaviour does not change. A delivery the node already ends with writes nothing.
+  - A run written by `recordStagePack` gets a new revision. An orchestrate call that read the run before that write refuses with its usual concurrent-update message and is retried.
+  - `complete-stage` copies the node's well-formed `packs` onto its history entry, in delivery order. It reads only that node; there is no directory scan and no time window. The `stage` span carries `pack_count`, plus `pack_task` and `pack_digest` of the latest pack.
+  - A stage handed no pack gets no `packs` field and no pack attributes. An orchestration record written before this field existed projects exactly as before, as does a malformed `packs` value or item, on a node or on an entry. None of these blocks a completion.
+  - The record is metadata only: a task id and a digest.
+  - Not covered:
+    - A `--no-record` pack, and a pack `context-emit` injects, leave no link.
+    - Two sessions working in the same run and stage cannot be told apart, because they share that run.
+    - A rerun of a stage that is no longer under the cursor is recorded on the stage that is.
+  - The `doflow-run` ledger line is unchanged. The dispatcher writes it from the verb name and an argument count and cannot see a digest (NFR-004). A second Node-written line for the same call would count the verb twice in `stats`.
+- The proposed `.doflow/state/events.jsonl` was never created. The only `events.jsonl` is the machine-wide failure-capture stream at `<config home>/failures/events.jsonl` (`src/runtime/failure/home.ts:22-28`), a different thing, and not a handoff bus. A separate append-only bus would duplicate the ledger and the orchestration history.
 
 **Stage 4, harness narrowing (per-class mode ceilings in `core/registry/harnesses.json`): retired.** It depended on stage 1's modes, and with stage 1 retired it has nothing to cap. The ceilings that matter are already declared per harness as `contextProfile` (`capacityTokens`, `reserveTokens`, `toolResultLimitBytes`, `retention`) and resolve through the cap precedence in section 4; all eight are unverified in 075, which is why capacity reports `unknown` and delta stays dormant. Verifying those values belongs to feature 085 (A-19), not to a new mode ceiling.
 
@@ -172,6 +183,8 @@ Status of each section in this specification, cited with code locations and prov
   - Stage 2 (Budget downgrade): superseded by 075 item-level overflow in `handleContextPackCommand`
     (`src/runtime/context-pack.ts`).
   - Stage 3 (Handoff events): replaced by the run ledger (`src/runtime/trace/ledger.ts`) and the offline
-    span projection (`src/runtime/trace/spans.ts`, feature 088); the pack-to-stage link is a gap with a
-    recorded followup.
+    span projection (`src/runtime/trace/spans.ts`, feature 088). The pack-to-stage link is written at
+    delivery onto the active stage node (`recordStagePack` in `src/runtime/workflow-orchestrator.ts`,
+    called by `handleContextPackCommand`). It is copied to the `complete-stage` entry's `packs` and
+    projected as the stage span's `pack_*` attributes, verified by `test/runtime/stage-pack-link.test.ts`.
   - Stage 4 (Harness narrowing): retired with stage 1; `contextProfile` already declares the ceiling fields (unverified in 075).

@@ -66,6 +66,16 @@ function install(root: any) {
   write(path.join(root, '.doflow', REACH_RUNTIME_REL), '');
 }
 
+/** A PATH directory holding a `git` that answers `--version` at once and fails every other call, as git
+ * does outside a repository. Doctor probes `git --version` with a 2.5 s timeout and turns a miss into a
+ * `provider-unhealthy` finding (exit 1); the first run of the macOS /usr/bin/git shim on a loaded CI
+ * runner can exceed that. Nothing in this file tests the git probe, so it is answered locally. */
+function stubBin(dir: any) {
+  const bin = path.join(dir, 'bin');
+  write(path.join(bin, 'git'), '#!/bin/sh\n[ "$1" = "--version" ] && { echo "git version 2.0.0"; exit 0; }\nexit 128\n', 0o755);
+  return bin;
+}
+
 /** Runs `doflow doctor` under an emptied environment so no real home, PATH tool or git config answers. */
 function doctor(t: any, args: any) {
   return spawnSync(process.execPath, [CLI, 'doctor', ...args], {
@@ -75,7 +85,7 @@ function doctor(t: any, args: any) {
       HOME: t.home,
       USERPROFILE: t.home,
       XDG_CONFIG_HOME: path.join(t.dir, 'xdg'),
-      PATH: systemPath(path.dirname(process.execPath)),
+      PATH: systemPath(stubBin(t.dir), path.dirname(process.execPath)),
       GIT_CONFIG_GLOBAL: os.devNull,
       ...(process.platform === 'win32' ? { SystemRoot: process.env.SystemRoot } : {}),
     },

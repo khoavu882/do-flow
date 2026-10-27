@@ -1,0 +1,35 @@
+{
+  "event": "PreToolUse",
+  "native": {
+    "sessionId": "copilot-bash-allow",
+    "timestamp": 1793090731778,
+    "cwd": "/tmp",
+    "toolName": "bash",
+    "toolArgs": {
+      "command": "ls does-not-exist",
+      "description": "Run the requested ls command"
+    }
+  },
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": "",
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "allow",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "copilot",
+      "event": "PreToolUse",
+      "operation": "command",
+      "tool": "Bash",
+      "command": "ls does-not-exist",
+      "identity": {
+        "session": "copilot-bash-allow"
+      }
+    }
+  }
+}

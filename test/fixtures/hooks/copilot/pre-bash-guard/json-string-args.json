@@ -1,0 +1,33 @@
+{
+  "event": "PreToolUse",
+  "native": {
+    "sessionId": "copilot-bash-json-string",
+    "timestamp": 1793090731778,
+    "cwd": "/tmp",
+    "toolName": "bash",
+    "toolArgs": "{\"command\":\"rm -rf /\"}"
+  },
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdoutIncludes": "\"permissionDecision\":\"deny\"",
+    "stderrIncludes": null,
+    "modelVisibleBytesMax": 400,
+    "decision": {
+      "outcome": "deny",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "copilot",
+      "event": "PreToolUse",
+      "operation": "command",
+      "tool": "Bash",
+      "command": "rm -rf /",
+      "identity": {
+        "session": "copilot-bash-json-string"
+      }
+    }
+  }
+}

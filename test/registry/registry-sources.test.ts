@@ -65,21 +65,21 @@ test('runtime-shaped copy: loads in default mode (skip) with validation.sources 
   assert.deepEqual(explicitSkip.errors, []);
 });
 
-test('runtime-shaped copy: fails in require mode with exactly the 19 missing-source lines', () => {
+test('runtime-shaped copy: fails in require mode with exactly the 25 missing-source lines', () => {
   const runtimeRoot = createRuntimeShapedTree();
   const registry = loadRegistry({ repoRoot: runtimeRoot });
 
   const requireResult = validateRegistry(registry, { repoRoot: runtimeRoot, sources: 'require' });
   assert.equal(requireResult.ok, false);
   assert.equal(requireResult.sources, 'require');
-  assert.equal(requireResult.errors.length, 24);
+  assert.equal(requireResult.errors.length, 25);
 
   for (const error of requireResult.errors) {
     assert.match(error, /source does not exist inside repository: /);
   }
 
   const assetErrors = requireResult.errors.filter((e: any) => e.startsWith("asset '"));
-  assert.equal(assetErrors.length, 20);
+  assert.equal(assetErrors.length, 21);
 
   const projectionErrors = requireResult.errors.filter((e: any) => e.startsWith("harness 'codex' nativeProjection"));
   assert.equal(projectionErrors.length, 4);
@@ -90,7 +90,7 @@ test('runtime-shaped copy: fails in require mode with exactly the 19 missing-sou
       assert.match(err.message, /^Invalid DoFlow registry:\n- /);
       assert.equal(err.validation.ok, false);
       assert.equal(err.validation.sources, 'require');
-      assert.equal(err.validation.errors.length, 24);
+      assert.equal(err.validation.errors.length, 25);
       return true;
     },
   );

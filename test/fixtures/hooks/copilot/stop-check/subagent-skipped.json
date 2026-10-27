@@ -1,0 +1,42 @@
+{
+  "event": "Stop",
+  "native": {
+    "sessionId": "c56cca11-c1bc-4997-992a-e5f50617c02c",
+    "timestamp": 1793090731778,
+    "cwd": "/tmp",
+    "transcriptPath": "<set by the runner>",
+    "stopReason": "end_turn",
+    "stop_hook_active": false,
+    "agentId": "c56cca11-c1bc-4997-992a-e5f50617c02c",
+    "agentType": "task",
+    "parentAgentId": "9d0d2ed1-a58d-439d-a064-558a87984f31"
+  },
+  "state": "none",
+  "fault": "none",
+  "transcript": [
+    {
+      "type": "user.message",
+      "data": {
+        "content": "write it"
+      }
+    },
+    {
+      "type": "assistant.message",
+      "data": {
+        "content": ""
+      }
+    },
+    {
+      "type": "assistant.message",
+      "data": {
+        "content": "```js\n// TODO: unfinished\n```"
+      }
+    }
+  ],
+  "expect": {
+    "exit": 0,
+    "stdout": "",
+    "stderrIncludes": null,
+    "noBridgeRun": true
+  }
+}

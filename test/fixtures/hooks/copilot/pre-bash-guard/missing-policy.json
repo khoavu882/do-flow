@@ -1,0 +1,36 @@
+{
+  "event": "PreToolUse",
+  "native": {
+    "sessionId": "copilot-bash-no-policy",
+    "timestamp": 1793090731778,
+    "cwd": "/tmp",
+    "toolName": "bash",
+    "toolArgs": {
+      "command": "git push --force origin main"
+    }
+  },
+  "state": "none",
+  "fault": "missing-policy",
+  "expect": {
+    "exit": 0,
+    "stdoutIncludes": "\"permissionDecision\":\"deny\"",
+    "stderrIncludes": null,
+    "modelVisibleBytesMax": 400,
+    "decision": {
+      "outcome": "error",
+      "code": "bridge-spawn",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "copilot",
+      "event": "PreToolUse",
+      "operation": "command",
+      "tool": "Bash",
+      "command": "git push --force origin main",
+      "identity": {
+        "session": "copilot-bash-no-policy"
+      }
+    }
+  }
+}
