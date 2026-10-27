@@ -514,21 +514,61 @@ _V_HEADING_ID_RE = re.compile(r"^(?:\d+(?:\.\d+)*\.?|[A-Z]{1,4}-?\d+:?)\s+")
 _V_MINOR = {"a", "an", "the", "and", "or", "of", "to", "in", "on", "for", "with", "by", "at", "as",
             "vs", "via", "nor", "but", "from", "into", "is", "are"}
 
-_FENCE_RE = re.compile(r"^\s*(```|~~~)")
-_INLINE_CODE_RE = re.compile(r"(`+)(?:(?!\1).)+?\1")
-_LINK_TARGET_RE = re.compile(r"(\]\()[^)\n]*(\))")
+_FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_INLINE_CODE_RE = re.compile(r"(`+)(?:(?!\1).)+?\1", re.DOTALL)
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+_REF_USE_RE = re.compile(r"(\]\[)[^\]\n]*(\])")
 _AUTOLINK_RE = re.compile(r"<(?:https?|mailto):[^>\n]*>|https?://[^\s)>\]]+")
-_REFDEF_RE = re.compile(r"^(\s*\[[^\]\n]+\]:)\s*\S+")
+_REFDEF_RE = re.compile(r"^ {0,3}\[[^\]\n]+\]:[ \t]*\S.*$")
+_THEMATIC_RE = re.compile(r"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
 
 
 def _blank(match: "re.Match") -> str:
     return " " * len(match.group(0))
 
 
+def _spaces(text: str) -> str:
+    """`text` with every character but newlines replaced by a space (offsets stay valid)."""
+    return re.sub(r"[^\n]", " ", text)
+
+
+def _mask_destinations(text: str) -> str:
+    """Blank the `(...)` of every `](...)`, matching nested parentheses."""
+    out = list(text)
+    pos = 0
+    while True:
+        k = text.find("](", pos)
+        if k < 0:
+            return "".join(out)
+        depth, m = 1, k + 2
+        while m < len(text) and depth:
+            depth += {"(": 1, ")": -1}.get(text[m], 0)
+            m += 1
+        end = m if depth == 0 else k + 2
+        for q in range(k + 2, max(end - 1, k + 2)):
+            if text[q] != "\n":
+                out[q] = " "
+        pos = max(end, k + 2)
+
+
+def _mask_inline(text: str) -> str:
+    """Blank inline code (also over line breaks), HTML comments, link destinations and
+    identifiers, and autolinks in a block of joined lines."""
+    text = _INLINE_CODE_RE.sub(lambda m: _spaces(m.group(0)), text)
+    text = _HTML_COMMENT_RE.sub(lambda m: _spaces(m.group(0)), text)
+    text = _mask_destinations(text)
+    text = re.sub(r"\[[^\]\n]*\]\[\]", lambda m: _spaces(m.group(0)), text)   # collapsed [text][]
+    text = _REF_USE_RE.sub(lambda m: m.group(1) + _spaces(m.group(0))[2:-1] + m.group(2), text)
+    return _AUTOLINK_RE.sub(lambda m: _spaces(m.group(0)), text)
+
+
 def mask_prose(lines: List[str]) -> List[str]:
     """Return `lines` with every region a voice check must not read replaced by spaces, so
-    offsets and line numbers stay valid: YAML front matter, fenced code, block quotes, inline
-    code, link targets (the `(url)` of `[text](url)`, autolinks, bare URLs, reference defs)."""
+    offsets and line numbers stay valid. A line removed whole becomes ""; a line with only part
+    masked keeps its length, so a paragraph is never split by masking. Regions: YAML front
+    matter; fenced code (closed only by the same character, at least as long); indented code
+    outside a list; block quotes including lazy continuation lines; HTML comments; inline code
+    (over line breaks too); link destinations, reference identifiers and definitions; autolinks."""
     out: List[str] = []
     i = 0
     if lines and lines[0].strip() == "---":
@@ -537,26 +577,80 @@ def mask_prose(lines: List[str]) -> List[str]:
                 out = [""] * (j + 1)
                 i = j + 1
                 break
-    in_fence = False
+    fence = None            # (char, length) of the open fence
+    in_comment = in_quote = in_list = False
+    prev = "blank"          # blank | code | para: what the previous line was
     for line in lines[i:]:
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
+        stripped = line.strip()
+        if fence:
+            if re.match(r"^ {0,3}" + re.escape(fence[0]) + "{" + str(fence[1]) + r",}[ \t]*$", line):
+                fence = None
+            out.append("")
+            prev = "code"
+            continue
+        if in_comment:
+            in_comment = "-->" not in line
             out.append("")
             continue
-        if in_fence or line.lstrip().startswith(">"):
+        fm = _FENCE_OPEN_RE.match(line)
+        if fm:
+            fence = (fm.group(1)[0], len(fm.group(1)))
+            out.append("")
+            in_quote = False
+            prev = "code"
+            continue
+        if stripped.startswith("<!--"):
+            in_comment = "-->" not in line
             out.append("")
             continue
-        line = _INLINE_CODE_RE.sub(_blank, line)
-        line = _LINK_TARGET_RE.sub(lambda m: m.group(1) + " " * (len(m.group(0)) - 3) + m.group(2), line)
-        line = _AUTOLINK_RE.sub(_blank, line)
-        line = _REFDEF_RE.sub(lambda m: m.group(1) + " " * (len(m.group(0)) - len(m.group(1))), line)
+        if not stripped:
+            out.append("")
+            in_quote = False
+            prev = "blank"
+            continue
+        is_list = bool(_V_LIST_RE.match(line)) and not line.startswith(("    ", "\t"))
+        if stripped.startswith(">"):
+            in_quote = True
+            out.append("")
+            prev = "para"
+            continue
+        if in_quote and not (_V_HEADING_LINE_RE.match(line) or is_list or _THEMATIC_RE.match(line)):
+            out.append("")      # lazy continuation of a block quote
+            prev = "para"
+            continue
+        in_quote = False
+        indented = line.startswith(("    ", "\t"))
+        if indented and not in_list and prev != "para":
+            out.append("")
+            prev = "code"
+            continue
+        if is_list:
+            in_list = True
+        elif not indented:
+            in_list = False
+        prev = "heading" if _V_HEADING_LINE_RE.match(line) else "para"
         out.append(line)
+
+    # Second pass: inline masks, over each run of consecutive kept lines so a span may cross a break.
+    k = 0
+    while k < len(out):
+        if out[k] == "" or not lines[k].strip():
+            k += 1
+            continue
+        m = k
+        while m < len(out) and out[m] != "" and lines[m].strip():
+            m += 1
+        block = _mask_inline("\n".join(out[k:m])).split("\n")
+        for n, text in enumerate(block):
+            out[k + n] = _REFDEF_RE.sub(lambda r: " " * len(r.group(0)), text)
+        k = m
     return out
 
 
-def _voice_paragraphs(masked: List[str]) -> List[Tuple[int, List[str]]]:
-    """Paragraphs of masked lines as (0-based start index, lines): a blank line, a heading and
-    each list item start a new paragraph."""
+def _voice_paragraphs(masked: List[str], lines: List[str]) -> List[Tuple[int, List[str]]]:
+    """Paragraphs of masked lines as (0-based start index, lines). A line that is empty in the
+    source, or removed whole by masking (""), ends a paragraph; so do a heading and each list
+    item. A line that only had inline code masked stays in its paragraph."""
     paras: List[Tuple[int, List[str]]] = []
     start, block = None, []
 
@@ -567,7 +661,7 @@ def _voice_paragraphs(masked: List[str]) -> List[Tuple[int, List[str]]]:
         start, block = None, []
 
     for i, line in enumerate(masked):
-        if not line.strip():
+        if line == "" or not lines[i].strip():
             flush()
             continue
         if _V_HEADING_LINE_RE.match(line):
@@ -598,7 +692,7 @@ def _is_title_case(heading: str) -> bool:
 def check_voice(path: Path, lines: List[str]) -> List[Dict]:
     findings: List[Dict] = []
     masked = mask_prose(lines)
-    for start_idx, para in _voice_paragraphs(masked):
+    for start_idx, para in _voice_paragraphs(masked, lines):
         strong: List[Tuple[int, str, str]] = []   # (1-based line, kind, quoted text)
         weak: List[Tuple[int, str, str]] = []
         dashes: List[Tuple[int, int]] = []
