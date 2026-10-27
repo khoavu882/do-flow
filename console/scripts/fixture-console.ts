@@ -321,7 +321,7 @@ function addSessions(fixture: Fixture, core: string, call: (...args: string[]) =
   const envelopeJq = path.join(hooks, 'bridge', 'envelope.jq');
   const sessionContext = path.join(hooks, 'policies', 'session-context.sh');
   if (![bridge, envelopeJq, sessionContext].every((file) => fs.existsSync(file))) throw new Error(`fixture-console: the hook scripts are not beside --core (${hooks})`);
-  const hookEnv = { ...fixture.env, DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_UPKEEP: 'off', CLAUDE_CONFIG_DIR: '', CODEX_HOME: '', GEMINI_CONFIG_DIR: '', DOFLOW_PROJECT_DIR: '', DOFLOW_DECISION_FD: '', DOFLOW_BRIDGE_TRACE: '' };
+  const hookEnv = { ...fixture.env, DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_UPKEEP: 'off', CLAUDE_CONFIG_DIR: '', CODEX_HOME: '', DOFLOW_PROJECT_DIR: '', DOFLOW_DECISION_FD: '', DOFLOW_BRIDGE_TRACE: '' };
   const run = (command: string, args: string[], cwd: string, input: string, env = hookEnv) => {
     const result = spawnSync(command, args, { cwd, env, input, encoding: 'utf8' });
     if (result.status !== 0) throw new Error(`fixture-console: ${command} ${args.join(' ')} exited ${result.status}\n${result.stdout}${result.stderr}`);
