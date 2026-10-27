@@ -743,6 +743,11 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
       }
       newRows = storeRows.map((r: any) => {
         if (r && typeof r === 'object' && draftMap.has(r.id)) {
+          // An amend never promotes: a live proposed row stays proposed whatever this call would otherwise land.
+          if (r.proposed === true) {
+            proposedIds.push(r.id);
+            return { ...draftMap.get(r.id), proposed: true };
+          }
           return proposedIf(draftMap.get(r.id));
         }
         return r;

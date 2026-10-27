@@ -38,6 +38,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      `doflow-run lifecycle --action overview --maintain --since T --json` (`doflow-run` is the
      `$DOFLOW` resolved above), and settle each pending item with the question tool through the
      `doflow-run followup`, `doflow-run goal` or `doflow-run failure` command its `next` lines give.
+     Advice on a follow-up: `references/advice_calls.md`, followup-triage.
      Rerun with the same `--since T` until nothing is pending. A product problem the user reports
      goes to `doflow-run followup --action report`; a large goal they state, to
      `doflow-run goal --action add`. It edits no source file.
@@ -66,6 +67,8 @@ Route each package to the accepted workflow's first stage. A workflow whose `sta
 that does the package's work is a misclassification — re-propose the class rather than routing the
 package under one the runtime accepted for a different kind of task.
 
+   Advice on a worker's tier: `references/advice_calls.md`, tier.
+
    - For detailed decomposition and dependency graph formatting, consult this skill's own
      `references/pm_routing.md`.
 
@@ -78,6 +81,7 @@ package under one the runtime accepted for a different kind of task.
      Ripgrep when absent, and a static table cannot know that.
    - Consult this skill's own `references/tool_matrix.md` for the intent→capability map and the two
      fallback layers. Treat the router's output as authoritative when the two disagree.
+   - Advice on an MCP server's trigger: `references/advice_calls.md`, mcp-need.
 
 4. **Scope & Effort Estimation (`--estimate`)**:
    - When asked for sizing, complexity, or timeline estimates, produce a range anchored against git history and file scope, stating the assumptions that set its width and the unknowns that would narrow it. Never attach a numeric or percentage certainty to the range — the assumptions are the honest expression of what is not yet known.

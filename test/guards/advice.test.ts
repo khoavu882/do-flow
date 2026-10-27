@@ -1,7 +1,9 @@
 'use strict';
 
 // G30 — decision-model advice cannot leak into hooks, dependencies or unsafe runtime modules.
-// G31 — advice corpus and tier criteria remain synchronized with their source registries.
+// G31 — advice corpus and tier criteria remain synchronized with their source registries, and every registered
+//       advice kind has a call site that still exists, outside comments and prose: asked by a runtime verb, or an
+//       `advise --kind` step in a bash block of a skill with an `advise --action outcome` line beside it (G31.4).
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -188,6 +190,94 @@ function checkG31TierText({ files }: any): any {
   return findings;
 }
 
+// G31.4 — every registered advice kind has a call site that still exists. Comments never count.
+//  - A runtime-asked kind names the verb that asks it: that source file must, outside comments, ask advice for the kind
+//    (`ask`) and, where the verb records the outcome (`outcome`), record it. `review-depth` records no outcome today
+//    (its client call passes `record: false` and `review start` returns no pick id), so it has `outcome: null`; a skill
+//    step cannot close that gap, and the day the verb records one this entry must say so.
+//  - Every other kind needs an `advise --kind <id>` line inside a fenced bash block of a SKILL.md or reference, with an
+//    `advise --action outcome` line in the same block or in the next bash block of that file, if that block asks nothing itself. Prose, shell comments and
+//    HTML comments do not count. A new kind lands in one of the two places, or this fails.
+const RUNTIME_ASKED: any = {
+  'task-class': { caller: 'classify', file: 'src/runtime/task-classifier.ts', outcome: /\bappendOutcome\(/ },
+  'review-depth': { caller: 'review', file: 'src/runtime/review/start.ts', outcome: null },
+};
+const ASKS_ADVICE = /\b(?:client\.ask|interceptDecisionPoint)\(/;
+
+function blankKeepingLines(text: string) { return text.replace(/[^\n]/g, ' '); }
+
+/** Source text with `/* *\/` and `//` comments and `#` lines blanked (line numbers kept). */
+function stripSourceComments(text: string) {
+  return text.replace(/\/\*[\s\S]*?\*\//g, blankKeepingLines).split('\n')
+    .map((line: string) => (/^\s*#/.test(line) ? '' : line.replace(/(^|[^:])\/\/.*$/, '$1')))
+    .join('\n');
+}
+
+/** The bash fences of a markdown file, HTML comments blanked and shell comment lines dropped: [{ lines: [{ line, text }] }]. */
+function bashBlocks(markdown: string) {
+  const blocks: any = [];
+  let open: any = null;
+  let marker = '';
+  markdown.replace(/<!--[\s\S]*?-->/g, blankKeepingLines).split('\n').forEach((text: string, index: number) => {
+    const fence = /^\s*(`{3,}|~{3,})\s*([\w-]*)\s*$/.exec(text);
+    if (open === null) {
+      if (fence) { marker = fence[1]; open = /^(?:bash|sh|shell|zsh)$/.test(fence[2]) ? { lines: [] } : { skip: true }; if (!open.skip) blocks.push(open); }
+    } else if (fence && fence[1][0] === marker[0] && fence[1].length >= marker.length && fence[2] === '') open = null;
+    else if (!open.skip && !/^\s*#/.test(text)) open.lines.push({ line: index + 1, text });
+  });
+  return blocks;
+}
+
+function checkG31CallSites({ files, docs }: any): any {
+  const findings: any = [];
+  const registry = parseJsonFile(files, 'core/registry/advice.json', findings);
+  if (!registry) return findings;
+  const blocksByFile: any = [...(docs instanceof Map ? docs.entries() : Object.entries(docs))]
+    .filter(([file]: any) => /(?:^|\/)SKILL\.md$|\/references\/[^/]+\.md$/.test(file))
+    .map(([file, text]: any) => ({ file, blocks: bashBlocks(text) }));
+  for (const kind of registry.kinds) {
+    const runtime = RUNTIME_ASKED[kind.id];
+    if (runtime) {
+      if (!kind.askedBy.includes(runtime.caller)) findings.push(`${kind.id}: askedBy must name '${runtime.caller}'`);
+      const source = stripSourceComments(getFile(docs, runtime.file) || '');
+      if (!source.includes(`'${kind.id}'`) || !ASKS_ADVICE.test(source)) findings.push(`${kind.id}: ${runtime.file} no longer asks it outside a comment`);
+      if (runtime.outcome && !runtime.outcome.test(source)) findings.push(`${kind.id}: ${runtime.file} no longer records its outcome outside a comment`);
+      continue;
+    }
+    const call = new RegExp(`advise --kind ${kind.id}(?![\\w-])`);
+    let first: any = null;
+    let recorded = false;
+    for (const { file, blocks } of blocksByFile) {
+      blocks.forEach((block: any, index: number) => {
+        const site = block.lines.find((entry: any) => call.test(entry.text));
+        if (!site) return;
+        first = first || `${file}:${site.line}`;
+        const outcome = (candidate: any) => candidate && candidate.lines.some((entry: any) => entry.text.includes('advise --action outcome'));
+        // The next block only counts when it is not another call's own block, so a neighbour's outcome line is not borrowed.
+        const next = blocks[index + 1];
+        if (outcome(block) || (next && !next.lines.some((entry: any) => /advise --kind /.test(entry.text)) && outcome(next))) recorded = true;
+      });
+    }
+    if (!first) findings.push(`${kind.id}: no skill or reference has an 'advise --kind ${kind.id}' step in a bash block`);
+    else if (!recorded) findings.push(`${kind.id}: no 'advise --action outcome' line in the bash block of its call site, or the next one (${first})`);
+  }
+  return findings;
+}
+
+function readSkillDocs() {
+  const docs: any = new Map();
+  function walk(directory: any) {
+    for (const entry of fs.readdirSync(path.join(REPO, directory), { withFileTypes: true })) {
+      const rel = `${directory}/${entry.name}`;
+      if (entry.isDirectory()) walk(rel);
+      else if (entry.isFile() && rel.endsWith('.md')) docs.set(rel, fs.readFileSync(path.join(REPO, rel), 'utf8'));
+    }
+  }
+  walk('core/shared/skills');
+  for (const { file } of Object.values(RUNTIME_ASKED) as any) docs.set(file, fs.readFileSync(path.join(REPO, file), 'utf8'));
+  return docs;
+}
+
 function readTree() {
   const files: any = new Map();
   function walk(directory: any) {
@@ -207,6 +297,7 @@ function readTree() {
 }
 
 const shipped = readTree();
+const skillDocs = readSkillDocs();
 
 test('G30.1: shipped hooks contain no advice dispatch surface', () => {
   assert.deepEqual(checkG30Hooks({ files: shipped }), []);
@@ -310,8 +401,44 @@ test('G31.3 control: names tier and both differing texts', () => {
   const findings = checkG31TierText({ files: fixture });
   assert.ok(findings.some((finding: any) => finding.includes('standard') && finding.includes('edited text') && finding.includes('Normal coding')));
 });
+test('G31.4: every registered advice kind has a runtime ask or a skill call site with an outcome line', () => {
+  assert.deepEqual(checkG31CallSites({ files: shipped, docs: skillDocs }), []);
+});
+{
+  const REFERENCE = 'core/shared/skills/do/references/advice_calls.md';
+  const mutate = (file: string, edit: (text: string) => string) => {
+    const docs: any = new Map(skillDocs);
+    const before = docs.get(file);
+    docs.set(file, edit(before));
+    assert.notEqual(docs.get(file), before, `fixture anchor moved in ${file}`);
+    return checkG31CallSites({ files: shipped, docs });
+  };
+  const names = (findings: any, kind: string) => findings.some((finding: any) => finding.startsWith(`${kind}:`));
+
+  test('G31.4 control: a deleted call site, or a deleted outcome line, names the kind', () => {
+    assert.ok(names(mutate(REFERENCE, (t) => t.replace('advise --kind mcp-need', 'advise --kind gone')), 'mcp-need'));
+    assert.ok(names(mutate('core/shared/skills/do-test/SKILL.md', (t) => t.replace('advise --action outcome', 'advise --action noted')), 'verify-risk'));
+  });
+  test('G31.4 control: a commented-out call site fails (shell comment, HTML comment)', () => {
+    assert.ok(names(mutate(REFERENCE, (t) => t.replace('"$DOFLOW" advise --kind mcp-need', '# "$DOFLOW" advise --kind mcp-need')), 'mcp-need'));
+    assert.ok(names(mutate(REFERENCE, (t) => t.replace(/```bash\n("\$DOFLOW" advise --kind mcp-need[^]*?```)/, '<!-- ```bash\n$1 -->')), 'mcp-need'));
+    assert.ok(names(mutate(REFERENCE, (t) => t.replace(/("\$DOFLOW" advise --action outcome[^\n]*yes\|no[^\n]*)/, '# $1')), 'mcp-need'));
+  });
+  test('G31.4 control: a call in prose outside a bash fence fails', () => {
+    assert.ok(names(mutate(REFERENCE, (t) => t.replace(/```bash\n("\$DOFLOW" advise --kind mcp-need)/, 'Run $1')), 'mcp-need'));
+    assert.ok(names(mutate(REFERENCE, (t) => t.replaceAll('```bash', '```text')), 'tier'));
+  });
+  test('G31.4 control: a runtime-asked kind is named when its call or its outcome record is gone or commented out', () => {
+    const classifier = 'src/runtime/task-classifier.ts';
+    assert.ok(names(mutate(classifier, (t) => t.replace(/\b(client\.ask|interceptDecisionPoint)\(/g, '// $1(')), 'task-class'));
+    assert.ok(names(mutate(classifier, (t) => t.replace(/\bappendOutcome\(/g, '// appendOutcome(')), 'task-class'));
+    const review = 'src/runtime/review/start.ts';
+    assert.ok(names(mutate(review, (t) => t.replace(/\b(client\.ask|interceptDecisionPoint)\(/g, '/* $1( */')), 'review-depth'));
+    assert.ok(names(mutate(review, (t) => t.replaceAll("'review-depth'", "/* 'review-depth' */")), 'review-depth'));
+  });
+}
 
 module.exports = {
   checkG30Hooks, checkG30Dependencies, checkG30Requires, checkG30ProviderRoutes,
-  checkG31Coverage, checkG31TierKeys, checkG31TierText,
+  checkG31Coverage, checkG31TierKeys, checkG31TierText, checkG31CallSites,
 };
