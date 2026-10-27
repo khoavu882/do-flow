@@ -73,3 +73,4 @@ docstrings, or existing test suites as a side effect of an implementation task.
 ## Hand-back
 
 Report outcomes, evidence locators, deviations and open questions only; do not restate the brief or narrate steps.
+End the report with one line `Status: <status>`, where the status is one of `done`, `done-with-concerns`, `needs-context`, `blocked`.
