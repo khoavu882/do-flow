@@ -6,8 +6,8 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
+const { spawnBash } = require('../helper/home-less-bash.ts');
 const { loadSettingsRegistry, validateSettingsRegistry } = require('../../src/runtime/settings/registry.ts');
 const { configHome } = require('../../src/runtime/config-home.ts');
 const { lexicalCapture } = require('../../src/runtime/settings/lexical.ts');
@@ -135,7 +135,7 @@ function configCases(dir: any) {
 
 function runBashConfigHome(block: any, env: any, cwd: any) {
   const script = `set -euo pipefail\n${block}\ndoflow_config_home\nprintf '%s' "$DOFLOW_HOME"`;
-  const result = spawnSync('/bin/bash', ['-c', script], { cwd, env, encoding: 'utf8' });
+  const result = spawnBash(['-c', script], { cwd, env, encoding: 'utf8' });
   assert.equal(result.status, 0, `bash exits 0: ${result.stderr}`);
   assert.equal(result.stderr, '', 'config-home block is silent');
   return result.stdout;
@@ -168,7 +168,7 @@ function checkConfigBlocks(blocks: any, dir: any) {
 
 function runIdentityInlineConfigHome(block: any, env: any, cwd: any) {
   const script = `set -euo pipefail\nsessions="${'${SESSION_DIR:-}'}"\n${block}\nprintf '%s' "$sessions"`;
-  const result = spawnSync('/bin/bash', ['-c', script], { cwd, env, encoding: 'utf8' });
+  const result = spawnBash(['-c', script], { cwd, env, encoding: 'utf8' });
   assert.equal(result.status, 0, `bash exits 0: ${result.stderr}`);
   assert.equal(result.stderr, '', 'identity config-home copy is silent');
   return result.stdout;
@@ -212,7 +212,7 @@ function runJsLexical(block: any) {
 
 function runBashLexical(block: any, file: any, cwd: any) {
   const script = `set -euo pipefail\n${block}\ndoflow_lex_capture "$1"\nprintf '%s' "$DOFLOW_LEX_CAPTURE"`;
-  const result = spawnSync('/bin/bash', ['-c', script, 'x', file], {
+  const result = spawnBash(['-c', script, 'x', file], {
     cwd, env: { PATH: process.env.PATH }, encoding: 'utf8',
   });
   assert.equal(result.status, 0, `bash exits 0: ${result.stderr}`);
