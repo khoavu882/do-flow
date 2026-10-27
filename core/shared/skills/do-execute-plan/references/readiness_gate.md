@@ -155,3 +155,28 @@ actually established, state which requirements it covers, and say what remains. 
 failure this page exists to prevent.
 
 Record an absence with `--absence --need <intent>`; a positive item never states `--absence`.
+
+## Acting on a verdict (SKILL.md step 4)
+
+- **Both `--task-class` and `--task-id` are required.** Omitting either exits 2 and names the
+  valid set. Pass them explicitly rather than letting anything default: a verdict computed for
+  another task, or against another class's contract, is worse than no verdict.
+- **Act on `stageEntry.decision`, not the exit code and not your own reading of `state`.** The
+  entry policy is the runtime's: `ENTER` → dispatch the task; `GATHER_FIRST` → gather the named
+  requirements before dispatching; `ASK_USER` → ask the owed decision and wait; `STOP` → stop
+  and surface the conflicted claim. The four underlying states remain the entire state
+  vocabulary — `READY`, `NEEDS_EVIDENCE`, `NEEDS_USER_DECISION`, `BLOCKED` — and none of them is
+  ever reported as a number, a percentage, or a confidence.
+- Only `bug`, `feature`, `refactor`, `trivial-edit` and `dependency-change` have templates. On
+  any other class the verb exits 1 and lists the valid keys; that is the correct answer, not a
+  gap to route around.
+- All four states are reachable, so a verdict is about this task rather than about the runtime.
+  Dispatch no task until the run's record, below, is `READY`. `BLOCKED` is a claim whose evidence contradicts itself, and `NEEDS_USER_DECISION`
+  is what `--user-decision-pending` returns. A first call on a task with nothing recorded grades
+  an empty ledger — that is a checklist, not a defect.
+- `readiness` also accepts `--verification-plan`, `--scope` and `--invariants` — the verb's own
+  arguments, unrelated to this skill's `--scope`. Those are inputs
+  you **state**, not evidence the gate measured: the report lists them back as `callerAsserted`
+  in JSON and `Caller-stated:` in the human report, and a requirement satisfied that way links
+  no evidence. Pass them when they are true, and when you report the verdict say which part of
+  it rests on a statement rather than on a record. Never pass one to move a state.

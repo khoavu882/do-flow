@@ -4,6 +4,11 @@ The procedural detail behind `/do-execute-plan`'s step 10. `SKILL.md` carries wh
 and the completion-vs-checkpoint decision it turns on; what follows is how each branch is carried
 out. `readiness_gate.md`, referenced below, sits beside this file.
 
+- Once per `/do-execute-plan` invocation, at the last `state.md` checkpoint this run writes —
+  not once per phase, since the stage hands off once however many phases it executed. The stage
+  id is step 3's `caughtUpTo`, which the run is already positioned on; there is no second
+  `catch-up` call and no `status` call to make here.
+
 - **First: is this run a completion or a checkpoint?** Re-read `plan.md`'s task checklist and
   count the task lines still unchecked. A real task line matches `^- \[ \] [A-Z]+\.[0-9]+` (a
   phase letter, a dot, a number — `- [ ] B.2`); the pattern deliberately excludes the generic
