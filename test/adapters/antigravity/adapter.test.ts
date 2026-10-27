@@ -279,7 +279,7 @@ test('rules and workflows are workspace-scope only, landing under .agents/, and 
   const root = scratch();
   const input = harnessInput(registry, { scope: 'project', scopeRoot: root });
   const planned = adapter.plan(input);
-  assert.ok(planned.changes.some((c: any) => c.target === path.join(root, '.agents', 'rules', 'RULE_01_SAFETY.md')), 'workspace rules land under .agents/rules');
+  assert.ok(planned.changes.some((c: any) => c.target === path.join(root, '.agents', 'rules', 'RULES.md')), 'workspace rules land under .agents/rules');
   assert.ok(planned.changes.some((c: any) => c.target === path.join(root, '.agents', 'workflows', 'do-flow-chain.md')), 'the chain workflow lands under .agents/workflows');
   adapter.apply({ ...input, changes: planned.changes });
   assert.ok(fs.existsSync(path.join(root, '.agents', 'workflows', 'do-flow-chain.md')));
@@ -297,7 +297,7 @@ test('rules and workflows are workspace-scope only, landing under .agents/, and 
     'neither rules nor workflows have a documented user-scope home');
 });
 
-test('a project install writes the seven core files flat in .agents/rules, plus the pointer naming .doflow/guidance', () => {
+test('a project install writes the three core files flat in .agents/rules, plus the pointer naming .doflow/guidance', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   const root = scratch();
   const input = harnessInput(registry, { scope: 'project', scopeRoot: root });
@@ -306,7 +306,7 @@ test('a project install writes the seven core files flat in .agents/rules, plus 
   adapter.apply({ ...input, changes: planned.changes });
   const rules = path.join(root, '.agents', 'rules');
   assert.deepEqual(fs.readdirSync(rules, { recursive: true }).sort(),
-    ['DOFLOW_CORE.md', 'FLAGS.md', 'PRINCIPLES.md', 'RULE_01_SAFETY.md', 'RULE_02_WORKFLOW.md', 'RULE_03_QUALITY.md', 'RULE_04_QUESTIONS.md']);
+    ['DOFLOW_CORE.md', 'PRINCIPLES.md', 'RULES.md']);
   const agentsMd = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8');
   assert.match(agentsMd, /\.doflow\/guidance\/DOFLOW_CORE\.md/);
   assert.doesNotMatch(agentsMd, /\{\{GUIDANCE\}\}/);
@@ -317,12 +317,11 @@ test('a project install writes the seven core files flat in .agents/rules, plus 
 // (research/vendor-mechanisms.md section 4), so every projected rule carries `trigger: always_on`.
 const ALWAYS_ON_HEADER = '---\ntrigger: always_on\n---\n\n';
 const CORE_RULE_SOURCES = {
-  'DOFLOW_CORE.md': 'DOFLOW_CORE.md', 'FLAGS.md': 'FLAGS.md', 'PRINCIPLES.md': 'PRINCIPLES.md',
-  'RULE_01_SAFETY.md': 'rules/RULE_01_SAFETY.md', 'RULE_02_WORKFLOW.md': 'rules/RULE_02_WORKFLOW.md',
-  'RULE_03_QUALITY.md': 'rules/RULE_03_QUALITY.md', 'RULE_04_QUESTIONS.md': 'rules/RULE_04_QUESTIONS.md',
+  'DOFLOW_CORE.md': 'DOFLOW_CORE.md', 'PRINCIPLES.md': 'PRINCIPLES.md',
+  'RULES.md': 'rules/RULES.md',
 };
 
-test('107-B C-2: all seven projected .agents/rules files open with the always_on front-matter and keep the source body', () => {
+test('107-B C-2: all three projected .agents/rules files open with the always_on front-matter and keep the source body', () => {
   const registry = loadRegistry({ repoRoot: REPO });
   const root = scratch();
   const input = harnessInput(registry, { scope: 'project', scopeRoot: root });

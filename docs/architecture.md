@@ -460,7 +460,7 @@ command does.
 
 - **G4** (`flags.test.ts`): `--stage` and `--statement` are the runtime `followup` verb's own
   arguments, quoted in `WORKFLOW_HANDOFF.md`, so they are on the `NOT_FRAMEWORK_FLAGS` list with that
-  reason. A new runtime-verb flag quoted in guidance goes on the same list; do not add it to `FLAGS.md`.
+  reason. A new runtime-verb flag quoted in guidance goes on the same list; do not add it to the always-loaded flags section of `rules/RULES.md`.
 - **G13** (`context-budget.test.ts`): the loaded-context rails of the `feature` and `documentation`
   classes were raised for the lifecycle lines in `do-brainstorm` and the follow-up line in
   `WORKFLOW_HANDOFF.md` (the `documentation` rail only for the second, which `do-test` and
@@ -505,12 +505,12 @@ declares target capability and ownership inputs, and is not itself a native conf
 
 | Content | Where it lives | Why it is shared |
 |---|---|---|
-| `DOFLOW_CORE.md`, `PRINCIPLES.md`, `FLAGS.md`, `VERSION`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | One `guidance.context-layer` copy-tree asset mirrors this whole tree, byte-for-byte, into `.doflow/guidance/` for every scope, on the harnesses its `appliesTo` names. Three projections carry only the core set (the `@` import walk of `DOFLOW_CORE.md`, computed by `src/adapters/guidance-manifest.ts` and selected with `select: guidance-manifest`): Kiro steering (`.kiro/steering/`, the same asset's Kiro projection, with a second Kiro-only `kiro.guidance-tree` asset mirroring the full tree into `.doflow/guidance/`), the Copilot `instructions.copilot` asset (`*.instructions.md` with an `applyTo: '**'` header) and the Antigravity `rules.antigravity` asset (`flat` layout into project `.agents/rules`, each file under a `trigger: always_on` header from the `antigravity-always-on-rules` transform). `.doflow/guidance/` stays the full mirror for on-demand reads and is never loaded as steering |
+| `DOFLOW_CORE.md`, `PRINCIPLES.md`, `VERSION`, `rules/`, `references/`, `modes/`, `mcp/` | `core/shared/guidance/` | One `guidance.context-layer` copy-tree asset mirrors this whole tree, byte-for-byte, into `.doflow/guidance/` for every scope, on the harnesses its `appliesTo` names. Three projections carry only the core set (the `@` import walk of `DOFLOW_CORE.md`, computed by `src/adapters/guidance-manifest.ts` and selected with `select: guidance-manifest`): Kiro steering (`.kiro/steering/`, the same asset's Kiro projection, with a second Kiro-only `kiro.guidance-tree` asset mirroring the full tree into `.doflow/guidance/`), the Copilot `instructions.copilot` asset (`*.instructions.md` with an `applyTo: '**'` header) and the Antigravity `rules.antigravity` asset (`flat` layout into project `.agents/rules`, each file under a `trigger: always_on` header from the `antigravity-always-on-rules` transform). `.doflow/guidance/` stays the full mirror for on-demand reads and is never loaded as steering |
 | `MCP_INDEX.md` (`.doflow/guidance/` only, no `core/` source) | Written directly by `applyLifecycle` (`src/lifecycle/index.ts`) | The one file in `.doflow/guidance/` that varies per install (the resolved MCP selection) — deliberately outside `guidance.context-layer`'s copy-tree source so its per-install content never conflicts with that asset's byte-for-byte mirror; imported unconditionally from `DOFLOW_CORE.md` |
 
 > **Path anchor (load-bearing).** Every `@import` in `DOFLOW_CORE.md`, and every `doc` value in
 > `core/registry/mcp.json`, is relative to the **guidance root** (`.doflow/guidance/`). That is why
-> `PRINCIPLES.md`/`FLAGS.md`/`MCP_INDEX.md` sit at the root rather than in a subdirectory: writing
+> `PRINCIPLES.md`/`MCP_INDEX.md` sit at the root rather than in a subdirectory: writing
 > any of them one level deeper silently reinterprets those relative paths against that subdirectory
 > and breaks them without any error. `test/adapters/copy-tree.test.ts` and `test/install/mcp-index.test.ts` resolve
 > both sets of paths against the real tree to keep that anchor enforced rather than assumed.
@@ -555,7 +555,7 @@ so hook and ledger lines can split across two stores. Read-only workers on claim
 the project still have no route to the project store (follow-up). Lifecycle commands no longer anchor
 metadata to `.claude`; the explicit neutral-state importer remains separate for historical state.
 A task's records (evidence, claims, readiness, research requests, outcome, delivery, retrieval plan and the orchestration run) have one root, `taskStateRoot` in `src/runtime/state-root.ts`: a linked, non-sandbox worktree always uses the main checkout's `.doflow/state`, and a sandbox checkout or `-g` keeps its own. Every task id other than its feature's slug is kept under `<store>/<slug>/` whenever a slug resolves (`--slug`, else the checkout's feature), with a read-through to a flat record of the same feature or of none. Every redirected call first runs one locked sweep that moves the records the worktree already holds to the main checkout, and a file present in both with different bytes, or reached through a link, refuses the call with `store-conflict`; the swept stores are the ones `core/registry/storage.json` names with that module as a writer. Source files, and so the freshness hash of a relative evidence locator, stay in the checkout the verb runs in, and `doflow-run paths --json` reports the checkout holding the feature folder as `feature_root`. The machine-wide `slot` queue is the one store outside the project: `slots-user` under `~/.doflow/state/slots`, one file per slot name.
-Each backup is a per-file copy of the files a run changes, plus the ownership ledger those files belong to (a rollback restores only the ledger rows of the files it writes back, and keeps every other current row), with a format-2 `.manifest.json` recording which of them existed. `reconcile` takes no backup, although its plan includes the runtime prune (`pruneRetiredRuntimeFiles`): the prune deletes only files the current source no longer ships whose bytes still equal what DoFlow recorded writing there, so nothing a user wrote or changed is lost, and a rollback would have nothing of theirs to bring back. `.doflow/state/` holds `run.lock` while an `install`, `update`, `remove`, `reconcile` or `rollback` runs, so two runs in one scope never read and write the ledger, `doflow.lock` or the install manifest at the same time.
+Each backup is a per-file copy of the files a run changes, plus the ownership ledger those files belong to (a rollback restores only the ledger rows of the files it writes back, and keeps every other current row), with a format-2 `.manifest.json` recording which of them existed. `reconcile` takes no backup, although its plan includes the orphan prune (`pruneRetiredRuntimeFiles`, over the runtime trees and the shared guidance tree): the prune deletes only files the current source no longer ships whose bytes still equal what DoFlow recorded writing there, so nothing a user wrote or changed is lost, and a rollback would have nothing of theirs to bring back. `.doflow/state/` holds `run.lock` while an `install`, `update`, `remove`, `reconcile` or `rollback` runs, so two runs in one scope never read and write the ledger, `doflow.lock` or the install manifest at the same time.
 
 Migration order is deliberate: declare registry ownership, introduce adapters and neutral state,
 route the CLI through lifecycle planning, then retire a compatibility path only after idempotency,
@@ -808,12 +808,12 @@ configuration as a test fixture.
 
 `test/guards/*.test.ts` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-80 test files (plus `_shared.ts`, a helper rather than a test); this inventory lists
-73 entries across 69 test files and carries 71 distinct G-numbers.
+81 test files (plus `_shared.ts`, a helper rather than a test); this inventory lists
+74 entries across 70 test files and carries 72 distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries; G18 labels two files, of which `adapter-force.test.ts` is not listed; and G30 labels two
 files, `advice.test.ts` and a ratchet test in `module-reachability.test.ts` (the G16 file). The collisions are
-historical rather than a convention; G73 is the highest number in use (G67 is row 120 and G68 is row 122), so a new guard takes the next
+historical rather than a convention; G74 is the highest number in use (G67 is row 120 and G68 is row 122), so a new guard takes the next
 one above it instead of adding another collision. The list is not the whole directory. The
 files absent from it are `verb-reachability.test.ts`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.ts`, which owns G19, and `adapter-force.test.ts`, which is the unlisted half
@@ -831,7 +831,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   entry rather than a skill, and copy-tree'ing the guidance directory is not reachability — that is
   how an orphaned pointer shipped to five harnesses while naming a directory the install had
   flattened away.
-- **G4** (`flags.test.ts`) — `FLAGS.md` entries are wired to a real consumer and vice versa. A flag that is a runtime verb's own argument (such as `--stage` and `--statement` of `followup`) is listed with its reason rather than added to `FLAGS.md`. It also verifies flag ownership against skill frontmatter: the backticked `--flag` tokens on `FLAGS.md`'s shared-flags line equal the flags declared in at least two skills' `argument-hint`, and for every `**--flag ...**` entry, the backticked skill names after "Consumed by" equal exactly the skills whose `argument-hint` declares that flag.
+- **G4** (`flags.test.ts`) — the always-loaded flag vocabulary, the `## Flags and runtime` section of `rules/RULES.md`, names only the shared flags, and its shared-flags line's backticked `--flag` tokens equal the flags declared in at least two skills' `argument-hint`. A flag one skill consumes is owned by that skill's `argument-hint` (row 130 moved `--focus` out of the core into `do-diagnose`); the always-loaded set may name no flag but the shared line's, every flag the guidance tree names is either on the shared line or declared by some skill, and wherever a guidance or skill file says a flag is "Consumed by" a skill, that skill declares it in its `argument-hint` (for a flag that is not shared, the named skills are exactly its declarers). A flag that is a runtime verb's own argument (such as `--stage` and `--statement` of `followup`) is listed with its reason in `NOT_FRAMEWORK_FLAGS`. The always-loaded set names no MCP server; that advertisement belongs to the generated `MCP_INDEX.md`.
 - **G5** (`registry.test.ts`) — checks registry claims against what is actually implemented under
   `src/` and `core/harnesses/`, in both directions for `--target`: every live harness is accepted, and
   every accepted id is a live registry harness, so a retired id is refused up front.
@@ -995,7 +995,7 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
 
 - **G28** (`mcp-claims.test.ts`) — shipped text, the MCP registry and the code agree on which MCP
   servers exist and where they are used. Declared names are the `mcp.json` ids plus every
-  provider's `mcp.server`. Over the skills, agent specs and guidance (not `FLAGS.md`), ``MCP `<id>` ``,
+  provider's `mcp.server`. Over the skills, agent specs and guidance, ``MCP `<id>` ``,
   `mcp__<id>__` and `MCP_<Name>.md` must name a declared server or doc, and the ``MCP `<id>` `` marker
   appears only under `core/shared/skills/`; a sentence naming an `optional` server with "always",
   "no flag" or "unconditionally" fails; a sentence holding `ToolSearch(` must say "Claude Code". Each
@@ -1031,10 +1031,11 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   `advise --kind <id>` line in a fenced bash block of a `SKILL.md` or reference, with an
   `advise --action outcome` line in that block or the next bash block. A new kind has to
   land in one of the two places.
-- **G32** (`runtime-tree.test.ts`) — the two facts the lifecycle's runtime prune rests on: each of
-  `runtime.cli`, `runtime.lib` and `runtime.registry` projects one source directory to one
-  `.doflow/runtime/...` tree for every harness, with no layout or transform, and no other asset
-  writes into those trees; and every path under a shared `.doflow/` tree that a projected file
+- **G32** (`runtime-tree.test.ts`) — the two facts the lifecycle's orphan prune rests on: each tree
+  it judges (`PRUNED_TREES`: `runtime.cli`, `runtime.lib`, `runtime.registry`, and the shared
+  `.doflow/guidance` tree that `guidance.context-layer` and Kiro's `kiro.guidance-tree` project
+  together) is one source directory projected to one shared `.doflow/...` tree for every harness,
+  with no layout, transform or select, and no other asset writes into those trees; and every path under a shared `.doflow/` tree that a projected file
   names (harness hooks, shared scripts, skills, agent specs) exists in source — spelled
   `.doflow/<tree>/...` or, for the runtime trees, through `$CONFIG_DIR/runtime/...`,
   `${DOFLOW_CONFIG_DIR:-$HOME/.doflow}/runtime/...` or a `../runtime/...` hop — so a prune can never
@@ -1195,7 +1196,9 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   `read-only` spec and none for a `write` one; and the four name lists (Kiro's role list, `DOFLOW_CHAIN.md`,
   `docs/setup.md`, the `docs/reference.md` agent table with its mode against `access`) equal the spec set;
   `workflows.json` `agents.access` names exactly the specs, each with its spec's `access` (the runtime reads
-  it there: an installed runtime ships `core/registry`, not `core/shared`).
+  it there: an installed runtime ships `core/registry`, not `core/shared`); and every roster size the
+  prose states ("seven archetypes", "7 agents —", in `README.md`, `docs/`, `core/shared/guidance/` and
+  `core/shared/skills/`) equals the number of specs, with at least one such statement found.
   Each clause re-seeds its fault on a scratch copy of only the files it reads.
 - **G64** (`agent-budget.test.ts`) — the roster is a standing context cost, so it is capped: at most 7
   specs, each `description` at most 160 characters, all together at most 1,000, and every spec declares
@@ -1255,11 +1258,12 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   run. Controls: one changed byte in a bundled preset, a stale manifest version, a differing or missing documented
   list, and a first-party preset naming an unknown seat agent are each named.
 - **G69** (`test-isolation.test.ts`) — every test executes hermetically within its repository and scratch directories: no test file navigates or reads above the repo root (`REPO_ROOT/..`, `../do-flow`, or sibling checkouts), preventing test dependencies on sibling checkouts that do not exist in clean CI environments or isolated release rehearsals (FU-rvzby1). Controls verify that out-of-repo and sibling paths are flagged while safe in-repo references pass.
-- **G70** (`rule-lint.test.ts`) — duplicate rule lint across the guidance tree (Feature 107-C, IC-004): scans all `.md` files under `core/shared/guidance/rules/` for substantive rule statements (>50 characters), asserting that no two rule files define the same rule statement verbatim, and no skill file under `core/shared/skills/` duplicates a core rule statement verbatim unless explicitly citing the rule by name (e.g. `RULE_01`, `RULE_02`, etc.). Controls verify that seeded duplicate statements across rules and un-cited duplicates in skills turn the guard red.
+- **G70** (`rule-lint.test.ts`) — duplicate rule lint across the guidance tree (Feature 107-C, IC-004): scans all `.md` files under `core/shared/guidance/rules/` (today the one `RULES.md`, whose `## RULE_NN` section headings give each statement its tag) and `PRINCIPLES.md` for substantive rule statements (>50 characters), asserting that no two of those files, and no two `## RULE_NN` sections of one file, define the same rule statement verbatim, and no skill file under `core/shared/skills/` duplicates a core rule statement verbatim unless explicitly citing the rule by name (e.g. `RULE_01`, `RULE_02`, etc.). Controls verify that seeded duplicate statements across rules, a rule repeated in `PRINCIPLES.md`, and un-cited duplicates in skills turn the guard red.
 - **G71** (`guidance-rules-registry.test.ts`) — guidance rules registry schema, completeness, and safety invariants (Feature 102, IC-001, IC-002): validates `core/registry/rules.json` against the IC-001 schema, asserts that all 26+ canonical guidance statements across `core/shared/guidance/rules/` and `PRINCIPLES.md` are indexed with zero missing statements, verifies that all mandatory safety rules carry `neverAblate: true` and `ablationCandidate: false`, and strictly enforces the mutual-exclusion invariant forbidding any rule from carrying both `neverAblate: true` and `ablationCandidate: true`. Negative controls verify that planted schema errors, missing statements, and safety violations turn the guard red.
 - **G72** (`agent-teams.test.ts`) — agent teams coordination protocol and safety invariants (Feature 103, IC-001, IC-002, IC-003, IC-004): verifies `core/registry/settings.json` declarations for `team.writerCap` and `team.maxAttempts`, enforces role validation (the 7 specialist agent archetypes) and injection quarantine for untrusted inputs in `TaskBrief` and `TaskHandBack`, validates atomic write-set collision detection and writer cap enforcement in `AdmissionController`, and enforces strict reviewer independence forbidding self-review across agent roles and worker identities.
 
 - **G73** (`gate-evidence.test.ts`) — no exemption of `pre-implementation-gate.sh` covers the gate's own evidence (maint-testdiet): the readiness and orchestration stores, the in-repository `do-paths.sh` resolver candidates, the workflow registry candidate and the feature artifacts are enumerated from the script's own text (an entry of a form the guard cannot classify fails it), and an Edit and a Write to each is run through the real script on a feature branch whose repository git-ignores every DoFlow directory. Only the feature artifacts and the decision register (the authoring surface the gate documents as always allowed under `agent-docs/`) may pass; `KNOWN_GAPS` is empty and a ratchet keeps it so (the `.claude`, `.codex` and `.kiro` resolver candidates were allowed while git-ignored until the gate gated any resolver path ending in do-paths.sh before its ignore skip). The check is also re-run on copies of the script with an exemption planted for the readiness store, the run store, a resolver candidate, the registry and a state file by name, and each plant must be reported.
+- **G74** (`guidance-caps.test.ts`) — vendor guidance size caps (row 130). `core/registry/guidance-caps.json` holds one row per documented cap (`harness`, `cap_bytes`, `scope` of `per-file-after-includes` or `combined-chain`, `source_url`, `verified_on`), and every harness of `harnesses.json` has at least one row; a harness whose vendor documents no cap has `cap_bytes: null` and the page that was checked. Each projected always-on file, classified per harness by `alwaysLoadedByHarness` in `test/helper/always-loaded.ts` (the same classification G13 uses) and measured after its `@`-imports are expanded (a pointer that imports `DOFLOW_CORE.md` carries the whole walk; `MCP_INDEX.md` counts at its largest, every server of `mcp.json`), must fit the smallest per-file cap of its harness (Antigravity 24,000 B), and each harness's combined startup load must fit its chain cap (Codex `project_doc_max_bytes`, 32 KiB), as rulesync's `instruction-budget.ts` does. Controls plant a 24,001 B Antigravity rule, a chain one byte over 32 KiB on Codex, and a table missing a harness or a source.
 
 A finding from any of these is almost always "a doc/registry/skill went stale relative to
 another," not a runtime bug — fix the stale side, don't weaken the guard.
@@ -1269,7 +1273,7 @@ another," not a runtime bug — fix the stale side, don't weaken the guard.
 Two unlisted guard files pin structural boundaries. `test/guards/boundaries.test.ts` holds G-B1,
 the dependency direction rule: no file under `core/` requires from `src/`, `bin/` or `test/`, so
 the content stays usable without the tool that installs it. It also holds G-B2, the inventory
-ratchets: `core/registry/` holds exactly 20 JSON files and `src/adapters/` exactly 7 harness
+ratchets: `core/registry/` holds exactly 22 JSON files and `src/adapters/` exactly 7 harness
 directories. A ratchet does not forbid a change; it makes the change edit the guard in the same
 commit, so each structural shift is a reviewed decision. `test/guards/cli-boundary.test.ts` keeps
 `bin/doflow.js` a thin forwarder with no command handler and no argument parser, and requires the

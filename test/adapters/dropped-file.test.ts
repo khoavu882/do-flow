@@ -77,6 +77,8 @@ function dropRound(harness: any, { edit = false } = {}) {
       bytes: fs.existsSync(target) ? fs.readFileSync(target) : null,
       rows: update.ledger.resources.filter((row: any) => row.target === target),
       relative: path.relative(scratch.home, target),
+      guidanceRel: picked.source.startsWith(path.join(pkg, 'core', 'shared', 'guidance') + path.sep)
+        ? path.relative(path.join(pkg, 'core', 'shared', 'guidance'), picked.source) : null,
     };
   } finally {
     if (picked) fs.copyFileSync(path.join(REPO, path.relative(pkg, picked.source)), picked.source);
@@ -91,7 +93,12 @@ for (const harness of LIFECYCLE_HARNESSES) {
     const result = dropRound(harness);
     assert.equal(result.bytes, null, `${result.target} is deleted`);
     assert.deepEqual(result.rows, [], 'no ledger row names the deleted copy');
-    assert.deepEqual(result.notices.filter((notice: any) => !result.installNotices.includes(notice)), [], 'the update adds no notice');
+    // A guidance file dropped from the source leaves the shared .doflow/guidance tree through the
+    // orphan prune, which names what it deletes (Kiro's steering copy goes with its adapter alone).
+    // Anything else is removed by its adapter alone, and the update adds nothing else.
+    const expected = result.guidanceRel
+      ? [`prune ${path.join('.doflow', 'guidance', result.guidanceRel)}: no longer shipped, unchanged since DoFlow wrote it`] : [];
+    assert.deepEqual(result.notices.filter((notice: any) => !result.installNotices.includes(notice)), expected, 'the update adds no notice but the prune line');
   });
 
   test(`${harness}: an update keeps a hand-edited copy of a dropped source file, releases its row and names it once`, () => {

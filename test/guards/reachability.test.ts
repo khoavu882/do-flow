@@ -186,7 +186,7 @@ test('G8: every flag docs/reference.md documents for a skill exists in that skil
   // A v1 re-review of reference.md found four factual errors: /do-constitution documented a
   // --init flag that has never existed, /do-plan advertised a `enterprise` strategy it does not
   // accept, and --focus was written `perf` where the skill takes `performance`. Nothing checked
-  // this: G4 verifies FLAGS.md against core/, but docs/ was outside every guard, so the user-facing
+  // this: G4 verifies the core flag vocabulary against core/, but docs/ was outside every guard, so the user-facing
   // reference could describe a CLI surface that was never built.
   const skillsRoot = path.join(REPO, 'core', 'shared', 'skills');
   const ref = fs.readFileSync(path.join(REPO, 'docs', 'reference.md'), 'utf8');

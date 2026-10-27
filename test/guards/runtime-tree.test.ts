@@ -15,43 +15,55 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { loadRegistry } = require('../../src/registry/index.ts');
-const { RUNTIME_TREE_ASSETS } = require('../../src/lifecycle/index.ts');
+const { PRUNED_TREES } = require('../../src/lifecycle/index.ts');
 const { sharedTreeDestDir, walkRelFiles } = require('../../src/adapters/copy-tree.ts');
 const { REPO } = require('./_shared.ts');
 const { tempDir } = require('../helper/tmp.ts');
 
 const registry = loadRegistry({ repoRoot: REPO });
 
-/** Findings for the runtime assets of `reg`: one projection shape and one tree each, nothing else
- * writing into any of them, and a source directory that exists under `repo`. */
-function checkRuntimeTrees(reg: any, repo: any, ids: any) {
+/** Findings for the pruned trees of `reg` (`groups`: each the asset ids projecting one tree): one
+ * projection shape and one shared tree per group, every harness projecting into it, one source,
+ * nothing outside the group writing into it, and a source directory that exists under `repo`. A
+ * group asset's projection outside `.doflow/` (Kiro's guidance steering) is not part of the tree. */
+function checkRuntimeTrees(reg: any, repo: any, groups: any) {
   const findings: any = [];
   const harnessIds = reg.harnesses.map((harness: any) => harness.id).sort();
   const trees: any = new Map();
-  for (const id of ids) {
-    const asset = reg.assets.find((item: any) => item.id === id);
-    if (!asset) { findings.push(`${id}: not in the registry`); continue; }
-    if (JSON.stringify([...asset.appliesTo].sort()) !== JSON.stringify(harnessIds)) findings.push(`${id}: applies to ${asset.appliesTo.join(', ')}, not every harness`);
-    if (asset.layout || asset.transform) findings.push(`${id}: declares an asset-level layout or transform`);
+  for (const group of groups) {
+    const label = group.join('+');
+    const assets = group.map((id: any) => reg.assets.find((item: any) => item.id === id));
+    group.forEach((id: any, i: number) => { if (!assets[i]) findings.push(`${id}: not in the registry`); });
+    if (assets.some((asset: any) => !asset)) continue;
     const dirs: any = new Set();
-    for (const harness of asset.appliesTo) {
-      const projection = asset.projection?.[harness] ?? {};
-      if (projection.renderer !== 'copy-tree') findings.push(`${id}: ${harness} renders with '${projection.renderer}', not copy-tree`);
-      if (projection.layout || projection.transform) findings.push(`${id}: ${harness} declares a layout or transform`);
-      dirs.add(asset.nativeDir?.[harness]);
+    const projecting: any = [];
+    for (const asset of assets) {
+      const id = asset.id;
+      if (asset.layout || asset.transform) findings.push(`${id}: declares an asset-level layout or transform`);
+      for (const harness of asset.appliesTo) {
+        const nativeDir = asset.nativeDir?.[harness];
+        if (group.length > 1 && !(typeof nativeDir === 'string' && nativeDir.startsWith('../.doflow/'))) continue;
+        const projection = asset.projection?.[harness] ?? {};
+        if (projection.renderer !== 'copy-tree') findings.push(`${id}: ${harness} renders with '${projection.renderer}', not copy-tree`);
+        if (projection.layout || projection.transform || projection.select) findings.push(`${id}: ${harness} declares a layout or transform`);
+        dirs.add(nativeDir);
+        projecting.push(harness);
+      }
     }
-    if (dirs.size !== 1) { findings.push(`${id}: harnesses project to ${dirs.size} trees`); continue; }
+    if (JSON.stringify([...new Set(projecting)].sort()) !== JSON.stringify(harnessIds)) findings.push(`${label}: applies to ${[...new Set(projecting)].join(', ')}, not every harness`);
+    if (new Set(assets.map((asset: any) => asset.source)).size !== 1) findings.push(`${label}: projects more than one source`);
+    if (dirs.size !== 1) { findings.push(`${label}: harnesses project to ${dirs.size} trees`); continue; }
     const [nativeDir] = dirs;
-    if (typeof nativeDir !== 'string' || !nativeDir.startsWith('../.doflow/runtime/')) { findings.push(`${id}: tree ${nativeDir} is not under ../.doflow/runtime/`); continue; }
-    if (sharedTreeDestDir('/scope', nativeDir) !== path.join('/scope', nativeDir.slice(3))) findings.push(`${id}: ${nativeDir} does not resolve at the scope root`);
-    if (!fs.existsSync(path.join(repo, asset.source))) findings.push(`${id}: source ${asset.source} is missing`);
-    trees.set(nativeDir, id);
+    if (typeof nativeDir !== 'string' || !nativeDir.startsWith('../.doflow/')) { findings.push(`${label}: tree ${nativeDir} is not under ../.doflow/`); continue; }
+    if (sharedTreeDestDir('/scope', nativeDir) !== path.join('/scope', nativeDir.slice(3))) findings.push(`${label}: ${nativeDir} does not resolve at the scope root`);
+    if (!fs.existsSync(path.join(repo, assets[0].source))) findings.push(`${label}: source ${assets[0].source} is missing`);
+    trees.set(nativeDir, group);
   }
   const nested = (a: any, b: any) => a === b || a.startsWith(`${b}/`) || b.startsWith(`${a}/`);
   for (const asset of reg.assets) {
     for (const [harness, nativeDir] of Object.entries(asset.nativeDir ?? {})) {
-      for (const [tree, owner] of trees) {
-        if (asset.id !== owner && typeof nativeDir === 'string' && nested(nativeDir, tree)) findings.push(`${asset.id}: ${harness} writes into ${owner}'s tree (${nativeDir})`);
+      for (const [tree, owners] of trees) {
+        if (!owners.includes(asset.id) && typeof nativeDir === 'string' && nested(nativeDir, tree)) findings.push(`${asset.id}: ${harness} writes into ${owners.join('+')}'s tree (${nativeDir})`);
       }
     }
   }
@@ -100,9 +112,9 @@ function referencedPaths(files: any, trees: any, repo: any): any {
 const SCANNED: any = ['core/harnesses', 'core/shared/scripts', 'core/shared/skills', 'core/shared/agent-specs'];
 const scannedFiles = SCANNED.flatMap((dir: any) => walkRelFiles(path.join(REPO, dir), fs).map((rel: any) => path.join(REPO, dir, rel)));
 
-test('G32.1: each runtime asset projects one source to one .doflow/runtime tree for every harness, and nothing else writes there', () => {
-  assert.deepEqual(RUNTIME_TREE_ASSETS, ['runtime.cli', 'runtime.lib', 'runtime.registry']);
-  assert.deepEqual(checkRuntimeTrees(registry, REPO, RUNTIME_TREE_ASSETS), []);
+test('G32.1: each pruned tree projects one source to one shared .doflow tree for every harness, and nothing else writes there', () => {
+  assert.deepEqual(PRUNED_TREES, [['runtime.cli'], ['runtime.lib'], ['runtime.registry'], ['guidance.context-layer', 'kiro.guidance-tree']]);
+  assert.deepEqual(checkRuntimeTrees(registry, REPO, PRUNED_TREES), []);
 });
 
 test('G32.1 control: a harness-specific layout, a second tree, or a foreign asset in the tree is named', () => {
@@ -111,9 +123,11 @@ test('G32.1 control: a harness-specific layout, a second tree, or a foreign asse
   lib.projection.pi.layout = 'instructions-md';
   lib.nativeDir.kiro = '../.doflow/runtime/kiro-src';
   fixture.assets.find((asset: any) => asset.id === 'scripts.doflow').nativeDir.codex = '../.doflow/runtime/bin/scripts';
-  assert.deepEqual(checkRuntimeTrees(fixture, REPO, RUNTIME_TREE_ASSETS), [
+  fixture.assets.find((asset: any) => asset.id === 'kiro.guidance-tree').projection.kiro.select = 'guidance-manifest';
+  assert.deepEqual(checkRuntimeTrees(fixture, REPO, PRUNED_TREES), [
     'runtime.lib: pi declares a layout or transform',
     'runtime.lib: harnesses project to 2 trees',
+    'kiro.guidance-tree: kiro declares a layout or transform',
     "scripts.doflow: codex writes into runtime.cli's tree (../.doflow/runtime/bin/scripts)",
   ]);
 });

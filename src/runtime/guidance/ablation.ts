@@ -353,10 +353,7 @@ function loadCanonicalGuidance(repoRoot: string, fsImpl: any): string {
   const guidanceDir = path.join(repoRoot, 'core', 'shared', 'guidance');
   const files = [
     path.join(guidanceDir, 'PRINCIPLES.md'),
-    path.join(guidanceDir, 'rules', 'RULE_01_SAFETY.md'),
-    path.join(guidanceDir, 'rules', 'RULE_02_WORKFLOW.md'),
-    path.join(guidanceDir, 'rules', 'RULE_03_QUALITY.md'),
-    path.join(guidanceDir, 'rules', 'RULE_04_QUESTIONS.md'),
+    path.join(guidanceDir, 'rules', 'RULES.md'),
   ];
   const parts: string[] = [];
   for (const f of files) {

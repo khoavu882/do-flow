@@ -190,7 +190,7 @@ test('Codex install merges AGENTS.md and installs reusable skills', (t) => {  co
   // Codex has no native @file import expansion, so its managed section is a prose pointer into
   // the shared .doflow/guidance/ tree rather than the full merged guidance content.
   assert.match(agents, /\.doflow\/guidance\/DOFLOW_CORE\.md/);
-  assert.ok(fs.existsSync(path.join(home, '.doflow', 'guidance', 'rules', 'RULE_01_SAFETY.md')));
+  assert.ok(fs.existsSync(path.join(home, '.doflow', 'guidance', 'rules', 'RULES.md')));
   assert.ok(fs.existsSync(path.join(home, '.agents', 'skills', 'do-execute-plan', 'SKILL.md')));
   assert.ok(fs.existsSync(path.join(home, '.doflow', 'scripts', 'doflow', 'bash', 'do-paths.sh')));
   assert.ok(fs.existsSync(path.join(home, '.doflow', 'templates', 'doflow', 'plan-template.md')));

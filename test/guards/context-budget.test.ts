@@ -13,8 +13,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO, GUIDANCE } = require('./_shared.ts');
-const { GENERATED_EXCLUSIONS, alwaysLoaded, measureSource, lineCount } = require('../helper/always-loaded.ts');
-const { resolveTransform, resolveSelect } = require('../../src/adapters/copy-tree.ts');
+const { GENERATED_EXCLUSIONS, alwaysLoaded, alwaysLoadedByHarness, readRegistry } = require('../helper/always-loaded.ts');
 const { renderGuidancePointer } = require('../../src/adapters/guidance-pointer.ts');
 const { WHOLESALE_ASSETS } = require('../../src/runtime/inventory/siblings.ts');
 
@@ -70,74 +69,6 @@ test('G13: the DoFlow-authored always-loaded set stays within its byte ceiling',
     + '  out of the files above, or — if the ceiling genuinely cannot hold — raise CEILING_BYTES\n'
     + '  in this file in its own reviewed commit stating the new number and its cost (RK4).\n'
     + `  Excluded by design: ${[...GENERATED_EXCLUSIONS.keys()].join(', ')} (generated per install).`);
-});
-
-/**
- * What each harness loads before the user types, classified from the registry rather than named per
- * harness (IC-006). A harness's projections and `WHOLESALE_ASSETS` decide which components it pays for:
- *   - `guidance.core`: the pointer plus the @import walk;
- *   - a copy-tree-family projection that declares `select`: the core set after that projection's
- *     transform, listed through the registered selector the projection names (`resolveSelect`, the code
- *     the adapters run), or `selectFiles`, the injection point of the controls;
- *   - a wholesale projection with no `select`: the whole source tree;
- *   - `guidance.codex-pointer`: the pointer, plus the walk when the harness has no selected projection
- *     (the pointer tells the agent to read DOFLOW_CORE.md, so the walk is paid on instruction).
- * A harness no condition matches is refused, so a ninth harness cannot be reported as costing nothing.
- */
-/** The pointer as a harness installs it at project scope (`{{GUIDANCE}}` filled in), not the token template (107-B C-7). */
-const renderedPointer = (rel: any, bytes: any) => Buffer.from(renderGuidancePointer(bytes.toString('utf8'), { scope: 'project', scopeRoot: REPO }));
-
-function alwaysLoadedByHarness({ harnesses, assets }: any, wholesale: any, selectFiles: any = (dir: any, selectName: any) => resolveSelect(selectName)(dir, fs)) {
-  const walk = alwaysLoaded().files;
-  const walkSize: any = {
-    lines: walk.reduce((n: any, file: any) => n + file.lines, 0), bytes: walk.reduce((n: any, file: any) => n + file.bytes, 0),
-  };
-  const projection = (harness: any, assetId: any) => assets.find((asset: any) => asset.id === assetId)?.projection?.[harness];
-  const sourceOf = (assetId: any) => assets.find((asset: any) => asset.id === assetId).source;
-  const measureSelected = (assetId: any, projected: any) => {
-    const source = sourceOf(assetId);
-    const transform = resolveTransform(projected.transform);
-    return [...selectFiles(path.join(REPO, source), projected.select)].reduce((total, rel) => {
-      let bytes = fs.readFileSync(path.join(REPO, source, rel));
-      if (transform) bytes = transform(path.join(source, rel), bytes);
-      return { lines: total.lines + lineCount(bytes.toString('utf8')), bytes: total.bytes + bytes.length };
-    }, { lines: 0, bytes: 0 });
-  };
-  return harnesses.map(({ id }: any): any => {
-    const parts: any = [];
-    const add = (basis: any, size: any) => parts.push({ basis, ...size });
-    const selectedAssets = assets.filter((asset: any) => asset.projection?.[id]?.select);
-    const selected = selectedAssets.length > 0;
-    if (projection(id, 'guidance.core')) {
-      add('pointer', measureSource(sourceOf('guidance.core')));
-      add('+ @import walk', walkSize);
-    }
-    if (projection(id, 'guidance.codex-pointer')) {
-      add('pointer', measureSource(sourceOf('guidance.codex-pointer'), renderedPointer));
-      if (!selected) add('+ DOFLOW_CORE.md read on instruction', walkSize);
-    }
-    for (const asset of selectedAssets) {
-      const projected = asset.projection[id];
-      add(`+ core set via ${asset.id} select ${projected.select}${projected.transform ? ` (${projected.transform})` : ''}`,
-        measureSelected(asset.id, projected));
-    }
-    for (const assetId of wholesale[id] ?? []) {
-      if (projection(id, assetId)?.select) continue;
-      add(`+ whole ${assetId} tree as steering`, measureSource(sourceOf(assetId)));
-    }
-    if (!parts.length) throw new Error(`no always-loaded rule for harness ${id}; classify it in alwaysLoadedByHarness`);
-    return {
-      harness: id,
-      basis: parts.map((part: any) => part.basis).join(' '),
-      lines: parts.reduce((n: any, part: any) => n + part.lines, 0),
-      bytes: parts.reduce((n: any, part: any) => n + part.bytes, 0),
-    };
-  });
-}
-
-const readRegistry = () => ({
-  harnesses: JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'harnesses.json'), 'utf8')).harnesses,
-  assets: JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'assets.json'), 'utf8')).assets,
 });
 
 test('G13: the always-loaded size view reports lines and bytes per file and per harness projection', (t) => {

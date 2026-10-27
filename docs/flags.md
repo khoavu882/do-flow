@@ -11,10 +11,10 @@ from any skill's frontmatter. This complements, rather than duplicates, two othe
 - [`reference.md`](./reference.md)'s "Full Skill Reference" table is organized **by skill** — one
   row per skill, its full `argument-hint` verbatim; `test/guards/reachability.test.ts` (G8) fails
   when it documents a flag that the skill's `argument-hint` does not declare.
-- `core/shared/guidance/FLAGS.md` (in the repository, not on this site) is the always-loaded statement of what the runtime
-  now does unconditionally. It names the shared flags `--depth` and `--type` (G4 in
-  `test/guards/flags.test.ts` requires that line to list every flag declared by two or more
-  skills), and documents `--focus`.
+- The `## Flags and runtime` section of `core/shared/guidance/rules/RULES.md` (in the repository, not on this site) is the
+  always-loaded statement of what the runtime does unconditionally. It names the shared flags
+  `--depth` and `--type` (G4 in `test/guards/flags.test.ts` requires that line to list every flag
+  declared by two or more skills) and no single-skill flag; `--focus` is documented in `do-diagnose`.
 
 This file owns exactly the gap between the two: every skill-local flag, organized **by flag**
 rather than by skill, so a reader can see every place a given flag name is used without reading 12

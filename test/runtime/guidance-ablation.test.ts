@@ -30,7 +30,7 @@ function createMockLedger(): any {
         id: 'rule-safe-candidate-1',
         tag: 'workflow',
         statement: 'Parallel when write sets are disjoint; otherwise sequential.',
-        sourceFile: 'core/shared/guidance/rules/RULE_02_WORKFLOW.md',
+        sourceFile: 'core/shared/guidance/rules/RULES.md',
         category: 'workflow',
         enforcement: 'advisory',
         enforcementRef: null,
@@ -41,7 +41,7 @@ function createMockLedger(): any {
         id: 'rule-safe-candidate-2',
         tag: 'quality',
         statement: 'Naming: Follow language standards (camelCase JS, snake_case Python); no mixed conventions',
-        sourceFile: 'core/shared/guidance/rules/RULE_03_QUALITY.md',
+        sourceFile: 'core/shared/guidance/rules/RULES.md',
         category: 'quality',
         enforcement: 'advisory',
         enforcementRef: null,
@@ -52,7 +52,7 @@ function createMockLedger(): any {
         id: 'rule-safety-temporal-awareness',
         tag: 'temporal',
         statement: 'Read the date from the environment before any temporal claim; never infer it from your knowledge cutoff, and state its source.',
-        sourceFile: 'core/shared/guidance/rules/RULE_01_SAFETY.md',
+        sourceFile: 'core/shared/guidance/rules/RULES.md',
         category: 'safety',
         enforcement: 'advisory',
         enforcementRef: null,
@@ -63,7 +63,7 @@ function createMockLedger(): any {
         id: 'rule-safety-conflict-order',
         tag: 'safety',
         statement: 'Conflict order: Safety > Scope > Quality > Speed. Prototype != Production requirements.',
-        sourceFile: 'core/shared/guidance/rules/RULE_01_SAFETY.md',
+        sourceFile: 'core/shared/guidance/rules/RULES.md',
         category: 'safety',
         enforcement: 'mechanical',
         enforcementRef: 'core/harnesses/shared/hooks/policies/pre-bash-guard.sh',
@@ -326,8 +326,8 @@ describe('IC-003: Guidance Masking Engine', () => {
 
   test('zero disk mutation: maskGuidance does not touch canonical files on disk', () => {
     const ledger = loadRuleLedger();
-    const candidate = getAblationCandidates(ledger).find((c: any) => c.sourceFile.includes('RULE_02_WORKFLOW.md'));
-    assert.ok(candidate, 'Must find candidate in RULE_02_WORKFLOW.md');
+    const candidate = getAblationCandidates(ledger).find((c: any) => c.sourceFile.endsWith('rules/RULES.md') && c.category === 'workflow');
+    assert.ok(candidate, 'Must find a workflow candidate in rules/RULES.md');
     const ruleFile = path.join(REPO_ROOT, candidate.sourceFile);
     const statBefore = fs.statSync(ruleFile);
     const contentBefore = fs.readFileSync(ruleFile, 'utf8');

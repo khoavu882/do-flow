@@ -43,7 +43,7 @@ function fakeRegistry(fixture: any) {
     ...fixture.registry,
     harnesses: [{ id: 'antigravity', displayName: 'antigravity', adapter: 'antigravity', scopes: ['project', 'user'], nativeTargets: {},
       capabilities: { instructions: { status: 'supported' } } }],
-    assets: [{ id: 'guidance.context-layer', kind: 'guidance', source: 'ignored', appliesTo: ['antigravity'], ownership: 'managed-tree',
+    assets: [{ id: fixture.rows.sharedLive.assetId, kind: 'script', source: 'ignored', appliesTo: ['antigravity'], ownership: 'managed-tree',
       projection: { antigravity: { renderer: 'copy-tree', capability: 'instructions' } } }],
     mcp: [], lifecycle: [],
   };

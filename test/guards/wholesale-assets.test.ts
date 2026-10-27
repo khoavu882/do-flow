@@ -54,7 +54,7 @@ const HARNESSES = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry',
 
 /** A file with its own frontmatter and a body, so a transform that strips and re-wraps is
  * exercised the way a real guidance rule exercises it. */
-const PROBE_SOURCE = 'RULE_01_SAFETY.md';
+const PROBE_SOURCE = 'RULES.md';
 const PROBE_CONTENT = Buffer.from('---\nname: probe\ndescription: "probe"\n---\n\n**Purpose**: probe\n\nbody\n');
 
 /**

@@ -319,13 +319,17 @@ function harnessMcpSelection(registry: any, harness: any, raw: any) {
   return [];
 }
 
-/** The runtime trees: each one source directory projected to one `<scopeRoot>/.doflow/runtime/...`
- * tree for every harness, with no layout and no transform (test/guards/runtime-tree.test.js pins
- * that). Nothing but the shared scripts reaches into them, so a file the current source no longer
- * ships is dead for every harness at once. Guidance and scripts are not here: a harness this run
- * does not update names files in those trees from its own native files, so NFR-007 retention is
- * right for them. */
-const RUNTIME_TREE_ASSETS = ['runtime.cli', 'runtime.lib', 'runtime.registry'];
+/** The shared trees the orphan prune judges, each a group of the assets that project it. Each tree
+ * is one source directory projected to one `<scopeRoot>/.doflow/...` tree for every harness, with
+ * no layout and no transform (test/guards/runtime-tree.test.js pins that), so a file the current
+ * source no longer ships is dead for every harness at once. The guidance tree is two assets: Kiro
+ * projects it through kiro.guidance-tree, every other harness through guidance.context-layer. A
+ * harness's own native files name only DOFLOW_CORE.md in it, which every source ships. The scripts
+ * tree is not here: a harness this run does not update calls those scripts by name from its own
+ * native files, so NFR-007 retention is right for it. */
+const PRUNED_TREES: string[][] = [['runtime.cli'], ['runtime.lib'], ['runtime.registry'], ['guidance.context-layer', 'kiro.guidance-tree']];
+/** Generated in the guidance tree per install, never a ledger row (mcpIndexPath): not an orphan. */
+const PRUNE_EXEMPT = new Set(['MCP_INDEX.md']);
 
 function sha256File(file: string, fsImpl: any): string {
   return crypto.createHash('sha256').update(fsImpl.readFileSync(file)).digest('hex');
@@ -375,12 +379,22 @@ function pruneRetiredRuntimeFiles(harnessPlans: any[], ledger: any, { scopeRoot,
   const recorded = new Set(rows.map((row: any) => row.target));
   const shown = (file: string) => path.relative(scopeRoot, file);
 
-  for (const assetId of RUNTIME_TREE_ASSETS) {
-    const executor = planned.find((target: any) => target.assets.some((asset: any) => asset.id === assetId));
+  const sharedDest = (target: any, asset: any) => {
+    const nativeDir = typeof asset.nativeDir === 'string' ? asset.nativeDir : asset.nativeDir?.[target.harness];
+    return sharedTreeDestDir(scopeRoot, nativeDir);
+  };
+  for (const group of PRUNED_TREES) {
+    // The first planned harness projecting this group into a shared tree (Kiro's guidance.context-layer
+    // projects to its own steering directory, so its kiro.guidance-tree is the one that counts).
+    let executor: any = null;
+    let asset: any = null;
+    for (const target of planned) {
+      asset = target.assets.find((item: any) => group.includes(item.id) && sharedDest(target, item));
+      if (asset) { executor = target; break; }
+    }
     if (!executor) continue;
-    const asset = executor.assets.find((item: any) => item.id === assetId);
-    const nativeDir = typeof asset.nativeDir === 'string' ? asset.nativeDir : asset.nativeDir?.[executor.harness];
-    const destDir = sharedTreeDestDir(scopeRoot, nativeDir);
+    const assetId = asset.id;
+    const destDir = sharedDest(executor, asset);
     const sourceDir = path.resolve(repoRoot, asset.source);
     if (!destDir || !fsImpl.existsSync(sourceDir) || !fsImpl.existsSync(destDir)) continue;
     const produced = discoverTree({ sourceDir, destDir, fsImpl }).files.map((file: any) => file.destAbs);
@@ -397,7 +411,7 @@ function pruneRetiredRuntimeFiles(harnessPlans: any[], ledger: any, { scopeRoot,
     const removalsAt = new Map<string, any[]>();
     for (const target of planned) {
       for (const change of target.changes) {
-        if (change.operation !== 'remove' || change.assetId !== assetId || !isUnder(change.target, destDir) || producedSet.has(change.target)) continue;
+        if (change.operation !== 'remove' || !group.includes(change.assetId) || !isUnder(change.target, destDir) || producedSet.has(change.target)) continue;
         if (!removalsAt.has(change.target)) removalsAt.set(change.target, []);
         removalsAt.get(change.target)!.push(change);
       }
@@ -408,11 +422,19 @@ function pruneRetiredRuntimeFiles(harnessPlans: any[], ledger: any, { scopeRoot,
         if (!change.retained) replaced.get(change.harness)!.set(change, Object.freeze({ ...change, retained: true, retainedFor: [] }));
       }
     };
+    // The tree itself, or any directory above it, may be a link out of the scope (a project's
+    // .doflow/guidance pointing at ~/.doflow/guidance). realpath resolves every component, so the
+    // whole tree is then left alone: nothing in it is pruned, and no planned removal runs.
+    if (!isUnder(realRoot, fsImpl.realpathSync(scopeRoot))) {
+      for (const file of removalsAt.keys()) keepFile(file);
+      notices.get(executor.harness)!.push(`kept ${shown(destDir)}: it resolves outside the scope root, so no file in it is pruned`);
+      continue;
+    }
 
     for (const file of new Set([...rowsAt.keys(), ...removalsAt.keys()])) {
       const fileRows = rowsAt.get(file) ?? [];
       // Another asset's live row on this path is a claim this pass does not judge.
-      if (fileRows.some((row: any) => row.assetId !== assetId)) continue;
+      if (fileRows.some((row: any) => !group.includes(row.assetId))) continue;
       const removals = removalsAt.get(file) ?? [];
       const identity = path.relative(destDir, file);
       // The rows no planned removal of this file releases on its own.
@@ -435,14 +457,25 @@ function pruneRetiredRuntimeFiles(harnessPlans: any[], ledger: any, { scopeRoot,
       }
       if (sameFile(file)) { keepFile(file); continue; }   // the produced file under an old spelling
       const current = sha256File(file, fsImpl);
-      if (!fileRows.some((row: any) => row.fingerprint === current)) {
+      // Each row is its harness's latest record of this path, and every row in this scope's ledger
+      // counts, not only the run's harnesses. Only bytes equal to ALL of them prove the file is
+      // DoFlow's last write: a match with one claimant's older record (a user restoring v1 after
+      // another harness wrote v2) authorizes nothing.
+      const stale = fileRows.filter((row: any) => row.fingerprint !== current);
+      if (stale.length === fileRows.length) {
         // A planned removal here was already kept by planTree, and its adapter named it.
         if (!removals.length) notices.get(executor.harness)!.push(`kept ${shown(file)}: no longer shipped, changed since DoFlow wrote it`);
         continue;
       }
+      if (stale.length) {
+        keepFile(file);
+        const who = [...new Set(stale.map((row: any) => row.harness))].sort().join(', ');
+        notices.get(executor.harness)!.push(`kept ${shown(file)}: no longer shipped, and its bytes differ from what ${who} last recorded`);
+        continue;
+      }
       notices.get(executor.harness)!.push(`prune ${shown(file)}: no longer shipped, unchanged since DoFlow wrote it`);
       // removeTree re-runs containment and the same-file check from this right before the unlink.
-      const pruneGuard = { root: destDir, source: sourceDir };
+      const pruneGuard = { root: destDir, source: sourceDir, scope: scopeRoot };
       if (!removals.length) {
         added.get(executor.harness)!.push(synthetic({ fingerprint: current, supersedes: superseded, pruneGuard }));
         continue;
@@ -457,7 +490,7 @@ function pruneRetiredRuntimeFiles(harnessPlans: any[], ledger: any, { scopeRoot,
     // Files no row names and the source does not produce: never DoFlow's to delete, but named.
     for (const rel of walkRelFiles(destDir, fsImpl)) {
       const file = path.join(destDir, rel);
-      if (producedSet.has(file) || recorded.has(file) || sameFile(file)) continue;
+      if (producedSet.has(file) || recorded.has(file) || sameFile(file) || PRUNE_EXEMPT.has(rel)) continue;
       notices.get(executor.harness)!.push(`kept ${shown(file)}: not shipped by this version and not recorded as DoFlow's`);
     }
   }
@@ -1118,4 +1151,4 @@ function removeLifecycle(options: any) {
   return applyLifecycle({ ...options, plan, mode: 'remove', acceptPrerequisites: options.acceptPrerequisites });
 }
 
-module.exports = { OPERATIONS, MCP_KEEP, recordMcpOwnership, isPackageAsset, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks, hookWiringStatus, markRetainedRemovals, retentionSummary, RUNTIME_TREE_ASSETS, settleSuspendedProjection };
+module.exports = { OPERATIONS, MCP_KEEP, recordMcpOwnership, isPackageAsset, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks, hookWiringStatus, markRetainedRemovals, retentionSummary, PRUNED_TREES, settleSuspendedProjection };

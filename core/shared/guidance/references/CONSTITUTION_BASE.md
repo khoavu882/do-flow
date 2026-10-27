@@ -15,27 +15,27 @@ Each states the norm; the arrow points at the always-loaded rule that carries th
 
 ### P1 — Safety over speed
 Security, data integrity, and production safety are never traded for velocity; a destructive or
-irreversible action needs explicit confirmation. → `rules/RULE_01_SAFETY.md`.
+irreversible action needs explicit confirmation. → `rules/RULES.md` RULE_01.
 
 ### P2 — Evidence over assumptions
 A claim is backed by a test, a run, or a document, never guessed; a failure is root-caused before
-it is fixed. → `rules/RULE_01_SAFETY.md`, `PRINCIPLES.md`.
+it is fixed. → `rules/RULES.md` RULE_01, `PRINCIPLES.md`.
 
 ### P3 — Finish what you start
 No TODO stubs, mocks, or "not implemented" throws in delivered code: done means validated, not
-compiling. → `rules/RULE_02_WORKFLOW.md`.
+compiling. → `rules/RULES.md` RULE_02.
 
 ### P4 — Scope discipline (YAGNI)
 Build only what the spec asks — no bonus features, no speculative abstraction.
-→ `rules/RULE_02_WORKFLOW.md`.
+→ `rules/RULES.md` RULE_02.
 
 ### P5 — Parallel when write sets are disjoint
 Shared write sets/dependencies run sequentially.
-→ `rules/RULE_02_WORKFLOW.md`.
+→ `rules/RULES.md` RULE_02.
 
 ### P6 — Professional honesty
 No invented metrics, no marketing language; state "untested / needs validation" plainly and push
-back on a bad approach with evidence. → `rules/RULE_03_QUALITY.md`.
+back on a bad approach with evidence. → `rules/RULES.md` RULE_03.
 
 ## Governance
 - This base is versioned (semver). Tier-2 repo constitutions may **add** or **override** principles,

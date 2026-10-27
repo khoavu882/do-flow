@@ -71,8 +71,10 @@ test('G-B2: inventory ratchets — registry files and adapters', () => {
   // 20: `rules.json` (102 IC-001) is the rule ledger for always-loaded guidance rules and safety invariants.
   // 21: `transcripts.json` (093 IC-021) is the transcript locator registry; like `advice.json` it has its own loader
   // (`src/runtime/transcripts/registry.ts`) so a bad file turns the transcript feature off instead of failing installs.
-  assert.equal(registryEntries.length, 21,
-    `core/registry holds ${registryEntries.length} files; expected the ratcheted 21`);
+  // 22: `guidance-caps.json` (row 130) is the per-harness vendor size-cap table G74 reads. Not folded into
+  // harnesses.json: each row cites a vendor page and date, and one harness can carry two caps of different scope.
+  assert.equal(registryEntries.length, 22,
+    `core/registry holds ${registryEntries.length} files; expected the ratcheted 22`);
 
   // Stage 3 makes adapters thinner but never fewer: one directory per harness, plus the shared
   // copy-tree engine and the contract validator live as siblings.

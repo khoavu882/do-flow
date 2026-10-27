@@ -48,7 +48,8 @@ function write(file: string, content: any): string {
 
 /**
  * Lays out under `root`:
- *  shared      <root>/.doflow/guidance/CORE.md   copy-tree-file, also claimed by `replacement` (release)
+ *  shared      <root>/.doflow/scripts/core.sh    copy-tree-file, also claimed by `replacement` (release); in the
+ *              scripts tree, which the orphan prune does not judge, so the release alone decides it
  *  agent       <root>/.<id>/agents/helper.md     copy-tree-file (agents.shared), unshared (delete)
  *  script      <root>/.<id>/hooks/<script>        hooks-script / <id>-hooks, one per HOOK_SCRIPTS (delete)
  *  instructions <root>/.<id>/<ID>.md             no kind / <id>-instructions, user text + span (strip-section);
@@ -64,7 +65,7 @@ function buildRetiredLedger({ root, id = 'oldtool', replacement = 'antigravity',
     ownershipIdentity: `doflow:${harness}:copy-tree:${assetId}:${identity}`, projection: { renderer: 'copy-tree' },
   });
 
-  const shared = write(path.join(root, '.doflow', 'guidance', 'CORE.md'), '# core\n');
+  const shared = write(path.join(root, '.doflow', 'scripts', 'core.sh'), '# core\n');
   const agent = write(path.join(dir, 'agents', 'helper.md'), '---\nname: helper\n---\nbody\n');
   const scripts = Object.fromEntries(HOOK_SCRIPTS.map((script) => [script, write(path.join(dir, 'hooks', script), `#!/bin/bash\n# ${script}\n`)]));
   const instructions = write(path.join(dir, `${id.toUpperCase()}.md`), `${USER_TEXT}\n${markerStart}\nDoFlow pointer\n${MARKER_END}\n`);
@@ -80,8 +81,8 @@ function buildRetiredLedger({ root, id = 'oldtool', replacement = 'antigravity',
   const settings = write(path.join(dir, 'settings.json'), `${JSON.stringify(settingsDoc, null, 2)}\n`);
 
   const rows = {
-    shared: fileRow(id, 'guidance.context-layer', shared, 'CORE.md'),
-    sharedLive: fileRow(replacement, 'guidance.context-layer', shared, 'CORE.md'),
+    shared: fileRow(id, 'scripts.doflow', shared, 'core.sh'),
+    sharedLive: fileRow(replacement, 'scripts.doflow', shared, 'core.sh'),
     agent: fileRow(id, 'agents.shared', agent, 'helper.md'),
     scripts: HOOK_SCRIPTS.map((script) => row({
       harness: id, assetId: 'guidance.core', target: scripts[script], kind: 'hooks-script', identity: script,

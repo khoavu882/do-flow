@@ -60,7 +60,7 @@ function filesUnder(dir: any) {
     .map((entry: any) => path.relative(dir, path.join(entry.parentPath, entry.name)).split(path.sep).join('/')).sort();
 }
 
-const CORE_STEERING = ['DOFLOW_CORE.md', 'FLAGS.md', 'PRINCIPLES.md', 'rules/RULE_01_SAFETY.md', 'rules/RULE_02_WORKFLOW.md', 'rules/RULE_03_QUALITY.md', 'rules/RULE_04_QUESTIONS.md'];
+const CORE_STEERING = ['DOFLOW_CORE.md', 'PRINCIPLES.md', 'rules/RULES.md'];
 const EDITED = 'modes/MODE_Orchestration.md';
 
 test('updating an install made before the core-set projections migrates Kiro, Copilot and Antigravity', () => {
@@ -72,8 +72,8 @@ test('updating an install made before the core-set projections migrates Kiro, Co
   const copilotInstructions = path.join(project, '.github', 'instructions');
   const rules = path.join(project, '.agents', 'rules');
   assert.ok(filesUnder(steering).length > CORE_STEERING.length, 'the old install put the whole tree in steering');
-  assert.ok(filesUnder(copilotInstructions).includes('RULE_01_SAFETY.instructions.md'), 'the old Copilot rules sit directly under instructions/');
-  assert.deepEqual(filesUnder(rules), ['RULE_01_SAFETY.md', 'RULE_02_WORKFLOW.md', 'RULE_03_QUALITY.md', 'RULE_04_QUESTIONS.md']);
+  assert.ok(filesUnder(copilotInstructions).includes('RULES.instructions.md'), 'the old Copilot rules sit directly under instructions/');
+  assert.deepEqual(filesUnder(rules), ['RULES.md']);
 
   fs.writeFileSync(path.join(steering, 'my-notes.md'), 'a steering file of my own\n');
   fs.appendFileSync(path.join(steering, EDITED), '\nA line the user added.\n');
@@ -94,15 +94,15 @@ test('updating an install made before the core-set projections migrates Kiro, Co
 
   // Copilot: the rules moved under instructions/rules/, and the core files beside them.
   assert.deepEqual(filesUnder(copilotInstructions), [
-    'DOFLOW_CORE.instructions.md', 'FLAGS.instructions.md', 'PRINCIPLES.instructions.md',
-    'rules/RULE_01_SAFETY.instructions.md', 'rules/RULE_02_WORKFLOW.instructions.md', 'rules/RULE_03_QUALITY.instructions.md', 'rules/RULE_04_QUESTIONS.instructions.md',
+    'DOFLOW_CORE.instructions.md', 'PRINCIPLES.instructions.md',
+    'rules/RULES.instructions.md',
   ]);
 
-  // Antigravity: the three core files joined the four rules, flat.
-  assert.deepEqual(filesUnder(rules), ['DOFLOW_CORE.md', 'FLAGS.md', 'PRINCIPLES.md', 'RULE_01_SAFETY.md', 'RULE_02_WORKFLOW.md', 'RULE_03_QUALITY.md', 'RULE_04_QUESTIONS.md']);
+  // Antigravity: DOFLOW_CORE.md and PRINCIPLES.md joined the rules file, flat.
+  assert.deepEqual(filesUnder(rules), ['DOFLOW_CORE.md', 'PRINCIPLES.md', 'RULES.md']);
   for (const name of filesUnder(rules)) {
     assert.ok(fs.readFileSync(path.join(rules, name), 'utf8').startsWith('---\ntrigger: always_on\n---\n\n'),
-      `${name} gained the always_on front-matter, including the four rules the old install wrote bare`);
+      `${name} gained the always_on front-matter, including the rules file the old install wrote bare`);
   }
 
   // Every ledger row names a file that exists, none names a path no longer produced, and reconcile
@@ -110,7 +110,7 @@ test('updating an install made before the core-set projections migrates Kiro, Co
   const rows = JSON.parse(fs.readFileSync(path.join(project, '.doflow', 'state', 'ledger.json'), 'utf8')).resources
     .filter((row: any) => typeof row.target === 'string');
   assert.deepEqual(rows.filter((row: any) => !fs.existsSync(row.target)).map((row: any) => row.target), []);
-  const stale = [path.join(copilotInstructions, 'RULE_01_SAFETY.instructions.md'), path.join(steering, 'references', 'RESEARCH_CONFIG.md'), path.join(steering, EDITED)];
+  const stale = [path.join(copilotInstructions, 'RULES.instructions.md'), path.join(steering, 'references', 'RESEARCH_CONFIG.md'), path.join(steering, EDITED)];
   assert.deepEqual(rows.filter((row: any) => stale.includes(row.target)).map((row: any) => row.target), []);
   const reconcile = run(['reconcile', project, '--dry-run', '-t', TARGETS]);
   for (const id of ['kiro', 'copilot', 'antigravity']) assert.match(reconcile, new RegExp(`${id}: clean`));

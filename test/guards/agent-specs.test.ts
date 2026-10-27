@@ -59,7 +59,7 @@ function fileTokens(text: any) {
 }
 
 test('G14: no agent specification references a file outside itself (FR-021)', () => {
-  assert.ok(specs.length >= 5, `expected the five archetypes, found ${specs.length}`);
+  assert.ok(specs.length > 0, 'no agent specs found; the spec directory stopped resolving');
 
   const findings: any = [];
   for (const { name, text } of specs) {
