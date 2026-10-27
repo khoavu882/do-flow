@@ -67,8 +67,8 @@ function onOff(name: any, args: any, { env = {}, setup }: any = {}) {
   const b = dispatch(off, args, { env: { ...env, DOFLOW_FAILURE_CAPTURE: 'off' } });
   assert.equal(a.status, b.status, 'exit status differs');
   // The twin trees differ only in their scratch directory name, which messages quote.
-  // On Windows a message quotes the directory as bash sees it (/c/x), as git does (C:/x) or as Node does (C:\\x).
-  const spellings = (dir: any) => [...new Set([dir, dir.replace(/\\/g, '/'), dir.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_m: any, d: any) => `/${d.toLowerCase()}`)])];
+  // On Windows a message quotes the directory as bash sees it (/c/x), as git does (C:/x) or as Node does (C:\\x), and a JSON message escapes each backslash.
+  const spellings = (dir: any) => [...new Set([dir, JSON.stringify(dir).slice(1, -1), dir.replace(/\\/g, '/'), dir.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_m: any, d: any) => `/${d.toLowerCase()}`)])];
   const same = (text: any, t: any) => spellings(t.dir).reduce((acc: any, spelling: any) => acc.split(spelling).join('<tree>'), text);
   assert.equal(same(a.stdout, on), same(b.stdout, off), 'stdout differs');
   assert.equal(same(a.stderr, on), same(b.stderr, off), 'stderr differs');

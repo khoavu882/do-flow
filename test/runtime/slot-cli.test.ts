@@ -186,8 +186,13 @@ test('list on an empty machine, then a live holder, is visible from two director
 
   bg.child.kill('SIGTERM');
   const ended: any = await bg.exited;
-  assert.equal(ended.code, 143);
-  assert.deepEqual(s.list().slots, []);
+  if (process.platform === 'win32') {
+    // win32 has no SIGTERM: kill() ends the process abruptly, so neither the 143 exit nor the slot cleanup of its handler runs.
+    assert.notEqual(ended.code, 0);
+  } else {
+    assert.equal(ended.code, 143);
+    assert.deepEqual(s.list().slots, []);
+  }
 });
 
 test('the doflow-run dispatcher forwards -- and every following argument unchanged', (t) => {

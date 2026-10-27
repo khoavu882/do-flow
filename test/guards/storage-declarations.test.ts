@@ -444,7 +444,7 @@ if(!applied.ok){console.error(JSON.stringify(applied.findings));process.exit(1);
       // The shared bridge's observe-model step (row 120 IC-005): a codex payload naming a model, once as
       // the main session and once as a launched worker, writes one file in each observation store.
       ['bridge observe-model main', { cmd: bashPath(), args: [bridge, 'codex', 'PreToolUse', 'mcp-tool-guard'], input: modelPayload }, 0],
-      ['bridge observe-model worker', { cmd: '/usr/bin/env', args: ['DOFLOW_SESSION_ROLE=worker', 'DOFLOW_RUN_ID=g26', 'DOFLOW_LINEAGE_ID=w', 'DOFLOW_ATTEMPT=1', bashPath(), bridge, 'codex', 'PreToolUse', 'mcp-tool-guard'], input: modelPayload }, 0],
+      ['bridge observe-model worker', { cmd: bashPath(), args: [bridge, 'codex', 'PreToolUse', 'mcp-tool-guard'], envPatch: { DOFLOW_SESSION_ROLE: 'worker', DOFLOW_RUN_ID: 'g26', DOFLOW_LINEAGE_ID: 'w', DOFLOW_ATTEMPT: '1' }, input: modelPayload }, 0],
       ['project install', cli('install', project, ...target, '--mcp', 'none'), 0],
       ['project update', cli('update', project, ...target), 0],
       ['global install', cli('install', '-g', ...target, '--mcp', 'none'), 0],
@@ -452,11 +452,11 @@ if(!applied.ok){console.error(JSON.stringify(applied.findings));process.exit(1);
       ['seed old advice partitions', node('-e', seedOldAdvice, roots['project-state'], roots['user-state']), 0],
       ['seed worker run and output', node('-e', seedWorkerRun, roots['project-state']), 0],
       // `empty-bin` does not exist, so every harness is `not-on-path` and no process but Node starts:
-      // no real harness binary runs (081 IC-031, IC-032). `/usr/bin/env` is absent on win32 (RK8).
-      ['worker probe (empty PATH)', { cmd: '/usr/bin/env', args: [`PATH=${path.join(scratch.dir, 'empty-bin')}`, process.execPath, DOFLOW_CLI, 'worker', '--action', 'probe', '--json'] }, 0],
+      // no real harness binary runs (081 IC-031, IC-032). The environment is patched on the spawn itself: `/usr/bin/env` is absent on win32 (RK8).
+      ['worker probe (empty PATH)', { cmd: process.execPath, args: [DOFLOW_CLI, 'worker', '--action', 'probe', '--json'], envPatch: { PATH: path.join(scratch.dir, 'empty-bin') } }, 0],
       // In process with an empty PATH and no identity variables: the seed spawns nothing and looks up
       // no binary, and no harness is reachable even by accident (NFR-002, DEC-056).
-      ['seed dispatch record, envelope and worktree layout', { cmd: '/usr/bin/env', args: [...['DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE'].flatMap((name) => ['-u', name]), `PATH=${path.join(scratch.dir, 'empty-bin')}`, process.execPath, '-e', seedDispatch, roots['project-state']] }, 0],
+      ['seed dispatch record, envelope and worktree layout', { cmd: process.execPath, args: ['-e', seedDispatch, roots['project-state']], envPatch: { DOFLOW_RUN_ID: undefined, DOFLOW_LINEAGE_ID: undefined, DOFLOW_ATTEMPT: undefined, DOFLOW_SESSION_ROLE: undefined, DOFLOW_WORKTREE: undefined, PATH: path.join(scratch.dir, 'empty-bin') } }, 0],
       ['storage --action prune', cli('storage', '--action', 'prune'), 0],
       ['project remove', cli('remove', project, ...target), 0],
       ['global remove', cli('remove', '-g', ...target), 0],
@@ -466,10 +466,15 @@ if(!applied.ok){console.error(JSON.stringify(applied.findings));process.exit(1);
     const observations: any = [];
     const failures: any = [];
     let known = snapshot();
-    for (const [step, { cmd, args, input }, expected] of steps as any[]) {
+    for (const [step, { cmd, args, input, envPatch }, expected] of steps as any[]) {
       fs.rmSync(observed, { force: true });
-      const result = spawnSync(cmd, args, { cwd: project, env, input, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-      if (result.status !== expected) failures.push(`${step}: exit ${result.status}, expected ${expected}: ${result.stderr || result.stdout}`);
+      const stepEnv: any = { ...env };
+      // Windows environment names are case-insensitive: drop a differently-cased twin (Path) before patching PATH.
+      for (const name of Object.keys(envPatch ?? {})) for (const twin of Object.keys(stepEnv)) if (process.platform === 'win32' && twin.toUpperCase() === name.toUpperCase()) delete stepEnv[twin];
+      Object.assign(stepEnv, envPatch ?? {});
+      for (const name of Object.keys(stepEnv)) if (stepEnv[name] === undefined) delete stepEnv[name];
+      const result = spawnSync(cmd, args, { cwd: project, env: stepEnv, input, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+      if (result.status !== expected) failures.push(`${step}: exit ${result.status}, expected ${expected}: ${result.stderr || result.stdout || result.error}`);
       const after = snapshot();
       const touched: any = new Set([...after].filter((file) => !known.has(file)));
       if (fs.existsSync(observed)) {

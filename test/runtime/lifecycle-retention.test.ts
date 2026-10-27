@@ -171,7 +171,7 @@ test('a missing or malformed registry disables automatic retention without break
         const fs = require('node:fs');
         const readFileSync = fs.readFileSync;
         fs.readFileSync = (file, ...args) => {
-          if (String(file).endsWith('core/registry/storage.json')) ${replacement}
+          if (String(file).replace(/\\\\/g, '/').endsWith('core/registry/storage.json')) ${replacement}
           return readFileSync.call(fs, file, ...args);
         };
       `);
@@ -188,7 +188,7 @@ test('a missing or malformed registry disables automatic retention without break
     const refusedFs: any = {
       ...fs,
       readFileSync: (file: any, ...args: any[]) => {
-        if (String(file).endsWith('core/registry/storage.json')) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
+        if (String(file).replace(/\\/g, '/').endsWith('core/registry/storage.json')) throw Object.assign(new Error('missing'), { code: 'ENOENT' });
         return fs.readFileSync(file, ...args);
       },
     };

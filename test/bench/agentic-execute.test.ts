@@ -764,7 +764,7 @@ test('FU-j421p4: a signal that arrives during the synchronous setup of a run sto
 });
 
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
-  test(`C-1: ${sig} to the executor ends the worker group, removes profile and workspace, keeps the spend, and re-raises`, { timeout: 30000 }, async () => {
+  test(`C-1: ${sig} to the executor ends the worker group, removes profile and workspace, keeps the spend, and re-raises`, { timeout: 30000, skip: SKIP_WIN }, async () => {
     const s = setup({ config: testConfig((c: any) => { c.timeoutSeconds = 60; }) });
     const pidfile = path.join(s.dir, 'sleeper.pid');
     const scenario = writeScenario(s, 'hang', oneTask({ behaviour: 'timeout' }));

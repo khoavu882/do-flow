@@ -74,7 +74,9 @@ const launched = (run: any, lineage: any) => ({ DOFLOW_SESSION_ROLE: 'worker', D
 function isolationScenario(root: any, { byEnv }: any) {
   const shared = worktree('cwd');
   const [w1, w2] = [worktree('wt'), worktree('wt')];
-  const place = (dir: any) => (byEnv ? { cwd: shared, env: { DOFLOW_WORKTREE: dir } } : { cwd: dir, env: {} });
+  // identity.sh takes a DOFLOW_WORKTREE only when it is /-rooted, so on Windows the drive path is given in its Git Bash spelling (/c/...).
+  const bashForm = (dir: any) => (process.platform === 'win32' ? dir.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_m: any, d: any) => `/${d.toLowerCase()}`) : dir);
+  const place = (dir: any) => (byEnv ? { cwd: shared, env: { DOFLOW_WORKTREE: bashForm(dir) } } : { cwd: dir, env: {} });
   const tag = `${byEnv ? 'ENV' : 'CWD'}${seq++}`;
   compact(`A1-${tag}`, place(w1).cwd, `SUMMARY-ONE-${tag}`, { env: place(w1).env, root });
   compact(`A2-${tag}`, place(w2).cwd, `SUMMARY-TWO-${tag}`, { env: place(w2).env, root });

@@ -101,7 +101,7 @@ function emitWithRace(options: any, race: any) {
   let fired = 0;
   if (race) {
     fs.renameSync = function racedRename(from: any, to: any) {
-      if (RACE_SOURCE[race].test(String(from))) { fs.rmSync(from, { force: true }); fired += 1; }
+      if (RACE_SOURCE[race].test(String(from).replace(/\\/g, '/'))) { fs.rmSync(from, { force: true }); fired += 1; }
       return real.call(fs, from, to);
     };
   }

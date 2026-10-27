@@ -7,7 +7,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDirOutsideProfile } = require('../helper/outside-profile.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { buildAdapterRegistry } = require('../../src/cli/shared.ts');
@@ -27,7 +27,8 @@ function write(file: any, text: any) {
 }
 
 function fixture(t: any) {
-  const dir = tempDir(t, 'doflow-mcp-reach-');
+  // outside the account profile on win32: the reach walk goes up from the project and would read the profile's own ledger
+  const dir = tempDirOutsideProfile(t, 'doflow-mcp-reach-');
   const home = path.join(dir, 'home');
   const proj = path.join(dir, 'proj');
   fs.mkdirSync(home);

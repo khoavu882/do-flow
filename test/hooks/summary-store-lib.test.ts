@@ -35,14 +35,14 @@ function worktree() {
 }
 
 /** Runs `body` after sourcing lib.sh (cwd_hash, STATE_DIR) and summary-store.sh, under set -euo pipefail. */
-function sh(body: any, args: any = []) {
+function sh(body: any, args: any = [], env: any = {}) {
   const script = `set -euo pipefail\n. "${LIB}"\n. "${STORE}"\n${body}`;
-  const r = spawnSync(BASH, ['-c', script, 'user-prompt-submit.sh', ...args], { env: scratch.env(), encoding: 'utf8' });
+  const r = spawnSync(BASH, ['-c', script, 'user-prompt-submit.sh', ...args], { env: scratch.env(env), encoding: 'utf8' });
   return r;
 }
 
-function ok(body: any, args: any = []) {
-  const r = sh(body, args);
+function ok(body: any, args: any = [], env: any = {}) {
+  const r = sh(body, args, env);
   assert.equal(r.status, 0, r.stderr);
   return r.stdout;
 }
@@ -60,8 +60,13 @@ const PRINT_SUMMARY = 'printf "rc=%s\\nown=%s\\nclaimed=%s\\nbytes=%s\\nscope=%s
 const PRINT_GRANT = 'printf "rc=%s\\ngrant=%s\\nfile=%s\\nid=%s\\nbytes=%s\\nclaimed=%s\\n" "$rc" "$DF_GRANT" "$DF_GRANT_FILE" "$DF_GRANT_ID" "$DF_GRANT_BYTES" "${DF_GRANT_CLAIMED:-}"';
 
 function write(wt: any, { run = 'local', lineage = 'main', attempt = '', session = 'sess-w', branch = 'topic', role = 'main', body = 'the body', at = AT }: any = {}) {
-  const out: any = vars(ok('rc=0; doflow_summary_write "$@" || rc=$?\nprintf "rc=%s\\nid=%s\\npath=%s\\n" "$rc" "$DF_SUMMARY_ID" "$DF_SUMMARY_PATH"',
-    [wt, run, lineage, attempt, at, session, 'auto', branch, role, body]));
+  // A body too large for one command-line word (Windows caps the whole command line near 32 KB) travels in a file.
+  const viaFile = body.length > 8000;
+  let bodyFile = '';
+  if (viaFile) { bodyFile = path.join(scratch.dir, `body-${seq++}`); fs.writeFileSync(bodyFile, body); }
+  const out: any = vars(ok(`rc=0; doflow_summary_write "$@" || rc=$?\nprintf "rc=%s\\nid=%s\\npath=%s\\n" "$rc" "$DF_SUMMARY_ID" "$DF_SUMMARY_PATH"`.replace('"$@"', viaFile ? '"${@:1:9}" "$(cat "$DF_BODY_FILE")"' : '"$@"'),
+    viaFile ? [wt, run, lineage, attempt, at, session, 'auto', branch, role] : [wt, run, lineage, attempt, at, session, 'auto', branch, role, body],
+    viaFile ? { DF_BODY_FILE: bodyFile } : {}));
   return out;
 }
 

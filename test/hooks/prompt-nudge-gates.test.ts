@@ -11,6 +11,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env.ts');
+const { IS_WIN, samePath } = require('../helper-platform.ts');
+// bash reports a Windows path as /c/..., which realpath would read as a path on the current drive.
+const nativeOf = (p: any) => {
+  const text = String(p).trim();
+  const drive = IS_WIN ? /^\/([A-Za-z])(\/.*)?$/.exec(text) : null;
+  return drive ? `${drive[1].toUpperCase()}:${drive[2] ?? '/'}` : text;
+};
 
 const REPO = path.resolve(__dirname, '..', '..');
 const LIB = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'lib.sh');
@@ -19,7 +26,8 @@ const scratch = createScratch('doflow-nudge-gates-');
 const NUDGE_DIR = path.join(scratch.xdg, 'doflow', 'session-env', 'nudge');
 const USER_SETTING = path.join(scratch.xdg, 'doflow', 'prompt-nudge');
 
-test.after(() => scratch.remove());
+const extraDirs: any[] = [];
+test.after(() => { scratch.remove(); for (const dir of extraDirs) fs.rmSync(dir, { recursive: true, force: true }); });
 
 let seq = 0;
 function fresh(name: any = 'd') {
@@ -447,7 +455,14 @@ test('ledger probe: config dir from DOFLOW_CONFIG_DIR, then the nearest .doflow 
   assert.equal(fires(sub, { DOFLOW_CONFIG_DIR: path.join(other, '.doflow') }), true);
 
   // no .doflow above cwd: HOME/.doflow
-  const bare = fresh('bare');
+  let bare = fresh('bare');
+  const storeAbove = (start: any) => { for (let d = start; ; d = path.dirname(d)) { if (fs.existsSync(path.join(d, '.doflow'))) return true; if (d === path.dirname(d)) return false; } };
+  if (process.platform === 'win32' && storeAbove(bare)) {
+    // The Windows temp folder sits under the user profile, which can hold a real .doflow store; the premise
+    // (no .doflow above cwd) is then arranged at the drive root instead of being assumed.
+    bare = fs.mkdtempSync(path.join(path.parse(bare).root, 'doflow-bare-'));
+    extraDirs.push(bare);
+  }
   fs.rmSync(path.join(scratch.home, '.doflow'), { recursive: true, force: true });
   assert.equal(fires(bare, {}), false);
   write(path.join(scratch.home, '.doflow', 'state', 'runs', '2026-10-09.jsonl'), rec('2026-10-09T10:07:00Z'));
@@ -475,12 +490,14 @@ test('ledger probe: a cwd without a leading / ends the walk and finds a .doflow 
   const session: any = fresh('session');
   write(path.join(session, 'git-context.json'), JSON.stringify({ captured_at: '2026-10-09T10:00:00Z' }));
   write(path.join(base, 'relrepo', '.doflow', 'state', 'runs', '2026-10-09.jsonl'), rec('2026-10-09T10:05:00Z'));
-  write(path.join(base, 'C:', 'Work', 'dev', 'proj', '.doflow', 'state', 'runs', '2026-10-09.jsonl'), rec('2026-10-09T10:05:00Z'));
+  // A `C:` folder cannot exist on NTFS and a `C:` cwd is a real drive there: the drive-shaped cases are POSIX-only.
+  const driveShaped = process.platform !== 'win32';
+  if (driveShaped) write(path.join(base, 'C:', 'Work', 'dev', 'proj', '.doflow', 'state', 'runs', '2026-10-09.jsonl'), rec('2026-10-09T10:05:00Z'));
   fs.rmSync(path.join(scratch.home, '.doflow'), { recursive: true, force: true });
-  for (const cwd of ['relrepo/src', 'C:/Work/dev/proj/src', 'C:\\Work\\dev\\proj\\src']) {
+  for (const cwd of ['relrepo/src', ...(driveShaped ? ['C:/Work/dev/proj/src', 'C:\\Work\\dev\\proj\\src'] : [])]) {
     assert.equal(callIn(base, 'nudge_ledger_active', [cwd, session]).status, 0, `${cwd} finds its ledger`);
   }
-  for (const cwd of ['relative/dir', 'nogit', 'C:', 'C:/Work/dev/other', 'C:\\Work\\dev\\other', '.', '..', '']) {
+  for (const cwd of ['relative/dir', 'nogit', ...(driveShaped ? ['C:', 'C:/Work/dev/other', 'C:\\Work\\dev\\other'] : []), '.', '..', '']) {
     assert.notEqual(callIn(base, 'nudge_ledger_active', [cwd, session]).status, 0, `${JSON.stringify(cwd)} has no ledger`);
   }
 });
@@ -498,7 +515,7 @@ test('registry lookup follows IC-006 order and fails when no candidate exists', 
   const c4 = path.join(scratch.home, '.doflow', 'runtime', 'core', 'registry', 'workflows.json');
   const resolve = () => {
     const r: any = call('nudge_registry', [policy, root]);
-    return r.status === 0 ? fs.realpathSync(r.stdout.trim()) : null;
+    return r.status === 0 ? fs.realpathSync(nativeOf(r.stdout)) : null;
   };
   fs.rmSync(path.join(scratch.home, '.doflow'), { recursive: true, force: true });
   assert.equal(resolve(), null);
@@ -515,7 +532,7 @@ test('registry lookup follows IC-006 order and fails when no candidate exists', 
   write(path.join(base, 'core', 'registry', 'workflows.json'), '{}');
   const r2: any = call('nudge_registry', [srcPolicy, root]);
   assert.equal(r2.status, 0);
-  assert.equal(fs.realpathSync(r2.stdout.trim()), fs.realpathSync(path.join(base, 'core', 'registry', 'workflows.json')));
+  assert.equal(fs.realpathSync(nativeOf(r2.stdout)), fs.realpathSync(path.join(base, 'core', 'registry', 'workflows.json')));
 
   write(c1, '{}');
   assert.equal(resolve(), fs.realpathSync(c1));
@@ -531,7 +548,7 @@ test('registry lookup skips a directory candidate and an empty policy folder arg
   write(file, '{}');
   const r: any = call('nudge_registry', ['', root]);
   assert.equal(r.status, 0);
-  assert.equal(r.stdout.trim(), file);
+  assert.ok(samePath(r.stdout.trim(), file), `${r.stdout.trim()} is ${file}`);
   fs.rmSync(path.join(scratch.home, '.doflow'), { recursive: true, force: true });
 });
 
@@ -540,5 +557,5 @@ test('the shipped source tree resolves its own registry through candidate 2', ()
   fs.rmSync(path.join(scratch.home, '.doflow'), { recursive: true, force: true });
   const r: any = call('nudge_registry', [policy, fresh('project')]);
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(fs.realpathSync(r.stdout.trim()), path.join(REPO, 'core', 'registry', 'workflows.json'));
+  assert.equal(fs.realpathSync(nativeOf(r.stdout)), path.join(REPO, 'core', 'registry', 'workflows.json'));
 });

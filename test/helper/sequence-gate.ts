@@ -226,8 +226,15 @@ const [dir, ms] = [process.argv[1], Number(process.argv[2])];
 const pids = [];
 let held = '';
 const fire = () => {
-  for (const pid of pids) { try { process.kill(pid, 'SIGKILL'); } catch {} }
-  try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+  const nap = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  // Windows: a killed process lets go of its cwd and open files a moment after kill() returns, and a
+  // directory cannot be removed until then; so removal is retried briefly instead of attempted once.
+  for (let attempt = 0; attempt < 60; attempt++) {
+    for (const pid of pids) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+    if (!fs.existsSync(dir)) break;
+    nap(50);
+  }
   process.exit(0);
 };
 process.stdin.on('data', (d) => { const lines = (held + d).split('\\n'); held = lines.pop(); for (const l of lines) pids.push(Number(l)); });

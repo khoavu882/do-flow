@@ -173,7 +173,8 @@ function telemetryDir(root: any) {
 
 function regularTelemetryFiles(root: any) {
   const dir = telemetryDir(root);
-  if (!fs.existsSync(dir)) return [];
+  // On win32 a blocked telemetry dir is a regular file (see blockDir): it holds no telemetry files.
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return [];
   return fs.readdirSync(dir).sort().flatMap((name: any) => {
     const file = path.join(dir, name);
     if (!fs.lstatSync(file).isFile()) return [];

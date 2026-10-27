@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
+const { shPath } = require('../helper/tool-stub.ts');
 const { tempDir } = require('../helper/tmp.ts');
 const { pinNpm, fetchNpm, fetchGit } = require('../../src/runtime/packages/fetch.ts');
 const { parseSource, pinSource, fetchSource } = require('../../src/runtime/packages/source.ts');
@@ -85,9 +86,9 @@ exit 0
   const env: any = {
     ...process.env,
     PATH: `${dir}${path.delimiter}${process.env.PATH}`,
-    NPM_LOG: log,
-    NPM_FIXTURE_TGZ: tarball,
-    NPM_VIEW_JSON: viewFile,
+    NPM_LOG: shPath(log),
+    NPM_FIXTURE_TGZ: shPath(tarball),
+    NPM_VIEW_JSON: shPath(viewFile),
   };
   return { dir, log, env, tarball, viewFile };
 }

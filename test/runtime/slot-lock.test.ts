@@ -463,12 +463,20 @@ test('SIGSTOP: a reclaimer stopped between judging a stale lock and acting on it
   age(lockDir, 60);
   const eventsFile = path.join(dir, 'events');
   const goFile = path.join(dir, 'go');
-  const stopped = actor(t, { runtime: 'new', mode: 'hold', file, label: 'A', eventsFile, pauseAtAct: true, quietMs: 0 });
+  // win32 has no SIGSTOP/SIGCONT: the actor's own in-process pause (pauseAtActMs) holds A at the same point instead,
+  // long enough for B to reclaim and enter, and B is released only after A has resumed and had 1.5 s to act beside it.
+  const WIN_PAUSE_MS = 5000;
+  const stopped = actor(t, { runtime: 'new', mode: 'hold', file, label: 'A', eventsFile, pauseAtAct: true, quietMs: 0,
+    ...(process.platform === 'win32' ? { pauseAtActMs: WIN_PAUSE_MS } : {}) });
   await stopped.paused;
-  stopped.child.kill('SIGSTOP');
+  const pausedAt = Date.now();
+  if (process.platform !== 'win32') stopped.child.kill('SIGSTOP');
   const other = actor(t, { runtime: 'new', mode: 'hold', file, label: 'B', eventsFile, goFile, quietMs: 0 });
   await until(() => events(eventsFile).includes('B-enter'));
-  stopped.child.kill('SIGCONT');
+  if (process.platform === 'win32') {
+    assert.ok(Date.now() < pausedAt + WIN_PAUSE_MS, 'B entered while A was still paused');
+    await sleep(Math.max(0, pausedAt + WIN_PAUSE_MS - Date.now()));
+  } else stopped.child.kill('SIGCONT');
   await sleep(1500);
   fs.writeFileSync(goFile, 'go');
   const [a, b]: any = await Promise.all([stopped.done, other.done]);

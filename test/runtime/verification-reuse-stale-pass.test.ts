@@ -424,6 +424,12 @@ test('C-3 real shell: a dangling out-of-repo symlink is keyed as absent and move
 
 // ── C-4: a first word the parser cannot trust ────────────────────────────────────────────────────
 
+/** A path spelled for a command line that Git Bash runs: a native C:\\x would lose its backslashes to the shell, while C:/x
+ * is still a path Node can stat (the reuse key reads the tool's bytes). */
+const posix = (p: string) => (process.platform === 'win32' ? p.replace(/\\/g, '/') : p);
+/** The MSYS spelling (/c/x), for a colon-separated PATH list where C:/x would read as two entries. */
+const msys = (p: string) => (process.platform === 'win32' ? posix(p).replace(/^([A-Za-z]):/, (_m: string, d: string) => `/${d.toLowerCase()}`) : p);
+
 function toolDir(t: any, prefix: any = 'doflow-stale-pass-tool-') {
   const dir = tempDir(t, prefix);
   put(dir, 'tool', `${SH}exit 0\n`, 0o755);
@@ -435,17 +441,17 @@ const changeTool = (file: any) => put(path.dirname(file), path.basename(file), `
 const UNPARSEABLE: any = [
   ['a quoted path with a space', (ctx: any, dir: any, t: any) => {
     const spaced = toolDir(t, 'doflow-stale-pass-tool dir-');
-    return { command: `"${spaced}/tool" x`, tool: `${spaced}/tool` };
+    return { command: `"${posix(spaced)}/tool" x`, tool: `${spaced}/tool` };
   }],
   ['an escaped space', (ctx: any, dir: any, t: any) => {
     const spaced = toolDir(t, 'doflow-stale-pass-tool dir-');
-    return { command: `${spaced.replace(/ /g, '\\ ')}/tool x`, tool: `${spaced}/tool` };
+    return { command: `${posix(spaced).replace(/ /g, '\\ ')}/tool x`, tool: `${spaced}/tool` };
   }],
-  ['a variable path ($DIR/tool)', (ctx: any, dir: any, t: any) => { ctx.env.DIR = dir; return { command: '$DIR/tool x', tool: `${dir}/tool` }; }],
-  ['a backtick form', (ctx: any, dir: any, t: any) => ({ command: `\`echo '${dir}/tool'\` x`, tool: `${dir}/tool` })],
+  ['a variable path ($DIR/tool)', (ctx: any, dir: any, t: any) => { ctx.env.DIR = posix(dir); return { command: '$DIR/tool x', tool: `${dir}/tool` }; }],
+  ['a backtick form', (ctx: any, dir: any, t: any) => ({ command: `\`echo '${posix(dir)}/tool'\` x`, tool: `${dir}/tool` })],
   ['an inline PATH= assignment', (ctx: any, dir: any, t: any) => {
     put(dir, 'mytool', `${SH}exit 0\n`, 0o755);
-    return { command: `PATH='${dir}':$PATH mytool`, tool: `${dir}/mytool` };
+    return { command: `PATH='${msys(dir)}':$PATH mytool`, tool: `${dir}/mytool` };
   }],
   ['a tilde path (~/tool)', (ctx: any, dir: any, t: any) => {
     const home = tempDir(t, 'doflow-stale-pass-tilde-');
@@ -453,7 +459,7 @@ const UNPARSEABLE: any = [
     put(home, 'tool', `${SH}exit 0\n`, 0o755);
     return { command: '~/tool x', tool: `${home}/tool` };
   }],
-  ['a glob first word', (ctx: any, dir: any, t: any) => ({ command: `${dir}/to*l x`, tool: `${dir}/tool` })],
+  ['a glob first word', (ctx: any, dir: any, t: any) => ({ command: `${posix(dir)}/to*l x`, tool: `${dir}/tool` })],
 ];
 
 for (const [label, build] of UNPARSEABLE) {
@@ -481,7 +487,7 @@ test('C-4 control: LABEL=ok tool, npm test and node --test x stay reusable', (t)
 test('C-4 control: a simple unquoted absolute tool path hits when unchanged and executes after a content change', (t) => {
   const ctx = scene(t, { files: { 'a.txt': 'x\n' } });
   const dir = toolDir(t, 'doflow-stale-pass-abs-');
-  const command = `${dir}/tool x`;
+  const command = `${posix(dir)}/tool x`;
   assert.deepEqual([runnerDriver(ctx, command).ran, runnerDriver(ctx, command).ran], [true, false]);
   changeTool(`${dir}/tool`);
   const changed = runnerDriver(ctx, command);

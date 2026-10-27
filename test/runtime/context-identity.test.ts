@@ -176,8 +176,11 @@ test('store root matches policies/lib.sh STATE_DIR', () => {
   assert.equal(slash(r.stdout), slash(stateDir({ HOME: '/h', XDG_CONFIG_HOME: '' })));
 });
 
+// "/" is the current drive's root to Node (identity.ts physicalDir) but the MSYS root, the Git install folder, to bash:
+// no native spelling hashes the same, so that one corpus entry has no win32 meaning.
+const ROOT_SKIP = 'the path "/" names the current drive root natively but the MSYS root in bash; the two cannot hash alike on win32';
 for (const c of CASES.cwdHash) {
-  test(`cwdHash corpus: ${JSON.stringify(c.path)}`, () => {
+  test(`cwdHash corpus: ${JSON.stringify(c.path)}`, { skip: process.platform === 'win32' && c.path === '/' && ROOT_SKIP }, () => {
     assert.equal(cwdHash(c.path), c.hash);
   });
 }
@@ -188,7 +191,11 @@ test('cwdHash equals bash cwd_hash on live paths: directory, symlinked directory
   fs.symlinkSync(path.join(root, 'gone'), path.join(root, 'dangling'));
   const paths: any = [places.$CWD, places.$WT_LINK, `${places.$WT_LINK}/`, places.$FILE,
     path.join(root, 'file-link'), path.join(root, 'dangling'), path.join(root, 'cwd', '..', 'wt')];
-  const r = spawnSync(bashPath(), ['-c', 'source "$1"; shift; for p in "$@"; do cwd_hash "$p"; done', 'x', LIB_SH, ...paths],
+  // bash hashes a path it cannot resolve (the dangling link) as given, and a native C:\\x is not the /c/x that cwdHash hashes
+  // for it on win32, so bash is handed the MSYS spelling of every path; the existing ones resolve to the same thing either way.
+  const forBash = (p: string) => (process.platform === 'win32'
+    ? p.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_m: string, d: string) => `/${d.toLowerCase()}`) : p);
+  const r = spawnSync(bashPath(), ['-c', 'source "$1"; shift; for p in "$@"; do cwd_hash "$p"; done', 'x', LIB_SH, ...paths.map(forBash)],
     { env: { PATH: process.env.PATH, HOME: root }, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   assert.deepEqual(paths.map(cwdHash), r.stdout.trim().split('\n'));

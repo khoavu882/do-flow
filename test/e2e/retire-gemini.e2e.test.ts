@@ -20,7 +20,8 @@ const REPO = path.resolve(__dirname, '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 const RETIRED_LINE = (counts: string) => `[RETIRED] gemini → antigravity: ${counts}`;
 const REFUSAL = "Target 'gemini' was retired on 2026-10-26; use 'antigravity' (alias agy). Its DoFlow files are released by the next 'doflow install' or 'doflow update' in that scope.";
-const DEFERRED = '.gemini/GEMINI.md: handed over on the next run that targets antigravity';
+// The product prints the scope-relative path with the platform separator (path.relative), so the expected text does too.
+const DEFERRED = `${path.join('.gemini', 'GEMINI.md')}: handed over on the next run that targets antigravity`;
 
 const sha = (bytes: any) => crypto.createHash('sha256').update(bytes).digest('hex');
 
@@ -189,7 +190,7 @@ test('(5) a second update -g prints no [RETIRED] line', () => {
   assert.deepEqual(digests(c.geminiDir), after, 'the second run changes no gemini file');
 });
 
-const KEPT = 'antigravity: kept ~/.gemini/GEMINI.md: changed before handover; --force replaces the DoFlow section';
+const KEPT = `antigravity: kept ~/${path.join('.gemini', 'GEMINI.md')}: changed before handover; --force replaces the DoFlow section`;
 const REPLACED = '# Rewritten by me\n\nNo DoFlow here.\n';
 const sectionRows = (c: any) => c.ledger().resources.filter((row: any) => row.target === c.geminiMd);
 

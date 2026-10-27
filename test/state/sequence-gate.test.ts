@@ -62,6 +62,7 @@ const running = (pids: any) => {
   try { return execFileSync('ps', ['-o', 'stat=', '-p', pids.join(',')], { encoding: 'utf8' }).split('\n').filter((s: any) => s.trim() && !s.trim().startsWith('Z')).length; } catch { return 0; }
 };
 const psOf = (pids: any) => {
+  if (process.platform === 'win32') return pids.filter(isAlive).join(',') || '(none)';
   try { return execFileSync('ps', ['-o', 'pid=,ppid=,command=', '-p', pids.join(',')], { encoding: 'utf8' }).trim(); } catch { return '(none)'; }
 };
 

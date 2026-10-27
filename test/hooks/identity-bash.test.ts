@@ -315,7 +315,7 @@ test('identity.sh is the only definition of doflow_session_role and doflow_ident
     for (const e of fs.readdirSync(d, { withFileTypes: true })) {
       const p = path.join(d, e.name);
       if (e.isDirectory()) walk(p);
-      else if (/\.sh$/.test(e.name) && /^\s*doflow_(session_role|identity)\(\)/m.test(fs.readFileSync(p, 'utf8'))) found.push(path.relative(REPO, p));
+      else if (/\.sh$/.test(e.name) && /^\s*doflow_(session_role|identity)\(\)/m.test(fs.readFileSync(p, 'utf8'))) found.push(path.relative(REPO, p).replace(/\\/g, '/'));
     }
   };
   walk(path.join(REPO, 'core', 'harnesses'));

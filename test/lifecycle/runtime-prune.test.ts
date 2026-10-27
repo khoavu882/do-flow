@@ -196,7 +196,7 @@ for (const [label, tree, file] of [['guidance', GUIDANCE_TREE, 'FLAGS.md'], ['ru
 
     const planned = p.apply(p.plan(['alpha']));
     assert.equal(fs.readFileSync(path.join(p.dest, file), 'utf8'), 'v1\n', 'a match against alpha\'s older record does not authorize the delete');
-    const shown = path.relative(p.scopeRoot, path.join(p.dest, file));
+    const shown = path.relative(p.scopeRoot, path.join(p.dest, file)).split(path.sep).join('/'); // the notices spell '/'
     assert.ok(noticesOf(planned).includes(`alpha: kept ${shown}: no longer shipped, and its bytes differ from what beta last recorded`), noticesOf(planned).join('\n'));
   });
 
@@ -221,7 +221,7 @@ for (const [label, tree, file] of [['guidance', GUIDANCE_TREE, 'FLAGS.md'], ['ru
 
     const planned = p.apply(p.plan(['alpha']));
     assert.equal(fs.readFileSync(path.join(outside, file), 'utf8'), 'v1\n', 'the file outside the scope is untouched');
-    const shownTree = path.relative(p.scopeRoot, p.dest);
+    const shownTree = path.relative(p.scopeRoot, p.dest).split(path.sep).join('/');
     assert.deepEqual(noticesOf(planned).filter((n: any) => n.includes('outside')), [`alpha: kept ${shownTree}: it resolves outside the scope root, so no file in it is pruned`]);
   });
 

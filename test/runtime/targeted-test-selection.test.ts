@@ -335,7 +335,9 @@ test('review 1: an untracked directory of tests and a non-ASCII test name are bo
     taskId: 'A.1', riskLevel: 'LOW', projectRoot: root, scope: { allowedPaths: ['src/', 'test/'] },
   });
   const command = contract.tiers.find((t: any) => t.id === 'targeted-tests').checks[0].command;
-  assert.equal(command, "node --test test/newdir/new.test.js 'test/t\u00e9st.test.js' test/guards/");
+  // test-selection.ts quotes a path with double quotes on win32 and single quotes elsewhere
+  const q = process.platform === 'win32' ? '"' : "'";
+  assert.equal(command, `node --test test/newdir/new.test.js ${q}test/t\u00e9st.test.js${q} test/guards/`);
 });
 
 test('review 2: a declared `node --test` script carrying a flag is not given the targeted form', () => {

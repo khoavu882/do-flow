@@ -15,6 +15,9 @@ const { packageView, resetPackageView, applySettingsDisable } = require('../../s
 
 const KEY = 'packages.disabled';
 
+/** os.homedir() reads USERPROFILE on win32, and the fixture env sets only HOME: follow it for the subprocess. */
+const scratchProfile = (f: any) => ({ env: { USERPROFILE: f.home } });
+
 /** A global lock at `<home>/.doflow/doflow.lock` that records the given package ids. */
 function writeLock(home: any, ids: any) {
   const file = path.join(home, '.doflow', 'doflow.lock');
@@ -75,7 +78,7 @@ test('an id the global lock records raises no warning (subprocess, scratch HOME)
   const out = f.node(`
     const { loadSettings } = require(${JSON.stringify(path.join(REPO, 'src/runtime/settings/resolve.ts'))});
     const v = loadSettings({ projectRoot: process.cwd(), env: process.env });
-    console.log(JSON.stringify({ value: v.get('${KEY}').value, notes: v.notes.filter((n) => n.key === '${KEY}'), errors: v.errors }));`);
+    console.log(JSON.stringify({ value: v.get('${KEY}').value, notes: v.notes.filter((n) => n.key === '${KEY}'), errors: v.errors }));`, scratchProfile(f));
   assert.deepEqual(out, { value: ['acme'], notes: [], errors: [] });
 });
 
@@ -161,11 +164,11 @@ test('packageView reads the project layer itself when no settings view is passed
   const out = f.node(`
     const { packageView } = require(${JSON.stringify(path.join(REPO, 'src/runtime/packages/view.ts'))});
     const p = packageView().packages[0];
-    console.log(JSON.stringify({ state: p.state, reasons: p.reasons }));`);
+    console.log(JSON.stringify({ state: p.state, reasons: p.reasons }));`, scratchProfile(f));
   assert.deepEqual(out, { state: 'disabled', reasons: ['disabled-by-project'] });
   fs.rmSync(f.projectFile('settings.json'));
   const plain = f.node(`
     const { packageView } = require(${JSON.stringify(path.join(REPO, 'src/runtime/packages/view.ts'))});
-    console.log(JSON.stringify({ state: packageView().packages[0].state }));`);
+    console.log(JSON.stringify({ state: packageView().packages[0].state }));`, scratchProfile(f));
   assert.deepEqual(plain, { state: 'active' });
 });

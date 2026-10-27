@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { shPath, withToolStubs } = require('../helper/tool-stub.ts');
 const { tempDir } = require('../helper/tmp.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { handlePackageCommand } = require('../../src/runtime/packages/command.ts');
@@ -19,7 +20,7 @@ function stubDir(t: any) {
   const log = path.join(dir, 'calls.log');
   for (const name of ['git', 'npm']) {
     const file = path.join(dir, name);
-    fs.writeFileSync(file, `#!/bin/sh\necho "${name} $*" >> '${log}'\nexit 1\n`);
+    fs.writeFileSync(file, `#!/bin/sh\necho "${name} $*" >> '${shPath(log)}'\nexit 1\n`);
     fs.chmodSync(file, 0o755);
   }
   return { dir, log, calls: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim() : '') };
@@ -133,7 +134,7 @@ test('the real CLI refuses an ungranted remote spec without spawning git or npm'
   assert.match(stubs.calls(), /^git --version/);
   fs.rmSync(stubs.log);
   const result = spawnSync(process.execPath, [CLI, 'package', '--action', 'add', '--source', 'git:https://example.org/acme.git@v1.2.0', '--json'], {
-    cwd: w.projectRoot, env: { ...w.env, PATH: front }, encoding: 'utf8',
+    cwd: w.projectRoot, env: withToolStubs({ ...w.env, PATH: front }), encoding: 'utf8',
   });
   assert.equal(result.status, 1, result.stdout + result.stderr);
   assert.equal(JSON.parse(result.stdout).error, 'grant-missing');

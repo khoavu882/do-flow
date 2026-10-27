@@ -527,7 +527,7 @@ test('missing store: check judges empty, reports null digest, marks text, and EA
   assert.equal(result.result.ok, true);
   assert.equal(result.result.seed.sha256, null);
   assert.deepEqual(result.result.rows.map((row: any) => row.change), ['add']);
-  assert.equal(result.result.land, `doflow roadmap seed ${dir} --action apply --draft ${draftPath}`);
+  assert.equal(result.result.land, `doflow roadmap seed ${lq(dir)} --action apply --draft ${lq(draftPath)}`);
 
   const textLines: any = [];
   const textExit = handleSeedCommand({ isTTY: true,

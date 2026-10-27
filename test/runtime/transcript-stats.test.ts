@@ -41,8 +41,15 @@ function repo(dir: string) {
   git(dir, 'commit', '-q', '-m', 'first');
 }
 
+// core/registry/transcripts.json keeps every win32 location at status "unknown" (R28) and the reader skips those
+// (fleet/tree.ts:83): on win32 a module call reads the fixtures through the linux locations (the `platform` option);
+// the CLI cannot take that option, so its assertions that need a located transcript are not made there.
+const WIN = process.platform === 'win32';
+
 function env(f: any): any {
   return {
+    // os.homedir() reads USERPROFILE on win32, and a spawn with a stripped environment still needs SystemRoot
+    ...(WIN ? { USERPROFILE: f.home, SystemRoot: process.env.SystemRoot, windir: process.env.windir } : {}),
     HOME: f.home, XDG_CONFIG_HOME: f.config, PATH: process.env.PATH, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
     DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_TELEMETRY: 'off', CLAUDE_CONFIG_DIR: '', CODEX_HOME: '', COPILOT_HOME: '', PI_CODING_AGENT_SESSION_DIR: '',
     TMPDIR: process.env.TMPDIR,
@@ -129,7 +136,7 @@ function snapshot(root: string): Record<string, string> {
 const unknown = () => 'unknown';
 const stats = (f: any, opts: any = {}) => {
   clearCheckoutCache();
-  const r = computeStats({ env: env(f), cwd: f.main, now: () => NOW, alive: unknown, ...opts });
+  const r = computeStats({ env: env(f), cwd: f.main, now: () => NOW, alive: unknown, ...(WIN ? { platform: 'linux' } : {}), ...opts });
   assert.equal(r.ok, true, JSON.stringify(r));
   return r.body;
 };
@@ -282,7 +289,7 @@ test('CLI: the shape, the window, the text form, and usage errors exit 2', (t) =
   const json = cli(f, ['--action', 'stats', '--json']);
   assert.equal(json.status, 0, json.stderr);
   const body = JSON.parse(json.stdout);
-  assert.deepEqual([body.windowMin, body.agents.length > 0], [10, true]);
+  assert.deepEqual([body.windowMin, body.agents.length > 0], [10, true]); // agents come from hook observations, not transcripts
   assert.equal(JSON.parse(cli(f, ['--action', 'stats', '--window', '60', '--json']).stdout).windowMin, 60);
   const text = cli(f, ['--action', 'stats']);
   assert.equal(text.status, 0, text.stderr);

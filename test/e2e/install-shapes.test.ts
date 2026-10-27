@@ -27,7 +27,7 @@ const SOURCE_DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow',
 const { inheritedEnv } = require('../helper/scratch-env.ts');
 const { suiteTempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const ALL_HARNESSES: any = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
-const { IS_WIN, interpreterSpawn, samePath, msysArgConvGuards } = require('../helper-platform.ts');
+const { IS_WIN, interpreterSpawn, samePath } = require('../helper-platform.ts');
 
 // A developer's PI_CODING_AGENT_DIR would send this file's global Pi MCP writes outside the scratch home.
 delete process.env.PI_CODING_AGENT_DIR;
@@ -59,7 +59,8 @@ function runtime(exe: any, args: any, { home, cwd, env = {} }: any = {}) {
     cwd, encoding: 'utf8',
     // A developer's own exported DOFLOW_CONFIG_DIR / DOFLOW_CLI would silently redirect the
     // resolution these tests exist to exercise, so they are cleared unless a case sets them.
-    env: { ...inheritedEnv(), DOFLOW_CONFIG_DIR: undefined, DOFLOW_CLI: undefined, ...msysArgConvGuards(), ...homeEnv(home), ...env },
+    // MSYS path conversion stays ON: the dispatcher hands bash-form /c/... script paths to a native node.
+    env: { ...inheritedEnv(), DOFLOW_CONFIG_DIR: undefined, DOFLOW_CLI: undefined, ...homeEnv(home), ...env },
   });
 }
 

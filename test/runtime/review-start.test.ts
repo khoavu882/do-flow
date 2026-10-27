@@ -686,7 +686,8 @@ function chmodRegression(name: any, place: any) {
     putRecords(r, FIX, [r.line({ taskId: FIX, verdict: 'FAIL' })]);
     put(r.cwd, 'src/uncommitted.ts', 'x\n');
     const dir = place(r);
-    fs.chmodSync(dir, 0o000);
+    // win32 has no directory modes: a file where the folder was makes the listing fail with ENOTDIR, not ENOENT.
+    if (process.platform === 'win32') { fs.rmSync(dir, { recursive: true, force: true }); fs.writeFileSync(dir, 'not a directory\n'); } else fs.chmodSync(dir, 0o000);
     try {
       const res = spawnSync(process.execPath, [CLI, 'review', '--action', 'start', '--slug', SLUG, '--json'],
         { cwd: r.cwd, env: { ...r.env, DOFLOW_CLI: CLI }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 20000 });
@@ -697,7 +698,7 @@ function chmodRegression(name: any, place: any) {
       assert.equal(json.seats, null);
       assert.equal(json.notApplicable, null);
     } finally {
-      fs.chmodSync(dir, 0o755);
+      if (process.platform !== 'win32') fs.chmodSync(dir, 0o755);
     }
   });
 }

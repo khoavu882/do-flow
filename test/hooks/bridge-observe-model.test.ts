@@ -94,10 +94,14 @@ test('a read-only store leaves stdout, stderr and the exit code identical and wr
   assert.equal(files(writable.store).length, 1);
   const locked = scratch(t);
   fs.mkdirSync(locked.store, { recursive: true });
-  fs.chmodSync(locked.store, 0o500); // tempDir's removal restores owner write permission
+  // Windows has no directory permission bits: there the two directories the writer would create are
+  // regular files instead, which equally leaves nothing writable beneath them.
+  const blockers = ['primary', 'worker-model'];
+  if (process.platform === 'win32') for (const name of blockers) fs.writeFileSync(path.join(locked.store, name), '');
+  else fs.chmodSync(locked.store, 0o500); // tempDir's removal restores owner write permission
   const denied = bridge(locked, 'codex');
   assert.deepEqual(denied, open);
-  assert.deepEqual(files(locked.store), []);
+  assert.deepEqual(files(locked.store), process.platform === 'win32' ? blockers : []);
   const noHome = bridge(locked, 'codex', { env: { HOME: '' } });
   assert.deepEqual(noHome, open, 'with no config home nothing is written and nothing changes');
 });

@@ -4,6 +4,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { shPath } = require('../helper/tool-stub.ts');
 const { tempDir } = require('../helper/tmp.ts');
 const { pinGit, fetchGit } = require('../../src/runtime/packages/fetch.ts');
 const { parseSource } = require('../../src/runtime/packages/source.ts');
@@ -28,8 +29,8 @@ function fake(t: any, bytes: Buffer) {
   const dir = tempDir(t, 'doflow-git-stub-'); const log = path.join(dir, 'log'); const arc = path.join(dir, 'archive.tar');
   fs.writeFileSync(arc, bytes);
   fs.writeFileSync(path.join(dir, 'git'), `#!/bin/sh
-printf '%s\\t' "$@" >> '${log}'; printf '\\n' >> '${log}'
-printf '%s\\n' "$GIT_TERMINAL_PROMPT" > '${dir}/prompt'
+printf '%s\\t' "$@" >> '${shPath(log)}'; printf '\\n' >> '${shPath(log)}'
+printf '%s\\n' "$GIT_TERMINAL_PROMPT" > '${shPath(dir)}/prompt'
 for i in 1 2; do [ "$1" = "-c" ] && { shift 2; }; done
 cmd=$1; shift
 case "$cmd" in
@@ -40,7 +41,7 @@ esac
 exit 0
 `);
   fs.chmodSync(path.join(dir, 'git'), 0o755);
-  return { dir, log, env: { ...process.env, PATH: `${dir}${path.delimiter}${process.env.PATH}`, GIT_FIXTURE_SHA: sha1, GIT_FIXTURE_ARCHIVE: arc } as any };
+  return { dir, log, env: { ...process.env, PATH: `${dir}${path.delimiter}${process.env.PATH}`, GIT_FIXTURE_SHA: sha1, GIT_FIXTURE_ARCHIVE: shPath(arc) } as any };
 }
 function calls(stub: any): string[] {
   const text = fs.readFileSync(stub.log, 'utf8');

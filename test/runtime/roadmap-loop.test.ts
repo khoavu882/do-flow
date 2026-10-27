@@ -584,7 +584,9 @@ test('two harness descriptor environments give byte-equal decisions (NFR-005)', 
     lines.push((await f.next({ run: RUN })).result);
     placeRun(f, 'implementation');
     lines.push((await f.next({ run: RUN })).result);
-    runs.push(JSON.stringify(lines).split(f.dir).join('<dir>'));
+    // the scratch directory as JSON spells it (backslashes doubled on win32), as native text, and with forward slashes
+    const spellings = [JSON.stringify(f.dir).slice(1, -1), f.dir, f.dir.replace(/\\/g, '/')];
+    runs.push(spellings.reduce((text: string, spelling: string) => text.split(spelling).join('<dir>'), JSON.stringify(lines)));
   }
   assert.equal(runs[0], runs[1]);
   assert.match(runs[0], /"outcome":"acted","step":"gate"/);

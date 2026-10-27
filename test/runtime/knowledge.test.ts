@@ -3,13 +3,14 @@ const { test } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { suiteTempDir } = require('../helper/tmp.ts');
+const { suiteTempDirOutsideProfile } = require('../helper/outside-profile.ts');
 const { spawnSync } = require('node:child_process');
 const { chunkMarkdown, HARD_MAX_CHUNK_CHARS } = require('../../src/runtime/knowledge/chunker.ts');
 const { buildIndex, loadIndex, isFresh } = require('../../src/runtime/knowledge/index-store.ts');
 const { bm25Rank, searchGuidance, reciprocalRankFusion } = require('../../src/runtime/knowledge/retrieval.ts');
 
-function scratch() { return suiteTempDir('doflow-knowledge-'); }
+// outside the account profile on win32: `retrieve` walks up from the working directory to the nearest `.doflow/` with a guidance tree
+function scratch() { return suiteTempDirOutsideProfile('doflow-knowledge-'); }
 
 const DOC = `---
 title: Graphify Guide

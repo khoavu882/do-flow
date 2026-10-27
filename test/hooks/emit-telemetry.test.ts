@@ -132,13 +132,16 @@ for (const harness of Object.keys(SURFACES)) {
 
   test(`${harness}: emit, silent, no-home and fault runs are byte-equal to telemetry off and write the reason`, () => {
     const session = `${harness}-pair-091`;
+    // Git Bash on Windows fills in an absent HOME from the Windows profile before any script runs, so a
+    // home-less hook cannot be arranged there (and both worlds would then share the real profile's state).
+    const noHome = process.platform !== 'win32';
     const { on, out } = pair([
       [harness, session],
       [harness, session],
-      [harness, `${harness}-nohome-091`, { HOME: undefined, XDG_CONFIG_HOME: undefined, ...(process.platform === 'win32' ? { USERPROFILE: undefined, HOMEDRIVE: undefined, HOMEPATH: undefined } : {}) }],
+      ...(noHome ? [[harness, `${harness}-nohome-091`, { HOME: undefined, XDG_CONFIG_HOME: undefined }]] : []),
       [harness, 'has space'],
     ], { setup: (w: any) => seedGit(w, session) });
-    assert.deepEqual(out.map((line: any) => emitOf(line).emit_reason), ['emit', 'silent:already-bootstrapped', 'silent:no-home', 'fault:unit']);
+    assert.deepEqual(out.map((line: any) => emitOf(line).emit_reason), ['emit', 'silent:already-bootstrapped', ...(noHome ? ['silent:no-home'] : []), 'fault:unit']);
     for (const line of out) {
       const value = emitOf(line);
       assert.ok(REASONS.has(value.emit_reason));

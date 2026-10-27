@@ -76,6 +76,8 @@ function baseEnv(root: any, extra: any) {
   for (const key of Object.keys(env)) if (key.startsWith('DOFLOW_') || key === 'EPOCHREALTIME') delete env[key];
   const home = scratch.path(`home-${homes += 1}`); // fresh per run: session-scoped policy state never carries over
   fs.mkdirSync(home, { recursive: true });
+  // Windows names the variable `Path`; a second `PATH` key would leave the child with two spellings of one variable.
+  if (process.platform === 'win32') for (const key of Object.keys(extra || {})) for (const twin of Object.keys(env)) if (twin !== key && twin.toUpperCase() === key.toUpperCase()) delete env[twin];
   return { ...env, HOME: home, XDG_CONFIG_HOME: path.join(home, 'xdg'), DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_TELEMETRY: 'on', GIT_CONFIG_GLOBAL: '/dev/null', ...extra };
 }
 
@@ -157,6 +159,10 @@ function commandShims() {
     const script = `#!/bin/bash\nprintf '%s\\n' ${shellQuote(name)} >> "$DOFLOW_FORK_LOG"\nexec ${shellQuote(target)} "$@"\n`;
     fs.writeFileSync(path.join(dir, name), script, { mode: 0o755 });
   }
+  // Git Bash puts its own /usr/bin ahead of the inherited PATH, so a shim dir at the front of PATH never
+  // wins for cat, dirname, mkdir, date or bash. BASH_ENV (runCounted) sources this file, which puts the
+  // shim dir back in front inside every non-interactive bash the hook starts. win32 only.
+  if (process.platform === 'win32') fs.writeFileSync(path.join(dir, 'shim-first.sh'), 'PATH="${BASH_SOURCE[0]%/*}:$PATH"\n');
   return dir;
 }
 
@@ -168,6 +174,7 @@ function runCounted(root: any, surface: any, native: any, mode: any, shimDir: an
       DOFLOW_TELEMETRY: mode,
       DOFLOW_FORK_LOG: log,
       PATH: `${shimDir}${path.delimiter}${process.env.PATH}`,
+      ...(process.platform === 'win32' ? { BASH_ENV: path.join(shimDir, 'shim-first.sh').replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_m: any, d: any) => `/${d.toLowerCase()}`) } : {}),
     },
   });
   return {

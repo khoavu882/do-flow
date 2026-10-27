@@ -16,6 +16,7 @@ const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const { shPath, withToolStubs } = require('../helper/tool-stub.ts');
 const { spawnSync } = require('node:child_process');
 const { createScratch } = require('../helper/scratch-env.ts');
 const { tempDir } = require('../helper/tmp.ts');
@@ -489,7 +490,7 @@ function stubDir(t: any, names: string[]): any {
   const log = path.join(dir, 'calls.log');
   for (const name of names) {
     const file = path.join(dir, name);
-    fs.writeFileSync(file, `#!/bin/sh\necho "${name} $*" >> '${log}'\nexit 1\n`);
+    fs.writeFileSync(file, `#!/bin/sh\necho "${name} $*" >> '${shPath(log)}'\nexit 1\n`);
     fs.chmodSync(file, 0o755);
   }
   return { dir, calls: () => (fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim() : '') };
@@ -498,11 +499,11 @@ function stubDir(t: any, names: string[]): any {
 test('NFR-004: check, list, add, add --plan, enable and a review run never spawn git or npm', (t: any) => {
   const w = world(t);
   const both = stubDir(t, ['git', 'npm']);
-  const front = { PATH: `${both.dir}${path.delimiter}${process.env.PATH}` };
+  const front = { PATH: `${both.dir}${path.delimiter}${process.env.PATH}`, ...withToolStubs({}) };
   const pkg = makePackage(t);
 
   // The stubs are on PATH first: prove they would be found, so a silent pass cannot come from a wrong PATH.
-  const probe = run('git', ['--version'], { env: { ...process.env, ...front } });
+  const probe = run('git', ['--version'], { env: { ...process.env, PATH: front.PATH } });
   assert.equal(probe.status, 1);
   assert.match(both.calls(), /^git --version/);
   fs.rmSync(path.join(both.dir, 'calls.log'));
@@ -531,12 +532,16 @@ test('NFR-004: check, list, add, add --plan, enable and a review run never spawn
 
   // A review run needs git for the diff base: the real git stays reachable under its own name and only `npm` is stubbed.
   // The package is active and its preset is loaded for the run; no package code path may reach npm.
-  const realGit = run('sh', ['-c', 'command -v git']).stdout.trim();
+  // On win32 the directory of git.exe stands in for the symlink: a symlinked git.exe cannot find its sibling files.
+  const realGit = process.platform === 'win32'
+    ? run('where', ['git']).stdout.split(/\r?\n/)[0].trim()
+    : run('sh', ['-c', 'command -v git']).stdout.trim();
   assert.ok(realGit, 'git is installed');
-  const gitOnly = tempDir(t, 'doflow-pscen-git-');
-  fs.symlinkSync(realGit, path.join(gitOnly, 'git'));
+  let gitOnly = tempDir(t, 'doflow-pscen-git-');
+  if (process.platform === 'win32') gitOnly = path.dirname(realGit);
+  else fs.symlinkSync(realGit, path.join(gitOnly, 'git'));
   const npmOnly = stubDir(t, ['npm']);
-  const review = w.review({ extra: { PATH: `${npmOnly.dir}${path.delimiter}${gitOnly}${path.delimiter}${process.env.PATH}` } });
+  const review = w.review({ extra: { PATH: `${npmOnly.dir}${path.delimiter}${gitOnly}${path.delimiter}${process.env.PATH}`, ...withToolStubs({}) } });
   assert.equal(review.status, 0, review.stdout + review.stderr);
   assert.equal(w.json(review).ok, true);
   assert.equal(npmOnly.calls(), '', `a review run spawned npm: ${npmOnly.calls()}`);
