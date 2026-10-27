@@ -1221,7 +1221,7 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
     report.team = { state: 'unavailable', message: error?.message || String(error) };
   }
   try {
-    report.agentToolScope = agentToolScopeView(loadRegistry({ repoRoot }));
+    report.agentToolScope = agentToolScopeView(loadRegistry({ repoRoot, sources: 'skip' }));
   } catch (error: any) {
     report.agentToolScope = { state: 'unavailable', message: error?.message || String(error) };
   }

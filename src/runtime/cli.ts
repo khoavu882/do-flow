@@ -32,7 +32,7 @@ function handleCapabilitiesCommand({ json = false, check = false, repoRoot }: an
   const root = repoRoot || REPO_ROOT;
   const router = new CapabilityRouter({ repoRoot: root });
   const report = router.getAllCapabilitiesHealth(check);
-  const agentToolScope = agentToolScopeView(loadRegistry({ repoRoot: root }));
+  const agentToolScope = agentToolScopeView(loadRegistry({ repoRoot: root, sources: 'skip' }));
 
   if (json) {
     console.log(JSON.stringify({ capabilities: report, agentToolScope }, null, 2));
