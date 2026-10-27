@@ -68,8 +68,12 @@ function sectionHeadings(text: string) {
   return out;
 }
 
-/** Findings for references over the line limit: no `## Contents` in the first 40 lines, or a
- * section the contents list does not name. */
+/** A heading or contents entry as plain text: link targets, backticks and emphasis dropped. */
+const plain = (text: string) => text.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[`*_]/g, '').trim();
+
+/** Findings for references over the line limit: no `## Contents` in the first 40 lines; a contents
+ * list (the list items right under it) of fewer than 2 entries; an entry that is not a `## `
+ * heading of the file; or a section the list does not name. */
 function tocFindings(entries: any[]) {
   const findings: string[] = [];
   for (const { rel, text } of entries) {
@@ -77,11 +81,17 @@ function tocFindings(entries: any[]) {
     if (lines.length <= MAX_LINES_WITHOUT_TOC) continue;
     const at = lines.slice(0, 40).findIndex((line: string) => /^## (Contents|Table of contents)\s*$/i.test(line));
     if (at < 0) { findings.push(`${rel}: ${lines.length} lines and no "## Contents" in its first 40 lines`); continue; }
-    const end = lines.findIndex((line: string, i: number) => i > at && /^#{1,6} /.test(line));
-    const list = lines.slice(at + 1, end < 0 ? undefined : end).join('\n');
-    for (const heading of sectionHeadings(text).filter((h) => !/^(Contents|Table of contents)$/i.test(h))) {
-      if (!list.includes(heading)) findings.push(`${rel}: contents does not name "## ${heading}"`);
+    const items: string[] = [];
+    for (const line of lines.slice(at + 1)) {
+      if (!line.trim()) { if (items.length) break; continue; }
+      const item = line.match(/^(?:[-*+]|\d+\.)\s+(.*)$/);
+      if (item) items.push(plain(item[1]));
+      else if (!/^\s+(?:[-*+]|\d+\.)\s/.test(line)) break;   // an indented sub-item stays in the list
     }
+    const headings = sectionHeadings(text).map(plain).filter((h) => !/^(Contents|Table of contents)$/i.test(h));
+    if (items.length < 2) findings.push(`${rel}: contents lists ${items.length} entries; it needs at least 2`);
+    for (const item of items) if (!headings.includes(item)) findings.push(`${rel}: contents entry "${item}" is not a ## heading of this file`);
+    for (const heading of headings) if (items.length >= 2 && !items.includes(heading)) findings.push(`${rel}: contents does not name "## ${heading}"`);
   }
   return findings;
 }
@@ -156,8 +166,12 @@ test('G75: controls — a chain, a long reference without contents, a spec witho
 
   const body = Array.from({ length: 301 }, (_, i) => `line ${i}`).join('\n');
   assert.deepEqual(tocFindings([{ rel: 'x/references/long.md', text: `# t\n## One\n${body}` }]), ['x/references/long.md: 303 lines and no "## Contents" in its first 40 lines']);
-  assert.deepEqual(tocFindings([{ rel: 'x/references/long.md', text: `# t\n## Contents\n- One\n\n## One\n${body}\n## Two\n` }]), ['x/references/long.md: contents does not name "## Two"']);
-  assert.deepEqual(tocFindings([{ rel: 'x/references/long.md', text: `# t\n## Contents\n- One\n\n## One\n\`\`\`\n## not a heading\n\`\`\`\n${body}` }]), []);
+  assert.deepEqual(tocFindings([{ rel: 'x/references/long.md', text: `# t\n## Contents\n- One\n- Three\n\n## One\n## Three\n${body}\n## Two\n` }]), ['x/references/long.md: contents does not name "## Two"']);
+  assert.deepEqual(tocFindings([{ rel: 'x/references/long.md', text: `# t\n## Contents\n- One\n- [\`Two\`](#two)\n\n## One\n\`\`\`\n## not a heading\n\`\`\`\n## \`Two\`\n${body}` }]), []);
+  // An empty, one-entry or made-up contents list is no contents list.
+  assert.deepEqual(tocFindings([{ rel: 'x/references/long.md', text: `# x\n## Contents\n${body}` }]), ['x/references/long.md: contents lists 0 entries; it needs at least 2']);
+  assert.deepEqual(tocFindings([{ rel: 'x/references/long.md', text: `# x\n## Contents\n- One\n\n## One\n${body}` }]), ['x/references/long.md: contents lists 1 entries; it needs at least 2']);
+  assert.deepEqual(tocFindings([{ rel: 'x/references/long.md', text: `# x\n## Contents\n- One\n- Ghost\n\n## One\n${body}` }]), ['x/references/long.md: contents entry "Ghost" is not a ## heading of this file']);
 
   assert.deepEqual(toolScopeFindings([{ name: 'x', text: '---\nname: x\naccess: write\n---\n' }, { name: 'y', text: '---\nname: y\ntool-scope: some\n---\n' }]),
     ['x: tool-scope missing', "y: tool-scope 'some' is not one of all"]);
