@@ -195,6 +195,9 @@ test('the capability map and the hook tier agree: supported hooks, five wired ev
   assert.deepEqual(wired, [...contract.hookEvents].sort());
   assert.deepEqual(wired, ['PreToolUse', 'SessionStart', 'Stop', 'SubagentStart', 'SubagentStop']);
   assert.deepEqual(selectAssets(registry, { harness: 'copilot', capability: 'hooks' }).map((asset: any) => asset.id).sort(), ['copilot.hooks-scripts', 'hooks.shared']);
+  // Claude and Copilot installs side by side: the registry says what that duplicates (subagent-audit), not "idempotent".
+  assert.match(copilot.capabilities.hooks.note, /subagent-audit appends unconditionally, so one subagent completion writes two stop records/);
+  assert.doesNotMatch(copilot.capabilities.hooks.note, /idempotent, not deduplicated/);
   const tiered = tieredRegistry(registry, ['claude']);
   assert.deepEqual(selectAssets(tiered, { harness: 'copilot', capability: 'hooks' }), []);
   assert.equal(tiered.harnesses.find((item: any) => item.id === 'copilot').capabilities.hooks.status, 'unavailable');
