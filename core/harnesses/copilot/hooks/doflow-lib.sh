@@ -80,6 +80,8 @@ copilot_front_door() {
   fi
   payload=$(copilot_bridge_payload "$event" <<<"$raw")
   bridge="$dir/../../.doflow/shared/hooks/bridge/bridge.sh"
+  # User hooks under a custom $COPILOT_HOME sit beside no .doflow; the bridge is then in $HOME/.doflow.
+  [ -f "$bridge" ] || bridge="${HOME:-}/.doflow/shared/hooks/bridge/bridge.sh"
   if [ ! -f "$bridge" ] || ! . "$bridge" 2>/dev/null; then
     if [ "$fail" = deny ]; then
       printf '%s\n' '{"permissionDecision":"deny","permissionDecisionReason":"[doflow] shared hooks lack the bridge; run: doflow update -t copilot"}'

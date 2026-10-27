@@ -65,12 +65,24 @@ const LEGACY_MCP_REGISTRATION = `${HARNESS}:mcp:registration`;
  * module-level exports delegate to a default-configured instance so direct callers keep their
  * historical shape.
  */
-function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS] } = {}) {
+function createCopilotAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env = process.env }: any = {}) {
   // Parity note: Copilot's historical nativePaths() derived even its user-scope root from scopeRoot
   // (the CLI passes $HOME there for -g installs), never from a separate homeDir argument — so the
   // resolver is fed no homeDir and "root" keeps resolving exactly as before.
   function nativePaths({ scope, scopeRoot }: any = {}) {
-    return resolveHarnessPaths(declaredPaths, { scope, scopeRoot });
+    const paths = resolveHarnessPaths(declaredPaths, { scope, scopeRoot });
+    // Copilot CLI loads user hooks from $COPILOT_HOME/hooks when COPILOT_HOME is set (hooks reference,
+    // "Hook locations"), and DoFlow's generated commands read it too. The path schema has no
+    // environment base (src/helper/harness-paths.ts), so the override stays here, as Pi's agent dir
+    // does; skills, agents, instructions and MCP keep their declared locations.
+    if ((scope === 'user' || scope === 'global') && copilotHomeOverride()) paths.hooksConfigDir = copilotHomeOverride();
+    return paths;
+  }
+
+  /** $COPILOT_HOME when it is an absolute path, else null (a relative value would move with the cwd). */
+  function copilotHomeOverride() {
+    const home = typeof env.COPILOT_HOME === 'string' ? env.COPILOT_HOME.trim() : '';
+    return path.isAbsolute(home) ? path.resolve(home) : null;
   }
 
   /** Discovery keeps the MCP files as plan read them (`mcpSnapshot`), which verify compares against,

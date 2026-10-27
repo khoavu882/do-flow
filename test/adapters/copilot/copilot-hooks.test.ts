@@ -30,10 +30,10 @@ function gitProject(t: any) {
 }
 
 /** Run the installed command of one doflow.json entry the way Copilot does: through a shell, in `cwd`. */
-function runEntry(entry: any, payload: any, { cwd, home, xdg }: any) {
+function runEntry(entry: any, payload: any, { cwd, home, xdg, copilotHome }: any) {
   return spawnSync('bash', ['-c', entry.bash], {
     cwd, input: JSON.stringify(payload), encoding: 'utf8',
-    env: { ...process.env, HOME: home, XDG_CONFIG_HOME: xdg, DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_TELEMETRY: 'off', GIT_CONFIG_GLOBAL: '/dev/null' },
+    env: { ...process.env, HOME: home, XDG_CONFIG_HOME: xdg, ...(copilotHome ? { COPILOT_HOME: copilotHome } : {}), DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_TELEMETRY: 'off', GIT_CONFIG_GLOBAL: '/dev/null' },
   });
 }
 
@@ -147,6 +147,40 @@ test('a global install writes ~/.copilot/hooks and ~/.doflow/shared/hooks, and i
   const denied = runEntry(config.hooks.preToolUse[1], { sessionId: 's1', cwd: elsewhere, toolName: 'bash', toolArgs: { command: 'git push --force origin main' } }, { cwd: elsewhere, home, xdg });
   assert.equal(denied.status, 0, denied.stderr);
   assert.equal(JSON.parse(denied.stdout).permissionDecision, 'deny');
+});
+
+test('a global install follows COPILOT_HOME: hooks land in $COPILOT_HOME/hooks, run from anywhere, and update/remove take them from there', (t: any) => {
+  const home = tempDir(t, 'doflow-copilot-hooks-home-');
+  const xdg = tempDir(t, 'doflow-copilot-hooks-xdg-');
+  const copilotHome = path.join(tempDir(t, 'doflow-copilot-hooks-custom-'), 'copilot');
+  settings(xdg, ['copilot']);
+  const env = { XDG_CONFIG_HOME: xdg, COPILOT_HOME: copilotHome };
+  let r = run(['install', '-g', '--force', '--target', 'copilot'], { home, env });
+  assert.equal(r.status, 0, r.stderr);
+  const hooksDir = path.join(copilotHome, 'hooks');
+  for (const name of ['doflow.json', 'doflow-lib.sh', ...DOORS]) assert.ok(fs.existsSync(path.join(hooksDir, name)), `${name} is under $COPILOT_HOME/hooks`);
+  assert.equal(fs.existsSync(path.join(home, '.copilot', 'hooks')), false, 'nothing under ~/.copilot/hooks');
+  assert.ok(fs.existsSync(path.join(home, '.doflow', 'shared', 'hooks', 'bridge', 'bridge.sh')), 'the shared bridge stays under ~/.doflow');
+
+  const config = JSON.parse(fs.readFileSync(path.join(hooksDir, 'doflow.json'), 'utf8'));
+  const elsewhere = tempDir(t, 'doflow-copilot-hooks-elsewhere-');
+  const denied = runEntry(config.hooks.preToolUse[1], { sessionId: 's1', cwd: elsewhere, toolName: 'bash', toolArgs: { command: 'git push --force origin main' } }, { cwd: elsewhere, home, xdg, copilotHome });
+  assert.equal(denied.status, 0, denied.stderr);
+  assert.equal(JSON.parse(denied.stdout).permissionDecision, 'deny', 'the front door finds the bridge although it sits beside neither $COPILOT_HOME nor a project');
+
+  r = run(['update', '-g', '--force', '--target', 'copilot'], { home, env });
+  assert.equal(r.status, 0, r.stderr);
+  assert.ok(fs.existsSync(path.join(hooksDir, 'doflow.json')));
+  settings(xdg, ['claude']);
+  r = run(['update', '-g', '--force', '--target', 'copilot'], { home, env });
+  assert.equal(r.status, 0, r.stderr);
+  for (const name of ['doflow.json', ...DOORS]) assert.equal(fs.existsSync(path.join(hooksDir, name)), false, `${name} is removed from $COPILOT_HOME/hooks`);
+  settings(xdg, ['copilot']);
+  r = run(['update', '-g', '--force', '--target', 'copilot'], { home, env });
+  assert.equal(r.status, 0, r.stderr);
+  r = run(['remove', '-g', '--force', '--target', 'copilot'], { home, env });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(fs.existsSync(path.join(hooksDir, 'doflow.json')), false, 'remove takes the hooks from $COPILOT_HOME/hooks');
 });
 
 test('the capability map and the hook tier agree: supported hooks, five wired events, tiered off outside hooks.harnesses', () => {
