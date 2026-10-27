@@ -215,3 +215,16 @@ test('unreadable: another checkout\'s corrupt file does not disturb this checkou
   assert.equal(r.json.active.state, 'agree');
   assert.equal(init(repo, B).status, 0);
 });
+
+test('start: catch-up that begins a feature run records the pointer', () => {
+  const repo = newRepo();
+  const r = run(repo.dir, ['orchestrate', '--action', 'catch-up', '--task-class', 'feature', '--task-id', A, '--stage', 'discovery', '--json']);
+  assert.equal(r.status, 0, r.stderr);
+  const e = entry(repo);
+  assert.deepEqual([e.slug, e.taskId, e.branch], [A, A, `feat/${A}`]);
+  // Catching up an existing run records nothing new: the entry is left as it is.
+  fs.rmSync(file(repo));
+  const again = run(repo.dir, ['orchestrate', '--action', 'catch-up', '--task-class', 'feature', '--task-id', A, '--stage', 'discovery', '--json']);
+  assert.equal(again.status, 0, again.stderr);
+  assert.equal(fs.existsSync(file(repo)), false);
+});
