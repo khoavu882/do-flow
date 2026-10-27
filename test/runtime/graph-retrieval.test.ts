@@ -7,8 +7,13 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp.ts');
+
+// The lexical fallback shells out to ripgrep; a host without it (a stock CI runner) cannot run these tests, so they
+// skip with that reason rather than assert on an environment they do not arrange.
+const NO_RG = spawnSync('rg', ['--version'], { stdio: 'ignore' }).status === 0 ? false : 'ripgrep (rg) is not installed';
 
 const {
   traverseGraphRelationships,
@@ -292,7 +297,7 @@ describe('IC-002: evaluateGraphFreshness & resolveRelationshipQuery', () => {
     assert.ok(res.candidates.length > 0);
   });
 
-  test('resolveRelationshipQuery: STALE or MISSING graph falls back to native.rg as FALLBACK', async () => {
+  test('resolveRelationshipQuery: STALE or MISSING graph falls back to native.rg as FALLBACK', { skip: NO_RG }, async () => {
     const root = setupProject('route-stale', {
       'src/a.ts': 'export function calculateTax() { return 10; }\n',
       'src/b.ts': 'import { calculateTax } from "./a"; calculateTax();\n',
@@ -312,7 +317,7 @@ describe('IC-002: evaluateGraphFreshness & resolveRelationshipQuery', () => {
     assert.equal(res.candidates[0].source, 'native.rg');
   });
 
-  test('Negative Absence Invariant: stale graph never emits isAbsence: true when dependents exist in code', async () => {
+  test('Negative Absence Invariant: stale graph never emits isAbsence: true when dependents exist in code', { skip: NO_RG }, async () => {
     const root = setupProject('negative-absence', {
       'src/lib.ts': 'export function targetFunction() {}\n',
       'src/app.ts': 'import { targetFunction } from "./lib"; targetFunction();\n',
@@ -382,7 +387,7 @@ describe('IC-002: evaluateGraphFreshness & resolveRelationshipQuery', () => {
     assert.equal(real.isAbsence, false);
   });
 
-  test('a lexical search that runs and finds nothing still confirms absence', async () => {
+  test('a lexical search that runs and finds nothing still confirms absence', { skip: NO_RG }, async () => {
     const root = setupProject('lexical-none', { 'src/a.ts': 'export const x = 1;\n' });
     const res = await resolveRelationshipQuery({ projectRoot: root, symbol: 'neverDefinedAnywhere', intent: 'estimate-blast-radius' });
     assert.equal(res.provider, 'native.rg');
@@ -390,7 +395,7 @@ describe('IC-002: evaluateGraphFreshness & resolveRelationshipQuery', () => {
     assert.deepEqual(res.candidates, []);
   });
 
-  test('a lexical search that finds a match but meets an unreadable directory keeps the match', { skip: process.platform === 'win32' || process.getuid?.() === 0 }, async () => {
+  test('a lexical search that finds a match but meets an unreadable directory keeps the match', { skip: NO_RG || process.platform === 'win32' || process.getuid?.() === 0 }, async () => {
     const root = setupProject('lexical-partial', { 'src/a.ts': 'export const partialMatchSymbol = 1;\n', 'locked/b.ts': 'x\n' });
     const locked = path.join(root, 'locked');
     fs.chmodSync(locked, 0o000);
