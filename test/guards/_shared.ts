@@ -13,17 +13,22 @@ const AGENT_SPECS = path.join(REPO, 'core', 'shared', 'agent-specs');
 
 /** Frontmatter keys only — values are irrelevant to every guard here, and parsing them would mean
  * taking on a YAML dependency this repo deliberately does not have. */
-function frontmatterKeys(file: any) {
-  const lines = fs.readFileSync(file, 'utf8').split('\n');
+/** Top-level frontmatter keys of a text, bare or quoted (`"key":`, `'key':`), quotes removed. */
+function frontmatterKeysOf(text: any) {
+  const lines = text.split('\n');
   if (lines[0]?.trim() !== '---') return [];
   const keys: any = [];
   for (const line of lines.slice(1)) {
     if (line.trim() === '---') break;
     if (/^\s/.test(line) || !line.trim()) continue;          // nested value, not a top-level key
-    const match = line.match(/^([A-Za-z][A-Za-z0-9_-]*)\s*:/);
-    if (match) keys.push(match[1]);
+    const match = line.match(/^(?:"((?:[^"\\]|\\.)+)"|'((?:[^']|'')+)'|([A-Za-z][A-Za-z0-9_-]*))\s*:/);
+    if (match) keys.push(match[1]?.replace(/\\(.)/g, '$1') ?? match[2]?.replace(/''/g, "'") ?? match[3]);
   }
   return keys;
+}
+
+function frontmatterKeys(file: any) {
+  return frontmatterKeysOf(fs.readFileSync(file, 'utf8'));
 }
 
 function skillFiles() {
@@ -75,5 +80,5 @@ function dispatcherVerbs() {
 }
 
 module.exports = {
-  REPO, GUIDANCE, SKILLS, AGENT_SPECS, frontmatterKeys, skillFiles, agentSpecFiles, coreTextFiles, dispatcherVerbs,
+  REPO, GUIDANCE, SKILLS, AGENT_SPECS, frontmatterKeys, frontmatterKeysOf, skillFiles, agentSpecFiles, coreTextFiles, dispatcherVerbs,
 };

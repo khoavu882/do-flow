@@ -182,29 +182,31 @@ for (const contract of SKILL_CONTRACTS.contracts.filter((entry: any) => Array.is
 function portableSkillFrontmatter(text: string, allowed: Set<string>, file = 'SKILL.md'): string {
   const match = text.match(/^---\n([\s\S]*?\n)---(?=\n|$)/);
   if (!match) return text;
-  const entries: { key: string | null, lines: string[] }[] = [];
+  const entries: { key: string | null, prefix: number, lines: string[] }[] = [];
   for (const line of match[1].replace(/\n$/, '').split('\n')) {
-    const key = line.match(/^([A-Za-z][A-Za-z0-9_-]*):/)?.[1] ?? null;
-    if (key || !entries.length) entries.push({ key, lines: [line] });
+    // A top-level key, bare or quoted (`"key":`, `'key':`); `prefix` is the length up to its colon.
+    const found = line.match(/^(?:"((?:[^"\\]|\\.)+)"|'((?:[^']|'')+)'|([A-Za-z][A-Za-z0-9_-]*))[ \t]*:/);
+    const key = found ? (found[1]?.replace(/\\(.)/g, '$1') ?? found[2]?.replace(/''/g, "'") ?? found[3]) : null;
+    if (key || !entries.length) entries.push({ key, prefix: found ? found[0].length : 0, lines: [line] });
     else entries[entries.length - 1].lines.push(line);
   }
   const metadataEntry = entries.find((entry) => entry.key === 'metadata');
-  if (metadataEntry && /^metadata:[ \t]*[^\s#]/.test(metadataEntry.lines[0])) {
+  if (metadataEntry && /^[ \t]*[^\s#]/.test(metadataEntry.lines[0].slice(metadataEntry.prefix))) {
     throw new Error(`${file}: flow-style metadata cannot take moved keys; write metadata as a block map`);
   }
   const moved = entries.filter((entry) => entry.key && entry.key !== 'metadata' && !allowed.has(entry.key));
   if (!moved.length) return text;
-  const metadata = moved.map(({ key, lines }) => {
-    const head = lines[0].slice((key as string).length + 1).trim();
+  const metadata = moved.map(({ key, prefix, lines }) => {
+    const head = lines[0].slice(prefix).trim();
     if (!head || /^[|>][-+0-9]*$/.test(head)) throw new Error(`${file}: '${key}' has no scalar value to move under metadata`);
     const value = [head, ...lines.slice(1).map((part) => part.trim())].join(' ').trim();
     const scalar = /^"(?:[^"\\]|\\.)*"$/.test(value) ? JSON.parse(value) : value.replace(/^'(.*)'$/, '$1');
-    return `  ${key}: ${JSON.stringify(scalar)}`;
+    return `  ${/^[A-Za-z][A-Za-z0-9_-]*$/.test(key as string) ? key : JSON.stringify(key)}: ${JSON.stringify(scalar)}`;
   });
   const kept = entries.filter((entry) => !moved.includes(entry));
   const existing = kept.find((entry) => entry.key === 'metadata');
   if (existing) existing.lines.push(...metadata);
-  else kept.push({ key: 'metadata', lines: ['metadata:', ...metadata] });
+  else kept.push({ key: 'metadata', prefix: 9, lines: ['metadata:', ...metadata] });
   return `---\n${kept.flatMap((entry) => entry.lines).join('\n')}\n${text.slice(match[0].length - 3)}`;
 }
 

@@ -22,7 +22,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { REPO, skillFiles, SKILLS, frontmatterKeys } = require('./_shared.ts');
+const { REPO, skillFiles, SKILLS, frontmatterKeys, frontmatterKeysOf } = require('./_shared.ts');
 
 const MAX_LISTING_CHARS = 1536;
 // "at most 2% of the model's context window, or 8,000 characters when the context window is unknown"
@@ -272,6 +272,11 @@ test('G22: controls — an unknown key, a contract without a source, and the met
   const withMetadata = portableSkillFrontmatter('---\nname: x\nmetadata:\n  author: me\neffort: low\n---\n', new Set(['name', 'metadata']));
   assert.equal(withMetadata, '---\nname: x\nmetadata:\n  author: me\n  effort: "low"\n---\n');
   assert.throws(() => portableSkillFrontmatter('---\nname: x\nhooks:\n  a: b\n---\n', new Set(['name'])), /no scalar value/);
+  // A quoted key is still a key: the whitelist sees it and the projection moves it.
+  const quoted = '---\n"name": x\n"bogus": value\n\'odd\': v\n---\n';
+  assert.deepEqual(frontmatterKeysOf(quoted), ['name', 'bogus', 'odd']);
+  assert.deepEqual(unknownSkillKeys([{ name: 'x', keys: frontmatterKeysOf(quoted) }], allowed), ['x: bogus, odd']);
+  assert.equal(portableSkillFrontmatter(quoted, new Set(['name'])), '---\n"name": x\nmetadata:\n  bogus: "value"\n  odd: "v"\n---\n');
 });
 
 /** `name: metadata is flow-style` for each SKILL.md whose metadata is written inline (`{...}`, `[...]`
