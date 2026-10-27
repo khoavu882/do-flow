@@ -167,3 +167,20 @@ describe('IC-003: mechanical pre-checks fail closed without PASS evidence', () =
     refused(root, /build failed/);
   });
 });
+
+describe('IC-003: the readiness record is looked up under the feature slug', () => {
+  test('a record written under a feature namespace is found only when the slug is passed', () => {
+    const root = suiteTempDir('doflow-team-slug-');
+    const slug = '103-agent-teams';
+    const dir = path.join(root, '.doflow', 'state', 'team', 'pre-checks');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'Task.9.json'), JSON.stringify({ passed: true, failures: [] }));
+    writeReadinessRecord({
+      stateRoot: root, taskId: 'Task.9', slug, mode: 'workflow', inputs: {},
+      report: { taskClass: 'feature', templateName: 'feature', requirements: [], state: 'READY' },
+    });
+    assert.ok(fs.existsSync(path.join(root, '.doflow', 'state', 'readiness', slug, 'Task.9.json')), 'setup: the record is namespaced');
+    assert.throws(() => assertMechanicalPreChecks('Task.9', root), (err: any) => err.code === 'ERR_MECHANICAL_CHECKS_FAILED');
+    assert.deepEqual(assertMechanicalPreChecks('Task.9', root, { slug }), { passed: true, failures: [] });
+  });
+});

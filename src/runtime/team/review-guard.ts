@@ -83,7 +83,7 @@ function assertReviewerSeparation(context: ReviewAssignmentContext): void {
 function assertMechanicalPreChecks(
   taskId: string,
   projectRoot?: string,
-  options?: { fsImpl?: any }
+  options?: { fsImpl?: any; slug?: string | null }
 ): PreCheckResult {
   if (!taskId || typeof taskId !== 'string') {
     throw new TypeError('assertMechanicalPreChecks: taskId must be a non-empty string');
@@ -96,7 +96,7 @@ function assertMechanicalPreChecks(
   // 1. Readiness evidence is a precondition, not an optional hint.
   try {
     const { readReadinessRecord } = require('../readiness-record.ts');
-    const res = readReadinessRecord({ stateRoot: root, taskId, fsImpl });
+    const res = readReadinessRecord({ stateRoot: root, taskId, slug: options?.slug ?? null, fsImpl });
     if (!res || res.status !== 'found' || !res.record || typeof res.record !== 'object') {
       failures.push(`Task readiness evidence is ${res?.status || 'unavailable'}`);
     } else {
