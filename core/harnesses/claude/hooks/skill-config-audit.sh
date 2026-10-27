@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # skill-config-audit.sh — ConfigChange(skills) hook (pure observability, no deny path)
 #
 # Logs skill-file mutations regardless of which tool made them (a subagent's Bash heredoc-to-file

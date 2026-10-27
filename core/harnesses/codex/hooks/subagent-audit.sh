@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # Codex front door: subagent-audit through the shared lifecycle bridge.
 set -uo pipefail
 export DOFLOW_AGENT="${DOFLOW_AGENT:-codex}"

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # permission-audit.sh — PermissionDenied hook (pure observability, no deny path)
 #
 # The decision has already been made by the time this fires; there is nothing to

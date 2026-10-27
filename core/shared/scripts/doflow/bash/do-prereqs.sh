@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # do-prereqs.sh — doflow implement-phase prerequisite gate (prompt-level PRIMARY).
 #
 # Called as step 1 of /do-execute-plan. With --require-plan it exits 2 (and prints an

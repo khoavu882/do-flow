@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # validate-artifacts.sh — advisory consistency checker for doflow chain artifacts.
 #
 # Checks that an artifact's index tables agree with the detail beside them. This is a CONSISTENCY

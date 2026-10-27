@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # do-exec-paths.sh — resolve the execution workspace and one task's artifact paths.
 #
 # The single source of truth for where a task's brief, report, and review packages

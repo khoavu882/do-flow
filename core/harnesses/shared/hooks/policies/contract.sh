@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # contract.sh — shared decision and envelope contract for canonical policies.
 #
 # This file is sourced by policy scripts. It sets no shell options, installs no traps, reads no

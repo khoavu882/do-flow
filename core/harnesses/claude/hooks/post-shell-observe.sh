@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # IC-005, E.1 (Claude Code 2.1.292): event gives status; duration_ms is numeric on both
 # post events. Neither has a numeric exit code. Never inspect or record output/error text.
 [ "${DOFLOW_TELEMETRY:-}" != off ] || exit 0

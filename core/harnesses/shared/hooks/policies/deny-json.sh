@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # deny-json.sh — shared PreToolUse deny-JSON emitters for front-door dispatchers.
 #
 # Deliberately carries no `set` directive (unlike lib.sh, which sets -euo

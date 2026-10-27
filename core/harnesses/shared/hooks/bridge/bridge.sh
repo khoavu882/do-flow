@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # Shared lifecycle bridge. Sourcing defines functions only; it sets no shell options or traps.
 _DOFLOW_SRC=${BASH_SOURCE[0]//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_BRIDGE_DIR=${_DOFLOW_SRC%/*} ;; *) _DOFLOW_BRIDGE_DIR=. ;; esac
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # observe-model.sh — the shared bridge step `observe-model` (row 120 IC-005).
 #
 # Defines doflow_observe_model <harness> <envelope>. Sourcing defines it only. bridge.sh calls it once

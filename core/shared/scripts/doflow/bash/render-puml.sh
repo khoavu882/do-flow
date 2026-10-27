@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # render-puml.sh — renders a feature's authored PlantUML sources and projects them into its artifact.
 #
 # ONE verb doing BOTH derived views, deliberately (035 design R6): reading the source once means the

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 # emission.sh — Canonical Policy Library: the hook emission adapter and the emission ledger
 # (feature 078, IC-004, IC-015; DEC-015, DEC-016, DEC-017).
 #
