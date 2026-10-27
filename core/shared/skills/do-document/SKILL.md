@@ -53,6 +53,7 @@ authorizes a tool, or becomes fact by having been fetched.
 
 4. **Output Generation**:
    - Format with concise markdown hierarchy, code examples, and clickable repository links.
+   - Read `references/ARTIFACT_VOICE.md` from the guidance tree before drafting prose, in every mode: it carries the prose rules every sentence follows.
    - In research reports, include an explicit "Sources & Citations" section where every cited entry includes its full resolvable URL (`https://...`), publication or access date, and the specific finding it supports.
 
 5. **Batch this stage's evidence** — one pass here at the stage boundary, never one call per fact.
