@@ -174,6 +174,18 @@ for (const contract of SKILL_CONTRACTS.contracts.filter((entry: any) => Array.is
     path.basename(sourceRel) === 'SKILL.md' ? Buffer.from(portableSkillFrontmatter(content.toString('utf8'), allowed, sourceRel)) : content);
 }
 
+/** A one-line YAML scalar's value. Single-quoted: `''` is one quote. Double-quoted: JSON's escapes
+ * (`\"`, `\\`, `\n`, `\t`, `\uXXXX`, ...), which YAML reads the same way; any other escape throws
+ * rather than be guessed. Anything else is plain and taken as written. */
+function yamlScalar(value: string, key: string, file: string): string {
+  const single = value.match(/^'((?:[^']|'')*)'$/);
+  if (single) return single[1].replace(/''/g, "'");
+  if (!/^"(?:[^"\\]|\\.)*"$/.test(value)) return value;
+  try { return JSON.parse(value); } catch {
+    throw new Error(`${file}: '${key}' has a double-quoted value with an escape this projector does not decode`);
+  }
+}
+
 /** Move every top-level frontmatter key outside `allowed` under `metadata:`. A moved value is
  * written as a JSON string (valid YAML), a plain scalar's continuation lines joined with a space; a
  * nested map or a block scalar (`|`, `>`) is not handled, so it throws rather than guess, and so does a
@@ -200,8 +212,7 @@ function portableSkillFrontmatter(text: string, allowed: Set<string>, file = 'SK
     const head = lines[0].slice(prefix).trim();
     if (!head || /^[|>][-+0-9]*$/.test(head)) throw new Error(`${file}: '${key}' has no scalar value to move under metadata`);
     const value = [head, ...lines.slice(1).map((part) => part.trim())].join(' ').trim();
-    const scalar = /^"(?:[^"\\]|\\.)*"$/.test(value) ? JSON.parse(value) : value.replace(/^'(.*)'$/, '$1');
-    return `  ${/^[A-Za-z][A-Za-z0-9_-]*$/.test(key as string) ? key : JSON.stringify(key)}: ${JSON.stringify(scalar)}`;
+    return `  ${/^[A-Za-z][A-Za-z0-9_-]*$/.test(key as string) ? key : JSON.stringify(key)}: ${JSON.stringify(yamlScalar(value, key as string, file))}`;
   });
   const kept = entries.filter((entry) => !moved.includes(entry));
   const existing = kept.find((entry) => entry.key === 'metadata');

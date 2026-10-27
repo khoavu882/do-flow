@@ -277,6 +277,12 @@ test('G22: controls — an unknown key, a contract without a source, and the met
   assert.deepEqual(frontmatterKeysOf(quoted), ['name', 'bogus', 'odd']);
   assert.deepEqual(unknownSkillKeys([{ name: 'x', keys: frontmatterKeysOf(quoted) }], allowed), ['x: bogus, odd']);
   assert.equal(portableSkillFrontmatter(quoted, new Set(['name'])), '---\n"name": x\nmetadata:\n  bogus: "value"\n  odd: "v"\n---\n');
+  // Quoted values decode as YAML does before they are re-quoted: '' in single quotes, \" and \\ in double.
+  const value = (line: string) => portableSkillFrontmatter(`---\nname: x\n${line}\n---\n`, new Set(['name'])).split('\n')[3];
+  assert.equal(value("argument-hint: 'it''s here'"), '  argument-hint: "it\'s here"');
+  assert.equal(value('argument-hint: "say \\"hi\\" \\\\ back"'), '  argument-hint: "say \\"hi\\" \\\\ back"');
+  assert.equal(value("effort: high"), '  effort: "high"');
+  assert.throws(() => value('effort: "bad \\q escape"'), /SKILL\.md: 'effort' has a double-quoted value with an escape this projector does not decode/);
 });
 
 /** `name: metadata is flow-style` for each SKILL.md whose metadata is written inline (`{...}`, `[...]`
