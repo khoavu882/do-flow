@@ -17,7 +17,9 @@
 #     other name passes through unchanged, so an unmapped tool fails open as it does without a bridge
 #   - tool_input: toolArgs as an object (a JSON string is parsed; any other string becomes
 #     {command: <string>}, which is where the shared policies read an apply_patch body); for Edit
-#     and Write tool_input.file_path is copied from path when absent
+#     and Write tool_input.file_path is copied from path, filePath, filename or target_file when
+#     absent (only path and file_path are captured; an edit whose target is still undecodable is
+#     denied by the bridge, not allowed)
 #   - response (subagentStop) -> last_assistant_message
 copilot_bridge_payload() {
   local event="${1:-}" payload rewritten
@@ -35,8 +37,8 @@ copilot_bridge_payload() {
            elif ($a | type) == "object" then $a
            elif ($a | type) == "string" then ((try ($a | fromjson) catch $a) | if type == "object" then . else {command: $a} end)
            else {command: ($a | tostring)} end) as $input
-      | (if ($name == "Edit" or $name == "Write") and ($input | type) == "object" and ($input.file_path == null) and ($input.path != null)
-         then $input + {file_path: $input.path} else $input end) as $input
+      | (if ($name == "Edit" or $name == "Write") and ($input | type) == "object" and ($input.file_path == null) and (($input.path // $input.filePath // $input.filename // $input.target_file) != null)
+         then $input + {file_path: ($input.path // $input.filePath // $input.filename // $input.target_file)} else $input end) as $input
       | {
           hook_event_name: $event,
           session_id: (.sessionId // .session_id),
