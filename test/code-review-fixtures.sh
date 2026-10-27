@@ -169,6 +169,295 @@ else
   fail=$((fail + 1))
 fi
 
+# ── Voice tells (row 132, W2 + W3): opt-in `--voice`, advisory, no score ─────────────────────
+if python3 - "$PWD" <<'PY'
+import importlib.util
+import json
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+skill_dir = Path(sys.argv[1])
+checker_path = skill_dir / "scripts" / "doc_quality_checker.py"
+spec = importlib.util.spec_from_file_location("doc_quality_checker", checker_path)
+checker = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(checker)
+
+def voice(text):
+    return checker.check_voice(Path("t.md"), text.split("\n"))
+
+def kinds(text):
+    return sorted({f["rule"] for f in voice(text)})
+
+# 1. Clean prose gives no findings.
+clean = "# Install the tool\n\nRun the installer from the project root. It writes one file.\n\nThe config lives in `doflow.json`.\n"
+assert voice(clean) == [], voice(clean)
+
+# 2. Each tell kind is caught, with path:line data and the quoted text. The curly quote is a
+#    weak tell, so it sits in a paragraph that carries two strong ones.
+tells = {
+    "voice_overused_word": "We delve into the storage layer.",
+    "voice_sales_word": "The cache boasts a seamless design.",
+    "voice_chatbot_residue": "I hope this helps with the setup.",
+    "voice_knowledge_limit": "As of my last update the API had two routes.",
+    "voice_serves_as": "The file serves as the entry point.",
+    "voice_dash_habit": "The first step — reading the file — is quick.",
+    "voice_bold_density": "Use **one** and **two** and **three** together.",
+    "voice_repeated_opener": "The tool reads. The tool writes. The tool exits.",
+}
+for rule, line in tells.items():
+    found = [f for f in voice("# Notes\n\n" + line + "\n") if f["rule"] == rule]
+    assert found, f"{rule} not caught in: {line}"
+    assert found[0]["line"] == 3 and found[0]["file"].endswith("t.md"), found[0]
+    assert '"' in found[0]["message"], found[0]
+tc = [f for f in voice("# Design Risks And Alternatives Considered\n\nText.\n") if f["rule"] == "voice_title_case_heading"]
+assert tc and tc[0]["line"] == 1 and "Design Risks" in tc[0]["message"], tc
+assert not voice("# Design risks and alternatives\n\nText.\n")
+cq = [f for f in voice("We delve into it and it serves as a “hub”.\n") if f["rule"] == "voice_curly_quote"]
+assert cq, "curly quote not caught beside two other tells"
+
+# 3. Code, quotes, YAML and link targets inside an otherwise clean file are not flagged.
+exempt = "\n".join([
+    "---", "title: Delve into a seamless tapestry", "---", "",
+    "# Setup", "",
+    "Run the tool, then read the result.", "",
+    "```", "we delve into the pivotal tapestry that serves as a testament", "```", "",
+    "Call `delve()` and `seamless` and `serves as` from the shell.", "",
+    "> I hope this helps. As of my last update it boasts a seamless tapestry.", "",
+    "See [the guide](https://example.com/delve-pivotal-tapestry-seamless) for more.", "",
+])
+assert voice(exempt) == [], voice(exempt)
+
+# 4. A lone weak tell is not flagged; weak tells with two others are.
+assert voice("# Notes\n\nThe key step is to read the file.\n") == []
+assert voice("# Notes\n\nThe first step — reading the file is quick.\n") == []
+assert voice("# Notes\n\nUse **this** carefully.\n") == []
+weak = [f for f in voice("# Notes\n\nWe delve into the key step, which serves as the entry point.\n") if "key" in f["message"]]
+assert weak, "weak tell with two strong tells was not reported"
+
+# 5. No aggregate score anywhere, the default output is unchanged without --voice, and
+#    --voice never changes the exit status.
+assert all(set(f) == {"file", "line", "rule", "severity", "message"} for f in voice("We delve in.\n"))
+with tempfile.TemporaryDirectory() as d:
+    f = Path(d) / "x.md"
+    f.write_text("# Notes\n\nWe delve into it. It serves as a hub.\n")
+    assert not [x for x in checker.analyze_file(f) if x["rule"].startswith("voice_")]
+    r = subprocess.run([sys.executable, str(checker_path), str(f), "--voice", "--json"], capture_output=True, text=True)
+    out = json.loads(r.stdout)
+    assert r.returncode == 0 and any(x["rule"].startswith("voice_") for x in out), r
+    assert isinstance(out, list) and not any("score" in x for x in out)
+
+print("  \033[32m✓\033[0m voice check: tells caught, exempt regions skipped, weak tells gated, no score")
+PY
+then
+  pass=$((pass + 1))
+  checked=$((checked + 1))
+else
+  printf '  \033[31m✗\033[0m voice check: tells caught, exempt regions skipped, weak tells gated, no score\n'
+  fail=$((fail + 1))
+fi
+
+# ── Facts diff (row 132, W4 + W5): a rewrite must not add, drop or change a fact ─────────────
+if python3 - "$PWD" <<'PY'
+import importlib.util
+import json
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+skill_dir = Path(sys.argv[1])
+checker_path = skill_dir / "scripts" / "doc_quality_checker.py"
+spec = importlib.util.spec_from_file_location("doc_quality_checker", checker_path)
+checker = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(checker)
+
+BEFORE = (
+    "# Release notes\n\n"
+    "Alice Chen shipped version 2.0 on 2026-03-14 after 1,200 runs (see https://example.com/notes).\n"
+    "The cache hit rate reached 93% [1] and Redis stayed under 40 ms.\n"
+)
+
+def diff(before, after):
+    with tempfile.TemporaryDirectory() as d:
+        b, a = Path(d) / "before.md", Path(d) / "after.md"
+        b.write_text(before)
+        a.write_text(after)
+        found = checker.facts_diff(b, a)
+        r = subprocess.run([sys.executable, str(checker_path), "--facts-diff", str(b), str(a), "--json"],
+                           capture_output=True, text=True)
+        return found, r.returncode, json.loads(r.stdout)
+
+# 1. Unchanged facts, reworded prose: nothing reported, exit 0.
+reworded = BEFORE.replace("shipped version 2.0", "released version 2.0").replace("stayed under", "stayed below")
+found, code, out = diff(BEFORE, reworded)
+assert found == [] and code == 0 and out == [], (found, code)
+
+# 2. An added number, name, date, URL and citation is an error each, and exit status is 1.
+added = BEFORE + "Bob Smith confirmed 17 more runs on 2026-04-01 (https://example.org/extra) [2].\n"
+found, code, out = diff(BEFORE, added)
+errors = {(f["rule"]) for f in found if f["severity"] == "error"}
+assert errors == {"fact_added_number", "fact_added_name", "fact_added_date", "fact_added_url",
+                  "fact_added_citation"}, errors
+assert not [f for f in found if f["severity"] == "warning"], found
+assert code == 1 and len(out) == len(found)
+assert all(f["file"].endswith("after.md") and f["line"] >= 1 for f in found)
+
+# 3. A dropped fact is a warning and leaves the exit status at 0; a changed number is both.
+dropped = BEFORE.replace(" and Redis stayed under 40 ms", "")
+found, code, _ = diff(BEFORE, dropped)
+assert {f["severity"] for f in found} == {"warning"} and code == 0, found
+assert {f["rule"] for f in found} == {"fact_dropped_number", "fact_dropped_name"}, found
+changed = BEFORE.replace("93%", "94%")
+found, code, _ = diff(BEFORE, changed)
+assert {(f["rule"], f["severity"]) for f in found} == {("fact_added_number", "error"), ("fact_dropped_number", "warning")}, found
+assert code == 1
+
+# 4. Sentence-initial capitals and headings are not names; the first word of a sentence is skipped.
+found, code, _ = diff("# Release Notes\n\nThe tool works.\n", "# Release notes\n\nIt works. Postgres is fast.\n")
+assert found == [] and code == 0, found
+
+print("  \033[32m✓\033[0m facts diff: added fact is an error, dropped fact a warning, unchanged facts silent")
+PY
+then
+  pass=$((pass + 1))
+  checked=$((checked + 1))
+else
+  printf '  \033[31m✗\033[0m facts diff: added fact is an error, dropped fact a warning, unchanged facts silent\n'
+  fail=$((fail + 1))
+fi
+
+# ── Facts diff regressions (row 132 review): a correct rewrite must not exit 1 ───────────────
+if python3 - "$PWD" <<'PY'
+import importlib.util
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+skill_dir = Path(sys.argv[1])
+checker_path = skill_dir / "scripts" / "doc_quality_checker.py"
+spec = importlib.util.spec_from_file_location("doc_quality_checker", checker_path)
+checker = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(checker)
+
+def F(before, after):
+    with tempfile.TemporaryDirectory() as d:
+        b, a = Path(d) / "before.md", Path(d) / "after.md"
+        b.write_text(before)
+        a.write_text(after)
+        found = checker.facts_diff(b, a)
+        code = subprocess.run([sys.executable, str(checker_path), "--facts-diff", str(b), str(a)],
+                              capture_output=True, text=True).returncode
+        return found, code
+
+def errors(found):
+    return [f for f in found if f["severity"] == "error"]
+
+# Equivalent dates are one fact, whatever the form; a different date is still an error.
+for before, after in [("Released on March 14, 2026.", "Released on 14 March 2026."),
+                      ("Released on 2026-03-14.", "Released on 14 March 2026."),
+                      ("Released on Mar 14th, 2026.", "Released on 2026-03-14."),
+                      ("Updated in March 2026.", "Updated in Mar 2026.")]:
+    found, code = F(before, after)
+    assert found == [] and code == 0, (before, after, found)
+found, code = F("Released on March 14, 2026.", "Released on 15 March 2026.")
+assert [f["rule"] for f in errors(found)] == ["fact_added_date"] and code == 1, found
+
+# A sentence-initial name that moves, or a sentence opener that changes, is not an added fact.
+for before, after in [("Redis stores data.", "The data lives in Redis."),
+                      ("The data lives in Redis.", "Redis stores data."),
+                      ("Run the tool.", "Execute the tool.")]:
+    found, code = F(before, after)
+    assert errors(found) == [] and code == 0, (before, after, found)
+found, code = F("The cache is fast.", "The cache is fast and uses Postgres.")
+assert [f["rule"] for f in errors(found)] == ["fact_added_name"] and code == 1, found
+
+# A name wrapped over two lines keeps its identity.
+found, code = F("The owner is Alice Chen.", "The owner is Alice\nChen.")
+assert found == [] and code == 0, found
+found, code = F("The owner is Alice\nChen.", "The owner is Alice Chen.")
+assert found == [] and code == 0, found
+
+# A finding names the line the fact is really on, whatever precedes it.
+found, _ = F("", "# A much longer heading\n\nThe owner is Alice Chen.")
+assert [(f["rule"], f["line"]) for f in found] == [("fact_added_name", 3)], found
+found, _ = F("", "One line.\nSecond.\n\nOn 2026-01-02 it shipped.")
+assert [(f["rule"], f["line"]) for f in found] == [("fact_added_date", 4)], found
+
+print("  \033[32m✓\033[0m facts diff regressions: date forms, moved names, wrapped names, real lines")
+PY
+then
+  pass=$((pass + 1))
+  checked=$((checked + 1))
+else
+  printf '  \033[31m✗\033[0m facts diff regressions: date forms, moved names, wrapped names, real lines\n'
+  fail=$((fail + 1))
+fi
+
+# ── Voice masking regressions (row 132 review): skipped regions must not leak ────────────────
+if python3 - "$PWD" <<'PY'
+import importlib.util
+import sys
+from pathlib import Path
+
+sys.dont_write_bytecode = True
+skill_dir = Path(sys.argv[1])
+checker_path = skill_dir / "scripts" / "doc_quality_checker.py"
+spec = importlib.util.spec_from_file_location("doc_quality_checker", checker_path)
+checker = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(checker)
+
+def V(text):
+    return checker.check_voice(Path("t.md"), text.split("\n"))
+
+BT = "`"
+silent = {
+    "a longer or different fence is not closed by a shorter or other one": "~~~~\n~~~\ndelve\n~~~\n~~~~",
+    "a backtick fence is not closed by tildes": "```\n~~~\ndelve\n```",
+    "inline code over two lines": f"Use {BT}delve\nx{BT} here.",
+    "a reference identifier and its definition": "See [guide][delve].\n\n[delve]: /docs",
+    "a collapsed reference": "See [delve][].\n\n[delve]: /docs \"tapestry\"",
+    "a link destination with balanced parentheses": "See [guide](docs/(example)delve).",
+    "a lazy blockquote line": "> Example:\ndelve\n",
+    "an indented code block": "Intro text.\n\n    delve\n",
+    "a tab-indented code block": "Intro text.\n\n\tdelve\n",
+    "a one-line HTML comment": "<!-- delve -->",
+    "a multi-line HTML comment": "Text.\n\n<!--\ndelve\n-->\n\nMore text.",
+    "a comment inside a line": "Text <!-- delve --> here.",
+}
+for name, text in silent.items():
+    assert V(text) == [], (name, V(text))
+
+# Prose the masks must not swallow.
+loud = {
+    "text after a fence closes": "```\ncode\n```\n\nWe delve here.",
+    "text after a blockquote and a blank line": "> quote\n\nWe delve here.",
+    "an indented line continuing a list item": "- first\n    we delve here",
+    "an indented line continuing a paragraph": "Intro line\n    we delve here",
+    "text after a comment closes": "<!--\nnote\n-->\n\nWe delve here.",
+}
+for name, text in loud.items():
+    assert [f["rule"] for f in V(text)] == ["voice_overused_word"], (name, V(text))
+
+# A line holding only inline code does not split its paragraph: the weak tell still sees the others.
+found = V(f"The key is\n{BT}x{BT}\nWe delve; it serves as a hub.")
+assert any("key" in f["message"] for f in found), found
+
+print("  \033[32m✓\033[0m voice masking regressions: fences, code, links, quotes, comments")
+PY
+then
+  pass=$((pass + 1))
+  checked=$((checked + 1))
+else
+  printf '  \033[31m✗\033[0m voice masking regressions: fences, code, links, quotes, comments\n'
+  fail=$((fail + 1))
+fi
+
 # ── Coverage honesty (FR-006, FR-008) ────────────────────────────────────────────────────────
 #
 # A directory-level property, so the per-file fixture loop above structurally cannot express it:

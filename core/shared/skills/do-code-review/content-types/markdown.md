@@ -26,6 +26,12 @@ python scripts/doc_quality_checker.py <path>
 
 # JSON output — same finding-list shape as code_quality_checker.py --json
 python scripts/doc_quality_checker.py <path> --json
+
+# Also report voice tells (check 7, advisory, off by default)
+python scripts/doc_quality_checker.py <path> --voice
+
+# After a rewrite: compare the numbers, names, dates, URLs and citations of two versions
+python scripts/doc_quality_checker.py --facts-diff <before> <after>
 ```
 
 Every check below is deterministic and cite-the-match: a finding names the exact line, phrase,
@@ -126,6 +132,14 @@ description quoting the word, it is not a defect.
 Flags sentences asserting specific behavior or interfaces of a named library, framework, runtime, SDK, or package without an authoritative citation (Context7 or resolvable HTTP/HTTPS URL) or an explicit `UNVERIFIED` marker.
 
 **Interpretation:** advisory warning (`severity: "low"`, exit code 0). Verify claims via Context7, cite primary documentation with an HTTPS URL, or tag as `UNVERIFIED`.
+
+### 7. Voice tells (opt-in: `--voice`)
+
+**Applies to:** prose in any `.md` file; fenced and inline code, block quotes, YAML front matter and link targets are skipped.
+
+Flags overused and sales words, chatbot residue, knowledge-limit phrases, "serves as", dash and curly-quote habits, Title Case headings, bold density and repeated sentence openers, quoting each match. A weak tell (one dash, one bold word, "key") is shown only when two other tells share its paragraph.
+
+**Interpretation:** advisory (`severity: "low"`, no score, exit code unchanged). The prose rules are the guidance tree's `references/ARTIFACT_VOICE.md`; confirm each match against the sentence before rewriting.
 
 ---
 
