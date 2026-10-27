@@ -121,7 +121,14 @@ function installShortcuts(options) {
     overlay.setAttribute('hidden', '');
     const back = opener && typeof opener.focus === 'function' && doc.body.contains(opener) ? opener : null;
     opener = null;
-    if (back) back.focus();
+    if (back) {
+      back.focus();
+      return;
+    }
+    // The opener was rebuilt while the list was open (polling re-mounts a view): focus goes to a stable place, the main
+    // region first, then the view heading, so a keyboard user is not left on the document body.
+    const fallback = doc.getElementById('main') ?? doc.querySelector('h1');
+    if (fallback && typeof fallback.focus === 'function') fallback.focus();
   }
 
   

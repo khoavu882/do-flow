@@ -3368,3 +3368,32 @@ test('133 reconnect: a resume or a long absence says Reconnected even when the d
     assert.equal(text(page.region), 'Reconnected. The view was refreshed in full.');
   });
 });
+
+test('133 shortcuts: when the opener was rebuilt while help was open, Esc moves focus to the main region', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    const opener = page.doc.createElement('button');
+    page.main.append(opener);
+    opener.focus();
+    keydownOn(page, '?');
+    opener.remove(); // polling rebuilt the view under the dialog
+    keydownOn(page, 'Escape');
+    assert.notEqual(page.doc.getElementById('help').getAttribute('hidden'), null);
+    assert.ok(page.doc.activeElement === page.main, 'focus is on the main region'); // not assert.equal: a failing equal inspects the whole fake DOM
+  });
+});
+
+test('133 shortcuts: with no main region the view heading takes the focus', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    const opener = page.doc.createElement('button');
+    page.main.append(opener);
+    opener.focus();
+    keydownOn(page, '?');
+    opener.remove();
+    page.main.setAttribute('id', 'gone');
+    const h1 = page.main.querySelector('h1');
+    keydownOn(page, 'Escape');
+    assert.ok(h1 !== null && page.doc.activeElement === h1, 'focus is on the view heading');
+  });
+});
