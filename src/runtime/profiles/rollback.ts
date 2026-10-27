@@ -150,19 +150,17 @@ function resetRollback(options?: { projectRoot?: string; fsImpl?: any }): { ok: 
   const cbPath = resolveCircuitBreakerPath(options?.projectRoot);
   const fsImpl = options?.fsImpl || fs;
 
-  try {
-    if (fsImpl.existsSync(sentinelPath)) {
-      fsImpl.unlinkSync(sentinelPath);
+  // A file already gone is the goal; any other failure leaves rollback mode on and is reported.
+  let ok = true;
+  for (const file of [sentinelPath, cbPath]) {
+    try {
+      fsImpl.unlinkSync(file);
+    } catch (error: any) {
+      if (error?.code !== 'ENOENT') ok = false;
     }
-  } catch {}
+  }
 
-  try {
-    if (fsImpl.existsSync(cbPath)) {
-      fsImpl.unlinkSync(cbPath);
-    }
-  } catch {}
-
-  return { ok: true };
+  return { ok };
 }
 
 /**
