@@ -117,7 +117,7 @@ describe('Scenario: Same task id in two features (FR-006, FR-007)', { skip: SKIP
     assert.ok(fs.existsSync(path.join(state, 'evidence', `${NEW}.json`)));
     assert.ok(!fs.existsSync(path.join(state, 'evidence', NEW, `${NEW}.json`)));
     assert.strictEqual(run(repo, ['orchestrate', '--action', 'handoff', '--task-id', NEW, '--task-class', 'feature',
-      '--calling-skill', 'do-plan', '--note', 'done', '--json']).status, 0);
+      '--calling-skill', 'do-design', '--note', 'done', '--json']).status, 0);
     assert.ok(fs.existsSync(path.join(state, 'orchestration', `${NEW}.json`)), 'the journal keeps its flat per-slug file');
   });
 });

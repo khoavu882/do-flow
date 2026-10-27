@@ -31,7 +31,7 @@ const BASELINE_HOOK_BODY = '`pre-implement-gate.sh` — PreToolUse(Edit\\|Write)
 const BASELINE_HOOK_ROW = `| \`shared/hooks/policies/\` | ${BASELINE_HOOK_BODY} |`;
 // Each pair is the current wording and the pre-107 wording of the same passage; a control swaps one for the other.
 const UNCITED_A = 'G46.2: a.md has a hard-gate scope claim without DOFLOW_CHAIN.md';
-const BASELINE_FIXED_CONSTITUTION = '  §2 "Constitution Check" and blocks nothing. Gate scope: `DOFLOW_CHAIN.md`.';
+const BASELINE_FIXED_CONSTITUTION = '  constitution through `/do-constitution`. Gate scope: `DOFLOW_CHAIN.md`.';
 const BASELINE_CONSTITUTION = [
   '  §2 "Constitution Check" and does not block work; the chain\'s one hard gate covers artifact',
   '  existence only.',
@@ -48,10 +48,7 @@ const BASELINE_PLAN_ADVISORY = [
   '   decision written straight from prose without a compiled pack must not claim prior evidence. When',
   '   non-empty, read it alongside `requirement.md`, `design.md`, and the constitution.',
 ].join('\n');
-const BASELINE_FIXED_PLAN_CHECK = [
-  'blocks on it; `references/DOFLOW_CHAIN.md` defines the only hard gate. Stopping is skill',
-  '   discipline, not hook enforcement.',
-].join('\n');
+const BASELINE_FIXED_PLAN_CHECK = 'beside the hard hook that covers artifact existence (`references/DOFLOW_CHAIN.md` scopes both).';
 const BASELINE_PLAN_CHECK = [
   'blocks on it — the chain\'s one hard gate covers artifact existence only. Stopping on a violation',
   '   is a discipline this skill observes, not something a hook enforces.',

@@ -119,11 +119,12 @@ Filling §8's task dependency graph, read the guidance tree's `references/DIAGRA
    loop, each of its rounds logs to `plan-<NN>-question.md` at the feature root exactly as
    `/do-brainstorm` and `/do-design` log theirs to their own subdirectories, numbered from step 1's
    `plan_next_round`.
-6. **Constitution Check (advisory gate)** — evaluate the plan against both tiers as reconciled in
-   step 4. On a violation, STOP and revise the approach before continuing, then record PASS/FAIL in
-   the plan. The verdict is **advisory**: it is recorded in `plan.md` §2 "Constitution Check" and nothing downstream
-   blocks on it; `references/DOFLOW_CHAIN.md` defines the only hard gate. Stopping is skill
-   discipline, not hook enforcement.
+6. **Constitution Check (exit gate)** — evaluate the plan against both tiers as reconciled in step
+   4. Record one row per principle in `plan.md` §2: its id, its tier (MUST unless it says `**Tier:**
+   SHOULD`) and PASS/FAIL. On a violation, revise the approach first. A MUST marked FAIL or left
+   without a row refuses step 11's handoff; a SHOULD FAIL is a note. That refusal is the runtime's,
+   beside the hard hook that covers artifact existence (`references/DOFLOW_CHAIN.md` scopes both).
+   There is no waiver: revise the plan, or a person amends the constitution with `/do-constitution`.
 7. **Decompose into Tasks (section 8)** — dependency-ordered, `[US#]`-traced to the requirement's
    user stories, owner+files named per task, with checkpoints and completion criteria.
    Read the guidance tree's `references/ORCHESTRATION.md` and

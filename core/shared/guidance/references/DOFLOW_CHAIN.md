@@ -52,11 +52,11 @@ remains the chain's own implementation phase.
   `requirement.md`'s `**Intent:**` field — the argument that does so is declared in `/do-brainstorm`'s
   own `argument-hint`, which is where a single-skill argument is owned. Discovery without an intent is
   unchanged and is the ordinary case.
-- **Implement gate (hard):** Denies source edits for started features missing `requirement.md`/`design.md`/`plan.md` (`missing-artifacts`), or held tasks without READY at their workflow's first source-mutating stage (`readiness-missing`, `readiness-not-ready`, `readiness-wrong-template`, or `readiness-store-conflict` when a linked worktree's copy differs from the main checkout's). Other blockers: `shared/hooks/policies/`; all other chain gates are advisory/skippable.
+- **Implement gate (hard):** Denies source edits for started features missing `requirement.md`/`design.md`/`plan.md` (`missing-artifacts`), or held tasks without READY at their workflow's first source-mutating stage (`readiness-missing`, `readiness-not-ready`, `readiness-wrong-template`, or `readiness-store-conflict` when a linked worktree's copy differs from the main checkout's). Other blockers: `shared/hooks/policies/`, and the planning stage's exit, which refuses a constitution MUST conflict ("Two-tier constitution" below); all other chain gates are advisory/skippable.
 - **Two-tier constitution — what is computed vs. what is convention.**
   `references/CONSTITUTION_BASE.md` (tier-1, global) is overlaid by
   `<repo>/agent-docs/constitution.md` (tier-2, per-repo), and tier-2 takes precedence. **That
-  overlay is performed by the chain skill reading both files — no component merges them.** This is
+  overlay is performed by the chain skill reading both files — no component writes a merged file.** This is
   the canonical statement; other places point here rather than restating it.
 
   | Step | What happens | Guarantee |
@@ -64,14 +64,15 @@ remains the chain's own implementation phase.
   | Locate tier-1 | `do-paths.sh` searches two candidates, first hit wins; `null` if none | **computed** |
   | Locate tier-2 | `do-paths.sh` emits the path plus `has_constitution_local` | **computed** |
   | Read both files | the chain skill opens them | agent-performed |
-  | Overlay; tier-2 takes precedence on conflict | the chain skill reconciles them in its own reasoning | **convention** |
+  | Overlay; tier-2 takes precedence on conflict | the chain skill reconciles them; the exit check overlays them by principle id | **convention**; **computed** for the check |
   | "Tier-2 may not weaken P1 (Safety)" | a rule stated to the agent | **convention, unvalidated** |
-  | Constitution Check verdict | recorded in `plan.md` §2 "Constitution Check" | **advisory — blocks nothing** |
+  | Constitution Check verdict | one PASS/FAIL row per principle in `plan.md` §2; the `do-plan` stage's handoff refuses a MUST marked FAIL or without a row | **computed — blocks the planning exit** |
   | Propagate pointer to the agent context file | `sync-context.sh` writes a marker block | **computed** |
 
   Both path lookups run unconditionally, whether or not `do-constitution` has ever been invoked.
-  Nothing detects a conflict between the tiers, and nothing validates the P1 rule — so avoid
-  describing this model as *resolved* (there is no merged artifact) or *enforced* (nothing blocks).
+  The model judges each principle; the runtime enforces only the record, MUST unless a principle
+  says `**Tier:** SHOULD`, with no waiver. Nothing validates the P1 rule, and no merged artifact
+  exists, so avoid describing the overlay as *resolved*.
   The convention is still load-bearing: it is how the rules actually reach a feature's planning.
 - **`templates/doflow/` is a shared template pool, not the Agent Skills standard's
   `references/`/`assets/` pattern.** The standard nests bundled resources one level inside their

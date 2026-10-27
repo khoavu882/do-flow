@@ -15,14 +15,15 @@
 
 ## 2. Constitution Check (GATE)
 
-> Verify against both constitution tiers, tier-2 taking precedence — you reconcile them yourself;
-> nothing merges them for you. Any violation = STOP and revise the approach before continuing.
-> (Advisory by default; not the hard hook gate.)
+> One row per principle of both constitution tiers; a tier-2 ID replaces the base one. `Tier` is the
+> constitution's (MUST unless it says SHOULD), `Result` is PASS or FAIL. A MUST marked FAIL, or a MUST
+> principle with no row, refuses the planning stage's exit; a SHOULD FAIL is advisory. Revise the
+> plan, or a person amends the constitution with `/do-constitution`; there is no waiver.
 
-- [ ] Complies with [PRINCIPLE]: [how]
-- [ ] No violation of [PRINCIPLE]: [how]
-
-**Result:** PASS / FAIL — [note]
+| Principle | Tier | Result | How |
+|---|---|---|---|
+| P1 | MUST | PASS | [how the plan complies] |
+| [ID] | [MUST/SHOULD] | [PASS/FAIL] | [how] |
 
 ## 3. Research & Decisions
 

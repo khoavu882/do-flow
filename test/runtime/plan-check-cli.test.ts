@@ -14,10 +14,15 @@ const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const RUN = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 
+// Row 134: every base principle passes, so a plan's only content findings are the ones a case plants.
+const CONSTITUTION = ['## 2. Constitution Check', '', '| Principle | Tier | Result | How |', '|---|---|---|---|',
+  ...['P1', 'P2', 'P3', 'P4', 'P5', 'P6'].map((id) => `| ${id} | MUST | PASS | how |`), ''];
+
 function plan(lines: any, { header = '**Task graph:** v1', tasksSection = true }: any = {}) {
   return [
     '# Plan', '',
     ...(header ? [header, ''] : []),
+    ...CONSTITUTION,
     ...(tasksSection ? ['## 8. Tasks', '', ...lines] : ['## Overview', 'No task list.']),
     '',
   ].join('\n');
