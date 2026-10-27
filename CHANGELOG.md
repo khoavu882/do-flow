@@ -43,6 +43,7 @@ All notable changes to DoFlow are documented here. Format follows
 
 ### Fixed
 - **FU-5f7dwt (roadmap seed):** `proposed` is a known row key, so `seed --action check` no longer flags a store row that carries `proposed: true`. A draft row that sets `proposed` (true or false) is `seed-invalid`: only `seed apply` and `amend` write it, so a draft cannot pre-mark a row.
+- **maint-patch2 (FU-3mr2gz):** the capability table now reports Copilot and Pi settings as unavailable, because DoFlow never wrote their settings files. Pi no longer declares a settings native target or path, the generated docs blocks are regenerated, and guard G5 now fails when a harness declares `settings: supported` but its adapter writes no settings file.
 - **maint-patch (FU-aeyx13):** `doflow orchestrate --action start --dry-run` now exits 2 with a usage error. Before, the flag was silently ignored and a real start ran.
 
 ## [2.0.0-beta.7] - 2026-10-24

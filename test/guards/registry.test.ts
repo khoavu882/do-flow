@@ -69,6 +69,54 @@ test('G5: a capability marked unavailable has no deployer contradicting it', () 
     `declared unavailable while a deployer ships — the capability map publishes this as fact:\n  ${offenders.join('\n  ')}`);
 });
 
+// The one capability where "supported but we ship nothing" is NOT legitimate: the capability map
+// shows `Supported` for Settings as DoFlow merging keys into the harness's settings file. So every
+// harness declared `settings: supported` must PLAN a write to its settings native target. The plan
+// is the real one: registryLifecycleView runs the registered adapters in-process against a scratch
+// project root. Pi and Copilot once claimed it with no settings write at all. Reading the adapter
+// source for a `capability: 'settings'` label would pass on verify-only code, so it is not used.
+const { registryLifecycleView } = require('../../src/lifecycle/view.ts');
+const { tempDir } = require('../helper/tmp.ts');
+
+/** The planned changes that write the harness's settings native target inside `scopeRoot`, outside DoFlow's own `.doflow` tree. */
+function settingsWrites(harness: any, changes: any[], scopeRoot: string): any[] {
+  const native = harness.nativeTargets?.settings;
+  if (!native) return [];
+  return changes.filter((change: any) => typeof change.target === 'string' && path.isAbsolute(change.target)
+    && change.target.startsWith(`${scopeRoot}${path.sep}`) && !change.target.includes(`${path.sep}.doflow${path.sep}`)
+    && path.basename(change.target) === path.basename(native)
+    && ['create', 'update', 'merge'].includes(change.operation));
+}
+
+function plannedChanges(id: string, scopeRoot: string): any[] {
+  const view = registryLifecycleView({ registry, scope: { global: false, projectRoot: scopeRoot }, targets: [id], operation: 'install', repoRoot: REPO, hookHarnesses: [] });
+  return view.plan.changes.filter((change: any) => change.harness === id);
+}
+
+test('G5: a harness declaring settings supported plans a write to its settings file', (t: any) => {
+  const offenders: any = [];
+  let checked = 0;
+  for (const harness of registry.harnesses) {
+    if (harness.capabilities?.settings?.status !== 'supported') continue;
+    checked += 1;
+    const scopeRoot = tempDir(t, `doflow-g5-settings-${harness.id}-`);
+    if (settingsWrites(harness, plannedChanges(harness.id, scopeRoot), scopeRoot).length === 0) offenders.push(harness.id);
+  }
+  assert.ok(checked > 0, 'no harness declares settings supported: the check ran on nothing');
+  assert.deepEqual(offenders, [],
+    `declared settings supported but the adapter plans no settings write — the capability map publishes this as fact:\n  ${offenders.join('\n  ')}`);
+});
+
+test('G5 negative control: a plan with the settings step filtered out, or a harness with no settings target, plans no settings write', (t: any) => {
+  const claude = registry.harnesses.find((harness: any) => harness.id === 'claude');
+  const scopeRoot = tempDir(t, 'doflow-g5-settings-control-');
+  const changes = plannedChanges('claude', scopeRoot);
+  assert.ok(settingsWrites(claude, changes, scopeRoot).length > 0, 'control premise: the real Claude plan writes settings');
+  const without = changes.filter((change: any) => !settingsWrites(claude, [change], scopeRoot).length);
+  assert.equal(settingsWrites(claude, without, scopeRoot).length, 0, 'a plan without the settings step must fail the check');
+  assert.equal(settingsWrites({ ...claude, nativeTargets: {} }, changes, scopeRoot).length, 0, 'a harness with no settings native target plans none');
+});
+
 // Only `supported` entries must exist in the harness contract. An `unavailable` entry names an
 // event the harness deliberately does NOT have — recording that gap explicitly is the point, and
 // requiring it to also be in the contract would make a gap impossible to express.

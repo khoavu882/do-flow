@@ -7,6 +7,8 @@ def model_identity($v):
   if ($v | type) != "string" then {}
   elif valid_model_id($v) then {model:$v}
   else {modelUnparsed:true} end;
+# Same reading as identity.ts and policies/identity.sh: ASCII-lowercased, main or worker kept, any other non-empty value is worker. Unset or empty stays null.
+def norm_role($v): if ($v | type) == "string" and $v != "" then ($v | ascii_downcase) as $l | if $l == "main" or $l == "worker" then $l else "worker" end else null end;
 def put($o; $k; $v): if $v == null then $o else $o + {($k): $v} end;
 def event_name($fallback): if (.hook_event_name | type) == "string" then .hook_event_name else $fallback end;
 def path_values($obj; $keys): first([$keys[] as $k | $obj[$k] | select(type == "string" and length > 0)][]) // null | if . == null then null else [.] end;
@@ -86,7 +88,7 @@ def dft_tuple_base($native; $d):
      run:(dft_id($ENV.DOFLOW_RUN_ID) | if . == "local" then null else . end),
      lineage:dft_id($ENV.DOFLOW_LINEAGE_ID),
      attempt:($ENV.DOFLOW_ATTEMPT | if type == "string" and test("^[1-9][0-9]{0,3}$") then tonumber else null end),
-     role:(if $ENV.DOFLOW_SESSION_ROLE == "main" or $ENV.DOFLOW_SESSION_ROLE == "worker" then $ENV.DOFLOW_SESSION_ROLE else null end),
+     role:norm_role($ENV.DOFLOW_SESSION_ROLE),
      worker_run:($ENV.DOFLOW_WORKER_RUN | if type == "string" and test("\\Aw-[0-9a-f]{12}\\z") then . else null end)}) catch {dft:1}]
   | if length == 1 then .[0] else {dft:1} end end;
 def dft_tuple($native; $d):
@@ -105,7 +107,7 @@ if ($ARGS.named.mode // "encode") == "minimal" then {doflow_event:{version:(1),h
   ($ENV.DOFLOW_ATTEMPT | try tonumber catch null) as $attempt |
   ($ENV.DOFLOW_LINEAGE_ID | nonempty(.)) as $lineage |
   ($ENV.DOFLOW_WORKTREE | nonempty(.)) as $worktree |
-  (if $ENV.DOFLOW_SESSION_ROLE == "main" or $ENV.DOFLOW_SESSION_ROLE == "worker" then $ENV.DOFLOW_SESSION_ROLE else null end) as $role |
+  norm_role($ENV.DOFLOW_SESSION_ROLE) as $role |
   (if $harness == "claude" then decode_claude elif $harness == "codex" then decode_codex elif $harness == "kiro" then decode_kiro elif $harness == "antigravity" then decode_antigravity elif $harness == "pi" then decode_pi else {operation:"tool"} end) as $d |
   if $ARGS.named.mode == "observe" then
     if $harness == "claude" and $d.operation == "command" and $native.hook_event_name == $event and
