@@ -16,10 +16,9 @@ All notable changes to DoFlow are documented here. Format follows
 ## [Unreleased]
 
 ### Added
-- **Issue #9 stage 3 (stage-to-pack link, FU-7j3k84):** a stage handoff now records the context packs that stage was handed. The orchestration record's `complete-stage` entry carries `packs`, a list of `{ taskId, digest }` in delivery order. `digest` is the delivery store's own `packDigest`, so `context-pack --since` accepts it. The list is read from `.doflow/state/delivery` over the stage's window: the run's own task, plus every plan task under the feature's namespace for a feature run. Each task contributes its latest delivery. `trace spans` puts `pack_count`, `pack_task` and `pack_digest` on the `stage` span. A stage with no recorded delivery gets no field. Older records, and a malformed `packs` value, project as before. No new store or bus. **Not covered:**
-  - A byte-identical pack delivered again in a later stage is not seen, because the store keeps a key's first delivery time.
-  - A `--no-record` pack leaves no link.
-  - Another session's pack for the same feature inside the window is counted.
+- **Issue #9 stage 3 (stage-to-pack link, FU-7j3k84):** a stage handoff now records the context packs that stage was handed. When `context-pack` records a delivery, it writes `{ taskId, digest }` onto the stage active at that moment. That stage belongs to the pack task's own run, or else to its feature's run, named by `--slug` or by the checkout's feature pointer. `complete-stage` copies these onto its history entry as `packs`. `digest` is the delivery store's own `packDigest`, so `context-pack --since` accepts it. `trace spans` puts `pack_count`, `pack_task` and `pack_digest` on the `stage` span. No run, a run at a gate, or an unreadable record records nothing. An identical pack delivered again in a later stage is recorded for that stage. Older records, and a malformed `packs` value, project as before and never block a completion. No new store or bus. **Not covered:**
+  - A `--no-record` pack and a `context-emit` injection leave no link.
+  - Two sessions in the same run and stage share one record.
   - The `doflow-run` ledger line still carries no digest.
 
 ### Changed

@@ -131,15 +131,18 @@ Issue #9 tracked four stages of orchestrator refinement. None is open: one is su
   - Every dispatched verb, `context-pack` and `orchestrate` included, appends a metadata record to the date-partitioned run ledger (`runs/*.jsonl`, `src/runtime/trace/ledger.ts`).
   - Every stage handoff is a history entry in the orchestration record (`orchestration/*.json`, written by `src/runtime/workflow-orchestrator.ts`; actions such as `complete-stage`, `skip-stage`, `decide-gate`, `annotate` and `complete-run`). `trace spans` (`src/runtime/trace/spans.ts`) turns these into `stage` and `orchestration` spans with the stage id, outcome and execution status, placed inside the run's trace. Spans are projected offline; there is no span store and no second write path.
 - The pack a stage was handed (FU-7j3k84):
-  - A `complete-stage` entry carries `packs`, a list of `{ taskId, digest }`, oldest first. `digest` is the delivery store's own `packDigest` (section 6), so `context-pack --since <digest>` resolves it; no second hash exists. `WorkflowOrchestrator#packsDelivered` reads the delivery store when the stage completes: the run's own task file, and for a run keyed on its feature's slug every task file under `delivery/<slug>/` too (do-execute-plan compiles one pack per plan task). It keeps each task's latest delivery whose `firstAt` falls in the stage's window. The window starts where `stageSince` starts it, the same window the MCP outcome rule counts evidence in (unbounded for a run the handoff itself started), and it ends at the handoff.
-  - The `stage` span carries `pack_count`, plus `pack_task` and `pack_digest` of the latest pack.
-  - Absent means unknown, never an error. A stage with no recorded delivery in its window gets no `packs` field and no pack attributes. An orchestration record written before this field existed projects exactly as before, and so does a malformed `packs` value or item.
+  - The link is recorded when the pack is delivered, not inferred later. After the `context-pack` verb records a delivery, `recordStagePack` (`src/runtime/workflow-orchestrator.ts`) writes `{ taskId, digest }` onto the stage node that is active in the run at that moment, under the node's `packs`. `digest` is the delivery store's own `packDigest` (section 6), so `context-pack --since <digest>` resolves it; no second hash exists.
+  - The run is the pack task's own run when one exists. Otherwise it is the run of the task's feature. The feature is named by `--slug`, or by the checkout's feature pointer (row 135) while the checkout is still on the branch the pointer recorded. The branch name alone never selects a run. Only runs under the verb's state root are read.
+  - The first run found decides. If it is `RUNNING` with a stage under its cursor, that stage's node gets the pack. Each pack task keeps one item, its latest delivery, moved to the end. Anything else records nothing: no run, a run waiting at a gate or finished, an unreadable record, or a record locked past a bounded retry. Absent means unknown, never a guess.
+  - The write is per delivery, so a byte-identical pack delivered again in a later stage is recorded for that stage. The delivery store's first-writer and revision behaviour does not change. A delivery the node already ends with writes nothing.
+  - A run written by `recordStagePack` gets a new revision. An orchestrate call that read the run before that write refuses with its usual concurrent-update message and is retried.
+  - `complete-stage` copies the node's well-formed `packs` onto its history entry, in delivery order. It reads only that node; there is no directory scan and no time window. The `stage` span carries `pack_count`, plus `pack_task` and `pack_digest` of the latest pack.
+  - A stage handed no pack gets no `packs` field and no pack attributes. An orchestration record written before this field existed projects exactly as before, as does a malformed `packs` value or item, on a node or on an entry. None of these blocks a completion.
   - The record is metadata only: a task id and a digest.
-  - Accepted ceilings:
-    - The delivery store keeps the first delivery time of a key only. A byte-identical pack delivered again in a later stage is not seen there, so that stage records none rather than an earlier stage's pack.
-    - A `--no-record` pack leaves no delivery entry and so no link.
-    - The store holds no session identity, so another session's pack for the same feature inside the window is counted.
-    - A backfilled (imported) stage and an `annotate` rerun record no packs.
+  - Not covered:
+    - A `--no-record` pack, and a pack `context-emit` injects, leave no link.
+    - Two sessions working in the same run and stage cannot be told apart, because they share that run.
+    - A rerun of a stage that is no longer under the cursor is recorded on the stage that is.
   - The `doflow-run` ledger line is unchanged. The dispatcher writes it from the verb name and an argument count and cannot see a digest (NFR-004). A second Node-written line for the same call would count the verb twice in `stats`.
 - The proposed `.doflow/state/events.jsonl` was never created. The only `events.jsonl` is the machine-wide failure-capture stream at `<config home>/failures/events.jsonl` (`src/runtime/failure/home.ts:22-28`), a different thing, and not a handoff bus. A separate append-only bus would duplicate the ledger and the orchestration history.
 
@@ -180,7 +183,8 @@ Status of each section in this specification, cited with code locations and prov
   - Stage 2 (Budget downgrade): superseded by 075 item-level overflow in `handleContextPackCommand`
     (`src/runtime/context-pack.ts`).
   - Stage 3 (Handoff events): replaced by the run ledger (`src/runtime/trace/ledger.ts`) and the offline
-    span projection (`src/runtime/trace/spans.ts`, feature 088). The pack-to-stage link is the
-    `complete-stage` entry's `packs` (`packsDelivered` in `src/runtime/workflow-orchestrator.ts`) and the
-    stage span's `pack_*` attributes, verified by `test/runtime/stage-pack-link.test.ts`.
+    span projection (`src/runtime/trace/spans.ts`, feature 088). The pack-to-stage link is written at
+    delivery onto the active stage node (`recordStagePack` in `src/runtime/workflow-orchestrator.ts`,
+    called by `handleContextPackCommand`). It is copied to the `complete-stage` entry's `packs` and
+    projected as the stage span's `pack_*` attributes, verified by `test/runtime/stage-pack-link.test.ts`.
   - Stage 4 (Harness narrowing): retired with stage 1; `contextProfile` already declares the ceiling fields (unverified in 075).
