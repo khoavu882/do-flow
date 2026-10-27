@@ -151,7 +151,9 @@ function writeFeature(checkout: any, slug: any, { register = true, design = true
   const folder = path.join(checkout, 'agent-docs', 'doflow', slug);
   write(path.join(folder, 'intention', 'requirement.md'), '# requirement\n');
   if (design) write(path.join(folder, 'design', 'design.md'), '# design\n');
-  write(path.join(folder, 'plan.md'), '- [ ] A.1 [US1] demo — owner: x; files: src/a.js\n');
+  // Row 134: catch-up backfills the planning stage, which needs a passing Constitution Check.
+  write(path.join(folder, 'plan.md'), '## 2. Constitution Check\n\n| Principle | Tier | Result | How |\n|---|---|---|---|\n'
+    + ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'].map((id) => `| ${id} | MUST | PASS | demo |\n`).join('') + '\n- [ ] A.1 [US1] demo — owner: x; files: src/a.js\n');
   if (register) write(path.join(folder, 'decisions', 'register.json'), `${JSON.stringify({ version: 1, slug, nextId: 1, decisions: [] })}\n`);
 }
 
