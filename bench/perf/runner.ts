@@ -438,6 +438,12 @@ function runSurfaceProcess(surface: any, repoRoot: string, tempHome: any, spawnS
       }
     }
 
+    // A hook can record a failure under the config home of whoever runs it; a measurement must not
+    // write into the real user's (a surface with no setup of its own gets a scratch one too).
+    if (surface.kind === 'hook' && !tempHookHomeDir) {
+      tempHookHomeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-perf-hook-home-'));
+    }
+
     const effectiveArgv = (tempProjectDir || tempMirrorDir)
       ? argv.map((a: any) => {
         if (typeof a !== 'string') return a;
