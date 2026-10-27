@@ -242,7 +242,7 @@ function runEmissionJq(t: any, { actions, maxBytes, inputs }: any, extra: any = 
       args.push('--rawfile', name, file);
     } else {
       absent.push(name);
-      args.push('--rawfile', name, '/dev/null');
+      args.push('--rawfile', name, process.platform === 'win32' ? 'NUL' : '/dev/null');
     }
   }
   args.push('--arg', 'nudge', typeof inputs.nudge === 'string' ? inputs.nudge : '');

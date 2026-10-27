@@ -97,9 +97,9 @@ test('ciEnv builds the environment from nothing and keeps every path under scrat
     'XDG_DATA_HOME', 'XDG_STATE_HOME', 'npm_config_audit', 'npm_config_cache', 'npm_config_fund',
     'npm_config_update_notifier', 'npm_execpath',
   ]);
-  assert.equal(env.PATH, '/n24/bin:/scratch/rehearse/bin:/usr/bin:/bin:/usr/sbin:/sbin');
+  assert.equal(env.PATH, ['/n24/bin', '/scratch/rehearse/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(path.delimiter));
   for (const key of ['HOME', 'USERPROFILE', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'npm_config_cache']) {
-    assert.ok(env[key].startsWith(`${scratch}/`), `${key}=${env[key]}`);
+    assert.ok(env[key].startsWith(`${path.normalize(scratch)}${path.sep}`), `${key}=${env[key]}`);
   }
   assert.equal(env.TMPDIR, '/var/tmp/x');
   assert.equal(env.LANG, 'en_US.UTF-8');
