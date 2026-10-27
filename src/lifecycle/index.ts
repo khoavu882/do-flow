@@ -1025,7 +1025,7 @@ function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.led
       const harness = harnessFor(registry, target.harness);
       const adapter = resolveAdapter(adapters, harness);
       // Hook-tier removals (maint-hooks) run through the adapter's own remove path, before the content
-      // apply, so a shared native file (Gemini's settings.json) is read by each step as the step before left it.
+      // apply, so a shared native file is read by each step as the step before left it.
       const tierRemovals = mode === 'remove' ? [] : applicable.filter((change: any) => change.hookTier === true);
       if (tierRemovals.length) adapter.remove({ ...target.hookTierInput, registry, changes: tierRemovals, ledger, recoveryRef: recovery.id });
       const rest = tierRemovals.length ? applicable.filter((change: any) => change.hookTier !== true) : applicable;

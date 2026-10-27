@@ -5,9 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync, execFileSync } = require('node:child_process');
-const os = require('node:os');
 const { tempDir } = require('../helper/tmp.ts');
-const { createScratch } = require('../helper/scratch-env.ts');
+const { createScratch, childEnv: scratchChildEnv } = require('../helper/scratch-env.ts');
 
 const ROOT = path.resolve(__dirname, '../..');
 const FIXTURES = path.join(ROOT, 'test/fixtures/hooks');
@@ -19,30 +18,7 @@ const REASON = (harness: any) => `[doflow] shared hooks lack the bridge; run: do
 // hook it starts can append to the developer's ~/.config/doflow. childEnv builds that env and fails
 // the test if HOME or XDG_CONFIG_HOME still names the developer's home.
 const SCRATCH_HOME = createScratch('doflow-bridge-missing-home-');
-function assertScratchHome(env: any) {
-  const real = os.homedir();
-  const realConfig = path.join(real, '.config');
-  for (const key of ['HOME', 'XDG_CONFIG_HOME']) {
-    const value = env[key];
-    if (typeof value !== 'string' || !path.isAbsolute(value)) continue;
-    const resolved = path.resolve(value);
-    assert.ok(resolved !== real && resolved !== realConfig && !resolved.startsWith(realConfig + path.sep),
-      `${key} must be a scratch folder, not the developer's (${resolved})`);
-  }
-  return env;
-}
-function childEnv(extra = {}) {
-  const env = SCRATCH_HOME.env(extra);
-  for (const [key, value] of Object.entries(extra)) if (value === null) delete env[key];
-  return assertScratchHome(env);
-}
-
-test('negative control: a child env that keeps the developer\'s HOME or ~/.config is refused', () => {
-  assert.throws(() => assertScratchHome({ ...process.env, HOME: os.homedir() }), /HOME must be a scratch folder/);
-  assert.throws(() => assertScratchHome({ XDG_CONFIG_HOME: path.join(os.homedir(), '.config') }), /XDG_CONFIG_HOME must be a scratch folder/);
-  const env = childEnv();
-  assert.ok(env.HOME.startsWith(SCRATCH_HOME.dir) && env.XDG_CONFIG_HOME.startsWith(SCRATCH_HOME.dir), 'the default child env is the scratch one');
-});
+const childEnv = (extra: any = {}) => scratchChildEnv(SCRATCH_HOME, extra);
 
 function nativeFixture(relativePath: any) {
   const row = JSON.parse(fs.readFileSync(path.join(FIXTURES, relativePath), 'utf8'));

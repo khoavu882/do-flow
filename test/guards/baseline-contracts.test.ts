@@ -889,10 +889,10 @@ function o2ResultsShapeProblems({ repoRoot }: any) {
 function o2PerfTestProblems(content: any) {
   const p: any = [];
   if (!content.includes('bench/perf/budgets.json')) {
-    p.push('performance-budget.test.js: does not name bench/perf/budgets.json');
+    p.push('performance-budget.test.ts: does not name bench/perf/budgets.json');
   }
   if (/ms\s*<=\s*\d{3}/.test(content)) {
-    p.push('performance-budget.test.js: matches forbidden literal pattern /ms\\s*<=\\s*\\d{3}/');
+    p.push('performance-budget.test.ts: matches forbidden literal pattern /ms\\s*<=\\s*\\d{3}/');
   }
   return p;
 }
@@ -995,7 +995,7 @@ test('G33.8 control: holdout results file carrying forbidden keys is reported', 
   assert.match(joined, /forbidden key 'nested\.tasks'/);
 });
 
-test('G33.11: performance-budget.test.js names bench/perf/budgets.json and matches no /ms\\s*<=\\s*\\d{3}/', () => {
+test('G33.11: performance-budget.test.ts names bench/perf/budgets.json and matches no /ms\\s*<=\\s*\\d{3}/', () => {
   const content = fs.readFileSync(path.join(REPO, 'test/runtime/performance-budget.test.ts'), 'utf8');
   assert.deepEqual(o2PerfTestProblems(content), []);
 });

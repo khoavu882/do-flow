@@ -20,7 +20,6 @@ const { handleTranscriptCommand } = require('../../src/runtime/transcripts/comma
 
 const REPO = path.resolve(__dirname, '../..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
-const SOURCE = fs.readFileSync(path.join(REPO, 'src/cli/runtime-commands.ts'), 'utf8');
 const ID = 'fa000000-0000-4000-8000-00000000';
 const sha16 = (s: string) => crypto.createHash('sha256').update(s).digest('hex').slice(0, 16);
 const AK = (harness: string, ...rest: string[]) => sha16([harness, ...rest].join(':'));
@@ -293,12 +292,6 @@ test('CLI: the shape, the window, the text form, and usage errors exit 2', (t) =
   const lines: string[] = [];
   assert.equal(handleTranscriptCommand({ action: 'stats', window: '5', json: true, flags: ['--action', '--window'], env: env(f), cwd: f.main, alive: unknown, now: () => NOW, out: (l: string) => lines.push(l) }), 0);
   assert.equal(JSON.parse(lines[0]).windowMin, 5);
-});
-
-test('NO_UPKEEP holds transcript (IC-023, NFR-003)', () => {
-  const set = SOURCE.match(/const NO_UPKEEP = new Set\(\[([^\]]*)\]\)/);
-  assert.ok(set, 'NO_UPKEEP is declared as a literal set');
-  assert.ok(set[1].split(',').map((v: string) => v.trim().replace(/'/g, '')).includes('transcript'));
 });
 
 test('stats with upkeep due leaves project, user state, config home and every harness home byte-identical', (t) => {

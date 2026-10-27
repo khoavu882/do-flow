@@ -14,14 +14,6 @@ const HOOKS_KEY = 'hooks.harnesses';
 const TIER_REASON = `not in ${HOOKS_KEY}`;
 const WORKERS_KEY = 'workers.enabled';
 
-/** The harness ids that get DoFlow's hooks: the person's `hooks.harnesses` (user layer only), else the
- * registry default. A settings fault keeps the default; only an unusable settings registry throws.
- * With no user settings file the default is read from the registry alone, so an install that has
- * nothing to resolve loads no settings module (the 086 hot-path budget). */
-function resolveHookHarnesses(options: { env?: Record<string, string | undefined>; loadSettings?: any } = {}): string[] {
-  return resolveHookTier(options).harnesses;
-}
-
 /** The hook tier plus the worker harnesses the person configured (`workers.enabled` set in a settings
  * file; null when it is the shipped default), for the run's warnings (maint-hooks R-4). */
 function resolveHookTier({ env = process.env, loadSettings }: { env?: Record<string, string | undefined>; loadSettings?: any } = {}): { harnesses: string[]; workers: string[] | null } {
@@ -165,4 +157,4 @@ function planHookTierRemovals({ target, registry, adapter, harness, scope, scope
   };
 }
 
-module.exports = { HOOKS_KEY, TIER_REASON, resolveHookHarnesses, resolveHookTier, hookTierWarnings, outsideHookTier, tieredRegistry, hookHoldersFromLedger, hooksTieredOff, withoutHookSources, isHookResource, planHookTierRemovals };
+module.exports = { TIER_REASON, resolveHookTier, hookTierWarnings, tieredRegistry, hookHoldersFromLedger, hooksTieredOff, withoutHookSources, planHookTierRemovals };

@@ -30,6 +30,11 @@ const {
   recordProviderFailure,
 } = require('../../src/runtime/profiles/rollback.ts');
 
+const {
+  buildProfilesDoctor,
+  printProfilesDoctor,
+} = require('../../src/runtime/profiles/doctor.ts');
+
 // --- Test Fixture Helpers ---
 
 function setupTestProject(settingsContent?: any, initialRollback?: any): { projectRoot: string } {
@@ -702,5 +707,25 @@ describe('Gate G-P5 Invariant Verification (Zero-Repo-Change, Zero-Reindex, Sub-
     const fallbackProfile = resolveRolloutProfile({ projectRoot });
     assert.equal(fallbackProfile.name, 'baseline');
     assert.equal(fallbackProfile.capabilities.advisor, 'off');
+  });
+});
+
+describe('profiles doctor printer (doctor.ts)', () => {
+  test('the harness registry line names the registry count with no hardcoded denominator', () => {
+    const { projectRoot } = setupTestProject();
+    const report = buildProfilesDoctor({ projectRoot, env: {} });
+    const lines: string[] = [];
+    const realLog = console.log;
+    console.log = (...args: unknown[]) => { lines.push(args.join(' ')); };
+    try {
+      printProfilesDoctor(report);
+    } finally {
+      console.log = realLog;
+    }
+    const line = lines.find((l) => l.includes('harness registry')) ?? '';
+    assert.ok(line, 'the printer emits a harness registry line');
+    assert.ok(report.registryVerified.harnessCount > 0);
+    assert.ok(line.includes(`${report.registryVerified.harnessCount} harnesses checked`), line);
+    assert.ok(!line.includes('/8'), line);
   });
 });

@@ -16,7 +16,7 @@ after(() => scratch.remove());
 // locator reaches it the same way. The harness list is read from the registry, so a harness added
 // there is covered without an edit here.
 const HARNESS_IDS = JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'harnesses.json'), 'utf8')).harnesses.map((x: any) => x.id);
-// All 8 harnesses project their locator and runtime at global scope.
+// Every harness projects their locator and runtime at global scope.
 const NO_RUNTIME = new Set();
 const NOTICE = 'note: the lifecycle store is now .doflow/state/lifecycle/events; agent-docs/lifecycle/ is no longer read and can be deleted';
 

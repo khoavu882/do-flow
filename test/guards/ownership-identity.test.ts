@@ -60,7 +60,7 @@ function withHomeDir(dir: any, fn: any) {
   try { return fn(); } finally { os.homedir = original; }
 }
 
-/** Every change every adapter would make in one scope, across all eight harnesses. */
+/** Every change every adapter would make in one scope, across every harness. */
 function planChanges(scope: any) {
   return registryLifecycleView({
     registry, repoRoot: REPO, targets: LIFECYCLE_HARNESSES, mcpSelections: {}, scope,
