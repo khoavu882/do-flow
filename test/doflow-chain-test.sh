@@ -29,6 +29,10 @@ cp "$BASH_SCRIPTS/do-paths.sh" "$BASH_SCRIPTS/do-prereqs.sh" "$BASH_SCRIPTS/sync
 # is generated and a complete trace has an empty missing[].
 mkdir -p "$FAKE/scripts/doflow/bin"
 ln -s "$REPO_ROOT/core/shared/scripts/doflow/bin/doflow-run" "$FAKE/scripts/doflow/bin/doflow-run"
+# The brief script's registry_file() walks up from its own dir for runtime/core/registry/<name> and only then
+# falls back to $HOME/.doflow; give the fixture its own rules ledger so the result never depends on the host HOME.
+mkdir -p "$FAKE/runtime/core/registry"
+cp "$REPO_ROOT/core/registry/rules.json" "$FAKE/runtime/core/registry/rules.json"
 export CLAUDE_CONFIG_DIR="$FAKE"
 PATHS="$FAKE/scripts/doflow/bash/do-paths.sh"
 PREREQ="$FAKE/scripts/doflow/bash/do-prereqs.sh"
@@ -399,7 +403,9 @@ mv "$FAKE/scripts/doflow/bin/doflow-run" "$FAKE/scripts/doflow/bin/doflow-run.of
 NODISP="$("$BRIEF" --task=A.1)"; NODISP_RC=$?
 mv "$FAKE/scripts/doflow/bin/doflow-run.off" "$FAKE/scripts/doflow/bin/doflow-run"
 eq "no dispatcher -> exit 0" "$NODISP_RC" "0"
-eq "no dispatcher -> missing[] names brief-tools" "$(printf '%s' "$NODISP" | jq -r '.missing[0]')" "brief-tools: the dispatcher was not found"
+eq "no dispatcher -> missing[] names brief-tools" "$(printf '%s' "$NODISP" | jq -r 'any(.missing[]; . == "brief-tools: the dispatcher was not found")')" "true"
+eq "no dispatcher -> brief still carries the rules block" \
+   "$(grep -c '^## Rules that apply to you$' agent-docs/doflow/001-auth/exec/task-A.1-brief.md)" "1"
 eq "no dispatcher -> no record" "$(printf '%s' "$NODISP" | jq -r '.record')" "null"
 eq "no dispatcher -> Not generated line" \
    "$(grep -c '^Not generated: the dispatcher was not found. Name the tier and tools in the dispatch.$' agent-docs/doflow/001-auth/exec/task-A.1-brief.md)" "1"
