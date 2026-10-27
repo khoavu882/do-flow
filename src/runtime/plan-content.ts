@@ -13,19 +13,27 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { REPO_ROOT } = require('../helper/repo-root.ts');
 
 type Finding = { rule: string; severity: 'fix' | 'refuses-exit' | 'advisory'; path: string; line: number; message: string; id?: string };
 
-/** The plan's lines with fenced code blanked and HTML comments and inline code spans removed, so
- * a placeholder quoted as an example or left in template guidance is not a finding. Line numbers
- * are kept: index i is line i + 1. */
-function proseLines(text: string): string[] {
+/** The visible Markdown of a file: fenced code blanked and HTML comments removed, and inline code
+ * spans too unless `keepCode` is set, so a placeholder quoted as an example, a table left in a
+ * comment or a template's guidance is not read. A fence closes only on its own character, a run at
+ * least as long as its opener and nothing after it (CommonMark; doc_quality_checker.py since row
+ * 132). Line numbers are kept: index i is line i + 1. */
+function proseLines(text: string, { keepCode = false }: { keepCode?: boolean } = {}): string[] {
   const out: string[] = [];
-  let fenced = false;
+  let fence: string | null = null;
   let comment = false;
   for (const raw of text.split(/\r?\n/)) {
-    if (/^\s*(```|~~~)/.test(raw)) { fenced = !fenced; out.push(''); continue; }
-    if (fenced) { out.push(''); continue; }
+    const run = raw.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+    if (fence === null && run && !(run[1][0] === '`' && run[2].includes('`'))) { fence = run[1]; out.push(''); continue; }
+    if (fence !== null) {
+      if (run && run[1][0] === fence[0] && run[1].length >= fence.length && run[2].trim() === '') fence = null;
+      out.push('');
+      continue;
+    }
     let line = raw;
     let kept = '';
     while (line.length) {
@@ -42,7 +50,7 @@ function proseLines(text: string): string[] {
         line = line.slice(start + 4);
       }
     }
-    out.push(kept.replace(/`[^`]*`/g, ''));
+    out.push(keepCode ? kept : kept.replace(/`[^`]*`/g, ''));
   }
   return out;
 }
@@ -50,8 +58,10 @@ function proseLines(text: string): string[] {
 const PLACEHOLDERS = [
   /\b(?:TBD|TODO|FIXME)\b/,
   /\bto be (?:decided|determined|defined)\b/i,
-  // A deferral verb followed within two words by "later": "implement it later", "fill in later".
-  /\b(?:fill in|decide|determine|define|implement|handle|add|sort out|figure out)(?:\s+\S+){0,2}?\s+later\b/i,
+  // "later" only as a placeholder phrasing: "fill in later", or alone as a table cell. Prose such
+  // as "later phases" or "add filters later" is a plan, not a hole.
+  /\bfill(?: it)? in later\b/i,
+  /\|\s*later\s*(?=\|)/i,
 ];
 
 function placeholderFindings(text: string, displayPath: string): Finding[] {
@@ -87,8 +97,9 @@ function requirementIds(text: string): Array<{ id: string; line: number }> {
 }
 
 function coverageFindings(planText: string, planPath: string, requirementText: string, requirementPath: string): Finding[] {
+  const visible = proseLines(planText, { keepCode: true });
   return requirementIds(requirementText)
-    .filter(({ id }) => !new RegExp(`\\b${id}\\b`).test(planText))
+    .filter(({ id }) => !visible.some((line) => new RegExp(`\\b${id}\\b`).test(line)))
     .map(({ id, line }) => ({
       rule: 'coverage', severity: 'fix' as const, path: requirementPath, line, id,
       message: `${id} is not traced anywhere in ${planPath}: name it on the task that delivers it, or on the §7 row that verifies it`,
@@ -104,9 +115,19 @@ function requirementBeside(planAbs: string): string | null {
 
 // ── constitution (row 134 item 4: a MUST conflict refuses the planning stage's exit) ──────────────
 
-/** The base tier this runtime ships. The install projects the same file to
- * `.doflow/guidance/references/`, which is the copy the path resolver hands the model. */
-const CONSTITUTION_BASE = path.join(__dirname, '..', '..', 'core', 'shared', 'guidance', 'references', 'CONSTITUTION_BASE.md');
+/** Where the base tier is, beside a runtime root: the checkout's `core/shared` copy, else the
+ * install's guidance tree, a sibling of `<install>/.doflow/runtime` (which carries no core/shared),
+ * resolved the way `resolveBashHelper` finds the bash helpers. */
+function constitutionBaseCandidates(runtimeRoot: string = REPO_ROOT): string[] {
+  return [
+    path.join(runtimeRoot, 'core', 'shared', 'guidance', 'references', 'CONSTITUTION_BASE.md'),
+    path.resolve(runtimeRoot, '..', 'guidance', 'references', 'CONSTITUTION_BASE.md'),
+  ];
+}
+function constitutionBaseFile(runtimeRoot: string = REPO_ROOT): string | null {
+  return constitutionBaseCandidates(runtimeRoot).find((file) => fs.existsSync(file)) || null;
+}
+const CONSTITUTION_BASE = constitutionBaseFile() || constitutionBaseCandidates()[0];
 const CONSTITUTION_LOCAL = path.join('agent-docs', 'constitution.md');
 const UNBLOCK = 'revise the plan until it passes and record its row, or have a person amend the constitution with /do-constitution; there is no waiver';
 
@@ -122,7 +143,7 @@ function principleId(cell: string): string {
  * unless its body carries `**Tier:** SHOULD`. */
 function parsePrinciples(text: string, source: string): Principle[] {
   const principles: Principle[] = [];
-  const lines = proseLines(text);
+  const lines = proseLines(text, { keepCode: true });
   let inside = false;
   let current: Principle | null = null;
   lines.forEach((line, index) => {
@@ -140,55 +161,91 @@ function parsePrinciples(text: string, source: string): Principle[] {
   return principles;
 }
 
+/** A principle id declared twice in one file, named with both lines; null when every id is unique. */
+function duplicateId(principles: Principle[], file: string): string | null {
+  const seen = new Map<string, number>();
+  for (const p of principles) {
+    if (seen.has(p.id)) return `${file} declares ${p.id} twice (lines ${seen.get(p.id)} and ${p.line})`;
+    seen.set(p.id, p.line);
+  }
+  return null;
+}
+
 /** Both tiers, tier-2 taking precedence: a tier-2 principle with a base id replaces it in place,
- * a new id is appended. `error` is set when the base cannot be read or declares nothing, and the
- * gate then refuses rather than passing a plan checked against no principle at all. */
-function loadConstitution({ checkoutRoot, baseFile = CONSTITUTION_BASE }: { checkoutRoot: string; baseFile?: string }) {
+ * a new id is appended. `error` is set when either file cannot be read, has no `## Principles`
+ * section with a principle in it, or declares an id twice; the gate then refuses rather than
+ * check the plan against fewer principles than the constitution holds. A base MUST the overlay
+ * makes SHOULD is allowed (the designed tier-2 path) and listed in `downgrades`, never silent. */
+function loadConstitution({ checkoutRoot, runtimeRoot = REPO_ROOT }: { checkoutRoot: string; runtimeRoot?: string }) {
+  const none = { principles: [] as Principle[], downgrades: [] as Array<Principle & { version: string | null }> };
+  const baseFile = constitutionBaseFile(runtimeRoot);
+  if (!baseFile) return { ...none, error: `the base constitution cannot be found (searched ${constitutionBaseCandidates(runtimeRoot).join(', ')})` };
   let base: string;
   try { base = fs.readFileSync(baseFile, 'utf8'); } catch (error: any) {
-    return { principles: [] as Principle[], error: `the base constitution ${baseFile} cannot be read (${error.code || error.message})` };
+    return { ...none, error: `the base constitution ${baseFile} cannot be read (${error.code || error.message})` };
   }
   const principles = parsePrinciples(base, 'CONSTITUTION_BASE.md');
-  if (!principles.length) return { principles, error: `the base constitution ${baseFile} declares no principle` };
+  if (!principles.length) return { ...none, error: `the base constitution ${baseFile} declares no principle` };
+  const baseDuplicate = duplicateId(principles, baseFile);
+  if (baseDuplicate) return { ...none, error: baseDuplicate };
   const localFile = path.join(checkoutRoot, CONSTITUTION_LOCAL);
   let local: string | null = null;
   try { local = fs.readFileSync(localFile, 'utf8'); } catch (error: any) {
-    if (error.code !== 'ENOENT') return { principles, error: `the repo constitution ${CONSTITUTION_LOCAL} cannot be read (${error.code || error.message})` };
+    if (error.code !== 'ENOENT') return { ...none, error: `the repo constitution ${CONSTITUTION_LOCAL} cannot be read (${error.code || error.message})` };
   }
-  for (const principle of local === null ? [] : parsePrinciples(local, CONSTITUTION_LOCAL)) {
+  if (local === null) return { principles, downgrades: none.downgrades, error: null as string | null };
+  const overlay = parsePrinciples(local, CONSTITUTION_LOCAL);
+  if (!overlay.length) {
+    return { ...none, error: `the repo constitution ${CONSTITUTION_LOCAL} has no \`## Principles\` section with a \`### <ID> — <name>\` principle, so its principles cannot be read` };
+  }
+  const overlayDuplicate = duplicateId(overlay, CONSTITUTION_LOCAL);
+  if (overlayDuplicate) return { ...none, error: overlayDuplicate };
+  const version = (proseLines(local).join('\n').match(/\*\*Version:\*\*\s*([^\s·]+)/) || [])[1] || null;
+  const downgrades: Array<Principle & { version: string | null }> = [];
+  for (const principle of overlay) {
     const at = principles.findIndex((p) => p.id === principle.id);
-    if (at === -1) principles.push(principle); else principles[at] = principle;
+    if (at === -1) { principles.push(principle); continue; }
+    if (principles[at].tier === 'MUST' && principle.tier === 'SHOULD') downgrades.push({ ...principle, version });
+    principles[at] = principle;
   }
-  return { principles, error: null as string | null };
+  return { principles, downgrades, error: null as string | null };
 }
 
-/** The §2 "Constitution Check" record: one table row per principle, read by its `Principle` and
- * `Result` columns. */
+/** The §2 "Constitution Check" record in the plan's visible Markdown: one table row per
+ * principle, read by its `Principle` and `Result` columns. A header row with no `|---|` separator
+ * under it is no table; `unparseable` is then that header's line. */
 function constitutionRecord(planText: string) {
-  const lines = planText.split(/\r?\n/);
+  const lines = proseLines(planText, { keepCode: true });
   const start = lines.findIndex((line) => /^##\s+(?:\d+\.\s*)?Constitution Check\b/i.test(line));
   const rows: Array<{ id: string; result: string; line: number }> = [];
-  if (start === -1) return { heading: null, rows };
+  if (start === -1) return { heading: null, rows, unparseable: null as number | null };
+  const cellsOf = (line: string) => line.trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim());
   let columns: { principle: number; result: number } | null = null;
   for (let i = start + 1; i < lines.length && !/^##\s/.test(lines[i]); i += 1) {
-    if (!/^\s*\|/.test(lines[i])) continue;
-    const cells = lines[i].trim().replace(/^\||\|$/g, '').split('|').map((cell) => cell.trim());
-    if (cells.every((cell) => /^:?-+:?$/.test(cell))) continue;
-    const names = cells.map((cell) => cell.replace(/[*`]/g, '').toLowerCase());
+    if (!/^\s*\|/.test(lines[i])) { if (columns) break; continue; }
+    const cells = cellsOf(lines[i]);
     if (!columns) {
-      if (names.includes('principle') && names.includes('result')) columns = { principle: names.indexOf('principle'), result: names.indexOf('result') };
+      const names = cells.map((cell) => cell.replace(/[*`]/g, '').toLowerCase());
+      if (!(names.includes('principle') && names.includes('result'))) continue;
+      if (!(lines[i + 1] && cellsOf(lines[i + 1]).every((cell) => /^:?-+:?$/.test(cell)))) return { heading: start + 1, rows, unparseable: i + 1 };
+      columns = { principle: names.indexOf('principle'), result: names.indexOf('result') };
+      i += 1;
       continue;
     }
     rows.push({ id: principleId(cells[columns.principle] || ''), result: (cells[columns.result] || '').replace(/[*`]/g, '').trim().toUpperCase(), line: i + 1 });
   }
-  return { heading: start + 1, rows };
+  return { heading: start + 1, rows, unparseable: null as number | null };
 }
 
 /** One finding per principle that is not recorded as passing: a MUST marked FAIL or without a
  * PASS/FAIL row refuses exit; a SHOULD marked FAIL is advisory. The tier is the constitution's,
  * whatever the row says, so a plan cannot downgrade a MUST. */
 function constitutionFindings({ planText, planPath, principles }: { planText: string; planPath: string; principles: Principle[] }): Finding[] {
-  const { heading, rows } = constitutionRecord(planText);
+  const { heading, rows, unparseable } = constitutionRecord(planText);
+  if (unparseable) {
+    return [{ rule: 'constitution-unparseable', severity: 'refuses-exit', path: planPath, line: unparseable,
+      message: `no parseable Constitution Check: the table header has no |---| separator row under it, so no principle is recorded; ${UNBLOCK}` }];
+  }
   const findings: Finding[] = [];
   for (const principle of principles) {
     const recorded = rows.filter((r) => r.id === principle.id && (r.result === 'PASS' || r.result === 'FAIL'));
@@ -218,9 +275,11 @@ function checkoutOf(file: string, fallback: string): string {
 
 /** The constitution findings, or one refusal when the constitution itself cannot be read. */
 function constitutionCheck({ planText, planPath, checkoutRoot }: { planText: string; planPath: string; checkoutRoot: string }): Finding[] {
-  const { principles, error } = loadConstitution({ checkoutRoot });
+  const { principles, downgrades, error } = loadConstitution({ checkoutRoot });
   if (error) return [{ rule: 'constitution-unreadable', severity: 'refuses-exit', path: planPath, line: 1, message: `${error}: nothing can be checked, so the plan is refused` }];
-  return constitutionFindings({ planText, planPath, principles });
+  const notes: Finding[] = downgrades.map((d) => ({ rule: 'constitution-downgrade', severity: 'advisory' as const, path: d.source, line: d.line, id: d.id,
+    message: `${d.id} is MUST in the base constitution and SHOULD in ${d.source}${d.version ? ` ${d.version}` : ''}: the overlay downgrades it, recorded and not blocking` }));
+  return [...notes, ...constitutionFindings({ planText, planPath, principles })];
 }
 
 /** Every content finding for one plan file. Paths are shown relative to `cwd`. */
@@ -241,10 +300,14 @@ function planFindings({ planAbs, text, displayPath, cwd }: { planAbs: string; te
  * `advisories` are printed and recorded nowhere else. A run with no feature, or a feature with no
  * plan, is refused: the planning stage exists to produce that plan. */
 function planStageExit({ roots, slug }: { roots: string[]; slug: string | null }) {
-  const relative = slug ? path.join('agent-docs', 'doflow', slug, 'plan.md') : null;
-  const root = relative ? roots.find((r) => fs.existsSync(path.join(r, relative))) : undefined;
+  // plan.md, else planning/plan.md under the structured layout (the roadmap facts read the same two).
+  const feature = slug ? path.join('agent-docs', 'doflow', slug) : null;
+  const found = feature ? roots.flatMap((r) => ['plan.md', path.join('planning', 'plan.md')].map((rel) => ({ r, rel: path.join(feature, rel) })))
+    .find(({ r, rel }) => fs.existsSync(path.join(r, rel))) : undefined;
+  const relative = found ? found.rel : feature ? path.join(feature, 'plan.md') : null;
+  const root = found?.r;
   if (!relative || !root) {
-    const where = relative ? `${relative} under ${roots.join(', ')}` : 'a plan: the run names no feature';
+    const where = relative ? `${relative} (or planning/plan.md) under ${roots.join(', ')}` : 'a plan: the run names no feature';
     return { refusals: [{ rule: 'plan-missing', severity: 'refuses-exit', path: relative || 'plan.md', line: 1, message: `no plan to check (looked for ${where}); write plan.md before completing the planning stage` }] as Finding[], advisories: [] as Finding[] };
   }
   let planText: string;
@@ -257,5 +320,5 @@ function planStageExit({ roots, slug }: { roots: string[]; slug: string | null }
 
 module.exports = {
   placeholderFindings, coverageFindings, requirementIds, planFindings, proseLines,
-  parsePrinciples, loadConstitution, constitutionFindings, planStageExit, CONSTITUTION_BASE,
+  parsePrinciples, loadConstitution, constitutionFindings, planStageExit, CONSTITUTION_BASE, constitutionBaseFile,
 };

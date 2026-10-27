@@ -536,7 +536,8 @@ doflow roadmap --action status           # merged / in-flight / not-started per 
   `artifactRoot`, the argument lists in `after` and the `next` command. Run the skill in that worktree,
   then run each `after` command (fill the `--note <text>` placeholder), then call `next` with the `runId`
   it gives. If the artifact is missing or unchanged, or the stage was not handed off, `next` answers
-  `denied: stage-not-performed` with the same envelope. The implementation envelope runs `dispatch`
+  `denied: stage-not-performed` with the same envelope; a plan whose handoff the constitution
+  check refused answers `denied: plan-exit-refused`, with the refusal in `annotations.refusal`. The implementation envelope runs `dispatch`
   with `--billing-cap free`, so no worker launches until you have recorded a harness's `billing` as
   `free` (see **Record a worker's billing** below), and with `--verify-argv` from the row's seed `verifyArgv` or the worktree's
   `npm test`; when the dispatch completes, the loop fast-forwards the feature branch to its

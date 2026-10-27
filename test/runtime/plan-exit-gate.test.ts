@@ -11,7 +11,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { loadConstitution, constitutionFindings, parsePrinciples } = require('../../src/runtime/plan-content.ts');
+const { loadConstitution, constitutionFindings, parsePrinciples, planStageExit, constitutionBaseFile } = require('../../src/runtime/plan-content.ts');
 
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const BASE_IDS = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'];
@@ -134,7 +134,10 @@ function repo(t: any, planText: string, overlay: string | null = null) {
   }
   assert.equal(snapshot.current.id, 'planning');
   const handoff = () => doflow(['--action', 'handoff', '--task-id', SLUG, '--task-class', 'feature', '--calling-skill', 'do-plan', '--note', 'plan written']);
-  return { work, handoff };
+  // Catch-up naming a later stage backfills planning on the way (gate-a stops it after that).
+  const backfill = () => doflow(['--action', 'catch-up', '--task-id', SLUG, '--task-class', 'feature', '--stage', 'implementation']);
+  const journal = () => JSON.parse(fs.readFileSync(path.join(work, '.doflow', 'state', 'orchestration', `${SLUG}.json`), 'utf8'));
+  return { work, handoff, backfill, journal };
 }
 
 test('handoff of the planning stage is refused for a MUST FAIL, with no prompt and nothing recorded', (t) => {
@@ -168,4 +171,89 @@ test('handoff completes with every MUST passing; a SHOULD FAIL prints one adviso
   const advisories = res.stderr.split('\n').filter((line: string) => /R1 \(SHOULD\) is marked FAIL/.test(line));
   assert.equal(advisories.length, 1, res.stderr);
   assert.match(advisories[0], /advisory/);
+});
+
+test('catch-up backfilling the planning stage is refused for a MUST FAIL and leaves the stage open', (t) => {
+  const r = repo(t, planWith(BASE_IDS.map((id) => row(id, id === 'P2' ? 'FAIL' : 'PASS'))));
+  const res = r.backfill();
+  assert.notEqual(res.status, 0, res.stdout);
+  assert.match(res.stdout + res.stderr, /Stage 'planning' cannot be completed: .*P2 \(MUST\) is marked FAIL/);
+  const planning = r.journal().program.find((n: any) => n.id === 'planning');
+  assert.notEqual(planning.status, 'completed');
+});
+
+test('catch-up backfills a planning stage whose MUST principles all pass, as before', (t) => {
+  const r = repo(t, planWith(BASE_IDS.map((id) => row(id))));
+  const res = r.backfill();
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  const planning = r.journal().program.find((n: any) => n.id === 'planning');
+  assert.deepEqual([planning.status, planning.executionStatus], ['completed', 'imported']);
+});
+
+// ── Sol review of a0234b53 (row 134): the record and the overlay fail closed ─────────────────────
+
+const PASSING = BASE_IDS.map((id) => row(id));
+test('a Constitution Check inside an HTML comment or a fence does not count', (t) => {
+  const { principles } = loadConstitution({ checkoutRoot: checkout(t) });
+  const visible = planWith(PASSING);
+  for (const [open, close] of [['<!--', '-->'], ['```md', '```']]) {
+    const hidden = visible.replace('## 2. Constitution Check (GATE)', `${open}\n## 2. Constitution Check (GATE)`).replace('## 8. Tasks', `${close}\n\n## 8. Tasks`);
+    const findings = constitutionFindings({ planText: hidden, planPath: 'plan.md', principles });
+    assert.deepEqual(findings.map((f: any) => f.rule), BASE_IDS.map(() => 'constitution-must-missing'), open);
+  }
+});
+
+test('a Constitution Check table without its separator row is no parseable record, and refuses', (t) => {
+  const { principles } = loadConstitution({ checkoutRoot: checkout(t) });
+  const plan = planWith(PASSING).replace('|---|---|---|---|\n', '');
+  const findings = constitutionFindings({ planText: plan, planPath: 'plan.md', principles });
+  assert.deepEqual(findings.map((f: any) => [f.rule, f.severity, f.line]), [['constitution-unparseable', 'refuses-exit', 7]]);
+  assert.match(findings[0].message, /no parseable Constitution Check/);
+});
+
+test('an overlay with no Principles section is refused, naming the overlay file', (t) => {
+  const loaded = loadConstitution({ checkoutRoot: checkout(t, OVERLAY.replace('## Principles', '## Repository principles')) });
+  assert.match(loaded.error || '', /agent-docs\/constitution\.md/);
+  assert.match(loaded.error || '', /Principles/);
+});
+
+test('a duplicate principle id in the overlay is an error naming both lines', (t) => {
+  const overlay = '# C\n\n## Principles\n\n### R1 — One\nbody\n\n### R1 — Again\n**Tier:** SHOULD\n';
+  const loaded = loadConstitution({ checkoutRoot: checkout(t, overlay) });
+  assert.match(loaded.error || '', /agent-docs\/constitution\.md declares R1 twice \(lines 5 and 8\)/);
+});
+
+test('an overlay downgrading a base MUST is allowed, and never silent: one advisory names the principle, the file and its version', (t) => {
+  const root = checkout(t, '# C\n\n**Version:** 1.4.0\n\n## Principles\n\n### P5 — Parallel when it helps\n**Tier:** SHOULD\nbody\n');
+  const loaded = loadConstitution({ checkoutRoot: root });
+  assert.equal(loaded.error, null);
+  assert.deepEqual(loaded.downgrades.map((d: any) => [d.id, d.source, d.line, d.version]), [['P5', 'agent-docs/constitution.md', 7, '1.4.0']]);
+  fs.mkdirSync(path.join(root, 'agent-docs', 'doflow', 'f'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'agent-docs', 'doflow', 'f', 'plan.md'), planWith(BASE_IDS.map((id) => row(id, 'PASS', id === 'P5' ? 'SHOULD' : 'MUST'))));
+  const exit = planStageExit({ roots: [root], slug: 'f' });
+  assert.deepEqual(exit.refusals, []);
+  assert.deepEqual(exit.advisories.map((f: any) => [f.rule, f.path, f.line]), [['constitution-downgrade', 'agent-docs/constitution.md', 7]]);
+  assert.match(exit.advisories[0].message, /P5 is MUST in the base constitution and SHOULD in agent-docs\/constitution\.md 1\.4\.0/);
+});
+
+test('the base constitution is found beside an installed runtime, and a miss names every path searched', (t) => {
+  // The install layout: <config>/runtime holds bin/, src/ and core/registry/; the guidance tree is
+  // its sibling <config>/guidance (src/helper/bash-helper.ts resolves the bash helpers the same way).
+  const config = tempDir(t, 'doflow-installed-');
+  const runtime = path.join(config, 'runtime');
+  fs.mkdirSync(path.join(config, 'guidance', 'references'), { recursive: true });
+  fs.copyFileSync(path.join(REPO_ROOT, 'core', 'shared', 'guidance', 'references', 'CONSTITUTION_BASE.md'), path.join(config, 'guidance', 'references', 'CONSTITUTION_BASE.md'));
+  assert.equal(constitutionBaseFile(runtime), path.join(config, 'guidance', 'references', 'CONSTITUTION_BASE.md'));
+  const bare = path.join(tempDir(t, 'doflow-bare-'), 'runtime');
+  const loaded = loadConstitution({ checkoutRoot: checkout(t), runtimeRoot: bare });
+  assert.match(loaded.error || '', new RegExp(`${path.join(bare, 'core').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}.*${path.join(path.dirname(bare), 'guidance').replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`));
+});
+
+test('handoff with an overlay that downgrades a base MUST completes and prints one note naming it, the overlay and its version', (t) => {
+  const overlay = '# C\n\n**Version:** 1.4.0\n\n## Principles\n\n### P5 — Parallel when it helps\n**Tier:** SHOULD\nbody\n';
+  const r = repo(t, planWith(BASE_IDS.map((id) => row(id, id === 'P5' ? 'FAIL' : 'PASS', id === 'P5' ? 'SHOULD' : 'MUST'))), overlay);
+  const res = r.handoff();
+  assert.equal(res.status, 0, res.stdout + res.stderr);
+  const notes = res.stderr.split('\n').filter((line: string) => /^orchestrate: note: agent-docs\/constitution\.md:7 P5 is MUST in the base constitution and SHOULD in agent-docs\/constitution\.md 1\.4\.0/.test(line));
+  assert.equal(notes.length, 1, res.stderr);
 });

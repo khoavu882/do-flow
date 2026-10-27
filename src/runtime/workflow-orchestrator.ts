@@ -533,7 +533,7 @@ class WorkflowOrchestrator {
     }
     if (node.mutatesSource && node.readinessTemplate) this.assertReady(node, run);
     const attempts = backfilled ? null : this.assertTaskAttempts(node, run);
-    if (!backfilled) this.assertPlanExit(node, run);
+    this.assertPlanExit(node, run);
     // No ledger for the feature: the stage is recorded, but nothing verified its tasks, and the
     // record says so whatever outcome the caller supplied (FR-006).
     const unledgered = attempts?.state === 'none';
@@ -890,8 +890,8 @@ class WorkflowOrchestrator {
 
   /** Row 134: the planning stage (the `do-plan` stage) cannot complete while the plan's
    * Constitution Check leaves a MUST principle marked FAIL or without a row. There is no waiver:
-   * the plan is revised, or a person amends the constitution. A backfilled stage is not checked,
-   * as for the task-attempt rule. */
+   * the plan is revised, or a person amends the constitution. A stage catch-up backfills is checked
+   * too, so a refused plan is never imported as complete. */
   assertPlanExit(node: any, run: any) {
     if (!this.planExitCheck || node.skill !== 'do-plan') return null;
     const answer = this.planExitCheck(node, run);

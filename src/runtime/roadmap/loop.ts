@@ -739,8 +739,11 @@ function orchestrationFor(ctx: any, row: any, worktree: string): { orch: any; ru
   const found = findRunFile({ stateRoot: worktree, taskId: row.slug, slug: row.slug });
   if (found.status === 'ambiguous') throw new Unreadable([source], `run '${row.slug}' exists in more than one checkout`);
   const runRoot = found.status === 'found' ? found.root : worktree;
+  // Row 134: the same planning-exit check the orchestrate verb wires, the plan read where
+  // artifactRootOf finds it (the feature checkout, else the main one).
+  const planExitCheck = () => require('../plan-content.ts').planStageExit({ roots: [...new Set([worktree, runRoot, ctx.root])], slug: row.slug });
   const orch = new WorkflowOrchestrator({ repoRoot: ctx.repoRoot, projectRoot: runRoot, sourceRoot: worktree,
-    stateDir: path.join(runRoot, '.doflow', 'state', 'orchestration'), featureSlug: row.slug, fsImpl: ctx.fsImpl, env: ctx.env, cwd: worktree });
+    stateDir: path.join(runRoot, '.doflow', 'state', 'orchestration'), featureSlug: row.slug, fsImpl: ctx.fsImpl, env: ctx.env, cwd: worktree, planExitCheck });
   let run: any;
   try { run = orch.readRun(row.slug); } catch (error: any) { throw new Unreadable([source], error.message); }
   if (run && (!Array.isArray(run.program) || !Number.isInteger(run.cursor) || typeof run.state !== 'string' || !Array.isArray(run.history))) {
@@ -1245,6 +1248,14 @@ async function stepRow(ctx: any, row: any, worktrees: Map<string, string>): Prom
       if (landing) return landing;
     }
     const checked = performedCheck(ctx, row, worktree, run, slot.perform);
+    if (!checked.ok && slot.perform.stage === 'planning' && checked.current.sha256 !== null) {
+      // Row 134: a written plan whose handoff did not land is the constitution exit refusing it; the
+      // row stays at planning with that refusal recorded, and no one is asked.
+      try { orch.assertPlanExit(run.program.find((n: any) => n.id === 'planning'), run); } catch (error: any) {
+        return finish(ctx, { outcome: 'denied', reason: 'plan-exit-refused', row: row.id, slug: row.slug, rule: 'perform/planning',
+          evidence: [{ locator: checked.current.artifact, sha256: checked.current.sha256 }], annotations: { refusal: error.message }, perform: slot.perform });
+      }
+    }
     if (!checked.ok) {
       return finish(ctx, { outcome: 'denied', reason: 'stage-not-performed', row: row.id, slug: row.slug, rule: `perform/${slot.perform.stage}`,
         evidence: [{ locator: checked.current.artifact, sha256: checked.current.sha256 }], perform: slot.perform });

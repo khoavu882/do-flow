@@ -121,7 +121,8 @@ Filling §8's task dependency graph, read the guidance tree's `references/DIAGRA
    `plan_next_round`.
 6. **Constitution Check (exit gate)** — evaluate the plan against both tiers as reconciled in step
    4. Record one row per principle in `plan.md` §2: its id, its tier (MUST unless it says `**Tier:**
-   SHOULD`) and PASS/FAIL. On a violation, revise the approach first. A MUST marked FAIL or left
+   SHOULD`) and PASS/FAIL; a base MUST that tier-2 makes SHOULD names that overlay version in its
+   row. On a violation, revise the approach first. A MUST marked FAIL or left
    without a row refuses step 11's handoff; a SHOULD FAIL is a note. That refusal is the runtime's,
    beside the hard hook that covers artifact existence (`references/DOFLOW_CHAIN.md` scopes both).
    There is no waiver: revise the plan, or a person amends the constitution with `/do-constitution`.

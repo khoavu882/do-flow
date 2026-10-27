@@ -53,7 +53,7 @@ test('placeholder: TBD, TODO and a deferred "later" line are findings at their p
     'We scan for `TBD` markers in code spans, which is fine.',
     '<!-- TODO in a comment is template guidance -->',
     '```', 'TODO inside a fence', '```',
-    'Error handling: implement it later.',
+    'Error handling: fill in later.',
     'The index is added in Phase B, later than A.', '',
   ].join('\n');
   const findings = placeholderFindings(plan, 'plan.md');
@@ -101,4 +101,29 @@ test('plan-check reads requirement.md from intention/ under the structured layou
   const body = JSON.parse(s.cli(['plan.md', '--json']).stdout);
   assert.deepEqual(body.findings.filter((f: any) => f.rule === 'coverage').map((f: any) => `${f.path}:${f.line} ${f.id}`),
     [`${path.join('intention', 'requirement.md')}:6 US2`]);
+});
+
+// ── Sol review of a0234b53 (row 134): visible Markdown only, fences, "later" ───────────────────────
+
+test('placeholder: a fence closes only on the same character and a run at least as long as its opener', () => {
+  const plan = ['````md', '```', 'TODO in code', '```', '````', 'After the fence: TBD.', ''].join('\n');
+  assert.deepEqual(placeholderFindings(plan, 'plan.md').map((f: any) => f.line), [6]);
+  const tilde = ['~~~', '```', 'TODO inside a tilde fence', '~~~', ''].join('\n');
+  assert.deepEqual(placeholderFindings(tilde, 'plan.md'), []);
+});
+
+test('placeholder: "later" counts only in a placeholder phrasing, not in prose', () => {
+  const plan = [
+    'Users can add filters later without changing the schema.',
+    '- [ ] A.1 Define later phases in the scheduler.',
+    'Error handling: fill in later.',
+    '| Owner | later |',
+    'The ownership is to be decided.',
+  ].join('\n');
+  assert.deepEqual(placeholderFindings(plan, 'plan.md').map((f: any) => f.line), [3, 4, 5]);
+});
+
+test('coverage: an id named only inside an HTML comment or a fence is not traced', () => {
+  const plan = ['# Plan', '<!-- US1 -->', '```', 'US2', '```', '- [ ] A.1 Build — FR-001, FR-003', ''].join('\n');
+  assert.deepEqual(coverageFindings(plan, 'plan.md', REQUIREMENT, 'requirement.md').map((f: any) => f.id), ['US1', 'US2']);
 });
