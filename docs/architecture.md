@@ -808,12 +808,12 @@ configuration as a test fixture.
 
 `test/guards/*.test.ts` checks structural truths about this repository's own content rather than
 runtime behavior, and it is what most changes actually need to keep green. `test/guards/` holds
-80 test files (plus `_shared.ts`, a helper rather than a test); this inventory lists
-73 entries across 69 test files and carries 71 distinct G-numbers.
+81 test files (plus `_shared.ts`, a helper rather than a test); this inventory lists
+74 entries across 70 test files and carries 72 distinct G-numbers.
 Name the file, not the number, when you mean a specific guard: G11 and G13 each label two listed
 entries; G18 labels two files, of which `adapter-force.test.ts` is not listed; and G30 labels two
 files, `advice.test.ts` and a ratchet test in `module-reachability.test.ts` (the G16 file). The collisions are
-historical rather than a convention; G73 is the highest number in use (G67 is row 120 and G68 is row 122), so a new guard takes the next
+historical rather than a convention; G74 is the highest number in use (G67 is row 120 and G68 is row 122), so a new guard takes the next
 one above it instead of adding another collision. The list is not the whole directory. The
 files absent from it are `verb-reachability.test.ts`, which owns G17 and is why the list runs G16 then
 G18; `adopt-path.test.ts`, which owns G19, and `adapter-force.test.ts`, which is the unlisted half
