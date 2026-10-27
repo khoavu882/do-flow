@@ -212,12 +212,23 @@ function createAnnouncer({ now, setTimer, clearTimer, write }) {
 
 /** @type {any} */
 let shared = null;
+let muted = false;
+
+/**
+ * Holds every announcement while `on` (feature 133): the first data after a reconnect or a resume is a full refetch, and the
+ * per-item changes it shows are not news, so the shell mutes them and says one summary instead.
+ * @param {boolean} on
+ */
+function muteAnnouncements(on) {
+  muted = on;
+}
 
 /**
  * Writes `text` to the page's polite live region (#announcer), through the shared announcer.
  * @param {any} text
  */
 function announce(text) {
+  if (muted) return;
   if (shared === null) {
     shared = createAnnouncer({
       now: () => Date.now(),
@@ -232,4 +243,4 @@ function announce(text) {
   shared.announce(text);
 }
 
-export { SVG_NS, ICONS, h, mount, icon, createAnnouncer, announce };
+export { SVG_NS, ICONS, h, mount, icon, createAnnouncer, announce, muteAnnouncements };

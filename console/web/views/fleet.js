@@ -8,9 +8,11 @@
 // reading position of the stream all survive a tick. Every string from the Console is a text node (IC-007); the only
 // dynamic geometry is an SVG `width` attribute. No path, session id or label other than the record's own reaches the page.
 
+import { isKey } from '../keys.js';
 import { h, mount, icon, announce, SVG_NS } from '../dom.js';
 import { reltime, clockTime, skel } from '../states.js';
 import { createFleetStream } from '../stream.js';
+import { notice } from '../notices.js';
 import { createPanel } from './transcript.js';
 import {
   stamp, nodeTitle, titleIsLabel, kindWord, layoutTree, agentCounts, modelsOf, projectRate, agentRows, modelRows, maxOf, barWidth, tokenLine, toolTime,
@@ -112,6 +114,7 @@ function transportOf(local, now) {
   const mode = local.transport ? local.transport.mode : 'connecting';
   const frame = stream && stream.lastFrameAt !== null ? stream.lastFrameAt : null;
   const updated = frame === null ? '' : ` · updated ${clockTime(frame)}`;
+  if (stream && stream.paused) return { token: 'unknown', face: 'pause', text: `Paused${updated}` };
   if (stream && stream.isStale()) {
     const lost = frame === null ? 0 : Math.max(0, Math.floor((now - frame) / 1000));
     return { token: 'stale', face: 'stale', text: `No update for ${lost} s${frame === null ? '' : ` · last ${clockTime(frame)}`}` };
@@ -144,9 +147,9 @@ function transportLine() {
 /**
  * `spec.connect` of both Fleet views: one stream per page. Snapshots and deltas are merged into the fleet body and handed to
  * the shell as data; the transcript goes to the panel; the transport line and the announcements follow the mode.
- * @param {any} local @param {any} params @param {{ fetchJson: any, onData: (body: any) => void, onFailure: (error: any) => void }} hooks
+ * @param {any} local @param {any} params @param {{ fetchJson: any, onData: (body: any) => void, onFailure: (error: any) => void, onResync?: () => void }} hooks
  */
-function connectFleet(local, params, { fetchJson, onData, onFailure }) {
+function connectFleet(local, params, { fetchJson, onData, onFailure, onResync = () => {} }) {
   local.transport = { mode: 'connecting', reason: null };
   local.tickError = null;
   local.body = null;
@@ -155,6 +158,9 @@ function connectFleet(local, params, { fetchJson, onData, onFailure }) {
     agent: params.agent ?? null,
     fetchJson,
     handlers: {
+      resync() {
+        onResync();
+      },
       snapshot(body) {
         local.body = body;
         local.tickError = null;
@@ -184,10 +190,10 @@ function connectFleet(local, params, { fetchJson, onData, onFailure }) {
         const was = local.transport.mode;
         local.transport = state;
         if (state.mode === 'fallback' || state.mode === 'limit') {
-          if (was === 'push' || was === 'connecting') announce('Push unavailable; polling every 5 seconds.');
+          if (was === 'push' || was === 'connecting') notice('push-lost');
           local.wasFallback = true;
         } else if (state.mode === 'push' && local.wasFallback) {
-          announce('Push restored.');
+          notice('push-back');
           local.wasFallback = false;
         }
         refreshTransport(local);
@@ -857,7 +863,7 @@ function onPanelKey(local, event) {
     }
     return;
   }
-  if (event.key !== 'Escape' || !local.params.agent) return;
+  if (!isKey(event, 'close') || !local.params.agent) return;
   const node = local.nodes.get(local.params.agent);
   if (isSheet()) {
     event.preventDefault();

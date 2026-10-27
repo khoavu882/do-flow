@@ -300,7 +300,7 @@ function renderFullPage({ info, range, found, onCheck }) {
 // ---- the connection pill ---------------------------------------------------------------------------
 
 /** @type {Record<string, string>} */
-const PILL_ICON = { unknown: 'unknown', done: 'check', stale: 'stale', failed: 'failed' };
+const PILL_ICON = { unknown: 'unknown', done: 'check', stale: 'stale', failed: 'failed', paused: 'pause' };
 
 /**
  * Writes the pill; rebuilds nothing when state and text are unchanged.
