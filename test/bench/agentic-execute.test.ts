@@ -751,6 +751,17 @@ function spawnDriver(s: any, overrides: any = {}) {
   return { child, done };
 }
 
+test('FU-j421p4: a signal that arrives during the synchronous setup of a run stops it before the paid spawn', { timeout: 30000 }, async () => {
+  const s = setup();
+  const { done } = spawnDriver(s, { tasks: ['T1'], selfSignal: 'SIGINT' });
+  const ended: any = await done;
+  assert.equal(ended.signal, 'SIGINT', `the executor re-raises SIGINT (stdout: ${ended.stdout} stderr: ${ended.stderr})`);
+  assert.deepEqual(runDump(s), [], 'the worker never started');
+  // An interrupt that finds a spawned run records it as truncated; one that stops the run before the spawn records none.
+  assert.equal(fs.existsSync(path.join(s.runRoot, 'it1', 'T1', 'run_status.json')), false, 'no run was spawned');
+  assert.equal(fs.existsSync(path.join(s.runRoot, 'it1', 'T1', 'transcript.jsonl')), false, 'no transcript was opened');
+});
+
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   test(`C-1: ${sig} to the executor ends the worker group, removes profile and workspace, keeps the spend, and re-raises`, { timeout: 30000 }, async () => {
     const s = setup({ config: testConfig((c: any) => { c.timeoutSeconds = 60; }) });

@@ -938,6 +938,9 @@ async function executeIteration(opts: any = {}) {
         };
 
         const parser = parserFor(recipe.structuredOutput.parser).create();
+        // The profile and workspace work above is synchronous, so a signal that arrived during it is
+        // still queued: one turn of the event loop runs its handler before a paid run is spawned.
+        await new Promise((resolve) => setImmediate(resolve));
         if (state.interrupted) return halted();
         spawned = true; // from here the run may have spent: its directory is never removed
         const transcriptFile = path.join(run.runDir, RUN_FILES.transcript);
