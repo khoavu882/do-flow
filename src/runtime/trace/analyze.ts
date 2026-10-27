@@ -132,14 +132,10 @@ function latencyHotspots(scopes: any[], th: any, latency: any[]): any {
         scopeFindings.push(finding('latency-hotspots', sc, slow, row, [...slow].sort((a, b) => b.durationMs - a.durationMs || cmp(a.spanId, b.spanId))));
       }
     }
-    const hasCheck = scopeFindings.some((f) => f.measures.kind === 'verify.check');
-    const hasTier = scopeFindings.some((f) => f.measures.kind === 'verify.tier');
-    if (hasCheck && hasTier) {
-      for (const f of scopeFindings) {
-        if (f.measures.kind === 'verify.tier') {
-          f.derivedFrom = 'verify.check';
-        }
-      }
+    // A tier's tail is the same finding as its checks' only when a check of that tier is a hotspot too.
+    const checkNames = new Set(scopeFindings.filter((f) => f.measures.kind === 'verify.check').map((f) => f.measures.name));
+    for (const f of scopeFindings) {
+      if (f.measures.kind === 'verify.tier' && checkNames.has(f.measures.name)) f.derivedFrom = 'verify.check';
     }
     findings.push(...scopeFindings);
   }
