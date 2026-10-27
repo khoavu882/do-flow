@@ -2,9 +2,10 @@
 
 // G75 — skill structure lint (row 131). Offline ports of four agnix rules, each with a planted-bad
 // control:
-//   1. AS-013: a skill reference sends the reader to no other reference. SKILL.md names every file the
-//      skill needs, one hop deep; a reference that names another reference makes a two-hop chain a
-//      harness loading one skill folder may not follow. A pointer back to SKILL.md is the fix.
+//   1. AS-013: a skill reference sends the reader to no reference its own SKILL.md does not name.
+//      SKILL.md names every file the skill needs, one hop deep; a reference naming a file SKILL.md also
+//      names keeps it one hop, while one naming any other reference makes a two-hop chain a harness
+//      loading one skill folder may not follow. Naming it in SKILL.md, or pointing back, is the fix.
 //   2. CC-SK-034: a reference over 300 lines opens with a `## Contents` list naming each `## ` section.
 //   3. CC-AG-022: every shared agent spec declares its `tool-scope`. `all` (the session's tools, limited
 //      by `access`) is the only scope today; harnesses express it by omitting their own tools key, so
@@ -29,7 +30,7 @@ function skillReferences() {
     const dir = path.join(SKILLS, skill, 'references');
     if (!fs.existsSync(dir)) continue;
     for (const name of fs.readdirSync(dir).filter((file: string) => file.endsWith('.md'))) {
-      out.push({ rel: `${skill}/references/${name}`, name, text: fs.readFileSync(path.join(dir, name), 'utf8') });
+      out.push({ rel: `${skill}/references/${name}`, skill, name, text: fs.readFileSync(path.join(dir, name), 'utf8') });
     }
   }
   return out;
@@ -41,17 +42,33 @@ function referenceNames(entries: any[]) {
   return new Set<string>([...entries.map((entry) => entry.name), ...guidance]);
 }
 
-/** `rel:line: target` for each other reference a reference names, by path or by bare file name. */
-function chainFindings(entries: any[], names: Set<string>) {
+/** Per skill, the reference file names its SKILL.md mentions (by path or bare name): one hop away. */
+function skillNamed(names: Set<string>) {
+  const out = new Map<string, Set<string>>();
+  for (const skill of fs.readdirSync(SKILLS)) {
+    const file = path.join(SKILLS, skill, 'SKILL.md');
+    if (!fs.existsSync(file)) continue;
+    out.set(skill, new Set([...fs.readFileSync(file, 'utf8').matchAll(/[\w.-]+\.md\b/g)].map((m) => m[0]).filter((n) => names.has(n))));
+  }
+  return out;
+}
+
+/** `rel:line: target` for each other reference a reference names, by path or by bare file name, that
+ * its skill's SKILL.md does not also name (`named`: skill -> names, from skillNamed). */
+function chainFindings(entries: any[], names: Set<string>, named = new Map<string, Set<string>>()) {
   const findings: string[] = [];
-  for (const { rel, name, text } of entries) {
+  for (const { rel, skill, name, text } of entries) {
+    const oneHop = named.get(skill) ?? new Set<string>();
     text.split('\n').forEach((line: string, i: number) => {
       const hits = new Set<string>();
       for (const m of line.matchAll(/(?:\.\.\/[\w-]+\/)?references\/[\w./-]+\.md/g)) hits.add(m[0]);
       for (const m of line.matchAll(/[\w.-]+\.md\b/g)) {
         if (names.has(m[0]) && m[0] !== name && ![...hits].some((hit) => hit.endsWith(`/${m[0]}`))) hits.add(m[0]);
       }
-      for (const hit of hits) if (!hit.endsWith(`references/${name}`) || hit.startsWith('..')) findings.push(`${rel}:${i + 1}: ${hit}`);
+      for (const hit of hits) {
+        if (hit.endsWith(`references/${name}`) && !hit.startsWith('..')) continue;   // itself
+        if (!oneHop.has(path.basename(hit))) findings.push(`${rel}:${i + 1}: ${hit}`);
+      }
     });
   }
   return findings;
@@ -138,7 +155,8 @@ const specs = () => agentSpecFiles().map(({ name, file }: any) => ({ name, text:
 test('G75: no skill reference sends the reader to another reference', () => {
   const entries = skillReferences();
   assert.ok(entries.length > 10, 'no skill references found; the check would measure nothing');
-  assert.deepEqual(chainFindings(entries, referenceNames(entries)), [],
+  const names = referenceNames(entries);
+  assert.deepEqual(chainFindings(entries, names, skillNamed(names)), [],
     'name the second file in SKILL.md beside the pointer to the first, or state the fact in the reference itself');
 });
 
@@ -161,8 +179,10 @@ test('G75: the agent specs\' combined descriptions fit every vendor cap and the 
 
 test('G75: controls — a chain, a long reference without contents, a spec without a scope, an oversized listing', () => {
   const names = new Set(['a.md', 'b.md', 'EVIDENCE_LEDGER.md']);
-  const chained = [{ rel: 'x/references/a.md', name: 'a.md', text: 'see `b.md`\nand `references/EVIDENCE_LEDGER.md`\nand ../do-document/references/a.md\nthis file, a.md\nSKILL.md step 4' }];
+  const chained = [{ rel: 'x/references/a.md', skill: 'x', name: 'a.md', text: 'see `b.md`\nand `references/EVIDENCE_LEDGER.md`\nand ../do-document/references/a.md\nthis file, a.md\nSKILL.md step 4' }];
   assert.deepEqual(chainFindings(chained, names), ['x/references/a.md:1: b.md', 'x/references/a.md:2: references/EVIDENCE_LEDGER.md', 'x/references/a.md:3: ../do-document/references/a.md']);
+  // A file the skill's own SKILL.md names is one hop away, so naming it is no chain; others still are.
+  assert.deepEqual(chainFindings(chained, names, new Map([['x', new Set(['b.md', 'EVIDENCE_LEDGER.md'])]])), ['x/references/a.md:3: ../do-document/references/a.md']);
 
   const body = Array.from({ length: 301 }, (_, i) => `line ${i}`).join('\n');
   assert.deepEqual(tocFindings([{ rel: 'x/references/long.md', text: `# t\n## One\n${body}` }]), ['x/references/long.md: 303 lines and no "## Contents" in its first 40 lines']);

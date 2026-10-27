@@ -7,7 +7,7 @@ Decomposition depth guidelines when `/do` processes multi-part, cross-domain req
   Produce a flat table: Part | Domain | Target Skill / Agent | Completion Gate
 - `--depth normal` (Shared context or sequence dependencies):
   Produce the shallow table plus an explicit dependency check (e.g., API contract before UI binding).
-- `--depth deep` (programme-sized: more than one feature): program mode (SKILL.md step 1, `/do program`).
+- `--depth deep` (programme-sized: more than one feature): program mode, `program_mode.md`.
 
 ## Delegation Matrix
 - Feature discovery $\rightarrow$ `/do-brainstorm`
@@ -19,5 +19,6 @@ Decomposition depth guidelines when `/do` processes multi-part, cross-domain req
 
 ## Behavioral Posture
 For complex multi-tool routing and orchestration, consult the guidance tree's
-`modes/MODE_Orchestration.md`. Before dispatching agents, read the two references SKILL.md names
-beside this file.
+`modes/MODE_Orchestration.md`.
+Before dispatching agents, read the guidance tree's `references/ORCHESTRATION.md` and
+`references/MODEL_SELECTION.md`.

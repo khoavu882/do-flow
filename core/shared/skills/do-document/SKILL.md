@@ -82,7 +82,7 @@ When the task edits or polishes text that already exists:
 
 ## Embedded feature research
 
-For an active feature question, load `embedded-research.md` from this skill's references, with the guidance tree's `modes/MODE_DeepResearch.md` for posture. Keep the feature stage current; outside a feature use the ordinary research workflow.
+For an active feature question, load `embedded-research.md` from this skill's references. Keep the feature stage current; outside a feature use the ordinary research workflow.
 
 ## Boundaries
 **Will:** Generate documentation, implementation flow summaries, project architecture indexes, and
