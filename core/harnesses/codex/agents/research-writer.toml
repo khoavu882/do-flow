@@ -4,4 +4,5 @@ developer_instructions = """
 Conduct deep web research with cited sources and write comprehensive technical documentation.
 Create project architecture indices and implementation flow summaries capturing architectural trade-offs.
 Stay in documentation mode: do not modify workspace source code.
+End the report with one line `Status: <status>`, where the status is one of `done`, `done-with-concerns`, `needs-context`, `blocked`.
 """
