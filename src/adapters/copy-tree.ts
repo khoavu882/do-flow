@@ -161,6 +161,47 @@ const TRANSFORMS: Record<string, (sourceRel: string, content: any) => any> = {
   },
 };
 
+/** Row 131: core/registry/contracts.json, read once. Its `agentSkillsSpec` holds the Agent Skills
+ * spec keys; each contract's `skillFields` the keys that harness documents. */
+const SKILL_CONTRACTS = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'contracts.json'), 'utf8'));
+
+/** One `skill-frontmatter-<harness>` transform per contract that lists skillFields: a SKILL.md keeps
+ * the spec keys and that harness's skillFields at the top level, and every other top-level key moves
+ * under `metadata` as a quoted string. Files other than SKILL.md pass through unchanged. */
+for (const contract of SKILL_CONTRACTS.contracts.filter((entry: any) => Array.isArray(entry.skillFields))) {
+  const allowed = new Set<string>([...SKILL_CONTRACTS.agentSkillsSpec.skillFields, ...contract.skillFields]);
+  TRANSFORMS[`skill-frontmatter-${contract.harness}`] = (sourceRel: string, content: any) => (
+    path.basename(sourceRel) === 'SKILL.md' ? Buffer.from(portableSkillFrontmatter(content.toString('utf8'), allowed)) : content);
+}
+
+/** Move every top-level frontmatter key outside `allowed` under `metadata:`. A moved value is
+ * written as a JSON string (valid YAML), a plain scalar's continuation lines joined with a space; a
+ * nested map or a block scalar (`|`, `>`) is not handled, so it throws rather than guess. */
+function portableSkillFrontmatter(text: string, allowed: Set<string>): string {
+  const match = text.match(/^---\n([\s\S]*?\n)---(?=\n|$)/);
+  if (!match) return text;
+  const entries: { key: string | null, lines: string[] }[] = [];
+  for (const line of match[1].replace(/\n$/, '').split('\n')) {
+    const key = line.match(/^([A-Za-z][A-Za-z0-9_-]*):/)?.[1] ?? null;
+    if (key || !entries.length) entries.push({ key, lines: [line] });
+    else entries[entries.length - 1].lines.push(line);
+  }
+  const moved = entries.filter((entry) => entry.key && entry.key !== 'metadata' && !allowed.has(entry.key));
+  if (!moved.length) return text;
+  const metadata = moved.map(({ key, lines }) => {
+    const head = lines[0].slice((key as string).length + 1).trim();
+    if (!head || /^[|>][-+0-9]*$/.test(head)) throw new Error(`skill frontmatter: '${key}' has no scalar value to move under metadata`);
+    const value = [head, ...lines.slice(1).map((part) => part.trim())].join(' ').trim();
+    const scalar = /^"(?:[^"\\]|\\.)*"$/.test(value) ? JSON.parse(value) : value.replace(/^'(.*)'$/, '$1');
+    return `  ${key}: ${JSON.stringify(scalar)}`;
+  });
+  const kept = entries.filter((entry) => !moved.includes(entry));
+  const existing = kept.find((entry) => entry.key === 'metadata');
+  if (existing) existing.lines.push(...metadata);
+  else kept.push({ key: 'metadata', lines: ['metadata:', ...metadata] });
+  return `---\n${kept.flatMap((entry) => entry.lines).join('\n')}\n${text.slice(match[0].length - 3)}`;
+}
+
 function resolveTransform(name: any): ((sourceRel: string, content: any) => any) | null {
   if (!name) return null;
   const transform = TRANSFORMS[name];
@@ -732,4 +773,4 @@ function ledgerFileResources(resources: any, harness: string, assetId: string): 
     .map((resource: any) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
 }
 
-module.exports = { readOnlyApply, kiroHook, kiroHookCommand, kiroPreToolUseHooks, walkRelFiles, discoverTree, sameFileIndex, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveSelect, SELECTORS, resolveTransform, TRANSFORMS, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };
+module.exports = { readOnlyApply, kiroHook, kiroHookCommand, kiroPreToolUseHooks, walkRelFiles, discoverTree, sameFileIndex, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveSelect, SELECTORS, resolveTransform, TRANSFORMS, portableSkillFrontmatter, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };

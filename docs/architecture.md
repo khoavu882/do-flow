@@ -945,7 +945,12 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   (`description` plus `when_to_use`) at most 1,536 characters, the file at most 20,000 bytes, with
   `## Boundaries` starting by byte 19,000 (inside the post-compaction window), and each task class's workflow
   skills at most 100,000 bytes together. The listing text summed over every skill also stays within
-  8,000 characters, the figure Codex applies when the model's context window is unknown.
+  8,000 characters, the figure Codex applies when the model's context window is unknown. Every
+  top-level frontmatter key is an Agent Skills spec key (`agentSkillsSpec` in
+  `core/registry/contracts.json`) or in some harness's `skillFields` there (row 131; each list names the
+  vendor page and the date it was read); every harness the skills asset projects to has a list, and a
+  harness that does not read a key the skills carry declares its `skill-frontmatter-<harness>`
+  transform, which moves that key under `metadata`. Controls plant an unknown key, a row without a source, and the move itself.
 - **G23** (`hidden-unicode.test.ts`) — shipped prose and code are read by models and by reviewers, and
   a code point that renders as nothing (tag characters, zero-width characters, bidirectional
   controls, invisible operators, variation selectors, soft hyphens, filler characters — in all, any code

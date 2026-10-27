@@ -144,27 +144,33 @@
         },
         "codex": {
           "renderer": "copy-tree",
-          "capability": "skills"
+          "capability": "skills",
+          "transform": "skill-frontmatter-codex"
         },
         "opencode": {
           "renderer": "copy-tree",
-          "capability": "skills"
+          "capability": "skills",
+          "transform": "skill-frontmatter-opencode"
         },
         "pi": {
           "renderer": "copy-tree",
-          "capability": "skills"
+          "capability": "skills",
+          "transform": "skill-frontmatter-pi"
         },
         "copilot": {
           "renderer": "copy-tree",
-          "capability": "skills"
+          "capability": "skills",
+          "transform": "skill-frontmatter-copilot"
         },
         "kiro": {
           "renderer": "copy-tree",
-          "capability": "skills"
+          "capability": "skills",
+          "transform": "skill-frontmatter-kiro"
         },
         "antigravity": {
           "renderer": "copy-tree",
-          "capability": "skills"
+          "capability": "skills",
+          "transform": "skill-frontmatter-antigravity"
         }
       },
       "ownership": "managed-tree",
