@@ -38,6 +38,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      `doflow-run lifecycle --action overview --maintain --since T --json` (`doflow-run` is the
      `$DOFLOW` resolved above), and settle each pending item with the question tool through the
      `doflow-run followup`, `doflow-run goal` or `doflow-run failure` command its `next` lines give.
+     Per pending follow-up, before settling it: `"$DOFLOW" advise --kind followup-triage --state "<its text>" --task-id "<its id>" --json` (no `--static`; the pick is input to the question), then `"$DOFLOW" advise --action outcome --pick-id "<pickId>" --actual "<now|later|dismiss>"`.
      Rerun with the same `--since T` until nothing is pending. A product problem the user reports
      goes to `doflow-run followup --action report`; a large goal they state, to
      `doflow-run goal --action add`. It edits no source file.
@@ -57,6 +58,8 @@ Branch on the returned `outcome` field, not the exit code.
   A rejection may be about **you** rather than the class (`reason: caller-not-a-stage`). Then the fix is to propose one of the classes in `fit.hostingClasses`, or to hand the work to the skill this class names for the stage you meant — not to re-propose the same class.
 - **Exit 2** — surface the message verbatim and stop.
 
+Every `advise` call in this skill is optional and follows one rule: skip it and its `outcome` call when `status` is not `answered`; when `agrees` is `false`, say so in one line and keep your own judgement. (`classify` asks `task-class` itself.)
+
 In the decomposition plan, explicitly state each work package with:
 1. **Target skill by name**: name the exact `/do-*` skill that owns the package (e.g. `do-implement` for direct code edits, `do-document` for documentation/guides/references, `do-code-review` for code reviews, `do-test` for test execution, `do-flow` for end-to-end features).
 2. **Validated task class**: the class accepted by the runtime in this step.
@@ -65,6 +68,13 @@ In the decomposition plan, explicitly state each work package with:
 Route each package to the accepted workflow's first stage. A workflow whose `stages` contain nothing
 that does the package's work is a misclassification — re-propose the class rather than routing the
 package under one the runtime accepted for a different kind of task.
+
+   Before handing a package to a worker agent, ask for a second opinion on its tier, then record the tier used:
+
+```bash
+"$DOFLOW" advise --kind tier --state "<the package, one paragraph>" --static "<light|standard|frontier>" --task-id "<task id>" --json
+"$DOFLOW" advise --action outcome --pick-id "<pickId>" --actual "<tier>"
+```
 
    - For detailed decomposition and dependency graph formatting, consult this skill's own
      `references/pm_routing.md`.
@@ -78,6 +88,7 @@ package under one the runtime accepted for a different kind of task.
      Ripgrep when absent, and a static table cannot know that.
    - Consult this skill's own `references/tool_matrix.md` for the intent→capability map and the two
      fallback layers. Treat the router's output as authoritative when the two disagree.
+   - When an MCP server's documented trigger may be due: `"$DOFLOW" advise --kind mcp-need --server <id> --state "<the stage>" --static <yes|no> --task-id "<task id>" --json`, then `"$DOFLOW" advise --action outcome --pick-id "<pickId>" --actual "<yes|no>"` for whether you used it.
 
 4. **Scope & Effort Estimation (`--estimate`)**:
    - When asked for sizing, complexity, or timeline estimates, produce a range anchored against git history and file scope, stating the assumptions that set its width and the unknowns that would narrow it. Never attach a numeric or percentage certainty to the range — the assumptions are the honest expression of what is not yet known.

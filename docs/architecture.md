@@ -1024,6 +1024,11 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
 - **G31** (`advice.test.ts`) — advice cases cover every registered advice kind, and the `tier`
   criteria keys/order and their `Work` text stay synchronized with `models.json` and
   `MODEL_SELECTION.md` respectively, as DEC-033 requires.
+  G31.4 keeps the wiring from rotting: every registered kind is either asked and recorded by
+  its runtime verb (`task-class` by `classify`, `review-depth` by `review --action start`; the guard
+  checks the verb still names it and the kind's `askedBy`) or has an `advise --kind <id>` step in a
+  `SKILL.md` or reference with an `advise --action outcome` line within 12 lines. A new kind has to
+  land in one of the two places.
 - **G32** (`runtime-tree.test.ts`) — the two facts the lifecycle's runtime prune rests on: each of
   `runtime.cli`, `runtime.lib` and `runtime.registry` projects one source directory to one
   `.doflow/runtime/...` tree for every harness, with no layout or transform, and no other asset

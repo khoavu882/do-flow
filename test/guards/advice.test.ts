@@ -1,7 +1,9 @@
 'use strict';
 
 // G30 — decision-model advice cannot leak into hooks, dependencies or unsafe runtime modules.
-// G31 — advice corpus and tier criteria remain synchronized with their source registries.
+// G31 — advice corpus and tier criteria remain synchronized with their source registries, and every registered
+//       advice kind has a call site a model can follow: asked by a runtime verb, or an `advise --kind` step in a
+//       skill with an `advise --action outcome` line after it (G31.4).
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -188,6 +190,52 @@ function checkG31TierText({ files }: any): any {
   return findings;
 }
 
+// G31.4 — a kind the runtime verb asks and records itself needs no skill step; every other registered kind must be
+// named by an `advise --kind <id>` step in a SKILL.md or reference, followed on the same line or within CALL_SITE_WINDOW lines after by the
+// `advise --action outcome` line that records what was used. A new kind lands in one place or the other, or this fails.
+const RUNTIME_ASKED: any = {
+  'task-class': { caller: 'classify', file: 'src/runtime/task-classifier.ts' },
+  'review-depth': { caller: 'review', file: 'src/runtime/review/start.ts' },
+};
+const CALL_SITE_WINDOW = 12;
+
+function checkG31CallSites({ files, docs }: any): any {
+  const findings: any = [];
+  const registry = parseJsonFile(files, 'core/registry/advice.json', findings);
+  if (!registry) return findings;
+  const lines = pathLines(docs, (file: any) => /(?:^|\/)SKILL\.md$|\/references\/[^/]+\.md$/.test(file));
+  for (const kind of registry.kinds) {
+    const runtime = RUNTIME_ASKED[kind.id];
+    if (runtime) {
+      if (!kind.askedBy.includes(runtime.caller)) findings.push(`${kind.id}: askedBy must name '${runtime.caller}'`);
+      if (!(getFile(docs, runtime.file) || '').includes(`'${kind.id}'`)) findings.push(`${kind.id}: ${runtime.file} no longer asks it`);
+      continue;
+    }
+    const call = new RegExp(`advise --kind ${kind.id}(?![\\w-])`);
+    const sites = lines.filter((hit: any) => call.test(hit.text));
+    if (sites.length === 0) findings.push(`${kind.id}: no skill or reference has an 'advise --kind ${kind.id}' step`);
+    else if (!sites.some((site: any) => lines.some((hit: any) => hit.file === site.file && hit.line >= site.line
+      && hit.line <= site.line + CALL_SITE_WINDOW && hit.text.includes('advise --action outcome')))) {
+      findings.push(`${kind.id}: no 'advise --action outcome' line within ${CALL_SITE_WINDOW} lines of its call site (${sites[0].file}:${sites[0].line})`);
+    }
+  }
+  return findings;
+}
+
+function readSkillDocs() {
+  const docs: any = new Map();
+  function walk(directory: any) {
+    for (const entry of fs.readdirSync(path.join(REPO, directory), { withFileTypes: true })) {
+      const rel = `${directory}/${entry.name}`;
+      if (entry.isDirectory()) walk(rel);
+      else if (entry.isFile() && rel.endsWith('.md')) docs.set(rel, fs.readFileSync(path.join(REPO, rel), 'utf8'));
+    }
+  }
+  walk('core/shared/skills');
+  for (const { file } of Object.values(RUNTIME_ASKED) as any) docs.set(file, fs.readFileSync(path.join(REPO, file), 'utf8'));
+  return docs;
+}
+
 function readTree() {
   const files: any = new Map();
   function walk(directory: any) {
@@ -207,6 +255,7 @@ function readTree() {
 }
 
 const shipped = readTree();
+const skillDocs = readSkillDocs();
 
 test('G30.1: shipped hooks contain no advice dispatch surface', () => {
   assert.deepEqual(checkG30Hooks({ files: shipped }), []);
@@ -310,8 +359,29 @@ test('G31.3 control: names tier and both differing texts', () => {
   const findings = checkG31TierText({ files: fixture });
   assert.ok(findings.some((finding: any) => finding.includes('standard') && finding.includes('edited text') && finding.includes('Normal coding')));
 });
+test('G31.4: every registered advice kind has a runtime ask or a skill call site with an outcome line', () => {
+  assert.deepEqual(checkG31CallSites({ files: shipped, docs: skillDocs }), []);
+});
+test('G31.4 control: deleting a call site, or its outcome line, names the kind', () => {
+  const registry = JSON.parse(shipped.get('core/registry/advice.json'));
+  const kind = registry.kinds.find((entry: any) => entry.id === 'verify-risk').id;
+  const file = 'core/shared/skills/do-test/SKILL.md';
+  const text = skillDocs.get(file);
+  assert.ok(text.includes(`advise --kind ${kind}`) && text.includes('advise --action outcome'), 'fixture anchor moved');
+  const noCall: any = new Map(skillDocs);
+  noCall.set(file, text.replace(`advise --kind ${kind}`, 'advise --kind gone'));
+  assert.ok(checkG31CallSites({ files: shipped, docs: noCall }).some((finding: any) => finding.startsWith(`${kind}: no skill or reference`)));
+  const noOutcome: any = new Map(skillDocs);
+  noOutcome.set(file, text.replace('advise --action outcome', 'advise --action noted'));
+  assert.ok(checkG31CallSites({ files: shipped, docs: noOutcome }).some((finding: any) => finding.startsWith(`${kind}: no 'advise --action outcome'`)));
+});
+test('G31.4 control: a runtime-asked kind that is no longer asked is named', () => {
+  const docs: any = new Map(skillDocs);
+  docs.set('src/runtime/review/start.ts', 'nothing');
+  assert.ok(checkG31CallSites({ files: shipped, docs }).some((finding: any) => finding.startsWith('review-depth:')));
+});
 
 module.exports = {
   checkG30Hooks, checkG30Dependencies, checkG30Requires, checkG30ProviderRoutes,
-  checkG31Coverage, checkG31TierKeys, checkG31TierText,
+  checkG31Coverage, checkG31TierKeys, checkG31TierText, checkG31CallSites,
 };
