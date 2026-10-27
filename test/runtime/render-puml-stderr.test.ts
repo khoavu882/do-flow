@@ -9,6 +9,10 @@ const { spawnSync } = require('node:child_process');
 const { suiteTempDir } = require('../helper/tmp.ts');
 
 const SCRIPT = path.join(__dirname, '..', '..', 'core', 'shared', 'scripts', 'doflow', 'bash', 'render-puml.sh');
+// render-puml.sh notes "jq-absent" and exits 0 before it reaches the splice, so without jq these
+// tests would assert on a run that never happened.
+const NO_JQ = spawnSync('jq', ['--version'], { encoding: 'utf8' }).status !== 0 && 'jq is not on PATH';
+
 const OPEN = '<!-- generated from context.puml source-hash: 000000000000 -->';
 const CLOSE = '<!-- end generated -->';
 
@@ -47,7 +51,7 @@ const run = (root: any) => spawnSync('bash', [SCRIPT], {
   env: { ...process.env, PATH: `${stubPlantumlDir()}${path.delimiter}${process.env.PATH}` },
 });
 
-test('a projector that writes to stderr does not pollute the generated block', () => {
+test('a projector that writes to stderr does not pollute the generated block', { skip: NO_JQ }, () => {
   const { root, design } = fixture(
     `process.stderr.write('(node:1) ExperimentalWarning: Type Stripping is an experimental feature\\n');\n` +
     `process.stdout.write(${JSON.stringify(`${OPEN}\nNEW BLOCK\n${CLOSE}`)});\n`);
@@ -59,7 +63,7 @@ test('a projector that writes to stderr does not pollute the generated block', (
   assert.match(r.stderr, /ExperimentalWarning/, 'the warning is still surfaced, on stderr');
 });
 
-test('a failing projector surfaces its stderr and leaves design.md untouched', () => {
+test('a failing projector surfaces its stderr and leaves design.md untouched', { skip: NO_JQ }, () => {
   const { root, design } = fixture(`process.stderr.write('boom\\n'); process.exit(1);\n`);
   const before = fs.readFileSync(design, 'utf8');
   const r = run(root);
