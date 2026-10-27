@@ -52,7 +52,7 @@ const { buildFixture, SLUGS, CONSTITUTION_CHECK, PASSING_PLAN } = require('../te
  * changed from here, so TMPDIR is pointed at the root for the length of that call (os.tmpdir() reads it
  * each time); the fixture environment it copies then carries the same TMPDIR to the Console child.
  */
-const SCRATCH_ROOT = '/private/tmp/claude-504/093';
+const SCRATCH_ROOT = process.env.DOFLOW_FIXTURE_SCRATCH_ROOT || path.join(fs.realpathSync(require('node:os').tmpdir()), 'doflow-093');
 
 const BIN = path.join(__dirname, '..', 'bin', 'doflow-ui.js');
 const URL_LINE = /^doflow ui: http:\/\/127\.0\.0\.1:(\d+)\/#c=([0-9a-f]{64})\n/;
