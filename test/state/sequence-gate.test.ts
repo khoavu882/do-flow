@@ -225,7 +225,7 @@ test('vacuous schedules: no gated call, or an unreadable final store, end INCOMP
  * Starts a driver process that runs one schedule whose actors hang outside waitGrant (Atomics.wait
  * before any fs call), waits until both actors run, then sends `signal` to the driver alone. With
  * `blockMs` instead of a signal, the driver blocks its own event loop for `blockMs` once both actors
- * run, before its deadline (`BLOCK`, else `LATE`): only the watchdog's timer can then end them.
+ * run, with its event loop held from the start so its deadline cannot act first (`BLOCK`): only the watchdog's timer can then end them.
  * Resolves `{ pids, dir, driverExit, driverAlive, gone, out, ms }` once the actors are dead and the
  * dir is gone, or `waitMs` passed; `ms` counts from the signal, or from `BLOCK`.
  */
@@ -247,15 +247,19 @@ const start = Date.now();
 runSchedule({ scenario: 'S1', init: 'none', chooser: (p) => p[0], deadlineMs: ${deadlineMs}, actorModule: ${JSON.stringify(actorModule)},
   onFixture: (f) => fs.writeSync(1, 'DIR ' + f.cwd + '\\n') });
 if (${blockMs} > 0) {
-  const poll = setInterval(() => {
+  // runSchedule has spawned both actors and set its deadline timer by the time it returns, and its timer
+  // cannot run while this loop is held: waiting for the actors HERE, synchronously, means the deadline never
+  // acts first however slowly a loaded host starts them (a setInterval poll let it, and printed LATE).
+  const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  const limit = Date.now() + 30000;
+  for (;;) {
     let n = 0;
-    try { n = fs.readFileSync(${JSON.stringify(pidsFile)}, 'utf8').trim().split('\\n').length; } catch { return; }
-    if (n < 2) return;
-    clearInterval(poll);
-    if (Date.now() - start >= ${deadlineMs}) { fs.writeSync(1, 'LATE\\n'); return; }
-    fs.writeSync(1, 'BLOCK\\n');
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${blockMs});
-  }, 10);
+    try { n = fs.readFileSync(${JSON.stringify(pidsFile)}, 'utf8').trim().split('\\n').length; } catch { /* not yet */ }
+    if (n >= 2 || Date.now() > limit) break;
+    sleep(10);
+  }
+  fs.writeSync(1, 'BLOCK\\n');
+  sleep(${blockMs});
 }
 `);
   const t0 = Date.now();
@@ -278,8 +282,7 @@ if (${blockMs} > 0) {
   dir = /^DIR (.+)$/m.exec(out)![1];
   const pids = pidsOf();
   if (blockMs > 0) {
-    assert.ok(await until(() => /^(BLOCK|LATE)$/m.test(out), 5000), `the driver never blocked: ${out}`);
-    assert.match(out, /^BLOCK$/m, 'the driver blocked before its own deadline could act');
+    assert.ok(await until(() => /^BLOCK$/m.test(out), 35000), `the driver never blocked: ${out}`);
     const blocked = Date.now();
     const gone = await until(() => !fs.existsSync(dir) && running(pids) === 0, waitMs);
     return { pids, dir, driverExit: null, driverAlive: isAlive(driver.pid), gone, out, ms: Date.now() - blocked };
@@ -298,7 +301,7 @@ const cleanups: any = [];
 const fileContext = { after: (fn: any) => cleanups.push(fn) };
 let timerPath: any;
 before(() => {
-  timerPath = orphanCase(fileContext, { blockMs: 6000, deadlineMs: 800, waitMs: 800 + WATCHDOG_MARGIN_MS + 1000 });
+  timerPath = orphanCase(fileContext, { blockMs: 6000, deadlineMs: 2000, waitMs: 2000 + WATCHDOG_MARGIN_MS + 1000 });
   timerPath.catch(() => { /* reported by the test that awaits it */ });
 });
 after(() => { for (const fn of cleanups.reverse()) fn(); });
