@@ -91,13 +91,15 @@ type Deps = {
  */
 const ALIVE_CACHE_MS = 2000;
 
-function cachedAlive(check: (proc: any) => boolean | 'unknown'): (proc: any) => boolean | 'unknown' {
+function cachedAlive(check: (proc: any) => boolean | 'unknown', clock: () => number = () => performance.now()): (proc: any) => boolean | 'unknown' {
   const seen = new Map<string, number>();
   return (proc: any) => {
     const key = `${proc?.pid}\0${proc?.start ?? ''}`;
-    const now = Date.now();
+    // A monotonic clock, and a non-positive or odd age counts as expired: a wall-clock step back must not keep a dead process alive.
+    const now = clock();
     const at = seen.get(key);
-    if (at !== undefined && now - at < ALIVE_CACHE_MS) return true;
+    const age = at === undefined ? NaN : now - at;
+    if (age >= 0 && age < ALIVE_CACHE_MS) return true;
     const state = check(proc);
     if (state === true) seen.set(key, now); else seen.delete(key);
     return state;

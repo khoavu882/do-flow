@@ -160,19 +160,19 @@ test('liveness: a process judged alive is not asked about again within the windo
   // Each sweep runs inside the slot lock; a `ps` per queue entry per poll made a loaded host outlast the lock budget.
   const answers: any = { a: true, b: false, c: 'unknown' };
   const asked: string[] = [];
-  const alive = cachedAlive((proc: any) => { asked.push(proc.pid); return answers[proc.pid]; });
-  const realNow = Date.now;
   let now = 1_000_000;
-  Date.now = () => now;
-  try {
-    for (const pid of ['a', 'a', 'b', 'b', 'c', 'c']) alive({ pid, start: 's' });
-    assert.deepEqual(asked, ['a', 'b', 'b', 'c', 'c']);
-    now += ALIVE_CACHE_MS;
-    alive({ pid: 'a', start: 's' });
-    assert.equal(asked.at(-1), 'a', 'asked again once the window passed');
-    alive({ pid: 'a', start: 'other' });
-    assert.equal(asked.length, 7, 'another start time is another process');
-  } finally { Date.now = realNow; }
+  const alive = cachedAlive((proc: any) => { asked.push(proc.pid); return answers[proc.pid]; }, () => now);
+  for (const pid of ['a', 'a', 'b', 'b', 'c', 'c']) alive({ pid, start: 's' });
+  assert.deepEqual(asked, ['a', 'b', 'b', 'c', 'c']);
+  now += ALIVE_CACHE_MS;
+  alive({ pid: 'a', start: 's' });
+  assert.equal(asked.at(-1), 'a', 'asked again once the window passed');
+  alive({ pid: 'a', start: 'other' });
+  assert.equal(asked.length, 7, 'another start time is another process');
+  // The clock stepping back must not keep a process that has since died "alive": a negative age is expired.
+  answers.a = false;
+  now -= 5000;
+  assert.equal(alive({ pid: 'a', start: 's' }), false, 'a negative age is re-checked');
 });
 
 test('child exit code and death by signal are passed through; spawn gets DOFLOW_SLOT and the cwd', async () => {
