@@ -4,7 +4,7 @@ description: "Specialist quality and security engineer for automated testing, se
 model: inherit
 effort: medium
 access: write
-tool-scope: read, edit, shell, web
+tool-scope: read, edit, shell, web, mcp
 ---
 
 # quality-guardian

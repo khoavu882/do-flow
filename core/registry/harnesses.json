@@ -269,6 +269,7 @@
               "Agent"
             ]
           },
+          "mcpSelector": "mcp__{server}__*",
           "evidence": [
             "https://code.claude.com/docs/en/sub-agents"
           ],
@@ -1260,7 +1261,7 @@
         "toolScope": {
           "status": "native",
           "field": "permission",
-          "form": "deny",
+          "form": "closed",
           "map": {
             "read": [
               "read",
@@ -1282,8 +1283,10 @@
               "task"
             ]
           },
+          "mcpSelector": "{server}_*",
           "evidence": [
-            "https://opencode.ai/docs/permissions"
+            "https://opencode.ai/docs/permissions",
+            "https://opencode.ai/docs/mcp-servers/"
           ],
           "checked": "docs",
           "verifiedOn": "2026-10-27"
@@ -2193,6 +2196,7 @@
               "agent"
             ]
           },
+          "mcpSelector": "{server}/*",
           "evidence": [
             "https://docs.github.com/en/copilot/reference/custom-agents-configuration"
           ],
@@ -2610,8 +2614,10 @@
               "subagent"
             ]
           },
+          "mcpSelector": "@{server}",
           "evidence": [
-            "https://kiro.dev/docs/cli/v3/agent-config/"
+            "https://kiro.dev/docs/cli/v3/agent-config/",
+            "https://kiro.dev/docs/custom-agents/configuration-reference/"
           ],
           "checked": "docs",
           "verifiedOn": "2026-10-27"

@@ -461,11 +461,14 @@ function validateOrchestration(value: any, location: string, errors: string[]): 
 const AGENT_LIMIT_STATUS = new Set(['native', 'unenforced']);
 const AGENT_LIMIT_KEYS = ['readOnly', 'toolScope'];
 /** The abstract tool categories an agent spec's `tool-scope` names (row 135); `toolScope.map` gives
- * each one's tools on a harness. `form` is how the adapter writes them: `comma` a comma-separated
- * string, `list` an array, `deny` a permission object denying every category outside the scope. */
-const TOOL_SCOPE_CATEGORIES = ['read', 'edit', 'shell', 'web', 'agents'];
-const TOOL_SCOPE_FORMS = new Set(['comma', 'list', 'deny']);
-const TOOL_SCOPE_ENTRY_KEYS = new Set(['status', 'field', 'form', 'map', 'evidence', 'checked', 'verifiedOn', 'reason']);
+ * each built-in category's tools on a harness, and `mcpSelector` (a template holding `{server}`)
+ * writes the `mcp` category, one selector per MCP server DoFlow's registry names. `form` is how the
+ * adapter writes them: `comma` a comma-separated string, `list` an array, `closed` a permission
+ * object that denies `*` first and then allows only the declared tools. */
+const TOOL_SCOPE_CATEGORIES = ['read', 'edit', 'shell', 'web', 'agents', 'mcp'];
+const TOOL_SCOPE_MAPPED = TOOL_SCOPE_CATEGORIES.filter((category) => category !== 'mcp');
+const TOOL_SCOPE_FORMS = new Set(['comma', 'list', 'closed']);
+const TOOL_SCOPE_ENTRY_KEYS = new Set(['status', 'field', 'form', 'map', 'mcpSelector', 'evidence', 'checked', 'verifiedOn', 'reason']);
 const AGENT_LIMIT_ENTRY_KEYS = new Set(['status', 'apply', 'evidence', 'checked', 'verifiedOn', 'reason']);
 
 /** True when `value` is a non-blank string that parses as an http: or https: URL. */
@@ -531,7 +534,7 @@ function validateToolScope(entry: any, at: string, errors: string[]): void {
   if (!evidenceOk) issue(errors, at, 'evidence must be an array of http(s) URLs');
   if (typeof entry.verifiedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(entry.verifiedOn)) issue(errors, at, 'requires verifiedOn as an ISO date (YYYY-MM-DD)');
   if (entry.status === 'unenforced') {
-    for (const key of ['field', 'form', 'map']) if (entry[key] !== undefined) issue(errors, at, `unenforced must not carry ${key}`);
+    for (const key of ['field', 'form', 'map', 'mcpSelector']) if (entry[key] !== undefined) issue(errors, at, `unenforced must not carry ${key}`);
     if (typeof entry.reason !== 'string' || !entry.reason.trim()) issue(errors, at, 'unenforced requires a reason');
     else if (evidenceOk && entry.evidence.length === 0 && entry.reason.trim().toLowerCase() !== 'no agent surface') issue(errors, at, 'unenforced requires non-empty evidence unless the reason is "no agent surface"');
     return;
@@ -540,9 +543,13 @@ function validateToolScope(entry: any, at: string, errors: string[]): void {
   if (!TOOL_SCOPE_FORMS.has(entry.form)) issue(errors, at, `form must be one of ${[...TOOL_SCOPE_FORMS].join(', ')}`);
   if (entry.checked !== 'docs' && entry.checked !== 'live') issue(errors, at, 'native requires checked as docs or live');
   if (evidenceOk && entry.evidence.length === 0) issue(errors, at, 'native requires non-empty evidence');
+  // A selector names one server: no wildcard may stand before `{server}`, and the server is not the whole selector.
+  if (typeof entry.mcpSelector !== 'string' || !entry.mcpSelector.includes('{server}') || entry.mcpSelector === '{server}' || /[*?].*\{server\}/.test(entry.mcpSelector)) {
+    issue(errors, at, 'native requires mcpSelector, a template naming one {server} with no wildcard before it');
+  }
   if (!object(entry.map)) { issue(errors, at, 'native requires map'); return; }
-  for (const key of Object.keys(entry.map)) if (!TOOL_SCOPE_CATEGORIES.includes(key)) issue(errors, at, `map has unknown category '${key}'`);
-  for (const category of TOOL_SCOPE_CATEGORIES) {
+  for (const key of Object.keys(entry.map)) if (!TOOL_SCOPE_MAPPED.includes(key)) issue(errors, at, `map has unknown category '${key}'`);
+  for (const category of TOOL_SCOPE_MAPPED) {
     const tools = entry.map[category];
     if (!Array.isArray(tools) || tools.length === 0 || tools.some((tool: any) => typeof tool !== 'string' || !tool.trim())) issue(errors, at, `map.${category} must be a non-empty array of tool names`);
   }

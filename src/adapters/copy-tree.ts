@@ -266,6 +266,27 @@ function readOnlyApply(harnessId: string): Record<string, any> | null {
   return entry?.status === 'native' ? entry.apply : null;
 }
 
+/** The MCP servers DoFlow's registry names, read once and sorted: every `core/registry/mcp.json`
+ * server (the ones an install writes) and every capability provider's `mcp.server` in
+ * capabilities.json (semble, graphify). All are retrieval servers, so a read-only agent keeps them. */
+let registryMcpServers: string[] | null = null;
+function approvedMcpServers(): string[] {
+  if (!registryMcpServers) {
+    const read = (file: string) => JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', file), 'utf8'));
+    const providers = Object.values(read('capabilities.json').capabilities || {}).flatMap((capability: any) => capability.providers || []);
+    registryMcpServers = [...new Set<string>([
+      ...read('mcp.json').servers.map((server: any) => server.id),
+      ...providers.map((provider: any) => provider.mcp?.server).filter(Boolean),
+    ])].sort();
+  }
+  return registryMcpServers as string[];
+}
+
+/** One category's tools on a harness: the `map` entry, or for `mcp` the selector of each approved server. */
+function categoryTools(entry: any, category: string): string[] {
+  return category === 'mcp' ? approvedMcpServers().map((server) => entry.mcpSelector.replace('{server}', server)) : entry.map[category];
+}
+
 /** The categories of a spec's `tool-scope` value (`read, shell, web`), or null when it declares none. */
 function scopeCategories(value: string | undefined): string[] | null {
   if (value === undefined) return null;
@@ -273,26 +294,24 @@ function scopeCategories(value: string | undefined): string[] | null {
 }
 
 /** The keys a harness writes for a declared tool scope (row 135), from `agentLimits.toolScope`: the
- * category tools as a comma string or a list, or a permission object denying every category outside
- * the scope. `null` when the spec declares no scope or the harness cannot express one (`unenforced`):
- * then nothing is written, never a broader scope. */
+ * category tools as a comma string or a list, or a closed permission object (`"*": deny`, then an
+ * allow per declared tool). `null` when the spec declares no scope or the harness cannot express one
+ * (`unenforced`): then nothing is written, never a broader scope. */
 function toolScopeApply(harnessId: string, scope: string[] | null): Record<string, any> | null {
   if (!scope) return null;
   const entry = agentLimitsOf(harnessId).toolScope;
   if (entry?.status !== 'native') return null;
   for (const category of scope) {
-    if (!Object.hasOwn(entry.map, category)) throw new Error(`tool-scope: unknown category '${category}' for harness '${harnessId}'`);
+    if (category !== 'mcp' && !Object.hasOwn(entry.map, category)) throw new Error(`tool-scope: unknown category '${category}' for harness '${harnessId}'`);
   }
-  if (entry.form === 'deny') {
-    const denied = Object.keys(entry.map).filter((category) => !scope.includes(category)).flatMap((category) => entry.map[category]);
-    return denied.length ? { [entry.field]: Object.fromEntries(denied.map((tool: string) => [tool, 'deny'])) } : null;
-  }
-  const tools = scope.flatMap((category) => entry.map[category]);
+  const tools = scope.flatMap((category) => categoryTools(entry, category));
+  if (entry.form === 'closed') return { [entry.field]: { '*': 'deny', ...Object.fromEntries(tools.map((tool: string) => [tool, 'allow'])) } };
   return { [entry.field]: entry.form === 'comma' ? tools.join(', ') : tools };
 }
 
 /** The keys an agent file gains: the scope keys, then the read-only keys. Where both write one key the
- * narrower wins: two lists keep only the tools both name, two permission objects keep every `deny`. */
+ * narrower wins: two lists keep only the tools both name, plus the approved MCP selectors (retrieval
+ * servers a read-only agent keeps); two permission objects keep every `deny`. */
 function agentLimitKeys(harnessId: string, { readOnly, scope }: { readOnly: boolean, scope: string[] | null }): Record<string, any> | null {
   const scoped = toolScopeApply(harnessId, scope);
   const limits = readOnly ? readOnlyApply(harnessId) : null;
@@ -301,7 +320,10 @@ function agentLimitKeys(harnessId: string, { readOnly, scope }: { readOnly: bool
   for (const [key, value] of Object.entries(limits)) {
     const have = merged[key];
     if (have === undefined) merged[key] = value;
-    else if (Array.isArray(have) && Array.isArray(value)) merged[key] = have.filter((tool: string) => value.includes(tool));
+    else if (Array.isArray(have) && Array.isArray(value)) {
+      const mcp = scope?.includes('mcp') ? categoryTools(agentLimitsOf(harnessId).toolScope, 'mcp') : [];
+      merged[key] = have.filter((tool: string) => value.includes(tool) || mcp.includes(tool));
+    }
     else if (have && value && typeof have === 'object' && typeof value === 'object') merged[key] = { ...have, ...value };
     else throw new Error(`agentLimits: harness '${harnessId}' writes '${key}' from both the tool scope and the read-only limit`);
   }
@@ -309,13 +331,14 @@ function agentLimitKeys(harnessId: string, { readOnly, scope }: { readOnly: bool
 }
 
 /** One frontmatter key as YAML lines: a scalar inline, an array as a flow sequence, an object as an
- * indented block. */
+ * indented block. A key that is not a plain name (`*`, `context7_*`) is double-quoted. */
 function yamlLines(key: string, value: any, indent: string = ''): string[] {
-  if (Array.isArray(value)) return [`${indent}${key}: ${JSON.stringify(value)}`];
+  const name = /^[A-Za-z0-9_-]+$/.test(key) ? key : JSON.stringify(key);
+  if (Array.isArray(value)) return [`${indent}${name}: ${JSON.stringify(value)}`];
   if (value && typeof value === 'object') {
-    return [`${indent}${key}:`, ...Object.entries(value).flatMap(([k, v]) => yamlLines(k, v, `${indent}  `))];
+    return [`${indent}${name}:`, ...Object.entries(value).flatMap(([k, v]) => yamlLines(k, v, `${indent}  `))];
   }
-  return [`${indent}${key}: ${value}`];
+  return [`${indent}${name}: ${value}`];
 }
 
 /** Rewrite a shared agent spec's frontmatter for one harness: `access` and `tool-scope` are never projected under
@@ -840,4 +863,4 @@ function ledgerFileResources(resources: any, harness: string, assetId: string): 
     .map((resource: any) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
 }
 
-module.exports = { readOnlyApply, toolScopeApply, agentLimitKeys, kiroHook, kiroHookCommand, kiroPreToolUseHooks, walkRelFiles, discoverTree, sameFileIndex, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveSelect, SELECTORS, resolveTransform, TRANSFORMS, portableSkillFrontmatter, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };
+module.exports = { readOnlyApply, toolScopeApply, approvedMcpServers, agentLimitKeys, kiroHook, kiroHookCommand, kiroPreToolUseHooks, walkRelFiles, discoverTree, sameFileIndex, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveSelect, SELECTORS, resolveTransform, TRANSFORMS, portableSkillFrontmatter, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };

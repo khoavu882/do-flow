@@ -18,7 +18,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const { suiteTempDir, removeTree } = require('../helper/tmp.ts');
 const path = require('node:path');
-const { resolveTransform } = require('../../src/adapters/copy-tree.ts');
+const { resolveTransform, toolScopeApply } = require('../../src/adapters/copy-tree.ts');
 const { REPO } = require('./_shared.ts');
 
 const FILES: any = {
@@ -55,49 +55,47 @@ function frontmatter(text: any) {
     if (line.trim() === '---') break;
     const top = line.match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*?)\s*$/);
     if (top) { out[top[1]] = { value: top[2], children: {} }; parent = top[1]; continue; }
-    const child = line.match(/^\s+([A-Za-z][A-Za-z0-9_-]*):\s*(.*?)\s*$/);
-    if (child && parent) out[parent].children[child[1]] = child[2];
+    const child = line.match(/^\s+(?:"([^"]+)"|([A-Za-z][A-Za-z0-9_-]*)):\s*(.*?)\s*$/);
+    if (child && parent) out[parent].children[child[1] ?? child[2]] = child[3];
   }
   return out;
 }
 
-/** True when frontmatter entry `entry` holds `expected` (an array, object or scalar from `apply`). */
-function holds(entry: any, expected: any) {
+/** True when frontmatter entry `entry` holds `expected` (an array, object or scalar from `apply`).
+ * With `within` (a read-only limit), a list holds when it is non-empty and names only `expected` or
+ * `within` tools (the approved MCP selectors a tool scope adds, row 135), and a permission object
+ * holds when every expected entry is there (the tool scope's closed policy holds the rest, G77). */
+function holds(entry: any, expected: any, within?: string[]) {
   if (!entry) return false;
   if (Array.isArray(expected)) {
-    try { return JSON.stringify(JSON.parse(entry.value)) === JSON.stringify(expected); } catch { return false; }
+    try {
+      const got = JSON.parse(entry.value);
+      return within ? got.length > 0 && got.every((t: any) => expected.includes(t) || within.includes(t)) : JSON.stringify(got) === JSON.stringify(expected);
+    } catch { return false; }
   }
   if (expected && typeof expected === 'object') {
-    // Every expected entry is there; any other entry is a `deny` (a tool-scope deny only narrows it, row 135).
     return entry.value === '' && entry.children && Object.entries(expected).every(([k, v]) => entry.children[k] === v)
-      && Object.entries(entry.children).every(([k, v]) => Object.hasOwn(expected, k) || v === 'deny');
+      && (Boolean(within) || Object.keys(entry.children).length === Object.keys(expected).length);
   }
   return entry.value === String(expected);
 }
 
 /** For each `apply` key: does the projected agent file carry it with the registry's value? */
-function carriedKeys(harnessId: any, rendered: any, apply: any) {
+function carriedKeys(harnessId: any, rendered: any, apply: any, within?: string[]) {
   if (harnessId === 'kiro') {
     const json = JSON.parse(rendered);
     return Object.fromEntries(Object.entries(apply).map(([key, value]) => (
-      [key, JSON.stringify(json[key]) === JSON.stringify(value)])));
+      [key, holds({ value: JSON.stringify(json[key]) }, value, within)])));
   }
   const fm: any = frontmatter(rendered);
-  return Object.fromEntries(Object.entries(apply).map(([key, value]) => [key, holds(fm[key], value)]));
+  return Object.fromEntries(Object.entries(apply).map(([key, value]) => [key, holds(fm[key], value, within)]));
 }
 
 /** The keys and values harness `h` writes for a spec's tool scope (row 135), from `agentLimits.toolScope`
  * alone, so the projection is checked against the registry rather than against the adapter's own code. */
 function scopeKeys(h: any, specText: any): Record<string, any> {
-  const entry = h.agentLimits?.toolScope;
   const scope = specText.match(/^tool-scope:\s*(.+?)\s*$/m)?.[1]?.split(',').map((s: any) => s.trim());
-  if (entry?.status !== 'native' || !scope) return {};
-  if (entry.form === 'deny') {
-    const denied = Object.keys(entry.map).filter((c) => !scope.includes(c)).flatMap((c) => entry.map[c]);
-    return denied.length ? { [entry.field]: Object.fromEntries(denied.map((tool: any) => [tool, 'deny'])) } : {};
-  }
-  const tools = scope.flatMap((c: any) => entry.map[c]);
-  return { [entry.field]: entry.form === 'comma' ? tools.join(', ') : tools };
+  return (scope && toolScopeApply(h.id, scope)) || {};
 }
 
 /** Every top-level key a projected agent file carries: frontmatter keys, or the JSON object's keys for Kiro. */
@@ -202,7 +200,8 @@ function check(root: any, { render }: any = {}) {
     for (const stem of stems) {
       const rendered = renderWith(h.id, transformName, stem, specText[stem]);
       if (access[stem] === 'read-only') {
-        const carried = carriedKeys(h.id, rendered, limit.apply);
+        const mcp = Object.values(toolScopeApply(h.id, ['mcp']) || {}).flat().filter((t: any) => typeof t === 'string');
+        const carried = carriedKeys(h.id, rendered, limit.apply, mcp);
         const lacking = keys.filter((k) => !carried[k]);
         if (lacking.length) out.push(`${h.id} projection of ${stem}: read-only spec lacks ${lacking.join(', ')}`);
       } else if (access[stem] === 'write') {
@@ -384,7 +383,7 @@ test('G63 control (C-5): a partial restriction on a write spec, or a Kiro write 
     const out = real(t, stem, text);
     return h === 'kiro' && isWrite(text) ? JSON.stringify({ ...JSON.parse(out), tools: ['read'] }) : out;
   };
-  assert.match(controlFindings(() => {}, { render: narrowed }), /kiro projection of core-implementer: write spec tools is \["read"\], not \["read","write","shell","web"\]/);
+  assert.match(controlFindings(() => {}, { render: narrowed }), /kiro projection of core-implementer: write spec tools is \["read"\], not \["read","write","shell","web","@context7"/);
   const foreign = (h: any, t: any, stem: any, text: any) => {
     const out = real(t, stem, text);
     return h === 'copilot' && isWrite(text) ? out.replace(/^---\n/, '---\npermission:\n  edit: deny\n') : out;

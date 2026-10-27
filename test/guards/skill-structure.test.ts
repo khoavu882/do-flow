@@ -227,9 +227,9 @@ test('G75: controls — a chain, a long reference without contents, a spec witho
   assert.deepEqual(tocFindings([{ rel: 'x/references/long.md', text: `# x\n## Contents\n- One\n- Ghost\n\n## One\n${body}` }]), ['x/references/long.md: contents entry "Ghost" is not a ## heading of this file']);
 
   assert.deepEqual(toolScopeFindings([{ name: 'x', text: '---\nname: x\naccess: write\n---\n' }, { name: 'y', text: '---\nname: y\ntool-scope: some\n---\n' }]),
-    ['x: tool-scope missing', "y: tool-scope 'some' is not a list of distinct read, edit, shell, web, agents"]);
+    ['x: tool-scope missing', "y: tool-scope 'some' is not a list of distinct read, edit, shell, web, agents, mcp"]);
   assert.deepEqual(toolScopeFindings([{ name: 'z', text: '---\nname: z\ntool-scope: read, read\n---\n' }, { name: 'w', text: '---\nname: w\ntool-scope: all\n---\n' }]),
-    ["z: tool-scope 'read, read' is not a list of distinct read, edit, shell, web, agents", "w: tool-scope 'all' is not a list of distinct read, edit, shell, web, agents"]);
+    ["z: tool-scope 'read, read' is not a list of distinct read, edit, shell, web, agents, mcp", "w: tool-scope 'all' is not a list of distinct read, edit, shell, web, agents, mcp"]);
 
   const table = CAPS();
   const ids = harnessIds();

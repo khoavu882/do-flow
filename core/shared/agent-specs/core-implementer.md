@@ -4,7 +4,7 @@ description: "Specialist code engineer for full-stack implementation, precision 
 model: inherit
 effort: high
 access: write
-tool-scope: read, edit, shell, web
+tool-scope: read, edit, shell, web, mcp
 ---
 
 # core-implementer

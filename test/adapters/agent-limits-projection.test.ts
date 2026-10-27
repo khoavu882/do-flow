@@ -77,7 +77,10 @@ for (const id of ['claude', 'copilot', 'antigravity']) {
           const line = keyLines(out).find((item: any) => item.startsWith(`${key}:`));
           assert.ok(line, `${id}/${spec.name}: read-only spec carries '${key}'`);
           const value = line.slice(key.length + 1).trim();
-          assert.equal(Array.isArray(apply[key]) ? JSON.stringify(JSON.parse(value)) : value, Array.isArray(apply[key]) ? JSON.stringify(apply[key]) : apply[key], `${id}/${spec.name}: '${key}' value`);
+          // 135: the read-only limit narrows the tool scope (keeping its approved MCP selectors).
+          const expected = agentLimitKeys(id, { readOnly: true, scope: spec.scope })[key];
+          assert.equal(Array.isArray(expected) ? JSON.stringify(JSON.parse(value)) : value, Array.isArray(expected) ? JSON.stringify(expected) : expected, `${id}/${spec.name}: '${key}' value`);
+          if (Array.isArray(apply[key])) assert.ok(expected.every((tool: any) => apply[key].includes(tool) || /[/@_]|__/.test(tool)), `${id}/${spec.name}: only the limit's tools and MCP selectors`);
         } else if (!Object.hasOwn(agentLimitKeys(id, { readOnly: false, scope: spec.scope }) || {}, key)) {
           assert.ok(!keys.includes(key), `${id}/${spec.name}: write spec has no '${key}' beyond its tool scope`);
         }
@@ -103,7 +106,7 @@ test('opencode: the permission block is the read-only and tool-scope denies, the
     const body = spec.text.slice(spec.text.indexOf('\n---', 3) + 4).replace(/^\n+/, '');
     const permission = agentLimitKeys('opencode', { readOnly: spec.access === 'read-only', scope: spec.scope })?.permission;
     const base = ['---', `description: ${JSON.stringify(fm.description)}`, 'mode: subagent',
-      ...(permission ? ['permission:', ...Object.entries(permission).map(([tool, value]: any) => `  ${tool}: ${value}`)] : []),
+      ...(permission ? ['permission:', ...Object.entries(permission).map(([tool, value]: any) => `  ${/^[A-Za-z0-9_-]+$/.test(tool) ? tool : JSON.stringify(tool)}: ${value}`)] : []),
       '---', '', body.replace(/\n*$/, ''), ''].join('\n');
     assert.equal(out, base, `${spec.name}: bytes equal the base renderer's`);
   }

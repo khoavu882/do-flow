@@ -4,7 +4,7 @@ description: "Read-only reviewer of a change it did not write: path:line defects
 model: inherit
 effort: high
 access: read-only
-tool-scope: read, shell, web
+tool-scope: read, shell, web, mcp
 ---
 
 # reviewer
