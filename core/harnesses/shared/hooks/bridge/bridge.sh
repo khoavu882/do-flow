@@ -54,6 +54,13 @@ doflow_bridge_effect() {
       codex:Stop|codex:stop|copilot:Stop|kiro:Stop|kiro:stop) [ "$DF_BRIDGE_CODE" = exit-2-unmarked ] && DF_BRIDGE_EFFECT=block || DF_BRIDGE_EFFECT=proceed ;;
     esac
   fi
+  # Copilot CLI: a guarded preToolUse policy that errors or cannot decide (jq or the policy script
+  # missing, an edit with no decodable target) denies whatever the fault profile; only a policy that
+  # answered allow or advisory lets the call through. Copilot-only: every other harness keeps the
+  # profile rules above byte for byte.
+  if [ "$block" -eq 1 ] && [ "$DF_BRIDGE_EFFECT" = proceed ] && [ "$harness:$event" = copilot:PreToolUse ] && [ "$policy" != stop-check ]; then
+    case "$outcome" in error|unsupported) DF_BRIDGE_EFFECT=block ;; esac
+  fi
 }
 
 doflow_bridge_drops_tool_streams() {

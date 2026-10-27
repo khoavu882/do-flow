@@ -30,6 +30,17 @@ function write(file: any, contents: any) {
   fs.writeFileSync(file, contents);
 }
 
+// A PATH holding the tools a hook needs but not jq, for the jq-missing fault.
+function noJqPath() {
+  const bin = path.join(scratch.dir, 'no-jq-bin');
+  fs.mkdirSync(bin, { recursive: true });
+  for (const command of ['bash', 'cat', 'dirname', 'date', 'mkdir', 'mktemp', 'rm', 'tr', 'sed', 'grep', 'awk', 'git', 'head', 'tail', 'wc', 'sort', 'cut', 'basename', 'env', 'uname', 'find', 'xargs', 'readlink', 'realpath', 'id', 'hostname', 'sleep', 'cp', 'mv', 'touch', 'chmod', 'tee', 'expr', 'test', 'true', 'false', 'od', 'shasum', 'ps', 'stat', 'whoami']) {
+    const executable = spawnSync('which', [command], { encoding: 'utf8' }).stdout.trim();
+    if (executable && !fs.existsSync(path.join(bin, command))) fs.symlinkSync(executable, path.join(bin, command));
+  }
+  return bin;
+}
+
 function makeProject(name: any, state: any) {
   const project = createScratchGitRepo(scratch, name);
   project.run('checkout', '-q', '-b', 'feat/021-copilot-parity');
@@ -65,6 +76,7 @@ function runFixture({ stem, fixturePath, fixture }: any, index: any) {
   if (fixture.fault === 'crash-exit-1') {
     fs.writeFileSync(path.join(mirror, '.doflow/shared/hooks/policies', `${policy}.sh`), '#!/usr/bin/env bash\necho private-policy-stderr >&2\nexit 1\n');
   }
+  if (fixture.fault === 'missing-policy') fs.rmSync(path.join(mirror, '.doflow/shared/hooks/policies', `${policy}.sh`));
   if (fixture.fault === 'missing-bridge') fs.rmSync(path.join(mirror, '.doflow/shared/hooks/bridge'), { recursive: true });
   const native = JSON.parse(JSON.stringify(fixture.native));
   if (fixture.transcript) {
@@ -82,6 +94,7 @@ function runFixture({ stem, fixturePath, fixture }: any, index: any) {
     DOFLOW_AGENT: 'copilot', DOFLOW_BRIDGE_TRACE: trace, GIT_CONFIG_GLOBAL: '/dev/null',
     CLAUDE_CONFIG_DIR: '', CLAUDE_PROJECT_DIR: '', ...(fixture.env || {}),
   };
+  if (fixture.fault === 'jq-missing') { env.PATH = noJqPath(); delete env.DOFLOW_BRIDGE_TRACE; } // the trace itself needs jq
   const result = spawnSync('bash', [door], { cwd: project, input: `${JSON.stringify(native)}\n`, env, encoding: 'utf8' });
   assert.equal(result.error, undefined, result.error?.message);
   const label = `Copilot ${path.relative(FIXTURES, fixturePath)}`;
@@ -96,7 +109,7 @@ function runFixture({ stem, fixturePath, fixture }: any, index: any) {
   if (fixture.expect.modelVisibleBytesMax !== undefined) {
     assert.ok(Buffer.byteLength(stdout) <= fixture.expect.modelVisibleBytesMax, `${label}: model-visible bytes (${Buffer.byteLength(stdout)} > ${fixture.expect.modelVisibleBytesMax})`);
   }
-  if (fixture.fault === 'missing-bridge') return; // no bridge, no trace: the front door answers alone
+  if (fixture.fault === 'missing-bridge' || fixture.expect.noTrace) return; // no bridge or no jq: no decision trace to read
   if (fixture.expect.noBridgeRun) { assert.equal(fs.existsSync(trace), false, `${label}: the bridge did not run`); return; }
   assert.ok(fs.existsSync(trace), `${label}: bridge trace was written`);
   const decision = JSON.parse(fs.readFileSync(trace, 'utf8').trim());
