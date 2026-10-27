@@ -22,7 +22,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { CapabilityRouter } = require('./capability-router.ts');
-const { loadRegistry } = require('../registry/index.ts');
+const { loadRegistry, agentToolScopeView } = require('../registry/index.ts');
 const { evaluateReach } = require('./reach.ts');
 const { mcpReach } = require('./mcp-reach.ts');
 const { OUTCOME_LABELS } = require('./mcp-consultations.ts');
@@ -1220,6 +1220,11 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
   } catch (error: any) {
     report.team = { state: 'unavailable', message: error?.message || String(error) };
   }
+  try {
+    report.agentToolScope = agentToolScopeView(loadRegistry({ repoRoot }));
+  } catch (error: any) {
+    report.agentToolScope = { state: 'unavailable', message: error?.message || String(error) };
+  }
   // Read on use (row 120 A.4): no probe runs, nothing is written, and a fault never breaks the report.
   let primaryText: string;
   try {
@@ -1260,6 +1265,11 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
 
   console.log('\n[Harness Adapters]');
   for (const harness of report.harnesses) console.log(`  ${harness.displayName.padEnd(28)} adapter PASS`);
+
+  console.log('\n[Agent Tool Scope]');
+  if (Array.isArray(report.agentToolScope)) {
+    for (const row of report.agentToolScope) console.log(`  ${row.harness.padEnd(14)}${row.status === 'native' ? `native      ${row.field}` : `unenforced  projects no tool field: ${row.reason}`}`);
+  } else console.log(`  unavailable (${report.agentToolScope.message})`);
 
   console.log('\n[Runtime Reach]');
   const reachLines = report.harnesses.flatMap((harness: any) => harness.reach.map((row: any) => {

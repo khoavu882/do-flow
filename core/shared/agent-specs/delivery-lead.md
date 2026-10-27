@@ -4,7 +4,7 @@ description: "Delivery lead: plans a feature's tasks, briefs and dispatches work
 model: inherit
 effort: high
 access: write
-tool-scope: all
+tool-scope: read, edit, shell, agents
 ---
 
 # delivery-lead

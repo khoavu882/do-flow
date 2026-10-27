@@ -247,18 +247,65 @@ function renderClaudeOutputStyle(sourceRel: string, content: any): string {
   return ['---', `name: DoFlow: ${base}`, `description: ${JSON.stringify(description)}`, 'keep-coding-instructions: true', '---', '', text.replace(/\n*$/, ''), ''].join('\n');
 }
 
-/** The `apply` keys a harness writes into the file of a `read-only` agent spec (118 IC-003), read from
- * `agentLimits.readOnly` in core/registry/harnesses.json. `null` when the harness's limit is
- * `unenforced`: nothing is written, and the registry says why. The one place adapters learn a limit. */
+/** One harness's `agentLimits` block from core/registry/harnesses.json, read once. */
 let harnessAgentLimits: any[] | null = null;
-function readOnlyApply(harnessId: string): Record<string, any> | null {
+function agentLimitsOf(harnessId: string): any {
   if (!harnessAgentLimits) {
     harnessAgentLimits = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'harnesses.json'), 'utf8')).harnesses;
   }
   const harness = (harnessAgentLimits as any[]).find((item: any) => item.id === harnessId);
-  if (!harness) throw new Error(`readOnlyApply: unknown harness '${harnessId}'`);
-  const entry = harness.agentLimits?.readOnly;
+  if (!harness) throw new Error(`agentLimits: unknown harness '${harnessId}'`);
+  return harness.agentLimits || {};
+}
+
+/** The `apply` keys a harness writes into the file of a `read-only` agent spec (118 IC-003), read from
+ * `agentLimits.readOnly`. `null` when the harness's limit is `unenforced`: nothing is written, and the
+ * registry says why. */
+function readOnlyApply(harnessId: string): Record<string, any> | null {
+  const entry = agentLimitsOf(harnessId).readOnly;
   return entry?.status === 'native' ? entry.apply : null;
+}
+
+/** The categories of a spec's `tool-scope` value (`read, shell, web`), or null when it declares none. */
+function scopeCategories(value: string | undefined): string[] | null {
+  if (value === undefined) return null;
+  return value.split(',').map((item: string) => item.trim()).filter(Boolean);
+}
+
+/** The keys a harness writes for a declared tool scope (row 135), from `agentLimits.toolScope`: the
+ * category tools as a comma string or a list, or a permission object denying every category outside
+ * the scope. `null` when the spec declares no scope or the harness cannot express one (`unenforced`):
+ * then nothing is written, never a broader scope. */
+function toolScopeApply(harnessId: string, scope: string[] | null): Record<string, any> | null {
+  if (!scope) return null;
+  const entry = agentLimitsOf(harnessId).toolScope;
+  if (entry?.status !== 'native') return null;
+  for (const category of scope) {
+    if (!Object.hasOwn(entry.map, category)) throw new Error(`tool-scope: unknown category '${category}' for harness '${harnessId}'`);
+  }
+  if (entry.form === 'deny') {
+    const denied = Object.keys(entry.map).filter((category) => !scope.includes(category)).flatMap((category) => entry.map[category]);
+    return denied.length ? { [entry.field]: Object.fromEntries(denied.map((tool: string) => [tool, 'deny'])) } : null;
+  }
+  const tools = scope.flatMap((category) => entry.map[category]);
+  return { [entry.field]: entry.form === 'comma' ? tools.join(', ') : tools };
+}
+
+/** The keys an agent file gains: the scope keys, then the read-only keys. Where both write one key the
+ * narrower wins: two lists keep only the tools both name, two permission objects keep every `deny`. */
+function agentLimitKeys(harnessId: string, { readOnly, scope }: { readOnly: boolean, scope: string[] | null }): Record<string, any> | null {
+  const scoped = toolScopeApply(harnessId, scope);
+  const limits = readOnly ? readOnlyApply(harnessId) : null;
+  if (!scoped || !limits) return scoped || limits;
+  const merged: Record<string, any> = { ...scoped };
+  for (const [key, value] of Object.entries(limits)) {
+    const have = merged[key];
+    if (have === undefined) merged[key] = value;
+    else if (Array.isArray(have) && Array.isArray(value)) merged[key] = have.filter((tool: string) => value.includes(tool));
+    else if (have && value && typeof have === 'object' && typeof value === 'object') merged[key] = { ...have, ...value };
+    else throw new Error(`agentLimits: harness '${harnessId}' writes '${key}' from both the tool scope and the read-only limit`);
+  }
+  return merged;
 }
 
 /** One frontmatter key as YAML lines: a scalar inline, an array as a flow sequence, an object as an
@@ -271,15 +318,16 @@ function yamlLines(key: string, value: any, indent: string = ''): string[] {
   return [`${indent}${key}: ${value}`];
 }
 
-/** Rewrite a shared agent spec's frontmatter for one harness: `access` and `tool-scope` are never projected, and a
- * `read-only` spec gains the harness's `apply` keys (a `write` spec gains none). Body and every other
+/** Rewrite a shared agent spec's frontmatter for one harness: `access` and `tool-scope` are never projected under
+ * those names; the spec gains the harness's keys for its tool scope and, when `read-only`, its `apply` keys. Body and every other
  * key pass through byte for byte; a file without frontmatter is returned unchanged. */
 function applyAgentLimits(text: string, harnessId: string): string {
   const match = text.match(/^---\r?\n([\s\S]*?\r?\n)---(?=\r?\n|$)/);
   if (!match) return text;
   const lines = match[1].split(/(?<=\n)/);
   const readOnly = lines.some((line: string) => /^access:\s*read-only\s*$/.test(line));
-  const apply = readOnly ? readOnlyApply(harnessId) : null;
+  const scopeLine = lines.find((line: string) => /^tool-scope:/.test(line));
+  const apply = agentLimitKeys(harnessId, { readOnly, scope: scopeCategories(scopeLine?.replace(/^tool-scope:/, '')) });
   const added = apply ? Object.entries(apply).flatMap(([key, value]) => yamlLines(key, value)).map((line: string) => `${line}\n`) : [];
   const kept = lines.filter((line: string) => !/^(access|tool-scope):/.test(line));
   return `${text.slice(0, text.indexOf('\n') + 1)}${kept.join('')}${added.join('')}${text.slice(match[0].length - 3)}`;
@@ -314,7 +362,7 @@ function kiroPreToolUseHooks(): any[] {
 
 /** Map one core/shared agent-spec file onto a kiro-cli custom agent. Spec keys other than
  * name/description (model: inherit, effort) are dropped: Kiro inherits the session model. `access` is
- * never projected; a `read-only` spec replaces `tools: ["*"]` with the harness's `apply.tools`. */
+ * never projected; the spec's tool scope (narrowed by `apply.tools` when `read-only`) replaces `tools: ["*"]`. */
 function renderKiroAgent(text: string, { hooks = true }: { hooks?: boolean } = {}): string {
   const fm: Record<string, string> = {};
   let body = text;
@@ -328,7 +376,7 @@ function renderKiroAgent(text: string, { hooks = true }: { hooks?: boolean } = {
       body = text.slice(end + 4).replace(/^\n+/, '');
     }
   }
-  const limits = fm.access === 'read-only' ? readOnlyApply('kiro') : null;
+  const limits = agentLimitKeys('kiro', { readOnly: fm.access === 'read-only', scope: scopeCategories(fm['tool-scope']) });
   const agent = {
     name: fm.name || '', description: fm.description || '',
     prompt: `${body.replace(/\s+$/, '')}\n`,
@@ -358,7 +406,7 @@ function renderOpencodeAgent(text: string): string {
   const lines = ['---'];
   if (fm.description) lines.push(`description: ${JSON.stringify(fm.description)}`);
   lines.push('mode: subagent');
-  const limits = fm.access === 'read-only' ? readOnlyApply('opencode') : null;
+  const limits = agentLimitKeys('opencode', { readOnly: fm.access === 'read-only', scope: scopeCategories(fm['tool-scope']) });
   if (limits) lines.push(...Object.entries(limits).flatMap(([key, value]) => yamlLines(key, value)));
   lines.push('---', '', body.replace(/\n*$/, ''), '');
   return lines.join('\n');
@@ -792,4 +840,4 @@ function ledgerFileResources(resources: any, harness: string, assetId: string): 
     .map((resource: any) => ({ relPath: resource.identity, fingerprint: resource.fingerprint, target: resource.target }));
 }
 
-module.exports = { readOnlyApply, kiroHook, kiroHookCommand, kiroPreToolUseHooks, walkRelFiles, discoverTree, sameFileIndex, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveSelect, SELECTORS, resolveTransform, TRANSFORMS, portableSkillFrontmatter, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };
+module.exports = { readOnlyApply, toolScopeApply, agentLimitKeys, kiroHook, kiroHookCommand, kiroPreToolUseHooks, walkRelFiles, discoverTree, sameFileIndex, planTree, applyTree, removeTree, verifyTree, copyTreeAssets, copyTreeDestDir, sharedTreeDestDir, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, resolveLayout, LAYOUTS, resolveSelect, SELECTORS, resolveTransform, TRANSFORMS, portableSkillFrontmatter, fingerprint, pruneEmptyAncestors, readJson, sourceDirFor };

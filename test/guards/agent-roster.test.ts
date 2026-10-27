@@ -68,7 +68,9 @@ function holds(entry: any, expected: any) {
     try { return JSON.stringify(JSON.parse(entry.value)) === JSON.stringify(expected); } catch { return false; }
   }
   if (expected && typeof expected === 'object') {
-    return entry.value === '' && JSON.stringify(entry.children) === JSON.stringify(expected);
+    // Every expected entry is there; any other entry is a `deny` (a tool-scope deny only narrows it, row 135).
+    return entry.value === '' && entry.children && Object.entries(expected).every(([k, v]) => entry.children[k] === v)
+      && Object.entries(entry.children).every(([k, v]) => Object.hasOwn(expected, k) || v === 'deny');
   }
   return entry.value === String(expected);
 }
@@ -82,6 +84,20 @@ function carriedKeys(harnessId: any, rendered: any, apply: any) {
   }
   const fm: any = frontmatter(rendered);
   return Object.fromEntries(Object.entries(apply).map(([key, value]) => [key, holds(fm[key], value)]));
+}
+
+/** The keys and values harness `h` writes for a spec's tool scope (row 135), from `agentLimits.toolScope`
+ * alone, so the projection is checked against the registry rather than against the adapter's own code. */
+function scopeKeys(h: any, specText: any): Record<string, any> {
+  const entry = h.agentLimits?.toolScope;
+  const scope = specText.match(/^tool-scope:\s*(.+?)\s*$/m)?.[1]?.split(',').map((s: any) => s.trim());
+  if (entry?.status !== 'native' || !scope) return {};
+  if (entry.form === 'deny') {
+    const denied = Object.keys(entry.map).filter((c) => !scope.includes(c)).flatMap((c) => entry.map[c]);
+    return denied.length ? { [entry.field]: Object.fromEntries(denied.map((tool: any) => [tool, 'deny'])) } : {};
+  }
+  const tools = scope.flatMap((c: any) => entry.map[c]);
+  return { [entry.field]: entry.form === 'comma' ? tools.join(', ') : tools };
 }
 
 /** Every top-level key a projected agent file carries: frontmatter keys, or the JSON object's keys for Kiro. */
@@ -171,8 +187,8 @@ function check(root: any, { render }: any = {}) {
   }
 
   // 6: rendered agent files carry the native harnesses' read-only keys exactly when the spec is
-  // read-only. A write spec carries NO key that any harness's `apply` block names (a partial
-  // restriction passes an exact-value match), and Kiro's write default is tools ["*"].
+  // read-only. A write spec carries no key that any harness's `apply` block names beyond the keys its
+  // tool scope writes, with the scope's exact value (G77 checks the scope itself), and Kiro's `tools` is the scope's list.
   const renderWith = render || ((harnessId: any, transformName: any, stem: any, text: any) => (
     resolveTransform(transformName)(`${stem}.md`, Buffer.from(text)).toString('utf8')));
   const native = harnesses.filter((h: any) => h.agentLimits?.readOnly?.status === 'native');
@@ -190,11 +206,16 @@ function check(root: any, { render }: any = {}) {
         const lacking = keys.filter((k) => !carried[k]);
         if (lacking.length) out.push(`${h.id} projection of ${stem}: read-only spec lacks ${lacking.join(', ')}`);
       } else if (access[stem] === 'write') {
-        // Kiro's own `tools` key is the write default ["*"], checked below; every other limit key is forbidden.
-        const extra = projectedKeys(h.id, rendered).filter((k) => limitKeys.has(k) && !(h.id === 'kiro' && k === 'tools'));
+        // A write spec carries no read-only limit key except the keys its tool scope writes (row 135),
+        // and those with exactly the scope's value; Kiro's `tools` is the scope's list.
+        const scoped = scopeKeys(h, specText[stem]);
+        const extra = projectedKeys(h.id, rendered).filter((k) => limitKeys.has(k) && !Object.hasOwn(scoped, k) && !(h.id === 'kiro' && k === 'tools'));
         if (extra.length) out.push(`${h.id} projection of ${stem}: write spec carries ${extra.join(', ')}`);
-        if (h.id === 'kiro' && JSON.stringify(JSON.parse(rendered).tools) !== JSON.stringify(['*'])) {
-          out.push(`kiro projection of ${stem}: write spec tools is ${JSON.stringify(JSON.parse(rendered).tools)}, not ["*"]`);
+        const drift = Object.entries(carriedKeys(h.id, rendered, scoped)).filter(([, ok]) => !ok).map(([k]) => k);
+        if (drift.length && h.id !== 'kiro') out.push(`${h.id} projection of ${stem}: write spec ${drift.join(', ')} is not its tool scope`);
+        const kiroTools = scoped.tools ?? ['*'];
+        if (h.id === 'kiro' && JSON.stringify(JSON.parse(rendered).tools) !== JSON.stringify(kiroTools)) {
+          out.push(`kiro projection of ${stem}: write spec tools is ${JSON.stringify(JSON.parse(rendered).tools)}, not ${JSON.stringify(kiroTools)}`);
         }
       }
     }
@@ -363,7 +384,7 @@ test('G63 control (C-5): a partial restriction on a write spec, or a Kiro write 
     const out = real(t, stem, text);
     return h === 'kiro' && isWrite(text) ? JSON.stringify({ ...JSON.parse(out), tools: ['read'] }) : out;
   };
-  assert.match(controlFindings(() => {}, { render: narrowed }), /kiro projection of core-implementer: write spec tools is \["read"\], not \["\*"\]/);
+  assert.match(controlFindings(() => {}, { render: narrowed }), /kiro projection of core-implementer: write spec tools is \["read"\], not \["read","write","shell","web"\]/);
   const foreign = (h: any, t: any, stem: any, text: any) => {
     const out = real(t, stem, text);
     return h === 'copilot' && isWrite(text) ? out.replace(/^---\n/, '---\npermission:\n  edit: deny\n') : out;

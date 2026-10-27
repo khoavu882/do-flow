@@ -4,7 +4,7 @@ description: "Specialist research and technical writing agent for deep web inves
 model: inherit
 effort: high
 access: write
-tool-scope: all
+tool-scope: read, edit, shell, web
 ---
 
 # research-writer

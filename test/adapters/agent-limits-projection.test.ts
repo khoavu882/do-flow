@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { suiteTempDir } = require('../helper/tmp.ts');
-const { TRANSFORMS, readOnlyApply } = require('../../src/adapters/copy-tree.ts');
+const { TRANSFORMS, readOnlyApply, agentLimitKeys } = require('../../src/adapters/copy-tree.ts');
 const codexAgents = require('../../src/adapters/codex/agents.ts');
 const { loadRegistry, selectAssets, harnessFor } = require('../../src/registry/index.ts');
 const { projectAdapterInput } = require('../../src/adapters/index.ts');
@@ -21,7 +21,8 @@ const sharedAgents = registry.assets.find((asset: any) => asset.id === 'agents.s
 
 const specs = fs.readdirSync(SPECS).filter((file: any) => file.endsWith('.md')).sort().map((file: any) => {
   const text = fs.readFileSync(path.join(SPECS, file), 'utf8');
-  return { name: path.basename(file, '.md'), file, text, access: text.match(/^access:\s*(\S+)\s*$/m)?.[1] };
+  const scope = text.match(/^tool-scope:\s*(.+?)\s*$/m)?.[1].split(',').map((s: any) => s.trim());
+  return { name: path.basename(file, '.md'), file, text, access: text.match(/^access:\s*(\S+)\s*$/m)?.[1], scope };
 });
 const frontmatter = (text: any) => text.match(/^---\r?\n([\s\S]*?)\r?\n---/)[1];
 const keyLines = (text: any) => frontmatter(text).split('\n').filter((line: any) => /^[A-Za-z]/.test(line));
@@ -77,8 +78,8 @@ for (const id of ['claude', 'copilot', 'antigravity']) {
           assert.ok(line, `${id}/${spec.name}: read-only spec carries '${key}'`);
           const value = line.slice(key.length + 1).trim();
           assert.equal(Array.isArray(apply[key]) ? JSON.stringify(JSON.parse(value)) : value, Array.isArray(apply[key]) ? JSON.stringify(apply[key]) : apply[key], `${id}/${spec.name}: '${key}' value`);
-        } else {
-          assert.ok(!keys.includes(key), `${id}/${spec.name}: write spec has no '${key}'`);
+        } else if (!Object.hasOwn(agentLimitKeys(id, { readOnly: false, scope: spec.scope }) || {}, key)) {
+          assert.ok(!keys.includes(key), `${id}/${spec.name}: write spec has no '${key}' beyond its tool scope`);
         }
       }
       // Body is untouched.
@@ -94,26 +95,27 @@ test('antigravity: the limit is unenforced, so the output is the spec minus acce
   }
 });
 
-test('opencode: permission block on read-only specs only, byte-identical to the pre-118 renderer', () => {
+test('opencode: the permission block is the read-only and tool-scope denies, the rest byte-identical to the pre-118 renderer', () => {
   for (const spec of specs) {
     const out = render('opencode', spec);
     assert.ok(!/^(access|tool-scope):/m.test(out), `${spec.name}: no access or tool-scope key`);
     const fm = Object.fromEntries(frontmatter(spec.text).split('\n').map((line: any) => line.match(/^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$/)).filter(Boolean).map((m: any) => [m[1], m[2].trim().replace(/^"|"$/g, '')]));
     const body = spec.text.slice(spec.text.indexOf('\n---', 3) + 4).replace(/^\n+/, '');
+    const permission = agentLimitKeys('opencode', { readOnly: spec.access === 'read-only', scope: spec.scope })?.permission;
     const base = ['---', `description: ${JSON.stringify(fm.description)}`, 'mode: subagent',
-      ...(spec.access === 'read-only' ? ['permission:', '  edit: deny', '  bash: deny'] : []),
+      ...(permission ? ['permission:', ...Object.entries(permission).map(([tool, value]: any) => `  ${tool}: ${value}`)] : []),
       '---', '', body.replace(/\n*$/, ''), ''].join('\n');
     assert.equal(out, base, `${spec.name}: bytes equal the base renderer's`);
   }
   assert.ok(specs.some((spec: any) => spec.access === 'read-only'), 'the read-only branch above ran for at least one spec');
 });
 
-test('kiro: tools list replaces ["*"] on read-only specs only, and access is never emitted', () => {
-  const apply = readOnlyApply('kiro');
+test('kiro: tools list is the tool scope narrowed by the read-only limit, and access is never emitted', () => {
   for (const spec of specs) {
     const out = render('kiro', spec);
     assert.ok(!/access|tool-scope/.test(Object.keys(JSON.parse(out)).join(',')), `${spec.name}: no access or tool-scope key`);
-    assert.deepEqual(JSON.parse(out).tools, spec.access === 'read-only' ? apply.tools : ['*'], spec.name);
+    assert.deepEqual(JSON.parse(out).tools, agentLimitKeys('kiro', { readOnly: spec.access === 'read-only', scope: spec.scope }).tools, spec.name);
+    assert.ok(!JSON.parse(out).tools.includes('*'), `${spec.name}: a scoped spec is never ["*"]`);
   }
 });
 

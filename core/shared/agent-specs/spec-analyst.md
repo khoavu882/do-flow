@@ -4,7 +4,7 @@ description: "Specialist agent for requirements discovery, user story breakdown,
 model: inherit
 effort: medium
 access: write
-tool-scope: all
+tool-scope: read, edit, shell, web
 ---
 
 # spec-analyst

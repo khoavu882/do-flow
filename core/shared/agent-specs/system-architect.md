@@ -4,7 +4,7 @@ description: "Specialist architect agent for end-to-end system design, API contr
 model: inherit
 effort: high
 access: write
-tool-scope: all
+tool-scope: read, edit, shell, web
 ---
 
 # system-architect

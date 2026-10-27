@@ -7,9 +7,9 @@
 //      file SKILL.md also names (same resolved path, not just the same file name) keeps it one hop, while one naming any other reference makes a two-hop chain a harness
 //      loading one skill folder may not follow. Naming it in SKILL.md, or pointing back, is the fix.
 //   2. CC-SK-034: a reference over 300 lines opens with a `## Contents` list naming each `## ` section.
-//   3. CC-AG-022: every shared agent spec declares its `tool-scope`. `all` (the session's tools, limited
-//      by `access`) is the only scope today; harnesses express it by omitting their own tools key, so
-//      the adapters strip it like `access`. Row 135 adds named scopes to TOOL_SCOPES.
+//   3. CC-AG-022: every shared agent spec declares its `tool-scope`: a comma list of the abstract
+//      categories in TOOL_SCOPE_CATEGORIES (src/registry/index.ts), each once. The adapters strip the
+//      key and write each harness's own form of it (row 135, G77).
 //   4. CC-AG-021: the agent specs' combined name and description text stays inside each vendor cap of
 //      `agent_description_caps` in core/registry/guidance-caps.json, and inside the labelled growth
 //      ratchet there for the harnesses whose vendor documents none.
@@ -21,7 +21,7 @@ const { REPO, SKILLS, GUIDANCE, agentSpecFiles } = require('./_shared.ts');
 const { tempDir } = require('../helper/tmp.ts');
 
 const MAX_LINES_WITHOUT_TOC = 300;
-const TOOL_SCOPES = new Set(['all']);
+const { TOOL_SCOPE_CATEGORIES } = require('../../src/registry/index.ts');
 const CAPS = () => JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'guidance-caps.json'), 'utf8'));
 
 /** Every `references/*.md` file of every skill, as { rel, skill, name, file, text }. */
@@ -139,9 +139,13 @@ function frontmatterValue(text: string, key: string) {
 
 /** `name: problem` for each spec without a known tool-scope. */
 function toolScopeFindings(specs: any[]) {
-  return specs.map(({ name, text }: any) => ({ name, scope: frontmatterValue(text, 'tool-scope') }))
-    .filter(({ scope }: any) => !TOOL_SCOPES.has(scope))
-    .map(({ name, scope }: any) => `${name}: tool-scope ${scope === null ? 'missing' : `'${scope}' is not one of ${[...TOOL_SCOPES].join(', ')}`}`);
+  return specs.flatMap(({ name, text }: any) => {
+    const scope = frontmatterValue(text, 'tool-scope');
+    if (scope === null) return [`${name}: tool-scope missing`];
+    const items = scope.split(',').map((item: string) => item.trim());
+    const bad = items.filter((item: string, i: number) => !TOOL_SCOPE_CATEGORIES.includes(item) || items.indexOf(item) !== i);
+    return bad.length || !scope.trim() ? [`${name}: tool-scope '${scope}' is not a list of distinct ${TOOL_SCOPE_CATEGORIES.join(', ')}`] : [];
+  });
 }
 
 /** Characters every harness's agent listing carries: each spec's name plus its description. */
@@ -223,7 +227,9 @@ test('G75: controls — a chain, a long reference without contents, a spec witho
   assert.deepEqual(tocFindings([{ rel: 'x/references/long.md', text: `# x\n## Contents\n- One\n- Ghost\n\n## One\n${body}` }]), ['x/references/long.md: contents entry "Ghost" is not a ## heading of this file']);
 
   assert.deepEqual(toolScopeFindings([{ name: 'x', text: '---\nname: x\naccess: write\n---\n' }, { name: 'y', text: '---\nname: y\ntool-scope: some\n---\n' }]),
-    ['x: tool-scope missing', "y: tool-scope 'some' is not one of all"]);
+    ['x: tool-scope missing', "y: tool-scope 'some' is not a list of distinct read, edit, shell, web, agents"]);
+  assert.deepEqual(toolScopeFindings([{ name: 'z', text: '---\nname: z\ntool-scope: read, read\n---\n' }, { name: 'w', text: '---\nname: w\ntool-scope: all\n---\n' }]),
+    ["z: tool-scope 'read, read' is not a list of distinct read, edit, shell, web, agents", "w: tool-scope 'all' is not a list of distinct read, edit, shell, web, agents"]);
 
   const table = CAPS();
   const ids = harnessIds();

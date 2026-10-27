@@ -242,6 +242,38 @@
           ],
           "checked": "docs",
           "verifiedOn": "2026-10-23"
+        },
+        "toolScope": {
+          "status": "native",
+          "field": "tools",
+          "form": "comma",
+          "map": {
+            "read": [
+              "Read",
+              "Grep",
+              "Glob"
+            ],
+            "edit": [
+              "Edit",
+              "Write",
+              "NotebookEdit"
+            ],
+            "shell": [
+              "Bash"
+            ],
+            "web": [
+              "WebFetch",
+              "WebSearch"
+            ],
+            "agents": [
+              "Agent"
+            ]
+          },
+          "evidence": [
+            "https://code.claude.com/docs/en/sub-agents"
+          ],
+          "checked": "docs",
+          "verifiedOn": "2026-10-27"
         }
       },
       "worker": {
@@ -694,6 +726,14 @@
             "https://learn.chatgpt.com/docs/agent-configuration/subagents"
           ],
           "verifiedOn": "2026-10-23"
+        },
+        "toolScope": {
+          "status": "unenforced",
+          "reason": "an agent file can only switch features off (features.shell_tool); it has no read, edit, web or subagent allowlist, so DoFlow projects no scope",
+          "evidence": [
+            "https://learn.chatgpt.com/docs/agent-configuration/subagents"
+          ],
+          "verifiedOn": "2026-10-27"
         }
       },
       "worker": {
@@ -1216,6 +1256,37 @@
           ],
           "checked": "docs",
           "verifiedOn": "2026-10-23"
+        },
+        "toolScope": {
+          "status": "native",
+          "field": "permission",
+          "form": "deny",
+          "map": {
+            "read": [
+              "read",
+              "glob",
+              "grep",
+              "lsp"
+            ],
+            "edit": [
+              "edit"
+            ],
+            "shell": [
+              "bash"
+            ],
+            "web": [
+              "webfetch",
+              "websearch"
+            ],
+            "agents": [
+              "task"
+            ]
+          },
+          "evidence": [
+            "https://opencode.ai/docs/permissions"
+          ],
+          "checked": "docs",
+          "verifiedOn": "2026-10-27"
         }
       },
       "worker": {
@@ -1639,6 +1710,12 @@
             "https://pi.dev/docs/latest/extensions"
           ],
           "verifiedOn": "2026-10-23"
+        },
+        "toolScope": {
+          "status": "unenforced",
+          "reason": "no agent surface",
+          "evidence": [],
+          "verifiedOn": "2026-10-27"
         }
       },
       "worker": {
@@ -2093,6 +2170,34 @@
           ],
           "checked": "docs",
           "verifiedOn": "2026-10-23"
+        },
+        "toolScope": {
+          "status": "native",
+          "field": "tools",
+          "form": "list",
+          "map": {
+            "read": [
+              "read",
+              "search"
+            ],
+            "edit": [
+              "edit"
+            ],
+            "shell": [
+              "execute"
+            ],
+            "web": [
+              "web"
+            ],
+            "agents": [
+              "agent"
+            ]
+          },
+          "evidence": [
+            "https://docs.github.com/en/copilot/reference/custom-agents-configuration"
+          ],
+          "checked": "docs",
+          "verifiedOn": "2026-10-27"
         }
       },
       "worker": {
@@ -2483,6 +2588,33 @@
           ],
           "checked": "docs",
           "verifiedOn": "2026-10-23"
+        },
+        "toolScope": {
+          "status": "native",
+          "field": "tools",
+          "form": "list",
+          "map": {
+            "read": [
+              "read"
+            ],
+            "edit": [
+              "write"
+            ],
+            "shell": [
+              "shell"
+            ],
+            "web": [
+              "web"
+            ],
+            "agents": [
+              "subagent"
+            ]
+          },
+          "evidence": [
+            "https://kiro.dev/docs/cli/v3/agent-config/"
+          ],
+          "checked": "docs",
+          "verifiedOn": "2026-10-27"
         }
       },
       "worker": {
@@ -2946,6 +3078,14 @@
             "https://antigravity.google/docs/subagents?tab=cli"
           ],
           "verifiedOn": "2026-10-23"
+        },
+        "toolScope": {
+          "status": "unenforced",
+          "reason": "the `tools` list takes tool ids the docs name only by example, and an unmapped id may hang the subagent",
+          "evidence": [
+            "https://antigravity.google/docs/subagents?tab=cli"
+          ],
+          "verifiedOn": "2026-10-27"
         }
       },
       "worker": {
