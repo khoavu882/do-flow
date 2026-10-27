@@ -1,4 +1,5 @@
 On this page
+Back to top
 Understand what a plugin is
 Decide whether you need a plugin
 What an enabled plugin adds to your sessions

@@ -1,4 +1,5 @@
 On this page
+Back to top
 CLAUDE.md vs auto memory
 CLAUDE.md files
 When to add to CLAUDE.md

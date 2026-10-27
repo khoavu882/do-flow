@@ -1,7 +1,7 @@
 Copy Page
 Hooks
-Run scripts or MCP tools during the Codex lifecycle
 Copy Page
+Run scripts or MCP tools during the Codex lifecycle
 Hooks are an extensibility framework for Codex. They let you run scripts or MCP
 tools during the agentic loop, enabling features such as:
 Send the chat to a custom logging/analytics engine

@@ -1,7 +1,7 @@
 Copy Page
 Build skills
-Give ChatGPT and Codex new capabilities and expertise
 Copy Page
+Give ChatGPT and Codex new capabilities and expertise
 Use agent skills to extend ChatGPT and Codex with task-specific capabilities. A
 skill packages instructions, resources, and optional scripts so either product
 can follow a workflow reliably. Skills build on the

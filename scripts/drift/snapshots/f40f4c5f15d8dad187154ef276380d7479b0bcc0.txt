@@ -173,7 +173,7 @@ directly from the application interface:
 Open the
 Customizations
 tab, located below the
-Scheduled Tasks
+Automations
 tab in
 the left sidebar.
 Switch between the
