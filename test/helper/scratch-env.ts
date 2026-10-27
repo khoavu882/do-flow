@@ -10,7 +10,9 @@
 // The shared temp helper registers each scratch for suite and process-exit cleanup; callers may still
 // remove it early when a test needs to assert its absence.
 
+const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { suiteTempDir, removeTree } = require('./tmp.ts');
 
@@ -91,4 +93,26 @@ function createScratch(prefix = 'doflow-lifecycle-', { prune = 'off', hookHarnes
   };
 }
 
-module.exports = { createScratch, inheritedEnv, ALL_HARNESS_IDS };
+/** Fails the test when HOME or XDG_CONFIG_HOME in a spawn's `env` still names the developer's home or
+ * ~/.config (086 B.2b: no hook a test starts may append to the developer's ~/.config/doflow). */
+function assertScratchHome(env: any) {
+  const real = os.homedir();
+  const realConfig = path.join(real, '.config');
+  for (const key of ['HOME', 'XDG_CONFIG_HOME']) {
+    const value = env[key];
+    if (typeof value !== 'string' || !path.isAbsolute(value)) continue;
+    const resolved = path.resolve(value);
+    assert.ok(resolved !== real && resolved !== realConfig && !resolved.startsWith(realConfig + path.sep),
+      `${key} must be a scratch folder, not the developer's (${resolved})`);
+  }
+  return env;
+}
+
+/** The scratch env for a spawn, `extra` keys set to null removed, checked by assertScratchHome. */
+function childEnv(scratch: any, extra: any = {}) {
+  const env = scratch.env(extra);
+  for (const [key, value] of Object.entries(extra)) if (value === null) delete env[key];
+  return assertScratchHome(env);
+}
+
+module.exports = { createScratch, inheritedEnv, ALL_HARNESS_IDS, assertScratchHome, childEnv };
