@@ -9,7 +9,7 @@
 > reference's own intro already carves out `state.md`.
 >
 > Not to be confused with the differently-named `{stage}-questions.md` convention in
-> `rules/RULE_04_QUESTIONS.md`: that file is a *request for input*, written for a
+> RULE_04 of `rules/RULES.md`: that file is a *request for input*, written for a
 > non-interactive harness and awaiting a `[Answer]:` tag before the run can continue. This one is
 > the opposite direction — a completed *record* of a round that already happened, filed after the
 > user answered, never awaiting anything.

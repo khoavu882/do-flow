@@ -36,7 +36,7 @@ remains the chain's own implementation phase.
   Outside a git repo (e.g. doflow installed at a multi-service container root, above the actual
   git sub-repos), `do-paths.sh` falls back to scanning `agent-docs/doflow/` directly — one
   candidate auto-selects, 2+ candidates surface via `candidate_slugs` for the calling skill to
-  disambiguate using the platform-specific `RULE_04_QUESTIONS.md` mechanism. Artifacts live in
+  disambiguate using the platform-specific RULE_04 mechanism in `rules/RULES.md`. Artifacts live in
   `<repo>/agent-docs/doflow/NNN-slug/`
   either way.
 - **Pre-chain intent — an input, not a phase.** An idea that has not been committed to yet goes in

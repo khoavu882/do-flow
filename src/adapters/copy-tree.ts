@@ -41,7 +41,7 @@ const LAYOUTS: Record<string, (sourceRel: string) => string> = {
     const ext = path.extname(sourceRel);
     return path.join(sourceRel.slice(0, sourceRel.length - ext.length), `agent${ext || '.md'}`);
   },
-  /** `RULE_01_SAFETY.md` -> `RULE_01_SAFETY.instructions.md` — GitHub's path-specific
+  /** `RULES.md` -> `RULES.instructions.md` — GitHub's path-specific
    * instructions are discovered by their `.instructions.md` suffix. */
   'instructions-md': (sourceRel: string) => {
     const ext = path.extname(sourceRel);
@@ -61,7 +61,7 @@ const LAYOUTS: Record<string, (sourceRel: string) => string> = {
     const ext = path.extname(sourceRel);
     return `${sourceRel.slice(0, sourceRel.length - ext.length)}.json`;
   },
-  /** `rules/RULE_01_SAFETY.md` -> `RULE_01_SAFETY.md` for flat rule directories. */
+  /** `rules/RULES.md` -> `RULES.md` for flat rule directories. */
   flat: (sourceRel: string) => path.basename(sourceRel),
 };
 

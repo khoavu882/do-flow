@@ -15,7 +15,7 @@ const DROPPED = 'RESEARCH_CONFIG.md';
 const SOURCE = path.join('core', 'shared', 'guidance', 'references', DROPPED);
 // A file in Kiro's steering core set (DOFLOW_CORE.md and what it imports), unlike RESEARCH_CONFIG.md
 // which Kiro's steering no longer holds.
-const CORE_DROPPED = 'RULE_04_QUESTIONS.md';
+const CORE_DROPPED = 'RULES.md';
 const CORE_SOURCE = path.join('core', 'shared', 'guidance', 'rules', CORE_DROPPED);
 const CASE_TIMEOUT_MS = 300_000;
 
@@ -109,9 +109,9 @@ test('Kiro drops a core guidance file: both installed copies and their rows go, 
   assert.equal(fs.existsSync(steering), false);
   assert.deepEqual(ledgerRows(scratch).filter(namesFile(CORE_DROPPED)), []);
   assert.doesNotMatch(update.stdout, /kept hand-edited/);
-  const retrieve = runOk(scratch, ['retrieve', '--query', 'RULE_04_QUESTIONS'], { cwd: scratch.home });
+  const retrieve = runOk(scratch, ['retrieve', '--query', 'RULES'] , { cwd: scratch.home });
   // Result lines are `N. [score] <path>`; other guidance files still mention the dropped one in their text.
-  const paths = retrieve.stdout.split('\n').filter((line: any) => /^\s*\d+\.\s+\[[^\]]*\]\s+\S*RULE_04_QUESTIONS\.md/.test(line));
+  const paths = retrieve.stdout.split('\n').filter((line: any) => /^\s*\d+\.\s+\[[^\]]*\]\s+\S*RULES\.md/.test(line));
   assert.deepEqual(paths, [], `retrieve output names no ${CORE_DROPPED}\n${retrieve.stdout}`);
 });
 

@@ -187,13 +187,13 @@ describe('Guard G71: Guidance Rules Registry Validation', () => {
     const ledger = JSON.parse(fs.readFileSync(RULES_REGISTRY_FILE, 'utf8'));
     const registeredSources = new Set(ledger.rules.map((r: any) => r.sourceFile));
 
+    // Derived from the tree, so a rule file added later cannot go unregistered.
     const expectedFiles = [
-      'core/shared/guidance/rules/RULE_01_SAFETY.md',
-      'core/shared/guidance/rules/RULE_02_WORKFLOW.md',
-      'core/shared/guidance/rules/RULE_03_QUALITY.md',
-      'core/shared/guidance/rules/RULE_04_QUESTIONS.md',
+      ...fs.readdirSync(RULES_DIR).filter((name: string) => name.endsWith('.md')).sort()
+        .map((name: string) => `core/shared/guidance/rules/${name}`),
       'core/shared/guidance/PRINCIPLES.md',
     ];
+    assert.ok(expectedFiles.length > 1, 'no rule file found under core/shared/guidance/rules/');
 
     for (const relFile of expectedFiles) {
       assert.ok(

@@ -76,7 +76,7 @@ with `--mode`:
 | :--- | :--- | :--- |
 | `READY` | `ENTER` | `ENTER` |
 | `NEEDS_EVIDENCE` | `GATHER_FIRST` — gather the named requirements before entering the stage | `ENTER` — the unmet contract is reported, not enforced; relay it in the result |
-| `NEEDS_USER_DECISION` | `ASK_USER` — ask through `RULE_04_QUESTIONS.md` and wait | `ASK_USER` — same; a small edit does not cure an owed decision |
+| `NEEDS_USER_DECISION` | `ASK_USER` — ask through RULE_04 (`rules/RULES.md`) and wait | `ASK_USER` — same; a small edit does not cure an owed decision |
 | `BLOCKED` | `STOP` — never modify source; surface which claim and which evidence | `STOP` — same |
 
 `workflow` is an orchestrated run (`do-flow`, `do-execute-plan`); `standalone` is a declared

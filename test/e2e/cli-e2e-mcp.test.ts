@@ -268,7 +268,7 @@ test('Claude lifecycle: fresh install owns the instructions asset in the neutral
   const pointerMd = fs.readFileSync(path.join(REPO, 'core', 'shared', 'guidance', 'pointers', 'claude-gemini.md'), 'utf8').replace(/\s+$/, '');
   assert.strictEqual(content, `${MARKER_START}\n${pointerMd}\n${MARKER_END}\n`);
   assert.ok(fs.existsSync(path.join(project, '.doflow', 'guidance', 'DOFLOW_CORE.md')), 'canonical guidance mirror must exist under .doflow/');
-  assert.ok(fs.existsSync(path.join(project, '.doflow', 'guidance', 'rules', 'RULE_01_SAFETY.md')));
+  assert.ok(fs.existsSync(path.join(project, '.doflow', 'guidance', 'rules', 'RULES.md')));
   assert.ok(!fs.existsSync(path.join(project, '.claude', 'rules')), 'rules must no longer be duplicated into .claude/');
 
   const ledger = JSON.parse(fs.readFileSync(path.join(project, '.doflow', 'state', 'ledger.json'), 'utf8'));

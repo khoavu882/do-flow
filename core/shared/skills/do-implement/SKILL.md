@@ -94,7 +94,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      computes, so a zero exit is not a green light.
      - **`STOP`** — refuse to modify source. Report which claim is conflicted and what evidence
        disagrees, then stop. Do not edit anyway.
-     - **`ASK_USER`** — a decision is owed by the user. Ask it through the `RULE_04_QUESTIONS.md`
+     - **`ASK_USER`** — a decision is owed by the user. Ask it through RULE_04 (`rules/RULES.md`)
        mechanism and wait; editing first would decide it silently on their behalf.
      - **`ENTER`** — proceed to the context-pack call below. In standalone mode this includes
        `NEEDS_EVIDENCE`: the unmet contract is reported, not enforced — relay the missing
@@ -138,7 +138,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      duplicates the host's own edit-approval mechanisms.
    - Stop after the change set only when one of two things is true: the user asked for the plan
      rather than the change ("show me what you'd change first"), or naming the change set surfaced
-     a genuine user-owned decision — then ask it per `RULE_04_QUESTIONS.md` and wait, because
+     a genuine user-owned decision — then ask it per RULE_04 (`rules/RULES.md`) and wait, because
      editing first would decide it silently.
 
 5. **Implement**:

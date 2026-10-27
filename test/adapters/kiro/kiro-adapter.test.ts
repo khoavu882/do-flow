@@ -209,7 +209,7 @@ test('confirms the real registry routes guidance, skills, and agents trees to ki
 
 // ---- the real registry: steering holds the core set, .doflow/guidance the whole tree ----
 
-const CORE_SET = ['DOFLOW_CORE.md', 'FLAGS.md', 'PRINCIPLES.md', 'rules/RULE_01_SAFETY.md', 'rules/RULE_02_WORKFLOW.md', 'rules/RULE_03_QUALITY.md', 'rules/RULE_04_QUESTIONS.md'];
+const CORE_SET = ['DOFLOW_CORE.md', 'FLAGS.md', 'PRINCIPLES.md', 'rules/RULES.md'];
 
 function filesUnder(dir: any) {
   return fs.existsSync(dir) ? fs.readdirSync(dir, { recursive: true, withFileTypes: true }).filter((entry: any) => entry.isFile())

@@ -3,9 +3,10 @@
 // G70 — duplicate rule lint across the guidance tree (Feature 107-C, IC-004, FR-005).
 //
 // Rules defined under `core/shared/guidance/rules/` are the authoritative source of engineering
-// invariants. Substantive rule statements (>50 characters) must never be defined in multiple rule
-// files verbatim, nor copied into skill files under `core/shared/skills/` without explicitly citing
-// the canonical rule (e.g. RULE_01, RULE_02, etc.).
+// invariants. Substantive rule statements (>50 characters) must never be defined verbatim in two
+// always-loaded files (the rule files and PRINCIPLES.md), nor copied into skill files under
+// `core/shared/skills/` without explicitly citing the canonical rule (e.g. RULE_01, RULE_02, etc.).
+// A rule's tag is its `## RULE_NN` section heading in rules/RULES.md, else the file's RULE_NN prefix.
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
@@ -16,6 +17,7 @@ const { suiteTempDir } = require('../helper/tmp.ts');
 
 const RULES_DIR = path.join(GUIDANCE, 'rules');
 const SKILLS_DIR = SKILLS;
+const PRINCIPLES_FILE = path.join(GUIDANCE, 'PRINCIPLES.md');
 const MIN_STATEMENT_LENGTH = 50;
 
 interface RuleStatement {
@@ -51,7 +53,7 @@ function extractSubstantiveStatements(content: string, filePath: string): RuleSt
   const statements: RuleStatement[] = [];
   const baseName = path.basename(filePath, '.md');
   const ruleTagMatch = baseName.match(/^(RULE_\d+)/);
-  const ruleTag = ruleTagMatch ? ruleTagMatch[1] : baseName;
+  let ruleTag = ruleTagMatch ? ruleTagMatch[1] : baseName;
 
   let inFence = false;
   let currentLines: string[] = [];
@@ -106,6 +108,12 @@ function extractSubstantiveStatements(content: string, filePath: string): RuleSt
     if (inFence) continue;
 
     const trimmed = line.trim();
+    const sectionTag = trimmed.match(/^#{1,6}\s+(RULE_\d+)\b/);
+    if (sectionTag) {
+      flushBlock();
+      ruleTag = sectionTag[1];
+      continue;
+    }
     if (!trimmed || trimmed.startsWith('<') || trimmed.startsWith('<!--') || /^#{1,6}\s+/.test(trimmed)) {
       flushBlock();
       continue;
@@ -126,12 +134,13 @@ function extractSubstantiveStatements(content: string, filePath: string): RuleSt
   return statements;
 }
 
-function findCrossRuleDuplicates(rulesDir: string): CrossRuleDuplicateFinding[] {
+function findCrossRuleDuplicates(rulesDir: string, extraFiles: string[] = []): CrossRuleDuplicateFinding[] {
   let ruleFiles: string[] = [];
   try {
     ruleFiles = fs.readdirSync(rulesDir)
       .filter((name: string) => name.endsWith('.md'))
-      .sort();
+      .sort()
+      .map((name: string) => path.join(rulesDir, name));
   } catch {
     return [];
   }
@@ -139,8 +148,7 @@ function findCrossRuleDuplicates(rulesDir: string): CrossRuleDuplicateFinding[] 
   const seenStatements = new Map<string, { file: string; line: number }>();
   const duplicates: CrossRuleDuplicateFinding[] = [];
 
-  for (const name of ruleFiles) {
-    const fullPath = path.join(rulesDir, name);
+  for (const fullPath of [...ruleFiles, ...extraFiles]) {
     const content = fs.readFileSync(fullPath, 'utf8');
     const statements = extractSubstantiveStatements(content, fullPath);
 
@@ -230,8 +238,8 @@ function findSkillRuleDuplicates(rulesDir: string, skillsDir: string): SkillRule
   return findings;
 }
 
-test('G70: no two core rule files define the same rule statement verbatim', () => {
-  const duplicates = findCrossRuleDuplicates(RULES_DIR);
+test('G70: no two core rule files (rules/ and PRINCIPLES.md) define the same rule statement verbatim', () => {
+  const duplicates = findCrossRuleDuplicates(RULES_DIR, [PRINCIPLES_FILE]);
   assert.deepEqual(duplicates, [],
     `duplicate rule statements found across core rules:\n${JSON.stringify(duplicates, null, 2)}`);
 });
@@ -280,6 +288,34 @@ describe('G70 negative controls', () => {
     const findingsWithBoth = findSkillRuleDuplicates(rulesDir, skillsDir);
     assert.equal(findingsWithBoth.length, 1);
     assert.match(findingsWithBoth[0].skillFile, /do-uncited/);
+  });
+
+  test('detects a rule statement repeated verbatim in PRINCIPLES.md', () => {
+    const tempDir = suiteTempDir('doflow-rulelint-principles-ctrl-');
+    const rulesDir = path.join(tempDir, 'rules');
+    fs.mkdirSync(rulesDir, { recursive: true });
+    const statement = 'Start it = Finish it. No partial features, TODO stubs, mocks, or "not implemented" throws.';
+    fs.writeFileSync(path.join(rulesDir, 'RULES.md'), `# Rules\n\n## RULE_02 Workflow\n- ${statement}\n`);
+    const principles = path.join(tempDir, 'PRINCIPLES.md');
+    fs.writeFileSync(principles, `# Principles\n\n${statement}\n`);
+    assert.deepEqual(findCrossRuleDuplicates(rulesDir), []);
+    const duplicates = findCrossRuleDuplicates(rulesDir, [principles]);
+    assert.equal(duplicates.length >= 1, true);
+    assert.equal(duplicates[0].duplicate.file, principles);
+  });
+
+  test('a statement in one RULES.md takes its tag from its RULE_NN section heading', () => {
+    const tempDir = suiteTempDir('doflow-rulelint-section-ctrl-');
+    const rulesDir = path.join(tempDir, 'rules');
+    const skillsDir = path.join(tempDir, 'skills', 'do-uncited');
+    fs.mkdirSync(rulesDir, { recursive: true });
+    fs.mkdirSync(skillsDir, { recursive: true });
+    const statement = 'Read the date from the environment before any temporal claim; never infer it from your knowledge cutoff, and state its source.';
+    fs.writeFileSync(path.join(rulesDir, 'RULES.md'), `# Rules\n\n## RULE_01 Safety\n- ${statement}\n\n## RULE_03 Quality\n- Short.\n`);
+    fs.writeFileSync(path.join(skillsDir, 'SKILL.md'), `# Uncited Skill\n\nThese rules apply:\n- ${statement}\n`);
+    const findings = findSkillRuleDuplicates(rulesDir, path.join(tempDir, 'skills'));
+    assert.equal(findings.length, 1, 'the plain word "rules" is not a citation');
+    assert.equal(findings[0].ruleTag, 'RULE_01');
   });
 
   test('ignores short statements (<= 50 characters)', () => {
