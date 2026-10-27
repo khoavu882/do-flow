@@ -18,6 +18,7 @@ const { CapabilityRouter } = require('./capability-router.ts');
 const { probeProviders, HEALTHY, UNVERIFIED } = require('./health.ts');
 const { mcpReach } = require('./mcp-reach.ts');
 const { touchesManifest } = require('./mcp-consultations.ts');
+const { loadBriefRules } = require('./brief-rules.ts');
 const { WorkflowOrchestrator } = require('./workflow-orchestrator.ts');
 const { resolveActiveFeature } = require('./feature-resolve.ts');
 const { finishRuntime, usageError, captureCaught } = require('./cli-result.ts');
@@ -110,10 +111,11 @@ const trigger = (server: any) => server.trigger.replace(/\.$/, '');
  * @param {Object} [input.primary] resolved primary result (IC-017)
  * @param {Object} [input.bindings] workers.models bindings result (IC-017)
  * @param {2|3} [input.headingLevel]
+ * @param {string} [input.repoRoot] where `core/registry/rules.json` is read from
  * @param {{feature:?string, runTaskId:?string, stageId:?string, skill:?string}|null} [input.stage]
  * @returns {{markdown: string, record: Object}} the IC-018 record, including model (IC-017), without `tasks`
  */
-function renderBriefTools({ registry, router, probes, reach, owner, tier, harness, primary = null, bindings = null, headingLevel = 2, stage = null }: any) {
+function renderBriefTools({ registry, router, probes, reach, owner, tier, harness, primary = null, bindings = null, headingLevel = 2, stage = null, repoRoot = REPO_ROOT }: any) {
   const missing: any = [];
   const hashes = '#'.repeat(Number(headingLevel) === 3 ? 3 : 2);
   const primaryHarness = primaryHarnessOf(primary, registry);
@@ -198,7 +200,11 @@ function renderBriefTools({ registry, router, probes, reach, owner, tier, harnes
   const list = (servers: any) => (servers.length ? servers.map((server: any) => `\`${server.id}\` (${trigger(server)})`).join('; ') : 'none');
   const targetName = targetHarness ? targetHarness.displayName || targetHarness.id : 'any installed harness';
 
+  const carried = loadBriefRules(repoRoot);
+  if ('reason' in carried) missing.push(`brief-rules: ${carried.reason}`);
+
   const lines = [
+    ...('lines' in carried ? [`${hashes} Rules that apply to you`, '', ...carried.lines.map((line: string) => `- ${line}`), ''] : []),
     `${hashes} Tier and tools`,
     '',
     `Tier: \`${resolved.tier}\` (${sourceText}), per`,
@@ -335,7 +341,7 @@ async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLeve
     const { resolvePrimary } = require('./context/primary.ts');
     try { primary = resolvePrimary({ env, projectRoot, registry }); } catch { notes.push('primary unresolved; default target unchanged'); }
     const bindings = readBindings({ env, projectRoot });
-    const rendered = renderBriefTools({ registry, router, probes, reach, owner, tier, harness, primary, bindings, headingLevel: level, stage });
+    const rendered = renderBriefTools({ registry, router, probes, reach, owner, tier, harness, primary, bindings, headingLevel: level, stage, repoRoot });
     let markdown = rendered.markdown;
     const record: any = rendered.record;
     record.missing.push(...notes);

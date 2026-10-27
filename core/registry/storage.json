@@ -1653,6 +1653,10 @@
       "reason": "harness instruction file managed block (CLAUDE.md, AGENTS.md, GEMINI.md), owned by the install ledger"
     },
     {
+      "file": "src/runtime/brief-rules.ts",
+      "reason": "maintainer generator (--write): rewrites the mustCarry key of core/registry/rules.json in the repo (no DoFlow root)"
+    },
+    {
       "file": "src/release/sync-plugin-versions.ts",
       "reason": "maintainer release tool: rewrites the repo plugin manifests (no DoFlow root)"
     },

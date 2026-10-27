@@ -79,7 +79,7 @@ function row(markdown: any, intent: any) {
 
 test('a brief recommends a healthy provider and names the tier of the owner', (t) => {
   const { markdown, record } = render(t);
-  assert.match(markdown, /^## Tier and tools\n\nTier: `standard` \(owner core-implementer\), per\n`references\/MODEL_SELECTION.md`\./);
+  assert.match(markdown, /^## Tier and tools\n\nTier: `standard` \(owner core-implementer\), per\n`references\/MODEL_SELECTION.md`\./m);
   assert.doesNotMatch(markdown, /Pass it as the model/, 'X5: the dispatched agent cannot choose its model');
   assert.match(markdown, /recommended/);
   assert.match(markdown, /not required/);
@@ -440,13 +440,13 @@ test('every other outcome exits 0: an unknown harness, an unknown owner, no run'
   assert.equal(parsed.record.harness, null);
   assert.equal(parsed.record.tierSource, 'default');
   assert.ok(parsed.record.missing.length >= 2);
-  assert.match(parsed.markdown, /^## Tier and tools/);
+  assert.match(parsed.markdown, /^## Tier and tools/m);
 });
 
 test('without --json the markdown alone is printed', (t) => {
   const result = cli(t, ['--owner', 'core-implementer', '--heading-level', '3']);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /^### Tier and tools\n/);
+  assert.match(result.stdout, /^### Tier and tools\n/m);
   assert.match(result.stdout, /\n### Report format\n/);
 });
 
