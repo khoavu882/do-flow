@@ -158,3 +158,18 @@ test('create and remove leave an unrelated missing worktree record alone and dro
   assert.ok(!hasBranch(repo, 'task/own-2'));
   assert.ok(listed().includes(userRecord), 'remove did not prune the unrelated record');
 });
+
+test('dropStaleRecord resolves a relative gitdir against its record directory (FU-jnprm8)', () => {
+  const repo = makeRepo('relative-gitdir');
+  const mgr: any = new WorktreeManager(repo, path.join(repo, 'wts'), { env: ENV });
+  const wt = mgr.create('rel-1');
+  const admin = path.join(repo, '.git', 'worktrees');
+  const [name] = fs.readdirSync(admin);
+  const record = path.join(admin, name);
+  // git with worktree.useRelativePaths writes the link relative to the record directory.
+  fs.writeFileSync(path.join(record, 'gitdir'), `${path.relative(record, path.join(wt, '.git'))}\n`);
+  assert.ok(mgr.isRegistered(wt), 'setup: still registered through the relative link');
+  fs.rmSync(wt, { recursive: true, force: true });
+  mgr.dropStaleRecord(wt);
+  assert.equal(fs.existsSync(record), false, 'the stale record was removed');
+});

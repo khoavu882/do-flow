@@ -183,7 +183,8 @@ class WorktreeManager {
       const record = path.join(admin, name);
       try {
         if (fs.existsSync(path.join(record, 'locked'))) continue;
-        const dotGit = path.resolve(fs.readFileSync(path.join(record, 'gitdir'), 'utf8').trim());
+        // A relative gitdir (worktree.useRelativePaths) is relative to the record directory.
+        const dotGit = path.resolve(record, fs.readFileSync(path.join(record, 'gitdir'), 'utf8').trim());
         if (path.dirname(dotGit) !== target && path.dirname(dotGit) !== realTarget) continue;
         if (fs.existsSync(dotGit)) continue;
         fs.rmSync(record, { recursive: true, force: true });
