@@ -81,6 +81,15 @@
       "reviewer": "read-only",
       "spec-analyst": "write",
       "system-architect": "write"
+    },
+    "handback": {
+      "description": "The hand-back status enum (row 135): every agent spec ends its report with `Status: <id>`, and a caller that consumes a hand-back branches on it. Defined only here; test/guards/handback-status.test.ts (G76) holds each spec's status line and each consumer's branch line to this list.",
+      "statuses": [
+        { "id": "done", "meaning": "complete; the evidence is in the report", "caller": "accept after checking the evidence" },
+        { "id": "done-with-concerns", "meaning": "complete, with doubts the report lists", "caller": "verify the concerns before accepting" },
+        { "id": "needs-context", "meaning": "cannot finish without information the brief lacks; the report names it", "caller": "resend with the missing context" },
+        { "id": "blocked", "meaning": "cannot proceed for a reason only the caller can resolve: a denied permission, a broken environment or an open decision", "caller": "stop and surface it" }
+      ]
     }
   },
   "classes": {

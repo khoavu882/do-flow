@@ -1543,6 +1543,26 @@
       }
     },
     {
+      "id": "feature-pointer",
+      "root": "project-state",
+      "path": "feature",
+      "entry": "file",
+      "match": "^[0-9a-f]{16}\\.json(?:\\.[0-9]+\\.tmp)?$",
+      "rule": "existing",
+      "bound": {
+        "text": "one file per checkout naming its feature, rewritten in place by the runtime and removed when the feature finishes"
+      },
+      "protect": null,
+      "moments": [],
+      "writers": [
+        "src/runtime/feature-pointer.ts"
+      ],
+      "source": {
+        "file": "src/runtime/feature-pointer.ts",
+        "pattern": "'.doflow', 'state', 'feature'"
+      }
+    },
+    {
       "id": "project-models-catalogue",
       "root": "project-state",
       "path": "models/catalogue.json",
@@ -1651,6 +1671,10 @@
     {
       "file": "src/helper/marker-merge.ts",
       "reason": "harness instruction file managed block (CLAUDE.md, AGENTS.md, GEMINI.md), owned by the install ledger"
+    },
+    {
+      "file": "src/runtime/brief-rules.ts",
+      "reason": "maintainer generator (--write): rewrites the mustCarry key of core/registry/rules.json in the repo (no DoFlow root)"
     },
     {
       "file": "src/release/sync-plugin-versions.ts",

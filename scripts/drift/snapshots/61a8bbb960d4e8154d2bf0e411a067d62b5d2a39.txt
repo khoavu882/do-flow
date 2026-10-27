@@ -339,7 +339,7 @@ To maximize developer velocity, Antigravity CLI leverages a multi-threaded async
 subagents
 or background
 tasks
-.
+. The main agent decides which tools and permissions each subagent gets, including whether it can use MCP tools and whether it can write files.
 This delegation model ensures you never have to wait on high-latency AI processes. You can continue drafting code, submitting prompts, or inspecting files while multiple autonomous background threads execute validation tasks in parallel.
 Managing agents: the
 /agents

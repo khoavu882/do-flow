@@ -247,7 +247,7 @@ describe('NFR-001: the chain verbs answer as they did under v1.13.0', { skip: SK
     // The state matches, with the readiness record and the delivery record written by their verbs.
     const filesOf = (dir: any) => fs.readdirSync(dir, { recursive: true }).filter((f: any) => !f.startsWith('.git') && fs.statSync(path.join(dir, f)).isFile()).sort();
     const readinessStore = path.join('.doflow', 'state', 'readiness') + path.sep;
-    assert.deepEqual(filesOf(newDir).filter((f: any) => !f.startsWith(readinessStore)), [...filesOf(oldDir), path.join('.doflow', 'state', '.gitignore'), path.join('.doflow', 'state', 'delivery', `${slug}.json`)].sort(), 'the same files exist after the same verbs, plus the state ignore and delivery files');
+    assert.deepEqual(filesOf(newDir).filter((f: any) => !f.startsWith(readinessStore)), [...filesOf(oldDir), path.join('.doflow', 'state', '.gitignore'), path.join('.doflow', 'state', 'delivery', `${slug}.json`), path.relative(newDir, require('../../src/runtime/feature-pointer.ts').pointerFile(newDir, fs.realpathSync(newDir)))].sort(), 'the same files exist after the same verbs, plus the state ignore, delivery and feature pointer (row 135) files');
     assert.deepEqual(filesOf(newDir).filter((f: any) => f.startsWith(readinessStore)), [path.join(readinessStore, `${slug}.json`)], 'one readiness record');
   });
 });

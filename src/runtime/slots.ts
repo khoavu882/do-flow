@@ -9,9 +9,10 @@
  * runs inside one `updateTaskState` critical section, so two waiters can never both be granted.
  *
  * A holder or waiter counts as dead only when `alive()` says `false`; `unknown` counts as alive.
- * A holder is alive while the `slot run` process or its recorded child is. Dead entries are dropped
- * under the lock on every read. Nothing here ever signals a process other than the caller's own
- * child, and `releaseSlot` never signals at all.
+ * A holder is alive while the `slot run` process or its recorded child is. Liveness is probed before
+ * the lock, from an unlocked read (`probeSlot`), never under it; dead entries are dropped under the
+ * lock on every critical section that looks at the queue. Nothing here ever signals a process other
+ * than the caller's own child, and `releaseSlot` never signals at all.
  *
  * Library only: it returns exit codes and never calls process.exit; the CLI maps them.
  */
@@ -83,11 +84,9 @@ type Deps = {
 };
 
 /**
- * How long a process judged alive is taken as alive without asking again. Every poll of every waiter
- * sweeps the whole queue inside the slot lock, and the default check starts a `ps` per entry: with N
- * waiters that is N `ps` runs per poll per waiter, all serialised under the one lock, so a slow
- * `ps` (a loaded host) makes the lock hold time grow with the queue until a waiter outlasts the lock
- * budget. Only `true` is remembered, only for this runSlot call: a death is noticed within the window.
+ * How long a process judged alive is taken as alive without asking again. A look at the queue probes
+ * every entry, and the default check starts a `ps` per entry: with N waiters that is N `ps` runs per
+ * look per waiter. Only `true` is remembered, only for this runSlot call: a death is noticed within the window.
  */
 const ALIVE_CACHE_MS = 2000;
 
@@ -302,7 +301,54 @@ function holderState(holder: any, alive: (proc: any) => boolean | 'unknown'): bo
   return 'unknown';
 }
 
-/** Drops dead waiters and a dead holder. Called only inside the lock. */
+const identity = (pid: any, start: any): string => `${pid}\0${start ?? ''}`;
+
+/**
+ * Probes, BEFORE the slot lock, every process an unlocked read of the slot file names (a read error
+ * or a missing file: nothing to probe); under the lock a probe (a `ps`, slow on a loaded host) made
+ * every critical section that slow. The death of a (pid, start) identity is permanent, so a `false`
+ * found here is still true under the lock; an identity not probed here is `unknown`, which counts as
+ * alive, and is judged on the next look. `seen` is that read: a hint for skipping a look, never a decision.
+ */
+function probeSlot(fsImpl: any, file: string, name: string, alive: (proc: any) => boolean | 'unknown') {
+  let seen: any = null;
+  try {
+    const disk = readTaskState(fsImpl, file);
+    seen = disk ? shape(disk, name) : null;
+  } catch { /* nothing to probe; the critical section reads the file itself */ }
+  const verdicts = new Map<string, boolean | 'unknown'>();
+  const ask = (pid: any, start: any) => {
+    const key = identity(pid, start);
+    if (!verdicts.has(key)) verdicts.set(key, alive({ pid, start: start ?? null }));
+  };
+  if (seen) {
+    for (const waiter of seen.waiters) ask(waiter.pid, waiter.start);
+    if (seen.holder) {
+      ask(seen.holder.pid, seen.holder.start);
+      if (Number.isInteger(seen.holder.childPid)) ask(seen.holder.childPid, seen.holder.childStart);
+    }
+  }
+  return {
+    seen,
+    judged: (proc: any): boolean | 'unknown' => verdicts.get(identity(proc.pid, proc.start)) ?? 'unknown',
+    probed: (proc: any): boolean => verdicts.has(identity(proc.pid, proc.start)),
+  };
+}
+
+/**
+ * True when the unlocked read shows `self` queued and its grant cannot change on this look: a holder
+ * not judged dead, or no holder and a waiter ahead of it, and no entry judged dead (a sweep is due).
+ * The grant is decided under the lock only; a stale read costs one poll.
+ */
+function queuedBehindLive(seen: any, judged: (proc: any) => boolean | 'unknown', self: any): boolean {
+  if (!seen) return false;
+  const at = seen.waiters.findIndex((waiter: any) => waiter.pid === self.pid && waiter.since === self.since);
+  if (at < 0 || seen.waiters.some((waiter: any) => judged(waiter) === false)) return false;
+  if (seen.holder) return holderState(seen.holder, judged) !== false;
+  return at > 0;
+}
+
+/** Drops dead waiters and a dead holder. Called only inside the lock, with `alive` from `probeSlot`. */
 function sweep(state: any, alive: (proc: any) => boolean | 'unknown') {
   state.waiters = state.waiters.filter((waiter: any) => alive({ pid: waiter.pid, start: waiter.start ?? null }) !== false);
   if (state.holder && holderState(state.holder, alive) === false) state.holder = null;
@@ -399,8 +445,9 @@ async function runSlot({
   let holding = false;
   const release = () => {
     holding = false;
+    const { judged } = probeSlot(deps.fsImpl, file, name, deps.alive);
     locked(file, name, deps, (state) => {
-      sweep(state, deps.alive);
+      sweep(state, judged);
       if (state.holder && state.holder.pid === self.pid) state.holder = null;
       state.waiters = state.waiters.filter((waiter: any) => !(waiter.pid === self.pid && waiter.since === self.since));
       return state;
@@ -411,8 +458,12 @@ async function runSlot({
   try {
     let outcome: any;
     for (;;) {
+      const { seen, judged } = probeSlot(deps.fsImpl, file, name, deps.alive);
+      // A waiter whose grant cannot change leaves the lock to the holder and the waiter that can.
+      const due = timeoutSeconds && deps.now() - startedAt >= timeoutSeconds * 1000;
+      if (!received && !due && queuedBehindLive(seen, judged, self)) { await deps.sleep(deps.pollMs); continue; }
       locked(file, name, deps, (state) => {
-        const clean = sweep(state, deps.alive);
+        const clean = sweep(state, judged);
         const waited = deps.now() - startedAt;
         if (timeoutSeconds && waited >= timeoutSeconds * 1000) {
           outcome = {
@@ -512,9 +563,10 @@ async function listSlots({ env = process.env, json = false, deps: injected }: an
   for (const name of names) {
     const file = path.join(dir, `${name}.json`);
     let view: any = null;
+    const { judged } = probeSlot(deps.fsImpl, file, name, deps.alive);
     locked(file, name, deps, (state) => {
       const before = JSON.stringify([state.holder, state.waiters]);
-      sweep(state, deps.alive);
+      sweep(state, judged);
       view = state;
       // Only a slot with dead entries is rewritten; an unchanged one is left alone.
       return JSON.stringify([state.holder, state.waiters]) === before ? false : state;
@@ -598,12 +650,15 @@ async function releaseSlot({ name, by, reason, env = process.env, deps: injected
   const deps = resolveDeps(injected);
   const file = path.join(slotsDir(env, deps.fsImpl), `${name}.json`);
   let result: any = { ok: true, disposition: 'free' };
+  const { judged, probed } = probeSlot(deps.fsImpl, file, name, deps.alive);
   locked(file, name, deps, (state) => {
-    state.waiters = state.waiters.filter((waiter: any) => deps.alive({ pid: waiter.pid, start: waiter.start ?? null }) !== false);
+    state.waiters = state.waiters.filter((waiter: any) => judged(waiter) !== false);
     const holder = state.holder;
     if (!holder) return state;
-    const live = deps.alive({ pid: holder.pid, start: holder.start ?? null }) === true
-      || (Number.isInteger(holder.childPid) && deps.alive({ pid: holder.childPid, start: holder.childStart ?? null }) === true);
+    const child = Number.isInteger(holder.childPid) ? { pid: holder.childPid, start: holder.childStart } : null;
+    // A holder or child that appeared after the probe was not judged: it is left in place, as a live one is.
+    const live = !probed(holder) || (child !== null && !probed(child))
+      || judged(holder) === true || (child !== null && judged(child) === true);
     if (live) { result = { ok: false, disposition: 'holder-alive', holder }; return false; }
     state.holder = null;
     state.lastRelease = { by, reason, at: iso(deps.now()), holder };

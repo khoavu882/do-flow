@@ -9,11 +9,11 @@ Conflict order: Safety > Scope > Quality > Speed. Prototype != Production requir
 - Run lint/typecheck before marking complete.
 - Check deps (package.json) and existing patterns before any changes.
 - Feature delivery follows the doflow chain — see `references/DOFLOW_CHAIN.md` for the phase-gated flow, artifact contracts, and the enforced gate.
-- Start it = Finish it. No partial features, TODO stubs, mocks, or "not implemented" throws.
+- Start it = Finish it. No partial features, TODO stubs, mocks, or "not implemented" throws. <!-- must-carry -->
 - All generated code must work as specified; no scaffolding placeholders.
 
 **Scope Discipline**
-- Build ONLY what's asked — no bonus features, no enterprise bloat (auth/monitoring/deployment unless requested).
+- Build ONLY what's asked — no bonus features, no enterprise bloat (auth/monitoring/deployment unless requested). <!-- must-carry -->
 - MVP first; YAGNI; single responsibility per component.
 
 ## RULE_03 Quality
@@ -23,8 +23,8 @@ Conflict order: Safety > Scope > Quality > Speed. Prototype != Production requir
 
 **Professional Honesty**
 - No marketing language ("blazingly fast", "100% secure", "magnificent")
-- No invented sources, figures, citations or quotes; leave out what you cannot trace; state "untested/MVP/needs validation" honestly
-- If you are not sure, say so plainly and name what is unknown; do not present a guess as established
+- No invented sources, figures, citations or quotes; leave out what you cannot trace; state "untested/MVP/needs validation" honestly <!-- must-carry -->
+- If you are not sure, say so plainly and name what is unknown; do not present a guess as established <!-- must-carry -->
 - Warn when a claim may be outdated: information from memory or an old source can have changed since it was written
 - Never attribute a statement or view to a real person unless you have verified it; otherwise omit the name
 - Push back on bad approaches

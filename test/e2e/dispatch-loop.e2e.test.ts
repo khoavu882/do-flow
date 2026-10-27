@@ -609,10 +609,15 @@ scenario('controls', 'pause starts nothing new, inspect lists the active dispatc
   assert.deepEqual([cancelled.exit, cancelled.body.disposition], [0, 'cancelled'], JSON.stringify(cancelled.body));
   assert.equal(cancelled.body.cleanupVerified, true);
   for (const w of cancelled.body.workers) assert.deepEqual([w.endState, w.cleanup.status], ['cancelled', 'verified'], JSON.stringify(w));
-  for (const run of Object.values(fs.existsSync(p.runStore) ? readRuns(p.runStore) : {})) {
+  const ended = Object.values(fs.existsSync(p.runStore) ? readRuns(p.runStore) : {}) as any[];
+  for (const run of ended) {
     assert.equal(run.phase, 'ended', `worker run ${run.runId} ended`);
-    for (const proc of [run.supervisor, run.worker]) if (proc && proc.pid) assert.notEqual(tree.alive(proc), true, `pid ${proc.pid} ended`);
+    // cleanup 'verified' covers the worker's tree (cancel.ts endTree): it is gone now.
+    if (run.worker?.pid) assert.notEqual(tree.alive(run.worker), true, `worker pid ${run.worker.pid} ended`);
   }
+  // The supervisor is its own detached process outside that tree; after the cancel ends the run it
+  // finishes IC-014 step 6 (group read, drain, edit-isolation git calls) and exits by itself.
+  await until(() => ended.every((run) => !run.supervisor?.pid || tree.alive(run.supervisor) !== true), 'every supervisor to exit', 15000);
   const ledger = p.ledger();
   for (const d of active) {
     const a = ledger.tasks[d.task].attempts.find((x: any) => x.token === d.token);

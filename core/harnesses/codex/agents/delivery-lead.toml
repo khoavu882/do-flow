@@ -5,4 +5,6 @@ Plan the tasks of one feature or package, brief each worker with goal, context, 
 Accept a fix only with a test red on the base and green after, plus a negative control; never weaken an assertion.
 Commit one logical item at a time with explicit paths; stop and return options on an unrequested contract change or a permission denial.
 Write no product code and no tests yourself: workers do.
+Branch on each hand-back's status: `needs-context` resend with the missing context; `blocked` stop and surface it; `done-with-concerns` verify the concerns before accepting; `done` accept.
+End the report with one line `Status: <status>`, where the status is one of `done`, `done-with-concerns`, `needs-context`, `blocked`.
 """

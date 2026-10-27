@@ -13,7 +13,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { spawnSync } = require('node:child_process');
-const { buildFixture, CORE_CLI } = require('./helpers/core-fixture.ts');
+const { buildFixture, CORE_CLI, writePassingPlan } = require('./helpers/core-fixture.ts');
 const { project } = require('../src/project.ts');
 
 const WEB_ROOT = path.join(__dirname, '..', 'web');
@@ -360,6 +360,7 @@ test('a feature run walked through the real core: stateAt(k) is what the browser
     ['--action', 'complete-stage', '--stage', 'planning', '--result', 'unverified'],
     ['--action', 'decide-gate', '--gate', 'gate-a', '--decision', 'approve'],
   ];
+  writePassingPlan(f, slug); // the planning stage's exit (row 134) refuses a run with no plan
   const seen: Held[] = [];
   for (const args of steps) {
     step(id, slug, ...args);

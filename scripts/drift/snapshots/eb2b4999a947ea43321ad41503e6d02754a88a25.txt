@@ -1,4 +1,5 @@
 On this page
+Back to top
 What you can do with MCP
 Find and build MCP servers
 Installing MCP servers
@@ -86,6 +87,7 @@ Tools with names longer than 128 characters
 Require approval for a specific tool
 Mark tools that are safe to call twice
 Respond to MCP elicitation requests
+Elicitation modes Claude Code declares
 Use MCP resources
 Reference MCP resources
 Scale with MCP tool search
@@ -618,6 +620,4 @@ add-json
 mcpServers
 in
 .mcp.json
-at your project root and commit it.
-Project scope
 [snapshot truncated]

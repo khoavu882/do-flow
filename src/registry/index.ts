@@ -459,7 +459,16 @@ function validateOrchestration(value: any, location: string, errors: string[]): 
 /** The `agentLimits.readOnly` status vocabulary (118 IC-003): `native` = the harness enforces the
  * limit from keys DoFlow writes into the agent file; `unenforced` = it does not, and says why. */
 const AGENT_LIMIT_STATUS = new Set(['native', 'unenforced']);
-const AGENT_LIMIT_KEYS = ['readOnly'];
+const AGENT_LIMIT_KEYS = ['readOnly', 'toolScope'];
+/** The abstract tool categories an agent spec's `tool-scope` names (row 135); `toolScope.map` gives
+ * each built-in category's tools on a harness, and `mcpSelector` (a template holding `{server}`)
+ * writes the `mcp` category, one selector per MCP server DoFlow's registry names. `form` is how the
+ * adapter writes them: `comma` a comma-separated string, `list` an array, `closed` a permission
+ * object that denies `*` first and then allows only the declared tools. */
+const TOOL_SCOPE_CATEGORIES = ['read', 'edit', 'shell', 'web', 'agents', 'mcp'];
+const TOOL_SCOPE_MAPPED = TOOL_SCOPE_CATEGORIES.filter((category) => category !== 'mcp');
+const TOOL_SCOPE_FORMS = new Set(['comma', 'list', 'closed']);
+const TOOL_SCOPE_ENTRY_KEYS = new Set(['status', 'field', 'form', 'map', 'mcpSelector', 'evidence', 'checked', 'verifiedOn', 'reason']);
 const AGENT_LIMIT_ENTRY_KEYS = new Set(['status', 'apply', 'evidence', 'checked', 'verifiedOn', 'reason']);
 
 /** True when `value` is a non-blank string that parses as an http: or https: URL. */
@@ -470,6 +479,17 @@ function isHttpUrl(value: string): boolean {
 
 /** Validates one harness's `agentLimits` block (118 IC-003): how a `read-only` agent spec is limited
  * on that harness. Declared, never inferred; the adapters read `apply` and nothing else. */
+/** One row per harness for doctor and capabilities (135): how it writes an agent's tool scope, or why
+ * it writes none. An unenforced harness projects no tool field, so its agents keep every tool. */
+function agentToolScopeView(registry: any): Array<{ harness: string, status: string, field?: string, reason?: string }> {
+  return registry.harnesses.map((h: any) => {
+    const entry = h.agentLimits?.toolScope || {};
+    return entry.status === 'native'
+      ? { harness: h.id, status: 'native', field: entry.field }
+      : { harness: h.id, status: entry.status || 'unenforced', reason: entry.reason || 'not declared' };
+  });
+}
+
 function validateAgentLimits(value: any, location: string, errors: string[]): void {
   if (!object(value)) { issue(errors, location, 'agentLimits block is required and must be an object'); return; }
   for (const key of AGENT_LIMIT_KEYS) {
@@ -478,6 +498,7 @@ function validateAgentLimits(value: any, location: string, errors: string[]): vo
   for (const key of Object.keys(value)) {
     if (!AGENT_LIMIT_KEYS.includes(key)) issue(errors, location, `agentLimits has unknown key '${key}'`);
   }
+  if (Object.hasOwn(value, 'toolScope')) validateToolScope(value.toolScope, `${location} agentLimits toolScope`, errors);
   if (!Object.hasOwn(value, 'readOnly')) return;
   const at = `${location} agentLimits readOnly`;
   const entry = value.readOnly;
@@ -500,6 +521,37 @@ function validateAgentLimits(value: any, location: string, errors: string[]): vo
   if (typeof entry.reason !== 'string' || !entry.reason.trim()) { issue(errors, at, 'unenforced requires a reason'); return; }
   if (evidenceOk && entry.evidence.length === 0 && entry.reason.trim().toLowerCase() !== 'no agent surface') {
     issue(errors, at, 'unenforced requires non-empty evidence unless the reason is "no agent surface"');
+  }
+}
+
+/** Validates one harness's `agentLimits.toolScope` (row 135): how an agent spec's `tool-scope` is
+ * written on that harness, or why it is not. A `native` map names every category with at least one tool. */
+function validateToolScope(entry: any, at: string, errors: string[]): void {
+  if (!object(entry)) { issue(errors, at, 'must be an object'); return; }
+  for (const key of Object.keys(entry)) if (!TOOL_SCOPE_ENTRY_KEYS.has(key)) issue(errors, at, `has unknown key '${key}'`);
+  if (!AGENT_LIMIT_STATUS.has(entry.status)) { issue(errors, at, 'status must be native or unenforced'); return; }
+  const evidenceOk = Array.isArray(entry.evidence) && entry.evidence.every((item: any) => typeof item === 'string' && isHttpUrl(item));
+  if (!evidenceOk) issue(errors, at, 'evidence must be an array of http(s) URLs');
+  if (typeof entry.verifiedOn !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(entry.verifiedOn)) issue(errors, at, 'requires verifiedOn as an ISO date (YYYY-MM-DD)');
+  if (entry.status === 'unenforced') {
+    for (const key of ['field', 'form', 'map', 'mcpSelector']) if (entry[key] !== undefined) issue(errors, at, `unenforced must not carry ${key}`);
+    if (typeof entry.reason !== 'string' || !entry.reason.trim()) issue(errors, at, 'unenforced requires a reason');
+    else if (evidenceOk && entry.evidence.length === 0 && entry.reason.trim().toLowerCase() !== 'no agent surface') issue(errors, at, 'unenforced requires non-empty evidence unless the reason is "no agent surface"');
+    return;
+  }
+  if (typeof entry.field !== 'string' || !entry.field.trim()) issue(errors, at, 'native requires field');
+  if (!TOOL_SCOPE_FORMS.has(entry.form)) issue(errors, at, `form must be one of ${[...TOOL_SCOPE_FORMS].join(', ')}`);
+  if (entry.checked !== 'docs' && entry.checked !== 'live') issue(errors, at, 'native requires checked as docs or live');
+  if (evidenceOk && entry.evidence.length === 0) issue(errors, at, 'native requires non-empty evidence');
+  // A selector names one server: no wildcard may stand before `{server}`, and the server is not the whole selector.
+  if (typeof entry.mcpSelector !== 'string' || !entry.mcpSelector.includes('{server}') || entry.mcpSelector === '{server}' || /[*?].*\{server\}/.test(entry.mcpSelector)) {
+    issue(errors, at, 'native requires mcpSelector, a template naming one {server} with no wildcard before it');
+  }
+  if (!object(entry.map)) { issue(errors, at, 'native requires map'); return; }
+  for (const key of Object.keys(entry.map)) if (!TOOL_SCOPE_MAPPED.includes(key)) issue(errors, at, `map has unknown category '${key}'`);
+  for (const category of TOOL_SCOPE_MAPPED) {
+    const tools = entry.map[category];
+    if (!Array.isArray(tools) || tools.length === 0 || tools.some((tool: any) => typeof tool !== 'string' || !tool.trim())) issue(errors, at, `map.${category} must be a non-empty array of tool names`);
   }
 }
 
@@ -1207,7 +1259,7 @@ function capabilityMapData(registry: any): any[] {
 }
 
 module.exports = {
-  REGISTRY_FILES, CAPABILITY_STATUS, COPY_TREE_SELECTS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, AGENT_LIMIT_STATUS, validateAgentLimits, WORKER_KEYS, WORKER_CAPABILITIES, WORKER_OPTIONAL_CAPABILITIES, validateWorker, CONTEXT_PROFILE_FIELDS, validateContextProfile, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS, validateCoverage,
+  REGISTRY_FILES, CAPABILITY_STATUS, COPY_TREE_SELECTS, ORCHESTRATION_STATUS, ORCHESTRATION_OPS, validateOrchestration, AGENT_LIMIT_STATUS, validateAgentLimits, TOOL_SCOPE_CATEGORIES, agentToolScopeView, WORKER_KEYS, WORKER_CAPABILITIES, WORKER_OPTIONAL_CAPABILITIES, validateWorker, CONTEXT_PROFILE_FIELDS, validateContextProfile, PROVIDER_SOURCE_MODES, validateCapabilityProviders, EXTERNAL_TOOL_IDS, EXTERNAL_TOOL_ACTIONS, validateCoverage,
   parseRegistryFile, registryDir, loadRegistry, validateRegistry, registrySourceMode,
   harnessFor, retiredFor, isRetired, selectAssets, selectMcpServers, mcpCapable, nativeMcpCatalog, capabilityMapData,
 };

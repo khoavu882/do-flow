@@ -80,3 +80,9 @@ test('STUB rows are listed with their note, beside the DRIFTED ones', { skip: !H
   assert.match(out, /https:\/\/x\.test\/d`/);
   assert.doesNotMatch(out, /x\.test\/ok/);
 });
+
+test('the report is written by running the script directly, not through npm (npm prints a banner ahead of the JSON and jq exits 5)', () => {
+  const src = fs.readFileSync(WORKFLOW, 'utf8');
+  assert.match(src, /^\s*node scripts\/check-format-drift\.js --json > drift-report\.json$/m);
+  assert.doesNotMatch(src, /npm run drift[^\n]*> drift-report\.json/);
+});

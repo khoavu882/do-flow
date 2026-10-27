@@ -1,7 +1,7 @@
 Copy Page
 Build plugins
-Turn a repeatable workflow into a plugin, test it, and refine it in ChatGPT.
 Copy Page
+Turn a repeatable workflow into a plugin, test it, and refine it in ChatGPT.
 Turn a workflow you repeat into a plugin you can use again in ChatGPT. Describe the task in a conversation, add the instructions and reference material it needs, then test and refine the result.
 Custom GPTs are moving to plugins
 Custom GPTs in ChatGPT Enterprise are being retired. If you use a custom GPT, follow

@@ -90,7 +90,10 @@ test('followup needs an action; an unknown one names the valid set; lifecycle na
   const life = run(repo.dir, ['lifecycle', '--action', 'bogus', '--json']);
   assert.equal(life.status, 2);
   assert.match(life.json.summary, /overview, init, release, status, merged/);
-  assert.equal(run(repo.dir, ['lifecycle', '--action', 'status', '--json']).status, 2, 'status needs a slug');
+  // Row 135: status without a slug reads the feature pointer; with none recorded it says so and exits 0.
+  const pointerless = run(repo.dir, ['lifecycle', '--action', 'status', '--json']);
+  assert.equal(pointerless.status, 0);
+  assert.equal(pointerless.json.active.state, 'none');
 });
 
 test('a value that starts with - is refused by the flag parser (use --batch for such text)', () => {

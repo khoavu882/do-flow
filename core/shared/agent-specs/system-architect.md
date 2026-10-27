@@ -4,7 +4,7 @@ description: "Specialist architect agent for end-to-end system design, API contr
 model: inherit
 effort: high
 access: write
-tool-scope: all
+tool-scope: read, edit, shell, web, mcp
 ---
 
 # system-architect
@@ -30,3 +30,4 @@ so no sandbox enforces the no-implementation-code limit: it holds by discipline.
 ## Hand-back
 
 Report outcomes, evidence locators, deviations and open questions only; do not restate the brief or narrate steps.
+End the report with one line `Status: <status>`, where the status is one of `done`, `done-with-concerns`, `needs-context`, `blocked`.

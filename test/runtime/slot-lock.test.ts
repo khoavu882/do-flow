@@ -145,19 +145,23 @@ for (const [what, waiters, expected] of [
     const { env, file } = slotEnv();
     fs.writeFileSync(file, JSON.stringify({ version: 1, revision: 1, name: 'lost', holder, waiters, lastRelease: null }));
     let reclaimed = false;
-    const deps: any = {
-      procStart: () => null,
-      alive: (proc: any) => {
-        if (!reclaimed) {
-          // Inside the critical section: another process reclaims the lock, records a waiter, releases.
+    // Liveness is probed before the lock, so the reclaim is injected at the critical section's own read:
+    // once this process holds the lock and has read the file, another process reclaims the lock, records
+    // a waiter and releases, and this process goes on to its write or delete with what it read.
+    const fsImpl = hookedFs({
+      readFileSync: (original: any, ...args: any[]) => {
+        const text = original(...args);
+        if (!reclaimed && args[0] === file && fs.existsSync(`${file}.lock`)) {
           reclaimed = true;
           fs.rmSync(`${file}.lock`, { recursive: true, force: true });
           fs.writeFileSync(file, JSON.stringify({ version: 1, revision: 2, name: 'lost', holder, waiters: [...waiters, waiter(4102)], lastRelease: null }));
         }
-        return proc.pid !== DEAD;
+        return text;
       },
-    };
+    });
+    const deps: any = { fsImpl, procStart: () => null, alive: (proc: any) => proc.pid !== DEAD };
     const result = await releaseSlot({ name: 'lost', by: 'tester', reason: 'dead holder', env, deps });
+    assert.equal(reclaimed, true, 'the reclaim ran inside the critical section');
     assert.equal(result.disposition, 'released');
     assert.ok(fs.existsSync(file), 'the reclaimer\'s record was deleted');
     const final = JSON.parse(fs.readFileSync(file, 'utf8'));

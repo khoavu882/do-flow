@@ -147,3 +147,23 @@ test('doctor: an unreadable ledger is a warning, not a finding', (testContext) =
   assert.match(warning.detail, /Cannot read neutral ledger/);
   assert.equal(report.findings.length, 0);
 });
+
+// 135: each harness's agent tool scope, native with its field or unenforced with the reason it projects none.
+test('doctor and capabilities: one agent tool-scope row per harness, unenforced ones with their reason', (testContext) => {
+  const t = fixture(testContext);
+  const { loadRegistry } = require('../../src/registry/index.ts');
+  const harnesses = loadRegistry({ repoRoot: REPO_ROOT }).harnesses;
+  const report = JSON.parse(doctor(t, [t.proj, '--json']).stdout);
+  assert.deepEqual(report.agentToolScope.map((row: any) => row.harness), harnesses.map((h: any) => h.id));
+  for (const row of report.agentToolScope) {
+    const entry = harnesses.find((h: any) => h.id === row.harness).agentLimits.toolScope;
+    assert.deepEqual(row, entry.status === 'native' ? { harness: row.harness, status: 'native', field: entry.field } : { harness: row.harness, status: 'unenforced', reason: entry.reason });
+  }
+  const text = doctor(t, [t.proj]).stdout.split('\n');
+  const section = text.slice(text.indexOf('[Agent Tool Scope]') + 1, text.indexOf('[Agent Tool Scope]') + 1 + harnesses.length);
+  assert.equal(section.find((line: any) => line.startsWith('  claude ')), `  ${'claude'.padEnd(14)}native      tools`);
+  assert.match(section.find((line: any) => line.startsWith('  codex ')), /unenforced {2}projects no tool field: /);
+  const caps = spawnSync(process.execPath, [CLI, 'capabilities', '--json'], { cwd: t.dir, encoding: 'utf8', env: { HOME: t.home, PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`, GIT_CONFIG_GLOBAL: '/dev/null' } });
+  assert.equal(caps.status, 0, caps.stderr);
+  assert.deepEqual(JSON.parse(caps.stdout).agentToolScope, report.agentToolScope);
+});
