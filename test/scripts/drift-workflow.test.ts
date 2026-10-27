@@ -1,4 +1,5 @@
 'use strict';
+const JQ_B = process.platform === 'win32' ? ['-b'] : []; // native jq.exe ends lines with CRLF unless -b
 
 // The comment text .github/workflows/drift.yml builds from the drift report. The jq program is read
 // out of the workflow itself and run on fixture reports, so the shipped text is what is tested.
@@ -23,7 +24,7 @@ function comment(t: any, results: any, budget = 60000) {
   const dir = tempDir(t, 'doflow-driftwf-');
   const report = path.join(dir, 'drift-report.json');
   fs.writeFileSync(report, JSON.stringify({ results }));
-  const run = spawnSync('jq', ['-r', '--argjson', 'budget', String(budget), program(), report], { encoding: 'utf8' });
+  const run = spawnSync('jq', [...JQ_B, '-r', '--argjson', 'budget', String(budget), program(), report], { encoding: 'utf8' });
   assert.equal(run.status, 0, run.stderr);
   return run.stdout;
 }

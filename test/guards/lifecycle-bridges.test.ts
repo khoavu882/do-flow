@@ -1,4 +1,5 @@
 'use strict';
+const JQ_B = process.platform === 'win32' ? ['-b'] : []; // native jq.exe ends lines with CRLF unless -b
 const { bashPath } = require('../helper/bash-locator.ts');
 
 // G34/G35 — lifecycle bridge boundaries and the envelope/decision contract (IC-030).
@@ -85,7 +86,7 @@ function bridgeInput(harness: any, native: any, fixtureEnv: any = {}) {
 }
 
 function encodeFixture(harness: any, event: any, policy: any, native: any, envelopePath: any = path.join(BRIDGE_DIR, 'envelope.jq'), fixtureEnv: any = {}) {
-  const result = spawnSync('jq', ['-c', '--arg', 'harness', harness, '--arg', 'event', event, '--arg', 'policy', policy, '-f', envelopePath], {
+  const result = spawnSync('jq', [...JQ_B, '-c', '--arg', 'harness', harness, '--arg', 'event', event, '--arg', 'policy', policy, '-f', envelopePath], {
     input: bridgeInput(harness, native, fixtureEnv), encoding: 'utf8', env: bridgeEnv(fixtureEnv),
   });
   assert.equal(result.status, 0, result.stderr);

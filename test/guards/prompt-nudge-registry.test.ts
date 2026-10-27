@@ -1,4 +1,5 @@
 'use strict';
+const JQ_B = process.platform === 'win32' ? ['-b'] : []; // native jq.exe ends lines with CRLF unless -b
 
 // G25 — `promptNudge` registry shape. The standalone-prompt nudge reads its rules from the top-level
 // `promptNudge` key of core/registry/workflows.json with jq, and the hook has no defaults: a missing
@@ -83,7 +84,7 @@ test('G25 promptNudge.pathPattern compiles in jq', (t) => {
   if (probe.error || probe.status !== 0) return t.skip('jq is not installed');
   const pattern = registry.promptNudge?.pathPattern;
   assert.equal(typeof pattern, 'string', 'pathPattern must be a string');
-  const r = spawnSync('jq', ['-n', '--arg', 'p', pattern, '"probe" | test($p)'], { encoding: 'utf8' });
+  const r = spawnSync('jq', [...JQ_B, '-n', '--arg', 'p', pattern, '"probe" | test($p)'], { encoding: 'utf8' });
   assert.equal(r.status, 0, `jq rejected pathPattern: ${r.stderr}`);
 });
 
@@ -93,7 +94,7 @@ test('G25 the decision program runs on a probe payload against the shipped regis
   const program = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'prompt-nudge.jq');
   // Reaches every step and every clause of the line test, so every assembled regex is compiled.
   const payload = JSON.stringify({ session_id: 'probe', cwd: '/tmp', prompt: 'please fix the parser in src/a.js' });
-  const r = spawnSync('jq', ['-r', '--slurpfile', 'R', REGISTRY, '-f', program], { input: payload, encoding: 'utf8' });
+  const r = spawnSync('jq', [...JQ_B, '-r', '--slurpfile', 'R', REGISTRY, '-f', program], { input: payload, encoding: 'utf8' });
   assert.equal(r.status, 0, `the decision program failed against the shipped registry: ${r.stderr}`);
   assert.match(r.stdout, /^(nudge|suppress|)\n$/, `not one decision line: ${JSON.stringify(r.stdout)}`);
 });

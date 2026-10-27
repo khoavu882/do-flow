@@ -89,7 +89,7 @@ function render(segment: any, action: any, file: any, maxBytes: any = 16384, sum
   const args: any = ['-n', '-f', EMISSION, '--argjson', 'plan', JSON.stringify(plan)];
   for (const [name, f] of Object.entries(files)) args.push('--rawfile', name, f);
   args.push('--arg', 'nudge', '');
-  const r = spawnSync('jq', args, { encoding: 'utf8' });
+  const r = spawnSync('jq', process.platform === 'win32' ? ['-b', ...args] : args, { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   return JSON.parse(r.stdout);
 }

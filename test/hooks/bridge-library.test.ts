@@ -1,4 +1,5 @@
 'use strict';
+const JQ_B = process.platform === 'win32' ? ['-b'] : []; // native jq.exe ends lines with CRLF unless -b
 const { bashPath } = require('../helper/bash-locator.ts');
 
 const test = require('node:test');
@@ -69,7 +70,7 @@ BRIDGE_TEST('decode is fixture-backed, harness-scoped, and only emits operation 
   for (const [harness, event, native, operation, paths, source] of cases) {
     assert.ok(fs.existsSync(path.join(ROOT, source.split(' (')[0])), `${harness} fixture source exists: ${source}`);
     const payload: any = { ...native, unknown_field: 'ignored' };
-    const decoded = spawnSync('jq', ['-c', '--arg', 'harness', harness, '--arg', 'event', event, '--arg', 'policy', 'session-context', '-f', path.join(dir, 'bridge/envelope.jq')], { input: JSON.stringify(payload), encoding: 'utf8' });
+    const decoded = spawnSync('jq', [...JQ_B, '-c', '--arg', 'harness', harness, '--arg', 'event', event, '--arg', 'policy', 'session-context', '-f', path.join(dir, 'bridge/envelope.jq')], { input: JSON.stringify(payload), encoding: 'utf8' });
     assert.equal(decoded.status, 0, decoded.stderr);
     const value = JSON.parse(decoded.stdout).doflow_event;
     assert.equal(value.version, 1, harness);
@@ -82,7 +83,7 @@ BRIDGE_TEST('decode is fixture-backed, harness-scoped, and only emits operation 
     if (harness === 'codex') assert.equal(value.patch, '*** Begin Patch\n');
     if (harness === 'claude') assert.equal(value.version, 1, 'bridge envelope replaces native doflow_event');
     const command = harness === 'pi' ? { toolName: 'bash', input: { command: 'npm test', path: 'wrong.ts' } } : { tool_name: harness === 'antigravity' ? 'run_shell_command' : 'Bash', tool_input: { command: 'npm test', file_path: 'wrong.ts' } };
-    const cmd = spawnSync('jq', ['-c', '--arg', 'harness', harness, '--arg', 'event', event, '--arg', 'policy', 'session-context', '-f', path.join(dir, 'bridge/envelope.jq')], { input: JSON.stringify(command), encoding: 'utf8' });
+    const cmd = spawnSync('jq', [...JQ_B, '-c', '--arg', 'harness', harness, '--arg', 'event', event, '--arg', 'policy', 'session-context', '-f', path.join(dir, 'bridge/envelope.jq')], { input: JSON.stringify(command), encoding: 'utf8' });
     assert.equal(cmd.status, 0, cmd.stderr);
     const cmdEnv = JSON.parse(cmd.stdout).doflow_event;
     assert.equal(cmdEnv.operation, ['claude','codex','kiro','pi'].includes(harness) ? 'command' : 'tool', harness);
@@ -96,7 +97,7 @@ BRIDGE_TEST('Antigravity decodes every tool name routed by the runner from its c
   const fixturePath = path.join(ROOT, 'test/fixtures/hooks/antigravity/pre-implement-gate/routed-tools.json');
   const fixture = JSON.parse(fs.readFileSync(fixturePath, 'utf8'));
   for (const row of fixture.calls) {
-    const decoded = spawnSync('jq', ['-c', '--arg', 'harness', 'antigravity', '--arg', 'event', 'PreToolUse', '--arg', 'policy', 'pre-implementation-gate', '-f', path.join(dir, 'bridge/envelope.jq')], {
+    const decoded = spawnSync('jq', [...JQ_B, '-c', '--arg', 'harness', 'antigravity', '--arg', 'event', 'PreToolUse', '--arg', 'policy', 'pre-implementation-gate', '-f', path.join(dir, 'bridge/envelope.jq')], {
       input: JSON.stringify(row.native), encoding: 'utf8',
     });
     assert.equal(decoded.status, 0, row.name);

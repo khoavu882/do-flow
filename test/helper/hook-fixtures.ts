@@ -1,4 +1,5 @@
 'use strict';
+const JQ_B = process.platform === 'win32' ? ['-b'] : []; // native jq.exe ends lines with CRLF unless -b
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -110,13 +111,13 @@ function createScratch(name = 'doflow-hook-fixtures-') {
 }
 
 function jqSorted(value: any) {
-  const result = spawnSync('jq', ['-S', '.'], { input: `${JSON.stringify(value)}\n`, encoding: 'utf8' });
+  const result = spawnSync('jq', [...JQ_B, '-S', '.'], { input: `${JSON.stringify(value)}\n`, encoding: 'utf8' });
   if (result.status !== 0) throw new Error(result.stderr || 'jq -S failed');
   return result.stdout;
 }
 
 function encodeEnvelope(harness: any, event: any, policy: any, nativeInput: any, env = {}) {
-  const result = spawnSync('jq', [
+  const result = spawnSync('jq', [...JQ_B, 
     '-c', '--arg', 'harness', harness, '--arg', 'event', event, '--arg', 'policy', policy,
     '-f', path.join(REPO, 'core/harnesses/shared/hooks/bridge/envelope.jq'),
   ], { input: nativeInput, env: { ...process.env, ...env }, encoding: 'utf8' });

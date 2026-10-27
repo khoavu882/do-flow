@@ -249,7 +249,7 @@ function runEmissionJq(t: any, { actions, maxBytes, inputs }: any, extra: any = 
   const plan: any = { actions, maxBytes, harness: 'claude', title: false, absent, ...extra };
   if (typeof inputs.summaryBytes === 'number') plan.summaryBytes = inputs.summaryBytes;
   args.push('--argjson', 'plan', JSON.stringify(plan));
-  return execFileSync('jq', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  return execFileSync('jq', process.platform === 'win32' ? ['-b', ...args] : args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
 for (const c of CORPUS.cases) {
