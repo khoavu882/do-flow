@@ -1658,3 +1658,53 @@ test('IC-003 text cap: land line plus many overlaps still prints at most twelve 
   assert.ok(all[1].startsWith('  land (person only): '));
   assert.ok(all.some((line: any) => /\.\.\. \d+ more/.test(line)), 'overflow summary present');
 });
+
+// FU-5f7dwt: `proposed` is a known row key. A store row may carry `proposed: true`; a draft may not set it (only apply writes it).
+test('proposed: a store row marked proposed is not flagged, and a draft cannot set the key', (t) => {
+  const dir = tempDir(t, 'doflow-roadmap-seed-proposed-');
+  const storeRows: any = [
+    { id: '113', slug: '113-toy', title: 'Toy row', class: 'feature', needs: [], writeSet: ['src/toy/'], proposed: true },
+  ];
+  writeFixtureStore(dir, storeRows);
+  assert.deepEqual(seedFindings(JSON.parse(fs.readFileSync(path.join(dir, 'agent-docs/roadmap/rows.json'), 'utf8'))), []);
+
+  const storeRaw = fs.readFileSync(path.join(dir, 'agent-docs/roadmap/rows.json'), 'utf8');
+  const clean = { schema: 1, rows: [{ id: '114', slug: '114-new', title: 'New row', class: 'feature', needs: [] }] };
+  assert.equal(judgeDraft({ draftRaw: JSON.stringify(clean), seedRaw: storeRaw, gitFacts: {}, op: 'check' }).ok, true);
+
+  for (const value of [true, false]) {
+    const draft = { schema: 1, rows: [{ ...clean.rows[0], proposed: value }] };
+    const judged = judgeDraft({ draftRaw: JSON.stringify(draft), seedRaw: storeRaw, gitFacts: {}, op: 'check' });
+    assert.equal(judged.ok, false, `proposed: ${value}`);
+    assert.ok(judged.findings.every((f: any) => f.rule === 'seed-invalid' && f.rowId === '114'), `proposed: ${value}`);
+    assert.ok(judged.findings.some((f: any) => /must not declare proposed/.test(f.message)), `proposed: ${value}`);
+  }
+});
+
+// An amend replaces a row whole; it must not clear a live `proposed` (only `roadmap promote` does), even when the
+// amend itself would land ready (interactive terminal, autopilot verifiably off).
+test('amend: a live proposed row stays proposed after an unmarked draft replaces it', (t) => {
+  const dir = tempDir(t, 'doflow-roadmap-seed-amend-proposed-');
+  writeFixtureStore(dir, [
+    { id: '113', slug: '113-toy', title: 'Toy row', class: 'feature', needs: [], writeSet: ['src/toy/'], proposed: true },
+    { id: '114', slug: '114-two', title: 'Two', class: 'feature', needs: [], writeSet: ['src/two/'] },
+  ]);
+  const draftPath = path.join(dir, 'draft.json');
+  fs.writeFileSync(draftPath, JSON.stringify({
+    schema: 1,
+    rows: [
+      { id: '113', slug: '113-toy', title: 'Toy row, reworded', class: 'feature', needs: [], writeSet: ['src/toy/'] },
+      { id: '114', slug: '114-two', title: 'Two, reworded', class: 'feature', needs: [], writeSet: ['src/two/'] },
+    ],
+  }), 'utf8');
+  const { exit, result } = runSeedJson({
+    action: 'amend', draft: draftPath, root: dir, isTTY: true,
+    gitFacts: { developHead: 'h', merges: [], branches: [], unreadable: [] },
+    readSwitch: () => ({ enabled: false, switch: null }),
+    err: () => {},
+  });
+  assert.equal(exit, 0);
+  assert.deepEqual(result.proposed, ['113']);
+  const rows = JSON.parse(fs.readFileSync(path.join(dir, 'agent-docs/roadmap/rows.json'), 'utf8')).rows;
+  assert.deepEqual(rows.map((r: any) => [r.id, r.title, r.proposed ?? null]), [['113', 'Toy row, reworded', true], ['114', 'Two, reworded', null]]);
+});

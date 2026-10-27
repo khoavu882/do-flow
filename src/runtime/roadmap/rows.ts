@@ -371,8 +371,16 @@ function seedFindings(
       );
     }
 
-    // proposed (maint-thin): only `true`; absent means ready
-    if (row.proposed !== undefined && row.proposed !== true) {
+    // proposed (maint-thin): only `true`; absent means ready. Only seed apply/amend writes it, so a draft may not
+    // declare it at all (a draft cannot pre-mark a row, and no model can launder a promotion).
+    if (isDraft && 'proposed' in row) {
+      add(
+        idx,
+        'seed-invalid',
+        `Draft row '${safeText(rowId ?? 'unknown')}' must not declare proposed; seed apply marks it`,
+        rowId
+      );
+    } else if (row.proposed !== undefined && row.proposed !== true) {
       add(
         idx,
         'seed-invalid',
