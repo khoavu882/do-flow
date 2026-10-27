@@ -12,6 +12,8 @@
 //      the capability providers' `mcp.server` in capabilities.json), each written through the harness's
 //      `mcpSelector`, never `*`; a spec that declares `mcp` keeps every one of them, read-only or not.
 //   6. OpenCode's permission block is closed: `"*": deny` first, then only allows the declaration derives.
+//   7. `read` carries the skill-loading and todo tools where a harness names them, and no harness maps a
+//      tool that asks the user (Claude AskUserQuestion, OpenCode question): a subagent must not block on a person.
 // Controls plant a broader tool on Claude, an extra MCP grant on Claude, Kiro and OpenCode, a lifted
 // `*` deny on OpenCode and a tool field on an unenforced harness.
 
@@ -117,6 +119,24 @@ test('G77: the mcp category is the registry\'s MCP servers, written through a se
     assert.ok(selector.includes('{server}') && !/\*.*\{server\}/.test(selector) && selector !== '{server}', `${h.id}: ${selector}`);
   }
   assert.ok(specs.filter((s: any) => s.scope.includes('mcp')).length === specs.length, 'every archetype retrieves through the approved MCP servers');
+});
+
+test('G77: a reviewer can load a skill and keep its todo list, and never gets a tool that waits on a person', () => {
+  const reviewer = specs.find((s: any) => s.name === 'reviewer');
+  const claude = render('claude', reviewer).match(/^tools: (.+)$/m)?.[1].split(', ') ?? [];
+  for (const tool of ['Skill', 'TodoWrite', 'TaskCreate', 'TaskGet', 'TaskList', 'TaskUpdate']) assert.ok(claude.includes(tool), `claude/reviewer lacks ${tool}`);
+  const opencode = render('opencode', reviewer);
+  for (const tool of ['skill', 'todowrite']) assert.match(opencode, new RegExp(`^  ${tool}: allow$`, 'm'), `opencode/reviewer lacks ${tool}`);
+  assert.match(render('copilot', reviewer), /"todo"/, 'copilot/reviewer lacks todo');
+  const interactive = ['AskUserQuestion', 'question'];
+  for (const h of registry.harnesses) {
+    const tools = Object.values(h.agentLimits?.toolScope?.map ?? {}).flat();
+    assert.deepEqual(tools.filter((t: any) => interactive.includes(t)), [], `${h.id} maps an ask-the-user tool`);
+  }
+  const plantedClaude = render('claude', reviewer).replace(/^tools: (.+)$/m, 'tools: $1, AskUserQuestion');
+  assert.deepEqual(scopeFindings('claude', reviewer, plantedClaude), [`claude/reviewer: grants AskUserQuestion, outside tool-scope ${reviewer.scope.join(', ')}`]);
+  const plantedOpencode = opencode.replace(/^(permission:\n(?:  .*\n)*)/m, '$1  question: allow\n');
+  assert.deepEqual(scopeFindings('opencode', reviewer, plantedOpencode), [`opencode/reviewer: grants question, outside tool-scope ${reviewer.scope.join(', ')}`]);
 });
 
 test('G77: controls — a broader tool, an extra MCP grant, a reopened OpenCode policy, a tool field on an unenforced harness', () => {

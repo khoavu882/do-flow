@@ -251,7 +251,13 @@
             "read": [
               "Read",
               "Grep",
-              "Glob"
+              "Glob",
+              "Skill",
+              "TodoWrite",
+              "TaskCreate",
+              "TaskGet",
+              "TaskList",
+              "TaskUpdate"
             ],
             "edit": [
               "Edit",
@@ -271,7 +277,8 @@
           },
           "mcpSelector": "mcp__{server}__*",
           "evidence": [
-            "https://code.claude.com/docs/en/sub-agents"
+            "https://code.claude.com/docs/en/sub-agents",
+            "https://code.claude.com/docs/en/tools-reference"
           ],
           "checked": "docs",
           "verifiedOn": "2026-10-27"
@@ -1267,7 +1274,9 @@
               "read",
               "glob",
               "grep",
-              "lsp"
+              "lsp",
+              "skill",
+              "todowrite"
             ],
             "edit": [
               "edit"
@@ -2165,7 +2174,8 @@
               "read",
               "search",
               "execute",
-              "web"
+              "web",
+              "todo"
             ]
           },
           "evidence": [
@@ -2181,7 +2191,8 @@
           "map": {
             "read": [
               "read",
-              "search"
+              "search",
+              "todo"
             ],
             "edit": [
               "edit"
