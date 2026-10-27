@@ -24,7 +24,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir, suiteTempDir } = require('../helper/tmp.ts');
+const { tempDir, suiteTempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { FAKE_CLI, IDENTITY_VARS, linkBin, writeScenario, readLog } = require('../helper/fake-harness-cli.ts');
 const { buildInstallMirror } = require('../helper/hook-fixtures.ts');
 const { writeSummary } = require('../helper/summary-fixture.ts');
@@ -90,7 +90,7 @@ function world(t: any) {
     XDG_CONFIG_HOME: w.xdg,
     TMPDIR: process.env.TMPDIR || '/tmp',
     GIT_CONFIG_GLOBAL: path.join(dir, 'no-gitconfig'),
-    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
     DOFLOW_FAILURE_CAPTURE: 'off',
     DOFLOW_PROJECT_DIR: '',
     DOFLOW_AGENT: '',

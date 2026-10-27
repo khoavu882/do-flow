@@ -888,7 +888,8 @@ scenario('restart-resume', 'a killed loop with one live and one lost worker disp
 scenario('spawn-grant-bounds', 'requests past the granted children, depth or tokens are refused naming the bound; an ungranted worker is spawning-denied', SUBAGENT, async (t: any, mode: any) => {
   const p: any = await project(t, mode, { plan: 'budget', start: { reserveTokens: '100', spawnGrant: JSON.stringify({ depth: 1, children: 1, tokens: 50 }) }, startNow: false });
   const go = path.join(p.sb.dir, 'go');
-  p.setSpec({ '*': { waitFor: go }, child: { waitFor: go } });
+  const childGo = path.join(p.sb.dir, 'go-child');
+  p.setSpec({ '*': { waitFor: go }, child: { waitFor: childGo } });
   await p.start();
   await p.exec({ action: 'step' });
   const [granter] = p.dispatches();
@@ -918,6 +919,12 @@ scenario('spawn-grant-bounds', 'requests past the granted children, depth or tok
   assert.deepEqual([grand.exit, grand.body.reason], [1, 'depth-exceeded'], JSON.stringify(grand.body));
   const status = await p.exec({ action: 'spawn', requestId: ok.body.requestId, cwd: granter.attempt.worktree }, workerEnv(granter.workerIdentity, granter.attempt.worktree));
   assert.deepEqual([status.body.disposition, status.body.state], ['spawn-status', 'launched']);
+  // The child ends on its own first: a granter that finishes while its child still runs cancels it (settleChildren/cancelChildren).
+  fs.writeFileSync(childGo, 'go');
+  await until(async () => {
+    await p.exec({ action: 'step' });
+    return p.read().spawnRequests[ok.body.requestId].endState != null;
+  }, 'the child run ended');
   fs.writeFileSync(go, 'go');
   const last = await p.drive();
   assert.equal(last.outcome, 'completed', JSON.stringify(last.blocked || last.actions));

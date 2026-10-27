@@ -14,7 +14,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { suiteTempDir, removeTree } = require('./tmp.ts');
+const { suiteTempDir, removeTree, GIT_NO_MAINTENANCE_ENV } = require('./tmp.ts');
 
 const DROPPED_ENV = ['DOFLOW_RETENTION_HOURS', 'PI_CODING_AGENT_DIR'];
 
@@ -57,7 +57,7 @@ function createScratch(prefix = 'doflow-lifecycle-', { prune = 'off', hookHarnes
         HOME: home,
         XDG_CONFIG_HOME: xdg,
         GIT_CONFIG_GLOBAL: path.join(dir, 'no-gitconfig'),
-        GIT_CONFIG_NOSYSTEM: '1',
+        GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
         GIT_AUTHOR_NAME: 'Test',
         GIT_AUTHOR_EMAIL: 'test@example.com',
         GIT_COMMITTER_NAME: 'Test',

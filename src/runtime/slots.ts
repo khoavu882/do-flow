@@ -82,13 +82,37 @@ type Deps = {
   lockBudgetMs?: number; // tests only: how long a slot lock is waited for (default 30 s)
 };
 
+/**
+ * How long a process judged alive is taken as alive without asking again. Every poll of every waiter
+ * sweeps the whole queue inside the slot lock, and the default check starts a `ps` per entry: with N
+ * waiters that is N `ps` runs per poll per waiter, all serialised under the one lock, so a slow
+ * `ps` (a loaded host) makes the lock hold time grow with the queue until a waiter outlasts the lock
+ * budget. Only `true` is remembered, only for this runSlot call: a death is noticed within the window.
+ */
+const ALIVE_CACHE_MS = 2000;
+
+function cachedAlive(check: (proc: any) => boolean | 'unknown', clock: () => number = () => performance.now()): (proc: any) => boolean | 'unknown' {
+  const seen = new Map<string, number>();
+  return (proc: any) => {
+    const key = `${proc?.pid}\0${proc?.start ?? ''}`;
+    // A monotonic clock, and a non-positive or odd age counts as expired: a wall-clock step back must not keep a dead process alive.
+    const now = clock();
+    const at = seen.get(key);
+    const age = at === undefined ? NaN : now - at;
+    if (age >= 0 && age < ALIVE_CACHE_MS) return true;
+    const state = check(proc);
+    if (state === true) seen.set(key, now); else seen.delete(key);
+    return state;
+  };
+}
+
 function resolveDeps(deps: Deps = {}) {
   const kill = deps.kill;
   const run = deps.run;
   return {
     fsImpl: deps.fsImpl || fs,
     spawn: deps.spawn || spawnChild,
-    alive: deps.alive || ((proc: any) => processAlive(proc, { kill, run })),
+    alive: deps.alive || cachedAlive((proc: any) => processAlive(proc, { kill, run })),
     procStart: deps.procStart || ((pid: number) => processStart(pid, run ? { run } : {})),
     now: deps.now || Date.now,
     sleep: deps.sleep || ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))),
@@ -589,4 +613,4 @@ async function releaseSlot({ name, by, reason, env = process.env, deps: injected
   return result;
 }
 
-module.exports = { runSlot, listSlots, peekSlots, releaseSlot, acquireSlotLock, SLOT_NAME, POLL_MS };
+module.exports = { runSlot, listSlots, peekSlots, releaseSlot, acquireSlotLock, cachedAlive, ALIVE_CACHE_MS, SLOT_NAME, POLL_MS };

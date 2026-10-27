@@ -12,7 +12,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const BIN = path.join(REPO, 'bin', 'doflow.js');
@@ -46,7 +46,7 @@ function seed(t: any, lines: any = FINDINGS) {
 }
 
 function env(home: any) {
-  return { HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), PATH: process.env.PATH, TMPDIR: process.env.TMPDIR || '/tmp', FORCE_COLOR: '0', GIT_CONFIG_NOSYSTEM: '1' };
+  return { HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), PATH: process.env.PATH, TMPDIR: process.env.TMPDIR || '/tmp', FORCE_COLOR: '0', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV };
 }
 
 /** `node bin/doflow.js ...args` with cwd and HOME in temp dirs; `input` goes to stdin. */

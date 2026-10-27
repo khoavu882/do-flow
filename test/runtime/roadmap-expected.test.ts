@@ -16,7 +16,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
 const { createHash } = require('node:crypto');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { repoFromTemplate } = require('../helper/repo-template.ts');
 const { next, handleRoadmapCommand } = require('../../src/runtime/roadmap/loop.ts');
 const { mergeRoadmapRow } = require('../../src/runtime/roadmap/merge.ts');
@@ -217,7 +217,7 @@ async function build(t: any, sc: any) {
   if (probe?.healthyProvider) { write(path.join(bin, 'semble'), '#!/bin/sh\nexit 0\n'); fs.chmodSync(path.join(bin, 'semble'), 0o755); }
 
   const env: any = { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'), FORCE_COLOR: '', PATH: bin,
-    GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 'Fixture Owner', GIT_AUTHOR_EMAIL: 'owner@example.invalid',
+    GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 'Fixture Owner', GIT_AUTHOR_EMAIL: 'owner@example.invalid',
     GIT_COMMITTER_NAME: 'Fixture Owner', GIT_COMMITTER_EMAIL: 'owner@example.invalid', GIT_AUTHOR_DATE: '1792400000 +0000',
     GIT_COMMITTER_DATE: '1792400000 +0000', DOFLOW_FIXTURE_CANARY: 'canary-7f3a9-do-not-log' };
   delete env[SWITCH_ENV];

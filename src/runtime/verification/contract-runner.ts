@@ -322,7 +322,7 @@ class VerificationContractRunner {
   reuseStore?: { dir: string; level: string };
   /** One `git status` per contract (089 IC-001): `ignored` and `gitRoot` are null when it faulted. */
   _treeContext?: TreeContext;
-  /** Check result → `{ startedAt, durationMs, tests, testsFailed, cpuMs, resourceBasis, checkKey, shared, failedFirst }`
+  /** Check result → `{ startedAt, startedMonoMs, durationMs, tests, testsFailed, cpuMs, resourceBasis, checkKey, shared, failedFirst }`
    * for every executed or reused check; an in-run duplicate and a check with no command have no entry. */
   metrics: WeakMap<object, any>;
 
@@ -692,6 +692,7 @@ class VerificationContractRunner {
       const { tests, testsFailed } = res?.bounded === true ? res : parseTestCounts(full);
       timing = {
         startedAt,
+        startedMonoMs: t0 !== null ? Number(t0) / 1e6 : null,
         durationMs: t0 !== null && t1 !== null ? Number(t1 - t0) / 1e6 : null,
         tests,
         testsFailed,

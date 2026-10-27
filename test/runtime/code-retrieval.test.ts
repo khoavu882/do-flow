@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { admitCodeCorpus } = require('../../src/runtime/knowledge/code-corpus.ts');
 const { searchCodeLexical } = require('../../src/runtime/knowledge/code-lexical.ts');
 const { executeCodeRetrieval } = require('../../src/runtime/knowledge/code-retrieval.ts');
@@ -392,7 +392,7 @@ test('DEC-025 semantic fault fallback: lexical-only profile, attempt order kept,
 // task-bound attempt that delivered candidates is never recorded UNREACHED. Index build/refresh still refuse.
 function admissionWorld(t: any) {
   const root = fs.realpathSync(tempDir(t, 'doflow-code-retrieval-admission-'));
-  const env: any = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+  const env: any = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV };
   const git = (...args: any[]) => { const r = require('node:child_process').spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', ...args], { cwd: root, env, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); };
   fs.mkdirSync(path.join(root, 'src'));
   fs.writeFileSync(path.join(root, '.gitignore'), '.doflow/\n');

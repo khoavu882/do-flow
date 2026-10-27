@@ -63,6 +63,20 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
   // Timestamp of a record with no start of its own (a tier with no check, an in-run duplicate):
   // the latest instant seen so far, so line timestamps never go backwards.
   let cursor = Number.isFinite(runStart) ? runStart : undefined;
+  // Check stamps come from ONE wall-clock base plus the monotonic clock the durations already use: the
+  // first executed check pins `anchor`, and a later check is stamped anchor.wall + (its monotonic start -
+  // anchor.mono), so a wall-clock step mid-run neither reorders checks nor collapses them onto one instant.
+  // A check with no monotonic start (reused, or a clock that could not be read) keeps its wall start.
+  let anchor: { wall: number; mono: number } | null = null;
+  // The latest timestamp written so far: a record with no start of its own sits at the cursor, which
+  // advances by a rounded duration and can pass the next real start by a millisecond; no stamp goes back.
+  let latest = cursor;
+  const stamp = (ms: number | undefined): number | undefined => {
+    if (ms === undefined) return latest;
+    latest = latest === undefined ? ms : Math.max(latest, ms);
+    return latest;
+  };
+  let firstStamp: number | undefined;
   let checksRun = 0;
   const body: any[] = [];
   const commandKeys = new Map<string, string | null>();
@@ -90,7 +104,15 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
       } else if (timing) {
         // A follower waited on another run and a reused check (089 IC-007) read a record: neither executed.
         if (timing.shared !== 'follower' && timing.shared !== 'reused') checksRun += 1;
-        if (Number.isFinite(timing.startedAt)) at = timing.startedAt;
+        if (Number.isFinite(timing.startedAt)) {
+          at = timing.startedAt;
+          if (Number.isFinite(timing.startedMonoMs)) {
+            anchor = anchor ?? { wall: timing.startedAt, mono: timing.startedMonoMs };
+            at = Math.round(anchor.wall + (timing.startedMonoMs - anchor.mono));
+            // Nothing but the run line is written yet when the first check lands before it: lower the floor.
+            if (firstStamp === undefined) { firstStamp = at; if (latest !== undefined && at < latest) latest = at; }
+          }
+        }
         if (Number.isFinite(timing.durationMs)) durationMs = Math.round(timing.durationMs);
         if (at !== undefined) cursor = Math.max(cursor ?? at, at + (durationMs ?? 0));
         checkKey = timing.checkKey ?? null;
@@ -113,6 +135,7 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
         failedFirst = check.failedFirst ? (check.failedFirst.status === 'FAIL' ? 'fail' : 'pass') : 'none';
       }
       if (durationMs !== null) tierMs = (tierMs ?? 0) + durationMs;
+      at = stamp(at);
       if (tierStart === undefined) tierStart = at;
       checks.push({
         kind: 'verify.check',
@@ -135,7 +158,7 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
     const selection = tier.selection || {};
     body.push({
       kind: 'verify.tier',
-      timestamp: isoAt(tierStart ?? cursor),
+      timestamp: isoAt(tierStart ?? stamp(cursor)),
       verify_id: verifyId,
       tier: tier.id,
       status: tier.status,
@@ -173,7 +196,7 @@ function buildVerifyRecords({ report, metrics = null, ctx }: any): any[] {
 
   const run = {
     kind: 'verify.run',
-    timestamp: isoAt(runStart),
+    timestamp: isoAt(firstStamp !== undefined && Number.isFinite(runStart) ? Math.min(runStart, firstStamp) : runStart),
     verify_id: verifyId,
     source: ctx.source,
     task: typeof ctx.taskId === 'string' && SAFE_TOKEN.test(ctx.taskId) ? ctx.taskId : null,

@@ -12,6 +12,7 @@ const { createScratch, inheritedEnv } = require('../helper/scratch-env.ts');
 const store = require('../../src/runtime/failure/store.ts');
 const { ROTATE_AT_BYTES } = require('../../src/runtime/failure/capture.ts');
 const { buildOverview } = require('../../src/runtime/lifecycle/overview.ts');
+const { GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 
 const BIN = path.resolve(__dirname, '..', '..', 'bin', 'doflow.js');
 const scratch = createScratch('doflow-failure-verb-');
@@ -26,7 +27,7 @@ function machine(name: any) {
   const project = path.join(dir, 'project');
   for (const d of [home, xdg, project]) fs.mkdirSync(d, { recursive: true });
   const failures = path.join(xdg, 'doflow', 'failures');
-  const env: any = { ...inheritedEnv(), HOME: home, XDG_CONFIG_HOME: xdg, DOFLOW_FAILURE_CAPTURE: '', GIT_CONFIG_GLOBAL: path.join(dir, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
+  const env: any = { ...inheritedEnv(), HOME: home, XDG_CONFIG_HOME: xdg, DOFLOW_FAILURE_CAPTURE: '', GIT_CONFIG_GLOBAL: path.join(dir, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV };
   const markDoflowRepo = () => fs.writeFileSync(path.join(project, 'package.json'), JSON.stringify({ name: '@khoavu882/doflow' }));
   return { dir, home, xdg, project, failures, env, markDoflowRepo };
 }

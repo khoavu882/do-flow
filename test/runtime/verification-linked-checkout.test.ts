@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { verifyStateRoot } = require('../../src/runtime/verification/engine.ts');
 
 const CLI = path.resolve(__dirname, '../../bin/doflow.js');
@@ -21,7 +21,7 @@ function fixture(t: any, { failing = false, nested = false }: any = {}) {
   fs.mkdirSync(main);
   fs.mkdirSync(home);
   const env: any = { ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'),
-    GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig'),
+    GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig'),
     DOFLOW_TELEMETRY: 'on', DOFLOW_VERIFY_V0: 'on' };
   for (const key of ['DOFLOW_CONFIG_DIR', 'DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_ATTEMPT',
     'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY', 'NODE_TEST_CONTEXT']) delete env[key];

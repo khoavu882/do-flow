@@ -7,7 +7,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { IS_WIN } = require('../helper-platform.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 
@@ -29,7 +29,7 @@ test('idea to package through the installed front door', { skip: SKIP }, async (
     HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: xdg, TMPDIR: tmp,
     PATH: path.dirname(process.execPath) + path.delimiter + process.env.PATH,
     DOFLOW_TELEMETRY: 'off', DOFLOW_UPKEEP: 'off', DOFLOW_FAILURE_CAPTURE: 'off',
-    GIT_CONFIG_GLOBAL: path.join(root, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: path.join(root, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
   });
   const shim = path.join(home, '.doflow', 'scripts', 'doflow', 'bin', 'doflow-run');
   const grants = path.join(xdg, 'doflow', 'packages', 'grants.jsonl');

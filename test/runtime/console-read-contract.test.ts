@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { isDeepStrictEqual } = require('node:util');
 const { spawnSync, execFileSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const registry = require('../../core/registry/storage.json');
 const { resolveRoots } = require('../../src/runtime/storage/roots.ts');
 const { EVENTS_REL } = require('../../src/runtime/lifecycle/event-store.ts');
@@ -37,7 +37,7 @@ function fixture(t: any) {
     USERPROFILE: home,
     XDG_CONFIG_HOME: xdg,
     GIT_CONFIG_GLOBAL: gitConfig,
-    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
     DOFLOW_TELEMETRY: 'off',
     DOFLOW_RETENTION_HOURS: '1',
   };

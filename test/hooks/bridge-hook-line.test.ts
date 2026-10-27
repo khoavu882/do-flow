@@ -20,6 +20,9 @@ const FIXTURES = path.join(REPO, 'test/fixtures/hooks');
 const HOOK_FIXTURE = path.join(REPO, 'test/fixtures/telemetry/hook.jsonl');
 const ENVELOPE = '.doflow/shared/hooks/bridge/envelope.jq';
 const BASH = '/bin/bash';
+// The bridge times a hook only with EPOCHREALTIME (bash 5+); /bin/bash 3.2 on macOS leaves duration_ms null.
+const BASH_MAJOR = Number(spawnSync(BASH, ['-c', 'printf %s "${BASH_VERSINFO[0]}"'], { encoding: 'utf8' }).stdout);
+const expectedDuration = (value: any) => BASH_MAJOR < 5 ? null : (Number.isInteger(value) && value >= 0 ? value : 'not-a-duration');
 const LINE_KEYS: any = ['kind', 'harness', 'event', 'policy', 'verdict', 'duration_ms', 'emit_reason', 'emit_bytes', 'emit_digest', 'timestamp', 'session', 'tool', 'tool_call_id', 'run', 'lineage', 'attempt', 'role', 'worker_run', 'tool_duration_ms', 'test_class'];
 const TEST_CLASS_VALUES: any = new Set(['verify.verb', 'test.full', 'test.scoped', 'test.other', 'none']);
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
@@ -254,7 +257,7 @@ test('one allowlisted hook line per harness fixture, with the contract keys and 
     assert.match(line.timestamp, TIMESTAMP);
     assert.deepEqual({ ...line, timestamp: 'T' }, {
       kind: 'hook', harness: surface.harness, event: surface.event, policy: surface.policy, verdict: 'allow',
-      duration_ms: null,
+      duration_ms: expectedDuration(line.duration_ms),
       // Rider R1 (091): null off the prompt policy; there, emit with the stdout byte count, else silence.
       ...(surface.policy === 'pre-bash-guard'
         ? { emit_reason: null, emit_bytes: null, emit_digest: null }
@@ -279,7 +282,7 @@ test('the committed hook fixture strictly pins bridge keys, including test_class
   assert.equal(fixture.length, 1);
   assert.deepEqual(Object.keys(fixture[0]), Object.keys(written));
   assert.equal(written.test_class, fixture[0].test_class);
-  assert.equal(written.duration_ms, null);
+  assert.equal(written.duration_ms, expectedDuration(written.duration_ms));
   assert.equal(written.tool_duration_ms, fixture[0].tool_duration_ms);
 });
 

@@ -42,7 +42,9 @@ for (const kind of Object.keys(FAKES)) {
   test(`${kind} simulation: an old-style HOME-less spawn sees the brew error`, { skip: !POSIX }, (t) => {
     const { bash, PATH } = world(t, kind);
     const r = spawnSync(bash, ['-c', 'printf ok'], { env: { PATH }, encoding: 'utf8' });
-    assert.deepEqual([r.status, r.stdout, r.stderr], [0, 'ok', `${BREW_ERROR}\n`]);
+    // A runner whose own bash also reaches brew (macOS Actions) adds more of the same line: the fake's line must be there, and nothing else.
+    const lines = r.stderr.split('\n').filter(Boolean);
+    assert.deepEqual([r.status, r.stdout, lines.length >= 1, lines.every((line: any) => line === BREW_ERROR)], [0, 'ok', true, true], r.stderr);
   });
 
   test(`${kind} simulation: spawnBash with no HOME writes nothing to stderr`, { skip: !POSIX }, (t) => {

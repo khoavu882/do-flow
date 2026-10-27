@@ -539,7 +539,8 @@ function prepareWorkspace({ commit, snapshot, repoRoot, parent, home, materialis
   try {
     const { treeRoot } = materialise(commit, dir, snapshot, { repoRoot });
     const env = { PATH: process.env.PATH || '/usr/bin:/bin', HOME: home, GIT_CONFIG_NOSYSTEM: '1' };
-    const identity = ['-c', 'user.name=bench', '-c', 'user.email=bench@localhost', '-c', 'commit.gpgsign=false'];
+    // No background gc/maintenance: a detached one outlives the call and writes into the tree while it is copied or removed.
+    const identity = ['-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'user.name=bench', '-c', 'user.email=bench@localhost', '-c', 'commit.gpgsign=false'];
     for (const args of [['init', '-q'], ['add', '-A'], [...identity, 'commit', '-q', '--allow-empty', '-m', 'snapshot']]) {
       const r = childProcess.spawnSync('git', args, { cwd: treeRoot, env, encoding: 'utf8' });
       if (r.status !== 0) throw new Error(`workspace git ${args.includes('commit') ? 'commit' : args[0]} failed: ${String(r.stderr).trim()}`);

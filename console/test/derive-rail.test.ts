@@ -13,7 +13,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { spawnSync } = require('node:child_process');
-const { buildFixture, CORE_CLI } = require('./helpers/core-fixture.ts');
+const { buildFixture, CORE_CLI, writePassingPlan } = require('./helpers/core-fixture.ts');
 const { project } = require('../src/project.ts');
 
 const WEB_ROOT = path.join(__dirname, '..', 'web');
@@ -109,6 +109,7 @@ test('a feature run walked through the real core gives the IC-008 node states at
   step(id, slug, '--action', 'complete-stage', '--stage', 'design', '--result', 'passed');
   expect(see(id, slug), 3, 'running');
 
+  writePassingPlan(f, slug);
   step(id, slug, '--action', 'complete-stage', '--stage', 'planning', '--result', 'unverified');
   seen = see(id, slug);
   expect(seen, 4, 'awaiting');

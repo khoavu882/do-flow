@@ -278,6 +278,37 @@ test('check durations are monotonic, timestamps never go backwards, and a tier d
   for (const check of checks) assert.deepEqual([check.check_key, check.shared, check.failed_first], [null, 'none', 'none']);
 });
 
+test('a check that starts before the previous check\'s rounded end never stamps a line earlier than one already written', () => {
+  // Wall-clock starts with a rounded monotonic duration: 100 + round(8.6) = 109 overshoots the next start (108).
+  const first: any = { status: 'PASS', name: 'a', command: 'a', exitCode: 0 };
+  const second: any = { status: 'PASS', name: 'b', command: 'b', exitCode: 0 };
+  const metrics: any = new WeakMap([[first, { startedAt: 100, durationMs: 8.6, shared: 'none' }], [second, { startedAt: 108, durationMs: 8, shared: 'none' }]]);
+  const report: any = { status: 'PASS', startedAt: new Date(99).toISOString(), finishedAt: new Date(120).toISOString(),
+    tiers: [{ id: 'build', status: 'PASS', checks: [first] }, { id: 'empty', status: 'PASS', checks: [] }, { id: 'broad-tests', status: 'PASS', checks: [second] }] };
+  const records = buildVerifyRecords({ report, metrics, ctx: { verifyId: 'c'.repeat(16), source: 'verb', taskId: 'T-1', risk: 'LOW', exitCode: 0 } });
+  const stamps = records.map((r: any) => Date.parse(r.timestamp));
+  for (let i = 1; i < stamps.length; i += 1) assert.ok(stamps[i] >= stamps[i - 1], `timestamp ${i} went backwards: ${stamps.join(' ')}`);
+});
+
+test('a wall-clock step back mid-run keeps every check on its own ordered, non-overlapping span', () => {
+  // Wall starts 100000 then 95100 (the clock stepped back 4.9 s); the monotonic starts say the second began 4100 ms after the first.
+  const first: any = { status: 'PASS', name: 'a', command: 'a', exitCode: 0 };
+  const second: any = { status: 'PASS', name: 'b', command: 'b', exitCode: 0 };
+  const metrics: any = new WeakMap([
+    [first, { startedAt: 100000, startedMonoMs: 1000, durationMs: 4000, shared: 'none' }],
+    [second, { startedAt: 95100, startedMonoMs: 5100, durationMs: 50, shared: 'none' }],
+  ]);
+  const report: any = { status: 'PASS', startedAt: new Date(99990).toISOString(), finishedAt: new Date(104200).toISOString(),
+    tiers: [{ id: 'build', status: 'PASS', checks: [first] }, { id: 'broad-tests', status: 'PASS', checks: [second] }] };
+  const records = buildVerifyRecords({ report, metrics, ctx: { verifyId: 'd'.repeat(16), source: 'verb', taskId: 'T-1', risk: 'LOW', exitCode: 0 } });
+  const checks = records.filter((r: any) => r.kind === 'verify.check');
+  const starts = checks.map((r: any) => Date.parse(r.timestamp));
+  assert.deepEqual(starts, [100000, 104100]);
+  assert.ok(starts[0] + checks[0].duration_ms <= starts[1], 'the spans do not overlap');
+  const stamps = records.map((r: any) => Date.parse(r.timestamp));
+  for (let i = 1; i < stamps.length; i += 1) assert.ok(stamps[i] >= stamps[i - 1], `timestamp ${i} went backwards: ${stamps.join(' ')}`);
+});
+
 test('the runner times an executed check in its metrics map and leaves an in-run duplicate unmeasured', () => {
   const runner: any = new VerificationContractRunner({ cwd: REPO, exec: () => ({ status: 0, stdout: '', stderr: '' }) });
   const cache: any = new Map();

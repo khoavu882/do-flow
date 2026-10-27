@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { gatherGateFacts, gatherGitFacts, countMarkers, sha256Digest } = require('../../src/runtime/roadmap/facts.ts');
 const { loadPolicy, evaluate } = require('../../src/runtime/roadmap/gates.ts');
 const baseBytes = fs.readFileSync(path.join(__dirname, '../../core/registry/gates.json'));
@@ -373,7 +373,7 @@ test('diff parser preserves added guard files and both rename paths, including w
 test('verify-pass-on-head reads the run record where verify appends it: the main checkout of a linked feature worktree (G.3 B1)', (t) => {
   const dir = tempDir(t, 'doflow-roadmap-facts-linked-');
   const main = path.join(dir, 'main'), feature = path.join(dir, 'feature');
-  const env: any = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 'O', GIT_AUTHOR_EMAIL: 'o@example.test', GIT_COMMITTER_NAME: 'O', GIT_COMMITTER_EMAIL: 'o@example.test' };
+  const env: any = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 'O', GIT_AUTHOR_EMAIL: 'o@example.test', GIT_COMMITTER_NAME: 'O', GIT_COMMITTER_EMAIL: 'o@example.test' };
   const git = (cwd: any, ...args: any[]) => cp.execFileSync('git', ['-C', cwd, ...args], { env, encoding: 'utf8' }).trim();
   fs.mkdirSync(main);
   git(main, 'init', '-q', '-b', 'main');
@@ -393,7 +393,7 @@ test('verify-pass-on-head reads the run record where verify appends it: the main
 
 test('git facts read the develop branch, never a tag named develop, and carry no claims list (C13, C19)', (t) => {
   const root = tempDir(t, 'doflow-roadmap-facts-ref-');
-  const env: any = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 'O', GIT_AUTHOR_EMAIL: 'o@example.test', GIT_COMMITTER_NAME: 'O', GIT_COMMITTER_EMAIL: 'o@example.test' };
+  const env: any = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 'O', GIT_AUTHOR_EMAIL: 'o@example.test', GIT_COMMITTER_NAME: 'O', GIT_COMMITTER_EMAIL: 'o@example.test' };
   const git = (...args: any[]) => cp.execFileSync('git', ['-C', root, ...args], { env, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
   git('init', '-q', '-b', 'develop');
   fs.writeFileSync(path.join(root, 'base'), 'base'); git('add', '.'); git('commit', '-qm', 'base');

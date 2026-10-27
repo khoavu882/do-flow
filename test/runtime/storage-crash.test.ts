@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { inheritedEnv } = require('../helper/scratch-env.ts');
 const registry = require('../../core/registry/storage.json');
 const { runPass } = require('../../src/runtime/storage/engine.ts');
@@ -19,7 +19,7 @@ function fixture(t: any) {
   for (const folder of [project, home, xdg]) fs.mkdirSync(folder);
   fs.mkdirSync(path.join(xdg, 'doflow')); fs.writeFileSync(path.join(xdg, 'doflow/prune'), 'off\n');
   const roots = Object.fromEntries(Object.entries(registry.roots).map(([id, root]) => [id, path.join(root.base === 'home' ? home : root.base === 'xdg-config' ? xdg : project, ...root.segments)]));
-  const env: any = { ...inheritedEnv(), HOME: home, XDG_CONFIG_HOME: xdg, GIT_CONFIG_GLOBAL: path.join(dir, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1' };
+  const env: any = { ...inheritedEnv(), HOME: home, XDG_CONFIG_HOME: xdg, GIT_CONFIG_GLOBAL: path.join(dir, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV };
   assert.equal(spawnSync('git', ['init', '-q', project], { env, encoding: 'utf8' }).status, 0);
   const pass = (stores: any, extra: any = {}) => runPass({ registry, roots, stores, mode: 'prune', now: NOW, budgetMs: Infinity, ...extra });
   return { dir, project, home, xdg, roots, env, pass };

@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { readPlan } = require('../../src/runtime/retrieval-record.ts');
 
 const BIN = path.resolve(__dirname, '../../bin/doflow.js');
@@ -16,7 +16,7 @@ const SLUG = '931-roots';
  * and a guidance tree reached through DOFLOW_CONFIG_DIR so nothing reads the home install. */
 function linkedWorld(t: any) {
   const base = fs.realpathSync(tempDir(t, 'doflow-retrieve-roots-'));
-  const env: any = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', DOFLOW_CONFIG_DIR: path.join(base, 'config') };
+  const env: any = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, DOFLOW_CONFIG_DIR: path.join(base, 'config') };
   delete env.FORCE_COLOR;
   const git = (cwd: any, ...args: any[]) => { const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', ...args], { cwd, env, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); };
   const main = path.join(base, 'm');

@@ -25,7 +25,7 @@ const REPO = path.resolve(__dirname, "../..");
 const CLI = path.join(REPO, 'bin', 'doflow.js');
 const SOURCE_DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 const { inheritedEnv } = require('../helper/scratch-env.ts');
-const { suiteTempDir } = require('../helper/tmp.ts');
+const { suiteTempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const ALL_HARNESSES: any = ['claude', 'codex', 'opencode', 'pi', 'copilot', 'kiro', 'antigravity'];
 const { IS_WIN, interpreterSpawn, samePath, msysArgConvGuards } = require('../helper-platform.ts');
 
@@ -488,7 +488,7 @@ test('NFR-001/NFR-002: install and dispatch succeed with python3 and every optio
 
 /** Keeps the lifecycle verbs off the developer's own config and git setup, whatever the shape. */
 function lifecycleEnv(home: any) {
-  return { XDG_CONFIG_HOME: path.join(home, 'xdg'), GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', DOFLOW_FAILURE_CAPTURE: '' };
+  return { XDG_CONFIG_HOME: path.join(home, 'xdg'), GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, DOFLOW_FAILURE_CAPTURE: '' };
 }
 
 const PROMOTE_STATEMENTS: any = ['Cart total ignores a removed discount', 'Cart badge counts removed lines'];

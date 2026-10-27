@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { parseArgs } = require('../../src/cli/index.ts');
 const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 const { formatInspect } = require('../../src/runtime/task-run.ts');
@@ -34,7 +34,7 @@ function project(t: any, text: any = plan()) {
   const env: any = {
     ...process.env,
     HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'),
-    GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
     DOFLOW_RUN_ID: 'r1', DOFLOW_LINEAGE_ID: 'main', DOFLOW_SESSION_ROLE: 'main', DOFLOW_ROLE: 'main', DOFLOW_WORKTREE: dir,
   };
   delete env.DOFLOW_RETENTION_HOURS;

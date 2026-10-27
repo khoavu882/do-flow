@@ -11,7 +11,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { detectedProjectRoot } = require('../../src/runtime/packages/grants.ts');
 
@@ -39,7 +39,7 @@ function machine(root: any, options: { home: string; xdg: string; cwd: string })
   for (const key of Object.keys(env)) if (key.startsWith('DOFLOW_') || key === 'PI_CODING_AGENT_DIR') delete env[key];
   Object.assign(env, {
     HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: xdg, TMPDIR: tmp, DOFLOW_TELEMETRY: 'off', DOFLOW_UPKEEP: 'off',
-    GIT_CONFIG_GLOBAL: path.join(root, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: path.join(root, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
   });
   const pkg = (...args: any[]) => spawnSync(process.execPath, [CLI, 'package', '--action', ...args], { cwd, env, encoding: 'utf8', timeout: 60000 });
   const json = (result: any) => {

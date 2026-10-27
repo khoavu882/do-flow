@@ -28,6 +28,22 @@ if (!process.env.NODE_COMPILE_CACHE && !process.env.NODE_DISABLE_COMPILE_CACHE) 
   try { require('node:module').enableCompileCache(process.env.NODE_COMPILE_CACHE); } catch { /* best-effort */ }
 }
 
+// No git background gc/maintenance in any scratch repo a test builds: a detached one outlives the commit and
+// rewrites .git/objects while the repo is copied (ENOENT in cpSync) or recreates a directory after its removal.
+// GIT_CONFIG_COUNT entries are appended to any the environment already carries; a spawn that builds its own
+// env passes the GIT_CONFIG_* variables through (see GIT_NO_MAINTENANCE_ENV) or keeps `-c` flags.
+const GIT_NO_MAINTENANCE = [['gc.auto', '0'], ['maintenance.auto', 'false']];
+(() => {
+  let count = Number.parseInt(process.env.GIT_CONFIG_COUNT || '0', 10);
+  if (!Number.isInteger(count) || count < 0) count = 0;
+  for (const [key, value] of GIT_NO_MAINTENANCE) {
+    process.env[`GIT_CONFIG_KEY_${count}`] = key;
+    process.env[`GIT_CONFIG_VALUE_${count}`] = value;
+    count += 1;
+  }
+  process.env.GIT_CONFIG_COUNT = String(count);
+})();
+
 function requirePrefix(prefix: any) {
   if (typeof prefix !== 'string' || !prefix.startsWith('doflow-')) {
     throw new Error("temporary directory prefix must start with 'doflow-'");
@@ -114,4 +130,10 @@ function cleanupOnExit() {
 process.on('uncaughtExceptionMonitor', cleanupOnExit);
 process.on('exit', cleanupOnExit);
 
-module.exports = { tempDir, suiteTempDir, removeTree, TEST_ROOT };
+/** The same two settings as explicit env entries, for a spawn that builds its own env instead of spreading process.env. */
+const GIT_NO_MAINTENANCE_ENV = Object.freeze({
+  GIT_CONFIG_COUNT: String(GIT_NO_MAINTENANCE.length),
+  ...Object.fromEntries(GIT_NO_MAINTENANCE.flatMap(([key, value]: any, i: number) => [[`GIT_CONFIG_KEY_${i}`, key], [`GIT_CONFIG_VALUE_${i}`, value]])),
+});
+
+module.exports = { tempDir, suiteTempDir, removeTree, TEST_ROOT, GIT_NO_MAINTENANCE_ENV };

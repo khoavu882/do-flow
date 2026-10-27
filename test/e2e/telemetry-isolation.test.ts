@@ -12,7 +12,7 @@ const fs = require('node:fs');
 const net = require('node:net');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { suiteTempDir, removeTree } = require('../helper/tmp.ts');
+const { suiteTempDir, removeTree, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
@@ -107,7 +107,7 @@ const nodeEnv = (root: any, telemetry: any, extra: any = {}) => {
     DOFLOW_ROLE: 'main',
     DOFLOW_WORKTREE: root,
     GIT_CONFIG_GLOBAL: '/dev/null',
-    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
     ...extra,
   };
 };
@@ -410,7 +410,7 @@ function hookEnv(root: any, surface: any, telemetry: any, profile: any) {
     DOFLOW_FAILURE_CAPTURE: 'off',
     DOFLOW_FAULT_PROFILE: profile,
     GIT_CONFIG_GLOBAL: '/dev/null',
-    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
   };
 }
 

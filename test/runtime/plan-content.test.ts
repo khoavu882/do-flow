@@ -8,7 +8,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { placeholderFindings, coverageFindings } = require('../../src/runtime/plan-content.ts');
 
@@ -71,7 +71,7 @@ function scratch(t: any) {
   fs.mkdirSync(cwd);
   const env: any = {
     ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'),
-    GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1', FORCE_COLOR: '', DOFLOW_CLI: CLI,
+    GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, FORCE_COLOR: '', DOFLOW_CLI: CLI,
   };
   const cli = (args: any) => spawnSync(process.execPath, [CLI, 'plan-check', ...args], { cwd, env, encoding: 'utf8' });
   return { cwd, cli };

@@ -12,7 +12,7 @@ const { EventEmitter } = require('node:events');
 const { spawn: realSpawn } = require('node:child_process');
 
 const MODULE = process.env.SLOTS_MODULE || path.join(__dirname, '..', '..', 'src', 'runtime', 'slots.ts');
-const { runSlot, listSlots, releaseSlot } = require(MODULE);
+const { runSlot, listSlots, releaseSlot, cachedAlive, ALIVE_CACHE_MS } = require(MODULE);
 const { procStart } = require('../../src/runtime/worker/process-tree.ts');
 
 const { suiteTempDir } = require('../helper/tmp.ts');
@@ -154,6 +154,25 @@ test('real processes: eight runSlot callers never overlap', async () => {
   }
   assert.equal(pids.size, 8);
   assert.equal(fs.existsSync(slotFile(home, 'real-race')), false);
+});
+
+test('liveness: a process judged alive is not asked about again within the window, a dead or unknown one always is', () => {
+  // Each sweep runs inside the slot lock; a `ps` per queue entry per poll made a loaded host outlast the lock budget.
+  const answers: any = { a: true, b: false, c: 'unknown' };
+  const asked: string[] = [];
+  let now = 1_000_000;
+  const alive = cachedAlive((proc: any) => { asked.push(proc.pid); return answers[proc.pid]; }, () => now);
+  for (const pid of ['a', 'a', 'b', 'b', 'c', 'c']) alive({ pid, start: 's' });
+  assert.deepEqual(asked, ['a', 'b', 'b', 'c', 'c']);
+  now += ALIVE_CACHE_MS;
+  alive({ pid: 'a', start: 's' });
+  assert.equal(asked.at(-1), 'a', 'asked again once the window passed');
+  alive({ pid: 'a', start: 'other' });
+  assert.equal(asked.length, 7, 'another start time is another process');
+  // The clock stepping back must not keep a process that has since died "alive": a negative age is expired.
+  answers.a = false;
+  now -= 5000;
+  assert.equal(alive({ pid: 'a', start: 's' }), false, 'a negative age is re-checked');
 });
 
 test('child exit code and death by signal are passed through; spawn gets DOFLOW_SLOT and the cwd', async () => {
