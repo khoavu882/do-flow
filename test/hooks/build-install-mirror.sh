@@ -13,7 +13,7 @@
 # like tmp/test-home/ already is for hook state — nothing here is meant to be committed.
 #
 # Usage: bash test/hooks/build-install-mirror.sh <mirror-dir>
-# Populates <mirror-dir>/.{claude,codex,kiro,antigravity}/hooks/ and
+# Populates <mirror-dir>/.{claude,codex,kiro,antigravity}/hooks/, <mirror-dir>/.github/hooks/ and
 # <mirror-dir>/.doflow/shared/hooks/, mirroring each harness's real install destination depth.
 
 set -euo pipefail
@@ -24,10 +24,11 @@ MIRROR="${1:?usage: build-install-mirror.sh <mirror-dir>}"
 rm -rf "$MIRROR"
 mkdir -p "$MIRROR"
 
-for harness in claude codex kiro antigravity; do
+for harness in claude codex kiro antigravity copilot; do
   src="$REPO_ROOT/core/harnesses/$harness/hooks"
   [ -d "$src" ] || continue
   dest="$MIRROR/.$harness/hooks"
+  [ "$harness" != copilot ] || dest="$MIRROR/.github/hooks"
   mkdir -p "$dest"
   cp -R "$src/." "$dest/"
 done

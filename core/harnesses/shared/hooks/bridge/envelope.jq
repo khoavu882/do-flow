@@ -27,9 +27,9 @@ def event_operation($e):
   else "tool" end;
 def canonical_tool($name; $harness):
   if ($name | type) != "string" then {operation:"tool"}
-  elif (($harness == "claude" or $harness == "codex" or $harness == "kiro") and ($name | test("^mcp__"))) or ($harness == "antigravity" and ($name | test("^mcp_"))) or ($harness == "pi" and ($name | test("^mcp__"))) then {operation:"mcp",tool:$name}
-  elif (($harness == "claude" or $harness == "codex" or $harness == "kiro") and (["Edit","Write","MultiEdit","apply_patch"] | index($name)) != null) or ($harness == "antigravity" and (["write_to_file","replace_file_content","multi_replace_file_content","edit_file","write_file","create_file","replace_file","replace","Edit","Write","MultiEdit","apply_patch"] | index($name)) != null) or ($harness == "pi" and (["edit","write"] | index($name)) != null) then {operation:"edit",tool:$name}
-  elif (($harness == "claude" or $harness == "codex" or $harness == "kiro") and $name == "Bash") or ($harness == "antigravity" and (["run_command","run_shell_command","Bash","bash"] | index($name)) != null) or ($harness == "pi" and $name == "bash") then {operation:"command",tool:$name}
+  elif (($harness == "claude" or $harness == "codex" or $harness == "kiro" or $harness == "copilot") and ($name | test("^mcp__"))) or ($harness == "antigravity" and ($name | test("^mcp_"))) or ($harness == "pi" and ($name | test("^mcp__"))) then {operation:"mcp",tool:$name}
+  elif (($harness == "claude" or $harness == "codex" or $harness == "kiro" or $harness == "copilot") and (["Edit","Write","MultiEdit","apply_patch"] | index($name)) != null) or ($harness == "antigravity" and (["write_to_file","replace_file_content","multi_replace_file_content","edit_file","write_file","create_file","replace_file","replace","Edit","Write","MultiEdit","apply_patch"] | index($name)) != null) or ($harness == "pi" and (["edit","write"] | index($name)) != null) then {operation:"edit",tool:$name}
+  elif (($harness == "claude" or $harness == "codex" or $harness == "kiro" or $harness == "copilot") and $name == "Bash") or ($harness == "antigravity" and (["run_command","run_shell_command","Bash","bash"] | index($name)) != null) or ($harness == "pi" and $name == "bash") then {operation:"command",tool:$name}
   else {operation:"tool",tool:$name} end;
 def decode_claude:
   (canonical_tool(.tool_name // ""; "claude")) as $t |
@@ -41,6 +41,12 @@ def decode_codex:
   (model_identity(.model)) as $model |
   (if .tool_name == "apply_patch" then $d + {patch:(string_value(.tool_input; ["command"]))} else $d end) |
   .identity += $model;
+# Copilot CLI payloads (normalised to the Claude shape by the front door) carry no model, so the
+# envelope names none, whatever a payload happens to hold under .model.
+def decode_copilot:
+  decode_claude as $d |
+  (if .tool_name == "apply_patch" then $d + {patch:(string_value(.tool_input; ["command"]))} else $d end) |
+  .identity |= del(.model, .modelUnparsed);
 def decode_kiro:
   (if ((.tool_name // "") | type) == "string" and ((.tool_name // "") | startswith("mcp_")) then {operation:"mcp",tool:.tool_name}
    elif ((.tool_name // "") | type) == "string" and ((.tool_name // "") | test("^@[^/]+/.+")) then
@@ -108,7 +114,7 @@ if ($ARGS.named.mode // "encode") == "minimal" then {doflow_event:{version:(1),h
   ($ENV.DOFLOW_LINEAGE_ID | nonempty(.)) as $lineage |
   ($ENV.DOFLOW_WORKTREE | nonempty(.)) as $worktree |
   norm_role($ENV.DOFLOW_SESSION_ROLE) as $role |
-  (if $harness == "claude" then decode_claude elif $harness == "codex" then decode_codex elif $harness == "kiro" then decode_kiro elif $harness == "antigravity" then decode_antigravity elif $harness == "pi" then decode_pi else {operation:"tool"} end) as $d |
+  (if $harness == "claude" then decode_claude elif $harness == "codex" then decode_codex elif $harness == "kiro" then decode_kiro elif $harness == "copilot" then decode_copilot elif $harness == "antigravity" then decode_antigravity elif $harness == "pi" then decode_pi else {operation:"tool"} end) as $d |
   if $ARGS.named.mode == "observe" then
     if $harness == "claude" and $d.operation == "command" and $native.hook_event_name == $event and
       ($event == "PostToolUse" or $event == "PostToolUseFailure")

@@ -37,6 +37,14 @@ doflow_render_response() {
         if command -v jq >/dev/null 2>&1; then jq -cn --arg reason "$reason" '{decision:"continue",reason:$reason}'
         else printf '{"decision":"continue","reason":%s}\n' "$( _doflow_json_reason "$reason" )"; fi
         return $? ;;
+      copilot:PreToolUse)
+        if command -v jq >/dev/null 2>&1; then jq -cn --arg reason "$reason" '{permissionDecision:"deny",permissionDecisionReason:$reason}'
+        else printf '{"permissionDecision":"deny","permissionDecisionReason":%s}\n' "$( _doflow_json_reason "$reason" )"; fi
+        return $? ;;
+      copilot:Stop)
+        if command -v jq >/dev/null 2>&1; then jq -cn --arg reason "$reason" '{decision:"block",reason:$reason}'
+        else printf '{"decision":"block","reason":%s}\n' "$( _doflow_json_reason "$reason" )"; fi
+        return $? ;;
       pi:tool_call)
         if command -v jq >/dev/null 2>&1; then jq -cn --arg reason "$reason" '{block:true,reason:$reason}'
         else printf '{"block":true,"reason":%s}\n' "$( _doflow_json_reason "$reason" )"; fi

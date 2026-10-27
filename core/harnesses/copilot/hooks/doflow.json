@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "type": "command",
+        "bash": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.github/hooks/doflow-session-start.sh\" ] && printf '%s/.github/hooks/doflow-session-start.sh' \"$root\" || printf '%s/hooks/doflow-session-start.sh' \"${COPILOT_HOME:-$HOME/.copilot}\")\"",
+        "cwd": ".",
+        "timeoutSec": 10
+      }
+    ],
+    "preToolUse": [
+      {
+        "type": "command",
+        "bash": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.github/hooks/doflow-pre-implement-gate.sh\" ] && printf '%s/.github/hooks/doflow-pre-implement-gate.sh' \"$root\" || printf '%s/hooks/doflow-pre-implement-gate.sh' \"${COPILOT_HOME:-$HOME/.copilot}\")\"",
+        "cwd": ".",
+        "timeoutSec": 20
+      },
+      {
+        "type": "command",
+        "bash": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.github/hooks/doflow-pre-bash-guard.sh\" ] && printf '%s/.github/hooks/doflow-pre-bash-guard.sh' \"$root\" || printf '%s/hooks/doflow-pre-bash-guard.sh' \"${COPILOT_HOME:-$HOME/.copilot}\")\"",
+        "cwd": ".",
+        "timeoutSec": 20
+      },
+      {
+        "type": "command",
+        "bash": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.github/hooks/doflow-mcp-tool-guard.sh\" ] && printf '%s/.github/hooks/doflow-mcp-tool-guard.sh' \"$root\" || printf '%s/hooks/doflow-mcp-tool-guard.sh' \"${COPILOT_HOME:-$HOME/.copilot}\")\"",
+        "cwd": ".",
+        "timeoutSec": 20
+      }
+    ],
+    "agentStop": [
+      {
+        "type": "command",
+        "bash": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.github/hooks/doflow-stop-check.sh\" ] && printf '%s/.github/hooks/doflow-stop-check.sh' \"$root\" || printf '%s/hooks/doflow-stop-check.sh' \"${COPILOT_HOME:-$HOME/.copilot}\")\"",
+        "cwd": ".",
+        "timeoutSec": 30
+      }
+    ],
+    "subagentStart": [
+      {
+        "type": "command",
+        "bash": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.github/hooks/doflow-subagent-start.sh\" ] && printf '%s/.github/hooks/doflow-subagent-start.sh' \"$root\" || printf '%s/hooks/doflow-subagent-start.sh' \"${COPILOT_HOME:-$HOME/.copilot}\")\"",
+        "cwd": ".",
+        "timeoutSec": 10
+      }
+    ],
+    "subagentStop": [
+      {
+        "type": "command",
+        "bash": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.github/hooks/doflow-subagent-stop.sh\" ] && printf '%s/.github/hooks/doflow-subagent-stop.sh' \"$root\" || printf '%s/hooks/doflow-subagent-stop.sh' \"${COPILOT_HOME:-$HOME/.copilot}\")\"",
+        "cwd": ".",
+        "timeoutSec": 10
+      }
+    ]
+  }
+}

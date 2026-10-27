@@ -1,0 +1,36 @@
+{
+  "event": "PreToolUse",
+  "native": {
+    "sessionId": "copilot-bash-error",
+    "timestamp": 1793090731778,
+    "cwd": "/tmp",
+    "toolName": "bash",
+    "toolArgs": {
+      "command": "ls"
+    }
+  },
+  "state": "none",
+  "fault": "crash-exit-1",
+  "expect": {
+    "exit": 0,
+    "stdoutIncludes": "\"permissionDecision\":\"deny\"",
+    "stderrIncludes": null,
+    "modelVisibleBytesMax": 400,
+    "decision": {
+      "outcome": "error",
+      "code": "exit-1",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "copilot",
+      "event": "PreToolUse",
+      "operation": "command",
+      "tool": "Bash",
+      "command": "ls",
+      "identity": {
+        "session": "copilot-bash-error"
+      }
+    }
+  }
+}

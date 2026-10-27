@@ -1,0 +1,21 @@
+{
+  "event": "PreToolUse",
+  "native": {
+    "sessionId": "copilot-bash-no-jq",
+    "timestamp": 1793090731778,
+    "cwd": "/tmp",
+    "toolName": "bash",
+    "toolArgs": {
+      "command": "git push --force origin main"
+    }
+  },
+  "state": "none",
+  "fault": "jq-missing",
+  "expect": {
+    "exit": 0,
+    "stdoutIncludes": "\"permissionDecision\":\"deny\"",
+    "stderrIncludes": null,
+    "modelVisibleBytesMax": 400,
+    "noTrace": true
+  }
+}

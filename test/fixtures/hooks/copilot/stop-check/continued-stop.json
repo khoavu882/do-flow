@@ -1,0 +1,51 @@
+{
+  "event": "Stop",
+  "native": {
+    "sessionId": "copilot-stop-continued",
+    "timestamp": 1793090731778,
+    "cwd": "/tmp",
+    "transcriptPath": "<set by the runner>",
+    "stopReason": "end_turn",
+    "stop_hook_active": true
+  },
+  "state": "none",
+  "fault": "none",
+  "transcript": [
+    {
+      "type": "user.message",
+      "data": {
+        "content": "write it"
+      }
+    },
+    {
+      "type": "assistant.message",
+      "data": {
+        "content": ""
+      }
+    },
+    {
+      "type": "assistant.message",
+      "data": {
+        "content": "```js\n// TODO: unfinished\n```"
+      }
+    }
+  ],
+  "expect": {
+    "exit": 0,
+    "stdout": "",
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "allow",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "copilot",
+      "event": "Stop",
+      "operation": "stop",
+      "identity": {
+        "session": "copilot-stop-continued"
+      }
+    }
+  }
+}

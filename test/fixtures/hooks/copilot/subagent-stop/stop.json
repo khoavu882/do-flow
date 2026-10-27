@@ -1,0 +1,33 @@
+{
+  "event": "SubagentStop",
+  "native": {
+    "sessionId": "9d0d2ed1-a58d-439d-a064-558a87984f31",
+    "timestamp": 1793090731778,
+    "cwd": "/tmp",
+    "agentId": "c56cca11-c1bc-4997-992a-e5f50617c02c",
+    "agentType": "task",
+    "agentName": "task",
+    "response": "Files in the repository",
+    "stopReason": "end_turn"
+  },
+  "state": "none",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdout": "",
+    "stderrIncludes": null,
+    "decision": {
+      "outcome": "allow",
+      "effect": "proceed"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "copilot",
+      "event": "SubagentStop",
+      "operation": "subagent-stop",
+      "identity": {
+        "session": "9d0d2ed1-a58d-439d-a064-558a87984f31"
+      }
+    }
+  }
+}

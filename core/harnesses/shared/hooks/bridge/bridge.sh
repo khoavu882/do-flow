@@ -47,12 +47,19 @@ doflow_bridge_effect() {
   elif [ "$profile" = strict-1 ] && [ "$block" -eq 1 ] && [ "$policy" != stop-check ] && { [ "$outcome" = error ] || [ "$outcome" = unsupported ] || [ "$DF_BRIDGE_CODE" = bridge-spawn ] || [ "$DF_BRIDGE_CODE" = envelope-encode ]; }; then DF_BRIDGE_EFFECT=block
   elif [ "$outcome" = error ] && [ "$DF_BRIDGE_CODE" != bridge-spawn ] && [ -n "$DF_BRIDGE_POINT" ] && [ "$profile" = compat-1 ]; then
     case "$harness:$event" in
-      claude:PreToolUse|codex:PreToolUse|pi:tool_call) DF_BRIDGE_EFFECT=block ;;
+      claude:PreToolUse|codex:PreToolUse|copilot:PreToolUse|pi:tool_call) DF_BRIDGE_EFFECT=block ;;
       antigravity:PreToolUse|antigravity:Stop) case "$DF_BRIDGE_CODE" in signal-*) DF_BRIDGE_EFFECT=proceed;; *) DF_BRIDGE_EFFECT=block;; esac ;;
       kiro:PreToolUse) [ "$DF_BRIDGE_CODE" = exit-2-unmarked ] && DF_BRIDGE_EFFECT=block ;;
       claude:Stop) [ "$DF_BRIDGE_CODE" = exit-2-unmarked ] && DF_BRIDGE_EFFECT=block ;;
-      codex:Stop|codex:stop|kiro:Stop|kiro:stop) [ "$DF_BRIDGE_CODE" = exit-2-unmarked ] && DF_BRIDGE_EFFECT=block || DF_BRIDGE_EFFECT=proceed ;;
+      codex:Stop|codex:stop|copilot:Stop|kiro:Stop|kiro:stop) [ "$DF_BRIDGE_CODE" = exit-2-unmarked ] && DF_BRIDGE_EFFECT=block || DF_BRIDGE_EFFECT=proceed ;;
     esac
+  fi
+  # Copilot CLI: a guarded preToolUse policy that errors or cannot decide (jq or the policy script
+  # missing, an edit with no decodable target) denies whatever the fault profile; only a policy that
+  # answered allow or advisory lets the call through. Copilot-only: every other harness keeps the
+  # profile rules above byte for byte.
+  if [ "$block" -eq 1 ] && [ "$DF_BRIDGE_EFFECT" = proceed ] && [ "$harness:$event" = copilot:PreToolUse ] && [ "$policy" != stop-check ]; then
+    case "$outcome" in error|unsupported) DF_BRIDGE_EFFECT=block ;; esac
   fi
 }
 
@@ -62,7 +69,7 @@ doflow_bridge_drops_tool_streams() {
     *) return 1 ;;
   esac
   case "$2:$3" in
-    claude:PreToolUse|codex:PreToolUse|kiro:PreToolUse|antigravity:PreToolUse|antigravity:Stop|pi:tool_call) return 0 ;;
+    claude:PreToolUse|codex:PreToolUse|copilot:PreToolUse|kiro:PreToolUse|antigravity:PreToolUse|antigravity:Stop|pi:tool_call) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -252,7 +259,7 @@ doflow_bridge() {
   fi
   case "$policy:$DF_BRIDGE_OUTCOME:$harness:$response_event:$DF_BRIDGE_CODE" in
     session-context:error:*:*:*|user-prompt-submit:error:*:*:*|subagent-audit:error:*:*:*|session-context:unsupported:*:*:*|user-prompt-submit:unsupported:*:*:*|subagent-audit:unsupported:*:*:*) ;;
-    *:error:codex:Stop:exit-*|*:error:codex:Stop:signal-*|*:error:codex:stop:exit-*|*:error:codex:stop:signal-*|*:error:kiro:PreToolUse:exit-*|*:error:kiro:PreToolUse:signal-*|*:error:kiro:Stop:exit-*|*:error:kiro:Stop:signal-*|*:error:claude:Stop:exit-*|*:error:claude:Stop:signal-*) ;;
+    *:error:codex:Stop:exit-*|*:error:codex:Stop:signal-*|*:error:copilot:Stop:exit-*|*:error:copilot:Stop:signal-*|*:error:codex:stop:exit-*|*:error:codex:stop:signal-*|*:error:kiro:PreToolUse:exit-*|*:error:kiro:PreToolUse:signal-*|*:error:kiro:Stop:exit-*|*:error:kiro:Stop:signal-*|*:error:claude:Stop:exit-*|*:error:claude:Stop:signal-*) ;;
     *)
       if ! doflow_bridge_drops_tool_stderr "$policy" "$harness" "$response_event" && [ -n "$err" ]; then printf '%s' "$err" >&2; fi
       ;;

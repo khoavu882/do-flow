@@ -1,0 +1,39 @@
+{
+  "event": "PreToolUse",
+  "native": {
+    "sessionId": "copilot-gate-create",
+    "timestamp": 1793090731778,
+    "cwd": "/tmp",
+    "toolName": "create",
+    "toolArgs": {
+      "path": "src/b.js",
+      "file_text": "x"
+    }
+  },
+  "state": "no-design",
+  "fault": "none",
+  "expect": {
+    "exit": 0,
+    "stdoutIncludes": "\"permissionDecision\":\"deny\"",
+    "stderrIncludes": null,
+    "modelVisibleBytesMax": 400,
+    "decision": {
+      "outcome": "deny",
+      "code": "missing-artifacts",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "copilot",
+      "event": "PreToolUse",
+      "operation": "edit",
+      "tool": "Write",
+      "paths": [
+        "src/b.js"
+      ],
+      "identity": {
+        "session": "copilot-gate-create"
+      }
+    }
+  }
+}
