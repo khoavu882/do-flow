@@ -471,12 +471,470 @@ def check_uncited_vendor_claims(path: Path, lines: List[str]) -> List[Dict]:
 
 
 # --------------------------------------------------------------------------------------
+# Check 7: voice tells (opt-in `--voice`; row 132)
+# --------------------------------------------------------------------------------------
+#
+# Advisory and deterministic: it finds phrases the guidance tree's `ARTIFACT_VOICE.md` asks
+# writers to avoid. Every finding quotes the match; there is no score, percentage or grade, and
+# the check never changes this script's exit status. The word lists below are this repo's own.
+#
+# A tell is STRONG (reported on its own) or WEAK (a word or mark that is often fine alone: one
+# dash, one bold word, "key"). A weak tell is reported only when at least two other tells share
+# its paragraph, so a plain sentence with one dash stays silent.
+
+_V_STRONG_WORDS = [
+    ("overused_word", r"delv(?:e|es|ed|ing)|tapestry|pivotal|testament|intricate|interplay|"
+                      r"foster(?:s|ed|ing)?|underscor(?:e|es|ed|ing)|showcas(?:e|es|ed|ing)|vibrant"),
+    ("sales_word", r"boasts?|seamless(?:ly)?|cutting-edge|game-chang(?:er|ing)|groundbreaking|"
+                   r"revolutionary|world-class|best-in-class|state-of-the-art|unparalleled"),
+    ("chatbot_residue", r"i hope this helps|hope that helps|great question|good question|"
+                        r"i'?d be happy to|happy to help|as an ai(?: language model)?|"
+                        r"let me know if you|feel free to (?:ask|reach)|"
+                        r"(?<![\w'])(?:certainly|absolutely|of course)(?=!)"),
+    ("knowledge_limit", r"as of my (?:last|latest) (?:update|training)|as of my knowledge|"
+                        r"knowledge cut-?off|my training data|up to my last (?:update|training)|"
+                        r"i (?:don'?t|do not) have (?:access to )?real-time"),
+    ("serves_as", r"serv(?:es|e|ing) as|stands? as|standing as"),
+]
+_V_WEAK_WORDS = [
+    ("overused_word", r"actually|additionally|crucial|enhanc(?:e|es|ed|ing)|highlight(?:s|ed|ing)?|"
+                      r"key|landscape|valuable"),
+    ("sales_word", r"robust|powerful"),
+]
+_V_STRONG_RES = [(k, re.compile(r"\b(?:" + p + r")\b" if k != "chatbot_residue" else "(?:" + p + ")",
+                                re.IGNORECASE)) for k, p in _V_STRONG_WORDS]
+_V_WEAK_RES = [(k, re.compile(r"\b(?:" + p + r")\b", re.IGNORECASE)) for k, p in _V_WEAK_WORDS]
+
+_V_DASH_RE = re.compile("[—–]")
+_V_CURLY_RE = re.compile("[‘’“”]")
+_V_BOLD_RE = re.compile(r"\*\*[^*\n]+?\*\*|__[^_\n]+?__")
+_V_LIST_RE = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
+_V_HEADING_LINE_RE = re.compile(r"^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$")
+_V_HEADING_ID_RE = re.compile(r"^(?:\d+(?:\.\d+)*\.?|[A-Z]{1,4}-?\d+:?)\s+")
+_V_MINOR = {"a", "an", "the", "and", "or", "of", "to", "in", "on", "for", "with", "by", "at", "as",
+            "vs", "via", "nor", "but", "from", "into", "is", "are"}
+
+_FENCE_OPEN_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
+_INLINE_CODE_RE = re.compile(r"(`+)(?:(?!\1).)+?\1", re.DOTALL)
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+_REF_USE_RE = re.compile(r"(\]\[)[^\]\n]*(\])")
+_AUTOLINK_RE = re.compile(r"<(?:https?|mailto):[^>\n]*>|https?://[^\s)>\]]+")
+_REFDEF_RE = re.compile(r"^ {0,3}\[[^\]\n]+\]:[ \t]*\S.*$")
+_THEMATIC_RE = re.compile(r"^ {0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$")
+
+
+def _blank(match: "re.Match") -> str:
+    return " " * len(match.group(0))
+
+
+def _spaces(text: str) -> str:
+    """`text` with every character but newlines replaced by a space (offsets stay valid)."""
+    return re.sub(r"[^\n]", " ", text)
+
+
+def _mask_destinations(text: str) -> str:
+    """Blank the `(...)` of every `](...)`, matching nested parentheses."""
+    out = list(text)
+    pos = 0
+    while True:
+        k = text.find("](", pos)
+        if k < 0:
+            return "".join(out)
+        depth, m = 1, k + 2
+        while m < len(text) and depth:
+            depth += {"(": 1, ")": -1}.get(text[m], 0)
+            m += 1
+        end = m if depth == 0 else k + 2
+        for q in range(k + 2, max(end - 1, k + 2)):
+            if text[q] != "\n":
+                out[q] = " "
+        pos = max(end, k + 2)
+
+
+def _mask_inline(text: str) -> str:
+    """Blank inline code (also over line breaks), HTML comments, link destinations and
+    identifiers, and autolinks in a block of joined lines."""
+    text = _INLINE_CODE_RE.sub(lambda m: _spaces(m.group(0)), text)
+    text = _HTML_COMMENT_RE.sub(lambda m: _spaces(m.group(0)), text)
+    text = _mask_destinations(text)
+    text = re.sub(r"\[[^\]\n]*\]\[\]", lambda m: _spaces(m.group(0)), text)   # collapsed [text][]
+    text = _REF_USE_RE.sub(lambda m: m.group(1) + _spaces(m.group(0))[2:-1] + m.group(2), text)
+    return _AUTOLINK_RE.sub(lambda m: _spaces(m.group(0)), text)
+
+
+def mask_prose(lines: List[str]) -> List[str]:
+    """Return `lines` with every region a voice check must not read replaced by spaces, so
+    offsets and line numbers stay valid. A line removed whole becomes ""; a line with only part
+    masked keeps its length, so a paragraph is never split by masking. Regions: YAML front
+    matter; fenced code (closed only by the same character, at least as long); indented code
+    outside a list; block quotes including lazy continuation lines; HTML comments; inline code
+    (over line breaks too); link destinations, reference identifiers and definitions; autolinks."""
+    out: List[str] = []
+    i = 0
+    if lines and lines[0].strip() == "---":
+        for j in range(1, len(lines)):
+            if lines[j].strip() == "---":
+                out = [""] * (j + 1)
+                i = j + 1
+                break
+    fence = None            # (char, length) of the open fence
+    in_comment = in_quote = in_list = False
+    prev = "blank"          # blank | code | para: what the previous line was
+    for line in lines[i:]:
+        stripped = line.strip()
+        if fence:
+            if re.match(r"^ {0,3}" + re.escape(fence[0]) + "{" + str(fence[1]) + r",}[ \t]*$", line):
+                fence = None
+            out.append("")
+            prev = "code"
+            continue
+        if in_comment:
+            in_comment = "-->" not in line
+            out.append("")
+            continue
+        fm = _FENCE_OPEN_RE.match(line)
+        if fm:
+            fence = (fm.group(1)[0], len(fm.group(1)))
+            out.append("")
+            in_quote = False
+            prev = "code"
+            continue
+        if stripped.startswith("<!--"):
+            in_comment = "-->" not in line
+            out.append("")
+            continue
+        if not stripped:
+            out.append("")
+            in_quote = False
+            prev = "blank"
+            continue
+        is_list = bool(_V_LIST_RE.match(line)) and not line.startswith(("    ", "\t"))
+        if stripped.startswith(">"):
+            in_quote = True
+            out.append("")
+            prev = "para"
+            continue
+        if in_quote and not (_V_HEADING_LINE_RE.match(line) or is_list or _THEMATIC_RE.match(line)):
+            out.append("")      # lazy continuation of a block quote
+            prev = "para"
+            continue
+        in_quote = False
+        indented = line.startswith(("    ", "\t"))
+        if indented and not in_list and prev != "para":
+            out.append("")
+            prev = "code"
+            continue
+        if is_list:
+            in_list = True
+        elif not indented:
+            in_list = False
+        prev = "heading" if _V_HEADING_LINE_RE.match(line) else "para"
+        out.append(line)
+
+    # Second pass: inline masks, over each run of consecutive kept lines so a span may cross a break.
+    k = 0
+    while k < len(out):
+        if out[k] == "" or not lines[k].strip():
+            k += 1
+            continue
+        m = k
+        while m < len(out) and out[m] != "" and lines[m].strip():
+            m += 1
+        block = _mask_inline("\n".join(out[k:m])).split("\n")
+        for n, text in enumerate(block):
+            out[k + n] = _REFDEF_RE.sub(lambda r: " " * len(r.group(0)), text)
+        k = m
+    return out
+
+
+def _voice_paragraphs(masked: List[str], lines: List[str]) -> List[Tuple[int, List[str]]]:
+    """Paragraphs of masked lines as (0-based start index, lines). A line that is empty in the
+    source, or removed whole by masking (""), ends a paragraph; so do a heading and each list
+    item. A line that only had inline code masked stays in its paragraph."""
+    paras: List[Tuple[int, List[str]]] = []
+    start, block = None, []
+
+    def flush():
+        nonlocal start, block
+        if block:
+            paras.append((start, block))
+        start, block = None, []
+
+    for i, line in enumerate(masked):
+        if line == "" or not lines[i].strip():
+            flush()
+            continue
+        if _V_HEADING_LINE_RE.match(line):
+            flush()
+            paras.append((i, [line]))
+            continue
+        if _V_LIST_RE.match(line):
+            flush()
+        if start is None:
+            start = i
+        block.append(line)
+    flush()
+    return paras
+
+
+def _quote(text: str, limit: int = 60) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def _is_title_case(heading: str) -> bool:
+    heading = _V_HEADING_ID_RE.sub("", heading)   # "3.", "R1:" and "FR-001:" are identifiers, not words
+    words = re.findall(r"[A-Za-z][A-Za-z'-]*", heading)
+    rest = [w for w in words[1:] if w.lower() not in _V_MINOR and len(w) >= 3]
+    return len(rest) >= 2 and all(w[0].isupper() for w in rest)
+
+
+def check_voice(path: Path, lines: List[str]) -> List[Dict]:
+    findings: List[Dict] = []
+    masked = mask_prose(lines)
+    for start_idx, para in _voice_paragraphs(masked, lines):
+        strong: List[Tuple[int, str, str]] = []   # (1-based line, kind, quoted text)
+        weak: List[Tuple[int, str, str]] = []
+        dashes: List[Tuple[int, int]] = []
+        curly: List[Tuple[int, int]] = []
+        bold: List[Tuple[int, str]] = []
+
+        for off, line in enumerate(para):
+            ln = start_idx + off + 1
+            text = line
+            hm = _V_HEADING_LINE_RE.match(line)
+            if hm and _is_title_case(hm.group(2)):
+                strong.append((ln, "title_case_heading", _quote(hm.group(2))))
+            for kind, rx in _V_STRONG_RES:
+                for m in rx.finditer(text):
+                    strong.append((ln, kind, _quote(m.group(0))))
+            for kind, rx in _V_WEAK_RES:
+                for m in rx.finditer(text):
+                    weak.append((ln, kind, _quote(m.group(0))))
+            for m in _V_DASH_RE.finditer(text):
+                dashes.append((ln, m.start()))
+            for m in _V_CURLY_RE.finditer(text):
+                curly.append((ln, m.start()))
+            lead = _V_LIST_RE.match(text)
+            body_start = lead.end() if lead else len(text) - len(text.lstrip())
+            for m in _V_BOLD_RE.finditer(text):
+                inner = m.group(0)[2:-2].strip()
+                if m.start() <= body_start or inner.endswith(":"):
+                    continue    # a label or a defined term opening the item, not emphasis
+                bold.append((ln, m.group(0)))
+
+        def around(ln: int, col: int) -> str:
+            src = para[ln - start_idx - 1]
+            return _quote(src[max(0, col - 20): col + 20])
+
+        if len(dashes) >= 2:
+            strong.append((dashes[0][0], "dash_habit", around(*dashes[0])))
+        elif dashes:
+            weak.append((dashes[0][0], "dash_habit", around(*dashes[0])))
+        if curly:
+            weak.append((curly[0][0], "curly_quote", around(*curly[0])))
+        if len(bold) >= 3:
+            strong.append((bold[0][0], "bold_density", _quote(" ".join(b[1] for b in bold[:3]))))
+        elif bold:
+            weak.append((bold[0][0], "bold_density", _quote(bold[0][1])))
+
+        if not (para and _V_LIST_RE.match(para[0]) or para[0].lstrip().startswith("|")):
+            joined = " ".join(p.strip() for p in para)
+            sents = [s for s in _SENTENCE_SPLIT_RE.split(joined) if s.strip()]
+            openers = []
+            for s in sents:
+                om = re.match(r"[A-Za-z][A-Za-z'-]*", s.lstrip(" \"'(*_"))
+                openers.append(om.group(0) if om else None)
+            for i in range(len(openers) - 2):
+                a, b, c = openers[i:i + 3]
+                if a and b and c and len(a) >= 2 and a.lower() == b.lower() == c.lower():
+                    pos = joined.find(sents[i])
+                    strong.append((_offset_to_line(start_idx, para, max(pos, 0)),
+                                   "repeated_opener", f"{a} (opens 3 consecutive sentences)"))
+                    break
+
+        tells = len(strong) + len(weak)
+        reported = list(strong) + (list(weak) if tells >= 3 else [])
+        for ln, kind, quoted in sorted(reported, key=lambda t: (t[0], t[1])):
+            is_weak = (ln, kind, quoted) in weak
+            findings.append(make_finding(
+                path, ln, f"voice_{kind}", "low",
+                f"{kind}: \"{quoted}\"" + (" (weak tell, shown because the paragraph has others)"
+                                           if is_weak else "")))
+    return findings
+
+
+# --------------------------------------------------------------------------------------
+# Facts diff: what a rewrite must not change (opt-in `--facts-diff BEFORE AFTER`; row 132)
+# --------------------------------------------------------------------------------------
+#
+# Extracts numbers, capitalised names, dates, URLs and citation markers from two versions of a
+# file. A fact only in AFTER is an error (the rewrite added it); a fact only in BEFORE is a
+# warning (the rewrite dropped or changed it). Presence is compared, not counts. Dates are
+# compared as ISO dates ("March 14, 2026" and "14 March 2026" are one fact). Lines wrapped
+# inside a paragraph are joined first, so a name split over two lines is one name.
+#
+# Names are a heuristic. A run of capitalised words is a name. A single capitalised word that
+# opens a sentence is a name only when the same word is capitalised mid-sentence in either
+# version, or has an inner capital or digit ("PostgreSQL"): so a name that moves to or from a
+# sentence start still matches itself, and "Run" turned into "Execute" is not an added fact.
+# Words in `_F_STOP_START` are never names.
+
+_MONTHS = (r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|"
+           r"Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?")
+_MONTH_NUMBER = {m: n for n, m in enumerate(
+    "jan feb mar apr may jun jul aug sep oct nov dec".split(), 1)}
+_F_URL_RE = re.compile(r"https?://[^\s)>\]\"'`]+")
+_F_DATE_RE = re.compile(
+    rf"\b\d{{4}}-\d{{2}}-\d{{2}}\b|\b{_MONTHS}\s+\d{{1,2}}(?:st|nd|rd|th)?,?\s+\d{{4}}\b|"
+    rf"\b\d{{1,2}}(?:st|nd|rd|th)?\s+{_MONTHS}\s+\d{{4}}\b|\b{_MONTHS}\s+\d{{4}}\b")
+_F_DATE_FORMS = [
+    (re.compile(r"(\d{4})-(\d{2})-(\d{2})"), lambda g: f"{g[0]}-{g[1]}-{g[2]}"),
+    (re.compile(rf"({_MONTHS})\s+(\d{{1,2}})(?:st|nd|rd|th)?,?\s+(\d{{4}})"),
+     lambda g: f"{g[2]}-{_month(g[0]):02d}-{int(g[1]):02d}"),
+    (re.compile(rf"(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MONTHS})\s+(\d{{4}})"),
+     lambda g: f"{g[2]}-{_month(g[1]):02d}-{int(g[0]):02d}"),
+    (re.compile(rf"({_MONTHS})\s+(\d{{4}})"), lambda g: f"{g[1]}-{_month(g[0]):02d}"),
+]
+_F_CITE_RE = re.compile(
+    r"\[\^[^\]\s]+\]|\[@[^\]\s]+\]|\[\d+(?:\s*[,–-]\s*\d+)*\]|"
+    r"\([A-Z][A-Za-z-]+(?: et al\.| (?:and|&) [A-Z][A-Za-z-]+)?,? \d{4}[a-z]?\)")
+_F_NUM_RE = re.compile(r"(?<![\w.])\d[\d,]*(?:\.\d+)*%?(?![\w])")
+_F_STOP_START = {
+    "The", "A", "An", "This", "That", "These", "Those", "It", "Its", "We", "Our", "You", "Your", "In",
+    "On", "At", "For", "If", "When", "While", "Then", "There", "Here", "And", "But", "Or", "So",
+    "As", "By", "With", "Without", "To", "Of", "Each", "Every", "Some", "Any", "All", "No", "Not",
+    "See", "Note", "Use", "Run", "Read", "Set", "Add", "Make", "Keep", "Do", "Does", "Is", "Are",
+    "Was", "Were", "Be", "After", "Before", "Once", "Since", "Because", "However", "Also", "Both",
+    "Most", "Many", "One", "Two", "Three", "Only", "Even", "Still", "Yet", "Now", "Today",
+}
+_F_NAME_RUN_RE = re.compile(r"[A-Z][\w'-]*(?:[ \t]+[A-Z][\w'-]*)*")
+_F_LAYOUT_PREFIX_RE = re.compile(r"[\s\-+*>|]*(?:\d+[.)])?[\s\-+*>|]*")
+_F_BLOCK_START_RE = re.compile(r"^\s*(?:[-*+>|#]|\d+[.)]|`{3,}|~{3,})")
+
+
+def _month(name: str) -> int:
+    return _MONTH_NUMBER[name.lower()[:3]]
+
+
+def _iso_date(text: str) -> str:
+    for rx, fmt in _F_DATE_FORMS:
+        m = rx.fullmatch(text)
+        if m:
+            return fmt(m.groups())
+    return text
+
+
+def _join_wrapped(text: str) -> str:
+    """Replace the line break inside a paragraph with a space (same length, so offsets hold)."""
+    lines = text.split("\n")
+    out = []
+    for idx, line in enumerate(lines):
+        out.append(line)
+        if idx < len(lines) - 1:
+            nxt = lines[idx + 1]
+            joinable = bool(line.strip() and nxt.strip() and not _F_BLOCK_START_RE.match(nxt)
+                            and not line.lstrip().startswith(("|", "```", "~~~")))
+            out.append(" " if joinable else "\n")
+    return "".join(out)
+
+
+def _extract_facts(text: str) -> Tuple[List[Tuple[str, str, int]], List[Tuple[str, int]]]:
+    """Return (facts, initials). facts are (kind, normalised value, 1-based line); initials are
+    the single capitalised words that open a sentence, which `facts_diff` resolves."""
+    facts: List[Tuple[str, str, int]] = []
+    initials: List[Tuple[str, int]] = []
+    line_starts: List[int] = []
+    pos = 0
+    for line in text.split("\n"):
+        line_starts.append(pos)
+        pos += len(line) + 1
+
+    def line_of(offset: int) -> int:
+        lo, hi = 0, len(line_starts) - 1
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if line_starts[mid] <= offset:
+                lo = mid
+            else:
+                hi = mid - 1
+        return lo + 1
+
+    work = list(text)
+
+    def take(rx: "re.Pattern", kind: str, norm=lambda s: s):
+        for m in rx.finditer("".join(work)):
+            value = m.group(0)
+            if kind == "url":
+                value = value.rstrip(".,;:!?")
+            facts.append((kind, norm(value), line_of(m.start())))
+            for k in range(m.start(), m.end()):
+                if work[k] != "\n":
+                    work[k] = " "
+
+    take(_F_URL_RE, "url")
+    take(_F_DATE_RE, "date", lambda s: _iso_date(" ".join(s.split())))
+    take(_F_CITE_RE, "citation", lambda s: re.sub(r"\s+", "", s))
+    # ordered-list markers are layout, not facts
+    body = re.sub(r"(?m)^(\s*)(\d+[.)])(\s)", lambda m: m.group(1) + " " * len(m.group(2)) + m.group(3),
+                  "".join(work))
+    for m in _F_NUM_RE.finditer(body):
+        facts.append(("number", m.group(0).replace(",", ""), line_of(m.start())))
+    # headings are layout for names; blank them in place so later offsets keep their lines
+    name_body = "\n".join(" " * len(l) if re.match(r"^\s{0,3}#{1,6}\s", l) else l for l in body.split("\n"))
+    name_body = _join_wrapped(_INLINE_CODE_RE.sub(lambda m: _spaces(m.group(0)), name_body))
+    for m in _F_NAME_RUN_RE.finditer(name_body):
+        words = m.group(0).split()
+        while words and words[0] in _F_STOP_START:
+            words.pop(0)
+        if not words or (len(words) == 1 and len(words[0]) < 2):
+            continue
+        prefix = name_body[name_body.rfind("\n", 0, m.start()) + 1:m.start()]
+        opener = prefix.rstrip(" \t*_\"'([")
+        sentence_start = bool(_F_LAYOUT_PREFIX_RE.fullmatch(prefix)) or opener == "" or opener[-1] in ".!?:"
+        if len(words) == 1 and sentence_start and not re.search(r"[A-Z].*[A-Z]|[a-z]\d|\d", words[0]):
+            initials.append((words[0], line_of(m.start())))
+            continue
+        facts.append(("name", " ".join(words), line_of(m.start())))
+    return facts, initials
+
+
+def facts_diff(before: Path, after: Path) -> List[Dict]:
+    """Compare the facts of two versions. Added facts are errors, dropped ones warnings."""
+    b, b_initials = _extract_facts(read_file_content(before))
+    a, a_initials = _extract_facts(read_file_content(after))
+    confirmed = {v for k, v, _ in b + a if k == "name"}
+    b += [("name", w, ln) for w, ln in b_initials if w in confirmed]
+    a += [("name", w, ln) for w, ln in a_initials if w in confirmed]
+    b_keys = {(k, v) for k, v, _ in b}
+    a_keys = {(k, v) for k, v, _ in a}
+    findings: List[Dict] = []
+    done = set()
+    for kind, value, line in a:
+        if (kind, value) not in b_keys and (kind, value) not in done:
+            done.add((kind, value))
+            findings.append(make_finding(
+                after, line, f"fact_added_{kind}", "error",
+                f"{kind} \"{_quote(value)}\" is in the rewrite but not in the source: "
+                "remove it, or restore the source's version."))
+    for kind, value, line in b:
+        if (kind, value) not in a_keys and (kind, value) not in done:
+            done.add((kind, value))
+            findings.append(make_finding(
+                before, line, f"fact_dropped_{kind}", "warning",
+                f"{kind} \"{_quote(value)}\" is in the source but not in the rewrite: "
+                "confirm the removal was intended."))
+    return findings
+
+
+# --------------------------------------------------------------------------------------
 # File / directory orchestration
 # --------------------------------------------------------------------------------------
 
-def analyze_file(filepath: Path) -> List[Dict]:
+def analyze_file(filepath: Path, voice: bool = False) -> List[Dict]:
     """Analyze a single markdown file. Returns [] for a non-.md file or an unreadable one —
-    the same quiet-skip behavior code_quality_checker.py's directory walk relies on."""
+    the same quiet-skip behavior code_quality_checker.py's directory walk relies on. `voice`
+    adds the opt-in voice-tell check (Check 7); without it the output is unchanged."""
     if filepath.suffix.lower() != ".md":
         return []
     content = read_file_content(filepath)
@@ -491,17 +949,19 @@ def analyze_file(filepath: Path) -> List[Dict]:
     findings.extend(check_dangling_references(filepath, lines))
     findings.extend(check_staleness(filepath, lines))
     findings.extend(check_uncited_vendor_claims(filepath, lines))
+    if voice:
+        findings.extend(check_voice(filepath, lines))
     return findings
 
 
-def analyze_directory(dir_path: Path, recursive: bool = True) -> List[Dict]:
+def analyze_directory(dir_path: Path, recursive: bool = True, voice: bool = False) -> List[Dict]:
     """Analyze every .md file under a directory."""
     findings: List[Dict] = []
     pattern = "**/*.md" if recursive else "*.md"
     for filepath in sorted(dir_path.glob(pattern)):
         if "node_modules" in str(filepath) or ".git" in str(filepath):
             continue
-        findings.extend(analyze_file(filepath))
+        findings.extend(analyze_file(filepath, voice))
     return findings
 
 
@@ -537,7 +997,20 @@ def main():
     )
     parser.add_argument(
         "path",
+        nargs="?",
         help="File or directory to analyze"
+    )
+    parser.add_argument(
+        "--voice",
+        action="store_true",
+        help="Also report advisory voice tells (overused and sales words, chatbot residue, ...)"
+    )
+    parser.add_argument(
+        "--facts-diff",
+        nargs=2,
+        metavar=("BEFORE", "AFTER"),
+        help="Compare the numbers, names, dates, URLs and citations of two versions of a file: "
+             "a fact only in AFTER is an error (exit 1), one only in BEFORE a warning"
     )
     parser.add_argument(
         "--recursive", "-r",
@@ -557,6 +1030,21 @@ def main():
 
     args = parser.parse_args()
 
+    if args.facts_diff:
+        before, after = (Path(p).resolve() for p in args.facts_diff)
+        for p in (before, after):
+            if not p.is_file():
+                print(f"Error: Not a file: {p}", file=sys.stderr)
+                sys.exit(1)
+        findings = facts_diff(before, after)
+        if args.json:
+            print(json.dumps(findings, indent=2, default=str))
+        else:
+            print_report(findings, after)
+        sys.exit(1 if any(f["severity"] == "error" for f in findings) else 0)
+
+    if not args.path:
+        parser.error("a path is required unless --facts-diff is given")
     target = Path(args.path).resolve()
 
     if not target.exists():
@@ -564,9 +1052,9 @@ def main():
         sys.exit(1)
 
     if target.is_file():
-        findings = analyze_file(target)
+        findings = analyze_file(target, args.voice)
     else:
-        findings = analyze_directory(target, args.recursive)
+        findings = analyze_directory(target, args.recursive, args.voice)
         if not findings and not any(target.glob("**/*.md" if args.recursive else "*.md")):
             print(f"Warning: no .md files found under {display_path(target)}", file=sys.stderr)
 
