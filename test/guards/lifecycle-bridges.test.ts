@@ -61,10 +61,23 @@ function corpusFiles(root: any = REPO) {
   });
 }
 
+/**
+ * The test process's environment without the variables a running agent session exports (DOFLOW_*,
+ * KIRO_*): the bridge folds them into the envelope's identity, task and session, so a run from
+ * inside a session would otherwise differ from a run in CI. `extra` is a fixture's own setting.
+ */
+function bridgeEnv(extra: any = {}) {
+  const env: any = {};
+  for (const [name, value] of Object.entries(process.env)) {
+    if (!name.startsWith('DOFLOW_') && !name.startsWith('KIRO_')) env[name] = value;
+  }
+  return { ...env, ...extra };
+}
+
 function bridgeInput(harness: any, native: any, fixtureEnv: any = {}) {
   if (harness !== 'kiro') return JSON.stringify(native);
   const translated = spawnSync('/bin/bash', ['-c', `. '${path.join(REPO, 'core/harnesses/kiro/hooks/lib.sh')}'; kiro_bridge_payload`], {
-    input: JSON.stringify(native), encoding: 'utf8', env: { ...process.env, ...fixtureEnv },
+    input: JSON.stringify(native), encoding: 'utf8', env: bridgeEnv(fixtureEnv),
   });
   assert.equal(translated.status, 0, translated.stderr);
   return translated.stdout;
@@ -72,7 +85,7 @@ function bridgeInput(harness: any, native: any, fixtureEnv: any = {}) {
 
 function encodeFixture(harness: any, event: any, policy: any, native: any, envelopePath: any = path.join(BRIDGE_DIR, 'envelope.jq'), fixtureEnv: any = {}) {
   const result = spawnSync('jq', ['-c', '--arg', 'harness', harness, '--arg', 'event', event, '--arg', 'policy', policy, '-f', envelopePath], {
-    input: bridgeInput(harness, native, fixtureEnv), encoding: 'utf8', env: { ...process.env, ...fixtureEnv },
+    input: bridgeInput(harness, native, fixtureEnv), encoding: 'utf8', env: bridgeEnv(fixtureEnv),
   });
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout).doflow_event;
@@ -80,7 +93,7 @@ function encodeFixture(harness: any, event: any, policy: any, native: any, envel
 
 function contractClass(input: any) {
   const result = spawnSync('/bin/bash', ['-c', `. '${path.join(POLICY_DIR, 'contract.sh')}'; INPUT=$(cat); doflow_read_envelope; printf '%s' "$DF_ENV_CLASS"`], {
-    input, encoding: 'utf8', env: { ...process.env, DOFLOW_DECISION_FD: '' },
+    input, encoding: 'utf8', env: bridgeEnv({ DOFLOW_DECISION_FD: '' }),
   });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout;
@@ -607,3 +620,26 @@ test('G37.4 control: Kiro Stop set to blocking is detected', () => { const c=str
 test('G37.5: deny and error fixtures pin valid visible-byte ceilings and Pi result sizes', () => {assert.deepEqual(corpusShapeFindings(corpusFiles()),[]);});
 test('G37.5 control: an error fixture without a ceiling is detected', (t) => {const root=tempDir(t,'doflow-g375-control-');const file=path.join(root,'error.json');fs.writeFileSync(file,JSON.stringify({expect:{decision:{outcome:'error'}}}));assert.ok(corpusShapeFindings([file]).some((x: any)=>x.includes('missing modelVisibleBytesMax')));});
 
+
+test('FU-w1h6gj: envelope encoding ignores agent-session variables of the test process', () => {
+  const leaked = { KIRO_SESSION_ID: 'leaked-session', DOFLOW_SESSION_ROLE: 'worker', DOFLOW_TASK_ID: 'leaked-task', DOFLOW_RUN_ID: 'r1' };
+  const saved: any = {};
+  for (const name of Object.keys(leaked)) saved[name] = process.env[name];
+  Object.assign(process.env, leaked);
+  try {
+    let checked = 0;
+    for (const file of corpusFiles()) {
+      const fixture = JSON.parse(fs.readFileSync(file, 'utf8'));
+      const expected = fixture.expect?.envelope;
+      if (!expected || !fixture.native || fixture.env) continue;
+      const policy = fixture.policy || fixture.expect?.decision?.policy || 'session-context';
+      assert.deepEqual(encodeFixture(expected.harness, expected.event, policy, fixture.native), expected, path.relative(REPO, file));
+      checked += 1;
+    }
+    assert.ok(checked >= 10, `expected corpus envelope cases without their own env, found ${checked}`);
+  } finally {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
+  }
+});
