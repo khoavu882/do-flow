@@ -250,16 +250,25 @@ repo_real=$(cd -P "$repo_root" 2>/dev/null && pwd) || repo_real="$repo_root"
 GATED=false
 while IFS= read -r file; do
   [ -z "$file" ] && continue
-  case "$file" in *"/agent-docs/"*|agent-docs/*) continue ;; esac
+  # A ".." segment can lead out of agent-docs (agent-docs/../src/x), so such a path is judged by
+  # its real path below, never by the text before the "..".
+  case "/$file/" in
+    */../*) ;;
+    *) case "$file" in *"/agent-docs/"*|agent-docs/*) continue ;; esac ;;
+  esac
   check="$file"
   case "$file" in
     /*)
       real=$(real_path "$file") || real="$file"
-      case "$real" in *"/agent-docs/"*) continue ;; esac
+      case "/$real/" in */../*) ;; *) case "$real" in *"/agent-docs/"*) continue ;; esac ;; esac
       case "$real" in "$repo_real"/*) ;; *) continue ;; esac
       check="$real"
       ;;
-    *) real=$(real_path "$repo_root/$file") || real="$repo_root/$file" ;;
+    *)
+      real=$(real_path "$repo_root/$file") || real="$repo_root/$file"
+      # real_path folds a ".." only through directories that exist, so one left in it is not folded.
+      case "/$file/" in */../*) case "/$real/" in */../*) ;; *) case "${real#"$repo_real"}/" in */agent-docs/*) continue ;; esac ;; esac ;; esac
+      ;;
   esac
   # A path git ignores (a local config file such as .mcp.json) is not source. check-ignore
   # without --no-index answers "not ignored" for a tracked file, so tracked source stays gated.
