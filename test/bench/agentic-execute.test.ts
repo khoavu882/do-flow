@@ -615,6 +615,29 @@ test('execute: a timeout ends the whole process tree, records it, and removes wo
   assert.deepEqual(leftovers(s), [], 'workspace and profile removed after a timeout');
 });
 
+test('FU-3d2p7y: a harness that exits on its own cannot leave a child of its process group running', async () => {
+  const s = setup();
+  const pidfile = path.join(s.dir, 'orphan.pid');
+  const scenario = writeScenario(s, 'orphan', oneTask({ behaviour: 'ok', leaveChild: true }));
+  const result = await execute.executeIteration({
+    ...s.opts, tasks: ['T1'], extraEnv: { ...s.extraEnv, AGENTIC_FAKE_SCENARIO: scenario, AGENTIC_FAKE_PIDFILE: pidfile },
+  });
+  assert.equal(result.exit, 0);
+  assert.equal(readJson(s.runRoot, 'it1', 'T1', 'run_status.json').status, 'completed');
+  const pid = Number(fs.readFileSync(pidfile, 'utf8'));
+  let alive = true;
+  for (let i = 0; i < 40 && alive; i++) {
+    try {
+      process.kill(pid, 0);
+      await sleep(50);
+    } catch {
+      alive = false;
+    }
+  }
+  if (alive) process.kill(pid, 'SIGKILL');
+  assert.equal(alive, false, 'the leftover child was ended after the leader exited');
+});
+
 // --- execute: cap and stop rule ---------------------------------------------------------------
 
 test('execute: the stop rule halts before a run that could pass the cap, exit 3, and lists the undone ids', async () => {

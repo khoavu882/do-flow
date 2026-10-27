@@ -590,6 +590,8 @@ async function spawnHarness({ binary, argv, cwd, env, prompt, viaStdin, timeoutM
 
   const result = await exited;
   clearTimeout(timer);
+  // A leader that exits on its own can leave children in its group; they are ended after any exit.
+  if (proc && !timedOut) ended = processTree.escalate({ proc });
   await ended;
   let drainTimer: any;
   await Promise.race([outClosed, new Promise((resolve) => { drainTimer = setTimeout(resolve, DRAIN_MS); })]);
