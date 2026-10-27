@@ -1,6 +1,6 @@
 ---
 name: do-execute-plan
-description: "Execute plan.md's task checklist: subagent-driven orchestration over the agent specs named as plan owners, with prerequisite gates, readiness contracts, and parallel execution. Use whenever requirement.md, design.md, and plan.md exist and the next step is building the plan's tasks through subagents, or when the user says 'execute the plan', 'run the plan', 'start building', or 'implement phase N'. Always activate this skill to orchestrate multi-task implementation plans with write-set isolation."
+description: "Run plan.md's task checklist through subagents. Use when requirement.md, design.md and plan.md exist and the next step is building the plan's tasks, or when the user says 'execute the plan', 'run the plan', 'start building' or 'implement phase N'. Skip it while plan.md is missing (/do-plan comes first) and for one-off fixes, which go to /do-implement."
 argument-hint: "[--scope next|phase:N|all|resume] [--review] [--scaffold]"
 effort: high
 ---
