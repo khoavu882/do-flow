@@ -1073,6 +1073,22 @@ test('FU-swkhgg: the default run root is checked for resolving outside the check
   assert.deepEqual(fs.readdirSync(path.join(outside, 'agentic')), []);
 });
 
+test('FU-swkhgg: a spelling of the default run root with a trailing slash or a ./ is still the default', async () => {
+  for (const spell of [(d: string) => `${d}${path.sep}`, (d: string) => path.join(path.dirname(d), '.', path.basename(d)) + path.sep + '.']) {
+    const s = setup({ ownRepo: true });
+    const outside = path.join(s.dir, 'outside');
+    fs.mkdirSync(path.join(outside, 'agentic'), { recursive: true });
+    fs.mkdirSync(path.join(s.repoRoot, 'bench'), { recursive: true });
+    fs.symlinkSync(outside, path.join(s.repoRoot, 'bench', 'runs'));
+    git(s.repoRoot, 'add', '-A');
+    git(s.repoRoot, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', 'link runs');
+    s.opts.runRoot = spell(path.join(s.repoRoot, 'bench', 'runs', 'agentic'));
+    const refused = await execute.executeIteration({ ...s.opts, tasks: ['T1'] });
+    assert.equal(refused.reason, 'run-root-symlink', s.opts.runRoot);
+    assert.deepEqual(fs.readdirSync(path.join(outside, 'agentic')), []);
+  }
+});
+
 test('N-1, N-4: the version check runs in a scratch profile; the credential copy is mode 0600; iteration records the capture digest', async () => {
   const s = setup();
   const r = await execute.executeIteration({ ...s.opts, tasks: ['T1'] });
