@@ -130,4 +130,10 @@ function cleanupOnExit() {
 process.on('uncaughtExceptionMonitor', cleanupOnExit);
 process.on('exit', cleanupOnExit);
 
-module.exports = { tempDir, suiteTempDir, removeTree, TEST_ROOT };
+/** The same two settings as explicit env entries, for a spawn that builds its own env instead of spreading process.env. */
+const GIT_NO_MAINTENANCE_ENV = Object.freeze({
+  GIT_CONFIG_COUNT: String(GIT_NO_MAINTENANCE.length),
+  ...Object.fromEntries(GIT_NO_MAINTENANCE.flatMap(([key, value]: any, i: number) => [[`GIT_CONFIG_KEY_${i}`, key], [`GIT_CONFIG_VALUE_${i}`, value]])),
+});
+
+module.exports = { tempDir, suiteTempDir, removeTree, TEST_ROOT, GIT_NO_MAINTENANCE_ENV };

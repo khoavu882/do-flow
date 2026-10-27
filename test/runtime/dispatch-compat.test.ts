@@ -28,6 +28,7 @@ const { makeDispatchSandbox, resolveTool } = require('../helper/dispatch-sandbox
 const { IDENTITY_VARS } = require('../helper/fake-harness-cli.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { storeFileFor } = require('../../src/runtime/dispatch/store.ts');
+const { GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 
 const BASE = '0a474666';
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
@@ -69,7 +70,7 @@ const GIT = resolveTool('git');
  */
 function gitHere(args: any, encoding: any = 'utf8') {
   assert.ok(GIT, 'git is on this process PATH');
-  const env: any = { HOME: process.env.HOME || '/nonexistent', GIT_CONFIG_NOSYSTEM: '1', PATH: '' };
+  const env: any = { HOME: process.env.HOME || '/nonexistent', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, PATH: '' };
   for (const key of IDENTITY_VARS) delete env[key];
   return spawnSync(GIT, args, { cwd: REPO_ROOT, env, encoding, maxBuffer: 64 * 1024 * 1024 });
 }

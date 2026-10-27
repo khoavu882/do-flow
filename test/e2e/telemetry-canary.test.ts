@@ -45,7 +45,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { suiteTempDir, removeTree } = require('../helper/tmp.ts');
+const { suiteTempDir, removeTree, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { buildInstallMirror } = require('../helper/hook-fixtures.ts');
 const { start, pause, resume } = require('../../src/runtime/task-attempts.ts');
 const { scanPaths } = require('../../src/runtime/leak-scan.ts');
@@ -272,7 +272,7 @@ function runCanaryFixture() {
     OPENAI_MODEL: canaries.modelId,
     ANTHROPIC_MODEL: canaries.modelId,
     GIT_CONFIG_GLOBAL: '/dev/null',
-    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
     GIT_AUTHOR_NAME: 't',
     GIT_AUTHOR_EMAIL: 't@example.test',
     GIT_COMMITTER_NAME: 't',

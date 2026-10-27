@@ -12,7 +12,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 const { WorktreeManager, BASE_FILE } = require('../../src/runtime/worktree.ts');
-const { suiteTempDir } = require('../helper/tmp.ts');
+const { suiteTempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 
 const IS_WIN = process.platform === 'win32';
 const CANNOT_DENY_WRITES = IS_WIN || process.getuid?.() === 0;
@@ -58,7 +58,7 @@ before(() => {
   fs.symlinkSync(GIT, path.join(bin, path.basename(GIT)));
   const home = path.join(root, 'home');
   fs.mkdirSync(home);
-  ENV = { PATH: bin, HOME: home, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+  ENV = { PATH: bin, HOME: home, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV };
   for (const key of [...REPO_ENV, ...IDENTITY]) delete ENV[key];
 });
 

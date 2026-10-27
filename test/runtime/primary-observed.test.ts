@@ -12,7 +12,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { encodeEnvelope } = require('../helper/hook-fixtures.ts');
 const { cwdHash } = require('../../src/runtime/context/identity.ts');
 
@@ -51,14 +51,14 @@ function treeSnapshot(root: string) {
 function baseEnv(f: any): any {
   return {
     HOME: f.home, XDG_CONFIG_HOME: f.config, PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin`,
-    GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_TELEMETRY: 'off',
+    GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_TELEMETRY: 'off',
     CLAUDE_CONFIG_DIR: '', CODEX_HOME: '', DOFLOW_PROJECT_DIR: '', DOFLOW_DECISION_FD: '', DOFLOW_BRIDGE_TRACE: '',
   };
 }
 
 function git(cwd: string, ...args: string[]) {
   const r = spawnSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
-    encoding: 'utf8', env: { PATH: process.env.PATH, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_COMMITTER_DATE: COMMIT_DATE, GIT_AUTHOR_DATE: COMMIT_DATE },
+    encoding: 'utf8', env: { PATH: process.env.PATH, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, GIT_COMMITTER_DATE: COMMIT_DATE, GIT_AUTHOR_DATE: COMMIT_DATE },
   });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout.trim();
@@ -195,7 +195,7 @@ test('no config home gives store absent, empty sessions, exit 0 (IC-018 a)', (t)
   const root = tempDir(t, 'doflow-primary-observed-nohome-');
   const main = path.join(root, 'proj');
   repo(main);
-  const env: any = { PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', HOME: 'relative-home' };
+  const env: any = { PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, HOME: 'relative-home' };
   const before = treeSnapshot(root);
   const r = spawnSync(process.execPath, [CLI, 'primary', '--action', 'observed', '--json'], { cwd: main, env, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);

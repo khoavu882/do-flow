@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { loadPoints } = require('../../src/runtime/packages/points.ts');
 const { checkManifest, checkPackage } = require('../../src/runtime/packages/manifest.ts');
@@ -391,7 +391,7 @@ function cliScratch(t: any): any {
   fs.mkdirSync(path.join(cwd, '.doflow', 'state'), { recursive: true });
   const env: any = {
     ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'),
-    GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1', FORCE_COLOR: '', DOFLOW_TELEMETRY: 'off',
+    GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, FORCE_COLOR: '', DOFLOW_TELEMETRY: 'off',
   };
   delete env.DOFLOW_CONFIG_DIR;
   return { home, cwd, run: (args: string[]) => spawnSync(process.execPath, [CLI, 'package', ...args], { cwd, env, encoding: 'utf8' }) };

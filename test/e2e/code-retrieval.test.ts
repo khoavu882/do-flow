@@ -3,7 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { spawnSync } = require('node:child_process');
 
 const BIN = path.resolve(__dirname, '../../bin/doflow.js');
@@ -45,7 +45,7 @@ test('invalid task binding exits 2 before code retrieval and guidance remains th
 // R5: unbound code retrieval in a linked worktree skips feature-store routing; --task-id or --slug keeps it.
 test('unbound retrieve --scope code in a linked worktree searches the worktree without feature-store routing; --slug keeps the routing', (t) => {
   const base = fs.realpathSync(tempDir(t, 'doflow-code-retrieve-wt-'));
-  const env: any = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+  const env: any = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV };
   delete env.FORCE_COLOR;
   const git = (cwd: any, ...args: any[]) => { const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', ...args], { cwd, env, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); };
   const main = path.join(base, 'm');
@@ -76,7 +76,7 @@ test('unbound retrieve --scope code in a linked worktree searches the worktree w
 // X3: an unstaged tracked delete is an admission coverage gap, never a lexical provider-error.
 test('retrieve --scope code with an unstaged tracked delete reports an admission gap and no provider-error', (t) => {
   const root = fs.realpathSync(tempDir(t, 'doflow-code-retrieve-x3-'));
-  const env: any = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' };
+  const env: any = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV };
   delete env.FORCE_COLOR;
   const git = (...args: any[]) => { const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', ...args], { cwd: root, env, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); };
   fs.mkdirSync(path.join(root, 'src'));

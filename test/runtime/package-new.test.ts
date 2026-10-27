@@ -7,7 +7,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { handlePackageCommand } = require('../../src/runtime/packages/command.ts');
 const { scaffoldPackage } = require('../../src/runtime/packages/scaffold.ts');
@@ -40,7 +40,7 @@ function machine(t: any): any {
   Object.assign(env, {
     HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: xdg, TMPDIR: tmp,
     DOFLOW_TELEMETRY: 'off', DOFLOW_UPKEEP: 'off', DOFLOW_FAILURE_CAPTURE: 'off',
-    GIT_CONFIG_GLOBAL: path.join(root, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: path.join(root, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
   });
   const git = spawnSync('git', ['init', '-q'], { cwd: project, env, encoding: 'utf8' });
   assert.equal(git.status, 0, git.stdout + git.stderr);

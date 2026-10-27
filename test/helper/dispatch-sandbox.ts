@@ -27,7 +27,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('./tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('./tmp.ts');
 const { repoFromTemplate } = require('./repo-template.ts');
 const { IDENTITY_VARS, linkBin, writeScenario } = require('./fake-harness-cli.ts');
 const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
@@ -129,7 +129,7 @@ function makeDispatchSandbox(t: any, { plan = 'dependent', slug = '082-dispatch-
     PATH: bin,
     HOME: home,
     XDG_CONFIG_HOME: path.join(home, '.config'),
-    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
     FAKE_HARNESS_SCENARIO: scenarioFile,
     FAKE_HARNESS_LOG: log,
     // The sandbox PATH holds node alone, so a worker or fake CLI it starts would otherwise compile every

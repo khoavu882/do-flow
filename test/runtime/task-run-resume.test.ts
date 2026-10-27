@@ -15,7 +15,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync, spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { claim, status, start, pause, cancel, resume, TaskAttemptError } = require('../../src/runtime/task-attempts.ts');
 const { runKeyFor, resumeDigest } = require('../../src/runtime/task-run.ts');
 const { summaryScope } = require('../../src/runtime/context/summary-store.ts');
@@ -183,7 +183,7 @@ test('with no run the report has control none and epoch null; the acknowledged r
 test('a detached HEAD compares the recorded commit with the current one (real git)', (t) => {
   const p = project(t, { git: false });
   const git = (...args: any[]) => execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', ...args], {
-    cwd: p.dir, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: path.join(p.dir, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1' },
+    cwd: p.dir, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: path.join(p.dir, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV },
   }).trim();
   git('init', '-q');
   git('add', 'a.js');

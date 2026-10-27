@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { loadConstitution, constitutionFindings, parsePrinciples, planStageExit, constitutionBaseFile } = require('../../src/runtime/plan-content.ts');
 
@@ -109,7 +109,7 @@ function repo(t: any, planText: string, overlay: string | null = null) {
   fs.mkdirSync(path.join(work, 'agent-docs', 'doflow', SLUG), { recursive: true });
   const env: any = {
     ...process.env, HOME: home, XDG_CONFIG_HOME: path.join(home, '.config'),
-    GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1', FORCE_COLOR: '', DOFLOW_CLI: CLI,
+    GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig'), GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, FORCE_COLOR: '', DOFLOW_CLI: CLI,
   };
   const git = (...args: string[]) => {
     const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd: work, env, encoding: 'utf8' });

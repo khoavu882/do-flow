@@ -10,7 +10,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { CapabilityRouter } = require('../../src/runtime/capability-router.ts');
@@ -413,7 +413,7 @@ function cleanEnv(t: any) {
   // Only node, bash and the base utilities: no provider binary answers, so the run is the same everywhere.
   const env: any = {
     PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`, HOME: home, XDG_CONFIG_HOME: xdg,
-    GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', DOFLOW_CLI: CLI, DOFLOW_FAILURE_CAPTURE: '',
+    GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, DOFLOW_CLI: CLI, DOFLOW_FAILURE_CAPTURE: '',
   };
   return { proj, env };
 }

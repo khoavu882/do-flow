@@ -15,7 +15,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const BIN = path.join(REPO, 'bin', 'doflow.js');
@@ -118,7 +118,7 @@ function env(home: any, extra: any = {}) {
     PATH: process.env.PATH,
     TMPDIR: process.env.TMPDIR || '/tmp',
     FORCE_COLOR: '0',
-    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
     ...extra,
   };
 }

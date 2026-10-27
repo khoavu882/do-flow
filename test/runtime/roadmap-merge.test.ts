@@ -5,14 +5,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { mergeRoadmapRow, readOpenIntents, cleanupFeature } = require('../../src/runtime/roadmap/merge.ts');
 
 function fixture(t: any, conflict: any = false) {
   const dir = tempDir(t, 'doflow-roadmap-merge-');
   const root = path.join(dir, 'main'), develop = path.join(dir, 'develop'), feature = path.join(dir, 'feature');
   fs.mkdirSync(root);
-  const env: any = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null',
+  const env: any = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_AUTHOR_NAME: 'Owner', GIT_AUTHOR_EMAIL: 'owner@example.test', GIT_COMMITTER_NAME: 'Owner',
     GIT_COMMITTER_EMAIL: 'owner@example.test', GIT_AUTHOR_DATE: '1792400000 +0700', GIT_COMMITTER_DATE: '1792400000 +0700' };
   const git = (cwd: any, ...args: any[]) => cp.execFileSync('git', ['-C', cwd, ...args], { env, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();

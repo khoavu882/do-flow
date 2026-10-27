@@ -13,6 +13,7 @@ const { activeWorkers } = require('../../src/runtime/worker/active.ts');
 const { workersDoctorView } = require('../../src/runtime/health.ts');
 const readiness = require('../../src/runtime/worker/readiness.ts');
 const DESCRIPTORS = require('../fixtures/worker/descriptors.json');
+const { GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 
 const FAKES = { claude: DESCRIPTORS.claude, antigravity: DESCRIPTORS.antigravity };
 const NOW = Date.parse('2026-10-24T00:00:00Z');
@@ -292,7 +293,7 @@ test('doctor text and JSON report workers beside the unchanged primary line with
     XDG_CONFIG_HOME: f.xdg,
     PATH: '',
     GIT_CONFIG_GLOBAL: path.join(f.dir, 'no-gitconfig'),
-    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
     DOFLOW_PRIMARY_HARNESS: 'opencode',
   };
   const cli = (args: any) => {

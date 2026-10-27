@@ -14,7 +14,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { cwdHash } = require('../../src/runtime/context/identity.ts');
 
 const REPO = path.resolve(__dirname, '../..');
@@ -42,7 +42,7 @@ function treeSnapshot(root: string) {
 
 function git(cwd: string, ...args: string[]) {
   const r = spawnSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
-    encoding: 'utf8', env: { PATH: process.env.PATH, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' },
+    encoding: 'utf8', env: { PATH: process.env.PATH, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV },
   });
   assert.equal(r.status, 0, r.stderr);
   return r.stdout.trim();
@@ -69,7 +69,7 @@ function fixture(t: any) {
   f.dead = deadPid();
   f.env = {
     HOME: f.home, XDG_CONFIG_HOME: path.join(f.home, '.config'), PATH: `${path.dirname(process.execPath)}:/usr/bin:/bin`,
-    GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', DOFLOW_UPKEEP: 'off', DOFLOW_TELEMETRY: 'off', DOFLOW_FAILURE_CAPTURE: 'off',
+    GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, DOFLOW_UPKEEP: 'off', DOFLOW_TELEMETRY: 'off', DOFLOW_FAILURE_CAPTURE: 'off',
   };
   return f;
 }

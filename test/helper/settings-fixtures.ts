@@ -12,7 +12,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('./tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('./tmp.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const CLI = path.join(REPO, 'bin', 'doflow.js');
@@ -62,7 +62,7 @@ function createSettingsEnv(t: any, { prefix = 'doflow-settings-', worktree = fal
       HOME: home,
       XDG_CONFIG_HOME: xdg,
       GIT_CONFIG_GLOBAL: path.join(dir, 'no-gitconfig'),
-      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
       GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'test@example.com',
       GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'test@example.com',
     });

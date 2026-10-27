@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { tempDir } = require('../helper/tmp.ts');
+const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { encodeEnvelope, parseRecords, runPolicy } = require('../helper/hook-fixtures.ts');
 
 const POLICY = 'pre-bash-guard';
@@ -83,7 +83,7 @@ function makeWorktree(root: any, suffix: any = 'd-0123456789ab', collision: any 
 function git(cwd: any, ...args: any[]) {
   const result = spawnSync('git', args, {
     cwd, encoding: 'utf8',
-    env: { PATH: process.env.PATH, HOME: process.env.HOME, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' },
+    env: { PATH: process.env.PATH, HOME: process.env.HOME, GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, GIT_CONFIG_GLOBAL: '/dev/null' },
   });
   assert.equal(result.status, 0, result.stderr);
   return result.stdout;
