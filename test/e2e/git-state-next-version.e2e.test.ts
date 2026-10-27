@@ -61,3 +61,23 @@ test('a pre-release tag is still a release version', { skip: !jqOk }, () => {
   r.git('tag', 'vx');
   assert.equal(r.nextVersion().base_tag, 'v2.0.0-beta.1');
 });
+
+test('FU-8ej091: a stable release outranks its own pre-releases, whatever their numbers', { skip: !jqOk }, () => {
+  const r = repo();
+  r.git('tag', 'v1.0.0-beta.1');
+  r.git('tag', 'v1.0.0-beta.10');
+  r.git('tag', 'v1.0.0');
+  const out = r.nextVersion();
+  assert.equal(out.base_tag, 'v1.0.0');
+  assert.equal(out.next_version, '1.0.1');
+});
+
+test('FU-8ej091: a tag with a leading zero in a number is not a release version', { skip: !jqOk }, () => {
+  const r = repo();
+  r.git('tag', 'v01.9.0');
+  r.git('tag', 'v1.02.0');
+  r.git('tag', 'v1.2.00');
+  assert.strictEqual(r.nextVersion().base_tag, null);
+  r.git('tag', 'v1.2.0');
+  assert.equal(r.nextVersion().base_tag, 'v1.2.0');
+});
