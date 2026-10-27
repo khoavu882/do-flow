@@ -555,7 +555,7 @@ so hook and ledger lines can split across two stores. Read-only workers on claim
 the project still have no route to the project store (follow-up). Lifecycle commands no longer anchor
 metadata to `.claude`; the explicit neutral-state importer remains separate for historical state.
 A task's records (evidence, claims, readiness, research requests, outcome, delivery, retrieval plan and the orchestration run) have one root, `taskStateRoot` in `src/runtime/state-root.ts`: a linked, non-sandbox worktree always uses the main checkout's `.doflow/state`, and a sandbox checkout or `-g` keeps its own. Every task id other than its feature's slug is kept under `<store>/<slug>/` whenever a slug resolves (`--slug`, else the checkout's feature), with a read-through to a flat record of the same feature or of none. Every redirected call first runs one locked sweep that moves the records the worktree already holds to the main checkout, and a file present in both with different bytes, or reached through a link, refuses the call with `store-conflict`; the swept stores are the ones `core/registry/storage.json` names with that module as a writer. Source files, and so the freshness hash of a relative evidence locator, stay in the checkout the verb runs in, and `doflow-run paths --json` reports the checkout holding the feature folder as `feature_root`. The machine-wide `slot` queue is the one store outside the project: `slots-user` under `~/.doflow/state/slots`, one file per slot name.
-Each backup is a per-file copy of the files a run changes, plus the ownership ledger those files belong to (a rollback restores only the ledger rows of the files it writes back, and keeps every other current row), with a format-2 `.manifest.json` recording which of them existed. `reconcile` takes no backup, although its plan includes the runtime prune (`pruneRetiredRuntimeFiles`): the prune deletes only files the current source no longer ships whose bytes still equal what DoFlow recorded writing there, so nothing a user wrote or changed is lost, and a rollback would have nothing of theirs to bring back. `.doflow/state/` holds `run.lock` while an `install`, `update`, `remove`, `reconcile` or `rollback` runs, so two runs in one scope never read and write the ledger, `doflow.lock` or the install manifest at the same time.
+Each backup is a per-file copy of the files a run changes, plus the ownership ledger those files belong to (a rollback restores only the ledger rows of the files it writes back, and keeps every other current row), with a format-2 `.manifest.json` recording which of them existed. `reconcile` takes no backup, although its plan includes the orphan prune (`pruneRetiredRuntimeFiles`, over the runtime trees and the shared guidance tree): the prune deletes only files the current source no longer ships whose bytes still equal what DoFlow recorded writing there, so nothing a user wrote or changed is lost, and a rollback would have nothing of theirs to bring back. `.doflow/state/` holds `run.lock` while an `install`, `update`, `remove`, `reconcile` or `rollback` runs, so two runs in one scope never read and write the ledger, `doflow.lock` or the install manifest at the same time.
 
 Migration order is deliberate: declare registry ownership, introduce adapters and neutral state,
 route the CLI through lifecycle planning, then retire a compatibility path only after idempotency,
@@ -1031,10 +1031,11 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   `advise --kind <id>` line in a fenced bash block of a `SKILL.md` or reference, with an
   `advise --action outcome` line in that block or the next bash block. A new kind has to
   land in one of the two places.
-- **G32** (`runtime-tree.test.ts`) — the two facts the lifecycle's runtime prune rests on: each of
-  `runtime.cli`, `runtime.lib` and `runtime.registry` projects one source directory to one
-  `.doflow/runtime/...` tree for every harness, with no layout or transform, and no other asset
-  writes into those trees; and every path under a shared `.doflow/` tree that a projected file
+- **G32** (`runtime-tree.test.ts`) — the two facts the lifecycle's orphan prune rests on: each tree
+  it judges (`PRUNED_TREES`: `runtime.cli`, `runtime.lib`, `runtime.registry`, and the shared
+  `.doflow/guidance` tree that `guidance.context-layer` and Kiro's `kiro.guidance-tree` project
+  together) is one source directory projected to one shared `.doflow/...` tree for every harness,
+  with no layout, transform or select, and no other asset writes into those trees; and every path under a shared `.doflow/` tree that a projected file
   names (harness hooks, shared scripts, skills, agent specs) exists in source — spelled
   `.doflow/<tree>/...` or, for the runtime trees, through `$CONFIG_DIR/runtime/...`,
   `${DOFLOW_CONFIG_DIR:-$HOME/.doflow}/runtime/...` or a `../runtime/...` hop — so a prune can never

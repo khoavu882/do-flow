@@ -24,26 +24,36 @@ const ASSET = 'runtime.lib';
 const NATIVE_DIR = '../.doflow/runtime/src';
 const HARNESSES = ['alpha', 'beta'];
 
-const registry = {
-  harnesses: HARNESSES.map((id) => ({
-    id, displayName: id, adapter: id, scopes: ['project', 'user'], nativeTargets: {},
-    capabilities: { scripts: { status: 'supported' } },
-  })),
-  assets: [{
-    id: ASSET, kind: 'script', source: 'src', appliesTo: HARNESSES, ownership: 'managed-tree',
-    projection: Object.fromEntries(HARNESSES.map((id) => [id, { renderer: 'copy-tree', capability: 'scripts' }])),
-    nativeDir: Object.fromEntries(HARNESSES.map((id) => [id, NATIVE_DIR])),
-  }],
-  mcp: [], lifecycle: [],
-};
+/** The registry for one shared tree: each harness projects it through `assetOf[harness]` (the
+ * guidance tree is two assets, guidance.context-layer and Kiro's kiro.guidance-tree). */
+function treeRegistry(assetOf: any, nativeDir: any) {
+  return {
+    harnesses: HARNESSES.map((id) => ({
+      id, displayName: id, adapter: id, scopes: ['project', 'user'], nativeTargets: {},
+      capabilities: { scripts: { status: 'supported' } },
+    })),
+    assets: [...new Set(Object.values(assetOf))].map((assetId: any) => {
+      const owners = HARNESSES.filter((id) => assetOf[id] === assetId);
+      return {
+        id: assetId, kind: 'script', source: 'src', appliesTo: owners, ownership: 'managed-tree',
+        projection: Object.fromEntries(owners.map((id) => [id, { renderer: 'copy-tree', capability: 'scripts' }])),
+        nativeDir: Object.fromEntries(owners.map((id) => [id, nativeDir])),
+      };
+    }),
+    mcp: [], lifecycle: [],
+  };
+}
+
+const RUNTIME_TREE = { assetOf: { alpha: ASSET, beta: ASSET }, nativeDir: NATIVE_DIR };
+const GUIDANCE_TREE = { assetOf: { alpha: 'guidance.context-layer', beta: 'kiro.guidance-tree' }, nativeDir: '../.doflow/guidance' };
 
 const sha = (bytes: any) => crypto.createHash('sha256').update(bytes).digest('hex');
 
 /** A harness projecting the runtime tree the way every real adapter does: planTree with its own
  * rows and its siblings' fingerprints, keepModified on apply, removeTree on any non-retained
  * copy-tree removal, and a verifier that reports what is on disk. */
-function runtimeAdapter(id: any, { ownRequired = false } = {}) {
-  const tree = ({ scopeRoot, context }: any) => ({ sourceDir: path.join(context.repoRoot, 'src'), destDir: sharedTreeDestDir(scopeRoot, NATIVE_DIR) });
+function runtimeAdapter(id: any, { ownRequired = false, asset: ASSET = 'runtime.lib', nativeDir = NATIVE_DIR }: any = {}) {
+  const tree = ({ scopeRoot, context }: any) => ({ sourceDir: path.join(context.repoRoot, 'src'), destDir: sharedTreeDestDir(scopeRoot, nativeDir) });
   return {
     discover() { return {}; },
     render() { return 'native'; },
@@ -83,13 +93,14 @@ function runtimeAdapter(id: any, { ownRequired = false } = {}) {
 }
 
 /** A project whose runtime source can be rewritten between runs, with alpha and beta installed. */
-function project(t: any, files: any, adapterOptions = {}) {
+function project(t: any, files: any, adapterOptions = {}, { assetOf, nativeDir }: any = RUNTIME_TREE) {
   const root = tempDir(t, 'doflow-runtime-prune-');
   const repoRoot = path.join(root, 'repo');
   const scopeRoot = path.join(root, 'proj');
   const stateRoot = path.join(scopeRoot, '.doflow', 'state');
-  const dest = path.join(scopeRoot, '.doflow', 'runtime', 'src');
-  const adapters = createAdapterRegistry(Object.fromEntries(HARNESSES.map((id) => [id, runtimeAdapter(id, adapterOptions)])));
+  const dest = sharedTreeDestDir(scopeRoot, nativeDir);
+  const registry = treeRegistry(assetOf, nativeDir);
+  const adapters = createAdapterRegistry(Object.fromEntries(HARNESSES.map((id) => [id, runtimeAdapter(id, { ...adapterOptions, asset: assetOf[id], nativeDir })])));
   let ledger = defaultLedger({ scope: 'project', scopeRoot });
   const ship = (next: any) => {
     fs.rmSync(path.join(repoRoot, 'src'), { recursive: true, force: true });
@@ -298,6 +309,34 @@ test('removal is untouched: a harness removed while another stays still only rel
 });
 
 // ------------------------------------------------------------------------------ the real CLI
+
+// Row 130: guidance files retired from the source (FLAGS.md, rules/RULE_0N_*.md) are pruned the same
+// way, across the two assets that project the shared guidance tree.
+test('guidance: an update of one harness prunes a retired guidance file and releases the other asset\'s row', (t) => {
+  const p = project(t, { 'DOFLOW_CORE.md': '@FLAGS.md\n', 'FLAGS.md': 'flags\n' }, {}, GUIDANCE_TREE);
+  assert.equal(p.rowsAt('FLAGS.md').length, 2, 'fixture: both assets hold a row on the file');
+  p.ship({ 'DOFLOW_CORE.md': '@rules/RULES.md\n', 'rules/RULES.md': 'rules\n' });
+
+  const planned = p.plan(['alpha']);
+  assert.deepEqual(noticesOf(planned), ['alpha: prune .doflow/guidance/FLAGS.md: no longer shipped, unchanged since DoFlow wrote it']);
+  p.apply(planned);
+  assert.equal(fs.existsSync(path.join(p.dest, 'FLAGS.md')), false);
+  assert.deepEqual(p.rowsAt('FLAGS.md'), [], 'no row outlives its file, kiro.guidance-tree\'s included');
+});
+
+test('guidance negative control: a retired guidance file edited after DoFlow wrote it is kept and named; MCP_INDEX.md is not named', (t) => {
+  const p = project(t, { 'DOFLOW_CORE.md': '@FLAGS.md\n', 'FLAGS.md': 'flags\n' }, {}, GUIDANCE_TREE);
+  p.ledger = { ...p.ledger, resources: p.ledger.resources.filter((row: any) => !(row.harness === 'alpha' && row.identity === 'FLAGS.md')) };
+  fs.appendFileSync(path.join(p.dest, 'FLAGS.md'), 'mine\n');
+  fs.writeFileSync(path.join(p.dest, 'MCP_INDEX.md'), '# generated per install, never a ledger row\n');
+  p.ship({ 'DOFLOW_CORE.md': '@rules/RULES.md\n' });
+
+  const planned = p.apply(p.plan(['alpha']));
+  assert.deepEqual(noticesOf(planned), ['alpha: kept .doflow/guidance/FLAGS.md: no longer shipped, changed since DoFlow wrote it']);
+  assert.match(fs.readFileSync(path.join(p.dest, 'FLAGS.md'), 'utf8'), /mine/);
+  assert.equal(p.rowsAt('FLAGS.md').length, 1, 'the sibling\'s row on the edited file stays');
+  // MCP_INDEX.md is the lifecycle's own write (an empty MCP selection deletes it); the prune only must not name it.
+});
 
 test('CLI: update names each pruned file and each retained one, in --dry-run and for real, and --dry-run deletes nothing', { timeout: 180000 }, (t) => {
   const root = tempDir(t, 'doflow-runtime-prune-cli-');
