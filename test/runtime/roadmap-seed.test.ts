@@ -3,7 +3,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const os = require('node:os');
 const path = require('node:path');
 const cp = require('node:child_process');
 const { createHash } = require('node:crypto');
@@ -1035,7 +1034,7 @@ test('refusals: live lease gives lease-held; maint-thin: readSwitch enabled no l
     schema: 1,
     pid: process.pid,
     start: new Date(Date.now() - 5000).toISOString(),
-    host: os.hostname(),
+    host: 'lease-test-host', // a fixed name: the assert needs a known host, not the machine's own
     runId: 'rl-test',
     acquiredAt: new Date().toISOString(),
   };
@@ -1081,7 +1080,7 @@ test('refusals: live lease gives lease-held; maint-thin: readSwitch enabled no l
   });
   assert.ok(textLeaseErr.includes('refused: lease-held'));
   assert.ok(textLeaseErr.includes(String(process.pid)));
-  assert.ok(textLeaseErr.includes(os.hostname()));
+  assert.ok(textLeaseErr.includes('lease-test-host'));
 
   // 3. check runs even with switch enabled and held lease
   let outCheck = '';
