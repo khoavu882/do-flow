@@ -77,7 +77,7 @@ function project(t: any, { scenario = {}, mode = 'subagent', execWorktree: where
     PATH: gitPath,
     HOME: dir,
     XDG_CONFIG_HOME: path.join(dir, 'config'),
-    TMPDIR: process.env.TMPDIR || (process.platform === 'win32' ? require('node:os').tmpdir() : '/tmp'),
+    TMPDIR: process.env.TMPDIR || (process.platform === 'win32' ? process.env.TEMP : '/tmp'),
     FAKE_HARNESS_SCENARIO: writeScenario(dir, scenario),
     DOFLOW_RUN_ID: 'r1',
     DOFLOW_LINEAGE_ID: 'main',

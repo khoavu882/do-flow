@@ -55,7 +55,7 @@ function project(t: any, { dispatcher = false }: any = {}) {
     HOME: home,
     USERPROFILE: home,
     XDG_CONFIG_HOME: path.join(home, '.config'),
-    TMPDIR: process.env.TMPDIR || (WIN ? require('node:os').tmpdir() : '/tmp'),
+    TMPDIR: process.env.TMPDIR || (WIN ? process.env.TEMP : '/tmp'),
     DOFLOW_RUN_ID: 'r1',
     DOFLOW_LINEAGE_ID: 'main',
     DOFLOW_SESSION_ROLE: 'main',

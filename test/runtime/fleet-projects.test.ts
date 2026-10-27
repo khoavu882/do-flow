@@ -57,7 +57,7 @@ function treeSnapshot(root: string) {
 }
 
 // Windows: PATH is already the runner's (node and Git for Windows are on it) and uses ';', os.homedir() reads USERPROFILE,
-// os.tmpdir() reads TEMP/TMP rather than TMPDIR, and a spawn with a stripped environment still needs SystemRoot.
+// the temp folder comes from TEMP/TMP rather than TMPDIR, and a spawn with a stripped environment still needs SystemRoot.
 const WIN = process.platform === 'win32';
 const winEnv = (home: string, tmp?: string): any => (WIN ? { USERPROFILE: home, SystemRoot: process.env.SystemRoot, windir: process.env.windir, ...(tmp ? { TEMP: tmp, TMP: tmp } : {}) } : {});
 

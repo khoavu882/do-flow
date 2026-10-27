@@ -13,7 +13,7 @@ const { bashPath } = require('../helper/bash-locator.ts');
 // The extension spawns a bare `bash`; on Windows that must be Git for Windows' bash, not WSL's System32 launcher.
 if (process.platform === 'win32') process.env.PATH = `${path.dirname(bashPath({ quiet: true }))}${path.delimiter}${process.env.PATH}`;
 // A directory every platform has; '/tmp' is no directory on Windows, where a spawn with it as cwd fails.
-const CWD = process.platform === 'win32' ? os.tmpdir() : '/tmp';
+const CWD = process.platform === 'win32' ? (process.env.TEMP as string) : '/tmp';
 
 const ROOT = path.resolve(__dirname, '../..');
 const TEMPLATE = path.join(ROOT, 'core/harnesses/pi/extensions/doflow-guard.js');

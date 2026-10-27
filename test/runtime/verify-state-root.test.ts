@@ -44,7 +44,7 @@ function isolatedFs(inside: any) {
 }
 /** Whether an ancestor of the temp folder already holds a .doflow (the CI profile does: the install under test left one). */
 const TEMP_UNDER_STORE = (() => {
-  let dir = path.dirname(fs.realpathSync(require('node:os').tmpdir()));
+  let dir = path.dirname(fs.realpathSync(process.env.TMPDIR || process.env.TEMP || '/tmp'));
   for (;;) {
     if (fs.existsSync(path.join(dir, '.doflow'))) return true;
     const parent = path.dirname(dir);
