@@ -102,11 +102,10 @@ function failureKinds(result: any) {
 
 function runPolicyDirect(root: any, policy: any, input: any, { pathValue = process.env.PATH, env = {} }: any = {}) {
   const policyPath = path.join(root, 'policies', `${policy}.sh`);
-  const child = spawnSync(bashPath(), [policyPath], {
+  const child = require('../helper/bash-locator.ts').spawnWithFd3([policyPath], {
     cwd: root,
     input: JSON.stringify(input),
     encoding: 'utf8',
-    stdio: ['pipe', 'pipe', 'pipe', 'pipe'],
     env: { ...process.env, PATH: pathValue, HOME: path.join(root, 'home'), XDG_CONFIG_HOME: path.join(root, 'xdg'),
       DOFLOW_FAILURE_CAPTURE: 'on', DOFLOW_DECISION_FD: '3', DOFLOW_AGENT: 'claude', ...env },
   });

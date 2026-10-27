@@ -31,8 +31,9 @@ function loadCorpus(policy: any) {
 }
 
 function runPolicy(policy: any, input: any, { decisionFd = false, cwd = REPO, env = {}, policyPath }: any = {}) {
-  const stdio = decisionFd ? ['pipe', 'pipe', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe'];
-  const child = spawnSync(require('./bash-locator.ts').bashPath({ quiet: true }), [policyPath || path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', `${policy}.sh`)], {
+  const { bashPath, spawnWithFd3 } = require('./bash-locator.ts');
+  const script = policyPath || path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', `${policy}.sh`);
+  const options = {
     cwd,
     env: {
       ...process.env,
@@ -47,8 +48,8 @@ function runPolicy(policy: any, input: any, { decisionFd = false, cwd = REPO, en
     },
     input,
     encoding: 'utf8',
-    stdio,
-  });
+  };
+  const child = decisionFd ? spawnWithFd3([script], options) : spawnSync(bashPath({ quiet: true }), [script], options);
   return {
     status: child.status,
     stdout: child.stdout || '',

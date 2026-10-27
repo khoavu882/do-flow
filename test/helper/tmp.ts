@@ -13,7 +13,8 @@ const TEMP_DIRS = new Set();
 // sets its own TMPDIR would otherwise start cold and strip every .ts module again.
 const ROOT_NAME = 'doflow-test.noindex';
 const TEST_ROOT = (() => {
-  const base = os.tmpdir();
+  // win32 hands out the 8.3 short spelling (C:\Users\RUNNER~1\...) of the temp folder; the product and git report the long one, so use that.
+  const base = process.platform === 'win32' ? fs.realpathSync.native(os.tmpdir()) : os.tmpdir();
   // Kept in the spelling the platform gives (macOS reaches its temp folder through a symlink, and
   // install/home-scope.test.ts checks that spelling); each folder made below is still a real path.
   const root = path.basename(base) === ROOT_NAME ? base : path.join(base, ROOT_NAME);
@@ -52,7 +53,8 @@ function requirePrefix(prefix: any) {
 
 function makeTempDir(prefix: any) {
   requirePrefix(prefix);
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(TEST_ROOT, prefix)));
+  const made = fs.mkdtempSync(path.join(TEST_ROOT, prefix));
+  const dir = process.platform === 'win32' ? fs.realpathSync.native(made) : fs.realpathSync(made);
   TEMP_DIRS.add(dir);
   return dir;
 }

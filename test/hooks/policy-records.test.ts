@@ -36,8 +36,7 @@ function run(policy: any, input: any, { records = false, configHome, policyDir =
     encoding: 'utf8',
     env: childEnv({ ...(records ? { DOFLOW_DECISION_FD: '3' } : {}), ...(configHome ? { XDG_CONFIG_HOME: configHome } : {}), ...env }),
   };
-  if (records) options.stdio = ['pipe', 'pipe', 'pipe', 'pipe'];
-  const result = spawnSync(BASH, [path.join(policyDir, `${policy}.sh`)], options);
+  const result = records ? require('../helper/bash-locator.ts').spawnWithFd3([path.join(policyDir, `${policy}.sh`)], options) : spawnSync(BASH, [path.join(policyDir, `${policy}.sh`)], options);
   return { status: result.status, stdout: result.stdout || '', stderr: result.stderr || '', records: result.output?.[3]?.toString() || '' };
 }
 

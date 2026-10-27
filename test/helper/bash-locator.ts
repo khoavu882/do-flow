@@ -45,4 +45,29 @@ function bashPath({ quiet = false } = {}): string {
   return cached;
 }
 
-module.exports = { bashPath };
+let fd3Counter = 0;
+
+/**
+ * spawnSync of `bash args` with a decision-record stream on fd 3, returned as `output[3]` like a
+ * `stdio: ['pipe','pipe','pipe','pipe']` spawn. A Windows Node cannot hand an extra pipe to an MSYS
+ * bash (it has no fd 3 there), so on win32 the child is a bash that opens fd 3 onto a file itself and
+ * execs the real bash; the policy under test sees the same `>&3` and its records are read back.
+ */
+function spawnWithFd3(args: any, options: any = {}) {
+  const bash = bashPath({ quiet: true });
+  if (process.platform !== 'win32') {
+    const r = spawnSync(bash, args, { ...options, stdio: ['pipe', 'pipe', 'pipe', 'pipe'] });
+    return r;
+  }
+  const file = path.join(require('node:os').tmpdir(), `doflow-fd3-${process.pid}-${fd3Counter++}`);
+  fs.writeFileSync(file, '');
+  const env = { ...(options.env ?? process.env), DOFLOW_FD3_FILE: file };
+  const r: any = spawnSync(bash, ['-c', 'exec 3>"$DOFLOW_FD3_FILE"; exec bash "$@"', 'x', ...args], { ...options, env });
+  let records = Buffer.from('');
+  try { records = fs.readFileSync(file); } catch { /* the child never opened it */ }
+  try { fs.unlinkSync(file); } catch { /* best effort */ }
+  r.output = [null, r.stdout, r.stderr, records];
+  return r;
+}
+
+module.exports = { bashPath, spawnWithFd3 };
