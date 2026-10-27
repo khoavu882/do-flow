@@ -315,7 +315,7 @@ if [ "$require" = "feature" ] && [ -z "$feature_slug" ]; then
       '{error:"ambiguous-feature",
         branch:(if $branch=="" then null else $branch end),
         candidate_slugs:$candidate_slugs,
-        hint:"multiple agent-docs/doflow/ feature dirs exist and no git branch disambiguates them — ask which one via AskUserQuestion, then re-run with --slug=<chosen>"}'
+        hint:"multiple agent-docs/doflow/ feature dirs exist and no git branch disambiguates them — ask which one with the user question tool, then re-run with --slug=<chosen>"}'
   else
     jq -n --arg branch "$branch" \
       '{error:"no-active-feature",
