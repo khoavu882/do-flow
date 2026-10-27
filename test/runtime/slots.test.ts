@@ -124,6 +124,34 @@ test('eight concurrent runSlot calls: one holder at a time, grants in arrival or
   assert.equal(fs.existsSync(slotFile(home, 'race')), false, 'nobody holds or waits: the file is gone');
 });
 
+// release-beta7: the slot lock starved a holder for 30 s (it could not take the lock to register its child
+// or to release) while seven waiters kept it busy. Two causes, one test each: liveness probes (a `ps` each,
+// slow on a loaded host) ran inside the lock, and every waiter took the lock on every poll even while a
+// live holder held the slot, so the lock was never free for long.
+
+test('liveness is never probed while the caller holds the slot lock', async () => {
+  const { env, home } = scratchEnv();
+  const lockDir = `${slotFile(home, 'probe')}.lock`;
+  const underLock: string[] = [];
+  // Each caller's probe looks for its own entry in the slot lock: present means the probe runs in its critical section.
+  const aliveFor = (pid: number) => (proc: any) => {
+    let entries: string[] = [];
+    try { entries = fs.readdirSync(lockDir); } catch { /* no lock */ }
+    if (entries.some((name: string) => name.startsWith(`owner-${pid}-`))) underLock.push(`${pid} probed ${proc.pid}`);
+    return true;
+  };
+  const { deps } = baseDeps({
+    spawn: (command: any, args: any) => fakeChild(5100 + Number((command === 'sh' ? args.slice(3) : args)[1]), { ticks: 20 }),
+  });
+  const codes = await Promise.all(Array.from({ length: 8 }, (_, i) => runSlot({
+    name: 'probe', command: ['work', String(i)], env, cwd: '/work/a', deps: { ...deps, pid: 1100 + i, alive: aliveFor(1100 + i) },
+  })));
+  assert.deepEqual(codes, Array(8).fill(0));
+  writeSlot(home, 'probe', { holder: holderRecord(4242), waiters: [waiterRecord(4243, 'w', '/x')] });
+  await listSlots({ env, deps: { ...deps, pid: 1200, alive: aliveFor(1200) } });
+  assert.deepEqual(underLock, [], 'a probe inside the lock makes every critical section as slow as `ps`');
+});
+
 test('real processes: eight runSlot callers never overlap', async () => {
   const { env, home } = scratchEnv();
   const dir = scratchDir();
