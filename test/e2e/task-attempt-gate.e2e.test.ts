@@ -13,7 +13,8 @@ const { createScratch } = require('../helper/scratch-env.ts');
 const REPO = path.resolve(__dirname, '../..');
 const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 const SLUG = '910-gate';
-const PLAN = '# Plan\n\n## Tasks\n\n- [ ] A.1 one; owner: core-implementer; files: src/a.js\n- [ ] A.2 two; owner: core-implementer; files: src/b.js\n';
+// Row 134: the planning stage these runs backfill needs a passing Constitution Check.
+const PLAN = '## 2. Constitution Check\n\n| Principle | Tier | Result | How |\n|---|---|---|---|\n' + ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'].map((id) => `| ${id} | MUST | PASS | demo |\n`).join('') + '\n' + '# Plan\n\n## Tasks\n\n- [ ] A.1 one; owner: core-implementer; files: src/a.js\n- [ ] A.2 two; owner: core-implementer; files: src/b.js\n';
 const GIT_IDENTITY = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
 const CASE_TIMEOUT_MS = 240_000;
 

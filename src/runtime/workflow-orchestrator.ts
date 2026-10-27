@@ -131,6 +131,7 @@ class WorkflowOrchestrator {
   declare stateDir: any;
   declare readinessEvaluate: any;
   declare taskAttemptCheck: any;
+  declare planExitCheck: any;
   declare featureSlug: any;
   declare buildAdapters: any;
   declare env: any;
@@ -151,6 +152,9 @@ class WorkflowOrchestrator {
    *   `none` (no ledger) records the stage as `unverified` whatever outcome was supplied. Unwired
    *   means the stage is not checked, which only a unit test that builds the orchestrator by hand
    *   relies on: the CLI always wires the real one.
+   * @param {(node: object, run: object) => {refusals: Array<{path: string, line: number, message: string}>, advisories: Array<object>}} [options.planExitCheck]
+   *   row 134 gate for the do-plan planning stage: every refusal (a constitution MUST marked FAIL or
+   *   without a row) refuses completion. Unwired means the stage is not checked, as for taskAttemptCheck.
    * @param {object} [options.fsImpl]
    * @param {string|null} [options.featureSlug] the feature a run started here belongs to
    * @param {object} [options.env] the environment `start` reads the caller's identity and the telemetry switch from
@@ -158,7 +162,7 @@ class WorkflowOrchestrator {
    * @param {() => object} [options.buildAdapters] builds the adapter registry `mcpReach` reads installs
    *   through; without it install facts are unknown and no outcome is inferred from them
    */
-  constructor({ repoRoot = REPO_ROOT, projectRoot, sourceRoot, stateDir, engine, readinessEvaluate, taskAttemptCheck, fsImpl, featureSlug = null, buildAdapters = null, env = process.env, cwd = process.cwd() }: any = {}) {
+  constructor({ repoRoot = REPO_ROOT, projectRoot, sourceRoot, stateDir, engine, readinessEvaluate, taskAttemptCheck, planExitCheck, fsImpl, featureSlug = null, buildAdapters = null, env = process.env, cwd = process.cwd() }: any = {}) {
     this.fsImpl = fsImpl || fs;
     this.repoRoot = repoRoot;
     this.projectRoot = projectRoot || (stateDir?.endsWith(RUN_STORE_REL)
@@ -168,6 +172,7 @@ class WorkflowOrchestrator {
     this.stateDir = stateDir || runStoreDir(this.projectRoot);
     this.readinessEvaluate = readinessEvaluate || null;
     this.taskAttemptCheck = taskAttemptCheck || null;
+    this.planExitCheck = planExitCheck || null;
     this.featureSlug = featureSlug;
     this.buildAdapters = buildAdapters;
     this.env = env;
@@ -296,7 +301,10 @@ class WorkflowOrchestrator {
     }
     // The ledger is checked here too, before catch-up writes anything, so a refused implementation
     // handoff leaves no backfilled stage behind.
-    if (preview.reason === 'reached-candidate') this.assertTaskAttempts(preview.node, existing || { taskId, taskClass: resolvedClass });
+    if (preview.reason === 'reached-candidate') {
+      this.assertTaskAttempts(preview.node, existing || { taskId, taskClass: resolvedClass });
+      this.assertPlanExit(preview.node, existing || { taskId, taskClass: resolvedClass });
+    }
     const positioned = this.catchUp({ taskId, taskClass: resolvedClass, candidateStageIds: candidates, note, now });
     if (positioned.reason === 'reached-candidate') {
       // A run this handoff started has no earlier stage: every evidence item counts.
@@ -525,6 +533,7 @@ class WorkflowOrchestrator {
     }
     if (node.mutatesSource && node.readinessTemplate) this.assertReady(node, run);
     const attempts = backfilled ? null : this.assertTaskAttempts(node, run);
+    this.assertPlanExit(node, run);
     // No ledger for the feature: the stage is recorded, but nothing verified its tasks, and the
     // record says so whatever outcome the caller supplied (FR-006).
     const unledgered = attempts?.state === 'none';
@@ -875,6 +884,20 @@ class WorkflowOrchestrator {
       const names = (answer.incomplete || []).join(', ') || 'unknown';
       throw new Error(`Stage '${node.id}' cannot be completed: the task-attempt ledger${answer.slug ? ` for '${answer.slug}'` : ''} is incomplete — no COMPLETED attempt for ${names}. `
         + 'Claim, verify and finish each task with doflow-run task-attempt, then complete the stage.');
+    }
+    return answer;
+  }
+
+  /** Row 134: the planning stage (the `do-plan` stage) cannot complete while the plan's
+   * Constitution Check leaves a MUST principle marked FAIL or without a row. There is no waiver:
+   * the plan is revised, or a person amends the constitution. A stage catch-up backfills is checked
+   * too, so a refused plan is never imported as complete. */
+  assertPlanExit(node: any, run: any) {
+    if (!this.planExitCheck || node.skill !== 'do-plan') return null;
+    const answer = this.planExitCheck(node, run);
+    if (!answer || !Array.isArray(answer.refusals)) throw new Error(`Plan exit check returned no usable answer for stage '${node.id}'`);
+    if (answer.refusals.length) {
+      throw new Error(`Stage '${node.id}' cannot be completed: ${answer.refusals.map((f: any) => `${f.path}:${f.line} ${f.message}`).join('; ')}`);
     }
     return answer;
   }
@@ -1233,6 +1256,19 @@ function handleOrchestrateCommand({
   orchestrator.taskAttemptCheck = (node: any, run: any) => checkTaskAttemptCompletion({
     slug: runSlugOf(run, runRoot) || featureSlug, cwd: state,
   });
+
+  // Row 134. The plan is read in the checkout the verb runs in first, then where the run lives; a
+  // SHOULD principle marked FAIL is one note, printed once although the check runs twice.
+  let planAdvised = false;
+  orchestrator.planExitCheck = (node: any, run: any) => {
+    const { planStageExit } = require('./plan-content.ts');
+    const answer = planStageExit({ roots: [...new Set([source, runRoot])], slug: runSlugOf(run, runRoot) || featureSlug });
+    if (!planAdvised) {
+      planAdvised = true;
+      for (const f of answer.advisories) console.error(`orchestrate: note: ${f.path}:${f.line} ${f.message}`);
+    }
+    return answer;
+  };
 
   if ((action === 'handoff' || action === 'complete-stage')
     && [verificationPlan, scope, invariants].some((v) => typeof v === 'string' && v.trim() !== '')) {

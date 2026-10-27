@@ -13,10 +13,15 @@
 
 ## Principles
 
-### [PRINCIPLE_1_NAME]
+<!-- One `### <ID> — <name>` heading per principle. A principle is MUST unless its body has
+     `**Tier:** SHOULD`. An ID equal to a base one (P1–P6) replaces that base principle. -->
+
+### R1 — [PRINCIPLE_1_NAME]
+**Tier:** MUST
 [PRINCIPLE_1_STATEMENT — testable and non-negotiable.]
 
-### [PRINCIPLE_2_NAME]
+### R2 — [PRINCIPLE_2_NAME]
+**Tier:** SHOULD
 [PRINCIPLE_2_STATEMENT.]
 
 ## Constraints
@@ -25,4 +30,5 @@
 ## Governance
 - Amendments: bump semver, fill the Sync Impact Report, re-run dependent gates.
 - `/do-plan`'s Constitution Check MUST evaluate against both tiers together (these rules taking
-  precedence). Its verdict is advisory — recorded, not blocking.
+  precedence). A MUST principle marked FAIL or left without a row refuses the planning stage's exit;
+  a SHOULD FAIL is advisory.

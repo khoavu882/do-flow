@@ -416,6 +416,35 @@ test('maxSteps 1 pauses the row with its checkpoint as blocked: budget, across p
   assert.equal(f.cli('--action', 'next', '--run', 'not-a-run').status, 2);
 });
 
+// ── row 134: the planning stage's constitution exit, headless ───────────────────────────────────
+
+test('a plan with a MUST FAIL stops the row at planning: the handoff is refused and the loop records the refusal', async (t) => {
+  const f = fixture(t);
+  await f.next();
+  placeRun(f, 'planning');
+  const yielded = await f.next();
+  assert.deepEqual([yielded.result.outcome, yielded.result.perform.stage, yielded.result.perform.skill], ['perform', 'planning', 'do-plan']);
+  const rows = ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'].map((id) => `| ${id} | MUST | ${id === 'P3' ? 'FAIL' : 'PASS'} | how |`);
+  write(path.join(f.featureDir(), 'plan.md'), ['# Plan', '', '## 2. Constitution Check (GATE)', '', '| Principle | Tier | Result | How |', '|---|---|---|---|',
+    ...rows, '', '## 8. Tasks', '', '- [ ] A.1 Build — owner: core-implementer; files: toy/a.md', ''].join('\n'));
+  // The session runs the envelope's handoff headless (stdin closed): it exits refused, it never prompts.
+  const [verb, ...rest] = yielded.result.perform.after;
+  const session = cp.spawnSync(process.execPath, [CLI, verb, ...rest.map((a: any) => (a === '<text>' ? 'plan written' : a))],
+    { cwd: f.worktree(), env: { ...f.env, DOFLOW_CLI: CLI }, encoding: 'utf8', input: '' });
+  assert.notEqual(session.status, 0, session.stdout);
+  assert.match(session.stdout + session.stderr, /P3 \(MUST\) is marked FAIL/);
+  const refused = await f.next();
+  assert.equal(refused.code, 1);
+  assert.deepEqual([refused.result.outcome, refused.result.reason, refused.result.rule], ['denied', 'plan-exit-refused', 'perform/planning']);
+  assert.match(refused.result.annotations.refusal, /Stage 'planning' cannot be completed: .*P3 \(MUST\) is marked FAIL.*no waiver/);
+  // The verb keeps the journal in the lifecycle root (the main checkout); the loop finds it there too.
+  const journal = [f.worktree(), f.root].map((r: any) => path.join(r, '.doflow/state/orchestration/113-toy.json')).find((p: any) => fs.existsSync(p));
+  assert.notEqual(JSON.parse(fs.readFileSync(journal, 'utf8')).program.find((n: any) => n.id === 'planning').status, 'completed');
+  assert.deepEqual(f.record(refused.result.runId).log.at(-1).reason, 'plan-exit-refused');
+  const again = await f.next();
+  assert.equal(again.result.reason, 'plan-exit-refused', 'the row stays at planning until the plan passes');
+});
+
 // ── dispatch outcome map (FR-019, FR-020, FR-022, FR-023; C2, C6) ────────────────────────────────
 
 async function atImplementation(t: any) {

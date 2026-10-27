@@ -15,7 +15,8 @@ const DOFLOW = path.join(REPO, 'bin', 'doflow.js');
 const { IS_WIN } = require('../helper-platform.ts');
 const { createScratch } = require('../helper/scratch-env.ts');
 
-const PLAN_TEXT = '- [ ] A.1 [US1] demo — owner: x; files: src/a.js\n';
+// Row 134: the planning stage these runs backfill needs a passing Constitution Check.
+const PLAN_TEXT = '## 2. Constitution Check\n\n| Principle | Tier | Result | How |\n|---|---|---|---|\n' + ['P1', 'P2', 'P3', 'P4', 'P5', 'P6'].map((id) => `| ${id} | MUST | PASS | demo |\n`).join('') + '\n' + '- [ ] A.1 [US1] demo — owner: x; files: src/a.js\n';
 const GIT_IDENTITY: any = ['-c', 'user.name=t', '-c', 'user.email=t@t'];
 const CASE_TIMEOUT_MS = 240_000;
 const GATE = 'doflow gate readiness-before-implementation';

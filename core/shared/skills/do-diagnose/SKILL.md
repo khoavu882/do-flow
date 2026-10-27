@@ -150,6 +150,13 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
 - Root cause always — understand WHY, not just THAT; fix the cause, not the symptom.
 - Never skip, disable, or comment-out tests or validation checks to pass builds.
 
+### Red Flags
+Rows come only from recorded bench failures (case id in brackets).
+
+| Rationalization | Reality | Required action |
+|---|---|---|
+| "It's a slow-suite report, so `--focus performance` settles it; what to measure can wait." | [do-diagnose/1] routed the report but never named the repo's test command as the thing to measure. | Name the repo's own test command (its `package.json` script or CI command) and time it as the baseline before any hypothesis. |
+
 ## Boundaries
 **Will:** Propose a task class and have the runtime validate it, reproduce active issues, perform
 multi-domain static/runtime audits, batch the stage's evidence and claims, and rank remediation

@@ -40,6 +40,18 @@
 
 **Answer:** [verbatim]
 
+## Coverage
+
+<!-- One line per requirement area as it stands after this round, each Clear, Partial, Missing or
+     Deferred (spec-kit clarify's coverage map). Missing or Partial areas are the next round's
+     questions, or the stated gaps when the loop stops; Deferred names who deferred it. -->
+- Problem and outcome: [Clear|Partial|Missing|Deferred]
+- Users and stories: [Clear|Partial|Missing|Deferred]
+- Functional scope: [Clear|Partial|Missing|Deferred]
+- Non-functional: [Clear|Partial|Missing|Deferred]
+- Out of scope: [Clear|Partial|Missing|Deferred]
+- Acceptance: [Clear|Partial|Missing|Deferred]
+
 <!-- Repeat one "## Question N" block per question actually asked this round — omit blocks for
      questions that were not asked rather than leaving placeholders behind.
 

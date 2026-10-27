@@ -260,9 +260,9 @@ describe('Scenario: Review fix records its decisions (FR-005, FR-010, FR-011, IC
     assert.match(read(path.join(dir, 'decisions.md')), new RegExp(`\\| ${id} \\| retry \\|`));
 
     // ... and the handoff note names the id. Any stage's handoff stores its note the same way; do-implement's own
-    // needs a satisfied readiness contract, which is not what this scenario is about.
+    // needs a satisfied readiness contract and do-plan's a passing Constitution Check, which is not what this scenario is about.
     const handoff = run(repo, ['orchestrate', '--action', 'handoff', '--task-id', slug, '--task-class', 'feature',
-      '--calling-skill', 'do-plan', '--note', `kept the retry policy (${id})`, '--result', 'passed', '--json']);
+      '--calling-skill', 'do-design', '--note', `kept the retry policy (${id})`, '--result', 'passed', '--json']);
     assert.strictEqual(handoff.status, 0, handoff.stdout + handoff.stderr);
     assert.match(read(path.join(repo, '.doflow', 'state', 'orchestration', `${slug}.json`)), new RegExp(`kept the retry policy \\(${id}\\)`));
 

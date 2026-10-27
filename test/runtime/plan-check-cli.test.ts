@@ -14,10 +14,15 @@ const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const RUN = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
 
+// Row 134: every base principle passes, so a plan's only content findings are the ones a case plants.
+const CONSTITUTION = ['## 2. Constitution Check', '', '| Principle | Tier | Result | How |', '|---|---|---|---|',
+  ...['P1', 'P2', 'P3', 'P4', 'P5', 'P6'].map((id) => `| ${id} | MUST | PASS | how |`), ''];
+
 function plan(lines: any, { header = '**Task graph:** v1', tasksSection = true }: any = {}) {
   return [
     '# Plan', '',
     ...(header ? [header, ''] : []),
+    ...CONSTITUTION,
     ...(tasksSection ? ['## 8. Tasks', '', ...lines] : ['## Overview', 'No task list.']),
     '',
   ].join('\n');
@@ -62,7 +67,7 @@ test('a clean plan exits 0 with the one-line text and the verdict JSON', (t) => 
   assert.equal(text.stdout, 'plan-check: plan.md: ok, 2 tasks\n');
   const json = s.cli(['plan.md', '--json']);
   assert.equal(json.status, 0, json.stderr);
-  assert.deepEqual(JSON.parse(json.stdout), { ok: true, tasks: 2, problems: [], warnings: [], file: 'plan.md' });
+  assert.deepEqual(JSON.parse(json.stdout), { ok: true, tasks: 2, problems: [], warnings: [], findings: [], file: 'plan.md' });
 });
 
 for (const kind of KINDS) {
@@ -169,5 +174,5 @@ test('plan-check p.md --json alone exits 0 as before', (t) => {
   s.write('plan.md', CLEAN);
   const json = s.cli(['plan.md', '--json']);
   assert.equal(json.status, 0, json.stderr);
-  assert.deepEqual(JSON.parse(json.stdout), { ok: true, tasks: 2, problems: [], warnings: [], file: 'plan.md' });
+  assert.deepEqual(JSON.parse(json.stdout), { ok: true, tasks: 2, problems: [], warnings: [], findings: [], file: 'plan.md' });
 });
