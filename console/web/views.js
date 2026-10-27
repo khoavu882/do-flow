@@ -10,7 +10,7 @@ import { renderGraph } from './views/graph.js';
 import { renderSessions } from './views/sessions.js';
 import { renderWorkflows } from './views/workflows.js';
 import { deriveSessions } from './derive/sessions.js';
-import { runStepCopy } from './derive/rail.js';
+import { runStepCopy, runToken } from './derive/rail.js';
 import { workflowsOf } from './derive/workflows.js';
 import {
   connectFleet, tickFleet, teardownFleet, renderFleetList, updateFleetList, listMeta, listEmpty, buildProjectHead, renderProject, updateProject,
@@ -51,6 +51,19 @@ function badge(run, nowMs) {
   const spec = staleRun ? BADGES.stale : BADGES[run.state];
   return h('span', { class: 'badge', dataset: { state: spec.token } }, [icon(spec.face, 12), spec.word]);
 }
+
+/**
+ * Whether a run is live (feature 133, FR-1): RUNNING, or waiting at a gate, and not stale. A run at a gate stays live because the
+ * person decides it outside the Console and the view must notice quickly. Finished and stale runs are idle.
+ * @param {any} run @param {number} nowMs
+ */
+const runIsRunning = (run, nowMs) => {
+  const token = runToken(run, nowMs);
+  return token === 'RUNNING' || token === 'AWAITING_GATE';
+};
+
+/** The tasks of the plan graph in a run body: the size that scales the refresh interval. @param {any} data */
+const graphSize = (data) => (data && data.graph && Array.isArray(data.graph.tasks) ? data.graph.tasks.length : 0);
 
 const awaitingCount = (/** @type {any} */ data) => data.runs.filter((/** @type {any} */ run) => run.state === 'AWAITING_GATE').length;
 
@@ -114,7 +127,8 @@ const sessionsKey = (data) => JSON.stringify([data, deriveSessions(data, Date.no
  * Each view: `id`; `noun` (error and loading copy); `shapes` (IC-003 ids it reads); `api(params)` the same-origin
  * path it reads, or null; `pollMs`; `wide`; `skeleton`; `head(params)` the h1; `meta(params, data, nowMs)`;
  * `render(data, params, local)` where `local` is the view instance's own memory; `isEmpty(data)`; `empty`;
- * `title(params, data)`. Optional: `load(local, apiGet)` reads more than `api` names; `dataKey(data)` decides when
+ * `title(params, data)`. Optional: `active(data, nowMs)` false when nothing is running (the poll interval is x10; a view without it
+ * is always active) and `size(data)` the graph size in nodes (the poll interval is at least size/1000 s); `load(local, apiGet)` reads more than `api` names; `dataKey(data)` decides when
  * the body is re-mounted; `tick(root, nowMs, local)` runs on the shell's 1 s timer. A `live: true` view (V.10, the Fleet
  * views) is mounted once and then patched: `connect(local, params, hooks)` returns a poller-shaped object over a stream,
  * `update(local, data, params)` patches the mounted body, `reroute(local, params, data)` moves between routes of one view
@@ -130,6 +144,7 @@ const VIEWS = Object.freeze({
     load: loadHome,
     dataKey: homeKey,
     tick: tickHome,
+    active: (/** @type {any} */ data, /** @type {number} */ nowMs) => data.runs.some((/** @type {any} */ run) => runIsRunning(run, nowMs)),
     pollMs: 5000,
     wide: false,
     skeleton: skeletonHome,
@@ -150,6 +165,8 @@ const VIEWS = Object.freeze({
     noun: 'this run',
     shapes: ['status', 'timeline', 'attempts', 'workflow'],
     api: (/** @type {any} */ params) => `/api/runs/${params.slug}/${params.taskId}`,
+    active: (/** @type {any} */ data, /** @type {number} */ nowMs) => Boolean(data && data.run) && runIsRunning(data.run, nowMs),
+    size: graphSize,
     pollMs: 3000,
     wide: false,
     skeleton: skeletonRun,
@@ -170,6 +187,8 @@ const VIEWS = Object.freeze({
     shapes: ['status', 'timeline', 'attempts', 'workflow'],
     api: (/** @type {any} */ params) => `/api/runs/${params.slug}/${params.taskId}`,
     dataKey: (/** @type {any} */ data) => JSON.stringify([data && data.tasks, data && data.tasksReason]),
+    active: (/** @type {any} */ data, /** @type {number} */ nowMs) => Boolean(data && data.run) && runIsRunning(data.run, nowMs),
+    size: graphSize,
     pollMs: 3000,
     wide: true,
     skeleton: skeletonBlock,

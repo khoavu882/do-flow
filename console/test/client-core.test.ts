@@ -199,7 +199,7 @@ const RUNS = { v: 1, runs: [row('AWAITING_GATE', 'r1'), row('RUNNING', 'r2'), ro
 type Call = { url: string, method: string, body: any, theme: string | undefined, hash: string };
 type Page = {
   doc: any, win: any, calls: Call[], store: Map<string, string>, history: string[], scrolls: Array<[number, number]>, location: any,
-  region: El, main: El, conn: El, slot: El, nav: El[], radios: El[], skip: El,
+  region: El, main: El, conn: El, slot: El, nav: El[], radios: El[], skip: El, pause: El,
 };
 
 /** The page of index.html as the shell finds it, a fake window around it, and a scripted fetch. */
@@ -220,12 +220,13 @@ function installPage(opts: { hash?: string, stored?: string | null, throwStorage
   const nav = [link('#/', 'Runs'), link('#/workflows', 'Workflows'), link('#/sessions', 'Sessions'), link('#/fleet', 'Fleet')]; // E.7 and V.10: the fake page mirrors index.html's links
   const radios = ['light', 'dark', 'system'].map(radio);
   const conn = el('p', { class: 'conn', id: 'conn', 'data-state': 'unknown' }, [el('span', { class: 'conn__long' }, ['Connecting']), el('span', { class: 'conn__short' }, ['Connecting'])]);
+  const pause = el('button', { type: 'button', class: 'btn btn--ghost pause', id: 'pause', 'aria-pressed': 'false', hidden: '' }, [el('span', { class: 'pause__label' }, ['Pause updates'])]);
   const region = el('div', { class: 'vh', id: 'announcer' });
   const main = el('main', { id: 'main', class: 'page', tabindex: '-1' });
   const slot = el('div', { id: 'banner-slot' });
   body.append(skip,
     el('header', { class: 'site-header' }, [el('a', { class: 'brand', href: '#/' }, [el('span', { class: 'brand__name' }, ['DoFlow'])]),
-      el('nav', {}, [el('ul', {}, nav.map((a) => el('li', {}, [a])))]), conn, el('p', { id: 'core-version' }),
+      el('nav', {}, [el('ul', {}, nav.map((a) => el('li', {}, [a])))]), conn, pause, el('p', { id: 'core-version' }),
       el('div', { class: 'theme' }, radios)]),
     slot, main, region);
   html.append(body);
@@ -248,7 +249,7 @@ function installPage(opts: { hash?: string, stored?: string | null, throwStorage
   const history: string[] = [];
   const calls: Call[] = [];
   const scrolls: Array<[number, number]> = [];
-  const page: any = { doc, calls, store, history, scrolls, location, region, main, conn, slot, nav, radios, skip, reloads: 0 };
+  const page: any = { doc, calls, store, history, scrolls, location, region, main, conn, slot, nav, radios, skip, pause, reloads: 0 };
   page.win = { dispatch: (type: string) => { for (const fn of winListeners.get(type) ?? []) fn({ type }); } };
 
   setGlobal('document', doc);
@@ -626,7 +627,7 @@ test('views: the router table maps hashes to views, and a bad parameter is not-f
 
 test('index.html provides the elements the shell needs', () => {
   const html = fs.readFileSync(path.join(WEB_ROOT, 'index.html'), 'utf8');
-  for (const id of ['main', 'conn', 'core-version', 'banner-slot', 'announcer']) assert.match(html, new RegExp(`id="${id}"`));
+  for (const id of ['main', 'conn', 'core-version', 'banner-slot', 'announcer', 'pause']) assert.match(html, new RegExp(`id="${id}"`));
   assert.match(html, /aria-live="polite"/);
   assert.deepEqual([...html.matchAll(/class="nav__link" href="([^"]+)"/g)].map((m) => m[1]), ['#/', '#/workflows', '#/sessions', '#/fleet']); // E.7 adds the Sessions link, V.10 the Fleet link
   assert.deepEqual([...html.matchAll(/data-theme-choice="([^"]+)"/g)].map((m) => m[1]), ['light', 'dark', 'system']);
@@ -3209,4 +3210,190 @@ test('V.10 stream.js: a gone target ends the stream, and the project list opens 
   assert.deepEqual(list.log.paths, ['/api/fleet']);
   assert.equal(list.sources.length, 1);
   assert.equal(list.sources[0].url, `/api/stream?project=${P1}`);
+});
+
+
+// ---- feature 133: pause control, reconnect discipline ---------------------------------------------------
+
+test('133 pause: the control shows on a data view, suspends polling with a Paused pill, and resume refetches at once', async () => {
+  await withFreshModules(async () => {
+  const page = await start({ fetch: standard });
+  assert.equal(page.pause.getAttribute('hidden'), null, 'shown on the Runs view');
+  assert.equal(page.pause.getAttribute('aria-pressed'), 'false');
+  assert.equal(text(page.pause), 'Pause updates');
+  const before = apiCalls(page, '/api/runs').length;
+  page.pause.fire('click');
+  assert.equal(page.pause.getAttribute('aria-pressed'), 'true');
+  assert.equal(text(page.pause), 'Resume updates');
+  assert.match(text(page.conn), /^Paused/);
+  assert.equal(page.conn.dataset.state, 'paused');
+  await advance(120_000);
+  assert.equal(apiCalls(page, '/api/runs').length, before, 'no poll while paused');
+  assert.equal(page.slot.children.length, 0, 'a paused view never raises the stale banner');
+  assert.match(text(page.region), /Updates paused/);
+  page.pause.fire('click');
+  await settle();
+  assert.equal(apiCalls(page, '/api/runs').length, before + 1, 'resume fetches the full state at once');
+  assert.equal(page.pause.getAttribute('aria-pressed'), 'false');
+  assert.doesNotMatch(text(page.conn), /^Paused/);
+  await advance(6000);
+  assert.ok(apiCalls(page, '/api/runs').length >= before + 2, 'polling continues after resume');
+  });
+});
+
+test('133 pause: it is per view and absent where nothing is polled', async () => {
+  const page = await start({ hash: '#/nowhere', fetch: standard });
+  assert.notEqual(page.pause.getAttribute('hidden'), null, 'no control on a not-found page');
+});
+
+test('133 reconnect: the first data after a long absence announces one summary, not each change', async () => {
+  await withFreshModules(async () => {
+  let runs: any = RUNS;
+  const page = await start({ fetch: (target, init) => (target === '/api/runs' ? reply(200, runs) : standard(target, init)) });
+  const hide = (value: boolean) => { page.doc.hidden = value; for (const fn of page.doc.listeners.get('visibilitychange') ?? []) fn({ type: 'visibilitychange' }); };
+  hide(true);
+  await advance(60_000);
+  runs = { ...RUNS, runs: [row('AWAITING_GATE', 'r1'), row('AWAITING_GATE', 'r9'), row('AWAITING_GATE', 'r8'), row('RUNNING', 'r2')] };
+  hide(false);
+  await advance(1000);
+  assert.equal(text(page.region), 'Reconnected. The view was refreshed in full.');
+  });
+});
+
+test('133 reconnect: a short absence keeps the per-item announcements', async () => {
+  await withFreshModules(async () => {
+  let runs: any = { ...RUNS, runs: [row('RUNNING', 'r2')] };
+  const page = await start({ fetch: (target, init) => (target === '/api/runs' ? reply(200, runs) : standard(target, init)) });
+  const hide = (value: boolean) => { page.doc.hidden = value; for (const fn of page.doc.listeners.get('visibilitychange') ?? []) fn({ type: 'visibilitychange' }); };
+  hide(true);
+  await advance(5_000);
+  runs = { ...RUNS, runs: [row('RUNNING', 'r2'), row('AWAITING_GATE', 'r1')] };
+  hide(false);
+  await advance(1000);
+  assert.match(text(page.region), /is waiting for you/);
+  });
+});
+
+const keydownOn = (page: Page, key: string, extra: any = {}) => {
+  const event = { type: 'keydown', key, target: page.doc.activeElement ?? page.doc.body, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; }, ...extra };
+  for (const fn of page.doc.listeners.get('keydown') ?? []) fn(event);
+  return event;
+};
+
+test('133 shortcuts: p pauses, g then w navigates, ? opens the list with focus inside and Esc closes it and restores focus', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    keydownOn(page, 'p');
+    assert.equal(page.pause.getAttribute('aria-pressed'), 'true');
+    keydownOn(page, 'p');
+    assert.equal(page.pause.getAttribute('aria-pressed'), 'false');
+    keydownOn(page, 'g');
+    keydownOn(page, 'w');
+    assert.equal(page.location.hash, '#/workflows');
+    page.pause.focus();
+    const open = keydownOn(page, '?');
+    assert.equal(open.defaultPrevented, true);
+    const help = page.doc.getElementById('help');
+    assert.equal(help.getAttribute('hidden'), null);
+    assert.equal(help.getAttribute('role'), 'dialog');
+    assert.equal(help.getAttribute('aria-modal'), 'true');
+    assert.equal(page.doc.activeElement.className.includes('help__close'), true, 'focus moves into the dialog');
+    assert.match(text(help), /Go to Runs/);
+    keydownOn(page, 'p');
+    assert.equal(page.pause.getAttribute('aria-pressed'), 'false', 'a modal dialog keeps the page keys off');
+    const tab = keydownOn(page, 'Tab');
+    assert.equal(tab.defaultPrevented, true);
+    keydownOn(page, 'Escape');
+    assert.notEqual(help.getAttribute('hidden'), null);
+    assert.equal(page.doc.activeElement, page.pause, 'focus returns to the opener');
+  });
+});
+
+test('133 shortcuts: typing in a field and held modifiers never trigger one; a chord times out', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    const field = page.doc.createElement('input');
+    keydownOn(page, 'p', { target: field });
+    assert.equal(page.pause.getAttribute('aria-pressed'), 'false');
+    keydownOn(page, 'p', { ctrlKey: true });
+    keydownOn(page, 'p', { metaKey: true });
+    assert.equal(page.pause.getAttribute('aria-pressed'), 'false');
+    keydownOn(page, 'g');
+    await advance(2000);
+    keydownOn(page, 'w');
+    assert.notEqual(page.location.hash, '#/workflows', 'the second key came too late');
+  });
+});
+
+test('133 pause: a known outage is not hidden by pausing; the pill shows it with Paused, and only a successful fetch clears the banner', async () => {
+  await withFreshModules(async () => {
+    let down = false;
+    const page = await start({ hash: '#/run/feat-a/run-1', fetch: (target, init) => (target === '/api/runs/feat-a/run-1' ? (down ? errorReply(502, 'core-error') : runReply()) : standard(target, init)) });
+    down = true;
+    await advance(17_000);
+    assert.equal(page.slot.querySelectorAll('.banner').length, 1, 'stale before the pause');
+    page.pause.fire('click');
+    await advance(5000);
+    assert.equal(page.slot.querySelectorAll('.banner').length, 1, 'the banner survives the pause');
+    assert.equal(page.main.getAttribute('data-stale'), 'true');
+    assert.match(text(page.conn.querySelector('.conn__long')), /^Paused \u00b7 Stale/);
+    assert.equal(page.conn.getAttribute('data-state'), 'stale');
+    page.pause.fire('click'); // resume while the core still fails
+    await advance(100);
+    assert.equal(page.slot.querySelectorAll('.banner').length, 1, 'a failed refetch does not clear it');
+    down = false;
+    await advance(40_000);
+    assert.equal(page.slot.querySelectorAll('.banner').length, 0, 'a successful fetch clears it');
+  });
+});
+
+test('133 pause: a paused view that is offline says so in the pill', async () => {
+  await withFreshModules(async () => {
+    let down = false;
+    const page = await start({ hash: '#/run/feat-a/run-1', fetch: (target, init) => (target === '/api/runs/feat-a/run-1' ? (down ? 'network' : runReply()) : standard(target, init)) });
+    down = true;
+    await advance(4000);
+    page.pause.fire('click');
+    assert.match(text(page.conn.querySelector('.conn__long')), /^Paused \u00b7 (Offline|Retrying)/);
+  });
+});
+
+test('133 reconnect: a resume or a long absence says Reconnected even when the data is unchanged', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    page.pause.fire('click');
+    await advance(5000);
+    page.pause.fire('click');
+    await advance(3000); // the announcer speaks one message per 2 s: "Updates resumed." first
+    assert.equal(text(page.region), 'Reconnected. The view was refreshed in full.');
+  });
+});
+
+test('133 shortcuts: when the opener was rebuilt while help was open, Esc moves focus to the main region', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    const opener = page.doc.createElement('button');
+    page.main.append(opener);
+    opener.focus();
+    keydownOn(page, '?');
+    opener.remove(); // polling rebuilt the view under the dialog
+    keydownOn(page, 'Escape');
+    assert.notEqual(page.doc.getElementById('help').getAttribute('hidden'), null);
+    assert.ok(page.doc.activeElement === page.main, 'focus is on the main region'); // not assert.equal: a failing equal inspects the whole fake DOM
+  });
+});
+
+test('133 shortcuts: with no main region the view heading takes the focus', async () => {
+  await withFreshModules(async () => {
+    const page = await start({ fetch: standard });
+    const opener = page.doc.createElement('button');
+    page.main.append(opener);
+    opener.focus();
+    keydownOn(page, '?');
+    opener.remove();
+    page.main.setAttribute('id', 'gone');
+    const h1 = page.main.querySelector('h1');
+    keydownOn(page, 'Escape');
+    assert.ok(h1 !== null && page.doc.activeElement === h1, 'focus is on the view heading');
+  });
 });

@@ -4,6 +4,7 @@
 // code writes is `setProperty('--g-...')` (IC-007). What must survive the body re-mount of a poll (the selected task,
 // the card that holds the tab stop, which control opened it) lives in `local.graph`.
 
+import { isKey } from '../keys.js';
 import { h, icon, mount, SVG_NS } from '../dom.js';
 import { sinceStamp, formatDuration } from '../derive/rail.js';
 import { withReplay } from './replay.js';
@@ -290,7 +291,7 @@ function renderGraphBody(data, params, local) {
     next.focus();
   });
   root.addEventListener('keydown', (/** @type {any} */ event) => {
-    if (event.key !== 'Escape' || memory.selected === null) return;
+    if (!isKey(event, 'close') || memory.selected === null) return;
     event.preventDefault();
     // The focus goes back to the opener only when it was inside the panel; on a card or a row it stays where it is.
     const target = event.target;
