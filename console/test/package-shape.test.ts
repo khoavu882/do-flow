@@ -121,3 +121,29 @@ test('package shape: engines.node follows the core manifest rather than a litera
 test('package shape: a manifest that is not JSON fails', () => {
   assert.ok(checkManifest('{ nope', coreText)[0].startsWith('manifest:'));
 });
+
+test('package build stages runnable JavaScript and refuses packing unbuilt TypeScript', () => {
+  const os = require('node:os');
+  const { spawnSync } = require('node:child_process');
+  const { buildPackage } = require('../../src/release/build-package.ts');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'doflow-ui-package-'));
+  const source = path.resolve(__dirname, '..');
+  const staged = path.join(tmp, 'node_modules', '@khoavu882', 'doflow-ui');
+  const env = { ...process.env, npm_config_cache: path.join(tmp, 'npm-cache') };
+  try {
+    const unbuilt = spawnSync('npm', ['run', 'prepack'], { cwd: source, env, encoding: 'utf8' });
+    assert.equal(unbuilt.status, 1, unbuilt.stderr);
+    assert.match(unbuilt.stderr, /Build the Console package first/);
+    buildPackage(staged, { repoRoot: source });
+    const prepack = spawnSync('npm', ['run', 'prepack'], { cwd: staged, env, encoding: 'utf8' });
+    assert.equal(prepack.status, 0, prepack.stderr);
+    assert.equal(fs.existsSync(path.join(staged, 'src', 'main.ts')), false);
+    assert.equal(fs.existsSync(path.join(staged, 'src', 'main.js')), true);
+    const run = spawnSync(process.execPath, [path.join(staged, 'bin', 'doflow-ui.js'), '--unknown'], { encoding: 'utf8' });
+    assert.equal(run.status, 2, run.stderr);
+    assert.match(run.stderr, /unknown argument/);
+    assert.doesNotMatch(run.stderr, /ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});

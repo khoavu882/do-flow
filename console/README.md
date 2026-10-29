@@ -4,6 +4,18 @@ A read-only local web UI over the `doflow` command line. It shows the runs of on
 
 `package.json` marks the package `private` and at version 0.1.0. Until its owner publishes it, run it from a checkout (below); the install hint the launcher prints, `npm install -g @khoavu882/doflow-ui`, works only after that.
 
+## Build a local package
+
+From the repository checkout, stage the JavaScript package before packing it:
+
+```bash
+cd console
+npm run build:package
+npm pack .pack
+```
+
+The build uses the core release builder and writes `console/.pack`. Pack that staged directory: Node does not strip TypeScript inside `node_modules`. Packing the unbuilt source directory is refused by the prepack check. Install the resulting tarball alongside a compatible DoFlow core to use the launcher.
+
 ## Run it
 
 ```bash
