@@ -78,10 +78,15 @@ function narrow(base: any, override: any): { policy: any; key: string | null } {
   return { policy, key: null };
 }
 
+/** What a person does about `no-policy`; the reason id stays the closed one. Never a fallback to the packaged policy. */
+const NO_POLICY_HINT = 'develop has no committed core/registry/gates.json. Run `doflow roadmap --action init-policy` to write the packaged policy, '
+  + 'review it, and commit it on develop (agent-docs/ may stay gitignored). The policy is read only from develop\'s committed head, '
+  + 'never the working tree, a feature branch or the package.';
+
 /** Base bytes must come from develop. This pure function never selects or reads a branch. */
 function loadPolicy(baseBytes: string | Buffer | null | undefined, overrideBytes?: string | Buffer | null): any {
   const denied = (reason: string) => ({ ok: false, policy: null, digest: null, reason, reasons: [reason] });
-  if (baseBytes === null || baseBytes === undefined) return denied('no-policy');
+  if (baseBytes === null || baseBytes === undefined) return { ...denied('no-policy'), annotations: { hint: NO_POLICY_HINT } };
   let base: any;
   try { base = JSON.parse(String(baseBytes)); } catch { return denied('policy-invalid'); }
   if (!policyValid(base)) return denied('policy-invalid');

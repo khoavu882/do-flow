@@ -1290,3 +1290,20 @@ test('C20: the post-merge check is gate-b\'s verify rule: a PASS recorded for an
   const done = await f.next();
   assert.deepEqual([done.result.step, done.result.annotations.cleanup], ['cleanup', 'cleaned']);
 });
+
+test('no-policy: develop without a committed core/registry/gates.json denies with an actionable hint, in JSON and text', async (t) => {
+  const f: any = fixture(t);
+  f.git(f.develop, 'rm', '-q', 'core/registry/gates.json');
+  f.git(f.develop, 'commit', '-qm', 'drop policy');
+  const denied = await f.next();
+  assert.deepEqual([denied.code, denied.result.outcome, denied.result.reasons], [1, 'denied', ['no-policy']]);
+  const hint = denied.result.annotations?.hint || '';
+  assert.match(hint, /core\/registry\/gates\.json/);
+  assert.match(hint, /commit it on develop/);
+  assert.match(hint, /roadmap --action init-policy/);
+  assert.match(hint, /agent-docs\/ may stay gitignored/);
+  const text = f.cli('--action', 'next');
+  assert.equal(text.status, 1);
+  assert.match(text.stdout, /roadmap next: denied: no-policy/);
+  assert.match(text.stdout, /commit it on develop/);
+});

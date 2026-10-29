@@ -521,6 +521,13 @@ status comes from git.
 
 **Adding rows while autopilot runs.** `doflow roadmap seed --action apply|amend` writes the store whether or not autopilot is on. Unless you run it in your own terminal with autopilot verifiably off, every row it adds or replaces lands `proposed`: autopilot never picks it, steps it or approves its gates. A person makes it ready with `doflow roadmap promote <id...>`, typed in their own terminal: it refuses a run without an interactive terminal (`needs-person-tty`), runs only while autopilot is verifiably off (`autopilot.enabled` `off` or the `autopilot/off` file), and changes all named rows or none. Run from your terminal with autopilot off, seeded rows land ready. No wrapper script that turns autopilot off around the seed call (such as `~/bin/doflow-seed.sh`) is needed.
 
+**The gate policy.** The loop approves gates only from `core/registry/gates.json` as committed on
+develop's head; it never reads the working tree, a feature branch or the package copy. A repository
+whose develop has no such file is denied `no-policy`, and the denial carries a hint (`annotations.hint`).
+Run `doflow roadmap --action init-policy` to write the installed DoFlow's policy to
+`core/registry/gates.json` (it refuses to overwrite an existing file and runs no git command), review it,
+and commit it on develop yourself. `agent-docs/` may stay gitignored.
+
 ```bash
 doflow roadmap --action render --check   # exit 0: ROADMAP.md matches git and the seed; exit 1: findings
 doflow roadmap --action render           # write agent-docs/roadmap/ROADMAP.md if it changed

@@ -139,6 +139,15 @@ for (const [name, options, reason] of [
   });
 }
 
+test('an absent develop policy carries an actionable hint and the same closed reason id', t => {
+  const f: any = fixture(t, { missing: true });
+  const result = decide(f);
+  assert.deepEqual(result.reasons, ['no-policy']);
+  assert.match(result.annotations?.hint || '', /core\/registry\/gates\.json/);
+  assert.match(result.annotations?.hint || '', /commit it on develop/);
+  assert.match(result.annotations?.hint || '', /roadmap --action init-policy/);
+});
+
 test('override narrows the develop policy and binds its bytes', t => {
   const f = fixture(t);
   const bytes = JSON.stringify({ loop: { maxSteps: 1 } });

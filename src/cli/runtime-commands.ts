@@ -126,7 +126,7 @@ function handleRoadmapVerbCommand(o: any): number {
   const action = o.actionGiven ? o.action : undefined;
   if (o.positional[0] === 'seed') return finishRuntime(handleSeedCommand({ action, draft: o.draft, json: o.json, cwd: process.cwd(), root: resolveMainRoot(evidenceRoot(o)) }));
   if (o.positional[0] === 'promote') return finishRuntime(handlePromoteCommand({ ids: o.positional.slice(1), json: o.json, root: resolveMainRoot(process.cwd()) }));
-  return handleRoadmapCommand({ action, check: o.check, json: o.json, run: o.run, row: o.row, cwd: evidenceRoot(o) });
+  return handleRoadmapCommand({ action, check: o.check, json: o.json, run: o.run, row: o.row, cwd: evidenceRoot(o), repoRoot: REPO_ROOT });
 }
 
 /**

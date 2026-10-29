@@ -68,7 +68,35 @@ function usageError(message: string, json: boolean = false): number {
 }
 
 /**
- * Dispatches roadmap CLI actions: render [--check], status, next and audit. `next` resolves to a
+ * `init-policy`: copies the installed DoFlow's gates.json to `<project>/core/registry/gates.json` for a
+ * person to review and commit on develop. It refuses an existing file and runs no command; the loop
+ * still reads the policy only from develop's committed head, never from this copy.
+ */
+function initPolicyCommand(options: RoadmapCommandOptions): number {
+  const { json = false, fsImpl = fs } = options;
+  const root = options.root || resolveMainRoot(options.cwd || process.cwd());
+  const rel = 'core/registry/gates.json';
+  const target = path.join(root, rel);
+  const fail = (message: string): number => {
+    if (json) console.log(JSON.stringify({ schema: 1, action: 'init-policy', error: 'not-written', detail: message }));
+    else console.error(`doflow roadmap: ${message}`);
+    process.exitCode = 1;
+    return 1;
+  };
+  const bytes = fsImpl.readFileSync(path.join(options.repoRoot, rel));
+  try {
+    fsImpl.mkdirSync(path.dirname(target), { recursive: true });
+    fsImpl.writeFileSync(target, bytes, { flag: 'wx' });
+  } catch (error: any) {
+    return fail(error.code === 'EEXIST' ? `${target} already exists; it was not overwritten` : `cannot write ${target}: ${error.message}`);
+  }
+  if (json) console.log(JSON.stringify({ schema: 1, action: 'init-policy', written: rel, root }));
+  else console.log(`wrote ${target}\nReview it, then commit this on develop. The loop reads the policy only from develop's committed head.`);
+  return 0;
+}
+
+/**
+ * Dispatches roadmap CLI actions: render [--check], status, next, audit and init-policy. `next` resolves to a
  * promise of the exit code (the merge step awaits its fast-forward child).
  */
 function handleRoadmapCommand(options: RoadmapCommandOptions = {}): any {
@@ -83,8 +111,9 @@ function handleRoadmapCommand(options: RoadmapCommandOptions = {}): any {
 
   if (action === 'next') return nextCommand(options);
   if (action === 'audit') return auditCommand(options);
+  if (action === 'init-policy') return initPolicyCommand(options);
   if (!action || (action !== 'render' && action !== 'status')) {
-    return usageError("--action must be 'render', 'status', 'next' or 'audit'", json);
+    return usageError("--action must be 'render', 'status', 'next', 'audit' or 'init-policy'", json);
   }
 
   const root = options.root || resolveMainRoot(cwd);
@@ -973,7 +1002,7 @@ async function mergeStep(ctx: any, row: any, source: { intent?: any; run?: any; 
     const current = loopPolicy(ctx);
     const gateB = current.ok ? current.policy.classes?.[row.class]?.['gate-b'] : null;
     const refusal = !current.ok ? current.reason : !gateB ? 'class-unsupported' : gateB.autopilot === 'never' ? 'policy-never' : null;
-    if (refusal) return heldDeny(ctx, row, 'merge-policy', refusal, sha256Digest(JSON.stringify([refusal, current.digest ?? null])));
+    if (refusal) return heldDeny(ctx, row, 'merge-policy', refusal, sha256Digest(JSON.stringify([refusal, current.digest ?? null])), { annotations: current.annotations });
     if (slot.held?.kind === 'merge-policy') delete slot.held;
   }
   if (intent && intent.phase === 'ff-done' && intent.verifiedHead !== intent.commit && !intent.status) {
@@ -1331,7 +1360,7 @@ async function underLease(ctx: any, options: any): Promise<any> {
   ctx.fresh = loaded.fresh;
 
   const policy = loopPolicy(ctx);
-  if (!policy.ok) return finish(ctx, { outcome: 'denied', reason: policy.reason, reasons: policy.reasons, rule: 'loop/policy' });
+  if (!policy.ok) return finish(ctx, { outcome: 'denied', reason: policy.reason, reasons: policy.reasons, rule: 'loop/policy', annotations: policy.annotations });
   ctx.policy = policy.policy;
   const record = ctx.record;
   record.maxSteps = policy.policy.loop.maxSteps;
@@ -1535,6 +1564,7 @@ async function nextCommand(options: any): Promise<number> {
   if (json) console.log(JSON.stringify(r));
   else {
     console.log(`roadmap next: ${r.outcome}${r.step ? ` ${r.step}` : ''}${r.row ? ` row ${r.row}` : ''}${r.reason ? `: ${r.reasons.join(', ')}` : ''}${r.annotations?.switch ? ` (switch: ${r.annotations.switch})` : ''}${r.runId ? ` [${r.runId} #${r.n}]` : ''}`);
+    if (r.annotations?.hint) console.log(`  ${r.annotations.hint}`);
     if (r.perform) console.log(JSON.stringify(r.perform));
     if (r.skips) for (const [id, reason] of Object.entries(r.skips)) console.log(`  ${id.padEnd(6)} ${reason}`);
   }

@@ -573,7 +573,7 @@ Commands:
   goal                 Add, check, link, list or close a goal and its checklist (--action add|item|check|link|list|done)
   failure              List, settle or switch off the failures DoFlow captured on this machine (--action list|settle|capture)
                        (a value beginning with '-' must be written --flag=value)
-  roadmap              Session-driven autopilot runner (--action render|status|next|audit [--check] [--row <id>] [--run <id>]);
+  roadmap              Session-driven autopilot runner (--action render|status|next|audit|init-policy [--check] [--row <id>] [--run <id>]);
                        roadmap seed --action check|apply|amend --draft <path> [--json] validates and writes new rows;
                        rows written while autopilot is on land proposed; roadmap promote <id...> [--json] (person, autopilot off) makes them ready
   plan-check           Check a plan's task lines the way the task-attempt ledger reads them: plan-check <plan path> [--json]
@@ -659,7 +659,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        lifecycle: overview|init|release|status|merged
                        goal: add|item|check|link|list|done
                        failure: list|settle|capture
-                       roadmap: render|status|next|audit (seed: check|apply|amend; promote <id...>)
+                       roadmap: render|status|next|audit|init-policy (seed: check|apply|amend; promote <id...>)
                        slot: run|list|peek|release
                        models: sync|list|describe
                        review: check|start

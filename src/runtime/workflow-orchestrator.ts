@@ -842,7 +842,7 @@ class WorkflowOrchestrator {
     }
     const loaded = loadPolicy(baseBytes, overrideBytes);
     const policy = { id: policyId, digest: loaded.digest };
-    if (!loaded.ok) return { ...this.snapshot(run), decision: 'deny', reasons: loaded.reasons, reason: loaded.reason, policy, inputs: [] };
+    if (!loaded.ok) return { ...this.snapshot(run), decision: 'deny', reasons: loaded.reasons, reason: loaded.reason, policy, inputs: [], ...(loaded.annotations ? { annotations: loaded.annotations } : {}) };
 
     const slug = runSlugOf(run, root) || this.featureSlug || run.taskId;
     let seed: any = null;
@@ -1440,6 +1440,7 @@ function handleOrchestrateCommand({
     if (snapshot.policy) console.log(snapshot.decision === 'pass'
       ? `${gate} ${snapshot.taskId} approved by policy ${snapshot.policy.id}@${snapshot.policy.digest} (${snapshot.inputs.length} inputs)`
       : `${gate} ${snapshot.taskId} denied by policy: ${snapshot.reasons.join(', ')}`);
+    if (snapshot.annotations?.hint) console.log(`  ${snapshot.annotations.hint}`);
     if (snapshot.progress) console.log(`Progress: ${snapshot.progress.done}/${snapshot.progress.total}`);
     if (snapshot.current) {
       console.log(snapshot.awaitingGate
