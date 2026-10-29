@@ -293,4 +293,61 @@ test('cleanup keeps the worktree, its ignored files and the branch when the tip 
   }
 });
 
+function cleanupArtifacts(f: any, report: any, fsImpl: any = fs) {
+  const tip = f.git(f.root, 'rev-parse', 'refs/heads/feat/113-toy');
+  return cleanupFeature({ intent: { featureWorktree: f.feature, featureBranch: 'feat/113-toy', featureHead: tip }, report,
+    root: f.root, develop: f.develop, execFileSync: cp.execFileSync, fsImpl,
+    execOptions: { cwd: f.root, encoding: 'utf8', env: f.options.env, stdio: ['pipe', 'pipe', 'pipe'] } });
+}
+
+function artifactFixture(t: any) {
+  const f = fixture(t);
+  f.git(f.develop, 'merge', '--no-ff', '-q', 'feat/113-toy', '-m', 'merge: 113 Toy', '-m', 'DoFlow-Row: 113');
+  const dir = path.join(f.feature, 'agent-docs/doflow/113-toy');
+  fs.mkdirSync(path.join(dir, 'design'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'requirement.md'), 'worktree requirement\n');
+  fs.writeFileSync(path.join(dir, 'design/specs.md'), 'worktree specs\n');
+  return { ...f, dir, main: path.join(f.root, 'agent-docs/doflow/113-toy') };
+}
+
+test('cleanup copies the ignored feature folder into the main checkout before the worktree is removed', async (t) => {
+  const f = artifactFixture(t);
+  const report: any = {};
+  assert.equal(cleanupArtifacts(f, report), true);
+  assert.equal(fs.existsSync(f.feature), false);
+  assert.equal(fs.readFileSync(path.join(f.main, 'requirement.md'), 'utf8'), 'worktree requirement\n');
+  assert.equal(fs.readFileSync(path.join(f.main, 'design/specs.md'), 'utf8'), 'worktree specs\n');
+  assert.deepEqual([report.copied, report.skipped], [2, []]);
+});
+
+test('cleanup never overwrites a main-checkout file and reports the skipped names', async (t) => {
+  const f = artifactFixture(t);
+  fs.mkdirSync(f.main, { recursive: true });
+  fs.writeFileSync(path.join(f.main, 'requirement.md'), 'main requirement\n');
+  const report: any = {};
+  assert.equal(cleanupArtifacts(f, report), true);
+  assert.equal(fs.readFileSync(path.join(f.main, 'requirement.md'), 'utf8'), 'main requirement\n');
+  assert.equal(fs.readFileSync(path.join(f.main, 'design/specs.md'), 'utf8'), 'worktree specs\n');
+  assert.deepEqual([report.copied, report.skipped], [1, ['requirement.md']]);
+});
+
+test('a failed artifact copy keeps the worktree and the branch and names the failure', async (t) => {
+  const f = artifactFixture(t);
+  const fsImpl = { ...fs, copyFileSync() { throw new Error('disk full'); } };
+  const report: any = {};
+  assert.equal(cleanupArtifacts(f, report, fsImpl), false);
+  assert.match(report.failure, /disk full/);
+  assert.equal(fs.readFileSync(path.join(f.dir, 'requirement.md'), 'utf8'), 'worktree requirement\n');
+  assert.notEqual(f.git(f.root, 'branch', '--list', 'feat/113-toy'), '');
+});
+
+test('cleanup without a feature folder copies nothing and still cleans', async (t) => {
+  const f = fixture(t);
+  f.git(f.develop, 'merge', '--no-ff', '-q', 'feat/113-toy', '-m', 'merge: 113 Toy', '-m', 'DoFlow-Row: 113');
+  const report: any = {};
+  assert.equal(cleanupArtifacts(f, report), true);
+  assert.equal(report.copied, 0);
+  assert.equal(fs.existsSync(path.join(f.root, 'agent-docs/doflow')), false);
+});
+
 module.exports = { fixture };
