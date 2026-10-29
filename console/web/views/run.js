@@ -429,14 +429,14 @@ function timelineCard(tl, memory, ctx) {
 // ---- the view ---------------------------------------------------------------------------------------------------
 
 /**
- * The run route body: the rail section of E.1, the activity slot and the timeline, with the replay bar of E.4 below them
- * (E.2 section 6 reserves its place). A scrubbed body is drawn by `renderRunBody` like a live one.
+ * The run route body: the rail section of E.1 and the activity slot, followed by replay controls beside the timeline.
+ * A scrubbed body is drawn by `renderRunBody` like a live one.
  * @param {any} data `{ run, timeline, tasks, workflow }`
  * @param {{ slug: string, taskId: string }} params
  * @param {any} local the view instance's own memory
  */
 function renderRun(data, params, local) {
-  return withReplay(data, local, (view) => renderRunBody(view, params, local), { place: 'below' });
+  return withReplay(data, local, (view) => renderRunBody(view, params, local), { place: 'before-timeline' });
 }
 
 /**

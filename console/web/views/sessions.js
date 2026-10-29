@@ -312,7 +312,7 @@ function renderSessions(data, params, local) {
       ]);
       return h('li', {
         class: 'srow',
-        dataset: { group: row.group, conflict: row.conflicts.length > 0 ? 'true' : 'false', fresh: freshRows.has(row.key) ? 'true' : null, cleared: clearedRows.has(row.key) ? 'true' : null, kind: row.kind },
+        dataset: { group: row.group, current: row.current ? 'true' : 'false', conflict: row.conflicts.length > 0 ? 'true' : 'false', fresh: freshRows.has(row.key) ? 'true' : null, cleared: clearedRows.has(row.key) ? 'true' : null, kind: row.kind },
       }, [h('h2', { class: 'srow__title' }, head), body, slot]);
     });
     mount(rowsHost, [

@@ -17,7 +17,7 @@ const { PARAM_PATTERN, fleetError } = require('./verb-runner.ts');
 const { createStreams, parseLastEventId } = require('./stream.ts');
 
 type Reply = { status: number, headers?: Record<string, string>, body?: string | Uint8Array };
-type RouteContext = { req: any, res: any, pathname: string, params: Record<string, string>, webRoot: string, port: number, session?: { scope: 'read' } };
+type RouteContext = { req: any, res: any, pathname: string, params: Record<string, string>, webRoot: string, port: number, secure?: boolean, session?: { scope: 'read' | 'phone' } };
 type Route = Readonly<{ method: 'GET' | 'POST', path: string, stream?: true, handler: (ctx: RouteContext) => Reply | null | Promise<Reply | null> }>;
 
 const JSON_TYPE = 'application/json; charset=utf-8';
@@ -90,22 +90,26 @@ function sessionRoute(sessions: any): Route {
       if (body === null || typeof body !== 'object' || Array.isArray(body) || typeof body.code !== 'string') return errorReply(400, 'usage');
       const token = sessions.exchange(body.code);
       if (token === null) return errorReply(401, 'unauthenticated');
-      return { status: 204, headers: { 'Set-Cookie': sessionCookie(ctx.port, token) } };
+      return { status: 204, headers: { 'Set-Cookie': sessionCookie(ctx.port, token, ctx.secure === true) } };
     },
   };
 }
 
-function requireSession(sessions: any, handler: Route['handler']): Route['handler'] {
+const PHONE_ROUTE_ALLOWLIST = new Set(['/api/info', '/api/runs', '/api/runs/:slug/:taskId', '/api/workflows']);
+
+function requireSession(sessions: any, route: Route): Route['handler'] {
   return (ctx) => {
     const session = sessions.verify(readCookie(ctx.req.headers.cookie, cookieName(ctx.port)));
-    return session ? handler({ ...ctx, session }) : errorReply(401, 'unauthenticated');
+    if (!session) return errorReply(401, 'unauthenticated');
+    if (session.scope === 'phone' && (route.method !== 'GET' || !PHONE_ROUTE_ALLOWLIST.has(route.path))) return errorReply(403, 'phone-scope');
+    return route.handler({ ...ctx, session });
   };
 }
 
 // The frozen route table over `sessions`: the exchange route plus `table`, with every /api route of
 // `table` wrapped in the session check.
 function buildRoutes(sessions: any, table: readonly Route[]): readonly Route[] {
-  const guarded = table.map((route) => (isApiPath(route.path) ? { ...route, handler: requireSession(sessions, route.handler) } : route));
+  const guarded = table.map((route) => (isApiPath(route.path) ? { ...route, handler: requireSession(sessions, route) } : route));
   return Object.freeze([sessionRoute(sessions), ...guarded].map((route) => Object.freeze({ ...route })));
 }
 
