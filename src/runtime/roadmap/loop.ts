@@ -109,6 +109,8 @@ function handleRoadmapCommand(options: RoadmapCommandOptions = {}): any {
     fsImpl = fs,
   } = options;
 
+  // `init-policy --commit` is a person-run command that lives outside this tree (src/runtime/policy-init.ts); the loop never commits.
+  if (options.commit) return usageError('--commit belongs to --action init-policy', json);
   if (action === 'next') return nextCommand(options);
   if (action === 'audit') return auditCommand(options);
   if (action === 'init-policy') return initPolicyCommand(options);

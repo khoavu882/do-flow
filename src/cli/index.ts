@@ -105,6 +105,8 @@ function parseArgs(argv: string[]): any {
       // context-emit: decide and render without taking a claim or writing a ledger line.
       case '--peek': o.peek = true; break;
       case '--check': o.check = true; break;
+      // roadmap --action init-policy: commit the policy onto local develop by plumbing instead of only writing it.
+      case '--commit': o.commit = true; break;
       // package --action verify: rewrite an unreadable state.json (never widens, 122 IC-009).
       case '--repair': o.repair = true; break;
       // decision --action list: every decision by id, not just the live ones.
@@ -574,6 +576,7 @@ Commands:
   failure              List, settle or switch off the failures DoFlow captured on this machine (--action list|settle|capture)
                        (a value beginning with '-' must be written --flag=value)
   roadmap              Session-driven autopilot runner (--action render|status|next|audit|init-policy [--check] [--row <id>] [--run <id>]);
+                       roadmap --action init-policy [--commit] writes the gate policy for review, or with --commit commits it onto local develop (never pushes);
                        roadmap seed --action check|apply|amend --draft <path> [--json] validates and writes new rows;
                        rows written while autopilot is on land proposed; roadmap promote <id...> [--json] (person, autopilot off) makes them ready
   plan-check           Check a plan's task lines the way the task-attempt ledger reads them: plan-check <plan path> [--json]

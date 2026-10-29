@@ -528,6 +528,12 @@ Run `doflow roadmap --action init-policy` to write the installed DoFlow's policy
 `core/registry/gates.json` (it refuses to overwrite an existing file and runs no git command), review it,
 and commit it on develop yourself. `agent-docs/` may stay gitignored.
 
+`doflow roadmap --action init-policy --commit` does that commit for you: it adds only that file to the
+local `develop` branch, without touching your index, working tree or checked-out branch (a reviewed
+`core/registry/gates.json` in the main checkout is committed as it is, else the packaged policy). If
+`develop` is checked out in a worktree it prints the commands to run there instead. DoFlow never pushes:
+pushing `develop` is yours.
+
 ```bash
 doflow roadmap --action render --check   # exit 0: ROADMAP.md matches git and the seed; exit 1: findings
 doflow roadmap --action render           # write agent-docs/roadmap/ROADMAP.md if it changed
