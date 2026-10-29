@@ -10,12 +10,13 @@ A read-only local web UI over the `doflow` command line. It shows the runs of on
 doflow ui                          # the project in the current directory
 doflow ui /Users/example/project   # another project
 doflow ui --port 4310              # a fixed port (default: the OS picks one)
+doflow ui --listen-address 100.100.10.2 --tls-cert /absolute/path/fullchain.pem --tls-key /absolute/path/key.pem
 ```
 
 `doflow ui [<project>] [--port N]` is the core's launcher (`docs/reference.md`, row `doflow ui`). It finds this package next to the installed core, or in `node_modules/@khoavu882/doflow-ui` above the project, and starts it. The package's own binary takes the same options plus the core path:
 
 ```bash
-node console/bin/doflow-ui.js --core /Users/example/doflow/bin/doflow.js [--project /Users/example/project] [--port 4310]
+node console/bin/doflow-ui.js --core /Users/example/doflow/bin/doflow.js [--project /Users/example/project] [--port 4310] [--listen-address <private local IP> --tls-cert <absolute path> --tls-key <absolute path>]
 ```
 
 | Flag | Meaning |
@@ -23,6 +24,8 @@ node console/bin/doflow-ui.js --core /Users/example/doflow/bin/doflow.js [--proj
 | `--core <abs path>` | Required. The core's `bin/doflow.js`. |
 | `--project <abs dir>` | The project to show. Default: the current directory. |
 | `--port <0..65535>` | Default 0: the OS picks a free port. |
+| `--listen-address <IP>` | Optional remote access. Must be an RFC1918, Tailscale CGNAT (`100.64.0.0/10`), or IPv6 unique-local literal already assigned to a local interface. DNS names, wildcard, public and unassigned addresses are refused. |
+| `--tls-cert <abs path>` / `--tls-key <abs path>` | Required together with `--listen-address`; PEM certificate chain and private key used by HTTPS. |
 
 Each flag takes the next argument as its value and may be given once. The process prints one line on stdout and nothing else there:
 
@@ -30,14 +33,17 @@ Each flag takes the next argument as its value and may be given once. The proces
 doflow ui: http://127.0.0.1:<port>/#c=<launch code>
 ```
 
-Open that link yourself; the Console opens no browser. The code works once and for 5 minutes. Running the command again prints a new link.
+Open that link yourself; the Console opens no browser. In default mode, the code works once and for 5 minutes. Running the command again prints a new link. With the three remote flags, the printed URL uses `https://<address>:<port>/#c=<launch code>`.
+
+Remote access requires a certificate whose IP subject alternative name matches the selected literal address printed in the URL, and whose chain is trusted by the phone's browser. DoFlow checks the IP SAN and certificate/private-key match before opening the listener, so these setup errors fail locally with a direct message. A certificate for a DNS name alone will not match that URL. A self-signed certificate warning is not a supported bypass. DoFlow does not accept DNS names as bind addresses, configure a proxy, or trust forwarded headers. The listener is bound directly to the selected local interface. The browser must be able to reach that address and port over the private network.
 
 **Exit codes.** 0 after Ctrl-C or SIGTERM (it shuts down within 2 s); 2 for a bad flag, or when the core is missing, has no readable version, or is outside the range in `package.json` `doflowCore` (the message names the version found and the range needed); 1 when it cannot listen. **Needs** Node 24.22.1 or later with type stripping on (the default), and a core in `doflowCore`.
 
 ## Security model
 
-- **Loopback only.** The server binds `127.0.0.1` and refuses any other host. A request whose `Host` header is not its own address gets 421, and an `/api` request with an `Origin` header that is not its own gets 403.
-- **One launch code, one session.** The link's code is a 256-bit random value held as a digest, valid for 5 minutes and spent by its first use. The page removes it from the address bar and exchanges it at `POST /api/session` for a session cookie (`HttpOnly`, `SameSite=Strict`, no expiry). Sessions live in the process's memory and end with it.
+- **Loopback by default; explicit private HTTPS for phone access.** Without remote flags the server remains HTTP on `127.0.0.1`, using the OS-selected port. Remote mode requires all of `--listen-address`, `--tls-cert` and `--tls-key`; the literal IP must be a local interface address in RFC1918, Tailscale CGNAT `100.64.0.0/10`, or IPv6 unique-local space. Wildcards, public addresses, DNS names and addresses not assigned locally are refused. Remote mode uses Node HTTPS and the supplied certificate/key, with exact Host and Origin allowlists. It does not trust proxy headers. The browser must trust the certificate; do not bypass a self-signed-certificate warning.
+- **One launch code, one browser session.** The link's code is a 256-bit random value held as a digest, valid for 5 minutes and consumed by its first successful exchange at `POST /api/session`. The page removes it from the address bar. The returned cookie is `HttpOnly` and `SameSite=Strict`; it is `Secure` in HTTPS mode. The remote exchange creates a phone-scoped session, so that one-use code cannot be reused in another browser. Sessions live in process memory and end with the process; remote sessions also expire server-side after 72 hours. This 72-hour session lifetime does not extend the launch code's 5-minute lifetime.
+- **Remote phone scope is narrower.** A remote session may use only `GET /api/info`, `GET /api/runs`, `GET /api/runs/:slug/:taskId` and `GET /api/workflows`. Sessions, Fleet, transcripts, streams and every other API route are denied. Loopback sessions retain the existing read scope.
 - **No write route except `POST /api/session`.** Every other route is `GET`; any other method on a path gets 405. The session can only read (`scope: read`). The Console runs no verb that changes state, and the browser cannot ask it to.
 - **Allow-listed verbs only.** The server spawns the core with `shell: false` from a fixed list of complete argument shapes (`console/src/verb-runner.ts`); parameters must match `^[A-Za-z0-9][A-Za-z0-9._-]*$` (a Fleet key, `^[0-9a-f]{16}$`) before they reach an argument list.
 - **The page CSP is fixed** (092 IC-010) and sent on every response: `default-src 'self'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`. The page has no inline script or style, no `style` attribute, and none of `innerHTML`, `outerHTML`, `insertAdjacentHTML` or `document.write`; text from the API reaches the page as text nodes. `console/test/web-safety.test.ts` scans every shipped web file for these.

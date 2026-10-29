@@ -258,6 +258,9 @@ const RUNTIME_STRING_FLAGS = new Map([
   // `scaffold`. The resolver's own ambiguous-feature error tells the caller to "re-run with
   // --slug=<chosen>"; without this flag that hint would name an argument this CLI rejects.
   ['--slug', 'slug'],
+  ['--listen-address', 'listenAddress'], // ui: explicit private interface for TLS phone access
+  ['--tls-cert', 'tlsCert'],             // ui: absolute PEM certificate chain
+  ['--tls-key', 'tlsKey'],               // ui: absolute PEM private key
   // `--reason <text>` is parsed by its own case above; this entry is the `--reason=<text>` spelling
   // of the same flag (FU-8eqytg), so the two forms mean the same on every verb that accepts it.
   ['--reason', 'reason'],
@@ -472,6 +475,7 @@ function parseRuntimeFlag(arg: string, argv: string[], i: number, o: any): numbe
   const inline = eq === -1 ? null : arg.slice(eq + 1);
   const key = RUNTIME_STRING_FLAGS.get(name) || RUNTIME_LIST_FLAGS.get(name) || RUNTIME_INT_FLAGS.get(name);
   if (!key) return null;
+  if ((name === '--listen-address' || name === '--tls-cert' || name === '--tls-key') && o.cmd !== 'ui') return null;
 
   let value: any = inline;
   let next = i;

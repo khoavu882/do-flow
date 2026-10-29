@@ -11,7 +11,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
-const { createSessions, cookieName, LAUNCH_CODE_TTL_MS } = require('../src/session.ts');
+const { createSessions, cookieName, sessionCookie, LAUNCH_CODE_TTL_MS, PHONE_SESSION_TTL_MS } = require('../src/session.ts');
 const { ROUTES, buildRoutes, jsonReply } = require('../src/routes.ts');
 const { createServer } = require('../src/server.ts');
 
@@ -158,6 +158,18 @@ test('session: the token is 256-bit hex, scope read, and an unknown or malformed
   for (const bad of [null, undefined, '', token.slice(1), token.toUpperCase(), crypto.randomBytes(32).toString('hex')]) {
     assert.equal(store.verify(bad), null, String(bad));
   }
+});
+
+test('phone session: scope is narrow and its server-side lifetime is 72 hours', () => {
+  const c = clock();
+  const store = createSessions({ now: c.now, scope: 'phone' });
+  const token = store.exchange(store.mintLaunchCode());
+  assert.deepEqual(store.verify(token), { scope: 'phone' });
+  c.advance(PHONE_SESSION_TTL_MS - 1);
+  assert.deepEqual(store.verify(token), { scope: 'phone' });
+  c.advance(1);
+  assert.equal(store.verify(token), null);
+  assert.equal(sessionCookie(4310, 'token', true), 'doflow_ui_4310=token; HttpOnly; SameSite=Strict; Path=/; Secure');
 });
 
 test('exchange: POST /api/session sets doflow_ui_<port> HttpOnly, SameSite=Strict, Path=/ with no lifetime, and the cookie opens /api/*', async () => {

@@ -10,6 +10,7 @@ Read this before you change `console/web/`. It is the agent-readable design file
 4. Honest data: unknown, stale and unreached are shown as such, never as zero or "live".
 5. Quiet chrome, rich data: neutral surfaces and one accent (violet) that belongs to interaction (focus, selection, links), never to a run state. Status colours are reserved for status.
 6. Craft in the small things: everything on the 4 px grid, tabular figures for numbers, mono for ids and commands, tightened large type, and a designed worst state for every view.
+7. Give each view a clear lead and supporting layers. A gate, selected project or current checkout gets the strongest cue; running work stays easy to scan; completed history, metadata and limits recede. Do not turn every group into an equal card.
 
 ## Tokens
 
@@ -135,6 +136,13 @@ How the names are used:
 - Elevation: `--elev-1` cards, `--elev-2` popovers and the side panel; in dark the surface steps and a 1 px top highlight carry it.
 - Layout: breakpoints sm < 768, md 768-1279, lg 1280-1919, xl 1920 and up. `--gutter`, `--header-h` and `--target` change per band (see the overrides above). `--target` is the minimum hit size (44 px below 1280, 32 px from 1280); nothing is smaller than `--target-min` (24 px). Content is capped at `--content-max`, prose at `--prose-max`. Layers: `--z-banner`, `--z-header`, `--z-panel`, `--z-skip`.
 - Focus: `outline: var(--focus-width) solid var(--focus)` with `outline-offset: var(--focus-offset)`, on `:focus-visible` only. Heading targets (`h1[tabindex="-1"]`) and `main` show no ring because they are not controls.
+
+### Surface hierarchy
+
+- `--bg` is the page canvas; `--surface` marks a primary content group; `--surface-2` marks a nested or subordinate layer; `--surface-3` is reserved for overlays.
+- On Runs, a waiting gate leads, the running list remains legible but quieter, and Finished is a compact history section. The three summary counts are not equal when a gate is waiting.
+- On Sessions and Fleet, conflicts lead and the current checkout/project is identifiable without adding another status color. Detail panels may rise above their source row; supporting notes and limits stay quieter.
+- Use spacing, type, grouping and elevation to express information order. Reserve state tints for actual states and the accent for selection and interaction.
 
 ### Motion
 

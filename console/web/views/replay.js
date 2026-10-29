@@ -51,7 +51,7 @@ function atMoment(ms, fn) {
  * @param {any} data the run route's body
  * @param {any} local the view instance's own memory
  * @param {(view: any) => any} draw renders the view body from a body of the run route's shape
- * @param {{ place: 'above' | 'below', enabled?: boolean }} options where the bar sits relative to the body, and whether this body can be replayed
+ * @param {{ place: 'above' | 'below' | 'before-timeline', enabled?: boolean }} options where the bar sits relative to the body, and whether this body can be replayed
  */
 function withReplay(data, local, draw, { place, enabled = true }) {
   const memory = local.replay ?? (local.replay = { index: null, playing: false, speed: 1, timer: null });
@@ -126,15 +126,40 @@ function withReplay(data, local, draw, { place, enabled = true }) {
     speeds.forEach((el, i) => el.setAttribute('aria-pressed', SPEEDS[i] === memory.speed ? 'true' : 'false'));
   }
 
+  /** @param {any} viewData */
+  function bodyAt(viewData) {
+    const body = draw(viewData);
+    if (place !== 'before-timeline') return body;
+    const parts = Array.isArray(body) ? body : [body];
+    const timelineAt = parts.findIndex((part) => typeof part?.className === 'string' && part.className.split(/\s+/).includes('timeline'));
+    const at = timelineAt < 0 ? parts.length : timelineAt;
+    return { before: parts.slice(0, at), after: parts.slice(at) };
+  }
+
+  if (place === 'before-timeline') host.append(banner, bar);
+
+  /** @param {any} viewData */
+  function renderBody(viewData) {
+    const body = bodyAt(viewData);
+    if (place !== 'before-timeline') { mount(host, body); return; }
+    // Keep the control subtree connected while replacing the surrounding view.
+    // Detaching it would break keyboard focus and an active pointer drag.
+    for (const child of Array.from(host.children)) {
+      if (child !== banner && child !== bar) child.remove();
+    }
+    for (const child of body.before) host.insertBefore(child, bar);
+    for (const child of body.after) host.append(child);
+  }
+
   function paint() {
     const at = memory.index;
     if (at === null) {
       shown = null;
-      mount(host, draw(data));
+      renderBody(data);
     } else {
       const view = viewAt(data, events, at);
       shown = view.state;
-      atMoment(view.state.moment, () => mount(host, draw(view.data)));
+      atMoment(view.state.moment, () => renderBody(view.data));
     }
     sync();
   }
@@ -193,6 +218,7 @@ function withReplay(data, local, draw, { place, enabled = true }) {
   paint();
   // A poll re-mounted the view while playing: this closure takes the play over.
   if (memory.playing) schedule();
+  if (place === 'before-timeline') return [host];
   return place === 'below' ? [banner, host, bar] : [banner, bar, host];
 }
 
