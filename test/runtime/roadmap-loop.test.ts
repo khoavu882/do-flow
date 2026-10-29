@@ -791,6 +791,40 @@ test('a merged row whose branch moved past the merge keeps the branch: branch -d
   assert.equal(fs.readFileSync(path.join(f.worktree(), 'agent-docs/person-notes.md'), 'utf8'), 'ignored notes\n');
 });
 
+test('a merged row with no intent copies its ignored feature folder to the main checkout and records the count', async (t) => {
+  const f = fixture(t);
+  await f.next();
+  personMerges(f);
+  write(path.join(f.featureDir(), 'requirement.md'), 'kept\n');
+  const out = await f.next();
+  assert.deepEqual([out.result.step, out.result.annotations.cleanup, out.result.annotations.artifacts.copied, out.result.annotations.artifacts.skipped], ['cleanup', 'cleaned', 1, []]);
+  assert.equal(fs.readFileSync(path.join(f.root, 'agent-docs/doflow/113-toy/requirement.md'), 'utf8'), 'kept\n');
+});
+
+test('a failed artifact copy keeps the worktree, stays cleanup-kept and records the failure', async (t) => {
+  const f = fixture(t);
+  await f.next();
+  personMerges(f);
+  write(path.join(f.featureDir(), 'requirement.md'), 'kept\n');
+  write(path.join(f.root, 'agent-docs/doflow/113-toy'), 'a file where the folder belongs\n');
+  const kept = await f.next();
+  assert.deepEqual([kept.result.step, kept.result.annotations.cleanup], ['cleanup', 'cleanup-kept']);
+  assert.match(kept.result.annotations.artifacts.failure, /artifact copy failed/);
+  assert.equal(fs.readFileSync(path.join(f.featureDir(), 'requirement.md'), 'utf8'), 'kept\n');
+  assert.equal(f.git(f.root, 'rev-parse', '--verify', 'refs/heads/feat/113-toy').length, 40);
+});
+
+test('the merge path forwards the copy count into the cleanup annotations', async (t) => {
+  const { f } = await completedRow(t);
+  const merged = await f.next();
+  await f.next();
+  verifyLine(f, merged.result.annotations.commit, 'PASS');
+  write(path.join(f.featureDir(), 'requirement.md'), 'kept\n');
+  const done = await f.next();
+  assert.deepEqual([done.result.step, done.result.annotations.cleanup, done.result.annotations.artifacts.copied], ['cleanup', 'cleaned', 1]);
+  assert.equal(fs.readFileSync(path.join(f.root, 'agent-docs/doflow/113-toy/requirement.md'), 'utf8'), 'kept\n');
+});
+
 test('with the switch off a merged row is not cleaned', async (t) => {
   const f = fixture(t);
   await f.next();

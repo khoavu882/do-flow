@@ -1079,7 +1079,7 @@ async function mergeStep(ctx: any, row: any, source: { intent?: any; run?: any; 
   } else delete slot.held;
   // Decision C12: the S8 tail is one cleanup step; `rendered` says whether this call wrote the table.
   const rendered = result.fileWrites > 0;
-  return finish(ctx, { ...base, outcome: 'acted', step: 'cleanup', annotations: { commit: result.commit, cleanup: result.cleanup, rendered },
+  return finish(ctx, { ...base, outcome: 'acted', step: 'cleanup', annotations: { commit: result.commit, cleanup: result.cleanup, rendered, artifacts: result.artifacts },
     audit: `cleanup ${row.slug} ${result.commit} (${result.cleanup}${rendered ? ', table rendered' : ''})` });
 }
 
@@ -1315,7 +1315,8 @@ function finishMergedRow(ctx: any, row: any, rows: any[], statuses: any, worktre
   // C10: the switch (and the lease) is read again after the render, right before the cleanup.
   const stopCleanup = boundary(ctx, row);
   if (stopCleanup) return stopCleanup;
-  const cleaned = cleanupFeature({ intent: { featureWorktree: worktree, featureBranch: `feat/${row.slug}`, featureHead },
+  const artifacts: any = {};
+  const cleaned = cleanupFeature({ intent: { featureWorktree: worktree, featureBranch: `feat/${row.slug}`, featureHead }, report: artifacts,
     root: ctx.root, develop, execFileSync: ctx.execFileSync, execOptions: ctx.gitOptions, fsImpl: ctx.fsImpl });
   slot.done = true;
   if (!cleaned) {
@@ -1323,7 +1324,7 @@ function finishMergedRow(ctx: any, row: any, rows: any[], statuses: any, worktre
     slot.held = { kind: 'cleanup', reason: 'cleanup-kept' };
   } else delete slot.held;
   const cleanup = cleaned ? 'cleaned' : 'cleanup-kept';
-  return finish(ctx, { outcome: 'acted', step: 'cleanup', row: row.id, slug: row.slug, annotations: { cleanup, rendered: written },
+  return finish(ctx, { outcome: 'acted', step: 'cleanup', row: row.id, slug: row.slug, annotations: { cleanup, rendered: written, artifacts },
     audit: `cleanup ${row.slug} merged without an intent: ${cleanup}${written ? ', table rendered' : ''}` });
 }
 
