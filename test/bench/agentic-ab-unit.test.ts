@@ -413,6 +413,41 @@ test('fix 5: the tool export and the OS temp dir are truth paths; $VAR and ~ wor
   assert.equal(inB(toolEvent('Read', { file_path: '/var/folders/zz/T/doflow-agentic-tool-Ab12/src/cli.ts' })).isolation, 'leaked');
 });
 
+/** Every distinct "find the runtime" snippet the skills tell the model to run, read from the SKILL.md files under core/shared/skills. */
+function runtimeSnippets() {
+  const root = path.join(__dirname, '..', '..', 'core', 'shared', 'skills');
+  const found: Map<string, string[]> = new Map();
+  for (const dir of fs.readdirSync(root)) {
+    const file = path.join(root, dir, 'SKILL.md');
+    if (!fs.existsSync(file)) continue;
+    const lines = fs.readFileSync(file, 'utf8').split('\n');
+    const start = lines.findIndex((l: string) => /^D=\$PWD; while /.test(l));
+    if (start === -1) continue;
+    const end = lines.findIndex((l: string, i: number) => i >= start && /exit 2/.test(l));
+    const text = lines.slice(start, end === -1 ? start + 1 : end + 1).join('\n');
+    found.set(text, [...(found.get(text) || []), dir]);
+  }
+  return found;
+}
+
+test('n-1: the find-the-runtime snippet from the skills is clean in both arms; assigned variables are accepted, unassigned and temp ones stay flagged', () => {
+  const snippets = runtimeSnippets();
+  assert.ok(snippets.size >= 1, 'the skills still carry the snippet');
+  assert.ok([...snippets.values()].flat().length >= 10, 'found in the skills');
+  for (const [snippet, skills] of snippets) {
+    assert.equal(inB(bashEvent(snippet)).isolation, 'clean', `arm B: ${skills.join(',')}: ${JSON.stringify(inB(bashEvent(snippet)).isolationEvidence)}`);
+    assert.equal(inA(bashEvent(snippet)).isolation, 'clean', `arm A: ${skills.join(',')}: ${JSON.stringify(inA(bashEvent(snippet)).isolationEvidence)}`);
+  }
+  for (const run of [inA, inB]) {
+    for (const command of ['D=$PWD; while [ "$D" != / ]; do D=$(dirname "$D"); done', 'D=$PWD; ls "$D/.doflow"', 'D=$(pwd); ls ${D}/.doflow', 'X=$PWD; ls $X/src']) {
+      assert.equal(run(bashEvent(command)).isolation, 'clean', command);
+    }
+    for (const command of ['ls "$D/.doflow"', 'ls ${D}/.doflow', 'cat $TMPDIR/doflow-agentic-tool-*/src/x', 'TMPDIR=$PWD; cat $TMPDIR/x', 'D=$PWD; ls "$E/.doflow"', 'cat ~root/x', 'D=/etc/..; ls $D/x']) {
+      assert.equal(run(bashEvent(command)).isolation, 'leaked', command);
+    }
+  }
+});
+
 const synth = (id: string, over: any = {}) => ({
   id, isolation: 'clean', infra: null, censored: null, capped: false, kind: 'edit',
   metrics: { tokens: { total: 1000 }, costUsd: 0.1, wallMs: 10000, toolCalls: 5, capTokens: null, ...(over.metrics || {}) }, ...Object.fromEntries(Object.entries(over).filter(([k]) => k !== 'metrics')),

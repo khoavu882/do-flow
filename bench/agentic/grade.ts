@@ -345,6 +345,10 @@ function outsidePath(commands: any[], roots: any, { expandVars = false }: { expa
   for (const r of [roots?.workspaceRoot, roots?.profileRoot]) if (typeof r === 'string' && r.startsWith('/')) allowed.push(unalias(r));
   const home = typeof roots?.workspaceRoot === 'string' && roots.workspaceRoot.startsWith('/') ? roots.workspaceRoot : '/';
   let cwd = home;
+  // A/B: variables the same command assigns (`D=$PWD`, `D=$(dirname "$D")`): `$D/...` is a path the command built
+  // itself, and the assigned value was checked as a word of its own (DoFlow's "find the runtime" snippet does this).
+  const assigned = new Set<string>();
+  if (expandVars) for (const cmd of commands) for (const word of cmd.raw) { const m = /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(word); if (m) assigned.add(m[1]); }
   for (const cmd of commands) {
     for (const word of cmd.raw) {
       const candidates = [word];
@@ -362,8 +366,10 @@ function outsidePath(commands: any[], roots: any, { expandVars = false }: { expa
             const rest = (v ? v[3] : tilde![1]) || '';
             if (name === 'PWD') abs = path.posix.resolve(cwd, `.${rest}`);
             else if (name === 'HOME' && typeof roots?.profileRoot === 'string' && roots.profileRoot.startsWith('/')) abs = path.posix.resolve(roots.profileRoot, 'home', `.${rest}`);
-            else if (AB_TMP_VARS.includes(name) || name === 'HOME' || rest !== '') return word;
+            else if (AB_TMP_VARS.includes(name) || name === 'HOME') return word;
+            else if (rest !== '' && !assigned.has(name)) return word;
           } else if (/^~[^/]/.test(p)) return word;
+          if (p === '/') continue; // the filesystem root as a bare word (`[ "$D" != / ]`), not a path being read
         }
         if (abs === null && p.startsWith('/')) abs = p;
         else if (abs === null && p.split('/').includes('..')) abs = path.posix.resolve(cwd, p);
