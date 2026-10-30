@@ -397,6 +397,7 @@ test('noise and report: arms are interleaved per repeat, the report prints the f
   assert.match(rep.out, /Installed files in HOME \| 561 \| dry-run/);
   assert.match(rep.out, /hook overhead per run/);
   assert.match(rep.out, /routing \(P4, reported not required\): arm B used the expected skill in 12 of 12 eligible/);
+  assert.match(rep.out, /censored \(stopped by the cap or the timeout.*arm A 0 of 12.*arm B 0 of 12/);
   assert.match(rep.out, /prompts equal across arms: true/);
   assert.match(rep.out, /P5: deferred/);
 

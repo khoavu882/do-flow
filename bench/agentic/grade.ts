@@ -729,6 +729,9 @@ function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; 
     reports, armConfig, roots: launch, expected: launch.proofExpected || { skills: [], agents: [] }, homeSetup: homeSetupState, pin: config.model?.label ?? null, infra,
   });
   const exclusionReason = iso.isolation !== 'clean' ? iso.isolation : infra;
+  // A run stopped by the per-run cap, or by the timeout, is censored: the figures it reports are lower bounds of
+  // what the task would have cost. It leaves the quality scores (excluded) but stays in the cost and wall figures.
+  const censored: string | null = iso.isolation === 'clean' ? (statusRec?.cap === true ? 'cap' : (infra === 'timeout' ? 'timeout' : null)) : null;
 
   let passRate: number | null = null;
   let checks: any = null;
@@ -761,6 +764,7 @@ function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; 
     exclusionReason,
     proof: iso.proof,
     capped: statusRec?.cap === true,
+    censored,
     pass_rate: passRate,
     checks: checks === null ? null : { exitCode: checks.exitCode, output: checks.output },
     review,
@@ -772,6 +776,7 @@ function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; 
       byModel: agg.usage === 'reported' ? agg.byModel : null,
       costUsd: agg.costUsd,
       wallMs: Number.isFinite(timing.duration_ms) ? timing.duration_ms : null,
+      capTokens: censored === 'cap' && Number.isSafeInteger(launch.maxTokensPerRun) ? launch.maxTokensPerRun : null,
       turns: agg.turns,
       toolCalls: agg.toolCalls,
       toolCounts: agg.toolCounts,
@@ -785,7 +790,7 @@ function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; 
 function serializeAbGrading(g: any) {
   return `${JSON.stringify({
     key: g.key, id: g.id, split: g.split, kind: g.kind, group: g.group, arm: g.arm, run_status: g.run_status, infra: g.infra,
-    isolation: g.isolation, isolationEvidence: g.isolationEvidence, exclusionReason: g.exclusionReason, proof: g.proof, capped: g.capped,
+    isolation: g.isolation, isolationEvidence: g.isolationEvidence, exclusionReason: g.exclusionReason, proof: g.proof, capped: g.capped, censored: g.censored,
     pass_rate: g.pass_rate, checks: g.checks, review: g.review, routing: g.routing, metrics: g.metrics,
   }, null, 2)}\n`;
 }

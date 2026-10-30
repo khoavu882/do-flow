@@ -14,6 +14,7 @@ const tasksLib = require('../../bench/agentic/tasks.ts');
 const adapter = require('../../bench/agentic/review-adapter.ts');
 const grade = require('../../bench/agentic/grade.ts');
 const claudeStream = require('../../bench/agentic/ab/claude-stream.ts');
+const reportLib = require('../../bench/agentic/report.ts');
 const reviewMiss = require('../../bench/review-miss/grade.ts');
 const reviewCorpus = require('../../bench/review-miss/corpus.ts');
 
@@ -317,7 +318,7 @@ test('grade: serialisation is byte-stable and keeps the fixed key order', () => 
   const dir = runDirOf(fixture('arm-b-doflow'), { homeSetup: { ok: true, exitCode: 0 } });
   const a = grade.serializeAbGrading(gradeOf(dir, 'B'));
   assert.equal(grade.serializeAbGrading(gradeOf(dir, 'B')), a);
-  assert.deepEqual(Object.keys(JSON.parse(a)), ['key', 'id', 'split', 'kind', 'group', 'arm', 'run_status', 'infra', 'isolation', 'isolationEvidence', 'exclusionReason', 'proof', 'capped', 'pass_rate', 'checks', 'review', 'routing', 'metrics']);
+  assert.deepEqual(Object.keys(JSON.parse(a)), ['key', 'id', 'split', 'kind', 'group', 'arm', 'run_status', 'infra', 'isolation', 'isolationEvidence', 'exclusionReason', 'proof', 'capped', 'censored', 'pass_rate', 'checks', 'review', 'routing', 'metrics']);
 });
 
 test('grade: resumed segments aggregate as running totals when cumulative, and as sums otherwise; a falling total is inconsistent', () => {
@@ -408,4 +409,52 @@ test('fix 5: the tool export and the OS temp dir are truth paths; $VAR and ~ wor
     assert.equal(inB(bashEvent(command)).isolation, 'clean', `arm B: ${command} (inside the roots or no path base)`);
   }
   assert.equal(inB(toolEvent('Read', { file_path: '/var/folders/zz/T/doflow-agentic-tool-Ab12/src/cli.ts' })).isolation, 'leaked');
+});
+
+const synth = (id: string, over: any = {}) => ({
+  id, isolation: 'clean', infra: null, censored: null, capped: false, kind: 'edit',
+  metrics: { tokens: { total: 1000 }, costUsd: 0.1, wallMs: 10000, toolCalls: 5, capTokens: null, ...(over.metrics || {}) }, ...Object.fromEntries(Object.entries(over).filter(([k]) => k !== 'metrics')),
+});
+const COST_TASKS = { tasks: ['t1', 't2', 't3', 't4'].map((id) => ({ id })) };
+const costOf = (A: any[], B: any[]) => reportLib.abCostOf({
+  A: [Object.fromEntries(A.map((g) => [g.id, g]))], B: [Object.fromEntries(B.map((g) => [g.id, g]))], taskSet: COST_TASKS,
+  noiseValid: true, noiseFile: { path: 'x' }, costNoise: { totalTokens: 0, costUsd: 0, wallSeconds: 0, toolCalls: 0 }, noiseConfig: { seed: 96, mde: 0.05, maxInfraShare: 0.1 },
+  infraShare: { baseline: 0, candidate: 0 },
+  censored: { A: A.filter((g) => g.censored).map((g) => g.id), B: B.filter((g) => g.censored).map((g) => g.id) }, runs: { A: A.length, B: B.length },
+});
+
+test('fix 1: capped and timed-out runs stay in cost and wall at a lower bound and withhold the verdict word', () => {
+  const ids = ['t1', 't2', 't3', 't4'];
+  const A = ids.map((id) => synth(id));
+  const cheap = ids.map((id) => synth(id, { metrics: { tokens: { total: 500 }, costUsd: 0.05, wallMs: 5000, toolCalls: 2 } }));
+  assert.equal(costOf(A, cheap).totalTokens.verdict, 'gain-above-noise', 'no censored run: the rule gives a word');
+  // B's t1 hit the cap after 1,000 reported tokens (cap 50,000); t2 timed out after 90 s.
+  const B = [
+    synth('t1', { capped: true, infra: 'truncated', censored: 'cap', metrics: { tokens: { total: 1000 }, capTokens: 50000, costUsd: 0.2, wallMs: 30000, toolCalls: 9 } }),
+    synth('t2', { infra: 'timeout', censored: 'timeout', metrics: { tokens: { total: 600 }, wallMs: 90000, costUsd: 0.05, toolCalls: 3 } }),
+    cheap[2], cheap[3],
+  ];
+  const cost = costOf(A, B);
+  for (const id of ['totalTokens', 'costUsd', 'wallSeconds', 'toolCalls']) {
+    assert.equal(cost[id].verdict, 'censored-lower-bound', id);
+    assert.match(cost[id].reason, /A 0 of 4 run\(s\), B 2 of 4 run\(s\)/);
+  }
+  assert.equal(cost.totalTokens.perTask.t1.B, 50000, 'a capped run counts at no less than the cap');
+  assert.equal(cost.totalTokens.perTask.t2.B, 600, 'a timeout counts at what it reported');
+  assert.equal(cost.wallSeconds.perTask.t2.B, 90, 'a timeout counts at its elapsed time');
+  assert.equal(cost.costUsd.perTask.t1.B, 0.2);
+});
+
+test('fix 1: the grader marks a capped or timed-out clean run censored and records the cap; a leaked one is not censored', () => {
+  const capped = gradeOf(runDirOf(fixture('arm-a-plain'), { status: { status: 'truncated', evidence: 'cap', cap: true }, launch: { maxTokensPerRun: 7777 } }), 'A');
+  assert.equal(capped.censored, 'cap');
+  assert.equal(capped.metrics.capTokens, 7777);
+  assert.equal(capped.pass_rate, null, 'still out of the quality score');
+  const timeout = gradeOf(runDirOf('', { status: { status: 'timeout', evidence: 'x' } }), 'A');
+  assert.equal(timeout.censored, 'timeout');
+  assert.equal(timeout.metrics.wallMs, 41250);
+  assert.equal(gradeOf(runDirOf(fixture('arm-a-plain')), 'A').censored, null);
+  const leakedAndCapped = gradeOf(runDirOf(withLineBeforeResult(fixture('arm-a-plain'), bashEvent('curl http://x')), { status: { status: 'truncated', evidence: 'cap', cap: true } }), 'A');
+  assert.equal(leakedAndCapped.isolation, 'leaked');
+  assert.equal(leakedAndCapped.censored, null);
 });
