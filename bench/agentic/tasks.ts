@@ -170,6 +170,10 @@ const promptSha256 = (prompt: any) => sha256Hex(prompt);
 
 const AB_KEY_PREFIX = 'ab/';
 const AB_KINDS = Object.freeze(['edit', 'review']);
+/** Tier-2 capability tasks (`single`: one session, `continuity`: two sessions with a cut); their fixtures are read from a task directory. */
+const TIER2_KINDS = Object.freeze(['single', 'continuity']);
+const TIER2_ROOT = 'bench/agentic/ab/tier2';
+const COMMIT_DIR = /^[0-9]{2}-[A-Za-z0-9._-]+$/;
 const AB_TASK_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 const REV_HEX = /^[0-9a-f]{40}$/;
 /** The answer the review prompt asks for; the same text for both arms, kept minimal on purpose. */
@@ -182,11 +186,84 @@ const REVIEW_ANSWER_RULE =
 
 const isStr = (v: any) => typeof v === 'string' && v.trim() !== '';
 
+
+/** Every file under `dir` as sorted posix paths relative to it (a missing directory is an empty list). */
+function listFiles(dir: string): string[] {
+  const out: string[] = [];
+  const walk = (d: string, rel: string) => {
+    let entries: any[];
+    try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walk(path.join(d, e.name), r);
+      else if (e.isFile()) out.push(r);
+    }
+  };
+  walk(dir, '');
+  return out.sort();
+}
+
+/** Digest of every file of a task directory (path and bytes), so editing a fixture or a hidden test moves the case key. */
+function dirDigest(dir: string): string {
+  const h = crypto.createHash('sha256');
+  for (const rel of listFiles(dir)) { h.update(rel); h.update('\0'); h.update(fs.readFileSync(path.join(dir, rel))); h.update('\0'); }
+  return h.digest('hex');
+}
+
+const positive = (v: any) => typeof v === 'number' && Number.isFinite(v) && v > 0;
+
+/**
+ * One tier-2 task from its directory (`<tier2Root>/<id>`): `task.json` (prompt, prompt2, targetFiles), ordered
+ * `commits/NN-*` (commit.json + files overlay), the uncommitted `dirty/modified` and `dirty/untracked` overlays.
+ * The caps and the timeout come from the tasks file entry, not from the fixture.
+ */
+function loadTier2Task(raw: any, tier2Root: string, repoRoot: string): any {
+  const dir = path.join(tier2Root, raw.id);
+  const taskJson = path.join(dir, 'task.json');
+  const meta = readJson(taskJson, 'tier2-task', `tier-2 task file of ${raw.id}`);
+  if (meta.id !== raw.id) throw new UsageError('tier2-task', `${taskJson} id ${JSON.stringify(meta.id)} differs from the tasks file id ${raw.id}`);
+  if (meta.kind !== raw.kind) throw new UsageError('tier2-task', `${taskJson} kind ${JSON.stringify(meta.kind)} differs from the tasks file kind ${raw.kind}`);
+  if (!isStr(meta.prompt)) throw new UsageError('tier2-task', `${taskJson} needs a prompt`);
+  const continuity = raw.kind === 'continuity';
+  if (continuity && (!isStr(meta.prompt2) || !Array.isArray(meta.targetFiles) || meta.targetFiles.length < 2 || !meta.targetFiles.every(isStr))) {
+    throw new UsageError('tier2-task', `${taskJson} (continuity) needs prompt2 and at least two targetFiles`);
+  }
+  const commitsDir = path.join(dir, 'commits');
+  let names: string[] = [];
+  try { names = fs.readdirSync(commitsDir).filter((n: string) => fs.statSync(path.join(commitsDir, n)).isDirectory()).sort(); } catch { /* no commits */ }
+  if (names.length === 0) throw new UsageError('tier2-task', `${dir} has no commits/NN-* directory`);
+  const commits = names.map((name: string) => {
+    if (!COMMIT_DIR.test(name)) throw new UsageError('tier2-task', `${commitsDir}/${name} must be named NN-<slug>`);
+    const c = readJson(path.join(commitsDir, name, 'commit.json'), 'tier2-task', `commit.json of ${raw.id}/${name}`);
+    const m = /^(.+?)\s*<([^<>\s]+)>$/.exec(String(c.author || '').trim());
+    if (!isStr(c.message) || !m) throw new UsageError('tier2-task', `${commitsDir}/${name}/commit.json needs a message and an author "Name <email>"`);
+    return { name, message: c.message, author: { name: m[1], email: m[2] }, filesDir: path.join(commitsDir, name, 'files') };
+  });
+  const dirty = { modified: path.join(dir, 'dirty', 'modified'), untracked: path.join(dir, 'dirty', 'untracked') };
+  const seedPaths = [...commits.flatMap((c: any) => listFiles(c.filesDir)), ...listFiles(dirty.modified), ...listFiles(dirty.untracked)];
+  const rel = path.relative(repoRoot, dir);
+  const caps: any = {};
+  for (const f of ['maxBudgetUsd', 'sessionBudgetUsd', 'maxTokensPerRun', 'timeoutSec']) {
+    if (raw[f] === undefined) continue;
+    if (!positive(raw[f]) || (f !== 'maxBudgetUsd' && f !== 'sessionBudgetUsd' && !Number.isSafeInteger(raw[f]))) throw new UsageError('tasks-file', `task ${raw.id} ${f} must be a positive number`);
+    caps[f] = raw[f];
+  }
+  if (raw.sessionBudgetUsd !== undefined && continuity === false) throw new UsageError('tasks-file', `task ${raw.id} sessionBudgetUsd applies to continuity tasks only`);
+  return {
+    text: meta.prompt, text2: continuity ? meta.prompt2 : null, targetFiles: continuity ? meta.targetFiles.slice() : [],
+    caps,
+    tier2: { dir, relDir: rel.startsWith('..') ? dir : rel.split(path.sep).join('/'), taskJson, commits, dirty, seedPaths, visibleCommand: meta.visibleCommand ?? null, digest: dirDigest(dir) },
+    expectedSkills: [], maxQuestions: 0,
+  };
+}
+
 /** Key digest over everything that decides what the task asks and how it is graded (edit: text, seed files, checks; review: revision, scope, focus, cases). */
 function abCaseKey(task: any) {
-  const body = task.kind === 'edit'
-    ? { text: task.text, files: task.files, checks: task.checks }
-    : { rev: task.review.rev, scope: task.review.scope, focus: task.review.focus, caseIds: task.review.caseIds };
+  const body = TIER2_KINDS.includes(task.kind)
+    ? { kind: task.kind, text: task.text, text2: task.text2, targetFiles: task.targetFiles, seed: task.tier2.digest, caps: task.caps }
+    : task.kind === 'edit'
+      ? { text: task.text, files: task.files, checks: task.checks }
+      : { rev: task.review.rev, scope: task.review.scope, focus: task.review.focus, caseIds: task.review.caseIds };
   return `${AB_KEY_PREFIX}${task.id}@${sha256Hex(JSON.stringify(body)).slice(0, 8)}`;
 }
 
@@ -203,16 +280,19 @@ function loadAbTaskSet({ repoRoot = REPO_ROOT, config, tasksPath, nativePath }: 
   if (cfg.schemaVersion !== 1 || !Array.isArray(cfg.tasks) || cfg.tasks.length === 0) {
     throw new UsageError('tasks-file', `${tasksFile} must be schemaVersion 1 with a non-empty tasks array`);
   }
-  const native = readJson(nativeFile, 'native-file', 'native cases file');
+  const needNative = cfg.tasks.some((t: any) => t?.kind === 'edit');
+  const native = needNative ? readJson(nativeFile, 'native-file', 'native cases file') : { cases: [] };
   const seen = new Set();
   const tasks = cfg.tasks.map((raw: any) => {
     if (!raw || typeof raw !== 'object' || !isStr(raw.id) || !AB_TASK_ID.test(raw.id)) throw new UsageError('tasks-file', 'every A/B task needs a safe string id');
     if (seen.has(raw.id)) throw new UsageError('duplicate-id', `task id ${raw.id} appears more than once`);
     seen.add(raw.id);
-    if (!AB_KINDS.includes(raw.kind)) throw new UsageError('task-kind', `task ${raw.id} kind must be one of ${AB_KINDS.join(', ')}, got ${JSON.stringify(raw.kind)}`);
+    if (!AB_KINDS.includes(raw.kind) && !TIER2_KINDS.includes(raw.kind)) throw new UsageError('task-kind', `task ${raw.id} kind must be one of ${[...AB_KINDS, ...TIER2_KINDS].join(', ')}, got ${JSON.stringify(raw.kind)}`);
     if (!isStr(raw.name)) throw new UsageError('tasks-file', `task ${raw.id} needs a name`);
     const task: any = { id: raw.id, name: raw.name, kind: raw.kind, split: 'train', group: raw.kind === 'review' ? 'review' : 'success' };
-    if (raw.kind === 'edit') {
+    if (TIER2_KINDS.includes(raw.kind)) {
+      Object.assign(task, loadTier2Task(raw, path.resolve(repoRoot, config?.tier2Root || TIER2_ROOT), repoRoot));
+    } else if (raw.kind === 'edit') {
       const item = (native.cases || []).find((c: any) => c.id === raw.nativeCase);
       if (!item) throw new UsageError('native-case-unknown', `task ${raw.id} names native case "${raw.nativeCase}", which ${nativeFile} does not define`);
       if (!Array.isArray(item.messages) || item.messages.length !== 1 || !isStr(item.messages[0])) {
@@ -247,8 +327,8 @@ function loadAbTaskSet({ repoRoot = REPO_ROOT, config, tasksPath, nativePath }: 
 }
 
 /** The text of an A/B prompt before the shared paragraph: the native message, or the review request. */
-function abTaskText(task: any) {
-  if (task.kind === 'edit') return task.text;
+function abTaskText(task: any, session = 1) {
+  if (task.kind === 'edit' || TIER2_KINDS.includes(task.kind)) return session === 2 ? task.text2 : task.text;
   const focus = task.review.focus.join(' and ');
   return [
     `You are working in a code repository at the current directory. Review ${focus}; the other files are context only. Do not edit any source file.`,
@@ -256,14 +336,17 @@ function abTaskText(task: any) {
   ].join('\n\n');
 }
 
-/** The one prompt both arms get: the task text, then the shared paragraph (identical in every arm). */
-function buildAbPrompt(task: any, paragraph: any) {
+/**
+ * The prompt of one session: the task text, then the shared paragraph (identical in every arm), behind the arm's
+ * `entryPrefix` (tier 2, arm C: `/do `; empty for every other arm). `session` 2 is the continuity follow-up.
+ */
+function buildAbPrompt(task: any, paragraph: any, entryPrefix = '', session = 1) {
   if (typeof paragraph !== 'string' || paragraph.trim() === '') throw new TypeError('buildAbPrompt: paragraph must be a non-empty string');
-  return [abTaskText(task), paragraph].join('\n\n');
+  return `${entryPrefix || ''}${[abTaskText(task, session), paragraph].join('\n\n')}`;
 }
 
 module.exports = {
   KEY_PREFIX, TEMPLATE_PREAMBLE, ANSWER_RULE, PROMPT_TEMPLATE_SHA256,
-  AB_KEY_PREFIX, AB_KINDS, REVIEW_FILE, REVIEW_ANSWER_RULE,
+  AB_KEY_PREFIX, AB_KINDS, TIER2_KINDS, REVIEW_FILE, REVIEW_ANSWER_RULE,
   UsageError, caseKey, loadTaskSet, buildPrompt, promptSha256, loadAbTaskSet, buildAbPrompt, abTaskText,
 };

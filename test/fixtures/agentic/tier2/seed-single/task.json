@@ -1,0 +1,1 @@
+{ "id": "seed-single", "kind": "single", "prompt": "TASK-seed-single: add a reset() to lib/b.js.", "visibleCommand": "node --test", "items": [] }

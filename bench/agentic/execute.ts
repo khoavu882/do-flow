@@ -28,8 +28,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const readline = require('node:readline');
-const { UsageError, loadTaskSet, loadAbTaskSet, buildPrompt, buildAbPrompt, promptSha256, REVIEW_FILE } = require('./tasks.ts');
+const { UsageError, loadTaskSet, loadAbTaskSet, buildPrompt, buildAbPrompt, promptSha256, REVIEW_FILE, TIER2_KINDS } = require('./tasks.ts');
 const claudeStream = require('./ab/claude-stream.ts');
+const tier2Extract = require('./ab/tier2-extract.ts');
 const { materialiseExport } = require('../retrieval/lib/environment.ts');
 const launch = require('../../src/runtime/worker/launch.ts');
 const { parserFor } = require('../../src/runtime/worker/parsers.ts');
@@ -78,6 +79,7 @@ function configError(field: string, message: string) {
 }
 
 const isNonEmptyString = (v: any) => typeof v === 'string' && v.trim() !== '';
+const positive = (v: any) => typeof v === 'number' && Number.isFinite(v) && v > 0;
 const isStringArray = (v: any) => Array.isArray(v) && v.every((s: any) => typeof s === 'string');
 
 function checkRegexList(field: string, list: any) {
@@ -263,15 +265,18 @@ const runDirsOf = (iterDir: string) => entriesOf(iterDir).runs;
  * overshoot it already reported is never dropped. A symlinked entry counts at `maxTokensPerRun` too:
  * its target is not this iteration's record.
  */
-function spentOf(iterDir: string, maxTokensPerRun: number) {
+function spentOf(iterDir: string, maxTokensPerRun: number | ((taskId: string) => number)) {
   const { runs, links } = entriesOf(iterDir);
-  let spent = links.length * maxTokensPerRun;
+  const maxOf = (dir: string) => (typeof maxTokensPerRun === 'function' ? maxTokensPerRun(path.basename(dir)) : maxTokensPerRun);
+  const linkMax = typeof maxTokensPerRun === 'function' ? Math.max(0, ...runs.map(maxOf), maxTokensPerRun('')) : maxTokensPerRun;
+  let spent = links.length * linkMax;
   for (const dir of runs) {
+    const max = maxOf(dir);
     const raw = readJsonIfPresent(path.join(dir, RUN_FILES.timing))?.total_tokens;
     const tokens = Number.isFinite(raw) && raw >= 0 ? raw : null;
     const completed = readJsonIfPresent(path.join(dir, RUN_FILES.runStatus))?.status === 'completed';
-    if (tokens === null) spent += maxTokensPerRun;
-    else spent += completed ? tokens : Math.max(tokens, maxTokensPerRun);
+    if (tokens === null) spent += max;
+    else spent += completed ? tokens : Math.max(tokens, max);
   }
   return spent;
 }
@@ -1103,6 +1108,9 @@ const WORKSPACE_FORBIDDEN = Object.freeze(['.claude', 'CLAUDE.md', 'AGENTS.md', 
 const EXPORT_TOKEN = '<export>';
 const HOME_SETUP_TIMEOUT_MS = 180000;
 const SEGMENTS_FILE = 'segments.json';
+/** Tier-2 run records: the process evidence (hook denies, skills, class, tokens by model) and the sessions, cut and task directory. */
+const PROCESS_FILE = 'process.json';
+const TIER2_FILE = 'tier2.json';
 const HOME_SETUP_FILE = 'home-setup.json';
 /** Directory of the run record that holds a copy of the final workspace of an `edit` run (without `.git`). */
 const WORKSPACE_DIR = 'workspace';
@@ -1171,6 +1179,7 @@ function loadAbConfig(cfg: any) {
     if (arm.paragraph !== cfg.arms[names[0]].paragraph) throw configError(`${at}.paragraph`, `must equal arms.${names[0]}.paragraph: both arms get one prompt`);
     if (!isStringArray(arm.pathAdd)) throw configError(`${at}.pathAdd`, 'must be an array of strings');
     checkRegexList(`${at}.leak`, arm.leak);
+    if (arm.entryPrefix !== undefined && !isNonEmptyString(arm.entryPrefix)) throw configError(`${at}.entryPrefix`, 'must be a non-empty string when present (tier 2: the text typed before the task, e.g. "/do ")');
     if (arm.proof !== 'absent' && arm.proof !== 'loaded') throw configError(`${at}.proof`, 'must be "absent" or "loaded"');
     if (arm.homeSetup === undefined) throw configError(`${at}.homeSetup`, 'must be present (null for an empty HOME)');
     checkHomeSetup(`${at}.homeSetup`, arm.homeSetup);
@@ -1178,6 +1187,14 @@ function loadAbConfig(cfg: any) {
   if (cfg.arms[roles.baseline].proof !== 'absent' || cfg.arms[roles.candidate].proof !== 'loaded') {
     throw configError('arms', 'the baseline arm must prove DoFlow absent and the candidate arm must prove it loaded');
   }
+  // An arm with an entryPrefix (tier 2, arm C) is the candidate arm plus that prefix: the same install and the same PATH.
+  for (const name of names.filter((n) => cfg.arms[n].entryPrefix !== undefined)) {
+    for (const f of ['homeSetup', 'pathAdd', 'proof']) {
+      if (JSON.stringify(cfg.arms[name][f]) !== JSON.stringify(cfg.arms[roles.candidate][f])) throw configError(`arms.${name}.${f}`, `must equal arms.${roles.candidate}.${f}: an entryPrefix arm differs from the candidate by the prefix only`);
+    }
+  }
+  if (cfg.ledgerUsd !== undefined && cfg.ledgerUsd !== null && !positive(cfg.ledgerUsd)) throw configError('ledgerUsd', 'must be null or a positive number of US dollars');
+  if (cfg.tier2Root !== undefined && !isNonEmptyString(cfg.tier2Root)) throw configError('tier2Root', 'must be a path of the tier-2 task directories');
   if (typeof cfg.timeoutSeconds !== 'number' || !Number.isFinite(cfg.timeoutSeconds) || cfg.timeoutSeconds <= 0) throw configError('timeoutSeconds', 'must be a positive number');
   if (cfg.maxTokensPerRun !== null && (!Number.isSafeInteger(cfg.maxTokensPerRun) || cfg.maxTokensPerRun <= 0)) {
     throw configError('maxTokensPerRun', 'must be null (execute then refuses until it is set) or a positive integer');
@@ -1194,12 +1211,14 @@ function loadAbConfig(cfg: any) {
 }
 
 /** The capture inputs both A/B arms must share; the per-arm homeSetup, PATH additions and leak lists differ by design. */
-function abCaptureSha256(config: any, caps: { maxTokensPerRun: number; maxBudgetUsd: number }) {
+function abCaptureSha256(config: any, caps: { maxTokensPerRun: number | null; maxBudgetUsd: number | null; taskCaps?: any }) {
   const inputs = {
     recipe: config.recipeSha256, model: config.model, path: config.path, timeoutSeconds: config.timeoutSeconds,
     paragraph: config.arms[config.roles.baseline].paragraph, credentialEnv: config.credentialEnv, resume: config.resume,
     // the two command-line caps shape every run, so arms run under different caps are not one capture
     maxTokensPerRun: caps.maxTokensPerRun, maxBudgetUsd: caps.maxBudgetUsd,
+    // tier 2: the per-task caps and timeouts come from the tasks file, so they belong to the capture as well
+    ...(caps.taskCaps ? { taskCaps: caps.taskCaps } : {}),
   };
   return crypto.createHash('sha256').update(JSON.stringify(inputs)).digest('hex');
 }
@@ -1244,8 +1263,20 @@ function chooseTasks(set: any, only: any) {
   return set.tasks.filter((t: any) => ids.includes(t.id));
 }
 
+/**
+ * The caps of one A/B task: tier 2 gives them per task in the tasks file (`maxTokensPerRun`, `maxBudgetUsd`, `timeoutSec`,
+ * `sessionBudgetUsd`), tier 1 uses the command-wide values. A cap that is neither set per task nor command-wide is null.
+ */
+function abTaskCaps(task: any, config: any, max: number | null, budget: number | null) {
+  const c = task.caps || {};
+  return {
+    maxTokensPerRun: c.maxTokensPerRun ?? max ?? null, maxBudgetUsd: c.maxBudgetUsd ?? budget ?? null,
+    sessionBudgetUsd: c.sessionBudgetUsd ?? null, timeoutSec: c.timeoutSec ?? config.timeoutSeconds,
+  };
+}
+
 /** Offline projection of one A/B iteration. Spawns nothing and runs no git. */
-function planAbIteration({ repoRoot = REPO_ROOT, config, taskSet, arm, iteration, tasks: only, runRoot, maxBudgetUsd }: any = {}) {
+function planAbIteration({ repoRoot = REPO_ROOT, config, taskSet, arm, iteration, tasks: only, runRoot, maxBudgetUsd, maxTokensPerRun }: any = {}) {
   checkIteration(iteration);
   if (!Object.prototype.hasOwnProperty.call(config.arms, arm)) {
     throw new UsageError('arm-unknown', `arm "${arm}" is not in the config (arms: ${Object.keys(config.arms).join(', ')})`);
@@ -1254,22 +1285,24 @@ function planAbIteration({ repoRoot = REPO_ROOT, config, taskSet, arm, iteration
   const set = taskSet || loadAbTaskSet({ repoRoot, config });
   const chosen = chooseTasks(set, only);
   const budget = parseBudget(maxBudgetUsd ?? config.maxBudgetUsd);
-  const argv = [config.recipeData.binary, ...abArgv(config.recipeData, null, budget === null ? '<usd>' : budget)];
+  const max = maxTokensPerRun ?? config.maxTokensPerRun;
+  const prefix = config.arms[arm].entryPrefix || '';
   const runs = chosen.map((task: any) => {
-    const prompt = buildAbPrompt(task, config.arms[arm].paragraph);
+    const prompt = buildAbPrompt(task, config.arms[arm].paragraph, prefix);
+    const caps = abTaskCaps(task, config, max, budget);
     return {
-      id: task.id, key: task.key, split: task.split, kind: task.kind, group: task.group,
-      runDir: runDirOf(root, iteration, task.id), argvShape: argv, promptSha256: promptSha256(prompt), promptBytes: Buffer.byteLength(prompt, 'utf8'),
+      id: task.id, key: task.key, split: task.split, kind: task.kind, group: task.group, caps,
+      runDir: runDirOf(root, iteration, task.id), argvShape: [config.recipeData.binary, ...abArgv(config.recipeData, null, caps.maxBudgetUsd === null ? '<usd>' : caps.maxBudgetUsd)],
+      promptSha256: promptSha256(prompt), promptBodySha256: promptSha256(buildAbPrompt(task, config.arms[arm].paragraph)), promptBytes: Buffer.byteLength(prompt, 'utf8'),
     };
   });
-  const max = config.maxTokensPerRun;
   const recorded = recordedTokens(root, config.model.label);
   return {
     arm, iteration, harness: config.recipeData.id, harnessBinary: config.recipeData.binary, harnessVersion: null,
     model: config.model.label, snapshot: null, homeSetup: config.arms[arm].homeSetup ? config.arms[arm].homeSetup.argv : null,
     credentialEnv: config.credentialEnv, maxBudgetUsd: budget, runs,
     projection: {
-      runs: runs.length, maxTokensPerRun: max, ceilingTokens: max === null ? null : runs.length * max,
+      runs: runs.length, maxTokensPerRun: max, ceilingTokens: runs.some((r: any) => r.caps.maxTokensPerRun === null) ? null : runs.reduce((n: number, r: any) => n + r.caps.maxTokensPerRun, 0),
       typicalTokens: recorded.length === 0 ? null : Math.round(runs.length * median(recorded)),
     },
   };
@@ -1328,6 +1361,7 @@ function prepareAbWorkspace({ task, repoRoot, parent, home }: { task: any; repoR
   try {
     const root = path.join(dir, 'workspace');
     fs.mkdirSync(root);
+    if (TIER2_KINDS.includes(task.kind)) return seedTier2Workspace({ task, root, dir, home, cleanup });
     if (task.kind === 'edit') {
       for (const [file, content] of Object.entries(task.files) as [string, any][]) {
         const target = path.join(root, file);
@@ -1349,6 +1383,41 @@ function prepareAbWorkspace({ task, repoRoot, parent, home }: { task: any; repoR
       const r = childProcess.spawnSync('git', args, { cwd: root, env, encoding: 'utf8' });
       if (r.status !== 0) throw new Error(`workspace git ${args.includes('commit') ? 'commit' : args[0]} failed: ${String(r.stderr).trim()}`);
     }
+    return { root: fs.realpathSync(root), dir, cleanup };
+  } catch (e) {
+    cleanup();
+    throw e;
+  }
+}
+
+/**
+ * A tier-2 workspace from its fixture: `git init -b main` (so the gate scope is the same in every run), one commit per
+ * `commits/NN-*` overlay with the author of its commit.json (the scratch HOME holds no git identity, so name and email are
+ * given by `-c` and by environment), then the `dirty/*` overlays left uncommitted and unstaged. The local git identity is set
+ * last so a commit the model makes does not fail differently per arm. `.git` stays through grading.
+ */
+function seedTier2Workspace({ task, root, dir, home, cleanup }: { task: any; root: string; dir: string; home: string; cleanup: () => void }) {
+  const held = WORKSPACE_FORBIDDEN.filter((name) => task.tier2.seedPaths.some((f: string) => f.split('/')[0] === name));
+  if (held.length) throw new Error(`the workspace of ${task.id} holds ${held.join(', ')}, which would show an arm project guidance`);
+  const base = { PATH: process.env.PATH || '/usr/bin:/bin', HOME: home, GIT_CONFIG_NOSYSTEM: '1' };
+  const run = (args: string[], env: any = {}) => {
+    const r = childProcess.spawnSync('git', args, { cwd: root, env: { ...base, ...env }, encoding: 'utf8' });
+    if (r.status !== 0) throw new Error(`workspace git ${args.find((a) => !a.startsWith('-') && !a.includes('=')) || args[0]} failed: ${String(r.stderr).trim()}`);
+  };
+  const overlay = (from: string) => { if (fs.existsSync(from)) fs.cpSync(from, root, { recursive: true }); };
+  try {
+    run(['init', '-q', '-b', 'main']);
+    task.tier2.commits.forEach((c: any, i: number) => {
+      overlay(c.filesDir);
+      const date = `2026-01-01T00:00:${String(i).padStart(2, '0')} +0000`;
+      const env = { GIT_AUTHOR_NAME: c.author.name, GIT_AUTHOR_EMAIL: c.author.email, GIT_COMMITTER_NAME: c.author.name, GIT_COMMITTER_EMAIL: c.author.email, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date };
+      run(['add', '-A'], env);
+      run(['-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', `user.name=${c.author.name}`, '-c', `user.email=${c.author.email}`, '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', c.message], env);
+    });
+    overlay(task.tier2.dirty.modified);
+    overlay(task.tier2.dirty.untracked);
+    run(['config', 'user.name', 'bench']);
+    run(['config', 'user.email', 'bench@localhost']);
     return { root: fs.realpathSync(root), dir, cleanup };
   } catch (e) {
     cleanup();
@@ -1477,21 +1546,30 @@ async function executeAbIteration(opts: any = {}) {
   let plan: any; let taskSet: any; let config: any; let cap: any; let max: any; let budget: number | null = null; let binary: any; let tools: any;
   let sourceAt: any; let iterDir: any; let runRoot: any; let present: string[] = []; let expected: any;
   let lock: any = null;
+  let ledger: number | null = null;
+  let taskCapsAll: any;
   try {
     config = opts.config;
     cap = parseCap(opts.cap);
     max = opts.maxTokensPerRun !== undefined && opts.maxTokensPerRun !== null ? opts.maxTokensPerRun : config.maxTokensPerRun;
     if (typeof max === 'string' && /^[1-9][0-9]*$/.test(max)) max = Number(max);
-    if (!Number.isSafeInteger(max) || max <= 0) {
-      throw new UsageError('max-tokens-missing', 'maxTokensPerRun is not set: the user approves the per-run cap at run time (config maxTokensPerRun, or --max-tokens-per-run <n>)');
-    }
+    if (!Number.isSafeInteger(max) || max <= 0) max = null; // tier 2 gives the caps per task; checked below once the tasks are known
     budget = parseBudget(opts.maxBudgetUsd ?? config.maxBudgetUsd);
-    if (budget === null) {
-      throw new UsageError('max-budget-missing', 'maxBudgetUsd is not set: the user approves the per-run dollar hard stop at run time (config maxBudgetUsd, or --max-budget-usd <usd>)');
-    }
     runRoot = opts.runRoot || defaultRunRoot(repoRoot);
     taskSet = opts.taskSet || loadAbTaskSet({ repoRoot, config });
-    plan = planAbIteration({ repoRoot, config, taskSet, arm: opts.arm, iteration: opts.iteration, tasks: opts.tasks, runRoot, maxBudgetUsd: budget });
+    plan = planAbIteration({ repoRoot, config, taskSet, arm: opts.arm, iteration: opts.iteration, tasks: opts.tasks, runRoot, maxBudgetUsd: budget, maxTokensPerRun: max });
+    if (plan.runs.some((r: any) => r.caps.maxTokensPerRun === null)) {
+      throw new UsageError('max-tokens-missing', 'maxTokensPerRun is not set: the user approves the per-run cap at run time (config maxTokensPerRun, or --max-tokens-per-run <n>)');
+    }
+    if (plan.runs.some((r: any) => r.caps.maxBudgetUsd === null)) {
+      throw new UsageError('max-budget-missing', 'maxBudgetUsd is not set: the user approves the per-run dollar hard stop at run time (config maxBudgetUsd, or --max-budget-usd <usd>)');
+    }
+    const ledgerRaw = opts.ledgerUsd ?? config.ledgerUsd ?? null;
+    ledger = ledgerRaw === null ? null : parseBudget(ledgerRaw);
+    if (ledgerRaw !== null && ledger === null) throw new UsageError('ledger-invalid', `--ledger-usd must be a positive number of US dollars, got ${JSON.stringify(ledgerRaw)}`);
+    // Per-task caps of every task of the set (not only the chosen ones), so a capture is the same whichever tasks one command runs.
+    const tier2Caps = taskSet.tasks.filter((t: any) => TIER2_KINDS.includes(t.kind)).map((t: any) => [t.id, abTaskCaps(t, config, max, budget)]);
+    taskCapsAll = tier2Caps.length ? Object.fromEntries(tier2Caps) : undefined;
     const status = git(repoRoot, ['status', '--porcelain']);
     if (status.status !== 0) throw new UsageError('git-status-failed', `cannot read the working tree state of ${repoRoot}: ${String(status.stderr).trim()}`);
     if (status.stdout.trim() !== '') throw new UsageError('tree-dirty', 'the working tree has uncommitted changes; commit or stash them before a measured run');
@@ -1499,8 +1577,9 @@ async function executeAbIteration(opts: any = {}) {
     if (head.status !== 0) throw new UsageError('git-head-failed', `cannot read HEAD of ${repoRoot}`);
     sourceAt = head.stdout.trim();
 
-    if (plan.runs.length * max > cap) {
-      throw new UsageError('over-cap', `ceiling ${plan.runs.length * max} tokens (${plan.runs.length} runs x ${max}) exceeds --cap ${cap}`);
+    if (plan.projection.ceilingTokens > cap) {
+      const uniform = new Set(plan.runs.map((r: any) => r.caps.maxTokensPerRun)).size === 1;
+      throw new UsageError('over-cap', `ceiling ${plan.projection.ceilingTokens} tokens (${uniform ? `${plan.runs.length} runs x ${plan.runs[0].caps.maxTokensPerRun}` : 'per-task caps'}) exceeds --cap ${cap}`);
     }
     present = config.credentialEnv.filter((n: string) => isNonEmptyString(env[n]));
     if (present.length === 0) throw new UsageError('credential-missing', `none of ${config.credentialEnv.join(', ')} is set in the environment; the credential enters only by environment variable`);
@@ -1517,7 +1596,7 @@ async function executeAbIteration(opts: any = {}) {
       if (known.status !== 0) throw new UsageError('review-rev-missing', `review task ${task.id}: revision ${task.review.rev} is not in ${repoRoot}`);
     }
     for (const task of taskSet.tasks.filter((t: any) => plan.runs.some((r: any) => r.id === t.id))) {
-      const bad = (task.kind === 'edit' ? Object.keys(task.files) : task.review.scope).find((f: string) => WORKSPACE_FORBIDDEN.includes(f.split('/')[0]));
+      const bad = (TIER2_KINDS.includes(task.kind) ? task.tier2.seedPaths : task.kind === 'edit' ? Object.keys(task.files) : task.review.scope).find((f: string) => WORKSPACE_FORBIDDEN.includes(f.split('/')[0]));
       if (bad) throw new UsageError('workspace-contaminated', `task ${task.id} would put ${bad} in the workspace, which would show an arm project guidance (${WORKSPACE_FORBIDDEN.join(', ')})`);
     }
     expected = expectedProof(repoRoot);
@@ -1532,7 +1611,7 @@ async function executeAbIteration(opts: any = {}) {
     const existing = plan.runs.filter((r: any) => fs.existsSync(r.runDir) || isLink(r.runDir)).map((r: any) => r.id);
     if (existing.length > 0) throw new UsageError('run-exists', `run directory already exists for: ${existing.join(', ')}`);
     const prior = readJsonIfPresent(path.join(iterDir, RUN_FILES.iteration));
-    if (prior && (prior.arm !== plan.arm || prior.model !== plan.model || prior.sourceAt !== sourceAt || prior.captureSha256 !== abCaptureSha256(config, { maxTokensPerRun: max, maxBudgetUsd: budget as number }) || prior.mode !== 'ab')) {
+    if (prior && (prior.arm !== plan.arm || prior.model !== plan.model || prior.sourceAt !== sourceAt || prior.captureSha256 !== abCaptureSha256(config, { maxTokensPerRun: max, maxBudgetUsd: budget, taskCaps: taskCapsAll }) || prior.mode !== 'ab')) {
       throw new UsageError('iteration-mismatch', `iteration "${plan.iteration}" already exists with a different arm, model, source, capture config or per-run cap (--max-tokens-per-run, --max-budget-usd)`);
     }
   } catch (e) {
@@ -1603,7 +1682,7 @@ async function executeAbIteration(opts: any = {}) {
     if (!fs.existsSync(iterationFile)) {
       writeJson(iterationFile, {
         mode: 'ab', arm: plan.arm, model: plan.model, sourceAt, snapshot: null, harness: plan.harness, harnessVersion,
-        captureSha256: abCaptureSha256(config, { maxTokensPerRun: max, maxBudgetUsd: budget as number }), maxTokensPerRun: max, maxBudgetUsd: budget, startedAt: now().toISOString(),
+        captureSha256: abCaptureSha256(config, { maxTokensPerRun: max, maxBudgetUsd: budget, taskCaps: taskCapsAll }), maxTokensPerRun: max, maxBudgetUsd: budget, ...(taskCapsAll ? { taskCaps: taskCapsAll } : {}), startedAt: now().toISOString(),
       });
     }
 
@@ -1612,14 +1691,23 @@ async function executeAbIteration(opts: any = {}) {
     const undone: string[] = [];
     const detail: any[] = [];
     let capExceeded = null;
+    let ledgerSpentUsd = 0;
+    let ledgerStopped: any = null;
+    const tokenCapOf = (id: string) => (tasksById.get(id) ? abTaskCaps(tasksById.get(id), config, max, budget).maxTokensPerRun : max) ?? 0;
     for (let i = 0; i < plan.runs.length; i++) {
-      if (spentOf(iterDir, max) + max > cap) {
+      if (spentOf(iterDir, tokenCapOf) + plan.runs[i].caps.maxTokensPerRun > cap) {
+        undone.push(...plan.runs.slice(i).map((r: any) => r.id));
+        break;
+      }
+      // The dollar ledger of this command: stop before a run that would start once the cost so far has reached it.
+      if (ledger !== null && ledgerSpentUsd >= ledger) {
+        ledgerStopped = { ledgerUsd: ledger, spentUsd: Number(ledgerSpentUsd.toFixed(4)), before: plan.runs[i].id };
         undone.push(...plan.runs.slice(i).map((r: any) => r.id));
         break;
       }
       const run = plan.runs[i];
       const task: any = tasksById.get(run.id);
-      const firstPrompt = buildAbPrompt(task, armCfg.paragraph);
+      let runCostUsd = 0;
       fs.mkdirSync(run.runDir);
       let profile: any = null;
       let workspace: any = null;
@@ -1646,7 +1734,8 @@ async function executeAbIteration(opts: any = {}) {
           toolProfile: { pathDirs: ['<profile>/bin'], tools, pathAdd: armCfg.pathAdd },
           credentialEnvPresent: present, snapshot: null, sourceAt, startedAt,
           homeSetup: homeSetup === null ? null : { ok: homeSetup.ok, exitCode: homeSetup.exitCode },
-          proofExpected: expected, workspaceRoot: workspace.root, profileRoot: profile.dir, maxTokensPerRun: max, maxBudgetUsd: budget,
+          proofExpected: expected, workspaceRoot: workspace.root, profileRoot: profile.dir, maxTokensPerRun: run.caps.maxTokensPerRun, maxBudgetUsd: run.caps.maxBudgetUsd,
+          ...(TIER2_KINDS.includes(task.kind) ? { taskDir: task.tier2.relDir, entryPrefix: armCfg.entryPrefix || '', promptBodySha256: run.promptBodySha256, timeoutSec: run.caps.timeoutSec, sessionBudgetUsd: run.caps.sessionBudgetUsd } : {}),
         });
         await new Promise((resolve) => setImmediate(resolve));
         if (state.interrupted) return halted();
@@ -1662,84 +1751,166 @@ async function executeAbIteration(opts: any = {}) {
 
         const childEnv = abEnv({ config, profile, env, extraEnv, credentials: true });
         const startedMs = now().getTime();
-        const deadline = startedMs + config.timeoutSeconds * 1000;
+        const caps = run.caps;
+        const runMax = caps.maxTokensPerRun;
+        const deadline = startedMs + caps.timeoutSec * 1000;
         state.run = { runDir: run.runDir, started: startedMs };
         const watch = makeTokenWatch();
-        const reports: any[] = [];
+        let watchTotal = 0;
         const segments: any[] = [];
+        const sessions: any[] = [];
+        const tier2 = TIER2_KINDS.includes(task.kind);
+        const continuity = task.kind === 'continuity';
+        const entryPrefix = armCfg.entryPrefix || '';
+        // Continuity: the seed content of every target file; the cut fires when two of them differ from it.
+        const targetNow = (f: string): Buffer | null => { try { return fs.readFileSync(path.join(workspace.root, f)); } catch { return null; } };
+        const seedTargets = continuity ? new Map<string, Buffer | null>(task.targetFiles.map((f: string) => [f, targetNow(f)])) : null;
+        const changedTargets = (): string[] => task.targetFiles.filter((f: string) => { const a = seedTargets!.get(f) ?? null; const b = targetNow(f); return !(a === null ? b === null : b !== null && a.equals(b)); });
+        const cut: any = continuity ? { fired: false, cutMs: null, changedAtCut: null, untouchedAtCut: null, changedAtEnd: null, targetFiles: task.targetFiles } : null;
         let capKilled = false;
         let modeKilled: string | null = null; // the init.permissionMode that differed from the recipe's, when the run was killed for it
-        let prompt = firstPrompt;
-        let resume: string | null = null;
-        let sessionId: string | null = null;
         let pauses = 0;
         let offers = 0;
         let blockedEnds = 0; // runs that ended saying permissions stopped them: neither a pause nor an offer
         let resumes = 0;
         let unanswered = false;
         let outcome: any = null;
-        for (let n = 1; ; n++) {
-          const file = n === 1 ? RUN_FILES.transcript : `transcript.${n}.jsonl`;
-          const parser = claudeStream.create();
-          let procRef: any = null;
-          outcome = await spawnHarness({
-            binary, argv: abArgv(recipe, resume, budget), cwd: workspace.root, env: childEnv, prompt, viaStdin: true,
-            timeoutMs: Math.max(1, deadline - now().getTime()), transcriptFile: path.join(run.runDir, file),
-            lastMessageFile: path.join(profile.dir, 'none'), parser, now, redact,
-            onSpawn: (proc) => { procRef = proc; state.proc = proc; },
-            onLine: (line) => {
-              const mode = modeOfInit(line);
-              if (mode !== null && mode !== recipe.expectedPermissionMode && modeKilled === null) {
-                modeKilled = mode; // precondition: tools are denied in any other mode, so stop before more is spent
-                if (procRef) processTree.escalate({ proc: procRef });
-              }
-              if (watch(line) > max && !capKilled) {
-                capKilled = true;
-                if (procRef) processTree.escalate({ proc: procRef });
-              }
-            },
-          });
-          state.proc = null;
-          if (state.interrupted) return halted();
-          const report = outcome.report;
-          const blocking = report.questions.askUserQuestion > 0 || report.closing === 'blocking';
-          reports.push(report);
-          sessionId = report.sessionId ?? sessionId;
-          const seg: any = {
-            n, file, exitCode: outcome.exitCode ?? null, signal: outcome.signal ?? null, durationMs: outcome.durationMs,
-            status: report.status, sessionId: report.sessionId, asked: blocking, offered: report.closing === 'offer', blocked: report.closing === 'blocked', replied: false,
-          };
-          segments.push(seg);
-          if (report.closing === 'offer' && !blocking) offers++;
-          if (report.closing === 'blocked') blockedEnds++;
-          if (outcome.timedOut || outcome.spawnError || outcome.signal || capKilled || modeKilled !== null || report.status !== 'success') break;
-          // Only a blocking question resumes the run; a closing offer ("Want me to ...?") is counted and left unanswered.
-          if (!blocking) break;
-          pauses++;
-          if (resumes >= config.resume.maxResumes || !sessionId) { unanswered = true; break; }
-          if (grading.aggregateReports(reports, config.resume.cumulative).totalTokens > max || deadline - now().getTime() <= 0) break;
-          seg.replied = true;
-          resumes++;
-          prompt = config.resume.reply;
-          resume = sessionId;
-        }
-        const totals = grading.aggregateReports(reports, config.resume.cumulative);
-        const over = totals.usage === 'reported' && totals.totalTokens > max;
-        const capped = capKilled || over;
-        const last = reports[reports.length - 1];
-        if (state.interrupted) return halted();
-        const status = abStatusOf({
-          ...outcome, report: last, timeoutSeconds: config.timeoutSeconds, capped: capped && modeKilled === null, modeKilled, expectedMode: recipe.expectedPermissionMode,
-          capEvidence: `cap: ${totals.usage === 'reported' ? totals.totalTokens : 'in-flight total'} tokens passed maxTokensPerRun ${max}`,
+        let stopRun = false; // timeout, spawn error, wrong mode, token cap: no further session
+        let skipped: string | null = null;
+        const costOf = (list: any[]): number | null => { const k = list.filter((s) => s.costUsd !== null); return k.length ? k.reduce((a, s) => a + s.costUsd, 0) : null; };
+        const sessionFigures = () => sessions.map((s) => {
+          const agg = grading.aggregateReports(s.reports, config.resume.cumulative);
+          // a session cut by the watcher has no result event: its stream-reported tokens stand in (cost is then unknown)
+          if (agg.usage === 'reported' || !continuity) return { n: s.n, source: 'result', usage: agg.usage, tokens: agg.totalTokens, costUsd: agg.costUsd };
+          const streamed = (s.streamEnd ?? watchTotal) - s.streamStart;
+          return { n: s.n, source: 'stream', usage: streamed > 0 ? 'reported' : 'unknown', tokens: streamed, costUsd: null };
         });
-        writeJson(path.join(run.runDir, RUN_FILES.runStatus), status);
+        const totalsOf = () => {
+          const figs = sessionFigures();
+          return {
+            usage: figs.every((f) => f.usage === 'reported') ? 'reported' : 'unknown',
+            totalTokens: figs.reduce((a, f) => a + f.tokens, 0), costUsd: costOf(figs), figs,
+          };
+        };
+        for (let sn = 1; sn <= (continuity ? 2 : 1) && !stopRun; sn++) {
+          const reports: any[] = [];
+          const session: any = { n: sn, reports, streamStart: watchTotal, streamEnd: null, segmentFiles: [], promptSha256: null, sessionId: null };
+          let sessionBudget: number | null = caps.maxBudgetUsd;
+          if (continuity) {
+            const per = caps.sessionBudgetUsd ?? caps.maxBudgetUsd;
+            const spentBefore = sn === 1 ? 0 : sessionFigures().reduce((a, f) => a + (f.costUsd ?? per), 0); // an unknown cost counts at the session's own cap
+            sessionBudget = Number(Math.min(per, caps.maxBudgetUsd - spentBefore).toFixed(4));
+            if (sessionBudget <= 0) { skipped = 'task-budget-spent'; break; }
+          }
+          if (deadline - now().getTime() <= 0) { skipped = 'timeout'; break; }
+          sessions.push(session);
+          let prompt = buildAbPrompt(task, armCfg.paragraph, entryPrefix, sn);
+          session.promptSha256 = promptSha256(prompt);
+          let resume: string | null = null;
+          let sessionId: string | null = null;
+          let sessionResumes = 0;
+          for (let n = 1; ; n++) {
+            const fileName = sn === 1 ? (n === 1 ? RUN_FILES.transcript : `transcript.${n}.jsonl`) : `transcript.s${sn}.${n}.jsonl`;
+            const parser = claudeStream.create();
+            let procRef: any = null;
+            let watcher: any = null;
+            const callStart = now().getTime();
+            outcome = await spawnHarness({
+              binary, argv: abArgv(recipe, resume, sessionBudget), cwd: workspace.root, env: childEnv, prompt, viaStdin: true,
+              timeoutMs: Math.max(1, deadline - now().getTime()), transcriptFile: path.join(run.runDir, fileName),
+              lastMessageFile: path.join(profile.dir, 'none'), parser, now, redact,
+              onSpawn: (proc) => {
+                procRef = proc; state.proc = proc;
+                if (continuity && sn === 1) {
+                  watcher = setInterval(() => {
+                    if (cut.fired) return;
+                    const changed = changedTargets();
+                    if (changed.length < 2) return;
+                    cut.fired = true; cut.cutMs = now().getTime() - callStart; cut.changedAtCut = changed; cut.untouchedAtCut = task.targetFiles.filter((f: string) => !changed.includes(f));
+                    processTree.escalate({ proc: procRef });
+                  }, opts.cutPollMs ?? 1000);
+                }
+              },
+              onLine: (line) => {
+                const mode = modeOfInit(line);
+                if (mode !== null && mode !== recipe.expectedPermissionMode && modeKilled === null) {
+                  modeKilled = mode; // precondition: tools are denied in any other mode, so stop before more is spent
+                  if (procRef) processTree.escalate({ proc: procRef });
+                }
+                watchTotal = watch(line);
+                if (watchTotal > runMax && !capKilled) {
+                  capKilled = true;
+                  if (procRef) processTree.escalate({ proc: procRef });
+                }
+              },
+            });
+            if (watcher) clearInterval(watcher);
+            if (continuity && sn === 1 && !cut.fired) cut.changedAtEnd = changedTargets();
+            state.proc = null;
+            if (state.interrupted) return halted();
+            const report = outcome.report;
+            const blocking = report.questions.askUserQuestion > 0 || report.closing === 'blocking';
+            reports.push(report);
+            sessionId = report.sessionId ?? sessionId;
+            session.sessionId = sessionId;
+            session.segmentFiles.push(fileName);
+            const seg: any = {
+              n: segments.length + 1, file: fileName, ...(tier2 ? { session: sn } : {}), exitCode: outcome.exitCode ?? null, signal: outcome.signal ?? null, durationMs: outcome.durationMs,
+              status: report.status, sessionId: report.sessionId, asked: blocking, offered: report.closing === 'offer', blocked: report.closing === 'blocked', replied: false,
+            };
+            segments.push(seg);
+            if (report.closing === 'offer' && !blocking) offers++;
+            if (report.closing === 'blocked') blockedEnds++;
+            if (outcome.timedOut || outcome.spawnError || modeKilled !== null || capKilled) stopRun = true;
+            if (outcome.timedOut || outcome.spawnError || outcome.signal || capKilled || modeKilled !== null || report.status !== 'success') break;
+            // Only a blocking question resumes the run; a closing offer ("Want me to ...?") is counted and left unanswered.
+            if (!blocking) break;
+            pauses++;
+            if (sessionResumes >= config.resume.maxResumes || !sessionId) { unanswered = true; break; }
+            if (totalsOf().totalTokens > runMax || deadline - now().getTime() <= 0) break;
+            seg.replied = true;
+            resumes++;
+            sessionResumes++;
+            prompt = config.resume.reply;
+            resume = sessionId;
+          }
+          session.streamEnd = watchTotal;
+          // session 2 follows session 1 unless the run is stopped, the tokens are spent, or session 1 failed for a reason other than its dollar stop
+          const last1 = reports[reports.length - 1];
+          if (continuity && sn === 1 && !cut.fired && !stopRun && last1.status !== 'success' && last1.reason !== 'error_max_budget_usd') stopRun = true;
+        }
+        const totals = totalsOf();
+        const over = totals.usage === 'reported' && totals.totalTokens > runMax;
+        const capped = capKilled || over;
+        const lastSession = sessions[sessions.length - 1];
+        const last = lastSession.reports[lastSession.reports.length - 1];
+        if (state.interrupted) return halted();
+        const status: any = abStatusOf({
+          ...outcome, report: last, timeoutSeconds: caps.timeoutSec, capped: capped && modeKilled === null, modeKilled, expectedMode: recipe.expectedPermissionMode,
+          capEvidence: `cap: ${totals.usage === 'reported' ? totals.totalTokens : 'in-flight total'} tokens passed maxTokensPerRun ${runMax}`,
+        });
+        // A tier-2 run stopped at its cap or timeout did not deliver; the grader scores that as a failed delivery.
+        const deliveryFailed = tier2 && (status.cap === true || status.status === 'timeout');
+        writeJson(path.join(run.runDir, RUN_FILES.runStatus), { ...status, ...(tier2 ? { deliveryFailed } : {}) });
         writeJson(path.join(run.runDir, SEGMENTS_FILE), { segments, pauses, offers, blocked: blockedEnds, resumes, unansweredPause: unanswered });
         if (last.finalText) fs.writeFileSync(path.join(run.runDir, RUN_FILES.lastMessage), last.finalText);
+        const figs = totals.figs;
         writeJson(path.join(run.runDir, RUN_FILES.timing), {
           ...(totals.usage === 'reported' ? { total_tokens: totals.totalTokens } : {}),
           duration_ms: now().getTime() - startedMs, usage: totals.usage, cost_usd: totals.costUsd, pauses, resumes, segments: segments.length,
+          ...(tier2 ? { sessions: figs.map((f) => ({ n: f.n, tokens: f.tokens, cost_usd: f.costUsd, source: f.source })), ...(figs.some((f) => f.costUsd === null) ? { cost_usd_lower_bound: true } : {}) } : {}),
         });
-        if (task.kind === 'edit') {
+        if (tier2) {
+          const texts = sessions.map((s) => s.segmentFiles.map((f: string) => readTextIfPresent(path.join(run.runDir, f))));
+          writeJson(path.join(run.runDir, PROCESS_FILE), tier2Extract.extractProcess(texts, { cumulative: config.resume.cumulative }));
+          writeJson(path.join(run.runDir, TIER2_FILE), {
+            kind: task.kind, taskDir: task.tier2.relDir, taskJson: path.posix.join(task.tier2.relDir, 'task.json'), entryPrefix,
+            caps, deliveryFailed, skippedSession: skipped,
+            sessions: sessions.map((s, i) => ({ n: s.n, sessionId: s.sessionId, promptSha256: s.promptSha256, promptBodySha256: promptSha256(buildAbPrompt(task, armCfg.paragraph, '', s.n)), segments: s.segmentFiles, tokens: figs[i].tokens, costUsd: figs[i].costUsd, source: figs[i].source })),
+            cut,
+          });
+          fs.cpSync(workspace.root, path.join(run.runDir, WORKSPACE_DIR), { recursive: true, filter: (src: string) => path.basename(src) !== 'node_modules' });
+        } else if (task.kind === 'edit') {
           fs.cpSync(workspace.root, path.join(run.runDir, WORKSPACE_DIR), {
             recursive: true, filter: (src: string) => !['.git', 'node_modules'].includes(path.basename(src)),
           });
@@ -1750,7 +1921,8 @@ async function executeAbIteration(opts: any = {}) {
           } catch { /* no review.json: the adapter counts that a miss */ }
         }
         ran.push(run.id);
-        detail.push({ id: run.id, status: status.status, tokens: totals.usage === 'reported' ? totals.totalTokens : null, pauses, resumes, capped });
+        runCostUsd = totals.costUsd ?? caps.maxBudgetUsd; // a run with no reported cost counts at its dollar cap
+        detail.push({ id: run.id, status: status.status, tokens: totals.usage === 'reported' ? totals.totalTokens : null, pauses, resumes, capped, ...(tier2 ? { deliveryFailed, costUsd: totals.costUsd, ...(continuity ? { cutFired: cut.fired } : {}) } : {}) });
       } catch (e) {
         failed = true;
         if (!spawned) removeTree(run.runDir);
@@ -1784,7 +1956,8 @@ async function executeAbIteration(opts: any = {}) {
           if (errors.length && !failed) throw errors[0]; // eslint-disable-line no-unsafe-finally
         }
       }
-      const spent = spentOf(iterDir, max);
+      ledgerSpentUsd += runCostUsd;
+      const spent = spentOf(iterDir, tokenCapOf);
       if (spent > cap) {
         capExceeded = { by: spent - cap, task: run.id };
         undone.push(...plan.runs.slice(i + 1).map((r: any) => r.id));
@@ -1792,7 +1965,10 @@ async function executeAbIteration(opts: any = {}) {
       }
     }
     const capHits = detail.filter((d: any) => d.capped).map((d: any) => d.id);
-    const result: any = { exit: undone.length > 0 || capExceeded ? 3 : 0, ran, undone, spent: spentOf(iterDir, max), detail, capHits, ...(capExceeded ? { capExceeded } : {}) };
+    const result: any = {
+      exit: undone.length > 0 || capExceeded ? 3 : 0, ran, undone, spent: spentOf(iterDir, tokenCapOf), detail, capHits, ...(capExceeded ? { capExceeded } : {}),
+      ...(ledger !== null ? { ledgerSpentUsd: Number(ledgerSpentUsd.toFixed(4)) } : {}), ...(ledgerStopped ? { ledgerStopped } : {}),
+    };
     finalResult = result;
     return result;
   } finally {
@@ -1811,7 +1987,7 @@ async function executeAbIteration(opts: any = {}) {
 }
 
 module.exports = {
-  CONFIG_PATH, RUN_FILES, SHIM_ENTRY, TOOL_TREE, SEGMENTS_FILE, HOME_SETUP_FILE, WORKSPACE_DIR,
+  CONFIG_PATH, RUN_FILES, SHIM_ENTRY, TOOL_TREE, SEGMENTS_FILE, HOME_SETUP_FILE, WORKSPACE_DIR, PROCESS_FILE, TIER2_FILE, abTaskCaps,
   loadAbConfig, abCaptureSha256, abArgv, parseBudget, expectedProof, makeTokenWatch, modeOfInit, abStatusOf, makeRedactor, redactTree,
   loadConfig, selectHarness, insertModelArgv, planIteration, executeIteration, prepareWorkspace,
   runDirOf, readIteration, captureSha256, usageOf, statusOf,

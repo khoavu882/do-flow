@@ -1,0 +1,1 @@
+{ "id": "seed-cont", "kind": "continuity", "prompt": "TASK-seed-cont: build the duration module in lib/duration.js, lib/long.js, bin/report.js and README.md.", "prompt2": "Continue the work that was started in this directory and finish it.", "targetFiles": ["lib/duration.js", "lib/long.js", "bin/report.js", "README.md"], "visibleCommand": "node --test", "items": [] }
