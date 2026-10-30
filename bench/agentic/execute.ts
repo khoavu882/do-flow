@@ -449,6 +449,68 @@ function removeTree(dir: string) {
   }
 }
 
+const sleepSync = (ms: number) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); };
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Pids of the processes that name `dir` or hold a file or a working directory under it. Exact path match
+ * on this one scratch directory (its random name is unique to the run), never a pattern over other
+ * processes: the command line must contain `dir` followed by a separator, the end, or a quote/space.
+ * The executor itself is never listed. `lsof` is best effort (absent on some systems).
+ */
+function processesUnder(dir: string): number[] {
+  const found = new Set<number>();
+  const named = new RegExp(`(^|[\\s='":])${escapeRegExp(dir)}(?![A-Za-z0-9_.-])`);
+  const ps = childProcess.spawnSync(['/bin/ps', '/usr/bin/ps'].find((p) => fs.existsSync(p)) || 'ps', ['-axww', '-o', 'pid=,command='], { encoding: 'utf8', timeout: 5000, env: { ...process.env, LC_ALL: 'C' } });
+  if (ps.status === 0) {
+    for (const row of String(ps.stdout).split('\n')) {
+      const m = /^\s*(\d+)\s+(.*)$/.exec(row);
+      if (m && named.test(m[2])) found.add(Number(m[1]));
+    }
+  }
+  const lsof = childProcess.spawnSync('lsof', ['-t', '+D', dir], { encoding: 'utf8', timeout: 8000 });
+  if (!lsof.error && lsof.status === 0) for (const line of String(lsof.stdout).split('\n')) if (/^\d+$/.test(line.trim())) found.add(Number(line.trim()));
+  found.delete(process.pid);
+  return [...found];
+}
+
+/** Ends the processes under `dir` (SIGTERM, then SIGKILL after a short grace). Returns how many were found. */
+function killProcessesUnder(dir: string): number {
+  const pids = processesUnder(dir);
+  const signalAll = (name: 'SIGTERM' | 'SIGKILL') => { for (const pid of pids) { try { process.kill(pid, name); } catch { /* already gone */ } } };
+  if (pids.length === 0) return 0;
+  signalAll('SIGTERM');
+  const alive = () => pids.filter((pid) => { try { process.kill(pid, 0); return true; } catch { return false; } });
+  for (let waited = 0; waited < 500 && alive().length > 0; waited += 50) sleepSync(50);
+  if (alive().length > 0) { signalAll('SIGKILL'); sleepSync(100); }
+  return pids.length;
+}
+
+/**
+ * Removes one run's scratch directory (profile or workspace) and never throws. A process the harness
+ * left behind (the DoFlow SessionEnd hook starts a detached `storage --action upkeep` that writes into the
+ * scratch HOME after the harness exited) is ended first, because it recreates files while the tree is
+ * removed. Rounds: end the processes under the directory, remove with retries, and look again; a directory
+ * that is back after the removal (a late writer) is removed once more. Returns the last error, or null.
+ */
+function removeScratch(dir: string) {
+  let error: any = null;
+  let ended = 0;
+  for (let round = 0; round < 3; round++) {
+    ended += killProcessesUnder(dir);
+    try {
+      fs.rmSync(dir, round === 0 ? { recursive: true, force: true, maxRetries: 5, retryDelay: 200 } : { recursive: true, force: true, maxRetries: 1, retryDelay: 100 });
+      error = null;
+    } catch (e) {
+      error = e;
+      continue;
+    }
+    if (ended > 0 && round === 0) sleepSync(300); // a writer just ended may have been mid-write: look again
+    if (!fs.existsSync(dir)) return null;
+  }
+  return error || (fs.existsSync(dir) ? new Error(`${dir} is back after removal (a process keeps writing into it)`) : null);
+}
+
 /**
  * The run's tool directory: one symlink per configured tool, named like the tool and pointing at the
  * path found on the caller's PATH (a symlinked tool keeps pointing at its own path, never at the real
@@ -1482,12 +1544,14 @@ async function executeAbIteration(opts: any = {}) {
   // Credential values only ever live in the environment of the worker; whatever it prints is cleaned before it is saved.
   const redact = makeRedactor(config.credentialEnv.map((n: string) => env[n]));
   const scratch = new Set<string>();
+  const cleanupFailures: { id: string; error: string; dirs?: string[] }[] = [];
+  let finalResult: any = null;
   const state: { proc: any; run: any; interrupted: any } = { proc: null, run: null, interrupted: null };
   const cleanupScratch = () => {
     const errors: any[] = [];
     for (const dir of scratch) {
-      const err = removeTree(dir);
-      if (err) errors.push(err);
+      const err = removeScratch(dir);
+      if (err) errors.push({ dir, error: err });
       else scratch.delete(dir);
     }
     return errors;
@@ -1525,7 +1589,7 @@ async function executeAbIteration(opts: any = {}) {
     const versionRun = childProcess.spawnSync(binary, recipe.versionArgv || ['--version'], {
       env: abEnv({ config, profile: versionProfile, env, extraEnv, credentials: false }), encoding: 'utf8', timeout: 15000,
     });
-    const versionErr = removeTree(versionProfile.dir);
+    const versionErr = removeScratch(versionProfile.dir);
     if (versionErr) throw versionErr;
     scratch.delete(versionProfile.dir);
     if (state.interrupted) return halted();
@@ -1696,11 +1760,26 @@ async function executeAbIteration(opts: any = {}) {
         if (!state.interrupted) {
           const errors = [];
           try { redactTree(run.runDir, redact); } catch (e) { errors.push(e); } // the copied workspace, review.json and the install tails too
+          // A scratch directory that cannot be removed never aborts the iteration and never costs a result already
+          // written: it is recorded on the run (run_status.json, timing.json), listed in the summary, and the next run goes on.
+          const cleanupErrors: string[] = [];
           for (const dir of [workspace?.dir, profile?.dir]) {
             if (!dir) continue;
-            const err = removeTree(dir);
-            if (err) errors.push(err);
+            const err: any = removeScratch(dir);
+            if (err) cleanupErrors.push(cutChars(`${path.basename(dir)}: ${err.message || err}`.replace(/\s+/g, ' ').trim(), 300));
             else scratch.delete(dir);
+          }
+          if (cleanupErrors.length) {
+            const cleanupError = cleanupErrors.join('; ');
+            cleanupFailures.push({ id: run.id, error: cleanupError, dirs: [workspace?.dir, profile?.dir].filter((d) => d && scratch.has(d)) as string[] });
+            for (const name of [RUN_FILES.runStatus, RUN_FILES.timing]) {
+              try {
+                const file = path.join(run.runDir, name);
+                writeJson(file, { ...(readJsonIfPresent(file) || {}), cleanupError });
+              } catch { /* the run record is missing: the summary still lists the failure */ }
+            }
+            const row = detail.find((d: any) => d.id === run.id);
+            if (row) row.cleanupError = cleanupError;
           }
           if (errors.length && !failed) throw errors[0]; // eslint-disable-line no-unsafe-finally
         }
@@ -1713,13 +1792,20 @@ async function executeAbIteration(opts: any = {}) {
       }
     }
     const capHits = detail.filter((d: any) => d.capped).map((d: any) => d.id);
-    return { exit: undone.length > 0 || capExceeded ? 3 : 0, ran, undone, spent: spentOf(iterDir, max), detail, capHits, ...(capExceeded ? { capExceeded } : {}) };
+    const result: any = { exit: undone.length > 0 || capExceeded ? 3 : 0, ran, undone, spent: spentOf(iterDir, max), detail, capHits, ...(capExceeded ? { capExceeded } : {}) };
+    finalResult = result;
+    return result;
   } finally {
     if (!state.interrupted) {
       for (const s of STOP_SIGNALS) process.removeListener(s, onSignal);
-      const errors = cleanupScratch();
+      // The scratch left after the loop (a version profile, the tool tree) is removed the same way; a failure is
+      // reported on the result, never thrown over the results already written.
+      for (const { dir, error } of cleanupScratch()) {
+        if (cleanupFailures.some((f) => f.dirs?.includes(dir))) continue; // already recorded on its run
+        cleanupFailures.push({ id: path.basename(dir), error: cutChars(String((error as any).message || error).replace(/\s+/g, ' '), 300) });
+      }
       lock.release();
-      if (errors.length) throw errors[0]; // eslint-disable-line no-unsafe-finally
+      if (finalResult && cleanupFailures.length) finalResult.cleanupErrors = cleanupFailures.map(({ id, error }) => ({ id, error }));
     }
   }
 }

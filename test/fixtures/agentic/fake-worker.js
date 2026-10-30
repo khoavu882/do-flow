@@ -350,6 +350,26 @@ function claudeMain(prompt) {
       return;
     }
   }
+  if (spec.lateWriterMs) {
+    // What the DoFlow SessionEnd hook does: a child in its own session (the executor's group kill does not reach it) that
+    // keeps writing into the harness HOME for a while after this process exited, with the HOME path on its command line.
+    const script = [
+      "const fs = require('fs'), path = require('path');",
+      'const home = process.argv[1]; const end = Date.now() + Number(process.argv[2]);',
+      '(function tick() {',
+      "  try { fs.mkdirSync(path.join(home, '.doflow', 'state', 'runs'), { recursive: true }); fs.appendFileSync(path.join(home, '.doflow', 'state', 'runs', 'late.jsonl'), '{}\\n'); } catch (e) { /* removed under it */ }",
+      '  if (Date.now() < end) setTimeout(tick, 10);',
+      '})();',
+    ].join('\n');
+    childProcess.spawn(process.execPath, ['-e', script, home, String(spec.lateWriterMs)], { detached: true, stdio: 'ignore' }).unref();
+  }
+  if (spec.lockedHome) {
+    // A directory the executor cannot empty (no write permission on it): removal fails for good.
+    fs.mkdirSync(path.join(home, 'locked'));
+    fs.writeFileSync(path.join(home, 'locked', 'x'), '1');
+    fs.chmodSync(path.join(home, 'locked'), 0o500);
+  }
+
   for (const [file, content] of spec.denyPermissions ? [] : Object.entries(spec.files || {})) {
     fs.mkdirSync(path.dirname(path.join(process.cwd(), file)), { recursive: true });
     fs.writeFileSync(path.join(process.cwd(), file), content);

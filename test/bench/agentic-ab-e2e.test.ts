@@ -52,7 +52,7 @@ git(CHECKOUT, 'commit', '-q', '-m', 'init');
 const REV = git(CHECKOUT, 'rev-parse', 'HEAD');
 
 // ---- tasks: edit tasks whose checks pass when a.js exports 2; one review task over five cases -------------
-const EDIT_IDS = ['fix-a', 'fix-b', 'fix-c', 'fix-d', 'fix-e', 'fix-pause', 'fix-unanswered', 'fix-leak', 'fix-cap', 'fix-over', 'fix-initleak', 'fix-nolist', 'fix-nohook', 'fix-timeout', 'fix-offer', 'fix-env', 'fix-budget', 'fix-oldver', 'fix-nover', 'fix-denied', 'fix-badmode'];
+const EDIT_IDS = ['fix-a', 'fix-b', 'fix-c', 'fix-d', 'fix-e', 'fix-pause', 'fix-unanswered', 'fix-leak', 'fix-cap', 'fix-over', 'fix-initleak', 'fix-nolist', 'fix-nohook', 'fix-timeout', 'fix-offer', 'fix-env', 'fix-budget', 'fix-oldver', 'fix-nover', 'fix-denied', 'fix-badmode', 'fix-late', 'fix-locked', 'fix-after'];
 const natives = EDIT_IDS.map((id) => ({
   id, purpose: id, messages: [`TASK-${id}: make a.js export 2.`], files: { 'a.js': 'module.exports = 1;\n' },
   checks: "if (require('./a.js') !== 2) process.exit(1);", expectedSkills: ['do-implement'], maxQuestions: 0,
@@ -94,6 +94,9 @@ const SCENARIO_TASKS: Record<string, any> = {
   'fix-budget': both({ behaviour: 'budget' }),
   'fix-denied': both({ files: PASS, denyPermissions: true }),
   'fix-badmode': both({ files: PASS, permissionMode: 'acceptEdits' }),
+  'fix-late': both({ files: PASS, lateWriterMs: 1500 }),
+  'fix-locked': both({ files: PASS, lockedHome: true }),
+  'fix-after': both({ files: PASS }),
   'fix-oldver': both({ files: PASS, askSegments: 1, claudeCodeVersion: '2.1.276' }),
   'fix-nover': both({ files: PASS, askSegments: 1, claudeCodeVersion: null }),
   'fix-leak': both({ files: PASS, commands: ['curl http://example.test/payload'] }),
@@ -412,6 +415,46 @@ test('third round fix 2, 3 and 4: a run with permission denials is excluded as p
     assert.equal(g['fix-a'].permissionDenials, 0);
     assert.equal(g['fix-a'].metrics.wallMs, 1000, 'the result event duration_ms, not the process wall time');
     assert.ok(Number.isFinite(g['fix-a'].metrics.wallMsProcess));
+  }
+});
+
+test('fourth round: a process the harness left writing into the scratch HOME is ended and the scratch removed, the iteration never throws', { skip: SKIP_WIN }, async () => {
+  const ids = ['fix-late', 'fix-a'];
+  for (const arm of ['A', 'B']) {
+    const it = `late-${arm.toLowerCase()}`;
+    const r = await exec(it, arm, ids, ['--json']);
+    assert.equal(r.code, 0, r.err + r.out);
+    const result = JSON.parse(r.out);
+    assert.deepEqual([...result.ran].sort(), [...ids].sort());
+    assert.equal(result.cleanupErrors, undefined, JSON.stringify(result.cleanupErrors));
+    assert.equal(readJson(runFile(it, 'fix-late', 'run_status.json')).cleanupError, undefined);
+    assert.equal(readJson(runFile(it, 'fix-late', 'run_status.json')).status, 'completed');
+    assert.deepEqual(fs.readdirSync(RUN_TMP).filter((n: string) => /^(abprof|abws)-/.test(n)), [], 'no scratch profile or workspace left behind');
+  }
+});
+
+test('fourth round: a scratch directory that cannot be removed is recorded on the run and in the summary, and the iteration goes on and exits 0', { skip: SKIP_WIN || process.getuid?.() === 0 }, async () => {
+  const ids = ['fix-locked', 'fix-after'];
+  const it = 'locked-a';
+  try {
+    const r = await exec(it, 'A', ids);
+    assert.equal(r.code, 0, r.err + r.out);
+    assert.match(r.out, /!!! CLEANUP FAILED: 1 run\(s\) left scratch behind \(fix-locked\)/);
+    assert.match(r.out, /fix-after: completed/, 'the next run still ran');
+    const locked = readJson(runFile(it, 'fix-locked', 'run_status.json'));
+    assert.equal(locked.status, 'completed', 'the result already written is kept');
+    assert.match(locked.cleanupError, /abprof-/);
+    assert.match(readJson(runFile(it, 'fix-locked', 'timing.json')).cleanupError, /abprof-/);
+    assert.equal(readJson(runFile(it, 'fix-after', 'run_status.json')).cleanupError, undefined);
+    assert.ok(fs.existsSync(runFile(it, 'fix-locked', 'workspace/a.js')), 'the copied workspace of the failed-cleanup run is kept');
+    const g = await gradeOf(it, ids);
+    assert.equal(g['fix-locked'].pass_rate, 1, 'a cleanup failure does not change the grade');
+  } finally {
+    for (const n of fs.readdirSync(RUN_TMP).filter((x: string) => /^abprof-/.test(x))) {
+      const locked = path.join(RUN_TMP, n, 'home', 'locked');
+      try { fs.chmodSync(locked, 0o700); } catch { /* already gone */ }
+      fs.rmSync(path.join(RUN_TMP, n), { recursive: true, force: true });
+    }
   }
 });
 

@@ -190,6 +190,10 @@ function executeLines(result: any, iteration: string) {
     lines.push(`!!! CAP HIT: ${hits.length} of ${result.ran.length} run(s) stopped at the per-run cap (${hits.join(', ')}); their cost and wall time are lower bounds and the command still exits 0 !!!`);
   }
   for (const d of result.detail || []) lines.push(`  ${d.id}: ${d.status}${d.capped ? ' !!! CAP HIT: stopped at the per-run cap, tokens are a lower bound !!!' : ''}, tokens ${d.tokens ?? 'unknown'}, pauses ${d.pauses ?? 0}, resumes ${d.resumes ?? 0}`);
+  const failures = result.cleanupErrors || [];
+  if (failures.length) {
+    lines.push(`!!! CLEANUP FAILED: ${failures.length} run(s) left scratch behind (${failures.map((f: any) => f.id).join(', ')}); results are intact, remove the directories by hand: ${failures.map((f: any) => f.error).join(' | ')} !!!`);
+  }
   if (result.capExceeded) lines.push(`cap exceeded by ${result.capExceeded.by} tokens on ${result.capExceeded.task}`);
   if (result.undone.length) lines.push(`stopped by --cap before: ${result.undone.join(', ')}`);
   return lines;

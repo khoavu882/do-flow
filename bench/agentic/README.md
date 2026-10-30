@@ -204,6 +204,16 @@ guards remain: `execute` kills a run at once when init reports another mode and 
 message that says permissions stopped the run is counted as `blocked`, neither a pause nor an offer
 (a wording heuristic, `closingKind`).
 
+**Scratch cleanup.** Arm B's install adds a SessionEnd hook that starts a detached
+`doflow-run storage --action upkeep` (`core/harnesses/shared/hooks/policies/lib.sh`, `storage_upkeep_async`:
+`nohup`, background, `cd` to the workspace). It outlives the harness, escapes the executor's group kill and
+writes `.doflow/state/runs/<date>.jsonl` into the scratch HOME while the tree is removed, so a plain recursive
+remove hit `ENOTEMPTY`. The executor now ends the processes that name a run's scratch directory (exact path
+match) or hold a file under it before removing it, removes with retries, and looks again. A directory that
+still cannot be removed never aborts the iteration or the results already written: the run's `run_status.json`
+and `timing.json` get `cleanupError`, the summary prints a `!!! CLEANUP FAILED` line, the next run goes on and
+`execute` exits 0.
+
 **Exclusion, never a score.** `grade` compares each run with the proof expected from the checkout
 (skills and agents under `core/shared/`). Arm A must show none of it in init; arm B must show P1
 installed, P2 skills and agents in init, P3 SessionStart fired. One classifier checks both arms for
