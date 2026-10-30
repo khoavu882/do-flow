@@ -161,7 +161,109 @@ function buildPrompt(task: any, paragraph: any) {
 
 const promptSha256 = (prompt: any) => sha256Hex(prompt);
 
+// ---------------------------------------------------------------------------------------------
+// With/without-DoFlow A/B task set (`config.mode === 'ab'`). Tasks are `edit` (a native case: seed
+// files in, hidden checks run on the final files outside the model's workspace) or `review` (a
+// review-miss revision exported with `git archive`, the answer a `review.json`). Nothing here changes
+// the retrieval task set above.
+// ---------------------------------------------------------------------------------------------
+
+const AB_KEY_PREFIX = 'ab/';
+const AB_KINDS = Object.freeze(['edit', 'review']);
+const AB_TASK_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+const REV_HEX = /^[0-9a-f]{40}$/;
+/** The answer the review prompt asks for; the same text for both arms, kept minimal on purpose. */
+const REVIEW_FILE = 'review.json';
+const REVIEW_ANSWER_RULE =
+  `Write your findings to ${REVIEW_FILE} in the current directory: a JSON array of objects `
+  + '{"path": "<repository-relative path>", "startLine": <number>, "endLine": <number>, '
+  + '"severity": "blocker" | "should-fix" | "note", "title": "<short description>"}. '
+  + 'Report only real defects; an empty array means you found none.';
+
+const isStr = (v: any) => typeof v === 'string' && v.trim() !== '';
+
+/** Key digest over everything that decides what the task asks and how it is graded (edit: text, seed files, checks; review: revision, scope, focus, cases). */
+function abCaseKey(task: any) {
+  const body = task.kind === 'edit'
+    ? { text: task.text, files: task.files, checks: task.checks }
+    : { rev: task.review.rev, scope: task.review.scope, focus: task.review.focus, caseIds: task.review.caseIds };
+  return `${AB_KEY_PREFIX}${task.id}@${sha256Hex(JSON.stringify(body)).slice(0, 8)}`;
+}
+
+/**
+ * Loads the A/B task list. `config.tasksFile` and `config.nativeCases` are repo-relative; the injectable
+ * paths are for tests. Refuses (UsageError) a malformed task, an unknown native case, a duplicate id, or
+ * a native case that is not one message with files and checks.
+ * @returns {{mode: 'ab', tasks: object[], train: object[], heldout: object[], snapshot: {commit: null}, templateSha256: string}}
+ */
+function loadAbTaskSet({ repoRoot = REPO_ROOT, config, tasksPath, nativePath }: any = {}) {
+  const tasksFile = tasksPath || path.join(repoRoot, config?.tasksFile || 'bench/agentic/ab/tasks.json');
+  const nativeFile = nativePath || path.join(repoRoot, config?.nativeCases || 'bench/native/cases.json');
+  const cfg = readJson(tasksFile, 'tasks-file', 'A/B tasks file');
+  if (cfg.schemaVersion !== 1 || !Array.isArray(cfg.tasks) || cfg.tasks.length === 0) {
+    throw new UsageError('tasks-file', `${tasksFile} must be schemaVersion 1 with a non-empty tasks array`);
+  }
+  const native = readJson(nativeFile, 'native-file', 'native cases file');
+  const seen = new Set();
+  const tasks = cfg.tasks.map((raw: any) => {
+    if (!raw || typeof raw !== 'object' || !isStr(raw.id) || !AB_TASK_ID.test(raw.id)) throw new UsageError('tasks-file', 'every A/B task needs a safe string id');
+    if (seen.has(raw.id)) throw new UsageError('duplicate-id', `task id ${raw.id} appears more than once`);
+    seen.add(raw.id);
+    if (!AB_KINDS.includes(raw.kind)) throw new UsageError('task-kind', `task ${raw.id} kind must be one of ${AB_KINDS.join(', ')}, got ${JSON.stringify(raw.kind)}`);
+    if (!isStr(raw.name)) throw new UsageError('tasks-file', `task ${raw.id} needs a name`);
+    const task: any = { id: raw.id, name: raw.name, kind: raw.kind, split: 'train', group: raw.kind === 'review' ? 'review' : 'success' };
+    if (raw.kind === 'edit') {
+      const item = (native.cases || []).find((c: any) => c.id === raw.nativeCase);
+      if (!item) throw new UsageError('native-case-unknown', `task ${raw.id} names native case "${raw.nativeCase}", which ${nativeFile} does not define`);
+      if (!Array.isArray(item.messages) || item.messages.length !== 1 || !isStr(item.messages[0])) {
+        throw new UsageError('native-case-shape', `native case ${raw.nativeCase} must have exactly one message (the A/B runs one prompt)`);
+      }
+      if (!isStr(item.checks) || !item.files || typeof item.files !== 'object') {
+        throw new UsageError('native-case-shape', `native case ${raw.nativeCase} needs files and checks`);
+      }
+      Object.assign(task, {
+        nativeCase: raw.nativeCase, text: item.messages[0], files: item.files, checks: item.checks,
+        expectedSkills: Array.isArray(item.expectedSkills) ? item.expectedSkills : [],
+        maxQuestions: Number.isInteger(item.maxQuestions) ? item.maxQuestions : 0,
+      });
+    } else {
+      const r = raw.review;
+      if (!r || !REV_HEX.test(String(r.rev)) || !Array.isArray(r.scope) || r.scope.length === 0 || !r.scope.every(isStr)
+        || !Array.isArray(r.focus) || r.focus.length === 0 || !r.focus.every(isStr)
+        || !Array.isArray(r.caseIds) || r.caseIds.length === 0 || !r.caseIds.every(isStr)) {
+        throw new UsageError('review-shape', `review task ${raw.id} needs review.rev (40 hex), scope, focus and caseIds lists`);
+      }
+      task.review = { rev: r.rev, scope: r.scope.slice(), focus: r.focus.slice(), caseIds: r.caseIds.slice() };
+      task.expectedSkills = Array.isArray(raw.expectedSkills) ? raw.expectedSkills : [];
+      task.maxQuestions = 0;
+    }
+    task.key = abCaseKey(task);
+    return task;
+  });
+  return {
+    mode: 'ab', tasks, train: tasks, heldout: [], snapshot: { commit: null },
+    templateSha256: sha256Hex(JSON.stringify(AB_KINDS) + REVIEW_ANSWER_RULE),
+  };
+}
+
+/** The text of an A/B prompt before the shared paragraph: the native message, or the review request. */
+function abTaskText(task: any) {
+  if (task.kind === 'edit') return task.text;
+  const focus = task.review.focus.join(' and ');
+  return [
+    `You are working in a code repository at the current directory. Review ${focus}; the other files are context only. Do not edit any source file.`,
+    REVIEW_ANSWER_RULE,
+  ].join('\n\n');
+}
+
+/** The one prompt both arms get: the task text, then the shared paragraph (identical in every arm). */
+function buildAbPrompt(task: any, paragraph: any) {
+  if (typeof paragraph !== 'string' || paragraph.trim() === '') throw new TypeError('buildAbPrompt: paragraph must be a non-empty string');
+  return [abTaskText(task), paragraph].join('\n\n');
+}
+
 module.exports = {
   KEY_PREFIX, TEMPLATE_PREAMBLE, ANSWER_RULE, PROMPT_TEMPLATE_SHA256,
-  UsageError, caseKey, loadTaskSet, buildPrompt, promptSha256,
+  AB_KEY_PREFIX, AB_KINDS, REVIEW_FILE, REVIEW_ANSWER_RULE,
+  UsageError, caseKey, loadTaskSet, buildPrompt, promptSha256, loadAbTaskSet, buildAbPrompt, abTaskText,
 };
