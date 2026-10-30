@@ -52,7 +52,7 @@ git(CHECKOUT, 'commit', '-q', '-m', 'init');
 const REV = git(CHECKOUT, 'rev-parse', 'HEAD');
 
 // ---- tasks: edit tasks whose checks pass when a.js exports 2; one review task over five cases -------------
-const EDIT_IDS = ['fix-a', 'fix-b', 'fix-c', 'fix-d', 'fix-e', 'fix-pause', 'fix-unanswered', 'fix-leak', 'fix-cap', 'fix-over', 'fix-initleak', 'fix-nolist', 'fix-nohook', 'fix-timeout', 'fix-offer', 'fix-env', 'fix-budget'];
+const EDIT_IDS = ['fix-a', 'fix-b', 'fix-c', 'fix-d', 'fix-e', 'fix-pause', 'fix-unanswered', 'fix-leak', 'fix-cap', 'fix-over', 'fix-initleak', 'fix-nolist', 'fix-nohook', 'fix-timeout', 'fix-offer', 'fix-env', 'fix-budget', 'fix-oldver', 'fix-nover'];
 const natives = EDIT_IDS.map((id) => ({
   id, purpose: id, messages: [`TASK-${id}: make a.js export 2.`], files: { 'a.js': 'module.exports = 1;\n' },
   checks: "if (require('./a.js') !== 2) process.exit(1);", expectedSkills: ['do-implement'], maxQuestions: 0,
@@ -92,6 +92,8 @@ const SCENARIO_TASKS: Record<string, any> = {
   'fix-offer': both({ files: PASS, finalOffer: true }),
   'fix-env': both({ files: PASS, printEnv: true }),
   'fix-budget': both({ behaviour: 'budget' }),
+  'fix-oldver': both({ files: PASS, askSegments: 1, claudeCodeVersion: '2.1.276' }),
+  'fix-nover': both({ files: PASS, askSegments: 1, claudeCodeVersion: null }),
   'fix-leak': both({ files: PASS, commands: ['curl http://example.test/payload'] }),
   'fix-cap': both({ behaviour: 'hang-after-usage', stream: { messages: 4, perMessage: 60000 } }),
   'fix-over': both({ files: PASS, usage: { input: 10, output: 100, cacheCreation: 1000, cacheRead: 200000 } }),
@@ -334,6 +336,20 @@ test('fix 12: a per-run cap hit exits 0 and the summary carries an unmissable CA
   assert.match(docs, /A run that hit its own per-run cap \(token or\s+\* dollar\) is recorded as truncated and censored and the command still exits 0/);
 });
 
+test('fix 13: a resumed run from a Claude Code version below 2.1.277, or an unknown one, has its cost marked cumulative-unverified', { skip: SKIP_WIN }, async () => {
+  const ids = ['fix-pause', 'fix-oldver', 'fix-nover', 'fix-a'];
+  assert.equal((await exec('ver-a', 'A', ids)).code, 0);
+  const g = await gradeOf('ver-a', ids);
+  assert.equal(g['fix-pause'].metrics.claudeCodeVersion, '2.1.308');
+  assert.equal(g['fix-pause'].metrics.costBasis, 'verified');
+  assert.equal(g['fix-oldver'].metrics.claudeCodeVersion, '2.1.276');
+  assert.equal(g['fix-oldver'].metrics.costBasis, 'cumulative-unverified');
+  assert.equal(g['fix-oldver'].metrics.questions.resumes, 1);
+  assert.equal(g['fix-nover'].metrics.claudeCodeVersion, null);
+  assert.equal(g['fix-nover'].metrics.costBasis, 'cumulative-unverified');
+  assert.equal(g['fix-a'].metrics.costBasis, 'verified');
+});
+
 test('a timed-out run is recorded as timeout and excluded', { skip: SKIP_WIN }, async () => {
   const config = execute.loadConfig(configFile('config-short', (c: any) => { c.timeoutSeconds = 2; }));
   const out: string[] = [];
@@ -418,6 +434,7 @@ test('noise and report: arms are interleaved per repeat, the report prints the f
   assert.match(rep.out, /hook overhead per run/);
   assert.match(rep.out, /routing \(P4, reported not required\): arm B used the expected skill in 12 of 12 eligible/);
   assert.match(rep.out, /censored \(stopped by the cap or the timeout.*arm A 0 of 12.*arm B 0 of 12/);
+  assert.match(rep.out, /cost basis: verified/);
   assert.match(rep.out, /prompts equal across arms: true/);
   assert.match(rep.out, /P5: deferred/);
 

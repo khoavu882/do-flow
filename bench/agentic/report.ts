@@ -31,7 +31,7 @@ const { mean, median, bootstrapCI, streamSeed } = require('../retrieval/lib/stat
 const { UsageError, REVIEW_FILE } = require('./tasks.ts');
 const { adaptIteration } = require('./review-adapter.ts');
 const { RUN_FILES, readIteration } = require('./execute.ts');
-const { gradeRun, serializeGrading, checkLaunch, loadPathInfo, gradeAbRun, serializeAbGrading } = require('./grade.ts');
+const { gradeRun, serializeGrading, checkLaunch, loadPathInfo, gradeAbRun, serializeAbGrading, CUMULATIVE_USAGE_FROM } = require('./grade.ts');
 
 /** The arm whose repeats make the band, and the arm a decision measures against it. */
 const BASELINE_ARM = 'N';
@@ -399,7 +399,7 @@ const readLaunchRoot = (runDir: string) => readJsonOrNull(path.join(runDir, RUN_
  * differs marks the run `differing`. Review tasks are scored through the adapter; the stored adapter
  * grade (`<reviewRoot>/ab-<iteration>/grade.json`) is checked the same way. An excluded task's cases
  * carry the exclusion in the repeat (the adapter has no `source-unverified` status).
- * @returns {{repeats: {success: object, review: object | null}, gradings: Record<string, object>, differing: string[], stale: string[], censored: string[], reviewFindings: {runs: number, produced: number, unmatched: number}}}
+ * @returns {{repeats: {success: object, review: object | null}, gradings: Record<string, object>, differing: string[], stale: string[], censored: string[], unverified: string[], reviewFindings: {runs: number, produced: number, unmatched: number}}}
  */
 function regradeAbRepeat({ iteration, taskSet, config, verb, reviewRoot, corpus, reviewConfig }: any) {
   const gradings: Record<string, any> = {};
@@ -461,7 +461,9 @@ function regradeAbRepeat({ iteration, taskSet, config, verb, reviewRoot, corpus,
     review = { ...base, runs };
   }
   const censored = Object.entries(gradings).filter(([, g]: [string, any]) => g.censored !== null && g.censored !== undefined).map(([id]) => `${iteration.name}/${id}`);
-  return { repeats: { success: { ...base, runs: successRuns }, review }, gradings, differing, stale, censored, reviewFindings };
+  // A resumed run whose harness version is unknown or below 2.1.277: its cumulative usage and cost are unverified.
+  const unverified = Object.entries(gradings).filter(([, g]: [string, any]) => g.metrics.costBasis !== 'verified' && (g.metrics.questions?.resumes ?? 0) > 0).map(([id]) => `${iteration.name}/${id}`);
+  return { repeats: { success: { ...base, runs: successRuns }, review }, gradings, differing, stale, censored, unverified, reviewFindings };
 }
 
 /** The expected case set of one quality metric (what the noise artifact and the baseline file must hold). */
@@ -564,15 +566,19 @@ function taskMeans(gradingsByRepeat: Record<string, any>[], taskSet: any, pick: 
 
 /** Cost and wall verdicts are withheld when any run of either arm is censored: the means are lower bounds. */
 const CENSORED_VERDICT = 'censored-lower-bound';
+/** Token and dollar verdicts are refused when a resumed run's harness version does not document cumulative usage (2.1.277 and later). */
+const UNVERIFIED_VERDICT = 'cumulative-unverified';
+const CUMULATIVE_METRICS = Object.freeze(['totalTokens', 'costUsd']);
 
 /**
  * Part 2 relative-change figures per cost metric. `censored` = { A: string[], B: string[] } (run keys stopped by
  * the cap or the timeout); `runs` = { A, B } run counts. With any censored key on either side the verdict is
  * `censored-lower-bound` with the counts per arm, never a gain or regression word.
  */
-function abCostOf({ A, B, taskSet, noiseValid, noiseFile, costNoise, noiseConfig, infraShare, censored, runs }: any) {
+function abCostOf({ A, B, taskSet, noiseValid, noiseFile, costNoise, noiseConfig, infraShare, censored, runs, unverified = { A: [], B: [] } }: any) {
   const cost: Record<string, any> = {};
   const anyCensored = censored.A.length + censored.B.length > 0;
+  const anyUnverified = unverified.A.length + unverified.B.length > 0;
   for (const metric of AB_COST_METRICS) {
     const a = taskMeans(A, taskSet, metric.pick, metric.id);
     const b = taskMeans(B, taskSet, metric.pick, metric.id);
@@ -590,7 +596,9 @@ function abCostOf({ A, B, taskSet, noiseValid, noiseFile, costNoise, noiseConfig
     cost[metric.id] = {
       label: metric.label, n: gains.length, gain, ci95, noise: band, band: band === null ? null : Math.max(band, noiseConfig.mde),
       ratio: sumA > 0 ? sumB / sumA : null, perTask: Object.fromEntries(taskSet.tasks.map((t: any) => [t.id, { A: a[t.id], B: b[t.id] }])), ...rule,
-      ...(anyCensored ? { verdict: CENSORED_VERDICT, reason: `A ${censored.A.length} of ${runs.A} run(s), B ${censored.B.length} of ${runs.B} run(s) stopped by the cap or the timeout; the figures are lower bounds`, censored: { A: censored.A.length, B: censored.B.length } } : {}),
+      ...(anyUnverified && CUMULATIVE_METRICS.includes(metric.id)
+        ? { verdict: UNVERIFIED_VERDICT, reason: `A ${unverified.A.length}, B ${unverified.B.length} resumed run(s) come from a Claude Code version that is unknown or below ${CUMULATIVE_USAGE_FROM}, so their resumed usage and cost are not verified as running totals`, unverified: { A: unverified.A.length, B: unverified.B.length } }
+        : anyCensored ? { verdict: CENSORED_VERDICT, reason: `A ${censored.A.length} of ${runs.A} run(s), B ${censored.B.length} of ${runs.B} run(s) stopped by the cap or the timeout; the figures are lower bounds`, censored: { A: censored.A.length, B: censored.B.length } } : {}),
     };
   }
   return cost;
@@ -674,9 +682,10 @@ function abReportOf({ runRoot, iterations, taskSet, config, noiseConfig, noisePa
   const infraShare = { baseline: exclusionTally(A).share, candidate: exclusionTally(B).share };
   const sumFindings = (set: any[]) => set.reduce((t: any, g: any) => ({ runs: t.runs + g.reviewFindings.runs, produced: t.produced + g.reviewFindings.produced, unmatched: t.unmatched + g.reviewFindings.unmatched }), { runs: 0, produced: 0, unmatched: 0 });
   const censored = { A: baseline.flatMap((g: any) => g.censored), B: candidate.flatMap((g: any) => g.censored) };
+  const unverified = { A: baseline.flatMap((g: any) => g.unverified), B: candidate.flatMap((g: any) => g.unverified) };
   const runCount = (set: Record<string, any>[]) => set.reduce((n, byTask) => n + Object.keys(byTask).length, 0);
   const cost = abCostOf({
-    A, B, taskSet, noiseValid, noiseFile, costNoise: noiseValid ? noise.cost : {}, noiseConfig, infraShare, censored, runs: { A: runCount(A), B: runCount(B) },
+    A, B, taskSet, noiseValid, noiseFile, costNoise: noiseValid ? noise.cost : {}, noiseConfig, infraShare, censored, runs: { A: runCount(A), B: runCount(B) }, unverified,
   });
 
   // Part 4: validity
@@ -743,7 +752,7 @@ function abReportOf({ runRoot, iterations, taskSet, config, noiseConfig, noisePa
   const noiseVerdicts = Object.fromEntries(metrics.map((m) => [m, noiseValid ? noise.metrics[m].verdict : null]));
   return {
     exit: 0, roles: config.roles, metrics, decisions, candidateMeans, noiseVerdicts, baselineMeans: Object.fromEntries(metrics.map((m) => [m, noiseValid ? noise.metrics[m].scopes.corpus.repeatMeans : []])),
-    reviewFindings: { A: sumFindings(baseline), B: sumFindings(candidate) }, cost, tasksCost, fixed, validity, graderRerun, censored: { A: censored.A, B: censored.B, runs: { A: runCount(A), B: runCount(B) } }, noiseFile, thresholds: { mde: noiseConfig.mde, maxInfraShare: noiseConfig.maxInfraShare },
+    reviewFindings: { A: sumFindings(baseline), B: sumFindings(candidate) }, cost, tasksCost, fixed, validity, graderRerun, censored: { A: censored.A, B: censored.B, runs: { A: runCount(A), B: runCount(B) } }, unverified, noiseFile, thresholds: { mde: noiseConfig.mde, maxInfraShare: noiseConfig.maxInfraShare },
   };
 }
 
@@ -801,6 +810,7 @@ function abReportLines(r: any) {
     lines.push(`  cap sensitivity: ${v.capped.runs} run(s) stopped at the cap${v.capped.runs ? ` (${v.capped.ids.join(', ')})` : ''}; success mean with those scored 0: ${num(v.successIfCappedScored0)}`);
   }
   lines.push(`censored (stopped by the cap or the timeout; kept in cost and wall at a lower bound, out of the quality scores): arm ${a} ${r.censored.A.length} of ${r.censored.runs.A}${r.censored.A.length ? ` (${r.censored.A.join(', ')})` : ''}; arm ${b} ${r.censored.B.length} of ${r.censored.runs.B}${r.censored.B.length ? ` (${r.censored.B.join(', ')})` : ''}`);
+  lines.push(`cost basis: ${r.unverified.A.length + r.unverified.B.length === 0 ? 'verified (every resumed run is from Claude Code 2.1.277 or later, or nothing was resumed)' : `cumulative-unverified for arm ${a} ${r.unverified.A.length} (${r.unverified.A.join(', ') || 'none'}), arm ${b} ${r.unverified.B.length} (${r.unverified.B.join(', ') || 'none'}) resumed run(s); total tokens and cost USD get no verdict word`}`);
   lines.push(`routing (P4, reported not required): arm ${b} used the expected skill in ${r.validity.routing.routed} of ${r.validity.routing.eligible} eligible run(s)`);
   lines.push(`prompts equal across arms: ${r.validity.promptShaEqual}; P5: ${r.validity.p5}`);
   lines.push(`noise artifact: ${r.noiseFile ? r.noiseFile.path : 'none'}`);

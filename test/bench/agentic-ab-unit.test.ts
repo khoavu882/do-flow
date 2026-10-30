@@ -475,6 +475,33 @@ test('fix 6: closing offers and blocking questions are told apart; only a blocki
   assert.equal(CONFIG.resume.reply, 'No further input is available. If the task as stated is complete, stop. Otherwise continue with the task as stated and change nothing outside it.');
 });
 
+test('fix 13: versionAtLeast and the cost basis of a harness version; unverified resumed runs get no token or cost verdict word', () => {
+  const grade = require('../../bench/agentic/grade.ts');
+  assert.equal(grade.CUMULATIVE_USAGE_FROM, '2.1.277');
+  for (const [v, ok] of [['2.1.277', true], ['2.1.308', true], ['2.2.0', true], ['3.0.0', true], ['2.1.276', false], ['2.0.999', false], ['1.9.9', false], [null, false], ['next', false]] as [any, boolean][]) {
+    assert.equal(grade.versionAtLeast(v, '2.1.277'), ok, String(v));
+  }
+  const rep = (version: string | null) => ({ init: version === null ? null : { claudeCodeVersion: version }, wholeTree: null, usage: { input: 1, output: 1, cacheCreation: 0, cacheRead: 0 }, totalCostUsd: 0.1, numTurns: 1, toolCalls: [], toolCounts: {}, subagentCalls: [], questions: { askUserQuestion: 0 } });
+  assert.equal(grade.aggregateReports([rep('2.1.308'), rep('2.1.308')], true).costBasis, 'verified');
+  assert.equal(grade.aggregateReports([rep('2.1.100'), rep('2.1.100')], true).costBasis, 'cumulative-unverified');
+  assert.equal(grade.aggregateReports([rep(null)], true).costBasis, 'cumulative-unverified');
+  assert.equal(grade.aggregateReports([rep('2.1.100')], true).claudeCodeVersion, '2.1.100');
+
+  const ids = ['t1', 't2', 't3', 't4'];
+  const A = ids.map((id) => synth(id));
+  const B = ids.map((id) => synth(id, { metrics: { tokens: { total: 500 }, costUsd: 0.05, wallMs: 5000, toolCalls: 2 } }));
+  const base = { noiseValid: true, noiseFile: { path: 'x' }, costNoise: { totalTokens: 0, costUsd: 0, wallSeconds: 0, toolCalls: 0 }, noiseConfig: { seed: 96, mde: 0.05, maxInfraShare: 0.1 }, infraShare: { baseline: 0, candidate: 0 }, taskSet: COST_TASKS, censored: { A: [], B: [] }, runs: { A: 4, B: 4 } };
+  const byTask = (xs: any[]) => [Object.fromEntries(xs.map((g) => [g.id, g]))];
+  const clean = reportLib.abCostOf({ ...base, A: byTask(A), B: byTask(B), unverified: { A: [], B: [] } });
+  assert.equal(clean.totalTokens.verdict, 'gain-above-noise');
+  const cost = reportLib.abCostOf({ ...base, A: byTask(A), B: byTask(B), unverified: { A: [], B: ['b-r1/t2'] } });
+  assert.equal(cost.totalTokens.verdict, 'cumulative-unverified');
+  assert.equal(cost.costUsd.verdict, 'cumulative-unverified');
+  assert.match(cost.totalTokens.reason, /A 0, B 1 resumed run\(s\).*below 2\.1\.277/);
+  assert.equal(cost.wallSeconds.verdict, 'gain-above-noise', 'wall time does not depend on how a resume reports usage');
+  assert.equal(cost.toolCalls.verdict, 'gain-above-noise');
+});
+
 test('fix 7: the adapter counts the findings a review produced and those that matched no known case', () => {
   const f = (path_: string, line: number, severity = 'should-fix') => ({ path: path_, startLine: line, endLine: line, severity, title: 'x' });
   const run = adaptWith(JSON.stringify([f('src/a.ts', 10), f('src/a.ts', 400), f('src/b.ts', 10), { path: 'src/a.ts' }]));

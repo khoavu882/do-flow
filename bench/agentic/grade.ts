@@ -579,6 +579,20 @@ const readJsonFile = (file: string) => {
 const addTok = (a: any, b: any) => Object.fromEntries(TOKEN_KEYS.map((k) => [k, (a?.[k] ?? 0) + (b?.[k] ?? 0)]));
 const sumTok = (t: any) => (t ? TOKEN_KEYS.reduce((n, k) => n + (t[k] ?? 0), 0) : 0);
 
+/** The first Claude Code release whose resumed-session usage and cost are documented as running totals (review item 13). */
+const CUMULATIVE_USAGE_FROM = '2.1.277';
+const versionParts = (v: string) => /^(\d+)\.(\d+)\.(\d+)/.exec(v)?.slice(1).map(Number) ?? null;
+/** True when `version` is a release at or above `floor`; an unknown or unparsable version is not. */
+function versionAtLeast(version: string | null, floor: string) {
+  const v = version === null ? null : versionParts(version);
+  const f = versionParts(floor)!;
+  if (v === null) return false;
+  for (let i = 0; i < 3; i++) if (v[i] !== f[i]) return v[i] > f[i];
+  return true;
+}
+/** `verified` when the harness version is known to report a resumed run's usage and cost cumulatively, else `cumulative-unverified`. */
+const costBasisOf = (version: string | null) => (versionAtLeast(version, CUMULATIVE_USAGE_FROM) ? 'verified' : 'cumulative-unverified');
+
 /**
  * One run's reports (a first segment plus any `--resume` segments) folded into one set of figures.
  * `cumulative` says the harness reports a resumed session's usage and cost as running totals (the last
@@ -587,6 +601,7 @@ const sumTok = (t: any) => (t ? TOKEN_KEYS.reduce((n, k) => n + (t[k] ?? 0), 0) 
  * table, else the main loop; `subagent` is the part outside the main loop. Tool calls always sum.
  */
 function aggregateReports(reports: any[], cumulative: boolean) {
+  const claudeCodeVersion: string | null = reports[0]?.init?.claudeCodeVersion ?? null;
   const rows = reports.map((r: any) => ({ tokens: r.wholeTree ?? r.usage ?? null, sub: r.outsideMainLoop ?? null, cost: r.totalCostUsd ?? null, byModel: r.modelUsage || {}, turns: r.numTurns ?? null }));
   const known = rows.filter((r: any) => r.tokens !== null);
   const costs = rows.filter((r: any) => r.cost !== null).map((r: any) => r.cost as number);
@@ -621,6 +636,8 @@ function aggregateReports(reports: any[], cumulative: boolean) {
     subagentCalls: reports.reduce((n: number, r: any) => n + (r.subagentCalls?.length ?? 0), 0),
     askUserQuestion: reports.reduce((n: number, r: any) => n + (r.questions?.askUserQuestion ?? 0), 0),
     inconsistent,
+    claudeCodeVersion,
+    costBasis: costBasisOf(claudeCodeVersion),
   };
 }
 
@@ -777,6 +794,8 @@ function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; 
       subagentTokens: agg.subagent === null ? null : sumTok(agg.subagent),
       byModel: agg.usage === 'reported' ? agg.byModel : null,
       costUsd: agg.costUsd,
+      claudeCodeVersion: agg.claudeCodeVersion,
+      costBasis: agg.costBasis,
       wallMs: Number.isFinite(timing.duration_ms) ? timing.duration_ms : null,
       capTokens: censored === 'cap' && statusRec?.budget !== true && Number.isSafeInteger(launch.maxTokensPerRun) ? launch.maxTokensPerRun : null,
       turns: agg.turns,
@@ -827,5 +846,5 @@ function gradeIteration({ iterationDir, taskSet, config, pathInfo, write = true 
 module.exports = {
   MAX_FILES, EVIDENCE_MAX,
   parseTranscript, extractAnswer, simpleCommands, classifyIsolation, loadPathInfo, readLaunch, checkLaunch, gradeRun, serializeGrading, gradeIteration,
-  aggregateReports, classifyAbIsolation, gradeAbRun, serializeAbGrading, runChecks,
+  aggregateReports, versionAtLeast, CUMULATIVE_USAGE_FROM, classifyAbIsolation, gradeAbRun, serializeAbGrading, runChecks,
 };

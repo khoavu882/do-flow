@@ -295,7 +295,7 @@ function claudeMain(prompt) {
   emit({
     type: 'system', subtype: 'init', cwd: process.cwd(), session_id: sessionId, tools: ['Bash', 'Read', 'Edit', 'Write', 'Skill'], mcp_servers: [],
     model: o.model || 'claude-sonnet-5-5', permissionMode: 'bypassPermissions', slash_commands: [...skills, 'update-config'], skills: [...skills, 'update-config'], agents,
-    apiKeySource: 'environment', claude_code_version: '2.1.308',
+    apiKeySource: 'environment', claude_code_version: spec.claudeCodeVersion === undefined ? '2.1.308' : spec.claudeCodeVersion,
   });
   if (behaviour === 'timeout') {
     setInterval(() => {}, 1000);
