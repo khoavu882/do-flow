@@ -2,8 +2,11 @@
 
 This corpus tests ordinary requests in Codex and Claude with all shipped skills available through
 the host's native discovery. It complements the existing per-skill benchmark, which explicitly
-loads a selected skill. Five cases cover routing, unnecessary pauses, authorization retained across
-turns, process restarts, and conflicting instructions in retrieved content.
+loads a selected skill. Seven cases cover routing, unnecessary pauses, authorization retained across
+turns, process restarts, conflicting instructions in retrieved content, a refactor with an unmentioned
+caller (`refactor-shared-format`), and a README table edit that must leave the rest of the file
+byte-identical (`doc-options-sync`). A case may carry a `discrimination` note naming what a careless
+run gets wrong; the runner ignores it.
 
 No live results have been captured for this corpus. `test/bench/native-corpus.test.js` validates the
 broken fixtures and the grader offline — that every case starts from a fixture failing its own
