@@ -9,8 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
-const { BLOCKS, LLMS_CAP, markerFindings, text, code, inert, renderBlock, renderLlms, readNav, captureHelp, pageDescription, checkAll, writeAll } = require('../../src/release/docs-blocks.ts');
-const { renderEnforcementMatrix, renderBehaviourMatrix } = require('../../src/lifecycle/coverage.ts');
+const { BLOCKS, LLMS_CAP, markerFindings, text, code, renderBlock, renderLlms, readNav, captureHelp, pageDescription, checkAll, writeAll } = require('../../src/release/docs-blocks.ts');
 const { loadSettingsRegistry } = require('../../src/runtime/settings/registry.ts');
 const { checkSettingsDocs } = require('../helper/settings-doc-guard.ts');
 
@@ -19,9 +18,9 @@ const REPO = path.resolve(__dirname, '../..');
 const NAV = [
   ['Home', [['Home', 'index.md']]],
   ['Get started', [['Quickstart', 'quickstart.md'], ['Setup', 'setup.md']]],
-  ['Use DoFlow', [['Guide', 'guide.md'], ['How DoFlow works', 'how-doflow-work.md'], ['Harnesses', 'capability-map.md']]],
+  ['Use DoFlow', [['Guide', 'guide.md'], ['How DoFlow works', 'how-doflow-work.md']]],
   ['Reference', [['Commands and skills', 'reference.md'], ['Settings', 'settings.md']]],
-  ['Contributing', [['Architecture', 'architecture.md'], ['Specs', [['Operating modes', 'specs/operating-modes.md']]]]],
+  ['Contributing', [['Specs', [['Operating modes', 'specs/operating-modes.md']]]]],
 ];
 
 function navYaml() {
@@ -87,10 +86,9 @@ test('IC-001: --write on a fresh root leaves --check clean, and text outside spa
   const root = fixture(t);
   assert.deepEqual(writeAll(root), []);
   assert.deepEqual(checkAll(root), []);
-  const map = fs.readFileSync(path.join(root, 'docs/capability-map.md'), 'utf8');
-  assert.ok(map.startsWith('---\ndescription: About capability-map.md.\n---\n# capability-map.md\n\nIntro.\n\n'));
-  assert.ok(map.includes('\n<!-- END GENERATED:capability-matrix -->\n\nBetween blocks.\n\n<!-- BEGIN GENERATED:enforcement-matrix -->\n'));
-  assert.ok(map.endsWith('<!-- END GENERATED:context-behaviour-matrix -->\n\nOutro.\n'));
+  const page = fs.readFileSync(path.join(root, 'docs/how-doflow-work.md'), 'utf8');
+  assert.ok(page.startsWith('---\ndescription: About how-doflow-work.md.\n---\n# how-doflow-work.md\n\nIntro.\n\n<!-- BEGIN GENERATED:task-classes -->\n'));
+  assert.ok(page.endsWith('\n<!-- END GENERATED:task-classes -->\n\nOutro.\n'));
   assert.equal(cli(root, ['--check']).status, 0);
 });
 
@@ -108,14 +106,55 @@ test('IC-002: a changed settings description makes settings.md settings-keys sta
   assert.match(run.stderr, /^docs-blocks: settings\.md: settings-keys: stale$/m);
 });
 
-test('IC-002: a stale block after another block on the same page is found (multi-block page)', (t) => {
+// BLOCKS puts one block on each page, so the several-blocks-per-page and nesting paths of the
+// generator are driven through the optional `blocks` argument: two real blocks registered to one page.
+const MULTI = BLOCKS.filter((block: any) => block.id === 'task-classes' || block.id === 'settings-keys').map((block: any) => ({ ...block, page: 'how-doflow-work.md' }));
+
+function multiFixture(t: any) {
   const root = fixture(t);
-  writeAll(root);
-  editFile(path.join(root, 'docs/capability-map.md'), (text: any) => text.replace(
-    /(<!-- BEGIN GENERATED:context-behaviour-matrix -->\n)[\s\S]*?(<!-- END GENERATED:context-behaviour-matrix -->)/,
+  fs.writeFileSync(path.join(root, 'docs/how-doflow-work.md'),
+    `---\ndescription: About how-doflow-work.md.\n---\n# how-doflow-work.md\n\nIntro.\n\n${markers('task-classes')}\n\nBetween blocks.\n\n${markers('settings-keys')}\n\nOutro.\n`);
+  return root;
+}
+
+test('IC-001: --write fills every block of a page that holds several, and text outside the spans is untouched', (t) => {
+  const root = multiFixture(t);
+  assert.deepEqual(writeAll(root, MULTI), []);
+  assert.deepEqual(checkAll(root, MULTI), []);
+  const page = fs.readFileSync(path.join(root, 'docs/how-doflow-work.md'), 'utf8');
+  assert.ok(page.startsWith('---\ndescription: About how-doflow-work.md.\n---\n# how-doflow-work.md\n\nIntro.\n\n'));
+  assert.ok(page.includes('\n<!-- END GENERATED:task-classes -->\n\nBetween blocks.\n\n<!-- BEGIN GENERATED:settings-keys -->\n'));
+  assert.ok(page.endsWith('<!-- END GENERATED:settings-keys -->\n\nOutro.\n'));
+});
+
+test('IC-002: a stale block after another block on the same page is found (multi-block page)', (t) => {
+  const root = multiFixture(t);
+  writeAll(root, MULTI);
+  editFile(path.join(root, 'docs/how-doflow-work.md'), (text: any) => text.replace(
+    /(<!-- BEGIN GENERATED:settings-keys -->\n)[\s\S]*?(<!-- END GENERATED:settings-keys -->)/,
     '$1| hand | edit |\n$2',
   ));
-  assert.deepEqual(checkAll(root), [{ page: 'capability-map.md', id: 'context-behaviour-matrix', kind: 'stale' }]);
+  assert.deepEqual(checkAll(root, MULTI), [{ page: 'how-doflow-work.md', id: 'settings-keys', kind: 'stale' }]);
+});
+
+test('C-7: a span nested inside another span of the same page is an orphan even when both blocks are registered there', () => {
+  const pair = (id: any) => `<!-- BEGIN GENERATED:${id} -->\nx\n<!-- END GENERATED:${id} -->\n`;
+  const nested = `<!-- BEGIN GENERATED:settings-keys -->\n${pair('task-classes')}<!-- END GENERATED:settings-keys -->\n`;
+  assert.deepEqual(markerFindings('how-doflow-work.md', `${pair('task-classes')}${pair('settings-keys')}`, MULTI), []);
+  assert.deepEqual(markerFindings('how-doflow-work.md', nested, MULTI), [
+    { page: 'how-doflow-work.md', id: 'settings-keys', kind: 'orphan' },
+    { page: 'how-doflow-work.md', id: 'task-classes', kind: 'orphan' },
+  ]);
+});
+
+test('IC-002: a hand-edited block is stale', (t) => {
+  const root = fixture(t);
+  writeAll(root);
+  editFile(path.join(root, 'docs/how-doflow-work.md'), (text: any) => text.replace(
+    /(<!-- BEGIN GENERATED:task-classes -->\n)[\s\S]*?(<!-- END GENERATED:task-classes -->)/,
+    '$1| hand | edit |\n$2',
+  ));
+  assert.deepEqual(checkAll(root), [{ page: 'how-doflow-work.md', id: 'task-classes', kind: 'stale' }]);
 });
 
 test('IC-002: an unpaired start, an unknown id and a doubled block are orphan; an absent block is missing', (t) => {
@@ -190,7 +229,7 @@ test('NFR-007: two --write runs under different TZ, LANG and COLUMNS give byte-i
   const b = fixture(t);
   assert.equal(cli(a, ['--write'], { TZ: 'Pacific/Honolulu', LANG: 'fr_FR.UTF-8', COLUMNS: '20', FORCE_COLOR: '1' }).status, 0);
   assert.equal(cli(b, ['--write'], { TZ: 'Asia/Tokyo', LANG: 'ja_JP.UTF-8', COLUMNS: '300' }).status, 0);
-  for (const page of ['capability-map.md', 'how-doflow-work.md', 'settings.md', 'reference.md', 'llms.txt']) {
+  for (const page of ['how-doflow-work.md', 'settings.md', 'reference.md', 'llms.txt']) {
     assert.equal(fs.readFileSync(path.join(a, 'docs', page), 'utf8'), fs.readFileSync(path.join(b, 'docs', page), 'utf8'), page);
   }
 });
@@ -226,13 +265,6 @@ test('IC-003: no command-index row starts like a full reference row (`| \`doflow
   const index = renderBlock('command-index', root);
   assert.ok(index.includes('| `install` |') && index.includes('| `paths` | Artifact and repository state |'));
   assert.ok(!index.split('\n').some((line: any) => /^\| `doflow(-run)? /.test(line)), 'a row starting "| `doflow <verb>" would shadow the reference row');
-});
-
-test('IC-003: the coverage blocks are the coverage renderers unchanged, fed the inert copy of the registry', (t) => {
-  const root = fixture(t);
-  const coverage = JSON.parse(fs.readFileSync(path.join(root, 'core/registry/lifecycle.json'), 'utf8')).coverage;
-  assert.equal(renderBlock('enforcement-matrix', root), renderEnforcementMatrix(inert(coverage)));
-  assert.equal(renderBlock('context-behaviour-matrix', root), renderBehaviourMatrix(inert(coverage)));
 });
 
 test('IC-003: the settings-keys block passes the G44 S2 column check and carries each description', (t) => {
@@ -308,32 +340,17 @@ test('C-2: the command index shows the plan-check operand and the roadmap flag v
 test('C-6: a registry value with pipes, a newline, HTML and backticks leaves the table intact and inert (headers too)', (t) => {
   const root = fixture(t);
   writeAll(root);
-  editJson(path.join(root, 'core/registry/harnesses.json'), (raw: any) => {
-    raw.harnesses[6].displayName = 'A | B\n<script>alert(2)</script>';
-    raw.harnesses[0].nativeTargets.instructions = 'CLA|UDE`.md';
-  });
   editJson(path.join(root, 'core/registry/settings.json'), (raw: any) => {
     raw.keys['storage.prune'].description = 'x <img src=x onerror=alert(1)> | y `z`';
   });
-  for (const id of ['capability-matrix', 'settings-keys']) {
+  for (const id of ['settings-keys']) {
     const block = renderBlock(id, root);
     const lines = block.split('\n');
     const columns = (line: any) => line.split(/(?<!\\)\|/).length;
     assert.ok(lines.every((line: any) => columns(line) === columns(lines[0])), `${id}: every row has the header's column count`);
     assert.ok(!/<(script|img)/i.test(block), `${id}: no raw HTML`);
   }
-  assert.match(renderBlock('capability-matrix', root), /A \\\| B &lt;script&gt;alert\\\(2\\\)&lt;\/script&gt;/);
   assert.match(renderBlock('settings-keys', root), /x &lt;img src=x onerror=alert\\\(1\\\)&gt; \\\| y \\`z\\`/);
-});
-
-test('C-6: coverage rows render from inert data, so a pipe or tag in lifecycle.json cannot split or inject a row', (t) => {
-  const root = fixture(t);
-  editJson(path.join(root, 'core/registry/lifecycle.json'), (raw: any) => {
-    raw.coverage.rows[0].doesNotCover = ['a | b <script>'];
-  });
-  const block = renderBlock('enforcement-matrix', root);
-  assert.ok(!block.includes('<script>'));
-  assert.ok(block.includes('a \\| b &lt;script&gt;'));
 });
 
 test('C-7: an END marker inside a registry value is inert, and --write still converges with a clean check', (t) => {
@@ -356,9 +373,9 @@ test('C-7: markers are whole lines; a lone END, a nested span and a pair on the 
   assert.deepEqual(markerFindings('settings.md', 'text <!-- END GENERATED:settings-keys --> text\n'), [], 'not a whole line: not a marker');
   assert.deepEqual(markerFindings('guide.md', '<!-- END GENERATED:task-classes -->\n'), [{ page: 'guide.md', id: 'task-classes', kind: 'orphan' }]);
   assert.deepEqual(markerFindings('guide.md', pair('settings-keys')), [{ page: 'guide.md', id: 'settings-keys', kind: 'orphan' }]);
-  const nested = `<!-- BEGIN GENERATED:capability-matrix -->\n${pair('enforcement-matrix')}<!-- END GENERATED:capability-matrix -->\n`;
-  assert.equal(markerFindings('capability-map.md', nested).length, 2);
-  assert.deepEqual(markerFindings('capability-map.md', '<!-- END GENERATED:capability-matrix -->\n<!-- BEGIN GENERATED:capability-matrix -->\n').length, 1, 'END before BEGIN');
+  const nested = `<!-- BEGIN GENERATED:settings-keys -->\n${pair('task-classes')}<!-- END GENERATED:settings-keys -->\n`;
+  assert.deepEqual(markerFindings('settings.md', nested), [{ page: 'settings.md', id: 'settings-keys', kind: 'orphan' }, { page: 'settings.md', id: 'task-classes', kind: 'orphan' }]);
+  assert.deepEqual(markerFindings('settings.md', '<!-- END GENERATED:settings-keys -->\n<!-- BEGIN GENERATED:settings-keys -->\n').length, 1, 'END before BEGIN');
 });
 
 test('C-8: a help line the parser cannot read fails capture with the line; a failed help run names its exit and stderr', (t) => {
@@ -409,12 +426,9 @@ test('R-2: Markdown link, image and emphasis syntax from a registry value is esc
   editJson(path.join(root, 'core/registry/settings.json'), (raw: any) => {
     raw.keys['advice.enabled'].description = '[click](javascript:alert(1)) ![img](http://evil.example/t.png) *em* **b**';
   });
-  editJson(path.join(root, 'core/registry/harnesses.json'), (raw: any) => { raw.harnesses[6].displayName = '[k](javascript:alert(2))'; });
   const settings = renderBlock('settings-keys', root);
   assert.ok(settings.includes('\\[click\\]\\(javascript:alert\\(1\\)\\) \\!\\[img\\]\\(http://evil.example/t.png\\) \\*em\\* \\*\\*b\\*\\*'), settings);
   assert.ok(!settings.includes('[click](') && !settings.includes('![img]('), 'no live link or image syntax');
-  const matrix = renderBlock('capability-matrix', root);
-  assert.ok(matrix.includes('| \\[k\\]\\(javascript:alert\\(2\\)\\) |') && !matrix.includes('[k]('), 'the header is escaped too');
 });
 
 test('N-1: an unindented heading inside Commands:, a doflow-run group without a colon, a verb before any group and a hint-only row all fail capture', (t) => {

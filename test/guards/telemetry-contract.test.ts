@@ -677,22 +677,12 @@ test('G45.1: observer runtime has its own measure and the prose states hook late
   assert.match(v0, /L3 is null with the flag on and `off` with the flag off; dispatch is null/);
 });
 
-test('088 docs name the shipped reports, manifest exits, guard inventory and observed baseline', () => {
+test('088 docs name the shipped reports, manifest exits and observed baseline', () => {
   const reference = fs.readFileSync(path.join(REPO, 'docs/reference.md'), 'utf8');
   assert.doesNotMatch(reference, /pVal|significant|summary\.md/);
   const baseline = reference.split('\n').find((line: any) => line.startsWith('| `bench verify-baseline '));
   assert.match(baseline, /`report\.json`, `report\.md`/);
   assert.match(baseline, /manifest mismatch exits 1.*malformed snapshot\/manifest exits 2/);
-
-  const architecture = fs.readFileSync(path.join(REPO, 'docs/architecture.md'), 'utf8').split('### The guard suite\n')[1].split('## Contributor guardrails')[0];
-  const entries: any = [...architecture.matchAll(/^- \*\*(G\d+)\*\* \(`([^`]+\.test\.ts)`/gm)];
-  const files: any = new Set(entries.map((entry: any) => entry[2]));
-  const numbers: any = new Set(entries.map((entry: any) => entry[1]));
-  const guards = fs.readdirSync(path.join(REPO, 'test/guards')).filter((file: any) => file.endsWith('.test.ts'));
-  assert.ok(entries.length > 40 && guards.length > 50, 'the guard directory and inventory were found');
-  for (const file of files) assert.ok(guards.includes(file), `${file} is an actual guard`);
-  assert.match(architecture, new RegExp(`holds\\s+${guards.length} test files`));
-  assert.ok(architecture.includes(`${entries.length} entries across ${files.size} test files and carries ${numbers.size} distinct G-numbers`));
 
   const release = fs.readFileSync(path.join(REPO, 'CHANGELOG.md'), 'utf8').split('\n').find((line: any) => line.startsWith('- **Feature 088b '));
   assert.match(release, /`tool_duration_ms`.*`duration_ms:null`/);

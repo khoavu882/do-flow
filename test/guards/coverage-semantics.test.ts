@@ -1,6 +1,6 @@
 'use strict';
 
-// G39 — coverage semantics (078 IC-021, DEC-019). Three checks, each a pure function over injected
+// G39 — coverage semantics (078 IC-021, DEC-019). Two checks, each a pure function over injected
 // inputs, run once on the shipped tree and once per negative control that seeds one violation and
 // expects exactly one named finding.
 //
@@ -10,7 +10,6 @@
 //         types provenance
 //   G39.2 behaviours: one entry per behaviour x harness; enforced tests exist; limitations are
 //         non-empty; identity is enforced only with live provenance
-//   G39.3 the rendered behaviour block in docs/capability-map.md equals renderBehaviourMatrix()
 //
 // validateCoverage() (src/registry/index.ts) checks shape; this guard checks meaning.
 
@@ -19,15 +18,10 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO } = require('./_shared.ts');
-const { renderBehaviourMatrix, BEHAVIOUR_ORDER, HARNESS_ORDER } = require('../../src/lifecycle/coverage.ts');
-// The docs block renders the registry through the docs generator's inert() (Markdown and HTML in a
-// registry value are escaped), so the shipped block is compared with that rendering.
-const { inert } = require('../../src/release/docs-blocks.ts');
+const { BEHAVIOUR_ORDER, HARNESS_ORDER } = require('../../src/lifecycle/coverage.ts');
 
 const NEVER_END_OF_TURN: any = new Set(['SessionEnd', 'SubagentStop', 'PreCompact', 'PreCompress', 'PostToolUse',
   'AfterTool', 'tool_execution_start', 'SessionStart', 'agentSpawn']);
-const START = '<!-- BEGIN GENERATED:context-behaviour-matrix -->';
-const END = '<!-- END GENERATED:context-behaviour-matrix -->';
 
 // ── Inputs ──────────────────────────────────────────────────────────────────────────────────────
 
@@ -57,7 +51,6 @@ function shipped() {
     coverage: readJson('core/registry/lifecycle.json').coverage,
     fixtures: stopFixtures(),
     inventory: readJson('bench/inventory/coverage.json'),
-    doc: fs.readFileSync(path.join(REPO, 'docs/capability-map.md'), 'utf8'),
     exists: (rel: any) => fs.existsSync(path.join(REPO, rel)),
   };
 }
@@ -110,20 +103,6 @@ function g392({ coverage, exists }: any) {
   return findings;
 }
 
-// ── G39.3 rendered block ────────────────────────────────────────────────────────────────────────
-
-function g393({ coverage, doc }: any) {
-  const a = doc.indexOf(START), b = doc.indexOf(END);
-  if (a < 0 || b < a) return ['G39.3 behaviour matrix markers missing'];
-  const shipped = doc.slice(a + START.length, b).trim().split('\n');
-  const rendered = renderBehaviourMatrix(inert(coverage)).split('\n');
-  const findings: any = [];
-  for (let i = 0; i < Math.max(shipped.length, rendered.length); i++) {
-    if (shipped[i] !== rendered[i]) findings.push(`G39.3 rendered row ${i} differs from renderBehaviourMatrix()`);
-  }
-  return findings;
-}
-
 // ── Shipped tree ────────────────────────────────────────────────────────────────────────────────
 
 test('G39.1 end-of-turn events agree with stop rows, fixtures, inventory and provenance', () => {
@@ -131,9 +110,6 @@ test('G39.1 end-of-turn events agree with stop rows, fixtures, inventory and pro
 });
 test('G39.2 every behaviour x harness pair is present once and well-founded', () => {
   assert.deepEqual(g392(shipped()), []);
-});
-test('G39.3 the shipped behaviour block equals renderBehaviourMatrix()', () => {
-  assert.deepEqual(g393(shipped()), []);
 });
 
 // ── Negative controls: one seeded violation, one named finding ──────────────────────────────────
@@ -176,10 +152,3 @@ test('G39.2 control: identity enforced without live provenance is named', () => 
   assert.deepEqual(g392(input), ['G39.2 identity/claude enforced without live provenance']);
 });
 
-test('G39.3 control: a hand-edited rendered row is named', () => {
-  const input = cleanBase();
-  input.doc = input.doc.replace('| identity | kiro | limitation |', '| identity | kiro | enforced |');
-  assert.notEqual(input.doc, shipped().doc, 'seed applied');
-  assert.equal(g393(input).length, 1);
-  assert.match(g393(input)[0], /^G39\.3 rendered row \d+ differs from renderBehaviourMatrix\(\)$/);
-});

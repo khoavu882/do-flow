@@ -8,8 +8,8 @@ decide the procedure as it goes. The agent proposes what kind of task this is; a
 that proposal against a registry and hands back the stages, gates and contracts that apply. From
 that point the run has a plan of record that neither the agent nor the user has to hold in memory.
 
-This page describes the machinery. For where the code lives, see
-[Architecture](architecture.md); for the per-skill surface, see [Reference](reference.md).
+This page describes the machinery. For the per-skill surface, see
+[Reference](reference.md).
 
 ## The shape of a run
 

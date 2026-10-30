@@ -125,10 +125,9 @@ Kiro's hooks are not in Kiro v3's
 untrusted-workspace exclusion list; an untrusted workspace asks before every shell command, and
 whether that covers hook commands is undocumented. Copilot CLI documents hooks, settings, and a
 plugin marketplace upstream; DoFlow still installs none of those there. OpenCode and Pi
-standard-adopt `AGENTS.md` for seamless zero-drift rule projection. See `docs/capability-map.md`
-and the [installation matrix](docs/setup.md#what-gets-installed) for the exact mapping.
+standard-adopt `AGENTS.md` for seamless zero-drift rule projection. See the
+[installation matrix](docs/setup.md#what-gets-installed) for the exact mapping.
 
 ## Contributing
 
-The repository layout and deployment model are documented in the [Architecture guide](docs/architecture.md).
-Run `npm test` and the shell suites described there before submitting changes.
+Run `npm test` and the shell suites under `test/` before submitting changes.

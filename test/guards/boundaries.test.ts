@@ -1,6 +1,6 @@
 'use strict';
 
-// G-B — direction ratchets for the repository architecture (docs/architecture.md#boundary-ratchets). Two jobs:
+// G-B — direction ratchets for the repository architecture. Two jobs:
 //
 // 1. The dependency direction rule: `core/` is content + registries + native sources and must
 //    stay consumable without the tool that installs it. No file under core/ may require from

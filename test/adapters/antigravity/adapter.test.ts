@@ -91,7 +91,7 @@ test('107-B C-5: a global install plans the skills, and no doc says Antigravity 
   const planned = adapter.plan(input);
   const skillsDir = path.join(home, '.gemini', 'config', 'skills') + path.sep;
   assert.ok(planned.changes.some((c: any) => c.assetId === 'skills.doflow' && c.target.startsWith(skillsDir)), 'global scope plans skills.doflow under ~/.gemini/config/skills');
-  for (const doc of ['docs/architecture.md', 'docs/capability-map.md', 'docs/guide.md', 'docs/setup.md']) {
+  for (const doc of ['docs/guide.md', 'docs/setup.md']) {
     const text = fs.readFileSync(path.join(REPO, doc), 'utf8').replace(/\s+/g, ' ');
     assert.doesNotMatch(text, /Antigravity has no skills at global scope|Antigravity at global scope, which has no skills/, `${doc} still says Antigravity has no skills at global scope`);
   }
@@ -614,13 +614,6 @@ test('Antigravity discovery reports the servers in mcp_config.json, sorted, and 
   fs.mkdirSync(path.dirname(first.paths.mcpFile), { recursive: true });
   fs.writeFileSync(first.paths.mcpFile, JSON.stringify({ mcpServers: { zeta: {}, alpha: {} } }));
   assert.deepStrictEqual(adapter.discover({ scope: 'project', scopeRoot: root, ledger: { resources: [] } }).mcpConfigured, ['alpha', 'zeta']);
-});
-
-// 107-B re-review N-c: the discard rule is the vendor page's statement, not something agy was seen
-// to do; the architecture doc qualifies it the way CHANGELOG.md does.
-test('107-B N-c: docs/architecture.md states the always_on discard rule as vendor-stated and unverified', () => {
-  const text = fs.readFileSync(path.join(REPO, 'docs', 'architecture.md'), 'utf8').replace(/\s+/g, ' ');
-  assert.match(text, /without which Antigravity discards a rules file per the vendor page, unverified against `agy`/);
 });
 
 // 107-B re-review N-d: the registry said DoFlow skips the Antigravity global skills scope; a global

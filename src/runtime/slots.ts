@@ -185,7 +185,7 @@ const refuse = (why: string) => Object.assign(new Error(why), { code: 'EBUSY' })
  * directory name this lock does not make once the lock is 10 s old, as in task-state. An older
  * runtime's lock (its `owner.json` token) is judged the same way. `reclaimed` records that this acquire
  * judged a lock reclaimable, so it holds only after `quiet` (every reclaim quiets; user ruling, 117
- * decisions: amends 115 C-4's "dead owner reclaimed at once"). See docs/architecture.md, "The slot lock".
+ * decisions: amends 115 C-4's "dead owner reclaimed at once").
  */
 function slotLock(fsImpl: any, deps: any) {
   const start = deps.procStart(deps.pid);

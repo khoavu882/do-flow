@@ -673,4 +673,4 @@ cleanup entries with the locator and sha256 of every input they read.
 
 The same shared sources drive every installation, but adapters render them into native target
 formats — seven of them today. Tool-specific behavior, activation prerequisites, and per-harness
-differences are in the [capability map](capability-map.md) and [Setup](setup.md).
+differences are in [Setup](setup.md).

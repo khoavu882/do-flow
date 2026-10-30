@@ -487,8 +487,8 @@ const CAPABILITY_REQUIREMENTS: Record<string, string> = Object.freeze({
 const FACT_RESULT: Record<string, string> = Object.freeze({ yes: 'met', no: 'failed', unknown: 'unknown' });
 
 /**
- * DEC-044: the `blocking-hook` policies, built from the coverage rows because coverage's
- * `POLICY_ORDER` is not exported and `src/lifecycle/coverage.ts` does not change (IC-032).
+ * DEC-044: the `blocking-hook` policies, built from the coverage rows because coverage exports no
+ * policy list and `src/lifecycle/coverage.ts` does not change (IC-032).
  */
 function policyVocabulary(coverage: any): Set<string> {
   const policies = new Set<string>((coverage?.rows || []).map((row: any) => row.policy));

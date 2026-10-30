@@ -230,8 +230,8 @@ test('G49.a negative control: an unlisted nav page, a stray link and a missing f
   assert.ok(checkNavAndLlms(stray).some((p: any) => /not a nav page/.test(p)));
 
   const missing = copySite(t);
-  fs.rmSync(path.join(missing, 'docs', 'flags.md'));
-  assert.ok(checkNavAndLlms(missing).some((p: any) => /nav page missing on disk: docs\/flags\.md/.test(p)));
+  fs.rmSync(path.join(missing, 'docs', 'settings.md'));
+  assert.ok(checkNavAndLlms(missing).some((p: any) => /nav page missing on disk: docs\/settings\.md/.test(p)));
 
   const noFile = copySite(t);
   fs.rmSync(path.join(noFile, 'docs', 'llms.txt'));

@@ -1,6 +1,6 @@
 'use strict';
 
-// Upstream format-drift watcher (docs/architecture.md#upstream-format-drift-watcher): the
+// Upstream format-drift watcher: the
 // fingerprint covers the page's main content only, and a DRIFTED row carries a unified diff
 // against a stored text snapshot. Everything runs on the injectable fetchImpl: no network.
 const { test } = require('node:test');

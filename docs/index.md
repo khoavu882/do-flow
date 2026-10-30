@@ -107,8 +107,3 @@ This keeps the default context small while retaining a discoverable home for dee
 | [Guide](guide.md) | Feature, bug, quality, research, and documentation workflows |
 | [Reference](reference.md) | Skills, runtime commands, agents, and git lifecycle intents |
 | [Settings](settings.md) | Settings keys, configuration scopes, defaults, and config home |
-| [Flags](flags.md) | Flag-first cross-index of all skill options and parameters |
-| [Capability Map](capability-map.md) | What each harness supports, and where it differs |
-| [Governance](enterprise-governance.md) | Enterprise governance controls and organizational enforcement boundaries |
-| [Architecture](architecture.md) | Repository structure and contributor-facing deployment design |
-| [Distribution notes](distribution-notes.md) | Research record on Copilot plugin manifests and Pi packages |

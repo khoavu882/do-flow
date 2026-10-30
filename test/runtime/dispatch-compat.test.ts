@@ -47,7 +47,7 @@ const UNCHANGED_FILES = Object.freeze([
   // parsers.ts: edited by 109 A.2 (codex-exec-json-v1); no longer frozen at 0a474666
   'src/runtime/worker/process-tree.ts',
   // src/lifecycle/coverage.ts: edited by 127 (the retired harness left HARNESS_ORDER and NEVER_BLOCKING_EVENTS); no longer frozen at 0a474666
-  // core/registry/lifecycle.json: 088 E.3 observer wiring moved configSource line windows and rowsDigest with docs/capability-map.md; no longer frozen at 0a474666
+  // core/registry/lifecycle.json: 088 E.3 observer wiring moved configSource line windows and rowsDigest with a docs page; no longer frozen at 0a474666
   // worker-adapter.e2e.test.js: edited by 118 A.2 (its be752d8 orchestration copy predates the `nest` operation); no longer frozen at 0a474666
   // worker-descriptors.test.js: edited by 109 B.2 (G41.4, codex evidence); no longer frozen at 0a474666
 ]);

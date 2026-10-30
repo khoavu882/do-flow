@@ -20,7 +20,6 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
-const { renderEnforcementMatrix, renderBehaviourMatrix } = require('../lifecycle/coverage.ts');
 const { loadSettingsRegistry } = require('../runtime/settings/registry.ts');
 const { REF_META } = require('../runtime/settings/refs.ts');
 
@@ -35,13 +34,6 @@ const DOFLOW_BIN = 'bin/doflow.js';
 const DOFLOW_RUN_BIN = 'core/shared/scripts/doflow/bin/doflow-run';
 
 const NUMBER_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
-
-// Display labels for capability keys; a key without a label is shown capitalized, so a capability
-// added to the registry still gets its row.
-const CAPABILITY_LABELS: Record<string, string> = {
-  instructions: 'Instructions', skills: 'Skills', agents: 'Agents', scripts: 'Scripts', templates: 'Templates',
-  modes: 'Modes', settings: 'Settings', hooks: 'Hooks', mcp: 'MCP', plugin: 'Plugin / extension',
-};
 
 type Finding = { page: string; id: string; kind: 'stale' | 'orphan' | 'missing' | 'source-unreadable' | 'over-cap'; detail?: string };
 type Block = { id: string; page: string; sources: string[]; render: (root: string) => string };
@@ -94,37 +86,7 @@ function table(headers: string[], rows: string[][]): string {
   ].join('\n');
 }
 
-/** A copy of registry data with every string made inert, for renderers that format cells themselves. */
-function inert(value: any): any {
-  if (typeof value === 'string') return value === '' ? value : text(value);
-  if (Array.isArray(value)) return value.map(inert);
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, inert(entry)]));
-  return value;
-}
-
-function capitalize(text: string): string {
-  return text ? text[0].toUpperCase() + text.slice(1) : text;
-}
-
 // ── Renderers (one pure function of the root per block id) ──────────────────────────────────────
-
-function renderCapabilityMatrix(root: string): string {
-  const harnesses = readJson(root, 'core/registry/harnesses.json').harnesses;
-  if (!Array.isArray(harnesses) || harnesses.length === 0) throw new Error('harnesses.json has no harnesses');
-  const keys = Object.keys(harnesses[0].capabilities || {});
-  if (keys.length === 0) throw new Error('harnesses.json declares no capabilities');
-  const status = (harness: any, key: string): string => {
-    const value = harness.capabilities?.[key]?.status;
-    if (typeof value !== 'string' || !value) return '—';
-    const target = harness.nativeTargets?.[key];
-    const label = text(capitalize(value));
-    return target && (value === 'supported' || value === 'different') ? `${label} — ${code(target)}` : label;
-  };
-  return table(
-    ['Capability', ...harnesses.map((harness: any) => oneLine(harness.displayName))],
-    keys.map((key) => [text(CAPABILITY_LABELS[key] || capitalize(key)), ...harnesses.map((harness: any) => status(harness, key))]),
-  );
-}
 
 function renderTaskClasses(root: string): string {
   const classes = readJson(root, 'core/registry/workflows.json').classes;
@@ -288,9 +250,6 @@ function renderCommandIndex(root: string): string {
 }
 
 const BLOCKS: readonly Block[] = Object.freeze([
-  { id: 'capability-matrix', page: 'capability-map.md', sources: ['core/registry/harnesses.json'], render: renderCapabilityMatrix },
-  { id: 'enforcement-matrix', page: 'capability-map.md', sources: ['core/registry/lifecycle.json'], render: (root: string) => renderEnforcementMatrix(inert(readJson(root, 'core/registry/lifecycle.json').coverage)) },
-  { id: 'context-behaviour-matrix', page: 'capability-map.md', sources: ['core/registry/lifecycle.json'], render: (root: string) => renderBehaviourMatrix(inert(readJson(root, 'core/registry/lifecycle.json').coverage)) },
   { id: 'task-classes', page: 'how-doflow-work.md', sources: ['core/registry/workflows.json', 'core/registry/readiness-templates.json'], render: renderTaskClasses },
   { id: 'settings-keys', page: 'settings.md', sources: ['core/registry/settings.json'], render: renderSettingsKeys },
   { id: 'command-index', page: 'reference.md', sources: [DOFLOW_BIN, DOFLOW_RUN_BIN], render: renderCommandIndex },
@@ -380,7 +339,7 @@ function renderLlms(root: string): string {
  * (a lone BEGIN or END, an END before its BEGIN, a doubled pair) or nested inside another span is an
  * orphan. Markers are whole lines only, so marker-shaped text inside a table row is never one.
  */
-function markerFindings(page: string, text: string): Finding[] {
+function markerFindings(page: string, text: string, blocks: readonly Block[] = BLOCKS): Finding[] {
   const markers = [...text.matchAll(MARKER_LIKE)].map((match) => ({ kind: match[1], id: match[2], index: match.index ?? 0, exact: match[0] === `<!-- ${match[1]} GENERATED:${match[2]} -->` }));
   const bad = new Set<string>(markers.filter((marker) => !marker.exact).map((marker) => marker.id));
   const counts = new Map<string, { begin: number; end: number }>();
@@ -401,7 +360,7 @@ function markerFindings(page: string, text: string): Finding[] {
   if (open !== null) bad.add(open);
   const findings: Finding[] = [];
   for (const [id, { begin, end }] of counts) {
-    const registered = MARKER_ID.test(id) && BLOCKS.some((block) => block.id === id && block.page === page);
+    const registered = MARKER_ID.test(id) && blocks.some((block) => block.id === id && block.page === page);
     if (!registered || begin !== 1 || end !== 1 || bad.has(id)) findings.push({ page, id, kind: 'orphan' });
   }
   return findings;
@@ -422,15 +381,15 @@ function readDoc(root: string, page: string): string | null {
 }
 
 /** Every finding for the registered blocks and llms.txt; empty when the docs are current. */
-function checkAll(root: string): Finding[] {
+function checkAll(root: string, blocks: readonly Block[] = BLOCKS): Finding[] {
   const findings: Finding[] = [];
-  const pages = [...new Set(BLOCKS.map((block) => block.page))];
+  const pages = [...new Set(blocks.map((block) => block.page))];
   const texts = new Map(pages.map((page) => [page, readDoc(root, page)]));
   for (const page of pages) {
     const text = texts.get(page);
-    if (text !== null && text !== undefined) findings.push(...markerFindings(page, text));
+    if (text !== null && text !== undefined) findings.push(...markerFindings(page, text, blocks));
   }
-  for (const block of BLOCKS) {
+  for (const block of blocks) {
     const text = texts.get(block.page);
     const span = typeof text === 'string' ? spanOf(text, block.id) : null;
     if (!span) {
@@ -456,11 +415,11 @@ function checkAll(root: string): Finding[] {
 }
 
 /** Rewrites every well-formed span and llms.txt, then returns what `checkAll` still finds. */
-function writeAll(root: string): Finding[] {
-  for (const block of BLOCKS) {
+function writeAll(root: string, blocks: readonly Block[] = BLOCKS): Finding[] {
+  for (const block of blocks) {
     const file = path.join(root, 'docs', block.page);
     const text = readDoc(root, block.page);
-    if (text === null || markerFindings(block.page, text).some((f) => f.id === block.id)) continue;
+    if (text === null || markerFindings(block.page, text, blocks).some((f) => f.id === block.id)) continue;
     const span = spanOf(text, block.id);
     if (!span) continue;
     let rendered: string;
@@ -472,7 +431,7 @@ function writeAll(root: string): Finding[] {
     const llms = renderLlms(root);
     if (readDoc(root, 'llms.txt') !== llms) fs.writeFileSync(path.join(root, 'docs', 'llms.txt'), llms);
   } catch { /* reported by checkAll as source-unreadable */ }
-  return checkAll(root);
+  return checkAll(root, blocks);
 }
 
 /** The CLI: 0 current (or written clean), 1 findings, 2 usage. */
@@ -487,6 +446,6 @@ function main(argv: string[], root: string = REPO_ROOT): number {
   return findings.length ? 1 : 0;
 }
 
-module.exports = { BLOCKS, LLMS_CAP, MARKER_ID, markerFindings, text, code, inert, renderBlock, renderLlms, readNav, captureHelp, pageDescription, checkAll, writeAll, main };
+module.exports = { BLOCKS, LLMS_CAP, MARKER_ID, markerFindings, text, code, renderBlock, renderLlms, readNav, captureHelp, pageDescription, checkAll, writeAll, main };
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));

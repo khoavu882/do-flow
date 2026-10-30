@@ -1,6 +1,6 @@
 name: Upstream Drift
 
-# Upstream format-drift watcher (docs/architecture.md#upstream-format-drift-watcher): registry evidence URLs record where DoFlow's capability facts
+# Upstream format-drift watcher: registry evidence URLs record where DoFlow's capability facts
 # came from, but nothing noticed when those pages moved — two drifts were caught manually this
 # cycle (antigravity hooks, copilot payloads). This watches them on a schedule. It is deliberately
 # NOT a PR gate: upstream docs change on their own calendar, and a red PR caused by someone

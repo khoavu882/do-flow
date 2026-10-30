@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { interpreterSpawn } = require('../helper-platform.ts');
-const { enforcementFor, renderEnforcementMatrix, rowsDigest, UnknownEnforcementTarget } = require('../../src/lifecycle/coverage.ts');
+const { enforcementFor, rowsDigest, UnknownEnforcementTarget } = require('../../src/lifecycle/coverage.ts');
 const ROOT = path.resolve(__dirname, '../..');
 const row = (values: any = {}) => ({ policy: 'gate', harness: 'claude', event: 'PreToolUse', timing: 'pre-tool', profile: 'any', wired: true, class: 'blocking', verification: 'verified', prerequisites: [], covers: ['edit', 'write'], doesNotCover: ['shell'], caveats: [], ...values });
 const coverage = (rows: any) => ({ schemaVersion: 1, revision: 1, rowsDigest: 'sha256:' + 'a'.repeat(64), profiles: { any: 'all', narrow: 'narrow' }, rows });
@@ -42,25 +42,6 @@ test('wildcard policy rows do not hide known lifecycle policies', () => {
   const answer = enforcementFor(block, { harness: 'copilot', policy: 'pre-bash-guard' });
   assert.equal(answer.enforced, false);
   assert.equal(answer.class, 'unsupported');
-});
-
-test('matrix rendering sorts policy, harness, event and profile independent of row order', () => {
-  const rows: any = [
-    row({ policy: 'stop-check', harness: 'antigravity', event: 'Stop', profile: 'z' }),
-    row({ policy: 'pre-bash-guard', harness: 'codex', event: 'PreToolUse', profile: 'any' }),
-    row({ policy: 'pre-implementation-gate', harness: 'claude', event: 'PostToolUse', profile: 'any' }),
-    row({ policy: 'pre-implementation-gate', harness: 'claude', event: 'PreToolUse', profile: 'z' }),
-    row({ policy: 'pre-implementation-gate', harness: 'claude', event: 'PreToolUse', profile: 'any' }),
-  ];
-  const rendered = renderEnforcementMatrix(coverage(rows));
-  const tuples = rendered.split('\n').slice(3).map((line: any) => line.replace(/^\| /, '').replace(/ \|$/, '').split(' | ').slice(0, 5).join('/'));
-  assert.deepEqual(tuples, [
-    'pre-implementation-gate/claude/PostToolUse/any/blocking',
-    'pre-implementation-gate/claude/PreToolUse/any/blocking',
-    'pre-implementation-gate/claude/PreToolUse/z/blocking',
-    'pre-bash-guard/codex/PreToolUse/any/blocking',
-    'stop-check/antigravity/Stop/z/blocking',
-  ]);
 });
 
 test('shipped coverage digest and every-row IC-022 caveats are correct', () => {

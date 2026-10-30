@@ -19,8 +19,7 @@ description: Skills, runtime commands, specialist agents, and git lifecycle inte
 Arguments below are transcribed from each skill's `argument-hint` (`/do-code-review` declares none;
 its `[target]` is informal). G8 (`test/guards/reachability.test.ts`) fails when a row here
 documents a flag that the skill's `argument-hint` does not declare (one direction: a declared flag
-missing from a row is not caught here). G10 (`test/guards/flag-index.test.ts`) checks the hints
-against [Flags](flags.md) both ways.
+missing from a row is not caught here).
 
 | Skill | Description |
 |---|---|

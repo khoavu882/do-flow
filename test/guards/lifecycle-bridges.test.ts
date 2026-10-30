@@ -10,10 +10,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { REPO, loadCorpus, parseRecords, runPolicy, encodeEnvelope } = require('../helper/hook-fixtures.ts');
 const { tempDir } = require('../helper/tmp.ts');
-const { rowsDigest, renderEnforcementMatrix, NEVER_BLOCKING_EVENTS } = require('../../src/lifecycle/coverage.ts');
-// The docs block renders the registry through the docs generator's inert() (Markdown and HTML in a
-// registry value are escaped), so the shipped block is compared with that rendering.
-const { inert } = require('../../src/release/docs-blocks.ts');
+const { rowsDigest, NEVER_BLOCKING_EVENTS } = require('../../src/lifecycle/coverage.ts');
 const { hookReachabilityFindings, runnerHeaderFindings, dependencyTargets } = require('../helper/hook-reachability.ts');
 
 const POLICY_DIR = path.join(REPO, 'core/harnesses/shared/hooks/policies');
@@ -138,26 +135,6 @@ test('G34.1 control: each seeded forbidden token is reported with its file', (t)
   const findings = boundaryFindings(walkFiles(root).map((file: any) => [path.relative(root, file), fs.readFileSync(file, 'utf8')]));
   assert.equal(findings.length, seeded.length);
   for (const [file] of seeded) assert.ok(findings.some((finding: any) => finding.startsWith(`${file}:`)), file);
-});
-
-function architectureFindings(text: any) {
-  const section = text.split('## Lifecycle bridges\n')[1]?.split('\n## ')[0] || '';
-  const required: any = [
-    'Install adapter', 'Lifecycle bridge', 'Harness execution adapter',
-    'Decide a policy outcome', 'Hold policy rules', '081 defines and builds it', '077 assigns it no implementation obligation',
-  ];
-  return required.filter((part: any) => !section.includes(part));
-}
-
-test('G34.2: architecture documents the three responsibilities and 081 ownership boundary', () => {
-  const text = fs.readFileSync(path.join(REPO, 'docs/architecture.md'), 'utf8');
-  assert.deepEqual(architectureFindings(text), []);
-});
-
-test('G34.2 control: removing the 081 ownership line is detected in memory', () => {
-  const text = fs.readFileSync(path.join(REPO, 'docs/architecture.md'), 'utf8');
-  const mutated = text.replace('077 assigns it no implementation obligation', '077 owns the harness execution adapter');
-  assert.ok(architectureFindings(mutated).includes('077 assigns it no implementation obligation'));
 });
 
 test('G35.1: envelope.jq reproduces every corpus case expected envelope', () => {
@@ -384,13 +361,6 @@ function joinFindings(coverage: any, lifecycle: any, inventory: any) {
   }
   return errors;
 }
-function matrixDocFindings(text: any, coverage: any) {
-  const start = '<!-- BEGIN GENERATED:enforcement-matrix -->'; const end = '<!-- END GENERATED:enforcement-matrix -->';
-  const a = text.indexOf(start), b = text.indexOf(end);
-  if (a < 0 || b < a) return ['enforcement matrix markers missing'];
-  const actual = text.slice(a + start.length, b).trim();
-  return actual === renderEnforcementMatrix(inert(coverage)) ? [] : ['enforcement matrix differs from renderer'];
-}
 function parityEnumeratesCorpus(files: any) {
   const parityFiles = fs.readdirSync(path.join(REPO, 'test/hooks')).filter((f: any) => /^(bridge-parity(?:-[^.]+)?|pi-bridge)\.test\.ts$/.test(f));
   const sources = parityFiles.map((f: any) => fs.readFileSync(path.join(REPO, 'test/hooks', f), 'utf8')).join('\n');
@@ -557,8 +527,6 @@ test('G36.4: wired rows join inventory and installed-version caveats', () => { c
 test('G36.4 control: removing an inventory row is detected', () => { const {lifecycle,coverage,inventory}=g36Data(); const i=structuredClone(inventory); i.rows=i.rows.filter((r: any)=>!(r.harness==='claude'&&r.event==='PreToolUse')); assert.ok(joinFindings(coverage,lifecycle,i).some((x: any)=>x.includes('inventory event'))); });
 test('G36.5: rowsDigest is the digest of canonical rows', () => { const c=readCoverage(); assert.equal(c.rowsDigest, rowsDigest(c.rows)); });
 test('G36.5 control: a changed row without a digest refresh is detected', () => { const c=structuredClone(readCoverage()); c.rows[0].event='Mutated'; assert.notEqual(c.rowsDigest, rowsDigest(c.rows)); });
-test('G36.6: generated enforcement matrix matches renderer', () => { assert.deepEqual(matrixDocFindings(fs.readFileSync(path.join(REPO,'docs/capability-map.md'),'utf8'),readCoverage()),[]); });
-test('G36.6 control: mutating a rendered matrix cell in memory is detected', () => { const c=readCoverage(); const text=fs.readFileSync(path.join(REPO,'docs/capability-map.md'),'utf8').replace('| claude |','| mutated |'); assert.ok(matrixDocFindings(text,c).length); });
 test('G36.7: every gate row declares shell writes outside its coverage', () => { assert.deepEqual(honestyFindings(readCoverage()).filter((x: any)=>x.includes('shell-write')),[]); });
 test('G36.7 control: deleting shell-write exclusion is detected', () => { const c=structuredClone(readCoverage()); c.rows[0].doesNotCover=[]; assert.ok(honestyFindings(c).some((x: any)=>x.includes('shell-write'))); });
 test('G37.1: wired events have corpus fixtures enumerated by their parity suite', () => { const files=corpusFiles(); assert.deepEqual(parityEnumeratesCorpus(files),[]); assert.deepEqual(missingWiredFixtures(readCoverage(),files),[]); });

@@ -103,8 +103,7 @@ function sleep(ms: number): void {
 // Runtimes from before this protocol see a directory they did not create: they wait on a fresh one,
 // and on a stale one their rmdir fails (it is not empty), so they fail closed ("Could not lock",
 // `store-locked`) instead of taking it; their release of a lock reclaimed from them fails the same
-// way. Whatever a process leaves when it dies is reclaimed once LOCK_STALE_MS old. The bounds (what
-// this does not cover) are listed once, in docs/architecture.md under "The task-state lock".
+// way. Whatever a process leaves when it dies is reclaimed once LOCK_STALE_MS old.
 const OWNER_PREFIX = 'owner-';
 // The longest a fresh acquire may take from its mkdir to its entry and still trust the directory is
 // its own: half the stale age, so a process that judged it stale cannot have done so before the
@@ -307,7 +306,7 @@ function ownedRelease(fsImpl: any, lockDir: string, me: Entry): any {
     try { fsImpl.rmdirSync(entry); } catch { return; } // reclaimed: the lock is not ours to remove
     // Removed only if it is still that directory: a release stalled here past LOCK_STALE_MS may find
     // an older runtime's new (empty) lock at the path. What stays is the gap between this stat and the
-    // rmdir (docs/architecture.md, "The task-state lock", bound 3).
+    // rmdir.
     try {
       if (mine && sameDir(mine, fsImpl.statSync(lockDir))) fsImpl.rmdirSync(lockDir);
     } catch { /* a waiting process's entry is in it; that process holds next */ }

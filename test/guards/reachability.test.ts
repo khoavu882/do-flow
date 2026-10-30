@@ -21,7 +21,6 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { REPO } = require('./_shared.ts');
-const { loadRegistry, capabilityMapData } = require('../../src/registry/index.ts');
 const { tempDir } = require('../helper/tmp.ts');
 
 const BASH_DIR = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash');
@@ -211,7 +210,7 @@ test('G8: every flag docs/reference.md documents for a skill exists in that skil
  * Of the given doc-spelled paths, the subset this repository itself declares as ignored output.
  *
  * G8 below reads every backticked repo path as a promise that the path exists. Two documented paths
- * deliberately do not exist: `bench/runs/` and `bench/reports/`, which docs/architecture.md names
+ * deliberately do not exist: `bench/runs/` and `bench/reports/`, which a docs page names
  * precisely in order to say they are the ignored ones. So a correct sentence failed the guard — and
  * only ever on a clean checkout, because a local bench run creates both directories. That is why it
  * went unseen: it passed in every working tree that had ever run the harness.
@@ -245,7 +244,7 @@ function declaredIgnored(spelledPaths: any) {
 }
 
 test('G8: every repo path a doc names in backticks exists', () => {
-  // architecture.md's structure table listed `bin/doflow`; the file is bin/doflow.js. Harmless to
+  // A docs structure table once listed `bin/doflow`; the file is bin/doflow.js. Harmless to
   // read, wrong to copy — and the same class of error as a moved directory silently outliving its
   // documentation. Only backticked paths rooted at a known top-level directory are checked, so
   // prose and command examples are unaffected.
@@ -256,8 +255,8 @@ test('G8: every repo path a doc names in backticks exists', () => {
   // own bundled directory, the guidance tree writes `scripts/doflow/bash/...` meaning the *installed*
   // root, and only a docs page means this repository's `scripts/`. Adding it here reports all three,
   // so the rule below narrows it to docs/ instead — where a relative reading is not available and a
-  // dangling path is therefore unambiguous. That gap is how `scripts/generate-capability-map.js`
-  // survived in refactor-plan.md after the generator was deleted.
+  // dangling path is therefore unambiguous. That gap is how a docs page kept naming
+  // `scripts/generate-capability-map.js` after the generator was deleted.
   const roots = 'core|src|bin|test|docs|bench';
   const absent: any = [];
   for (const { rel, text } of consumerTexts()) {
@@ -277,74 +276,9 @@ test('G8: every repo path a doc names in backticks exists', () => {
   assert.deepEqual(unique, [], `these documented paths do not exist:\n  ${unique.join('\n  ')}`);
 });
 
-test('G8: the capability matrix agrees with the registry, cell for cell', () => {
-  // The byte-for-byte guard left with its generator when scripts/generate-capability-map.js was
-  // removed, and so did `npm run gen:capability-map`. What stayed behind were the
-  // `<!-- BEGIN GENERATED:capability-matrix -->` markers, which tell every reader the region is
-  // machine-written, and the prose below the table, which says a hand edit "will drift from it".
-  // Both were true of a mechanism that no longer existed: the region became hand-maintained with
-  // nothing comparing it to the registry, which is precisely the drift the generator was introduced
-  // to remove. This guard restores the comparison without restoring the generator — `capabilityMapData`
-  // is still the registry's own projection, so the table is checked against it rather than regenerated.
-  const CAPABILITY_LABELS: any = {
-    Instructions: 'instructions',
-    Skills: 'skills',
-    Agents: 'agents',
-    Scripts: 'scripts',
-    Templates: 'templates',
-    Modes: 'modes',
-    Settings: 'settings',
-    Hooks: 'hooks',
-    MCP: 'mcp',
-    'Plugin / extension': 'plugin',
-  };
-
-  const doc = fs.readFileSync(path.join(REPO, 'docs/capability-map.md'), 'utf8');
-  const region = doc.match(
-    /<!-- BEGIN GENERATED:capability-matrix -->\n([\s\S]*?)<!-- END GENERATED:capability-matrix -->/,
-  );
-  assert.ok(region, 'the capability-matrix markers must stay: they are what this guard anchors on');
-
-  const rows = region[1].trim().split('\n').map((l: any) => l.split('|').slice(1, -1).map((c: any) => c.trim()));
-  const harnessColumns = rows[0].slice(1);
-  const body = rows.slice(2); // row 1 is the |---| separator
-
-  const byDisplayAndCapability: any = new Map();
-  for (const record of capabilityMapData(loadRegistry({ repoRoot: REPO }))) {
-    byDisplayAndCapability.set(`${record.displayName}\0${record.capability}`, record);
-  }
-
-  const drift: any = [];
-  for (const row of body) {
-    const capability: any = CAPABILITY_LABELS[row[0]];
-    if (!capability) { drift.push(`row label "${row[0]}" maps to no registry capability`); continue; }
-    row.slice(1).forEach((cell: any, column: any) => {
-      const displayName = harnessColumns[column];
-      const record = byDisplayAndCapability.get(`${displayName}\0${capability}`);
-      if (!record) { drift.push(`no registry row for ${displayName} / ${capability}`); return; }
-
-      // A cell is "Status" or "Status — `nativeTarget`". Both halves are registry facts.
-      const status = cell.split('—')[0].trim().toLowerCase();
-      if (status !== record.status) {
-        drift.push(`${displayName}/${capability}: table says "${status}", registry says "${record.status}"`);
-      }
-      const backticked = cell.match(/`([^`]+)`/);
-      const target = backticked ? backticked[1] : null;
-      if (target !== record.nativeTarget) {
-        drift.push(`${displayName}/${capability}: table target ${JSON.stringify(target)}, registry ${JSON.stringify(record.nativeTarget)}`);
-      }
-    });
-  }
-
-  assert.equal(body.length * harnessColumns.length, byDisplayAndCapability.size,
-    'the table must cover every registry harness/capability pair, with no extra cells');
-  assert.deepEqual(drift, [],
-    'docs/capability-map.md has drifted from core/registry/harnesses.json:\n  ' + drift.join('\n  '));
-});
-
 test('G8: every docs page is reachable from the mkdocs nav', () => {
-  // capability-map.md shipped for several releases absent from nav, so it never appeared in the
-  // built site even though README linked to it — a page that exists but cannot be navigated to.
+  // A page shipped for several releases absent from nav, so it never appeared in the built site
+  // even though README linked to it — a page that exists but cannot be navigated to.
   const nav = fs.readFileSync(path.join(REPO, 'mkdocs.yml'), 'utf8');
   const pages = fs.readdirSync(path.join(REPO, 'docs')).filter((n: any) => n.endsWith('.md'));
   const missing = pages.filter((p: any) => !nav.includes(p)).sort();

@@ -319,9 +319,9 @@ test('G61.b generated markers on every docs page are registered to that page, pa
     const findings = checkMarkers(COPY);
     assert.ok(findings.some((finding: any) => finding.page.includes('guide.md') && finding.id === 'nosuch'), `an indented or trailing-space marker is still a marker: ${JSON.stringify(findings)}`);
   });
-  withSeededFile(COPY, 'docs/capability-map.md', (original: any) => original.replace(/(<!-- BEGIN GENERATED:[^\s>]+ -->)/, '$1\n<!-- BEGIN GENERATED:settings-keys -->'), () => {
+  withSeededFile(COPY, 'docs/how-doflow-work.md', (original: any) => original.replace(/(<!-- BEGIN GENERATED:[^\s>]+ -->)/, '$1\n<!-- BEGIN GENERATED:settings-keys -->'), () => {
     const findings = checkMarkers(COPY);
-    assert.ok(findings.some((finding: any) => finding.page.includes('capability-map.md')), JSON.stringify(findings));
+    assert.ok(findings.some((finding: any) => finding.page.includes('how-doflow-work.md')), JSON.stringify(findings));
   });
 });
 
