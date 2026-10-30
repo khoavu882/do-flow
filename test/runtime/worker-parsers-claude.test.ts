@@ -32,7 +32,7 @@ test('fixtures are labelled and every line is JSON', () => {
   for (const name of fs.readdirSync(FIXTURES)) {
     for (const line of read(name).trim().split('\n')) {
       const event = JSON.parse(line);
-      assert.ok(['synthetic', 'probe-2.1.308-trimmed'].includes(event._fixture), `${name}: ${line.slice(0, 60)}`);
+      assert.ok(['synthetic', 'probe-2.1.308-trimmed', 'real-2.1.308-r1-trimmed'].includes(event._fixture), `${name}: ${line.slice(0, 60)}`);
     }
   }
 });
