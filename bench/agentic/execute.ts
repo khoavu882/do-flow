@@ -28,7 +28,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const readline = require('node:readline');
-const { UsageError, loadTaskSet, buildPrompt, promptSha256 } = require('./tasks.ts');
+const { UsageError, loadTaskSet, loadAbTaskSet, buildPrompt, buildAbPrompt, promptSha256, REVIEW_FILE } = require('./tasks.ts');
+const claudeStream = require('./ab/claude-stream.ts');
 const { materialiseExport } = require('../retrieval/lib/environment.ts');
 const launch = require('../../src/runtime/worker/launch.ts');
 const { parserFor } = require('../../src/runtime/worker/parsers.ts');
@@ -102,6 +103,7 @@ function loadConfig(file = CONFIG_PATH) {
     throw configError('(file)', `is missing or not valid JSON: ${file} (${e.message})`);
   }
   if (cfg === null || typeof cfg !== 'object' || Array.isArray(cfg)) throw configError('(file)', 'must be a JSON object');
+  if (cfg.mode === 'ab') return loadAbConfig(cfg);
   if (cfg.schemaVersion !== 1) throw configError('schemaVersion', `must be 1, got ${JSON.stringify(cfg.schemaVersion)}`);
 
   const h = cfg.harness;
@@ -361,6 +363,7 @@ function checkIteration(iteration: any) {
 function planIteration({
   repoRoot = REPO_ROOT, config = loadConfig(), taskSet, registry, arm, iteration, tasks: only, runRoot,
 }: any = {}) {
+  if (config.mode === 'ab') return planAbIteration({ repoRoot, config, taskSet, arm, iteration, tasks: only, runRoot });
   checkIteration(iteration);
   if (!Object.prototype.hasOwnProperty.call(config.arms, arm)) {
     throw new UsageError('arm-unknown', `arm "${arm}" is not in the config (arms: ${Object.keys(config.arms).join(', ')})`);
@@ -560,7 +563,7 @@ const cutChars = (text: any, n: number) => (String(text).length > n ? `${String(
  * executor is stopped by a signal (`onSpawn` hands the group to the caller's signal handler); stdout
  * is streamed to the transcript and fed line by line to the recipe's parser.
  */
-async function spawnHarness({ binary, argv, cwd, env, prompt, viaStdin, timeoutMs, transcriptFile, lastMessageFile, parser, now, onSpawn = (_proc: any) => {} }: { binary: any; argv: any; cwd: any; env: any; prompt: any; viaStdin: any; timeoutMs: any; transcriptFile: any; lastMessageFile: any; parser: any; now: any; onSpawn?: (proc: any) => void }) {
+async function spawnHarness({ binary, argv, cwd, env, prompt, viaStdin, timeoutMs, transcriptFile, lastMessageFile, parser, now, onSpawn = (_proc: any) => {}, onLine }: { binary: any; argv: any; cwd: any; env: any; prompt: any; viaStdin: any; timeoutMs: any; transcriptFile: any; lastMessageFile: any; parser: any; now: any; onSpawn?: (proc: any) => void; onLine?: (line: string) => void }) {
   const started = now().getTime();
   const transcript = fs.createWriteStream(transcriptFile);
   const transcriptDone = new Promise((resolve) => transcript.once('close', resolve));
@@ -576,7 +579,10 @@ async function spawnHarness({ binary, argv, cwd, env, prompt, viaStdin, timeoutM
   });
   const outClosed = new Promise((resolve) => child.stdout.once('close', resolve));
   const rl = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
-  rl.on('line', (line: string) => parser.line(line));
+  rl.on('line', (line: string) => {
+    parser.line(line);
+    if (onLine) onLine(line);
+  });
   child.stdout.on('data', (chunk: any) => transcript.write(chunk));
 
   if (viaStdin) child.stdin.end(prompt);
@@ -784,6 +790,7 @@ async function executeIteration(opts: any = {}) {
   let iterDir: any;
   let runRoot: any;
   let lock: any = null;
+  if ((opts.config || {}).mode === 'ab') return executeAbIteration(opts);
   try {
     config = opts.config || loadConfig();
     cap = parseCap(opts.cap);
@@ -1013,8 +1020,612 @@ async function executeIteration(opts: any = {}) {
   }
 }
 
+// ---------------------------------------------------------------------------------------------
+// With/without-DoFlow A/B mode (`config.mode === 'ab'`)
+//
+// Same money rules as above (refuse before the first spawn, scratch profile per run, one lock per
+// iteration, signals end the worker's group and re-raise), with three differences: the harness is the
+// bench-local Claude recipe (`ab/recipe.json`, decision D2) and not a registry worker; an arm may run a
+// `homeSetup` step in its scratch HOME before the worker starts (arm B installs DoFlow there, arm A
+// leaves the HOME empty); and a run that stops to ask is answered by `--resume` up to `resume.maxResumes`
+// times (decision D3). Credentials enter only by environment variable, by the names the config lists.
+// ---------------------------------------------------------------------------------------------
+
+/** Entries a workspace may not hold at the start of a run: they would show one arm DoFlow or project guidance. */
+const WORKSPACE_FORBIDDEN = Object.freeze(['.claude', 'CLAUDE.md', 'AGENTS.md', '.doflow']);
+/** Stands for the pruned export (`exportToolTree`) inside a `homeSetup` argv. */
+const EXPORT_TOKEN = '<export>';
+const HOME_SETUP_TIMEOUT_MS = 180000;
+const SEGMENTS_FILE = 'segments.json';
+const HOME_SETUP_FILE = 'home-setup.json';
+/** Directory of the run record that holds a copy of the final workspace of an `edit` run (without `.git`). */
+const WORKSPACE_DIR = 'workspace';
+/** An artifact the run copies out of its workspace is capped, so a runaway file cannot fill the record. */
+const ARTIFACT_MAX_BYTES = 1024 * 1024;
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** Checks an arm's `homeSetup` argv: a global claude-only install without MCP, never another target. */
+function checkHomeSetup(at: string, hs: any) {
+  if (hs === null) return;
+  if (!hs || typeof hs !== 'object' || !isStringArray(hs.argv) || hs.argv.length === 0) throw configError(at, 'must be null or { argv: [..] }');
+  const argv: string[] = hs.argv;
+  if (argv.some((a) => /gemini/i.test(a))) throw configError(`${at}.argv`, 'must not name the gemini target');
+  const targets = argv.flatMap((a, i) => (a === '-t' || a === '--target' ? [argv[i + 1]] : []));
+  if (targets.length !== 1 || targets[0] !== 'claude') throw configError(`${at}.argv`, 'must name exactly one target, "-t claude"');
+  if (!argv.includes('install') || !argv.includes('-g')) throw configError(`${at}.argv`, 'must be a global install ("install ... -g")');
+  const mcp = argv.indexOf('--mcp');
+  if (mcp === -1 || argv[mcp + 1] !== 'none') throw configError(`${at}.argv`, 'must pass "--mcp none" (decision D1)');
+}
+
+/**
+ * Loads an `ab` config. A malformed one is refused with the field named, like the retrieval config.
+ * `maxTokensPerRun` may be an explicit `null`: `plan` works, `execute` refuses until it is set.
+ */
+function loadAbConfig(cfg: any) {
+  if (cfg.schemaVersion !== 1) throw configError('schemaVersion', `must be 1, got ${JSON.stringify(cfg.schemaVersion)}`);
+  if (!isNonEmptyString(cfg.recipe)) throw configError('recipe', 'must be a repo-relative path to the recipe file');
+  let recipe: any;
+  let recipeText: string;
+  try {
+    recipeText = fs.readFileSync(path.resolve(REPO_ROOT, cfg.recipe), 'utf8');
+    recipe = JSON.parse(recipeText);
+  } catch (e: any) {
+    throw configError('recipe', `is missing or not valid JSON: ${cfg.recipe} (${e.message})`);
+  }
+  if (!isNonEmptyString(recipe.binary) || recipe.binary.includes('/')) throw configError('recipe.binary', 'must be a bare binary name');
+  if (!Array.isArray(recipe.argv) || recipe.argv.some((e: any) => !e || !isNonEmptyString(e.flag))) throw configError('recipe.argv', 'must be a list of { flag, value? }');
+  const flags = recipe.argv.map((e: any) => e.flag);
+  for (const need of ['-p', '--output-format', '--verbose']) if (!flags.includes(need)) throw configError('recipe.argv', `must include ${need}`);
+  for (const f of (recipe.forbidden || []).map((e: any) => e.flag)) if (flags.includes(f)) throw configError('recipe.argv', `contains the forbidden flag ${f}`);
+  if (recipe.parser?.id !== claudeStream.CLAUDE_STREAM_JSON_V1) throw configError('recipe.parser.id', `must be ${claudeStream.CLAUDE_STREAM_JSON_V1}`);
+  if (recipe.prompt?.via !== 'stdin') throw configError('recipe.prompt.via', 'must be "stdin"');
+
+  const m = cfg.model;
+  if (!m || typeof m !== 'object' || !isNonEmptyString(m.label)) throw configError('model.label', 'must be a non-empty string');
+  const pin = recipe.argv.find((e: any) => e.flag === '--model')?.value;
+  if (m.label !== pin) throw configError('model.label', `must equal the recipe's --model value (${JSON.stringify(pin)}), so the label and the argv cannot drift`);
+
+  for (const field of ['tasksFile', 'nativeCases']) if (!isNonEmptyString(cfg[field])) throw configError(field, 'must be a repo-relative path');
+  if (!Array.isArray(cfg.credentialEnv) || cfg.credentialEnv.length === 0 || cfg.credentialEnv.some((n: any) => typeof n !== 'string' || !ENV_NAME.test(n))) {
+    throw configError('credentialEnv', 'must list the environment variable names that carry the credential');
+  }
+  if (!isStringArray(cfg.path) || cfg.path.some((t: any) => t === '' || t.includes('/'))) throw configError('path', 'must be an array of bare tool names');
+  if (!cfg.arms || typeof cfg.arms !== 'object' || Array.isArray(cfg.arms) || Object.keys(cfg.arms).length < 2) throw configError('arms', 'must be an object with at least two arms');
+  const names = Object.keys(cfg.arms);
+  const roles = cfg.roles;
+  if (!roles || !names.includes(roles.baseline) || !names.includes(roles.candidate) || roles.baseline === roles.candidate) {
+    throw configError('roles', 'must name two different arms as { baseline, candidate }');
+  }
+  for (const name of names) {
+    const arm = cfg.arms[name];
+    const at = `arms.${name}`;
+    if (!arm || typeof arm !== 'object') throw configError(at, 'must be an object');
+    if (!isNonEmptyString(arm.paragraph)) throw configError(`${at}.paragraph`, 'must be a non-empty string');
+    if (arm.paragraph !== cfg.arms[names[0]].paragraph) throw configError(`${at}.paragraph`, `must equal arms.${names[0]}.paragraph: both arms get one prompt`);
+    if (!isStringArray(arm.pathAdd)) throw configError(`${at}.pathAdd`, 'must be an array of strings');
+    checkRegexList(`${at}.leak`, arm.leak);
+    if (arm.proof !== 'absent' && arm.proof !== 'loaded') throw configError(`${at}.proof`, 'must be "absent" or "loaded"');
+    if (arm.homeSetup === undefined) throw configError(`${at}.homeSetup`, 'must be present (null for an empty HOME)');
+    checkHomeSetup(`${at}.homeSetup`, arm.homeSetup);
+  }
+  if (cfg.arms[roles.baseline].proof !== 'absent' || cfg.arms[roles.candidate].proof !== 'loaded') {
+    throw configError('arms', 'the baseline arm must prove DoFlow absent and the candidate arm must prove it loaded');
+  }
+  if (typeof cfg.timeoutSeconds !== 'number' || !Number.isFinite(cfg.timeoutSeconds) || cfg.timeoutSeconds <= 0) throw configError('timeoutSeconds', 'must be a positive number');
+  if (cfg.maxTokensPerRun !== null && (!Number.isSafeInteger(cfg.maxTokensPerRun) || cfg.maxTokensPerRun <= 0)) {
+    throw configError('maxTokensPerRun', 'must be null (execute then refuses until it is set) or a positive integer');
+  }
+  const r = cfg.resume;
+  if (!r || !Number.isInteger(r.maxResumes) || r.maxResumes < 0 || !isNonEmptyString(r.reply) || typeof r.cumulative !== 'boolean') {
+    throw configError('resume', 'must be { maxResumes: integer >= 0, reply: string, cumulative: boolean }');
+  }
+  return { ...cfg, recipeData: recipe, recipeSha256: crypto.createHash('sha256').update(recipeText).digest('hex') };
+}
+
+/** The capture inputs both A/B arms must share; the per-arm homeSetup, PATH additions and leak lists differ by design. */
+function abCaptureSha256(config: any) {
+  const inputs = {
+    recipe: config.recipeSha256, model: config.model, path: config.path, timeoutSeconds: config.timeoutSeconds,
+    paragraph: config.arms[config.roles.baseline].paragraph, credentialEnv: config.credentialEnv, resume: config.resume,
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(inputs)).digest('hex');
+}
+
+/** The argv of one Claude run from the recipe; a resume adds `--resume <session id>` and sends the reply on stdin. */
+function abArgv(recipe: any, resumeSession: string | null = null) {
+  return [
+    ...recipe.argv.flatMap((e: any) => (e.value === undefined ? [e.flag] : [e.flag, e.value])),
+    ...(resumeSession ? ['--resume', resumeSession] : []),
+  ];
+}
+
+/** Names of the DoFlow skills and agents a tree projects; what `loadProof` expects arm B's init to list. */
+function expectedProof(treeRoot: string) {
+  const skills = path.join(treeRoot, 'core', 'shared', 'skills');
+  const agents = path.join(treeRoot, 'core', 'shared', 'agent-specs');
+  const list = (dir: string, keep: (e: any) => boolean, name: (e: any) => string) => {
+    try {
+      return fs.readdirSync(dir, { withFileTypes: true }).filter(keep).map(name).sort();
+    } catch {
+      return [];
+    }
+  };
+  return {
+    skills: list(skills, (e: any) => e.isDirectory() && fs.existsSync(path.join(skills, e.name, 'SKILL.md')), (e: any) => e.name),
+    agents: list(agents, (e: any) => e.isFile() && e.name.endsWith('.md'), (e: any) => e.name.replace(/\.md$/, '')),
+  };
+}
+
+function chooseTasks(set: any, only: any) {
+  if (only === undefined || only === null) return set.tasks;
+  const ids = typeof only === 'string' ? only.split(',').map((s: string) => s.trim()).filter(Boolean) : only;
+  if (!Array.isArray(ids) || ids.length === 0) throw new UsageError('tasks-empty', '--tasks must list at least one task id');
+  for (const id of ids) if (!set.tasks.some((t: any) => t.id === id)) throw new UsageError('task-unknown', `task id ${id} is not in the task set`);
+  return set.tasks.filter((t: any) => ids.includes(t.id));
+}
+
+/** Offline projection of one A/B iteration. Spawns nothing and runs no git. */
+function planAbIteration({ repoRoot = REPO_ROOT, config, taskSet, arm, iteration, tasks: only, runRoot }: any = {}) {
+  checkIteration(iteration);
+  if (!Object.prototype.hasOwnProperty.call(config.arms, arm)) {
+    throw new UsageError('arm-unknown', `arm "${arm}" is not in the config (arms: ${Object.keys(config.arms).join(', ')})`);
+  }
+  const root = runRoot || defaultRunRoot(repoRoot);
+  const set = taskSet || loadAbTaskSet({ repoRoot, config });
+  const chosen = chooseTasks(set, only);
+  const argv = [config.recipeData.binary, ...abArgv(config.recipeData)];
+  const runs = chosen.map((task: any) => {
+    const prompt = buildAbPrompt(task, config.arms[arm].paragraph);
+    return {
+      id: task.id, key: task.key, split: task.split, kind: task.kind, group: task.group,
+      runDir: runDirOf(root, iteration, task.id), argvShape: argv, promptSha256: promptSha256(prompt), promptBytes: Buffer.byteLength(prompt, 'utf8'),
+    };
+  });
+  const max = config.maxTokensPerRun;
+  const recorded = recordedTokens(root, config.model.label);
+  return {
+    arm, iteration, harness: config.recipeData.id, harnessBinary: config.recipeData.binary, harnessVersion: null,
+    model: config.model.label, snapshot: null, homeSetup: config.arms[arm].homeSetup ? config.arms[arm].homeSetup.argv : null,
+    credentialEnv: config.credentialEnv, runs,
+    projection: {
+      runs: runs.length, maxTokensPerRun: max, ceilingTokens: max === null ? null : runs.length * max,
+      typicalTokens: recorded.length === 0 ? null : Math.round(runs.length * median(recorded)),
+    },
+  };
+}
+
+/** The scratch profile of one A/B run: an empty HOME (mode 0700), the tool links and, for an arm that lists it, the `doflow` shim. No credential is copied. */
+function makeAbProfile({ config, arm, shimRoot, tmpDir, tools }: { config: any; arm: string | null; shimRoot?: any; tmpDir: string; tools: any }) {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(tmpDir, 'abprof-')));
+  try {
+    fs.chmodSync(dir, 0o700);
+    const home = path.join(dir, 'home');
+    fs.mkdirSync(home, { mode: 0o700 });
+    const binDir = makeToolBin(path.join(dir, 'bin'), tools);
+    const pathAddDirs = arm === null ? [] : config.arms[arm].pathAdd.map((entry: any) => {
+      if (entry !== SHIM_ENTRY) return entry;
+      if (!shimRoot) throw new Error('the arm needs the doflow shim but no tool tree was exported');
+      const shimDir = path.join(dir, 'shim');
+      fs.mkdirSync(shimDir, { mode: 0o700 });
+      const target = path.join(shimRoot, 'bin', 'doflow.js').replace(/'/g, "'\\''");
+      fs.writeFileSync(path.join(shimDir, 'doflow'), `#!/bin/sh\nexec node '${target}' "$@"\n`, { mode: 0o755 });
+      return shimDir;
+    });
+    return { dir, home, binDir, pathAddDirs };
+  } catch (e) {
+    removeTree(dir);
+    throw e;
+  }
+}
+
+/**
+ * The environment of a worker (or of a `homeSetup` step, `credentials: false`): fixed PATH, the scratch
+ * HOME, the recipe's per-run variables, the caller's TMPDIR/LANG/LC_ALL/TERM, and the credential only by
+ * the variable names the config lists. Nothing else of the caller's environment is passed on.
+ */
+function abEnv({ config, profile, env, extraEnv = {}, credentials }: { config: any; profile: any; env: any; extraEnv?: any; credentials: boolean }) {
+  const out: Record<string, string> = {
+    PATH: [profile.binDir, '/usr/bin', '/bin', ...profile.pathAddDirs].join(path.delimiter),
+    HOME: profile.home,
+  };
+  for (const e of config.recipeData.env?.perRun || []) {
+    if (typeof e.value === 'string') out[e.name] = e.value.replace(/\$HOME/g, profile.home);
+  }
+  for (const name of ENV_PASSTHROUGH) if (env[name] !== undefined) out[name] = env[name];
+  if (credentials) for (const name of config.credentialEnv) if (isNonEmptyString(env[name])) out[name] = env[name];
+  return { ...out, ...extraEnv };
+}
+
+/**
+ * The workspace of one A/B run: its own git root under the OS temp dir, holding only the task's files
+ * (`edit`: the native case's seed files; `review`: `git archive <rev> -- <scope>` of the checkout). The
+ * local git identity is set so a commit attempt does not fail differently per arm.
+ */
+function prepareAbWorkspace({ task, repoRoot, parent, home }: { task: any; repoRoot: string; parent: string; home: string }) {
+  const dir = fs.mkdtempSync(path.join(parent, 'abws-'));
+  const cleanup = () => fs.rmSync(dir, { recursive: true, force: true });
+  try {
+    const root = path.join(dir, 'workspace');
+    fs.mkdirSync(root);
+    if (task.kind === 'edit') {
+      for (const [file, content] of Object.entries(task.files) as [string, any][]) {
+        const target = path.join(root, file);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, content);
+      }
+    } else {
+      const archive = childProcess.spawnSync('git', ['-C', repoRoot, 'archive', task.review.rev, '--', ...task.review.scope], { maxBuffer: 1024 * 1024 * 512 });
+      if (archive.status !== 0) throw new Error(`git archive ${task.review.rev} failed: ${String(archive.stderr).trim() || archive.error}`);
+      const extract = childProcess.spawnSync('tar', ['-x', '-C', root], { input: archive.stdout, maxBuffer: 1024 * 1024 });
+      if (extract.status !== 0) throw new Error(`tar extract failed: ${String(extract.stderr).trim() || extract.error}`);
+    }
+    const held = WORKSPACE_FORBIDDEN.filter((name) => fs.existsSync(path.join(root, name)));
+    if (held.length) throw new Error(`the workspace of ${task.id} holds ${held.join(', ')}, which would show an arm project guidance`);
+    const env = { PATH: process.env.PATH || '/usr/bin:/bin', HOME: home, GIT_CONFIG_NOSYSTEM: '1' };
+    const identity = ['-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'user.name=bench', '-c', 'user.email=bench@localhost', '-c', 'commit.gpgsign=false'];
+    const steps = [['init', '-q'], ['config', 'user.name', 'bench'], ['config', 'user.email', 'bench@localhost'], ['add', '-A'], [...identity, 'commit', '-q', '--allow-empty', '-m', 'snapshot']];
+    for (const args of steps) {
+      const r = childProcess.spawnSync('git', args, { cwd: root, env, encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(`workspace git ${args.includes('commit') ? 'commit' : args[0]} failed: ${String(r.stderr).trim()}`);
+    }
+    return { root: fs.realpathSync(root), dir, cleanup };
+  } catch (e) {
+    cleanup();
+    throw e;
+  }
+}
+
+/** Runs an arm's `homeSetup` argv in the run's scratch HOME (no credential in its environment). */
+function runHomeSetup({ argv, shimRoot, profile, tools, childEnv }: { argv: string[]; shimRoot: string; profile: any; tools: any; childEnv: any }) {
+  const words = argv.map((a) => a.split(EXPORT_TOKEN).join(shimRoot));
+  const program = words[0] === 'node' ? (tools.node || process.execPath) : words[0];
+  const started = Date.now();
+  const r = childProcess.spawnSync(program, words.slice(1), { cwd: profile.dir, env: childEnv, encoding: 'utf8', timeout: HOME_SETUP_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 });
+  const tail = (text: any) => cutChars(String(text || '').trim().split('\n').slice(-12).join('\n'), 1500);
+  return {
+    ok: r.status === 0 && !r.error, exitCode: r.status ?? null, signal: r.signal ?? null, error: r.error ? cutChars(r.error.message, 200) : null,
+    argv, durationMs: Date.now() - started, stdoutTail: tail(r.stdout), stderrTail: tail(r.stderr),
+  };
+}
+
+/** Running total of the tokens a stream has reported so far: each assistant message once, at its largest usage. */
+function makeTokenWatch() {
+  const perMessage = new Map<string, number>();
+  let total = 0;
+  return (line: string): number => {
+    let ev: any;
+    try {
+      ev = JSON.parse(line);
+    } catch {
+      return total;
+    }
+    const u = ev?.type === 'assistant' ? ev.message?.usage : null;
+    const id = ev?.message?.id;
+    if (u && typeof id === 'string') {
+      const n = ['input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'].reduce((sum, k) => sum + (Number.isFinite(u[k]) && u[k] >= 0 ? u[k] : 0), 0);
+      const before = perMessage.get(id) ?? 0;
+      if (n > before) { perMessage.set(id, n); total += n - before; }
+    }
+    return total;
+  };
+}
+
+/** The recorded outcome of one A/B run: the last segment decides, a cap hit is `truncated` with `cap: true`. */
+function abStatusOf({ report, timedOut, spawnError, exitCode = null, signal = null, timeoutSeconds, capped, capEvidence }: any) {
+  const codes = { exitCode: exitCode ?? null, signal: signal ?? null };
+  if (timedOut) return { status: 'timeout', evidence: `no exit within ${timeoutSeconds}s`, ...codes };
+  if (spawnError) return { status: 'api-error', evidence: cutChars(`spawn failed: ${spawnError.code || spawnError.message}`, 200), ...codes };
+  if (capped) return { status: 'truncated', evidence: capEvidence, cap: true, ...codes };
+  if (report.status === 'failure') return { status: 'api-error', evidence: cutChars(report.reason || report.summary || 'failure', 200), ...codes };
+  if (signal) return { status: 'truncated', evidence: `ended by ${signal}`, ...codes };
+  if (report.status === 'unparsed') return { status: 'truncated', evidence: `unparsed: ${report.reason}`, ...codes };
+  if (exitCode !== 0) return { status: 'truncated', evidence: `exit code ${exitCode}`, ...codes };
+  return { status: 'completed', ...codes };
+}
+
+/**
+ * Runs the planned A/B tasks of one iteration under a token cap. Refuses (exit 2, nothing written, no
+ * process started) on every refusal of the retrieval executor plus: `maxTokensPerRun` unset (config
+ * `null` and no `maxTokensPerRun` option), no credential variable set, a review revision missing from
+ * the checkout, or an arm whose DoFlow proof list is empty. Exit 3 means the command cap stopped it
+ * before a run, or a run's real usage passed the cap.
+ */
+async function executeAbIteration(opts: any = {}) {
+  const {
+    repoRoot = REPO_ROOT, env = process.env, extraEnv = {}, tmpDir = os.tmpdir(), now = () => new Date(),
+  } = opts;
+  const grading = require('./grade.ts');
+  let plan: any; let taskSet: any; let config: any; let cap: any; let max: any; let binary: any; let tools: any;
+  let sourceAt: any; let iterDir: any; let runRoot: any; let present: string[] = [];
+  let lock: any = null;
+  try {
+    config = opts.config;
+    cap = parseCap(opts.cap);
+    max = opts.maxTokensPerRun !== undefined && opts.maxTokensPerRun !== null ? opts.maxTokensPerRun : config.maxTokensPerRun;
+    if (typeof max === 'string' && /^[1-9][0-9]*$/.test(max)) max = Number(max);
+    if (!Number.isSafeInteger(max) || max <= 0) {
+      throw new UsageError('max-tokens-missing', 'maxTokensPerRun is not set: the user approves the per-run cap at run time (config maxTokensPerRun, or --max-tokens-per-run <n>)');
+    }
+    runRoot = opts.runRoot || defaultRunRoot(repoRoot);
+    taskSet = opts.taskSet || loadAbTaskSet({ repoRoot, config });
+    plan = planAbIteration({ repoRoot, config, taskSet, arm: opts.arm, iteration: opts.iteration, tasks: opts.tasks, runRoot });
+    const status = git(repoRoot, ['status', '--porcelain']);
+    if (status.status !== 0) throw new UsageError('git-status-failed', `cannot read the working tree state of ${repoRoot}: ${String(status.stderr).trim()}`);
+    if (status.stdout.trim() !== '') throw new UsageError('tree-dirty', 'the working tree has uncommitted changes; commit or stash them before a measured run');
+    const head = git(repoRoot, ['rev-parse', 'HEAD']);
+    if (head.status !== 0) throw new UsageError('git-head-failed', `cannot read HEAD of ${repoRoot}`);
+    sourceAt = head.stdout.trim();
+
+    if (plan.runs.length * max > cap) {
+      throw new UsageError('over-cap', `ceiling ${plan.runs.length * max} tokens (${plan.runs.length} runs x ${max}) exceeds --cap ${cap}`);
+    }
+    present = config.credentialEnv.filter((n: string) => isNonEmptyString(env[n]));
+    if (present.length === 0) throw new UsageError('credential-missing', `none of ${config.credentialEnv.join(', ')} is set in the environment; the credential enters only by environment variable`);
+    binary = findOnPath(config.recipeData.binary, env.PATH);
+    if (!binary) throw new UsageError('harness-binary-missing', `harness binary "${config.recipeData.binary}" is not on PATH`);
+    tools = {} as Record<string, string>;
+    for (const tool of config.path) {
+      const found = findOnPath(tool, env.PATH);
+      if (!found) throw new UsageError('tool-missing', `tool "${tool}" from the config path list is not on PATH`);
+      tools[tool] = found;
+    }
+    for (const task of taskSet.tasks.filter((t: any) => plan.runs.some((r: any) => r.id === t.id && t.kind === 'review'))) {
+      const known = git(repoRoot, ['cat-file', '-e', `${task.review.rev}^{commit}`]);
+      if (known.status !== 0) throw new UsageError('review-rev-missing', `review task ${task.id}: revision ${task.review.rev} is not in ${repoRoot}`);
+    }
+    if (plan.homeSetup === null && config.arms[plan.arm].proof === 'loaded') throw new UsageError('arm-config', `arm ${plan.arm} must prove DoFlow loaded but has no homeSetup`);
+
+    iterDir = path.join(runRoot, plan.iteration);
+    checkRunRoot({ runRoot, iterDir, repoRoot, defaultRoot: path.resolve(runRoot) === path.resolve(defaultRunRoot(repoRoot)) });
+    lock = lockIteration(runRoot, iterDir);
+    const existing = plan.runs.filter((r: any) => fs.existsSync(r.runDir) || isLink(r.runDir)).map((r: any) => r.id);
+    if (existing.length > 0) throw new UsageError('run-exists', `run directory already exists for: ${existing.join(', ')}`);
+    const prior = readJsonIfPresent(path.join(iterDir, RUN_FILES.iteration));
+    if (prior && (prior.arm !== plan.arm || prior.model !== plan.model || prior.sourceAt !== sourceAt || prior.captureSha256 !== abCaptureSha256(config) || prior.mode !== 'ab')) {
+      throw new UsageError('iteration-mismatch', `iteration "${plan.iteration}" already exists with a different arm, model, source or capture config`);
+    }
+  } catch (e) {
+    lock?.release();
+    if (e instanceof UsageError) return refused(e);
+    throw e;
+  }
+
+  const scratch = new Set<string>();
+  const state: { proc: any; run: any; interrupted: any } = { proc: null, run: null, interrupted: null };
+  const cleanupScratch = () => {
+    const errors: any[] = [];
+    for (const dir of scratch) {
+      const err = removeTree(dir);
+      if (err) errors.push(err);
+      else scratch.delete(dir);
+    }
+    return errors;
+  };
+  const onSignal = (sig: any) => {
+    if (state.interrupted) return;
+    state.interrupted = sig;
+    const { proc, run } = state;
+    (async () => {
+      try {
+        if (proc) await processTree.escalate({ proc });
+        if (run) {
+          try {
+            writeJson(path.join(run.runDir, RUN_FILES.runStatus), { status: 'truncated', evidence: `executor interrupted by ${sig}`, exitCode: null, signal: null });
+            writeJson(path.join(run.runDir, RUN_FILES.timing), { duration_ms: now().getTime() - run.started, usage: 'unknown' });
+          } catch { /* launch.json alone already counts the run at maxTokensPerRun */ }
+        }
+        cleanupScratch();
+        lock.release();
+      } finally {
+        for (const s of STOP_SIGNALS) process.removeListener(s, onSignal);
+        process.kill(process.pid, sig);
+      }
+    })();
+  };
+  for (const s of STOP_SIGNALS) process.on(s, onSignal);
+  const halted = () => new Promise(() => {});
+
+  try {
+    const recipe = config.recipeData;
+    const armCfg = config.arms[plan.arm];
+    // The version check runs in its own scratch profile with no credential.
+    const versionProfile = makeAbProfile({ config, arm: null, tmpDir, tools });
+    scratch.add(versionProfile.dir);
+    const versionRun = childProcess.spawnSync(binary, recipe.versionArgv || ['--version'], {
+      env: abEnv({ config, profile: versionProfile, env, extraEnv, credentials: false }), encoding: 'utf8', timeout: 15000,
+    });
+    const versionErr = removeTree(versionProfile.dir);
+    if (versionErr) throw versionErr;
+    scratch.delete(versionProfile.dir);
+    if (state.interrupted) return halted();
+    const harnessVersion = versionRun.status === 0 ? (String(versionRun.stdout).split(/\r?\n/).find((l: string) => l.trim()) || '').trim() || null : null;
+
+    const needShim = armCfg.pathAdd.includes(SHIM_ENTRY) || armCfg.homeSetup !== null;
+    const shimRoot = needShim ? exportToolTree({ repoRoot, commit: sourceAt, tmpDir }) : null;
+    if (shimRoot) scratch.add(shimRoot);
+    const expected = shimRoot ? expectedProof(shimRoot) : { skills: [], agents: [] };
+    if (armCfg.proof === 'loaded' && (expected.skills.length === 0 || expected.agents.length === 0)) {
+      throw new Error('the pruned export projects no DoFlow skills or agents, so a loaded session could not be proven');
+    }
+
+    const iterationFile = path.join(iterDir, RUN_FILES.iteration);
+    if (!fs.existsSync(iterationFile)) {
+      writeJson(iterationFile, {
+        mode: 'ab', arm: plan.arm, model: plan.model, sourceAt, snapshot: null, harness: plan.harness, harnessVersion,
+        captureSha256: abCaptureSha256(config), maxTokensPerRun: max, startedAt: now().toISOString(),
+      });
+    }
+
+    const tasksById = new Map(taskSet.tasks.map((t: any) => [t.id, t]));
+    const ran: string[] = [];
+    const undone: string[] = [];
+    const detail: any[] = [];
+    let capExceeded = null;
+    for (let i = 0; i < plan.runs.length; i++) {
+      if (spentOf(iterDir, max) + max > cap) {
+        undone.push(...plan.runs.slice(i).map((r: any) => r.id));
+        break;
+      }
+      const run = plan.runs[i];
+      const task: any = tasksById.get(run.id);
+      const firstPrompt = buildAbPrompt(task, armCfg.paragraph);
+      fs.mkdirSync(run.runDir);
+      let profile: any = null;
+      let workspace: any = null;
+      let spawned = false;
+      let failed = false;
+      try {
+        profile = makeAbProfile({ config, arm: plan.arm, shimRoot, tmpDir, tools });
+        scratch.add(profile.dir);
+        workspace = prepareAbWorkspace({ task, repoRoot, parent: tmpDir, home: profile.home });
+        scratch.add(workspace.dir);
+
+        let homeSetup: any = null;
+        if (armCfg.homeSetup !== null) {
+          homeSetup = runHomeSetup({
+            argv: armCfg.homeSetup.argv, shimRoot, profile, tools,
+            childEnv: abEnv({ config, profile, env, extraEnv: {}, credentials: false }),
+          });
+          writeJson(path.join(run.runDir, HOME_SETUP_FILE), homeSetup);
+        }
+        const startedAt = now().toISOString();
+        writeJson(path.join(run.runDir, RUN_FILES.launch), {
+          key: run.key, mode: 'ab', arm: plan.arm, kind: task.kind, harness: plan.harness, harnessVersion, model: plan.model,
+          argvShape: run.argvShape, promptSha256: run.promptSha256, promptBytes: run.promptBytes,
+          toolProfile: { pathDirs: ['<profile>/bin'], tools, pathAdd: armCfg.pathAdd },
+          credentialEnvPresent: present, snapshot: null, sourceAt, startedAt,
+          homeSetup: homeSetup === null ? null : { ok: homeSetup.ok, exitCode: homeSetup.exitCode },
+          proofExpected: expected, workspaceRoot: workspace.root, profileRoot: profile.dir, maxTokensPerRun: max,
+        });
+        await new Promise((resolve) => setImmediate(resolve));
+        if (state.interrupted) return halted();
+        spawned = true; // from here the record stays
+
+        if (homeSetup !== null && !homeSetup.ok) {
+          writeJson(path.join(run.runDir, RUN_FILES.runStatus), { status: 'truncated', evidence: `homeSetup failed: exit ${homeSetup.exitCode ?? homeSetup.error}`, exitCode: null, signal: null });
+          writeJson(path.join(run.runDir, RUN_FILES.timing), { total_tokens: 0, duration_ms: 0, usage: 'reported', pauses: 0, resumes: 0, segments: 0 });
+          ran.push(run.id);
+          detail.push({ id: run.id, status: 'truncated', note: 'homeSetup failed, worker not started', tokens: 0, pauses: 0, resumes: 0 });
+          continue;
+        }
+
+        const childEnv = abEnv({ config, profile, env, extraEnv, credentials: true });
+        const startedMs = now().getTime();
+        const deadline = startedMs + config.timeoutSeconds * 1000;
+        state.run = { runDir: run.runDir, started: startedMs };
+        const watch = makeTokenWatch();
+        const reports: any[] = [];
+        const segments: any[] = [];
+        let capKilled = false;
+        let prompt = firstPrompt;
+        let resume: string | null = null;
+        let sessionId: string | null = null;
+        let pauses = 0;
+        let resumes = 0;
+        let unanswered = false;
+        let outcome: any = null;
+        for (let n = 1; ; n++) {
+          const file = n === 1 ? RUN_FILES.transcript : `transcript.${n}.jsonl`;
+          const parser = claudeStream.create();
+          let procRef: any = null;
+          outcome = await spawnHarness({
+            binary, argv: abArgv(recipe, resume), cwd: workspace.root, env: childEnv, prompt, viaStdin: true,
+            timeoutMs: Math.max(1, deadline - now().getTime()), transcriptFile: path.join(run.runDir, file),
+            lastMessageFile: path.join(profile.dir, 'none'), parser, now,
+            onSpawn: (proc) => { procRef = proc; state.proc = proc; },
+            onLine: (line) => {
+              if (watch(line) > max && !capKilled) {
+                capKilled = true;
+                if (procRef) processTree.escalate({ proc: procRef });
+              }
+            },
+          });
+          state.proc = null;
+          if (state.interrupted) return halted();
+          const report = outcome.report;
+          reports.push(report);
+          sessionId = report.sessionId ?? sessionId;
+          const seg: any = {
+            n, file, exitCode: outcome.exitCode ?? null, signal: outcome.signal ?? null, durationMs: outcome.durationMs,
+            status: report.status, sessionId: report.sessionId, asked: report.questions.any, replied: false,
+          };
+          segments.push(seg);
+          if (outcome.timedOut || outcome.spawnError || outcome.signal || capKilled || report.status !== 'success') break;
+          if (!report.questions.any) break;
+          pauses++;
+          if (resumes >= config.resume.maxResumes || !sessionId) { unanswered = true; break; }
+          if (grading.aggregateReports(reports, config.resume.cumulative).totalTokens > max || deadline - now().getTime() <= 0) break;
+          seg.replied = true;
+          resumes++;
+          prompt = config.resume.reply;
+          resume = sessionId;
+        }
+        const totals = grading.aggregateReports(reports, config.resume.cumulative);
+        const over = totals.usage === 'reported' && totals.totalTokens > max;
+        const capped = capKilled || over;
+        const last = reports[reports.length - 1];
+        if (state.interrupted) return halted();
+        const status = abStatusOf({
+          ...outcome, report: last, timeoutSeconds: config.timeoutSeconds, capped,
+          capEvidence: `cap: ${totals.usage === 'reported' ? totals.totalTokens : 'in-flight total'} tokens passed maxTokensPerRun ${max}`,
+        });
+        writeJson(path.join(run.runDir, RUN_FILES.runStatus), status);
+        writeJson(path.join(run.runDir, SEGMENTS_FILE), { segments, pauses, resumes, unansweredPause: unanswered });
+        if (last.finalText) fs.writeFileSync(path.join(run.runDir, RUN_FILES.lastMessage), last.finalText);
+        writeJson(path.join(run.runDir, RUN_FILES.timing), {
+          ...(totals.usage === 'reported' ? { total_tokens: totals.totalTokens } : {}),
+          duration_ms: now().getTime() - startedMs, usage: totals.usage, cost_usd: totals.costUsd, pauses, resumes, segments: segments.length,
+        });
+        if (task.kind === 'edit') {
+          fs.cpSync(workspace.root, path.join(run.runDir, WORKSPACE_DIR), {
+            recursive: true, filter: (src: string) => !['.git', 'node_modules'].includes(path.basename(src)),
+          });
+        } else {
+          const produced = path.join(workspace.root, REVIEW_FILE);
+          try {
+            if (fs.lstatSync(produced).isFile() && fs.statSync(produced).size <= ARTIFACT_MAX_BYTES) fs.copyFileSync(produced, path.join(run.runDir, REVIEW_FILE));
+          } catch { /* no review.json: the adapter counts that a miss */ }
+        }
+        ran.push(run.id);
+        detail.push({ id: run.id, status: status.status, tokens: totals.usage === 'reported' ? totals.totalTokens : null, pauses, resumes, capped });
+      } catch (e) {
+        failed = true;
+        if (!spawned) removeTree(run.runDir);
+        throw e;
+      } finally {
+        state.run = null;
+        if (!state.interrupted) {
+          const errors = [];
+          for (const dir of [workspace?.dir, profile?.dir]) {
+            if (!dir) continue;
+            const err = removeTree(dir);
+            if (err) errors.push(err);
+            else scratch.delete(dir);
+          }
+          if (errors.length && !failed) throw errors[0]; // eslint-disable-line no-unsafe-finally
+        }
+      }
+      const spent = spentOf(iterDir, max);
+      if (spent > cap) {
+        capExceeded = { by: spent - cap, task: run.id };
+        undone.push(...plan.runs.slice(i + 1).map((r: any) => r.id));
+        break;
+      }
+    }
+    return { exit: undone.length > 0 || capExceeded ? 3 : 0, ran, undone, spent: spentOf(iterDir, max), detail, ...(capExceeded ? { capExceeded } : {}) };
+  } finally {
+    if (!state.interrupted) {
+      for (const s of STOP_SIGNALS) process.removeListener(s, onSignal);
+      const errors = cleanupScratch();
+      lock.release();
+      if (errors.length) throw errors[0]; // eslint-disable-line no-unsafe-finally
+    }
+  }
+}
+
 module.exports = {
-  CONFIG_PATH, RUN_FILES, SHIM_ENTRY, TOOL_TREE,
+  CONFIG_PATH, RUN_FILES, SHIM_ENTRY, TOOL_TREE, SEGMENTS_FILE, HOME_SETUP_FILE, WORKSPACE_DIR,
+  loadAbConfig, abCaptureSha256, abArgv, expectedProof, makeTokenWatch,
   loadConfig, selectHarness, insertModelArgv, planIteration, executeIteration, prepareWorkspace,
   runDirOf, readIteration, captureSha256, usageOf, statusOf,
 };
