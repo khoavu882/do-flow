@@ -57,6 +57,7 @@ test('the committed A/B config loads, names two roles and leaves the per-run cap
   assert.equal(config.mode, 'ab');
   assert.deepEqual(config.roles, { baseline: 'A', candidate: 'B' });
   assert.equal(config.maxTokensPerRun, null, 'the user approves the cap at run time');
+  assert.equal(config.maxBudgetUsd, null, 'and the dollar hard stop');
   assert.equal(config.arms.A.homeSetup, null);
   assert.deepEqual(config.arms.B.homeSetup.argv.slice(-2), ['--mcp', 'none']);
   assert.equal(config.arms.A.paragraph, config.arms.B.paragraph);
@@ -504,4 +505,15 @@ test('fix 3: the recipe sets CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 for every run', 
   const entry = CONFIG.recipeData.env.perRun.find((e: any) => e.name === 'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB');
   assert.equal(entry.value, '1');
   assert.ok(CONFIG.recipeData.unverified.some((u: string) => u.includes('SUBPROCESS_ENV_SCRUB')), 'its CLAUDE_CONFIG_DIR side effect is listed as unverified');
+});
+
+test('fix 8: maxBudgetUsd must be present and null or a positive number', () => {
+  assert.match(refusal((c) => { delete c.maxBudgetUsd; })?.message ?? '', /maxBudgetUsd/);
+  assert.match(refusal((c) => { c.maxBudgetUsd = 0; })?.message ?? '', /maxBudgetUsd/);
+  assert.match(refusal((c) => { c.maxBudgetUsd = '3'; })?.message ?? '', /maxBudgetUsd/);
+  assert.equal(refusal((c) => { c.maxBudgetUsd = 3.5; }), null);
+  assert.deepEqual(execute.abArgv({ argv: [{ flag: '-p' }] }, 'sess', 3.5), ['-p', '--max-budget-usd', '3.5', '--resume', 'sess']);
+  assert.equal(execute.parseBudget('2.5'), 2.5);
+  assert.equal(execute.parseBudget(null), null);
+  assert.equal(execute.parseBudget('abc'), null);
 });

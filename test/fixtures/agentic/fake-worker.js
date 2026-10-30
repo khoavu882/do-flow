@@ -47,7 +47,7 @@
  * call), AB_FAKE_SEEN (credential variable names whose values are checked, never written).
  *   scenario = { "tasks": { "<id>": { "match": "<substring of the first prompt>", "A": <spec>, "B": <spec> } },
  *                "cumulative": true }
- *   <spec> = { "behaviour": "ok"|"timeout"|"api-error"|"silent"|"hang-after-usage" (default ok),
+ *   <spec> = { "behaviour": "ok"|"timeout"|"api-error"|"budget"|"silent"|"hang-after-usage" (default ok),
  *              "files": { "<path>": "<content>" }, "reviewJson": [...], "reviewRaw": "<text>",
  *              "commands": [...], "reads": [...], "skills": [...], "subagents": [{ "type", "model", "tokens" }],
  *              "usage": { "input", "output", "cacheCreation", "cacheRead" }, "costUsd": n,
@@ -303,6 +303,16 @@ function claudeMain(prompt) {
   }
   if (behaviour === 'api-error') {
     emit({ type: 'result', subtype: 'success', is_error: true, api_error_status: 529, result: 'overloaded', session_id: sessionId });
+    process.exit(1);
+  }
+
+  if (behaviour === 'budget') {
+    // The harness stopped at --max-budget-usd: a failure result with the budget subtype, after some spend.
+    emit({
+      type: 'result', subtype: 'error_max_budget_usd', is_error: true, api_error_status: null, num_turns: 3, session_id: sessionId, total_cost_usd: 1.5,
+      usage: { input_tokens: 10, output_tokens: 20, cache_creation_input_tokens: 300, cache_read_input_tokens: 4000 },
+      modelUsage: { 'claude-sonnet-5-5': { inputTokens: 10, outputTokens: 20, cacheCreationInputTokens: 300, cacheReadInputTokens: 4000, costUSD: 1.5 } },
+    });
     process.exit(1);
   }
 

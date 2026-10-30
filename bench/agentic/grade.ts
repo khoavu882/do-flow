@@ -778,7 +778,7 @@ function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; 
       byModel: agg.usage === 'reported' ? agg.byModel : null,
       costUsd: agg.costUsd,
       wallMs: Number.isFinite(timing.duration_ms) ? timing.duration_ms : null,
-      capTokens: censored === 'cap' && Number.isSafeInteger(launch.maxTokensPerRun) ? launch.maxTokensPerRun : null,
+      capTokens: censored === 'cap' && statusRec?.budget !== true && Number.isSafeInteger(launch.maxTokensPerRun) ? launch.maxTokensPerRun : null,
       turns: agg.turns,
       toolCalls: agg.toolCalls,
       toolCounts: agg.toolCounts,

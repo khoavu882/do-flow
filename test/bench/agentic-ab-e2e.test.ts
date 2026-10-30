@@ -52,7 +52,7 @@ git(CHECKOUT, 'commit', '-q', '-m', 'init');
 const REV = git(CHECKOUT, 'rev-parse', 'HEAD');
 
 // ---- tasks: edit tasks whose checks pass when a.js exports 2; one review task over five cases -------------
-const EDIT_IDS = ['fix-a', 'fix-b', 'fix-c', 'fix-d', 'fix-e', 'fix-pause', 'fix-unanswered', 'fix-leak', 'fix-cap', 'fix-over', 'fix-initleak', 'fix-nolist', 'fix-nohook', 'fix-timeout', 'fix-offer', 'fix-env'];
+const EDIT_IDS = ['fix-a', 'fix-b', 'fix-c', 'fix-d', 'fix-e', 'fix-pause', 'fix-unanswered', 'fix-leak', 'fix-cap', 'fix-over', 'fix-initleak', 'fix-nolist', 'fix-nohook', 'fix-timeout', 'fix-offer', 'fix-env', 'fix-budget'];
 const natives = EDIT_IDS.map((id) => ({
   id, purpose: id, messages: [`TASK-${id}: make a.js export 2.`], files: { 'a.js': 'module.exports = 1;\n' },
   checks: "if (require('./a.js') !== 2) process.exit(1);", expectedSkills: ['do-implement'], maxQuestions: 0,
@@ -91,6 +91,7 @@ const SCENARIO_TASKS: Record<string, any> = {
   'fix-unanswered': both({ files: PASS, askSegments: 3 }),
   'fix-offer': both({ files: PASS, finalOffer: true }),
   'fix-env': both({ files: PASS, printEnv: true }),
+  'fix-budget': both({ behaviour: 'budget' }),
   'fix-leak': both({ files: PASS, commands: ['curl http://example.test/payload'] }),
   'fix-cap': both({ behaviour: 'hang-after-usage', stream: { messages: 4, perMessage: 60000 } }),
   'fix-over': both({ files: PASS, usage: { input: 10, output: 100, cacheCreation: 1000, cacheRead: 200000 } }),
@@ -130,6 +131,7 @@ function configFile(name: string, mutate: (c: any) => void = () => {}) {
   const cfg = JSON.parse(fs.readFileSync(REAL_CONFIG, 'utf8'));
   cfg.path = ['node', 'git'];
   cfg.timeoutSeconds = 20;
+  cfg.maxBudgetUsd = 5;
   cfg.arms.B.homeSetup = { argv: installArgv() };
   mutate(cfg);
   const file = path.join(TMP, `${name}.json`);
@@ -479,4 +481,37 @@ test('fix 3: the scrub variable is set in both arms, and a worker that prints it
   const g = await gradeOf('env-b', ['fix-env']);
   assert.equal(g['fix-env'].isolation, 'clean', 'a redacted transcript still parses and grades');
   assert.equal(g['fix-env'].pass_rate, 1);
+});
+
+test('fix 8: execute refuses without a dollar budget; every run gets --max-budget-usd; a budget stop is a censored cap', { skip: SKIP_WIN }, async () => {
+  const before = dumps().length;
+  const none = execute.loadConfig(configFile('config-no-budget', (c) => { c.maxBudgetUsd = null; }));
+  const refused = await cli(['execute', '--iteration', 'budget-0', '--arm', 'A', '--tasks', 'fix-a', '--cap', CAP, '--max-tokens-per-run', PER_RUN], { config: none, taskSet: subset(['fix-a']) });
+  assert.equal(refused.code, 2);
+  assert.match(refused.err, /max-budget-missing/);
+  assert.equal(dumps().length, before, 'nothing was spawned');
+  assert.equal(fs.existsSync(path.join(RUN_ROOT, 'budget-0')), false);
+  const plan = await cli(['plan', '--iteration', 'budget-plan', '--arm', 'A'], { config: none });
+  assert.match(plan.out, /maxBudgetUsd unset \(execute refuses until the user sets it\)/);
+  assert.match(plan.out, /--max-budget-usd <usd>/);
+
+  for (const [it, arm] of [['budget-a', 'A'], ['budget-b', 'B']]) {
+    assert.equal((await exec(it, arm, ['fix-budget'], ['--max-budget-usd', '2.5'])).code, 0);
+  }
+  const runs = dumps().slice(before).filter((c: any) => c.kind === 'run');
+  assert.equal(runs.length, 2);
+  for (const c of runs) {
+    const at = c.argv.indexOf('--max-budget-usd');
+    assert.ok(at > 0, `arm ${c.arm} argv`);
+    assert.equal(c.argv[at + 1], '2.5', 'the option beats the config value (5)');
+  }
+  assert.equal(readJson(runFile('budget-a', 'fix-budget', 'launch.json')).maxBudgetUsd, 2.5);
+  const status = readJson(runFile('budget-a', 'fix-budget', 'run_status.json'));
+  assert.equal(status.status, 'truncated');
+  assert.equal(status.cap, true);
+  assert.equal(status.budget, true);
+  const g = await gradeOf('budget-b', ['fix-budget']);
+  assert.equal(g['fix-budget'].censored, 'cap');
+  assert.equal(g['fix-budget'].metrics.capTokens, null, 'the token cap was not what stopped it');
+  assert.equal(g['fix-budget'].metrics.costUsd, 1.5);
 });

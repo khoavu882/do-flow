@@ -30,7 +30,7 @@ const REPO_ROOT = path.join(__dirname, '..', '..');
 const BENCH_CONFIG = path.join(__dirname, '..', 'config.json');
 const VERB_FLAGS = Object.freeze({
   plan: { iteration: 'value', arm: 'value', tasks: 'value', config: 'value', json: 'bool' },
-  execute: { iteration: 'value', arm: 'value', cap: 'value', tasks: 'value', config: 'value', 'max-tokens-per-run': 'value', json: 'bool' },
+  execute: { iteration: 'value', arm: 'value', cap: 'value', tasks: 'value', config: 'value', 'max-tokens-per-run': 'value', 'max-budget-usd': 'value', json: 'bool' },
   grade: { iteration: 'value', config: 'value', corpus: 'value', json: 'bool' },
   noise: { iterations: 'value', out: 'value', config: 'value', corpus: 'value', json: 'bool' },
   report: { iterations: 'value', noise: 'value', 'decision-out': 'value', config: 'value', corpus: 'value', 'fixed-cost': 'value', json: 'bool' },
@@ -44,6 +44,7 @@ const USAGE = `usage: bench agentic <verb> [flags]
   report  --iterations <a,b,c> [--noise <file>] [--decision-out <file>] [--json]  arm D decision and token report
 every verb takes --config <file> (default bench/agentic/config.json); the with/without-DoFlow A/B uses bench/agentic/ab/config.json:
   execute ... --max-tokens-per-run <n>   the per-run token cap the user approves (the A/B config holds null until then)
+  execute ... --max-budget-usd <usd>     the per-run dollar hard stop the user approves, passed to claude as --max-budget-usd (null until then)
   grade|noise|report ... --corpus <file>  review-miss corpus for the review task (default bench/runs/review-miss/corpus.json)
   report ... --fixed-cost <file>          the fixed-cost table input (A/B Part 3)`;
 
@@ -97,19 +98,20 @@ function abPaidStages({ taskSet, config, k }: { taskSet: any; config: any; k: nu
   const rehearsal = taskSet.tasks[0].id;
   const cap = config.maxTokensPerRun;
   const perRun = cap === null ? '<n>' : String(cap);
+  const budget = config.maxBudgetUsd === null ? '<usd>' : String(config.maxBudgetUsd);
   const ceiling = cap === null ? '<tasks x n x repeats x 2>' : String(taskSet.tasks.length * cap * 2 * k);
   const cfg = '--config bench/agentic/ab/config.json';
   const reps = (prefix: string) => Array.from({ length: k }, (_, i) => `${prefix}-r${i + 1}`);
   const aIts = reps(a.toLowerCase());
   const bIts = reps(b.toLowerCase());
-  const run = (arm: string, it: string, tail = '') => `${STAGE_PREFIX} execute ${cfg} --iteration ${it} --arm ${arm}${tail} --max-tokens-per-run ${perRun} --cap ${cap === null ? '<total>' : (tail ? cap : cap * taskSet.tasks.length)}`;
+  const run = (arm: string, it: string, tail = '') => `${STAGE_PREFIX} execute ${cfg} --iteration ${it} --arm ${arm}${tail} --max-tokens-per-run ${perRun} --max-budget-usd ${budget} --cap ${cap === null ? '<total>' : (tail ? cap : cap * taskSet.tasks.length)}`;
   return {
     R: [a, b].map((arm) => run(arm, `rehearsal-${arm.toLowerCase()}`, ` --tasks ${rehearsal}`)),
     interleaved: aIts.flatMap((it, i) => [run(a, it), run(b, bIts[i])]),
     grade: [...aIts, ...bIts].map((it) => `${STAGE_PREFIX} grade ${cfg} --iteration ${it}`),
     noise: `${STAGE_PREFIX} noise ${cfg} --iterations ${aIts.join(',')} --out bench/agentic/results/ab-noise.json`,
     report: `${STAGE_PREFIX} report ${cfg} --iterations ${bIts.join(',')} --noise bench/agentic/results/ab-noise.json --fixed-cost <file> --decision-out bench/agentic/results/ab-decision.json`,
-    note: `Paid: needs the user's approval of the per-run cap, the model and the credential environment variable (${config.credentialEnv.join(' or ')}) before it runs. Run one at a time on an idle machine. Ceiling for the whole A/B: ${ceiling} tokens.`,
+    note: `Paid: needs the user's approval of the per-run token cap and dollar hard stop, the model and the credential environment variable (${config.credentialEnv.join(' or ')}) before it runs. Run one at a time on an idle machine. Ceiling for the whole A/B: ${ceiling} tokens.`,
   };
 }
 
@@ -130,6 +132,7 @@ function cmdAbPlan(ctx: any, flags: any) {
     ctx.out(`| ${r.id} | ${r.key} | ${r.kind} | ${r.group} | ${rel(repoRoot, r.runDir)} | ${r.argvShape.join(' ')} < <prompt sha256:${r.promptSha256} bytes:${r.promptBytes}> |`);
   }
   ctx.out(`projection: runs ${p.runs}, maxTokensPerRun ${p.maxTokensPerRun === null ? 'unset (execute refuses until the user sets it)' : p.maxTokensPerRun}, ceilingTokens ${p.ceilingTokens ?? 'unknown'}, typicalTokens ${p.typicalTokens ?? 'unknown'}`);
+  ctx.out(`maxBudgetUsd ${plan.maxBudgetUsd === null ? 'unset (execute refuses until the user sets it)' : plan.maxBudgetUsd}: passed to every claude run as --max-budget-usd`);
   ctx.out(`credential: environment variable ${plan.credentialEnv.join(' or ')} only; never written to disk or logged`);
   ctx.out('paid stages (text only, never run by plan):');
   for (const line of stages.R) ctx.out(`  stage R (rehearsal): ${line}`);
@@ -190,7 +193,7 @@ async function cmdExecute(ctx: any, flags: any) {
   const result = await execute.executeIteration({
     repoRoot: ctx.repoRoot, config: ctx.config, registry: ctx.registry, taskSet: ctx.taskSet, runRoot: ctx.runRoot,
     env: ctx.env, sourceHome: ctx.sourceHome, tmpDir: ctx.tmpDir, materialise: ctx.materialise, now: ctx.now,
-    iteration: flags.iteration, arm: flags.arm, cap: flags.cap, tasks: flags.tasks, maxTokensPerRun: flags['max-tokens-per-run'],
+    iteration: flags.iteration, arm: flags.arm, cap: flags.cap, tasks: flags.tasks, maxTokensPerRun: flags['max-tokens-per-run'], maxBudgetUsd: flags['max-budget-usd'],
   });
   if (result.exit === 2) {
     ctx.err(`agentic execute: refused (${result.reason}): ${result.refusal}`);

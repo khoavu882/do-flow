@@ -1120,6 +1120,10 @@ function loadAbConfig(cfg: any) {
   if (cfg.maxTokensPerRun !== null && (!Number.isSafeInteger(cfg.maxTokensPerRun) || cfg.maxTokensPerRun <= 0)) {
     throw configError('maxTokensPerRun', 'must be null (execute then refuses until it is set) or a positive integer');
   }
+  if (cfg.maxBudgetUsd === undefined) throw configError('maxBudgetUsd', 'must be present: null until the user approves a dollar cap at run time');
+  if (cfg.maxBudgetUsd !== null && (typeof cfg.maxBudgetUsd !== 'number' || !Number.isFinite(cfg.maxBudgetUsd) || cfg.maxBudgetUsd <= 0)) {
+    throw configError('maxBudgetUsd', 'must be null (execute then refuses until it is set) or a positive number of US dollars');
+  }
   const r = cfg.resume;
   if (!r || !Number.isInteger(r.maxResumes) || r.maxResumes < 0 || !isNonEmptyString(r.reply) || typeof r.cumulative !== 'boolean') {
     throw configError('resume', 'must be { maxResumes: integer >= 0, reply: string, cumulative: boolean }');
@@ -1137,11 +1141,18 @@ function abCaptureSha256(config: any) {
 }
 
 /** The argv of one Claude run from the recipe; a resume adds `--resume <session id>` and sends the reply on stdin. */
-function abArgv(recipe: any, resumeSession: string | null = null) {
+function abArgv(recipe: any, resumeSession: string | null = null, maxBudgetUsd: number | string | null = null) {
   return [
     ...recipe.argv.flatMap((e: any) => (e.value === undefined ? [e.flag] : [e.flag, e.value])),
+    ...(maxBudgetUsd === null ? [] : ['--max-budget-usd', String(maxBudgetUsd)]),
     ...(resumeSession ? ['--resume', resumeSession] : []),
   ];
+}
+
+/** The dollar hard stop of a run: the option, else the config; a number above 0, or null. */
+function parseBudget(value: any): number | null {
+  const n = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : null;
 }
 
 /** Names of the DoFlow skills and agents a tree projects; what `loadProof` expects arm B's init to list. */
@@ -1170,7 +1181,7 @@ function chooseTasks(set: any, only: any) {
 }
 
 /** Offline projection of one A/B iteration. Spawns nothing and runs no git. */
-function planAbIteration({ repoRoot = REPO_ROOT, config, taskSet, arm, iteration, tasks: only, runRoot }: any = {}) {
+function planAbIteration({ repoRoot = REPO_ROOT, config, taskSet, arm, iteration, tasks: only, runRoot, maxBudgetUsd }: any = {}) {
   checkIteration(iteration);
   if (!Object.prototype.hasOwnProperty.call(config.arms, arm)) {
     throw new UsageError('arm-unknown', `arm "${arm}" is not in the config (arms: ${Object.keys(config.arms).join(', ')})`);
@@ -1178,7 +1189,8 @@ function planAbIteration({ repoRoot = REPO_ROOT, config, taskSet, arm, iteration
   const root = runRoot || defaultRunRoot(repoRoot);
   const set = taskSet || loadAbTaskSet({ repoRoot, config });
   const chosen = chooseTasks(set, only);
-  const argv = [config.recipeData.binary, ...abArgv(config.recipeData)];
+  const budget = parseBudget(maxBudgetUsd ?? config.maxBudgetUsd);
+  const argv = [config.recipeData.binary, ...abArgv(config.recipeData, null, budget === null ? '<usd>' : budget)];
   const runs = chosen.map((task: any) => {
     const prompt = buildAbPrompt(task, config.arms[arm].paragraph);
     return {
@@ -1191,7 +1203,7 @@ function planAbIteration({ repoRoot = REPO_ROOT, config, taskSet, arm, iteration
   return {
     arm, iteration, harness: config.recipeData.id, harnessBinary: config.recipeData.binary, harnessVersion: null,
     model: config.model.label, snapshot: null, homeSetup: config.arms[arm].homeSetup ? config.arms[arm].homeSetup.argv : null,
-    credentialEnv: config.credentialEnv, runs,
+    credentialEnv: config.credentialEnv, maxBudgetUsd: budget, runs,
     projection: {
       runs: runs.length, maxTokensPerRun: max, ceilingTokens: max === null ? null : runs.length * max,
       typicalTokens: recorded.length === 0 ? null : Math.round(runs.length * median(recorded)),
@@ -1364,6 +1376,7 @@ function abStatusOf({ report, timedOut, spawnError, exitCode = null, signal = nu
   if (timedOut) return { status: 'timeout', evidence: `no exit within ${timeoutSeconds}s`, ...codes };
   if (spawnError) return { status: 'api-error', evidence: cutChars(`spawn failed: ${spawnError.code || spawnError.message}`, 200), ...codes };
   if (capped) return { status: 'truncated', evidence: capEvidence, cap: true, ...codes };
+  if (report.reason === 'error_max_budget_usd') return { status: 'truncated', evidence: 'budget: the harness stopped at --max-budget-usd (result subtype error_max_budget_usd)', cap: true, budget: true, ...codes };
   if (report.status === 'failure') return { status: 'api-error', evidence: cutChars(report.reason || report.summary || 'failure', 200), ...codes };
   if (signal) return { status: 'truncated', evidence: `ended by ${signal}`, ...codes };
   if (report.status === 'unparsed') return { status: 'truncated', evidence: `unparsed: ${report.reason}`, ...codes };
@@ -1383,7 +1396,7 @@ async function executeAbIteration(opts: any = {}) {
     repoRoot = REPO_ROOT, env = process.env, extraEnv = {}, tmpDir = os.tmpdir(), now = () => new Date(),
   } = opts;
   const grading = require('./grade.ts');
-  let plan: any; let taskSet: any; let config: any; let cap: any; let max: any; let binary: any; let tools: any;
+  let plan: any; let taskSet: any; let config: any; let cap: any; let max: any; let budget: number | null = null; let binary: any; let tools: any;
   let sourceAt: any; let iterDir: any; let runRoot: any; let present: string[] = []; let expected: any;
   let lock: any = null;
   try {
@@ -1394,9 +1407,13 @@ async function executeAbIteration(opts: any = {}) {
     if (!Number.isSafeInteger(max) || max <= 0) {
       throw new UsageError('max-tokens-missing', 'maxTokensPerRun is not set: the user approves the per-run cap at run time (config maxTokensPerRun, or --max-tokens-per-run <n>)');
     }
+    budget = parseBudget(opts.maxBudgetUsd ?? config.maxBudgetUsd);
+    if (budget === null) {
+      throw new UsageError('max-budget-missing', 'maxBudgetUsd is not set: the user approves the per-run dollar hard stop at run time (config maxBudgetUsd, or --max-budget-usd <usd>)');
+    }
     runRoot = opts.runRoot || defaultRunRoot(repoRoot);
     taskSet = opts.taskSet || loadAbTaskSet({ repoRoot, config });
-    plan = planAbIteration({ repoRoot, config, taskSet, arm: opts.arm, iteration: opts.iteration, tasks: opts.tasks, runRoot });
+    plan = planAbIteration({ repoRoot, config, taskSet, arm: opts.arm, iteration: opts.iteration, tasks: opts.tasks, runRoot, maxBudgetUsd: budget });
     const status = git(repoRoot, ['status', '--porcelain']);
     if (status.status !== 0) throw new UsageError('git-status-failed', `cannot read the working tree state of ${repoRoot}: ${String(status.stderr).trim()}`);
     if (status.stdout.trim() !== '') throw new UsageError('tree-dirty', 'the working tree has uncommitted changes; commit or stash them before a measured run');
@@ -1506,7 +1523,7 @@ async function executeAbIteration(opts: any = {}) {
     if (!fs.existsSync(iterationFile)) {
       writeJson(iterationFile, {
         mode: 'ab', arm: plan.arm, model: plan.model, sourceAt, snapshot: null, harness: plan.harness, harnessVersion,
-        captureSha256: abCaptureSha256(config), maxTokensPerRun: max, startedAt: now().toISOString(),
+        captureSha256: abCaptureSha256(config), maxTokensPerRun: max, maxBudgetUsd: budget, startedAt: now().toISOString(),
       });
     }
 
@@ -1549,7 +1566,7 @@ async function executeAbIteration(opts: any = {}) {
           toolProfile: { pathDirs: ['<profile>/bin'], tools, pathAdd: armCfg.pathAdd },
           credentialEnvPresent: present, snapshot: null, sourceAt, startedAt,
           homeSetup: homeSetup === null ? null : { ok: homeSetup.ok, exitCode: homeSetup.exitCode },
-          proofExpected: expected, workspaceRoot: workspace.root, profileRoot: profile.dir, maxTokensPerRun: max,
+          proofExpected: expected, workspaceRoot: workspace.root, profileRoot: profile.dir, maxTokensPerRun: max, maxBudgetUsd: budget,
         });
         await new Promise((resolve) => setImmediate(resolve));
         if (state.interrupted) return halted();
@@ -1584,7 +1601,7 @@ async function executeAbIteration(opts: any = {}) {
           const parser = claudeStream.create();
           let procRef: any = null;
           outcome = await spawnHarness({
-            binary, argv: abArgv(recipe, resume), cwd: workspace.root, env: childEnv, prompt, viaStdin: true,
+            binary, argv: abArgv(recipe, resume, budget), cwd: workspace.root, env: childEnv, prompt, viaStdin: true,
             timeoutMs: Math.max(1, deadline - now().getTime()), transcriptFile: path.join(run.runDir, file),
             lastMessageFile: path.join(profile.dir, 'none'), parser, now, redact,
             onSpawn: (proc) => { procRef = proc; state.proc = proc; },
@@ -1684,7 +1701,7 @@ async function executeAbIteration(opts: any = {}) {
 
 module.exports = {
   CONFIG_PATH, RUN_FILES, SHIM_ENTRY, TOOL_TREE, SEGMENTS_FILE, HOME_SETUP_FILE, WORKSPACE_DIR,
-  loadAbConfig, abCaptureSha256, abArgv, expectedProof, makeTokenWatch, makeRedactor, redactTree,
+  loadAbConfig, abCaptureSha256, abArgv, parseBudget, expectedProof, makeTokenWatch, makeRedactor, redactTree,
   loadConfig, selectHarness, insertModelArgv, planIteration, executeIteration, prepareWorkspace,
   runDirOf, readIteration, captureSha256, usageOf, statusOf,
 };

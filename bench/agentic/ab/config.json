@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "mode": "ab",
-  "comment": "With/without-DoFlow A/B (plan: agent-docs/briefs/ab-bench-plan-result.md). Arm A is bare Claude (empty scratch HOME), arm B has DoFlow installed in its scratch HOME (decision D1: --mcp none). maxTokensPerRun is null on purpose: execute refuses until the user approves a cap at run time (config edit or --max-tokens-per-run). Credentials enter only through the environment variables named in credentialEnv.",
+  "comment": "With/without-DoFlow A/B (plan: agent-docs/briefs/ab-bench-plan-result.md). Arm A is bare Claude (empty scratch HOME), arm B has DoFlow installed in its scratch HOME (decision D1: --mcp none). maxTokensPerRun and maxBudgetUsd are null on purpose: execute refuses until the user approves both at run time (config edit, or --max-tokens-per-run and --max-budget-usd). maxBudgetUsd is passed to every Claude run as --max-budget-usd, a hard dollar stop beside the token cap. Credentials enter only through the environment variables named in credentialEnv.",
   "recipe": "bench/agentic/ab/recipe.json",
   "tasksFile": "bench/agentic/ab/tasks.json",
   "nativeCases": "bench/native/cases.json",
@@ -61,6 +61,7 @@
   },
   "timeoutSeconds": 1800,
   "maxTokensPerRun": null,
+  "maxBudgetUsd": null,
   "resume": {
     "maxResumes": 2,
     "reply": "No further input is available. If the task as stated is complete, stop. Otherwise continue with the task as stated and change nothing outside it.",
