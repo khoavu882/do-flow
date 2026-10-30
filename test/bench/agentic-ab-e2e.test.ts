@@ -431,6 +431,28 @@ test('report without a noise band says so and decides nothing; an arm A iteratio
   assert.match(wrongArm.err, /arm A|arm-mismatch/);
 });
 
+test('fix 11: noise and report default their output to the untracked bench/runs/agentic/ab, never the tracked results dir', { skip: SKIP_WIN }, async () => {
+  const taskSet = subset(REPORT_IDS);
+  const abDir = path.join(CHECKOUT, 'bench', 'runs', 'agentic', 'ab');
+  try {
+    const noise = await cli(['noise', '--iterations', 'a-r1,a-r2'], { taskSet });
+    assert.equal(noise.code, 0, noise.err + noise.out);
+    assert.ok(fs.existsSync(path.join(abDir, 'ab-noise.json')), 'the band lands under bench/runs/agentic/ab');
+    assert.match(noise.out, /noise: bench\/runs\/agentic\/ab\/ab-noise\.json/);
+    const rep = await cli(['report', '--iterations', 'b-r1,b-r2'], { taskSet });
+    assert.equal(rep.code, 0, rep.err + rep.out);
+    assert.doesNotMatch(rep.out, /no noise band/, 'the report finds the default band');
+    assert.ok(fs.existsSync(path.join(abDir, 'ab-decision.json')), 'the decisions land under bench/runs/agentic/ab');
+    assert.match(rep.out, /decision: bench\/runs\/agentic\/ab\/ab-decision\.json/);
+    assert.equal(fs.existsSync(path.join(CHECKOUT, 'bench', 'agentic', 'results')), false, 'the tracked results dir is untouched');
+    assert.equal(fs.existsSync(RESULTS) && fs.readdirSync(RESULTS).some((f: string) => f.startsWith('ab-')), false);
+    assert.match(JSON.stringify(agentic.abPaidStages({ taskSet: FULL, config: CONFIG, k: 2 })), /bench\/runs\/agentic\/ab\/ab-noise\.json/);
+    assert.doesNotMatch(JSON.stringify(agentic.abPaidStages({ taskSet: FULL, config: CONFIG, k: 2 })), /agentic\/results/);
+  } finally {
+    fs.rmSync(path.join(CHECKOUT, 'bench', 'runs'), { recursive: true, force: true }); // keep the measured checkout clean for the next test
+  }
+});
+
 test('noise refuses a candidate-arm iteration and too few repeats', { skip: SKIP_WIN }, async () => {
   const taskSet = subset(REPORT_IDS);
   assert.equal((await cli(['noise', '--iterations', 'b-r1,b-r2'], { taskSet })).code, 2);

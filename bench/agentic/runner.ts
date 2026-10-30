@@ -51,6 +51,8 @@ every verb takes --config <file> (default bench/agentic/config.json); the with/w
 /** Committed result paths the paid stages write (IC-008, IC-009). */
 const RESULT_NOISE = 'bench/agentic/results/noise.json';
 const RESULT_DECISION = 'bench/agentic/results/decision.json';
+/** Default A/B noise and decision output: untracked (bench/runs/ is gitignored), never the tracked results dir. */
+const AB_RESULTS_REL = 'bench/runs/agentic/ab';
 const STAGE_PREFIX = 'npm run bench -- agentic';
 
 const rel = (repoRoot: string, p: string) => path.relative(repoRoot, p).split(path.sep).join('/');
@@ -109,8 +111,8 @@ function abPaidStages({ taskSet, config, k }: { taskSet: any; config: any; k: nu
     R: [a, b].map((arm) => run(arm, `rehearsal-${arm.toLowerCase()}`, ` --tasks ${rehearsal}`)),
     interleaved: aIts.flatMap((it, i) => [run(a, it), run(b, bIts[i])]),
     grade: [...aIts, ...bIts].map((it) => `${STAGE_PREFIX} grade ${cfg} --iteration ${it}`),
-    noise: `${STAGE_PREFIX} noise ${cfg} --iterations ${aIts.join(',')} --out bench/agentic/results/ab-noise.json`,
-    report: `${STAGE_PREFIX} report ${cfg} --iterations ${bIts.join(',')} --noise bench/agentic/results/ab-noise.json --fixed-cost <file> --decision-out bench/agentic/results/ab-decision.json`,
+    noise: `${STAGE_PREFIX} noise ${cfg} --iterations ${aIts.join(',')} --out ${AB_RESULTS_REL}/ab-noise.json`,
+    report: `${STAGE_PREFIX} report ${cfg} --iterations ${bIts.join(',')} --noise ${AB_RESULTS_REL}/ab-noise.json --fixed-cost <file> --decision-out ${AB_RESULTS_REL}/ab-decision.json`,
     note: `Paid: needs the user's approval of the per-run token cap and dollar hard stop, the model and the credential environment variable (${config.credentialEnv.join(' or ')}) before it runs. Run one at a time on an idle machine. Ceiling for the whole A/B: ${ceiling} tokens.`,
   };
 }
@@ -256,7 +258,8 @@ function cmdAbNoise(ctx: any, flags: any) {
     runRoot: ctx.runRoot, iterations: flags.iterations, taskSet: ctx.taskSet, config: ctx.config, noiseConfig: ctx.noiseConfig(),
     reviewRoot: ctx.reviewRoot, corpus: ctx.taskSet.tasks.some((t: any) => t.kind === 'review') ? ctx.corpus() : null, reviewConfig: ctx.reviewConfig(),
   });
-  if (flags.out) writeJson(path.resolve(flags.out), artifact);
+  const outPath = flags.out ? path.resolve(flags.out) : path.join(ctx.abResultsDir, 'ab-noise.json');
+  writeJson(outPath, artifact);
   if (flags.json) ctx.out(JSON.stringify(artifact, null, 2));
   else {
     for (const [metric, a] of Object.entries(artifact.metrics) as [string, any][]) {
@@ -264,7 +267,7 @@ function cmdAbNoise(ctx: any, flags: any) {
       for (const line of report.noiseLines(a)) ctx.out(`  ${line}`);
     }
     ctx.out(`cost A/A relative range: ${Object.entries(artifact.cost).map(([k, v]) => `${k} ${v === null ? 'none' : Number((v as number).toFixed(3))}`).join(', ')}`);
-    if (flags.out) ctx.out(`noise: ${rel(ctx.repoRoot, path.resolve(flags.out))}`);
+    ctx.out(`noise: ${rel(ctx.repoRoot, outPath)}`);
   }
   const stale = Object.values(artifact.metrics).flatMap((a: any) => a.graderRerun.stale);
   if (stale.length) ctx.err(`warning: ${stale.length} run(s) have a stale grading: ${[...new Set(stale)].join(', ')}`);
@@ -290,16 +293,16 @@ function cmdAbReport(ctx: any, flags: any) {
   const explicitNoise = flags.noise !== undefined;
   const result = report.abReportOf({
     runRoot: ctx.runRoot, iterations: flags.iterations, taskSet: ctx.taskSet, config: ctx.config, noiseConfig: ctx.noiseConfig(),
-    noisePath: explicitNoise ? path.resolve(flags.noise) : path.join(ctx.resultsDir, 'ab-noise.json'), explicitNoise, repoRoot: ctx.repoRoot,
+    noisePath: explicitNoise ? path.resolve(flags.noise) : path.join(ctx.abResultsDir, 'ab-noise.json'), explicitNoise, repoRoot: ctx.repoRoot,
     reviewRoot: ctx.reviewRoot, corpus: ctx.taskSet.tasks.some((t: any) => t.kind === 'review') ? ctx.corpus() : null, reviewConfig: ctx.reviewConfig(),
     fixedCostPath: flags['fixed-cost'] ? path.resolve(flags['fixed-cost']) : null,
   });
-  const out = flags['decision-out'] ? path.resolve(flags['decision-out']) : null;
-  if (out) writeJson(out, result.decisions);
+  const out = flags['decision-out'] ? path.resolve(flags['decision-out']) : path.join(ctx.abResultsDir, 'ab-decision.json');
+  writeJson(out, result.decisions);
   if (flags.json) ctx.out(JSON.stringify(result, null, 2));
   else {
     for (const line of report.abReportLines(result)) ctx.out(line);
-    if (out) ctx.out(`decision: ${rel(ctx.repoRoot, out)}`);
+    ctx.out(`decision: ${rel(ctx.repoRoot, out)}`);
   }
   return result.exit;
 }
@@ -367,6 +370,7 @@ async function main(argv: string[], opts: any = {}) {
       reviewRoot: opts.reviewRoot || path.join(path.dirname(runRoot), 'review-miss'),
       corpus: () => (corpus ??= readReviewCorpus(flags.corpus ? path.resolve(flags.corpus) : path.join(repoRoot, 'bench', 'runs', 'review-miss', 'corpus.json'))),
       reviewConfig: () => (reviewConfig ??= JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'review-miss', 'config.json'), 'utf8'))),
+      abResultsDir: opts.abResultsDir || path.join(repoRoot, ...AB_RESULTS_REL.split('/')),
       resultsDir: opts.resultsDir || path.join(repoRoot, 'bench', 'agentic', 'results'),
       env: opts.env, sourceHome: opts.sourceHome, tmpDir: opts.tmpDir, materialise: opts.materialise, now: opts.now,
       noiseConfig: () => (noiseConfig ??= loadNoiseConfig(JSON.parse(fs.readFileSync(BENCH_CONFIG, 'utf8')))),
