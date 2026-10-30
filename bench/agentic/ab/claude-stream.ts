@@ -74,8 +74,11 @@ type ClaudeRunReport = {
   skillEvents: SkillEvent[];
   questions: { askUserQuestion: number; finalTextAsks: boolean; any: boolean };
   /** How the final message closes: a `blocking` question needs an answer, an `offer` ("Want me to...") does not, null when it does not end in a question. */
-  closing: 'blocking' | 'offer' | null;
+  closing: 'blocking' | 'offer' | 'blocked' | null;
+  /** Entries of the result event's `permission_denials` list. */
   permissionDenials: number;
+  /** `system/permission_denied` events seen in the stream (the live form of the same denials). */
+  permissionDeniedEvents: number;
   apiRetries: number;
   resultCount: number;
   ignoredLines: number;
@@ -164,8 +167,17 @@ function endsAsking(text: string | null): boolean {
  */
 const OFFER_OPENER = /^(?:(?:and|also|so|if you(?:'d| would) like),?\s+)?(?:do you want me to|want me to|would you like me to|would you like to|would you like|should i also|shall i also|should i go ahead|shall i go ahead|can i also|may i also|anything else|is there anything else)\b/i;
 
-/** `blocking` or `offer` for a final message that ends in a question, else null. */
-function closingKind(text: string | null): 'blocking' | 'offer' | null {
+/**
+ * A final message that reports it was stopped by permissions ("every write was denied", "blocked on permission",
+ * "If you grant write and run access, I'll apply the edit"). HEURISTIC: it reads the wording of the final text, so a
+ * task whose own subject is permissions can be called blocked wrongly; the permission-denied events decide the
+ * exclusion, this only keeps such an ending out of the pause and offer counts.
+ */
+const PERMISSION_BLOCK = /\b(?:if you (?:grant|allow|approve|give)\b[^.\n]{0,80}\b(?:write|edit|run|execute|permission|access)|(?:blocked|denied)\b[^.\n]{0,30}\b(?:on|by) permission|(?:permission|approval)s?(?: prompts?)?\b[^.\n]{0,60}\b(?:denied|blocked|not granted|were not|was not)|(?:every|each|all)\b[^.\n]{0,30}\b(?:write|edit|tool call|command)s?\b[^.\n]{0,20}\b(?:was|were) (?:denied|blocked)|requires? (?:your )?approval|haven't (?:been )?granted|not (?:been )?granted)/i;
+
+/** `blocked` for a final message that says permissions stopped it, `blocking` or `offer` for one that ends in a question, else null. */
+function closingKind(text: string | null): 'blocking' | 'offer' | 'blocked' | null {
+  if (text && PERMISSION_BLOCK.test(text)) return 'blocked';
   if (!endsAsking(text)) return null;
   const paragraphs = String(text).split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
   const last = paragraphs[paragraphs.length - 1].replace(/[\s*_`"'”’)\]>]+$/u, '');
@@ -180,6 +192,7 @@ function createClaudeStreamJsonV1() {
   let ignoredLines = 0;
   let oversizeJson = false;
   let apiRetries = 0;
+  let permissionDeniedEvents = 0;
   const hooks: HookEvent[] = [];
   const toolCalls: ToolCall[] = [];
   const subagentCalls: { id: string | null; subagentType: string | null }[] = [];
@@ -254,6 +267,8 @@ function createClaudeStreamJsonV1() {
         });
       } else if (event.type === 'system' && event.subtype === 'api_retry') {
         apiRetries++;
+      } else if (event.type === 'system' && event.subtype === 'permission_denied') {
+        permissionDeniedEvents++;
       } else if (event.type === 'assistant' && Array.isArray(event.message?.content)) {
         const parent = typeof event.parent_tool_use_id === 'string' ? event.parent_tool_use_id : null;
         for (const block of event.message.content) {
@@ -333,6 +348,7 @@ function createClaudeStreamJsonV1() {
         questions: { askUserQuestion, finalTextAsks, any: askUserQuestion > 0 || finalTextAsks },
         closing: closingKind(finalText),
         permissionDenials: Array.isArray(result?.permission_denials) ? result.permission_denials.length : 0,
+        permissionDeniedEvents,
         apiRetries,
         resultCount,
         ignoredLines,

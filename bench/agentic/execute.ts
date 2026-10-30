@@ -1083,6 +1083,7 @@ function loadAbConfig(cfg: any) {
   for (const f of (recipe.forbidden || []).map((e: any) => e.flag)) if (flags.includes(f)) throw configError('recipe.argv', `contains the forbidden flag ${f}`);
   if (recipe.parser?.id !== claudeStream.CLAUDE_STREAM_JSON_V1) throw configError('recipe.parser.id', `must be ${claudeStream.CLAUDE_STREAM_JSON_V1}`);
   if (recipe.prompt?.via !== 'stdin') throw configError('recipe.prompt.via', 'must be "stdin"');
+  if (!isNonEmptyString(recipe.expectedPermissionMode)) throw configError('recipe.expectedPermissionMode', 'must name the init.permissionMode every run has to report');
 
   const m = cfg.model;
   if (!m || typeof m !== 'object' || !isNonEmptyString(m.label)) throw configError('model.label', 'must be a non-empty string');
@@ -1372,8 +1373,20 @@ function makeTokenWatch() {
 }
 
 /** The recorded outcome of one A/B run: the last segment decides, a cap hit is `truncated` with `cap: true`. */
-function abStatusOf({ report, timedOut, spawnError, exitCode = null, signal = null, timeoutSeconds, capped, capEvidence }: any) {
+/** The `permissionMode` of a `system/init` stream line, else null. */
+function modeOfInit(line: string): string | null {
+  if (!line.includes('"init"')) return null;
+  try {
+    const ev = JSON.parse(line);
+    return ev?.type === 'system' && ev.subtype === 'init' && typeof ev.permissionMode === 'string' ? ev.permissionMode : null;
+  } catch {
+    return null;
+  }
+}
+
+function abStatusOf({ report, timedOut, spawnError, exitCode = null, signal = null, timeoutSeconds, capped, capEvidence, modeKilled = null, expectedMode = null }: any) {
   const codes = { exitCode: exitCode ?? null, signal: signal ?? null };
+  if (modeKilled !== null) return { status: 'truncated', infra: 'permission-mode-not-effective', evidence: `init.permissionMode was "${modeKilled}", the recipe expects "${expectedMode}": the run was killed at once, nothing was graded`, ...codes };
   if (timedOut) return { status: 'timeout', evidence: `no exit within ${timeoutSeconds}s`, ...codes };
   if (spawnError) return { status: 'api-error', evidence: cutChars(`spawn failed: ${spawnError.code || spawnError.message}`, 200), ...codes };
   if (capped) return { status: 'truncated', evidence: capEvidence, cap: true, ...codes };
@@ -1591,11 +1604,13 @@ async function executeAbIteration(opts: any = {}) {
         const reports: any[] = [];
         const segments: any[] = [];
         let capKilled = false;
+        let modeKilled: string | null = null; // the init.permissionMode that differed from the recipe's, when the run was killed for it
         let prompt = firstPrompt;
         let resume: string | null = null;
         let sessionId: string | null = null;
         let pauses = 0;
         let offers = 0;
+        let blockedEnds = 0; // runs that ended saying permissions stopped them: neither a pause nor an offer
         let resumes = 0;
         let unanswered = false;
         let outcome: any = null;
@@ -1609,6 +1624,11 @@ async function executeAbIteration(opts: any = {}) {
             lastMessageFile: path.join(profile.dir, 'none'), parser, now, redact,
             onSpawn: (proc) => { procRef = proc; state.proc = proc; },
             onLine: (line) => {
+              const mode = modeOfInit(line);
+              if (mode !== null && mode !== recipe.expectedPermissionMode && modeKilled === null) {
+                modeKilled = mode; // precondition: tools are denied in any other mode, so stop before more is spent
+                if (procRef) processTree.escalate({ proc: procRef });
+              }
               if (watch(line) > max && !capKilled) {
                 capKilled = true;
                 if (procRef) processTree.escalate({ proc: procRef });
@@ -1623,11 +1643,12 @@ async function executeAbIteration(opts: any = {}) {
           sessionId = report.sessionId ?? sessionId;
           const seg: any = {
             n, file, exitCode: outcome.exitCode ?? null, signal: outcome.signal ?? null, durationMs: outcome.durationMs,
-            status: report.status, sessionId: report.sessionId, asked: blocking, offered: report.closing === 'offer', replied: false,
+            status: report.status, sessionId: report.sessionId, asked: blocking, offered: report.closing === 'offer', blocked: report.closing === 'blocked', replied: false,
           };
           segments.push(seg);
           if (report.closing === 'offer' && !blocking) offers++;
-          if (outcome.timedOut || outcome.spawnError || outcome.signal || capKilled || report.status !== 'success') break;
+          if (report.closing === 'blocked') blockedEnds++;
+          if (outcome.timedOut || outcome.spawnError || outcome.signal || capKilled || modeKilled !== null || report.status !== 'success') break;
           // Only a blocking question resumes the run; a closing offer ("Want me to ...?") is counted and left unanswered.
           if (!blocking) break;
           pauses++;
@@ -1644,11 +1665,11 @@ async function executeAbIteration(opts: any = {}) {
         const last = reports[reports.length - 1];
         if (state.interrupted) return halted();
         const status = abStatusOf({
-          ...outcome, report: last, timeoutSeconds: config.timeoutSeconds, capped,
+          ...outcome, report: last, timeoutSeconds: config.timeoutSeconds, capped: capped && modeKilled === null, modeKilled, expectedMode: recipe.expectedPermissionMode,
           capEvidence: `cap: ${totals.usage === 'reported' ? totals.totalTokens : 'in-flight total'} tokens passed maxTokensPerRun ${max}`,
         });
         writeJson(path.join(run.runDir, RUN_FILES.runStatus), status);
-        writeJson(path.join(run.runDir, SEGMENTS_FILE), { segments, pauses, offers, resumes, unansweredPause: unanswered });
+        writeJson(path.join(run.runDir, SEGMENTS_FILE), { segments, pauses, offers, blocked: blockedEnds, resumes, unansweredPause: unanswered });
         if (last.finalText) fs.writeFileSync(path.join(run.runDir, RUN_FILES.lastMessage), last.finalText);
         writeJson(path.join(run.runDir, RUN_FILES.timing), {
           ...(totals.usage === 'reported' ? { total_tokens: totals.totalTokens } : {}),
@@ -1705,7 +1726,7 @@ async function executeAbIteration(opts: any = {}) {
 
 module.exports = {
   CONFIG_PATH, RUN_FILES, SHIM_ENTRY, TOOL_TREE, SEGMENTS_FILE, HOME_SETUP_FILE, WORKSPACE_DIR,
-  loadAbConfig, abCaptureSha256, abArgv, parseBudget, expectedProof, makeTokenWatch, makeRedactor, redactTree,
+  loadAbConfig, abCaptureSha256, abArgv, parseBudget, expectedProof, makeTokenWatch, modeOfInit, abStatusOf, makeRedactor, redactTree,
   loadConfig, selectHarness, insertModelArgv, planIteration, executeIteration, prepareWorkspace,
   runDirOf, readIteration, captureSha256, usageOf, statusOf,
 };

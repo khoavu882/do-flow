@@ -1,9 +1,13 @@
 {
   "id": "claude-headless-ab-v1",
-  "comment": "Bench-local Claude headless recipe for the with/without-DoFlow A/B (decision D2: not in core/registry/harnesses.json). Every flag below cites the line it was read from. 'help' = `claude --help` of claude 2.1.308 (read 2026-10-30). 'probe' = behaviour observed offline against an unreachable endpoint (ANTHROPIC_BASE_URL=http://127.0.0.1:9, fake key, scratch HOME; no model call). 'docs' = code.claude.com via context7 /websites/code_claude. Nothing here was run against a real model.",
+  "comment": "Bench-local Claude headless recipe for the with/without-DoFlow A/B (decision D2: not in core/registry/harnesses.json). Every flag below cites the line it was read from. 'help' = `claude --help` of claude 2.1.308 (read 2026-10-30). 'probe' = behaviour observed offline against an unreachable endpoint (ANTHROPIC_BASE_URL=http://127.0.0.1:9, fake key, scratch HOME; no model call). 'docs' = code.claude.com via context7 /websites/code_claude. The first real run (2026-10-30, r1-a and r1-b) settled the items under 'settled' and corrected the permission mode; probes marked 'mock' used a local stand-in for the Messages API.",
   "binary": "claude",
   "testedVersion": "2.1.308",
-  "versionArgv": ["--version"],
+  "expectedPermissionMode": "default",
+  "expectedPermissionModeComment": "init.permissionMode that must be reported by every run. With CLAUDE_CODE_SUBPROCESS_ENV_SCRUB set the harness forces 'default' (see --allowedTools). The executor kills a run at once when init reports anything else and records 'permission-mode-not-effective' (no more spend).",
+  "versionArgv": [
+    "--version"
+  ],
   "parser": {
     "id": "claude-stream-json-v1",
     "module": "bench/agentic/ab/claude-stream.ts",
@@ -42,10 +46,10 @@
       "comment": "help: '--model <model>  Model for the current session. Provide an alias ... or a model's full name.' probe: init.model echoed 'claude-sonnet-5-5'. Value is the plan's bench pin (ab-bench-plan-result.md section 5); the user approves the pin at execution."
     },
     {
-      "flag": "--permission-mode",
-      "value": "bypassPermissions",
+      "flag": "--allowedTools",
+      "value": "Bash,Read,Edit,Write,NotebookEdit,Skill,Task",
       "shared": true,
-      "comment": "help: '--permission-mode <mode>  (choices: \"acceptEdits\", \"auto\", \"bypassPermissions\", \"manual\", \"dontAsk\", \"plan\")'. probe: init.permissionMode echoed 'bypassPermissions' (no root, outside a sandbox the start succeeded). Decision: both arms. docs (hooks-guide): PreToolUse hooks fire before any permission-mode check, including bypassPermissions; docs (agent-sdk/permissions): 'Hooks still execute'."
+      "comment": "probe (offline, then the first real run): REPLACES --permission-mode bypassPermissions after the first real run (r1-a, r1-b): init.permissionMode was 'default' in both arms despite the flag, and every Write/Edit/write-Bash was denied. Cause (SOURCE, claude 2.1.308 binary strings): 'Permission mode forced to default - CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set (allowed_non_write_users hardening). Declare allowedTools explicitly, or set CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=0 to opt out.' Offline probe table (unreachable ANTHROPIC_BASE_URL, fake key, scratch HOME; tool columns from a local mock of the Messages API that asks for one Write and one Bash; no real API call): scrub + --permission-mode bypassPermissions -> init.permissionMode default, Write/Bash denied; scrub + skipDangerousModePermissionPrompt in settings.json -> default; scrub + --dangerously-skip-permissions -> default, denied; scrub + acceptEdits + allowedTools -> default, ran; scrub + --allowedTools only -> default, Write and Bash ran, 0 denials; scrub=0 + bypassPermissions -> bypassPermissions, ran (but the credential stays in every Bash environment). Chosen: keep the scrub, no mode flag, an explicit allow list. It is the least dangerous option that works: only these tools run unprompted, protected paths still refuse, everything else (EnterWorktree, Cron*, ...) is denied, and a denial excludes the run (grade: permission-denied). The list is identical in both arms; PreToolUse hooks still fire in default mode (observed in the real arm B run). Agent tools inherit the allow rules (not observed)."
     },
     {
       "flag": "--disallowedTools",
@@ -94,7 +98,7 @@
     {
       "flag": "--max-budget-usd",
       "value": "<amount>",
-      "comment": "help: '--max-budget-usd <amount>  Maximum dollar amount to spend on API calls (only works with --print)'. A possible second guard beside the token cap; not part of the shared argv. docs: result subtype 'error_max_budget_usd' when hit."
+      "comment": "help: '--max-budget-usd <amount>  Maximum dollar amount to spend on API calls (only works with --print)'. Passed to every run by the executor (abArgv) as the dollar hard stop beside the token cap; the user sets the amount at run time. docs: result subtype 'error_max_budget_usd' when hit."
     }
   ],
   "env": {
@@ -129,7 +133,17 @@
   "armHomeSetup": {
     "A": [],
     "B": {
-      "argv": ["node", "<pruned export>/bin/doflow.js", "install", "-g", "-t", "claude", "--mcp", "none", "--force"],
+      "argv": [
+        "node",
+        "<pruned export>/bin/doflow.js",
+        "install",
+        "-g",
+        "-t",
+        "claude",
+        "--mcp",
+        "none",
+        "--force"
+      ],
       "comment": "probe, run in a scratch HOME on 804f7ca3: exit 0, '[INFO] claude: lifecycle verified (561 owned resource(s))', wrote <HOME>/.claude and <HOME>/.doflow. jq must be on PATH (hooks use it); bash is /bin/bash."
     }
   },
@@ -139,15 +153,20 @@
     "P3": "system/hook_response with hook_event SessionStart, outcome success, exit_code 0 (needs --include-hook-events). probe: observed in arm B, absent in arm A. The files DoFlow writes under <HOME>/.doflow/state/runs/<date>.jsonl are verb timing records (verb 'storage', exit_code, duration_ms), not a session-start record, so they are not used as P3."
   },
   "unverified": [
-    "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 also removes CLAUDE_CONFIG_DIR from hook and Bash subprocess environments (docs table). Arm B's DoFlow hooks then run without it and fall back to $HOME/.claude, which is the same directory because HOME is the scratch home; not observed on a real hook run. The first paid rehearsal should check that the SessionStart hook still succeeds in arm B.",
-    "Whether the scrub removes the oauth token from `env` output of a Bash command is from docs, not observed; the executor's redaction does not depend on it.",
-    "Whether AskUserQuestion is ever offered in -p runs here: probe shows it is absent from init.tools in both arms; docs (hooks) say -p offers it only with a permission host. So pauses show as a final message ending in '?', not as a tool call. The parser still counts AskUserQuestion calls if one appears.",
-    "Whether PreToolUse hooks fire under bypassPermissions in practice: docs say yes (hooks-guide, agent-sdk/permissions); no offline probe can make a tool call, so it is not observed. The first paid rehearsal should check a PreToolUse hook_response in arm B.",
-    "Whether tool_use blocks inside a subagent appear in the stream without --forward-subagent-text (help: '--forward-subagent-text  Forward subagent text and thinking blocks as assistant/user messages with parent_tool_use_id set'). The parser handles parent_tool_use_id when present; subagent token cost does not depend on it (modelUsage includes subagents per docs).",
-    "The assistant/user/result event shapes in test/fixtures/claude-headless/*.stream.jsonl are synthetic, built from the Agent SDK docs; only system/init, hook and api_retry lines are real (trimmed probe output). The first paid rehearsal transcript must be run through the parser as the real shape check.",
-    "--resume under -p: that total_cost_usd and modelUsage accumulate across resumes and the session id is kept is from docs (agent-sdk/cost-tracking), not observed.",
+    "Tool use under the new setting in a real run: only the local mock showed Write and Bash running with scrub + --allowedTools and no mode flag. The first real rehearsal must show 0 permission denials and slug.js changed.",
+    "--resume under -p: that total_cost_usd and modelUsage accumulate across resumes and the session id is kept is from docs (agent-sdk/cost-tracking), not observed; no real run resumed.",
+    "Subagent attribution: whether tool_use blocks inside a subagent appear in the stream (parent_tool_use_id) and how its tokens are attributed was not observed; no real run started a subagent. help lists '--forward-subagent-text'.",
+    "The OAuth path (CLAUDE_CODE_OAUTH_TOKEN) was not used; only ANTHROPIC_API_KEY ran. The scrub's effect on `env` output of a Bash command is from docs, not observed.",
+    "That subagents inherit the --allowedTools rules in default mode is not observed.",
     "DISABLE_AUTOUPDATER=1 (docs devcontainer lists it; no observable effect in an offline probe), so it is not in the env list above.",
     "The macOS keychain keying to CLAUDE_CONFIG_DIR (plan section 3) was not re-read or probed here; the credential row above uses only the env-var path.",
-    "The 250k-per-run cap unit and per-run token figures: no real run exists."
+    "The 250k-per-run cap unit and per-run token figures: one real run each exists (about 100k tokens in a 7-turn trivial task); no cap hit was observed."
+  ],
+  "settled": [
+    "Hook proof (P3): in the real arm B run the SessionStart, UserPromptSubmit, PreToolUse and Stop hooks all exited 0, and the hook events come BEFORE system/init in the stream. Arm A emitted none.",
+    "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 with the CLAUDE_CONFIG_DIR removal did NOT break the arm B hooks (they all exited 0). It DID force the permission mode to default (fixed above).",
+    "Parser reconciliation: the parser's token and cost totals equal the result event's usage exactly in both real runs.",
+    "Init tool names (claude 2.1.308, -p): Task (the subagent tool), Bash, Edit, Read, Skill, Write, NotebookEdit, ToolSearch, SendMessage and others; there is no Grep, Glob or AskUserQuestion. Bash ran under zsh.",
+    "result.duration_ms excludes process start-up; the process wall time of a run is 1.8-3.2 s longer (report wallMs is the result figure, wallMsProcess the process figure)."
   ]
 }

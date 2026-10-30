@@ -751,7 +751,13 @@ function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; 
   const iso = classifyAbIsolation({
     reports, armConfig, roots: launch, expected: launch.proofExpected || { skills: [], agents: [] }, homeSetup: homeSetupState, pin: config.model?.label ?? null, infra,
   });
-  const exclusionReason = iso.isolation !== 'clean' ? iso.isolation : infra;
+  // Permissions: a run whose stream holds permission denials did not do the task it was given (its tools were refused),
+  // and a run killed for a wrong init.permissionMode never started it. Both are excluded; the mark stays in the shared
+  // vocabulary (`truncated`), the reason is kept in exclusionReason.
+  const permissionDenials = reports.reduce((n: number, r: any) => n + Math.max(r.permissionDenials ?? 0, r.permissionDeniedEvents ?? 0), 0);
+  const permission: string | null = statusRec?.infra === 'permission-mode-not-effective' ? 'permission-mode-not-effective' : (permissionDenials > 0 ? 'permission-denied' : null);
+  if (permission !== null && infra === null) infra = 'truncated';
+  const exclusionReason = iso.isolation !== 'clean' ? iso.isolation : (permission ?? infra);
   // A run stopped by the per-run cap, or by the timeout, is censored: the figures it reports are lower bounds of
   // what the task would have cost. It leaves the quality scores (excluded) but stays in the cost and wall figures.
   const censored: string | null = iso.isolation === 'clean' ? (statusRec?.cap === true ? 'cap' : (infra === 'timeout' ? 'timeout' : null)) : null;
@@ -771,6 +777,8 @@ function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; 
   // pauses = blocking questions only; closing offers ("Want me to ...?") are counted apart and never resume a run.
   const asked = segRec?.pauses ?? reports.filter((r: any) => r.questions.askUserQuestion > 0 || r.closing === 'blocking').length;
   const offered = segRec?.offers ?? reports.filter((r: any) => r.closing === 'offer').length;
+  const blockedEnds = segRec?.blocked ?? reports.filter((r: any) => r.closing === 'blocked').length;
+  const resultMs: number | null = reports.length > 0 && reports.every((r: any) => Number.isFinite(r.durationMs)) ? reports.reduce((n: number, r: any) => n + r.durationMs, 0) : null;
   const skills = [...new Set(reports.flatMap((r: any) => r.skillEvents.map((e: any) => e.skill)))] as string[];
   const routing = armConfig.proof === 'loaded' && Array.isArray(task.expectedSkills)
     ? { expected: task.expectedSkills, used: skills, routed: task.expectedSkills.every((n: string) => skills.includes(n)) }
@@ -790,6 +798,7 @@ function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; 
     proof: iso.proof,
     capped: statusRec?.cap === true,
     censored,
+    permissionDenials,
     pass_rate: passRate,
     checks: checks === null ? null : { exitCode: checks.exitCode, output: checks.output },
     review,
@@ -802,13 +811,16 @@ function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; 
       costUsd: agg.costUsd,
       claudeCodeVersion: agg.claudeCodeVersion,
       costBasis: agg.costBasis,
-      wallMs: Number.isFinite(timing.duration_ms) ? timing.duration_ms : null,
+      // wall time is the harness's own duration_ms (result events, summed over segments); the process wall time, which
+      // also holds start-up, is kept as wallMsProcess and is the fallback when a segment reported no duration
+      wallMs: resultMs !== null ? resultMs : (Number.isFinite(timing.duration_ms) ? timing.duration_ms : null),
+      wallMsProcess: Number.isFinite(timing.duration_ms) ? timing.duration_ms : null,
       capTokens: censored === 'cap' && statusRec?.budget !== true && Number.isSafeInteger(launch.maxTokensPerRun) ? launch.maxTokensPerRun : null,
       turns: agg.turns,
       toolCalls: agg.toolCalls,
       toolCounts: agg.toolCounts,
       subagentCalls: agg.subagentCalls,
-      questions: { pauses: asked, offers: offered, resumes: segRec?.resumes ?? 0, unanswered: segRec?.unansweredPause === true, askUserQuestion: agg.askUserQuestion },
+      questions: { pauses: asked, offers: offered, blocked: blockedEnds, resumes: segRec?.resumes ?? 0, unanswered: segRec?.unansweredPause === true, askUserQuestion: agg.askUserQuestion },
     },
   };
 }
@@ -817,7 +829,7 @@ function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; 
 function serializeAbGrading(g: any) {
   return `${JSON.stringify({
     key: g.key, id: g.id, split: g.split, kind: g.kind, group: g.group, arm: g.arm, run_status: g.run_status, infra: g.infra,
-    isolation: g.isolation, isolationEvidence: g.isolationEvidence, exclusionReason: g.exclusionReason, proof: g.proof, capped: g.capped, censored: g.censored,
+    isolation: g.isolation, isolationEvidence: g.isolationEvidence, exclusionReason: g.exclusionReason, proof: g.proof, capped: g.capped, censored: g.censored, permissionDenials: g.permissionDenials,
     pass_rate: g.pass_rate, checks: g.checks, review: g.review, routing: g.routing, metrics: g.metrics,
   }, null, 2)}\n`;
 }

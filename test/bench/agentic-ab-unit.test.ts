@@ -320,7 +320,7 @@ test('grade: serialisation is byte-stable and keeps the fixed key order', () => 
   const dir = runDirOf(fixture('arm-b-doflow'), { homeSetup: { ok: true, exitCode: 0 } });
   const a = grade.serializeAbGrading(gradeOf(dir, 'B'));
   assert.equal(grade.serializeAbGrading(gradeOf(dir, 'B')), a);
-  assert.deepEqual(Object.keys(JSON.parse(a)), ['key', 'id', 'split', 'kind', 'group', 'arm', 'run_status', 'infra', 'isolation', 'isolationEvidence', 'exclusionReason', 'proof', 'capped', 'censored', 'pass_rate', 'checks', 'review', 'routing', 'metrics']);
+  assert.deepEqual(Object.keys(JSON.parse(a)), ['key', 'id', 'split', 'kind', 'group', 'arm', 'run_status', 'infra', 'isolation', 'isolationEvidence', 'exclusionReason', 'proof', 'capped', 'censored', 'permissionDenials', 'pass_rate', 'checks', 'review', 'routing', 'metrics']);
 });
 
 test('grade: resumed segments aggregate as running totals when cumulative, and as sums otherwise; a falling total is inconsistent', () => {
@@ -448,6 +448,49 @@ test('n-1: the find-the-runtime snippet from the skills is clean in both arms; a
   }
 });
 
+/** The two real transcripts of the first paid run (2026-10-30, r1-a and r1-b, trimmed of thinking_tokens lines): default mode, every write denied. */
+const realGrade = (arm: string) => {
+  const stream = fixture(`real-arm-${arm.toLowerCase()}`);
+  const init = claudeStream.parseTranscript(stream).init;
+  const proofExpected = arm === 'B' ? { skills: init.skills.filter((n: string) => /^do(-|$)/.test(n)), agents: init.agents.filter((n: string) => n !== 'general-purpose' && !['claude', 'Explore', 'Plan', 'statusline-setup'].includes(n)) } : EXPECTED;
+  const dir = runDirOf(stream, { launch: { proofExpected, workspaceRoot: init.cwd, profileRoot: path.dirname(init.cwd) }, homeSetup: arm === 'B' ? { ok: true, exitCode: 0 } : undefined });
+  return { g: gradeOf(dir, arm), report: claudeStream.parseTranscript(stream) };
+};
+
+test('third round: the real transcripts (permission mode forced to default, every write denied) are excluded as permission-denied with the count; the blocked ending is not a pause or an offer', () => {
+  for (const [arm, denials] of [['A', 4], ['B', 2]] as [string, number][]) {
+    const { g, report } = realGrade(arm);
+    assert.equal(report.init.permissionMode, 'default', 'SOURCE: the flag was bypassPermissions, the harness reported default');
+    assert.equal(g.isolation, 'clean', JSON.stringify(g.isolationEvidence));
+    assert.equal(g.permissionDenials, denials);
+    assert.equal(g.exclusionReason, 'permission-denied');
+    assert.equal(g.infra, 'truncated', 'the shared exclusion mark');
+    assert.equal(g.pass_rate, null, 'excluded, never scored 0');
+    assert.deepEqual([g.metrics.questions.pauses, g.metrics.questions.offers, g.metrics.questions.blocked], [0, 0, 1]);
+    assert.equal(report.closing, 'blocked');
+  }
+  const { g } = realGrade('A');
+  assert.equal(g.metrics.wallMs, 15217, 'the result event duration_ms');
+  assert.equal(g.metrics.wallMsProcess, 41250, 'the process wall time (timing.json) is kept apart');
+  assert.equal(reportLib.abExcludedOf(g), 'truncated');
+});
+
+test('third round: closingKind calls a permission-blocked ending blocked, and still tells offers from blocking questions', () => {
+  const blocked = [
+    "I couldn't fix `slug.js`: every write was denied, so the file is unchanged.\n\nIf you grant write and run permission for this directory, I'll apply the change and run the check.",
+    "The permission prompts for the edit and the check were not granted, so nothing changed.\n\nIf you grant write and run access, I'll apply the edit.",
+    'Both tool calls were blocked on permission.',
+    'This command requires approval, so I stopped.',
+  ];
+  for (const text of blocked) assert.equal(claudeStream.closingKind(text), 'blocked', text);
+  for (const [text, kind] of [
+    ['Done. Would you like me to add a test file as well?', 'offer'],
+    ['Which database should I use?', 'blocking'],
+    ['Done. Everything is in place.', null],
+    ['I fixed it and the checks pass.', null],
+  ] as [string, any][]) assert.equal(claudeStream.closingKind(text), kind, text);
+});
+
 const synth = (id: string, over: any = {}) => ({
   id, isolation: 'clean', infra: null, censored: null, capped: false, kind: 'edit',
   metrics: { tokens: { total: 1000 }, costUsd: 0.1, wallMs: 10000, toolCalls: 5, capTokens: null, ...(over.metrics || {}) }, ...Object.fromEntries(Object.entries(over).filter(([k]) => k !== 'metrics')),
@@ -566,7 +609,7 @@ test('fix 3: the redactor removes exact credential values (raw and JSON-escaped)
 test('fix 3: the recipe sets CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 for every run', () => {
   const entry = CONFIG.recipeData.env.perRun.find((e: any) => e.name === 'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB');
   assert.equal(entry.value, '1');
-  assert.ok(CONFIG.recipeData.unverified.some((u: string) => u.includes('SUBPROCESS_ENV_SCRUB')), 'its CLAUDE_CONFIG_DIR side effect is listed as unverified');
+  assert.ok(CONFIG.recipeData.settled.some((u: string) => u.includes('SUBPROCESS_ENV_SCRUB') && /hooks/.test(u)), 'its CLAUDE_CONFIG_DIR side effect on the hooks is settled by the real run');
 });
 
 test('fix 8: maxBudgetUsd must be present and null or a positive number', () => {

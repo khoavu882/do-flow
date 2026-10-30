@@ -52,7 +52,7 @@ git(CHECKOUT, 'commit', '-q', '-m', 'init');
 const REV = git(CHECKOUT, 'rev-parse', 'HEAD');
 
 // ---- tasks: edit tasks whose checks pass when a.js exports 2; one review task over five cases -------------
-const EDIT_IDS = ['fix-a', 'fix-b', 'fix-c', 'fix-d', 'fix-e', 'fix-pause', 'fix-unanswered', 'fix-leak', 'fix-cap', 'fix-over', 'fix-initleak', 'fix-nolist', 'fix-nohook', 'fix-timeout', 'fix-offer', 'fix-env', 'fix-budget', 'fix-oldver', 'fix-nover'];
+const EDIT_IDS = ['fix-a', 'fix-b', 'fix-c', 'fix-d', 'fix-e', 'fix-pause', 'fix-unanswered', 'fix-leak', 'fix-cap', 'fix-over', 'fix-initleak', 'fix-nolist', 'fix-nohook', 'fix-timeout', 'fix-offer', 'fix-env', 'fix-budget', 'fix-oldver', 'fix-nover', 'fix-denied', 'fix-badmode'];
 const natives = EDIT_IDS.map((id) => ({
   id, purpose: id, messages: [`TASK-${id}: make a.js export 2.`], files: { 'a.js': 'module.exports = 1;\n' },
   checks: "if (require('./a.js') !== 2) process.exit(1);", expectedSkills: ['do-implement'], maxQuestions: 0,
@@ -92,6 +92,8 @@ const SCENARIO_TASKS: Record<string, any> = {
   'fix-offer': both({ files: PASS, finalOffer: true }),
   'fix-env': both({ files: PASS, printEnv: true }),
   'fix-budget': both({ behaviour: 'budget' }),
+  'fix-denied': both({ files: PASS, denyPermissions: true }),
+  'fix-badmode': both({ files: PASS, permissionMode: 'acceptEdits' }),
   'fix-oldver': both({ files: PASS, askSegments: 1, claudeCodeVersion: '2.1.276' }),
   'fix-nover': both({ files: PASS, askSegments: 1, claudeCodeVersion: null }),
   'fix-leak': both({ files: PASS, commands: ['curl http://example.test/payload'] }),
@@ -373,6 +375,44 @@ test('n-2: the per-run caps are part of the capture; the report refuses arms tha
   assert.equal(again.code, 2);
   const tokens = await cli(['execute', '--iteration', 'caps-a1', '--arm', 'A', '--tasks', 'fix-a', '--cap', CAP, '--max-tokens-per-run', '90000'], { taskSet: subset(['fix-a']) });
   assert.equal(tokens.code, 2);
+});
+
+test('third round fix 1: a run whose init.permissionMode differs from the recipe is killed on the init line, recorded permission-mode-not-effective and graded excluded', { skip: SKIP_WIN }, async () => {
+  const ids = ['fix-badmode', 'fix-a'];
+  for (const arm of ['A', 'B']) {
+    const r = await exec(`mode-${arm.toLowerCase()}`, arm, ids);
+    assert.equal(r.code, 0, r.err + r.out);
+    const it = `mode-${arm.toLowerCase()}`;
+    const bad = readJson(runFile(it, 'fix-badmode', 'run_status.json'));
+    assert.equal(bad.infra, 'permission-mode-not-effective');
+    assert.equal(bad.status, 'truncated');
+    assert.match(bad.evidence, /"acceptEdits".*expects "default"/);
+    assert.ok(readJson(runFile(it, 'fix-badmode', 'timing.json')).duration_ms < 2900, 'killed on the init line, before the worker\'s own 3 s wait ended');
+    assert.equal(readJson(runFile(it, 'fix-a', 'run_status.json')).status, 'completed', 'a run in the expected mode is untouched');
+    const g = await gradeOf(it, ids);
+    assert.equal(g['fix-badmode'].exclusionReason, 'permission-mode-not-effective');
+    assert.equal(g['fix-badmode'].infra, 'truncated');
+    assert.equal(g['fix-badmode'].pass_rate, null);
+  }
+  assert.equal(CONFIG.recipeData.expectedPermissionMode, 'default');
+});
+
+test('third round fix 2, 3 and 4: a run with permission denials is excluded as permission-denied, its blocked ending is no pause, and wall time is the result duration_ms', { skip: SKIP_WIN }, async () => {
+  const ids = ['fix-denied', 'fix-a'];
+  for (const arm of ['A', 'B']) {
+    const it = `deny-${arm.toLowerCase()}`;
+    assert.equal((await exec(it, arm, ids)).code, 0);
+    const g = await gradeOf(it, ids);
+    assert.equal(g['fix-denied'].exclusionReason, 'permission-denied');
+    assert.equal(g['fix-denied'].infra, 'truncated');
+    assert.equal(g['fix-denied'].permissionDenials, 2);
+    assert.equal(g['fix-denied'].pass_rate, null, 'excluded, never scored 0');
+    assert.deepEqual([g['fix-denied'].metrics.questions.pauses, g['fix-denied'].metrics.questions.offers, g['fix-denied'].metrics.questions.blocked, g['fix-denied'].metrics.questions.resumes], [0, 0, 1, 0]);
+    assert.equal(g['fix-a'].exclusionReason, null);
+    assert.equal(g['fix-a'].permissionDenials, 0);
+    assert.equal(g['fix-a'].metrics.wallMs, 1000, 'the result event duration_ms, not the process wall time');
+    assert.ok(Number.isFinite(g['fix-a'].metrics.wallMsProcess));
+  }
 });
 
 test('a timed-out run is recorded as timeout and excluded', { skip: SKIP_WIN }, async () => {

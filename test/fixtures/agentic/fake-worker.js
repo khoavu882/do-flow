@@ -159,6 +159,11 @@ function main(prompt) {
     process.exit(1);
   }
 
+  if (spec.permissionMode && spec.permissionMode !== 'default') {
+    // The harness is expected to kill this run on the init line; a run that survives writes the marker.
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 3000);
+    fs.writeFileSync(path.join(home, '.fake-survived-init'), '1');
+  }
   if (behaviour === 'timeout') {
     // A child in the same process group proves the executor ends the whole tree, not just the leader.
     const sleeper = childProcess.spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
@@ -294,7 +299,7 @@ function claudeMain(prompt) {
   const agents = [...names(path.join(dir, 'agents'), /\.md$/), ...(o.addAgents || []), 'general-purpose'];
   emit({
     type: 'system', subtype: 'init', cwd: process.cwd(), session_id: sessionId, tools: ['Bash', 'Read', 'Edit', 'Write', 'Skill'], mcp_servers: [],
-    model: o.model || 'claude-sonnet-5-5', permissionMode: 'bypassPermissions', slash_commands: [...skills, 'update-config'], skills: [...skills, 'update-config'], agents,
+    model: o.model || 'claude-sonnet-5-5', permissionMode: spec.permissionMode || 'default', slash_commands: [...skills, 'update-config'], skills: [...skills, 'update-config'], agents,
     apiKeySource: 'environment', claude_code_version: spec.claudeCodeVersion === undefined ? '2.1.308' : spec.claudeCodeVersion,
   });
   if (behaviour === 'timeout') {
@@ -345,7 +350,7 @@ function claudeMain(prompt) {
       return;
     }
   }
-  for (const [file, content] of Object.entries(spec.files || {})) {
+  for (const [file, content] of spec.denyPermissions ? [] : Object.entries(spec.files || {})) {
     fs.mkdirSync(path.dirname(path.join(process.cwd(), file)), { recursive: true });
     fs.writeFileSync(path.join(process.cwd(), file), content);
   }
@@ -353,7 +358,9 @@ function claudeMain(prompt) {
   if (spec.reviewRaw !== undefined) fs.writeFileSync(path.join(process.cwd(), 'review.json'), spec.reviewRaw);
 
   const asks = n <= (spec.askSegments || 0);
-  const text = asks ? 'I made a first pass. Should I continue?' : (spec.finalOffer ? 'Done. Would you like me to add a test file as well?' : 'Done. Everything is in place.');
+  const denied = spec.denyPermissions ? [{ tool_name: 'Write', tool_use_id: 'tu-denied-1', tool_input: { file_path: 'a.js' } }, { tool_name: 'Bash', tool_use_id: 'tu-denied-2', tool_input: { command: 'node a.js' } }] : [];
+  for (const d of denied) emit({ type: 'system', subtype: 'permission_denied', tool_name: d.tool_name, tool_use_id: d.tool_use_id, message: 'This command requires approval', session_id: sessionId });
+  const text = denied.length ? "I couldn't make the change: every write was denied, so the file is unchanged.\n\nIf you grant write and run access, I'll apply the edit and run the check." : asks ? 'I made a first pass. Should I continue?' : (spec.finalOffer ? 'Done. Would you like me to add a test file as well?' : 'Done. Everything is in place.');
   assistant([{ type: 'text', text: spec.printEnv ? `${text} token ${env.CLAUDE_CODE_OAUTH_TOKEN}` : text }]);
   const mult = scenario.cumulative === false ? 1 : n;
   const u = spec.usage || { input: 10, output: 100, cacheCreation: 1000, cacheRead: 5000 };
@@ -371,7 +378,7 @@ function claudeMain(prompt) {
   emit({
     type: 'result', subtype: 'success', is_error: false, api_error_status: null, duration_ms: 1000 * n, duration_api_ms: 900, num_turns: (spec.commands || []).length + 2,
     result: spec.printEnv ? `${text} token ${env.CLAUDE_CODE_OAUTH_TOKEN}` : text, stop_reason: 'end_turn', session_id: sessionId, total_cost_usd: (spec.costUsd ?? 0.1) * mult + (spec.subagents || []).length * 0.01 * mult,
-    usage: main, modelUsage, permission_denials: [], terminal_reason: 'completed',
+    usage: main, modelUsage, permission_denials: spec.denyPermissions ? denied.map((d) => ({ tool_name: d.tool_name, tool_use_id: d.tool_use_id, tool_input: d.tool_input })) : [], terminal_reason: 'completed',
   });
   process.exit(0);
 }

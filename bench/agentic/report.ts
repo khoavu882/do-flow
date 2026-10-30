@@ -745,7 +745,7 @@ function abReportOf({ runRoot, iterations, taskSet, config, noiseConfig, noisePa
   const questionTally = (set: Record<string, any>[]) => {
     const all = set.flatMap((byTask) => Object.values(byTask) as any[]);
     const sum = (key: string) => all.reduce((n, g) => n + (g.metrics.questions?.[key] ?? 0), 0);
-    return { runs: all.length, blocking: sum('pauses'), offers: sum('offers'), resumes: sum('resumes'), unanswered: all.filter((g) => g.metrics.questions?.unanswered).length };
+    return { runs: all.length, blocking: sum('pauses'), offers: sum('offers'), blocked: sum('blocked'), resumes: sum('resumes'), unanswered: all.filter((g) => g.metrics.questions?.unanswered).length };
   };
   const validity = {
     A: { ...exclusionTally(A), questions: questionTally(A), proof: proofCounts(A), capped: capped(A), successIfCappedScored0: sensitivity(A), spentTokens: spent(A) },
@@ -826,7 +826,7 @@ function abReportLines(r: any) {
     const v = r.validity[arm];
     lines.push(`arm ${label}: ${v.excluded} of ${v.runs} run(s) excluded (share ${num(v.share)} vs max ${r.thresholds.maxInfraShare}): ${marks(v.marks)}; reasons: ${marks(v.reasons)}; spent ${v.spentTokens} tokens incl. excluded`);
     lines.push(`  proof: P1 installed ${v.proof.p1}/${v.proof.runs}, P2 harness saw it ${v.proof.p2}/${v.proof.runs}, P3 hooks fired ${v.proof.p3}/${v.proof.runs}, DoFlow absent ${v.proof.absent}/${v.proof.runs}`);
-    lines.push(`  questions: ${v.questions.blocking} blocking pause(s), ${v.questions.offers} closing offer(s) over ${v.questions.runs} run(s); ${v.questions.resumes} resume(s), ${v.questions.unanswered} unanswered`);
+    lines.push(`  questions: ${v.questions.blocking} blocking pause(s), ${v.questions.offers} closing offer(s), ${v.questions.blocked} permission-blocked ending(s) (neither a pause nor an offer) over ${v.questions.runs} run(s); ${v.questions.resumes} resume(s), ${v.questions.unanswered} unanswered`);
     lines.push(`  cap sensitivity: ${v.capped.runs} run(s) stopped at the cap${v.capped.runs ? ` (${v.capped.ids.join(', ')})` : ''}; success mean with those scored 0: ${num(v.successIfCappedScored0)}`);
   }
   lines.push(`censored (stopped by the cap or the timeout; kept in cost and wall at a lower bound, out of the quality scores): arm ${a} ${r.censored.A.length} of ${r.censored.runs.A}${r.censored.A.length ? ` (${r.censored.A.join(', ')})` : ''}; arm ${b} ${r.censored.B.length} of ${r.censored.runs.B}${r.censored.B.length ? ` (${r.censored.B.join(', ')})` : ''}`);
