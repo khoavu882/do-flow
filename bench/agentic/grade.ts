@@ -545,8 +545,6 @@ function serializeGrading(g: any) {
 
 /** Names of the truth and run-store paths a worker may never name, in any form (both arms). */
 const AB_TRUTH_SUBSTRINGS = Object.freeze(['tasks-heldout', 'bench/native', 'bench/runs', 'bench/review-miss', 'bench/agentic', 'bench/retrieval/tasks', 'core/shared', 'doflow-agentic-tool']);
-/** Tools whose single `file_path` input the parser keeps as the call target. */
-const PATH_TOOLS = Object.freeze(['Read', 'Edit', 'Write', 'NotebookEdit']);
 const NETWORK_TOOLS = Object.freeze(['WebFetch', 'WebSearch']);
 const CHECKS_TIMEOUT_MS = 10000;
 const CHECKS_OUTPUT_MAX = 400;
@@ -631,12 +629,15 @@ function classifyAbIsolation({ reports, armConfig, roots, expected, homeSetup, p
       const name: string = call.name;
       const target: string = call.target ?? '';
       if (name.startsWith('mcp__') || NETWORK_TOOLS.includes(name)) { note(`${name} ${target}`.trim()); continue; }
-      const commands = name === 'Bash' ? simpleCommands(target) : (PATH_TOOLS.includes(name) && target ? [{ text: target, words: [target], raw: [target] }] : []);
+      // Bash: the whole stored command (not cut for display). Any other tool: every path-like input it names
+      // (file_path, notebook_path, path, a Grep glob, a Glob pattern), so a Grep or Glob aimed outside the roots is seen.
+      const named = name === 'Bash' ? [] : [...new Set([...(Array.isArray(call.paths) ? call.paths : []), ...(name !== 'Skill' && target ? [target] : [])])];
+      const commands = name === 'Bash' ? simpleCommands(target) : named.map((text: string) => ({ text, words: [text], raw: [text] }));
       if (commands.length === 0) continue;
       const hit = commands.some((c: any) => leak.some((re: any) => re.test(c.text)))
-        || AB_TRUTH_SUBSTRINGS.some((x) => target.includes(x))
+        || (name === 'Bash' ? [target] : named).some((text: string) => AB_TRUTH_SUBSTRINGS.some((x) => text.includes(x)))
         || outsidePath(commands, roots) !== null;
-      if (hit) note(`${name}: ${target}`);
+      if (hit) note(`${name}: ${name === 'Bash' ? target : named.join(' ')}`);
     }
   }
   const proofs = reports.map((r: any) => claudeStream.loadProof(r, expected));

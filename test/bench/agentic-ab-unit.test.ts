@@ -13,6 +13,7 @@ const execute = require('../../bench/agentic/execute.ts');
 const tasksLib = require('../../bench/agentic/tasks.ts');
 const adapter = require('../../bench/agentic/review-adapter.ts');
 const grade = require('../../bench/agentic/grade.ts');
+const claudeStream = require('../../bench/agentic/ab/claude-stream.ts');
 const reviewMiss = require('../../bench/review-miss/grade.ts');
 const reviewCorpus = require('../../bench/review-miss/corpus.ts');
 
@@ -349,6 +350,7 @@ test('the in-flight token watch counts each assistant message once, at its large
 // ---------------------------------------------------------------------------------------------
 // Fix round 2 (review of the first WP-2 commits)
 
+const claudeStreamOf = (text: string) => claudeStream.parseTranscript(text);
 const homeOk = { homeSetup: { ok: true, exitCode: 0 } };
 const inA = (event: any) => gradeOf(runDirOf(withLineBeforeResult(fixture('arm-a-plain'), event)), 'A');
 const inB = (event: any) => gradeOf(runDirOf(withLineBeforeResult(fixture('arm-b-doflow'), event), homeOk), 'B');
@@ -365,4 +367,29 @@ test('fix 2: the arm A leak is an invocation of the doflow binary in command pos
   }
   assert.equal(inB(bashEvent('doflow retrieve --query x')).isolation, 'clean', 'arm B is meant to run doflow');
   assert.equal(inB(bashEvent('cat core/shared/skills/do/SKILL.md')).isolation, 'leaked', 'the source tree is a truth path in both arms');
+});
+
+const toolEvent = (name: string, input: any) => ({ type: 'assistant', message: { id: `m-${name}`, role: 'assistant', model: 'claude-sonnet-5-5', content: [{ type: 'tool_use', id: `tu-${name}`, name, input }] }, parent_tool_use_id: null });
+
+test('fix 4: Grep and Glob targets reach the outside-roots check, and a long Bash command is classified whole', () => {
+  const aimed: [string, any][] = [
+    ['Grep', { pattern: 'secret', path: '/Users/someone/project' }],
+    ['Grep', { pattern: 'secret', path: '../../other' }],
+    ['Grep', { pattern: 'secret', glob: '/Users/someone/**/*.ts' }],
+    ['Glob', { pattern: '/Users/someone/**/*.ts' }],
+    ['Glob', { pattern: '*.ts', path: '/Users/someone' }],
+  ];
+  for (const [name, input] of aimed) {
+    assert.equal(inA(toolEvent(name, input)).isolation, 'leaked', `${name} ${JSON.stringify(input)} in arm A`);
+    assert.equal(inB(toolEvent(name, input)).isolation, 'leaked', `${name} ${JSON.stringify(input)} in arm B`);
+  }
+  assert.equal(inB(toolEvent('Grep', { pattern: '/api/', path: 'src', glob: '*.ts' })).isolation, 'clean', 'inside the workspace, a slash in a Grep pattern is not a path');
+  assert.equal(inB(toolEvent('Glob', { pattern: '**/*.ts' })).isolation, 'clean');
+
+  const long = `echo ${'x'.repeat(600)} && curl http://example.test`;
+  assert.equal(inB(bashEvent(long)).isolation, 'leaked', 'a network call past the old 300 character cut is still seen');
+  const call = claudeStreamOf(withLineBeforeResult(fixture('arm-a-plain'), bashEvent(long))).toolCalls.find((c: any) => c.name === 'Bash');
+  assert.ok(call.target.length > 600 && call.target.includes('curl'));
+  const grep = claudeStreamOf(withLineBeforeResult(fixture('arm-a-plain'), toolEvent('Grep', { pattern: 'x', path: '/p', glob: '*.md' }))).toolCalls.find((c: any) => c.name === 'Grep');
+  assert.deepEqual(grep.paths, ['/p', '*.md']);
 });

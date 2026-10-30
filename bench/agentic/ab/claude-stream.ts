@@ -29,14 +29,16 @@
 const { maskLine, maskBody } = require('../../../src/runtime/mask.ts');
 
 const CLAUDE_STREAM_JSON_V1 = 'claude-stream-json-v1';
-const COMMAND_CHARS = 300;
-const PATH_CHARS = 300;
+/** Kept per call for the isolation check; a consumer cuts it again for display. */
+const COMMAND_CHARS = 4000;
+const PATH_CHARS = 1000;
 const SUBAGENT_TOOL_NAMES = new Set(['Agent', 'Task']);
 const SKILL_FILE = /(?:^|[\\/])skills[\\/]([^\\/]+)[\\/]SKILL\.md$/;
 
 type Tokens = { inputTokens: number; outputTokens: number; cacheCreationInputTokens: number; cacheReadInputTokens: number };
 type ModelRow = Tokens & { costUSD: number | null };
-type ToolCall = { id: string | null; name: string; parentToolUseId: string | null; target: string | null };
+/** `target` is the Bash command or `file_path`; `paths` is every path-like input the tool names (file_path, notebook_path, path, a Grep glob, a Glob pattern). */
+type ToolCall = { id: string | null; name: string; parentToolUseId: string | null; target: string | null; paths: string[] };
 type SkillEvent = { via: 'skill-tool' | 'read'; skill: string; path: string | null; toolUseId: string | null };
 type HookEvent = { event: string; name: string; outcome: string | null; exitCode: number | null };
 type Init = {
@@ -175,7 +177,14 @@ function createClaudeStreamJsonV1() {
     if (name === 'Bash' && typeof input.command === 'string') target = maskLine(input.command).text.slice(0, COMMAND_CHARS);
     else if (typeof input.file_path === 'string') target = maskLine(input.file_path).text.slice(0, PATH_CHARS);
     else if (name === 'Skill' && typeof input.skill === 'string') target = input.skill;
-    toolCalls.push({ id, name, parentToolUseId, target });
+    const paths: string[] = [];
+    const addPath = (value: unknown): void => {
+      if (typeof value === 'string' && value !== '') paths.push(maskLine(value).text.slice(0, PATH_CHARS));
+    };
+    for (const key of ['file_path', 'notebook_path', 'path']) addPath(input[key]);
+    if (name === 'Grep') addPath(input.glob);
+    if (name === 'Glob') addPath(input.pattern);
+    toolCalls.push({ id, name, parentToolUseId, target, paths });
 
     if (name === 'AskUserQuestion') askUserQuestion++;
     if (SUBAGENT_TOOL_NAMES.has(name)) {
