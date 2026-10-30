@@ -382,11 +382,11 @@ function adaptInMemory({ iteration, taskSet, gradings, corpus, reviewConfig }: {
       return { task, runDir: g ? path.join(iteration.dir, task.id) : null, infra: g ? g.infra : null, workspaceRoot: g ? (readLaunchRoot(path.join(iteration.dir, task.id))) : null };
     });
     const name = `ab-${iteration.name}`;
-    const { grade } = adaptIteration({
+    const { grade, parsed } = adaptIteration({
       entries, corpus, config: reviewConfig, iterationDir: path.join(scratch, name), name,
       meta: { model: iteration.meta.model, sourceAt: iteration.meta.sourceAt }, reviewFile: REVIEW_FILE,
     });
-    return grade;
+    return { grade, parsed };
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
   }
@@ -399,7 +399,7 @@ const readLaunchRoot = (runDir: string) => readJsonOrNull(path.join(runDir, RUN_
  * differs marks the run `differing`. Review tasks are scored through the adapter; the stored adapter
  * grade (`<reviewRoot>/ab-<iteration>/grade.json`) is checked the same way. An excluded task's cases
  * carry the exclusion in the repeat (the adapter has no `source-unverified` status).
- * @returns {{repeats: {success: object, review: object | null}, gradings: Record<string, object>, differing: string[], stale: string[], censored: string[]}}
+ * @returns {{repeats: {success: object, review: object | null}, gradings: Record<string, object>, differing: string[], stale: string[], censored: string[], reviewFindings: {runs: number, produced: number, unmatched: number}}}
  */
 function regradeAbRepeat({ iteration, taskSet, config, verb, reviewRoot, corpus, reviewConfig }: any) {
   const gradings: Record<string, any> = {};
@@ -428,10 +428,19 @@ function regradeAbRepeat({ iteration, taskSet, config, verb, reviewRoot, corpus,
   }
   const base = { iteration: iteration.name, model: iteration.meta.model, commit: iteration.meta.sourceAt };
   let review: any = null;
+  const reviewFindings = { runs: 0, produced: 0, unmatched: 0 };
   const reviewTasks = taskSet.tasks.filter((t: any) => t.kind === 'review');
   if (reviewTasks.length) {
     if (!corpus) throw new UsageError('corpus-missing', `${verb}: the task set holds review tasks but no review-miss corpus was given (--corpus)`);
-    const grade = adaptInMemory({ iteration, taskSet, gradings, corpus, reviewConfig });
+    const { grade, parsed } = adaptInMemory({ iteration, taskSet, gradings, corpus, reviewConfig });
+    for (const task of reviewTasks) {
+      const p = parsed[task.id];
+      if (p && gradings[task.id] && abExcludedOf(gradings[task.id]) === null) {
+        reviewFindings.produced += p.findings;
+        reviewFindings.unmatched += p.unmatched;
+        reviewFindings.runs++;
+      }
+    }
     const storedFile = path.join(reviewRoot, `ab-${iteration.name}`, 'grade.json');
     if (reviewTasks.some((t: any) => gradings[t.id])) {
       const storedGrade = readJsonOrNull(storedFile);
@@ -452,7 +461,7 @@ function regradeAbRepeat({ iteration, taskSet, config, verb, reviewRoot, corpus,
     review = { ...base, runs };
   }
   const censored = Object.entries(gradings).filter(([, g]: [string, any]) => g.censored !== null && g.censored !== undefined).map(([id]) => `${iteration.name}/${id}`);
-  return { repeats: { success: { ...base, runs: successRuns }, review }, gradings, differing, stale, censored };
+  return { repeats: { success: { ...base, runs: successRuns }, review }, gradings, differing, stale, censored, reviewFindings };
 }
 
 /** The expected case set of one quality metric (what the noise artifact and the baseline file must hold). */
@@ -663,6 +672,7 @@ function abReportOf({ runRoot, iterations, taskSet, config, noiseConfig, noisePa
     return { id: task.id, A: side(A), B: side(B) };
   });
   const infraShare = { baseline: exclusionTally(A).share, candidate: exclusionTally(B).share };
+  const sumFindings = (set: any[]) => set.reduce((t: any, g: any) => ({ runs: t.runs + g.reviewFindings.runs, produced: t.produced + g.reviewFindings.produced, unmatched: t.unmatched + g.reviewFindings.unmatched }), { runs: 0, produced: 0, unmatched: 0 });
   const censored = { A: baseline.flatMap((g: any) => g.censored), B: candidate.flatMap((g: any) => g.censored) };
   const runCount = (set: Record<string, any>[]) => set.reduce((n, byTask) => n + Object.keys(byTask).length, 0);
   const cost = abCostOf({
@@ -733,7 +743,7 @@ function abReportOf({ runRoot, iterations, taskSet, config, noiseConfig, noisePa
   const noiseVerdicts = Object.fromEntries(metrics.map((m) => [m, noiseValid ? noise.metrics[m].verdict : null]));
   return {
     exit: 0, roles: config.roles, metrics, decisions, candidateMeans, noiseVerdicts, baselineMeans: Object.fromEntries(metrics.map((m) => [m, noiseValid ? noise.metrics[m].scopes.corpus.repeatMeans : []])),
-    cost, tasksCost, fixed, validity, graderRerun, censored: { A: censored.A, B: censored.B, runs: { A: runCount(A), B: runCount(B) } }, noiseFile, thresholds: { mde: noiseConfig.mde, maxInfraShare: noiseConfig.maxInfraShare },
+    reviewFindings: { A: sumFindings(baseline), B: sumFindings(candidate) }, cost, tasksCost, fixed, validity, graderRerun, censored: { A: censored.A, B: censored.B, runs: { A: runCount(A), B: runCount(B) } }, noiseFile, thresholds: { mde: noiseConfig.mde, maxInfraShare: noiseConfig.maxInfraShare },
   };
 }
 
@@ -750,6 +760,10 @@ function abReportLines(r: any) {
     const d = r.decisions[m];
     if (d.corpus.reason === 'no-noise-band') lines.push(`no noise band for ${m}: run \`npm run bench -- agentic noise --config <ab config> --iterations <a-r1,a-r2,a-r3> --out <file>\` over the ${a} repeats first`);
     lines.push(`${m}: ${scopeLine('corpus', d.corpus)}`);
+  }
+  if (r.metrics.includes('review')) {
+    const f = r.reviewFindings;
+    lines.push(`review findings (beside recall; an unmatched finding is a possible false positive or a real defect the corpus does not list): arm ${a} ${f.A.produced} produced, ${f.A.unmatched} matched no known key over ${f.A.runs} run(s); arm ${b} ${f.B.produced} produced, ${f.B.unmatched} matched no known key over ${f.B.runs} run(s)`);
   }
   if (r.graderRerun.differing.length || r.graderRerun.stale.length) {
     lines.push(`warning: grader re-run of arm ${b}: ${r.graderRerun.differing.length} differing, ${r.graderRerun.stale.length} stale of ${r.graderRerun.runs} run(s); the fresh grading is the score: ${[...new Set([...r.graderRerun.differing, ...r.graderRerun.stale])].join(', ')}`);

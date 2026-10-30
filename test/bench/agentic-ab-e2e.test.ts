@@ -97,7 +97,7 @@ const SCENARIO_TASKS: Record<string, any> = {
   'fix-nolist': { A: { files: PASS }, B: { files: PASS, initOverride: { dropSkills: ['do-implement'] } } },
   'fix-nohook': { A: { files: PASS }, B: { files: PASS, initOverride: { noHooks: true } } },
   'fix-timeout': both({ behaviour: 'timeout' }),
-  'review-x': { A: { reviewJson: [finding(2)] }, B: { reviewJson: [2, 8, 14, 20, 26].map(finding) } },
+  'review-x': { A: { reviewJson: [finding(2)] }, B: { reviewJson: [2, 8, 14, 20, 26, 40].map(finding) } },
   'review-bad-rev': both({ reviewJson: [] }),
 };
 const SCENARIO_FILE = path.join(TMP, 'scenario.json');
@@ -394,6 +394,7 @@ test('noise and report: arms are interleaved per repeat, the report prints the f
   const decisions = readJson(decisionOut);
   assert.equal(decisions.success.corpus.verdict, 'gain-above-noise', rep.out);
   assert.equal(decisions.review.corpus.verdict, 'gain-above-noise', rep.out);
+  assert.match(rep.out, /review findings .*arm A 2 produced, 0 matched no known key over 2 run\(s\); arm B 12 produced, 2 matched no known key over 2 run\(s\)/);
   assert.match(rep.out, /Success \(edit tasks, pass rate\) \| 5 \|/);
   assert.match(rep.out, /Review recall \(review-miss keys\) \| 5 \|/);
   assert.match(rep.out, /\| total tokens \| 6 \| -0\.840 \|/);

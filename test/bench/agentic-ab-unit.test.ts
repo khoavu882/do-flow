@@ -473,3 +473,13 @@ test('fix 6: closing offers and blocking questions are told apart; only a blocki
   assert.equal(claudeStreamOf(fixture('arm-b-doflow')).questions.any, true, 'the WP-1 question fields are unchanged');
   assert.equal(CONFIG.resume.reply, 'No further input is available. If the task as stated is complete, stop. Otherwise continue with the task as stated and change nothing outside it.');
 });
+
+test('fix 7: the adapter counts the findings a review produced and those that matched no known case', () => {
+  const f = (path_: string, line: number, severity = 'should-fix') => ({ path: path_, startLine: line, endLine: line, severity, title: 'x' });
+  const run = adaptWith(JSON.stringify([f('src/a.ts', 10), f('src/a.ts', 400), f('src/b.ts', 10), { path: 'src/a.ts' }]));
+  const stats = run.parsed[REVIEW_TASK.id];
+  assert.equal(stats.findings, 3, 'the invalid entry is dropped, not produced');
+  assert.equal(stats.dropped, 1);
+  assert.equal(stats.unmatched, 2, 'a far line and another file match no known case');
+  assert.equal(adaptWith('not json').parsed[REVIEW_TASK.id].unmatched, 0);
+});

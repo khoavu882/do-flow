@@ -123,7 +123,10 @@ function adaptIteration({ entries, corpus, config, iterationDir, name, meta, rev
       try { return fs.readFileSync(path.join(runDir, reviewFile), 'utf8'); } catch { return null; }
     })();
     const result = parseReviewJson(text, workspaceRoot);
-    parsed[task.id] = { ok: result.ok, reason: result.reason, findings: result.findings.length, dropped: result.dropped };
+    // A finding that matches none of the task's known cases (same path, overlap within the tolerance, severity at least the
+    // case's) is `unmatched`: a possible false positive, or a real defect the corpus does not list. Reported beside recall.
+    const unmatched = result.findings.filter((f: any) => !mine.some((c: any) => reviewMiss.isFound(findingsRecord([f], task.review.rev), c.expected, config.tolerance, config.maxSpan))).length;
+    parsed[task.id] = { ok: result.ok, reason: result.reason, findings: result.findings.length, dropped: result.dropped, unmatched };
     for (const c of mine) {
       const dir = path.join(iterationDir, c.id);
       fs.mkdirSync(dir);
