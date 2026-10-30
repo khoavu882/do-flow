@@ -1,0 +1,22 @@
+{
+  "id": "implicit-requirements",
+  "kind": "single",
+  "prompt": "Add a `--since <date>` option to `tasks export` so I can export only tasks created on or after a date.",
+  "visibleCommand": "node --test",
+  "items": [
+    { "id": "i1", "title": "filter is correct and the start date is inclusive",
+      "check": { "type": "test", "name": "export since keeps tasks on or after the date with the start included" } },
+    { "id": "i2", "title": "a date-only value is read as UTC midnight",
+      "check": { "type": "test", "name": "export since reads a date-only value as UTC midnight" } },
+    { "id": "i3", "title": "an invalid date exits 2 with an error line and no stack trace",
+      "check": { "type": "test", "name": "export since with an invalid date exits 2 with an error line and no stack trace" } },
+    { "id": "i4", "title": "works together with --format json and csv",
+      "check": { "type": "test", "name": "export since works together with the format option" } },
+    { "id": "i5", "title": "README lists --since in the export Options table",
+      "check": { "type": "file-contains", "path": "README.md", "regex": "--since", "flags": "i", "within": "### tasks export" } },
+    { "id": "i6", "title": "CHANGELOG Unreleased has an entry naming --since",
+      "check": { "type": "file-contains", "path": "CHANGELOG.md", "regex": "--since", "flags": "i", "within": "## Unreleased" } },
+    { "id": "i7", "title": "a test the agent added fails against the seed code",
+      "check": { "type": "mutation", "testDir": "test" } }
+  ]
+}

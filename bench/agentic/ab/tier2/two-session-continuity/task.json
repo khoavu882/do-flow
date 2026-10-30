@@ -1,0 +1,24 @@
+{
+  "id": "two-session-continuity",
+  "kind": "continuity",
+  "prompt": "Add duration formatting to this tool. Requirements:\n\n1. lib/duration.js exports formatDuration(ms, { style } = {}). Units are d, h, m and s. The default (short) style shows the two largest non-zero units separated by a space: 3900000 gives `1h 5m`, 3605000 gives `1h 5s`, 90061000 gives `1d 1h`.\n2. It truncates and never rounds up: 59999 gives `59s`, and anything under one second gives `0s`.\n3. A negative value gets a leading `-`: -90000 gives `-1m 30s`.\n4. 0 gives `0s`.\n5. A value that is not a finite number (NaN, Infinity, -Infinity) throws TypeError('formatDuration: ms must be a finite number').\n6. style: 'long' spells the units out with singular and plural forms and follows the same two-unit rule: 3900000 gives `1 hour 5 minutes`, 1000 gives `1 second`, 0 gives `0 seconds`, -90000 gives `-1 minute 30 seconds`. Put that implementation in lib/long.js and have formatDuration call it.\n7. bin/report.js gets an `elapsed` column built from each job's durationMs with formatDuration, using the long style when --verbose is given, and README.md documents formatDuration, its styles and the new column.",
+  "prompt2": "Continue the work that was started in this directory and finish it.",
+  "targetFiles": ["lib/duration.js", "lib/long.js", "bin/report.js", "README.md"],
+  "visibleCommand": "node --test",
+  "items": [
+    { "id": "i1", "title": "short style keeps the two largest non-zero units",
+      "check": { "type": "test", "name": "formatDuration keeps the two largest non-zero units" } },
+    { "id": "i2", "title": "truncates and never rounds up",
+      "check": { "type": "test", "name": "formatDuration truncates and never rounds up" } },
+    { "id": "i3", "title": "negative values get a leading minus",
+      "check": { "type": "test", "name": "formatDuration puts a leading minus on negative values" } },
+    { "id": "i4", "title": "zero gives 0s",
+      "check": { "type": "test", "name": "formatDuration gives 0s for zero" } },
+    { "id": "i5", "title": "non-finite values throw the exact TypeError",
+      "check": { "type": "test", "name": "formatDuration throws a TypeError with the exact message for non-finite values" } },
+    { "id": "i6", "title": "long style with singular and plural forms",
+      "check": { "type": "test", "name": "formatDuration long style spells units out with plurals" } },
+    { "id": "i7", "title": "report elapsed column wired and README documents it",
+      "check": { "type": "test", "name": "the report shows an elapsed column and the README documents formatDuration" } }
+  ]
+}

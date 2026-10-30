@@ -1,0 +1,9 @@
+{
+  "name": "ratelimit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Per-key token bucket rate limiter",
+  "main": "lib/index.js",
+  "scripts": { "test": "node --test" },
+  "engines": { "node": ">=22" }
+}
