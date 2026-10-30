@@ -309,10 +309,10 @@ test('E12: a second install, update, reconcile and remove leaves config files, l
   assert.strictEqual(r.status, 0, r.stderr);
   const afterRemove = snapshot();
   r = run(['remove', '-g', '--force', '--no-backup', '-t', 'kiro'], { home });
-  // A remove with nothing left to remove refuses its empty plan and exits 1, as it did before this
-  // feature; what this case pins is that it writes nothing.
-  assert.strictEqual(r.status, 1, r.stdout + r.stderr);
-  assert.match(r.stderr, /Refusing to apply a lifecycle plan with no required native resources/);
+  // A remove with nothing left to remove says so and exits 0 (FU-0wgcyt); the refusal of a malformed
+  // empty plan stays pinned in test/lifecycle/lifecycle-orchestrator.test.ts. It writes nothing either way.
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /Nothing to remove for kiro/);
   assert.deepStrictEqual(snapshot(), afterRemove, 'a second remove changes no watched file');
 });
 

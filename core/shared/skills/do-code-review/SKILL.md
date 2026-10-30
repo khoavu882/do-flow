@@ -189,7 +189,7 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
 
 ## Embedded feature research
 
-For an external fact gap or explicit request, follow the conditional protocol in `../do-document/references/embedded-research.md` before stage completion.
+For an external fact gap or request, follow the Gap or request protocol in `../do-document/references/embedded-research.md` before stage completion.
 
 ## Boundaries
 

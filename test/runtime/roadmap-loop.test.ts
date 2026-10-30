@@ -1353,6 +1353,8 @@ test('no-policy: develop without a committed core/registry/gates.json denies wit
   assert.match(hint, /commit it on develop/);
   assert.match(hint, /roadmap --action init-policy/);
   assert.match(hint, /agent-docs\/ may stay gitignored/);
+  assert.match(hint, /when develop is not checked out in a worktree/);
+  assert.match(hint, /prints the commands to run there/);
   const text = f.cli('--action', 'next');
   assert.equal(text.status, 1);
   assert.match(text.stdout, /roadmap next: denied: no-policy/);

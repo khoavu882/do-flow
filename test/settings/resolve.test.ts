@@ -70,6 +70,16 @@ test('C2: a user decision-model {enabled:true, model} enables from the old file;
   ]);
 });
 
+test('C2b: the deprecation note names only the keys settings.json does not already hold', (t: any) => {
+  const f = fx(t);
+  const file = f.writeUserDecision({ schema: 1, enabled: true, model: 'm' });
+  f.writeUserSettings({ schema: 1, 'advice.enabled': true });
+  const v = load(f);
+  for (const key of ['advice.enabled', 'advice.model']) v.get(key);
+  const deprecated = v.notes.filter((n: any) => n.code === 'deprecated').map((n: any) => n.text);
+  assert.deepEqual(deprecated, [`${file} is deprecated; set "advice.model" in ${f.userFile('settings.json')} (read through 2.x)`]);
+});
+
 test('C3: a project {enabled:false} narrows: decided by the project file in the project view only', (t: any) => {
   const f = fx(t);
   const userFile = f.writeUserDecision(userDecision());

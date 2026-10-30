@@ -115,7 +115,7 @@ const EVIDENCE_REFUSED_SOURCE_FIELDS = new Map<string, string | ((taskId: string
 ]);
 
 /**
- * Normalises a locator given either as an object or as a `file[:line]` / URI string.
+ * Normalises a locator given either as an object or as a `file[:line[-line]]` / URI string.
  * @param {Object|string} raw
  * @returns {Object}
  */
@@ -124,8 +124,13 @@ function parseLocator(raw: any) {
     const text = raw.trim();
     if (text === '') throw new Error('locator is empty');
     if (/^[a-z][a-z0-9+.-]*:\/\//i.test(text)) return { uri: text };
-    const withLine = text.match(/^(.+):(\d+)$/);
-    if (withLine) return { file: withLine[1], line: Number(withLine[2]) };
+    // `path:77-104` names a range; the locator keeps its first line (it has no end-line field), so the
+    // end is checked only to be a range at all, not against the file's length.
+    const withLine = text.match(/^(.+):(\d+)(?:-(\d+))?$/);
+    if (withLine) {
+      if (withLine[3] !== undefined && Number(withLine[3]) < Number(withLine[2])) throw new Error(`locator line range '${withLine[2]}-${withLine[3]}' ends before it starts`);
+      return { file: withLine[1], line: Number(withLine[2]) };
+    }
     return { file: text };
   }
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {

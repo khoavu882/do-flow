@@ -208,7 +208,7 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
 
 ## Embedded feature research
 
-For an external fact gap or explicit request, follow the conditional protocol in `../do-document/references/embedded-research.md` before stage completion.
+For an external fact gap or request, follow the Gap or request protocol in `../do-document/references/embedded-research.md` before stage completion.
 
 ## Boundaries
 **Will:** propose a task class and have the runtime validate it, read requirement + design + specs

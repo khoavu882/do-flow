@@ -66,7 +66,9 @@ function parseArgs(argv: string[]): any {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith('-')) o.flagsGiven.push(a);
-    switch (a) {
+    // `--commit` is the roadmap verb's own flag: anywhere else it must reach the default branch and get
+    // that verb's unknown-flag answer, as it did before it was added. '' matches no case.
+    switch (a === '--commit' && o.cmd !== 'roadmap' ? '' : a) {
       case '-h': case '--help': o.help = true; break;
       case '-v': o.version = true; break;
       case '--version':
@@ -90,7 +92,7 @@ function parseArgs(argv: string[]): any {
       case '--':
         if (o.cmd === 'slot') { o.slotCommand = argv.slice(i + 1); i = argv.length; break; }
         if (o.cmd === 'plan-check') break;
-        console.error(unknownFlagMessage(a)); process.exit(o.cmd === 'protocol' || o.cmd === 'config' || o.cmd === 'rules' ? 2 : 1);
+        console.error(unknownFlagMessage(a)); process.exit(unknownFlagExit(o.cmd));
         break;
       // worker --action run|describe|select: the isolated-edit recipe and baseline (082 IC-014).
       case '--edit': o.edit = true; break;
@@ -234,7 +236,7 @@ function parseArgs(argv: string[]): any {
         if (runtime !== null) { i = runtime; break; }
         // slot, primary, fleet and transcript report an unknown flag as their own usage error (exit 2, 115 IC-008, 120 IC-008).
         if (a.startsWith('-') && (o.cmd === 'slot' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript')) (o.extraFlags = o.extraFlags || []).push(a);
-        else if (a.startsWith('-') && o.cmd !== 'plan-check') { console.error(unknownFlagMessage(a)); process.exit(o.cmd === 'protocol' || o.cmd === 'config' || o.cmd === 'rules' ? 2 : 1); }
+        else if (a.startsWith('-') && o.cmd !== 'plan-check') { console.error(unknownFlagMessage(a)); process.exit(unknownFlagExit(o.cmd)); }
         else if (!o.cmd) o.cmd = a;
         else o.positional.push(a);
       }
@@ -242,6 +244,11 @@ function parseArgs(argv: string[]): any {
   }
   if (o.cmd === 'plan-check') o.extraFlags = o.flagsGiven;
   return o;
+}
+
+/** Verbs that answer an unrecognised flag as a usage error (exit 2); every other verb keeps exit 1. */
+function unknownFlagExit(cmd: string | null): number {
+  return cmd === 'protocol' || cmd === 'config' || cmd === 'rules' || cmd === 'review' ? 2 : 1;
 }
 
 /** Longest part of an unrecognised argument echoed back; the rest is cut and marked. */
@@ -553,7 +560,7 @@ Commands:
   route                Resolve an information need to a healthy provider (--intent)
   verify               Compile the verification contract and report against it (--task-id)
   recover              Classify a verification failure and plan the bounded retry (--error)
-  trace                Trajectory of the current or most recent workflow (run ledger);
+  trace                Trajectory of the current or most recent workflow (run ledger).
                        trace spans [<project>] the span view; trace analyze [<project>] its detectors (exit 1 on a finding);
                        trace export --otlp-http [<project>] export spans via OTLP/HTTP
   stats                Aggregate local run-ledger usage
@@ -561,7 +568,7 @@ Commands:
   discover             Missed capability opportunities in recorded runs
   inventory            Shadowed copies, drift and unmanaged files across both install scopes
   storage              Report stored data and retention bounds (--action report|prune|upkeep)
-  config               Show each setting's effective value and where it came from, print the settings schema, or validate, set or unset one (exit 0 ok, 1 refused, 2 usage):
+  config               Show each setting's effective value and where it came from, print the settings schema, or validate, set or unset one (exit 0 ok, 1 refused, 2 usage).
                        config [list] [--show-origin] [--json] [-g] [<project path>]   read-only
                        config schema [--json]   every key with its type, values, default, scope and whether config set may write it, the locked invariants and the presets
                        config validate <key> <json-value> [--layer user|project|local] [--json]   check a value, writes nothing
@@ -575,29 +582,29 @@ Commands:
   goal                 Add, check, link, list or close a goal and its checklist (--action add|item|check|link|list|done)
   failure              List, settle or switch off the failures DoFlow captured on this machine (--action list|settle|capture)
                        (a value beginning with '-' must be written --flag=value)
-  roadmap              Session-driven autopilot runner (--action render|status|next|audit|init-policy [--check] [--row <id>] [--run <id>]);
-                       roadmap --action init-policy [--commit] writes the gate policy for review, or with --commit commits it onto local develop (never pushes);
+  roadmap              Session-driven autopilot runner (--action render|status|next|audit|init-policy [--check] [--row <id>] [--run <id>]).
+                       roadmap --action init-policy [--commit] writes the gate policy for review, or with --commit commits it onto local develop when develop is not checked out in a worktree (otherwise it prints the commands to run there; never pushes);
                        roadmap seed --action check|apply|amend --draft <path> [--json] validates and writes new rows;
                        rows written while autopilot is on land proposed; roadmap promote <id...> [--json] (person, autopilot off) makes them ready
   plan-check           Check a plan's task lines the way the task-attempt ledger reads them: plan-check <plan path> [--json]
-  review               Validate a feature's review/findings.json; print errors, advisories and counts (exit 0 valid, 1 invalid, 2 usage):
+  review               Validate a feature's review/findings.json; print errors, advisories and counts (exit 0 valid, 1 invalid, 2 usage).
                        review --action check [--slug <name> | --path <findings.json>] [--json]
                        review --action start [--slug <name>] [--base <ref>] [--json] [--preset <id>]   verify precondition and review protocol; --base must be the review's base (exit 0 ok or not applicable, 1 refused, 2 usage)
-  protocol             Print the review and debate protocol presets, or the one a run would use (read-only, writes nothing):
+  protocol             Print the review and debate protocol presets, or the one a run would use (read-only, writes nothing).
                        protocol --action list [--kind review|debate] [--json]
                        protocol --action resolve --kind review|debate [--task-class <id>] [--risk <level>] [--preset <id>] [--json]   (exit 0 resolved, 1 refused, 2 usage)
-  rules                Print the values the runtime owns for this project, each with its source (read-only, writes nothing):
+  rules                Print the values the runtime owns for this project, each with its source (read-only, writes nothing).
                        rules [--task-class <id>] [-g] [--json] [<project>]   review protocol per class (attended and unattended), gate floors and loop limits, tiers and worker models, review and autopilot settings (exit 0, 2 usage)
-  primary              Resolve which harness and model the main session runs (read-only):
+  primary              Resolve which harness and model the main session runs (read-only).
                        primary --action resolve [--json]   (exit 0, 1 refused, 2 usage)
                        primary --action observed [--json]   checkouts and session hook records (exit 0, 1 cannot list checkouts, 2 usage)
-  fleet                List the projects this machine knows (read-only):
+  fleet                List the projects this machine knows (read-only).
                        fleet --action projects [--json]   from the user-state upkeep-roots and the hook project directories (exit 0, 1 cannot list projects, 2 usage)
                        fleet --action tree [--json]   one project's agent hierarchy as nodes and edges (exit 0, 1 cannot list checkouts, 2 usage)
-  transcript           Read an agent's recent events, or the project's traffic (read-only, run in a project):
+  transcript           Read an agent's recent events, or the project's traffic (read-only, run in a project).
                        transcript --action read --agent <key> [--cursor <c>] [--limit <n>] [--json]   masked events and DoFlow's record events (exit 0, 1 agent-not-in-project or session-not-in-project, 2 usage)
                        transcript --action stats [--window <minutes 1..60>] [--json]   events per minute, tool calls, tokens, who works with whom (exit 0, 2 usage)
-  package              List the contribution points a package may fill, check a package directory, show the packages, add and update a local package, or turn it on and off:
+  package              List the contribution points a package may fill, check a package directory, show the packages, add and update a local package, or turn it on and off.
                        package --action points [--json]
                        package --action check --path <dir> [--json]   (read-only; exit 0 clean, 1 findings, 2 usage)
                        package --action list [--id <id>] [--json]   (read-only; exit 0, 1 when a package is neither active nor disabled)
@@ -612,7 +619,7 @@ Commands:
                        package --action revoke --id <id> [--json]   (records a revocation in state.json; only a later trust line counts)
                        package --action remove --id <id> [--json]   (disables, deletes the store entry and lock row, records a revocation and a removed tombstone, then lists the settings, records and grant lines that still name the package and rewrites none; exit 0, 1 unknown id or the bundled package, 2 no --id)
                        package --action verify [--repair] [--json]   (re-hashes enabled third-party entries and records suspensions; exit 0 intact, 1 findings; --repair rewrites an unreadable state.json)
-  slot                 Named machine-wide queue, one holder at a time (--action run|list|peek|release);
+  slot                 Named machine-wide queue, one holder at a time (--action run|list|peek|release).
                        slot --action run --name <name> [--label <text>] [--timeout <s>] [--no-wait] -- <command> [args...]
                        slot --action release --name <name> --by <who> --reason <text>
   models               Synchronize, list, or inspect observed models across workers (--action sync|list|describe)
@@ -843,6 +850,8 @@ async function main(argv: string[]): Promise<any> {
     if (handler) return handler(o);
     return await dispatchRuntimeCommand(o);
   } catch (error: any) {
+    // A repeated `remove` with nothing left is a finished job, not a failure (FU-0wgcyt).
+    if (error?.code === 'DOFLOW_NOTHING_TO_REMOVE') { console.log(`[INFO] ${error.message}`); return; }
     // Recorded silently when it is a programming error (IC-016); the output and exit status below
     // are the same whether or not anything was written.
     // Required here, not at load, so a CLI whose failure modules cannot be loaded still runs as today.

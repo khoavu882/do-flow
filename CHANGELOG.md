@@ -20,6 +20,11 @@ All notable changes to DoFlow are documented here. Format follows
   - A `--no-record` pack and a `context-emit` injection leave no link.
   - Two sessions in the same run and stage share one record.
   - The `doflow-run` ledger line still carries no digest.
+- **`doflow rules`:** a read-only verb that prints the values the runtime owns for the project, each with its source: the review protocol per task class (attended and unattended, with the gate-b seat floor and the project gates override), gate floors and loop limits, tier bindings, and the effective review and autopilot settings. A field it cannot resolve prints `unresolved:<reason>`, never a guess. Usage errors exit 2.
+- **`roadmap --action init-policy [--commit]`:** `init-policy` writes the packaged gate policy to `core/registry/gates.json` for review; with `--commit` it also commits that file onto local develop by plumbing, as an unsigned commit, and never pushes. It does so only when develop is not checked out in a worktree; otherwise it prints the commands to run there. Valid only with `roadmap`; any other verb refuses `--commit` as an unknown flag.
+- **Roadmap cleanup keeps the feature folder:** before removing a merged feature's worktree, cleanup copies the worktree's gitignored feature folder into the main checkout, and keeps the worktree and branch if the copy fails.
+- **`doflow ui --listen-address <private IP> --tls-cert <path> --tls-key <path>`:** serve the Console over HTTPS on a private interface for phone access. Both files must be absolute PEM paths and the certificate must carry an IP SAN for the address; a missing file, a certificate without that SAN or a key that does not match refuses before listening. Session cookies are `Secure` on the https listener.
+- **Windows hook and runtime fixes (#11):** path spelling, folder `fsync`, lock directory creation, `PATHEXT` lookup and the working-directory hash on win32, plus the masking of a Windows home in captured output. The Windows CI leg stays informational.
 
 ### Changed
 - **Journey-first `design.md`:** the design template now opens with Concepts and Journeys (a state diagram per stateful thing, a rules table, a worked example) and ends with Open Points for Review; component sections follow, readers find them by title, and nine-section designs on disk still parse.
@@ -37,6 +42,18 @@ All notable changes to DoFlow are documented here. Format follows
   - research-writer's docs-only write path is not expressed.
 - **Row 135 (hand-back status):** every agent spec ends its report with `Status: <status>`, one of `done`, `done-with-concerns`, `needs-context` or `blocked`. The enum, with each status's meaning and the caller's action, is defined once in `core/registry/workflows.json` `agents.handback`. The `delivery-lead` spec and do-execute-plan's `parallel_dispatch.md` branch on it in one line: `needs-context` resend with the missing context, `blocked` stop and surface it, `done-with-concerns` verify the concerns before accepting, `done` accept. do-implement dispatches no worker, so it has no branch line. New guard G76 (`handback-status.test.ts`) holds every spec's status line and every consumer's branch line to the enum. The `feature` context rail rises to 233,400 B (measured 233,319 B). The Codex agent TOMLs carry the same status line, and the Codex `delivery-lead` carries the branch line.
 
+### Fixed
+- **`--commit` is `roadmap`-only:** it was parsed for every verb, so `install --commit` and `protocol --action list --commit` were accepted; they now fail as unknown flags again (exit 1 and exit 2).
+- **`doflow review` unknown flag exits 2:** `review --bogus` exited 1 while the reference documents exit 2 for a usage error.
+- **A repeated `remove -t <harness>` exits 0:** when the ledger holds no resources for the harness and nothing would change, it prints `Nothing to remove for <harness>` instead of the empty-plan refusal (exit 1); an empty plan while resources are held is still refused.
+- **Settings deprecation note:** the note that asks you to set a key in `settings.json` is no longer printed when `settings.json` already holds that key.
+- **Correction to the 2.0.0-beta.7 notes (Feature 103):** they overstated the write-ownership admission controller and the reviewer independence guard. Only `doflow doctor` loads them; no dispatch path calls them, so neither is enforced yet.
+- **`doflow doctor` git probe:** the git probe is retried once after a timeout, so a cold macOS git shim no longer makes the first `doctor` exit 1.
+- Roadmap cleanup no longer loses a feature artifact: when the main checkout already holds a different copy, the worktree and branch are kept and the audit line names the file (main is never overwritten).
+- `context-pack` no longer links a delivery to a run chosen by branch name alone; only `--slug` or a feature pointer on its branch selects the run.
+- Hardened the context-pack stage link: it refuses a run folder swapped for a symlink mid-update, ignores malformed `packs` entries instead of throwing, and uses a legacy flat task run when it is this feature's.
+- `task-attempt claim` accepts an owner that matches the plan's declared owner once its trailing parenthetical note is dropped (for example `quality-guardian (Opus)`), so `--owner-override` is no longer needed for it.
+
 ## [2.0.0-beta.7] - 2026-10-27
 
 ### Added
@@ -44,7 +61,7 @@ All notable changes to DoFlow are documented here. Format follows
 - **Feature 084 (Advisor shadow):** per-kind shadow mode for advice, consequence correlation, and an elevation invariant.
 - **Feature 085 (Rollout profiles):** rollout profiles, an instant rollback controller, and harness context profiles.
 - **Feature 102 (Guidance ablation):** a rule ledger, a never-ablate safety invariant, and an ablation simulation engine.
-- **Feature 103 (Agent teams):** an agent-teams coordination protocol, a write-ownership admission controller, and a reviewer independence guard.
+- **Feature 103 (Agent teams):** an agent-teams coordination protocol, with a write-ownership admission controller and a reviewer independence guard as modules. Only `doflow doctor` loads them (its `team` report); no dispatch path calls them yet, so neither enforces anything in this release.
 - **Feature 121 (Local model capabilities):** local-model capabilities, a capability-provider point, loopback execution, and data sanitization.
 - **Feature 126 (Worker pool sync):** model catalogue sync, harness probes, the `models.enabled` setting, the `doflow models` command, and a worker-pool view in `doflow doctor`.
 - **Row 131 (skill structure lint, G75):** a new guard fails when a skill reference names another reference its own SKILL.md does not name (reads stay one hop from SKILL.md), when a reference over 300 lines has no contents list, when an agent spec has no `tool-scope`, and when the agent specs' combined descriptions pass Claude Code's documented 15,000-token subagent listing cap or the 1,040-character growth ratchet that stands in for the harnesses whose vendors document no cap. `core/registry/guidance-caps.json` gains `agent_description_caps` (one row per harness, with its page and the date read) and `agent_description_ratchet`. The chained pointers in `do`, `do-document`, `do-execute-plan` and `do-flow` references are now either named in SKILL.md as well or point back to it; `scaffold.md` gains a contents list; every agent spec declares `tool-scope: all`, which no harness receives.

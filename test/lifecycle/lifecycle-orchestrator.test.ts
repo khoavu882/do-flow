@@ -54,6 +54,19 @@ test('planning is non-mutating and returns normalized adapter changes', () => {
   });
 });
 
+test('a remove that finds no owned resources and no changes is a finished job; with owned resources the empty plan is still refused', (t) => {
+  const adapter = fakeAdapter();
+  adapter.plan = (): any => ({ changes: [] });
+  const adapters = createAdapterRegistry({ fake: adapter });
+  const stateRoot = tempDir(t, 'doflow-lifecycle-state-');
+  const plan = planLifecycle({ registry, adapters, scope: 'project', scopeRoot: root, targets: ['fake'], context: { operation: 'remove' } });
+  assert.throws(() => applyLifecycle({ plan, registry, adapters, stateRoot, mode: 'remove' }), (error: any) => error.code === 'DOFLOW_NOTHING_TO_REMOVE' && /Nothing to remove for fake/.test(error.message));
+  assert.ok(!fs.existsSync(path.join(stateRoot, 'recovery')), 'nothing is journalled');
+
+  const held = { ...plan, ledger: { ...plan.ledger, resources: [{ harness: 'fake', assetId: 'guidance.fake', target: 'FAKE.md', ownershipIdentity: 'fake:guidance' }] } };
+  assert.throws(() => applyLifecycle({ plan: held, registry, adapters, stateRoot, mode: 'remove' }), /no required native resources/);
+});
+
 test('apply refuses an empty native plan before journalling or ledger writes', (t) => {
   const adapter = fakeAdapter();
   adapter.plan = (): any => ({ changes: [] });

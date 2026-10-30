@@ -80,7 +80,8 @@ function narrow(base: any, override: any): { policy: any; key: string | null } {
 
 /** What a person does about `no-policy`; the reason id stays the closed one. Never a fallback to the packaged policy. */
 const NO_POLICY_HINT = 'develop has no committed core/registry/gates.json. Run `doflow roadmap --action init-policy` to write the packaged policy, '
-  + 'review it, and commit it on develop, or add `--commit` to commit it on develop in one step (agent-docs/ may stay gitignored). The policy is read only from develop\'s committed head, '
+  + 'review it, and commit it on develop, or add `--commit` to commit it on develop in one step when develop is not checked out in a worktree '
+  + '(otherwise it prints the commands to run there; agent-docs/ may stay gitignored). The policy is read only from develop\'s committed head, '
   + 'never the working tree, a feature branch or the package.';
 
 /** Base bytes must come from develop. This pure function never selects or reads a branch. */

@@ -85,9 +85,10 @@ const SCAN_FILE_LIMIT = 4000;
  * @param {Object} [options]
  * @param {Function} [options.execFileImpl=execFileSync]
  * @param {number} [options.timeoutMs=PROBE_TIMEOUT_MS]
+ * @param {boolean} [options.retryOnTimeout] run the probe once more after a timeout; defaults to true for git only
  * @returns {{ok: boolean, output: string, durationMs: number, timedOut: boolean, error: string|null}}
  */
-function runProbe(command: any, { execFileImpl = execFileSync, timeoutMs = PROBE_TIMEOUT_MS }: any = {}) {
+function runProbe(command: any, { execFileImpl = execFileSync, timeoutMs = PROBE_TIMEOUT_MS, retryOnTimeout = path.basename(String(command[0])) === 'git' }: any = {}): any {
   const [bin, ...args] = command;
   const started = Number(process.hrtime.bigint() / 1000000n);
   try {
@@ -108,6 +109,9 @@ function runProbe(command: any, { execFileImpl = execFileSync, timeoutMs = PROBE
     // repairs — a timeout usually means a first-run index build, a non-zero exit usually means a
     // broken install — so they are reported apart rather than as one failure string.
     const timedOut = error.killed === true || error.code === 'ETIMEDOUT' || error.signal === 'SIGTERM';
+    // A cold macOS git shim can outlast the first probe and answer at once the second time, which made the
+    // first `doflow doctor` exit 1 falsely (FU-93wtsf). Only the git probe is retried, once.
+    if (timedOut && retryOnTimeout) return runProbe(command, { execFileImpl, timeoutMs, retryOnTimeout: false });
     return {
       ok: false,
       output: '',

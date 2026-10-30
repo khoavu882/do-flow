@@ -970,7 +970,13 @@ function verifyLifecycle({ plan, adapters, context = {} }: any) {
   return { verifications, conflicts, ok: conflicts.length === 0 && verifications.every((result) => result.ok !== false) };
 }
 
-function assertPlanApplicable(plan: any, stateRoot: any, acceptPrerequisites: any) {
+function assertPlanApplicable(plan: any, stateRoot: any, acceptPrerequisites: any, mode: any = 'apply') {
+  // A repeated remove: the ledger holds nothing for these harnesses and the plan changes nothing. That is a
+  // finished job, not the malformed plan refused below; the CLI answers this code with a note and exit 0.
+  if (mode === 'remove' && plan.safe && !plan.changes.length && !(plan.retiredHarnesses ?? []).some((item: any) => item.changes.length)
+    && !(plan.ledger?.resources ?? []).some((resource: any) => plan.targets.some((target: any) => target.harness === resource.harness))) {
+    throw Object.assign(new Error(`Nothing to remove for ${plan.targets.map((target: any) => target.harness).join(', ')}: DoFlow owns no native resources there.`), { code: 'DOFLOW_NOTHING_TO_REMOVE' });
+  }
   if (!plan.safe && !(acceptPrerequisites && plan.conflicts.length === 0)) throw new Error('Refusing to apply an unsafe lifecycle plan');
   if (!stateRoot) throw new Error('stateRoot is required before lifecycle mutation');
   // A retirement is native work no live harness lists: a plan holding only that is applicable.
@@ -1036,7 +1042,7 @@ function assertBashAvailableForHooks(plan: any, mode: any, hasBashCapableShellFn
 }
 
 function applyLifecycle({ plan, registry, adapters, stateRoot, ledger = plan.ledger, context = {}, mode = 'apply', acceptPrerequisites = false, writeLedgerFn = writeLedger, writeRecoveryRecordFn = writeRecoveryRecord, hasBashCapableShellFn = hasBashCapableShell }: any) {
-  assertPlanApplicable(plan, stateRoot, acceptPrerequisites);
+  assertPlanApplicable(plan, stateRoot, acceptPrerequisites, mode);
   assertBashAvailableForHooks(plan, mode, hasBashCapableShellFn);
   const recovery = writeRecoveryRecordFn(stateRoot, { status: 'pending', changes: plan.changes });
   const completedHarnesses = [];

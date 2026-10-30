@@ -346,6 +346,9 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
   /** The candidates of one key in one view, lowest layer first (the env last). */
   function rawCandidates(key: string, spec: any, viewName: ViewName): Raw[] {
     const out: Raw[] = [];
+    // The legacy file's deprecation note waits until the new file has been read: it tells the reader to set the
+    // key there, which is noise when settings.json already holds it (FU-3xc3fj).
+    const deprecated: Array<{ layer: 'user' | 'project'; file: string }> = [];
     const legacyAt = (layer: 'user' | 'project', base: string, checkout: Checkout): void => {
       for (const entry of spec.legacy) {
         if (entry.layer !== layer) continue;
@@ -362,9 +365,7 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         } else {
           out.push({ ...base0, display: displayOf(spec, read.value), value: read.value, fault: null });
         }
-        if (once(`deprecated\0${file}\0${key}`)) {
-          notes.push({ code: 'deprecated', key, source: file, text: `${file} is deprecated; set "${key}" in ${newPath(layer)} (read through 2.x)` });
-        }
+        deprecated.push({ layer, file });
       }
     };
     const fileAt = (layer: 'user' | 'project' | 'local', file: string, checkout: Checkout): void => {
@@ -432,6 +433,13 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
         } else {
           out.push({ ...base0, value: null, fault: null, noEffect: true });
         }
+      }
+    }
+    for (const { layer, file } of deprecated) {
+      const held = reads.get(newPath(layer));
+      if (held?.status === 'ok' && held.values.has(key)) continue;
+      if (once(`deprecated\0${file}\0${key}`)) {
+        notes.push({ code: 'deprecated', key, source: file, text: `${file} is deprecated; set "${key}" in ${newPath(layer)} (read through 2.x)` });
       }
     }
     return out;
