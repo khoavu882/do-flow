@@ -41,6 +41,23 @@
  *   AGENTIC_FAKE_PIDFILE   where the `timeout` behaviour writes its child sleeper's pid.
  *
  * Events follow the codex-exec-json-v1 shapes the executor's parser reads.
+ *
+ * Claude mode (the with/without-DoFlow A/B): an argv holding `--output-format` is a Claude headless run and
+ * speaks stream-json instead. Environment: AB_FAKE_SCENARIO (path), AB_FAKE_DUMP (append one JSON line per
+ * call), AB_FAKE_SEEN (credential variable names whose values are checked, never written).
+ *   scenario = { "tasks": { "<id>": { "match": "<substring of the first prompt>", "A": <spec>, "B": <spec> } },
+ *                "cumulative": true }
+ *   <spec> = { "behaviour": "ok"|"timeout"|"api-error"|"silent"|"hang-after-usage" (default ok),
+ *              "files": { "<path>": "<content>" }, "reviewJson": [...], "reviewRaw": "<text>",
+ *              "commands": [...], "reads": [...], "skills": [...], "subagents": [{ "type", "model", "tokens" }],
+ *              "usage": { "input", "output", "cacheCreation", "cacheRead" }, "costUsd": n,
+ *              "askSegments": n, "stream": { "messages": n, "perMessage": tokens },
+ *              "initOverride": { "addSkills": [], "addAgents": [], "dropSkills": [], "noHooks": true, "model": "..." } }
+ *   The arm is B when `$CLAUDE_CONFIG_DIR/.fake-hooks` exists (written by `--fake-install <export>`), else A.
+ *   `--fake-install <export>` stands in for `doflow install`: it projects `<export>/core/shared/{skills,agent-specs}`
+ *   into `$CLAUDE_CONFIG_DIR` (AB_FAKE_INSTALL=fail makes it exit 1).
+ *   A resumed run (`--resume <id>`) is the next segment: `askSegments` segments end with a question, and the
+ *   result reports running totals (usage and cost multiplied by the segment number) unless `cumulative` is false.
  */
 
 const fs = require('node:fs');
@@ -190,6 +207,157 @@ function main(prompt) {
   process.exit(behaviour === 'exit' ? (spec.exitCode ?? 1) : 0);
 }
 
+// ---------------------------------------------------------------------------------------------
+// Claude mode
+
+function configDir() {
+  return env.CLAUDE_CONFIG_DIR || path.join(env.HOME || '', '.claude');
+}
+
+/** `--name value` from argv (the installer is started without the wrapper's environment). */
+const argFlag = (name) => (argv.includes(name) ? argv[argv.indexOf(name) + 1] : undefined);
+
+function abDump(kind, extra = {}) {
+  const file = env.AB_FAKE_DUMP || argFlag('--dump');
+  if (!file) return;
+  const seen = Object.fromEntries(String(env.AB_FAKE_SEEN || argFlag('--seen') || '').split(',').filter(Boolean).map((n) => [n, Boolean(env[n])]));
+  fs.appendFileSync(file, `${JSON.stringify({ kind, argv, cwd: process.cwd(), HOME: env.HOME, PATH: env.PATH, envKeys: Object.keys(env).sort(), credentialsSeen: seen, ...extra })}\n`);
+}
+
+function fakeInstall(exportDir) {
+  abDump('install', { exportDir });
+  if (env.AB_FAKE_INSTALL === 'fail' || argv.includes('--fail')) {
+    process.stderr.write('fake install failed\n');
+    process.exit(1);
+  }
+  const dir = configDir();
+  const skills = path.join(exportDir, 'core', 'shared', 'skills');
+  const agents = path.join(exportDir, 'core', 'shared', 'agent-specs');
+  for (const name of fs.existsSync(skills) ? fs.readdirSync(skills) : []) {
+    if (!fs.existsSync(path.join(skills, name, 'SKILL.md'))) continue;
+    fs.mkdirSync(path.join(dir, 'skills', name), { recursive: true });
+    fs.copyFileSync(path.join(skills, name, 'SKILL.md'), path.join(dir, 'skills', name, 'SKILL.md'));
+  }
+  for (const file of fs.existsSync(agents) ? fs.readdirSync(agents) : []) {
+    if (!file.endsWith('.md')) continue;
+    fs.mkdirSync(path.join(dir, 'agents'), { recursive: true });
+    fs.copyFileSync(path.join(agents, file), path.join(dir, 'agents', file));
+  }
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, '.fake-hooks'), '1\n');
+  process.exit(0);
+}
+
+const names = (dir, strip) => {
+  try {
+    return fs.readdirSync(dir).filter((f) => !f.startsWith('.')).map((f) => f.replace(strip, '')).sort();
+  } catch {
+    return [];
+  }
+};
+
+function claudeMain(prompt) {
+  const scenario = readJson(env.AB_FAKE_SCENARIO);
+  const home = env.HOME;
+  const dir = configDir();
+  const installed = fs.existsSync(path.join(dir, '.fake-hooks'));
+  const arm = installed ? 'B' : 'A';
+  const counter = path.join(home, '.fake-seg');
+  const taskFile = path.join(home, '.fake-task');
+  const n = (fs.existsSync(counter) ? Number(fs.readFileSync(counter, 'utf8')) : 0) + 1;
+  fs.writeFileSync(counter, String(n));
+  let taskId = fs.existsSync(taskFile) ? fs.readFileSync(taskFile, 'utf8') : null;
+  if (!taskId) {
+    taskId = Object.keys(scenario.tasks).find((id) => prompt.includes(scenario.tasks[id].match)) || null;
+    if (taskId) fs.writeFileSync(taskFile, taskId);
+  }
+  const spec = taskId ? scenario.tasks[taskId][arm] : null;
+  abDump('run', { arm, taskId, segment: n, resumed: argv.includes('--resume'), promptBytes: Buffer.byteLength(prompt, 'utf8'), ...(n > 1 ? { prompt } : {}) });
+  if (!spec) {
+    process.stderr.write('fake-worker: no Claude scenario entry matches this prompt\n');
+    process.exit(3);
+  }
+  const behaviour = spec.behaviour || 'ok';
+  const sessionId = 'sess-fake-0001';
+  const o = spec.initOverride || {};
+  if (behaviour === 'silent') process.exit(0);
+
+  if (installed && !o.noHooks) {
+    for (const hook of ['SessionStart', 'UserPromptSubmit']) {
+      emit({ type: 'system', subtype: 'hook_started', hook_id: `h-${hook}`, hook_name: `${hook}:startup`, hook_event: hook, session_id: sessionId });
+      emit({ type: 'system', subtype: 'hook_response', hook_id: `h-${hook}`, hook_name: `${hook}:startup`, hook_event: hook, outcome: 'success', exit_code: 0, session_id: sessionId });
+    }
+  }
+  const skills = [...names(path.join(dir, 'skills'), ''), ...(o.addSkills || [])].filter((x) => !(o.dropSkills || []).includes(x));
+  const agents = [...names(path.join(dir, 'agents'), /\.md$/), ...(o.addAgents || []), 'general-purpose'];
+  emit({
+    type: 'system', subtype: 'init', cwd: process.cwd(), session_id: sessionId, tools: ['Bash', 'Read', 'Edit', 'Write', 'Skill'], mcp_servers: [],
+    model: o.model || 'claude-sonnet-5-5', permissionMode: 'bypassPermissions', slash_commands: [...skills, 'update-config'], skills: [...skills, 'update-config'], agents,
+    apiKeySource: 'environment', claude_code_version: '2.1.308',
+  });
+  if (behaviour === 'timeout') {
+    setInterval(() => {}, 1000);
+    return;
+  }
+  if (behaviour === 'api-error') {
+    emit({ type: 'result', subtype: 'success', is_error: true, api_error_status: 529, result: 'overloaded', session_id: sessionId });
+    process.exit(1);
+  }
+
+  let msg = 0;
+  const assistant = (content, extra = {}, parent = null) => emit({
+    type: 'assistant', message: { id: `m${n}-${++msg}`, role: 'assistant', model: 'claude-sonnet-5-5', content, ...extra }, parent_tool_use_id: parent, session_id: sessionId,
+  });
+  const tool = (name, input, extra = {}, parent = null) => assistant([{ type: 'tool_use', id: `tu${n}-${msg + 1}`, name, input }], extra, parent);
+  for (const skill of spec.skills || []) tool('Skill', { skill });
+  for (const file of spec.reads || []) tool('Read', { file_path: file });
+  for (const command of spec.commands || []) tool('Bash', { command });
+  for (const sub of spec.subagents || []) {
+    tool('Agent', { subagent_type: sub.type, description: 'work', prompt: 'work' });
+    emit({ type: 'assistant', message: { id: `s${n}-${++msg}`, role: 'assistant', model: sub.model || 'claude-haiku-4-5', content: [{ type: 'tool_use', id: `tus${msg}`, name: 'Bash', input: { command: 'node --version' } }] }, parent_tool_use_id: `tu${n}-${msg - 1}`, session_id: sessionId });
+  }
+  if (spec.stream) {
+    for (let i = 0; i < spec.stream.messages; i++) {
+      assistant([{ type: 'text', text: `step ${i}` }], { usage: { input_tokens: spec.stream.perMessage, output_tokens: 0 } });
+    }
+    if (behaviour === 'hang-after-usage') {
+      setInterval(() => {}, 1000);
+      return;
+    }
+  }
+  for (const [file, content] of Object.entries(spec.files || {})) {
+    fs.mkdirSync(path.dirname(path.join(process.cwd(), file)), { recursive: true });
+    fs.writeFileSync(path.join(process.cwd(), file), content);
+  }
+  if (spec.reviewJson !== undefined) fs.writeFileSync(path.join(process.cwd(), 'review.json'), JSON.stringify(spec.reviewJson));
+  if (spec.reviewRaw !== undefined) fs.writeFileSync(path.join(process.cwd(), 'review.json'), spec.reviewRaw);
+
+  const asks = n <= (spec.askSegments || 0);
+  const text = asks ? 'I made a first pass. Should I continue?' : 'Done. Everything is in place.';
+  assistant([{ type: 'text', text }]);
+  const mult = scenario.cumulative === false ? 1 : n;
+  const u = spec.usage || { input: 10, output: 100, cacheCreation: 1000, cacheRead: 5000 };
+  const main = { input_tokens: u.input * mult, output_tokens: u.output * mult, cache_creation_input_tokens: u.cacheCreation * mult, cache_read_input_tokens: u.cacheRead * mult };
+  const modelUsage = {
+    'claude-sonnet-5-5': {
+      inputTokens: main.input_tokens, outputTokens: main.output_tokens, cacheCreationInputTokens: main.cache_creation_input_tokens,
+      cacheReadInputTokens: main.cache_read_input_tokens, costUSD: (spec.costUsd ?? 0.1) * mult,
+    },
+  };
+  for (const sub of spec.subagents || []) {
+    const t = (sub.tokens || 500) * mult;
+    modelUsage[sub.model || 'claude-haiku-4-5'] = { inputTokens: t, outputTokens: 0, cacheCreationInputTokens: 0, cacheReadInputTokens: 0, costUSD: 0.01 * mult };
+  }
+  emit({
+    type: 'result', subtype: 'success', is_error: false, api_error_status: null, duration_ms: 1000 * n, duration_api_ms: 900, num_turns: (spec.commands || []).length + 2,
+    result: text, stop_reason: 'end_turn', session_id: sessionId, total_cost_usd: (spec.costUsd ?? 0.1) * mult + (spec.subagents || []).length * 0.01 * mult,
+    usage: main, modelUsage, permission_denials: [], terminal_reason: 'completed',
+  });
+  process.exit(0);
+}
+
+if (argv[0] === '--fake-install') fakeInstall(argv[1]);
+
 if (argv.includes('--version')) {
   dump('version');
   process.stdout.write('fake 0.0.0\n');
@@ -198,4 +366,4 @@ if (argv.includes('--version')) {
 let prompt = '';
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => { prompt += chunk; });
-process.stdin.on('end', () => main(prompt));
+process.stdin.on('end', () => (argv.includes('--output-format') ? claudeMain(prompt) : main(prompt)));
