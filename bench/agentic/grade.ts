@@ -328,6 +328,8 @@ const TRUTH_SUBSTRINGS = Object.freeze(['tasks-heldout', 'bench/retrieval/tasks'
 const SYSTEM_PREFIXES = Object.freeze(['/usr', '/bin', '/sbin', '/dev', '/etc', '/System', '/Library', '/opt', '/proc']);
 
 /** `/private/X` and `/X` are one path (the macOS /var and /tmp aliases). */
+/** Variables that name the OS temp dir, where the pruned tool export and other runs' scratch live. */
+const AB_TMP_VARS = Object.freeze(['TMPDIR', 'TMP', 'TEMP', 'TEMPDIR', 'TMP_DIR']);
 const unalias = (p: string) => path.posix.normalize(p).replace(/^\/private(?=\/)/, '');
 const within = (p: string, root: string) => p === root || p.startsWith(`${root}/`);
 
@@ -338,7 +340,7 @@ const within = (p: string, root: string) => p === root || p.startsWith(`${root}/
  * Ceiling: any word starting with `/` counts as a path, so a pattern such as `rg '/api/'` is graded
  * leaked too (the run is excluded, never scored wrongly).
  */
-function outsidePath(commands: any[], roots: any) {
+function outsidePath(commands: any[], roots: any, { expandVars = false }: { expandVars?: boolean } = {}) {
   const allowed = [...SYSTEM_PREFIXES];
   for (const r of [roots?.workspaceRoot, roots?.profileRoot]) if (typeof r === 'string' && r.startsWith('/')) allowed.push(unalias(r));
   const home = typeof roots?.workspaceRoot === 'string' && roots.workspaceRoot.startsWith('/') ? roots.workspaceRoot : '/';
@@ -350,8 +352,21 @@ function outsidePath(commands: any[], roots: any) {
       if (value) candidates.push(value[1]);
       for (const p of candidates) {
         let abs = null;
-        if (p.startsWith('/')) abs = p;
-        else if (p.split('/').includes('..')) abs = path.posix.resolve(cwd, p);
+        if (expandVars) {
+          // A/B: `$VAR` and `~` words are expanded where the value is known (HOME is the scratch home, PWD the
+          // tracked cwd) and flagged where it is not (TMPDIR and friends, any other variable used as a path base).
+          const v = /^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))(\/.*)?$/.exec(p);
+          const tilde = /^~(\/.*)?$/.exec(p);
+          if (v || tilde) {
+            const name = v ? (v[1] || v[2]) : 'HOME';
+            const rest = (v ? v[3] : tilde![1]) || '';
+            if (name === 'PWD') abs = path.posix.resolve(cwd, `.${rest}`);
+            else if (name === 'HOME' && typeof roots?.profileRoot === 'string' && roots.profileRoot.startsWith('/')) abs = path.posix.resolve(roots.profileRoot, 'home', `.${rest}`);
+            else if (AB_TMP_VARS.includes(name) || name === 'HOME' || rest !== '') return word;
+          } else if (/^~[^/]/.test(p)) return word;
+        }
+        if (abs === null && p.startsWith('/')) abs = p;
+        else if (abs === null && p.split('/').includes('..')) abs = path.posix.resolve(cwd, p);
         if (abs !== null && !allowed.some((root) => within(unalias(abs), root))) return word;
       }
     }
@@ -636,7 +651,7 @@ function classifyAbIsolation({ reports, armConfig, roots, expected, homeSetup, p
       if (commands.length === 0) continue;
       const hit = commands.some((c: any) => leak.some((re: any) => re.test(c.text)))
         || (name === 'Bash' ? [target] : named).some((text: string) => AB_TRUTH_SUBSTRINGS.some((x) => text.includes(x)))
-        || outsidePath(commands, roots) !== null;
+        || outsidePath(commands, roots, { expandVars: true }) !== null;
       if (hit) note(`${name}: ${name === 'Bash' ? target : named.join(' ')}`);
     }
   }

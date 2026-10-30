@@ -393,3 +393,19 @@ test('fix 4: Grep and Glob targets reach the outside-roots check, and a long Bas
   const grep = claudeStreamOf(withLineBeforeResult(fixture('arm-a-plain'), toolEvent('Grep', { pattern: 'x', path: '/p', glob: '*.md' }))).toolCalls.find((c: any) => c.name === 'Grep');
   assert.deepEqual(grep.paths, ['/p', '*.md']);
 });
+
+test('fix 5: the tool export and the OS temp dir are truth paths; $VAR and ~ words are expanded or flagged, not skipped', () => {
+  const leaked = [
+    'cat $TMPDIR/abc/bin/doflow.js', 'cat "$TMPDIR"/x', 'ls ${TMPDIR}', 'cd $TMPDIR && ls', 'ls $TMP/y',
+    'cat /var/folders/zz/T/doflow-agentic-tool-Ab12/src/cli.ts', 'find . -path "*doflow-agentic-tool*"',
+    'cat $HOME/../../outside', 'cat ~/../../outside', 'cat ~root/.ssh/id', 'cat $UNKNOWN_BASE/file', 'cat --file=$TMPDIR/x',
+  ];
+  for (const command of leaked) {
+    assert.equal(inB(bashEvent(command)).isolation, 'leaked', `arm B: ${command}`);
+    assert.equal(inA(bashEvent(command)).isolation, 'leaked', `arm A: ${command}`);
+  }
+  for (const command of ['cat $HOME/.claude/settings.json', 'cat ~/.claude/skills/do/SKILL.md', 'echo $? $i', 'echo "$FOO"', 'ls $PWD/src', 'node a.js']) {
+    assert.equal(inB(bashEvent(command)).isolation, 'clean', `arm B: ${command} (inside the roots or no path base)`);
+  }
+  assert.equal(inB(toolEvent('Read', { file_path: '/var/folders/zz/T/doflow-agentic-tool-Ab12/src/cli.ts' })).isolation, 'leaked');
+});
