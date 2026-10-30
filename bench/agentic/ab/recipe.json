@@ -109,6 +109,11 @@
         "comment": "docs (debug-your-config): 'CLAUDE_CONFIG_DIR=~/claude-clean/config claude ...' replaces ~/.claude for one launch. probe: with it set to <scratch>/.claude, the doflow install -g wrote and claude read skills/agents from there (init.skills and init.agents listed the DoFlow names)."
       },
       {
+        "name": "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
+        "value": "1",
+        "comment": "docs (env-vars, read 2026-10-30 via context7 /websites/code_claude): '1' removes credentials (ANTHROPIC_API_KEY, names or values that look like a credential, CLAUDE_CONFIG_DIR) from the environments of the subprocesses Claude Code starts (Bash commands, hooks, stdio MCP servers); the Claude Code process keeps them for its own API calls. The name is also a string in the claude 2.1.308 binary. Set in both arms so a model that runs `env` does not print the credential. The executor also redacts every credential value and token shape from what it saves (execute.ts makeRedactor)."
+      },
+      {
         "name": "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
         "value": "1",
         "comment": "docs (devcontainer): used in containerEnv to opt out of telemetry. probe: init.analytics_disabled was true with it set. Note (docs): it also disables feature-flag evaluation."
@@ -134,6 +139,8 @@
     "P3": "system/hook_response with hook_event SessionStart, outcome success, exit_code 0 (needs --include-hook-events). probe: observed in arm B, absent in arm A. The files DoFlow writes under <HOME>/.doflow/state/runs/<date>.jsonl are verb timing records (verb 'storage', exit_code, duration_ms), not a session-start record, so they are not used as P3."
   },
   "unverified": [
+    "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 also removes CLAUDE_CONFIG_DIR from hook and Bash subprocess environments (docs table). Arm B's DoFlow hooks then run without it and fall back to $HOME/.claude, which is the same directory because HOME is the scratch home; not observed on a real hook run. The first paid rehearsal should check that the SessionStart hook still succeeds in arm B.",
+    "Whether the scrub removes the oauth token from `env` output of a Bash command is from docs, not observed; the executor's redaction does not depend on it.",
     "Whether AskUserQuestion is ever offered in -p runs here: probe shows it is absent from init.tools in both arms; docs (hooks) say -p offers it only with a permission host. So pauses show as a final message ending in '?', not as a tool call. The parser still counts AskUserQuestion calls if one appears.",
     "Whether PreToolUse hooks fire under bypassPermissions in practice: docs say yes (hooks-guide, agent-sdk/permissions); no offline probe can make a tool call, so it is not observed. The first paid rehearsal should check a PreToolUse hook_response in arm B.",
     "Whether tool_use blocks inside a subagent appear in the stream without --forward-subagent-text (help: '--forward-subagent-text  Forward subagent text and thinking blocks as assistant/user messages with parent_tool_use_id set'). The parser handles parent_tool_use_id when present; subagent token cost does not depend on it (modelUsage includes subagents per docs).",

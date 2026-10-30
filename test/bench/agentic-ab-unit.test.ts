@@ -483,3 +483,25 @@ test('fix 7: the adapter counts the findings a review produced and those that ma
   assert.equal(stats.unmatched, 2, 'a far line and another file match no known case');
   assert.equal(adaptWith('not json').parsed[REVIEW_TASK.id].unmatched, 0);
 });
+
+test('fix 3: the redactor removes exact credential values (raw and JSON-escaped) and token shapes, and leaves ordinary text alone', () => {
+  const redact = execute.makeRedactor(['tok/en+value-123456', 'short', undefined as any]);
+  assert.equal(redact('a tok/en+value-123456 b'), 'a [redacted] b');
+  assert.equal(redact(JSON.stringify({ v: 'x tok/en+value-123456' })), '{"v":"x [redacted]"}');
+  assert.equal(execute.makeRedactor(['ab"cd-12345678'])(JSON.stringify({ v: 'ab"cd-12345678' })), '{"v":"[redacted]"}', 'the JSON-escaped form of a value with a quote');
+  assert.equal(redact('key sk-ant-oat01-abcdefgh_ijkl and sk-abcdefghijklmnopqrstuvwx'), 'key [redacted] and [redacted]');
+  assert.equal(redact('the short value stays, and so do task-management-framework-document and risk-assessment-framework-document'), 'the short value stays, and so do task-management-framework-document and risk-assessment-framework-document');
+  const dir = mkdir('redact-');
+  fs.mkdirSync(path.join(dir, 'sub'));
+  fs.writeFileSync(path.join(dir, 'sub', 'a.txt'), 'x tok/en+value-123456 y');
+  fs.writeFileSync(path.join(dir, 'b.bin'), Buffer.from([0, 1, 2, ...Buffer.from('tok/en+value-123456')]));
+  assert.equal(execute.redactTree(dir, redact), 1);
+  assert.equal(readText(path.join(dir, 'sub', 'a.txt')), 'x [redacted] y');
+  assert.ok(fs.readFileSync(path.join(dir, 'b.bin')).includes('tok/en+value-123456'), 'a binary file is not rewritten');
+});
+
+test('fix 3: the recipe sets CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 for every run', () => {
+  const entry = CONFIG.recipeData.env.perRun.find((e: any) => e.name === 'CLAUDE_CODE_SUBPROCESS_ENV_SCRUB');
+  assert.equal(entry.value, '1');
+  assert.ok(CONFIG.recipeData.unverified.some((u: string) => u.includes('SUBPROCESS_ENV_SCRUB')), 'its CLAUDE_CONFIG_DIR side effect is listed as unverified');
+});

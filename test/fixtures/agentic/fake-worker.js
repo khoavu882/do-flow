@@ -51,7 +51,7 @@
  *              "files": { "<path>": "<content>" }, "reviewJson": [...], "reviewRaw": "<text>",
  *              "commands": [...], "reads": [...], "skills": [...], "subagents": [{ "type", "model", "tokens" }],
  *              "usage": { "input", "output", "cacheCreation", "cacheRead" }, "costUsd": n,
- *              "askSegments": n, "finalOffer": true, "stream": { "messages": n, "perMessage": tokens },
+ *              "askSegments": n, "finalOffer": true, "printEnv": true, "stream": { "messages": n, "perMessage": tokens },
  *              "initOverride": { "addSkills": [], "addAgents": [], "dropSkills": [], "noHooks": true, "model": "..." } }
  *   The arm is B when `$CLAUDE_CONFIG_DIR/.fake-hooks` exists (written by `--fake-install <export>`), else A.
  *   `--fake-install <export>` stands in for `doflow install`: it projects `<export>/core/shared/{skills,agent-specs}`
@@ -221,7 +221,7 @@ function abDump(kind, extra = {}) {
   const file = env.AB_FAKE_DUMP || argFlag('--dump');
   if (!file) return;
   const seen = Object.fromEntries(String(env.AB_FAKE_SEEN || argFlag('--seen') || '').split(',').filter(Boolean).map((n) => [n, Boolean(env[n])]));
-  fs.appendFileSync(file, `${JSON.stringify({ kind, argv, cwd: process.cwd(), HOME: env.HOME, PATH: env.PATH, envKeys: Object.keys(env).sort(), credentialsSeen: seen, ...extra })}\n`);
+  fs.appendFileSync(file, `${JSON.stringify({ kind, argv, cwd: process.cwd(), HOME: env.HOME, PATH: env.PATH, envKeys: Object.keys(env).sort(), credentialsSeen: seen, scrub: env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB ?? null, ...extra })}\n`);
 }
 
 function fakeInstall(exportDir) {
@@ -255,6 +255,8 @@ const names = (dir, strip) => {
     return [];
   }
 };
+
+const FAKE_KEY_SHAPE = 'sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd';
 
 function claudeMain(prompt) {
   const scenario = readJson(env.AB_FAKE_SCENARIO);
@@ -312,6 +314,14 @@ function claudeMain(prompt) {
   for (const skill of spec.skills || []) tool('Skill', { skill });
   for (const file of spec.reads || []) tool('Read', { file_path: file });
   for (const command of spec.commands || []) tool('Bash', { command });
+  if (spec.printEnv) {
+    // A model that runs `env`: the credential reaches the transcript, a tool result, the final text and a workspace file.
+    const envText = Object.entries(env).map(([k, v]) => `${k}=${v}`).join('\n');
+    tool('Bash', { command: 'env' });
+    emit({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: `tu${n}-${msg}`, content: envText }] }, session_id: sessionId });
+    assistant([{ type: 'text', text: `the key is ${FAKE_KEY_SHAPE}` }]);
+    fs.writeFileSync(path.join(process.cwd(), 'env-dump.txt'), `${envText}\n${FAKE_KEY_SHAPE}\n`);
+  }
   for (const sub of spec.subagents || []) {
     tool('Agent', { subagent_type: sub.type, description: 'work', prompt: 'work' });
     emit({ type: 'assistant', message: { id: `s${n}-${++msg}`, role: 'assistant', model: sub.model || 'claude-haiku-4-5', content: [{ type: 'tool_use', id: `tus${msg}`, name: 'Bash', input: { command: 'node --version' } }] }, parent_tool_use_id: `tu${n}-${msg - 1}`, session_id: sessionId });
@@ -334,7 +344,7 @@ function claudeMain(prompt) {
 
   const asks = n <= (spec.askSegments || 0);
   const text = asks ? 'I made a first pass. Should I continue?' : (spec.finalOffer ? 'Done. Would you like me to add a test file as well?' : 'Done. Everything is in place.');
-  assistant([{ type: 'text', text }]);
+  assistant([{ type: 'text', text: spec.printEnv ? `${text} token ${env.CLAUDE_CODE_OAUTH_TOKEN}` : text }]);
   const mult = scenario.cumulative === false ? 1 : n;
   const u = spec.usage || { input: 10, output: 100, cacheCreation: 1000, cacheRead: 5000 };
   const main = { input_tokens: u.input * mult, output_tokens: u.output * mult, cache_creation_input_tokens: u.cacheCreation * mult, cache_read_input_tokens: u.cacheRead * mult };
@@ -350,7 +360,7 @@ function claudeMain(prompt) {
   }
   emit({
     type: 'result', subtype: 'success', is_error: false, api_error_status: null, duration_ms: 1000 * n, duration_api_ms: 900, num_turns: (spec.commands || []).length + 2,
-    result: text, stop_reason: 'end_turn', session_id: sessionId, total_cost_usd: (spec.costUsd ?? 0.1) * mult + (spec.subagents || []).length * 0.01 * mult,
+    result: spec.printEnv ? `${text} token ${env.CLAUDE_CODE_OAUTH_TOKEN}` : text, stop_reason: 'end_turn', session_id: sessionId, total_cost_usd: (spec.costUsd ?? 0.1) * mult + (spec.subagents || []).length * 0.01 * mult,
     usage: main, modelUsage, permission_denials: [], terminal_reason: 'completed',
   });
   process.exit(0);

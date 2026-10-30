@@ -52,7 +52,7 @@ git(CHECKOUT, 'commit', '-q', '-m', 'init');
 const REV = git(CHECKOUT, 'rev-parse', 'HEAD');
 
 // ---- tasks: edit tasks whose checks pass when a.js exports 2; one review task over five cases -------------
-const EDIT_IDS = ['fix-a', 'fix-b', 'fix-c', 'fix-d', 'fix-e', 'fix-pause', 'fix-unanswered', 'fix-leak', 'fix-cap', 'fix-over', 'fix-initleak', 'fix-nolist', 'fix-nohook', 'fix-timeout', 'fix-offer'];
+const EDIT_IDS = ['fix-a', 'fix-b', 'fix-c', 'fix-d', 'fix-e', 'fix-pause', 'fix-unanswered', 'fix-leak', 'fix-cap', 'fix-over', 'fix-initleak', 'fix-nolist', 'fix-nohook', 'fix-timeout', 'fix-offer', 'fix-env'];
 const natives = EDIT_IDS.map((id) => ({
   id, purpose: id, messages: [`TASK-${id}: make a.js export 2.`], files: { 'a.js': 'module.exports = 1;\n' },
   checks: "if (require('./a.js') !== 2) process.exit(1);", expectedSkills: ['do-implement'], maxQuestions: 0,
@@ -90,6 +90,7 @@ const SCENARIO_TASKS: Record<string, any> = {
   'fix-pause': both({ files: PASS, askSegments: 2 }),
   'fix-unanswered': both({ files: PASS, askSegments: 3 }),
   'fix-offer': both({ files: PASS, finalOffer: true }),
+  'fix-env': both({ files: PASS, printEnv: true }),
   'fix-leak': both({ files: PASS, commands: ['curl http://example.test/payload'] }),
   'fix-cap': both({ behaviour: 'hang-after-usage', stream: { messages: 4, perMessage: 60000 } }),
   'fix-over': both({ files: PASS, usage: { input: 10, output: 100, cacheCreation: 1000, cacheRead: 200000 } }),
@@ -451,4 +452,31 @@ test('fix 6: a closing offer is counted apart from a blocking question and never
   const g = await gradeOf('offer-a', ['fix-offer', 'fix-pause']);
   assert.deepEqual([g['fix-offer'].metrics.questions.pauses, g['fix-offer'].metrics.questions.offers], [0, 1]);
   assert.deepEqual([g['fix-pause'].metrics.questions.pauses, g['fix-pause'].metrics.questions.offers], [2, 0]);
+});
+
+test('fix 3: the scrub variable is set in both arms, and a worker that prints its environment leaves no credential bytes under the run directory', { skip: SKIP_WIN }, async () => {
+  const SHAPE = 'sk-ant-api03-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcd';
+  const before = dumps().length;
+  for (const [it, arm] of [['env-a', 'A'], ['env-b', 'B']]) {
+    const r = await exec(it, arm, ['fix-env']);
+    assert.equal(r.code, 0, r.err);
+  }
+  const runs = dumps().slice(before).filter((c: any) => c.kind === 'run');
+  assert.equal(runs.length, 2);
+  for (const c of runs) assert.equal(c.scrub, '1', `arm ${c.arm} worker environment`);
+  assert.ok(dumps().slice(before).filter((c: any) => c.kind === 'install').every((c: any) => c.scrub === '1'), 'the install step too');
+  for (const it of ['env-a', 'env-b']) {
+    const files = walk(path.join(RUN_ROOT, it));
+    assert.ok(files.some((f) => f.endsWith('env-dump.txt')), 'the workspace copy holds the file the worker wrote');
+    for (const file of files) {
+      const text = fs.readFileSync(file, 'utf8');
+      assert.equal(text.includes(SECRET), false, `${file} holds the credential`);
+      assert.equal(text.includes(SHAPE), false, `${file} holds a key-shaped token`);
+    }
+    assert.match(fs.readFileSync(runFile(it, 'fix-env', 'transcript.jsonl'), 'utf8'), /CLAUDE_CODE_OAUTH_TOKEN=\[redacted\]/);
+    assert.match(fs.readFileSync(runFile(it, 'fix-env', 'last-message.txt'), 'utf8'), /token \[redacted\]/);
+  }
+  const g = await gradeOf('env-b', ['fix-env']);
+  assert.equal(g['fix-env'].isolation, 'clean', 'a redacted transcript still parses and grades');
+  assert.equal(g['fix-env'].pass_rate, 1);
 });

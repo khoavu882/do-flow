@@ -563,7 +563,7 @@ const cutChars = (text: any, n: number) => (String(text).length > n ? `${String(
  * executor is stopped by a signal (`onSpawn` hands the group to the caller's signal handler); stdout
  * is streamed to the transcript and fed line by line to the recipe's parser.
  */
-async function spawnHarness({ binary, argv, cwd, env, prompt, viaStdin, timeoutMs, transcriptFile, lastMessageFile, parser, now, onSpawn = (_proc: any) => {}, onLine }: { binary: any; argv: any; cwd: any; env: any; prompt: any; viaStdin: any; timeoutMs: any; transcriptFile: any; lastMessageFile: any; parser: any; now: any; onSpawn?: (proc: any) => void; onLine?: (line: string) => void }) {
+async function spawnHarness({ binary, argv, cwd, env, prompt, viaStdin, timeoutMs, transcriptFile, lastMessageFile, parser, now, onSpawn = (_proc: any) => {}, onLine, redact }: { binary: any; argv: any; cwd: any; env: any; prompt: any; viaStdin: any; timeoutMs: any; transcriptFile: any; lastMessageFile: any; parser: any; now: any; onSpawn?: (proc: any) => void; onLine?: (line: string) => void; redact?: (text: string) => string }) {
   const started = now().getTime();
   const transcript = fs.createWriteStream(transcriptFile);
   const transcriptDone = new Promise((resolve) => transcript.once('close', resolve));
@@ -579,11 +579,15 @@ async function spawnHarness({ binary, argv, cwd, env, prompt, viaStdin, timeoutM
   });
   const outClosed = new Promise((resolve) => child.stdout.once('close', resolve));
   const rl = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
-  rl.on('line', (line: string) => {
+  // With `redact` (the A/B runs) every line is cleaned before the parser, the watcher and the transcript see it; the
+  // retrieval runs keep the raw byte stream.
+  rl.on('line', (raw: string) => {
+    const line = redact ? redact(raw) : raw;
     parser.line(line);
     if (onLine) onLine(line);
+    if (redact) transcript.write(`${line}\n`);
   });
-  child.stdout.on('data', (chunk: any) => transcript.write(chunk));
+  if (!redact) child.stdout.on('data', (chunk: any) => transcript.write(chunk));
 
   if (viaStdin) child.stdin.end(prompt);
   else child.stdin.end();
@@ -993,6 +997,7 @@ async function executeIteration(opts: any = {}) {
         state.run = null;
         if (!state.interrupted) {
           const errors = [];
+          try { redactTree(run.runDir, redact); } catch (e) { errors.push(e); } // the copied workspace, review.json and the install tails too
           for (const dir of [workspace?.dir, profile?.dir]) {
             if (!dir) continue;
             const err = removeTree(dir);
@@ -1288,6 +1293,49 @@ function runHomeSetup({ argv, shimRoot, profile, tools, childEnv }: { argv: stri
   };
 }
 
+const REDACTED = '[redacted]';
+/** Token shapes removed whatever the variable that carried them: Anthropic keys and OAuth tokens, other `sk-` keys. */
+const SECRET_SHAPES = Object.freeze([/(?<![A-Za-z0-9])sk-ant-[A-Za-z0-9_-]{8,}/g, /(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}/g]);
+const REDACT_MIN_LENGTH = 8;
+const REDACT_FILE_MAX = 64 * 1024 * 1024;
+
+/**
+ * A text cleaner: every exact value of the given credential variables (raw and as JSON-escaped) and every token shape
+ * becomes `[redacted]`. A value shorter than REDACT_MIN_LENGTH is not treated as a secret (it would eat ordinary text).
+ */
+function makeRedactor(values: string[]) {
+  const exact = new Set<string>();
+  for (const v of values) {
+    if (typeof v !== 'string' || v.length < REDACT_MIN_LENGTH) continue;
+    exact.add(v);
+    exact.add(JSON.stringify(v).slice(1, -1));
+  }
+  const ordered = [...exact].sort((a, b) => b.length - a.length);
+  return (text: string): string => {
+    let out = String(text);
+    for (const v of ordered) if (out.includes(v)) out = out.split(v).join(REDACTED);
+    for (const re of SECRET_SHAPES) out = out.replace(re, REDACTED);
+    return out;
+  };
+}
+
+/** Rewrites every text file under `dir` through `redact` (symlinks and binary files are left alone); returns the count changed. */
+function redactTree(dir: string, redact: (text: string) => string): number {
+  let changed = 0;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const file = path.join(dir, entry.name);
+    if (entry.isSymbolicLink()) continue;
+    if (entry.isDirectory()) { changed += redactTree(file, redact); continue; }
+    if (!entry.isFile() || fs.statSync(file).size > REDACT_FILE_MAX) continue;
+    const buf = fs.readFileSync(file);
+    if (buf.subarray(0, 8000).includes(0)) continue;
+    const text = buf.toString('utf8');
+    const clean = redact(text);
+    if (clean !== text) { fs.writeFileSync(file, clean); changed++; }
+  }
+  return changed;
+}
+
 /** Running total of the tokens a stream has reported so far: each assistant message once, at its largest usage. */
 function makeTokenWatch() {
   const perMessage = new Map<string, number>();
@@ -1398,6 +1446,8 @@ async function executeAbIteration(opts: any = {}) {
     throw e;
   }
 
+  // Credential values only ever live in the environment of the worker; whatever it prints is cleaned before it is saved.
+  const redact = makeRedactor(config.credentialEnv.map((n: string) => env[n]));
   const scratch = new Set<string>();
   const state: { proc: any; run: any; interrupted: any } = { proc: null, run: null, interrupted: null };
   const cleanupScratch = () => {
@@ -1536,7 +1586,7 @@ async function executeAbIteration(opts: any = {}) {
           outcome = await spawnHarness({
             binary, argv: abArgv(recipe, resume), cwd: workspace.root, env: childEnv, prompt, viaStdin: true,
             timeoutMs: Math.max(1, deadline - now().getTime()), transcriptFile: path.join(run.runDir, file),
-            lastMessageFile: path.join(profile.dir, 'none'), parser, now,
+            lastMessageFile: path.join(profile.dir, 'none'), parser, now, redact,
             onSpawn: (proc) => { procRef = proc; state.proc = proc; },
             onLine: (line) => {
               if (watch(line) > max && !capKilled) {
@@ -1604,6 +1654,7 @@ async function executeAbIteration(opts: any = {}) {
         state.run = null;
         if (!state.interrupted) {
           const errors = [];
+          try { redactTree(run.runDir, redact); } catch (e) { errors.push(e); } // the copied workspace, review.json and the install tails too
           for (const dir of [workspace?.dir, profile?.dir]) {
             if (!dir) continue;
             const err = removeTree(dir);
@@ -1633,7 +1684,7 @@ async function executeAbIteration(opts: any = {}) {
 
 module.exports = {
   CONFIG_PATH, RUN_FILES, SHIM_ENTRY, TOOL_TREE, SEGMENTS_FILE, HOME_SETUP_FILE, WORKSPACE_DIR,
-  loadAbConfig, abCaptureSha256, abArgv, expectedProof, makeTokenWatch,
+  loadAbConfig, abCaptureSha256, abArgv, expectedProof, makeTokenWatch, makeRedactor, redactTree,
   loadConfig, selectHarness, insertModelArgv, planIteration, executeIteration, prepareWorkspace,
   runDirOf, readIteration, captureSha256, usageOf, statusOf,
 };
