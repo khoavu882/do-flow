@@ -741,6 +741,11 @@ function abReportOf({ runRoot, iterations, taskSet, config, noiseConfig, noisePa
     const scored = edits.map((g) => (g.capped ? 0 : (abExcludedOf(g) === null ? g.pass_rate : null)));
     return avg(finite(scored));
   };
+  // Hidden check of the excluded edit runs: a sensitivity line beside the validity figures, never part of a scored mean.
+  const excludedChecks = (set: Record<string, any>[]) => {
+    const ran = set.flatMap((byTask) => Object.values(byTask) as any[]).filter((g) => g.kind === 'edit' && abExcludedOf(g) !== null && g.checks);
+    return { runs: ran.length, passed: ran.filter((g) => g.checks.exitCode === 0).length, runsList: ran.map((g) => `${g.id}:${g.checks.exitCode === 0 ? 'pass' : 'fail'}(${g.exclusionReason ?? abExcludedOf(g)})`) };
+  };
   const spent = (set: Record<string, any>[]) => set.flatMap((byTask) => Object.values(byTask) as any[]).reduce((s, g) => s + (g.metrics.tokens?.total ?? 0), 0);
   const questionTally = (set: Record<string, any>[]) => {
     const all = set.flatMap((byTask) => Object.values(byTask) as any[]);
@@ -748,8 +753,8 @@ function abReportOf({ runRoot, iterations, taskSet, config, noiseConfig, noisePa
     return { runs: all.length, blocking: sum('pauses'), offers: sum('offers'), blocked: sum('blocked'), resumes: sum('resumes'), unanswered: all.filter((g) => g.metrics.questions?.unanswered).length };
   };
   const validity = {
-    A: { ...exclusionTally(A), questions: questionTally(A), proof: proofCounts(A), capped: capped(A), successIfCappedScored0: sensitivity(A), spentTokens: spent(A) },
-    B: { ...exclusionTally(B), questions: questionTally(B), proof: proofCounts(B), capped: capped(B), successIfCappedScored0: sensitivity(B), spentTokens: spent(B) },
+    A: { ...exclusionTally(A), questions: questionTally(A), proof: proofCounts(A), capped: capped(A), successIfCappedScored0: sensitivity(A), excludedChecks: excludedChecks(A), spentTokens: spent(A) },
+    B: { ...exclusionTally(B), questions: questionTally(B), proof: proofCounts(B), capped: capped(B), successIfCappedScored0: sensitivity(B), excludedChecks: excludedChecks(B), spentTokens: spent(B) },
     routing: { eligible: routable.length, routed: routable.filter((g) => g.routing.routed).length },
     promptShaEqual: true,
     p5: 'deferred (first-request context delta is not measured by this runner)',
@@ -828,6 +833,7 @@ function abReportLines(r: any) {
     lines.push(`  proof: P1 installed ${v.proof.p1}/${v.proof.runs}, P2 harness saw it ${v.proof.p2}/${v.proof.runs}, P3 hooks fired ${v.proof.p3}/${v.proof.runs}, DoFlow absent ${v.proof.absent}/${v.proof.runs}`);
     lines.push(`  questions: ${v.questions.blocking} blocking pause(s), ${v.questions.offers} closing offer(s), ${v.questions.blocked} permission-blocked ending(s) (neither a pause nor an offer) over ${v.questions.runs} run(s); ${v.questions.resumes} resume(s), ${v.questions.unanswered} unanswered`);
     lines.push(`  cap sensitivity: ${v.capped.runs} run(s) stopped at the cap${v.capped.runs ? ` (${v.capped.ids.join(', ')})` : ''}; success mean with those scored 0: ${num(v.successIfCappedScored0)}`);
+    lines.push(`  excluded-run hidden check (sensitivity only, never in the scored mean): ${v.excludedChecks.passed} of ${v.excludedChecks.runs} excluded edit run(s) with a check result pass${v.excludedChecks.runs ? ` (${v.excludedChecks.runsList.join(', ')})` : ''}`);
   }
   lines.push(`censored (stopped by the cap or the timeout; kept in cost and wall at a lower bound, out of the quality scores): arm ${a} ${r.censored.A.length} of ${r.censored.runs.A}${r.censored.A.length ? ` (${r.censored.A.join(', ')})` : ''}; arm ${b} ${r.censored.B.length} of ${r.censored.runs.B}${r.censored.B.length ? ` (${r.censored.B.join(', ')})` : ''}`);
   lines.push(`cost basis: ${r.unverified.A.length + r.unverified.B.length === 0 ? 'verified (every resumed run is from Claude Code 2.1.277 or later, or nothing was resumed)' : `cumulative-unverified for arm ${a} ${r.unverified.A.length} (${r.unverified.A.join(', ') || 'none'}), arm ${b} ${r.unverified.B.length} (${r.unverified.B.join(', ') || 'none'}) resumed run(s); total tokens and cost USD get no verdict word`}`);

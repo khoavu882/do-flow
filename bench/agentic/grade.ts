@@ -151,29 +151,43 @@ function closeBacktick(s: string, start: number) {
  * separators are `;` `&` `|` (so `&&` `||` too), newlines and parentheses; a redirection target goes
  * to `redirects`, not to the words. `$(...)` and backtick bodies are split as scripts of their own and
  * their commands returned too; the word they stand in reads as X for `$(which X)` / `$(command -v X)`,
- * else as `$()`. A `#` starting a word comments out the rest of the line. Heredoc bodies, `case`
- * patterns and arithmetic are not understood; they can only add commands, never hide one.
- * @returns {{words: string[], redirects: string[]}[]}
+ * else as `$()`. A `#` starting a word comments out the rest of the line. A heredoc body (`<<WORD`,
+ * `<<-WORD`, quoted or not) is data, not words: it is skipped, except that a heredoc feeding a shell
+ * (`sh <<EOF`, `cat <<EOF | bash`, `eval`) is split as a script of its own and an unquoted one has its
+ * `$(...)` and backtick bodies split (they run). `writes` is the subset of `redirects` that a `>`, `>>`
+ * or `&>` writes. `case` patterns and arithmetic are not understood; they can only add commands, never
+ * hide one.
+ * @returns {{words: string[], redirects: string[], writes: string[]}[]}
  */
 function splitScript(script: any) {
   const s = String(script);
   const commands: any[] = [];
   let words: string[] = [];
   let redirects: string[] = [];
+  let writes: string[] = [];
   let word: string | null = null;
   let redirectNext = false;
+  let redirectWrite = false;
+  let lineStart = 0; // index in `commands` of the first command of the current line
+  const heredocs: { delim: string; strip: boolean; quoted: boolean }[] = [];
   const endWord = () => {
     if (word === null) return;
-    (redirectNext ? redirects : words).push(word);
+    if (redirectNext) {
+      redirects.push(word);
+      if (redirectWrite) writes.push(word);
+    } else words.push(word);
     redirectNext = false;
+    redirectWrite = false;
     word = null;
   };
   const endCommand = () => {
     endWord();
-    if (words.length || redirects.length) commands.push({ words, redirects });
+    if (words.length || redirects.length) commands.push({ words, redirects, writes });
     words = [];
     redirects = [];
+    writes = [];
     redirectNext = false;
+    redirectWrite = false;
   };
   const substitute = (body: string) => {
     const inner = splitScript(body);
@@ -227,11 +241,81 @@ function splitScript(script: any) {
     } else if (c === '<' || c === '>' || (c === '&' && s[i + 1] === '>')) {
       if (word !== null && /^\d+$/.test(word)) word = null; // the fd number of `2>`
       endWord();
+      const opStart = i;
       while (i + 1 < s.length && '<>&|'.includes(s[i + 1])) i++;
-      redirectNext = true;
+      const op = s.slice(opStart, i + 1);
+      if (op === '<<') {
+        // heredoc: the delimiter word is read here (quotes tell whether the body expands), the body at the next newline
+        const strip = s[i + 1] === '-';
+        if (strip) i++;
+        let j = i + 1;
+        while (j < s.length && (s[j] === ' ' || s[j] === '\t')) j++;
+        let delim = '';
+        let quoted = false;
+        while (j < s.length && !' \t\r\n;&|<>()'.includes(s[j])) {
+          if (s[j] === "'" || s[j] === '"') {
+            quoted = true;
+            const end = s.indexOf(s[j], j + 1);
+            const stop = end === -1 ? s.length : end;
+            delim += s.slice(j + 1, stop);
+            j = stop + 1;
+          } else if (s[j] === '\\' && j + 1 < s.length) {
+            quoted = true;
+            delim += s[j + 1];
+            j += 2;
+          } else delim += s[j++];
+        }
+        heredocs.push({ delim, strip, quoted });
+        i = j - 1;
+      } else {
+        redirectNext = true;
+        redirectWrite = op.includes('>');
+      }
     } else if (c === ' ' || c === '\t' || c === '\r') endWord();
-    else if (';&|\n()'.includes(c)) endCommand();
-    else append(c);
+    else if (';&|\n()'.includes(c)) {
+      endCommand();
+      if (c === '\n') {
+        if (heredocs.length) {
+          const feedsShell = commands.slice(lineStart).some((cmd) => cmd.words.some((w: string) => SHELLS.has(base(w)) || w === 'eval'));
+          for (const h of heredocs) {
+            // the body runs from the next line to the delimiter line (leading tabs ignored for `<<-`)
+            let pos = i + 1;
+            let body = '';
+            let closed = false;
+            while (pos < s.length) {
+              let eol = s.indexOf('\n', pos);
+              if (eol === -1) eol = s.length;
+              const line = s.slice(pos, eol);
+              pos = Math.min(eol + 1, s.length);
+              if ((h.strip ? line.replace(/^\t+/, '') : line) === h.delim) {
+                closed = true;
+                break;
+              }
+              body += `${line}\n`;
+            }
+            i = pos - 1;
+            // a delimiter that never closes (an arithmetic `<<` mistaken for a heredoc) must not hide what follows
+            if (feedsShell || !closed) commands.push(...splitScript(body));
+            else if (!h.quoted) {
+              for (let k = 0; k < body.length; k++) {
+                if (body[k] === '\\') k++;
+                else if (body[k] === '$' && body[k + 1] === '(') {
+                  const end = closeParen(body, k + 2);
+                  substitute(body.slice(k + 2, end));
+                  k = end;
+                } else if (body[k] === '`') {
+                  const { end, body: inner } = closeBacktick(body, k + 1);
+                  substitute(inner);
+                  k = end;
+                }
+              }
+            }
+          }
+          heredocs.length = 0;
+        }
+        lineStart = commands.length;
+      }
+    } else append(c);
   }
   endCommand();
   return commands;
@@ -303,17 +387,18 @@ function shellScript(words: string[]) {
 
 /**
  * The normalised simple commands of a shell command string, `sh -c` scripts recursed: each is
- * `{ text, words, raw }` where `words` has its wrappers stripped and its program reduced to the
+ * `{ text, words, raw, writes }` where `words` has its wrappers stripped and its program reduced to the
  * basename, `text` is those words joined by single spaces (what the config patterns are tested
- * against) and `raw` is every word and redirection target as written (for the outside-path rule).
+ * against), `raw` is every word and redirection target as written (for the outside-path rule) and
+ * `writes` the redirection targets that are written (`>`, `>>`, `&>`).
  */
-function simpleCommands(command: string): { text: string; words: string[]; raw: string[] }[] {
-  const out: { text: string; words: string[]; raw: string[] }[] = [];
-  for (const { words, redirects } of splitScript(command)) {
+function simpleCommands(command: string): { text: string; words: string[]; raw: string[]; writes: string[] }[] {
+  const out: { text: string; words: string[]; raw: string[]; writes: string[] }[] = [];
+  for (const { words, redirects, writes } of splitScript(command)) {
     const w = stripWrappers(words);
     const script = shellScript(w);
     if (w.length) w[0] = base(w[0]);
-    out.push({ text: w.join(' '), words: w, raw: [...words, ...redirects] });
+    out.push({ text: w.join(' '), words: w, raw: [...words, ...redirects], writes });
     if (script !== null) out.push(...simpleCommands(script));
   }
   return out;
@@ -338,9 +423,13 @@ const within = (p: string, root: string) => p === root || p.startsWith(`${root}/
  * resolved against the cwd, which follows `cd` from the workspace root), or null. A `--flag=value` or
  * `VAR=value` word is checked by its value too. Without roots, only the system prefixes are allowed.
  * Ceiling: any word starting with `/` counts as a path, so a pattern such as `rg '/api/'` is graded
- * leaked too (the run is excluded, never scored wrongly).
+ * leaked too (the run is excluded, never scored wrongly). A heredoc body is not words (see `splitScript`).
+ * A/B only (`scratch` given): the run's own scratch under `/tmp` is allowed, that is a path below `/tmp`
+ * the same run wrote earlier (a `>` / `>>` redirect, or a Write / Edit target) and what lies below it, so a
+ * throwaway `cat > /tmp/chk.js <<'EOF'` then `node /tmp/chk.js` is not a leak while a read of any other
+ * `/tmp` path (the pruned tool export, another run's scratch) still is. `/tmp` itself is never owned.
  */
-function outsidePath(commands: any[], roots: any, { expandVars = false }: { expandVars?: boolean } = {}) {
+function outsidePath(commands: any[], roots: any, { expandVars = false, scratch = null }: { expandVars?: boolean; scratch?: Set<string> | null } = {}) {
   const allowed = [...SYSTEM_PREFIXES];
   for (const r of [roots?.workspaceRoot, roots?.profileRoot]) if (typeof r === 'string' && r.startsWith('/')) allowed.push(unalias(r));
   const home = typeof roots?.workspaceRoot === 'string' && roots.workspaceRoot.startsWith('/') ? roots.workspaceRoot : '/';
@@ -373,6 +462,16 @@ function outsidePath(commands: any[], roots: any, { expandVars = false }: { expa
         }
         if (abs === null && p.startsWith('/')) abs = p;
         else if (abs === null && p.split('/').includes('..')) abs = path.posix.resolve(cwd, p);
+        if (abs !== null && scratch !== null) {
+          const norm = unalias(abs);
+          if (norm !== '/tmp' && within(norm, '/tmp')) {
+            if (p === word && cmd.writes?.includes(word)) {
+              scratch.add(norm);
+              continue;
+            }
+            if ([...scratch].some((own) => within(norm, own))) continue;
+          }
+        }
         if (abs !== null && !allowed.some((root) => within(unalias(abs), root))) return word;
       }
     }
@@ -661,20 +760,27 @@ const metricTokens = (t: any) => (t === null ? null : {
 function classifyAbIsolation({ reports, armConfig, roots, expected, homeSetup, pin, infra }: { reports: any[]; armConfig: any; roots: any; expected: any; homeSetup: any; pin: string | null; infra: string | null }) {
   const leak = compile(armConfig?.leak);
   const evidence: string[] = [];
+  const scratch = new Set<string>(); // paths below /tmp this run wrote itself
   const note = (text: string) => { if (evidence.length < 12) evidence.push(String(text).slice(0, EVIDENCE_MAX)); };
   for (const report of reports) {
     for (const call of report.toolCalls) {
       const name: string = call.name;
       const target: string = call.target ?? '';
+      // The outside-path rule reads the text with the caller's home directory kept: masked to `~` it would read as the scratch HOME.
+      const rawTarget: string = call.rawTarget ?? target;
+      const rawPaths: string[] = Array.isArray(call.rawPaths) ? call.rawPaths : (Array.isArray(call.paths) ? call.paths : []);
       if (name.startsWith('mcp__') || NETWORK_TOOLS.includes(name)) { note(`${name} ${target}`.trim()); continue; }
       // Bash: the whole stored command (not cut for display). Any other tool: every path-like input it names
       // (file_path, notebook_path, path, a Grep glob, a Glob pattern), so a Grep or Glob aimed outside the roots is seen.
-      const named = name === 'Bash' ? [] : [...new Set([...(Array.isArray(call.paths) ? call.paths : []), ...(name !== 'Skill' && target ? [target] : [])])];
-      const commands = name === 'Bash' ? simpleCommands(target) : named.map((text: string) => ({ text, words: [text], raw: [text] }));
+      const pathsOf = (list: string[], main: string) => [...new Set([...list, ...(name !== 'Skill' && main ? [main] : [])])];
+      const named = name === 'Bash' ? [] : pathsOf(Array.isArray(call.paths) ? call.paths : [], target);
+      const rawNamed = name === 'Bash' ? [] : pathsOf(rawPaths, rawTarget);
+      const writing = name === 'Write' || name === 'Edit' || name === 'NotebookEdit';
+      const commands = name === 'Bash' ? simpleCommands(rawTarget) : rawNamed.map((text: string) => ({ text, words: [text], raw: [text], writes: writing ? [text] : [] }));
       if (commands.length === 0) continue;
       const hit = commands.some((c: any) => leak.some((re: any) => re.test(c.text)))
-        || (name === 'Bash' ? [target] : named).some((text: string) => AB_TRUTH_SUBSTRINGS.some((x) => text.includes(x)))
-        || outsidePath(commands, roots, { expandVars: true }) !== null;
+        || (name === 'Bash' ? [rawTarget] : rawNamed).some((text: string) => AB_TRUTH_SUBSTRINGS.some((x) => text.includes(x)))
+        || outsidePath(commands, roots, { expandVars: true, scratch }) !== null;
       if (hit) note(`${name}: ${name === 'Bash' ? target : named.join(' ')}`);
     }
   }
@@ -765,10 +871,10 @@ function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; 
   let passRate: number | null = null;
   let checks: any = null;
   let review: any = null;
-  if (infra === null && iso.isolation === 'clean' && task.kind === 'edit') {
-    checks = runChecks(workspaceCopy, task.checks);
-    passRate = checks.pass ? 1 : 0;
-  }
+  // The hidden check runs on the final files of every edit run that left a workspace and a transcript, excluded or not: an
+  // excluded run keeps its result as a sensitivity figure, but only a run that is not excluded gets a pass_rate.
+  if (task.kind === 'edit' && hasOutput && fs.existsSync(workspaceCopy)) checks = runChecks(workspaceCopy, task.checks);
+  if (checks !== null && infra === null && iso.isolation === 'clean') passRate = checks.pass ? 1 : 0;
   if (task.kind === 'review') {
     const parsed = parseReviewJson(readText(path.join(runDir, REVIEW_FILE)), launch.workspaceRoot ?? null);
     review = { ok: parsed.ok, reason: parsed.reason, findings: parsed.findings.length, dropped: parsed.dropped };

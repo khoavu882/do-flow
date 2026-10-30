@@ -413,6 +413,76 @@ test('fix 5: the tool export and the OS temp dir are truth paths; $VAR and ~ wor
   assert.equal(inB(toolEvent('Read', { file_path: '/var/folders/zz/T/doflow-agentic-tool-Ab12/src/cli.ts' })).isolation, 'leaked');
 });
 
+test('leak rule: heredoc bodies and regex literals are data; the run\'s own /tmp scratch is allowed, a real read outside the roots still leaks', () => {
+  // SOURCE: the shapes the paid main stage excluded (m2-a routing, m1-a/m2-a/m3-a/m2-b/m3-b refactor-shared-format)
+  const heredoc = "cat > slug.js <<'EOF'\nmodule.exports = text => text.trim().toLowerCase().replace(/\\s+/g, '-');\nEOF\nnode -e \"const s=require('./slug');console.log(s('A  b'))\"";
+  const bare = 'cat > a.js <<EOF\nx.replace(/\\s+/g, "-"); y(/etc/passwd)\nEOF';
+  const tabbed = 'cat > a.js <<-EOF\n\tz(/foo/)\n\tEOF\nnode a.js';
+  const scratch = "cat > /tmp/chk.js <<'EOF'\nconst d=process.argv[2];const i=require(d+'/invoice');\nconsole.log(d.replace(/\\s+/g, ''));\nEOF\nnode /tmp/chk.js $PWD";
+  for (const command of [heredoc, bare, tabbed, scratch, 'echo hi > /tmp/o.txt && cat /tmp/o.txt', 'cat > /tmp/d/x.js <<EOF\nx\nEOF\nnode /tmp/d/x.js']) {
+    assert.equal(inA(bashEvent(command)).isolation, 'clean', `arm A: ${command}`);
+    assert.equal(inB(bashEvent(command)).isolation, 'clean', `arm B: ${command}`);
+  }
+  // the scratch is owned across tool calls of one run, and by the Write tool
+  const two = withLineBeforeResult(withLineBeforeResult(fixture('arm-a-plain'), bashEvent("cat > /tmp/w.js <<'EOF'\nx\nEOF")), bashEvent('node /tmp/w.js'));
+  assert.equal(gradeOf(runDirOf(two), 'A').isolation, 'clean');
+  const written = withLineBeforeResult(withLineBeforeResult(fixture('arm-a-plain'), toolEvent('Write', { file_path: '/tmp/k.js', content: 'x' })), bashEvent('node /tmp/k.js'));
+  assert.equal(gradeOf(runDirOf(written), 'A').isolation, 'clean');
+
+  // mutation: a real read or write outside the roots, in any form, is still a leak in both arms
+  const leaked = [
+    'cat /Users/kai/.doflow/x', 'ls /Users/kai/Workspace/learning/do-flow/core', 'cat $HOME/../../outside', 'cat ~/../../x',
+    'cat /tmp/other-run/answer.txt', 'ls /tmp', 'cat /tmp/doflow-agentic-tool-Ab12/src/cli.ts', 'cat /tmp/../Users/kai/x', 'cat /private/tmp/x',
+    'echo x > /Users/kai/x', 'cat /tmp/o.txt', 'cd /tmp && cat chk.js /tmp/chk.js',
+    "cat <<'EOF' | sh\ncat /Users/kai/secret\nEOF", 'sh <<EOF\ncat /Users/kai/secret\nEOF',
+    "cat <<EOF\n$(cat /Users/kai/secret)\nEOF", 'cat <<EOF\n`cat /Users/kai/secret`\nEOF', 'cat > a <<EOF\nx\nEOF\ncat /Users/kai/secret',
+    'echo $((1<<2))\ncat /Users/kai/secret', 'echo x > /tmp', 'mkdir /tmp/z; cat /tmp/z/y', 'cat bench/runs/x', 'cat > /tmp/a <<EOF\nbench/runs/x\nEOF',
+  ];
+  for (const command of leaked) {
+    assert.equal(inA(bashEvent(command)).isolation, 'leaked', `arm A: ${JSON.stringify(command)}`);
+    assert.equal(inB(bashEvent(command)).isolation, 'leaked', `arm B: ${JSON.stringify(command)}`);
+  }
+  // the caller's real home is masked to `~` in the stored target; it must not read as the run's scratch HOME
+  const realHome = process.env.HOME;
+  if (typeof realHome === 'string' && realHome.startsWith('/') && realHome.length > 1) {
+    for (const command of [`cat ${realHome}/.doflow/x`, `ls ${realHome}/Workspace/learning/do-flow/core`, `cat "${realHome}/.ssh/config"`]) {
+      assert.equal(inA(bashEvent(command)).isolation, 'leaked', `arm A: ${command}`);
+      assert.equal(inB(bashEvent(command)).isolation, 'leaked', `arm B: ${command}`);
+      assert.ok(!inB(bashEvent(command)).isolationEvidence.join('').includes(realHome), 'the evidence stays masked');
+    }
+    assert.equal(inB(toolEvent('Read', { file_path: `${realHome}/x` })).isolation, 'leaked');
+  }
+  for (const command of ['cat ~/.claude/settings.json', 'ls $HOME/.doflow', 'cd ~ && ls']) assert.equal(inB(bashEvent(command)).isolation, 'clean', `a literal ~ or $HOME is the scratch home: ${command}`);
+  assert.equal(inA(bashEvent('ls $HOME/.doflow')).isolation, 'clean', 'the empty scratch home of arm A');
+  // arm A: the DoFlow paths of the scratch home stay a leak by pattern, a heredoc cannot carry the call past it
+  for (const command of ['cat $HOME/.doflow/skills/do/SKILL.md', "sh <<'EOF'\ndoflow retrieve --query x\nEOF", 'doflow x <<EOF\nx\nEOF']) {
+    assert.equal(inA(bashEvent(command)).isolation, 'leaked', command);
+  }
+  assert.equal(inA(bashEvent("cat > n.md <<'EOF'\ndoflow retrieve is not called here\nEOF")).isolation, 'clean', 'heredoc text that only mentions the command is data');
+  assert.equal(inB(toolEvent('Read', { file_path: '/tmp/never-written' })).isolation, 'leaked');
+});
+
+test('excluded runs keep their hidden-check result in grading.json; only a run that is not excluded gets a pass_rate', () => {
+  const leakStream = withLineBeforeResult(fixture('arm-a-plain'), bashEvent('cat /Users/someone/secret.txt'));
+  const failing = { ...TASK, checks: 'process.exit(1)' };
+  const gLeak = gradeOf(runDirOf(leakStream), 'A', CONFIG, failing);
+  assert.equal(gLeak.isolation, 'leaked');
+  assert.equal(gLeak.exclusionReason, 'leaked', 'the reason stays');
+  assert.equal(gLeak.pass_rate, null, 'never in the scored mean');
+  assert.equal(gLeak.checks.exitCode, 1, 'but the check ran on the final files');
+  const gPass = gradeOf(runDirOf(leakStream), 'A', CONFIG, TASK);
+  assert.equal(gPass.checks.exitCode, 0);
+  assert.equal(gPass.pass_rate, null);
+  const denied = gradeOf(runDirOf(fixture('arm-a-plain'), { status: { status: 'truncated', evidence: 'x' } }), 'A', CONFIG, TASK);
+  assert.equal(denied.pass_rate, null);
+  assert.equal(denied.checks.exitCode, 0, 'an infra-excluded run with a transcript keeps it too');
+  const none = gradeOf(runDirOf('', { status: { status: 'timeout', evidence: 'x' } }), 'A', CONFIG, TASK);
+  assert.equal(none.checks, null, 'no transcript, nothing was done: no check result');
+  const clean = gradeOf(runDirOf(fixture('arm-a-plain')), 'A', CONFIG, TASK);
+  assert.equal(clean.pass_rate, 1);
+  assert.equal(clean.checks.exitCode, 0);
+});
+
 /** Every distinct "find the runtime" snippet the skills tell the model to run, read from the SKILL.md files under core/shared/skills. */
 function runtimeSnippets() {
   const root = path.join(__dirname, '..', '..', 'core', 'shared', 'skills');

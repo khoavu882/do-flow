@@ -486,6 +486,7 @@ test('leak and proof failures are excluded with their reason, never scored: netw
   for (const g of [a['fix-leak'], a['fix-initleak'], b['fix-leak'], b['fix-nolist'], b['fix-nohook']]) {
     assert.equal(g.pass_rate, null, `${g.id} is not scored`);
     assert.equal(report().abExcludedOf(g), 'source-unverified');
+    if (g.kind === 'edit') assert.ok(g.checks && Number.isInteger(g.checks.exitCode), `${g.id} keeps its hidden-check result: ${JSON.stringify(g.checks)}`);
   }
 
   // P1: the install step fails, so the worker is not started at all
@@ -531,6 +532,7 @@ test('noise and report: arms are interleaved per repeat, the report prints the f
   const rep = await cli(['report', '--iterations', 'b-r1,b-r2', '--noise', noiseOut, '--fixed-cost', fixedCost, '--decision-out', decisionOut], { taskSet });
   assert.equal(rep.code, 0, rep.err + rep.out);
   for (const part of ['Part 1 - quality', 'Part 2 - cost and behaviour', 'Part 3 - fixed cost', 'Part 4 - validity']) assert.ok(rep.out.includes(part), part);
+  assert.match(rep.out, /excluded-run hidden check \(sensitivity only, never in the scored mean\): \d+ of \d+ excluded edit run\(s\) with a check result pass/);
   const decisions = readJson(decisionOut);
   assert.equal(decisions.success.corpus.verdict, 'gain-above-noise', rep.out);
   assert.equal(decisions.review.corpus.verdict, 'gain-above-noise', rep.out);

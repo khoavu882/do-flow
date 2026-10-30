@@ -38,7 +38,13 @@ const SKILL_FILE = /(?:^|[\\/])skills[\\/]([^\\/]+)[\\/]SKILL\.md$/;
 type Tokens = { inputTokens: number; outputTokens: number; cacheCreationInputTokens: number; cacheReadInputTokens: number };
 type ModelRow = Tokens & { costUSD: number | null };
 /** `target` is the Bash command or `file_path`; `paths` is every path-like input the tool names (file_path, notebook_path, path, a Grep glob, a Glob pattern). */
-type ToolCall = { id: string | null; name: string; parentToolUseId: string | null; target: string | null; paths: string[] };
+/**
+ * `target` and `paths` are masked for display (the caller's home directory reads `~`). `rawTarget` and `rawPaths`
+ * are the same text with every secret masked but the home directory kept: the outside-path rule reads those, because
+ * `~` would otherwise read as the run's scratch HOME and hide a read of the caller's real home or checkout.
+ * They are for grading only and are never printed.
+ */
+type ToolCall = { id: string | null; name: string; parentToolUseId: string | null; target: string | null; paths: string[]; rawTarget: string | null; rawPaths: string[] };
 type SkillEvent = { via: 'skill-tool' | 'read'; skill: string; path: string | null; toolUseId: string | null };
 type HookEvent = { event: string; name: string; outcome: string | null; exitCode: number | null };
 type Init = {
@@ -206,17 +212,26 @@ function createClaudeStreamJsonV1() {
     const input = block.input !== null && typeof block.input === 'object' ? block.input : {};
     const id = typeof block.id === 'string' ? block.id : null;
     let target: string | null = null;
-    if (name === 'Bash' && typeof input.command === 'string') target = maskLine(input.command).text.slice(0, COMMAND_CHARS);
-    else if (typeof input.file_path === 'string') target = maskLine(input.file_path).text.slice(0, PATH_CHARS);
-    else if (name === 'Skill' && typeof input.skill === 'string') target = input.skill;
+    let rawTarget: string | null = null;
+    if (name === 'Bash' && typeof input.command === 'string') {
+      target = maskLine(input.command).text.slice(0, COMMAND_CHARS);
+      rawTarget = maskLine(input.command, { home: null }).text.slice(0, COMMAND_CHARS);
+    } else if (typeof input.file_path === 'string') {
+      target = maskLine(input.file_path).text.slice(0, PATH_CHARS);
+      rawTarget = maskLine(input.file_path, { home: null }).text.slice(0, PATH_CHARS);
+    } else if (name === 'Skill' && typeof input.skill === 'string') target = rawTarget = input.skill;
     const paths: string[] = [];
+    const rawPaths: string[] = [];
     const addPath = (value: unknown): void => {
-      if (typeof value === 'string' && value !== '') paths.push(maskLine(value).text.slice(0, PATH_CHARS));
+      if (typeof value === 'string' && value !== '') {
+        paths.push(maskLine(value).text.slice(0, PATH_CHARS));
+        rawPaths.push(maskLine(value, { home: null }).text.slice(0, PATH_CHARS));
+      }
     };
     for (const key of ['file_path', 'notebook_path', 'path']) addPath(input[key]);
     if (name === 'Grep') addPath(input.glob);
     if (name === 'Glob') addPath(input.pattern);
-    toolCalls.push({ id, name, parentToolUseId, target, paths });
+    toolCalls.push({ id, name, parentToolUseId, target, paths, rawTarget, rawPaths });
 
     if (name === 'AskUserQuestion') askUserQuestion++;
     if (SUBAGENT_TOOL_NAMES.has(name)) {
