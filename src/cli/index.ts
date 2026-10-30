@@ -90,7 +90,7 @@ function parseArgs(argv: string[]): any {
       case '--':
         if (o.cmd === 'slot') { o.slotCommand = argv.slice(i + 1); i = argv.length; break; }
         if (o.cmd === 'plan-check') break;
-        console.error(unknownFlagMessage(a)); process.exit(o.cmd === 'protocol' || o.cmd === 'config' ? 2 : 1);
+        console.error(unknownFlagMessage(a)); process.exit(o.cmd === 'protocol' || o.cmd === 'config' || o.cmd === 'rules' ? 2 : 1);
         break;
       // worker --action run|describe|select: the isolated-edit recipe and baseline (082 IC-014).
       case '--edit': o.edit = true; break;
@@ -153,7 +153,7 @@ function parseArgs(argv: string[]): any {
       }
       case '--task-class': {
         const val = argv[i + 1];
-        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'protocol' ? 2 : 1); }
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'protocol' || o.cmd === 'rules' ? 2 : 1); }
         o.taskClass = val; i++; break;
       }
       case '--task-id': {
@@ -234,7 +234,7 @@ function parseArgs(argv: string[]): any {
         if (runtime !== null) { i = runtime; break; }
         // slot, primary, fleet and transcript report an unknown flag as their own usage error (exit 2, 115 IC-008, 120 IC-008).
         if (a.startsWith('-') && (o.cmd === 'slot' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript')) (o.extraFlags = o.extraFlags || []).push(a);
-        else if (a.startsWith('-') && o.cmd !== 'plan-check') { console.error(unknownFlagMessage(a)); process.exit(o.cmd === 'protocol' || o.cmd === 'config' ? 2 : 1); }
+        else if (a.startsWith('-') && o.cmd !== 'plan-check') { console.error(unknownFlagMessage(a)); process.exit(o.cmd === 'protocol' || o.cmd === 'config' || o.cmd === 'rules' ? 2 : 1); }
         else if (!o.cmd) o.cmd = a;
         else o.positional.push(a);
       }
@@ -586,6 +586,8 @@ Commands:
   protocol             Print the review and debate protocol presets, or the one a run would use (read-only, writes nothing):
                        protocol --action list [--kind review|debate] [--json]
                        protocol --action resolve --kind review|debate [--task-class <id>] [--risk <level>] [--preset <id>] [--json]   (exit 0 resolved, 1 refused, 2 usage)
+  rules                Print the values the runtime owns for this project, each with its source (read-only, writes nothing):
+                       rules [--task-class <id>] [-g] [--json] [<project>]   review protocol per class (attended and unattended), gate floors and loop limits, tiers and worker models, review and autopilot settings (exit 0, 2 usage)
   primary              Resolve which harness and model the main session runs (read-only):
                        primary --action resolve [--json]   (exit 0, 1 refused, 2 usage)
                        primary --action observed [--json]   checkouts and session hook records (exit 0, 1 cannot list checkouts, 2 usage)

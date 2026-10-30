@@ -164,6 +164,18 @@ doflow protocol --action resolve --kind review --task-class feature [--risk HIGH
 
 `list` shows each preset with its seats, rounds, synthesizer and decider, then the invariants no setting can change. `resolve` shows the protocol one run would use and where each value came from. It has no diff to read, so a review always resolves to at least the deep preset; a `--preset` can only raise it. A preset looser than that is refused with exit 1, and a bad flag value is a usage error with exit 2. Add `--json` for the same data as one object.
 
+### Rules the runtime owns
+
+Review seats and rounds, the seat floor per task class, the loop limits, the tier of each agent owner and the model behind each worker tier are values the runtime holds, not values to copy into prose. `doflow rules` prints them for the project in the current directory, each with the file or settings layer it came from, so guidance and policy text should point at it instead of restating numbers that go stale.
+
+```bash
+doflow rules                      # every task class: review attended and unattended, gates, tiers, settings
+doflow rules --task-class feature # one class
+doflow rules -g --json            # the user layer only, as one object
+```
+
+It is read-only: it writes no file and no telemetry. A value it cannot resolve prints as `unresolved:<reason>`, never as a guess.
+
 ### See which primary DoFlow assumes
 
 `doflow primary --action resolve` prints which harness and model DoFlow takes the main session to run, from your `primary.harness` and `primary.model` settings and what the harness reported at session start. It is read-only. `doflow status` and `doflow doctor` show the same state in one line.

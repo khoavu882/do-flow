@@ -97,6 +97,7 @@ const ALLOWLIST: any = new Map([
   ['slot', 'orchestrator tool, no skill calls it'],
   ['protocol', 'read-only protocol printer (119 IC-004) that a person or orchestrator runs, for example to embed a debate protocol in a brief; `review --action start` prints the review protocol itself, so no skill calls it'],
   ['primary', 'read-only primary resolver (120 IC-008) that a person or orchestrator runs to see which harness and model the main session is taken to run; `status` and `doctor` print its summary line, so no skill calls it'],
+  ['rules', 'read-only runtime-owned values printer (doflow rules); a person or orchestrator runs it so guidance can point at it instead of copying numbers, no skill calls it'],
   ['fleet', 'read-only project lister for the Console Fleet view (093 IC-019); a person or the Console runs it, so no skill calls it'],
   ['transcript', 'read-only agent transcript and traffic reader for the Console Fleet view (093 IC-022, IC-023); a person or the Console runs it, so no skill calls it'],
   ['package', 'read-only contribution point listing (122 IC-012 `points`); no skill calls the package verb yet'],

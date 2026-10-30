@@ -219,6 +219,25 @@ function loadEnforcementInputs(registry: any, { harnessesFile = path.join(REPO_R
 }
 
 /**
+ * The gate policy a review resolves its seat floor from: the shipped gates.json narrowed by the project's
+ * `.doflow/gates.override.json` (read as roadmap gate-b reads it, 119 IC-005). `override` says whether one was applied;
+ * an unreadable or widening override is `ok: false` with the loader's reason. Shared with `doflow rules`.
+ */
+function loadGatePolicy(cwd: string | null):
+  { ok: true; policy: any; override: 'none' | 'applied'; overrideFile: string | null } | { ok: false; reason: string; overrideFile: string | null } {
+  const { projectLayerSource } = require('../settings/project-layers.ts');
+  const layers = projectLayerSource(cwd, fs);
+  const overrideFile: string | null = layers.layersFrom ? path.join(layers.layersFrom, 'gates.override.json') : null;
+  let override: string | null = null;
+  if (overrideFile) {
+    try { override = fs.readFileSync(overrideFile, 'utf8'); } catch (error: any) { if (error?.code !== 'ENOENT') override = ''; }
+  }
+  const loaded = loadPolicy(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'gates.json'), 'utf8'), override);
+  if (!loaded.ok) return { ok: false, reason: String(loaded.reason), overrideFile };
+  return { ok: true, policy: loaded.policy, override: override === null ? 'none' : 'applied', overrideFile };
+}
+
+/**
  * The inputs `resolveProtocol` needs beyond the change facts: the project's settings as the plain `settingsView`
  * the resolver reads (`{ key: { value, layer } }`, 119 L-B8), whether the review is `unattended` (autopilot is not
  * is on, so the class seat floor binds; maint-thin), the gate policy (the shipped gates.json narrowed by the
@@ -245,16 +264,9 @@ function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<s
   }
   let gatePolicy: any = null;
   if (taskClass) {
-    const { projectLayerSource } = require('../settings/project-layers.ts');
-    const layers = projectLayerSource(cwd, fs);
-    const overrideFile: string | null = layers.layersFrom ? path.join(layers.layersFrom, 'gates.override.json') : null;
-    let override: string | null = null;
-    if (overrideFile) {
-      try { override = fs.readFileSync(overrideFile, 'utf8'); } catch (error: any) { if (error?.code !== 'ENOENT') override = ''; }
-    }
-    const loaded = loadPolicy(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'gates.json'), 'utf8'), override);
+    const loaded = loadGatePolicy(cwd);
     if (!loaded.ok) {
-      return { error: String(loaded.reason).split(':')[0], message: `${loaded.reason} (core/registry/gates.json narrowed by ${overrideFile ?? 'no project override'})` };
+      return { error: String(loaded.reason).split(':')[0], message: `${loaded.reason} (core/registry/gates.json narrowed by ${loaded.overrideFile ?? 'no project override'})` };
     }
     gatePolicy = loaded.policy;
   }
@@ -515,4 +527,4 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
   }
 }
 
-module.exports = { reviewPrecondition, handleReviewStart, loadProtocolInputs, loadEnforcementInputs, validSlug };
+module.exports = { reviewPrecondition, handleReviewStart, loadProtocolInputs, loadEnforcementInputs, loadGatePolicy, validSlug };
