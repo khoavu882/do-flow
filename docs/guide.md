@@ -620,8 +620,9 @@ policy again before it writes a merge intent (a gate-b set to `never` since then
 `policy-never`), and a plan edited after gate-b denies `plan-changed` at the post-merge step. The
 loop removes a finished worktree and branch only after proving the branch tip is already on develop;
 otherwise both are kept (`cleanup-kept`). Before the worktree is removed, its gitignored
-`agent-docs/doflow/<slug>/` folder is copied into the main checkout (an existing file there wins), and
-a failed copy keeps the worktree.
+`agent-docs/doflow/<slug>/` folder is copied into the main checkout (an existing file there is never overwritten: identical bytes
+are skipped, differing bytes keep the worktree and are named in the audit line), and a failed copy
+keeps the worktree.
 
 **When it stops.** Every `next` prints a `checkpoint` path (`.doflow/state/roadmap/runs/<runId>.json`)
 holding the step log and per-row state. `doflow roadmap --action audit` prints every logged step and

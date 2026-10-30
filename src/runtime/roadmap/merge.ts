@@ -321,7 +321,9 @@ function repairFastForward({ intent, root, develop, execFileSync, execOptions, f
 
 /**
  * Copy the worktree's gitignored feature folder into the main checkout; a main-checkout file already
- * there wins and is reported as skipped. Symlinks and other non-file entries throw (fail closed).
+ * there is never overwritten. Identical bytes are reported as `skipped`; differing bytes as `conflicts`
+ * (the worktree copy would be lost on removal, so the caller keeps the worktree). Symlinks and other
+ * non-file entries throw (fail closed).
  */
 function copyFeatureFolder(from: string, to: string, fsImpl: any, report: any, rel = ''): void {
   fsImpl.mkdirSync(to, { recursive: true });
@@ -331,14 +333,18 @@ function copyFeatureFolder(from: string, to: string, fsImpl: any, report: any, r
     else if (!entry.isFile()) throw new Error(`cannot copy ${name}: not a regular file`);
     else {
       try { fsImpl.copyFileSync(path.join(from, entry.name), path.join(to, entry.name), fsImpl.constants.COPYFILE_EXCL); report.copied++; }
-      catch (error: any) { if (error.code !== 'EEXIST') throw error; report.skipped.push(name); }
+      catch (error: any) {
+        if (error.code !== 'EEXIST') throw error;
+        const same = fsImpl.readFileSync(path.join(from, entry.name)).equals(fsImpl.readFileSync(path.join(to, entry.name)));
+        (same ? report.skipped : report.conflicts).push(name);
+      }
     }
   }
 }
 
 /** `report` (optional) receives `copied`, `skipped` and, when the cleanup is kept, `failure`. */
 function cleanupFeature({ intent, root, develop, execFileSync, execOptions, fsImpl, report = {} }: any): boolean {
-  report.copied = 0; report.skipped = [];
+  report.copied = 0; report.skipped = []; report.conflicts = [];
   const feature = intent.featureWorktree;
   const branch = intent.featureBranch;
   try {
@@ -360,6 +366,10 @@ function cleanupFeature({ intent, root, develop, execFileSync, execOptions, fsIm
       if (slug && !slug.includes('/') && fsImpl.existsSync(folder)) {
         try { copyFeatureFolder(folder, path.join(root, 'agent-docs', 'doflow', slug), fsImpl, report); }
         catch (error: any) { report.failure = `artifact copy failed: ${error.message}`; return false; }
+        if (report.conflicts.length) {
+          report.failure = `kept: main checkout copy differs from the worktree copy of ${report.conflicts.join(', ')}`;
+          return false;
+        }
       }
       execFileSync('git', ['-C', develop, 'worktree', 'remove', '--', feature], execOptions);
     }

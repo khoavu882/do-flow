@@ -320,15 +320,30 @@ test('cleanup copies the ignored feature folder into the main checkout before th
   assert.deepEqual([report.copied, report.skipped], [2, []]);
 });
 
-test('cleanup never overwrites a main-checkout file and reports the skipped names', async (t) => {
+test('cleanup skips a main-checkout file with identical bytes, reports it, and still cleans', async (t) => {
+  const f = artifactFixture(t);
+  fs.mkdirSync(f.main, { recursive: true });
+  fs.writeFileSync(path.join(f.main, 'requirement.md'), 'worktree requirement\n');
+  const report: any = {};
+  assert.equal(cleanupArtifacts(f, report), true);
+  assert.equal(fs.existsSync(f.feature), false);
+  assert.equal(fs.readFileSync(path.join(f.main, 'requirement.md'), 'utf8'), 'worktree requirement\n');
+  assert.equal(fs.readFileSync(path.join(f.main, 'design/specs.md'), 'utf8'), 'worktree specs\n');
+  assert.deepEqual([report.copied, report.skipped, report.conflicts], [1, ['requirement.md'], []]);
+});
+
+test('cleanup keeps the worktree and branch when a main-checkout file differs, never overwrites, and names the file', async (t) => {
   const f = artifactFixture(t);
   fs.mkdirSync(f.main, { recursive: true });
   fs.writeFileSync(path.join(f.main, 'requirement.md'), 'main requirement\n');
   const report: any = {};
-  assert.equal(cleanupArtifacts(f, report), true);
+  assert.equal(cleanupArtifacts(f, report), false);
+  assert.deepEqual(report.conflicts, ['requirement.md']);
+  assert.match(report.failure, /requirement\.md/);
   assert.equal(fs.readFileSync(path.join(f.main, 'requirement.md'), 'utf8'), 'main requirement\n');
-  assert.equal(fs.readFileSync(path.join(f.main, 'design/specs.md'), 'utf8'), 'worktree specs\n');
-  assert.deepEqual([report.copied, report.skipped], [1, ['requirement.md']]);
+  assert.equal(fs.readFileSync(path.join(f.dir, 'requirement.md'), 'utf8'), 'worktree requirement\n');
+  assert.equal(fs.existsSync(f.feature), true);
+  assert.notEqual(f.git(f.root, 'branch', '--list', 'feat/113-toy'), '');
 });
 
 test('a failed artifact copy keeps the worktree and the branch and names the failure', async (t) => {

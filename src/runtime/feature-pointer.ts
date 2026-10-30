@@ -158,8 +158,14 @@ function describeActive({ storeRoot, cwd }: { storeRoot: string; cwd: string }):
  * not run the feature resolver: a caller on a hot path (the context-pack verb, issue #9) needs the
  * runtime's own record, not a second derivation from the branch.
  */
-function activeEntry({ storeRoot, cwd }: { storeRoot: string; cwd: string }): PointerEntry | null {
-  const here = checkoutOf(cwd);
+function activeEntry({ storeRoot, cwd, checkout }: { storeRoot: string; cwd: string; checkout?: { repoRoot: string; branch: string | null } | null }): PointerEntry | null {
+  // `checkout` is the caller's already-resolved checkout (its feature resolution): no git child is spawned for it.
+  let here: { key: string; branch: string | null } | null;
+  if (checkout?.repoRoot) {
+    let key = checkout.repoRoot;
+    try { key = fs.realpathSync(key); } catch { /* keep the resolver's spelling */ }
+    here = { key, branch: checkout.branch || null };
+  } else here = checkoutOf(cwd);
   if (!here) return null;
   const read = readEntry(pointerFile(storeRoot, here.key));
   return read.status === 'ok' && read.data!.branch === here.branch ? read.data! : null;

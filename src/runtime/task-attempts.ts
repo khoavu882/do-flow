@@ -24,7 +24,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { updateTaskState, readTaskState } = require('./task-state.ts');
 const { parsePlan } = require('./scaffold/artifacts.ts');
-const { buildGraph, planVerdict, deriveTasks, isGraphPlan, doneOf } = require('./task-graph.ts');
+const { buildGraph, planVerdict, deriveTasks, isGraphPlan, doneOf, normalizeOwner } = require('./task-graph.ts');
 const {
   runKeyFor, refuseWorker, computeTotals, aggregateRefusal, controlRefusal, epochRefusal,
   refreshRun, ensureRun, identityRefusal, startRun, pauseRun, cancelRun, cancelAttempt,
@@ -332,7 +332,7 @@ function claimChecks(store: any, c: any) {
   }
   const declared = plan.graph.tasks.find((t: any) => t.id === task).owner;
   let ownerOverrideRecord = null;
-  if (graphPlan && declared && owner !== declared) {
+  if (graphPlan && declared && normalizeOwner(owner) !== normalizeOwner(declared)) {
     if (!override) return refuse('owner-mismatch', { declared });
     ownerOverrideRecord = { declared, reason: override };
   }

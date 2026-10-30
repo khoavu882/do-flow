@@ -882,6 +882,9 @@ class ContextPackCompiler {
  * @param {string} [options.stateRoot]
  * @param {string} [options.sourceRoot] the checkout the verb runs in (default stateRoot)
  * @param {string} [options.slug] feature slug, when the task id is not the feature's own
+ * @param {string|null} [options.explicitSlug] the `--slug` the caller typed, if any (default `slug`).
+ *   Only this selects a run for the stage-pack link: a branch-derived `slug` still keys the delivery
+ *   store, but the branch name alone never picks a run (docs/specs/orchestrator-context-modes.md).
  * @returns {number} exit code
  */
 function handleContextPackCommand({
@@ -892,6 +895,7 @@ function handleContextPackCommand({
   stateRoot,
   sourceRoot,
   slug,
+  explicitSlug,
   mandatoryFile,
   harness = null,
   maxBytes,
@@ -1048,7 +1052,8 @@ function handleContextPackCommand({
   // Issue #9 stage 3: a recorded delivery is named on the run stage active now (best effort, never fails the verb).
   if (pack.delivery?.recorded === true) {
     try {
-      require('./workflow-orchestrator.ts').recordStagePack({ stateRoot: root, sourceRoot: source, taskId, slug: slug || null, digest: pack.delivery.packDigest });
+      require('./workflow-orchestrator.ts').recordStagePack({ stateRoot: root, sourceRoot: source, taskId, slug: (explicitSlug === undefined ? slug : explicitSlug) || null, digest: pack.delivery.packDigest,
+        checkout: !feature.error && feature.paths?.repo_root ? { repoRoot: feature.paths.repo_root, branch: feature.paths.branch || null } : null });
     } catch { /* an unrecorded link is unknown, not a failure */ }
   }
   if (console.log !== nativeConsoleLog) {

@@ -1082,7 +1082,7 @@ async function mergeStep(ctx: any, row: any, source: { intent?: any; run?: any; 
   // Decision C12: the S8 tail is one cleanup step; `rendered` says whether this call wrote the table.
   const rendered = result.fileWrites > 0;
   return finish(ctx, { ...base, outcome: 'acted', step: 'cleanup', annotations: { commit: result.commit, cleanup: result.cleanup, rendered, artifacts: result.artifacts },
-    audit: `cleanup ${row.slug} ${result.commit} (${result.cleanup}${rendered ? ', table rendered' : ''})` });
+    audit: `cleanup ${row.slug} ${result.commit} (${result.cleanup}${rendered ? ', table rendered' : ''})${keptReason(result.artifacts)}` });
 }
 
 async function gateStep(ctx: any, row: any, orch: any, gateId: string, worktree: string): Promise<any> {
@@ -1303,6 +1303,9 @@ async function stepRow(ctx: any, row: any, worktrees: Map<string, string>): Prom
   throw new Unreadable([`orchestration:${row.slug}`], `run state '${run.state}' has no actionable node`);
 }
 
+/** The audit line names why a cleanup was kept (artifact conflicts), not only `--json`. */
+const keptReason = (artifacts: any): string => (artifacts?.conflicts?.length ? `: ${artifacts.failure}` : '');
+
 /** Render if stale (at most one write), then merge.ts's non-force cleanup; a kept row is held. */
 function finishMergedRow(ctx: any, row: any, rows: any[], statuses: any, worktree: string | null, worktrees: Map<string, string>): any {
   const slot = (ctx.record.rows[row.id] ||= {});
@@ -1327,7 +1330,7 @@ function finishMergedRow(ctx: any, row: any, rows: any[], statuses: any, worktre
   } else delete slot.held;
   const cleanup = cleaned ? 'cleaned' : 'cleanup-kept';
   return finish(ctx, { outcome: 'acted', step: 'cleanup', row: row.id, slug: row.slug, annotations: { cleanup, rendered: written, artifacts },
-    audit: `cleanup ${row.slug} merged without an intent: ${cleanup}${written ? ', table rendered' : ''}` });
+    audit: `cleanup ${row.slug} merged without an intent: ${cleanup}${written ? ', table rendered' : ''}${keptReason(artifacts)}` });
 }
 
 /** The seed layout, kept a sibling of the main checkout: seed text never chooses an arbitrary path. */

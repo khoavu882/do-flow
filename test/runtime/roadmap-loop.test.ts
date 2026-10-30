@@ -814,6 +814,23 @@ test('a failed artifact copy keeps the worktree, stays cleanup-kept and records 
   assert.equal(f.git(f.root, 'rev-parse', '--verify', 'refs/heads/feat/113-toy').length, 40);
 });
 
+test('a differing main-checkout artifact keeps the worktree, is never overwritten and the audit line names the file', async (t) => {
+  const f = fixture(t);
+  await f.next();
+  personMerges(f);
+  write(path.join(f.featureDir(), 'requirement.md'), 'worktree copy\n');
+  write(path.join(f.root, 'agent-docs/doflow/113-toy/requirement.md'), 'main copy\n');
+  const kept = await f.next();
+  assert.deepEqual([kept.result.step, kept.result.annotations.cleanup, kept.result.annotations.artifacts.conflicts], ['cleanup', 'cleanup-kept', ['requirement.md']]);
+  assert.equal(fs.readFileSync(path.join(f.root, 'agent-docs/doflow/113-toy/requirement.md'), 'utf8'), 'main copy\n');
+  assert.equal(fs.readFileSync(path.join(f.featureDir(), 'requirement.md'), 'utf8'), 'worktree copy\n');
+  assert.ok(fs.existsSync(f.worktree()), 'the worktree stays');
+  assert.equal(f.git(f.root, 'rev-parse', '--verify', 'refs/heads/feat/113-toy').length, 40);
+  const audit = f.cli('--action', 'audit');
+  assert.equal(audit.status, 0, audit.stderr);
+  assert.match(audit.stdout, /cleanup-kept.*: kept: main checkout copy differs from the worktree copy of requirement\.md/);
+});
+
 test('the merge path forwards the copy count into the cleanup annotations', async (t) => {
   const { f } = await completedRow(t);
   const merged = await f.next();

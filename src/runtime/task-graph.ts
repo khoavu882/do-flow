@@ -109,6 +109,14 @@ function searchCycles(ids: string[], edges: Map<string, Array<{ to: string, phas
 }
 
 /**
+ * The one owner comparison key (plan-check's review-owner warning and the claim's owner check):
+ * the owner without a trailing parenthetical note, trimmed and lowercased. The owner of record stays raw.
+ */
+function normalizeOwner(owner: unknown): string {
+  return String(owner ?? '').replace(/\s*\([^()]*\)\s*$/, '').trim().toLowerCase();
+}
+
+/**
  * IC-003: `parsePlan` output → `{ ok: true, graph, warnings }` or `{ ok: false, problems }`, with
  * every problem collected first. The graph keeps the parsed tasks in plan order with `phaseIndex`
  * (phase order is first appearance), plus `order`, a topological order with dependencies first.
@@ -150,8 +158,8 @@ function buildGraph(parsed: any) {
       if (!ACCEPTANCE.some((pattern) => pattern.test(value))) problems.push({ kind: 'bad-acceptance', ids: [task.id], value });
     }
     // IC-010: quality-guardian is the review hold, so a frontier-tier task there is mis-owned.
-    // A trailing model note such as 'quality-guardian (Opus)' is stripped for this warning only; claim matching stays exact.
-    if (typeof task.owner === 'string' && task.owner.replace(/\s*\([^()]*\)\s*$/, '').trim().toLowerCase() === 'quality-guardian' && task.tier === 'frontier') {
+    // A trailing model note such as 'quality-guardian (Opus)' is stripped (`normalizeOwner`); a claim compares owners the same way.
+    if (typeof task.owner === 'string' && normalizeOwner(task.owner) === 'quality-guardian' && task.tier === 'frontier') {
       warnings.push({ kind: 'review-owner', ids: [task.id], value: 'quality-guardian' });
     }
     if (task.budget && typeof task.budget === 'object' && 'invalid' in task.budget) {
@@ -361,5 +369,5 @@ function deriveTasks(graph: any, store: any, { clearedCancels = [], hashes = nul
 
 module.exports = {
   DEFAULT_TASK_ATTEMPTS, buildGraph, planVerdict, isGraphPlan, graphTuples, graphDigest, overlaps, taskAttemptLimit,
-  deriveTasks, doneOf,
+  deriveTasks, doneOf, normalizeOwner,
 };

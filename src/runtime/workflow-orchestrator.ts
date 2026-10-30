@@ -99,7 +99,7 @@ function iso(now: any) { return (now ?? new Date()).toISOString(); }
 /** The well-formed `{ taskId, digest }` items of a node's `packs`, in delivery order. */
 function stagePacks(packs: any): Array<{ taskId: string; digest: string }> {
   return (Array.isArray(packs) ? packs : [])
-    .filter((p: any) => p && ID_PATTERN.test(String(p.taskId ?? '')) && PACK_DIGEST.test(String(p.digest ?? '')))
+    .filter((p: any) => p && typeof p.taskId === 'string' && typeof p.digest === 'string' && ID_PATTERN.test(p.taskId) && PACK_DIGEST.test(p.digest))
     .map((p: any) => ({ taskId: p.taskId, digest: p.digest }));
 }
 
@@ -115,22 +115,25 @@ function stagePacks(packs: any): Array<{ taskId: string; digest: string }> {
  * else (no run, a gate, a finished run, an unreadable or locked record) records nothing: unknown,
  * never a guess. A delivery the node already ends with writes nothing, so a repeat leaves the
  * run's revision alone. Never throws.
+ * `checkout` (`{ repoRoot, branch }`) is the caller's already-resolved checkout, so the pointer lookup
+ * spawns no git child of its own.
  * @returns {{ runTaskId: string, stage: string }|null} where the pack was recorded
  */
-function recordStagePack({ stateRoot, sourceRoot = stateRoot, taskId, slug = null, digest, fsImpl = fs }: any): any {
+function recordStagePack({ stateRoot, sourceRoot = stateRoot, taskId, slug = null, digest, checkout = null, fsImpl = fs }: any): any {
   try {
     if (!ID_PATTERN.test(String(taskId ?? '')) || !PACK_DIGEST.test(String(digest ?? ''))) return null;
     const storeDir = runStoreDir(stateRoot);
     const locate = (runTaskId: string, feature: string | null) => {
       const { file, read } = recordIn({ base: storeDir, namespace: feature && feature !== runTaskId ? feature : null, name: `${runTaskId}.json`, fsImpl });
-      return read === file && fsImpl.existsSync(file) ? { runTaskId, file } : null;
+      // `read` is the namespaced file when it exists, else a legacy flat file that is this feature's.
+      return fsImpl.existsSync(read) ? { runTaskId, file: read } : null;
     };
     let found = locate(taskId, isSafeSlug(slug) ? slug : null);
     if (!found) {
       let feature = isSafeSlug(slug) ? slug : null;
       let featureRun = feature;
       if (!feature) {
-        const active = require('./feature-pointer.ts').activeEntry({ storeRoot: stateRoot, cwd: sourceRoot });
+        const active = require('./feature-pointer.ts').activeEntry({ storeRoot: stateRoot, cwd: sourceRoot, checkout });
         if (active && isSafeSlug(active.slug)) {
           feature = active.slug;
           featureRun = ID_PATTERN.test(String(active.taskId ?? '')) ? active.taskId : active.slug;
@@ -144,6 +147,10 @@ function recordStagePack({ stateRoot, sourceRoot = stateRoot, taskId, slug = nul
     let stage: string | null = null;
     updateTaskState({
       fsImpl, file: found.file, acquire: (impl: any, target: string) => boundedAcquire(impl, target, { retries: 3, waitMs: 5 }),
+      // The guarded check again INSIDE the lock, before the unguarded read and the write: a namespace
+      // folder swapped for a link since the check above is refused here (null result). A swap after
+      // this line and before the rename is the accepted, much narrower window.
+      prepare: () => { readRunRecord(fsImpl, found.file, storeDir); },
       build(disk: any) {
         const program = Array.isArray(disk?.program) ? disk.program : [];
         const node = disk?.state === 'RUNNING' && Number.isInteger(disk.cursor) ? program[disk.cursor] : null;
