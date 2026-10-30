@@ -571,8 +571,9 @@ function checkLaunch({ runDir, task, arm, config, label }: { runDir: string; tas
   if (launch === null) {
     throw new UsageError('launch-missing', `${label}: launch.json is missing or unreadable in ${runDir}; a run without its launch record cannot be graded`);
   }
-  const build = config.mode === 'ab' ? buildAbPrompt : buildPrompt;
-  const expected: Record<string, string> = { key: task.key, promptSha256: promptSha256(build(task, config.arms[arm].paragraph)) };
+  // Tier 2, arm C: the prompt of session 1 is typed behind the arm's entryPrefix; every other arm has none.
+  const prompt = config.mode === 'ab' ? buildAbPrompt(task, config.arms[arm].paragraph, config.arms[arm].entryPrefix || '') : buildPrompt(task, config.arms[arm].paragraph);
+  const expected: Record<string, string> = { key: task.key, promptSha256: promptSha256(prompt) };
   for (const field of ['key', 'promptSha256']) {
     if (launch[field] !== expected[field]) {
       throw new UsageError('capture-stale', `${label}: launch.json ${field} ${JSON.stringify(launch[field])} differs from the current task's ${expected[field]}; capture the run again instead of regrading it`);
@@ -817,6 +818,223 @@ function classifyAbIsolation({ reports, armConfig, roots, expected, homeSetup, p
   return { isolation, evidence, proof };
 }
 
+// ---------------------------------------------------------------------------------------------
+// Tier 2: checklist grading (agent-docs/briefs/ab-tier2-design-result.md sections 3 and 5)
+// ---------------------------------------------------------------------------------------------
+// The check semantics are those of bench/agentic/ab/tier2/validate-fixtures.js, which is the reference: keep the two in step.
+
+/** Tier-2 task kinds (`single`: one session, `continuity`: two sessions with a cut). Not imported from tasks.ts so this file stands alone. */
+const TIER2_KINDS = Object.freeze(['single', 'continuity']);
+const T2_TIMEOUT_MS = 180_000;
+const T2_NOTE_MAX = 160;
+
+function t2Walk(dir: string, base = dir): string[] {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry: any) => {
+    const full = path.join(dir, entry.name);
+    return entry.isDirectory() ? t2Walk(full, base) : [path.relative(base, full).split(path.sep).join('/')];
+  });
+}
+
+function t2Sha256(file: string) {
+  return require('node:crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+}
+
+/** The environment of every command the grader runs inside a copy: the caller's PATH only, no git identity, no user config. */
+function t2Env(home: string) {
+  return { PATH: process.env.PATH || '/usr/bin:/bin', HOME: home, GIT_CONFIG_NOSYSTEM: '1', GIT_TERMINAL_PROMPT: '0' };
+}
+
+function t2Git(ws: string, args: string[], home: string) {
+  return childProcess.spawnSync('git', args, { cwd: ws, encoding: 'utf8', env: t2Env(home), timeout: T2_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 });
+}
+
+/** The text from the line holding `marker` to the next heading of the same or a higher level (to the end when the marker is not a heading). */
+function t2SectionAfter(text: string, marker: string) {
+  const lines = text.split('\n');
+  const start = lines.findIndex((line) => line.includes(marker));
+  if (start === -1) return null;
+  const heading = /^(#+)\s/.exec(lines[start]);
+  let end = lines.length;
+  if (heading) {
+    for (let i = start + 1; i < lines.length; i++) {
+      const next = /^(#+)\s/.exec(lines[i]);
+      if (next && next[1].length <= heading[1].length) { end = i; break; }
+    }
+  }
+  return lines.slice(start, end).join('\n');
+}
+
+/**
+ * The seed tree (the last fixture commit, without the uncommitted overlays) exported into `dest`. The seed commit is
+ * the N-th commit from the root of the workspace's first-parent history, N = the fixture's commit count, accepted only
+ * when every one of those N subjects equals the fixture's message (basis `git-log`). When the agent rewrote that
+ * history the tree is rebuilt from the fixture's own commit overlays instead (basis `fixture-overlays`).
+ */
+function t2ExportSeed(ws: string, commits: any[], dest: string, home: string) {
+  const log = t2Git(ws, ['log', '--first-parent', '--reverse', '--format=%H%x09%s'], home);
+  const rows: string[][] = log.status === 0 ? String(log.stdout).split('\n').filter(Boolean).map((l: string) => l.split('\t')) : [];
+  const matches = rows.length >= commits.length && commits.every((c: any, i: number) => rows[i][1] === String(c.message).split('\n')[0]);
+  if (matches) {
+    const sha = rows[commits.length - 1][0];
+    const archive = childProcess.spawnSync('git', ['archive', '--format=tar', sha], { cwd: ws, env: t2Env(home), maxBuffer: 256 * 1024 * 1024 });
+    if (archive.status === 0) {
+      const untar = childProcess.spawnSync('tar', ['-x', '-C', dest], { input: archive.stdout });
+      if (untar.status === 0) return { basis: 'git-log', commit: sha };
+    }
+  }
+  for (const c of commits) {
+    for (const rel of t2Walk(c.filesDir)) {
+      fs.mkdirSync(path.dirname(path.join(dest, rel)), { recursive: true });
+      fs.copyFileSync(path.join(c.filesDir, rel), path.join(dest, rel));
+    }
+  }
+  return { basis: 'fixture-overlays', commit: null };
+}
+
+/** `node --test --test-reporter=tap` over the hidden files: top-level `ok`/`not ok N - <title>` lines, by title. */
+function t2RunHidden(ws: string, hiddenDir: string, home: string) {
+  const results = new Map<string, boolean>();
+  const files = t2Walk(hiddenDir).filter((rel) => rel.endsWith('.test.js')).map((rel) => path.join(hiddenDir, rel));
+  if (files.length === 0) return results;
+  const run = childProcess.spawnSync(process.execPath, ['--test', '--test-reporter=tap', ...files], { cwd: ws, encoding: 'utf8', env: t2Env(home), timeout: T2_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 });
+  for (const line of String(run.stdout).split('\n')) {
+    const m = /^(not )?ok \d+ - (.*)$/.exec(line);
+    if (m) results.set(m[2].replace(/\\([\\#])/g, '$1'), !m[1]);
+  }
+  return results;
+}
+
+/** The agent's added or changed test files under `testDir` must fail when run against the seed code. */
+function t2Mutation(ws: string, ctx: any, check: any) {
+  const seedDir = fs.mkdtempSync(path.join(ctx.scratch, 'seed-'));
+  const seed = t2ExportSeed(ws, ctx.commits, seedDir, ctx.home);
+  ctx.seed = seed;
+  const changed = t2Walk(path.join(ws, check.testDir)).map((rel) => `${check.testDir}/${rel}`).filter((rel) => {
+    const seeded = path.join(seedDir, rel);
+    return !fs.existsSync(seeded) || t2Sha256(seeded) !== t2Sha256(path.join(ws, rel));
+  });
+  if (changed.length === 0) return { pass: false, note: 'no added or changed test file' };
+  for (const rel of changed) {
+    fs.mkdirSync(path.dirname(path.join(seedDir, rel)), { recursive: true });
+    fs.copyFileSync(path.join(ws, rel), path.join(seedDir, rel));
+  }
+  const run = childProcess.spawnSync(process.execPath, ['--test', ...changed], { cwd: seedDir, encoding: 'utf8', env: t2Env(ctx.home), timeout: T2_TIMEOUT_MS });
+  return { pass: run.status !== 0, note: `${changed.length} test file(s) against the seed (${seed.basis})` };
+}
+
+function t2Evaluate(item: any, ws: string, ctx: any): { pass: boolean; note?: string } {
+  const check = item.check || {};
+  const target = typeof check.path === 'string' ? path.join(ws, check.path) : null;
+  const pattern = () => new RegExp(check.regex, check.flags || '');
+  switch (check.type) {
+    case 'test': return ctx.hidden.has(check.name) ? { pass: ctx.hidden.get(check.name) === true } : { pass: false, note: 'no hidden test with that title ran' };
+    case 'file-contains': {
+      if (target === null || !fs.existsSync(target)) return { pass: false, note: 'file missing' };
+      let text = fs.readFileSync(target, 'utf8');
+      if (check.within) {
+        const section = t2SectionAfter(text, check.within);
+        if (section === null) return { pass: false, note: `marker not found: ${String(check.within).slice(0, 60)}` };
+        text = section;
+      }
+      return { pass: pattern().test(text) };
+    }
+    case 'file-present': return { pass: target !== null && fs.existsSync(target) };
+    case 'file-absent': return { pass: target !== null && !fs.existsSync(target) };
+    case 'byte-identical': return target !== null && fs.existsSync(target) ? { pass: t2Sha256(target) === check.sha256 } : { pass: false, note: 'file missing' };
+    case 'worktree-diff-empty': {
+      const r = t2Git(ws, ['diff', 'HEAD', '--name-only', '--', ...(check.paths || [])], ctx.home);
+      return r.status === 0 ? { pass: String(r.stdout).trim() === '' } : { pass: false, note: 'git diff failed' };
+    }
+    case 'worktree-modified': {
+      if (target === null || !fs.existsSync(target)) return { pass: false, note: 'file missing' };
+      const r = t2Git(ws, ['diff', 'HEAD', '--name-only', '--', check.path], ctx.home);
+      return { pass: r.status === 0 && String(r.stdout).trim() !== '' && pattern().test(fs.readFileSync(target, 'utf8')) };
+    }
+    case 'mutation': return t2Mutation(ws, ctx, check);
+    default: return { pass: false, note: `unknown check type ${check.type}` };
+  }
+}
+
+/**
+ * Evaluates the checklist of a tier-2 task and its visible command on a COPY of the kept workspace (so grading twice
+ * gives the same answer and never touches the run). `meta` is the fixture's task.json.
+ */
+function gradeTier2Workspace({ workspaceDir, task, meta }: { workspaceDir: string; task: any; meta: any }) {
+  const items: any[] = Array.isArray(meta.items) ? meta.items : [];
+  const scratch = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'tier2-grade-'));
+  try {
+    const ws = path.join(scratch, 'ws');
+    fs.cpSync(workspaceDir, ws, { recursive: true });
+    const home = path.join(scratch, 'home');
+    fs.mkdirSync(home);
+    const ctx: any = { hidden: t2RunHidden(ws, path.join(task.tier2.dir, 'hidden'), home), commits: task.tier2.commits, home, scratch, seed: null };
+    const visible = typeof meta.visibleCommand === 'string' && meta.visibleCommand
+      ? childProcess.spawnSync(meta.visibleCommand, { cwd: ws, shell: true, encoding: 'utf8', env: t2Env(home), timeout: T2_TIMEOUT_MS, maxBuffer: 64 * 1024 * 1024 })
+      : { status: null, error: new Error('no visibleCommand') };
+    const results = items.map((item: any) => {
+      let r: { pass: boolean; note?: string };
+      try { r = t2Evaluate(item, ws, ctx); } catch (e: any) { r = { pass: false, note: `check error: ${String(e.message).slice(0, 80)}` }; }
+      return { id: item.id, title: item.title, type: item.check?.type, pass: r.pass === true, ...(r.note ? { note: String(r.note).slice(0, T2_NOTE_MAX) } : {}) };
+    });
+    const k = results.filter((r: any) => r.pass).length;
+    return {
+      items: results, coverage: { k, n: results.length }, itemsAllPass: results.length > 0 && k === results.length,
+      visible: { command: meta.visibleCommand ?? null, exitCode: visible.status ?? null, pass: visible.status === 0 && !visible.error },
+      seed: ctx.seed,
+    };
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+/** The files an item exercises: its declared `targets`, else the `path` of a file check; null when the fixture does not say. */
+function t2ItemTargets(item: any): string[] | null {
+  if (Array.isArray(item.targets) && item.targets.every((t: any) => typeof t === 'string')) return item.targets;
+  return typeof item.check?.path === 'string' ? [item.check.path] : null;
+}
+
+/**
+ * Continuity metric: items passing among those whose target file was untouched when the cut fired. Derivable only
+ * when the cut fired and EVERY item names its target files (`targets` in task.json, or the path of a file check);
+ * otherwise null and the reason, and the run reports coverage only.
+ */
+function t2Recovered(items: any[], results: any[], cut: any) {
+  if (!cut) return { recovered: null, note: 'not a continuity task' };
+  if (cut.fired !== true) return { recovered: null, note: 'the cut did not fire' };
+  const mapped = items.map((item: any) => t2ItemTargets(item));
+  const unmapped = items.filter((_: any, i: number) => mapped[i] === null).map((item: any) => item.id);
+  if (unmapped.length > 0) return { recovered: null, note: `not derivable: items ${unmapped.join(', ')} declare no target file (add "targets" to the items in task.json); coverage only` };
+  const untouched: string[] = Array.isArray(cut.untouchedAtCut) ? cut.untouchedAtCut : [];
+  const pending = items.filter((_: any, i: number) => (mapped[i] as string[]).some((t) => untouched.includes(t)));
+  const passed = pending.filter((item: any) => results.find((r: any) => r.id === item.id)?.pass === true);
+  return { recovered: { pending: pending.length, passed: passed.length, items: pending.map((item: any) => item.id) }, note: null };
+}
+
+/** Sessions of a tier-2 run aggregated one by one (the cumulative rule holds inside a session, never across two), then summed. */
+function aggregateSessions(groups: any[][], cumulative: boolean) {
+  const parts = groups.map((g) => aggregateReports(g, cumulative));
+  const known = parts.filter((p: any) => p.usage === 'reported');
+  const costs = parts.filter((p: any) => p.costUsd !== null).map((p: any) => p.costUsd as number);
+  let tokens: any = null; let sub: any = null; const byModel: any = {};
+  for (const p of known) {
+    tokens = addTok(tokens, p.tokens);
+    if (p.subagent) sub = addTok(sub, p.subagent);
+    for (const [m, row] of Object.entries(p.byModel) as [string, any][]) byModel[m] = { ...addTok(byModel[m], row), costUSD: (byModel[m]?.costUSD ?? 0) + (row.costUSD ?? 0) };
+  }
+  const turns = parts.filter((p: any) => p.turns !== null);
+  const toolCounts: Record<string, number> = {};
+  for (const p of parts) for (const [name, n] of Object.entries(p.toolCounts) as [string, number][]) toolCounts[name] = (toolCounts[name] ?? 0) + n;
+  return {
+    usage: known.length === 0 ? 'unknown' : (known.length === parts.length ? 'reported' : 'partial'),
+    tokens, totalTokens: sumTok(tokens), subagent: sub, byModel, costUsd: costs.length ? costs.reduce((a, b) => a + b, 0) : null,
+    turns: turns.length ? turns.reduce((n: number, p: any) => n + p.turns, 0) : null,
+    toolCalls: parts.reduce((n: number, p: any) => n + p.toolCalls, 0), toolCounts,
+    subagentCalls: parts.reduce((n: number, p: any) => n + p.subagentCalls, 0), askUserQuestion: parts.reduce((n: number, p: any) => n + p.askUserQuestion, 0),
+    inconsistent: parts.some((p: any) => p.inconsistent), claudeCodeVersion: parts[0]?.claudeCodeVersion ?? null, costBasis: parts[0]?.costBasis ?? costBasisOf(null),
+  };
+}
+
 /** Runs the native case's `checks` program against a copy of the final workspace, never inside the model's. */
 function runChecks(workspaceCopy: string, checks: string) {
   const r = childProcess.spawnSync(process.execPath, ['-e', checks], {
@@ -824,6 +1042,55 @@ function runChecks(workspaceCopy: string, checks: string) {
   });
   const out = `${r.stdout || ''}${r.stderr || ''}`.trim();
   return { pass: r.status === 0 && !r.error, exitCode: r.status ?? null, output: out.slice(-CHECKS_OUTPUT_MAX) };
+}
+
+/**
+ * The tier-2 part of one run's grading: the checklist on the kept workspace, regression-free, the delivery flag and
+ * the two exclusion marks. User decision U3: a run stopped at its cap or timeout (`deliveryFailed`) is scored as a
+ * FAILED delivery, and its `censored`/exclusion flags stay beside it as a separate sensitivity mark, never as a drop.
+ * `excluded` is the mark that keeps a run out of the scored mean (a leak, a missing proof, an infra failure that is
+ * not the cap or timeout itself); `exclusionMark` also counts the cap and timeout, for the "excluding capped/leaked
+ * runs" line. Item results are kept for every run that left a workspace, excluded or not.
+ */
+function tier2Record({ runDir, task, statusRec, status, infra, iso, permission, workspaceCopy, timing }: any) {
+  if (!task.tier2?.dir) throw new Error(`gradeAbRun: tier-2 task ${task.id} has no fixture directory (task.tier2.dir)`);
+  const meta = readJsonFile(path.join(task.tier2.dir, 'task.json'));
+  if (meta === null || !Array.isArray(meta.items)) throw new Error(`gradeAbRun: ${task.tier2.dir}/task.json is missing or has no items`);
+  const rec = readJsonFile(path.join(runDir, 'tier2.json'));
+  const procRec = readJsonFile(path.join(runDir, 'process.json'));
+  const deliveryFailed = statusRec?.deliveryFailed === true || statusRec?.cap === true || status === 'timeout';
+  const deliveryBy: string | null = statusRec?.cap === true ? 'cap' : (status === 'timeout' ? 'timeout' : null);
+  const workspace = fs.existsSync(workspaceCopy) ? gradeTier2Workspace({ workspaceDir: workspaceCopy, task, meta }) : null;
+  const items = workspace !== null ? workspace.items : meta.items.map((item: any) => ({ id: item.id, title: item.title, type: item.check?.type, pass: false, note: 'unreached: the run left no workspace' }));
+  const k = items.filter((r: any) => r.pass).length;
+  const regressionFree = workspace?.visible.pass === true;
+  const itemsAllPass = items.length > 0 && k === items.length;
+  const success = !deliveryFailed && itemsAllPass && regressionFree;
+  const exclusionMark: string | null = iso.isolation === 'leaked' || iso.isolation === 'not-loaded' ? 'source-unverified' : (infra ?? (iso.isolation === 'clean' ? null : 'source-unverified'));
+  const deliveryOnly = deliveryFailed && (infra === 'truncated' || infra === 'timeout') && iso.isolation === 'clean' && permission === null;
+  const excluded: string | null = deliveryOnly ? null : exclusionMark;
+  const cut = task.kind === 'continuity' ? (rec?.cut ?? { fired: false }) : null;
+  const rc = t2Recovered(meta.items, items, cut);
+  const artifacts = t2Walk(path.join(workspaceCopy, 'agent-docs', 'doflow')).length;
+  const process = procRec === null ? null : {
+    hookDenies: procRec.hookDenies ?? {}, skills: procRec.skills ?? [], class: procRec.class ?? null, subagentCalls: procRec.subagentCalls ?? 0,
+    byModel: procRec.byModel ?? {}, totalTokens: procRec.totalTokens ?? null, totalCostUsd: procRec.totalCostUsd ?? null,
+  };
+  const graded = workspace !== null || deliveryFailed;
+  return {
+    passRate: graded && excluded === null ? (success ? 1 : 0) : null,
+    record: {
+      graded: workspace !== null, items, coverage: { k, n: items.length }, itemsAllPass, regressionFree,
+      visible: workspace === null ? null : { command: workspace.visible.command, exitCode: workspace.visible.exitCode },
+      success, deliveryFailed, deliveryBy, excluded, exclusionMark, seed: workspace?.seed ?? null,
+      cutFired: cut === null ? null : cut.fired === true, cut: cut === null ? null : { cutMs: cut.cutMs ?? null, changedAtCut: cut.changedAtCut ?? null, untouchedAtCut: cut.untouchedAtCut ?? null, changedAtEnd: cut.changedAtEnd ?? null },
+      recovered: rc.recovered, recoveredNote: rc.note,
+      artifacts, process,
+      sessions: Array.isArray(rec?.sessions) ? rec.sessions.map((x: any) => ({ n: x.n, tokens: x.tokens ?? null, costUsd: x.costUsd ?? null, source: x.source ?? null })) : null,
+      entryPrefix: rec?.entryPrefix ?? null,
+      costLowerBound: timing?.cost_usd_lower_bound === true,
+    },
+  };
 }
 
 /**
@@ -849,10 +1116,18 @@ function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; 
   const cls = classifyRun({ status, hasOutput });
   let infra: string | null = cls.infra ?? (cls.excluded ? 'malformed' : null);
   if (infra === null && lastReport.status !== 'success') infra = 'truncated';
-  const agg = aggregateReports(reports, config.resume?.cumulative !== false);
+  const isTier2 = TIER2_KINDS.includes(task.kind);
+  // Tier 2 may hold two sessions: the cumulative rule applies inside a session, so each is aggregated alone and the sessions are summed.
+  const sessionOfSegment = (i: number) => (Number.isInteger(segList[i]?.session) ? segList[i].session : 1);
+  const sessionGroups: any[][] = [];
+  if (isTier2) {
+    const order = [...new Set(segList.map((_: any, i: number) => sessionOfSegment(i)))].sort((a: number, b: number) => a - b);
+    for (const sn of order) sessionGroups.push(reports.filter((_: any, i: number) => sessionOfSegment(i) === sn));
+  }
+  const agg: any = isTier2 ? aggregateSessions(sessionGroups, config.resume?.cumulative !== false) : aggregateReports(reports, config.resume?.cumulative !== false);
   if (infra === null && agg.inconsistent) infra = 'malformed';
   const workspaceCopy = path.join(runDir, 'workspace');
-  if (infra === null && task.kind === 'edit' && !fs.existsSync(workspaceCopy)) infra = 'malformed';
+  if (infra === null && (task.kind === 'edit' || isTier2) && !fs.existsSync(workspaceCopy)) infra = 'malformed';
 
   const iso = classifyAbIsolation({
     reports, armConfig, roots: launch, expected: launch.proofExpected || { skills: [], agents: [] }, homeSetup: homeSetupState, pin: config.model?.label ?? null, infra,
@@ -880,13 +1155,16 @@ function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; 
     review = { ok: parsed.ok, reason: parsed.reason, findings: parsed.findings.length, dropped: parsed.dropped };
   }
 
+  const t2 = isTier2 ? tier2Record({ runDir, task, statusRec, status, infra, iso, permission, workspaceCopy, timing }) : null;
+  if (t2 !== null) passRate = t2.passRate;
+
   // pauses = blocking questions only; closing offers ("Want me to ...?") are counted apart and never resume a run.
   const asked = segRec?.pauses ?? reports.filter((r: any) => r.questions.askUserQuestion > 0 || r.closing === 'blocking').length;
   const offered = segRec?.offers ?? reports.filter((r: any) => r.closing === 'offer').length;
   const blockedEnds = segRec?.blocked ?? reports.filter((r: any) => r.closing === 'blocked').length;
   const resultMs: number | null = reports.length > 0 && reports.every((r: any) => Number.isFinite(r.durationMs)) ? reports.reduce((n: number, r: any) => n + r.durationMs, 0) : null;
   const skills = [...new Set(reports.flatMap((r: any) => r.skillEvents.map((e: any) => e.skill)))] as string[];
-  const routing = armConfig.proof === 'loaded' && Array.isArray(task.expectedSkills)
+  const routing = !isTier2 && armConfig.proof === 'loaded' && Array.isArray(task.expectedSkills)
     ? { expected: task.expectedSkills, used: skills, routed: task.expectedSkills.every((n: string) => skills.includes(n)) }
     : null;
   return {
@@ -909,17 +1187,20 @@ function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; 
     checks: checks === null ? null : { exitCode: checks.exitCode, output: checks.output },
     review,
     routing,
+    ...(t2 !== null ? { tier2: t2.record } : {}),
     metrics: {
-      usage: agg.usage,
-      tokens: metricTokens(agg.tokens),
+      usage: t2 !== null && Number.isFinite(timing.total_tokens) ? 'reported' : agg.usage,
+      tokens: t2 !== null && Number.isFinite(timing.total_tokens)
+        ? { ...(metricTokens(agg.tokens) ?? { input: null, output: null, cacheCreation: null, cacheRead: null }), total: timing.total_tokens }
+        : metricTokens(agg.tokens),
       subagentTokens: agg.subagent === null ? null : sumTok(agg.subagent),
       byModel: agg.usage === 'reported' ? agg.byModel : null,
-      costUsd: agg.costUsd,
+      costUsd: t2 !== null && Number.isFinite(timing.cost_usd) ? timing.cost_usd : agg.costUsd,
       claudeCodeVersion: agg.claudeCodeVersion,
       costBasis: agg.costBasis,
       // wall time is the harness's own duration_ms (result events, summed over segments); the process wall time, which
       // also holds start-up, is kept as wallMsProcess and is the fallback when a segment reported no duration
-      wallMs: resultMs !== null ? resultMs : (Number.isFinite(timing.duration_ms) ? timing.duration_ms : null),
+      wallMs: t2 !== null ? (Number.isFinite(timing.duration_ms) ? timing.duration_ms : null) : (resultMs !== null ? resultMs : (Number.isFinite(timing.duration_ms) ? timing.duration_ms : null)),
       wallMsProcess: Number.isFinite(timing.duration_ms) ? timing.duration_ms : null,
       capTokens: censored === 'cap' && statusRec?.budget !== true && Number.isSafeInteger(launch.maxTokensPerRun) ? launch.maxTokensPerRun : null,
       turns: agg.turns,
@@ -936,7 +1217,7 @@ function serializeAbGrading(g: any) {
   return `${JSON.stringify({
     key: g.key, id: g.id, split: g.split, kind: g.kind, group: g.group, arm: g.arm, run_status: g.run_status, infra: g.infra,
     isolation: g.isolation, isolationEvidence: g.isolationEvidence, exclusionReason: g.exclusionReason, proof: g.proof, capped: g.capped, censored: g.censored, permissionDenials: g.permissionDenials,
-    pass_rate: g.pass_rate, checks: g.checks, review: g.review, routing: g.routing, metrics: g.metrics,
+    pass_rate: g.pass_rate, checks: g.checks, review: g.review, routing: g.routing, ...(g.tier2 ? { tier2: g.tier2 } : {}), metrics: g.metrics,
   }, null, 2)}\n`;
 }
 
@@ -970,5 +1251,6 @@ function gradeIteration({ iterationDir, taskSet, config, pathInfo, write = true 
 module.exports = {
   MAX_FILES, EVIDENCE_MAX,
   parseTranscript, extractAnswer, simpleCommands, classifyIsolation, loadPathInfo, readLaunch, checkLaunch, gradeRun, serializeGrading, gradeIteration,
-  aggregateReports, versionAtLeast, CUMULATIVE_USAGE_FROM, classifyAbIsolation, gradeAbRun, serializeAbGrading, runChecks,
+  aggregateReports, aggregateSessions, versionAtLeast, CUMULATIVE_USAGE_FROM, classifyAbIsolation, gradeAbRun, serializeAbGrading, runChecks,
+  TIER2_KINDS, gradeTier2Workspace,
 };

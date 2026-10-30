@@ -23,14 +23,14 @@ const { adaptIteration } = require('./review-adapter.ts');
 const reviewMissCorpus = require('../review-miss/corpus.ts');
 const reviewMissGrade = require('../review-miss/grade.ts');
 const execute = require('./execute.ts');
-const { gradeIteration, loadPathInfo, readLaunch } = require('./grade.ts');
+const { gradeIteration, loadPathInfo, readLaunch, TIER2_KINDS } = require('./grade.ts');
 const report = require('./report.ts');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
 const BENCH_CONFIG = path.join(__dirname, '..', 'config.json');
 const VERB_FLAGS = Object.freeze({
   plan: { iteration: 'value', arm: 'value', tasks: 'value', config: 'value', json: 'bool' },
-  execute: { iteration: 'value', arm: 'value', cap: 'value', tasks: 'value', config: 'value', 'max-tokens-per-run': 'value', 'max-budget-usd': 'value', json: 'bool' },
+  execute: { iteration: 'value', arm: 'value', cap: 'value', tasks: 'value', config: 'value', 'max-tokens-per-run': 'value', 'max-budget-usd': 'value', 'ledger-usd': 'value', json: 'bool' },
   grade: { iteration: 'value', config: 'value', corpus: 'value', json: 'bool' },
   noise: { iterations: 'value', out: 'value', config: 'value', corpus: 'value', json: 'bool' },
   report: { iterations: 'value', noise: 'value', 'decision-out': 'value', config: 'value', corpus: 'value', 'fixed-cost': 'value', json: 'bool' },
@@ -44,8 +44,11 @@ const USAGE = `usage: bench agentic <verb> [flags]
   report  --iterations <a,b,c> [--noise <file>] [--decision-out <file>] [--json]  arm D decision and token report
 every verb takes --config <file> (default bench/agentic/config.json); the with/without-DoFlow A/B uses bench/agentic/ab/config.json:
   execute ... --max-tokens-per-run <n>   the per-run token cap the user approves (the A/B config holds null until then)
+  execute ... --ledger-usd <usd>         tier 2: the cumulative dollar stop of this command (no further run starts once the spend reaches it)
   execute ... --max-budget-usd <usd>     the per-run dollar hard stop the user approves, passed to claude as --max-budget-usd (null until then)
   grade|noise|report ... --corpus <file>  review-miss corpus for the review task (default bench/runs/review-miss/corpus.json)
+tier 2 (config bench/agentic/ab/config-tier2.json, its tasksFile names the five tasks): grade --iteration <id> writes the checklist per run;
+  report --iterations <every iteration of arms A, B and C> prints the three-arm tables (descriptive, no significance); noise does not apply
   report ... --fixed-cost <file>          the fixed-cost table input (A/B Part 3)`;
 
 /** Committed result paths the paid stages write (IC-008, IC-009). */
@@ -54,6 +57,9 @@ const RESULT_DECISION = 'bench/agentic/results/decision.json';
 /** Default A/B noise and decision output: untracked (bench/runs/ is gitignored), never the tracked results dir. */
 const AB_RESULTS_REL = 'bench/runs/agentic/ab';
 const STAGE_PREFIX = 'npm run bench -- agentic';
+
+/** True when the task set holds tier-2 capability tasks (kinds `single` and `continuity`): three arms, a checklist per task. */
+const isTier2 = (ctx: any) => ctx.taskSet.tasks.some((t: any) => TIER2_KINDS.includes(t.kind));
 
 const rel = (repoRoot: string, p: string) => path.relative(repoRoot, p).split(path.sep).join('/');
 
@@ -203,7 +209,7 @@ async function cmdExecute(ctx: any, flags: any) {
   const result = await execute.executeIteration({
     repoRoot: ctx.repoRoot, config: ctx.config, registry: ctx.registry, taskSet: ctx.taskSet, runRoot: ctx.runRoot,
     env: ctx.env, sourceHome: ctx.sourceHome, tmpDir: ctx.tmpDir, materialise: ctx.materialise, now: ctx.now,
-    iteration: flags.iteration, arm: flags.arm, cap: flags.cap, tasks: flags.tasks, maxTokensPerRun: flags['max-tokens-per-run'], maxBudgetUsd: flags['max-budget-usd'],
+    iteration: flags.iteration, arm: flags.arm, cap: flags.cap, tasks: flags.tasks, maxTokensPerRun: flags['max-tokens-per-run'], maxBudgetUsd: flags['max-budget-usd'], ledgerUsd: flags['ledger-usd'],
   });
   if (result.exit === 2) {
     ctx.err(`agentic execute: refused (${result.reason}): ${result.refusal}`);
@@ -228,10 +234,12 @@ function cmdGrade(ctx: any, flags: any) {
     ctx.out(JSON.stringify(reviewGrade ? { gradings, reviewMiss: reviewGrade } : gradings, null, 2));
     return 0;
   }
-  ctx.out('| task | run_status | infra | isolation | pass_rate |');
-  ctx.out('|---|---|---|---|---|');
+  const tier2 = isTier2(ctx);
+  ctx.out(tier2 ? '| task | run_status | infra | isolation | pass_rate | coverage | regression-free | delivery |' : '| task | run_status | infra | isolation | pass_rate |');
+  ctx.out(tier2 ? '|---|---|---|---|---|---|---|---|' : '|---|---|---|---|---|');
   for (const g of gradings) {
-    if (g.missing) ctx.out(`| ${g.id} | missing | | | |`);
+    if (g.missing) ctx.out(`| ${g.id} | missing | | |${tier2 ? ' | | | |' : ' |'}`);
+    else if (tier2) ctx.out(`| ${g.id} | ${g.run_status} | ${g.infra ?? ''} | ${g.isolation} | ${g.pass_rate ?? 'excluded'} | ${g.tier2.coverage.k}/${g.tier2.coverage.n} | ${g.tier2.regressionFree} | ${g.tier2.deliveryFailed ? `FAILED (${g.tier2.deliveryBy})` : 'ok'} |`);
     else ctx.out(`| ${g.id} | ${g.run_status} | ${g.infra ?? ''} | ${g.isolation} | ${g.pass_rate ?? 'excluded'} |`);
   }
   const missing = gradings.filter((g: any) => g.missing).length;
@@ -262,6 +270,7 @@ function gradeAbReview(ctx: any, { name, meta, iterationDir, gradings }: any) {
 }
 
 function cmdAbNoise(ctx: any, flags: any) {
+  if (isTier2(ctx)) throw new UsageError('noise-unsupported', 'noise: a tier-2 task set has no A/A noise artifact; `report` is descriptive and prints each arm\'s repeat range instead');
   const { exit, artifact } = report.abNoiseOf({
     runRoot: ctx.runRoot, iterations: flags.iterations, taskSet: ctx.taskSet, config: ctx.config, noiseConfig: ctx.noiseConfig(),
     reviewRoot: ctx.reviewRoot, corpus: ctx.taskSet.tasks.some((t: any) => t.kind === 'review') ? ctx.corpus() : null, reviewConfig: ctx.reviewConfig(),
@@ -297,7 +306,22 @@ function cmdNoise(ctx: any, flags: any) {
   return exit;
 }
 
+function cmdTier2Report(ctx: any, flags: any) {
+  const result = report.tier2ReportOf({
+    runRoot: ctx.runRoot, iterations: flags.iterations, taskSet: ctx.taskSet, config: ctx.config, noiseConfig: ctx.noiseConfig(), repoRoot: ctx.repoRoot,
+  });
+  const out = flags['decision-out'] ? path.resolve(flags['decision-out']) : null;
+  if (out) writeJson(out, { verdicts: result.verdicts, tasks: result.tasks });
+  if (flags.json) ctx.out(JSON.stringify(result, null, 2));
+  else {
+    for (const line of report.tier2ReportLines(result)) ctx.out(line);
+    if (out) ctx.out(`decision: ${rel(ctx.repoRoot, out)}`);
+  }
+  return result.exit;
+}
+
 function cmdAbReport(ctx: any, flags: any) {
+  if (isTier2(ctx)) return cmdTier2Report(ctx, flags);
   const explicitNoise = flags.noise !== undefined;
   const result = report.abReportOf({
     runRoot: ctx.runRoot, iterations: flags.iterations, taskSet: ctx.taskSet, config: ctx.config, noiseConfig: ctx.noiseConfig(),
