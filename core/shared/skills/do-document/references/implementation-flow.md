@@ -56,13 +56,13 @@ approach was taken when more than one was viable, why a particular library/patte
 used, and anywhere the build surfaced a question `design.md` left open.
 
 Where a decision traces back to something `design.md` already recorded, reference it by section and
-ID rather than restating it — e.g. "Followed design.md §3 C2's boundary: the adapter owns
-serialization, per the Components & Boundaries split" or "Accepted the risk noted in design.md §7
+ID rather than restating it — e.g. "Followed design.md Components & Boundaries C2: the adapter owns
+serialization" or "Accepted the risk noted in design.md Design Risks
 R2; see below for what that cost in practice." Decisions with no design.md antecedent (something
 that only became a decision once code was being written) still belong here, just without a
 back-reference.
 
-`{narrative: what was decided and why, cross-referencing design.md §3/§7 where applicable}`
+`{narrative: what was decided and why, cross-referencing design.md Components & Boundaries or Design Risks where applicable}`
 
 ## Deviations from Plan/Design [Required]
 

@@ -70,12 +70,12 @@ test('G6: data-model-template.md provides technical scaffolding for schemas and 
   assert.ok(dataModelTmpl.includes('### UX / UI Specifications'), 'data-model template must scaffold UX/UI specifications');
 });
 
-test('G6: design-template.md points §4 at specs.md and §5/§6 at data-model.md instead of duplicating their content', () => {
+test('G6: design-template.md points API / Interface Contracts at specs.md and Data Model / Sequence at data-model.md instead of duplicating their content', () => {
   const dsgTmpl = fs.readFileSync(path.join(REPO, 'core/shared/templates/doflow/design-template.md'), 'utf8');
   assert.ok(!dsgTmpl.includes('### Endpoints'), 'design template must not re-duplicate API Endpoints scaffolding now owned by specs.md');
   assert.ok(!dsgTmpl.includes('### Repository & Service Interfaces'), 'design template must not re-duplicate Repository interfaces scaffolding now owned by specs.md');
-  assert.ok(dsgTmpl.includes('specs.md'), 'design template §4 must point at specs.md');
-  assert.ok(dsgTmpl.includes('data-model.md'), 'design template §5/§6 must point at data-model.md');
+  assert.ok(dsgTmpl.includes('specs.md'), 'design template API / Interface Contracts must point at specs.md');
+  assert.ok(dsgTmpl.includes('data-model.md'), 'design template Data Model and Sequence / Data Flow must point at data-model.md');
 });
 
 

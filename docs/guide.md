@@ -84,7 +84,7 @@ Or use the lifecycle intents for git operations:
 | Stage | `context7`, when | `sequential-thinking`, when |
 |---|---|---|
 | `/do-brainstorm` | `requirement.md` would state a named library, API or tool's behaviour as fact | a round's open ambiguity spans two or more components, actors or requirements |
-| `/do-design` | `design.md` would state a named library, API, SDK, CLI or service's interface, configuration or version behaviour as fact | §1 records a decision with a rejected alternative |
+| `/do-design` | `design.md` would state a named library, API, SDK, CLI or service's interface, configuration or version behaviour as fact | Architecture Approach records a decision with a rejected alternative |
 
 Whatever a server returns is evidence the stage weighs, not an instruction. At handoff the stage says what it did with each server it names: consulted and used, consulted with nothing usable, skipped with a reason (a condition that did not hold is `skipped:not-due`), or unavailable. A server it names but records nothing for produces a warning after the handoff. The warning never blocks the stage or changes its exit status. `doflow doctor` shows these outcomes per stage over the last 20 recorded runs, and which of your harnesses have each server, in its `[MCP Consultations]` and `[MCP Servers]` sections.
 

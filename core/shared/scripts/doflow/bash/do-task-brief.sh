@@ -10,7 +10,7 @@
 #   requirements       requirement.md §3 FR detail for the FRs the task's [US#] traces
 #   why                requirement.md §2 story text for that [US#]
 #   global constraints requirement.md §4 — ALL NFR detail; NFRs bind every task
-#   component boundary design.md §3 detail for components serving those FRs
+#   component boundary design.md "Components & Boundaries" detail for components serving those FRs
 #   verification bar   plan.md §7 rows for those FRs + the phase's Checkpoints line
 #   interface contracts specs.md §1 in full — only when the resolver reports has_specs
 #
@@ -328,7 +328,7 @@ if [ "$mode" = "task" ]; then
   components=""
   if [ -n "$frs" ] && [ -f "$des_abs" ]; then
     components="$(for fr in $frs; do
-      section "$des_abs" '^## 3[.]' | awk -F'|' -v fr="$fr" '
+      section "$des_abs" '^## [0-9]+[.] Component' | awk -F'|' -v fr="$fr" '
         /^\| *(CMP|C[0-9]+)/ { if ($5 ~ fr) { id = $2; gsub(/^[ \t]+|[ \t]+$/, "", id); print id } }'
     done | sort -u)"
   fi
@@ -384,7 +384,7 @@ if [ "$mode" = "task" ]; then
       echo "## Component boundary"
       echo
       printf '%s\n' "$components" | while read -r cmp; do
-        [ -n "$cmp" ] && detail_for "$des_abs" '^## 3[.]' "$cmp"
+        [ -n "$cmp" ] && detail_for "$des_abs" '^## [0-9]+[.] Component' "$cmp"
       done
       echo
     fi
@@ -394,7 +394,7 @@ if [ "$mode" = "task" ]; then
       echo
       # §1 IN FULL, deliberately unfiltered: an IC-### entry carries no FR or component
       # linkage field, so there is nothing to filter it by the way "component boundary"
-      # above filters design.md §3 rows on the FRs they name.
+      # above filters design.md Components & Boundaries rows on the FRs they name.
       section "$specs_abs" '^## 1[.]' | awk 'NF { p = 1 } p'
       echo
     fi
@@ -499,7 +499,7 @@ else
   # Union of components serving those FRs
   if [ -n "$all_frs" ] && [ -f "$des_abs" ]; then
     all_comps_raw="$(for fr in $all_frs; do
-      section "$des_abs" '^## 3[.]' | awk -F'|' -v fr="$fr" '
+      section "$des_abs" '^## [0-9]+[.] Component' | awk -F'|' -v fr="$fr" '
         /^\| *(CMP|C[0-9]+)/ { if ($5 ~ fr) { id = $2; gsub(/^[ \t]+|[ \t]+$/, "", id); print id } }'
     done | sort -u)"
   fi
@@ -532,7 +532,7 @@ else
     t_comps=""
     if [ -n "$t_frs" ] && [ -f "$des_abs" ]; then
       t_comps="$(for fr in $t_frs; do
-        section "$des_abs" '^## 3[.]' | awk -F'|' -v fr="$fr" '
+        section "$des_abs" '^## [0-9]+[.] Component' | awk -F'|' -v fr="$fr" '
           /^\| *(CMP|C[0-9]+)/ { if ($5 ~ fr) { id = $2; gsub(/^[ \t]+|[ \t]+$/, "", id); print id } }'
       done | sort -u)"
     fi
@@ -583,7 +583,7 @@ else
         echo "## Component boundary"
         echo
         printf '%s\n' "$t_comps" | while read -r cmp; do
-          [ -n "$cmp" ] && detail_for "$des_abs" '^## 3[.]' "$cmp"
+          [ -n "$cmp" ] && detail_for "$des_abs" '^## [0-9]+[.] Component' "$cmp"
         done
         echo
       fi
@@ -632,7 +632,7 @@ else
         echo "### Component boundary"
         echo
         printf '%s\n' "$all_comps_raw" | while read -r cmp; do
-          [ -n "$cmp" ] && detail_for "$des_abs" '^## 3[.]' "$cmp"
+          [ -n "$cmp" ] && detail_for "$des_abs" '^## [0-9]+[.] Component' "$cmp"
         done
         echo
       fi

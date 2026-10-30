@@ -151,7 +151,7 @@ for src in "${sources[@]}"; do
     fi
   fi
 
-  # One source feeds design.md §2's inline block; the others render only to images.
+  # One source feeds design.md System Overview (C4)'s inline block; the others render only to images.
   if [ "$src" = "$block_src" ]; then
     # stdout only is the block: the splice writes it into authored prose, so anything the projector
     # (or Node) prints on stderr, an ExperimentalWarning for one, must never become part of it.

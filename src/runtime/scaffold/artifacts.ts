@@ -5,7 +5,7 @@
 /**
  * Artifact parsing — turns the text of `requirement.md`, `design.md` and `plan.md` into the
  * structures `scaffold.js`'s generator reads: a requirement index and acceptance criteria, a
- * component index and whatever §4 declares as an interface, and the task list that is where the
+ * component index and whatever API / Interface Contracts declares as an interface, and the task list that is where the
  * intended file layout actually comes from.
  *
  * Pure text-in, structure-out: nothing here touches the filesystem or knows about the scaffold
@@ -93,7 +93,7 @@ function parseRequirement(text: string): any {
 }
 
 /**
- * `design.md` → the component index (traceability) and whatever §4 declares as an interface
+ * `design.md` → the component index (traceability) and whatever API / Interface Contracts declares as an interface
  * (carried through verbatim rather than paraphrased).
  */
 function parseDesign(text: string): any {
@@ -113,7 +113,7 @@ function parseDesign(text: string): any {
     gaps.push({ artifact: 'design.md', what: 'component index', why: 'no `| Cn | … |` table row found under a "Components & Boundaries" heading' });
   }
 
-  // §4's subsections name their component in the heading — "### 4.5 Scaffold output contract (C16)".
+  // the Interface Contracts subsections name their component in the heading — "### 4.5 Scaffold output contract (C16)".
   // That attribution is what lets a declared interface reach the file that implements it, instead
   // of being restated from memory somewhere downstream.
   const contractBody = section(text, /API\s*\/?\s*Interface Contracts|Interface Contracts/i);

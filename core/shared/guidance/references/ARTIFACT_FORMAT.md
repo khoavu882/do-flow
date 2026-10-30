@@ -51,8 +51,8 @@ Rules:
     which is reconciled only after the whole file is read.
 
 Which sections take an index: `requirement.md` §3 Functional Requirements, §4 Non-Functional
-Requirements and §8 Assumptions; `design.md` §3 Components & Boundaries, §7 Risks and §8
-Assumptions; `plan.md` §4 Components & Changes and §6 Risks; `specs.md` §1 Interface Contracts.
+Requirements and §8 Assumptions; `design.md` Components & Boundaries, Design Risks & Alternatives
+Considered and Assumptions; `plan.md` §4 Components & Changes and §6 Risks; `specs.md` §1 Interface Contracts.
 Prose sections do not.
 
 ## 2. Status and Maturity — two closed vocabularies
@@ -92,8 +92,8 @@ vocabulary in the wrong place, and `Draft` was never a legal member of it.
 ## 3. History — the live body stays current
 
 When an item is superseded, its obsolete prose leaves the `**Detail**` block and moves to the
-artifact's own final History section — §9 for `requirement.md`, `design.md` and `plan.md`; §2 for
-`specs.md`. The index row stays as a tombstone. Reading the body top to bottom therefore yields
+artifact's own final History section — the section titled History, last in `requirement.md`,
+`design.md` and `plan.md`; §2 for `specs.md`. The index row stays as a tombstone. Reading the body top to bottom therefore yields
 current truth with no historical detours, while the supersession is still visible at a glance.
 
 Two rules bind that mechanism, and nothing else in this document states them:
@@ -120,7 +120,7 @@ below so the reasoning behind a reversal is not compressed into a cell:
 
 | Date | ID | Change | Replaced by |
 |---|---|---|---|
-| 2026-07-29 | FR-001 | Field renamed during design | design §4.1 |
+| 2026-07-29 | FR-001 | Field renamed during design | design Interface Contracts |
 
 **Detail**
 
@@ -146,7 +146,9 @@ A feature with a decision register compacts History mechanically; see §12.
 | Artifact | Section | Slot |
 |---|---|---|
 | `requirement.md` | §1 | Scope boundary `flowchart` |
-| `design.md` | §2 | Three C4 levels, each a `flowchart` with `subgraph` boundaries |
+| `design.md` | System Overview (C4) | Three C4 levels, each a `flowchart` with `subgraph` boundaries |
+| `design.md` | Concepts | Relationship `flowchart` of the domain nouns, edges labelled |
+| `design.md` | Journeys | Per journey: one `flowchart` or `sequenceDiagram`, plus a `stateDiagram-v2` for each stateful thing it creates |
 | `plan.md` | §8 | Phase and task dependency `flowchart` |
 | `data-model.md` | §1 | Conceptual domain map `flowchart`, then one `erDiagram` per bounded subdomain |
 | `data-model.md` | §2 | Interaction `sequenceDiagram` |
@@ -158,7 +160,7 @@ in-scope item produces, so the shape of the change is visible before the prose. 
 `subgraph IN["In scope"]` / `subgraph OUT["Out of scope"]`. Write `N/A: [why]` for a change too
 small to have a meaningful boundary.
 
-### C4 levels — `design.md` §2
+### C4 levels — `design.md` System Overview (C4)
 
 C4 is kept as the **conceptual zoom model** — system context, container, component — and rendered
 with Mermaid `flowchart` plus `subgraph` blocks marking C4 boundaries. Each level takes its own
@@ -171,13 +173,13 @@ heading, written `### C4 Level 1: System Context`, `### C4 Level 2: Container` a
 | C4 Level 2 | Independently deployable units and how they talk | yes |
 | C4 Level 3 | Internals of one container | only when the feature touches 3+ components in a single container |
 
-**No level label may match `^C[0-9]+$`.** That pattern is what a `design.md` §3 component ID looks
+**No level label may match `^C[0-9]+$`.** That pattern is what a `design.md` component ID looks
 like, so a bare `C3` in the same document is ambiguous between the third zoom level and the third
 component. Spelling the level `C4 Level 3` keeps the C4 vocabulary explicit for a reviewer who
 cites levels by number while leaving the component IDs unambiguous.
 
 Skip a level with `N/A: [why]`; for C4 Level 3 that is normally
-`N/A: covered by §3 Components & Boundaries`. `DIAGRAM_GUIDE.md` §1 carries the reasoning that
+`N/A: covered by Components & Boundaries`. `DIAGRAM_GUIDE.md` §1 carries the reasoning that
 excludes the `C4Context` / `C4Container` diagram types in favour of `flowchart`.
 
 ### Task dependency graph — `plan.md` §8
@@ -235,8 +237,8 @@ Acceptance criteria are formatted as testable Gherkin BDD scenario blocks mapped
 
 ## 7. Technical Scaffolding in specs.md and data-model.md
 
-`specs.md` and `data-model.md` provide dedicated homes for technical implementation anchors — `design.md` §4/§5 hold
-only a one-line pointer to them:
+`specs.md` and `data-model.md` provide dedicated homes for technical implementation anchors — `design.md`'s API / Interface Contracts and Data Model
+sections hold only a one-line pointer to them:
 - **Interface Contracts (`specs.md` §1):** HTTP endpoints (methods, routes, request/response shapes, status codes), CLI verb signatures, and repository/service interfaces (`interface` → `concrete` → `mock`).
 - **Data Model (`data-model.md` §1):** Relational data model diagrams, database table schema catalogs (table purpose, keys, relations, indexes, ORM/DDL file references), and UX design tokens (color palettes, component states, layout cues).
 
@@ -290,7 +292,7 @@ disagree, deciding which one is wrong is authoring judgement, not a mechanical f
 Three sections exist so a reviewer can reach a judgement from the top of a document rather than by
 reading it whole:
 
-- **`design.md` §1 — the decision-and-blocker summary.** A table with the columns `Decision`,
+- **`design.md` Architecture Approach — the decision-and-blocker summary.** A table with the columns `Decision`,
   `Shape chosen`, `Owner`, `Blocks approval?`, positioned above the architectural prose. One row per
   decision the design makes. A reviewer who reads only this table knows what is being settled, who
   settled it, and what stands between the design and approval.
@@ -319,7 +321,7 @@ flowchart. There is one spelling of it in this document and no second one.
 
 ### The component detail shape
 
-A `design.md` §3 component detail entry names the component after its ID, then answers four labels
+A `design.md` Components & Boundaries detail entry names the component after its ID, then answers four labels
 in this order: `**Responsibility:**`, `**Owns:**`, `**Does not own:**`, `**Contracts:**`. None may
 be dropped or reordered. What a component deliberately does *not* own is the half a reviewer cannot
 reconstruct from the code, which is why it has a label of its own rather than a sentence.
@@ -328,6 +330,17 @@ The labels are structural, not emphasis — `ARTIFACT_VOICE.md` carves them out 
 bold-labelled lists on exactly that ground. The entry still begins `- **<ID>:**` so §1's bullet form
 locates it; the labels sit in nested bullets beneath. No other artifact's detail entries take this
 shape.
+
+### The `design.md` section order
+
+In order: `Architecture Approach`, `System Overview (C4)`, `Concepts`, `Journeys`,
+`Components & Boundaries`, `API / Interface Contracts`, `Data Model`, `Sequence / Data Flow`,
+`Design Risks & Alternatives Considered`, `Open Points for Review`, `Assumptions`, `History`. Readers
+locate a section by title, never number, so an older nine-section design still parses. The front half
+(through `Journeys`) uses plain nouns, no component IDs or code names. Each `### Journey N — <name>`
+has one picture, a `stateDiagram-v2` per stateful thing it creates, and a rules table; `Journeys` also
+holds a `### Worked example` and an `### Eligibility / decision inputs` table. A guard compares this
+list with the template and the §4 slot registry.
 
 ### Nothing checks this per artifact
 
@@ -364,8 +377,8 @@ applies.
 
 - A line that applies a registered decision cites it as a bare `DEC-###`.
 - `plan.md` §3 lists the `DEC-###` decisions the plan rests on and authors no `D#`.
-- A design §1 row ends its `Shape chosen` cell with its `DEC-###`. A §8 row that came from a
-  "Decide for me" pick cites its `DEC-###` in `Basis`.
+- A design Architecture Approach row ends its `Shape chosen` cell with its `DEC-###`. An
+  Assumptions row that came from a "Decide for me" pick cites its `DEC-###` in `Basis`.
 - A line citing a superseded decision is a `stale` finding unless it also names a later decision in
   that chain, and a cited `DEC-###` absent from the register is an `unknown` finding (§9).
 - Compaction moves History content to `decisions/history/<artifact>.md` and leaves one pointer line,

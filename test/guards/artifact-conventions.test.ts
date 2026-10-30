@@ -202,10 +202,10 @@ function declaredLevelCells() {
   return [...firstColumnValues(sec), ...prose];
 }
 
-/** design-template.md §2's level headings, UNFILTERED, for the same reason. Matches any
+/** design-template.md System Overview (C4) level headings, UNFILTERED, for the same reason. Matches any
  * "### <label>: ..." heading in §2 rather than only the "C4 Level N" shape. */
 function templateLevelHeadings() {
-  const sec = section(template('design-template.md'), /^## 2\. /);
+  const sec = section(template('design-template.md'), /^## \d+\. System Overview/);
   // No colon is required: "### C3" and "### C3 — Component" are exactly the ambiguous spellings
   // this feeds the collision test, and a colon-only match would be blind to both.
   return [...sec.matchAll(/^###\s+(.+?)\s*$/gm)].map(([, h]) => h.split(/[:—–]/)[0].trim());
@@ -218,7 +218,7 @@ function declaredLevels() {
   return [...new Set(declaredLevelCells().filter((v) => /^C4 /.test(v)))];
 }
 
-/** design-template.md §2's "### C4 Level N: ..." headings, label only. */
+/** design-template.md System Overview (C4) "### C4 Level N: ..." headings, label only. */
 function templateLevels() {
   return templateLevelHeadings().filter((v) => /^C4 Level \d+$/.test(v));
 }
@@ -227,7 +227,7 @@ test('G18: design-template.md\'s C4 headings match ARTIFACT_FORMAT.md §4\'s lev
   const declared = declaredLevels();
   assert.ok(declared.length === 3, `ARTIFACT_FORMAT.md §4 should declare 3 C4 levels, found ${declared.length}`);
   assertSameSet(declared, templateLevels(),
-    'ARTIFACT_FORMAT.md §4 level table', 'templates/doflow/design-template.md §2 headings');
+    'ARTIFACT_FORMAT.md §4 level table', 'templates/doflow/design-template.md System Overview (C4) headings');
 });
 
 // The generated-block markers are shared by three files that never import each other: the projector
@@ -236,7 +236,7 @@ test('G18: design-template.md\'s C4 headings match ARTIFACT_FORMAT.md §4\'s lev
 // neither, which left the verb reporting ok:true and blockWritten:false on every new feature -- the
 // source-versus-view drift the verb exists to remove, arriving as silence. One check over all three
 // so it cannot be marked done again without being done.
-test('G18: design-template.md §2 ships the generated-block markers the runtime agrees on', () => {
+test('G18: design-template.md System Overview (C4) ships the generated-block markers the runtime agrees on', () => {
   const OPEN = '<!-- generated from';
   const CLOSE = '<!-- end generated -->';
   const runtimeUsers: any = [
@@ -248,16 +248,16 @@ test('G18: design-template.md §2 ships the generated-block markers the runtime 
     assert.ok(text.includes(OPEN), `${label} no longer uses the open marker '${OPEN}'`);
     assert.ok(text.includes(CLOSE), `${label} no longer uses the close marker '${CLOSE}'`);
   }
-  const sec = section(template('design-template.md'), /^## 2\. /);
+  const sec = section(template('design-template.md'), /^## \d+\. System Overview/);
   const open = sec.indexOf(OPEN);
-  assert.notEqual(open, -1, 'design-template.md §2 carries no open marker, so render-puml can never write its block');
+  assert.notEqual(open, -1, 'design-template.md System Overview (C4) carries no open marker, so render-puml can never write its block');
   const close = sec.indexOf(CLOSE);
   assert.ok(close > open, 'the close marker must follow the open one, or the rewrite reads them as absent');
   assert.equal(sec.slice(open + OPEN.length).indexOf(OPEN), -1,
     'exactly one marked region: the projector emits one block per run, so a second pair could never be filled');
 });
 
-test('G18: no C4 level label collides with a design.md §3 component ID', () => {
+test('G18: no C4 level label collides with a design.md component ID', () => {
   // `^C[0-9]+$` is what a component ID looks like (C1, C3). A level spelled that way is ambiguous
   // between the third zoom level and the third component -- the defect this feature removed.
   //
@@ -267,10 +267,10 @@ test('G18: no C4 level label collides with a design.md §3 component ID', () => 
   // even with both sides reverted to `C1`/`C2`/`C3`, which is the exact regression it guards.
   const offenders = [
     ...declaredLevelCells().map((v) => [`ARTIFACT_FORMAT.md §4`, v]),
-    ...templateLevelHeadings().map((v) => [`design-template.md §2`, v]),
+    ...templateLevelHeadings().map((v) => [`design-template.md System Overview (C4)`, v]),
   ].filter(([, label]) => /^C[0-9]+$/.test(label));
   assert.deepEqual(offenders, [],
-    `these C4 level labels match ^C[0-9]+$, the design.md §3 component-ID pattern, and are `
+    `these C4 level labels match ^C[0-9]+$, the design.md component-ID pattern, and are `
     + `therefore ambiguous:\n  ${offenders.map(([side, v]) => `${side}: ${v}`).join('\n  ')}`);
 });
 
@@ -278,15 +278,15 @@ test('G18: no C4 level label collides with a design.md §3 component ID', () => 
 
 const REVIEWER_SECTIONS = section(declaration(), /^## 10\. /);
 
-test('G18: design-template.md §1 carries the decision-and-blocker columns §10 declares', () => {
+test('G18: design-template.md Architecture Approach carries the decision-and-blocker columns §10 declares', () => {
   const declared = REVIEWER_SECTIONS.replace(/\s+/g, ' ').match(/A table with the columns ((?:`[^`]+`[,\s]*(?:and )?)+)/);
   assert.ok(declared, 'ARTIFACT_FORMAT.md §10 no longer declares the decision-summary columns');
-  const sec = section(template('design-template.md'), /^## 1\. /);
+  const sec = section(template('design-template.md'), /^## \d+\. Architecture Approach/);
   const header = sec.split('\n').find((l: any) => /^\|.*\|/.test(l));
-  assert.ok(header, 'design-template.md §1 carries no table at all');
+  assert.ok(header, 'design-template.md Architecture Approach carries no table at all');
   const cells = header.split('|').slice(1, -1).map((c: any) => c.trim()).filter(Boolean);
   assertSameSet(backticked(declared[1]), cells,
-    'ARTIFACT_FORMAT.md §10 decision-summary columns', 'templates/doflow/design-template.md §1 table header');
+    'ARTIFACT_FORMAT.md §10 decision-summary columns', 'templates/doflow/design-template.md Architecture Approach table header');
 });
 
 test('G18: specs-template.md carries the §1 family grouping; data-model-template.md carries the §2-shaped data-model views §10 declares', () => {
@@ -329,9 +329,9 @@ function declaredComponentLabels() {
   return backticked(sec).filter((v) => /^\*\*.+:\*\*$/.test(v));
 }
 
-/** The labels design-template.md §3 actually transcribes, in document order, de-duplicated. */
+/** The labels design-template.md Components & Boundaries actually transcribes, in document order, de-duplicated. */
 function templateComponentLabels(): any {
-  const sec = section(template('design-template.md'), /^## 3\. /);
+  const sec = section(template('design-template.md'), /^## \d+\. Components & Boundaries/);
   const seen: any = [];
   for (const [, label] of sec.matchAll(/(\*\*[A-Z][^*]*?:\*\*)/g)) {
     // Skip the entry's own ID label -- "- **C1:**" opens the entry, the four labels nest beneath it.
@@ -341,7 +341,7 @@ function templateComponentLabels(): any {
   return seen;
 }
 
-test('G18: design-template.md §3 transcribes §10\'s component labels, in order', () => {
+test('G18: design-template.md Components & Boundaries transcribes §10\'s component labels, in order', () => {
   // Without this, the four labels were declared in §10, carved out in ARTIFACT_VOICE.md, and
   // transcribed into the template with nothing comparing them -- renaming or dropping one left
   // every other assertion green. That is the same defect as the header-field check above.
@@ -351,9 +351,9 @@ test('G18: design-template.md §3 transcribes §10\'s component labels, in order
   const transcribed = templateComponentLabels();
   assert.deepEqual(transcribed, declared,
     'ARTIFACT_FORMAT.md §10 declares the component detail labels and their order; '
-    + `templates/doflow/design-template.md §3 must transcribe them exactly.\n`
+    + `templates/doflow/design-template.md Components & Boundaries must transcribe them exactly.\n`
     + `  §10 declares:  ${declared.join(' ')}\n`
-    + `  §3 transcribes: ${transcribed.join(' ') || '(none)'}`);
+    + `  the template transcribes: ${transcribed.join(' ') || '(none)'}`);
 });
 
 // --- comparison 5: checker rule names vs the rule list §9 documents ------------------------------
@@ -394,4 +394,67 @@ test('G18: validate-artifacts.sh\'s rules and ARTIFACT_FORMAT.md §9\'s `Checked
     + `  implemented rules: ${[...implemented].sort().join(', ')}`);
   assertSameSet([...implemented], [...documented],
     'validate-artifacts.sh finding() rules', 'ARTIFACT_FORMAT.md §9 `Checked:` list');
+});
+
+// --- comparison 7: the design.md section order and its journey front half ------------------------
+//
+// design.md is journey-first. ARTIFACT_FORMAT.md declares the section order (§10) and the diagram
+// slot registry (§4); the template transcribes both. Without a comparison, adding, renaming or
+// reordering a section in only one place is silent: readers and parsers locate a section by title.
+
+const titleOf = (heading: any) => heading.replace(/^##\s+\d+\.\s+/, '').trim();
+
+/** The template's `## N. <title>` headings, title only, in document order (HTML comments blanked). */
+function templateTitles() {
+  const text = template('design-template.md').replace(/<!--[\s\S]*?-->/g, (m: any) => m.replace(/[^\n]/g, ''));
+  return [...text.matchAll(/^##\s+\d+\.\s+(.+?)\s*$/gm)].map(([, title]) => title);
+}
+
+function declaredDesignOrder() {
+  const sec = section(declaration(), /^### The `design\.md` section order/);
+  const titles = backticked((sec.split('\n\n')[1] ?? '').split('Readers')[0]);
+  assert.ok(titles.length > 0, 'ARTIFACT_FORMAT.md §10 no longer lists the design.md section order');
+  return titles;
+}
+
+test('G18: design-template.md\'s section titles equal the order ARTIFACT_FORMAT.md §10 declares, twelve of them', () => {
+  const declared = declaredDesignOrder();
+  assert.equal(declared.length, 12, `ARTIFACT_FORMAT.md §10 should declare 12 design.md sections, found ${declared.length}`);
+  assert.deepEqual(templateTitles(), declared,
+    'ARTIFACT_FORMAT.md §10 declares the design.md section order; templates/doflow/design-template.md must carry the same titles in the same order');
+});
+
+test('G18: every design.md row of the §4 slot registry names a template section that carries its diagram type', () => {
+  const registry = section(declaration(), /^## 4\. Diagrams/);
+  const rows = [...registry.matchAll(/^\|\s*`design\.md`\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*$/gm)].map(([, title, slot]) => [title, slot]);
+  assert.ok(rows.length >= 3, `the slot registry should carry design.md rows for System Overview, Concepts and Journeys, found ${rows.length}`);
+  const titles = templateTitles();
+  for (const [title, slot] of rows) {
+    assert.ok(titles.includes(title), `the slot registry names design.md section "${title}", but the template has no such title`);
+    const heading = new RegExp(`^## \\d+\\. ${title.replace(/[()]/g, '\\$&')}\\s*$`);
+    // Comments are blanked and only a fenced block counts: prose naming a diagram type is not one.
+    const body = section(template('design-template.md'), heading).replace(/<!--[\s\S]*?-->/g, '');
+    // ", plus" separates required parts of a slot; within a part, "or" offers alternatives.
+    for (const part of slot.split(/,\s*plus\s/)) {
+      const types = ['flowchart', 'sequenceDiagram', 'stateDiagram-v2'].filter((type) => part.includes(`\`${type}\``));
+      if (!types.length) continue;
+      assert.ok(types.some((type) => new RegExp('```mermaid\\s+' + type).test(body)),
+        `the slot registry gives "${title}" ${types.join(' or ')}, but the template section scaffolds no fenced block of it`);
+    }
+  }
+});
+
+test('G18: every template journey has a picture, a state diagram and a rules table; no mindmap anywhere', () => {
+  const journeys = section(template('design-template.md'), /^## \d+\. Journeys/);
+  const blocks = journeys.split(/^(?=### )/m).filter((b: any) => /^### Journey \d+ — /.test(b));
+  assert.ok(blocks.length >= 1, 'the template Journeys section scaffolds no "### Journey N — <name>" block');
+  for (const block of blocks) {
+    const name = block.split('\n')[0];
+    assert.match(block, /```mermaid\s+(flowchart|sequenceDiagram)/, `${name}: no flowchart or sequenceDiagram picture`);
+    assert.match(block, /```mermaid\s+stateDiagram-v2/, `${name}: no stateDiagram-v2`);
+    assert.match(block, /^\|\s*Rule\s*\|/m, `${name}: no rules table`);
+  }
+  assert.match(journeys, /^### Worked example/m, 'Journeys scaffolds no worked example');
+  assert.match(journeys, /^### Eligibility \/ decision inputs/m, 'Journeys scaffolds no decision-inputs table');
+  assert.doesNotMatch(template('design-template.md'), /```mermaid\s+mindmap/, 'DIAGRAM_GUIDE.md excludes mindmap');
 });

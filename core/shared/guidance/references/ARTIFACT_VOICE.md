@@ -91,7 +91,7 @@ prose rule applies in full to free prose.
 | Prose rule | Conflicting construct | Which governs |
 |---|---|---|
 | Bold for a functional reason only | The `- **<ID>:**` detail-entry shape the checker locates entries by | The detail shape governs. The bold is a structural label, not emphasis. |
-| Bold for a functional reason only | The `Responsibility` / `Owns` / `Does not own` / `Contracts` labels of a `design.md` §3 component entry | The labelled shape governs. `ARTIFACT_FORMAT.md` §10 declares these four labels and their order. |
+| Bold for a functional reason only | The `Responsibility` / `Owns` / `Does not own` / `Contracts` labels of a `design.md` Components & Boundaries entry | The labelled shape governs. `ARTIFACT_FORMAT.md` §10 declares these four labels and their order. |
 | No em or en dashes | The literal `None — initial version.` that `ARTIFACT_FORMAT.md` §3 requires a new artifact to write | The literal governs. Write the em dash. |
 | Sentence case headings | Every `##` section heading in the four chain-artifact templates, which `ARTIFACT_FORMAT.md` names by their exact words and `validate-artifacts.sh` locates History by | The template headings govern. Do not re-case a heading in a chain artifact. |
 | Sentence case headings | The `#### <ID>: <text>` heading form of a detail entry, §1's second grammar | The heading governs. Its ID is matched literally against an index row, so its case is not free. |

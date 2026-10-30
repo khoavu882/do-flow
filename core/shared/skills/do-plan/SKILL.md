@@ -77,10 +77,10 @@ not have.
    **Also read `specs.md` when step 1's `has_specs` is true** — use that flag, never a filesystem
    check of your own, and read the `specs` path the resolver returned. `/do-design` moves the
    interface and data-model contracts out of `design.md` into `specs.md` §1 as numbered `IC-###`
-   entries, so on a feature that has one, `design.md`'s §4/§5 are a pointer and the contracts this
+   entries, so on a feature that has one, `design.md`'s API / Interface Contracts and Data Model sections are a pointer and the contracts this
    plan must decompose toward live only in `specs.md`. Planning from `design.md` alone on such a
    feature plans against a pointer. When `has_specs` is false (an old-layout feature dir, which never
-   had a `specs.md`), the contracts are still in `design.md` §4/§5 and there is nothing extra to
+   had a `specs.md`), the contracts are still in `design.md` (API / Interface Contracts, Data Model) and there is nothing extra to
    read. Read
    `constitution_base`,
    then read `constitution_local` **only when `has_constitution_local` is true** — use that flag,

@@ -3,7 +3,7 @@
 **Feature:** [NNN-slug] · **Design:** ./design.md · **Maturity:** Draft · **Created:** [DATE]
 
 > Entity/data model and data-flow diagrams a design decided, split out of design.md's own narrative
-> (§5/§6) and specs.md's interface-contract detail (§1). Reads ./design.md; distinct from ./specs.md
+> (Data Model and Sequence / Data Flow) and specs.md's interface-contract detail (§1). Reads ./design.md; distinct from ./specs.md
 > the way a persisted shape and the flows that move through it are distinct from the contracts that
 > expose them.
 >

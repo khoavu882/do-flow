@@ -101,14 +101,14 @@ What the generator does, so you can read its output rather than guess at it:
 1. **Reads all three artifacts** and records each one's SHA-256 in `MANIFEST.md`. A missing one, or
    a `plan.md` with no parseable task list, is `BLOCKED`: no source files are written.
 2. **Builds the traceability chain** — a task's `[US#]` resolves through `requirement.md`'s FR index
-   to its requirements, and through `design.md` §3 to the components serving them. That chain is
+   to its requirements, and through `design.md` Components & Boundaries to the components serving them. That chain is
    what puts a real FR / component / task in every file header instead of a generic banner.
 3. **Mirrors the intended source layout** from every task's `files:` value into `scaffold/src/`,
    keeping each path exactly as the plan wrote it and appending `.stub`. In a repository whose code
    already lives in `src/`, that reads as `scaffold/src/src/runtime/thing.js.stub`; the doubling is
    deliberate, so a path can never collide with `MANIFEST.md` or `contracts/`.
 4. **Emits per-file frames** in the language of the file's own extension — the plan already stated
-   it, so nothing is inferred. Where `design.md` §4 declares an interface for the file's component,
+   it, so nothing is inferred. Where `design.md` API / Interface Contracts declares an interface for the file's component,
    that block is carried through verbatim as a quoted comment; where it does not, the file gets one
    clearly labelled placeholder signature and is listed under **Emitted without a declared shape**.
    No API nobody wrote down is ever invented.

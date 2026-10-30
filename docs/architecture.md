@@ -911,10 +911,12 @@ of the G18 pair — between them the reason the list runs G18 then G20; and `bou
   conventions and the four chain-artifact templates transcribe them, so the two can disagree
   silently; this compares them. Each template must carry a `**Maturity:**` header field and no
   `**Status:**` one, and must restate both closed vocabularies, which stay disjoint. The C4 level
-  names must agree between §4's table, §4's prose and `design-template.md` §2, and no level label on
+  names must agree between §4's table, §4's prose and `design-template.md`'s System Overview (C4) section, and no level label on
   either side may be shaped like a component ID. The reviewer-facing sections §10 declares must
   appear in the template that owns each, and §10's four component labels must be transcribed into
-  `design-template.md` §3 in order. Separately from the templates, the rule names
+  `design-template.md`'s Components & Boundaries section in order. The template's twelve section titles must
+  equal the list `ARTIFACT_FORMAT.md` §10 declares, and every `design.md` row of the §4 slot registry must
+  name one of them. Separately from the templates, the rule names
   `validate-artifacts.sh` implements must match the list §9 documents.
 - **G20** (`ownership-identity.test.ts`) — `doflow inventory` treats two recorded resources as
   copies of one logical asset when `(harness, ownershipIdentity)` agrees (IC-004), which makes two
