@@ -1388,8 +1388,10 @@ function abStatusOf({ report, timedOut, spawnError, exitCode = null, signal = nu
  * Runs the planned A/B tasks of one iteration under a token cap. Refuses (exit 2, nothing written, no
  * process started) on every refusal of the retrieval executor plus: `maxTokensPerRun` unset (config
  * `null` and no `maxTokensPerRun` option), no credential variable set, a review revision missing from
- * the checkout, or an arm whose DoFlow proof list is empty. Exit 3 means the command cap stopped it
- * before a run, or a run's real usage passed the cap.
+ * the checkout, or an arm whose DoFlow proof list is empty. Exit 3 means only that the command `--cap`
+ * stopped later runs, or the total spend passed `--cap`. A run that hit its own per-run cap (token or
+ * dollar) is recorded as truncated and censored and the command still exits 0: its `detail` row carries
+ * `capped: true` and the result lists it under `capHits`, which `executeLines` prints as a CAP HIT line.
  */
 async function executeAbIteration(opts: any = {}) {
   const {
@@ -1688,7 +1690,8 @@ async function executeAbIteration(opts: any = {}) {
         break;
       }
     }
-    return { exit: undone.length > 0 || capExceeded ? 3 : 0, ran, undone, spent: spentOf(iterDir, max), detail, ...(capExceeded ? { capExceeded } : {}) };
+    const capHits = detail.filter((d: any) => d.capped).map((d: any) => d.id);
+    return { exit: undone.length > 0 || capExceeded ? 3 : 0, ran, undone, spent: spentOf(iterDir, max), detail, capHits, ...(capExceeded ? { capExceeded } : {}) };
   } finally {
     if (!state.interrupted) {
       for (const s of STOP_SIGNALS) process.removeListener(s, onSignal);

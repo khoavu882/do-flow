@@ -321,6 +321,19 @@ test('the per-run cap stops a run in flight and one whose reported total passes 
   }
 });
 
+test('fix 12: a per-run cap hit exits 0 and the summary carries an unmissable CAP HIT line; only the command cap exits 3', { skip: SKIP_WIN }, async () => {
+  const r = await exec('cap-hit-a', 'A', ['fix-cap', 'fix-over']);
+  assert.equal(r.code, 0, 'a per-run cap hit is not exit 3');
+  assert.match(r.out, /^!!! CAP HIT: 2 of 2 run\(s\) stopped at the per-run cap \(fix-cap, fix-over\).*lower bounds.*exits 0 !!!$/m);
+  assert.equal(r.out.split('\n').filter((l: string) => l.includes('CAP HIT: stopped at the per-run cap')).length, 2, 'one CAP HIT mark on each capped run line');
+  const json = JSON.parse((await exec('cap-hit-j', 'A', ['fix-cap'], ['--json'])).out);
+  assert.deepEqual(json.capHits, ['fix-cap']);
+  const clean = await exec('cap-hit-ok', 'A', ['fix-b']);
+  assert.doesNotMatch(clean.out, /CAP HIT/);
+  const docs = fs.readFileSync(path.join(__dirname, '..', '..', 'bench', 'agentic', 'execute.ts'), 'utf8');
+  assert.match(docs, /A run that hit its own per-run cap \(token or\s+\* dollar\) is recorded as truncated and censored and the command still exits 0/);
+});
+
 test('a timed-out run is recorded as timeout and excluded', { skip: SKIP_WIN }, async () => {
   const config = execute.loadConfig(configFile('config-short', (c: any) => { c.timeoutSeconds = 2; }));
   const out: string[] = [];
