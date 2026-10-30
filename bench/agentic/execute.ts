@@ -1336,7 +1336,7 @@ async function executeAbIteration(opts: any = {}) {
   } = opts;
   const grading = require('./grade.ts');
   let plan: any; let taskSet: any; let config: any; let cap: any; let max: any; let binary: any; let tools: any;
-  let sourceAt: any; let iterDir: any; let runRoot: any; let present: string[] = [];
+  let sourceAt: any; let iterDir: any; let runRoot: any; let present: string[] = []; let expected: any;
   let lock: any = null;
   try {
     config = opts.config;
@@ -1372,6 +1372,14 @@ async function executeAbIteration(opts: any = {}) {
     for (const task of taskSet.tasks.filter((t: any) => plan.runs.some((r: any) => r.id === t.id && t.kind === 'review'))) {
       const known = git(repoRoot, ['cat-file', '-e', `${task.review.rev}^{commit}`]);
       if (known.status !== 0) throw new UsageError('review-rev-missing', `review task ${task.id}: revision ${task.review.rev} is not in ${repoRoot}`);
+    }
+    for (const task of taskSet.tasks.filter((t: any) => plan.runs.some((r: any) => r.id === t.id))) {
+      const bad = (task.kind === 'edit' ? Object.keys(task.files) : task.review.scope).find((f: string) => WORKSPACE_FORBIDDEN.includes(f.split('/')[0]));
+      if (bad) throw new UsageError('workspace-contaminated', `task ${task.id} would put ${bad} in the workspace, which would show an arm project guidance (${WORKSPACE_FORBIDDEN.join(', ')})`);
+    }
+    expected = expectedProof(repoRoot);
+    if (expected.skills.length === 0 || expected.agents.length === 0) {
+      throw new UsageError('proof-empty', `${repoRoot} projects no DoFlow skills or agents (core/shared/skills, core/shared/agent-specs), so neither arm could be proven loaded or absent`);
     }
     if (plan.homeSetup === null && config.arms[plan.arm].proof === 'loaded') throw new UsageError('arm-config', `arm ${plan.arm} must prove DoFlow loaded but has no homeSetup`);
 
@@ -1443,10 +1451,6 @@ async function executeAbIteration(opts: any = {}) {
     const needShim = armCfg.pathAdd.includes(SHIM_ENTRY) || armCfg.homeSetup !== null;
     const shimRoot = needShim ? exportToolTree({ repoRoot, commit: sourceAt, tmpDir }) : null;
     if (shimRoot) scratch.add(shimRoot);
-    const expected = shimRoot ? expectedProof(shimRoot) : { skills: [], agents: [] };
-    if (armCfg.proof === 'loaded' && (expected.skills.length === 0 || expected.agents.length === 0)) {
-      throw new Error('the pruned export projects no DoFlow skills or agents, so a loaded session could not be proven');
-    }
 
     const iterationFile = path.join(iterDir, RUN_FILES.iteration);
     if (!fs.existsSync(iterationFile)) {
