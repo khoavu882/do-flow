@@ -125,4 +125,76 @@ The commands are checked against `plan` output (`node bench/runner.js agentic pl
 which spawns nothing). The CLI is exercised by `test/bench/agentic-e2e.test.js` against
 `test/fixtures/agentic/fake-worker.js` with three train and three heldout tasks. Numbers come from
 `config.json`, `bench/config.json` and the cost estimate. When a verb, flag, exit code or ceiling
-changes, change this page in the same commit.
+changes, change this page in the same commit. Section 8 is exercised by `test/bench/agentic-ab-unit.test.ts`
+and `test/bench/agentic-ab-e2e.test.ts` (fake Claude worker in the same fixture) and its plan by
+`npm run bench -- agentic plan --config bench/agentic/ab/config.json --iteration dry --arm A`.
+
+## 8. With/without DoFlow A/B
+
+A second mode of the same executor, selected by `"mode": "ab"` in
+[`ab/config.json`](ab/config.json). It compares arm A (bare Claude Code, empty scratch HOME) with arm B
+(DoFlow installed into the scratch HOME) on six tasks from [`ab/tasks.json`](ab/tasks.json): routing,
+unnecessary pauses, refactor-shared-format (T3), review-113 (T4), doc-options-sync (T5) and
+conflicting-instructions (T6). The plan is `agent-docs/briefs/ab-bench-plan-result.md`. Arm names come
+from `config.roles` (baseline `A`, candidate `B`); the retrieval mode above keeps `N` and `D`
+unchanged. Nothing here has been run against a real model: every figure the report prints comes from
+a run you launch, and the stream shapes the tests use are synthetic apart from the init and hook lines
+in `test/fixtures/claude-headless/`.
+
+```bash
+npm run bench -- agentic plan --config bench/agentic/ab/config.json --iteration dry --arm A   # spawns nothing
+npm run bench -- agentic execute --config bench/agentic/ab/config.json --iteration r1-a --arm A \
+    --cap <tokens> --max-tokens-per-run <tokens> [--tasks routing]                            # paid
+npm run bench -- agentic grade  --config bench/agentic/ab/config.json --iteration r1-a --corpus <review-miss corpus.json>
+npm run bench -- agentic noise  --config bench/agentic/ab/config.json --iterations r1-a,r2-a --corpus <corpus.json>
+npm run bench -- agentic report --config bench/agentic/ab/config.json --iterations r1-b,r2-b --corpus <corpus.json> [--fixed-cost fixed.json]
+```
+
+**Task kinds.** `edit`: the prompt and workspace files come from a case in `bench/native/cases.json`;
+its hidden checks run after the worker exits, outside the workspace. `review`: the worker writes
+`review.json` for a fixed revision and scope; `review-adapter.ts` turns it into a review-miss
+repeat that the existing scorer (`bench/review-miss/grade.ts`) scores. Malformed output is zero
+findings, a miss. The review corpus (`bench/runs/review-miss/corpus.json`) is built offline with
+`review-miss corpus --records agent-docs/doflow`; the runner refuses `corpus-missing` without it.
+
+**Arms.** Arm A runs with an empty scratch HOME and nothing from DoFlow on PATH. Arm B first runs
+`bin/doflow.js install -g -f -t claude --mcp none` from the pruned export inside that HOME, with no
+credential in the environment (`home-setup.json` records the result), then the worker. Credentials
+reach only the worker, by environment-variable name from `credentialEnv`; `launch.json` records the
+names present, never values. Arms are interleaved per repeat: run `r1-a`, `r1-b`, `r2-a`, `r2-b`.
+
+**Refusals before any spend (exit 2).** `max-tokens-missing` (`maxTokensPerRun` is `null` in the
+committed config; pass `--max-tokens-per-run`, or set it in a copy of the config, after approving
+the cap), `over-cap` (`--cap`), `credential-missing`, `tree-dirty`, `harness-binary-missing`,
+`tool-missing`, `review-rev-missing`, `workspace-contaminated` (a task file or review scope would
+bring `.claude`, `CLAUDE.md`, `AGENTS.md` or `.doflow` into the workspace), `proof-empty`.
+
+**Exclusion, never a score.** `grade` compares each run with the proof expected from the checkout
+(skills and agents under `core/shared/`). Arm A must show none of it in init and no network command;
+arm B must show P1 installed, P2 skills and agents in init, P3 SessionStart fired. A run that fails is
+`leaked` (A saw DoFlow or ran a forbidden command) or `not-loaded` (B did not load it) and is
+excluded as `source-unverified`, with the evidence in `grading.json`. Timeouts, API errors and
+runs stopped by the cap are excluded too; the report shows a sensitivity line that scores capped
+edit runs 0.
+
+**Pauses (decision D3).** When a run ends on a question, it is resumed with `--resume <session_id>`
+and the reply "Proceed with your best judgement; do not ask again", at most twice. Each pause and
+resume is counted, segments are kept as `transcript.jsonl`, `transcript.2.jsonl`, ... and
+`segments.json`, and the cost and token totals of the last segment are taken as the run total.
+That the totals are cumulative across `--resume` is from the documentation, not observed: check one
+real resumed run before trusting a cost comparison.
+
+**Metrics** (`grading.json`, from the Claude stream parser in `ab/claude-stream.ts`): tokens
+(input, output, cache creation, cache read, total, whole tree including subagents), `subagentTokens`
+and `byModel` (from `modelUsage`), `costUsd` (`total_cost_usd`), `wallMs` (`timing.json`), `turns`,
+`toolCalls`, `toolCounts`, `subagentCalls`, and questions (`pauses`, `resumes`, `unanswered`). The
+per-run cap counts cache reads, stops a run in flight from main-loop assistant usage (best effort) and
+again on the reported total.
+
+**Report.** Part 1 quality (success on edit tasks, review recall) under the 096 noise rules from an
+A/A noise artifact (`noise`, arm A iterations only); Part 2 cost and behaviour per task with a
+verdict word per metric on relative change, band = max(A/A range, mde), questions as counts only;
+Part 3 fixed cost from `--fixed-cost` (`{"rows":[{"item","value","source"}],"hookLatencyMsP50":n}`),
+otherwise "not supplied"; Part 4 validity: exclusions per arm, P1-P3 counts, routing (P4, reported
+not gating; name level only), cap sensitivity, prompt equality, spend including excluded runs. P5
+(first-request context delta) is deferred.
