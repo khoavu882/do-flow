@@ -18,11 +18,14 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const childProcess = require('node:child_process');
 
 const { classifyRun } = require('../noise.ts');
 const { scoreTask } = require('../retrieval/lib/metrics.ts');
 const { loadManifest } = require('../retrieval/lib/snapshot.ts');
-const { UsageError, buildPrompt, promptSha256 } = require('./tasks.ts');
+const { UsageError, buildPrompt, buildAbPrompt, promptSha256, REVIEW_FILE } = require('./tasks.ts');
+const claudeStream = require('./ab/claude-stream.ts');
+const { parseReviewJson } = require('./review-adapter.ts');
 
 /** Only this many distinct answer paths count (the prompt asks for up to 10). */
 const MAX_FILES = 10;
@@ -448,7 +451,8 @@ function checkLaunch({ runDir, task, arm, config, label }: { runDir: string; tas
   if (launch === null) {
     throw new UsageError('launch-missing', `${label}: launch.json is missing or unreadable in ${runDir}; a run without its launch record cannot be graded`);
   }
-  const expected: Record<string, string> = { key: task.key, promptSha256: promptSha256(buildPrompt(task, config.arms[arm].paragraph)) };
+  const build = config.mode === 'ab' ? buildAbPrompt : buildPrompt;
+  const expected: Record<string, string> = { key: task.key, promptSha256: promptSha256(build(task, config.arms[arm].paragraph)) };
   for (const field of ['key', 'promptSha256']) {
     if (launch[field] !== expected[field]) {
       throw new UsageError('capture-stale', `${label}: launch.json ${field} ${JSON.stringify(launch[field])} differs from the current task's ${expected[field]}; capture the run again instead of regrading it`);
@@ -527,6 +531,249 @@ function serializeGrading(g: any) {
   }, null, 2)}\n`;
 }
 
+// ---------------------------------------------------------------------------
+// With/without-DoFlow A/B grading (`config.mode === 'ab'`)
+//
+// One run is graded from its own files: the Claude stream-json segments (`transcript.jsonl`,
+// `transcript.2.jsonl`, ...), `run_status.json`, `launch.json`, `segments.json`, `timing.json`, and for
+// an `edit` task the final workspace copy. Three decisions stay separate, as above: infra (did the
+// harness leave a usable run), isolation (was the arm what it claims: no leak in arm A, DoFlow proven
+// loaded in arm B, no network or truth access in either), and the answer (edit: the native checks
+// run outside the model's workspace; review: scored later by the review-miss scorer through the
+// adapter, so `pass_rate` stays null here).
+// ---------------------------------------------------------------------------
+
+/** Names of the truth and run-store paths a worker may never name, in any form (both arms). */
+const AB_TRUTH_SUBSTRINGS = Object.freeze(['tasks-heldout', 'bench/native', 'bench/runs', 'bench/review-miss', 'bench/agentic', 'bench/retrieval/tasks']);
+/** Tools whose single `file_path` input the parser keeps as the call target. */
+const PATH_TOOLS = Object.freeze(['Read', 'Edit', 'Write', 'NotebookEdit']);
+const NETWORK_TOOLS = Object.freeze(['WebFetch', 'WebSearch']);
+const CHECKS_TIMEOUT_MS = 10000;
+const CHECKS_OUTPUT_MAX = 400;
+const TOKEN_KEYS = Object.freeze(['inputTokens', 'outputTokens', 'cacheCreationInputTokens', 'cacheReadInputTokens']);
+
+const readJsonFile = (file: string) => {
+  const raw = readText(file);
+  if (raw === null) return null;
+  try {
+    const v = JSON.parse(raw);
+    return v !== null && typeof v === 'object' ? v : null;
+  } catch {
+    return null;
+  }
+};
+
+const addTok = (a: any, b: any) => Object.fromEntries(TOKEN_KEYS.map((k) => [k, (a?.[k] ?? 0) + (b?.[k] ?? 0)]));
+const sumTok = (t: any) => (t ? TOKEN_KEYS.reduce((n, k) => n + (t[k] ?? 0), 0) : 0);
+
+/**
+ * One run's reports (a first segment plus any `--resume` segments) folded into one set of figures.
+ * `cumulative` says the harness reports a resumed session's usage and cost as running totals (the last
+ * segment then holds the whole run; a total that goes DOWN is `inconsistent`); otherwise the segments
+ * are summed. Tokens are the whole tree (main loop plus subagents) when the result reports a model
+ * table, else the main loop; `subagent` is the part outside the main loop. Tool calls always sum.
+ */
+function aggregateReports(reports: any[], cumulative: boolean) {
+  const rows = reports.map((r: any) => ({ tokens: r.wholeTree ?? r.usage ?? null, sub: r.outsideMainLoop ?? null, cost: r.totalCostUsd ?? null, byModel: r.modelUsage || {}, turns: r.numTurns ?? null }));
+  const known = rows.filter((r: any) => r.tokens !== null);
+  const costs = rows.filter((r: any) => r.cost !== null).map((r: any) => r.cost as number);
+  const turnList = rows.filter((r: any) => r.turns !== null).map((r: any) => r.turns as number);
+  let tokens: any = null; let sub: any = null; let cost: number | null = null; let turns: number | null = null; let byModel: any = {};
+  let inconsistent = false;
+  if (known.length > 0) {
+    if (cumulative) {
+      const lastRow = known[known.length - 1];
+      tokens = lastRow.tokens; sub = lastRow.sub; byModel = lastRow.byModel;
+      for (let i = 1; i < known.length; i++) if (sumTok(known[i].tokens) < sumTok(known[i - 1].tokens)) inconsistent = true;
+      for (let i = 1; i < costs.length; i++) if (costs[i] < costs[i - 1]) inconsistent = true;
+      cost = costs.length ? costs[costs.length - 1] : null;
+      turns = turnList.length ? turnList[turnList.length - 1] : null;
+    } else {
+      for (const r of known) {
+        tokens = addTok(tokens, r.tokens);
+        if (r.sub) sub = addTok(sub, r.sub);
+        for (const [m, row] of Object.entries(r.byModel) as [string, any][]) byModel[m] = { ...addTok(byModel[m], row), costUSD: (byModel[m]?.costUSD ?? 0) + (row.costUSD ?? 0) };
+      }
+      cost = costs.length ? costs.reduce((a: number, b: number) => a + b, 0) : null;
+      turns = turnList.length ? turnList.reduce((a: number, b: number) => a + b, 0) : null;
+    }
+  }
+  const toolCounts: Record<string, number> = {};
+  for (const r of reports) for (const [name, n] of Object.entries(r.toolCounts || {}) as [string, number][]) toolCounts[name] = (toolCounts[name] ?? 0) + n;
+  return {
+    usage: tokens === null ? 'unknown' : 'reported',
+    tokens, totalTokens: sumTok(tokens), subagent: sub, byModel, costUsd: cost, turns,
+    toolCalls: reports.reduce((n: number, r: any) => n + (r.toolCalls?.length ?? 0), 0),
+    toolCounts,
+    subagentCalls: reports.reduce((n: number, r: any) => n + (r.subagentCalls?.length ?? 0), 0),
+    askUserQuestion: reports.reduce((n: number, r: any) => n + (r.questions?.askUserQuestion ?? 0), 0),
+    inconsistent,
+  };
+}
+
+const metricTokens = (t: any) => (t === null ? null : {
+  input: t.inputTokens, output: t.outputTokens, cacheCreation: t.cacheCreationInputTokens, cacheRead: t.cacheReadInputTokens, total: sumTok(t),
+});
+
+/**
+ * Isolation and DoFlow proof of one A/B run, from its parsed segments. Order of precedence: a leak
+ * (network or truth access, a path outside the run's roots, an arm pattern, a DoFlow trace in arm A)
+ * beats `not-loaded` (arm B without P1-P3), which beats `unverifiable` (no init to read, or an init
+ * model other than the pin). `proof` is the evidence in either arm.
+ * @returns {{isolation: 'clean'|'leaked'|'not-loaded'|'unverifiable', evidence: string[], proof: object}}
+ */
+function classifyAbIsolation({ reports, armConfig, roots, expected, homeSetup, pin, infra }: { reports: any[]; armConfig: any; roots: any; expected: any; homeSetup: any; pin: string | null; infra: string | null }) {
+  const leak = compile(armConfig?.leak);
+  const evidence: string[] = [];
+  const note = (text: string) => { if (evidence.length < 12) evidence.push(String(text).slice(0, EVIDENCE_MAX)); };
+  for (const report of reports) {
+    for (const call of report.toolCalls) {
+      const name: string = call.name;
+      const target: string = call.target ?? '';
+      if (name.startsWith('mcp__') || NETWORK_TOOLS.includes(name)) { note(`${name} ${target}`.trim()); continue; }
+      const commands = name === 'Bash' ? simpleCommands(target) : (PATH_TOOLS.includes(name) && target ? [{ text: target, words: [target], raw: [target] }] : []);
+      if (commands.length === 0) continue;
+      const hit = commands.some((c: any) => leak.some((re: any) => re.test(c.text)))
+        || AB_TRUTH_SUBSTRINGS.some((x) => target.includes(x))
+        || outsidePath(commands, roots) !== null;
+      if (hit) note(`${name}: ${target}`);
+    }
+  }
+  const proofs = reports.map((r: any) => claudeStream.loadProof(r, expected));
+  const first = proofs[0] || claudeStream.loadProof({ init: null, hooks: [] } as any, expected);
+  const initSeen = proofs.length > 0 && first.initSeen;
+  const loaded = initSeen && first.loaded && proofs.slice(1).every((p: any) => p.missingSkills.length === 0 && p.missingAgents.length === 0);
+  const absent = initSeen && proofs.every((p: any) => p.initSeen && p.absent);
+  const p1 = homeSetup === null || homeSetup === undefined ? null : homeSetup.ok === true;
+  const proof = {
+    required: armConfig?.proof ?? null, p1, initSeen, loaded, absent, sessionStartOk: first.sessionStartOk,
+    missingSkills: first.missingSkills, missingAgents: first.missingAgents, presentSkills: first.presentSkills, presentAgents: first.presentAgents,
+  };
+  const model = reports[0]?.init?.model ?? null;
+  let isolation: string = evidence.length ? 'leaked' : 'clean';
+  if (armConfig?.proof === 'absent' && initSeen && !absent) {
+    isolation = 'leaked';
+    note(`init lists DoFlow: skills ${first.presentSkills.join(',') || '-'}; agents ${first.presentAgents.join(',') || '-'}; hooks ${reports[0].hooks.length}`);
+  }
+  if (isolation === 'clean' && armConfig?.proof === 'loaded') {
+    if (p1 === false) {
+      isolation = 'not-loaded';
+      note('P1 failed: the DoFlow install step did not exit 0');
+    } else if (initSeen && !loaded) {
+      isolation = 'not-loaded';
+      note(`P2/P3 failed: missing skills ${first.missingSkills.join(',') || '-'}; missing agents ${first.missingAgents.join(',') || '-'}; SessionStart hook ok ${first.sessionStartOk}`);
+    }
+  }
+  if (isolation === 'clean') {
+    // Without an init a failed run (timeout, api-error) is graded by its infra class, not as unverifiable.
+    if (!initSeen && infra === null) { isolation = 'unverifiable'; note('no system/init event in the transcript'); }
+    else if (initSeen && pin && model !== pin) { isolation = 'unverifiable'; note(`model-mismatch: init model ${model} is not the pinned ${pin}`); }
+  }
+  return { isolation, evidence, proof };
+}
+
+/** Runs the native case's `checks` program against a copy of the final workspace, never inside the model's. */
+function runChecks(workspaceCopy: string, checks: string) {
+  const r = childProcess.spawnSync(process.execPath, ['-e', checks], {
+    cwd: workspaceCopy, encoding: 'utf8', timeout: CHECKS_TIMEOUT_MS, maxBuffer: 1024 * 1024, env: { PATH: process.env.PATH || '/usr/bin:/bin' },
+  });
+  const out = `${r.stdout || ''}${r.stderr || ''}`.trim();
+  return { pass: r.status === 0 && !r.error, exitCode: r.status ?? null, output: out.slice(-CHECKS_OUTPUT_MAX) };
+}
+
+/**
+ * Grades one A/B run directory. Pure but for the child process that runs the checks. The returned record
+ * has the keys `serializeAbGrading` writes.
+ */
+function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; arm: string; config: any }) {
+  const armConfig = config?.arms?.[arm];
+  if (!armConfig) throw new Error(`gradeAbRun: arm "${arm}" is not in the config (known: ${Object.keys(config?.arms || {}).join(', ')})`);
+  const statusRec = readJsonFile(path.join(runDir, 'run_status.json'));
+  const status: string = statusRec === null ? (fs.existsSync(path.join(runDir, 'run_status.json')) ? 'malformed' : 'absent') : (typeof statusRec.status === 'string' ? statusRec.status : 'malformed');
+  const launch = readLaunch(runDir) || {};
+  const segRec = readJsonFile(path.join(runDir, 'segments.json'));
+  const segList: any[] = Array.isArray(segRec?.segments) && segRec.segments.length ? segRec.segments : [{ file: 'transcript.jsonl' }];
+  const reports = segList.map((s: any) => claudeStream.parseTranscript(readText(path.join(runDir, path.basename(String(s.file)))) ?? ''));
+  const lastReport = reports[reports.length - 1];
+  const lastMessage = readText(path.join(runDir, 'last-message.txt')) ?? '';
+  const hasOutput = reports.some((r: any) => r.init !== null || r.toolCalls.length > 0 || r.finalText) || lastMessage.trim() !== '';
+  const timing = readJsonFile(path.join(runDir, 'timing.json')) || {};
+  const homeSetup = readJsonFile(path.join(runDir, 'home-setup.json'));
+  const homeSetupState = armConfig.homeSetup === null ? null : (homeSetup === null ? { ok: false } : homeSetup);
+
+  const cls = classifyRun({ status, hasOutput });
+  let infra: string | null = cls.infra ?? (cls.excluded ? 'malformed' : null);
+  if (infra === null && lastReport.status !== 'success') infra = 'truncated';
+  const agg = aggregateReports(reports, config.resume?.cumulative !== false);
+  if (infra === null && agg.inconsistent) infra = 'malformed';
+  const workspaceCopy = path.join(runDir, 'workspace');
+  if (infra === null && task.kind === 'edit' && !fs.existsSync(workspaceCopy)) infra = 'malformed';
+
+  const iso = classifyAbIsolation({
+    reports, armConfig, roots: launch, expected: launch.proofExpected || { skills: [], agents: [] }, homeSetup: homeSetupState, pin: config.model?.label ?? null, infra,
+  });
+  const exclusionReason = iso.isolation !== 'clean' ? iso.isolation : infra;
+
+  let passRate: number | null = null;
+  let checks: any = null;
+  let review: any = null;
+  if (infra === null && iso.isolation === 'clean' && task.kind === 'edit') {
+    checks = runChecks(workspaceCopy, task.checks);
+    passRate = checks.pass ? 1 : 0;
+  }
+  if (task.kind === 'review') {
+    const parsed = parseReviewJson(readText(path.join(runDir, REVIEW_FILE)), launch.workspaceRoot ?? null);
+    review = { ok: parsed.ok, reason: parsed.reason, findings: parsed.findings.length, dropped: parsed.dropped };
+  }
+
+  const asked = segRec?.pauses ?? reports.filter((r: any) => r.questions.any).length;
+  const skills = [...new Set(reports.flatMap((r: any) => r.skillEvents.map((e: any) => e.skill)))] as string[];
+  const routing = armConfig.proof === 'loaded' && Array.isArray(task.expectedSkills)
+    ? { expected: task.expectedSkills, used: skills, routed: task.expectedSkills.every((n: string) => skills.includes(n)) }
+    : null;
+  return {
+    key: task.key,
+    id: task.id,
+    split: task.split,
+    kind: task.kind,
+    group: task.group,
+    arm,
+    run_status: status,
+    infra,
+    isolation: iso.isolation,
+    isolationEvidence: iso.evidence,
+    exclusionReason,
+    proof: iso.proof,
+    capped: statusRec?.cap === true,
+    pass_rate: passRate,
+    checks: checks === null ? null : { exitCode: checks.exitCode, output: checks.output },
+    review,
+    routing,
+    metrics: {
+      usage: agg.usage,
+      tokens: metricTokens(agg.tokens),
+      subagentTokens: agg.subagent === null ? null : sumTok(agg.subagent),
+      byModel: agg.usage === 'reported' ? agg.byModel : null,
+      costUsd: agg.costUsd,
+      wallMs: Number.isFinite(timing.duration_ms) ? timing.duration_ms : null,
+      turns: agg.turns,
+      toolCalls: agg.toolCalls,
+      toolCounts: agg.toolCounts,
+      subagentCalls: agg.subagentCalls,
+      questions: { pauses: asked, resumes: segRec?.resumes ?? 0, unanswered: segRec?.unansweredPause === true, askUserQuestion: agg.askUserQuestion },
+    },
+  };
+}
+
+/** Byte-stable text of an A/B grading (the key order `gradeAbRun` builds). */
+function serializeAbGrading(g: any) {
+  return `${JSON.stringify({
+    key: g.key, id: g.id, split: g.split, kind: g.kind, group: g.group, arm: g.arm, run_status: g.run_status, infra: g.infra,
+    isolation: g.isolation, isolationEvidence: g.isolationEvidence, exclusionReason: g.exclusionReason, proof: g.proof, capped: g.capped,
+    pass_rate: g.pass_rate, checks: g.checks, review: g.review, routing: g.routing, metrics: g.metrics,
+  }, null, 2)}\n`;
+}
+
 /**
  * Grades every task directory of an iteration (arm from iteration.json) and, unless `write` is false,
  * writes `grading.json` into each. A task without a directory is returned as `{ id, missing: true }`
@@ -546,8 +793,10 @@ function gradeIteration({ iterationDir, taskSet, config, pathInfo, write = true 
   });
   return runs.map(({ task, runDir }: { task: any; runDir: any }) => {
     if (runDir === null) return { id: task.id, missing: true };
-    const grading = gradeRun({ runDir, task, arm: meta.arm, config, pathInfo });
-    if (write) fs.writeFileSync(path.join(runDir, 'grading.json'), serializeGrading(grading));
+    const grading = config.mode === 'ab'
+      ? gradeAbRun({ runDir, task, arm: meta.arm, config })
+      : gradeRun({ runDir, task, arm: meta.arm, config, pathInfo });
+    if (write) fs.writeFileSync(path.join(runDir, 'grading.json'), config.mode === 'ab' ? serializeAbGrading(grading) : serializeGrading(grading));
     return grading;
   });
 }
@@ -555,4 +804,5 @@ function gradeIteration({ iterationDir, taskSet, config, pathInfo, write = true 
 module.exports = {
   MAX_FILES, EVIDENCE_MAX,
   parseTranscript, extractAnswer, simpleCommands, classifyIsolation, loadPathInfo, readLaunch, checkLaunch, gradeRun, serializeGrading, gradeIteration,
+  aggregateReports, classifyAbIsolation, gradeAbRun, serializeAbGrading, runChecks,
 };
