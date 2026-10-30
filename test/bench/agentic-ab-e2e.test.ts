@@ -350,6 +350,31 @@ test('fix 13: a resumed run from a Claude Code version below 2.1.277, or an unkn
   assert.equal(g['fix-a'].metrics.costBasis, 'verified');
 });
 
+test('n-2: the per-run caps are part of the capture; the report refuses arms that ran under different caps and prints both values', { skip: SKIP_WIN }, async () => {
+  const ids = ['fix-a', 'fix-b'];
+  const taskSet = subset(ids);
+  assert.equal((await exec('caps-a1', 'A', ids)).code, 0);
+  assert.equal((await exec('caps-a2', 'A', ids)).code, 0);
+  assert.equal((await exec('caps-b1', 'B', ids, ['--max-budget-usd', '2'])).code, 0);
+  assert.equal((await exec('caps-b2', 'B', ids)).code, 0);
+  assert.equal(readJson(path.join(RUN_ROOT, 'caps-a1', 'iteration.json')).maxBudgetUsd, 5);
+  assert.equal(readJson(path.join(RUN_ROOT, 'caps-b1', 'iteration.json')).maxBudgetUsd, 2);
+  for (const it of ['caps-a1', 'caps-a2', 'caps-b1', 'caps-b2']) assert.equal((await cli(['grade', '--iteration', it], { taskSet })).code, 0);
+  const noiseOut = path.join(TMP, 'caps-noise.json');
+  assert.equal((await cli(['noise', '--iterations', 'caps-a1,caps-a2', '--out', noiseOut], { taskSet })).code, 0);
+  const mixed = await cli(['report', '--iterations', 'caps-b1,caps-b2', '--noise', noiseOut, '--decision-out', path.join(TMP, 'caps-decision.json')], { taskSet });
+  assert.equal(mixed.code, 2, mixed.out);
+  assert.match(mixed.err, /maxBudgetUsd of caps-a1 \(5\) differs from caps-b1 \(2\)/);
+  assert.match(mixed.err, /different per-run caps/);
+  const same = await cli(['report', '--iterations', 'caps-b2', '--noise', noiseOut, '--decision-out', path.join(TMP, 'caps-decision.json')], { taskSet });
+  assert.equal(same.code, 0, same.err);
+  // the same iteration cannot be extended under a different cap either
+  const again = await exec('caps-a1', 'A', ['fix-a'], ['--max-budget-usd', '3']);
+  assert.equal(again.code, 2);
+  const tokens = await cli(['execute', '--iteration', 'caps-a1', '--arm', 'A', '--tasks', 'fix-a', '--cap', CAP, '--max-tokens-per-run', '90000'], { taskSet: subset(['fix-a']) });
+  assert.equal(tokens.code, 2);
+});
+
 test('a timed-out run is recorded as timeout and excluded', { skip: SKIP_WIN }, async () => {
   const config = execute.loadConfig(configFile('config-short', (c: any) => { c.timeoutSeconds = 2; }));
   const out: string[] = [];

@@ -190,6 +190,23 @@ function assertSameCapture({ baseline, candidate, repoRoot }: { baseline: any[];
   }
 }
 
+/**
+ * A/B: the per-run caps (`--max-tokens-per-run`, `--max-budget-usd`, recorded in iteration.json) are part of the
+ * capture. Arms that ran under different caps are censored differently, so the comparison is refused with the
+ * values printed.
+ */
+const AB_CAP_FIELDS = Object.freeze(['maxTokensPerRun', 'maxBudgetUsd']);
+function assertSameCaps({ baseline, candidate }: { baseline: any[]; candidate: any[] }) {
+  const [ref] = candidate;
+  for (const it of [...baseline, ...candidate]) {
+    for (const field of AB_CAP_FIELDS) {
+      if (it.meta[field] !== ref.meta[field]) {
+        throw new UsageError('caps-differ', `report: ${field} of ${it.name} (${JSON.stringify(it.meta[field])}) differs from ${ref.name} (${JSON.stringify(ref.meta[field])}); the arms ran under different per-run caps, so their censoring is not comparable`);
+      }
+    }
+  }
+}
+
 /** Tokens of one arm over named iterations: unknown usage is counted, never summed as 0. */
 function armTokens(runRoot: string, names: string[], taskSet: any) {
   const recordedAll: number[] = [];
@@ -639,7 +656,10 @@ function abReportOf({ runRoot, iterations, taskSet, config, noiseConfig, noisePa
   const noiseValid = noise !== null && validateAbNoise(noise, metrics).length === 0;
   const bandNames: string[] = noiseValid ? noise.iterations : [];
   const bandIts = bandNames.length ? loadIterations(runRoot, bandNames, baselineRole, 'report') : [];
-  if (bandIts.length) assertSameCapture({ baseline: bandIts, candidate: its, repoRoot });
+  if (bandIts.length) {
+    assertSameCaps({ baseline: bandIts, candidate: its }); // before the generic capture check, which would only print a digest
+    assertSameCapture({ baseline: bandIts, candidate: its, repoRoot });
+  }
   const regrade = (iteration: any) => regradeAbRepeat({ iteration, taskSet, config, verb: 'report', reviewRoot, corpus, reviewConfig });
   const candidate = its.map(regrade);
   const baseline = bandIts.map(regrade);

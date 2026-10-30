@@ -1131,10 +1131,12 @@ function loadAbConfig(cfg: any) {
 }
 
 /** The capture inputs both A/B arms must share; the per-arm homeSetup, PATH additions and leak lists differ by design. */
-function abCaptureSha256(config: any) {
+function abCaptureSha256(config: any, caps: { maxTokensPerRun: number; maxBudgetUsd: number }) {
   const inputs = {
     recipe: config.recipeSha256, model: config.model, path: config.path, timeoutSeconds: config.timeoutSeconds,
     paragraph: config.arms[config.roles.baseline].paragraph, credentialEnv: config.credentialEnv, resume: config.resume,
+    // the two command-line caps shape every run, so arms run under different caps are not one capture
+    maxTokensPerRun: caps.maxTokensPerRun, maxBudgetUsd: caps.maxBudgetUsd,
   };
   return crypto.createHash('sha256').update(JSON.stringify(inputs)).digest('hex');
 }
@@ -1455,8 +1457,8 @@ async function executeAbIteration(opts: any = {}) {
     const existing = plan.runs.filter((r: any) => fs.existsSync(r.runDir) || isLink(r.runDir)).map((r: any) => r.id);
     if (existing.length > 0) throw new UsageError('run-exists', `run directory already exists for: ${existing.join(', ')}`);
     const prior = readJsonIfPresent(path.join(iterDir, RUN_FILES.iteration));
-    if (prior && (prior.arm !== plan.arm || prior.model !== plan.model || prior.sourceAt !== sourceAt || prior.captureSha256 !== abCaptureSha256(config) || prior.mode !== 'ab')) {
-      throw new UsageError('iteration-mismatch', `iteration "${plan.iteration}" already exists with a different arm, model, source or capture config`);
+    if (prior && (prior.arm !== plan.arm || prior.model !== plan.model || prior.sourceAt !== sourceAt || prior.captureSha256 !== abCaptureSha256(config, { maxTokensPerRun: max, maxBudgetUsd: budget as number }) || prior.mode !== 'ab')) {
+      throw new UsageError('iteration-mismatch', `iteration "${plan.iteration}" already exists with a different arm, model, source, capture config or per-run cap (--max-tokens-per-run, --max-budget-usd)`);
     }
   } catch (e) {
     lock?.release();
@@ -1524,7 +1526,7 @@ async function executeAbIteration(opts: any = {}) {
     if (!fs.existsSync(iterationFile)) {
       writeJson(iterationFile, {
         mode: 'ab', arm: plan.arm, model: plan.model, sourceAt, snapshot: null, harness: plan.harness, harnessVersion,
-        captureSha256: abCaptureSha256(config), maxTokensPerRun: max, maxBudgetUsd: budget, startedAt: now().toISOString(),
+        captureSha256: abCaptureSha256(config, { maxTokensPerRun: max, maxBudgetUsd: budget as number }), maxTokensPerRun: max, maxBudgetUsd: budget, startedAt: now().toISOString(),
       });
     }
 
