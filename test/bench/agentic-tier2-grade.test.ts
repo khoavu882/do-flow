@@ -273,8 +273,8 @@ test('tier-2 grade: two sessions are aggregated one by one (no false inconsisten
   assert.equal(g.tier2.sessions.length, 2);
   assert.equal(g.tier2.cutFired, true);
   assert.deepEqual(g.tier2.cut.untouchedAtCut, ['lib/long.js', 'bin/report.js']);
-  assert.equal(g.tier2.recovered, null, 'the shipped items declare no target files');
-  assert.match(g.tier2.recoveredNote, /declare no target file/);
+  assert.deepEqual(g.tier2.recovered, { pending: 2, passed: 2, items: ['i6', 'i7'] }, 'the shipped items declare their targets');
+  assert.equal(g.tier2.recoveredNote, null);
   assert.equal(g.tier2.coverage.k, 7);
 });
 

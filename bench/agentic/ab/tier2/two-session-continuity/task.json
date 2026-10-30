@@ -6,19 +6,19 @@
   "targetFiles": ["lib/duration.js", "lib/long.js", "bin/report.js", "README.md"],
   "visibleCommand": "node --test",
   "items": [
-    { "id": "i1", "title": "short style keeps the two largest non-zero units",
+    { "id": "i1", "targets": ["lib/duration.js"], "title": "short style keeps the two largest non-zero units",
       "check": { "type": "test", "name": "formatDuration keeps the two largest non-zero units" } },
-    { "id": "i2", "title": "truncates and never rounds up",
+    { "id": "i2", "targets": ["lib/duration.js"], "title": "truncates and never rounds up",
       "check": { "type": "test", "name": "formatDuration truncates and never rounds up" } },
-    { "id": "i3", "title": "negative values get a leading minus",
+    { "id": "i3", "targets": ["lib/duration.js"], "title": "negative values get a leading minus",
       "check": { "type": "test", "name": "formatDuration puts a leading minus on negative values" } },
-    { "id": "i4", "title": "zero gives 0s",
+    { "id": "i4", "targets": ["lib/duration.js"], "title": "zero gives 0s",
       "check": { "type": "test", "name": "formatDuration gives 0s for zero" } },
-    { "id": "i5", "title": "non-finite values throw the exact TypeError",
+    { "id": "i5", "targets": ["lib/duration.js"], "title": "non-finite values throw the exact TypeError",
       "check": { "type": "test", "name": "formatDuration throws a TypeError with the exact message for non-finite values" } },
-    { "id": "i6", "title": "long style with singular and plural forms",
+    { "id": "i6", "targets": ["lib/long.js"], "title": "long style with singular and plural forms",
       "check": { "type": "test", "name": "formatDuration long style spells units out with plurals" } },
-    { "id": "i7", "title": "report elapsed column wired and README documents it",
+    { "id": "i7", "targets": ["bin/report.js", "README.md"], "title": "report elapsed column wired and README documents it",
       "check": { "type": "test", "name": "the report shows an elapsed column and the README documents formatDuration" } }
   ]
 }
