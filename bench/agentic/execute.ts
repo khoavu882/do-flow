@@ -997,7 +997,6 @@ async function executeIteration(opts: any = {}) {
         state.run = null;
         if (!state.interrupted) {
           const errors = [];
-          try { redactTree(run.runDir, redact); } catch (e) { errors.push(e); } // the copied workspace, review.json and the install tails too
           for (const dir of [workspace?.dir, profile?.dir]) {
             if (!dir) continue;
             const err = removeTree(dir);
