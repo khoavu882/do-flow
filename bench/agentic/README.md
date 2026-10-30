@@ -137,9 +137,12 @@ A second mode of the same executor, selected by `"mode": "ab"` in
 unnecessary pauses, refactor-shared-format (T3), review-113 (T4), doc-options-sync (T5) and
 conflicting-instructions (T6). The plan is `agent-docs/briefs/ab-bench-plan-result.md`. Arm names come
 from `config.roles` (baseline `A`, candidate `B`); the retrieval mode above keeps `N` and `D`
-unchanged. Nothing here has been run against a real model: every figure the report prints comes from
-a run you launch, and the stream shapes the tests use are synthetic apart from the init and hook lines
-in `test/fixtures/claude-headless/`.
+unchanged. One real run exists (`r1`, task `routing`, both arms, 2026-10-30): it showed the permission
+problem below, settled the items listed under `settled` in [`ab/recipe.json`](ab/recipe.json)
+(hooks fire and exit 0 in arm B, the config-dir scrub does not break them, the parser's totals equal the
+result event's, the init tool names) and left the `unverified` ones open (tool use under the fixed mode,
+resume cost, subagent attribution, the OAuth path). The stream shapes in the older fixtures are
+synthetic; `test/fixtures/claude-headless/real-arm-{a,b}.stream.jsonl` are the real transcripts.
 
 ```bash
 npm run bench -- agentic plan --config bench/agentic/ab/config.json --iteration dry --arm A   # spawns nothing
@@ -187,6 +190,20 @@ token shapes become `[redacted]` in `transcript*.jsonl` and, after the run, in e
 the run directory (the copied workspace, `review.json`, install tails). Retrieval-mode (N/D) runs are
 unchanged.
 
+**Permission mode.** `--permission-mode bypassPermissions` was reported as `default` by both arms in the
+first real run and every Write, Edit and writing Bash was denied: with
+`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` set, claude 2.1.308 forces the default mode ("Declare allowedTools
+explicitly, or set CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=0"). No settings key or flag undoes that offline
+(probe table in the recipe's `--allowedTools` entry). The recipe keeps the scrub, passes no mode flag
+and an explicit `--allowedTools Bash,Read,Edit,Write,NotebookEdit,Skill,Task` in both arms (identical,
+no settings.json difference between the arms), and expects `init.permissionMode` `default`. Two
+guards remain: `execute` kills a run at once when init reports another mode and records
+`permission-mode-not-effective` (no more spend); `grade` excludes any run whose stream holds a
+`system/permission_denied` event or a non-empty `permission_denials` (`exclusionReason`
+`permission-denied`, count in `permissionDenials`; the shared exclusion mark is `truncated`). A final
+message that says permissions stopped the run is counted as `blocked`, neither a pause nor an offer
+(a wording heuristic, `closingKind`).
+
 **Exclusion, never a score.** `grade` compares each run with the proof expected from the checkout
 (skills and agents under `core/shared/`). Arm A must show none of it in init; arm B must show P1
 installed, P2 skills and agents in init, P3 SessionStart fired. One classifier checks both arms for
@@ -227,8 +244,8 @@ of a word for total tokens and cost USD. Check one real resumed run before trust
 
 **Metrics** (`grading.json`, from the Claude stream parser in `ab/claude-stream.ts`): tokens
 (input, output, cache creation, cache read, total, whole tree including subagents), `subagentTokens`
-and `byModel` (from `modelUsage`), `costUsd` (`total_cost_usd`), `wallMs` (`timing.json`), `turns`,
-`toolCalls`, `toolCounts`, `subagentCalls`, and questions (`pauses`, `resumes`, `unanswered`). The
+and `byModel` (from `modelUsage`), `costUsd` (`total_cost_usd`), `wallMs` (the result event's `duration_ms`, summed over segments; `wallMsProcess` is the process wall time from `timing.json`, 1.8-3.2 s longer for start-up), `turns`,
+`toolCalls`, `toolCounts`, `subagentCalls`, and questions (`pauses`, `offers`, `blocked`, `resumes`, `unanswered`). The
 per-run cap counts cache reads, stops a run in flight from main-loop assistant usage (best effort) and
 again on the reported total.
 
