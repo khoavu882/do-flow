@@ -27,6 +27,6 @@
       "referencedBy": [], "slice": "D", "template": "package-templates/capability-provider" }
   ],
   "bundled": [
-    { "id": "doflow", "dir": "core/registry/packages/doflow", "contentDigest": "3b583d65b1da6f1252a877debe20df390def35c07abce900d01380d484ac7991" }
+    { "id": "doflow", "dir": "core/registry/packages/doflow", "contentDigest": "492b10df12d1281743ee26a31a5acab8a90c39e2b7c9ed29fdca5cc0a94bf24a" }
   ]
 }
