@@ -28,9 +28,8 @@
       "paragraph": "Work only inside the current directory. When you have finished, reply with a one-paragraph summary of what you did.",
       "pathAdd": [],
       "leak": [
-        "doflow",
+        "^doflow(?:-run)?(?:\\.[cm]?js)?(?: |$)",
         "skills/do(?:-[a-z-]+)?/SKILL\\.md",
-        "core/shared",
         "^(?:curl|wget|nc|ncat|pip3?|npm|npx)(?: |$)"
       ],
       "proof": "absent",

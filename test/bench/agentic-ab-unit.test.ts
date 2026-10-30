@@ -345,3 +345,24 @@ test('the in-flight token watch counts each assistant message once, at its large
   assert.equal(watch('not json'), 160);
   assert.equal(watch(JSON.stringify({ type: 'result' })), 160);
 });
+
+// ---------------------------------------------------------------------------------------------
+// Fix round 2 (review of the first WP-2 commits)
+
+const homeOk = { homeSetup: { ok: true, exitCode: 0 } };
+const inA = (event: any) => gradeOf(runDirOf(withLineBeforeResult(fixture('arm-a-plain'), event)), 'A');
+const inB = (event: any) => gradeOf(runDirOf(withLineBeforeResult(fixture('arm-b-doflow'), event), homeOk), 'B');
+
+test('fix 2: the arm A leak is an invocation of the doflow binary in command position, never the word doflow in an argument', () => {
+  for (const run of [(c: string) => inA(bashEvent(c)), (c: string) => inB(bashEvent(c))]) {
+    for (const command of ['rg -n "doflow roadmap" src/', 'grep -rn doflow README.md', 'cat doflow-notes.md', 'echo doflow', 'git log --grep=doflow']) {
+      const g = run(command);
+      assert.equal(g.isolation, 'clean', `${command}: ${JSON.stringify(g.isolationEvidence)}`);
+    }
+  }
+  for (const command of ['doflow retrieve --query x', 'env X=1 doflow retrieve', 'node ./bin/doflow.js x', 'npx doflow x', 'cd . && doflow x', "sh -c 'doflow x'", 'command doflow x']) {
+    assert.equal(inA(bashEvent(command)).isolation, 'leaked', command);
+  }
+  assert.equal(inB(bashEvent('doflow retrieve --query x')).isolation, 'clean', 'arm B is meant to run doflow');
+  assert.equal(inB(bashEvent('cat core/shared/skills/do/SKILL.md')).isolation, 'leaked', 'the source tree is a truth path in both arms');
+});

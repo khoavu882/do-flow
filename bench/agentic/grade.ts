@@ -544,7 +544,7 @@ function serializeGrading(g: any) {
 // ---------------------------------------------------------------------------
 
 /** Names of the truth and run-store paths a worker may never name, in any form (both arms). */
-const AB_TRUTH_SUBSTRINGS = Object.freeze(['tasks-heldout', 'bench/native', 'bench/runs', 'bench/review-miss', 'bench/agentic', 'bench/retrieval/tasks']);
+const AB_TRUTH_SUBSTRINGS = Object.freeze(['tasks-heldout', 'bench/native', 'bench/runs', 'bench/review-miss', 'bench/agentic', 'bench/retrieval/tasks', 'core/shared', 'doflow-agentic-tool']);
 /** Tools whose single `file_path` input the parser keeps as the call target. */
 const PATH_TOOLS = Object.freeze(['Read', 'Edit', 'Write', 'NotebookEdit']);
 const NETWORK_TOOLS = Object.freeze(['WebFetch', 'WebSearch']);
