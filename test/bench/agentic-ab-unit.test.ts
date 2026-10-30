@@ -244,7 +244,8 @@ test('grade: arm B with DoFlow loaded is clean, proven and metered (tokens, cost
   assert.equal(g.metrics.wallMs, 41250);
   assert.equal(g.metrics.toolCalls, 7);
   assert.equal(g.metrics.subagentCalls, 1);
-  assert.equal(g.metrics.questions.pauses, 1, 'the final text asks');
+  assert.equal(g.metrics.questions.pauses, 0, 'the closing question is an offer ("Shall I also ..."), not a block');
+  assert.equal(g.metrics.questions.offers, 1);
   assert.equal(g.routing.routed, true, 'P4: the expected skill was invoked');
 });
 
@@ -457,4 +458,18 @@ test('fix 1: the grader marks a capped or timed-out clean run censored and recor
   const leakedAndCapped = gradeOf(runDirOf(withLineBeforeResult(fixture('arm-a-plain'), bashEvent('curl http://x')), { status: { status: 'truncated', evidence: 'cap', cap: true } }), 'A');
   assert.equal(leakedAndCapped.isolation, 'leaked');
   assert.equal(leakedAndCapped.censored, null);
+});
+
+test('fix 6: closing offers and blocking questions are told apart; only a blocking question is a pause', () => {
+  const kind = claudeStream.closingKind;
+  for (const text of ['Done.\n\nWant me to add tests?', 'Done. Should I also add a test file?', '**Would you like me to refactor the helper too?**', 'Finished. Do you want me to continue?', 'Shall I also update the docs?', 'Done. Anything else?', 'Fixed it. If you would like, want me to open a PR?']) {
+    assert.equal(kind(text), 'offer', text);
+  }
+  for (const text of ['I found two a.js files. Which one should I edit?', 'Should I use TypeScript or JavaScript?', 'Is the expected output 2 or 3?', 'Which file?']) {
+    assert.equal(kind(text), 'blocking', text);
+  }
+  for (const text of ['Done.', '', null, 'Done. It is finished.\n\nQuestion for later? No, nothing.']) assert.equal(kind(text as any), null, String(text));
+  assert.equal(claudeStreamOf(fixture('arm-b-doflow')).closing, 'offer');
+  assert.equal(claudeStreamOf(fixture('arm-b-doflow')).questions.any, true, 'the WP-1 question fields are unchanged');
+  assert.equal(CONFIG.resume.reply, 'No further input is available. If the task as stated is complete, stop. Otherwise continue with the task as stated and change nothing outside it.');
 });

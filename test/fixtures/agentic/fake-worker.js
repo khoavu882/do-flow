@@ -51,7 +51,7 @@
  *              "files": { "<path>": "<content>" }, "reviewJson": [...], "reviewRaw": "<text>",
  *              "commands": [...], "reads": [...], "skills": [...], "subagents": [{ "type", "model", "tokens" }],
  *              "usage": { "input", "output", "cacheCreation", "cacheRead" }, "costUsd": n,
- *              "askSegments": n, "stream": { "messages": n, "perMessage": tokens },
+ *              "askSegments": n, "finalOffer": true, "stream": { "messages": n, "perMessage": tokens },
  *              "initOverride": { "addSkills": [], "addAgents": [], "dropSkills": [], "noHooks": true, "model": "..." } }
  *   The arm is B when `$CLAUDE_CONFIG_DIR/.fake-hooks` exists (written by `--fake-install <export>`), else A.
  *   `--fake-install <export>` stands in for `doflow install`: it projects `<export>/core/shared/{skills,agent-specs}`
@@ -333,7 +333,7 @@ function claudeMain(prompt) {
   if (spec.reviewRaw !== undefined) fs.writeFileSync(path.join(process.cwd(), 'review.json'), spec.reviewRaw);
 
   const asks = n <= (spec.askSegments || 0);
-  const text = asks ? 'I made a first pass. Should I continue?' : 'Done. Everything is in place.';
+  const text = asks ? 'I made a first pass. Should I continue?' : (spec.finalOffer ? 'Done. Would you like me to add a test file as well?' : 'Done. Everything is in place.');
   assistant([{ type: 'text', text }]);
   const mult = scenario.cumulative === false ? 1 : n;
   const u = spec.usage || { input: 10, output: 100, cacheCreation: 1000, cacheRead: 5000 };

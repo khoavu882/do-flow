@@ -745,7 +745,9 @@ function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; 
     review = { ok: parsed.ok, reason: parsed.reason, findings: parsed.findings.length, dropped: parsed.dropped };
   }
 
-  const asked = segRec?.pauses ?? reports.filter((r: any) => r.questions.any).length;
+  // pauses = blocking questions only; closing offers ("Want me to ...?") are counted apart and never resume a run.
+  const asked = segRec?.pauses ?? reports.filter((r: any) => r.questions.askUserQuestion > 0 || r.closing === 'blocking').length;
+  const offered = segRec?.offers ?? reports.filter((r: any) => r.closing === 'offer').length;
   const skills = [...new Set(reports.flatMap((r: any) => r.skillEvents.map((e: any) => e.skill)))] as string[];
   const routing = armConfig.proof === 'loaded' && Array.isArray(task.expectedSkills)
     ? { expected: task.expectedSkills, used: skills, routed: task.expectedSkills.every((n: string) => skills.includes(n)) }
@@ -781,7 +783,7 @@ function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; 
       toolCalls: agg.toolCalls,
       toolCounts: agg.toolCounts,
       subagentCalls: agg.subagentCalls,
-      questions: { pauses: asked, resumes: segRec?.resumes ?? 0, unanswered: segRec?.unansweredPause === true, askUserQuestion: agg.askUserQuestion },
+      questions: { pauses: asked, offers: offered, resumes: segRec?.resumes ?? 0, unanswered: segRec?.unansweredPause === true, askUserQuestion: agg.askUserQuestion },
     },
   };
 }

@@ -1525,6 +1525,7 @@ async function executeAbIteration(opts: any = {}) {
         let resume: string | null = null;
         let sessionId: string | null = null;
         let pauses = 0;
+        let offers = 0;
         let resumes = 0;
         let unanswered = false;
         let outcome: any = null;
@@ -1547,15 +1548,18 @@ async function executeAbIteration(opts: any = {}) {
           state.proc = null;
           if (state.interrupted) return halted();
           const report = outcome.report;
+          const blocking = report.questions.askUserQuestion > 0 || report.closing === 'blocking';
           reports.push(report);
           sessionId = report.sessionId ?? sessionId;
           const seg: any = {
             n, file, exitCode: outcome.exitCode ?? null, signal: outcome.signal ?? null, durationMs: outcome.durationMs,
-            status: report.status, sessionId: report.sessionId, asked: report.questions.any, replied: false,
+            status: report.status, sessionId: report.sessionId, asked: blocking, offered: report.closing === 'offer', replied: false,
           };
           segments.push(seg);
+          if (report.closing === 'offer' && !blocking) offers++;
           if (outcome.timedOut || outcome.spawnError || outcome.signal || capKilled || report.status !== 'success') break;
-          if (!report.questions.any) break;
+          // Only a blocking question resumes the run; a closing offer ("Want me to ...?") is counted and left unanswered.
+          if (!blocking) break;
           pauses++;
           if (resumes >= config.resume.maxResumes || !sessionId) { unanswered = true; break; }
           if (grading.aggregateReports(reports, config.resume.cumulative).totalTokens > max || deadline - now().getTime() <= 0) break;
@@ -1574,7 +1578,7 @@ async function executeAbIteration(opts: any = {}) {
           capEvidence: `cap: ${totals.usage === 'reported' ? totals.totalTokens : 'in-flight total'} tokens passed maxTokensPerRun ${max}`,
         });
         writeJson(path.join(run.runDir, RUN_FILES.runStatus), status);
-        writeJson(path.join(run.runDir, SEGMENTS_FILE), { segments, pauses, resumes, unansweredPause: unanswered });
+        writeJson(path.join(run.runDir, SEGMENTS_FILE), { segments, pauses, offers, resumes, unansweredPause: unanswered });
         if (last.finalText) fs.writeFileSync(path.join(run.runDir, RUN_FILES.lastMessage), last.finalText);
         writeJson(path.join(run.runDir, RUN_FILES.timing), {
           ...(totals.usage === 'reported' ? { total_tokens: totals.totalTokens } : {}),

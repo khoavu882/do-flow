@@ -25,6 +25,7 @@ const TMP = suiteTempDir('doflow-agentic-ab-e2e-');
 const SECRET = 'sekret-token-do-not-log';
 const CAP = '5000000';
 const PER_RUN = '100000';
+const REPLY = 'No further input is available. If the task as stated is complete, stop. Otherwise continue with the task as stated and change nothing outside it.';
 
 const git = (cwd: string, ...args: string[]) => {
   const r = childProcess.spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@localhost', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8' });
@@ -51,7 +52,7 @@ git(CHECKOUT, 'commit', '-q', '-m', 'init');
 const REV = git(CHECKOUT, 'rev-parse', 'HEAD');
 
 // ---- tasks: edit tasks whose checks pass when a.js exports 2; one review task over five cases -------------
-const EDIT_IDS = ['fix-a', 'fix-b', 'fix-c', 'fix-d', 'fix-e', 'fix-pause', 'fix-unanswered', 'fix-leak', 'fix-cap', 'fix-over', 'fix-initleak', 'fix-nolist', 'fix-nohook', 'fix-timeout'];
+const EDIT_IDS = ['fix-a', 'fix-b', 'fix-c', 'fix-d', 'fix-e', 'fix-pause', 'fix-unanswered', 'fix-leak', 'fix-cap', 'fix-over', 'fix-initleak', 'fix-nolist', 'fix-nohook', 'fix-timeout', 'fix-offer'];
 const natives = EDIT_IDS.map((id) => ({
   id, purpose: id, messages: [`TASK-${id}: make a.js export 2.`], files: { 'a.js': 'module.exports = 1;\n' },
   checks: "if (require('./a.js') !== 2) process.exit(1);", expectedSkills: ['do-implement'], maxQuestions: 0,
@@ -88,6 +89,7 @@ const SCENARIO_TASKS: Record<string, any> = {
   'fix-e': { A: { files: { 'a.js': 'module.exports = 1;\n' }, usage: { input: 10, output: 100, cacheCreation: 1000, cacheRead: 4000 } }, B: { files: PASS, skills: ['do-implement'], usage: { input: 10, output: 150, cacheCreation: 2000, cacheRead: 8000 } } },
   'fix-pause': both({ files: PASS, askSegments: 2 }),
   'fix-unanswered': both({ files: PASS, askSegments: 3 }),
+  'fix-offer': both({ files: PASS, finalOffer: true }),
   'fix-leak': both({ files: PASS, commands: ['curl http://example.test/payload'] }),
   'fix-cap': both({ behaviour: 'hang-after-usage', stream: { messages: 4, perMessage: 60000 } }),
   'fix-over': both({ files: PASS, usage: { input: 10, output: 100, cacheCreation: 1000, cacheRead: 200000 } }),
@@ -283,9 +285,10 @@ test('D3: a run that stops to ask is resumed with the fixed reply up to twice, a
   assert.equal(paused.unansweredPause, false);
   assert.deepEqual(paused.segments.map((s: any) => [s.asked, s.replied]), [[true, true], [true, true], [false, false]]);
   assert.ok(fs.existsSync(runFile('pause-a', 'fix-pause', 'transcript.3.jsonl')));
-  const resumed = dumps().filter((c: any) => c.kind === 'run' && c.resumed && c.prompt === 'Proceed with your best judgement; do not ask again');
+  const resumed = dumps().filter((c: any) => c.kind === 'run' && c.resumed && c.prompt === REPLY);
   assert.ok(resumed.length >= 4, 'each resume sent the reply on stdin with --resume');
   assert.ok(resumed[0].argv.includes('--resume'));
+  assert.equal(paused.offers, 0);
   const unanswered = readJson(runFile('pause-a', 'fix-unanswered', 'segments.json'));
   assert.equal(unanswered.pauses, 3);
   assert.equal(unanswered.resumes, 2, 'never more than maxResumes');
@@ -430,4 +433,21 @@ test('noise refuses a candidate-arm iteration and too few repeats', { skip: SKIP
   const few = await cli(['noise', '--iterations', 'a-r1'], { taskSet });
   assert.equal(few.code, 2);
   assert.match(few.err, /needs k = 2/);
+});
+
+test('fix 6: a closing offer is counted apart from a blocking question and never resumes the run; the reply is neutral', { skip: SKIP_WIN }, async () => {
+  assert.equal(CONFIG.resume.reply, REPLY);
+  const before = dumps().filter((c: any) => c.kind === 'run' && c.resumed).length;
+  const r = await exec('offer-a', 'A', ['fix-offer', 'fix-pause']);
+  assert.equal(r.code, 0, r.err);
+  const offered = readJson(runFile('offer-a', 'fix-offer', 'segments.json'));
+  assert.equal(offered.segments.length, 1, 'no resume for an offer');
+  assert.equal(offered.pauses, 0);
+  assert.equal(offered.offers, 1);
+  assert.equal(offered.resumes, 0);
+  assert.equal(offered.unansweredPause, false);
+  assert.equal(dumps().filter((c: any) => c.kind === 'run' && c.resumed).length - before, 2, 'only the blocking task (fix-pause) was resumed, twice');
+  const g = await gradeOf('offer-a', ['fix-offer', 'fix-pause']);
+  assert.deepEqual([g['fix-offer'].metrics.questions.pauses, g['fix-offer'].metrics.questions.offers], [0, 1]);
+  assert.deepEqual([g['fix-pause'].metrics.questions.pauses, g['fix-pause'].metrics.questions.offers], [2, 0]);
 });

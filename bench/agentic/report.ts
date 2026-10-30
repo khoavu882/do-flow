@@ -655,6 +655,7 @@ function abReportOf({ runRoot, iterations, taskSet, config, noiseConfig, noisePa
         wallSeconds: mean((g) => (Number.isFinite(g.metrics.wallMs) ? g.metrics.wallMs / 1000 : null)), toolCalls: mean((g) => g.metrics.toolCalls ?? null),
         turns: mean((g) => g.metrics.turns ?? null), subagentTokens: mean((g) => g.metrics.subagentTokens ?? null),
         pauses: avg(finite(set.map((byTask) => byTask[task.id]?.metrics.questions.pauses ?? null))),
+        offers: avg(finite(set.map((byTask) => byTask[task.id]?.metrics.questions.offers ?? null))),
         resumes: avg(finite(set.map((byTask) => byTask[task.id]?.metrics.questions.resumes ?? null))),
         models: [...new Set(set.flatMap((byTask) => Object.keys(byTask[task.id]?.metrics.byModel || {})))].sort(),
       };
@@ -702,9 +703,14 @@ function abReportOf({ runRoot, iterations, taskSet, config, noiseConfig, noisePa
     return avg(finite(scored));
   };
   const spent = (set: Record<string, any>[]) => set.flatMap((byTask) => Object.values(byTask) as any[]).reduce((s, g) => s + (g.metrics.tokens?.total ?? 0), 0);
+  const questionTally = (set: Record<string, any>[]) => {
+    const all = set.flatMap((byTask) => Object.values(byTask) as any[]);
+    const sum = (key: string) => all.reduce((n, g) => n + (g.metrics.questions?.[key] ?? 0), 0);
+    return { runs: all.length, blocking: sum('pauses'), offers: sum('offers'), resumes: sum('resumes'), unanswered: all.filter((g) => g.metrics.questions?.unanswered).length };
+  };
   const validity = {
-    A: { ...exclusionTally(A), proof: proofCounts(A), capped: capped(A), successIfCappedScored0: sensitivity(A), spentTokens: spent(A) },
-    B: { ...exclusionTally(B), proof: proofCounts(B), capped: capped(B), successIfCappedScored0: sensitivity(B), spentTokens: spent(B) },
+    A: { ...exclusionTally(A), questions: questionTally(A), proof: proofCounts(A), capped: capped(A), successIfCappedScored0: sensitivity(A), spentTokens: spent(A) },
+    B: { ...exclusionTally(B), questions: questionTally(B), proof: proofCounts(B), capped: capped(B), successIfCappedScored0: sensitivity(B), spentTokens: spent(B) },
     routing: { eligible: routable.length, routed: routable.filter((g) => g.routing.routed).length },
     promptShaEqual: true,
     p5: 'deferred (first-request context delta is not measured by this runner)',
@@ -750,11 +756,11 @@ function abReportLines(r: any) {
   }
 
   lines.push('', `Part 2 - cost and behaviour (mean over repeats of the runs that were not excluded; ${a} then ${b} per task)`);
-  lines.push('| Task | arm | input | cache_creation | cache_read | output | total tokens | cost USD | wall s | tool calls | pauses | resumes | turns | subagent tokens | models |', '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
+  lines.push('| Task | arm | input | cache_creation | cache_read | output | total tokens | cost USD | wall s | tool calls | blocking pauses | closing offers | resumes | turns | subagent tokens | models |', '|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|');
   for (const t of r.tasksCost) {
     for (const [arm, label] of [['A', a], ['B', b]] as [string, string][]) {
       const s = t[arm];
-      lines.push(`| ${t.id} | ${label} | ${num(s.input, 0)} | ${num(s.cacheCreation, 0)} | ${num(s.cacheRead, 0)} | ${num(s.output, 0)} | ${num(s.totalTokens, 0)}${s.censored ? ` (lower bound, ${s.censored} censored)` : ''} | ${num(s.costUsd, 4)} | ${num(s.wallSeconds, 1)} | ${num(s.toolCalls, 1)} | ${num(s.pauses, 2)} | ${num(s.resumes, 2)} | ${num(s.turns, 1)} | ${num(s.subagentTokens, 0)} | ${s.models.join(', ') || 'none'} |`);
+      lines.push(`| ${t.id} | ${label} | ${num(s.input, 0)} | ${num(s.cacheCreation, 0)} | ${num(s.cacheRead, 0)} | ${num(s.output, 0)} | ${num(s.totalTokens, 0)}${s.censored ? ` (lower bound, ${s.censored} censored)` : ''} | ${num(s.costUsd, 4)} | ${num(s.wallSeconds, 1)} | ${num(s.toolCalls, 1)} | ${num(s.pauses, 2)} | ${num(s.offers, 2)} | ${num(s.resumes, 2)} | ${num(s.turns, 1)} | ${num(s.subagentTokens, 0)} | ${s.models.join(', ') || 'none'} |`);
     }
   }
   lines.push(`| ratio ${b}/${a}, paired tasks | | | | | | ${num(r.cost.totalTokens.ratio, 3)} | ${num(r.cost.costUsd.ratio, 3)} | ${num(r.cost.wallSeconds.ratio, 3)} | ${num(r.cost.toolCalls.ratio, 3)} | | | | | |`);
@@ -763,7 +769,7 @@ function abReportLines(r: any) {
     const c = r.cost[metric.id];
     lines.push(`| ${metric.label} | ${c.n} | ${signed(c.gain)} | ${num(c.noise)} | ${num(c.band)} | ${Array.isArray(c.ci95) ? `[${num(c.ci95[0])}, ${num(c.ci95[1])}]` : 'none'} | ${c.verdict} (${c.reason}) |`);
   }
-  lines.push('questions: counts only, no verdict (a zero baseline makes the ratio meaningless); see the pauses and resumes columns.');
+  lines.push('questions: counts only, no verdict (a zero baseline makes the ratio meaningless); see the blocking pauses, closing offers and resumes columns.');
 
   lines.push('', 'Part 3 - fixed cost (DoFlow before any work; read from the --fixed-cost input, not measured here)');
   if (r.fixed === null) lines.push('not supplied: pass --fixed-cost <file> ({ rows: [{ item, value, source }], hookLatencyMsP50?: number })');
@@ -777,6 +783,7 @@ function abReportLines(r: any) {
     const v = r.validity[arm];
     lines.push(`arm ${label}: ${v.excluded} of ${v.runs} run(s) excluded (share ${num(v.share)} vs max ${r.thresholds.maxInfraShare}): ${marks(v.marks)}; reasons: ${marks(v.reasons)}; spent ${v.spentTokens} tokens incl. excluded`);
     lines.push(`  proof: P1 installed ${v.proof.p1}/${v.proof.runs}, P2 harness saw it ${v.proof.p2}/${v.proof.runs}, P3 hooks fired ${v.proof.p3}/${v.proof.runs}, DoFlow absent ${v.proof.absent}/${v.proof.runs}`);
+    lines.push(`  questions: ${v.questions.blocking} blocking pause(s), ${v.questions.offers} closing offer(s) over ${v.questions.runs} run(s); ${v.questions.resumes} resume(s), ${v.questions.unanswered} unanswered`);
     lines.push(`  cap sensitivity: ${v.capped.runs} run(s) stopped at the cap${v.capped.runs ? ` (${v.capped.ids.join(', ')})` : ''}; success mean with those scored 0: ${num(v.successIfCappedScored0)}`);
   }
   lines.push(`censored (stopped by the cap or the timeout; kept in cost and wall at a lower bound, out of the quality scores): arm ${a} ${r.censored.A.length} of ${r.censored.runs.A}${r.censored.A.length ? ` (${r.censored.A.join(', ')})` : ''}; arm ${b} ${r.censored.B.length} of ${r.censored.runs.B}${r.censored.B.length ? ` (${r.censored.B.join(', ')})` : ''}`);

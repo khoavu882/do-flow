@@ -73,6 +73,8 @@ type ClaudeRunReport = {
   subagentCalls: { id: string | null; subagentType: string | null }[];
   skillEvents: SkillEvent[];
   questions: { askUserQuestion: number; finalTextAsks: boolean; any: boolean };
+  /** How the final message closes: a `blocking` question needs an answer, an `offer` ("Want me to...") does not, null when it does not end in a question. */
+  closing: 'blocking' | 'offer' | null;
   permissionDenials: number;
   apiRetries: number;
   resultCount: number;
@@ -152,6 +154,23 @@ function endsAsking(text: string | null): boolean {
   if (paragraphs.length === 0) return false;
   const last = paragraphs[paragraphs.length - 1].replace(/[\s*_`"'”’)\]>]+$/u, '');
   return last.endsWith('?');
+}
+
+/**
+ * The opening of the last sentence of a closing question that makes it an offer of extra work, not a block.
+ * HEURISTIC, with a known error in both directions: a blocking question worded as an offer ("Want me to use
+ * TypeScript or JavaScript?") is called an offer and the run is not resumed; an offer worded otherwise
+ * ("Is a test file useful?") is called blocking and is resumed once, which costs a segment but changes nothing.
+ */
+const OFFER_OPENER = /^(?:(?:and|also|so|if you(?:'d| would) like),?\s+)?(?:do you want me to|want me to|would you like me to|would you like to|would you like|should i also|shall i also|should i go ahead|shall i go ahead|can i also|may i also|anything else|is there anything else)\b/i;
+
+/** `blocking` or `offer` for a final message that ends in a question, else null. */
+function closingKind(text: string | null): 'blocking' | 'offer' | null {
+  if (!endsAsking(text)) return null;
+  const paragraphs = String(text).split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const last = paragraphs[paragraphs.length - 1].replace(/[\s*_`"'”’)\]>]+$/u, '');
+  const sentence = (last.split(/(?<=[.!?])\s+/).pop() ?? last).replace(/^[\s*_`"'“‘(\[>#-]+/u, '');
+  return OFFER_OPENER.test(sentence) ? 'offer' : 'blocking';
 }
 
 function createClaudeStreamJsonV1() {
@@ -312,6 +331,7 @@ function createClaudeStreamJsonV1() {
         subagentCalls: subagentCalls.slice(),
         skillEvents: skillEvents.slice(),
         questions: { askUserQuestion, finalTextAsks, any: askUserQuestion > 0 || finalTextAsks },
+        closing: closingKind(finalText),
         permissionDenials: Array.isArray(result?.permission_denials) ? result.permission_denials.length : 0,
         apiRetries,
         resultCount,
@@ -361,4 +381,5 @@ module.exports = {
   loadProof,
   totalTokens,
   endsAsking,
+  closingKind,
 };

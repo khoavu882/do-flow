@@ -63,7 +63,7 @@
   "maxTokensPerRun": null,
   "resume": {
     "maxResumes": 2,
-    "reply": "Proceed with your best judgement; do not ask again",
+    "reply": "No further input is available. If the task as stated is complete, stop. Otherwise continue with the task as stated and change nothing outside it.",
     "cumulative": true
   }
 }
