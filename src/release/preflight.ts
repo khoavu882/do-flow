@@ -7,7 +7,7 @@ const { execFileSync } = require('node:child_process');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { parseSemVer, compareSemVer } = require('../helper/semver.ts');
 const { changelogSection } = require('./changelog-section.ts');
-const { releaseWorkflowFindings } = require('./release-workflow.ts');
+const { releaseWorkflowFindings, STABLE_ENVIRONMENT } = require('./release-workflow.ts');
 
 const PACKAGE_NAME = '@khoavu882/doflow';
 const PLUGIN_MANIFESTS = [
@@ -16,6 +16,10 @@ const PLUGIN_MANIFESTS = [
   'core/.plugin/plugin.json',
 ];
 const RELEASE_TAG_PATTERN = /^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
+// STABLE_ENVIRONMENT is the GitHub environment release.yml binds the preflight job to for a stable
+// tag. GitHub creates an environment with no protection on first use, so --allow-stable is honoured
+// only when that environment exists and requires at least one reviewer; any other answer refuses.
+const REPOSITORY_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
 type Check = { id: string, ok: boolean, skipped?: boolean, message: string };
 
@@ -110,6 +114,53 @@ function addChangelogMergeCheck({
 }
 
 /**
+ * Whether the stable environment holds a job for a named reviewer. Fails closed: offline, no
+ * repository, a missing environment, an unreadable answer or a rule with no reviewer all refuse.
+ */
+function stableEnvironmentGate({
+  repoRoot,
+  offline,
+  envImpl,
+  execFileSyncImpl,
+}: {
+  repoRoot: string,
+  offline: boolean,
+  envImpl: Record<string, string | undefined>,
+  execFileSyncImpl: typeof execFileSync,
+}): { ok: boolean, message: string } {
+  const where = `GitHub environment ${STABLE_ENVIRONMENT}`;
+  if (offline) {
+    return { ok: false, message: `stable release refused: --offline cannot verify that ${where} requires reviewers` };
+  }
+  const repository = envImpl.GITHUB_REPOSITORY || '{owner}/{repo}';
+  if (envImpl.GITHUB_REPOSITORY && !REPOSITORY_PATTERN.test(envImpl.GITHUB_REPOSITORY)) {
+    return { ok: false, message: `stable release refused: GITHUB_REPOSITORY is not owner/name` };
+  }
+  let environment: any;
+  try {
+    environment = JSON.parse(String(execFileSyncImpl('gh', [
+      'api', `repos/${repository}/environments/${STABLE_ENVIRONMENT}`,
+    ], { cwd: repoRoot, encoding: 'utf8', maxBuffer: 1024 * 1024 })));
+  } catch (error: any) {
+    return {
+      ok: false,
+      message: `stable release refused: could not read ${where} (${String(error.message).split('\n')[0]}); `
+        + 'create it with a required reviewer in the repository settings',
+    };
+  }
+  const rules = Array.isArray(environment?.protection_rules) ? environment.protection_rules : [];
+  const reviewers = rules.filter((rule: any) => rule?.type === 'required_reviewers')
+    .flatMap((rule: any) => (Array.isArray(rule.reviewers) ? rule.reviewers : []));
+  if (environment?.name !== STABLE_ENVIRONMENT || reviewers.length === 0) {
+    return {
+      ok: false,
+      message: `stable release refused: ${where} has no required reviewer, so nothing held this job for approval`,
+    };
+  }
+  return { ok: true, message: `${where} requires ${reviewers.length} reviewer(s) before this job runs` };
+}
+
+/**
  * Evaluates the local release preflight. The command runner is injectable so fixtures never use
  * Git or npm and cannot contact the network.
  */
@@ -120,6 +171,7 @@ function runPreflight({
   tagPushed = false,
   allowStable = false,
   fsImpl = fs,
+  envImpl = process.env,
   execFileSyncImpl = execFileSync,
 }: {
   repoRoot?: string,
@@ -128,6 +180,7 @@ function runPreflight({
   tagPushed?: boolean,
   allowStable?: boolean,
   fsImpl?: typeof fs,
+  envImpl?: Record<string, string | undefined>,
   execFileSyncImpl?: typeof execFileSync,
 } = {}): { ok: boolean, checks: Check[] } {
   const checks: Check[] = [];
@@ -199,10 +252,16 @@ function runPreflight({
   }
 
   const parsedVersion = version ? parseSemVer(version) : null;
-  const stableAllowed = Boolean(parsedVersion?.prerelease.length) || allowStable;
-  addCheck(checks, 'stable-allowed', stableAllowed,
-    stableAllowed ? `version ${version || '(unavailable)'} is permitted for this cut`
-      : `stable releases require --allow-stable (version ${version || '(unavailable)'})`);
+  if (parsedVersion?.prerelease.length) {
+    addCheck(checks, 'stable-allowed', true, `version ${version} is permitted for this cut`);
+  } else if (!allowStable) {
+    addCheck(checks, 'stable-allowed', false,
+      `stable releases require --allow-stable and the ${STABLE_ENVIRONMENT} reviewer gate (version ${version || '(unavailable)'})`);
+  } else {
+    const gate = stableEnvironmentGate({ repoRoot, offline, envImpl, execFileSyncImpl });
+    addCheck(checks, 'stable-allowed', gate.ok,
+      gate.ok ? `stable version ${version} is permitted: ${gate.message}` : gate.message);
+  }
 
   if (offline) {
     addCheck(checks, 'npm-unpublished', true,

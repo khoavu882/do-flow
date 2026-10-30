@@ -792,8 +792,20 @@ underscore or dash (starting with a letter or digit, no `..`) is refused with ex
 
 - `beta-candidate` holds a just-published prerelease until `verify-registry` passes and is empty otherwise.
 - `beta` is the newest verified prerelease, moved only by `promote`.
-- `latest` is moved only by the user (it points to `2.0.0-beta.4` now; UD-1 decides whether it follows each verified beta).
-- A stable version is refused until the user decides stable (UD-3).
+- `latest` is moved by `promote` only for an approved stable tag, and otherwise only by the user (it points to `2.0.0-beta.4` now; UD-1 decides whether it follows each verified beta).
+- Cutting a stable version stays the user's decision (UD-3); the workflow lets it through only behind the stable gate below.
+
+#### Stable cut (`vX.Y.Z`, no hyphen)
+
+A stable tag runs the `preflight` job in the GitHub environment `release-stable`, so GitHub holds the job until a required reviewer approves it; preflight then passes `--allow-stable` and reads the environment back (`gh api repos/<owner>/<repo>/environments/release-stable`). A prerelease tag runs in the environment `release-prerelease` and never passes the flag. That environment needs no configuration (GitHub creates it on first use) and must stay unprotected: a prerelease must not wait on approval. Rule R14 refuses a `release.yml` that names `--allow-stable` anywhere else, for a prerelease, or without that exact binding.
+
+The user configures this once, outside the repository: Settings > Environments > New environment `release-stable`, enable "Required reviewers" and add at least one reviewer. Optionally restrict its deployment tags to `v*`. Until that is done the stable cut fails closed: GitHub creates `release-stable` with no protection on first use, and preflight's `stable-allowed` check refuses any environment that is missing, unreadable, or names no required reviewer, before anything is published.
+
+What the gate does and does not prove:
+- The approver can be the person who pushed the tag unless "Prevent self-review" is on, and repository administrators can bypass the approval unless "Allow administrators to bypass" is off. Preflight reads neither setting, so in a single-maintainer repository the gate means only that someone holding the user's GitHub credentials approved the run.
+- Preflight verifies how `release-stable` is configured, not that this run was approved, and R14 finds the flag by its text. The gate stops accidental stable cuts and forces a human step; it is not a defence against someone with write access to the workflow.
+
+To check the gate before tagging, run `node src/release/preflight.ts --allow-stable` with `gh` signed in. It calls `gh` only once `package.json` is at the stable version (a prerelease version never looks the environment up), and `--offline` always refuses a stable cut.
 
 #### Rollback
 

@@ -12,8 +12,15 @@ permissions: {}
 jobs:
   preflight:
     runs-on: ubuntu-latest
+    # A stable tag (no hyphen) runs this job in the release-stable environment, so GitHub holds it
+    # until one of that environment's required reviewers approves; a prerelease runs in the
+    # unprotected release-prerelease environment, which needs no setup and must not wait.
+    # GitHub creates an environment with no reviewers on first use, so preflight reads the
+    # environment back and refuses the stable cut unless it names a required reviewer (R14).
+    environment: ${{ !contains(github.ref_name, '-') && 'release-stable' || 'release-prerelease' }}
     permissions:
       contents: read
+      actions: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -21,7 +28,16 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24.22.1
-      - run: npm run release:preflight -- --tag "$GITHUB_REF_NAME" --tag-pushed
+      - name: Run release preflight
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          allow_stable=""
+          case "$GITHUB_REF_NAME" in
+            *-*) ;;
+            *) allow_stable="--allow-stable" ;;
+          esac
+          npm run release:preflight -- --tag "$GITHUB_REF_NAME" --tag-pushed $allow_stable
 
   # Reuses the PR suite verbatim rather than restating it, so the two can never drift.
   test:
