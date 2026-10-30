@@ -20,7 +20,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { REPO } = require('./_shared.ts');
+const { REPO, skillFiles } = require('./_shared.ts');
 const { tempDir } = require('../helper/tmp.ts');
 
 const BASH_DIR = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bash');
@@ -204,6 +204,26 @@ test('G8: every flag docs/reference.md documents for a skill exists in that skil
     }
   }
   assert.deepEqual(mismatches, [], `docs/reference.md documents flags that do not exist:\n  ${mismatches.join('\n  ')}`);
+});
+
+test('G8: every flag a skill declares in its argument-hint is in that skill\'s docs/reference.md row', () => {
+  // The other direction of the test above. It replaces flag-index completeness (the deleted G10),
+  // which caught a declared flag with no documentation row; reference.md carries each skill's
+  // argument-hint verbatim, so a flag added to a skill and not to its row is a missing row cell.
+  const ref = fs.readFileSync(path.join(REPO, 'docs', 'reference.md'), 'utf8');
+  const flagsOf = (text: any) => new Set([...text.matchAll(/--[a-z][a-z-]*/g)].map((m) => m[0]));
+  const rows = new Map([...ref.matchAll(/^\| `\/(do[a-z-]*)((?:[^|`]|\\\|)*)`/gm)].map((m) => [m[1], m[2]]));
+
+  const missing: any = [];
+  for (const { name, file } of skillFiles()) {
+    const hint = fs.readFileSync(file, 'utf8').match(/^argument-hint:\s*"?(.*?)"?\s*$/m)?.[1];
+    if (!hint) continue;
+    const documented = flagsOf(rows.get(name) ?? '');
+    for (const flag of flagsOf(hint)) {
+      if (!documented.has(flag)) missing.push(`${name}: argument-hint declares ${flag}, its reference.md row does not`);
+    }
+  }
+  assert.deepEqual(missing, [], `docs/reference.md rows are missing declared flags:\n  ${missing.join('\n  ')}`);
 });
 
 /**
