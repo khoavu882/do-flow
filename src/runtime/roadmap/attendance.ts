@@ -11,8 +11,8 @@
  *       literally: an unrecognised value is NOT a worker here, although the hook identity policy
  *       treats it as one, because uncertainty must read as `attended`; or
  *   (b) all of: the run record `.doflow/state/roadmap/runs/<run>.json` is open (no `closedAt`); its
- *       slot for the seed row with this slug holds a `perform` (the stage is still pending); that row
- *       is not on `hold`; and the autopilot kill switch is enabled (the reader the policy decisions use).
+ *       slot for the seed row with this slug holds a `perform` (the stage is still pending) and no `held` or
+ *       `paused` mark; that row is not on `hold`; and the autopilot kill switch is enabled (the reader the policy decisions use).
  * Anything else, including a missing or unreadable record, is `attended`. The signal is derived from
  * state the runtime owns; a forged value only reaches the verbs the forging session itself calls.
  *
@@ -36,27 +36,36 @@ function mainRootOf(cwd: string): string {
   return path.resolve(cwd);
 }
 
-function readJson(file: string, fsImpl: any): any {
-  return JSON.parse(fsImpl.readFileSync(file, 'utf8'));
+/**
+ * The validation loop.ts readRunFile applies (steps, n and log included). loop.ts does not export it
+ * and is edited in parallel by other packages, so the check is repeated here; a record that fails it
+ * is unreadable to the loop and therefore reads as `attended`, never as a signal.
+ */
+function validRecord(value: any): boolean {
+  return Boolean(value) && value.schema === 1 && typeof value.runId === 'string' && RUN_ID.test(value.runId)
+    && Number.isSafeInteger(value.steps) && Number.isSafeInteger(value.n)
+    && Boolean(value.rows) && typeof value.rows === 'object' && Array.isArray(value.log)
+    && typeof value.createdAt === 'string';
+}
+
+function readRecord(file: string, fsImpl: any): any {
+  const value = JSON.parse(fsImpl.readFileSync(file, 'utf8'));
+  if (!validRecord(value)) throw new Error('not a schema 1 run record');
+  return value;
 }
 
 /** The named run's record, else the newest open one; null when there is none. Throws when unreadable. */
 function loadRun(runsDir: string, requested: string | undefined, fsImpl: any): any {
-  const valid = (value: any): boolean => Boolean(value) && value.schema === 1 && typeof value.runId === 'string' && RUN_ID.test(value.runId)
-    && Boolean(value.rows) && typeof value.rows === 'object' && typeof value.createdAt === 'string';
   if (requested) {
-    let record: any;
-    try { record = readJson(path.join(runsDir, `${requested}.json`), fsImpl); }
+    try { return readRecord(path.join(runsDir, `${requested}.json`), fsImpl); }
     catch (error: any) { if (error.code === 'ENOENT') return null; throw error; }
-    if (!valid(record)) throw new Error('not a schema 1 run record');
-    return record;
   }
   let names: string[];
   try { names = fsImpl.readdirSync(runsDir); }
   catch (error: any) { if (error.code === 'ENOENT') return null; throw error; }
   const open = names.filter((name) => /^rl-.*\.json$/.test(name)).sort()
-    .map((name) => readJson(path.join(runsDir, name), fsImpl))
-    .filter((record) => { if (!valid(record)) throw new Error('not a schema 1 run record'); return !record.closedAt; })
+    .map((name) => readRecord(path.join(runsDir, name), fsImpl))
+    .filter((record) => !record.closedAt)
     .sort((a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : a.runId < b.runId ? -1 : 1));
   return open.at(-1) || null;
 }
@@ -84,7 +93,11 @@ function resolveAttendance(options: any = {}): any {
   const row = rows.find((entry: any) => entry && entry.slug === options.taskId);
   if (!row) return attended('row-unknown');
   if (row.hold) return attended('row-held');
-  const perform = record.rows?.[row.id]?.perform;
+  const slot = record.rows?.[row.id];
+  // A held or paused slot is machine state the loop stopped on for a person (hold, gate, dispatch, budget).
+  if (slot?.held) return attended('slot-held');
+  if (slot?.paused) return attended('slot-paused');
+  const perform = slot?.perform;
   if (!perform || typeof perform !== 'object' || typeof perform.stage !== 'string') return attended('no-pending-perform');
 
   let enabled = false;

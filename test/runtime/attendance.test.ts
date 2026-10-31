@@ -95,6 +95,37 @@ test('attended: the slot holds no perform (the stage was performed or never issu
   assert.deepEqual(fixture(t, { perform: { stage: 7 } }).ask(), { attendance: 'attended', reason: 'no-pending-perform' });
 });
 
+test('attended: the slot is held or paused, whatever else holds', (t) => {
+  const f = fixture(t);
+  const write = (slot: any) => {
+    const body = JSON.parse(fs.readFileSync(f.runFile, 'utf8'));
+    body.rows['113'] = { ...body.rows['113'], ...slot };
+    fs.writeFileSync(f.runFile, JSON.stringify(body));
+  };
+  write({ held: { kind: 'gate', gate: 'gate-b', reason: 'verify-missing' } });
+  assert.deepEqual(f.ask(), { attendance: 'attended', reason: 'slot-held' });
+  write({ held: undefined, paused: { reason: 'budget' } });
+  assert.deepEqual(f.ask(), { attendance: 'attended', reason: 'slot-paused' });
+  write({ paused: undefined });
+  assert.equal(f.ask().attendance, 'unattended', 'control: the same slot without a mark is unattended');
+});
+
+test('attended: a record the loop would call unreadable (steps, n or log missing or malformed)', (t) => {
+  for (const drop of [['steps'], ['n'], ['log'], ['steps', 'n', 'log']]) {
+    const f = fixture(t);
+    const body = JSON.parse(fs.readFileSync(f.runFile, 'utf8'));
+    for (const key of drop) delete body[key];
+    fs.writeFileSync(f.runFile, JSON.stringify(body));
+    assert.deepEqual(f.ask({ run: RUN_ID }), { attendance: 'attended', reason: 'run-unreadable' }, drop.join());
+    assert.deepEqual(f.ask(), { attendance: 'attended', reason: 'run-unreadable' }, drop.join());
+  }
+  const g = fixture(t);
+  const body = JSON.parse(fs.readFileSync(g.runFile, 'utf8'));
+  body.steps = 1.5; body.log = {};
+  fs.writeFileSync(g.runFile, JSON.stringify(body));
+  assert.equal(g.ask().reason, 'run-unreadable');
+});
+
 test('attended: a slug that names no seed row', (t) => {
   assert.deepEqual(fixture(t).ask({ taskId: '999-other' }), { attendance: 'attended', reason: 'row-unknown' });
 });
