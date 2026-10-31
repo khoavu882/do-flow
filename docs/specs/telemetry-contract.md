@@ -97,11 +97,11 @@ No behaviour depends on one harness; observation coverage is tabulated per harne
 
 | Harness | Pre-shell event | Command class | Post-shell observation | Duration & status |
 |---|---|---|---|---|
-| `claude` | observed (`PreToolUse`) | observed | observed (`PostToolUse`, `PostToolUseFailure`) | measured |
-| `codex` | observed (`PreToolUse`) | observed | none | `unreached` |
-| `kiro` | observed (`PreToolUse`) | observed | none | `unreached` |
-| `antigravity` | observed (`PreToolUse`) | observed | none | `unreached` |
-| `pi` | observed (`tool_call`) | observed | none | `unreached` |
+| `claude` | unobserved | observed (from the `PostToolUse` observer only) | observed (`PostToolUse`, `PostToolUseFailure`) | measured |
+| `codex` | unobserved | unobserved | none | `unreached` |
+| `kiro` | unobserved | unobserved | none | `unreached` |
+| `antigravity` | unobserved | unobserved | none | `unreached` |
+| `pi` | unobserved | unobserved | none | `unreached` |
 | `opencode` | unobserved | unobserved | none | unobserved |
 | `copilot` | unobserved | unobserved | none | unobserved |
 

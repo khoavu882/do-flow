@@ -159,8 +159,8 @@ test('hotspots: 4 samples is NOT_DETERMINED; steady durations are CLEAR', (t) =>
 });
 
 test('hotspots: hook lines without a post-shell observation carry no duration, so NOT_DETERMINED (NFR-008)', (t) => {
-  const hooks = [1, 2, 3, 4, 5, 6].map((i) => ({ timestamp: sec(i), kind: 'hook', harness: 'claude', event: 'PreToolUse', policy: 'user-prompt-submit',
-    verdict: 'allow', duration_ms: null, tool: 'Bash', tool_call_id: `tc${i}` }));
+  const hooks = [1, 2, 3, 4, 5, 6].map((i) => ({ timestamp: sec(i), kind: 'hook', harness: 'claude', event: 'UserPromptSubmit', policy: 'user-prompt-submit',
+    verdict: 'allow', duration_ms: null }));
   const a = analyzeDir(seed(t, hooks));
   assert.equal(detector(a, 'latency-hotspots').status, 'NOT_DETERMINED');
   assert.equal(a.verdict, 'insufficient-data');

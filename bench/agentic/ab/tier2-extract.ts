@@ -10,8 +10,10 @@
  *
  * - SOURCE for a deny: a `system/hook_response` event of a Stop or PreToolUse hook with exit code 2, or whose output
  *   carries `permissionDecision: deny` or `decision: block`. The hook id is read from the `[stop-check]`-style
- *   prefix of its message when there is one, else from the hook event (Stop = stop-check, PreToolUse =
- *   pre-implementation-gate). The fallback is INFERRED, so such a deny is marked.
+ *   prefix of its message when there is one, else from the hook event (Stop = stop-check, PreToolUse:Bash =
+ *   unknown, other PreToolUse = pre-implementation-gate). The fallback is INFERRED, so such a deny is marked.
+ *   A transcript recorded before `pre-bash-guard` was removed keeps that id (HISTORIC_HOOK_IDS): it is counted
+ *   under its own name and never attributed to a hook that still exists.
  * - SOURCE for the class: the `--task-class <x>` argument of a Bash command that runs `classify`.
  * No I/O.
  */
@@ -19,6 +21,8 @@
 const claudeStream = require('./claude-stream.ts');
 
 const HOOK_IDS = Object.freeze(['pre-implementation-gate', 'stop-check']);
+/** Hooks DoFlow no longer ships; an old transcript can still carry their denies. */
+const HISTORIC_HOOK_IDS = Object.freeze(['pre-bash-guard']);
 const CLASSIFY = /\bclassify\b[^\n]*?--task-class[ =]+["']?([A-Za-z][A-Za-z0-9-]*)/;
 const REASON_CHARS = 200;
 const TOKEN_KEYS = ['inputTokens', 'outputTokens', 'cacheCreationInputTokens', 'cacheReadInputTokens'] as const;
@@ -41,9 +45,9 @@ function hookDenies(transcript: string): Deny[] {
     const exitCode = Number.isInteger(ev.exit_code) ? ev.exit_code : null;
     const denied = exitCode === 2 || /"permissionDecision"\s*:\s*"deny"/.test(body) || /"decision"\s*:\s*"block"/.test(body);
     if (!denied) continue;
-    const named = HOOK_IDS.find((id) => body.includes(`[${id}]`) || body.includes(`${id}:`));
+    const named = [...HOOK_IDS, ...HISTORIC_HOOK_IDS].find((id) => body.includes(`[${id}]`) || body.includes(`${id}:`));
     const hookName = text(ev.hook_name);
-    const byEvent = hookEvent === 'Stop' ? 'stop-check' : 'pre-implementation-gate';
+    const byEvent = hookEvent === 'Stop' ? 'stop-check' : (/:Bash$/.test(hookName) ? 'unknown' : 'pre-implementation-gate');
     out.push({ id: named ?? byEvent, inferred: named === undefined, hookEvent, hookName, exitCode, reason: body.trim().replace(/\s+/g, ' ').slice(0, REASON_CHARS) });
   }
   return out;
@@ -92,7 +96,7 @@ function extractProcess(sessions: string[][], opts: { cumulative?: boolean } = {
     sessionRows.push({ n: i + 1, byModel: perSession });
   });
   const counts: Record<string, number> = Object.fromEntries(HOOK_IDS.map((id) => [id, 0]));
-  for (const d of denies) counts[d.id]++;
+  for (const d of denies) counts[d.id] = (counts[d.id] ?? 0) + 1;
   const skillNames = [...new Set(skills.map((s) => s.skill))];
   const totalCostUsd = Object.values(byModel).reduce((n, r) => n + r.costUSD, 0);
   return {
@@ -110,4 +114,4 @@ function extractProcess(sessions: string[][], opts: { cumulative?: boolean } = {
   };
 }
 
-module.exports = { HOOK_IDS, hookDenies, extractProcess };
+module.exports = { HOOK_IDS, HISTORIC_HOOK_IDS, hookDenies, extractProcess };

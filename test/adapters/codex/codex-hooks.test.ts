@@ -11,6 +11,9 @@ const { IS_WIN, expectExecutable } = require('../../helper-platform.ts');
 
 const CODEX_HOOKS_DIR = path.resolve(__dirname, '../../..', 'core', 'harnesses', 'codex', 'hooks');
 
+// The command DoFlow shipped for the retired front door, as it sits in an existing install's hooks.json.
+const RETIRED_COMMAND = 'bash "$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f "$root/.codex/hooks/pre-bash-guard.sh" ] && printf \'%s/.codex/hooks/pre-bash-guard.sh\' "$root" || printf \'%s/hooks/pre-bash-guard.sh\' "${CODEX_HOME:-$HOME/.codex}")"';
+
 function scratch() { return suiteTempDir('doflow-codex-hooks-'); }
 function hookConfig(command = 'bash "$(root)/hooks/session-start.sh"') {
   return { hooks: { SessionStart: [{ hooks: [{ type: 'command', command, statusMessage: 'Preparing context' }] }] } };
@@ -94,7 +97,7 @@ test('an update drops the retired pre-bash-guard hook entry and script and keeps
   const hooksFile = path.join(projectRoot, '.codex', 'hooks.json');
   const hooksDir = path.join(projectRoot, '.codex', 'hooks');
   fs.mkdirSync(hooksDir, { recursive: true });
-  const retiredCommand = 'bash "$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.codex/hooks/pre-bash-guard.sh\" ] && printf \'%s/.codex/hooks/pre-bash-guard.sh\' \"$root\")"';
+  const retiredCommand = RETIRED_COMMAND;
   fs.writeFileSync(hooksFile, JSON.stringify({
     hooks: {
       PreToolUse: [
@@ -116,6 +119,24 @@ test('an update drops the retired pre-bash-guard hook entry and script and keeps
   assert.equal(written.hooks.SessionStart.length, 1);
   assert.equal(fs.existsSync(path.join(hooksDir, 'pre-bash-guard.sh')), false, 'the retired front door is deleted');
   assert.equal(fs.existsSync(path.join(hooksDir, 'user-own.sh')), true, 'a user script is left alone');
+});
+
+test('an update keeps a user\'s own hook that runs a pre-bash-guard.sh of theirs', () => {
+  const root = scratch(); const sourceHooksDir = wrapper(root); const projectRoot = path.join(root, 'project');
+  const hooksFile = path.join(projectRoot, '.codex', 'hooks.json');
+  fs.mkdirSync(path.dirname(hooksFile), { recursive: true });
+  const own = 'bash /Users/me/my-guards/hooks/pre-bash-guard.sh';
+  fs.writeFileSync(hooksFile, JSON.stringify({
+    hooks: { PreToolUse: [
+      { matcher: '^Bash$', hooks: [{ type: 'command', command: RETIRED_COMMAND }] },
+      { matcher: '^Bash$', hooks: [{ type: 'command', command: own }] },
+    ] },
+  }));
+  const plan = planCodexHooks({ config: hookConfig(), sourceHooksDir, trusted: false, destinationContext: { scope: 'project', projectRoot } });
+  assert.equal(plan.ok, true);
+  deployCodexHooks(plan);
+  const written = JSON.parse(fs.readFileSync(hooksFile, 'utf8'));
+  assert.deepEqual(written.hooks.PreToolUse.map((group: any) => group.hooks[0].command), [own], 'DoFlow\'s entry goes, the user\'s stays');
 });
 
 test('rewriting an existing hooks.json keeps its permission mode', { skip: IS_WIN && 'Windows has no POSIX mode bits' }, () => {

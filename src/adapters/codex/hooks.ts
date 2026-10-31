@@ -19,29 +19,37 @@ const SUPPORTED_EVENTS = new Set([
 
 // An earlier DoFlow wired a pre-bash-guard front door into hooks.json and deployed its script. Both
 // are gone from the shipped source; a merge drops the entry from the live file so an updated install
-// does not keep a hook that runs a script nothing refreshes, and the script goes with it.
+// does not keep a hook that runs a script nothing refreshes, and the script goes with it. Only the
+// exact command DoFlow shipped is dropped: a user's own hook that happens to name a script of the same
+// file name stays.
 const RETIRED_HOOK_SCRIPT = 'pre-bash-guard.sh';
+const RETIRED_HOOK_COMMAND = 'bash "$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f "$root/.codex/hooks/pre-bash-guard.sh" ] && printf \'%s/.codex/hooks/pre-bash-guard.sh\' "$root" || printf \'%s/hooks/pre-bash-guard.sh\' "${CODEX_HOME:-$HOME/.codex}")"';
 
 function withoutRetiredHooks(hooks: any): any {
   const result: Record<string, any> = {};
   for (const [event, groups] of Object.entries<any>(hooks || {})) {
     if (!Array.isArray(groups)) { result[event] = groups; continue; }
     const kept = groups.map((group: any) => (Array.isArray(group?.hooks)
-      ? { ...group, hooks: group.hooks.filter((handler: any) => !(typeof handler?.command === 'string' && handler.command.includes(`/hooks/${RETIRED_HOOK_SCRIPT}`))) }
+      ? { ...group, hooks: group.hooks.filter((handler: any) => handler?.command !== RETIRED_HOOK_COMMAND) }
       : group)).filter((group: any) => !Array.isArray(group?.hooks) || group.hooks.length > 0);
     if (kept.length) result[event] = kept;
   }
   return result;
 }
 
-/** Delete the retired front door when it is still DoFlow's own (it names the bridge call it was written with). */
-function removeRetiredHookScript(destinationHooksDir: string, fsImpl: any = fs, dryRun = false): number {
+/** Whether the retired front door is still on disk as DoFlow's own (it names the bridge call it was written with). */
+function ownsRetiredHookScript(destinationHooksDir: string, fsImpl: any = fs): boolean {
   const target = path.join(destinationHooksDir, RETIRED_HOOK_SCRIPT);
   try {
-    if (!fsImpl.lstatSync(target).isFile() || !fsImpl.readFileSync(target, 'utf8').includes('doflow_bridge codex PreToolUse pre-bash-guard')) return 0;
-    if (!dryRun) fsImpl.unlinkSync(target);
-    return 1;
-  } catch { return 0; }
+    return fsImpl.lstatSync(target).isFile() && fsImpl.readFileSync(target, 'utf8').includes('doflow_bridge codex PreToolUse pre-bash-guard');
+  } catch { return false; }
+}
+
+/** Delete the retired front door when it is still DoFlow's own. */
+function removeRetiredHookScript(destinationHooksDir: string, fsImpl: any = fs, dryRun = false): number {
+  if (!ownsRetiredHookScript(destinationHooksDir, fsImpl)) return 0;
+  if (!dryRun) { try { fsImpl.unlinkSync(path.join(destinationHooksDir, RETIRED_HOOK_SCRIPT)); } catch { return 0; } }
+  return 1;
 }
 
 function validationError(errors: string[], message: string): void { errors.push(message); }
@@ -194,7 +202,7 @@ function planCodexHooks({ config, sourceFile, sourceHooksDir, destinationContext
     return { ok: false, status: 'conflict', destination, original, changes: [], commands,
       errors: scripts.edited.map((name: string) => `Codex hook script '${name}' was modified outside DoFlow`) };
   }
-  const scriptsOnly = !configChanged && scripts.stale.length > 0;
+  const scriptsOnly = !configChanged && (scripts.stale.length > 0 || ownsRetiredHookScript(destinationHooksDir, fsImpl));
   const changed = configChanged || scriptsOnly;
   // The scripts deployCodexHooks copies beside hooks.json, so a backup of this change holds them too.
   const companionTargets = [...new Set([

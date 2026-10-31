@@ -221,8 +221,19 @@ test('process extraction on the real arm B stream: hooks are not denies, the Ski
     JSON.stringify({ type: 'assistant', message: { id: 'a1', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'doflow-run classify --task-class bug --request "x"' } }] } }),
   ].join('\n');
   const q = tier2Extract.extractProcess([[synthetic]]);
-  assert.deepEqual(q.hookDenies, { 'pre-implementation-gate': 2, 'stop-check': 0 });
+  assert.deepEqual(q.hookDenies, { 'pre-implementation-gate': 1, 'stop-check': 0, unknown: 1 }, 'a Bash deny with no id in its message is unknown, not the edit gate');
   assert.equal(q.class, 'bug');
+});
+
+test('process extraction: an old transcript keeps the retired pre-bash-guard id, and an unnamed Bash deny is unknown', () => {
+  const event = (hookName: string, stderr: string) => JSON.stringify({ type: 'system', subtype: 'hook_response', hook_id: 'x', hook_name: hookName, hook_event: 'PreToolUse', output: '', stdout: '', stderr, exit_code: 2, outcome: 'error' });
+  const old = tier2Extract.extractProcess([[[
+    event('PreToolUse:Bash', '[pre-bash-guard] Blocked: git reset --hard'),
+    event('PreToolUse:Bash', 'blocked by something unnamed'),
+    event('PreToolUse:Write', 'blocked by something unnamed'),
+  ].join('\n')]]);
+  assert.deepEqual(old.hookDenies, { 'pre-implementation-gate': 1, 'stop-check': 0, 'pre-bash-guard': 1, unknown: 1 });
+  assert.deepEqual(old.hookDenyEvents.map((d: any) => [d.id, d.inferred]), [['pre-bash-guard', false], ['unknown', true], ['pre-implementation-gate', true]]);
 });
 
 // ---------------------------------------------------------------------------------------------------------
