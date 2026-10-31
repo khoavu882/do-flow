@@ -54,7 +54,7 @@ const LIGHT = ['docs/a.md'];
 
 function resolve(overrides = {}) {
   return resolveProtocol({
-    kind: 'review', taskClass: 'bug', risk: 'HIGH', paths: CODE, runPreset: null, advicePick: null,
+    kind: 'review', taskClass: 'operations', risk: 'HIGH', paths: CODE, runPreset: null, advicePick: null,
     settingsView: {}, gatePolicy: GATES.policy, registry: VIEW, riskPolicy: VERIFICATION.reviewDepth, ...overrides,
   });
 }
@@ -206,7 +206,7 @@ test('gate-b re-resolves its own view: a record made where acme.strict was activ
   const f = createSettingsEnv(t);
   // The record maker: another process under a redirected config home, whose view (injected) held the acme package.
   const redirected = path.join(f.dir, 'redirected');
-  const input = { kind: 'review', taskClass: 'bug', risk: 'HIGH', paths: CODE, runPreset: null, advicePick: null,
+  const input = { kind: 'review', taskClass: 'operations', risk: 'HIGH', paths: CODE, runPreset: null, advicePick: null,
     settingsView: preset('acme.strict'), gatePolicy: GATES.policy, registry: VIEW, riskPolicy: VERIFICATION.reviewDepth };
   const made = f.node(`const { resolveProtocol, protocolDigest } = require(${JSON.stringify(path.join(REPO_ROOT, 'src/runtime/review/resolve-protocol.ts'))});
     const { protocol } = resolveProtocol(${JSON.stringify(input)});
