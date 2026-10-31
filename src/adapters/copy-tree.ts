@@ -371,14 +371,13 @@ function kiroHook({ name, trigger, matcher, script, timeout }: { name: string, t
   };
 }
 
-/** The three preToolUse hooks every DoFlow-rendered Kiro agent carries. The MCP guard uses the
+/** The two preToolUse hooks every DoFlow-rendered Kiro agent carries. The MCP guard uses the
  * "*" matcher: Kiro documents "@<server>" (every tool of one server) and "*" but no all-MCP
  * matcher, and mcp-tool-guard.sh exits 0 immediately for any non-MCP tool name, so "*" costs one
  * fast no-op for built-in tools and still covers every MCP server. */
 function kiroPreToolUseHooks(): any[] {
   return [
     kiroHook({ name: 'doflow-pre-implementation-gate', trigger: 'preToolUse', matcher: 'write', script: 'pre-implement-gate.sh', timeout: 10 }),
-    kiroHook({ name: 'doflow-pre-bash-guard', trigger: 'preToolUse', matcher: 'shell', script: 'pre-bash-guard.sh', timeout: 10 }),
     kiroHook({ name: 'doflow-mcp-tool-guard', trigger: 'preToolUse', matcher: '*', script: 'mcp-tool-guard.sh', timeout: 10 }),
   ];
 }

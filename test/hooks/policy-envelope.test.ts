@@ -30,7 +30,7 @@ function encodeForPolicy(policy: any, input: any, { harness = 'claude', event = 
   return encodeEnvelope(harness, event, policy, JSON.stringify(native), env);
 }
 
-for (const policy of ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard']) {
+for (const policy of ['pre-implementation-gate', 'mcp-tool-guard']) {
   test(`${policy}: v1 inputs preserve develop golden stdout, stderr and exit status`, () => {
     let cwd = undefined;
     if (policy === 'pre-implementation-gate') {
@@ -54,17 +54,6 @@ for (const policy of ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-gua
     }
   });
 }
-
-test('decision fd writes provisional allow before each deny record', () => {
-  const input = encodeEnvelope('claude', 'PreToolUse', 'pre-bash-guard', JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'rm -rf /' } }));
-  const result = runPolicy('pre-bash-guard', input, { decisionFd: true });
-  assert.equal(result.status, 2);
-  assert.match(result.stderr, /Catastrophic delete blocked/);
-  const records = parseRecords(result.records);
-  assert.deepEqual(records.map(({ outcome, code }: any) => [outcome, code]), [
-    ['allow', 'allow'], ['deny', 'blocked-pattern'],
-  ]);
-});
 
 test('decision fd records every gate deny site', () => {
   const repo = createScratchGitRepo(scratch, 'gate-missing-artifacts');
@@ -105,26 +94,6 @@ test('decision fd records missing, not-ready and wrong-template readiness denies
     }), { decisionFd: true, cwd: repo.root, env: { DOFLOW_PROJECT_DIR: repo.root, HOME: scratch.path('readiness-home') } });
     assert.equal(result.status, 2, code);
     assert.equal(parseRecords(result.records).at(-1).code, code);
-  }
-});
-
-test('decision fd records all hardcoded floor deny sites when patterns are missing', () => {
-  const policyDir = scratch.path('floor-no-patterns');
-  fs.mkdirSync(policyDir, { recursive: true });
-  fs.copyFileSync(path.join(__dirname, '../../core/harnesses/shared/hooks/policies/pre-bash-guard.sh'), path.join(policyDir, 'pre-bash-guard.sh'));
-  fs.copyFileSync(path.join(__dirname, '../../core/harnesses/shared/hooks/policies/contract.sh'), path.join(policyDir, 'contract.sh'));
-  fs.copyFileSync(path.join(__dirname, '../../core/harnesses/shared/hooks/policies/capture-failure.sh'), path.join(policyDir, 'capture-failure.sh'));
-  for (const [command, expected] of [
-    ['rm -rf /', 'catastrophic-rm-root'], ['rm -rf ~', 'catastrophic-rm-home'], ['rm -rf /etc', 'catastrophic-rm-system'],
-  ]) {
-    const input = encodeEnvelope('claude', 'PreToolUse', 'pre-bash-guard', JSON.stringify({ tool_name: 'Bash', tool_input: { command } }));
-    const result = runPolicy('pre-bash-guard', input, {
-      decisionFd: true, policyPath: path.join(policyDir, 'pre-bash-guard.sh'),
-    });
-    assert.equal(result.status, 2, command);
-    assert.deepEqual(parseRecords(result.records).map(({ outcome, code }: any) => [outcome, code]), [
-      ['allow', 'allow'], ['error', 'patterns-missing'], ['deny', expected],
-    ], command);
   }
 });
 
@@ -194,7 +163,6 @@ test('v1 policy verdicts match develop native results for every legacy fixture i
   assert.ok(gateStatuses.has(0), 'gate parity includes an allow on a non-feature branch');
   assert.ok(gateStatuses.has(2), 'gate parity includes a deny on a feature branch');
   for (const [policy, harness, fallbackEvent] of [
-    ['pre-bash-guard', 'claude', 'PreToolUse'],
     ['mcp-tool-guard', 'claude', 'PreToolUse'],
   ]) {
     for (const row of loadCorpus(policy)) {
@@ -221,7 +189,7 @@ test('version 1 class follows IC-003 even when the optional native harness or ev
       tool_name: 'Bash',
       tool_input: { command: 'rm -rf /' },
     });
-    for (const policy of ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard']) {
+    for (const policy of ['pre-implementation-gate', 'mcp-tool-guard']) {
       const result = runPolicy(policy, input, { decisionFd: true });
       assert.equal(result.status, 0, `${policy} missing ${missing}`);
       assert.equal(result.stderr, '', `${policy} missing ${missing}`);
@@ -256,7 +224,6 @@ test('v1 policies use envelope fields and unsupported versions do not evaluate n
   for (const version of [2, '1', null]) {
     cases.push(
       ['pre-implementation-gate', { doflow_event: { version, operation: 'edit' }, tool_name: 'Edit', tool_input: { file_path: 'src/a.js' } }],
-      ['pre-bash-guard', { doflow_event: { version, operation: 'command', command: 'rm -rf /' }, tool_name: 'Bash', tool_input: { command: 'rm -rf /' } }],
       ['mcp-tool-guard', { doflow_event: { version, operation: 'mcp', tool: 'mcp__x__delete' }, tool_name: 'mcp__x__delete' }],
     );
   }
@@ -286,8 +253,8 @@ test('v1 edit without a target is diagnosed; missing envelope takes the out-of-s
   ]);
 });
 
-test('all three policies remain safe when sourced under set -euo pipefail', () => {
-  for (const policy of ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard']) {
+test('both blocking policies remain safe when sourced under set -euo pipefail', () => {
+  for (const policy of ['pre-implementation-gate', 'mcp-tool-guard']) {
     const script = `set -euo pipefail\nINPUT='{}'\nsource "${path.resolve(__dirname, '../../core/harnesses/shared/hooks/policies/contract.sh')}"\ndoflow_decision_init ${policy} 1\ndoflow_read_envelope\n`;
     const result = require('node:child_process').spawnSync(bashPath(), ['-c', script], { encoding: 'utf8' });
     assert.equal(result.status, 0, `${policy}: ${result.stderr}`);
@@ -301,7 +268,7 @@ test('jq missing records a fault and captures dependency-missing:jq while keepin
     bash: bashPath(), cat: '/bin/cat', dirname: '/usr/bin/dirname', date: '/bin/date',
     head: '/usr/bin/head', mkdir: '/bin/mkdir', sed: '/usr/bin/sed', tr: '/usr/bin/tr',
   })) fs.symlinkSync(target, path.join(bin, command));
-  for (const policy of ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard']) {
+  for (const policy of ['pre-implementation-gate', 'mcp-tool-guard']) {
     const failureRoot = scratch.path(`jq-missing-${policy}`);
     const result = runPolicy(policy, '{}', {
       decisionFd: true,
@@ -321,7 +288,6 @@ test('jq missing records a fault and captures dependency-missing:jq while keepin
 test('contract missing takes the out-of-step rule and records contract-missing for every blocking policy', () => {
   const cases = [
     ['pre-implementation-gate', 'native-read'],
-    ['pre-bash-guard', 'native-safe-command'],
     ['mcp-tool-guard', 'native-mcp-allow'],
   ];
   for (const [policy, fixture] of cases) {
@@ -337,7 +303,7 @@ test('contract missing takes the out-of-step rule and records contract-missing f
     });
     assert.equal(result.status, 2, `${policy} exit`);
     assert.equal(result.stdout, '', `${policy} stdout`);
-    assert.match(result.stderr, /^\[(pre-implementation-gate|pre-bash-guard|mcp-tool-guard)\] DoFlow hooks out of step; run: doflow update/);
+    assert.match(result.stderr, /^\[(pre-implementation-gate|mcp-tool-guard)\] DoFlow hooks out of step; run: doflow update/);
     const events = JSON.parse(fs.readFileSync(path.join(failureRoot, 'doflow/failures/events.jsonl'), 'utf8').trim());
     assert.deepEqual([events.command, events.kind], [policy, 'contract-missing']);
   }
@@ -357,14 +323,14 @@ function envWithoutIdentity(extra = {}) {
   return { ...env, ...extra };
 }
 
-// Runs the real bridge.sh against a stub pre-bash-guard that captures the payload it receives.
+// Runs the real bridge.sh against a stub pre-implementation-gate that captures the payload it receives.
 function bridgeEnvelope(label: any, env: any, bridgeSource?: any) {
   const root = scratch.path(`identity-bridge/${label}`);
   fs.cpSync(path.resolve(__dirname, '../../core/harnesses/shared/hooks'), root, { recursive: true });
   if (bridgeSource) fs.writeFileSync(path.join(root, 'bridge/envelope.jq'), bridgeSource);
   const capture = path.join(root, 'captured.json');
-  fs.writeFileSync(path.join(root, 'policies/pre-bash-guard.sh'), `#!/usr/bin/env bash\ncat > '${capture}'\nexit 0\n`, { mode: 0o755 });
-  const result = spawnSync(bashPath(), [path.join(root, 'bridge/bridge.sh'), 'claude', 'PreToolUse', 'pre-bash-guard'], {
+  fs.writeFileSync(path.join(root, 'policies/pre-implementation-gate.sh'), `#!/usr/bin/env bash\ncat > '${capture}'\nexit 0\n`, { mode: 0o755 });
+  const result = spawnSync(bashPath(), [path.join(root, 'bridge/bridge.sh'), 'claude', 'PreToolUse', 'pre-implementation-gate'], {
     cwd: scratch.path(), input: `${JSON.stringify(IDENTITY_NATIVE)}\n`, encoding: 'utf8',
     // MSYS rewrites an env value that looks like a POSIX path (/tmp/x) when bash starts the native jq; the fixture wants the literal text
     env: { ...env, ...(process.platform === 'win32' ? { MSYS2_ENV_CONV_EXCL: 'DOFLOW_WORKTREE' } : {}), HOME: scratch.path('identity-home'), XDG_CONFIG_HOME: scratch.path('identity-xdg'), DOFLOW_FAILURE_CAPTURE: 'off', DOFLOW_BRIDGE_TRACE: '', DOFLOW_DECISION_FD: '' },

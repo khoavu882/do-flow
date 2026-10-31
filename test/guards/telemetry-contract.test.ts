@@ -232,7 +232,6 @@ const PINNED_NODE_FILES: any = ['core/harnesses/pi/extensions/doflow-guard.js', 
 const PINNED_RUNNER_DOORS: any = ['core/harnesses/antigravity/hooks/pre-implementation-gate.sh', 'core/harnesses/antigravity/hooks/stop-check.sh'];
 /** Shell observation must remain covered by the same no-node scan as the pre-tool front doors. */
 const PINNED_SHELL_DOORS: any = [
-  ...['claude', 'codex', 'kiro'].map((harness) => `core/harnesses/${harness}/hooks/pre-bash-guard.sh`),
   'core/harnesses/claude/hooks/post-shell-observe.sh',
 ];
 function checkPinnedShellDoors(files: any) {
@@ -850,7 +849,7 @@ test('G45.2 self-test: a hook file with node -e fails, a comment or a quoted wor
   const door = (rel: any, line: any) => checkNoNodeOnHooks([...PINNED_NODE_FILES.map((file: any) => ({ rel: file, text: '' })), { rel, text: `#!/usr/bin/env bash\n${line}\n` }]);
   const runner = 'exec node "$(dirname "$0")/../../.doflow/shared/hooks/stream-hook-runner.js" PreToolUse';
   assert.deepEqual(door(PINNED_RUNNER_DOORS[0], runner), [], 'the pinned door may hand over to the shared runner');
-  assert.equal(door('core/harnesses/codex/hooks/pre-bash-guard.sh', runner).length, 1, 'no other door may');
+  assert.equal(door('core/harnesses/codex/hooks/pre-implementation-gate.sh', runner).length, 1, 'no other door may');
   assert.equal(door(PINNED_RUNNER_DOORS[0], 'exec node -e "1"').length, 1, 'and the pinned door may do nothing else');
   const extra = checkNoNodeOnHooks([...PINNED_NODE_FILES.map((rel: any) => ({ rel, text: '' })), { rel: 'core/harnesses/claude/hooks/new.js', text: '' }]);
   assert.deepEqual(extra, ['core/harnesses/claude/hooks/new.js is a node file on a hook path and is not in the pinned list']);

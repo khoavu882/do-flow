@@ -12,10 +12,10 @@ const ROOT = path.resolve(__dirname, '../..');
 const BRIDGE_SOURCE = path.join(ROOT, 'core/harnesses/shared/hooks/bridge');
 const POLICY_SOURCE = path.join(ROOT, 'core/harnesses/shared/hooks/policies');
 const POLICIES = [
-  'pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard',
+  'pre-implementation-gate', 'mcp-tool-guard',
   'session-context', 'stop-check', 'user-prompt-submit', 'subagent-audit',
 ];
-const BLOCKING = new Set(['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'stop-check']);
+const BLOCKING = new Set(['pre-implementation-gate', 'mcp-tool-guard', 'stop-check']);
 const BRIDGES = [
   ['claude', 'PreToolUse'], ['codex', 'PreToolUse'],
   ['kiro', 'PreToolUse'], ['antigravity', 'PreToolUse'], ['pi', 'tool_call'],

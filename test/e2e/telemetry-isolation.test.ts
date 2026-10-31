@@ -253,9 +253,9 @@ function seedTraceInputs(root: any) {
     timestamp: `${FIXED_DATE}T00:00:00.000Z`, verb: 'verify', outcome: 'ok', duration_ms: 1,
   })}\n`);
   fs.writeFileSync(path.join(runs, 'telemetry', `${FIXED_DATE}.jsonl`), `${JSON.stringify({
-    timestamp: `${FIXED_DATE}T00:00:01.000Z`, kind: 'hook', harness: 'claude', event: 'PreToolUse',
-    policy: 'pre-bash-guard', verdict: 'allow', duration_ms: null, run: null, lineage: null, attempt: null,
-    session: 'session-088', tool: 'Bash', tool_call_id: null,
+    timestamp: `${FIXED_DATE}T00:00:01.000Z`, kind: 'hook', harness: 'claude', event: 'UserPromptSubmit',
+    policy: 'user-prompt-submit', verdict: 'allow', duration_ms: null, run: null, lineage: null, attempt: null,
+    session: 'session-088', tool: null, tool_call_id: null,
   })}\n`);
 }
 
@@ -334,15 +334,11 @@ function runNodeTrial(root: any, testCase: any, mode: any) {
 }
 
 const SURFACES: any = {
-  'claude:pre-bash-guard': { harness: 'claude', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.claude/hooks/pre-bash-guard.sh', fixture: 'claude/pre-bash-guard/perf.json', tool: 'Bash' },
-  'codex:pre-bash-guard': { harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.codex/hooks/pre-bash-guard.sh', fixture: 'codex/pre-bash-guard/perf.json', tool: 'Bash' },
-  'kiro:pre-bash-guard': { harness: 'kiro', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.kiro/hooks/pre-bash-guard.sh', fixture: 'kiro/pre-bash-guard/perf.json', tool: 'Bash' },
-  'antigravity:pre-bash-guard': { harness: 'antigravity', event: 'PreToolUse', policy: 'pre-bash-guard', runner: true, fixture: 'antigravity/pre-bash-guard/perf.json', tool: 'run_command' },
-  'pi:pre-bash-guard': { harness: 'pi', event: 'tool_call', policy: 'pre-bash-guard', bridge: true, fixture: 'pi/tool_call/perf-bash.json', tool: 'bash' },
   'claude:user-prompt-submit': { harness: 'claude', event: 'UserPromptSubmit', policy: 'user-prompt-submit', door: '.claude/hooks/user-prompt-submit.sh', fixture: 'claude/user-prompt-submit/perf.json', tool: null },
   'codex:user-prompt-submit': { harness: 'codex', event: 'UserPromptSubmit', policy: 'user-prompt-submit', door: '.codex/hooks/user-prompt-submit.sh', fixture: 'codex/user-prompt-submit/perf.json', tool: null },
 };
-const GUARDS = Object.values(SURFACES).filter((surface: any) => surface.policy === 'pre-bash-guard');
+// The pre-implementation gate is the one remaining blocking policy; it writes no hook line.
+const GATE: any = { harness: 'claude', event: 'PreToolUse', policy: 'pre-implementation-gate', door: '.claude/hooks/pre-implement-gate.sh' };
 
 function buildMirror(root: any) {
   const result = spawnSync(BASH, [MIRROR_SCRIPT, root], { encoding: 'utf8', timeout: MIRROR_TIMEOUT_MS });
@@ -354,13 +350,26 @@ function fixtureNative(surface: any) {
   return JSON.parse(fs.readFileSync(path.join(HOOK_FIXTURES, surface.fixture), 'utf8')).native;
 }
 
-function commandNative(surface: any, command: any, root: any) {
-  const native = JSON.parse(JSON.stringify(fixtureNative(surface)));
-  if (Array.isArray(native.workspacePaths)) native.workspacePaths = [root];
-  if (surface.harness === 'antigravity') native.toolCall.args.CommandLine = command;
-  else if (surface.harness === 'pi') native.input.command = command;
-  else native.tool_input.command = command;
-  return native;
+/** A git checkout on a feature branch with no plan.md: the gate denies a source edit there and allows an edit under agent-docs/. */
+function buildGateRepo(dir: any) {
+  const git = (...args: any[]) => {
+    const result = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...args], { cwd: dir, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV } });
+    assert.equal(result.status, 0, result.stderr);
+  };
+  fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(dir, 'src/a.js'), 'a\n');
+  fs.writeFileSync(path.join(dir, '.gitignore'), 'agent-docs/\n.doflow/\n');
+  git('init', '-q', '-b', 'main');
+  git('add', '-A');
+  git('commit', '-q', '-m', 'init');
+  git('checkout', '-q', '-b', 'feat/900-demo');
+  const feature = path.join(dir, 'agent-docs/doflow/900-demo/intention');
+  fs.mkdirSync(feature, { recursive: true });
+  fs.writeFileSync(path.join(feature, 'requirement.md'), '# requirement\n');
+}
+
+function gateNative(repo: any, relative: any) {
+  return { hook_event_name: 'PreToolUse', session_id: 'isolation-gate', cwd: repo, tool_name: 'Edit', tool_input: { file_path: path.join(repo, relative) } };
 }
 
 function utcTargetDates() {
@@ -425,13 +434,13 @@ function hookEnv(root: any, surface: any, telemetry: any, profile: any) {
   };
 }
 
-function runHook(root: any, surface: any, native: any, { telemetry = 'on', profile = 'compat-1' }: any = {}) {
+function runHook(root: any, surface: any, native: any, { telemetry = 'on', profile = 'compat-1', repo = null }: any = {}) {
   const payload = JSON.parse(JSON.stringify(native));
   if (Array.isArray(payload.workspacePaths)) payload.workspacePaths = [root];
   const options: any = {
-    cwd: root,
+    cwd: repo || root,
     input: Buffer.from(`${JSON.stringify(payload)}\n`),
-    env: hookEnv(root, surface, telemetry, profile),
+    env: { ...hookEnv(root, surface, telemetry, profile), ...(repo ? { DOFLOW_PROJECT_DIR: repo } : {}) },
     timeout: CALL_TIMEOUT_MS,
     maxBuffer: 1024 * 1024,
   };
@@ -453,20 +462,15 @@ function hookLines(root: any) {
   return files.flatMap(({ bytes }: any) => bytes.toString('utf8').split('\n').filter(Boolean).map((line: any) => JSON.parse(line)));
 }
 
-function denied(surface: any, result: any) {
-  if (surface.harness === 'kiro') return result.status === 2 && /Catastrophic delete blocked/.test(result.stderr.toString());
-  if (surface.harness === 'claude' || surface.harness === 'codex') return /"permissionDecision":\s*"deny"/.test(result.stdout.toString());
-  if (surface.harness === 'pi') return /"block":\s*true/.test(result.stdout.toString());
-  return /"decision":\s*"deny"/.test(result.stdout.toString());
+function denied(result: any) {
+  return /"permissionDecision":\s*"deny"/.test(result.stdout.toString());
 }
 
-function makeHookCases(root: any) {
+function makeHookCases(repo: any) {
   const cases: any = [];
-  for (const surface of GUARDS) {
-    cases.push({ id: `${surface.harness}/harmless`, surface, profile: 'compat-1', native: commandNative(surface, 'printf safe', root), danger: false });
-    for (const profile of PROFILES) {
-      cases.push({ id: `${surface.harness}/dangerous/${profile}`, surface, profile, native: commandNative(surface, 'rm -rf /', root), danger: true });
-    }
+  cases.push({ id: 'gate/harmless', surface: GATE, profile: 'compat-1', native: gateNative(repo, 'agent-docs/doflow/900-demo/notes.md'), repo, danger: false });
+  for (const profile of PROFILES) {
+    cases.push({ id: `gate/blocked-edit/${profile}`, surface: GATE, profile, native: gateNative(repo, 'src/a.js'), repo, danger: true });
   }
   for (const key of ['claude:user-prompt-submit', 'codex:user-prompt-submit']) {
     const surface = SURFACES[key];
@@ -482,14 +486,14 @@ function runHookTrial(root: any, hookCase: any, mode: any) {
   let result;
   try {
     result = runHook(root, hookCase.surface, hookCase.native, {
-      telemetry: mode === 'off' ? 'off' : 'on', profile: hookCase.profile,
+      telemetry: mode === 'off' ? 'off' : 'on', profile: hookCase.profile, repo: hookCase.repo,
     });
     const lines = hookLines(root);
     if (mode === 'off') assert.equal(fs.existsSync(telemetryDir(root)), false, `${hookCase.id}: off created the telemetry directory`);
-    else if (mode === 'on') assert.equal(lines.length, 1, `${hookCase.id}: telemetry on should write one hook line`);
+    else if (mode === 'on') assert.equal(lines.length, hookCase.surface.policy === 'user-prompt-submit' ? 1 : 0, `${hookCase.id}: telemetry on writes a hook line only for the prompt policy`);
     else assert.equal(lines.length, 0, `${hookCase.id}/${fault}: fault wrote a hook line`);
-    if (hookCase.danger) assert.equal(denied(hookCase.surface, result), true, `${hookCase.id}: rm -rf / must be denied`);
-    else if (hookCase.surface.policy === 'pre-bash-guard') assert.equal(denied(hookCase.surface, result), false, `${hookCase.id}: harmless command should be allowed`);
+    if (hookCase.danger) assert.equal(denied(result), true, `${hookCase.id}: the source edit must be denied`);
+    else if (hookCase.surface.policy === 'pre-implementation-gate') assert.equal(denied(result), false, `${hookCase.id}: the harmless edit should be allowed`);
     return result;
   } finally {
     if (fault) restoreHookFault(root, fault);
@@ -540,7 +544,9 @@ function runNodeMatrix() {
 function runHookMatrix() {
   const root = path.join(SCRATCH, 'hook-project');
   buildMirror(root);
-  const cases = makeHookCases(root);
+  const repo = path.join(SCRATCH, 'gate-repo');
+  buildGateRepo(repo);
+  const cases = makeHookCases(repo);
   let comparisons = 0;
   for (const hookCase of cases) {
     const off = runHookTrial(root, hookCase, 'off');
@@ -560,21 +566,21 @@ function runHookMatrix() {
   } finally {
     restore();
   }
-  return { root, cases, comparisons };
+  return { root, repo, cases, comparisons };
 }
 
-function runEncodeBypassNegativeControl() {
+function runEncodeBypassNegativeControl(repo: any) {
   const root = path.join(SCRATCH, 'encode-bypass-project');
   fs.cpSync(path.join(SCRATCH, 'hook-project'), root, { recursive: true });
   clearHookTelemetry(root);
-  const surface = SURFACES['claude:pre-bash-guard'];
-  const native = commandNative(surface, 'rm -rf /', root);
-  const safeOutcome = runHook(root, surface, native, { telemetry: 'off', profile: 'compat-1' });
-  assert.equal(denied(surface, safeOutcome), true, 'the scratch off baseline denies the dangerous command');
+  const surface = GATE;
+  const native = gateNative(repo, 'src/a.js');
+  const safeOutcome = runHook(root, surface, native, { telemetry: 'off', profile: 'compat-1', repo });
+  assert.equal(denied(safeOutcome), true, 'the scratch off baseline denies the blocked edit');
   const restore = injectTupleFault(root, true);
   try {
-    const bypass = runHook(root, surface, native, { telemetry: 'on', profile: 'compat-1' });
-    assert.equal(denied(surface, bypass), false, 'the unwrapped encode fault is the planted guard bypass');
+    const bypass = runHook(root, surface, native, { telemetry: 'on', profile: 'compat-1', repo });
+    assert.equal(denied(bypass), false, 'the unwrapped encode fault is the planted gate bypass');
     assert.throws(() => sameOutcome(safeOutcome, bypass, 'negative control: encode bypass'), assert.AssertionError);
   } finally {
     restore();
@@ -589,13 +595,13 @@ test('G-O3: CLI verbs and bridge hooks are byte-identical on, off and faulted', 
   const baseline: any = { status: 0, stdout: Buffer.from('allow'), stderr: Buffer.alloc(0) };
   assert.throws(() => sameOutcome(baseline, { ...baseline, status: 1 }, 'negative control: exit'), assert.AssertionError);
   assert.throws(() => sameOutcome(baseline, { ...baseline, stderr: Buffer.from('extra stderr\n') }, 'negative control: stderr'), assert.AssertionError);
-  runEncodeBypassNegativeControl();
+  runEncodeBypassNegativeControl(hooks.repo);
 
   assert.equal(node.cases.length, 10, 'fixed Node verb list');
-  assert.equal(hooks.cases.length, 17, 'fixed hook list, including both guard profiles');
+  assert.equal(hooks.cases.length, 5, 'fixed hook list, including both gate profiles');
   assert.ok(Date.now() - started < MATRIX_TIMEOUT_MS, 'the complete matrix finishes inside its hang ceiling');
   assert.equal(node.comparisons, 60, '10 Node commands × on plus five faults');
-  assert.equal(hooks.comparisons, 102, '17 hook commands × on plus five faults');
+  assert.equal(hooks.comparisons, 30, '5 hook commands × on plus five faults');
   assert.equal(hookLines(hooks.root).length, 0, 'fault comparisons leave no telemetry line behind');
 });
 

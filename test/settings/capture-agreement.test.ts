@@ -230,7 +230,7 @@ function dispatcherReader(text?: any) {
 /** The policy helper reader over the file `helper` (default: the shipped file). */
 function policyReader(helper = POLICY_HELPER) {
   return (setup: any) => {
-    const r = spawnSync(BASH, ['-c', 'set -uo pipefail; . "$1"; doflow_capture_failure pre-bash-guard patterns-missing', 'x', helper],
+    const r = spawnSync(BASH, ['-c', 'set -uo pipefail; . "$1"; doflow_capture_failure mcp-tool-guard policy-file-missing', 'x', helper],
       { cwd: setup.f.project, env: setup.env, encoding: 'utf8' });
     assert.equal(r.status, 0, r.stderr);
     return noLine(setup);

@@ -17,6 +17,33 @@ const SUPPORTED_EVENTS = new Set([
   'UserPromptSubmit', 'SubagentStop', 'Stop', 'SessionStart', 'SubagentStart', 'SessionEnd',
 ]);
 
+// An earlier DoFlow wired a pre-bash-guard front door into hooks.json and deployed its script. Both
+// are gone from the shipped source; a merge drops the entry from the live file so an updated install
+// does not keep a hook that runs a script nothing refreshes, and the script goes with it.
+const RETIRED_HOOK_SCRIPT = 'pre-bash-guard.sh';
+
+function withoutRetiredHooks(hooks: any): any {
+  const result: Record<string, any> = {};
+  for (const [event, groups] of Object.entries<any>(hooks || {})) {
+    if (!Array.isArray(groups)) { result[event] = groups; continue; }
+    const kept = groups.map((group: any) => (Array.isArray(group?.hooks)
+      ? { ...group, hooks: group.hooks.filter((handler: any) => !(typeof handler?.command === 'string' && handler.command.includes(`/hooks/${RETIRED_HOOK_SCRIPT}`))) }
+      : group)).filter((group: any) => !Array.isArray(group?.hooks) || group.hooks.length > 0);
+    if (kept.length) result[event] = kept;
+  }
+  return result;
+}
+
+/** Delete the retired front door when it is still DoFlow's own (it names the bridge call it was written with). */
+function removeRetiredHookScript(destinationHooksDir: string, fsImpl: any = fs, dryRun = false): number {
+  const target = path.join(destinationHooksDir, RETIRED_HOOK_SCRIPT);
+  try {
+    if (!fsImpl.lstatSync(target).isFile() || !fsImpl.readFileSync(target, 'utf8').includes('doflow_bridge codex PreToolUse pre-bash-guard')) return 0;
+    if (!dryRun) fsImpl.unlinkSync(target);
+    return 1;
+  } catch { return 0; }
+}
+
 function validationError(errors: string[], message: string): void { errors.push(message); }
 
 function validateHooksConfig(config: any): { ok: boolean, errors: string[], events: string[] } {
@@ -148,7 +175,7 @@ function planCodexHooks({ config, sourceFile, sourceHooksDir, destinationContext
     try {
       const existing = JSON.parse(original);
       if (existing?.hooks && desired?.hooks) {
-        mergedDesired = { ...existing, ...desired, hooks: mergeHooks(existing.hooks, desired.hooks) };
+        mergedDesired = { ...existing, ...desired, hooks: mergeHooks(withoutRetiredHooks(existing.hooks), desired.hooks) };
       }
     } catch {
       // malformed existing will be flagged or left for schema validation
@@ -204,6 +231,7 @@ function deployCodexHooks(plan: any, { dryRun = false, fsImpl = fs }: { dryRun?:
     fsImpl.copyFileSync(source, target);
     fsImpl.chmodSync(target, fsImpl.statSync(source).mode & 0o777);
   }
+  removeRetiredHookScript(plan.destinationHooksDir, fsImpl);
   return { ...plan, applied: true };
 }
 
@@ -220,7 +248,7 @@ function shippedHookScripts(scriptsDir: any, fsImpl: any = fs): string[] {
  * user edited or added stays. The directory goes only once it is empty. */
 function removeCodexHookScripts({ scriptsDir, destinationHooksDir }: { scriptsDir?: string, destinationHooksDir?: string } = {}, { dryRun = false, fsImpl = fs }: { dryRun?: boolean, fsImpl?: any } = {}): { removed: number } {
   if (!destinationHooksDir || !fsImpl.existsSync(destinationHooksDir)) return { removed: 0 };
-  let removed = 0;
+  let removed = removeRetiredHookScript(destinationHooksDir, fsImpl, dryRun);
   for (const name of shippedHookScripts(scriptsDir, fsImpl)) {
     const target = path.join(destinationHooksDir, name);
     // lstat, not stat: a symlink (even to a file with the shipped bytes) is not DoFlow's copy.

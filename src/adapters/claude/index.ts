@@ -29,6 +29,12 @@ const SETTINGS_RENDERER = 'claude-settings';
  *    its install destination is declared (paths.statuslineScript).
  */
 const SETTINGS_FILES = ['settings.json', 'keybindings.json'];
+/** Hook entries an earlier DoFlow wrote into settings.json and no longer ships. The update prunes their
+ * scripts, so a merge strips these entries from the live file (and a remove does too) instead of leaving a
+ * hook that points at a missing script. Written in the global form; `retiredHooks` rewrites the prefix for project scope. */
+const RETIRED_SETTINGS_HOOKS = {
+  PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: `${GLOBAL_HOOK_PREFIX}pre-bash-guard.sh` }] }],
+};
 
 function sha256(value: any) {
   return crypto.createHash('sha256').update(value).digest('hex');
@@ -194,6 +200,18 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
     const { hooks, ...rest } = parsed;
     return { raw: serializeSettings(rest), droppedHooks: hooks };
   }
+  function retiredHooks(scope: any) {
+    const raw = JSON.stringify(RETIRED_SETTINGS_HOOKS);
+    return JSON.parse(scope === 'global' ? raw : raw.split(GLOBAL_HOOK_PREFIX).join(PROJECT_HOOK_PREFIX));
+  }
+  /** The managed settings text with the retired hook entries added, so a remove strips them as well. */
+  function withRetiredHooks(raw: any, scope: any) {
+    let parsed;
+    try { parsed = JSON.parse(raw); } catch { return raw; }
+    const hooks = { ...(parsed.hooks || {}) };
+    for (const [event, entries] of Object.entries<any>(retiredHooks(scope))) hooks[event] = [...(hooks[event] || []), ...entries];
+    return JSON.stringify({ ...parsed, hooks });
+  }
   /** The live settings without DoFlow's own entries of `hooks`; every other key is left alone. */
   function withoutManagedHooks(current: any, hooks: any) {
     if (!hooks || !current || typeof current !== 'object' || current.hooks === undefined) return current;
@@ -246,7 +264,9 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
         // entries, so a drifted file is safe to process rather than a reason to refuse.
         changes.push({ assetId: asset.id, target, operation: 'remove', ownershipIdentity: `doflow:claude:settings:${fileName}`,
           ...settingsChangeExtras(fileName), fingerprint: prev.fingerprint,
-          managed: settingsContent(fileName, fs.readFileSync(sourceAbs, 'utf8'), scope),
+          managed: fileName === 'settings.json'
+            ? withRetiredHooks(settingsContent(fileName, fs.readFileSync(sourceAbs, 'utf8'), scope), scope)
+            : settingsContent(fileName, fs.readFileSync(sourceAbs, 'utf8'), scope),
           projection: { renderer: SETTINGS_RENDERER } });
       }
       if (previous.get(statuslineScriptName)) {
@@ -286,7 +306,8 @@ function createClaudeAdapter({ declaredPaths = declaredHarnessPaths().claude } =
         const currentRaw = fs.readFileSync(target, 'utf8');
         let merged;
         try {
-          merged = mergeSettings(withoutManagedHooks(JSON.parse(currentRaw), tiered.droppedHooks), JSON.parse(managedRaw));
+          const live = fileName === 'settings.json' ? withoutManagedHooks(JSON.parse(currentRaw), retiredHooks(scope)) : JSON.parse(currentRaw);
+          merged = mergeSettings(withoutManagedHooks(live, tiered.droppedHooks), JSON.parse(managedRaw));
         } catch {
           conflicts.push(`${fileName} is not valid JSON and cannot be merged`);
           continue;

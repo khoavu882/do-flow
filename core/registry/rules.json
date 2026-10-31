@@ -8,8 +8,8 @@
       "statement": "Conflict order: Safety > Scope > Quality > Speed. Prototype != Production requirements.",
       "sourceFile": "core/shared/guidance/rules/RULES.md",
       "category": "safety",
-      "enforcement": "mechanical",
-      "enforcementRef": "core/harnesses/shared/hooks/policies/pre-bash-guard.sh",
+      "enforcement": "advisory",
+      "enforcementRef": null,
       "neverAblate": true,
       "ablationCandidate": false
     },

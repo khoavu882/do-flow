@@ -14,11 +14,6 @@ const BENCH_FIXTURE = path.join(REPO, 'bench/perf/fixtures/hook-bridge-project')
 const TELEMETRY = '.doflow/state/runs/telemetry';
 const BASH = bashPath();
 const SURFACES = [
-  { id: 'claude:pre-bash-guard', harness: 'claude', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.claude/hooks/pre-bash-guard.sh', fixture: 'claude/pre-bash-guard/perf.json' },
-  { id: 'codex:pre-bash-guard', harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.codex/hooks/pre-bash-guard.sh', fixture: 'codex/pre-bash-guard/perf.json' },
-  { id: 'kiro:pre-bash-guard', harness: 'kiro', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.kiro/hooks/pre-bash-guard.sh', fixture: 'kiro/pre-bash-guard/perf.json' },
-  { id: 'antigravity:pre-bash-guard', harness: 'antigravity', event: 'PreToolUse', policy: 'pre-bash-guard', runner: true, fixture: 'antigravity/pre-bash-guard/perf.json' },
-  { id: 'pi:pre-bash-guard', harness: 'pi', event: 'tool_call', policy: 'pre-bash-guard', bridge: true, fixture: 'pi/tool_call/perf-bash.json' },
   { id: 'claude:user-prompt-submit', harness: 'claude', event: 'UserPromptSubmit', policy: 'user-prompt-submit', door: '.claude/hooks/user-prompt-submit.sh', fixture: 'claude/user-prompt-submit/perf.json' },
   { id: 'codex:user-prompt-submit', harness: 'codex', event: 'UserPromptSubmit', policy: 'user-prompt-submit', door: '.codex/hooks/user-prompt-submit.sh', fixture: 'codex/user-prompt-submit/perf.json' },
 ];

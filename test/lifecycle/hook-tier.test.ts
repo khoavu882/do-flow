@@ -96,7 +96,7 @@ test('CLI: the tier moves from claude, codex and antigravity to kiro in one upda
   const out = run(['update', 'proj', '-f', '-t', targets]);
   assert.match(out, /\[WARN\] codex is a worker in workers\.enabled but not in hooks\.harnesses/);
   assert.ok(fs.existsSync(at('.doflow', 'shared', 'hooks', 'bridge', 'bridge.sh')), 'the shared tree kiro now holds is not deleted');
-  assert.ok(fs.existsSync(at('.kiro', 'hooks', 'pre-bash-guard.sh')));
+  assert.ok(fs.existsSync(at('.kiro', 'hooks', 'pre-implement-gate.sh')));
   for (const gone of [['.agents', 'hooks.json'], ['.claude', 'hooks'], ['.codex', 'hooks.json']]) assert.equal(fs.existsSync(at(...gone)), false, gone.join('/'));
 
   const dry = runRaw(['update', 'proj', '--dry-run', '-t', targets]);

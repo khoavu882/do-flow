@@ -89,6 +89,35 @@ test('merges into pre-existing hooks in .codex/hooks.json, preserving user custo
   assert.equal(written.hooks.SessionStart[1].hooks[0].command, 'bash "$(root)/hooks/session-start.sh"');
 });
 
+test('an update drops the retired pre-bash-guard hook entry and script and keeps the user\'s own hooks', () => {
+  const root = scratch(); const sourceHooksDir = wrapper(root); const projectRoot = path.join(root, 'project');
+  const hooksFile = path.join(projectRoot, '.codex', 'hooks.json');
+  const hooksDir = path.join(projectRoot, '.codex', 'hooks');
+  fs.mkdirSync(hooksDir, { recursive: true });
+  const retiredCommand = 'bash "$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.codex/hooks/pre-bash-guard.sh\" ] && printf \'%s/.codex/hooks/pre-bash-guard.sh\' \"$root\")"';
+  fs.writeFileSync(hooksFile, JSON.stringify({
+    hooks: {
+      PreToolUse: [
+        { matcher: '^Bash$', hooks: [{ type: 'command', command: retiredCommand }] },
+        { matcher: '^Bash$', hooks: [{ type: 'command', command: 'echo user-bash-hook' }] },
+      ],
+    },
+  }));
+  fs.writeFileSync(path.join(hooksDir, 'pre-bash-guard.sh'), '#!/usr/bin/env bash\ndoflow_bridge codex PreToolUse pre-bash-guard\n');
+  fs.writeFileSync(path.join(hooksDir, 'user-own.sh'), '#!/usr/bin/env bash\n');
+
+  const plan = planCodexHooks({ config: hookConfig(), sourceHooksDir, trusted: false,
+    destinationContext: { scope: 'project', projectRoot } });
+  assert.equal(plan.ok, true);
+  deployCodexHooks(plan);
+
+  const written = JSON.parse(fs.readFileSync(hooksFile, 'utf8'));
+  assert.deepEqual(written.hooks.PreToolUse.map((group: any) => group.hooks[0].command), ['echo user-bash-hook']);
+  assert.equal(written.hooks.SessionStart.length, 1);
+  assert.equal(fs.existsSync(path.join(hooksDir, 'pre-bash-guard.sh')), false, 'the retired front door is deleted');
+  assert.equal(fs.existsSync(path.join(hooksDir, 'user-own.sh')), true, 'a user script is left alone');
+});
+
 test('rewriting an existing hooks.json keeps its permission mode', { skip: IS_WIN && 'Windows has no POSIX mode bits' }, () => {
   const root = scratch(); const sourceHooksDir = wrapper(root); const projectRoot = path.join(root, 'project');
   const hooksFile = path.join(projectRoot, '.codex', 'hooks.json');

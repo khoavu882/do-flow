@@ -9,16 +9,16 @@
  * of a resumed run reports running totals), else the segments are summed; sessions are always summed.
  *
  * - SOURCE for a deny: a `system/hook_response` event of a Stop or PreToolUse hook with exit code 2, or whose output
- *   carries `permissionDecision: deny` or `decision: block`. The hook id is read from the `[pre-bash-guard]`-style
- *   prefix of its message when there is one, else from the hook event and matcher (Stop = stop-check, PreToolUse:Bash =
- *   pre-bash-guard, other PreToolUse = pre-implementation-gate). The fallback is INFERRED, so such a deny is marked.
+ *   carries `permissionDecision: deny` or `decision: block`. The hook id is read from the `[stop-check]`-style
+ *   prefix of its message when there is one, else from the hook event (Stop = stop-check, PreToolUse =
+ *   pre-implementation-gate). The fallback is INFERRED, so such a deny is marked.
  * - SOURCE for the class: the `--task-class <x>` argument of a Bash command that runs `classify`.
  * No I/O.
  */
 
 const claudeStream = require('./claude-stream.ts');
 
-const HOOK_IDS = Object.freeze(['pre-implementation-gate', 'pre-bash-guard', 'stop-check']);
+const HOOK_IDS = Object.freeze(['pre-implementation-gate', 'stop-check']);
 const CLASSIFY = /\bclassify\b[^\n]*?--task-class[ =]+["']?([A-Za-z][A-Za-z0-9-]*)/;
 const REASON_CHARS = 200;
 const TOKEN_KEYS = ['inputTokens', 'outputTokens', 'cacheCreationInputTokens', 'cacheReadInputTokens'] as const;
@@ -43,7 +43,7 @@ function hookDenies(transcript: string): Deny[] {
     if (!denied) continue;
     const named = HOOK_IDS.find((id) => body.includes(`[${id}]`) || body.includes(`${id}:`));
     const hookName = text(ev.hook_name);
-    const byEvent = hookEvent === 'Stop' ? 'stop-check' : (/:Bash$/.test(hookName) ? 'pre-bash-guard' : 'pre-implementation-gate');
+    const byEvent = hookEvent === 'Stop' ? 'stop-check' : 'pre-implementation-gate';
     out.push({ id: named ?? byEvent, inferred: named === undefined, hookEvent, hookName, exitCode, reason: body.trim().replace(/\s+/g, ' ').slice(0, REASON_CHARS) });
   }
   return out;

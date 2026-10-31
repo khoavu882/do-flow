@@ -159,7 +159,7 @@ test('hotspots: 4 samples is NOT_DETERMINED; steady durations are CLEAR', (t) =>
 });
 
 test('hotspots: hook lines without a post-shell observation carry no duration, so NOT_DETERMINED (NFR-008)', (t) => {
-  const hooks = [1, 2, 3, 4, 5, 6].map((i) => ({ timestamp: sec(i), kind: 'hook', harness: 'claude', event: 'PreToolUse', policy: 'pre-bash-guard',
+  const hooks = [1, 2, 3, 4, 5, 6].map((i) => ({ timestamp: sec(i), kind: 'hook', harness: 'claude', event: 'PreToolUse', policy: 'user-prompt-submit',
     verdict: 'allow', duration_ms: null, tool: 'Bash', tool_call_id: `tc${i}` }));
   const a = analyzeDir(seed(t, hooks));
   assert.equal(detector(a, 'latency-hotspots').status, 'NOT_DETERMINED');
@@ -590,7 +590,7 @@ test('context: per session hook calls, emissions, bytes, duplicates by digest, r
     hook('s1', 'refused:mandatory-over-budget', 200, 'deadbeef', at('10:00:04')),
     hook('s1', 'emit', 1000, 'deadbeef', at('10:00:05')),
     hook('s1', 'emit', 50, '01234567', at('10:00:06')),
-    hook('s1', undefined, null, null, at('10:00:07')), // a pre-bash-guard-like line without the fields
+    hook('s1', undefined, null, null, at('10:00:07')), // a hook line without the fields
     hook('s2', 'emit', 300, 'deadbeef', at('10:00:08')), // same digest, other session: not a duplicate
     hook(null, 'emit', 999, 'deadbeef', at('10:00:09')), // no session: not counted
     span('verify.run', 'verify.run', { attrs: { status: 'PASS' } }),

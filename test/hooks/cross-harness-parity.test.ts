@@ -21,7 +21,6 @@ const FRONT_DOOR: any = {
 };
 const STEM_POLICY: any = {
   'pre-implement-gate': 'pre-implementation-gate',
-  'pre-bash-guard': 'pre-bash-guard',
   'mcp-tool-guard': 'mcp-tool-guard',
   'session-start': 'session-context',
   'stop-check': 'stop-check',
@@ -74,7 +73,6 @@ function fixtureFor(harness: any, policy: any, wantBlock: any = true) {
   if (harness === 'pi') {
     const name: any = ({
       'pre-implementation-gate': wantBlock ? 'edit-deny' : 'edit-allow',
-      'pre-bash-guard': wantBlock ? 'bash-deny' : 'bash-allow',
       'mcp-tool-guard': 'nested-mcp-deny',
     } as any)[policy];
     if (!name) return null;

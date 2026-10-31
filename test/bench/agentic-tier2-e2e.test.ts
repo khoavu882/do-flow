@@ -53,7 +53,7 @@ const SCENARIO = {
     'seed-single': {
       match: 'TASK-seed-single:',
       A: { askSegments: 2 },
-      B: { askSegments: 2, denies: [{ event: 'PreToolUse', matcher: 'Bash', stderr: '[pre-bash-guard] Blocked: git reset --hard', exitCode: 2 }] },
+      B: { askSegments: 2, denies: [{ event: 'PreToolUse', matcher: 'Write', stderr: '[pre-implementation-gate] missing requirement.md', exitCode: 2 }] },
       C: {
         askSegments: 2, skills: ['do'], classify: 'feature', opus: { tokens: 700, costUsd: 0.05 },
         denies: [{ event: 'Stop', stderr: 'unfinished-work marker found', exitCode: 2 }, { event: 'PreToolUse', matcher: 'Write', stderr: '[pre-implementation-gate] missing requirement.md', exitCode: 2 }],
@@ -191,14 +191,14 @@ test('arm C types "/do-flow " before the prompt, A and B do not; the resume repl
 
 test('process evidence: hook denies by hook id, skills, class and tokens by model are recorded as process.json', { skip: SKIP_WIN }, () => {
   const a = recordOf('t-A', 'seed-single', execute.PROCESS_FILE);
-  assert.deepEqual(a.hookDenies, { 'pre-implementation-gate': 0, 'pre-bash-guard': 0, 'stop-check': 0 });
+  assert.deepEqual(a.hookDenies, { 'pre-implementation-gate': 0, 'stop-check': 0 });
   assert.deepEqual(a.skills, []);
   assert.equal(a.class, null);
   const b = recordOf('t-B', 'seed-single', execute.PROCESS_FILE);
-  assert.deepEqual(b.hookDenies, { 'pre-implementation-gate': 0, 'pre-bash-guard': 3, 'stop-check': 0 }, 'one deny per segment');
+  assert.deepEqual(b.hookDenies, { 'pre-implementation-gate': 3, 'stop-check': 0 }, 'one deny per segment');
   assert.equal(b.hookDenyEvents[0].inferred, false);
   const c = recordOf('t-C', 'seed-single', execute.PROCESS_FILE);
-  assert.deepEqual(c.hookDenies, { 'pre-implementation-gate': 3, 'pre-bash-guard': 0, 'stop-check': 3 });
+  assert.deepEqual(c.hookDenies, { 'pre-implementation-gate': 3, 'stop-check': 3 });
   assert.equal(c.hookDenyEvents.find((d: any) => d.id === 'stop-check').inferred, true, 'a Stop deny without a hook-id prefix is inferred from its event');
   assert.deepEqual(c.skills, ['do']);
   assert.equal(c.class, 'feature');
@@ -209,19 +209,19 @@ test('process evidence: hook denies by hook id, skills, class and tokens by mode
 
 test('process extraction on the real arm B stream: hooks are not denies, the Skill/model split is read, no class', () => {
   const p = tier2Extract.extractProcess([[fs.readFileSync(REAL_STREAM, 'utf8')]]);
-  assert.deepEqual(p.hookDenies, { 'pre-implementation-gate': 0, 'pre-bash-guard': 0, 'stop-check': 0 });
+  assert.deepEqual(p.hookDenies, { 'pre-implementation-gate': 0, 'stop-check': 0 });
   assert.equal(p.class, null);
   assert.ok(Object.keys(p.byModel).length >= 1);
   assert.ok(p.totalTokens > 0);
   assert.ok(p.totalCostUsd > 0);
   const synthetic = [
-    JSON.stringify({ type: 'system', subtype: 'hook_response', hook_id: 'x', hook_name: 'PreToolUse:Bash', hook_event: 'PreToolUse', output: '', stdout: '', stderr: '[pre-bash-guard] no', exit_code: 2, outcome: 'error' }),
+    JSON.stringify({ type: 'system', subtype: 'hook_response', hook_id: 'x', hook_name: 'PreToolUse:Bash', hook_event: 'PreToolUse', output: '', stdout: '', stderr: '[pre-implementation-gate] no', exit_code: 2, outcome: 'error' }),
     JSON.stringify({ type: 'system', subtype: 'hook_response', hook_id: 'y', hook_name: 'PreToolUse:Bash', hook_event: 'PreToolUse', output: '', stdout: '{"hookSpecificOutput":{"permissionDecision":"deny"}}', stderr: '', exit_code: 0, outcome: 'success' }),
     JSON.stringify({ type: 'system', subtype: 'hook_response', hook_id: 'z', hook_name: 'PreToolUse:Bash', hook_event: 'PreToolUse', output: '', stdout: '', stderr: '', exit_code: 0, outcome: 'success' }),
     JSON.stringify({ type: 'assistant', message: { id: 'a1', content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'doflow-run classify --task-class bug --request "x"' } }] } }),
   ].join('\n');
   const q = tier2Extract.extractProcess([[synthetic]]);
-  assert.deepEqual(q.hookDenies, { 'pre-implementation-gate': 0, 'pre-bash-guard': 2, 'stop-check': 0 });
+  assert.deepEqual(q.hookDenies, { 'pre-implementation-gate': 2, 'stop-check': 0 });
   assert.equal(q.class, 'bug');
 });
 

@@ -142,7 +142,7 @@ test('Codex corpus covers wired events, apply_patch allow and deny, and each can
   for (const event of ['SessionStart', 'UserPromptSubmit', 'SubagentStart', 'SubagentStop', 'PreToolUse', 'PostToolUse', 'PreCompact', 'Stop', 'SessionEnd']) {
     assert.ok(rows.some(({ fixture }: any) => fixture.native.hook_event_name === event), `fixture exists for ${event}`);
   }
-  for (const stem of ['pre-implement-gate', 'pre-bash-guard', 'mcp-tool-guard', 'session-start', 'user-prompt-submit', 'subagent-audit', 'stop-check']) {
+  for (const stem of ['pre-implement-gate', 'mcp-tool-guard', 'session-start', 'user-prompt-submit', 'subagent-audit', 'stop-check']) {
     assert.ok(rows.some((row: any) => row.stem === stem && path.basename(row.fixturePath) === 'perf.json'), `${stem} perf fixture`);
   }
   for (const name of ['deny', 'allow']) assert.ok(rows.some((row: any) => row.stem === 'pre-implement-gate' && row.fixture.native.tool_name === 'apply_patch' && path.basename(row.fixturePath) === `apply_patch-${name}.json`), `apply_patch ${name} fixture`);

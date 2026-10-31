@@ -35,7 +35,6 @@ test('every current front door renders its IC-036 fallback with the bridge remov
   const doors = [
     ...[
       ['pre-implement-gate.sh', 'claude/pre-implement-gate/deny.json'],
-      ['pre-bash-guard.sh', 'claude/pre-bash-guard/deny.json'],
       ['mcp-tool-guard.sh', 'claude/mcp-tool-guard/deny.json'],
     ].map(([door, fixture]) => ({ harness: 'claude', door, fixture, render: 'claude-tool' })),
     ...[
@@ -46,7 +45,6 @@ test('every current front door renders its IC-036 fallback with the bridge remov
     { harness: 'claude', door: 'user-prompt-submit.sh', fixture: 'claude/user-prompt-submit/perf.json', render: 'silent' },
     ...[
       ['pre-implement-gate.sh', 'codex/pre-implement-gate/deny.json'],
-      ['pre-bash-guard.sh', 'codex/pre-bash-guard/deny.json'],
       ['mcp-tool-guard.sh', 'codex/mcp-tool-guard/deny.json'],
     ].map(([door, fixture]) => ({ harness: 'codex', door, fixture, render: 'claude-tool' })),
     ...[
@@ -57,7 +55,6 @@ test('every current front door renders its IC-036 fallback with the bridge remov
     { harness: 'codex', door: 'user-prompt-submit.sh', fixture: 'codex/user-prompt-submit/perf.json', render: 'silent' },
     ...[
       ['pre-implement-gate.sh', 'kiro/pre-implement-gate/deny.json', 'kiro-tool'],
-      ['pre-bash-guard.sh', 'kiro/pre-bash-guard/deny.json', 'kiro-tool'],
       ['mcp-tool-guard.sh', 'kiro/mcp-tool-guard/deny.json', 'kiro-tool'],
       ['session-start.sh', 'kiro/session-start/perf.json', 'silent'],
       ['stop-check.sh', 'kiro/stop-check/v3-deny.json', 'silent'],

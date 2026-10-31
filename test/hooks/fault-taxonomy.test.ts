@@ -13,8 +13,8 @@ const { buildInstallMirror } = require('../helper/hook-fixtures.ts');
 const ROOT = path.resolve(__dirname, '../..');
 const BRIDGE_SOURCE = path.join(ROOT, 'core/harnesses/shared/hooks/bridge');
 const POLICY_SOURCE = path.join(ROOT, 'core/harnesses/shared/hooks/policies');
-const POLICIES: any = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'session-context', 'stop-check', 'user-prompt-submit', 'subagent-audit'];
-const BLOCKING: any = new Set(['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'stop-check']);
+const POLICIES: any = ['pre-implementation-gate', 'mcp-tool-guard', 'session-context', 'stop-check', 'user-prompt-submit', 'subagent-audit'];
+const BLOCKING: any = new Set(['pre-implementation-gate', 'mcp-tool-guard', 'stop-check']);
 const REASON = '[pre-implementation-gate] DoFlow policy error; details: doflow-run failure list';
 
 function bridgeTree(t: any) {
@@ -211,7 +211,6 @@ test('installed front doors exercise every blocking policy and native Stop fault
         : { hook_event_name: 'PreToolUse', tool_name: tool === 'Bash' ? 'Bash' : tool === 'MCP' ? 'mcp__test__search' : 'Edit', tool_input: { command: 'echo ok', file_path: 'src/a.js' } };
       return [
         ['pre-implementation-gate', `${hookRoot}pre-implement-gate.sh`, inputFor('Edit')],
-        ['pre-bash-guard', `${hookRoot}pre-bash-guard.sh`, inputFor('Bash')],
         ['mcp-tool-guard', `${hookRoot}mcp-tool-guard.sh`, inputFor('MCP')],
       ];
     }),
@@ -260,14 +259,6 @@ test('real policy code emits jq, config, version and target fault records', (t) 
   });
   assert.equal(JSON.parse(noTarget.records.trim().split('\n').at(-1).slice(1)).code, 'edit-without-target');
   assert.deepEqual(diagnosticKinds(noTarget), ['edit-without-target']);
-
-  const bashRoot = bridgeTree(t);
-  fs.unlinkSync(path.join(bashRoot, 'policies/blocked-patterns.conf'));
-  const missingConfig = runPolicyDirect(bashRoot, 'pre-bash-guard', {
-    doflow_event: { version: 1, harness: 'claude', event: 'PreToolUse', operation: 'command', tool: 'Bash', command: 'echo ok' },
-  });
-  assert.equal(JSON.parse(missingConfig.records.trim().split('\n').at(-1).slice(1)).code, 'patterns-missing');
-  assert.deepEqual(diagnosticKinds(missingConfig), ['patterns-missing']);
 
   const jqRoot = bridgeTree(t);
   const jqMissing = runPolicyDirect(jqRoot, 'pre-implementation-gate', {}, { pathValue: pathWithoutJq(t) });
@@ -356,7 +347,6 @@ test('Antigravity runner drives each blocking policy through its installed runne
   const policies = path.join(root, '.doflow/shared/hooks/policies');
   const rows: any = [
     ['pre-implementation-gate', 'PreToolUse', { toolCall: { name: 'write_to_file', args: { TargetFile: 'src/a.ts' } } }],
-    ['pre-bash-guard', 'PreToolUse', { toolCall: { name: 'run_command', args: { CommandLine: 'echo ok' } } }],
     ['mcp-tool-guard', 'PreToolUse', { toolCall: { name: 'mcp_search', args: {} } }],
     ['stop-check', 'Stop', {}],
   ];
@@ -542,7 +532,6 @@ test('real Pi extension blocks a missing bridge as an out-of-step install', asyn
     process.env.DOFLOW_FAULT_PROFILE = profile;
     for (const [toolName, policy, input] of [
       ['edit', 'pre-implementation-gate', { path: 'src/a.js' }],
-      ['bash', 'pre-bash-guard', { command: 'echo ok' }],
       ['mcp__test__search', 'mcp-tool-guard', {}],
     ]) {
       const policyPath = path.join(piRoot, `.doflow/shared/hooks/policies/${policy}.sh`);

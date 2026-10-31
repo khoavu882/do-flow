@@ -20,7 +20,7 @@
  *
  * SessionStart and PostToolUse have no dedicated Antigravity-native shim in
  * src/adapters/antigravity/index.js's live projection. No Phase A canonical policy owns PostToolUse today (only
- * session-context, pre-implementation-gate, mcp-tool-guard, stop-check, pre-bash-guard exist),
+ * session-context, pre-implementation-gate, mcp-tool-guard, stop-check exist),
  * so its native shape is an ack passthrough either way.
  */
 

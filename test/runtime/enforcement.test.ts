@@ -37,9 +37,9 @@ test('unknown targets throw typed errors', () => {
 test('wildcard policy rows do not hide known lifecycle policies', () => {
   const block = coverage([
     row({ policy: '*', harness: 'copilot', event: 'unavailable', timing: 'pre-tool', class: 'unsupported', verification: 'unverified', wired: false }),
-    row({ policy: 'pre-bash-guard', harness: 'claude' }),
+    row({ policy: 'mcp-tool-guard', harness: 'claude' }),
   ]);
-  const answer = enforcementFor(block, { harness: 'copilot', policy: 'pre-bash-guard' });
+  const answer = enforcementFor(block, { harness: 'copilot', policy: 'mcp-tool-guard' });
   assert.equal(answer.enforced, false);
   assert.equal(answer.class, 'unsupported');
 });
@@ -114,7 +114,7 @@ test('enforcement CLI reports json, text, exit codes, errors and dispatcher pass
   }
   result = run(['enforcement', '--harness', 'copilot', '--policy', 'pre-implementation-gate', '--json']);
   assert.equal(result.status, 0); assert.equal(JSON.parse(result.stdout).class, 'blocking'); assert.equal(JSON.parse(result.stdout).enforced, true);
-  result = run(['enforcement', '--harness', 'copilot', '--policy', 'pre-bash-guard', '--json']);
+  result = run(['enforcement', '--harness', 'claude', '--policy', 'mcp-tool-guard', '--json']);
   assert.equal(result.status, 0); assert.equal(JSON.parse(result.stdout).enforced, true);
   result = run(['enforcement', '--harness', 'claude', '--policy', 'missing', '--json']);
   assert.equal(result.status, 2);

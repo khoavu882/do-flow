@@ -11,12 +11,11 @@ const { tempDir } = require('../helper/tmp.ts');
 const FIXTURE_ROOT = path.join(REPO, 'test/fixtures/hooks');
 
 const POLICIES = new Set([
-  'pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'session-context',
+  'pre-implementation-gate', 'mcp-tool-guard', 'session-context',
   'stop-check', 'user-prompt-submit', 'subagent-audit',
 ]);
 const STEM_POLICY: any = {
   'pre-implement-gate': 'pre-implementation-gate',
-  'pre-bash-guard': 'pre-bash-guard',
   'mcp-tool-guard': 'mcp-tool-guard',
   'session-start': 'session-context',
   'stop-check': 'stop-check',

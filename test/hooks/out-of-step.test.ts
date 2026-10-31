@@ -10,7 +10,7 @@ const { tempDir } = require('../helper/tmp.ts');
 const { buildInstallMirror, createScratchGitRepo, parseRecords, runPolicy } = require('../helper/hook-fixtures.ts');
 
 const POLICIES = path.resolve(__dirname, '../../core/harnesses/shared/hooks/policies');
-const BLOCKING: any = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard'];
+const BLOCKING: any = ['pre-implementation-gate', 'mcp-tool-guard'];
 const QUIET: any = ['stop-check', 'session-context', 'subagent-audit', 'user-prompt-submit'];
 const OLD_DOORS: any = {
   claude: ['core/harnesses/claude/hooks/pre-implement-gate.sh', '.claude/hooks/pre-implement-gate.sh'],

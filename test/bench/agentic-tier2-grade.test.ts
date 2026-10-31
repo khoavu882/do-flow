@@ -304,7 +304,7 @@ test('tier-2 grade: recovered = items passing among those whose target was untou
   assert.equal(g3.tier2.recoveredNote, 'the cut did not fire');
 });
 test('tier-2 grade: process evidence and artifacts are carried into the grading, arm C routing is not graded', () => {
-  const proc = { hookDenies: { 'pre-implementation-gate': 2, 'pre-bash-guard': 0, 'stop-check': 1 }, skills: ['do'], class: 'feature', subagentCalls: 1, byModel: { 'claude-opus-5': { totalTokens: 700, costUSD: 0.04 } }, totalTokens: 9755, totalCostUsd: 0.09 };
+  const proc = { hookDenies: { 'pre-implementation-gate': 2, 'stop-check': 1 }, skills: ['do'], class: 'feature', subagentCalls: 1, byModel: { 'claude-opus-5': { totalTokens: 700, costUSD: 0.04 } }, totalTokens: 9755, totalCostUsd: 0.09 };
   const ws = workspaceOf('red-ci-root-cause', true);
   fs.mkdirSync(path.join(ws, 'agent-docs', 'doflow', 'f'), { recursive: true });
   fs.writeFileSync(path.join(ws, 'agent-docs', 'doflow', 'f', 'requirement.md'), '# r\n');
@@ -435,7 +435,7 @@ test('isolation (tier 2): `$OLDPWD` after a `cd` out of the workspace reads as t
 /** Iteration directories for the CLI path: arms A (two repeats), B and C over two tasks. */
 function buildIterations() {
   const root = mkdir('runs-');
-  const proc = (cost: number) => ({ hookDenies: { 'pre-implementation-gate': 0, 'pre-bash-guard': 1, 'stop-check': 0 }, skills: ['do'], class: 'bug', subagentCalls: 0, byModel: { 'claude-sonnet-5-5': { totalTokens: 9055, costUSD: cost } }, totalTokens: 9055, totalCostUsd: cost });
+  const proc = (cost: number) => ({ hookDenies: { 'pre-implementation-gate': 1, 'stop-check': 0 }, skills: ['do'], class: 'bug', subagentCalls: 0, byModel: { 'claude-sonnet-5-5': { totalTokens: 9055, costUSD: cost } }, totalTokens: 9055, totalCostUsd: cost });
   const plan: [string, string, (id: string) => any][] = [
     ['r1-a', 'A', (id) => ({ ws: workspaceOf(id, false), factor: 1 })], // A fails
     ['r2-a', 'A', (id) => ({ ws: workspaceOf(id, true), factor: 1 })], // A succeeds
@@ -479,7 +479,7 @@ test('tier-2 CLI: `grade` then `report` print three arms with the process block,
   assert.match(text, /not earned if \(design section 3\): fixed defects C - A <= 1 of 3/);
   assert.match(text, /also excluding runs stopped at a cap or timeout \(view 3\)/);
   assert.match(text, /delivery failed \(cap or timeout\) \| 0 of 2 \| 0 of 1 \| 1 of 1/);
-  assert.match(text, /hook denies pre-bash-guard x1/);
+  assert.match(text, /hook denies pre-implementation-gate x1/);
   assert.match(text, /Corpus verdict word/);
   assert.ok(!/warning: grader re-run/.test(text), text);
   const saved = JSON.parse(fs.readFileSync(decisionOut, 'utf8'));
@@ -548,12 +548,12 @@ test('tier-2 permission denials (D1): a DoFlow hook denial is an outcome and cou
     return JSON.stringify(e);
   }).join('\n');
   const deniedEvent = (text: string) => withEventBeforeResult(text, { type: 'system', subtype: 'permission_denied', tool_name: 'Bash', decision_reason_type: 'safetyCheck', message: 'Dangerous rm operation on statically-unresolvable target' });
-  const hookProc = { hookDenies: { 'pre-bash-guard': 1 }, skills: ['do'], class: 'bug', subagentCalls: 0, byModel: {}, totalTokens: 9055, totalCostUsd: 0.05 };
+  const hookProc = { hookDenies: { 'pre-implementation-gate': 1 }, skills: ['do'], class: 'bug', subagentCalls: 0, byModel: {}, totalTokens: 9055, totalCostUsd: 0.05 };
   const cap = { status: 'truncated', evidence: 'cap', cap: true, exitCode: null, signal: 'SIGKILL', deliveryFailed: true };
   const run = (opts: any) => gradeOf(runDir(mkdir('run-'), { taskId: id, arm: 'C', ws: workspaceOf(id, true), ...opts }), id, 'C');
 
   const hook = run({ extra: { streamOf: deniedResult }, process: hookProc });
-  assert.equal(hook.tier2.excluded, null, 'the pre-bash-guard denial is counted, not an exclusion');
+  assert.equal(hook.tier2.excluded, null, 'the pre-implementation-gate denial is counted, not an exclusion');
   assert.notEqual(hook.pass_rate, null);
   assert.equal(hook.pass_rate, 1, 'the final workspace is what is graded');
 

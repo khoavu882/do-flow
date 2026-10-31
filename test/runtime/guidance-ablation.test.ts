@@ -66,7 +66,7 @@ function createMockLedger(): any {
         sourceFile: 'core/shared/guidance/rules/RULES.md',
         category: 'safety',
         enforcement: 'mechanical',
-        enforcementRef: 'core/harnesses/shared/hooks/policies/pre-bash-guard.sh',
+        enforcementRef: 'core/harnesses/shared/hooks/policies/pre-implementation-gate.sh',
         neverAblate: true,
         ablationCandidate: false,
       },

@@ -11,7 +11,7 @@ _DOFLOW_SRC=${0//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_POLDIR=${_DOFLOW_SRC%/
 # Today there is zero record of which of the installed agents/ specialists actually run, how often, or
 # whether one is invoked outside its intended use (e.g. everything routing through general-purpose
 # instead of do-code-review/security-engineer) — this hook is the evidence base a future policy
-# hook (e.g. an agent-aware pre-bash-guard extension) would need before writing rules on a guess.
+# hook (e.g. an agent-aware tool guard) would need before writing rules on a guess.
 # Per agent-docs/research/hook-governance-agent-tool-mcp-skill.md §3.1: pure logging, no deny path,
 # safe to ship immediately, and the recommended first step before any tighter agent governance.
 #

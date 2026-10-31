@@ -25,7 +25,7 @@ const PROTOCOL_COMMON = { securityRelevant: false, env: null, flag: null, shellR
 const PRIMARY_COMMON = { securityRelevant: false, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
   consumers: ['src/runtime/context/primary.ts'] };
 
-// The seven v1 entries plus 112's project-only guard entry, 089's verify.reuse switch and 106's
+// The seven v1 entries plus 089's verify.reuse switch and 106's
 // dispatch.fallback default (the
 // design folder is not in the repo, so the contract is pinned here; a registry edit must change
 // this table on purpose).
@@ -139,10 +139,6 @@ const V1 = {
     legacy: [{ layer: 'user', kind: 'sentinel', path: 'autopilot/off', value: 'off' }],
     consumers: ['src/runtime/settings/autopilot.ts'],
     description: 'Roadmap autopilot kill switch, off until the owner turns it on; the env and the autopilot/off sentinel can only turn it off.' },
-  'guard.workerDropDatabases': { type: 'string', default: null, scope: 'project-only', combine: 'override',
-    securityRelevant: true, failSafe: { state: 'invalid' }, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
-    consumers: ['src/runtime/worker/launch.ts'],
-    description: 'Space-separated exact database names a worker session may DROP DATABASE; project layer only.' },
   'hooks.harnesses': { type: 'string-list', valuesRef: 'harnesses.ids', maxItems: 16, maxLength: 32, default: ['claude', 'codex', 'antigravity', 'pi'],
     scope: 'global-only', combine: 'override', securityRelevant: false, env: null, flag: null, shellRead: null, needsConfigHome: false, legacy: [],
     consumers: ['src/lifecycle/hook-tier.ts'],
@@ -304,48 +300,21 @@ test('project-only refuses every environment binding, including a narrowing bind
 });
 
 test("N-3: failSafe {state: 'invalid'} cannot be combined with requires or needsConfigHome (they would resolve to the failSafe object as the value)", () => {
-  const guard = 'guard.workerDropDatabases';
-  assert.equal(validateSettingsRegistry(clone(SHIPPED)).ok, true, 'the shipped project-only security key is valid');
+  const guard = 'storage.plantedProjectOnly';
+  const planted = (extra: any = {}) => {
+    const raw = clone(SHIPPED);
+    raw.keys[guard] = { ...clone(GOOD), scope: 'project-only', securityRelevant: true, failSafe: { state: 'invalid' }, ...extra };
+    return raw;
+  };
+  assert.deepEqual(errorsOf(planted()), [], 'a project-only security key with the state fail-safe is valid');
   for (const extra of [
     { requires: [{ when: 'on', key: 'storage.retentionHours', view: 'project' }] },
     { needsConfigHome: true },
   ]) {
-    const raw = clone(SHIPPED);
-    Object.assign(raw.keys[guard], extra);
-    const rejected = validateSettingsRegistry(raw);
-    assert.equal(rejected.ok, false, JSON.stringify(extra));
-    assert.ok(rejected.errors.some((e: any) => e.includes(guard) && e.includes("failSafe {state: 'invalid'}") && e.includes('requires')), rejected.errors.join('\n'));
+    const errors = errorsOf(planted(extra));
+    assert.ok(errors.some((e: any) => e.includes(guard) && e.includes("failSafe {state: 'invalid'}") && e.includes('requires')), errors.join('\n'));
   }
-  const empty = clone(SHIPPED);
-  empty.keys[guard].requires = [];
-  assert.equal(validateSettingsRegistry(empty).ok, true, 'an empty requires list resolves nothing');
-});
-
-test('project-only ignores user/global values and env; project and local files alone decide', (t) => {
-  const w = createSettingsEnv(t);
-  const key = 'guard.workerDropDatabases';
-  const get = () => loadSettings({ projectRoot: w.project,
-    env: w.env({ DOFLOW_GUARD_DROP_DATABASES: 'env_db', DOFLOW_GUARD_WORKER_DROP_DATABASES: 'env_db' }) });
-  w.writeUserSettings({ [key]: 'global_db' });
-  let view = get();
-  for (const name of ['project', 'global']) {
-    const r = view.get(key, name);
-    assert.equal(r.value, null);
-    assert.equal(r.origin.layer, 'default');
-    assert.equal(r.candidates.find((c: any) => c.layer === 'user').status, 'ignored-scope');
-    assert.match(r.candidates.find((c: any) => c.layer === 'user').reason, /project-only/);
-    assert.equal(r.candidates.some((c: any) => c.layer === 'env'), false);
-  }
-  w.writeProjectSettings({ [key]: 'project_db' });
-  view = get();
-  assert.equal(view.get(key).value, 'project_db');
-  assert.equal(view.get(key).origin.layer, 'project');
-  assert.equal(view.get(key, 'global').value, null);
-  w.writeProjectLocal({ [key]: 'local_db' });
-  assert.equal(get().get(key).value, 'local_db');
-  assert.equal(get().get(key).origin.layer, 'local');
-  w.writeUserSettings({ [key]: 42 });
-  assert.equal(get().get(key).candidates.find((c: any) => c.layer === 'user').status, 'ignored-scope', 'scope precedes type validation, mirroring global-only');
+  assert.deepEqual(errorsOf(planted({ requires: [] })), [], 'an empty requires list resolves nothing');
 });
 
 // ── the shipped registry ───────────────────────────────────────────────────────────────────────
@@ -354,7 +323,7 @@ test("the shipped registry pins base keys plus primary, worker and package setti
   assert.equal(SHIPPED.version, 1);
   assert.deepEqual(Object.keys(SHIPPED.keys), Object.keys(V1));
   assert.deepEqual(SHIPPED.keys, V1);
-  assert.equal(Object.keys(SHIPPED.keys).length, 42);
+  assert.equal(Object.keys(SHIPPED.keys).length, 41);
 });
 
 test('prompt-nudge is not registered (D-2) and no key outside the pinned entries exists', () => {
@@ -660,7 +629,6 @@ test('every failSafe form of the shipped registry validates, and each form is re
     'storage.retentionHours': { state: 'invalid' },
     'failure.capture': 'off',
     'autopilot.enabled': 'off',
-    'guard.workerDropDatabases': { state: 'invalid' },
     'verify.reuse': 'off',
     'dispatch.fallback': 'off',
     'workers.billing': { state: 'invalid' },

@@ -20,8 +20,7 @@ const { bashPath } = require('../helper/bash-locator.ts');
 //
 // Every O0 telemetry producer is exercised against that single project:
 //   (a) `doflow verify` CLI with one passing and one failing check whose command and output hold canaries,
-//   (b) the shared hook bridge across `pre-bash-guard` (all 6 harnesses + MCP tool calls) and
-//       `user-prompt-submit` (claude and codex),
+//   (b) the shared hook bridge across `user-prompt-submit` (claude and codex, plus MCP-named tool calls),
 //   (c) 080 `task-run` `start` and acknowledged `resume`,
 //   (d) `doflow trace spans --json` over the resulting project state,
 //   (e) 095 `review --action check` (valid and invalid records), and
@@ -60,11 +59,6 @@ const BASH = bashPath();
 const MAX_VALUE_BYTES = 256;
 
 const SURFACES: any = {
-  'claude:pre-bash-guard': { harness: 'claude', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.claude/hooks/pre-bash-guard.sh', fixture: 'claude/pre-bash-guard/perf.json' },
-  'codex:pre-bash-guard': { harness: 'codex', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.codex/hooks/pre-bash-guard.sh', fixture: 'codex/pre-bash-guard/perf.json' },
-  'kiro:pre-bash-guard': { harness: 'kiro', event: 'PreToolUse', policy: 'pre-bash-guard', door: '.kiro/hooks/pre-bash-guard.sh', fixture: 'kiro/pre-bash-guard/perf.json' },
-  'antigravity:pre-bash-guard': { harness: 'antigravity', event: 'PreToolUse', policy: 'pre-bash-guard', runner: true, fixture: 'antigravity/pre-bash-guard/perf.json' },
-  'pi:pre-bash-guard': { harness: 'pi', event: 'tool_call', policy: 'pre-bash-guard', bridge: true, fixture: 'pi/tool_call/perf-bash.json' },
   'claude:user-prompt-submit': { harness: 'claude', event: 'UserPromptSubmit', policy: 'user-prompt-submit', door: '.claude/hooks/user-prompt-submit.sh', fixture: 'claude/user-prompt-submit/perf.json' },
   'codex:user-prompt-submit': { harness: 'codex', event: 'UserPromptSubmit', policy: 'user-prompt-submit', door: '.codex/hooks/user-prompt-submit.sh', fixture: 'codex/user-prompt-submit/perf.json' },
 };
@@ -413,8 +407,8 @@ function runCanaryFixture() {
     assert.equal(res.status, 0, `package ${action}: ${res.stdout}\n${res.stderr}`);
   }
 
-  // Producer (b): bridge hook path across pre-bash-guard (all 6 harnesses + MCP tool calls) and
-  // user-prompt-submit (claude and codex), with planted argv, path, prompt, ft:<canary> and mcp__<canary>__tool.
+  // Producer (b): bridge hook path across user-prompt-submit (claude and codex, plus MCP-named tool calls), with
+  // planted argv, path, prompt, ft:<canary> and mcp__<canary>__tool.
   const invokeHook = (surface: any, payload: any) => {
     const body = JSON.parse(JSON.stringify(payload));
     if (Array.isArray(body.workspacePaths)) body.workspacePaths = [canarySubdir];
@@ -437,34 +431,22 @@ function runCanaryFixture() {
     assert.equal(res.status, 0, `${surface.harness}/${surface.policy} exited ${res.status}: ${res.stderr}`);
   };
 
-  const bashCmd = `printf "%s" "${canaries.argv}" "${ path.join(canarySubdir, sourceRel) }" "${canaries.modelId}"`;
   for (const surface of Object.values(SURFACES)) {
     const native: any = JSON.parse(fs.readFileSync(path.join(FIXTURES, surface.fixture), 'utf8')).native;
     native.model = canaries.modelId;
     // The claude surfaces carry the session canary, so their hook lines hold it as `session` (T0).
     if (surface.harness === 'claude') native.session_id = canaries.session;
-    if (surface.policy === 'pre-bash-guard') {
-      if (surface.harness === 'antigravity') native.toolCall.args.CommandLine = bashCmd;
-      else if (surface.harness === 'pi') native.input.command = bashCmd;
-      else native.tool_input.command = bashCmd;
-    } else if (surface.policy === 'user-prompt-submit') {
-      native.prompt = `Run ${canaries.prompt} on ${canarySubdir} with ${canaries.modelId} and ${canaries.mcpTool}`;
-    }
+    native.prompt = `Run ${canaries.prompt} on ${canarySubdir} with ${canaries.modelId} and ${canaries.mcpTool}: printf "%s" "${canaries.argv}" "${path.join(canarySubdir, sourceRel)}"`;
     invokeHook(surface, native);
   }
 
-  // Also invoke pre-bash-guard with the MCP tool name `mcp__<canary>__tool` on claude, codex and pi.
-  for (const key of ['claude:pre-bash-guard', 'codex:pre-bash-guard', 'pi:pre-bash-guard']) {
+  // Also invoke user-prompt-submit with the MCP tool name `mcp__<canary>__tool` on claude and codex.
+  for (const key of ['claude:user-prompt-submit', 'codex:user-prompt-submit']) {
     const surface = SURFACES[key];
     const native = JSON.parse(fs.readFileSync(path.join(FIXTURES, surface.fixture), 'utf8')).native;
     native.model = canaries.modelId;
-    if (surface.harness === 'pi') {
-      native.toolName = canaries.mcpTool;
-      native.input = { command: canaries.argv, path: canarySubdir };
-    } else {
-      native.tool_name = canaries.mcpTool;
-      native.tool_input = { command: canaries.argv, file_path: canarySubdir };
-    }
+    native.tool_name = canaries.mcpTool;
+    native.tool_input = { command: canaries.argv, file_path: canarySubdir };
     invokeHook(surface, native);
   }
 
@@ -540,8 +522,8 @@ test('G-O2 canary run exercises verify (pass+fail), bridge hooks, task-run start
   assert.ok(telemetryFiles.length >= 1, 'at least one telemetry partition written');
   const writtenLines = telemetryFiles.flatMap((f: any) => fs.readFileSync(f.abs, 'utf8').trim().split('\n').map((l: any) => JSON.parse(l)));
   const hookLines = writtenLines.filter((l: any) => l.kind === 'hook');
-  assert.equal(hookLines.length, 10, '7 allowlisted surface calls + 3 MCP calls wrote 10 hook lines');
-  assert.equal(hookLines.filter((l: any) => l.policy === 'pre-bash-guard' && l.tool === null).length, 3, 'MCP tool calls record tool: null');
+  assert.equal(hookLines.length, 4, '2 allowlisted surface calls + 2 MCP-named calls wrote 4 hook lines');
+  assert.equal(hookLines.filter((l: any) => l.policy === 'user-prompt-submit' && l.tool === null).length, 4, 'MCP tool calls record tool: null');
 
   // The package.verb lines: one per verb of the package producer, holding only the three declared T2 keys
   // with values from their enums (no package id, path, digest or summary).
@@ -627,7 +609,7 @@ test('091 E.1 NFR-001: trace analyze --json, --emit evidence, --emit followups a
   // Rider R1: the UserPromptSubmit hook lines carry emission metadata and never the prompt canary.
   const promptLines = telemetryText.split('\n').filter(Boolean).map((l: any) => JSON.parse(l))
     .filter((l: any) => l.kind === 'hook' && l.event === 'UserPromptSubmit');
-  assert.equal(promptLines.length, 2, 'claude and codex UserPromptSubmit lines');
+  assert.equal(promptLines.length, 4, 'claude and codex UserPromptSubmit lines, from the surface calls and the MCP-named calls');
   assert.ok(promptLines.some((l: any) => typeof l.emit_reason === 'string'), 'a UserPromptSubmit line carries emit metadata');
   for (const line of promptLines) {
     const text = JSON.stringify(line);
@@ -676,13 +658,13 @@ test('negative control 1: a scratch producer that writes the canary command argu
   const badRecord: any = {
     kind: 'hook',
     harness: 'claude',
-    event: 'PreToolUse',
-    policy: 'pre-bash-guard',
+    event: 'UserPromptSubmit',
+    policy: 'user-prompt-submit',
     verdict: 'allow',
     duration_ms: null,
     timestamp: '2026-10-17T00:00:00.000Z',
     session: canaries.argv,
-    tool: 'Bash',
+    tool: null,
     tool_call_id: null,
     run: 'r-canary',
     lineage: 'main',
@@ -707,9 +689,9 @@ test('negative control 2: a scratch producer that writes the MCP tool name into 
   const partition = path.join(scratchRuns, 'telemetry', fs.readdirSync(path.join(scratchRuns, 'telemetry'))[0]);
   const badRecord: any = {
     kind: 'hook',
-    harness: 'pi',
-    event: 'tool_call',
-    policy: 'pre-bash-guard',
+    harness: 'claude',
+    event: 'UserPromptSubmit',
+    policy: 'user-prompt-submit',
     verdict: 'allow',
     duration_ms: null,
     timestamp: '2026-10-17T00:00:00.000Z',

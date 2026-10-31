@@ -9,7 +9,7 @@ const { buildInstallMirror, createScratch, createScratchGitRepo, jqSorted } = re
 
 const REPO = path.resolve(__dirname, '../..');
 const FIXTURES = path.join(REPO, 'test/fixtures/hooks');
-const CANONICAL: any = new Set(['pre-implement-gate', 'pre-bash-guard', 'mcp-tool-guard', 'session-start', 'user-prompt-submit', 'subagent-audit', 'stop-check']);
+const CANONICAL: any = new Set(['pre-implement-gate', 'mcp-tool-guard', 'session-start', 'user-prompt-submit', 'subagent-audit', 'stop-check']);
 const scratch = createScratch('doflow-bridge-parity-');
 after(() => scratch.remove());
 

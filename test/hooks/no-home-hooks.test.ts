@@ -207,25 +207,11 @@ test('stop-check with no config home allows flagged repeats without creating sta
   assert.equal(repeated.none.stderr, '', 'a repeated flagged message cannot block without persisted state');
 });
 
-test('kiro pre-bash-guard (installed shape) with HOME unset still denies rm -rf /, exactly as with a HOME', { skip: !POSIX || !HAS_JQ }, (t) => {
-  const mirror = buildInstallMirror(path.join(tempDir(t, 'doflow-no-home-mirror-'), 'm'));
-  const door = path.join(mirror, '.kiro', 'hooks', 'pre-bash-guard.sh');
-  const deny = JSON.stringify({ tool_name: 'shell', tool_input: { command: 'rm -rf /' } });
-  const allow = JSON.stringify({ tool_name: 'shell', tool_input: { command: 'ls -la' } });
-  for (const [input, status] of [[deny, 2], [allow, 0]]) {
-    const none: any = bash(t, [door], { DOFLOW_TELEMETRY: 'off' }, { input });
-    const withHome: any = bash(t, [door], { DOFLOW_TELEMETRY: 'off', HOME: tempDir(t, 'doflow-no-home-home-') }, { input });
-    assert.equal(none.status, status, none.stderr);
-    assert.deepEqual([none.status, none.stdout, none.stderr], [withHome.status, withHome.stdout, withHome.stderr]);
-    assert.ok(none.untouched);
-  }
-});
-
 // Entry points run from the source tree with empty stdin: each that needs no session state exits as
 // it does with a HOME. The two session-end scripts append to SESSIONS_LOG before any session check.
 const ENTRY_POINTS: any = [
   ['claude', 'pre-compact.sh'],
-  ['kiro', 'session-start.sh'], ['kiro', 'stop-check.sh'], ['kiro', 'pre-bash-guard.sh'], ['kiro', 'mcp-tool-guard.sh'],
+  ['kiro', 'session-start.sh'], ['kiro', 'stop-check.sh'], ['kiro', 'mcp-tool-guard.sh'],
 ];
 for (const [harness, script] of ENTRY_POINTS) {
   test(`${harness}/hooks/${script} with HOME unset: no abort in lib.sh, same output and status as with a HOME, nothing created`, { skip: !POSIX }, (t) => {

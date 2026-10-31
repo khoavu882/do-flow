@@ -68,16 +68,15 @@ test('kiro-agents transform: no model key for model: inherit, and effort is drop
   assert.equal('effort' in agent, false);
 });
 
-test('kiro-agents transform: exactly three preToolUse hooks with the documented matchers', () => {
+test('kiro-agents transform: exactly two preToolUse hooks with the documented matchers', () => {
   const agent = JSON.parse(render('spec-analyst.md', fs.readFileSync(path.join(SPECS_DIR, 'spec-analyst.md'), 'utf8')));
-  assert.equal(agent.hooks.length, 3);
+  assert.equal(agent.hooks.length, 2);
   assert.deepEqual(agent.hooks.map((hook: any) => [hook.name, hook.trigger, hook.matcher, hook.timeout]), [
     ['doflow-pre-implementation-gate', 'preToolUse', 'write', 10],
-    ['doflow-pre-bash-guard', 'preToolUse', 'shell', 10],
     ['doflow-mcp-tool-guard', 'preToolUse', '*', 10],
   ]);
   const scripts = agent.hooks.map((hook: any) => hook.action.command.match(/\.kiro\/hooks\/([a-z-]+\.sh)'/)[1]);
-  assert.deepEqual(scripts, ['pre-implement-gate.sh', 'pre-bash-guard.sh', 'mcp-tool-guard.sh']);
+  assert.deepEqual(scripts, ['pre-implement-gate.sh', 'mcp-tool-guard.sh']);
   for (const hook of agent.hooks) assert.equal(hook.action.type, 'command');
 });
 
@@ -89,10 +88,10 @@ test('static doflow agent: valid shape, shared hooks identical to the generated 
   assert.deepEqual(doflow.tools, ['*']);
 
   const specialist = JSON.parse(render('spec-analyst.md', fs.readFileSync(path.join(SPECS_DIR, 'spec-analyst.md'), 'utf8')));
-  assert.deepEqual(doflow.hooks.slice(0, 3), specialist.hooks, 'the three preToolUse hooks match what the transform generates');
-  assert.deepEqual(doflow.hooks.slice(0, 3), kiroPreToolUseHooks());
+  assert.deepEqual(doflow.hooks.slice(0, 2), specialist.hooks, 'the two preToolUse hooks match what the transform generates');
+  assert.deepEqual(doflow.hooks.slice(0, 2), kiroPreToolUseHooks());
 
-  const extra = doflow.hooks.slice(3);
+  const extra = doflow.hooks.slice(2);
   assert.deepEqual(extra, [
     kiroHook({ name: 'doflow-session-context', trigger: 'agentSpawn', script: 'session-start.sh', timeout: 10 }),
     kiroHook({ name: 'doflow-stop-check', trigger: 'stop', script: 'stop-check.sh', timeout: 30 }),

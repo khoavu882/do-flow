@@ -23,11 +23,11 @@ test('stop-check enforcement uses stop timing rows', () => {
 
 test('other policies keep pre-tool timing and stop-check ignores non-stop rows', () => {
   const rows: any = [
-    row({ policy: 'pre-bash-guard', event: 'PreToolUse', timing: 'pre-tool' }),
+    row({ policy: 'mcp-tool-guard', event: 'PreToolUse', timing: 'pre-tool' }),
     row({ policy: 'stop-check', class: 'advisory', verification: 'unverified' }),
   ];
   const stop = enforcementFor(coverage(rows), { harness: 'claude', policy: 'stop-check' });
-  const pre = enforcementFor(coverage(rows), { harness: 'claude', policy: 'pre-bash-guard' });
+  const pre = enforcementFor(coverage(rows), { harness: 'claude', policy: 'mcp-tool-guard' });
   assert.equal(stop.class, 'advisory');
   assert.equal(pre.class, 'blocking');
   assert.deepEqual(stop.rows.map((item: any) => item.timing), ['stop']);

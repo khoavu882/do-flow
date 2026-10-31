@@ -469,7 +469,7 @@ function checkG38_4({ files }: any) {
 // ── G38.5: checks are never deduplicated ────────────────────────────────────────────────────────
 
 const IC016_FILES: any = [
-  `${POLICIES}/pre-implementation-gate.sh`, `${POLICIES}/pre-bash-guard.sh`, `${POLICIES}/mcp-tool-guard.sh`,
+  `${POLICIES}/pre-implementation-gate.sh`, `${POLICIES}/mcp-tool-guard.sh`,
   `${POLICIES}/stop-check.sh`, `${BRIDGE}/bridge.sh`, `${BRIDGE}/envelope.jq`, `${BRIDGE}/respond.sh`, RUNNER_JS,
 ];
 const FORBIDDEN_SOURCES: any = new Set(['emission.sh', 'emission-rules.sh', 'summary-store.sh']);
@@ -525,8 +525,8 @@ const CASES = JSON.parse(fs.readFileSync(path.join(REPO, CASES_REL), 'utf8'));
 const FIELDS: any = ['RUN', 'ATTEMPT', 'LINEAGE', 'ROLE', 'WORKTREE', 'KIND', 'UNIT'];
 const BASH = bashPath();
 const UNKNOWN_ROLE = '[doflow] unknown DOFLOW_SESSION_ROLE; treating session as worker\n';
-// The five identity variables only. DOFLOW_WORKER_RUN (110) is a sixth launch variable; DOFLOW_GUARD_DROP_DATABASES
-// (112) is an optional seventh. Neither is identity: the tests after G38.6 pin that both sides ignore them.
+// The five identity variables only. DOFLOW_WORKER_RUN (110) is a sixth launch variable, not identity: the test after
+// G38.6 pins that both sides ignore it.
 const IDENTITY_VARS: any = ['DOFLOW_RUN_ID', 'DOFLOW_ATTEMPT', 'DOFLOW_LINEAGE_ID', 'DOFLOW_SESSION_ROLE', 'DOFLOW_WORKTREE'];
 
 /** `bash` and `ts` map an event key (case name, or `sequence #event`) to one result object. */
@@ -537,13 +537,6 @@ function checkG38_6({ keys, bash, ts }: any) {
     const b = JSON.stringify(ts.get(key) ?? null);
     if (a !== b) findings.push(`G38.6 ${CASES_REL}: "${key}" identity.sh ${a} vs identity.ts ${b}`);
   }
-  return findings;
-}
-
-function checkIdentityVariableReads({ variable, before, after }: any) {
-  const findings: any = [];
-  if (JSON.stringify(after.bash) !== JSON.stringify(before.bash)) findings.push(`G38.6 identity.sh reads ${variable}`);
-  if (JSON.stringify(after.ts) !== JSON.stringify(before.ts)) findings.push(`G38.6 identity.ts reads ${variable}`);
   return findings;
 }
 
@@ -829,7 +822,7 @@ test('G38.5: IC-016 check files reference no emission state and source no emissi
   assert.deepEqual(checkG38_5({ files: shipped }), []);
 });
 test('G38.5 control: a gate reading the injected token is one finding', () => {
-  const file = `${POLICIES}/pre-bash-guard.sh`;
+  const file = `${POLICIES}/pre-implementation-gate.sh`;
   const seeded = withFile(file, `${shipped.get(file)}\n[ -e "$STATE_DIR/sessions/$sid/injected" ] && exit 0\n`);
   one(checkG38_5({ files: seeded }), 'references emission state `injected`');
 });
@@ -874,37 +867,6 @@ test('G38.6: DOFLOW_WORKER_RUN is not an identity variable; neither implementati
   assert.deepEqual(bashB, bashA, 'identity.sh ignores DOFLOW_WORKER_RUN');
   assert.deepEqual(tsB, tsA, 'identity.ts ignores DOFLOW_WORKER_RUN');
   assert.equal(tsA.kind, 'launched');
-});
-
-test('G38.6: DOFLOW_GUARD_DROP_DATABASES is not an identity variable; neither implementation reads it', (t) => {
-  const dir = tempDir(t, 'doflow-g38-drop-databases-');
-  const config = path.join(dir, 'config');
-  const env: any = { DOFLOW_RUN_ID: 'r7', DOFLOW_LINEAGE_ID: 'w2', DOFLOW_ATTEMPT: '3', DOFLOW_SESSION_ROLE: 'worker', DOFLOW_WORKTREE: dir };
-  const withDatabases: any = { ...env, DOFLOW_GUARD_DROP_DATABASES: 'app_test' };
-  const { resolveIdentity } = require('../../src/runtime/context/identity.ts');
-  const sides = (e: any, tag: any) => {
-    const home = path.join(dir, `home-${tag}`);
-    fs.mkdirSync(home, { recursive: true });
-    return { bash: bashEvent(config, home, e, 's-1', dir), ts: tsEvent(resolveIdentity, config, home, e, 's-1', dir) };
-  };
-  const before = sides(env, 'a');
-  const after = sides(withDatabases, 'b');
-  assert.deepEqual(after.bash, before.bash, 'identity.sh ignores DOFLOW_GUARD_DROP_DATABASES');
-  assert.deepEqual(after.ts, before.ts, 'identity.ts ignores DOFLOW_GUARD_DROP_DATABASES');
-  assert.deepEqual(checkIdentityVariableReads({ variable: 'DOFLOW_GUARD_DROP_DATABASES', before, after }), []);
-  assert.equal(before.ts.kind, 'launched');
-});
-
-test('G38.6 control: a side that reads DOFLOW_GUARD_DROP_DATABASES is named', () => {
-  const before: any = { bash: { kind: 'launched' }, ts: { kind: 'launched' } };
-  assert.deepEqual(
-    checkIdentityVariableReads({ variable: 'DOFLOW_GUARD_DROP_DATABASES', before, after: { ...before, bash: { kind: 'changed' } } }),
-    ['G38.6 identity.sh reads DOFLOW_GUARD_DROP_DATABASES'],
-  );
-  assert.deepEqual(
-    checkIdentityVariableReads({ variable: 'DOFLOW_GUARD_DROP_DATABASES', before, after: { ...before, ts: { kind: 'changed' } } }),
-    ['G38.6 identity.ts reads DOFLOW_GUARD_DROP_DATABASES'],
-  );
 });
 
 module.exports = { checkG38_1, checkG38_2, checkG38_3, checkG38_4, checkG38_5, checkG38_6 };

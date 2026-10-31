@@ -69,8 +69,7 @@ are additive and `version` stays 1. No `gen_ai.*` name appears in v1.
 
 The shared bridge writes one `hook` line per invocation of an allowlisted surface, on the native and
 the `--emit decision` paths alike, after the verdict is known. The allowlist is the surfaces the
-paired perf run measures: `pre-bash-guard` on claude, codex, kiro, antigravity and pi, and
-`user-prompt-submit` on claude and codex. Any other surface writes nothing.
+paired perf run measures: `user-prompt-submit` on claude and codex. Any other surface writes nothing.
 
 | Key | Type | Class | Phase | Source |
 |---|---|---|---|---|
@@ -253,7 +252,7 @@ written null and the rest of the line is unchanged.
 | `kind` | `hook`, `verify.run`, `verify.tier`, `verify.check`, `review.run`, `package.verb` |
 | `harness` | the seven harness ids |
 | `event` | `PreToolUse`, `tool_call`, `UserPromptSubmit`, `PostToolUse`, `PostToolUseFailure` |
-| `policy` | `pre-bash-guard`, `user-prompt-submit`, `post-shell-observe` |
+| `policy` | `user-prompt-submit`, `post-shell-observe` |
 | `verdict` | `allow`, `deny`, `advisory`, `error`, `unsupported`, `observe` |
 | `source` | `verb`, `dispatch` |
 | `status` | `PASS`, `FAIL`, `UNRESOLVED`, `SUBSUMED`, `NOT_APPLICABLE`, `SKIPPED`, `NOT_RUN` |
@@ -272,7 +271,7 @@ written null and the rest of the line is unchanged.
 | `package_action` | `enable`, `disable`, `trust`, `exempt`, `revoke`, `verify`, `remove`, `new` |
 | `package_result` | `ok`, `refused`, `usage` |
 | `package_tier` | `inert`, `instruction`, `executable` |
-| `tool` | `Bash` (the canonical tool name passed to allowlisted `pre-bash-guard` front doors) |
+| `tool` | `Bash` (the canonical shell tool name) |
 | `emit_reason` | `emit`, `refused:mandatory-over-budget`, `silent:already-bootstrapped`, `silent:unchanged`, `silent:no-home`, `fault:deps`, `fault:unit`, `fault:slot`, `fault:summary`, `fault:grant`, `fault:warning`, `fault:render` (the `DF_EMIT_REASON` values of `policies/emission.sh`) |
 
 ## Analysis

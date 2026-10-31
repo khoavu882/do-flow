@@ -233,16 +233,6 @@ function enumerateHookSurfaces({
           unmeasured: 'no fixture',
         });
       }
-
-      if (harnessId === 'claude' && stem === 'pre-bash-guard') {
-        surfaces.push({
-          ...surface,
-          id: `${surfaceId}.first-write`,
-          variant: 'first-write',
-          budgeted: false,
-          setup: { ...surface.setup, omit: ['.doflow/state/runs/telemetry'] },
-        });
-      }
     }
   }
 
@@ -252,7 +242,6 @@ function enumerateHookSurfaces({
     for (const [stem, fixtureStem, event, fixtureFile] of [
       ['pre-implementation-gate', 'pre-implement-gate', 'PreToolUse', 'allow-perf.json'],
       ['stop-check', 'stop-check', 'Stop', 'allow-perf.json'],
-      ['pre-bash-guard', 'pre-bash-guard', 'PreToolUse', 'perf.json'],
     ]) {
       const fixtureRel = path.join('test', 'fixtures', 'hooks', 'antigravity', fixtureStem, fixtureFile);
       const id = `hook.antigravity.${stem}`;
@@ -274,7 +263,7 @@ function enumerateHookSurfaces({
   const piExtension = path.join(repoRoot, 'core', 'harnesses', 'pi', 'extensions', 'doflow-guard.js');
   const piFixtureDir = path.join(repoRoot, 'test', 'fixtures', 'hooks', 'pi', 'tool_call');
   if (fs.existsSync(piExtension)) {
-    for (const policy of ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard']) {
+    for (const policy of ['pre-implementation-gate', 'mcp-tool-guard']) {
       const id = `hook.pi.tool-call-${policy}`;
       surfaces.push({
         id,
@@ -284,7 +273,7 @@ function enumerateHookSurfaces({
         intentClass: 'hook',
         enforced: false,
         note: 'excludes the in-process extension spawn',
-        stdinFixture: path.join('test', 'fixtures', 'hooks', 'pi', 'tool_call', `${policy === 'pre-implementation-gate' ? 'perf-edit' : policy === 'pre-bash-guard' ? 'perf-bash' : 'perf-mcp'}.json`),
+        stdinFixture: path.join('test', 'fixtures', 'hooks', 'pi', 'tool_call', `${policy === 'pre-implementation-gate' ? 'perf-edit' : 'perf-mcp'}.json`),
         stdinField: 'native',
         setup: { kind: 'copy-fixture-project', fixture: 'bench/perf/fixtures/hook-bridge-project', git: true, branch: 'feat/perf', cwdProject: true },
       });
@@ -303,7 +292,7 @@ function enumerateHookSurfaces({
       const fixtureRel = path.join('bench', 'perf', 'fixtures', 'shared', `${stem}.json`);
       const fixtureAbs = path.join(repoRoot, fixtureRel);
       const hasFixture = fs.existsSync(fixtureAbs);
-      const enforced = stem === 'pre-bash-guard' || stem === 'user-prompt-submit';
+      const enforced = stem === 'user-prompt-submit';
 
       const surface: any = {
         id: surfaceId,
@@ -379,7 +368,6 @@ function runSurfaceProcess(surface: any, repoRoot: string, tempHome: any, spawnS
         : path.join(repoRoot, surface.setup.fixture);
       if (!fs.existsSync(fixtureSrc)) throw new Error(`missing fixture directory: ${surface.setup.fixture}`);
       fs.cpSync(fixtureSrc, tempProjectDir, { recursive: true });
-      omitSetupPaths(tempProjectDir, surface.setup.omit);
       const gitInit = spawnSync('git', ['init', '-q', '-b', 'feat/perf'], { cwd: tempProjectDir, encoding: 'utf8' });
       if (gitInit.status !== 0) throw new Error(`fixture git init failed: ${gitInit.stderr || gitInit.error?.message || gitInit.status}`);
     } else if (surface.setup && surface.setup.kind === 'copy-fixture-project') {
@@ -392,7 +380,6 @@ function runSurfaceProcess(surface: any, repoRoot: string, tempHome: any, spawnS
         throw new Error(`missing fixture directory: ${surface.setup.fixture}`);
       }
       fs.cpSync(fixtureSrc, tempProjectDir, { recursive: true });
-      omitSetupPaths(tempProjectDir, surface.setup.omit);
       let untrackedGeneratedDir = null;
       if (surface.setup.generate !== undefined) {
         const { dir, count } = surface.setup.generate || {};
@@ -529,23 +516,6 @@ function runSurfaceProcess(surface: any, repoRoot: string, tempHome: any, spawnS
     if (tempHookHomeDir) {
       try { fs.rmSync(tempHookHomeDir, { recursive: true, force: true }); } catch { /* ignored */ }
     }
-  }
-}
-
-/** Removes named, project-relative paths from a copied fixture for explicit benchmark variants. */
-function omitSetupPaths(projectDir: string, omitted: any) {
-  if (omitted === undefined) return;
-  if (!Array.isArray(omitted)) throw new Error('fixture setup omit must be an array of relative paths');
-  for (const relativePath of omitted) {
-    if (typeof relativePath !== 'string' || relativePath === '' || path.isAbsolute(relativePath)) {
-      throw new Error('fixture setup omit paths must be non-empty relative paths');
-    }
-    const target = path.resolve(projectDir, relativePath);
-    const relative = path.relative(projectDir, target);
-    if (relative === '' || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
-      throw new Error('fixture setup omit paths must stay inside the project');
-    }
-    fs.rmSync(target, { recursive: true, force: true });
   }
 }
 

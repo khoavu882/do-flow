@@ -78,18 +78,6 @@ HOOK_TEST('pre-implement-gate allows a Kiro write under agent-docs/ and an unrel
   assert.equal(read.status, 0, read.stderr);
 });
 
-HOOK_TEST('pre-bash-guard blocks a destructive command for `shell` and `execute_bash`', () => {
-  for (const tool of ['shell', 'execute_bash']) {
-    const result = runDoor('pre-bash-guard.sh', { tool_name: tool, tool_input: { command: 'rm -rf /' } });
-    assert.equal(result.status, 2, `${tool}: ${result.stderr}`);
-  }
-});
-
-HOOK_TEST('pre-bash-guard allows a harmless shell command', () => {
-  const result = runDoor('pre-bash-guard.sh', { tool_name: 'shell', tool_input: { command: 'ls -la' } });
-  assert.equal(result.status, 0, result.stderr);
-});
-
 HOOK_TEST('mcp-tool-guard sees `@server/tool` as mcp__server__tool and lets built-in tools through', () => {
   const policy = path.join(mirror, '.doflow', 'shared', 'hooks', 'policies', 'mcp-policy.conf');
   const original = fs.readFileSync(policy, 'utf8');
@@ -164,11 +152,6 @@ HOOK_TEST('pre-implement-gate blocks the V3 write family (str_replace, fs_append
     const result = runDoor('pre-implement-gate.sh', { cwd: root, tool_name: tool, tool_input: { path: path.join(root, 'src', 'a.js') } }, { cwd: root });
     assert.equal(result.status, 2, `${tool}: ${result.stderr}`);
   }
-});
-
-HOOK_TEST('pre-bash-guard blocks a destructive command for `execute_pwsh`', () => {
-  const result = runDoor('pre-bash-guard.sh', { tool_name: 'execute_pwsh', tool_input: { command: 'rm -rf /' } });
-  assert.equal(result.status, 2, result.stderr);
 });
 
 HOOK_TEST('kiro_bridge_payload maps the V3 write family and execute_pwsh, and leaves mcp_ IDs unchanged', () => {

@@ -11,7 +11,7 @@ const { suiteTempDir } = require('../helper/tmp.ts');
 const ROOT = path.resolve(__dirname, '../..');
 const BRIDGE_DIR = path.join(ROOT, 'core/harnesses/shared/hooks/bridge');
 const POLICY_IDS: any = [
-  'pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'stop-check',
+  'pre-implementation-gate', 'mcp-tool-guard', 'stop-check',
   'session-context', 'user-prompt-submit', 'subagent-audit',
 ];
 

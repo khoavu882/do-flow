@@ -100,7 +100,7 @@ function seedProject(t: any, { spanCount = 1 }: any = {}) {
       attempt: 1,
       harness: 'claude',
       event: 'PreToolUse',
-      policy: 'pre-bash-guard',
+      policy: 'user-prompt-submit',
       verdict: 'allow',
       duration_ms: 100,
       session: 's1',

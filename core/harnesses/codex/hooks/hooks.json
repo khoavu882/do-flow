@@ -44,16 +44,6 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "^Bash$",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash \"$(root=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f \"$root/.codex/hooks/pre-bash-guard.sh\" ] && printf '%s/.codex/hooks/pre-bash-guard.sh' \"$root\" || printf '%s/hooks/pre-bash-guard.sh' \"${CODEX_HOME:-$HOME/.codex}\")\"",
-            "statusMessage": "Checking command safety"
-          }
-        ]
-      },
-      {
         "matcher": "^mcp__.*",
         "hooks": [
           {

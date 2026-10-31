@@ -39,13 +39,13 @@ function resolveHookTier({ env = process.env, loadSettings }: { env?: Record<str
 }
 
 /** One WARN line per planned harness that gets no hooks although it is the primary session (claude)
- * or a worker the person configured: there it runs without DoFlow's destructive-command guard. */
+ * or a worker the person configured: there it runs without DoFlow's gates. */
 function hookTierWarnings(registry: any, targets: string[], tier: { harnesses: string[]; workers: string[] | null }): string[] {
   const warnings: string[] = [];
   for (const harness of registry.harnesses) {
     if (!targets.includes(harness.id) || tier.harnesses.includes(harness.id) || !getsHooks(registry, harness)) continue;
     const role = harness.id === 'claude' ? 'the primary session' : tier.workers?.includes(harness.id) ? `a worker in ${WORKERS_KEY}` : null;
-    if (role) warnings.push(`${harness.id} is ${role} but not in ${HOOKS_KEY}: it runs without DoFlow's hooks, gates or destructive-command guard`);
+    if (role) warnings.push(`${harness.id} is ${role} but not in ${HOOKS_KEY}: it runs without DoFlow's hooks or gates`);
   }
   return warnings;
 }

@@ -15,10 +15,10 @@ const { hookReachabilityFindings, runnerHeaderFindings, dependencyTargets } = re
 
 const POLICY_DIR = path.join(REPO, 'core/harnesses/shared/hooks/policies');
 const BRIDGE_DIR = path.join(REPO, 'core/harnesses/shared/hooks/bridge');
-const POLICIES: any = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'session-context', 'stop-check', 'user-prompt-submit', 'subagent-audit'];
-const BLOCKING: any = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'stop-check'];
+const POLICIES: any = ['pre-implementation-gate', 'mcp-tool-guard', 'session-context', 'stop-check', 'user-prompt-submit', 'subagent-audit'];
+const BLOCKING: any = ['pre-implementation-gate', 'mcp-tool-guard', 'stop-check'];
 const TOKENS: any = [
-  'requirement.md', 'design.md', 'plan.md', '.doflow/state', 'blocked-patterns', 'mcp-policy.conf',
+  'requirement.md', 'design.md', 'plan.md', '.doflow/state', 'mcp-policy.conf',
   'claude -p', 'codex exec', 'gemini -p', 'pi -p', 'kiro-cli chat', 'additionalContext',
 ];
 
@@ -175,7 +175,7 @@ test('G35.2: unknown envelope versions are unsupported and absent version is mis
   for (const policy of POLICIES) for (const input of ['', '[]', '{}', '{"doflow_event":{}}']) {
     assert.equal(contractClass(input), 'missing', `${policy} classifies ${JSON.stringify(input)} as missing`);
     const result = runPolicy(policy, input);
-    const blocking = ['pre-implementation-gate','pre-bash-guard','mcp-tool-guard'].includes(policy);
+    const blocking = ['pre-implementation-gate','mcp-tool-guard'].includes(policy);
     const native = policy === 'user-prompt-submit' ? '{}' : '';
     assert.deepEqual({status:result.status,stdout:result.stdout,stderr:result.stderr}, blocking
       ? {status:2,stdout:'',stderr:`[${policy}] DoFlow hooks out of step; run: doflow update\n`}
@@ -212,7 +212,7 @@ test('G35.3: canonical policy no-fd bytes match committed 0fcd973 goldens and re
       ? [] : loadCorpus(policy);
     if (corpus.length > 0) {
       const preferred: any = ({
-        'pre-implementation-gate': 'native-read', 'pre-bash-guard': 'native-safe-command',
+        'pre-implementation-gate': 'native-read',
         'mcp-tool-guard': 'native-builtin-allow', 'stop-check': 'default-allow',
       } as any)[policy];
       row = corpus.find((item: any) => item.name === preferred) || corpus[0];
@@ -222,7 +222,7 @@ test('G35.3: canonical policy no-fd bytes match committed 0fcd973 goldens and re
     }
     assert.ok(row, `${policy}: golden corpus exists`);
     const native = JSON.parse(row.input);
-    const events: any = { 'pre-implementation-gate': 'PreToolUse', 'pre-bash-guard': 'PreToolUse', 'mcp-tool-guard': 'PreToolUse', 'session-context': 'SessionStart', 'stop-check': 'Stop', 'user-prompt-submit': 'UserPromptSubmit', 'subagent-audit': 'SubagentStart' };
+    const events: any = { 'pre-implementation-gate': 'PreToolUse', 'mcp-tool-guard': 'PreToolUse', 'session-context': 'SessionStart', 'stop-check': 'Stop', 'user-prompt-submit': 'UserPromptSubmit', 'subagent-audit': 'SubagentStart' };
     const input: any = native.doflow_event?.version === 1 ? row.input : encodeEnvelope('claude', events[policy], policy, row.input);
     const actual = runPolicy(policy, input);
     assert.deepEqual({ status: actual.status, stdout: actual.stdout, stderr: actual.stderr },
@@ -420,7 +420,7 @@ function templateEntries(root: any = REPO) {
   if (antigravity.includes('pre-implementation-gate.sh')) entries.push({harness:'antigravity',event:'PreToolUse',policy:'pre-implementation-gate'});
   if (antigravity.includes('stop-check.sh')) entries.push({harness:'antigravity',event:'Stop',policy:'stop-check'});
   const pi = fs.readFileSync(path.join(root,'core/harnesses/pi/extensions/doflow-guard.js'),'utf8');
-  for (const policy of ['pre-implementation-gate','pre-bash-guard']) if (pi.includes(`policy: '${policy}'`)) entries.push({harness:'pi',event:'tool_call',policy});
+  for (const policy of ['pre-implementation-gate']) if (pi.includes(`policy: '${policy}'`)) entries.push({harness:'pi',event:'tool_call',policy});
   if (pi.includes("'mcp-tool-guard'")) entries.push({harness:'pi',event:'tool_call',policy:'mcp-tool-guard'});
   return entries;
 }
@@ -493,13 +493,13 @@ function wiredTemplateFindings(coverage: any, lifecycle: any, root: any = REPO) 
     for (const [event, command] of hooks) {
       const basename = path.basename(String(command).match(/[\w-]+\.sh/)?.[0] || '');
       const policy = basename.replace(/^pre-implement-gate$/, 'pre-implementation-gate').replace(/\.sh$/, '');
-      if (['pre-implementation-gate','pre-bash-guard','mcp-tool-guard','session-context','stop-check'].includes(policy) && !coverage.rows.some((r: any) => r.harness === harness && r.event === event && r.policy === policy && r.wired)) errors.push(`${harness}/${event}/${policy} template missing wired row`);
+      if (['pre-implementation-gate','mcp-tool-guard','session-context','stop-check'].includes(policy) && !coverage.rows.some((r: any) => r.harness === harness && r.event === event && r.policy === policy && r.wired)) errors.push(`${harness}/${event}/${policy} template missing wired row`);
     }
   }
   const antigravity = fs.readFileSync(path.join(root, 'src/adapters/antigravity/index.ts'), 'utf8');
   for (const policy of ['pre-implementation-gate','stop-check']) if (antigravity.includes(`${policy}.sh`) && !coverage.rows.some((r: any) => r.harness === 'antigravity' && r.policy === policy && r.wired)) errors.push(`antigravity/${policy} template missing wired row`);
   const pi = fs.readFileSync(path.join(root, 'core/harnesses/pi/extensions/doflow-guard.js'), 'utf8');
-  for (const policy of ['pre-implementation-gate','pre-bash-guard','mcp-tool-guard']) if (pi.includes(`policy: '${policy}'`) && !coverage.rows.some((r: any) => r.harness === 'pi' && r.event === 'tool_call' && r.policy === policy && r.wired)) errors.push(`pi/tool_call/${policy} route missing wired row`);
+  for (const policy of ['pre-implementation-gate','mcp-tool-guard']) if (pi.includes(`policy: '${policy}'`) && !coverage.rows.some((r: any) => r.harness === 'pi' && r.event === 'tool_call' && r.policy === policy && r.wired)) errors.push(`pi/tool_call/${policy} route missing wired row`);
   return errors;
 }
 function kiroStopFindings(coverage: any) {
@@ -566,7 +566,7 @@ test('G37.3 control: orphan hook files are reported, including a mutually-refere
 test('G37.3 control: the bare-safe policy directory variable keeps capture-failure reachable', () => {
   const source = 'case $0 in */*) _DOFLOW_POLDIR=${0%/*} ;; *) _DOFLOW_POLDIR=. ;; esac\n. "$_DOFLOW_POLDIR/capture-failure.sh"\n';
   const shipped: any = [
-    'core/harnesses/shared/hooks/policies/pre-bash-guard.sh',
+    'core/harnesses/shared/hooks/policies/mcp-tool-guard.sh',
     'core/harnesses/shared/hooks/policies/capture-failure.sh',
   ];
   assert.deepEqual(dependencyTargets(REPO, shipped[0], shipped, source), [shipped[1]]);

@@ -42,7 +42,7 @@ doflow_bridge_effect() {
     profile=compat-1; doflow_bridge_failure "$policy" fault-profile-unknown
   fi
   DF_BRIDGE_PROFILE="$profile"
-  case "$policy" in pre-implementation-gate|pre-bash-guard|mcp-tool-guard|stop-check) block=1;; esac
+  case "$policy" in pre-implementation-gate|mcp-tool-guard|stop-check) block=1;; esac
   DF_BRIDGE_EFFECT=proceed
   if [ "$outcome" = deny ]; then DF_BRIDGE_EFFECT=block
   elif [ "$profile" = strict-1 ] && [ "$block" -eq 1 ] && [ "$policy" != stop-check ] && { [ "$outcome" = error ] || [ "$outcome" = unsupported ] || [ "$DF_BRIDGE_CODE" = bridge-spawn ] || [ "$DF_BRIDGE_CODE" = envelope-encode ]; }; then DF_BRIDGE_EFFECT=block
@@ -66,7 +66,7 @@ doflow_bridge_effect() {
 
 doflow_bridge_drops_tool_streams() {
   case "$1" in
-    pre-implementation-gate|pre-bash-guard|mcp-tool-guard) ;;
+    pre-implementation-gate|mcp-tool-guard) ;;
     *) return 1 ;;
   esac
   case "$2:$3" in
@@ -77,7 +77,7 @@ doflow_bridge_drops_tool_streams() {
 
 doflow_bridge_drops_tool_stderr() {
   case "$1:$2:$3" in
-    pre-implementation-gate:kiro:PreToolUse|pre-bash-guard:kiro:PreToolUse|mcp-tool-guard:kiro:PreToolUse) return 1 ;;
+    pre-implementation-gate:kiro:PreToolUse|mcp-tool-guard:kiro:PreToolUse) return 1 ;;
   esac
   doflow_bridge_drops_tool_streams "$1" "$2" "$3"
 }
@@ -93,7 +93,7 @@ doflow_bridge_hook_line() {
   [ "${DOFLOW_TELEMETRY:-}" != off ] || return 0
   case "$DF_TUPLE" in ''|'{"dft":1}') return 0 ;; esac
   case "$1:$3:$2" in
-    claude:pre-bash-guard:PreToolUse|codex:pre-bash-guard:PreToolUse|kiro:pre-bash-guard:PreToolUse|antigravity:pre-bash-guard:PreToolUse|pi:pre-bash-guard:tool_call|claude:user-prompt-submit:UserPromptSubmit|codex:user-prompt-submit:UserPromptSubmit) ;;
+    claude:user-prompt-submit:UserPromptSubmit|codex:user-prompt-submit:UserPromptSubmit) ;;
     *) return 0 ;;
   esac
   if [ -n "${DOFLOW_CONFIG_DIR:-}" ]; then
@@ -181,7 +181,7 @@ doflow_bridge() {
     doflow_bridge_failure "$policy" dependency-missing:jq
   fi
   case "$policy" in
-    pre-implementation-gate|pre-bash-guard|mcp-tool-guard|stop-check|session-context|user-prompt-submit|subagent-audit) ;;
+    pre-implementation-gate|mcp-tool-guard|stop-check|session-context|user-prompt-submit|subagent-audit) ;;
     *) spawn_failed=1 ;;
   esac
   policy_path="$_DOFLOW_BRIDGE_DIR/../policies/$policy.sh"

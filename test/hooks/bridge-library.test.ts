@@ -28,7 +28,7 @@ test('negative control: a child env that keeps the developer\'s HOME or ~/.confi
   assert.ok(env.HOME.startsWith(SCRATCH_HOME.dir) && env.XDG_CONFIG_HOME.startsWith(SCRATCH_HOME.dir), 'the default child env is the scratch one');
 });
 const BRIDGE_TEST = JQ.status === 0 ? test : test.skip;
-const POLICIES: any = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'session-context', 'stop-check', 'user-prompt-submit', 'subagent-audit'];
+const POLICIES: any = ['pre-implementation-gate', 'mcp-tool-guard', 'session-context', 'stop-check', 'user-prompt-submit', 'subagent-audit'];
 const FIXED = '[pre-implementation-gate] DoFlow policy error; details: doflow-run failure list';
 
 function makeTree(policyBody?: any) {
@@ -179,7 +179,7 @@ BRIDGE_TEST('IC-036 encode fault preserves compat result and blocks strict block
     ['claude', 'PreToolUse'], ['codex', 'PreToolUse'],
     ['kiro', 'PreToolUse'], ['antigravity', 'PreToolUse'], ['pi', 'tool_call'],
   ];
-  const blocking: any = ['pre-implementation-gate', 'pre-bash-guard', 'mcp-tool-guard', 'stop-check'];
+  const blocking: any = ['pre-implementation-gate', 'mcp-tool-guard', 'stop-check'];
   for (const [harness, event] of bridges) {
     for (const policy of [...blocking, 'session-context', 'user-prompt-submit', 'subagent-audit']) {
       for (const profile of ['compat-1', 'strict-1']) {
@@ -441,8 +441,8 @@ BRIDGE_TEST('DEC-026 preserves door-specific policy streams for every allow/proc
         const label = `${profile} ${b.h}:${b.e} ${scenario}`;
         const decision: any = run(dir,b.h,b.e,b.p,{},['--emit','decision'],{DOFLOW_FAULT_PROFILE:profile});
         assert.equal(JSON.parse(decision.stdout).effect,'proceed',`${label}: table cell proceeds`);
-        const dropToolStreams = ['claude','codex','kiro-tool','antigravity-tool','antigravity-stop','pi'].includes(b.kind) && ['pre-implementation-gate','pre-bash-guard','mcp-tool-guard'].includes(b.p);
-        const dropToolStderr = ['claude','codex','antigravity-tool','antigravity-stop','pi'].includes(b.kind) && ['pre-implementation-gate','pre-bash-guard','mcp-tool-guard'].includes(b.p);
+        const dropToolStreams = ['claude','codex','kiro-tool','antigravity-tool','antigravity-stop','pi'].includes(b.kind) && ['pre-implementation-gate','mcp-tool-guard'].includes(b.p);
+        const dropToolStderr = ['claude','codex','antigravity-tool','antigravity-stop','pi'].includes(b.kind) && ['pre-implementation-gate','mcp-tool-guard'].includes(b.p);
         const dropKiroStopStdout = b.kind === 'kiro-stop' && b.p === 'stop-check';
         if (b.kind === 'context' && scenario !== 'allow') {
           assert.equal(result.stderr,'',`${label}: context fault is silent`);
@@ -466,7 +466,7 @@ BRIDGE_TEST('DEC-026 preserves door-specific policy streams for every allow/proc
 
 BRIDGE_TEST('DEC-025 missing policy is a captured bridge-spawn for every policy kind', () => {
   const cases: any = [
-    ['pre-implementation-gate','claude','PreToolUse',true], ['pre-bash-guard','claude','PreToolUse',true],
+    ['pre-implementation-gate','claude','PreToolUse',true],
     ['mcp-tool-guard','claude','PreToolUse',true], ['stop-check','claude','Stop',true],
     ['session-context','claude','SessionStart',false], ['user-prompt-submit','claude','UserPromptSubmit',false],
     ['subagent-audit','claude','SubagentStart',false],
@@ -551,15 +551,15 @@ BRIDGE_TEST('--emit native renders blocking outcomes for every IC-012 native res
 BRIDGE_TEST('--emit native covers every IC-012 bridge row and Kiro engine', () => {
   const dir = makeTree();
   const cases: any = [
-    ['claude','PreToolUse','pre-implementation-gate'], ['claude','PreToolUse','pre-bash-guard'], ['claude','PreToolUse','mcp-tool-guard'],
+    ['claude','PreToolUse','pre-implementation-gate'], ['claude','PreToolUse','mcp-tool-guard'],
     ['claude','SessionStart','session-context'], ['claude','UserPromptSubmit','user-prompt-submit'], ['claude','SubagentStart','subagent-audit'],
     ['claude','SubagentStop','subagent-audit'], ['claude','Stop','stop-check'],
-    ['codex','PreToolUse','pre-implementation-gate'], ['codex','PreToolUse','pre-bash-guard'], ['codex','PreToolUse','mcp-tool-guard'],
+    ['codex','PreToolUse','pre-implementation-gate'], ['codex','PreToolUse','mcp-tool-guard'],
     ['codex','SessionStart','session-context'], ['codex','UserPromptSubmit','user-prompt-submit'], ['codex','SubagentStart','subagent-audit'], ['codex','SubagentStop','subagent-audit'], ['codex','Stop','stop-check'],
     ['kiro','PreToolUse','pre-implementation-gate'], ['kiro','SessionStart','session-context'], ['kiro','agentSpawn','session-context'],
     ['kiro','Stop','stop-check'], ['kiro','Stop','stop-check',{DOFLOW_KIRO_ENGINE:'v3'}],
     ['antigravity','PreToolUse','pre-implementation-gate'], ['antigravity','PreToolUse','stop-check'], ['antigravity','Stop','pre-implementation-gate'], ['antigravity','Stop','stop-check'],
-    ['pi','tool_call','pre-implementation-gate'], ['pi','tool_call','pre-bash-guard'], ['pi','tool_call','mcp-tool-guard'],
+    ['pi','tool_call','pre-implementation-gate'], ['pi','tool_call','mcp-tool-guard'],
   ];
   for (const [harness,event,policy,env={}] of cases) {
     const result: any = run(dir,harness,event,policy,{},['--emit','native'],env);

@@ -88,15 +88,6 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "~/.claude/hooks/pre-bash-guard.sh"
-          }
-        ]
-      },
-      {
         "matcher": "mcp__.*",
         "hooks": [
           {

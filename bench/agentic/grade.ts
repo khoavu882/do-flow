@@ -1280,7 +1280,7 @@ function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; 
     localCommands: isTier2 ? TIER2_LOCAL_COMMANDS : [],
   });
   // Permissions. A run killed for a wrong init.permissionMode never started its task: excluded. In tier 2 (decision D1,
-  // 2026-10-31) a denial by a DoFlow hook (pre-bash-guard, stop-check ...) is an outcome of the treatment and the final
+  // 2026-10-31) a denial by a DoFlow hook (pre-implementation-gate, stop-check ...) is an outcome of the treatment and the final
   // workspace is graded; only a denial by the Claude Code permission layer itself (a safety check, a permission prompt
   // nobody can answer) excludes the run, and never one that hit the cap or timeout: that stays a failed delivery. Other
   // A/B kinds keep the older rule: any denial excludes.

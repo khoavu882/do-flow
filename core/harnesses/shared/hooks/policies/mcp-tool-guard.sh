@@ -4,8 +4,7 @@ _DOFLOW_SRC=${0//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_POLDIR=${_DOFLOW_SRC%/
 # mcp-tool-guard.sh — Canonical Policy Library: PreToolUse(mcp_*) hook
 #
 # Intercepts every MCP tool call and blocks matches against mcp-policy.conf, the
-# same TAB-separated pattern<TAB>reason convention pre-bash-guard.sh uses for
-# shell commands. Ships with mcp-policy.conf carrying zero active patterns, so
+# TAB-separated pattern<TAB>reason format. Ships with mcp-policy.conf carrying zero active patterns, so
 # this is pure infrastructure until real usage data justifies specific deny
 # rules — see agent-docs/research/hook-governance-agent-tool-mcp-skill.md §3.2.
 #

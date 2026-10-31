@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url';
 const BRIDGE = new URL('../../shared/hooks/bridge/bridge.sh', import.meta.url);
 const ROUTES = [
   { tools: ['edit', 'write'], policy: 'pre-implementation-gate' },
-  { tools: ['bash'], policy: 'pre-bash-guard' },
 ];
 const LIMIT = 1024 * 1024;
 const TIMEOUT_MS = 5000;
