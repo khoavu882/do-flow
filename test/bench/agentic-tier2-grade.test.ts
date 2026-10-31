@@ -9,7 +9,7 @@ const assert = require('node:assert/strict');
 const childProcess = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
-const { suiteTempDir } = require('../helper/tmp.ts');
+const { suiteTempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const execute = require('../../bench/agentic/execute.ts');
 const { loadAbTaskSet, buildAbPrompt, promptSha256 } = require('../../bench/agentic/tasks.ts');
 const grade = require('../../bench/agentic/grade.ts');
@@ -44,7 +44,7 @@ function overlay(from: string, to: string) {
   }
 }
 const git = (cwd: string, ...args: string[]) => {
-  const r = childProcess.spawnSync('git', args, { cwd, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: cwd, GIT_CONFIG_NOSYSTEM: '1' } });
+  const r = childProcess.spawnSync('git', args, { cwd, encoding: 'utf8', env: { PATH: process.env.PATH, HOME: cwd, GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV } });
   assert.equal(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`);
   return r.stdout.trim();
 };

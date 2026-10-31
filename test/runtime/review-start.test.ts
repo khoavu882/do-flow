@@ -1036,7 +1036,7 @@ test('120 D.3: review start refuses primary-refused when resolvePrimary returns 
     harness: 'codex',
     model: 'gpt-4o-mini',
     event: 'SessionStart',
-    observedAt: '2026-10-24T12:00:00.000Z',
+    observedAt: new Date().toISOString(), // fresh: observations expire after the model-observations maxAgeDays (storage.json)
     session: '0123456789abcdef',
   }));
 
@@ -1067,7 +1067,7 @@ test('120 D.3: preconditions run before primary check (preconditions and order u
     harness: 'codex',
     model: 'gpt-4o-mini',
     event: 'SessionStart',
-    observedAt: '2026-10-24T12:00:00.000Z',
+    observedAt: new Date().toISOString(), // fresh: observations expire after the model-observations maxAgeDays (storage.json)
     session: '0123456789abcdef',
   }));
 
