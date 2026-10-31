@@ -79,7 +79,7 @@ function verifyLine(f: any, row: any, head: string, verdict = 'PASS') {
 }
 
 /** Does what the stage's skill does for a perform envelope, then records its handoff as the envelope's `after` says. */
-function performStage(f: any, row: any, perform: any, seen: string[]) {
+function performStage(f: any, row: any, perform: any, seen: string[], review: any = null) {
   const wt = f.worktree(row);
   seen.push(`${perform.stage}:${perform.skill}`);
   const kind = f.orch(row).readRun(row.slug).program.find((n: any) => n.id === perform.stage).kind;
@@ -90,13 +90,13 @@ function performStage(f: any, row: any, perform: any, seen: string[]) {
   } else if (kind === 'verification') {
     verifyLine(f, row, f.git(wt, 'rev-parse', 'HEAD'));
   } else if (kind === 'review') {
-    write(path.join(f.featureDir(row), 'review/findings.json'), `${JSON.stringify({ stage: perform.stage })}\n`);
+    write(path.join(f.featureDir(row), 'review/findings.json'), `${JSON.stringify(review ? review(f.git(wt, 'rev-parse', 'HEAD')) : { stage: perform.stage })}\n`);
   }
   f.orch(row).handoff({ taskId: row.slug, callingSkill: perform.skill, note: 'stage work recorded', now: f.tick() });
 }
 
 /** Drives next() to the end of the row, as a session would, and returns what happened. */
-async function drive(f: any, row: any) {
+async function drive(f: any, row: any, review: any = null) {
   const seen: string[] = [];
   const steps: string[] = [];
   const performs: any[] = [];
@@ -109,7 +109,7 @@ async function drive(f: any, row: any) {
       verifyLine(f, row, r.perform.head);
       continue;
     }
-    if (r.outcome === 'perform') { performStage(f, row, r.perform, seen); continue; }
+    if (r.outcome === 'perform') { performStage(f, row, r.perform, seen, review); continue; }
     if (r.outcome === 'acted' && r.step === 'cleanup') return { seen, steps, performs, last: r };
     if (r.outcome === 'denied' || r.outcome === 'blocked' || r.outcome === 'stopped' || r.outcome === 'idle') return { seen, steps, performs, last: r };
   }
@@ -286,4 +286,31 @@ test('A: a stage backfilled by another skill is held with the annotate command t
   const released = (await f.next()).result;
   assert.equal(released.outcome, 'perform');
   assert.equal(released.perform.stage, 'implementation');
+});
+
+/** A schema-1 review record with `seatCount` seats and nothing to fix: valid for the shipped gate-b, whose floor is 2 seats. */
+const reviewOf = (row: any, seatCount: number) => (head: string) => ({
+  schema: 1, row: row.id, slug: row.slug, reviewedHead: head, rounds: 1,
+  seats: Array.from({ length: seatCount }, (_, i) => ({ id: `seat-${i + 1}`, findings: [] })), converged: [],
+});
+
+test('D: the SHIPPED gate-b policy (all seven predicates) passes a bug row with a real verify record and valid two-seat findings', async (t) => {
+  const row = rowOf('bug');
+  const f = fixture(t, [row], { narrow: false });
+  const out = await drive(f, row, reviewOf(row, 2));
+  assert.deepEqual([out.last.outcome, out.last.step, out.last.annotations?.cleanup], ['acted', 'cleanup', 'cleaned'], out.steps.join(' > '));
+  const audit = fs.readFileSync(path.join(f.root, '.doflow/state/roadmap/audit.jsonl'), 'utf8').split('\n').filter(Boolean).map((l: string) => JSON.parse(l));
+  const gate = audit.find((e: any) => e.step === 'gate');
+  assert.equal(gate.outcome, 'acted');
+  assert.match(gate.audit, /approved by policy gate-b@sha256:/);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/gates.json'), 'utf8')).classes.bug['gate-b'].predicates.length, 7);
+});
+
+test('D: the same row with ONE review seat is denied seats-too-few by the shipped floor of two, held, and never merged', async (t) => {
+  const row = rowOf('bug');
+  const f = fixture(t, [row], { narrow: false });
+  const out = await drive(f, row, reviewOf(row, 1));
+  assert.deepEqual([out.last.outcome, out.last.step], ['denied', 'gate'], out.steps.join(' > '));
+  assert.deepEqual(out.last.reasons, ['seats-too-few']);
+  assert.equal(f.git(f.develop, 'rev-parse', 'HEAD'), f.git(f.root, 'rev-parse', 'main'), 'develop did not move');
 });
