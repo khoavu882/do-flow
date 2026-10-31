@@ -379,7 +379,7 @@ function printTextResult(
   if ((op === 'apply' || op === 'amend') && result.ok) {
     line1 += `, ${result.writes} files written`;
     if (Array.isArray(result.proposed) && result.proposed.length > 0) {
-      line1 += `, ${result.proposed.length} proposed (no person verified, or autopilot is not verifiably off; a person runs in their terminal, with autopilot off: doflow roadmap promote ${result.proposed.map(safeText).join(' ')})`;
+      line1 += `, ${result.proposed.length} proposed (no person verified, or autopilot is not verifiably off; a person runs in their terminal: doflow roadmap promote ${result.proposed.map(safeText).join(' ')})`;
     }
   }
   if (result.seed && result.seed.sha256 === null) {
@@ -818,25 +818,50 @@ interface HandlePromoteCommandOptions {
   root?: string;
   fsImpl?: any;
   gitFacts?: any;
-  readSwitch?: (env?: any, fsImpl?: any) => { enabled: boolean; switch: any };
   alive?: (proc: any) => boolean | 'unknown';
-  env?: any;
   pid?: number;
   host?: string;
   now?: () => Date;
   out?: (s: string) => void;
   err?: (s: string) => void;
   isTTY?: boolean;
+  /** Shows the prompt and returns the person's answer line, or null when no answer can be read. Test seam. */
+  confirm?: (prompt: string) => string | null;
 }
 
 /**
- * maint-thin: `roadmap promote <id...>`, person only. A model with a shell controls the environment, so an
- * environment check alone cannot tell a person: pointing XDG_CONFIG_HOME at an empty folder reads as "off". The verb
- * therefore first requires an interactive terminal on stdin (refused `needs-person-tty`, nothing written), then reads
- * the switch with the fail-closed seed reader as a second check: unless autopilot is verifiably off it refuses
- * `needs-person` and writes nothing. Under the roadmap lease it drops the
- * `proposed` mark of every named row, so autopilot may pick it. All or nothing: an unknown id, a row that is not
- * proposed, or a duplicate id is a finding and nothing is written. Exit 0 promoted, 1 refused or findings, 2 usage.
+ * Reads one answer line from the controlling terminal (`/dev/tty`), never from stdin, an argument or the environment.
+ * Null when the terminal cannot be opened or read.
+ */
+function readTtyAnswer(prompt: string): string | null {
+  let fd: number;
+  try { fd = fs.openSync('/dev/tty', 'r+'); } catch { return null; }
+  try {
+    fs.writeSync(fd, prompt);
+    const buf = Buffer.alloc(1);
+    let line = '';
+    while (line.length < 64) {
+      const n = fs.readSync(fd, buf, 0, 1, null);
+      if (n === 0 || buf[0] === 10) break;
+      line += String.fromCharCode(buf[0]);
+    }
+    return line;
+  } catch {
+    return null;
+  } finally {
+    try { fs.closeSync(fd); } catch { /* ignore close failure */ }
+  }
+}
+
+/**
+ * maint-thin: `roadmap promote <id...>`, person only. A model with a shell controls the environment, so neither an
+ * environment check nor the autopilot switch can tell a person. The verb requires an interactive terminal on stdin
+ * (refused `needs-person-tty`, nothing written), validates the named rows, then prints their ids and titles and asks
+ * `[y/N]` on the controlling terminal (`/dev/tty`): no `/dev/tty`, or an answer other than y/yes, is refused
+ * `needs-person-confirm` and nothing is written. No flag or environment variable skips the prompt, and the autopilot
+ * switch is not read. Under the roadmap lease it drops the `proposed` mark of every named row, so autopilot may pick
+ * it. All or nothing: an unknown id, a row that is not proposed, or a duplicate id is a finding (reported before any
+ * prompt) and nothing is written. Exit 0 promoted, 1 refused or findings, 2 usage.
  */
 function handlePromoteCommand(options: HandlePromoteCommandOptions = {}): number {
   const {
@@ -845,15 +870,14 @@ function handlePromoteCommand(options: HandlePromoteCommandOptions = {}): number
     root = resolveMainRoot(process.cwd()),
     fsImpl = fs,
     gitFacts,
-    readSwitch,
     alive,
-    env = process.env,
     pid,
     host,
     now,
     out = (s: string) => console.log(s),
     err = (s: string) => console.error(s),
     isTTY = process.stdin.isTTY === true,
+    confirm = readTtyAnswer,
   } = options;
   const emit = (result: any, code: number, detail?: string): number => {
     if (json) out(JSON.stringify(result));
@@ -878,14 +902,6 @@ function handlePromoteCommand(options: HandlePromoteCommandOptions = {}): number
   if (isTTY !== true) {
     return emit({ ...base, reason: 'needs-person-tty' }, 1,
       'promote runs only from an interactive terminal: a person runs doflow roadmap promote in their own shell');
-  }
-  const switchReader = readSwitch || readSeedSwitch;
-  if (switchReader(env, fsImpl).enabled !== false) {
-    const { configHome } = require('../config-home.ts');
-    const home = configHome(env).dir;
-    const homeText = home ? safeText(home) : 'the config home (none resolves: set HOME or XDG_CONFIG_HOME)';
-    return emit({ ...base, reason: 'needs-person' }, 1,
-      `autopilot is not verifiably off for this config home; a person sets autopilot.enabled to off in ${homeText}/settings.json or creates ${homeText}/autopilot/off, then promotes`);
   }
 
   const leaseDir = path.join(root, '.doflow', 'state', 'roadmap');
@@ -917,6 +933,14 @@ function handlePromoteCommand(options: HandlePromoteCommandOptions = {}): number
       seen.add(id);
     }
     if (findings.length > 0) return emit({ ...base, findings }, 1);
+    const titles = ids.map((id) => `  ${safeText(id)}  ${safeText(doc.rows.find((r: any) => r.id === id).title)}`);
+    const prompt = `${titles.join('\n')}\nPromote ${ids.length} row(s): ${ids.map(safeText).join(' ')}? [y/N] `;
+    let answer: string | null = null;
+    try { answer = confirm(prompt); } catch { answer = null; }
+    if (typeof answer !== 'string' || !/^(y|yes)$/i.test(answer.trim())) {
+      return emit({ ...base, reason: 'needs-person-confirm' }, 1,
+        'promote needs a person to answer y on the controlling terminal (/dev/tty); there is no flag or variable that skips the prompt');
+    }
     const rows = doc.rows.map((r: any) => {
       if (!ids.includes(r.id)) return r;
       const { proposed, ...ready } = r;

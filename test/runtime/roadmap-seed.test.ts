@@ -1461,7 +1461,7 @@ test('C-2 seed reader fails closed for env-off, invalid settings, no config home
   }
   const text = runSeedApply(seedApplyFixture(t, { setting: 'on' }), { json: false });
   assert.equal(text.exit, 0);
-  assert.match(text.out, /1 proposed \(no person verified, or autopilot is not verifiably off; a person runs in their terminal, with autopilot off: doflow roadmap promote 114\)/);
+  assert.match(text.out, /1 proposed \(no person verified, or autopilot is not verifiably off; a person runs in their terminal: doflow roadmap promote 114\)/);
   assert.doesNotMatch(text.out, /DOFLOW_AUTOPILOT_ENABLED/);
 });
 

@@ -585,7 +585,7 @@ Commands:
   roadmap              Session-driven autopilot runner (--action render|status|next|audit|init-policy [--check] [--row <id>] [--run <id>]).
                        roadmap --action init-policy [--commit] writes the gate policy for review, or with --commit commits it onto local develop when develop is not checked out in a worktree (otherwise it prints the commands to run there; never pushes);
                        roadmap seed --action check|apply|amend --draft <path> [--json] validates and writes new rows;
-                       rows written while autopilot is on land proposed; roadmap promote <id...> [--json] (person, autopilot off) makes them ready
+                       rows written while autopilot is on land proposed; roadmap promote <id...> [--json] (person: asks y/N on the terminal) makes them ready
   plan-check           Check a plan's task lines the way the task-attempt ledger reads them: plan-check <plan path> [--json]
   review               Validate a feature's review/findings.json; print errors, advisories and counts (exit 0 valid, 1 invalid, 2 usage).
                        review --action check [--slug <name> | --path <findings.json>] [--json]
