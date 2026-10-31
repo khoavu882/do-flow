@@ -6,14 +6,14 @@
       "gate-a": { "autopilot": "approve", "predicates": ["protected-paths", "plan-verification-absent", "plan-parses", "markers-zero:design", "markers-zero:plan", "needs-merged", "requires-reachable", "plan-within-write-set"] },
       "gate-b": { "autopilot": "approve", "minSeats": 2, "predicates": ["protected-paths", "plan-verification-absent", "verify-pass-on-head", "findings-valid", "no-dropped-findings", "dispositions-backed", "blockers-zero"] }
     },
-    "bug": {},
-    "refactor": {},
+    "bug": { "gate-b": { "autopilot": "approve", "minSeats": 2, "predicates": ["protected-paths", "plan-verification-absent", "verify-pass-on-head", "findings-valid", "no-dropped-findings", "dispositions-backed", "blockers-zero"] } },
+    "refactor": { "gate-b": { "autopilot": "approve", "minSeats": 2, "predicates": ["protected-paths", "plan-verification-absent", "verify-pass-on-head", "findings-valid", "no-dropped-findings", "dispositions-backed", "blockers-zero"] } },
     "review": {},
     "research": {},
-    "documentation": {},
-    "dependency-change": {},
+    "documentation": { "gate-b": { "autopilot": "approve", "minSeats": 2, "predicates": ["protected-paths", "plan-verification-absent", "verify-pass-on-head", "findings-valid", "no-dropped-findings", "dispositions-backed", "blockers-zero"] } },
+    "dependency-change": { "gate-b": { "autopilot": "approve", "minSeats": 2, "predicates": ["protected-paths", "plan-verification-absent", "verify-pass-on-head", "findings-valid", "no-dropped-findings", "dispositions-backed", "blockers-zero"] } },
     "operations": {},
-    "trivial-edit": {}
+    "trivial-edit": { "gate-b": { "autopilot": "approve", "minSeats": 2, "predicates": ["protected-paths", "plan-verification-absent", "verify-pass-on-head", "findings-valid", "no-dropped-findings", "dispositions-backed", "blockers-zero"] } }
   },
   "protected": {
     "paths": ["core/registry/gates.json", "src/runtime/roadmap/", "core/registry/verification.json", "src/runtime/workflow-orchestrator.ts", "src/runtime/decision-register.ts", "core/registry/settings.json", "core/harnesses/shared/hooks/policies/", ".github/workflows/"],
