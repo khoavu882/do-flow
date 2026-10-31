@@ -364,13 +364,15 @@ test('pick skips a row without a write set as needs-exclusive while another row 
   assert.equal(pick(rows, alone, { wipLimit: 2 }).picked.id, '121');
 });
 
-test('AU-P1: pick takes the five loop classes and still skips research, review and operations as class-unsupported', () => {
-  const classes = ['bug', 'refactor', 'documentation', 'dependency-change', 'trivial-edit', 'research', 'review', 'operations'];
+test('AU-P1: pick takes the four loop classes and skips research, review, operations and dependency-change as class-unsupported', () => {
+  // dependency-change is out on purpose: a package.json dependency-key change is always denied protected-path:package.json
+  // (gates.ts), so such a row could never merge on its own. A user ruling reopens it.
+  const classes = ['bug', 'refactor', 'documentation', 'trivial-edit', 'research', 'review', 'operations', 'dependency-change'];
   const rows: any = classes.map((cls, i) => ({ id: String(130 + i), slug: `${130 + i}-${cls}`, title: cls, class: cls, needs: [], writeSet: [`area${i}/`] }));
   for (const [i, cls] of classes.entries()) {
     const one: any = new Map([[rows[i].id, { status: 'not-started', row: rows[i] }]]);
     const outcome = pick([rows[i]], one, { wipLimit: 2 });
-    if (i < 5) assert.equal(outcome.picked?.id, rows[i].id, cls);
+    if (i < 4) assert.equal(outcome.picked?.id, rows[i].id, cls);
     else { assert.equal(outcome.picked, null, cls); assert.equal(outcome.skips[rows[i].id], 'class-unsupported', cls); }
   }
 });

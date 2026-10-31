@@ -1,9 +1,9 @@
 'use strict';
 
-// AU-P1: the roadmap loop runs bug, refactor, trivial-edit, documentation and dependency-change
+// AU-P1: the roadmap loop runs bug, refactor, trivial-edit and documentation
 // rows through a gate-b-only policy (core/registry/gates.json). One row per class goes through to
 // merge on a scratch repository with the real orchestrator, gate policy and merge plumbing; research,
-// review and operations stay `class-unsupported`; an attended run of the same class keeps its
+// review, operations and dependency-change stay `class-unsupported`; an attended run of the same class keeps its
 // gate-free program. Scratch HOME and XDG under the temp folder, git identity set per spawn.
 
 const { test } = require('node:test');
@@ -19,7 +19,7 @@ const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrato
 
 const REPO = path.resolve(__dirname, '../..');
 const SWITCH = 'DOFLOW_AUTOPILOT_ENABLED';
-const CLASSES = ['bug', 'refactor', 'documentation', 'dependency-change', 'trivial-edit'];
+const CLASSES = ['bug', 'refactor', 'documentation', 'trivial-edit'];
 const digest = (bytes: any) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const write = (file: any, bytes: any) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, bytes); };
 const rowOf = (cls: string): any => ({ id: '201', slug: `201-${cls}`, title: `A ${cls} row`, class: cls, needs: [], writeSet: ['toy/'] });
@@ -120,7 +120,6 @@ const PROGRAMS: Record<string, string[]> = {
   bug: ['reproduction:do-test', 'root-cause:do-diagnose', 'implementation:do-implement', 'regression-verification:do-test', 'review:do-code-review'],
   refactor: ['architecture-mapping:do-diagnose', 'baseline-verification:do-test', 'implementation:do-implement', 'verification:do-test', 'review:do-code-review'],
   documentation: ['authoring:do-document', 'verification:do-test', 'review:do-code-review'],
-  'dependency-change': ['release-evidence:do-document', 'usage-impact:do-diagnose', 'implementation:do-implement', 'verification:do-test', 'review:do-code-review'],
   'trivial-edit': ['implementation:do-implement', 'verification:do-test', 'review:do-code-review'],
 };
 
@@ -204,8 +203,11 @@ test('an attended run of the same classes keeps its gate-free program: no gate-b
   assert.equal(attended.readRun('x').program.find((n: any) => n.id === 'review').optional, true);
 });
 
-test('research, review and operations rows stay class-unsupported, before and after the claim', async (t) => {
-  for (const cls of ['research', 'review', 'operations']) {
+// dependency-change is out of the loop on purpose: a change to any package.json dependency key is always denied
+// `protected-path:package.json` (src/runtime/roadmap/gates.ts, policy.protected.packageJsonKeys), so such a row could
+// never merge on its own. /do-implement by hand still works; a user ruling reopens it (LOOP_CLASSES in rows.ts).
+test('research, review, operations and dependency-change rows stay class-unsupported, before and after the claim', async (t) => {
+  for (const cls of ['research', 'review', 'operations', 'dependency-change']) {
     const row = rowOf(cls);
     const f = fixture(t, [row]);
     const idle = await f.next();

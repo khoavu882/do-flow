@@ -733,11 +733,13 @@ function deriveStatus(
 }
 
 /**
- * The task classes the roadmap loop runs: the feature chain, and the five classes that take a
+ * The task classes the roadmap loop runs: the feature chain, and the four classes that take a
  * gate-b-only policy (core/registry/gates.json). research, review and operations stay out: they
- * produce no change the loop could merge.
+ * produce no change the loop could merge. dependency-change stays out too: a change to any
+ * package.json dependency key is always denied `protected-path:package.json` (gates.ts), so such a
+ * row could never merge without a person; a user ruling reopens it.
  */
-const LOOP_CLASSES: readonly string[] = Object.freeze(['feature', 'bug', 'refactor', 'documentation', 'dependency-change', 'trivial-edit']);
+const LOOP_CLASSES: readonly string[] = Object.freeze(['feature', 'bug', 'refactor', 'documentation', 'trivial-edit']);
 
 /**
  * S1 Pick table: chooses the next ready row in seed order.
@@ -745,7 +747,7 @@ const LOOP_CLASSES: readonly string[] = Object.freeze(['feature', 'bug', 'refact
  * - Write set disjoint from all in-flight rows
  * - WIP bound (default 2)
  * - Row without a write set runs alone
- * - A class outside LOOP_CLASSES (research, review, operations, anything else) is class-unsupported
+ * - A class outside LOOP_CLASSES (research, review, operations, dependency-change, anything else) is class-unsupported
  * - Yields one reason per skipped row
  */
 function pick(

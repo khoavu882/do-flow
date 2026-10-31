@@ -203,7 +203,7 @@ test('a feature run takes the gate-b floor: docs-only at LOW is deep, raised by 
   assert.deepEqual(json.depthBasis, { scope: 'light', files: 1, base: r.base, floor: 2, raisedBy: 'gate-floor' });
 });
 
-for (const cls of ['bug', 'refactor', 'dependency-change']) {
+for (const cls of ['bug', 'refactor']) {
   test(`AU-P1: a ${cls} run takes the gate-b floor while autopilot is on: docs-only at LOW is deep, raised by gate-floor`, async (t) => {
     const r: any = repo(t, { taskClass: cls, files: { 'docs/a.md': 'x\n' } });
     r.lines([r.line({ risk: 'LOW' })]);

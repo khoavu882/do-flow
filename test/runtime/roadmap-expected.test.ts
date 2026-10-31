@@ -59,7 +59,7 @@ const GROUPS: any = {
   "CLEANUP-NOTE": "C12: the kept state is annotations.cleanup; reason stays null.",
   "USER-ACCEPTED": "C13: autopilot denies every user-accepted disposition (a question-channel register entry can be written by any session, review defect C5); a person-decided gate-b still accepts it.",
   "SEED-REJECTED": "C12: status fails closed on a seed the loop rejected.",
-  "LOOP-CLASSES": "AU-P1 supersedes the oracle: the loop now runs documentation (and bug, refactor, dependency-change, trivial-edit) rows through a gate-b-only policy, so a ready documentation row is picked, not class-unsupported (research, review and operations still are).",
+  "LOOP-CLASSES": "AU-P1 supersedes the oracle: the loop now runs documentation (and bug, refactor, trivial-edit) rows through a gate-b-only policy, so a ready documentation row is picked, not class-unsupported (research, review, operations and dependency-change still are).",
 };
 const known: any = (tags: any, diffs: any) => ({ tags, reading: tags.map((tag: any) => GROUPS[tag]).join(' '), diffs });
 const KNOWN_MISMATCHES: any = {

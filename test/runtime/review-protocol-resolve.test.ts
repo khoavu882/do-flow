@@ -27,13 +27,13 @@ const CLASSES = Object.keys(JSON.parse(read('core/registry/workflows.json')).cla
 const RISKS = Object.keys(VERIFICATION.riskLevels);
 
 // Today's rule, hard-coded: only LOW is single, light paths are docs/, README.md and CHANGELOG.md, and only
-// the classes with a gate-b policy (feature, and since AU-P1 the five roadmap-loop classes) have a floor (2).
+// the classes with a gate-b policy (feature, and since AU-P1 the four roadmap-loop classes) have a floor (2).
 const SCOPES: any = {
   light: ['docs/a.md', 'README.md'],
   code: ['docs/a.md', 'src/x.ts'],
   unknown: [],
 };
-const FLOOR: any = { feature: 2, bug: 2, refactor: 2, documentation: 2, 'dependency-change': 2, 'trivial-edit': 2 };
+const FLOOR: any = { feature: 2, bug: 2, refactor: 2, documentation: 2, 'trivial-edit': 2 };
 // maint-thin: the risk rule runs only under `review.preset: auto`; the tables below pin that rule, so the helper
 // sets auto on the user layer. The thin default (no setting) has its own tests at the end of this file.
 const AUTO: any = { 'review.preset': { value: 'auto', layer: 'user' } };
