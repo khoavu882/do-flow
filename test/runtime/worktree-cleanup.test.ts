@@ -25,7 +25,7 @@ function fixture(t: any, { merged = true }: { merged?: boolean } = {}) {
   const home = path.join(dir, 'home');
   fs.mkdirSync(root); fs.mkdirSync(home);
   const env: any = { ...process.env, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, '.config'),
-    GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', ...GIT_NO_MAINTENANCE_ENV,
+    GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV, GIT_CONFIG_GLOBAL: '/dev/null',
     GIT_AUTHOR_NAME: 'Owner', GIT_AUTHOR_EMAIL: 'owner@example.test', GIT_COMMITTER_NAME: 'Owner', GIT_COMMITTER_EMAIL: 'owner@example.test',
     DOFLOW_CLI: CLI };
   delete env.DOFLOW_SESSION_ROLE;

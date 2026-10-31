@@ -34,8 +34,8 @@ function fixture(t: any, { hold, record = {}, closedAt = null, perform = { stage
   const body = { schema: 1, runId: RUN_ID, createdAt: '2026-10-31T00:00:00.000Z', closedAt, maxSteps: null, steps: 0, n: 0, log: [],
     rows: { '113': perform ? { perform: { outcome: 'perform', runId: RUN_ID, row: '113', slug: SLUG, ...perform } } : {} }, ...record };
   fs.writeFileSync(runFile, JSON.stringify(body));
-  const env: any = { ...process.env, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, '.config'), GIT_CONFIG_NOSYSTEM: '1',
-    GIT_CONFIG_GLOBAL: '/dev/null', ...GIT_NO_MAINTENANCE_ENV, DOFLOW_CLI: CLI };
+  const env: any = { ...process.env, HOME: home, USERPROFILE: home, XDG_CONFIG_HOME: path.join(home, '.config'), GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
+    GIT_CONFIG_GLOBAL: '/dev/null', DOFLOW_CLI: CLI };
   for (const key of ['DOFLOW_SESSION_ROLE', 'DOFLOW_AUTOPILOT_ENABLED']) delete env[key];
   const enable = () => fs.writeFileSync(path.join(home, '.config', 'doflow', 'settings.json'), `${JSON.stringify({ schema: 1, 'autopilot.enabled': 'on' })}\n`);
   const ask = (extra: any = {}) => resolveAttendance({ taskId: SLUG, root, env, readKillSwitch: ON, ...extra });
