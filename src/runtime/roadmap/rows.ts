@@ -733,12 +733,19 @@ function deriveStatus(
 }
 
 /**
+ * The task classes the roadmap loop runs: the feature chain, and the five classes that take a
+ * gate-b-only policy (core/registry/gates.json). research, review and operations stay out: they
+ * produce no change the loop could merge.
+ */
+const LOOP_CLASSES: readonly string[] = Object.freeze(['feature', 'bug', 'refactor', 'documentation', 'dependency-change', 'trivial-edit']);
+
+/**
  * S1 Pick table: chooses the next ready row in seed order.
  * - Ready only when all needs are merged
  * - Write set disjoint from all in-flight rows
  * - WIP bound (default 2)
  * - Row without a write set runs alone
- * - Non-feature class is class-unsupported
+ * - A class outside LOOP_CLASSES (research, review, operations, anything else) is class-unsupported
  * - Yields one reason per skipped row
  */
 function pick(
@@ -781,7 +788,7 @@ function pick(
     }
 
     // Class check
-    if (row.class !== 'feature') {
+    if (!LOOP_CLASSES.includes(row.class)) {
       skips[row.id] = 'class-unsupported';
       continue;
     }
@@ -1106,6 +1113,7 @@ module.exports = {
   check,
   seedFindings,
   registryClasses,
+  LOOP_CLASSES,
   SEED_RULES,
   ROW_KEYS,
   TOP_KEYS,
