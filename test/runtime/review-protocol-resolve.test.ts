@@ -27,20 +27,20 @@ const CLASSES = Object.keys(JSON.parse(read('core/registry/workflows.json')).cla
 const RISKS = Object.keys(VERIFICATION.riskLevels);
 
 // Today's rule, hard-coded: only LOW is single, light paths are docs/, README.md and CHANGELOG.md, and only
-// the feature class has a gate-b floor (2).
+// the classes with a gate-b policy (feature, and since AU-P1 the five roadmap-loop classes) have a floor (2).
 const SCOPES: any = {
   light: ['docs/a.md', 'README.md'],
   code: ['docs/a.md', 'src/x.ts'],
   unknown: [],
 };
-const FLOOR: any = { feature: 2 };
+const FLOOR: any = { feature: 2, bug: 2, refactor: 2, documentation: 2, 'dependency-change': 2, 'trivial-edit': 2 };
 // maint-thin: the risk rule runs only under `review.preset: auto`; the tables below pin that rule, so the helper
 // sets auto on the user layer. The thin default (no setting) has its own tests at the end of this file.
 const AUTO: any = { 'review.preset': { value: 'auto', layer: 'user' } };
 
 function resolve(overrides: any = {}) {
   return resolveProtocol({
-    kind: 'review', taskClass: 'bug', risk: 'LOW', paths: SCOPES.light, runPreset: null, advicePick: null,
+    kind: 'review', taskClass: 'operations', risk: 'LOW', paths: SCOPES.light, runPreset: null, advicePick: null,
     settingsView: AUTO, gatePolicy: GATE_POLICY, registry: REGISTRY, riskPolicy: RISK_POLICY, ...overrides,
   });
 }
@@ -86,7 +86,7 @@ test('the old table: unknown paths, a null risk and an unreadable path list are 
 });
 
 test('origins: risk for the plain rule, floor when the class floor raises it', () => {
-  const plain = resolve({ taskClass: 'bug' });
+  const plain = resolve({ taskClass: 'operations' });
   assert.equal(plain.protocol.id, 'review-single');
   assert.equal(plain.protocol.origins.id, 'risk');
   const floored = resolve({ taskClass: 'feature' });
@@ -117,7 +117,8 @@ test('a floor of 3 gives 3 seats: the strictest preset plus a copy of its last s
 test('no gate policy, or a class without a floor, means no floor', () => {
   assert.equal(gateMinSeats(null, 'feature'), 0);
   assert.equal(gateMinSeats(GATE_POLICY, null), 0);
-  assert.equal(gateMinSeats(GATE_POLICY, 'bug'), 0);
+  assert.equal(gateMinSeats(GATE_POLICY, 'operations'), 0);
+  assert.equal(gateMinSeats(GATE_POLICY, 'bug'), 2, 'the roadmap-loop classes carry the gate-b floor');
   assert.equal(gateMinSeats(GATE_POLICY, 'feature'), 2);
   assert.equal(resolve({ taskClass: 'feature', gatePolicy: null }).protocol.id, 'review-single');
 });
@@ -125,11 +126,11 @@ test('no gate policy, or a class without a floor, means no floor', () => {
 test('a run preset: looser than the pick is refused, stricter is taken with origin run', () => {
   const looser = resolve({ taskClass: 'feature', paths: SCOPES.code, runPreset: 'review-single' });
   assert.deepEqual(looser, { ok: false, reason: 'preset-looser', field: 'preset' });
-  const stricter = resolve({ taskClass: 'bug', runPreset: 'review-deep' });
+  const stricter = resolve({ taskClass: 'operations', runPreset: 'review-deep' });
   assert.equal(stricter.ok, true);
   assert.equal(stricter.protocol.id, 'review-deep');
   assert.equal(stricter.protocol.origins.id, 'run');
-  const equal = resolve({ taskClass: 'bug', runPreset: 'review-single' });
+  const equal = resolve({ taskClass: 'operations', runPreset: 'review-single' });
   assert.equal(equal.protocol.id, 'review-single');
   assert.equal(equal.protocol.origins.id, 'run');
 });
@@ -192,7 +193,7 @@ test('C-11: a debate whose preset a project or user layer set to the default nam
   const auto = resolve({ kind: 'debate', settingsView: { 'debate.preset': { value: 'auto', layer: 'project' } } });
   assert.equal(auto.protocol.origins.id, 'registry');
   // review: an equal setting leaves the start pick's origin (maint-thin: the thin start, origin registry)
-  const review = resolve({ taskClass: 'bug', settingsView: { 'review.preset': { value: 'review-single', layer: 'project' } } });
+  const review = resolve({ taskClass: 'operations', settingsView: { 'review.preset': { value: 'review-single', layer: 'project' } } });
   assert.equal(review.protocol.id, 'review-single');
   assert.equal(review.protocol.origins.id, 'registry');
 });
@@ -384,7 +385,7 @@ test('maint-thin: no setting, or the shipped default, gives review-single for an
   for (const settingsView of [{}, { 'review.preset': { value: 'review-single', layer: 'default' } }]) {
     for (const risk of RISKS) {
       for (const paths of Object.values(SCOPES)) {
-        const got = resolve({ taskClass: 'bug', risk, paths, settingsView, unattended: false });
+        const got = resolve({ taskClass: 'operations', risk, paths, settingsView, unattended: false });
         assert.equal(got.ok, true);
         assert.equal(got.protocol.id, 'review-single', JSON.stringify({ risk, paths, settingsView }));
         assert.equal(got.protocol.seats.length, 1);
@@ -396,13 +397,13 @@ test('maint-thin: no setting, or the shipped default, gives review-single for an
 });
 
 test('maint-thin: a layer that sets review-deep or auto raises the thin start (negative control)', () => {
-  const deep = resolve({ taskClass: 'bug', paths: SCOPES.light, settingsView: { 'review.preset': { value: 'review-deep', layer: 'user' } }, unattended: false });
+  const deep = resolve({ taskClass: 'operations', paths: SCOPES.light, settingsView: { 'review.preset': { value: 'review-deep', layer: 'user' } }, unattended: false });
   assert.equal(deep.protocol.id, 'review-deep');
   assert.equal(deep.protocol.origins.id, 'user');
-  const auto = resolve({ taskClass: 'bug', paths: SCOPES.code, settingsView: AUTO, unattended: false });
+  const auto = resolve({ taskClass: 'operations', paths: SCOPES.code, settingsView: AUTO, unattended: false });
   assert.equal(auto.protocol.id, 'review-deep');
   assert.equal(auto.protocol.origins.id, 'risk');
-  const rounds = resolve({ taskClass: 'bug', settingsView: { 'review.rounds': { value: 3, layer: 'user' } }, unattended: false });
+  const rounds = resolve({ taskClass: 'operations', settingsView: { 'review.rounds': { value: 3, layer: 'user' } }, unattended: false });
   assert.equal(rounds.protocol.id, 'review-single');
   assert.equal(rounds.protocol.rounds, 3);
 });

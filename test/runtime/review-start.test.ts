@@ -54,11 +54,14 @@ function put(root: any, rel: any, text: any) {
  * A scratch repository: one base commit, then one commit holding `files`. `.doflow/` is excluded from
  * git, as a real checkout does, so the run and record files do not make the tree dirty.
  */
-function repo(t: any, { taskClass = 'feature', files = { 'src/a.ts': 'export {};\n' }, run = true, thin = false }: any = {}) {
+function repo(t: any, { taskClass = 'feature', files = { 'src/a.ts': 'export {};\n' }, run = true, thin = false, attended = false }: any = {}) {
   const dir = tempDir(t, 'doflow-review-start-');
   const cwd = path.join(dir, 'work');
   fs.mkdirSync(cwd);
-  const env = envFor(dir, { thin });
+  const env: any = envFor(dir, { thin });
+  // AU-P1: bug now carries a gate-b seat floor, which binds while autopilot is on. A test that pins the risk rule
+  // alone (not the floor) runs attended, where the floor is 0.
+  if (attended) env.DOFLOW_AUTOPILOT_ENABLED = 'off';
   git(cwd, env, ['init', '-q', '-b', 'main']);
   put(cwd, '.git/info/exclude', '.doflow/\n');
   put(cwd, 'README.md', 'base\n');
@@ -165,7 +168,7 @@ test('PASS on a clean HEAD: exit 0, deep, 2 seats, risk from the default for a l
 });
 
 test('the risk of the last clean matching line is used when valid; an invalid one falls back to the default', async (t) => {
-  const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'HIGH' }), r.line({ head: HEX_A, risk: 'LOW' }), r.line({ risk: 'LOW' })]);
   const low = await start(r, { base: r.base });
   assert.equal(low.json.risk, 'LOW');
@@ -177,7 +180,7 @@ test('the risk of the last clean matching line is used when valid; an invalid on
 });
 
 test('a bug run with docs-only paths at LOW is single with one seat; at MEDIUM it is deep', async (t) => {
-  const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n', 'CHANGELOG.md': 'y\n' } });
+  const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n', 'CHANGELOG.md': 'y\n' } });
   r.lines([r.line({ risk: 'LOW' })]);
   const low = await start(r, { base: r.base });
   assert.equal(low.exitCode, 0);
@@ -199,6 +202,17 @@ test('a feature run takes the gate-b floor: docs-only at LOW is deep, raised by 
   assert.equal(json.seats, 2);
   assert.deepEqual(json.depthBasis, { scope: 'light', files: 1, base: r.base, floor: 2, raisedBy: 'gate-floor' });
 });
+
+for (const cls of ['bug', 'refactor', 'dependency-change']) {
+  test(`AU-P1: a ${cls} run takes the gate-b floor while autopilot is on: docs-only at LOW is deep, raised by gate-floor`, async (t) => {
+    const r: any = repo(t, { taskClass: cls, files: { 'docs/a.md': 'x\n' } });
+    r.lines([r.line({ risk: 'LOW' })]);
+    const { json } = await start(r, { base: r.base });
+    assert.equal(json.depth, 'deep');
+    assert.equal(json.seats, 2);
+    assert.deepEqual(json.depthBasis, { scope: 'light', files: 1, base: r.base, floor: 2, raisedBy: 'gate-floor' });
+  });
+}
 
 // ---- 119 IC-005: the resolved protocol and --preset ----------------------------------------------------
 
@@ -229,7 +243,7 @@ test('--preset review-single on a feature with code changes is refused preset-lo
 });
 
 test('--preset with an unknown id, or a debate preset, is refused preset-unknown', async (t) => {
-  const r = repo(t, { taskClass: 'bug' });
+  const r = repo(t, { taskClass: 'bug', attended: true });
   r.lines([r.line()]);
   for (const preset of ['nope', 'debate-2']) {
     const { exitCode, json } = await start(r, { preset });
@@ -239,7 +253,7 @@ test('--preset with an unknown id, or a debate preset, is refused preset-unknown
 });
 
 test('--preset review-deep on a LOW docs-only bug is taken: origin run, raisedBy run, 2 seats', async (t) => {
-  const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'LOW' })]);
   const { exitCode, json } = await start(r, { base: r.base, preset: 'review-deep' });
   assert.equal(exitCode, 0);
@@ -344,7 +358,7 @@ test('an override does not turn a failed precondition into a policy refusal: the
 });
 
 test('a base that does not resolve gives scope unknown and deep', async (t) => {
-  const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'LOW' })]);
   const { exitCode, json } = await start(r, { base: 'no-such-ref' });
   assert.equal(exitCode, 0);
@@ -354,7 +368,7 @@ test('a base that does not resolve gives scope unknown and deep', async (t) => {
 });
 
 test('a rename counts both paths: moving a doc into src is code', async (t) => {
-  const r: any = repo(t, { taskClass: 'bug', files: { 'docs/m.md': 'move me\n' } });
+  const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/m.md': 'move me\n' } });
   const mid = r.head;
   fs.mkdirSync(path.join(r.cwd, 'src'), { recursive: true });
   r.git(['mv', 'docs/m.md', 'src/m.md']);
@@ -496,7 +510,7 @@ test('through bin/doflow.js with stdin closed: refusal exits 1 and the run never
 // ---- C-2: an empty changed-path list is an unknown scope ----------------------------------------------
 
 test('C-2 (12b): a source change committed on the integration branch (no --base) is deep, never single', async (t) => {
-  const r = repo(t, { taskClass: 'bug', files: { 'src/a.ts': 'export const a = 1;\n' } });
+  const r = repo(t, { taskClass: 'bug', attended: true, files: { 'src/a.ts': 'export const a = 1;\n' } });
   r.git(['branch', '-m', 'develop']);
   r.lines([r.line({ risk: 'LOW' })]);
   const { exitCode, json } = await start(r);
@@ -508,7 +522,7 @@ test('C-2 (12b): a source change committed on the integration branch (no --base)
 });
 
 test('C-2 (12c): a branch already contained in develop (empty diff) is deep, never single', async (t) => {
-  const r = repo(t, { taskClass: 'bug', files: { 'src/a.ts': 'export const a = 1;\n' } });
+  const r = repo(t, { taskClass: 'bug', attended: true, files: { 'src/a.ts': 'export const a = 1;\n' } });
   r.git(['branch', 'develop']);
   r.git(['checkout', '-q', '-b', 'feat/x']);
   r.lines([r.line({ risk: 'LOW' })]);
@@ -540,7 +554,7 @@ test('C-1 (R2-1): a bug run stored as <slug>/<slug>-fix.json with a verify FAIL 
 });
 
 test('C-1: the namespaced run is checked against the records of its own task id; a clean PASS there starts the review', async (t) => {
-  const r = repo(t, { run: false, taskClass: 'bug' });
+  const r = repo(t, { run: false, taskClass: 'bug', attended: true });
   putRun(r, `${SLUG}/${FIX}.json`, { taskId: FIX, taskClass: 'bug', state: 'ACTIVE' });
   putRecords(r, SLUG, [r.line()]);
   const wrongKey = await start(r);
@@ -803,7 +817,7 @@ test('advice: an answer of single over a decided deep leaves deep', async (t) =>
 });
 
 test('advice: an answer of deep over a decided single raises it, raisedBy advice, seats from the deep policy', async (t) => {
-  const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'LOW' })]);
   r.enableAdvice();
   const client = fakeClient(answered('deep'));
@@ -816,7 +830,7 @@ test('advice: an answer of deep over a decided single raises it, raisedBy advice
 });
 
 test('Q-A1: --preset review-single with an advice answer of deep on a light LOW change is not a refusal; the run preset wins', async (t) => {
-  const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'LOW' })]);
   r.enableAdvice();
   const { exitCode, json } = await start(r, { adviceClient: fakeClient(answered('deep')), base: r.base, preset: 'review-single' });
@@ -830,7 +844,7 @@ test('Q-A1: --preset review-single with an advice answer of deep on a light LOW 
 });
 
 test('settings: the verb reads the project settings; text form prints protocolDigest and the setting origin', async (t) => {
-  const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'LOW' })]);
   put(r.cwd, '.doflow/settings.json', JSON.stringify({ schema: 1, 'review.preset': 'review-deep', 'review.rounds': 3 }));
   const { json } = await start(r, { base: r.base });
@@ -844,7 +858,7 @@ test('settings: the verb reads the project settings; text form prints protocolDi
 });
 
 test('settings: the text form prints the rules line and one protocol.blocker line per project clause (C-5)', async (t) => {
-  const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'LOW' })]);
   put(r.cwd, '.doflow/settings.json', JSON.stringify({ schema: 1, 'review.blockerClauses': ['no new dependency', 'no change to the public CLI'] }));
   const text = await start(r, { base: r.base, json: false });
@@ -854,7 +868,7 @@ test('settings: the text form prints the rules line and one protocol.blocker lin
 });
 
 test('settings: a project review.preset review-deep over a single-eligible change is raisedBy setting', async (t) => {
-  const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'LOW' })]);
   put(r.cwd, '.doflow/settings.json', JSON.stringify({ schema: 1, 'review.preset': 'review-deep' }));
   const { json } = await start(r, { base: r.base });
@@ -874,7 +888,7 @@ test('protocolDigest is null whenever protocol is null (a refused review), and s
 });
 
 test('advice: an unavailable answer, or a client that throws, changes nothing', async (t) => {
-  const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'LOW' })]);
   r.enableAdvice();
   const unavailable = await start(r, { adviceClient: fakeClient({ status: 'unavailable', reason: 'timeout', answers: [] }), base: r.base });
@@ -1087,7 +1101,7 @@ test('120 D.3: preconditions run before primary check (preconditions and order u
  * passing-looking project bench file, which the gate never reads (D3).
  */
 function kindsRepo(t: any, mode: any, { bench = false }: any = {}) {
-  const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'LOW' })]);
   r.enableAdvice();
   put(r.cwd, '.git/info/exclude', '.doflow/\nbench/\n');
@@ -1170,7 +1184,7 @@ const CHOSEN_OFF: any = {
 };
 for (const [name, c] of Object.entries(CHOSEN_OFF) as any) {
   test(`085 H1: with advice.kinds unset, ${name} makes review start ask nothing`, async (t) => {
-    const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+    const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
     r.lines([r.line({ risk: 'LOW' })]);
     r.enableAdvice();
     if (c.settings) put(r.cwd, '.doflow/settings.json', JSON.stringify(c.settings));
@@ -1192,7 +1206,7 @@ const CHOSEN_SHADOW: any = {
 };
 for (const [name, c] of Object.entries(CHOSEN_SHADOW) as any) {
   test(`084 C-6: with advice.kinds unset, ${name} keeps a decided single when the model answers deep`, async (t) => {
-    const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+    const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
     r.lines([r.line({ risk: 'LOW' })]);
     r.enableAdvice();
     if (c.settings) put(r.cwd, '.doflow/settings.json', JSON.stringify(c.settings));
@@ -1208,7 +1222,7 @@ for (const [name, c] of Object.entries(CHOSEN_SHADOW) as any) {
 }
 
 test('084 C-6: with advice.kinds unset and no profile chosen the legacy raise still applies', async (t) => {
-  const r: any = repo(t, { taskClass: 'bug', files: { 'docs/a.md': 'x\n' } });
+  const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'LOW' })]);
   r.enableAdvice();
   const client = fakeClient(answered('deep'));
