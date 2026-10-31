@@ -88,9 +88,9 @@ clean_test_home
 SESS="verify-sess-001"
 SESS2="verify-sess-002"
 CWD="$REPO_ROOT"
-# Match lib.sh cwd_hash(): normalize via realpath before hashing so symlink paths
+# Match lib.sh cwd_hash() (cd + pwd -P; BSD realpath has no -e): normalize before hashing so symlink paths
 # and ../ components don't produce a different hash than the canonical path.
-_canonical=$(realpath -e "$CWD" 2>/dev/null || echo "$CWD")
+_canonical=$(cd "$CWD" && pwd -P)
 CWD_HASH=$(echo "$_canonical" | sha256sum | cut -c1-16)
 unset _canonical
 
