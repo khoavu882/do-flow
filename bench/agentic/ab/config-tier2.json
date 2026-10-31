@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "mode": "ab",
+  "comment": "Tier-2 capability tasks (agent-docs/briefs/ab-tier2-design-result.md). Arms: A bare Claude, B DoFlow installed (native routing), C = B plus the prompt typed behind entryPrefix \"/do-flow \" (not \"/do \": a live headless probe on 2026-10-31 showed `claude -p \"/do <task>\"` never invoked DoFlow, no Skill call and no classify call, while \"/do-flow <task>\" ran the chain: class feature classified, 19 Bash and 6 Edit calls). The task caps (maxBudgetUsd, maxTokensPerRun, timeoutSec, sessionBudgetUsd) are per task in tasks-tier2.json and identical in every arm; maxTokensPerRun and maxBudgetUsd here stay null on purpose (execute refuses a task without its own cap until given --max-tokens-per-run / --max-budget-usd). ledgerUsd is the cumulative dollar stop of one execute command (null = none; --ledger-usd overrides). Every resume gets the same reply in every arm. Credentials enter only through the environment variables named in credentialEnv.",
+  "recipe": "bench/agentic/ab/recipe.json",
+  "tasksFile": "bench/agentic/ab/tasks-tier2.json",
+  "nativeCases": "bench/native/cases.json",
+  "model": {
+    "label": "claude-sonnet-5-5"
+  },
+  "credentialEnv": [
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "ANTHROPIC_API_KEY"
+  ],
+  "path": [
+    "node",
+    "rg",
+    "git",
+    "jq",
+    "bash"
+  ],
+  "roles": {
+    "baseline": "A",
+    "candidate": "B"
+  },
+  "arms": {
+    "A": {
+      "paragraph": "Work only inside the current directory. When you have finished, reply with a one-paragraph summary of what you did.",
+      "pathAdd": [],
+      "leak": [
+        "^doflow(?:-run)?(?:\\.[cm]?js)?(?: |$)",
+        "skills/do(?:-[a-z-]+)?/SKILL\\.md",
+        "^(?:curl|wget|nc|ncat|pip3?|npm|npx)(?: |$)"
+      ],
+      "proof": "absent",
+      "homeSetup": null
+    },
+    "B": {
+      "paragraph": "Work only inside the current directory. When you have finished, reply with a one-paragraph summary of what you did.",
+      "pathAdd": [
+        "doflow-shim"
+      ],
+      "leak": [
+        "^(?:curl|wget|nc|ncat|pip3?|npm|npx)(?: |$)"
+      ],
+      "proof": "loaded",
+      "homeSetup": {
+        "argv": [
+          "node",
+          "<export>/bin/doflow.js",
+          "install",
+          "-g",
+          "-f",
+          "-t",
+          "claude",
+          "--mcp",
+          "none"
+        ]
+      }
+    },
+    "C": {
+      "paragraph": "Work only inside the current directory. When you have finished, reply with a one-paragraph summary of what you did.",
+      "pathAdd": [
+        "doflow-shim"
+      ],
+      "leak": [
+        "^(?:curl|wget|nc|ncat|pip3?|npm|npx)(?: |$)"
+      ],
+      "proof": "loaded",
+      "homeSetup": {
+        "argv": [
+          "node",
+          "<export>/bin/doflow.js",
+          "install",
+          "-g",
+          "-f",
+          "-t",
+          "claude",
+          "--mcp",
+          "none"
+        ]
+      },
+      "entryPrefix": "/do-flow "
+    }
+  },
+  "timeoutSeconds": 2700,
+  "maxTokensPerRun": null,
+  "maxBudgetUsd": null,
+  "resume": {
+    "maxResumes": 4,
+    "reply": "Proceed. No further input is available; decide anything else with your best judgement and finish the task as stated.",
+    "cumulative": true
+  },
+  "tier2Root": "bench/agentic/ab/tier2",
+  "ledgerUsd": null
+}

@@ -125,4 +125,148 @@ The commands are checked against `plan` output (`node bench/runner.js agentic pl
 which spawns nothing). The CLI is exercised by `test/bench/agentic-e2e.test.js` against
 `test/fixtures/agentic/fake-worker.js` with three train and three heldout tasks. Numbers come from
 `config.json`, `bench/config.json` and the cost estimate. When a verb, flag, exit code or ceiling
-changes, change this page in the same commit.
+changes, change this page in the same commit. Section 8 is exercised by `test/bench/agentic-ab-unit.test.ts`
+and `test/bench/agentic-ab-e2e.test.ts` (fake Claude worker in the same fixture) and its plan by
+`npm run bench -- agentic plan --config bench/agentic/ab/config.json --iteration dry --arm A`.
+
+## 8. With/without DoFlow A/B
+
+A second mode of the same executor, selected by `"mode": "ab"` in
+[`ab/config.json`](ab/config.json). It compares arm A (bare Claude Code, empty scratch HOME) with arm B
+(DoFlow installed into the scratch HOME) on six tasks from [`ab/tasks.json`](ab/tasks.json): routing,
+unnecessary pauses, refactor-shared-format (T3), review-113 (T4), doc-options-sync (T5) and
+conflicting-instructions (T6). The plan is `agent-docs/briefs/ab-bench-plan-result.md`. Arm names come
+from `config.roles` (baseline `A`, candidate `B`); the retrieval mode above keeps `N` and `D`
+unchanged. One real run exists (`r1`, task `routing`, both arms, 2026-10-30): it showed the permission
+problem below, settled the items listed under `settled` in [`ab/recipe.json`](ab/recipe.json)
+(hooks fire and exit 0 in arm B, the config-dir scrub does not break them, the parser's totals equal the
+result event's, the init tool names) and left the `unverified` ones open (tool use under the fixed mode,
+resume cost, subagent attribution, the OAuth path). The stream shapes in the older fixtures are
+synthetic; `test/fixtures/claude-headless/real-arm-{a,b}.stream.jsonl` are the real transcripts.
+
+```bash
+npm run bench -- agentic plan --config bench/agentic/ab/config.json --iteration dry --arm A   # spawns nothing
+npm run bench -- agentic execute --config bench/agentic/ab/config.json --iteration r1-a --arm A \
+    --cap <tokens> --max-tokens-per-run <tokens> --max-budget-usd <usd> [--tasks routing]     # paid
+npm run bench -- agentic grade  --config bench/agentic/ab/config.json --iteration r1-a --corpus <review-miss corpus.json>
+npm run bench -- agentic noise  --config bench/agentic/ab/config.json --iterations r1-a,r2-a --corpus <corpus.json>
+npm run bench -- agentic report --config bench/agentic/ab/config.json --iterations r1-b,r2-b --corpus <corpus.json> [--fixed-cost fixed.json]
+```
+
+**Task kinds.** `edit`: the prompt and workspace files come from a case in `bench/native/cases.json`;
+its hidden checks run after the worker exits, outside the workspace. `review`: the worker writes
+`review.json` for a fixed revision and scope; `review-adapter.ts` turns it into a review-miss
+repeat that the existing scorer (`bench/review-miss/grade.ts`) scores. Malformed output is zero
+findings, a miss. The review corpus (`bench/runs/review-miss/corpus.json`) is built offline with
+`review-miss corpus --records agent-docs/doflow`; the runner refuses `corpus-missing` without it.
+
+**Arms.** Arm A runs with an empty scratch HOME and nothing from DoFlow on PATH. Arm B first runs
+`bin/doflow.js install -g -f -t claude --mcp none` from the pruned export inside that HOME, with no
+credential in the environment (`home-setup.json` records the result), then the worker. Credentials
+reach only the worker, by environment-variable name from `credentialEnv`; `launch.json` records the
+names present, never values. Arms are interleaved per repeat: run `r1-a`, `r1-b`, `r2-a`, `r2-b`.
+
+**Refusals before any spend (exit 2).** `max-tokens-missing` and `max-budget-missing` (`maxTokensPerRun`
+and `maxBudgetUsd` are `null` in the committed config; the user sets both at run time with
+`--max-tokens-per-run` and `--max-budget-usd`, or in a copy of the config, after approving the caps),
+`over-cap` (`--cap`), `credential-missing`, `tree-dirty`, `harness-binary-missing`, `tool-missing`,
+`review-rev-missing`, `workspace-contaminated` (a task file or review scope would bring `.claude`,
+`CLAUDE.md`, `AGENTS.md` or `.doflow` into the workspace), `proof-empty`. `--max-budget-usd` goes into
+both arms' argv as a hard stop inside the run (result `error_max_budget_usd`, recorded as a budget
+stop and censored like a token-cap stop). Whether the dollar limit applies per invocation or across
+`--resume` is not observed.
+
+**Exit codes of `execute`.** 0 when every planned run was attempted, including a run that hit its own
+per-run cap (that run is recorded as truncated and censored, and the summary prints a `!!! CAP HIT`
+line and a mark on the run); 3 only when `--cap` stopped later runs or the total spend passed `--cap`;
+2 on a refusal.
+
+**Credentials and the environment.** Credentials enter only by environment-variable name
+(`credentialEnv`). Both arms get `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` (documented to strip credentials
+from the Bash, hook and MCP subprocess environments; it also removes `CLAUDE_CONFIG_DIR` there, so
+hooks fall back to `$HOME/.claude`, not observed). Whatever is saved is redacted first: every
+credential value (exact and JSON-escaped, 8 characters or more) and the `sk-ant-...` and `sk-...`
+token shapes become `[redacted]` in `transcript*.jsonl` and, after the run, in every text file under
+the run directory (the copied workspace, `review.json`, install tails). Retrieval-mode (N/D) runs are
+unchanged.
+
+**Permission mode.** `--permission-mode bypassPermissions` was reported as `default` by both arms in the
+first real run and every Write, Edit and writing Bash was denied: with
+`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` set, claude 2.1.308 forces the default mode ("Declare allowedTools
+explicitly, or set CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=0"). No settings key or flag undoes that offline
+(probe table in the recipe's `--allowedTools` entry). The recipe keeps the scrub, passes no mode flag
+and an explicit `--allowedTools Bash,Read,Edit,Write,NotebookEdit,Skill,Task` in both arms (identical,
+no settings.json difference between the arms), and expects `init.permissionMode` `default`. Two
+guards remain: `execute` kills a run at once when init reports another mode and records
+`permission-mode-not-effective` (no more spend); `grade` excludes any run whose stream holds a
+`system/permission_denied` event or a non-empty `permission_denials` (`exclusionReason`
+`permission-denied`, count in `permissionDenials`; the shared exclusion mark is `truncated`). A final
+message that says permissions stopped the run is counted as `blocked`, neither a pause nor an offer
+(a wording heuristic, `closingKind`).
+
+**Scratch cleanup.** Arm B's install adds a SessionEnd hook that starts a detached
+`doflow-run storage --action upkeep` (`core/harnesses/shared/hooks/policies/lib.sh`, `storage_upkeep_async`:
+`nohup`, background, `cd` to the workspace). It outlives the harness, escapes the executor's group kill and
+writes `.doflow/state/runs/<date>.jsonl` into the scratch HOME while the tree is removed, so a plain recursive
+remove hit `ENOTEMPTY`. The executor now ends the processes that name a run's scratch directory (exact path
+match) or hold a file under it before removing it, removes with retries, and looks again. A directory that
+still cannot be removed never aborts the iteration or the results already written: the run's `run_status.json`
+and `timing.json` get `cleanupError`, the summary prints a `!!! CLEANUP FAILED` line, the next run goes on and
+`execute` exits 0.
+
+**Exclusion, never a score.** `grade` compares each run with the proof expected from the checkout
+(skills and agents under `core/shared/`). Arm A must show none of it in init; arm B must show P1
+installed, P2 skills and agents in init, P3 SessionStart fired. One classifier checks both arms for
+commands that read the benchmark's own truth (the checkout, `core/shared`, `doflow-agentic-tool`, the
+pruned export, the hidden checks) or leave the run roots; only the "DoFlow present" checks differ.
+Arm A's leak patterns match an *invocation* of the doflow binary in command position (after `env`,
+`npx`, `node` wrappers), so `rg -n "doflow roadmap" src/` is clean in both arms and `doflow retrieve`
+is a leak in arm A; network commands are a leak in both. Path words are expanded before the roots
+check: `~` and `$HOME` resolve to the scratch HOME, `$PWD` to the workspace, `$TMPDIR` and other
+unknown `$VAR/...` words are flagged, never skipped. Grep and Glob `path`, `glob` and pattern-as-path
+inputs are kept in the tool calls and checked, and a Bash command is stored up to 4000 characters
+before the check (display truncates only). A run that fails is `leaked` (A saw DoFlow or ran a
+forbidden command) or `not-loaded` (B did not load it) and is excluded as `source-unverified`, with
+the evidence in `grading.json`. Timeouts, API errors and runs stopped by the cap are excluded from the
+quality scores too; the report shows a sensitivity line that scores capped edit runs 0.
+
+**Censored runs (cost and wall).** A run stopped by the per-run token cap, the dollar stop or the
+timeout leaves the quality scores but stays in cost and wall time: a capped run counts at no less than
+the cap value in tokens, a timed-out run at its elapsed time, and both are marked `censored` in
+`grading.json`. Dropping them would bias the arm that runs long. With any censored run on either side
+the report prints no gain or regression word for cost or wall time; the verdict is
+`censored-lower-bound` with the censored counts per arm, and Part 4 lists the keys.
+
+**Pauses (decision D3).** When a run ends on a blocking question (an `AskUserQuestion` call, or a final
+paragraph that asks the user to decide), it is resumed with `--resume <session_id>` and the neutral
+reply "No further input is available. If the task as stated is complete, stop. Otherwise continue with
+the task as stated and change nothing outside it.", at most twice. A final paragraph that is only an
+offer ("Want me to ...", "Should I also ...", "Would you like ...") is counted as a closing offer and
+never resumes the run; the report shows blocking pauses and closing offers per arm. The split is a
+text heuristic (`closingKind` in `ab/claude-stream.ts`) with a known error in both directions: a
+blocking question worded as an offer is not resumed, and an offer worded in another way is resumed
+once. Each pause and resume is counted, segments are kept as `transcript.jsonl`, `transcript.2.jsonl`,
+... and `segments.json`, and the cost and token totals of the last segment are taken as the run total.
+That the totals are cumulative across `--resume` is from the documentation (Claude Code 2.1.277 and
+later), not observed: `grade` records `claudeCodeVersion` from init, and a resumed run from an older or
+unknown version has `costBasis` `cumulative-unverified`; the report then prints that verdict instead
+of a word for total tokens and cost USD. Check one real resumed run before trusting a cost comparison.
+
+**Metrics** (`grading.json`, from the Claude stream parser in `ab/claude-stream.ts`): tokens
+(input, output, cache creation, cache read, total, whole tree including subagents), `subagentTokens`
+and `byModel` (from `modelUsage`), `costUsd` (`total_cost_usd`), `wallMs` (the result event's `duration_ms`, summed over segments; `wallMsProcess` is the process wall time from `timing.json`, 1.8-3.2 s longer for start-up), `turns`,
+`toolCalls`, `toolCounts`, `subagentCalls`, and questions (`pauses`, `offers`, `blocked`, `resumes`, `unanswered`). The
+per-run cap counts cache reads, stops a run in flight from main-loop assistant usage (best effort) and
+again on the reported total.
+
+**Report.** Part 1 quality (success on edit tasks, review recall, with the number of review findings produced and the number that matched no known key, per arm) under the 096 noise rules from an
+A/A noise artifact (`noise`, arm A iterations only); Part 2 cost and behaviour per task with a
+verdict word per metric on relative change, band = max(A/A range, mde), questions as counts only (blocking pauses, closing offers, resumes);
+Part 3 fixed cost from `--fixed-cost` (`{"rows":[{"item","value","source"}],"hookLatencyMsP50":n}`),
+otherwise "not supplied"; Part 4 validity: exclusions per arm, P1-P3 counts, routing (P4, reported
+not gating; name level only), cap sensitivity, prompt equality, spend including excluded runs. P5
+(first-request context delta) is deferred.
+
+`noise` and `report` write `ab-noise.json` and `ab-decision.json` to the untracked
+`bench/runs/agentic/ab/` unless `--out` or `--decision-out` says otherwise; `report` reads the band from
+there when `--noise` is absent. Nothing is written under the tracked `bench/agentic/results/`.

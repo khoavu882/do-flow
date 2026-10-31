@@ -1,0 +1,9 @@
+{
+  "name": "jobreport",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Prints a table of build jobs",
+  "bin": { "jobreport": "bin/report.js" },
+  "scripts": { "test": "node --test" },
+  "engines": { "node": ">=22" }
+}

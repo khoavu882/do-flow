@@ -1,0 +1,172 @@
+{
+  "id": "claude-headless-ab-v1",
+  "comment": "Bench-local Claude headless recipe for the with/without-DoFlow A/B (decision D2: not in core/registry/harnesses.json). Every flag below cites the line it was read from. 'help' = `claude --help` of claude 2.1.308 (read 2026-10-30). 'probe' = behaviour observed offline against an unreachable endpoint (ANTHROPIC_BASE_URL=http://127.0.0.1:9, fake key, scratch HOME; no model call). 'docs' = code.claude.com via context7 /websites/code_claude. The first real run (2026-10-30, r1-a and r1-b) settled the items under 'settled' and corrected the permission mode; probes marked 'mock' used a local stand-in for the Messages API.",
+  "binary": "claude",
+  "testedVersion": "2.1.308",
+  "expectedPermissionMode": "default",
+  "expectedPermissionModeComment": "init.permissionMode that must be reported by every run. With CLAUDE_CODE_SUBPROCESS_ENV_SCRUB set the harness forces 'default' (see --allowedTools). The executor kills a run at once when init reports anything else and records 'permission-mode-not-effective' (no more spend).",
+  "versionArgv": [
+    "--version"
+  ],
+  "parser": {
+    "id": "claude-stream-json-v1",
+    "module": "bench/agentic/ab/claude-stream.ts",
+    "feed": "stdout, one line at a time (parser.create().line(text); .end())"
+  },
+  "prompt": {
+    "via": "stdin",
+    "comment": "probe: `printf hi | claude -p --output-format stream-json --verbose` reached the API retry loop (prompt consumed); with empty stdin and no argument it exits 1 with 'Error: Input must be provided either through stdin or as a prompt argument when using --print'."
+  },
+  "argv": [
+    {
+      "flag": "-p",
+      "shared": true,
+      "comment": "help: '-p, --print  Print response and exit (useful for pipes).' Workspace trust dialog is skipped in this mode (same help entry)."
+    },
+    {
+      "flag": "--output-format",
+      "value": "stream-json",
+      "shared": true,
+      "comment": "help: '--output-format <format>  Output format (only works with --print): \"text\" (default), \"json\" (single result), or \"stream-json\" (realtime streaming)'."
+    },
+    {
+      "flag": "--verbose",
+      "shared": true,
+      "comment": "REQUIRED with -p + stream-json. probe: without it claude exits 1 with 'Error: When using --print, --output-format=stream-json requires --verbose'. help: '--verbose  Override verbose mode setting from config'."
+    },
+    {
+      "flag": "--include-hook-events",
+      "shared": true,
+      "comment": "help: '--include-hook-events  Include all hook lifecycle events in the output stream (only works with --output-format=stream-json)'. probe: arm B emits system/hook_started and system/hook_response (SessionStart:startup exit_code 0, UserPromptSubmit) before system/init; arm A emits none. This is the P3 evidence (hooks fired)."
+    },
+    {
+      "flag": "--model",
+      "value": "claude-sonnet-5-5",
+      "shared": true,
+      "comment": "help: '--model <model>  Model for the current session. Provide an alias ... or a model's full name.' probe: init.model echoed 'claude-sonnet-5-5'. Value is the plan's bench pin (ab-bench-plan-result.md section 5); the user approves the pin at execution."
+    },
+    {
+      "flag": "--allowedTools",
+      "value": "Bash,Read,Edit,Write,NotebookEdit,Skill,Task",
+      "shared": true,
+      "comment": "probe (offline, then the first real run): REPLACES --permission-mode bypassPermissions after the first real run (r1-a, r1-b): init.permissionMode was 'default' in both arms despite the flag, and every Write/Edit/write-Bash was denied. Cause (SOURCE, claude 2.1.308 binary strings): 'Permission mode forced to default - CLAUDE_CODE_SUBPROCESS_ENV_SCRUB is set (allowed_non_write_users hardening). Declare allowedTools explicitly, or set CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=0 to opt out.' Offline probe table (unreachable ANTHROPIC_BASE_URL, fake key, scratch HOME; tool columns from a local mock of the Messages API that asks for one Write and one Bash; no real API call): scrub + --permission-mode bypassPermissions -> init.permissionMode default, Write/Bash denied; scrub + skipDangerousModePermissionPrompt in settings.json -> default; scrub + --dangerously-skip-permissions -> default, denied; scrub + acceptEdits + allowedTools -> default, ran; scrub + --allowedTools only -> default, Write and Bash ran, 0 denials; scrub=0 + bypassPermissions -> bypassPermissions, ran (but the credential stays in every Bash environment). Chosen: keep the scrub, no mode flag, an explicit allow list. It is the least dangerous option that works: only these tools run unprompted, protected paths still refuse, everything else (EnterWorktree, Cron*, ...) is denied, and a denial excludes the run (grade: permission-denied). The list is identical in both arms; PreToolUse hooks still fire in default mode (observed in the real arm B run). Agent tools inherit the allow rules (not observed)."
+    },
+    {
+      "flag": "--disallowedTools",
+      "value": "WebFetch,WebSearch",
+      "shared": true,
+      "comment": "help: '--disallowedTools, --disallowed-tools <tools...>  Comma or space-separated list of tool names to deny'. probe: init.tools lacked WebFetch and WebSearch with the flag and listed both without it."
+    },
+    {
+      "flag": "--strict-mcp-config",
+      "shared": true,
+      "comment": "help: '--strict-mcp-config  Only use MCP servers from --mcp-config, ignoring all other MCP configurations'. With no --mcp-config this leaves zero MCP servers. probe: init.mcp_servers was [] in both arms (arm B installed with --mcp none)."
+    }
+  ],
+  "forbidden": [
+    {
+      "flag": "--bare",
+      "comment": "help: '--bare  Minimal mode: skip hooks (those defined in settings and by installed plugins ...) ... and CLAUDE.md auto-discovery ... Anthropic auth is strictly ANTHROPIC_API_KEY'. It would delete arm B (hooks, CLAUDE.md), so it is never passed."
+    },
+    {
+      "flag": "--fallback-model",
+      "comment": "help: 'Enable automatic fallback to specified model(s) when the default model is overloaded'. It would change the model mid-run, so the pin would not hold. Not passed."
+    },
+    {
+      "flag": "--safe-mode",
+      "comment": "help: 'Start with all customizations (CLAUDE.md, skills, ... hooks, ... agents ...) disabled'. Would delete arm B. Not passed."
+    },
+    {
+      "flag": "--disable-slash-commands",
+      "comment": "help: 'Disable all skills and commands'. Would delete arm B. Not passed."
+    },
+    {
+      "flag": "--setting-sources",
+      "comment": "help: 'Comma-separated list of setting sources to load (user, project, local)'. Not needed: the scratch HOME is the only user scope and the workspace has no project settings. Left unset so both arms use the default."
+    },
+    {
+      "flag": "--no-session-persistence",
+      "comment": "help: 'Disable session persistence - sessions will not be saved to disk and cannot be resumed (only works with --print)'. Left off because decision D3 resumes by session id."
+    }
+  ],
+  "optional": [
+    {
+      "flag": "--resume",
+      "value": "<session_id>",
+      "comment": "help: '-r, --resume [value]  Resume a conversation by session ID or name'. Needed only for decision D3 (one fixed reply, up to 2 times). Existence confirmed; resume behaviour under -p (cumulative total_cost_usd, session id kept) is from docs, not observed - see unverified."
+    },
+    {
+      "flag": "--max-budget-usd",
+      "value": "<amount>",
+      "comment": "help: '--max-budget-usd <amount>  Maximum dollar amount to spend on API calls (only works with --print)'. Passed to every run by the executor (abArgv) as the dollar hard stop beside the token cap; the user sets the amount at run time. docs: result subtype 'error_max_budget_usd' when hit."
+    }
+  ],
+  "env": {
+    "perRun": [
+      {
+        "name": "HOME",
+        "comment": "Fresh mode-0700 directory per run (plan section 3). probe: with HOME=<scratch> and nothing else, claude created <scratch>/.claude and loaded no skills of the caller."
+      },
+      {
+        "name": "CLAUDE_CONFIG_DIR",
+        "value": "$HOME/.claude",
+        "comment": "docs (debug-your-config): 'CLAUDE_CONFIG_DIR=~/claude-clean/config claude ...' replaces ~/.claude for one launch. probe: with it set to <scratch>/.claude, the doflow install -g wrote and claude read skills/agents from there (init.skills and init.agents listed the DoFlow names)."
+      },
+      {
+        "name": "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB",
+        "value": "1",
+        "comment": "docs (env-vars, read 2026-10-30 via context7 /websites/code_claude): '1' removes credentials (ANTHROPIC_API_KEY, names or values that look like a credential, CLAUDE_CONFIG_DIR) from the environments of the subprocesses Claude Code starts (Bash commands, hooks, stdio MCP servers); the Claude Code process keeps them for its own API calls. The name is also a string in the claude 2.1.308 binary. Set in both arms so a model that runs `env` does not print the credential. The executor also redacts every credential value and token shape from what it saves (execute.ts makeRedactor)."
+      },
+      {
+        "name": "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+        "value": "1",
+        "comment": "docs (devcontainer): used in containerEnv to opt out of telemetry. probe: init.analytics_disabled was true with it set. Note (docs): it also disables feature-flag evaluation."
+      }
+    ],
+    "credential": [
+      {
+        "name": "ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN",
+        "comment": "probe: ANTHROPIC_API_KEY was reported in init.apiKeySource. docs (authentication): 'Set CLAUDE_CODE_OAUTH_TOKEN ... token printed by claude setup-token'. The token is passed by environment only and never written to disk; the user approves the method at execution."
+      }
+    ]
+  },
+  "armHomeSetup": {
+    "A": [],
+    "B": {
+      "argv": [
+        "node",
+        "<pruned export>/bin/doflow.js",
+        "install",
+        "-g",
+        "-t",
+        "claude",
+        "--mcp",
+        "none",
+        "--force"
+      ],
+      "comment": "probe, run in a scratch HOME on 804f7ca3: exit 0, '[INFO] claude: lifecycle verified (561 owned resource(s))', wrote <HOME>/.claude and <HOME>/.doflow. jq must be on PATH (hooks use it); bash is /bin/bash."
+    }
+  },
+  "proof": {
+    "comment": "All fields below are read from the report of the parser (loadProof in claude-stream.ts).",
+    "P2": "init.skills and init.slash_commands list the DoFlow skills (do, do-implement, ...) and init.agents lists the archetypes (core-implementer, delivery-lead, quality-guardian, research-writer, reviewer, spec-analyst, system-architect). probe: confirmed in arm B; arm A lists only Claude built-ins (agents: claude, Explore, general-purpose, Plan, statusline-setup).",
+    "P3": "system/hook_response with hook_event SessionStart, outcome success, exit_code 0 (needs --include-hook-events). probe: observed in arm B, absent in arm A. The files DoFlow writes under <HOME>/.doflow/state/runs/<date>.jsonl are verb timing records (verb 'storage', exit_code, duration_ms), not a session-start record, so they are not used as P3."
+  },
+  "unverified": [
+    "Tool use under the new setting in a real run: only the local mock showed Write and Bash running with scrub + --allowedTools and no mode flag. The first real rehearsal must show 0 permission denials and slug.js changed.",
+    "--resume under -p: that total_cost_usd and modelUsage accumulate across resumes and the session id is kept is from docs (agent-sdk/cost-tracking), not observed; no real run resumed.",
+    "Subagent attribution: whether tool_use blocks inside a subagent appear in the stream (parent_tool_use_id) and how its tokens are attributed was not observed; no real run started a subagent. help lists '--forward-subagent-text'.",
+    "The OAuth path (CLAUDE_CODE_OAUTH_TOKEN) was not used; only ANTHROPIC_API_KEY ran. The scrub's effect on `env` output of a Bash command is from docs, not observed.",
+    "That subagents inherit the --allowedTools rules in default mode is not observed.",
+    "DISABLE_AUTOUPDATER=1 (docs devcontainer lists it; no observable effect in an offline probe), so it is not in the env list above.",
+    "The macOS keychain keying to CLAUDE_CONFIG_DIR (plan section 3) was not re-read or probed here; the credential row above uses only the env-var path.",
+    "The 250k-per-run cap unit and per-run token figures: one real run each exists (about 100k tokens in a 7-turn trivial task); no cap hit was observed."
+  ],
+  "settled": [
+    "Hook proof (P3): in the real arm B run the SessionStart, UserPromptSubmit, PreToolUse and Stop hooks all exited 0, and the hook events come BEFORE system/init in the stream. Arm A emitted none.",
+    "CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 with the CLAUDE_CONFIG_DIR removal did NOT break the arm B hooks (they all exited 0). It DID force the permission mode to default (fixed above).",
+    "Parser reconciliation: the parser's token and cost totals equal the result event's usage exactly in both real runs.",
+    "Init tool names (claude 2.1.308, -p): Task (the subagent tool), Bash, Edit, Read, Skill, Write, NotebookEdit, ToolSearch, SendMessage and others; there is no Grep, Glob or AskUserQuestion. Bash ran under zsh.",
+    "result.duration_ms excludes process start-up; the process wall time of a run is 1.8-3.2 s longer (report wallMs is the result figure, wallMsProcess the process figure)."
+  ]
+}

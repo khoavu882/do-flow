@@ -1,0 +1,8 @@
+{
+  "name": "billing-lib",
+  "version": "2.4.1",
+  "private": true,
+  "description": "Invoice and refund arithmetic",
+  "scripts": { "test": "node --test" },
+  "engines": { "node": ">=22" }
+}

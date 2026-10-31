@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 1,
+  "mode": "ab",
+  "comment": "With/without-DoFlow A/B (plan: agent-docs/briefs/ab-bench-plan-result.md). Arm A is bare Claude (empty scratch HOME), arm B has DoFlow installed in its scratch HOME (decision D1: --mcp none). maxTokensPerRun and maxBudgetUsd are null on purpose: execute refuses until the user approves both at run time (config edit, or --max-tokens-per-run and --max-budget-usd). maxBudgetUsd is passed to every Claude run as --max-budget-usd, a hard dollar stop beside the token cap. Credentials enter only through the environment variables named in credentialEnv.",
+  "recipe": "bench/agentic/ab/recipe.json",
+  "tasksFile": "bench/agentic/ab/tasks.json",
+  "nativeCases": "bench/native/cases.json",
+  "model": {
+    "label": "claude-sonnet-5-5"
+  },
+  "credentialEnv": [
+    "CLAUDE_CODE_OAUTH_TOKEN",
+    "ANTHROPIC_API_KEY"
+  ],
+  "path": [
+    "node",
+    "rg",
+    "git",
+    "jq",
+    "bash"
+  ],
+  "roles": {
+    "baseline": "A",
+    "candidate": "B"
+  },
+  "arms": {
+    "A": {
+      "paragraph": "Work only inside the current directory. When you have finished, reply with a one-paragraph summary of what you did.",
+      "pathAdd": [],
+      "leak": [
+        "^doflow(?:-run)?(?:\\.[cm]?js)?(?: |$)",
+        "skills/do(?:-[a-z-]+)?/SKILL\\.md",
+        "^(?:curl|wget|nc|ncat|pip3?|npm|npx)(?: |$)"
+      ],
+      "proof": "absent",
+      "homeSetup": null
+    },
+    "B": {
+      "paragraph": "Work only inside the current directory. When you have finished, reply with a one-paragraph summary of what you did.",
+      "pathAdd": [
+        "doflow-shim"
+      ],
+      "leak": [
+        "^(?:curl|wget|nc|ncat|pip3?|npm|npx)(?: |$)"
+      ],
+      "proof": "loaded",
+      "homeSetup": {
+        "argv": [
+          "node",
+          "<export>/bin/doflow.js",
+          "install",
+          "-g",
+          "-f",
+          "-t",
+          "claude",
+          "--mcp",
+          "none"
+        ]
+      }
+    }
+  },
+  "timeoutSeconds": 1800,
+  "maxTokensPerRun": null,
+  "maxBudgetUsd": null,
+  "resume": {
+    "maxResumes": 2,
+    "reply": "No further input is available. If the task as stated is complete, stop. Otherwise continue with the task as stated and change nothing outside it.",
+    "cumulative": true
+  }
+}

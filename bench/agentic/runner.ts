@@ -18,19 +18,22 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { parseFlags, UsageError: FlagError } = require('../retrieval/runner.ts');
 const { loadNoiseConfig } = require('../noise.ts');
-const { UsageError, loadTaskSet } = require('./tasks.ts');
+const { UsageError, loadTaskSet, loadAbTaskSet } = require('./tasks.ts');
+const { adaptIteration } = require('./review-adapter.ts');
+const reviewMissCorpus = require('../review-miss/corpus.ts');
+const reviewMissGrade = require('../review-miss/grade.ts');
 const execute = require('./execute.ts');
-const { gradeIteration, loadPathInfo } = require('./grade.ts');
+const { gradeIteration, loadPathInfo, readLaunch, TIER2_KINDS } = require('./grade.ts');
 const report = require('./report.ts');
 
 const REPO_ROOT = path.join(__dirname, '..', '..');
 const BENCH_CONFIG = path.join(__dirname, '..', 'config.json');
 const VERB_FLAGS = Object.freeze({
-  plan: { iteration: 'value', arm: 'value', tasks: 'value', json: 'bool' },
-  execute: { iteration: 'value', arm: 'value', cap: 'value', tasks: 'value', json: 'bool' },
-  grade: { iteration: 'value', json: 'bool' },
-  noise: { iterations: 'value', out: 'value', json: 'bool' },
-  report: { iterations: 'value', noise: 'value', 'decision-out': 'value', json: 'bool' },
+  plan: { iteration: 'value', arm: 'value', tasks: 'value', config: 'value', json: 'bool' },
+  execute: { iteration: 'value', arm: 'value', cap: 'value', tasks: 'value', config: 'value', 'max-tokens-per-run': 'value', 'max-budget-usd': 'value', 'ledger-usd': 'value', json: 'bool' },
+  grade: { iteration: 'value', config: 'value', corpus: 'value', json: 'bool' },
+  noise: { iterations: 'value', out: 'value', config: 'value', corpus: 'value', json: 'bool' },
+  report: { iterations: 'value', noise: 'value', 'decision-out': 'value', config: 'value', corpus: 'value', 'fixed-cost': 'value', json: 'bool' },
 });
 const REQUIRED = Object.freeze({ plan: ['iteration', 'arm'], execute: ['iteration', 'arm'], grade: ['iteration'], noise: ['iterations'], report: ['iterations'] });
 const USAGE = `usage: bench agentic <verb> [flags]
@@ -38,12 +41,25 @@ const USAGE = `usage: bench agentic <verb> [flags]
   execute --iteration <name> --arm <arm> --cap <tokens> [--tasks <id,id>]    the only verb that spawns the harness (paid)
   grade   --iteration <name> [--json]                                        write grading.json per run
   noise   --iterations <a,b,c> [--out <file>] [--json]                       arm N band (096 noise artifact)
-  report  --iterations <a,b,c> [--noise <file>] [--decision-out <file>] [--json]  arm D decision and token report`;
+  report  --iterations <a,b,c> [--noise <file>] [--decision-out <file>] [--json]  arm D decision and token report
+every verb takes --config <file> (default bench/agentic/config.json); the with/without-DoFlow A/B uses bench/agentic/ab/config.json:
+  execute ... --max-tokens-per-run <n>   the per-run token cap the user approves (the A/B config holds null until then)
+  execute ... --ledger-usd <usd>         tier 2: the cumulative dollar stop of this command (no further run starts once the spend reaches it)
+  execute ... --max-budget-usd <usd>     the per-run dollar hard stop the user approves, passed to claude as --max-budget-usd (null until then)
+  grade|noise|report ... --corpus <file>  review-miss corpus for the review task (default bench/runs/review-miss/corpus.json)
+tier 2 (config bench/agentic/ab/config-tier2.json, its tasksFile names the five tasks): grade --iteration <id> writes the checklist per run;
+  report --iterations <every iteration of arms A, B and C> prints the three-arm tables (descriptive, no significance); noise does not apply
+  report ... --fixed-cost <file>          the fixed-cost table input (A/B Part 3)`;
 
 /** Committed result paths the paid stages write (IC-008, IC-009). */
 const RESULT_NOISE = 'bench/agentic/results/noise.json';
 const RESULT_DECISION = 'bench/agentic/results/decision.json';
+/** Default A/B noise and decision output: untracked (bench/runs/ is gitignored), never the tracked results dir. */
+const AB_RESULTS_REL = 'bench/runs/agentic/ab';
 const STAGE_PREFIX = 'npm run bench -- agentic';
+
+/** True when the task set holds tier-2 capability tasks (kinds `single` and `continuity`): three arms, a checklist per task. */
+const isTier2 = (ctx: any) => ctx.taskSet.tasks.some((t: any) => TIER2_KINDS.includes(t.kind));
 
 const rel = (repoRoot: string, p: string) => path.relative(repoRoot, p).split(path.sep).join('/');
 
@@ -80,7 +96,64 @@ function paidStages({ taskSet, config, k }: { taskSet: any; config: any; k: numb
   };
 }
 
+/**
+ * The A/B paid stages as text: a T1 rehearsal per arm, then k interleaved repeats (arm A repeat r, then
+ * arm B repeat r), grading, the A/A band and the report. The per-run cap is the user's to approve, so a
+ * config that still holds `null` prints a placeholder.
+ */
+function abPaidStages({ taskSet, config, k }: { taskSet: any; config: any; k: number }) {
+  const { baseline: a, candidate: b } = config.roles;
+  const rehearsal = taskSet.tasks[0].id;
+  const cap = config.maxTokensPerRun;
+  const perRun = cap === null ? '<n>' : String(cap);
+  const budget = config.maxBudgetUsd === null ? '<usd>' : String(config.maxBudgetUsd);
+  const ceiling = cap === null ? '<tasks x n x repeats x 2>' : String(taskSet.tasks.length * cap * 2 * k);
+  const cfg = '--config bench/agentic/ab/config.json';
+  const reps = (prefix: string) => Array.from({ length: k }, (_, i) => `${prefix}-r${i + 1}`);
+  const aIts = reps(a.toLowerCase());
+  const bIts = reps(b.toLowerCase());
+  const run = (arm: string, it: string, tail = '') => `${STAGE_PREFIX} execute ${cfg} --iteration ${it} --arm ${arm}${tail} --max-tokens-per-run ${perRun} --max-budget-usd ${budget} --cap ${cap === null ? '<total>' : (tail ? cap : cap * taskSet.tasks.length)}`;
+  return {
+    R: [a, b].map((arm) => run(arm, `rehearsal-${arm.toLowerCase()}`, ` --tasks ${rehearsal}`)),
+    interleaved: aIts.flatMap((it, i) => [run(a, it), run(b, bIts[i])]),
+    grade: [...aIts, ...bIts].map((it) => `${STAGE_PREFIX} grade ${cfg} --iteration ${it}`),
+    noise: `${STAGE_PREFIX} noise ${cfg} --iterations ${aIts.join(',')} --out ${AB_RESULTS_REL}/ab-noise.json`,
+    report: `${STAGE_PREFIX} report ${cfg} --iterations ${bIts.join(',')} --noise ${AB_RESULTS_REL}/ab-noise.json --fixed-cost <file> --decision-out ${AB_RESULTS_REL}/ab-decision.json`,
+    note: `Paid: needs the user's approval of the per-run token cap and dollar hard stop, the model and the credential environment variable (${config.credentialEnv.join(' or ')}) before it runs. Run one at a time on an idle machine. Ceiling for the whole A/B: ${ceiling} tokens.`,
+  };
+}
+
+function cmdAbPlan(ctx: any, flags: any) {
+  const { config, taskSet, repoRoot } = ctx;
+  const plan = execute.planIteration({ repoRoot, config, taskSet, arm: flags.arm, iteration: flags.iteration, tasks: flags.tasks, runRoot: ctx.runRoot });
+  const stages = abPaidStages({ taskSet, config, k: ctx.noiseConfig().k });
+  if (flags.json) {
+    ctx.out(JSON.stringify({ ...plan, stages }, null, 2));
+    return 0;
+  }
+  const p = plan.projection;
+  ctx.out(`plan ${plan.iteration}: A/B arm ${plan.arm}, harness ${plan.harness} (${plan.harnessBinary}), model ${plan.model}`);
+  ctx.out(`install step: ${plan.homeSetup ? plan.homeSetup.join(' ') : 'none (empty scratch HOME)'}`);
+  ctx.out('| task | key | kind | group | run directory | argv (prompt on stdin) |');
+  ctx.out('|---|---|---|---|---|---|');
+  for (const r of plan.runs) {
+    ctx.out(`| ${r.id} | ${r.key} | ${r.kind} | ${r.group} | ${rel(repoRoot, r.runDir)} | ${r.argvShape.join(' ')} < <prompt sha256:${r.promptSha256} bytes:${r.promptBytes}> |`);
+  }
+  ctx.out(`projection: runs ${p.runs}, maxTokensPerRun ${p.maxTokensPerRun === null ? 'unset (execute refuses until the user sets it)' : p.maxTokensPerRun}, ceilingTokens ${p.ceilingTokens ?? 'unknown'}, typicalTokens ${p.typicalTokens ?? 'unknown'}`);
+  ctx.out(`maxBudgetUsd ${plan.maxBudgetUsd === null ? 'unset (execute refuses until the user sets it)' : plan.maxBudgetUsd}: passed to every claude run as --max-budget-usd`);
+  ctx.out(`credential: environment variable ${plan.credentialEnv.join(' or ')} only; never written to disk or logged`);
+  ctx.out('paid stages (text only, never run by plan):');
+  for (const line of stages.R) ctx.out(`  stage R (rehearsal): ${line}`);
+  for (const line of stages.interleaved) ctx.out(`  stage interleaved: ${line}`);
+  ctx.out(`  stage grade: ${stages.grade.length} command(s), one per iteration: ${stages.grade[0]} ...`);
+  ctx.out(`  stage noise: ${stages.noise}`);
+  ctx.out(`  stage report: ${stages.report}`);
+  ctx.out(stages.note);
+  return 0;
+}
+
 function cmdPlan(ctx: any, flags: any) {
+  if (ctx.config.mode === 'ab') return cmdAbPlan(ctx, flags);
   const { config, taskSet, repoRoot } = ctx;
   const plan = execute.planIteration({
     repoRoot, config, taskSet, registry: ctx.registry, arm: flags.arm, iteration: flags.iteration, tasks: flags.tasks, runRoot: ctx.runRoot,
@@ -118,6 +191,15 @@ const capMeaning = (config: any) => `cap: per execute command, execute starts a 
 /** The text result of `execute` (exit 0 or 3). */
 function executeLines(result: any, iteration: string) {
   const lines = [`execute ${iteration}: ran ${result.ran.length} run(s), spent ${result.spent} tokens (unknown usage counted at maxTokensPerRun)`];
+  const hits = result.capHits || [];
+  if (hits.length) {
+    lines.push(`!!! CAP HIT: ${hits.length} of ${result.ran.length} run(s) stopped at the per-run cap (${hits.join(', ')}); their cost and wall time are lower bounds and the command still exits 0 !!!`);
+  }
+  for (const d of result.detail || []) lines.push(`  ${d.id}: ${d.status}${d.capped ? ' !!! CAP HIT: stopped at the per-run cap, tokens are a lower bound !!!' : ''}, tokens ${d.tokens ?? 'unknown'}, pauses ${d.pauses ?? 0}, resumes ${d.resumes ?? 0}`);
+  const failures = result.cleanupErrors || [];
+  if (failures.length) {
+    lines.push(`!!! CLEANUP FAILED: ${failures.length} run(s) left scratch behind (${failures.map((f: any) => f.id).join(', ')}); results are intact, remove the directories by hand: ${failures.map((f: any) => f.error).join(' | ')} !!!`);
+  }
   if (result.capExceeded) lines.push(`cap exceeded by ${result.capExceeded.by} tokens on ${result.capExceeded.task}`);
   if (result.undone.length) lines.push(`stopped by --cap before: ${result.undone.join(', ')}`);
   return lines;
@@ -127,7 +209,7 @@ async function cmdExecute(ctx: any, flags: any) {
   const result = await execute.executeIteration({
     repoRoot: ctx.repoRoot, config: ctx.config, registry: ctx.registry, taskSet: ctx.taskSet, runRoot: ctx.runRoot,
     env: ctx.env, sourceHome: ctx.sourceHome, tmpDir: ctx.tmpDir, materialise: ctx.materialise, now: ctx.now,
-    iteration: flags.iteration, arm: flags.arm, cap: flags.cap, tasks: flags.tasks,
+    iteration: flags.iteration, arm: flags.arm, cap: flags.cap, tasks: flags.tasks, maxTokensPerRun: flags['max-tokens-per-run'], maxBudgetUsd: flags['max-budget-usd'], ledgerUsd: flags['ledger-usd'],
   });
   if (result.exit === 2) {
     ctx.err(`agentic execute: refused (${result.reason}): ${result.refusal}`);
@@ -146,23 +228,71 @@ function cmdGrade(ctx: any, flags: any) {
   if (!Object.prototype.hasOwnProperty.call(ctx.config.arms, meta.arm)) {
     throw new UsageError('arm-unknown', `grade: iteration ${name} is arm ${meta.arm}, which the config does not define`);
   }
-  const gradings = gradeIteration({ iterationDir, taskSet: ctx.taskSet, config: ctx.config, pathInfo: ctx.pathInfo() });
+  const gradings = gradeIteration({ iterationDir, taskSet: ctx.taskSet, config: ctx.config, pathInfo: ctx.config.mode === 'ab' ? null : ctx.pathInfo() });
+  const reviewGrade = ctx.config.mode === 'ab' ? gradeAbReview(ctx, { name, meta, iterationDir, gradings }) : null;
   if (flags.json) {
-    ctx.out(JSON.stringify(gradings, null, 2));
+    ctx.out(JSON.stringify(reviewGrade ? { gradings, reviewMiss: reviewGrade } : gradings, null, 2));
     return 0;
   }
-  ctx.out('| task | run_status | infra | isolation | pass_rate |');
-  ctx.out('|---|---|---|---|---|');
+  const tier2 = isTier2(ctx);
+  ctx.out(tier2 ? '| task | run_status | infra | isolation | pass_rate | coverage | regression-free | delivery |' : '| task | run_status | infra | isolation | pass_rate |');
+  ctx.out(tier2 ? '|---|---|---|---|---|---|---|---|' : '|---|---|---|---|---|');
   for (const g of gradings) {
-    if (g.missing) ctx.out(`| ${g.id} | missing | | | |`);
+    if (g.missing) ctx.out(`| ${g.id} | missing | | |${tier2 ? ' | | | |' : ' |'}`);
+    else if (tier2) ctx.out(`| ${g.id} | ${g.run_status} | ${g.infra ?? ''} | ${g.isolation} | ${g.pass_rate ?? 'excluded'} | ${g.tier2.coverage.k}/${g.tier2.coverage.n} | ${g.tier2.regressionFree} | ${g.tier2.deliveryFailed ? `FAILED (${g.tier2.deliveryBy})` : 'ok'} |`);
     else ctx.out(`| ${g.id} | ${g.run_status} | ${g.infra ?? ''} | ${g.isolation} | ${g.pass_rate ?? 'excluded'} |`);
   }
   const missing = gradings.filter((g: any) => g.missing).length;
+  if (reviewGrade) {
+    const runs = Object.values(reviewGrade.runs) as any[];
+    ctx.out(`review-miss: ${runs.length} case(s) scored through the adapter (${rel(ctx.repoRoot, path.join(ctx.reviewRoot, `ab-${name}`))}); found ${runs.filter((r) => r.passRate === 1).length}, excluded ${runs.filter((r) => r.excluded !== null).length}`);
+  }
   ctx.out(`graded ${gradings.length - missing} run(s) of ${name}; ${missing} task(s) without a run`);
   return 0;
 }
 
+/** A/B: writes the review-miss records of the review task(s) of one graded iteration and scores them. */
+function gradeAbReview(ctx: any, { name, meta, iterationDir, gradings }: any) {
+  const reviewTasks = ctx.taskSet.tasks.filter((t: any) => t.kind === 'review');
+  if (reviewTasks.length === 0) return null;
+  const entries = reviewTasks.map((task: any) => {
+    const g = gradings.find((x: any) => x.id === task.id);
+    const runDir = path.join(iterationDir, task.id);
+    const launch = g && !g.missing ? readLaunch(runDir) : null;
+    return { task, runDir: g && !g.missing ? runDir : null, infra: g && !g.missing ? g.infra : null, workspaceRoot: launch?.workspaceRoot ?? null };
+  });
+  if (entries.every((e: any) => e.runDir === null)) return null;
+  const { grade } = adaptIteration({
+    entries, corpus: ctx.corpus(), config: ctx.reviewConfig(), iterationDir: path.join(ctx.reviewRoot, `ab-${name}`), name: `ab-${name}`,
+    meta: { model: meta.model, sourceAt: meta.sourceAt }, reviewFile: 'review.json',
+  });
+  return grade;
+}
+
+function cmdAbNoise(ctx: any, flags: any) {
+  if (isTier2(ctx)) throw new UsageError('noise-unsupported', 'noise: a tier-2 task set has no A/A noise artifact; `report` is descriptive and prints each arm\'s repeat range instead');
+  const { exit, artifact } = report.abNoiseOf({
+    runRoot: ctx.runRoot, iterations: flags.iterations, taskSet: ctx.taskSet, config: ctx.config, noiseConfig: ctx.noiseConfig(),
+    reviewRoot: ctx.reviewRoot, corpus: ctx.taskSet.tasks.some((t: any) => t.kind === 'review') ? ctx.corpus() : null, reviewConfig: ctx.reviewConfig(),
+  });
+  const outPath = flags.out ? path.resolve(flags.out) : path.join(ctx.abResultsDir, 'ab-noise.json');
+  writeJson(outPath, artifact);
+  if (flags.json) ctx.out(JSON.stringify(artifact, null, 2));
+  else {
+    for (const [metric, a] of Object.entries(artifact.metrics) as [string, any][]) {
+      ctx.out(`metric ${metric}:`);
+      for (const line of report.noiseLines(a)) ctx.out(`  ${line}`);
+    }
+    ctx.out(`cost A/A relative range: ${Object.entries(artifact.cost).map(([k, v]) => `${k} ${v === null ? 'none' : Number((v as number).toFixed(3))}`).join(', ')}`);
+    ctx.out(`noise: ${rel(ctx.repoRoot, outPath)}`);
+  }
+  const stale = Object.values(artifact.metrics).flatMap((a: any) => a.graderRerun.stale);
+  if (stale.length) ctx.err(`warning: ${stale.length} run(s) have a stale grading: ${[...new Set(stale)].join(', ')}`);
+  return exit;
+}
+
 function cmdNoise(ctx: any, flags: any) {
+  if (ctx.config.mode === 'ab') return cmdAbNoise(ctx, flags);
   const { exit, artifact } = report.noiseOf({
     runRoot: ctx.runRoot, iterations: flags.iterations, taskSet: ctx.taskSet, config: ctx.config, noiseConfig: ctx.noiseConfig(), pathInfo: ctx.pathInfo(),
   });
@@ -176,7 +306,41 @@ function cmdNoise(ctx: any, flags: any) {
   return exit;
 }
 
+function cmdTier2Report(ctx: any, flags: any) {
+  const result = report.tier2ReportOf({
+    runRoot: ctx.runRoot, iterations: flags.iterations, taskSet: ctx.taskSet, config: ctx.config, noiseConfig: ctx.noiseConfig(), repoRoot: ctx.repoRoot,
+  });
+  const out = flags['decision-out'] ? path.resolve(flags['decision-out']) : null;
+  if (out) writeJson(out, { verdicts: result.verdicts, tasks: result.tasks });
+  if (flags.json) ctx.out(JSON.stringify(result, null, 2));
+  else {
+    for (const line of report.tier2ReportLines(result)) ctx.out(line);
+    if (out) ctx.out(`decision: ${rel(ctx.repoRoot, out)}`);
+  }
+  return result.exit;
+}
+
+function cmdAbReport(ctx: any, flags: any) {
+  if (isTier2(ctx)) return cmdTier2Report(ctx, flags);
+  const explicitNoise = flags.noise !== undefined;
+  const result = report.abReportOf({
+    runRoot: ctx.runRoot, iterations: flags.iterations, taskSet: ctx.taskSet, config: ctx.config, noiseConfig: ctx.noiseConfig(),
+    noisePath: explicitNoise ? path.resolve(flags.noise) : path.join(ctx.abResultsDir, 'ab-noise.json'), explicitNoise, repoRoot: ctx.repoRoot,
+    reviewRoot: ctx.reviewRoot, corpus: ctx.taskSet.tasks.some((t: any) => t.kind === 'review') ? ctx.corpus() : null, reviewConfig: ctx.reviewConfig(),
+    fixedCostPath: flags['fixed-cost'] ? path.resolve(flags['fixed-cost']) : null,
+  });
+  const out = flags['decision-out'] ? path.resolve(flags['decision-out']) : path.join(ctx.abResultsDir, 'ab-decision.json');
+  writeJson(out, result.decisions);
+  if (flags.json) ctx.out(JSON.stringify(result, null, 2));
+  else {
+    for (const line of report.abReportLines(result)) ctx.out(line);
+    ctx.out(`decision: ${rel(ctx.repoRoot, out)}`);
+  }
+  return result.exit;
+}
+
 function cmdReport(ctx: any, flags: any) {
+  if (ctx.config.mode === 'ab') return cmdAbReport(ctx, flags);
   const explicitNoise = flags.noise !== undefined;
   const result = report.reportOf({
     runRoot: ctx.runRoot, iterations: flags.iterations, taskSet: ctx.taskSet, config: ctx.config, noiseConfig: ctx.noiseConfig(),
@@ -194,6 +358,17 @@ function cmdReport(ctx: any, flags: any) {
 }
 
 const VERBS: Record<string, any> = Object.freeze({ plan: cmdPlan, execute: cmdExecute, grade: cmdGrade, noise: cmdNoise, report: cmdReport });
+
+/** The review-miss corpus for the review task: a missing or invalid file is a refusal (exit 2), never a score of 0. */
+function readReviewCorpus(file: string) {
+  let parsed: any;
+  try {
+    parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (e: any) {
+    throw new UsageError('corpus-missing', `the review task needs the review-miss corpus; ${file} is missing or not JSON (${e.message}). Build it offline with \`npm run bench -- review-miss corpus --records <agent-docs/doflow> --out ${file}\``);
+  }
+  return reviewMissGrade.checkCorpus(parsed);
+}
 
 /**
  * `main(argv, opts) -> Promise<exit code>`: 0 done (noise: usable band), 1 noise verdict other than
@@ -214,12 +389,20 @@ async function main(argv: string[], opts: any = {}) {
     const repoRoot = opts.repoRoot || REPO_ROOT;
     let noiseConfig = opts.noiseConfig || null;
     let pathInfo = opts.pathInfo || null;
+    const config = opts.config || (flags.config ? execute.loadConfig(path.resolve(flags.config)) : execute.loadConfig());
+    const runRoot = opts.runRoot || path.join(repoRoot, 'bench', 'runs', 'agentic');
+    let corpus = opts.corpus || null;
+    let reviewConfig = opts.reviewConfig || null;
     const ctx = {
       repoRoot, out, err,
-      config: opts.config || execute.loadConfig(),
+      config,
       registry: opts.registry,
-      taskSet: opts.taskSet || loadTaskSet(),
-      runRoot: opts.runRoot || path.join(repoRoot, 'bench', 'runs', 'agentic'),
+      taskSet: opts.taskSet || (config.mode === 'ab' ? loadAbTaskSet({ repoRoot, config }) : loadTaskSet()),
+      runRoot,
+      reviewRoot: opts.reviewRoot || path.join(path.dirname(runRoot), 'review-miss'),
+      corpus: () => (corpus ??= readReviewCorpus(flags.corpus ? path.resolve(flags.corpus) : path.join(repoRoot, 'bench', 'runs', 'review-miss', 'corpus.json'))),
+      reviewConfig: () => (reviewConfig ??= JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'review-miss', 'config.json'), 'utf8'))),
+      abResultsDir: opts.abResultsDir || path.join(repoRoot, ...AB_RESULTS_REL.split('/')),
       resultsDir: opts.resultsDir || path.join(repoRoot, 'bench', 'agentic', 'results'),
       env: opts.env, sourceHome: opts.sourceHome, tmpDir: opts.tmpDir, materialise: opts.materialise, now: opts.now,
       noiseConfig: () => (noiseConfig ??= loadNoiseConfig(JSON.parse(fs.readFileSync(BENCH_CONFIG, 'utf8')))),
@@ -227,7 +410,7 @@ async function main(argv: string[], opts: any = {}) {
     };
     return await VERBS[verb](ctx, flags);
   } catch (e: any) {
-    if (e instanceof UsageError || e instanceof FlagError || /^bench\/config\.json noise is invalid/.test(e.message)) {
+    if (e instanceof UsageError || e instanceof FlagError || e instanceof reviewMissCorpus.UsageError || /^bench\/config\.json noise is invalid/.test(e.message)) {
       err(`agentic${verb ? ` ${verb}` : ''}: ${e.message}`);
       return 2;
     }
@@ -235,6 +418,6 @@ async function main(argv: string[], opts: any = {}) {
   }
 }
 
-module.exports = { VERB_FLAGS, paidStages, executeLines, capMeaning, main };
+module.exports = { VERB_FLAGS, paidStages, abPaidStages, executeLines, capMeaning, main };
 
 if (require.main === module) main(process.argv.slice(2)).then((code) => { process.exitCode = code; });

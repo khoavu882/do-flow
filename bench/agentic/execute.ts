@@ -28,7 +28,9 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const readline = require('node:readline');
-const { UsageError, loadTaskSet, buildPrompt, promptSha256 } = require('./tasks.ts');
+const { UsageError, loadTaskSet, loadAbTaskSet, buildPrompt, buildAbPrompt, promptSha256, REVIEW_FILE, TIER2_KINDS } = require('./tasks.ts');
+const claudeStream = require('./ab/claude-stream.ts');
+const tier2Extract = require('./ab/tier2-extract.ts');
 const { materialiseExport } = require('../retrieval/lib/environment.ts');
 const launch = require('../../src/runtime/worker/launch.ts');
 const { parserFor } = require('../../src/runtime/worker/parsers.ts');
@@ -77,6 +79,7 @@ function configError(field: string, message: string) {
 }
 
 const isNonEmptyString = (v: any) => typeof v === 'string' && v.trim() !== '';
+const positive = (v: any) => typeof v === 'number' && Number.isFinite(v) && v > 0;
 const isStringArray = (v: any) => Array.isArray(v) && v.every((s: any) => typeof s === 'string');
 
 function checkRegexList(field: string, list: any) {
@@ -102,6 +105,7 @@ function loadConfig(file = CONFIG_PATH) {
     throw configError('(file)', `is missing or not valid JSON: ${file} (${e.message})`);
   }
   if (cfg === null || typeof cfg !== 'object' || Array.isArray(cfg)) throw configError('(file)', 'must be a JSON object');
+  if (cfg.mode === 'ab') return loadAbConfig(cfg);
   if (cfg.schemaVersion !== 1) throw configError('schemaVersion', `must be 1, got ${JSON.stringify(cfg.schemaVersion)}`);
 
   const h = cfg.harness;
@@ -261,15 +265,18 @@ const runDirsOf = (iterDir: string) => entriesOf(iterDir).runs;
  * overshoot it already reported is never dropped. A symlinked entry counts at `maxTokensPerRun` too:
  * its target is not this iteration's record.
  */
-function spentOf(iterDir: string, maxTokensPerRun: number) {
+function spentOf(iterDir: string, maxTokensPerRun: number | ((taskId: string) => number)) {
   const { runs, links } = entriesOf(iterDir);
-  let spent = links.length * maxTokensPerRun;
+  const maxOf = (dir: string) => (typeof maxTokensPerRun === 'function' ? maxTokensPerRun(path.basename(dir)) : maxTokensPerRun);
+  const linkMax = typeof maxTokensPerRun === 'function' ? Math.max(0, ...runs.map(maxOf), maxTokensPerRun('')) : maxTokensPerRun;
+  let spent = links.length * linkMax;
   for (const dir of runs) {
+    const max = maxOf(dir);
     const raw = readJsonIfPresent(path.join(dir, RUN_FILES.timing))?.total_tokens;
     const tokens = Number.isFinite(raw) && raw >= 0 ? raw : null;
     const completed = readJsonIfPresent(path.join(dir, RUN_FILES.runStatus))?.status === 'completed';
-    if (tokens === null) spent += maxTokensPerRun;
-    else spent += completed ? tokens : Math.max(tokens, maxTokensPerRun);
+    if (tokens === null) spent += max;
+    else spent += completed ? tokens : Math.max(tokens, max);
   }
   return spent;
 }
@@ -361,6 +368,7 @@ function checkIteration(iteration: any) {
 function planIteration({
   repoRoot = REPO_ROOT, config = loadConfig(), taskSet, registry, arm, iteration, tasks: only, runRoot,
 }: any = {}) {
+  if (config.mode === 'ab') return planAbIteration({ repoRoot, config, taskSet, arm, iteration, tasks: only, runRoot });
   checkIteration(iteration);
   if (!Object.prototype.hasOwnProperty.call(config.arms, arm)) {
     throw new UsageError('arm-unknown', `arm "${arm}" is not in the config (arms: ${Object.keys(config.arms).join(', ')})`);
@@ -444,6 +452,68 @@ function removeTree(dir: string) {
   } catch (e) {
     return e;
   }
+}
+
+const sleepSync = (ms: number) => { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); };
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Pids of the processes that name `dir` or hold a file or a working directory under it. Exact path match
+ * on this one scratch directory (its random name is unique to the run), never a pattern over other
+ * processes: the command line must contain `dir` followed by a separator, the end, or a quote/space.
+ * The executor itself is never listed. `lsof` is best effort (absent on some systems).
+ */
+function processesUnder(dir: string): number[] {
+  const found = new Set<number>();
+  const named = new RegExp(`(^|[\\s='":])${escapeRegExp(dir)}(?![A-Za-z0-9_.-])`);
+  const ps = childProcess.spawnSync(['/bin/ps', '/usr/bin/ps'].find((p) => fs.existsSync(p)) || 'ps', ['-axww', '-o', 'pid=,command='], { encoding: 'utf8', timeout: 5000, env: { ...process.env, LC_ALL: 'C' } });
+  if (ps.status === 0) {
+    for (const row of String(ps.stdout).split('\n')) {
+      const m = /^\s*(\d+)\s+(.*)$/.exec(row);
+      if (m && named.test(m[2])) found.add(Number(m[1]));
+    }
+  }
+  const lsof = childProcess.spawnSync('lsof', ['-t', '+D', dir], { encoding: 'utf8', timeout: 8000 });
+  if (!lsof.error && lsof.status === 0) for (const line of String(lsof.stdout).split('\n')) if (/^\d+$/.test(line.trim())) found.add(Number(line.trim()));
+  found.delete(process.pid);
+  return [...found];
+}
+
+/** Ends the processes under `dir` (SIGTERM, then SIGKILL after a short grace). Returns how many were found. */
+function killProcessesUnder(dir: string): number {
+  const pids = processesUnder(dir);
+  const signalAll = (name: 'SIGTERM' | 'SIGKILL') => { for (const pid of pids) { try { process.kill(pid, name); } catch { /* already gone */ } } };
+  if (pids.length === 0) return 0;
+  signalAll('SIGTERM');
+  const alive = () => pids.filter((pid) => { try { process.kill(pid, 0); return true; } catch { return false; } });
+  for (let waited = 0; waited < 500 && alive().length > 0; waited += 50) sleepSync(50);
+  if (alive().length > 0) { signalAll('SIGKILL'); sleepSync(100); }
+  return pids.length;
+}
+
+/**
+ * Removes one run's scratch directory (profile or workspace) and never throws. A process the harness
+ * left behind (the DoFlow SessionEnd hook starts a detached `storage --action upkeep` that writes into the
+ * scratch HOME after the harness exited) is ended first, because it recreates files while the tree is
+ * removed. Rounds: end the processes under the directory, remove with retries, and look again; a directory
+ * that is back after the removal (a late writer) is removed once more. Returns the last error, or null.
+ */
+function removeScratch(dir: string) {
+  let error: any = null;
+  let ended = 0;
+  for (let round = 0; round < 3; round++) {
+    ended += killProcessesUnder(dir);
+    try {
+      fs.rmSync(dir, round === 0 ? { recursive: true, force: true, maxRetries: 5, retryDelay: 200 } : { recursive: true, force: true, maxRetries: 1, retryDelay: 100 });
+      error = null;
+    } catch (e) {
+      error = e;
+      continue;
+    }
+    if (ended > 0 && round === 0) sleepSync(300); // a writer just ended may have been mid-write: look again
+    if (!fs.existsSync(dir)) return null;
+  }
+  return error || (fs.existsSync(dir) ? new Error(`${dir} is back after removal (a process keeps writing into it)`) : null);
 }
 
 /**
@@ -560,7 +630,7 @@ const cutChars = (text: any, n: number) => (String(text).length > n ? `${String(
  * executor is stopped by a signal (`onSpawn` hands the group to the caller's signal handler); stdout
  * is streamed to the transcript and fed line by line to the recipe's parser.
  */
-async function spawnHarness({ binary, argv, cwd, env, prompt, viaStdin, timeoutMs, transcriptFile, lastMessageFile, parser, now, onSpawn = (_proc: any) => {} }: { binary: any; argv: any; cwd: any; env: any; prompt: any; viaStdin: any; timeoutMs: any; transcriptFile: any; lastMessageFile: any; parser: any; now: any; onSpawn?: (proc: any) => void }) {
+async function spawnHarness({ binary, argv, cwd, env, prompt, viaStdin, timeoutMs, transcriptFile, lastMessageFile, parser, now, onSpawn = (_proc: any) => {}, onLine, redact }: { binary: any; argv: any; cwd: any; env: any; prompt: any; viaStdin: any; timeoutMs: any; transcriptFile: any; lastMessageFile: any; parser: any; now: any; onSpawn?: (proc: any) => void; onLine?: (line: string) => void; redact?: (text: string) => string }) {
   const started = now().getTime();
   const transcript = fs.createWriteStream(transcriptFile);
   const transcriptDone = new Promise((resolve) => transcript.once('close', resolve));
@@ -576,8 +646,15 @@ async function spawnHarness({ binary, argv, cwd, env, prompt, viaStdin, timeoutM
   });
   const outClosed = new Promise((resolve) => child.stdout.once('close', resolve));
   const rl = readline.createInterface({ input: child.stdout, crlfDelay: Infinity });
-  rl.on('line', (line: string) => parser.line(line));
-  child.stdout.on('data', (chunk: any) => transcript.write(chunk));
+  // With `redact` (the A/B runs) every line is cleaned before the parser, the watcher and the transcript see it; the
+  // retrieval runs keep the raw byte stream.
+  rl.on('line', (raw: string) => {
+    const line = redact ? redact(raw) : raw;
+    parser.line(line);
+    if (onLine) onLine(line);
+    if (redact) transcript.write(`${line}\n`);
+  });
+  if (!redact) child.stdout.on('data', (chunk: any) => transcript.write(chunk));
 
   if (viaStdin) child.stdin.end(prompt);
   else child.stdin.end();
@@ -784,6 +861,7 @@ async function executeIteration(opts: any = {}) {
   let iterDir: any;
   let runRoot: any;
   let lock: any = null;
+  if ((opts.config || {}).mode === 'ab') return executeAbIteration(opts);
   try {
     config = opts.config || loadConfig();
     cap = parseCap(opts.cap);
@@ -1013,8 +1091,904 @@ async function executeIteration(opts: any = {}) {
   }
 }
 
+// ---------------------------------------------------------------------------------------------
+// With/without-DoFlow A/B mode (`config.mode === 'ab'`)
+//
+// Same money rules as above (refuse before the first spawn, scratch profile per run, one lock per
+// iteration, signals end the worker's group and re-raise), with three differences: the harness is the
+// bench-local Claude recipe (`ab/recipe.json`, decision D2) and not a registry worker; an arm may run a
+// `homeSetup` step in its scratch HOME before the worker starts (arm B installs DoFlow there, arm A
+// leaves the HOME empty); and a run that stops to ask is answered by `--resume` up to `resume.maxResumes`
+// times (decision D3). Credentials enter only by environment variable, by the names the config lists.
+// ---------------------------------------------------------------------------------------------
+
+/** Entries a workspace may not hold at the start of a run: they would show one arm DoFlow or project guidance. */
+const WORKSPACE_FORBIDDEN = Object.freeze(['.claude', 'CLAUDE.md', 'AGENTS.md', '.doflow']);
+/** Stands for the pruned export (`exportToolTree`) inside a `homeSetup` argv. */
+const EXPORT_TOKEN = '<export>';
+const HOME_SETUP_TIMEOUT_MS = 180000;
+const SEGMENTS_FILE = 'segments.json';
+/** Tier-2 run records: the process evidence (hook denies, skills, class, tokens by model) and the sessions, cut and task directory. */
+const PROCESS_FILE = 'process.json';
+const TIER2_FILE = 'tier2.json';
+const HOME_SETUP_FILE = 'home-setup.json';
+/** Directory of the run record that holds a copy of the final workspace of an `edit` run (without `.git`). */
+const WORKSPACE_DIR = 'workspace';
+/** An artifact the run copies out of its workspace is capped, so a runaway file cannot fill the record. */
+const ARTIFACT_MAX_BYTES = 1024 * 1024;
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** Checks an arm's `homeSetup` argv: a global claude-only install without MCP, never another target. */
+function checkHomeSetup(at: string, hs: any) {
+  if (hs === null) return;
+  if (!hs || typeof hs !== 'object' || !isStringArray(hs.argv) || hs.argv.length === 0) throw configError(at, 'must be null or { argv: [..] }');
+  const argv: string[] = hs.argv;
+  if (argv.some((a) => /gemini/i.test(a))) throw configError(`${at}.argv`, 'must not name the gemini target');
+  const targets = argv.flatMap((a, i) => (a === '-t' || a === '--target' ? [argv[i + 1]] : []));
+  if (targets.length !== 1 || targets[0] !== 'claude') throw configError(`${at}.argv`, 'must name exactly one target, "-t claude"');
+  if (!argv.includes('install') || !argv.includes('-g')) throw configError(`${at}.argv`, 'must be a global install ("install ... -g")');
+  const mcp = argv.indexOf('--mcp');
+  if (mcp === -1 || argv[mcp + 1] !== 'none') throw configError(`${at}.argv`, 'must pass "--mcp none" (decision D1)');
+}
+
+/**
+ * Loads an `ab` config. A malformed one is refused with the field named, like the retrieval config.
+ * `maxTokensPerRun` may be an explicit `null`: `plan` works, `execute` refuses until it is set.
+ */
+function loadAbConfig(cfg: any) {
+  if (cfg.schemaVersion !== 1) throw configError('schemaVersion', `must be 1, got ${JSON.stringify(cfg.schemaVersion)}`);
+  if (!isNonEmptyString(cfg.recipe)) throw configError('recipe', 'must be a repo-relative path to the recipe file');
+  let recipe: any;
+  let recipeText: string;
+  try {
+    recipeText = fs.readFileSync(path.resolve(REPO_ROOT, cfg.recipe), 'utf8');
+    recipe = JSON.parse(recipeText);
+  } catch (e: any) {
+    throw configError('recipe', `is missing or not valid JSON: ${cfg.recipe} (${e.message})`);
+  }
+  if (!isNonEmptyString(recipe.binary) || recipe.binary.includes('/')) throw configError('recipe.binary', 'must be a bare binary name');
+  if (!Array.isArray(recipe.argv) || recipe.argv.some((e: any) => !e || !isNonEmptyString(e.flag))) throw configError('recipe.argv', 'must be a list of { flag, value? }');
+  const flags = recipe.argv.map((e: any) => e.flag);
+  for (const need of ['-p', '--output-format', '--verbose']) if (!flags.includes(need)) throw configError('recipe.argv', `must include ${need}`);
+  for (const f of (recipe.forbidden || []).map((e: any) => e.flag)) if (flags.includes(f)) throw configError('recipe.argv', `contains the forbidden flag ${f}`);
+  if (recipe.parser?.id !== claudeStream.CLAUDE_STREAM_JSON_V1) throw configError('recipe.parser.id', `must be ${claudeStream.CLAUDE_STREAM_JSON_V1}`);
+  if (recipe.prompt?.via !== 'stdin') throw configError('recipe.prompt.via', 'must be "stdin"');
+  if (!isNonEmptyString(recipe.expectedPermissionMode)) throw configError('recipe.expectedPermissionMode', 'must name the init.permissionMode every run has to report');
+
+  const m = cfg.model;
+  if (!m || typeof m !== 'object' || !isNonEmptyString(m.label)) throw configError('model.label', 'must be a non-empty string');
+  const pin = recipe.argv.find((e: any) => e.flag === '--model')?.value;
+  if (m.label !== pin) throw configError('model.label', `must equal the recipe's --model value (${JSON.stringify(pin)}), so the label and the argv cannot drift`);
+
+  for (const field of ['tasksFile', 'nativeCases']) if (!isNonEmptyString(cfg[field])) throw configError(field, 'must be a repo-relative path');
+  if (!Array.isArray(cfg.credentialEnv) || cfg.credentialEnv.length === 0 || cfg.credentialEnv.some((n: any) => typeof n !== 'string' || !ENV_NAME.test(n))) {
+    throw configError('credentialEnv', 'must list the environment variable names that carry the credential');
+  }
+  if (!isStringArray(cfg.path) || cfg.path.some((t: any) => t === '' || t.includes('/'))) throw configError('path', 'must be an array of bare tool names');
+  if (!cfg.arms || typeof cfg.arms !== 'object' || Array.isArray(cfg.arms) || Object.keys(cfg.arms).length < 2) throw configError('arms', 'must be an object with at least two arms');
+  const names = Object.keys(cfg.arms);
+  const roles = cfg.roles;
+  if (!roles || !names.includes(roles.baseline) || !names.includes(roles.candidate) || roles.baseline === roles.candidate) {
+    throw configError('roles', 'must name two different arms as { baseline, candidate }');
+  }
+  for (const name of names) {
+    const arm = cfg.arms[name];
+    const at = `arms.${name}`;
+    if (!arm || typeof arm !== 'object') throw configError(at, 'must be an object');
+    if (!isNonEmptyString(arm.paragraph)) throw configError(`${at}.paragraph`, 'must be a non-empty string');
+    if (arm.paragraph !== cfg.arms[names[0]].paragraph) throw configError(`${at}.paragraph`, `must equal arms.${names[0]}.paragraph: both arms get one prompt`);
+    if (!isStringArray(arm.pathAdd)) throw configError(`${at}.pathAdd`, 'must be an array of strings');
+    checkRegexList(`${at}.leak`, arm.leak);
+    if (arm.entryPrefix !== undefined && !isNonEmptyString(arm.entryPrefix)) throw configError(`${at}.entryPrefix`, 'must be a non-empty string when present (tier 2: the text typed before the task, e.g. "/do-flow ")');
+    if (arm.proof !== 'absent' && arm.proof !== 'loaded') throw configError(`${at}.proof`, 'must be "absent" or "loaded"');
+    if (arm.homeSetup === undefined) throw configError(`${at}.homeSetup`, 'must be present (null for an empty HOME)');
+    checkHomeSetup(`${at}.homeSetup`, arm.homeSetup);
+  }
+  if (cfg.arms[roles.baseline].proof !== 'absent' || cfg.arms[roles.candidate].proof !== 'loaded') {
+    throw configError('arms', 'the baseline arm must prove DoFlow absent and the candidate arm must prove it loaded');
+  }
+  // An arm with an entryPrefix (tier 2, arm C) is the candidate arm plus that prefix: the same install and the same PATH.
+  for (const name of names.filter((n) => cfg.arms[n].entryPrefix !== undefined)) {
+    for (const f of ['homeSetup', 'pathAdd', 'proof']) {
+      if (JSON.stringify(cfg.arms[name][f]) !== JSON.stringify(cfg.arms[roles.candidate][f])) throw configError(`arms.${name}.${f}`, `must equal arms.${roles.candidate}.${f}: an entryPrefix arm differs from the candidate by the prefix only`);
+    }
+  }
+  if (cfg.ledgerUsd !== undefined && cfg.ledgerUsd !== null && !positive(cfg.ledgerUsd)) throw configError('ledgerUsd', 'must be null or a positive number of US dollars');
+  if (cfg.tier2Root !== undefined && !isNonEmptyString(cfg.tier2Root)) throw configError('tier2Root', 'must be a path of the tier-2 task directories');
+  if (typeof cfg.timeoutSeconds !== 'number' || !Number.isFinite(cfg.timeoutSeconds) || cfg.timeoutSeconds <= 0) throw configError('timeoutSeconds', 'must be a positive number');
+  if (cfg.maxTokensPerRun !== null && (!Number.isSafeInteger(cfg.maxTokensPerRun) || cfg.maxTokensPerRun <= 0)) {
+    throw configError('maxTokensPerRun', 'must be null (execute then refuses until it is set) or a positive integer');
+  }
+  if (cfg.maxBudgetUsd === undefined) throw configError('maxBudgetUsd', 'must be present: null until the user approves a dollar cap at run time');
+  if (cfg.maxBudgetUsd !== null && (typeof cfg.maxBudgetUsd !== 'number' || !Number.isFinite(cfg.maxBudgetUsd) || cfg.maxBudgetUsd <= 0)) {
+    throw configError('maxBudgetUsd', 'must be null (execute then refuses until it is set) or a positive number of US dollars');
+  }
+  const r = cfg.resume;
+  if (!r || !Number.isInteger(r.maxResumes) || r.maxResumes < 0 || !isNonEmptyString(r.reply) || typeof r.cumulative !== 'boolean') {
+    throw configError('resume', 'must be { maxResumes: integer >= 0, reply: string, cumulative: boolean }');
+  }
+  return { ...cfg, recipeData: recipe, recipeSha256: crypto.createHash('sha256').update(recipeText).digest('hex') };
+}
+
+/** The capture inputs both A/B arms must share; the per-arm homeSetup, PATH additions and leak lists differ by design. */
+function abCaptureSha256(config: any, caps: { maxTokensPerRun: number | null; maxBudgetUsd: number | null; taskCaps?: any }) {
+  const inputs = {
+    recipe: config.recipeSha256, model: config.model, path: config.path, timeoutSeconds: config.timeoutSeconds,
+    paragraph: config.arms[config.roles.baseline].paragraph, credentialEnv: config.credentialEnv, resume: config.resume,
+    // the two command-line caps shape every run, so arms run under different caps are not one capture
+    maxTokensPerRun: caps.maxTokensPerRun, maxBudgetUsd: caps.maxBudgetUsd,
+    // tier 2: the per-task caps and timeouts come from the tasks file, so they belong to the capture as well
+    ...(caps.taskCaps ? { taskCaps: caps.taskCaps } : {}),
+  };
+  return crypto.createHash('sha256').update(JSON.stringify(inputs)).digest('hex');
+}
+
+/** The argv of one Claude run from the recipe; a resume adds `--resume <session id>` and sends the reply on stdin. */
+function abArgv(recipe: any, resumeSession: string | null = null, maxBudgetUsd: number | string | null = null) {
+  return [
+    ...recipe.argv.flatMap((e: any) => (e.value === undefined ? [e.flag] : [e.flag, e.value])),
+    ...(maxBudgetUsd === null ? [] : ['--max-budget-usd', String(maxBudgetUsd)]),
+    ...(resumeSession ? ['--resume', resumeSession] : []),
+  ];
+}
+
+/** The dollar hard stop of a run: the option, else the config; a number above 0, or null. */
+function parseBudget(value: any): number | null {
+  const n = typeof value === 'string' && value.trim() !== '' ? Number(value) : value;
+  return typeof n === 'number' && Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Names of the DoFlow skills and agents a tree projects; what `loadProof` expects arm B's init to list. */
+function expectedProof(treeRoot: string) {
+  const skills = path.join(treeRoot, 'core', 'shared', 'skills');
+  const agents = path.join(treeRoot, 'core', 'shared', 'agent-specs');
+  const list = (dir: string, keep: (e: any) => boolean, name: (e: any) => string) => {
+    try {
+      return fs.readdirSync(dir, { withFileTypes: true }).filter(keep).map(name).sort();
+    } catch {
+      return [];
+    }
+  };
+  return {
+    skills: list(skills, (e: any) => e.isDirectory() && fs.existsSync(path.join(skills, e.name, 'SKILL.md')), (e: any) => e.name),
+    agents: list(agents, (e: any) => e.isFile() && e.name.endsWith('.md'), (e: any) => e.name.replace(/\.md$/, '')),
+  };
+}
+
+function chooseTasks(set: any, only: any) {
+  if (only === undefined || only === null) return set.tasks;
+  const ids = typeof only === 'string' ? only.split(',').map((s: string) => s.trim()).filter(Boolean) : only;
+  if (!Array.isArray(ids) || ids.length === 0) throw new UsageError('tasks-empty', '--tasks must list at least one task id');
+  for (const id of ids) if (!set.tasks.some((t: any) => t.id === id)) throw new UsageError('task-unknown', `task id ${id} is not in the task set`);
+  return set.tasks.filter((t: any) => ids.includes(t.id));
+}
+
+/**
+ * The caps of one A/B task: tier 2 gives them per task in the tasks file (`maxTokensPerRun`, `maxBudgetUsd`, `timeoutSec`,
+ * `sessionBudgetUsd`), tier 1 uses the command-wide values. A cap that is neither set per task nor command-wide is null.
+ */
+function abTaskCaps(task: any, config: any, max: number | null, budget: number | null) {
+  const c = task.caps || {};
+  return {
+    maxTokensPerRun: c.maxTokensPerRun ?? max ?? null, maxBudgetUsd: c.maxBudgetUsd ?? budget ?? null,
+    sessionBudgetUsd: c.sessionBudgetUsd ?? null, timeoutSec: c.timeoutSec ?? config.timeoutSeconds,
+  };
+}
+
+/** Offline projection of one A/B iteration. Spawns nothing and runs no git. */
+function planAbIteration({ repoRoot = REPO_ROOT, config, taskSet, arm, iteration, tasks: only, runRoot, maxBudgetUsd, maxTokensPerRun }: any = {}) {
+  checkIteration(iteration);
+  if (!Object.prototype.hasOwnProperty.call(config.arms, arm)) {
+    throw new UsageError('arm-unknown', `arm "${arm}" is not in the config (arms: ${Object.keys(config.arms).join(', ')})`);
+  }
+  const root = runRoot || defaultRunRoot(repoRoot);
+  const set = taskSet || loadAbTaskSet({ repoRoot, config });
+  const chosen = chooseTasks(set, only);
+  const budget = parseBudget(maxBudgetUsd ?? config.maxBudgetUsd);
+  const max = maxTokensPerRun ?? config.maxTokensPerRun;
+  const prefix = config.arms[arm].entryPrefix || '';
+  const runs = chosen.map((task: any) => {
+    const prompt = buildAbPrompt(task, config.arms[arm].paragraph, prefix);
+    const caps = abTaskCaps(task, config, max, budget);
+    return {
+      id: task.id, key: task.key, split: task.split, kind: task.kind, group: task.group, caps,
+      runDir: runDirOf(root, iteration, task.id), argvShape: [config.recipeData.binary, ...abArgv(config.recipeData, null, caps.maxBudgetUsd === null ? '<usd>' : caps.maxBudgetUsd)],
+      promptSha256: promptSha256(prompt), promptBodySha256: promptSha256(buildAbPrompt(task, config.arms[arm].paragraph)), promptBytes: Buffer.byteLength(prompt, 'utf8'),
+    };
+  });
+  const recorded = recordedTokens(root, config.model.label);
+  return {
+    arm, iteration, harness: config.recipeData.id, harnessBinary: config.recipeData.binary, harnessVersion: null,
+    model: config.model.label, snapshot: null, homeSetup: config.arms[arm].homeSetup ? config.arms[arm].homeSetup.argv : null,
+    credentialEnv: config.credentialEnv, maxBudgetUsd: budget, runs,
+    projection: {
+      runs: runs.length, maxTokensPerRun: max, ceilingTokens: runs.some((r: any) => r.caps.maxTokensPerRun === null) ? null : runs.reduce((n: number, r: any) => n + r.caps.maxTokensPerRun, 0),
+      typicalTokens: recorded.length === 0 ? null : Math.round(runs.length * median(recorded)),
+    },
+  };
+}
+
+/** The scratch profile of one A/B run: an empty HOME (mode 0700), the tool links and, for an arm that lists it, the `doflow` shim. No credential is copied. */
+function makeAbProfile({ config, arm, shimRoot, tmpDir, tools }: { config: any; arm: string | null; shimRoot?: any; tmpDir: string; tools: any }) {
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(tmpDir, 'abprof-')));
+  try {
+    fs.chmodSync(dir, 0o700);
+    const home = path.join(dir, 'home');
+    fs.mkdirSync(home, { mode: 0o700 });
+    const binDir = makeToolBin(path.join(dir, 'bin'), tools);
+    const pathAddDirs = arm === null ? [] : config.arms[arm].pathAdd.map((entry: any) => {
+      if (entry !== SHIM_ENTRY) return entry;
+      if (!shimRoot) throw new Error('the arm needs the doflow shim but no tool tree was exported');
+      const shimDir = path.join(dir, 'shim');
+      fs.mkdirSync(shimDir, { mode: 0o700 });
+      const target = path.join(shimRoot, 'bin', 'doflow.js').replace(/'/g, "'\\''");
+      fs.writeFileSync(path.join(shimDir, 'doflow'), `#!/bin/sh\nexec node '${target}' "$@"\n`, { mode: 0o755 });
+      return shimDir;
+    });
+    return { dir, home, binDir, pathAddDirs };
+  } catch (e) {
+    removeTree(dir);
+    throw e;
+  }
+}
+
+/**
+ * The environment of a worker (or of a `homeSetup` step, `credentials: false`): fixed PATH, the scratch
+ * HOME, the recipe's per-run variables, the caller's TMPDIR/LANG/LC_ALL/TERM, and the credential only by
+ * the variable names the config lists. Nothing else of the caller's environment is passed on.
+ */
+function abEnv({ config, profile, env, extraEnv = {}, credentials }: { config: any; profile: any; env: any; extraEnv?: any; credentials: boolean }) {
+  const out: Record<string, string> = {
+    PATH: [profile.binDir, '/usr/bin', '/bin', ...profile.pathAddDirs].join(path.delimiter),
+    HOME: profile.home,
+  };
+  for (const e of config.recipeData.env?.perRun || []) {
+    if (typeof e.value === 'string') out[e.name] = e.value.replace(/\$HOME/g, profile.home);
+  }
+  for (const name of ENV_PASSTHROUGH) if (env[name] !== undefined) out[name] = env[name];
+  if (credentials) for (const name of config.credentialEnv) if (isNonEmptyString(env[name])) out[name] = env[name];
+  return { ...out, ...extraEnv };
+}
+
+/**
+ * The workspace of one A/B run: its own git root under the OS temp dir, holding only the task's files
+ * (`edit`: the native case's seed files; `review`: `git archive <rev> -- <scope>` of the checkout). The
+ * local git identity is set so a commit attempt does not fail differently per arm.
+ */
+function prepareAbWorkspace({ task, repoRoot, parent, home }: { task: any; repoRoot: string; parent: string; home: string }) {
+  const dir = fs.mkdtempSync(path.join(parent, 'abws-'));
+  const cleanup = () => fs.rmSync(dir, { recursive: true, force: true });
+  try {
+    const root = path.join(dir, 'workspace');
+    fs.mkdirSync(root);
+    if (TIER2_KINDS.includes(task.kind)) return seedTier2Workspace({ task, root, dir, home, cleanup });
+    if (task.kind === 'edit') {
+      for (const [file, content] of Object.entries(task.files) as [string, any][]) {
+        const target = path.join(root, file);
+        fs.mkdirSync(path.dirname(target), { recursive: true });
+        fs.writeFileSync(target, content);
+      }
+    } else {
+      const archive = childProcess.spawnSync('git', ['-C', repoRoot, 'archive', task.review.rev, '--', ...task.review.scope], { maxBuffer: 1024 * 1024 * 512 });
+      if (archive.status !== 0) throw new Error(`git archive ${task.review.rev} failed: ${String(archive.stderr).trim() || archive.error}`);
+      const extract = childProcess.spawnSync('tar', ['-x', '-C', root], { input: archive.stdout, maxBuffer: 1024 * 1024 });
+      if (extract.status !== 0) throw new Error(`tar extract failed: ${String(extract.stderr).trim() || extract.error}`);
+    }
+    const held = WORKSPACE_FORBIDDEN.filter((name) => fs.existsSync(path.join(root, name)));
+    if (held.length) throw new Error(`the workspace of ${task.id} holds ${held.join(', ')}, which would show an arm project guidance`);
+    const env = { PATH: process.env.PATH || '/usr/bin:/bin', HOME: home, GIT_CONFIG_NOSYSTEM: '1' };
+    const identity = ['-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', 'user.name=bench', '-c', 'user.email=bench@localhost', '-c', 'commit.gpgsign=false'];
+    const steps = [['init', '-q'], ['config', 'user.name', 'bench'], ['config', 'user.email', 'bench@localhost'], ['add', '-A'], [...identity, 'commit', '-q', '--allow-empty', '-m', 'snapshot']];
+    for (const args of steps) {
+      const r = childProcess.spawnSync('git', args, { cwd: root, env, encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(`workspace git ${args.includes('commit') ? 'commit' : args[0]} failed: ${String(r.stderr).trim()}`);
+    }
+    return { root: fs.realpathSync(root), dir, cleanup };
+  } catch (e) {
+    cleanup();
+    throw e;
+  }
+}
+
+/**
+ * A tier-2 workspace from its fixture: `git init -b main` (so the gate scope is the same in every run), one commit per
+ * `commits/NN-*` overlay with the author of its commit.json (the scratch HOME holds no git identity, so name and email are
+ * given by `-c` and by environment), then the `dirty/*` overlays left uncommitted and unstaged. The local git identity is set
+ * last so a commit the model makes does not fail differently per arm. `.git` stays through grading.
+ */
+function seedTier2Workspace({ task, root, dir, home, cleanup }: { task: any; root: string; dir: string; home: string; cleanup: () => void }) {
+  const held = WORKSPACE_FORBIDDEN.filter((name) => task.tier2.seedPaths.some((f: string) => f.split('/')[0] === name));
+  if (held.length) throw new Error(`the workspace of ${task.id} holds ${held.join(', ')}, which would show an arm project guidance`);
+  const base = { PATH: process.env.PATH || '/usr/bin:/bin', HOME: home, GIT_CONFIG_NOSYSTEM: '1' };
+  const run = (args: string[], env: any = {}) => {
+    const r = childProcess.spawnSync('git', args, { cwd: root, env: { ...base, ...env }, encoding: 'utf8' });
+    if (r.status !== 0) throw new Error(`workspace git ${args.find((a) => !a.startsWith('-') && !a.includes('=')) || args[0]} failed: ${String(r.stderr).trim()}`);
+  };
+  const overlay = (from: string) => { if (fs.existsSync(from)) fs.cpSync(from, root, { recursive: true }); };
+  try {
+    run(['init', '-q', '-b', 'main']);
+    task.tier2.commits.forEach((c: any, i: number) => {
+      overlay(c.filesDir);
+      const date = `2026-01-01T00:00:${String(i).padStart(2, '0')} +0000`;
+      const env = { GIT_AUTHOR_NAME: c.author.name, GIT_AUTHOR_EMAIL: c.author.email, GIT_COMMITTER_NAME: c.author.name, GIT_COMMITTER_EMAIL: c.author.email, GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date };
+      run(['add', '-A'], env);
+      run(['-c', 'gc.auto=0', '-c', 'maintenance.auto=false', '-c', `user.name=${c.author.name}`, '-c', `user.email=${c.author.email}`, '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', c.message], env);
+    });
+    overlay(task.tier2.dirty.modified);
+    overlay(task.tier2.dirty.untracked);
+    run(['config', 'user.name', 'bench']);
+    run(['config', 'user.email', 'bench@localhost']);
+    return { root: fs.realpathSync(root), dir, cleanup };
+  } catch (e) {
+    cleanup();
+    throw e;
+  }
+}
+
+/** Runs an arm's `homeSetup` argv in the run's scratch HOME (no credential in its environment). */
+function runHomeSetup({ argv, shimRoot, profile, tools, childEnv }: { argv: string[]; shimRoot: string; profile: any; tools: any; childEnv: any }) {
+  const words = argv.map((a) => a.split(EXPORT_TOKEN).join(shimRoot));
+  const program = words[0] === 'node' ? (tools.node || process.execPath) : words[0];
+  const started = Date.now();
+  const r = childProcess.spawnSync(program, words.slice(1), { cwd: profile.dir, env: childEnv, encoding: 'utf8', timeout: HOME_SETUP_TIMEOUT_MS, maxBuffer: 16 * 1024 * 1024 });
+  const tail = (text: any) => cutChars(String(text || '').trim().split('\n').slice(-12).join('\n'), 1500);
+  return {
+    ok: r.status === 0 && !r.error, exitCode: r.status ?? null, signal: r.signal ?? null, error: r.error ? cutChars(r.error.message, 200) : null,
+    argv, durationMs: Date.now() - started, stdoutTail: tail(r.stdout), stderrTail: tail(r.stderr),
+  };
+}
+
+const REDACTED = '[redacted]';
+/** Token shapes removed whatever the variable that carried them: Anthropic keys and OAuth tokens, other `sk-` keys. */
+const SECRET_SHAPES = Object.freeze([/(?<![A-Za-z0-9])sk-ant-[A-Za-z0-9_-]{8,}/g, /(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}/g]);
+const REDACT_MIN_LENGTH = 8;
+const REDACT_FILE_MAX = 64 * 1024 * 1024;
+
+/**
+ * A text cleaner: every exact value of the given credential variables (raw and as JSON-escaped) and every token shape
+ * becomes `[redacted]`. A value shorter than REDACT_MIN_LENGTH is not treated as a secret (it would eat ordinary text).
+ */
+function makeRedactor(values: string[]) {
+  const exact = new Set<string>();
+  for (const v of values) {
+    if (typeof v !== 'string' || v.length < REDACT_MIN_LENGTH) continue;
+    exact.add(v);
+    exact.add(JSON.stringify(v).slice(1, -1));
+  }
+  const ordered = [...exact].sort((a, b) => b.length - a.length);
+  return (text: string): string => {
+    let out = String(text);
+    for (const v of ordered) if (out.includes(v)) out = out.split(v).join(REDACTED);
+    for (const re of SECRET_SHAPES) out = out.replace(re, REDACTED);
+    return out;
+  };
+}
+
+/** Rewrites every text file under `dir` through `redact` (symlinks and binary files are left alone); returns the count changed. */
+function redactTree(dir: string, redact: (text: string) => string): number {
+  let changed = 0;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const file = path.join(dir, entry.name);
+    if (entry.isSymbolicLink()) continue;
+    if (entry.isDirectory()) { changed += redactTree(file, redact); continue; }
+    if (!entry.isFile() || fs.statSync(file).size > REDACT_FILE_MAX) continue;
+    const buf = fs.readFileSync(file);
+    if (buf.subarray(0, 8000).includes(0)) continue;
+    const text = buf.toString('utf8');
+    const clean = redact(text);
+    if (clean !== text) { fs.writeFileSync(file, clean); changed++; }
+  }
+  return changed;
+}
+
+/** Running total of the tokens a stream has reported so far: each assistant message once, at its largest usage. */
+function makeTokenWatch() {
+  const perMessage = new Map<string, number>();
+  let total = 0;
+  return (line: string): number => {
+    let ev: any;
+    try {
+      ev = JSON.parse(line);
+    } catch {
+      return total;
+    }
+    const u = ev?.type === 'assistant' ? ev.message?.usage : null;
+    const id = ev?.message?.id;
+    if (u && typeof id === 'string') {
+      const n = ['input_tokens', 'output_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'].reduce((sum, k) => sum + (Number.isFinite(u[k]) && u[k] >= 0 ? u[k] : 0), 0);
+      const before = perMessage.get(id) ?? 0;
+      if (n > before) { perMessage.set(id, n); total += n - before; }
+    }
+    return total;
+  };
+}
+
+/** The recorded outcome of one A/B run: the last segment decides, a cap hit is `truncated` with `cap: true`. */
+/** The `permissionMode` of a `system/init` stream line, else null. */
+function modeOfInit(line: string): string | null {
+  if (!line.includes('"init"')) return null;
+  try {
+    const ev = JSON.parse(line);
+    return ev?.type === 'system' && ev.subtype === 'init' && typeof ev.permissionMode === 'string' ? ev.permissionMode : null;
+  } catch {
+    return null;
+  }
+}
+
+function abStatusOf({ report, timedOut, spawnError, exitCode = null, signal = null, timeoutSeconds, capped, capEvidence, modeKilled = null, expectedMode = null }: any) {
+  const codes = { exitCode: exitCode ?? null, signal: signal ?? null };
+  if (modeKilled !== null) return { status: 'truncated', infra: 'permission-mode-not-effective', evidence: `init.permissionMode was "${modeKilled}", the recipe expects "${expectedMode}": the run was killed at once, nothing was graded`, ...codes };
+  if (timedOut) return { status: 'timeout', evidence: `no exit within ${timeoutSeconds}s`, ...codes };
+  if (spawnError) return { status: 'api-error', evidence: cutChars(`spawn failed: ${spawnError.code || spawnError.message}`, 200), ...codes };
+  if (capped) return { status: 'truncated', evidence: capEvidence, cap: true, ...codes };
+  if (report.reason === 'error_max_budget_usd') return { status: 'truncated', evidence: 'budget: the harness stopped at --max-budget-usd (result subtype error_max_budget_usd)', cap: true, budget: true, ...codes };
+  if (report.status === 'failure') return { status: 'api-error', evidence: cutChars(report.reason || report.summary || 'failure', 200), ...codes };
+  if (signal) return { status: 'truncated', evidence: `ended by ${signal}`, ...codes };
+  if (report.status === 'unparsed') return { status: 'truncated', evidence: `unparsed: ${report.reason}`, ...codes };
+  if (exitCode !== 0) return { status: 'truncated', evidence: `exit code ${exitCode}`, ...codes };
+  return { status: 'completed', ...codes };
+}
+
+/**
+ * Runs the planned A/B tasks of one iteration under a token cap. Refuses (exit 2, nothing written, no
+ * process started) on every refusal of the retrieval executor plus: `maxTokensPerRun` unset (config
+ * `null` and no `maxTokensPerRun` option), no credential variable set, a review revision missing from
+ * the checkout, or an arm whose DoFlow proof list is empty. Exit 3 means only that the command `--cap`
+ * stopped later runs, or the total spend passed `--cap`. A run that hit its own per-run cap (token or
+ * dollar) is recorded as truncated and censored and the command still exits 0: its `detail` row carries
+ * `capped: true` and the result lists it under `capHits`, which `executeLines` prints as a CAP HIT line.
+ */
+async function executeAbIteration(opts: any = {}) {
+  const {
+    repoRoot = REPO_ROOT, env = process.env, extraEnv = {}, tmpDir = os.tmpdir(), now = () => new Date(),
+  } = opts;
+  const grading = require('./grade.ts');
+  let plan: any; let taskSet: any; let config: any; let cap: any; let max: any; let budget: number | null = null; let binary: any; let tools: any;
+  let sourceAt: any; let iterDir: any; let runRoot: any; let present: string[] = []; let expected: any;
+  let lock: any = null;
+  let ledger: number | null = null;
+  let taskCapsAll: any;
+  try {
+    config = opts.config;
+    cap = parseCap(opts.cap);
+    max = opts.maxTokensPerRun !== undefined && opts.maxTokensPerRun !== null ? opts.maxTokensPerRun : config.maxTokensPerRun;
+    if (typeof max === 'string' && /^[1-9][0-9]*$/.test(max)) max = Number(max);
+    if (!Number.isSafeInteger(max) || max <= 0) max = null; // tier 2 gives the caps per task; checked below once the tasks are known
+    budget = parseBudget(opts.maxBudgetUsd ?? config.maxBudgetUsd);
+    runRoot = opts.runRoot || defaultRunRoot(repoRoot);
+    taskSet = opts.taskSet || loadAbTaskSet({ repoRoot, config });
+    plan = planAbIteration({ repoRoot, config, taskSet, arm: opts.arm, iteration: opts.iteration, tasks: opts.tasks, runRoot, maxBudgetUsd: budget, maxTokensPerRun: max });
+    if (plan.runs.some((r: any) => r.caps.maxTokensPerRun === null)) {
+      throw new UsageError('max-tokens-missing', 'maxTokensPerRun is not set: the user approves the per-run cap at run time (config maxTokensPerRun, or --max-tokens-per-run <n>)');
+    }
+    if (plan.runs.some((r: any) => r.caps.maxBudgetUsd === null)) {
+      throw new UsageError('max-budget-missing', 'maxBudgetUsd is not set: the user approves the per-run dollar hard stop at run time (config maxBudgetUsd, or --max-budget-usd <usd>)');
+    }
+    const ledgerRaw = opts.ledgerUsd ?? config.ledgerUsd ?? null;
+    ledger = ledgerRaw === null ? null : parseBudget(ledgerRaw);
+    if (ledgerRaw !== null && ledger === null) throw new UsageError('ledger-invalid', `--ledger-usd must be a positive number of US dollars, got ${JSON.stringify(ledgerRaw)}`);
+    // Per-task caps of every task of the set (not only the chosen ones), so a capture is the same whichever tasks one command runs.
+    const tier2Caps = taskSet.tasks.filter((t: any) => TIER2_KINDS.includes(t.kind)).map((t: any) => [t.id, abTaskCaps(t, config, max, budget)]);
+    taskCapsAll = tier2Caps.length ? Object.fromEntries(tier2Caps) : undefined;
+    const status = git(repoRoot, ['status', '--porcelain']);
+    if (status.status !== 0) throw new UsageError('git-status-failed', `cannot read the working tree state of ${repoRoot}: ${String(status.stderr).trim()}`);
+    if (status.stdout.trim() !== '') throw new UsageError('tree-dirty', 'the working tree has uncommitted changes; commit or stash them before a measured run');
+    const head = git(repoRoot, ['rev-parse', 'HEAD']);
+    if (head.status !== 0) throw new UsageError('git-head-failed', `cannot read HEAD of ${repoRoot}`);
+    sourceAt = head.stdout.trim();
+
+    if (plan.projection.ceilingTokens > cap) {
+      const uniform = new Set(plan.runs.map((r: any) => r.caps.maxTokensPerRun)).size === 1;
+      throw new UsageError('over-cap', `ceiling ${plan.projection.ceilingTokens} tokens (${uniform ? `${plan.runs.length} runs x ${plan.runs[0].caps.maxTokensPerRun}` : 'per-task caps'}) exceeds --cap ${cap}`);
+    }
+    present = config.credentialEnv.filter((n: string) => isNonEmptyString(env[n]));
+    if (present.length === 0) throw new UsageError('credential-missing', `none of ${config.credentialEnv.join(', ')} is set in the environment; the credential enters only by environment variable`);
+    binary = findOnPath(config.recipeData.binary, env.PATH);
+    if (!binary) throw new UsageError('harness-binary-missing', `harness binary "${config.recipeData.binary}" is not on PATH`);
+    tools = {} as Record<string, string>;
+    for (const tool of config.path) {
+      const found = findOnPath(tool, env.PATH);
+      if (!found) throw new UsageError('tool-missing', `tool "${tool}" from the config path list is not on PATH`);
+      tools[tool] = found;
+    }
+    for (const task of taskSet.tasks.filter((t: any) => plan.runs.some((r: any) => r.id === t.id && t.kind === 'review'))) {
+      const known = git(repoRoot, ['cat-file', '-e', `${task.review.rev}^{commit}`]);
+      if (known.status !== 0) throw new UsageError('review-rev-missing', `review task ${task.id}: revision ${task.review.rev} is not in ${repoRoot}`);
+    }
+    for (const task of taskSet.tasks.filter((t: any) => plan.runs.some((r: any) => r.id === t.id))) {
+      const bad = (TIER2_KINDS.includes(task.kind) ? task.tier2.seedPaths : task.kind === 'edit' ? Object.keys(task.files) : task.review.scope).find((f: string) => WORKSPACE_FORBIDDEN.includes(f.split('/')[0]));
+      if (bad) throw new UsageError('workspace-contaminated', `task ${task.id} would put ${bad} in the workspace, which would show an arm project guidance (${WORKSPACE_FORBIDDEN.join(', ')})`);
+    }
+    expected = expectedProof(repoRoot);
+    if (expected.skills.length === 0 || expected.agents.length === 0) {
+      throw new UsageError('proof-empty', `${repoRoot} projects no DoFlow skills or agents (core/shared/skills, core/shared/agent-specs), so neither arm could be proven loaded or absent`);
+    }
+    if (plan.homeSetup === null && config.arms[plan.arm].proof === 'loaded') throw new UsageError('arm-config', `arm ${plan.arm} must prove DoFlow loaded but has no homeSetup`);
+
+    iterDir = path.join(runRoot, plan.iteration);
+    checkRunRoot({ runRoot, iterDir, repoRoot, defaultRoot: path.resolve(runRoot) === path.resolve(defaultRunRoot(repoRoot)) });
+    lock = lockIteration(runRoot, iterDir);
+    const existing = plan.runs.filter((r: any) => fs.existsSync(r.runDir) || isLink(r.runDir)).map((r: any) => r.id);
+    if (existing.length > 0) throw new UsageError('run-exists', `run directory already exists for: ${existing.join(', ')}`);
+    const prior = readJsonIfPresent(path.join(iterDir, RUN_FILES.iteration));
+    if (prior && (prior.arm !== plan.arm || prior.model !== plan.model || prior.sourceAt !== sourceAt || prior.captureSha256 !== abCaptureSha256(config, { maxTokensPerRun: max, maxBudgetUsd: budget, taskCaps: taskCapsAll }) || prior.mode !== 'ab')) {
+      throw new UsageError('iteration-mismatch', `iteration "${plan.iteration}" already exists with a different arm, model, source, capture config or per-run cap (--max-tokens-per-run, --max-budget-usd)`);
+    }
+  } catch (e) {
+    lock?.release();
+    if (e instanceof UsageError) return refused(e);
+    throw e;
+  }
+
+  // Credential values only ever live in the environment of the worker; whatever it prints is cleaned before it is saved.
+  const redact = makeRedactor(config.credentialEnv.map((n: string) => env[n]));
+  const scratch = new Set<string>();
+  const cleanupFailures: { id: string; error: string; dirs?: string[] }[] = [];
+  let finalResult: any = null;
+  const state: { proc: any; run: any; interrupted: any } = { proc: null, run: null, interrupted: null };
+  const cleanupScratch = () => {
+    const errors: any[] = [];
+    for (const dir of scratch) {
+      const err = removeScratch(dir);
+      if (err) errors.push({ dir, error: err });
+      else scratch.delete(dir);
+    }
+    return errors;
+  };
+  const onSignal = (sig: any) => {
+    if (state.interrupted) return;
+    state.interrupted = sig;
+    const { proc, run } = state;
+    (async () => {
+      try {
+        if (proc) await processTree.escalate({ proc });
+        if (run) {
+          try {
+            writeJson(path.join(run.runDir, RUN_FILES.runStatus), { status: 'truncated', evidence: `executor interrupted by ${sig}`, exitCode: null, signal: null });
+            writeJson(path.join(run.runDir, RUN_FILES.timing), { duration_ms: now().getTime() - run.started, usage: 'unknown' });
+          } catch { /* launch.json alone already counts the run at maxTokensPerRun */ }
+        }
+        cleanupScratch();
+        lock.release();
+      } finally {
+        for (const s of STOP_SIGNALS) process.removeListener(s, onSignal);
+        process.kill(process.pid, sig);
+      }
+    })();
+  };
+  for (const s of STOP_SIGNALS) process.on(s, onSignal);
+  const halted = () => new Promise(() => {});
+
+  try {
+    const recipe = config.recipeData;
+    const armCfg = config.arms[plan.arm];
+    // The version check runs in its own scratch profile with no credential.
+    const versionProfile = makeAbProfile({ config, arm: null, tmpDir, tools });
+    scratch.add(versionProfile.dir);
+    const versionRun = childProcess.spawnSync(binary, recipe.versionArgv || ['--version'], {
+      env: abEnv({ config, profile: versionProfile, env, extraEnv, credentials: false }), encoding: 'utf8', timeout: 15000,
+    });
+    const versionErr = removeScratch(versionProfile.dir);
+    if (versionErr) throw versionErr;
+    scratch.delete(versionProfile.dir);
+    if (state.interrupted) return halted();
+    const harnessVersion = versionRun.status === 0 ? (String(versionRun.stdout).split(/\r?\n/).find((l: string) => l.trim()) || '').trim() || null : null;
+
+    const needShim = armCfg.pathAdd.includes(SHIM_ENTRY) || armCfg.homeSetup !== null;
+    const shimRoot = needShim ? exportToolTree({ repoRoot, commit: sourceAt, tmpDir }) : null;
+    if (shimRoot) scratch.add(shimRoot);
+
+    const iterationFile = path.join(iterDir, RUN_FILES.iteration);
+    if (!fs.existsSync(iterationFile)) {
+      writeJson(iterationFile, {
+        mode: 'ab', arm: plan.arm, model: plan.model, sourceAt, snapshot: null, harness: plan.harness, harnessVersion,
+        captureSha256: abCaptureSha256(config, { maxTokensPerRun: max, maxBudgetUsd: budget, taskCaps: taskCapsAll }), maxTokensPerRun: max, maxBudgetUsd: budget, ...(taskCapsAll ? { taskCaps: taskCapsAll } : {}), startedAt: now().toISOString(),
+      });
+    }
+
+    const tasksById = new Map(taskSet.tasks.map((t: any) => [t.id, t]));
+    const ran: string[] = [];
+    const undone: string[] = [];
+    const detail: any[] = [];
+    let capExceeded = null;
+    let ledgerSpentUsd = 0;
+    let ledgerStopped: any = null;
+    const tokenCapOf = (id: string) => (tasksById.get(id) ? abTaskCaps(tasksById.get(id), config, max, budget).maxTokensPerRun : max) ?? 0;
+    for (let i = 0; i < plan.runs.length; i++) {
+      if (spentOf(iterDir, tokenCapOf) + plan.runs[i].caps.maxTokensPerRun > cap) {
+        undone.push(...plan.runs.slice(i).map((r: any) => r.id));
+        break;
+      }
+      // The dollar ledger of this command: stop before a run that would start once the cost so far has reached it.
+      if (ledger !== null && ledgerSpentUsd >= ledger) {
+        ledgerStopped = { ledgerUsd: ledger, spentUsd: Number(ledgerSpentUsd.toFixed(4)), before: plan.runs[i].id };
+        undone.push(...plan.runs.slice(i).map((r: any) => r.id));
+        break;
+      }
+      const run = plan.runs[i];
+      const task: any = tasksById.get(run.id);
+      let runCostUsd = 0;
+      fs.mkdirSync(run.runDir);
+      let profile: any = null;
+      let workspace: any = null;
+      let spawned = false;
+      let failed = false;
+      try {
+        profile = makeAbProfile({ config, arm: plan.arm, shimRoot, tmpDir, tools });
+        scratch.add(profile.dir);
+        workspace = prepareAbWorkspace({ task, repoRoot, parent: tmpDir, home: profile.home });
+        scratch.add(workspace.dir);
+
+        let homeSetup: any = null;
+        if (armCfg.homeSetup !== null) {
+          homeSetup = runHomeSetup({
+            argv: armCfg.homeSetup.argv, shimRoot, profile, tools,
+            childEnv: abEnv({ config, profile, env, extraEnv: {}, credentials: false }),
+          });
+          writeJson(path.join(run.runDir, HOME_SETUP_FILE), homeSetup);
+        }
+        const startedAt = now().toISOString();
+        writeJson(path.join(run.runDir, RUN_FILES.launch), {
+          key: run.key, mode: 'ab', arm: plan.arm, kind: task.kind, harness: plan.harness, harnessVersion, model: plan.model,
+          argvShape: run.argvShape, promptSha256: run.promptSha256, promptBytes: run.promptBytes,
+          toolProfile: { pathDirs: ['<profile>/bin'], tools, pathAdd: armCfg.pathAdd },
+          credentialEnvPresent: present, snapshot: null, sourceAt, startedAt,
+          homeSetup: homeSetup === null ? null : { ok: homeSetup.ok, exitCode: homeSetup.exitCode },
+          proofExpected: expected, workspaceRoot: workspace.root, profileRoot: profile.dir, maxTokensPerRun: run.caps.maxTokensPerRun, maxBudgetUsd: run.caps.maxBudgetUsd,
+          ...(TIER2_KINDS.includes(task.kind) ? { taskDir: task.tier2.relDir, entryPrefix: armCfg.entryPrefix || '', promptBodySha256: run.promptBodySha256, timeoutSec: run.caps.timeoutSec, sessionBudgetUsd: run.caps.sessionBudgetUsd } : {}),
+        });
+        await new Promise((resolve) => setImmediate(resolve));
+        if (state.interrupted) return halted();
+        spawned = true; // from here the record stays
+
+        if (homeSetup !== null && !homeSetup.ok) {
+          writeJson(path.join(run.runDir, RUN_FILES.runStatus), { status: 'truncated', evidence: `homeSetup failed: exit ${homeSetup.exitCode ?? homeSetup.error}`, exitCode: null, signal: null });
+          writeJson(path.join(run.runDir, RUN_FILES.timing), { total_tokens: 0, duration_ms: 0, usage: 'reported', pauses: 0, resumes: 0, segments: 0 });
+          ran.push(run.id);
+          detail.push({ id: run.id, status: 'truncated', note: 'homeSetup failed, worker not started', tokens: 0, pauses: 0, resumes: 0 });
+          continue;
+        }
+
+        const childEnv = abEnv({ config, profile, env, extraEnv, credentials: true });
+        const startedMs = now().getTime();
+        const caps = run.caps;
+        const runMax = caps.maxTokensPerRun;
+        const deadline = startedMs + caps.timeoutSec * 1000;
+        state.run = { runDir: run.runDir, started: startedMs };
+        const watch = makeTokenWatch();
+        let watchTotal = 0;
+        const segments: any[] = [];
+        const sessions: any[] = [];
+        const tier2 = TIER2_KINDS.includes(task.kind);
+        const continuity = task.kind === 'continuity';
+        const entryPrefix = armCfg.entryPrefix || '';
+        // Continuity: the seed content of every target file; the cut fires when two of them differ from it.
+        const targetNow = (f: string): Buffer | null => { try { return fs.readFileSync(path.join(workspace.root, f)); } catch { return null; } };
+        const seedTargets = continuity ? new Map<string, Buffer | null>(task.targetFiles.map((f: string) => [f, targetNow(f)])) : null;
+        const changedTargets = (): string[] => task.targetFiles.filter((f: string) => { const a = seedTargets!.get(f) ?? null; const b = targetNow(f); return !(a === null ? b === null : b !== null && a.equals(b)); });
+        const cut: any = continuity ? { fired: false, cutMs: null, changedAtCut: null, untouchedAtCut: null, changedAtEnd: null, targetFiles: task.targetFiles } : null;
+        let capKilled = false;
+        let modeKilled: string | null = null; // the init.permissionMode that differed from the recipe's, when the run was killed for it
+        let pauses = 0;
+        let offers = 0;
+        let blockedEnds = 0; // runs that ended saying permissions stopped them: neither a pause nor an offer
+        let resumes = 0;
+        let unanswered = false;
+        let outcome: any = null;
+        let stopRun = false; // timeout, spawn error, wrong mode, token cap: no further session
+        let skipped: string | null = null;
+        const costOf = (list: any[]): number | null => { const k = list.filter((s) => s.costUsd !== null); return k.length ? k.reduce((a, s) => a + s.costUsd, 0) : null; };
+        const sessionFigures = () => sessions.map((s) => {
+          const agg = grading.aggregateReports(s.reports, config.resume.cumulative);
+          // a session cut by the watcher has no result event: its stream-reported tokens stand in (cost is then unknown)
+          if (agg.usage === 'reported' || !continuity) return { n: s.n, source: 'result', usage: agg.usage, tokens: agg.totalTokens, costUsd: agg.costUsd };
+          const streamed = (s.streamEnd ?? watchTotal) - s.streamStart;
+          return { n: s.n, source: 'stream', usage: streamed > 0 ? 'reported' : 'unknown', tokens: streamed, costUsd: null };
+        });
+        const totalsOf = () => {
+          const figs = sessionFigures();
+          return {
+            usage: figs.every((f) => f.usage === 'reported') ? 'reported' : 'unknown',
+            totalTokens: figs.reduce((a, f) => a + f.tokens, 0), costUsd: costOf(figs), figs,
+          };
+        };
+        for (let sn = 1; sn <= (continuity ? 2 : 1) && !stopRun; sn++) {
+          const reports: any[] = [];
+          const session: any = { n: sn, reports, streamStart: watchTotal, streamEnd: null, segmentFiles: [], promptSha256: null, sessionId: null };
+          let sessionBudget: number | null = caps.maxBudgetUsd;
+          if (continuity) {
+            const per = caps.sessionBudgetUsd ?? caps.maxBudgetUsd;
+            const spentBefore = sn === 1 ? 0 : sessionFigures().reduce((a, f) => a + (f.costUsd ?? per), 0); // an unknown cost counts at the session's own cap
+            sessionBudget = Number(Math.min(per, caps.maxBudgetUsd - spentBefore).toFixed(4));
+            if (sessionBudget <= 0) { skipped = 'task-budget-spent'; break; }
+          }
+          if (deadline - now().getTime() <= 0) { skipped = 'timeout'; break; }
+          sessions.push(session);
+          let prompt = buildAbPrompt(task, armCfg.paragraph, entryPrefix, sn);
+          session.promptSha256 = promptSha256(prompt);
+          let resume: string | null = null;
+          let sessionId: string | null = null;
+          let sessionResumes = 0;
+          for (let n = 1; ; n++) {
+            const fileName = sn === 1 ? (n === 1 ? RUN_FILES.transcript : `transcript.${n}.jsonl`) : `transcript.s${sn}.${n}.jsonl`;
+            const parser = claudeStream.create();
+            let procRef: any = null;
+            let watcher: any = null;
+            const callStart = now().getTime();
+            outcome = await spawnHarness({
+              binary, argv: abArgv(recipe, resume, sessionBudget), cwd: workspace.root, env: childEnv, prompt, viaStdin: true,
+              timeoutMs: Math.max(1, deadline - now().getTime()), transcriptFile: path.join(run.runDir, fileName),
+              lastMessageFile: path.join(profile.dir, 'none'), parser, now, redact,
+              onSpawn: (proc) => {
+                procRef = proc; state.proc = proc;
+                if (continuity && sn === 1) {
+                  watcher = setInterval(() => {
+                    if (cut.fired) return;
+                    const changed = changedTargets();
+                    if (changed.length < 2) return;
+                    cut.fired = true; cut.cutMs = now().getTime() - callStart; cut.changedAtCut = changed; cut.untouchedAtCut = task.targetFiles.filter((f: string) => !changed.includes(f));
+                    processTree.escalate({ proc: procRef });
+                  }, opts.cutPollMs ?? 1000);
+                }
+              },
+              onLine: (line) => {
+                const mode = modeOfInit(line);
+                if (mode !== null && mode !== recipe.expectedPermissionMode && modeKilled === null) {
+                  modeKilled = mode; // precondition: tools are denied in any other mode, so stop before more is spent
+                  if (procRef) processTree.escalate({ proc: procRef });
+                }
+                watchTotal = watch(line);
+                if (watchTotal > runMax && !capKilled) {
+                  capKilled = true;
+                  if (procRef) processTree.escalate({ proc: procRef });
+                }
+              },
+            });
+            if (watcher) clearInterval(watcher);
+            if (continuity && sn === 1 && !cut.fired) cut.changedAtEnd = changedTargets();
+            state.proc = null;
+            if (state.interrupted) return halted();
+            const report = outcome.report;
+            const blocking = report.questions.askUserQuestion > 0 || report.closing === 'blocking';
+            reports.push(report);
+            sessionId = report.sessionId ?? sessionId;
+            session.sessionId = sessionId;
+            session.segmentFiles.push(fileName);
+            const seg: any = {
+              n: segments.length + 1, file: fileName, ...(tier2 ? { session: sn } : {}), exitCode: outcome.exitCode ?? null, signal: outcome.signal ?? null, durationMs: outcome.durationMs,
+              status: report.status, sessionId: report.sessionId, asked: blocking, offered: report.closing === 'offer', blocked: report.closing === 'blocked', replied: false,
+            };
+            segments.push(seg);
+            if (report.closing === 'offer' && !blocking) offers++;
+            if (report.closing === 'blocked') blockedEnds++;
+            if (outcome.timedOut || outcome.spawnError || modeKilled !== null || capKilled) stopRun = true;
+            if (outcome.timedOut || outcome.spawnError || outcome.signal || capKilled || modeKilled !== null || report.status !== 'success') break;
+            // Only a blocking question resumes the run; a closing offer ("Want me to ...?") is counted and left unanswered.
+            if (!blocking) break;
+            pauses++;
+            if (sessionResumes >= config.resume.maxResumes || !sessionId) { unanswered = true; break; }
+            if (totalsOf().totalTokens > runMax || deadline - now().getTime() <= 0) break;
+            seg.replied = true;
+            resumes++;
+            sessionResumes++;
+            prompt = config.resume.reply;
+            resume = sessionId;
+          }
+          session.streamEnd = watchTotal;
+          // session 2 follows session 1 unless the run is stopped, the tokens are spent, or session 1 failed for a reason other than its dollar stop
+          const last1 = reports[reports.length - 1];
+          if (continuity && sn === 1 && !cut.fired && !stopRun && last1.status !== 'success' && last1.reason !== 'error_max_budget_usd') stopRun = true;
+        }
+        const totals = totalsOf();
+        const over = totals.usage === 'reported' && totals.totalTokens > runMax;
+        const capped = capKilled || over;
+        const lastSession = sessions[sessions.length - 1];
+        const last = lastSession.reports[lastSession.reports.length - 1];
+        if (state.interrupted) return halted();
+        const status: any = abStatusOf({
+          ...outcome, report: last, timeoutSeconds: caps.timeoutSec, capped: capped && modeKilled === null, modeKilled, expectedMode: recipe.expectedPermissionMode,
+          capEvidence: `cap: ${totals.usage === 'reported' ? totals.totalTokens : 'in-flight total'} tokens passed maxTokensPerRun ${runMax}`,
+        });
+        // A tier-2 run stopped at its cap or timeout did not deliver; the grader scores that as a failed delivery.
+        const deliveryFailed = tier2 && (status.cap === true || status.status === 'timeout');
+        writeJson(path.join(run.runDir, RUN_FILES.runStatus), { ...status, ...(tier2 ? { deliveryFailed } : {}) });
+        writeJson(path.join(run.runDir, SEGMENTS_FILE), { segments, pauses, offers, blocked: blockedEnds, resumes, unansweredPause: unanswered });
+        if (last.finalText) fs.writeFileSync(path.join(run.runDir, RUN_FILES.lastMessage), last.finalText);
+        const figs = totals.figs;
+        writeJson(path.join(run.runDir, RUN_FILES.timing), {
+          ...(totals.usage === 'reported' ? { total_tokens: totals.totalTokens } : {}),
+          duration_ms: now().getTime() - startedMs, usage: totals.usage, cost_usd: totals.costUsd, pauses, resumes, segments: segments.length,
+          ...(tier2 ? { sessions: figs.map((f) => ({ n: f.n, tokens: f.tokens, cost_usd: f.costUsd, source: f.source })), ...(figs.some((f) => f.costUsd === null) ? { cost_usd_lower_bound: true } : {}) } : {}),
+        });
+        if (tier2) {
+          const texts = sessions.map((s) => s.segmentFiles.map((f: string) => readTextIfPresent(path.join(run.runDir, f))));
+          writeJson(path.join(run.runDir, PROCESS_FILE), tier2Extract.extractProcess(texts, { cumulative: config.resume.cumulative }));
+          writeJson(path.join(run.runDir, TIER2_FILE), {
+            kind: task.kind, taskDir: task.tier2.relDir, taskJson: path.posix.join(task.tier2.relDir, 'task.json'), entryPrefix,
+            caps, deliveryFailed, skippedSession: skipped,
+            sessions: sessions.map((s, i) => ({ n: s.n, sessionId: s.sessionId, promptSha256: s.promptSha256, promptBodySha256: promptSha256(buildAbPrompt(task, armCfg.paragraph, '', s.n)), segments: s.segmentFiles, tokens: figs[i].tokens, costUsd: figs[i].costUsd, source: figs[i].source })),
+            cut,
+          });
+          fs.cpSync(workspace.root, path.join(run.runDir, WORKSPACE_DIR), { recursive: true, filter: (src: string) => path.basename(src) !== 'node_modules' });
+        } else if (task.kind === 'edit') {
+          fs.cpSync(workspace.root, path.join(run.runDir, WORKSPACE_DIR), {
+            recursive: true, filter: (src: string) => !['.git', 'node_modules'].includes(path.basename(src)),
+          });
+        } else {
+          const produced = path.join(workspace.root, REVIEW_FILE);
+          try {
+            if (fs.lstatSync(produced).isFile() && fs.statSync(produced).size <= ARTIFACT_MAX_BYTES) fs.copyFileSync(produced, path.join(run.runDir, REVIEW_FILE));
+          } catch { /* no review.json: the adapter counts that a miss */ }
+        }
+        ran.push(run.id);
+        runCostUsd = totals.costUsd ?? caps.maxBudgetUsd; // a run with no reported cost counts at its dollar cap
+        detail.push({ id: run.id, status: status.status, tokens: totals.usage === 'reported' ? totals.totalTokens : null, pauses, resumes, capped, ...(tier2 ? { deliveryFailed, costUsd: totals.costUsd, ...(continuity ? { cutFired: cut.fired } : {}) } : {}) });
+      } catch (e) {
+        failed = true;
+        if (!spawned) removeTree(run.runDir);
+        throw e;
+      } finally {
+        state.run = null;
+        if (!state.interrupted) {
+          const errors = [];
+          try { redactTree(run.runDir, redact); } catch (e) { errors.push(e); } // the copied workspace, review.json and the install tails too
+          // A scratch directory that cannot be removed never aborts the iteration and never costs a result already
+          // written: it is recorded on the run (run_status.json, timing.json), listed in the summary, and the next run goes on.
+          const cleanupErrors: string[] = [];
+          for (const dir of [workspace?.dir, profile?.dir]) {
+            if (!dir) continue;
+            const err: any = removeScratch(dir);
+            if (err) cleanupErrors.push(cutChars(`${path.basename(dir)}: ${err.message || err}`.replace(/\s+/g, ' ').trim(), 300));
+            else scratch.delete(dir);
+          }
+          if (cleanupErrors.length) {
+            const cleanupError = cleanupErrors.join('; ');
+            cleanupFailures.push({ id: run.id, error: cleanupError, dirs: [workspace?.dir, profile?.dir].filter((d) => d && scratch.has(d)) as string[] });
+            for (const name of [RUN_FILES.runStatus, RUN_FILES.timing]) {
+              try {
+                const file = path.join(run.runDir, name);
+                writeJson(file, { ...(readJsonIfPresent(file) || {}), cleanupError });
+              } catch { /* the run record is missing: the summary still lists the failure */ }
+            }
+            const row = detail.find((d: any) => d.id === run.id);
+            if (row) row.cleanupError = cleanupError;
+          }
+          if (errors.length && !failed) throw errors[0]; // eslint-disable-line no-unsafe-finally
+        }
+      }
+      ledgerSpentUsd += runCostUsd;
+      const spent = spentOf(iterDir, tokenCapOf);
+      if (spent > cap) {
+        capExceeded = { by: spent - cap, task: run.id };
+        undone.push(...plan.runs.slice(i + 1).map((r: any) => r.id));
+        break;
+      }
+    }
+    const capHits = detail.filter((d: any) => d.capped).map((d: any) => d.id);
+    const result: any = {
+      exit: undone.length > 0 || capExceeded ? 3 : 0, ran, undone, spent: spentOf(iterDir, tokenCapOf), detail, capHits, ...(capExceeded ? { capExceeded } : {}),
+      ...(ledger !== null ? { ledgerSpentUsd: Number(ledgerSpentUsd.toFixed(4)) } : {}), ...(ledgerStopped ? { ledgerStopped } : {}),
+    };
+    finalResult = result;
+    return result;
+  } finally {
+    if (!state.interrupted) {
+      for (const s of STOP_SIGNALS) process.removeListener(s, onSignal);
+      // The scratch left after the loop (a version profile, the tool tree) is removed the same way; a failure is
+      // reported on the result, never thrown over the results already written.
+      for (const { dir, error } of cleanupScratch()) {
+        if (cleanupFailures.some((f) => f.dirs?.includes(dir))) continue; // already recorded on its run
+        cleanupFailures.push({ id: path.basename(dir), error: cutChars(String((error as any).message || error).replace(/\s+/g, ' '), 300) });
+      }
+      lock.release();
+      if (finalResult && cleanupFailures.length) finalResult.cleanupErrors = cleanupFailures.map(({ id, error }) => ({ id, error }));
+    }
+  }
+}
+
 module.exports = {
-  CONFIG_PATH, RUN_FILES, SHIM_ENTRY, TOOL_TREE,
+  CONFIG_PATH, RUN_FILES, SHIM_ENTRY, TOOL_TREE, SEGMENTS_FILE, HOME_SETUP_FILE, WORKSPACE_DIR, PROCESS_FILE, TIER2_FILE, abTaskCaps,
+  loadAbConfig, abCaptureSha256, abArgv, parseBudget, expectedProof, makeTokenWatch, modeOfInit, abStatusOf, makeRedactor, redactTree,
   loadConfig, selectHarness, insertModelArgv, planIteration, executeIteration, prepareWorkspace,
   runDirOf, readIteration, captureSha256, usageOf, statusOf,
 };
