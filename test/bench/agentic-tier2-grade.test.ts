@@ -317,6 +317,86 @@ test('tier-2 grade: process evidence and artifacts are carried into the grading,
   assert.equal(g.isolation, 'clean', JSON.stringify(g.isolationEvidence));
 });
 
+// ---- isolation rule on tier-2 shapes (the `source-unverified` exclusions of the first paid run) -------------------
+
+const OS_TMP = '/private/var/folders/xx/T';
+const ROOTS = { workspaceRoot: `${OS_TMP}/abws-AAA/workspace`, profileRoot: `${OS_TMP}/abprof-BBB` };
+/** The isolation of a red-ci run whose model ran `command` (a Bash call) in a launch record that names real-shaped roots. */
+function isolationOf(command: string, { arm = 'A', roots = ROOTS, taskId = 'red-ci-root-cause' }: any = {}) {
+  const dir = runDir(mkdir('run-'), {
+    taskId, arm, ws: workspaceOf(taskId, true),
+    // the synthetic stream names /scratch paths: move them to the roots under test
+    extra: { streamOf: (text: string) => withEventBeforeResult(text, bashEvent(command)).split('/scratch/workspace').join(roots.workspaceRoot).split('/scratch').join(roots.profileRoot) },
+  });
+  const launch = JSON.parse(fs.readFileSync(path.join(dir, 'launch.json'), 'utf8'));
+  wj(path.join(dir, 'launch.json'), { ...launch, ...roots });
+  const g = gradeOf(dir, taskId, arm);
+  return { isolation: g.isolation, evidence: g.isolationEvidence, g };
+}
+const assertClean = (command: string, opts: any = {}) => { const r = isolationOf(command, opts); assert.equal(r.isolation, 'clean', `${command.slice(0, 80)} -> ${JSON.stringify(r.evidence)}`); };
+const assertLeaked = (command: string, opts: any = {}) => { const r = isolationOf(command, opts); assert.equal(r.isolation, 'leaked', `${command.slice(0, 80)} should leak`); return r; };
+
+test('isolation (tier 2): `npm test` is the fixtures\' offline test script, not network use; other npm/npx/curl still leak', () => {
+  for (const arm of ['A', 'B']) {
+    assertClean('npm test 2>&1 | tail -20', { arm });
+    assertClean('cat package.json; npm run test', { arm });
+    assertLeaked('npm install left-pad', { arm });
+    assertLeaked('npm exec cowsay hi', { arm });
+    assertLeaked('npm view left-pad', { arm });
+    assertLeaked('curl https://example.invalid/x', { arm });
+  }
+  const r = assertLeaked('npm install x');
+  assert.match(r.evidence[0], /\[arm-pattern\]/, 'the evidence names the rule that fired');
+  // tier 1 keeps the whole `npm` pattern: the exemption is for tier-2 kinds only
+  const t1 = grade.classifyAbIsolation({ reports: [], armConfig: CONFIG.arms.A, roots: ROOTS, expected: EXPECTED, homeSetup: null, pin: null, infra: null });
+  assert.equal(t1.isolation, 'unverifiable');
+});
+
+test('isolation (tier 2): a cut-off command (4000 chars) keeps its unclosed heredoc body as data; a visible leak before it, or a short unclosed heredoc, still leaks', () => {
+  const body = `const x = require('../lib/duration');\n${'// padding\n'.repeat(400)}`;
+  const cut = `cat >> test/duration.test.js <<'EOF'\n${body}`.slice(0, 4000);
+  assert.equal(cut.length, 4000);
+  assertClean(cut);
+  assertLeaked(`cat /Users/other/secret.txt; ${cut}`.slice(0, 4000));
+  assertLeaked("cat >> t.js <<'EOF'\ncat ../outside/secret.txt\n"); // short and never closed: the body may be code
+});
+
+test('isolation (tier 2): the run\'s own /tmp scratch (cp, mv, tee destinations) is not a leak; mkdir owns nothing; another /tmp path is', () => {
+  assertClean('cp lib/a.js /tmp/a.new.js && node --test; cmp lib/a.js /tmp/a.new.js; rm /tmp/a.new.js');
+  assertClean('echo hi | tee /tmp/work.log && cat /tmp/work.log');
+  assertLeaked('mkdir -p /tmp/work; cat /tmp/work/log.txt');
+  assertLeaked('cat /tmp/somebody-elses.txt');
+  assertLeaked('cp /tmp/somebody-elses.txt lib/a.js');
+});
+
+test('isolation (tier 2): a path the run names below the OS temp dir is its own scratch; harness directories, a listing and an escape are not', () => {
+  assertClean('T=$TMPDIR/ev-batch-001; mkdir -p "$T"; echo hi > "$T/batch.json"; cat "$T/batch.json"');
+  assertClean(`d=$(mktemp -d); rm -r ${OS_TMP}/tmp.fZLn5tOVmy`);
+  assertClean(`cat ${ROOTS.workspaceRoot}/notes.md ${ROOTS.profileRoot}/home/.doflow/x`);
+  assertLeaked('ls $TMPDIR');
+  assertLeaked(`ls ${OS_TMP}`);
+  assertLeaked('cat $TMPDIR/abws-OTHER/workspace/test/hidden.js');
+  assertLeaked(`cat ${OS_TMP}/abprof-OTHER/home/.claude/x`);
+  assertLeaked(`cat ${OS_TMP}/doflow-agentic-tool-1/bin/doflow.js`);
+  assertLeaked('cat $TMPDIR/../other/x');
+});
+
+test('isolation (tier 2): a sed/awk/grep/rg pattern that starts with `/` is not a path; the files it reads and `-f` files still are', () => {
+  assertClean("sed -n '/^--- ROUND/,/^--- FORMAT/p' notes.txt");
+  assertClean("grep -n '/api/' lib/a.js; rg '/v1/' lib");
+  assertClean("grep -e '/x/' -e '/y/' lib/a.js");
+  assertLeaked("grep -n 'needle' /Users/other/file.txt");
+  assertLeaked("sed -n '/a/p' /Users/other/file.txt");
+  assertLeaked('sed -f /Users/other/script.sed lib/a.js');
+  assertLeaked('grep -f /Users/other/patterns lib/a.js');
+  assertLeaked('cat /Users/other/file.txt');
+});
+
+test('isolation (tier 2): `$OLDPWD` after a `cd` out of the workspace reads as the workspace', () => {
+  assertClean('d=$(mktemp -d); (cd $d && node $OLDPWD/bin/cli.js export --since 2026-01-15; echo "exit $?"); rm -rf $d');
+  assertLeaked('cd /Users/other && cat $OLDPWD/x; cat /Users/other/y');
+});
+
 // ---- report and CLI -----------------------------------------------------------------------------------------------
 
 /** Iteration directories for the CLI path: arms A (two repeats), B and C over two tasks. */
@@ -383,6 +463,47 @@ test('tier-2 CLI: `grade` then `report` print three arms with the process block,
   const ci = tasks.find((t: any) => t.id === 'red-ci-root-cause');
   assert.equal(ci.pairs.find((p: any) => p.pair === 'A-B').successDiff, 0.5);
   assert.ok(ci.pairs.find((p: any) => p.pair === 'A-C').costRatio > 1);
+});
+
+test('tier-2 report: a run stopped at the cap prints tokens ">= cap" and no invented cost; an excluded run keeps its item results in a labelled row', () => {
+  const root = mkdir('runs-');
+  const mk = (name: string, arm: string, make: (id: string) => any) => {
+    const dir = path.join(root, name);
+    fs.mkdirSync(dir);
+    wj(path.join(dir, 'iteration.json'), { arm, model: CONFIG.model.label, sourceAt: 'a'.repeat(40), iteration: name });
+    for (const id of ['red-ci-root-cause', 'finish-and-ship']) runDir(dir, { taskId: id, arm, ...make(id) });
+  };
+  const dropResult = (text: string) => text.split('\n').filter((l) => !l.includes('"type":"result"')).join('\n');
+  const denied = (text: string) => text.split('\n').map((l) => {
+    if (!l.includes('"type":"result"')) return l;
+    const e = JSON.parse(l);
+    e.permission_denials = [{ tool_name: 'Bash', tool_use_id: 'tu1', tool_input: { command: 'git clean -fd' } }];
+    return JSON.stringify(e);
+  }).join('\n');
+  mk('k1-a', 'A', (id) => ({ ws: workspaceOf(id, true) }));
+  // C: finish-and-ship killed at its cap before any result event (no tokens, no cost), red-ci denied a tool (excluded, items kept)
+  mk('k1-c', 'C', (id) => (id === 'finish-and-ship'
+    ? { ws: workspaceOf(id, true), status: { status: 'truncated', evidence: 'cap', cap: true, exitCode: null, signal: 'SIGKILL', deliveryFailed: true }, timing: { total_tokens: null, cost_usd: null }, extra: { streamOf: dropResult } }
+    : { ws: workspaceOf(id, true), extra: { streamOf: denied } }));
+  const launchFile = path.join(root, 'k1-c', 'finish-and-ship', 'launch.json');
+  wj(launchFile, { ...JSON.parse(fs.readFileSync(launchFile, 'utf8')), maxTokensPerRun: 3000000 });
+  for (const name of ['k1-a', 'k1-c']) grade.gradeIteration({ iterationDir: path.join(root, name), taskSet: TASKSET, config: CONFIG, pathInfo: null });
+  const r = reportLib.tier2ReportOf({ runRoot: root, iterations: 'k1-a,k1-c', taskSet: TASKSET, config: CONFIG, noiseConfig: { mde: 0.05, maxInfraShare: 0.1, seed: 96 }, repoRoot: REPO });
+  const text = reportLib.tier2ReportLines(r).join('\n');
+  const fin = r.tasks.find((t: any) => t.id === 'finish-and-ship').arms.C;
+  assert.equal(fin.scored, 1, 'the capped run is a scored failed delivery');
+  assert.equal(fin.tokensBound.value, 3000000, 'counted at its cap');
+  assert.equal(fin.tokensBound.lowerBound, true);
+  assert.equal(fin.costBound.value, null, 'its cost was never reported and is not invented');
+  assert.match(text, /\| total tokens [^|]*\| [^|]* \| >= 3000000 /);
+  assert.match(text, /none \(no scored run reported cost\)/);
+  assert.match(text, /No dollar-cap sensitivity is computed/);
+  const ci = r.tasks.find((t: any) => t.id === 'red-ci-root-cause').arms.C;
+  assert.equal(ci.scored, 0);
+  assert.equal(ci.excludedItems.length, 1);
+  assert.equal(ci.excludedItems[0].k, ci.excludedItems[0].n, 'the denied run kept its item results');
+  assert.match(text, /\| excluded, item results only [^|]*\| [^|]* \| k1-c 4\/4 items \[truncated \(permission-denied\)\] \|/);
+  assert.match(text, /sensitivity, every run incl\. excluded: coverage k\/N \[range\] \| [^|]* \| 4\.00\/4 \[4-4\] over 1 of 1 run\(s\)/);
 });
 
 test('tier-2 CLI: `noise` is refused for a tier-2 task set and an unknown arm in an iteration is refused', async () => {

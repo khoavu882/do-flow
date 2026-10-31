@@ -159,7 +159,7 @@ function closeBacktick(s: string, start: number) {
  * hide one.
  * @returns {{words: string[], redirects: string[], writes: string[]}[]}
  */
-function splitScript(script: any) {
+function splitScript(script: any, { cut = false }: { cut?: boolean } = {}) {
   const s = String(script);
   const commands: any[] = [];
   let words: string[] = [];
@@ -295,7 +295,8 @@ function splitScript(script: any) {
             }
             i = pos - 1;
             // a delimiter that never closes (an arithmetic `<<` mistaken for a heredoc) must not hide what follows
-            if (feedsShell || !closed) commands.push(...splitScript(body));
+            // (a command the transcript cut short has no closing line because of the cut: its body is data, not code)
+            if (feedsShell || (!closed && !cut)) commands.push(...splitScript(body));
             else if (!h.quoted) {
               for (let k = 0; k < body.length; k++) {
                 if (body[k] === '\\') k++;
@@ -392,9 +393,9 @@ function shellScript(words: string[]) {
  * against), `raw` is every word and redirection target as written (for the outside-path rule) and
  * `writes` the redirection targets that are written (`>`, `>>`, `&>`).
  */
-function simpleCommands(command: string): { text: string; words: string[]; raw: string[]; writes: string[] }[] {
+function simpleCommands(command: string, opts: { cut?: boolean } = {}): { text: string; words: string[]; raw: string[]; writes: string[] }[] {
   const out: { text: string; words: string[]; raw: string[]; writes: string[] }[] = [];
-  for (const { words, redirects, writes } of splitScript(command)) {
+  for (const { words, redirects, writes } of splitScript(command, opts)) {
     const w = stripWrappers(words);
     const script = shellScript(w);
     if (w.length) w[0] = base(w[0]);
@@ -415,8 +416,54 @@ const SYSTEM_PREFIXES = Object.freeze(['/usr', '/bin', '/sbin', '/dev', '/etc', 
 /** `/private/X` and `/X` are one path (the macOS /var and /tmp aliases). */
 /** Variables that name the OS temp dir, where the pruned tool export and other runs' scratch live. */
 const AB_TMP_VARS = Object.freeze(['TMPDIR', 'TMP', 'TEMP', 'TEMPDIR', 'TMP_DIR']);
+/** Directories the harness itself keeps in the OS temp dir: other runs' workspaces and profiles, the pruned tool export. */
+const AB_HARNESS_TMP = /^(?:abws-|abprof-|doflow-)/;
+/** Length at which claude-stream.ts cuts a stored command (COMMAND_CHARS): a command that long is cut, its tail is unknown. */
+const AB_COMMAND_CUT = 4000;
+/**
+ * Tier-2 fixtures define `scripts.test` as `node --test` (offline), so `npm test` there is the visible check, not the package
+ * manager's network use that the arm patterns (`npm`, `npx`) exist to catch: it is not tested against them. `npm install`,
+ * `npm view`, `npx` and the like still are.
+ */
+const TIER2_LOCAL_COMMANDS: RegExp[] = [/^npm (?:test|t|run test|run-script test)(?: |$)/];
+/** Programs whose first operand is a pattern or script (`sed -n '/a/,/b/p' f`, `rg '/api/'`), not a path. */
+const PATTERN_PROGRAMS = new Set(['sed', 'awk', 'gawk', 'grep', 'egrep', 'fgrep', 'rg', 'ag']);
+/** Options of those programs whose value is a file, so the word after them is a path. */
+const PATTERN_FILE_FLAGS = new Set(['-f', '--file', '--exclude-from', '--include-from', '--ignore-file']);
+/** Programs whose last operand is a file the run writes (cp, mv) and whose every operand is a file it writes (tee), like a `>` target. `mkdir` owns nothing: it may name an existing directory. */
+const COPY_PROGRAMS = new Set(['cp', 'mv', 'install']);
+const TEE_PROGRAMS = new Set(['tee']);
 const unalias = (p: string) => path.posix.normalize(p).replace(/^\/private(?=\/)/, '');
 const within = (p: string, root: string) => p === root || p.startsWith(`${root}/`);
+
+/**
+ * Indexes in `cmd.raw` of the words that are a pattern or script, not a path: the first operand of sed, awk, grep and rg
+ * (every word after `-e`), unless it is the value of a file option (`-f`). `sed -n '/^A/,/^B/p' f` names no file.
+ */
+function patternOperands(cmd: any): Set<number> {
+  const out = new Set<number>();
+  const program = cmd.words[0];
+  if (!PATTERN_PROGRAMS.has(program)) return out;
+  const start = cmd.raw.findIndex((w: string) => base(w) === program);
+  if (start === -1) return out;
+  const sawE = cmd.raw.some((w: string, i: number) => i > start && (w === '-e' || w === '--regexp'));
+  let skipped = false;
+  for (let i = start + 1; i < cmd.raw.length; i++) {
+    const prev = cmd.raw[i - 1];
+    const w = cmd.raw[i];
+    if (prev === '-e' || prev === '--regexp') out.add(i);
+    else if (!w.startsWith('-') && !sawE && !skipped && !PATTERN_FILE_FLAGS.has(prev)) { out.add(i); skipped = true; }
+  }
+  return out;
+}
+
+/** The words a command writes without a redirect: the destination of cp, mv and install, every operand of tee. */
+function implicitWriteWords(cmd: any): Set<string> {
+  const operands = cmd.words.slice(1).filter((w: string) => !w.startsWith('-'));
+  if (COPY_PROGRAMS.has(cmd.words[0]) && operands.length >= 2) return new Set([operands[operands.length - 1]]);
+  if (TEE_PROGRAMS.has(cmd.words[0])) return new Set(operands);
+  return new Set();
+}
 
 /**
  * The first word of a command that names a path outside `roots` (an absolute path, or a `..` path
@@ -434,12 +481,20 @@ function outsidePath(commands: any[], roots: any, { expandVars = false, scratch 
   for (const r of [roots?.workspaceRoot, roots?.profileRoot]) if (typeof r === 'string' && r.startsWith('/')) allowed.push(unalias(r));
   const home = typeof roots?.workspaceRoot === 'string' && roots.workspaceRoot.startsWith('/') ? roots.workspaceRoot : '/';
   let cwd = home;
+  let oldpwd = home; // `$OLDPWD`: the directory before the last `cd`
   // A/B: variables the same command assigns (`D=$PWD`, `D=$(dirname "$D")`): `$D/...` is a path the command built
   // itself, and the assigned value was checked as a word of its own (DoFlow's "find the runtime" snippet does this).
   const assigned = new Set<string>();
   if (expandVars) for (const cmd of commands) for (const word of cmd.raw) { const m = /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(word); if (m) assigned.add(m[1]); }
+  // A/B: the OS temp dir (where this run's profile lives, and other runs' too) and what a command writes or names as a pattern.
+  const osTmp: string | null = expandVars && typeof roots?.profileRoot === 'string' && roots.profileRoot.startsWith('/') && /^abprof-/.test(path.posix.basename(roots.profileRoot))
+    ? unalias(path.posix.dirname(roots.profileRoot)) : null;
   for (const cmd of commands) {
-    for (const word of cmd.raw) {
+    const patternWords = expandVars ? patternOperands(cmd) : new Set<number>();
+    const implicitWrites = expandVars ? implicitWriteWords(cmd) : new Set<string>();
+    for (let wi = 0; wi < cmd.raw.length; wi++) {
+      const word = cmd.raw[wi];
+      if (patternWords.has(wi)) continue;
       const candidates = [word];
       const value = /^[^=/]*=(.+)$/.exec(word);
       if (value) candidates.push(value[1]);
@@ -454,7 +509,9 @@ function outsidePath(commands: any[], roots: any, { expandVars = false, scratch 
             const name = v ? (v[1] || v[2]) : 'HOME';
             const rest = (v ? v[3] : tilde![1]) || '';
             if (name === 'PWD') abs = path.posix.resolve(cwd, `.${rest}`);
+            else if (name === 'OLDPWD') abs = path.posix.resolve(oldpwd, `.${rest}`);
             else if (name === 'HOME' && typeof roots?.profileRoot === 'string' && roots.profileRoot.startsWith('/')) abs = path.posix.resolve(roots.profileRoot, 'home', `.${rest}`);
+            else if (AB_TMP_VARS.includes(name) && osTmp !== null && rest !== '') abs = path.posix.resolve(osTmp, `.${rest}`);
             else if (AB_TMP_VARS.includes(name) || name === 'HOME') return word;
             else if (rest !== '' && !assigned.has(name)) return word;
           } else if (/^~[^/]/.test(p)) return word;
@@ -465,16 +522,24 @@ function outsidePath(commands: any[], roots: any, { expandVars = false, scratch 
         if (abs !== null && scratch !== null) {
           const norm = unalias(abs);
           if (norm !== '/tmp' && within(norm, '/tmp')) {
-            if (p === word && cmd.writes?.includes(word)) {
+            if (p === word && (cmd.writes?.includes(word) || implicitWrites.has(word))) {
               scratch.add(norm);
               continue;
             }
             if ([...scratch].some((own) => within(norm, own))) continue;
           }
         }
+        if (abs !== null && osTmp !== null) {
+          // A path the run names below the OS temp dir (`$TMPDIR/ev-batch`, a `mktemp -d` result) is its own scratch;
+          // the harness's directories there (other runs' workspaces and profiles, the tool export), a bare listing of
+          // the temp dir and a `..` out of it are not.
+          const norm = unalias(abs);
+          if (norm !== osTmp && within(norm, osTmp) && !AB_HARNESS_TMP.test(norm.slice(osTmp.length + 1).split('/')[0])) continue;
+        }
         if (abs !== null && !allowed.some((root) => within(unalias(abs), root))) return word;
       }
     }
+    if (cmd.words[0] === 'cd' && cmd.words[1] && cmd.words[1] !== '-') oldpwd = cwd;
     if (cmd.words[0] === 'cd' && cmd.words[1] && !/^[-~$]/.test(cmd.words[1])) cwd = path.posix.resolve(cwd, cmd.words[1]);
   }
   return null;
@@ -758,7 +823,7 @@ const metricTokens = (t: any) => (t === null ? null : {
  * model other than the pin). `proof` is the evidence in either arm.
  * @returns {{isolation: 'clean'|'leaked'|'not-loaded'|'unverifiable', evidence: string[], proof: object}}
  */
-function classifyAbIsolation({ reports, armConfig, roots, expected, homeSetup, pin, infra }: { reports: any[]; armConfig: any; roots: any; expected: any; homeSetup: any; pin: string | null; infra: string | null }) {
+function classifyAbIsolation({ reports, armConfig, roots, expected, homeSetup, pin, infra, localCommands = [] }: { reports: any[]; armConfig: any; roots: any; expected: any; homeSetup: any; pin: string | null; infra: string | null; localCommands?: RegExp[] }) {
   const leak = compile(armConfig?.leak);
   const evidence: string[] = [];
   const scratch = new Set<string>(); // paths below /tmp this run wrote itself
@@ -777,12 +842,13 @@ function classifyAbIsolation({ reports, armConfig, roots, expected, homeSetup, p
       const named = name === 'Bash' ? [] : pathsOf(Array.isArray(call.paths) ? call.paths : [], target);
       const rawNamed = name === 'Bash' ? [] : pathsOf(rawPaths, rawTarget);
       const writing = name === 'Write' || name === 'Edit' || name === 'NotebookEdit';
-      const commands = name === 'Bash' ? simpleCommands(rawTarget) : rawNamed.map((text: string) => ({ text, words: [text], raw: [text], writes: writing ? [text] : [] }));
+      const commands = name === 'Bash' ? simpleCommands(rawTarget, { cut: rawTarget.length >= AB_COMMAND_CUT }) : rawNamed.map((text: string) => ({ text, words: [text], raw: [text], writes: writing ? [text] : [] }));
       if (commands.length === 0) continue;
-      const hit = commands.some((c: any) => leak.some((re: any) => re.test(c.text)))
-        || (name === 'Bash' ? [rawTarget] : rawNamed).some((text: string) => AB_TRUTH_SUBSTRINGS.some((x) => text.includes(x)))
-        || outsidePath(commands, roots, { expandVars: true, scratch }) !== null;
-      if (hit) note(`${name}: ${name === 'Bash' ? target : named.join(' ')}`);
+      let reason: string | null = null;
+      if (commands.some((c: any) => !localCommands.some((re) => re.test(c.text)) && leak.some((re: any) => re.test(c.text)))) reason = 'arm-pattern';
+      else if ((name === 'Bash' ? [rawTarget] : rawNamed).some((text: string) => AB_TRUTH_SUBSTRINGS.some((x) => text.includes(x)))) reason = 'truth-path';
+      else { const word = outsidePath(commands, roots, { expandVars: true, scratch }); if (word !== null) reason = 'outside-path'; }
+      if (reason !== null) note(`${name} [${reason}]: ${name === 'Bash' ? target : named.join(' ')}`);
     }
   }
   const proofs = reports.map((r: any) => claudeStream.loadProof(r, expected));
@@ -1131,6 +1197,7 @@ function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; 
 
   const iso = classifyAbIsolation({
     reports, armConfig, roots: launch, expected: launch.proofExpected || { skills: [], agents: [] }, homeSetup: homeSetupState, pin: config.model?.label ?? null, infra,
+    localCommands: isTier2 ? TIER2_LOCAL_COMMANDS : [],
   });
   // Permissions: a run whose stream holds permission denials did not do the task it was given (its tools were refused),
   // and a run killed for a wrong init.permissionMode never started it. Both are excluded; the mark stays in the shared

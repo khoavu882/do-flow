@@ -868,6 +868,15 @@ const T2_NOT_EARNED_IF: Record<string, { text: string; defectItems?: string[] }>
 const sumBy = (xs: any[], f: (x: any) => number) => xs.reduce((n, x) => n + (Number.isFinite(f(x)) ? f(x) : 0), 0);
 const countOf = (xs: string[]) => { const out: Record<string, number> = {}; for (const x of xs) out[x] = (out[x] ?? 0) + 1; return out; };
 
+/** Why a run is excluded: its mark, and the specific reason when that is a different word (`truncated (permission-denied)`). */
+function t2ExclusionText(g: any): string {
+  const mark = g.tier2?.excluded ?? g.exclusionReason ?? 'ungraded';
+  const why = g.exclusionReason ?? null;
+  const denied = g.permissionDenials > 0 ? 'permission-denied' : null;
+  const detail = [why, denied].find((x) => x && x !== mark && x !== 'clean') ?? null;
+  return detail ? `${mark} (${detail})` : mark;
+}
+
 /** One arm's figures for one task over its repeats. `gs` = the gradings of that task in that arm, one per repeat that ran. */
 function t2ArmSummary(gs: any[]) {
   const scored = gs.filter((g) => g.pass_rate !== null && g.pass_rate !== undefined);
@@ -884,11 +893,33 @@ function t2ArmSummary(gs: any[]) {
       totalTokens: avg(finite(withProcess.map((g) => g.tier2.process.byModel?.[model as string]?.totalTokens ?? 0))) as number,
     };
   }
+  // Tokens and cost of the scored runs as a LOWER BOUND when a run was stopped at its cap: a killed run reports no result
+  // event, so its tokens are the cap it was stopped at (it passed it) and its cost is not reported at all. The bound is the
+  // sum of what is known over ALL scored runs (an unknown run adds 0), never the mean of the runs that reported.
+  const bound = (runs: any[], known: (g: any) => number | null) => {
+    const vals = runs.map(known);
+    const sum = vals.reduce((n: number, v: number | null) => n + (v ?? 0), 0);
+    const reported = vals.filter((v: number | null) => v !== null).length;
+    return { value: reported ? sum / runs.length : null, reported, runs: runs.length, lowerBound: reported < runs.length || runs.some((g) => g.censored) };
+  };
+  const tokensOf = (g: any) => g.metrics.tokens?.total ?? (g.censored === 'cap' && Number.isFinite(g.metrics.capTokens) ? g.metrics.capTokens : null);
+  const costOf = (g: any) => (Number.isFinite(g.metrics.costUsd) ? g.metrics.costUsd : null);
+  const tokensBound = bound(scored, tokensOf);
+  const costBound = bound(scored, costOf);
+  // Every run that ran, excluded ones too: what the arm spent and what its workspaces held (sensitivity, never a score).
+  const withWorkspace = gs.filter((g) => g.tier2.graded === true);
+  const allCov = withWorkspace.map((g) => g.tier2.coverage.k);
+  const allRuns = { runs: gs.length, coverage: { mean: avg(allCov), min: allCov.length ? Math.min(...allCov) : null, max: allCov.length ? Math.max(...allCov) : null, withWorkspace: withWorkspace.length }, tokens: bound(gs, tokensOf), cost: bound(gs, costOf) };
   const recovered = scored.filter((g) => g.tier2.recovered !== null);
   const defectNote = gs.map((g) => g.tier2.recoveredNote).find((x) => x);
   return {
     runs: gs.length, scored: scored.length, items: n,
-    excluded: gs.filter((g) => g.pass_rate === null || g.pass_rate === undefined).map((g) => ({ iteration: g.iteration, id: g.id, reason: g.tier2.excluded ?? g.exclusionReason ?? 'ungraded' })),
+    excluded: gs.filter((g) => g.pass_rate === null || g.pass_rate === undefined).map((g) => ({ iteration: g.iteration, id: g.id, reason: t2ExclusionText(g) })),
+    // Excluded runs that left a graded workspace keep their item results here, beside (never inside) the scored means.
+    excludedItems: gs.filter((g) => (g.pass_rate === null || g.pass_rate === undefined) && g.tier2.graded === true).map((g) => ({
+      iteration: g.iteration, id: g.id, reason: t2ExclusionText(g), k: g.tier2.coverage.k, n: g.tier2.coverage.n, regressionFree: g.tier2.regressionFree === true, deliveryFailed: g.tier2.deliveryFailed === true,
+    })),
+    tokensBound, costBound, allRuns,
     success: scored.length ? scored.filter((g) => g.pass_rate === 1).length / scored.length : null,
     successRuns: scored.filter((g) => g.pass_rate === 1).length,
     coverage: { mean: avg(cov), min: cov.length ? Math.min(...cov) : null, max: cov.length ? Math.max(...cov) : null, values: cov },
@@ -1018,6 +1049,7 @@ function tier2ReportLines(r: any) {
     `Tier-2 report: three arms, per task. DESCRIPTIVE, NO SIGNIFICANCE (repeats per arm: ${kText}; model ${r.model}).`,
     'Scored = success needs all items AND the visible command green AND delivery (a run stopped at the cap or timeout is a FAILED delivery, never dropped). Coverage is items passed of N.',
     'Pair X-Y = Y relative to X (difference = Y minus X, ratio = Y / X).',
+    'Cap-hit runs: a run stopped at its token cap reports no result event, so its tokens are counted AT the cap (it passed it) and shown as ">=", and its cost in USD was never reported. No dollar-cap sensitivity is computed: it would need a cost the run never reported. "excluded, item results only" lists the runs left out of every mean (a leak, a permission denial, an infra failure) with the items they passed.',
   ];
   for (const t of r.tasks) {
     lines.push('', `Task ${t.id} (${t.kind}, ${t.items} items): ${t.name}`);
@@ -1030,8 +1062,19 @@ function tier2ReportLines(r: any) {
     row('delivery failed (cap or timeout)', (s) => `${s.deliveryFailed} of ${s.runs}`);
     row('scored excluding capped/leaked runs: success; coverage', (s) => `${t2Rate(s.sensitivity.successRuns, s.sensitivity.runs)}; ${s.sensitivity.coverage === null ? 'none' : `${num(s.sensitivity.coverage, 2)}/${s.items}`}`);
     const lb = (s: any, v: string) => (s.censored ? `${v} (lower bound, ${s.censored} censored)` : v);
-    row('total tokens (mean)', (s) => lb(s, num(s.totalTokens, 0)));
-    row('cost USD (mean)', (s) => lb(s, num(s.costUsd, 4)));
+    // A run stopped at its cap reports no result event: its tokens count at the cap (it passed it), its cost is not reported.
+    const bounded = (b: any, digits: number, what: string) => {
+      if (b.value === null) return b.runs ? `none (no scored run reported ${what})` : 'none';
+      const note = b.reported < b.runs ? ` (${b.reported} of ${b.runs} runs report ${what}; the others were stopped at the cap)` : (b.lowerBound ? ' (a run stopped at the cap)' : '');
+      return `${b.lowerBound ? '>= ' : ''}${num(b.value, digits)}${note}`;
+    };
+    row('total tokens (mean; a capped run counts at its cap)', (s) => bounded(s.tokensBound, 0, 'tokens'));
+    row('cost USD (mean; lower bound when a capped run reports none)', (s) => bounded(s.costBound, 4, 'cost'));
+    row('sensitivity, every run incl. excluded: coverage k/N [range]', (s) => (s.allRuns.coverage.mean === null ? 'none' : `${num(s.allRuns.coverage.mean, 2)}/${s.items} [${s.allRuns.coverage.min}-${s.allRuns.coverage.max}] over ${s.allRuns.coverage.withWorkspace} of ${s.allRuns.runs} run(s)`));
+    row('sensitivity, every run incl. excluded: tokens; cost USD (means)', (s) => `${bounded(s.allRuns.tokens, 0, 'tokens').replace(/ \(.*$/, '')}; ${bounded(s.allRuns.cost, 4, 'cost').replace(/ \(.*$/, '')}`);
+    row('excluded, item results only (not in any mean above)', (s) => (s.excludedItems.length
+      ? s.excludedItems.map((e: any) => `${e.iteration} ${e.k}/${e.n} items${e.regressionFree ? '' : ', visible red'}${e.deliveryFailed ? ', delivery failed' : ''} [${e.reason}]`).join('; ')
+      : 'none excluded with a workspace'));
     row('cost by model (mean USD; tokens)', (s) => (Object.keys(s.byModel).length ? Object.entries(s.byModel).map(([m, v]: [string, any]) => `${m} ${num(v.costUsd, 4)}; ${num(v.totalTokens, 0)}`).join(' / ') : 'none'));
     row('wall seconds (mean)', (s) => lb(s, num(s.wallSeconds, 1)));
     row('tool calls (mean)', (s) => num(s.toolCalls, 1));
