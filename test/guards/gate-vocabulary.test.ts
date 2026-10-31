@@ -27,8 +27,11 @@ const ROADMAP_DIR = 'src/runtime/roadmap';
 const ORCHESTRATOR = 'src/runtime/workflow-orchestrator.ts';
 const DECIDE_METHOD = 'decideGateByPolicy';
 const GATES = 'core/registry/gates.json';
-/** Classes whose gate-b exists only in the roadmap loop's program (src/runtime/workflow-orchestrator.ts loopWorkflow). */
-const LOOP_GATE_B_CLASSES = ['bug', 'refactor', 'documentation', 'dependency-change', 'trivial-edit'];
+// The classes the roadmap loop runs (rows.ts LOOP_CLASSES) get the loop's own program (loopWorkflow), which adds a
+// gate-b that workflows.json does not declare. Both are read from the source, so a loopWorkflow that stops adding
+// gate-b, or a class the loop starts running, turns the comparison below red instead of a hand list going stale.
+const { LOOP_CLASSES } = require('../../src/runtime/roadmap/rows.ts');
+const { loopWorkflow } = require('../../src/runtime/workflow-orchestrator.ts');
 const WORKFLOWS = 'core/registry/workflows.json';
 const SELF = 'test/guards/gate-vocabulary.test.ts';
 const EXTRA_EXPECTATIONS: any = ['test/fixtures/roadmap/g-l1/expected.json'];
@@ -177,7 +180,7 @@ function walk(dir: any, accept: any, found: any = []) {
  * Reads the vocabulary inputs from `target` (a repo root, default this repo) and applies the three
  * rules. Any input can be replaced with an in-memory value for the controls:
  *   gates, workflows (parsed JSON), emitters (Map rel -> text), orchestrator (text),
- *   expectations (Map rel -> text), allowedGaps (array).
+ *   expectations (Map rel -> text), allowedGaps (array), loopWorkflow (function).
  */
 function checkGateVocabulary(target: any = REPO): any {
   const options = typeof target === 'string' ? { root: target } : target;
@@ -196,6 +199,7 @@ function checkGateVocabulary(target: any = REPO): any {
     ...EXTRA_EXPECTATIONS,
   ].filter((rel) => rel !== SELF).map((rel) => { try { return [rel, fs.readFileSync(path.join(root, rel), 'utf8')]; } catch { return [rel, '']; } }));
   const allowedGaps = options.allowedGaps || ALLOWED_GAPS;
+  const loopProgram = options.loopWorkflow || loopWorkflow;
   if (!gates || !workflows) return { findings, emitted: new Map(), gaps: [] };
 
   // 1. gate ids per class
@@ -205,10 +209,11 @@ function checkGateVocabulary(target: any = REPO): any {
     if (!(cls in policyClasses)) { findings.push(`class '${cls}' is in workflows.json but not in gates.json`); continue; }
     if (!(cls in workflowClasses)) { findings.push(`class '${cls}' is in gates.json but not in workflows.json`); continue; }
     const fromPolicy = Object.keys(policyClasses[cls]).sort();
-    // AU-P1: the roadmap loop adds a gate-b to these classes' runs (loopWorkflow in the orchestrator);
-    // workflows.json stays gate-free so an attended run of the class never stops at a gate.
-    const fromWorkflow = [...(workflowClasses[cls].gates || []).map((gate: any) => gate.id), ...(LOOP_GATE_B_CLASSES.includes(cls) ? ['gate-b'] : [])]
-      .filter((id, index, all) => all.indexOf(id) === index).sort();
+    // AU-P1: a class the roadmap loop runs is compared on the loop's program; workflows.json stays gate-free so an
+    // attended run of the class never stops at a gate.
+    // (feature declares its own gate-b in workflows.json and stays compared on that.)
+    const program = cls !== 'feature' && LOOP_CLASSES.includes(cls) ? loopProgram(workflowClasses[cls]) : workflowClasses[cls];
+    const fromWorkflow = (program.gates || []).map((gate: any) => gate.id).sort();
     if (JSON.stringify(fromPolicy) !== JSON.stringify(fromWorkflow)) {
       findings.push(`gate ids differ for class '${cls}': gates.json [${fromPolicy}] workflows.json [${fromWorkflow}]`);
     }
@@ -349,6 +354,17 @@ test('G55 control: gate ids that differ from workflows.json turn the guard red',
   const missingClass = base();
   delete missingClass.gates.classes.operations;
   assert.ok(checkGateVocabulary(missingClass).findings.some((f: any) => f.includes("class 'operations' is in workflows.json but not in gates.json")));
+});
+
+test('G55 control: a loop program that stops adding gate-b, or a loop class with no policy gate-b, turns the guard red', () => {
+  assert.deepEqual(checkGateVocabulary({ ...base(), loopWorkflow }).findings.filter((f: any) => f.startsWith('gate ids')), []);
+  const stopped = checkGateVocabulary({ ...base(), loopWorkflow: (workflow: any) => workflow }).findings;
+  for (const cls of LOOP_CLASSES.filter((c: string) => c !== 'feature')) {
+    assert.ok(stopped.some((f: any) => f.includes(`class '${cls}'`) && f.includes('gate-b')), cls);
+  }
+  const noPolicy = base();
+  noPolicy.gates.classes.bug = {};
+  assert.ok(checkGateVocabulary(noPolicy).findings.some((f: any) => f.includes("class 'bug'")));
 });
 
 test('G55 control: a listed reason no test mentions is a finding unless allowed, and an allowed gap may only shrink', () => {

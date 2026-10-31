@@ -1493,4 +1493,4 @@ function handleOrchestrateCommand({
   }
 }
 
-module.exports = { WorkflowOrchestrator, RUN_STATES, GATE_DECISIONS, STAGE_OUTCOMES, handleOrchestrateCommand, recordStagePack };
+module.exports = { WorkflowOrchestrator, loopWorkflow, RUN_STATES, GATE_DECISIONS, STAGE_OUTCOMES, handleOrchestrateCommand, recordStagePack };
