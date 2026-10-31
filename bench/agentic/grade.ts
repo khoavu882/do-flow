@@ -966,7 +966,7 @@ function classifyAbIsolation({ reports, armConfig, roots, expected, homeSetup, p
 // ---------------------------------------------------------------------------------------------
 // Tier 2: checklist grading (agent-docs/briefs/ab-tier2-design-result.md sections 3 and 5)
 // ---------------------------------------------------------------------------------------------
-// The check semantics are those of bench/agentic/ab/tier2/validate-fixtures.js, which is the reference: keep the two in step.
+// The check semantics are those of bench/agentic/ab/tier2/validate-fixtures.ts, which is the reference: keep the two in step.
 
 /** Tier-2 task kinds (`single`: one session, `continuity`: two sessions with a cut). Not imported from tasks.ts so this file stands alone. */
 const TIER2_KINDS = Object.freeze(['single', 'continuity']);

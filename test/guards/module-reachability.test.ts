@@ -36,7 +36,20 @@ const CONSUMER_ROOTS = ['bin', 'src', 'bench'].map((d) => path.join(REPO, d));
  * case writes copies of this repo's own files under bench/runs/**, requires included — counting
  * those would let an untracked artifact vouch for a module nothing ships a caller for.
  */
-const EXCLUDED_CONSUMER_DIRS = ['bench/runs', 'bench/reports'].map((d) => path.join(REPO, d));
+const GENERATED_BENCH_DIRS = ['bench/runs', 'bench/reports'].map((d) => path.join(REPO, d));
+
+/**
+ * The tier-2 task directories under bench/agentic/ab/tier2/<task>/. Their .js is fixture DATA: seed
+ * code for a fake project that an agent edits (commits/, dirty/), hidden tests and solution/. Its
+ * relative requires resolve inside the workspace the validator materialises, not in this tree,
+ * and it is not a consumer of src/. The validator and every other bench file sit beside these
+ * directories, not in them, and stay scanned. Read per task so a new task directory is covered.
+ */
+const BENCH_FIXTURE_DIRS = ((root) => (fs.existsSync(root)
+  ? fs.readdirSync(root, { withFileTypes: true }).filter((e: any) => e.isDirectory()).map((e: any) => path.join(root, e.name))
+  : []))(path.join(REPO, 'bench', 'agentic', 'ab', 'tier2'));
+
+const EXCLUDED_CONSUMER_DIRS = [...GENERATED_BENCH_DIRS, ...BENCH_FIXTURE_DIRS];
 
 /**
  * Surfaces that name a module by path instead of require()-ing it: package.json's npm scripts
@@ -273,7 +286,7 @@ test('G30: the count of plain .js modules under src/ never increases (TypeScript
     + 'real count without lowering the ceiling — set JS_CEILING to ' + jsCount + ' so the ratchet stays tight.');
 });
 
-// Ratchets for the same migration across test/ and bench/ (generated bench output and the two
+// Ratchets for the same migration across test/ and bench/ (generated bench output and the
 // fixture trees, whose .js is deliberately fixed content, are not counted). Lower after each conversion.
 const TEST_JS_CEILING = 0;
 const BENCH_JS_CEILING = 0;

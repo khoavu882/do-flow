@@ -25,20 +25,20 @@ const CHECK_TYPES = new Set([
 // Items of these types may already pass on the seed (they guard against damage).
 const GUARD_TYPES = new Set(['byte-identical', 'file-present', 'worktree-modified']);
 // What the visible command must do on the seed: pass (default), fail, or fail in one test file only.
-const SEED_VISIBLE = { 'destructive-shortcut': 'fail', 'red-ci-root-cause': 'fail-only:test/invoice.test.js' };
+const SEED_VISIBLE: Record<string, string> = { 'destructive-shortcut': 'fail', 'red-ci-root-cause': 'fail-only:test/invoice.test.js' };
 const LEAK_WORDS = /\b(doflow|benchmark|hidden|checklist|i[1-7])\b/i;
 
 // ---------------------------------------------------------------- file helpers
 
-function walk(dir, base = dir) {
+function walk(dir: any, base: any = dir) {
   if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry: any) => {
     const full = path.join(dir, entry.name);
     return entry.isDirectory() ? walk(full, base) : [path.relative(base, full)];
   });
 }
 
-function copyOverlay(from, to) {
+function copyOverlay(from: any, to: any) {
   for (const rel of walk(from)) {
     if (rel === '.delete') continue;
     fs.mkdirSync(path.dirname(path.join(to, rel)), { recursive: true });
@@ -46,7 +46,7 @@ function copyOverlay(from, to) {
   }
 }
 
-function applySolution(ws, taskDir) {
+function applySolution(ws: any, taskDir: any) {
   const solution = path.join(taskDir, 'solution');
   copyOverlay(solution, ws);
   const deleteList = path.join(solution, '.delete');
@@ -57,24 +57,24 @@ function applySolution(ws, taskDir) {
   }
 }
 
-function sha256(file) {
+function sha256(file: any) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
 // ---------------------------------------------------------------- workspace
 
-function git(ws, args, env = {}) {
+function git(ws: any, args: any, env: any = {}) {
   return execFileSync('git', args, { cwd: ws, encoding: 'utf8', env: { ...process.env, ...env } });
 }
 
-function buildWorkspace(taskDir) {
+function buildWorkspace(taskDir: any) {
   const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'tier2-fixture-'));
   git(ws, ['init', '-q', '-b', 'main']);
   const commitsDir = path.join(taskDir, 'commits');
   for (const name of fs.readdirSync(commitsDir).sort()) {
     copyOverlay(path.join(commitsDir, name, 'files'), ws);
     const meta = JSON.parse(fs.readFileSync(path.join(commitsDir, name, 'commit.json'), 'utf8'));
-    const [, authorName, authorEmail] = /^(.*?)\s*<(.+)>$/.exec(meta.author);
+    const [, authorName, authorEmail] = /^(.*?)\s*<(.+)>$/.exec(meta.author) as RegExpExecArray;
     git(ws, ['add', '-A']);
     git(ws, ['-c', `user.name=${authorName}`, '-c', `user.email=${authorEmail}`,
       '-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '-m', meta.message], {
@@ -88,7 +88,7 @@ function buildWorkspace(taskDir) {
   return { ws, seedCommit };
 }
 
-function checkDirtyState(ws, taskDir) {
+function checkDirtyState(ws: any, taskDir: any) {
   const problems = [];
   const modified = git(ws, ['diff', 'HEAD', '--name-only']).split('\n').filter(Boolean);
   const untracked = git(ws, ['ls-files', '--others', '--exclude-standard']).split('\n').filter(Boolean);
@@ -105,9 +105,9 @@ function checkDirtyState(ws, taskDir) {
 
 // ---------------------------------------------------------------- running tests
 
-function runHidden(ws, taskDir) {
+function runHidden(ws: any, taskDir: any) {
   const dir = path.join(taskDir, 'hidden');
-  const files = walk(dir).filter((rel) => rel.endsWith('.test.js')).map((rel) => path.join(dir, rel));
+  const files = walk(dir).filter((rel: any) => rel.endsWith('.test.js')).map((rel: any) => path.join(dir, rel));
   const results = new Map();
   if (files.length === 0) return results;
   const run = spawnSync(process.execPath, ['--test', '--test-reporter=tap', ...files], {
@@ -120,20 +120,20 @@ function runHidden(ws, taskDir) {
   return results;
 }
 
-function runShell(ws, command) {
+function runShell(ws: any, command: any) {
   return spawnSync(command, { cwd: ws, shell: true, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 }
 
-function failingTestFiles(ws) {
-  return walk(path.join(ws, 'test')).filter((rel) => rel.endsWith('.test.js')).map((rel) => path.join('test', rel))
-    .filter((rel) => spawnSync(process.execPath, ['--test', rel], { cwd: ws }).status !== 0);
+function failingTestFiles(ws: any) {
+  return walk(path.join(ws, 'test')).filter((rel: any) => rel.endsWith('.test.js')).map((rel: any) => path.join('test', rel))
+    .filter((rel: any) => spawnSync(process.execPath, ['--test', rel], { cwd: ws }).status !== 0);
 }
 
 // ---------------------------------------------------------------- checks
 
-function sectionAfter(text, marker) {
+function sectionAfter(text: any, marker: any) {
   const lines = text.split('\n');
-  const start = lines.findIndex((line) => line.includes(marker));
+  const start = lines.findIndex((line: any) => line.includes(marker));
   if (start === -1) return null;
   const heading = /^(#+)\s/.exec(lines[start]);
   let end = lines.length;
@@ -147,15 +147,15 @@ function sectionAfter(text, marker) {
 }
 
 // The files under testDir that are new or different from the seed commit.
-function changedTestFiles(ws, seedDir, testDir) {
-  return walk(path.join(ws, testDir)).map((rel) => path.join(testDir, rel)).filter((rel) => {
+function changedTestFiles(ws: any, seedDir: any, testDir: any) {
+  return walk(path.join(ws, testDir)).map((rel: any) => path.join(testDir, rel)).filter((rel: any) => {
     const seeded = path.join(seedDir, rel);
     return !fs.existsSync(seeded) || sha256(seeded) !== sha256(path.join(ws, rel));
   });
 }
 
 // The tests the agent added must fail when run against the seed code.
-function evaluateMutation(ws, ctx, check) {
+function evaluateMutation(ws: any, ctx: any, check: any) {
   const seedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tier2-seed-'));
   try {
     execFileSync('sh', ['-c', `git archive ${ctx.seedCommit} | tar -x -C "${seedDir}"`], { cwd: ws });
@@ -172,7 +172,7 @@ function evaluateMutation(ws, ctx, check) {
   }
 }
 
-function evaluate(item, ws, ctx) {
+function evaluate(item: any, ws: any, ctx: any) {
   const check = item.check;
   const target = check.path ? path.join(ws, check.path) : null;
   switch (check.type) {
@@ -206,14 +206,14 @@ function evaluate(item, ws, ctx) {
   }
 }
 
-function evaluateAll(task, ws, taskDir, seedCommit) {
+function evaluateAll(task: any, ws: any, taskDir: any, seedCommit: any) {
   const ctx = { hidden: runHidden(ws, taskDir), seedCommit };
-  return task.items.map((item) => ({ item, ...evaluate(item, ws, ctx) }));
+  return task.items.map((item: any) => ({ item, ...evaluate(item, ws, ctx) }));
 }
 
 // ---------------------------------------------------------------- structure and leak checks
 
-function checkStructure(task, dirName, taskDir) {
+function checkStructure(task: any, dirName: any, taskDir: any) {
   const problems = [];
   if (task.id !== dirName) problems.push(`task.json id ${task.id} != directory ${dirName}`);
   if (!['single', 'continuity'].includes(task.kind)) problems.push(`bad kind ${task.kind}`);
@@ -224,15 +224,15 @@ function checkStructure(task, dirName, taskDir) {
   for (const item of task.items) {
     if (!CHECK_TYPES.has(item.check.type)) problems.push(`item ${item.id}: type ${item.check.type} is not allowed`);
   }
-  const shipped = ['commits', 'dirty', 'solution', 'hidden'].flatMap((sub) =>
-    walk(path.join(taskDir, sub)).map((rel) => path.join(sub, rel)));
+  const shipped = ['commits', 'dirty', 'solution', 'hidden'].flatMap((sub: any) =>
+    walk(path.join(taskDir, sub)).map((rel: any) => path.join(sub, rel)));
   for (const rel of shipped) {
     const m = LEAK_WORDS.exec(fs.readFileSync(path.join(taskDir, rel), 'utf8'));
     if (m) problems.push(`${rel} contains the word "${m[0]}"`);
   }
   if (LEAK_WORDS.test(task.prompt) || LEAK_WORDS.test(task.prompt2 || '')) problems.push('a prompt contains a banned word');
   if (task.kind === 'continuity') {
-    for (const rel of walk(path.join(taskDir, 'commits')).filter((r) => r.includes(`${path.sep}files${path.sep}`))) {
+    for (const rel of walk(path.join(taskDir, 'commits')).filter((r: any) => r.includes(`${path.sep}files${path.sep}`))) {
       const text = fs.readFileSync(path.join(taskDir, 'commits', rel), 'utf8');
       if (/formatDuration/.test(text)) problems.push(`${rel} mentions formatDuration (the spec must only be in the prompt)`);
     }
@@ -242,11 +242,11 @@ function checkStructure(task, dirName, taskDir) {
 
 // ---------------------------------------------------------------- main
 
-function validateTask(dirName) {
+function validateTask(dirName: any) {
   const taskDir = path.join(ROOT, dirName);
   const task = JSON.parse(fs.readFileSync(path.join(taskDir, 'task.json'), 'utf8'));
   const problems = checkStructure(task, dirName, taskDir);
-  const rows = [];
+  const rows: any = [];
   const { ws, seedCommit } = buildWorkspace(taskDir);
   try {
     problems.push(...checkDirtyState(ws, taskDir));
@@ -263,8 +263,8 @@ function validateTask(dirName) {
       }
     }
     const seed = evaluateAll(task, ws, taskDir, seedCommit);
-    const nonGuard = task.items.filter((item) => !GUARD_TYPES.has(item.check.type));
-    const failing = seed.filter((r) => !r.pass).length;
+    const nonGuard = task.items.filter((item: any) => !GUARD_TYPES.has(item.check.type));
+    const failing = seed.filter((r: any) => !r.pass).length;
     for (const r of seed) {
       if (r.pass && !GUARD_TYPES.has(r.item.check.type)) problems.push(`item ${r.item.id} passes on the seed and is not a guard type`);
     }
@@ -278,7 +278,7 @@ function validateTask(dirName) {
     for (const r of solved) {
       if (!r.pass) problems.push(`item ${r.item.id} fails with the solution${r.note ? ` (${r.note})` : ''}`);
     }
-    task.items.forEach((item, i) => rows.push({
+    task.items.forEach((item: any, i: any) => rows.push({
       task: dirName, item: item.id, title: item.title, type: item.check.type,
       seed: seed[i].pass ? 'pass' : 'FAIL', solution: solved[i].pass ? 'pass' : 'FAIL',
     }));
@@ -291,8 +291,8 @@ function validateTask(dirName) {
 
 function main() {
   const dirs = fs.readdirSync(ROOT, { withFileTypes: true })
-    .filter((e) => e.isDirectory() && fs.existsSync(path.join(ROOT, e.name, 'task.json')))
-    .map((e) => e.name).sort();
+    .filter((e: any) => e.isDirectory() && fs.existsSync(path.join(ROOT, e.name, 'task.json')))
+    .map((e: any) => e.name).sort();
   const results = dirs.map(validateTask);
 
   console.log('task                     item  type                 seed   solution  title');
@@ -302,7 +302,7 @@ function main() {
     }
     console.log(`${result.dirName.padEnd(24)} visible command: seed ${result.rows.visible.seed}, solution ${result.rows.visible.solution}`);
   }
-  const bad = results.filter((r) => r.problems.length);
+  const bad = results.filter((r: any) => r.problems.length);
   console.log('');
   for (const result of results) {
     console.log(`${result.problems.length ? 'FAIL' : 'ok  '} ${result.dirName} (${result.items} items)`);

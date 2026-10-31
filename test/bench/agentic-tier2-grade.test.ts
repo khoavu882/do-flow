@@ -1,7 +1,7 @@
 'use strict';
 
 // Tier-2 checklist grading and the three-arm report, offline. Workspaces are built from the committed fixtures
-// (bench/agentic/ab/tier2/<task>: ordered commits, dirty overlays, solution/) the way validate-fixtures.js builds them, and
+// (bench/agentic/ab/tier2/<task>: ordered commits, dirty overlays, solution/) the way validate-fixtures.ts builds them, and
 // the run directories around them are shaped like the executor's. No model, network or credential is touched.
 
 const { test } = require('node:test');
@@ -33,7 +33,7 @@ const mkdir = (prefix: string) => {
   return dir;
 };
 
-// ---- workspaces, built the way validate-fixtures.js builds them --------------------------------------------------
+// ---- workspaces, built the way validate-fixtures.ts builds them --------------------------------------------------
 
 const walk = (dir: string, base = dir): string[] => (fs.existsSync(dir) ? fs.readdirSync(dir, { withFileTypes: true }).flatMap((e: any) => (e.isDirectory() ? walk(path.join(dir, e.name), base) : [path.relative(base, path.join(dir, e.name))])) : []);
 function overlay(from: string, to: string) {
@@ -357,12 +357,12 @@ test('isolation (tier 2): `npm test` is the fixtures\' offline test script, not 
 });
 
 test('isolation (tier 2): the whole command is read, not the 4000 characters stored: a long closed heredoc is data, a leak after character 4000 is seen, a short unclosed heredoc is code', () => {
-  const body = `const x = require('../lib/duration');\n${'// padding\n'.repeat(450)}const y = require('../lib/long');\n`;
+  const body = "const x = require('../lib/duration');\n" + '// padding\n'.repeat(450) + "const y = require('../lib/long');\n";
   const long = `cat >> test/duration.test.js <<'EOF'\n${body}EOF\nnpm test 2>&1 | tail -5`;
   assert.ok(long.length > 4500);
   assertClean(long);
-  assertLeaked(`${long}\ncat /Users/other/secret.txt`);
-  assertLeaked(`cat > a.js <<'EOF'\n${'// padding\n'.repeat(450)}EOF\ncat /Users/other/secret.txt`);
+  assertLeaked(`${long}\ncat /Users/someone/secret.txt`);
+  assertLeaked(`cat > a.js <<'EOF'\n${'// padding\n'.repeat(450)}EOF\ncat /Users/someone/secret.txt`);
   assertLeaked("cat >> t.js <<'EOF'\ncat ../outside/secret.txt\n"); // short and never closed: the body may be code
 });
 
@@ -411,23 +411,23 @@ test('isolation (tier 2): a sed/awk/grep/rg pattern is not a path, but a pattern
   assertClean("grep -n '/api/' lib/a.js; rg '/v1/' lib");
   assertClean("grep -e '/x/' -e '/y/' lib/a.js");
   assertClean("sed -ne '/a/p' lib/a.js");
-  assertLeaked("grep -n 'needle' /Users/other/file.txt");
-  assertLeaked("sed -n '/a/p' /Users/other/file.txt");
-  assertLeaked('sed -f /Users/other/script.sed lib/a.js');
-  assertLeaked('grep -f /Users/other/patterns lib/a.js');
-  assertLeaked('awk -f p.awk /Users/kai/.zshrc');
-  assertLeaked('grep -f pats /Users/kai/.ssh/config');
-  assertLeaked('sed -f s.sed /Users/kai/.zshrc');
-  assertLeaked('grep -r --file=pats /Users/kai');
-  assertLeaked('grep -rf pats /Users/kai');
-  assertLeaked('grep -e needle /Users/kai/.zshrc');
-  assertLeaked('rg --files /Users/kai/Workspace');
-  assertLeaked('cat /Users/other/file.txt');
+  assertLeaked("grep -n 'needle' /Users/someone/file.txt");
+  assertLeaked("sed -n '/a/p' /Users/someone/file.txt");
+  assertLeaked('sed -f /Users/someone/script.sed lib/a.js');
+  assertLeaked('grep -f /Users/someone/patterns lib/a.js');
+  assertLeaked('awk -f p.awk /Users/someone/.zshrc');
+  assertLeaked('grep -f pats /Users/someone/.ssh/config');
+  assertLeaked('sed -f s.sed /Users/someone/.zshrc');
+  assertLeaked('grep -r --file=pats /Users/someone');
+  assertLeaked('grep -rf pats /Users/someone');
+  assertLeaked('grep -e needle /Users/someone/.zshrc');
+  assertLeaked('rg --files /Users/someone/Workspace');
+  assertLeaked('cat /Users/someone/file.txt');
 });
 
 test('isolation (tier 2): `$OLDPWD` after a `cd` out of the workspace reads as the workspace', () => {
   assertClean('d=$(mktemp -d); (cd $d && node $OLDPWD/bin/cli.js export --since 2026-01-15; echo "exit $?"); rm -rf $d');
-  assertLeaked('cd /Users/other && cat $OLDPWD/x; cat /Users/other/y');
+  assertLeaked('cd /Users/someone && cat $OLDPWD/x; cat /Users/someone/y');
 });
 
 // ---- report and CLI -----------------------------------------------------------------------------------------------

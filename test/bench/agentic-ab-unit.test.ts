@@ -431,12 +431,12 @@ test('leak rule: heredoc bodies and regex literals are data; the run\'s own /tmp
 
   // mutation: a real read or write outside the roots, in any form, is still a leak in both arms
   const leaked = [
-    'cat /Users/kai/.doflow/x', 'ls /Users/kai/Workspace/learning/do-flow/core', 'cat $HOME/../../outside', 'cat ~/../../x',
-    'cat /tmp/other-run/answer.txt', 'ls /tmp', 'cat /tmp/doflow-agentic-tool-Ab12/src/cli.ts', 'cat /tmp/../Users/kai/x', 'cat /private/tmp/x',
-    'echo x > /Users/kai/x', 'cat /tmp/o.txt', 'cd /tmp && cat chk.js /tmp/chk.js',
-    "cat <<'EOF' | sh\ncat /Users/kai/secret\nEOF", 'sh <<EOF\ncat /Users/kai/secret\nEOF',
-    "cat <<EOF\n$(cat /Users/kai/secret)\nEOF", 'cat <<EOF\n`cat /Users/kai/secret`\nEOF', 'cat > a <<EOF\nx\nEOF\ncat /Users/kai/secret',
-    'echo $((1<<2))\ncat /Users/kai/secret', 'echo x > /tmp', 'mkdir /tmp/z; cat /tmp/z/y', 'cat bench/runs/x', 'cat > /tmp/a <<EOF\nbench/runs/x\nEOF',
+    'cat /Users/someone/.doflow/x', 'ls /Users/someone/Workspace/learning/do-flow/core', 'cat $HOME/../../outside', 'cat ~/../../x',
+    'cat /tmp/other-run/answer.txt', 'ls /tmp', 'cat /tmp/doflow-agentic-tool-Ab12/src/cli.ts', 'cat /tmp/../Users/someone/x', 'cat /private/tmp/x',
+    'echo x > /Users/someone/x', 'cat /tmp/o.txt', 'cd /tmp && cat chk.js /tmp/chk.js',
+    "cat <<'EOF' | sh\ncat /Users/someone/secret\nEOF", 'sh <<EOF\ncat /Users/someone/secret\nEOF',
+    "cat <<EOF\n$(cat /Users/someone/secret)\nEOF", 'cat <<EOF\n`cat /Users/someone/secret`\nEOF', 'cat > a <<EOF\nx\nEOF\ncat /Users/someone/secret',
+    'echo $((1<<2))\ncat /Users/someone/secret', 'echo x > /tmp', 'mkdir /tmp/z; cat /tmp/z/y', 'cat bench/runs/x', 'cat > /tmp/a <<EOF\nbench/runs/x\nEOF',
   ];
   for (const command of leaked) {
     assert.equal(inA(bashEvent(command)).isolation, 'leaked', `arm A: ${JSON.stringify(command)}`);
