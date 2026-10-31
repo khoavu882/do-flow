@@ -196,6 +196,29 @@ function compileProgram(workflow: any) {
   return nodes;
 }
 
+/** The stage a loop program adds to a class that has no review stage of its own (trivial-edit). */
+const LOOP_REVIEW_STAGE = Object.freeze({
+  id: 'review', skill: 'do-code-review', agent: 'reviewer', kind: 'review', readinessTemplate: null, optional: false,
+  purpose: 'Review the delivered change and report an approval status.',
+});
+
+/**
+ * The program the roadmap loop runs for a task class (AU-P1). The loop is unattended, so it takes
+ * no optional stage out of the walk: every stage is required, a class without a review stage gets
+ * one, and a `gate-b` follows the last review so the class's gate-b policy (core/registry/gates.json)
+ * can approve the merge. The feature class already has all of that. workflows.json is not changed:
+ * an attended `/do-implement` run keeps its gate-free program.
+ */
+function loopWorkflow(workflow: any) {
+  if ((workflow.gates || []).some((gate: any) => gate.id === 'gate-b')) return workflow;
+  const stages = (workflow.stages || []).map((stage: any) => ({ ...stage, optional: false }));
+  if (!stages.some((stage: any) => stage.kind === 'review')) stages.push({ ...LOOP_REVIEW_STAGE });
+  const review = stages.filter((stage: any) => stage.kind === 'review').at(-1);
+  const gate = { id: 'gate-b', name: 'Before commit or merge', afterStage: review.id, kind: 'approval', trigger: 'always',
+    prompt: 'Review is complete. Proceed to commit and merge?' };
+  return { ...workflow, stages, gates: [...(workflow.gates || []), gate] };
+}
+
 class WorkflowOrchestrator {
   declare fsImpl: any;
   declare repoRoot: any;
@@ -285,11 +308,15 @@ class WorkflowOrchestrator {
     return run;
   }
 
-  /** Begin a new run. An existing run for the same task id is refused — resume instead. */
-  start({ taskId, taskClass, now }: any = {}) {
+  /** Begin a new run. An existing run for the same task id is refused — resume instead.
+   * `loopProgram` is the roadmap loop's option only (loopWorkflow): the run journal records it, and no
+   * verb passes it. */
+  start({ taskId, taskClass, now, loopProgram = false }: any = {}) {
     assertSafeId(taskId, 'taskId');
     if (this.readRun(taskId)) throw new Error(`Workflow run '${taskId}' already exists; resume it instead of restarting`);
-    const workflow = this.engine.resolveWorkflow(taskClass); // unknown classes are rejected loudly
+    const resolved = this.engine.resolveWorkflow(taskClass); // unknown classes are rejected loudly
+    const workflow = loopProgram ? loopWorkflow(resolved) : resolved;
+    const looped = workflow !== resolved; // the feature class already is a loop program: its journal is unchanged
     const program = compileProgram(workflow);
     const run = {
       version: 1,
@@ -300,8 +327,9 @@ class WorkflowOrchestrator {
       state: runState('RUNNING'),
       cursor: 0,
       program,
-      history: [{ at: iso(now), action: 'start', detail: `task-class=${taskClass}` }],
+      history: [{ at: iso(now), action: 'start', detail: `task-class=${taskClass}${looped ? ' program=roadmap-loop' : ''}` }],
       startedAt: iso(now),
+      ...(looped ? { programKind: 'roadmap-loop' } : {}),
       // The feature the run belongs to, so another checkout can tell it from a run with the same id.
       ...(this.featureSlug ? { featureSlug: this.featureSlug } : {}),
       ...this.traceFields(),
