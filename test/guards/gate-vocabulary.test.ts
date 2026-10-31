@@ -27,6 +27,8 @@ const ROADMAP_DIR = 'src/runtime/roadmap';
 const ORCHESTRATOR = 'src/runtime/workflow-orchestrator.ts';
 const DECIDE_METHOD = 'decideGateByPolicy';
 const GATES = 'core/registry/gates.json';
+/** Classes whose gate-b exists only in the roadmap loop's program (src/runtime/workflow-orchestrator.ts loopWorkflow). */
+const LOOP_GATE_B_CLASSES = ['bug', 'refactor', 'documentation', 'dependency-change', 'trivial-edit'];
 const WORKFLOWS = 'core/registry/workflows.json';
 const SELF = 'test/guards/gate-vocabulary.test.ts';
 const EXTRA_EXPECTATIONS: any = ['test/fixtures/roadmap/g-l1/expected.json'];
@@ -203,7 +205,10 @@ function checkGateVocabulary(target: any = REPO): any {
     if (!(cls in policyClasses)) { findings.push(`class '${cls}' is in workflows.json but not in gates.json`); continue; }
     if (!(cls in workflowClasses)) { findings.push(`class '${cls}' is in gates.json but not in workflows.json`); continue; }
     const fromPolicy = Object.keys(policyClasses[cls]).sort();
-    const fromWorkflow = (workflowClasses[cls].gates || []).map((gate: any) => gate.id).sort();
+    // AU-P1: the roadmap loop adds a gate-b to these classes' runs (loopWorkflow in the orchestrator);
+    // workflows.json stays gate-free so an attended run of the class never stops at a gate.
+    const fromWorkflow = [...(workflowClasses[cls].gates || []).map((gate: any) => gate.id), ...(LOOP_GATE_B_CLASSES.includes(cls) ? ['gate-b'] : [])]
+      .filter((id, index, all) => all.indexOf(id) === index).sort();
     if (JSON.stringify(fromPolicy) !== JSON.stringify(fromWorkflow)) {
       findings.push(`gate ids differ for class '${cls}': gates.json [${fromPolicy}] workflows.json [${fromWorkflow}]`);
     }

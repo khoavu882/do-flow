@@ -461,7 +461,7 @@ test('implementation yields dispatch start with the free-only billing cap, then 
   const { perform } = out.result;
   assert.deepEqual([perform.stage, perform.skill, perform.before.artifact], ['implementation', 'do-execute-plan', 'refs/heads/feat/113-toy']);
   assert.deepEqual(perform.after, [
-    ['dispatch', '--action', 'start', '--slug', '113-toy', '--by', 'doflow-roadmap', '--billing-cap', 'free', '--verify-argv', '["npm","test"]'],
+    ['dispatch', '--action', 'start', '--slug', '113-toy', '--by', 'doflow-roadmap', '--billing-cap', 'free', '--fallback', 'auto', '--verify-argv', '["npm","test"]'],
     ['dispatch', '--action', 'run', '--slug', '113-toy', '--by', 'doflow-roadmap'],
     ['orchestrate', '--action', 'handoff', '--task-id', '113-toy', '--calling-skill', 'do-execute-plan', '--note', '<text>'],
   ]);
