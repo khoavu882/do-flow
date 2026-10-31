@@ -14,7 +14,7 @@
  *                 "skills": [..], "classify": "<class>", "denies": [ {"event","matcher","stderr","exitCode"} ],
  *                 "burn": n (tokens streamed before any result), "usage": {input,output,cacheCreation,cacheRead}, "costUsd": n, "opus": {"tokens","costUsd"},
  *                 "behaviour": "ok"|"budget" }
- *   The arm is A (no install), B (installed) or C (installed and the prompt starts with "/do ").
+ *   The arm is A (no install), B (installed) or C (installed and the prompt starts with "/do-flow ").
  *   A session is a run without `--resume`; a segment is one process of it.
  */
 
@@ -40,7 +40,7 @@ async function main(prompt) {
   const installed = fs.existsSync(path.join(configDir, '.fake-hooks'));
   // The arm is fixed by the first prompt of the run: a resume or a session-2 prompt may not repeat the prefix.
   const armFile = path.join(home, '.fake-arm');
-  if (!fs.existsSync(armFile)) fs.writeFileSync(armFile, installed ? (prompt.startsWith('/do ') ? 'C' : 'B') : 'A');
+  if (!fs.existsSync(armFile)) fs.writeFileSync(armFile, installed ? (prompt.startsWith('/do-flow ') ? 'C' : 'B') : 'A');
   const arm = fs.readFileSync(armFile, 'utf8');
   const resumed = argv.includes('--resume');
   const sessFile = path.join(home, '.fake-sess');

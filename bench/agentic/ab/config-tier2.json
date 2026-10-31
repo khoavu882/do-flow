@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "mode": "ab",
-  "comment": "Tier-2 capability tasks (agent-docs/briefs/ab-tier2-design-result.md). Arms: A bare Claude, B DoFlow installed (native routing), C = B plus the prompt typed behind entryPrefix \"/do \". The task caps (maxBudgetUsd, maxTokensPerRun, timeoutSec, sessionBudgetUsd) are per task in tasks-tier2.json and identical in every arm; maxTokensPerRun and maxBudgetUsd here stay null on purpose (execute refuses a task without its own cap until given --max-tokens-per-run / --max-budget-usd). ledgerUsd is the cumulative dollar stop of one execute command (null = none; --ledger-usd overrides). Every resume gets the same reply in every arm. Credentials enter only through the environment variables named in credentialEnv.",
+  "comment": "Tier-2 capability tasks (agent-docs/briefs/ab-tier2-design-result.md). Arms: A bare Claude, B DoFlow installed (native routing), C = B plus the prompt typed behind entryPrefix \"/do-flow \" (not \"/do \": a live headless probe on 2026-10-31 showed `claude -p \"/do <task>\"` never invoked DoFlow, no Skill call and no classify call, while \"/do-flow <task>\" ran the chain: class feature classified, 19 Bash and 6 Edit calls). The task caps (maxBudgetUsd, maxTokensPerRun, timeoutSec, sessionBudgetUsd) are per task in tasks-tier2.json and identical in every arm; maxTokensPerRun and maxBudgetUsd here stay null on purpose (execute refuses a task without its own cap until given --max-tokens-per-run / --max-budget-usd). ledgerUsd is the cumulative dollar stop of one execute command (null = none; --ledger-usd overrides). Every resume gets the same reply in every arm. Credentials enter only through the environment variables named in credentialEnv.",
   "recipe": "bench/agentic/ab/recipe.json",
   "tasksFile": "bench/agentic/ab/tasks-tier2.json",
   "nativeCases": "bench/native/cases.json",
@@ -80,7 +80,7 @@
           "none"
         ]
       },
-      "entryPrefix": "/do "
+      "entryPrefix": "/do-flow "
     }
   },
   "timeoutSeconds": 2700,

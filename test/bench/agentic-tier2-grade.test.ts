@@ -313,7 +313,7 @@ test('tier-2 grade: process evidence and artifacts are carried into the grading,
   assert.equal(g.tier2.process.hookDenies['pre-implementation-gate'], 2);
   assert.equal(g.tier2.artifacts, 1);
   assert.equal(g.routing, null);
-  assert.equal(g.tier2.entryPrefix, '/do ');
+  assert.equal(g.tier2.entryPrefix, '/do-flow ');
   assert.equal(g.isolation, 'clean', JSON.stringify(g.isolationEvidence));
 });
 

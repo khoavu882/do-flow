@@ -1,6 +1,6 @@
 'use strict';
 
-// Tier-2 executor (A bare, B DoFlow installed, C DoFlow installed + "/do " prefix) end to end, offline. The Claude
+// Tier-2 executor (A bare, B DoFlow installed, C DoFlow installed + "/do-flow " prefix) end to end, offline. The Claude
 // binary is test/fixtures/agentic/fake-worker-tier2.js behind a wrapper named `claude` first on PATH; DoFlow's install
 // is fake-worker.js `--fake-install`. No model, network, credential or real DoFlow install is touched.
 
@@ -147,7 +147,7 @@ test('single task: the workspace is seeded from commits and dirty overlays, .git
   assert.equal(fs.existsSync(path.join(ws, '..', '..', '..', 'seed-single', 'hidden')), false, 'no hidden tests in the run record');
 });
 
-test('arm C types "/do " before the prompt, A and B do not; the resume reply is identical in every arm; caps are the task caps', { skip: SKIP_WIN }, async () => {
+test('arm C types "/do-flow " before the prompt, A and B do not; the resume reply is identical in every arm; caps are the task caps', { skip: SKIP_WIN }, async () => {
   assert.equal((await run('t-B', 'B', ['seed-single'])).exit, 0);
   assert.equal((await run('t-C', 'C', ['seed-single'])).exit, 0);
   const prompts: Record<string, string[]> = {};
@@ -160,9 +160,9 @@ test('arm C types "/do " before the prompt, A and B do not; the resume reply is 
     prompts[arm] = [calls[0].prompt];
     budgets[arm] = calls.map((c) => c.budget);
   }
-  assert.equal(prompts.A[0].startsWith('/do '), false);
+  assert.equal(prompts.A[0].startsWith('/do-flow '), false);
   assert.equal(prompts.B[0], prompts.A[0]);
-  assert.equal(prompts.C[0], `/do ${prompts.A[0]}`);
+  assert.equal(prompts.C[0], `/do-flow ${prompts.A[0]}`);
   assert.equal(prompts.A[0], buildAbPrompt(TASKS.tasks[0], CONFIG.arms.A.paragraph));
   for (const arm of ['A', 'B', 'C']) assert.deepEqual(budgets[arm], ['1', '1', '1'], 'the task maxBudgetUsd goes to every segment of every arm');
   // launch: the prompt hash differs by the prefix only; the body hash is the same
@@ -170,7 +170,7 @@ test('arm C types "/do " before the prompt, A and B do not; the resume reply is 
   const lc = recordOf('t-C', 'seed-single', 'launch.json');
   assert.notEqual(la.promptSha256, lc.promptSha256);
   assert.equal(la.promptBodySha256, lc.promptBodySha256);
-  assert.equal(lc.entryPrefix, '/do ');
+  assert.equal(lc.entryPrefix, '/do-flow ');
   assert.equal(lc.maxTokensPerRun, 200000);
   assert.equal(lc.maxBudgetUsd, 1);
   const seg = recordOf('t-C', 'seed-single', execute.SEGMENTS_FILE);
@@ -236,8 +236,8 @@ test('continuity: the cut fires on the second changed target; session 2 is a new
   assert.equal(calls[0].HOME, calls[1].HOME);
   assert.equal(calls[0].cwd, calls[1].cwd);
   const t = JSON.parse(fs.readFileSync(path.join(REPO, 'test', 'fixtures', 'agentic', 'tier2', 'seed-cont', 'task.json'), 'utf8'));
-  assert.ok(calls[0].prompt.startsWith('/do ') && calls[0].prompt.includes(t.prompt));
-  assert.ok(calls[1].prompt.startsWith('/do ') && calls[1].prompt.includes(t.prompt2));
+  assert.ok(calls[0].prompt.startsWith('/do-flow ') && calls[0].prompt.includes(t.prompt));
+  assert.ok(calls[1].prompt.startsWith('/do-flow ') && calls[1].prompt.includes(t.prompt2));
   assert.equal(calls[1].prompt.includes(t.prompt), false, 'the session-2 prompt does not repeat the spec');
   assert.deepEqual(calls.map((c) => c.budget), ['2', '1.5'], 'session cap 2.00; the task cap 3.50 leaves 1.50 once the cut session counts at its cap');
   const rec = recordOf('c-C', 'seed-cont', execute.TIER2_FILE);
@@ -271,7 +271,7 @@ test('continuity: when the cut never fires, session 2 still runs and cutFired is
   assert.equal(r.exit, 0, JSON.stringify(r));
   const calls = dumpsOf('seed-cont', 'A');
   assert.deepEqual(calls.map((c) => c.session), [1, 2]);
-  assert.equal(calls[1].prompt.startsWith('/do '), false);
+  assert.equal(calls[1].prompt.startsWith('/do-flow '), false);
   assert.deepEqual(calls.map((c) => c.budget), ['2', '2'], 'session 1 cost 0.10 is known, so session 2 keeps its full 2.00');
   const rec = recordOf('c-A', 'seed-cont', execute.TIER2_FILE);
   assert.equal(rec.cut.fired, false);
@@ -351,7 +351,7 @@ test('refusals: no per-task or command-wide cap, an entryPrefix arm that differs
 test('the committed tier-2 config and tasks file load: three arms, five tasks, equal caps, one reply', () => {
   const cfg = execute.loadConfig(REAL_CONFIG);
   assert.deepEqual(Object.keys(cfg.arms), ['A', 'B', 'C']);
-  assert.equal(cfg.arms.C.entryPrefix, '/do ');
+  assert.equal(cfg.arms.C.entryPrefix, '/do-flow ');
   assert.deepEqual(cfg.resume, { maxResumes: 4, reply: REPLY, cumulative: true });
   assert.equal(cfg.maxTokensPerRun, null);
   assert.equal(cfg.maxBudgetUsd, null);

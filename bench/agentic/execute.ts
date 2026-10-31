@@ -1179,7 +1179,7 @@ function loadAbConfig(cfg: any) {
     if (arm.paragraph !== cfg.arms[names[0]].paragraph) throw configError(`${at}.paragraph`, `must equal arms.${names[0]}.paragraph: both arms get one prompt`);
     if (!isStringArray(arm.pathAdd)) throw configError(`${at}.pathAdd`, 'must be an array of strings');
     checkRegexList(`${at}.leak`, arm.leak);
-    if (arm.entryPrefix !== undefined && !isNonEmptyString(arm.entryPrefix)) throw configError(`${at}.entryPrefix`, 'must be a non-empty string when present (tier 2: the text typed before the task, e.g. "/do ")');
+    if (arm.entryPrefix !== undefined && !isNonEmptyString(arm.entryPrefix)) throw configError(`${at}.entryPrefix`, 'must be a non-empty string when present (tier 2: the text typed before the task, e.g. "/do-flow ")');
     if (arm.proof !== 'absent' && arm.proof !== 'loaded') throw configError(`${at}.proof`, 'must be "absent" or "loaded"');
     if (arm.homeSetup === undefined) throw configError(`${at}.homeSetup`, 'must be present (null for an empty HOME)');
     checkHomeSetup(`${at}.homeSetup`, arm.homeSetup);
