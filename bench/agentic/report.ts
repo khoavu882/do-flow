@@ -885,12 +885,17 @@ function t2ArmSummary(gs: any[]) {
   const censoredRuns = scored.filter((g) => g.censored);
   const mean = (pick: (g: any) => number | null) => avg(finite(scored.map(pick)));
   const clean = scored.filter((g) => g.tier2.exclusionMark === null && !g.tier2.deliveryFailed);
-  const byModel: Record<string, { costUsd: number | null; totalTokens: number }> = {};
-  const withProcess = scored.filter((g) => g.tier2.process !== null);
-  for (const model of new Set(withProcess.flatMap((g) => Object.keys(g.tier2.process.byModel || {})))) {
+  // Per model: the sum over the scored runs divided by ALL scored runs (a run that did not use the model adds 0, which is a
+  // fact). A run with no process record, or one stopped at its cap (no result event), may have used more than it shows: the
+  // figure is then a LOWER BOUND, never a mean over the runs that happened to report.
+  const byModel: Record<string, { costUsd: number | null; totalTokens: number; lowerBound: boolean }> = {};
+  const modelsLowerBound = scored.some((g) => g.tier2.process === null || g.censored);
+  for (const model of new Set(scored.flatMap((g) => Object.keys(g.tier2.process?.byModel || {})))) {
+    const cost = scored.map((g) => g.tier2.process?.byModel?.[model as string]?.costUSD ?? null).filter((v) => Number.isFinite(v)) as number[];
     byModel[model as string] = {
-      costUsd: avg(finite(withProcess.map((g) => g.tier2.process.byModel?.[model as string]?.costUSD ?? 0))),
-      totalTokens: avg(finite(withProcess.map((g) => g.tier2.process.byModel?.[model as string]?.totalTokens ?? 0))) as number,
+      costUsd: cost.length ? cost.reduce((a, b) => a + b, 0) / scored.length : null,
+      totalTokens: scored.reduce((n, g) => n + (g.tier2.process?.byModel?.[model as string]?.totalTokens ?? 0), 0) / scored.length,
+      lowerBound: modelsLowerBound,
     };
   }
   // Tokens and cost of the scored runs as a LOWER BOUND when a run was stopped at its cap: a killed run reports no result
@@ -905,6 +910,8 @@ function t2ArmSummary(gs: any[]) {
   const tokensOf = (g: any) => g.metrics.tokens?.total ?? (g.censored === 'cap' && Number.isFinite(g.metrics.capTokens) ? g.metrics.capTokens : null);
   const costOf = (g: any) => (Number.isFinite(g.metrics.costUsd) ? g.metrics.costUsd : null);
   const tokensBound = bound(scored, tokensOf);
+  const wallBound = bound(scored, (g) => (Number.isFinite(g.metrics.wallMs) ? g.metrics.wallMs / 1000 : null));
+  const toolBound = bound(scored, (g) => (Number.isFinite(g.metrics.toolCalls) ? g.metrics.toolCalls : null));
   const costBound = bound(scored, costOf);
   // Every run that ran, excluded ones too: what the arm spent and what its workspaces held (sensitivity, never a score).
   const withWorkspace = gs.filter((g) => g.tier2.graded === true);
@@ -919,7 +926,10 @@ function t2ArmSummary(gs: any[]) {
     excludedItems: gs.filter((g) => (g.pass_rate === null || g.pass_rate === undefined) && g.tier2.graded === true).map((g) => ({
       iteration: g.iteration, id: g.id, reason: t2ExclusionText(g), k: g.tier2.coverage.k, n: g.tier2.coverage.n, regressionFree: g.tier2.regressionFree === true, deliveryFailed: g.tier2.deliveryFailed === true,
     })),
-    tokensBound, costBound, allRuns,
+    tokensBound, costBound, wallBound, toolBound, allRuns,
+    // View 1, every run counted: a run is its own final workspace (a denial or a cap does not remove it); only a harness denial is NOT
+    // an exclusion here. View 2 is `scored` / `successRuns` above: the runs left after the exclusions.
+    counted: { runs: gs.length, successRuns: gs.filter((g) => g.tier2.success === true).length, coverage: avg(gs.map((g) => g.tier2.coverage.k)) },
     success: scored.length ? scored.filter((g) => g.pass_rate === 1).length / scored.length : null,
     successRuns: scored.filter((g) => g.pass_rate === 1).length,
     coverage: { mean: avg(cov), min: cov.length ? Math.min(...cov) : null, max: cov.length ? Math.max(...cov) : null, values: cov },
@@ -946,6 +956,16 @@ function t2ArmSummary(gs: any[]) {
   };
 }
 
+/**
+ * Y / X of two bounded means (the same bound the cells print). Both exact: the ratio. Y a lower bound over an exact X: the
+ * true ratio is at least this (`>=`). Y exact over a lower-bound X: at most (`<=`). Both lower bounds, or either unknown: none.
+ */
+function boundRatio(y: any, x: any): { value: number | null; rel: string | null } {
+  if (!Number.isFinite(y.value) || !Number.isFinite(x.value) || x.value <= 0) return { value: null, rel: null };
+  const value = y.value / x.value;
+  if (y.lowerBound && x.lowerBound) return { value: null, rel: null };
+  return { value, rel: y.lowerBound ? '>=' : (x.lowerBound ? '<=' : '=') };
+}
 const ratio = (b: number | null, a: number | null) => (Number.isFinite(a) && (a as number) > 0 && Number.isFinite(b) ? (b as number) / (a as number) : null);
 const diff = (b: number | null, a: number | null) => (Number.isFinite(a) && Number.isFinite(b) ? (b as number) - (a as number) : null);
 
@@ -997,10 +1017,12 @@ function tier2ReportOf({ runRoot, iterations, taskSet, config, noiseConfig, repo
     for (let i = 0; i < arms.length; i++) {
       for (let j = i + 1; j < arms.length; j++) {
         const x = per[arms[i]]; const y = per[arms[j]];
+        const rr = { cost: boundRatio(y.costBound, x.costBound), tokens: boundRatio(y.tokensBound, x.tokensBound), wall: boundRatio(y.wallBound, x.wallBound), toolCalls: boundRatio(y.toolBound, x.toolBound) };
         pairs.push({
           pair: `${arms[i]}-${arms[j]}`, first: arms[i], second: arms[j],
           coverageDiff: diff(y.coverage.mean, x.coverage.mean), successDiff: diff(y.success, x.success),
-          costRatio: ratio(y.costUsd, x.costUsd), tokensRatio: ratio(y.totalTokens, x.totalTokens), wallRatio: ratio(y.wallSeconds, x.wallSeconds), toolCallsRatio: ratio(y.toolCalls, x.toolCalls),
+          costRatio: rr.cost.value, tokensRatio: rr.tokens.value, wallRatio: rr.wall.value, toolCallsRatio: rr.toolCalls.value,
+          rel: { cost: rr.cost.rel, tokens: rr.tokens.rel, wall: rr.wall.rel, toolCalls: rr.toolCalls.rel },
         });
       }
     }
@@ -1039,7 +1061,7 @@ function tier2ReportOf({ runRoot, iterations, taskSet, config, noiseConfig, repo
 
 const t2Pct = (x: any) => (Number.isFinite(x) ? `${(x * 100).toFixed(0)}%` : 'none');
 const t2Rate = (n: number, d: number) => (d ? `${n}/${d}` : 'none');
-const t2Ratio = (x: any) => (Number.isFinite(x) ? `${x.toFixed(2)}x` : 'none');
+const t2Ratio = (x: any, rel: string | null = '=') => (Number.isFinite(x) ? `${rel && rel !== '=' ? `${rel} ` : ''}${x.toFixed(2)}x` : 'none');
 const t2Signed = (x: any, d = 2) => (Number.isFinite(x) ? `${x < 0 ? '-' : '+'}${Math.abs(x).toFixed(d)}` : 'none');
 const t2Mix = (counts: Record<string, number>) => { const e = Object.entries(counts).filter(([, n]) => n > 0); return e.length ? e.map(([k, n]) => `${k} x${n}`).join(', ') : 'none'; };
 
@@ -1047,21 +1069,24 @@ function tier2ReportLines(r: any) {
   const kText = r.arms.map((a: string) => `${a} ${r.repeats[a]}`).join(', ');
   const lines: string[] = [
     `Tier-2 report: three arms, per task. DESCRIPTIVE, NO SIGNIFICANCE (repeats per arm: ${kText}; model ${r.model}).`,
-    'Scored = success needs all items AND the visible command green AND delivery (a run stopped at the cap or timeout is a FAILED delivery, never dropped). Coverage is items passed of N.',
-    'Pair X-Y = Y relative to X (difference = Y minus X, ratio = Y / X).',
+    'Success needs all items AND the visible command green AND delivery (a run stopped at the cap or timeout is a FAILED delivery, never dropped). Coverage is items passed of N. Two views are printed for every task: view 1 counts EVERY run by its final workspace (a hook denial, a cap stop and a harness permission denial all stay in); view 2 is the scored runs, which leaves out only the excluded ones (a leak, a harness permission denial in a run that did not hit its cap, an infra failure). A DoFlow hook denial is an outcome of the treatment and never an exclusion; a run stopped at its cap is a failed delivery whatever was denied.',
+    'Pair X-Y = Y relative to X (difference = Y minus X, ratio = Y / X). A ratio uses the same bound as the cells it divides: ">= r" when only Y is a lower bound, "<= r" when only X is, "none" when both are (or a figure was never reported).',
     'Cap-hit runs: a run stopped at its token cap reports no result event, so its tokens are counted AT the cap (it passed it) and shown as ">=", and its cost in USD was never reported. No dollar-cap sensitivity is computed: it would need a cost the run never reported. "excluded, item results only" lists the runs left out of every mean (a leak, a permission denial, an infra failure) with the items they passed.',
   ];
+  lines.push('', 'Headline: success (all items, visible command green, delivered) per task and arm, both views. Cell = view 1 (every run counted) / view 2 (scored, excluding the excluded runs); excluded runs are named in the per-task tables.');
+  lines.push(`| task | ${r.arms.join(' | ')} |`, `|---|${r.arms.map(() => '---').join('|')}|`);
+  for (const t of r.tasks) lines.push(`| ${t.id} | ${r.arms.map((a: string) => { const s = t.arms[a]; return `${t2Rate(s.counted.successRuns, s.counted.runs)} / ${t2Rate(s.successRuns, s.scored)}`; }).join(' | ')} |`);
   for (const t of r.tasks) {
     lines.push('', `Task ${t.id} (${t.kind}, ${t.items} items): ${t.name}`);
     lines.push(`| metric | ${r.arms.join(' | ')} |`, `|---|${r.arms.map(() => '---').join('|')}|`);
     const row = (label: string, f: (s: any) => string) => lines.push(`| ${label} | ${r.arms.map((a: string) => f(t.arms[a])).join(' | ')} |`);
     row('runs scored / ran', (s) => `${s.scored}/${s.runs}${s.excluded.length ? ` (excluded: ${s.excluded.map((e: any) => `${e.iteration}:${e.reason}`).join(', ')})` : ''}`);
-    row('success rate', (s) => `${t2Rate(s.successRuns, s.scored)} (${t2Pct(s.success)})`);
-    row('mean coverage k/N [range]', (s) => (s.coverage.mean === null ? 'none' : `${num(s.coverage.mean, 2)}/${s.items} [${s.coverage.min}-${s.coverage.max}]`));
+    row('success rate, all runs counted (view 1)', (s) => `${t2Rate(s.counted.successRuns, s.counted.runs)} (${t2Pct(s.counted.runs ? s.counted.successRuns / s.counted.runs : null)})`);
+    row('success rate, scored = excluding the excluded runs (view 2)', (s) => `${t2Rate(s.successRuns, s.scored)} (${t2Pct(s.success)})`);
+    row('mean coverage k/N [range], scored runs', (s) => (s.coverage.mean === null ? 'none' : `${num(s.coverage.mean, 2)}/${s.items} [${s.coverage.min}-${s.coverage.max}]`));
     row('regression-free', (s) => t2Rate(s.regressionFree, s.scored));
     row('delivery failed (cap or timeout)', (s) => `${s.deliveryFailed} of ${s.runs}`);
-    row('scored excluding capped/leaked runs: success; coverage', (s) => `${t2Rate(s.sensitivity.successRuns, s.sensitivity.runs)}; ${s.sensitivity.coverage === null ? 'none' : `${num(s.sensitivity.coverage, 2)}/${s.items}`}`);
-    const lb = (s: any, v: string) => (s.censored ? `${v} (lower bound, ${s.censored} censored)` : v);
+    row('also excluding runs stopped at a cap or timeout (view 3): success; coverage', (s) => `${t2Rate(s.sensitivity.successRuns, s.sensitivity.runs)}; ${s.sensitivity.coverage === null ? 'none' : `${num(s.sensitivity.coverage, 2)}/${s.items}`}`);
     // A run stopped at its cap reports no result event: its tokens count at the cap (it passed it), its cost is not reported.
     const bounded = (b: any, digits: number, what: string) => {
       if (b.value === null) return b.runs ? `none (no scored run reported ${what})` : 'none';
@@ -1075,14 +1100,14 @@ function tier2ReportLines(r: any) {
     row('excluded, item results only (not in any mean above)', (s) => (s.excludedItems.length
       ? s.excludedItems.map((e: any) => `${e.iteration} ${e.k}/${e.n} items${e.regressionFree ? '' : ', visible red'}${e.deliveryFailed ? ', delivery failed' : ''} [${e.reason}]`).join('; ')
       : 'none excluded with a workspace'));
-    row('cost by model (mean USD; tokens)', (s) => (Object.keys(s.byModel).length ? Object.entries(s.byModel).map(([m, v]: [string, any]) => `${m} ${num(v.costUsd, 4)}; ${num(v.totalTokens, 0)}`).join(' / ') : 'none'));
-    row('wall seconds (mean)', (s) => lb(s, num(s.wallSeconds, 1)));
-    row('tool calls (mean)', (s) => num(s.toolCalls, 1));
+    row('cost by model (mean USD; tokens; >= when a scored run was stopped at the cap or left no process record)', (s) => (Object.keys(s.byModel).length ? Object.entries(s.byModel).map(([m, v]: [string, any]) => `${m} ${v.lowerBound ? '>= ' : ''}${v.costUsd === null ? 'none' : num(v.costUsd, 4)}; ${v.lowerBound ? '>= ' : ''}${num(v.totalTokens, 0)}`).join(' / ') : 'none'));
+    row('wall seconds (mean; a capped run counts what it ran)', (s) => bounded(s.wallBound, 1, 'wall time'));
+    row('tool calls (mean; a capped run counts what it made)', (s) => bounded(s.toolBound, 1, 'tool calls'));
     row('resumes (mean)', (s) => num(s.resumes, 2));
     if (t.kind === 'continuity') row('recovered (passed of pending, summed)', (s) => (s.recovered ? `${s.recovered.passed}/${s.recovered.pending} over ${s.recovered.runs} run(s)` : `not derivable${s.recoveredNote ? ` - ${s.recoveredNote}` : ''}`));
     if (t.pairs.length) {
       lines.push('', '| pair | coverage diff (items) | success diff | cost ratio | tokens ratio | wall ratio | tool calls ratio |', '|---|---|---|---|---|---|---|');
-      for (const p of t.pairs) lines.push(`| ${p.pair} | ${t2Signed(p.coverageDiff)} | ${t2Signed(p.successDiff === null ? null : p.successDiff * 100, 0)}${p.successDiff === null ? '' : ' pp'} | ${t2Ratio(p.costRatio)} | ${t2Ratio(p.tokensRatio)} | ${t2Ratio(p.wallRatio)} | ${t2Ratio(p.toolCallsRatio)} |`);
+      for (const p of t.pairs) lines.push(`| ${p.pair} | ${t2Signed(p.coverageDiff)} | ${t2Signed(p.successDiff === null ? null : p.successDiff * 100, 0)}${p.successDiff === null ? '' : ' pp'} | ${t2Ratio(p.costRatio, p.rel.cost)} | ${t2Ratio(p.tokensRatio, p.rel.tokens)} | ${t2Ratio(p.wallRatio, p.rel.wall)} | ${t2Ratio(p.toolCallsRatio, p.rel.toolCalls)} |`);
     }
     lines.push('', `process evidence (NOT SCORED; reported beside the outcome, never part of it):`);
     for (const a of r.arms) {
@@ -1092,7 +1117,7 @@ function tier2ReportLines(r: any) {
     if (t.notEarnedIf) {
       const n = t.numbers;
       const cover = t.pairs.map((p: any) => `${p.pair} ${t2Signed(p.coverageDiff)} items`).join(', ');
-      const cost = t.pairs.map((p: any) => `${p.pair} ${t2Ratio(p.costRatio)}`).join(', ');
+      const cost = t.pairs.map((p: any) => `${p.pair} ${t2Ratio(p.costRatio, p.rel.cost)}`).join(', ');
       const fails = r.arms.map((a: string) => `${a} ${t.arms[a].deliveryFailed}/${t.arms[a].runs}`).join(', ');
       lines.push(`not earned if (design section 3): ${t.notEarnedIf}`);
       lines.push(`  numbers for it: coverage diff ${cover || 'none'}; A/A coverage range ${n.aRange === null ? 'none' : `${n.aRange} item(s)`}; one item = ${num(n.oneItem, 3)} of coverage; cost ratio ${cost || 'none'}; delivery failed ${fails}${n.defectsFixed ? `; seeded defects fixed (mean of ${T2_NOT_EARNED_IF[t.id].defectItems!.length}) ${r.arms.map((a: string) => `${a} ${num(n.defectsFixed[a], 2)}`).join(', ')}` : ''}`);
@@ -1111,6 +1136,6 @@ function tier2ReportLines(r: any) {
 
 module.exports = {
   BASELINE_ARM, CANDIDATE_ARM, AB_NOISE_KIND, AB_QUALITY, AB_COST_METRICS, abExcludedOf, abCostOf, regradeAbRepeat, abNoiseOf, abReportOf, abReportLines, validateAbNoise,
-  T2_ARM_ORDER, T2_NOT_EARNED_IF, tier2ReportOf, tier2ReportLines,
+  T2_ARM_ORDER, T2_NOT_EARNED_IF, tier2ReportOf, tier2ReportLines, boundRatio,
   parseIterations, excludedOf, noiseOf, reportOf, tokenReport, noiseLines, reportLines,
 };

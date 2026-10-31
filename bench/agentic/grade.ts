@@ -25,6 +25,7 @@ const { scoreTask } = require('../retrieval/lib/metrics.ts');
 const { loadManifest } = require('../retrieval/lib/snapshot.ts');
 const { UsageError, buildPrompt, buildAbPrompt, promptSha256, REVIEW_FILE } = require('./tasks.ts');
 const claudeStream = require('./ab/claude-stream.ts');
+const { maskLine } = require('../../src/runtime/mask.ts');
 const { parseReviewJson } = require('./review-adapter.ts');
 
 /** Only this many distinct answer paths count (the prompt asks for up to 10). */
@@ -159,7 +160,7 @@ function closeBacktick(s: string, start: number) {
  * hide one.
  * @returns {{words: string[], redirects: string[], writes: string[]}[]}
  */
-function splitScript(script: any, { cut = false }: { cut?: boolean } = {}) {
+function splitScript(script: any) {
   const s = String(script);
   const commands: any[] = [];
   let words: string[] = [];
@@ -295,8 +296,7 @@ function splitScript(script: any, { cut = false }: { cut?: boolean } = {}) {
             }
             i = pos - 1;
             // a delimiter that never closes (an arithmetic `<<` mistaken for a heredoc) must not hide what follows
-            // (a command the transcript cut short has no closing line because of the cut: its body is data, not code)
-            if (feedsShell || (!closed && !cut)) commands.push(...splitScript(body));
+            if (feedsShell || !closed) commands.push(...splitScript(body));
             else if (!h.quoted) {
               for (let k = 0; k < body.length; k++) {
                 if (body[k] === '\\') k++;
@@ -393,9 +393,9 @@ function shellScript(words: string[]) {
  * against), `raw` is every word and redirection target as written (for the outside-path rule) and
  * `writes` the redirection targets that are written (`>`, `>>`, `&>`).
  */
-function simpleCommands(command: string, opts: { cut?: boolean } = {}): { text: string; words: string[]; raw: string[]; writes: string[] }[] {
+function simpleCommands(command: string): { text: string; words: string[]; raw: string[]; writes: string[] }[] {
   const out: { text: string; words: string[]; raw: string[]; writes: string[] }[] = [];
-  for (const { words, redirects, writes } of splitScript(command, opts)) {
+  for (const { words, redirects, writes } of splitScript(command)) {
     const w = stripWrappers(words);
     const script = shellScript(w);
     if (w.length) w[0] = base(w[0]);
@@ -418,27 +418,26 @@ const SYSTEM_PREFIXES = Object.freeze(['/usr', '/bin', '/sbin', '/dev', '/etc', 
 const AB_TMP_VARS = Object.freeze(['TMPDIR', 'TMP', 'TEMP', 'TEMPDIR', 'TMP_DIR']);
 /** Directories the harness itself keeps in the OS temp dir: other runs' workspaces and profiles, the pruned tool export. */
 const AB_HARNESS_TMP = /^(?:abws-|abprof-|doflow-)/;
-/** Length at which claude-stream.ts cuts a stored command (COMMAND_CHARS): a command that long is cut, its tail is unknown. */
-const AB_COMMAND_CUT = 4000;
 /**
  * Tier-2 fixtures define `scripts.test` as `node --test` (offline), so `npm test` there is the visible check, not the package
  * manager's network use that the arm patterns (`npm`, `npx`) exist to catch: it is not tested against them. `npm install`,
  * `npm view`, `npx` and the like still are.
  */
 const TIER2_LOCAL_COMMANDS: RegExp[] = [/^npm (?:test|t|run test|run-script test)(?: |$)/];
-/** Programs whose first operand is a pattern or script (`sed -n '/a/,/b/p' f`, `rg '/api/'`), not a path. */
+/** Programs whose pattern or script operand is not a path (`sed -n '/a/,/b/p' f`, `rg '/api/'`). */
 const PATTERN_PROGRAMS = new Set(['sed', 'awk', 'gawk', 'grep', 'egrep', 'fgrep', 'rg', 'ag']);
-/** Options of those programs whose value is a file, so the word after them is a path. */
-const PATTERN_FILE_FLAGS = new Set(['-f', '--file', '--exclude-from', '--include-from', '--ignore-file']);
-/** Programs whose last operand is a file the run writes (cp, mv) and whose every operand is a file it writes (tee), like a `>` target. `mkdir` owns nothing: it may name an existing directory. */
+/** Programs whose last operand is a file the run writes. `tee` and `mkdir` own nothing in /tmp: they may name an existing directory. */
 const COPY_PROGRAMS = new Set(['cp', 'mv', 'install']);
-const TEE_PROGRAMS = new Set(['tee']);
+/** A glob character in a path below the OS temp dir: the path names other runs' directories, whatever it expands to. */
+const GLOB_CHARS = /[*?[\]]/;
 const unalias = (p: string) => path.posix.normalize(p).replace(/^\/private(?=\/)/, '');
 const within = (p: string, root: string) => p === root || p.startsWith(`${root}/`);
 
 /**
- * Indexes in `cmd.raw` of the words that are a pattern or script, not a path: the first operand of sed, awk, grep and rg
- * (every word after `-e`), unless it is the value of a file option (`-f`). `sed -n '/^A/,/^B/p' f` names no file.
+ * Indexes in `cmd.raw` of the words that are a pattern or script, not a path: the value of `-e` / `--regexp` /
+ * `--expression`, or else the first operand of sed, awk, grep and rg. When a flag supplies the pattern or script from
+ * a file (`-f`, `--file`) or there is none (`rg --files`), NO positional word is a pattern: every operand is a path.
+ * `sed -n '/^A/,/^B/p' f` names no file; `awk -f p.awk /Users/x/.zshrc` and `rg --files /Users/x` name one.
  */
 function patternOperands(cmd: any): Set<number> {
   const out = new Set<number>();
@@ -446,39 +445,63 @@ function patternOperands(cmd: any): Set<number> {
   if (!PATTERN_PROGRAMS.has(program)) return out;
   const start = cmd.raw.findIndex((w: string) => base(w) === program);
   if (start === -1) return out;
-  const sawE = cmd.raw.some((w: string, i: number) => i > start && (w === '-e' || w === '--regexp'));
-  let skipped = false;
+  // a flag cluster ending in e (expression) or f (file), `-ne`, `-rf`, or the long forms, with the value in the next word
+  const kind = (w: string): 'e' | 'f' | 'files' | null => {
+    if (w === '--files') return 'files';
+    if (w === '--regexp' || w === '--expression' || /^--(?:regexp|expression)=/.test(w)) return 'e';
+    if (w === '--file' || /^--file=/.test(w)) return 'f';
+    if (/^-[A-Za-z]*e$/.test(w)) return 'e';
+    if (/^-[A-Za-z]*f$/.test(w)) return 'f';
+    if (/^-e./.test(w)) return 'e'; // `-epattern`, the value attached
+    return null;
+  };
+  let patternGiven = false;
   for (let i = start + 1; i < cmd.raw.length; i++) {
-    const prev = cmd.raw[i - 1];
-    const w = cmd.raw[i];
-    if (prev === '-e' || prev === '--regexp') out.add(i);
-    else if (!w.startsWith('-') && !sawE && !skipped && !PATTERN_FILE_FLAGS.has(prev)) { out.add(i); skipped = true; }
+    const k = kind(cmd.raw[i]);
+    if (k !== null) patternGiven = true;
+    if (k === 'e' && !cmd.raw[i].includes('=') && !/^-e./.test(cmd.raw[i])) out.add(i + 1);
+  }
+  if (patternGiven) return out;
+  for (let i = start + 1; i < cmd.raw.length; i++) {
+    if (!cmd.raw[i].startsWith('-')) { out.add(i); break; }
   }
   return out;
 }
 
-/** The words a command writes without a redirect: the destination of cp, mv and install, every operand of tee. */
-function implicitWriteWords(cmd: any): Set<string> {
+/**
+ * The files a command writes without a redirect: the destination of cp, mv and install when it names a file (it has an
+ * extension and no trailing slash, so it is not a directory). Only that exact path is the run's own.
+ */
+function implicitWriteWords(cmd: any): { files: Set<string>; dirs: Set<string> } {
+  const files = new Set<string>();
+  const dirs = new Set<string>();
   const operands = cmd.words.slice(1).filter((w: string) => !w.startsWith('-'));
-  if (COPY_PROGRAMS.has(cmd.words[0]) && operands.length >= 2) return new Set([operands[operands.length - 1]]);
-  if (TEE_PROGRAMS.has(cmd.words[0])) return new Set(operands);
-  return new Set();
+  if (COPY_PROGRAMS.has(cmd.words[0]) && operands.length >= 2) {
+    const dest = operands[operands.length - 1];
+    if (!dest.endsWith('/') && /\.[A-Za-z0-9]+$/.test(path.posix.basename(dest))) files.add(dest);
+  }
+  if (cmd.words[0] === 'mkdir') for (const w of operands) dirs.add(w);
+  return { files, dirs };
 }
 
 /**
  * The first word of a command that names a path outside `roots` (an absolute path, or a `..` path
  * resolved against the cwd, which follows `cd` from the workspace root), or null. A `--flag=value` or
  * `VAR=value` word is checked by its value too. Without roots, only the system prefixes are allowed.
- * Ceiling: any word starting with `/` counts as a path, so a pattern such as `rg '/api/'` is graded
- * leaked too (the run is excluded, never scored wrongly). A heredoc body is not words (see `splitScript`).
- * A/B only (`scratch` given): the run's own scratch under `/tmp` is allowed, that is a path below `/tmp`
- * the same run wrote earlier (a `>` / `>>` redirect, or a Write / Edit target) and what lies below it, so a
- * throwaway `cat > /tmp/chk.js <<'EOF'` then `node /tmp/chk.js` is not a leak while a read of any other
- * `/tmp` path (the pruned tool export, another run's scratch) still is. `/tmp` itself is never owned.
+ * Ceiling: any word starting with `/` counts as a path, so a path-like word that is not a pattern operand
+ * (see `patternOperands`) is graded leaked too (the run is excluded, never scored wrongly). A heredoc body is not
+ * words (see `splitScript`).
+ * A/B only (`scratch` given): the run's own scratch is allowed, and it is only what THIS run made: below `/tmp` and
+ * below the OS temp dir, the exact file a `>` / `>>` redirect, a Write / Edit or the destination of `cp` / `mv` / `install`
+ * names (never what lies below it); below the OS temp dir also a directory the run `mkdir`ed or `mktemp`ed (`ownedDirs`,
+ * seeded from the results of its `mktemp` calls) and what lies below it. Any other path below `/tmp` or the OS temp dir
+ * (the pruned tool export, other runs' workspaces and profiles, other tools' directories) is a leak, a glob character in
+ * a path below the OS temp dir is a leak, and so is a `..` out of the workspace into it. `/tmp` itself is never owned.
  */
-function outsidePath(commands: any[], roots: any, { expandVars = false, scratch = null }: { expandVars?: boolean; scratch?: Set<string> | null } = {}) {
+function outsidePath(commands: any[], roots: any, { expandVars = false, scratch = null, ownedDirs = new Set<string>() }: { expandVars?: boolean; scratch?: Set<string> | null; ownedDirs?: Set<string> } = {}) {
   const allowed = [...SYSTEM_PREFIXES];
-  for (const r of [roots?.workspaceRoot, roots?.profileRoot]) if (typeof r === 'string' && r.startsWith('/')) allowed.push(unalias(r));
+  const ownRoots: string[] = [];
+  for (const r of [roots?.workspaceRoot, roots?.profileRoot]) if (typeof r === 'string' && r.startsWith('/')) { allowed.push(unalias(r)); ownRoots.push(unalias(r)); }
   const home = typeof roots?.workspaceRoot === 'string' && roots.workspaceRoot.startsWith('/') ? roots.workspaceRoot : '/';
   let cwd = home;
   let oldpwd = home; // `$OLDPWD`: the directory before the last `cd`
@@ -486,23 +509,27 @@ function outsidePath(commands: any[], roots: any, { expandVars = false, scratch 
   // itself, and the assigned value was checked as a word of its own (DoFlow's "find the runtime" snippet does this).
   const assigned = new Set<string>();
   if (expandVars) for (const cmd of commands) for (const word of cmd.raw) { const m = /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(word); if (m) assigned.add(m[1]); }
-  // A/B: the OS temp dir (where this run's profile lives, and other runs' too) and what a command writes or names as a pattern.
+  // A/B: variables that hold a path below the OS temp dir (`T=$TMPDIR/ev-batch`): checked where they are used, not where assigned.
+  const tmpVars = new Map<string, string>();
+  // A/B: the OS temp dir (where this run's profile lives, and other runs' too).
   const osTmp: string | null = expandVars && typeof roots?.profileRoot === 'string' && roots.profileRoot.startsWith('/') && /^abprof-/.test(path.posix.basename(roots.profileRoot))
     ? unalias(path.posix.dirname(roots.profileRoot)) : null;
   for (const cmd of commands) {
     const patternWords = expandVars ? patternOperands(cmd) : new Set<number>();
-    const implicitWrites = expandVars ? implicitWriteWords(cmd) : new Set<string>();
+    const implicit = expandVars ? implicitWriteWords(cmd) : { files: new Set<string>(), dirs: new Set<string>() };
     for (let wi = 0; wi < cmd.raw.length; wi++) {
       const word = cmd.raw[wi];
       if (patternWords.has(wi)) continue;
       const candidates = [word];
       const value = /^[^=/]*=(.+)$/.exec(word);
       if (value) candidates.push(value[1]);
+      const assignment = /^([A-Za-z_][A-Za-z0-9_]*)=(.+)$/.exec(word);
       for (const p of candidates) {
         let abs = null;
         if (expandVars) {
           // A/B: `$VAR` and `~` words are expanded where the value is known (HOME is the scratch home, PWD the
-          // tracked cwd) and flagged where it is not (TMPDIR and friends, any other variable used as a path base).
+          // tracked cwd, a variable assigned a path below the OS temp dir) and flagged where it is not (TMPDIR and
+          // friends alone, any other variable used as a path base).
           const v = /^\$(?:\{([A-Za-z_][A-Za-z0-9_]*)\}|([A-Za-z_][A-Za-z0-9_]*))(\/.*)?$/.exec(p);
           const tilde = /^~(\/.*)?$/.exec(p);
           if (v || tilde) {
@@ -510,6 +537,7 @@ function outsidePath(commands: any[], roots: any, { expandVars = false, scratch 
             const rest = (v ? v[3] : tilde![1]) || '';
             if (name === 'PWD') abs = path.posix.resolve(cwd, `.${rest}`);
             else if (name === 'OLDPWD') abs = path.posix.resolve(oldpwd, `.${rest}`);
+            else if (tmpVars.has(name)) abs = path.posix.resolve(tmpVars.get(name) as string, `.${rest}`);
             else if (name === 'HOME' && typeof roots?.profileRoot === 'string' && roots.profileRoot.startsWith('/')) abs = path.posix.resolve(roots.profileRoot, 'home', `.${rest}`);
             else if (AB_TMP_VARS.includes(name) && osTmp !== null && rest !== '') abs = path.posix.resolve(osTmp, `.${rest}`);
             else if (AB_TMP_VARS.includes(name) || name === 'HOME') return word;
@@ -519,24 +547,25 @@ function outsidePath(commands: any[], roots: any, { expandVars = false, scratch 
         }
         if (abs === null && p.startsWith('/')) abs = p;
         else if (abs === null && p.split('/').includes('..')) abs = path.posix.resolve(cwd, p);
-        if (abs !== null && scratch !== null) {
-          const norm = unalias(abs);
-          if (norm !== '/tmp' && within(norm, '/tmp')) {
-            if (p === word && (cmd.writes?.includes(word) || implicitWrites.has(word))) {
-              scratch.add(norm);
-              continue;
-            }
-            if ([...scratch].some((own) => within(norm, own))) continue;
-          }
+        if (abs === null) continue;
+        const norm = unalias(abs);
+        const own = p === word; // the word itself, not the value of a `--flag=` / `VAR=`
+        const writtenFile = own && (cmd.writes?.includes(word) || implicit.files.has(word));
+        if (scratch !== null && norm !== '/tmp' && within(norm, '/tmp')) {
+          if (writtenFile) { scratch.add(norm); continue; }
+          if (scratch.has(norm)) continue;
         }
-        if (abs !== null && osTmp !== null) {
-          // A path the run names below the OS temp dir (`$TMPDIR/ev-batch`, a `mktemp -d` result) is its own scratch;
-          // the harness's directories there (other runs' workspaces and profiles, the tool export), a bare listing of
-          // the temp dir and a `..` out of it are not.
-          const norm = unalias(abs);
-          if (norm !== osTmp && within(norm, osTmp) && !AB_HARNESS_TMP.test(norm.slice(osTmp.length + 1).split('/')[0])) continue;
+        if (osTmp !== null && norm !== osTmp && within(norm, osTmp) && !ownRoots.some((root) => within(norm, root))) {
+          // Below the OS temp dir, outside this run's own workspace and profile.
+          if (assignment && p !== word && own === false) { tmpVars.set(assignment[1], norm); continue; }
+          const rel = norm.slice(osTmp.length + 1);
+          if (GLOB_CHARS.test(rel) || AB_HARNESS_TMP.test(rel.split('/')[0])) return word;
+          if (own && implicit.dirs.has(word)) { ownedDirs.add(norm); continue; }
+          if (writtenFile) { scratch?.add(norm); continue; }
+          if (scratch?.has(norm) || [...ownedDirs].some((d) => within(norm, d))) continue;
+          return word;
         }
-        if (abs !== null && !allowed.some((root) => within(unalias(abs), root))) return word;
+        if (!allowed.some((root) => within(norm, root))) return word;
       }
     }
     if (cmd.words[0] === 'cd' && cmd.words[1] && cmd.words[1] !== '-') oldpwd = cwd;
@@ -817,37 +846,87 @@ const metricTokens = (t: any) => (t === null ? null : {
 });
 
 /**
+ * The full Bash commands and tool results of one transcript, by tool-use id (each id maps to its uses in order).
+ * claude-stream.ts stores a command cut to 4000 characters for display; the isolation rule reads the whole command here,
+ * so a long heredoc keeps its terminator and nothing after character 4000 is invisible.
+ */
+function toolRecords(text: string): Map<string, { command: string | null; result: string | null }[]> {
+  const out = new Map<string, { command: string | null; result: string | null }[]>();
+  const byId = new Map<string, { command: string | null; result: string | null }>();
+  for (const line of text.split('\n')) {
+    if (!line.includes('"tool_use')) continue;
+    let event: any;
+    try { event = JSON.parse(line); } catch { continue; }
+    const blocks = Array.isArray(event?.message?.content) ? event.message.content : [];
+    for (const b of blocks) {
+      if (b?.type === 'tool_use' && typeof b.id === 'string') {
+        const rec = { command: b.name === 'Bash' && typeof b.input?.command === 'string' ? maskLine(b.input.command, { home: null }).text : null, result: null };
+        byId.set(b.id, rec);
+        const list = out.get(b.id) ?? [];
+        list.push(rec);
+        out.set(b.id, list);
+      } else if (b?.type === 'tool_result' && typeof b.tool_use_id === 'string') {
+        const rec = byId.get(b.tool_use_id);
+        if (rec) rec.result = typeof b.content === 'string' ? b.content : (Array.isArray(b.content) ? b.content.map((x: any) => (typeof x?.text === 'string' ? x.text : '')).join('\n') : '');
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Isolation and DoFlow proof of one A/B run, from its parsed segments. Order of precedence: a leak
  * (network or truth access, a path outside the run's roots, an arm pattern, a DoFlow trace in arm A)
  * beats `not-loaded` (arm B without P1-P3), which beats `unverifiable` (no init to read, or an init
  * model other than the pin). `proof` is the evidence in either arm.
  * @returns {{isolation: 'clean'|'leaked'|'not-loaded'|'unverifiable', evidence: string[], proof: object}}
  */
-function classifyAbIsolation({ reports, armConfig, roots, expected, homeSetup, pin, infra, localCommands = [] }: { reports: any[]; armConfig: any; roots: any; expected: any; homeSetup: any; pin: string | null; infra: string | null; localCommands?: RegExp[] }) {
+function classifyAbIsolation({ reports, armConfig, roots, expected, homeSetup, pin, infra, localCommands = [], records = [] }: { reports: any[]; armConfig: any; roots: any; expected: any; homeSetup: any; pin: string | null; infra: string | null; localCommands?: RegExp[]; records?: Map<string, { command: string | null; result: string | null }[]>[] }) {
   const leak = compile(armConfig?.leak);
   const evidence: string[] = [];
-  const scratch = new Set<string>(); // paths below /tmp this run wrote itself
+  const scratch = new Set<string>(); // files below /tmp or the OS temp dir this run wrote itself
+  const ownedDirs = new Set<string>(); // directories below the OS temp dir this run made (mkdir, mktemp)
   const note = (text: string) => { if (evidence.length < 12) evidence.push(String(text).slice(0, EVIDENCE_MAX)); };
-  for (const report of reports) {
+  const osTmp = typeof roots?.profileRoot === 'string' && roots.profileRoot.startsWith('/') && /^abprof-/.test(path.posix.basename(roots.profileRoot)) ? unalias(path.posix.dirname(roots.profileRoot)) : null;
+  // A directory the run learned from the result of its own `mktemp` is its own: the result is the path the tool printed.
+  if (osTmp !== null) {
+    for (const byId of records) for (const list of byId.values()) for (const rec of list) {
+      if (rec.command === null || rec.result === null || !/(?:^|[\s;&|(`])mktemp(?:\s|$)/.test(rec.command)) continue;
+      for (const token of rec.result.split(/\s+/)) {
+        const norm = token.startsWith('/') ? unalias(token) : '';
+        if (norm !== '' && norm !== osTmp && within(norm, osTmp) && !GLOB_CHARS.test(norm) && !AB_HARNESS_TMP.test(norm.slice(osTmp.length + 1).split('/')[0])) ownedDirs.add(norm);
+      }
+    }
+  }
+  for (let ri = 0; ri < reports.length; ri++) {
+    const report = reports[ri];
+    const used = new Map<string, number>();
     for (const call of report.toolCalls) {
       const name: string = call.name;
       const target: string = call.target ?? '';
       // The outside-path rule reads the text with the caller's home directory kept: masked to `~` it would read as the scratch HOME.
-      const rawTarget: string = call.rawTarget ?? target;
+      let rawTarget: string = call.rawTarget ?? target;
+      if (name === 'Bash' && typeof call.id === 'string') {
+        // the whole command from the transcript, not the stored one cut for display (the nth use of this id)
+        const n = used.get(call.id) ?? 0;
+        used.set(call.id, n + 1);
+        const full = records[ri]?.get(call.id)?.[n]?.command;
+        if (typeof full === 'string' && full.startsWith(rawTarget.slice(0, 200))) rawTarget = full;
+      }
       const rawPaths: string[] = Array.isArray(call.rawPaths) ? call.rawPaths : (Array.isArray(call.paths) ? call.paths : []);
       if (name.startsWith('mcp__') || NETWORK_TOOLS.includes(name)) { note(`${name} ${target}`.trim()); continue; }
-      // Bash: the whole stored command (not cut for display). Any other tool: every path-like input it names
+      // Bash: the whole command (see `toolRecords`; the stored one is cut at 4000 characters). Any other tool: every path-like input it names
       // (file_path, notebook_path, path, a Grep glob, a Glob pattern), so a Grep or Glob aimed outside the roots is seen.
       const pathsOf = (list: string[], main: string) => [...new Set([...list, ...(name !== 'Skill' && main ? [main] : [])])];
       const named = name === 'Bash' ? [] : pathsOf(Array.isArray(call.paths) ? call.paths : [], target);
       const rawNamed = name === 'Bash' ? [] : pathsOf(rawPaths, rawTarget);
       const writing = name === 'Write' || name === 'Edit' || name === 'NotebookEdit';
-      const commands = name === 'Bash' ? simpleCommands(rawTarget, { cut: rawTarget.length >= AB_COMMAND_CUT }) : rawNamed.map((text: string) => ({ text, words: [text], raw: [text], writes: writing ? [text] : [] }));
+      const commands = name === 'Bash' ? simpleCommands(rawTarget) : rawNamed.map((text: string) => ({ text, words: [text], raw: [text], writes: writing ? [text] : [] }));
       if (commands.length === 0) continue;
       let reason: string | null = null;
       if (commands.some((c: any) => !localCommands.some((re) => re.test(c.text)) && leak.some((re: any) => re.test(c.text)))) reason = 'arm-pattern';
       else if ((name === 'Bash' ? [rawTarget] : rawNamed).some((text: string) => AB_TRUTH_SUBSTRINGS.some((x) => text.includes(x)))) reason = 'truth-path';
-      else { const word = outsidePath(commands, roots, { expandVars: true, scratch }); if (word !== null) reason = 'outside-path'; }
+      else { const word = outsidePath(commands, roots, { expandVars: true, scratch, ownedDirs }); if (word !== null) reason = 'outside-path'; }
       if (reason !== null) note(`${name} [${reason}]: ${name === 'Bash' ? target : named.join(' ')}`);
     }
   }
@@ -1195,15 +1274,27 @@ function gradeAbRun({ runDir, task, arm, config }: { runDir: string; task: any; 
   const workspaceCopy = path.join(runDir, 'workspace');
   if (infra === null && (task.kind === 'edit' || isTier2) && !fs.existsSync(workspaceCopy)) infra = 'malformed';
 
+  const records = segList.map((sg: any) => toolRecords(readText(path.join(runDir, path.basename(String(sg.file)))) ?? ''));
   const iso = classifyAbIsolation({
-    reports, armConfig, roots: launch, expected: launch.proofExpected || { skills: [], agents: [] }, homeSetup: homeSetupState, pin: config.model?.label ?? null, infra,
+    records, reports, armConfig, roots: launch, expected: launch.proofExpected || { skills: [], agents: [] }, homeSetup: homeSetupState, pin: config.model?.label ?? null, infra,
     localCommands: isTier2 ? TIER2_LOCAL_COMMANDS : [],
   });
-  // Permissions: a run whose stream holds permission denials did not do the task it was given (its tools were refused),
-  // and a run killed for a wrong init.permissionMode never started it. Both are excluded; the mark stays in the shared
-  // vocabulary (`truncated`), the reason is kept in exclusionReason.
+  // Permissions. A run killed for a wrong init.permissionMode never started its task: excluded. In tier 2 (decision D1,
+  // 2026-10-31) a denial by a DoFlow hook (pre-bash-guard, stop-check ...) is an outcome of the treatment and the final
+  // workspace is graded; only a denial by the Claude Code permission layer itself (a safety check, a permission prompt
+  // nobody can answer) excludes the run, and never one that hit the cap or timeout: that stays a failed delivery. Other
+  // A/B kinds keep the older rule: any denial excludes.
   const permissionDenials = reports.reduce((n: number, r: any) => n + Math.max(r.permissionDenials ?? 0, r.permissionDeniedEvents ?? 0), 0);
-  const permission: string | null = statusRec?.infra === 'permission-mode-not-effective' ? 'permission-mode-not-effective' : (permissionDenials > 0 ? 'permission-denied' : null);
+  const hookDenials = (() => {
+    const hd = readJsonFile(path.join(runDir, 'process.json'))?.hookDenies;
+    return hd && typeof hd === 'object' ? Object.values(hd).reduce((n: number, c: any) => n + (Number.isFinite(c) ? c : 0), 0) : 0;
+  })();
+  const deniedEvents = reports.reduce((n: number, r: any) => n + (r.permissionDeniedEvents ?? 0), 0);
+  const deniedInResult = reports.reduce((n: number, r: any) => n + (r.permissionDenials ?? 0), 0);
+  const harnessDenials = Math.max(deniedEvents, deniedInResult - hookDenials);
+  const stoppedAtCap = statusRec?.cap === true || status === 'timeout';
+  const permission: string | null = statusRec?.infra === 'permission-mode-not-effective' ? 'permission-mode-not-effective'
+    : (isTier2 ? (harnessDenials > 0 && !stoppedAtCap ? 'permission-denied' : null) : (permissionDenials > 0 ? 'permission-denied' : null));
   if (permission !== null && infra === null) infra = 'truncated';
   const exclusionReason = iso.isolation !== 'clean' ? iso.isolation : (permission ?? infra);
   // A run stopped by the per-run cap, or by the timeout, is censored: the figures it reports are lower bounds of
