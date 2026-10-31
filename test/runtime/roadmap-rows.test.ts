@@ -350,6 +350,31 @@ test('pick: skips rows with write-set overlap, unmerged needs, or unsupported cl
   assert.equal(outcome.skips['111'], 'class-unsupported');
 });
 
+// AU-P1: the G-L1 scenario that pinned `needs-exclusive` now picks its documentation row, so the reason is pinned here.
+test('pick skips a row without a write set as needs-exclusive while another row is in flight, and picks it alone', () => {
+  const rows: any = [
+    { id: '120', slug: '120-busy', title: 'Busy', class: 'feature', needs: [], writeSet: ['src/a/'] },
+    { id: '121', slug: '121-open', title: 'Open', class: 'bug', needs: [], writeSet: [] },
+  ];
+  const busy: any = new Map([['120', { status: 'in-flight', row: rows[0] }], ['121', { status: 'not-started', row: rows[1] }]]);
+  const outcome = pick(rows, busy, { wipLimit: 2 });
+  assert.equal(outcome.picked, null);
+  assert.equal(outcome.skips['121'], 'needs-exclusive');
+  const alone: any = new Map([['120', { status: 'merged', row: rows[0] }], ['121', { status: 'not-started', row: rows[1] }]]);
+  assert.equal(pick(rows, alone, { wipLimit: 2 }).picked.id, '121');
+});
+
+test('AU-P1: pick takes the five loop classes and still skips research, review and operations as class-unsupported', () => {
+  const classes = ['bug', 'refactor', 'documentation', 'dependency-change', 'trivial-edit', 'research', 'review', 'operations'];
+  const rows: any = classes.map((cls, i) => ({ id: String(130 + i), slug: `${130 + i}-${cls}`, title: cls, class: cls, needs: [], writeSet: [`area${i}/`] }));
+  for (const [i, cls] of classes.entries()) {
+    const one: any = new Map([[rows[i].id, { status: 'not-started', row: rows[i] }]]);
+    const outcome = pick([rows[i]], one, { wipLimit: 2 });
+    if (i < 5) assert.equal(outcome.picked?.id, rows[i].id, cls);
+    else { assert.equal(outcome.picked, null, cls); assert.equal(outcome.skips[rows[i].id], 'class-unsupported', cls); }
+  }
+});
+
 test('pick negative control: two in-flight rows pick none with wip-full', () => {
   const rows: any = [
     {
