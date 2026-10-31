@@ -228,3 +228,62 @@ test('a folder that holds artifacts but no decision register is denied once and 
   const held = await f.next();
   assert.deepEqual([held.result.outcome, held.result.skips[row.id]], ['idle', 'held:facts-unreadable']);
 });
+
+/** Performs stages until `next` hands out the perform for `stage`, which is returned unperformed. */
+async function driveTo(f: any, row: any, stage: string) {
+  for (let i = 0; i < 30; i++) {
+    const { result: r } = await f.next();
+    if (r.outcome === 'acted') continue;
+    if (r.outcome !== 'perform') throw new Error(`expected a perform for ${stage}, got ${r.outcome}:${r.step ?? r.reason ?? ''}`);
+    if (r.perform.stage === stage) return r.perform;
+    performStage(f, row, r.perform, []);
+  }
+  throw new Error(`never reached ${stage}`);
+}
+
+test('A: a stray handoff of another skill that backfills the pending stage does not count as performing it', async (t) => {
+  const row = rowOf('bug');
+  const f = fixture(t, [row]);
+  const pending = await driveTo(f, row, 'root-cause');
+  assert.equal(pending.skill, 'do-diagnose');
+  // A second do-test handoff: reproduction is done, so catch-up walks root-cause as BACKFILLED and stops at implementation.
+  const stray = f.orch(row).handoff({ taskId: row.slug, callingSkill: 'do-test', note: 'second run', now: f.tick() });
+  assert.equal(stray.disposition, 'deferred');
+  const entry = f.orch(row).readRun(row.slug).history.find((h: any) => h.node === 'root-cause' && h.action === 'complete-stage');
+  assert.equal(entry.backfilled, true);
+  const first = (await f.next()).result;
+  assert.equal(first.outcome, 'denied');
+  assert.equal(first.reason, 'stage-not-performed');
+  assert.equal(first.perform.stage, 'root-cause');
+  // Held by digest: a second call spends no step; the row is never advanced to implementation by the stray handoff.
+  const second = (await f.next()).result;
+  assert.notEqual(second.step, 'pick');
+  assert.ok(!second.perform || second.perform.stage !== 'implementation');
+  // A real do-diagnose handoff afterwards (an annotation on the already backfilled stage) is a handoff of THIS stage: accepted.
+  f.orch(row).handoff({ taskId: row.slug, callingSkill: 'do-diagnose', note: 'root cause found', now: f.tick() });
+  const accepted = (await f.next()).result;
+  assert.equal(accepted.outcome, 'perform');
+  assert.equal(accepted.perform.stage, 'implementation');
+});
+
+test('A: a stage backfilled by another skill is held with the annotate command that releases it, and that command releases it', async (t) => {
+  const row = rowOf('bug');
+  const f = fixture(t, [row]);
+  const pending = await driveTo(f, row, 'reproduction');
+  assert.equal(pending.skill, 'do-test');
+  // The session ran do-diagnose first: catch-up backfills the pending reproduction and completes root-cause.
+  f.orch(row).handoff({ taskId: row.slug, callingSkill: 'do-diagnose', note: 'root cause found', now: f.tick() });
+  const denied = (await f.next()).result;
+  assert.equal(denied.outcome, 'denied');
+  assert.equal(denied.reason, 'stage-not-performed');
+  assert.equal(denied.annotations.backfilled, true);
+  assert.deepEqual(denied.annotations.release.slice(0, 7), ['orchestrate', '--action', 'annotate', '--task-id', row.slug, '--node', 'reproduction']);
+  // Held for good otherwise: the next call spends no step and says nothing new.
+  const again = (await f.next()).result;
+  assert.notEqual(again.outcome, 'perform');
+  // The named command, run as written, releases the hold: the loop moves on to implementation.
+  f.orch(row).annotate({ taskId: row.slug, node: 'reproduction', note: 'reproduced before root-cause', now: f.tick() });
+  const released = (await f.next()).result;
+  assert.equal(released.outcome, 'perform');
+  assert.equal(released.perform.stage, 'implementation');
+});

@@ -781,10 +781,11 @@ function performedCheck(ctx: any, row: any, worktree: string, run: any, perform:
   if (current.sha256 === null) return { ok: false, current };
 
   // FU-rcshhx: allow adopting rows whose design/plan artifacts were already completed and recorded
-  // in the orchestration run history, even if current.sha256 === perform.before?.sha256.
+  // in the orchestration run history, even if current.sha256 === perform.before?.sha256. A completion that a
+  // later skill's catch-up only backfilled is not such a record (AU-P1).
   const isDesignOrPlan = perform.stage === 'design' || perform.stage === 'planning';
   const alreadyCompleted = isDesignOrPlan && (run.history || []).some((entry: any) =>
-    entry && entry.node === perform.stage && (entry.action === 'complete-stage' || entry.action === 'annotate')
+    entry && entry.node === perform.stage && ((entry.action === 'complete-stage' && !entry.backfilled) || entry.action === 'annotate')
   );
   if (alreadyCompleted) return { ok: true, current };
 
@@ -1357,8 +1358,14 @@ async function stepRow(ctx: any, row: any, worktrees: Map<string, string>): Prom
       const digest = sha256Digest(JSON.stringify({ stage: slot.perform.stage, sha256: checked.current.sha256, handedOff: Boolean(checked.handedOff) }));
       if (slot.held?.kind === 'stage' && slot.held.inputsDigest === digest) return { skip: `held:${slot.held.reason}` };
       slot.held = { kind: 'stage', reason: 'stage-not-performed', inputsDigest: digest };
+      // A handoff-only stage whose only handoff was a catch-up backfill (another skill's handoff walked past it) can never
+      // change its digest on its own: only an annotate of the stage, which counts as a handoff, releases the hold.
+      const backfilled = (run.history || []).some((entry: any) => entry && entry.node === slot.perform.stage && entry.backfilled === true);
+      const release = HANDOFF_ONLY_KINDS.includes(kindOf(run, slot.perform.stage))
+        ? { release: ['orchestrate', '--action', 'annotate', '--task-id', row.slug, '--node', slot.perform.stage, '--note', '<what was done>'], backfilled }
+        : undefined;
       return finish(ctx, { outcome: 'denied', reason: 'stage-not-performed', row: row.id, slug: row.slug, rule: `perform/${slot.perform.stage}`,
-        evidence: [{ locator: checked.current.artifact, sha256: checked.current.sha256 }], perform: slot.perform });
+        evidence: [{ locator: checked.current.artifact, sha256: checked.current.sha256 }], annotations: release, perform: slot.perform });
     }
     if (slot.held?.kind === 'stage' || slot.held?.kind === 'dispatch') delete slot.held;
     delete slot.perform;
