@@ -11,7 +11,7 @@
     "review": {},
     "research": {},
     "documentation": { "gate-b": { "autopilot": "approve", "minSeats": 2, "predicates": ["protected-paths", "plan-verification-absent", "verify-pass-on-head", "findings-valid", "no-dropped-findings", "dispositions-backed", "blockers-zero"] } },
-    "dependency-change": { "gate-b": { "autopilot": "approve", "minSeats": 2, "predicates": ["protected-paths", "plan-verification-absent", "verify-pass-on-head", "findings-valid", "no-dropped-findings", "dispositions-backed", "blockers-zero"] } },
+    "dependency-change": {},
     "operations": {},
     "trivial-edit": { "gate-b": { "autopilot": "approve", "minSeats": 2, "predicates": ["protected-paths", "plan-verification-absent", "verify-pass-on-head", "findings-valid", "no-dropped-findings", "dispositions-backed", "blockers-zero"] } }
   },
