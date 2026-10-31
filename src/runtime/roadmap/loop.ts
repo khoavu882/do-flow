@@ -751,7 +751,7 @@ function verifyArgvOf(ctx: any, row: any, worktree: string): string[] | null {
  * that differs from it); documentation has no readiness stage and no plan, so the row's own write set
  * is its declared scope.
  */
-const scopeArgsOf = (row: any): string[] => (row.class === 'documentation' && Array.isArray(row.writeSet) && row.writeSet.length
+const scopeFlagsOf = (row: any): string[] => (row.class === 'documentation' && Array.isArray(row.writeSet) && row.writeSet.length
   ? ['--scope', row.writeSet.join(',')] : []);
 
 /** IC-008 envelope. Argv arrays only: the session runs them, nothing here is a shell string. */
@@ -762,7 +762,7 @@ function envelopeFor(ctx: any, row: any, worktree: string, stage: string, skill:
     artifactRoot: artifactRootOf(ctx, row, worktree), before, issuedAt: ctx.now().toISOString(), attendance: attendanceOf(ctx.record.runId) };
   const next = ['roadmap', '--action', 'next', '--run', ctx.record.runId];
   if (kind === 'verification') {
-    return { ...base, after: [['verify', '--action', 'report', '--task-id', row.slug, '--baseline-ref', mergeBaseOf(ctx, row), ...scopeArgsOf(row)], handoff], next,
+    return { ...base, after: [['verify', '--action', 'report', '--task-id', row.slug, '--baseline-ref', mergeBaseOf(ctx, row), ...scopeFlagsOf(row)], handoff], next,
       afterNote: 'verify exits non-zero for a FAIL or INCONCLUSIVE result and still records it: run the handoff next whatever it exits' };
   }
   // Only the feature chain dispatches workers (plan tasks); the other classes' implementation is a plain stage.
@@ -1053,7 +1053,7 @@ async function mergeStep(ctx: any, row: any, source: { intent?: any; run?: any; 
       const perform = { outcome: 'perform', runId: ctx.record.runId, row: row.id, slug: row.slug, stage: 'verification', skill: 'do-test',
         purpose: 'post-merge', worktree: intent.developWorktree, artifactRoot: null, head: intent.commit, before, issuedAt: ctx.now().toISOString(),
         attendance: attendanceOf(ctx.record.runId),
-        after: ['verify', '--action', 'report', '--task-id', row.slug, '--baseline-ref', intent.developHead, ...postMergePlan(ctx, row, intent), ...scopeArgsOf(row)],
+        after: ['verify', '--action', 'report', '--task-id', row.slug, '--baseline-ref', intent.developHead, ...postMergePlan(ctx, row, intent), ...scopeFlagsOf(row)],
         next: ['roadmap', '--action', 'next', '--run', ctx.record.runId] };
       return finish(ctx, { outcome: 'perform', row: row.id, slug: row.slug, perform });
     }
