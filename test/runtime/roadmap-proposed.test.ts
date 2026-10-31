@@ -140,6 +140,85 @@ test('promote with no controlling terminal to read (the default reader finds no 
   assert.equal(rawRows(dir), before);
 });
 
+test('promote asks before it takes the lease: the lease is free during the prompt and released after', (t) => {
+  const dir = store(t, [row('130', { proposed: true })]);
+  const leaseFile = () => fs.existsSync(path.join(dir, '.doflow/state/roadmap')) ? fs.readdirSync(path.join(dir, '.doflow/state/roadmap')) : [];
+  let during: string[] = ['unset'];
+  const out = capture();
+  assert.equal(handlePromoteCommand({ isTTY: true, ids: ['130'], root: dir, gitFacts: FACTS, confirm: () => { during = leaseFile(); return 'y'; }, out: out.fn, err: out.fn }), 0);
+  assert.deepEqual(during, [], 'no lease while the prompt waits');
+  assert.deepEqual(leaseFile().filter((f: string) => /lease/i.test(f)), [], 'lease released after the write');
+});
+
+test('promote refuses with zero writes when the rows changed between the prompt and the lease', (t) => {
+  const dir = store(t, [row('130', { proposed: true }), row('131', { proposed: true })]);
+  const storePath = path.join(dir, 'agent-docs/roadmap/rows.json');
+  const swapped = JSON.stringify({ schema: 1, rows: [row('130', { proposed: true, title: 'Row 130 changed' }), row('131', { proposed: true })] }, null, 2) + '\n';
+  const out = capture();
+  const code = handlePromoteCommand({ isTTY: true, ids: ['130'], root: dir, json: true, gitFacts: FACTS, confirm: () => { fs.writeFileSync(storePath, swapped); return 'y'; }, out: out.fn, err: out.fn });
+  assert.equal(code, 1);
+  const refused = JSON.parse(out.lines[0]);
+  assert.equal(refused.reason, 'needs-person-confirm');
+  assert.equal(refused.writes, 0);
+  assert.equal(rawRows(dir), swapped, 'the store is exactly what the other writer left');
+  const leftovers = fs.readdirSync(path.dirname(storePath)).filter((f: string) => f.startsWith('.tmp-rows-'));
+  assert.deepEqual(leftovers, []);
+});
+
+test('promote escapes control, C1 and bidi characters in a title before the prompt', (t) => {
+  const dir = store(t, [row('130', { proposed: true, title: 'Evil\u009b31m‮txt\u0007​' })]);
+  const a = asker('n');
+  handlePromoteCommand({ isTTY: true, ids: ['130'], root: dir, json: true, gitFacts: FACTS, confirm: a.confirm, out: () => {}, err: () => {} });
+  assert.equal(a.prompts.length, 1);
+  assert.equal(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩]/.test(a.prompts[0]), false, 'no raw control or bidi character reaches the prompt');
+  assert.match(a.prompts[0], /Evil\\u009b31m\\u202etxt\\u0007\\u200b/);
+});
+
+// readTtyAnswer succeeds: /dev/tty is stubbed to a byte feed, so no real terminal is needed
+function withFakeTty(t: any, feed: string) {
+  const realOpen = fs.openSync, realRead = fs.readSync, realWrite = fs.writeSync, realClose = fs.closeSync;
+  const bytes = Buffer.from(feed, 'latin1');
+  const state = { pos: 0, written: '' as string, closed: 0 };
+  const FD = 987654;
+  fs.openSync = ((p: any, ...rest: any[]) => (p === '/dev/tty' ? FD : (realOpen as any)(p, ...rest))) as any;
+  fs.readSync = ((fd: any, buf: any, off: any, len: any, ...rest: any[]) => {
+    if (fd !== FD) return (realRead as any)(fd, buf, off, len, ...rest);
+    if (state.pos >= bytes.length) return 0;
+    buf[off] = bytes[state.pos]; state.pos += 1; return 1;
+  }) as any;
+  fs.writeSync = ((fd: any, data: any, ...rest: any[]) => { if (fd === FD) { state.written += String(data); return String(data).length; } return (realWrite as any)(fd, data, ...rest); }) as any;
+  fs.closeSync = ((fd: any) => { if (fd === FD) { state.closed += 1; return; } return (realClose as any)(fd); }) as any;
+  t.after(() => { fs.openSync = realOpen; fs.readSync = realRead; fs.writeSync = realWrite; fs.closeSync = realClose; });
+  return state;
+}
+
+test('default tty reader: y + newline promotes, writes the prompt to the tty, stops at the newline and closes the tty', (t) => {
+  const dir = store(t, [row('130', { proposed: true })]);
+  const tty = withFakeTty(t, 'y\nSECOND LINE\n');
+  const out = capture();
+  assert.equal(handlePromoteCommand({ isTTY: true, ids: ['130'], root: dir, json: true, gitFacts: FACTS, out: out.fn, err: out.fn }), 0);
+  assert.deepEqual(JSON.parse(out.lines[0]).promoted, ['130']);
+  assert.match(tty.written, /Promote 1 row\(s\): 130\? \[y\/N\] $/);
+  assert.equal(tty.pos, 2, 'parsing stopped at the first newline');
+  assert.equal(tty.closed, 1);
+});
+
+test('default tty reader: a line with no newline within 64 bytes is not an answer, and the rest of the line is drained (bounded)', (t) => {
+  const dir = store(t, [row('130', { proposed: true })]);
+  const before = rawRows(dir);
+  const tty = withFakeTty(t, 'y' + ' '.repeat(100) + 'yes\nafter');
+  const out = capture();
+  assert.equal(handlePromoteCommand({ isTTY: true, ids: ['130'], root: dir, json: true, gitFacts: FACTS, out: out.fn, err: out.fn }), 1);
+  assert.equal(JSON.parse(out.lines[0]).reason, 'needs-person-confirm');
+  assert.equal(rawRows(dir), before);
+  assert.equal(tty.pos, 1 + 100 + 3 + 1, 'the oversized line was drained up to its newline and no further');
+  // no newline at all: the drain is bounded and the verb still refuses
+  const endless = withFakeTty(t, 'y'.repeat(10000));
+  const out2 = capture();
+  assert.equal(handlePromoteCommand({ isTTY: true, ids: ['130'], root: dir, json: true, gitFacts: FACTS, out: out2.fn, err: out2.fn }), 1);
+  assert.ok(endless.pos <= 64 + 4096, `drain is bounded (read ${endless.pos})`);
+});
+
 test('promote validates before it asks: an unknown, ready or repeated id is a finding and no prompt is shown', (t) => {
   const dir = store(t, [row('130', { proposed: true }), row('131')]);
   const before = rawRows(dir);

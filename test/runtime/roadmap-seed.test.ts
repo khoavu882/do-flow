@@ -1015,8 +1015,8 @@ test('refusals: live lease gives lease-held; maint-thin: readSwitch enabled no l
     'utf8'
   );
 
-  // G55 requires the quoted literal 'lease-held'. maint-thin: an enabled switch is not a refusal (no 'needs-person'
-  // from seed); the added row lands proposed, the store row stays ready, and the table names it.
+  // G55 requires the quoted literal 'lease-held'. maint-thin: an enabled switch is not a refusal; the added row lands
+  // proposed, the store row stays ready, and the table names it.
   let outProposedJson = '';
   const exitProposed = handleSeedCommand({ isTTY: true,
     action: 'apply',

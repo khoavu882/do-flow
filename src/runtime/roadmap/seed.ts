@@ -840,12 +840,19 @@ function readTtyAnswer(prompt: string): string | null {
     fs.writeSync(fd, prompt);
     const buf = Buffer.alloc(1);
     let line = '';
-    while (line.length < 64) {
+    let ended = false;
+    for (let i = 0; i < 64 && !ended; i += 1) {
       const n = fs.readSync(fd, buf, 0, 1, null);
-      if (n === 0 || buf[0] === 10) break;
-      line += String.fromCharCode(buf[0]);
+      if (n === 0 || buf[0] === 10) ended = true;
+      else line += String.fromCharCode(buf[0]);
     }
-    return line;
+    // drain what is left of the typed line (bounded), so it is not left in the terminal queue
+    const tooLong = !ended;
+    for (let i = 0; i < 4096 && !ended; i += 1) {
+      const n = fs.readSync(fd, buf, 0, 1, null);
+      if (n === 0 || buf[0] === 10) ended = true;
+    }
+    return tooLong ? null : line;
   } catch {
     return null;
   } finally {
@@ -859,8 +866,9 @@ function readTtyAnswer(prompt: string): string | null {
  * (refused `needs-person-tty`, nothing written), validates the named rows, then prints their ids and titles and asks
  * `[y/N]` on the controlling terminal (`/dev/tty`): no `/dev/tty`, or an answer other than y/yes, is refused
  * `needs-person-confirm` and nothing is written. No flag or environment variable skips the prompt, and the autopilot
- * switch is not read. Under the roadmap lease it drops the `proposed` mark of every named row, so autopilot may pick
- * it. All or nothing: an unknown id, a row that is not proposed, or a duplicate id is a finding (reported before any
+ * switch is not read. The prompt comes before the roadmap lease (Ctrl-C would otherwise leave the lease behind); under
+ * the lease the store is read again and must equal what was shown, then the verb drops the `proposed` mark of every
+ * named row, so autopilot may pick it. All or nothing: an unknown id, a row that is not proposed, or a duplicate id is a finding (reported before any
  * prompt) and nothing is written. Exit 0 promoted, 1 refused or findings, 2 usage.
  */
 function handlePromoteCommand(options: HandlePromoteCommandOptions = {}): number {
@@ -904,6 +912,33 @@ function handlePromoteCommand(options: HandlePromoteCommandOptions = {}): number
       'promote runs only from an interactive terminal: a person runs doflow roadmap promote in their own shell');
   }
 
+  // Read, validate and ask BEFORE taking the lease: Ctrl-C kills the process inside the terminal read, so a lease held
+  // across the prompt would be left behind. The lease is taken after the answer, and the store is read again under it.
+  let raw: string;
+  try { raw = fsImpl.readFileSync(storePath, 'utf8'); }
+  catch (error: any) { return emit({ ...base, findings: ids.map((id) => ({ rule: 'row-not-found', rowId: id, message: `no store at ${storePath}: ${safeText(error.message)}` })) }, 1); }
+  const storeFindings = seedFindings(raw);
+  if (storeFindings.length > 0) return emit({ ...base, findings: storeFindings }, 1);
+  const doc = JSON.parse(raw);
+  const findings: any[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    const row = doc.rows.find((r: any) => r.id === id);
+    if (seen.has(id)) findings.push({ rule: 'duplicate-id', rowId: id, message: `Row '${safeText(id)}' is named twice` });
+    else if (!row) findings.push({ rule: 'row-not-found', rowId: id, message: `Row '${safeText(id)}' not found in store` });
+    else if (row.proposed !== true) findings.push({ rule: 'row-not-proposed', rowId: id, message: `Row '${safeText(id)}' is not proposed` });
+    seen.add(id);
+  }
+  if (findings.length > 0) return emit({ ...base, findings }, 1);
+  const titles = ids.map((id) => `  ${safeText(id)}  ${safeText(doc.rows.find((r: any) => r.id === id).title)}`);
+  const prompt = `${titles.join('\n')}\nPromote ${ids.length} row(s): ${ids.map(safeText).join(' ')}? [y/N] `;
+  let answer: string | null = null;
+  try { answer = confirm(prompt); } catch { answer = null; }
+  if (typeof answer !== 'string' || !/^(y|yes)$/i.test(answer.trim())) {
+    return emit({ ...base, reason: 'needs-person-confirm' }, 1,
+      'promote needs a person to answer y on the controlling terminal (/dev/tty); there is no flag or variable that skips the prompt');
+  }
+
   const leaseDir = path.join(root, '.doflow', 'state', 'roadmap');
   const nowDate = (now ? now : () => new Date())();
   const me = {
@@ -917,29 +952,11 @@ function handlePromoteCommand(options: HandlePromoteCommandOptions = {}): number
   const lease = acquireLease(leaseDir, me, alive || noPsAlive, fsImpl);
   if (!lease.ok) return emit({ ...base, reason: 'lease-held' }, 1);
   try {
-    let raw: string;
-    try { raw = fsImpl.readFileSync(storePath, 'utf8'); }
-    catch (error: any) { return emit({ ...base, findings: ids.map((id) => ({ rule: 'row-not-found', rowId: id, message: `no store at ${storePath}: ${safeText(error.message)}` })) }, 1); }
-    const storeFindings = seedFindings(raw);
-    if (storeFindings.length > 0) return emit({ ...base, findings: storeFindings }, 1);
-    const doc = JSON.parse(raw);
-    const findings: any[] = [];
-    const seen = new Set<string>();
-    for (const id of ids) {
-      const row = doc.rows.find((r: any) => r.id === id);
-      if (seen.has(id)) findings.push({ rule: 'duplicate-id', rowId: id, message: `Row '${safeText(id)}' is named twice` });
-      else if (!row) findings.push({ rule: 'row-not-found', rowId: id, message: `Row '${safeText(id)}' not found in store` });
-      else if (row.proposed !== true) findings.push({ rule: 'row-not-proposed', rowId: id, message: `Row '${safeText(id)}' is not proposed` });
-      seen.add(id);
-    }
-    if (findings.length > 0) return emit({ ...base, findings }, 1);
-    const titles = ids.map((id) => `  ${safeText(id)}  ${safeText(doc.rows.find((r: any) => r.id === id).title)}`);
-    const prompt = `${titles.join('\n')}\nPromote ${ids.length} row(s): ${ids.map(safeText).join(' ')}? [y/N] `;
-    let answer: string | null = null;
-    try { answer = confirm(prompt); } catch { answer = null; }
-    if (typeof answer !== 'string' || !/^(y|yes)$/i.test(answer.trim())) {
+    let current: string | null = null;
+    try { current = fsImpl.readFileSync(storePath, 'utf8'); } catch { current = null; }
+    if (current !== raw) {
       return emit({ ...base, reason: 'needs-person-confirm' }, 1,
-        'promote needs a person to answer y on the controlling terminal (/dev/tty); there is no flag or variable that skips the prompt');
+        'the roadmap store changed after the rows were shown; nothing was written, run doflow roadmap promote again');
     }
     const rows = doc.rows.map((r: any) => {
       if (!ids.includes(r.id)) return r;

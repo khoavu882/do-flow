@@ -13,8 +13,7 @@ function safeText(value: any): string {
   if (typeof value === 'string') {
     try {
       text = JSON.stringify(value).slice(1, -1)
-        .replace(/\u2028/g, '\\u2028')
-        .replace(/\u2029/g, '\\u2029');
+        .replace(/[\p{Cc}\p{Cf}\u2028\u2029]/gu, (c: string) => { const cp = c.codePointAt(0) as number; return cp > 0xffff ? `\\u{${cp.toString(16)}}` : `\\u${cp.toString(16).padStart(4, '0')}`; });
     } catch {
       text = '';
     }
