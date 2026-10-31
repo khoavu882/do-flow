@@ -150,7 +150,7 @@ function parseArgs(argv: string[]): any {
       case '--action': {
         const val = argv[i + 1];
         // `review`, `protocol`, `config`, `primary` and `package` answer a missing value as usage, exit 2; other verbs keep exit 1.
-        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'review' || o.cmd === 'protocol' || o.cmd === 'config' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript' || o.cmd === 'package' ? 2 : 1); }
+        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'review' || o.cmd === 'protocol' || o.cmd === 'config' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript' || o.cmd === 'package' || o.cmd === 'worktree' ? 2 : 1); }
         o.action = val; o.actionGiven = true; i++; break;
       }
       case '--task-class': {
@@ -248,7 +248,7 @@ function parseArgs(argv: string[]): any {
 
 /** Verbs that answer an unrecognised flag as a usage error (exit 2); every other verb keeps exit 1. */
 function unknownFlagExit(cmd: string | null): number {
-  return cmd === 'protocol' || cmd === 'config' || cmd === 'rules' || cmd === 'review' ? 2 : 1;
+  return cmd === 'protocol' || cmd === 'config' || cmd === 'rules' || cmd === 'review' || cmd === 'worktree' || cmd === 'attendance' ? 2 : 1;
 }
 
 /** Longest part of an unrecognised argument echoed back; the rest is cut and marked. */
@@ -604,6 +604,10 @@ Commands:
   transcript           Read an agent's recent events, or the project's traffic (read-only, run in a project).
                        transcript --action read --agent <key> [--cursor <c>] [--limit <n>] [--json]   masked events and DoFlow's record events (exit 0, 1 agent-not-in-project or session-not-in-project, 2 usage)
                        transcript --action stats [--window <minutes 1..60>] [--json]   events per minute, tool calls, tokens, who works with whom (exit 0, 2 usage)
+  worktree             Remove a merged feature's worktree and branch, never by force (--action cleanup).
+                       worktree --action cleanup --slug <row slug> [--json]   copies agent-docs/doflow/<slug> back to the main checkout first (exit 0 cleaned, 1 kept or lease-held with the reason, 2 usage)
+  attendance           Say whether a person is watching a stage (read-only).
+                       attendance --task-id <row slug> [--run <rl-id>] [--json]   prints "unattended <source>" or "attended <reason>" (exit 0, 2 usage)
   package              List the contribution points a package may fill, check a package directory, show the packages, add and update a local package, or turn it on and off.
                        package --action points [--json]
                        package --action check --path <dir> [--json]   (read-only; exit 0 clean, 1 findings, 2 usage)
@@ -673,6 +677,7 @@ Runtime verb arguments (accept --flag value or --flag=value):
                        failure: list|settle|capture
                        roadmap: render|status|next|audit|init-policy (seed: check|apply|amend; promote <id...>)
                        slot: run|list|peek|release
+                       worktree: cleanup
                        models: sync|list|describe
                        review: check|start
                        protocol: list|resolve

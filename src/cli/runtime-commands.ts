@@ -66,6 +66,8 @@ const { handleProtocolCommand } = require('../runtime/review/protocol-command.ts
 const { handleRulesCommand } = require('../runtime/rules-report.ts');
 const { handlePackageCommand } = require('../runtime/packages/command.ts');
 const { handleModelsCommand } = require('../runtime/models/command.ts');
+const { handleWorktreeCommand } = require('../runtime/roadmap/worktree-cleanup.ts');
+const { handleAttendanceCommand } = require('../runtime/roadmap/attendance.ts');
 // `plan-check` is read-only (115 IC-001): no upkeep, which would write `.gitignore` and `upkeep-due`.
 // `review` writes only its one telemetry line (095 IC-003).
 // `protocol` only prints the registry and the resolved protocol (119 IC-004), so it has nothing to keep up.
@@ -73,9 +75,10 @@ const { handleModelsCommand } = require('../runtime/models/command.ts');
 // `primary` only prints the resolved main session (120 IC-008) and writes nothing.
 // `fleet` only lists the projects this machine knows from two read-only stores (093 IC-019) and writes nothing.
 // `transcript` only reads agents' transcripts and DoFlow's own records and prints them (093 IC-022, IC-023); it writes nothing.
+// `attendance` is read-only; `worktree --action cleanup` removes a merged feature's worktree under the roadmap lease and writes no DoFlow state, so neither runs upkeep.
 // `package` stays here (122 IC-012): `new` writes only the target folder; `add --plan`, `update --plan` and `remove` write the store and lock and run upkeep (see `runsUpkeep`).
 // `slot` is not here: `run`, `list` and `release` write the slot files and run upkeep; only `slot --action peek` is read-only and skips it (093 IC-018 b, see `runsUpkeep`).
-const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review', 'protocol', 'rules', 'primary', 'package', 'models', 'fleet', 'transcript']);
+const NO_UPKEEP = new Set(['storage', 'config', 'plan-check', 'review', 'protocol', 'rules', 'primary', 'package', 'models', 'fleet', 'transcript', 'worktree', 'attendance']);
 const runsUpkeep = (o: any): boolean => (!NO_UPKEEP.has(o.cmd) && !(o.cmd === 'slot' && o.actionGiven && o.action === 'peek'))
   || (o.cmd === 'package' && ((typeof o.planId === 'string' && (o.action === 'add' || o.action === 'update')) || o.action === 'remove'));
 // Required on first use, so a CLI whose failure modules cannot be loaded still runs every other verb.
@@ -432,6 +435,8 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     case 'fleet': return handleFleetCommand({ action: o.actionGiven ? o.action : undefined, json: o.json, flags: o.flagsGiven, env: process.env, cwd: process.cwd() });
     case 'transcript': return handleTranscriptCommand({ action: o.actionGiven ? o.action : undefined, agent: o.agent, cursor: o.cursor, limit: o.limit, window: o.window, json: o.json, flags: o.flagsGiven, env: process.env, cwd: process.cwd() });
     case 'models': return handleModelsCommand({ action: o.actionGiven ? o.action : (o.positional?.[0] || 'list'), positional: o.positional, harness: o.harness, model: o.model, json: o.json, projectRoot: evidenceRoot(o) });
+    case 'worktree': return handleWorktreeCommand({ action: o.actionGiven ? o.action : undefined, slug: o.slug, json: o.json, flags: o.flagsGiven, env: process.env, cwd: process.cwd() });
+    case 'attendance': return handleAttendanceCommand({ taskId: o.taskId, run: o.run, json: o.json, flags: o.flagsGiven, env: process.env, cwd: process.cwd() });
     default: console.error(`doflow: unknown command '${o.cmd}'`); process.exit(1);
   }
 }

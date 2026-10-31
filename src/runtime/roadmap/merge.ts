@@ -342,7 +342,11 @@ function copyFeatureFolder(from: string, to: string, fsImpl: any, report: any, r
   }
 }
 
-/** `report` (optional) receives `copied`, `skipped` and, when the cleanup is kept, `failure`. */
+/**
+ * `report` (optional) receives `copied`, `skipped` and, when the cleanup is kept, `kept` (head-moved,
+ * not-on-develop, wrong-branch, dirty, copy-failed, copy-conflict, worktree-remains or git-failed)
+ * and, for the copy and git faults, `failure`.
+ */
 function cleanupFeature({ intent, root, develop, execFileSync, execOptions, fsImpl, report = {} }: any): boolean {
   report.copied = 0; report.skipped = []; report.conflicts = [];
   const feature = intent.featureWorktree;
@@ -350,24 +354,29 @@ function cleanupFeature({ intent, root, develop, execFileSync, execOptions, fsIm
   try {
     let featureHead: string;
     try { featureHead = String(execFileSync('git', ['-C', root, 'rev-parse', '--verify', `refs/heads/${branch}`], execOptions)).trim(); }
-    catch { return !feature || !fsImpl.existsSync(feature); }
-    if (featureHead !== intent.featureHead) return false;
+    catch {
+      if (!feature || !fsImpl.existsSync(feature)) return true;
+      report.kept = 'worktree-remains';
+      return false;
+    }
+    if (featureHead !== intent.featureHead) { report.kept = 'head-moved'; return false; }
     // Only a tip already on develop may lose its worktree: a branch someone kept committing on keeps
     // both the worktree (and its gitignored agent-docs/.doflow files) and the branch.
     try { execFileSync('git', ['-C', root, 'merge-base', '--is-ancestor', featureHead, 'refs/heads/develop'], execOptions); }
-    catch { return false; }
+    catch { report.kept = 'not-on-develop'; return false; }
     if (feature && fsImpl.existsSync(feature)) {
       const current = String(execFileSync('git', ['-C', feature, 'symbolic-ref', '-q', 'HEAD'], execOptions)).trim();
-      if (current !== `refs/heads/${branch}`) return false;
-      if (String(execFileSync('git', ['-C', feature, 'status', '--porcelain', '--untracked-files=all'], execOptions)) !== '') return false;
+      if (current !== `refs/heads/${branch}`) { report.kept = 'wrong-branch'; return false; }
+      if (String(execFileSync('git', ['-C', feature, 'status', '--porcelain', '--untracked-files=all'], execOptions)) !== '') { report.kept = 'dirty'; return false; }
       const slug = branch.replace(/^feat\//, '');
       const folder = path.join(feature, 'agent-docs', 'doflow', slug);
       // The folder is gitignored, so `worktree remove` would delete it: copy it first, keep on any failure.
       if (slug && !slug.includes('/') && fsImpl.existsSync(folder)) {
         try { copyFeatureFolder(folder, path.join(root, 'agent-docs', 'doflow', slug), fsImpl, report); }
-        catch (error: any) { report.failure = `artifact copy failed: ${error.message}`; return false; }
+        catch (error: any) { report.failure = `artifact copy failed: ${error.message}`; report.kept = 'copy-failed'; return false; }
         if (report.conflicts.length) {
           report.failure = `kept: main checkout copy differs from the worktree copy of ${report.conflicts.join(', ')}`;
+          report.kept = 'copy-conflict';
           return false;
         }
       }
@@ -375,7 +384,7 @@ function cleanupFeature({ intent, root, develop, execFileSync, execOptions, fsIm
     }
     execFileSync('git', ['-C', develop, 'branch', '-d', '--', branch], execOptions);
     return true;
-  } catch (error: any) { report.failure ||= error.message; return false; }
+  } catch (error: any) { report.failure ||= error.message; report.kept ||= 'git-failed'; return false; }
 }
 
 module.exports = { mergeRoadmapRow, readOpenIntents, writeIntent, cleanupFeature };
