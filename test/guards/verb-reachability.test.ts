@@ -102,8 +102,8 @@ const ALLOWLIST: any = new Map([
   ['transcript', 'read-only agent transcript and traffic reader for the Console Fleet view (093 IC-022, IC-023); a person or the Console runs it, so no skill calls it'],
   ['package', 'read-only contribution point listing (122 IC-012 `points`); no skill calls the package verb yet'],
   ['models', 'CLI model catalogue sync and inspection verb; invoked via doflow models'],
-  ['worktree', 'autonomy plan 7c: `worktree --action cleanup` is run by the orchestrator or a person after a merge, from the main checkout; the skill edits that call it belong to a later package of the autonomy plan, so no skill calls it yet'],
-  ['attendance', 'autonomy plan section 2: read-only attendance answer that stage skills will confirm once per stage; the skill edits that call it belong to a later package of the autonomy plan, so no skill calls it yet'],
+  ['worktree', 'autonomy plan 7c: `worktree --action cleanup` is run by the orchestrator or a person from the main checkout after a merge, by design; no skill calls it and none will'],
+  ['attendance', 'autonomy plan section 2: read-only attendance answer that stage skills will confirm once per stage; owner is package P5 (the skill edits), which removes this entry when it wires the first caller'],
 ]);
 
 /** Parse all shell-backed verbs from shell_helper_for() in doflow-run. `\r?\n` keeps the parser

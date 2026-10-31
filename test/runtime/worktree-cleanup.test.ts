@@ -39,14 +39,19 @@ function fixture(t: any, { merged = true }: { merged?: boolean } = {}) {
   git(root, 'worktree', 'add', '-qb', `feat/${SLUG}`, feature);
   fs.writeFileSync(path.join(feature, 'feature.txt'), 'feature\n');
   git(feature, 'add', '.'); git(feature, 'commit', '-qm', 'feature');
-  if (merged) git(develop, 'merge', '--no-ff', '-q', `feat/${SLUG}`, '-m', 'merge: 113 Toy');
+  // The seed the loop reads; a merge counts only with its DoFlow-Row trailer (deriveStatus).
+  fs.mkdirSync(path.join(root, 'agent-docs', 'roadmap'), { recursive: true });
+  const row = (id: string, slug: string) => ({ id, slug, title: 'Toy', class: 'feature', needs: [], writeSet: ['feature.txt'] });
+  fs.writeFileSync(path.join(root, 'agent-docs', 'roadmap', 'rows.json'), JSON.stringify({ schema: 1, rows: [row('113', SLUG), row('200', '200-live')] }));
+  const mergeFeature = () => git(develop, 'merge', '--no-ff', '-q', `feat/${SLUG}`, '-m', 'merge: 113 Toy', '-m', 'DoFlow-Row: 113');
+  if (merged) mergeFeature();
   const artifacts = path.join(feature, 'agent-docs', 'doflow', SLUG);
   fs.mkdirSync(path.join(artifacts, 'design'), { recursive: true });
   fs.writeFileSync(path.join(artifacts, 'requirement.md'), 'worktree requirement\n');
   fs.writeFileSync(path.join(artifacts, 'design', 'specs.md'), 'worktree specs\n');
   const main = path.join(root, 'agent-docs', 'doflow', SLUG);
   const run = (extra: any = {}) => cleanupWorktree({ slug: SLUG, root, env, ...extra });
-  return { dir, root, develop, feature, home, env, git, artifacts, main, run };
+  return { dir, root, develop, feature, home, env, git, artifacts, main, run, mergeFeature };
 }
 
 /** A git runner that answers one git argv itself, to reach a keep that is only a race in practice. */
@@ -83,12 +88,66 @@ test('a second run after a clean removal is cleaned with nothing to do', (t) => 
   assert.equal(again.result.already, true);
 });
 
-test('kept not-on-develop: the tip is not merged, so the worktree, its ignored files and the branch stay', (t) => {
+test('kept not-merged: an unmerged branch with commits keeps the worktree, its ignored files and the branch', (t) => {
   const f = fixture(t, { merged: false });
+  const { code, result } = f.run();
+  assert.deepEqual([code, result.outcome, result.reason], [1, 'kept', 'not-merged']);
+  assert.equal(fs.existsSync(path.join(f.artifacts, 'requirement.md')), true);
+  assert.notEqual(f.git(f.root, 'branch', '--list', `feat/${SLUG}`), '');
+});
+
+test('kept not-on-develop: a trailer-merged branch that gained a commit after the merge keeps everything', (t) => {
+  const f = fixture(t);
+  fs.writeFileSync(path.join(f.feature, 'later.txt'), 'later\n');
+  f.git(f.feature, 'add', 'later.txt'); f.git(f.feature, 'commit', '-qm', 'after the merge');
   const { code, result } = f.run();
   assert.deepEqual([code, result.outcome, result.reason], [1, 'kept', 'not-on-develop']);
   assert.equal(fs.existsSync(path.join(f.artifacts, 'requirement.md')), true);
   assert.notEqual(f.git(f.root, 'branch', '--list', `feat/${SLUG}`), '');
+});
+
+test('a freshly claimed row (branch tip already inside develop, no commits, no merge) is kept with its ignored files', (t) => {
+  const f = fixture(t);
+  const live = path.join(f.dir, 'live');
+  f.git(f.root, 'worktree', 'add', '-qb', 'feat/200-live', live, 'develop');
+  fs.writeFileSync(path.join(live, '.env'), 'SECRET=1\n');
+  fs.mkdirSync(path.join(live, '.doflow', 'state'), { recursive: true });
+  fs.writeFileSync(path.join(live, '.doflow', 'state', 'readiness.json'), '{}\n');
+  fs.appendFileSync(path.join(f.root, '.gitignore'), '.env\n');
+  f.git(f.develop, 'commit', '--allow-empty', '-qm', 'noop');
+  const { code, result } = cleanupWorktree({ slug: '200-live', root: f.root, env: f.env });
+  assert.deepEqual([code, result.outcome, result.reason], [1, 'kept', 'not-merged']);
+  assert.equal(fs.readFileSync(path.join(live, '.env'), 'utf8'), 'SECRET=1\n');
+  assert.equal(fs.existsSync(path.join(live, '.doflow', 'state', 'readiness.json')), true);
+  assert.notEqual(f.git(f.root, 'branch', '--list', 'feat/200-live'), '');
+});
+
+test('row-unknown: a slug that names no seed row is denied even when its branch is merged into develop', (t) => {
+  const f = fixture(t);
+  f.git(f.root, 'worktree', 'add', '-qb', 'feat/300-ghost', path.join(f.dir, 'ghost'), 'develop');
+  const { code, result } = cleanupWorktree({ slug: '300-ghost', root: f.root, env: f.env });
+  assert.deepEqual([code, result.outcome, result.reason], [1, 'denied', 'row-unknown']);
+  assert.equal(fs.existsSync(path.join(f.dir, 'ghost')), true);
+});
+
+test('facts-unreadable: an unreadable seed refuses the cleanup', (t) => {
+  const f = fixture(t);
+  fs.writeFileSync(path.join(f.root, 'agent-docs', 'roadmap', 'rows.json'), '{broken');
+  const { code, result } = f.run();
+  assert.deepEqual([code, result.outcome, result.reason, result.unreadable], [1, 'denied', 'facts-unreadable', ['seed']]);
+  assert.equal(fs.existsSync(f.feature), true);
+});
+
+test('cwd-inside-worktree: a caller standing in the worktree, or below it, keeps it and copies nothing', (t) => {
+  const f = fixture(t);
+  fs.mkdirSync(path.join(f.feature, 'sub'));
+  for (const cwd of [f.feature, path.join(f.feature, 'sub')]) {
+    const { code, result } = f.run({ cwd });
+    assert.deepEqual([code, result.outcome, result.reason], [1, 'kept', 'cwd-inside-worktree'], cwd);
+  }
+  assert.equal(fs.existsSync(f.feature), true);
+  assert.equal(fs.existsSync(f.main), false, 'nothing was copied back');
+  assert.equal(f.run({ cwd: f.root }).code, 0, 'control: from the main checkout the same worktree is removed');
 });
 
 test('kept dirty: an uncommitted file in the worktree keeps the worktree and the branch', (t) => {
@@ -203,13 +262,16 @@ test('the doflow CLI and doflow-run dispatch cleanup: kept prints the reason wit
   const cli = (...args: string[]) => cp.spawnSync(process.execPath, [CLI, 'worktree', ...args], { cwd: f.root, env: f.env, encoding: 'utf8' });
   const kept = cli('--action', 'cleanup', '--slug', SLUG, '--json');
   assert.equal(kept.status, 1, kept.stderr);
-  assert.deepEqual([JSON.parse(kept.stdout).outcome, JSON.parse(kept.stdout).reason], ['kept', 'not-on-develop']);
+  assert.deepEqual([JSON.parse(kept.stdout).outcome, JSON.parse(kept.stdout).reason], ['kept', 'not-merged']);
   const text = cli('--action', 'cleanup', '--slug', SLUG);
-  assert.equal(text.stdout.trim(), `kept ${SLUG}: not-on-develop`);
+  assert.equal(text.stdout.trim(), `kept ${SLUG}: not-merged`);
   const forced = cli('--action', 'cleanup', '--slug', SLUG, '--force');
-  assert.notEqual(forced.status, 0);
+  assert.equal(forced.status, 2, forced.stderr);
   assert.equal(fs.existsSync(f.feature), true);
-  f.git(f.develop, 'merge', '--no-ff', '-q', `feat/${SLUG}`, '-m', 'merge: 113 Toy');
+  f.mergeFeature();
+  const inside = cp.spawnSync(process.execPath, [CLI, 'worktree', '--action', 'cleanup', '--slug', SLUG, '--json'], { cwd: f.feature, env: f.env, encoding: 'utf8' });
+  assert.equal(inside.status, 1, inside.stderr);
+  assert.equal(JSON.parse(inside.stdout).reason, 'cwd-inside-worktree');
   const viaRun = cp.spawnSync(bashPath(), [RUN, 'worktree', '--action', 'cleanup', '--slug', SLUG], { cwd: f.root, env: f.env, encoding: 'utf8' });
   assert.equal(viaRun.status, 0, viaRun.stderr);
   assert.equal(viaRun.stdout.trim(), `cleaned ${SLUG}`);

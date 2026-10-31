@@ -4,8 +4,10 @@
  * `doflow-run worktree --action cleanup --slug <slug>` (autonomy plan section 7c): remove one merged
  * feature's worktree and branch with merge.ts's non-force `cleanupFeature`, after copying the
  * worktree's gitignored `agent-docs/doflow/<slug>` back to the main checkout. It refuses, with the
- * reason printed and exit 1, whenever `cleanupFeature` keeps the feature (`report.kept`) or the
- * roadmap lease is held (`lease-held`). There is no `--force` (G53). This module is not part of the
+ * reason printed and exit 1, whenever `cleanupFeature` keeps the feature (`report.kept`), the roadmap
+ * lease is held (`lease-held`), the row has no `DoFlow-Row` trailer merge on develop (`not-merged`, the
+ * evidence the loop requires; a tip merely contained in develop is not enough) or the caller stands
+ * inside the worktree (`cwd-inside-worktree`). There is no `--force` (G53). This module is not part of the
  * person-only set and must not import attendance.ts (attendance-scope guard).
  *
  * Exit: 0 `cleaned`, 1 `kept` or `denied` (reason in the output), 2 usage.
@@ -17,6 +19,8 @@ const path = require('node:path');
 const { execFileSync: defaultExecFileSync } = require('node:child_process');
 const { acquireLease, releaseLease, resolveMainRoot, noPsAlive } = require('./loop.ts');
 const { cleanupFeature } = require('./merge.ts');
+const { parseSeed, deriveStatus } = require('./rows.ts');
+const { gatherGitFacts } = require('./facts.ts');
 
 /** A row slug is `<id>-<words>`; the pattern keeps a path separator and `..` out of every join below. */
 const SLUG = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
@@ -40,6 +44,27 @@ function listWorktrees(root: string, execFileSync: any, execOptions: any): Map<s
     if (worktree && branch) map.set(branch, worktree);
   }
   return map;
+}
+
+/** True when the seed row for `slug` has a `DoFlow-Row` trailer merge on develop (deriveStatus, as the loop reads it). */
+function mergeEvidence({ root, slug, fsImpl }: any): { merged?: boolean; error?: string; unreadable?: string[] } {
+  let rows: any[];
+  try { rows = parseSeed(fsImpl.readFileSync(path.join(root, 'agent-docs', 'roadmap', 'rows.json'), 'utf8')).rows; }
+  catch { return { error: 'facts-unreadable', unreadable: ['seed'] }; }
+  const row = rows.find((entry: any) => entry && entry.slug === slug);
+  if (!row) return { error: 'row-unknown' };
+  const facts = gatherGitFacts({ root });
+  if (facts.unreadable?.length) return { error: 'facts-unreadable', unreadable: facts.unreadable };
+  const info = deriveStatus([row], facts).statuses.get(row.id);
+  return { merged: info?.status === 'merged' && info.evidence?.kind === 'trailer' };
+}
+
+/** True when `cwd` is the worktree or inside it (real paths, so a symlinked temp folder cannot hide it). */
+function callerInside(worktree: string | null, cwd: string, fsImpl: any): boolean {
+  if (!worktree) return false;
+  const real = (value: string): string => { try { return fsImpl.realpathSync(value); } catch { return path.resolve(value); } };
+  const relative = path.relative(real(worktree), real(cwd));
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 /**
@@ -76,6 +101,16 @@ function cleanupWorktree(options: any = {}): { code: number; result: any } {
     catch { /* branch already gone: only a leftover worktree can remain */ }
     if (featureHead === null && worktree === null) return { code: 0, result: body('cleaned', { already: true, artifacts: { copied: 0, skipped: [], conflicts: [] } }) };
     const artifacts: any = {};
+    // The loop cleans a row only on trailer evidence (loop.ts, merged rows with no intent): a branch
+    // whose tip merely sits inside develop (a row claimed a moment ago) is not a merged feature.
+    const evidence = mergeEvidence({ root, slug, fsImpl });
+    if (evidence.error) return { code: 1, result: body('denied', { reason: evidence.error, rule: 'cleanup/merge-evidence', unreadable: evidence.unreadable }) };
+    if (!evidence.merged) { artifacts.kept = 'not-merged'; return { code: 1, result: body('kept', { reason: artifacts.kept, artifacts }) }; }
+    // Removing the directory the caller stands in would strand its session.
+    if (callerInside(worktree, options.cwd ?? process.cwd(), fsImpl)) {
+      artifacts.kept = 'cwd-inside-worktree';
+      return { code: 1, result: body('kept', { reason: artifacts.kept, artifacts }) };
+    }
     const cleaned = cleanupFeature({ intent: { featureWorktree: worktree, featureBranch: `feat/${slug}`, featureHead },
       root, develop, execFileSync, execOptions, fsImpl, report: artifacts });
     if (cleaned) return { code: 0, result: body('cleaned', { artifacts }) };
