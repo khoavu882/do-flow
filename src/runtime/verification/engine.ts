@@ -1177,51 +1177,6 @@ class VerificationEngine {
   }
 
   /**
-   * Declares completion. FR-009: a task is complete only when its required checks pass, or when the
-   * user explicitly accepts what is still failing.
-   *
-   * @param {Object} report
-   * @param {Object} [acceptance]
-   * @param {boolean} [acceptance.userAccepted]
-   * @param {string} [acceptance.acceptedBy] who accepted; an unattributed acceptance is refused
-   * @param {string} [acceptance.note]
-   * @returns {{ complete: boolean, basis: string, reason: string, acceptedFailures?: Array<Object> }}
-   */
-  declareCompletion(report: any, acceptance: any = {}): any {
-    if (!report || typeof report.status !== 'string') {
-      throw new Error('declareCompletion expects a report produced by runContract');
-    }
-    if (report.status === 'PASS') {
-      return { complete: true, basis: 'required-checks-passed', reason: report.reason };
-    }
-    if (acceptance.userAccepted !== true) {
-      return {
-        complete: false,
-        basis: 'not-accepted',
-        reason: `Verification is ${report.status}: ${report.reason} Completion needs the required checks to pass or an explicit user acceptance.`,
-      };
-    }
-    const requiresAccepter = (this.policy.completion || {}).overrideRequiresAccepter !== false;
-    if (requiresAccepter && (typeof acceptance.acceptedBy !== 'string' || acceptance.acceptedBy.trim() === '')) {
-      // "The user explicitly accepts" needs a user. An anonymous flag is indistinguishable from the
-      // caller setting it for itself.
-      return {
-        complete: false,
-        basis: 'acceptance-unattributed',
-        reason: 'Accepting a failing verification requires naming who accepted it.',
-      };
-    }
-    return {
-      complete: true,
-      basis: 'user-accepted-failures',
-      reason: acceptance.note || `Accepted by ${acceptance.acceptedBy} while ${report.status}.`,
-      acceptedFailures: (report.tiers || [])
-        .filter((t: any) => t.required && t.status !== 'PASS' && t.status !== 'NOT_APPLICABLE' && t.status !== 'SUBSUMED' && t.status !== 'SKIPPED')
-        .map((t: any) => ({ tier: t.id, status: t.status, reason: t.reason })),
-    };
-  }
-
-  /**
    * A stable fingerprint of what failed. Two identical fingerprints across attempts mean the retry
    * changed nothing observable, which FR-010 forbids as a response.
    * @param {Object} report
