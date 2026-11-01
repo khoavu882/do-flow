@@ -337,7 +337,7 @@ const SURFACES: any = {
   'claude:user-prompt-submit': { harness: 'claude', event: 'UserPromptSubmit', policy: 'user-prompt-submit', door: '.claude/hooks/user-prompt-submit.sh', fixture: 'claude/user-prompt-submit/perf.json', tool: null },
   'codex:user-prompt-submit': { harness: 'codex', event: 'UserPromptSubmit', policy: 'user-prompt-submit', door: '.codex/hooks/user-prompt-submit.sh', fixture: 'codex/user-prompt-submit/perf.json', tool: null },
 };
-// The pre-implementation gate is the one remaining blocking policy; it writes no hook line.
+// The pre-implementation gate writes no hook line.
 const GATE: any = { harness: 'claude', event: 'PreToolUse', policy: 'pre-implementation-gate', door: '.claude/hooks/pre-implement-gate.sh' };
 
 function buildMirror(root: any) {
@@ -462,8 +462,11 @@ function hookLines(root: any) {
   return files.flatMap(({ bytes }: any) => bytes.toString('utf8').split('\n').filter(Boolean).map((line: any) => JSON.parse(line)));
 }
 
-function denied(result: any) {
-  return /"permissionDecision":\s*"deny"/.test(result.stdout.toString());
+// The implement gate never denies; on a source edit without the chain artifacts it answers with its
+// out-of-step line as PreToolUse additionalContext and no permissionDecision.
+function advised(result: any) {
+  const stdout = result.stdout.toString();
+  return /"additionalContext":\s*"[^"]*doflow gate/.test(stdout) && !/"permissionDecision"/.test(stdout);
 }
 
 function makeHookCases(repo: any) {
@@ -492,8 +495,8 @@ function runHookTrial(root: any, hookCase: any, mode: any) {
     if (mode === 'off') assert.equal(fs.existsSync(telemetryDir(root)), false, `${hookCase.id}: off created the telemetry directory`);
     else if (mode === 'on') assert.equal(lines.length, hookCase.surface.policy === 'user-prompt-submit' ? 1 : 0, `${hookCase.id}: telemetry on writes a hook line only for the prompt policy`);
     else assert.equal(lines.length, 0, `${hookCase.id}/${fault}: fault wrote a hook line`);
-    if (hookCase.danger) assert.equal(denied(result), true, `${hookCase.id}: the source edit must be denied`);
-    else if (hookCase.surface.policy === 'pre-implementation-gate') assert.equal(denied(result), false, `${hookCase.id}: the harmless edit should be allowed`);
+    if (hookCase.danger) assert.equal(advised(result), true, `${hookCase.id}: the source edit must be advised on`);
+    else if (hookCase.surface.policy === 'pre-implementation-gate') assert.equal(advised(result), false, `${hookCase.id}: the harmless edit should be allowed without advice`);
     return result;
   } finally {
     if (fault) restoreHookFault(root, fault);
@@ -576,11 +579,11 @@ function runEncodeBypassNegativeControl(repo: any) {
   const surface = GATE;
   const native = gateNative(repo, 'src/a.js');
   const safeOutcome = runHook(root, surface, native, { telemetry: 'off', profile: 'compat-1', repo });
-  assert.equal(denied(safeOutcome), true, 'the scratch off baseline denies the blocked edit');
+  assert.equal(advised(safeOutcome), true, 'the scratch off baseline advises on the edit');
   const restore = injectTupleFault(root, true);
   try {
     const bypass = runHook(root, surface, native, { telemetry: 'on', profile: 'compat-1', repo });
-    assert.equal(denied(bypass), false, 'the unwrapped encode fault is the planted gate bypass');
+    assert.equal(advised(bypass), false, 'the unwrapped encode fault is the planted gate bypass');
     assert.throws(() => sameOutcome(safeOutcome, bypass, 'negative control: encode bypass'), assert.AssertionError);
   } finally {
     restore();

@@ -298,12 +298,22 @@ test('spawn errors and timeout proceed and request detached failure capture', as
   assert.match(fs.readFileSync(captureLog, 'utf8'), /pre-implementation-gate bridge-timeout/);
 });
 
-test('a missing bridge blocks routed tool calls and captures bridge-missing', async (t) => {
+test('a missing bridge allows routed tool calls under compat-1, blocks them under strict-1, and captures bridge-missing', async (t) => {
   const root = tempDir(t, 'doflow-pi-bridge-missing-');
   const captureLog = captureRecorder(root);
   const missing = path.join(root, 'bridge', 'bridge.sh');
   const handler = await loadExtension(t, missing);
-  assert.deepEqual(await handler({ type: 'tool_call', toolName: 'edit', toolCallId: 'missing', input: {} }, context(CWD)), {
+  const previousProfile = process.env.DOFLOW_FAULT_PROFILE;
+  t.after(() => {
+    if (previousProfile === undefined) delete process.env.DOFLOW_FAULT_PROFILE;
+    else process.env.DOFLOW_FAULT_PROFILE = previousProfile;
+  });
+  delete process.env.DOFLOW_FAULT_PROFILE;
+  assert.equal(await handler({ type: 'tool_call', toolName: 'edit', toolCallId: 'missing', input: {} }, context(CWD)), undefined, 'compat-1 allows');
+  await waitForText(captureLog, 'pre-implementation-gate bridge-missing');
+  fs.writeFileSync(captureLog, '');
+  process.env.DOFLOW_FAULT_PROFILE = 'strict-1';
+  assert.deepEqual(await handler({ type: 'tool_call', toolName: 'edit', toolCallId: 'missing-strict', input: {} }, context(CWD)), {
     block: true,
     reason: '[doflow] shared hooks lack the bridge; run: doflow update -t pi',
   });

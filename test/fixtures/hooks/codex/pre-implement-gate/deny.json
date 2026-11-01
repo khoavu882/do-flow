@@ -14,11 +14,11 @@
     "exit": 0,
     "stdout": null,
     "stderrIncludes": null,
-    "modelVisibleBytesMax": 424,
+    "modelVisibleBytesMax": 382,
     "decision": {
-      "outcome": "deny",
+      "outcome": "advisory",
       "code": "missing-artifacts",
-      "effect": "block"
+      "effect": "proceed"
     },
     "envelope": {
       "version": 1,

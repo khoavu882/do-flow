@@ -78,7 +78,7 @@ describe('mcp-tool-guard policy-file-missing', { skip: !HAS_JQ && 'jq is not ins
         assert.equal(a.status, 0);
         assert.equal(lines(on).length, 0);
       } else {
-        assert.equal(a.status, 2);
+        assert.equal(a.status, 0, 'out of step is allowed with a line, never denied');
         assert.equal(lines(on).at(-1).kind, 'envelope-missing');
       }
     });

@@ -25,6 +25,7 @@ const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const FIXED: any = { run: 'probe0000bbbb', lineage: 'p0000bbbb' };
 const BINDING = `xdg/doflow/session-env/sessions/L.${FIXED.run}.${FIXED.lineage}.1/bound`;
 const GATE = 'blocking-hook:pre-implementation-gate';
+const MCP_GUARD = 'blocking-hook:mcp-tool-guard';
 const REAL_COVERAGE = loadRegistry({ repoRoot: path.resolve(__dirname, '..', '..') }).coverage;
 
 /** A coverage whose only claude row for the gate is an observation-class pre-tool hook. */
@@ -141,17 +142,19 @@ test('select: spawnDenial unknown is ineligible for any task, with or without ne
 
 test('requirementsFor: blocking-hook fails profile-unknown for a null profile and carries an UnknownEnforcementTarget code', () => {
   const facts = Object.fromEntries(FACTS.map((name: any) => [name, { state: 'yes', reason: 'test', at: '2026-10-15T00:00:00.000Z', basis: 'free' }]));
-  const hook = (harness: any, worker: any, coverage: any) => requirementsFor({ harness, worker }, facts, [GATE], coverage).find((r: any) => r.requirement === GATE);
+  const hook = (harness: any, worker: any, coverage: any, need: any = GATE) => requirementsFor({ harness, worker }, facts, [need], coverage).find((r: any) => r.requirement === need);
 
   assert.deepEqual(hook('claude', clone('claude'), REAL_COVERAGE), { requirement: GATE, result: 'failed', reason: 'profile-unknown' });
   const anyProfile: any = { ...clone('claude'), profile: 'any' };
-  const met = hook('claude', anyProfile, REAL_COVERAGE);
-  assert.equal(met.result, 'met', 'claude any has a verified blocking gate row and hooks loaded');
+  const met = hook('claude', anyProfile, REAL_COVERAGE, MCP_GUARD);
+  assert.equal(met.result, 'met', 'claude any has a verified blocking mcp-tool-guard row and hooks loaded');
   assert.match(met.reason, /^blocking at /);
+  const advisory = hook('claude', anyProfile, REAL_COVERAGE);
+  assert.deepEqual(advisory, { requirement: GATE, result: 'failed', reason: 'advisory at (pre-implementation-gate, claude, PreToolUse, any)' }, 'the implement gate only advises, so it cannot meet a blocking-hook need');
   assert.deepEqual(hook('pi', anyProfile, OBSERVATION_COVERAGE), { requirement: GATE, result: 'failed', reason: 'unknown-harness' });
   assert.deepEqual(hook('claude', { ...anyProfile, profile: 'ide' }, OBSERVATION_COVERAGE), { requirement: GATE, result: 'failed', reason: 'unknown-profile' });
-  const notLoaded = requirementsFor({ harness: 'claude', worker: anyProfile }, { ...facts, hooksLoaded: { state: 'no', reason: 'no-session-start-observed', at: null } }, [GATE], REAL_COVERAGE);
-  assert.deepEqual(notLoaded.find((r: any) => r.requirement === GATE).result, 'failed');
+  const notLoaded = requirementsFor({ harness: 'claude', worker: anyProfile }, { ...facts, hooksLoaded: { state: 'no', reason: 'no-session-start-observed', at: null } }, [MCP_GUARD], REAL_COVERAGE);
+  assert.deepEqual(notLoaded.find((r: any) => r.requirement === MCP_GUARD).reason, 'hooksLoaded no-session-start-observed');
 });
 
 test('needs: the policy set comes from coverage rows without *, and unknown ids are usage errors listing the valid ones', () => {

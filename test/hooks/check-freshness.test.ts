@@ -4,7 +4,9 @@
 // deduplicated. The pre-implementation gate and mcp-tool-guard are driven through
 // the installed front doors of each bridged harness. The same event (same tool-call id) is replayed
 // after the state it is judged against changes, and every replay must return the verdict for the
-// state that holds at that moment, in both directions. Kiro's two PreToolUse paths (the IDE hook's
+// state that holds at that moment, in both directions. The gate's verdict is advisory (design.md
+// missing) or allow (design.md present); mcp-tool-guard's is deny or allow. The verdict is read from
+// the bridge's decision trace (DOFLOW_BRIDGE_TRACE), so it is observable on every harness. Kiro's two PreToolUse paths (the IDE hook's
 // `PreToolUse` and the agent config's `preToolUse`) must both evaluate.
 //
 // State per policy: the gate reads the project's feature artifacts (design.md present or missing);
@@ -26,6 +28,8 @@ const { tempDir } = require('../helper/tmp.ts');
 const REPO = path.resolve(__dirname, '../..');
 const FIXTURES = path.join(REPO, 'test/fixtures/hooks');
 const POLICIES = ['pre-implementation-gate', 'mcp-tool-guard'];
+// The verdict each policy returns while its state is flagged; the other verdict is 'allow'.
+const FLAGGED: any = { 'pre-implementation-gate': 'advisory', 'mcp-tool-guard': 'deny' };
 const STEM: any = { 'pre-implementation-gate': 'pre-implement-gate', 'mcp-tool-guard': 'mcp-tool-guard' };
 
 // Committed native deny fixtures, by harness and policy. Kiro's IDE path is deny.json
@@ -77,18 +81,19 @@ function prepareMirror(scratch: any, name: any) {
   return buildInstallMirror(scratch.path(`mirror-${name}`));
 }
 
-/** Put the state the policy reads into the shape that yields `verdict` ('deny' | 'allow'). */
+/** Put the state the policy reads into the shape that yields `verdict` ('advisory' | 'deny' | 'allow'). */
 function setState(policy: any, verdict: any, { project, mirror }: any) {
+  const flagged = verdict !== 'allow';
   if (policy === 'pre-implementation-gate') {
     for (const slug of ['078-d3', 'pi-gate']) {
       const design = path.join(project, 'agent-docs/doflow', slug, 'design/design.md');
-      if (verdict === 'allow') write(design, '# design\n');
+      if (!flagged) write(design, '# design\n');
       else fs.rmSync(design, { force: true });
     }
     return;
   }
   const conf = CONF[policy];
-  write(path.join(mirror, '.doflow/shared/hooks/policies', conf.file), conf[verdict]);
+  write(path.join(mirror, '.doflow/shared/hooks/policies', conf.file), conf[flagged ? 'deny' : 'allow']);
 }
 
 /** The native event for one harness and policy, carrying a fixed tool-call id. */
@@ -102,6 +107,14 @@ function eventFor(harness: any, policy: any, id: any) {
     native.tool_use_id = id;
   }
   return native;
+}
+
+/** The outcome the bridge recorded for the call that wrote `trace` ('allow' when it wrote nothing). */
+function tracedOutcome(trace: any) {
+  if (!fs.existsSync(trace)) return 'allow';
+  const lines = fs.readFileSync(trace, 'utf8').trim().split('\n').filter(Boolean);
+  const outcome = lines.length ? JSON.parse(lines[lines.length - 1]).outcome : 'allow';
+  return outcome === 'advisory' || outcome === 'deny' ? outcome : 'allow';
 }
 
 /** cross-harness-parity's executeShell, reduced to the three pre-tool policies. */
@@ -125,6 +138,8 @@ function runShell(harness: any, policy: any, native: any, { project, mirror, scr
     DOFLOW_AGENT: harness, GIT_CONFIG_GLOBAL: '/dev/null',
   };
   delete env.KIRO_SESSION_ID;
+  const trace = scratch.path(`trace-${index}.jsonl`);
+  env.DOFLOW_BRIDGE_TRACE = trace;
   const result = spawnSync(command, args, { cwd: project, input: `${JSON.stringify(input)}\n`, encoding: 'utf8', env });
   assert.equal(result.error, undefined, result.error?.message);
   let response: any = {};
@@ -132,12 +147,12 @@ function runShell(harness: any, policy: any, native: any, { project, mirror, scr
   const denied = harness === 'kiro' ? result.status === 2
     : harness === 'antigravity' ? response.decision === 'deny'
       : response.hookSpecificOutput?.permissionDecision === 'deny';
-  if (!denied) assert.equal(result.status, 0, `${harness}/${policy}: allow exits 0 (${result.stderr})`);
-  return denied;
+  if (!denied) assert.equal(result.status, 0, `${harness}/${policy}: a non-deny exits 0 (${result.stderr})`);
+  return denied ? 'deny' : tracedOutcome(trace);
 }
 
 /** cross-harness-parity's executePi: the real Pi extension, loaded once, bridged to the mirror. */
-async function piHandler({ project, mirror }: any, tag: any) {
+async function piHandler({ project, mirror, scratch }: any, tag: any) {
   const extensionDir = path.join(project, '.pi/extensions');
   fs.mkdirSync(extensionDir, { recursive: true });
   const source = fs.readFileSync(path.join(REPO, 'core/harnesses/pi/extensions/doflow-guard.js'), 'utf8');
@@ -149,17 +164,24 @@ async function piHandler({ project, mirror }: any, tag: any) {
   let handler: any;
   const { default: register } = await import(`${pathToFileURL(extensionPath).href}?case=${tag}`);
   register({ on(name: any, callback: any) { assert.equal(name, 'tool_call'); handler = callback; } });
-  return async (native: any) => {
-    const result = await handler(native, { cwd: project, sessionManager: { getSessionId: () => 'freshness-session' } });
-    if (result !== undefined) assert.equal(result.block, true, 'Pi answer is a block or undefined');
-    return result?.block === true;
+  return async (native: any, index: any) => {
+    // The extension spawns the bridge with the process environment, so the trace path is set per call.
+    const trace = scratch.path(`trace-pi-${index}.jsonl`);
+    process.env.DOFLOW_BRIDGE_TRACE = trace;
+    try {
+      const result = await handler(native, { cwd: project, sessionManager: { getSessionId: () => 'freshness-session' } });
+      if (result !== undefined) assert.equal(result.block, true, 'Pi answer is a block or undefined');
+      return result?.block === true ? 'deny' : tracedOutcome(trace);
+    } finally {
+      delete process.env.DOFLOW_BRIDGE_TRACE;
+    }
   };
 }
 
 /**
  * Replay ONE event (fixed tool-call id) once per step, setting the state to `step` before each
  * replay. `paths` lists the front doors that receive the event at each step (Kiro: both paths).
- * Returns the observed verdicts, one 'deny' | 'allow' per (step, path).
+ * Returns the observed verdicts, one 'advisory' | 'deny' | 'allow' per (step, path).
  */
 async function replay(t: any, { harness, policy, steps, mirrorHook }: any) {
   const scratch = scratchFor(t);
@@ -175,8 +197,7 @@ async function replay(t: any, { harness, policy, steps, mirrorHook }: any) {
     for (const door of paths) {
       const native = eventFor(door, policy, id);
       assert.ok(native, `${door}/${policy}: committed native deny fixture exists`);
-      const denied = pi ? await pi(native) : runShell(door === 'kiro-agent' ? 'kiro' : door, policy, native, ctx, index);
-      observed.push(denied ? 'deny' : 'allow');
+      observed.push(pi ? await pi(native, index) : runShell(door === 'kiro-agent' ? 'kiro' : door, policy, native, ctx, index));
       index += 1;
     }
   }
@@ -194,8 +215,9 @@ const COVERAGE = [
 ];
 
 for (const [harness, policy] of COVERAGE) {
-  test(`IC-016: ${harness}/${policy} re-evaluates the same event id after the state changes, deny → allow → deny`, async (t) => {
-    assertFresh(`${harness}/${policy}`, await replay(t, { harness, policy, steps: ['deny', 'allow', 'deny'] }));
+  test(`IC-016: ${harness}/${policy} re-evaluates the same event id after the state changes, ${FLAGGED[policy]} → allow → ${FLAGGED[policy]}`, async (t) => {
+    const flagged = FLAGGED[policy];
+    assertFresh(`${harness}/${policy}`, await replay(t, { harness, policy, steps: [flagged, 'allow', flagged] }));
   });
 }
 
@@ -204,13 +226,14 @@ test('IC-016: Kiro\'s two PreToolUse paths both evaluate, including when the sta
   for (const policy of POLICIES) {
     const ctx = { scratch, project: makeProject(scratch, `kiro-double-${policy}`), mirror: prepareMirror(scratch, `kiro-double-${policy}`) };
     const id = `freshness-kiro-double-${policy}`;
-    for (const [first, second] of [['deny', 'allow'], ['allow', 'deny']]) {
+    const flagged = FLAGGED[policy];
+    for (const [first, second] of [[flagged, 'allow'], ['allow', flagged]]) {
       for (const [door1, door2] of [['kiro', 'kiro-agent'], ['kiro-agent', 'kiro']]) {
         setState(policy, first, ctx);
         const one = runShell('kiro', policy, eventFor(door1, policy, id), ctx, `${policy}-${first}-${door1}-1`);
         setState(policy, second, ctx);
         const two = runShell('kiro', policy, eventFor(door2, policy, id), ctx, `${policy}-${first}-${door1}-2`);
-        assert.deepEqual([one ? 'deny' : 'allow', two ? 'deny' : 'allow'], [first, second],
+        assert.deepEqual([one, two], [first, second],
           `kiro/${policy}: ${door1} then ${door2} for one event id each evaluate against current state`);
       }
     }
@@ -243,7 +266,8 @@ exit "$code"
 
 for (const [harness, policy] of [['claude', 'pre-implementation-gate'], ['claude', 'mcp-tool-guard'], ['kiro', 'pre-implementation-gate'], ['pi', 'pre-implementation-gate']]) {
   test(`negative control: a ${policy} copy that caches by event id gives stale verdicts on ${harness} and fails the freshness assertion`, async (t) => {
-    for (const steps of [['deny', 'allow'], ['allow', 'deny']]) {
+    const flagged = FLAGGED[policy];
+    for (const steps of [[flagged, 'allow'], ['allow', flagged]]) {
       const run = await replay(t, { harness, policy, steps, mirrorHook: (mirror: any) => installEventIdCache(mirror, policy) });
       const first = steps[0];
       assert.deepEqual(run.observed, run.expected.map(() => first), `${harness}/${policy}: the cached copy replays the first verdict for every repeat`);

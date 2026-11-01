@@ -10,13 +10,13 @@
   "state": "no-design",
   "fault": "none",
   "expect": {
-    "exit": 2,
+    "exit": 0,
     "stdout": "",
     "stderrIncludes": "missing requirement.md, design.md, or plan.md",
     "decision": {
-      "outcome": "deny",
+      "outcome": "advisory",
       "code": "missing-artifacts",
-      "effect": "block"
+      "effect": "proceed"
     },
     "envelope": {
       "version": 1,

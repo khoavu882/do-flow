@@ -92,8 +92,12 @@ function fixtureFor(harness: any, policy: any, wantBlock: any = true) {
       const filename = path.join(stemDir, name);
       const fixture = JSON.parse(fs.readFileSync(filename, 'utf8'));
       if (!fixture.native || !fixture.expect) continue;
+      // A stem directory can hold fixtures of several policies; a fixture names its policy in its expected decision.
+      if (fixture.expect.decision?.policy && fixture.expect.decision.policy !== policy) continue;
       const outcome = fixture.expect.decision?.outcome;
-      const blocks = outcome === 'deny' || fixture.expect.decision?.effect === 'block' || fixture.expect.result?.block === true;
+      // The implement gate never denies: its finding is an advisory with the missing-artifacts code.
+      const gateFinding = policy === 'pre-implementation-gate' && outcome === 'advisory' && fixture.expect.decision?.code === 'missing-artifacts';
+      const blocks = outcome === 'deny' || fixture.expect.decision?.effect === 'block' || fixture.expect.result?.block === true || gateFinding;
       const allows = outcome === 'allow';
       if (wantBlock ? blocks : allows) return { stem, filename, fixture };
     }
@@ -159,7 +163,16 @@ function executeShell(harness: any, row: any, project: any, mirror: any, index: 
     : harness === 'copilot' ? response.permissionDecision === 'deny'
     : harness === 'antigravity' ? response.decision === 'deny'
       : response.hookSpecificOutput?.permissionDecision === 'deny';
-  return { denied, result, native, trace };
+  return { denied, decision: readTrace(trace), result, native, trace };
+}
+
+/** The last bridge decision a run traced, as { outcome, code }, or null when the run traced none. */
+function readTrace(trace: any) {
+  if (!trace || !fs.existsSync(trace)) return null;
+  const lines = fs.readFileSync(trace, 'utf8').trim().split('\n').filter(Boolean);
+  if (!lines.length) return null;
+  const { outcome, code } = JSON.parse(lines.at(-1));
+  return { outcome, code };
 }
 
 async function executePi(row: any, project: any, mirror: any, index: any) {
@@ -179,8 +192,16 @@ async function executePi(row: any, project: any, mirror: any, index: any) {
   let handler: any;
   const { default: register } = await import(moduleUrl);
   register({ on(name: any, callback: any) { assert.equal(name, 'tool_call'); handler = callback; } });
-  const result = await handler(row.fixture.native, { cwd: project, sessionManager: { getSessionId: () => 'parity-session' } });
-  return { denied: result?.block === true, result, native: row.fixture.native, trace: null };
+  const trace = path.join(scratch.dir, `trace-pi-${index}.jsonl`);
+  const priorTrace = process.env.DOFLOW_BRIDGE_TRACE;
+  process.env.DOFLOW_BRIDGE_TRACE = trace;
+  let result;
+  try {
+    result = await handler(row.fixture.native, { cwd: project, sessionManager: { getSessionId: () => 'parity-session' } });
+  } finally {
+    if (priorTrace === undefined) delete process.env.DOFLOW_BRIDGE_TRACE; else process.env.DOFLOW_BRIDGE_TRACE = priorTrace;
+  }
+  return { denied: result?.block === true, decision: readTrace(trace), result, native: row.fixture.native, trace };
 }
 
 function assertAllowed(harness: any, actual: any) {
@@ -196,33 +217,46 @@ function assertAllowed(harness: any, actual: any) {
   }
 }
 
+/** An advisory proceeds: nothing denies, and the only response a harness may carry is advice with no permission decision. */
+function assertAdvised(harness: any, actual: any) {
+  assert.equal(actual.denied, false, `${harness}: the implement gate does not deny (${JSON.stringify(actual.result)})`);
+  if (harness === 'pi') return assert.equal(actual.result, undefined, 'Pi proceed render is undefined');
+  assert.equal(actual.result.status, 0, `${harness}: advisory exits 0`);
+  assert.equal(/permissionDecision|"decision":\s*"(deny|block)"/.test(actual.result.stdout), false, `${harness}: advisory carries no deny or block decision`);
+  if (harness === 'claude' || harness === 'codex') {
+    assert.equal(JSON.parse(actual.result.stdout).hookSpecificOutput.hookEventName, 'PreToolUse', `${harness}: advice is PreToolUse additionalContext`);
+    assert.match(JSON.parse(actual.result.stdout).hookSpecificOutput.additionalContext, /^\[pre-implementation-gate\] /, `${harness}: advice carries the gate line`);
+  }
+}
+
 const blockingRows = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/lifecycle.json'), 'utf8'))
   .coverage.rows.filter((row: any) => row.class === 'blocking');
 
-test('FR-004: each native bridge denies a design-less edit and allows it once all three artifacts exist', async () => {
+test('FR-004: each native bridge advises a design-less edit without denying it, and is quiet once all three artifacts exist', async () => {
   const harnesses: any = ['claude', 'codex', 'kiro', 'copilot', 'antigravity', 'pi'];
   const observed: any = [];
   for (const [index, harness] of harnesses.entries()) {
-    const denyRow = fixtureFor(harness, 'pre-implementation-gate', true);
+    const findingRow = fixtureFor(harness, 'pre-implementation-gate', true);
     const allowRow = fixtureFor(harness, 'pre-implementation-gate', false);
-    assert.ok(denyRow, `${harness}: committed native edit deny fixture exists`);
+    assert.ok(findingRow, `${harness}: committed native edit finding fixture exists`);
     assert.ok(allowRow, `${harness}: committed native edit allow fixture exists`);
-    const outcomes: any = [];
+    const decisions: any = [];
     for (const artifacts of [false, true]) {
       const project = makeProject(`${harness}-${artifacts ? 'complete' : 'missing'}`, artifacts);
       const mirror = prepareMirror(harness, `${harness}-${artifacts ? 'complete' : 'missing'}`);
-      const row = artifacts ? allowRow : denyRow;
+      const row = artifacts ? allowRow : findingRow;
       const actual = harness === 'pi'
         ? await executePi(row, project, mirror, index + Number(artifacts))
         : executeShell(harness, row, project, mirror, index + Number(artifacts));
-      outcomes.push(actual.denied);
-      if (!artifacts) assert.equal(actual.denied, true, `${harness}: native edit is denied without design.md`);
-      else assertAllowed(harness, actual);
+      if (artifacts) assertAllowed(harness, actual);
+      else assertAdvised(harness, actual);
+      decisions.push(actual.decision && [actual.decision.outcome, actual.decision.code]);
       observed.push({ harness, artifacts, denied: actual.denied });
     }
-    assert.deepEqual(outcomes, [true, false], `${harness}: deny then allow`);
+    assert.deepEqual(decisions, [['advisory', 'missing-artifacts'], ['allow', 'allow']], `${harness}: advisory then allow, never a deny`);
   }
   assert.equal(observed.length, harnesses.length * 2);
+  assert.equal(observed.some((item: any) => item.denied), false, 'no harness denies the implement gate');
 });
 
 test('NFR-003: blocking pairs agree across harnesses for the same canonical deny and allow input/state', async () => {
@@ -255,7 +289,7 @@ test('NFR-003: blocking pairs agree across harnesses for the same canonical deny
   }
 });
 
-test('negative control: skipping the envelope merge sends an out-of-step denial', () => {
+test('negative control: skipping the envelope merge sends an out-of-step line, not the gate finding', () => {
   const row = fixtureFor('claude', 'pre-implementation-gate');
   const project = makeProject('negative-control', false);
   const mirror = prepareMirror('claude', 'negative-control');
@@ -265,8 +299,10 @@ test('negative control: skipping the envelope merge sends an out-of-step denial'
   assert.notEqual(sabotaged, original, 'the temporary bridge contains the envelope merge line');
   fs.writeFileSync(bridge, sabotaged);
   const result = executeShell('claude', row, project, mirror, 'negative-control');
-  // DEC-033: a bridge without a v1 envelope reaches the explicit out-of-step deny.
-  assert.equal(result.denied, true, 'a bridge that drops its v1 envelope is denied as out of step');
+  // DEC-033: a bridge without a v1 envelope reaches the explicit out-of-step rule, which allows with a line.
+  assert.equal(result.denied, false, 'a bridge that drops its v1 envelope does not deny');
+  assert.deepEqual(result.decision, { outcome: 'unsupported', code: 'envelope-missing' }, 'the policy reports out of step, not missing-artifacts');
+  assert.match(JSON.parse(result.result.stdout).hookSpecificOutput.additionalContext, /DoFlow hooks out of step; run: doflow update/);
 });
 
 test('Stop, turn-end and session-end fixtures plus Pi tool_call leave task state untouched', async () => {

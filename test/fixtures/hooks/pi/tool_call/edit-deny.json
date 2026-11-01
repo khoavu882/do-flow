@@ -16,16 +16,13 @@
   },
   "fault": "none",
   "expect": {
-    "result": {
-      "block": true,
-      "reason": "[pre-implementation-gate] doflow gate: feature agent-docs/doflow/pi-gate is missing requirement.md, design.md, or plan.md — run /do-brainstorm, /do-design, then /do-plan before editing source. (Edits under agent-docs/ are always allowed; skip the flow by removing the feature dir.)"
-    },
+    "result": null,
     "decision": {
-      "outcome": "deny",
+      "outcome": "advisory",
       "code": "missing-artifacts",
-      "effect": "block"
+      "effect": "proceed"
     },
-    "modelVisibleBytesMax": 309,
+    "modelVisibleBytesMax": 0,
     "exit": 0,
     "failurePoint": null,
     "envelope": {

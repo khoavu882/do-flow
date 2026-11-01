@@ -159,12 +159,8 @@ test('IC-011 fault taxonomy follows both profiles on all five bridge identities'
               : {};
           const result = runBridge(root, harness, event, policy, profile, { input });
           const decision = JSON.parse(result.stdout.trim());
-          let compatEffect = 'proceed';
-          if (fault === 'missing-policy') compatEffect = 'proceed';
-          else if (fault === 'crash-exit-1' || fault === 'exit-127') {
-            if (['claude', 'codex', 'antigravity', 'pi'].includes(harness)) compatEffect = 'block';
-          } else if (fault === 'syntax-error') compatEffect = 'block';
-          const expectedEffect = profile === 'strict-1' && BLOCKING.has(policy) ? 'block' : compatEffect;
+          // D1: under compat-1 no fault blocks on any harness; strict-1 blocks a fault of a blocking policy.
+          const expectedEffect = profile === 'strict-1' && BLOCKING.has(policy) ? 'block' : 'proceed';
           assert.equal(decision.effect, expectedEffect, 'IC-011 fault effect');
           assert.equal(decision.faultProfile, profile);
           assert.deepEqual(diagnosticKinds(result), [point], 'IC-008 diagnostic point is captured once');
@@ -177,19 +173,19 @@ test('IC-011 fault taxonomy follows both profiles on all five bridge identities'
 
 test('installed shell front doors apply IC-011 to real bridge faults', async (t) => {
   const faultCases: any = [
-    ['crash exit 1', '#!/bin/bash\nexit 1\n', 'block'],
-    ['exit 127', '#!/bin/bash\nexit 127\n', 'block'],
-    ['syntax error', '#!/bin/bash\nif then\n', 'block'],
-    ['policy spawn fault', null, 'proceed'],
+    ['crash exit 1', '#!/bin/bash\nexit 1\n'],
+    ['exit 127', '#!/bin/bash\nexit 127\n'],
+    ['syntax error', '#!/bin/bash\nif then\n'],
+    ['policy spawn fault', null],
   ];
   for (const [harness, hook, input] of shellDoors) {
     for (const profile of ['compat-1', 'strict-1']) {
-      for (const [label, body, compatEffect] of faultCases) {
+      for (const [label, body] of faultCases) {
         await t.test(`${harness} installed door ${profile}: ${label}`, (st: any) => {
           const result = runInstalledDoor(st, harness, hook, input, profile, body);
-          const shouldBlock = (profile === 'strict-1') || compatEffect === 'block';
-          const kiroPassThrough = harness === 'kiro' && profile === 'compat-1' && body && body !== '#!/bin/bash\nif then\n';
-          const expectedStatus = harness === 'kiro' && shouldBlock ? (kiroPassThrough ? (label === 'exit 127' ? 127 : 1) : 2) : 0;
+          // D1: a fault never blocks under compat-1, on any harness; strict-1 blocks.
+          const shouldBlock = profile === 'strict-1';
+          const expectedStatus = harness === 'kiro' && shouldBlock ? 2 : 0;
           assert.equal(result.status, expectedStatus,
             `${harness} native exit communicates ${shouldBlock ? 'block' : 'proceed'}`);
           if (shouldBlock) assert.match(`${result.stdout}${result.stderr}`, /DoFlow policy error/);
@@ -219,8 +215,9 @@ test('installed front doors exercise every blocking policy and native Stop fault
     const harness: any = hook.split('/')[0].slice(1);
     for (const profile of ['compat-1', 'strict-1']) {
       const result: any = runInstalledDoor(t, harness, hook, input, profile, '#!/bin/bash\nexit 1\n', policy);
-      const shouldBlock = profile === 'strict-1' || harness !== 'kiro';
-      const expectedStatus = harness === 'kiro' ? (shouldBlock ? 2 : 1) : 0;
+      // D1: a fault never blocks under compat-1; strict-1 blocks (kiro through exit 2, the others through a deny).
+      const shouldBlock = profile === 'strict-1';
+      const expectedStatus = harness === 'kiro' && shouldBlock ? 2 : 0;
       assert.equal(result.status, expectedStatus, `${harness}/${policy}/${profile} native exit`);
       assert.deepEqual(failureKinds(result), ['eval-error:exit-1'], `${harness}/${policy}/${profile} fault point`);
       if (shouldBlock && harness !== 'kiro') assert.match(result.stdout, /deny/);
@@ -228,16 +225,15 @@ test('installed front doors exercise every blocking policy and native Stop fault
   }
 
   const stopDoors: any = [
-    ['claude', '.claude/hooks/stop-check.sh', 1],
-    ['codex', '.codex/hooks/stop-check.sh', 0],
-    ['kiro', '.kiro/hooks/stop-check.sh', 0],
+    ['claude', '.claude/hooks/stop-check.sh'],
+    ['codex', '.codex/hooks/stop-check.sh'],
+    ['kiro', '.kiro/hooks/stop-check.sh'],
   ];
-  for (const [harness, hook, compatStatus] of stopDoors) {
+  for (const [harness, hook] of stopDoors) {
     for (const profile of ['compat-1', 'strict-1']) {
       const result = runInstalledDoor(t, harness, hook, { hook_event_name: 'Stop' }, profile, '#!/bin/bash\nexit 1\n', 'stop-check');
-      // DEC-039: Stop policy faults proceed silently under strict-1; a real deny still blocks.
-      const expected = compatStatus;
-      assert.equal(result.status, expected, `${harness} Stop ${profile} native status`);
+      // D1: a Stop policy fault proceeds under both profiles; only a real deny blocks.
+      assert.equal(result.status, 0, `${harness} Stop ${profile} native status`);
       assert.deepEqual(failureKinds(result), ['eval-error:exit-1']);
       if (harness === 'codex' && profile === 'compat-1') assert.equal(result.stdout, '{}\n');
     }
@@ -331,8 +327,8 @@ test('Antigravity Stop native fault row distinguishes numeric exit from signal',
     return JSON.parse(result.stdout);
   };
   for (const profile of ['compat-1', 'strict-1']) {
-    assert.equal(call(profile, 'exit 1').effect, profile === 'strict-1' ? 'proceed' : 'block', `numeric Stop fault effect under ${profile}`);
-    // DEC-039: Antigravity Stop faults proceed under both profiles.
+    // D1: Antigravity Stop faults proceed under both profiles.
+    assert.equal(call(profile, 'exit 1').effect, 'proceed', `numeric Stop fault effect under ${profile}`);
     assert.equal(call(profile, 'kill -TERM $$').effect, 'proceed', `signal Stop effect under ${profile}`);
   }
   const kindsFile = path.join(root, 'xdg-compat-1/doflow/failures/events.jsonl');
@@ -360,8 +356,8 @@ test('Antigravity runner drives each blocking policy through its installed runne
       });
       assert.equal(result.status, 0, result.stderr);
       const decision = JSON.parse(result.stdout);
-      // DEC-039: Antigravity stop-check faults proceed under strict-1.
-      assert.equal(decision.effect, policy === 'stop-check' && profile === 'strict-1' ? 'proceed' : 'block', `Antigravity ${policy} ${profile} fault effect`);
+      // D1: compat-1 never blocks on a fault; strict-1 blocks the gate and the tool guard, never stop-check.
+      assert.equal(decision.effect, profile === 'strict-1' && policy !== 'stop-check' ? 'block' : 'proceed', `Antigravity ${policy} ${profile} fault effect`);
       assert.equal(decision.code, 'exit-1');
       fs.writeFileSync(file, fs.readFileSync(path.join(POLICY_SOURCE, `${policy}.sh`)));
     }
@@ -421,7 +417,7 @@ test('advisory faults preserve model-visible bytes in compat-1 and strict-1', (t
   }
 });
 
-test('real Pi extension blocks a missing bridge as an out-of-step install', async (t) => {
+test('real Pi extension allows a missing bridge under compat-1 and blocks it under strict-1', async (t) => {
   const source = fs.readFileSync(path.join(ROOT, 'core/harnesses/pi/extensions/doflow-guard.js'), 'utf8');
   const piMirror = tempDir(t, 'doflow-fault-pi-spawn-');
   buildInstallMirror(piMirror);
@@ -451,7 +447,8 @@ test('real Pi extension blocks a missing bridge as an out-of-step install', asyn
     const result = await handler({ type: 'tool_call', toolName: 'edit', toolCallId: profile, input: { path: 'src/a.js' } }, {
       cwd: path.dirname(absentBridge), sessionManager: { getSessionId: () => 'fault-test' },
     });
-    assert.deepEqual(result, { block: true, reason: '[doflow] shared hooks lack the bridge; run: doflow update -t pi' }, `Pi ${profile} missing bridge blocks with the out-of-step response`);
+    if (profile === 'strict-1') assert.deepEqual(result, { block: true, reason: '[doflow] shared hooks lack the bridge; run: doflow update -t pi' }, 'Pi strict-1 missing bridge blocks with the out-of-step response');
+    else assert.equal(result, undefined, 'Pi compat-1 missing bridge allows');
     for (let attempt = 0; attempt < 100; attempt += 1) {
       if (fs.existsSync(missingLog)) {
         const contents = fs.readFileSync(missingLog, 'utf8');
@@ -539,7 +536,9 @@ test('real Pi extension blocks a missing bridge as an out-of-step install', asyn
       const policyFault = await realHandler({ type: 'tool_call', toolName, toolCallId: `${policy}-${profile}`, input }, {
         cwd: piRoot, sessionManager: { getSessionId: () => 'fault-test' },
       });
-      assert.deepEqual(policyFault, { block: true, reason: `[${policy}] DoFlow policy error; details: doflow-run failure list` }, `Pi ${policy} real policy fault blocks under ${profile}`);
+      // D1: a policy fault proceeds under compat-1 and blocks only under strict-1.
+      if (profile === 'strict-1') assert.deepEqual(policyFault, { block: true, reason: `[${policy}] DoFlow policy error; details: doflow-run failure list` }, `Pi ${policy} real policy fault blocks under strict-1`);
+      else assert.equal(policyFault, undefined, `Pi ${policy} real policy fault proceeds under compat-1`);
       fs.writeFileSync(policyPath, fs.readFileSync(path.join(POLICY_SOURCE, `${policy}.sh`)));
     }
 

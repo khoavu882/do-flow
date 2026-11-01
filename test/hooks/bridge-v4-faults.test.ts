@@ -25,7 +25,7 @@ function makeTree(policyBody?: any) {
       : path.join(BRIDGE_DIR, file);
     fs.copyFileSync(source, path.join(dir, 'bridge', file));
   }
-  for (const file of ['deny-json.sh', 'capture-failure.sh']) {
+  for (const file of ['deny-json.sh', 'capture-failure.sh', 'contract.sh']) {
     fs.copyFileSync(path.join(ROOT, 'core/harnesses/shared/hooks/policies', file), path.join(dir, 'policies', file));
   }
   for (const id of POLICY_IDS) {
@@ -51,6 +51,18 @@ test('gate denies still run when TMPDIR is unusable on each shell door', async (
     const result = run(dir, harness, event, 'pre-implementation-gate', {}, [], { TMPDIR: '/nonexistent' });
     assert.match(result.stdout, /blocked/, `${harness}:${event} native deny reason survives TMPDIR failure`);
   });
+});
+
+test('a missing contract.sh is a bridge-spawn fault that proceeds under compat-1 and blocks the gate under strict-1', () => {
+  const dir = makeTree();
+  fs.unlinkSync(path.join(dir, 'policies/contract.sh'));
+  const compat: any = run(dir, 'claude', 'PreToolUse', 'pre-implementation-gate', {}, ['--emit', 'decision']);
+  const decision = JSON.parse(compat.stdout);
+  assert.equal(decision.outcome, 'error');
+  assert.equal(decision.code, 'bridge-spawn');
+  assert.equal(decision.effect, 'proceed');
+  const strict: any = run(dir, 'claude', 'PreToolUse', 'pre-implementation-gate', {}, ['--emit', 'decision'], { DOFLOW_FAULT_PROFILE: 'strict-1' });
+  assert.equal(JSON.parse(strict.stdout).effect, 'block');
 });
 
 test('a noncanonical policy id is rejected as bridge-spawn without execution', () => {

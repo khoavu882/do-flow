@@ -549,7 +549,7 @@ test('stdout, stderr and exit are byte-equal with telemetry on, off and faulted,
   assert.ok(hookLines(path.join(on, '.doflow')).length > 0);
 });
 
-/** A feature branch with no plan.md: the pre-implementation gate denies an edit there. */
+/** A feature branch with no plan.md: the pre-implementation gate advises on an edit there. */
 function gateRepo() {
   const git = (cwd: any, ...args: any[]) => {
     const result = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', ...args], { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null' } });
@@ -573,19 +573,20 @@ function gateEdit(root: any, repo: any, env: any = {}) {
   const native = { hook_event_name: 'PreToolUse', session_id: 'gate-088', cwd: repo, tool_name: 'Edit', tool_input: { file_path: path.join(repo, 'src/a.js') } };
   return run(root, GATE, native, { cwd: repo, env: { DOFLOW_PROJECT_DIR: repo, ...env } });
 }
-const gateDenied = (result: any) => /"permissionDecision":\s*"deny"/.test(result.stdout);
+// The gate never denies: it hands the model its out-of-step line as PreToolUse additionalContext, and no permissionDecision.
+const gateAdvised = (result: any) => /"additionalContext":\s*"[^"]*doflow gate/.test(result.stdout) && !/"permissionDecision"/.test(result.stdout) && result.status === 0;
 
-test('an injected encode-tuple fault still denies a gated edit, under compat-1 and strict-1', () => {
+test('an injected encode-tuple fault still advises on a gated edit, under compat-1 and strict-1', () => {
   const repo = gateRepo();
   const root = project({ envelope: (source: any) => source.replace(INJECT_FROM, INJECT_TO) });
-  assert.ok(gateDenied(gateEdit(project(), repo)), 'the unfaulted gate denies the edit');
+  assert.ok(gateAdvised(gateEdit(project(), repo)), 'the unfaulted gate advises on the edit');
   for (const profile of ['compat-1', 'strict-1']) {
     const result = gateEdit(root, repo, { DOFLOW_FAULT_PROFILE: profile });
-    assert.ok(gateDenied(result), `${profile}: the edit is still denied\n${result.stdout}${result.stderr}`);
+    assert.ok(gateAdvised(result), `${profile}: the edit is still advised on\n${result.stdout}${result.stderr}`);
   }
 });
 
-test('negative control: the same fault without the try wrapper switches the gate off under compat-1', () => {
+test('negative control: the same fault without the try wrapper silences the gate advice under compat-1', () => {
   const repo = gateRepo();
   const root = project({
     envelope: (source: any) => {
@@ -593,5 +594,5 @@ test('negative control: the same fault without the try wrapper switches the gate
       return source.replace(INJECT_FROM, INJECT_TO).replace('[try (', '[(').replace(') catch {dft:1}]', ')]');
     },
   });
-  assert.equal(gateDenied(gateEdit(root, repo)), false, 'an uncaught telemetry fault is a gate bypass; the try is what prevents it');
+  assert.equal(gateAdvised(gateEdit(root, repo)), false, 'an uncaught telemetry fault switches the gate off; the try is what prevents it');
 });

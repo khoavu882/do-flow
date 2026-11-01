@@ -90,19 +90,19 @@ describe('B.2 policy decision records', () => {
     });
   }
 
-  test('stop-check records its blocking stub decision', (t) => {
+  test('stop-check records its advisory stub decision', (t) => {
     const configHome = tempDir(t, 'doflow-policy-records-stop-deny-');
     const payload = JSON.stringify({ session_id: 'stop-deny', last_assistant_message: '// TODO: finish' });
     const result = run('stop-check', payload, { records: true, configHome });
-    assert.equal(result.status, 2, result.stderr);
+    assert.equal(result.status, 0, result.stderr);
     assert.match(result.stderr, /unfinished-work marker/);
     assert.deepEqual(parseRecords(result.records), [
       { v: 1, policy: 'stop-check', policyVersion: 1, outcome: 'allow', code: 'allow' },
-      { v: 1, policy: 'stop-check', policyVersion: 1, outcome: 'deny', code: 'unfinished-work' },
+      { v: 1, policy: 'stop-check', policyVersion: 1, outcome: 'advisory', code: 'unfinished-work' },
     ]);
   });
 
-  test('stop-check golden pins deny stderr and the leak warning', (t) => {
+  test('stop-check golden pins the advisory stderr and the leak warning', (t) => {
     const root = tempDir(t, 'doflow-policy-records-stop-warning-');
     const configHome = path.join(root, 'config');
     const home = path.join(root, 'home');
@@ -119,7 +119,7 @@ describe('B.2 policy decision records', () => {
     assert.deepEqual(parseRecords(actual.records), [
       { v: 1, policy: 'stop-check', policyVersion: 1, outcome: 'allow', code: 'allow' },
       { v: 1, policy: 'stop-check', policyVersion: 1, outcome: 'advisory', code: 'internal-identifiers-found' },
-      { v: 1, policy: 'stop-check', policyVersion: 1, outcome: 'deny', code: 'unfinished-work' },
+      { v: 1, policy: 'stop-check', policyVersion: 1, outcome: 'advisory', code: 'unfinished-work' },
     ]);
   });
 

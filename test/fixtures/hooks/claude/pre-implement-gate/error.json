@@ -8,7 +8,7 @@
     }
   },
   "env": {
-    "DOFLOW_FAULT_PROFILE": "compat-1"
+    "DOFLOW_FAULT_PROFILE": "strict-1"
   },
   "state": "none",
   "fault": "crash-exit-1",

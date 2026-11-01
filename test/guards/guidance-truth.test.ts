@@ -16,9 +16,9 @@ const GATE_FILE = path.join(REPO, GATE_REL);
 const DO_SKILL_FILE = path.join(REPO, 'core/shared/skills/do/SKILL.md');
 const ASSETS = JSON.parse(fs.readFileSync(path.join(REPO, 'core/registry/assets.json'), 'utf8')).assets;
 const CODE_RE = /^[a-z]+(-[a-z]+)+$/;
-const GATE_LABEL = '**Implement gate (hard):**';
-const CANONICAL_GATE_RE = /\b(one|only|single)\b[^.]{0,40}\bhard[- ](gate|hook)\b|\bhard[- ](gate|hook)\b[^.]{0,60}\b(only|covers)\b/i;
-const GATE_SCOPE_CLAIM_RE = /\bhard[- ](gate|hook)\b|pre-implement(ation)?-gate\.sh/i;
+const GATE_LABEL = '**Implement gate (advisory):**';
+const CANONICAL_GATE_RE = /\b(one|only|single)\b[^.]{0,40}\b(hard|advisory)[- ](gate|hook)\b|\b(hard|advisory)[- ](gate|hook)\b[^.]{0,60}\b(only|covers|on artifact existence)\b/i;
+const GATE_SCOPE_CLAIM_RE = /\b(hard|advisory)[- ](gate|hook)\b|pre-implement(ation)?-gate\.sh/i;
 const GATE_SCOPE_ARTIFACTS: any = ['requirement.md', 'design.md', 'plan.md'];
 
 const BASELINE_GATE_BODY = [
@@ -48,15 +48,15 @@ const BASELINE_PLAN_ADVISORY = [
   '   decision written straight from prose without a compiled pack must not claim prior evidence. When',
   '   non-empty, read it alongside `requirement.md`, `design.md`, and the constitution.',
 ].join('\n');
-const BASELINE_FIXED_PLAN_CHECK = 'beside the hard hook that covers artifact existence (`references/DOFLOW_CHAIN.md` scopes both).';
+const BASELINE_FIXED_PLAN_CHECK = 'beside the advisory hook on artifact existence (`references/DOFLOW_CHAIN.md` scopes both).';
 const BASELINE_PLAN_CHECK = [
   'blocks on it — the chain\'s one hard gate covers artifact existence only. Stopping on a violation',
   '   is a discipline this skill observes, not something a hook enforces.',
 ].join('\n');
 const FIXED_GATE_A_SCOPE = [
   'the conversational checkpoint on top of the already-existing',
-  '     hard hook (`pre-implement-gate.sh`; its scope is in `references/DOFLOW_CHAIN.md`), which remains',
-  '     the real enforcement regardless of what happens here.',
+  '     advisory hook (`pre-implement-gate.sh`; its scope is in `references/DOFLOW_CHAIN.md`), which',
+  '     still reports a missing artifact.',
 ].join('\n');
 const BASELINE_GATE_A_SCOPE = [
   'the conversational checkpoint on top of the already-existing',
@@ -65,10 +65,10 @@ const BASELINE_GATE_A_SCOPE = [
   '     here).',
 ].join('\n');
 const FIXED_TASK_CLASSES_SCOPE = [
-  '`pre-implement-gate.sh` keys on branch and artifact state (what it denies: SKILL.md step 7): if the',
-  'current branch already carries a feature directory the gate rejects, it denies source edits',
+  '`pre-implement-gate.sh` keys on branch and artifact state (what it advises on: SKILL.md step 7): if the',
+  'current branch already carries a feature directory the gate flags, it advises on source edits',
   'regardless of the class in play — so a `bug` or `trivial-edit` workflow started on that branch will',
-  'be blocked at its implementation stage.',
+  'get that advisory at its implementation stage.',
 ].join('\n');
 const BASELINE_TASK_CLASSES_SCOPE = [
   '`pre-implement-gate.sh` keys on branch and artifact state: if the current branch already carries a',
@@ -208,10 +208,11 @@ function setMismatch(label: any, expected: any, actual: any) {
     : [];
 }
 
-function literalDenyCodes(text: any) {
-  return [...text.matchAll(/\bdoflow_decide\s+deny\s+([a-z]+(?:-[a-z]+)+)\b/g)]
-    .map(([, code]) => code)
-    .filter((code) => code !== 'contract-missing');
+// Literal decision codes a policy records: `doflow_decide <verb> <code>` with a hyphenated code.
+function literalDecisionCodes(text: any, verbs: any = ['deny', 'advisory']) {
+  return [...text.matchAll(/\bdoflow_decide\s+(deny|advisory)\s+([a-z]+(?:-[a-z]+)+)\b/g)]
+    .filter(([, verb]) => verbs.includes(verb))
+    .map(([, , code]) => code);
 }
 
 function checkGate({ chain, gate }: any) {
@@ -220,14 +221,14 @@ function checkGate({ chain, gate }: any) {
 
   const headerEnd = gate.indexOf('\nset -');
   const header = headerEnd < 0 ? gate : gate.slice(0, headerEnd);
-  if (!/^# Denies\b/m.test(header)) findings.push('G46.1: found no Denies header anchor');
+  if (!/^# Advises\b/m.test(header)) findings.push('G46.1: found no Advises header anchor');
   const cases: any = [...header.matchAll(/^#\s+\d+\./gm)];
-  const sourceCodes: any = new Set(literalDenyCodes(gate));
-  if (!sourceCodes.size) findings.push('G46.1: gate source has no literal deny codes');
-  if (!cases.length) findings.push('G46.1: gate source has no numbered deny cases');
+  const sourceCodes: any = new Set(literalDecisionCodes(gate, ['advisory']));
+  if (!sourceCodes.size) findings.push('G46.1: gate source has no literal advisory codes');
+  if (!cases.length) findings.push('G46.1: gate source has no numbered advisory cases');
   const families: any = new Set([...sourceCodes].map((code) => code.split('-')[0]));
   if (cases.length !== families.size) {
-    findings.push(`G46.1: ${cases.length} header cases do not match ${families.size} deny-code families`);
+    findings.push(`G46.1: ${cases.length} header cases do not match ${families.size} advisory-code families`);
   }
 
   const bullet = listItem(chain, GATE_LABEL);
@@ -235,7 +236,7 @@ function checkGate({ chain, gate }: any) {
   const proseCodes: any = new Set(bullet
     ? [...bullet.matchAll(/`([^`]+)`/g)].map(([, token]) => token).filter((token) => CODE_RE.test(token))
     : []);
-  findings.push(...setMismatch('G46.1: hard-gate deny codes differ from pre-implementation-gate.sh', sourceCodes, proseCodes));
+  findings.push(...setMismatch('G46.1: advisory codes differ from pre-implementation-gate.sh', sourceCodes, proseCodes));
   return findings;
 }
 
@@ -374,7 +375,7 @@ const POLICY_DIR = `${sourceFor('hooks.shared')}/policies`;
 const TEMPLATE_DIR = `${sourceFor('templates.doflow')}/doflow`;
 const REFERENCE_DIR = `${sourceFor('guidance.context-layer')}/references`;
 const POLICY_FILES: any = readDirectoryFiles(POLICY_DIR, (name: any) => name.endsWith('.sh'));
-const POLICY_NAMES: any = new Set(POLICY_FILES.filter(({ text }: any) => literalDenyCodes(text).length).map(({ name }: any) => name));
+const POLICY_NAMES: any = new Set(POLICY_FILES.filter(({ text }: any) => literalDecisionCodes(text).length).map(({ name }: any) => name));
 const TEMPLATE_NAMES: any = new Set(readDirectoryFiles(TEMPLATE_DIR, (name: any) => name.endsWith('-template.md')).map(({ name }: any) => name));
 const REFERENCE_NAMES: any = new Set(readDirectoryFiles(REFERENCE_DIR, (name: any) => name.endsWith('.md')).map(({ name }: any) => name));
 const CANONICAL_CORPUS = guidanceCorpus();
@@ -383,7 +384,7 @@ const POLICY_PATH = 'shared/hooks/policies/';
 const TEMPLATE_PATH = 'templates/doflow/';
 const REFERENCE_PATH = 'guidance/references/';
 
-test('G46.1: implement-gate prose matches the hard-gate hook', () => {
+test('G46.1: implement-gate prose matches the advisory hook', () => {
   assert.deepEqual(checkGate({ chain: CHAIN_TEXT, gate: GATE_TEXT }), []);
 });
 
@@ -392,9 +393,9 @@ test('G46.1 control: re-seeding the baseline One hard gate bullet is caught', ()
   assert.ok(findings.some((finding: any) => finding.includes(GATE_LABEL)), findings.join('\n'));
 });
 
-test('G46.1 control: the current label over the baseline body is caught by the deny-code comparison', () => {
+test('G46.1 control: the current label over the baseline body is caught by the advisory-code comparison', () => {
   const findings = checkGate({ chain: `- ${GATE_LABEL} ${BASELINE_GATE_BODY}`, gate: GATE_TEXT });
-  assert.ok(findings.some((finding: any) => /^G46\.1: hard-gate deny codes differ.*missing \[[^\]]*readiness-missing/.test(finding)), findings.join('\n'));
+  assert.ok(findings.some((finding: any) => /^G46\.1: advisory codes differ.*missing \[[^\]]*readiness-missing/.test(finding)), findings.join('\n'));
   assert.ok(!findings.some((finding: any) => finding.includes('found no')), findings.join('\n'));
 });
 
@@ -466,6 +467,12 @@ test('G46.2 control: hyphenated and hook spellings of the claim are caught', () 
   }
 });
 
+test('G46.2 control: the advisory spelling of the claim is caught', () => {
+  for (const text of ['The advisory hook covers artifact existence only.', 'Beside the advisory hook on artifact existence.']) {
+    assert.deepEqual(checkCanonicalGate([{ rel: 'a.md', text }]), [UNCITED_A], text);
+  }
+});
+
 test('G46.2 control: re-seeding the baseline gate-scope claim is caught', () => {
   const findings = checkCanonicalGate([{
     rel: 'core/shared/guidance/references/CONSTITUTION_BASE.md',
@@ -479,7 +486,7 @@ test('G46.2 control: removing all canonical gate statements is caught', () => {
   assert.ok(findings.some((finding: any) => finding.includes('found no')), findings.join('\n'));
 });
 
-test('G46.3: shared policy row matches policies that emit literal deny decisions', () => {
+test('G46.3: shared policy row matches policies that emit literal deny or advisory decisions', () => {
   assert.deepEqual(checkLayoutRow({ chain: CHAIN_TEXT, pathCell: POLICY_PATH, expected: POLICY_NAMES, suffixRe: /\.sh$/, label: 'G46.3', glob: '*.sh' }), []);
 });
 

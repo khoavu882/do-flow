@@ -743,6 +743,15 @@ test('G38.3 control: a hook printing systemMessage on its own is one finding', (
   const seeded: any = withFile(file, `${shipped.get(file)}\njq -n --arg m x '{systemMessage: $m}'\n`);
   one(checkG38_3({ files: seeded }), `${file}:${seeded.get(file).split('\n').length - 1} emits systemMessage`);
 });
+test('G38.3 control: the advise-only emitters stay in deny-json.sh; the same line in the gate or the bridge is one finding', () => {
+  const allowed = 'core/harnesses/shared/hooks/policies/deny-json.sh';
+  assert.match(shipped.get(allowed), /additionalContext/);
+  assert.match(shipped.get(allowed), /systemMessage/);
+  for (const file of ['core/harnesses/shared/hooks/policies/pre-implementation-gate.sh', 'core/harnesses/shared/hooks/bridge/bridge.sh']) {
+    const seeded: any = withFile(file, `${shipped.get(file)}\nprintf '{"hookSpecificOutput":{"additionalContext":"x"}}'\n`);
+    one(checkG38_3({ files: seeded }), `${file}:${seeded.get(file).split('\n').length - 1} emits additionalContext`);
+  }
+});
 test('G38.3 control: a pre-compact hook that prints without its rule lookup is one finding', () => {
   const file = 'core/harnesses/claude/hooks/pre-compact.sh';
   const seeded = edit(file, '  doflow_emission_rule compact-instructions.instructions "$_DF_ROLE"\n', '  :\n');

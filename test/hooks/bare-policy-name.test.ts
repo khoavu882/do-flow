@@ -26,7 +26,7 @@ function execute(policyDir: any, policy: any, bare: any, input: any) {
   return { status: result.status, stdout: result.stdout, stderr: result.stderr, error: result.error };
 }
 
-test('pre-implementation-gate resolves siblings for bare-name allow and deny calls', () => {
+test('pre-implementation-gate resolves siblings for bare-name allow and out-of-step calls', () => {
   const policyDir = path.join(scratch.dir, 'policies');
   fs.cpSync(POLICY_DIR, policyDir, { recursive: true });
   const cases = [
@@ -42,12 +42,13 @@ test('pre-implementation-gate resolves siblings for bare-name allow and deny cal
     assert.deepEqual(bareNameAllow, fullPathAllow, `${policy} bare-name allow output`);
 
     fs.rmSync(path.join(policyDir, 'contract.sh'));
-    const fullPathDeny = execute(policyDir, policy, false, input);
-    const bareNameDeny = execute(policyDir, policy, true, input);
-    assert.equal(fullPathDeny.error, undefined);
-    assert.equal(bareNameDeny.error, undefined);
-    assert.equal(fullPathDeny.status, 2, `${policy} deny status`);
-    assert.deepEqual(bareNameDeny, fullPathDeny, `${policy} bare-name deny output`);
+    const fullPathOutOfStep = execute(policyDir, policy, false, input);
+    const bareNameOutOfStep = execute(policyDir, policy, true, input);
+    assert.equal(fullPathOutOfStep.error, undefined);
+    assert.equal(bareNameOutOfStep.error, undefined);
+    assert.equal(fullPathOutOfStep.status, 0, `${policy} out-of-step status`);
+    assert.match(fullPathOutOfStep.stderr, /DoFlow hooks out of step/, `${policy} out-of-step stderr`);
+    assert.deepEqual(bareNameOutOfStep, fullPathOutOfStep, `${policy} bare-name out-of-step output`);
     fs.copyFileSync(path.join(POLICY_DIR, 'contract.sh'), path.join(policyDir, 'contract.sh'));
   }
 });

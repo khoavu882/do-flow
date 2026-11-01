@@ -276,14 +276,17 @@ test('stream-hook-runner capture: SIGTERM, SIGINT and SIGPIPE are not recorded; 
   assert.notEqual(fingerprint(a), fingerprint(b), 'a SEGV and a KILL do not share a fingerprint');
 });
 
-test('stream-hook-runner capture: policy exit stubs become bridge decisions with the same allow/deny effects', () => {
-  for (const [body, expected] of [
-    ['echo "[pre-implementation-gate] blocked" >&2\nexit 2', 'deny'],
-    ['exit 0', 'allow'],
-    ['exit 1', 'deny'],
-  ]) {
-    const { a } = capPair(runnerWithPolicy(body), ['PreToolUse'], PRE_EDIT);
-    assert.equal(JSON.parse(a.stdout).decision, expected, body);
+test('stream-hook-runner capture: policy exit stubs become bridge decisions; only a deny record or strict-1 blocks', () => {
+  const denyRecord = `printf '\\036%s\\n' '{"v":1,"policy":"pre-implementation-gate","policyVersion":1,"outcome":"deny","code":"blocked"}' >&3`;
+  for (const [body, expected, env] of [
+    [`${denyRecord}\necho "[pre-implementation-gate] blocked" >&2\nexit 2`, 'deny', {}],
+    ['echo "[pre-implementation-gate] blocked" >&2\nexit 2', 'allow', {}],
+    ['exit 0', 'allow', {}],
+    ['exit 1', 'allow', {}],
+    ['exit 1', 'deny', { DOFLOW_FAULT_PROFILE: 'strict-1' }],
+  ] as any) {
+    const { a } = capPair(runnerWithPolicy(body), ['PreToolUse'], PRE_EDIT, { env });
+    assert.equal(JSON.parse(a.stdout).decision, expected, `${body} ${JSON.stringify(env)}`);
   }
   const runner = runnerWithPolicy('exit 0');
   const { on, a } = capPair(runner, ['PreToolUse'], PRE_EDIT, { env: { PATH: path.join(capScratch.dir, 'no-such-bin') } });
@@ -313,7 +316,7 @@ test('stream-hook-runner: a bridge timeout is a compat proceed and a strict bloc
   assert.deepEqual(capLines(strict).map((line: any) => line.kind), ['bridge-timeout']);
 });
 
-test('stream-hook-runner: missing bridge is out of step while a failing bridge follows the fault profile', () => {
+test('stream-hook-runner: missing bridge allows under compat-1 and denies the gate only under strict-1, while a failing bridge follows the fault profile', () => {
   const missingRunner = runnerWithoutBridge();
   const failingRunner = runnerWithBridge('exit 1');
   const gateInput = JSON.stringify({ toolCall: { name: 'write_to_file', args: { AbsolutePath: 'src/a.js' } } });
@@ -325,7 +328,7 @@ test('stream-hook-runner: missing bridge is out of step while a failing bridge f
     const gateMissing = capMachine(`missing-gate-${profile}`);
     const gate = runRunner(gateMissing, missingRunner, ['PreToolUse'], gateInput, { env });
     assert.equal(gate.status, 0);
-    assert.deepEqual(JSON.parse(gate.stdout), { decision: 'deny', reason });
+    assert.deepEqual(JSON.parse(gate.stdout), profile === 'strict-1' ? { decision: 'deny', reason } : { decision: 'allow' });
     assert.deepEqual(capLines(gateMissing).map((line: any) => line.kind), ['bridge-missing']);
 
     const stopMissing = capMachine(`missing-stop-${profile}`);

@@ -198,13 +198,13 @@ test('stop-check with no config home allows flagged repeats without creating sta
   assert.equal(first.none.status, 0, first.none.stderr);
   assert.equal(first.none.stdout, '');
   assert.equal(first.none.stderr, '');
-  assert.equal(first.withHome.status, 2, first.withHome.stderr);
+  assert.equal(first.withHome.status, 0, first.withHome.stderr);
   assert.match(first.withHome.stderr, /unfinished-work marker/);
   assert.deepEqual(fs.readdirSync(first.cwd), [], 'the no-home branch creates no state');
 
   const repeated = policyPair(t, 'stop-check', 'Stop', payload);
   assert.equal(repeated.none.status, 0, repeated.none.stderr);
-  assert.equal(repeated.none.stderr, '', 'a repeated flagged message cannot block without persisted state');
+  assert.equal(repeated.none.stderr, '', 'a repeated flagged message cannot be remembered without persisted state');
 });
 
 // Entry points run from the source tree with empty stdin: each that needs no session state exits as

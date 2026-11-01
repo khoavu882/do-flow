@@ -14,13 +14,12 @@
   "fault": "none",
   "expect": {
     "exit": 0,
-    "stdoutIncludes": "\"permissionDecision\":\"deny\"",
     "stderrIncludes": null,
-    "modelVisibleBytesMax": 400,
+    "modelVisibleBytesMax": 0,
     "decision": {
-      "outcome": "deny",
+      "outcome": "advisory",
       "code": "missing-artifacts",
-      "effect": "block"
+      "effect": "proceed"
     },
     "envelope": {
       "version": 1,
@@ -34,6 +33,7 @@
       "identity": {
         "session": "copilot-gate-create"
       }
-    }
+    },
+    "stdout": ""
   }
 }

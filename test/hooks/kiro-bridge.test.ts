@@ -57,17 +57,18 @@ function featureRepoMissingPlan() {
   return root;
 }
 
-HOOK_TEST('pre-implement-gate blocks a Kiro `write` to source while plan.md is missing', () => {
+HOOK_TEST('pre-implement-gate advises on a Kiro `write` to source while plan.md is missing', () => {
   const root = featureRepoMissingPlan();
   const result = runDoor('pre-implement-gate.sh', { hook_event_name: 'preToolUse', cwd: root, tool_name: 'write', tool_input: { command: 'create', path: path.join(root, 'src', 'a.js'), file_text: 'x' } }, { cwd: root });
-  assert.equal(result.status, 2, result.stderr);
+  assert.equal(result.status, 0, result.stderr);
   assert.match(result.stderr, /missing requirement\.md, design\.md, or plan\.md/);
 });
 
-HOOK_TEST('pre-implement-gate blocks a Kiro `fs_write` to source while plan.md is missing', () => {
+HOOK_TEST('pre-implement-gate advises on a Kiro `fs_write` to source while plan.md is missing', () => {
   const root = featureRepoMissingPlan();
   const result = runDoor('pre-implement-gate.sh', { cwd: root, tool_name: 'fs_write', tool_input: { path: path.join(root, 'src', 'a.js') } }, { cwd: root });
-  assert.equal(result.status, 2, result.stderr);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /missing requirement\.md, design\.md, or plan\.md/);
 });
 
 HOOK_TEST('pre-implement-gate allows a Kiro write under agent-docs/ and an unrelated tool', () => {
@@ -146,11 +147,12 @@ HOOK_TEST('kiro_bridge_payload prints a payload jq cannot parse unchanged', () =
   assert.equal(bridge(''), '\n');
 });
 
-HOOK_TEST('pre-implement-gate blocks the V3 write family (str_replace, fs_append, delete_file) while plan.md is missing', () => {
+HOOK_TEST('pre-implement-gate advises on the V3 write family (str_replace, fs_append, delete_file) while plan.md is missing', () => {
   const root = featureRepoMissingPlan();
   for (const tool of ['str_replace', 'fs_append', 'delete_file']) {
     const result = runDoor('pre-implement-gate.sh', { cwd: root, tool_name: tool, tool_input: { path: path.join(root, 'src', 'a.js') } }, { cwd: root });
-    assert.equal(result.status, 2, `${tool}: ${result.stderr}`);
+    assert.equal(result.status, 0, `${tool}: ${result.stderr}`);
+    assert.match(result.stderr, /missing requirement\.md, design\.md, or plan\.md/, tool);
   }
 });
 
@@ -180,24 +182,34 @@ HOOK_TEST('mcp-tool-guard evaluates a V3 `mcp_<server>_<tool>` ID against the po
   }
 });
 
-HOOK_TEST('stop-check on a V3 payload turns a deny into a JSON block with exit 0, and blocks a message once', () => {
-  const payload = { session_id: 's1', assistant_response: '// TODO finish' };
-  const first = runDoor('stop-check.sh', payload);
-  assert.equal(first.status, 0, first.stderr);
-  const decision = JSON.parse(first.stdout);
-  assert.equal(decision.decision, 'block');
-  assert.match(decision.reason, /unfinished-work/);
+/** The decision records the bridge traced for one door run. */
+function tracedDecisions(file: any) {
+  return fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim().split('\n').filter(Boolean).map((line: any) => JSON.parse(line)) : [];
+}
 
-  const again = runDoor('stop-check.sh', payload);
+HOOK_TEST('stop-check on a V3 payload records an advisory with exit 0 and no stdout, once per message', () => {
+  const payload = { session_id: 's1', assistant_response: '// TODO finish' };
+  const firstTrace = path.join(scratch.dir, 'stop-v3-first.jsonl');
+  const first = runDoor('stop-check.sh', payload, { extra: { DOFLOW_BRIDGE_TRACE: firstTrace } });
+  assert.equal(first.status, 0, first.stderr);
+  assert.equal(first.stdout, '');
+  const [decision] = tracedDecisions(firstTrace);
+  assert.deepEqual([decision.outcome, decision.code, decision.effect], ['advisory', 'unfinished-work', 'proceed']);
+
+  const againTrace = path.join(scratch.dir, 'stop-v3-again.jsonl');
+  const again = runDoor('stop-check.sh', payload, { extra: { DOFLOW_BRIDGE_TRACE: againTrace } });
   assert.equal(again.status, 0, again.stderr);
   assert.equal(again.stdout, '');
+  assert.deepEqual(tracedDecisions(againTrace).map((row: any) => row.outcome), ['allow'], 'the same message is warned about once');
 });
 
-HOOK_TEST('stop-check on a 2.x payload without session_id keeps exit 2 with the reason on stderr', () => {
-  const result = runDoor('stop-check.sh', { hook_event_name: 'stop', assistant_response: '// TODO finish' }, { extra: { KIRO_SESSION_ID: 'kiro-2x' }, errexit: true });
-  assert.equal(result.status, 2, result.stderr);
-  assert.match(result.stderr, /unfinished-work/);
+HOOK_TEST('stop-check on a 2.x payload without session_id records an advisory and exits 0', () => {
+  const trace = path.join(scratch.dir, 'stop-2x.jsonl');
+  const result = runDoor('stop-check.sh', { hook_event_name: 'stop', assistant_response: '// TODO finish' }, { extra: { KIRO_SESSION_ID: 'kiro-2x', DOFLOW_BRIDGE_TRACE: trace }, errexit: true });
+  assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout, '');
+  const [decision] = tracedDecisions(trace);
+  assert.deepEqual([decision.outcome, decision.code, decision.effect], ['advisory', 'unfinished-work', 'proceed']);
 });
 
 HOOK_TEST('stop-check exits 0 with empty stdout for a clean message on either engine', () => {

@@ -527,7 +527,7 @@ make_transcript() {
   fi
 }
 
-# Test 6a: last assistant has TODO → exit 2
+# Test 6a: last assistant has TODO → exit 0 and one systemMessage warning
 T1=$(mktemp "$REPO_ROOT/tmp/transcript-XXXXXX")
 mv "$T1" "$T1.jsonl"
 T1="$T1.jsonl"
@@ -536,12 +536,12 @@ make_transcript "assistant" "Sure, added to the list." >> "$T1"
 make_transcript "user" "Implement the function" >> "$T1"
 make_transcript "assistant" "def foo():\n    # TODO: implement this\n    pass" >> "$T1"
 
-EXIT1=$("${SANDBOXED[@]}" bash "$HOOKS/stop-check.sh" \
-  <<< "{\"session_id\":\"$SESS\",\"transcript_path\":\"$T1\"}" 2>/dev/null; echo $?)
-if [[ "$EXIT1" == "2" ]]; then
-  pass "TODO in last assistant → exit 2 (stub detected)"
+OUT1=$("${SANDBOXED[@]}" bash "$HOOKS/stop-check.sh" \
+  <<< "{\"session_id\":\"$SESS\",\"transcript_path\":\"$T1\"}" 2>/dev/null); EXIT1=$?
+if [[ "$EXIT1" == "0" ]] && jq -e '.systemMessage | test("unfinished-work marker")' <<< "$OUT1" >/dev/null 2>&1; then
+  pass "TODO in last assistant → exit 0 with an unfinished-work systemMessage (stub detected, advisory)"
 else
-  fail "TODO in last assistant → expected exit 2, got $EXIT1"
+  fail "TODO in last assistant → expected exit 0 with an unfinished-work systemMessage, got exit $EXIT1: $OUT1"
 fi
 
 # Test 6b: user has TODO but last assistant is clean → exit 0
@@ -551,42 +551,42 @@ T2="$T2.jsonl"
 make_transcript "user" "Add a TODO comment to the code" >> "$T2"
 make_transcript "assistant" "Done. Full implementation complete, no stubs." >> "$T2"
 
-EXIT2=$("${SANDBOXED[@]}" bash "$HOOKS/stop-check.sh" \
-  <<< "{\"session_id\":\"$SESS\",\"transcript_path\":\"$T2\"}" 2>/dev/null; echo $?)
-if [[ "$EXIT2" == "0" ]]; then
-  pass "TODO only in user message → exit 0 (no false positive)"
+OUT2=$("${SANDBOXED[@]}" bash "$HOOKS/stop-check.sh" \
+  <<< "{\"session_id\":\"$SESS\",\"transcript_path\":\"$T2\"}" 2>/dev/null); EXIT2=$?
+if [[ "$EXIT2" == "0" ]] && ! grep -q "unfinished-work" <<< "$OUT2"; then
+  pass "TODO only in user message → exit 0, no warning (no false positive)"
 else
-  fail "TODO only in user message → expected exit 0, got $EXIT2"
+  fail "TODO only in user message → expected exit 0 and no warning, got exit $EXIT2: $OUT2"
 fi
 
-# Test 6c: raise NotImplementedError → exit 2
+# Test 6c: raise NotImplementedError → exit 0 and one systemMessage warning
 T3=$(mktemp "$REPO_ROOT/tmp/transcript-XXXXXX")
 mv "$T3" "$T3.jsonl"
 T3="$T3.jsonl"
 make_transcript "user" "implement auth" >> "$T3"
 make_transcript "assistant" "def authenticate(user):\n    raise NotImplementedError" >> "$T3"
 
-EXIT3=$("${SANDBOXED[@]}" bash "$HOOKS/stop-check.sh" \
-  <<< "{\"session_id\":\"$SESS\",\"transcript_path\":\"$T3\"}" 2>/dev/null; echo $?)
-if [[ "$EXIT3" == "2" ]]; then
-  pass "raise NotImplementedError → exit 2"
+OUT3=$("${SANDBOXED[@]}" bash "$HOOKS/stop-check.sh" \
+  <<< "{\"session_id\":\"$SESS\",\"transcript_path\":\"$T3\"}" 2>/dev/null); EXIT3=$?
+if [[ "$EXIT3" == "0" ]] && jq -e '.systemMessage | test("unfinished-work marker")' <<< "$OUT3" >/dev/null 2>&1; then
+  pass "raise NotImplementedError → exit 0 with an unfinished-work systemMessage"
 else
-  fail "raise NotImplementedError → expected exit 2, got $EXIT3"
+  fail "raise NotImplementedError → expected exit 0 with an unfinished-work systemMessage, got exit $EXIT3: $OUT3"
 fi
 
-# Test 6d: Codex rollout shape through the Codex front door → exit 2
+# Test 6d: Codex rollout shape through the Codex front door → exit 0 and one systemMessage warning
 T4=$(mktemp "$REPO_ROOT/tmp/transcript-XXXXXX")
 mv "$T4" "$T4.jsonl"
 T4="$T4.jsonl"
 printf '%s\n' '{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"implement foo"}]}}' >> "$T4"
 printf '%s\n' '{"type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"def foo():\n    # TODO: implement this\n    pass"}]}}' >> "$T4"
 
-EXIT4=$("${SANDBOXED[@]}" bash "$MIRROR/.codex/hooks/stop-check.sh" \
-  <<< "{\"session_id\":\"verify-sess-codex-stop\",\"transcript_path\":\"$T4\"}" 2>/dev/null >&2; echo $?)
-if [[ "$EXIT4" == "2" ]]; then
-  pass "Codex rollout shape: TODO in last assistant → exit 2 (front door keeps the block)"
+OUT4=$("${SANDBOXED[@]}" bash "$MIRROR/.codex/hooks/stop-check.sh" \
+  <<< "{\"session_id\":\"verify-sess-codex-stop\",\"transcript_path\":\"$T4\"}" 2>/dev/null); EXIT4=$?
+if [[ "$EXIT4" == "0" ]] && jq -e '.systemMessage | test("unfinished-work marker")' <<< "$OUT4" >/dev/null 2>&1; then
+  pass "Codex rollout shape: TODO in last assistant → exit 0 with an unfinished-work systemMessage (front door keeps the warning)"
 else
-  fail "Codex rollout shape: TODO in last assistant → expected exit 2, got $EXIT4"
+  fail "Codex rollout shape: TODO in last assistant → expected exit 0 with an unfinished-work systemMessage, got exit $EXIT4: $OUT4"
 fi
 
 # Cleanup transcript temp files

@@ -5,6 +5,9 @@
     "tool_name": "mcp__example__read",
     "tool_input": {}
   },
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "strict-1"
+  },
   "policy": "mcp-tool-guard",
   "state": "none",
   "fault": "crash-exit-1",

@@ -182,20 +182,23 @@ ROOT="$(pwd -P)"
 # policy's real verdict -- which is exactly how the pre-implementation-gate.sh's own
 # structured-layout defect (missing .doflow/ resolver candidates) shipped past a fully "green"
 # run of this suite. The front-door JSON-translation layer itself is covered separately by
-# test/hooks/test-hooks.sh. The canonical policy speaks exit codes only (0 = allow, non-zero =
-# deny) per its own header comment -- never a harness-specific JSON shape -- so this checks the
-# exit code directly rather than parsing hookSpecificOutput.
+# test/hooks/test-hooks.sh. The canonical policy never denies (exit 0 always) and speaks no
+# harness-specific JSON shape: a finding is one stderr line, so this reports "advise" when the
+# policy exited 0 with a stderr line and "allow" when it exited 0 silently.
 CANONICAL_POLICY="$REPO_ROOT/core/harnesses/shared/hooks/policies/pre-implementation-gate.sh"
+gate_verdict() { # $1 exit code, $2 stderr text
+  if [ "$1" -ne 0 ]; then echo "deny"; elif [ -n "$2" ]; then echo "advise"; else echo "allow"; fi
+}
 decision() {
-  local rc
-  printf '%s\n' "$1" | jq -c --arg harness claude --arg event PreToolUse --arg policy pre-implementation-gate -f "$REPO_ROOT/core/harnesses/shared/hooks/bridge/envelope.jq" | bash "$CANONICAL_POLICY" >/dev/null 2>&1
+  local rc err
+  err=$(printf '%s\n' "$1" | jq -c --arg harness claude --arg event PreToolUse --arg policy pre-implementation-gate -f "$REPO_ROOT/core/harnesses/shared/hooks/bridge/envelope.jq" | bash "$CANONICAL_POLICY" 2>&1 >/dev/null)
   rc=$?
-  if [ "$rc" -eq 0 ]; then echo "allow"; else echo "deny"; fi
+  gate_verdict "$rc" "$err"
 }
 # remove design.md so the feature is started-but-incomplete (widened gate: requirement+design+plan all required)
 rm agent-docs/doflow/001-auth/design.md
-eq "in-flow source edit, requirement+plan present but design missing -> deny" \
-   "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/src/A.java\"}}")" "deny"
+eq "in-flow source edit, requirement+plan present but design missing -> advise" \
+   "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/src/A.java\"}}")" "advise"
 eq "agent-docs edit -> allow" \
    "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/agent-docs/doflow/001-auth/requirement.md\"}}")" "allow"
 eq "outside-repo edit -> allow" \
@@ -207,23 +210,24 @@ eq "non-edit tool -> allow" \
 # field-guessing. envelope.jq only ever REBUILDS an envelope from native fields, so these cases send
 # the envelope straight to the canonical policy (decision_env) to exercise the already-decoded path.
 decision_env() {
-  local rc
-  printf '%s\n' "$1" | bash "$CANONICAL_POLICY" >/dev/null 2>&1
+  local rc err
+  err=$(printf '%s\n' "$1" | bash "$CANONICAL_POLICY" 2>&1 >/dev/null)
   rc=$?
-  if [ "$rc" -eq 0 ]; then echo "allow"; else echo "deny"; fi
+  gate_verdict "$rc" "$err"
 }
 v1_event() { # $1 operation, $2 path
   printf '{"doflow_event":{"version":1,"harness":"claude","event":"PreToolUse","operation":"%s","paths":["%s"],"identity":{"session":"chain-test"}}}' "$1" "$2"
 }
-eq "v1 envelope edit, design missing -> deny" \
-   "$(decision_env "$(v1_event edit "$ROOT/src/A.java")")" "deny"
+eq "v1 envelope edit, design missing -> advise" \
+   "$(decision_env "$(v1_event edit "$ROOT/src/A.java")")" "advise"
 eq "v1 envelope non-edit operation -> allow" \
    "$(decision_env "$(v1_event read "$ROOT/src/A.java")")" "allow"
-eq "v1 envelope outranks stray native fields beside it -> deny" \
-   "$(decision_env "$(v1_event edit "$ROOT/src/A.java" | jq -c '. + {tool_name:"Bash"}')")" "deny"
-# DEC-033: the retired unversioned shape (no version) is not trusted by a gate policy.
-eq "legacy unversioned doflow_event sent to the policy -> deny (out of step)" \
-   "$(decision_env "{\"doflow_event\":{\"operation\":\"edit\",\"paths\":[\"$ROOT/src/A.java\"],\"projectRoot\":\"$ROOT\"}}")" "deny"
+eq "v1 envelope outranks stray native fields beside it -> advise" \
+   "$(decision_env "$(v1_event edit "$ROOT/src/A.java" | jq -c '. + {tool_name:"Bash"}')")" "advise"
+# DEC-033: the retired unversioned shape (no version) is not trusted by a gate policy: it allows with
+# the out-of-step line instead of reading the paths.
+eq "legacy unversioned doflow_event sent to the policy -> advise (out of step)" \
+   "$(decision_env "{\"doflow_event\":{\"operation\":\"edit\",\"paths\":[\"$ROOT/src/A.java\"],\"projectRoot\":\"$ROOT\"}}")" "advise"
 echo d > agent-docs/doflow/001-auth/design.md
 eq "prereqs met -> allow" \
    "$(decision "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/src/A.java\"}}")" "allow"
@@ -238,15 +242,17 @@ eq "not-in-flow (trunk) -> allow" \
 # the resolver installed or not.
 NO_RESOLVER_HOME="$T/no-resolver"; mkdir -p "$NO_RESOLVER_HOME"
 decision_bare() {
-  printf '%s\n' "$1" | jq -c --arg harness claude --arg event PreToolUse --arg policy pre-implementation-gate -f "$REPO_ROOT/core/harnesses/shared/hooks/bridge/envelope.jq" | CLAUDE_CONFIG_DIR="$NO_RESOLVER_HOME" HOME="$NO_RESOLVER_HOME" bash "$CANONICAL_POLICY" >/dev/null 2>&1
-  if [ "$?" -eq 0 ]; then echo "allow"; else echo "deny"; fi
+  local rc err
+  err=$(printf '%s\n' "$1" | jq -c --arg harness claude --arg event PreToolUse --arg policy pre-implementation-gate -f "$REPO_ROOT/core/harnesses/shared/hooks/bridge/envelope.jq" | CLAUDE_CONFIG_DIR="$NO_RESOLVER_HOME" HOME="$NO_RESOLVER_HOME" bash "$CANONICAL_POLICY" 2>&1 >/dev/null)
+  rc=$?
+  gate_verdict "$rc" "$err"
 }
 GATE_EDIT="{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$ROOT/src/A.java\"}}"
 rm agent-docs/doflow/001-auth/design.md
 for b in feat/001-auth feature/001-auth 001-auth kai/001-auth task/001-auth; do
   git checkout -q -B "$b" master
-  eq "$b, design missing -> deny (resolver)" "$(decision "$GATE_EDIT")" "deny"
-  eq "$b, design missing -> deny (no resolver)" "$(decision_bare "$GATE_EDIT")" "deny"
+  eq "$b, design missing -> advise (resolver)" "$(decision "$GATE_EDIT")" "advise"
+  eq "$b, design missing -> advise (no resolver)" "$(decision_bare "$GATE_EDIT")" "advise"
 done
 for b in fix/001-auth bugfix/001-auth refactor/001-auth chore/001-auth release/001-auth hotfix/001-auth; do
   git checkout -q -B "$b" master

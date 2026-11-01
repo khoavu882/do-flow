@@ -9,13 +9,13 @@
     "KIRO_SESSION_ID": "kiro-stop-2x"
   },
   "expect": {
-    "exit": 2,
+    "exit": 0,
     "stdout": "",
-    "stderrIncludes": "unfinished-work",
-    "modelVisibleBytesMax": 126,
+    "stderrIncludes": null,
+    "modelVisibleBytesMax": 0,
     "decision": {
-      "outcome": "deny",
-      "effect": "block"
+      "outcome": "advisory",
+      "effect": "proceed"
     },
     "envelope": {
       "version": 1,

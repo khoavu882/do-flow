@@ -7,6 +7,9 @@
       "file_path": "src/a.js"
     }
   },
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "strict-1"
+  },
   "policy": "pre-implementation-gate",
   "state": "none",
   "fault": "crash-exit-1",

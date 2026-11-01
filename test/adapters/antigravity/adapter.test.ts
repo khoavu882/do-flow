@@ -465,7 +465,7 @@ SHIM_TEST('pre-implementation-gate shim recognizes Antigravity\'s own native too
   assert.equal(decision.decision, 'allow', 'a non-mutating tool must never trip the gate');
 });
 
-SHIM_TEST('pre-implementation-gate shim denies write_to_file when a started feature is missing specs', () => {
+SHIM_TEST('pre-implementation-gate shim allows write_to_file when a started feature is missing specs, advising instead of denying', () => {
   const scratchRepo = suiteTempDir('doflow-agy-gate-');
   execFileSync('git', ['init', '-q'], { cwd: scratchRepo });
   execFileSync('git', ['checkout', '-q', '-b', 'feat/999-scratch'], { cwd: scratchRepo });
@@ -479,13 +479,13 @@ SHIM_TEST('pre-implementation-gate shim denies write_to_file when a started feat
     });
     assert.equal(result.code, 0);
     const decision = JSON.parse(result.stdout);
-    assert.equal(decision.decision, 'deny', `${toolName} must be recognized and denied`);
+    assert.equal(decision.decision, 'allow', `${toolName} is recognized and the missing-artifacts advisory does not block it`);
   }
 });
 
 // ── stop-check.sh shim stdin contract ─────────────────────────────────────────
-// The shim translates Antigravity's documented Stop payload into the same gate Claude's stop-check
-// enforces. Its defining property is fail-open: every ambiguity exits 0 silently, because a stop
+// The shim translates Antigravity's documented Stop payload into the same check Claude's stop-check
+// runs (advisory only). Its defining property is fail-open: every ambiguity exits 0 silently, because a stop
 // hook that breaks session ending is worse than an under-gated one.
 
 const STOP_SHIM = path.join(HOOKS_MIRROR, '.antigravity', 'hooks', 'stop-check.sh');
@@ -511,7 +511,7 @@ function transcriptWith(lines: any) {
   return file;
 }
 
-SHIM_TEST('stop-check shim blocks with the documented {decision:continue} when the last response carries stubs', () => {
+SHIM_TEST('stop-check shim lets a stubbed last response end the session silently; the unfinished-work advisory never blocks', () => {
   const transcript = transcriptWith([
     { role: 'user', content: 'go' },
     { role: 'assistant', content: 'Writing the module now.' },
@@ -519,9 +519,7 @@ SHIM_TEST('stop-check shim blocks with the documented {decision:continue} when t
   ]);
   const { code, stdout } = runStopShim({ executionNum: 1, terminationReason: 'model_stop', fullyIdle: true, transcriptPath: transcript });
   assert.equal(code, 0);
-  const decision = JSON.parse(stdout);
-  assert.equal(decision.decision, 'continue');
-  assert.match(decision.reason, /[Tt][Oo][Dd][Oo]|stub/);
+  assert.equal(stdout, '', 'an advisory is silence on the Stop stream, not {decision:continue}');
 });
 
 SHIM_TEST('stop-check shim lets a clean response end the session silently', () => {

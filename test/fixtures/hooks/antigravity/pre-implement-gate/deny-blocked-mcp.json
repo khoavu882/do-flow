@@ -1,0 +1,40 @@
+{
+  "native": {
+    "toolCall": {
+      "name": "mcp_gh_delete_repo",
+      "args": {}
+    },
+    "workspacePaths": [
+      "<project>"
+    ]
+  },
+  "env": {
+    "DOFLOW_FAULT_PROFILE": "compat-1"
+  },
+  "state": "none",
+  "fault": "none",
+  "mcpPolicyAppend": "^mcp_gh_delete_repo\tAntigravity fixture MCP deny",
+  "expect": {
+    "exit": 0,
+    "stdout": "<deny-json>",
+    "stderrIncludes": null,
+    "modelVisibleBytesMax": 120,
+    "decision": {
+      "harness": "antigravity",
+      "event": "PreToolUse",
+      "policy": "mcp-tool-guard",
+      "outcome": "deny",
+      "code": "blocked-pattern",
+      "effect": "block"
+    },
+    "envelope": {
+      "version": 1,
+      "harness": "antigravity",
+      "event": "PreToolUse",
+      "operation": "mcp",
+      "tool": "mcp_gh_delete_repo"
+    },
+    "failurePoint": null,
+    "taskStateUnchanged": true
+  }
+}

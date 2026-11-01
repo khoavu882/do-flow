@@ -2,8 +2,9 @@
 const { bashPath } = require('../helper/bash-locator.ts');
 
 // The Stop policy reads the payload's last_assistant_message, falls back to the transcript in the
-// shapes Claude Code, Codex and the flat {role,content} fixture write, and blocks (exit 2) on an
-// unfinished-work marker. Everything runs against an install-shaped mirror under a scratch HOME.
+// shapes Claude Code, Codex and the flat {role,content} fixture write, and advises (exit 0 plus a
+// systemMessage line) on an unfinished-work marker; it never blocks. Everything runs against an
+// install-shaped mirror under a scratch HOME.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -33,7 +34,17 @@ function stop(harness: any, payload: any) {
   return { code: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 
-// Each call gets its own session: a blocked message is not blocked a second time in the same session.
+/** True when the Stop response carries the unfinished-work advisory: exit 0 and a systemMessage naming the marker. */
+function flagged(r: any) {
+  if (r.code !== 0) return false;
+  try {
+    return /unfinished-work marker/.test(JSON.parse(r.stdout).systemMessage || '');
+  } catch {
+    return false;
+  }
+}
+
+// Each call gets its own session: a flagged message is not flagged a second time in the same session.
 let sidSeq = 0;
 const sid = () => `s${sidSeq++}`;
 
@@ -52,19 +63,20 @@ const SHAPES: any = [['claude', 3], ['codex', 2], ['legacy', 2]];
 
 for (const [shape, cleanLines] of SHAPES) {
   const lines = fixtureLines(shape);
-  test(`${shape} transcript shape: a TODO in the last assistant turn exits 2`, () => {
+  test(`${shape} transcript shape: a TODO in the last assistant turn is advised`, () => {
     const r = stop('claude', { session_id: sid(), transcript_path: transcript(lines) });
-    assert.equal(r.code, 2);
-    assert.match(r.stderr, /TODO|stub/);
+    assert.equal(r.code, 0);
+    assert.equal(flagged(r), true);
   });
-  test(`${shape} transcript shape: a clean last assistant turn exits 0`, () => {
+  test(`${shape} transcript shape: a clean last assistant turn is not advised`, () => {
     const r = stop('claude', { session_id: sid(), transcript_path: transcript(lines.slice(0, cleanLines)) });
     assert.equal(r.code, 0);
+    assert.equal(flagged(r), false);
   });
 }
 
-test('payload last_assistant_message with a TODO exits 2 without a transcript', () => {
-  assert.equal(stop('claude', { session_id: sid(), last_assistant_message: '// TODO: finish' }).code, 2);
+test('payload last_assistant_message with a TODO is advised without a transcript', () => {
+  assert.equal(flagged(stop('claude', { session_id: sid(), last_assistant_message: '// TODO: finish' })), true);
 });
 
 test('a present last_assistant_message key, even null, wins over a transcript that has a TODO', () => {
@@ -106,10 +118,10 @@ test('a missing transcript file or path exits 0', () => {
   assert.equal(stop('claude', { session_id: sid() }).code, 0);
 });
 
-test('codex front door: a stub exits 2 with the reason on stderr, clean prints {} and exits 0', () => {
+test('codex front door: a stub exits 0 with the advice as a systemMessage, clean prints {} and exits 0', () => {
   const stub = stop('codex', { session_id: sid(), transcript_path: transcript(fixtureLines('codex')) });
-  assert.equal(stub.code, 2);
-  assert.match(stub.stderr, /TODO|stub/);
+  assert.equal(flagged(stub), true);
+  assert.equal(stub.stderr, '');
   const clean = stop('codex', { session_id: sid(), transcript_path: transcript(fixtureLines('codex').slice(0, 2)) });
   assert.equal(clean.code, 0);
   assert.equal(clean.stdout.trim(), '{}');
@@ -128,25 +140,25 @@ test('codex front door: a crashing policy prints {} and exits 0', () => {
   }
 });
 
-test('a large message with an early marker still exits 2', () => {
+test('a large message with an early marker is still advised', () => {
   const r = stop('claude', { session_id: sid(), last_assistant_message: `# TODO: x\n${'a'.repeat(100000)}` });
-  assert.equal(r.code, 2);
+  assert.equal(flagged(r), true);
 });
 
-test('the same blocked message blocks once; a different message blocks again', () => {
+test('the same flagged message is advised once; a different message is advised again', () => {
   const session = sid();
   const say = (text: any) => stop('claude', { session_id: session, last_assistant_message: text });
-  assert.equal(say('# TODO: one').code, 2);
-  assert.equal(say('# TODO: one').code, 0, 'the unchanged continuation is let through');
-  assert.equal(say('# TODO: two').code, 2, 'new text is judged afresh');
+  assert.equal(flagged(say('# TODO: one')), true);
+  assert.equal(flagged(say('# TODO: one')), false, 'the unchanged continuation is not advised again');
+  assert.equal(flagged(say('# TODO: two')), true, 'new text is judged afresh');
 });
 
 test('without a session_id the once-only guard is keyed by the transcript', () => {
   const t = transcript(fixtureLines('legacy'));
   const run = (file: any) => stop('claude', { transcript_path: file });
-  assert.equal(run(t).code, 2);
-  assert.equal(run(t).code, 0);
-  assert.equal(run(transcript(fixtureLines('legacy'))).code, 2, 'another conversation is not excused');
+  assert.equal(flagged(run(t)), true);
+  assert.equal(flagged(run(t)), false);
+  assert.equal(flagged(run(transcript(fixtureLines('legacy')))), true, 'another conversation is not excused');
 });
 
 test('linter output reaches the caller on stderr, so a Codex Stop prints only {}', () => {
@@ -181,12 +193,14 @@ for (const text of [
   'I removed the // TODO comment',
   'I removed the # TODO comments.',
 ]) {
-  test(`prose that resembles a marker does not block: ${JSON.stringify(text)}`, () => {
-    assert.equal(stop('claude', { session_id: sid(), last_assistant_message: text }).code, 0);
+  test(`prose that resembles a marker is not advised: ${JSON.stringify(text)}`, () => {
+    const r = stop('claude', { session_id: sid(), last_assistant_message: text });
+    assert.equal(r.code, 0);
+    assert.equal(flagged(r), false);
   });
 }
 
-// Every real stub shape keeps blocking, including next to the prose above.
+// Every real stub shape keeps being advised, including next to the prose above.
 for (const text of [
   '// TODO: finish',
   '# TODO implement this',
@@ -209,8 +223,8 @@ for (const text of [
   'fetch("http://a.b/c")//TODO implement',
   'I removed the // TODO comment but // TODO: wire up',
 ]) {
-  test(`a real stub still blocks: ${JSON.stringify(text)}`, () => {
-    assert.equal(stop('claude', { session_id: sid(), last_assistant_message: text }).code, 2);
+  test(`a real stub is still advised: ${JSON.stringify(text)}`, () => {
+    assert.equal(flagged(stop('claude', { session_id: sid(), last_assistant_message: text })), true);
   });
 }
 
@@ -220,27 +234,27 @@ for (const text of [
 function timedStop(text: any) {
   const start = process.hrtime.bigint();
   const r = stop('claude', { session_id: sid(), last_assistant_message: text });
-  return { code: r.code, seconds: Number(process.hrtime.bigint() - start) / 1e9 };
+  return { advised: flagged(r), seconds: Number(process.hrtime.bigint() - start) / 1e9 };
 }
 for (const [name, build, expected] of [
-  ['one long line with no URL', (n: any) => 'a'.repeat(n), 0],
-  ['one long line with a marker', (n: any) => `# TODO: x\n${'a'.repeat(n)}`, 2],
-  ['one long line of repeated URLs', (n: any) => 'http://x'.repeat(n / 8), 0],
-  ['repeated URLs, then a marker', (n: any) => `${'http://x'.repeat(n / 8)}\n// TODO: y`, 2],
-  ['a long scheme-like run before ://', (n: any) => `${'a'.repeat(n)}://b`, 0],
-] as [string, (n: any) => string, number][]) {
+  ['one long line with no URL', (n: any) => 'a'.repeat(n), false],
+  ['one long line with a marker', (n: any) => `# TODO: x\n${'a'.repeat(n)}`, true],
+  ['one long line of repeated URLs', (n: any) => 'http://x'.repeat(n / 8), false],
+  ['repeated URLs, then a marker', (n: any) => `${'http://x'.repeat(n / 8)}\n// TODO: y`, true],
+  ['a long scheme-like run before ://', (n: any) => `${'a'.repeat(n)}://b`, false],
+] as [string, (n: any) => string, boolean][]) {
   test(`the prose filter is linear: ${name}`, () => {
     const small = timedStop(build(20000));
     const large = timedStop(build(100000));
-    assert.equal(small.code, expected);
-    assert.equal(large.code, expected);
+    assert.equal(small.advised, expected);
+    assert.equal(large.advised, expected);
     assert.ok(large.seconds < 2, `100000 characters took ${large.seconds}s`);
     assert.ok(large.seconds < small.seconds * 6 + 0.3, `${large.seconds}s at 100000 against ${small.seconds}s at 20000`);
   });
 }
 
-test('2000 repeated URLs finish quickly and a marker after them still blocks', () => {
+test('2000 repeated URLs finish quickly and a marker after them is still advised', () => {
   const r = timedStop(`${'http://x'.repeat(2000)}\n// TODO: y`);
-  assert.equal(r.code, 2);
+  assert.equal(r.advised, true);
   assert.ok(r.seconds < 2, `took ${r.seconds}s`);
 });

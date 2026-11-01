@@ -8,12 +8,11 @@
   "fault": "none",
   "expect": {
     "exit": 0,
-    "stdout": null,
-    "stdoutIncludes": "\"decision\":\"block\"",
-    "modelVisibleBytesMax": 167,
+    "stdout": "",
+    "modelVisibleBytesMax": 0,
     "decision": {
-      "outcome": "deny",
-      "effect": "block"
+      "outcome": "advisory",
+      "effect": "proceed"
     },
     "envelope": {
       "version": 1,

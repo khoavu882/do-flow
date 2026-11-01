@@ -11,15 +11,16 @@
   "fault": "none",
   "expect": {
     "exit": 0,
-    "stdout": "<continue-json>",
+    "stdout": "",
     "stderrIncludes": null,
-    "modelVisibleBytesMax": 161,
+    "modelVisibleBytesMax": 0,
     "decision": {
       "harness": "antigravity",
       "event": "Stop",
       "policy": "stop-check",
-      "outcome": "deny",
-      "effect": "block"
+      "outcome": "advisory",
+      "code": "unfinished-work",
+      "effect": "proceed"
     },
     "taskStateUnchanged": true
   }

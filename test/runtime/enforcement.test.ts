@@ -100,11 +100,14 @@ test('enforcement CLI reports json, text, exit codes, errors and dispatcher pass
   let result = run(['enforcement', '--harness', 'opencode', '--policy', 'pre-implementation-gate', '--json']);
   assert.equal(result.status, 1); assert.equal(JSON.parse(result.stdout).class, 'unsupported');
   result = run(['enforcement', '--harness', 'claude', '--policy', 'pre-implementation-gate', '--json']);
-  assert.equal(result.status, 0); assert.equal(JSON.parse(result.stdout).enforced, true);
+  assert.equal(result.status, 1); assert.equal(JSON.parse(result.stdout).class, 'advisory'); assert.equal(JSON.parse(result.stdout).enforced, false);
   result = run(['enforcement', '--harness', 'claude', '--policy', 'pre-implementation-gate']);
-  assert.equal(result.status, 0);
-  assert.match(result.stdout, /claude pre-implementation-gate: enforced/);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /claude pre-implementation-gate: not enforced \(advisory, verified\)/);
   assert.match(result.stdout, /does not cover: writes via shell commands/);
+  result = run(['enforcement', '--harness', 'claude', '--policy', 'mcp-tool-guard']);
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /claude mcp-tool-guard: enforced \(blocking, verified\)/);
   result = run(['enforcement', '--harness', 'unknown', '--policy', 'pre-implementation-gate', '--json']);
   assert.equal(result.status, 2); assert.deepEqual(JSON.parse(result.stdout).error, 'unknown-harness');
   for (const harness of ['opencode']) {
@@ -113,7 +116,7 @@ test('enforcement CLI reports json, text, exit codes, errors and dispatcher pass
     assert.ok(['unsupported', 'unknown'].includes(JSON.parse(result.stdout).class));
   }
   result = run(['enforcement', '--harness', 'copilot', '--policy', 'pre-implementation-gate', '--json']);
-  assert.equal(result.status, 0); assert.equal(JSON.parse(result.stdout).class, 'blocking'); assert.equal(JSON.parse(result.stdout).enforced, true);
+  assert.equal(result.status, 1); assert.equal(JSON.parse(result.stdout).class, 'advisory'); assert.equal(JSON.parse(result.stdout).enforced, false);
   result = run(['enforcement', '--harness', 'claude', '--policy', 'mcp-tool-guard', '--json']);
   assert.equal(result.status, 0); assert.equal(JSON.parse(result.stdout).enforced, true);
   result = run(['enforcement', '--harness', 'claude', '--policy', 'missing', '--json']);
@@ -128,6 +131,6 @@ test('enforcement CLI reports json, text, exit codes, errors and dispatcher pass
   result = run(['enforcement', '--harness', 'claude', '--policy', 'missing']);
   assert.equal(result.status, 2); assert.match(result.stderr, /Unknown policy/);
   result = run(['enforcement', '--json']); assert.equal(result.status, 2); assert.equal(JSON.parse(result.stdout).error, 'usage');
-  result = run(['enforcement', '--harness', 'claude', '--policy', 'pre-implementation-gate', '--json'], path.join(ROOT, 'core/shared/scripts/doflow/bin/doflow-run'));
+  result = run(['enforcement', '--harness', 'claude', '--policy', 'mcp-tool-guard', '--json'], path.join(ROOT, 'core/shared/scripts/doflow/bin/doflow-run'));
   assert.equal(result.status, 0); assert.equal(JSON.parse(result.stdout).enforced, true);
 });

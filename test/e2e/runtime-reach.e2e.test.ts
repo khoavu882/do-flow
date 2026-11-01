@@ -286,13 +286,15 @@ describe('Runtime reach after a standalone install', { skip: SKIP, concurrency: 
     assert.ok(updated.stdout.includes(`[INFO] claude: ${CLAUDE_REFRESH}`), updated.stdout);
     const door = path.join(cell.proj, '.claude', 'hooks', 'pre-implement-gate.sh');
     assert.ok(fs.readFileSync(door).equals(fs.readFileSync(path.join(REPO, 'core', 'harnesses', 'claude', 'hooks', 'pre-implement-gate.sh'))), 'the claude gate door equals the source after `update -t pi`');
-    // And the refreshed door works against the refreshed tree: a source edit with no design.md is denied natively.
+    // And the refreshed door works against the refreshed tree: a source edit with no design.md is advised natively, never denied.
     const gated = noDesignProject(cell);
     const gate = spawnSync(bashPath(), [door], { cwd: gated, encoding: 'utf8',
       env: { ...emptyEnv(cell), PATH: process.env.PATH, DOFLOW_PROJECT_DIR: gated, DOFLOW_AGENT: 'claude', CLAUDE_CONFIG_DIR: '', CLAUDE_PROJECT_DIR: '' },
       input: `${JSON.stringify({ hook_event_name: 'PreToolUse', session_id: 'reach', tool_name: 'Edit', tool_input: { file_path: 'src/a.js' } })}\n` });
     assert.equal(gate.status, 0, gate.stderr);
-    assert.equal(JSON.parse(gate.stdout).hookSpecificOutput.permissionDecision, 'deny', gate.stdout);
+    const advice = JSON.parse(gate.stdout).hookSpecificOutput;
+    assert.equal(advice.permissionDecision, undefined, gate.stdout);
+    assert.match(advice.additionalContext, /\[pre-implementation-gate\] doflow gate: feature .* is missing requirement\.md, design\.md, or plan\.md/, gate.stdout);
     // Every file THIS checkout's source produces is present and byte-correct in the mirror after
     // the update — the reconciliation this cell exists to prove.
     for (const rel of filesUnder(path.join(REPO, 'src'))) {

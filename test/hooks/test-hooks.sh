@@ -401,13 +401,14 @@ cap_run "" mcp-tool-guard.sh "$MCP_CALL"
 assert_eq "mcp-tool-guard records policy-file-missing as a hook line" "hook|mcp-tool-guard|policy-file-missing|null" \
   "$(jq -r '[.source,.command,.kind,(.exit|tostring)]|join("|")' "$CAP_EVENTS")"
 
-# DEC-033: malformed and empty stdin are out of step and blocking policies exit 2 with the refresh reason.
+# DEC-033: malformed and empty stdin are out of step: the policy allows (exit 0), prints the refresh line
+# and records an unsupported outcome.
 for BAD_INPUT in "not json at all" ""; do
   rm -rf "$CAP_XDG/doflow"
   cap_run off mcp-tool-guard.sh "$BAD_INPUT"; CAP_OFF="$CAP_RESULT"
   cap_run "" mcp-tool-guard.sh "$BAD_INPUT"; CAP_ON="$CAP_RESULT"
   assert_eq "malformed stdin '$BAD_INPUT': output identical with capture on and off" "$CAP_OFF" "$CAP_ON"
-  assert_eq "malformed stdin '$BAD_INPUT': exits with out-of-step block" "2" "${CAP_ON%%|*}"
+  assert_eq "malformed stdin '$BAD_INPUT': exits 0 with the out-of-step line" "0" "${CAP_ON%%|*}"
   assert_eq "malformed stdin '$BAD_INPUT': records one out-of-step failure" "1" "$(cap_lines)"
   assert_matches "malformed stdin '$BAD_INPUT': asks for harness refresh" "${CAP_ON#*|}" 'DoFlow hooks out of step; run: doflow update'
 done

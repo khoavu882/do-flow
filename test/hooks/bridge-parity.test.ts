@@ -140,7 +140,7 @@ function runFixture({ harness, stem, fixturePath, fixture }: any, index: any) {
     assert.ok(!result.stdout.includes('P'.repeat(200)), `${label}: private policy stderr is not forwarded`);
   }
   if (fixture.fault === 'stop-exit-2' || fixture.fault === 'stop-exit-7') {
-    assert.equal(result.stderr, '[stop-check] DoFlow policy error; details: doflow-run failure list\n', `${label}: fixed Stop reason has baseline newline`);
+    assert.equal(result.stderr, '', `${label}: a Stop policy fault proceeds with empty stderr`);
     assert.equal(result.stderr.includes('private'), false, `${label}: raw Stop stderr is hidden`);
   }
   if (fixture.expect.taskStateUnchanged) assert.deepEqual(snapshotState(project), before, `${label}: task state unchanged`);
