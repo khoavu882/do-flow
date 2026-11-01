@@ -1,12 +1,22 @@
 'use strict';
 
-const { test } = require('node:test');
+const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const cp = require('node:child_process');
 const { createHash } = require('node:crypto');
 const { tempDir } = require('../helper/tmp.ts');
+// Guard: no test here may reach the machine's real /dev/tty through the production-default reader (it would wait on a
+// person when the suite runs from a terminal). Every isTTY:true call passes its own `confirm`; the last test asserts it.
+const realOpenForGuard = fs.openSync;
+const unexpectedTtyOpens: string[] = [];
+const ttyGuard: any = ((p: any, ...rest: any[]) => {
+  if (p === '/dev/tty') { unexpectedTtyOpens.push(p); throw Object.assign(new Error('ENXIO: the real /dev/tty is off limits to tests'), { code: 'ENXIO' }); }
+  return (realOpenForGuard as any)(p, ...rest);
+}) as any;
+beforeEach(() => { fs.openSync = ttyGuard; });
+
 const { bashPath } = require('../helper/bash-locator.ts');
 // The land command quotes any argument outside the portable word set (seed.ts quoteLandArgument); a native Windows path carries backslashes, so it is quoted.
 const lq = (value: any) => (/^[A-Za-z0-9_./:@%+=,-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`);
@@ -1718,4 +1728,9 @@ test('amend: a live proposed row stays proposed after an unmarked draft replaces
   assert.deepEqual(result.proposed, ['113']);
   const rows = JSON.parse(fs.readFileSync(path.join(dir, 'agent-docs/roadmap/rows.json'), 'utf8')).rows;
   assert.deepEqual(rows.map((r: any) => [r.id, r.title, r.proposed ?? null]), [['113', 'Toy row, reworded', true], ['114', 'Two, reworded', null]]);
+});
+
+test('no test in this file reached the real /dev/tty through a production-default reader', () => {
+  fs.openSync = realOpenForGuard;
+  assert.deepEqual(unexpectedTtyOpens, []);
 });

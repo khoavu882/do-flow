@@ -5,7 +5,7 @@
 // never acts on a proposed row; `roadmap promote <id...>` is person-only (an interactive terminal, then a [y/N] answer on
 // /dev/tty) and makes them ready. While autopilot is verifiably off, seed lands rows ready, as before. Each case has a negative control.
 
-const { test } = require('node:test');
+const { test, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -14,6 +14,19 @@ const { seedFindings, deriveStatus, pick, render, renderRoadmapFile } = require(
 const { loadPolicy, evaluate } = require('../../src/runtime/roadmap/gates.ts');
 const { sha256Digest } = require('../../src/runtime/roadmap/facts.ts');
 const { handleSeedCommand, handlePromoteCommand } = require('../../src/runtime/roadmap/seed.ts');
+
+// Guard: no test in this file may reach the machine's real /dev/tty through a production-default reader (it would wait
+// on a person when the suite runs from a terminal). Tests that stub fs.openSync themselves sit above this and never
+// call through for /dev/tty; the last test of the file asserts nothing got here.
+const realOpenForGuard = fs.openSync;
+const realFsCalls = { readSync: fs.readSync, writeSync: fs.writeSync, closeSync: fs.closeSync };
+const unexpectedTtyOpens: string[] = [];
+const ttyGuard: any = ((p: any, ...rest: any[]) => {
+  if (p === '/dev/tty') { unexpectedTtyOpens.push(p); throw Object.assign(new Error('ENXIO: the real /dev/tty is off limits to tests'), { code: 'ENXIO' }); }
+  return (realOpenForGuard as any)(p, ...rest);
+}) as any;
+// every test starts from the guard (a test that stubs fs twice would otherwise leave its own stub behind)
+beforeEach(() => { fs.openSync = ttyGuard; Object.assign(fs, realFsCalls); });
 
 const FACTS = { developHead: 'h', merges: [], branches: [], unreadable: [] };
 const ON = () => ({ enabled: true, switch: null });
@@ -382,7 +395,7 @@ test('maint-thin: seed lands rows ready only with a terminal AND autopilot verif
     const draft = path.join(dir, 'draft.json');
     fs.writeFileSync(draft, JSON.stringify({ schema: 1, rows: [row('131')] }));
     const out = capture();
-    const code = handleSeedCommand({ ...(isTTY === undefined ? {} : { isTTY }), action: 'apply', draft, root: dir, json: true, gitFacts: FACTS, readSwitch, out: out.fn, err: out.fn });
+    const code = handleSeedCommand({ ...(isTTY === undefined ? {} : { isTTY }), action: 'apply', draft, root: dir, json: true, gitFacts: FACTS, readSwitch, confirm: () => null, out: out.fn, err: out.fn });
     return { code, proposed: JSON.parse(out.lines[0]).proposed, stored: rowsOf(dir).find((r: any) => r.id === '131').proposed ?? null };
   };
   // no terminal, switch off: proposed (the redirect a model controls cannot land ready rows)
@@ -392,4 +405,65 @@ test('maint-thin: seed lands rows ready only with a terminal AND autopilot verif
   assert.deepEqual(land(true, ON), { code: 0, proposed: ['131'], stored: true });
   // terminal and switch verifiably off: ready
   assert.deepEqual(land(true, OFF), { code: 0, proposed: [], stored: null });
+});
+
+// Fake /dev/tty whose reads never produce a byte (EAGAIN) and a fake clock whose sleep advances time: no real waiting.
+function silentTty(t: any, bytes: string | null = null) {
+  const realOpen = fs.openSync, realRead = fs.readSync, realWrite = fs.writeSync, realClose = fs.closeSync;
+  const FD = 987655;
+  const state = { flags: null as any, written: '', closed: 0, clock: 0, sleeps: 0, reads: 0 };
+  const feed = bytes === null ? null : Buffer.from(bytes, 'latin1');
+  fs.openSync = ((p: any, flags: any, ...rest: any[]) => { if (p === '/dev/tty') { state.flags = flags; return FD; } return (realOpen as any)(p, flags, ...rest); }) as any;
+  fs.readSync = ((fd: any, buf: any, off: any, ...rest: any[]) => {
+    if (fd !== FD) return (realRead as any)(fd, buf, off, ...rest);
+    state.reads += 1;
+    if (feed && state.reads <= feed.length) { buf[off] = feed[state.reads - 1]; return 1; }
+    throw Object.assign(new Error('EAGAIN'), { code: 'EAGAIN' });
+  }) as any;
+  fs.writeSync = ((fd: any, data: any, ...rest: any[]) => { if (fd === FD) { state.written += String(data); return String(data).length; } return (realWrite as any)(fd, data, ...rest); }) as any;
+  fs.closeSync = ((fd: any) => { if (fd === FD) { state.closed += 1; return; } return (realClose as any)(fd); }) as any;
+  t.after(() => { fs.openSync = realOpen; fs.readSync = realRead; fs.writeSync = realWrite; fs.closeSync = realClose; });
+  return { state, ttyClock: () => state.clock, ttySleep: (ms: number) => { state.sleeps += 1; state.clock += ms; } };
+}
+
+test('AU C05: the seed prompt gives up after its timeout (no real waiting), prints one line, lands proposed and closes the tty', (t) => {
+  const dir = store(t, [row('130')]);
+  const draft = path.join(dir, 'draft.json');
+  fs.writeFileSync(draft, JSON.stringify({ schema: 1, rows: [row('131')] }));
+  const tty = silentTty(t);
+  const out = capture();
+  const errs = capture();
+  assert.equal(handleSeedCommand({ isTTY: true, action: 'apply', draft, root: dir, json: true, gitFacts: FACTS, readSwitch: ON,
+    ttyClock: tty.ttyClock, ttySleep: tty.ttySleep, out: out.fn, err: errs.fn }), 0);
+  assert.deepEqual(JSON.parse(out.lines[0]).proposed, ['131']);
+  assert.equal(rowsOf(dir).find((r: any) => r.id === '131').proposed, true);
+  assert.equal(errs.lines.length, 1);
+  assert.match(errs.lines[0], /timed out after 60 s/);
+  assert.ok(tty.state.clock >= 60000 && tty.state.clock < 60100, `waited on the fake clock only (${tty.state.clock})`);
+  assert.equal(tty.state.closed, 1);
+  assert.match(tty.state.written, /\[y\/N\] $/);
+  // the timed read opens the terminal non-blocking; the untimed (promote) read does not
+  assert.equal((tty.state.flags & fs.constants.O_NONBLOCK) !== 0, true);
+});
+
+test('AU C05: an answer that arrives before the timeout is honoured by the default timed reader; promote stays untimed', (t) => {
+  const dir = store(t, [row('130')]);
+  const draft = path.join(dir, 'draft.json');
+  fs.writeFileSync(draft, JSON.stringify({ schema: 1, rows: [row('131')] }));
+  const tty = silentTty(t, 'y\n');
+  const errs = capture();
+  assert.equal(handleSeedCommand({ isTTY: true, action: 'apply', draft, root: dir, json: true, gitFacts: FACTS, readSwitch: ON,
+    ttyClock: tty.ttyClock, ttySleep: tty.ttySleep, out: () => {}, err: errs.fn }), 0);
+  assert.deepEqual(rowsOf(dir).map((r: any) => r.proposed ?? null), [null, null]);
+  assert.deepEqual(errs.lines, []);
+  // promote: the default reader opens 'r+' (blocking) and never times out
+  const pdir = store(t, [row('130', { proposed: true })]);
+  const ptty = silentTty(t, 'y\n');
+  assert.equal(handlePromoteCommand({ isTTY: true, ids: ['130'], root: pdir, json: true, gitFacts: FACTS, out: () => {}, err: () => {} }), 0);
+  assert.equal(ptty.state.flags, 'r+');
+});
+
+test('no test in this file reached the real /dev/tty through a production-default reader', () => {
+  fs.openSync = realOpenForGuard;
+  assert.deepEqual(unexpectedTtyOpens, []);
 });

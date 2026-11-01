@@ -56,6 +56,9 @@ interface HandleSeedCommandOptions {
   isTTY?: boolean;
   /** Shows the prompt and returns the person's answer line, or null when no answer can be read. Test seam. */
   confirm?: (prompt: string) => string | null;
+  /** Clock and sleep for the default timed terminal reader. Test seam: no real waiting. */
+  ttyClock?: () => number;
+  ttySleep?: (ms: number) => void;
 }
 
 function judgeDraft({
@@ -483,7 +486,9 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
     err = (s: string) => console.error(s),
     classes,
     isTTY = process.stdin.isTTY === true,
-    confirm = readTtyAnswer,
+    confirm,
+    ttyClock,
+    ttySleep,
   } = options;
 
   const usage = (message: string): number => {
@@ -606,7 +611,14 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
       const titles = rowsList.map((r: any) => `  ${safeText(r.id)}  ${safeText(r.title)}`);
       const prompt = `${titles.join('\n')}\nLand ${ids.length} row(s) ready for autopilot (autopilot is not verifiably off): ${ids.join(' ')}? [y/N] `;
       let answer: string | null = null;
-      try { answer = confirm(prompt); } catch { answer = null; }
+      try {
+        if (confirm) answer = confirm(prompt);
+        else {
+          const read = readTtyLine(prompt, { timeoutMs: SEED_PROMPT_TIMEOUT_MS, now: ttyClock, sleep: ttySleep });
+          answer = read.answer;
+          if (read.timedOut) err(`doflow roadmap seed: the [y/N] prompt timed out after ${Math.round(SEED_PROMPT_TIMEOUT_MS / 1000)} s with no answer; rows land proposed (run: doflow roadmap promote <id...>)`);
+        }
+      } catch { answer = null; }
       if (typeof answer === 'string' && /^(y|yes)$/i.test(answer.trim())) landProposed = false;
     }
   }
@@ -849,35 +861,74 @@ interface HandlePromoteCommandOptions {
   confirm?: (prompt: string) => string | null;
 }
 
+/** How long the seed prompt waits for a person before it counts as "no" (promote waits without limit). */
+const SEED_PROMPT_TIMEOUT_MS = 60000;
+const TTY_POLL_MS = 25;
+
+function sleepMs(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+interface TtyReadOptions {
+  /** 0 or absent: block until the person answers. Above 0: give up after that many ms and report `timedOut`. */
+  timeoutMs?: number;
+  now?: () => number;
+  sleep?: (ms: number) => void;
+}
+
 /**
  * Reads one answer line from the controlling terminal (`/dev/tty`), never from stdin, an argument or the environment.
- * Null when the terminal cannot be opened or read.
+ * `answer` is null when the terminal cannot be opened or read, the line is too long, or the optional timeout passes
+ * (`timedOut`). A timed read opens the terminal non-blocking and polls, so a pty that stays open without an answer
+ * cannot hold the caller for ever.
  */
-function readTtyAnswer(prompt: string): string | null {
+function readTtyLine(prompt: string, options: TtyReadOptions = {}): { answer: string | null; timedOut: boolean } {
+  const { timeoutMs = 0, now = Date.now, sleep = sleepMs } = options;
+  const timed = timeoutMs > 0;
   let fd: number;
-  try { fd = fs.openSync('/dev/tty', 'r+'); } catch { return null; }
+  try { fd = timed ? fs.openSync('/dev/tty', fs.constants.O_RDWR | fs.constants.O_NONBLOCK) : fs.openSync('/dev/tty', 'r+'); } catch { return { answer: null, timedOut: false }; }
+  const deadline = timed ? now() + timeoutMs : Infinity;
+  let timedOut = false;
+  // one byte; 0 at end of input, -1 when the timeout passed
+  const readByte = (buf: Buffer): number => {
+    for (;;) {
+      try { return fs.readSync(fd, buf, 0, 1, null); }
+      catch (error: any) {
+        if (!timed || (error?.code !== 'EAGAIN' && error?.code !== 'EWOULDBLOCK')) throw error;
+        if (now() >= deadline) { timedOut = true; return -1; }
+        sleep(TTY_POLL_MS);
+      }
+    }
+  };
   try {
     fs.writeSync(fd, prompt);
     const buf = Buffer.alloc(1);
     let line = '';
     let ended = false;
     for (let i = 0; i < 64 && !ended; i += 1) {
-      const n = fs.readSync(fd, buf, 0, 1, null);
+      const n = readByte(buf);
+      if (n < 0) return { answer: null, timedOut: true };
       if (n === 0 || buf[0] === 10) ended = true;
       else line += String.fromCharCode(buf[0]);
     }
     // drain what is left of the typed line (bounded), so it is not left in the terminal queue
     const tooLong = !ended;
     for (let i = 0; i < 4096 && !ended; i += 1) {
-      const n = fs.readSync(fd, buf, 0, 1, null);
+      const n = readByte(buf);
+      if (n < 0) return { answer: null, timedOut: true };
       if (n === 0 || buf[0] === 10) ended = true;
     }
-    return tooLong ? null : line;
+    return { answer: tooLong ? null : line, timedOut: false };
   } catch {
-    return null;
+    return { answer: null, timedOut };
   } finally {
     try { fs.closeSync(fd); } catch { /* ignore close failure */ }
   }
+}
+
+/** The untimed reader `roadmap promote` uses: a person runs that verb and may take as long as they need. */
+function readTtyAnswer(prompt: string): string | null {
+  return readTtyLine(prompt).answer;
 }
 
 /**
