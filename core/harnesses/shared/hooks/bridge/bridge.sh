@@ -133,7 +133,7 @@ doflow_bridge_hook_line() {
 }
 
 doflow_bridge() {
-  local harness="${1:-}" event="${2:-}" policy="${3:-}" response_event="" emit="native" payload="" encoded="" policy_path="" captured="" err="" code=0 policy_code=0 record="" emit_record="" reason="" decision_reason="" stdout="" status=0 decision="" advice="" line="" spawn_failed=0 encode_failed=0 _df_t0=""
+  local harness="${1:-}" event="${2:-}" policy="${3:-}" response_event="" emit="native" payload="" encoded="" policy_path="" captured="" err="" code=0 policy_code=0 record="" emit_record="" reason="" decision_reason="" stdout="" status=0 decision="" advice="" out_of_step=0 line="" spawn_failed=0 encode_failed=0 _df_t0=""
   DF_TUPLE=""
   if [ "${BASH_VERSINFO[0]:-0}" -ge 5 ] 2>/dev/null; then _df_t0=${EPOCHREALTIME:-}; fi
   . "$_DOFLOW_BRIDGE_DIR/respond.sh"
@@ -175,6 +175,18 @@ doflow_bridge() {
   policy_path="$_DOFLOW_BRIDGE_DIR/../policies/$policy.sh"
   if [ "$spawn_failed" -eq 1 ] || [ ! -f "$policy_path" ] || [ ! -f "$_DOFLOW_BRIDGE_DIR/../policies/contract.sh" ]; then
     code=127; err=""; spawn_failed=1
+    # Without contract.sh no policy can run. The gate and the tool guard still say so: the one
+    # out-of-step line goes out as advice below, and the fault is recorded as bridge-spawn.
+    case "$policy" in
+      pre-implementation-gate|mcp-tool-guard)
+        if [ -f "$policy_path" ] && [ ! -f "$_DOFLOW_BRIDGE_DIR/../policies/contract.sh" ]; then
+          out_of_step="${DOFLOW_AGENT:-$harness}"
+          if [[ "$out_of_step" =~ ^[a-z]+$ ]]; then err="[$policy] DoFlow hooks out of step; run: doflow update -t $out_of_step"$'\n'
+          else err="[$policy] DoFlow hooks out of step; run: doflow update"$'\n'; fi
+          out_of_step=1
+        fi
+        ;;
+    esac
   else
     if [ "$emit" = decision ] || doflow_bridge_drops_tool_streams "$policy" "$harness" "$response_event" || { [ "$harness" = kiro ] && [ "$response_event" = Stop ]; }; then exec 5>/dev/null; else exec 5>&1; fi
     captured="$( {
@@ -250,7 +262,7 @@ doflow_bridge() {
   fi
   # D1: an advisory (or out-of-step) line from a blocking-set policy is shown where the harness shows it.
   advice=""
-  if [ "$DF_BRIDGE_EFFECT" = proceed ] && { [ "$DF_BRIDGE_OUTCOME" = advisory ] || [ "$DF_BRIDGE_OUTCOME" = unsupported ]; } && [ -n "$err" ]; then
+  if [ "$DF_BRIDGE_EFFECT" = proceed ] && { [ "$DF_BRIDGE_OUTCOME" = advisory ] || [ "$DF_BRIDGE_OUTCOME" = unsupported ] || [ "$out_of_step" = 1 ]; } && [ -n "$err" ]; then
     case "$policy:$harness:$response_event" in
       pre-implementation-gate:claude:PreToolUse|pre-implementation-gate:codex:PreToolUse|mcp-tool-guard:claude:PreToolUse|mcp-tool-guard:codex:PreToolUse|stop-check:claude:Stop|stop-check:codex:Stop|stop-check:codex:stop)
         advice="${err%$'\n'}"; advice="${advice//$'\n'/ }" ;;

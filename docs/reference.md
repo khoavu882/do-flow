@@ -626,18 +626,20 @@ remain available.
 
 Compared with the 0fcd973 front doors, the shared bridge intentionally changes these cases:
 
-- A missing policy file (or a missing `policies/contract.sh`) is an evaluation error: `compat-1` proceeds and records a diagnostic; `strict-1` denies for the gate and MCP policies (DEC-025). Previously the shell's missing-file exit 127 could accidentally deny.
+- A missing policy file is an evaluation error: `compat-1` proceeds and records a diagnostic; `strict-1` denies for the gate and MCP policies (DEC-025). Previously the shell's missing-file exit 127 could accidentally deny. A missing `policies/contract.sh` is the same `bridge-spawn` fault, and the gate and MCP policies also print the out-of-step line below (Claude and Codex as PreToolUse advice, Kiro on stderr).
 - The bridge captures policy output without a temporary file; an unwritable `TMPDIR` does not turn a gate deny into an allow. Background jobs close inherited bridge descriptors, so they do not hold Stop or SessionStart open. In `strict-1`, missing `jq` still produces the native deny; `compat-1` keeps its allow behavior (FX.1–FX.3).
 - Codex `update -t codex -f` re-merges edited `hooks.json`, preserving user entries. Without `-f`, the conflict remains and the message gives a working remedy (DEC-040).
 - Under `strict-1`, a blocking evaluation error of the gate or MCP policy renders `[<policy-id>] DoFlow policy error; details: doflow-run failure list` (IC-013/DEC-019), rather than exposing raw policy or runtime stderr as the reason; Kiro PreToolUse and Stop doors use stderr for the fixed reason where their native contract requires it. Under `compat-1` the same error proceeds, renders nothing to the model and records a diagnostic. Codex Stop crash stderr is suppressed (DEC-037).
 - Context and advisory policy faults render nothing to the model and record a diagnostic (DEC-022).
+- The gate's and `stop-check`'s advisory line reaches the model only on Claude and Codex PreToolUse (`additionalContext`, no permission decision); on Claude and Codex Stop it is a user-facing `systemMessage`. On Copilot, Pi, Antigravity and Kiro Stop it is record-only (the bridge trace), and on Kiro PreToolUse it is a stderr line with no documented path to the model.
 - Codex `subagent-audit` now prints nothing for an error outcome; previously it printed `{}` when the policy failed.
 - Kiro's agent-config event names (`agentSpawn`, `preToolUse`, `stop`) resolve to the same effects and native responses as their hook-config aliases (`SessionStart`, `PreToolUse`, `Stop`); the envelope retains the native event name.
 - Antigravity's runner decodes its routed command, MCP and edit tools in the shared envelope path. Under RA1, `apply_patch` with `AbsolutePath` now reaches the gate, which advises when design artifacts are absent; the legacy matcher did not inspect it.
 - A policy terminated by a signal exits with status `128+n` (128 plus the signal number), such as `139` for SIGSEGV, on the session-context, user-prompt-submit and subagent-audit doors; the gate, MCP and `stop-check` doors proceed with exit 0. Under `strict-1` a door whose fault blocks renders its native deny response instead.
-- A missing v1 envelope or contract is an out-of-step state: the gate and MCP policies allow and
-  print the update command, recording `unsupported`; Stop and context policies exit silently
-  (DEC-032, DEC-033).
+- A missing v1 envelope is an out-of-step state: the gate and MCP policies allow and print the
+  update command, recording `unsupported`; Stop and context policies exit silently (DEC-032,
+  DEC-033). A missing `policies/contract.sh` allows with the same printed command but records the
+  `bridge-spawn` fault, because no policy can run to record `unsupported`.
 - A missing bridge file makes a shell door allow; under `strict-1` it renders its fixed native
   out-of-step response. The Pi extension allows, and blocks with the fixed native out-of-step
   reason only under `strict-1`; its live-observed `cli-extension` pre-implementation gate row is

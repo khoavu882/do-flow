@@ -65,6 +65,27 @@ test('a missing contract.sh is a bridge-spawn fault that proceeds under compat-1
   assert.equal(JSON.parse(strict.stdout).effect, 'block');
 });
 
+test('a missing contract.sh says so through the bridge: the out-of-step line under compat-1, a deny under strict-1', async (t) => {
+  for (const harness of ['claude', 'codex', 'kiro']) for (const policy of ['pre-implementation-gate', 'mcp-tool-guard']) await t.test(`${harness}/${policy}`, () => {
+    const dir = makeTree();
+    fs.unlinkSync(path.join(dir, 'policies/contract.sh'));
+    const line = `[${policy}] DoFlow hooks out of step; run: doflow update -t ${harness}`;
+    const compat: any = run(dir, harness, 'PreToolUse', policy, {}, [], { DOFLOW_AGENT: harness });
+    assert.equal(compat.status, 0, `${harness} proceeds`);
+    if (harness === 'kiro') {
+      assert.equal(compat.stdout, '');
+      assert.equal(compat.stderr.trim(), line);
+    } else {
+      const out = JSON.parse(compat.stdout);
+      assert.equal(out.hookSpecificOutput.additionalContext, line);
+      assert.equal(out.hookSpecificOutput.permissionDecision, undefined);
+    }
+    const strict: any = run(dir, harness, 'PreToolUse', policy, {}, [], { DOFLOW_AGENT: harness, DOFLOW_FAULT_PROFILE: 'strict-1' });
+    if (harness === 'kiro') assert.equal(strict.status, 2);
+    else assert.equal(JSON.parse(strict.stdout).hookSpecificOutput.permissionDecision, 'deny');
+  });
+});
+
 test('a noncanonical policy id is rejected as bridge-spawn without execution', () => {
   const dir = makeTree();
   const result: any = run(dir, 'claude', 'PreToolUse', '../bridge/respond', {}, ['--emit', 'decision']);
