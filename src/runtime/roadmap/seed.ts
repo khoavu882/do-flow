@@ -54,6 +54,8 @@ interface HandleSeedCommandOptions {
   err?: (s: string) => void;
   classes?: string[];
   isTTY?: boolean;
+  /** Shows the prompt and returns the person's answer line, or null when no answer can be read. Test seam. */
+  confirm?: (prompt: string) => string | null;
 }
 
 function judgeDraft({
@@ -481,6 +483,7 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
     err = (s: string) => console.error(s),
     classes,
     isTTY = process.stdin.isTTY === true,
+    confirm = readTtyAnswer,
   } = options;
 
   const usage = (message: string): number => {
@@ -583,13 +586,30 @@ function handleSeedCommand(options: HandleSeedCommandOptions = {}): number {
   }
 
   // 4. Apply / Amend action
-  // (a) maint-thin: a seed write is allowed whatever the switch says. Rows land as drafted (ready) only when BOTH
-  // autopilot is verifiably off (the fail-closed seed reader) AND stdin is an interactive terminal: a model with a
-  // shell controls the environment (an empty config home reads as off), so the switch alone cannot tell a person.
-  // Otherwise every row it adds or amends lands `proposed`, which autopilot never picks or advances until a person
-  // runs `roadmap promote`.
+  // (a) maint-thin / AU C05: a seed write is allowed whatever the switch says. Rows land as drafted (ready) only when
+  // stdin is an interactive terminal AND either autopilot is verifiably off (the fail-closed seed reader) or a person
+  // answers yes to the same `/dev/tty` [y/N] that `roadmap promote` uses. A model with a shell controls the
+  // environment (an empty config home reads as off), so the switch alone cannot tell a person; and without the prompt
+  // a model with a pty could land ready rows while autopilot is on, which widens the queue. No terminal, or no/other
+  // answer, lands every row it adds or amends `proposed`, which autopilot never picks or advances until a person runs
+  // `roadmap promote`. The prompt comes before the roadmap lease (Ctrl-C would otherwise leave the lease behind) and
+  // only for a draft that judges clean against the store as read now. No flag or environment variable skips it.
   const switchReader = readSwitch || readSeedSwitch;
-  const landProposed = isTTY !== true || switchReader(env, fsImpl).enabled !== false;
+  let landProposed = isTTY !== true || switchReader(env, fsImpl).enabled !== false;
+  if (landProposed && isTTY === true) {
+    const preFacts = gitFacts || gatherGitFacts({ root });
+    const pre = preFacts.unreadable && preFacts.unreadable.length > 0 ? null
+      : judgeDraft({ draftRaw, seedRaw, gitFacts: preFacts, op: action, classes });
+    if (pre && pre.ok) {
+      const rowsList = (JSON.parse(draftRaw).rows || []).filter((r: any) => r && typeof r === 'object');
+      const ids = rowsList.map((r: any) => safeText(r.id));
+      const titles = rowsList.map((r: any) => `  ${safeText(r.id)}  ${safeText(r.title)}`);
+      const prompt = `${titles.join('\n')}\nLand ${ids.length} row(s) ready for autopilot (autopilot is not verifiably off): ${ids.join(' ')}? [y/N] `;
+      let answer: string | null = null;
+      try { answer = confirm(prompt); } catch { answer = null; }
+      if (typeof answer === 'string' && /^(y|yes)$/i.test(answer.trim())) landProposed = false;
+    }
+  }
 
   // (b) Acquire lease
   const leaseDir = path.join(root, '.doflow', 'state', 'roadmap');

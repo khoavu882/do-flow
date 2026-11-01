@@ -61,13 +61,13 @@ test('seed apply and amend while autopilot is on land the written rows proposed;
   const draft = path.join(dir, 'draft.json');
   fs.writeFileSync(draft, JSON.stringify({ schema: 1, rows: [row('131')] }));
   const on = capture();
-  assert.equal(handleSeedCommand({ isTTY: true, action: 'apply', draft, root: dir, json: true, gitFacts: FACTS, readSwitch: ON, out: on.fn, err: on.fn }), 0);
+  assert.equal(handleSeedCommand({ isTTY: true, action: 'apply', draft, root: dir, json: true, gitFacts: FACTS, readSwitch: ON, confirm: () => null, out: on.fn, err: on.fn }), 0);
   assert.deepEqual(JSON.parse(on.lines[0]).proposed, ['131']);
   assert.deepEqual(rowsOf(dir).map((r: any) => [r.id, r.proposed ?? null]), [['130', null], ['131', true]]);
 
   // amend of the ready row 130 while on: it is proposed again (an unattended change to a ready row waits for a person)
   fs.writeFileSync(draft, JSON.stringify({ schema: 1, rows: [row('130', { title: 'Row 130 amended' })] }));
-  assert.equal(handleSeedCommand({ isTTY: true, action: 'amend', draft, root: dir, json: true, gitFacts: FACTS, readSwitch: ON, out: () => {}, err: () => {} }), 0);
+  assert.equal(handleSeedCommand({ isTTY: true, action: 'amend', draft, root: dir, json: true, gitFacts: FACTS, readSwitch: ON, confirm: () => null, out: () => {}, err: () => {} }), 0);
   assert.equal(rowsOf(dir).find((r: any) => r.id === '130').proposed, true);
 
   // negative control: with autopilot verifiably off the same writes land ready
@@ -78,6 +78,54 @@ test('seed apply and amend while autopilot is on land the written rows proposed;
   assert.equal(handleSeedCommand({ isTTY: true, action: 'apply', draft: offDraft, root: offDir, json: true, gitFacts: FACTS, readSwitch: OFF, out: off.fn, err: off.fn }), 0);
   assert.deepEqual(JSON.parse(off.lines[0]).proposed, []);
   assert.deepEqual(rowsOf(offDir).map((r: any) => r.proposed ?? null), [null, null]);
+});
+
+test('AU C05: with autopilot on, a seed from a tty lands ready only when the /dev/tty prompt answers yes; no, no answer or no tty stays proposed', (t) => {
+  const seedWith = (opts: any) => {
+    const dir = store(t, [row('130')]);
+    const draft = path.join(dir, 'draft.json');
+    fs.writeFileSync(draft, JSON.stringify({ schema: 1, rows: [row('131')] }));
+    const out = capture();
+    const code = handleSeedCommand({ action: 'apply', draft, root: dir, json: true, gitFacts: FACTS, readSwitch: ON, out: out.fn, err: out.fn, ...opts });
+    return { code, dir, out };
+  };
+  for (const answer of ['y', 'Yes']) {
+    const a = asker(answer);
+    const r = seedWith({ isTTY: true, confirm: a.confirm });
+    assert.equal(r.code, 0);
+    assert.equal(a.prompts.length, 1);
+    assert.match(a.prompts[0], /131 {2}Row 131/);
+    assert.match(a.prompts[0], /\[y\/N\] $/);
+    assert.deepEqual(JSON.parse(r.out.lines[0]).proposed, []);
+    assert.deepEqual(rowsOf(r.dir).map((x: any) => x.proposed ?? null), [null, null]);
+  }
+  for (const answer of ['n', '', 'maybe', null]) {
+    const a = asker(answer);
+    const r = seedWith({ isTTY: true, confirm: a.confirm });
+    assert.equal(r.code, 0);
+    assert.equal(a.prompts.length, 1);
+    assert.deepEqual(JSON.parse(r.out.lines[0]).proposed, ['131']);
+    assert.equal(rowsOf(r.dir).find((x: any) => x.id === '131').proposed, true);
+  }
+  // a reader that throws is no answer
+  assert.deepEqual(JSON.parse(seedWith({ isTTY: true, confirm: () => { throw new Error('no tty'); } }).out.lines[0]).proposed, ['131']);
+  // no tty: never asked, even if the reader would say yes
+  const none = asker('y');
+  const r = seedWith({ isTTY: false, confirm: none.confirm });
+  assert.equal(none.prompts.length, 0);
+  assert.deepEqual(JSON.parse(r.out.lines[0]).proposed, ['131']);
+  // negative control: autopilot verifiably off from a tty lands ready with no prompt
+  const off = asker('n');
+  const o = seedWith({ isTTY: true, readSwitch: OFF, confirm: off.confirm });
+  assert.equal(off.prompts.length, 0);
+  assert.deepEqual(rowsOf(o.dir).map((x: any) => x.proposed ?? null), [null, null]);
+  // a draft with findings is refused without a prompt
+  const bad = asker('y');
+  const dir = store(t, [row('130')]);
+  const draft = path.join(dir, 'draft.json');
+  fs.writeFileSync(draft, JSON.stringify({ schema: 1, rows: [row('130')] }));
+  assert.equal(handleSeedCommand({ isTTY: true, action: 'apply', draft, root: dir, json: true, gitFacts: FACTS, readSwitch: ON, confirm: bad.confirm, out: () => {}, err: () => {} }), 1);
+  assert.equal(bad.prompts.length, 0);
 });
 
 const YES = () => 'y';
