@@ -118,8 +118,8 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      established.
    - The repository's `pre-implement-gate` hook checks file existence (`requirement.md` /
      `design.md` / `plan.md`) on every `Edit`/`Write` call regardless of which skill is editing. On
-     a harness with an edit hook it also denies the edit of a task held to a readiness record that
-     is not `READY`; this step writes that record, and is not a way around the hook.
+     a harness with an edit hook it also advises when a held task's readiness record is not
+     `READY`; the hook never denies. This step writes that record, and is not a way around it.
 
 3. **Understand before writing**:
    - Read the files the change touches and their immediate neighbors — naming conventions, error
@@ -215,6 +215,6 @@ advance past the mutating stage only this skill may complete.
 multi-task checklist through specialist subagents — that is `/do-execute-plan`'s job once a real
 plan exists; silently override the repository's own `pre-implement-gate` hook. That hook triggers
 on any `Edit`/`Write` call, not on which skill made it — a branch mid-chain with a started feature
-but no `design.md` still gets blocked here exactly as it would anywhere else, and that is by
+but no `design.md` still gets the same advisory here as it would anywhere else, and that is by
 design, not a gap this skill works around. Resolve a workflow gate, or start a workflow run for a
 standalone implementation.

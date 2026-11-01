@@ -124,7 +124,7 @@ Filling §8's task dependency graph, read the guidance tree's `references/DIAGRA
    SHOULD`) and PASS/FAIL; a base MUST that tier-2 makes SHOULD names that overlay version in its
    row. On a violation, revise the approach first. A MUST marked FAIL or left
    without a row refuses step 11's handoff; a SHOULD FAIL is a note. That refusal is the runtime's,
-   beside the hard hook that covers artifact existence (`references/DOFLOW_CHAIN.md` scopes both).
+   beside the advisory hook on artifact existence (`references/DOFLOW_CHAIN.md` scopes both).
    There is no waiver: revise the plan, or a person amends the constitution with `/do-constitution`.
 7. **Decompose into Tasks (section 8)** — dependency-ordered, `[US#]`-traced to the requirement's
    user stories, owner+files named per task, with checkpoints and completion criteria.

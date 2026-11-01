@@ -107,8 +107,8 @@ function refusalText(code: any, { taskId, slug = null, template, record = null, 
 }
 
 /**
- * Which harnesses run this gate before each source edit and which meet it first at handoff, from the
- * gate's own mapping in lifecycle.json (`pre-implementation-gate`): `supported`, or `different`
+ * Which harnesses run this gate's advisory hook before each source edit and which meet the runtime refusal first at
+ * handoff, from the gate's own mapping in lifecycle.json (`pre-implementation-gate`): `supported`, or `different`
  * with no prerequisite, runs it; a prerequisite (such as Codex's hook review) is named, since until
  * it is met nothing was checked; `unavailable` has no hook layer for it. Empty when the registry
  * cannot be read.
@@ -134,8 +134,8 @@ function harnessHookNote({ repoRoot = REPO_ROOT }: any = {}): string {
     const parts = [];
     if (runs.length) parts.push(`${runs.join(', ')} ${runs.length === 1 ? 'runs' : 'run'} this check before each source edit`);
     for (const [key, ids] of gated) parts.push(`${ids.join(', ')} ${ids.length === 1 ? 'runs' : 'run'} it only after ${key}`);
-    if (none.length) parts.push(`${none.join(', ')} ${none.length === 1 ? 'has' : 'have'} no hook layer, so this refusal is ${none.length === 1 ? 'its' : 'their'} first check`);
-    return `Edit-time check: ${parts.join('; ')}.`;
+    if (none.length) parts.push(`${none.join(', ')} ${none.length === 1 ? 'has' : 'have'} no hook layer, so this refusal is ${none.length === 1 ? 'its' : 'their'} only check`);
+    return `Edit-time check: ${parts.join('; ')}. The hook only advises and never refuses an edit; this refusal is the runtime's.`;
   } catch {
     return '';
   }
