@@ -362,21 +362,22 @@ function resolveProjectRoot(workspacePaths) {
  */
 function delegateToPolicy(projectRoot, agent, event, policyId, nativeRaw) {
   const bridgeSh = path.join(__dirname, 'bridge', 'bridge.sh');
-  if (!fs.existsSync(bridgeSh)) {
-    captureHookFailure({ command: policyId, kind: 'bridge-missing' });
-    if (policyId === 'stop-check') {
-      return { v: 1, harness: agent, event, policy: policyId, policyVersion: 0, outcome: 'unsupported', code: 'bridge-missing', effect: 'proceed' };
-    }
-    return {
-      v: 1, harness: agent, event, policy: policyId, policyVersion: 0,
-      outcome: 'deny', code: 'bridge-missing', reason: '[doflow] shared hooks lack the bridge; run: doflow update -t antigravity', effect: 'block',
-    };
-  }
   const profile = process.env.DOFLOW_FAULT_PROFILE || 'compat-1';
   const effectiveProfile = profile === 'compat-1' || profile === 'strict-1' ? profile : 'compat-1';
   if (profile !== effectiveProfile) captureHookFailure({ command: policyId, kind: 'fault-profile-unknown' });
   const blockingPolicy = ['pre-implementation-gate', 'mcp-tool-guard', 'stop-check'].includes(policyId);
   const faultEffect = effectiveProfile === 'strict-1' && blockingPolicy ? 'block' : 'proceed';
+  if (!fs.existsSync(bridgeSh)) {
+    captureHookFailure({ command: policyId, kind: 'bridge-missing' });
+    // D1: a missing bridge allows with a recorded warning; only strict-1, a person's opt-in, blocks a tool call.
+    if (policyId === 'stop-check' || faultEffect === 'proceed') {
+      return { v: 1, harness: agent, event, policy: policyId, policyVersion: 0, outcome: 'unsupported', code: 'bridge-missing', faultProfile: effectiveProfile, effect: 'proceed' };
+    }
+    return {
+      v: 1, harness: agent, event, policy: policyId, policyVersion: 0,
+      outcome: 'deny', code: 'bridge-missing', reason: '[doflow] shared hooks lack the bridge; run: doflow update -t antigravity', faultProfile: effectiveProfile, effect: 'block',
+    };
+  }
   const faultDecision = (code) => ({
     v: 1, harness: agent, event, policy: policyId, policyVersion: 0,
     outcome: 'error', code, reason: code, faultProfile: effectiveProfile, effect: faultEffect,

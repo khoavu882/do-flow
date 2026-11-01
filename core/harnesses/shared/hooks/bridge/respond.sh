@@ -61,6 +61,12 @@ doflow_render_response() {
       *) printf '%s\n' "$reason" >&2; return 2 ;;
     esac
   fi
+  if [ -n "${6:-}" ]; then
+    case "$harness:$event" in
+      claude:PreToolUse|codex:PreToolUse) emit_pretooluse_advice "$6" || return $?; return 0 ;;
+      claude:Stop|codex:Stop|codex:stop) emit_stop_advice "$6" || return $?; return 0 ;;
+    esac
+  fi
   case "$harness:$event" in
     codex:Stop|codex:stop) printf '%s\n' '{}' ;;
     antigravity:PreToolUse) printf '%s\n' '{"decision":"allow"}' ;;

@@ -13,10 +13,11 @@ _DOFLOW_SRC=${0//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_POLDIR=${_DOFLOW_SRC%/
 #   2. Stub detection: takes the payload's last_assistant_message, or else the
 #      last assistant message in the JSONL transcript (Claude Code, Codex and
 #      flat {role,content} shapes), then checks for unfinished-work markers.
-#      Exits non-zero if stubs are found (blocks the session from stopping).
+#      Records an advisory and prints one warning line when stubs are found; it never
+#      blocks the session from stopping.
 #      Runs independently of (1) — it needs only the payload field or a
 #      transcript path, not a session_id, so it still fires for a harness that
-#      has no edited-files queue. A given message blocks once: harnesses without
+#      has no edited-files queue. A given message is warned about once: harnesses without
 #      stop_hook_active (Antigravity, Kiro) have no other loop guard.
 #   3. Process-leak scan: DoFlow's own identifiers (FR-###, agent-docs/, chain
 #      artifact names) reaching files that ship. Warns, never blocks.
@@ -27,7 +28,7 @@ _DOFLOW_SRC=${0//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_POLDIR=${_DOFLOW_SRC%/
 # Canonical Policy Script Contract (design.md §4):
 #   env    DOFLOW_PROJECT_DIR, DOFLOW_AGENT (both optional here)
 #   stdin  envelope v1 from a native front door via the shared lifecycle bridge.
-#   exit   exit 2 + doflow_decide deny = deny; other faults per IC-011.
+#   exit   always 0; a finding is a doflow_decide advisory code plus one stderr line.
 #
 # Depends on lib.sh (require_jq, json_field, ensure_session_dir,
 # run_with_timeout) being discoverable next to this script when it runs — see
@@ -277,7 +278,7 @@ BEGIN {
 STUB_PATTERN='(#|//)[[:space:]]*(TODO|FIXME)([^[:alnum:]_]|$)|raise NotImplementedError|throw new Error\(.*[Nn]ot [Ii]mplemented|(#|//)[[:space:]]*stub([^[:alnum:]_]|$)'
 
 if grep -qiE -- "$STUB_PATTERN" <<<"$STUB_TEXT" 2>/dev/null; then
-  # Block a given message once: the continuation that follows is judged on new text, and a
+  # Warn about a given message once: the continuation that follows is judged on new text, and a
   # harness with no stop_hook_active would otherwise be blocked on this one forever. State is
   # per session, or per transcript when the harness sends no session_id; any failure here
   # leaves the block in force only for this call. With no config home there is no state store, so
@@ -295,8 +296,8 @@ if grep -qiE -- "$STUB_PATTERN" <<<"$STUB_TEXT" 2>/dev/null; then
   fi
   [ -n "$MESSAGE_SUM" ] && [ -n "$GUARD_FILE" ] && { printf '%s\n' "$MESSAGE_SUM" > "$GUARD_FILE"; } 2>/dev/null || true
   echo "[stop-check] The last response contains an unfinished-work marker (TODO/FIXME/stub comment or a not-implemented raise/throw)." >&2
-  doflow_decide deny unfinished-work
-  exit 2
+  doflow_decide advisory unfinished-work
+  exit 0
 fi
 
 exit 0

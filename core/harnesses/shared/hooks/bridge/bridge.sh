@@ -46,22 +46,10 @@ doflow_bridge_effect() {
   DF_BRIDGE_EFFECT=proceed
   if [ "$outcome" = deny ]; then DF_BRIDGE_EFFECT=block
   elif [ "$profile" = strict-1 ] && [ "$block" -eq 1 ] && [ "$policy" != stop-check ] && { [ "$outcome" = error ] || [ "$outcome" = unsupported ] || [ "$DF_BRIDGE_CODE" = bridge-spawn ] || [ "$DF_BRIDGE_CODE" = envelope-encode ]; }; then DF_BRIDGE_EFFECT=block
-  elif [ "$outcome" = error ] && [ "$DF_BRIDGE_CODE" != bridge-spawn ] && [ -n "$DF_BRIDGE_POINT" ] && [ "$profile" = compat-1 ]; then
-    case "$harness:$event" in
-      claude:PreToolUse|codex:PreToolUse|copilot:PreToolUse|pi:tool_call) DF_BRIDGE_EFFECT=block ;;
-      antigravity:PreToolUse|antigravity:Stop) case "$DF_BRIDGE_CODE" in signal-*) DF_BRIDGE_EFFECT=proceed;; *) DF_BRIDGE_EFFECT=block;; esac ;;
-      kiro:PreToolUse) [ "$DF_BRIDGE_CODE" = exit-2-unmarked ] && DF_BRIDGE_EFFECT=block ;;
-      claude:Stop) [ "$DF_BRIDGE_CODE" = exit-2-unmarked ] && DF_BRIDGE_EFFECT=block ;;
-      codex:Stop|codex:stop|copilot:Stop|kiro:Stop|kiro:stop) [ "$DF_BRIDGE_CODE" = exit-2-unmarked ] && DF_BRIDGE_EFFECT=block || DF_BRIDGE_EFFECT=proceed ;;
-    esac
   fi
-  # Copilot CLI: a guarded preToolUse policy that errors or cannot decide (jq or the policy script
-  # missing, an edit with no decodable target) denies whatever the fault profile; only a policy that
-  # answered allow or advisory lets the call through. Copilot-only: every other harness keeps the
-  # profile rules above byte for byte.
-  if [ "$block" -eq 1 ] && [ "$DF_BRIDGE_EFFECT" = proceed ] && [ "$harness:$event" = copilot:PreToolUse ] && [ "$policy" != stop-check ]; then
-    case "$outcome" in error|unsupported) DF_BRIDGE_EFFECT=block ;; esac
-  fi
+  # D1 (advise-only hooks): under compat-1 a faulting policy never blocks, on any harness. Only a policy
+  # that answered deny (mcp-tool-guard blocked-pattern) blocks, and strict-1, a person's opt-in, blocks
+  # on a fault of a blocking policy (above).
 }
 
 doflow_bridge_drops_tool_streams() {
@@ -145,7 +133,7 @@ doflow_bridge_hook_line() {
 }
 
 doflow_bridge() {
-  local harness="${1:-}" event="${2:-}" policy="${3:-}" response_event="" emit="native" payload="" encoded="" policy_path="" captured="" err="" code=0 policy_code=0 record="" emit_record="" reason="" decision_reason="" stdout="" status=0 decision="" line="" spawn_failed=0 encode_failed=0 _df_t0=""
+  local harness="${1:-}" event="${2:-}" policy="${3:-}" response_event="" emit="native" payload="" encoded="" policy_path="" captured="" err="" code=0 policy_code=0 record="" emit_record="" reason="" decision_reason="" stdout="" status=0 decision="" advice="" line="" spawn_failed=0 encode_failed=0 _df_t0=""
   DF_TUPLE=""
   if [ "${BASH_VERSINFO[0]:-0}" -ge 5 ] 2>/dev/null; then _df_t0=${EPOCHREALTIME:-}; fi
   . "$_DOFLOW_BRIDGE_DIR/respond.sh"
@@ -185,7 +173,7 @@ doflow_bridge() {
     *) spawn_failed=1 ;;
   esac
   policy_path="$_DOFLOW_BRIDGE_DIR/../policies/$policy.sh"
-  if [ "$spawn_failed" -eq 1 ] || [ ! -f "$policy_path" ]; then
+  if [ "$spawn_failed" -eq 1 ] || [ ! -f "$policy_path" ] || [ ! -f "$_DOFLOW_BRIDGE_DIR/../policies/contract.sh" ]; then
     code=127; err=""; spawn_failed=1
   else
     if [ "$emit" = decision ] || doflow_bridge_drops_tool_streams "$policy" "$harness" "$response_event" || { [ "$harness" = kiro ] && [ "$response_event" = Stop ]; }; then exec 5>/dev/null; else exec 5>&1; fi
@@ -248,7 +236,9 @@ doflow_bridge() {
     status=0
     if [ "$DF_BRIDGE_OUTCOME" = error ]; then
       case "$policy:$harness:$response_event" in
-        session-context:*:*|user-prompt-submit:*:*|subagent-audit:*:*|*:kiro:PreToolUse|*:claude:Stop) status="$code" ;;
+        session-context:*:*|user-prompt-submit:*:*|subagent-audit:*:*) status="$code" ;;
+        # The blocking-set policies are advise-only (D1): a proceed effect must not let a raw exit 2 block.
+        *:kiro:PreToolUse|*:claude:Stop) case "$policy" in pre-implementation-gate|mcp-tool-guard|stop-check) status=0 ;; *) status="$code" ;; esac ;;
       esac
     fi
   fi
@@ -258,14 +248,22 @@ doflow_bridge() {
     local render_status=$?
     return "$render_status"
   fi
+  # D1: an advisory (or out-of-step) line from a blocking-set policy is shown where the harness shows it.
+  advice=""
+  if [ "$DF_BRIDGE_EFFECT" = proceed ] && { [ "$DF_BRIDGE_OUTCOME" = advisory ] || [ "$DF_BRIDGE_OUTCOME" = unsupported ]; } && [ -n "$err" ]; then
+    case "$policy:$harness:$response_event" in
+      pre-implementation-gate:claude:PreToolUse|pre-implementation-gate:codex:PreToolUse|mcp-tool-guard:claude:PreToolUse|mcp-tool-guard:codex:PreToolUse|stop-check:claude:Stop|stop-check:codex:Stop|stop-check:codex:stop)
+        advice="${err%$'\n'}"; advice="${advice//$'\n'/ }" ;;
+    esac
+  fi
   case "$policy:$DF_BRIDGE_OUTCOME:$harness:$response_event:$DF_BRIDGE_CODE" in
     session-context:error:*:*:*|user-prompt-submit:error:*:*:*|subagent-audit:error:*:*:*|session-context:unsupported:*:*:*|user-prompt-submit:unsupported:*:*:*|subagent-audit:unsupported:*:*:*) ;;
     *:error:codex:Stop:exit-*|*:error:codex:Stop:signal-*|*:error:copilot:Stop:exit-*|*:error:copilot:Stop:signal-*|*:error:codex:stop:exit-*|*:error:codex:stop:signal-*|*:error:kiro:PreToolUse:exit-*|*:error:kiro:PreToolUse:signal-*|*:error:kiro:Stop:exit-*|*:error:kiro:Stop:signal-*|*:error:claude:Stop:exit-*|*:error:claude:Stop:signal-*) ;;
     *)
-      if ! doflow_bridge_drops_tool_stderr "$policy" "$harness" "$response_event" && [ -n "$err" ]; then printf '%s' "$err" >&2; fi
+      if [ -z "$advice" ] && ! doflow_bridge_drops_tool_stderr "$policy" "$harness" "$response_event" && [ -n "$err" ]; then printf '%s' "$err" >&2; fi
       ;;
   esac
-  doflow_render_response "$harness" "$event" "$DF_BRIDGE_OUTCOME" "$reason" "$status"
+  doflow_render_response "$harness" "$event" "$DF_BRIDGE_OUTCOME" "$reason" "$status" "$advice"
   local render_status=$?
   return "$render_status"
 }

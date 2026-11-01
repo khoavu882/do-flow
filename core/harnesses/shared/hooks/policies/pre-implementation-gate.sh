@@ -2,11 +2,11 @@
 case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; then jq() { command jq -b "$@"; }; fi ;; esac # native jq.exe ends lines with CRLF unless -b
 _DOFLOW_SRC=${0//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_POLDIR=${_DOFLOW_SRC%/*} ;; *) _DOFLOW_POLDIR=. ;; esac
 # pre-implementation-gate.sh — Canonical Policy Library: PreToolUse(Edit|Write|...)
-# backstop for the doflow implement gate. The HARD half of the one enforced
-# gate (the other half is the prompt-level do-prereqs.sh inside
-# /do-execute-plan — defense in depth).
+# advisory for the doflow implement gate (the other half is the prompt-level
+# do-prereqs.sh inside /do-execute-plan). It never denies: each finding below is
+# a doflow_decide advisory code plus one stderr line.
 #
-# Denies a SOURCE-file edit in two cases:
+# Advises on a SOURCE-file edit in two cases:
 #   1. a feature has been STARTED (its feature_dir exists, in this checkout or,
 #      from a linked worktree, in the main checkout) but requirement.md,
 #      design.md, or plan.md is still missing: "don't write code before you've
@@ -23,7 +23,7 @@ _DOFLOW_SRC=${0//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_POLDIR=${_DOFLOW_SRC%/
 #   - edit target is under agent-docs/ -> allow (editing the artifacts themselves)
 #   - edit target outside the repo     -> allow
 # It reads files with jq and lists checkouts with one git call; it never runs
-# the DoFlow runtime. Missing or malformed v1 input is denied as out of step; other faults follow IC-011.
+# the DoFlow runtime. Missing or malformed v1 input is allowed with an out-of-step line; other faults follow IC-011.
 #
 # Canonical Policy Script Contract (design.md §4):
 #   env    DOFLOW_PROJECT_DIR (repo root, if the front door sets it),
@@ -33,8 +33,8 @@ _DOFLOW_SRC=${0//\\//}; case $_DOFLOW_SRC in */*) _DOFLOW_POLDIR=${_DOFLOW_SRC%/
 #          replaces — kept so an unmodified front door still resolves its own
 #          harness's do-paths.sh resolver)
 #   stdin  a native payload encoded as envelope v1 by the lifecycle bridge.
-#   exit   exit 2 + doflow_decide deny = deny; other faults per IC-011. A front
-#          door translates this into its native response shape.
+#   exit   always 0: every finding is a doflow_decide advisory code plus one stderr
+#          line, which the lifecycle bridge renders per harness. This policy never denies.
 #
 # Reconciliation note (022-normalize-hooks, Phase A): claude/codex/kiro
 # each shipped a separately-adapted copy of this gate; antigravity's copy
@@ -65,8 +65,7 @@ else
   else
     printf '[pre-implementation-gate] DoFlow hooks out of step; run: doflow update\n' >&2
   fi
-  doflow_decide deny contract-missing
-  exit 2
+  exit 0
 fi
 doflow_decision_init pre-implementation-gate 1
 command -v jq >/dev/null 2>&1 || {
@@ -113,8 +112,8 @@ else
     ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure pre-implementation-gate envelope-missing ) >/dev/null 2>&1 || true
   fi
   if [[ "${DOFLOW_AGENT:-}" =~ ^[a-z]+$ ]]; then printf '[pre-implementation-gate] DoFlow hooks out of step; run: doflow update -t %s\n' "$DOFLOW_AGENT" >&2; else printf '[pre-implementation-gate] DoFlow hooks out of step; run: doflow update\n' >&2; fi
-  doflow_decide deny "${DF_ENV_CODE:-envelope-missing}"
-  exit 2
+  doflow_decide unsupported "${DF_ENV_CODE:-envelope-missing}"
+  exit 0
 fi
 
 # ── Resolve repo root ───────────────────────────────────────────────────────
@@ -377,8 +376,8 @@ find_state() {
         copy="$repo_root${HIT#"$MAIN"}"
         if [ -f "$copy" ] && ! same_bytes "$copy" "$HIT"; then
           printf "doflow gate readiness-before-implementation: task '%s' has a readiness record in this worktree (%s) that differs from the main checkout's (%s). Next: keep one of the two and remove the other, then re-run. Nothing was changed.\n" "$task_id" "$copy" "$HIT" >&2
-          doflow_decide deny readiness-store-conflict
-          exit 2
+          doflow_decide advisory readiness-store-conflict
+          exit 0
         fi
         FOUND="$HIT"
         return 0
@@ -453,8 +452,8 @@ PLANNED=false
 # plan.md all exist. Classes that cannot be a feature skip this check.
 if [ "$exempt" = false ] && [ -n "$FEATURE_ROOT" ] && [ "$PLANNED" = false ]; then
   echo "[pre-implementation-gate] doflow gate: feature $feature_dir is missing requirement.md, design.md, or plan.md — run /do-brainstorm, /do-design, then /do-plan before editing source. (Edits under agent-docs/ are always allowed; skip the flow by removing the feature dir.)" >&2
-  doflow_decide deny missing-artifacts
-  exit 2
+  doflow_decide advisory missing-artifacts
+  exit 0
 fi
 
 # ── Readiness ────────────────────────────────────────────────────────────────
@@ -547,20 +546,20 @@ gate="doflow gate readiness-before-implementation: task '$task_id'"
 rest="Next: $next, then gather what it lists until it reports READY. Nothing was changed."
 if [ -z "$FOUND" ]; then
   printf "%s has no readiness record for the '%s' template. %s\n" "$gate" "$STAGE_TEMPLATE" "$rest" >&2
-  doflow_decide deny readiness-missing
-  exit 2
+  doflow_decide advisory readiness-missing
+  exit 0
 fi
 if [ "$record_state" != READY ]; then
   printf "%s was last evaluated %s at %s against the '%s' template, not READY. %s\n" \
     "$gate" "$record_state" "$record_at" "$STAGE_TEMPLATE" "$rest" >&2
-  doflow_decide deny readiness-not-ready
-  exit 2
+  doflow_decide advisory readiness-not-ready
+  exit 0
 fi
 if [ "$record_class" != "$STAGE_TEMPLATE" ]; then
   printf "%s has a READY record for the '%s' template, and this stage needs '%s'. %s\n" \
     "$gate" "$record_class" "$STAGE_TEMPLATE" "$rest" >&2
-  doflow_decide deny readiness-wrong-template
-  exit 2
+  doflow_decide advisory readiness-wrong-template
+  exit 0
 fi
 
 exit 0

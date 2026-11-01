@@ -301,7 +301,8 @@ const PRE_COMPACT_HOOKS: any = [
   'core/harnesses/claude/hooks/pre-compact.sh',
   'core/harnesses/codex/hooks/pre-compact.impl.sh',
 ];
-const G38_3_ALLOWED: any = new Set([`${POLICIES}/emission.jq`, `${POLICIES}/emission.sh`, ...PRE_COMPACT_HOOKS]);
+// deny-json.sh holds the D1 advice emitters: an advisory line to the model on PreToolUse, to the user on Stop.
+const G38_3_ALLOWED: any = new Set([`${POLICIES}/emission.jq`, `${POLICIES}/emission.sh`, `${POLICIES}/deny-json.sh`, ...PRE_COMPACT_HOOKS]);
 const CONTEXT_TOKEN = /\b(additionalContext|systemMessage|custom_instructions)\b/;
 const PRINT = /^\s*(?:printf|echo|cat|jq)\b/;
 const LOOKUP = /\bdoflow_emission_rule\s+compact-instructions\./;

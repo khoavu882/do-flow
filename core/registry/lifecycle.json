@@ -199,7 +199,7 @@
         "harnessVersion": {
           "tested": "2.1.287 (Claude Code)"
         },
-        "class": "blocking",
+        "class": "advisory",
         "verification": "verified",
         "prerequisites": [],
         "covers": [],
@@ -231,7 +231,7 @@
         "harnessVersion": {
           "tested": "codex-cli 0.162.1"
         },
-        "class": "blocking",
+        "class": "advisory",
         "verification": "verified",
         "prerequisites": [
           "hook-review"
@@ -292,7 +292,7 @@
         "harnessVersion": {
           "tested": "1.1.0"
         },
-        "class": "blocking",
+        "class": "advisory",
         "verification": "verified",
         "prerequisites": [],
         "covers": [],
@@ -726,7 +726,7 @@
         "harnessVersion": {
           "tested": "GitHub Copilot CLI 1.0.103"
         },
-        "class": "blocking",
+        "class": "advisory",
         "verification": "verified",
         "prerequisites": [],
         "covers": [],
@@ -771,7 +771,7 @@
         "harnessVersion": {
           "tested": "kiro-cli 2.29.1"
         },
-        "class": "blocking",
+        "class": "advisory",
         "verification": "verified",
         "prerequisites": [],
         "covers": [],
@@ -803,7 +803,7 @@
         "harnessVersion": {
           "tested": "kiro-cli 2.29.1"
         },
-        "class": "blocking",
+        "class": "advisory",
         "verification": "verified",
         "prerequisites": [],
         "covers": [],
@@ -835,7 +835,7 @@
         "harnessVersion": {
           "tested": "kiro-cli 2.29.1"
         },
-        "class": "blocking",
+        "class": "advisory",
         "verification": "verified",
         "prerequisites": [],
         "covers": [],
@@ -867,7 +867,7 @@
         "harnessVersion": {
           "tested": "kiro-cli 2.29.1"
         },
-        "class": "blocking",
+        "class": "advisory",
         "verification": "verified",
         "prerequisites": [],
         "covers": [],
@@ -899,7 +899,7 @@
         "harnessVersion": {
           "tested": "1.3.3"
         },
-        "class": "blocking",
+        "class": "advisory",
         "verification": "verified",
         "prerequisites": [],
         "covers": [],
@@ -1595,7 +1595,7 @@
         "harnessVersion": {
           "tested": "2.1.287 (Claude Code)"
         },
-        "class": "blocking",
+        "class": "advisory",
         "verification": "verified",
         "prerequisites": [],
         "covers": [],
@@ -1625,7 +1625,7 @@
         "harnessVersion": {
           "tested": "codex-cli 0.162.1"
         },
-        "class": "blocking",
+        "class": "advisory",
         "verification": "verified",
         "prerequisites": [
           "hook-review"
@@ -1797,7 +1797,7 @@
         "harnessVersion": {
           "tested": "1.3.3"
         },
-        "class": "blocking",
+        "class": "advisory",
         "verification": "verified",
         "prerequisites": [],
         "covers": [],
@@ -2448,6 +2448,6 @@
         ]
       }
     ],
-    "rowsDigest": "sha256:b9a795ed21918af13dad041fccc93c0f2b0f8360c0a9f336ec05ac7ae84e3fea"
+    "rowsDigest": "sha256:39c81a958388528cddec2fa524296872bf420d37073ae643a76faddc54893cf5"
   }
 }

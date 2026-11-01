@@ -38,8 +38,7 @@ else
   else
     printf '[mcp-tool-guard] DoFlow hooks out of step; run: doflow update\n' >&2
   fi
-  doflow_decide deny contract-missing
-  exit 2
+  exit 0
 fi
 doflow_decision_init mcp-tool-guard 1
 command -v jq >/dev/null 2>&1 || {
@@ -63,8 +62,8 @@ else
     ( . "$_DOFLOW_POLDIR/capture-failure.sh"; doflow_capture_failure mcp-tool-guard envelope-missing ) >/dev/null 2>&1 || true
   fi
   if [[ "${DOFLOW_AGENT:-}" =~ ^[a-z]+$ ]]; then printf '[mcp-tool-guard] DoFlow hooks out of step; run: doflow update -t %s\n' "$DOFLOW_AGENT" >&2; else printf '[mcp-tool-guard] DoFlow hooks out of step; run: doflow update\n' >&2; fi
-  doflow_decide deny "${DF_ENV_CODE:-envelope-missing}"
-  exit 2
+  doflow_decide unsupported "${DF_ENV_CODE:-envelope-missing}"
+  exit 0
 fi
 
 POLICY_FILE="$_DOFLOW_POLDIR/mcp-policy.conf"
