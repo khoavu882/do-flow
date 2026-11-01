@@ -251,10 +251,13 @@ function evaluate(policy: any, cls: string, gateId: string, facts: any[]): any {
         const decisions = Array.isArray(backing?.decisions) ? backing.decisions.filter(object) : [];
         for (const finding of converged) {
           if (finding.status === 'refuted' && !evidenceLocator(finding.evidence)) reasons.push(`refuted-without-evidence:${finding.id}`);
-          if (finding.status === 'user-accepted' && !decisions.some((d: any) => d.id === finding.decision && USER_CHANNELS.has(d.channel))) reasons.push(`accepted-without-user-decision:${finding.id}`);
+          // AU D4: a note or should-fix may rest on a default-channel (agent) decision, so an unattended session
+          // records what it decided without claiming a person did. A blocker (or any other severity) keeps both checks.
+          const blocker = finding.severity !== 'note' && finding.severity !== 'should-fix';
+          if (finding.status === 'user-accepted' && !decisions.some((d: any) => d.id === finding.decision && (USER_CHANNELS.has(d.channel) || (!blocker && d.channel === 'default')))) reasons.push(`accepted-without-user-decision:${finding.id}`);
           // C5: any session can add a question-channel register entry, so channel membership is not a
-          // person. Policy evaluation never accepts a user-accepted disposition; a person decides that gate.
-          if (finding.status === 'user-accepted') reasons.push(`user-accepted-needs-person:${finding.id}`);
+          // person. Policy evaluation never accepts a user-accepted blocker; a person decides that gate.
+          if (finding.status === 'user-accepted' && blocker) reasons.push(`user-accepted-needs-person:${finding.id}`);
           if (finding.status === 'fixed' && backing?.ancestors?.[finding.fixedIn] !== true) reasons.push(`fixed-not-ancestor:${finding.id}`);
         }
       }

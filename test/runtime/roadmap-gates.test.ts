@@ -200,6 +200,29 @@ test('C5: autopilot gate-b denies an open blocker marked user-accepted, whatever
   assert.ok(JSON.parse(baseBytes).denyReasons.includes('user-accepted-needs-person'));
 });
 
+test('AU D4: a user-accepted note or should-fix passes on a default-channel decision; a blocker (or an unknown severity) still needs a user channel and a person', () => {
+  const policy = loadPolicy(baseBytes).policy;
+  policy.classes.feature['gate-b'].predicates = ['dispositions-backed'];
+  const run = (severity: any, channel: string | null) => evaluate(policy, 'feature', 'gate-b', facts({
+    findings: { ...review(), converged: [{ id: 'C3', from: [], severity, locator: 'src/x.ts:1', status: 'user-accepted', decision: 'DEC-001' }] },
+    dispositions: { ancestors: {}, decisions: channel ? [{ id: 'DEC-001', channel }] : [] } }));
+  for (const severity of ['note', 'should-fix']) {
+    const ok = run(severity, 'default');
+    assert.equal(ok.decision, 'pass', `${severity}: ${JSON.stringify(ok.reasons)}`);
+    assert.deepEqual(ok.reasons, []);
+    // user channels are still not a person for policy purposes only on a blocker; a note on one passes too
+    assert.equal(run(severity, 'question').decision, 'pass');
+    // other agent channel and a missing decision stay refused
+    assert.deepEqual(run(severity, 'resolution').reasons, ['accepted-without-user-decision:C3']);
+    assert.deepEqual(run(severity, null).reasons, ['accepted-without-user-decision:C3']);
+  }
+  // blocker: default channel is no decision at all, and a user channel still needs a person (both checks stay)
+  assert.deepEqual(run('blocker', 'default').reasons, ['accepted-without-user-decision:C3', 'user-accepted-needs-person:C3']);
+  assert.deepEqual(run('blocker', 'question').reasons, ['user-accepted-needs-person:C3']);
+  // fail closed: a severity that is neither note nor should-fix is treated as a blocker
+  assert.deepEqual(run(undefined, 'default').reasons, ['accepted-without-user-decision:C3', 'user-accepted-needs-person:C3']);
+});
+
 test('C6: plan-verification-absent passes only a readable present:false fact at gate-a and gate-b', () => {
   const policy = loadPolicy(baseBytes).policy;
   for (const gate of ['gate-a', 'gate-b']) {
@@ -270,7 +293,9 @@ const mutations: any = [
   { name: 'FAIL then PASS', from: "run.verdict === 'FAIL' && runs.slice(i + 1).some((later: any) => later.verdict === 'PASS')", to: 'false', pattern: 'predicate fixture: FAIL then PASS remains flaky' },
   { name: 'INCONCLUSIVE', from: "runs[runs.length - 1].verdict !== 'PASS'", to: 'false', pattern: 'predicate fixture: inconclusive verification' },
   { name: 'seat minimum', from: 'seats.length < (gate.minSeats || 0)', to: 'false', pattern: 'predicate fixture: too few seats' },
-  { name: 'person-only acceptance', from: "if (finding.status === 'user-accepted') reasons.push", to: 'if (false) reasons.push', pattern: 'C5: autopilot gate-b denies' },
+  { name: 'person-only acceptance', from: "if (finding.status === 'user-accepted' && blocker) reasons.push", to: 'if (false) reasons.push', pattern: 'C5: autopilot gate-b denies' },
+  { name: 'default-channel note acceptance', from: " || (!blocker && d.channel === 'default')", to: '', pattern: 'AU D4' },
+  { name: 'blocker kept as the default', from: "const blocker = finding.severity !== 'note' && finding.severity !== 'should-fix';", to: "const blocker = finding.severity === 'blocker';", pattern: 'AU D4' },
   { name: 'evidence locator in validation', module: 'findings', from: "finding.status === 'refuted' && !evidenceLocator(finding.evidence)) errors", to: "finding.status === 'refuted' && !nonempty(finding.evidence)) errors", pattern: 'C21: refutation evidence' },
   { name: 'evidence locator at dispositions', from: "!evidenceLocator(finding.evidence)) reasons", to: '!nonempty(finding.evidence)) reasons', pattern: 'C21: refutation evidence' },
   { name: 'invalid override label', from: "denied('policy-override-invalid')", to: "denied('policy-override-widens:override')", pattern: 'C23: override bytes' },
