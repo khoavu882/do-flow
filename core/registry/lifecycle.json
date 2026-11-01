@@ -195,7 +195,7 @@
         "timing": "pre-tool",
         "profile": "any",
         "wired": true,
-        "configSource": "core/harnesses/claude/settings/settings.json:95",
+        "configSource": "core/harnesses/claude/settings/settings.json:97",
         "harnessVersion": {
           "tested": "2.1.287 (Claude Code)"
         },
@@ -927,7 +927,7 @@
         "timing": "session",
         "profile": "any",
         "wired": true,
-        "configSource": "core/harnesses/claude/settings/settings.json:42",
+        "configSource": "core/harnesses/claude/settings/settings.json:44",
         "harnessVersion": {
           "tested": "2.1.287 (Claude Code)"
         },
@@ -1240,7 +1240,7 @@
         "timing": "pre-tool",
         "profile": "any",
         "wired": true,
-        "configSource": "core/harnesses/claude/settings/settings.json:95",
+        "configSource": "core/harnesses/claude/settings/settings.json:97",
         "harnessVersion": {
           "tested": "2.1.287 (Claude Code)"
         },
@@ -1591,7 +1591,7 @@
         "timing": "stop",
         "profile": "any",
         "wired": true,
-        "configSource": "core/harnesses/claude/settings/settings.json:144",
+        "configSource": "core/harnesses/claude/settings/settings.json:146",
         "harnessVersion": {
           "tested": "2.1.287 (Claude Code)"
         },
@@ -2448,6 +2448,6 @@
         ]
       }
     ],
-    "rowsDigest": "sha256:1a2bad9db0cfd9329f72cbdcdb022515da97af3fb76afe4cc9b63ff8136dfa36"
+    "rowsDigest": "sha256:b9a795ed21918af13dad041fccc93c0f2b0f8360c0a9f336ec05ac7ae84e3fea"
   }
 }

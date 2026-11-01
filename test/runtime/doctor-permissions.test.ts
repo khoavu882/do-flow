@@ -2,6 +2,8 @@
 
 // AU-P6 (D9): `doflow doctor` warns when a user's own Claude permissions array hides DoFlow's shipped
 // entries. The merge keeps a user array whole, so the entries are absent and nothing else says so.
+// A file is judged when the install ledger of its scope records a Claude settings.json projection,
+// whether or not the file carries DoFlow's hooks (an install with hooks off has none).
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -10,59 +12,76 @@ const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { buildHealthReport } = require('../../src/runtime/health.ts');
+const { defaultLedger, writeLedger, stateRoot } = require('../../src/state/index.ts');
 
 const shipped = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'harnesses', 'claude', 'settings', 'settings.json'), 'utf8'));
-const projectHooks = JSON.parse(JSON.stringify(shipped.hooks).split('~/.claude/hooks/').join('${CLAUDE_PROJECT_DIR}/.claude/hooks/'));
 const stub = () => { const error: any = new Error('not found'); error.code = 'ENOENT'; throw error; };
 const KIND = 'claude-permissions-user-array';
 
-function setup(t: any, settings: any, where: 'home' | 'project' = 'home') {
+function record(root: string, scope: 'global' | 'project', resources: any[]) {
+  const ledger = { ...defaultLedger({ scope, scopeRoot: root }), resources };
+  writeLedger(scope === 'global' ? stateRoot({ scope, homeDir: root }) : path.join(root, '.doflow', 'state'), ledger);
+}
+const claudeSettings = { harness: 'claude', assetId: 'claude.settings', kind: 'settings-file', identity: 'settings.json' };
+
+function setup(t: any, settings: any, { where = 'home', ledger = true }: { where?: 'home' | 'project'; ledger?: boolean } = {}) {
   const home = tempDir(t, 'doflow-doctor-perm-home-');
   const project = tempDir(t, 'doflow-doctor-perm-project-');
+  const root = where === 'home' ? home : project;
   if (settings) {
-    const file = path.join(where === 'home' ? home : project, '.claude', 'settings.json');
+    const file = path.join(root, '.claude', 'settings.json');
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, JSON.stringify(settings));
   }
+  if (ledger) record(root, where === 'home' ? 'global' : 'project', [claudeSettings]);
   const report = buildHealthReport({ repoRoot: REPO_ROOT, projectRoot: project, homeDir: home, execFileImpl: stub });
-  return report.warnings.filter((w: any) => w.kind === KIND).concat(report.findings.filter((f: any) => f.kind === KIND));
+  return { warnings: report.warnings.filter((w: any) => w.kind === KIND), findings: report.findings.filter((f: any) => f.kind === KIND) };
 }
 
 test('a user allow array without DoFlow entries warns once, naming the list and the missing entries', (t) => {
-  const found = setup(t, { hooks: shipped.hooks, permissions: { allow: ['Bash(ls:*)'] } });
-  assert.equal(found.length, 1);
-  assert.ok(found[0].subject.endsWith('permissions.allow'), found[0].subject);
-  assert.ok(found[0].detail.includes('Bash(git *:*)'), found[0].detail);
-  assert.ok(!found[0].detail.includes('Bash(ls:*)'), 'the user entries are not listed as missing');
+  const { warnings } = setup(t, { permissions: { allow: ['Bash(ls:*)'] } });
+  assert.equal(warnings.length, 1);
+  assert.ok(warnings[0].subject.endsWith('permissions.allow'), warnings[0].subject);
+  assert.ok(warnings[0].detail.includes('Bash(git *:*)'), warnings[0].detail);
+  assert.ok(!warnings[0].detail.includes('Bash(ls:*)'), 'the user entries are not listed as missing');
+});
+
+test('an install with hooks off (no hook entries in the file) is judged from the ledger', (t) => {
+  const { warnings } = setup(t, { permissions: { ask: ['y'] } });
+  assert.equal(warnings.length, 1);
+  assert.ok(warnings[0].subject.endsWith('permissions.ask'));
 });
 
 test('deny, ask and allow are judged each; a list that holds every shipped entry does not warn', (t) => {
-  const found = setup(t, { hooks: shipped.hooks, permissions: { allow: shipped.permissions.allow, deny: ['x'], ask: ['y'] } });
-  assert.deepEqual(found.map((w: any) => w.subject.split(': ')[1]).sort(), ['permissions.ask', 'permissions.deny']);
+  const { warnings } = setup(t, { permissions: { allow: shipped.permissions.allow, deny: ['x'], ask: ['y'] } });
+  assert.deepEqual(warnings.map((w: any) => w.subject.split(': ')[1]).sort(), ['permissions.ask', 'permissions.deny']);
 });
 
-test('a project-scope file is judged too', (t) => {
-  const found = setup(t, { hooks: projectHooks, permissions: { ask: ['y'] } }, 'project');
-  assert.equal(found.length, 1);
-  assert.ok(found[0].subject.includes(`${path.sep}.claude${path.sep}settings.json`));
+test('a project-scope file is judged through the project ledger', (t) => {
+  const { warnings } = setup(t, { permissions: { ask: ['y'] } }, { where: 'project' });
+  assert.equal(warnings.length, 1);
+  assert.ok(warnings[0].subject.includes(`${path.sep}.claude${path.sep}settings.json`));
 });
 
-test('a project file with the global hook paths is not judged: DoFlow writes the project form there', (t) => {
-  assert.deepEqual(setup(t, { hooks: shipped.hooks, permissions: { ask: ['y'] } }, 'project'), []);
+test('no warning without a user array, without a ledger record of the projection, or without the file', (t) => {
+  assert.deepEqual(setup(t, { permissions: {} }).warnings, []);
+  assert.deepEqual(setup(t, {}).warnings, []);
+  assert.deepEqual(setup(t, { hooks: shipped.hooks, permissions: { allow: ['Bash(ls:*)'] } }, { ledger: false }).warnings, [], 'no ledger: DoFlow did not project into this file');
+  assert.deepEqual(setup(t, null).warnings, []);
 });
 
-test('no warning without a user array, without DoFlow installed in that file, or without the file', (t) => {
-  assert.deepEqual(setup(t, { hooks: shipped.hooks, permissions: {} }), []);
-  assert.deepEqual(setup(t, { hooks: shipped.hooks }), []);
-  assert.deepEqual(setup(t, { permissions: { allow: ['Bash(ls:*)'] } }), [], 'no DoFlow hook in the file: DoFlow is not installed there');
-  assert.deepEqual(setup(t, null), []);
-});
-
-test('the warning is a warning only: it is never a finding', (t) => {
+test('a ledger that records another harness only does not make the Claude file DoFlow-managed', (t) => {
   const home = tempDir(t, 'doflow-doctor-perm-home-');
   const file = path.join(home, '.claude', 'settings.json');
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify({ hooks: shipped.hooks, permissions: { allow: ['z'] } }));
+  fs.writeFileSync(file, JSON.stringify({ permissions: { allow: ['z'] } }));
+  record(home, 'global', [{ harness: 'codex', assetId: 'x', kind: 'copy-tree-file', identity: 'a' }]);
   const report = buildHealthReport({ repoRoot: REPO_ROOT, projectRoot: tempDir(t, 'doflow-doctor-perm-project-'), homeDir: home, execFileImpl: stub });
-  assert.equal(report.findings.some((f: any) => f.kind === KIND), false);
+  assert.equal(report.warnings.some((w: any) => w.kind === KIND), false);
+});
+
+test('the warning is a warning only: it is produced and never a finding', (t) => {
+  const { warnings, findings } = setup(t, { permissions: { allow: ['z'] } });
+  assert.equal(warnings.length, 1, 'the scenario must produce the warning for the next assertion to mean anything');
+  assert.deepEqual(findings, []);
 });

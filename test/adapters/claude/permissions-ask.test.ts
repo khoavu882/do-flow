@@ -14,7 +14,9 @@ const claude = require('../../../src/adapters/claude/index.ts');
 const { REPO_ROOT } = require('../../../src/helper/repo-root.ts');
 
 const SHIPPED = path.join(REPO_ROOT, 'core', 'harnesses', 'claude', 'settings', 'settings.json');
-const ASK = ['Bash(git push:*)', 'Bash(git tag:*)', 'Bash(git * push:*)', 'Bash(git * tag:*)'];
+// A trailing `:*` matches the bare command only when it is the rule's only wildcard, so the two-wildcard
+// `git * push:*` leaves `git -C d push` (no further args) to the blanket allow; the bare spellings close that.
+const ASK = ['Bash(git push:*)', 'Bash(git tag:*)', 'Bash(git * push:*)', 'Bash(git * tag:*)', 'Bash(git * push)', 'Bash(git * tag)'];
 
 function install(existing: any) {
   const repoRoot = suiteTempDir('doflow-permissions-ask-repo-');
@@ -35,7 +37,7 @@ function install(existing: any) {
   return JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
 }
 
-test('shipped settings: ask lists push and tag in both spellings, and allow and deny keep their entries', () => {
+test('shipped settings: ask pins all six push and tag entries (prefix, option-before-subcommand, and bare option form), and allow and deny keep their entries', () => {
   const shipped = JSON.parse(fs.readFileSync(SHIPPED, 'utf8'));
   assert.deepEqual(shipped.permissions.ask, ASK);
   assert.ok(shipped.permissions.allow.includes('Bash(git *:*)'), 'the blanket git allow stays');

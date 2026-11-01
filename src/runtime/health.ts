@@ -30,8 +30,7 @@ const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { readGrants, detectedProjectRoot } = require('./packages/grants.ts');
 const { readState, grantRevoked } = require('./packages/state.ts');
 const { transcriptsDoctorView } = require('./transcripts/registry.ts');
-const { settingsContainsAny } = require('../helper/settings-merge.ts');
-const { GLOBAL_HOOK_PREFIX, PROJECT_HOOK_PREFIX } = require('../helper/settings-scope.ts');
+const { readLedger, stateRoot } = require('../state/index.ts');
 
 /** Answered a probe. */
 const HEALTHY = 'HEALTHY';
@@ -818,27 +817,41 @@ function nodeSecurityWarning(version: string): { kind: string, subject: string, 
 /**
  * The Claude permission lists a user's own array hides. `mergeSettings` keeps an existing array whole
  * (a union would widen the user's own permissions), so a settings.json that already had a
- * `permissions.allow`, `deny` or `ask` array never receives DoFlow's entries for that list. Only a file
- * that carries DoFlow's hooks is judged (DoFlow is installed there); the entries named are the shipped
- * ones missing from the user's array, so the person can add them or leave the list as it is.
+ * `permissions.allow`, `deny` or `ask` array never receives DoFlow's entries for that list. A file is
+ * judged only when the install ledger of its scope records a Claude `settings.json` projection (the
+ * ledger, not hook presence, so an install with Claude outside `hooks.harnesses` is judged too); the
+ * ledgers read are the global one and each project one on the walk from `projectRoot` up to the home
+ * directory, the same walk the reach check makes. The entries named are the shipped ones missing from
+ * the user's array, so the person can add them or leave the list as it is.
  */
 function claudePermissionWarnings({ repoRoot, projectRoot, homeDir, fsImpl = fs }: any): Array<{ kind: string, subject: string, detail: string }> {
-  let raw: string;
+  let managed: any;
   try {
-    raw = fsImpl.readFileSync(path.join(repoRoot, 'core', 'harnesses', 'claude', 'settings', 'settings.json'), 'utf8');
+    managed = JSON.parse(fsImpl.readFileSync(path.join(repoRoot, 'core', 'harnesses', 'claude', 'settings', 'settings.json'), 'utf8'));
   } catch { return []; }
-  // A project-scope install rewrites the hook prefix (claude adapter), so each scope is judged against its own text.
-  const managedFor = (global: boolean) => { try { return JSON.parse(global ? raw : raw.split(GLOBAL_HOOK_PREFIX).join(PROJECT_HOOK_PREFIX)); } catch { return null; } };
-  const globalFile = path.join(homeDir, '.claude', 'settings.json');
-  const projectFile = path.join(path.resolve(projectRoot), '.claude', 'settings.json');
-  const files = [...new Set([globalFile, projectFile])];
+  const lists: Record<string, any> = managed?.permissions && typeof managed.permissions === 'object' ? managed.permissions : {};
+  const projects = (() => {
+    const found: string[] = [];
+    const home = path.resolve(homeDir);
+    for (let dir = path.resolve(projectRoot); dir !== home; dir = path.dirname(dir)) {
+      found.push(dir);
+      if (path.dirname(dir) === dir) break;
+    }
+    return found;
+  })();
+  const scopes = [
+    { installRoot: path.resolve(homeDir), stateDir: stateRoot({ scope: 'global', homeDir }) },
+    ...projects.map((installRoot) => ({ installRoot, stateDir: path.join(installRoot, '.doflow', 'state') })),
+  ];
   const warnings: Array<{ kind: string, subject: string, detail: string }> = [];
-  for (const file of files) {
+  for (const { installRoot, stateDir } of scopes) {
+    let ledger: any;
+    try { ledger = readLedger(stateDir, { fsImpl }); } catch { continue; }
+    const projected = (ledger?.resources || []).some((resource: any) => resource?.harness === 'claude' && resource.kind === 'settings-file' && resource.identity === 'settings.json');
+    if (!projected) continue;
+    const file = path.join(installRoot, '.claude', 'settings.json');
     let current: any;
     try { current = JSON.parse(fsImpl.readFileSync(file, 'utf8')); } catch { continue; }
-    const managed = managedFor(file === globalFile);
-    if (!managed || !settingsContainsAny(current, managed)) continue;
-    const lists: Record<string, any> = managed.permissions && typeof managed.permissions === 'object' ? managed.permissions : {};
     for (const [list, shipped] of Object.entries<any>(lists)) {
       const own = current?.permissions?.[list];
       if (!Array.isArray(own) || !Array.isArray(shipped)) continue;
