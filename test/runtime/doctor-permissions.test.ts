@@ -11,7 +11,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
 const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
-const { buildHealthReport } = require('../../src/runtime/health.ts');
+const { buildHealthReport, handleDoctorCommand } = require('../../src/runtime/health.ts');
 const { defaultLedger, writeLedger, stateRoot } = require('../../src/state/index.ts');
 
 const shipped = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'harnesses', 'claude', 'settings', 'settings.json'), 'utf8'));
@@ -84,4 +84,29 @@ test('the warning is a warning only: it is produced and never a finding', (t) =>
   const { warnings, findings } = setup(t, { permissions: { allow: ['z'] } });
   assert.equal(warnings.length, 1, 'the scenario must produce the warning for the next assertion to mean anything');
   assert.deepEqual(findings, []);
+});
+
+test('the text doctor separates the long subject from its detail, and --json keeps subject and detail apart', async (t) => {
+  const home = tempDir(t, 'doflow-doctor-perm-home-');
+  const project = tempDir(t, 'doflow-doctor-perm-project-');
+  fs.mkdirSync(path.join(home, '.claude'), { recursive: true });
+  fs.writeFileSync(path.join(home, '.claude', 'settings.json'), JSON.stringify({ permissions: { allow: ['z'] } }));
+  record(home, 'global', [claudeSettings]);
+  const run = async (json: boolean) => {
+    const lines: string[] = [];
+    const log = console.log;
+    const saved = process.exitCode;
+    console.log = (...args: any[]) => { lines.push(args.join(' ')); };
+    try {
+      await handleDoctorCommand({ json, repoRoot: REPO_ROOT, projectRoot: project, execFileImpl: stub, homeDir: home, env: { HOME: home, XDG_CONFIG_HOME: path.join(home, 'xdg'), DOFLOW_TELEMETRY: 'off' } });
+    } finally { console.log = log; process.exitCode = saved; }
+    return lines.join('\n');
+  };
+  const text = await run(false);
+  const line = text.split('\n').find((l) => l.includes('permissions.allow'));
+  assert.ok(line, 'the warning is rendered');
+  assert.match(line, /permissions\.allow {2,}your own permissions\.allow list wins whole/);
+  const warning = JSON.parse(await run(true)).warnings.find((w: any) => w.kind === KIND);
+  assert.ok(warning.subject.endsWith('permissions.allow'));
+  assert.ok(warning.detail.startsWith('your own permissions.allow list wins whole'), 'the JSON detail is unchanged');
 });

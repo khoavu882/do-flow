@@ -1431,7 +1431,8 @@ async function handleDoctorCommand({ json = false, repoRoot, projectRoot = proce
 
   if (report.warnings.length) {
     console.log('\n[Warnings] — not blocking; a stale or unprobeable provider still degrades cleanly, and a Node below the security release of its line is named here');
-    for (const warning of report.warnings) console.log(`  ${warning.subject.padEnd(18)}${warning.detail}`);
+    // A subject at or past the column width (a file path) would run into its detail, so it gets a gap.
+    for (const warning of report.warnings) console.log(`  ${warning.subject.padEnd(18)}${warning.subject.length >= 18 ? '  ' : ''}${warning.detail}`);
   }
 
   console.log('\n[Findings]');
