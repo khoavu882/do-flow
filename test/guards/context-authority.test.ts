@@ -310,8 +310,20 @@ const LOOKUP = /\bdoflow_emission_rule\s+compact-instructions\./;
 const isHookFile = (file: any) => /^core\/harnesses\/(?:[^/]+\/)*hooks\//.test(file)
   || file.startsWith('core/harnesses/pi/extensions/') || file === RUNNER_JS;
 
+// The D1 advice emitters put a line into the model's context (PreToolUse) or the user's (Stop). Only the
+// bridge's renderer may call them; the file that defines them is the only other place the names appear.
+const ADVICE_EMITTER = /\bemit_(?:pretooluse|stop)_advice\b/;
+const ADVICE_CALLERS: any = new Set([`${BRIDGE}/respond.sh`, `${POLICIES}/deny-json.sh`]);
+
 function checkG38_3({ files }: any) {
   const findings: any = [];
+  for (const [file, text] of files) {
+    if (ADVICE_CALLERS.has(file)) continue;
+    executedLines(file, text).forEach((line: any, index: any) => {
+      const match = line.match(ADVICE_EMITTER);
+      if (match) findings.push(`G38.3 ${file}:${index + 1} calls ${match[0]} outside bridge/respond.sh`);
+    });
+  }
   for (const [file, text] of files) {
     if (!isHookFile(file) || G38_3_ALLOWED.has(file)) continue;
     executedLines(file, text).forEach((line: any, index: any) => {
@@ -751,6 +763,22 @@ test('G38.3 control: the advise-only emitters stay in deny-json.sh; the same lin
     const seeded: any = withFile(file, `${shipped.get(file)}\nprintf '{"hookSpecificOutput":{"additionalContext":"x"}}'\n`);
     one(checkG38_3({ files: seeded }), `${file}:${seeded.get(file).split('\n').length - 1} emits additionalContext`);
   }
+});
+test('G38.3 control: the advice emitters are callable only from bridge/respond.sh', () => {
+  const caller = 'core/harnesses/shared/hooks/bridge/respond.sh';
+  assert.match(shipped.get(caller), /emit_pretooluse_advice/);
+  assert.match(shipped.get(caller), /emit_stop_advice/);
+  for (const [file, fn] of [['core/harnesses/shared/hooks/policies/session-context.sh', 'emit_pretooluse_advice'],
+    ['core/harnesses/claude/hooks/session-start.sh', 'emit_stop_advice'],
+    ['core/harnesses/shared/hooks/policies/pre-implementation-gate.sh', 'emit_pretooluse_advice']]) {
+    const seeded: any = withFile(file, `${shipped.get(file)}\n${fn} "$(cat README.md)"\n`);
+    one(checkG38_3({ files: seeded }), `${file}:${seeded.get(file).split('\n').length - 1} calls ${fn}`);
+  }
+});
+test('G38.3 control (RK6): a comment naming an advice emitter passes', () => {
+  const file = 'core/harnesses/shared/hooks/policies/session-context.sh';
+  const seeded: any = withFile(file, `${shipped.get(file)}\n# emit_pretooluse_advice is the bridge's\n`);
+  assert.deepEqual(checkG38_3({ files: seeded }), []);
 });
 test('G38.3 control: a pre-compact hook that prints without its rule lookup is one finding', () => {
   const file = 'core/harnesses/claude/hooks/pre-compact.sh';
