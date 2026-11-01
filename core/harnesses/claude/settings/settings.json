@@ -21,6 +21,12 @@
       "Bash(git push --force*:*)",
       "Bash(git reset --hard*:*)",
       "Bash(git clean -fd*:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(git tag:*)",
+      "Bash(git * push:*)",
+      "Bash(git * tag:*)"
     ]
   },
   "alwaysThinkingEnabled": true,

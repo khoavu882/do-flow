@@ -30,6 +30,8 @@ const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { readGrants, detectedProjectRoot } = require('./packages/grants.ts');
 const { readState, grantRevoked } = require('./packages/state.ts');
 const { transcriptsDoctorView } = require('./transcripts/registry.ts');
+const { settingsContainsAny } = require('../helper/settings-merge.ts');
+const { GLOBAL_HOOK_PREFIX, PROJECT_HOOK_PREFIX } = require('../helper/settings-scope.ts');
 
 /** Answered a probe. */
 const HEALTHY = 'HEALTHY';
@@ -813,6 +815,45 @@ function nodeSecurityWarning(version: string): { kind: string, subject: string, 
   };
 }
 
+/**
+ * The Claude permission lists a user's own array hides. `mergeSettings` keeps an existing array whole
+ * (a union would widen the user's own permissions), so a settings.json that already had a
+ * `permissions.allow`, `deny` or `ask` array never receives DoFlow's entries for that list. Only a file
+ * that carries DoFlow's hooks is judged (DoFlow is installed there); the entries named are the shipped
+ * ones missing from the user's array, so the person can add them or leave the list as it is.
+ */
+function claudePermissionWarnings({ repoRoot, projectRoot, homeDir, fsImpl = fs }: any): Array<{ kind: string, subject: string, detail: string }> {
+  let raw: string;
+  try {
+    raw = fsImpl.readFileSync(path.join(repoRoot, 'core', 'harnesses', 'claude', 'settings', 'settings.json'), 'utf8');
+  } catch { return []; }
+  // A project-scope install rewrites the hook prefix (claude adapter), so each scope is judged against its own text.
+  const managedFor = (global: boolean) => { try { return JSON.parse(global ? raw : raw.split(GLOBAL_HOOK_PREFIX).join(PROJECT_HOOK_PREFIX)); } catch { return null; } };
+  const globalFile = path.join(homeDir, '.claude', 'settings.json');
+  const projectFile = path.join(path.resolve(projectRoot), '.claude', 'settings.json');
+  const files = [...new Set([globalFile, projectFile])];
+  const warnings: Array<{ kind: string, subject: string, detail: string }> = [];
+  for (const file of files) {
+    let current: any;
+    try { current = JSON.parse(fsImpl.readFileSync(file, 'utf8')); } catch { continue; }
+    const managed = managedFor(file === globalFile);
+    if (!managed || !settingsContainsAny(current, managed)) continue;
+    const lists: Record<string, any> = managed.permissions && typeof managed.permissions === 'object' ? managed.permissions : {};
+    for (const [list, shipped] of Object.entries<any>(lists)) {
+      const own = current?.permissions?.[list];
+      if (!Array.isArray(own) || !Array.isArray(shipped)) continue;
+      const missing = shipped.filter((entry: any) => !own.includes(entry));
+      if (!missing.length) continue;
+      warnings.push({
+        kind: 'claude-permissions-user-array',
+        subject: `${file}: permissions.${list}`,
+        detail: `your own permissions.${list} list wins whole, so DoFlow's entries are absent from it (${missing.join(', ')}); DoFlow never merges into a list you wrote, so add them yourself if you want that behaviour`,
+      });
+    }
+  }
+  return warnings;
+}
+
 function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, execFileImpl, fsImpl = fs, detector, adapters, env = process.env, nodeVersion = process.version, homeDir, tmpDir, now }: any = {}) {
   const root = repoRoot || REPO_ROOT;
   const registry = loadRegistry({ repoRoot: root });
@@ -877,8 +918,10 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
       .map((row: any) => ({ kind: 'runtime-no-reach', subject: `${row.harness}:${row.scope}`, detail: `${row.reason}; fix: ${row.fix}` })),
   ];
   const nodeWarning = nodeSecurityWarning(nodeVersion);
+  const home = homeDir ?? (typeof env?.HOME === 'string' && path.isAbsolute(env.HOME) ? env.HOME : os.homedir());
   const warnings = [
     ...(nodeWarning ? [nodeWarning] : []),
+    ...claudePermissionWarnings({ repoRoot: root, projectRoot, homeDir: home, fsImpl }),
     ...freshness
       .filter((item) => item.state === 'STALE')
       .map((item) => ({ kind: 'index-stale', subject: item.providerId, detail: `${item.label} is behind the working tree; refresh with: ${item.refresh}` })),
@@ -1399,6 +1442,7 @@ module.exports = {
   probeProviders,
   probeLocalProvider,
   probeFreshness,
+  claudePermissionWarnings,
   PROVIDER_ARTIFACTS,
   newestSourceMtime,
   detectProjectCommands,
