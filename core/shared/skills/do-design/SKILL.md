@@ -57,7 +57,7 @@ a `design.md` for it invents an artifact its workflow never reads.
 
 3. **Precondition (advisory)** — if `has_requirement` is false, warn that there's no
    `requirement.md` and offer to run `/do-brainstorm` first. This gate is **advisory**
-   (skippable), as the implement hook is.
+   (skippable), like the edit hook.
 4. **Read inputs** — compile the recorded prior context before reading artifacts directly, using
    the same task id rule step 8 uses below (the plan task id once `plan.md` exists, otherwise the
    feature slug):

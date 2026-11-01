@@ -59,8 +59,8 @@ stages to implementation, and writing them a `plan.md` adds a gate their workflo
 not have.
 
 3. **Precondition (advisory)** — if `has_requirement` or `has_design` is false, warn and offer to
-   run `/do-brainstorm` / `/do-design` first. This gate is **advisory** (skippable), not the hard
-   hook gate.
+   run `/do-brainstorm` / `/do-design` first. This gate is **advisory** (skippable), like the edit
+   hook.
 4. **Read inputs** — compile the recorded prior context first, using the same task id rule step 10
    uses below (the plan task id for anything already scoped to a single `- [ ]` task, otherwise the
    feature slug):
