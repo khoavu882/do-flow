@@ -363,7 +363,19 @@ function sortFolder({ contextDir, taxonomy, now = new Date(), fsImpl = nodeFs }:
       }
       const after = hashFile(fsImpl, to).sha256;
       if (after !== planned.sha256) {
-        fail(`the destination hash ${after} differs from the hash ${planned.sha256} taken before the move`);
+        // The file is not what was planned: put it back where it came from when that name is free, else leave it
+        // where it is. Either way the entry is `failed` and names both paths.
+        const why = `the destination hash ${after} differs from the hash ${planned.sha256} taken before the move`;
+        let outcome: string;
+        try {
+          assertHeld();
+          if (moveNoReplace(fsImpl, to, from).fallback) entry.fallback = 'rename';
+          outcome = `the file was moved back to ${planned.from}`;
+        } catch (error: any) {
+          if (error instanceof IntakeUsageError) throw error;
+          outcome = `the file stays at ${planned.to} (${error.code === 'EEXIST' ? `${planned.from} is taken` : `it could not be moved back to ${planned.from}: ${error.message}`})`;
+        }
+        fail(`${why}; ${outcome}`);
         continue;
       }
       entry.state = 'done';

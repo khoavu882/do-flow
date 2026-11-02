@@ -348,19 +348,38 @@ test('undo walks only the latest sort run', (t: any) => {
 
 // ── failure paths ──────────────────────────────────────────────────────────────────────────────
 
-test('a destination hash that differs after the move marks the entry failed, keeps the file there and is never moved again', (t: any) => {
+test('a destination hash that differs after the move marks the entry failed, moves the file back to its free origin and never moves it again', (t: any) => {
   const { ctx } = tree(t, { 'a-prd.md': 'one', 'b-prd.md': 'two' });
-  const fsImpl = { ...fs, linkSync(from: string, to: string) { fs.linkSync(from, to); if (to.endsWith('a-prd.md')) fs.appendFileSync(to, ' corrupted'); } };
+  const fsImpl = { ...fs, linkSync(from: string, to: string) { fs.linkSync(from, to); if (to.endsWith('raw-prd/a-prd.md')) fs.appendFileSync(to, ' corrupted'); } };
   const result = sort(ctx, { fsImpl });
   assert.deepEqual(movesOf(result), ['b-prd.md>raw-prd/b-prd.md']);
   assert.equal(result.skipped.length, 1);
   assert.equal(result.skipped[0].reason, 'failed');
-  assert.match(result.skipped[0].detail, /differs from the hash/);
-  assert.ok(fs.existsSync(path.join(ctx, 'raw-prd', 'a-prd.md')));
+  assert.match(result.skipped[0].detail, /differs from the hash.*; the file was moved back to a-prd\.md/);
+  assert.equal(fs.readFileSync(path.join(ctx, 'a-prd.md'), 'utf8'), 'one corrupted', 'back at its origin, content untouched');
+  assert.ok(!fs.existsSync(path.join(ctx, 'raw-prd', 'a-prd.md')));
   assert.deepEqual(manifestOf(ctx).runs[0].moves.map((m: any) => m.state), ['failed', 'done']);
   const undone = undo(ctx);
   assert.deepEqual(undone.restored, [{ from: 'b-prd.md', to: 'raw-prd/b-prd.md' }]);
-  assert.ok(fs.existsSync(path.join(ctx, 'raw-prd', 'a-prd.md')), 'a failed entry is reported, never moved automatically');
+  assert.ok(fs.existsSync(path.join(ctx, 'a-prd.md')), 'a failed entry is reported, never touched by undo');
+});
+
+test('a destination hash that differs while the origin name is taken again leaves the file at the destination, failed, with both paths named', (t: any) => {
+  const { ctx } = tree(t, { 'a-prd.md': 'one' });
+  const origin = path.join(ctx, 'a-prd.md');
+  const fsImpl = {
+    ...fs,
+    linkSync(from: string, to: string) { fs.linkSync(from, to); if (to.endsWith('raw-prd/a-prd.md')) fs.appendFileSync(to, ' corrupted'); },
+    unlinkSync(file: string) { fs.unlinkSync(file); if (file === origin) fs.writeFileSync(origin, 'someone else'); },
+  };
+  const result = sort(ctx, { fsImpl });
+  assert.deepEqual(result.moves, []);
+  assert.match(result.skipped[0].detail, /the file stays at raw-prd\/a-prd\.md \(a-prd\.md is taken\)/);
+  assert.equal(fs.readFileSync(origin, 'utf8'), 'someone else');
+  assert.equal(fs.readFileSync(path.join(ctx, 'raw-prd', 'a-prd.md'), 'utf8'), 'one corrupted');
+  const [entry] = manifestOf(ctx).runs[0].moves;
+  assert.deepEqual([entry.state, entry.from, entry.to], ['failed', 'a-prd.md', 'raw-prd/a-prd.md']);
+  assert.match(entry.reason, /a-prd\.md is taken/);
 });
 
 test('a rename that throws marks that entry failed and the others still move', (t: any) => {
