@@ -199,7 +199,7 @@ function isPlainText(buffer: Buffer): boolean {
  * one, the relative path between two checkouts, which the rule above keeps.
  */
 function isUserContextPath(file: string): boolean {
-  const parts = path.posix.normalize(file.replace(/\\/g, '/')).split('/');
+  const parts: string[] = path.posix.normalize(file.replace(/\\/g, '/')).split('/');
   return parts.some((part, i) => part === 'agent-docs' && parts[i + 1] === 'doflow' && Boolean(parts[i + 2]) && parts[i + 3] === 'additional-context');
 }
 
