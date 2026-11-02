@@ -92,6 +92,7 @@ These are `doflow` CLI commands, plus one `doflow-run` shell verb (`render-diagr
 | `config` | Show each setting's effective value and where it came from, print the settings schema, or validate, set or unset one \(exit 0 ok, 1 refused, 2 usage\). |
 | `scaffold` | Emit the reviewable code scaffold the active feature's artifacts imply |
 | `decision` | Register, list or compact the active feature's decisions \(--action init\|add\|list\|compact\) |
+| `intake` | Sort, preview, undo, list or file prompt text for the active feature's additional-context folder \(--action sort\|preview\|undo\|list\|file-prompt\) |
 | `followup` | Record, list, take, settle, promote or report what a feature left unfinished \(--action add\|list\|take\|settle\|promote\|report\) |
 | `lifecycle` | Open follow-ups, feature tracking, releases and status for the project \(--action overview\|init\|release\|status\|merged\) |
 | `goal` | Add, check, link, list or close a goal and its checklist \(--action add\|item\|check\|link\|list\|done\) |
@@ -146,6 +147,7 @@ These are `doflow` CLI commands, plus one `doflow-run` shell verb (`render-diagr
 | `outcome` | Workflow and evidence | record a task's terminal state with its basis, or show what was recorded |
 | `scaffold` | Workflow and evidence | emit the code scaffold the active feature's artifacts imply |
 | `decision` | Workflow and evidence | register, list or compact the active feature's decisions |
+| `intake` | Workflow and evidence | sort, preview, undo, list or file prompt text for the feature's additional-context folder |
 | `followup` | Workflow and evidence | record, list, take, settle, promote or report what a feature left unfinished |
 | `lifecycle` | Workflow and evidence | overview, init, status, release or merged: follow-ups and feature tracking for the project |
 | `goal` | Workflow and evidence | add, check, link, list or close a goal and its checklist |

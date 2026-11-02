@@ -413,6 +413,7 @@ Workflow and evidence:
   outcome          record a task's terminal state with its basis, or show what was recorded
   scaffold         emit the code scaffold the active feature's artifacts imply
   decision         register, list or compact the active feature's decisions
+  intake           sort, preview, undo, list or file prompt text for the feature's additional-context folder
   followup         record, list, take, settle, promote or report what a feature left unfinished
   lifecycle        overview, init, status, release or merged: follow-ups and feature tracking for the project
   goal             add, check, link, list or close a goal and its checklist
@@ -554,7 +555,7 @@ shell_helper_for() {
 # command list; an unbuilt verb is dispatched and the CLI answers for itself.
 is_node_verb() {
   case "$1" in
-    classify|workflow|route|evidence|claim|readiness|context-pack|context-emit|context-grant|retrieval-plan|outcome|scaffold|decision|followup|lifecycle|goal|failure|verify|recover|leak-scan|\
+    classify|workflow|route|evidence|claim|readiness|context-pack|context-emit|context-grant|retrieval-plan|outcome|scaffold|decision|intake|followup|lifecycle|goal|failure|verify|recover|leak-scan|\
 trace|stats|indicators|discover|inventory|capabilities|enforcement|doctor|config|orchestrate|research-request|task-attempt|worker|dispatch|retrieve|model-role|storage|brief-tools|advise|roadmap|plan-check|review|protocol|rules|primary|fleet|transcript|package|slot|models|worktree|attendance) return 0 ;;
     *) return 1 ;;
   esac
