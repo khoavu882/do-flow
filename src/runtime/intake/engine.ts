@@ -210,7 +210,8 @@ function directClaim(categories: any[], name: string): any {
 
 /**
  * Plans a sort of the loose files (IC-002). Pure with respect to the folder: it reads, hashes and decides, and
- * writes nothing. A companion rule sends a file beside a same-stem file that is itself moving in this plan.
+ * writes nothing. A companion rule sends a file beside a same-stem file that is itself moving in this plan, or
+ * that already sits in the category folder or is recorded `done` in the manifest.
  */
 function planSort({ contextDir, taxonomy, now, fsImpl = nodeFs, withHashes = true }: any): any {
   const { files, dirs, unsupported } = rootEntries(contextDir, fsImpl);
@@ -233,6 +234,23 @@ function planSort({ contextDir, taxonomy, now, fsImpl = nodeFs, withHashes = tru
     return { dir: claim.rule.into ? rel(folder, claim.rule.into) : folder, categoryId: claim.category.id };
   };
 
+  // A partner that no longer is loose: already in the category folder, or recorded `done` by an earlier run. This
+  // settles a render stranded by a crash or by a recent-window skip while its source moved.
+  let doneMoves: any[] | null = null;
+  const settledPartnerPlace = (category: any, rule: any, name: string): { dir: string; categoryId: string } | null => {
+    const stem = stemOf(name);
+    for (const sourceRule of category.rules) {
+      if (sourceRule.companionOf) continue;
+      const place = placeOf({ category, rule: sourceRule });
+      const isPartner = (other: string): boolean => stemOf(other) === stem && rule.companionOf.includes(extOf(other)) && sourceRule.extensions.includes(extOf(other));
+      const folder = lstatOrNull(fsImpl, path.join(contextDir, place.dir));
+      if (folder && folder.isDirectory() && fsImpl.readdirSync(path.join(contextDir, place.dir), { withFileTypes: true }).some((entry: any) => entry.isFile() && isPartner(entry.name))) return place;
+      doneMoves ??= readManifest(contextDir, fsImpl).runs.flatMap((run: any) => run.moves.filter((move: any) => move.state === 'done'));
+      if (doneMoves.some((move: any) => path.posix.dirname(move.to) === place.dir && isPartner(path.posix.basename(move.to)))) return place;
+    }
+    return null;
+  };
+
   // Phase 2: the final claim of each file, rules in order, a companion rule resolved against the movers.
   const claimOf = (name: string): { dir: string; categoryId: string } | null => {
     for (const category of taxonomy.categories) {
@@ -242,6 +260,8 @@ function planSort({ contextDir, taxonomy, now, fsImpl = nodeFs, withHashes = tru
         const stem = stemOf(name);
         const partner = movers.find((other: string) => other !== name && stemOf(other) === stem && rule.companionOf.includes(extOf(other)));
         if (partner) return placeOf(direct.get(partner));
+        const settled = settledPartnerPlace(category, rule, name);
+        if (settled) return settled;
       }
     }
     return null;

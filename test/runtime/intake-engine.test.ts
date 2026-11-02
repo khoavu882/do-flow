@@ -108,6 +108,37 @@ test('a render whose source is skipped as recent is not claimed', (t: any) => {
   assert.deepEqual(result.unmatched, ['a.png']);
 });
 
+test('a render stranded after its source moved (a failed move) follows into the category folder on the next run', (t: any) => {
+  const { ctx } = tree(t, { 'a.mmd': 'x', 'a.png': Buffer.from([1]) });
+  const fsImpl = { ...fs, linkSync(from: string, to: string) { if (to.endsWith('a.png')) throw Object.assign(new Error('EIO: simulated'), { code: 'EIO' }); fs.linkSync(from, to); } };
+  assert.deepEqual(movesOf(sort(ctx, { fsImpl })), ['a.mmd>hld/diagrams/a.mmd']);
+  assert.ok(fs.existsSync(path.join(ctx, 'a.png')), 'the render is stranded at the root');
+  assert.deepEqual(movesOf(sort(ctx)), ['a.png>hld/diagrams/a.png']);
+  assert.deepEqual(snapshot(ctx), { 'hld/': 'dir', 'hld/diagrams/': 'dir', 'hld/diagrams/a.mmd': sha('x'), 'hld/diagrams/a.png': sha(Buffer.from([1])) });
+});
+
+test('a render skipped as recent while its source moved is sorted once it is old enough', (t: any) => {
+  const now = LATER();
+  const { ctx } = tree(t, { 'a.mmd': 'x', 'a.png': Buffer.from([1]), 'b.png': Buffer.from([2]) }, now);
+  const recent = new Date(now.getTime() - 5000);
+  fs.utimesSync(path.join(ctx, 'a.png'), recent, recent);
+  const first = sort(ctx, { now });
+  assert.deepEqual(movesOf(first), ['a.mmd>hld/diagrams/a.mmd']);
+  assert.deepEqual(first.skipped, [{ path: 'a.png', reason: 'recent' }]);
+  assert.deepEqual(movesOf(sort(ctx, { now: new Date(now.getTime() + 60_000) })), ['a.png>hld/diagrams/a.png']);
+  assert.ok(fs.existsSync(path.join(ctx, 'b.png')), 'a render with no source anywhere still stays');
+});
+
+test('a render follows a source the manifest records as done, even when the user has since moved that source away', (t: any) => {
+  const { ctx } = tree(t, { 'a.mmd': 'x' });
+  sort(ctx);
+  fs.renameSync(path.join(ctx, 'hld', 'diagrams', 'a.mmd'), path.join(ctx, 'a.mmd.keep'));
+  fs.writeFileSync(path.join(ctx, 'a.png'), 'img');
+  const old = new Date(Date.now() - 2 * 86_400_000);
+  fs.utimesSync(path.join(ctx, 'a.png'), old, old);
+  assert.deepEqual(movesOf(sort(ctx)), ['a.png>hld/diagrams/a.png']);
+});
+
 test('an existing folder with a known name is reused; no second design folder appears (FR-003)', (t: any) => {
   const { ctx } = tree(t, { 'architecture/old.md': 'old', 'system-architecture.md': 'new' });
   const result = sort(ctx);
