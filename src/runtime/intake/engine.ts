@@ -131,10 +131,17 @@ function hashBytes(buffer: Buffer): string { return `sha256:${nodeCrypto.createH
 
 const rel = (...parts: string[]): string => parts.join('/');
 
-/** The context folder as a real directory, or null when absent. A link or a plain file there is refused. */
+/**
+ * The context folder as a real directory, or 'absent'. A link or a plain file there is refused, and so is every
+ * action when the feature folder above it does not exist (a wrong `--slug` is a usage error, not an empty folder).
+ */
 function contextState(contextDir: string, fsImpl: any): 'absent' | 'present' {
   const stat = lstatOrNull(fsImpl, contextDir);
-  if (!stat) return 'absent';
+  if (!stat) {
+    const parent = lstatOrNull(fsImpl, path.dirname(contextDir));
+    if (!parent || !parent.isDirectory()) throw new IntakeUsageError(`${path.dirname(contextDir)} is not a feature folder that exists`);
+    return 'absent';
+  }
   if (stat.isSymbolicLink()) throw new IntakeUsageError(`${contextDir} is a symbolic link; intake works only inside a real additional-context folder`);
   if (!stat.isDirectory()) throw new IntakeUsageError(`${contextDir} exists and is not a folder`);
   return 'present';
@@ -591,11 +598,7 @@ function listFolder({ contextDir, taxonomy, fsImpl = nodeFs }: any): any {
  */
 function filePrompt({ contextDir, taxonomy, bytes, stage = null, now = new Date(), fsImpl = nodeFs }: any): any {
   if (!Buffer.isBuffer(bytes) || bytes.length === 0) throw new IntakeUsageError('there is no prompt text to file: the input is empty');
-  if (contextState(contextDir, fsImpl) === 'absent') {
-    const parent = lstatOrNull(fsImpl, path.dirname(contextDir));
-    if (!parent || !parent.isDirectory()) throw new IntakeUsageError(`${path.dirname(contextDir)} is not a feature folder that exists`);
-    makeDir(fsImpl, contextDir);
-  }
+  if (contextState(contextDir, fsImpl) === 'absent') makeDir(fsImpl, contextDir);
   return withManifestLock(contextDir, (assertHeld: () => void) => {
     const manifest = readManifest(contextDir, fsImpl);
     if (reconcile(manifest, contextDir, now, fsImpl, assertHeld)) writeManifest(contextDir, manifest, fsImpl, assertHeld);

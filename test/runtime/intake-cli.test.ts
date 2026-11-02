@@ -210,6 +210,19 @@ test('exit 2: no action, an unknown action, no input, empty input, both inputs, 
   assert.ok(!fs.existsSync(path.join(none.repo, 'agent-docs')), 'nothing is created without a feature');
 });
 
+test('exit 2: an unknown --slug is the same usage error for every action, and nothing is created', () => {
+  const { repo, feature } = makeRepo();
+  const messages = new Set<string>();
+  for (const action of ['sort', 'preview', 'list', 'undo', 'file-prompt']) {
+    const run = intake(repo, ['--action', action, '--slug', 'no-such-feature', ...(action === 'file-prompt' ? ['--stdin'] : [])], 'x');
+    assert.equal(run.status, 2, `${action}: ${run.stdout}${run.stderr}`);
+    messages.add(run.stderr.replace(/\s+/g, ' ').trim());
+  }
+  assert.equal(messages.size, 1, [...messages].join(' | '));
+  assert.ok(!fs.existsSync(path.join(repo, 'agent-docs', 'doflow', 'no-such-feature')));
+  assert.ok(!fs.existsSync(path.join(feature, 'additional-context')));
+});
+
 test('exit 2: a manifest from a newer schema is refused and left as it was', () => {
   const { repo, ctx } = makeRepo();
   put(ctx, { 'prd.md': 'a' });
