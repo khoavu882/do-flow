@@ -42,26 +42,20 @@ and gate answer that defers work:
 
 ## Unattended stage
 
-Run `"$DOFLOW" attendance --task-id "<feature_slug>"` once per stage. `attended` (or no reply) means
-ask as the skill says. `unattended <source>` means no one is watching: RULE_04 applies and these
-rules replace every ask in the skill.
+Per stage run `"$DOFLOW" attendance --task-id "<feature_slug>"`. Unless it printed a line starting
+`unattended`, ask as the skill says. Otherwise RULE_04 applies and:
 
-1. **No asks, no gate decisions.** `gate-0`, `gate-a`, `gate-b` and every pause are the loop's: call
-   no `decide-gate` (not even for zero markers), hand off and stop. `awaiting-gate:` in a result
-   means the loop held the row. Silence is never approval; a gate is never a RULE_04 default.
-2. **Class and slug come from the run.** Propose no class: `taskClass` in
-   `"$DOFLOW" orchestrate --action status --task-id "<feature_slug>" --json` is the class. The slug
-   is `feature_slug` of the `feat/<slug>` branch. A rejected class, several slug candidates, two
-   stages matching `--from`, or readiness `ASK_USER` halts (rule 4).
-3. **Record an adopted default** in the stage's decision batch: `channel` `default`, `rationale`
-   `unattended:<source>`, `stage` the nearest ownership-table name for the stage.
-4. **Halt, never hand off.** With no sensible default, a contract change the person did not ask
-   for, or a denied permission, run
-   `"$DOFLOW" followup --action add --stage <stage> --statement "<the question and why it blocks>"`,
-   report it and stop without the handoff; the row is held, not spent.
-5. **Never apply `--fix`** (report options; `/do-implement` owns the edit) **or send private
-   context** (resolve the request `unresolved`: no authorization, unattended).
-6. **Commit where the envelope says:** `commit.branch` (`feat/<slug>`), in the stage's worktree.
+1. **Ask nothing, decide no gate.** Gates are the loop's: no `decide-gate` (not even for zero
+   markers); hand off and stop. A gate is never a default, nor is closing a goal.
+2. **The run supplies** the class (`taskClass` in `orchestrate --action status --task-id
+   "<feature_slug>" --json`), the slug (the `feat/<slug>` branch) and `commit.branch`. A rejected
+   class, several slugs, a `--from` clash or readiness `ASK_USER` halts.
+3. **Record an adopted default** in the decision batch: `channel` `default`, `rationale`
+   `unattended:<source>`, `stage` the nearest accepted ownership-table name.
+4. **Halt, never hand off,** when no sensible default exists, a contract would change or a
+   permission is denied: `"$DOFLOW" followup --action add --stage <stage as in 3> --statement
+   "<why it blocks>"`, report and stop; the row is held.
+5. **Never apply `--fix` or send private context** (leave the request `unresolved`).
 
 ## The handoff call
 

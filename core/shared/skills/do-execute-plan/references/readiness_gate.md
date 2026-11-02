@@ -76,7 +76,7 @@ with `--mode`:
 | :--- | :--- | :--- |
 | `READY` | `ENTER` | `ENTER` |
 | `NEEDS_EVIDENCE` | `GATHER_FIRST` — gather the named requirements before entering the stage | `ENTER` — the unmet contract is reported, not enforced; relay it in the result |
-| `NEEDS_USER_DECISION` | `ASK_USER` — ask through RULE_04 (`rules/RULES.md`) and wait; unattended, halt and never default it | `ASK_USER` — same; a small edit does not cure an owed decision |
+| `NEEDS_USER_DECISION` | `ASK_USER` — ask through RULE_04 (`rules/RULES.md`) and wait | `ASK_USER` — same; a small edit does not cure an owed decision |
 | `BLOCKED` | `STOP` — never modify source; surface which claim and which evidence | `STOP` — same |
 
 `workflow` is an orchestrated run (`do-flow`, `do-execute-plan`); `standalone` is a declared
@@ -163,7 +163,7 @@ Record an absence with `--absence --need <intent>`; a positive item never states
   another task, or against another class's contract, is worse than no verdict.
 - **Act on `stageEntry.decision`, not the exit code and not your own reading of `state`.** The
   entry policy is the runtime's: `ENTER` → dispatch the task; `GATHER_FIRST` → gather the named
-  requirements before dispatching; `ASK_USER` → ask the owed decision and wait (unattended: halt per RULE_04, never default it); `STOP` → stop
+  requirements before dispatching; `ASK_USER` → ask the owed decision and wait; `STOP` → stop
   and surface the conflicted claim. The four underlying states remain the entire state
   vocabulary — `READY`, `NEEDS_EVIDENCE`, `NEEDS_USER_DECISION`, `BLOCKED` — and none of them is
   ever reported as a number, a percentage, or a confidence.

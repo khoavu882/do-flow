@@ -86,7 +86,7 @@ not declare is not run here, however familiar it is from the `feature` chain.
      Both `--task-class` and `--task-id` are required; omitting either exits 2 and names the valid
      set. Act on the returned `stageEntry.decision` — the entry policy is the runtime's, not this
      page's: `ENTER` → enter the stage; `GATHER_FIRST` → report the missing items and gather them
-     first, do not enter; `ASK_USER` → ask the owed decision and wait (unattended: halt per RULE_04, never default it); `STOP` → stop and surface
+     first, do not enter; `ASK_USER` → ask the owed decision and wait; `STOP` → stop and surface
      the conflicted claim.
    - `readinessTemplate` is `null` — enter the stage. Do not consult readiness "to be safe": a
      workflow whose `requiresImplementationReadiness` is `false` has no implementation to be ready

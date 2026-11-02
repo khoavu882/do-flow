@@ -31,13 +31,13 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
 
 Run every command below from the project root — the walk-up starts at `$PWD`. On exit 2, print the message verbatim and stop; it names every path searched.
 
-Once per stage run `"$DOFLOW" attendance --task-id "<feature_slug>"`; on `unattended` follow `references/WORKFLOW_HANDOFF.md` § Unattended stage (RULE_04).
-
 ```bash
 "$DOFLOW" paths --json
 ```
 
-`feature_slug` `null` with a non-empty `candidate_slugs` is an unresolved choice, not "no active feature": ask one option per entry (unattended: halt per RULE_04, never pick), re-resolve with `"$DOFLOW" paths --json --slug="<chosen>"`, and use that slug for the rest of this flow. `/do-flow` passing `--slug` already resolves it — no prompt then.
+`feature_slug` `null` with a non-empty `candidate_slugs` is an unresolved choice, not "no active feature": ask one option per entry, re-resolve with `"$DOFLOW" paths --json --slug="<chosen>"`, and use that slug for the rest of this flow. `/do-flow` passing `--slug` already resolves it — no prompt then.
+
+Once per stage, after `feature_slug` resolves, run `"$DOFLOW" attendance --task-id "<feature_slug>"`; `unattended` → `references/WORKFLOW_HANDOFF.md` § Unattended stage.
 
 2. **Propose one task class; the runtime validates it** — name exactly one class id for the work
    being designed. `/do-flow` passes one when it invoked this skill; a user who named one settles
@@ -48,7 +48,7 @@ Once per stage run `"$DOFLOW" attendance --task-id "<feature_slug>"`; on `unatte
    ```
 Branch on the returned `outcome` field, not the exit code.
 - **`ACCEPTED`** — the returned `workflow` is this run's plan of record; read `stages`, `gates` and `handoff` off it rather than from memory.
-- **`REJECTED`** — **stop.** Print `message` verbatim (it already names `validClasses` and any `suggestions`), ask the user to choose from `validClasses`, then re-validate. Never substitute `feature`. Unattended: propose no class; the run's own class (`taskClass` in `orchestrate --action status`) is the class, and a rejection halts per RULE_04 (§ Unattended stage).
+- **`REJECTED`** — **stop.** Print `message` verbatim (it already names `validClasses` and any `suggestions`), ask the user to choose from `validClasses`, then re-validate. Never substitute `feature`.
   A rejection may be about **you** rather than the class (`reason: caller-not-a-stage`). Then the fix is to propose one of the classes in `fit.hostingClasses`, or to hand the work to the skill this class names for the stage you meant — not to re-propose the same class.
 - **Exit 2** — surface the message verbatim and stop.
 

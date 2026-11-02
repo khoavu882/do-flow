@@ -41,8 +41,6 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
 ```
 Run every command below from the project root — the walk-up starts at `$PWD`. On exit 2, print the message verbatim and stop; it names every path searched.
 
-Once per stage run `"$DOFLOW" attendance --task-id "<feature_slug>"`; on `unattended` follow `references/WORKFLOW_HANDOFF.md` § Unattended stage (RULE_04). A loop-run row commits its change on `feat/<slug>` (the perform envelope's `commit.branch`), in the stage's worktree.
-
 1. **Gather context — don't demand it**:
    - Invoked after `/do-code-review` or `/code-review` in this conversation, or with
      `--from-review`: treat that review's findings as the work list, most-severe first, in the
@@ -54,6 +52,8 @@ Once per stage run `"$DOFLOW" attendance --task-id "<feature_slug>"`; on `unatte
    - MCP `context7`: when implementing against external libraries or upgrading dependencies, verify APIs per `MCP_Context7.md`.
 
 **Stop when** every work-list finding the contract names has an answer or a stated gap, **and** the last round produced no new work-list finding. A round that only restates what you already have is the last round. Report the remaining gaps rather than continuing.
+
+Once per stage, after `feature_slug` resolves, run `"$DOFLOW" attendance --task-id "<feature_slug>"`; `unattended` → `references/WORKFLOW_HANDOFF.md` § Unattended stage.
 
 2. **Resolve the task id, then evaluate readiness — skip only when standalone**:
    - `<task id>` is the same unit every recording stage keys on: the plan task id when one exists,
@@ -80,8 +80,7 @@ Once per stage run `"$DOFLOW" attendance --task-id "<feature_slug>"`; on `unatte
      Branch on the returned `outcome`, not the exit code. `ACCEPTED` — the returned `workflow` names
      the validated class to evaluate readiness against. `REJECTED` — stop, print `message` verbatim
      (it names `validClasses`), ask the user to choose from that set, then re-validate; never
-     substitute `feature` for the class that was rejected. Unattended: propose no class; the run's own
-     class (`taskClass` in `orchestrate --action status`) is the class, and a rejection halts per RULE_04.
+     substitute `feature` for the class that was rejected.
    - Evaluate readiness before modifying anything. `do-implement` is the declared one-off path, so
      it states that mode explicitly — the exemption is a flag, never an inference:
      ```bash
@@ -98,8 +97,7 @@ Once per stage run `"$DOFLOW" attendance --task-id "<feature_slug>"`; on `unatte
      - **`STOP`** — refuse to modify source. Report which claim is conflicted and what evidence
        disagrees, then stop. Do not edit anyway.
      - **`ASK_USER`** — a decision is owed by the user. Ask it through RULE_04 (`rules/RULES.md`)
-       mechanism and wait; editing first would decide it silently on their behalf. Unattended: `ASK_USER`
-       is the person's decision, so halt per RULE_04 and never default it.
+       mechanism and wait; editing first would decide it silently on their behalf.
      - **`ENTER`** — proceed to the context-pack call below. In standalone mode this includes
        `NEEDS_EVIDENCE`: the unmet contract is reported, not enforced — relay the missing
        requirements in step 6's report rather than presenting the edit as fully evidenced. When a
