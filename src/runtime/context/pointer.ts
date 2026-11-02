@@ -4,7 +4,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { loadTaxonomy, isPlainText } = require('../intake/taxonomy.ts');
+const { loadTaxonomy, isPlainText, isUserContextPath } = require('../intake/taxonomy.ts');
 
 /** The user's own files (feature 136's intake): a feature folder's `additional-context/`. Markdown there up to
  * `pointerMaxBytes` of core/registry/intake.json becomes pointers; nothing else does. */
@@ -16,9 +16,9 @@ function userPointerMaxBytes(file?: string): number | null {
   return loaded.ok ? loaded.taxonomy.pointerMaxBytes : null;
 }
 
-/** `'user-provided'` for a project-relative path with an `additional-context` segment, else null. */
+/** `'user-provided'` for a project-relative path inside `agent-docs/doflow/<slug>/additional-context/`, else null. */
 function originOf(rel: string): 'user-provided' | null {
-  return rel.split('/').includes(USER_CONTEXT_DIR) ? 'user-provided' : null;
+  return isUserContextPath(rel) ? 'user-provided' : null;
 }
 
 function sha256(text: string): string {

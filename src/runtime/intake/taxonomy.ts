@@ -190,4 +190,14 @@ function isPlainText(buffer: Buffer): boolean {
   }
 }
 
-module.exports = { isPlainText, loadTaxonomy, validateTaxonomy, validateCategory, categoryFolder, INTAKE_FILE };
+/**
+ * True for a `/`-separated path inside a feature's user-context folder: `agent-docs/doflow/<slug>/additional-context/`
+ * anywhere in it (a main checkout, a linked worktree or a relative path between them). A folder of that name
+ * elsewhere in a project (`src/additional-context/`) is not the user's.
+ */
+function isUserContextPath(file: string): boolean {
+  const parts = file.split('/');
+  return parts.some((part, i) => part === 'agent-docs' && parts[i + 1] === 'doflow' && Boolean(parts[i + 2]) && parts[i + 3] === 'additional-context');
+}
+
+module.exports = { isUserContextPath, isPlainText, loadTaxonomy, validateTaxonomy, validateCategory, categoryFolder, INTAKE_FILE };

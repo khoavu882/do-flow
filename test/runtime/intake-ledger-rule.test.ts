@@ -33,6 +33,18 @@ test('addEvidence accepts a user file cited with the user-provided source', () =
   assert.equal(ledger.getEvidence(prompt).kind, 'user-statement');
 });
 
+test('the rule fires only inside a feature folder\'s additional-context, and needs the intake provider', () => {
+  const ledger = new EvidenceLedger();
+  const semble = { provider: 'semble', capability: 'semantic-retrieval' };
+  for (const file of ['src/additional-context/index.ts', 'lib/additional-context/a.md', 'agent-docs/additional-context/a.md', 'agent-docs/doflow/additional-context/a.md', 'agent-docs/doflow/136-x/notes/additional-context/a.md']) {
+    assert.ok(ledger.addEvidence({ kind: 'semantic-retrieval', source: semble, locator: { file } }), file);
+  }
+  const user = 'agent-docs/doflow/136-x/additional-context/prd/prd.md';
+  assert.throws(() => ledger.addEvidence({ kind: 'documentation', source: { provider: 'semble', capability: 'user-provided' }, locator: { file: user } }), /doflow\.intake/);
+  assert.throws(() => ledger.addEvidence({ kind: 'documentation', source: { provider: 'doflow.intake', capability: 'general' }, locator: { file: user } }), /user-provided/);
+  assert.ok(ledger.addEvidence({ kind: 'documentation', source: USER_SOURCE, locator: { file: user } }));
+});
+
 test('the rule fires only on an additional-context path segment', () => {
   const ledger = new EvidenceLedger();
   for (const file of ['src/additional-context-helper.ts', 'docs/my-additional-context.md', 'additional-contexts/a.md', 'a.js']) {

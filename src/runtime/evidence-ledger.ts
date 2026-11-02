@@ -9,6 +9,7 @@ const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { updateTaskState, readTaskState, mergeRecords } = require('./task-state.ts');
 const { taskRecord } = require('./task-scope.ts');
 const { assertNoScoreFields } = require('./evidence-fields.ts');
+const { isUserContextPath } = require('./intake/taxonomy.ts');
 
 const VALID_EVIDENCE_KINDS = new Set([
   'exact-search',
@@ -25,8 +26,9 @@ const VALID_EVIDENCE_KINDS = new Set([
 
 const VALID_PROVENANCE = new Set(['extracted', 'inferred', 'asserted']);
 
-/** The user's own files (feature 136's intake) and the one source capability allowed to cite them. */
+/** The user's own files (feature 136's intake) and the one source allowed to cite them. */
 const USER_CONTEXT_DIR = 'additional-context';
+const USER_PROVIDER = 'doflow.intake';
 const USER_PROVIDED_CAPABILITY = 'user-provided';
 
 /** An item's lifecycle status, distinct from `freshness.status` (a snapshot judgment about the
@@ -158,14 +160,15 @@ class EvidenceLedger {
       capability: 'general',
     };
 
-    // A file in the user's additional-context folder is the user's data, not a repo observation:
-    // it is cited only with the user-provided source, wherever the checkout holding it sits.
+    // A file in a feature's additional-context folder is the user's data, not a repo observation:
+    // it is cited only with the intake's user-provided source, wherever the checkout holding it sits.
     if (typeof item.locator?.file === 'string'
-      && item.locator.file.split('/').includes(USER_CONTEXT_DIR)
-      && source.capability !== USER_PROVIDED_CAPABILITY) {
+      && isUserContextPath(item.locator.file)
+      && !(source.provider === USER_PROVIDER && source.capability === USER_PROVIDED_CAPABILITY)) {
       throw new Error(
-        `Evidence locator '${item.locator.file}' is in the ${USER_CONTEXT_DIR} folder; cite it with source `
-        + `{ provider: 'doflow.intake', capability: '${USER_PROVIDED_CAPABILITY}' }, not '${source.capability}'`,
+        `Evidence locator '${item.locator.file}' is in a feature's ${USER_CONTEXT_DIR} folder; cite it with source `
+        + `{ provider: '${USER_PROVIDER}', capability: '${USER_PROVIDED_CAPABILITY}' }, not `
+        + `{ provider: '${source.provider}', capability: '${source.capability}' }`,
       );
     }
 
