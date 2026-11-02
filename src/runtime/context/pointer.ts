@@ -4,6 +4,22 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { loadTaxonomy, isPlainText, isUserContextPath } = require('../intake/taxonomy.ts');
+
+/** The user's own files (feature 136's intake): a feature folder's `additional-context/`. Markdown there up to
+ * `pointerMaxBytes` of core/registry/intake.json becomes pointers; nothing else does. */
+const USER_CONTEXT_DIR = 'additional-context';
+
+/** The registry's byte cap, or null when the taxonomy cannot be read (intake is then off: no user pointers). */
+function userPointerMaxBytes(file?: string): number | null {
+  const loaded = loadTaxonomy({ file, contributions: false });
+  return loaded.ok ? loaded.taxonomy.pointerMaxBytes : null;
+}
+
+/** `'user-provided'` for a project-relative path inside `agent-docs/doflow/<slug>/additional-context/`, else null. */
+function originOf(rel: string): 'user-provided' | null {
+  return isUserContextPath(rel) ? 'user-provided' : null;
+}
 
 function sha256(text: string): string {
   return `sha256:${crypto.createHash('sha256').update(text, 'utf8').digest('hex')}`;
@@ -79,19 +95,39 @@ function createPointer({ path: rel, heading, range, slice }: any): any {
     tokensEst: { value: Math.ceil(bytes / 4), basis: 'estimated:bytes/4' },
     inlineBytes: Buffer.byteLength(`- ptr:${rel}:${range.startLine}-${range.endLine} ${rel}:${range.startLine}-${range.endLine} ${bytes} B\n`, 'utf8'),
     load: `read ${rel} lines ${range.startLine}-${range.endLine}`,
+    origin: originOf(rel),
   };
 }
 
-function sourceFiles({ projectRoot, feature, fsImpl = fs }: any): Array<{ absolute: string; requirement: boolean }> {
+/** Visible, regular `.md` files under a context folder, `.intake/` and every dotfile or symlink left out,
+ * in byte order of path. A folder that is absent, or itself a symlink, gives none. */
+function userContextFiles(dir: string, fsImpl = fs): string[] {
+  const found: string[] = [];
+  const walk = (current: string) => {
+    let entries: any[];
+    try { entries = fsImpl.readdirSync(current, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || entry.isSymbolicLink()) continue;
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) found.push(full);
+    }
+  };
+  try { if (fsImpl.lstatSync(dir).isSymbolicLink()) return []; } catch { return []; }
+  walk(dir);
+  return found.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+}
+
+function sourceFiles({ projectRoot, feature, fsImpl = fs, intakeFile }: any): Array<{ absolute: string; requirement: boolean }> {
   const root = path.resolve(projectRoot);
   const featureDir = feature?.featureDir ? path.resolve(feature.featureDir) : null;
   const candidates: Array<{ absolute: string; requirement: boolean }> = [];
-  const add = (file: string | null | undefined, requirement = false) => {
+  const add = (file: string | null | undefined, requirement = false, maxBytes = Infinity) => {
     if (!file) return;
     const absolute = path.isAbsolute(file) ? file : path.resolve(feature?.repoRoot || root, file);
     let stat: any;
     try { stat = fsImpl.statSync(absolute); } catch { return; }
-    if (!inside(root, absolute, fsImpl) || !stat.isFile()) return;
+    if (!inside(root, absolute, fsImpl) || !stat.isFile() || stat.size > maxBytes) return;
     if (!candidates.some((item) => item.absolute === absolute)) candidates.push({ absolute, requirement });
   };
   if (featureDir) {
@@ -106,20 +142,35 @@ function sourceFiles({ projectRoot, feature, fsImpl = fs }: any): Array<{ absolu
       path.join(featureDir, 'design.md'),
       path.join(featureDir, 'plan.md'),
     ]) add(file);
+    const maxBytes = userPointerMaxBytes(intakeFile);
+    if (maxBytes !== null) {
+      for (const file of userContextFiles(path.join(featureDir, USER_CONTEXT_DIR), fsImpl)) add(file, false, maxBytes);
+    }
   }
   return candidates;
 }
 
-function collectPointers({ projectRoot, feature, fsImpl = fs }: any): any[] {
+/** `intakeFile` overrides the intake registry path (tests); the default is core/registry/intake.json. */
+function collectPointers({ projectRoot, feature, fsImpl = fs, intakeFile }: any): any[] {
   const root = path.resolve(projectRoot);
   const pointers: any[] = [];
-  for (const source of sourceFiles({ projectRoot: root, feature, fsImpl })) {
+  for (const source of sourceFiles({ projectRoot: root, feature, fsImpl, intakeFile })) {
   const rel = inside(root, source.absolute, fsImpl);
     if (!rel) continue;
     let text: string;
-    try { text = fsImpl.readFileSync(source.absolute, 'utf8'); } catch { continue; }
+    try {
+      const data = fsImpl.readFileSync(source.absolute);
+      // A user's file may be anything saved as .md; only plain UTF-8 text becomes a pointer.
+      if (originOf(rel) && !isPlainText(data)) continue;
+      text = data.toString('utf8');
+    } catch { continue; }
     const lines = text.split(/\r?\n/);
-    for (const range of rangesFor(rel, text, source.requirement)) {
+    const ranges = rangesFor(rel, text, source.requirement);
+    // A user's markdown often opens with a title or runs without `##` headings; the sections alone would drop that text.
+    if (originOf(rel) && (!ranges.length || ranges[0].startLine > 1)) {
+      ranges.unshift({ startLine: 1, endLine: ranges.length ? ranges[0].startLine - 1 : lines.length, heading: null });
+    }
+    for (const range of ranges) {
       const slice = lineSlice(lines, range.startLine, range.endLine);
       if (!slice.trim()) continue;
       pointers.push(createPointer({ path: rel, heading: range.heading, range: { startLine: range.startLine, endLine: range.endLine }, slice }));
@@ -139,4 +190,4 @@ function readPointerSlice({ projectRoot, pointer, fsImpl = fs }: any): { slice: 
   } catch { return null; }
 }
 
-module.exports = { collectPointers, createPointer, readPointerSlice, sha256 };
+module.exports = { collectPointers, createPointer, originOf, readPointerSlice, sha256 };

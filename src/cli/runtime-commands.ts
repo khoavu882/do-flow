@@ -54,6 +54,7 @@ const { handleLeakScanCommand } = require('../runtime/leak-scan.ts');
 const { handleRecoverCommand } = require('../runtime/recovery.ts');
 const { handleScaffoldCommand } = require('../runtime/scaffold/generate.ts');
 const { handleDecisionCommand, isReservedChannel, CHANNEL_RESERVED } = require('../runtime/decision-register.ts');
+const { handleIntakeCommand } = require('../runtime/intake/index.ts');
 const { handleFollowupCommand, handleLifecycleCommand, handleGoalCommand } = require('../runtime/lifecycle/cli.ts');
 const { projectRoot: lifecycleProjectRoot } = require('../runtime/lifecycle/root.ts');
 const { upkeepAfterVerb } = require('../runtime/storage/upkeep.ts');
@@ -381,6 +382,8 @@ function dispatchRuntimeCommandInner(o: any, moment: any): any {
     // The feature is resolved from the working directory (or --slug) by the same resolver
     // `scaffold` uses; the flags are the caller's own statements, validated by the register module.
     case 'decision': return handleDecisionCommand({ action: o.action, projectRoot: evidenceRoot(o), slug: o.slug, json: o.json, flags: { topic: o.topic, statement: o.statement, channel: o.channel, stage: o.stage, rationale: o.rationale, supersedes: o.supersedes, refs: o.refs, source: o.source, batch: o.batchPath, all: o.all } });
+    // 136: the feature is resolved the way `decision` resolves it; the engine moves files only inside its additional-context folder.
+    case 'intake': return handleIntakeCommand({ action: o.action, projectRoot: evidenceRoot(o), slug: o.slug, json: o.json, flags: { runId: o.runId, stdin: o.stdin, file: o.file, stage: o.stage } });
     // Feature 046: the project's follow-up store lives at the repository root (never `-g`, which
     // the handlers refuse), so the working directory is the starting point, not a scope switch.
     case 'followup': return handleFollowupCommand({ action: o.actionGiven ? o.action : undefined, cwd: evidenceRoot(o), global: o.global, slug: o.slug, json: o.json, flags: { statement: o.statement, stage: o.stage, source: o.source, taskClass: o.taskClass, taskId: o.taskId, release: o.release, batch: o.batchPath, channel: o.channel, state: o.state, ids: o.ids, as: o.as, reason: o.reason, evidence: o.evidence, title: o.title, file: o.file, stdin: o.stdin, text: o.text, feature: o.feature, tag: o.tag, confirm: o.confirm, exclude: o.exclude } });

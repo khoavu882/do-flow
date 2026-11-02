@@ -42,6 +42,15 @@ function presetValidator(kind: string) {
   };
 }
 
+/** An intake category contributed by a package (136 IC-006): IC-005's category shape, whose `id` is the contribution id. */
+function intakeCategoryValidator(id: string, entry: any, context: any = {}): string[] {
+  const { validateCategory } = require('../intake/taxonomy.ts');
+  const location = context.packageId ? `package '${context.packageId}' intake category '${id}'` : `intake category '${id}'`;
+  const errors: string[] = validateCategory(entry, location);
+  if (entry && typeof entry === 'object' && !Array.isArray(entry) && entry.id !== id) errors.push(`${location}.id must equal the contribution id '${id}'`);
+  return errors;
+}
+
 function workerValidator(id: string, worker: any, context: any = {}): string[] {
   const errors: string[] = [];
   const location = context.packageId ? `package '${context.packageId}' worker '${id}'` : `worker '${id}'`;
@@ -168,6 +177,7 @@ const POINT_VALIDATORS: Record<string, (id: string, entry: any, context?: any) =
   'agent-v1': agentValidator,
   'worker-v1': workerValidator,
   'capability-provider-v1': capabilityProviderValidator,
+  'intake-category-v1': intakeCategoryValidator,
 });
 
 function isObject(value: any): boolean {

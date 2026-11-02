@@ -277,6 +277,7 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--request', 'request'],            // classify: request text for an advisory second opinion
   ['--request-file', 'requestFile'],   // classify: request text read from a file
   // decision --action add. `--statement`, `--stage`, `--slug` and `--batch` above are shared.
+  ['--run-id', 'runId'],               // intake --action undo: the sort run to undo (default: the latest)
   ['--topic', 'topic'],                // the subject key a decision is live on
   ['--channel', 'channel'],            // question | gate | prompt | default | resolution
   ['--supersedes', 'supersedes'],      // comma-separated DEC-### ids this decision replaces
@@ -577,6 +578,7 @@ Commands:
                        config unset <key> --layer user|project|local [--json]   remove the key from that layer's file
   scaffold             Emit the reviewable code scaffold the active feature's artifacts imply
   decision             Register, list or compact the active feature's decisions (--action init|add|list|compact)
+  intake               Sort, preview, undo, list or file prompt text for the active feature's additional-context folder (--action sort|preview|undo|list|file-prompt)
   followup             Record, list, take, settle, promote or report what a feature left unfinished (--action add|list|take|settle|promote|report)
   lifecycle            Open follow-ups, feature tracking, releases and status for the project (--action overview|init|release|status|merged)
   goal                 Add, check, link, list or close a goal and its checklist (--action add|item|check|link|list|done)
@@ -777,6 +779,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
       --tag, --confirm, --feature,
       --exclude (repeatable), --reason      lifecycle (release, merged)
       --fp, --as, --reason, --set, --all    failure (list, settle, capture)
+      --run-id <id>                         intake --action undo (default: the latest sort run that has a move to undo)
+      --stdin | --file <path>, --stage      intake --action file-prompt (the text, unchanged, from exactly one of --stdin or --file; --stage names the filing stage)
       --harness, --need (repeatable),
       --model-check, --budget-tokens,
       --task, --token, --prompt-file,

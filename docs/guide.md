@@ -101,6 +101,30 @@ The plan and its checklist are the source of truth once planning is complete. `s
 
 Stop and update the requirements or design if a dependency, decision, or validation result makes the plan invalid.
 
+### Bring your own context
+
+Put the material you already have (a PRD, a meeting transcript, a design note, vendor documents) in the feature's `additional-context/` folder, loose and in any order. `/do-brainstorm` runs `doflow intake`, which sorts those files into the folders below and reports what it moved and what it left. Nothing is deleted or overwritten, every move is checked by hash, and a file saved in the last minute is left until the next run.
+
+```bash
+doflow intake --action preview        # show the moves, change nothing
+doflow intake --action sort           # move the files and record the run
+doflow intake --action undo           # put the last sorted run back
+doflow intake --action list           # every file with its folder, kind, size and hash
+doflow intake --action file-prompt --stdin   # keep pasted prompt text as a file
+```
+
+<!-- BEGIN GENERATED:intake-categories -->
+| Folder | Also accepted as | Takes | Purpose |
+|---|---|---|---|
+| `raw-prd` | prd, requirements | .md .txt .pdf .docx, name matches prd\|requirement\|brief\|epic\|story | Product requirement documents, briefs and stories as the user wrote them. |
+| `discuss-session` | meetings | .mp3 .m4a .wav .ogg .mp4 .mov .webm, into records/; .vtt .srt, into transcripts/; .txt .md, name matches transcript\|meeting\|minutes\|discuss\|session, into transcripts/ | Recordings, transcripts and notes of a discussion. |
+| `hld` | design, architecture | .mmd .puml .drawio .excalidraw, into diagrams/; .png .svg .jpg .jpeg, beside a .mmd .puml .drawio .excalidraw file; .md, name matches hld\|design\|architecture\|decision\|adr | High-level design notes, diagram sources and their rendered images. |
+| `references` | docs, vendor-docs | .pdf .docx .xlsx .pptx .html | Reference documents, spreadsheets and vendor material. |
+| `prompt` | — | — | Context pasted into the prompt, filed verbatim by the intake verb; no rule sorts a file here. |
+<!-- END GENERATED:intake-categories -->
+
+Stages cite these files as user-provided evidence, so a claim that rests on one points at the file you supplied. A package can add categories through the `intake-category` contribution point.
+
 ### Start or resume with one command
 
 `/do-flow` detects the active feature and starts at the first missing specification. It begins with discovery for a new feature, creates a design when only a requirement exists, creates a plan when design is the missing artifact, and asks for implementation approval when the specification set is complete.

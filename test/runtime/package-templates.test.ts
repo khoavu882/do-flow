@@ -29,6 +29,7 @@ test('every open point names a valid shipped template', () => {
     'package-templates/agent',
     'package-templates/worker',
     'package-templates/capability-provider',
+    'package-templates/intake-category',
   ]);
   assert.deepEqual(templateFindings({ registry: REAL, repoRoot: REPO_ROOT }), []);
 });

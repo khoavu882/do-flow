@@ -1,0 +1,4 @@
+{
+  "template": 1,
+  "path": "categories/{{local}}.json"
+}

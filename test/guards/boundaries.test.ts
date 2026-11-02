@@ -73,8 +73,10 @@ test('G-B2: inventory ratchets — registry files and adapters', () => {
   // (`src/runtime/transcripts/registry.ts`) so a bad file turns the transcript feature off instead of failing installs.
   // 22: `guidance-caps.json` (row 130) is the per-harness vendor size-cap table G74 reads. Not folded into
   // harnesses.json: each row cites a vendor page and date, and one harness can carry two caps of different scope.
-  assert.equal(registryEntries.length, 22,
-    `core/registry holds ${registryEntries.length} files; expected the ratcheted 22`);
+  // 23: `intake.json` (136 IC-005) is the additional-context sort taxonomy; like `transcripts.json` it has its own loader
+  // (`src/runtime/intake/taxonomy.ts`) so a bad file turns intake off instead of failing installs.
+  assert.equal(registryEntries.length, 23,
+    `core/registry holds ${registryEntries.length} files; expected the ratcheted 23`);
 
   // Stage 3 makes adapters thinner but never fewer: one directory per harness, plus the shared
   // copy-tree engine and the contract validator live as siblings.
