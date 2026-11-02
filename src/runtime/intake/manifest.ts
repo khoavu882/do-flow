@@ -87,13 +87,18 @@ function readManifest(contextDir: string, fsImpl: any = nodeFs): any {
   return data;
 }
 
-/** Writes the manifest whole: temp file, then rename, so a reader sees the old file or the new one. */
-function writeManifest(contextDir: string, manifest: any, fsImpl: any = nodeFs): void {
+/**
+ * Writes the manifest whole: temp file, then rename, so a reader sees the old file or the new one. `assertHeld`
+ * (from `withManifestLock`) is checked between the two: a writer that stalled past the lock's staleness and was
+ * reclaimed writes nothing (the way `updateTaskState` does).
+ */
+function writeManifest(contextDir: string, manifest: any, fsImpl: any = nodeFs, assertHeld: () => void = () => {}): void {
   const file = manifestFile(contextDir);
   fsImpl.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   try {
     fsImpl.writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+    assertHeld();
     fsImpl.renameSync(tmp, file);
   } catch (error: any) {
     try { fsImpl.rmSync(tmp, { force: true }); } catch { /* nothing to clean */ }
@@ -101,13 +106,22 @@ function writeManifest(contextDir: string, manifest: any, fsImpl: any = nodeFs):
   }
 }
 
-/** Runs `fn` holding the manifest's lock. A lock that cannot be taken throws the lock error unchanged. */
-function withManifestLock<T>(contextDir: string, fn: () => T, fsImpl: any = nodeFs): T {
+/**
+ * Runs `fn` holding the manifest's lock. A lock that cannot be taken throws the lock error unchanged. `fn` gets
+ * `assertHeld`, which throws an `IntakeUsageError` (exit 2) once the lock was reclaimed by another writer; the
+ * engine calls it before every manifest rename and every move of a user's file, so nothing more is written or moved.
+ */
+function withManifestLock<T>(contextDir: string, fn: (assertHeld: () => void) => T, fsImpl: any = nodeFs): T {
   assertIntakeDir(contextDir, fsImpl);
   fsImpl.mkdirSync(path.join(contextDir, INTAKE_DIR), { recursive: true });
   const release = acquireLock(fsImpl, manifestFile(contextDir));
+  const assertHeld = (): void => {
+    if (typeof release.held === 'function' && !release.held()) {
+      throw new IntakeUsageError(`the intake lock on ${manifestFile(contextDir)} was taken over by another writer (this run stalled too long); nothing further was written or moved. Run the command again.`);
+    }
+  };
   try {
-    return fn();
+    return fn(assertHeld);
   } finally {
     release();
   }

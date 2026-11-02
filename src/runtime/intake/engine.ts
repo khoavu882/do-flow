@@ -260,7 +260,7 @@ function freeName(contextDir: string, dir: string, name: string, taken: Set<stri
  * empty means it did (`done`); the same file under both names (a crash between link and unlink) drops the
  * origin name and is `done` too. Anything else is `failed`. Returns true when the manifest changed.
  */
-function reconcile(manifest: any, contextDir: string, now: Date, fsImpl: any): boolean {
+function reconcile(manifest: any, contextDir: string, now: Date, fsImpl: any, assertHeld: () => void = () => {}): boolean {
   let changed = false;
   for (const run of manifest.runs) {
     let settled = false;
@@ -270,6 +270,7 @@ function reconcile(manifest: any, contextDir: string, now: Date, fsImpl: any): b
       const fromStat = move.from === null ? null : lstatOrNull(fsImpl, path.join(contextDir, move.from));
       const toIsFile = Boolean(toStat && toStat.isFile());
       if (fromStat && toIsFile && sameFile(fromStat, toStat) && hashFile(fsImpl, path.join(contextDir, move.to)).sha256 === move.sha256) {
+        assertHeld();
         fsImpl.unlinkSync(path.join(contextDir, move.from));
         move.state = 'done';
         move.reason = null;
@@ -312,9 +313,9 @@ function sortFolder({ contextDir, taxonomy, now = new Date(), fsImpl = nodeFs }:
   const first = planSort({ contextDir, taxonomy, now, fsImpl, withHashes: false });
   if (first.moves.length === 0 && !hasPlanned(readManifest(contextDir, fsImpl))) return empty(first);
 
-  return withManifestLock(contextDir, () => {
+  return withManifestLock(contextDir, (assertHeld: () => void) => {
     const manifest = readManifest(contextDir, fsImpl);
-    if (reconcile(manifest, contextDir, now, fsImpl)) writeManifest(contextDir, manifest, fsImpl);
+    if (reconcile(manifest, contextDir, now, fsImpl, assertHeld)) writeManifest(contextDir, manifest, fsImpl, assertHeld);
     const plan = planSort({ contextDir, taxonomy, now, fsImpl });
     if (plan.moves.length === 0) return empty(plan);
 
@@ -330,7 +331,7 @@ function sortFolder({ contextDir, taxonomy, now = new Date(), fsImpl = nodeFs }:
         entry.state = 'failed';
         entry.reason = reason;
         skipped.push({ path: planned.from, reason: 'failed', detail: reason });
-        writeManifest(contextDir, manifest, fsImpl);
+        writeManifest(contextDir, manifest, fsImpl, assertHeld);
       };
       const chain = chainOf(contextDir, path.posix.dirname(planned.to), fsImpl);
       if (chain.bad) {
@@ -352,7 +353,8 @@ function sortFolder({ contextDir, taxonomy, now = new Date(), fsImpl = nodeFs }:
       }
       if (!madeDirs) continue;
       run.moves.push(entry);
-      writeManifest(contextDir, manifest, fsImpl); // journal: planned
+      writeManifest(contextDir, manifest, fsImpl, assertHeld); // journal: planned
+      assertHeld();
       try {
         if (moveNoReplace(fsImpl, from, to).fallback) entry.fallback = 'rename';
       } catch (error: any) {
@@ -368,7 +370,7 @@ function sortFolder({ contextDir, taxonomy, now = new Date(), fsImpl = nodeFs }:
       moves.push({ from: planned.from, to: planned.to, category: planned.category, sha256: planned.sha256, bytes: planned.bytes });
     }
     run.finishedAt = now.toISOString();
-    writeManifest(contextDir, manifest, fsImpl);
+    writeManifest(contextDir, manifest, fsImpl, assertHeld);
     return { action: 'sort', state: 'sorted', runId: run.id, moves, skipped, unmatched: plan.unmatched, createdDirs: run.createdDirs };
   }, fsImpl);
 }
@@ -384,9 +386,9 @@ function undoRun({ contextDir, runId = null, now = new Date(), fsImpl = nodeFs }
     if (runId) throw new IntakeUsageError(`no run '${runId}' in the manifest`);
     return nothingToUndo();
   }
-  return withManifestLock(contextDir, () => {
+  return withManifestLock(contextDir, (assertHeld: () => void) => {
     const manifest = readManifest(contextDir, fsImpl);
-    if (reconcile(manifest, contextDir, now, fsImpl)) writeManifest(contextDir, manifest, fsImpl);
+    if (reconcile(manifest, contextDir, now, fsImpl, assertHeld)) writeManifest(contextDir, manifest, fsImpl, assertHeld);
     let run: any;
     if (runId) {
       run = manifest.runs.find((candidate: any) => candidate.id === runId);
@@ -427,6 +429,7 @@ function undoRun({ contextDir, runId = null, now = new Date(), fsImpl = nodeFs }
         const chain = chainOf(contextDir, path.posix.dirname(move.to), fsImpl);
         if (chain.bad || chain.missing.length) { skip(move, 'changed'); } else {
           let taken = false;
+          assertHeld();
           try {
             // A restore that died between its link and its unlink (the file under both names) is finished here.
             if (fromStat) fsImpl.unlinkSync(to);
@@ -446,7 +449,7 @@ function undoRun({ contextDir, runId = null, now = new Date(), fsImpl = nodeFs }
           }
         }
       }
-      writeManifest(contextDir, manifest, fsImpl);
+      writeManifest(contextDir, manifest, fsImpl, assertHeld);
     }
     // A folder this run created goes only when it is empty now: rmdir cannot delete a file.
     const removedDirs: string[] = [];
@@ -507,9 +510,9 @@ function filePrompt({ contextDir, taxonomy, bytes, stage = null, now = new Date(
     if (!parent || !parent.isDirectory()) throw new IntakeUsageError(`${path.dirname(contextDir)} is not a feature folder that exists`);
     makeDir(fsImpl, contextDir);
   }
-  return withManifestLock(contextDir, () => {
+  return withManifestLock(contextDir, (assertHeld: () => void) => {
     const manifest = readManifest(contextDir, fsImpl);
-    if (reconcile(manifest, contextDir, now, fsImpl)) writeManifest(contextDir, manifest, fsImpl);
+    if (reconcile(manifest, contextDir, now, fsImpl, assertHeld)) writeManifest(contextDir, manifest, fsImpl, assertHeld);
     const category = taxonomy.categories.find((candidate: any) => candidate.id === taxonomy.promptCategory);
     const dir = categoryFolder(category, rootEntries(contextDir, fsImpl).dirs);
     const chain = chainOf(contextDir, dir, fsImpl);
@@ -526,24 +529,25 @@ function filePrompt({ contextDir, taxonomy, bytes, stage = null, now = new Date(
     for (const made of chain.missing) if (makeDir(fsImpl, path.join(contextDir, made))) run.createdDirs.push(made);
     run.moves.push(entry);
     manifest.runs.push(run);
-    writeManifest(contextDir, manifest, fsImpl); // journal: planned
+    writeManifest(contextDir, manifest, fsImpl, assertHeld); // journal: planned
     // Written beside the manifest, then renamed into place, so the file is whole or absent.
     const tmp = path.join(contextDir, INTAKE_DIR, `prompt.${process.pid}.tmp`);
     try {
       fsImpl.writeFileSync(tmp, bytes, { flag: 'wx' });
+      assertHeld();
       if (moveNoReplace(fsImpl, tmp, path.join(contextDir, to)).fallback) entry.fallback = 'rename';
     } catch (error: any) {
       try { fsImpl.rmSync(tmp, { force: true }); } catch { /* nothing to clean */ }
       entry.state = 'failed';
       entry.reason = `write failed: ${error.code === 'EEXIST' ? 'the destination appeared before the write' : error.message}`;
       run.finishedAt = now.toISOString();
-      writeManifest(contextDir, manifest, fsImpl);
+      writeManifest(contextDir, manifest, fsImpl, assertHeld);
       throw new IntakeUsageError(`could not file the prompt text: ${error.code === 'EEXIST' ? 'the destination appeared before the write' : error.message}`);
     }
     entry.state = hashFile(fsImpl, path.join(contextDir, to)).sha256 === sha256 ? 'done' : 'failed';
     if (entry.state === 'failed') entry.reason = 'the filed file does not hold the input bytes';
     run.finishedAt = now.toISOString();
-    writeManifest(contextDir, manifest, fsImpl);
+    writeManifest(contextDir, manifest, fsImpl, assertHeld);
     if (entry.state === 'failed') throw new IntakeUsageError(`could not file the prompt text: ${entry.reason}`);
     return { action: 'file-prompt', path: to, sha256, bytes: bytes.length, runId: run.id };
   }, fsImpl);

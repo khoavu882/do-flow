@@ -516,6 +516,47 @@ test('file-prompt never replaces a file that appears at the destination before t
   assert.deepEqual(fs.readdirSync(path.join(ctx, '.intake')).filter((f: string) => f.endsWith('.tmp') && f.startsWith('prompt')), []);
 });
 
+test('a lock reclaimed by another writer before the journal rename stops the run: nothing is renamed, written or moved', (t: any) => {
+  const { ctx } = tree(t, { 'a-prd.md': 'one', 'b-prd.md': 'two' });
+  const lock = `${manifestFile(ctx)}.lock`;
+  const fsImpl = { ...fs, writeFileSync(file: string, ...rest: any[]) {
+    fs.writeFileSync(file, ...rest);
+    if (file.startsWith(manifestFile(ctx)) && file.endsWith('.tmp')) fs.rmSync(lock, { recursive: true, force: true });
+  } };
+  assert.throws(() => sort(ctx, { fsImpl }), (error: any) => error instanceof IntakeUsageError && /taken over by another writer/.test(error.message));
+  assert.ok(fs.existsSync(path.join(ctx, 'a-prd.md')) && fs.existsSync(path.join(ctx, 'b-prd.md')), 'no user file moved');
+  assert.ok(!fs.existsSync(manifestFile(ctx)), 'the manifest was not renamed into place');
+  assert.deepEqual(fs.readdirSync(path.join(ctx, '.intake')).filter((f: string) => f.endsWith('.tmp')), [], 'the temp file is gone');
+});
+
+test('a lock reclaimed after the first move stops the run before the second file is touched', (t: any) => {
+  const { ctx } = tree(t, { 'a-prd.md': 'one', 'b-prd.md': 'two' });
+  const lock = `${manifestFile(ctx)}.lock`;
+  const fsImpl = { ...fs, linkSync(from: string, to: string) { fs.linkSync(from, to); fs.rmSync(lock, { recursive: true, force: true }); } };
+  assert.throws(() => sort(ctx, { fsImpl }), /taken over by another writer/);
+  assert.ok(fs.existsSync(path.join(ctx, 'raw-prd', 'a-prd.md')));
+  assert.equal(fs.readFileSync(path.join(ctx, 'b-prd.md'), 'utf8'), 'two');
+  assert.ok(!fs.existsSync(path.join(ctx, 'raw-prd', 'b-prd.md')));
+  assert.deepEqual(manifestOf(ctx).runs[0].moves.map((m: any) => m.state), ['planned'], 'the journal still says planned; the next run settles it');
+  assert.deepEqual(sort(ctx).moves.map((m: any) => m.to), ['raw-prd/b-prd.md']);
+  assert.equal(manifestOf(ctx).runs[0].moves[0].state, 'done');
+});
+
+test('a lock reclaimed before a restore or a filed prompt writes nothing', (t: any) => {
+  const { ctx } = tree(t, { 'a-prd.md': 'one' });
+  sort(ctx);
+  const lock = `${manifestFile(ctx)}.lock`;
+  const reclaim = { ...fs, readFileSync(file: any, ...rest: any[]) {
+    const data = (fs.readFileSync as any)(file, ...rest);
+    if (file === manifestFile(ctx)) fs.rmSync(lock, { recursive: true, force: true });
+    return data;
+  }, linkSync() { throw new Error('a link must not be attempted'); } };
+  assert.throws(() => undo(ctx, { fsImpl: reclaim }), /taken over by another writer/);
+  assert.ok(fs.existsSync(path.join(ctx, 'raw-prd', 'a-prd.md')) && !fs.existsSync(path.join(ctx, 'a-prd.md')));
+  assert.throws(() => filePrompt({ contextDir: ctx, taxonomy: taxonomy(), bytes: Buffer.from('p'), fsImpl: reclaim }), /taken over by another writer/);
+  assert.ok(!fs.existsSync(path.join(ctx, 'prompt')) || fs.readdirSync(path.join(ctx, 'prompt')).length === 0, 'no prompt file written');
+});
+
 test('planned entries from a dead run are reconciled by the next sort (done when the destination holds the hash, failed when the origin still holds the file)', (t: any) => {
   const { ctx } = tree(t, { 'raw-prd/moved.md': 'arrived', 'stuck-prd.md': 'never moved', 'new-prd.md': 'fresh' });
   fs.mkdirSync(path.join(ctx, '.intake'));
