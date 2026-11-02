@@ -74,6 +74,20 @@ test('binaries, oversize markdown, dotfiles, .intake and symlinks never become p
   assert.ok(!JSON.stringify(pointers).includes(secret));
 });
 
+test('the byte cap is the registry pointerMaxBytes: changing it changes what becomes a pointer', (t) => {
+  const { root, ctx, feature } = checkout(t, 'doflow-intake-cap-');
+  fs.writeFileSync(path.join(ctx, 'mid.md'), `## Mid\n${'z'.repeat(1000)}\n`);
+  const registry = JSON.parse(fs.readFileSync(path.join(__dirname, '..', '..', 'core', 'registry', 'intake.json'), 'utf8'));
+  const withCap = (cap: number) => {
+    const file = path.join(root, `intake-${cap}.json`);
+    fs.writeFileSync(file, JSON.stringify({ ...registry, pointerMaxBytes: cap }));
+    return collectPointers({ projectRoot: root, feature, intakeFile: file }).map((p: any) => p.path.split('additional-context/')[1]);
+  };
+  assert.ok(withCap(registry.pointerMaxBytes).includes('mid.md'));
+  assert.ok(!withCap(500).includes('mid.md'), 'a lower registry cap drops the 1 KB file');
+  assert.ok(withCap(500).includes('notes.md'), 'smaller files stay');
+});
+
 test('a feature with no additional-context folder yields only the chain pointers, a symlinked folder none', (t) => {
   const { root, ctx, feature } = checkout(t, 'doflow-intake-nofolder-');
   const real = path.join(path.dirname(ctx), 'real-ctx');

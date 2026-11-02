@@ -4,11 +4,17 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { loadTaxonomy } = require('../intake/taxonomy.ts');
 
 /** The user's own files (feature 136's intake): a feature folder's `additional-context/`. Markdown there up to
- * this many bytes (the 256 KiB `pointerMaxBytes` of core/registry/intake.json) becomes pointers; nothing else does. */
+ * `pointerMaxBytes` of core/registry/intake.json becomes pointers; nothing else does. */
 const USER_CONTEXT_DIR = 'additional-context';
-const USER_POINTER_MAX_BYTES = 262144;
+
+/** The registry's byte cap, or null when the taxonomy cannot be read (intake is then off: no user pointers). */
+function userPointerMaxBytes(file?: string): number | null {
+  const loaded = loadTaxonomy({ file, contributions: false });
+  return loaded.ok ? loaded.taxonomy.pointerMaxBytes : null;
+}
 
 /** `'user-provided'` for a project-relative path with an `additional-context` segment, else null. */
 function originOf(rel: string): 'user-provided' | null {
@@ -112,7 +118,7 @@ function userContextFiles(dir: string, fsImpl = fs): string[] {
   return found.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
-function sourceFiles({ projectRoot, feature, fsImpl = fs }: any): Array<{ absolute: string; requirement: boolean }> {
+function sourceFiles({ projectRoot, feature, fsImpl = fs, intakeFile }: any): Array<{ absolute: string; requirement: boolean }> {
   const root = path.resolve(projectRoot);
   const featureDir = feature?.featureDir ? path.resolve(feature.featureDir) : null;
   const candidates: Array<{ absolute: string; requirement: boolean }> = [];
@@ -136,15 +142,19 @@ function sourceFiles({ projectRoot, feature, fsImpl = fs }: any): Array<{ absolu
       path.join(featureDir, 'design.md'),
       path.join(featureDir, 'plan.md'),
     ]) add(file);
-    for (const file of userContextFiles(path.join(featureDir, USER_CONTEXT_DIR), fsImpl)) add(file, false, USER_POINTER_MAX_BYTES);
+    const maxBytes = userPointerMaxBytes(intakeFile);
+    if (maxBytes !== null) {
+      for (const file of userContextFiles(path.join(featureDir, USER_CONTEXT_DIR), fsImpl)) add(file, false, maxBytes);
+    }
   }
   return candidates;
 }
 
-function collectPointers({ projectRoot, feature, fsImpl = fs }: any): any[] {
+/** `intakeFile` overrides the intake registry path (tests); the default is core/registry/intake.json. */
+function collectPointers({ projectRoot, feature, fsImpl = fs, intakeFile }: any): any[] {
   const root = path.resolve(projectRoot);
   const pointers: any[] = [];
-  for (const source of sourceFiles({ projectRoot: root, feature, fsImpl })) {
+  for (const source of sourceFiles({ projectRoot: root, feature, fsImpl, intakeFile })) {
   const rel = inside(root, source.absolute, fsImpl);
     if (!rel) continue;
     let text: string;
