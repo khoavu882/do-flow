@@ -5,6 +5,16 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 
+/** The user's own files (feature 136's intake): a feature folder's `additional-context/`. Markdown there up to
+ * this many bytes (the 256 KiB `pointerMaxBytes` of core/registry/intake.json) becomes pointers; nothing else does. */
+const USER_CONTEXT_DIR = 'additional-context';
+const USER_POINTER_MAX_BYTES = 262144;
+
+/** `'user-provided'` for a project-relative path with an `additional-context` segment, else null. */
+function originOf(rel: string): 'user-provided' | null {
+  return rel.split('/').includes(USER_CONTEXT_DIR) ? 'user-provided' : null;
+}
+
 function sha256(text: string): string {
   return `sha256:${crypto.createHash('sha256').update(text, 'utf8').digest('hex')}`;
 }
@@ -79,19 +89,39 @@ function createPointer({ path: rel, heading, range, slice }: any): any {
     tokensEst: { value: Math.ceil(bytes / 4), basis: 'estimated:bytes/4' },
     inlineBytes: Buffer.byteLength(`- ptr:${rel}:${range.startLine}-${range.endLine} ${rel}:${range.startLine}-${range.endLine} ${bytes} B\n`, 'utf8'),
     load: `read ${rel} lines ${range.startLine}-${range.endLine}`,
+    origin: originOf(rel),
   };
+}
+
+/** Visible, regular `.md` files under a context folder, `.intake/` and every dotfile or symlink left out,
+ * in byte order of path. A folder that is absent, or itself a symlink, gives none. */
+function userContextFiles(dir: string, fsImpl = fs): string[] {
+  const found: string[] = [];
+  const walk = (current: string) => {
+    let entries: any[];
+    try { entries = fsImpl.readdirSync(current, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (entry.name.startsWith('.') || entry.isSymbolicLink()) continue;
+      const full = path.join(current, entry.name);
+      if (entry.isDirectory()) walk(full);
+      else if (entry.isFile() && entry.name.toLowerCase().endsWith('.md')) found.push(full);
+    }
+  };
+  try { if (fsImpl.lstatSync(dir).isSymbolicLink()) return []; } catch { return []; }
+  walk(dir);
+  return found.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
 function sourceFiles({ projectRoot, feature, fsImpl = fs }: any): Array<{ absolute: string; requirement: boolean }> {
   const root = path.resolve(projectRoot);
   const featureDir = feature?.featureDir ? path.resolve(feature.featureDir) : null;
   const candidates: Array<{ absolute: string; requirement: boolean }> = [];
-  const add = (file: string | null | undefined, requirement = false) => {
+  const add = (file: string | null | undefined, requirement = false, maxBytes = Infinity) => {
     if (!file) return;
     const absolute = path.isAbsolute(file) ? file : path.resolve(feature?.repoRoot || root, file);
     let stat: any;
     try { stat = fsImpl.statSync(absolute); } catch { return; }
-    if (!inside(root, absolute, fsImpl) || !stat.isFile()) return;
+    if (!inside(root, absolute, fsImpl) || !stat.isFile() || stat.size > maxBytes) return;
     if (!candidates.some((item) => item.absolute === absolute)) candidates.push({ absolute, requirement });
   };
   if (featureDir) {
@@ -106,6 +136,7 @@ function sourceFiles({ projectRoot, feature, fsImpl = fs }: any): Array<{ absolu
       path.join(featureDir, 'design.md'),
       path.join(featureDir, 'plan.md'),
     ]) add(file);
+    for (const file of userContextFiles(path.join(featureDir, USER_CONTEXT_DIR), fsImpl)) add(file, false, USER_POINTER_MAX_BYTES);
   }
   return candidates;
 }
@@ -119,7 +150,12 @@ function collectPointers({ projectRoot, feature, fsImpl = fs }: any): any[] {
     let text: string;
     try { text = fsImpl.readFileSync(source.absolute, 'utf8'); } catch { continue; }
     const lines = text.split(/\r?\n/);
-    for (const range of rangesFor(rel, text, source.requirement)) {
+    const ranges = rangesFor(rel, text, source.requirement);
+    // A user's markdown often opens with a title or runs without `##` headings; the sections alone would drop that text.
+    if (originOf(rel) && (!ranges.length || ranges[0].startLine > 1)) {
+      ranges.unshift({ startLine: 1, endLine: ranges.length ? ranges[0].startLine - 1 : lines.length, heading: null });
+    }
+    for (const range of ranges) {
       const slice = lineSlice(lines, range.startLine, range.endLine);
       if (!slice.trim()) continue;
       pointers.push(createPointer({ path: rel, heading: range.heading, range: { startLine: range.startLine, endLine: range.endLine }, slice }));
@@ -139,4 +175,4 @@ function readPointerSlice({ projectRoot, pointer, fsImpl = fs }: any): { slice: 
   } catch { return null; }
 }
 
-module.exports = { collectPointers, createPointer, readPointerSlice, sha256 };
+module.exports = { collectPointers, createPointer, originOf, readPointerSlice, sha256 };
