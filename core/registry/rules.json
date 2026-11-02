@@ -159,7 +159,7 @@
     {
       "id": "rule-workflow-doflow-chain",
       "tag": "workflow",
-      "statement": "Feature delivery follows the doflow chain — see references/DOFLOW_CHAIN.md for the phase-gated flow, artifact contracts, and the enforced gate.",
+      "statement": "Feature delivery follows the doflow chain — see references/DOFLOW_CHAIN.md for the phase-gated flow, artifact contracts, and the advisory implement gate.",
       "sourceFile": "core/shared/guidance/rules/RULES.md",
       "category": "workflow",
       "enforcement": "mechanical",
@@ -401,7 +401,7 @@
     {
       "id": "rule-questions-noninteractive-fallback",
       "tag": "questions",
-      "statement": "Non-Interactive Fallback: When no native interactive question tool... is available: Do NOT generate {stage}-questions.md files... Adopt the recommended default choice, record the adopted decision and rationale in the stage notes or artifact, and proceed with execution.",
+      "statement": "Non-Interactive Fallback: When no native interactive question tool... is available, or attendance printed unattended for this stage: Do NOT generate {stage}-questions.md files... Adopt the recommended default choice, record the adopted decision and rationale in the stage notes or artifact, and proceed with execution.",
       "sourceFile": "core/shared/guidance/rules/RULES.md",
       "category": "questions",
       "enforcement": "advisory",

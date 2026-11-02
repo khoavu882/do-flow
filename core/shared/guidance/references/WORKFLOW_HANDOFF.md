@@ -40,6 +40,29 @@ With or without a register, record in this step each finding left unfixed, item 
 and gate answer that defers work:
 `"$DOFLOW" followup --action add --stage <stage> --statement "<one line>"`.
 
+## Unattended stage
+
+Run `"$DOFLOW" attendance --task-id "<feature_slug>"` once per stage. `attended` (or no reply) means
+ask as the skill says. `unattended <source>` means no one is watching: RULE_04 applies and these
+rules replace every ask in the skill.
+
+1. **No asks, no gate decisions.** `gate-0`, `gate-a`, `gate-b` and every pause are the loop's: call
+   no `decide-gate` (not even for zero markers), hand off and stop. `awaiting-gate:` in a result
+   means the loop held the row. Silence is never approval; a gate is never a RULE_04 default.
+2. **Class and slug come from the run.** Propose no class: `taskClass` in
+   `"$DOFLOW" orchestrate --action status --task-id "<feature_slug>" --json` is the class. The slug
+   is `feature_slug` of the `feat/<slug>` branch. A rejected class, several slug candidates, two
+   stages matching `--from`, or readiness `ASK_USER` halts (rule 4).
+3. **Record an adopted default** in the stage's decision batch: `channel` `default`, `rationale`
+   `unattended:<source>`, `stage` the nearest ownership-table name for the stage.
+4. **Halt, never hand off.** With no sensible default, a contract change the person did not ask
+   for, or a denied permission, run
+   `"$DOFLOW" followup --action add --stage <stage> --statement "<the question and why it blocks>"`,
+   report it and stop without the handoff; the row is held, not spent.
+5. **Never apply `--fix`** (report options; `/do-implement` owns the edit) **or send private
+   context** (resolve the request `unresolved`: no authorization, unattended).
+6. **Commit where the envelope says:** `commit.branch` (`feat/<slug>`), in the stage's worktree.
+
 ## The handoff call
 
 After a skill finishes its work, call the resolved runtime seam:
@@ -71,7 +94,8 @@ Use `--result passed|failed|unverified` to record the stage's outcome. Omission 
 For bug reproduction, observing the expected failure can satisfy the stage contract; the command's
 nonzero exit alone is not the stage verdict. Reruns append a note and preserve the original outcome.
 
-Only handle an `awaitingGate` if the skill owns that gate and the handoff just completed its anchor.
+Only handle an `awaitingGate` if the skill owns that gate and the handoff just completed its anchor;
+unattended, never handle one (§ Unattended stage).
 Follow the owning skill's decision rules; this API supplies no authorization. A deferral is not a
 rejection. The lower-level `decide-gate` action remains explicit.
 
