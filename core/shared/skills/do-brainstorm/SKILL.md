@@ -104,21 +104,18 @@ When asking clarifying questions:
    **Log each round** to its own file, per `references/round_log.md`: read it before the first round ends.
 4. **Pick the feature** — if `feature_slug` is non-null (branch-derived, auto-selected from a
    single non-git candidate, or resolved via step 1's disambiguation), use it. If still null
-   (genuinely no active feature: trunk branch, or a non-git root with zero existing feature dirs),
-   ask the user for a slug using the RULE_04 question format, default
-   `<next_number>-<kebab-of-description>`. **Branch creation delegated to `/do-git`:** if `is_git_repo` is true,
-   call `"$DOFLOW" git-state --branch-name --class=feature --slug=<slug>` and use the
-   returned branch name with `git checkout -b`; if false (non-git root), skip branch creation
-   entirely.
-   Then, on **every** path (a branch-derived slug usually names no directory yet): `mkdir -p agent-docs/doflow/<slug>/intention`.
-   Then `"$DOFLOW" intake --action file-prompt --slug="<slug>" --stdin` files held prompt text and
-   `"$DOFLOW" intake --action sort --slug="<slug>" --json` sorts `additional-context/`: report its
-   moves and skips; cite its files with source `{ provider: "doflow.intake", capability: "user-provided" }`.
-   Then run `"$DOFLOW" decision --action init --slug="<slug>" --json`: `created: false` means the
-   register already exists; exit 1 with finding `predates-register` means a folder from before the
-   register, so continue without one; exit 2 means stop and report, because a new feature must not
-   continue without a register.
-   Then run `"$DOFLOW" lifecycle --action init --slug="<slug>"` with the `--take`, `--intent` and
+   (no active feature: trunk branch, or a non-git root with zero feature dirs), ask the user for a
+   slug in the RULE_04 question format, default `<next_number>-<kebab-of-description>`. **Branch creation delegated to `/do-git`:** if `is_git_repo` is true,
+   call `"$DOFLOW" git-state --branch-name --class=feature --slug=<slug>` and `git checkout -b`
+   the returned name; if false (non-git root), skip it.
+   Then, on **every** path: `mkdir -p agent-docs/doflow/<slug>/intention`.
+   Then `"$DOFLOW" intake --action file-prompt --slug="<slug>" --stdin` files prompt text you hold;
+   `"$DOFLOW" intake --action sort --slug="<slug>" --json` sorts `additional-context/` (report moves
+   and skips; cite its files with source `{ provider: "doflow.intake", capability: "user-provided" }`).
+   Then `"$DOFLOW" decision --action init --slug="<slug>" --json`: `created: false` means the
+   register already exists; exit 1 with finding `predates-register` means a pre-register folder,
+   so continue without one; exit 2 means stop and report (a new feature needs a register).
+   Then `"$DOFLOW" lifecycle --action init --slug="<slug>"` with the `--take`, `--intent` and
    `--goal` the user picked from the overview; report a refusal and continue.
 5. **Write `requirement.md`** — copy the requirement template into the feature dir and fill the
    tokens from the dialogue. It goes at `agent-docs/doflow/<slug>/intention/requirement.md`: a
