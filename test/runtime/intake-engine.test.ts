@@ -413,6 +413,53 @@ test('a destination hash that differs while the origin name is taken again leave
   assert.match(entry.reason, /a-prd\.md is taken/);
 });
 
+/** An editor's atomic save: the new content is written beside the file, then renamed over it (a new inode). */
+const atomicSave = (file: string, content: string): void => { fs.writeFileSync(`${file}.editor-tmp`, content); fs.renameSync(`${file}.editor-tmp`, file); };
+
+test('a sort whose origin is saved by an editor between the link and the unlink keeps both names and reports failed', (t: any) => {
+  const { ctx } = tree(t, { 'a-prd.md': 'one', 'b-prd.md': 'two' });
+  const origin = path.join(ctx, 'a-prd.md');
+  const fsImpl = { ...fs, linkSync(from: string, to: string) { fs.linkSync(from, to); if (from === origin) atomicSave(origin, 'NEW EDIT'); } };
+  const result = sort(ctx, { fsImpl });
+  assert.deepEqual(movesOf(result), ['b-prd.md>raw-prd/b-prd.md']);
+  assert.equal(result.skipped[0].reason, 'failed');
+  assert.match(result.skipped[0].detail, /a-prd\.md holds that newer content and raw-prd\/a-prd\.md holds the planned copy; neither was deleted/);
+  assert.equal(fs.readFileSync(origin, 'utf8'), 'NEW EDIT', 'the user\'s new content survives');
+  assert.equal(fs.readFileSync(path.join(ctx, 'raw-prd', 'a-prd.md'), 'utf8'), 'one', 'the planned copy is kept');
+  const [entry] = manifestOf(ctx).runs[0].moves;
+  assert.deepEqual([entry.state, entry.to], ['failed', 'raw-prd/a-prd.md']);
+});
+
+test('a move back after a hash mismatch whose source is saved by an editor in between keeps both names and reports failed', (t: any) => {
+  const { ctx } = tree(t, { 'a-prd.md': 'one' });
+  const destination = path.join(ctx, 'raw-prd', 'a-prd.md');
+  const fsImpl = { ...fs, linkSync(from: string, to: string) {
+    fs.linkSync(from, to);
+    if (to === destination) fs.appendFileSync(to, ' corrupted');
+    else if (from === destination) atomicSave(destination, 'NEW EDIT');
+  } };
+  const result = sort(ctx, { fsImpl });
+  assert.deepEqual(result.moves, []);
+  assert.match(result.skipped[0].detail, /raw-prd\/a-prd\.md was replaced by newer content while it moved back; raw-prd\/a-prd\.md holds that newer content and a-prd\.md holds the moved copy; neither was deleted/);
+  assert.equal(fs.readFileSync(destination, 'utf8'), 'NEW EDIT');
+  assert.equal(fs.readFileSync(path.join(ctx, 'a-prd.md'), 'utf8'), 'one corrupted');
+  assert.equal(manifestOf(ctx).runs[0].moves[0].state, 'failed');
+});
+
+test('an undo whose destination is saved by an editor between the link and the unlink keeps both names and skips the entry as changed', (t: any) => {
+  const { ctx } = tree(t, { 'a-prd.md': 'one' });
+  sort(ctx);
+  const destination = path.join(ctx, 'raw-prd', 'a-prd.md');
+  const fsImpl = { ...fs, linkSync(from: string, to: string) { fs.linkSync(from, to); if (from === destination) atomicSave(destination, 'NEW EDIT'); } };
+  const result = undo(ctx, { fsImpl });
+  assert.deepEqual(result.restored, []);
+  assert.equal(result.skipped[0].reason, 'changed');
+  assert.match(result.skipped[0].detail, /raw-prd\/a-prd\.md holds that newer content and a-prd\.md holds the recorded copy; neither was deleted/);
+  assert.equal(fs.readFileSync(destination, 'utf8'), 'NEW EDIT');
+  assert.equal(fs.readFileSync(path.join(ctx, 'a-prd.md'), 'utf8'), 'one');
+  assert.equal(manifestOf(ctx).runs[0].moves[0].state, 'undo-skipped');
+});
+
 test('a rename that throws marks that entry failed and the others still move', (t: any) => {
   const { ctx } = tree(t, { 'a-prd.md': 'one', 'b-prd.md': 'two' });
   const fsImpl = { ...fs, linkSync(from: string, to: string) { if (to.endsWith('a-prd.md')) throw Object.assign(new Error('EXDEV: simulated'), { code: 'EXDEV' }); fs.linkSync(from, to); } };

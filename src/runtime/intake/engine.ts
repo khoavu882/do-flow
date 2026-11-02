@@ -53,10 +53,27 @@ const NO_LINK_CODES = ['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK'];
 /** True when two lstat results are the same file: one device and inode, i.e. the same bytes under two names. */
 function sameFile(a: any, b: any): boolean { return Boolean(a && b) && a.dev === b.dev && a.ino === b.ino; }
 
+/** Thrown when a name to be dropped no longer is the file it was linked to: the user's newer content is there. */
+const changedError = (): any => Object.assign(new Error('the file was replaced while it moved'), { code: 'ECHANGED' });
+
+/**
+ * Drops the name `drop` only while it is still the file `keep` names (same device and inode), else throws ECHANGED
+ * and drops nothing: an editor that saved atomically in between has put newer content under `drop`, and that is not
+ * ours to delete. A name that is already gone needs no drop. Ceiling accepted: the lstat and the unlink are two
+ * calls, so a swap in the instant between them is not seen; the window is one syscall wide, not a whole move.
+ */
+function unlinkIfSame(fsImpl: any, drop: string, keep: string): void {
+  const dropped = lstatOrNull(fsImpl, drop);
+  if (!dropped) return;
+  if (!sameFile(dropped, lstatOrNull(fsImpl, keep))) throw changedError();
+  fsImpl.unlinkSync(drop);
+}
+
 /**
  * Moves `from` to `to` and never replaces `to`: `linkSync` fails with EEXIST when it exists, then the origin
- * name is dropped. If that last step fails the new link is removed again (it is the same inode, so no data goes)
- * and the error is thrown. On a volume that cannot hard-link it falls back to lstat + rename and says so.
+ * name is dropped, but only while it is still the linked file (`unlinkIfSame`; ECHANGED keeps both names). If that
+ * last step fails otherwise the new link is removed again (it is the same inode, so no data goes) and the error is
+ * thrown. On a volume that cannot hard-link it falls back to lstat + rename and says so.
  */
 function moveNoReplace(fsImpl: any, from: string, to: string): { fallback: boolean } {
   try {
@@ -68,9 +85,11 @@ function moveNoReplace(fsImpl: any, from: string, to: string): { fallback: boole
     return { fallback: true };
   }
   try {
-    fsImpl.unlinkSync(from);
+    unlinkIfSame(fsImpl, from, to);
   } catch (error: any) {
-    try { fsImpl.unlinkSync(to); } catch { /* the link is not ours to chase any further */ }
+    if (error.code !== 'ECHANGED') {
+      try { fsImpl.unlinkSync(to); } catch { /* the link is not ours to chase any further */ }
+    }
     throw error;
   }
   return { fallback: false };
@@ -369,7 +388,9 @@ function sortFolder({ contextDir, taxonomy, now = new Date(), fsImpl = nodeFs }:
       try {
         if (moveNoReplace(fsImpl, from, to).fallback) entry.fallback = 'rename';
       } catch (error: any) {
-        fail(error.code === 'EEXIST' ? 'the destination appeared before the move' : `rename failed: ${error.message}`);
+        fail(error.code === 'EEXIST' ? 'the destination appeared before the move'
+          : error.code === 'ECHANGED' ? `${planned.from} was replaced by newer content while it moved; ${planned.from} holds that newer content and ${planned.to} holds the planned copy; neither was deleted`
+          : `rename failed: ${error.message}`);
         continue;
       }
       const after = hashFile(fsImpl, to).sha256;
@@ -384,7 +405,9 @@ function sortFolder({ contextDir, taxonomy, now = new Date(), fsImpl = nodeFs }:
           outcome = `the file was moved back to ${planned.from}`;
         } catch (error: any) {
           if (error instanceof IntakeUsageError) throw error;
-          outcome = `the file stays at ${planned.to} (${error.code === 'EEXIST' ? `${planned.from} is taken` : `it could not be moved back to ${planned.from}: ${error.message}`})`;
+          outcome = error.code === 'ECHANGED'
+            ? `${planned.to} was replaced by newer content while it moved back; ${planned.to} holds that newer content and ${planned.from} holds the moved copy; neither was deleted`
+            : `the file stays at ${planned.to} (${error.code === 'EEXIST' ? `${planned.from} is taken` : `it could not be moved back to ${planned.from}: ${error.message}`})`;
         }
         fail(`${why}; ${outcome}`);
         continue;
@@ -424,10 +447,10 @@ function undoRun({ contextDir, runId = null, now = new Date(), fsImpl = nodeFs }
     const restored: any[] = [];
     const skipped: any[] = [];
     const retry = runId ? ['done', 'undo-skipped'] : ['done'];
-    const skip = (move: any, reason: string): void => {
+    const skip = (move: any, reason: string, detail?: string): void => {
       move.state = 'undo-skipped';
       move.reason = reason;
-      skipped.push({ to: move.to, reason });
+      skipped.push(detail ? { to: move.to, reason, detail } : { to: move.to, reason });
     };
     for (const move of [...run.moves].reverse()) {
       if (!retry.includes(move.state)) continue;
@@ -452,16 +475,20 @@ function undoRun({ contextDir, runId = null, now = new Date(), fsImpl = nodeFs }
         const chain = chainOf(contextDir, path.posix.dirname(move.to), fsImpl);
         if (chain.bad || chain.missing.length) { skip(move, 'changed'); } else {
           let taken = false;
+          let swapped = false;
           assertHeld();
           try {
             // A restore that died between its link and its unlink (the file under both names) is finished here.
-            if (fromStat) fsImpl.unlinkSync(to);
+            if (fromStat) unlinkIfSame(fsImpl, to, from);
             else if (moveNoReplace(fsImpl, to, from).fallback) move.fallback = 'rename';
           } catch (error: any) {
-            if (error.code !== 'EEXIST') throw error;
-            taken = true;
+            if (error.code === 'ECHANGED') swapped = true;
+            else if (error.code === 'EEXIST') taken = true;
+            else throw error;
           }
-          if (taken) {
+          if (swapped) {
+            skip(move, 'changed', `${move.to} was replaced by newer content while it was restored; ${move.to} holds that newer content and ${move.from} holds the recorded copy; neither was deleted`);
+          } else if (taken) {
             skip(move, 'origin-taken');
           } else if (hashFile(fsImpl, from).sha256 === move.sha256) {
             move.state = 'undone';

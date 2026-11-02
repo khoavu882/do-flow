@@ -93,7 +93,7 @@ function humanLines(result: any): string[] {
   } else if (result.action === 'undo') {
     if (result.state === 'nothing-to-undo') return ['no run left to undo'];
     for (const move of result.restored) lines.push(`restored ${move.to} -> ${move.from}`);
-    for (const skip of result.skipped) lines.push(`skipped ${skip.to} (${skip.reason})`);
+    for (const skip of result.skipped) lines.push(`skipped ${skip.to} (${skip.reason}${skip.detail ? `: ${skip.detail}` : ''})`);
     for (const dir of result.removedDirs) lines.push(`removed empty folder ${dir}`);
     lines.push(`${result.restored.length} restored, ${result.skipped.length} skipped (${result.runId})`);
   } else if (result.action === 'list') {
