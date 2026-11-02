@@ -4,8 +4,8 @@ A spec-kit-style, phase-gated delivery loop (`do-brainstorm → do-design → do
 do-execute-plan → do-test → do-code-review`) on top of the rest of the `/do-*` skills and the seven
 specialist agents (`core-implementer`, `delivery-lead`, `quality-guardian`,
 `research-writer`, `reviewer`, `spec-analyst`, `system-architect`). Discipline borrowed from
-spec-kit; enforcement done with the harness's real hooks rather than a prompt-read registry.
-The implement-gate hook is registered in
+spec-kit; hooks advise, and the runtime enforces order and readiness at handoff rather than a
+prompt-read registry. The implement-gate hook is registered in
 `settings.json`. `do-constitution` sits outside the numbered chain — a standalone,
 still-invocable skill that maintains the persistent rules every phase inherits, not a phase
 itself. `do-implement` sits outside the numbered chain too, for the opposite reason: it is the

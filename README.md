@@ -28,7 +28,7 @@ flowchart LR
 |---|---|
 | Repeatable delivery work | 13 skills, including `/do-brainstorm`, `/do-plan`, `/do-test`, and `/do-code-review` |
 | Specialist review | 7 agents — `spec-analyst`, `system-architect`, `delivery-lead`, `core-implementer`, `quality-guardian`, `reviewer`, `research-writer` |
-| Safer automation | Claude hooks block edits before the spec exists and stop on unfinished work |
+| Safer automation | Hooks advise when an edit starts before the spec exists and when work looks unfinished; the runtime enforces order and readiness at the stage handoff |
 | Shared standards | Rules for safety, workflow, quality, and clarification across supported tools |
 | Session continuity | Claude and Codex hooks capture lightweight Git context and compact-session summaries and deliver them on a session's first prompt |
 
