@@ -202,17 +202,40 @@ test('a .intake that is a link or a file is refused by sort, undo and file-promp
   }
 });
 
-test('a .intake swapped for a link between the check and the mkdir is refused and nothing is written through it', (t: any) => {
-  const { dir, ctx } = tree(t, { 'a-prd.md': 'one' });
-  const outside = path.join(dir, 'elsewhere');
-  fs.mkdirSync(outside);
-  const intakeDir = path.join(ctx, '.intake');
+test('a .intake swapped for a link between the check and the mkdir is refused: no callback runs and nothing is written through the link', (t: any) => {
+  const MUTATORS = ['mkdirSync', 'writeFileSync', 'appendFileSync', 'openSync', 'renameSync', 'linkSync', 'symlinkSync', 'copyFileSync', 'unlinkSync', 'rmSync', 'rmdirSync'];
   // The attacker wins the race: the link appears instead of the folder, so the recursive mkdir finds a directory.
-  const raced = { ...fs, mkdirSync(target: string, options: any) { if (target === intakeDir) fs.symlinkSync(outside, intakeDir); return fs.mkdirSync(target, options); } };
-  assert.throws(() => sort(ctx, { fsImpl: raced }), (error: any) => error instanceof IntakeUsageError && /not a real folder/.test(error.message));
-  assert.throws(() => withManifestLock(ctx, () => 'ran', raced), /not a real folder/);
-  assert.deepEqual(fs.readdirSync(outside), [], 'no lock or manifest was written through the link');
-  assert.equal(fs.readFileSync(path.join(ctx, 'a-prd.md'), 'utf8'), 'one');
+  // Every mutating call aimed inside `.intake` is recorded, so a lock or manifest written through the link shows even
+  // when it is cleaned up again afterwards.
+  const race = () => {
+    const { dir, ctx } = tree(t, { 'a-prd.md': 'one' });
+    const outside = path.join(dir, 'elsewhere');
+    fs.mkdirSync(outside);
+    const intakeDir = path.join(ctx, '.intake');
+    const inside: string[] = [];
+    const raced: any = { ...fs };
+    for (const name of MUTATORS) {
+      raced[name] = (...args: any[]) => {
+        if (name === 'mkdirSync' && args[0] === intakeDir) fs.symlinkSync(outside, intakeDir);
+        for (const arg of args) if (typeof arg === 'string' && arg.startsWith(`${intakeDir}${path.sep}`)) inside.push(`${name} ${path.relative(ctx, arg)}`);
+        return (fs as any)[name](...args);
+      };
+    }
+    return { ctx, outside, inside, raced };
+  };
+
+  const viaSort = race();
+  assert.throws(() => sort(viaSort.ctx, { fsImpl: viaSort.raced }), (error: any) => error instanceof IntakeUsageError && /not a real folder/.test(error.message));
+  assert.deepEqual(viaSort.inside, [], 'sort wrote nothing through the link');
+  assert.deepEqual(fs.readdirSync(viaSort.outside), []);
+  assert.equal(fs.readFileSync(path.join(viaSort.ctx, 'a-prd.md'), 'utf8'), 'one');
+
+  const viaLock = race();
+  let ran = false;
+  assert.throws(() => withManifestLock(viaLock.ctx, () => { ran = true; return 'ran'; }, viaLock.raced), /not a real folder/);
+  assert.equal(ran, false, 'the callback never ran');
+  assert.deepEqual(viaLock.inside, [], 'the lock was never taken through the link');
+  assert.deepEqual(fs.readdirSync(viaLock.outside), []);
 });
 
 test('a loose file that cannot be read is skipped as unreadable; the others still move, and preview and list tolerate it', (t: any) => {
