@@ -9,7 +9,7 @@ const nodeCrypto = require('node:crypto');
 const { tempDir } = require('../helper/tmp.ts');
 const { loadTaxonomy } = require('../../src/runtime/intake/taxonomy.ts');
 const { previewSort, sortFolder, undoRun, listFolder, filePrompt } = require('../../src/runtime/intake/engine.ts');
-const { readManifest, manifestFile, IntakeUsageError } = require('../../src/runtime/intake/manifest.ts');
+const { readManifest, manifestFile, withManifestLock, IntakeUsageError } = require('../../src/runtime/intake/manifest.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const taxonomy = (): any => loadTaxonomy({ repoRoot: REPO, contributions: false }).taxonomy;
@@ -200,6 +200,19 @@ test('a .intake that is a link or a file is refused by sort, undo and file-promp
     assert.equal(fs.readFileSync(path.join(ctx, 'a-prd.md'), 'utf8'), 'one');
     assert.ok(!fs.existsSync(path.join(ctx, 'raw-prd')));
   }
+});
+
+test('a .intake swapped for a link between the check and the mkdir is refused and nothing is written through it', (t: any) => {
+  const { dir, ctx } = tree(t, { 'a-prd.md': 'one' });
+  const outside = path.join(dir, 'elsewhere');
+  fs.mkdirSync(outside);
+  const intakeDir = path.join(ctx, '.intake');
+  // The attacker wins the race: the link appears instead of the folder, so the recursive mkdir finds a directory.
+  const raced = { ...fs, mkdirSync(target: string, options: any) { if (target === intakeDir) fs.symlinkSync(outside, intakeDir); return fs.mkdirSync(target, options); } };
+  assert.throws(() => sort(ctx, { fsImpl: raced }), (error: any) => error instanceof IntakeUsageError && /not a real folder/.test(error.message));
+  assert.throws(() => withManifestLock(ctx, () => 'ran', raced), /not a real folder/);
+  assert.deepEqual(fs.readdirSync(outside), [], 'no lock or manifest was written through the link');
+  assert.equal(fs.readFileSync(path.join(ctx, 'a-prd.md'), 'utf8'), 'one');
 });
 
 test('a loose file that cannot be read is skipped as unreadable; the others still move, and preview and list tolerate it', (t: any) => {
@@ -636,11 +649,28 @@ test('a volume that cannot hard-link falls back to a look and a rename for sort,
   assert.ok(!fs.existsSync(path.join(ctx, 'a-prd.md')));
   assert.equal(undo(ctx, { fsImpl: noLink }).restored.length, 2);
   assert.equal(manifestOf(ctx).runs[0].moves[0].fallback, 'rename');
+  assert.equal(manifestOf(ctx).runs[0].moves[0].undoFallback, 'rename');
   assert.equal(fs.readFileSync(path.join(ctx, 'a-prd.md'), 'utf8'), 'mine');
   const filed = filePrompt({ contextDir: ctx, taxonomy: taxonomy(), bytes: Buffer.from('prompt text'), fsImpl: noLink });
   assert.equal(fs.readFileSync(path.join(ctx, filed.path), 'utf8'), 'prompt text');
   assert.equal(manifestOf(ctx).runs[1].moves[0].fallback, 'rename');
   assert.equal(manifestOf(ctx).runs[1].moves[0].state, 'done');
+});
+
+test('an undo on a volume that can hard-link leaves a sort-time fallback as it was and records no undo fallback', (t: any) => {
+  const { ctx } = tree(t, { 'a-prd.md': 'mine' });
+  const noLink = { ...fs, linkSync() { throw Object.assign(new Error('EPERM: simulated'), { code: 'EPERM' }); } };
+  sort(ctx, { fsImpl: noLink });
+  assert.equal(undo(ctx).restored.length, 1);
+  const move = manifestOf(ctx).runs[0].moves[0];
+  assert.equal(move.fallback, 'rename', 'the sort-time value survives the undo');
+  assert.equal(move.undoFallback, undefined);
+  const { ctx: other } = tree(t, { 'b-prd.md': 'two' });
+  sort(other);
+  undo(other, { fsImpl: noLink });
+  const plain = manifestOf(other).runs[0].moves[0];
+  assert.equal(plain.fallback, undefined, 'an undo-time fallback never rewrites a sort that linked');
+  assert.equal(plain.undoFallback, 'rename');
 });
 
 test('the fallback still refuses a destination that exists when it looks', (t: any) => {

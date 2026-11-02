@@ -168,7 +168,7 @@ test('file-prompt refuses binary, non-UTF-8, oversized and non-regular input wit
   refuse(['--stdin'], Buffer.from([0x68, 0x00, 0x69]), /stdin is not plain text/);
   refuse(['--stdin'], Buffer.from([0xff, 0xfe, 0x41]), /stdin is not plain text/);
   refuse(['--file', big], '', /is 262145 bytes; file-prompt takes at most 262144/);
-  refuse(['--stdin'], Buffer.alloc(262145, 0x61), /stdin is 262145 bytes/);
+  refuse(['--stdin'], Buffer.alloc(262145, 0x61), /stdin is over 262144 bytes; file-prompt takes at most 262144/);
   refuse(['--file', dir], '', /not a regular file/);
   if (process.platform !== 'win32') {
     const fifo = path.join(dir, 'pipe');
@@ -208,6 +208,21 @@ test('exit 2: no action, an unknown action, no input, empty input, both inputs, 
   const none = makeRepo({ branch: 'main', feature: false });
   assert.equal(intake(none.repo, ['--action', 'sort']).status, 2, 'no active feature');
   assert.ok(!fs.existsSync(path.join(none.repo, 'agent-docs')), 'nothing is created without a feature');
+});
+
+test('--stdin reads at most max+1 bytes of an endless stream, then refuses it', () => {
+  const { readInput } = require('../../src/runtime/intake/index.ts');
+  const max = 1024;
+  let served = 0;
+  const endless = { readSync(_fd: number, buffer: Buffer, offset: number, length: number): number { buffer.fill(0x61, offset, offset + length); served += length; return length; } };
+  assert.throws(() => readInput({ stdin: true }, endless, max), /stdin is over 1024 bytes; file-prompt takes at most 1024/);
+  assert.equal(served, max + 1, 'one byte over the cap was read, not the stream');
+  // A stream that ends in pieces, and one that ends exactly at the cap, are read whole.
+  const pieces = [Buffer.from('he'), Buffer.from('llo')];
+  const chunked = { readSync(_fd: number, buffer: Buffer, offset: number): number { const next = pieces.shift(); if (!next) return 0; next.copy(buffer, offset); return next.length; } };
+  assert.equal(readInput({ stdin: true }, chunked, max).toString(), 'hello');
+  const exact = { left: max, readSync(_fd: number, buffer: Buffer, offset: number, length: number): number { const n = Math.min(length, this.left); buffer.fill(0x62, offset, offset + n); this.left -= n; return n; } };
+  assert.equal(readInput({ stdin: true }, exact, max).length, max);
 });
 
 test('exit 2: an unknown --slug is the same usage error for every action, and nothing is created', () => {

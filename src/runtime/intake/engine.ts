@@ -17,7 +17,7 @@
  * left alone and the move is reported `failed`. On a volume that cannot hard-link (EPERM, ENOTSUP, EOPNOTSUPP,
  * EMLINK: exFAT, some SMB or FUSE mounts) the move falls back to a look at the destination and a rename, which
  * leaves a window in which a file created in that instant would be replaced; the journal entry then carries
- * `fallback: 'rename'`. A crash between the link and the unlink leaves one file under two names; the next run
+ * `fallback: 'rename'` (an undo that fell back records `undoFallback`, so the sort-time value stays). A crash between the link and the unlink leaves one file under two names; the next run
  * settles it (same device and inode: the origin name is dropped and the move is `done`).
  *
  * Ceiling accepted: the manifest is rewritten whole after every journal step (quadratic in the number of
@@ -533,7 +533,7 @@ function undoRun({ contextDir, runId = null, now = new Date(), fsImpl = nodeFs }
           try {
             // A restore that died between its link and its unlink (the file under both names) is finished here.
             if (fromStat) unlinkIfSame(fsImpl, to, from);
-            else if (moveNoReplace(fsImpl, to, from).fallback) move.fallback = 'rename';
+            else if (moveNoReplace(fsImpl, to, from).fallback) move.undoFallback = 'rename';
           } catch (error: any) {
             if (error.code === 'ECHANGED') swapped = true;
             else if (error.code === 'EEXIST') taken = true;
