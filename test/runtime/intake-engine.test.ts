@@ -171,6 +171,37 @@ test('a .intake that is a link or a file is refused by sort, undo and file-promp
   }
 });
 
+test('a loose file that cannot be read is skipped as unreadable; the others still move, and preview and list tolerate it', (t: any) => {
+  if (process.platform === 'win32' || (typeof process.getuid === 'function' && process.getuid() === 0)) { t.skip('file modes are not enforced here'); return; }
+  const { ctx } = tree(t, { 'locked-prd.md': 'secret', 'ok-prd.md': 'fine' });
+  const locked = path.join(ctx, 'locked-prd.md');
+  fs.chmodSync(locked, 0o000);
+  t.after(() => { try { fs.chmodSync(locked, 0o644); } catch { /* already cleaned up */ } });
+  const preview = previewSort({ contextDir: ctx, taxonomy: taxonomy(), now: LATER() });
+  assert.deepEqual(movesOf(preview), ['ok-prd.md>raw-prd/ok-prd.md']);
+  assert.deepEqual(preview.skipped, [{ path: 'locked-prd.md', reason: 'unreadable', detail: 'EACCES' }]);
+  const listed = listFolder({ contextDir: ctx, taxonomy: taxonomy() }).files.find((f: any) => f.path === 'locked-prd.md');
+  assert.deepEqual([listed.unreadable, listed.sha256, listed.bytes], [true, null, 6]);
+  const result = sort(ctx);
+  assert.deepEqual(movesOf(result), ['ok-prd.md>raw-prd/ok-prd.md']);
+  assert.deepEqual(result.skipped, preview.skipped);
+  assert.ok(fs.existsSync(locked));
+  assert.equal(manifestOf(ctx).runs[0].moves.length, 1);
+  assert.deepEqual(sort(ctx).moves, [], 'a second sort leaves it alone and moves nothing');
+});
+
+test('a folder whose only loose file is unreadable is reported without a lock or a manifest', (t: any) => {
+  if (process.platform === 'win32' || (typeof process.getuid === 'function' && process.getuid() === 0)) { t.skip('file modes are not enforced here'); return; }
+  const { ctx } = tree(t, { 'locked-prd.md': 'secret' });
+  const locked = path.join(ctx, 'locked-prd.md');
+  fs.chmodSync(locked, 0o000);
+  t.after(() => { try { fs.chmodSync(locked, 0o644); } catch { /* already cleaned up */ } });
+  const result = sort(ctx);
+  assert.deepEqual(result.moves, []);
+  assert.deepEqual(result.skipped.map((s: any) => s.reason), ['unreadable']);
+  assert.ok(!fs.existsSync(path.join(ctx, '.intake')));
+});
+
 test('a taken destination name gets a numbered suffix; neither file is overwritten (FR-006)', (t: any) => {
   const { ctx } = tree(t, { 'raw-prd/prd.md': 'first', 'raw-prd/prd-1.md': 'second', 'prd.md': 'third' });
   const result = sort(ctx);

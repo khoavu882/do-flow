@@ -97,7 +97,7 @@ function humanLines(result: any): string[] {
     for (const dir of result.removedDirs) lines.push(`removed empty folder ${dir}`);
     lines.push(`${result.restored.length} restored, ${result.skipped.length} skipped (${result.runId})`);
   } else if (result.action === 'list') {
-    for (const file of result.files) lines.push(`${file.path}  ${file.category ?? '-'}  ${file.kind}  ${file.bytes} bytes  ${file.sha256}${file.pointer ? '  pointer' : ''}`);
+    for (const file of result.files) lines.push(`${file.path}  ${file.category ?? '-'}  ${file.kind}  ${file.bytes} bytes  ${file.unreadable ? 'unreadable' : file.sha256}${file.pointer ? '  pointer' : ''}`);
     lines.push(`${result.files.length} file${result.files.length === 1 ? '' : 's'}`);
   } else {
     lines.push(`filed ${result.path} (${result.bytes} bytes, ${result.sha256}; ${result.runId})`);

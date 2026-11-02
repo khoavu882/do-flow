@@ -86,6 +86,9 @@ function stemOf(name: string): string {
   return dot > 0 ? name.slice(0, dot) : name;
 }
 
+/** True for the errors of a file this user may not read: the file is then left alone and reported `unreadable`. */
+const isUnreadable = (error: any): boolean => error?.code === 'EACCES' || error?.code === 'EPERM';
+
 /** `sha256:<hex>` and size of a file, read in chunks so a 22 MB recording is never held whole. */
 function hashFile(fsImpl: any, file: string): { sha256: string; bytes: number } {
   const hash = nodeCrypto.createHash('sha256');
@@ -228,14 +231,22 @@ function planSort({ contextDir, taxonomy, now, fsImpl = nodeFs, withHashes = tru
     const claim = claimOf(name);
     if (!claim) { unmatched.push(name); continue; }
     if (recent.has(name)) { skipped.push({ path: name, reason: 'recent' }); continue; }
+    const from = path.join(contextDir, name);
+    let stat: { sha256: string | null; bytes: number };
+    try {
+      if (withHashes) stat = hashFile(fsImpl, from);
+      else { fsImpl.accessSync(from, nodeFs.constants.R_OK); stat = { sha256: null, bytes: fsImpl.lstatSync(from).size }; }
+    } catch (error: any) {
+      if (!isUnreadable(error)) throw error;
+      skipped.push({ path: name, reason: 'unreadable', detail: error.code });
+      continue;
+    }
     if (!chains.has(claim.dir)) chains.set(claim.dir, chainOf(contextDir, claim.dir, fsImpl));
     const chain = chains.get(claim.dir) as { missing: string[]; bad: string | null };
     if (chain.bad) { skipped.push({ path: name, reason: 'failed', detail: `destination folder ${claim.dir}: ${chain.bad}` }); continue; }
     const to = freeName(contextDir, claim.dir, name, taken, fsImpl);
     taken.add(to.toLowerCase());
     for (const dir of chain.missing) if (!createdDirs.includes(dir)) createdDirs.push(dir);
-    const from = path.join(contextDir, name);
-    const stat = withHashes ? hashFile(fsImpl, from) : { sha256: null, bytes: fsImpl.lstatSync(from).size };
     moves.push({ from: name, to, category: claim.categoryId, sha256: stat.sha256, bytes: stat.bytes });
   }
   return { moves, skipped, unmatched, createdDirs };
@@ -494,8 +505,16 @@ function listFolder({ contextDir, taxonomy, fsImpl = nodeFs }: any): any {
       const relative = prefix ? rel(prefix, entry.name) : entry.name;
       if (entry.isDirectory()) { walk(path.join(dir, entry.name), relative); continue; }
       if (!entry.isFile()) continue;
-      const { sha256, bytes } = hashFile(fsImpl, path.join(dir, entry.name));
       const ext = extOf(entry.name);
+      let sha256: string | null;
+      let bytes: number;
+      try {
+        ({ sha256, bytes } = hashFile(fsImpl, path.join(dir, entry.name)));
+      } catch (error: any) {
+        if (!isUnreadable(error)) throw error;
+        files.push({ path: relative, category: owners.get(relative.split('/')[0]) ?? null, kind: text.has(ext) ? 'text' : 'binary', bytes: fsImpl.lstatSync(path.join(dir, entry.name)).size, sha256: null, pointer: false, unreadable: true });
+        continue;
+      }
       files.push({
         path: relative,
         category: owners.get(relative.split('/')[0]) ?? null,
