@@ -22,7 +22,7 @@ const path = require('node:path');
 const nodeCrypto = require('node:crypto');
 const { categoryFolder } = require('./taxonomy.ts');
 const {
-  readManifest, writeManifest, withManifestLock, newRunId, INTAKE_DIR, IntakeUsageError,
+  readManifest, writeManifest, withManifestLock, newRunId, isConfinedPath, INTAKE_DIR, IntakeUsageError,
 } = require('./manifest.ts');
 
 const CONTEXT_DIR = 'additional-context';
@@ -111,16 +111,21 @@ function makeDir(fsImpl: any, dir: string): boolean {
   }
 }
 
-/** Root entries of the context folder: loose files and folder names. Hidden names, links and others are not either. */
-function rootEntries(contextDir: string, fsImpl: any): { files: string[]; dirs: Set<string> } {
+/**
+ * Root entries of the context folder: loose files and folder names. Hidden names, links and others are not either.
+ * A loose file whose name the manifest could not hold (the `isConfinedPath` rule, e.g. a backslash) is listed in
+ * `unsupported`, never in `files`: journaling it would make the manifest unreadable on every later call.
+ */
+function rootEntries(contextDir: string, fsImpl: any): { files: string[]; dirs: Set<string>; unsupported: string[] } {
   const files: string[] = [];
+  const unsupported: string[] = [];
   const dirs = new Set<string>();
   for (const entry of fsImpl.readdirSync(contextDir, { withFileTypes: true })) {
     if (entry.name.startsWith('.')) continue;
-    if (entry.isFile()) files.push(entry.name);
+    if (entry.isFile()) (isConfinedPath(entry.name) ? files : unsupported).push(entry.name);
     else if (entry.isDirectory()) dirs.add(entry.name);
   }
-  return { files: files.sort(byBytes), dirs };
+  return { files: files.sort(byBytes), dirs, unsupported: unsupported.sort(byBytes) };
 }
 
 function ruleMatches(rule: any, name: string): boolean {
@@ -143,7 +148,7 @@ function directClaim(categories: any[], name: string): any {
  * writes nothing. A companion rule sends a file beside a same-stem file that is itself moving in this plan.
  */
 function planSort({ contextDir, taxonomy, now, fsImpl = nodeFs, withHashes = true }: any): any {
-  const { files, dirs } = rootEntries(contextDir, fsImpl);
+  const { files, dirs, unsupported } = rootEntries(contextDir, fsImpl);
   const windowMs = taxonomy.recentWindowSeconds * 1000;
   const recent = new Set<string>();
   for (const name of files) {
@@ -178,7 +183,7 @@ function planSort({ contextDir, taxonomy, now, fsImpl = nodeFs, withHashes = tru
   };
 
   const moves: any[] = [];
-  const skipped: any[] = [];
+  const skipped: any[] = unsupported.map((name: string) => ({ path: name, reason: 'unsupported-name', detail: 'the name cannot be recorded in the manifest' }));
   const unmatched: string[] = [];
   const createdDirs: string[] = [];
   const taken = new Set<string>();

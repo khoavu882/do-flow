@@ -142,6 +142,20 @@ test('hidden files, links and subfolder contents are never moved', (t: any) => {
   assert.equal(fs.readFileSync(path.join(dir, 'outside-prd.md'), 'utf8'), 'outside');
 });
 
+test('a name the manifest cannot hold is skipped as unsupported-name; the rest moves and later calls still work', (t: any) => {
+  const { ctx } = tree(t, { 'a\\b-prd.md': 'odd', 'ok-prd.md': 'fine' });
+  const result = sort(ctx);
+  assert.deepEqual(movesOf(result), ['ok-prd.md>raw-prd/ok-prd.md']);
+  assert.deepEqual(result.skipped, [{ path: 'a\\b-prd.md', reason: 'unsupported-name', detail: 'the name cannot be recorded in the manifest' }]);
+  assert.equal(fs.readFileSync(path.join(ctx, 'a\\b-prd.md'), 'utf8'), 'odd');
+  assert.deepEqual(previewSort({ contextDir: ctx, taxonomy: taxonomy(), now: LATER() }).skipped.map((s: any) => s.reason), ['unsupported-name']);
+  const again = sort(ctx);
+  assert.deepEqual(again.moves, []);
+  assert.deepEqual(again.skipped.map((s: any) => s.reason), ['unsupported-name']);
+  assert.deepEqual(undo(ctx).restored, [{ from: 'ok-prd.md', to: 'raw-prd/ok-prd.md' }]);
+  assert.ok(fs.existsSync(path.join(ctx, 'a\\b-prd.md')));
+});
+
 test('a taken destination name gets a numbered suffix; neither file is overwritten (FR-006)', (t: any) => {
   const { ctx } = tree(t, { 'raw-prd/prd.md': 'first', 'raw-prd/prd-1.md': 'second', 'prd.md': 'third' });
   const result = sort(ctx);
