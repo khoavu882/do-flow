@@ -12,9 +12,16 @@
  *   - matching reads names and extensions only, in registry order, so the same folder gives the same moves.
  * The manifest is `manifest.ts`'s; the category rules are `taxonomy.ts`'s.
  *
- * Ceilings accepted: the manifest is rewritten whole after every journal step (quadratic in the number of
- * moves in one run, fine for the handful of loose files a context folder holds), and the no-overwrite check
- * is a look immediately before the rename, not an atomic exclusive rename.
+ * A move never replaces a file: it is `link(from, to)` (which fails with EEXIST when `to` exists, atomically on
+ * one volume) then `unlink(from)`, so a file that appears at the destination between the plan and the move is
+ * left alone and the move is reported `failed`. On a volume that cannot hard-link (EPERM, ENOTSUP, EOPNOTSUPP,
+ * EMLINK: exFAT, some SMB or FUSE mounts) the move falls back to a look at the destination and a rename, which
+ * leaves a window in which a file created in that instant would be replaced; the journal entry then carries
+ * `fallback: 'rename'`. A crash between the link and the unlink leaves one file under two names; the next run
+ * settles it (same device and inode: the origin name is dropped and the move is `done`).
+ *
+ * Ceiling accepted: the manifest is rewritten whole after every journal step (quadratic in the number of
+ * moves in one run, fine for the handful of loose files a context folder holds).
  */
 
 const nodeFs = require('node:fs');
@@ -38,6 +45,35 @@ function lstatOrNull(fsImpl: any, file: string): any {
     if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null;
     throw error;
   }
+}
+
+/** Errors that mean the volume cannot hard-link; `moveNoReplace` then falls back to a look and a rename. */
+const NO_LINK_CODES = ['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'EMLINK'];
+
+/** True when two lstat results are the same file: one device and inode, i.e. the same bytes under two names. */
+function sameFile(a: any, b: any): boolean { return Boolean(a && b) && a.dev === b.dev && a.ino === b.ino; }
+
+/**
+ * Moves `from` to `to` and never replaces `to`: `linkSync` fails with EEXIST when it exists, then the origin
+ * name is dropped. If that last step fails the new link is removed again (it is the same inode, so no data goes)
+ * and the error is thrown. On a volume that cannot hard-link it falls back to lstat + rename and says so.
+ */
+function moveNoReplace(fsImpl: any, from: string, to: string): { fallback: boolean } {
+  try {
+    fsImpl.linkSync(from, to);
+  } catch (error: any) {
+    if (!NO_LINK_CODES.includes(error.code)) throw error;
+    if (lstatOrNull(fsImpl, to)) throw Object.assign(new Error(`EEXIST: ${to} already exists`), { code: 'EEXIST' });
+    fsImpl.renameSync(from, to);
+    return { fallback: true };
+  }
+  try {
+    fsImpl.unlinkSync(from);
+  } catch (error: any) {
+    try { fsImpl.unlinkSync(to); } catch { /* the link is not ours to chase any further */ }
+    throw error;
+  }
+  return { fallback: false };
 }
 
 function extOf(name: string): string {
@@ -221,7 +257,8 @@ function freeName(contextDir: string, dir: string, name: string, taken: Set<stri
 /**
  * IC-007: settles every `planned` move left by a run that died between its steps. The origin still holding a
  * file means the rename never happened (`failed`); a destination holding the recorded hash with the origin
- * empty means it did (`done`). Anything else is `failed`. Returns true when the manifest changed.
+ * empty means it did (`done`); the same file under both names (a crash between link and unlink) drops the
+ * origin name and is `done` too. Anything else is `failed`. Returns true when the manifest changed.
  */
 function reconcile(manifest: any, contextDir: string, now: Date, fsImpl: any): boolean {
   let changed = false;
@@ -232,7 +269,11 @@ function reconcile(manifest: any, contextDir: string, now: Date, fsImpl: any): b
       const toStat = lstatOrNull(fsImpl, path.join(contextDir, move.to));
       const fromStat = move.from === null ? null : lstatOrNull(fsImpl, path.join(contextDir, move.from));
       const toIsFile = Boolean(toStat && toStat.isFile());
-      if (fromStat) {
+      if (fromStat && toIsFile && sameFile(fromStat, toStat) && hashFile(fsImpl, path.join(contextDir, move.to)).sha256 === move.sha256) {
+        fsImpl.unlinkSync(path.join(contextDir, move.from));
+        move.state = 'done';
+        move.reason = null;
+      } else if (fromStat) {
         move.state = 'failed';
         move.reason = 'the move did not complete: the origin still holds a file';
       } else if (toIsFile && hashFile(fsImpl, path.join(contextDir, move.to)).sha256 === move.sha256) {
@@ -312,11 +353,10 @@ function sortFolder({ contextDir, taxonomy, now = new Date(), fsImpl = nodeFs }:
       if (!madeDirs) continue;
       run.moves.push(entry);
       writeManifest(contextDir, manifest, fsImpl); // journal: planned
-      if (lstatOrNull(fsImpl, to)) { fail('the destination appeared before the move'); continue; }
       try {
-        fsImpl.renameSync(from, to);
+        if (moveNoReplace(fsImpl, from, to).fallback) entry.fallback = 'rename';
       } catch (error: any) {
-        fail(`rename failed: ${error.message}`);
+        fail(error.code === 'EEXIST' ? 'the destination appeared before the move' : `rename failed: ${error.message}`);
         continue;
       }
       const after = hashFile(fsImpl, to).sha256;
@@ -381,13 +421,23 @@ function undoRun({ contextDir, runId = null, now = new Date(), fsImpl = nodeFs }
         }
       } else if (!toStat.isFile() || hashFile(fsImpl, to).sha256 !== move.sha256) {
         skip(move, 'changed');
-      } else if (fromStat) {
+      } else if (fromStat && !sameFile(fromStat, toStat)) {
         skip(move, 'origin-taken');
       } else {
         const chain = chainOf(contextDir, path.posix.dirname(move.to), fsImpl);
         if (chain.bad || chain.missing.length) { skip(move, 'changed'); } else {
-          fsImpl.renameSync(to, from);
-          if (hashFile(fsImpl, from).sha256 === move.sha256) {
+          let taken = false;
+          try {
+            // A restore that died between its link and its unlink (the file under both names) is finished here.
+            if (fromStat) fsImpl.unlinkSync(to);
+            else if (moveNoReplace(fsImpl, to, from).fallback) move.fallback = 'rename';
+          } catch (error: any) {
+            if (error.code !== 'EEXIST') throw error;
+            taken = true;
+          }
+          if (taken) {
+            skip(move, 'origin-taken');
+          } else if (hashFile(fsImpl, from).sha256 === move.sha256) {
             move.state = 'undone';
             move.reason = null;
             restored.push({ from: move.from, to: move.to });
@@ -481,15 +531,14 @@ function filePrompt({ contextDir, taxonomy, bytes, stage = null, now = new Date(
     const tmp = path.join(contextDir, INTAKE_DIR, `prompt.${process.pid}.tmp`);
     try {
       fsImpl.writeFileSync(tmp, bytes, { flag: 'wx' });
-      if (lstatOrNull(fsImpl, path.join(contextDir, to))) throw new Error('the destination appeared before the write');
-      fsImpl.renameSync(tmp, path.join(contextDir, to));
+      if (moveNoReplace(fsImpl, tmp, path.join(contextDir, to)).fallback) entry.fallback = 'rename';
     } catch (error: any) {
       try { fsImpl.rmSync(tmp, { force: true }); } catch { /* nothing to clean */ }
       entry.state = 'failed';
-      entry.reason = `write failed: ${error.message}`;
+      entry.reason = `write failed: ${error.code === 'EEXIST' ? 'the destination appeared before the write' : error.message}`;
       run.finishedAt = now.toISOString();
       writeManifest(contextDir, manifest, fsImpl);
-      throw new IntakeUsageError(`could not file the prompt text: ${error.message}`);
+      throw new IntakeUsageError(`could not file the prompt text: ${error.code === 'EEXIST' ? 'the destination appeared before the write' : error.message}`);
     }
     entry.state = hashFile(fsImpl, path.join(contextDir, to)).sha256 === sha256 ? 'done' : 'failed';
     if (entry.state === 'failed') entry.reason = 'the filed file does not hold the input bytes';

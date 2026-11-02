@@ -350,7 +350,7 @@ test('undo walks only the latest sort run', (t: any) => {
 
 test('a destination hash that differs after the move marks the entry failed, keeps the file there and is never moved again', (t: any) => {
   const { ctx } = tree(t, { 'a-prd.md': 'one', 'b-prd.md': 'two' });
-  const fsImpl = { ...fs, renameSync(from: string, to: string) { fs.renameSync(from, to); if (to.endsWith('a-prd.md')) fs.appendFileSync(to, ' corrupted'); } };
+  const fsImpl = { ...fs, linkSync(from: string, to: string) { fs.linkSync(from, to); if (to.endsWith('a-prd.md')) fs.appendFileSync(to, ' corrupted'); } };
   const result = sort(ctx, { fsImpl });
   assert.deepEqual(movesOf(result), ['b-prd.md>raw-prd/b-prd.md']);
   assert.equal(result.skipped.length, 1);
@@ -365,7 +365,7 @@ test('a destination hash that differs after the move marks the entry failed, kee
 
 test('a rename that throws marks that entry failed and the others still move', (t: any) => {
   const { ctx } = tree(t, { 'a-prd.md': 'one', 'b-prd.md': 'two' });
-  const fsImpl = { ...fs, renameSync(from: string, to: string) { if (to.endsWith('a-prd.md')) throw new Error('EXDEV: simulated'); fs.renameSync(from, to); } };
+  const fsImpl = { ...fs, linkSync(from: string, to: string) { if (to.endsWith('a-prd.md')) throw Object.assign(new Error('EXDEV: simulated'), { code: 'EXDEV' }); fs.linkSync(from, to); } };
   const result = sort(ctx, { fsImpl });
   assert.deepEqual(movesOf(result), ['b-prd.md>raw-prd/b-prd.md']);
   assert.match(result.skipped[0].detail, /rename failed: EXDEV/);
@@ -414,6 +414,106 @@ test('a destination that appears after the journal entry is never overwritten', 
   assert.match(result.skipped[0].detail, /appeared before the move/);
   assert.equal(fs.readFileSync(squat, 'utf8'), 'someone else');
   assert.equal(fs.readFileSync(path.join(ctx, 'prd.md'), 'utf8'), 'mine');
+});
+
+test('a file created at the destination between the check and the move is not overwritten and the move is not done', (t: any) => {
+  const { ctx } = tree(t, { 'a-prd.md': 'mine', 'b-prd.md': 'other' });
+  const squat = path.join(ctx, 'raw-prd', 'a-prd.md');
+  // Created after the plan and the journal entry, in the instant before the link: the window a lstat-then-rename lost.
+  const fsImpl = { ...fs, linkSync(from: string, to: string) { if (to === squat) fs.writeFileSync(squat, 'someone else'); fs.linkSync(from, to); } };
+  const result = sort(ctx, { fsImpl });
+  assert.deepEqual(movesOf(result), ['b-prd.md>raw-prd/b-prd.md']);
+  assert.match(result.skipped[0].detail, /appeared before the move/);
+  assert.equal(fs.readFileSync(squat, 'utf8'), 'someone else');
+  assert.equal(fs.readFileSync(path.join(ctx, 'a-prd.md'), 'utf8'), 'mine');
+  assert.deepEqual(manifestOf(ctx).runs[0].moves.map((m: any) => m.state), ['failed', 'done']);
+});
+
+test('a link that cannot be undone leaves the origin where it was and no second name behind', (t: any) => {
+  const { ctx } = tree(t, { 'a-prd.md': 'mine' });
+  const fsImpl = { ...fs, unlinkSync(file: string) { if (file.endsWith('a-prd.md') && !file.includes('raw-prd')) throw Object.assign(new Error('EACCES: simulated'), { code: 'EACCES' }); fs.unlinkSync(file); } };
+  const result = sort(ctx, { fsImpl });
+  assert.deepEqual(result.moves, []);
+  assert.match(result.skipped[0].detail, /rename failed: EACCES/);
+  assert.equal(fs.readFileSync(path.join(ctx, 'a-prd.md'), 'utf8'), 'mine');
+  assert.ok(!fs.existsSync(path.join(ctx, 'raw-prd', 'a-prd.md')));
+});
+
+test('a crash between the link and the unlink leaves one file under two names; the next run finishes the move and does not re-sort a duplicate', (t: any) => {
+  const { ctx } = tree(t, { 'a-prd.md': 'twice' });
+  fs.mkdirSync(path.join(ctx, 'raw-prd'));
+  fs.linkSync(path.join(ctx, 'a-prd.md'), path.join(ctx, 'raw-prd', 'a-prd.md'));
+  fs.mkdirSync(path.join(ctx, '.intake'));
+  fs.writeFileSync(manifestFile(ctx), JSON.stringify({ schema: 1, runs: [{
+    id: 'run-20261101T000000Z-cccc', action: 'sort', startedAt: 'x', finishedAt: null, source: null, stage: null, createdDirs: ['raw-prd'],
+    moves: [{ from: 'a-prd.md', to: 'raw-prd/a-prd.md', sha256: sha('twice'), bytes: 5, at: 'x', state: 'planned', reason: null }],
+  }] }));
+  const result = sort(ctx);
+  assert.deepEqual(result.moves, []);
+  assert.equal(manifestOf(ctx).runs[0].moves[0].state, 'done');
+  assert.ok(!fs.existsSync(path.join(ctx, 'a-prd.md')), 'the origin name is dropped');
+  assert.ok(!fs.existsSync(path.join(ctx, 'raw-prd', 'a-prd-1.md')), 'no duplicate');
+  assert.equal(fs.readFileSync(path.join(ctx, 'raw-prd', 'a-prd.md'), 'utf8'), 'twice');
+});
+
+test('undo finishes a restore that died between its link and its unlink', (t: any) => {
+  const { ctx } = tree(t, { 'a-prd.md': 'back' });
+  sort(ctx);
+  fs.linkSync(path.join(ctx, 'raw-prd', 'a-prd.md'), path.join(ctx, 'a-prd.md'));
+  const result = undo(ctx);
+  assert.deepEqual(result.restored, [{ from: 'a-prd.md', to: 'raw-prd/a-prd.md' }]);
+  assert.equal(fs.readFileSync(path.join(ctx, 'a-prd.md'), 'utf8'), 'back');
+  assert.ok(!fs.existsSync(path.join(ctx, 'raw-prd')), 'the emptied folder went');
+});
+
+test('undo does not replace an origin that appears between the check and the restore', (t: any) => {
+  const { ctx } = tree(t, { 'a-prd.md': 'mine' });
+  sort(ctx);
+  const origin = path.join(ctx, 'a-prd.md');
+  const fsImpl = { ...fs, linkSync(from: string, to: string) { if (to === origin) fs.writeFileSync(origin, 'someone else'); fs.linkSync(from, to); } };
+  const result = undo(ctx, { fsImpl });
+  assert.deepEqual(result.skipped, [{ to: 'raw-prd/a-prd.md', reason: 'origin-taken' }]);
+  assert.equal(fs.readFileSync(origin, 'utf8'), 'someone else');
+  assert.equal(fs.readFileSync(path.join(ctx, 'raw-prd', 'a-prd.md'), 'utf8'), 'mine');
+});
+
+test('a volume that cannot hard-link falls back to a look and a rename for sort, undo and file-prompt, and the journal says so', (t: any) => {
+  const { ctx } = tree(t, { 'a-prd.md': 'mine', 'b-prd.md': 'other' });
+  const noLink = { ...fs, linkSync() { throw Object.assign(new Error('EPERM: simulated'), { code: 'EPERM' }); } };
+  const result = sort(ctx, { fsImpl: noLink });
+  assert.deepEqual(movesOf(result), ['a-prd.md>raw-prd/a-prd.md', 'b-prd.md>raw-prd/b-prd.md']);
+  assert.deepEqual(manifestOf(ctx).runs[0].moves.map((m: any) => m.fallback), ['rename', 'rename']);
+  assert.ok(!fs.existsSync(path.join(ctx, 'a-prd.md')));
+  assert.equal(undo(ctx, { fsImpl: noLink }).restored.length, 2);
+  assert.equal(manifestOf(ctx).runs[0].moves[0].fallback, 'rename');
+  assert.equal(fs.readFileSync(path.join(ctx, 'a-prd.md'), 'utf8'), 'mine');
+  const filed = filePrompt({ contextDir: ctx, taxonomy: taxonomy(), bytes: Buffer.from('prompt text'), fsImpl: noLink });
+  assert.equal(fs.readFileSync(path.join(ctx, filed.path), 'utf8'), 'prompt text');
+  assert.equal(manifestOf(ctx).runs[1].moves[0].fallback, 'rename');
+  assert.equal(manifestOf(ctx).runs[1].moves[0].state, 'done');
+});
+
+test('the fallback still refuses a destination that exists when it looks', (t: any) => {
+  const { ctx } = tree(t, { 'a-prd.md': 'mine' });
+  const squat = path.join(ctx, 'raw-prd', 'a-prd.md');
+  const noLink = { ...fs, linkSync(_from: string, to: string) { if (to === squat) fs.writeFileSync(squat, 'someone else'); throw Object.assign(new Error('ENOTSUP: simulated'), { code: 'ENOTSUP' }); } };
+  const result = sort(ctx, { fsImpl: noLink });
+  assert.deepEqual(result.moves, []);
+  assert.match(result.skipped[0].detail, /appeared before the move/);
+  assert.equal(fs.readFileSync(squat, 'utf8'), 'someone else');
+  assert.equal(fs.readFileSync(path.join(ctx, 'a-prd.md'), 'utf8'), 'mine');
+});
+
+test('file-prompt never replaces a file that appears at the destination before the write', (t: any) => {
+  const { ctx } = tree(t, {});
+  const now = LATER();
+  const day = now.toISOString().slice(0, 10);
+  const squat = path.join(ctx, 'prompt', `prompt-${day}-01.md`);
+  const fsImpl = { ...fs, linkSync(from: string, to: string) { if (to === squat) fs.writeFileSync(squat, 'someone else'); fs.linkSync(from, to); } };
+  assert.throws(() => filePrompt({ contextDir: ctx, taxonomy: taxonomy(), bytes: Buffer.from('mine'), now, fsImpl }), /destination appeared before the write/);
+  assert.equal(fs.readFileSync(squat, 'utf8'), 'someone else');
+  assert.equal(manifestOf(ctx).runs[0].moves[0].state, 'failed');
+  assert.deepEqual(fs.readdirSync(path.join(ctx, '.intake')).filter((f: string) => f.endsWith('.tmp') && f.startsWith('prompt')), []);
 });
 
 test('planned entries from a dead run are reconciled by the next sort (done when the destination holds the hash, failed when the origin still holds the file)', (t: any) => {
