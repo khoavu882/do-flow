@@ -14,7 +14,7 @@ const read = (): any => JSON.parse(fs.readFileSync(FILE, 'utf8'));
 
 test('intake.json holds the closed shape: no finding', () => {
   assert.deepEqual(validateTaxonomy(read()).errors, []);
-  assert.equal(loadTaxonomy({ repoRoot: REPO }).ok, true);
+  assert.equal(loadTaxonomy({ repoRoot: REPO, contributions: false }).ok, true);
 });
 
 test('a malformed registry fails the guard: an unknown key, a duplicate name and a bad pattern are each named', () => {

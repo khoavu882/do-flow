@@ -39,7 +39,7 @@ function runIntake({ action, projectRoot, slug = null, flags = {}, now = new Dat
     if (!VALID_ACTIONS.includes(action)) throw new IntakeUsageError(`unknown --action '${action}'. Valid: ${VALID_ACTIONS.join(', ')}`);
     const feature = resolveActiveFeature({ projectRoot, slug });
     if (feature.error) throw new IntakeUsageError(feature.message);
-    const loaded = loadTaxonomy({ ...taxonomyOptions, fsImpl });
+    const loaded = loadTaxonomy({ projectRoot: feature.repoRoot, ...taxonomyOptions, fsImpl });
     if (!loaded.ok) throw new IntakeUsageError(`the intake categories cannot be used (${loaded.reason}): ${loaded.detail}`);
     const common = { contextDir: path.join(feature.featureFolder, CONTEXT_DIR), taxonomy: loaded.taxonomy, now, fsImpl };
     let result: any;

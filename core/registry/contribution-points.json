@@ -24,7 +24,10 @@
       "referencedBy": ["workers.billing"], "slice": "D", "template": "package-templates/worker" },
     { "id": "capability-provider", "versions": [1], "tier": "executable", "status": "open", "entry": "file",
       "validator": "capability-provider-v1", "combine": "add-only", "consumer": "src/runtime/capability-router.ts",
-      "referencedBy": [], "slice": "D", "template": "package-templates/capability-provider" }
+      "referencedBy": [], "slice": "D", "template": "package-templates/capability-provider" },
+    { "id": "intake-category", "versions": [1], "tier": "inert", "status": "open", "entry": "file",
+      "validator": "intake-category-v1", "combine": "add-only", "consumer": "src/runtime/intake/taxonomy.ts",
+      "referencedBy": [], "slice": "136", "template": "package-templates/intake-category" }
   ],
   "bundled": [
     { "id": "doflow", "dir": "core/registry/packages/doflow", "contentDigest": "492b10df12d1281743ee26a31a5acab8a90c39e2b7c9ed29fdca5cc0a94bf24a" }

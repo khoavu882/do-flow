@@ -12,7 +12,7 @@ const { previewSort, sortFolder, undoRun, listFolder, filePrompt } = require('..
 const { readManifest, manifestFile, IntakeUsageError } = require('../../src/runtime/intake/manifest.ts');
 
 const REPO = path.resolve(__dirname, '../..');
-const taxonomy = (): any => loadTaxonomy({ repoRoot: REPO }).taxonomy;
+const taxonomy = (): any => loadTaxonomy({ repoRoot: REPO, contributions: false }).taxonomy;
 const sha = (data: any): string => `sha256:${nodeCrypto.createHash('sha256').update(data).digest('hex')}`;
 /** The clock every test sorts at: a day after the files were written, so none is "recent" unless a test says so. */
 const LATER = (): Date => new Date(Date.now() + 86_400_000);

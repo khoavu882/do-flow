@@ -86,7 +86,7 @@ test('one bad preset field plus one undeclared point gives exactly two findings 
   assert.deepEqual(invalid.allowed, ['light', 'standard', 'frontier']);
   assert.equal(undeclared.code, 'undeclared-point');
   assert.equal(undeclared.field, 'contributions[1].point');
-  assert.deepEqual(undeclared.allowed, ['review-preset', 'debate-preset', 'skill', 'agent', 'worker', 'capability-provider']);
+  assert.deepEqual(undeclared.allowed, ['review-preset', 'debate-preset', 'skill', 'agent', 'worker', 'capability-provider', 'intake-category']);
   for (const f of result.findings) {
     assert.equal(f.package, 'acme');
     assert.equal(f.severity, 'error');

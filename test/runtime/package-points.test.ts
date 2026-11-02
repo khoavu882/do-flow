@@ -78,6 +78,7 @@ test('the shipped registry is valid and holds the IC-002 facts', () => {
     ['review-preset', 'open', 'inert'], ['debate-preset', 'open', 'inert'],
     ['skill', 'open', 'instruction'], ['agent', 'open', 'instruction'],
     ['worker', 'open', 'executable'], ['capability-provider', 'open', 'executable'],
+    ['intake-category', 'open', 'inert'],
   ]);
   const byId = Object.fromEntries(reg.points.map((p: any) => [p.id, p]));
   assert.equal(byId.skill.validator, 'skill-v1');
@@ -91,6 +92,10 @@ test('the shipped registry is valid and holds the IC-002 facts', () => {
   assert.equal(byId['capability-provider'].template, 'package-templates/capability-provider');
   assert.equal(byId['capability-provider'].validator, 'capability-provider-v1');
   assert.deepEqual(byId['capability-provider'].versions, [1]);
+  assert.equal(byId['intake-category'].template, 'package-templates/intake-category');
+  assert.equal(byId['intake-category'].validator, 'intake-category-v1');
+  assert.equal(byId['intake-category'].consumer, 'src/runtime/intake/taxonomy.ts');
+  assert.deepEqual(byId['intake-category'].versions, [1]);
   assert.deepEqual(byId['review-preset'].referencedBy, ['review.preset']);
   assert.deepEqual(byId['debate-preset'].referencedBy, ['debate.preset']);
   // Every referencedBy key is a key that exists today.
@@ -100,7 +105,7 @@ test('the shipped registry is valid and holds the IC-002 facts', () => {
 });
 
 test('POINT_VALIDATORS is a literal map; the preset validators call validatePreset', () => {
-  assert.deepEqual(Object.keys(POINT_VALIDATORS).sort(), ['agent-v1', 'capability-provider-v1', 'debate-preset-v1', 'review-preset-v1', 'skill-v1', 'worker-v1']);
+  assert.deepEqual(Object.keys(POINT_VALIDATORS).sort(), ['agent-v1', 'capability-provider-v1', 'debate-preset-v1', 'intake-category-v1', 'review-preset-v1', 'skill-v1', 'worker-v1']);
   const protocols = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'core', 'registry', 'protocols.json'), 'utf8'));
   const context = { lensIds: protocols.lenses.map((l: any) => l.id), hardRoundCap: protocols.hardRoundCap };
   const review = protocols.presets['review-deep'];
@@ -114,13 +119,13 @@ test('POINT_VALIDATORS is a literal map; the preset validators call validatePres
   assert.match(POINT_VALIDATORS['review-preset-v1']('review-deep', { ...review, seats: [] }, context).join('\n'), /seats/);
 });
 
-test('points --json lists six points with id, versions, tier, status, entry and opensWith', (t: any) => {
+test('points --json lists seven points with id, versions, tier, status, entry and opensWith', (t: any) => {
   const s = scratch(t);
   const res = s.cli(['package', '--action', 'points', '--json']);
   assert.equal(res.status, 0, res.stderr);
   const out = JSON.parse(res.stdout);
   assert.deepEqual(Object.keys(out), ['points']);
-  assert.equal(out.points.length, 6);
+  assert.equal(out.points.length, 7);
   assert.deepEqual(out.points[0], { id: 'review-preset', versions: [1], tier: 'inert', status: 'open', entry: 'file', opensWith: null });
   const cap = out.points.find((p: any) => p.id === 'capability-provider');
   assert.deepEqual(cap, { id: 'capability-provider', versions: [1], tier: 'executable', status: 'open', entry: 'file', opensWith: null });
@@ -133,9 +138,10 @@ test('points text prints one line per point and writes nothing', (t: any) => {
   const res = s.cli(['package', '--action', 'points']);
   assert.equal(res.status, 0, res.stderr);
   const lines = res.stdout.trim().split('\n');
-  assert.equal(lines.length, 6);
+  assert.equal(lines.length, 7);
   assert.match(lines[0], /^point review-preset: tier=inert status=open entry=file versions=1$/);
   assert.match(lines[5], /^point capability-provider: tier=executable status=open entry=file versions=1$/);
+  assert.match(lines[6], /^point intake-category: tier=inert status=open entry=file versions=1$/);
   assert.deepEqual({ cwd: snapshot(s.cwd), home: snapshot(s.home) }, before);
 });
 
@@ -200,7 +206,7 @@ test('judgeContribution: undeclared, unsupported version and reserved points get
   assert.equal(undeclared.severity, 'error');
   assert.equal(undeclared.package, 'acme');
   assert.equal(undeclared.field, 'contributions[3].point');
-  assert.deepEqual(undeclared.allowed, ['review-preset', 'debate-preset', 'skill', 'agent', 'worker', 'capability-provider']);
+  assert.deepEqual(undeclared.allowed, ['review-preset', 'debate-preset', 'skill', 'agent', 'worker', 'capability-provider', 'intake-category']);
 
   const version = judge({ point: 'review-preset', version: 2 });
   assert.equal(version.code, 'unsupported-point-version');

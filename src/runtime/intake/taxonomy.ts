@@ -4,8 +4,8 @@
  * The intake taxonomy (136 IC-005): `core/registry/intake.json` read on its own, not through `loadRegistry`,
  * so a bad file turns intake off with a reason and never fails an installer command (the transcripts pattern,
  * `src/runtime/transcripts/registry.ts`). `validateTaxonomy` checks the closed shape and the id and name
- * uniqueness; `loadTaxonomy` returns the core categories in file order (a package's `intake-category`
- * contributions join them in C.2). A rule matches on a file's name and extension only, never on its content.
+ * uniqueness; `loadTaxonomy` returns the core categories in file order, then the valid `intake-category`
+ * contributions of active packages (IC-006). A rule matches on a file's name and extension only, never on its content.
  */
 
 const fs = require('node:fs');
@@ -135,10 +135,15 @@ function validateTaxonomy(registry: any): { ok: boolean; errors: string[] } {
 }
 
 /**
- * Returns `{ ok: true, taxonomy }` with the core categories in file order, each marked `origin: 'core'`, or
- * `{ ok: false, reason: 'config-invalid', detail }` when the file cannot be read or fails its shape.
+ * Returns `{ ok: true, taxonomy }` with the core categories in file order, each marked `origin: 'core'`, followed by
+ * the categories active packages contribute (IC-006), or `{ ok: false, reason: 'config-invalid', detail }` when the
+ * core file cannot be read or fails its shape. A contribution is tried after every core category, in ascending
+ * qualified-id order; its `id` becomes the qualified id, which is also its folder name. One whose id or names
+ * collide with a core category or an earlier contribution is left out and named in `problems`. The core list never
+ * depends on the package view: `contributionsFor` yields nothing when the point registry fails to load.
+ * `contributions: false` skips the package view. `view`, `homeDir`, `env`, `projectRoot` and `tmpDir` reach it.
  */
-function loadTaxonomy({ repoRoot = REPO_ROOT, file, fsImpl = fs }: any = {}): { ok: boolean; taxonomy?: any; reason?: string; detail?: string } {
+function loadTaxonomy({ repoRoot = REPO_ROOT, file, fsImpl = fs, contributions = true, problems, view, homeDir, env, projectRoot, tmpDir }: any = {}): { ok: boolean; taxonomy?: any; reason?: string; detail?: string } {
   const target = file || path.join(path.resolve(repoRoot), INTAKE_FILE);
   let registry: any;
   try {
@@ -149,6 +154,20 @@ function loadTaxonomy({ repoRoot = REPO_ROOT, file, fsImpl = fs }: any = {}): { 
   const validation = validateTaxonomy(registry);
   if (!validation.ok) return { ok: false, reason: 'config-invalid', detail: validation.errors.join('; ') };
   const categories = registry.categories.map((category: any) => ({ ...category, origin: 'core' }));
+  if (contributions) {
+    const used = new Set<string>(categories.flatMap((category: any) => [category.id, ...category.names]));
+    const { contributionsFor } = require('../packages/contributions.ts');
+    for (const contribution of contributionsFor('intake-category', 1, { repoRoot, fsImpl, view, homeDir, env, projectRoot, tmpDir, problems })) {
+      const id = contribution.qualifiedId;
+      const clash = [id, ...contribution.data.names].find((name: string) => used.has(name));
+      if (clash !== undefined) {
+        problems?.push(`intake-category contribution '${id}' is left out: '${clash}' is already the id or a name of another category`);
+        continue;
+      }
+      for (const name of [id, ...contribution.data.names]) used.add(name);
+      categories.push({ ...contribution.data, id, origin: id });
+    }
+  }
   return { ok: true, taxonomy: { ...registry, categories } };
 }
 

@@ -14,7 +14,7 @@ const errorsOf = (registry: any): string[] => validateTaxonomy(registry).errors;
 const category = (registry: any, id: string): any => registry.categories.find((c: any) => c.id === id);
 
 test('the shipped registry loads: core categories in file order, each marked core', () => {
-  const loaded = loadTaxonomy({ repoRoot: REPO });
+  const loaded = loadTaxonomy({ repoRoot: REPO, contributions: false });
   assert.equal(loaded.ok, true, loaded.detail);
   assert.deepEqual(loaded.taxonomy.categories.map((c: any) => c.id), ['raw-prd', 'discuss-session', 'hld', 'references', 'prompt']);
   assert.ok(loaded.taxonomy.categories.every((c: any) => c.origin === 'core'));
@@ -24,7 +24,7 @@ test('the shipped registry loads: core categories in file order, each marked cor
 });
 
 test('loading twice gives the same categories (NFR-005)', () => {
-  assert.deepEqual(loadTaxonomy({ repoRoot: REPO }), loadTaxonomy({ repoRoot: REPO }));
+  assert.deepEqual(loadTaxonomy({ repoRoot: REPO, contributions: false }), loadTaxonomy({ repoRoot: REPO, contributions: false }));
 });
 
 test('an unreadable or invalid file is config-invalid, never a throw', (t: any) => {
