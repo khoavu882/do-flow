@@ -219,7 +219,7 @@ test('--stdin reads at most max+1 bytes of an endless stream, then refuses it', 
   assert.equal(served, max + 1, 'one byte over the cap was read, not the stream');
   // A stream that ends in pieces, and one that ends exactly at the cap, are read whole.
   const pieces = [Buffer.from('he'), Buffer.from('llo')];
-  const chunked = { readSync(_fd: number, buffer: Buffer, offset: number): number { const next = pieces.shift(); if (!next) return 0; next.copy(buffer, offset); return next.length; } };
+  const chunked = { readSync(_fd: number, buffer: Buffer, offset: number): number { const next = pieces.shift(); if (!next) return 0; buffer.set(next, offset); return next.length; } };
   assert.equal(readInput({ stdin: true }, chunked, max).toString(), 'hello');
   const exact = { left: max, readSync(_fd: number, buffer: Buffer, offset: number, length: number): number { const n = Math.min(length, this.left); buffer.fill(0x62, offset, offset + n); this.left -= n; return n; } };
   assert.equal(readInput({ stdin: true }, exact, max).length, max);

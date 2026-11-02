@@ -245,8 +245,8 @@ function planSort({ contextDir, taxonomy, now, fsImpl = nodeFs, withHashes = tru
       const isPartner = (other: string): boolean => stemOf(other) === stem && rule.companionOf.includes(extOf(other)) && sourceRule.extensions.includes(extOf(other));
       const folder = lstatOrNull(fsImpl, path.join(contextDir, place.dir));
       if (folder && folder.isDirectory() && fsImpl.readdirSync(path.join(contextDir, place.dir), { withFileTypes: true }).some((entry: any) => entry.isFile() && isPartner(entry.name))) return place;
-      doneMoves ??= readManifest(contextDir, fsImpl).runs.flatMap((run: any) => run.moves.filter((move: any) => move.state === 'done'));
-      if (doneMoves.some((move: any) => path.posix.dirname(move.to) === place.dir && isPartner(path.posix.basename(move.to)))) return place;
+      const done: any[] = doneMoves ??= readManifest(contextDir, fsImpl).runs.flatMap((run: any) => run.moves.filter((move: any) => move.state === 'done'));
+      if (done.some((move: any) => path.posix.dirname(move.to) === place.dir && isPartner(path.posix.basename(move.to)))) return place;
     }
     return null;
   };
