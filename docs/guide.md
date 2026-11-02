@@ -109,7 +109,7 @@ Put the material you already have (a PRD, a meeting transcript, a design note, v
 doflow intake --action preview        # show the moves, change nothing
 doflow intake --action sort           # move the files and record the run
 doflow intake --action undo           # put the last sorted run back
-doflow intake --action list           # show the folders and the runs
+doflow intake --action list           # every file with its folder, kind, size and hash
 doflow intake --action file-prompt --stdin   # keep pasted prompt text as a file
 ```
 
