@@ -1406,6 +1406,7 @@ function finishMergedRow(ctx: any, row: any, rows: any[], statuses: any, worktre
   const cleaned = cleanupFeature({ intent: { featureWorktree: worktree, featureBranch: `feat/${row.slug}`, featureHead }, report: artifacts,
     root: ctx.root, develop, execFileSync: ctx.execFileSync, execOptions: ctx.gitOptions, fsImpl: ctx.fsImpl });
   slot.done = true;
+  delete slot.postMerge; // a row merged without an open intent has no post-merge verification left to mark
   if (!cleaned) {
     if (slot.held?.kind === 'cleanup' && !written) return { skip: 'cleanup-kept' };
     slot.held = { kind: 'cleanup', reason: 'cleanup-kept' };

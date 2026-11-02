@@ -54,6 +54,9 @@ const develop = path.join(scratch.dir, 'develop');
 const spawnEnv = (extra: any = {}): any => {
   const env = scratch.env({ GIT_CONFIG_GLOBAL: '/dev/null', ...extra });
   delete env[SWITCH];
+  // The developer's shell must not decide the attendance answer: a DOFLOW_SESSION_ROLE=worker parent would read
+  // `unattended worker-role` before the run record is consulted.
+  for (const key of ['DOFLOW_SESSION_ROLE', 'DOFLOW_ROLE', 'DOFLOW_RUN_ID', 'DOFLOW_LINEAGE_ID', 'DOFLOW_WORKTREE']) delete env[key];
   return env;
 };
 const worktreeOf = (row: any) => path.join(scratch.dir, `main-${row.id}`);
@@ -364,6 +367,16 @@ test('(5b) attendance also says unattended while the post-merge verification per
   for (const a of post) {
     assert.deepEqual(a.envelope, { mode: 'unattended', run: a.envelope?.run }, 'the envelope itself says unattended');
     assert.match(a.answer, /^unattended /, `${a.row}: the verb disagrees with its own envelope (${a.answer})`);
+  }
+});
+
+// AU-P10: the marker is consumed by the loop's next merge step; a finished row keeps none.
+test('(5c) the run record keeps no postMerge marker for a row whose post-merge verification was handed off', () => {
+  const runsDir = path.join(root, '.doflow', 'state', 'roadmap', 'runs');
+  const record = JSON.parse(fs.readFileSync(path.join(runsDir, fs.readdirSync(runsDir).filter((f: string) => f.endsWith('.json')).sort().at(-1)), 'utf8'));
+  for (const row of [rowOf('602-feature'), rowOf('603-note')]) {
+    assert.ok(observed.attendance.some((x: any) => x.row === row.id && x.moment === 'perform:post-merge'), `${row.id} had a post-merge perform`);
+    assert.equal(record.rows[row.id]?.postMerge, undefined, `${row.id}: the loop consumed the marker`);
   }
 });
 

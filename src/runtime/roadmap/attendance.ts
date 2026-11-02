@@ -98,6 +98,8 @@ function resolveAttendance(options: any = {}): any {
   // A held or paused slot is machine state the loop stopped on for a person (hold, gate, dispatch, budget).
   if (slot?.held) return attended('slot-held');
   if (slot?.paused) return attended('slot-paused');
+  // A finished row has no stage left, whatever marker an interrupted step left behind.
+  if (slot?.done) return attended('slot-done');
   // A pending stage is the slot's `perform`, or the marker the loop leaves when it issues the post-merge
   // verification perform (that perform is returned without being stored as slot.perform).
   const perform = slot?.perform;

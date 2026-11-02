@@ -112,6 +112,7 @@ test('AU-P10: attended once the loop consumed the marker, for a missing, malform
 
 test('AU-P10: a held or paused slot, a held row, a closed run and a switch-off all beat a stale post-merge marker', (t) => {
   assert.deepEqual(fixture(t, withMark(MARK, { held: { kind: 'intent', reason: 'plan-changed' } })).ask(), { attendance: 'attended', reason: 'slot-held' });
+  assert.deepEqual(fixture(t, withMark(MARK, { done: true })).ask(), { attendance: 'attended', reason: 'slot-done' }, 'a finished row with a stale marker');
   assert.deepEqual(fixture(t, withMark(MARK, { paused: { reason: 'budget' } })).ask(), { attendance: 'attended', reason: 'slot-paused' });
   assert.deepEqual(fixture(t, { ...withMark(MARK), hold: 'user' }).ask(), { attendance: 'attended', reason: 'row-held' });
   assert.deepEqual(fixture(t, { ...withMark(MARK), closedAt: '2026-10-31T01:00:00.000Z' }).ask({ run: RUN_ID }), { attendance: 'attended', reason: 'run-closed' });
