@@ -36,6 +36,15 @@ function checkout(t: any, prefix: string) {
   return { root, featureDir, ctx, feature: { featureDir, repoRoot: root, paths: {} } };
 }
 
+test('a binary or non-UTF-8 file saved as .md never becomes a pointer; plain text beside it still does', (t) => {
+  const { root, ctx, feature } = checkout(t, 'doflow-intake-bin-');
+  fs.writeFileSync(path.join(ctx, 'prd', 'nul.md'), Buffer.from('## Looks like text\n\0\0 binary tail\n'));
+  fs.writeFileSync(path.join(ctx, 'prd', 'latin1.md'), Buffer.from([0x23, 0x23, 0x20, 0x63, 0x61, 0x66, 0xe9, 0x0a, 0x62, 0x6f, 0x64, 0x79, 0x0a]));
+  const paths = new Set(collectPointers({ projectRoot: root, feature }).map((p: any) => p.path));
+  assert.ok([...paths].some((p: any) => p.endsWith('additional-context/prd/prd.md')));
+  assert.ok(![...paths].some((p: any) => /nul\.md|latin1\.md/.test(p)), [...paths].join(', '));
+});
+
 test('user markdown becomes pointers with origin user-provided, after the chain artifacts', (t) => {
   const { root, feature } = checkout(t, 'doflow-intake-ptr-');
   const pointers = collectPointers({ projectRoot: root, feature });

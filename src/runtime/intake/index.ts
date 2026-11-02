@@ -13,21 +13,46 @@ const nodeFs = require('node:fs');
 const path = require('node:path');
 const { resolveActiveFeature } = require('../feature-resolve.ts');
 const { finishRuntime, usageError } = require('../cli-result.ts');
-const { loadTaxonomy } = require('./taxonomy.ts');
+const { loadTaxonomy, isPlainText } = require('./taxonomy.ts');
 const { IntakeUsageError } = require('./manifest.ts');
 const { previewSort, sortFolder, undoRun, listFolder, filePrompt, CONTEXT_DIR } = require('./engine.ts');
 
 const VALID_ACTIONS = ['sort', 'preview', 'undo', 'list', 'file-prompt'];
 
-/** The prompt text as bytes, unchanged: from `--stdin` or from `--file <path>`. */
-function readInput({ stdin, file }: any, fsImpl: any): Buffer {
+/**
+ * The bytes of `--file`, opened without blocking and checked on the open descriptor: a regular file (a link to one
+ * is followed; a FIFO, a device or a folder is refused, and a FIFO is never waited on) of at most `maxBytes`.
+ */
+function readRegularFile(file: string, maxBytes: number, fsImpl: any): Buffer {
+  const fd = fsImpl.openSync(path.resolve(file), nodeFs.constants.O_RDONLY | (nodeFs.constants.O_NONBLOCK || 0));
+  try {
+    const stat = fsImpl.fstatSync(fd);
+    if (!stat.isFile()) throw new IntakeUsageError(`--file ${file} is not a regular file; file-prompt reads only a regular text file`);
+    if (stat.size > maxBytes) throw new IntakeUsageError(`--file ${file} is ${stat.size} bytes; file-prompt takes at most ${maxBytes}`);
+    return fsImpl.readFileSync(fd);
+  } finally {
+    fsImpl.closeSync(fd);
+  }
+}
+
+/**
+ * The prompt text as bytes, unchanged: from `--stdin` or from `--file <path>`. Either way it must be plain text
+ * (no NUL byte, valid UTF-8) of at most `maxBytes`, so a binary or a huge file is never filed as a prompt.
+ */
+function readInput({ stdin, file }: any, fsImpl: any, maxBytes: number): Buffer {
   if (!stdin && !file) throw new IntakeUsageError('--action file-prompt needs the text from --stdin or --file <path>');
   if (stdin && file) throw new IntakeUsageError('--stdin and --file cannot be combined');
+  const from = stdin ? 'stdin' : `--file ${file}`;
+  let bytes: Buffer;
   try {
-    return stdin ? fsImpl.readFileSync(0) : fsImpl.readFileSync(path.resolve(file));
+    bytes = stdin ? fsImpl.readFileSync(0) : readRegularFile(file, maxBytes, fsImpl);
   } catch (error: any) {
-    throw new IntakeUsageError(`cannot read ${stdin ? 'stdin' : `--file ${file}`}: ${error.message}`);
+    if (error instanceof IntakeUsageError) throw error;
+    throw new IntakeUsageError(`cannot read ${from}: ${error.message}`);
   }
+  if (bytes.length > maxBytes) throw new IntakeUsageError(`${from} is ${bytes.length} bytes; file-prompt takes at most ${maxBytes}`);
+  if (!isPlainText(bytes)) throw new IntakeUsageError(`${from} is not plain text (it holds a NUL byte or is not valid UTF-8); file-prompt files text only`);
+  return bytes;
 }
 
 /**
@@ -47,7 +72,7 @@ function runIntake({ action, projectRoot, slug = null, flags = {}, now = new Dat
     else if (action === 'preview') result = previewSort(common);
     else if (action === 'list') result = listFolder(common);
     else if (action === 'undo') result = undoRun({ ...common, runId: flags.runId || null });
-    else result = filePrompt({ ...common, bytes: readInput(flags, fsImpl), stage: flags.stage || null });
+    else result = filePrompt({ ...common, bytes: readInput(flags, fsImpl, loaded.taxonomy.pointerMaxBytes), stage: flags.stage || null });
     const finding = (Array.isArray(result.skipped) && result.skipped.length > 0) || result.state === 'nothing-to-undo';
     return { exitCode: finding ? 1 : 0, result };
   } catch (error: any) {

@@ -179,4 +179,15 @@ function categoryFolder(category: any, existing: Set<string>): string {
   return [category.id, ...category.names].find((name: string) => existing.has(name)) ?? category.id;
 }
 
-module.exports = { loadTaxonomy, validateTaxonomy, validateCategory, categoryFolder, INTAKE_FILE };
+/** True for bytes a text file can hold: no NUL byte and valid UTF-8. A binary saved as `.md` fails it. */
+function isPlainText(buffer: Buffer): boolean {
+  if (buffer.includes(0)) return false;
+  try {
+    new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+module.exports = { isPlainText, loadTaxonomy, validateTaxonomy, validateCategory, categoryFolder, INTAKE_FILE };

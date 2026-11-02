@@ -4,7 +4,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { loadTaxonomy } = require('../intake/taxonomy.ts');
+const { loadTaxonomy, isPlainText } = require('../intake/taxonomy.ts');
 
 /** The user's own files (feature 136's intake): a feature folder's `additional-context/`. Markdown there up to
  * `pointerMaxBytes` of core/registry/intake.json becomes pointers; nothing else does. */
@@ -158,7 +158,12 @@ function collectPointers({ projectRoot, feature, fsImpl = fs, intakeFile }: any)
   const rel = inside(root, source.absolute, fsImpl);
     if (!rel) continue;
     let text: string;
-    try { text = fsImpl.readFileSync(source.absolute, 'utf8'); } catch { continue; }
+    try {
+      const data = fsImpl.readFileSync(source.absolute);
+      // A user's file may be anything saved as .md; only plain UTF-8 text becomes a pointer.
+      if (originOf(rel) && !isPlainText(data)) continue;
+      text = data.toString('utf8');
+    } catch { continue; }
     const lines = text.split(/\r?\n/);
     const ranges = rangesFor(rel, text, source.requirement);
     // A user's markdown often opens with a title or runs without `##` headings; the sections alone would drop that text.

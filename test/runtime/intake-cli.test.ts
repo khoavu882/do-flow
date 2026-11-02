@@ -130,7 +130,7 @@ test('list: a line per file with category, kind, size and hash, and a count; an 
 
 test('file-prompt --stdin writes the bytes unchanged; --file does too; the second file is numbered', () => {
   const { repo, ctx } = makeRepo();
-  const bytes = Buffer.concat([Buffer.from('Pasted context\r\n'), Buffer.from([0xff, 0xfe]), Buffer.from('  \n')]);
+  const bytes = Buffer.from('Pasted context \u00e9\u4e2d\r\n  \n', 'utf8');
   const first = intake(repo, ['--action', 'file-prompt', '--stdin', '--stage', 'discovery', '--json'], bytes);
   assert.equal(first.status, 0, first.stderr);
   assert.match(first.json.path, /^prompt\/prompt-\d{4}-\d{2}-\d{2}-01\.md$/);
@@ -147,6 +147,43 @@ test('file-prompt --stdin writes the bytes unchanged; --file does too; the secon
   assert.match(second.json.path, /-02\.md$/);
   assert.equal(fs.readFileSync(path.join(ctx, second.json.path), 'utf8'), 'from a file');
   assert.match(intake(repo, ['--action', 'file-prompt', '--file', source]).stdout, /^filed prompt\/prompt-.*-03\.md \(11 bytes, sha256:/);
+});
+
+test('file-prompt refuses binary, non-UTF-8, oversized and non-regular input with exit 2 and files nothing; a plain text path stays accepted', () => {
+  const { repo, ctx } = makeRepo();
+  const dir = path.join(SCRATCH, `inputs-${repoCounter}`);
+  fs.mkdirSync(dir, { recursive: true });
+  const write = (name: string, data: any): string => { const file = path.join(dir, name); fs.writeFileSync(file, data); return file; };
+  const nul = write('nul.md', Buffer.from('looks fine\0but is not'));
+  const latin = write('latin1.txt', Buffer.from([0x63, 0x61, 0x66, 0xe9]));
+  const big = write('big.txt', Buffer.alloc(262145, 0x61));
+  const edge = write('edge.txt', Buffer.alloc(262144, 0x61));
+  const refuse = (args: string[], input: any, pattern: RegExp): void => {
+    const r = intake(repo, ['--action', 'file-prompt', ...args], input);
+    assert.equal(r.status, 2, `${args.join(' ')}: ${r.stdout}`);
+    assert.match(r.stderr, pattern);
+  };
+  refuse(['--file', nul], '', /not plain text/);
+  refuse(['--file', latin], '', /not plain text/);
+  refuse(['--stdin'], Buffer.from([0x68, 0x00, 0x69]), /stdin is not plain text/);
+  refuse(['--stdin'], Buffer.from([0xff, 0xfe, 0x41]), /stdin is not plain text/);
+  refuse(['--file', big], '', /is 262145 bytes; file-prompt takes at most 262144/);
+  refuse(['--stdin'], Buffer.alloc(262145, 0x61), /stdin is 262145 bytes/);
+  refuse(['--file', dir], '', /not a regular file/);
+  if (process.platform !== 'win32') {
+    const fifo = path.join(dir, 'pipe');
+    assert.equal(spawnSync('mkfifo', [fifo]).status, 0);
+    const viaLink = path.join(dir, 'pipe-link');
+    fs.symlinkSync(fifo, viaLink);
+    refuse(['--file', fifo], '', /not a regular file/);
+    refuse(['--file', viaLink], '', /not a regular file/);
+  }
+  assert.ok(!fs.existsSync(ctx), 'nothing was filed');
+  const ok = intake(repo, ['--action', 'file-prompt', '--file', edge, '--json']);
+  assert.equal(ok.status, 0, ok.stderr);
+  const link = path.join(dir, 'text-link.txt');
+  fs.symlinkSync(write('plain.txt', 'ordinary text'), link);
+  assert.equal(intake(repo, ['--action', 'file-prompt', '--file', link, '--json']).status, 0, 'a link to a regular text file is read');
 });
 
 test('exit 2: no action, an unknown action, no input, empty input, both inputs, an unreadable file, no active feature', () => {
