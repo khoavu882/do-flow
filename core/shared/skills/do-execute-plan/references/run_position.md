@@ -29,7 +29,9 @@ follows is the call that positions the run and every branch off its response.
   "$DOFLOW" orchestrate --action catch-up --task-id "<slug>" --task-class "<class>" --stage "<stage id>" --note "entering implementation" --json
   ```
 - Branch on the response's `caughtUpTo` / `reason`, not on the exit code:
-- **`reason` is `awaiting-gate:<gate id>`** — **first check `<gate id>` against step 2's
+- **`reason` is `awaiting-gate:<gate id>`** — unattended, ask nothing and approve nothing: the loop
+  decides `gate-a` before it issues this perform, so this reason means the loop held the row; report
+  it and stop. Attended: **first check `<gate id>` against step 2's
   `<expected gate id>`.** They match in the ordinary case (`gate-a`, standing immediately before
   this stage) — present `awaitingGate.prompt` to the user through the question tool as a plain
   go/no-go, the same way step 1's prerequisite gate stops and asks rather than assuming. On yes:

@@ -28,6 +28,7 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
 ```
 
 Run every command below from the project root — the walk-up starts at `$PWD`. On exit 2, print the message verbatim and stop; it names every path searched.
+A loop-run row commits its change on `feat/<slug>` (the perform envelope's `commit.branch`), in the stage's worktree.
 
 2. **Classify Documentation Scope**:
    - `api`: Endpoint references, interface contracts, docstrings. Extract real exported names and signatures from source files. Consult this skill's own

@@ -41,6 +41,8 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
 ```
 Run every command below from the project root — the walk-up starts at `$PWD`. On exit 2, print the message verbatim and stop; it names every path searched.
 
+Once per stage run `"$DOFLOW" attendance --task-id "<feature_slug>"`; on `unattended` follow `references/WORKFLOW_HANDOFF.md` § Unattended stage (RULE_04). A loop-run row commits its change on `feat/<slug>` (the perform envelope's `commit.branch`), in the stage's worktree.
+
 1. **Gather context — don't demand it**:
    - Invoked after `/do-code-review` or `/code-review` in this conversation, or with
      `--from-review`: treat that review's findings as the work list, most-severe first, in the
@@ -78,7 +80,8 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      Branch on the returned `outcome`, not the exit code. `ACCEPTED` — the returned `workflow` names
      the validated class to evaluate readiness against. `REJECTED` — stop, print `message` verbatim
      (it names `validClasses`), ask the user to choose from that set, then re-validate; never
-     substitute `feature` for the class that was rejected.
+     substitute `feature` for the class that was rejected. Unattended: propose no class; the run's own
+     class (`taskClass` in `orchestrate --action status`) is the class, and a rejection halts per RULE_04.
    - Evaluate readiness before modifying anything. `do-implement` is the declared one-off path, so
      it states that mode explicitly — the exemption is a flag, never an inference:
      ```bash
@@ -95,7 +98,8 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
      - **`STOP`** — refuse to modify source. Report which claim is conflicted and what evidence
        disagrees, then stop. Do not edit anyway.
      - **`ASK_USER`** — a decision is owed by the user. Ask it through RULE_04 (`rules/RULES.md`)
-       mechanism and wait; editing first would decide it silently on their behalf.
+       mechanism and wait; editing first would decide it silently on their behalf. Unattended: `ASK_USER`
+       is the person's decision, so halt per RULE_04 and never default it.
      - **`ENTER`** — proceed to the context-pack call below. In standalone mode this includes
        `NEEDS_EVIDENCE`: the unmet contract is reported, not enforced — relay the missing
        requirements in step 6's report rather than presenting the edit as fully evidenced. When a

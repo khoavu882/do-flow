@@ -13,5 +13,7 @@ delivery sequence, pausing where human judgment matters:
 5. Execute `/do-execute-plan --scope next` repeatedly until the plan's checklist is complete.
 6. Run `/do-test`, then `/do-code-review`, and report both results before proposing any commit.
 
+Unattended (no person watching), stop at each pause above and report; silence is never approval.
+
 If the user comments directly inside any specification file, re-read it, apply the requested
 changes, and ask for approval again before moving on.

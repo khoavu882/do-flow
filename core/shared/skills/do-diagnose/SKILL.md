@@ -28,6 +28,8 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
 ```
 Run every command below from the project root — the walk-up starts at `$PWD`. On exit 2, print the message verbatim and stop; it names every path searched.
 
+Once per stage run `"$DOFLOW" attendance --task-id "<feature_slug>"`; on `unattended` follow the guidance tree's `WORKFLOW_HANDOFF.md` § Unattended stage (RULE_04).
+
 ```bash
 "$DOFLOW" paths --json
 ```
@@ -40,7 +42,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 ```
 Branch on the returned `outcome` field, not the exit code.
 - **`ACCEPTED`** — the returned `workflow` is this run's plan of record; read `stages`, `gates` and `handoff` off it rather than from memory.
-- **`REJECTED`** — **stop.** Print `message` verbatim (it already names `validClasses` and any `suggestions`), ask the user to choose from `validClasses`, then re-validate. Never substitute `feature`.
+- **`REJECTED`** — **stop.** Print `message` verbatim (it already names `validClasses` and any `suggestions`), ask the user to choose from `validClasses`, then re-validate. Never substitute `feature`. Unattended: propose no class; the run's own class (`taskClass` in `orchestrate --action status`) is the class, and a rejection halts per RULE_04 (§ Unattended stage).
   A rejection may be about **you** rather than the class (`reason: caller-not-a-stage`). Then the fix is to propose one of the classes in `fit.hostingClasses`, or to hand the work to the skill this class names for the stage you meant — not to re-propose the same class.
 - **Exit 2** — surface the message verbatim and stop.
 
@@ -112,6 +114,7 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
 
 6. **Remediation (`--fix`)**:
    - Only apply modifications when `--fix` is passed and after the user approves the remediation plan.
+     Unattended: never apply `--fix`; report the ranked options and hand off, `/do-implement` owns the edit.
    - `--fix` performs the edit that the validated class's workflow places behind its implementation
      stage, so consult that same contract first — never a new one. A `--fix` run is a declared
      one-off edit, not an orchestrated run, and states that mode explicitly:
@@ -119,7 +122,7 @@ Item schema, provenance rules, and the refused-field list: the guidance tree's `
      Both `--task-class` and `--task-id` are required; omitting either exits 2 and names the valid
      set. Act on `stageEntry.decision`, never the exit code or your own reading of `state`:
      `STOP` → do not edit, surface the conflicted claim; `ASK_USER` → ask the owed decision and
-     wait; `ENTER` → proceed — in standalone mode that includes `NEEDS_EVIDENCE`, where the unmet
+     wait (unattended: halt per RULE_04, never default it); `ENTER` → proceed — in standalone mode that includes `NEEDS_EVIDENCE`, where the unmet
      contract is reported, not enforced, so relay what is missing rather than presenting the fix as
      fully evidenced. The verb exits 0 for every state it computes, so a zero exit is not a green
      light, and no state is ever expressed as a number or a percentage.

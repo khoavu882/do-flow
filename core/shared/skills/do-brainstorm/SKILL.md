@@ -37,6 +37,8 @@ DOFLOW="$D/.doflow/scripts/doflow/bin/doflow-run"
 
 Run every command below from the project root — the walk-up starts at `$PWD`. On exit 2, print the message verbatim and stop; it names every path searched.
 
+Once per stage run `"$DOFLOW" attendance --task-id "<feature_slug>"`; on `unattended` follow `references/WORKFLOW_HANDOFF.md` § Unattended stage (RULE_04).
+
 ```bash
 "$DOFLOW" paths --json
 ```
@@ -48,7 +50,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
    If `feature_slug` is `null` **and** `candidate_slugs` is non-empty (a non-git root — e.g.
    doflow installed at a multi-service container root — with 2+ `agent-docs/doflow/` feature dirs
    and no branch to disambiguate), this is NOT "no active feature" — it's an unresolved choice.
-   Ask via the question tool, one option per `candidate_slugs` entry, before continuing to step 3;
+   Ask via the question tool, one option per `candidate_slugs` entry (unattended: halt per RULE_04, never pick), before continuing to step 3;
    never fall through to step 4's fresh-feature path on an ambiguous result, that would create a
    duplicate feature dir. Re-resolve with `"$DOFLOW" paths --json --slug="<chosen>"` and
    use that slug for the rest of this flow. If `/do-flow` already disambiguated and is invoking this skill
@@ -62,7 +64,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
    ```
 Branch on the returned `outcome` field, not the exit code.
 - **`ACCEPTED`** — the returned `workflow` is this run's plan of record; read `stages`, `gates` and `handoff` off it rather than from memory.
-- **`REJECTED`** — **stop.** Print `message` verbatim (it already names `validClasses` and any `suggestions`), ask the user to choose from `validClasses`, then re-validate. Never substitute `feature`.
+- **`REJECTED`** — **stop.** Print `message` verbatim (it already names `validClasses` and any `suggestions`), ask the user to choose from `validClasses`, then re-validate. Never substitute `feature`. Unattended: propose no class; the run's own class (`taskClass` in `orchestrate --action status`) is the class, and a rejection halts per RULE_04 (§ Unattended stage).
   A rejection may be about **you** rather than the class (`reason: caller-not-a-stage`). Then the fix is to propose one of the classes in `fit.hostingClasses`, or to hand the work to the skill this class names for the stage you meant — not to re-propose the same class.
 - **Exit 2** — surface the message verbatim and stop.
 

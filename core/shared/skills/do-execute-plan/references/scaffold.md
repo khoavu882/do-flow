@@ -430,7 +430,7 @@ rather than restated as prose.
   generated `code/`/`data/`/`mock/`/`default/` output directory — still not a write outside
   `agent-docs/doflow/<slug>/scaffold/` (the first Constraint above still holds), but visually
   confusing; not auto-detected or renamed.
-- The gates are the chain's own: `pre-implement-gate.sh` and step 1's
+- The gates are the chain's own: the advisory `pre-implement-gate.sh` and step 1's
   `"$DOFLOW" prereqs --require-plan`. Neither Part adds gates. Part 2 unresolved dependencies do
   not block; Part 1 non-zero exits are reportable, not stops.
 - A `depends-on:` value whose starting directory does not exist on disk at all is excluded from

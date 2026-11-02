@@ -103,7 +103,6 @@ const ALLOWLIST: any = new Map([
   ['package', 'read-only contribution point listing (122 IC-012 `points`); no skill calls the package verb yet'],
   ['models', 'CLI model catalogue sync and inspection verb; invoked via doflow models'],
   ['worktree', 'autonomy plan 7c: `worktree --action cleanup` is run by the orchestrator or a person from the main checkout after a merge, by design; no skill calls it and none will'],
-  ['attendance', 'autonomy plan section 2: read-only attendance answer that stage skills will confirm once per stage; owner is package P5 (the skill edits), which removes this entry when it wires the first caller'],
 ]);
 
 /** Parse all shell-backed verbs from shell_helper_for() in doflow-run. `\r?\n` keeps the parser

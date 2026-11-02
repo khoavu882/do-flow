@@ -18,7 +18,8 @@ from `workflow.gates[]`. A non-null `awaitingGate` carries the `gateId`, `name` 
 follows this stage in this workflow and there is nothing to decide. `gate-0` is
 `clarification`-kind and its `unresolved-clarifications` trigger is exactly what step 9 already
 checks — so this stage resolves it rather than leaving a mechanically-answerable gate for a
-human. When §7 genuinely carries zero markers, approve it plainly — this is the routine path,
+human. Unattended, none of this applies: call no `decide-gate`, even with zero markers; hand off
+and let the loop's gate-0 policy decide. Attended, when §7 genuinely carries zero markers, approve it plainly — this is the routine path,
 never a forced one:
 ```bash
 "$DOFLOW" orchestrate --action decide-gate --task-id "<slug>" --gate "<awaitingGate.gateId>" --decision approve --note "requirement.md §7 carries zero markers" --json
