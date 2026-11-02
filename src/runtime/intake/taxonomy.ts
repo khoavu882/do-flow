@@ -193,10 +193,13 @@ function isPlainText(buffer: Buffer): boolean {
 /**
  * True for a `/`-separated path inside a feature's user-context folder: `agent-docs/doflow/<slug>/additional-context/`
  * anywhere in it (a main checkout, a linked worktree or a relative path between them). A folder of that name
- * elsewhere in a project (`src/additional-context/`) is not the user's.
+ * elsewhere in a project (`src/additional-context/`) is not the user's. The path is normalised first (a backslash
+ * becomes `/`, then `.`, `//` and `a/..` are resolved), so `x/./additional-context/` and `x/y/../additional-context/`
+ * are read as what they name and `additional-context/../../a.ts` as `a.ts`. A `..` left after that is only a leading
+ * one, the relative path between two checkouts, which the rule above keeps.
  */
 function isUserContextPath(file: string): boolean {
-  const parts = file.split('/');
+  const parts = path.posix.normalize(file.replace(/\\/g, '/')).split('/');
   return parts.some((part, i) => part === 'agent-docs' && parts[i + 1] === 'doflow' && Boolean(parts[i + 2]) && parts[i + 3] === 'additional-context');
 }
 

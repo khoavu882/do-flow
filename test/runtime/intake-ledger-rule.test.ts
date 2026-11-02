@@ -64,3 +64,24 @@ test('a locator into a linked worktree or the main checkout is held to the same 
     assert.ok(ledger.addEvidence({ kind: 'documentation', source: USER_SOURCE, locator: { file } }), file);
   }
 });
+
+test('a locator is normalised before the rule reads it: ./, //, backslashes and .. cannot hide the folder or fake it', () => {
+  const ledger = new EvidenceLedger();
+  const semble = { provider: 'semble', capability: 'semantic-retrieval' };
+  const hidden = [
+    'agent-docs/doflow/136-x/./additional-context/p.md',
+    'agent-docs//doflow/136-x/additional-context/p.md',
+    'agent-docs\\doflow\\136-x\\additional-context\\p.md',
+    'agent-docs/doflow/136-x/notes/../additional-context/p.md',
+    './agent-docs/doflow/136-x/additional-context/prd/../p.md',
+  ];
+  for (const file of hidden) {
+    assert.throws(() => ledger.addEvidence({ kind: 'semantic-retrieval', source: semble, locator: { file } }), /user-provided/, file);
+    assert.ok(ledger.addEvidence({ kind: 'documentation', source: USER_SOURCE, locator: { file } }), file);
+  }
+  // A `..` that climbs out of the folder names a path outside it; one that stays is just a longer way in.
+  for (const file of [
+    'agent-docs/doflow/136-x/additional-context/../p.md',
+    'agent-docs/doflow/136-x/additional-context/../../../src/a.ts',
+  ]) assert.ok(ledger.addEvidence({ kind: 'semantic-retrieval', source: semble, locator: { file } }), file);
+});
