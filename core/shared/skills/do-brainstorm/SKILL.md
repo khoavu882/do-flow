@@ -110,9 +110,10 @@ When asking clarifying questions:
    call `"$DOFLOW" git-state --branch-name --class=feature --slug=<slug>` and use the
    returned branch name with `git checkout -b`; if false (non-git root), skip branch creation
    entirely.
-   Then, on **every** path: `mkdir -p agent-docs/doflow/<slug>/intention`. A branch-derived slug
-   names a directory that usually does not exist yet, so this is not only the new-feature case, and
-   the stage's own subdirectory holds both its dialogue logs and its output.
+   Then, on **every** path (a branch-derived slug usually names no directory yet): `mkdir -p agent-docs/doflow/<slug>/intention`.
+   Then `"$DOFLOW" intake --action file-prompt --slug="<slug>" --stdin` files held prompt text and
+   `"$DOFLOW" intake --action sort --slug="<slug>" --json` sorts `additional-context/`: report its
+   moves and skips; cite its files with source `{ provider: "doflow.intake", capability: "user-provided" }`.
    Then run `"$DOFLOW" decision --action init --slug="<slug>" --json`: `created: false` means the
    register already exists; exit 1 with finding `predates-register` means a folder from before the
    register, so continue without one; exit 2 means stop and report, because a new feature must not
