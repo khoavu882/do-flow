@@ -93,7 +93,10 @@ A gate pauses the run between stages. Only `feature` declares any:
 
 `feature` additionally carries an advisory hook, keyed on branch and artifact state, that notes a
 source edit made before its three artifacts exist — regardless of which skill is doing the editing.
-It never blocks the edit. The runtime enforces the order at the handoff (see "Readiness is four states, never a score" below); the hook's advice reaches the model only on Claude Code and Codex PreToolUse, and is record-only on other harnesses (see [reference](reference.md)).
+It never blocks the edit. The runtime enforces the order at the handoff (see "Readiness is four
+states, never a score" below). The hook's advice is meant to reach the model only on Claude Code and
+Codex PreToolUse (not verified in a live session); on the other harnesses it is record-only or a
+stderr line (see [reference](reference.md)).
 
 Outside any class, the per-prompt hook on Claude Code and Codex can add one advisory note per
 session suggesting `/do` on the first prompt of the session that reads as a plain code-change request,
@@ -125,12 +128,12 @@ runtime asks it on all seven harnesses: `orchestrate` `handoff` and `complete-st
 and name the `readiness` command that clears the refusal; `verify` reports `INCONCLUSIVE` in place
 of `PASS` while a run with that stage pending has no such record. Five harnesses have a hook layer
 (Claude Code, Codex once its hooks are reviewed, Pi, Antigravity, Kiro and Copilot CLI), and there the
-same check also advises on a source edit with the same text and never blocks it: on a feature branch whose three artifacts
-and decision register exist, and while a `feature`, `bug`, `refactor` or `dependency-change` run is
+same check also advises on a source edit with the same text and never blocks it: on a feature
+branch whose three artifacts and decision register exist, and while a `feature`, `bug`, `refactor` or `dependency-change` run is
 open with its implementation stage pending (the run is the one named by the host's task id, else by
 the branch's slug). OpenCode has no hook layer, so the handoff and `verify` are
-their only checks. Pi has a `tool_call` guard extension. Its pre-implementation gate is advisory on the live-observed
-`cli-extension` row; project-interactive and user-interactive coverage remains unknown, including
+their only checks. Pi has a `tool_call` guard extension. Its pre-implementation gate is advisory per the code, which has not
+been observed live; project-interactive and user-interactive coverage remains unknown, including
 interactive loading and project-trust behavior. The handoff and `verify` still apply there. `trivial-edit` opts out of the edit-time check on every harness: it is held at
 the handoff and `verify` only. A linked worktree reads the main checkout's feature folder, readiness
 records and runs, and updates a run where it lives.
