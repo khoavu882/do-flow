@@ -783,6 +783,34 @@ test('file-prompt creates the context folder inside an existing feature folder, 
   assert.ok(!fs.existsSync(path.join(dir, 'nofeature')));
 });
 
+test('a crash between the prompt link and unlink leaves a temp name that the next run settles and drops (reconcile)', (t: any) => {
+  const { ctx } = tree(t, { 'x.bin': 'nothing sorts this' });
+  const filed = filePrompt({ contextDir: ctx, taxonomy: taxonomy(), bytes: Buffer.from('ctx'), now: LATER() });
+  // Put the folder back into the state of a run that died after the link: planned, and the temp still a name of the file.
+  const temp = path.join(ctx, '.intake', `prompt.${process.pid}.tmp`);
+  fs.linkSync(path.join(ctx, filed.path), temp);
+  const manifest = manifestOf(ctx);
+  Object.assign(manifest.runs[0].moves[0], { state: 'planned' });
+  manifest.runs[0].finishedAt = null;
+  fs.writeFileSync(manifestFile(ctx), JSON.stringify(manifest));
+  const second = filePrompt({ contextDir: ctx, taxonomy: taxonomy(), bytes: Buffer.from('more'), now: LATER() });
+  assert.ok(!fs.existsSync(temp), 'the stale hard link is gone');
+  assert.equal(fs.readFileSync(path.join(ctx, filed.path), 'utf8'), 'ctx', 'the filed prompt is intact');
+  assert.equal(fs.readFileSync(path.join(ctx, second.path), 'utf8'), 'more');
+  assert.deepEqual(manifestOf(ctx).runs.map((run: any) => run.moves[0].state), ['done', 'done']);
+});
+
+test('a stale prompt temp file that is not a link of the filed file is named, left alone, and the entry is failed', (t: any) => {
+  const { ctx } = tree(t, { 'x.bin': 'nothing sorts this' });
+  filePrompt({ contextDir: ctx, taxonomy: taxonomy(), bytes: Buffer.from('ctx'), now: LATER() });
+  const temp = path.join(ctx, '.intake', `prompt.${process.pid}.tmp`);
+  fs.writeFileSync(temp, 'not ours');
+  assert.throws(() => filePrompt({ contextDir: ctx, taxonomy: taxonomy(), bytes: Buffer.from('more'), now: LATER() }),
+    (e: any) => e instanceof IntakeUsageError && /a stale prompt temp file exists at \.intake\/prompt\.\d+\.tmp; remove it and run again/.test(e.message));
+  assert.equal(fs.readFileSync(temp, 'utf8'), 'not ours', 'a temp file this call did not create is not removed');
+  assert.equal(manifestOf(ctx).runs[1].moves[0].state, 'failed');
+});
+
 test('a filed prompt is not moved by a later sort: it sits in a folder, not at the root', (t: any) => {
   const { ctx } = tree(t, {});
   filePrompt({ contextDir: ctx, taxonomy: taxonomy(), bytes: Buffer.from('# prd text\n'), now: LATER() });

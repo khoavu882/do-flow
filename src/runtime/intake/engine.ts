@@ -299,6 +299,7 @@ function reconcile(manifest: any, contextDir: string, now: Date, fsImpl: any, as
       const toStat = lstatOrNull(fsImpl, path.join(contextDir, move.to));
       const fromStat = move.from === null ? null : lstatOrNull(fsImpl, path.join(contextDir, move.from));
       const toIsFile = Boolean(toStat && toStat.isFile());
+      if (move.from === null && toIsFile) { assertHeld(); dropPromptTemps(contextDir, toStat, fsImpl); }
       if (fromStat && toIsFile && sameFile(fromStat, toStat) && hashFile(fsImpl, path.join(contextDir, move.to)).sha256 === move.sha256) {
         assertHeld();
         fsImpl.unlinkSync(path.join(contextDir, move.from));
@@ -320,6 +321,19 @@ function reconcile(manifest: any, contextDir: string, now: Date, fsImpl: any, as
     if (settled && run.finishedAt === null) run.finishedAt = now.toISOString();
   }
   return changed;
+}
+
+/**
+ * A crash between a prompt file's link and its unlink leaves `.intake/prompt.<pid>.tmp` as a second name of the
+ * filed file. Only a temp that is that very file (same device and inode) is dropped; any other is left alone.
+ */
+function dropPromptTemps(contextDir: string, filed: any, fsImpl: any): void {
+  const intake = path.join(contextDir, INTAKE_DIR);
+  for (const name of fsImpl.readdirSync(intake)) {
+    if (!/^prompt\..*\.tmp$/.test(name)) continue;
+    const temp = path.join(intake, name);
+    if (sameFile(lstatOrNull(fsImpl, temp), filed)) fsImpl.unlinkSync(temp);
+  }
 }
 
 const hasPlanned = (manifest: any): boolean => manifest.runs.some((run: any) => run.moves.some((move: any) => move.state === 'planned'));
@@ -602,17 +616,23 @@ function filePrompt({ contextDir, taxonomy, bytes, stage = null, now = new Date(
     writeManifest(contextDir, manifest, fsImpl, assertHeld); // journal: planned
     // Written beside the manifest, then renamed into place, so the file is whole or absent.
     const tmp = path.join(contextDir, INTAKE_DIR, `prompt.${process.pid}.tmp`);
+    let wrote = false;
     try {
       fsImpl.writeFileSync(tmp, bytes, { flag: 'wx' });
+      wrote = true;
       assertHeld();
       if (moveNoReplace(fsImpl, tmp, path.join(contextDir, to)).fallback) entry.fallback = 'rename';
     } catch (error: any) {
-      try { fsImpl.rmSync(tmp, { force: true }); } catch { /* nothing to clean */ }
+      // A temp file this call did not create is not ours to remove.
+      if (wrote) { try { fsImpl.rmSync(tmp, { force: true }); } catch { /* nothing to clean */ } }
+      const why = error.code !== 'EEXIST' ? error.message
+        : wrote ? 'the destination appeared before the write'
+          : `a stale prompt temp file exists at ${rel(INTAKE_DIR, path.basename(tmp))}; remove it and run again`;
       entry.state = 'failed';
-      entry.reason = `write failed: ${error.code === 'EEXIST' ? 'the destination appeared before the write' : error.message}`;
+      entry.reason = `write failed: ${why}`;
       run.finishedAt = now.toISOString();
       writeManifest(contextDir, manifest, fsImpl, assertHeld);
-      throw new IntakeUsageError(`could not file the prompt text: ${error.code === 'EEXIST' ? 'the destination appeared before the write' : error.message}`);
+      throw new IntakeUsageError(`could not file the prompt text: ${why}`);
     }
     entry.state = hashFile(fsImpl, path.join(contextDir, to)).sha256 === sha256 ? 'done' : 'failed';
     if (entry.state === 'failed') entry.reason = 'the filed file does not hold the input bytes';
