@@ -95,6 +95,29 @@ test('attended: the slot holds no perform (the stage was performed or never issu
   assert.deepEqual(fixture(t, { perform: { stage: 7 } }).ask(), { attendance: 'attended', reason: 'no-pending-perform' });
 });
 
+const MARK = { stage: 'verification', purpose: 'post-merge', head: 'a'.repeat(40), issuedAt: '2026-10-31T00:00:01.000Z' };
+const withMark = (mark: any, extra: any = {}) => ({ perform: null, record: { rows: { '113': { postMerge: mark, ...extra } } } });
+
+test('AU-P10: a pending post-merge verification (the loop\'s postMerge marker, no slot.perform) is unattended', (t) => {
+  assert.deepEqual(fixture(t, withMark(MARK)).ask(), { attendance: 'unattended', source: 'run-record', run: RUN_ID });
+});
+
+test('AU-P10: attended once the loop consumed the marker, for a missing, malformed or other-purpose marker', (t) => {
+  assert.deepEqual(fixture(t, withMark(undefined)).ask(), { attendance: 'attended', reason: 'no-pending-perform' }, 'handoff done: the loop deleted the marker');
+  assert.deepEqual(fixture(t, withMark({ stage: 'verification' })).ask(), { attendance: 'attended', reason: 'no-pending-perform' });
+  assert.deepEqual(fixture(t, withMark({ ...MARK, purpose: 'other' })).ask(), { attendance: 'attended', reason: 'no-pending-perform' });
+  assert.deepEqual(fixture(t, withMark({ ...MARK, stage: 7 })).ask(), { attendance: 'attended', reason: 'no-pending-perform' });
+  assert.deepEqual(fixture(t, withMark('post-merge')).ask(), { attendance: 'attended', reason: 'no-pending-perform' });
+});
+
+test('AU-P10: a held or paused slot, a held row, a closed run and a switch-off all beat a stale post-merge marker', (t) => {
+  assert.deepEqual(fixture(t, withMark(MARK, { held: { kind: 'intent', reason: 'plan-changed' } })).ask(), { attendance: 'attended', reason: 'slot-held' });
+  assert.deepEqual(fixture(t, withMark(MARK, { paused: { reason: 'budget' } })).ask(), { attendance: 'attended', reason: 'slot-paused' });
+  assert.deepEqual(fixture(t, { ...withMark(MARK), hold: 'user' }).ask(), { attendance: 'attended', reason: 'row-held' });
+  assert.deepEqual(fixture(t, { ...withMark(MARK), closedAt: '2026-10-31T01:00:00.000Z' }).ask({ run: RUN_ID }), { attendance: 'attended', reason: 'run-closed' });
+  assert.deepEqual(fixture(t, withMark(MARK)).ask({ readKillSwitch: OFF }), { attendance: 'attended', reason: 'switch-off' });
+});
+
 test('attended: the slot is held or paused, whatever else holds', (t) => {
   const f = fixture(t);
   const write = (slot: any) => {

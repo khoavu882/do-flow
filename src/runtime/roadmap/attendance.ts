@@ -11,7 +11,8 @@
  *       literally: an unrecognised value is NOT a worker here, although the hook identity policy
  *       treats it as one, because uncertainty must read as `attended`; or
  *   (b) all of: the run record `.doflow/state/roadmap/runs/<run>.json` is open (no `closedAt`); its
- *       slot for the seed row with this slug holds a `perform` (the stage is still pending) and no `held` or
+ *       slot for the seed row with this slug holds a `perform` or the loop's `postMerge` marker (the stage is
+ *       still pending; the loop clears the marker on its next merge step) and no `held` or
  *       `paused` mark; that row is not on `hold`; and the autopilot kill switch is enabled (the reader the policy decisions use).
  * Anything else, including a missing or unreadable record, is `attended`. The signal is derived from
  * state the runtime owns; a forged value only reaches the verbs the forging session itself calls.
@@ -97,8 +98,13 @@ function resolveAttendance(options: any = {}): any {
   // A held or paused slot is machine state the loop stopped on for a person (hold, gate, dispatch, budget).
   if (slot?.held) return attended('slot-held');
   if (slot?.paused) return attended('slot-paused');
+  // A pending stage is the slot's `perform`, or the marker the loop leaves when it issues the post-merge
+  // verification perform (that perform is returned without being stored as slot.perform).
   const perform = slot?.perform;
-  if (!perform || typeof perform !== 'object' || typeof perform.stage !== 'string') return attended('no-pending-perform');
+  const postMerge = slot?.postMerge;
+  const performPending = Boolean(perform) && typeof perform === 'object' && typeof perform.stage === 'string';
+  const postMergePending = Boolean(postMerge) && typeof postMerge === 'object' && postMerge.purpose === 'post-merge' && typeof postMerge.stage === 'string';
+  if (!performPending && !postMergePending) return attended('no-pending-perform');
 
   let enabled = false;
   try { enabled = (options.readKillSwitch || require('../settings/autopilot.ts').readKillSwitch)(env).enabled === true; } catch { enabled = false; }

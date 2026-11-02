@@ -357,12 +357,8 @@ test('(5) attendance says unattended while a perform is open and attended once t
   assert.match(attendance(rowOf('604-blocker')), /^attended /);
 });
 
-// FINDING (AU-P9): the post-merge verification envelope carries `attendance: {mode: 'unattended'}`, but the loop does
-// not store that perform in the row's slot (loop.ts, the `purpose: 'post-merge'` envelope is built and returned
-// without `slot.perform`), and attendance.ts answers from `slot.perform`. So for the one stage after the merge the
-// verb says `attended no-pending-perform` while the envelope says unattended. The stage skill (do-test) that asks
-// the verb would then keep its question tool. Marked todo so the gap stays visible and the run stays green.
-test('(5b) attendance also says unattended while the post-merge verification perform is open', { todo: 'AU-P9 finding: attendance reads slot.perform, which the post-merge envelope never sets' }, () => {
+// AU-P10: the loop leaves slot.postMerge when it issues the post-merge verification perform; attendance.ts reads it.
+test('(5b) attendance also says unattended while the post-merge verification perform is open', () => {
   const post = observed.attendance.filter((x: any) => x.moment === 'perform:post-merge');
   assert.equal(post.length, 2, 'the feature row and the note row each had a post-merge perform');
   for (const a of post) {

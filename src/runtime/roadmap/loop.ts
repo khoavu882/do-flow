@@ -1014,6 +1014,10 @@ async function mergeStep(ctx: any, row: any, source: { intent?: any; run?: any; 
   const intent = source.intent || null;
   let gate: any = null;
   let approvedHead: string | null = null;
+  // The attendance marker of an earlier post-merge perform is consumed by this call (re-set below when the
+  // verification is still pending), so it never outlives the step it names. It is not a `perform`: the
+  // performed checks and the merge step read only slot.perform and the merge intent.
+  delete slot.postMerge;
   if (intent && slot.held?.kind === 'intent') delete slot.held;
   if (!intent) {
     const entry = [...source.run.history].reverse().find((h: any) => h?.action === 'decide-gate' && h.node === 'gate-b' && h.detail === 'approve');
@@ -1056,6 +1060,8 @@ async function mergeStep(ctx: any, row: any, source: { intent?: any; run?: any; 
         attendance: attendanceOf(ctx.record.runId),
         after: ['verify', '--action', 'report', '--task-id', row.slug, '--baseline-ref', intent.developHead, ...postMergePlan(ctx, row, intent), ...scopeFlagsOf(row)],
         next: ['roadmap', '--action', 'next', '--run', ctx.record.runId] };
+      // AU-P10: the one fact attendance.ts reads to answer `unattended` for this stage (the envelope above says so too).
+      slot.postMerge = { stage: 'verification', purpose: 'post-merge', head: intent.commit, issuedAt: perform.issuedAt };
       return finish(ctx, { outcome: 'perform', row: row.id, slug: row.slug, perform });
     }
   }
