@@ -116,9 +116,9 @@ doflow intake --action file-prompt --stdin   # keep pasted prompt text as a file
 <!-- BEGIN GENERATED:intake-categories -->
 | Folder | Also accepted as | Takes | Purpose |
 |---|---|---|---|
-| `raw-prd` | prd, requirements | .md .txt .pdf .docx, name matches prd\|requirement\|brief\|epic\|story | Product requirement documents, briefs and stories as the user wrote them. |
-| `discuss-session` | meetings | .mp3 .m4a .wav .ogg .mp4 .mov .webm, into records/; .vtt .srt, into transcripts/; .txt .md, name matches transcript\|meeting\|minutes\|discuss\|session, into transcripts/ | Recordings, transcripts and notes of a discussion. |
-| `hld` | design, architecture | .mmd .puml .drawio .excalidraw, into diagrams/; .png .svg .jpg .jpeg, beside a .mmd .puml .drawio .excalidraw file; .md, name matches hld\|design\|architecture\|decision\|adr | High-level design notes, diagram sources and their rendered images. |
+| `raw-prd` | prd, requirements | .md .txt .pdf .docx, name matches prd\|requirement\|brief\|epic\|\(^\|\[^a-z0-9\]\)\(story\|stories\)\(\[^a-z0-9\]\|$\) | Product requirement documents, briefs and stories as the user wrote them. |
+| `hld` | design, architecture | .mmd .puml .drawio .excalidraw, into diagrams/; .png .svg .jpg .jpeg, beside a .mmd .puml .drawio .excalidraw file; .md, name matches hld\|high\[-\_ \]?level\|design\|architecture\|decision\|adr | High-level design notes, diagram sources and their rendered images. |
+| `discuss-session` | meetings | .mp3 .m4a .wav .ogg .mp4 .mov .webm, into records/; .vtt .srt, into transcripts/; .txt .md, name matches transcript\|meeting\|minutes\|discuss\|session, into transcripts/; .txt, name matches ^\(\\d{1,2}-\\d{1,2}-\\d{4}\|\\d{4}-\\d{2}-\\d{2}\), into transcripts/ | Recordings, transcripts and notes of a discussion. |
 | `references` | docs, vendor-docs | .pdf .docx .xlsx .pptx .html | Reference documents, spreadsheets and vendor material. |
 | `prompt` | — | — | Context pasted into the prompt, filed verbatim by the intake verb; no rule sorts a file here. |
 <!-- END GENERATED:intake-categories -->

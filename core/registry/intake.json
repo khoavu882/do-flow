@@ -11,17 +11,7 @@
       "names": ["prd", "requirements"],
       "summary": "Product requirement documents, briefs and stories as the user wrote them.",
       "rules": [
-        { "extensions": ["md", "txt", "pdf", "docx"], "namePattern": "prd|requirement|brief|epic|story" }
-      ]
-    },
-    {
-      "id": "discuss-session",
-      "names": ["meetings"],
-      "summary": "Recordings, transcripts and notes of a discussion.",
-      "rules": [
-        { "extensions": ["mp3", "m4a", "wav", "ogg", "mp4", "mov", "webm"], "into": "records" },
-        { "extensions": ["vtt", "srt"], "into": "transcripts" },
-        { "extensions": ["txt", "md"], "namePattern": "transcript|meeting|minutes|discuss|session", "into": "transcripts" }
+        { "extensions": ["md", "txt", "pdf", "docx"], "namePattern": "prd|requirement|brief|epic|(^|[^a-z0-9])(story|stories)([^a-z0-9]|$)" }
       ]
     },
     {
@@ -31,7 +21,18 @@
       "rules": [
         { "extensions": ["mmd", "puml", "drawio", "excalidraw"], "into": "diagrams" },
         { "extensions": ["png", "svg", "jpg", "jpeg"], "companionOf": ["mmd", "puml", "drawio", "excalidraw"] },
-        { "extensions": ["md"], "namePattern": "hld|design|architecture|decision|adr" }
+        { "extensions": ["md"], "namePattern": "hld|high[-_ ]?level|design|architecture|decision|adr" }
+      ]
+    },
+    {
+      "id": "discuss-session",
+      "names": ["meetings"],
+      "summary": "Recordings, transcripts and notes of a discussion.",
+      "rules": [
+        { "extensions": ["mp3", "m4a", "wav", "ogg", "mp4", "mov", "webm"], "into": "records" },
+        { "extensions": ["vtt", "srt"], "into": "transcripts" },
+        { "extensions": ["txt", "md"], "namePattern": "transcript|meeting|minutes|discuss|session", "into": "transcripts" },
+        { "extensions": ["txt"], "namePattern": "^(\\d{1,2}-\\d{1,2}-\\d{4}|\\d{4}-\\d{2}-\\d{2})", "into": "transcripts" }
       ]
     },
     {

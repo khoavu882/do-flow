@@ -17,7 +17,7 @@
  * left alone and the move is reported `failed`. On a volume that cannot hard-link (EPERM, ENOTSUP, EOPNOTSUPP,
  * EMLINK: exFAT, some SMB or FUSE mounts) the move falls back to a look at the destination and a rename, which
  * leaves a window in which a file created in that instant would be replaced; the journal entry then carries
- * `fallback: 'rename'`. A crash between the link and the unlink leaves one file under two names; the next run
+ * `fallback: 'rename'` (an undo that fell back records `undoFallback`, so the sort-time value stays). A crash between the link and the unlink leaves one file under two names; the next run
  * settles it (same device and inode: the origin name is dropped and the move is `done`).
  *
  * Ceiling accepted: the manifest is rewritten whole after every journal step (quadratic in the number of
@@ -131,10 +131,17 @@ function hashBytes(buffer: Buffer): string { return `sha256:${nodeCrypto.createH
 
 const rel = (...parts: string[]): string => parts.join('/');
 
-/** The context folder as a real directory, or null when absent. A link or a plain file there is refused. */
+/**
+ * The context folder as a real directory, or 'absent'. A link or a plain file there is refused, and so is every
+ * action when the feature folder above it does not exist (a wrong `--slug` is a usage error, not an empty folder).
+ */
 function contextState(contextDir: string, fsImpl: any): 'absent' | 'present' {
   const stat = lstatOrNull(fsImpl, contextDir);
-  if (!stat) return 'absent';
+  if (!stat) {
+    const parent = lstatOrNull(fsImpl, path.dirname(contextDir));
+    if (!parent || !parent.isDirectory()) throw new IntakeUsageError(`${path.dirname(contextDir)} is not a feature folder that exists`);
+    return 'absent';
+  }
   if (stat.isSymbolicLink()) throw new IntakeUsageError(`${contextDir} is a symbolic link; intake works only inside a real additional-context folder`);
   if (!stat.isDirectory()) throw new IntakeUsageError(`${contextDir} exists and is not a folder`);
   return 'present';
@@ -203,7 +210,8 @@ function directClaim(categories: any[], name: string): any {
 
 /**
  * Plans a sort of the loose files (IC-002). Pure with respect to the folder: it reads, hashes and decides, and
- * writes nothing. A companion rule sends a file beside a same-stem file that is itself moving in this plan.
+ * writes nothing. A companion rule sends a file beside a same-stem file that is itself moving in this plan, or
+ * that already sits in the category folder or is recorded `done` in the manifest.
  */
 function planSort({ contextDir, taxonomy, now, fsImpl = nodeFs, withHashes = true }: any): any {
   const { files, dirs, unsupported } = rootEntries(contextDir, fsImpl);
@@ -226,6 +234,29 @@ function planSort({ contextDir, taxonomy, now, fsImpl = nodeFs, withHashes = tru
     return { dir: claim.rule.into ? rel(folder, claim.rule.into) : folder, categoryId: claim.category.id };
   };
 
+  // A partner that no longer is loose: already in the category folder, or recorded `done` by an earlier run. This
+  // settles a render stranded by a crash or by a recent-window skip while its source moved.
+  let doneMoves: any[] | null = null;
+  const settledPartnerPlace = (category: any, rule: any, name: string): { dir: string; categoryId: string } | null => {
+    const stem = stemOf(name);
+    for (const sourceRule of category.rules) {
+      if (sourceRule.companionOf) continue;
+      const place = placeOf({ category, rule: sourceRule });
+      const isPartner = (other: string): boolean => stemOf(other) === stem && rule.companionOf.includes(extOf(other)) && sourceRule.extensions.includes(extOf(other));
+      let inFolder = false;
+      try {
+        const folder = lstatOrNull(fsImpl, path.join(contextDir, place.dir));
+        inFolder = Boolean(folder && folder.isDirectory() && fsImpl.readdirSync(path.join(contextDir, place.dir), { withFileTypes: true }).some((entry: any) => entry.isFile() && isPartner(entry.name)));
+      } catch (error: any) {
+        if (!isUnreadable(error)) throw error; // a folder this user may not read holds no partner we can see: the render stays loose
+      }
+      if (inFolder) return place;
+      const done: any[] = doneMoves ??= readManifest(contextDir, fsImpl).runs.flatMap((run: any) => run.moves.filter((move: any) => move.state === 'done'));
+      if (done.some((move: any) => path.posix.dirname(move.to) === place.dir && isPartner(path.posix.basename(move.to)))) return place;
+    }
+    return null;
+  };
+
   // Phase 2: the final claim of each file, rules in order, a companion rule resolved against the movers.
   const claimOf = (name: string): { dir: string; categoryId: string } | null => {
     for (const category of taxonomy.categories) {
@@ -235,6 +266,8 @@ function planSort({ contextDir, taxonomy, now, fsImpl = nodeFs, withHashes = tru
         const stem = stemOf(name);
         const partner = movers.find((other: string) => other !== name && stemOf(other) === stem && rule.companionOf.includes(extOf(other)));
         if (partner) return placeOf(direct.get(partner));
+        const settled = settledPartnerPlace(category, rule, name);
+        if (settled) return settled;
       }
     }
     return null;
@@ -506,7 +539,7 @@ function undoRun({ contextDir, runId = null, now = new Date(), fsImpl = nodeFs }
           try {
             // A restore that died between its link and its unlink (the file under both names) is finished here.
             if (fromStat) unlinkIfSame(fsImpl, to, from);
-            else if (moveNoReplace(fsImpl, to, from).fallback) move.fallback = 'rename';
+            else if (moveNoReplace(fsImpl, to, from).fallback) move.undoFallback = 'rename';
           } catch (error: any) {
             if (error.code === 'ECHANGED') swapped = true;
             else if (error.code === 'EEXIST') taken = true;
@@ -591,11 +624,7 @@ function listFolder({ contextDir, taxonomy, fsImpl = nodeFs }: any): any {
  */
 function filePrompt({ contextDir, taxonomy, bytes, stage = null, now = new Date(), fsImpl = nodeFs }: any): any {
   if (!Buffer.isBuffer(bytes) || bytes.length === 0) throw new IntakeUsageError('there is no prompt text to file: the input is empty');
-  if (contextState(contextDir, fsImpl) === 'absent') {
-    const parent = lstatOrNull(fsImpl, path.dirname(contextDir));
-    if (!parent || !parent.isDirectory()) throw new IntakeUsageError(`${path.dirname(contextDir)} is not a feature folder that exists`);
-    makeDir(fsImpl, contextDir);
-  }
+  if (contextState(contextDir, fsImpl) === 'absent') makeDir(fsImpl, contextDir);
   return withManifestLock(contextDir, (assertHeld: () => void) => {
     const manifest = readManifest(contextDir, fsImpl);
     if (reconcile(manifest, contextDir, now, fsImpl, assertHeld)) writeManifest(contextDir, manifest, fsImpl, assertHeld);

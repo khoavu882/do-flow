@@ -9,7 +9,7 @@ const nodeCrypto = require('node:crypto');
 const { tempDir } = require('../helper/tmp.ts');
 const { loadTaxonomy } = require('../../src/runtime/intake/taxonomy.ts');
 const { previewSort, sortFolder, undoRun, listFolder, filePrompt } = require('../../src/runtime/intake/engine.ts');
-const { readManifest, manifestFile, IntakeUsageError } = require('../../src/runtime/intake/manifest.ts');
+const { readManifest, manifestFile, withManifestLock, IntakeUsageError } = require('../../src/runtime/intake/manifest.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const taxonomy = (): any => loadTaxonomy({ repoRoot: REPO, contributions: false }).taxonomy;
@@ -108,6 +108,37 @@ test('a render whose source is skipped as recent is not claimed', (t: any) => {
   assert.deepEqual(result.unmatched, ['a.png']);
 });
 
+test('a render stranded after its source moved (a failed move) follows into the category folder on the next run', (t: any) => {
+  const { ctx } = tree(t, { 'a.mmd': 'x', 'a.png': Buffer.from([1]) });
+  const fsImpl = { ...fs, linkSync(from: string, to: string) { if (to.endsWith('a.png')) throw Object.assign(new Error('EIO: simulated'), { code: 'EIO' }); fs.linkSync(from, to); } };
+  assert.deepEqual(movesOf(sort(ctx, { fsImpl })), ['a.mmd>hld/diagrams/a.mmd']);
+  assert.ok(fs.existsSync(path.join(ctx, 'a.png')), 'the render is stranded at the root');
+  assert.deepEqual(movesOf(sort(ctx)), ['a.png>hld/diagrams/a.png']);
+  assert.deepEqual(snapshot(ctx), { 'hld/': 'dir', 'hld/diagrams/': 'dir', 'hld/diagrams/a.mmd': sha('x'), 'hld/diagrams/a.png': sha(Buffer.from([1])) });
+});
+
+test('a render skipped as recent while its source moved is sorted once it is old enough', (t: any) => {
+  const now = LATER();
+  const { ctx } = tree(t, { 'a.mmd': 'x', 'a.png': Buffer.from([1]), 'b.png': Buffer.from([2]) }, now);
+  const recent = new Date(now.getTime() - 5000);
+  fs.utimesSync(path.join(ctx, 'a.png'), recent, recent);
+  const first = sort(ctx, { now });
+  assert.deepEqual(movesOf(first), ['a.mmd>hld/diagrams/a.mmd']);
+  assert.deepEqual(first.skipped, [{ path: 'a.png', reason: 'recent' }]);
+  assert.deepEqual(movesOf(sort(ctx, { now: new Date(now.getTime() + 60_000) })), ['a.png>hld/diagrams/a.png']);
+  assert.ok(fs.existsSync(path.join(ctx, 'b.png')), 'a render with no source anywhere still stays');
+});
+
+test('a render follows a source the manifest records as done, even when the user has since moved that source away', (t: any) => {
+  const { ctx } = tree(t, { 'a.mmd': 'x' });
+  sort(ctx);
+  fs.renameSync(path.join(ctx, 'hld', 'diagrams', 'a.mmd'), path.join(ctx, 'a.mmd.keep'));
+  fs.writeFileSync(path.join(ctx, 'a.png'), 'img');
+  const old = new Date(Date.now() - 2 * 86_400_000);
+  fs.utimesSync(path.join(ctx, 'a.png'), old, old);
+  assert.deepEqual(movesOf(sort(ctx)), ['a.png>hld/diagrams/a.png']);
+});
+
 test('an existing folder with a known name is reused; no second design folder appears (FR-003)', (t: any) => {
   const { ctx } = tree(t, { 'architecture/old.md': 'old', 'system-architecture.md': 'new' });
   const result = sort(ctx);
@@ -171,6 +202,42 @@ test('a .intake that is a link or a file is refused by sort, undo and file-promp
   }
 });
 
+test('a .intake swapped for a link between the check and the mkdir is refused: no callback runs and nothing is written through the link', (t: any) => {
+  const MUTATORS = ['mkdirSync', 'writeFileSync', 'appendFileSync', 'openSync', 'renameSync', 'linkSync', 'symlinkSync', 'copyFileSync', 'unlinkSync', 'rmSync', 'rmdirSync'];
+  // The attacker wins the race: the link appears instead of the folder, so the recursive mkdir finds a directory.
+  // Every mutating call aimed inside `.intake` is recorded, so a lock or manifest written through the link shows even
+  // when it is cleaned up again afterwards.
+  const race = () => {
+    const { dir, ctx } = tree(t, { 'a-prd.md': 'one' });
+    const outside = path.join(dir, 'elsewhere');
+    fs.mkdirSync(outside);
+    const intakeDir = path.join(ctx, '.intake');
+    const inside: string[] = [];
+    const raced: any = { ...fs };
+    for (const name of MUTATORS) {
+      raced[name] = (...args: any[]) => {
+        if (name === 'mkdirSync' && args[0] === intakeDir) fs.symlinkSync(outside, intakeDir);
+        for (const arg of args) if (typeof arg === 'string' && arg.startsWith(`${intakeDir}${path.sep}`)) inside.push(`${name} ${path.relative(ctx, arg)}`);
+        return (fs as any)[name](...args);
+      };
+    }
+    return { ctx, outside, inside, raced };
+  };
+
+  const viaSort = race();
+  assert.throws(() => sort(viaSort.ctx, { fsImpl: viaSort.raced }), (error: any) => error instanceof IntakeUsageError && /not a real folder/.test(error.message));
+  assert.deepEqual(viaSort.inside, [], 'sort wrote nothing through the link');
+  assert.deepEqual(fs.readdirSync(viaSort.outside), []);
+  assert.equal(fs.readFileSync(path.join(viaSort.ctx, 'a-prd.md'), 'utf8'), 'one');
+
+  const viaLock = race();
+  let ran = false;
+  assert.throws(() => withManifestLock(viaLock.ctx, () => { ran = true; return 'ran'; }, viaLock.raced), /not a real folder/);
+  assert.equal(ran, false, 'the callback never ran');
+  assert.deepEqual(viaLock.inside, [], 'the lock was never taken through the link');
+  assert.deepEqual(fs.readdirSync(viaLock.outside), []);
+});
+
 test('a loose file that cannot be read is skipped as unreadable; the others still move, and preview and list tolerate it', (t: any) => {
   if (process.platform === 'win32' || (typeof process.getuid === 'function' && process.getuid() === 0)) { t.skip('file modes are not enforced here'); return; }
   const { ctx } = tree(t, { 'locked-prd.md': 'secret', 'ok-prd.md': 'fine' });
@@ -188,6 +255,21 @@ test('a loose file that cannot be read is skipped as unreadable; the others stil
   assert.ok(fs.existsSync(locked));
   assert.equal(manifestOf(ctx).runs[0].moves.length, 1);
   assert.deepEqual(sort(ctx).moves, [], 'a second sort leaves it alone and moves nothing');
+});
+
+test('an unreadable category folder holds no partner we can see: the render stays loose and the other files still sort', (t: any) => {
+  if (process.platform === 'win32' || (typeof process.getuid === 'function' && process.getuid() === 0)) { t.skip('file modes are not enforced here'); return; }
+  const { ctx } = tree(t, { 'hld/diagrams/k.mmd': 'g', 'k.png': Buffer.from([1]), 'k-prd.md': 'one' });
+  const locked = path.join(ctx, 'hld', 'diagrams');
+  fs.chmodSync(locked, 0o000);
+  t.after(() => { try { fs.chmodSync(locked, 0o755); } catch { /* already cleaned up */ } });
+  const preview = previewSort({ contextDir: ctx, taxonomy: taxonomy(), now: LATER() });
+  assert.deepEqual(movesOf(preview), ['k-prd.md>raw-prd/k-prd.md']);
+  assert.deepEqual(preview.unmatched, ['k.png']);
+  const result = sort(ctx);
+  assert.deepEqual(movesOf(result), ['k-prd.md>raw-prd/k-prd.md']);
+  assert.deepEqual(result.unmatched, ['k.png']);
+  assert.ok(fs.existsSync(path.join(ctx, 'k.png')), 'the render stays loose');
 });
 
 test('a folder whose only loose file is unreadable is reported without a lock or a manifest', (t: any) => {
@@ -605,11 +687,28 @@ test('a volume that cannot hard-link falls back to a look and a rename for sort,
   assert.ok(!fs.existsSync(path.join(ctx, 'a-prd.md')));
   assert.equal(undo(ctx, { fsImpl: noLink }).restored.length, 2);
   assert.equal(manifestOf(ctx).runs[0].moves[0].fallback, 'rename');
+  assert.equal(manifestOf(ctx).runs[0].moves[0].undoFallback, 'rename');
   assert.equal(fs.readFileSync(path.join(ctx, 'a-prd.md'), 'utf8'), 'mine');
   const filed = filePrompt({ contextDir: ctx, taxonomy: taxonomy(), bytes: Buffer.from('prompt text'), fsImpl: noLink });
   assert.equal(fs.readFileSync(path.join(ctx, filed.path), 'utf8'), 'prompt text');
   assert.equal(manifestOf(ctx).runs[1].moves[0].fallback, 'rename');
   assert.equal(manifestOf(ctx).runs[1].moves[0].state, 'done');
+});
+
+test('an undo on a volume that can hard-link leaves a sort-time fallback as it was and records no undo fallback', (t: any) => {
+  const { ctx } = tree(t, { 'a-prd.md': 'mine' });
+  const noLink = { ...fs, linkSync() { throw Object.assign(new Error('EPERM: simulated'), { code: 'EPERM' }); } };
+  sort(ctx, { fsImpl: noLink });
+  assert.equal(undo(ctx).restored.length, 1);
+  const move = manifestOf(ctx).runs[0].moves[0];
+  assert.equal(move.fallback, 'rename', 'the sort-time value survives the undo');
+  assert.equal(move.undoFallback, undefined);
+  const { ctx: other } = tree(t, { 'b-prd.md': 'two' });
+  sort(other);
+  undo(other, { fsImpl: noLink });
+  const plain = manifestOf(other).runs[0].moves[0];
+  assert.equal(plain.fallback, undefined, 'an undo-time fallback never rewrites a sort that linked');
+  assert.equal(plain.undoFallback, 'rename');
 });
 
 test('the fallback still refuses a destination that exists when it looks', (t: any) => {

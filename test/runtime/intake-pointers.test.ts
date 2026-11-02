@@ -45,6 +45,20 @@ test('a binary or non-UTF-8 file saved as .md never becomes a pointer; plain tex
   assert.ok(![...paths].some((p: any) => /nul\.md|latin1\.md/.test(p)), [...paths].join(', '));
 });
 
+test('a binary .md under a symlinked agent-docs is held to the same text test, and plain text there is still a user pointer', (t) => {
+  const root = tempDir(t, 'doflow-intake-link-');
+  const real = path.join(root, 'docs-real');
+  const ctx = path.join(real, 'doflow', SLUG, 'additional-context');
+  fs.mkdirSync(path.join(ctx, 'prd'), { recursive: true });
+  fs.writeFileSync(path.join(ctx, 'prd', 'nul.md'), Buffer.from('## Looks like text\n\0\0 binary tail\n'));
+  fs.writeFileSync(path.join(ctx, 'prd', 'plain.md'), '## Goal\nSell vouchers.\n');
+  fs.symlinkSync(real, path.join(root, 'agent-docs'));
+  const featureDir = path.join(root, 'agent-docs', 'doflow', SLUG);
+  const pointers = collectPointers({ projectRoot: root, feature: { featureDir, repoRoot: root, paths: {} } });
+  assert.deepEqual([...new Set(pointers.map((p: any) => p.path))], ['docs-real/doflow/136-fixture/additional-context/prd/plain.md']);
+  assert.ok(pointers.every((p: any) => p.origin === 'user-provided'), 'the shape is gone from the realpath, the origin is still the user\'s');
+});
+
 test('user markdown becomes pointers with origin user-provided, after the chain artifacts', (t) => {
   const { root, feature } = checkout(t, 'doflow-intake-ptr-');
   const pointers = collectPointers({ projectRoot: root, feature });

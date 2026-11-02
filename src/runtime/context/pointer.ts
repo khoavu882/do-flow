@@ -83,7 +83,7 @@ function rangesFor(file: string, text: string, requirement: boolean): Array<{ st
   return result;
 }
 
-function createPointer({ path: rel, heading, range, slice }: any): any {
+function createPointer({ path: rel, heading, range, slice, user = false }: any): any {
   const bytes = Buffer.byteLength(slice, 'utf8');
   return {
     id: `ptr:${rel}:${range.startLine}-${range.endLine}`,
@@ -95,7 +95,7 @@ function createPointer({ path: rel, heading, range, slice }: any): any {
     tokensEst: { value: Math.ceil(bytes / 4), basis: 'estimated:bytes/4' },
     inlineBytes: Buffer.byteLength(`- ptr:${rel}:${range.startLine}-${range.endLine} ${rel}:${range.startLine}-${range.endLine} ${bytes} B\n`, 'utf8'),
     load: `read ${rel} lines ${range.startLine}-${range.endLine}`,
-    origin: originOf(rel),
+    origin: user ? 'user-provided' : originOf(rel),
   };
 }
 
@@ -118,17 +118,19 @@ function userContextFiles(dir: string, fsImpl = fs): string[] {
   return found.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
-function sourceFiles({ projectRoot, feature, fsImpl = fs, intakeFile }: any): Array<{ absolute: string; requirement: boolean }> {
+function sourceFiles({ projectRoot, feature, fsImpl = fs, intakeFile }: any): Array<{ absolute: string; requirement: boolean; user: boolean }> {
   const root = path.resolve(projectRoot);
   const featureDir = feature?.featureDir ? path.resolve(feature.featureDir) : null;
-  const candidates: Array<{ absolute: string; requirement: boolean }> = [];
-  const add = (file: string | null | undefined, requirement = false, maxBytes = Infinity) => {
+  const candidates: Array<{ absolute: string; requirement: boolean; user: boolean }> = [];
+  const add = (file: string | null | undefined, requirement = false, maxBytes = Infinity, user = false) => {
     if (!file) return;
     const absolute = path.isAbsolute(file) ? file : path.resolve(feature?.repoRoot || root, file);
     let stat: any;
     try { stat = fsImpl.statSync(absolute); } catch { return; }
     if (!inside(root, absolute, fsImpl) || !stat.isFile() || stat.size > maxBytes) return;
-    if (!candidates.some((item) => item.absolute === absolute)) candidates.push({ absolute, requirement });
+    const known = candidates.find((item) => item.absolute === absolute);
+    if (known) known.user ||= user;
+    else candidates.push({ absolute, requirement, user });
   };
   if (featureDir) {
     add(feature.paths?.requirement || path.join(featureDir, 'intention', 'requirement.md'), true);
@@ -144,7 +146,7 @@ function sourceFiles({ projectRoot, feature, fsImpl = fs, intakeFile }: any): Ar
     ]) add(file);
     const maxBytes = userPointerMaxBytes(intakeFile);
     if (maxBytes !== null) {
-      for (const file of userContextFiles(path.join(featureDir, USER_CONTEXT_DIR), fsImpl)) add(file, false, maxBytes);
+      for (const file of userContextFiles(path.join(featureDir, USER_CONTEXT_DIR), fsImpl)) add(file, false, maxBytes, true);
     }
   }
   return candidates;
@@ -157,23 +159,25 @@ function collectPointers({ projectRoot, feature, fsImpl = fs, intakeFile }: any)
   for (const source of sourceFiles({ projectRoot: root, feature, fsImpl, intakeFile })) {
   const rel = inside(root, source.absolute, fsImpl);
     if (!rel) continue;
+    const user = source.user || Boolean(originOf(rel));
     let text: string;
     try {
       const data = fsImpl.readFileSync(source.absolute);
-      // A user's file may be anything saved as .md; only plain UTF-8 text becomes a pointer.
-      if (originOf(rel) && !isPlainText(data)) continue;
+      // A user's file may be anything saved as .md; only plain UTF-8 text becomes a pointer. `source.user` is where
+      // the file was found, so a realpath outside the `agent-docs/doflow/<slug>/` shape (a linked agent-docs) is held to it too.
+      if (user && !isPlainText(data)) continue;
       text = data.toString('utf8');
     } catch { continue; }
     const lines = text.split(/\r?\n/);
     const ranges = rangesFor(rel, text, source.requirement);
     // A user's markdown often opens with a title or runs without `##` headings; the sections alone would drop that text.
-    if (originOf(rel) && (!ranges.length || ranges[0].startLine > 1)) {
+    if (user && (!ranges.length || ranges[0].startLine > 1)) {
       ranges.unshift({ startLine: 1, endLine: ranges.length ? ranges[0].startLine - 1 : lines.length, heading: null });
     }
     for (const range of ranges) {
       const slice = lineSlice(lines, range.startLine, range.endLine);
       if (!slice.trim()) continue;
-      pointers.push(createPointer({ path: rel, heading: range.heading, range: { startLine: range.startLine, endLine: range.endLine }, slice }));
+      pointers.push(createPointer({ path: rel, heading: range.heading, range: { startLine: range.startLine, endLine: range.endLine }, slice, user }));
     }
   }
   return pointers;

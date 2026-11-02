@@ -35,6 +35,24 @@ function readRegularFile(file: string, maxBytes: number, fsImpl: any): Buffer {
   }
 }
 
+/** At most `maxBytes + 1` bytes of stdin: one over the cap is enough to refuse, and a huge stream is never held whole. */
+function readStdinCapped(maxBytes: number, fsImpl: any): Buffer {
+  const buffer = Buffer.alloc(maxBytes + 1);
+  let length = 0;
+  while (length < buffer.length) {
+    let read: number;
+    try {
+      read = fsImpl.readSync(0, buffer, length, buffer.length - length, null);
+    } catch (error: any) {
+      if (error.code === 'EOF') break; // Windows reports the end of a closed pipe as an error
+      throw error;
+    }
+    if (read === 0) break;
+    length += read;
+  }
+  return buffer.subarray(0, length);
+}
+
 /**
  * The prompt text as bytes, unchanged: from `--stdin` or from `--file <path>`. Either way it must be plain text
  * (no NUL byte, valid UTF-8) of at most `maxBytes`, so a binary or a huge file is never filed as a prompt.
@@ -45,12 +63,12 @@ function readInput({ stdin, file }: any, fsImpl: any, maxBytes: number): Buffer 
   const from = stdin ? 'stdin' : `--file ${file}`;
   let bytes: Buffer;
   try {
-    bytes = stdin ? fsImpl.readFileSync(0) : readRegularFile(file, maxBytes, fsImpl);
+    bytes = stdin ? readStdinCapped(maxBytes, fsImpl) : readRegularFile(file, maxBytes, fsImpl);
   } catch (error: any) {
     if (error instanceof IntakeUsageError) throw error;
     throw new IntakeUsageError(`cannot read ${from}: ${error.message}`);
   }
-  if (bytes.length > maxBytes) throw new IntakeUsageError(`${from} is ${bytes.length} bytes; file-prompt takes at most ${maxBytes}`);
+  if (bytes.length > maxBytes) throw new IntakeUsageError(`${from} is ${stdin ? `over ${maxBytes}` : bytes.length} bytes; file-prompt takes at most ${maxBytes}`);
   if (!isPlainText(bytes)) throw new IntakeUsageError(`${from} is not plain text (it holds a NUL byte or is not valid UTF-8); file-prompt files text only`);
   return bytes;
 }
@@ -115,4 +133,4 @@ function handleIntakeCommand({ action = 'sort', projectRoot, slug = null, json =
   return finishRuntime(run.exitCode);
 }
 
-module.exports = { handleIntakeCommand, runIntake, humanLines, VALID_ACTIONS };
+module.exports = { handleIntakeCommand, runIntake, readInput, humanLines, VALID_ACTIONS };

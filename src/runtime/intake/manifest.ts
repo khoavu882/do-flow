@@ -114,6 +114,10 @@ function writeManifest(contextDir: string, manifest: any, fsImpl: any = nodeFs, 
 function withManifestLock<T>(contextDir: string, fn: (assertHeld: () => void) => T, fsImpl: any = nodeFs): T {
   assertIntakeDir(contextDir, fsImpl);
   fsImpl.mkdirSync(path.join(contextDir, INTAKE_DIR), { recursive: true });
+  // The first check and the mkdir are two calls: a link put at `.intake` in between would make mkdir succeed
+  // silently and the lock land wherever it points. Looked at again here. Ceiling accepted: a swap after this
+  // look and before the lock is taken is one syscall wide; Node has no openat to close it.
+  assertIntakeDir(contextDir, fsImpl);
   const release = acquireLock(fsImpl, manifestFile(contextDir));
   const assertHeld = (): void => {
     if (typeof release.held === 'function' && !release.held()) {

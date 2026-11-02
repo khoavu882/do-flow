@@ -7,16 +7,18 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { loadTaxonomy, validateTaxonomy, validateCategory, categoryFolder } = require('../../src/runtime/intake/taxonomy.ts');
 const { tempDir } = require('../helper/tmp.ts');
+const { planSort } = require('../../src/runtime/intake/engine.ts');
 
 const REPO = path.resolve(__dirname, '../..');
 const shipped = (): any => JSON.parse(fs.readFileSync(path.join(REPO, 'core', 'registry', 'intake.json'), 'utf8'));
 const errorsOf = (registry: any): string[] => validateTaxonomy(registry).errors;
+const shippedTaxonomy = loadTaxonomy({ repoRoot: REPO, contributions: false }).taxonomy;
 const category = (registry: any, id: string): any => registry.categories.find((c: any) => c.id === id);
 
 test('the shipped registry loads: core categories in file order, each marked core', () => {
   const loaded = loadTaxonomy({ repoRoot: REPO, contributions: false });
   assert.equal(loaded.ok, true, loaded.detail);
-  assert.deepEqual(loaded.taxonomy.categories.map((c: any) => c.id), ['raw-prd', 'discuss-session', 'hld', 'references', 'prompt']);
+  assert.deepEqual(loaded.taxonomy.categories.map((c: any) => c.id), ['raw-prd', 'hld', 'discuss-session', 'references', 'prompt']);
   assert.ok(loaded.taxonomy.categories.every((c: any) => c.origin === 'core'));
   assert.equal(loaded.taxonomy.recentWindowSeconds, 60);
   assert.equal(loaded.taxonomy.pointerMaxBytes, 262144);
@@ -75,7 +77,7 @@ test('ids and names must be lower-kebab', () => {
   category(reg, 'hld').id = 'HLD_Notes';
   category(reg, 'references').names = ['docs', 'Vendor Docs'];
   const errors = errorsOf(reg);
-  assert.ok(errors.some((m) => /categories\[2\]\.id must be lower-kebab/.test(m)));
+  assert.ok(errors.some((m) => /categories\[1\]\.id must be lower-kebab/.test(m)));
   assert.ok(errors.some((m) => /categories\[3\]\.names must be an array of lower-kebab/.test(m)));
 });
 
@@ -165,4 +167,27 @@ test('categoryFolder reuses the first existing known name, else the id (FR-003)'
   assert.equal(categoryFolder(hld, new Set(['architecture', 'design'])), 'design');
   assert.equal(categoryFolder(hld, new Set(['architecture', 'hld'])), 'hld');
   assert.equal(categoryFolder(hld, new Set(['unrelated'])), 'hld');
+});
+
+// FU-ypz9zz: names from a flattened copy of the 002 reference fixture, planned by the real engine (names only, no hashing).
+test('real-world names land in the category that owns them', (t: any) => {
+  const names: Record<string, string> = {
+    'qr-voucher-decision-session_v01.md': 'hld/qr-voucher-decision-session_v01.md',
+    'qr-voucher-high-level_v01.md': 'hld/qr-voucher-high-level_v01.md',
+    '10-29-2026 18.06.txt': 'discuss-session/transcripts/10-29-2026 18.06.txt',
+    '2026-10-29 standup.txt': 'discuss-session/transcripts/2026-10-29 standup.txt',
+    'history.md': '',
+    'user_story_1.md': 'raw-prd/user_story_1.md',
+    'story.md': 'raw-prd/story.md',
+    'qr-voucher-prd.md': 'raw-prd/qr-voucher-prd.md',
+    'weekly-session.md': 'discuss-session/transcripts/weekly-session.md',
+  };
+  const dir = tempDir(t, 'doflow-intake-names-');
+  for (const name of Object.keys(names)) fs.writeFileSync(path.join(dir, name), 'x');
+  const plan = planSort({ contextDir: dir, taxonomy: shippedTaxonomy, now: new Date(Date.now() + 86_400_000), withHashes: false });
+  const placed = Object.fromEntries(plan.moves.map((m: any) => [m.from, m.to]));
+  for (const [name, expected] of Object.entries(names)) {
+    if (expected) assert.equal(placed[name], expected, name);
+    else assert.ok(plan.unmatched.includes(name), `${name} must stay unmatched`);
+  }
 });
