@@ -25,6 +25,10 @@ const VALID_EVIDENCE_KINDS = new Set([
 
 const VALID_PROVENANCE = new Set(['extracted', 'inferred', 'asserted']);
 
+/** The user's own files (feature 136's intake) and the one source capability allowed to cite them. */
+const USER_CONTEXT_DIR = 'additional-context';
+const USER_PROVIDED_CAPABILITY = 'user-provided';
+
 /** An item's lifecycle status, distinct from `freshness.status` (a snapshot judgment about the
  * file the item points at, which a later edit can only ever move toward STALE, never back).
  * 'active' is the only non-terminal value; 'superseded' is terminal and permanent — mirrors
@@ -153,6 +157,17 @@ class EvidenceLedger {
       provider: 'unknown',
       capability: 'general',
     };
+
+    // A file in the user's additional-context folder is the user's data, not a repo observation:
+    // it is cited only with the user-provided source, wherever the checkout holding it sits.
+    if (typeof item.locator?.file === 'string'
+      && item.locator.file.split('/').includes(USER_CONTEXT_DIR)
+      && source.capability !== USER_PROVIDED_CAPABILITY) {
+      throw new Error(
+        `Evidence locator '${item.locator.file}' is in the ${USER_CONTEXT_DIR} folder; cite it with source `
+        + `{ provider: 'doflow.intake', capability: '${USER_PROVIDED_CAPABILITY}' }, not '${source.capability}'`,
+      );
+    }
 
     const freshness = {
       gitCommit: item.freshness?.gitCommit || null,
