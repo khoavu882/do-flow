@@ -249,10 +249,31 @@ function renderCommandIndex(root: string): string {
   ].join('\n');
 }
 
+/** One rule as a short phrase: its extensions, a name filter, and where it files or what it follows. */
+function ruleText(rule: any): string {
+  const parts = [rule.extensions.map((ext: string) => `.${ext}`).join(' ')];
+  if (rule.namePattern) parts.push(`name matches ${rule.namePattern}`);
+  if (rule.companionOf) parts.push(`beside a ${rule.companionOf.map((ext: string) => `.${ext}`).join(' ')} file`);
+  if (rule.into) parts.push(`into ${rule.into}/`);
+  return parts.join(', ');
+}
+
+function renderIntakeCategories(root: string): string {
+  const categories = readJson(root, 'core/registry/intake.json').categories;
+  if (!Array.isArray(categories) || categories.length === 0) throw new Error('intake.json has no categories');
+  return table(['Folder', 'Also accepted as', 'Takes', 'Purpose'], categories.map((category: any) => [
+    code(category.id),
+    text(category.names.join(', ')),
+    text(category.rules.map(ruleText).join('; ')),
+    text(category.summary),
+  ]));
+}
+
 const BLOCKS: readonly Block[] = Object.freeze([
   { id: 'task-classes', page: 'how-doflow-work.md', sources: ['core/registry/workflows.json', 'core/registry/readiness-templates.json'], render: renderTaskClasses },
   { id: 'settings-keys', page: 'settings.md', sources: ['core/registry/settings.json'], render: renderSettingsKeys },
   { id: 'command-index', page: 'reference.md', sources: [DOFLOW_BIN, DOFLOW_RUN_BIN], render: renderCommandIndex },
+  { id: 'intake-categories', page: 'guide.md', sources: ['core/registry/intake.json'], render: renderIntakeCategories },
 ]);
 
 function renderBlock(id: string, root: string): string {
