@@ -30,6 +30,20 @@ function isConfinedPath(rel: any): boolean {
   return rel.split('/').every((segment: string) => segment !== '' && !segment.startsWith('.'));
 }
 
+/**
+ * Refuses a `.intake` that is a link or a plain file: the lock and the manifest would be written wherever it
+ * points. An absent `.intake` is fine (it is created as a real folder).
+ */
+function assertIntakeDir(contextDir: string, fsImpl: any = nodeFs): void {
+  const dir = path.join(contextDir, INTAKE_DIR);
+  let stat: any;
+  try { stat = fsImpl.lstatSync(dir); } catch (error: any) {
+    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return;
+    throw error;
+  }
+  if (stat.isSymbolicLink() || !stat.isDirectory()) throw new IntakeUsageError(`${dir} is not a real folder; intake writes its lock and manifest only inside a real ${INTAKE_DIR} folder. Nothing was written.`);
+}
+
 function badManifest(file: string, why: string): IntakeUsageError {
   return new IntakeUsageError(`${file} ${why}; the intake manifest is never rewritten when it cannot be trusted. Restore it or move it aside.`);
 }
@@ -48,6 +62,7 @@ function validateMove(move: any, file: string, where: string): void {
 
 /** The manifest, or an empty one when none exists. Throws IntakeUsageError for a file it cannot trust. */
 function readManifest(contextDir: string, fsImpl: any = nodeFs): any {
+  assertIntakeDir(contextDir, fsImpl);
   const file = manifestFile(contextDir);
   if (!fsImpl.existsSync(file)) return { schema: MANIFEST_SCHEMA, runs: [] };
   let data: any;
@@ -88,6 +103,7 @@ function writeManifest(contextDir: string, manifest: any, fsImpl: any = nodeFs):
 
 /** Runs `fn` holding the manifest's lock. A lock that cannot be taken throws the lock error unchanged. */
 function withManifestLock<T>(contextDir: string, fn: () => T, fsImpl: any = nodeFs): T {
+  assertIntakeDir(contextDir, fsImpl);
   fsImpl.mkdirSync(path.join(contextDir, INTAKE_DIR), { recursive: true });
   const release = acquireLock(fsImpl, manifestFile(contextDir));
   try {
@@ -103,4 +119,4 @@ function newRunId(now: Date): string {
   return `run-${stamp}-${nodeCrypto.randomBytes(2).toString('hex')}`;
 }
 
-module.exports = { readManifest, writeManifest, withManifestLock, newRunId, manifestFile, isConfinedPath, IntakeUsageError, MANIFEST_SCHEMA, INTAKE_DIR };
+module.exports = { readManifest, writeManifest, withManifestLock, newRunId, manifestFile, isConfinedPath, assertIntakeDir, IntakeUsageError, MANIFEST_SCHEMA, INTAKE_DIR };

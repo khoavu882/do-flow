@@ -156,6 +156,21 @@ test('a name the manifest cannot hold is skipped as unsupported-name; the rest m
   assert.ok(fs.existsSync(path.join(ctx, 'a\\b-prd.md')));
 });
 
+test('a .intake that is a link or a file is refused by sort, undo and file-prompt and nothing is written outside', (t: any) => {
+  for (const kind of ['link', 'file']) {
+    const { dir, ctx } = tree(t, { 'a-prd.md': 'one' });
+    const outside = path.join(dir, 'elsewhere');
+    fs.mkdirSync(outside);
+    if (kind === 'link') fs.symlinkSync(outside, path.join(ctx, '.intake')); else fs.writeFileSync(path.join(ctx, '.intake'), 'not a folder');
+    for (const call of [() => sort(ctx), () => undo(ctx), () => undo(ctx, { runId: 'run-x' }), () => filePrompt({ contextDir: ctx, taxonomy: taxonomy(), bytes: Buffer.from('x') })]) {
+      assert.throws(call, (error: any) => error instanceof IntakeUsageError && /not a real folder/.test(error.message), kind);
+    }
+    assert.deepEqual(fs.readdirSync(outside), [], 'nothing was written outside the folder');
+    assert.equal(fs.readFileSync(path.join(ctx, 'a-prd.md'), 'utf8'), 'one');
+    assert.ok(!fs.existsSync(path.join(ctx, 'raw-prd')));
+  }
+});
+
 test('a taken destination name gets a numbered suffix; neither file is overwritten (FR-006)', (t: any) => {
   const { ctx } = tree(t, { 'raw-prd/prd.md': 'first', 'raw-prd/prd-1.md': 'second', 'prd.md': 'third' });
   const result = sort(ctx);

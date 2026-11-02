@@ -22,7 +22,7 @@ const path = require('node:path');
 const nodeCrypto = require('node:crypto');
 const { categoryFolder } = require('./taxonomy.ts');
 const {
-  readManifest, writeManifest, withManifestLock, newRunId, isConfinedPath, INTAKE_DIR, IntakeUsageError,
+  readManifest, writeManifest, withManifestLock, newRunId, isConfinedPath, assertIntakeDir, INTAKE_DIR, IntakeUsageError,
 } = require('./manifest.ts');
 
 const CONTEXT_DIR = 'additional-context';
@@ -339,6 +339,7 @@ function sortFolder({ contextDir, taxonomy, now = new Date(), fsImpl = nodeFs }:
  */
 function undoRun({ contextDir, runId = null, now = new Date(), fsImpl = nodeFs }: any): any {
   if (contextState(contextDir, fsImpl) === 'absent') return absent('undo', { runId: null, restored: [], skipped: [], removedDirs: [] });
+  assertIntakeDir(contextDir, fsImpl);
   if (!lstatOrNull(fsImpl, path.join(contextDir, INTAKE_DIR))) {
     if (runId) throw new IntakeUsageError(`no run '${runId}' in the manifest`);
     return nothingToUndo();
