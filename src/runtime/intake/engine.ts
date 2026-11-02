@@ -27,7 +27,7 @@
 const nodeFs = require('node:fs');
 const path = require('node:path');
 const nodeCrypto = require('node:crypto');
-const { categoryFolder } = require('./taxonomy.ts');
+const { categoryFolder, isPlainText } = require('./taxonomy.ts');
 const {
   readManifest, writeManifest, withManifestLock, newRunId, isConfinedPath, assertIntakeDir, INTAKE_DIR, IntakeUsageError,
 } = require('./manifest.ts');
@@ -568,13 +568,15 @@ function listFolder({ contextDir, taxonomy, fsImpl = nodeFs }: any): any {
         files.push({ path: relative, category: owners.get(relative.split('/')[0]) ?? null, kind: text.has(ext) ? 'text' : 'binary', bytes: fsImpl.lstatSync(path.join(dir, entry.name)).size, sha256: null, pointer: false, unreadable: true });
         continue;
       }
+      // The same test collectPointers applies: a binary saved as .md is neither text nor a pointer.
+      const plain = ext !== 'md' || bytes > taxonomy.pointerMaxBytes || isPlainText(fsImpl.readFileSync(path.join(dir, entry.name)));
       files.push({
         path: relative,
         category: owners.get(relative.split('/')[0]) ?? null,
-        kind: text.has(ext) ? 'text' : 'binary',
+        kind: text.has(ext) && plain ? 'text' : 'binary',
         bytes,
         sha256,
-        pointer: ext === 'md' && bytes <= taxonomy.pointerMaxBytes,
+        pointer: ext === 'md' && bytes <= taxonomy.pointerMaxBytes && plain,
       });
     }
   };

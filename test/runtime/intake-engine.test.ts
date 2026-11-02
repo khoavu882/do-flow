@@ -747,6 +747,14 @@ test('list gives category, kind, size, hash and pointer for every visible file, 
   assert.deepEqual(Object.keys(by['raw-prd/prd.md']).sort(), ['bytes', 'category', 'kind', 'path', 'pointer', 'sha256']);
 });
 
+test('list reports a .md holding NUL or non-UTF-8 bytes as binary and not a pointer, as collectPointers does', (t: any) => {
+  const { ctx } = tree(t, { 'nul.md': Buffer.from([0x23, 0x20, 0x00, 0x41]), 'latin.md': Buffer.from([0x63, 0x61, 0x66, 0xe9]), 'ok.md': 'caf\u00e9\n' });
+  const by = Object.fromEntries(listFolder({ contextDir: ctx, taxonomy: taxonomy() }).files.map((f: any) => [f.path, f]));
+  assert.deepEqual([by['nul.md'].kind, by['nul.md'].pointer], ['binary', false]);
+  assert.deepEqual([by['latin.md'].kind, by['latin.md'].pointer], ['binary', false]);
+  assert.deepEqual([by['ok.md'].kind, by['ok.md'].pointer], ['text', true]);
+});
+
 // ── file-prompt ────────────────────────────────────────────────────────────────────────────────
 
 test('file-prompt writes the bytes unchanged, numbers the file per date and keeps provenance in the manifest only (FR-009)', (t: any) => {
