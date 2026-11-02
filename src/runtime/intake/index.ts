@@ -73,7 +73,7 @@ function runIntake({ action, projectRoot, slug = null, flags = {}, now = new Dat
     else if (action === 'list') result = listFolder(common);
     else if (action === 'undo') result = undoRun({ ...common, runId: flags.runId || null });
     else result = filePrompt({ ...common, bytes: readInput(flags, fsImpl, loaded.taxonomy.pointerMaxBytes), stage: flags.stage || null });
-    const finding = (Array.isArray(result.skipped) && result.skipped.length > 0) || result.state === 'nothing-to-undo';
+    const finding = (Array.isArray(result.skipped) && result.skipped.length > 0) || (Array.isArray(result.kept) && result.kept.length > 0) || result.state === 'nothing-to-undo';
     return { exitCode: finding ? 1 : 0, result };
   } catch (error: any) {
     if (error instanceof IntakeUsageError) return { exitCode: 2, usage: error.message };
@@ -94,8 +94,9 @@ function humanLines(result: any): string[] {
     if (result.state === 'nothing-to-undo') return ['no run left to undo'];
     for (const move of result.restored) lines.push(`restored ${move.to} -> ${move.from}`);
     for (const skip of result.skipped) lines.push(`skipped ${skip.to} (${skip.reason}${skip.detail ? `: ${skip.detail}` : ''})`);
+    for (const move of result.kept) lines.push(`kept ${move.to} (failed move from ${move.from}${move.reason ? `: ${move.reason}` : ''})`);
     for (const dir of result.removedDirs) lines.push(`removed empty folder ${dir}`);
-    lines.push(`${result.restored.length} restored, ${result.skipped.length} skipped (${result.runId})`);
+    lines.push(`${result.restored.length} restored, ${result.skipped.length} skipped${result.kept.length ? `, ${result.kept.length} kept` : ''} (${result.runId})`);
   } else if (result.action === 'list') {
     for (const file of result.files) lines.push(`${file.path}  ${file.category ?? '-'}  ${file.kind}  ${file.bytes} bytes  ${file.unreadable ? 'unreadable' : file.sha256}${file.pointer ? '  pointer' : ''}`);
     lines.push(`${result.files.length} file${result.files.length === 1 ? '' : 's'}`);

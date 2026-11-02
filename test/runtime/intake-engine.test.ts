@@ -430,6 +430,28 @@ test('a sort whose origin is saved by an editor between the link and the unlink 
   assert.deepEqual([entry.state, entry.to], ['failed', 'raw-prd/a-prd.md']);
 });
 
+test('undo keeps a failed entry whose copy sits at its destination while the origin is taken, and restores it once the run is named and the origin is free', (t: any) => {
+  const { ctx } = tree(t, { 'a-prd.md': 'one', 'b-prd.md': 'two' });
+  const origin = path.join(ctx, 'a-prd.md');
+  const fsImpl = { ...fs, linkSync(from: string, to: string) { fs.linkSync(from, to); if (from === origin) atomicSave(origin, 'NEW EDIT'); } };
+  const { runId } = sort(ctx, { fsImpl });
+  const plain = undo(ctx);
+  assert.deepEqual(plain.restored, [{ from: 'b-prd.md', to: 'raw-prd/b-prd.md' }]);
+  assert.deepEqual(plain.kept.map((k: any) => [k.from, k.to]), [['a-prd.md', 'raw-prd/a-prd.md']], 'reported with both paths, not restored');
+  assert.equal(fs.readFileSync(origin, 'utf8'), 'NEW EDIT');
+  const named = undo(ctx, { runId });
+  assert.deepEqual(named.kept.map((k: any) => k.to), ['raw-prd/a-prd.md'], 'the origin is still taken');
+  assert.equal(fs.readFileSync(origin, 'utf8'), 'NEW EDIT');
+  assert.equal(fs.readFileSync(path.join(ctx, 'raw-prd', 'a-prd.md'), 'utf8'), 'one');
+  // The developer moves their edit away and names the run: the planned copy is restored, hash-verified.
+  fs.renameSync(origin, path.join(ctx, 'a-prd-edit.txt'));
+  const retry = undo(ctx, { runId });
+  assert.deepEqual(retry.restored, [{ from: 'a-prd.md', to: 'raw-prd/a-prd.md' }]);
+  assert.deepEqual(retry.kept, []);
+  assert.equal(fs.readFileSync(origin, 'utf8'), 'one');
+  assert.equal(manifestOf(ctx).runs[0].moves[0].state, 'undone');
+});
+
 test('a move back after a hash mismatch whose source is saved by an editor in between keeps both names and reports failed', (t: any) => {
   const { ctx } = tree(t, { 'a-prd.md': 'one' });
   const destination = path.join(ctx, 'raw-prd', 'a-prd.md');

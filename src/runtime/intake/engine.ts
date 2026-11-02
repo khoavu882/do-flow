@@ -423,10 +423,12 @@ function sortFolder({ contextDir, taxonomy, now = new Date(), fsImpl = nodeFs }:
 
 /**
  * IC-003 undo. Entries in state `done` (and `undo-skipped`, when a run is named) are restored newest first.
+ * A `failed` entry whose planned copy still sits at its destination is restored only when the run is named and
+ * the origin is free; otherwise it is listed in `kept` with both paths and left where it is.
  * A `file-prompt` run has no origin, and undo never deletes, so naming one is refused.
  */
 function undoRun({ contextDir, runId = null, now = new Date(), fsImpl = nodeFs }: any): any {
-  if (contextState(contextDir, fsImpl) === 'absent') return absent('undo', { runId: null, restored: [], skipped: [], removedDirs: [] });
+  if (contextState(contextDir, fsImpl) === 'absent') return absent('undo', { runId: null, restored: [], skipped: [], kept: [], removedDirs: [] });
   assertIntakeDir(contextDir, fsImpl);
   if (!lstatOrNull(fsImpl, path.join(contextDir, INTAKE_DIR))) {
     if (runId) throw new IntakeUsageError(`no run '${runId}' in the manifest`);
@@ -446,7 +448,8 @@ function undoRun({ contextDir, runId = null, now = new Date(), fsImpl = nodeFs }
     }
     const restored: any[] = [];
     const skipped: any[] = [];
-    const retry = runId ? ['done', 'undo-skipped'] : ['done'];
+    const kept: any[] = [];
+    const retry = runId ? ['done', 'undo-skipped', 'failed'] : ['done', 'failed'];
     const skip = (move: any, reason: string, detail?: string): void => {
       move.state = 'undo-skipped';
       move.reason = reason;
@@ -458,6 +461,15 @@ function undoRun({ contextDir, runId = null, now = new Date(), fsImpl = nodeFs }
       const to = path.join(contextDir, move.to);
       const toStat = lstatOrNull(fsImpl, to);
       const fromStat = lstatOrNull(fsImpl, from);
+      if (move.state === 'failed') {
+        // A failed entry is the user's file's to decide about: only one still holding the planned copy at its
+        // destination is of interest, and it is restored only when the run is named and the origin is free.
+        if (!toStat || !toStat.isFile() || hashFile(fsImpl, to).sha256 !== move.sha256) continue;
+        if (!runId || fromStat) {
+          kept.push({ from: move.from, to: move.to, reason: move.reason });
+          continue;
+        }
+      }
       if (!toStat) {
         // A restore that died before it was journaled: the origin already holds the recorded content.
         if (fromStat && fromStat.isFile() && hashFile(fsImpl, from).sha256 === move.sha256) {
@@ -511,12 +523,12 @@ function undoRun({ contextDir, runId = null, now = new Date(), fsImpl = nodeFs }
         removedDirs.push(dir);
       }
     }
-    return { action: 'undo', state: 'undone', runId: run.id, restored, skipped, removedDirs };
+    return { action: 'undo', state: 'undone', runId: run.id, restored, skipped, kept, removedDirs };
   }, fsImpl);
 }
 
 function nothingToUndo(): any {
-  return { action: 'undo', state: 'nothing-to-undo', runId: null, restored: [], skipped: [], removedDirs: [] };
+  return { action: 'undo', state: 'nothing-to-undo', runId: null, restored: [], skipped: [], kept: [], removedDirs: [] };
 }
 
 /** IC-004 list: every non-hidden regular file, recursively, outside `.intake/`; contents are only hashed. */
