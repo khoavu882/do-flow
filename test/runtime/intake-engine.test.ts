@@ -234,6 +234,21 @@ test('a loose file that cannot be read is skipped as unreadable; the others stil
   assert.deepEqual(sort(ctx).moves, [], 'a second sort leaves it alone and moves nothing');
 });
 
+test('an unreadable category folder holds no partner we can see: the render stays loose and the other files still sort', (t: any) => {
+  if (process.platform === 'win32' || (typeof process.getuid === 'function' && process.getuid() === 0)) { t.skip('file modes are not enforced here'); return; }
+  const { ctx } = tree(t, { 'hld/diagrams/k.mmd': 'g', 'k.png': Buffer.from([1]), 'k-prd.md': 'one' });
+  const locked = path.join(ctx, 'hld', 'diagrams');
+  fs.chmodSync(locked, 0o000);
+  t.after(() => { try { fs.chmodSync(locked, 0o755); } catch { /* already cleaned up */ } });
+  const preview = previewSort({ contextDir: ctx, taxonomy: taxonomy(), now: LATER() });
+  assert.deepEqual(movesOf(preview), ['k-prd.md>raw-prd/k-prd.md']);
+  assert.deepEqual(preview.unmatched, ['k.png']);
+  const result = sort(ctx);
+  assert.deepEqual(movesOf(result), ['k-prd.md>raw-prd/k-prd.md']);
+  assert.deepEqual(result.unmatched, ['k.png']);
+  assert.ok(fs.existsSync(path.join(ctx, 'k.png')), 'the render stays loose');
+});
+
 test('a folder whose only loose file is unreadable is reported without a lock or a manifest', (t: any) => {
   if (process.platform === 'win32' || (typeof process.getuid === 'function' && process.getuid() === 0)) { t.skip('file modes are not enforced here'); return; }
   const { ctx } = tree(t, { 'locked-prd.md': 'secret' });
