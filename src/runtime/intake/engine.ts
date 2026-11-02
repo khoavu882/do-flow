@@ -292,7 +292,19 @@ function sortFolder({ contextDir, taxonomy, now = new Date(), fsImpl = nodeFs }:
         fail(`destination folder: ${chain.bad}`);
         continue;
       }
-      for (const dir of chain.missing) if (makeDir(fsImpl, path.join(contextDir, dir))) run.createdDirs.push(dir);
+      let madeDirs = true;
+      for (const dir of chain.missing) {
+        try {
+          if (makeDir(fsImpl, path.join(contextDir, dir))) run.createdDirs.push(dir);
+        } catch (error: any) {
+          // A folder that cannot be created fails this move only; the file stays where it is.
+          run.moves.push(entry);
+          fail(`destination folder ${dir} could not be created: ${error.code ?? error.message}`);
+          madeDirs = false;
+          break;
+        }
+      }
+      if (!madeDirs) continue;
       run.moves.push(entry);
       writeManifest(contextDir, manifest, fsImpl); // journal: planned
       if (lstatOrNull(fsImpl, to)) { fail('the destination appeared before the move'); continue; }

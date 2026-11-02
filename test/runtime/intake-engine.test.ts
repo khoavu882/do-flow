@@ -343,6 +343,36 @@ test('a rename that throws marks that entry failed and the others still move', (
   assert.ok(fs.existsSync(path.join(ctx, 'a-prd.md')), 'the file is still at its origin');
 });
 
+test('a destination folder that cannot be created marks that entry failed, moves nothing else wrongly, and the next run completes', (t: any) => {
+  if (process.platform === 'win32' || (typeof process.getuid === 'function' && process.getuid() === 0)) { t.skip('folder modes are not enforced here'); return; }
+  const { ctx } = tree(t, { 'talk.mp3': Buffer.from([0xff, 0xfb, 0x90]), 'a-prd.md': 'one', 'discuss-session/keep.txt': 'mine' });
+  const locked = path.join(ctx, 'discuss-session');
+  fs.chmodSync(locked, 0o555);
+  t.after(() => { try { fs.chmodSync(locked, 0o755); } catch { /* already cleaned up */ } });
+  const before = snapshot(ctx);
+
+  const result = sort(ctx);
+  assert.deepEqual(movesOf(result), ['a-prd.md>raw-prd/a-prd.md']);
+  assert.equal(result.skipped.length, 1);
+  assert.equal(result.skipped[0].path, 'talk.mp3');
+  assert.equal(result.skipped[0].reason, 'failed');
+  assert.match(result.skipped[0].detail, /discuss-session\/records could not be created: EACCES/);
+  assert.ok(fs.existsSync(path.join(ctx, 'talk.mp3')), 'the file is still at its origin');
+  const manifest = manifestOf(ctx);
+  assert.ok(manifest.runs[0].finishedAt);
+  assert.deepEqual(manifest.runs[0].moves.map((m: any) => `${m.from}:${m.state}`), ['a-prd.md:done', 'talk.mp3:failed']);
+  assert.ok(!manifest.runs.some((run: any) => run.moves.some((m: any) => m.state === 'planned')), 'no planned entry is left behind');
+  const after = snapshot(ctx);
+  assert.equal(after['talk.mp3'], before['talk.mp3']);
+  assert.equal(after['discuss-session/keep.txt'], before['discuss-session/keep.txt']);
+
+  fs.chmodSync(locked, 0o755);
+  const next = sort(ctx);
+  assert.deepEqual(movesOf(next), ['talk.mp3>discuss-session/records/talk.mp3']);
+  assert.deepEqual(next.skipped, []);
+  assert.equal(sha(fs.readFileSync(path.join(ctx, 'discuss-session', 'records', 'talk.mp3'))), before['talk.mp3']);
+});
+
 test('a destination that appears after the journal entry is never overwritten', (t: any) => {
   const { ctx } = tree(t, { 'prd.md': 'mine' });
   const squat = path.join(ctx, 'raw-prd', 'prd.md');
