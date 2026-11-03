@@ -12,6 +12,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { suiteTempDir, GIT_NO_MAINTENANCE_ENV } = require('./tmp.ts');
+const { bashPath } = require('./bash-locator.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
@@ -62,17 +63,25 @@ function realOf(p: string) {
   try { return fs.realpathSync(p); } catch { return p; }
 }
 
-/** The environment of a spawn: PATH and the fixture HOME only. */
+/** Variables Windows needs to start a process and resolve commands; passed through on win32 only. */
+const WIN32_PASSTHROUGH = ['SystemRoot', 'PATHEXT', 'COMSPEC', 'TEMP', 'TMP'];
+
+/** The environment of a spawn: PATH and the fixture HOME only (plus the Windows process-start variables on win32). */
 function fixtureEnv(home: string) {
-  return { PATH: process.env.PATH || '', HOME: home };
+  const env: Record<string, string> = { PATH: process.env.PATH || '', HOME: home };
+  if (process.platform === 'win32') {
+    for (const name of WIN32_PASSTHROUGH) if (process.env[name] !== undefined) env[name] = process.env[name] as string;
+  }
+  return env;
 }
 
 /**
- * Runs the dispatcher with `argv` from `cwd`, stdout piped.
+ * Runs the dispatcher (a bash script, spawned through `bashPath()` as the other verb tests do) with `argv` from the
+ * fixture root, stdout piped.
  * @returns {{status: number|null, stdout: string, stderr: string}}
  */
 function runVerb(fixture: any, argv: readonly string[]) {
-  const out = spawnSync(DISPATCHER, [...argv], { cwd: fixture.root, env: fixtureEnv(fixture.home), encoding: 'utf8', timeout: 120000 });
+  const out = spawnSync(bashPath(), [DISPATCHER, ...argv], { cwd: fixture.root, env: fixtureEnv(fixture.home), encoding: 'utf8', timeout: 120000 });
   return { status: out.status, stdout: out.stdout || '', stderr: out.stderr || '' };
 }
 
