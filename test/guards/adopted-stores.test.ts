@@ -140,6 +140,10 @@ function helperAliases(code: any) {
   return aliases;
 }
 
+function escapeRegExp(text: string) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /** The files that call a namespaced-record helper, each with the stores its calls address and the
  * calls whose store cannot be resolved. */
 function helperUsers(sources: any) {
@@ -152,7 +156,7 @@ function helperUsers(sources: any) {
     let found = false;
     let scoped = false;
     const aliases = helperAliases(code);
-    const callPattern = new RegExp(`(?<!\\bfunction\\s+)\\b(${[...HELPERS, ...aliases.keys()].join('|')})\\s*\\(`, 'g');
+    const callPattern = new RegExp(`(?<!\\bfunction\\s+)(?<![\\w$])(${[...HELPERS, ...aliases.keys()].map(escapeRegExp).join('|')})\\s*\\(`, 'g');
     for (const call of code.matchAll(callPattern)) {
       const helper = aliases.get(call[1]) ?? call[1];
       found = true;
@@ -265,7 +269,8 @@ test('G65 control: a store named in a comment, in the helper module or beside no
 test('G65 control: a helper imported under another name still counts as a user of its store', () => {
   const renamed = "const { taskRecord: tr } = require('./task-scope.ts');\ntr({ projectRoot, store: 'gamma', taskId });\n";
   const imported = "import { recordIn as put } from './task-scope.ts';\nput({ base: path.join(root, '.doflow', 'state', 'gamma'), name });\n";
-  for (const source of [renamed, imported]) {
+  const dollar = "const { taskRecord: $tr } = require('./task-scope.ts');\n$tr({ projectRoot, store: 'gamma', taskId });\n";
+  for (const source of [renamed, imported, dollar]) {
     const errors = checkAdopters(adoptedStores(fixtureRegistry()), fixtureSources({ 'src/alpha.ts': alphaUser, 'src/beta.ts': betaUser, 'src/gamma.ts': source }));
     assert.equal(errors.length, 1, errors.join('\n'));
     assert.match(errors[0], /^src\/gamma\.ts addresses store 'gamma' through a task-record helper/);
