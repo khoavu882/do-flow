@@ -47,6 +47,17 @@ test('removing the only key of a table DoFlow appended restores the user file by
   assert.equal(fs.readFileSync(file, 'utf8'), before);
 });
 
+test('a CRLF config keeps its line endings and a config with no final newline keeps none through install and remove', () => {
+  for (const before of ['[profile]\r\nmodel = "mine"\r\n', '[profile]\nmodel = "mine"', '[profile]\r\nmodel = "mine"']) {
+    const root = scratch(); const file = path.join(root, 'config.toml');
+    fs.writeFileSync(file, before);
+    const installed = reconcileCodexConfig({ file, scope: 'project', desiredResources: [resource()] });
+    if (before.includes('\r\n')) assert.equal(/(^|[^\r])\n/.test(fs.readFileSync(file, 'utf8')), false);
+    reconcileCodexConfig({ file, scope: 'project', managedResources: installed.managedResources, desiredResources: [] });
+    assert.equal(fs.readFileSync(file, 'utf8'), before);
+  }
+});
+
 test('removing the last owned key of a file DoFlow created deletes the file', () => {
   const projectRoot = scratch();
   const installed = reconcileCodexConfig({ scope: 'project', projectRoot, desiredResources: [resource()] });
