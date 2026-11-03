@@ -69,6 +69,35 @@ const ALLOWED_READ_VERBS: any = new Set([
   'var',
 ]);
 
+/** Words after which a `/` starts a regular expression rather than dividing. */
+const REGEX_AFTER_WORDS = new Set(['return', 'typeof', 'case', 'in', 'of', 'delete', 'void', 'throw', 'new', 'else', 'do', 'yield', 'await']);
+
+/**
+ * The index just past the `${ ... }` expression that opens at `i`, with nested strings and template
+ * literals skipped whole, so a backtick inside the expression does not end the outer template.
+ * `lines.n` counts the newlines passed.
+ */
+function skipTemplateExpression(source: any, i: any, lines: any): any {
+  let depth = 0;
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === "'" || ch === '"' || ch === '`') {
+      for (i++; i < source.length && source[i] !== ch; i++) {
+        if (source[i] === '\\') i++;
+        else if (source[i] === '\n') lines.n++;
+        else if (ch === '`' && source[i] === '$' && source[i + 1] === '{') i = skipTemplateExpression(source, i + 1, lines) - 1;
+      }
+      i++;
+      continue;
+    }
+    if (ch === '\n') lines.n++;
+    if (ch === '{') depth++;
+    else if (ch === '}' && --depth === 0) return i + 1;
+    i++;
+  }
+  return i;
+}
+
 /**
  * Tokenize JS/TS source code, skipping comments and whitespace, keeping line numbers.
  */
@@ -111,6 +140,31 @@ function tokenize(source: any) {
       continue;
     }
 
+    // Regular expression literal: a `/` where a value is expected. Its body may hold quotes that
+    // would otherwise open a string, so it is skipped whole and kept as one token.
+    if (ch === '/') {
+      const prev = tokens[tokens.length - 1];
+      const startsValue = !prev || (prev.type === 'punct' && ![')', ']', '}'].includes(prev.value))
+        || (prev.type === 'ident' && REGEX_AFTER_WORDS.has(prev.value));
+      if (startsValue) {
+        let j = i + 1;
+        let inClass = false;
+        while (j < source.length && source[j] !== '\n' && (inClass || source[j] !== '/')) {
+          if (source[j] === '\\') j++;
+          else if (source[j] === '[') inClass = true;
+          else if (source[j] === ']') inClass = false;
+          j++;
+        }
+        if (source[j] === '/') {
+          j++;
+          while (j < source.length && /[a-z]/.test(source[j])) j++;
+          tokens.push({ type: 'regex', value: source.slice(i, j), line });
+          i = j;
+          continue;
+        }
+      }
+    }
+
     // String literals
     if (ch === "'" || ch === '"' || ch === '`') {
       const quote = ch;
@@ -124,8 +178,11 @@ function tokenize(source: any) {
           i += 2;
         } else if (quote === '`' && source[i] === '$' && source[i + 1] === '{') {
           isInterpolated = true;
-          val += '${';
-          i += 2;
+          const lines = { n: 0 };
+          const end = skipTemplateExpression(source, i + 1, lines);
+          val += source.slice(i, end);
+          line += lines.n;
+          i = end;
         } else if (source[i] === quote) {
           i++;
           break;
@@ -664,6 +721,16 @@ test('G53 control: scratch source with [\'worktree\', \'remove\', \'--force\'] t
   const { findings } = checkRoadmapGitVerbs({ files: seeded });
   assert.ok(findings.length >= 1, 'expected finding for [\'worktree\', \'remove\', \'--force\']');
   assert.ok(findings.some((f: any) => f.includes("forbidden token '--force'")), `missing forbidden --force finding: ${findings.join('\n')}`);
+});
+
+test('G53 control: a regex literal or a nested template literal before a forbidden argv does not hide it', () => {
+  const seeded: any = new Map([
+    ['src/runtime/roadmap/after-regex.ts', "const quoted = /['\"`]/g;\nconst cmd = ['push'];\n"],
+    ['src/runtime/roadmap/after-template.ts', "const label = `a ${items.map((x) => `<${x}>`).join(',')} b`;\nconst argv = ['branch', '-D'];\n"],
+  ]);
+  const { findings } = checkRoadmapGitVerbs({ files: seeded });
+  assert.ok(findings.some((f: any) => f.includes('after-regex.ts') && f.includes("forbidden token 'push'")), findings.join('\n'));
+  assert.ok(findings.some((f: any) => f.includes('after-template.ts') && f.includes("forbidden token '-D'")), findings.join('\n'));
 });
 
 test('G53 control: scratch source with a computed argv turns guard red', () => {
