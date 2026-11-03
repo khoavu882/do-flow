@@ -41,7 +41,7 @@ Run every command below from the project root — the walk-up starts at `$PWD`. 
 "$DOFLOW" paths --json
 ```
 
-   Before the first question, run `"$DOFLOW" lifecycle --action overview --json` and show its
+   Before the first question, run `"$DOFLOW" lifecycle --action overview --view brief --json` and show its
    follow-ups and goals with their sources. Propose closing a goal whose `proposeDone` is true; on a
    yes run `"$DOFLOW" goal --action done --goal <goal> --channel question`. Unattended: leave it open.
 
@@ -60,9 +60,9 @@ Once per stage, after `feature_slug` resolves, run `"$DOFLOW" attendance --task-
    being asked. `/do-flow` passes one when it invoked this skill; a user who named one settles it.
    Validate before eliciting anything:
    ```bash
-   "$DOFLOW" classify --task-class "<proposed>" --calling-skill do-brainstorm --json
+   "$DOFLOW" classify --task-class "<proposed>" --calling-skill do-brainstorm --view brief --json
    ```
-Branch on the returned `outcome` field, not the exit code.
+Branch on `outcome`, not the exit code.
 - **`ACCEPTED`** — the returned `workflow` is this run's plan of record; read `stages`, `gates` and `handoff` off it rather than from memory.
 - **`REJECTED`** — **stop.** Print `message` verbatim (it already names `validClasses` and any `suggestions`), ask the user to choose from `validClasses`, then re-validate. Never substitute `feature`.
   A rejection may be about **you** rather than the class (`reason: caller-not-a-stage`). Then the fix is to propose one of the classes in `fit.hostingClasses`, or to hand the work to the skill this class names for the stage you meant — not to re-propose the same class.

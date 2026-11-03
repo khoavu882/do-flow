@@ -75,9 +75,9 @@ Once per stage, after `feature_slug` resolves, run `"$DOFLOW" attendance --task-
      of `bug`, `refactor`, `dependency-change` or `trivial-edit` the recorded work already fits.
      `do-implement` never serves `feature`; that class's implementation stage is `/do-execute-plan`.
      ```bash
-     "$DOFLOW" classify --task-class "<proposed>" --calling-skill do-implement --json
+     "$DOFLOW" classify --task-class "<proposed>" --calling-skill do-implement --view brief --json
      ```
-     Branch on the returned `outcome`, not the exit code. `ACCEPTED` — the returned `workflow` names
+     Branch on `outcome`, not the exit code. `ACCEPTED` — the returned `workflow` names
      the validated class to evaluate readiness against. `REJECTED` — stop, print `message` verbatim
      (it names `validClasses`), ask the user to choose from that set, then re-validate; never
      substitute `feature` for the class that was rejected.
