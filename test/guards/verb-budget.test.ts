@@ -31,7 +31,7 @@ const CEILINGS: readonly (readonly [string, number, number])[] = [
   ['classify --task-class feature --calling-skill do-design --view brief --json', 0, 2624], // 2,443 B
   ['classify --task-class nope --calling-skill do-design --json', 1, 832], // 788 B
   ['lifecycle --action overview --json', 0, 5696], // 5,393 B
-  ['lifecycle --action overview --view brief --json', 0, 4544], // 4,279 B
+  ['lifecycle --action overview --view brief --json', 0, 3136], // 2,973 B
   ['lifecycle --action overview --maintain --json', 0, 17984], // 17,413 B
   ['lifecycle --action overview --maintain --view brief --json', 0, 14528], // 13,965 B
   ['goal --action list --json', 0, 640], // 555 B
