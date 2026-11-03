@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# build-install-mirror.sh — builds a scratch, install-shaped mirror of core/harnesses/ under
-# tmp/, so tests can execute front-door hook scripts exactly as they run post-install.
+# build-install-mirror.sh — builds a scratch, install-shaped mirror of core/harnesses/ in a
+# caller-chosen directory (verify-hooks.sh uses a temp root), so tests can execute front-door hook
+# scripts exactly as they run post-install.
 #
 # Why this exists (022-hooks-shared-install-gap): front doors resolve the Canonical Policy
 # Library via a literal relative path ("../../.doflow/shared/hooks/...") that is correct from an
@@ -9,8 +10,8 @@
 # not the repo root). A prior fix that instead symlinked core/harnesses/.doflow/shared into place
 # silently broke npm test for every other clone: .gitignore's bare `.doflow` pattern ignores any
 # directory of that name anywhere in the tree, so the symlink worked locally but was never
-# committed. This mirror is regenerated fresh under the already-gitignored tmp/ instead, exactly
-# like tmp/test-home/ already is for hook state — nothing here is meant to be committed.
+# committed. This mirror is regenerated fresh in a temp directory outside the repo instead (the
+# caller passes it and removes it on exit) — nothing here is meant to be committed.
 #
 # Usage: bash test/hooks/build-install-mirror.sh <mirror-dir>
 # Populates <mirror-dir>/.{claude,codex,kiro,antigravity}/hooks/, <mirror-dir>/.github/hooks/ and
