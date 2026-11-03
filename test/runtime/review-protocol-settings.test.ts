@@ -360,9 +360,7 @@ test('an unknown review.preset or debate.preset in the user file is a settings-u
   }
   f.writeUserSettings({ schema: 1, 'review.preset': 'review-deep', 'debate.preset': 'debate-3' });
   assert.equal('error' in loadProtocolInputs(null, f.project, f.env()), false, 'known ids resolve');
-  // Every other review.* key refuses a bad user value the same way (FU-0ct33v), never the resolver's default.
+  // Other review.* keys keep their project-and-local scope: a bad user value there is still the resolver's default.
   f.writeUserSettings({ schema: 1, 'review.sameFamily': 'strict' });
-  const other = loadProtocolInputs(null, f.project, f.env());
-  assert.equal(other.error, 'settings-unavailable');
-  assert.ok(other.message.includes('review.sameFamily') && other.message.includes(file), other.message);
+  assert.equal('error' in loadProtocolInputs(null, f.project, f.env()), false);
 });
