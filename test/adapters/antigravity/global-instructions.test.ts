@@ -119,6 +119,19 @@ test('IC-007: a handed-over GEMINI.md edited down to no DoFlow markers is kept u
   assert.equal(rowOf(forced.verified).retainedEdit, undefined, '--force clears the flag');
 });
 
+test('FU-e8jza5: `remove -g -t antigravity` releases the plain row of a GEMINI.md whose DoFlow span was deleted by hand', (t) => {
+  const home = tempDir(t, 'doflow-agy-global-');
+  fs.mkdirSync(path.dirname(target(home)), { recursive: true });
+  fs.writeFileSync(target(home), USER);
+  const row = run(home).verified.resources.find((item: any) => item.target === target(home));
+  assert.equal(row.retainedEdit, undefined, 'a plain row, not a kept one');
+  fs.writeFileSync(target(home), USER);
+  const removed = run(home, { resources: [{ ...row, harness: 'antigravity' }], operation: 'remove' });
+  assert.deepEqual(sectionChanges(removed.planned, home).map((change: any) => change.operation), ['remove'], 'the row is released');
+  assert.equal(fs.readFileSync(target(home), 'utf8'), USER, 'the person\'s file is untouched');
+  assert.ok(!removed.verified.resources.some((item: any) => item.target === target(home)));
+});
+
 test('V-1: `remove -g -t antigravity` strips a kept GEMINI.md\'s retired short-marker span, so a later global install is not refused', (t) => {
   const home = tempDir(t, 'doflow-agy-global-');
   const edited = `# An edit of mine\n\n${USER}`;

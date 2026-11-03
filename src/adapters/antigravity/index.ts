@@ -377,7 +377,7 @@ function instructionTarget({ paths, assets, registry }: any) {
 /** How this run stands to a section it took over (IC-007): the lifecycle's handover verdict for the
  * file, this harness's own row on it, and whether a person-edited file stays as it is (`retained`:
  * edited before the handover, or kept since, and no --force). `predecessor` lets the retired
- * harness's span count as the section to replace; `keptRow` is a row recorded as kept. A handover
+ * harness's span count as the section to replace; `keptRow` is any own row on the file. A handover
  * file whose DoFlow span already is this harness's render was written by DoFlow itself (a run that
  * threw after that write and before its ledger write), so it does not count as edited. */
 function instructionState({ target, context, resources, paths, fsImpl = fs }: any) {
@@ -391,7 +391,7 @@ function instructionState({ target, context, resources, paths, fsImpl = fs }: an
   };
   const edited = (handover?.edited === true && !ownWrite()) || ownRow?.retainedEdit === true;
   return { predecessor: Boolean(handover) || ownRow?.retainedEdit === true, retained: edited && context.force !== true,
-    keptRow: ownRow?.retainedEdit === true };
+    keptRow: ownRow !== null };
 }
 
 function instructionsChange(target: any, fields: any) {
