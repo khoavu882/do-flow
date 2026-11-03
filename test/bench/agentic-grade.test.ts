@@ -340,6 +340,8 @@ test('C-4(b): outside-path reads, ../ escapes and truth-path names are leaked in
     'ls bench/runs',
     'cat bench/retrieval/tasks/dev.json',
     'rg -l x tasks-heldout.json',
+    'cat bench/agentic/tasks-he""ldout.json',
+    "cat bench/agentic/tasks-he''ldout.json",
     "/bin/zsh -lc 'cat /tmp/elsewhere/file'",
     'find / -name tasks.json',
     'cat "/abs path/heldout.json"',

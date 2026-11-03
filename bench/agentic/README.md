@@ -218,7 +218,7 @@ and `timing.json` get `cleanupError`, the summary prints a `!!! CLEANUP FAILED` 
 (skills and agents under `core/shared/`). Arm A must show none of it in init; arm B must show P1
 installed, P2 skills and agents in init, P3 SessionStart fired. One classifier checks both arms for
 commands that read the benchmark's own truth (the checkout, `core/shared`, `doflow-agentic-tool`, the
-pruned export, the hidden checks) or leave the run roots; only the "DoFlow present" checks differ.
+pruned export, the hidden checks) or leave the run roots; a truth name is matched in the command as typed and in each word after its quotes are removed (`tasks-he""ldout.json` is caught), not inside an interpreter `-c` body, `eval` or a `find -exec` operand; only the "DoFlow present" checks differ.
 Arm A's leak patterns match an *invocation* of the doflow binary in command position (after `env`,
 `npx`, `node` wrappers), so `rg -n "doflow roadmap" src/` is clean in both arms and `doflow retrieve`
 is a leak in arm A; network commands are a leak in both. Path words are expanded before the roots
