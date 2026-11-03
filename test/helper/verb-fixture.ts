@@ -46,6 +46,11 @@ const IC009_ROWS: readonly (readonly string[])[] = Object.freeze([
   ['git-state', '--json'],
   ['inventory', '--json'],
   ['attendance', '--task-id', 'x', '--json'],
+  ['help'],
+  ['prereqs', '--json'],
+  ['models', '--action', 'list', '--json'],
+  ['protocol', '--action', 'list', '--json'],
+  ['primary', '--action', 'resolve', '--json'],
 ].map((row) => Object.freeze(row)));
 
 /** The fixture's follow-up statement for index `n`: `Fixture follow-up NNN: ` padded with `x`. */
