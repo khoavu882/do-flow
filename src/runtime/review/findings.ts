@@ -94,17 +94,15 @@ function protocolError(value: any, registry: any): 'protocol' | 'protocol-unavai
   return ids !== null && require('../../helper/package-ids.ts').isQualifiedId(value.id) ? 'protocol-unavailable' : 'protocol';
 }
 
-/** C-6: the first project or local candidate of a resolved setting that is `invalid` (a malformed file or a bad value in it).
- * The resolver then falls back to the key's default without a word, so a `review.*` reader treats it as unreadable. */
+/** C-6: the first candidate, at any layer, of a resolved review.* or debate.* setting that is `invalid` (a malformed file or a
+ * bad value in it). The resolver then falls back to the key's default without a word, so a reader treats it as unreadable;
+ * a dropped user value lowers a floor or relaxes a check just as a dropped project one does. */
 function invalidProjectCandidate(resolution: any): { source: string; reason: string } | undefined {
-  return (resolution?.candidates ?? []).find((c: any) => ['project', 'local'].includes(c.layer) && c.status === 'invalid');
-}
-
-/** The preset keys (`review.preset`, `debate.preset`) also refuse an invalid user value: the user file's preset is a
- * floor like the project's, and an unknown id dropped to `auto` or the registry default would lower it without a word. */
-function invalidPresetCandidate(resolution: any): { source: string; reason: string } | undefined {
   return (resolution?.candidates ?? []).find((c: any) => ['user', 'project', 'local'].includes(c.layer) && c.status === 'invalid');
 }
+
+/** The preset keys' reader; the same rule as every other review.* and debate.* key. */
+const invalidPresetCandidate = invalidProjectCandidate;
 
 /** maint-thin: true when `presetId` is the last (loosest) id of the effective core review order; false on no readable view. */
 function loosestReviewPreset(presetId: any, registry: any = protocols()): boolean {
