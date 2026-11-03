@@ -516,7 +516,7 @@ function promoteThrough(exe: any, { home, cwd }: any) {
   for (const [i, id] of ids.entries()) assert.ok(text.includes(`- ${id}: ${PROMOTE_STATEMENTS[i]}`), `the intent names ${id}`);
 
   // The follow-ups are settled: each shows the intent it went to, and stays open.
-  const listed = verb(['--action', 'list']);
+  const listed = verb(['--action', 'list', '--view', 'full']);
   assert.deepEqual(listed.items.map((i: any) => [i.id, i.state, i.intent]).sort(), ids.map((id: any) => [id, 'open', promoted.intent]).sort());
   assert.equal(fs.readdirSync(path.join(cwd, '.doflow', 'state', 'lifecycle', 'events')).length, 3, 'two additions and one promotion are events in the project');
   return { text: text.replace(/FU-[0-9a-z]{6}/g, 'FU-ID').replace(/\*\*Date:\*\* \d{4}-\d\d-\d\d/, '**Date:** DATE'), ids };
