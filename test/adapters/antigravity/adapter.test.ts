@@ -436,7 +436,7 @@ const { execFileSync } = require('node:child_process');
 
 // Front doors resolve the Canonical Policy Library via a path relative to their installed
 // location, not their source location — see build-install-mirror.sh for why this mirror exists.
-const HOOKS_MIRROR = path.join(REPO, 'tmp', 'hooks-mirror');
+const HOOKS_MIRROR = suiteTempDir('doflow-hooks-mirror-');
 execFileSync(bashPath(), [path.join(REPO, 'test', 'hooks', 'build-install-mirror.sh'), HOOKS_MIRROR]);
 const GATE_SHIM = path.join(HOOKS_MIRROR, '.antigravity', 'hooks', 'pre-implementation-gate.sh');
 

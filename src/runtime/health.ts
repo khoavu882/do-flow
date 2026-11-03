@@ -31,6 +31,7 @@ const { readGrants, detectedProjectRoot } = require('./packages/grants.ts');
 const { readState, grantRevoked } = require('./packages/state.ts');
 const { transcriptsDoctorView } = require('./transcripts/registry.ts');
 const { readLedger, stateRoot } = require('../state/index.ts');
+const { readRegularFileText } = require('./task-scope.ts');
 
 /** Answered a probe. */
 const HEALTHY = 'HEALTHY';
@@ -612,7 +613,7 @@ function mcpConsultationsView({ projectRoot, fsImpl }: any) {
   const listed: Array<{ rel: string; name: string; namespace: string; run: any }> = [];
   const readRunFile = (rel: string, name: string, namespace: string): void => {
     let run;
-    try { run = JSON.parse(fsImpl.readFileSync(path.join(dir, rel), 'utf8')); } catch { run = null; }
+    try { run = JSON.parse(readRegularFileText(path.join(dir, rel), fsImpl) ?? 'null'); } catch { run = null; }
     listed.push({ rel, name, namespace, run });
   };
   let entries: any[] = [];

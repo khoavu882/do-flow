@@ -529,6 +529,20 @@ test('RR-5: a refused child launch whose cancel cleanup is not verified keeps th
   assert.equal(fs.existsSync(worktree), true);
 });
 
+test('RR-7: a kept refused child launch still requested is refused after a resume, not launched again over its worktree', POSIX, async (t) => {
+  const processTree = require(path.join(SRC, 'worker', 'process-tree.ts'));
+  const escalate = processTree.escalate;
+  t.mock.method(processTree, 'escalate', async (args: any) => ({ ...(await escalate(args)), status: 'unknown', reason: 'test-unobserved' }));
+  const { p, requestId, child, worktree, label } = await childLaunchMoved(t, HOLD);
+  const kept = p.read().spawnRequests[requestId];
+  assert.deepEqual([kept.state, kept.childRunId, kept.worktree], ['requested', child.runId, worktree], `the request names the kept child run: ${label}`);
+  store.mutateDispatch(p.file, (s: any) => { s.run.state = 'running'; return { write: true, result: null }; });
+  const stepped = await p.step();
+  const after = p.read().spawnRequests[requestId];
+  assert.deepEqual([after.state, after.reason, after.childRunId], ['refused', 'child-run-recorded', child.runId], JSON.stringify(stepped.actions));
+  assert.equal(Object.values(readRuns(runStoreFileFor(p.root, SLUG))).filter((r: any) => r.request === requestId).length, 1, 'no second child run');
+});
+
 for (const [cause, move] of [['the run held cancelling', HOLD], ['the granter no longer launched', GRANTER_LEFT]]) {
   test(`RR-4: a child launch with ${cause} before its launched write is refused and its child run cancelled`, POSIX, async (t) => {
     const { p, requestId, child, label } = await childLaunchMoved(t, move);
