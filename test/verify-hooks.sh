@@ -15,7 +15,8 @@ export DOFLOW_TELEMETRY="${DOFLOW_TELEMETRY:-off}"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Front doors resolve the Canonical Policy Library via a path relative to their installed
 # location, not their source location — see build-install-mirror.sh for why this mirror exists.
-MIRROR="$REPO_ROOT/tmp/hooks-mirror"
+MIRROR="$(mktemp -d "${TMPDIR:-/tmp}/doflow-hooks-mirror.XXXXXX")"
+trap 'rm -rf "$MIRROR"' EXIT
 bash "$REPO_ROOT/test/hooks/build-install-mirror.sh" "$MIRROR"
 HOOKS="$MIRROR/.claude/hooks"
 TEST_HOME="$REPO_ROOT/tmp/test-home"
@@ -377,14 +378,14 @@ MCP_POLICY_REAL="$MIRROR/.doflow/shared/hooks/policies/mcp-policy.conf"
 MCP_POLICY_BACKUP="$(mktemp)"
 cp "$MCP_POLICY_REAL" "$MCP_POLICY_BACKUP"
 restore_mcp_policy() { cp "$MCP_POLICY_BACKUP" "$MCP_POLICY_REAL"; rm -f "$MCP_POLICY_BACKUP"; }
-trap restore_mcp_policy EXIT
+trap 'restore_mcp_policy; rm -rf "$MIRROR"' EXIT
 
 printf 'mcp__.*__delete.*\tDestructive MCP operation blocked (test policy)\n' > "$MCP_POLICY_REAL"
 check_mcp_guard "mcp__github__delete_repo (active test policy)" "mcp__github__delete_repo" "block"
 check_mcp_guard "mcp__github__create_issue (active test policy, no match)" "mcp__github__create_issue" "allow"
 
 restore_mcp_policy
-trap - EXIT
+trap 'rm -rf "$MIRROR"' EXIT
 pass "mcp-policy.conf restored to shipped (empty) state after policy-matching test"
 
 # ══════════════════════════════════════════════════════════════════════════════
