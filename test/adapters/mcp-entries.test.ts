@@ -209,6 +209,16 @@ test('writeMcpJson keeps the file mode and writes through a symlink without repl
   assert.deepEqual(fs.readdirSync(root).sort(), ['link.json', 'real.json']);
 });
 
+test('writeMcpJson keeps the indent an existing file uses and defaults to two spaces', () => {
+  const root = scratch();
+  for (const [name, before, indent] of [['tab.json', '{\n\t"other": 1\n}\n', '\t'], ['four.json', '{\n    "other": 1\n}\n', '    '], ['min.json', '{"other":1}', '  '], ['new.json', null, '  ']] as any[]) {
+    const file = path.join(root, name);
+    if (before !== null) fs.writeFileSync(file, before);
+    writeMcpJson(file, { other: 1, mcpServers: { alpha: A.entry } });
+    assert.equal(fs.readFileSync(file, 'utf8'), `${JSON.stringify({ other: 1, mcpServers: { alpha: A.entry } }, null, indent)}\n`, name);
+  }
+});
+
 test('writeMcpEntries keeps every other key and keeps or deletes an emptied container as asked', () => {
   const kept = setup({ other: 1, mcpServers: { alpha: A.entry } });
   const removal = [{ kind: 'mcp-server', target: kept.file, operation: 'remove', identity: 'alpha', before: entryFingerprint(A.entry) }];
