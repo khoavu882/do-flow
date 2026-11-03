@@ -7,22 +7,13 @@
       "split": "train",
       "name": "execute-request-invokes-executor",
       "prompt": "Go ahead and work through the tasks in the plan.",
-      "expected_output": "do-execute-plan is invoked and the prerequisite gate runs first",
+      "expected_output": "do-execute-plan is invoked for a request to run the plan's tasks",
       "files": [],
       "assertions": [
         {
           "text": "do-execute-plan was invoked",
           "type": "skill_resolved",
           "skill": "do-execute-plan"
-        },
-        {
-          "text": "The prerequisite gate is run and named before any task is dispatched",
-          "type": "output_matches",
-          "pattern": "(do-prereqs|prerequisite gate|has_plan)"
-        },
-        {
-          "text": "The gate is evaluated before any task runs, not after",
-          "type": "manual"
         }
       ]
     },

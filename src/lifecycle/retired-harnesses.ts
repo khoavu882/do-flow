@@ -128,6 +128,20 @@ function markerState(text: string): 'none' | 'ok' | 'malformed' { return markedS
 /** Rule 3a's verdict for one retired row (IC-003, IC-007, design D7). */
 interface HandoverDecision { action: 'handover' | 'defer'; to: string; target: string; fromKey: string; edited: boolean }
 
+/** The one rule for "the replacement manages this file": at project scope the replacement writes its
+ * declared instruction file whatever else shares it; at global scope it stays out while another live
+ * harness in `registry` declares the same file (that harness's adapter keeps it). The handover plan
+ * here and antigravity's `instructionTarget` both ask it, so a row is never released to a harness that
+ * then plans nothing. */
+function replacementManagesFile({ registry, harnessId, surface, target, scope, scopeRoot }: any): boolean {
+  if (scope !== 'global') return true;
+  const declaredBy = (harness: any) => {
+    if (harness?.id === harnessId || !harness?.paths?.[surface]) return false;
+    try { return resolveHarnessPaths({ [surface]: harness.paths[surface] }, { scope: 'global', scopeRoot, homeDir: scopeRoot })[surface] === target; } catch { return false; }
+  };
+  return !(registry?.harnesses ?? []).some(declaredBy);
+}
+
 /**
  * Rule 3a, decided before the live harnesses plan, because the replacement needs the verdict to plan
  * its own change: `context.handovers` for each `to`. A retired row qualifies when a `removal.handover`
@@ -155,6 +169,7 @@ function planHandovers({ registry, ledger, scope, scopeRoot, planned = [], fsImp
       let declared: string | null = null;
       try { declared = resolveHarnessPaths({ [entry.surface]: to.paths[entry.surface] }, { scope, scopeRoot, homeDir: scopeRoot })[entry.surface]; } catch { continue; }
       if (declared !== row.target || !fsImpl.existsSync(row.target) || !resolvesInPlace(row.target, scopeRoot, fsImpl)) continue;
+      if (!replacementManagesFile({ registry, harnessId: to.id, surface: entry.surface, target: declared, scope, scopeRoot })) continue;
       const base = { to: to.id, target: row.target, fromKey: ownershipKey(row) };
       if (plannedIds.has(to.id)) {
         decisions.set(base.fromKey, { action: 'handover', ...base, edited: sha256(fsImpl.readFileSync(row.target)) !== row.fingerprint });
@@ -315,4 +330,4 @@ function formatRetiredPlans(plans: RetiredHarnessPlan[]): string[] {
   ]);
 }
 
-module.exports = { planRetiredHarnesses, planHandovers, handoversFor, applyRetiredHarnesses, retiredReleaseKeys, formatRetiredPlans, claimKey };
+module.exports = { replacementManagesFile, planRetiredHarnesses, planHandovers, handoversFor, applyRetiredHarnesses, retiredReleaseKeys, formatRetiredPlans, claimKey };

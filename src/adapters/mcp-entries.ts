@@ -281,15 +281,25 @@ function writePath(file: string, fsImpl: any): string {
   try { return fsImpl.realpathSync(file); } catch { return path.resolve(path.dirname(file), fsImpl.readlinkSync(file)); }
 }
 
+/** The indent the file already uses (its first indented line, tabs included), else two spaces. */
+function indentOf(file: string, fsImpl: any): string {
+  try {
+    const found = /^\s*[{[][ \t]*\r?\n([ \t]+)\S/.exec(fsImpl.readFileSync(file, 'utf8'));
+    if (found) return found[1].slice(0, 10);
+  } catch { /* absent or unreadable: the default */ }
+  return '  ';
+}
+
 /** Write a JSON document atomically, keeping the existing file's permission bits: an MCP file kept
  * private for its tokens stays so. Creates missing directories; never deletes a file. */
 function writeMcpJson(file: string, doc: any, { fsImpl = fs }: { fsImpl?: any } = {}): string {
   const dest = writePath(file, fsImpl);
   fsImpl.mkdirSync(path.dirname(dest), { recursive: true });
   const mode = fsImpl.existsSync(dest) ? fsImpl.statSync(dest).mode & 0o7777 : null;
+  const indent = indentOf(dest, fsImpl);
   const temp = path.join(path.dirname(dest), `.${path.basename(dest)}.${process.pid}.${Date.now()}.tmp`);
   try {
-    fsImpl.writeFileSync(temp, `${JSON.stringify(doc, null, 2)}\n`, { encoding: 'utf8', flag: 'wx', ...(mode === null ? {} : { mode }) });
+    fsImpl.writeFileSync(temp, `${JSON.stringify(doc, null, indent)}\n`, { encoding: 'utf8', flag: 'wx', ...(mode === null ? {} : { mode }) });
     if (mode !== null) fsImpl.chmodSync(temp, mode);
     fsImpl.renameSync(temp, dest);
   } finally {

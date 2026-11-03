@@ -5,11 +5,12 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
 const { runInflight, sweepInflight } = require('../../src/runtime/verification/inflight.ts');
 const { checkKey, treeDigest, envDigest } = require('../../src/runtime/verification/check-key.ts');
 const { loadVerificationRegistry } = require('../../src/runtime/verification/registry.ts');
+const { VerificationContractRunner } = require('../../src/runtime/verification/contract-runner.ts');
 const REPO = path.resolve(__dirname, '../..');
 const KEY = '0123456789abcdef';
 const TOKEN = 'a'.repeat(32);
@@ -582,4 +583,47 @@ test('dirty symlinks and submodule/directory entries are unkeyable, never shared
   for (const name of ['link.js', 'submodule']) {
     assert.equal(treeDigest(root, { spawnSyncImpl: statusStub(root, ` M ${name}\0`) }), null);
   }
+});
+
+// 089 C-2: an executed non-PASS evicts the key's stored PASS. A follower takes the leader's FAIL through the
+// same non-PASS path, so it evicts too: the lock and the leader's FAIL are planted for the key the PASS was stored under.
+test('an in-flight follower that takes a leader FAIL evicts the stored PASS for the key', (t) => {
+  const root = tempDir(t, 'doflow-inflight-evict-');
+  const git = (...args: string[]) => { const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', ...args], { cwd: root, encoding: 'utf8' }); assert.equal(r.status, 0, r.stderr); };
+  fs.writeFileSync(path.join(root, 'README.md'), 'fixture\n');
+  git('init', '-q'); git('add', '-A'); git('commit', '-q', '-m', 'init');
+  const home = tempDir(t, 'doflow-inflight-evict-home-');
+  const configDir = path.join(tempDir(t, 'doflow-inflight-evict-cfg-'), '.doflow');
+  // Lookup is off (no level reuses) so the follower reaches the in-flight path; the store still stores and evicts.
+  const registry = structuredClone(loadVerificationRegistry());
+  registry.policy.reuse.levels = [];
+  const runner = () => new VerificationContractRunner({ cwd: root, env: { ...process.env, HOME: home, DOFLOW_TELEMETRY: 'off' }, logDir: path.join(configDir, 'logs'),
+    context: { v0: true, reuse: true, registry, riskLevel: 'MEDIUM', configDir } });
+  const stored = () => {
+    const found: string[] = [];
+    (function walk(dir: string) {
+      let entries: any[] = [];
+      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+      for (const entry of entries) {
+        if (entry.isDirectory()) walk(path.join(dir, entry.name));
+        else if (/^reuse-[0-9a-f]{16}\.json$/.test(entry.name)) found.push(entry.name);
+      }
+    })(configDir);
+    return found;
+  };
+  const command = 'true';
+  assert.equal(runner().runCheck('unit', command, 60000).status, 'PASS');
+  const [record] = stored();
+  assert.ok(record, 'the PASS was stored');
+  const key = /^reuse-([0-9a-f]{16})\.json$/.exec(record)![1];
+  const dir = path.join(configDir, 'state', 'verification', 'v0');
+  fs.mkdirSync(dir, { recursive: true });
+  const at = Date.now();
+  fs.writeFileSync(path.join(dir, `inflight-${key}.lock`), JSON.stringify({ v: 1, token: TOKEN, pid: process.pid, startedAt: at - 1000, deadlineAt: at + 600000 }), { mode: 0o600 });
+  fs.writeFileSync(path.join(dir, `inflight-${key}.${TOKEN}.result.json`), JSON.stringify({ v: 1, token: TOKEN, finishedAt: at + 60000, result: bad() }));
+  const follower = runner();
+  const result = follower.runCheck('unit', command, 60000);
+  assert.deepEqual([result.status, result.exitCode], ['FAIL', 7], 'the follower took the leader\'s FAIL');
+  assert.equal(follower.metrics.get(result)?.shared, 'follower');
+  assert.deepEqual(stored(), [], 'the FAIL evicted the stored PASS');
 });

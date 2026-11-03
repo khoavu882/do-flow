@@ -115,8 +115,10 @@ function latencyHotspots(scopes: any[], th: any, latency: any[]): any {
     const groups = new Map<string, any>();
     for (const s of sc.spans) {
       if (!Number.isInteger(s.durationMs) || !ranItself(s)) continue;
-      const key = `${s.kind}\n${s.name ?? ''}`;
-      if (!groups.has(key)) groups.set(key, { kind: s.kind, name: s.name ?? null, spans: [] });
+      // Every derived `test` span is named 'test'; the command's class tells unrelated shell commands apart.
+      const name = s.kind === 'test' && typeof s.attrs?.test_class === 'string' ? s.attrs.test_class : (s.name ?? null);
+      const key = `${s.kind}\n${name ?? ''}`;
+      if (!groups.has(key)) groups.set(key, { kind: s.kind, name, spans: [] });
       groups.get(key).spans.push(s);
     }
     for (const g of [...groups.values()].sort((a, b) => cmp(a.kind, b.kind) || cmp(a.name ?? '', b.name ?? ''))) {

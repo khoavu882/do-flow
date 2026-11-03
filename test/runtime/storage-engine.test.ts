@@ -98,7 +98,7 @@ test('selection shares run and plan reads across record stores; each removal rec
   const runFile=put(store(f,'orchestration'),`${runId}.json`,JSON.stringify({state:'COMPLETED',featureSlug:'feature-a',updatedAt:new Date(now).toISOString()}),31);
   const plan=path.join(f.project,'agent-docs/doflow/feature-a/plan.md');fs.mkdirSync(path.dirname(plan),{recursive:true});fs.writeFileSync(plan,'- [x] complete\n');
   put(store(f,'evidence'),`${runId}-evidence.json`,'{}',31);put(store(f,'readiness'),`${runId}-readiness.json`,'{}',31);
-  const reads: any=new Map(), fsImpl: any=new Proxy(fs,{get(target,key){if(key==='readFileSync')return(file: any,...args: any[])=>{const absolute=path.resolve(String(file));if(absolute===runFile||absolute===plan)reads.set(absolute,(reads.get(absolute)||0)+1);return target.readFileSync(file,...args);};const value=target[key];return typeof value==='function'?value.bind(target):value;}});
+  const reads: any=new Map(), fsImpl: any=new Proxy(fs,{get(target,key){if(key==='readFileSync'||key==='openSync')return(file: any,...args: any[])=>{const absolute=path.resolve(String(file));if(absolute===runFile||absolute===plan)reads.set(absolute,(reads.get(absolute)||0)+1);return (target as any)[key](file,...args);};const value=target[key];return typeof value==='function'?value.bind(target):value;}});
   const result=f.pass(['task-evidence','task-readiness'],'prune',{fsImpl});
   const removed=result.stores.reduce((sum: any,row: any)=>sum+row.removed,0);
   assert.equal(removed,2);

@@ -87,7 +87,8 @@ function projectValue(value: any, node: KeepNode): any {
     let part;
     if (child.array) {
       part = Array.isArray(value[key])
-        ? value[key].map((element: any) => (child.node.all ? element : (projectValue(element, child.node) ?? {})))
+        ? value[key].map((element: any) => (child.node.all || element === null || typeof element !== 'object' || Array.isArray(element)
+          ? element : (projectValue(element, child.node) ?? {})))
         : undefined;
     } else {
       part = projectValue(value[key], child.node);
@@ -115,7 +116,7 @@ const DIGITS = /^[0-9]+$/;
 
 function encodeCursor(key: CursorKey): string {
   if (!Number.isSafeInteger(key.atMs) || key.atMs < 0 || String(key.atMs).length > 15) {
-    throw new TypeError(`cursor time must be 0 to 15 digits of milliseconds (got ${key.atMs})`);
+    throw new ViewUsageError(`cursor time must be 0 to 15 digits of milliseconds (got ${key.atMs})`);
   }
   return `${key.atMs}:${key.event}`;
 }

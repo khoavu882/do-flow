@@ -609,7 +609,7 @@ function classifyIsolation(events: any[], armConfig: any, roots: any = null) {
     if (use === null) continue;
     const texts = use.commands === null ? [use.target] : use.commands.map((c: any) => c.text);
     const leaked = texts.some((text: string) => leak.some((re: any) => re.test(text)))
-      || (use.commands !== null && (TRUTH_SUBSTRINGS.some((s) => use.target.includes(s)) || outsidePath(use.commands, roots) !== null));
+      || (use.commands !== null && (TRUTH_SUBSTRINGS.some((s) => use.target.includes(s) || use.commands.some((c: any) => c.raw.some((w: string) => w.includes(s)))) || outsidePath(use.commands, roots) !== null));
     if (leaked) evidence.push(use.target.slice(0, EVIDENCE_MAX));
     retrieveCalls += texts.filter((text: string) => count.some((re: any) => re.test(text))).length;
   }

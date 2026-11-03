@@ -167,6 +167,16 @@ test('033: an unparseable record is counted and named, never silently skipped', 
   assert.equal(view.unreadable.length, 2, 'the view carries them through so the report can name them');
 });
 
+test('FU-d88kp0: a record that is a link is named unreadable, never followed', () => {
+  const { root, dir } = tmpDirWith({
+    'good.json': record({ taskId: 'ok', startedAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:01:00.000Z', history: [] }),
+  });
+  fs.symlinkSync(path.join(dir, 'good.json'), path.join(dir, 'linked.json'));
+  const read = readRecords(orchestrationDir(root));
+  assert.deepEqual(read.records.map((r: any) => r.taskId), ['ok']);
+  assert.deepEqual(read.unreadable, [{ file: 'linked.json', reason: 'not a regular file' }]);
+});
+
 test('033: an absent directory is a state, not an error', (t) => {
   const root = tempDir(t, 'doflow-indicators-none-');
   const read = readRecords(orchestrationDir(root));

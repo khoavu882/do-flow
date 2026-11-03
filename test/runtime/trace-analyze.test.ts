@@ -123,6 +123,23 @@ test('views.ts exports the nearest-rank percentile, unchanged', () => {
 
 // ── latency hotspots (IC-003) ───────────────────────────────────────────────────────────────────
 
+test('hotspots: derived test spans group by test_class, not under one name', (t) => {
+  const lines: any[] = [];
+  let tc = 0;
+  // Five unit runs of 500 ms and five lint runs of 20 s: one group would read as a hotspot, two steady ones do not.
+  for (const [cls, secs] of [['test.unit', 1], ['test.lint', 20]] as any[]) {
+    for (let i = 0; i < 5; i += 1) {
+      tc += 1;
+      const base = tc * 100;
+      const hook = (event: any, when: any) => ({ timestamp: sec(when), kind: 'hook', harness: 'claude', event, policy: 'post-shell-observe', verdict: 'observe', duration_ms: null, session: 's1', tool: 'Bash', tool_call_id: `tc${tc}`, test_class: cls });
+      lines.push(hook('PreToolUse', base), hook('PostToolUse', base + secs));
+    }
+  }
+  const a = analyzeDir(seed(t, lines));
+  assert.deepEqual(a.latency.map((r: any) => [r.kind, r.name, r.count]), [['test', 'test.lint', 5], ['test', 'test.unit', 5]]);
+  assert.equal(detector(a, 'latency-hotspots').status, 'CLEAR');
+});
+
 test('hotspots: p95 = 4x p50 with a 1500 ms tail is one FINDING; its spans are those above p50', (t) => {
   const a = analyzeDir(seed(t, durations([500, 500, 500, 500, 2000])));
   const d = detector(a, 'latency-hotspots');

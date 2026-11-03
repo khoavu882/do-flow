@@ -10,10 +10,8 @@
 // to the lock; a swept start offset (`skewed`, as in R.1) spreads the interleavings, and the counts
 // of each order are reported as diagnostics, never asserted.
 //
-// The barrier serves the four attempt operations only, so the resume racer goes through a shim
-// module written into the test's temp dir: it re-exports the ledger module and routes a `cancel`
-// whose args carry `raceAs: 'resume'` to `resume`, with a git runner that answers nothing (the
-// fixture's `.git` is an empty directory). Every other operation is the ledger's own function.
+// The resume racer runs the ledger's own `resume` through the barrier with `noGit` (a git runner that answers
+// nothing, since the fixture's `.git` is an empty directory). Every operation is the ledger's own function.
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -36,18 +34,6 @@ const PLAN = [
   '- [ ] A.2 second raced task; owner: core-implementer; files: b.js',
   '- [ ] A.3 the task that spends the first attempt; owner: core-implementer; files: c.js', '',
 ].join('\n');
-const SHIM = (modulePath: any) => [
-  "'use strict';",
-  `const ledger = require(${JSON.stringify(modulePath)});`,
-  'module.exports = {',
-  '  ...ledger,',
-  '  cancel(args) {',
-  '    const { raceAs, ...rest } = args;',
-  '    return raceAs === "resume" ? ledger.resume({ ...rest, gitRunner: () => null }) : ledger.cancel(rest);',
-  '  },',
-  '};', '',
-].join('\n');
-
 function identityEnv(dir: any) {
   return {
     DOFLOW_RUN_ID: 'r1', DOFLOW_LINEAGE_ID: 'main', DOFLOW_SESSION_ROLE: 'main', DOFLOW_ROLE: 'main',
@@ -66,8 +52,6 @@ function racingProject(t: any) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const barrierDir = path.join(dir, 'barriers');
   fs.mkdirSync(barrierDir);
-  const shim = path.join(dir, 'race-shim.js');
-  fs.writeFileSync(shim, SHIM(MODULE));
   const env = identityEnv(dir);
   const key = runKeyFor(env, dir);
   const common: any = { file, roots: [dir], slug: SLUG, env, cwd: dir, now: NOW.toISOString() };
@@ -98,11 +82,11 @@ function racingProject(t: any) {
     assert.equal(report.disposition, 'ack-required', JSON.stringify(report));
     return report.digest;
   };
-  const workers = startWorkers({ count: 2, modulePath: shim, envFor: () => env, barrierDir });
+  const workers = startWorkers({ count: 2, modulePath: MODULE, envFor: () => env, barrierDir });
   t.after(() => workers.stop());
 
   const claimOp = (task: any, extra: any = {}) => ({ op: 'claim', args: { ...common, task, owner: 'core-implementer', mode: 'subagent', epoch: 1, ...extra } });
-  const resumeOp = (ack: any) => ({ op: 'cancel', args: { ...common, raceAs: 'resume', ack, by: 'orchestrator', reason: 'race' } });
+  const resumeOp = (ack: any) => ({ op: 'resume', args: { ...common, noGit: true, ack, by: 'orchestrator', reason: 'race' } });
 
   return { key, seed, seedOneSpent, read, attempts, allAttempts, assertTotals, resumeDigest, race: workers.race, claimOp, resumeOp };
 }

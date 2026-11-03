@@ -591,11 +591,12 @@ function planRestore({ bid, backupRoot, scope, scopeRoot, targets, explicitTarge
  * staler than the current one; a current row of it the backup lacks stays. A restored row whose file
  * a live harness now claims is released by the next sweep (claim rule 2), file untouched.
  */
-function mergeRestoredLedger(backup: any, current: any, restored: Set<string>, retired: Set<string> = new Set()): any {
+function mergeRestoredLedger(backup: any, current: any, restored: Set<string>, retired: Set<string> = new Set(), lost: Set<string> = new Set()): any {
   if (!current) return backup;
   const at = (target: any) => typeof target === 'string' && restored.has(path.resolve(target));
   const whole = (row: any) => retired.has(row?.harness);
-  const back = backup.resources.filter((r: any) => at(r.target) || whole(r));
+  // A retired row whose file this restore tried and could not write back stays out: it would name a file the next sweep drops as absent.
+  const back = backup.resources.filter((r: any) => at(r.target) || (whole(r) && !(typeof r.target === 'string' && lost.has(path.resolve(r.target)))));
   const backKeys = new Set(back.filter(whole).map(ownershipKey));
   const targets = Object.entries(backup.targets ?? {}).filter(([id]) => retired.has(id));
   return {
@@ -610,20 +611,23 @@ function mergeRestoredLedger(backup: any, current: any, restored: Set<string>, r
 }
 
 /** Ids the registry retires (row 127 IC-001): `registry` when a caller passes one, else the shipped
- * registry. One that cannot be read retires nothing, which leaves the merge per restored file. */
+ * registry. One that cannot be read throws, so a restore stops before it writes anything rather than
+ * silently skipping the retired rows and targets. */
 function retiredIds(registry: any): Set<string> {
   if (registry === undefined) {
     const { REPO_ROOT } = require('../helper/repo-root.ts');
-    try { registry = require('../registry/index.ts').loadRegistry({ repoRoot: REPO_ROOT }); } catch { registry = null; }
+    try { registry = require('../registry/index.ts').loadRegistry({ repoRoot: REPO_ROOT }); } catch (err: any) {
+      throw new BackupError(`cannot read the registry to find retired harnesses: ${err?.message ?? err}`);
+    }
   }
   return new Set((Array.isArray(registry?.retired) ? registry.retired : []).map((entry: any) => entry?.id).filter((id: any) => typeof id === 'string'));
 }
 
 /** The bytes a ledger restore item writes: the backup's ledger merged onto the current one. */
-function restoredLedgerBytes(item: any, restored: Set<string>, retired: Set<string>, fsImpl: any): Buffer {
+function restoredLedgerBytes(item: any, restored: Set<string>, retired: Set<string>, lost: Set<string>, fsImpl: any): Buffer {
   const backup = validateLedger(JSON.parse(fsImpl.readFileSync(item.stored, 'utf8')));
   const current = fsImpl.existsSync(item.path) ? validateLedger(JSON.parse(fsImpl.readFileSync(item.path, 'utf8'))) : null;
-  return Buffer.from(`${JSON.stringify(validateLedger(mergeRestoredLedger(backup, current, restored, retired)), null, 2)}\n`);
+  return Buffer.from(`${JSON.stringify(validateLedger(mergeRestoredLedger(backup, current, restored, retired, lost)), null, 2)}\n`);
 }
 
 /**
@@ -641,6 +645,8 @@ function executeRestore(plan: any, { backupRoot, dryRun = false, registry, fsImp
     return { restored: plan.v1.tools.map((t: any) => t.tool), failed: [], absent: [], refused: [], untargeted: 0, legacy: true };
   }
 
+  // Read before the first write: an unreadable registry stops the restore with nothing changed.
+  const retired = dryRun || plan.narrowed || !plan.restore.some((item: any) => item.ledger) ? new Set<string>() : retiredIds(registry);
   const restored = [];
   const failed = [];
   const files = new Set<string>();
@@ -654,7 +660,7 @@ function executeRestore(plan: any, { backupRoot, dryRun = false, registry, fsImp
     try {
       const dir = path.dirname(item.path);
       fsImpl.mkdirSync(dir, { recursive: true });
-      const bytes = item.ledger ? restoredLedgerBytes(item, files, plan.narrowed ? new Set() : retiredIds(registry), fsImpl) : fsImpl.readFileSync(item.stored);
+      const bytes = item.ledger ? restoredLedgerBytes(item, files, retired, new Set([...failed.map((f: any) => f.path), ...plan.refused.map((f: any) => f.path)].filter((p: any) => typeof p === 'string').map((p: string) => path.resolve(p))), fsImpl) : fsImpl.readFileSync(item.stored);
       let isLink = false;
       try {
         isLink = fsImpl.lstatSync(item.path).isSymbolicLink();

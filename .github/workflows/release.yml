@@ -143,13 +143,13 @@ jobs:
         run: |
           VER="${GITHUB_REF_NAME#v}"
           attempt=1
-          while [ "$attempt" -le 10 ]; do
+          while [ "$attempt" -le 40 ]; do
             if published="$(npm view "@khoavu882/doflow@$VER" version 2>/dev/null)" \
               && [ "$published" = "$VER" ]; then
               break
             fi
-            if [ "$attempt" -eq 10 ]; then
-              echo "::error::@khoavu882/doflow@$VER did not appear on npm after 10 tries"
+            if [ "$attempt" -eq 40 ]; then
+              echo "::error::@khoavu882/doflow@$VER did not appear on npm after 40 tries (10 minutes)"
               exit 1
             fi
             sleep 15
@@ -192,7 +192,10 @@ jobs:
             *) channel=latest ;;
           esac
           npm dist-tag add "@khoavu882/doflow@$VER" "$channel"
+          # Cleanup only: a publish token without dist-tag rm rights (403) must not block publish-release.
+          set +e
           npm dist-tag rm @khoavu882/doflow "${channel}-candidate"
+          [ $? -eq 0 ] || echo "::warning::could not remove the ${channel}-candidate dist-tag; remove it by hand"
 
   publish-release:
     needs: [promote]

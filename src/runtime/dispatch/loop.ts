@@ -951,6 +951,13 @@ async function launchChildren(p: any) {
     const started = Date.now();
     const granter = current.dispatches[req.granterDispatchId];
     const who = { dispatchId: req.granterDispatchId, task: granter ? granter.task : null, token: granter ? granter.token : null };
+    // RR-7: a launch whose record write was refused keeps its worktree and child run on the request
+    // (RR-5); launching it again would reuse the tree and overwrite that child run id.
+    if (req.childRunId != null) {
+      refuse(req.requestId, 'child-run-recorded');
+      p.act('launch-child', who, 'refused', `${req.requestId} child-run-recorded`, Date.now() - started);
+      continue;
+    }
     if (!granter || granter.phase !== 'launched' || !granter.workerRunId) {
       refuse(req.requestId, 'granter-not-running');
       p.act('launch-child', who, 'refused', `${req.requestId} granter-not-running`, Date.now() - started);

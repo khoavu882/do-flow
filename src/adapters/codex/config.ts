@@ -202,8 +202,11 @@ function planCodexConfig({ file, scope, managedResources = [], desiredResources 
     if (nextLines.length && nextLines.at(-1) !== '') nextLines.push('');
     nextLines.push(`[${table}]`, ...lines);
   }
-  let content = nextLines.join('\n');
-  if (content && !content.endsWith('\n')) content += '\n';
+  // The file keeps its own line ending (the first one it uses) and its own final-newline state; only a file
+  // that was empty or ended in a newline gets one, so a remove can hand back the user's exact bytes.
+  const eol = /\r?\n/.exec(original)?.[0] ?? '\n';
+  let content = nextLines.join(eol);
+  if (content && !content.endsWith('\n') && (original === '' || original.endsWith('\n'))) content += eol;
   const invalid = newViolation({ file, original, content, identities: changes.map((change: any) => change.identity) });
   if (invalid) return { ok: false, status: 'conflict', file, original, changes: [], conflicts: [invalid], managedResources };
   const nextManagedResources = managedResources.filter((resource: any) => !isOwnedRecord(resource, scope) || desired.has(resource.identity));

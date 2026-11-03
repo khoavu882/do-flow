@@ -48,6 +48,15 @@ function section(text: any, header: any) {
   return lines.slice(start, end < 0 ? undefined : end).join('\n');
 }
 
+test('an invalid advice registry is named as the registry, not as an unreadable setting', async (t) => {
+  const { loadStorageRegistry } = require('../../src/runtime/storage/registry.ts');
+  const f = fixture(t);
+  const report = await buildAdviceDoctor({ repoRoot: f.project, projectRoot: f.project, env: f.scratch.env(),
+    storageRegistry: loadStorageRegistry({ repoRoot: REPO_ROOT }) });
+  assert.match(report._offReason, /^unreadable advice registry: .*advice\.json/);
+  assert.doesNotMatch(report._offReason, /decision-model/);
+});
+
  test('feature-off reasons are advisory and never probe even a configured closed endpoint', async (t) => {
   const cases: any = [
     [undefined, /off \(not configured\)/],
