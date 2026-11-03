@@ -435,8 +435,9 @@ const RUNTIME_STRING_FLAGS = new Map([
   ['--dir', 'dir'],                   // package --action new: authored package target directory
   ['--name', 'name'],                  // slot: the slot's name, 1 to 64 characters of a-z, 0-9 and - (115 IC-008)
   ['--label', 'label'],                // slot --action run: the holder's label, at most 80 characters (115 IC-008)
-  ['--cursor', 'cursor'],              // transcript --action read: the cursor an earlier read returned (093 IC-022)
-  ['--limit', 'limit'],                // transcript --action read: at most this many events, validated in the verb (093 IC-022)
+  ['--cursor', 'cursor'],              // transcript --action read: the cursor an earlier read returned (093 IC-022) · followup --action list: the nextCursor of an earlier page (137 IC-004)
+  ['--limit', 'limit'],                // transcript --action read: at most this many events, validated in the verb (093 IC-022) · followup --action list: the page size (137 IC-004)
+  ['--view', 'view'],                  // followup --action list, lifecycle --action overview, classify: brief or full, validated in the verb (137 IC-001)
   ['--window', 'window'],              // transcript --action stats: minutes, 1 to 60, validated in the verb (093 IC-023)
   ['--port', 'port'],                  // ui: the Console's port, 0 to 65535, checked in commands/ui.ts (092 IC-008)
 ]);
@@ -547,7 +548,7 @@ Commands:
   context-grant        Grant one compacted summary to a launched run and lineage (--summary, --to-run, --to-lineage)
   retrieval-plan       Declare a stage's information needs, attempt retrieval, then report every declared item
   outcome              Record a task's terminal state with its basis, or show it (--task-id)
-  classify             Validate a proposed task class and return its workflow (--task-class)
+  classify             Validate a proposed task class and return its workflow (--task-class [--view brief|full])
   workflow             Resolve a task class to its stages, gates and readiness templates
   orchestrate          Start or resume a run: complete stages, decide gates (--action)
   research-request     Open, list or resolve a feature-stage research question (--task-id)
@@ -579,8 +580,8 @@ Commands:
   scaffold             Emit the reviewable code scaffold the active feature's artifacts imply
   decision             Register, list or compact the active feature's decisions (--action init|add|list|compact)
   intake               Sort, preview, undo, list or file prompt text for the active feature's additional-context folder (--action sort|preview|undo|list|file-prompt)
-  followup             Record, list, take, settle, promote or report what a feature left unfinished (--action add|list|take|settle|promote|report)
-  lifecycle            Open follow-ups, feature tracking, releases and status for the project (--action overview|init|release|status|merged)
+  followup             Record, list, take, settle, promote or report what a feature left unfinished (--action add|list|take|settle|promote|report; list: [--view brief|full] [--cursor <c>] [--limit <n>] [--ids <FU-id,...>])
+  lifecycle            Open follow-ups, feature tracking, releases and status for the project (--action overview|init|release|status|merged; overview: [--view brief|full])
   goal                 Add, check, link, list or close a goal and its checklist (--action add|item|check|link|list|done)
   failure              List, settle or switch off the failures DoFlow captured on this machine (--action list|settle|capture)
                        (a value beginning with '-' must be written --flag=value)
@@ -707,6 +708,8 @@ Runtime verb arguments (accept --flag value or --flag=value):
                                             disposition in the JSON; 2 usage or an unreadable store or plan)
       --rationale, --proposed-by, --calling-skill    classify
       --request <text>, --request-file <file>  classify (mutually exclusive; optional second opinion)
+      --view brief|full                     followup --action list (default brief), lifecycle --action overview, classify (default full); brief drops detail, full is the whole answer
+      --cursor <c>, --limit <n>             followup --action list (the cursor is opaque: pass back a page's nextCursor); also transcript --action read
       --intent, --query, --check            route
       --statement, --claim-id,
       --evidence-id, --relation             claim
