@@ -47,6 +47,10 @@ test('projectBrief: a whole-value path wins, a null parent is skipped, an array 
   assert.deepEqual(projectBrief({ items: [{ id: 1, h: 2 }, { id: 3, h: 4 }] }, ['$.items[].id']), { items: [{ id: 1 }, { id: 3 }] });
 });
 
+test('projectBrief: null and primitive array elements pass through unchanged', () => {
+  assert.deepEqual(projectBrief({ items: [null, 5, 'x', { id: 1, h: 2 }] }, ['$.items[].id']), { items: [null, 5, 'x', { id: 1 }] });
+});
+
 test('projectBrief throws on a malformed path and on a name used as array and single value', () => {
   for (const bad of ['', '$', 'a.b', '$.a..b', '$.a[0]', '$.a.[]', '$.1a']) {
     assert.throws(() => projectBrief({}, [bad]), /malformed keep path/, bad);

@@ -87,7 +87,8 @@ function projectValue(value: any, node: KeepNode): any {
     let part;
     if (child.array) {
       part = Array.isArray(value[key])
-        ? value[key].map((element: any) => (child.node.all ? element : (projectValue(element, child.node) ?? {})))
+        ? value[key].map((element: any) => (child.node.all || element === null || typeof element !== 'object' || Array.isArray(element)
+          ? element : (projectValue(element, child.node) ?? {})))
         : undefined;
     } else {
       part = projectValue(value[key], child.node);
