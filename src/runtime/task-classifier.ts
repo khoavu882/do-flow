@@ -472,7 +472,7 @@ function handleClassifyCommand({ taskClass, rationale, proposedBy, callingSkill,
     const answer = { ...decision, secondOpinion: opinion };
     if (resolvedView === 'full') return emitJson(answer);
     return emitJson(withEnvelope(projectBrief(answer, CLASSIFY_BRIEF.keep), {
-      view: 'brief', next: viewLines('full', { spec: CLASSIFY_BRIEF, carried: { taskClass, callingSkill } }),
+      view: 'brief', next: viewLines('full', { spec: CLASSIFY_BRIEF, carried: { taskClass, callingSkill }, json: true }),
     }));
   };
   const classifier = new TaskClassifier({ repoRoot: REPO_ROOT });

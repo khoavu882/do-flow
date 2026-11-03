@@ -71,7 +71,7 @@ test('brief: view first, a projection of the full answer, the dropped fields gon
   assert.equal(Object.keys(brief)[0], 'view');
   assert.equal(brief.view, 'brief');
   assertSubset(brief, full);
-  assert.deepEqual(brief.next, ['Full view: doflow-run classify --task-class feature --calling-skill do-design --view full']);
+  assert.deepEqual(brief.next, ['Full view: doflow-run classify --task-class feature --calling-skill do-design --view full --json']);
   for (const dropped of ['proposedBy', 'rationale', 'signals', 'context', 'decidedAt']) assert.equal(dropped in brief, false, dropped);
   for (const dropped of ['version', 'name', 'description', 'gateIds', 'stageSkills', 'terminalStage', 'readinessTemplates']) {
     assert.equal(dropped in brief.workflow, false, dropped);
@@ -97,7 +97,7 @@ test('brief of a rejected class carries no workflow, keeps the valid set, and ke
   assert.equal('workflow' in body, false);
   assert.ok(Array.isArray(body.validClasses) && body.validClasses.length > 0);
   assertSubset(body, JSON.parse(full.stdout));
-  assert.match(body.next[0], /--task-class nope .*--view full$/);
+  assert.match(body.next[0], /--task-class nope .*--view full --json$/);
 });
 
 test('a missing class keeps exit 2 under brief and carries no task-class flag in the next line', (t) => {
@@ -105,7 +105,7 @@ test('a missing class keeps exit 2 under brief and carries no task-class flag in
   assert.equal(result.status, 2);
   const body = JSON.parse(result.stdout);
   assert.equal(body.reason, 'missing-class');
-  assert.deepEqual(body.next, ['Full view: doflow-run classify --calling-skill do-design --view full']);
+  assert.deepEqual(body.next, ['Full view: doflow-run classify --calling-skill do-design --view full --json']);
 });
 
 test('a view other than brief or full is a usage error, exit 2, in the caller mode', (t) => {

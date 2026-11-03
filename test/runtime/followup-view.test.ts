@@ -61,10 +61,27 @@ test('the default list is brief: count 200, shown 10, no history, body or excerp
   }
   assert.match(r.json.nextCursor, /^[0-9]{1,15}:[0-9]{8}T[0-9]{9}Z-[0-9a-hjkmnp-tv-z]{6}$/);
   assert.equal(line(r.json, 'Next page'), `Next page: doflow-run followup --action list --cursor ${r.json.nextCursor}`);
-  assert.equal(line(r.json, 'Full view of this page'), 'Full view of this page: doflow-run followup --action list --limit 10 --view full');
+  assert.equal(line(r.json, 'Full view of this page'), 'Full view of this page: doflow-run followup --action list --limit 10 --view full --json');
   assert.equal(r.json.next.length, 2);
   assert.deepEqual(Object.keys(r.json).slice(0, 6), ['view', 'ok', 'action', 'state', 'count', 'shown']);
   assert.equal(JSON.stringify(r.json).includes('history'), false);
+});
+
+test('the Full view of this page line, run as written, prints the full payload of the same page', () => {
+  const brief = list();
+  const command = line(brief.json, 'Full view of this page').split(': ')[1].split(' ');
+  assert.deepEqual(command.slice(0, 2), ['doflow-run', 'followup']);
+  const full = run(command.slice(2));
+  assert.equal(full.status, 0, full.stderr);
+  assert.equal(full.json.view, 'full');
+  assert.deepEqual(full.json.items.map((i: any) => i.id), brief.json.items.map((i: any) => i.id));
+  assert.equal('history' in full.json.items[0], true, 'the full items carry their history');
+});
+
+test('in text mode the page lines carry no --json', () => {
+  const r = run(['--action', 'list']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /next: Full view of this page: doflow-run followup --action list --limit 10 --view full\n/);
 });
 
 test('--view brief is the default answer, and the JSON printed off a terminal is one compact line', () => {
@@ -110,7 +127,7 @@ test('the full-view line carries the input cursor and --limit <shown>, and names
   const first = list('--limit', '3');
   const cursor = first.json.nextCursor;
   const second = list('--cursor', cursor, '--limit', '3');
-  assert.equal(line(second.json, 'Full view of this page'), `Full view of this page: doflow-run followup --action list --cursor ${cursor} --limit 3 --view full`);
+  assert.equal(line(second.json, 'Full view of this page'), `Full view of this page: doflow-run followup --action list --cursor ${cursor} --limit 3 --view full --json`);
   const page = list('--cursor', cursor, '--limit', '3', '--view', 'full');
   assert.equal(page.status, 0, page.stderr);
   assert.deepEqual(page.json.items.map((i: any) => i.id), second.json.items.map((i: any) => i.id));
@@ -170,7 +187,7 @@ test('--ids lists the named items in every state and pages them; an unknown id i
   assert.equal(r.json.state, 'all');
   assert.equal(r.json.count, 2);
   assert.deepEqual(r.json.items.map((i: any) => i.id).sort(), [...some].sort());
-  assert.equal(line(r.json, 'Full view of this page'), `Full view of this page: doflow-run followup --action list --ids ${some.join(',')} --limit 2 --view full`);
+  assert.equal(line(r.json, 'Full view of this page'), `Full view of this page: doflow-run followup --action list --ids ${some.join(',')} --limit 2 --view full --json`);
   const full = list('--ids', ids[5], '--view', 'full');
   assert.equal(full.json.items.length, 1);
   assert.equal(full.json.view, undefined);

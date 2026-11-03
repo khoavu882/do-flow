@@ -196,7 +196,7 @@ function emitList(result: any, view: any, flags: any, json: any) {
   const carried = { state: flags.state, ids: flags.ids, limit: flags.limit };
   const lines = !paged ? [] : [
     ...viewLines('page', { spec: FOLLOWUP_LIST_BRIEF, carried, nextCursor: result.nextCursor, view }),
-    ...(view === 'brief' ? viewLines('page-full', { spec: FOLLOWUP_LIST_BRIEF, carried, cursor: flags.cursor, shown: result.shown }) : []),
+    ...(view === 'brief' ? viewLines('page-full', { spec: FOLLOWUP_LIST_BRIEF, carried, cursor: flags.cursor, shown: result.shown, json: Boolean(json) }) : []),
   ];
   if (!json) return emit({ ...result, next: result.shown < result.count ? lines : [] }, false, followupLines);
   if (view === 'brief') {
