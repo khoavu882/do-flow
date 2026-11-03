@@ -1,8 +1,9 @@
 'use strict';
 
 // `lifecycle --action overview` views (feature 137, IC-006, IC-007): the brief view drops the feature lists and
-// every item field but the choosing ones, the full view stays today's object, both name the paged follow-up list
-// call, the item caps do not move, and `--view` is refused on the other lifecycle actions.
+// every item field but the choosing ones and shows one brief page (10) of discovery items, the full view stays
+// today's object, both name the paged follow-up list call and neither carries a full-view line, the maintain cap
+// stays 50, and `--view` is refused on the other lifecycle actions.
 // Runs the verb through the dispatcher in a scratch HOME, as the other verb-view tests do.
 
 const { test, before, after } = require('node:test');
@@ -51,8 +52,8 @@ test('the brief overview drops the feature lists and reduces items to id, statem
   assert.equal(Object.keys(r.json)[0], 'view');
   assert.equal('features' in r.json, false);
   assert.equal('featuresShown' in r.json, false);
-  assert.deepEqual([r.json.followups.open, r.json.followups.shown], [TOTAL, 15]);
-  assert.equal(r.json.followups.items.length, 15);
+  assert.deepEqual([r.json.followups.open, r.json.followups.shown], [TOTAL, 10]);
+  assert.equal(r.json.followups.items.length, 10);
   for (const item of r.json.followups.items) assert.deepEqual(Object.keys(item), ['id', 'statement', 'source']);
   for (const key of ['ok', 'mode', 'releaseMode', 'integrationRef', 'gitError', 'intents', 'goals', 'conflicts', 'unreadable', 'unreadableReasons', 'failures']) {
     assert.equal(key in r.json, true, `${key} is kept`);
@@ -71,18 +72,18 @@ test('the full overview, by default and by --view full, is today\'s object', () 
   assert.deepEqual(Object.keys(byDefault.json.followups.items[0]), ['id', 'statement', 'source', 'state', 'promoted', 'intent', 'added']);
 });
 
-test('both views name the paged list call; only brief adds the full-view line', () => {
+test('both views name the paged list call and neither names a full-view call', () => {
   const brief = overview('--view', 'brief').json;
   const full = overview('--view', 'full').json;
   const page = `Page through all ${TOTAL} open follow-ups: doflow-run followup --action list`;
   assert.equal(brief.next.includes(page), true);
   assert.equal(full.next.includes(page), true);
-  assert.equal(brief.next.includes('Full view: doflow-run lifecycle --action overview --view full'), true);
+  assert.equal(brief.next.some((l: string) => l.startsWith('Full view')), false);
   assert.equal(full.next.some((l: string) => l.startsWith('Full view')), false);
-  assert.deepEqual(brief.next.filter((l: string) => !l.startsWith('Full view')), full.next);
+  assert.deepEqual(brief.next, full.next);
 });
 
-test('maintain keeps pending, caps at 50 in both views, and the full-view line carries --maintain and --since', () => {
+test('maintain keeps pending and caps at 50 in both views', () => {
   const since = '2026-10-05T09:00:00Z';
   const brief = overview('--maintain', '--since', since, '--view', 'brief').json;
   const full = overview('--maintain', '--since', since, '--view', 'full').json;
@@ -92,9 +93,16 @@ test('maintain keeps pending, caps at 50 in both views, and the full-view line c
   assert.equal(brief.followups.items.length, 50);
   assert.equal(brief.pending, TOTAL);
   for (const item of brief.followups.items) assert.deepEqual(Object.keys(item), ['id', 'statement', 'source', 'pending']);
-  assert.equal(brief.next.includes(`Full view: doflow-run lifecycle --action overview --maintain --since ${since} --view full`), true);
+  assert.equal(brief.next.some((l: string) => l.startsWith('Full view')), false);
   assert.equal(brief.next.includes(`Page through all ${TOTAL} open follow-ups: doflow-run followup --action list`), true);
   assert.equal('features' in brief, false);
+});
+
+test('the text answer is the same in both views', () => {
+  const text = (view: string) => spawnSync(bashPath(), [RUN, 'lifecycle', '--action', 'overview', '--view', view], { cwd: seeded().dir, env: scratch.env({ DOFLOW_CLI: BIN }), encoding: 'utf8' });
+  const [brief, full] = [text('brief'), text('full')];
+  assert.equal(brief.status, 0, brief.stderr);
+  assert.equal(brief.stdout, full.stdout);
 });
 
 test('the brief answer is smaller than the full one, and compact off a terminal', () => {

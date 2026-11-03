@@ -208,14 +208,14 @@ const CLASSIFIER = path.join(REPO, 'src', 'runtime', 'task-classifier.ts');
 /**
  * Keep paths that hold a value only when the repository is in a state the fixture does not make: `reason` is set
  * when the lifecycle derivation refuses, `integrationBehind` and `note` when the integration branch is behind
- * (src/runtime/lifecycle/overview.ts:219-220). They are still checked as leaves wherever a brief answer carries them.
+ * (src/runtime/lifecycle/overview.ts:219-220), and a goal's `conflicts` when its events collided. They are still checked as leaves wherever a brief answer carries them.
  */
-const OVERVIEW_CONDITIONAL = ['$.reason', '$.note', '$.integrationBehind'];
+const OVERVIEW_CONDITIONAL = ['$.reason', '$.note', '$.integrationBehind', '$.goals[].conflicts'];
 
 const SPECS: any[] = [
   { name: 'followup list', file: FOLLOWUP_CLI, constant: 'FOLLOWUP_LIST_BRIEF', brief: 'followup --action list --json', full: 'followup --action list --view full --json', offsets: { items: 0 } },
   { name: 'classify', file: CLASSIFIER, constant: 'CLASSIFY_BRIEF', brief: 'classify --task-class feature --calling-skill do-design --view brief --json', full: 'classify --task-class feature --calling-skill do-design --json' },
-  { name: 'lifecycle overview', file: FOLLOWUP_CLI, constant: 'OVERVIEW_BRIEF', brief: 'lifecycle --action overview --view brief --json', full: 'lifecycle --action overview --json', resolveAlso: 'lifecycle --action overview --maintain --json', optional: OVERVIEW_CONDITIONAL },
+  { name: 'lifecycle overview', file: FOLLOWUP_CLI, constant: 'OVERVIEW_BRIEF', brief: 'lifecycle --action overview --view brief --json', full: 'lifecycle --action overview --json', resolveAlso: 'lifecycle --action overview --maintain --json', optional: OVERVIEW_CONDITIONAL, briefPage: true },
   { name: 'lifecycle overview --maintain', file: FOLLOWUP_CLI, constant: 'OVERVIEW_BRIEF', brief: 'lifecycle --action overview --maintain --view brief --json', full: 'lifecycle --action overview --maintain --json', optional: OVERVIEW_CONDITIONAL },
 ];
 
@@ -228,7 +228,12 @@ for (const spec of SPECS) {
     const also = spec.resolveAlso ? JSON.parse(byArgv.get(spec.resolveAlso).stdout) : null;
     const unresolved = keep.filter((p: string) => !resolvesPath(full, p) && !(also && resolvesPath(also, p)) && !(spec.optional || []).includes(p));
     assert.deepEqual(unresolved, [], 'every keep path resolves on the full answer');
-    assert.deepEqual(subsetViolations(brief, full, { exclude: ENVELOPE, arrayOffsets: spec.offsets }), []);
+    // A brief overview lists one page of the items the full answer lists, so its own `shown` is the page length
+    // (checked here against the items it carries) and is compared to nothing in the full answer.
+    const compared = spec.briefPage && brief.followups.shown !== full.followups.shown
+      ? { ...brief, followups: { ...brief.followups, shown: full.followups.shown } } : brief;
+    if (compared !== brief) assert.equal(brief.followups.shown, brief.followups.items.length, 'brief followups.shown is the number of items it lists');
+    assert.deepEqual(subsetViolations(compared, full, { exclude: ENVELOPE, arrayOffsets: spec.offsets }), []);
   });
 }
 
@@ -255,4 +260,17 @@ test('G80 paging: following nextCursor from the first brief page visits all 200 
   assert.equal(page.nextCursor, null, 'the last page has nextCursor null');
   assert.deepEqual(seen, fullItems.map((item: any) => item.id), 'all ids once, in the full view order');
   assert.equal(new Set(seen).size, FOLLOWUP_COUNT);
+});
+
+// ------------------------------------------------------------------------------------------ AC-4
+
+test('AC-4: the brief overview on the G80 fixture is at most 3,500 B, one page of items, and carries the goal fields callers read', () => {
+  const row = byArgv.get('lifecycle --action overview --view brief --json');
+  assert.ok(row.bytes <= 3500, `brief overview is ${row.bytes} B, over 3,500 B`);
+  const brief = JSON.parse(row.stdout);
+  assert.equal(brief.followups.open, FOLLOWUP_COUNT, 'followups.open stays the true count');
+  assert.equal(brief.followups.shown, 10, 'one brief page of items');
+  assert.equal(brief.followups.items.length, brief.followups.shown, 'followups.shown matches what is listed');
+  assert.deepEqual(Object.keys(brief.goals[0]), ['goal', 'outcome', 'items', 'proposeDone', 'nudges'], 'a goal keeps its fields but not its feature lists');
+  assert.equal(brief.next.some((line: string) => line.startsWith('Full view')), false, 'no line sends the caller to the unbounded view');
 });

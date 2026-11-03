@@ -42,7 +42,8 @@ const OVERVIEW_BRIEF = Object.freeze({
   keep: Object.freeze([
     '$.ok', '$.mode', '$.releaseMode', '$.integrationRef', '$.gitError', '$.followups.open', '$.followups.shown',
     '$.followups.items[].id', '$.followups.items[].statement', '$.followups.items[].source', '$.followups.items[].pending',
-    '$.intents', '$.goals', '$.conflicts', '$.unreadable', '$.unreadableReasons', '$.failures', '$.reason', '$.note',
+    '$.intents', '$.goals[].goal', '$.goals[].outcome', '$.goals[].items', '$.goals[].proposeDone', '$.goals[].nudges',
+    '$.goals[].conflicts', '$.conflicts', '$.unreadable', '$.unreadableReasons', '$.failures', '$.reason', '$.note',
     '$.integrationBehind', '$.pending', '$.next',
   ]),
 });
@@ -296,11 +297,12 @@ function handleLifecycleCommand({ action, cwd, global = false, slug = null, json
     let result;
     if (act === 'overview') {
       result = buildOverview({ root, maintain: Boolean(flags.maintain), since: flags.since });
-      if (view === 'brief') {
-        const full = viewLines('full', { spec: OVERVIEW_BRIEF, carried: { maintain: Boolean(flags.maintain), since: flags.since } });
-        const next = [...result.next, ...full];
-        if (!json) return emit({ ...result, next }, false, lifecycleLines);
-        return emit(withEnvelope(projectBrief(result, OVERVIEW_BRIEF.keep), { view, next }), true, lifecycleLines);
+      // The text answer is the same in both views (IC-001); only the JSON brief is cut to one page of items. Maintain
+      // keeps its 50: that loop settles every pending item. The next lines name the paged list and carry no full-view line.
+      if (view === 'brief' && json) {
+        const items = flags.maintain ? result.followups.items : result.followups.items.slice(0, BRIEF_PAGE);
+        const brief = { ...result, followups: { ...result.followups, shown: items.length, items } };
+        return emit(withEnvelope(projectBrief(brief, OVERVIEW_BRIEF.keep), { view }), true, lifecycleLines);
       }
     } else if (act === 'init') {
       result = initFeature({ root, slug, take: flags.take, intent: flags.intent, goal: flags.goal });
