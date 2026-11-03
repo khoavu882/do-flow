@@ -101,6 +101,32 @@ test('rows the replacement now owns get the retired claimant back, and the next 
   assert.equal(retiredReleaseKeys(plans).size, of(ledger, 'oldtool').length, 'every retired row leaves the ledger in that run');
 });
 
+test('FU-jmdgtt: a retired whole file whose restore fails does not bring its row back', () => {
+  const s = swept();
+  const agent = s.built.targets.agent;
+  fs.mkdirSync(agent); // a directory where the file was: the restore of that one file cannot rename onto it
+  const outcome = s.restore();
+  assert.deepEqual(outcome.failed.map((item: any) => item.path), [agent]);
+  const rows = of(readLedger(s.state), 'oldtool');
+  assert.ok(!rows.some((row: any) => row.target === agent), 'no row for the file that stayed unrestored');
+  assert.equal(rows.length, of(s.built.ledger, 'oldtool').length - 1, 'every other retired row still comes back');
+});
+
+test('FU-6p4x2v: a registry that cannot be read stops the restore before it writes anything', () => {
+  const s = swept();
+  const registryModule = require('../../src/registry/index.ts');
+  const original = registryModule.loadRegistry;
+  registryModule.loadRegistry = () => { throw new Error('registry unreadable'); };
+  try {
+    const plan = planRestore({ bid: fs.readdirSync(path.join(s.scopeRoot, '.doflow', 'backups')).filter((n: string) => !n.startsWith('.'))[0],
+      backupRoot: path.join(s.scopeRoot, '.doflow', 'backups'), scope: 'global', scopeRoot: s.scopeRoot, targets: ['claude'], explicitTargets: false, dirs: {}, ledgerFile: s.ledgerFile });
+    assert.throws(() => executeRestore(plan, { backupRoot: path.join(s.scopeRoot, '.doflow', 'backups') }), /cannot read the registry to find retired harnesses: registry unreadable/);
+  } finally {
+    registryModule.loadRegistry = original;
+  }
+  for (const file of s.bytes.keys()) assert.ok(!fs.existsSync(file) || fs.readFileSync(file, 'utf8') !== s.bytes.get(file).toString('utf8'), `untouched: ${file}`);
+});
+
 test('--target narrows the retired rows with the files: none of an untargeted retired harness comes back', () => {
   const s = swept();
   s.restore({ explicitTargets: true });
