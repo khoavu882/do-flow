@@ -126,7 +126,7 @@ was `READY` before its work began instead of evaluating again with whatever it i
 runtime asks it on all seven harnesses: `orchestrate` `handoff` and `complete-stage` of the gated
 `implementation` stage refuse without a `READY` record of the stage's template made before the call,
 and name the `readiness` command that clears the refusal; `verify` reports `INCONCLUSIVE` in place
-of `PASS` while a run with that stage pending has no such record. Five harnesses have a hook layer
+of `PASS` while a run with that stage pending has no such record. Six harnesses have a hook layer
 (Claude Code, Codex once its hooks are reviewed, Pi, Antigravity, Kiro and Copilot CLI), and there the
 same check also advises on a source edit with the same text and never blocks it: on a feature
 branch whose three artifacts and decision register exist, and while a `feature`, `bug`, `refactor` or `dependency-change` run is
