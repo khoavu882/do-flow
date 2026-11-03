@@ -35,12 +35,9 @@ test('normalize maps the fixture root, HOME and repo root, given and real path',
 test('fixture seeds 200 follow-ups and a checked goal, and a verb measures with no machine path', () => {
   const fixture = buildFixture();
   assert.ok(fs.existsSync(path.join(fixture.root, '.git')));
-  // `--view full` is the whole list once the flag exists; before it, the default list is the whole list.
-  let list = measureVerb(fixture, ['followup', '--action', 'list', '--view', 'full', '--json']);
-  if (list.status !== 0) list = measureVerb(fixture, ['followup', '--action', 'list', '--json']);
+  const list = measureVerb(fixture, ['followup', '--action', 'list', '--view', 'full', '--json']);
   assert.equal(list.status, 0);
-  const parsed = JSON.parse(list.stdout);
-  const items = parsed.followups || parsed.items || [];
+  const items = JSON.parse(list.stdout).items;
   assert.equal(items.length, FOLLOWUP_COUNT);
   assert.ok(!list.stdout.includes(fixture.root) && !list.stdout.includes(fixture.home) && !list.stdout.includes(REPO), 'paths are normalised');
   const goal = runVerb(fixture, ['goal', '--action', 'list', '--json']);
