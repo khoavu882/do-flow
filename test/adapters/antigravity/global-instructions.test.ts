@@ -17,6 +17,7 @@ const { buildAdapterRegistry } = require('../../../src/cli/shared.ts');
 const { stateRoot, readLedger, writeLedger } = require('../../../src/state/index.ts');
 const { planLifecycle, applyLifecycle } = require('../../../src/lifecycle/index.ts');
 const adapter = require('../../../src/adapters/antigravity/index.ts');
+const { planHandovers } = require('../../../src/lifecycle/retired-harnesses.ts');
 const { buildRetiredLedger, USER_TEXT } = require('../../helper/retired-ledger.ts');
 const { tempDir } = require('../../helper/tmp.ts');
 const crypto = require('node:crypto');
@@ -165,6 +166,17 @@ test('while another live harness declares the same GEMINI.md, antigravity plans,
   assert.ok(!verified.statuses.some((status: any) => status.target === target(home)));
   assert.equal(fs.readFileSync(target(home), 'utf8'), USER);
   assert.deepEqual(sectionChanges(run(home, { registry, operation: 'remove' }).planned, home), []);
+});
+
+test('FU-g8gc94: while another live harness declares the same GEMINI.md, the retired gemini row is not handed over to antigravity', (t) => {
+  const home = tempDir(t, 'doflow-agy-global-');
+  const shipped = loadRegistry({ repoRoot: REPO });
+  const { ledger } = buildRetiredLedger({ root: home, id: 'gemini', scope: 'global' });
+  const handovers = (registry: any) => planHandovers({ registry, ledger, scope: 'global', scopeRoot: home, planned: ['antigravity'] });
+  assert.equal(handovers(shipped).size, 1, 'precondition: with nobody else declaring it the row is handed over');
+  const instruction = shipped.harnesses.find((harness: any) => harness.id === 'antigravity').paths.instruction;
+  const shared = { ...shipped, harnesses: [...shipped.harnesses, { id: 'fake-other', paths: { instruction } }] };
+  assert.equal(handovers(shared).size, 0, 'antigravity would plan nothing there, so nothing is handed over');
 });
 
 test('proof: a global install of antigravity over a retired gemini install converges on one DoFlow section in GEMINI.md', (t) => {

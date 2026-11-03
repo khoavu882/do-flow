@@ -26,6 +26,7 @@ const { MARKER_START, MARKER_END, removeMarkedSection } = require('../../helper/
 const { planTree, applyTree, removeTree, verifyTree, resolveTransform, copyTreeAssets, ledgerFileResources, ledgerSiblingFingerprints, siblingReplacedNotices, fingerprint, readJson, sourceDirFor } = require('../copy-tree.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harness-paths.ts');
 const { renderGuidancePointer } = require('../guidance-pointer.ts');
+const { replacementManagesFile } = require('../../lifecycle/retired-harnesses.ts');
 const { readMcpFiles, planMcpEntries, verifyMcpEntries, ownedMcpIds, writeMcpEntries } = require('../mcp-entries.ts');
 
 const HARNESS = 'antigravity';
@@ -367,11 +368,7 @@ function instructionTarget({ paths, assets, registry }: any) {
   if (!paths.instruction) return null;
   if (scopeOf(paths) === 'project') return paths.instruction;
   if (!(assets ?? []).some((asset: any) => asset.id === POINTER_ASSET_ID)) return null;
-  const declaredBy = (harness: any) => {
-    if (harness?.id === HARNESS || !harness?.paths?.instruction) return false;
-    try { return resolveHarnessPaths({ instruction: harness.paths.instruction }, { scope: 'global', scopeRoot: paths.root, homeDir: paths.root }).instruction === paths.instruction; } catch { return false; }
-  };
-  return (registry?.harnesses ?? []).some(declaredBy) ? null : paths.instruction;
+  return replacementManagesFile({ registry, harnessId: HARNESS, surface: 'instruction', target: paths.instruction, scope: 'global', scopeRoot: paths.root }) ? paths.instruction : null;
 }
 
 /** How this run stands to a section it took over (IC-007): the lifecycle's handover verdict for the
