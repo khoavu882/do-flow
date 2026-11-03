@@ -141,6 +141,16 @@ test('viewLines page: carries the spec options then --cursor; --limit only when 
   assert.deepEqual(viewLines('page', { spec: SPEC, carried: {}, nextCursor: null }), []);
 });
 
+test('viewLines page: names --view full after --cursor and --limit only when the caller is in the full view', () => {
+  assert.deepEqual(viewLines('page', { spec: SPEC, carried: { state: 'open', limit: '5' }, nextCursor: CURSOR_A, view: 'full' }),
+    [`Next page: doflow-run followup --action list --state open --cursor ${CURSOR_A} --limit 5 --view full`]);
+  assert.deepEqual(viewLines('page', { spec: SPEC, carried: {}, nextCursor: CURSOR_A, view: 'full' }),
+    [`Next page: doflow-run followup --action list --cursor ${CURSOR_A} --view full`]);
+  assert.deepEqual(viewLines('page', { spec: SPEC, carried: {}, nextCursor: CURSOR_A, view: 'brief' }),
+    [`Next page: doflow-run followup --action list --cursor ${CURSOR_A}`]);
+  assert.deepEqual(viewLines('page', { spec: SPEC, carried: {}, nextCursor: null, view: 'full' }), []);
+});
+
 test('viewLines page-full: carries the input cursor, --limit <shown> and --view full; none when nothing shown', () => {
   assert.deepEqual(viewLines('page-full', { spec: SPEC, carried: {}, shown: 10 }),
     ['Full view of this page: doflow-run followup --action list --limit 10 --view full']);

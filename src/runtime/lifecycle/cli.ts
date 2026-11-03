@@ -19,10 +19,23 @@ const { buildOverview, initFeature, featureStatus, activeFeature } = require('./
 const { recordFeature, clearSlug } = require('../feature-pointer.ts');
 const { releaseFeatures, recordMerged } = require('./release.ts');
 const goal = require('./goal.ts');
+const { ViewUsageError, resolveView, projectBrief, viewLines, withEnvelope, serializeJson } = require('../verb-view.ts');
 
 const FOLLOWUP_ACTIONS = ['add', 'list', 'take', 'settle', 'promote', 'report'];
 const LIFECYCLE_ACTIONS = ['overview', 'init', 'release', 'status', 'merged'];
 const GOAL_ACTIONS = ['add', 'item', 'check', 'link', 'list', 'done'];
+/** The brief `followup --action list` answer (feature 137, IC-004): the fields that let a caller choose an item. */
+const FOLLOWUP_LIST_BRIEF = Object.freeze({
+  verb: 'followup',
+  action: 'list',
+  carry: Object.freeze(['state', 'ids', 'limit']),
+  keep: Object.freeze([
+    '$.ok', '$.action', '$.state', '$.count', '$.items[].id', '$.items[].state', '$.items[].statement',
+    '$.conflicts', '$.unreadable', '$.unreadableReasons',
+  ]),
+});
+/** A brief list answers one page of this many items unless `--limit` says otherwise. */
+const BRIEF_PAGE = 10;
 /** The flags each goal action takes, besides --goal, --channel and --json; any other one given is a usage error. */
 const GOAL_FLAGS: Record<string, any> = {
   add: ['statement', 'item'], item: ['text'], check: ['item', 'evidence', 'unmet'],
@@ -40,6 +53,7 @@ function followupLines(result: any) {
     case 'list':
       if (result.items.length === 0) lines.push(`No ${result.state === 'all' ? '' : `${result.state} `}follow-ups.`);
       for (const i of result.items) lines.push(`${i.id}  ${i.state}${i.takenBy ? ` by ${i.takenBy}` : ''}${i.intent ? ` -> ${i.intent}` : ''}  (${sourceText(i.source)}, ${i.added})  ${i.statement}`);
+      for (const line of result.next) lines.push(`next: ${line}`);
       break;
     case 'take': lines.push(`${result.feature} took ${result.ids.join(', ')}`); break;
     case 'settle': lines.push(`settled ${result.ids.join(', ')} as ${result.as}`); break;
@@ -129,7 +143,7 @@ function goalLines(r: any) {
 
 /** Prints a result and sets the exit status; shared by the verbs. */
 function emit(result: any, json: any, lines: any) {
-  if (json) console.log(JSON.stringify(result, null, 2));
+  if (json) console.log(serializeJson(result));
   else if (result.ok === false) console.log(printSafe(`${result.finding}: ${result.message}`));
   else for (const line of lines(result)) console.log(printSafe(line));
   return finishRuntime(result.ok === false ? 1 : 0);
@@ -140,7 +154,7 @@ function guarded(verb: any, action: any, json: any, fn: any) {
   try {
     return fn();
   } catch (error: any) {
-    if (error instanceof followup.FollowupUsageError || error instanceof StoreUnsafeError) return usageError(verb, error.message, json);
+    if (error instanceof followup.FollowupUsageError || error instanceof ViewUsageError || error instanceof StoreUnsafeError) return usageError(verb, error.message, json);
     if (error instanceof StoreLockedError) return emit({ ok: false, action, finding: 'store-locked', message: error.message }, json, () => []);
     throw error;
   }
@@ -155,6 +169,29 @@ function upkeep(verb: any, action: any, root: any) {
 
 function refuseGlobal(verb: any, global: any, json: any) {
   return global ? usageError(verb, `${verb} works on the project store at the repository root and refuses -g`, json) : null;
+}
+
+/**
+ * Prints a `followup --action list` answer in the view it asked for (IC-004). Brief projects the page onto the keep
+ * list; a full call with no cursor and no limit is the service object, untouched. Every other answer carries the
+ * envelope and the next lines. Text mode shows the page's items in the usual format and the next lines only when
+ * the page is not the whole list.
+ */
+function emitList(result: any, view: any, flags: any, json: any) {
+  if (result.ok === false) return emit(result, json, followupLines);
+  const paged = result.shown !== undefined;
+  const carried = { state: flags.state, ids: flags.ids, limit: flags.limit };
+  const lines = !paged ? [] : [
+    ...viewLines('page', { spec: FOLLOWUP_LIST_BRIEF, carried, nextCursor: result.nextCursor, view }),
+    ...(view === 'brief' ? viewLines('page-full', { spec: FOLLOWUP_LIST_BRIEF, carried, cursor: flags.cursor, shown: result.shown }) : []),
+  ];
+  if (!json) return emit({ ...result, next: result.shown < result.count ? lines : [] }, false, followupLines);
+  if (view === 'brief') {
+    const body = projectBrief(result, FOLLOWUP_LIST_BRIEF.keep);
+    return emit(withEnvelope(body, { view, shown: result.shown, nextCursor: result.nextCursor, next: lines }), true, followupLines);
+  }
+  if (!paged) return emit(result, true, followupLines);
+  return emit(withEnvelope(result, { view, shown: result.shown, nextCursor: result.nextCursor, next: lines }), true, followupLines);
 }
 
 /**
@@ -175,6 +212,12 @@ function handleFollowupCommand({ action, cwd, global = false, slug = null, json 
         if (flags[name] !== undefined && flags[name] !== false) throw new followup.FollowupUsageError(`--${name} applies to --action report only`);
       }
     }
+    if (action !== 'list') {
+      for (const name of ['view', 'cursor', 'limit']) {
+        if (flags[name] !== undefined && flags[name] !== false) throw new followup.FollowupUsageError(`--${name} applies to --action list only`);
+      }
+    }
+    const view = action === 'list' ? resolveView(flags.view, 'brief') : null;
     for (const name of ['tag', 'confirm', 'exclude']) {
       if (flags[name] !== undefined && flags[name] !== false) throw new followup.FollowupUsageError(`--${name} applies to the lifecycle verb's --action release only, not to followup`);
     }
@@ -198,7 +241,9 @@ function handleFollowupCommand({ action, cwd, global = false, slug = null, json 
         defaults: { stage: flags.stage, slug, source: flags.source, taskClass: flags.taskClass, taskId: flags.taskId, release: flags.release, batch },
       });
     } else if (action === 'list') {
-      result = followup.listFollowups({ root, state: flags.state });
+      return emitList(followup.listFollowups({
+        root, state: flags.state, ids: flags.ids, cursor: flags.cursor, limit: flags.limit, defaultLimit: view === 'brief' ? BRIEF_PAGE : null,
+      }), view, flags, json);
     } else if (action === 'take') {
       result = followup.takeFollowups({ root, ids: flags.ids, slug, channel: flags.channel });
     } else if (action === 'settle') {

@@ -194,12 +194,13 @@ function commandLine(verb: string, action: string | undefined, carried: Record<s
 /**
  * The next line of one kind: `page` (the page after this one), `page-full` (this page in the full view, carrying
  * the input cursor and `--limit <shown>`) or `full` (the verb's whole, bounded, full answer). The options echoed
- * are those the spec's `carry` names, in that order, then `--cursor`, `--limit`, `--view`. Returns no line when
+ * are those the spec's `carry` names, in that order, then `--cursor`, `--limit`, `--view` (a `page` line names
+ * `--view full` only when the caller's `view` is `full`). Returns no line when
  * the kind has nothing to point at (`page` without a nextCursor, `page-full` with nothing shown).
  */
 function viewLines(kind: 'page' | 'page-full' | 'full', ctx: {
   spec: BriefSpec; carried: Record<string, unknown>; cursor?: string | null;
-  nextCursor?: string | null; shown?: number;
+  nextCursor?: string | null; shown?: number; view?: View;
 }): string[] {
   const args: Record<string, unknown> = {};
   for (const name of ctx.spec.carry) {
@@ -209,6 +210,8 @@ function viewLines(kind: 'page' | 'page-full' | 'full', ctx: {
     if (!ctx.nextCursor) return [];
     args.cursor = ctx.nextCursor;
     args.limit = ctx.spec.carry.includes('limit') ? ctx.carried.limit : undefined;
+    // A walk stays in the view it started in: brief is the default, so only the full view is named.
+    if (ctx.view === 'full') args.view = 'full';
   } else if (kind === 'page-full') {
     if (!ctx.shown || ctx.shown < 1) return [];
     args.cursor = ctx.cursor ?? undefined;
