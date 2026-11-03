@@ -89,13 +89,13 @@ function removeTree(dir: any) {
   const RETRY_CODES = new Set(['EACCES', 'ENOTEMPTY', 'EPERM', 'EBUSY']);
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      fs.rmSync(dir, { recursive: true, force: true });
+      fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
       break;
     } catch (error: any) {
       if (!RETRY_CODES.has(error?.code)) throw error;
       restoreOwnerWritePermission(dir);
       if (attempt === 4) {
-        fs.rmSync(dir, { recursive: true, force: true });
+        fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
         break;
       }
       const start = Date.now();
