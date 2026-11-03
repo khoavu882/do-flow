@@ -62,6 +62,8 @@ test('quotaSignals validation rejects unsupported, malformed, and unknown fields
     [{ ...good, signals: Array(17).fill('quota') }, 'supported', /1 to 16/],
     [{ ...good, signals: ['ab'] }, 'supported', /3 to 64/],
     [{ ...good, signals: ['bad\u0001signal'] }, 'supported', /control/],
+    [{ ...good, signals: ['rate\u200blimit'] }, 'supported', /zero-width/],
+    [{ ...good, signals: ['Rate Limit', 'rate limit'] }, 'supported', /repeat a signal/],
     [{ signals: ['quota'], basis: 'transcript', evidence: [] }, 'supported', /transcript.*evidence/],
     [{ signals: ['quota'], basis: 'unverified', evidence: ['core/worker-evidence/codex/x.json'] }, 'supported', /unverified.*evidence/],
     [{ ...good, other: true }, 'supported', /unknown field 'other'/],
