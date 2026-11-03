@@ -34,6 +34,18 @@ const FOLLOWUP_LIST_BRIEF = Object.freeze({
     '$.conflicts', '$.unreadable', '$.unreadableReasons',
   ]),
 });
+/** The brief `lifecycle --action overview` answer (feature 137, IC-006): keep paths, so a new full field is dropped until named here. */
+const OVERVIEW_BRIEF = Object.freeze({
+  verb: 'lifecycle',
+  action: 'overview',
+  carry: Object.freeze(['maintain', 'since']),
+  keep: Object.freeze([
+    '$.ok', '$.mode', '$.releaseMode', '$.integrationRef', '$.gitError', '$.followups.open', '$.followups.shown',
+    '$.followups.items[].id', '$.followups.items[].statement', '$.followups.items[].source', '$.followups.items[].pending',
+    '$.intents', '$.goals', '$.conflicts', '$.unreadable', '$.unreadableReasons', '$.failures', '$.reason', '$.note',
+    '$.integrationBehind', '$.pending', '$.next',
+  ]),
+});
 /** A brief list answers one page of this many items unless `--limit` says otherwise. */
 const BRIEF_PAGE = 10;
 /** The flags each goal action takes, besides --goal, --channel and --json; any other one given is a usage error. */
@@ -275,13 +287,22 @@ function handleLifecycleCommand({ action, cwd, global = false, slug = null, json
         if (flags[name] !== undefined && flags[name] !== false) throw new followup.FollowupUsageError(`--${name} applies to --action release only`);
       }
     }
+    if (act !== 'overview' && flags.view !== undefined && flags.view !== false) throw new followup.FollowupUsageError('--view applies to --action overview only');
+    const view = act === 'overview' ? resolveView(flags.view, 'full') : null;
     if (flags.reason !== undefined && act !== 'merged') throw new followup.FollowupUsageError('--reason applies to --action merged only');
     const root = projectRoot(cwd || process.cwd());
     const refusedStore = upkeep('lifecycle', act, root);
     if (refusedStore) return emit(refusedStore, json, lifecycleLines);
     let result;
-    if (act === 'overview') result = buildOverview({ root, maintain: Boolean(flags.maintain), since: flags.since });
-    else if (act === 'init') {
+    if (act === 'overview') {
+      result = buildOverview({ root, maintain: Boolean(flags.maintain), since: flags.since });
+      if (view === 'brief') {
+        const full = viewLines('full', { spec: OVERVIEW_BRIEF, carried: { maintain: Boolean(flags.maintain), since: flags.since } });
+        const next = [...result.next, ...full];
+        if (!json) return emit({ ...result, next }, false, lifecycleLines);
+        return emit(withEnvelope(projectBrief(result, OVERVIEW_BRIEF.keep), { view, next }), true, lifecycleLines);
+      }
+    } else if (act === 'init') {
       result = initFeature({ root, slug, take: flags.take, intent: flags.intent, goal: flags.goal });
       if (result.ok) recordFeature({ storeRoot: root, cwd: cwd || process.cwd(), slug });
     }

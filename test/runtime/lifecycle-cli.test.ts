@@ -63,8 +63,8 @@ test('--help lists every action and the flags the parser takes, for followup, li
   const { repo } = newRepo();
   const { FOLLOWUP_ACTIONS, LIFECYCLE_ACTIONS, GOAL_ACTIONS } = require('../../src/runtime/lifecycle/cli.ts');
   const help = run(repo.dir, ['--help']).stdout;
-  assert.ok(help.includes(`(--action ${FOLLOWUP_ACTIONS.join('|')})`), 'followup verb line');
-  assert.ok(help.includes(`(--action ${LIFECYCLE_ACTIONS.join('|')})`), 'lifecycle verb line');
+  assert.ok(help.includes(`(--action ${FOLLOWUP_ACTIONS.join('|')}; list:`), 'followup verb line');
+  assert.ok(help.includes(`(--action ${LIFECYCLE_ACTIONS.join('|')}; overview:`), 'lifecycle verb line');
   assert.ok(help.includes(`goal: ${GOAL_ACTIONS.join('|')}`), 'goal in the --action table');
   assert.ok(help.includes(`followup: ${FOLLOWUP_ACTIONS.join('|')}`), 'followup in the --action table');
   assert.ok(help.includes(`lifecycle: ${LIFECYCLE_ACTIONS.join('|')}`), 'lifecycle in the --action table');
@@ -184,7 +184,7 @@ test('init tracks a feature whose folder exists, takes items, and reports alread
   assert.equal(init.json.events.length, 2, 'one tracked event and one taken event');
   const again = run(repo.dir, ['lifecycle', '--action', 'init', '--slug', '050-new', '--json']);
   assert.deepEqual([again.json.tracked, again.json.taken, again.json.events], ['already', [], []]);
-  assert.equal(run(repo.dir, ['followup', '--action', 'list', '--state', 'taken', '--json']).json.items[0].takenBy, '050-new');
+  assert.equal(run(repo.dir, ['followup', '--action', 'list', '--state', 'taken', '--view', 'full', '--json']).json.items[0].takenBy, '050-new');
   assert.equal(run(repo.dir, ['lifecycle', '--action', 'init', '--slug', '../x', '--json']).status, 2);
 });
 
@@ -264,7 +264,7 @@ test('status and overview carry integrationBehind and a note only when the local
 
 // ── overview ───────────────────────────────────────────────────────────────────────────────────
 
-test('overview shows 15 of 17 items, reports first then oldest first, and the List the rest line', () => {
+test('overview shows 15 of 17 items, reports first then oldest first, and the Page through all line', () => {
   const root = path.join(scratch.dir, `overview-${counter += 1}`);
   fs.mkdirSync(root);
   const base = Date.parse('2026-10-01T00:00:00.000Z');
@@ -278,11 +278,11 @@ test('overview shows 15 of 17 items, reports first then oldest first, and the Li
   assert.deepEqual([o.followups.open, o.followups.shown], [17, 15]);
   assert.equal(o.followups.items[0].id, 'FU-000017', 'the report comes first');
   assert.deepEqual(o.followups.items.slice(1, 4).map((i: any) => i.id), ['FU-000001', 'FU-000002', 'FU-000003']);
-  assert.equal(o.next[0], 'List the rest: doflow-run followup --action list');
+  assert.equal(o.next[0], 'Page through all 17 open follow-ups: doflow-run followup --action list');
   assert.deepEqual(Object.keys(o.followups.items[0]), ['id', 'statement', 'source', 'state', 'promoted', 'intent', 'added']);
   const all = buildOverview({ root, maintain: true });
   assert.deepEqual([all.mode, all.followups.shown, all.pending], ['maintain', 17, 17]);
-  assert.equal(all.next.includes('List the rest: doflow-run followup --action list'), false);
+  assert.equal(all.next.some((l: any) => l.startsWith('Page through all')), false);
 });
 
 test('maintain: a kept item leaves pending while staying open; the list stops at 50', () => {
