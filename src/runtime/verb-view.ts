@@ -116,7 +116,7 @@ const DIGITS = /^[0-9]+$/;
 
 function encodeCursor(key: CursorKey): string {
   if (!Number.isSafeInteger(key.atMs) || key.atMs < 0 || String(key.atMs).length > 15) {
-    throw new TypeError(`cursor time must be 0 to 15 digits of milliseconds (got ${key.atMs})`);
+    throw new ViewUsageError(`cursor time must be 0 to 15 digits of milliseconds (got ${key.atMs})`);
   }
   return `${key.atMs}:${key.event}`;
 }

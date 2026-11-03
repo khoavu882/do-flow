@@ -72,7 +72,8 @@ test('cursor encodes and decodes the documented shape; other text does not decod
     '1:20261102T152312345Z-wq105h:FU-abc123', undefined, 5]) {
     assert.equal(decodeCursor(bad), null, String(bad));
   }
-  assert.throws(() => encodeCursor({ atMs: NaN, event: key.event }), TypeError);
+  assert.throws(() => encodeCursor({ atMs: NaN, event: key.event }), ViewUsageError);
+  assert.throws(() => encodeCursor({ atMs: -1, event: key.event }), ViewUsageError);
 });
 
 test('pageItems: first page, next pages by cursor visit every item once, the last page has no cursor', () => {
