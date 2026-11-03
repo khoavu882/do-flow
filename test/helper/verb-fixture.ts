@@ -11,7 +11,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { suiteTempDir } = require('./tmp.ts');
+const { suiteTempDir, GIT_NO_MAINTENANCE_ENV } = require('./tmp.ts');
 
 const REPO = path.resolve(__dirname, '..', '..');
 const DISPATCHER = path.join(REPO, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
@@ -75,7 +75,7 @@ function git(cwd: string, home: string, args: string[]) {
   const env = {
     ...fixtureEnv(home),
     GIT_CONFIG_GLOBAL: path.join(home, 'no-gitconfig'),
-    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_NOSYSTEM: '1', ...GIT_NO_MAINTENANCE_ENV,
     GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.com',
     GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.com',
   };
