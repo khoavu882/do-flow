@@ -21,8 +21,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
-const { execFileSync } = require('node:child_process');
-const { agentSpecFiles, AGENT_SPECS, REPO, dispatcherVerbs } = require('./_shared.ts');
+const { agentSpecFiles, AGENT_SPECS, REPO, cliVerbs } = require('./_shared.ts');
 
 const MAX_SPECS = 7;
 const MAX_DESCRIPTION = 160;
@@ -165,21 +164,6 @@ test('G64: the check bites on an eighth spec, a 161-character description, and a
   const missing = base.map((spec: any, i: any) => (i === 0 ? { ...spec, access: undefined } : spec));
   assert.match(findings(missing).join('\n'), /access is undefined/);
 });
-
-/** Every verb the `doflow` CLI and the `doflow-run` dispatcher accept: the `Commands:` list of
- * `doflow --help` plus the dispatcher's own verb table. */
-function cliVerbs() {
-  const help = execFileSync(process.execPath, [path.join(REPO, 'bin', 'doflow.js'), '--help'], { encoding: 'utf8' });
-  const verbs: any = new Set(dispatcherVerbs());
-  let inCommands = false;
-  for (const line of help.split('\n')) {
-    if (line === 'Commands:') { inCommands = true; continue; }
-    if (inCommands && /^\S/.test(line)) break;
-    const match = inCommands && line.match(/^ {2}([a-z][a-z-]*)(?: |$)/);
-    if (match) verbs.add(match[1]);
-  }
-  return verbs;
-}
 
 const VERBS = cliVerbs();
 // Case-insensitive, and flags may sit between `doflow` / `doflow-run` and the verb (`doflow --json evidence`).

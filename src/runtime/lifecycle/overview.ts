@@ -17,6 +17,7 @@ const { appendEvents, readFold, readEvents } = require('./event-store.ts');
 const { deriveStatuses, bucketize, behindNote } = require('./status.ts');
 const { FollowupUsageError, parseIds } = require('./followup.ts');
 const { describeActive } = require('../feature-pointer.ts');
+const { commandLine } = require('../verb-view.ts');
 
 /** The failure store, or null when its module cannot be loaded: the overview then reports no failures. */
 function failureStoreOrNull() {
@@ -130,7 +131,7 @@ function goalView(goal: any, features: any, statuses: any, conflicts: any = []) 
 
 function nextLines({ shown, open, items, intents, goals, maintain, pendingItems, failures }: any) {
   const next = [];
-  if (shown < open) next.push('List the rest: doflow-run followup --action list');
+  if (shown < open) next.push(`Page through all ${open} open follow-ups: ${commandLine('followup', 'list', {})}`);
   if (items.length) next.push(`Take items into the new feature when its folder exists: doflow-run lifecycle --action init --slug <slug> --take ${items[0].id}`);
   if (intents.length) {
     next.push(`Start from a promoted intent: /do-brainstorm --intent ${intents[0].path}, then doflow-run lifecycle --action init --slug <slug> --intent ${intents[0].path}`);

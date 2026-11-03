@@ -6,7 +6,8 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { TextDecoder } = require('node:util');
 const { WorkflowEngine, CALLER_ROLES } = require('./workflow-engine.ts');
-const { finishRuntime } = require('./cli-result.ts');
+const { finishRuntime, usageError } = require('./cli-result.ts');
+const { ViewUsageError, resolveView, projectBrief, viewLines, withEnvelope, emitJson } = require('./verb-view.ts');
 const { REPO_ROOT } = require('../helper/repo-root.ts');
 const { loadAdviceRegistry } = require('./advice/registry.ts');
 const { createAdviceClient } = require('./advice/client.ts');
@@ -422,6 +423,25 @@ class TaskClassifier {
 }
 
 /**
+ * The brief view of a classify answer (feature 137, IC-005): the fields the skills' classify call sites read.
+ * Everything else is dropped; `--view full` returns the whole object.
+ */
+const CLASSIFY_BRIEF = Object.freeze({
+  verb: 'classify',
+  carry: Object.freeze(['taskClass', 'callingSkill']),
+  keep: Object.freeze([
+    '$.outcome', '$.taskClass', '$.proposedClass', '$.callingSkill', '$.reason', '$.message', '$.validClasses',
+    '$.suggestions', '$.callerSuggestions', '$.fit.state', '$.fit.reason', '$.fit.hostingClasses', '$.secondOpinion',
+    '$.workflow.taskClass', '$.workflow.handoff', '$.workflow.stageIds', '$.workflow.hasImplementationStage',
+    '$.workflow.requiresImplementationReadiness', '$.workflow.stages[].id', '$.workflow.stages[].skill',
+    '$.workflow.stages[].agent', '$.workflow.stages[].kind', '$.workflow.stages[].optional',
+    '$.workflow.stages[].readinessTemplate', '$.workflow.stages[].mutatesSource', '$.workflow.gates[].id',
+    '$.workflow.gates[].afterStage', '$.workflow.gates[].kind', '$.workflow.gates[].trigger',
+    '$.workflow.gates[].prompt',
+  ]),
+});
+
+/**
  * Handles `doflow classify` — validate a proposed task class against the workflow registry.
  *
  * Prints the classifier's decision and, when requested, an advisory second opinion that never
@@ -437,16 +457,31 @@ class TaskClassifier {
  * @param {string} [options.request] request text for a second opinion
  * @param {string} [options.requestFile] file containing request text for a second opinion
  * @param {boolean} [options.json=false]
+ * @param {string} [options.view] `brief` or `full` (default): the JSON answer's view; text output is the same in both
  * @returns {number|Promise<number>} exit code; advisory calls are asynchronous
  */
-function handleClassifyCommand({ taskClass, rationale, proposedBy, callingSkill, request, requestFile, taskId, projectRoot, env = process.env, json = false }: any = {}) {
+function handleClassifyCommand({ taskClass, rationale, proposedBy, callingSkill, request, requestFile, taskId, projectRoot, view, env = process.env, json = false }: any = {}) {
+  let resolvedView;
+  try {
+    resolvedView = resolveView(view, 'full');
+  } catch (error: any) {
+    if (error instanceof ViewUsageError) return usageError('classify', error.message, json);
+    throw error;
+  }
+  const printJson = (opinion: any) => {
+    const answer = { ...decision, secondOpinion: opinion };
+    if (resolvedView === 'full') return emitJson(answer);
+    return emitJson(withEnvelope(projectBrief(answer, CLASSIFY_BRIEF.keep), {
+      view: 'brief', next: viewLines('full', { spec: CLASSIFY_BRIEF, carried: { taskClass, callingSkill }, json: true }),
+    }));
+  };
   const classifier = new TaskClassifier({ repoRoot: REPO_ROOT });
   const decision = classifier.classify({ taskClass, rationale, proposedBy, callingSkill });
   const exitCode = decision.outcome === CLASSIFICATION_OUTCOMES.ACCEPTED
     ? 0 : decision.reason === REJECTION_REASONS.MISSING_CLASS ? 2 : 1;
   const hasRequest = request !== undefined || requestFile !== undefined;
   if (!hasRequest) {
-    if (json) console.log(JSON.stringify({ ...decision, secondOpinion: null }, null, 2));
+    if (json) printJson(null);
     else printClassifyDecision(decision, null);
     return finishRuntime(exitCode);
   }
@@ -528,7 +563,7 @@ function handleClassifyCommand({ taskClass, rationale, proposedBy, callingSkill,
         opinion = emptySecondOpinion('unavailable', 'config-invalid');
       }
     }
-    if (json) console.log(JSON.stringify({ ...decision, secondOpinion: opinion }, null, 2));
+    if (json) printJson(opinion);
     else printClassifyDecision(decision, opinion);
     return finishRuntime(exitCode);
   }

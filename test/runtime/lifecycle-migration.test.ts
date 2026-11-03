@@ -113,7 +113,7 @@ test('rerun: a second verb copies nothing, even when the old folder has gained a
 test('concurrency: two processes started together leave each event once and both exit 0', async () => {
   const { dir, names } = withLegacy('concurrent', Array.from({ length: 30 }, (_, i) => `FU-${String(i).padStart(6, '0')}`));
   const once = () => new Promise((resolve) => {
-    const child = spawn(process.execPath, [CLI, 'followup', '--action', 'list', '--state', 'all', '--json'], { cwd: dir, env: scratch.env() });
+    const child = spawn(process.execPath, [CLI, 'followup', '--action', 'list', '--state', 'all', '--view', 'full', '--json'], { cwd: dir, env: scratch.env() });
     let stdout = '';
     child.stdout.on('data', (chunk: any) => { stdout += chunk; });
     child.on('exit', (code: any) => resolve({ code, stdout }));
