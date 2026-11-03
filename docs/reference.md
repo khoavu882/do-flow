@@ -739,6 +739,12 @@ for example a request to write a poem about a named function in a file.
   written with the rules in view and some without. `test/hooks/prompt-nudge.test.ts` runs every one
   through the shipped rules: a prompt labelled silent that nudges fails the test, while recall on the
   prompts labelled as requests is printed as a diagnostic line and never asserted.
+- **When a false alarm or a missed request is reported.** Add the prompt to
+  `test/hooks/prompt-nudge.corpus.json` (`"expect":"silent"` for a false alarm, `"expect":"nudge"`
+  for a missed request), tighten or extend the `promptNudge` lists in `core/registry/workflows.json`
+  until the corpus passes, then run `node --test test/hooks/prompt-nudge.test.ts
+  test/guards/prompt-nudge-registry.test.ts`. A missed request is only a diagnostic, so extend a
+  list for it only when no silent prompt starts to nudge.
 
 ### Switching the nudge off
 
