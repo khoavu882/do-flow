@@ -284,11 +284,11 @@ test('createWorkCache reads each run and plan at most once per pass', (t) => {
   const reads: any = new Map();
   const fsImpl: any = new Proxy(fs, {
     get(target, property) {
-      if (property !== 'readFileSync') return target[property];
+      if (property !== 'readFileSync' && property !== 'openSync') return target[property];
       return (file: any, ...args: any[]) => {
         const absolute = path.resolve(String(file));
         reads.set(absolute, (reads.get(absolute) || 0) + 1);
-        return target.readFileSync(file, ...args);
+        return (target as any)[property](file, ...args);
       };
     },
   });

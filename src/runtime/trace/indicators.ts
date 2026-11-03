@@ -26,6 +26,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { readRegularFileText } = require('../task-scope.ts');
 const { formatMs, finish } = require('./render.ts');
 
 const ORCHESTRATION_DIRNAME = 'orchestration';
@@ -50,7 +51,12 @@ function readRecords(dir: string, fsImpl: any = fs): any {
   for (const name of fsImpl.readdirSync(dir).sort()) {
     if (!name.endsWith('.json')) continue;
     try {
-      const parsed = JSON.parse(fsImpl.readFileSync(path.join(dir, name), 'utf8'));
+      const text = readRegularFileText(path.join(dir, name), fsImpl);
+      if (text === null) {
+        unreadable.push({ file: name, reason: 'not a regular file' });
+        continue;
+      }
+      const parsed = JSON.parse(text);
       if (!parsed || typeof parsed !== 'object' || !parsed.taskId) {
         unreadable.push({ file: name, reason: 'not an orchestration record' });
         continue;
