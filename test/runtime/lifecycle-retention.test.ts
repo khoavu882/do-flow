@@ -669,7 +669,7 @@ test('retainLocked removes crashed retention and marker temp files older than th
   const unrelated = strandTmp(dir, 'notes.tmp', 30);
   const lookalike = strandTmp(dir, '.retention-x.tmp', 30);
   const out = retainLocked(dir, { window: { state: 'on', hours: 1, ms: HOUR }, now: new Date() });
-  assert.deepEqual(out, { removed: 2, warning: [] });
+  assert.deepEqual(out, { removed: 4, warning: [] }, "two events and the two stale temp files, all against the cap");
   assert.deepEqual([stale, staleMarker].map((f) => fs.existsSync(f)), [false, false]);
   assert.deepEqual([fresh, unrelated, lookalike].map((f) => fs.existsSync(f)), [true, true, true]);
   assert.ok(fs.existsSync(path.join(dir, store.JOURNAL_REL)), 'the live journal is not a temp file');
