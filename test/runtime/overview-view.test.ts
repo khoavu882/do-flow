@@ -5,7 +5,7 @@
 // call, the item caps do not move, and `--view` is refused on the other lifecycle actions.
 // Runs the verb through the dispatcher in a scratch HOME, as the other verb-view tests do.
 
-const { test } = require('node:test');
+const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -21,8 +21,8 @@ const BIN = path.join(REPO_ROOT, 'bin/doflow.js');
 const TOTAL = 60;
 
 const scratch = createScratch('doflow-overview-view-');
-test.before(() => scratch.apply());
-test.after(() => { scratch.restore(); scratch.remove(); });
+before(() => scratch.apply());
+after(() => { scratch.restore(); scratch.remove(); });
 
 let fixture: any = null;
 /** One repository holding 60 open follow-ups (more than either item cap), built once for the file. */

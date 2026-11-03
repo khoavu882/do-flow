@@ -4,7 +4,7 @@
 // as today's object, the `--ids` filter, refusals and usage errors, text paging, and compact JSON off a terminal.
 // Runs the verb through the dispatcher in a scratch HOME, as the other verb-view tests do.
 
-const { test } = require('node:test');
+const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -20,8 +20,8 @@ const BIN = path.join(REPO_ROOT, 'bin/doflow.js');
 const TOTAL = 200;
 
 const scratch = createScratch('doflow-followup-view-');
-test.before(() => scratch.apply());
-test.after(() => { scratch.restore(); scratch.remove(); });
+before(() => scratch.apply());
+after(() => { scratch.restore(); scratch.remove(); });
 
 let fixture: any = null;
 /** One repository holding 200 open follow-ups, built once for the file. */
@@ -194,14 +194,14 @@ test('text mode pages the same way and keeps the line format; every item shown g
   const brief = run(['--action', 'list']);
   assert.equal(brief.status, 0, brief.stderr);
   const lines = brief.stdout.trimEnd().split('\n');
-  assert.equal(lines.filter((l) => /^FU-/.test(l)).length, 10);
+  assert.equal(lines.filter((l: string) => /^FU-/.test(l)).length, 10);
   assert.match(lines[0], /^FU-[0-9a-hjkmnp-tv-z]{6} {2}open {2}\(manual, .*\) {2}Fixture follow-up /);
-  assert.equal(lines.filter((l) => l.startsWith('next: ')).length, 2);
-  assert.ok(lines.some((l) => l.startsWith('next: Next page: doflow-run followup --action list --cursor ')));
+  assert.equal(lines.filter((l: string) => l.startsWith('next: ')).length, 2);
+  assert.ok(lines.some((l: string) => l.startsWith('next: Next page: doflow-run followup --action list --cursor ')));
   const full = run(['--action', 'list', '--view', 'full']);
   const fullLines = full.stdout.trimEnd().split('\n');
   assert.equal(fullLines.length, TOTAL);
-  assert.equal(fullLines.some((l) => l.startsWith('next:')), false);
+  assert.equal(fullLines.some((l: string) => l.startsWith('next:')), false);
   const two = run(['--action', 'list', '--ids', seeded().ids.slice(0, 2).join(',')]);
   assert.equal(two.stdout.trimEnd().split('\n').length, 2, 'two items, all shown, today text');
 });
