@@ -22,7 +22,12 @@ function keepPathsOf(file: string, constName: string): string[] {
   if (start < 0) throw new Error(`${file}: no spec constant ${constName}`);
   const keep = /keep:\s*Object\.freeze\(\[([\s\S]*?)\]\)/.exec(text.slice(start));
   if (!keep) throw new Error(`${file}: ${constName} has no keep list`);
-  const paths = [...keep[1].matchAll(/'([^']+)'/g)].map((m) => m[1]);
+  const body = keep[1].replace(/\/\/[^\n]*/g, '');
+  const literal = /(['"])([^'"\n]+)\1/g;
+  const paths = [...body.matchAll(literal)].map((m) => m[2]);
+  // Anything left once the string literals, commas and whitespace are gone is a computed entry the check cannot read.
+  const unparsed = body.replace(literal, '').replace(/[\s,]/g, '');
+  if (unparsed) throw new Error(`${file}: ${constName} keep list has an entry that is not a plain string literal: ${unparsed}`);
   if (!paths.length) throw new Error(`${file}: ${constName} keep list is empty`);
   return paths;
 }
