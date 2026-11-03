@@ -10,7 +10,7 @@ const { loadRegistry } = require('../../registry/index.ts');
 const { storageForgetScope } = require('../../runtime/storage/upkeep.ts');
 const { removeLifecycle, retentionSummary } = require('../../lifecycle/index.ts');
 const {
-  codexScope, registryLifecycleView, printRegistryLifecycle, LIFECYCLE_HARNESSES,
+  codexScope, registryLifecycleView, printRegistryLifecycle, printPlanNotices, LIFECYCLE_HARNESSES,
   assertSafeRegistryPlan, lockDocument, recordLock,
 } = require('../../lifecycle/view.ts');
 const { recordedMcpSelections } = require('../../install/mcp.ts');
@@ -63,6 +63,8 @@ function cmdRemove(o: any): void {
     // antigravity/copilot) mean a removal can legitimately leave files standing. Saying only "removed"
     // would be half the truth, so what was kept and who still claims it is printed, not implied.
     for (const line of retentionSummary(result.retained)) console.log(`[INFO] ${line}`);
+    // The plan's notices (a file left untouched, a kept edit) read the same on a real run as under --dry-run.
+    printPlanNotices(view);
     console.log(`[OK] Removed ${result.ledger.resources.length === 0 ? 'all' : 'eligible'} native resource(s) for ${lifecycleTargets.join(', ')}; ${result.ledger.resources.length} owned record(s) remain.`);
 
     // Re-pin what still stands: every harness the ledger still holds keeps its pin and its recorded
