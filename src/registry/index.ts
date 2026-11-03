@@ -682,14 +682,10 @@ function validateWorker(value: any, location: string, errors: string[]): void {
         for (const field of Object.keys(quota)) if (!WORKER_QUOTA_SIGNALS_FIELDS.has(field)) fail(key, `quotaSignals has unknown field '${field}'`);
         if (!Array.isArray(quota.signals) || quota.signals.length < 1 || quota.signals.length > 16) fail(key, 'quotaSignals.signals must contain 1 to 16 signals');
         else for (const signal of quota.signals) {
-          if (typeof signal !== 'string' || signal !== signal.trim() || signal.length < 3 || signal.length > 64 || /[\u0000-\u001f\u007f\u200b-\u200f\u2060\ufeff]/.test(signal)) {
-            fail(key, 'quotaSignals.signals must be trimmed strings of 3 to 64 characters without control or zero-width characters');
+          if (typeof signal !== 'string' || signal !== signal.trim() || signal.length < 3 || signal.length > 64 || /[\u0000-\u001f\u007f]/.test(signal)) {
+            fail(key, 'quotaSignals.signals must be trimmed strings of 3 to 64 characters without control characters');
             break;
           }
-        }
-        // The matcher compares case-insensitively, so a case-folded repeat adds no signal.
-        if (Array.isArray(quota.signals) && new Set(quota.signals.map((signal: any) => String(signal).toLowerCase())).size !== quota.signals.length) {
-          fail(key, 'quotaSignals.signals must not repeat a signal, ignoring case');
         }
         if (quota.basis !== 'unverified' && quota.basis !== 'transcript') fail(key, "quotaSignals.basis must be 'unverified' or 'transcript'");
         if (!Array.isArray(quota.evidence) || quota.evidence.some((item: any) => typeof item !== 'string')) fail(key, 'quotaSignals.evidence must be an array of strings');
