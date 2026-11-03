@@ -30,7 +30,7 @@ const { adoptedStores, ADOPTER } = require('../../src/runtime/state-root.ts');
 const { RUN_STORE_REL } = require('../../src/runtime/implementation-gate.ts');
 
 const HELPER_HOME = 'src/runtime/task-scope.ts';
-const HELPER_CALL = /(?<!\bfunction\s+)\b(taskRecord|taskStoreDir|recordIn|resolveTaskScope)\s*\(/g;
+const HELPERS = ['taskRecord', 'taskStoreDir', 'recordIn', 'resolveTaskScope'];
 const STORE_LITERAL = /^['"]([A-Za-z0-9][A-Za-z0-9._-]*)['"]$/;
 const STATE_PATH = /['"]\.doflow['"]\s*,\s*['"]state['"]\s*,\s*['"]([A-Za-z0-9][A-Za-z0-9._-]*)['"]/;
 const RUN_STORE_NAME = /\b(?:runStoreDir|RUN_STORE_REL)\b/;
@@ -127,6 +127,19 @@ function storeOfCall(helper: any, args: any, code: any) {
   return literal ? { store: literal[1] } : { reason: `its \`store\` (${properties.get('store')}) is not a string literal` };
 }
 
+/** The names a file gives the helpers when it imports them renamed (`{ taskRecord: tr } = require(...)`,
+ * `import { taskRecord as tr } from ...`), as local name -> helper. */
+function helperAliases(code: any) {
+  const aliases: any = new Map();
+  for (const list of [...code.matchAll(/\{([^{}]*)\}\s*=\s*require\(/g), ...code.matchAll(/\bimport\s*\{([^{}]*)\}\s*from\b/g)]) {
+    for (const entry of list[1].split(',')) {
+      const renamed = /^\s*([A-Za-z_$][\w$]*)\s*(?::|\bas\b)\s*([A-Za-z_$][\w$]*)\s*$/.exec(entry);
+      if (renamed && HELPERS.includes(renamed[1])) aliases.set(renamed[2], renamed[1]);
+    }
+  }
+  return aliases;
+}
+
 /** The files that call a namespaced-record helper, each with the stores its calls address and the
  * calls whose store cannot be resolved. */
 function helperUsers(sources: any) {
@@ -138,14 +151,17 @@ function helperUsers(sources: any) {
     const unresolved: any = [];
     let found = false;
     let scoped = false;
-    for (const call of code.matchAll(HELPER_CALL)) {
+    const aliases = helperAliases(code);
+    const callPattern = new RegExp(`(?<!\\bfunction\\s+)\\b(${[...HELPERS, ...aliases.keys()].join('|')})\\s*\\(`, 'g');
+    for (const call of code.matchAll(callPattern)) {
+      const helper = aliases.get(call[1]) ?? call[1];
       found = true;
-      scoped = scoped || call[1] === 'resolveTaskScope';
+      scoped = scoped || helper === 'resolveTaskScope';
       const open = call.index + call[0].length - 1;
       const args = balanced(code, open);
-      const result = args === null ? { reason: 'its argument list is not balanced' } : storeOfCall(call[1], args, code);
+      const result = args === null ? { reason: 'its argument list is not balanced' } : storeOfCall(helper, args, code);
       if (result.store) stores.add(result.store);
-      else if (result.reason) unresolved.push({ helper: call[1], line: code.slice(0, call.index).split('\n').length, reason: result.reason });
+      else if (result.reason) unresolved.push({ helper, line: code.slice(0, call.index).split('\n').length, reason: result.reason });
     }
     // `resolveTaskScope` takes no store argument: a file that only asks it for the namespace builds the
     // record path itself, so the state paths the file names are the stores it addresses.
@@ -244,6 +260,16 @@ test('G65 control: a store named in a comment, in the helper module or beside no
   }));
   assert.equal(errors.length, 1, errors.join('\n'));
   assert.match(errors[0], /store task-beta/);
+});
+
+test('G65 control: a helper imported under another name still counts as a user of its store', () => {
+  const renamed = "const { taskRecord: tr } = require('./task-scope.ts');\ntr({ projectRoot, store: 'gamma', taskId });\n";
+  const imported = "import { recordIn as put } from './task-scope.ts';\nput({ base: path.join(root, '.doflow', 'state', 'gamma'), name });\n";
+  for (const source of [renamed, imported]) {
+    const errors = checkAdopters(adoptedStores(fixtureRegistry()), fixtureSources({ 'src/alpha.ts': alphaUser, 'src/beta.ts': betaUser, 'src/gamma.ts': source }));
+    assert.equal(errors.length, 1, errors.join('\n'));
+    assert.match(errors[0], /^src\/gamma\.ts addresses store 'gamma' through a task-record helper/);
+  }
 });
 
 test('G65 control: removing the adopter from a real store, or adding it to one with no user, fails against the shipped sources', () => {
