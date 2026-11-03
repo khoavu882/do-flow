@@ -192,7 +192,10 @@ jobs:
             *) channel=latest ;;
           esac
           npm dist-tag add "@khoavu882/doflow@$VER" "$channel"
+          # Cleanup only: a publish token without dist-tag rm rights (403) must not block publish-release.
+          set +e
           npm dist-tag rm @khoavu882/doflow "${channel}-candidate"
+          [ $? -eq 0 ] || echo "::warning::could not remove the ${channel}-candidate dist-tag; remove it by hand"
 
   publish-release:
     needs: [promote]
