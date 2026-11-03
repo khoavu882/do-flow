@@ -124,7 +124,7 @@ test('FU-6p4x2v: a registry that cannot be read stops the restore before it writ
   } finally {
     registryModule.loadRegistry = original;
   }
-  for (const file of s.bytes.keys()) assert.ok(!fs.existsSync(file) || fs.readFileSync(file, 'utf8') !== s.bytes.get(file).toString('utf8'), `untouched: ${file}`);
+  for (const [file, bytes] of s.bytes) assert.ok(!fs.existsSync(file) || !fs.readFileSync(file).equals(bytes as Buffer), `untouched: ${file}`);
 });
 
 test('--target narrows the retired rows with the files: none of an untargeted retired harness comes back', () => {
