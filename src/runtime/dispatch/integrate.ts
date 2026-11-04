@@ -19,7 +19,8 @@
 // `update-ref` naming that head as the expected old value, so a concurrent move of the branch fails
 // the update instead of being overwritten (DEC-050). The new commit is recorded as the lease's
 // `pickedHead` before `update-ref` runs (RT-10), so a stop between the two is recoverable (IC-032). Verification follows on the integrated HEAD
-// (IC-019), then B.3's end rule finishes or releases the 080 attempt inside the dispatch lock.
+// (IC-019), then B.3's end rule finishes or releases the 080 attempt inside the dispatch lock, once
+// the integration worktree is found on its branch, at this integration's head and clean again.
 // Undo is `reset --hard` to the pre-integration head, run only while the integration branch is
 // checked out there and points at a head this integration made (IC-020).
 //
@@ -489,6 +490,19 @@ async function integrateOnce({
         retryLater(store, d, end);
         if (!undone.ok) blockRun(store, { task, kind: 'integration-error', reason: undone.reason, exitCode: undone.exitCode, undoFailed: true });
         return { ...base, outcome: 'verification', verification, undo: undone, end: end.result };
+      }, record);
+    }
+
+    // A passing verification must also have left the integration worktree as it found it: on its branch,
+    // at this integration's head, listing nothing. Anything else is not this integration's to reset, so
+    // nothing is undone and the work stays for recovery; the run blocks instead of completing.
+    const post = integrationClean({ ...where, preHead: pickedHead ?? preHead });
+    if (!post.clean) {
+      return settle((store, d) => {
+        record(store);
+        retryLater(store, d);
+        blockRun(store, { task, kind: 'integration-dirty', reason: `after-verification:${post.reason}`, paths: post.paths });
+        return { ...base, outcome: 'integration-dirty', reason: `after-verification:${post.reason}`, paths: post.paths, verification };
       }, record);
     }
 
