@@ -8,6 +8,7 @@ const { createPiAdapter } = require('../../../src/adapters/pi/index.ts');
 const { createAdapterRegistry } = require('../../../src/adapters/index.ts');
 const { fingerprint } = require('../../../src/adapters/copy-tree.ts');
 const { SKELETON, renderNewDocument } = require('../../../src/adapters/pi/json-members.ts');
+const { applyPiMcp, canonicalTarget } = require('../../../src/adapters/pi/mcp.ts');
 const { declaredHarnessPaths, resolveHarnessPaths } = require('../../../src/helper/harness-paths.ts');
 const { loadRegistry, selectMcpServers, harnessFor } = require('../../../src/registry/index.ts');
 const { planLifecycle, applyLifecycle, removeLifecycle, updateLedger } = require('../../../src/lifecycle/index.ts');
@@ -615,6 +616,64 @@ test('FU-jyrh6w: an MCP path move leaves no tombstone, keeps sibling and edited 
   const third = run({ root, ledger: { ...second.ledger, tombstones: [legacy, other] } });
   assert.deepEqual(third.ledger.tombstones, [other]);
   assert.deepEqual(JSON.parse(fs.readFileSync(oldFile, 'utf8')).mcpServers, after, 'repeated updates leave the old file alone');
+});
+
+test('FU-1wm2q6: an owned entry whose keys the user reordered is equal, not re-spliced', () => {
+  const root = scratch();
+  const first = run({ root });
+  const reordered = JSON.parse(fs.readFileSync(userFile(root), 'utf8'));
+  for (const [id, entry] of Object.entries<any>(reordered.mcpServers)) reordered.mcpServers[id] = Object.fromEntries(Object.entries(entry).reverse());
+  const text = JSON.stringify(reordered, null, 4);
+  fs.writeFileSync(userFile(root), text);
+  const again = planRun({ root, ledger: first.ledger });
+  assert.deepEqual(mcpChanges(again.planned), [], 'no update for a reordered but equal entry');
+  assert.equal(fs.readFileSync(userFile(root), 'utf8'), text);
+});
+
+test('FU-1wm2q6: a BOM or JSONC mcp.json stays a refusal that writes nothing', () => {
+  for (const text of ['\uFEFF{"mcpServers":{}}', '{\n  // note\n  "mcpServers": {}\n}\n']) {
+    const root = scratch();
+    writeFile(userFile(root), text);
+    const { planned } = planRun({ root });
+    assert.equal(planned.conflicts.length, 1);
+    assert.match(planned.conflicts[0], /invalid JSON/);
+    assert.deepEqual(mcpChanges(planned), []);
+    assert.equal(fs.readFileSync(userFile(root), 'utf8'), text);
+  }
+});
+
+test('FU-1wm2q6: the hash check and the write run under one lock named by the canonical target, links included', { skip: process.platform === 'win32' && 'symlinks need privileges' }, () => {
+  const root = scratch();
+  const realDir = scratch();
+  const real = path.join(realDir, 'real-mcp.json');
+  writeFile(real, '{\n  "mcpServers": {}\n}\n');
+  fs.mkdirSync(path.dirname(userFile(root)), { recursive: true });
+  fs.symlinkSync(real, userFile(root));
+  assert.equal(canonicalTarget(userFile(root), fs), fs.realpathSync(real));
+  const missing = path.join(realDir, 'later', 'mcp.json');
+  assert.equal(canonicalTarget(missing, fs), path.join(fs.realpathSync(realDir), 'later', 'mcp.json'));
+  const { planned } = planRun({ root });
+  const locks: string[] = [];
+  const watched = Object.assign(Object.create(fs), {
+    mkdirSync: (dir: string, ...rest: any[]) => { if (dir.endsWith('.lock')) locks.push(dir); return fs.mkdirSync(dir, ...rest); },
+  });
+  assert.equal(applyPiMcp(planned.changes.filter((change: any) => change.projection?.renderer === 'pi-mcp'), { fsImpl: watched }).applied, 1);
+  assert.deepEqual(locks, [`${fs.realpathSync(real)}.lock`]);
+  assert.equal(fs.existsSync(`${fs.realpathSync(real)}.lock`), false, 'the lock is released');
+  assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(real, 'utf8')).mcpServers), SERVERS.map((server: any) => server.id));
+  assert.ok(fs.lstatSync(userFile(root)).isSymbolicLink());
+});
+
+test('FU-1wm2q6: a competing stale plan refuses and keeps the first installer\'s bytes', () => {
+  const root = scratch();
+  const a = planRun({ root });
+  const b = planRun({ root });
+  const changesOf = (planned: any) => planned.changes.filter((change: any) => change.projection?.renderer === 'pi-mcp');
+  assert.equal(applyPiMcp(changesOf(a.planned)).applied, 1);
+  const written = fs.readFileSync(userFile(root), 'utf8');
+  assert.throws(() => applyPiMcp(changesOf(b.planned)), /changed after planning/);
+  assert.equal(fs.readFileSync(userFile(root), 'utf8'), written);
+  assert.equal(fs.existsSync(`${fs.realpathSync(userFile(root))}.lock`), false, 'a refusal releases the lock');
 });
 
 test('P17 (capability): Pi declares MCP supported with its MCP pages and .pi/mcp.json as the native target', () => {
