@@ -342,3 +342,80 @@ test('G65 control: the orchestrator is recognised as an orchestration user from 
   const orchestrator = helperUsers(new Map([['src/runtime/workflow-orchestrator.ts', sources.get('src/runtime/workflow-orchestrator.ts')]])).get('src/runtime/workflow-orchestrator.ts');
   assert.deepEqual([orchestrator.stores, orchestrator.unresolved], [['orchestration'], []]);
 });
+
+// G65 (FU-ecszsd) — a test never lets a store-writing handler default its state root to process.cwd().
+//
+// handleContextPackCommand (and every exported sibling that reads `stateRoot || process.cwd()`) writes its
+// records under that root. A test that calls one without a root of its own writes into the checkout the
+// suite runs in (verify's broad tier runs npm test there), and the leaked record blocks the next record verb
+// (FU-k9h1df fixed one file, add571d7). The handlers are read from src, so a new one is covered when it is
+// added. A call whose first argument is an object literal must name a root (`stateRoot`, `repoRoot`, `root`)
+// or `noRecord`; a call that forwards a variable or spreads options is accepted when its file names one of
+// `stateRoot`, `noRecord`, `repoRoot` or `process.chdir` somewhere. That file-level rule is the accepted
+// ceiling: it cannot prove each forwarded call reaches a root.
+const ROOT_KEYS = ['stateRoot', 'repoRoot', 'root', 'noRecord'];
+const FILE_ISOLATION = /\b(?:stateRoot|noRecord|repoRoot)\b|process\.chdir\b/;
+
+/** `code` with the inside of single- and double-quoted strings blanked, so a test title cannot look like a call. */
+const maskStrings = (code: string) => code.replace(/'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"/g, (quoted: string) => `${quoted[0]}${' '.repeat(quoted.length - 2)}${quoted[0]}`);
+
+/** Exported functions whose body defaults `stateRoot` to process.cwd(), across `sources` (path -> text). */
+function cwdDefaultingHandlers(sources: Map<string, string>): string[] {
+  const names = new Set<string>();
+  for (const text of sources.values()) {
+    const code = stripComments(text);
+    for (const hit of code.matchAll(/\bstateRoot\b[^;\n]*\|\|[^;\n]*process\.cwd\(\)/g)) {
+      const owner = [...code.slice(0, hit.index).matchAll(/(?:^|\n)(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/g)].pop();
+      if (owner && new RegExp(`module\\.exports[\\s\\S]*\\b${escapeRegExp(owner[1])}\\b`).test(code)) names.add(owner[1]);
+    }
+  }
+  return [...names].sort();
+}
+
+/** The calls in one test file that can reach process.cwd() as a state root: `line: handler(...)` strings. */
+function unrootedCalls(testText: string, handlers: string[]): string[] {
+  const code = maskStrings(stripComments(testText));
+  const fileIsolated = FILE_ISOLATION.test(code);
+  const found: string[] = [];
+  for (const handler of handlers) {
+    for (const call of code.matchAll(new RegExp(`(?<![\\w$.])${escapeRegExp(handler)}\\s*\\(`, 'g'))) {
+      const open = (call.index as number) + call[0].length - 1;
+      const args = balanced(code, open);
+      const properties = args === null ? null : firstObjectProperties(args);
+      const rooted = properties ? ROOT_KEYS.some((key) => properties.has(key)) : false;
+      if (!rooted && !fileIsolated) found.push(`line ${code.slice(0, call.index).split('\n').length}: ${handler}(...)`);
+    }
+  }
+  return found;
+}
+
+const testSources = () => new Map<string, string>(walkSource('test').filter((file: string) => !file.startsWith('test/fixtures/') && file !== 'test/guards/adopted-stores.test.ts')
+  .map((file: string) => [file, fs.readFileSync(path.join(REPO, file), 'utf8')]));
+
+test('G65 (FU-ecszsd): no test calls a cwd-defaulting store handler without a state root of its own', () => {
+  const handlers = cwdDefaultingHandlers(shippedSources());
+  assert.ok(handlers.includes('handleContextPackCommand'), `the handlers are read from src: ${handlers.join(', ')}`);
+  const offenders: string[] = [];
+  for (const [file, text] of testSources()) for (const call of unrootedCalls(text, handlers)) offenders.push(`${file} ${call}`);
+  assert.deepEqual(offenders, [], 'pass stateRoot (a temp dir) or noRecord, or chdir into one:\n  ' + offenders.join('\n  '));
+});
+
+test('G65 control (FU-ecszsd): handlers are read from exported functions that default stateRoot, not from comments or private helpers', () => {
+  const sources = new Map([
+    ['src/a.ts', "function handleA({ stateRoot }) {\n  const root = stateRoot || process.cwd();\n}\nmodule.exports = { handleA };\n"],
+    ['src/b.ts', "function privateB({ stateRoot }) {\n  const root = stateRoot || repoRoot || process.cwd();\n}\nmodule.exports = { other };\n"],
+    ['src/c.ts', "// const root = stateRoot || process.cwd();\nfunction handleC({ stateRoot }) { return stateRoot; }\nmodule.exports = { handleC };\n"],
+  ]);
+  assert.deepEqual(cwdDefaultingHandlers(sources), ['handleA']);
+});
+
+test('G65 control (FU-ecszsd): a bare call, a root-less literal and a forwarded call in a file with no root are reported; rooted and isolated ones are not', () => {
+  const handlers = ['handleA'];
+  assert.equal(unrootedCalls("const { handleA } = require('x');\nhandleA({ taskId: 't', json: true });\n", handlers).length, 1);
+  assert.equal(unrootedCalls("const { handleA } = require('x');\nhandleA(options);\n", handlers).length, 1);
+  assert.equal(unrootedCalls("const { handleA } = require('x');\nhandleA({ taskId: 't', stateRoot: tmp });\n", handlers).length, 0);
+  assert.equal(unrootedCalls("const { handleA } = require('x');\nhandleA({ noRecord: true, taskId: 't' });\n", handlers).length, 0);
+  assert.equal(unrootedCalls("const { handleA } = require('x');\nhandleA({ stateRoot, ...options });\n", handlers).length, 0);
+  assert.equal(unrootedCalls("const stateRoot = tmp();\nfunction run(options) { return handleA(options); }\n", handlers).length, 0, 'a forwarded call in a file that names a root is accepted');
+  assert.equal(unrootedCalls("test('during handleA (negative control)', () => {});\n// handleA({ x: 1 })\n", handlers).length, 0, 'a test title and a comment are not calls');
+});
