@@ -393,7 +393,7 @@ const testSources = () => new Map<string, string>(walkSource('test').filter((fil
   .map((file: string) => [file, fs.readFileSync(path.join(REPO, file), 'utf8')]));
 
 test('G65 (FU-ecszsd): no test calls a cwd-defaulting store handler without a state root of its own', () => {
-  const handlers = cwdDefaultingHandlers(shippedSources());
+  const handlers = cwdDefaultingHandlers(shippedSources() as Map<string, string>);
   assert.ok(handlers.includes('handleContextPackCommand'), `the handlers are read from src: ${handlers.join(', ')}`);
   const offenders: string[] = [];
   for (const [file, text] of testSources()) for (const call of unrootedCalls(text, handlers)) offenders.push(`${file} ${call}`);
