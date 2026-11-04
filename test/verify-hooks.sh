@@ -890,6 +890,25 @@ else
   fail "second line event mismatch: $STOP_EVENT"
 fi
 
+# FU-ydxscg: the same stop delivered again (a second front door) is not a second record; a start is never deduped.
+run_hook subagent-audit.sh "$AUDIT_STOP_INPUT" > /dev/null 2>&1 || true
+LOG_LINES=$(wc -l < "$AUDIT_LOG" 2>/dev/null | tr -d ' ')
+if [[ "$LOG_LINES" == "2" ]]; then
+  pass "a repeated SubagentStop for the same session and agent is recorded once"
+else
+  fail "expected 2 log lines after a duplicate stop, got $LOG_LINES"
+fi
+
+run_hook subagent-audit.sh "{\"session_id\":\"$AUDIT_SESS\",\"hook_event_name\":\"SubagentStop\",\"agent_type\":\"code-reviewer\",\"agent_id\":\"agent-456\"}" > /dev/null 2>&1 || true
+run_hook subagent-audit.sh "{\"session_id\":\"$AUDIT_SESS\",\"hook_event_name\":\"SubagentStop\",\"agent_type\":\"code-reviewer\"}" > /dev/null 2>&1 || true
+run_hook subagent-audit.sh "{\"session_id\":\"$AUDIT_SESS\",\"hook_event_name\":\"SubagentStop\",\"agent_type\":\"code-reviewer\"}" > /dev/null 2>&1 || true
+LOG_LINES=$(wc -l < "$AUDIT_LOG" 2>/dev/null | tr -d ' ')
+if [[ "$LOG_LINES" == "5" ]]; then
+  pass "a different agent id and id-less stops are each recorded (5 lines)"
+else
+  fail "expected 5 log lines (start, stop, other agent, two id-less), got $LOG_LINES"
+fi
+
 # Missing session_id must fail open (no crash, no log written, exit 0)
 NOSESS_INPUT="{\"hook_event_name\":\"SubagentStart\",\"agent_type\":\"code-reviewer\"}"
 NOSESS_EXIT=$(hook_exit subagent-audit.sh "$NOSESS_INPUT")
