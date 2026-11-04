@@ -244,20 +244,23 @@ function loadGatePolicy(cwd: string | null):
  * is on, so the class seat floor binds; maint-thin), the gate policy (the shipped gates.json narrowed by the
  * project's `.doflow/gates.override.json`, read as roadmap gate-b reads it, 119 IC-005; null when there is no task class, so
  * no floor), the protocols registry and the enforcement inputs (`loadEnforcementInputs`). A base, override or registry the loaders reject is a refusal carrying the loader's
- * reason (and the override file). Shared with the `protocol` verb.
+ * reason (and the override file). Shared with the `protocol` verb. `replaced` names the settings a prepared run
+ * (`config validate --prepared-run`) writes to the project layer: an invalid project candidate of such a key is
+ * replaced by it, so it does not refuse here.
  */
-function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<string, string | undefined> = process.env):
+function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<string, string | undefined> = process.env, replaced: ReadonlySet<string> = new Set()):
   { gatePolicy: any; unattended: boolean; registry: any; settingsView: Record<string, { value: unknown; layer: string }>; agentAccess: Record<string, string>; readOnlyLimits: any[] } | { error: string; message: string } {
   const settingsView: Record<string, { value: unknown; layer: string }> = {};
   try {
     const settings = require('../settings/resolve.ts').loadSettings({ projectRoot: path.resolve(cwd), env });
     for (const key of PROTOCOL_SETTINGS) {
       const resolution = settings.get(key);
-      // C-6: an invalid project or local review.* candidate would silently fall back to the default: refuse instead.
-      // A preset key refuses an invalid user candidate too.
-      const invalid = key.endsWith('.preset') ? invalidPresetCandidate(resolution)
-        : key.startsWith('review.') ? invalidProjectCandidate(resolution) : undefined;
-      if (invalid) return { error: 'settings-unavailable', message: `${key} in ${invalid.source}: ${invalid.reason}` };
+      // C-6: an invalid project or local review.* candidate would silently fall back to the default: refuse instead,
+      // except a project candidate that a prepared run replaces. A preset key refuses an invalid user candidate too.
+      const judged = replaced.has(key) ? { ...resolution, candidates: (resolution.candidates ?? []).filter((c: any) => c.layer !== 'project') } : resolution;
+      const stands = key.endsWith('.preset') ? invalidPresetCandidate(judged)
+        : key.startsWith('review.') ? invalidProjectCandidate(judged) : undefined;
+      if (stands) return { error: 'settings-unavailable', message: `${key} in ${stands.source}: ${stands.reason}` };
       settingsView[key] = { value: resolution.value, layer: resolution.origin.layer };
     }
   } catch (error: any) {

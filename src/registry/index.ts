@@ -582,6 +582,8 @@ const WORKER_BILLING = new Set(['free', 'metered', 'unknown']);
 const WORKER_KEYS = Object.freeze(['profile', 'billing', ...Object.keys(WORKER_CAPABILITIES), 'modelChecks']);
 const WORKER_ALLOWED_KEYS = Object.freeze([...WORKER_KEYS, ...Object.keys(WORKER_OPTIONAL_CAPABILITIES), 'family']);
 const WORKER_ENTRY_FIELDS = new Set(['status', 'evidence', 'verification', 'verifiedOn', 'reason']);
+// Soft hyphen, Mongolian vowel separator, zero-width and directional marks, word joiner and invisible operators, BOM.
+const INVISIBLE_CHARACTER = /[\u00ad\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u206f\ufeff]/;
 const WORKER_RECIPE_FIELDS = new Set(['binary', 'versionArgv', 'argv', 'promptVia', 'parser', 'marker', 'quotaSignals']);
 const WORKER_QUOTA_SIGNALS_FIELDS = new Set(['signals', 'basis', 'evidence']);
 const WORKER_FACTS = new Set(['hooksLoaded', 'identityForwarded', 'guidanceLoaded', 'login']);
@@ -681,10 +683,25 @@ function validateWorker(value: any, location: string, errors: string[]): void {
       else {
         for (const field of Object.keys(quota)) if (!WORKER_QUOTA_SIGNALS_FIELDS.has(field)) fail(key, `quotaSignals has unknown field '${field}'`);
         if (!Array.isArray(quota.signals) || quota.signals.length < 1 || quota.signals.length > 16) fail(key, 'quotaSignals.signals must contain 1 to 16 signals');
-        else for (const signal of quota.signals) {
-          if (typeof signal !== 'string' || signal !== signal.trim() || signal.length < 3 || signal.length > 64 || /[\u0000-\u001f\u007f]/.test(signal)) {
-            fail(key, 'quotaSignals.signals must be trimmed strings of 3 to 64 characters without control characters');
-            break;
+        else {
+          const folded = new Set<string>();
+          for (const signal of quota.signals) {
+            if (typeof signal !== 'string' || signal !== signal.trim() || signal.length < 3 || signal.length > 64 || /[\u0000-\u001f\u007f]/.test(signal)) {
+              fail(key, 'quotaSignals.signals must be trimmed strings of 3 to 64 characters without control characters');
+              break;
+            }
+            // The matcher lowercases both sides, so a signal that differs only by case never adds a match; a
+            // zero-width or format character makes one that reads like another yet matches nothing.
+            if (INVISIBLE_CHARACTER.test(signal)) {
+              fail(key, 'quotaSignals.signals must not contain zero-width or invisible format characters');
+              break;
+            }
+            const lowered = signal.toLowerCase();
+            if (folded.has(lowered)) {
+              fail(key, `quotaSignals.signals has a duplicate signal '${signal}' (compared without letter case)`);
+              break;
+            }
+            folded.add(lowered);
           }
         }
         if (quota.basis !== 'unverified' && quota.basis !== 'transcript') fail(key, "quotaSignals.basis must be 'unverified' or 'transcript'");
