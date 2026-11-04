@@ -539,7 +539,7 @@ These are the stores DoFlow keeps on this machine. A pruned store has the bound 
 | `recovery-user` | `~/.doflow/state/recovery` | keep newest 3, plus the snapshot named by the ledger |
 | `recovery-project` | `.doflow/state/recovery` | keep newest 3, plus the snapshot named by the ledger |
 | `lifecycle-events` | `.doflow/state/lifecycle/events` | retain settled events for 4320 hours |
-| `report-bodies` | `~/.config/doflow/reports` | prune orphan bodies after 24 hours; foreign folders after 180 days |
+| `report-bodies` | `~/.config/doflow/reports` | prune orphan bodies after 24 hours; foreign folders are kept |
 | `session-dirs` | `~/.config/doflow/session-env/sessions` | prune inactive directories after 30 days |
 | `project-dirs` | `~/.config/doflow/session-env/projects` | prune inactive directories after 90 days |
 | `summary-scopes` | `~/.config/doflow/session-env/summaries` | prune inactive directories after 90 days |

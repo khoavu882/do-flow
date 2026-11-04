@@ -87,7 +87,7 @@ test('IC-001: formatBound uses the canonical text for every rule', () => {
     [{ rule: 'date-partition', bound: { maxAgeDays: 180 } }, 'prune partitions older than 180 days'],
     [{ rule: 'recovery', bound: { keepNewest: 3 } }, 'keep newest 3, plus the snapshot named by the ledger'],
     [{ rule: 'lifecycle-settled', bound: { defaultHours: 4320 } }, 'retain settled events for 4320 hours'],
-    [{ rule: 'report-orphan', bound: { orphanGraceHours: 24, foreignMaxAgeDays: 180 } }, 'prune orphan bodies after 24 hours; foreign folders after 180 days'],
+    [{ rule: 'report-orphan', bound: { orphanGraceHours: 24, foreignMaxAgeDays: 180 } }, 'prune orphan bodies after 24 hours; foreign folders are kept'],
     [{ rule: 'age', bound: { maxAgeDays: 30 } }, 'prune inactive directories after 30 days'],
     [{ rule: 'existing', bound: { value: 3, text: 'keep 3' } }, 'keep 3'],
     [{ rule: 'control', bound: { text: 'self-cleaning' } }, 'self-cleaning'],
