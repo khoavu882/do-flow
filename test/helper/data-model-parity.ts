@@ -16,7 +16,7 @@ const TEMPLATE_HEADINGS = [
 ];
 const TRANSITION_COLUMNS = ['From', 'Event', 'Guard', 'Actor', 'Side effect', 'To', 'Emitted event', 'Source'];
 const MAX_STATES = 10;
-const SOURCE_TOKEN = /^(FR-\d{3}|NFR-\d{3}|IC-\d{3}|code:\S+:\d+|proposed|UNKNOWN -> Open Point)$/;
+const SOURCE_TOKEN = /^(FR-\d{3}|NFR-\d{3}|IC-\d{3}|code:[^\s,]+:\d+|proposed|UNKNOWN -> Open Point)$/;
 
 const stripComments = (text: string): string => text.replace(/<!--[\s\S]*?-->/g, '');
 
@@ -59,16 +59,22 @@ function sectionOf(body: string, pattern: RegExp): string | null {
   return parts.find((p) => pattern.test(p.split('\n')[0])) ?? null;
 }
 
-/** Each `#### <prefix>: <name>` block as [name, body], ending at the next heading of any level 1-4. */
+/** Each `#### <prefix>: <name>` block as [name, body], ending at the next heading of any level 1-4.
+ * A line inside a code fence is never a heading: it neither opens nor ends a block. */
 function blocksUnder(body: string, prefix: string): [string, string][] {
   const out: [string, string][] = [];
   const lines = body.split('\n');
   const head = new RegExp(`^#### ${prefix}:\\s*(.+?)\\s*$`);
+  const fenced: boolean[] = [];
+  let inFence = false;
+  for (const line of lines) {
+    if (line.trim().startsWith('```')) { inFence = !inFence; fenced.push(true); } else fenced.push(inFence);
+  }
   for (let i = 0; i < lines.length; i++) {
-    const m = head.exec(lines[i]);
+    const m = fenced[i] ? null : head.exec(lines[i]);
     if (!m) continue;
     let end = i + 1;
-    while (end < lines.length && !/^#{1,4}\s/.test(lines[end])) end++;
+    while (end < lines.length && (fenced[end] || !/^#{1,4}\s/.test(lines[end]))) end++;
     out.push([m[1], lines.slice(i + 1, end).join('\n')]);
   }
   return out;
@@ -105,13 +111,15 @@ function templateHeadingFindings(text: string): string[] {
 function erEntities(body: string): string[] {
   const names: string[] = [];
   const add = (n: string) => { if (!names.some((x) => x.toLowerCase() === n.toLowerCase())) names.push(n); };
-  const relation = /^([A-Za-z_][\w-]*)\s+[|}o][|o](?:--|\.\.)[|o][|{o]\s+([A-Za-z_][\w-]*)/;
+  // An entity name is bare or double-quoted (a quoted name may hold spaces); the quotes are not part of it.
+  const name = '(?:([A-Za-z_][\\w-]*)|"([^"]+)")';
+  const relation = new RegExp(`^${name}\\s+[|}o][|o](?:--|\\.\\.)[|o][|{o]\\s+${name}`);
   for (const lines of mermaidBlocks(body, 'erDiagram')) {
     for (const line of lines) {
       const r = relation.exec(line);
-      if (r) { add(r[1]); add(r[2]); continue; }
-      const e = /^([A-Za-z_][\w-]*)\s*\{/.exec(line);
-      if (e) add(e[1]);
+      if (r) { add(r[1] ?? r[2]); add(r[3] ?? r[4]); continue; }
+      const e = new RegExp(`^${name}\\s*\\{`).exec(line);
+      if (e) add(e[1] ?? e[2]);
     }
   }
   return names;
@@ -178,10 +186,13 @@ function sourceTableKind(h: string[]): string | null {
   if (h[0] === 'Entity' && h.includes('Owner') && h.includes('Create')) return 'Ownership';
   if (h[0] === 'Event' && h.includes('Emitted by')) return 'Event catalogue';
   if (h[0] === 'Entity' && h.includes('Retention')) return 'Retention';
+  if (h[0] === 'Field' && h.includes('PII class')) return 'Dictionary';
+  if (h[0] === 'Trigger entity and transition') return 'Coupling';
   return null;
 }
 
-/** Every row of the Transitions, Invariants, Ownership, Event and Retention tables ends in a Source token. */
+/** Every row of the Dictionary, Transitions, Coupling, Invariants, Ownership, Event and Retention tables
+ * ends in exactly one Source token. */
 function sourceCellFindings(text: string): string[] {
   const findings: string[] = [];
   for (const { header, rows } of tablesOf(stripComments(text))) {
@@ -190,9 +201,8 @@ function sourceCellFindings(text: string): string[] {
     if (header[header.length - 1] !== 'Source') findings.push(`${kind} table: last column is "${header[header.length - 1]}", expected Source`);
     for (const row of rows) {
       const cell = cellText(row[row.length - 1] ?? '');
-      const tokens = cell.split(/\s*,\s*/);
-      if (!cell || !tokens.every((t) => SOURCE_TOKEN.test(t))) {
-        findings.push(`${kind} table: row "${cellText(row[0] ?? '')}" has Source cell "${cell}", expected FR-###, NFR-###, IC-###, code:<path>:<line>, proposed or UNKNOWN -> Open Point`);
+      if (!SOURCE_TOKEN.test(cell)) {
+        findings.push(`${kind} table: row "${cellText(row[0] ?? '')}" has Source cell "${cell}", expected exactly one of FR-###, NFR-###, IC-###, code:<path>:<line>, proposed or UNKNOWN -> Open Point`);
       }
     }
   }
