@@ -230,23 +230,17 @@ function inspectArtifacts(index: string, inventory: any, paths: any, model: any,
   for (const [file, entry] of admitted as any) if (digest(regularBytes(path.join(paths.mirror, file), limits.fileBytes)) !== entry.fileHash) throw fault('mirror-hash-mismatch', 'STALE');
   return { chunks: chunks.length, artifactBytes: tree.bytes, artifactIdentity: digest(JSON.stringify(tree.files.map((f: any) => [f.path, digest(regularBytes(path.join(index, f.path), limits.artifactBytes))]))) };
 }
-// The semantic lock records {pid, hostname, token} and, once a bridge child is started, its `bridgePid`. The Python bridge
-// is the process that writes the index cache, so it can outlive a crashed Node owner. A lock whose owner pid is dead on
-// this host (run-lock.ts's liveness rule: process.kill(pid, 0)) AND whose recorded bridge pid, if any, is dead too is
-// reclaimed under a claim file named for its token, created `wx`: the claim winner re-reads the lock and removes it only
-// while it still carries the judged token, so a live or newer lock is never removed. Reclaim never signals a pid. The
-// bridge pid is written under the existing token by rename (an atomic replace) before the request reaches the bridge, so
-// a crash before that point leaves a child with no request (its stdin closes), and a crash after it leaves a recorded pid.
-// A lock from another host, from this process, or without a readable record is never reclaimed.
+// The semantic lock records {pid, hostname, token}. A lock whose owner pid is dead on this host (run-lock.ts's liveness
+// rule: process.kill(pid, 0)) is reclaimed under a claim file named for its token, created `wx`: the claim winner re-reads
+// the lock and removes it only while it still carries the judged token, so a live or newer lock is never removed. A lock
+// from another host, from this process, or without a readable record is never reclaimed.
 // Ceiling: a reclaimer killed between creating and removing its claim leaves `operation.lock.claim.<token>`, and that
-// lock then waits for a manual removal, which the contention cause names. A recorded pid that the OS has reused for an
-// unrelated live process keeps the lock until it is removed by hand (liveness is the only test, as in run-lock.ts).
+// lock then waits for a manual removal, which the contention cause names.
 const LOCK_TOKEN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 function readLockOwner(lock: string): any {
   try {
     const owner = JSON.parse(regularBytes(lock, 4096).toString('utf8'));
-    return owner && Number.isInteger(owner.pid) && typeof owner.hostname === 'string' && LOCK_TOKEN.test(owner.token)
-      && (owner.bridgePid === undefined || (Number.isInteger(owner.bridgePid) && owner.bridgePid > 0)) ? owner : null;
+    return owner && Number.isInteger(owner.pid) && typeof owner.hostname === 'string' && LOCK_TOKEN.test(owner.token) ? owner : null;
   } catch { return null; }
 }
 function reclaimStaleLock(lock: string, owner: any, hostname: string): boolean {
@@ -258,18 +252,6 @@ function reclaimStaleLock(lock: string, owner: any, hostname: string): boolean {
     fs.unlinkSync(lock); return true;
   } finally { try { fs.unlinkSync(claim); } catch {} }
 }
-// Adds the bridge child's pid to the lock this process holds, keeping its token: write a sibling, then rename over the lock.
-// Returns without writing when the lock is not ours (a caller that holds none, as the bridge spy test does).
-function recordBridgePid(lock: string, pid: number): void {
-  const owner = readLockOwner(lock);
-  if (!owner || owner.pid !== process.pid) return;
-  const next = `${lock}.bridge.${owner.token}`;
-  try {
-    fs.writeFileSync(next, `${JSON.stringify({ ...owner, bridgePid: pid })}\n`, { mode: 0o600 });
-    if (readLockOwner(lock)?.token !== owner.token) throw fault('lock-contention', 'UNKNOWN', 'the semantic lock changed owner before the bridge was recorded');
-    fs.renameSync(next, lock);
-  } catch (error) { try { fs.unlinkSync(next); } catch {} throw error; }
-}
 async function acquireSemanticLock(paths: any, { isAlive = defaultIsAlive, hostname = os.hostname(), waitMs = 100 }: any = {}): Promise<any> {
   safeDirectories(paths.root, paths.state, true);
   const token = crypto.randomUUID();
@@ -280,12 +262,11 @@ async function acquireSemanticLock(paths: any, { isAlive = defaultIsAlive, hostn
       return () => { fs.closeSync(fd); if (readLockOwner(paths.lock)?.token === token) fs.unlinkSync(paths.lock); };
     } catch (error: any) { if (error.code !== 'EEXIST') throw error; }
     const owner = readLockOwner(paths.lock);
-    if (owner && owner.hostname === hostname && owner.pid !== process.pid && !isAlive(owner.pid)
-      && (owner.bridgePid === undefined || !isAlive(owner.bridgePid)) && reclaimStaleLock(paths.lock, owner, hostname)) continue;
+    if (owner && owner.hostname === hostname && owner.pid !== process.pid && !isAlive(owner.pid) && reclaimStaleLock(paths.lock, owner, hostname)) continue;
     if (Date.now() >= deadline) {
-      throw fault('lock-contention', 'UNKNOWN', `another semantic index operation holds ${paths.lock}${owner ? ` (pid ${owner.pid}${owner.bridgePid ? `, bridge pid ${owner.bridgePid}` : ''} on ${owner.hostname})` : ''}; `
-        + 'run the command again when it finishes. A lock whose process (and bridge process) has exited on this host is reclaimed automatically; '
-        + `otherwise remove ${paths.lock} (and any ${path.basename(paths.lock)}.claim.* or .bridge.* beside it) only after confirming no semantic build, refresh or query is running.`);
+      throw fault('lock-contention', 'UNKNOWN', `another semantic index operation holds ${paths.lock}${owner ? ` (pid ${owner.pid} on ${owner.hostname})` : ''}; `
+        + 'run the command again when it finishes. A lock whose process has exited on this host is reclaimed automatically; '
+        + `otherwise remove ${paths.lock} (and any ${path.basename(paths.lock)}.claim.* beside it) only after confirming no semantic build, refresh or query is running.`);
     }
     await new Promise(resolve => setTimeout(resolve, 10));
   }
@@ -336,10 +317,7 @@ function executeBridge(request: any, options: any, paths: any, sandbox: string):
       try { const result = JSON.parse(stdout); if (result.version !== SEMBLE_VERSION || typeof result.ok !== 'boolean') throw Error(); finish(result); }
       catch { finish({ ok: false, reason: 'invalid-provider-output' }); }
     });
-    child.stdin.on('error', () => {});
-    // The bridge pid is on the lock before the bridge can receive its request; a record that cannot be written ends the run unsent.
-    try { if (child.pid) recordBridgePid(paths.lock, child.pid); } catch { stop('provider-unsafe-write'); return; }
-    child.stdin.end(JSON.stringify(request));
+    child.stdin.on('error', () => {}); child.stdin.end(JSON.stringify(request));
   });
 }
 function readCompleted(paths: any, inventory: any, model: any, limits: any, allowChanged = false): any {
