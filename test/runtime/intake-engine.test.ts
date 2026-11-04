@@ -386,6 +386,20 @@ test('preview reports the moves a sort would make, writes nothing and takes no l
   assert.deepEqual(preview.unmatched, real.unmatched);
 });
 
+test('preview validates the manifest and .intake the same way with or without a loose render (FU-mwb9pn)', (t: any) => {
+  for (const files of [{ 'prd.md': 'a' }, { 'prd.md': 'a', 'x.png': Buffer.from([7]) }]) {
+    const { ctx } = tree(t, files);
+    fs.mkdirSync(path.join(ctx, '.intake'));
+    fs.writeFileSync(manifestFile(ctx), '{ torn');
+    assert.throws(() => previewSort({ contextDir: ctx, taxonomy: taxonomy(), now: LATER() }), (e: any) => e instanceof IntakeUsageError, Object.keys(files).join());
+
+    const { ctx: linked, dir } = tree(t, files);
+    fs.mkdirSync(path.join(dir, 'elsewhere'));
+    fs.symlinkSync(path.join(dir, 'elsewhere'), path.join(linked, '.intake'));
+    assert.throws(() => previewSort({ contextDir: linked, taxonomy: taxonomy(), now: LATER() }), (e: any) => e instanceof IntakeUsageError && /not a real folder/.test(e.message), Object.keys(files).join());
+  }
+});
+
 // ── undo ───────────────────────────────────────────────────────────────────────────────────────
 
 test('undo puts every file back with its original hash and removes the folders the run made (FR-005)', (t: any) => {
