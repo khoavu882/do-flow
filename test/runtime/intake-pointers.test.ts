@@ -5,7 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { tempDir } = require('../helper/tmp.ts');
-const { collectPointers } = require('../../src/runtime/context/pointer.ts');
+const { collectPointers, readPointerSlice } = require('../../src/runtime/context/pointer.ts');
+const { EvidenceLedger } = require('../../src/runtime/evidence-ledger.ts');
 const { handleContextPackCommand } = require('../../src/runtime/context-pack.ts');
 const { createDeliveryEntry, recordDelivery } = require('../../src/runtime/context/delivery-store.ts');
 
@@ -45,7 +46,7 @@ test('a binary or non-UTF-8 file saved as .md never becomes a pointer; plain tex
   assert.ok(![...paths].some((p: any) => /nul\.md|latin1\.md/.test(p)), [...paths].join(', '));
 });
 
-test('a binary .md under a symlinked agent-docs is held to the same text test, and plain text there is still a user pointer', (t) => {
+test('a binary .md under a symlinked agent-docs is held to the same text test, and plain text there is still a user pointer under its logical path', (t) => {
   const root = tempDir(t, 'doflow-intake-link-');
   const real = path.join(root, 'docs-real');
   const ctx = path.join(real, 'doflow', SLUG, 'additional-context');
@@ -55,8 +56,26 @@ test('a binary .md under a symlinked agent-docs is held to the same text test, a
   fs.symlinkSync(real, path.join(root, 'agent-docs'));
   const featureDir = path.join(root, 'agent-docs', 'doflow', SLUG);
   const pointers = collectPointers({ projectRoot: root, feature: { featureDir, repoRoot: root, paths: {} } });
-  assert.deepEqual([...new Set(pointers.map((p: any) => p.path))], ['docs-real/doflow/136-fixture/additional-context/prd/plain.md']);
-  assert.ok(pointers.every((p: any) => p.origin === 'user-provided'), 'the shape is gone from the realpath, the origin is still the user\'s');
+  const logical = `agent-docs/doflow/${SLUG}/additional-context/prd/plain.md`;
+  assert.deepEqual([...new Set(pointers.map((p: any) => p.path))], [logical]);
+  assert.ok(pointers.every((p: any) => p.origin === 'user-provided'));
+
+  // The ledger recognises the locator, so it asks for the user-provided source.
+  const ledger = new EvidenceLedger();
+  assert.throws(() => ledger.addEvidence({ kind: 'documentation', locator: { file: pointers[0].path } }), /user-provided/);
+  assert.ok(ledger.addEvidence({ kind: 'documentation', source: { provider: 'doflow.intake', capability: 'user-provided' }, locator: { file: pointers[0].path } }));
+
+  // Both the logical path and a legacy pointer's realpath still expand to the same text.
+  const viaLogical = readPointerSlice({ projectRoot: root, pointer: pointers[0] });
+  const legacy = { ...pointers[0], path: `docs-real/doflow/${SLUG}/additional-context/prd/plain.md` };
+  assert.match(viaLogical.slice, /^## Goal\nSell vouchers\./);
+  assert.deepEqual(readPointerSlice({ projectRoot: root, pointer: legacy }), viaLogical);
+  // A path that is not a plain relative path under the project, or whose realpath leaves it, is refused.
+  const outside = tempDir(t, 'doflow-intake-link-outside-');
+  fs.writeFileSync(path.join(outside, 'secret.md'), '## S\nx\n');
+  fs.symlinkSync(path.join(outside, 'secret.md'), path.join(root, 'escape.md'));
+  assert.equal(readPointerSlice({ projectRoot: root, pointer: { ...pointers[0], path: 'escape.md' } }), null);
+  assert.equal(readPointerSlice({ projectRoot: root, pointer: { ...pointers[0], path: `agent-docs/../${logical}` } }), null);
 });
 
 test('user markdown becomes pointers with origin user-provided, after the chain artifacts', (t) => {
