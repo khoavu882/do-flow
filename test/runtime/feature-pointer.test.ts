@@ -154,6 +154,56 @@ test('unreadable: corrupt JSON is exit 1 with the reason, and a record replaces 
   assert.equal(entry(repo).slug, A);
 });
 
+const legacyFile = (repo: any) => path.join(repo.dir, '.doflow', 'state', 'feature.json');
+function writeLegacy(repo: any, text: string) {
+  fs.mkdirSync(path.dirname(legacyFile(repo)), { recursive: true });
+  fs.writeFileSync(legacyFile(repo), text);
+}
+
+test('legacy: a valid pre-135 feature.json with no checkout pointer is unreadable with guidance, never none, and is left untouched', () => {
+  const repo = newRepo();
+  const body = JSON.stringify({ slug: A });
+  writeLegacy(repo, body);
+  const r = status(repo);
+  assert.equal(r.status, 1);
+  assert.equal(r.json.finding, 'feature-pointer-unreadable');
+  assert.equal(r.json.active.state, 'unreadable');
+  assert.equal(r.json.active.file, path.join('.doflow', 'state', 'feature.json'));
+  assert.match(r.json.active.reason, /pre-row-135.*not migrated/);
+  assert.equal(fs.readFileSync(legacyFile(repo), 'utf8'), body, 'status leaves the legacy file as it was');
+  assert.equal(fs.existsSync(file(repo)), false, 'status writes no pointer');
+});
+
+test('legacy: corrupt JSON is reported the same way', () => {
+  const repo = newRepo();
+  writeLegacy(repo, '{not json');
+  const r = status(repo);
+  assert.equal(r.status, 1);
+  assert.equal(r.json.active.state, 'unreadable');
+  assert.equal(r.json.finding, 'feature-pointer-unreadable');
+});
+
+test('legacy: a checkout pointer takes precedence, and recording one clears the finding without touching the legacy file', () => {
+  const repo = newRepo();
+  writeLegacy(repo, '{not json');
+  assert.equal(status(repo).status, 1);
+  assert.equal(init(repo, A).status, 0);
+  const r = status(repo);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.json.active.state, 'agree');
+  assert.equal(fs.readFileSync(legacyFile(repo), 'utf8'), '{not json');
+});
+
+test('legacy: a linked checkout with its own pointer is unaffected by the shared legacy file', () => {
+  const a = newRepo();
+  const b = newRepo();
+  writeLegacy(a, '{}');
+  pointer.recordFeature({ storeRoot: a.dir, cwd: b.dir, slug: A });
+  assert.equal(pointer.describeActive({ storeRoot: a.dir, cwd: b.dir }).state, 'agree');
+  assert.equal(pointer.describeActive({ storeRoot: a.dir, cwd: a.dir }).state, 'unreadable');
+  assert.equal(pointer.activeEntry({ storeRoot: a.dir, cwd: a.dir }), null);
+});
+
 test('--slug keeps the per-feature status and ignores the pointer', () => {
   const repo = newRepo();
   init(repo, A);

@@ -358,3 +358,35 @@ for (const [label, value] of NON_OFF_VALUES) {
     assert.equal(fs.existsSync(path.join(f.projectRoot, MARKER_REL)), true);
   });
 }
+
+test('doctor warns of a pending lifecycle copy read-only, under DOFLOW_UPKEEP=off or not, and not for a migrated or absent store', (t) => {
+  const { buildHealthReport } = require('../../src/runtime/health.ts');
+  const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
+  const stub = () => { const error: any = new Error('not found'); error.code = 'ENOENT'; throw error; };
+  const KIND = 'lifecycle-migration-pending';
+  const report = (f: any, upkeep?: string) => {
+    const env = { ...f.env };
+    if (upkeep === undefined) delete env.DOFLOW_UPKEEP; else env.DOFLOW_UPKEEP = upkeep;
+    return buildHealthReport({ repoRoot: REPO_ROOT, projectRoot: f.projectRoot, homeDir: path.join(f.dir, 'home'), env, execFileImpl: stub });
+  };
+
+  const absent = fixture(t);
+  assert.equal(report(absent).warnings.some((w: any) => w.kind === KIND), false, 'an absent store is not pending');
+
+  const f = legacyProject(t);
+  const before = treeSnapshot(f.projectRoot);
+  const baseline = report(absent);
+  for (const upkeep of [undefined, 'off']) {
+    const pending = report(f, upkeep);
+    const warning = pending.warnings.filter((w: any) => w.kind === KIND);
+    assert.equal(warning.length, 1, `DOFLOW_UPKEEP=${upkeep}`);
+    assert.ok(warning[0].detail.includes('run any followup, lifecycle or goal command once without DOFLOW_UPKEEP=off'), warning[0].detail);
+    assert.deepEqual(pending.findings, baseline.findings, 'a warning never changes the exit rule');
+  }
+  assert.deepEqual(treeSnapshot(f.projectRoot), before, 'doctor wrote nothing and took no lock');
+
+  const migrated = legacyProject(t);
+  assert.equal(prepareStore(migrated.projectRoot, { env: migrated.env, now: new Date(migrated.now) }).ok, true);
+  assert.equal(fs.existsSync(path.join(migrated.projectRoot, MARKER_REL)), true);
+  assert.equal(report(migrated).warnings.some((w: any) => w.kind === KIND), false, 'a migrated store is not pending');
+});

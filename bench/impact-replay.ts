@@ -19,6 +19,7 @@ const { execFileSync, spawnSync } = require('node:child_process');
 // STATIC require: Guard G16 counts bench/ as a consumer root
 const { selectImpactedTests } = require('../src/runtime/verification/impact.ts');
 const { conventionFor } = require('../src/runtime/verification/test-selection.ts');
+const { REPO_ENV } = require('../src/runtime/dispatch/verify-run.ts');
 
 const REPO_ROOT = path.resolve(__dirname, '..');
 
@@ -219,6 +220,16 @@ function extractFailingTestsFromTap(tapOutput: string, exportRoot: string, testF
   return [...failing].sort();
 }
 
+/** The caller's environment without the git location variables, so every git call here reads `repoRoot`. */
+function gitEnv() {
+  const env: any = { ...process.env };
+  for (const name of REPO_ENV) delete env[name];
+  return env;
+}
+
+/** The only variables a replayed test run inherits; HOME and XDG_CONFIG_HOME are set to a scratch directory. */
+const CHILD_ENV_ALLOW = Object.freeze(['PATH', 'TMPDIR', 'TMP', 'TEMP', 'LANG', 'LC_ALL', 'LC_CTYPE', 'SystemRoot', 'windir', 'PATHEXT', 'COMSPEC']);
+
 /**
  * Runs a set of test files in an export directory under a scratch HOME.
  */
@@ -227,24 +238,28 @@ function runTestsInExport({ exportDir, testFiles, timeoutMs }: any) {
   const scratchXdg = path.join(scratchHome, '.config');
   fs.mkdirSync(scratchXdg, { recursive: true });
 
-  const env = { ...process.env };
-  delete env.FORCE_COLOR;
-  delete env.NODE_DISABLE_COLORS;
-  delete env.NODE_TEST_CONTEXT;
-  delete env.NODE_TEST_WORKER_ID;
+  // An allowlist, not a copy of process.env: a replayed test runs historical code and must not see tokens,
+  // NODE_OPTIONS or git location variables the caller happens to hold.
+  const env: any = {};
+  for (const name of CHILD_ENV_ALLOW) if (process.env[name] !== undefined) env[name] = process.env[name];
   env.HOME = scratchHome;
   env.XDG_CONFIG_HOME = scratchXdg;
 
   const t0 = process.hrtime.bigint();
   let result: any;
   try {
+    // detached: the child leads its own process group, so a timeout can take the whole test tree with it.
     result = spawnSync(process.execPath, ['--test', '--test-reporter=tap', ...testFiles], {
       cwd: exportDir,
       env,
       timeout: timeoutMs,
       encoding: 'utf8',
       maxBuffer: 50 * 1024 * 1024,
+      detached: process.platform !== 'win32',
     });
+    if (result.error && result.error.code === 'ETIMEDOUT' && result.pid && process.platform !== 'win32') {
+      try { process.kill(-result.pid, 'SIGKILL'); } catch { /* the group already exited */ }
+    }
   } finally {
     try {
       fs.rmSync(scratchHome, { recursive: true, force: true });
@@ -276,12 +291,17 @@ function runTestsInExport({ exportDir, testFiles, timeoutMs }: any) {
 function exportCommit({ repoRoot, sha, targetDir }: any) {
   const tarBuffer = execFileSync('git', ['archive', '--format=tar', sha], {
     cwd: repoRoot,
+    env: gitEnv(),
     maxBuffer: 100 * 1024 * 1024,
   });
-  spawnSync('tar', ['-xf', '-', '-C', targetDir], {
+  const untar = spawnSync('tar', ['-xf', '-', '-C', targetDir], {
     input: tarBuffer,
     maxBuffer: 100 * 1024 * 1024,
+    encoding: 'utf8',
   });
+  if (untar.error || untar.status !== 0) {
+    throw new Error(`could not extract ${sha}: ${untar.error ? untar.error.message : `tar exited ${untar.status}: ${String(untar.stderr || '').trim().split('\n')[0]}`}`);
+  }
 }
 
 /**
@@ -300,8 +320,12 @@ function replayCommits({
   warn = (line: any) => process.stderr.write(`${line}\n`),
 }: any = {}) {
   // 1. Get non-merge commits reachable from rev
+  if (typeof rev !== 'string' || rev.trim() === '' || rev.startsWith('-')) {
+    throw new Error(`--rev '${rev}' is not a usable revision (it must not start with '-')`);
+  }
   const logOutput = execFileSync('git', ['log', '--no-merges', '--format=%H', rev], {
     cwd: repoRoot,
+    env: gitEnv(),
     encoding: 'utf8',
   });
   const allShas = logOutput.split('\n').map((s: string) => s.trim()).filter(Boolean);
@@ -316,6 +340,7 @@ function replayCommits({
     try {
       parentSha = execFileSync('git', ['rev-parse', '--verify', `${sha}^`], {
         cwd: repoRoot,
+        env: gitEnv(),
         stdio: ['ignore', 'pipe', 'ignore'],
         encoding: 'utf8',
       }).trim();
@@ -326,6 +351,7 @@ function replayCommits({
 
     const diffRaw = execFileSync('git', ['diff-tree', '--no-commit-id', '--name-status', '-r', '-z', sha], {
       cwd: repoRoot,
+      env: gitEnv(),
       encoding: 'utf8',
       maxBuffer: 50 * 1024 * 1024,
     });
@@ -442,9 +468,12 @@ function replayCommits({
           try {
             const parentBytes = execFileSync('git', ['show', `${parentSha}:${file}`], {
               cwd: repoRoot,
+              env: gitEnv(),
               maxBuffer: 50 * 1024 * 1024,
             });
             fs.mkdirSync(path.dirname(fullExportPath), { recursive: true });
+            // Unlink first: if the export holds a symlink here, writing would follow it to its target.
+            fs.rmSync(fullExportPath, { force: true, recursive: true });
             fs.writeFileSync(fullExportPath, parentBytes);
           } catch {
             // If show fails (e.g. absent), delete it
@@ -571,6 +600,10 @@ function cmdImpactReplay(cfg: any, opts: any) {
   }
 
   const rev = typeof opts.rev === 'string' && opts.rev.trim() ? opts.rev.trim() : 'HEAD';
+  if (rev.startsWith('-')) {
+    console.error(`bench impact-replay: --rev '${rev}' must not start with '-'`);
+    return 2;
+  }
 
   let commitsCount = impactCfg.commits;
   if (opts.commits !== undefined) {
@@ -636,5 +669,7 @@ module.exports = {
   parseDiffTree,
   extractFailingTestsFromTap,
   replayCommits,
+  runTestsInExport,
+  exportCommit,
   cmdImpactReplay,
 };

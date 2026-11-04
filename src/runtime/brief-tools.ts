@@ -328,7 +328,7 @@ function adviceRecord(result: any) {
 /**
  * The tier renderer remains synchronous/pure; optional local advice is requested afterward.
  */
-async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLevel, tasks, json = false, repoRoot = REPO_ROOT, projectRoot = process.cwd(), env = process.env, buildAdapters = null, probe = probeProviders, adviceClient = null }: any = {}) {
+async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLevel, tasks, json = false, repoRoot = REPO_ROOT, projectRoot = process.cwd(), env = process.env, buildAdapters = null, probe = probeProviders, adviceClient = null, now = () => new Date() }: any = {}) {
   if (!owner) return usageError('brief-tools', '--owner is required (the agent type the brief is for)', json);
   const level = headingLevel === undefined ? 2 : Number(headingLevel);
   if (level !== 2 && level !== 3) return usageError('brief-tools', `--heading-level must be 2 or 3, got '${headingLevel}'`, json);
@@ -349,6 +349,7 @@ async function handleBriefToolsCommand({ owner, tier, harness, slug, headingLeve
     let markdown = rendered.markdown;
     const record: any = rendered.record;
     record.missing.push(...notes);
+    record.createdAt = now().toISOString();
 
     const taskIds = Array.isArray(tasks) ? tasks : typeof tasks === 'string' ? tasks.split(',').filter(Boolean) : [];
     if (taskIds.length) {

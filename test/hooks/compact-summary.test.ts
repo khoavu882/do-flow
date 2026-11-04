@@ -604,6 +604,39 @@ test('PreCompact cut never splits a multi-byte character and holds 490 bytes und
   { skip: UTF8_LOCALE ? false : 'no UTF-8 locale (en_US.UTF-8, C.UTF-8) is installed on this host, so the byte-not-character cap cannot be exercised' },
   () => assertCutHolds(UTF8_LOCALE));
 
+// FU-535bfv: a path or commit subject can carry any byte (git re-encodes a commit subject, so the bytes are fed
+// through the cwd here). Malformed UTF-8 becomes U+FFFD before the cap, so the Claude (raw stdout) and Codex
+// (jq --arg) outputs decode to the same text and the cap counts the bytes actually sent.
+test('PreCompact turns malformed UTF-8 into U+FFFD, equal for Claude and Codex, within 490 bytes', () => {
+  const builder = path.join(REPO, 'core', 'harnesses', 'shared', 'hooks', 'policies', 'compact-text.sh');
+  const malformed = String.raw`\303\050\377\342\202\360\237\230`; // C3 28, FF, E2 82, F0 9F 98: truncated or invalid sequences
+  const cases: any = [
+    ['short cwd', `'bad '"$(printf '${malformed}')"' end'`, true],
+    ['malformed run straddling the cap', `"$(printf 'y%.0s' $(seq 1 180))$(printf '${malformed}')$(printf 'z%.0s' $(seq 1 300))"`, false],
+    ['only malformed bytes', `"$(printf '\\377%.0s' $(seq 1 600))"`, false],
+  ];
+  for (const [label, cwdExpr, replacedKept] of cases) {
+    for (const locale of UTF8_LOCALE ? ['C', UTF8_LOCALE] : ['C']) {
+      const script = [
+        'is_git_worktree() { return 1; }',
+        `source "${builder}"`,
+        `doflow_compact_text ${cwdExpr}`,
+        'if [[ -n ${VIA_JQ:-} ]]; then jq -n --arg systemMessage "$DF_COMPACT_TEXT" \'$systemMessage\'; else builtin printf "%s" "$DF_COMPACT_TEXT"; fi',
+      ].join('\n');
+      const where = `${label} ${locale}`;
+      const r = spawnSync(bashPath(), ['-c', script], { env: scratch.env({ LC_ALL: locale }) });
+      assert.equal(r.status, 0, `${where}: ${r.stderr}`);
+      assert.ok(r.stdout.length <= 490, `${where}: ${r.stdout.length} bytes`);
+      const text = strictUtf8.decode(r.stdout);
+      assert.equal(text.split('\n')[0], PRESERVE_LINE, where);
+      if (replacedKept) assert.ok(text.includes('\uFFFD'), `${where}: malformed bytes became U+FFFD`);
+      // Codex sends the text through jq --arg, which would rewrite any malformed byte still in it.
+      const viaJq = spawnSync(bashPath(), ['-c', script], { env: scratch.env({ LC_ALL: locale, VIA_JQ: '1' }), encoding: 'utf8' });
+      assert.equal(JSON.parse(viaJq.stdout), text, `${where}: Codex parity`);
+    }
+  }
+});
+
 // Review C-1: the byte value of a character above 127 depends on the shell and libc. bash 3.2 prints it
 // negative, glibc prints 128-255, and a libc that maps a C-locale byte to a code unit prints 0xDF00 | byte.
 // The cut masks the value to one byte, so every one of them gives the same valid UTF-8; this stubs the

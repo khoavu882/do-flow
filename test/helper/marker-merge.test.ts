@@ -386,3 +386,38 @@ test('rendered content is merged instead of the source file, and the source is n
   assert.strictEqual(mergeMarkedSection('', dst, { content: 'changed', dryRun: true }).changed, true);
   assert.match(fs.readFileSync(dst, 'utf8'), /rendered pointer/);
 });
+
+test('FU-rdwd9k: a CRLF after the end marker is consumed once on merge and on removal; the LF round trip is unchanged', (t) => {
+  const dir = scratchDir(t);
+  const dst = dstPath(dir);
+  fs.mkdirSync(path.dirname(dst), { recursive: true });
+  const crlfSpan = `${MARKER_START}\r\nold\r\n${MARKER_END}\r\n`;
+
+  // merge: the CRLF that closed the old span is replaced, not kept beside the section's own line break
+  fs.writeFileSync(dst, `top\r\n${crlfSpan}tail\r\n`);
+  mergeMarkedSection(writeSrc(dir, 'new'), dst);
+  const merged = fs.readFileSync(dst, 'utf8');
+  assert.strictEqual(merged, `top\r\n${MARKER_START}\nnew\n${MARKER_END}\ntail\r\n`);
+  assert.deepStrictEqual(mergeMarkedSection(writeSrc(dir, 'new'), dst), { changed: false }, 'a second merge is a no-op');
+
+  // removal: a CRLF-terminated span leaves the text before and after it byte for byte
+  fs.writeFileSync(dst, `top\r\n${crlfSpan}tail\r\n`);
+  assert.strictEqual(removeMarkedSection(dst), true);
+  assert.strictEqual(fs.readFileSync(dst, 'utf8'), 'top\r\ntail\r\n');
+
+  // a lone CR is not a line break after the marker: it stays in the user's suffix
+  fs.writeFileSync(dst, `${MARKER_START}\nx\n${MARKER_END}\rkept`);
+  assert.strictEqual(removeMarkedSection(dst), true);
+  assert.strictEqual(fs.readFileSync(dst, 'utf8'), '\rkept');
+
+  // a file holding only a CRLF-terminated span is DoFlow's own and is deleted
+  fs.writeFileSync(dst, crlfSpan);
+  assert.strictEqual(removeMarkedSection(dst), true);
+  assert.strictEqual(fs.existsSync(dst), false);
+
+  // the append separator is still removed whole, and the LF span still returns the user's bytes
+  fs.writeFileSync(dst, 'user\r\n');
+  mergeMarkedSection(writeSrc(dir, 'x'), dst);
+  removeMarkedSection(dst);
+  assert.strictEqual(fs.readFileSync(dst, 'utf8'), 'user\r\n');
+});

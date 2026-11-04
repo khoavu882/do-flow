@@ -232,16 +232,15 @@ function lifecyclePathsSafe(project: any, fsImpl: any) {
   }
   return true;
 }
-function definitelyMissing(fsImpl: any, target: any) {
-  try { fsImpl.lstatSync(target); return false; }
-  catch (error: any) { return error.code === 'ENOENT' || error.code === 'ENOTDIR'; }
-}
 function reportCandidates(store: any, entries: any, context: any) {
   const { fsImpl, storeDir, roots, now, settings, shouldStop } = context;
   const project = projectRoot(roots);
   const key = project && projectKey(project, fsImpl), selected = [];
   for (const entry of entries) {
     if (shouldStop?.()) throw budgetError();
+    // A folder under another project's key stays: ENOENT or ENOTDIR on its recorded root never
+    // authorises deleting it, since an unmounted or renamed root looks the same as a gone one.
+    if (entry.name !== key) continue;
     const folder = path.join(storeDir, entry.name);
     let children, bodyNames = [];
     try {
@@ -251,50 +250,27 @@ function reportCandidates(store: any, entries: any, context: any) {
         if (BODY.test(name) && safeStat(fsImpl, path.join(folder, name))?.isFile()) bodyNames.push(name);
       }
     } catch (error: any) { if (error.partial) throw error; continue; }
-    if (entry.name === key) {
-      const lifecycle = path.join(project, '.doflow/state/lifecycle');
-      if (!safeStat(fsImpl, path.join(lifecycle, 'migrated.json'))?.isFile() || !lifecyclePathsSafe(project, fsImpl)) continue;
-      let snapshot;
-      try { snapshot = readEvents(project, { fsImpl, lockFallback: false, shouldStop }); }
-      catch { continue; }
-      if (snapshot.incomplete) throw budgetError();
-      if (snapshot.unreadable.length) continue;
-      const eventIds = new Set();
-      for (const event of snapshot.events) {
+    const lifecycle = path.join(project, '.doflow/state/lifecycle');
+    if (!safeStat(fsImpl, path.join(lifecycle, 'migrated.json'))?.isFile() || !lifecyclePathsSafe(project, fsImpl)) continue;
+    let snapshot;
+    try { snapshot = readEvents(project, { fsImpl, lockFallback: false, shouldStop }); }
+    catch { continue; }
+    if (snapshot.incomplete) throw budgetError();
+    if (snapshot.unreadable.length) continue;
+    const eventIds = new Set();
+    for (const event of snapshot.events) {
+      if (shouldStop?.()) throw budgetError();
+      const ids = [event.data.id, ...(Array.isArray(event.data.ids) ? event.data.ids : [])];
+      for (const id of ids) {
         if (shouldStop?.()) throw budgetError();
-        const ids = [event.data.id, ...(Array.isArray(event.data.ids) ? event.data.ids : [])];
-        for (const id of ids) {
-          if (shouldStop?.()) throw budgetError();
-          if (typeof id === 'string' && /^FU-[0-9a-hjkmnp-tv-z]{6}$/.test(id)) eventIds.add(id);
-        }
+        if (typeof id === 'string' && /^FU-[0-9a-hjkmnp-tv-z]{6}$/.test(id)) eventIds.add(id);
       }
-      for (const body of bodyNames) {
-        if (shouldStop?.()) throw budgetError();
-        const stat = safeStat(fsImpl, path.join(folder, body));
-        if (stat && !eventIds.has(body.slice(0, -4)) && now - stat.mtimeMs > settings.orphanGraceHours * HOUR)
-          selected.push({ name: `${entry.name}/${body}`, reason: 'orphan-body', bytes: stat.size, mtimeMs: stat.mtimeMs });
-      }
-    } else {
-      const marker = path.join(folder, '.root');
-      if (!safeStat(fsImpl, marker)?.isFile() || !bodyNames.length) continue;
-      let validFolder = true;
-      for (const name of children) {
-        if (shouldStop?.()) throw budgetError();
-        if (name !== '.root' && !bodyNames.includes(name)) { validFolder = false; break; }
-      }
-      if (!validFolder) continue;
-      let root;
-      try { root = fsImpl.readFileSync(marker, 'utf8').trim(); } catch { continue; }
-      if (!path.isAbsolute(root) || !definitelyMissing(fsImpl, root)) continue;
-      let newest = -Infinity;
-      for (const body of bodyNames) {
-        if (shouldStop?.()) throw budgetError();
-        const stat = safeStat(fsImpl, path.join(folder, body));
-        if (!stat) { newest = Infinity; break; }
-        newest = Math.max(newest, stat.mtimeMs);
-      }
-      if (now - newest > store.bound.foreignMaxAgeDays * DAY)
-        selected.push({ name: entry.name, reason: 'foreign-root-gone', bytes: entry.stat.size, mtimeMs: newest });
+    }
+    for (const body of bodyNames) {
+      if (shouldStop?.()) throw budgetError();
+      const stat = safeStat(fsImpl, path.join(folder, body));
+      if (stat && !eventIds.has(body.slice(0, -4)) && now - stat.mtimeMs > settings.orphanGraceHours * HOUR)
+        selected.push({ name: `${entry.name}/${body}`, reason: 'orphan-body', bytes: stat.size, mtimeMs: stat.mtimeMs });
     }
   }
   return selected;

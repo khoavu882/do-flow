@@ -557,6 +557,22 @@ function outputTargets(outputs: any) {
   return outputs.flatMap((o: any) => [{ name: `${o.id}:stdout`, text: o.stdout }, { name: `${o.id}:stderr`, text: o.stderr }]);
 }
 
+/** Runs `trace export --otlp-http --dry-run` in process over `root` (state under `configDir`), capturing stdout and stderr. */
+async function dryRunExportAt(run: any, root: any, configDir: any, registry: any = REGISTRY) {
+  const { handleTraceExport } = require('../../src/runtime/trace/otlp-export.ts');
+  const stdout: any = [];
+  const stderr: any = [];
+  const priorExit = process.exitCode;
+  try {
+    const code = await handleTraceExport({
+      positional: [root], otlpHttp: true, dryRun: true, env: run.childEnv({ DOFLOW_CONFIG_DIR: configDir }), stdout, stderr, registry,
+    });
+    return { id: 'export-dry-run-raw-store', status: code, stdout: stdout.join('\n'), stderr: stderr.join('\n') };
+  } finally {
+    process.exitCode = priorExit;
+  }
+}
+
 /** Runs `trace export --otlp-http --dry-run` in process with `registry`, capturing stdout and stderr. */
 async function dryRunExport(run: any, registry: any) {
   const { handleTraceExport } = require('../../src/runtime/trace/otlp-export.ts');
@@ -643,6 +659,45 @@ test('091 E.1 negative control: a planted export mapping for `session` makes the
   const errors = scanOutputs(outputTargets([leaked]), canaries, ['session']);
   assert.ok(errors.some((e: any) => e.includes('matched session:full')), `expected session:full, got: ${errors.join('; ')}`);
   assert.ok(errors.some((e: any) => e.includes('matched session:prefix8')), `expected session:prefix8, got: ${errors.join('; ')}`);
+});
+
+// FU-9pma2p: the hook bridge normalizes an `mcp__` tool name before it writes, so no producer can put a raw one in
+// the store. This seeds raw records straight into a copy of the store (a tool name, and canaries in harness, event,
+// policy, task and check_key) and checks the export allowlists (vocabulary, id and measure rules) by themselves.
+test('FU-9pma2p: raw store records carrying an mcp__ tool name and canaries in vocabulary fields export none of them', async () => {
+  const run = getRun();
+  const { canaries } = run;
+  const root = path.join(suiteRoot, `proj-raw-${canaries.path}`);
+  const configDir = path.join(root, '.doflow');
+  fs.mkdirSync(root, { recursive: true });
+  fs.cpSync(run.configDir, configDir, { recursive: true });
+  const day = new Date().toISOString().slice(0, 10);
+  const file = path.join(configDir, 'state', 'runs', 'telemetry', `${day}.jsonl`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const base = { timestamp: new Date().toISOString(), run: 'r-canary', lineage: 'main', attempt: 1 };
+  const raw = [
+    { ...base, kind: 'hook', harness: canaries.env, event: canaries.path, policy: canaries.argv, verdict: canaries.prompt, tool: canaries.mcpTool, tool_call_id: 'call_01', session: canaries.session, duration_ms: 5 },
+    { ...base, kind: 'verify.run', verify_id: '0123456789abcdef', source: canaries.model, task: canaries.output, risk: canaries.slug, level: canaries.mcp, status: canaries.env, checks_run: 1 },
+    { ...base, kind: 'verify.check', verify_id: '0123456789abcdef', tier: canaries.path, status: canaries.argv, check_key: canaries.output, shared: canaries.prompt, failed_first: canaries.model },
+  ];
+  fs.appendFileSync(file, `${raw.map((line) => JSON.stringify(line)).join('\n')}\n`);
+
+  // Positive control: the raw store holds the unnormalized tool name, so a clean export is a result, not an empty read.
+  assert.equal(fs.readFileSync(file, 'utf8').includes(canaries.mcpTool), true, 'the raw store holds the mcp tool name');
+
+  const out = await dryRunExportAt(run, root, configDir);
+  assert.equal(out.status, 0, out.stderr);
+  const spans = JSON.parse(out.stdout).flatMap((r: any) => r.resourceSpans.flatMap((rs: any) => rs.scopeSpans.flatMap((ss: any) => ss.spans)));
+  assert.ok(spans.length >= 1, 'the dry run mapped spans');
+  assert.deepEqual(scanOutputs(outputTargets([out]), canaries, [...CONTENT_KEYS, 'slug', 'session']), []);
+
+  // Negative control: a vocabulary that lists the seeded event canary lets it through, so the scan sees an export bypass.
+  const planted = JSON.parse(JSON.stringify(REGISTRY));
+  planted.vocabularies.planted_event = [canaries.path];
+  planted.export.attributes.event = { vocabulary: 'planted_event' };
+  const leaked = await dryRunExportAt(run, root, configDir, planted);
+  assert.equal(leaked.status, 0, leaked.stderr);
+  assert.ok(scanOutputs(outputTargets([leaked]), canaries, ['path']).some((e: any) => e.includes('matched path:full')), 'the planted vocabulary exports the seeded event');
 });
 
 test('negative control 1: a scratch producer that writes the canary command argument into a record turns the scanner red', () => {

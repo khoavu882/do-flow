@@ -26,9 +26,20 @@ const PLAN = (owner: any = 'core-implementer') => [
   `- [ ] A.1 Write the retry module — owner: ${owner}; files: src/retry.js; budget: attempts=3`, '',
 ].join('\n');
 
-function descriptorsFor({ secondSignals = false, firstSignals = true }: any = {}) {
+function descriptorsFor({ secondSignals = false, firstSignals = true, codexFirst = false }: any = {}) {
   const box = require('../fixtures/worker/descriptors.json');
   const descriptors = structuredClone(box);
+  if (codexFirst) {
+    // The rung-1 worker speaks the real Codex stream shape: `exec --json -o <file>`, parsed by codex-exec-json-v1.
+    descriptors.codex.structuredOutput = { ...descriptors.codex.structuredOutput, argv: ['--json', '-o', '{lastMessageFile}'], parser: 'codex-exec-json-v1',
+      quotaSignals: { signals: [...SIGNALS], basis: 'unverified', evidence: [] } };
+    descriptors.codex.oneShot = { ...descriptors.codex.oneShot, argv: ['--ephemeral', '-'], promptVia: 'stdin' };
+    descriptors.codex.spawnDenial = { ...descriptors.codex.spawnDenial, argv: [] };
+    descriptors.codex.isolatedEdit = {
+      status: 'supported', evidence: ['dispatch-fallback-e2e.test.js fake worker'],
+      verification: 'Run this test with the fake harness CLI.', verifiedOn: '2026-10-21', argv: ['exec', '--codex-edit-in-cwd'],
+    };
+  }
   // The first rung declares the same conservative signal list and unverified basis as Codex's
   // registry entry. Both workers are isolated-edit capable fake descriptors for this test only.
   if (firstSignals) descriptors.claude.structuredOutput.quotaSignals = { signals: [...SIGNALS], basis: 'unverified', evidence: [] };
@@ -54,14 +65,14 @@ function scenario(first: any = QUOTA, second: any = SUCCESS) {
   } };
 }
 
-async function project(t: any, { owner, fallback, secondSignals = false, firstSignals = true, workerScenario = scenario() }: any = {}) {
+async function project(t: any, { owner, fallback, secondSignals = false, firstSignals = true, workerScenario = scenario(), codexFirst = false }: any = {}) {
   const sb = makeDispatchSandbox(t, { plan: PLAN(owner), slug: SLUG, scenario: workerScenario, systemTools: ['bash'], identity: { DOFLOW_ATTEMPT: undefined } });
   const env: any = { ...sb.env };
-  const descriptors = descriptorsFor({ secondSignals, firstSignals });
+  const descriptors = descriptorsFor({ secondSignals, firstSignals, codexFirst });
   assert.equal((await readiness.probe({ descriptors, env, cwd: sb.root })).disposition, 'probed');
   const started = await executeDispatchCommand({
     action: 'start', slug: SLUG, by: 'main', mode: 'auto', verifyArgv: JSON.stringify(sb.verifyArgv),
-    ladder: 'claude,antigravity', ...(fallback ? { fallback } : {}), cwd: sb.root, env, descriptors,
+    ladder: codexFirst ? 'codex,antigravity' : 'claude,antigravity', ...(fallback ? { fallback } : {}), cwd: sb.root, env, descriptors,
   });
   assert.equal(started.exit, 0, JSON.stringify(started.body));
   const file = dispatchStore.storeFileFor(sb.root, SLUG);
@@ -70,7 +81,7 @@ async function project(t: any, { owner, fallback, secondSignals = false, firstSi
   const ledger = () => JSON.parse(fs.readFileSync(ledgerFile, 'utf8'));
   const run = () => loop.run({ slug: SLUG, env, cwd: sb.root, by: 'main', descriptors, maxSeconds: 60 });
   const inspect = () => executeDispatchCommand({ action: 'inspect', slug: SLUG, cwd: sb.root, env, descriptors });
-  const harnessRuns = () => readLog(sb.log).filter((entry: any) => entry.argv.some((arg: any) => ['--edit-in-cwd', '--antigravity-edit-in-cwd'].includes(arg)));
+  const harnessRuns = () => readLog(sb.log).filter((entry: any) => entry.argv.some((arg: any) => ['--edit-in-cwd', '--antigravity-edit-in-cwd', '--codex-edit-in-cwd'].includes(arg)));
   return { sb, env, descriptors, read, ledger, run, inspect, harnessRuns };
 }
 
@@ -140,4 +151,37 @@ test('106 A.3: 401 authentication failure remains worker-failure and does not tr
   assert.deepEqual(p.read().run.fallback.events, []);
   assert.equal(fallbackActions(p.read()).length, 0);
   assert.equal(p.harnessRuns().some((entry: any) => entry.argv.includes('--antigravity-edit-in-cwd')), false);
+});
+
+test('FU-pa9bde: a codex turn.failed usage-limit event goes through the real parser, releases the attempt and falls back to rung 2', POSIX, async (t) => {
+  const workerScenario = { byBinary: {
+    'fake-codex': { codex: { jsonl: [
+      { type: 'thread.started', thread_id: 't1' },
+      { type: 'turn.failed', error: { code: 'usage_limit_reached', message: 'You have hit your usage limit' } },
+    ], exit: 1 } },
+    'fake-antigravity': { run: [{ write: { path: 'src/retry.js', content: '// stepped\n' } }, { sleep: 100 }, { emit: SUCCESS }] },
+  } };
+  const p: any = await project(t, { fallback: 'auto', codexFirst: true, workerScenario });
+  const r = await p.run();
+  assert.equal(r.outcome, 'completed', JSON.stringify(r.last));
+  const s = p.read();
+  assert.deepEqual(Object.values(s.dispatches).map((d: any) => [d.harness, d.disposition, d.failureClass ?? null]),
+    [['codex', 'failed', 'quota'], ['antigravity', 'completed', null]]);
+  assert.deepEqual(p.ledger().tasks['A.1'].attempts.map((a: any) => a.state), ['released', 'finished']);
+  assert.deepEqual(s.run.fallback.events.map((e: any) => e.kind), ['quota', 'step']);
+  const codexRuns = readLog(p.sb.log).filter((entry: any) => entry.argv.includes('exec') && entry.argv.includes('--json'));
+  assert.equal(codexRuns.length, 1, 'the codex fake ran once through its exec --json recipe');
+  assert.deepEqual(p.harnessRuns().map((entry: any) => entry.argv.includes('--antigravity-edit-in-cwd')), [false, true]);
+});
+
+test('FU-pa9bde control: the same codex stream without a usage-limit message is a plain worker failure and does not fall back', POSIX, async (t) => {
+  const workerScenario = { byBinary: {
+    'fake-codex': { codex: { jsonl: [{ type: 'turn.failed', error: { message: '401 Unauthorized: invalid api key' } }], exit: 1 } },
+    'fake-antigravity': { run: [{ emit: SUCCESS }] },
+  } };
+  const p: any = await project(t, { fallback: 'auto', codexFirst: true, workerScenario });
+  const r = await p.run();
+  assert.equal(r.outcome, 'blocked', JSON.stringify(r.last));
+  assert.ok(Object.values(p.read().dispatches).every((d: any) => d.harness === 'codex' && d.failureClass === 'worker-failure'));
+  assert.deepEqual(p.read().run.fallback.events, []);
 });

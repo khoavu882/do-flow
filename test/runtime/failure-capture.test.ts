@@ -269,7 +269,8 @@ describe('Node writer (IC-011, IC-015)', () => {
     const { dir, env } = freshEnv('project-outside');
     const cwd = path.join(dir, 'elsewhere');
     fs.mkdirSync(cwd);
-    assert.equal(projectFrom(cwd, env), cwd);
+    // capture.ts stores the masked path cut to 200 characters, so a long TMPDIR still has to match.
+    assert.equal(projectFrom(cwd, env), cwd.slice(0, 200));
   });
 
   test('command is a name or unknown, never an argument value', () => {

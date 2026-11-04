@@ -376,10 +376,14 @@ function acquireLock(fsImpl: any, file: string, options: LockOptions = {}): () =
     + strayEntries(fsImpl, lockDir));
 }
 
-/** Names a non-directory entry in the lock (no DoFlow runtime makes one; it blocks the lock until removed). */
+/** The non-directory entries in the lock (no DoFlow runtime makes one; each blocks the lock until removed). */
+function strayNames(fsImpl: any, lockDir: string): string[] {
+  try { return fsImpl.readdirSync(lockDir, { withFileTypes: true }).filter((d: any) => !d.isDirectory()).map((d: any) => d.name); } catch { return []; }
+}
+
+/** `strayNames` as the sentence the lock timeout carries. */
 function strayEntries(fsImpl: any, lockDir: string): string {
-  let stray: string[] = [];
-  try { stray = fsImpl.readdirSync(lockDir, { withFileTypes: true }).filter((d: any) => !d.isDirectory()).map((d: any) => d.name); } catch { return ''; }
+  const stray = strayNames(fsImpl, lockDir);
   if (stray.length === 0) return '';
   return ` It holds ${stray.map((name) => `'${name}'`).join(', ')}, which no DoFlow runtime makes and which keeps it locked: `
     + `remove ${stray.length > 1 ? 'them' : 'it'} once no DoFlow process is running.`;
@@ -389,7 +393,8 @@ function strayEntries(fsImpl: any, lockDir: string): string {
  * Takes the cross-process lock for one state file with a bounded wait.
  * Makes 1 try plus `retries` retries (default 3) separated by `waitMs` (default 5); each try is one
  * tryAcquireLock, which waits at most 40 ms, and only on a process that reached the lock at the same moment.
- * Throws an Error('store-locked') after one try plus retries.
+ * Throws an Error('store-locked') after one try plus retries, carrying `lockPath` (the lock folder) and
+ * `strayEntries` (the names in it that no DoFlow runtime makes) as properties.
  * @param {Object} fsImpl
  * @param {string} file
  * @param {Object} [options]
@@ -420,6 +425,8 @@ function boundedAcquire(
   }
   const error = new Error('store-locked');
   (error as any).code = 'store-locked';
+  (error as any).lockPath = `${file}.lock`;
+  (error as any).strayEntries = strayNames(fsImpl, `${file}.lock`);
   throw error;
 }
 

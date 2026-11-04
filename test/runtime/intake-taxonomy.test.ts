@@ -175,12 +175,19 @@ test('real-world names land in the category that owns them', (t: any) => {
     'qr-voucher-decision-session_v01.md': 'hld/qr-voucher-decision-session_v01.md',
     'qr-voucher-high-level_v01.md': 'hld/qr-voucher-high-level_v01.md',
     '10-29-2026 18.06.txt': 'discuss-session/transcripts/10-29-2026 18.06.txt',
-    '2026-10-29 standup.txt': 'discuss-session/transcripts/2026-10-29 standup.txt',
+    '2026-10-29 standup.txt': '',
     'history.md': '',
     'user_story_1.md': 'raw-prd/user_story_1.md',
     'story.md': 'raw-prd/story.md',
     'qr-voucher-prd.md': 'raw-prd/qr-voucher-prd.md',
     'weekly-session.md': 'discuss-session/transcripts/weekly-session.md',
+    'architecture-meeting-transcript.md': 'discuss-session/transcripts/architecture-meeting-transcript.md',
+    'design-session-notes.md': 'discuss-session/transcripts/design-session-notes.md',
+    'adr-001-meeting.md': 'discuss-session/transcripts/adr-001-meeting.md',
+    'design-minutes.md': 'discuss-session/transcripts/design-minutes.md',
+    'userstory.md': 'raw-prd/userstory.md',
+    'userstories.md': 'raw-prd/userstories.md',
+    'mystory.md': '',
   };
   const dir = tempDir(t, 'doflow-intake-names-');
   for (const name of Object.keys(names)) fs.writeFileSync(path.join(dir, name), 'x');

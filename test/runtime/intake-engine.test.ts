@@ -90,6 +90,23 @@ test('loose files land in their category folders and the manifest holds one done
   }
 });
 
+test('the date fallback takes only date-only .txt stems; dated documents and dated .md files stay loose unless another rule matches (FU-a7xx7x)', (t: any) => {
+  const { ctx } = tree(t, {
+    '2026-10-29.txt': 'x', '10-29-2026.txt': 'x', '10-29-2026 18.06.txt': 'x',
+    '2026-10-29-release-checklist.txt': 'x', '2026-10-29 standup.txt': 'x',
+    '2026-10-29.md': 'x', '2026-10-29-release-checklist.md': 'x',
+    '2026-10-29-meeting-transcript.txt': 'x',
+  });
+  const plan = previewSort({ contextDir: ctx, taxonomy: taxonomy(), now: LATER() });
+  assert.deepEqual(movesOf(plan).sort(), [
+    '10-29-2026 18.06.txt>discuss-session/transcripts/10-29-2026 18.06.txt',
+    '10-29-2026.txt>discuss-session/transcripts/10-29-2026.txt',
+    '2026-10-29-meeting-transcript.txt>discuss-session/transcripts/2026-10-29-meeting-transcript.txt',
+    '2026-10-29.txt>discuss-session/transcripts/2026-10-29.txt',
+  ]);
+  assert.deepEqual([...plan.unmatched].sort(), ['2026-10-29-release-checklist.md', '2026-10-29-release-checklist.txt', '2026-10-29 standup.txt', '2026-10-29.md'].sort());
+});
+
 test('a diagram render follows its same-stem source, a lone render stays (companionOf)', (t: any) => {
   const { ctx } = tree(t, { 'a.mmd': 'x', 'a.svg': '<svg/>', 'b.png': Buffer.from([1]), 'c.puml': 'y', 'c.JPG': Buffer.from([2]) });
   const result = sort(ctx);
@@ -367,6 +384,20 @@ test('preview reports the moves a sort would make, writes nothing and takes no l
   const real = sort(ctx);
   assert.deepEqual(preview.moves, real.moves, 'the preview names the moves the sort then makes');
   assert.deepEqual(preview.unmatched, real.unmatched);
+});
+
+test('preview validates the manifest and .intake the same way with or without a loose render (FU-mwb9pn)', (t: any) => {
+  for (const files of [{ 'prd.md': 'a' }, { 'prd.md': 'a', 'x.png': Buffer.from([7]) }]) {
+    const { ctx } = tree(t, files);
+    fs.mkdirSync(path.join(ctx, '.intake'));
+    fs.writeFileSync(manifestFile(ctx), '{ torn');
+    assert.throws(() => previewSort({ contextDir: ctx, taxonomy: taxonomy(), now: LATER() }), (e: any) => e instanceof IntakeUsageError, Object.keys(files).join());
+
+    const { ctx: linked, dir } = tree(t, files);
+    fs.mkdirSync(path.join(dir, 'elsewhere'));
+    fs.symlinkSync(path.join(dir, 'elsewhere'), path.join(linked, '.intake'));
+    assert.throws(() => previewSort({ contextDir: linked, taxonomy: taxonomy(), now: LATER() }), (e: any) => e instanceof IntakeUsageError && /not a real folder/.test(e.message), Object.keys(files).join());
+  }
 });
 
 // ── undo ───────────────────────────────────────────────────────────────────────────────────────

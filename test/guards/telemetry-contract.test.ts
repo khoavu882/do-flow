@@ -12,6 +12,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const { spawnSync } = require('node:child_process');
 const path = require('node:path');
 const { REPO } = require('./_shared.ts');
 const { tempDir, suiteTempDir, removeTree } = require('../helper/tmp.ts');
@@ -490,6 +491,18 @@ function checkZeroDependencies(packageText: any, adviceGuardText: any, consolePa
   return errors;
 }
 
+// The files[] spellings above are only a hint: npm also packs console/ for a glob such as 'c*nsole/**', '**/*.js'
+// or '*'. The packed file list is the truth (FU-w0b8k4), so the shipped-tree test asks npm for it.
+function checkPackedPaths(packedPaths: any) {
+  return packedPaths.filter((p: any) => /^(?:\.\/)?console(?:\/|$)/i.test(p)).map((p: any) => `npm pack ships ${p}`);
+}
+
+function npmPackedPaths() {
+  const r = spawnSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], { cwd: REPO, encoding: 'utf8', shell: process.platform === 'win32' });
+  assert.equal(r.status, 0, r.stderr);
+  return JSON.parse(r.stdout)[0].files.map((f: any) => f.path);
+}
+
 // --- G45.6: telemetry dirs are declared runs/ subdirectories the ledger readers skip -------------
 
 const LEDGER_PARTITION = /^\d{4}-\d{2}-\d{2}\.jsonl$/;
@@ -725,6 +738,12 @@ test('G45.5: console/package.json, when present, has no dependency map and only 
     fs.readFileSync(path.join(REPO, 'test/guards/advice.test.ts'), 'utf8'),
     consoleText,
   ), []);
+});
+
+test('G45.5: npm pack --dry-run lists no console/ path', () => {
+  const packed = npmPackedPaths();
+  assert.ok(packed.includes('package.json') && packed.some((p: any) => p.startsWith('src/')), 'the packed list was read');
+  assert.deepEqual(checkPackedPaths(packed), []);
 });
 
 test('G45.6: telemetry stores are declared runs/ subdirectories, and the ledger readers do not see them', (t) => {
@@ -982,6 +1001,14 @@ test('G45.5 self-test: files entry variants /console, Console/ and src/../consol
   assert.deepEqual(checkZeroDependencies('{"files":["Console/"]}', guard), ['package.json files ships console (Console/)']);
   assert.deepEqual(checkZeroDependencies('{"files":["src/../console"]}', guard), ['package.json files ships console (src/../console)']);
   assert.deepEqual(checkZeroDependencies('{"files":["../console"]}', guard), []);
+});
+
+test('G45.5 self-test: a packed console/ path fails whatever files[] entry produced it (FU-w0b8k4)', () => {
+  assert.deepEqual(checkPackedPaths(['package.json', 'src/a.ts']), []);
+  assert.deepEqual(checkPackedPaths(['package.json', 'console/app.js']), ['npm pack ships console/app.js']);
+  assert.deepEqual(checkPackedPaths(['Console/app.js', 'src/console.ts', 'consoles/x']), ['npm pack ships Console/app.js']);
+  // A glob entry the spelling check passes still packs console/; the list check catches it.
+  assert.deepEqual(checkZeroDependencies('{"files":["c*nsole/**"]}', "test('G30.2: shipped package has no runtime dependencies', () => {});"), []);
 });
 
 test('G45.6 self-test: an undeclared store, a non-runs path, a ledger-shaped path and an unlisted writer fail', () => {

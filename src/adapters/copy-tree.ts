@@ -661,6 +661,13 @@ function applyTree({ changes = [], fsImpl = fs, transform }: any): { applied: nu
     if (change.operation === 'remove') continue;
     fsImpl.mkdirSync(path.dirname(change.target), { recursive: true });
     const sourceStat = fsImpl.statSync(change.source);
+    // A destination symlink (`install -f` plans over one) is replaced by the regular file, never written through:
+    // its target, which may be a file outside the install, keeps its bytes and mode.
+    try {
+      if (fsImpl.lstatSync(change.target).isSymbolicLink()) fsImpl.unlinkSync(change.target);
+    } catch (error: any) {
+      if (error.code !== 'ENOENT') throw error;
+    }
     if (mapContent) {
       // Re-derive the bytes from the source at write time instead of copying it: the transform,
       // not the source file, is what the recorded fingerprint describes. Keeps recovery retries

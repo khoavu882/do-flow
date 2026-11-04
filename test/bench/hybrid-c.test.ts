@@ -537,24 +537,93 @@ test('H4: semanticReached counts a reached semantic leg and not an unreached or 
   report.assertNoTaskDetail({ classes: { 'conceptual-discovery': { rawValidity: row } } });
 });
 
-// H2 (review X11): absolute rows name what they leave out; relative `corpus: '*'` rows need every covered corpus.
+// H2 (review X11) + FU-jkmdhb (IC-010): absolute rows name what they leave out, and an applicable C class without eligible
+// evidence makes an otherwise-passing row UNRESOLVED; an observed failure stands and non-applicable classes are exempt.
+const { classesFor } = require('../../bench/retrieval/lib/metrics.ts');
+const ABSOLUTE: any = {
+  'T-001': { metric: 'falseAbsence', comparator: '==', value: 0, pass: { value: 0, n: 10, count: 0 }, fail: { value: 0.2, n: 10, count: 2 } },
+  'T-004': { metric: 'locatorValidity', comparator: '>=', value: 0.95, pass: { value: 1, n: 10 }, fail: { value: 0.5, n: 10 } },
+  'T-007': { metric: 'statusMatch', comparator: '==', value: 1, pass: { value: 1, n: 10 }, fail: { value: 0.5, n: 10 } },
+};
+const classRow = (id: any, kind: any = 'pass', extra: any = {}) => ({ applicable: true, n: 10, underpowered: false, state: 'measured',
+  metrics: { [ABSOLUTE[id].metric]: ABSOLUTE[id][kind] }, ...extra });
+const cWorld = (id: any, override: any = {}) => {
+  const world: any = { code: { C: {} }, guidance: { C: {} } };
+  for (const corpus of ['code', 'guidance']) for (const cls of classesFor(corpus)) world[corpus].C[cls] = classRow(id);
+  for (const [path_, value] of Object.entries(override)) { const [corpus, cls] = path_.split('/'); if (value === undefined) delete world[corpus].C[cls]; else world[corpus].C[cls] = value; }
+  return world;
+};
+const absoluteRow = (id: any, aggregates: any, extra: any = {}) => gate.evaluate({ thresholds: { thresholds: [{ id, corpus: '*', class: '*', ...ABSOLUTE[id], ...extra }] }, aggregates })
+  .rows.find((r: any) => r.id === id);
+
 test('H2: an absolute gate row lists every excluded C class with its reason and keeps its verdict rule', () => {
-  const thresholds: any = { thresholds: [{ id: 'T-001', metric: 'falseAbsence', corpus: '*', class: '*', comparator: '==', value: 0 }] };
   const measured: any = { applicable: true, n: 10, underpowered: false, state: 'measured', metrics: { falseAbsence: { value: 0, n: 10, count: 0 } } };
   const aggregates: any = {
     code: { B: { 'exact-lookup': { ...measured, underpowered: true } }, C: { 'exact-lookup': measured, 'conceptual-discovery': { ...measured, underpowered: true, metrics: { falseAbsence: { value: 0.2, n: 2, count: 2 } } },
       'stale-index': { applicable: true, n: 3, underpowered: false, state: 'unreached' } } },
     guidance: { C: { 'impact-refactor': { applicable: false, reason: 'n/a' }, 'exact-lookup': { ...measured, metrics: {} } } },
   };
-  const t001 = (aggs: any) => gate.evaluate({ thresholds, aggregates: aggs }).rows.find((r: any) => r.id === 'T-001');
-  const row = t001(aggregates);
-  assert.equal(row.verdict, 'PASS'); assert.equal(row.observations, 1, 'which classes count is unchanged');
-  assert.deepEqual(row.excluded, [
-    { corpus: 'code', class: 'conceptual-discovery', reason: 'underpowered' }, { corpus: 'code', class: 'stale-index', reason: 'unreached' },
-    { corpus: 'guidance', class: 'impact-refactor', reason: 'not-applicable' }, { corpus: 'guidance', class: 'exact-lookup', reason: 'metric-absent' }]);
-  assert.deepEqual(t001({ code: aggregates.code }).excluded.at(-1), { corpus: 'guidance', class: '*', reason: 'missing' });
-  assert.deepEqual(t001({}).excluded, [{ corpus: 'code', class: '*', reason: 'missing' }, { corpus: 'guidance', class: '*', reason: 'missing' }]);
+  const row = absoluteRow('T-001', aggregates);
+  assert.equal(row.observations, 1, 'which classes count is unchanged');
+  const named = (rows: any) => rows.map((e: any) => `${e.corpus}/${e.class}:${e.reason}`);
+  assert.deepEqual(named(row.excluded).slice(0, 4), ['code/conceptual-discovery:underpowered', 'code/stale-index:unreached', 'guidance/impact-refactor:not-applicable', 'guidance/exact-lookup:metric-absent']);
+  assert.ok(named(row.excluded).includes('code/impact-refactor:missing'), 'an applicable class absent from the C aggregate is named');
+  assert.equal(row.verdict, 'UNRESOLVED');
+  assert.deepEqual(absoluteRow('T-001', { code: aggregates.code }).excluded.at(-1), { corpus: 'guidance', class: '*', reason: 'missing' });
+  assert.deepEqual(absoluteRow('T-001', {}).excluded, [{ corpus: 'code', class: '*', reason: 'missing' }, { corpus: 'guidance', class: '*', reason: 'missing' }]);
   report.assertNoTaskDetail(row, 'gate row');
+});
+
+test('FU-jkmdhb: T-001, T-004 and T-007 pass only when every applicable C class is measured', () => {
+  for (const id of Object.keys(ABSOLUTE)) {
+    const full = absoluteRow(id, cWorld(id));
+    assert.equal(full.verdict, 'PASS', id);
+    assert.equal(full.excluded.length, 0, `${id}: nothing left out when every applicable class is measured`);
+    // Guidance classes the protocol does not measure are exempt, whether absent or present as not-applicable rows.
+    const withNa = absoluteRow(id, cWorld(id, { 'guidance/impact-refactor': { applicable: false, reason: 'ADR 3.2' }, 'guidance/verification-failure': { applicable: false, reason: 'n/a' } }));
+    assert.deepEqual([withNa.verdict, withNa.excluded.map((e: any) => e.reason)], ['PASS', ['not-applicable', 'not-applicable']], `${id}: not-applicable is exempt`);
+    for (const [label, override, reason] of [
+      ['underpowered', { 'code/exact-lookup': classRow(id, 'pass', { underpowered: true }) }, 'underpowered'],
+      ['unreached', { 'code/stale-index': { applicable: true, n: 3, underpowered: false, state: 'unreached' } }, 'unreached'],
+      ['metric absent', { 'guidance/exact-lookup': classRow(id, 'pass', { metrics: {} }) }, 'metric-absent'],
+      ['class absent', { 'code/dirty-tree': undefined }, 'missing'],
+    ] as any) {
+      const row = absoluteRow(id, cWorld(id, override));
+      assert.equal(row.verdict, 'UNRESOLVED', `${id} ${label}`);
+      assert.equal(row.excluded.at(-1).reason, reason, `${id} ${label}`);
+    }
+    const noGuidance = absoluteRow(id, { code: cWorld(id).code });
+    assert.equal(noGuidance.verdict, 'UNRESOLVED', `${id}: an absent corpus`);
+    assert.deepEqual(noGuidance.excluded.at(-1), { corpus: 'guidance', class: '*', reason: 'missing' });
+    assert.equal(absoluteRow(id, {}).verdict, 'UNRESOLVED', `${id}: nothing measured`);
+  }
+});
+
+test('FU-jkmdhb: an observed failure stands over a missing class, and only C evidence counts', () => {
+  for (const id of Object.keys(ABSOLUTE)) {
+    const failing = cWorld(id, { 'code/exact-lookup': classRow(id, 'fail'), 'code/stale-index': { applicable: true, n: 3, underpowered: false, state: 'unreached' } });
+    assert.equal(absoluteRow(id, failing).verdict, 'FAIL', `${id}: failure precedes the unreached class`);
+    const weakB = cWorld(id); weakB.code.B = { 'exact-lookup': classRow(id, 'pass', { underpowered: true }) };
+    assert.equal(absoluteRow(id, weakB).verdict, 'PASS', `${id}: a weak A or B class does not hold up a C row`);
+  }
+  const scoped = (aggregates: any) => absoluteRow('T-001', aggregates, { corpus: 'code', class: 'conceptual-discovery' });
+  assert.equal(scoped({ code: { C: { 'conceptual-discovery': classRow('T-001') } } }).verdict, 'PASS', 'a scoped row needs only its own class');
+  assert.deepEqual(scoped({ code: { C: {} } }).excluded, [{ corpus: 'code', class: 'conceptual-discovery', reason: 'missing' }]);
+  assert.equal(scoped({}).verdict, 'UNRESOLVED');
+});
+
+test('FU-jkmdhb: the saved 079 gate re-evaluates from its stored g3 evidence to the same verdicts', () => {
+  const results = path.join(__dirname, '../../bench/retrieval/results');
+  const read = (name: any) => JSON.parse(fs.readFileSync(path.join(results, name), 'utf8'));
+  const aggregates: any = {}; const comparisons: any = {};
+  for (const corpus of ['code', 'guidance']) {
+    aggregates[corpus] = Object.fromEntries(['A', 'B', 'C'].map((c) => [c, read(`holdout-1-g3-${corpus}-${c}.json`).classes]));
+    comparisons[corpus] = [['A', 'B'], ['A', 'C'], ['B', 'C']].flatMap(([a, b]) => read(`holdout-1-g3-${corpus}-${a}-vs-${b}.json`).comparisons);
+  }
+  const fresh = gate.evaluate({ aggregates, comparisons, thresholds: read('../thresholds.json') });
+  const saved = read('079-gate.json');
+  assert.deepEqual(JSON.parse(JSON.stringify(fresh)), saved, 'the committed gate report is what the current rules give from the stored evidence');
+  assert.deepEqual(fresh.rows.map((r: any) => [r.id, r.verdict]), [['T-001', 'PASS'], ['T-002', 'FAIL'], ['T-003', 'PASS'], ['T-004', 'FAIL'], ['T-005', 'UNREACHED'], ['T-006', 'UNREACHED'], ['T-007', 'PASS'], ['T-008', 'PASS']]);
 });
 
 test('H2: a corpus:* relative row passes only when every covered corpus contributes, and an observed failure still fails', () => {

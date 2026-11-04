@@ -484,9 +484,13 @@ class WorkflowOrchestrator {
         },
         harnessName: displayName,
         since,
-        addCommand: (server: any) => {
+        addCommand: (server: any, harnessId: any = null) => {
           const reach = reachOf();
-          const row = reach?.harnesses.find((item: any) => !['selected', 'configured'].includes(item.servers[server]));
+          const has = (item: any) => ['selected', 'configured'].includes(item.servers[server]);
+          // The brief's own harness is where the server was missing; another harness having it says nothing.
+          const target = harnessId ? reach?.harnesses.find((item: any) => item.id === harnessId) : null;
+          if (target) return has(target) ? null : reach.addCommand(target.id, target.scope, server);
+          const row = reach?.harnesses.find((item: any) => !has(item));
           return row ? reach.addCommand(row.id, row.scope, server) : null;
         },
       });

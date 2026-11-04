@@ -68,7 +68,8 @@ test('cli-result-exit: context-pack overflow passes through without failure capt
     '--no-record',
     '--json',
   ], {
-    cwd: path.resolve(__dirname, '..', '..'),
+    // A scratch cwd, not the checkout: the dispatcher writes its state (.doflow) into the directory it runs from (FU-e6xnd9).
+    cwd: root,
     env: { ...process.env, HOME: root, XDG_CONFIG_HOME: xdg, DOFLOW_FAILURE_CAPTURE: '', DOFLOW_AGENT: 'codex' },
     encoding: 'utf8',
   });

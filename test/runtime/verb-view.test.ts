@@ -164,13 +164,13 @@ test('viewLines page-full: carries the input cursor, --limit <shown> and --view 
   assert.deepEqual(viewLines('page-full', { spec: SPEC, carried: {}, shown: 0 }), []);
 });
 
-test('viewLines in a JSON answer: the page-full and full lines end with --json, the page line does not', () => {
+test('viewLines in a JSON answer: the page, page-full and full lines all end with --json', () => {
   assert.deepEqual(viewLines('page-full', { spec: SPEC, carried: {}, shown: 10, json: true }),
     ['Full view of this page: doflow-run followup --action list --limit 10 --view full --json']);
   assert.deepEqual(viewLines('full', { spec: { verb: 'classify', keep: [], carry: ['taskClass'] }, carried: { taskClass: 'feature' }, json: true }),
     ['Full view: doflow-run classify --task-class feature --view full --json']);
   assert.deepEqual(viewLines('page', { spec: SPEC, carried: {}, nextCursor: CURSOR_A, json: true }),
-    [`Next page: doflow-run followup --action list --cursor ${CURSOR_A}`]);
+    [`Next page: doflow-run followup --action list --cursor ${CURSOR_A} --json`]);
 });
 
 test('viewLines full: the whole answer in the full view, free text never carried', () => {

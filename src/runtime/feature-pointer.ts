@@ -24,6 +24,8 @@ const { resolveActiveFeature } = require('./feature-resolve.ts');
 const SCHEMA = 1;
 const POINTER_DIR = path.join('.doflow', 'state', 'feature');
 const POINTER_NAME = /^[0-9a-f]{16}\.json$/;
+/** The single-file pointer written before row 135 (one per store, not per checkout). It is never migrated or deleted. */
+const LEGACY_FILE = path.join('.doflow', 'state', 'feature.json');
 
 interface PointerEntry { schema: number; checkout: string; slug: string; artifactDir: string | null; branch: string | null; taskId: string | null; updatedAt: string }
 
@@ -145,7 +147,14 @@ function describeActive({ storeRoot, cwd }: { storeRoot: string; cwd: string }):
   const file = pointerFile(storeRoot, here.key);
   const read = readEntry(file);
   if (read.status === 'unreadable') return { ...base, state: 'unreadable', reason: read.reason, file: path.relative(storeRoot, file) };
-  if (read.status === 'none') return { ...base, state: 'none' };
+  if (read.status === 'none') {
+    // A pre-135 feature.json is not read as an answer, but it is not silence either: say it is there and how to retire it.
+    const legacy = path.join(storeRoot, LEGACY_FILE);
+    if (fs.existsSync(legacy)) {
+      return { ...base, state: 'unreadable', file: LEGACY_FILE, reason: 'a pre-row-135 single-file pointer that is not migrated to the per-checkout pointer' };
+    }
+    return { ...base, state: 'none' };
+  }
   const entry = read.data!;
   const mismatch = entry.branch !== current.branch || (derived !== null && derived !== entry.slug);
   if (mismatch) return { ...base, state: 'mismatch', pointer: entry };

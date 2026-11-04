@@ -285,7 +285,7 @@ function evaluate({ reg, worker, harness, needs, coverage, env, cwd, root, nowMs
     nowMs,
   );
   const requirements = readiness.requirementsFor({ harness, worker }, facts, needs, coverage, edit);
-  return { requirements, version: found.version, ...readiness.eligibility(requirements) };
+  return { requirements, version: found.version, binaryPath: found.path, ...readiness.eligibility(requirements) };
 }
 
 /** IC-011 steps 0 to 12, then the supervisor spawn and the start poll. */
@@ -365,7 +365,9 @@ async function runAction(o: any) {
     edit: editRecord, childOf, request: childOf ? o.request : null,
     ...launchRecord(worker, identity, prompt.bytes.toString('utf8'), edit, binding),
     ...(binding ? { binding: { model: binding.model, flag: binding.flag } } : {}),
-    descriptor: worker,
+    // The binary the probe found, as an absolute path: the supervisor spawns from the execution worktree,
+    // where a relative PATH entry would name another file than the one probed.
+    descriptor: evaluated.binaryPath && worker?.cli ? { ...worker, cli: { ...worker.cli, binary: evaluated.binaryPath } } : worker,
     prompt: { path: prompt.path, sha256: prompt.sha256, bytes: prompt.bytes.length },
     needs: evaluated.requirements.map((item: any) => ({ requirement: item.requirement, at: item.at ?? null })),
   };

@@ -214,6 +214,18 @@ function loadSettings({ projectRoot = null, global = false, env = process.env, r
   return view;
 }
 
+/**
+ * The registry to pass `loadSettings` with `fsImpl`: none for the real file system (the shipped one),
+ * else the registry read through that file system. Throws when it is unusable (callers fail closed).
+ */
+function registryOn(fsImpl: any): { registry?: any } {
+  if (fsImpl === nodeFs) return {};
+  const { loadSettingsRegistry } = require('./registry.ts');
+  const loaded = loadSettingsRegistry({ fsImpl });
+  if (!loaded.ok) throw new Error(loaded.detail);
+  return { registry: loaded.registry };
+}
+
 function buildView(registry: any, home: any, root: string | null, global: boolean, env: any, fsImpl: any, protocols: any, only: string[] | null): any {
   const { REGISTRY_FILE } = require('./registry.ts');
   const { REF_META } = require('./refs.ts');
@@ -710,4 +722,4 @@ function buildView(registry: any, home: any, root: string | null, global: boolea
   return view;
 }
 
-module.exports = { loadSettings, clearSettingsCache };
+module.exports = { loadSettings, registryOn, clearSettingsCache };

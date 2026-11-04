@@ -95,7 +95,9 @@ class ResearchRequestStore {
   }
 
   stageFor(taskId: any, stageId: any) {
-    const run = readTaskState(this.fsImpl, this.runFile(taskId));
+    // The run is read the way every run read is: no link followed, no FIFO or device opened (FU-d88kp0).
+    const { readRunRecord } = require('./implementation-gate.ts');
+    const run = readRunRecord(this.fsImpl, this.runFile(taskId), path.join(this.projectRoot, '.doflow', 'state', 'orchestration'));
     if (!run || run.taskClass !== 'feature' || run.state !== 'RUNNING') {
       throw new Error(`Task '${taskId}' has no active feature stage`);
     }

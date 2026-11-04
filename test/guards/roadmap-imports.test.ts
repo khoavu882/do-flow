@@ -282,6 +282,37 @@ const RE_ROADMAP_BINDING = /\b(?:const|let|var)\s+[a-zA-Z_$][\w$]*\s*(?::\s*[^=;
 const DOC_EXT_RE = /\.(md|json|yaml|yml|txt)$/i;
 const RE_DOC_SEED_ACTION = /\bseed\s+--action(?:\s+|=)(?:apply|amend)\b/g;
 
+const REGEX_KEYWORD_BEFORE = /(?:^|[^\w$.])(?:return|typeof|case|in|of|delete|void|throw|new|else|do|yield|await)$/;
+
+/** True when a '/' after `before` (the stripped text so far) starts a regex literal rather than a division. */
+function regexAllowedAfter(before: any) {
+  const trimmed = before.replace(/\s+$/, '');
+  if (trimmed === '') return true;
+  const last = trimmed[trimmed.length - 1];
+  if ('(,=:[!&|?{;+-*%<>~^'.includes(last)) return true;
+  return REGEX_KEYWORD_BEFORE.test(trimmed);
+}
+
+/** Index just past the regex literal (body, closing '/', flags) starting at `start`, or -1 when it is not one. */
+function regexLiteralEnd(text: any, start: any) {
+  let i = start + 1;
+  let inClass = false;
+  while (i < text.length) {
+    const c = text[i];
+    if (c === '\n' || c === '\r') return -1;
+    if (c === '\\') { i += 2; continue; }
+    if (c === '[') inClass = true;
+    else if (c === ']') inClass = false;
+    else if (c === '/' && !inClass) {
+      i++;
+      while (i < text.length && /[a-z]/i.test(text[i])) i++;
+      return i;
+    }
+    i++;
+  }
+  return -1;
+}
+
 /** String- and template-literal-aware comment stripper: // and /* * / outside quotes are removed, keeping newlines. */
 function stripComments(text: any) {
   let out = '';
@@ -394,6 +425,18 @@ function stripComments(text: any) {
         out += ' ';
       }
       continue;
+    }
+
+    // A regex literal (FU-ky8r1f): '/' where an expression may start is copied through its closing '/' and flags,
+    // so a '//' or '/*' or a quote inside it is not read as a comment or a string. After an identifier, ')' or
+    // ']' a '/' is division, and after '}' it is left alone as before.
+    if (ch === '/' && regexAllowedAfter(out)) {
+      const end = regexLiteralEnd(text, i);
+      if (end > i) {
+        out += text.slice(i, end);
+        i = end;
+        continue;
+      }
     }
 
     if (currentContext && currentContext.type === 'expr') {
@@ -740,6 +783,21 @@ test('G54 person-only green control: unmodified tree has no findings; loop.ts an
 
   const { findings } = checkSeedPersonOnly({ files, gates, docs });
   assert.deepEqual(findings, [], `unmodified real tree must have zero findings:\n${findings.join('\n')}`);
+});
+
+test('G54 stripComments keeps a regex literal whole and still strips real comments (FU-ky8r1f)', () => {
+  // The old stripper read the '//' inside the first regex as a line comment and dropped the rest of the line.
+  const src = "const a = /https?:\\/\\//.test(x); const b = ['seed', 'roadmap']; // tail";
+  const out = stripComments(src);
+  assert.ok(out.includes("/https?:\\/\\//.test(x)"), out);
+  assert.ok(out.includes("['seed', 'roadmap']"), out);
+  assert.ok(!out.includes('tail'), out);
+  // A '/*' and a quote inside a regex literal or a class do not open a comment or a string.
+  assert.equal(stripComments("x = /a\\/*b/g; y = 1; /* gone */ z = 2;"), "x = /a\\/*b/g; y = 1;   z = 2;");
+  assert.equal(stripComments("x = /['\"]/; y = 'seed' // c"), "x = /['\"]/; y = 'seed' ");
+  // Division is not a regex.
+  assert.equal(stripComments('const r = a / b; // c'), 'const r = a / b; ');
+  assert.equal(stripComments('const r = (a) / 2 / 3; /* c */'), 'const r = (a) / 2 / 3;  ');
 });
 
 test('G54 person-only negative controls: mutating real loop.ts in memory turns guard red across single-line, multi-line, = flag, and constant forms', () => {

@@ -24,9 +24,15 @@ const processTree = require('../worker/process-tree.ts');
 const { EvidenceLedger } = require('../evidence-ledger.ts');
 const { emitVerifyTelemetry } = require('../verification/telemetry-emit.ts');
 
-/** The same names as 081's `REPO_ENV` (`src/runtime/worker/worktree-check.ts:30`), which that
- * module does not export: inherited variables that would point git at another repository. */
-const REPO_ENV = Object.freeze(['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_COMMON_DIR', 'GIT_OBJECT_DIRECTORY']);
+/** The repository-local variables of `git rev-parse --local-env-vars` (git 2.50): inherited, they would point git at
+ * another repository. Hardcoded so no git process is spawned to compute it. Fetch (`packages/fetch.ts`) strips these
+ * and also `GIT_ALLOW_PROTOCOL`; the integration step and the review checks inherit this list. `GIT_CONFIG*` is left
+ * out on purpose: CI injects authentication through it. */
+const REPO_ENV = Object.freeze([
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_OBJECT_DIRECTORY', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_IMPLICIT_WORK_TREE',
+  'GIT_GRAFT_FILE', 'GIT_INDEX_FILE', 'GIT_NO_REPLACE_OBJECTS', 'GIT_REPLACE_REF_BASE', 'GIT_PREFIX',
+  'GIT_SHALLOW_FILE', 'GIT_COMMON_DIR',
+]);
 /** How long the streams may stay open after the leader's exit (a grandchild may hold them). */
 const DRAIN_MS = 500;
 /** Bound on the `git rev-parse HEAD` read of the verified head. */

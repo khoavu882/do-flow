@@ -109,15 +109,16 @@ function readBounded(file: string, maxBytes: number): { text: string } | { missi
   }
 }
 
-function parseRecordLines(file: string): { records: any[] } | { error: string } {
+function parseRecordLines(file: string): { records: any[]; text: string } | { error: string } {
   const read = readBounded(file, MAX_RECORD_BYTES);
   if ('error' in read) return { error: read.error };
+  const text = 'text' in read ? read.text : '';
   const records: any[] = [];
-  for (const [index, line] of ('text' in read ? read.text : '').split('\n').entries()) {
+  for (const [index, line] of text.split('\n').entries()) {
     if (!line.trim()) continue;
     try { records.push(JSON.parse(line)); } catch (error: any) { return { error: `line ${index + 1}: ${error.message}` }; }
   }
-  return { records };
+  return { records, text };
 }
 
 type RunLookup = { status: 'none' } | { status: 'found'; taskId: string; taskClass: string }
@@ -429,12 +430,14 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
     result.applicable = result.notApplicable === null;
 
     let nextCommand: string | null = null;
+    let seen: { head: string | null; clean: boolean; text: string } | null = null;
     if (result.applicable) {
       const state = readHeadState(cwd, env);
       result.head = state.head;
       result.clean = state.clean;
       const parsed = parseRecordLines(verificationRunRecordFile(verificationRunsRoot(cwd), verifyId as string));
       if ('error' in parsed) return refuse('records-unreadable', parsed.error);
+      seen = { head: state.head, clean: state.clean, text: parsed.text };
       result.reasons = reviewPrecondition({ records: parsed.records, head: state.head, clean: state.clean, slug: verifyId });
       if (result.reasons.length) {
         result.ok = false;
@@ -507,6 +510,14 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
     const decided = resolveProtocol({ ...facts, advicePick: null });
     if (!decided.ok) return refuseResolution(decided.reason);
     const advice = await askAdvice({ decision: { depth: decided.protocol.depth, scope }, risk: result.risk, taskClass, slug: resolvedSlug, files: paths ? paths.length : null, cwd, env, adviceClient });
+    // The advice await can take a while: what the precondition and the risk were read from must still stand.
+    if (seen && advice.status !== 'off') {
+      const now = readHeadState(cwd, env);
+      const records = parseRecordLines(verificationRunRecordFile(verificationRunsRoot(cwd), verifyId as string));
+      if (now.head !== seen.head || now.clean !== seen.clean || 'error' in records || records.text !== seen.text) {
+        return refuse('state-moved', 'HEAD, the working tree or the verification records changed while the advice was asked; run review start again');
+      }
+    }
     const resolved = resolveProtocol({ ...facts, advicePick: advice.pick });
     if (!resolved.ok) return refuseResolution(resolved.reason);
     const { protocol } = resolved;

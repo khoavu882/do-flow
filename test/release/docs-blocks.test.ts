@@ -304,6 +304,24 @@ test('IC-001: any argv other than exactly --write or --check exits 2 with the us
   }
 });
 
+test('FU-5944my: --check names shorter descriptions as the fix when llms.txt is over its cap', (t) => {
+  const root = fixture(t);
+  writeAll(root);
+  const llms = path.join(root, 'docs/llms.txt');
+  const good = fs.readFileSync(llms, 'utf8');
+  fs.writeFileSync(llms, `${good}${'x'.repeat(LLMS_CAP)}\n`);
+  const capped = cli(root, ['--check']);
+  assert.equal(capped.status, 1);
+  assert.match(capped.stderr, /run node src\/release\/docs-blocks\.ts --write, then review the diff/);
+  assert.match(capped.stderr, /llms\.txt over 4096 bytes: if --write leaves it over, shorten the page descriptions/);
+  fs.writeFileSync(llms, good);
+  editFile(path.join(root, 'docs/settings.md'), (body: any) => body.replace(/\| /, '| stale '));
+  const stale = cli(root, ['--check']);
+  assert.equal(stale.status, 1);
+  assert.match(stale.stderr, /--write, then review the diff/);
+  assert.doesNotMatch(stale.stderr, /shorten the page descriptions/);
+});
+
 // ── Review round (C-2, C-6, C-7, C-8, C-9) ───────────────────────────────────────────────────────
 
 function editJson(file: any, edit: any) {

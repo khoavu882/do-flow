@@ -60,7 +60,7 @@ test('the default list is brief: count 200, shown 10, no history, body or excerp
     assert.equal(item.state, 'open');
   }
   assert.match(r.json.nextCursor, /^[0-9]{1,15}:[0-9]{8}T[0-9]{9}Z-[0-9a-hjkmnp-tv-z]{6}$/);
-  assert.equal(line(r.json, 'Next page'), `Next page: doflow-run followup --action list --cursor ${r.json.nextCursor}`);
+  assert.equal(line(r.json, 'Next page'), `Next page: doflow-run followup --action list --cursor ${r.json.nextCursor} --json`);
   assert.equal(line(r.json, 'Full view of this page'), 'Full view of this page: doflow-run followup --action list --limit 10 --view full --json');
   assert.equal(r.json.next.length, 2);
   assert.deepEqual(Object.keys(r.json).slice(0, 6), ['view', 'ok', 'action', 'state', 'count', 'shown']);
@@ -78,10 +78,23 @@ test('the Full view of this page line, run as written, prints the full payload o
   assert.equal('history' in full.json.items[0], true, 'the full items carry their history');
 });
 
+test('the Next page line of a JSON answer, run as written, prints the next page as JSON', () => {
+  const first = list('--limit', '5');
+  const command = line(first.json, 'Next page').split(': ')[1].split(' ');
+  assert.equal(command[command.length - 1], '--json');
+  const second = run(command.slice(2));
+  assert.equal(second.status, 0, second.stderr);
+  assert.ok(second.json, 'the command prints JSON, not text');
+  assert.equal(second.json.view, 'brief');
+  assert.equal(second.json.items.length, 5);
+  assert.equal(second.json.items.some((i: any) => first.json.items.some((j: any) => j.id === i.id)), false, 'the next page follows the first');
+});
+
 test('in text mode the page lines carry no --json', () => {
   const r = run(['--action', 'list']);
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /next: Full view of this page: doflow-run followup --action list --limit 10 --view full\n/);
+  assert.match(r.stdout, /next: Next page: doflow-run followup --action list --cursor \S+\n/);
 });
 
 test('--view brief is the default answer, and the JSON printed off a terminal is one compact line', () => {
@@ -115,7 +128,7 @@ test('a walk by nextCursor visits all 200 ids once, in the full view order, and 
     seen.push(...r.json.items.map((i: any) => i.id));
     cursor = r.json.nextCursor;
     pages += 1;
-    if (cursor) assert.equal(line(r.json, 'Next page'), `Next page: doflow-run followup --action list --cursor ${cursor} --limit 50`);
+    if (cursor) assert.equal(line(r.json, 'Next page'), `Next page: doflow-run followup --action list --cursor ${cursor} --limit 50 --json`);
     else assert.equal(line(r.json, 'Next page'), undefined);
   } while (cursor && pages < 10);
   assert.equal(pages, 4);
@@ -142,7 +155,7 @@ test('a paged full-view call adds view, shown and nextCursor to today object, an
   assert.equal(r.json.count, TOTAL);
   assert.equal(r.json.items.length, 5);
   assert.deepEqual(Object.keys(r.json).slice(0, 6), ['view', 'ok', 'action', 'state', 'count', 'shown']);
-  assert.deepEqual(r.json.next, [`Next page: doflow-run followup --action list --cursor ${r.json.nextCursor} --limit 5 --view full`]);
+  assert.deepEqual(r.json.next, [`Next page: doflow-run followup --action list --cursor ${r.json.nextCursor} --limit 5 --view full --json`]);
   const last = list('--view', 'full', '--cursor', list('--limit', '100').json.nextCursor, '--limit', '100');
   assert.equal(last.json.shown, 100);
   assert.equal(last.json.nextCursor, null);
@@ -201,7 +214,7 @@ test('--ids lists the named items in every state and pages them; an unknown id i
 test('--state is carried into the next lines and still filters', () => {
   const r = list('--state', 'open', '--limit', '4');
   assert.equal(r.json.state, 'open');
-  assert.equal(line(r.json, 'Next page'), `Next page: doflow-run followup --action list --state open --cursor ${r.json.nextCursor} --limit 4`);
+  assert.equal(line(r.json, 'Next page'), `Next page: doflow-run followup --action list --state open --cursor ${r.json.nextCursor} --limit 4 --json`);
   const done = list('--state', 'done');
   assert.deepEqual([done.json.count, done.json.shown, done.json.nextCursor, done.json.items], [0, 0, null, []]);
   assert.deepEqual(done.json.next, []);

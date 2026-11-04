@@ -210,10 +210,12 @@ function directClaim(categories: any[], name: string): any {
 
 /**
  * Plans a sort of the loose files (IC-002). Pure with respect to the folder: it reads, hashes and decides, and
- * writes nothing. A companion rule sends a file beside a same-stem file that is itself moving in this plan, or
+ * writes nothing. The manifest is read, and so validated, once before anything is planned (a caller that already
+ * holds a snapshot passes it as `manifest`), so a malformed manifest or a linked `.intake` fails the same way
+ * whether or not a loose render has a partner. A companion rule sends a file beside a same-stem file that is itself moving in this plan, or
  * that already sits in the category folder or is recorded `done` in the manifest.
  */
-function planSort({ contextDir, taxonomy, now, fsImpl = nodeFs, withHashes = true }: any): any {
+function planSort({ contextDir, taxonomy, now, fsImpl = nodeFs, withHashes = true, manifest = readManifest(contextDir, fsImpl) }: any): any {
   const { files, dirs, unsupported } = rootEntries(contextDir, fsImpl);
   const windowMs = taxonomy.recentWindowSeconds * 1000;
   const recent = new Set<string>();
@@ -236,7 +238,7 @@ function planSort({ contextDir, taxonomy, now, fsImpl = nodeFs, withHashes = tru
 
   // A partner that no longer is loose: already in the category folder, or recorded `done` by an earlier run. This
   // settles a render stranded by a crash or by a recent-window skip while its source moved.
-  let doneMoves: any[] | null = null;
+  const doneMoves: any[] = manifest.runs.flatMap((run: any) => run.moves.filter((move: any) => move.state === 'done'));
   const settledPartnerPlace = (category: any, rule: any, name: string): { dir: string; categoryId: string } | null => {
     const stem = stemOf(name);
     for (const sourceRule of category.rules) {
@@ -251,8 +253,7 @@ function planSort({ contextDir, taxonomy, now, fsImpl = nodeFs, withHashes = tru
         if (!isUnreadable(error)) throw error; // a folder this user may not read holds no partner we can see: the render stays loose
       }
       if (inFolder) return place;
-      const done: any[] = doneMoves ??= readManifest(contextDir, fsImpl).runs.flatMap((run: any) => run.moves.filter((move: any) => move.state === 'done'));
-      if (done.some((move: any) => path.posix.dirname(move.to) === place.dir && isPartner(path.posix.basename(move.to)))) return place;
+      if (doneMoves.some((move: any) => path.posix.dirname(move.to) === place.dir && isPartner(path.posix.basename(move.to)))) return place;
     }
     return null;
   };
@@ -376,7 +377,7 @@ const hasPlanned = (manifest: any): boolean => manifest.runs.some((run: any) => 
 const absent = (action: string, extra: any = {}): any => ({ action, state: 'absent', ...extra });
 const absentSort = (action: string): any => absent(action, { runId: null, moves: [], skipped: [], unmatched: [], createdDirs: [] });
 
-/** IC-002 preview: the plan, with `runId: null`; no lock, no manifest, no write. */
+/** IC-002 preview: the plan, with `runId: null`; reads the manifest once, takes no lock and writes nothing. */
 function previewSort({ contextDir, taxonomy, now = new Date(), fsImpl = nodeFs }: any): any {
   if (contextState(contextDir, fsImpl) === 'absent') return absentSort('preview');
   return { action: 'preview', state: 'sorted', runId: null, ...planSort({ contextDir, taxonomy, now, fsImpl }) };
@@ -387,13 +388,14 @@ function sortFolder({ contextDir, taxonomy, now = new Date(), fsImpl = nodeFs }:
   if (contextState(contextDir, fsImpl) === 'absent') return absentSort('sort');
   const empty = (plan: any): any => ({ action: 'sort', state: 'sorted', runId: null, moves: [], skipped: plan.skipped, unmatched: plan.unmatched, createdDirs: [] });
   // Nothing to move and nothing to settle: report without a lock or a single write.
-  const first = planSort({ contextDir, taxonomy, now, fsImpl, withHashes: false });
-  if (first.moves.length === 0 && !hasPlanned(readManifest(contextDir, fsImpl))) return empty(first);
+  const snapshot = readManifest(contextDir, fsImpl);
+  const first = planSort({ contextDir, taxonomy, now, fsImpl, withHashes: false, manifest: snapshot });
+  if (first.moves.length === 0 && !hasPlanned(snapshot)) return empty(first);
 
   return withManifestLock(contextDir, (assertHeld: () => void) => {
     const manifest = readManifest(contextDir, fsImpl);
     if (reconcile(manifest, contextDir, now, fsImpl, assertHeld)) writeManifest(contextDir, manifest, fsImpl, assertHeld);
-    const plan = planSort({ contextDir, taxonomy, now, fsImpl });
+    const plan = planSort({ contextDir, taxonomy, now, fsImpl, manifest });
     if (plan.moves.length === 0) return empty(plan);
 
     const run: any = { id: newRunId(now), action: 'sort', startedAt: now.toISOString(), finishedAt: null, source: null, stage: null, createdDirs: [], moves: [] };

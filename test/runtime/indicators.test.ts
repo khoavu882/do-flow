@@ -160,7 +160,7 @@ test('033: an unparseable record is counted and named, never silently skipped', 
     'broken.json': '{ not json',
     'notarecord.json': { version: 1, nope: true },
   });
-  const read = readRecords(orchestrationDir(root));
+  const read = readRecords(root);
   assert.equal(read.records.length, 1);
   assert.deepEqual(read.unreadable.map((u: any) => u.file).sort(), ['broken.json', 'notarecord.json']);
   const view = buildIndicators(read);
@@ -172,14 +172,38 @@ test('FU-d88kp0: a record that is a link is named unreadable, never followed', (
     'good.json': record({ taskId: 'ok', startedAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:01:00.000Z', history: [] }),
   });
   fs.symlinkSync(path.join(dir, 'good.json'), path.join(dir, 'linked.json'));
-  const read = readRecords(orchestrationDir(root));
+  const read = readRecords(root);
   assert.deepEqual(read.records.map((r: any) => r.taskId), ['ok']);
   assert.deepEqual(read.unreadable, [{ file: 'linked.json', reason: 'not a regular file' }]);
 });
 
+test('FU-8vqsbc: namespaced runs and runs held by another checkout are read, and a read fault carries a fixed reason', (t) => {
+  const { execFileSync } = require('node:child_process');
+  const main = tempDir(t, 'doflow-indicators-ns-');
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: main });
+  execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.test', 'commit', '-q', '--allow-empty', '-m', 'init'], { cwd: main });
+  const other = `${main}-other`;
+  t.after(() => fs.rmSync(other, { recursive: true, force: true }));
+  execFileSync('git', ['worktree', 'add', '-q', '-b', 'feat/other', other], { cwd: main });
+  const body = (taskId: string) => record({ taskId, startedAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:01:00.000Z', history: [] });
+  const put = (root: string, rel: string, text: any) => {
+    const file = path.join(orchestrationDir(root), rel);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, typeof text === 'string' ? text : JSON.stringify(text));
+  };
+  put(main, 'flat.json', body('flat'));
+  put(main, 'feat-a/ns.json', body('ns'));
+  put(other, 'elsewhere.json', body('elsewhere'));
+  put(main, 'broken.json', 'SECRET-BYTES { not json');
+  const read = readRecords(main);
+  assert.deepEqual(read.records.map((r: any) => r.taskId).sort(), ['elsewhere', 'flat', 'ns']);
+  assert.deepEqual(read.unreadable, [{ file: 'broken.json', reason: 'not valid JSON' }]);
+  assert.equal(JSON.stringify(read).includes('SECRET'), false);
+});
+
 test('033: an absent directory is a state, not an error', (t) => {
   const root = tempDir(t, 'doflow-indicators-none-');
-  const read = readRecords(orchestrationDir(root));
+  const read = readRecords(root);
   assert.equal(read.exists, false);
   const view = buildIndicators(read);
   assert.equal(view.runCount, 0);

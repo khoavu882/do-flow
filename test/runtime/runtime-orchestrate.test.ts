@@ -431,6 +431,14 @@ test('a flat record written in the main checkout is found by verify and handoff 
   const file = readyTrivialEdit(cwd, 'T1');
   assert.equal(file, path.join(cwd, '.doflow', 'state', 'readiness', 'T1.json'), 'no feature resolves on main, so the record is flat');
 
+  // FU-c9agck: the register feature does not read a flat record that names no feature (045 isolation)...
+  const anonymous = JSON.parse(run(wt, ['verify', '--task-id', 'T1', '--scope', 'a.js', '--json']).stdout).readiness;
+  assert.equal(anonymous.ok, false, JSON.stringify(anonymous));
+  assert.equal(anonymous.code, 'missing');
+  // ...but one that explicitly names it.
+  const record = JSON.parse(fs.readFileSync(file, 'utf8'));
+  fs.writeFileSync(file, JSON.stringify({ ...record, slug: '900-demo' }));
+
   const verify = run(wt, ['verify', '--task-id', 'T1', '--scope', 'a.js', '--json']);
   const readiness = JSON.parse(verify.stdout).readiness;
   assert.equal(readiness.applies, true, verify.stdout);
@@ -507,6 +515,61 @@ test('O6: a run an earlier version left in a worktree\'s own store is read from 
   assert.equal(found.data.current.id, 'reproduction');
   const other = run(cwd, ['orchestrate', '--action', 'status', '--task-id', 'A.1', '--slug', 'third']);
   assert.equal(other.status, 1, 'another feature\'s legacy run is not this task\'s');
+});
+
+test('FU-bp9dbs: status without --slug opens the one no-feature flat run another worktree holds, as list shows it', (t) => {
+  const cwd = project(t);
+  execFileSync('git', ['-C', cwd, 'branch', '-M', 'main'], { stdio: 'ignore' });
+  const worktree = (name: string, branch: string) => {
+    const dir = `${cwd}-${name}`;
+    t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+    execFileSync('git', ['-C', cwd, 'worktree', 'add', '-q', '-b', branch, dir], { stdio: 'ignore' });
+    return dir;
+  };
+  const w1 = worktree('bp1', 'fix/bp1');
+  const w2 = worktree('bp2', 'fix/bp2');
+  // A run that names no feature, flat, left in a worktree's own store.
+  json(cwd, ['orchestrate', '--action', 'start', '--task-id', 'N.1', '--task-class', 'bug', '--slug', 'tmp']);
+  const source = path.join(storeOf(cwd), 'tmp', 'N.1.json');
+  const record = JSON.parse(fs.readFileSync(source, 'utf8'));
+  delete record.featureSlug; delete record.slug;
+  const leave = (dir: string) => {
+    fs.mkdirSync(storeOf(dir), { recursive: true });
+    fs.writeFileSync(path.join(storeOf(dir), 'N.1.json'), JSON.stringify(record));
+  };
+  fs.rmSync(path.join(storeOf(cwd), 'tmp'), { recursive: true });
+  leave(w1);
+
+  const listed = json(cwd, ['orchestrate', '--action', 'list']);
+  assert.deepEqual(listed.data.runs.map((r: any) => r.taskId), ['N.1']);
+  const opened = json(cwd, ['orchestrate', '--action', 'status', '--task-id', 'N.1']);
+  assert.equal(opened.status, 0, opened.stderr);
+  assert.equal(opened.data.taskId, 'N.1');
+  assert.equal(opened.data.current.id, 'reproduction');
+  assert.equal(json(cwd, ['orchestrate', '--action', 'timeline', '--task-id', 'N.1']).status, 0);
+  // A write action still finds no run without --slug.
+  assert.equal(run(cwd, ['orchestrate', '--action', 'annotate', '--task-id', 'N.1', '--node', 'reproduction', '--note', 'n']).status, 1);
+
+  // Two worktrees holding it is ambiguous, naming both; nothing is changed.
+  leave(w2);
+  const both = run(cwd, ['orchestrate', '--action', 'status', '--task-id', 'N.1']);
+  assert.equal(both.status, 1);
+  assert.ok(both.stderr.includes(path.join(storeOf(w1), 'N.1.json')) && both.stderr.includes(path.join(storeOf(w2), 'N.1.json')), both.stderr);
+
+  // A local copy takes precedence over the other worktrees'.
+  leave(cwd);
+  assert.equal(json(cwd, ['orchestrate', '--action', 'status', '--task-id', 'N.1']).status, 0);
+  fs.rmSync(path.join(storeOf(cwd), 'N.1.json'));
+
+  // An unsafe copy (a link) is never opened and is not a match: only the other worktree's is.
+  fs.rmSync(path.join(storeOf(w2), 'N.1.json'));
+  fs.rmSync(path.join(storeOf(w1), 'N.1.json'));
+  fs.writeFileSync(path.join(cwd, 'outside.json'), JSON.stringify(record));
+  fs.mkdirSync(storeOf(w1), { recursive: true });
+  fs.symlinkSync(path.join(cwd, 'outside.json'), path.join(storeOf(w1), 'N.1.json'));
+  const linked = run(cwd, ['orchestrate', '--action', 'status', '--task-id', 'N.1']);
+  assert.equal(linked.status, 1, linked.stdout);
+  assert.equal(linked.stdout, '');
 });
 
 test('C-10: a run\'s brief records are read from the checkout the verb runs in, not from the state root', (t) => {

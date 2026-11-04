@@ -33,13 +33,14 @@ test('open and taken follow-ups keep bodies; unrelated orphan is removed',t=>{
   event(f,'FU-123456','followup.added');event(f,'FU-234567','followup.added');event(f,'FU-234567','followup.taken');
   const result=f.pass().stores[0];assert.equal(result.removed,1);assert.equal(fs.existsSync(open),true);assert.equal(fs.existsSync(taken),true);assert.equal(fs.existsSync(orphan),false);
 });
-test('foreign missing-root folder expires by newest body; missing .root is kept',t=>{
+test('foreign missing-root folders are kept whatever their age; only local orphan bodies are pruned',t=>{
   const f=fixture(t), expired=path.join(f.reports,'abcdefabcdef'), unknown=path.join(f.reports,'deadbeefdead'), recent=path.join(f.reports,'123456789abc');
   const unrelated=path.join(f.reports,'abcdef123456');
   body(expired,'FU-123456',181);body(unknown,'FU-123456',181);body(recent,'FU-123456',2);body(unrelated,'FU-123456',181);
   for(const d of [expired,recent,unrelated]) fs.writeFileSync(path.join(d,'.root'),path.join(f.root,'missing')+'\n');
   fs.writeFileSync(path.join(unrelated,'user-note'),'do not delete');
-  const result=f.pass().stores[0];assert.equal(result.removed,1);assert.equal(fs.existsSync(expired),false);assert.equal(fs.existsSync(unknown),true);assert.equal(fs.existsSync(recent),true);
+  const result=f.pass().stores[0];assert.equal(result.removed,0);
+  for(const d of [expired,unknown,recent,unrelated]) assert.equal(fs.existsSync(d),true,d);
   assert.equal(fs.readFileSync(path.join(unrelated,'user-note'),'utf8'),'do not delete');
 });
 test('lifecycle-settled reports eligible event files and removes through locked retention',t=>{

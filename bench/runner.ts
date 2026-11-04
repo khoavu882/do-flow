@@ -252,6 +252,11 @@ const PROGRAMMATIC: Record<string, (a: any, ctx: any) => { passed: boolean | nul
   },
 };
 
+/** The assertion types a triggering run can answer: it records a routing decision and which skill it read, nothing
+ * else. Every other type asserts behavior the run never produces, so a triggering run excludes it from its verdict. */
+const ROUTING_ASSERTIONS = new Set(['skill_resolved', 'skill_invoked', 'skill_not_invoked', 'skill_not_routed']);
+const EXCLUDED_BEHAVIORAL = 'excluded: a triggering run records routing and provenance only, so a behavioral assertion is not graded';
+
 const WITHHELD_UNDECIDED = {
   skill_resolved: 'withheld arm: the skill was withheld from this run',
   skill_invoked: 'withheld arm: the skill was withheld from this run',
@@ -830,6 +835,10 @@ function buildPlan(cfg: any, opts: any) {
         },
         outputDir: path.join(cfg.benchRoot, 'runs', opts.iteration, skill, `eval-${e.id}-${e.name}`),
         saveOutputs: ['transcript.txt', 'invoked_skills.json', RUN_SOURCE_FILE, 'outputs/', ...(e.kind === 'triggering' ? [RUN_ROUTING_FILE] : [])],
+        // A triggering run is graded for routing and provenance only; the count is what grading leaves out.
+        ...(e.kind === 'triggering'
+          ? { grading: { scope: 'routing-provenance', excludedBehavioralAssertions: (e.assertions || []).filter((a: any) => !ROUTING_ASSERTIONS.has(a.type)).length } }
+          : {}),
       });
       const without: any = opts.arm === 'without-skill' && e.kind === 'behavioral' ? withoutSkillRun(cfg, skill, e, runs[runs.length - 1]) : null;
       if (without) runs.push(without);
@@ -951,7 +960,7 @@ function cmdGrade(cfg: any, opts: any) {
         const runDir = path.join(iterRoot, skill, `eval-${e.id}-${e.name}${arm === 'without-skill' ? WITHOUT_SKILL_DIR_SUFFIX : ''}`);
         if (!fs.existsSync(runDir)) continue;
         const grading = gradeRun(cfg, skill, e, arm, runDir, sourceAt);
-        manual += grading.expectations.filter((x: any) => x.passed === null).length;
+        manual += grading.expectations.filter((x: any) => x.passed === null && x.excluded !== true).length;
         if (grading.run_status.status === 'malformed') infraCounts.malformed += 1;
         else if (grading.infra !== null) infraCounts[grading.infra] += 1;
         if (arm === 'without-skill') {
@@ -1005,7 +1014,10 @@ function gradeRun(cfg: any, skill: any, e: any, arm: any, runDir: any, sourceAt:
   ctx.skill = skill;
   ctx.sourceAt = sourceAt;
   ctx.arm = arm;
-  const expectations = (e.assertions || []).map((assertion: any) => gradeAssertion(assertion, ctx));
+  // `excluded` is neither a pass, a failure nor work for the grader: the assertion is not part of this run's verdict.
+  const expectations = (e.assertions || []).map((assertion: any) => (e.kind === 'triggering' && !ROUTING_ASSERTIONS.has(assertion.type)
+    ? { text: assertion.text, passed: null, excluded: true, evidence: EXCLUDED_BEHAVIORAL }
+    : gradeAssertion(assertion, ctx)));
   const decided = expectations.filter((result: any) => result.passed !== null);
   // Provenance is recorded beside the expectations rather than inside them: a run that measured
   // the wrong skill has an invalid pass rate, not a lower one.

@@ -40,6 +40,14 @@ function inside(root: string, file: string, fsImpl = fs): string | null {
   return normalized;
 }
 
+/** `file` as a '/'-separated path under `root` as written, links not resolved, or null when it is not under `root`.
+ * A pointer keeps this logical path: a linked `agent-docs/` must not hide a user file from the ledger's path test. */
+function logicalRel(root: string, file: string): string | null {
+  const relative = path.relative(path.resolve(root), path.resolve(file));
+  if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return null;
+  return relative.split(path.sep).join('/');
+}
+
 function lineSlice(lines: string[], startLine: number, endLine: number): string {
   return lines.slice(startLine - 1, endLine).join('\n') + '\n';
 }
@@ -157,8 +165,10 @@ function collectPointers({ projectRoot, feature, fsImpl = fs, intakeFile }: any)
   const root = path.resolve(projectRoot);
   const pointers: any[] = [];
   for (const source of sourceFiles({ projectRoot: root, feature, fsImpl, intakeFile })) {
-  const rel = inside(root, source.absolute, fsImpl);
-    if (!rel) continue;
+  // The realpath decides whether the file is inside the project; the pointer names it as it is written.
+    const real = inside(root, source.absolute, fsImpl);
+    if (!real) continue;
+    const rel = logicalRel(root, source.absolute) ?? real;
     const user = source.user || Boolean(originOf(rel));
     let text: string;
     try {
@@ -184,9 +194,11 @@ function collectPointers({ projectRoot, feature, fsImpl = fs, intakeFile }: any)
 }
 
 function readPointerSlice({ projectRoot, pointer, fsImpl = fs }: any): { slice: string; digest: string } | null {
-  const rel = inside(projectRoot, path.resolve(projectRoot, pointer.path), fsImpl);
-  if (!rel || rel !== pointer.path) return null;
-  const file = path.resolve(projectRoot, rel);
+  // A pointer path is a plain relative path under the project (a logical one through a link, or an older
+  // pointer's realpath) whose realpath is inside it too.
+  const absolute = path.resolve(projectRoot, pointer.path);
+  if (!inside(projectRoot, absolute, fsImpl) || logicalRel(projectRoot, absolute) !== pointer.path) return null;
+  const file = absolute;
   try {
     const lines = fsImpl.readFileSync(file, 'utf8').split(/\r?\n/);
     const slice = lineSlice(lines, pointer.range.startLine, pointer.range.endLine);

@@ -174,6 +174,19 @@ test('a GIT_DIR in the caller env is absent in the child', POSIX, async (t) => {
   assert.equal(fs.readFileSync(outputFile(p, result.outputId), 'utf8').trim(), JSON.stringify([null, null, 'p-0123456789ab']));
 });
 
+test('FU-rdy770: all twelve repository-local git variables are absent in the child; injected configuration is kept', POSIX, async (t) => {
+  const p = project(t);
+  const keys = [
+    'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_OBJECT_DIRECTORY', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_IMPLICIT_WORK_TREE',
+    'GIT_GRAFT_FILE', 'GIT_INDEX_FILE', 'GIT_NO_REPLACE_OBJECTS', 'GIT_REPLACE_REF_BASE', 'GIT_PREFIX',
+    'GIT_SHALLOW_FILE', 'GIT_COMMON_DIR',
+  ];
+  const env: any = { ...p.env, GIT_CONFIG_COUNT: '1' };
+  for (const key of keys) env[key] = path.join(p.root, 'elsewhere');
+  const result = await run(p, nodeArgv(`console.log(JSON.stringify([${JSON.stringify(keys)}.filter((k) => k in process.env), process.env.GIT_CONFIG_COUNT]))`), { env });
+  assert.equal(fs.readFileSync(outputFile(p, result.outputId), 'utf8').trim(), JSON.stringify([[], '1']));
+});
+
 test('endVerification ends a live recorded group', POSIX, async (t) => {
   const p = project(t);
   const child = require('node:child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { env: p.env, detached: true, stdio: 'ignore' });

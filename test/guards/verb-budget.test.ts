@@ -201,7 +201,8 @@ test('G80 control: a row 2,048 B over its measured size is red, one line per row
 
 // ------------------------------------------------------------------------------------------ projection
 
-const ENVELOPE = ['view', 'shown', 'nextCursor', 'next'];
+// `omitted` is brief-only: it counts what the brief cut from a list (FU-2jtkch).
+const ENVELOPE = ['view', 'shown', 'nextCursor', 'next', 'omitted'];
 const FOLLOWUP_CLI = path.join(REPO, 'src', 'runtime', 'lifecycle', 'cli.ts');
 const CLASSIFIER = path.join(REPO, 'src', 'runtime', 'task-classifier.ts');
 
@@ -210,7 +211,7 @@ const CLASSIFIER = path.join(REPO, 'src', 'runtime', 'task-classifier.ts');
  * when the lifecycle derivation refuses, `integrationBehind` and `note` when the integration branch is behind
  * (src/runtime/lifecycle/overview.ts:219-220), and a goal's `conflicts` when its events collided. They are still checked as leaves wherever a brief answer carries them.
  */
-const OVERVIEW_CONDITIONAL = ['$.reason', '$.note', '$.integrationBehind', '$.goals[].conflicts'];
+const OVERVIEW_CONDITIONAL = ['$.reason', '$.note', '$.integrationBehind', '$.goals[].conflicts', '$.omitted'];
 
 const SPECS: any[] = [
   { name: 'followup list', file: FOLLOWUP_CLI, constant: 'FOLLOWUP_LIST_BRIEF', brief: 'followup --action list --json', full: 'followup --action list --view full --json', offsets: { items: 0 } },
@@ -273,4 +274,39 @@ test('AC-4: the brief overview on the G80 fixture is at most 3,500 B, one page o
   assert.equal(brief.followups.items.length, brief.followups.shown, 'followups.shown matches what is listed');
   assert.deepEqual(Object.keys(brief.goals[0]), ['goal', 'outcome', 'items', 'proposeDone', 'nudges'], 'a goal keeps its fields but not its feature lists');
   assert.equal(brief.next.some((line: string) => line.startsWith('Full view')), false, 'no line sends the caller to the unbounded view');
+});
+
+// ------------------------------------------------------------------------------------------ FU-2jtkch
+
+test('G80 caps: a brief overview lists at most 10 intents, 10 ids per intent, 10 nudges per goal and 10 finished slugs per nudge, counts the rest, and the full answer keeps all of it', () => {
+  const { goalView, capOverviewBrief, FEATURES_SHOWN } = require('../../src/runtime/lifecycle/overview.ts');
+  const { projectBrief } = require('../../src/runtime/verb-view.ts');
+  const slugs = Array.from({ length: 13 }, (_, i) => `feature-${String(i).padStart(2, '0')}`);
+  const goal = { goal: 'G-1', outcome: 'ship', status: 'open', items: Array.from({ length: 14 }, (_, i) => ({ id: `I-${i}`, met: false })) };
+  const statuses = { statuses: Object.fromEntries(slugs.map((slug) => [slug, { status: 'finished' }])) };
+  const view = goalView(goal, slugs.map((slug) => ({ slug, goal: 'G-1' })), statuses);
+  const full: any = {
+    ok: true, mode: 'discovery', releaseMode: 'tag', integrationRef: 'develop', gitError: null,
+    followups: { open: 0, shown: 0, items: [] },
+    intents: Array.from({ length: 12 }, (_, i) => ({ path: `agent-docs/intents/i-${i}.md`, items: Array.from({ length: i === 0 ? 11 : 1 }, (_, j) => `FU-${i}${j}`) })),
+    goals: [view], conflicts: [], unreadable: [], unreadableReasons: {}, failures: null, next: [],
+  };
+  assert.equal(full.goals[0].nudges.length, 14, 'the full answer keeps every nudge');
+  assert.equal(full.goals[0].features.finished.length, 13, 'the full answer keeps every finished feature');
+  assert.ok(full.goals[0].nudges[0].includes(`(+${13 - FEATURES_SHOWN} more)`) && !full.goals[0].nudges[0].includes('feature-00'), 'a nudge names the most recent finished features only');
+
+  const brief: any = capOverviewBrief(full);
+  assert.equal(brief.intents.length, 10);
+  assert.equal(brief.intents[0].items.length, 10);
+  assert.equal(brief.goals[0].nudges.length, 10);
+  assert.deepEqual(brief.omitted, {
+    intentItems: [{ path: 'agent-docs/intents/i-0.md', total: 11, more: 1 }],
+    intents: { total: 12, more: 2 },
+    finished: [{ goal: 'G-1', total: 13, more: 3 }],
+    nudges: [{ goal: 'G-1', total: 14, more: 4 }],
+  });
+  assert.equal(full.intents.length, 12, 'capping does not touch the full answer');
+  const keep = keepPathsOf(FOLLOWUP_CLI, 'OVERVIEW_BRIEF');
+  assert.deepEqual(subsetViolations(projectBrief(brief, keep), full, { exclude: ENVELOPE }), [], 'the capped brief is a projection of the full answer');
+  assert.equal('omitted' in capOverviewBrief({ ...full, intents: [], goals: [] }), false, 'nothing cut, no omitted key');
 });
