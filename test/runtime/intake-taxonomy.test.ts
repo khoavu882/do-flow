@@ -181,6 +181,13 @@ test('real-world names land in the category that owns them', (t: any) => {
     'story.md': 'raw-prd/story.md',
     'qr-voucher-prd.md': 'raw-prd/qr-voucher-prd.md',
     'weekly-session.md': 'discuss-session/transcripts/weekly-session.md',
+    'architecture-meeting-transcript.md': 'discuss-session/transcripts/architecture-meeting-transcript.md',
+    'design-session-notes.md': 'discuss-session/transcripts/design-session-notes.md',
+    'adr-001-meeting.md': 'discuss-session/transcripts/adr-001-meeting.md',
+    'design-minutes.md': 'discuss-session/transcripts/design-minutes.md',
+    'userstory.md': 'raw-prd/userstory.md',
+    'userstories.md': 'raw-prd/userstories.md',
+    'mystory.md': '',
   };
   const dir = tempDir(t, 'doflow-intake-names-');
   for (const name of Object.keys(names)) fs.writeFileSync(path.join(dir, name), 'x');
