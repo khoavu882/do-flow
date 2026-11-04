@@ -392,3 +392,40 @@ test('context-pack-cli: each run resolves the feature with one do-paths.sh spawn
   assert.ok(resSlug.spawns[0].includes('do-paths.sh'), `--slug spawn must be do-paths.sh: ${resSlug.spawns[0]}`);
 });
 
+
+test('FU-674pfd: without --slug a task id naming another feature selects that feature for objective, artifacts and records; --slug still wins', (t) => {
+  const { execFileSync } = require('node:child_process');
+  const main = tempDir(t, 'doflow-cli-taskid-feature-');
+  const git = (cwd: string, ...args: string[]) => execFileSync('git', args, { cwd, stdio: 'ignore' });
+  fs.writeFileSync(path.join(main, '.gitignore'), 'agent-docs/\n.doflow/\n');
+  git(main, 'init', '-q', '-b', 'main');
+  git(main, 'add', '-A');
+  git(main, '-c', 'user.name=t', '-c', 'user.email=t@example.test', 'commit', '-q', '-m', 'init');
+  const feature = (root: string, slug: string, word: string) => {
+    const dir = path.join(root, 'agent-docs', 'doflow', slug, 'intention');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'requirement.md'), `# Feature: ${word}\n## 1. Summary\nObjective of feature ${word}.\n`);
+  };
+  // Feature B's folder is only in the main checkout; the branch the verb runs on is feature A's.
+  const wt = `${main}-a`;
+  t.after(() => fs.rmSync(wt, { recursive: true, force: true }));
+  git(main, 'worktree', 'add', '-q', '-b', 'feat/075-a', wt);
+  feature(main, '075-a', 'ALPHA');
+  feature(main, '079-b', 'BRAVO');
+  feature(wt, '075-a', 'ALPHA');
+
+  const pack = (...extra: string[]) => {
+    const res = runCli(wt, ['context-pack', '--task-id', '079-b', '--json', ...extra]);
+    assert.ok(res.code === 0 || res.code === 1, res.stderr);
+    return JSON.parse(res.stdout);
+  };
+  assert.equal(pack().objective, 'Objective of feature BRAVO.');
+  assert.ok(fs.existsSync(path.join(main, '.doflow', 'state', 'delivery', '079-b.json')), 'the delivery is recorded under the task id\'s feature');
+  // The pack a context-emit event delivers selects the same feature.
+  const { packForEmission } = require('../../src/runtime/context-pack.ts');
+  const emitted = packForEmission({ root: fs.realpathSync(wt), stateRoot: fs.realpathSync(main), taskId: '079-b', noRecord: true });
+  assert.match(emitted.output, /Objective of feature BRAVO\./);
+  assert.equal(emitted.output.includes('ALPHA'), false);
+  assert.equal(pack('--slug', '075-a').objective, 'Objective of feature ALPHA.');
+  assert.ok(fs.existsSync(path.join(main, '.doflow', 'state', 'delivery', '075-a', '079-b.json')), 'an explicit --slug keys the records');
+});

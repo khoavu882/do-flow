@@ -10,7 +10,7 @@ const { ClaimsManager } = require('./claims.ts');
 const { ResearchRequestStore } = require('./research-request.ts');
 const { finishRuntime, usageError, EXIT } = require('./cli-result.ts');
 const nativeConsoleLog = console.log;
-const { resolveFeature } = require('./task-scope.ts');
+const { resolveFeature, isSafeSlug } = require('./task-scope.ts');
 const { readRegister } = require('./decision-register.ts');
 const compose = require('./context/compose.ts');
 const {
@@ -949,7 +949,9 @@ function handleContextPackCommand({
 
   const budget = resolveBudget({ taskClass: effectiveTaskClass, maxBytes: parsedMaxBytes, harnessFlag: harness, profiles });
 
-  const feature = resolveFeature({ projectRoot: source, slug: slug || null });
+  const resolved = resolvePackFeature({ source, stateRoot: root, taskId, slug, typed: explicitSlug });
+  slug = resolved.slug;
+  const feature = resolved.feature;
 
   let deltaExpansions: any[] = [];
   if (parsedMaxBytes !== undefined) {
@@ -1274,10 +1276,13 @@ function resolveDeltaBasis({ root, source = root, taskId, slug, since, budget, p
 function gatherMandatory({ root, taskId, feature }: any) {
   let reqText: string | null = null;
   let reqPath = 'requirement.md';
+  // The folder lives in `featureRoot`, the checkout that holds it: the main checkout when the
+  // checkout the verb runs in has none of its own.
+  const folder = feature.featureFolder || feature.featureDir;
   if (!feature.error && feature.featureDir) {
     reqPath = feature.paths?.requirement
-      ? path.resolve(feature.repoRoot || root, feature.paths.requirement)
-      : path.join(feature.featureDir, 'intention', 'requirement.md');
+      ? path.resolve(feature.featureRoot || feature.repoRoot || root, feature.paths.requirement)
+      : path.join(folder, 'intention', 'requirement.md');
     try {
       if (fs.existsSync(reqPath)) {
         reqText = fs.readFileSync(reqPath, 'utf8');
@@ -1291,10 +1296,10 @@ function gatherMandatory({ root, taskId, feature }: any) {
   if (!feature.error && feature.featureDir && taskId) {
     let planPath: string | null = null;
     if (feature.paths?.plan) {
-      planPath = path.resolve(feature.repoRoot || root, feature.paths.plan);
+      planPath = path.resolve(feature.featureRoot || feature.repoRoot || root, feature.paths.plan);
     } else {
-      const nestedPlan = path.join(feature.featureDir, 'plan', 'plan.md');
-      const flatPlan = path.join(feature.featureDir, 'plan.md');
+      const nestedPlan = path.join(folder, 'plan', 'plan.md');
+      const flatPlan = path.join(folder, 'plan.md');
       if (fs.existsSync(nestedPlan)) planPath = nestedPlan;
       else if (fs.existsSync(flatPlan)) planPath = flatPlan;
     }
@@ -1324,6 +1329,27 @@ function gatherMandatory({ root, taskId, feature }: any) {
 }
 
 /**
+ * The feature a pack is compiled for, as `{slug, feature}`. A `--slug` the caller typed wins; without
+ * one, a task id that names an existing feature folder (in this checkout, the state root's, or the
+ * checkout the branch's feature was found in) is that feature's own task, ahead of the branch's feature, so the
+ * objective, artifacts and records all select the same feature (a pack for feature B's task id run
+ * on feature A's branch). The common case, a task id that names no feature, resolves nothing extra.
+ * @param {{source: string, taskId: string, slug?: string|null, typed?: string|null}} options
+ *   `typed`: the `--slug` the caller typed, when it is known; absent means `slug` was given on purpose.
+ */
+function resolvePackFeature({ source, stateRoot = source, taskId, slug, typed }: any) {
+  const feature = resolveFeature({ projectRoot: source, slug: slug || null });
+  if (typed || (typed === undefined && slug) || !isSafeSlug(taskId) || (!feature.error && feature.paths?.feature_slug === taskId)) return { slug, feature };
+  const roots = new Set<string>([source, stateRoot, feature.repoRoot, feature.paths?.repo_root].filter((root) => typeof root === 'string' && root !== ''));
+  if (![...roots].some((root) => fs.existsSync(path.join(root, 'agent-docs', 'doflow', taskId)))) return { slug, feature };
+  try {
+    const own = resolveFeature({ projectRoot: source, slug: taskId });
+    if (!own.error && fs.existsSync(own.featureFolder || own.featureDir || '')) return { slug: taskId, feature: own };
+  } catch { /* a failed lookup keeps the branch's feature */ }
+  return { slug, feature };
+}
+
+/**
  * 078 IC-001: the context pack `emitContext()` delivers on `launch` and `delta`, compiled by
  * compileContextPack() through the verb's own steps, with `maxBytes` as the budget and `since` the
  * unit's last delivered pack digest (a delta when its entry qualifies, else widened to full).
@@ -1331,7 +1357,9 @@ function gatherMandatory({ root, taskId, feature }: any) {
  */
 function packForEmission({ root, stateRoot = root, taskId = 'default', taskClass = 'feature', slug = null, harness = null, maxBytes, since = null, noRecord = false, env = process.env }: any): { pack: any; output: string } {
   const budget = resolveBudget({ taskClass, maxBytes, harnessFlag: harness, env });
-  const feature = resolveFeature({ projectRoot: root, slug: slug || null });
+  const resolved = resolvePackFeature({ source: root, stateRoot, taskId, slug, typed: slug || null });
+  slug = resolved.slug;
+  const feature = resolved.feature;
   // 115 C-2: the delivery record goes where `context-pack` puts it, under the state root; the feature
   // folder, the plan and the hashed source files are read in `root`, the checkout emitting.
   const basis = resolveDeltaBasis({ root: stateRoot, source: root, taskId, slug, since, budget, profiles: null });
