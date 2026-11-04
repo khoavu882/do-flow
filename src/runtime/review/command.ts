@@ -107,6 +107,7 @@ function handleReviewCommand({
     }
     return handleReviewStart({ slug: hasValue(slug) ? slug : null, base: hasValue(base) ? base : null, preset: hasValue(preset) ? preset : null, json, cwd, env, resolve, adviceClient, out });
   }
+  if (Array.isArray(recordPath)) return usage('--path may be given only once', json, out);
   if (hasValue(base)) return usage('--base is valid only with --action start', json, out);
   if (hasValue(preset)) return usage('--preset is valid only with --action start', json, out);
   if (hasValue(slug) && hasValue(recordPath)) return usage('use either --slug or --path, not both', json, out);

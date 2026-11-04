@@ -53,6 +53,16 @@ function assertNoBackupRequiresForce(o: any): void {
   }
 }
 
+/**
+ * Reports an argument error and exits. `review` answers in its own JSON usage shape when `--json` is anywhere in the
+ * arguments (before or after the bad one); every other verb prints the plain line on stderr.
+ */
+function argError(o: any, argv: string[], message: string, code: number): never {
+  if (o.cmd === 'review' && argv.includes('--json')) console.log(JSON.stringify({ ok: false, error: 'usage', message }));
+  else console.error(`doflow: ${message}`);
+  process.exit(code);
+}
+
 function parseArgs(argv: string[]): any {
   const o: any = { cmd: null, positional: [], targets: [], mcp: null, dryRun: false, force: false, adopt: false,
     otlpHttp: false,
@@ -68,7 +78,7 @@ function parseArgs(argv: string[]): any {
     if (a.startsWith('-')) o.flagsGiven.push(a);
     // `--commit` is the roadmap verb's own flag: anywhere else it must reach the default branch and get
     // that verb's unknown-flag answer, as it did before it was added. '' matches no case.
-    switch (a === '--commit' && o.cmd !== 'roadmap' ? '' : a) {
+    switch (a === '--commit' && o.cmd !== 'roadmap' ? '' : a.startsWith('--action=') ? '--action' : a) {
       case '-h': case '--help': o.help = true; break;
       case '-v': o.version = true; break;
       case '--version':
@@ -92,7 +102,7 @@ function parseArgs(argv: string[]): any {
       case '--':
         if (o.cmd === 'slot') { o.slotCommand = argv.slice(i + 1); i = argv.length; break; }
         if (o.cmd === 'plan-check') break;
-        console.error(unknownFlagMessage(a)); process.exit(unknownFlagExit(o.cmd));
+        argError(o, argv, unknownFlagMessage(a), unknownFlagExit(o.cmd));
         break;
       // worker --action run|describe|select: the isolated-edit recipe and baseline (082 IC-014).
       case '--edit': o.edit = true; break;
@@ -148,10 +158,12 @@ function parseArgs(argv: string[]): any {
         o.tools = val.split(',').map((s) => s.trim()).filter(Boolean); i++; break;
       }
       case '--action': {
-        const val = argv[i + 1];
+        // `--action <value>` or `--action=<value>`.
+        const inline = a.startsWith('--action=');
+        const val = inline ? a.slice('--action='.length) : argv[i + 1];
         // `review`, `protocol`, `config`, `primary` and `package` answer a missing value as usage, exit 2; other verbs keep exit 1.
-        if (val === undefined || val.startsWith('-')) { console.error(`doflow: ${a} requires a value`); process.exit(o.cmd === 'review' || o.cmd === 'protocol' || o.cmd === 'config' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript' || o.cmd === 'package' || o.cmd === 'worktree' ? 2 : 1); }
-        o.action = val; o.actionGiven = true; i++; break;
+        if (val === undefined || val === '' || val.startsWith('-')) argError(o, argv, '--action requires a value', o.cmd === 'review' || o.cmd === 'protocol' || o.cmd === 'config' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript' || o.cmd === 'package' || o.cmd === 'worktree' ? 2 : 1);
+        o.action = val; o.actionGiven = true; if (!inline) i++; break;
       }
       case '--task-class': {
         const val = argv[i + 1];
@@ -236,7 +248,7 @@ function parseArgs(argv: string[]): any {
         if (runtime !== null) { i = runtime; break; }
         // slot, primary, fleet and transcript report an unknown flag as their own usage error (exit 2, 115 IC-008, 120 IC-008).
         if (a.startsWith('-') && (o.cmd === 'slot' || o.cmd === 'primary' || o.cmd === 'fleet' || o.cmd === 'transcript')) (o.extraFlags = o.extraFlags || []).push(a);
-        else if (a.startsWith('-') && o.cmd !== 'plan-check') { console.error(unknownFlagMessage(a)); process.exit(unknownFlagExit(o.cmd)); }
+        else if (a.startsWith('-') && o.cmd !== 'plan-check') argError(o, argv, unknownFlagMessage(a), unknownFlagExit(o.cmd));
         else if (!o.cmd) o.cmd = a;
         else o.positional.push(a);
       }
@@ -254,12 +266,12 @@ function unknownFlagExit(cmd: string | null): number {
 /** Longest part of an unrecognised argument echoed back; the rest is cut and marked. */
 const UNKNOWN_FLAG_ECHO_CHARS = 80;
 
-/** The unknown-flag error: the argument is untrusted text, so it is made print-safe (no control
+/** The unknown-flag message (without the `doflow: ` prefix): the argument is untrusted text, so it is made print-safe (no control
  * characters, one line) and cut to a bounded length (FU-8eqytg). */
 function unknownFlagMessage(arg: string): string {
   const safe = printSafe(String(arg));
   const shown = safe.length > UNKNOWN_FLAG_ECHO_CHARS ? `${safe.slice(0, UNKNOWN_FLAG_ECHO_CHARS)}...` : safe;
-  return `doflow: unknown flag '${shown}'`;
+  return `unknown flag '${shown}'`;
 }
 
 /** Single-value arguments of the runtime verbs → the option key each one writes. */
@@ -498,14 +510,14 @@ function parseRuntimeFlag(arg: string, argv: string[], i: number, o: any): numbe
     // `--batch <file|->`. Rejecting it made the documented spelling exit 2 while only `--batch=-`
     // worked — a help text endorsing a form the parser refuses.
     const isStdin = value === '-';
-    if (value === undefined || (value.startsWith('-') && !isStdin)) { console.error(`doflow: ${name} requires a value`); process.exit(2); }
+    if (value === undefined || (value.startsWith('-') && !isStdin)) argError(o, argv, `${name} requires a value`, 2);
     next = i + 1;
   }
-  if (value === '') { console.error(`doflow: ${name} requires a value`); process.exit(2); }
+  if (value === '') argError(o, argv, `${name} requires a value`, 2);
 
   if (RUNTIME_INT_FLAGS.has(name)) {
     const parsed = parseInt(value, 10);
-    if (!Number.isFinite(parsed) || parsed < 0) { console.error(`doflow: ${name} expects a non-negative integer, got '${value}'`); process.exit(2); }
+    if (!Number.isFinite(parsed) || parsed < 0) argError(o, argv, `${name} expects a non-negative integer, got '${value}'`, 2);
     o[key] = parsed;
   } else if (RUNTIME_LIST_FLAGS.has(name)) {
     // --exclude and --exclude-family both accept comma lists or repeated flags. Keep --exclude's

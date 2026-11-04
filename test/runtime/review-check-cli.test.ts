@@ -255,6 +255,37 @@ test('FU-rdy770: the ancestry check strips all twelve repository-local variables
   assert.ok(names.includes('GIT_CONFIG_COUNT') && names.includes('GIT_CONFIG_KEY_0'), 'injected configuration is kept');
 });
 
+test('FU-hae1rp: --action=check works, a duplicate --path is a usage error, and --json shapes every parser error', (t) => {
+  const s = scratch(t);
+  s.write('review/findings.json', record());
+  const inline = s.cli(['--action=check', '--path', 'review/findings.json', '--json']);
+  assert.equal(inline.status, 0, inline.stdout + inline.stderr);
+  assert.equal(JSON.parse(inline.stdout).valid, true);
+
+  const twice = s.cli(['--action', 'check', '--path', 'review/findings.json', '--path', 'review/findings.json', '--json']);
+  assert.equal(twice.status, 2, twice.stdout + twice.stderr);
+  assert.deepEqual(JSON.parse(twice.stdout), { ok: false, error: 'usage', message: '--path may be given only once' });
+  const twiceText = s.cli(['--action', 'check', '--path', 'a', '--path', 'b']);
+  assert.equal(twiceText.status, 2);
+  assert.match(twiceText.stdout, /--path may be given only once/);
+
+  for (const args of [['--bogus', '--json'], ['--json', '--bogus']]) {
+    const unknown = s.cli(['--action', 'check', ...args]);
+    assert.equal(unknown.status, 2, unknown.stdout + unknown.stderr);
+    assert.deepEqual(JSON.parse(unknown.stdout), { ok: false, error: 'usage', message: "unknown flag '--bogus'" });
+    assert.equal(unknown.stderr, '');
+  }
+  const noValue = s.cli(['--json', '--action']);
+  assert.equal(noValue.status, 2);
+  assert.deepEqual(JSON.parse(noValue.stdout), { ok: false, error: 'usage', message: '--action requires a value' });
+  const empty = s.cli(['--action=']);
+  assert.equal(empty.status, 2);
+  assert.match(empty.stderr, /--action requires a value/);
+  const plain = s.cli(['--bogus']);
+  assert.equal(plain.status, 2);
+  assert.match(plain.stderr, /doflow: unknown flag '--bogus'/);
+});
+
 test('C-9: --action with no value is a usage error, exit 2', (t) => {
   const s = scratch(t);
   const res = s.cli(['--action']);
