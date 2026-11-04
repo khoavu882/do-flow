@@ -325,6 +325,25 @@ test('110 a run through the command and supervisor gives the worker DOFLOW_WORKE
   assert.deepEqual(Object.keys(ended.identity).sort(), ['attempt', 'lineage', 'run', 'runSource']);
 });
 
+test('FU-g57xqe a relative PATH entry is read against the caller cwd and the run launches the discovered binary', POSIX, async (t) => {
+  const p: any = project(t, { scenario: { run: [{ emit: SUCCESS }] } });
+  p.env.FAKE_HARNESS_LOG = path.join(p.dir, 'fake-log.jsonl');
+  // The probed claude is dir/relbin/fake-claude; the execution worktree holds a different file of the same name.
+  const probed = linkBin(path.join(p.dir, 'relbin'), ['fake-claude']);
+  const decoyDir = path.join(p.execWorktree, 'relbin');
+  fs.mkdirSync(decoyDir);
+  fs.writeFileSync(path.join(decoyDir, 'fake-claude'), '#!/bin/sh\nexit 7\n', { mode: 0o755 });
+  p.env.PATH = ['relbin', probed, p.env.PATH].join(path.delimiter);
+  await p.probe();
+  const { exit, body } = await p.run();
+  assert.equal(exit, 0, JSON.stringify(body));
+  const ended = await waitEnded(p, body.runId);
+  assert.equal(ended.descriptor.cli.binary, path.join(p.dir, 'relbin', 'fake-claude'), 'the descriptor stores the discovered absolute path');
+  assert.equal(ended.recipe.binary, 'fake-claude', 'the recipe keeps the registry binary name');
+  assert.equal(readLog(p.env.FAKE_HARNESS_LOG).filter((line: any) => line.argv.includes('--read-only')).length, 1, 'the discovered fake ran, not the same-named file in the worktree');
+  assert.equal(ended.report?.status, 'success', JSON.stringify(ended.report));
+});
+
 // ── Started runs, run-exists, status and cancel ───────────────────────────────────────────────
 
 test('a started run returns started with its deadline; a second run on the token is run-exists', POSIX, async (t) => {
@@ -344,7 +363,8 @@ test('a started run returns started with its deadline; a second run on the token
   assert.equal(body.deadline, record.deadline);
   assert.equal(Date.parse(record.deadline) - Date.parse(record.startedAt), 60000);
   // DEC-054: what the insert wrote.
-  assert.deepEqual(record.descriptor, DESCRIPTORS.claude);
+  // The descriptor is the registry block with the probed binary pinned to its absolute path (FU-g57xqe).
+  assert.deepEqual(record.descriptor, { ...DESCRIPTORS.claude, cli: { ...DESCRIPTORS.claude.cli, binary: path.join(p.dir, 'bin', 'fake-claude') } });
   assert.equal(record.timeoutSeconds, 60);
   assert.deepEqual(record.prompt, { path: p.promptFile, sha256: crypto.createHash('sha256').update('do the task').digest('hex'), bytes: 11 });
   assert.equal(record.recipe.binary, 'fake-claude');

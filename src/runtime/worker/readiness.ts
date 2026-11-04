@@ -78,9 +78,13 @@ function workerDescriptors({ descriptors, registry, view }: any = {}): { harness
   return ids.filter((id) => Object.hasOwn(descriptors, id)).map((id) => ({ harness: id, worker: descriptors[id] }));
 }
 
-/** The first executable `binary` on `env.PATH`, or null. Starts no process. */
-function findOnPath(binary: string, env: any, platform = process.platform): string | null {
-  const dirs = String(env?.PATH ?? '').split(path.delimiter).filter(Boolean);
+/**
+ * The first executable `binary` on `env.PATH`, or null. Starts no process. A relative PATH entry is
+ * read against `cwd` (the caller's directory) when one is given, so the path found is absolute and
+ * names the same file whichever directory a later process starts in.
+ */
+function findOnPath(binary: string, env: any, platform = process.platform, cwd?: string): string | null {
+  const dirs = String(env?.PATH ?? '').split(path.delimiter).filter(Boolean).map((dir) => (cwd ? path.resolve(cwd, dir) : dir));
   const suffixes = platform === 'win32'
     ? ['', ...String(env?.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)]
     : [''];
@@ -116,7 +120,7 @@ function discoverOne({ harness, worker }: any, { env, cwd, now, platform }: any)
   if (!supported(cli)) {
     return { harness, binary: null, present: false, path: null, version: null, reason: 'cli-unknown', at: iso(now()) };
   }
-  const found = findOnPath(cli.binary, env, platform);
+  const found = findOnPath(cli.binary, env, platform, cwd);
   if (!found) return { harness, binary: cli.binary, present: false, path: null, version: null, reason: 'not-on-path', at: iso(now()) };
   const execFileImpl = (bin: string, args: string[], options: any) => execFileSync(bin, args, { ...options, env, cwd });
   const result = runProbe([found, ...cli.versionArgv], { execFileImpl, timeoutMs: PROBE_TIMEOUT_MS });
