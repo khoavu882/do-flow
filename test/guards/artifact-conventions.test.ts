@@ -458,3 +458,130 @@ test('G18: every template journey has a picture, a state diagram and a rules tab
   assert.match(journeys, /^### Eligibility \/ decision inputs/m, 'Journeys scaffolds no decision-inputs table');
   assert.doesNotMatch(template('design-template.md'), /```mermaid\s+mindmap/, 'DIAGRAM_GUIDE.md excludes mindmap');
 });
+
+// --- data-model.md coverage (feature 139, IC-003) --------------------------------------------------
+// The checks are pure functions over a text, in test/helper/data-model-parity.ts, so a dry-run fill
+// can call them too. They run on the template's headings, on the worked example (which must pass)
+// and on altered copies of the example (each of which must fail, naming the entity or state).
+
+const {
+  templateHeadingFindings, entityCoverageFindings, stateParityFindings, sourceCellFindings,
+} = require('../helper/data-model-parity.ts');
+
+const DATA_MODEL_EXAMPLE = path.join(
+  REPO, 'core', 'shared', 'skills', 'do-design', 'references', 'data_model_example.md');
+const dataModelExample = () => read(DATA_MODEL_EXAMPLE);
+const allDataModelFindings = (text: any) => [
+  ...entityCoverageFindings(text), ...stateParityFindings(text), ...sourceCellFindings(text),
+];
+
+/** `text` with the one occurrence of `from` replaced by `to`; throws when `from` is absent, so an
+ * alteration that stops matching the example fails loudly instead of testing an unaltered copy. */
+function alter(text: any, from: any, to: any) {
+  assert.ok(text.split(from).length === 2, `the worked example no longer holds exactly one of: ${from}`);
+  return text.replace(from, to);
+}
+
+test('G18: the data-model template pins its nine headings, the #### Flow: level, the callout and the Transitions header', () => {
+  assert.deepEqual(templateHeadingFindings(template('data-model-template.md')), []);
+});
+
+test('G18: the data-model template holds no filled example row', () => {
+  const body = template('data-model-template.md').replace(/<!--[\s\S]*?-->/g, '');
+  let fenced = false;
+  const rows: any[] = [];
+  for (const line of body.split('\n')) {
+    if (/^```/.test(line)) { fenced = !fenced; continue; }
+    if (!fenced && /^\|/.test(line) && !/^\|[\s|:-]+\|?$/.test(line)) rows.push(line);
+  }
+  assert.ok(rows.length > 0, 'the data-model template scaffolds no table row');
+  const filled = rows.filter((row: any) => {
+    const cells = row.replace(/^\||\|$/g, '').split('|').map((c: any) => c.trim());
+    // The header row is not a filled row; a body row is bare placeholders, optionally in backticks.
+    return !cells.every((c: any) => /^`?\[[^\]]*\]`?$/.test(c)) && !/^\|\s*(Domain|Field|Table|From|Invariant|Entity|Event|Trigger entity)/.test(row);
+  });
+  assert.deepEqual(filled, [], 'the data-model template scaffolds a table row that is not a bare placeholder');
+});
+
+test('G18: the data-model worked example returns no finding from any of the four checks', () => {
+  const text = dataModelExample();
+  assert.deepEqual(entityCoverageFindings(text), []);
+  assert.deepEqual(stateParityFindings(text), []);
+  assert.deepEqual(sourceCellFindings(text), []);
+  assert.deepEqual(templateHeadingFindings(text), []);
+});
+
+test('G18: an entity with no dictionary heading in the worked example is named', () => {
+  const text = alter(dataModelExample(), '#### Dictionary: OrderLine', '#### Fields: OrderLine');
+  const findings = entityCoverageFindings(text);
+  assert.ok(findings.some((f: any) => /OrderLine/i.test(f) && /Dictionary/.test(f)),
+    `no finding names OrderLine's missing dictionary heading: ${JSON.stringify(findings)}`);
+});
+
+test('G18: an entity with no lifecycle heading in the worked example is named', () => {
+  const text = alter(dataModelExample(), '#### Lifecycle: OrderLine', '#### Stateless: OrderLine');
+  const findings = entityCoverageFindings(text);
+  assert.ok(findings.some((f: any) => /OrderLine/i.test(f) && /Lifecycle/.test(f)),
+    `no finding names OrderLine's missing lifecycle heading: ${JSON.stringify(findings)}`);
+});
+
+test('G18: a state removed from the transition table of the worked example is named', () => {
+  let text = dataModelExample();
+  // Shipped is reached by one row and left by another; dropping both takes it out of From and To.
+  text = alter(text, '| Paid | ship | stock picked | Warehouse | tracking number set | Shipped | OrderShipped | IC-001 |\n', '');
+  text = alter(text, '| Shipped | confirm delivery | carrier scan | System | none | Closed | OrderClosed | UNKNOWN -> Open Point |\n', '');
+  const findings = stateParityFindings(text);
+  assert.ok(findings.some((f: any) => /Order/.test(f) && /Shipped/.test(f)),
+    `no finding names the state Shipped of the Order lifecycle: ${JSON.stringify(findings)}`);
+});
+
+test('G18: an 11-state diagram in the worked example is named', () => {
+  // The example draws four states; seven more make eleven.
+  const extra = [1, 2, 3, 4, 5, 6, 7].map((n) => `    Closed --> Extra${n}: step ${n}\n`).join('');
+  const text = alter(dataModelExample(), '    Shipped --> Closed: confirm delivery\n',
+    `    Shipped --> Closed: confirm delivery\n${extra}`);
+  const findings = stateParityFindings(text);
+  assert.ok(findings.some((f: any) => /Order/.test(f) && /11 states/.test(f)),
+    `no finding names the 11-state Order diagram: ${JSON.stringify(findings)}`);
+});
+
+test('G18: a <<choice>> pseudo-state as a transition target is not held to the Transitions table or the cap', () => {
+  const base = dataModelExample();
+  // Unaltered control: a plain extra state that is in no table row is named.
+  const plain = alter(base, '    New --> Closed: cancel\n', '    New --> Review: cancel\n');
+  assert.ok(stateParityFindings(plain).some((f: any) => /Review/.test(f)), 'a plain unlisted state must be named');
+  // The same transition through a declared choice is clean; fork and join behave alike.
+  for (const kind of ['choice', 'fork', 'join']) {
+    const text = alter(base, '    New --> Closed: cancel\n',
+      `    state Review <<${kind}>>\n    New --> Review: cancel\n    Review --> Closed\n`);
+    assert.deepEqual(stateParityFindings(text), [], `<<${kind}>> pseudo-state was counted as a state`);
+  }
+  // Pseudo-states do not count toward the cap: ten real states plus a choice stay at the cap.
+  const nine = [1, 2, 3, 4, 5, 6].map((n) => `    Closed --> Extra${n}\n`).join('');
+  const withChoice = alter(base, '    Shipped --> Closed: confirm delivery\n',
+    `    Shipped --> Closed: confirm delivery\n${nine}    state Pick <<choice>>\n    Closed --> Pick\n`);
+  assert.ok(!stateParityFindings(withChoice).some((f: any) => /cap/.test(f)), 'a choice counted toward the cap');
+});
+
+test('G18: a composite state and its nested states are counted once, in the same diagram', () => {
+  const base = dataModelExample();
+  const composite = (n: number) => {
+    const nested = Array.from({ length: n }, (_, i) => `        Inner${i + 1} --> Inner${i + 1}\n`).join('');
+    return alter(base, '    Shipped --> Closed: confirm delivery\n',
+      `    Shipped --> Closed: confirm delivery\n    state Packing {\n        [*] --> Inner1\n${nested}    }\n`);
+  };
+  // Packing + 4 nested + the 4 drawn states = 9: under the cap, and each is named once by parity.
+  const findings = stateParityFindings(composite(4));
+  assert.ok(!findings.some((f: any) => /cap/.test(f)), `composite miscounted: ${JSON.stringify(findings)}`);
+  assert.ok(findings.some((f: any) => /state Packing /.test(f)), 'the composite itself is a state of the diagram');
+  assert.equal(findings.filter((f: any) => /state Inner1 /.test(f)).length, 1);
+  // Seven nested + composite + 4 drawn = 12: over the cap, so the nested states do count.
+  assert.ok(stateParityFindings(composite(7)).some((f: any) => /Order/.test(f) && /12 states/.test(f)));
+});
+
+test('G18: a row with an empty Source cell in the worked example is named', () => {
+  const text = alter(dataModelExample(), '| OrderClosed | proposed |\n', '| OrderClosed |  |\n');
+  const findings = sourceCellFindings(text);
+  assert.ok(findings.some((f: any) => /Transitions/.test(f) && /"New"/.test(f)),
+    `no finding names the Transitions row of state New: ${JSON.stringify(findings)}`);
+});
