@@ -307,3 +307,34 @@ test('H8: a query after a crashed operation reclaims its stale lock instead of f
   assert.equal(result.ok, true, JSON.stringify(result));
   assert.equal(fs.existsSync(paths.lock), false);
 });
+
+test('FU-kwmnan: a lock whose Node owner is dead is not reclaimed while its recorded bridge child is alive', async t => {
+  const root = fs.realpathSync(tempDir(t, 'doflow-semantic-lock-'));
+  const state = path.join(root, '.doflow', 'index', 'code', 'semble', 'x');
+  const paths: any = { root, state, lock: path.join(state, 'operation.lock') };
+  const dead = deadPid(); const child = deadPid() + 1;
+  const held: any = { pid: dead, hostname: os.hostname(), token: crypto.randomUUID(), childPid: child };
+  plantLock(paths, held); const before = fs.readFileSync(paths.lock, 'utf8');
+  const isAlive = (pid: number) => pid === child;
+  await assert.rejects(acquireSemanticLock(paths, { isAlive }), /lock-contention/, 'a live child keeps the lock');
+  assert.equal(fs.readFileSync(paths.lock, 'utf8'), before);
+  const release = await acquireSemanticLock(paths, { isAlive: () => false });
+  assert.equal(JSON.parse(fs.readFileSync(paths.lock, 'utf8')).pid, process.pid, 'reclaimed once the child is gone too');
+  release();
+});
+
+test('FU-kwmnan: executeBridge records the spawned child pid in the lock it holds', async t => {
+  const root = fs.realpathSync(tempDir(t, 'doflow-semantic-lock-'));
+  const state = path.join(root, 'state'); fs.mkdirSync(state);
+  const paths: any = { root, state, lock: path.join(state, 'operation.lock'), cache: path.join(state, 'cache') };
+  const bridgePath = path.join(root, 'bridge.js');
+  fs.writeFileSync(bridgePath, `const fs=require('fs');process.stdout.write(JSON.stringify({version:${JSON.stringify(require('../../src/runtime/knowledge/semble-provider.ts').SEMBLE_VERSION)},ok:true,pid:process.pid,lock:JSON.parse(fs.readFileSync('operation.lock','utf8'))}));`);
+  const { executeBridge, SEMBLE_LIMITS } = require('../../src/runtime/knowledge/semble-provider.ts');
+  const release = await acquireSemanticLock(paths);
+  const sandbox = path.join(root, 'sandbox'); fs.mkdirSync(sandbox);
+  const result = await executeBridge({ action: 'query' }, { limits: SEMBLE_LIMITS, python: process.execPath, bridgePath }, paths, sandbox);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.lock.childPid, result.pid); assert.equal(result.lock.pid, process.pid);
+  assert.deepEqual(fs.readdirSync(state).sort(), ['operation.lock'], 'no temporary lock file is left behind');
+  release(); assert.equal(fs.existsSync(paths.lock), false);
+});
