@@ -5,9 +5,9 @@
 // expects exactly one named finding.
 //
 //   G39.1 end-of-turn events: stop rows, stop-check fixtures and endOfTurn agree; no never-list event;
-//         every event is in bench/inventory/coverage.json as that event or as the harness's '*'
-//         row (DEC-036); non-empty events carry external doc or
-//         types provenance
+//         every event has its own row in bench/inventory/coverage.json (a harness's '*' row only
+//         describes a harness without hooks and stands in for no event); non-empty events carry
+//         external doc or types provenance
 //   G39.2 behaviours: one entry per behaviour x harness; enforced tests exist; limitations are
 //         non-empty; identity is enforced only with live provenance
 //
@@ -74,7 +74,7 @@ function g391({ coverage, fixtures, inventory }: any) {
   for (const entry of coverage.endOfTurn || []) {
     for (const event of entry.events) {
       if (NEVER_END_OF_TURN.has(event)) findings.push(`G39.1 ${entry.harness} endOfTurn names never-list event ${event}`);
-      if (!inventoried.has(`${entry.harness}\0${event}`) && !inventoried.has(`${entry.harness}\0*`)) findings.push(`G39.1 ${entry.harness} endOfTurn event ${event} absent from inventory`);
+      if (!inventoried.has(`${entry.harness}\0${event}`)) findings.push(`G39.1 ${entry.harness} endOfTurn event ${event} absent from inventory`);
     }
     if (entry.events.length > 0 && !(entry.provenance || []).some(isExternal)) findings.push(`G39.1 ${entry.harness} endOfTurn lacks external doc or types provenance`);
   }
@@ -135,6 +135,16 @@ test('G39.1 control: a SessionEnd in endOfTurn is named', () => {
 test('G39.1 control: a harness with neither the event nor a \'*\' inventory row is named', () => {
   const input = cleanBase();
   input.inventory.rows = input.inventory.rows.filter((r: any) => r.harness !== 'copilot');
+  assert.deepEqual(g391(input), ['G39.1 copilot endOfTurn event Stop absent from inventory']);
+});
+
+test('G39.1 control: a \'*\' row cannot stand in for a missing explicit Stop row', () => {
+  const input = cleanBase();
+  const wildcard = input.inventory.rows.find((r: any) => r.event === '*');
+  assert.ok(wildcard, 'the shipped tree keeps OpenCode\'s \'*\' row as its unsupported-hooks description');
+  assert.deepEqual(input.inventory.rows.filter((r: any) => r.event === '*').map((r: any) => r.harness), ['opencode']);
+  input.inventory.rows = input.inventory.rows.filter((r: any) => !(r.harness === 'copilot' && r.event === 'Stop'));
+  input.inventory.rows.push({ ...clone(wildcard), harness: 'copilot' });
   assert.deepEqual(g391(input), ['G39.1 copilot endOfTurn event Stop absent from inventory']);
 });
 
