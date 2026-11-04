@@ -342,9 +342,9 @@ function retainLocked(root: any, options: any = {}) {
   if (!release) return outcome(0, [], true);
   try {
     const swept = sweepStaleTmp(fsImpl, root, now, staleTmpMs, { maxFiles, shouldStop });
-    if (swept.partial) return outcome(0, [], true);
+    if (swept.partial) return outcome(swept.removed, [], true);
     const result = retain(fsImpl, root, window, now, { maxFiles: Math.max(0, maxFiles - swept.removed), shouldStop });
-    return outcome(result.removedCount, result.warning, result.partial, result.selected, result.code);
+    return outcome(swept.removed + result.removedCount, result.warning, result.partial, result.selected, result.code);
   } finally {
     release();
   }

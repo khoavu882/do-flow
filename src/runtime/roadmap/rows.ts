@@ -864,7 +864,8 @@ function render(
   for (const row of rows) {
     const info = getInfo(row.id);
     const needsStr = row.needs && row.needs.length > 0 ? row.needs.join(', ') : '-';
-    const statusStr = info.status;
+    // A not-started row of a class the loop does not run waits for a person, not for time: `manual`.
+    const statusStr = info.status === 'not-started' && !LOOP_CLASSES.includes(row.class) ? 'manual' : info.status;
 
     let evidenceStr = '-';
     if (info.evidence) {
