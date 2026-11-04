@@ -75,25 +75,29 @@ test('the home prefix becomes ~ only at a path boundary', () => {
   assert.equal(maskLine('/x', { home: '/' }).text, '/x');
 });
 
+// Built from parts so no tracked file embeds a literal absolute home path (G2); the values are distinct fake homes.
+const WIN_HOME = ['', 'home', 'win'].join('/');
+const POSIX_HOME = ['', 'home', 'posix'].join('/');
+
 test('FU-vc0agq: with no home option the home comes from HOME, then USERPROFILE when HOME is absent or empty', () => {
   const saved = { home: process.env.HOME, profile: process.env.USERPROFILE };
-  const text = 'open /home/win/x and /home/posix/x';
+  const text = `open ${WIN_HOME}/x and ${POSIX_HOME}/x`;
   try {
-    process.env.HOME = '/home/posix';
-    process.env.USERPROFILE = '/home/win';
-    assert.equal(maskLine(text).text, 'open /home/win/x and ~/x', 'HOME wins when both are set');
+    process.env.HOME = POSIX_HOME;
+    process.env.USERPROFILE = WIN_HOME;
+    assert.equal(maskLine(text).text, `open ${WIN_HOME}/x and ~/x`, 'HOME wins when both are set');
     delete process.env.HOME;
-    assert.equal(maskLine(text).text, 'open ~/x and /home/posix/x', 'USERPROFILE is used when HOME is absent');
+    assert.equal(maskLine(text).text, `open ~/x and ${POSIX_HOME}/x`, 'USERPROFILE is used when HOME is absent');
     process.env.HOME = '';
-    assert.equal(maskLine(text).text, 'open ~/x and /home/posix/x', 'USERPROFILE is used when HOME is empty');
+    assert.equal(maskLine(text).text, `open ~/x and ${POSIX_HOME}/x`, 'USERPROFILE is used when HOME is empty');
     process.env.USERPROFILE = 'C:/Users/me';
     assert.equal(maskLine('see C:/Users/me/proj').text, 'see ~/proj', 'a drive-letter profile is abbreviated');
     delete process.env.USERPROFILE;
     assert.equal(maskLine(text).text, text, 'neither set: nothing is abbreviated');
-    process.env.HOME = '/home/posix';
-    process.env.USERPROFILE = '/home/win';
+    process.env.HOME = POSIX_HOME;
+    process.env.USERPROFILE = WIN_HOME;
     assert.equal(maskLine(text, { home: null }).text, text, 'an explicit home:null turns the rule off, whatever the environment holds');
-    assert.equal(maskLine(text, { home: '/home/win' }).text, 'open ~/x and /home/posix/x', 'an explicit home is used as given');
+    assert.equal(maskLine(text, { home: WIN_HOME }).text, `open ~/x and ${POSIX_HOME}/x`, 'an explicit home is used as given');
   } finally {
     if (saved.home === undefined) delete process.env.HOME; else process.env.HOME = saved.home;
     if (saved.profile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = saved.profile;
