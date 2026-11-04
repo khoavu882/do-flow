@@ -143,7 +143,7 @@ test('G69b control: linkBin gives a PATH where node runs and no neighbouring har
   const harnessNames = require('../../core/registry/harnesses.json').harnesses
     .flatMap((h: any) => [h.id, h.worker?.cli?.binary].filter(Boolean));
   for (const name of new Set(harnessNames)) {
-    assert.deepEqual(entries.filter((dir) => fs.existsSync(path.join(dir, name as string))), [], `${name} is on no PATH entry`);
+    assert.deepEqual(entries.filter((dir: string) => fs.existsSync(path.join(dir, name as string))), [], `${name} is on no PATH entry`);
   }
   const ran = spawnSync('node', ['-e', 'process.stdout.write(String(process.version))'], { env: { PATH: childPath }, encoding: 'utf8' });
   assert.equal(ran.stdout, process.version, 'node still resolves from the scratch PATH');
