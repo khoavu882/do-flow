@@ -690,7 +690,7 @@ test('retainLocked removes crashed retention and marker temp files older than th
   const unrelated = strandTmp(dir, 'notes.tmp', 30);
   const lookalike = strandTmp(dir, '.retention-x.tmp', 30);
   const out = retainLocked(dir, { window: { state: 'on', hours: 1, ms: HOUR }, now: new Date() });
-  assert.deepEqual(out, { removed: 2, warning: [] });
+  assert.deepEqual(out, { removed: 2 + 2, warning: [] }, 'two events and two stale temp files');
   assert.deepEqual([stale, staleMarker].map((f) => fs.existsSync(f)), [false, false]);
   assert.deepEqual([fresh, unrelated, lookalike].map((f) => fs.existsSync(f)), [true, true, true]);
   assert.ok(fs.existsSync(path.join(dir, store.JOURNAL_REL)), 'the live journal is not a temp file');
@@ -730,7 +730,7 @@ test('the temp sweep honours shouldStop and counts against maxFiles (C-3)', () =
   const result = retainLocked(capped.dir, { window, now: new Date(), maxFiles: 2 });
   assert.equal(left(capped.tmps), 2, 'two unlinks used the whole budget');
   assert.equal(result.partial, true);
-  assert.equal(result.removed, 0);
+  assert.equal(result.removed, 2, 'the two temp unlinks are counted so the caller\'s cap sees them');
   assert.deepEqual(eventFiles(capped.dir), capped.files.sort());
 });
 

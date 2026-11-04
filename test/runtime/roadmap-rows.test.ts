@@ -377,6 +377,26 @@ test('AU-P1: pick takes the four loop classes and skips research, review, operat
   }
 });
 
+test('render: a not-started dependency-change row shows `manual`, a loop-class row stays `not-started`', () => {
+  const rows: any = [
+    { id: '140', slug: '140-deps', title: 'Deps', class: 'dependency-change', needs: [], writeSet: ['package.json'] },
+    { id: '141', slug: '141-fix', title: 'Fix', class: 'bug', needs: ['140'], writeSet: ['src/x/'] },
+    { id: '142', slug: '142-live', title: 'Live', class: 'dependency-change', needs: [], writeSet: ['package.json'] },
+  ];
+  const statuses: any = new Map([
+    ['140', { rowId: '140', status: 'not-started', evidence: null }],
+    ['141', { rowId: '141', status: 'not-started', evidence: null }],
+    ['142', { rowId: '142', status: 'in-flight', evidence: null }],
+  ]);
+  const lines = render(rows, statuses).split('\n');
+  const cells = (id: string) => lines.find((l) => l.startsWith(`| ${id} |`))!.split('|').map((c) => c.trim());
+  assert.equal(cells('140')[5], 'manual');
+  assert.equal(cells('140')[7], 'class-unsupported');
+  assert.equal(cells('141')[5], 'not-started');
+  assert.equal(cells('142')[5], 'in-flight');
+  assert.ok(!render(rows, statuses).includes('blocked'));
+});
+
 test('pick negative control: two in-flight rows pick none with wip-full', () => {
   const rows: any = [
     {

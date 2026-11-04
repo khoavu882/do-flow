@@ -547,7 +547,7 @@ outcomes and exit codes are in [Reference](reference.md).
 
 **The seed.** `agent-docs/roadmap/rows.json` in the main checkout declares the rows; `agent-docs/` is
 gitignored in this repository, so the file is yours. Each row has `id` (three digits, optionally a
-lowercase letter or `-` and a capital, as in `085a` or `107-A`), `slug` (starts with `<id>-`), `title` and `class` (the loop picks `feature`, `bug`, `refactor`, `documentation` and `trivial-edit` rows; `dependency-change`, `research`, `review` and `operations` rows are skipped as `class-unsupported`), and optionally
+lowercase letter or `-` and a capital, as in `085a` or `107-A`), `slug` (starts with `<id>-`), `title` and `class` (the loop picks `feature`, `bug`, `refactor`, `documentation` and `trivial-edit` rows; `dependency-change`, `research`, `review` and `operations` rows are skipped as `class-unsupported`, and `render` shows such a not-started row as `manual`: it waits for a person, not for time), and optionally
 `needs` (row ids that must be merged first), `writeSet` (repo-relative paths; a trailing
 `/` means the subtree), `requires` (capability ids that must have a healthy provider), `mergeCommit` (a
 merge from before the loop existed) and `hold` (one line, at most 120 characters: the row is skipped

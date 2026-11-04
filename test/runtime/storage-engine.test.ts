@@ -210,7 +210,7 @@ test('a prune pass removes a crashed lifecycle temp file older than staleTmpHour
   const stale = put(lifecycle, '.retention-4242-abc123.tmp', '{}', 2);
   const young = put(lifecycle, '.retention-4243-def456.tmp', '{}', 0);
   const result = f.pass(['lifecycle-events'], 'prune', { env: { DOFLOW_RETENTION_HOURS: '1' } }).stores[0];
-  assert.equal(result.removed, 2, JSON.stringify(result));
+  assert.equal(result.removed, 3, JSON.stringify(result)); // two events plus the stale temp file, all counted against the pass cap
   assert.equal(fs.existsSync(stale), false);
   assert.equal(fs.existsSync(young), true);
 });
