@@ -596,8 +596,7 @@
       "match": "^[0-9a-f]{12}$",
       "rule": "report-orphan",
       "bound": {
-        "orphanGraceHours": 24,
-        "foreignMaxAgeDays": 180
+        "orphanGraceHours": 24
       },
       "protect": null,
       "moments": [

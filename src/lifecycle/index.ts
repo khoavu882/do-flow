@@ -933,6 +933,16 @@ function updateLedger({ ledger, scope, scopeRoot, verifications, changes, recove
       });
     }
   }
+  // A legacy retirement: an adapter removed an old projection that no row owned (its change carries
+  // `legacyRetirement.toTarget`, where the claim lives now). Journaled as a tombstone already swept.
+  for (const change of changes) {
+    if (!change.legacyRetirement || change.operation !== 'remove' || change.retained) continue;
+    const { harness, assetId, target: fromTarget, fingerprint } = change;
+    const toTarget = change.legacyRetirement.toTarget;
+    if (next.tombstones.some((entry: any) => entry.harness === harness && entry.fromTarget === fromTarget && entry.toTarget === toTarget)) continue;
+    const at = new Date().toISOString();
+    next.tombstones.push({ harness, assetId, fromTarget, toTarget, fingerprint, movedAt: at, sweptAt: at });
+  }
   const claims = new Set(next.resources.map((resource: any) => resource.target));
   for (const entry of next.tombstones) {
     if (entry.sweptAt || !fsImpl.existsSync(entry.fromTarget) || claims.has(entry.fromTarget)) continue;

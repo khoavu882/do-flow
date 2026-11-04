@@ -13,7 +13,7 @@ const RULES: Map<string, string[]> = new Map([
   ['date-partition', ['maxAgeDays']],
   ['recovery', ['keepNewest']],
   ['lifecycle-settled', ['defaultHours']],
-  ['report-orphan', ['orphanGraceHours', 'foreignMaxAgeDays']],
+  ['report-orphan', ['orphanGraceHours']],
   ['age', ['maxAgeDays']],
   ['existing', []],
   ['control', []],
