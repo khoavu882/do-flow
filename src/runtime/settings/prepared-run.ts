@@ -17,6 +17,8 @@ const path = require('node:path');
 const nodeFs = require('node:fs');
 const { finishRuntime, usageError } = require('../cli-result.ts');
 const { keyEntry, layerFile, layerEntry } = require('./config-write.ts');
+const { readLayerFile } = require('./files.ts');
+const { layerDocument, serializeLayer } = require('./write.ts');
 const { loadProtocols, presetIds, contributedPresetIds } = require('../review/protocols.ts');
 const { gateMinSeats, settingsPick, atLeastAsStrict } = require('../review/resolve-protocol.ts');
 
@@ -43,6 +45,21 @@ function bindingKey(id: string, tier: string): string {
 function taskClasses(repoRoot: string, fsImpl: any): string[] {
   const { WorkflowEngine } = require('../workflow-engine.ts');
   return new WorkflowEngine({ repoRoot, fsImpl }).listClasses();
+}
+
+/** `base` with `file` read as `bytes` (what the resolver calls on a settings layer file); nothing is written. */
+function servedFile(file: string, bytes: Buffer, base: any): any {
+  const asRead = (options?: any): any => {
+    const encoding = typeof options === 'string' ? options : options?.encoding;
+    return encoding ? bytes.toString(encoding) : bytes;
+  };
+  return {
+    statSync: (p: string) => (p === file ? { isFile: () => true, size: bytes.length } : base.statSync(p)),
+    lstatSync: (p: string) => (p === file ? { isFile: () => true, isDirectory: () => false, isSymbolicLink: () => false, size: bytes.length } : base.lstatSync(p)),
+    readFileSync: (p: string, options?: any) => (p === file ? asRead(options) : base.readFileSync(p, options)),
+    accessSync: (p: string, mode?: number) => (p === file ? undefined : base.accessSync(p, mode)),
+    realpathSync: (p: string) => base.realpathSync(p),
+  };
 }
 
 function validatePrepared(doc: Record<string, any>, ctx: any): Entry[] {
@@ -186,8 +203,28 @@ function validatePrepared(doc: Record<string, any>, ctx: any): Entry[] {
 
   const presets: Record<string, any> = isObject(doc.presets) ? doc.presets : {};
   if (Object.hasOwn(doc, 'presets') && !isObject(doc.presets)) errors.push(entry('presets', null, 'type', 'presets must be an object with review and debate preset ids'));
-  let loaded: any = null; // the start verb's inputs, loaded once and only when a preset is checked
-  const inputs = (): any => (loaded ??= ctx.inputs(taskClass));
+  // The start verb's inputs, loaded once and only when a preset is checked, with this file's `settings` served as the
+  // replacement of those keys in the project layer: the resolver then applies the user/local/env layers and the
+  // narrowing rules to them, and a live project value the file replaces is never read. A live settings fault the file
+  // does not replace is an entry (exit 1); one in a key the file sets was already judged at `settings.<key>`.
+  let loaded: any;
+  const inputs = (): any => {
+    if (loaded !== undefined) return loaded;
+    const where = Object.keys(settings).length === 0 ? null : layerFile('project', ctx.env, ctx.projectRoot, ctx.fsImpl);
+    let served: any;
+    if (where && !('error' in where)) {
+      const read = readLayerFile(where.file, { registry, fsImpl: ctx.fsImpl, includeDocument: true });
+      if (read.status !== 'invalid') {
+        const bytes = serializeLayer(layerDocument(registry, { ...(read.status === 'ok' ? read.document : {}), ...settings }));
+        served = servedFile(where.file, bytes, ctx.fsImpl);
+      }
+    }
+    const found = ctx.inputs(taskClass, served);
+    if (!('error' in found)) return (loaded = found);
+    if (found.error !== 'settings-unavailable') throw Object.assign(new Error(found.message), { usage: true });
+    if (!(found.key && Object.hasOwn(settings, found.key))) errors.push(entry(found.key ?? '$', found.layer ?? null, found.code ?? 'invalid', found.message));
+    return (loaded = null);
+  };
   for (const kind of ['review', 'debate']) {
     if (!Object.hasOwn(presets, kind)) continue;
     const order: string[] = presetIds(protocols, kind); // the effective core order: the only ids that have a rank
@@ -201,12 +238,9 @@ function validatePrepared(doc: Record<string, any>, ctx: any): Entry[] {
     // The effective preset setting (C-3): the user/project/local layers `review --action start` reads, with this
     // file's own entry as the project layer, applied by the resolver's rule (settingsPick) to the loosest preset.
     const settingKey = `${kind}.preset`;
-    const view: Record<string, any> = { ...inputs().settingsView };
-    const current = view[settingKey];
-    if (typeof settings[settingKey] === 'string' && (!current || ['default', 'user', 'project'].includes(current.layer))) {
-      view[settingKey] = { value: settings[settingKey], layer: 'project' };
-    }
-    const pick = settingsPick({ kind, pick: { id: order[order.length - 1], origin: 'registry' }, settingsView: view, registry: protocols });
+    const effective = inputs();
+    if (effective === null) continue;
+    const pick = settingsPick({ kind, pick: { id: order[order.length - 1], origin: 'registry' }, settingsView: effective.settingsView, registry: protocols });
     // Two core ids compare by their place in the order; a pair with a contributed id by dominance (never an indexOf of -1).
     if (!atLeastAsStrict(protocols, kind, id, pick.id)) {
       errors.push(entry(key, null, 'not-narrower', `${id} is looser than settings["${settingKey}"] ${pick.id} (${pick.origin} layer)`));
@@ -215,7 +249,7 @@ function validatePrepared(doc: Record<string, any>, ctx: any): Entry[] {
     if (kind !== 'review') continue;
     if (taskClass === null) continue;
     // maint-thin: the seat floor binds unless autopilot is verifiably off (reviewUnattended), as in review start.
-    const floor: number = inputs().unattended === false ? 0 : gateMinSeats(inputs().gatePolicy, taskClass);
+    const floor: number = effective.unattended === false ? 0 : gateMinSeats(effective.gatePolicy, taskClass);
     const seats: number = protocols.presets[id].seats.length;
     if (seats < floor) { // the seat floor (L-E1); the E.1-control-floor mutation targets this line
       errors.push(entry(key, null, 'not-narrower', `${id} has ${seats} seat${seats === 1 ? '' : 's'}; the gate-b floor for ${taskClass} is ${floor} seats`));
@@ -254,11 +288,7 @@ function handlePreparedRun({ file, json, registry, repoRoot, projectRoot, env, f
     const ctx = {
       registry, protocols: protocols.registry, classes: taskClasses(repoRoot, fsImpl), env, projectRoot: root, repoRoot, fsImpl, notes,
       // what `review --action start` loads: the protocol settings view and gates.json narrowed by the project's override
-      inputs: (taskClass: string | null): any => {
-        const inputs = require('../review/start.ts').loadProtocolInputs(taskClass, root, env);
-        if ('error' in inputs) throw Object.assign(new Error(inputs.message), { usage: true });
-        return inputs;
-      },
+      inputs: (taskClass: string | null, settingsFs?: any): any => require('../review/start.ts').loadProtocolInputs(taskClass, root, env, settingsFs),
     };
     return report(file, validatePrepared(doc, ctx), json, notes);
   } catch (error: any) {

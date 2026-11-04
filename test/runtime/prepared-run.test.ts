@@ -157,6 +157,39 @@ test('C-3: presets equal to or stricter than the effective settings pass', (t) =
   assert.equal(result.status, 0, `${result.stdout}${result.stderr}`);
 });
 
+test('FU-xtffjw: prepared settings replace an invalid live project preset, and the run is judged on them without a write', (t) => {
+  const { f, validate } = setup(t);
+  f.writeProjectSettings({ schema: 1, 'review.preset': 'not-a-preset', 'debate.preset': 'also-not-one' });
+  const before = listing(f.project, f.home);
+  const replaced = validate({
+    schema: 1, taskClass: 'bug', settings: { 'review.preset': 'review-deep', 'debate.preset': 'debate-3' },
+    presets: { review: 'review-deep', debate: 'debate-3' },
+  });
+  assert.equal(replaced.status, 0, `${replaced.stdout}${replaced.stderr}`);
+  assert.deepEqual(listing(f.project, f.home), before, 'validation writes nothing');
+});
+
+test('FU-xtffjw: an invalid live preset the file does not replace is an entry with exit 1, not a usage error', (t) => {
+  const { f, validate } = setup(t);
+  f.writeProjectSettings({ schema: 1, 'review.preset': 'not-a-preset' });
+  const result = validate({ schema: 1, taskClass: 'bug', presets: { review: 'review-deep' } });
+  assert.equal(result.status, 1, `${result.stdout}${result.stderr}`);
+  assert.equal(result.json.errors.length, 1, JSON.stringify(result.json.errors));
+  assert.equal(result.json.errors[0].key, 'review.preset');
+  assert.equal(result.json.errors[0].layer, 'project');
+  assert.match(result.json.errors[0].message, /review\.preset/);
+});
+
+test('FU-xtffjw: a user-layer preset still constrains the run when the project layer is replaced', (t) => {
+  const { f, validate } = setup(t);
+  f.writeUserSettings({ schema: 1, 'debate.preset': 'debate-3' });
+  f.writeProjectSettings({ schema: 1, 'review.preset': 'not-a-preset' });
+  const result = validate({ schema: 1, taskClass: 'bug', settings: { 'review.preset': 'review-deep' }, presets: { review: 'review-deep', debate: 'debate-2' } });
+  assert.equal(result.status, 1, `${result.stdout}${result.stderr}`);
+  assert.deepEqual(result.json.errors.map((e: any) => e.key), ['presets.debate'], JSON.stringify(result.json.errors));
+  assert.equal(result.json.errors[0].code, 'not-narrower');
+});
+
 test('presets.review that is not a review preset, and presets.debate that is not a debate preset, are enum', (t) => {
   const { validate } = setup(t);
   const result = validate({ ...VALID(), presets: { review: 'debate-3', debate: 'review-deep' } });

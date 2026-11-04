@@ -245,18 +245,18 @@ function loadGatePolicy(cwd: string | null):
  * no floor), the protocols registry and the enforcement inputs (`loadEnforcementInputs`). A base, override or registry the loaders reject is a refusal carrying the loader's
  * reason (and the override file). Shared with the `protocol` verb.
  */
-function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<string, string | undefined> = process.env):
-  { gatePolicy: any; unattended: boolean; registry: any; settingsView: Record<string, { value: unknown; layer: string }>; agentAccess: Record<string, string>; readOnlyLimits: any[] } | { error: string; message: string } {
+function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<string, string | undefined> = process.env, settingsFs?: any):
+  { gatePolicy: any; unattended: boolean; registry: any; settingsView: Record<string, { value: unknown; layer: string }>; agentAccess: Record<string, string>; readOnlyLimits: any[] } | { error: string; message: string; key?: string; code?: string; layer?: string } {
   const settingsView: Record<string, { value: unknown; layer: string }> = {};
   try {
-    const settings = require('../settings/resolve.ts').loadSettings({ projectRoot: path.resolve(cwd), env });
+    const settings = require('../settings/resolve.ts').loadSettings({ projectRoot: path.resolve(cwd), env, ...(settingsFs ? { fsImpl: settingsFs } : {}) });
     for (const key of PROTOCOL_SETTINGS) {
       const resolution = settings.get(key);
       // C-6: an invalid project or local review.* candidate would silently fall back to the default: refuse instead.
       // A preset key refuses an invalid user candidate too.
       const invalid = key.endsWith('.preset') ? invalidPresetCandidate(resolution)
         : key.startsWith('review.') ? invalidProjectCandidate(resolution) : undefined;
-      if (invalid) return { error: 'settings-unavailable', message: `${key} in ${invalid.source}: ${invalid.reason}` };
+      if (invalid) return { error: 'settings-unavailable', message: `${key} in ${invalid.source}: ${invalid.reason}`, key, code: invalid.code ?? 'invalid', layer: invalid.layer };
       settingsView[key] = { value: resolution.value, layer: resolution.origin.layer };
     }
   } catch (error: any) {
