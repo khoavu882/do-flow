@@ -70,11 +70,16 @@ Permission Preset
 Request Review
 ,
 Default
-,
-Auto (Preview)
+(
+default
+),
+Auto
 (
 v2.23.0+
-), or
+on macOS and Linux,
+v2.26.0+
+on Windows),
+or
 Turbo
 . You can also choose a preset
 from the permissions picker in the message box composer (
@@ -129,10 +134,12 @@ Request Review
 ,
 Default
 ,
-Auto (Preview)
+Auto
 (
 v2.23.0+
-), or
+on macOS and Linux,
+v2.26.0+
+on Windows), or
 Turbo
 —controlling
 how the agent runs shell commands, accesses files, and uses the
@@ -499,15 +506,8 @@ Tab
 ; refer to
 Choose an execution mode
 ):
-default
-(the default; leave
-agentMode
-unset): Prompts for interactive diff
-review before modifying or creating files.
-accept-edits
-: Automatically approves workspace file edits and creations.
 auto
-(Preview): Automatically approves
+: Automatically approves
 workspace file edits, runs terminal commands inside the
 terminal sandbox
 by default, and automatically evaluates
@@ -519,6 +519,23 @@ in the bottom-right status bar and
 Auto mode: edits &#x26; safe commands auto-approved (shift+tab to cycle)
 in the
 prompt input box).
+default
+(the default; select
+default
+in
+/config
+, or leave
+agentMode
+unset or
+""
+): Prompts for interactive diff
+review before modifying or creating files, and follows
+toolPermission
+for commands.
+accept-edits
+: Automatically approves workspace file edits and creations while continuing to follow
+toolPermission
+for commands.
 plan
 : Prepends
 /plan
@@ -528,12 +545,20 @@ Tool Permission (
 toolPermission
 )
 : Controls when the agent asks for your
-approval before it uses a tool, such as running a terminal command. Deny rules
+approval before it uses a tool outside
+auto
+mode (and for
+strict
+and
+always-proceed
+overrides). Deny rules
 in your
 permissions
 block an action in every mode:
 request-review
-(default): Prompts for your approval before running write,
+(default
+toolPermission
+value): Prompts for your approval before running write,
 bash, web, or MCP tools, unless an allow rule covers the action.
 proceed-in-sandbox
 : Runs terminal commands without prompting when Sandbox
@@ -582,10 +607,8 @@ enableTerminalSandbox
 on
 ), restricts
 all agent-initiated terminal commands to a secure OS container. When
-agentMode
-is set to
 auto
-, the terminal sandbox is enabled automatically and
+mode is active, the terminal sandbox is enabled automatically and
 only commands that need to run outside the sandbox are evaluated for automatic
 approval.
 Non-Workspace Access (
@@ -622,16 +645,4 @@ mode.
 Starting in
 v1.4.4
 , if the sandbox isn’t available on your machine (for
-example, on Windows 10, earlier Windows 11 builds, or Linux hosts and some
-containers that block unprivileged user namespaces), Sandbox Mode has no effect,
-/config
-hides it along with
-proceed-in-sandbox
-and
-auto
-, and a saved
-proceed-in-sandbox
-behaves like
-request-review
-.
 [snapshot truncated]

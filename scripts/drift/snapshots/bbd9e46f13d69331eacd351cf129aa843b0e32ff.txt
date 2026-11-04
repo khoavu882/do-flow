@@ -41,7 +41,7 @@ Advanced patterns
 Inject dynamic context
 How injected commands run
 When an injected command fails
-Control characters in injected commands
+When no shell command was run
 Permission checks on injected commands
 Run skills in a subagent
 Example: Research skill using Explore agent
@@ -57,6 +57,7 @@ Skill not triggering
 Skill triggers too often
 Claude stops following a skill
 Skill descriptions are cut short
+Angle brackets in a skill description show as &lt; and &gt;
 Personal skills disappeared
 Related resources
 Skills
@@ -181,7 +182,7 @@ your default permission mode and to
 pre-approve
 read-only commands that you frequently deny
 Usage
-: on a Pro, Max, Team, or Enterprise plan, the
+: on a Pro, Max, Ultra, Team, or Enterprise plan, the
 changes
 /usage
 recommends
@@ -298,9 +299,7 @@ migrate
 Update your existing Claude API code to a newer model
 Earlier than v2.1.221
 upgrade
-Move your project’s Anthropic SDK dependency across a major version, currently the Python
-anthropic
-package from 0.x to 1.x
+Upgrade your project’s Anthropic SDK to a new major version and update your code for its breaking changes
 v2.1.236 or later
 api-version
 Update your Claude API code for a newer
@@ -477,8 +476,4 @@ Command files
 .claude/commands/
 is the older format and still works. It supports the same
 frontmatter
-except
-name
-and
-paths
 [snapshot truncated]

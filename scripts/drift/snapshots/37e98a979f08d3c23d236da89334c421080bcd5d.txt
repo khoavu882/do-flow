@@ -3,11 +3,11 @@ pi
 Repository navigation
 Code
 Issues
-303
-( 303 )
+236
+( 236 )
 Pull requests
-89
-( 89 )
+33
+( 33 )
 Discussions
 Actions
 Projects
@@ -39,7 +39,7 @@ Latest commit
 History
 History
 History
-272 lines (186 loc) · 19.4 KB
+274 lines (187 loc) · 20 KB
 main
 Breadcrumbs
 pi
@@ -57,7 +57,7 @@ File metadata and controls
 Preview
 Code
 Blame
-272 lines (186 loc) · 19.4 KB
+274 lines (187 loc) · 20 KB
 Raw
 Copy raw file
 Download raw file
@@ -415,7 +415,7 @@ shows that it needs sign-in. Select "Sign in", run
 , or run
 pi mcp login sentry
 . Pi opens the authorization page and waits for approval. If the browser runs on another machine, such as over SSH, paste its redirected URL into the sign-in screen. A running session uses the new credentials on its next turn.
-Pi registers itself with the authorization server, stores tokens in
+Pi identifies itself to the authorization server with its Client ID Metadata Document or by registering a client, stores tokens in
 ~/.pi/agent/mcp-auth.json
 , and refreshes access tokens when they expire or the server rejects them. If a server later requests additional scope, Pi asks for sign-in again. Signing out deletes the stored credentials.
 Credentials belong to a server name and URL. Servers with the same URL under different names, such as one per account, sign in separately; servers with the same name and URL in different
@@ -505,11 +505,42 @@ Claude Code
 }
 }
 The name is only sent when Pi registers a client. To register again under a new name, sign out first.
-Some authorization servers allow clients by their Client ID Metadata Document URL instead of registering them. Set
+Without
+clientId
+, Pi identifies itself with its Client ID Metadata Document on pi.dev when the authorization server advertises support for documents and public clients. Otherwise it registers a client dynamically. A client registered before stays in use while its redirect URI matches, until you sign out. With the document, the client ID is
+https://pi.dev/oauth/client.json
+with the redirect URI
+http://127.0.0.1:<port>/callback
+. If the authorization server does not send the
+iss
+parameter in authorization responses (RFC 9207), Pi uses a document and redirect path specific to the MCP server instead:
+https://pi.dev/oauth/<id>/client.json
+with
+http://127.0.0.1:<port>/callback/<id>
+.
+Pi registers instead of using the document when
+clientName
+is set or
+callbackUrl
+is not
+/callback
+on
+localhost
+or
+127.0.0.1
+. Set
 clientRegistration
-to
+to choose the method:
+auto
+(default) as described,
+dcr
+to always register, or
 cimd
-to identify as Pi's document on pi.dev instead of registering:
+to always use the document. With
+cimd
+, sign-in fails if the authorization server does not support documents for public clients. Use
+dcr
+when the authorization page reports an invalid client:
 {
 "mcpServers"
 : {
@@ -526,22 +557,13 @@ https://mcp.example.com/mcp
 "clientRegistration"
 :
 "
-cimd
+dcr
 "
 } }
 }
 }
-The client ID is
-https://pi.dev/oauth/client.json
-with the redirect URI
-http://127.0.0.1:<port>/callback
-. If the authorization server does not send the
-iss
-parameter in authorization responses (RFC 9207), Pi uses a document and redirect path specific to the MCP server instead:
-https://pi.dev/oauth/<id>/client.json
-with
-http://127.0.0.1:<port>/callback/<id>
-. The authorization server must advertise Client ID Metadata Document support and public clients, or sign-in fails.
+pi mcp add --oauth-client-registration <mode>
+sets it when adding a server.
 cimd
 cannot be combined with
 clientId
@@ -771,24 +793,4 @@ forwards an image block. Server instructions are not part of any tool descriptio
 describeNamespace("mcp__<server>")
 , which also returns the server's tool names.
 Use resources
-When a connected server offers
-resources
-, Pi adds the resource tools used by Codex and OpenCode:
-list_mcp_resources
-lists resources as JSON:
-{ server?, resources: [{ server, uri, name, ... }], nextCursor? }
-. With
-server
-, it lists one page;
-cursor
-continues with the next page. Without
-server
-, it lists every resource from every server.
-list_mcp_resource_templates
-lists URI templates for resources the servers do not list directly.
-read_mcp_resource
-reads a resource by
-server
-and
-uri
 [snapshot truncated]

@@ -6,6 +6,7 @@ In this article
 Introduction
 Creating a custom agent
 Using a custom agent
+Delegating focused tasks to a specific model
 Applying your repository&#x27;s custom instructions to a custom agent
 Further reading
 Introduction
@@ -130,6 +131,55 @@ name
 field instead of the ID, enclosing it in quotes. For example,
 --agent "Security Auditor"
 .
+Delegating focused tasks to a specific model
+You can configure a custom agent to use a specific model.
+This can be particularly useful when you want to delegate small, well-defined tasks to a custom agent that uses a locally hosted model, while using a cloud-based model for your main session. This approach allows you, for example, to delegate a single-file change or a focused test fix to a custom agent that uses a local model, then have the main agent review the result.
+First, add a locally hosted model to the CLI. See
+Adding LLM models to GitHub Copilot CLI
+.
+Create
+~/.copilot/agents/local-coder.agent.md
+with the following content:
+---
+name: local-coder
+description: >
+Use for small, well-defined coding tasks, such as a
+single-file change or a focused test fix.
+model: LOCAL-PROVIDER/LOCAL-MODEL
+model-policy: required
+tools: ["read", "grep", "glob", "edit", "execute"]
+strict-tools-list: true
+include-custom-instructions: true
+---
+Complete only the requested task. Inspect the relevant
+code, make the smallest correct change, and run focused
+checks. Report what changed and any remaining issues.
+Replace
+LOCAL-PROVIDER/LOCAL-MODEL
+with your local model&#x27;s provider-qualified ID, not its display name. For a model in
+providers.json
+, combine the model entry&#x27;s
+provider
+and
+id
+values, separated by a forward slash. For example,
+"provider": "local"
+and
+"id": "qwen3:8b"
+gives you
+local/qwen3:8b
+.
+model-policy: required
+requires the configured model rather than treating it as a preference.
+strict-tools-list: true
+limits the agent to the listed tool groups without adding the usual default tools.
+include-custom-instructions: true
+keeps your repository&#x27;s instructions in effect for the subagent.
+Restart the CLI to load the agent. In a session using a cloud model, explicitly delegate a bounded task:
+Use the local-coder agent to add an empty-input test for
+parseConfig in src/config.test.ts. Do not change other
+files. Then review the result in the main session.
+The local model runs the delegated task, but the main agent still receives the result. This does not make the whole session local or offline.
 Applying your repository&#x27;s custom instructions to a custom agent
 Custom instruction files—such as
 .github/copilot-instructions.md

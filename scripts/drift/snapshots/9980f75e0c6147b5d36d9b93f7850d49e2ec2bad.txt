@@ -41,7 +41,6 @@ Legal
 Privacy Policy
 Cookie Preferences
 English
-Loading image...
 Agents
 Apps
 Enterprise
@@ -51,7 +50,6 @@ Community
 Resources
 SIGN IN
 DOWNLOADS
-Loading image...
 Get Started
 Installation
 Authentication
@@ -90,8 +88,8 @@ Experimental
 Troubleshooting
 0.x reference
 CLI
-What&#x27;s new in V3
 Setup & First Run
+Choose an agent harness
 Terminal UI
 Chat
 Fullscreen mode
@@ -100,6 +98,8 @@ Headless mode
 ACP
 Auto complete
 Experimental
+Troubleshooting
+Upgrade from CLI 2.x
 2.x reference
 Crew
 Quick start
@@ -155,6 +155,7 @@ Governance
 Monitor and track
 Settings
 Managed updates
+TLS inspection compatibility
 Billing
 IAM
 Supported regions
@@ -263,9 +264,13 @@ deny
 ask
 (prompt you),
 allow
-(proceed silently)
+(proceed silently),
+evaluate
+(Kiro judges the action; the weakest effect, added by the
+approve-for-me
+preset and active only when the trust classifier is available)
 Priority
-deny > ask > allow - a deny rule always wins regardless of scope.
+deny > ask > allow > evaluate - a deny rule always wins regardless of scope.
 sandbox_network
 host rules are the exception; see
 Sandbox network rules
@@ -402,6 +407,8 @@ deny
 ask
 ,
 allow
+, and
+evaluate
 ).
 Info
 Workspace permissions are stored
@@ -520,8 +527,17 @@ tar --to-command
 require approval even when the base
 tar
 command is trusted.
+In Kiro IDE 1.4.51 or later and Kiro CLI V3 sessions, Kiro blocks bash or PowerShell commands it cannot parse well enough to check against your permission rules. It asks the agent to rewrite the command instead of asking you to approve an unchecked command. Commands for
+cmd.exe
+still ask for approval. A rule that asks about every shell command still shows its normal prompt when no shell
+deny
+rule applies. An unconditional
+allow
+or
+deny
+rule still decides without parsing. If a valid command remains blocked after a few rewrites, the agent tells you it could not check the command.
 Scopes
-Permissions are evaluated across multiple scopes.
+Permissions are evaluated across multiple scopes. The table lists the scopes you configure or encounter directly; it is not an inventory of every scope the permission engine defines.
 Scope
 Location
 Allowed effects
@@ -535,19 +551,27 @@ managed-settings.json
 deny, ask
 user
 ~/.kiro/settings/permissions.yaml
-deny, ask, allow
+deny, ask, allow, evaluate
 workspace
 ~/.kiro/workspace-roots/<hash>/permissions.yaml
-deny, ask, allow
+deny, ask, allow, evaluate
 agent
 Embedded in agent profile (
 permissions
 field)
-deny, ask, allow
+deny, ask, allow, evaluate
 session
 In-memory rules from consent decisions during the session
-deny, ask, allow
-Rules are evaluated using a deny-overrides algorithm: deny > ask > allow. There is no precedence between scopes - the most restrictive effect wins regardless of which scope it came from.
+deny, ask, allow, evaluate
+Rules are evaluated using a deny-overrides algorithm: deny > ask > allow > evaluate. There is no precedence between scopes - the most restrictive effect wins regardless of which scope it came from.
+evaluate
+is the effect the
+approve-for-me
+preset adds when it is listed under
+policies:
+in a user or workspace permissions file; see
+Policy presets
+.
 sandbox_network
 host filtering is the exception: it applies rules first-match, as described in
 Sandbox network rules
@@ -564,12 +588,58 @@ sandbox_network
 host rules, order decides instead; see
 Sandbox network rules
 .
-Policy presets
-Policy presets are named, composable sets of session-scope
+Sub-agents
+Kiro checks each sub-agent tool call against the parent session&#x27;s policy and the sub-agent&#x27;s own
+permissions
+. The stricter result wins:
+A
+deny
+from either policy denies the call.
+An
+ask
+rule in either policy prompts you.
+If the parent session&#x27;s policy has no rule for the call, Kiro prompts you, even when the sub-agent&#x27;s own rules allow it.
+A call that the sub-agent&#x27;s rules don&#x27;t mention follows the parent session&#x27;s policy. A sub-agent&#x27;s
 allow
-rules. Any ACP client, including Kiro&#x27;s own surfaces and compatible third-party integrations such as editor integrations, review bots, and CI harnesses, can use them to seed a session with a well-defined capability profile without writing individual rules from scratch.
-How presets are applied
-Presets are requested by an ACP client in the
+rules never grant more than the parent session allows. A
+subagent
+capability rule only controls whether a sub-agent can start without a prompt. See
+Sub-agent permissions
+.
+Policy presets
+Policy presets are named, composable sets of rules. Every preset except
+approve-for-me
+consists only of
+allow
+rules. A preset reaches a session by one of two paths, and the path decides its scope:
+Requested by a client.
+Any ACP client, including Kiro&#x27;s own surfaces and compatible third-party integrations such as editor integrations, review bots, and CI harnesses, can request the allow-only presets when it opens a session. Their rules are seeded at session scope and held in memory only.
+Listed in a permissions file.
+A preset named under
+policies:
+in a user or workspace
+permissions.yaml
+is expanded at that file&#x27;s scope and persists with the file. In Kiro CLI 2.36 or later, this is how the
+approve for me
+option under
+/permissions
+turns on
+approve-for-me
+: it writes the preset to the workspace permissions file.
+approve-for-me
+is the exception to allow-only. It adds an
+evaluate
+rule for every capability on top of a bounded set of
+allow
+rules, and it depends on Kiro&#x27;s trust classifier: when the classifier is unavailable, the preset contributes no rules and the session keeps asking. Turn it on with the
+approve for me
+option under
+/permissions
+in a Kiro CLI V3 session, where that option appears; see
+Approve for me
+.
+How client-requested presets are applied
+An ACP client requests presets in the
 _meta.kiro.policyPreset
 field of a
 session/new
@@ -594,15 +664,17 @@ json
 }
 }
 }
-Preset rules are seeded into the session when the client opens it, separately from the rules you configured in
+Client-requested preset rules are seeded into the session when the client opens it, separately from the rules you configured in
 permissions.yaml
 . This is why a session&#x27;s active rules can include entries you never wrote.
 Requesting an unknown preset ID rejects the session request. There is no silent fallback to a default policy.
 Info
-Preset rules are session-scope and held in memory only. On a cold session load (a full restart), the client must re-assert the preset. A session that resumes without a full restart keeps its already-seeded rules.
+Client-requested preset rules are session-scope and held in memory only. On a cold session load (a full restart), the client must re-assert the preset. A session that resumes without a full restart keeps its already-seeded rules. A preset listed under
+policies:
+in a permissions file is not affected: it is read from the file at that file&#x27;s scope each time the file loads.
 Available presets
 Preset ID
-What it allows
+Rules it contributes
 allow-all
 Every capability except
 sandbox_network
@@ -668,8 +740,27 @@ cat
 grep
 ,
 echo
+approve-for-me
+The
+edit-workspace
+and
+read-only-shell
+sets, plus an
+evaluate
+rule for every capability, so Kiro judges each action that no deny, ask, or allow rule settles. Requires the trust classifier; when it is unavailable, this preset contributes no rules. In Kiro CLI 2.36 or later, choosing
+approve for me
+under
+/permissions
+in a V3 session lists this preset under
+policies:
+in the workspace permissions file, so its rules apply at workspace scope; see
+Approve for me
 Choosing presets for a session
-Presets are allow-only profiles: they remove prompts for the operations a session is meant to perform, and everything else keeps the default of asking for approval. Pick the narrowest profile that matches the session&#x27;s job.
+The allow-only presets remove prompts for the operations a session is meant to perform, and everything else keeps the default of asking for approval. Pick the narrowest profile that matches the session&#x27;s job.
+approve-for-me
+is not in this table: it is chosen under
+/permissions
+in a Kiro CLI V3 session, which lists it in the workspace permissions file rather than requesting it for one session, and it only takes effect when the trust classifier is available.
 Session profile
 Presets
 What you get
@@ -770,149 +861,4 @@ rules for anything the pipeline must never touch.
 Warning
 Headless execution raises the stakes: when no interactive client is available, every
 ask
-is treated as a deny, because the runtime has no interactive channel to deliver the prompt. A headless session can only perform operations that are explicitly allowed, so the presets it requests, plus any configured
-allow
-rules, define its entire grant surface.
-Trust invariants
-Presets extend what a session is allowed to do, but they cannot override higher-precedence rules. The deny-overrides algorithm described in the Scopes section above still applies in full:
-Kiro-scope hard denies (writes to
-~/.kiro/settings/
-,
-.kiro/settings/
-,
-~/.kiro/workspace-roots/
-,
-.kiroignore
-, and the other stores listed under
-Default behavior
-) block the action regardless of any preset.
-Kiro-scope ask rules (
-.git/**
-,
-.vscode/**
-,
-**/*.code-workspace
-, and the
-agents
-,
-hooks
-,
-workflows
-, and
-powers
-directories under
-.kiro
-and
-~/.kiro
-) still prompt, even when a preset grants broad write access.
-Any
-deny
-rule you have configured at the user, workspace, or administration scope wins over a preset
-allow
-.
-The
-sandbox_network
-capability is not part of the
-all
-meta-capability, so no preset, including
-allow-all
-, changes sandbox network gating.
-Subagents inherit the parent session&#x27;s full rule set via deny-wins intersection: every allow, deny, and ask from the parent applies, so a more restrictive rule on either side always wins.
-Default behavior
-Without any
-permissions.yaml
-configured, the default agent policy allows:
-fs_read
-on
-./**
-- read any workspace file silently
-shell
-for common git read-only commands -
-git status
-,
-git log
-,
-git diff
-,
-git branch
-, and similar
-shell
-for system info commands -
-pwd
-,
-whoami
-,
-uname
-, and similar
-Utility tools (diagnostics, knowledge, and similar)
-The Kiro scope (hardcoded, not changeable by configuration) enforces:
-Always denied:
-writes to
-~/.kiro/settings/
-,
-.kiro/settings/
-, and
-~/.kiro/workspace-roots/
-(prevents the agent from modifying its own permission files), to
-.kiroignore
-at any depth (it defines the agent&#x27;s own read boundary), to the MCP configuration of an installed Power (
-~/.kiro/powers/installed/<name>/mcp.json
-), and to Kiro&#x27;s own state stores (
-~/.kiro/sandbox-state/
-,
-~/.kiro/web-session/
-,
-~/.kiro/cloud-cache/
-,
-~/.kiro/sandbox-curl/
-)
-Always asks:
-writes to
-.git/**
-,
-.vscode/**
-,
-**/*.code-workspace
-, and the
-agents
-,
-hooks
-,
-workflows
-, and
-powers
-directories of both the workspace
-.kiro
-and
-~/.kiro
-. These ask in trusted and untrusted workspaces alike, and no
-allow
-rule from any scope removes the prompt, with one exception inside the managed cloud sandbox described under
-Workspace trust
-.
-Asks while the workspace is untrusted:
-writes to
-.kiro/steering
-,
-.kiro/skills
-,
-.kiro/extensions
-, the
-.kiro/specs
-directory itself, and any
-.kiro
-directory Kiro does not declare, even when a saved rule allows the write. See
-Workspace trust
-.
-Everything else prompts for approval. Creating a
-permissions.yaml
-adds to these defaults; it does not replace them.
-Workspace trust
-Some agent inputs live inside the repository you open: custom agent profiles in
-.kiro/agents/
-, Steering files in
-.kiro/steering/
-, workspace MCP server configuration, Skills, and Workflow files. A cloned repository could use them to change how the agent behaves, so Kiro treats a workspace as untrusted until you trust it. Your decision is stored outside the workspace, so a repository cannot change its own trust status.
-Until you trust a workspace, Kiro:
-Does not load the workspace&#x27;s custom agents, Steering files, MCP server configuration, or Skills.
 [snapshot truncated]

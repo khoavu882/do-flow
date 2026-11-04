@@ -73,6 +73,8 @@ Gemini CLI
 Antigravity CLI
 Global shared path
 ~/.gemini/skills/
+~/.gemini/skills/
+or
 ~/.gemini/antigravity-cli/skills/
 Workspace project path
 .gemini/skills/

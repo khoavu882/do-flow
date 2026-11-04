@@ -214,7 +214,7 @@ covers building skills and MCP servers,
 extensions
 , testing, and public submission.
 For workspace distribution through GitHub, see
-Plugin management
+Import and sync plugins from GitHub
 .
 Previous
 Projects and chats

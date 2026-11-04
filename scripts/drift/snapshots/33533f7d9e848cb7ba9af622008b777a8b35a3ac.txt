@@ -10,6 +10,7 @@ Subagent files Claude Code skips
 Choose a model
 Run every subagent on one model
 Choose an effort level
+When a subagent has no effort field or parameter
 Control subagent capabilities
 Available tools
 Restrict which tools a subagent can use
@@ -489,11 +490,4 @@ initialPrompt
 ,
 memory
 ,
-effort
-,
-background
-,
-omitClaudeMd
-, and
-isolation
 [snapshot truncated]

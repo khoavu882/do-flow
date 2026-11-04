@@ -238,6 +238,7 @@ packages/*/AGENTS.md
 Edit page
 Found a bug? Open an issue
 Join our Discord community
+System status
 Select language
 English
 العربية
@@ -258,4 +259,4 @@ Türkçe
 简体中文
 繁體中文
 Anomaly
-Oct 27, 2026
+Nov 2, 2026

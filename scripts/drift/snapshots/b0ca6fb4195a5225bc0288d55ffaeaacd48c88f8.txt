@@ -17,10 +17,8 @@ Extend Copilot&#x27;s capabilities by connecting Model Context Protocol (MCP) se
 Creating and using custom agents for GitHub Copilot CLI
 Create specialized agents with tailored expertise for specific development tasks.
 Adding LLM models to GitHub Copilot CLI
-Use a model from an external provider of your choice in Copilot by supplying your own API key.
+Use your preferred remote or local models in Copilot CLI.
 Finding and installing plugins for GitHub Copilot CLI
-Extend Copilot&#x27;s functionality by installing plugins created by the community or by your team.
+Extend Copilot by installing plugins created by the community or your organization.
 Creating a plugin for GitHub Copilot CLI
 Create a plugin to share customizations in an easy-to-install package.
-Creating a plugin marketplace for GitHub Copilot CLI
-You can make CLI plugins that you&#x27;ve created easy to install by adding them to a marketplace.
