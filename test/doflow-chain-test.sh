@@ -676,6 +676,25 @@ git update-ref -d refs/remotes/origin/develop
 NOREMOTE_STATE="$($STATE --state)"
 eq "--state falls back to the local integration branch with no remote-tracking ref" \
    "$(echo "$NOREMOTE_STATE" | jq -r '.integration_ref_kind')" "local"
+
+# Regression (FU-d1rqbn): a local integration branch strictly ahead of origin/<integration> holds
+# integrated work the remote has not seen; measuring from origin counted it as the feature's own.
+# Local wins only when strictly ahead; equal, behind and diverged keep the remote-tracking ref.
+ref_probe() { $STATE --state | jq -r '[.integration_ref, .integration_ref_kind] | join(" ")'; }
+D0="$(git rev-parse develop)"
+D1="$(git commit-tree "$D0^{tree}" -p "$D0" -m "local-only integration")"
+D2="$(git commit-tree "$D0^{tree}" -p "$D0" -m "other integration")"
+git update-ref refs/remotes/origin/develop "$D0"
+eq "integration ref: equal local and remote keeps the remote-tracking ref" "$(ref_probe)" "origin/develop remote-tracking"
+git update-ref refs/heads/develop "$D1"
+eq "integration ref: a local branch strictly ahead of the remote is used" "$(ref_probe)" "develop local"
+eq "integration ref: ahead local reports no trailing" "$($STATE --state | jq -r '.integration_local_behind_remote')" "0"
+git update-ref refs/remotes/origin/develop "$D1"; git update-ref refs/heads/develop "$D0"
+eq "integration ref: a local branch behind the remote keeps the remote-tracking ref" "$(ref_probe)" "origin/develop remote-tracking"
+git update-ref refs/heads/develop "$D2"
+eq "integration ref: a diverged local branch keeps the remote-tracking ref" "$(ref_probe)" "origin/develop remote-tracking"
+git update-ref -d refs/remotes/origin/develop; git update-ref refs/heads/develop "$D0"
+eq "integration ref: no remote-tracking ref uses the local branch" "$(ref_probe)" "develop local"
 git checkout -q -B main
 
 # Regression: the base tag came from `git describe --tags --abbrev=0`, which answers "nearest

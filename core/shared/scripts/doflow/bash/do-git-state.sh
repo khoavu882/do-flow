@@ -111,10 +111,14 @@ is_dirty() {
 # means anything. The local branch was used unconditionally, so a develop that had not been pulled
 # made every distance wrong by however stale it was — observed live at 22 reported against 32.
 #
-# The remote-tracking ref is preferred where it exists; the local branch is the fallback for a
-# repository with no remote or one never fetched. Preferring it does not make the answer *fresh* —
-# origin/develop is only as current as the last fetch — so the third field reports how far the
-# local branch trails, which is non-zero exactly when a `git fetch` would change the answer.
+# The remote-tracking ref is preferred where it exists, unless the local branch is strictly ahead
+# of it (origin/<branch> is an ancestor of the branch and they differ): then the local branch holds
+# integrated work the remote has not seen yet, and measuring from origin would count that work as
+# the caller's own. An equal, behind or diverged local branch keeps the remote preference; the local
+# branch is the fallback for a repository with no remote or one never fetched. Preferring the remote
+# does not make the answer *fresh* — origin/develop is only as current as the last fetch — so the
+# third field reports how far the local branch trails, which is non-zero exactly when a `git fetch`
+# would change the answer.
 #
 # Echoes: "<ref> <kind> <local-behind-remote>"
 resolve_integration_ref() {
@@ -125,6 +129,10 @@ resolve_integration_ref() {
     kind="remote-tracking"
     if git rev-parse --verify --quiet "refs/heads/${branch}" >/dev/null 2>&1; then
       behind="$(git rev-list --count "${branch}..origin/${branch}" 2>/dev/null || echo 0)"
+      if [ "$behind" = "0" ] && [ "$(git rev-list --count "origin/${branch}..${branch}" 2>/dev/null || echo 0)" -gt 0 ]; then
+        ref="$branch"
+        kind="local"
+      fi
     fi
   fi
   printf '%s %s %s\n' "$ref" "$kind" "$behind"
