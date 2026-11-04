@@ -10,8 +10,9 @@
 // <linked worktree>`, whose top is not the caller's own (DEC-042).
 //
 // No real harness runs (NFR-002): every descriptor names a `fake-<id>` binary, the child PATH is a
-// scratch bin/ holding only the fake CLI links and a link to git (DEC-055) plus the node directory,
-// and the caller env sets every DOFLOW_* identity variable explicitly. Process cases skip on win32
+// scratch bin/ holding only the fake CLI links and a link to git (DEC-055) plus a scratch directory
+// holding one `node` link (never the node install directory, which can hold real codex or gemini
+// binaries), and the caller env sets every DOFLOW_* identity variable explicitly. Process cases skip on win32
 // (DEC-008, DEC-050). The credentials scenario is D.4's (test/runtime/worker-secrets.test.js), and
 // the forwarding scenario's real-launcher reruns are B.4's (test/runtime/worker-launcher.test.js).
 
@@ -96,6 +97,8 @@ function project(t: any, { scenario = {}, descriptors = { claude: DESCRIPTORS.cl
   const bin = path.join(dir, 'bin');
   const childPath = linkBin(bin, names ?? Object.values(descriptors).map((worker: any) => worker.cli.binary));
   fs.symlinkSync(GIT, path.join(bin, 'git'));
+  assert.deepEqual(childPath.split(path.delimiter), [bin, `${bin}-node`], 'the child PATH is the scratch bin and the node-only directory');
+  assert.deepEqual(fs.readdirSync(`${bin}-node`), ['node']);
   fs.mkdirSync(path.join(dir, 'home'));
   const log = path.join(dir, 'fake.log');
   const env: any = {
