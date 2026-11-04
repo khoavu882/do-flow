@@ -118,6 +118,34 @@ function markUnownedAbsences(statuses: any, ledger: any, harness: any) {
   ));
 }
 
+/** An adapter verifies every asset the current source declares for it, comparing disk to source. For
+ * an asset the removal leaves this harness nothing to delete from, that is not its business: the
+ * files belong to another harness's rows (retained removals, or an older install that gave this
+ * harness no rows there: a v1.14.2 Pi install recorded none for the guidance, scripts and runtime
+ * trees) and so carry that install's legacy bytes. Those bytes read as conflicts on files this
+ * removal never touches, and the ones that do match source would be written back as NEW rows for
+ * the harness being removed. So for such an asset the `conflict` status, its `<assetId>: ...`
+ * conflict strings and its copy-tree resources are dropped. An asset the plan deletes from, or one
+ * where a ledger row has no removal, is judged exactly as before. Without a ledger nothing is
+ * proven settled, so the strict reading is kept. */
+function dropSettledAssetVerification(verification: any, statuses: any, conflicts: any, removals: any, ledger: any) {
+  const unchanged = { resources: verification.resources, statuses, conflicts };
+  if (!ledger) return unchanged;
+  const rows = (ledger.resources || []).filter((resource: any) => resource.harness === verification.harness);
+  const settled = (assetId: any) => !removals.some((change: any) => change.assetId === assetId && !change.retained)
+    && !rows.some((row: any) => row.assetId === assetId && !removals.some((change: any) => matchesChange(row, change)));
+  const settledAssets = new Set([
+    ...statuses.filter((status: any) => status?.status === 'conflict').map((status: any) => status.assetId),
+    ...verification.resources.filter((resource: any) => resource?.kind === 'copy-tree-file').map((resource: any) => resource.assetId),
+  ].filter((assetId: any) => assetId && settled(assetId)));
+  if (!settledAssets.size) return unchanged;
+  return {
+    resources: verification.resources.filter((resource: any) => !(resource?.kind === 'copy-tree-file' && settledAssets.has(resource.assetId))),
+    statuses: statuses.map((status: any) => (settledAssets.has(status?.assetId) && status.status === 'conflict' ? { ...status, status: 'not-managed' } : status)),
+    conflicts: conflicts.filter((reason: any) => ![...settledAssets].some((assetId) => String(reason).startsWith(`${assetId}: `))),
+  };
+}
+
 function normalizeRemovalVerification(verification: any, changes: any, ledger: any) {
   const removals = changes.filter((change: any) => change.operation === 'remove' && change.harness === verification.harness);
   if (!removals.length) return verification;
@@ -128,7 +156,9 @@ function normalizeRemovalVerification(verification: any, changes: any, ledger: a
   // before.
   const removed = removals.filter((change: any) => !change.retained);
   let statuses = [...verification.statuses];
-  const conflicts = [...(verification.conflicts || [])];
+  let conflicts = [...(verification.conflicts || [])];
+  let resources: any[];
+  ({ resources, statuses, conflicts } = dropSettledAssetVerification(verification, statuses, conflicts, removals, ledger));
   for (const change of removed) {
     const outcome = reconcileRemovedChange(verification, statuses, change);
     if (outcome.conflict) { conflicts.push(outcome.conflict); continue; }
@@ -137,7 +167,7 @@ function normalizeRemovalVerification(verification: any, changes: any, ledger: a
   }
   // After reconciling the plan's own removals, so this only ever judges what the plan left over.
   statuses = markUnownedAbsences(statuses, ledger, verification.harness);
-  return { ...verification, statuses, conflicts, ok: removalVerificationOk(verification.ok, statuses, conflicts) };
+  return { ...verification, resources, statuses, conflicts, ok: removalVerificationOk(verification.ok, statuses, conflicts) };
 }
 
 /** An adapter may initially report ok:false because a now-removed resource is missing. Once
