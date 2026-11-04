@@ -743,7 +743,7 @@ function spawnDriver(s: any, overrides: any = {}) {
   const optsFile = path.join(s.dir, `driver-${++seq}.json`);
   const { materialise, ...plain }: any = { ...s.opts, ...overrides };
   fs.writeFileSync(optsFile, JSON.stringify(plain));
-  const child = childProcess.spawn(process.execPath, [DRIVER, optsFile], { stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = childProcess.spawn(process.execPath, [DRIVER, optsFile], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, XDG_CONFIG_HOME: path.join(s.dir, 'xdg') } }); // not the developer's XDG_CONFIG_HOME (FU-ecavpd)
   let stdout = '';
   let stderr = '';
   child.stdout.on('data', (d: any) => { stdout += d; });

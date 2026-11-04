@@ -37,15 +37,20 @@ delete process.env.PI_CODING_AGENT_DIR;
 /** Scratch-$HOME env for a spawned CLI. os.homedir() prefers USERPROFILE on Windows and ignores
  * HOME there entirely, so both must be redirected or -g installs would land in the runner's real
  * profile instead of the scratch directory. */
-function homeEnv(home: any) {
-  return IS_WIN ? { HOME: home, USERPROFILE: home } : { HOME: home };
+function homeEnv(home: any, callerEnv: any = {}) {
+  const env: any = IS_WIN ? { HOME: home, USERPROFILE: home } : { HOME: home };
+  // A developer's XDG_CONFIG_HOME would point the CLI's user config at their real settings (FU-ecavpd). A scratch
+  // home already carries its own XDG folder in inheritedEnv(), which the spread order must keep.
+  // A case that passes its own XDG_CONFIG_HOME keeps it.
+  if (!SCRATCHES.has(home) && callerEnv?.XDG_CONFIG_HOME === undefined) env.XDG_CONFIG_HOME = path.join(home, '.config');
+  return env;
 }
 
 function run(args: any, { home, input, env }: any = {}) {
   const resolvedHome = home ?? suiteTempDir('doflow-cli-e2e-');
   return spawnSync('node', [DOFLOW, ...args], {
     cwd: REPO,
-    env: { ...inheritedEnv(resolvedHome), ...env, ...homeEnv(resolvedHome) },
+    env: { ...inheritedEnv(resolvedHome), ...env, ...homeEnv(resolvedHome, env) },
     // Reply "no" explicitly for prompt-abort cases. An empty input can leave the test worker's
     // non-blocking pseudo-TTY attached and make the CLI retry EAGAIN as if a user were typing.
     input: input || '\n',
@@ -77,7 +82,7 @@ function runInteractive(args: any, { home, env, replies }: any) {
     const resolvedHome = home ?? suiteTempDir('doflow-cli-e2e-');
     const child = require('node:child_process').spawn('node', [DOFLOW, ...args], {
       cwd: REPO,
-      env: { ...inheritedEnv(resolvedHome), ...env, ...homeEnv(resolvedHome) },
+      env: { ...inheritedEnv(resolvedHome), ...env, ...homeEnv(resolvedHome, env) },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let stdout = '';
