@@ -575,6 +575,7 @@ module.exports = {
   featureSlugFor,
   runSlugOf,
   orchestrationRuns,
+  runEntriesAt,
   selectRunEntries,
   findRunFile,
   RUN_STORE_REL,
