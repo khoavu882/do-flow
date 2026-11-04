@@ -32,7 +32,7 @@
         { "extensions": ["mp3", "m4a", "wav", "ogg", "mp4", "mov", "webm"], "into": "records" },
         { "extensions": ["vtt", "srt"], "into": "transcripts" },
         { "extensions": ["txt", "md"], "namePattern": "transcript|meeting|minutes|discuss|session", "into": "transcripts" },
-        { "extensions": ["txt"], "namePattern": "^(\\d{1,2}-\\d{1,2}-\\d{4}|\\d{4}-\\d{2}-\\d{2})", "into": "transcripts" }
+        { "extensions": ["txt"], "namePattern": "^(\\d{1,2}-\\d{1,2}-\\d{4}|\\d{4}-\\d{2}-\\d{2})([ _T]\\d{1,2}[.:]\\d{2}([.:]\\d{2})?)?$", "into": "transcripts" }
       ]
     },
     {

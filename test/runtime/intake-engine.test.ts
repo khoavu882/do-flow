@@ -90,6 +90,23 @@ test('loose files land in their category folders and the manifest holds one done
   }
 });
 
+test('the date fallback takes only date-only .txt stems; dated documents and dated .md files stay loose unless another rule matches (FU-a7xx7x)', (t: any) => {
+  const { ctx } = tree(t, {
+    '2026-10-29.txt': 'x', '10-29-2026.txt': 'x', '10-29-2026 18.06.txt': 'x',
+    '2026-10-29-release-checklist.txt': 'x', '2026-10-29 standup.txt': 'x',
+    '2026-10-29.md': 'x', '2026-10-29-release-checklist.md': 'x',
+    '2026-10-29-meeting-transcript.txt': 'x',
+  });
+  const plan = previewSort({ contextDir: ctx, taxonomy: taxonomy(), now: LATER() });
+  assert.deepEqual(movesOf(plan).sort(), [
+    '10-29-2026 18.06.txt>discuss-session/transcripts/10-29-2026 18.06.txt',
+    '10-29-2026.txt>discuss-session/transcripts/10-29-2026.txt',
+    '2026-10-29-meeting-transcript.txt>discuss-session/transcripts/2026-10-29-meeting-transcript.txt',
+    '2026-10-29.txt>discuss-session/transcripts/2026-10-29.txt',
+  ]);
+  assert.deepEqual([...plan.unmatched].sort(), ['2026-10-29-release-checklist.md', '2026-10-29-release-checklist.txt', '2026-10-29 standup.txt', '2026-10-29.md'].sort());
+});
+
 test('a diagram render follows its same-stem source, a lone render stays (companionOf)', (t: any) => {
   const { ctx } = tree(t, { 'a.mmd': 'x', 'a.svg': '<svg/>', 'b.png': Buffer.from([1]), 'c.puml': 'y', 'c.JPG': Buffer.from([2]) });
   const result = sort(ctx);
