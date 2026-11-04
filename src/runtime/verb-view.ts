@@ -198,8 +198,8 @@ function commandLine(verb: string, action: string | undefined, carried: Record<s
  * are those the spec's `carry` names, in that order, then `--cursor`, `--limit`, `--view` (a `page` line names
  * `--view full` only when the caller's `view` is `full`). Returns no line when
  * the kind has nothing to point at (`page` without a nextCursor, `page-full` with nothing shown). In a JSON answer
- * (`json: true`) the `page-full` and `full` lines end with `--json`, so the command as written prints the full
- * payload; a text answer's lines carry no `--json`.
+ * (`json: true`) every line ends with `--json`, so the command as written prints the same JSON shape; a text
+ * answer's lines carry no `--json`.
  */
 function viewLines(kind: 'page' | 'page-full' | 'full', ctx: {
   spec: BriefSpec; carried: Record<string, unknown>; cursor?: string | null;
@@ -223,7 +223,7 @@ function viewLines(kind: 'page' | 'page-full' | 'full', ctx: {
   } else {
     args.view = 'full';
   }
-  const asJson = ctx.json === true && kind !== 'page' ? ' --json' : '';
+  const asJson = ctx.json === true ? ' --json' : '';
   return [`${LABELS[kind]}: ${commandLine(ctx.spec.verb, ctx.spec.action, args)}${asJson}`];
 }
 
