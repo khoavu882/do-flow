@@ -63,10 +63,10 @@ const handoffJson = (p: any, skill: any, extra: any = []) => {
 const runOf = (p: any) => JSON.parse(fs.readFileSync(path.join(p.dir, '.doflow', 'state', 'orchestration', `${SLUG}.json`), 'utf8'));
 const entries = (p: any, action: any) => runOf(p).history.filter((e: any) => e.action === action);
 
-function writeBrief(p: any, { id = 'A.1', stage = 'discovery', expected = [], report = `${FEATURE}/exec/task-${id}-report.md`, createdAt = new Date().toISOString() }: any = {}) {
+function writeBrief(p: any, { id = 'A.1', stage = 'discovery', expected = [], report = `${FEATURE}/exec/task-${id}-report.md`, createdAt = new Date().toISOString(), harness = null }: any = {}) {
   fs.writeFileSync(path.join(p.dir, FEATURE, 'exec', `task-${id}-brief.json`), JSON.stringify({
     schema: 1, feature: SLUG, runTaskId: SLUG, stage, stageSkill: 'do-brainstorm', owner: 'core-implementer',
-    tier: 'standard', tierSource: 'owner', harness: null, createdAt, tasks: [{ id, report }], expected, optional: [], tools: [], missing: [],
+    tier: 'standard', tierSource: 'owner', harness, createdAt, tasks: [{ id, report }], expected, optional: [], tools: [], missing: [],
   }));
   return report;
 }
@@ -221,6 +221,24 @@ test('an agent type without MCP is stated: a brief that expected an unreachable 
   const [entry] = entries(p, 'complete-stage');
   const context7 = entry.consultations.outcomes.find((o: any) => o.server === 'context7');
   assert.deepEqual([context7.state, context7.source, context7.taskId], ['unavailable', 'brief', 'A.1']);
+});
+
+test('FU-bjq568: the add hint targets the brief\'s harness, falls back without one, and is withheld when that harness has the server', (t) => {
+  const expected = [{ server: 'context7', reach: 'unreachable' }];
+  const stdoutFor = (mcpServers: any, harness: any) => {
+    const p = project(t);
+    installClaude(p, mcpServers);
+    start(p);
+    const report: any = writeBrief(p, { expected, harness });
+    writeReport(p, report, 'Tools used: rg\n');
+    const res: any = handoff(p, 'do-brainstorm', ['--mcp-outcome', 'sequential-thinking=used']);
+    assert.equal(res.status, 0, res.stdout + res.stderr);
+    return res.stdout;
+  };
+  assert.match(stdoutFor({}, 'claude'), /context7 unavailable to do-brainstorm; add it: doflow install --target claude --mcp /);
+  assert.match(stdoutFor({}, null), /context7 unavailable to do-brainstorm; add it: doflow install --target claude --mcp /, 'no target: the first harness without it');
+  assert.match(stdoutFor({}, 'not-installed'), /add it: doflow install --target claude/, 'a harness DoFlow cannot see falls back');
+  assert.doesNotMatch(stdoutFor({ context7: {} }, 'claude'), /add it:/, 'the brief\'s harness already has the server');
 });
 
 test('a report without a Tools used line warns, names the task and path, and still exits 0', (t) => {

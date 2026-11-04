@@ -227,6 +227,20 @@ test('FU-tfkq06: with a stage start known, only a brief created after it counts;
   assert.equal(unbounded.record.outcomes.length, 1, 'without a boundary every matching record counts');
 });
 
+test('FU-bjq568: the add command is asked for the harness of the brief that found the server unreachable', () => {
+  const asked: any[] = [];
+  const addCommand = (server: any, harnessId: any) => { asked.push([server, harnessId]); return `install ${server} on ${harnessId}`; };
+  const expected = [{ server: 'acme-docs', reach: 'unreachable' }];
+  const readReport = reports({ 'exec/task-A.1-report.md': 'Tools used: none' });
+  const targeted = run({ briefRecords: [record({ expected, harness: 'codex' })], readReport, addCommand });
+  assert.deepEqual(targeted.notices.map((n: any) => n.text), ['[INFO] mcp: acme-docs unavailable to stage-a; add it: install acme-docs on codex']);
+  const flagged = run({ flags: ['acme-docs=unavailable'], briefRecords: [record({ expected, harness: 'gemini' })], readReport, addCommand, reach: { anyHarnessHas: () => null } });
+  assert.deepEqual(asked, [['acme-docs', 'codex'], ['acme-docs', 'gemini']], 'a flag-sourced outcome still targets the brief harness');
+  run({ briefRecords: [record({ expected })], readReport, addCommand });
+  assert.deepEqual(asked[2], ['acme-docs', null], 'no brief harness: the caller picks the fallback');
+  assert.equal(flagged.notices.length, 1);
+});
+
 test('IC-008 rule 5 (062 X1): install facts never store an outcome; the no-outcome warning still fires', () => {
   const no = run({ reach: { anyHarnessHas: (s: any) => (s === 'acme-docs' ? false : null) }, addCommand: (server: any) => `install ${server}` });
   assert.deepEqual(no.record.outcomes, []);

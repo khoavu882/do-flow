@@ -235,7 +235,8 @@ const bySortKey = (a: any, b: any): number => (a < b ? -1 : a > b ? 1 : 0);
  * - `reach.anyHarnessHas(server)` -> true | false | null (unknown); never decides an outcome
  * - `reach.harnessWith(server)` -> the display name of a harness that has the server, or null
  * - `harnessName(id)` -> a harness id's display name (for a brief record's `harness`)
- * - `addCommand(server)` -> the text after "add it:" in the unavailable notice
+ * - `addCommand(server, harnessId)` -> the text after "add it:" in the unavailable notice; `harnessId` is the harness
+ *   of the brief that found the server unreachable, or null when no brief names one
  * - `since` -> ISO time of the previous stage's completion (or the run start); rule 3 counts only
  *   evidence observed after it, and only brief records created after it
  *
@@ -350,10 +351,12 @@ function resolveConsultations({
   // brief writes `unreachable` only where every config the harness merges was read (IC-017).
   const unreachable = new Map<string, any>();
   const reachableOn = new Map<string, any>();
+  const unreachableOn = new Map<string, any>();
   for (const record of records) {
     for (const expected of record.expected || []) {
       if (!expected || typeof expected.server !== 'string') continue;
       if (expected.reach === 'unreachable' && !unreachable.has(expected.server)) unreachable.set(expected.server, record.tasks?.[0]?.id);
+      if (expected.reach === 'unreachable' && !unreachableOn.has(expected.server)) unreachableOn.set(expected.server, record.harness ?? null);
       if (expected.reach === 'reachable' && !reachableOn.has(expected.server)) reachableOn.set(expected.server, record.harness ?? null);
     }
   }
@@ -418,7 +421,7 @@ function resolveConsultations({
           text: `[WARN] mcp: ${server} reported unavailable but ${has} has it configured`,
         });
       }
-      const add = !has && typeof addCommand === 'function' ? addCommand(server) : null;
+      const add = !has && typeof addCommand === 'function' ? addCommand(server, unreachableOn.get(server) ?? null) : null;
       notices.push({
         kind: 'unavailable', server,
         text: `[INFO] mcp: ${server} unavailable to ${skill}${add ? `; add it: ${add}` : ''}`,
