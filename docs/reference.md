@@ -42,6 +42,7 @@ missing from its row.
 These are `doflow` CLI commands, plus one `doflow-run` shell verb (`render-diagrams`) and the
 `bench` harness rows; none is a slash-command skill. Installation and lifecycle commands
 (`install`, `update`, `status`, `rollback`, `remove`) are documented in [Setup](setup.md).
+When `doflow-run` selects a CLI from the caller's checkout, it warns on stderr if that checkout's HEAD is behind its local `develop` branch.
 
 ### Command index
 
