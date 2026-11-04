@@ -145,12 +145,31 @@ test('fake codex final-message output is masked and a read-only and edit run are
     const retained = fs.readFileSync(p.lastFile(runId), 'utf8');
     assert.equal(retained.includes('fake-secret-token-value'), false, 'the retained final-message file holds no raw secret');
     assert.equal(retained, 'Authorization: <masked>');
+    assert.deepEqual(run.output.lastMessage, {
+      path: `worker-output/${runId}.last.log`, bytes: Buffer.byteLength('Authorization: <masked>'), altered: true,
+      warning: run.output.lastMessage.warning,
+    });
+    assert.match(run.output.lastMessage.warning, /masking altered this final message.*not suitable for byte-exact patch application/);
+    assert.equal(JSON.stringify(run.output).includes('fake-secret-token-value'), false, 'the pointer holds no raw secret');
+    assert.equal(run.output.stdout.path, `worker-output/${runId}.out.log`, 'the stdout and stderr pointers stay');
+    assert.equal(run.output.stderr.path, `worker-output/${runId}.err.log`);
     const invocation = readLog(p.sb.log).find((entry: any) => entry.argv.includes('--json'));
     const output = invocation.argv[invocation.argv.indexOf('-o') + 1];
     assert.equal(output, p.lastFile(runId));
     assert.ok(path.isAbsolute(output));
     assert.ok(invocation.argv.includes(edit ? 'workspace-write' : 'read-only'));
   }
+});
+
+test('FU-gzwwek: an unchanged final message is pointed to without a warning; no file means no pointer', POSIX, async (t) => {
+  const kept = project(t, { jsonl: [{ type: 'turn.completed' }], lastMessage: 'diff --git a/x b/x\n+plain change\n' });
+  const { runId } = kept.seed();
+  const run = await kept.supervise(runId);
+  assert.deepEqual(run.output.lastMessage, { path: `worker-output/${runId}.last.log`, bytes: Buffer.byteLength('diff --git a/x b/x\n+plain change\n'), altered: false });
+  assert.equal(fs.readFileSync(kept.lastFile(runId), 'utf8'), 'diff --git a/x b/x\n+plain change\n');
+  const none = project(t, { jsonl: [{ type: 'turn.completed' }], omitOutput: true });
+  const missing = await none.supervise(none.seed().runId);
+  assert.equal(Object.hasOwn(missing.output, 'lastMessage'), false);
 });
 
 test('negative control: a spawned agent is withheld despite the declared spawn-denial argv', POSIX, async (t) => {

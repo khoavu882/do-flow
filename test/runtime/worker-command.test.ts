@@ -401,6 +401,7 @@ test('--wait returns the ended run with the three outcomes kept apart', POSIX, a
   assert.equal(body.verified, null, 'a success report changes no task state (DEC-010)');
   assert.equal(body.attemptActive, true);
   assert.equal(body.output.stdout.path, `worker-output/${body.runId}.out.log`);
+  assert.equal(Object.hasOwn(body.output, 'lastMessage'), false, 'a recipe without a final-message file has no such pointer');
   assert.equal(Object.hasOwn(readRuns(p.store)[body.runId], 'resultOffered'), false);
   assert.deepEqual(p.ledgerBytes(), before);
   const ended = await p.cmd({ action: 'cancel', workerRun: body.runId, by: 'main', reason: 'late' });
