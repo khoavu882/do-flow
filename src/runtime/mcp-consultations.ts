@@ -230,14 +230,14 @@ const bySortKey = (a: any, b: any): number => (a < b ? -1 : a > b ? 1 : 0);
  * Injected readers (all optional; a missing one contributes nothing):
  * - `ledger.queryEvidence({taskId})` -> evidence items (active ones count)
  * - `requests.list(taskId)` -> research requests
- * - `briefRecords` -> IC-018 records already parsed, each `{ runTaskId, stage, tasks, expected }`
+ * - `briefRecords` -> IC-018 records already parsed, each `{ runTaskId, stage, createdAt, tasks, expected }`
  * - `readReport(path)` -> report text, or null when the file is missing
  * - `reach.anyHarnessHas(server)` -> true | false | null (unknown); never decides an outcome
  * - `reach.harnessWith(server)` -> the display name of a harness that has the server, or null
  * - `harnessName(id)` -> a harness id's display name (for a brief record's `harness`)
  * - `addCommand(server)` -> the text after "add it:" in the unavailable notice
  * - `since` -> ISO time of the previous stage's completion (or the run start); rule 3 counts only
- *   evidence observed after it
+ *   evidence observed after it, and only brief records created after it
  *
  * @returns {{ record: object, warnings: object[], notices: object[], evidenceToAdd: object[] }}
  */
@@ -266,8 +266,11 @@ function resolveConsultations({
   // ingested (design A6).
   const toolsUsed: any[] = [];
   const fromReports = new Map<string, any[]>();
+  // A stage visited twice leaves briefs from the earlier visit: when `since` is known only a brief created
+  // after it counts, and a record with no creation time (written before it was stamped) cannot be placed.
   const records = (Array.isArray(briefRecords) ? briefRecords : [])
-    .filter((record: any) => record && stageId && taskId && record.stage === stageId && record.runTaskId === taskId);
+    .filter((record: any) => record && stageId && taskId && record.stage === stageId && record.runTaskId === taskId
+      && (since === null || (typeof record.createdAt === 'string' && record.createdAt > since)));
   const reports: Array<{ id: string; report: string }> = [];
   for (const record of records) {
     for (const task of record.tasks || []) {

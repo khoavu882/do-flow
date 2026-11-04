@@ -16,7 +16,7 @@ const { REPO_ROOT } = require('../../src/helper/repo-root.ts');
 const { loadRegistry } = require('../../src/registry/index.ts');
 const { CapabilityRouter } = require('../../src/runtime/capability-router.ts');
 const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
-const { renderBriefTools, currentStageOf } = require('../../src/runtime/brief-tools.ts');
+const { renderBriefTools, currentStageOf, handleBriefToolsCommand } = require('../../src/runtime/brief-tools.ts');
 
 const CLI = path.join(REPO_ROOT, 'bin', 'doflow.js');
 const RUN = path.join(REPO_ROOT, 'core', 'shared', 'scripts', 'doflow', 'bin', 'doflow-run');
@@ -362,6 +362,22 @@ test('IC-017 negative control: unknown primary preserves the old bytes and recor
   const { model: _model, ...record } = result.record;
   const { model: _baselineModel, ...baselineRecord } = baseline.record;
   assert.deepEqual(record, baselineRecord);
+});
+
+test('FU-tfkq06: the verb stamps the record with the injected clock, and the markdown does not change', async (t) => {
+  const { proj } = projectDir(t);
+  const emit = async (now: any) => {
+    let printed = '';
+    const oldLog = console.log;
+    console.log = (text: any) => { printed += `${text}\n`; };
+    try { await handleBriefToolsCommand({ owner: 'core-implementer', tier: 'frontier', json: true, repoRoot: REPO_ROOT, projectRoot: proj, now }); } finally { console.log = oldLog; }
+    return JSON.parse(printed);
+  };
+  const first = await emit(() => new Date('2026-11-01T00:00:00.000Z'));
+  const second = await emit(() => new Date('2026-11-02T00:00:00.000Z'));
+  assert.equal(first.record.createdAt, '2026-11-01T00:00:00.000Z');
+  assert.equal(second.record.createdAt, '2026-11-02T00:00:00.000Z');
+  assert.equal(first.markdown, second.markdown);
 });
 
 test('IC-017: the CLI reads the resolved primary and global model binding', (t) => {

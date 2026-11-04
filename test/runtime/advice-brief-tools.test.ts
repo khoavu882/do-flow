@@ -16,6 +16,13 @@ const CLI = path.join(REPO_ROOT, 'bin/doflow.js');
 const RUN = path.join(REPO_ROOT, 'core/shared/scripts/doflow/bin/doflow-run');
 const PLAN = `## 8. Tasks\n- [ ] A.1 [US1] implement feature — owner: core-implementer; tier: frontier; files: src/a.js\n`;
 
+/** The verb's JSON answer without the record's creation time, which differs between two calls. */
+function answer(stdout: any) {
+  const parsed = JSON.parse(stdout);
+  delete parsed.record.createdAt;
+  return parsed;
+}
+
 function fixture(t: any) {
   const scratch = createScratch('doflow-advice-brief-tools-');
   const project = path.join(scratch.dir, 'project');
@@ -39,11 +46,11 @@ test('IC-011/012: feature-off and omitted tasks preserve the 062 markdown and re
   const withoutTasks = f.run(['--tasks', 'A.1']);
   assert.equal(before.status, 0, before.stderr);
   assert.equal(withoutTasks.status, before.status);
-  const baseline = JSON.parse(before.stdout);
-  const omitted = JSON.parse(withoutTasks.stdout);
+  const baseline = answer(before.stdout);
+  const omitted = answer(withoutTasks.stdout);
   assert.equal(omitted.markdown, baseline.markdown);
   assert.deepEqual(omitted.record, baseline.record);
-  const noTasks = JSON.parse(f.run([]).stdout);
+  const noTasks = answer(f.run([]).stdout);
   assert.deepEqual(noTasks, baseline);
 });
 
@@ -52,10 +59,10 @@ test('IC-011/012: answered tier advice follows Tier and retains the static tier 
   const server = await f.startServer();
   t.after(() => server.close());
   f.enable(server.origin);
-  const baseline = JSON.parse(f.run(['--harness', 'claude']).stdout);
+  const baseline = answer(f.run(['--harness', 'claude']).stdout);
   const result = f.run(['--harness', 'claude', '--tasks', 'A.1']);
   assert.equal(result.status, 0, result.stderr);
-  const actual = JSON.parse(result.stdout);
+  const actual = answer(result.stdout);
   const tierParagraph = 'Tier: `frontier` (task line), per\n`references/MODEL_SELECTION.md`.';
   const modelLine = `Model: harness default on \`${actual.record.model.harness}\`.`;
   assert.ok(actual.markdown.includes(`${tierParagraph}\n${modelLine}\nDecision model: `));
@@ -74,10 +81,10 @@ test('IC-011/012: answered tier advice follows Tier and retains the static tier 
 test('IC-011/012: unavailable advice leaves markdown unchanged and records reason without pickId', (t) => {
   const f = fixture(t);
   f.enable('http://127.0.0.1:9');
-  const baseline = JSON.parse(f.run([]).stdout);
+  const baseline = answer(f.run([]).stdout);
   const result = f.run(['--tasks', 'A.1']);
   assert.equal(result.status, 0, result.stderr);
-  const actual = JSON.parse(result.stdout);
+  const actual = answer(result.stdout);
   assert.equal(actual.markdown, baseline.markdown);
   const { advice, ...record } = actual.record;
   assert.deepEqual(record, baseline.record);
@@ -92,7 +99,7 @@ test('IC-011: advice timeout fails open without changing the 062 block', async (
   const registry = loadRegistry({ repoRoot: REPO_ROOT });
   const router: any = new CapabilityRouter({ repoRoot: REPO_ROOT, projectRoot: f.project });
   f.enable('http://127.0.0.1:9');
-  const fixed: any = { registry, router, probes: {}, reach: null, owner: 'core-implementer', tier: 'frontier', stage: { feature: '001-feature' }, slug: '001-feature', probe: () => ({}), env: f.scratch.env() };
+  const fixed: any = { registry, router, probes: {}, reach: null, owner: 'core-implementer', tier: 'frontier', stage: { feature: '001-feature' }, slug: '001-feature', probe: () => ({}), now: () => new Date('2026-11-01T00:00:00.000Z'), env: f.scratch.env() };
   let request: any;
   const adviceClient: any = { ask: (input: any) => { request = input; return new Promise((resolve) => setTimeout(() => resolve({ status: 'unavailable', reason: 'timeout', answers: [] }), 25)); } };
   async function invoke(tasks: any) {
@@ -153,7 +160,7 @@ async function invokeCounted(f: any, { settings, sentinel, env, tier = 'frontier
   const calls: any = [];
   const answer = reply || { status: 'answered', model: 'clef-flash', answers: [{ name: 'tier', pick: 'light', pickId: 'adv-0000000000000-000000', strength: { word: 'clear', between: null }, agrees: false }] };
   const adviceClient: any = { ask: async (input: any) => { calls.push(input); return answer; } };
-  const fixed: any = { registry, router, probes: {}, reach: null, owner: 'core-implementer', tier, stage: { feature: '001-feature' }, slug: '001-feature', probe: () => ({}), env: { ...f.scratch.env(), ...(env || {}) } };
+  const fixed: any = { registry, router, probes: {}, reach: null, owner: 'core-implementer', tier, stage: { feature: '001-feature' }, slug: '001-feature', probe: () => ({}), now: () => new Date('2026-11-01T00:00:00.000Z'), env: { ...f.scratch.env(), ...(env || {}) } };
   async function invoke(tasks: any) {
     let printed = '';
     const oldLog = console.log;
@@ -176,7 +183,7 @@ test('084 H2: with advice.kinds.tier unset the client records the tier pick, as 
   const server = await f.startServer();
   t.after(() => server.close());
   f.enable(server.origin);
-  const actual = JSON.parse(f.run(['--tasks', 'A.1']).stdout);
+  const actual = answer(f.run(['--tasks', 'A.1']).stdout);
   assert.equal(actual.record.advice.status, 'answered');
   const pick = pickRecords(f).find((record: any) => record.type === 'pick' && record.pickId === actual.record.advice.pickId);
   assert.equal(pick.question, 'tier', 'the client pick record, not the dispatcher one');
@@ -189,8 +196,8 @@ test('084 H2: advice.kinds.tier off adds no advice and records nothing', async (
   t.after(() => server.close());
   f.enable(server.origin);
   setKinds(f, { tier: 'off' });
-  const baseline = JSON.parse(f.run([]).stdout);
-  const actual = JSON.parse(f.run(['--tasks', 'A.1']).stdout);
+  const baseline = answer(f.run([]).stdout);
+  const actual = answer(f.run(['--tasks', 'A.1']).stdout);
   assert.equal(actual.markdown, baseline.markdown);
   assert.deepEqual(actual.record, baseline.record);
   assert.deepEqual(pickRecords(f), []);
@@ -205,8 +212,8 @@ test('084 H2: advice.kinds.tier shadow leaves the block unchanged and records a 
   t.after(() => server.close());
   f.enable(server.origin);
   setKinds(f, { tier: 'shadow' });
-  const baseline = JSON.parse(f.run([]).stdout);
-  const actual = JSON.parse(f.run(['--tasks', 'A.1']).stdout);
+  const baseline = answer(f.run([]).stdout);
+  const actual = answer(f.run(['--tasks', 'A.1']).stdout);
   assert.equal(actual.markdown, baseline.markdown);
   assert.deepEqual(actual.record.advice, { kind: 'tier', status: 'shadow', reason: null });
   assert.deepEqual(pickRecords(f).map(({ type, mode, caller, static: s, pick, model }: any) => ({ type, mode, caller, static: s, pick, model })),
@@ -219,8 +226,8 @@ test('084 H2: advice.kinds.tier act without a passed bench bar falls back to sha
   t.after(() => server.close());
   f.enable(server.origin);
   setKinds(f, { tier: 'act' });
-  const baseline = JSON.parse(f.run([]).stdout);
-  const actual = JSON.parse(f.run(['--tasks', 'A.1']).stdout);
+  const baseline = answer(f.run([]).stdout);
+  const actual = answer(f.run(['--tasks', 'A.1']).stdout);
   assert.equal(actual.markdown, baseline.markdown);
   assert.equal(actual.record.advice.status, 'shadow');
   assert.match(actual.record.advice.reason, /^BENCH_BAR_UNMET: /);
@@ -235,8 +242,8 @@ test('084 D3: advice.kinds.tier act with a passing bench file in the project sti
   f.enable(server.origin);
   setKinds(f, { tier: 'act' });
   projectBench(f, 'tier');
-  const baseline = JSON.parse(f.run([]).stdout);
-  const actual = JSON.parse(f.run(['--tasks', 'A.1']).stdout);
+  const baseline = answer(f.run([]).stdout);
+  const actual = answer(f.run(['--tasks', 'A.1']).stdout);
   assert.equal(actual.markdown, baseline.markdown, 'no pick is shown');
   assert.doesNotMatch(actual.markdown, /Decision model:/);
   assert.equal(actual.record.advice.status, 'shadow');
@@ -281,7 +288,7 @@ for (const [name, c] of Object.entries(CHOSEN_OFF) as any) {
     const router: any = new CapabilityRouter({ repoRoot: REPO_ROOT, projectRoot: f.project });
     let calls = 0;
     const adviceClient: any = { ask: async () => { calls += 1; return { status: 'answered', answers: [{ pick: 'light', pickId: null }] }; } };
-    const fixed: any = { registry, router, probes: {}, reach: null, owner: 'core-implementer', tier: 'frontier', stage: { feature: '001-feature' }, slug: '001-feature', probe: () => ({}), env: { ...f.scratch.env(), ...(c.env || {}) } };
+    const fixed: any = { registry, router, probes: {}, reach: null, owner: 'core-implementer', tier: 'frontier', stage: { feature: '001-feature' }, slug: '001-feature', probe: () => ({}), now: () => new Date('2026-11-01T00:00:00.000Z'), env: { ...f.scratch.env(), ...(c.env || {}) } };
     async function invoke(tasks: any) {
       let printed = '';
       const oldLog = console.log;
@@ -327,8 +334,8 @@ test('084 C-6: under a canary profile the CLI records the client pick and shows 
   f.enable(server.origin);
   fs.mkdirSync(path.join(f.project, '.doflow'), { recursive: true });
   fs.writeFileSync(path.join(f.project, '.doflow', 'settings.json'), JSON.stringify({ rollout: { profile: 'canary' } }));
-  const baseline = JSON.parse(f.run([]).stdout);
-  const actual = JSON.parse(f.run(['--tasks', 'A.1']).stdout);
+  const baseline = answer(f.run([]).stdout);
+  const actual = answer(f.run(['--tasks', 'A.1']).stdout);
   assert.equal(actual.markdown, baseline.markdown);
   assert.deepEqual(actual.record.advice, { kind: 'tier', status: 'shadow', reason: null });
   assert.deepEqual(pickRecords(f).map(({ type, question, pick, static: s, model }: any) => ({ type, question, pick, static: s, model })),

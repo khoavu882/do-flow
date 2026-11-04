@@ -216,6 +216,17 @@ test('IC-008 rule 4: a brief record for this stage listing the server unreachabl
   assert.deepEqual(result.notices.map((n: any) => n.text), ['[INFO] mcp: acme-docs unavailable to stage-a; add it: install acme-docs']);
 });
 
+test('FU-tfkq06: with a stage start known, only a brief created after it counts; an undated record cannot be placed', () => {
+  const since = '2026-10-10T10:00:00.000Z';
+  const expected = [{ server: 'acme-docs', reach: 'unreachable' }];
+  const outcomes = (briefRecords: any) => run({ since, briefRecords, readReport: reports({ 'exec/task-A.1-report.md': 'Tools used: none' }) }).record.outcomes;
+  assert.deepEqual(outcomes([record({ expected, createdAt: '2026-10-10T09:59:59.000Z' })]), [], 'a brief from an earlier visit of the stage');
+  assert.deepEqual(outcomes([record({ expected })]), [], 'an undated brief');
+  assert.deepEqual(outcomes([record({ expected, createdAt: '2026-10-10T10:00:01.000Z' })]), [{ server: 'acme-docs', state: 'unavailable', source: 'brief', taskId: 'A.1' }]);
+  const unbounded = run({ briefRecords: [record({ expected })], readReport: reports({ 'exec/task-A.1-report.md': 'Tools used: none' }) });
+  assert.equal(unbounded.record.outcomes.length, 1, 'without a boundary every matching record counts');
+});
+
 test('IC-008 rule 5 (062 X1): install facts never store an outcome; the no-outcome warning still fires', () => {
   const no = run({ reach: { anyHarnessHas: (s: any) => (s === 'acme-docs' ? false : null) }, addCommand: (server: any) => `install ${server}` });
   assert.deepEqual(no.record.outcomes, []);

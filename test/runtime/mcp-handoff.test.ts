@@ -63,10 +63,10 @@ const handoffJson = (p: any, skill: any, extra: any = []) => {
 const runOf = (p: any) => JSON.parse(fs.readFileSync(path.join(p.dir, '.doflow', 'state', 'orchestration', `${SLUG}.json`), 'utf8'));
 const entries = (p: any, action: any) => runOf(p).history.filter((e: any) => e.action === action);
 
-function writeBrief(p: any, { id = 'A.1', stage = 'discovery', expected = [], report = `${FEATURE}/exec/task-${id}-report.md` }: any = {}) {
+function writeBrief(p: any, { id = 'A.1', stage = 'discovery', expected = [], report = `${FEATURE}/exec/task-${id}-report.md`, createdAt = new Date().toISOString() }: any = {}) {
   fs.writeFileSync(path.join(p.dir, FEATURE, 'exec', `task-${id}-brief.json`), JSON.stringify({
     schema: 1, feature: SLUG, runTaskId: SLUG, stage, stageSkill: 'do-brainstorm', owner: 'core-implementer',
-    tier: 'standard', tierSource: 'owner', harness: null, tasks: [{ id, report }], expected, optional: [], tools: [], missing: [],
+    tier: 'standard', tierSource: 'owner', harness: null, createdAt, tasks: [{ id, report }], expected, optional: [], tools: [], missing: [],
   }));
   return report;
 }
