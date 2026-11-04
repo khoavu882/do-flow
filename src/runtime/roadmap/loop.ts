@@ -815,7 +815,9 @@ function orchestrationFor(ctx: any, row: any, worktree: string): { orch: any; ru
   // artifactRootOf finds it (the feature checkout, else the main one).
   const planExitCheck = () => require('../plan-content.ts').planStageExit({ roots: [...new Set([worktree, runRoot, ctx.root])], slug: row.slug });
   const orch = new WorkflowOrchestrator({ repoRoot: ctx.repoRoot, projectRoot: runRoot, sourceRoot: worktree,
-    stateDir: path.join(runRoot, '.doflow', 'state', 'orchestration'), featureSlug: row.slug, fsImpl: ctx.fsImpl, env: ctx.env, cwd: worktree, planExitCheck });
+    stateDir: path.join(runRoot, '.doflow', 'state', 'orchestration'), featureSlug: row.slug, fsImpl: ctx.fsImpl, env: ctx.env, cwd: worktree, planExitCheck,
+    // FR-006, as the orchestrate verb wires it: the ledger is found from any checkout of the row.
+    taskAttemptCheck: () => require('../task-attempts.ts').checkCompletion({ slug: row.slug, cwd: worktree, fsImpl: ctx.fsImpl }) });
   let run: any;
   try { run = orch.readRun(row.slug); } catch (error: any) { throw new Unreadable([source], error.message); }
   if (run && (!Array.isArray(run.program) || !Number.isInteger(run.cursor) || typeof run.state !== 'string' || !Array.isArray(run.history))) {
@@ -1723,4 +1725,6 @@ module.exports = {
   // The lease primitive, exported for its interleaving test (C8).
   acquireLease,
   releaseLease, resolveMainRoot, noPsAlive,
+  // The orchestrator the loop builds for a row, exported for its wiring test (FU-e4yr45).
+  orchestrationFor,
 };

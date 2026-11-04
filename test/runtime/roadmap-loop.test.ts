@@ -13,7 +13,7 @@ const cp = require('node:child_process');
 const { createHash } = require('node:crypto');
 const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { repoFromTemplate } = require('../helper/repo-template.ts');
-const { next, acquireLease } = require('../../src/runtime/roadmap/loop.ts');
+const { next, acquireLease, orchestrationFor } = require('../../src/runtime/roadmap/loop.ts');
 const { readKillSwitch } = require('../../src/runtime/settings/autopilot.ts');
 const { mergeRoadmapRow, readOpenIntents } = require('../../src/runtime/roadmap/merge.ts');
 const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
@@ -453,6 +453,18 @@ async function atImplementation(t: any) {
   placeRun(f, 'implementation');
   return f;
 }
+
+test('FU-e4yr45: the loop orchestrator refuses an implementation stage whose task-attempt ledger is incomplete', async (t) => {
+  const f = await atImplementation(t);
+  write(path.join(f.featureDir(), 'plan.md'), ['# Plan', '', '## Tasks', '', '### Phase A', '',
+    '- [ ] A.1 first task; owner: core-implementer; files: a.js', ''].join('\n'));
+  const { orch, run } = orchestrationFor({ repoRoot: REPO, root: f.root, fsImpl: fs, env: f.env }, ROW, f.worktree());
+  const node = run.program.find((n: any) => n.id === 'implementation');
+  assert.deepEqual(orch.assertTaskAttempts(node, run), { state: 'none', slug: '113-toy', incomplete: [] }, 'no ledger, nothing to check');
+  write(path.join(f.root, '.doflow/state/task-attempts/113-toy.json'), JSON.stringify({ version: 1, revision: 1, planPath: null, tasks: { 'A.1': { nextToken: 2, attempts: [
+    { token: 1, owner: 'core-implementer', mode: 'subagent', startedAt: '2026-10-19T00:00:00.000Z', taskLineHash: null, state: 'active', result: null, evidenceId: null, reason: null }] } } }));
+  assert.throws(() => orch.assertTaskAttempts(node, run), /task-attempt ledger.*incomplete.*A\.1/);
+});
 
 test('implementation yields dispatch start with the free-only billing cap, then run and the handoff', async (t) => {
   const f = await atImplementation(t);
