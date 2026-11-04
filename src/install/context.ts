@@ -7,6 +7,7 @@
 // native type-stripping — no build step, no runtime dependency. Body stays CommonJS so a `.js`
 // caller's `require('../install/context.ts')` keeps working while the tree is still `.js`.
 const path = require('node:path');
+const { canonicalPath } = require('./paths.ts');
 const { sourceCommit: gitSourceCommit } = require('../helper/git.ts');
 
 interface ResolveContextInput {
@@ -27,7 +28,7 @@ interface ResolveContextInput {
 function resolveContext({ repoRoot, global, projectRoot, targets, dirs, sourceCommit, managedResources }: ResolveContextInput): any {
   const context: any = {
     scope: global ? 'global' : 'project',
-    scopeRoot: global ? path.dirname(dirs.claude) : path.resolve(projectRoot),
+    scopeRoot: global ? path.dirname(dirs.claude) : canonicalPath(projectRoot),
     targets,
     dirs: Object.fromEntries(targets.map((t) => [t, dirs[t]])),
     repoRoot,

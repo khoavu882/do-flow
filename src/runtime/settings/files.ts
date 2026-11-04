@@ -35,6 +35,8 @@ interface LayerRead {
   notes: Note[];
   /** Parsed document for a writer that requested it; absent on ordinary reads. */
   document?: Record<string, unknown>;
+  /** The file text the document was parsed from (BOM removed); present with `document`. */
+  source?: string;
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -265,7 +267,7 @@ function readLayerFile(file: string, { registry, fsImpl = nodeFs, includeDocumen
     values.set(key, { raw, value: error ? null : raw, error });
   }
   return { status: 'ok', code: null, offset: null, reason: null, values, notes,
-    ...(includeDocument ? { document: parsed as Record<string, unknown> } : {}) };
+    ...(includeDocument ? { document: parsed as Record<string, unknown>, source: text } : {}) };
 }
 
 module.exports = { MAX_BYTES, jsonFailure, validateValue, readLayerFile };

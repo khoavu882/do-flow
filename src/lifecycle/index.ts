@@ -17,6 +17,7 @@ const { renderMcpIndex } = require('./mcp-index.ts');
 const { hasBashCapableShell } = require('./bash-availability.ts');
 const { planHookCompanions } = require('./hook-step.ts');
 const { tieredRegistry, hookHoldersFromLedger, hooksTieredOff, withoutHookSources, planHookTierRemovals } = require('./hook-tier.ts');
+const { forgetManifestTools } = require('../install/manifest.ts');
 const { readLock, lockPackages } = require('../state/lockfile.ts');
 const { resolveRegistrySource } = require('../adapters/resolve-source.ts');
 const { planRetiredHarnesses, planHandovers, handoversFor, applyRetiredHarnesses, retiredReleaseKeys, claimKey } = require('./retired-harnesses.ts');
@@ -1200,9 +1201,37 @@ function settleSuspendedProjection({ homeDir }: any): void {
   }
 }
 
+/** Remove the directories a removal emptied, from each removed file's folder upward, tool root
+ * included (`.pi`, `.opencode`, `.agents`); `rmdir` refuses a folder that holds anything, so no
+ * file is touched. The walk stops at the scope root and never takes a shared `.config` folder. */
+function pruneEmptiedDirs(changes: any[], scopeRoot: string, fsImpl: any = fs) {
+  const root = path.resolve(scopeRoot);
+  for (const change of changes) {
+    if (change.operation !== 'remove' || change.retained || change.release || typeof change.target !== 'string') continue;
+    let dir = path.dirname(path.resolve(change.target));
+    if (!isUnder(dir, root)) continue;
+    // The removed file's own folders may already be gone; the first one still standing starts the walk.
+    while (dir !== root && isUnder(dir, root) && !fsImpl.existsSync(dir)) dir = path.dirname(dir);
+    while (dir !== root && isUnder(dir, root) && path.basename(dir) !== '.config') {
+      try { fsImpl.rmdirSync(dir); } catch { break; }
+      dir = path.dirname(dir);
+    }
+  }
+}
+
+/** Stop the install manifest listing a harness the removal left with no ownership row. */
+function forgetRemovedTools(targets: string[], ledger: any, scopeRoot: string) {
+  const standing = new Set((ledger?.resources || []).map((resource: any) => resource.harness));
+  const gone = (targets || []).filter((harness) => !standing.has(harness));
+  if (gone.length) forgetManifestTools({ scopeRoot, tools: gone });
+}
+
 function removeLifecycle(options: any) {
   const plan = planLifecycle({ ...options, context: { ...(options.context || {}), operation: 'remove' } });
-  return applyLifecycle({ ...options, plan, mode: 'remove', acceptPrerequisites: options.acceptPrerequisites });
+  const result = applyLifecycle({ ...options, plan, mode: 'remove', acceptPrerequisites: options.acceptPrerequisites });
+  pruneEmptiedDirs(plan.targets.flatMap((target: any) => target.changes), plan.scopeRoot);
+  forgetRemovedTools(options.targets, result.ledger, plan.scopeRoot);
+  return result;
 }
 
 module.exports = { OPERATIONS, MCP_KEEP, recordMcpOwnership, isPackageAsset, registryScope, normalizeTargets, normalizeChange, matchesChange, normalizeRemovalVerification, adapterConflicts, planLifecycle, verifyLifecycle, applyLifecycle, removeLifecycle, updateLedger, mcpIndexPath, applyMcpIndex, targetNeedsHooks, assertBashAvailableForHooks, hookWiringStatus, markRetainedRemovals, retentionSummary, PRUNED_TREES, settleSuspendedProjection };

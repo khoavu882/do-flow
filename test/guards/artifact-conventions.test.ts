@@ -596,3 +596,52 @@ test('G18: a row with an empty Source cell in the worked example is named', () =
   assert.ok(findings.some((f: any) => /Transitions/.test(f) && /"New"/.test(f)),
     `no finding names the Transitions row of state New: ${JSON.stringify(findings)}`);
 });
+
+// Feature 139 review: each fixed gap in the parity helpers has an altered copy of the example that
+// the unfixed helper reported clean.
+
+test('G18: a Dictionary heading inside a code fence does not count as the entity\'s dictionary', () => {
+  const fenced = alter(dataModelExample(), '#### Dictionary: OrderLine\n', '```\n#### Dictionary: OrderLine\n```\n');
+  const findings = entityCoverageFindings(fenced);
+  assert.ok(findings.some((f: any) => /OrderLine/i.test(f) && /Dictionary/.test(f)),
+    `a fenced heading was counted: ${JSON.stringify(findings)}`);
+  // A fenced heading line also does not end the block it sits in.
+  const inside = alter(dataModelExample(), '| id | uuid | no | generated once | none | code:src/orders/line.ts:8 |\n',
+    '| id | uuid | no | generated once | none | code:src/orders/line.ts:8 |\n```\n#### Lifecycle: Ghost\n```\n');
+  assert.deepEqual(entityCoverageFindings(inside), []);
+});
+
+test('G18: a Source cell holding more than one token is named', () => {
+  const row = '| An Order has at least one OrderLine | Order, OrderLine | check at placement | FR-002 |';
+  for (const multi of ['FR-001, proposed', 'FR-001,proposed', 'FR-001, FR-002']) {
+    const findings = sourceCellFindings(alter(dataModelExample(), row, row.replace('FR-002', multi)));
+    assert.ok(findings.some((f: any) => /Invariants/.test(f) && /"An Order has at least one OrderLine"/.test(f)),
+      `no finding names the multi-token Source cell "${multi}": ${JSON.stringify(findings)}`);
+  }
+});
+
+test('G18: a Dictionary row or a Coupling row with an invalid Source cell is named', () => {
+  const dict = '| status | string | no | one of New, Paid, Shipped, Closed | none | FR-001 |';
+  const dictFindings = sourceCellFindings(alter(dataModelExample(), dict, dict.replace('FR-001', 'garbage')));
+  assert.ok(dictFindings.some((f: any) => /Dictionary/.test(f) && /"status"/.test(f)),
+    `no finding names the Dictionary row status: ${JSON.stringify(dictFindings)}`);
+  const na = 'N/A: one actor-owned entity changes state; OrderLine has no state to couple.';
+  const coupling = (source: string) => alter(dataModelExample(), na,
+    '| Trigger entity and transition | Effect on entity | Via event | Source |\n|---|---|---|---|\n'
+    + `| Order: Paid → Shipped | OrderLine: none | OrderShipped | ${source} |`);
+  assert.deepEqual(sourceCellFindings(coupling('FR-001')), []);
+  const findings = sourceCellFindings(coupling('garbage'));
+  assert.ok(findings.some((f: any) => /Coupling/.test(f) && /"Order: Paid → Shipped"/.test(f)),
+    `no finding names the Coupling row: ${JSON.stringify(findings)}`);
+});
+
+test('G18: a double-quoted ER entity needs a dictionary and a lifecycle heading, quotes stripped', () => {
+  const ghost = alter(dataModelExample(), '    ORDER ||--|{ ORDERLINE : "contains"\n',
+    '    ORDER ||--|{ ORDERLINE : "contains"\n    "GHOST ENTITY" ||--o{ ORDER : "haunts"\n');
+  const findings = entityCoverageFindings(ghost);
+  assert.ok(findings.some((f: any) => /GHOST ENTITY/.test(f) && /Dictionary/.test(f)), JSON.stringify(findings));
+  assert.ok(findings.some((f: any) => /GHOST ENTITY/.test(f) && /Lifecycle/.test(f)), JSON.stringify(findings));
+  const covered = alter(ghost, '## 4. Cross-entity coupling',
+    '#### Dictionary: GHOST ENTITY\n\nNone.\n\n#### Lifecycle: GHOST ENTITY\n\nN/A: stateless, a placeholder.\n\n## 4. Cross-entity coupling');
+  assert.deepEqual(entityCoverageFindings(covered), []);
+});

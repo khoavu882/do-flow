@@ -27,6 +27,7 @@ const { declaredHarnessPaths, resolveHarnessPaths } = require('../../helper/harn
 const { mcpRows, discoverPiMcp, ownedPiMcpIds, planPiMcp, applyPiMcp, verifyPiMcp } = require('./mcp.ts');
 const { planPiHooks, verifyPiHooks, removePiHooks } = require('./hooks.ts');
 const { renderGuidancePointer } = require('../guidance-pointer.ts');
+const { isBlank, createdByDoFlow, creationOrigin, removeCreatedFile } = require('../created-file.ts');
 
 const HARNESS = 'pi';
 const AGENT_DIR_MCP_NOTICE = 'PI_CODING_AGENT_DIR is set: Pi reads its whole agent dir from it, but DoFlow moves only mcp.json there; skills and AGENTS.md stay in ~/.pi/agent.';
@@ -73,9 +74,10 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
 
   /** Replace only the span between DoFlow's markers. An AGENTS.md with no DoFlow section is refused
    * rather than appended to — Pi shares AGENTS.md with every other agent that reads it, so where
-   * DoFlow's content belongs is its owner's decision. Add an empty marker pair to opt in. */
+   * DoFlow's content belongs is its owner's decision. Add an empty marker pair to opt in. A file
+   * holding only whitespace has nothing to protect and counts as absent. */
   function managedInstruction(existing: any, rendered: any) {
-    if (existing === null) return { ok: true, operation: 'create', content: rendered };
+    if (existing === null || isBlank(existing)) return { ok: true, operation: 'create', content: rendered };
     const start = existing.indexOf(MARKER_START);
     const end = existing.indexOf(MARKER_END);
     if (start === -1 && end === -1) return { ok: false, conflict: 'AGENTS.md exists without a DoFlow managed section' };
@@ -190,7 +192,9 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
       else if (outcome.operation !== 'none' && outcome.content !== null) {
         changes.push({ assetId: guidance.id, target: found.paths.instruction, operation: outcome.operation,
           content: outcome.content, ownershipIdentity: `${HARNESS}:instructions:managed-section`,
-          fingerprint: fingerprint(outcome.content), harness: HARNESS, projection: { renderer: 'pi-instructions' } });
+          fingerprint: fingerprint(outcome.content), harness: HARNESS, projection: { renderer: 'pi-instructions' },
+          // A file DoFlow created and a removal that leaves only whitespace: the file goes (remove()).
+          ...(removing && createdByDoFlow(ledger, HARNESS, `${HARNESS}:instructions:managed-section`, found.paths.instruction) ? { deleteWhenBlank: true } : {}) });
       }
     }
 
@@ -252,12 +256,18 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
       if (change.operation !== 'remove' || change.projection?.renderer === 'copy-tree' || isPiMcp(change)) continue;
       if (change.projection?.renderer === 'pi-guard-extension') continue;
       if (change.content === null) continue;
+      if (change.deleteWhenBlank && isBlank(change.content) && removeCreatedFile(change.target, fsImpl)) { removed += 1; continue; }
       writeChange(change, fsImpl);
       removed += 1;
     }
     removed += removePiHooks(changes, { fsImpl });
     removed += removeCopyTreeAssets(changes, { fsImpl });
     return { removed };
+  }
+
+  function originField({ ledger, target, before }: any) {
+    const origin = creationOrigin({ ledger, harness: HARNESS, ownershipIdentity: `${HARNESS}:instructions:managed-section`, target, before });
+    return origin ? { origin } : {};
   }
 
   function verify({ scope, scopeRoot, assets = [], mcp = [], discovery, ledger, context = {}, fsImpl = fs }: any) {
@@ -275,7 +285,8 @@ function createPiAdapter({ declaredPaths = declaredHarnessPaths()[HARNESS], env 
     if (hasSection) {
       resources.push({ assetId: instructionsAssetId, target: found.paths.instruction,
         ownershipIdentity: `${HARNESS}:instructions:managed-section`, fingerprint: fingerprint(found.instruction),
-        sourceVersion: context.sourceVersion ?? 'unknown', projection: { renderer: 'pi-instructions' } });
+        sourceVersion: context.sourceVersion ?? 'unknown', projection: { renderer: 'pi-instructions' },
+        ...originField({ ledger, target: found.paths.instruction, before: discovery?.instruction }) });
     }
 
     const copyTree = verifyCopyTreeAssets({ assets, scope, scopeRoot, context, fsImpl });
