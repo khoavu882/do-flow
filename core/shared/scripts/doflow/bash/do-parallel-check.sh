@@ -12,6 +12,10 @@ case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; th
 # reducing dispatch overhead. The script forms groups from `owner:` fields, computes union
 # file sets per group, and reports overlaps across groups (`group_overlaps[]`).
 #
+# Owner and files are read from the whole task block: the task line and a `Verify:` line under it. A task
+# that declares no `files:` (`files: none` is a declaration), or declares different sets, is named in
+# `files_missing[]` / `files_conflict[]`, and while one exists `parallel_safe` is `null`, never `true`.
+#
 # Advisory by design: it reports overlaps and grouping decisions; the calling skill decides
 # to serialize or group dispatch. It never edits the plan and never dispatches anything.
 #
@@ -67,7 +71,70 @@ plan_abs="$repo_root/$plan_rel"
 
 # Pipeline: awk outputs tab-separated values (one per line), jq reads raw lines as strings,
 # aggregates them into an array, then processes each row.
+#
+# A task is its whole block: the `- [ ] <id>` line and the indented lines under it, up to the next task or
+# heading. `owner:` and `files:` are read from the task line and from a `Verify:` line (the layout plans
+# written with a verification line use); each is the text after the line's first em dash. A task that
+# declares files twice must declare the same set twice: a different set is `conflict`, and a task that
+# declares none is `missing`. `files: none` is a declaration of an empty set, not a missing one.
 awk -v want="$phase" '
+  # Sorted, de-duplicated, comma-joined form of a comma list, so two spellings of one set compare equal.
+  function normalize(list,    n, parts, i, j, t, out, last) {
+    n = split(list, parts, ",")
+    for (i = 1; i <= n; i++) { gsub(/^[ \t]+|[ \t]+$/, "", parts[i]) }
+    for (i = 2; i <= n; i++) {
+      t = parts[i]
+      for (j = i - 1; j >= 1 && parts[j] > t; j--) parts[j + 1] = parts[j]
+      parts[j + 1] = t
+    }
+    out = ""; last = "\001"
+    for (i = 1; i <= n; i++) {
+      if (parts[i] == "" || parts[i] ~ /^none/ || parts[i] == last) continue
+      out = out (out == "" ? "" : ",") parts[i]
+      last = parts[i]
+    }
+    return out
+  }
+  # Reads one line'"'"'s owner:/files: fields into the current task.
+  function declare(line,    dash_pos, section, o, f) {
+    dash_pos = index(line, "—")
+    if (dash_pos == 0) return
+    section = substr(line, dash_pos + length("—"))
+    if (match(section, /owner:[^;]*/)) {
+      o = substr(section, RSTART + 7, RLENGTH - 7)
+      gsub(/^[ \t]+|[ \t]+$/, "", o)
+      if (o != "") {
+        if (owner == "") owner = o
+        else if (owner != o) conflict = 1
+      }
+    }
+    if (match(section, /files:[^;]*/)) {
+      f = substr(section, RSTART + 6, RLENGTH - 6)
+      gsub(/^[ \t]+|[ \t]+$/, "", f)
+      if (f == "") return
+      declared++
+      set = normalize(f)
+      if (declared == 1) first = set
+      else if (set != first) conflict = 1
+      m = split(set, items, ",")
+      for (k = 1; k <= m; k++) if (items[k] != "" && !(items[k] in seen)) { seen[items[k]] = 1; order[++norder] = items[k] }
+    }
+  }
+  function flush(    status, k) {
+    if (id == "") return
+    status = conflict ? "conflict" : (declared == 0 ? "missing" : "ok")
+    if (norder == 0) print id "\t" par "\t" owner "\t\t" status
+    for (k = 1; k <= norder; k++) print id "\t" par "\t" owner "\t" order[k] "\t" status
+    id = ""
+  }
+  function start(line) {
+    id = substr(line, RSTART + 6, RLENGTH - 6)
+    par = (line ~ /^- \[[ x]\] [^ ]+ \[P\]/) ? "P" : "S"
+    owner = ""; declared = 0; conflict = 0; first = ""; norder = 0
+    delete seen; delete order
+    declare(line)
+  }
+  /^#+ / { flush() }
   /^### Phase / {
     inphase = ($3 == want)
     next
@@ -75,43 +142,22 @@ awk -v want="$phase" '
   /^### / { inphase = 0; next }
   !inphase { next }
   /^- \[[ x]\] / {
-    line = $0
-    if (match(line, /^- \[[ x]\] [^ ]+/) == 0) next
-    id = substr(line, RSTART + 6, RLENGTH - 6)
-    par = (line ~ /^- \[[ x]\] [^ ]+ \[P\]/) ? "P" : "S"
-    # Extract only the portion after em-dash for owner:/files: parsing
-    dash_pos = index(line, "—")
-    if (dash_pos == 0) {
-      print id "\t" par "\t\t"
-      next
-    }
-    field_section = substr(line, dash_pos + length("—"))
-    owner = ""
-    if (match(field_section, /owner:[^;]*/)) {
-      owner = substr(field_section, RSTART + 7, RLENGTH - 7)
-      gsub(/^[ \t]+|[ \t]+$/, "", owner)
-    }
-    if (match(field_section, /files:[^;]*/)) {
-      files = substr(field_section, RSTART + 6, RLENGTH - 6)
-      n = split(files, parts, ",")
-      emitted = 0
-      for (i = 1; i <= n; i++) {
-        f = parts[i]
-        gsub(/^[ \t]+|[ \t]+$/, "", f)
-        if (f == "" || f ~ /^none/) continue
-        print id "\t" par "\t" owner "\t" f
-        emitted = 1
-      }
-      if (!emitted) print id "\t" par "\t" owner "\t"
-    } else {
-      print id "\t" par "\t" owner "\t"
-    }
+    flush()
+    if (match($0, /^- \[[ x]\] [^ ]+/) == 0) next
+    start($0)
+    next
   }
+  id != "" && /^[ \t]*[-*]?[ \t]*\**Verify\**:/ { declare($0) }
+  END { flush() }
 ' "$plan_abs" | jq -R . | jq -s --arg phase "$phase" '
   # Convert array of tab-separated strings to array of objects
   map(split("\t")) |
-  map({id: .[0], par: .[1], owner: (.[2] // ""), file: (.[3] // "")}) |
+  map({id: .[0], par: .[1], owner: (.[2] // ""), file: (.[3] // ""), meta: (.[4] // "missing")}) |
   . as $rows |
+
+  # Tasks whose file metadata cannot establish anything: none declared, or declarations that disagree
+  ([.[] | select(.meta == "missing") | .id] | unique) as $files_missing |
+  ([.[] | select(.meta == "conflict") | .id] | unique) as $files_conflict |
   
   # Separate by parallel/sequential
   ([.[] | select(.par == "P") | .id] | unique)   as $par |
@@ -200,8 +246,15 @@ awk -v want="$phase" '
     # a non-empty `group_overlaps` naming the very file two groups both write. `do-execute-plan`
     # tells the reader to branch on this field and never on the exit code, so either shape
     # authorises concurrent writes to one file.
+    #
+    # A task with no `files:` (or two that disagree) has an unknown write set, so a phase containing one
+    # is never reported safe: `null` (unknown, run serially) unless a real overlap already makes it `false`.
     parallel_safe: (if (($par | length) == 0 and ($seq | length) == 0) then null
-                    else (($overlaps | length) == 0 and ($final_group_overlaps | length) == 0) end),
+                    elif (($overlaps | length) > 0 or ($final_group_overlaps | length) > 0) then false
+                    elif (($files_missing | length) > 0 or ($files_conflict | length) > 0) then null
+                    else true end),
+    files_missing: $files_missing,
+    files_conflict: $files_conflict,
     serialize: ([$overlaps[] | .tasks[]] | unique),
     groups: $final_groups,
     group_overlaps: $final_group_overlaps,

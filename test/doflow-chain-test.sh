@@ -347,6 +347,26 @@ Bottom-up: handler first, audit second.
 - [ ] C.1 [P] [US1] unowned task 1 — files: src/shared_unowned.js
 - [ ] C.2 [P] [US1] unowned task 2 — files: src/shared_unowned.js
 - [ ] C.3 [P] [US1] single unowned — files: src/solo.js
+### Phase D — Verify-line layout
+- [ ] D.1 [P] [US1] metadata only on the Verify line
+  - Edit the handler.
+
+  Verify: `node --test test/d1.test.js` — owner: backend-architect; files: src/d1.js, src/shared_d.js
+- [ ] D.2 [P] [US1] agreeing duplicate — owner: backend-architect; files: src/d2.js
+  Verify: `node --test test/d2.test.js` — owner: backend-architect; files: src/d2.js
+- [ ] D.3 [P] [US1] verification only — owner: backend-architect; files: none
+### Phase E — Verify-line overlap
+- [ ] E.1 [P] [US1] first
+  Verify: `node --test x` — owner: backend-architect; files: src/e.js
+- [ ] E.2 [P] [US1] second
+  Verify: `node --test y` — owner: devops-architect; files: src/e.js
+### Phase F — conflicting declarations
+- [ ] F.1 [P] [US1] disagreeing — owner: backend-architect; files: src/f1.js
+  Verify: `node --test x` — owner: backend-architect; files: src/f1.js, src/f2.js
+- [ ] F.2 [P] [US1] disjoint — owner: devops-architect; files: src/f3.js
+### Phase G — missing files
+- [ ] G.1 [P] [US1] declares nothing — owner: backend-architect
+- [ ] G.2 [P] [US1] disjoint — owner: devops-architect; files: src/g2.js
 ### Checkpoints
 - After Phase A: run the suite; commit `feat: auth`
 FIXTURE
@@ -459,6 +479,18 @@ eq "verification-only task stays parallel" \
    "$(printf '%s' "$PC" | jq -r '.parallel_tasks | index("A.5") != null')" "true"
 eq "disjoint-only phase is safe" "$("$PARCHECK" --phase=B | jq -r '.parallel_safe')" "true"
 "$PARCHECK" >/dev/null 2>&1; eq "missing --phase -> exit 2" "$?" "2"
+# Owner and files are read across the whole task block, from the task line and from its Verify line.
+PCD="$("$PARCHECK" --phase=D)"
+eq "Verify-line files are read (D.1 contributes both paths)" "$(printf '%s' "$PCD" | jq -c '.groups[0].files')" '["src/d1.js","src/d2.js","src/shared_d.js"]'
+eq "agreeing task-line and Verify-line declarations are not a conflict" "$(printf '%s' "$PCD" | jq -c '[.files_conflict, .files_missing]')" '[[],[]]'
+eq "explicit files: none establishes nothing but is not missing" "$(printf '%s' "$PCD" | jq -r '.parallel_safe')" "true"
+PCE="$("$PARCHECK" --phase=E)"
+eq "an overlap declared only on Verify lines is detected" "$(printf '%s' "$PCE" | jq -c '[.parallel_safe, .overlaps[0].path, .overlaps[0].tasks]')" '[false,"src/e.js",["E.1","E.2"]]'
+PCF="$("$PARCHECK" --phase=F)"
+eq "conflicting declarations are named and never safe" "$(printf '%s' "$PCF" | jq -c '[.parallel_safe, .files_conflict]')" '[null,["F.1"]]'
+PCG="$("$PARCHECK" --phase=G)"
+eq "a task with no files metadata is named and never safe" "$(printf '%s' "$PCG" | jq -c '[.parallel_safe, .files_missing]')" '[null,["G.1"]]'
+eq "Phase A is unaffected (all tasks declare files)" "$(printf '%s' "$PC" | jq -c '[.files_missing, .files_conflict]')" '[[],[]]'
 # Group formation, owner splitting, intra-group safety, and unowned tasks
 eq "groups formed by owner split" "$(printf '%s' "$PC" | jq -r '.groups | length')" "2"
 eq "group A:backend-architect has all 4 tasks" "$(printf '%s' "$PC" | jq -c '.groups[0].tasks')" '["A.1","A.2","A.3","A.4"]'
