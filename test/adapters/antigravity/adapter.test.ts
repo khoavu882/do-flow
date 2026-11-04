@@ -621,3 +621,25 @@ test('107-B N-d: no Antigravity registry note says DoFlow skips the global skill
   const text = JSON.stringify(registry.harnesses ? registry.harnesses.find((h: any) => h.id === 'antigravity') : registry);
   assert.doesNotMatch(text, /skips the global skills scope/);
 });
+
+// install -> remove must hand a person's AGENTS.md back byte for byte, whether or not it ends in a
+// newline, and no matter how many cycles run (no separator drift).
+for (const [label, original] of [['trailing newline', '# mine\n'], ['no trailing newline', '# mine'], ['blank-line ending', '# mine\n\n']]) {
+  test(`AGENTS.md (${label}) is byte-identical after three install -> remove cycles`, () => {
+    const registry = loadRegistry({ repoRoot: REPO });
+    const root = scratch();
+    const input = harnessInput(registry, { scopeRoot: root });
+    const agentsPath = path.join(root, 'AGENTS.md');
+    fs.writeFileSync(agentsPath, original);
+    for (let cycle = 1; cycle <= 3; cycle += 1) {
+      const planned = adapter.plan(input);
+      adapter.apply({ ...input, changes: planned.changes });
+      assert.ok(fs.readFileSync(agentsPath, 'utf8').startsWith(original), 'install keeps the person\'s bytes as the prefix');
+      assert.ok(fs.readFileSync(agentsPath, 'utf8').includes('doflow:start'));
+      const removeContext = { ...input.context, operation: 'remove' };
+      const removalPlan = adapter.plan({ ...input, context: removeContext });
+      adapter.remove({ ...input, changes: removalPlan.changes, context: removeContext });
+      assert.equal(fs.readFileSync(agentsPath, 'utf8'), original, `cycle ${cycle}`);
+    }
+  });
+}

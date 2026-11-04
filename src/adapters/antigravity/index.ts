@@ -230,8 +230,9 @@ function managedInstruction(existing: any, rendered: any, { name = 'AGENTS.md', 
   if (start === -1 && predecessor) start = existing.indexOf(PREDECESSOR_MARKER_START);
   const end = existing.indexOf(MARKER_END);
   if (start === -1 && end === -1) {
-    const separator = existing === '' || existing.endsWith('\n') ? '\n' : '\n\n';
-    const content = `${existing}${separator}${rendered}`;
+    // Always exactly one '\n' before the span, so strippedInstruction can take back exactly that one
+    // byte whatever the file ended with (a file with no final newline just gets the span on the next line).
+    const content = `${existing}\n${rendered}`;
     return { ok: true, operation: 'merge', content };
   }
   if (start === -1 || end === -1 || end < start) return { ok: false, conflict: `${name} has malformed DoFlow managed-section markers` };
@@ -246,7 +247,11 @@ function strippedInstruction(existing: any) {
   if (start === -1 || end === -1 || end < start) return null;
   let after = end + MARKER_END.length;
   if (existing[after] === '\n') after += 1;
-  return `${existing.slice(0, start)}${existing.slice(after)}`;
+  const before = existing.slice(0, start);
+  const rest = existing.slice(after);
+  // Exact inverse of managedInstruction's append: a span at the end of the file goes with the one '\n'
+  // put before it. A span with the person's text after it was placed, not appended; it keeps its before.
+  return `${rest === '' && before.endsWith('\n') ? before.slice(0, -1) : before}${rest}`;
 }
 
 // ---- copy-tree components (skills, agents, locator) ----
