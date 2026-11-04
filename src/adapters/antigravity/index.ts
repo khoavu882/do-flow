@@ -319,6 +319,45 @@ function planTrees({ assets, paths, scope, neutralResources, removing, repoRoot,
   return { changes, conflicts, targets, notices: [...siblingReplacedNotices(treeResults), ...notices] };
 }
 
+// ---- legacy Gemini shim ----
+
+/** sha256 of every `doflow-run` locator the retired Gemini adapter wrote to ~/.gemini/bin, which
+ * moved to ~/.gemini/config/bin in f7928c48. Each is a blob of core/harnesses/shared/locator/doflow-run
+ * that was current while the adapter still projected to ~/.gemini/bin (blob: commit that introduced
+ * it): 22340592: e575b259, 34bb6c6c: 1fbab132, 344ebd52: a3c15cdb. Hashes only; the bodies stay in git. */
+const LEGACY_GEMINI_SHIM_SHA256 = Object.freeze([
+  'bee62b0a97b9365fba95541a2d2979b1dd57f63a13e0d7bcc6077147664008a4',
+  '66530de094c6ec22bda9219b19f9c02e6a076068aa671b5eb6dff463d06f966a',
+  '9b5cae2a84d7486deff8ecabe477c06af5802d77af6efa72476897f08b8864d6',
+]);
+
+/** The one change that retires a stale ~/.gemini/bin/doflow-run: global scope only, and only a
+ * regular file (never a link) whose bytes equal a shipped legacy shim. Anything else at that path
+ * is the person's and is left alone. No ledger row owns the file, so the change carries
+ * `legacyRetirement` and the lifecycle journals it as a swept tombstone (src/lifecycle/index.ts). */
+function planLegacyGeminiShim({ assets, paths, scope, fsImpl = fs }: any) {
+  const none = { changes: [], notices: [] };
+  const locator = scope === 'global' ? (assets ?? []).find((asset: any) => asset.id === 'locator.doflow') : null;
+  const currentDir = locator && treeDestFor(locator, paths, scope);
+  if (!currentDir) return none;
+  const target = path.join(paths.root, '.gemini', 'bin', 'doflow-run');
+  let digest;
+  try {
+    if (!fsImpl.lstatSync(target).isFile()) return none;
+    digest = sha256File(fsImpl, target);
+  } catch { return none; }
+  if (!LEGACY_GEMINI_SHIM_SHA256.includes(digest)) return none;
+  return {
+    changes: [{
+      assetId: locator.id, target, operation: 'remove', kind: 'copy-tree-file', identity: 'bin/doflow-run',
+      ownershipIdentity: `doflow:${HARNESS}:legacy:locator.doflow:bin/doflow-run`,
+      fingerprint: digest, projection: { renderer: 'copy-tree' },
+      legacyRetirement: { toTarget: path.join(currentDir, 'doflow-run') },
+    }],
+    notices: ['removed ~/.gemini/bin/doflow-run: an unmodified older DoFlow shim, replaced by ~/.gemini/config/bin/doflow-run'],
+  };
+}
+
 function runTreeChanges(changes: any, mode: any) {
   // Route by what each change IS, not by which verb invoked us: remove() delegates here with a
   // plan full of operation:'remove' changes, and applyTree deliberately skips those — so routing
@@ -489,6 +528,7 @@ function plan(options: any = {}, impl: any = {}) {
   const instructions = planInstructions({ paths, target: instructionFile, removing, fsImpl,
     state: instructionState({ target: instructionFile, context, resources: neutralResources, paths, fsImpl }) });
   const trees = planTrees({ assets: options.assets, paths, scope, neutralResources, removing, repoRoot: context.repoRoot, force: context.force === true, fsImpl });
+  const legacyShim = removing ? { changes: [], notices: [] } : planLegacyGeminiShim({ assets: options.assets, paths, scope, fsImpl });
   const mcp = planMcpEntries({
     ...mcpEntriesInput({ paths, mcp: selectedServers, mcpAdoptable: options.mcpAdoptable, resources: neutralResources }),
     files: discovery.mcpSnapshot, removing,
@@ -498,14 +538,14 @@ function plan(options: any = {}, impl: any = {}) {
   const hooksPlan = context.hooksOff === true && !removing ? { changes: [], conflicts: [] }
     : planHooks({ paths, scope, neutralResources, removing, repoRoot: context.repoRoot, fsImpl });
 
-  const changes = [...instructions.changes, ...trees.changes, ...mcp.changes, ...hooksPlan.changes];
+  const changes = [...instructions.changes, ...trees.changes, ...legacyShim.changes, ...mcp.changes, ...hooksPlan.changes];
   const conflicts = [...instructions.conflicts, ...trees.conflicts, ...mcp.conflicts, ...hooksPlan.conflicts];
   return {
     changes,
     conflicts,
     prerequisites: [],
     requiredNativeResources: changes,
-    notices: [...instructions.notices, ...trees.notices, ...mcp.notices],
+    notices: [...instructions.notices, ...trees.notices, ...legacyShim.notices, ...mcp.notices],
   };
 }
 
