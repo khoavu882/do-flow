@@ -292,6 +292,44 @@ test('IC-018: a concurrent move of the integration branch fails update-ref and b
   p.callerUnchanged();
 });
 
+// RT-10: the commit is in the lease before the ref moves.
+test('RT-10: lease.pickedHead holds the generated commit before update-ref runs, and the ref then moves to it', POSIX, async (t) => {
+  const p = project(t);
+  p.dispatchOf('A.1', (wt: any) => write(wt, 'src/a.js', '// ordered\n'));
+  const preHead = p.branchHead();
+  let seen: any = null;
+  const r = await p.integrate({
+    beforeUpdateRef: ({ commit }: any) => { seen = { commit, recorded: p.read().lease.pickedHead, head: p.branchHead() }; },
+  });
+  assert.deepEqual(seen, { commit: seen.commit, recorded: seen.commit, head: preHead }, 'recorded while the branch is still at preHead');
+  assert.equal(r.outcome, 'completed');
+  assert.equal(p.branchHead(), seen.commit);
+});
+
+test('RT-10: a stop before update-ref leaves the branch at preHead and is undone cleanly', POSIX, async (t) => {
+  const p = project(t);
+  const d: any = p.dispatchOf('A.1', (wt: any) => write(wt, 'src/a.js', '// stopped\n'));
+  const preHead = p.branchHead();
+  await assert.rejects(p.integrate({ beforeUpdateRef: () => { throw new Error('stopped'); } }), /stopped/);
+  assert.equal(p.branchHead(), preHead, 'the ref never moved');
+  const s = p.read();
+  assert.equal(s.lease, null);
+  assert.equal(s.dispatches[d.id].phase, 'collected');
+  assert.equal(p.attempts('A.1')[0].state, 'active');
+  p.callerUnchanged();
+});
+
+test('RT-10: when the lease cannot record the commit (it is no longer this dispatch\'s), the ref is not moved', POSIX, async (t) => {
+  const p = project(t);
+  p.dispatchOf('A.1', (wt: any) => write(wt, 'src/a.js', '// refused\n'));
+  const preHead = p.branchHead();
+  const afterLease = () => store.mutateDispatch(p.file, (s: any) => { s.lease = null; return { write: true, result: null }; });
+  const r = await p.integrate({ afterLease });
+  assert.equal(r.outcome, 'lease-lost', JSON.stringify(r));
+  assert.equal(p.branchHead(), preHead, 'no ref move without a recorded pickedHead');
+  p.callerUnchanged();
+});
+
 test('IC-020: undo on a non-integration branch runs nothing', POSIX, (t) => {
   const p = project(t);
   const wt = p.integration.worktree;

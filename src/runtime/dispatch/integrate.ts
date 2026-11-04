@@ -17,7 +17,8 @@
 // Integration (IC-018). One dispatch per call, under the store's lease: `cherry-pick --no-commit`
 // of `C` on the integration HEAD, `write-tree`, `commit-tree` on the pre-integration head, then
 // `update-ref` naming that head as the expected old value, so a concurrent move of the branch fails
-// the update instead of being overwritten (DEC-050). Verification follows on the integrated HEAD
+// the update instead of being overwritten (DEC-050). The new commit is recorded as the lease's
+// `pickedHead` before `update-ref` runs (RT-10), so a stop between the two is recoverable (IC-032). Verification follows on the integrated HEAD
 // (IC-019), then B.3's end rule finishes or releases the 080 attempt inside the dispatch lock.
 // Undo is `reset --hard` to the pre-integration head, run only while the integration branch is
 // checked out there and points at a head this integration made (IC-020).
@@ -310,7 +311,7 @@ function endStale(store: any, dispatch: any, reason: string, ctx: any, now: Date
  * `ctx` is B.3's 080 context (`ledgerFile`, `roots`, `slug`, `env`, `cwd`, `fsImpl`, `now`); `env`
  * is the environment git and the verification inherit, less the repository variables. `holder` is
  * the lease holder `{ pid, start }` (this process by default). `beforeUpdateRef` is a test seam
- * called between `commit-tree` and `update-ref`, and `afterLease` one called between steps 1 and 2;
+ * called after the lease records the commit and before `update-ref`, and `afterLease` one called between steps 1 and 2;
  * the loop passes neither.
  *
  * Resolves `{ outcome, dispatchId, task, token, ... }`, `outcome` one of `none`, `not-running`,
@@ -446,15 +447,19 @@ async function integrateOnce({
         const made = runGit(integration.worktree, ['commit-tree', tree.stdout.trim(), '-p', preHead, '-m', `${task}: dispatch ${dispatchId} token ${token}`], { env: identityEnv, timeout: WRITE_TIMEOUT_MS });
         const commit = made.stdout.trim();
         if (!made.ok || !SHA.test(commit)) return releaseWithError('commit-tree-failed', made.status, null);
+        // RT-10: the commit is recorded in this dispatch's lease BEFORE the ref moves, so a stop between
+        // the two leaves a head the lease rule (IC-032) knows as this integration's. Not recorded (the lease
+        // is no longer this dispatch's), no ref move.
+        const recorded = mutateDispatch(file, (store: any) => {
+          if (!store.lease || store.lease.dispatchId !== dispatchId) return { write: false, result: false };
+          store.lease.pickedHead = commit;
+          return { write: true, result: true };
+        });
+        if (!recorded) return releaseWithError('picked-head-unrecorded', null, null);
         if (beforeUpdateRef) await beforeUpdateRef({ worktree: integration.worktree, branch: integration.branch, preHead, commit });
         const moved = runGit(integration.worktree, ['update-ref', `refs/heads/${integration.branch}`, commit, preHead], { env: identityEnv, timeout: WRITE_TIMEOUT_MS });
         if (!moved.ok) return releaseWithError('update-ref-failed', moved.status, null);
         pickedHead = commit;
-        mutateDispatch(file, (store: any) => {
-          if (!store.lease || store.lease.dispatchId !== dispatchId) return { write: false, result: null };
-          store.lease.pickedHead = commit;
-          return { write: true, result: null };
-        });
       }
     }
 
