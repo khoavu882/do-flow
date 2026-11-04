@@ -13,6 +13,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { REPO, GUIDANCE } = require('./_shared.ts');
+const { tempDir } = require('../helper/tmp.ts');
 const { GENERATED_EXCLUSIONS, alwaysLoaded, alwaysLoadedByHarness, readRegistry } = require('../helper/always-loaded.ts');
 const { renderGuidancePointer } = require('../../src/adapters/guidance-pointer.ts');
 const { WHOLESALE_ASSETS } = require('../../src/runtime/inventory/siblings.ts');
@@ -293,8 +294,7 @@ function skillLoadedBytes(skillName: any, loadedReferences: any = new Set(), ski
 }
 
 function skillTree(t: any, files: any) {
-  const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'doflow-g13-'));
-  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const root = tempDir(t, 'doflow-g13-');
   for (const [rel, body] of Object.entries(files)) {
     fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
     fs.writeFileSync(path.join(root, rel), body as string);
