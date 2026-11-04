@@ -595,7 +595,7 @@ test('FU-spza2p: restoring a parent file never writes through a symlink the expo
   gitIn(repoDir, ['init', '-q', '-b', 'main']);
   fs.writeFileSync(path.join(repoDir, 'package.json'), JSON.stringify({ name: 'f', scripts: { test: 'node --test' } }));
   fs.writeFileSync(path.join(repoDir, 'src', 'link.js'), 'module.exports = 1;\n');
-  const testBody = (note: any) => `const assert = require('node:assert/strict');\nconst test = require('node:test');\n// ${note}\ntest('t', () => assert.equal(require('../src/link.js'), 1));\n`;
+  const testBody = (note: any) => `const assert = require('node:assert/strict');\nconst test = require('node:test');\n// ${note}\ntest('t', () => assert.equal(require(${JSON.stringify('../src/link.js')}), 1));\n`;
   fs.writeFileSync(path.join(repoDir, 'test', 'link.test.js'), testBody('one'));
   gitIn(repoDir, ['add', '-A']);
   gitIn(repoDir, ['commit', '-q', '-m', 'base']);
