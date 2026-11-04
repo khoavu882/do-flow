@@ -545,6 +545,40 @@ test('G18: an 11-state diagram in the worked example is named', () => {
     `no finding names the 11-state Order diagram: ${JSON.stringify(findings)}`);
 });
 
+test('G18: a <<choice>> pseudo-state as a transition target is not held to the Transitions table or the cap', () => {
+  const base = dataModelExample();
+  // Unaltered control: a plain extra state that is in no table row is named.
+  const plain = alter(base, '    New --> Closed: cancel\n', '    New --> Review: cancel\n');
+  assert.ok(stateParityFindings(plain).some((f: any) => /Review/.test(f)), 'a plain unlisted state must be named');
+  // The same transition through a declared choice is clean; fork and join behave alike.
+  for (const kind of ['choice', 'fork', 'join']) {
+    const text = alter(base, '    New --> Closed: cancel\n',
+      `    state Review <<${kind}>>\n    New --> Review: cancel\n    Review --> Closed\n`);
+    assert.deepEqual(stateParityFindings(text), [], `<<${kind}>> pseudo-state was counted as a state`);
+  }
+  // Pseudo-states do not count toward the cap: ten real states plus a choice stay at the cap.
+  const nine = [1, 2, 3, 4, 5, 6].map((n) => `    Closed --> Extra${n}\n`).join('');
+  const withChoice = alter(base, '    Shipped --> Closed: confirm delivery\n',
+    `    Shipped --> Closed: confirm delivery\n${nine}    state Pick <<choice>>\n    Closed --> Pick\n`);
+  assert.ok(!stateParityFindings(withChoice).some((f: any) => /cap/.test(f)), 'a choice counted toward the cap');
+});
+
+test('G18: a composite state and its nested states are counted once, in the same diagram', () => {
+  const base = dataModelExample();
+  const composite = (n: number) => {
+    const nested = Array.from({ length: n }, (_, i) => `        Inner${i + 1} --> Inner${i + 1}\n`).join('');
+    return alter(base, '    Shipped --> Closed: confirm delivery\n',
+      `    Shipped --> Closed: confirm delivery\n    state Packing {\n        [*] --> Inner1\n${nested}    }\n`);
+  };
+  // Packing + 4 nested + the 4 drawn states = 9: under the cap, and each is named once by parity.
+  const findings = stateParityFindings(composite(4));
+  assert.ok(!findings.some((f: any) => /cap/.test(f)), `composite miscounted: ${JSON.stringify(findings)}`);
+  assert.ok(findings.some((f: any) => /state Packing /.test(f)), 'the composite itself is a state of the diagram');
+  assert.equal(findings.filter((f: any) => /state Inner1 /.test(f)).length, 1);
+  // Seven nested + composite + 4 drawn = 12: over the cap, so the nested states do count.
+  assert.ok(stateParityFindings(composite(7)).some((f: any) => /Order/.test(f) && /12 states/.test(f)));
+});
+
 test('G18: a row with an empty Source cell in the worked example is named', () => {
   const text = alter(dataModelExample(), '| OrderClosed | proposed |\n', '| OrderClosed |  |\n');
   const findings = sourceCellFindings(text);

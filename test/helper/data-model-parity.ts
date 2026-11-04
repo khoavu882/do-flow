@@ -5,8 +5,10 @@
 // fill can both call them. HTML comments are ignored, so rules quoted in a template comment never
 // count as content.
 //
-// Not checked: composite states of a stateDiagram-v2 are not counted as states unless a transition
-// names them, and a pseudo-state declared with `<<choice>>` is skipped.
+// State rule (stateDiagram-v2): `[*]` and any state declared `<<choice>>`, `<<fork>>` or `<<join>>`
+// are pseudo-states; they are neither held to the Transitions table nor counted toward the cap. A
+// composite state (`state X { ... }`) and the states nested in it are states of the same diagram,
+// each counted once, whether declared or only named by a transition.
 
 const TEMPLATE_HEADINGS = [
   'Data Model', 'Sequence / Data Flow', 'Lifecycles', 'Cross-entity coupling', 'Invariants',
@@ -128,14 +130,19 @@ function entityCoverageFindings(text: string): string[] {
   return findings;
 }
 
-/** The states a `stateDiagram-v2` body names, minus `[*]`. */
+/** The states a `stateDiagram-v2` body names, minus pseudo-states (see the state rule at the top). */
 function diagramStates(lines: string[]): string[] {
+  const pseudo = new Set<string>(['[*]']);
+  for (const line of lines) {
+    const p = /^state\s+(?:"[^"]*"\s+as\s+)?([\w-]+)\s*<<(?:choice|fork|join)>>/.exec(line);
+    if (p) pseudo.add(p[1]);
+  }
   const states: string[] = [];
-  const add = (s: string) => { if (s !== '[*]' && !states.includes(s)) states.push(s); };
+  const add = (s: string) => { if (!pseudo.has(s) && !states.includes(s)) states.push(s); };
   for (const line of lines) {
     const t = /^(\[\*\]|[\w-]+)\s*-->\s*(\[\*\]|[\w-]+)/.exec(line);
     if (t) { add(t[1]); add(t[2]); continue; }
-    const decl = /^state\s+(?:"[^"]*"\s+as\s+)?([\w-]+)\s*$/.exec(line);
+    const decl = /^state\s+(?:"[^"]*"\s+as\s+)?([\w-]+)\s*(?:\{\s*)?$/.exec(line);
     if (decl) add(decl[1]);
   }
   return states;
