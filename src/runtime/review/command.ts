@@ -25,15 +25,10 @@ const TELEMETRY_COUNT_KEYS = Object.freeze([
   'plausible', 'unverified_blockers', 'bug_classes',
 ]);
 
-// Inherited location variables would point the check at another repository (C-8).
-const GIT_LOCATION_KEYS = Object.freeze([
-  'GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_COMMON_DIR',
-  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
-]);
-
 function defaultGit(args: string[], cwd: string, env: Env): { status: number | null } {
   const gitEnv = { ...env };
-  for (const key of GIT_LOCATION_KEYS) delete gitEnv[key];
+  // Inherited location variables would point the check at another repository (C-8); the list is verification's.
+  for (const key of require('../dispatch/verify-run.ts').REPO_ENV) delete gitEnv[key];
   return spawnSync('git', ['-C', cwd, ...args], { cwd, env: gitEnv, stdio: 'ignore' });
 }
 

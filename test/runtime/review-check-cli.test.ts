@@ -220,6 +220,41 @@ test('C-8: an inherited GIT_DIR naming another repository does not redirect the 
   assert.deepEqual(JSON.parse(res.stdout).errors, [`preExistingAt-not-ancestor:${data.converged[0].id}`]);
 });
 
+test('FU-rdy770: the ancestry check strips all twelve repository-local variables and keeps injected configuration', (t) => {
+  const s = scratch(t);
+  const commit = (text: any) => {
+    fs.writeFileSync(path.join(s.cwd, 'tracked.txt'), text);
+    assert.equal(s.git(['add', 'tracked.txt']).status, 0);
+    assert.equal(s.git(['-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-q', '-m', text]).status, 0);
+    return s.git(['rev-parse', 'HEAD']).stdout.trim();
+  };
+  assert.equal(s.git(['init', '-q']).status, 0);
+  const first = commit('first');
+  const second = commit('second');
+  const keys = [
+    'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_OBJECT_DIRECTORY', 'GIT_DIR', 'GIT_WORK_TREE', 'GIT_IMPLICIT_WORK_TREE',
+    'GIT_GRAFT_FILE', 'GIT_INDEX_FILE', 'GIT_NO_REPLACE_OBJECTS', 'GIT_REPLACE_REF_BASE', 'GIT_PREFIX',
+    'GIT_SHALLOW_FILE', 'GIT_COMMON_DIR',
+  ];
+  // A git on PATH that records the GIT_ variables it was started with, then runs the real one.
+  const bin = path.join(s.root, 'bin');
+  fs.mkdirSync(bin);
+  const seen = path.join(s.root, 'seen.txt');
+  const real = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
+  fs.writeFileSync(path.join(bin, 'git'), `#!/bin/sh\nenv | grep '^GIT_' | sort > '${seen}'\nexec '${real}' "$@"\n`, { mode: 0o755 });
+  const data = record();
+  data.reviewedHead = first;
+  Object.assign(data.converged[0], { origin: 'pre-existing', preExistingAt: second });
+  s.write('review/findings.json', data);
+  for (const key of keys) s.env[key] = path.join(s.root, 'nowhere');
+  Object.assign(s.env, { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'http.extraHeader', GIT_CONFIG_VALUE_0: 'Authorization: x', PATH: `${bin}${path.delimiter}${process.env.PATH}` });
+  const res = s.cli(['--action', 'check', '--path', 'review/findings.json', '--json']);
+  assert.equal(res.status, 1, res.stdout + res.stderr);
+  const names = fs.readFileSync(seen, 'utf8').split('\n').filter(Boolean).map((line: any) => line.split('=')[0]);
+  assert.deepEqual(names.filter((name: any) => keys.includes(name)), [], 'no repository-local variable reaches git');
+  assert.ok(names.includes('GIT_CONFIG_COUNT') && names.includes('GIT_CONFIG_KEY_0'), 'injected configuration is kept');
+});
+
 test('C-9: --action with no value is a usage error, exit 2', (t) => {
   const s = scratch(t);
   const res = s.cli(['--action']);
