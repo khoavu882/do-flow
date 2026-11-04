@@ -89,8 +89,9 @@ function addCandidate(candidates: Map<string, any>, file: string, harness: strin
  * lock); an entry at or under one of them is reported in `excluded`, not backed up.
  * `records` lists DoFlow record files backed up beside those files although an `exclude` root holds
  * them (the ownership ledger), with no harness; a rollback restores only the ledger rows of the files
- * it writes back (backup.ts mergeRestoredLedger). They join only a set that holds some file already,
- * so a run that backs up nothing still backs up nothing.
+ * it writes back (backup.ts mergeRestoredLedger). They join a set that holds some file already, or one whose
+ * plan gives up a retired harness's ledger row (only the ledger is then snapshotted); a run that changes
+ * neither backs up nothing.
  */
 function backupSetFromPlan({ plan, scope, scopeRoot, exclude = [], records = [], fsImpl = fs }: any): any {
   const candidates = new Map();
@@ -131,7 +132,10 @@ function backupSetFromPlan({ plan, scope, scopeRoot, exclude = [], records = [],
   const excluded = [...mcpOnly]
     .filter(([target, onlyMcp]) => onlyMcp && !candidates.has(target))
     .map(([target]) => ({ path: target, reason: 'mcp-entries-only' }));
-  if (candidates.size) for (const file of records) addCandidate(candidates, file, null, 'record');
+  // A retired harness's row given up (every sweep action but `defer`) is a ledger change even when no file
+  // changes: the ledger alone is snapshotted then, so a rollback restores the row. Deferred rows stay.
+  const givesUpRow = plan.changes.some((change: any) => change.retired === true && change.action !== 'defer');
+  if (candidates.size || givesUpRow) for (const file of records) addCandidate(candidates, file, null, 'record');
   return toBackupSet(candidates, { scope, scopeRoot, exclude, excluded, records, fsImpl });
 }
 

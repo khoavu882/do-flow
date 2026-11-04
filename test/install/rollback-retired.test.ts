@@ -71,6 +71,16 @@ test('rollback of a sweeping run restores every retired row, the released ones i
   assert.equal(ledger.resources.length, s.built.ledger.resources.length + 1, 'no row is duplicated');
 });
 
+test('FU-qejthh: a ledger-only backup (a sweep that released rows and changed no file) restores the retired rows and targets.<id>', () => {
+  const s = swept({ backedUp: [] });
+  const outcome = s.restore();
+  assert.deepEqual(outcome.failed, []);
+  const ledger = readLedger(s.state);
+  assert.deepEqual(of(ledger, 'oldtool'), of(s.built.ledger, 'oldtool'));
+  assert.deepEqual(ledger.targets.oldtool, s.built.ledger.targets.oldtool);
+  assert.deepEqual(of(ledger, 'claude'), of(s.after, 'claude'), 'a live row stays the current one');
+});
+
 test('a second rollback of the same backup changes no ledger byte', () => {
   const s = swept();
   s.restore();

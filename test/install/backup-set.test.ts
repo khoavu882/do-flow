@@ -166,6 +166,23 @@ test('the ownership ledger named in records is backed up beside the files, under
   assert.deepStrictEqual(snapshot.entries.map((e: any) => e.path), [kept, ledgerFile], 'the pre-rollback snapshot keeps the ledger the restore overwrites');
 });
 
+test('a sweep that only gives up retired rows snapshots the ledger alone; deferred-only and empty plans back up nothing', () => {
+  const root = scratchDir();
+  const stateDir = path.join(root, '.doflow', 'state');
+  const ledgerFile = write(path.join(stateDir, 'ledger.json'), '{}');
+  const retired = (action: string) => change(path.join(root, '.gemini', `${action}.md`), {
+    harness: 'gemini', retired: true, action, operation: 'remove', release: action !== 'delete' && action !== 'strip-section' ? true : undefined,
+  });
+  const options = { exclude: [stateDir], records: [ledgerFile] };
+  for (const action of ['release', 'drop-row', 'keep', 'handover']) {
+    const set = build(root, plan([retired(action)]), options);
+    assert.deepStrictEqual(set.entries.map((e: any) => [e.path, e.harnesses, e.reasons]), [[ledgerFile, [], ['record']]], `${action}: ledger only`);
+  }
+  assert.deepStrictEqual(build(root, plan([retired('defer')]), options).entries, [], 'a deferred row stays: nothing changes');
+  assert.deepStrictEqual(build(root, plan([]), options).entries, [], 'an unchanged plan backs up nothing');
+  assert.deepStrictEqual(build(root, plan([retired('release')])).entries, [], 'no record named, nothing to snapshot');
+});
+
 test('stat kinds: a directory is other, a dangling link is absent, an unreadable path throws BackupError', { skip: IS_WIN && 'symlinks need privileges on Windows' }, () => {
   const root = scratchDir();
   const dir = path.join(root, 'dir');
