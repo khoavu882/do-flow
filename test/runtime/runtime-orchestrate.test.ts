@@ -431,6 +431,14 @@ test('a flat record written in the main checkout is found by verify and handoff 
   const file = readyTrivialEdit(cwd, 'T1');
   assert.equal(file, path.join(cwd, '.doflow', 'state', 'readiness', 'T1.json'), 'no feature resolves on main, so the record is flat');
 
+  // FU-c9agck: the register feature does not read a flat record that names no feature (045 isolation)...
+  const anonymous = JSON.parse(run(wt, ['verify', '--task-id', 'T1', '--scope', 'a.js', '--json']).stdout).readiness;
+  assert.equal(anonymous.ok, false, JSON.stringify(anonymous));
+  assert.equal(anonymous.code, 'missing');
+  // ...but one that explicitly names it.
+  const record = JSON.parse(fs.readFileSync(file, 'utf8'));
+  fs.writeFileSync(file, JSON.stringify({ ...record, slug: '900-demo' }));
+
   const verify = run(wt, ['verify', '--task-id', 'T1', '--scope', 'a.js', '--json']);
   const readiness = JSON.parse(verify.stdout).readiness;
   assert.equal(readiness.applies, true, verify.stdout);
