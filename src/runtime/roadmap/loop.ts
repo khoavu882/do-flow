@@ -15,6 +15,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync: defaultExecFileSync } = require('node:child_process');
 const { listCheckouts } = require('../checkouts.ts');
+const { readRegularFileText } = require('../task-scope.ts');
 const { withGitMemo } = require('../git-memo.ts');
 const {
   parseSeed,
@@ -661,11 +662,17 @@ const tripwireFile = (ctx: any): string => path.join(ctx.dir, 'tripwire', 'event
 function readTripwire(ctx: any): any {
   const file = tripwireFile(ctx);
   try {
-    const value = JSON.parse(ctx.fsImpl.readFileSync(file, 'utf8'));
+    try { ctx.fsImpl.lstatSync(file); } catch (error: any) {
+      if (error.code === 'ENOENT') return { schema: 1, reverts: [], unverified: [] };
+      throw error;
+    }
+    // A bounded read: a link, a FIFO or a file over the record cap is never opened as the record.
+    const text = readRegularFileText(file, ctx.fsImpl);
+    if (text === null) throw new Error('not a regular file within the record size cap');
+    const value = JSON.parse(text);
     if (!value || value.schema !== 1 || !Array.isArray(value.reverts) || !Array.isArray(value.unverified)) throw new Error('not a schema 1 tripwire record');
     return value;
   } catch (error: any) {
-    if (error.code === 'ENOENT') return { schema: 1, reverts: [], unverified: [] };
     throw new Unreadable(['tripwire'], error.message);
   }
 }
