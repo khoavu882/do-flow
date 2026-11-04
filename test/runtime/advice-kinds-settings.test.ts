@@ -25,11 +25,13 @@ for (const kind of KINDS) {
   test(`config validate accepts off, shadow and act for advice.kinds.${kind} and rejects offf`, (t) => {
     const f = createSettingsEnv(t);
     for (const mode of ['off', 'shadow', 'act']) {
-      for (const layer of [[], ['--layer', 'project']]) {
-        const result = f.run(['config', 'validate', `advice.kinds.${kind}`, JSON.stringify(mode), ...layer, '--json']);
-        assert.equal(result.status, 0, `${mode} ${layer.join(' ')}: ${result.stdout}${result.stderr}`);
-        assert.equal(result.json.ok, true);
-      }
+      const result = f.run(['config', 'validate', `advice.kinds.${kind}`, JSON.stringify(mode), '--json']);
+      assert.equal(result.status, 0, `${mode}: ${result.stdout}${result.stderr}`);
+      assert.equal(result.json.ok, true);
+      // every advice.* key is security-relevant: a layer check is a write check and refuses it
+      const layered = f.run(['config', 'validate', `advice.kinds.${kind}`, JSON.stringify(mode), '--layer', 'project', '--json']);
+      assert.equal(layered.status, 1, `${mode}: ${layered.stdout}${layered.stderr}`);
+      assert.equal(layered.json.errors[0].code, 'security');
     }
     const bad = f.run(['config', 'validate', `advice.kinds.${kind}`, '"offf"', '--json']);
     assert.equal(bad.status, 1, `${bad.stdout}${bad.stderr}`);

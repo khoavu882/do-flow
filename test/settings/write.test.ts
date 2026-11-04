@@ -13,47 +13,6 @@ function sha256(file: any) {
   return crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 }
 
-function assertSymlinkReplacement(write: any, t: any) {
-  const f = createSettingsEnv(t);
-  const file = f.userFile('settings.json');
-  const target = f.userFile('target.json');
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(target, '{\n  "schema": 1,\n  "storage.prune": "on"\n}\n');
-  const targetHash = sha256(target);
-  fs.symlinkSync(target, file);
-
-  const result = write({ file, set: { 'storage.prune': 'off' } });
-
-  assert.equal(result.ok, true, result.detail);
-  assert.equal(fs.lstatSync(file).isSymbolicLink(), false);
-  assert.equal(sha256(target), targetHash);
-  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), { schema: 1, 'storage.prune': 'off' });
-}
-
-function directWriteVariant(dir: any, t: any) {
-  const original = fs.readFileSync(path.join(REPO, 'src/runtime/settings/write.ts'), 'utf8');
-  let source = original.replace(
-    '    fsImpl.renameSync(temporary, file);',
-    '    fsImpl.writeFileSync(file, fsImpl.readFileSync(temporary));\n    fsImpl.rmSync(temporary);',
-  );
-  assert.notEqual(source, original, 'the scratch variant replaces rename with a direct writeFileSync');
-  const imports = [
-    ['../../helper/repo-root.ts', path.join(REPO, 'src/helper/repo-root.ts')],
-    ['./registry.ts', path.join(REPO, 'src/runtime/settings/registry.ts')],
-    ['./files.ts', path.join(REPO, 'src/runtime/settings/files.ts')],
-    ['./resolve.ts', path.join(REPO, 'src/runtime/settings/resolve.ts')],
-    ['./project-layers.ts', path.join(REPO, 'src/runtime/settings/project-layers.ts')],
-  ];
-  for (const [specifier, absolute] of imports) {
-    source = source.replace(`require('${specifier}')`, `require(${JSON.stringify(absolute)})`);
-  }
-  const scratch = path.join(dir, 'write-direct.ts');
-  fs.writeFileSync(scratch, source);
-  const loaded = require(scratch);
-  t.after(() => { delete require.cache[require.resolve(scratch)]; });
-  return loaded.writeLayer;
-}
-
 test('writes schema first and owned keys in registry order, keeps foreign keys, and leaves legacy files byte-identical', (t: any) => {
   const f = createSettingsEnv(t);
   f.writeUserSettings({
@@ -178,14 +137,94 @@ test('refuses with code too-large, writing nothing, when the file as written wou
   assert.deepEqual(fs.readdirSync(path.dirname(file)), ['settings.json'], 'no temporary or lock file is left');
 });
 
-test('replaces a symlinked settings target without changing its referent', (t: any) => {
-  assertSymlinkReplacement(writeLayer, t);
+test('writes through a symlinked user settings file, keeps the link and leaves no temporary file', (t: any) => {
+  const f = createSettingsEnv(t);
+  const file = f.userFile('settings.json');
+  const dotfiles = path.join(f.dir, 'dotfiles');
+  const target = path.join(dotfiles, 'doflow-settings.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.mkdirSync(dotfiles, { recursive: true });
+  fs.writeFileSync(target, '{\n  "schema": 1,\n  "storage.prune": "on"\n}\n');
+  fs.symlinkSync(target, file);
+
+  const result = writeLayer({ file, set: { 'storage.prune': 'off' } });
+
+  assert.equal(result.ok, true, result.detail);
+  assert.equal(fs.lstatSync(file).isSymbolicLink(), true, 'the link is kept');
+  assert.equal(fs.realpathSync(file), fs.realpathSync(target));
+  assert.deepEqual(JSON.parse(fs.readFileSync(target, 'utf8')), { schema: 1, 'storage.prune': 'off' });
+  assert.deepEqual(fs.readdirSync(dotfiles), ['doflow-settings.json'], 'the temporary file was made in the target folder and renamed');
+  assert.deepEqual(fs.readdirSync(path.dirname(file)).sort(), ['settings.json']);
 });
 
-test('negative control: a writeLayer scratch variant using writeFileSync fails the symlink assertions', (t: any) => {
+test('refuses a project settings file that is a symlink to a path outside the project, naming the file', (t: any) => {
   const f = createSettingsEnv(t);
-  const unsafeWriteLayer = directWriteVariant(f.dir, t);
-  assert.throws(() => assertSymlinkReplacement(unsafeWriteLayer, t), assert.AssertionError);
+  const projectDir = path.join(f.dir, 'proj');
+  fs.mkdirSync(path.join(projectDir, '.doflow'), { recursive: true });
+  const outside = path.join(f.dir, 'elsewhere.json');
+  fs.writeFileSync(outside, '{"schema":1,"storage.prune":"on"}\n');
+  const file = path.join(projectDir, '.doflow', 'settings.json');
+  fs.symlinkSync(outside, file);
+  const before = fs.readFileSync(outside);
+
+  const result = writeLayer({ file, set: { 'storage.prune': 'off' }, backup: true });
+
+  assert.equal(result.ok, false);
+  assert.ok(result.detail.startsWith(file), result.detail);
+  assert.match(result.detail, /outside the project/);
+  assert.deepEqual(fs.readFileSync(outside), before);
+  assert.equal(fs.lstatSync(file).isSymbolicLink(), true);
+  assert.deepEqual(fs.readdirSync(path.join(projectDir, '.doflow')), ['settings.json'], 'no backup, lock or temporary file');
+});
+
+test('writes through a project settings symlink that stays inside the project', (t: any) => {
+  const f = createSettingsEnv(t);
+  const projectDir = path.join(f.dir, 'proj');
+  fs.mkdirSync(path.join(projectDir, '.doflow'), { recursive: true });
+  const inside = path.join(projectDir, 'shared-settings.json');
+  fs.writeFileSync(inside, '{"schema":1,"storage.prune":"on"}\n');
+  const file = path.join(projectDir, '.doflow', 'settings.json');
+  fs.symlinkSync(inside, file);
+
+  const result = writeLayer({ file, set: { 'storage.prune': 'off' } });
+
+  assert.equal(result.ok, true, result.detail);
+  assert.equal(fs.lstatSync(file).isSymbolicLink(), true);
+  assert.equal(JSON.parse(fs.readFileSync(inside, 'utf8'))['storage.prune'], 'off');
+});
+
+test('refuses a symlinked settings file whose target does not exist', (t: any) => {
+  const f = createSettingsEnv(t);
+  const file = f.userFile('settings.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.symlinkSync(path.join(f.dir, 'missing.json'), file);
+
+  const result = writeLayer({ file, set: { 'storage.prune': 'off' } });
+
+  assert.equal(result.ok, false);
+  assert.ok(result.detail.startsWith(file), result.detail);
+  assert.equal(fs.lstatSync(file).isSymbolicLink(), true);
+  assert.equal(fs.existsSync(path.join(f.dir, 'missing.json')), false);
+});
+
+test('refuses to rewrite a file holding a number JSON cannot write back exactly, naming the key', (t: any) => {
+  const f = createSettingsEnv(t);
+  const file = f.userFile('settings.json');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  const text = '{\n  "schema": 1,\n  "x.big": 12345678901234567890,\n  "x.nested": {"n": [1, 2.5, 9007199254740991]},\n  "storage.prune": "on"\n}\n';
+  fs.writeFileSync(file, text);
+
+  const refused = writeLayer({ file, set: { 'storage.prune': 'off' } });
+  assert.equal(refused.ok, false);
+  assert.equal(refused.code, 'number-precision');
+  assert.match(refused.detail, /'x\.big'/);
+  assert.equal(fs.readFileSync(file, 'utf8'), text);
+
+  const safe = '{"schema":1,"x.nested":{"n":[1,2.5,9007199254740991,0.1]},"storage.prune":"on"}\n';
+  fs.writeFileSync(file, safe);
+  const ok = writeLayer({ file, set: { 'storage.prune': 'off' } });
+  assert.equal(ok.ok, true, ok.detail);
+  assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8'))['x.nested'].n, [1, 2.5, 9007199254740991, 0.1], 'safe integers and short floats still round-trip');
 });
 
 test('a failure --set with no config home keeps the existing no-home output and writes nothing', (t: any) => {
