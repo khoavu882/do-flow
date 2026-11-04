@@ -172,7 +172,7 @@ Filling the C4 levels, read the guidance tree's `references/DIAGRAM_GUIDE.md` fi
    Run it a second time against the specs path when step 6 wrote one — `specs.md`'s §1 Interface
    Contracts is an indexed section, so it is checked the same way. Run it a third time against the
    data-model path when step 6 wrote one — `data-model.md`'s §9 History is its one indexed section,
-   checked the same way, even though its §1/§2 stay free-form. Surface findings verbatim; a
+   checked the same way, even though its §1-§8 stay free-form. Surface findings verbatim; a
    non-zero exit is advisory and does not halt the chain.
 8. **Batch this stage's evidence** — one pass here at the stage boundary, never one call per fact.
    `<task id>` is the unit these stores key on: the plan task id once `plan.md` exists, otherwise
