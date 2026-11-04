@@ -33,6 +33,7 @@ const { transcriptsDoctorView } = require('./transcripts/registry.ts');
 const { readLedger, stateRoot } = require('../state/index.ts');
 const { readRegularFileText } = require('./task-scope.ts');
 const { migrationPending } = require('./lifecycle/store-upkeep.ts');
+const { isRunNamespaceDir, isSupersededFlatRun } = require('./storage/work-status.ts');
 
 /** Answered a probe. */
 const HEALTHY = 'HEALTHY';
@@ -621,15 +622,14 @@ function mcpConsultationsView({ projectRoot, fsImpl }: any) {
   try { entries = fsImpl.readdirSync(dir, { withFileTypes: true }); } catch { entries = []; }
   for (const entry of entries) if (entry.name.endsWith('.json') && !entry.isDirectory()) readRunFile(entry.name, entry.name, '');
   for (const entry of entries) {
-    if (!entry.isDirectory() || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(entry.name) || entry.name.endsWith('.lock')) continue;
+    if (!entry.isDirectory() || !isRunNamespaceDir(entry.name)) continue;
     let inner: any[] = [];
     try { inner = fsImpl.readdirSync(path.join(dir, entry.name), { withFileTypes: true }); } catch { inner = []; }
     for (const file of inner) if (file.name.endsWith('.json') && !file.isDirectory()) readRunFile(`${entry.name}/${file.name}`, file.name, entry.name);
   }
   listed.sort((a, b) => byText(a.rel, b.rel));
   // A flat run whose namespaced copy exists is that copy's seed, not a second run.
-  const files = listed.filter((one) => one.namespace !== '' || !listed.some((other) => other.namespace !== '' && other.name === one.name
-    && (typeof one.run?.featureSlug !== 'string' || one.run.featureSlug === other.namespace)));
+  const files = listed.filter((one) => one.namespace !== '' || !isSupersededFlatRun(one.name, one.run, listed.filter((other) => other.namespace !== '')));
   let unreadableRuns = 0;
   const bySkill = new Map();
   for (const { name, run } of files) {

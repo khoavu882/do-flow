@@ -82,6 +82,17 @@ function isRunNamespaceDir(name: string): boolean {
 }
 
 /**
+ * Whether a flat run is superseded by a namespaced copy: it names that copy's namespace as its own
+ * feature (`featureSlug`, else `slug`) and the copy has the same file name. A flat run that names
+ * no feature, or one whose namespace holds no copy, is a run of its own and is never dropped. The
+ * one ownership rule for every reader that walks `orchestration/` (health, trace, work status).
+ */
+function isSupersededFlatRun(name: string, value: any, copies: Array<{ name: string; namespace: string }>): boolean {
+  const own = stringField(value, 'featureSlug') || stringField(value, 'slug');
+  return own !== null && isRunNamespaceDir(own) && copies.some((copy) => copy.namespace === own && copy.name === name);
+}
+
+/**
  * Every run id the orchestration store holds, flat or under a `<slug>/` namespace (115 C-1: a task id
  * other than its feature's slug lives in `orchestration/<slug>/`). `cache.runLocations` maps each id
  * to the directories that hold it ('' is the flat store), namespaces sorted, flat last.
@@ -541,4 +552,4 @@ function workStatus({
   return answer('finished', run ? 'run-finished' : 'no-run', resolvedRun.id, feature, since);
 }
 
-module.exports = { workStatus, recordExtension, createWorkCache, refreshedWorkCache, RUN_OPEN_STATES };
+module.exports = { workStatus, recordExtension, createWorkCache, refreshedWorkCache, RUN_OPEN_STATES, isRunNamespaceDir, isSupersededFlatRun };
