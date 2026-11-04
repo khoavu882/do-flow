@@ -104,7 +104,8 @@ function twinOf(doc: any, key: string): any {
   return doc.servers?.members.find((member: any) => member.key !== key && piServerKey(member.key) === piServerKey(key)) ?? null;
 }
 
-function sameValue(a: any, b: any): boolean { return JSON.stringify(a) === JSON.stringify(b); }
+/** Equal as JSON values, whatever order an object's keys sit in (an owned entry the user reordered is still ours). */
+function sameValue(a: any, b: any): boolean { return fingerprint(a) === fingerprint(b); }
 
 function baseChange({ target, operation, id, snapshot }: any): any {
   return {
@@ -271,24 +272,49 @@ function applyPiMcp(changes: any[], { fsImpl = fs }: { fsImpl?: any } = {}): { a
   for (const [target, all] of groups) {
     const group = all.filter((change: any) => !change.release);
     if (!group.length) continue;
-    const exists = fsImpl.existsSync(target);
-    const bytes = exists ? fsImpl.readFileSync(target) : Buffer.alloc(0);
-    if (sha256(bytes) !== group[0].baseHash) throw new Error(`Pi MCP: ${target} changed after planning; nothing was written, re-run the command`);
-    const text = bytes.toString('utf8');
-    const creates = group.filter((change: any) => change.operation === 'create');
-    const origin = group.find((change: any) => change.origin)?.origin;
-    let next = exists ? editedText(text, group) : renderNewDocument(creates.map((change: any) => [change.identity, change.entry]));
-    // Only a file DoFlow created is deleted, and never through a symlink; a user's own file that
-    // happens to equal the skeleton stays.
-    if (exists && origin?.created === 'file' && next === SKELETON) {
-      if (!isSymlink(target, fsImpl)) { fsImpl.rmSync(target); applied += 1; continue; }
-    } else if (exists && origin && !creates.length) next = restoredText(next, origin);
-    if (next !== text) {
-      atomicWrite(target, next, fsImpl);
-      applied += 1;
-    }
+    // The hash check and the write are one critical section across the installers of this machine,
+    // keyed by the file a write lands in, so two links to one mcp.json share a lock.
+    const release = lockTarget(target, fsImpl);
+    try { applied += applyGroup(target, group, fsImpl); } finally { release(); }
   }
   return { applied };
+}
+
+/** The file a write to `target` lands in, as one name for every path that reaches it. */
+function canonicalTarget(target: string, fsImpl: any): string {
+  const dest = writePath(target, fsImpl);
+  try { return fsImpl.realpathSync(dest); } catch { /* not there yet: its directory names it */ }
+  try { return path.join(fsImpl.realpathSync(path.dirname(dest)), path.basename(dest)); } catch { return path.resolve(dest); }
+}
+
+/** Waits for another installer's lock on the same mcp.json (`<file>.lock`, task-state's protocol: a
+ * crashed holder's lock is reclaimed once stale) and refuses with that lock named when it stays held. */
+function lockTarget(target: string, fsImpl: any): () => void {
+  const { acquireLock } = require('../../runtime/task-state.ts');
+  const canonical = canonicalTarget(target, fsImpl);
+  fsImpl.mkdirSync(path.dirname(canonical), { recursive: true });
+  try { return acquireLock(fsImpl, canonical); } catch (error: any) {
+    throw new Error(`Pi MCP: ${target} is being changed by another DoFlow run; nothing was written, re-run the command (${error.message})`);
+  }
+}
+
+/** One file's changes, applied against the bytes read now. Returns 1 when the file changed. */
+function applyGroup(target: string, group: any[], fsImpl: any): number {
+  const exists = fsImpl.existsSync(target);
+  const bytes = exists ? fsImpl.readFileSync(target) : Buffer.alloc(0);
+  if (sha256(bytes) !== group[0].baseHash) throw new Error(`Pi MCP: ${target} changed after planning; nothing was written, re-run the command`);
+  const text = bytes.toString('utf8');
+  const creates = group.filter((change: any) => change.operation === 'create');
+  const origin = group.find((change: any) => change.origin)?.origin;
+  let next = exists ? editedText(text, group) : renderNewDocument(creates.map((change: any) => [change.identity, change.entry]));
+  // Only a file DoFlow created is deleted, and never through a symlink; a user's own file that
+  // happens to equal the skeleton stays.
+  if (exists && origin?.created === 'file' && next === SKELETON) {
+    if (!isSymlink(target, fsImpl)) { fsImpl.rmSync(target); return 1; }
+  } else if (exists && origin && !creates.length) next = restoredText(next, origin);
+  if (next === text) return 0;
+  atomicWrite(target, next, fsImpl);
+  return 1;
 }
 
 function statusFor({ id, target, status }: { id: string, target: string, status: string }): any {
@@ -370,4 +396,4 @@ function verifyPiMcp({ selected = [], rows = [], file, snapshot = {}, removing =
   return { statuses, resources, conflicts };
 }
 
-module.exports = { NOTICES, renderPiEntry, piServerKey, mcpRows, discoverPiMcp, ownedPiMcpIds, planPiMcp, applyPiMcp, verifyPiMcp };
+module.exports = { NOTICES, renderPiEntry, piServerKey, mcpRows, discoverPiMcp, ownedPiMcpIds, planPiMcp, applyPiMcp, verifyPiMcp, canonicalTarget };

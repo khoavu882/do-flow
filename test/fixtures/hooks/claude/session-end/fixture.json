@@ -1,6 +1,8 @@
 {
   "native": {
-    "hook_event_name": "SessionEnd"
+    "hook_event_name": "SessionEnd",
+    "session_id": "claude-end",
+    "cwd": "/tmp/project"
   },
   "env": {},
   "state": "none",
@@ -10,7 +12,15 @@
     "stdout": "",
     "stderrIncludes": null,
     "decision": null,
-    "envelope": null,
+    "envelope": {
+      "version": 1,
+      "harness": "claude",
+      "event": "SessionEnd",
+      "operation": "session-end",
+      "identity": {
+        "session": "claude-end"
+      }
+    },
     "failurePoint": null,
     "taskStateUnchanged": true
   }

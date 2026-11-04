@@ -829,6 +829,29 @@ test('advice: an answer of deep over a decided single raises it, raisedBy advice
   assert.deepEqual(json.advice, { status: 'answered', pick: 'deep' });
 });
 
+test('FU-md0ywe: a HEAD, tree or record change during the advice call is refused as state-moved; an unchanged state is not', async (t) => {
+  const moves: Record<string, (r: any) => void> = {
+    head: (r) => r.git(['commit', '-q', '--allow-empty', '-m', 'moved']),
+    tree: (r) => fs.writeFileSync(path.join(r.cwd, 'dirty.txt'), 'x\n'),
+    record: (r) => r.lines([r.line(), r.line({ at: '2026-10-23T00:00:01.000Z' })]),
+  };
+  for (const [name, move] of Object.entries(moves)) {
+    const r = repo(t);
+    r.lines([r.line()]);
+    r.enableAdvice();
+    const client: any = { calls: [], ask: async (request: any) => { client.calls.push(request); move(r); return answered('deep'); } };
+    const { exitCode, json } = await start(r, { adviceClient: client });
+    assert.equal(client.calls.length, 1, name);
+    assert.equal(exitCode, 1, name);
+    assert.equal(json.error, 'state-moved', name);
+  }
+  const r = repo(t);
+  r.lines([r.line()]);
+  r.enableAdvice();
+  const { exitCode, json } = await start(r, { adviceClient: fakeClient(answered('deep')) });
+  assert.equal([exitCode, json.ok].join(), '0,true');
+});
+
 test('Q-A1: --preset review-single with an advice answer of deep on a light LOW change is not a refusal; the run preset wins', async (t) => {
   const r: any = repo(t, { taskClass: 'bug', attended: true, files: { 'docs/a.md': 'x\n' } });
   r.lines([r.line({ risk: 'LOW' })]);

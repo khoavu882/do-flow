@@ -18,7 +18,7 @@
 
 const nodeFs = require('node:fs');
 const { isDeepStrictEqual } = require('node:util');
-const { loadSettings } = require('../settings/resolve.ts');
+const { loadSettings, registryOn } = require('../settings/resolve.ts');
 const { foldInto, finalize, EVENT_TYPES } = require('./fold.ts');
 
 const HOUR_MS = 3600000;
@@ -53,14 +53,7 @@ function retentionWindow({ env = process.env, projectRoot, fsImpl = nodeFs }: an
   const parsed = parseWindow(env);
   if (parsed.state === 'invalid') return parsed;
   try {
-    let settingsRegistry;
-    if (fsImpl !== nodeFs) {
-      const { loadSettingsRegistry } = require('../settings/registry.ts');
-      const loaded = loadSettingsRegistry({ fsImpl });
-      if (!loaded.ok) throw new Error(loaded.detail);
-      settingsRegistry = loaded.registry;
-    }
-    const view = loadSettings({ projectRoot, env, fsImpl, ...(settingsRegistry ? { registry: settingsRegistry } : {}) });
+    const view = loadSettings({ projectRoot, env, fsImpl, ...registryOn(fsImpl) });
     const retention = view.get('storage.retentionHours', 'project');
     if (retention.state === 'invalid') return { state: 'invalid', raw: invalidRaw(retention, env) };
     if (retention.explicit) {
@@ -136,10 +129,12 @@ function unitsOf(events: any[], shouldStop?: () => boolean): any[] | null {
 }
 
 /**
- * Every string value and every object key in the data of the events whose type this version's fold
- * does not know (a newer DoFlow wrote them). The fold ignores them, so retention cannot tell what they change; a unit that
- * one of them names by id is kept whole rather than deleted from under it. Exact matches only:
- * keeping too little is a lost record, keeping too much only a file that stays.
+ * Every string value in the envelope, and every object key inside it, of the events whose type this
+ * version's fold does not know (a newer DoFlow wrote them). The fold ignores them, so retention
+ * cannot tell what they change; a unit that one of them names, by item id, event id or event file
+ * name, is kept whole rather than deleted from under it. The envelope's own field names are its
+ * shape, not references. Exact matches only: keeping too little is a lost record, keeping too much
+ * only a file that stays.
  * @returns {Set<string>|null} null when `shouldStop` fired
  */
 function unknownTypeStrings(events: any[], shouldStop?: () => boolean): Set<string> | null {
@@ -148,7 +143,7 @@ function unknownTypeStrings(events: any[], shouldStop?: () => boolean): Set<stri
   for (const event of events) {
     if (shouldStop?.()) return null;
     if (known.has(event.type)) continue;
-    const pending: any[] = [event.data];
+    const pending: any[] = Object.values(event);
     while (pending.length > 0) {
       if (shouldStop?.()) return null;
       const value = pending.pop();
@@ -260,7 +255,9 @@ function selectExpired(events: any[], { now, windowMs, shouldStop }: any = {}): 
   };
   const baseSelected = safeSubset(candidates);
   if (!baseSelected) return incomplete();
-  const unprotected = baseSelected.filter((unit: any) => ![...unit.items].some((key: string) => mentioned.has(key.slice(key.indexOf(':') + 1))));
+  const namedByUnknown = (unit: any): boolean => [...unit.items].some((key: string) => mentioned.has(key.slice(key.indexOf(':') + 1)))
+    || unit.events.some((event: any) => mentioned.has(event.id) || mentioned.has(`${event.id}.json`));
+  const unprotected = baseSelected.filter((unit: any) => !namedByUnknown(unit));
   // Dropping units can leave a set the refold no longer accepts; check it again, inside the subset.
   const selected = unprotected.length === baseSelected.length ? baseSelected : safeSubset(unprotected);
   if (!selected) return incomplete();

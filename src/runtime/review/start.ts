@@ -109,15 +109,16 @@ function readBounded(file: string, maxBytes: number): { text: string } | { missi
   }
 }
 
-function parseRecordLines(file: string): { records: any[] } | { error: string } {
+function parseRecordLines(file: string): { records: any[]; text: string } | { error: string } {
   const read = readBounded(file, MAX_RECORD_BYTES);
   if ('error' in read) return { error: read.error };
+  const text = 'text' in read ? read.text : '';
   const records: any[] = [];
-  for (const [index, line] of ('text' in read ? read.text : '').split('\n').entries()) {
+  for (const [index, line] of text.split('\n').entries()) {
     if (!line.trim()) continue;
     try { records.push(JSON.parse(line)); } catch (error: any) { return { error: `line ${index + 1}: ${error.message}` }; }
   }
-  return { records };
+  return { records, text };
 }
 
 type RunLookup = { status: 'none' } | { status: 'found'; taskId: string; taskClass: string }
@@ -245,18 +246,18 @@ function loadGatePolicy(cwd: string | null):
  * no floor), the protocols registry and the enforcement inputs (`loadEnforcementInputs`). A base, override or registry the loaders reject is a refusal carrying the loader's
  * reason (and the override file). Shared with the `protocol` verb.
  */
-function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<string, string | undefined> = process.env):
-  { gatePolicy: any; unattended: boolean; registry: any; settingsView: Record<string, { value: unknown; layer: string }>; agentAccess: Record<string, string>; readOnlyLimits: any[] } | { error: string; message: string } {
+function loadProtocolInputs(taskClass: string | null, cwd: string, env: Record<string, string | undefined> = process.env, settingsFs?: any):
+  { gatePolicy: any; unattended: boolean; registry: any; settingsView: Record<string, { value: unknown; layer: string }>; agentAccess: Record<string, string>; readOnlyLimits: any[] } | { error: string; message: string; key?: string; code?: string; layer?: string } {
   const settingsView: Record<string, { value: unknown; layer: string }> = {};
   try {
-    const settings = require('../settings/resolve.ts').loadSettings({ projectRoot: path.resolve(cwd), env });
+    const settings = require('../settings/resolve.ts').loadSettings({ projectRoot: path.resolve(cwd), env, ...(settingsFs ? { fsImpl: settingsFs } : {}) });
     for (const key of PROTOCOL_SETTINGS) {
       const resolution = settings.get(key);
       // C-6: an invalid project or local review.* candidate would silently fall back to the default: refuse instead.
       // A preset key refuses an invalid user candidate too.
       const invalid = key.endsWith('.preset') ? invalidPresetCandidate(resolution)
         : key.startsWith('review.') ? invalidProjectCandidate(resolution) : undefined;
-      if (invalid) return { error: 'settings-unavailable', message: `${key} in ${invalid.source}: ${invalid.reason}` };
+      if (invalid) return { error: 'settings-unavailable', message: `${key} in ${invalid.source}: ${invalid.reason}`, key, code: invalid.code ?? 'invalid', layer: invalid.layer };
       settingsView[key] = { value: resolution.value, layer: resolution.origin.layer };
     }
   } catch (error: any) {
@@ -429,12 +430,14 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
     result.applicable = result.notApplicable === null;
 
     let nextCommand: string | null = null;
+    let seen: { head: string | null; clean: boolean; text: string } | null = null;
     if (result.applicable) {
       const state = readHeadState(cwd, env);
       result.head = state.head;
       result.clean = state.clean;
       const parsed = parseRecordLines(verificationRunRecordFile(verificationRunsRoot(cwd), verifyId as string));
       if ('error' in parsed) return refuse('records-unreadable', parsed.error);
+      seen = { head: state.head, clean: state.clean, text: parsed.text };
       result.reasons = reviewPrecondition({ records: parsed.records, head: state.head, clean: state.clean, slug: verifyId });
       if (result.reasons.length) {
         result.ok = false;
@@ -507,6 +510,14 @@ async function handleReviewStart({ slug, base, preset, json = false, cwd, env, r
     const decided = resolveProtocol({ ...facts, advicePick: null });
     if (!decided.ok) return refuseResolution(decided.reason);
     const advice = await askAdvice({ decision: { depth: decided.protocol.depth, scope }, risk: result.risk, taskClass, slug: resolvedSlug, files: paths ? paths.length : null, cwd, env, adviceClient });
+    // The advice await can take a while: what the precondition and the risk were read from must still stand.
+    if (seen && advice.status !== 'off') {
+      const now = readHeadState(cwd, env);
+      const records = parseRecordLines(verificationRunRecordFile(verificationRunsRoot(cwd), verifyId as string));
+      if (now.head !== seen.head || now.clean !== seen.clean || 'error' in records || records.text !== seen.text) {
+        return refuse('state-moved', 'HEAD, the working tree or the verification records changed while the advice was asked; run review start again');
+      }
+    }
     const resolved = resolveProtocol({ ...facts, advicePick: advice.pick });
     if (!resolved.ok) return refuseResolution(resolved.reason);
     const { protocol } = resolved;

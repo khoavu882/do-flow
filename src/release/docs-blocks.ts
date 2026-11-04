@@ -463,7 +463,11 @@ function main(argv: string[], root: string = REPO_ROOT): number {
   }
   const findings = argv[0] === '--write' ? writeAll(root) : checkAll(root);
   for (const finding of findings) process.stderr.write(`docs-blocks: ${finding.page}: ${finding.id}: ${finding.kind}${finding.detail ? ` (${oneLine(finding.detail)})` : ''}\n`);
-  if (findings.length && argv[0] === '--check') process.stderr.write('docs-blocks: run node src/release/docs-blocks.ts --write, then review the diff\n');
+  if (findings.length && argv[0] === '--check') {
+    process.stderr.write('docs-blocks: run node src/release/docs-blocks.ts --write, then review the diff\n');
+    // --write rewrites llms.txt from the pages; when the rewritten text is itself over the cap, only shorter descriptions fix it.
+    if (findings.some((f) => f.kind === 'over-cap')) process.stderr.write(`docs-blocks: llms.txt over ${LLMS_CAP} bytes: if --write leaves it over, shorten the page descriptions it is built from\n`);
+  }
   return findings.length ? 1 : 0;
 }
 

@@ -325,7 +325,8 @@ function identity(args: any, repo: any, scheduleCount: any, runTimeoutMs: any, f
     scenario: args.scenario,
     init: args.init,
     fault,
-    seed: args.seed,
+    // A replay follows a recorded trace, so the clock-derived seed parseArgs fills in was never used.
+    seed: args.replay === null ? args.seed : null,
     bounds: { schedules: scheduleCount, perScheduleMs: PER_SCHEDULE_MS, perRunMs: runTimeoutMs },
     gatedMethods: [...GATED_METHODS].sort(),
     modelVersion: realOracle.MODEL_VERSION,

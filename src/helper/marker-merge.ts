@@ -70,8 +70,7 @@ function mergeMarkedSection(srcAbs: string, dstAbs: string, { dryRun = false, co
       // original file's matching trailing "\n" (if present) must be consumed here —
       // otherwise a replace with no real change grows the file by one newline
       // every time it runs (breaks idempotency).
-      let afterEnd = endIdx + MARKER_END.length;
-      if (existing[afterEnd] === '\n') afterEnd += 1;
+      const afterEnd = afterEndMarker(existing, endIdx + MARKER_END.length);
       newContent = existing.slice(0, startIdx) + section + existing.slice(afterEnd);
     }
   }
@@ -84,10 +83,16 @@ function mergeMarkedSection(srcAbs: string, dstAbs: string, { dryRun = false, co
   return { changed: true };
 }
 
+/** `at` moved past the one line break (LF or CRLF) that follows an end marker, if there is one. */
+function afterEndMarker(text: string, at: number): number {
+  if (text[at] === '\n') return at + 1;
+  return text[at] === '\r' && text[at + 1] === '\n' ? at + 2 : at;
+}
+
 /**
  * Where `text`'s doflow span is: the first of `startMarkers`, the first MARKER_END after it, and no
  * start marker after that end (a second span is `malformed`). `after` is past the end marker and the
- * one '\n' that follows it.
+ * one line break (LF or CRLF) that follows it.
  */
 function markedSpan(text: string, startMarkers: string[] = [MARKER_START]): { state: 'none' } | { state: 'malformed' } | { state: 'ok', start: number, after: number } {
   const found = startMarkers.map((marker) => ({ at: text.indexOf(marker), length: marker.length })).filter((item) => item.at !== -1);
@@ -95,10 +100,9 @@ function markedSpan(text: string, startMarkers: string[] = [MARKER_START]): { st
   const first = found.reduce((a, b) => (b.at < a.at ? b : a));
   const end = text.indexOf(MARKER_END, first.at + first.length);
   if (end === -1) return { state: 'malformed' };
-  let after = end + MARKER_END.length;
-  if (startMarkers.some((marker) => text.indexOf(marker, after) !== -1)) return { state: 'malformed' };
-  if (text[after] === '\n') after += 1;
-  return { state: 'ok', start: first.at, after };
+  const closed = end + MARKER_END.length;
+  if (startMarkers.some((marker) => text.indexOf(marker, closed) !== -1)) return { state: 'malformed' };
+  return { state: 'ok', start: first.at, after: afterEndMarker(text, closed) };
 }
 
 /**

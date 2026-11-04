@@ -21,6 +21,14 @@ doflow_compact_text() {
       "$preserve" "${CWD:-unknown}")
   fi
 
+  # Malformed UTF-8 (a commit subject or path can carry any byte) becomes U+FFFD here, before the cap, so the
+  # Claude (raw stdout) and Codex (jq --arg) outputs decode to the same text and the cap counts the bytes sent.
+  # jq is a hard requirement of both hooks; without it the text is left as it was (FU-535bfv).
+  if command -v jq >/dev/null 2>&1; then
+    local clean
+    if clean=$(printf '%s' "$text" | jq -Rsj '.' 2>/dev/null); then text="$clean"; fi
+  fi
+
   # The cap is 490 BYTES in every locale: LC_ALL=C makes the substring and length below count bytes,
   # where a UTF-8 locale would count characters. A cut can then end inside a multi-byte character, so
   # a trailing partial UTF-8 sequence is dropped (FU-tsq77m).

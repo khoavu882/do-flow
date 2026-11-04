@@ -155,6 +155,22 @@ test('failure path: a child killed mid-schedule ends INCOMPLETE child-crash and 
   assert.equal(fs.existsSync(probe.seen[0]), false);
 });
 
+test('FU-y7z8bv: an actor that ends abnormally after DONE or THREW is INCOMPLETE child-crash, not a clean outcome', async (t) => {
+  const bodies: Record<string, [string, string]> = {
+    'nonzero exit after DONE': ["fsImpl.existsSync(fixture.file);\nprocess.on('exit', () => { process.exitCode = 3; });", 'DONE'],
+    'signal after DONE': ["fsImpl.existsSync(fixture.file);\nprocess.on('exit', () => process.kill(process.pid, 'SIGKILL'));", 'DONE'],
+    'nonzero exit after THREW': ["fsImpl.existsSync(fixture.file);\nprocess.on('exit', () => { process.exitCode = 4; });\nthrow new Error('late');", 'THREW'],
+  };
+  for (const [label, [body, kind]] of Object.entries(bodies)) {
+    const actorModule = stub(t, body);
+    const o = await runSchedule({ scenario: 'S1', init: 'none', chooser: aFirst, actorModule });
+    assert.equal(o.incomplete?.cause, 'child-crash', `${label}: ${JSON.stringify(o.incomplete)}`);
+    assert.match(o.incomplete.detail, new RegExp(`after ${kind}`), label);
+  }
+  const clean = await runSchedule({ scenario: 'S1', init: 'none', chooser: aFirst, actorModule: stub(t, 'fsImpl.existsSync(fixture.file);') });
+  assert.equal(clean.incomplete, null, 'control: a clean exit after DONE stays complete');
+});
+
 test('failure path: a deadline overrun ends INCOMPLETE schedule-deadline and the temp dir is removed', async (t) => {
   const probe = dirProbe();
   const actorModule = stub(t, 'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10000);');

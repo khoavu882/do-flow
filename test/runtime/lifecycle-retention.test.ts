@@ -585,6 +585,27 @@ test('an item id used as an object key in an unknown-type event keeps its unit (
   assert.deepEqual(kept([...mine, ...other, deep]), ['followup:FU-aaaaaa'], 'nested keys count at any depth');
 });
 
+test('FU-kscd9t: an unknown-type envelope naming an event id, an event file name or an item id outside data keeps that unit', () => {
+  const now = Date.now();
+  const mine = dismissedFollowup('FU-aaaaaa', now, 100);
+  const other = dismissedFollowup('FU-bbbbbb', now, 100);
+  const options: any = { now: new Date(now), windowMs: HOUR };
+  const kept = (list: any) => selectExpired(list, options).units.map((u: any) => u.items.join());
+  const future = (extra: any) => ({ ...ev('future.noted', { note: 'x' }, at(now, 99)), ...extra });
+  assert.deepEqual(kept([...mine, ...other, future({})]), ['followup:FU-aaaaaa', 'followup:FU-bbbbbb'], 'control: nothing named, both go');
+  assert.deepEqual(kept([...mine, ...other, ev('future.noted', { about: mine[1].id }, at(now, 99))]), ['followup:FU-bbbbbb'], 'an event id in data');
+  assert.deepEqual(kept([...mine, ...other, ev('future.noted', { files: [fileOf(other[0])] }, at(now, 99))]), ['followup:FU-aaaaaa'], 'an event file name in data');
+  assert.deepEqual(kept([...mine, ...other, future({ subject: 'FU-aaaaaa' })]), ['followup:FU-bbbbbb'], 'an item id in an envelope field outside data');
+  assert.deepEqual(kept([...mine, ...other, future({ refs: { [other[1].id]: true } })]), ['followup:FU-aaaaaa'], 'an event id as a key in an envelope field');
+  assert.deepEqual(kept([...mine, ...other, ev('future.noted', { note: 'FU-aaaaaa is unrelated text', n: `${mine[0].id}x` }, at(now, 99))]),
+    ['followup:FU-aaaaaa', 'followup:FU-bbbbbb'], 'a longer string that merely contains an id protects nothing');
+  assert.deepEqual(kept([...mine, ...other, future({ data: { note: 'x' }, by: 'FU-aaaaaa-not' })]), ['followup:FU-aaaaaa', 'followup:FU-bbbbbb']);
+  const protectedRun = selectExpired([...mine, ...other, future({ subject: mine[0].id })], options);
+  const base = new Set(selectExpired([...mine, ...other], options).files);
+  assert.ok(protectedRun.files.every((f: any) => base.has(f)), 'protection never adds a deletion');
+  assert.equal(selectExpired([...mine, ...other, future({ subject: 'FU-aaaaaa' })], { ...options, shouldStop: () => true }).incomplete, true, 'a cancelled scan selects nothing');
+});
+
 // ── protection only removes units, never changes which others go (N-1) ─────────────────────────
 
 /** What 5bc9407b selects: the fold ignores an unknown-type event's data, so emptying it reproduces base. */

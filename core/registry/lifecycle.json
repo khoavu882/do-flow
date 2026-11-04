@@ -84,6 +84,47 @@
       }
     },
     {
+      "id": "session-end",
+      "intent": "remove-session-model-observation",
+      "tier": "enhanced",
+      "requires": [
+        "hooks"
+      ],
+      "mappings": {
+        "claude": {
+          "event": "SessionEnd",
+          "status": "supported"
+        },
+        "codex": {
+          "event": "SessionEnd",
+          "status": "supported",
+          "prerequisites": [
+            "hook-review"
+          ]
+        },
+        "opencode": {
+          "status": "unavailable",
+          "fallback": "guidance"
+        },
+        "pi": {
+          "status": "unavailable",
+          "fallback": "guidance"
+        },
+        "copilot": {
+          "status": "unavailable",
+          "fallback": "guidance"
+        },
+        "kiro": {
+          "status": "unavailable",
+          "fallback": "guidance"
+        },
+        "antigravity": {
+          "status": "unavailable",
+          "fallback": "guidance"
+        }
+      }
+    },
+    {
       "id": "mcp-tool-guard",
       "intent": "enforce-mcp-policy",
       "tier": "enhanced",
@@ -169,7 +210,7 @@
   ],
   "coverage": {
     "schemaVersion": 1,
-    "revision": 3,
+    "revision": 4,
     "refresh": {
       "trigger": "a harness bridge, template or installed harness version changes",
       "owner": "the feature that changes it"
@@ -973,6 +1014,216 @@
             "kind": "doc",
             "locator": "https://learn.chatgpt.com/docs/hooks",
             "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "session-end",
+        "harness": "claude",
+        "event": "SessionEnd",
+        "timing": "session",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/claude/settings/settings.json:176",
+        "harnessVersion": {
+          "tested": "2.1.287 (Claude Code)"
+        },
+        "class": "observation",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [
+          "removes the ending main session's hashed model observation"
+        ],
+        "doesNotCover": [
+          "worker observations",
+          "sessions that end without the hook running (the model-observations age bound applies)"
+        ],
+        "caveats": [
+          "native event enforcement is not yet verified"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://code.claude.com/docs/en/hooks",
+            "date": "2026-10-12"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/hooks/session-end-observation.test.ts",
+            "date": "2026-11-04"
+          }
+        ]
+      },
+      {
+        "policy": "session-end",
+        "harness": "codex",
+        "event": "SessionEnd",
+        "timing": "session",
+        "profile": "any",
+        "wired": true,
+        "configSource": "core/harnesses/codex/hooks/hooks.json:100",
+        "harnessVersion": {
+          "tested": "codex-cli 0.162.1"
+        },
+        "class": "observation",
+        "verification": "unverified",
+        "prerequisites": [
+          "hook-review"
+        ],
+        "covers": [
+          "removes the ending main session's hashed model observation"
+        ],
+        "doesNotCover": [
+          "worker observations",
+          "sessions that end without the hook running (the model-observations age bound applies)"
+        ],
+        "caveats": [
+          "native event enforcement is not yet verified"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "https://learn.chatgpt.com/docs/hooks",
+            "date": "2026-10-12"
+          },
+          {
+            "kind": "fixture",
+            "locator": "test/hooks/session-end-observation.test.ts",
+            "date": "2026-11-04"
+          }
+        ]
+      },
+      {
+        "policy": "session-end",
+        "harness": "opencode",
+        "event": "*",
+        "timing": "session",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "1.18.30"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/harnesses.json: opencode harness; core/registry/contracts.json: unavailable hook mapping",
+            "date": "2026-10-12"
+          }
+        ]
+      },
+      {
+        "policy": "session-end",
+        "harness": "pi",
+        "event": "*",
+        "timing": "session",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "1.1.0"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "not wired for this harness mapping",
+          "Pi user- and project-scope extensions have not been exercised in a live session; a later tool_call handler may mutate input after DoFlow allows it"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/lifecycle.json: policy session-end mapping for pi",
+            "date": "2026-11-04"
+          }
+        ]
+      },
+      {
+        "policy": "session-end",
+        "harness": "copilot",
+        "event": "*",
+        "timing": "session",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "GitHub Copilot CLI 1.0.103"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "not wired for this harness mapping"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/lifecycle.json: policy session-end mapping for copilot",
+            "date": "2026-11-04"
+          }
+        ]
+      },
+      {
+        "policy": "session-end",
+        "harness": "kiro",
+        "event": "*",
+        "timing": "session",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "kiro-cli 2.29.1"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "not wired for this harness mapping"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/lifecycle.json: policy session-end mapping for kiro",
+            "date": "2026-11-04"
+          }
+        ]
+      },
+      {
+        "policy": "session-end",
+        "harness": "antigravity",
+        "event": "*",
+        "timing": "session",
+        "profile": "any",
+        "wired": false,
+        "configSource": null,
+        "harnessVersion": {
+          "tested": "1.3.3"
+        },
+        "class": "unsupported",
+        "verification": "unverified",
+        "prerequisites": [],
+        "covers": [],
+        "doesNotCover": [],
+        "caveats": [
+          "not wired for this harness mapping"
+        ],
+        "provenance": [
+          {
+            "kind": "doc",
+            "locator": "core/registry/lifecycle.json: policy session-end mapping for antigravity",
+            "date": "2026-11-04"
           }
         ]
       },
@@ -2448,6 +2699,6 @@
         ]
       }
     ],
-    "rowsDigest": "sha256:39c81a958388528cddec2fa524296872bf420d37073ae643a76faddc54893cf5"
+    "rowsDigest": "sha256:60210a9d6cb2aee1242ed373d4bbb1ec881d59101b9c23942d7fa1661f5bcdf7"
   }
 }

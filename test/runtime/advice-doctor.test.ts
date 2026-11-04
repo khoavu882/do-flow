@@ -57,6 +57,15 @@ test('an invalid advice registry is named as the registry, not as an unreadable 
   assert.doesNotMatch(report._offReason, /decision-model/);
 });
 
+test('an error thrown while building the report is named by its message, not as an unreadable decision-model.json (FU-zsckkj)', async (t) => {
+  const f = fixture(t);
+  const report = await buildAdviceDoctor({ repoRoot: REPO_ROOT, projectRoot: f.project, env: f.scratch.env(), storageRegistry: { stores: null } });
+  assert.equal(report.decisionModel.setting.reason, 'config-invalid');
+  assert.match(report._offReason, /^advice doctor could not complete: .+/);
+  assert.doesNotMatch(report._offReason, /decision-model/);
+  assert.equal(report._offReason, `advice doctor could not complete: ${report.decisionModel.setting.notes[0]}`);
+});
+
  test('feature-off reasons are advisory and never probe even a configured closed endpoint', async (t) => {
   const cases: any = [
     [undefined, /off \(not configured\)/],

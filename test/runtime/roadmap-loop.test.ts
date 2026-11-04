@@ -13,7 +13,7 @@ const cp = require('node:child_process');
 const { createHash } = require('node:crypto');
 const { tempDir, GIT_NO_MAINTENANCE_ENV } = require('../helper/tmp.ts');
 const { repoFromTemplate } = require('../helper/repo-template.ts');
-const { next, acquireLease } = require('../../src/runtime/roadmap/loop.ts');
+const { next, acquireLease, orchestrationFor } = require('../../src/runtime/roadmap/loop.ts');
 const { readKillSwitch } = require('../../src/runtime/settings/autopilot.ts');
 const { mergeRoadmapRow, readOpenIntents } = require('../../src/runtime/roadmap/merge.ts');
 const { WorkflowOrchestrator } = require('../../src/runtime/workflow-orchestrator.ts');
@@ -453,6 +453,18 @@ async function atImplementation(t: any) {
   placeRun(f, 'implementation');
   return f;
 }
+
+test('FU-e4yr45: the loop orchestrator refuses an implementation stage whose task-attempt ledger is incomplete', async (t) => {
+  const f = await atImplementation(t);
+  write(path.join(f.featureDir(), 'plan.md'), ['# Plan', '', '## Tasks', '', '### Phase A', '',
+    '- [ ] A.1 first task; owner: core-implementer; files: a.js', ''].join('\n'));
+  const { orch, run } = orchestrationFor({ repoRoot: REPO, root: f.root, fsImpl: fs, env: f.env }, ROW, f.worktree());
+  const node = run.program.find((n: any) => n.id === 'implementation');
+  assert.deepEqual(orch.assertTaskAttempts(node, run), { state: 'none', slug: '113-toy', incomplete: [] }, 'no ledger, nothing to check');
+  write(path.join(f.root, '.doflow/state/task-attempts/113-toy.json'), JSON.stringify({ version: 1, revision: 1, planPath: null, tasks: { 'A.1': { nextToken: 2, attempts: [
+    { token: 1, owner: 'core-implementer', mode: 'subagent', startedAt: '2026-10-19T00:00:00.000Z', taskLineHash: null, state: 'active', result: null, evidenceId: null, reason: null }] } } }));
+  assert.throws(() => orch.assertTaskAttempts(node, run), /task-attempt ledger.*incomplete.*A\.1/);
+});
 
 test('implementation yields dispatch start with the free-only billing cap, then run and the handoff', async (t) => {
   const f = await atImplementation(t);
@@ -1103,6 +1115,28 @@ test('C9: the tripwire creates the sentinel before it records the event, so a cr
   assert.deepEqual([again.result.outcome, again.result.annotations.tripwire], ['stopped', 'revert'], 'the unrecorded event trips once more');
   fs.rmSync(sentinel);
   assert.deepEqual((await f.next()).result.step, 'pick');
+});
+
+test('FU-md0ywe: an oversized or non-regular tripwire record is named unreadable and never read whole', async (t) => {
+  for (const make of ['oversized', 'link'] as const) {
+    const f = fixture(t, { rows: [{ ...ROW, id: '120', slug: '120-other', writeSet: ['other/'] }] });
+    f.git(f.develop, 'switch', '-qc', 'topic');
+    write(path.join(f.develop, 'topic.txt'), 'topic\n');
+    f.git(f.develop, 'add', '.');
+    f.git(f.develop, 'commit', '-qm', 'topic');
+    f.git(f.develop, 'switch', '-q', 'develop');
+    f.git(f.develop, 'merge', '--no-ff', '-q', 'topic', '-m', 'merge: 119 Topic', '-m', `DoFlow-Row: 119\nDoFlow-Policy: gate-b@sha256:${'c'.repeat(64)}`);
+    f.git(f.develop, 'revert', '-m', '1', '--no-edit', 'HEAD');
+    const events = path.join(f.root, '.doflow/state/roadmap/tripwire/events.json');
+    fs.mkdirSync(path.dirname(events), { recursive: true });
+    if (make === 'oversized') fs.writeFileSync(events, `{"schema":1,"reverts":[],"unverified":[],"pad":"${'x'.repeat(2 * 1024 * 1024)}"}`);
+    else {
+      fs.writeFileSync(path.join(f.root, 'elsewhere.json'), '{"schema":1,"reverts":[],"unverified":[]}');
+      fs.symlinkSync(path.join(f.root, 'elsewhere.json'), events);
+    }
+    const out = await f.next();
+    assert.deepEqual([out.result.outcome, out.result.reason, out.result.annotations.unreadable], ['denied', 'facts-unreadable', ['tripwire']], make);
+  }
 });
 
 test('C10: a switch turned off after the render stops before the cleanup: no worktree remove and no branch -d', async (t): Promise<any> => {

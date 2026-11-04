@@ -45,12 +45,14 @@ function lexicalOutcome(result: any) {
 
 function validFreshness(value: any) { return INDEX_STATES.has(value) ? value : 'UNKNOWN'; }
 
-function appendOutcome({ binding, projectRoot, taskId, slug, intent, need, router, provider, capability, id, candidates, indexState, failure, bound = null, complete }: any) {
+function appendOutcome({ binding, projectRoot, taskId, slug, intent, need, router, provider, capability, id, candidates, indexState, failure, bound = null, complete, answered = complete }: any) {
+  // `answered`: the provider finished its own search. `complete` additionally needs a complete corpus. An
+  // empty answer is classified on `answered`, so an incomplete corpus never turns it into a timeout.
   let stored = null;
   if (binding) {
     let status; let reason;
     if (failure) { status = 'UNREACHED'; reason = failureReason(failure, indexState); }
-    else if (!candidates.length && complete) {
+    else if (!candidates.length && answered) {
       if (indexState === 'STALE') { status = 'EMPTY'; reason = 'index-stale'; }
       else if (indexState === 'UNKNOWN') { status = 'UNVERIFIED'; reason = 'index-unverifiable'; }
       else { status = 'EMPTY'; reason = 'empty-answer'; }
@@ -233,10 +235,14 @@ async function executeCodeRetrieval(options: any = {}) {
     rankedLists.push({ provider: 'native.rg', capability, queryRef, retrievalAttemptRef: lexicalId, candidates: lexCandidates });
     const lexOutcome = lexicalOutcome(lexResult);
     attempts.push(appendOutcome({ binding, projectRoot, taskId, slug, intent, need, router, provider: 'native.rg', capability,
-      id: lexicalId, candidates: lexCandidates, indexState: 'NOT_APPLICABLE', ...lexOutcome, complete: Boolean(lexResult.complete && inventory.complete) }));
+      id: lexicalId, candidates: lexCandidates, indexState: 'NOT_APPLICABLE', ...lexOutcome, complete: Boolean(lexResult.complete && inventory.complete), answered: Boolean(lexResult.complete) }));
     if (lexOutcome.failure || lexOutcome.bound) gaps.push({ provider: 'native.rg', reason: lexOutcome.failure || lexOutcome.bound, source: 'lexical' });
 
-    if (profile === 'hybrid' && classification.queryClass === 'conceptual') {
+    // Semantic search needs a complete corpus (index build and refresh refuse one too): an incomplete inventory skips
+    // it as a coverage gap, never as a provider attempt or failure. The admission gaps above already say why.
+    if (profile === 'hybrid' && classification.queryClass === 'conceptual' && !inventory.complete) {
+      gaps.push({ source: 'semantic', reason: 'incomplete-corpus-skipped' });
+    } else if (profile === 'hybrid' && classification.queryClass === 'conceptual') {
       const semanticId = makeId();
       let semResult;
       const modelPath = options.modelPath || process.env.SEMBLE_MODEL_PATH || null;
@@ -269,7 +275,7 @@ async function executeCodeRetrieval(options: any = {}) {
         rankedLists.push({ provider: 'native.rg', capability, queryRef, retrievalAttemptRef: fallbackId, candidates: fallbackCandidates });
         const fallbackOutcome = lexicalOutcome(fallback);
         attempts.push(appendOutcome({ binding, projectRoot, taskId, slug, intent, need, router, provider: 'native.rg', capability,
-          id: fallbackId, candidates: fallbackCandidates, indexState: 'NOT_APPLICABLE', ...fallbackOutcome, complete: Boolean(fallback.complete && inventory.complete) }));
+          id: fallbackId, candidates: fallbackCandidates, indexState: 'NOT_APPLICABLE', ...fallbackOutcome, complete: Boolean(fallback.complete && inventory.complete), answered: Boolean(fallback.complete) }));
         if (fallbackOutcome.failure || fallbackOutcome.bound) gaps.push({ provider: 'native.rg', reason: fallbackOutcome.failure || fallbackOutcome.bound, source: 'fallback' });
       }
     }

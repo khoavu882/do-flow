@@ -8,7 +8,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync, spawn } = require('node:child_process');
 const { tempDir } = require('../helper/tmp.ts');
-const { exitCodeFor, resultLine, renderText } = require('../explore/ledger-sampler.ts');
+const { exitCodeFor, resultLine, renderText, chooserFor, parseArgs } = require('../explore/ledger-sampler.ts');
 const { LOST_ACK } = require('../helper/ledger-scenarios.ts');
 
 const REPO = path.resolve(__dirname, '../..');
@@ -130,4 +130,23 @@ test('replay reports lost acknowledgment through the real oracle under an overri
   const timeout = run(['--scenario', 'S1', '--init', 'none', '--schedules', '5', '--seed', '1', '--run-timeout-ms', '100', '--json']);
   assert.equal(timeout.status, 3, timeout.stderr);
   assert.equal(JSON.parse(timeout.stdout).schedulesRun, 1);
+});
+
+test('replay records seed null, since it follows a trace and never draws from the seed', () => {
+  const replay = run(['--scenario', 'S1', '--init', 'none', '--replay', LOST_ACK, '--json']);
+  assert.equal(replay.status, 1, replay.stderr);
+  assert.equal(JSON.parse(replay.stdout).seed, null);
+  assert.equal(typeof parseArgs(['--scenario', 'S1']).seed, 'number', 'a sampling run still gets a printed seed');
+});
+
+test('chooserFor: a seed and schedule index fix the picks, other seeds or indexes differ, and every parked actor is reachable', () => {
+  const picks = (seed: any, index: any, n = 64) => { const choose = chooserFor(seed, index); return Array.from({ length: n }, () => choose(['A', 'B'])).join(''); };
+  assert.equal(picks(7, 0), picks(7, 0), 'the same seed and index repeat');
+  assert.notEqual(picks(7, 0), picks(8, 0), 'another seed changes the picks');
+  assert.notEqual(picks(7, 0), picks(7, 1), 'another schedule index changes the picks');
+  for (const seed of [0, 1, 7, 0xffffffff]) {
+    const seen = new Set(picks(seed, 0, 64));
+    assert.deepEqual([...seen].sort(), ['A', 'B'], `seed ${seed}: the mapping has not collapsed to one actor`);
+  }
+  assert.equal(chooserFor(3, 0)(['only']), 'only');
 });

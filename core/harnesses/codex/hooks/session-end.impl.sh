@@ -5,7 +5,7 @@ case "${OSTYPE:-}" in msys*|cygwin*|win32*) if command -v jq >/dev/null 2>&1; th
 # Runs when Claude Code closes a session. Responsibilities:
 #   1. Append END marker to sessions.log
 #   2. Write uncommitted-warning.txt if the working tree is dirty
-#   3. Delete the session-scoped state directory (cleanup)
+#   3. Delete the session-scoped state directory (cleanup) and the main session's model observation
 #   4. Trim sessions.log to last 500 lines (lock-guarded for parallel safety,
 #      via lib.sh's portable with_file_lock — no flock dependency)
 #
@@ -81,6 +81,26 @@ if [[ -n "$SESSION_ID" ]]; then
   SESSION_PATH="$SESSION_DIR/$SESSION_ID"
   rm -rf "$SESSION_PATH" 2>/dev/null || true
 fi
+
+# ── 3b. Remove this main session's model observation (120 IC-005) ─────────────
+
+# observe-model.sh keys the file by the first 16 hex of sha256(session id), under primary/<cwd_hash>/<harness>/.
+# Only the ending main session's own file goes: other sessions, worker observations and a missing file are left
+# alone, and a failure here changes nothing (SessionEnd is fire-and-forget).
+forget_model_observation() {
+  local key="" cwd="${CWD:-}" file=""
+  [[ -n "$SESSION_ID" ]] || return 0
+  [[ "$(doflow_session_role || echo main)" == "main" ]] || return 0
+  if command -v sha256sum >/dev/null 2>&1; then key=$(printf '%s' "$SESSION_ID" | sha256sum | cut -c1-16)
+  elif command -v shasum >/dev/null 2>&1; then key=$(printf '%s' "$SESSION_ID" | shasum -a 256 | cut -c1-16)
+  else return 0; fi
+  [[ $key =~ ^[0-9a-f]{16}$ ]] || return 0
+  case "$cwd" in /*) ;; *) cwd=$PWD ;; esac
+  file="$STATE_DIR/primary/$(cwd_hash "$cwd")/codex/$key.json"
+  if [[ -f "$file" && ! -L "$file" ]]; then rm -f "$file"; fi
+  return 0
+}
+forget_model_observation 2>/dev/null || true
 
 start_storage_upkeep
 

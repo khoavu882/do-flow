@@ -176,9 +176,23 @@ function readRegularFileText(file: string, fsImpl: any = fs): string | null {
   }
 }
 
+/** Whether `slug` is a register feature (it has `decisions/register.json`), for a record file under
+ * a checkout's `.doflow/state`. Such a feature never reads another feature's identity-less flat
+ * record (045 isolation). A file whose checkout cannot be told, or a feature that does not resolve,
+ * has no register. */
+function featureHasRegister(file: string, slug: string): boolean {
+  const marker = `${path.sep}.doflow${path.sep}state${path.sep}`;
+  const at = file.lastIndexOf(marker);
+  if (at <= 0) return false;
+  try {
+    const found = resolveFeature({ projectRoot: file.slice(0, at), slug });
+    return !found.error && Boolean(found.featureDir) && fs.existsSync(path.join(found.featureDir, 'decisions', 'register.json'));
+  } catch { return false; }
+}
+
 /**
  * Whether a flat record may be read as `slug`'s (D-3): it names that feature (`featureSlug` on a
- * run, `slug` on a readiness record) or names none. A file that does not parse names nobody, so a
+ * run, `slug` on a readiness record), or names none and `slug` has no decision register. A file that does not parse names nobody, so a
  * namespaced read never falls back to it. The probe never blocks and follows no link: a flat file
  * that is not a regular file of at most `MAX_RECORD_FILE_BYTES` is not read; `unsafeIsOurs` is then
  * the answer, so a caller whose reader refuses such a file (the run store's `readRunRecord`) is
@@ -198,7 +212,8 @@ function flatRecordIsOurs(file: string, slug: string | null, fsImpl: any = fs, u
     data = JSON.parse(text);
   } catch { return false; }
   const named = [data?.featureSlug, data?.slug].find((value) => typeof value === 'string' && value !== '');
-  return named === undefined || named === slug;
+  if (named === undefined) return !slug || !featureHasRegister(file, slug);
+  return named === slug;
 }
 
 /**

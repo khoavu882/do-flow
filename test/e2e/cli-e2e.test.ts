@@ -9,10 +9,19 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const {
-  expectExecutable, tempDir, scratchHome, run, fakeBin, toolEnv, runInteractive, skipToolsOnWin, cleanup,
+  expectExecutable, tempDir, scratchHome, homeEnv, inheritedEnv, run, fakeBin, toolEnv, runInteractive, skipToolsOnWin, cleanup,
 } = require('./cli-e2e.shared.ts');
 
 after(cleanup);
+
+test('homeEnv keeps the spawn off the developer\'s XDG_CONFIG_HOME (FU-ecavpd)', (t) => {
+  const plain = tempDir(t, 'doflow-xdg-plain-');
+  assert.strictEqual(homeEnv(plain).XDG_CONFIG_HOME, path.join(plain, '.config'));
+  const scratch = scratchHome();
+  assert.strictEqual(homeEnv(scratch).XDG_CONFIG_HOME, undefined, 'a scratch home keeps the XDG folder inheritedEnv() gives it');
+  assert.ok(String(inheritedEnv(scratch).XDG_CONFIG_HOME).startsWith(path.dirname(scratch)));
+  assert.strictEqual(homeEnv(plain, { XDG_CONFIG_HOME: '/own' }).XDG_CONFIG_HOME, undefined, 'a case that passes its own XDG keeps it');
+});
 
 test('tools status selects both registered tools and returns one JSON result per tool', (t) => {
   if (!skipToolsOnWin(t)) return;
