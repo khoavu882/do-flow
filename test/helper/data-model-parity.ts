@@ -16,7 +16,7 @@ const TEMPLATE_HEADINGS = [
 ];
 const TRANSITION_COLUMNS = ['From', 'Event', 'Guard', 'Actor', 'Side effect', 'To', 'Emitted event', 'Source'];
 const MAX_STATES = 10;
-const SOURCE_TOKEN = /^(FR-\d{3}|IC-\d{3}|code:\S+:\d+|proposed|UNKNOWN -> Open Point)$/;
+const SOURCE_TOKEN = /^(FR-\d{3}|NFR-\d{3}|IC-\d{3}|code:\S+:\d+|proposed|UNKNOWN -> Open Point)$/;
 
 const stripComments = (text: string): string => text.replace(/<!--[\s\S]*?-->/g, '');
 
@@ -192,7 +192,7 @@ function sourceCellFindings(text: string): string[] {
       const cell = cellText(row[row.length - 1] ?? '');
       const tokens = cell.split(/\s*,\s*/);
       if (!cell || !tokens.every((t) => SOURCE_TOKEN.test(t))) {
-        findings.push(`${kind} table: row "${cellText(row[0] ?? '')}" has Source cell "${cell}", expected FR-###, IC-###, code:<path>:<line>, proposed or UNKNOWN -> Open Point`);
+        findings.push(`${kind} table: row "${cellText(row[0] ?? '')}" has Source cell "${cell}", expected FR-###, NFR-###, IC-###, code:<path>:<line>, proposed or UNKNOWN -> Open Point`);
       }
     }
   }
