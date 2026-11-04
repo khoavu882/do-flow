@@ -39,6 +39,7 @@ const { isSafeSlug, invalidSlugRefusal } = require('../task-scope.ts');
 const { appendEvents, readFold } = require('./event-store.ts');
 const { deriveStatuses, readGitFacts, behindNote, subjectNames, readMerges, readBranchTips, readHistory } = require('./status.ts');
 const { FollowupUsageError, oneLine, channelBy } = require('./followup.ts');
+const { parseSemVer, compareSemVer } = require('../../helper/semver.ts');
 
 /** The release-tag pattern of IC-020, the one `git-state` filters by. */
 const RELEASE_TAG = /^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/;
@@ -125,13 +126,25 @@ function releaseFeatures({ root, tag, confirm = false, features, exclude, channe
     return refusal('release', 'untracked-feature', `${untracked.join(', ')} ${untracked.length === 1 ? 'is' : 'are'} not tracked, so ${untracked.length === 1 ? 'it' : 'they'} cannot be added to or excluded from a release; run doflow-run lifecycle --action init --slug <slug> first. Nothing was written.`);
   }
 
-  // DEC-030: containment in the tag being recorded never finishes a feature before its record exists.
-  const otherTags = { ...facts, release_tags: facts.release_tags.filter((name: any) => name !== tag) };
+  // DEC-030: containment in the tag being recorded never finishes a feature before its record exists. Of the
+  // other tags only an unrecorded one that is stable and earlier than `tag` (lower version, or a strict ancestor of it)
+  // may take a feature out of this release: a pre-release (v1.0.0-rc.1 before v1.0.0) or a later tag
+  // (v2.0.0 when recording v1.0.0) does not. A tag with a record is left in: status reads it by its record.
+  const tagCommit = commitOf(root, `refs/tags/${tag}`);
+  const recordedTags = new Set(fold.releases.map((r: any) => r.tag));
+  const shadows = (name: any) => {
+    const parsed = parseSemVer(name.slice(1));
+    if (!parsed || parsed.prerelease.length > 0) return false;
+    if (compareSemVer(name.slice(1), tag.slice(1)) < 0) return true;
+    // A strict ancestor only: a higher-versioned tag on the very same commit is not earlier.
+    const commit = tagCommit && commitOf(root, `refs/tags/${name}`);
+    return Boolean(commit) && commit !== tagCommit && isAncestor(root, commit, tagCommit);
+  };
+  const otherTags = { ...facts, release_tags: facts.release_tags.filter((name: any) => name !== tag && (recordedTags.has(name) || shadows(name))) };
   const derived = deriveStatuses({ root, fold, facts: otherTags });
   if (derived.releaseMode === 'unknown' || !derived.integrationSha) return refusal('release', 'no-integration-ref', `${derived.reason || `${facts.integration_ref} does not resolve to a commit`}. Nothing was written.`);
 
   // X: the tag's commit once it exists, else the commit the status view pinned the integration ref to (DEC-044).
-  const tagCommit = commitOf(root, `refs/tags/${tag}`);
   const bound = tagCommit || derived.integrationSha;
   const previousTag = previousTagOf(root, { tag, facts, bound });
   // A hotfix merged only into the tag's own history has no evidence on the integration chain: derive against the tag as well.

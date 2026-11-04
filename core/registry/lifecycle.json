@@ -2044,7 +2044,7 @@
         "timing": "stop",
         "profile": "any",
         "wired": true,
-        "configSource": "src/adapters/antigravity/index.ts:60",
+        "configSource": "src/adapters/antigravity/index.ts:64",
         "harnessVersion": {
           "tested": "1.3.3"
         },
@@ -2699,6 +2699,6 @@
         ]
       }
     ],
-    "rowsDigest": "sha256:98b8b67e37e47156ab75a5e4db740be5248f6c9b3717fb762b96e9cdfeacdc8e"
+    "rowsDigest": "sha256:bb6f6cd25ed87131d95bfa0dda3f7a4ecd03b4f19216510685b2a5b640a353c6"
   }
 }

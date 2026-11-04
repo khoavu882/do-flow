@@ -245,6 +245,15 @@ test('an unreadable record is set aside only under the write lock', () => {
   assert.equal(fs.existsSync(`${file}.unreadable`), false);
 });
 
+test('FU-c9agck: a register feature does not read another feature\'s identity-less flat readiness record; a register-less one does', () => {
+  for (const [register, status] of [[true, 'missing'], [false, 'found']] as const) {
+    const root = featureRepo(register ? 'flat-register' : 'flat-no-register', { register });
+    rawRecord(root, 'A.1.json', { version: 1, taskId: 'A.1', taskClass: 'bug', state: 'READY', evaluatedAt: NOW.toISOString() });
+    clearTaskScopeCache();
+    assert.equal(readReadinessRecord({ stateRoot: root, taskId: 'A.1', slug: SLUG }).status, status);
+  }
+});
+
 test('every reader takes the same candidates: the namespaced path, then the flat one, in each checkout', () => {
   const { recordCandidates } = require('../../src/runtime/readiness-record.ts');
   const store = path.join('.doflow', 'state', 'readiness');

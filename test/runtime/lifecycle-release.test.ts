@@ -201,6 +201,46 @@ test('containment in another v* tag with no record still finishes a feature, so 
   assert.equal(out.previousTag, 'v1.0.0');
 });
 
+test('an unrecorded pre-release tag does not take its features out of the final release', () => {
+  const repo = makeRepo(scratch, 'shadow-rc');
+  const [a, b]: any = ['070-a', '071-b'];
+  track(repo, a); track(repo, b);
+  repo.mergeNoFf(featureBranch(repo, a, 1));
+  repo.tag('v1.0.0-rc.1');
+  repo.mergeNoFf(featureBranch(repo, b, 1));
+  repo.tag('v1.0.0');
+  const out = release(repo, { tag: 'v1.0.0' });
+  assert.deepEqual(slugsOf(out), [a, b], 'a is inside the unrecorded v1.0.0-rc.1, which is not stable and so does not shadow');
+  assert.deepEqual(out.notDetected, []);
+});
+
+test('recording a pre-release tag still works, and a later unrecorded stable tag does not shadow it', () => {
+  const repo = makeRepo(scratch, 'record-rc');
+  const a = '072-a';
+  track(repo, a);
+  repo.mergeNoFf(featureBranch(repo, a, 1));
+  repo.tag('v1.0.0-rc.1');
+  repo.tag('v1.0.0');
+  const out = releaseFeatures({ root: repo.dir, tag: 'v1.0.0-rc.1', confirm: true, now: new Date('2026-10-10T00:00:00.000Z') });
+  assert.deepEqual([out.ok, out.recorded, slugsOf(out)], [true, true, [a]]);
+  assert.deepEqual(store.readFold(repo.dir, { now: CLOCK }).releases.map((r: any) => r.tag), ['v1.0.0-rc.1']);
+});
+
+test('recording an older tag after a later unrecorded tag exists does not credit the features to the later tag', () => {
+  const repo = makeRepo(scratch, 'shadow-later');
+  const [a, b]: any = ['073-a', '074-b'];
+  track(repo, a); track(repo, b);
+  repo.mergeNoFf(featureBranch(repo, a, 1));
+  repo.tag('v1.0.0');
+  repo.mergeNoFf(featureBranch(repo, b, 1));
+  repo.tag('v2.0.0');
+  const out = release(repo, { tag: 'v1.0.0' });
+  assert.deepEqual(slugsOf(out), [a], 'a is inside v2.0.0, which is later than the tag being recorded and does not shadow');
+  assert.deepEqual(out.notDetected, [b]);
+  const next = release(repo, { tag: 'v2.0.0' });
+  assert.deepEqual(slugsOf(next), [b], 'the earlier stable unrecorded v1.0.0 still shadows a');
+});
+
 test('the first release of an untagged project lists merged features as candidates', () => {
   const { repo } = FIXTURES.noTag(scratch);
   track(repo, SLUG);
