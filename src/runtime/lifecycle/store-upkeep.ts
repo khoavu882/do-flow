@@ -359,6 +359,16 @@ function needsPrune(fsImpl: any, root: any, window: any, now: any) {
 }
 
 /**
+ * Whether the old `agent-docs/lifecycle` copy still waits to be copied. Read-only (no lock, no
+ * write, `DOFLOW_UPKEEP` not consulted), for `doctor`; an unreadable folder counts as not pending.
+ */
+function migrationPending(root: string, { fsImpl = nodeFs }: any = {}) {
+  try {
+    return !hasMarker(fsImpl, root) && !storeHasEvents(fsImpl, root) && legacyEventFiles(fsImpl, root).length > 0;
+  } catch { return false; }
+}
+
+/**
  * Prepares the project store for one verb invocation.
  * @param {string} root projectRoot() result
  * @param {{env?: Object, now?: Date, fsImpl?: Object}} [options] defaults process.env, new Date(), node:fs
@@ -439,4 +449,4 @@ function prepareStore(root: string, { env = process.env, now = new Date(), fsImp
   }
 }
 
-module.exports = { prepareStore, retainLocked, removedLine, STALE_TMP_MS, LEGACY_LIFECYCLE_REL, LEGACY_EVENTS_REL, MARKER_REL };
+module.exports = { prepareStore, migrationPending, retainLocked, removedLine, STALE_TMP_MS, LEGACY_LIFECYCLE_REL, LEGACY_EVENTS_REL, MARKER_REL };

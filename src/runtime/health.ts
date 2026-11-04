@@ -32,6 +32,7 @@ const { readState, grantRevoked } = require('./packages/state.ts');
 const { transcriptsDoctorView } = require('./transcripts/registry.ts');
 const { readLedger, stateRoot } = require('../state/index.ts');
 const { readRegularFileText } = require('./task-scope.ts');
+const { migrationPending } = require('./lifecycle/store-upkeep.ts');
 
 /** Answered a probe. */
 const HEALTHY = 'HEALTHY';
@@ -936,6 +937,9 @@ function buildHealthReport({ repoRoot, projectRoot = process.cwd(), router, exec
   const warnings = [
     ...(nodeWarning ? [nodeWarning] : []),
     ...claudePermissionWarnings({ repoRoot: root, projectRoot, homeDir: home, fsImpl }),
+    ...(migrationPending(path.resolve(projectRoot), { fsImpl })
+      ? [{ kind: 'lifecycle-migration-pending', subject: 'lifecycle store', detail: 'the lifecycle store has not been copied yet from agent-docs/lifecycle; run any followup, lifecycle or goal command once without DOFLOW_UPKEEP=off. doctor wrote nothing.' }]
+      : []),
     ...freshness
       .filter((item) => item.state === 'STALE')
       .map((item) => ({ kind: 'index-stale', subject: item.providerId, detail: `${item.label} is behind the working tree; refresh with: ${item.refresh}` })),
