@@ -334,7 +334,7 @@
           "tested": "1.1.0"
         },
         "class": "advisory",
-        "verification": "verified",
+        "verification": "unverified",
         "prerequisites": [],
         "covers": [],
         "doesNotCover": [
@@ -362,7 +362,7 @@
           },
           {
             "kind": "live",
-            "locator": "test/fixtures/hooks/pi/live/probe-2026-10-14.jsonl",
+            "locator": "historical blocking evidence: test/fixtures/hooks/pi/live/probe-2026-10-14.jsonl",
             "date": "2026-10-14"
           }
         ]
@@ -2699,6 +2699,6 @@
         ]
       }
     ],
-    "rowsDigest": "sha256:60210a9d6cb2aee1242ed373d4bbb1ec881d59101b9c23942d7fa1661f5bcdf7"
+    "rowsDigest": "sha256:98b8b67e37e47156ab75a5e4db740be5248f6c9b3717fb762b96e9cdfeacdc8e"
   }
 }

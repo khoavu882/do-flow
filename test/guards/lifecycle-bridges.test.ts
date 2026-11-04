@@ -358,6 +358,12 @@ function honestyFindings(coverage: any, root: any = REPO) {
     if (row.verification === 'unverified' && row.class === 'blocking') errors.push(`${rowKey(row)} unverified class`);
     if (NEVER_BLOCKING_EVENTS.has(key) && row.class === 'blocking') errors.push(`${rowKey(row)} never-blocking event`);
     if (row.policy === 'pre-implementation-gate' && !row.doesNotCover.includes('writes via shell commands')) errors.push(`${rowKey(row)} missing shell-write exclusion`);
+    if (row.harness === 'pi' && row.event === 'tool_call' && row.profile === 'cli-extension' && row.policy === 'pre-implementation-gate') {
+      const oldLiveCapture = evidence.some((p: any) => p.kind === 'live' && p.locator.includes('probe-2026-10-14.jsonl'));
+      if (row.class !== 'advisory' || (oldLiveCapture && (row.verification !== 'unverified' || !evidence.some((p: any) => p.kind === 'live' && p.locator.startsWith('historical blocking evidence:'))))) {
+        errors.push(`${rowKey(row)} historical Pi blocking capture cannot certify advisory behavior`);
+      }
+    }
     if ((row.harness === 'pi' && ['user-headless','project-headless'].includes(row.profile)) && row.class !== 'unknown') errors.push(`${rowKey(row)} Pi headless must stay unknown`);
     if (row.harness === 'pi' && row.profile.startsWith('project-') && !row.prerequisites.includes('project-trust')) errors.push(`${rowKey(row)} missing Pi project-trust`);
     if (row.harness === 'pi' && row.profile === 'no-extensions' && row.class !== 'unsupported') errors.push(`${rowKey(row)} Pi no-extensions must be unsupported`);
@@ -538,6 +544,18 @@ test('G36.2 control: flipping Pi observation to blocking is detected', () => { c
 test('G36.2 control: blocking session context is rejected by timing rule 3', () => {const c=structuredClone(readCoverage());c.rows.find((r: any)=>r.policy==='session-context'&&r.harness==='claude').class='blocking';assert.ok(honestyFindings(c).some((x: any)=>x.includes('blocking timing')));});
 test('G36.2 control: package.json and an error fixture cannot support a blocking row', () => {const c=structuredClone(readCoverage()),r=c.rows.find((x: any)=>x.policy==='mcp-tool-guard'&&x.harness==='claude'&&x.class==='blocking');r.provenance.find((p: any)=>p.kind==='doc').locator='package.json';r.provenance.find((p: any)=>p.kind==='fixture').locator='test/fixtures/hooks/claude/stop-check/exit-2.json';assert.ok(honestyFindings(c).some((x: any)=>x.includes('blocking evidence')));});
 test('G36.2 control: removing the Pi live record is detected', (t) => {const c=structuredClone(readCoverage());c.rows.find((x: any)=>x.policy==='pre-implementation-gate'&&x.harness==='pi'&&x.event==='tool_call'&&x.profile==='cli-extension').class='blocking';const root=tempDir(t,'doflow-g362-live-control-');fs.cpSync(path.join(REPO,'test/fixtures/hooks'),path.join(root,'test/fixtures/hooks'),{recursive:true});fs.rmSync(path.join(root,'test/fixtures/hooks/pi/live/probe-2026-10-14.jsonl'));assert.ok(honestyFindings(c,root).some((x: any)=>x.includes('Pi tool_call live evidence')));});
+
+test('FU-2c618z: the historical Pi blocking capture cannot certify current advisory behavior', () => {
+  const coverage = readCoverage();
+  const row = coverage.rows.find((x: any) => x.policy === 'pre-implementation-gate' && x.harness === 'pi' && x.event === 'tool_call' && x.profile === 'cli-extension');
+  assert.equal(row.class, 'advisory');
+  assert.equal(row.verification, 'unverified');
+  assert.ok(row.provenance.some((p: any) => p.kind === 'live' && p.locator.startsWith('historical blocking evidence:')));
+  const falselyVerified = structuredClone(coverage);
+  const mutatedRow = falselyVerified.rows.find((x: any) => x.policy === row.policy && x.harness === row.harness && x.event === row.event && x.profile === row.profile);
+  mutatedRow.verification = 'verified';
+  assert.ok(honestyFindings(falselyVerified).some((finding: any) => finding.includes('historical Pi blocking capture cannot certify advisory behavior')));
+});
 test('G36.3: lifecycle supported, different, and unavailable mappings join to rows', () => { const {lifecycle,coverage}=g36Data(); assert.deepEqual(joinFindings(coverage,lifecycle,JSON.parse('{"rows":[]}')).filter((x: any)=>x.includes('missing row')||x.includes('missing unavailable')), []); });
 test('G36.3 control: a supported mapping without a coverage row is detected', () => { const {lifecycle,coverage}=g36Data(); const c=structuredClone(coverage); c.rows=c.rows.filter((r: any)=>!(r.policy==='stop-check'&&r.harness==='claude')); assert.ok(joinFindings(c,lifecycle,{rows:[]}).some((x: any)=>x.includes('missing row'))); });
 test('G36.4: wired rows join inventory and installed-version caveats', () => { const {lifecycle,coverage,inventory}=g36Data(); assert.deepEqual(joinFindings(coverage,lifecycle,inventory).filter((x: any)=>x.includes('inventory')||x.includes('version-drift')), []); });
