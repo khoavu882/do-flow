@@ -8,6 +8,7 @@ const assert = require('node:assert');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const { spawnSync } = require('node:child_process');
 
 const REPO = path.resolve(__dirname, '../..');
@@ -107,7 +108,13 @@ test('refused: HOME spelled through a symlink while the project is spelled throu
   assert.deepStrictEqual(snapshot(scratch.home), before);
 });
 
-test('refused: HOME spelled /var while the working directory is /private/var', { skip: (IS_WIN || process.platform !== 'darwin') && '/var is a symlink to /private/var on macOS only', timeout: CASE_TIMEOUT_MS }, () => {
+// The alias under test is macOS's /var -> /private/var. A scratch only has that spelling when the temp root
+// really resolves below /private/var (a TMPDIR elsewhere, or a CI runner with its own layout, does not), so
+// the case is gated on that prefix rather than assuming it; the generic symlink case above always runs.
+const VAR_ALIAS_SKIP = (IS_WIN || process.platform !== 'darwin' || !fs.realpathSync(os.tmpdir()).startsWith('/private/var/'))
+  && '/var is a symlink to /private/var on macOS only, and this temp root does not resolve below it';
+
+test('refused: HOME spelled /var while the working directory is /private/var', { skip: VAR_ALIAS_SKIP, timeout: CASE_TIMEOUT_MS }, () => {
   const scratch = installedScratch();
   assert.ok(scratch.home.startsWith('/private/var/'), `expected a /private/var scratch, got ${scratch.home}`);
   const viaVar = scratch.home.slice('/private'.length);
