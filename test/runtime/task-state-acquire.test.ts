@@ -161,3 +161,24 @@ test('task-state-acquire: negative control - unbounded retries fail the retry-co
   );
 
 });
+
+test('FU-2710et: a store-locked failure carries the lock path and the stray entries, and keeps its message and code', (t) => {
+  const root = stateRoot(t);
+  const file = path.join(root, 'blocked.json');
+  fs.mkdirSync(`${file}.lock`, { recursive: true });
+  fs.writeFileSync(path.join(`${file}.lock`, 'junk'), 'x');
+  let caught: any;
+  try { boundedAcquire(fs, file, { retries: 0 }); } catch (error) { caught = error; }
+  assert.equal(caught.message, 'store-locked');
+  assert.equal(caught.code, 'store-locked');
+  assert.equal(caught.lockPath, `${file}.lock`);
+  assert.deepEqual(caught.strayEntries, ['junk']);
+
+  // A lock held by a live process names the path and no stray entry.
+  const held = path.join(root, 'held.json');
+  const release = boundedAcquire(fs, held);
+  try { boundedAcquire(fs, held, { retries: 0 }); } catch (error) { caught = error; }
+  release();
+  assert.equal(caught.lockPath, `${held}.lock`);
+  assert.deepEqual(caught.strayEntries, []);
+});

@@ -429,3 +429,24 @@ test('FU-674pfd: without --slug a task id naming another feature selects that fe
   assert.equal(pack('--slug', '075-a').objective, 'Objective of feature ALPHA.');
   assert.ok(fs.existsSync(path.join(main, '.doflow', 'state', 'delivery', '075-a', '079-b.json')), 'an explicit --slug keys the records');
 });
+
+test('FU-2710et: a delivery that could not be recorded because the store is locked names the lock and its stray entries in the JSON', (t) => {
+  const root = setupTestProject(t, 'doflow-cli-locked-');
+  const lock = path.join(root, '.doflow', 'state', 'delivery', 'feat-cli', 'task-cli.json.lock');
+  fs.mkdirSync(lock, { recursive: true });
+  fs.writeFileSync(path.join(lock, 'junk'), 'x');
+
+  const res = runCli(root, ['context-pack', '--task-id', 'task-cli', '--slug', 'feat-cli', '--json']);
+  assert.ok(res.code === 0 || res.code === 1, res.stderr);
+  const { delivery } = JSON.parse(res.stdout);
+  assert.equal(delivery.recorded, false);
+  assert.equal(delivery.reason, 'store-locked');
+  assert.equal(delivery.lockPath, path.join('.doflow', 'state', 'delivery', 'feat-cli', 'task-cli.json.lock'));
+  assert.deepEqual(delivery.strayEntries, ['junk']);
+
+  // A recorded delivery carries neither field.
+  fs.rmSync(lock, { recursive: true });
+  const ok = JSON.parse(runCli(root, ['context-pack', '--task-id', 'task-cli', '--slug', 'feat-cli', '--json']).stdout).delivery;
+  assert.equal(ok.recorded, true);
+  assert.equal('lockPath' in ok || 'strayEntries' in ok, false);
+});

@@ -122,6 +122,13 @@ function classifyStoreFailure(error: any): string {
   return 'store-unwritable';
 }
 
+/** A store-locked failure's additive diagnostics for `delivery`: the lock folder (relative to the
+ * state root) and the stray entries blocking it. Empty for any other failure. */
+function lockDiagnostics(error: any, root: string): { lockPath?: string; strayEntries?: string[] } {
+  if (classifyStoreFailure(error) !== 'store-locked' || typeof error?.lockPath !== 'string') return {};
+  return { lockPath: path.relative(root, error.lockPath), strayEntries: Array.isArray(error.strayEntries) ? error.strayEntries : [] };
+}
+
 function profileRetention(harnessId: string | null, profiles: any[] | null): any {
   if (!harnessId) return null;
   const harnesses = profiles || getRegisteredHarnesses();
@@ -1010,6 +1017,7 @@ function handleContextPackCommand({
         recordReason = null;
       } catch (error: any) {
         recordReason = error?.code === 'entry-evicted' ? 'entry-evicted' : classifyStoreFailure(error);
+        Object.assign(pack.delivery, lockDiagnostics(error, root));
       }
     }
     pack.delivery.recorded = expansionRecorded;
@@ -1117,6 +1125,7 @@ function deliverPack({
   const form = json ? 'json' : 'markdown';
   let deliveryRecorded = !noRecord;
   let deliveryReason: string | null = noRecord ? 'no-record' : null;
+  let deliveryLock: { lockPath?: string; strayEntries?: string[] } = {};
   pack.delivery.recorded = deliveryRecorded;
   pack.delivery.reason = deliveryReason;
   pack.delivery.key = noRecord ? null : `${pack.delivery.packDigest}.${form}.${budget.harness?.id || 'unstated'}`;
@@ -1177,6 +1186,7 @@ function deliverPack({
         pack = trimmed;
         pack.delivery.recorded = deliveryRecorded;
         pack.delivery.reason = deliveryReason;
+        Object.assign(pack.delivery, deliveryLock);
         pack.delivery.key = deliveryRecorded ? `${pack.delivery.packDigest}.${form}.${budget.harness?.id || 'unstated'}` : null;
         pack.accounting.tokens = makeTokenRecord(json ? jsonBytes : mdBytes);
         pack.omissions = pack.mode === 'bare' ? pack.omissions : compose.groupOmissions(pack.deliveryOmissions, !noRecord);
@@ -1226,6 +1236,8 @@ function deliverPack({
     } catch (error: any) {
       deliveryRecorded = false;
       deliveryReason = classifyStoreFailure(error);
+      deliveryLock = lockDiagnostics(error, root);
+      Object.assign(pack.delivery, deliveryLock);
       pack.delivery.key = null;
       pack.delivery.recorded = deliveryRecorded;
       pack.delivery.reason = deliveryReason;
